@@ -48,7 +48,7 @@ module.exports = async function handler(req, res) {
 
     const session = await stripe.billingPortal.sessions.create({
       customer: profile.stripe_customer_id,
-      return_url: `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:5173'}/profil`,
+      return_url: `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_SITE_URL || 'https://mate-online-omega.vercel.app/'}/profil`,
     });
 
     return res.status(200).json({ url: session.url });
