@@ -8,7 +8,6 @@ export default function Pricing() {
   const navigate = useNavigate();
 
   async function handleSubscribe() {
-    // Dacă nu e logat, trimite la pagina de înregistrare
     if (!user) {
       navigate('/inregistrare');
       return;
@@ -16,7 +15,7 @@ export default function Pricing() {
 
     setLoading(true);
     try {
-      const response = await fetch('/.netlify/functions/create-checkout', {
+      const response = await fetch('/api/create-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id, email: user.email }),
@@ -50,7 +49,7 @@ export default function Pricing() {
     if (!user) return;
     setLoading(true);
     try {
-      const response = await fetch('/.netlify/functions/create-portal', {
+      const response = await fetch('/api/create-portal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id }),
