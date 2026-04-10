@@ -3,36 +3,82 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
+// ─── Extrage calea din Storage dintr-un URL public ────────────────────────────
+// URL format: https://<host>/storage/v1/object/public/<bucket>/<path>
+function extractStoragePath(url) {
+  try {
+    const marker = '/object/public/';
+    const idx = url.indexOf(marker);
+    if (idx === -1) return null;
+    const after = url.slice(idx + marker.length); // "bucket/path/to/file"
+    const slashIdx = after.indexOf('/');
+    if (slashIdx === -1) return null;
+    const bucket = after.slice(0, slashIdx);
+    const path = after.slice(slashIdx + 1);
+    return { bucket, path };
+  } catch {
+    return null;
+  }
+}
+
+// ─── Generează signed URL pentru fișiere private, sau returnează URL public ───
+async function resolveFileUrl(item) {
+  if (!item.file_url) return null;
+
+  // Fișierele gratuite sunt în bucket public — URL direct funcționează
+  if (item.is_free) return item.file_url;
+
+  // Fișierele premium — generăm signed URL valabil 1 oră
+  const parsed = extractStoragePath(item.file_url);
+  if (!parsed) return item.file_url; // fallback
+
+  const { data, error } = await supabase.storage
+    .from(parsed.bucket)
+    .createSignedUrl(parsed.path, 3600); // 3600 secunde = 1 oră
+
+  if (error || !data?.signedUrl) {
+    console.error('Signed URL error:', error);
+    return null;
+  }
+  return data.signedUrl;
+}
+
 // ─── Card pentru un item de conținut ─────────────────────────────────────────
 function ContentCard({ item, isPremium, user }) {
   const canAccess = item.is_free || isPremium;
-
-  function handleOpen() {
-    if (!canAccess) return;
-    if (item.file_url) {
-      window.open(item.file_url, '_blank', 'noopener,noreferrer');
-    }
-  }
+  const [loadingUrl, setLoadingUrl] = useState(false);
 
   const typeConfig = {
-    pdf:         { icon: '📄', color: '#1565c0', bg: '#e3f2fd', actionLabel: 'Descarcă' },
-    interactive: { icon: '🧩', color: '#6a1b9a', bg: '#f3e5f5', actionLabel: 'Începe' },
-    manual:      { icon: '📖', color: '#2e7d32', bg: '#e8f5e9', actionLabel: 'Citește' },
+    pdf:         { icon: '📄', bg: '#e3f2fd', actionLabel: 'Descarcă' },
+    interactive: { icon: '🧩', bg: '#f3e5f5', actionLabel: 'Începe' },
+    manual:      { icon: '📖', bg: '#e8f5e9', actionLabel: 'Citește' },
   };
   const cfg = typeConfig[item.content_type] || typeConfig.pdf;
 
+  async function handleOpen() {
+    if (!canAccess || !item.file_url) return;
+    setLoadingUrl(true);
+    try {
+      const url = await resolveFileUrl(item);
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+      else alert('Nu s-a putut genera linkul. Încearcă din nou.');
+    } finally {
+      setLoadingUrl(false);
+    }
+  }
+
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '16px 20px', background: '#fff', borderRadius: 10,
-      border: '1.5px solid #eef0f4', marginBottom: 10,
-      opacity: canAccess ? 1 : 0.75,
-      transition: 'box-shadow 0.2s',
-    }}
+    <div
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '16px 20px', background: '#fff', borderRadius: 10,
+        border: '1.5px solid #eef0f4', marginBottom: 10,
+        opacity: canAccess ? 1 : 0.75, transition: 'box-shadow 0.2s',
+      }}
       onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 12px rgba(15,43,68,0.09)'}
       onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
     >
-      {/* Stânga: icon + titlu */}
+      {/* Stânga */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1, minWidth: 0 }}>
         <div style={{
           width: 40, height: 40, borderRadius: 8, flexShrink: 0,
@@ -53,7 +99,7 @@ function ContentCard({ item, isPremium, user }) {
         </div>
       </div>
 
-      {/* Dreapta: badge + buton */}
+      {/* Dreapta */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, marginLeft: 16 }}>
         <span style={{
           padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700,
@@ -66,17 +112,17 @@ function ContentCard({ item, isPremium, user }) {
         {canAccess ? (
           <button
             onClick={handleOpen}
-            disabled={!item.file_url && item.content_type !== 'manual'}
+            disabled={loadingUrl || (!item.file_url && item.content_type !== 'manual')}
             style={{
               padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem',
               background: 'var(--navy)', color: '#fff', border: 'none', cursor: 'pointer',
               opacity: (!item.file_url && item.content_type !== 'manual') ? 0.4 : 1,
-              transition: 'background 0.2s',
+              transition: 'background 0.2s', minWidth: 90,
             }}
-            onMouseEnter={e => e.currentTarget.style.background = 'var(--navy-light)'}
+            onMouseEnter={e => { if (!loadingUrl) e.currentTarget.style.background = 'var(--navy-light)'; }}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--navy)'}
           >
-            {cfg.actionLabel}
+            {loadingUrl ? '⏳' : cfg.actionLabel}
           </button>
         ) : !user ? (
           <Link to="/autentificare" style={{
@@ -106,39 +152,44 @@ function ManualViewer({ item }) {
   const { isPremium, user } = useAuth();
   const canAccess = item.is_free || isPremium;
 
-  if (!canAccess) {
-    return (
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '16px 20px', background: '#fff', borderRadius: 10,
-        border: '1.5px solid #eef0f4', marginBottom: 10, opacity: 0.75,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 8, background: '#e8f5e9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>📖</div>
-          <div>
-            <div style={{ fontWeight: 600, color: 'var(--navy)' }}>{item.title}</div>
-            {item.description && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>{item.description}</div>}
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700, background: '#fff3e0', color: '#e65100' }}>Premium</span>
-          {!user
-            ? <Link to="/autentificare" style={{ padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem', background: '#f0f4f8', color: 'var(--navy)', border: '1.5px solid #dde1e8', textDecoration: 'none' }}>🔒 Autentifică-te</Link>
-            : <Link to="/preturi" style={{ padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem', background: 'var(--gold)', color: 'var(--navy-dark)', textDecoration: 'none' }}>⭐ Premium</Link>
-          }
+  const lockedRow = (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '16px 20px', background: '#fff', borderRadius: 10,
+      border: '1.5px solid #eef0f4', marginBottom: 10, opacity: 0.75,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 8, background: '#e8f5e9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>📖</div>
+        <div>
+          <div style={{ fontWeight: 600, color: 'var(--navy)' }}>{item.title}</div>
+          {item.description && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>{item.description}</div>}
         </div>
       </div>
-    );
-  }
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700, background: '#fff3e0', color: '#e65100' }}>Premium</span>
+        {!user
+          ? <Link to="/autentificare" style={{ padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem', background: '#f0f4f8', color: 'var(--navy)', border: '1.5px solid #dde1e8', textDecoration: 'none' }}>🔒 Autentifică-te</Link>
+          : <Link to="/preturi" style={{ padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem', background: 'var(--gold)', color: 'var(--navy-dark)', textDecoration: 'none' }}>⭐ Premium</Link>
+        }
+      </div>
+    </div>
+  );
+
+  if (!canAccess) return lockedRow;
 
   return (
     <div style={{ marginBottom: 10 }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '16px 20px', background: '#fff', borderRadius: open ? '10px 10px 0 0' : 10,
-        border: '1.5px solid #eef0f4', borderBottom: open ? 'none' : '1.5px solid #eef0f4',
-        cursor: 'pointer',
-      }} onClick={() => setOpen(o => !o)}>
+      <div
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 20px', background: '#fff',
+          borderRadius: open ? '10px 10px 0 0' : 10,
+          border: '1.5px solid #eef0f4',
+          borderBottom: open ? 'none' : '1.5px solid #eef0f4',
+          cursor: 'pointer',
+        }}
+        onClick={() => setOpen(o => !o)}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{ width: 40, height: 40, borderRadius: 8, background: '#e8f5e9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>📖</div>
           <div>
@@ -154,11 +205,12 @@ function ManualViewer({ item }) {
         </div>
       </div>
       {open && (
-        <div style={{
-          padding: '24px 28px', background: '#fff', border: '1.5px solid #eef0f4',
-          borderTop: '1px solid #f0f4f8', borderRadius: '0 0 10px 10px',
-          lineHeight: 1.8, color: 'var(--text)',
-        }}
+        <div
+          style={{
+            padding: '24px 28px', background: '#fff', border: '1.5px solid #eef0f4',
+            borderTop: '1px solid #f0f4f8', borderRadius: '0 0 10px 10px',
+            lineHeight: 1.8, color: 'var(--text)',
+          }}
           dangerouslySetInnerHTML={{ __html: item.manual_content || '<p>Conținut indisponibil.</p>' }}
         />
       )}
