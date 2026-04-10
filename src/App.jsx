@@ -13,26 +13,25 @@ import Register from './pages/Register';
 import Pricing from './pages/Pricing';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
+import InteractiveViewer from './pages/InteractiveViewer';
 import NotFound from './pages/NotFound';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [pathname]);
+  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
   return null;
 }
 
 function Layout({ children }) {
   const { pathname } = useLocation();
-  const isAdmin = pathname === '/admin';
+  const fullscreen = pathname === '/admin' || pathname === '/exercitiu';
   return (
     <>
-      {!isAdmin && <Navbar />}
-      <main style={isAdmin ? {} : { minHeight: 'calc(100vh - 68px - 200px)' }}>
+      {!fullscreen && <Navbar />}
+      <main style={fullscreen ? {} : { minHeight: 'calc(100vh - 68px - 200px)' }}>
         {children}
       </main>
-      {!isAdmin && <Footer />}
+      {!fullscreen && <Footer />}
     </>
   );
 }
@@ -54,6 +53,7 @@ export default function App() {
             <Route path="/preturi" element={<Pricing />} />
             <Route path="/profil" element={<Profile />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/exercitiu" element={<InteractiveViewer />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Layout>

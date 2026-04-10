@@ -1,40 +1,32 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
 // ─── Extrage calea din Storage dintr-un URL public ────────────────────────────
-// URL format: https://<host>/storage/v1/object/public/<bucket>/<path>
 function extractStoragePath(url) {
   try {
     const marker = '/object/public/';
     const idx = url.indexOf(marker);
     if (idx === -1) return null;
-    const after = url.slice(idx + marker.length); // "bucket/path/to/file"
+    const after = url.slice(idx + marker.length);
     const slashIdx = after.indexOf('/');
     if (slashIdx === -1) return null;
-    const bucket = after.slice(0, slashIdx);
-    const path = after.slice(slashIdx + 1);
-    return { bucket, path };
-  } catch {
-    return null;
-  }
+    return { bucket: after.slice(0, slashIdx), path: after.slice(slashIdx + 1) };
+  } catch { return null; }
 }
 
-// ─── Generează signed URL pentru fișiere private, sau returnează URL public ───
+// ─── Generează signed URL pentru PDF-uri premium ──────────────────────────────
 async function resolveFileUrl(item) {
   if (!item.file_url) return null;
-
-  // Fișierele gratuite sunt în bucket public — URL direct funcționează
   if (item.is_free) return item.file_url;
 
-  // Fișierele premium — generăm signed URL valabil 1 oră
   const parsed = extractStoragePath(item.file_url);
-  if (!parsed) return item.file_url; // fallback
+  if (!parsed) return item.file_url;
 
   const { data, error } = await supabase.storage
     .from(parsed.bucket)
-    .createSignedUrl(parsed.path, 3600); // 3600 secunde = 1 oră
+    .createSignedUrl(parsed.path, 86400);
 
   if (error || !data?.signedUrl) {
     console.error('Signed URL error:', error);
@@ -47,6 +39,7 @@ async function resolveFileUrl(item) {
 function ContentCard({ item, isPremium, user }) {
   const canAccess = item.is_free || isPremium;
   const [loadingUrl, setLoadingUrl] = useState(false);
+  const navigate = useNavigate();
 
   const typeConfig = {
     pdf:         { icon: '📄', bg: '#e3f2fd', actionLabel: 'Descarcă' },
@@ -57,6 +50,14 @@ function ContentCard({ item, isPremium, user }) {
 
   async function handleOpen() {
     if (!canAccess || !item.file_url) return;
+
+    // Exercițiile interactive se deschid în viewer intern
+    if (item.content_type === 'interactive') {
+      navigate('/exercitiu', { state: { item } });
+      return;
+    }
+
+    // PDF-urile se deschid în tab nou (cu signed URL dacă premium)
     setLoadingUrl(true);
     try {
       const url = await resolveFileUrl(item);
@@ -152,30 +153,30 @@ function ManualViewer({ item }) {
   const { isPremium, user } = useAuth();
   const canAccess = item.is_free || isPremium;
 
-  const lockedRow = (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '16px 20px', background: '#fff', borderRadius: 10,
-      border: '1.5px solid #eef0f4', marginBottom: 10, opacity: 0.75,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        <div style={{ width: 40, height: 40, borderRadius: 8, background: '#e8f5e9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>📖</div>
-        <div>
-          <div style={{ fontWeight: 600, color: 'var(--navy)' }}>{item.title}</div>
-          {item.description && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>{item.description}</div>}
+  if (!canAccess) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '16px 20px', background: '#fff', borderRadius: 10,
+        border: '1.5px solid #eef0f4', marginBottom: 10, opacity: 0.75,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 8, background: '#e8f5e9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>📖</div>
+          <div>
+            <div style={{ fontWeight: 600, color: 'var(--navy)' }}>{item.title}</div>
+            {item.description && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>{item.description}</div>}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700, background: '#fff3e0', color: '#e65100' }}>Premium</span>
+          {!user
+            ? <Link to="/autentificare" style={{ padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem', background: '#f0f4f8', color: 'var(--navy)', border: '1.5px solid #dde1e8', textDecoration: 'none' }}>🔒 Autentifică-te</Link>
+            : <Link to="/preturi" style={{ padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem', background: 'var(--gold)', color: 'var(--navy-dark)', textDecoration: 'none' }}>⭐ Premium</Link>
+          }
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700, background: '#fff3e0', color: '#e65100' }}>Premium</span>
-        {!user
-          ? <Link to="/autentificare" style={{ padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem', background: '#f0f4f8', color: 'var(--navy)', border: '1.5px solid #dde1e8', textDecoration: 'none' }}>🔒 Autentifică-te</Link>
-          : <Link to="/preturi" style={{ padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem', background: 'var(--gold)', color: 'var(--navy-dark)', textDecoration: 'none' }}>⭐ Premium</Link>
-        }
-      </div>
-    </div>
-  );
-
-  if (!canAccess) return lockedRow;
+    );
+  }
 
   return (
     <div style={{ marginBottom: 10 }}>
