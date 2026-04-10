@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext({});
@@ -7,18 +7,32 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Fix #4: flag pentru a nu apela fetchProfile de două ori la mount
+  const fetchedForSession = useRef(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
-      else setLoading(false);
+      if (session?.user) {
+        fetchedForSession.current = session.user.id;
+        fetchProfile(session.user.id);
+      } else {
+        setLoading(false);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const newUserId = session?.user?.id ?? null;
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
-      else {
+
+      if (session?.user) {
+        // Evităm apelul duplicat dacă am cerut deja profilul pentru același user
+        if (fetchedForSession.current !== newUserId) {
+          fetchedForSession.current = newUserId;
+          fetchProfile(newUserId);
+        }
+      } else {
+        fetchedForSession.current = null;
         setProfile(null);
         setLoading(false);
       }
@@ -36,7 +50,6 @@ export function AuthProvider({ children }) {
         .single();
 
       if (error) {
-        // Profilul nu există încă (ex: trigger SQL nu a rulat) — nu e o eroare fatală
         console.warn('Profile not found for user:', userId, error.message);
         setProfile(null);
       } else {
@@ -70,6 +83,7 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
+    fetchedForSession.current = null;
   }
 
   const isPremium = profile?.subscription_status === 'active';

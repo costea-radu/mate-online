@@ -40,7 +40,7 @@ export function PremiumGate({ children, fallbackMessage }) {
         <p style={{ color: 'var(--text-light)', marginBottom: 24, maxWidth: 400 }}>
           {fallbackMessage || 'Acest conținut este disponibil doar cu abonament. Abonează-te pentru acces complet.'}
         </p>
-        <Link to="/preturi" className="btn btn-primary btn-sm">Abonează-te – 50 lei/lună</Link>
+        <Link to="/preturi" className="btn btn-primary btn-sm">Abonează-te</Link>
       </div>
     );
   }
@@ -48,7 +48,7 @@ export function PremiumGate({ children, fallbackMessage }) {
   return children;
 }
 
-export function ContentItem({ title, type, isFree, description }) {
+export function ContentItem({ title, type, isFree, description, url }) {
   const { isPremium } = useAuth();
   const canAccess = isFree || isPremium;
 
@@ -59,6 +59,21 @@ export function ContentItem({ title, type, isFree, description }) {
   };
 
   const cfg = typeConfig[type] || typeConfig.pdf;
+
+  // Fix #5: butonul are acum acțiune reală (url prop sau fallback la /preturi)
+  function handleAction() {
+    if (!canAccess) return;
+    if (url) {
+      if (type === 'pdf') {
+        // Descărcare / deschidere în tab nou
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } else {
+        window.location.href = url;
+      }
+    }
+  }
+
+  const actionLabel = type === 'interactive' ? 'Începe' : type === 'manual' ? 'Citește' : 'Descarcă';
 
   return (
     <div className="content-item" style={{ opacity: canAccess ? 1 : 0.65 }}>
@@ -74,8 +89,13 @@ export function ContentItem({ title, type, isFree, description }) {
           {isFree ? 'Gratuit' : 'Premium'}
         </span>
         {canAccess ? (
-          <button className="btn btn-sm btn-secondary">
-            {type === 'interactive' ? 'Începe' : type === 'manual' ? 'Citește' : 'Descarcă'}
+          <button
+            className="btn btn-sm btn-secondary"
+            onClick={handleAction}
+            disabled={!url}
+            title={!url ? 'În curând' : actionLabel}
+          >
+            {actionLabel}
           </button>
         ) : (
           <Link to="/preturi" className="btn btn-sm btn-outline">🔒 Abonează-te</Link>

@@ -1,9 +1,28 @@
+import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function Profile() {
-  const { user, profile, isPremium, signOut, loading } = useAuth();
+  const { user, profile, isPremium, signOut, loading, fetchProfile } = useAuth();
   const navigate = useNavigate();
+  const [checkoutSuccess, setCheckoutSuccess] = useState(false);
+
+  // Fix #3: navigate în useEffect, nu direct în render
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate('/autentificare');
+    }
+  }, [user, loading, navigate]);
+
+  // Fix #6: citim session_id din URL după redirect Stripe și reîmprospătăm profilul
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('session_id') && user) {
+      setCheckoutSuccess(true);
+      window.history.replaceState({}, '', '/profil');
+      fetchProfile(user.id);
+    }
+  }, [user]);
 
   if (loading) {
     return (
@@ -14,7 +33,6 @@ export default function Profile() {
   }
 
   if (!user) {
-    navigate('/autentificare');
     return null;
   }
 
@@ -25,9 +43,10 @@ export default function Profile() {
     .toUpperCase()
     .slice(0, 2);
 
+  // Fix #1: URL corectat din /.netlify/functions/create-portal în /api/create-portal
   async function handleManageSubscription() {
     try {
-      const response = await fetch('/.netlify/functions/create-portal', {
+      const response = await fetch('/api/create-portal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id }),
@@ -54,6 +73,25 @@ export default function Profile() {
   return (
     <section className="profile-section">
       <div className="container">
+
+        {/* Fix #6: banner confirmare plată reușită */}
+        {checkoutSuccess && (
+          <div style={{
+            background: '#e8f5e9',
+            color: '#2e7d32',
+            padding: '16px 24px',
+            borderRadius: 'var(--radius)',
+            marginBottom: 24,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            fontWeight: 500
+          }}>
+            <span style={{ fontSize: '1.3rem' }}>🎉</span>
+            <span>Abonamentul tău Premium a fost activat! Acum ai acces complet la toate materialele.</span>
+          </div>
+        )}
+
         <div className="profile-grid">
           {/* Sidebar */}
           <div className="profile-sidebar">
@@ -92,7 +130,7 @@ export default function Profile() {
                     <div>
                       <strong>Abonament Premium activ</strong>
                       <br />
-                      <span style={{ fontSize: '0.85rem', opacity: 0.8 }}>50 lei/lună – acces complet</span>
+                      <span style={{ fontSize: '0.85rem', opacity: 0.8 }}>Acces complet la toate materialele</span>
                     </div>
                   </div>
                   <button className="btn btn-outline btn-sm" onClick={handleManageSubscription}>
@@ -105,7 +143,7 @@ export default function Profile() {
                     Ai acces doar la exercițiile PDF gratuite. Abonează-te pentru acces complet la toate materialele.
                   </p>
                   <Link to="/preturi" className="btn btn-primary btn-sm">
-                    Abonează-te – 50 lei/lună
+                    Vezi abonamentul
                   </Link>
                 </div>
               )}
