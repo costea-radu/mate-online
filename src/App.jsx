@@ -12,6 +12,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Pricing from './pages/Pricing';
 import Profile from './pages/Profile';
+import Admin from './pages/Admin';
 import NotFound from './pages/NotFound';
 
 function ScrollToTop() {
@@ -22,13 +23,26 @@ function ScrollToTop() {
   return null;
 }
 
+function Layout({ children }) {
+  const { pathname } = useLocation();
+  const isAdmin = pathname === '/admin';
+  return (
+    <>
+      {!isAdmin && <Navbar />}
+      <main style={isAdmin ? {} : { minHeight: 'calc(100vh - 68px - 200px)' }}>
+        {children}
+      </main>
+      {!isAdmin && <Footer />}
+    </>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <ScrollToTop />
-        <Navbar />
-        <main style={{ minHeight: 'calc(100vh - 68px - 200px)' }}>
+        <Layout>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/clase/:grade" element={<ClassPage />} />
@@ -39,10 +53,10 @@ export default function App() {
             <Route path="/inregistrare" element={<Register />} />
             <Route path="/preturi" element={<Pricing />} />
             <Route path="/profil" element={<Profile />} />
+            <Route path="/admin" element={<Admin />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
-        </main>
-        <Footer />
+        </Layout>
       </AuthProvider>
     </BrowserRouter>
   );
