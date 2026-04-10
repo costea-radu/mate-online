@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function Navbar() {
-  const { user, isPremium, signOut } = useAuth();
+  const { user, isPremium, isAdmin, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -53,6 +53,28 @@ export default function Navbar() {
         </ul>
 
         <div className={`navbar-auth ${open ? 'open' : ''}`}>
+          {isAdmin && (
+            <Link
+              to="/admin"
+              onClick={() => setOpen(false)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '5px 12px',
+                borderRadius: 6,
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                background: 'rgba(232,185,49,0.15)',
+                color: 'var(--gold)',
+                border: '1px solid rgba(232,185,49,0.3)',
+                letterSpacing: '0.03em',
+                textTransform: 'uppercase',
+              }}
+            >
+              ⚙ Admin
+            </Link>
+          )}
           {user ? (
             <>
               <Link to="/profil" className="btn btn-sm btn-outline" style={{ borderColor: 'var(--gold)', color: 'var(--gold)' }}>

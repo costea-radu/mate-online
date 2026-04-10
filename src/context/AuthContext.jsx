@@ -7,7 +7,6 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
-  // Fix #4: flag pentru a nu apela fetchProfile de două ori la mount
   const fetchedForSession = useRef(null);
 
   useEffect(() => {
@@ -26,7 +25,6 @@ export function AuthProvider({ children }) {
       setUser(session?.user ?? null);
 
       if (session?.user) {
-        // Evităm apelul duplicat dacă am cerut deja profilul pentru același user
         if (fetchedForSession.current !== newUserId) {
           fetchedForSession.current = newUserId;
           fetchProfile(newUserId);
@@ -87,10 +85,11 @@ export function AuthProvider({ children }) {
   }
 
   const isPremium = profile?.subscription_status === 'active';
+  const isAdmin = profile?.is_admin === true;
 
   return (
     <AuthContext.Provider value={{
-      user, profile, loading, isPremium,
+      user, profile, loading, isPremium, isAdmin,
       signUp, signIn, signOut, fetchProfile
     }}>
       {children}
