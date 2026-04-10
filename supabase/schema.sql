@@ -65,7 +65,7 @@ CREATE POLICY "Users can update own profile"
   USING (auth.uid() = id);
 
 -- Politici pentru content
--- CORECȚIE: Conținutul gratuit e vizibil pentru TOȚI (inclusiv vizitatori neautentificați)
+-- Conținutul gratuit e vizibil pentru TOȚI (inclusiv vizitatori neautentificați)
 CREATE POLICY "Free content visible to everyone"
   ON public.content FOR SELECT
   USING (is_free = true);
@@ -86,11 +86,13 @@ CREATE POLICY "Premium content visible to subscribers"
 -- Politică pentru service role (funcții serverless)
 CREATE POLICY "Service role full access to profiles"
   ON public.profiles FOR ALL
-  USING (auth.role() = 'service_role');
+  USING (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');
 
 CREATE POLICY "Service role full access to content"
   ON public.content FOR ALL
-  USING (auth.role() = 'service_role');
+  USING (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');
 
 -- 5. Index-uri pentru performanță
 CREATE INDEX IF NOT EXISTS idx_content_category ON public.content(category);
@@ -103,7 +105,12 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('content-files', 'content-files', false)
 ON CONFLICT (id) DO NOTHING;
 
--- Politică storage: download permis pentru utilizatori autentificați
+-- Bucket public separat pentru fișierele gratuite
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('content-files-free', 'content-files-free', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Politică storage: download permis pentru utilizatori autentificați (conținut premium)
 CREATE POLICY "Authenticated users can download files"
   ON storage.objects FOR SELECT
   USING (
@@ -111,10 +118,15 @@ CREATE POLICY "Authenticated users can download files"
     AND auth.role() = 'authenticated'
   );
 
+-- Politică storage: conținut gratuit accesibil pentru toți
+CREATE POLICY "Free files visible to everyone"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'content-files-free');
+
 -- Upload permis doar de admin (service role)
 CREATE POLICY "Service role can upload files"
   ON storage.objects FOR INSERT
   WITH CHECK (
-    bucket_id = 'content-files'
+    bucket_id IN ('content-files', 'content-files-free')
     AND auth.role() = 'service_role'
   );

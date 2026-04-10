@@ -12,6 +12,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Pricing from './pages/Pricing';
 import Profile from './pages/Profile';
+import NotFound from './pages/NotFound';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -38,6 +39,7 @@ export default function App() {
             <Route path="/inregistrare" element={<Register />} />
             <Route path="/preturi" element={<Pricing />} />
             <Route path="/profil" element={<Profile />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
         <Footer />

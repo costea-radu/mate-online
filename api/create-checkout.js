@@ -1,4 +1,5 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const { createClient } = require('@supabase/supabase-js');
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -23,6 +24,27 @@ module.exports = async function handler(req, res) {
 
     if (!userId || !email) {
       return res.status(400).json({ error: 'userId și email sunt obligatorii' });
+    }
+
+    // Verificăm dacă userul are deja un abonament activ
+    const supabase = createClient(
+      process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('subscription_status')
+      .eq('id', userId)
+      .single();
+
+    if (profileError) {
+      console.error('Supabase profile error:', profileError);
+      return res.status(500).json({ error: 'Eroare la citirea profilului' });
+    }
+
+    if (profile?.subscription_status === 'active') {
+      return res.status(400).json({ error: 'Ai deja un abonament activ.' });
     }
 
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || `https://${process.env.VERCEL_URL}`;

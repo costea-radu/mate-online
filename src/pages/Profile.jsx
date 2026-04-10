@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -7,14 +7,12 @@ export default function Profile() {
   const navigate = useNavigate();
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
 
-  // Fix #3: navigate în useEffect, nu direct în render
   useEffect(() => {
     if (!loading && !user) {
       navigate('/autentificare');
     }
   }, [user, loading, navigate]);
 
-  // Fix #6: citim session_id din URL după redirect Stripe și reîmprospătăm profilul
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('session_id') && user) {
@@ -22,7 +20,7 @@ export default function Profile() {
       window.history.replaceState({}, '', '/profil');
       fetchProfile(user.id);
     }
-  }, [user]);
+  }, [user, fetchProfile]);
 
   if (loading) {
     return (
@@ -43,7 +41,6 @@ export default function Profile() {
     .toUpperCase()
     .slice(0, 2);
 
-  // Fix #1: URL corectat din /.netlify/functions/create-portal în /api/create-portal
   async function handleManageSubscription() {
     try {
       const response = await fetch('/api/create-portal', {
@@ -74,7 +71,6 @@ export default function Profile() {
     <section className="profile-section">
       <div className="container">
 
-        {/* Fix #6: banner confirmare plată reușită */}
         {checkoutSuccess && (
           <div style={{
             background: '#e8f5e9',

@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function Navbar() {
   const { user, isPremium, signOut } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
 
   const links = [
@@ -19,6 +20,12 @@ export default function Navbar() {
   ];
 
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/');
+
+  async function handleSignOut() {
+    await signOut();
+    setOpen(false);
+    navigate('/');
+  }
 
   return (
     <nav className="navbar">
@@ -51,7 +58,7 @@ export default function Navbar() {
               <Link to="/profil" className="btn btn-sm btn-outline" style={{ borderColor: 'var(--gold)', color: 'var(--gold)' }}>
                 {isPremium ? '⭐ Contul meu' : 'Contul meu'}
               </Link>
-              <button onClick={signOut} className="btn btn-sm" style={{ color: 'rgba(255,255,255,0.6)' }}>
+              <button onClick={handleSignOut} className="btn btn-sm" style={{ color: 'rgba(255,255,255,0.6)' }}>
                 Ieșire
               </button>
             </>
