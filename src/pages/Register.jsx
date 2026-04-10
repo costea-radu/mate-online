@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function Register() {
@@ -10,18 +10,26 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const { signUp } = useAuth();
-  const navigate = useNavigate();
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      await signUp(email, password, fullName);
+      const data = await signUp(email, password, fullName);
+
+      // Supabase nu aruncă eroare când emailul există deja (cu email confirmation activat).
+      // În schimb returnează un user fără identities — acesta e singurul mod de a detecta
+      // că emailul e deja înregistrat.
+      if (data?.user && data.user.identities?.length === 0) {
+        setError('Acest email este deja înregistrat. Încearcă să te autentifici.');
+        return;
+      }
+
       setSuccess(true);
     } catch (err) {
       if (err.message?.includes('already registered')) {
-        setError('Acest email este deja înregistrat.');
+        setError('Acest email este deja înregistrat. Încearcă să te autentifici.');
       } else {
         setError(err.message || 'A apărut o eroare. Încearcă din nou.');
       }
