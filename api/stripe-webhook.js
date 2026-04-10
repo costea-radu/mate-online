@@ -1,15 +1,13 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { createClient } = require('@supabase/supabase-js');
 
-// IMPORTANT: dezactivăm body parser-ul implicit al Vercel pentru
-// ca Stripe să poată verifica semnătura pe body-ul RAW
-export const config = {
+// IMPORTANT: dezactivăm body parser-ul Vercel pentru verificarea semnăturii Stripe
+module.exports.config = {
   api: {
     bodyParser: false,
   },
 };
 
-// Citim body-ul brut ca Buffer
 async function getRawBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -70,14 +68,12 @@ module.exports = async function handler(req, res) {
           console.error('Supabase update error (checkout.session.completed):', error);
           return res.status(500).send('Database update failed');
         }
-
         break;
       }
 
       case 'customer.subscription.updated': {
         const subscription = stripeEvent.data.object;
         const customerId = subscription.customer;
-        // Tratăm și 'trialing' ca activ
         const status = ['active', 'trialing'].includes(subscription.status) ? 'active' : 'inactive';
 
         const { error } = await supabase
@@ -89,7 +85,6 @@ module.exports = async function handler(req, res) {
           console.error('Supabase update error (customer.subscription.updated):', error);
           return res.status(500).send('Database update failed');
         }
-
         break;
       }
 
@@ -109,11 +104,9 @@ module.exports = async function handler(req, res) {
           console.error('Supabase update error (customer.subscription.deleted):', error);
           return res.status(500).send('Database update failed');
         }
-
         break;
       }
 
-      // Plată eșuată — dezactivăm accesul premium
       case 'invoice.payment_failed': {
         const invoice = stripeEvent.data.object;
         const customerId = invoice.customer;
@@ -127,7 +120,6 @@ module.exports = async function handler(req, res) {
           console.error('Supabase update error (invoice.payment_failed):', error);
           return res.status(500).send('Database update failed');
         }
-
         break;
       }
 

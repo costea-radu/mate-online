@@ -8,10 +8,8 @@ const CORS_HEADERS = {
 };
 
 module.exports = async function handler(req, res) {
-  // Setăm headerele CORS pe toate răspunsurile
   Object.entries(CORS_HEADERS).forEach(([key, val]) => res.setHeader(key, val));
 
-  // Handle preflight CORS request
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
@@ -26,6 +24,8 @@ module.exports = async function handler(req, res) {
     if (!userId || !email) {
       return res.status(400).json({ error: 'userId și email sunt obligatorii' });
     }
+
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || `https://${process.env.VERCEL_URL}`;
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -43,14 +43,14 @@ module.exports = async function handler(req, res) {
               name: 'ExamenMate Premium',
               description: 'Abonament lunar – acces complet la toate materialele',
             },
-            unit_amount: 200, // 50.00 RON în bani
+            unit_amount: 200,
             recurring: { interval: 'month' },
           },
           quantity: 1,
         },
       ],
-      success_url: `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_SITE_URL || 'https://mate-online-omega.vercel.app/'}/profil?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_SITE_URL || 'https://mate-online-omega.vercel.app/'}/preturi`,
+      success_url: `${siteUrl}/profil?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${siteUrl}/preturi`,
     });
 
     return res.status(200).json({ url: session.url });

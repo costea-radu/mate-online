@@ -46,9 +46,11 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'Nu există un client Stripe asociat acestui cont' });
     }
 
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || `https://${process.env.VERCEL_URL}`;
+
     const session = await stripe.billingPortal.sessions.create({
       customer: profile.stripe_customer_id,
-      return_url: `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_SITE_URL || 'https://mate-online-omega.vercel.app/'}/profil`,
+      return_url: `${siteUrl}/profil`,
     });
 
     return res.status(200).json({ url: session.url });
