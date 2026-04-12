@@ -21,16 +21,21 @@ const CATEGORIES = [
 
 const EN_SUBCATEGORIES = [
   { value: 'capitole',          label: 'Capitole' },
-  { value: 'teste-antrenament', label: 'Teste de Antrenament' },
-  { value: 'variante',          label: 'Variante Date + Modele' },
-  { value: 'simulari',          label: 'Simulări' },
+  { value: 'exercitii-subiecte',label: 'Exerciții pe Subiecte (Teste antrenament)' },
+  { value: 'variante',          label: 'Variante Date + Modele (Teste antrenament)' },
+  { value: 'simulari',          label: 'Simulări (Teste antrenament)' },
+  { value: 'bareme',            label: 'Bareme (Teste antrenament)' },
+  { value: 'teste-interactive', label: 'Teste Interactive' },
 ];
 
 const BAC_SUBCATEGORIES = [
+  { value: 'capitole',          label: 'Capitole' },
   { value: 'exercitii',         label: 'Exerciții pe Subiecte' },
   { value: 'variante',          label: 'Variante + Olimpici + Rezerve' },
   { value: 'teste-antrenament', label: 'Teste de Antrenament' },
   { value: 'simulari',          label: 'Simulări' },
+  { value: 'bareme',            label: 'Bareme' },
+  { value: 'teste-interactive', label: 'Teste Interactive' },
 ];
 
 const BAC_PROFILES = [
