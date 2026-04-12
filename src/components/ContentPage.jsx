@@ -42,7 +42,7 @@ function ContentCard({ item, isPremium, user }) {
   const navigate = useNavigate();
 
   const typeConfig = {
-    pdf:         { icon: '📄', bg: '#e3f2fd', actionLabel: 'Descarcă' },
+    pdf:         { icon: '📄', bg: '#e3f2fd', actionLabel: 'Deschide / Descarcă' },
     interactive: { icon: '🧩', bg: '#f3e5f5', actionLabel: 'Începe' },
     manual:      { icon: '📖', bg: '#e8f5e9', actionLabel: 'Citește' },
   };

@@ -20,8 +20,7 @@ const SUBCATEGORIES = [
     label: '🏋 Teste de Antrenament',
     description: 'Teste complete pentru pregătire',
     tabs: [
-      { id: 'pdf',         label: '📄 PDF' },
-      { id: 'interactive', label: '🧩 Interactive' },
+      { id: 'pdf', label: '📄 PDF' },
     ],
   },
   {
@@ -186,7 +185,7 @@ function ContentCardSimple({ item, isPremium, user }) {
   const navigate = useNavigate();
 
   const typeConfig = {
-    pdf:         { icon: '📄', bg: '#e3f2fd', actionLabel: 'Descarcă' },
+    pdf:         { icon: '📄', bg: '#e3f2fd', actionLabel: 'Deschide / Descarcă' },
     interactive: { icon: '🧩', bg: '#f3e5f5', actionLabel: 'Începe' },
   };
   const cfg = typeConfig[item.content_type] || typeConfig.pdf;
