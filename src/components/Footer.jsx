@@ -11,11 +11,11 @@ export default function Footer() {
             </div>
             <p style={{ fontSize: '0.88rem', lineHeight: 1.7, maxWidth: 320 }}>
               Platforma ta de matematică pentru exerciții, teste și manuale.
-              Pregătire completă pentru Evaluarea Națională și Bacalaureat.
+              Pregătire completă pentru clasele 5–12, Evaluarea Națională și Bacalaureat.
             </p>
           </div>
           <div>
-            <h4>Clase</h4>
+            <h4>Clase (5–8)</h4>
             <ul>
               <li><Link to="/clase/5">Clasa a V-a</Link></li>
               <li><Link to="/clase/6">Clasa a VI-a</Link></li>
@@ -24,10 +24,21 @@ export default function Footer() {
             </ul>
           </div>
           <div>
+            <h4>Clase (9–12)</h4>
+            <ul>
+              <li><Link to="/clase/9">Clasa a IX-a</Link></li>
+              <li><Link to="/clase/10">Clasa a X-a</Link></li>
+              <li><Link to="/clase/11">Clasa a XI-a</Link></li>
+              <li><Link to="/clase/12">Clasa a XII-a</Link></li>
+            </ul>
+          </div>
+          <div>
             <h4>Examene</h4>
             <ul>
               <li><Link to="/evaluare-nationala">Evaluare Națională</Link></li>
-              <li><Link to="/bacalaureat">Bacalaureat</Link></li>
+              <li><Link to="/bacalaureat/mate-info">Bacalaureat Mate-Info</Link></li>
+              <li><Link to="/bacalaureat/stiinte-naturii">Bacalaureat Șt. Naturii</Link></li>
+              <li><Link to="/bacalaureat/tehnologic">Bacalaureat Tehnologic</Link></li>
               <li><Link to="/manuale">Manuale Online</Link></li>
             </ul>
           </div>

@@ -2,10 +2,14 @@ import { Link } from 'react-router-dom';
 
 export default function Home() {
   const categories = [
-    { to: '/clase/5', icon: '5', title: 'Clasa a V-a', desc: 'Exerciții și teste PDF, interactive' },
-    { to: '/clase/6', icon: '6', title: 'Clasa a VI-a', desc: 'Exerciții și teste PDF, interactive' },
-    { to: '/clase/7', icon: '7', title: 'Clasa a VII-a', desc: 'Exerciții și teste PDF, interactive' },
-    { to: '/clase/8', icon: '8', title: 'Clasa a VIII-a', desc: 'Exerciții și teste PDF, interactive' },
+    { to: '/clase/5',  icon: '5',  title: 'Clasa a V-a',    desc: 'Exerciții și teste PDF, interactive' },
+    { to: '/clase/6',  icon: '6',  title: 'Clasa a VI-a',   desc: 'Exerciții și teste PDF, interactive' },
+    { to: '/clase/7',  icon: '7',  title: 'Clasa a VII-a',  desc: 'Exerciții și teste PDF, interactive' },
+    { to: '/clase/8',  icon: '8',  title: 'Clasa a VIII-a', desc: 'Exerciții și teste PDF, interactive' },
+    { to: '/clase/9',  icon: '9',  title: 'Clasa a IX-a',   desc: 'Exerciții și teste PDF, interactive' },
+    { to: '/clase/10', icon: '10', title: 'Clasa a X-a',    desc: 'Exerciții și teste PDF, interactive' },
+    { to: '/clase/11', icon: '11', title: 'Clasa a XI-a',   desc: 'Exerciții și teste PDF, interactive' },
+    { to: '/clase/12', icon: '12', title: 'Clasa a XII-a',  desc: 'Exerciții și teste PDF, interactive' },
   ];
 
   const features = [
@@ -23,7 +27,7 @@ export default function Home() {
             Matematica devine <span>simplă</span> cu Mate-Online
           </h1>
           <p className="fade-in-up delay-1">
-            Exerciții PDF, teste interactive și manuale online pentru clasele 5–8,
+            Exerciții PDF, teste interactive și manuale online pentru clasele 5–12,
             Evaluarea Națională și Bacalaureat. Totul într-un singur loc.
           </p>
           <div className="hero-actions fade-in-up delay-2">
@@ -44,7 +48,7 @@ export default function Home() {
           <div className="section-header">
             <h2 className="section-title">Alege clasa ta</h2>
             <p className="section-subtitle">
-              Materiale adaptate pentru fiecare nivel, de la clasa a V-a până la clasa a VIII-a.
+              Materiale adaptate pentru fiecare nivel, de la clasa a V-a până la clasa a XII-a.
             </p>
           </div>
           <div className="card-grid">
@@ -119,7 +123,7 @@ export default function Home() {
             Pregătit să începi?
           </h2>
           <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 32, maxWidth: 480, margin: '0 auto 32px' }}>
-            Jumătate din exercițiile PDF sunt gratuite. Pentru acces complet, abonamentul este de doar 50 lei/lună.
+            Jumătate din exercițiile PDF sunt gratuite. Pentru acces complet, abonamentul este de doar 2 lei/lună.
           </p>
           <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Link to="/inregistrare" className="btn btn-primary btn-lg">Creează cont gratuit</Link>
