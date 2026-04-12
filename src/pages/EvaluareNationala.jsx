@@ -186,8 +186,7 @@ export default function EvaluareNationala() {
 
           {mainTab === 'pdf' && (
             <div style={{ marginTop: 16 }}>
-              {/* Capitole */}
-              <Section title="Capitole" icon="📚" defaultOpen>
+              <Section title="Capitole cu Exerciții" icon="📚">
                 <SubTitle>📄 PDF</SubTitle>
                 <ItemBlock category="evaluare-nationala" subcategory="capitole" contentType="pdf" />
                 <SubTitle>🧩 Interactive</SubTitle>

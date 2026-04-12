@@ -160,7 +160,7 @@ function SubTitle({ children }) {
 function ProfilePDFContent({ profile }) {
   return (
     <>
-      <Section title="Exerciții pe Subiecte" icon="📝" level={2} defaultOpen>
+      <Section title="Exerciții pe Subiecte" icon="📝" level={2}>
         <SubTitle>📄 PDF</SubTitle>
         <ItemBlock category="bacalaureat" subcategory="exercitii" profile={profile} contentType="pdf" />
         <SubTitle>🧩 Interactive</SubTitle>
@@ -219,7 +219,7 @@ export default function Bacalaureat() {
           {mainTab === 'pdf' && (
             <div style={{ marginTop: 16 }}>
               {/* Capitole — comune tuturor profilurilor */}
-              <Section title="Capitole" icon="📚" defaultOpen>
+              <Section title="Capitole cu Exerciții" icon="📚">
                 <SubTitle>📄 PDF</SubTitle>
                 <ItemBlock category="bacalaureat" subcategory="capitole" contentType="pdf" />
                 <SubTitle>🧩 Interactive</SubTitle>
