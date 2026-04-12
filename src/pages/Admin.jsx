@@ -6,13 +6,37 @@ import { supabase } from '../lib/supabase';
 const ADMIN_EMAIL = 'costea.radu.ioan@gmail.com';
 
 const CATEGORIES = [
-  { value: 'clasa-5', label: 'Clasa a V-a' },
-  { value: 'clasa-6', label: 'Clasa a VI-a' },
-  { value: 'clasa-7', label: 'Clasa a VII-a' },
-  { value: 'clasa-8', label: 'Clasa a VIII-a' },
+  { value: 'clasa-5',  label: 'Clasa a V-a' },
+  { value: 'clasa-6',  label: 'Clasa a VI-a' },
+  { value: 'clasa-7',  label: 'Clasa a VII-a' },
+  { value: 'clasa-8',  label: 'Clasa a VIII-a' },
+  { value: 'clasa-9',  label: 'Clasa a IX-a' },
+  { value: 'clasa-10', label: 'Clasa a X-a' },
+  { value: 'clasa-11', label: 'Clasa a XI-a' },
+  { value: 'clasa-12', label: 'Clasa a XII-a' },
   { value: 'evaluare-nationala', label: 'Evaluare Națională' },
   { value: 'bacalaureat', label: 'Bacalaureat' },
   { value: 'manuale', label: 'Manuale Online' },
+];
+
+const EN_SUBCATEGORIES = [
+  { value: 'capitole',          label: 'Capitole' },
+  { value: 'teste-antrenament', label: 'Teste de Antrenament' },
+  { value: 'variante',          label: 'Variante Date + Modele' },
+  { value: 'simulari',          label: 'Simulări' },
+];
+
+const BAC_SUBCATEGORIES = [
+  { value: 'exercitii',         label: 'Exerciții pe Subiecte' },
+  { value: 'variante',          label: 'Variante + Olimpici + Rezerve' },
+  { value: 'teste-antrenament', label: 'Teste de Antrenament' },
+  { value: 'simulari',          label: 'Simulări' },
+];
+
+const BAC_PROFILES = [
+  { value: 'mate-info',       label: 'Mate-Info' },
+  { value: 'stiinte-naturii', label: 'Științele Naturii' },
+  { value: 'tehnologic',      label: 'Tehnologic' },
 ];
 
 const CONTENT_TYPES = [
@@ -171,10 +195,13 @@ function FileUploadZone({ accept, label, hint, file, onFile, icon }) {
 
 // ─── Upload PDF ───────────────────────────────────────────────────────────────
 function UploadPDF({ onSuccess }) {
-  const [form, setForm] = useState({ title: '', description: '', category: 'clasa-5', is_free: true });
+  const [form, setForm] = useState({ title: '', description: '', category: 'clasa-5', subcategory: '', profile: '', is_free: true });
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
+
+  const isEN = form.category === 'evaluare-nationala';
+  const isBAC = form.category === 'bacalaureat';
 
   async function handleSubmit() {
     if (!file || !form.title || !form.category) {
@@ -194,13 +221,16 @@ function UploadPDF({ onSuccess }) {
       const { error: dbErr } = await supabase.from('content').insert({
         title: form.title, description: form.description,
         category: form.category, content_type: 'pdf',
-        is_free: form.is_free, file_url: urlData?.publicUrl || path, sort_order: 0,
+        is_free: form.is_free, file_url: urlData?.publicUrl || path,
+        subcategory: form.subcategory || null,
+        profile: form.profile || null,
+        sort_order: 0,
       });
       if (dbErr) throw dbErr;
 
       setMsg({ type: 'success', text: 'PDF încărcat cu succes!' });
       setFile(null);
-      setForm({ title: '', description: '', category: 'clasa-5', is_free: true });
+      setForm({ title: '', description: '', category: 'clasa-5', subcategory: '', profile: '', is_free: true });
       onSuccess?.();
     } catch (err) {
       setMsg({ type: 'error', text: err.message });
@@ -224,11 +254,43 @@ function UploadPDF({ onSuccess }) {
         <div style={s.formGroup}>
           <label style={s.label}>Categorie *</label>
           <select style={s.select} value={form.category}
-            onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
+            onChange={e => setForm(p => ({ ...p, category: e.target.value, subcategory: '', profile: '' }))}>
             {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
         </div>
       </div>
+
+      {isEN && (
+        <div style={s.formGroup}>
+          <label style={s.label}>Subcategorie EN</label>
+          <select style={s.select} value={form.subcategory}
+            onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
+            <option value="">— Selectează —</option>
+            {EN_SUBCATEGORIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
+      )}
+
+      {isBAC && (
+        <div style={s.formRow}>
+          <div style={s.formGroup}>
+            <label style={s.label}>Profil Bacalaureat</label>
+            <select style={s.select} value={form.profile}
+              onChange={e => setForm(p => ({ ...p, profile: e.target.value }))}>
+              <option value="">— Selectează —</option>
+              {BAC_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+          </div>
+          <div style={s.formGroup}>
+            <label style={s.label}>Subcategorie BAC</label>
+            <select style={s.select} value={form.subcategory}
+              onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
+              <option value="">— Selectează —</option>
+              {BAC_SUBCATEGORIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
 
       <div style={s.formRow}>
         <div style={s.formGroup}>
@@ -267,11 +329,13 @@ function UploadPDF({ onSuccess }) {
 // ─── Upload Exercițiu Interactiv (HTML) ───────────────────────────────────────
 function UploadInteractive({ onSuccess }) {
   const [form, setForm] = useState({
-    title: '', description: '', category: 'clasa-5', is_free: false, type: 'exercise',
+    title: '', description: '', category: 'clasa-5', subcategory: '', profile: '', is_free: false, type: 'exercise',
   });
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
+  const isEN = form.category === 'evaluare-nationala';
+  const isBAC = form.category === 'bacalaureat';
 
   async function handleSubmit() {
     if (!file || !form.title || !form.category) {
@@ -283,27 +347,22 @@ function UploadInteractive({ onSuccess }) {
     try {
       const bucket = form.is_free ? 'content-files-free' : 'content-files';
       const path = `interactive/${form.category}/${Date.now()}_${file.name}`;
-
-      const { error: uploadErr } = await supabase.storage
-        .from(bucket)
-        .upload(path, file, { contentType: 'text/html' });
+      const { error: uploadErr } = await supabase.storage.from(bucket).upload(path, file, { contentType: 'text/html' });
       if (uploadErr) throw uploadErr;
-
       const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(path);
-
       const { error: dbErr } = await supabase.from('content').insert({
         title: form.title, description: form.description,
         category: form.category, content_type: 'interactive',
-        is_free: form.is_free,
-        file_url: urlData?.publicUrl || path,
+        is_free: form.is_free, file_url: urlData?.publicUrl || path,
         interactive_data: { type: form.type, html: true },
+        subcategory: form.subcategory || null,
+        profile: form.profile || null,
         sort_order: 0,
       });
       if (dbErr) throw dbErr;
-
       setMsg({ type: 'success', text: 'Exercițiul interactiv a fost încărcat cu succes!' });
       setFile(null);
-      setForm({ title: '', description: '', category: 'clasa-5', is_free: false, type: 'exercise' });
+      setForm({ title: '', description: '', category: 'clasa-5', subcategory: '', profile: '', is_free: false, type: 'exercise' });
       onSuccess?.();
     } catch (err) {
       setMsg({ type: 'error', text: err.message });
@@ -315,13 +374,9 @@ function UploadInteractive({ onSuccess }) {
   return (
     <div style={s.card}>
       <div style={s.cardTitle}>🧩 Adaugă Exercițiu / Test Interactiv</div>
-
       <div style={s.infoBox}>
-        <strong>Cum funcționează:</strong> Creezi exercițiul ca pagină HTML separată (cu tot ce vrei: CSS, JavaScript, animații etc.)
-        și îl încarci aici. Utilizatorii îl vor deschide într-un tab nou sau iframe.
-        Poți folosi orice librării externe prin CDN direct în fișierul HTML.
+        <strong>Cum funcționează:</strong> Creezi exercițiul ca pagină HTML separată și îl încarci aici. Se va deschide în viewer intern.
       </div>
-
       {msg && <div style={s.alert(msg.type)}>{msg.text}</div>}
 
       <div style={s.formRow}>
@@ -334,17 +389,48 @@ function UploadInteractive({ onSuccess }) {
         <div style={s.formGroup}>
           <label style={s.label}>Categorie *</label>
           <select style={s.select} value={form.category}
-            onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
+            onChange={e => setForm(p => ({ ...p, category: e.target.value, subcategory: '', profile: '' }))}>
             {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
         </div>
       </div>
 
+      {isEN && (
+        <div style={s.formGroup}>
+          <label style={s.label}>Subcategorie EN</label>
+          <select style={s.select} value={form.subcategory}
+            onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
+            <option value="">— Selectează —</option>
+            {EN_SUBCATEGORIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
+      )}
+
+      {isBAC && (
+        <div style={s.formRow}>
+          <div style={s.formGroup}>
+            <label style={s.label}>Profil Bacalaureat</label>
+            <select style={s.select} value={form.profile}
+              onChange={e => setForm(p => ({ ...p, profile: e.target.value }))}>
+              <option value="">— Selectează —</option>
+              {BAC_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+          </div>
+          <div style={s.formGroup}>
+            <label style={s.label}>Subcategorie BAC</label>
+            <select style={s.select} value={form.subcategory}
+              onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
+              <option value="">— Selectează —</option>
+              {BAC_SUBCATEGORIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+
       <div style={s.formRow}>
         <div style={s.formGroup}>
           <label style={s.label}>Tip</label>
-          <select style={s.select} value={form.type}
-            onChange={e => setForm(p => ({ ...p, type: e.target.value }))}>
+          <select style={s.select} value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value }))}>
             <option value="exercise">Exercițiu</option>
             <option value="test">Test</option>
           </select>

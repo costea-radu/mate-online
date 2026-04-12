@@ -47,6 +47,7 @@ export default function App() {
             <Route path="/clase/:grade" element={<ClassPage />} />
             <Route path="/evaluare-nationala" element={<EvaluareNationala />} />
             <Route path="/bacalaureat" element={<Bacalaureat />} />
+            <Route path="/bacalaureat/:profile" element={<Bacalaureat />} />
             <Route path="/manuale" element={<Manuale />} />
             <Route path="/autentificare" element={<Login />} />
             <Route path="/inregistrare" element={<Register />} />
