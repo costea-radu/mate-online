@@ -147,7 +147,7 @@ export default function Pricing() {
             </h3>
             <p style={{ color: 'var(--text-light)', fontSize: '0.92rem' }}>
               Jumătate din exercițiile PDF sunt disponibile gratuit, fără abonament.
-              Creează un cont pentru a le accesa.
+              Creează un cont pentru acces nelimitat.
             </p>
           </div>
         </div>

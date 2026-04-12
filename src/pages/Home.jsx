@@ -123,7 +123,7 @@ export default function Home() {
             Pregătit să începi?
           </h2>
           <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 32, maxWidth: 480, margin: '0 auto 32px' }}>
-            Jumătate din exercițiile PDF sunt gratuite. Pentru acces complet, abonamentul este de doar 2 lei/lună.
+            Jumătate din exercițiile PDF sunt gratuite. Pentru acces complet, abonamentul este de doar 50 lei/lună.
           </p>
           <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Link to="/inregistrare" className="btn btn-primary btn-lg">Creează cont gratuit</Link>
