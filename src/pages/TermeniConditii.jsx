@@ -20,7 +20,7 @@ export default function TermeniConditii() {
             <Link to="/">Acasă</Link><span>›</span><span>Termeni și Condiții</span>
           </div>
           <h1>Termeni și Condiții</h1>
-          <p>Ultima actualizare: ianuarie 2025</p>
+          <p>Ultima actualizare: aprilie 2025</p>
         </div>
       </div>
 
@@ -42,7 +42,7 @@ export default function TermeniConditii() {
               <p>Pentru a utiliza platforma, trebuie să:</p>
               <ul style={{ marginTop: 10, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <li>Ai cel puțin 13 ani. Dacă ești minor, utilizarea platformei se face cu acordul părinților sau tutorilor legali.</li>
-                <li>Furnizezi informații corecte și actuale la înregistrare.</li>
+                <li>Furnizezi informații corecte și actuale la înregistrare, indiferent dacă te înregistrezi prin e-mail/parolă sau prin contul Google.</li>
                 <li>Păstrezi confidențialitatea datelor de autentificare ale contului tău.</li>
                 <li>Nu utilizezi platforma în scopuri ilegale sau neautorizate.</li>
               </ul>
@@ -50,7 +50,10 @@ export default function TermeniConditii() {
 
             <Section title="3. Conturi de utilizator">
               <p>
-                Fiecare utilizator poate deține un singur cont. Ești responsabil pentru toate activitățile desfășurate prin contul tău. În cazul în care suspectezi accesul neautorizat al unui terț la contul tău, ne informezi imediat. Ne rezervăm dreptul de a suspenda sau închide conturi care încalcă acești termeni.
+                Fiecare utilizator poate deține un singur cont. Te poți înregistra și autentifica fie prin e-mail și parolă, fie prin contul tău Google. Prin alegerea autentificării cu Google, ești de acord cu <a href="https://policies.google.com/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Termenii de utilizare Google</a> și autorizezi Mate-Online să primească informațiile de profil furnizate de Google (nume, e-mail, fotografie de profil).
+              </p>
+              <p style={{ marginTop: 10 }}>
+                Ești responsabil pentru toate activitățile desfășurate prin contul tău. În cazul în care suspectezi accesul neautorizat al unui terț la contul tău, ne informezi imediat. Ne rezervăm dreptul de a suspenda sau închide conturi care încalcă acești termeni.
               </p>
             </Section>
 
@@ -87,19 +90,25 @@ export default function TermeniConditii() {
               </p>
             </Section>
 
-            <Section title="8. Modificarea serviciului">
+            <Section title="8. Servicii terțe">
+              <p>
+                Platforma utilizează servicii terțe pentru funcționarea sa: Supabase (autentificare și baze de date), Google (autentificare OAuth), Stripe (procesare plăți) și Vercel (găzduire). Utilizarea acestor servicii este guvernată de propriii termeni și condiții ai fiecărui furnizor. Mate-Online nu este responsabilă pentru disponibilitatea sau funcționarea acestor servicii terțe.
+              </p>
+            </Section>
+
+            <Section title="9. Modificarea serviciului">
               <p>
                 Ne rezervăm dreptul de a modifica, suspenda sau întrerupe orice parte a serviciului în orice moment, cu sau fără notificare prealabilă. Nu vom fi răspunzători față de tine sau față de terți pentru orice modificare, suspendare sau întrerupere a serviciului.
               </p>
             </Section>
 
-            <Section title="9. Legea aplicabilă">
+            <Section title="10. Legea aplicabilă">
               <p>
                 Acești termeni sunt guvernați de legislația română. Orice litigiu va fi soluționat de instanțele competente din România. Dacă orice prevedere a acestor termeni este considerată nulă sau inaplicabilă, restul prevederilor rămân în vigoare.
               </p>
             </Section>
 
-            <Section title="10. Contact">
+            <Section title="11. Contact">
               <p>
                 Pentru orice întrebări legate de acești termeni:<br />
                 <strong>E-mail:</strong> <a href="mailto:costea.radu.ioan@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>costea.radu.ioan@gmail.com</a><br />

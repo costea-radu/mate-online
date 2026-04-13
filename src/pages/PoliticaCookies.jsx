@@ -20,7 +20,7 @@ export default function PoliticaCookies() {
             <Link to="/">Acasă</Link><span>›</span><span>Politica de Cookie-uri</span>
           </div>
           <h1>Politica de Cookie-uri</h1>
-          <p>Ultima actualizare: ianuarie 2025</p>
+          <p>Ultima actualizare: aprilie 2025</p>
         </div>
       </div>
 
@@ -55,6 +55,7 @@ export default function PoliticaCookies() {
                     {[
                       { name: 'sb-access-token', scop: 'Autentificare utilizator (Supabase)', durata: 'Sesiune', tip: 'Necesar' },
                       { name: 'sb-refresh-token', scop: 'Reînnoirea sesiunii de autentificare', durata: '7 zile', tip: 'Necesar' },
+                      { name: 'sb-*-auth-token', scop: 'Token OAuth pentru autentificarea cu Google', durata: 'Sesiune', tip: 'Necesar' },
                       { name: '__stripe_mid', scop: 'Prevenirea fraudelor la plată (Stripe)', durata: '1 an', tip: 'Necesar' },
                       { name: '__stripe_sid', scop: 'Identificarea sesiunii de plată (Stripe)', durata: '30 minute', tip: 'Necesar' },
                     ].map((row, i) => (
@@ -77,8 +78,11 @@ export default function PoliticaCookies() {
             </Section>
 
             <Section title="3. Cookie-uri de la terți">
+              <p style={{ marginBottom: 12 }}>
+                <strong>Stripe</strong> — procesatorul nostru de plăți poate plasa propriile cookie-uri tehnice pe dispozitivul tău în momentul efectuării unei plăți. Acestea sunt necesare pentru securitatea tranzacției și prevenirea fraudelor. Poți consulta politica Stripe la <a href="https://stripe.com/cookies-policy/legal" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>stripe.com</a>.
+              </p>
               <p>
-                Stripe, procesatorul nostru de plăți, poate plasa propriile cookie-uri tehnice pe dispozitivul tău în momentul efectuării unei plăți. Acestea sunt necesare pentru securitatea tranzacției și prevenirea fraudelor. Poți consulta politica de cookie-uri a Stripe la <a href="https://stripe.com/cookies-policy/legal" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>stripe.com</a>.
+                <strong>Google (OAuth)</strong> — dacă alegi autentificarea prin contul Google, browserul tău va comunica cu serverele Google în cadrul fluxului OAuth 2.0. Google poate seta cookie-uri proprii pe durata acestui proces, necesare pentru verificarea identității și securitatea autentificării. Aceste cookie-uri sunt gestionate exclusiv de Google. Poți consulta politica de cookie-uri Google la <a href="https://policies.google.com/technologies/cookies" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>policies.google.com</a>.
               </p>
             </Section>
 

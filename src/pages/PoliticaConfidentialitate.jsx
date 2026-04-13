@@ -20,7 +20,7 @@ export default function PoliticaConfidentialitate() {
             <Link to="/">Acasă</Link><span>›</span><span>Politica de Confidențialitate</span>
           </div>
           <h1>Politica de Confidențialitate</h1>
-          <p>Ultima actualizare: ianuarie 2025</p>
+          <p>Ultima actualizare: aprilie 2025</p>
         </div>
       </div>
 
@@ -35,7 +35,8 @@ export default function PoliticaConfidentialitate() {
             <Section title="1. Date colectate">
               <p>Colectăm următoarele categorii de date:</p>
               <ul style={{ marginTop: 10, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <li><strong>Date de cont:</strong> numele complet, adresa de e-mail și parola (stocată criptat) furnizate la înregistrare.</li>
+                <li><strong>Date de cont (înregistrare clasică):</strong> numele complet, adresa de e-mail și parola (stocată criptat) furnizate la înregistrare.</li>
+                <li><strong>Date de cont (autentificare cu Google):</strong> dacă alegi să te autentifici prin contul Google, primim de la Google numele tău, adresa de e-mail și fotografia de profil asociate contului Google. Nu primim și nu stocăm parola contului tău Google.</li>
                 <li><strong>Date de plată:</strong> plățile sunt procesate prin Stripe. Mate-Online nu stochează datele cardului tău bancar; acestea sunt gestionate exclusiv de Stripe în conformitate cu standardul PCI DSS.</li>
                 <li><strong>Date de utilizare:</strong> paginile accesate, materialele descărcate sau vizualizate, timpul petrecut pe platformă — colectate în scop de îmbunătățire a serviciului.</li>
                 <li><strong>Date tehnice:</strong> adresa IP, tipul browserului, sistemul de operare și cookie-urile tehnice necesare funcționării platformei.</li>
@@ -46,6 +47,7 @@ export default function PoliticaConfidentialitate() {
               <p>Datele colectate sunt folosite exclusiv pentru:</p>
               <ul style={{ marginTop: 10, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <li>Crearea și gestionarea contului tău de utilizator.</li>
+                <li>Autentificarea prin e-mail/parolă sau prin contul Google.</li>
                 <li>Procesarea plăților și gestionarea abonamentului.</li>
                 <li>Furnizarea accesului la materialele educaționale.</li>
                 <li>Trimiterea de notificări legate de cont (confirmare e-mail, facturi).</li>
@@ -58,7 +60,8 @@ export default function PoliticaConfidentialitate() {
                 Nu vindem, nu închiriem și nu partajăm datele tale personale cu terți în scopuri comerciale. Datele pot fi partajate exclusiv cu:
               </p>
               <ul style={{ marginTop: 10, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <li><strong>Supabase</strong> — furnizorul nostru de baze de date și autentificare, care stochează datele de cont în siguranță.</li>
+                <li><strong>Supabase</strong> — furnizorul nostru de baze de date și autentificare, care stochează datele de cont în siguranță, inclusiv datele primite prin autentificarea Google.</li>
+                <li><strong>Google</strong> — dacă alegi opțiunea „Continuă cu Google", datele tale de profil Google sunt transmise către Supabase prin protocolul OAuth 2.0 securizat. Poți consulta politica de confidențialitate Google la <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>policies.google.com</a>.</li>
                 <li><strong>Stripe</strong> — procesatorul nostru de plăți, care gestionează tranzacțiile financiare.</li>
                 <li><strong>Vercel</strong> — platforma de găzduire a aplicației.</li>
               </ul>
@@ -67,13 +70,13 @@ export default function PoliticaConfidentialitate() {
 
             <Section title="4. Cookie-uri">
               <p>
-                Platforma folosește cookie-uri tehnice strict necesare pentru funcționarea corectă a sesiunii de autentificare. Nu folosim cookie-uri de marketing sau tracking de la terți.
+                Platforma folosește cookie-uri tehnice strict necesare pentru funcționarea corectă a sesiunii de autentificare. Autentificarea prin Google poate utiliza cookie-uri suplimentare gestionate de Google în cadrul fluxului OAuth. Nu folosim cookie-uri de marketing sau tracking de la terți. Detalii complete în <Link to="/politica-cookies" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica de Cookie-uri</Link>.
               </p>
             </Section>
 
             <Section title="5. Securitatea datelor">
               <p>
-                Luăm măsuri tehnice și organizatorice adecvate pentru protejarea datelor tale: conexiuni criptate (HTTPS), parole stocate prin hashing, acces restricționat la baza de date. Cu toate acestea, nicio transmisie de date prin internet nu poate fi garantată 100% sigură.
+                Luăm măsuri tehnice și organizatorice adecvate pentru protejarea datelor tale: conexiuni criptate (HTTPS), parole stocate prin hashing, autentificare OAuth 2.0 pentru conturile Google, acces restricționat la baza de date. Cu toate acestea, nicio transmisie de date prin internet nu poate fi garantată 100% sigură.
               </p>
             </Section>
 
@@ -94,7 +97,7 @@ export default function PoliticaConfidentialitate() {
 
             <Section title="7. Retenția datelor">
               <p>
-                Datele de cont sunt păstrate pe durata existenței contului. La ștergerea contului, datele personale sunt eliminate în termen de 30 de zile. Datele de facturare pot fi păstrate conform obligațiilor legale (până la 5 ani).
+                Datele de cont sunt păstrate pe durata existenței contului. La ștergerea contului, datele personale sunt eliminate în termen de 30 de zile, inclusiv datele obținute prin autentificarea Google. Datele de facturare pot fi păstrate conform obligațiilor legale (până la 5 ani).
               </p>
             </Section>
 
