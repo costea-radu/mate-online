@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 
-const ADMIN_EMAIL = 'costea.radu.ioan@gmail.com';
 
 const CATEGORIES = [
   { value: 'clasa-5',  label: 'Clasa a V-a' },
@@ -16,7 +15,7 @@ const CATEGORIES = [
   { value: 'clasa-12', label: 'Clasa a XII-a' },
   { value: 'evaluare-nationala', label: 'Evaluare Națională' },
   { value: 'bacalaureat', label: 'Bacalaureat' },
-  { value: 'manuale', label: 'Auxiliare Online' },
+  { value: 'manuale', label: 'Manuale Online' },
 ];
 
 const EN_SUBCATEGORIES = [
@@ -505,7 +504,7 @@ function UploadManual({ onSuccess }) {
       });
       if (error) throw error;
       setMsg({ type: 'success', text: 'Manual adăugat cu succes!' });
-      setForm({ title: '', description: '', category: 'manuale', is_free: false, manual_content: '', html_mode: false });
+      setForm({ title: '', description: '', category: 'manuale', is_free: false, manual_content: '' });
       onSuccess?.();
     } catch (err) {
       setMsg({ type: 'error', text: err.message });
@@ -516,7 +515,7 @@ function UploadManual({ onSuccess }) {
 
   return (
     <div style={s.card}>
-      <div style={s.cardTitle}>📖 Adaugă Auxiliar Online</div>
+      <div style={s.cardTitle}>📖 Adaugă Manual Online</div>
       {msg && <div style={s.alert(msg.type)}>{msg.text}</div>}
 
       <div style={s.formRow}>
@@ -552,64 +551,21 @@ function UploadManual({ onSuccess }) {
         </div>
       </div>
 
-      {/* Toggle mod: text sau fișier HTML */}
       <div style={s.formGroup}>
-        <label style={s.label}>Mod conținut</label>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button
-            type="button"
-            onClick={() => setForm(p => ({ ...p, html_mode: false, manual_content: '' }))}
-            style={{ ...s.btnSecondary, background: !form.html_mode ? 'var(--navy)' : '#f0f4f8', color: !form.html_mode ? '#fff' : 'var(--navy)', flex: 1 }}
-          >
-            ✏️ Editor text HTML
-          </button>
-          <button
-            type="button"
-            onClick={() => setForm(p => ({ ...p, html_mode: true, manual_content: '' }))}
-            style={{ ...s.btnSecondary, background: form.html_mode ? 'var(--navy)' : '#f0f4f8', color: form.html_mode ? '#fff' : 'var(--navy)', flex: 1 }}
-          >
-            📁 Upload fișier HTML
-          </button>
+        <label style={s.label}>Conținut Manual * (HTML sau text simplu)</label>
+        <textarea
+          style={{ ...s.textarea, minHeight: 220, fontFamily: 'monospace', fontSize: '0.85rem' }}
+          value={form.manual_content}
+          onChange={e => setForm(p => ({ ...p, manual_content: e.target.value }))}
+          placeholder={'<h2>Capitolul 1: Numere naturale</h2>\n<p>Conținutul manualului...</p>'}
+        />
+        <div style={{ fontSize: '0.78rem', color: '#8e95a3', marginTop: 4 }}>
+          Poți folosi HTML simplu: &lt;h2&gt;, &lt;p&gt;, &lt;ul&gt;, &lt;li&gt;, &lt;strong&gt;, &lt;em&gt;
         </div>
       </div>
 
-      {!form.html_mode ? (
-        <div style={s.formGroup}>
-          <label style={s.label}>Conținut * (HTML sau text simplu)</label>
-          <textarea
-            style={{ ...s.textarea, minHeight: 220, fontFamily: 'monospace', fontSize: '0.85rem' }}
-            value={form.manual_content}
-            onChange={e => setForm(p => ({ ...p, manual_content: e.target.value }))}
-            placeholder={'<h2>Capitolul 1: Numere naturale</h2>\n<p>Conținutul auxiliarului...</p>'}
-          />
-          <div style={{ fontSize: '0.78rem', color: '#8e95a3', marginTop: 4 }}>
-            Poți folosi HTML: &lt;h2&gt;, &lt;p&gt;, &lt;ul&gt;, &lt;li&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;iframe&gt;
-          </div>
-        </div>
-      ) : (
-        <div style={s.formGroup}>
-          <label style={s.label}>Fișier HTML *</label>
-          <FileUploadZone
-            accept=".html" icon="🧩"
-            label="Trage fișierul HTML aici sau apasă pentru a selecta"
-            hint="Fișier .html complet — include tot CSS și JS în interior"
-            file={form._htmlFile || null}
-            onFile={f => {
-              const reader = new FileReader();
-              reader.onload = e => setForm(p => ({ ...p, manual_content: e.target.result, _htmlFile: f }));
-              reader.readAsText(f);
-            }}
-          />
-          {form._htmlFile && (
-            <div style={{ fontSize: '0.8rem', color: '#2e7d32', marginTop: 6 }}>
-              ✓ {form._htmlFile.name} — conținut încărcat ({(form.manual_content.length / 1024).toFixed(1)} KB)
-            </div>
-          )}
-        </div>
-      )}
-
       <button style={s.btnPrimary} onClick={handleSubmit} disabled={loading}>
-        {loading ? 'Se salvează...' : '💾 Salvează Auxiliarul'}
+        {loading ? 'Se salvează...' : '💾 Salvează Manual'}
       </button>
     </div>
   );
@@ -740,30 +696,33 @@ function ContentList({ refresh }) {
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 function Dashboard() {
   const [stats, setStats] = useState({ total: 0, pdf: 0, interactive: 0, manual: 0, users: 0, premium: 0 });
+  const { user } = useAuth();
 
   useEffect(() => {
+    if (!user) return;
     async function load() {
-      const [
-        { count: total }, { count: pdf }, { count: interactive },
-        { count: manual }, { count: users }, { count: premium }
-      ] = await Promise.all([
-        supabase.from('content').select('*', { count: 'exact', head: true }),
-        supabase.from('content').select('*', { count: 'exact', head: true }).eq('content_type', 'pdf'),
-        supabase.from('content').select('*', { count: 'exact', head: true }).eq('content_type', 'interactive'),
-        supabase.from('content').select('*', { count: 'exact', head: true }).eq('content_type', 'manual'),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('subscription_status', 'active'),
-      ]);
-      setStats({ total: total||0, pdf: pdf||0, interactive: interactive||0, manual: manual||0, users: users||0, premium: premium||0 });
+      try {
+        // Folosim API route cu service role key pentru a ocoli RLS pe profiles
+        const res = await fetch('/api/admin-stats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id }),
+        });
+        if (!res.ok) throw new Error('Eroare la încărcarea statisticilor');
+        const data = await res.json();
+        setStats(data);
+      } catch (err) {
+        console.error('Dashboard stats error:', err);
+      }
     }
     load();
-  }, []);
+  }, [user]);
 
   const statItems = [
     { num: stats.total,       label: 'Total materiale',       color: 'var(--navy)' },
     { num: stats.pdf,         label: 'PDF-uri',               color: '#1565c0' },
     { num: stats.interactive, label: 'Exerciții interactive', color: '#6a1b9a' },
-    { num: stats.manual,      label: 'Auxiliare',               color: '#00695c' },
+    { num: stats.manual,      label: 'Auxiliare',             color: '#00695c' },
     { num: stats.users,       label: 'Utilizatori',           color: '#2e7d32' },
     { num: stats.premium,     label: 'Abonați Premium',       color: '#e65100' },
   ];
@@ -785,7 +744,7 @@ function Dashboard() {
         <p style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.7)', lineHeight: 1.7 }}>
           Din acest panou poți adăuga <strong style={{ color: '#fff' }}>PDF-uri</strong>,{' '}
           <strong style={{ color: '#fff' }}>exerciții interactive HTML</strong> și{' '}
-          <strong style={{ color: '#fff' }}>auxiliare online</strong>.
+          <strong style={{ color: '#fff' }}>manuale online</strong>.
           Exercițiile interactive sunt fișiere <code style={{ background: 'rgba(255,255,255,0.1)', padding: '1px 6px', borderRadius: 4 }}>.html</code> pe
           care le creezi separat și le încarci direct.
         </p>
@@ -794,15 +753,143 @@ function Dashboard() {
   );
 }
 
+
+// ─── Lista Utilizatori ────────────────────────────────────────────────────────
+function UsersList({ user: adminUser, s }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [msg, setMsg] = useState(null);
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin-users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: adminUser.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setUsers(data.users || []);
+    } catch (err) {
+      setMsg({ type: 'error', text: err.message });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function toggleAdmin(targetId, currentVal) {
+    if (targetId === adminUser.id) return; // nu te poți retrage singur
+    const { error } = await supabase
+      .from('profiles')
+      .update({ is_admin: !currentVal })
+      .eq('id', targetId);
+    if (!error) {
+      setUsers(u => u.map(x => x.id === targetId ? { ...x, is_admin: !currentVal } : x));
+    }
+  }
+
+  const filtered = users.filter(u =>
+    !search ||
+    (u.full_name || '').toLowerCase().includes(search.toLowerCase()) ||
+    (u.email || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  const premium = filtered.filter(u => u.subscription_status === 'active').length;
+
+  return (
+    <div style={s.card}>
+      <div style={s.cardTitle}>👥 Utilizatori ({users.length})</div>
+
+      {msg && <div style={s.alert(msg.type)}>{msg.text}</div>}
+
+      <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          style={{ ...s.input, maxWidth: 300 }}
+          placeholder="🔍 Caută după nume sau email..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        <span style={{ fontSize: '0.83rem', color: '#5a6170' }}>
+          {filtered.length} utilizatori · {premium} premium
+        </span>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 40, color: '#8e95a3' }}>Se încarcă...</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 40, color: '#8e95a3' }}>Niciun utilizator găsit.</div>
+      ) : (
+        <table style={s.table}>
+          <thead>
+            <tr>
+              <th style={s.th}>Nume</th>
+              <th style={s.th}>Email</th>
+              <th style={s.th}>Status</th>
+              <th style={s.th}>Admin</th>
+              <th style={s.th}>Data înregistrării</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(u => (
+              <tr key={u.id}>
+                <td style={s.td}>
+                  <div style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '0.88rem' }}>
+                    {u.full_name || '—'}
+                  </div>
+                </td>
+                <td style={{ ...s.td, fontSize: '0.83rem', color: '#5a6170' }}>{u.email}</td>
+                <td style={s.td}>
+                  <span style={{
+                    padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700,
+                    background: u.subscription_status === 'active' ? '#e8f5e9' : '#f0f4f8',
+                    color: u.subscription_status === 'active' ? '#2e7d32' : '#8e95a3',
+                  }}>
+                    {u.subscription_status === 'active' ? '⭐ Premium' : 'Gratuit'}
+                  </span>
+                </td>
+                <td style={s.td}>
+                  <button
+                    onClick={() => toggleAdmin(u.id, u.is_admin)}
+                    disabled={u.id === adminUser.id}
+                    style={{
+                      padding: '4px 12px', borderRadius: 6, fontSize: '0.78rem', fontWeight: 700,
+                      border: 'none', cursor: u.id === adminUser.id ? 'default' : 'pointer',
+                      background: u.is_admin ? 'rgba(232,185,49,0.15)' : '#f0f4f8',
+                      color: u.is_admin ? 'var(--gold)' : '#8e95a3',
+                      opacity: u.id === adminUser.id ? 0.5 : 1,
+                    }}
+                    title={u.id === adminUser.id ? 'Nu poți modifica propriul cont' : u.is_admin ? 'Click pentru a retrage admin' : 'Click pentru a face admin'}
+                  >
+                    {u.is_admin ? '⚙ Admin' : '— User'}
+                  </button>
+                </td>
+                <td style={{ ...s.td, fontSize: '0.78rem', color: '#8e95a3' }}>
+                  {new Date(u.created_at).toLocaleDateString('ro-RO')}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function Admin() {
-  const { user, loading } = useAuth();
+  const { user, isAdmin, loading } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState('dashboard');
   const [refreshList, setRefreshList] = useState(0);
 
   useEffect(() => {
-    if (!loading && (!user || user.email !== ADMIN_EMAIL)) navigate('/');
+    if (!loading && (!user || !isAdmin)) navigate('/');
   }, [user, loading, navigate]);
 
   if (loading) {
@@ -813,10 +900,11 @@ export default function Admin() {
     );
   }
 
-  if (!user || user.email !== ADMIN_EMAIL) return null;
+  if (!user || !isAdmin) return null;
 
   const tabs = [
     { id: 'dashboard',   label: '📊 Dashboard' },
+    { id: 'users',       label: '👥 Utilizatori' },
     { id: 'pdf',         label: '📄 Adaugă PDF' },
     { id: 'interactive', label: '🧩 Exerciții Interactive' },
     { id: 'manual',      label: '📖 Adaugă Auxiliar' },
@@ -848,6 +936,7 @@ export default function Admin() {
         </div>
         <div style={s.main}>
           {tab === 'dashboard'   && <Dashboard />}
+          {tab === 'users'       && <UsersList user={user} s={s} />}
           {tab === 'pdf'         && <UploadPDF onSuccess={onSuccess} />}
           {tab === 'interactive' && <UploadInteractive onSuccess={onSuccess} />}
           {tab === 'manual'      && <UploadManual onSuccess={onSuccess} />}
