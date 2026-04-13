@@ -3,13 +3,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-// URL-ul direct funcționează pentru ambele bucket-uri (public)
-// Protecția premium e în UI — butonul nu apare dacă nu ești abonat
-function resolveFileUrl(item) {
-  return item.file_url || null;
-}
-
 // ─── Badge progres ────────────────────────────────────────────────────────────
 function ProgressBadge({ progress }) {
   if (!progress) return null;
@@ -34,7 +27,6 @@ function ProgressBadge({ progress }) {
 // ─── Card item ────────────────────────────────────────────────────────────────
 export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }) {
   const canAccess = item.is_free || isPremium;
-
   const navigate = useNavigate();
 
   const typeConfig = {
@@ -44,18 +36,14 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
   };
   const cfg = typeConfig[item.content_type] || typeConfig.pdf;
 
-  async function handleOpen() {
-    if (!canAccess || !item.file_url) return;
-    if (item.content_type === 'interactive') {
-      navigate('/exercitiu', { state: { item, srcDoc: _overrideSrcDoc } });
-      return;
-    }
-    setLoadingUrl(true);
-    try {
-      const url = await resolveFileUrl(item);
-      if (url) window.open(url, '_blank', 'noopener,noreferrer');
-      else alert('Nu s-a putut genera linkul.');
-    } finally { setLoadingUrl(false); }
+  // PDF — folosim un <a> tag direct (funcționează pe mobile)
+  // Interactive — navigăm intern
+  const isPdf = item.content_type === 'pdf';
+  const isInteractive = item.content_type === 'interactive';
+
+  function handleInteractive(e) {
+    e.preventDefault();
+    navigate('/exercitiu', { state: { item, srcDoc: _overrideSrcDoc } });
   }
 
   return (
@@ -96,7 +84,7 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
 
       {/* Rând 2: progres + badge + buton */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {item.content_type === 'interactive' && user && canAccess && (
+        {isInteractive && user && canAccess && (
           <ProgressBadge progress={progress} />
         )}
 
@@ -110,18 +98,37 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
 
         <div style={{ marginLeft: 'auto' }}>
           {canAccess ? (
-            <button
-              onClick={handleOpen}
-              disabled={!item.file_url && item.content_type !== 'manual'}
-              style={{
-                padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem',
-                background: 'var(--navy)', color: '#fff', border: 'none', cursor: 'pointer',
-                opacity: (!item.file_url && item.content_type !== 'manual') ? 0.4 : 1,
-                transition: 'background 0.2s', whiteSpace: 'nowrap',
-              }}
-            >
-              {cfg.actionLabel}
-            </button>
+            isPdf ? (
+              // PDF — <a> tag direct, fără JavaScript async, funcționează pe orice device
+              <a
+                href={item.file_url || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-block',
+                  padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem',
+                  background: item.file_url ? 'var(--navy)' : '#ccc',
+                  color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap',
+                  pointerEvents: item.file_url ? 'auto' : 'none',
+                }}
+              >
+                {cfg.actionLabel}
+              </a>
+            ) : (
+              // Interactive / Manual — navigare internă
+              <button
+                onClick={handleInteractive}
+                disabled={!item.file_url && !_overrideSrcDoc}
+                style={{
+                  padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem',
+                  background: 'var(--navy)', color: '#fff', border: 'none', cursor: 'pointer',
+                  opacity: (!item.file_url && !_overrideSrcDoc) ? 0.4 : 1,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {cfg.actionLabel}
+              </button>
+            )
           ) : !user ? (
             <Link to="/autentificare" style={{
               padding: '7px 16px', borderRadius: 7, fontWeight: 600, fontSize: '0.83rem',
@@ -144,6 +151,7 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
     </div>
   );
 }
+
 
 // ─── Manual inline viewer ─────────────────────────────────────────────────────
 function ManualViewer({ item }) {
