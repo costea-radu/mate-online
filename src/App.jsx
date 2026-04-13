@@ -21,6 +21,7 @@ import PoliticaCookies from './pages/PoliticaCookies';
 import PoliticaRetur from './pages/PoliticaRetur';
 import FAQ from './pages/FAQ';
 import DespreNoi from './pages/DespreNoi';
+import NotFound from './pages/NotFound';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
