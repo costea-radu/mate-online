@@ -34,12 +34,11 @@ export default function Profile() {
     return null;
   }
 
-  const initials = (profile?.full_name || user.email || '?')
-    .split(' ')
-    .map(w => w[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
+  const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+  const displayName = profile?.full_name || user.user_metadata?.name || user.user_metadata?.full_name || 'Utilizator';
+  const initials = displayName === 'Utilizator'
+    ? (user.email?.[0] || '?').toUpperCase()
+    : displayName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
   async function handleManageSubscription() {
     try {
@@ -92,9 +91,18 @@ export default function Profile() {
           {/* Sidebar */}
           <div className="profile-sidebar">
             <div className="card">
-              <div className="profile-avatar">{initials}</div>
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt="Avatar"
+                  className="profile-avatar"
+                  style={{ objectFit: 'cover', padding: 0 }}
+                  onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
+                />
+              ) : null}
+              <div className="profile-avatar" style={{ display: avatarUrl ? 'none' : 'flex' }}>{initials}</div>
               <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 4 }}>
-                {profile?.full_name || 'Utilizator'}
+                {displayName}
               </h3>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>
                 {user.email}
