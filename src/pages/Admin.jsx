@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 
-const ADMIN_EMAIL = 'costea.radu.ioan@gmail.com';
 
 const CATEGORIES = [
   { value: 'clasa-5',  label: 'Clasa a V-a' },
@@ -753,13 +752,13 @@ function Dashboard() {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function Admin() {
-  const { user, loading } = useAuth();
+  const { user, isAdmin, loading } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState('dashboard');
   const [refreshList, setRefreshList] = useState(0);
 
   useEffect(() => {
-    if (!loading && (!user || user.email !== ADMIN_EMAIL)) navigate('/');
+    if (!loading && (!user || !isAdmin)) navigate('/');
   }, [user, loading, navigate]);
 
   if (loading) {
@@ -770,7 +769,7 @@ export default function Admin() {
     );
   }
 
-  if (!user || user.email !== ADMIN_EMAIL) return null;
+  if (!user || !isAdmin) return null;
 
   const tabs = [
     { id: 'dashboard',   label: '📊 Dashboard' },
