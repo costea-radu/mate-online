@@ -14,7 +14,13 @@ import Pricing from './pages/Pricing';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
 import InteractiveViewer from './pages/InteractiveViewer';
-import NotFound from './pages/NotFound';
+import Contact from './pages/Contact';
+import PoliticaConfidentialitate from './pages/PoliticaConfidentialitate';
+import TermeniConditii from './pages/TermeniConditii';
+import PoliticaCookies from './pages/PoliticaCookies';
+import PoliticaRetur from './pages/PoliticaRetur';
+import FAQ from './pages/FAQ';
+import DespreNoi from './pages/DespreNoi';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -55,6 +61,13 @@ export default function App() {
             <Route path="/profil" element={<Profile />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/exercitiu" element={<InteractiveViewer />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route path="/politica-confidentialitate" element={<PoliticaConfidentialitate />} />
+            <Route path="/termeni-conditii" element={<TermeniConditii />} />
+            <Route path="/politica-cookies" element={<PoliticaCookies />} />
+            <Route path="/politica-retur" element={<PoliticaRetur />} />
+            <Route path="/faq" element={<FAQ />} />
+            <Route path="/despre-noi" element={<DespreNoi />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Layout>

@@ -50,6 +50,23 @@ export default function Footer() {
               <li><Link to="/inregistrare">Înregistrare</Link></li>
             </ul>
           </div>
+          <div>
+            <h4>Informații</h4>
+            <ul>
+              <li><Link to="/despre-noi">Despre Noi</Link></li>
+              <li><Link to="/contact">Contact</Link></li>
+              <li><Link to="/faq">Întrebări Frecvente</Link></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Legal</h4>
+            <ul>
+              <li><Link to="/termeni-conditii">Termeni și Condiții</Link></li>
+              <li><Link to="/politica-confidentialitate">Politica de Confidențialitate</Link></li>
+              <li><Link to="/politica-cookies">Politica de Cookie-uri</Link></li>
+              <li><Link to="/politica-retur">Politica de Retur</Link></li>
+            </ul>
+          </div>
         </div>
         <div className="footer-bottom">
           © {new Date().getFullYear()} Mate-Online. Toate drepturile rezervate.
