@@ -50,14 +50,14 @@ function ProgressBadge({ progress }) {
 }
 
 // ─── Card item ────────────────────────────────────────────────────────────────
-export function ContentCard({ item, isPremium, user, progress }) {
+export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }) {
   const canAccess = item.is_free || isPremium;
   const [loadingUrl, setLoadingUrl] = useState(false);
   const navigate = useNavigate();
 
   const typeConfig = {
     pdf:         { icon: '📄', bg: '#e3f2fd', actionLabel: 'Deschide / Descarcă' },
-    interactive: { icon: '🧩', bg: '#f3e5f5', actionLabel: progress ? 'Reîncepe' : 'Începe' },
+    interactive: { icon: _overrideSrcDoc ? '📖' : '🧩', bg: _overrideSrcDoc ? '#e8f5e9' : '#f3e5f5', actionLabel: 'Deschide' },
     manual:      { icon: '📖', bg: '#e8f5e9', actionLabel: 'Citește' },
   };
   const cfg = typeConfig[item.content_type] || typeConfig.pdf;
@@ -65,7 +65,7 @@ export function ContentCard({ item, isPremium, user, progress }) {
   async function handleOpen() {
     if (!canAccess || !item.file_url) return;
     if (item.content_type === 'interactive') {
-      navigate('/exercitiu', { state: { item } });
+      navigate('/exercitiu', { state: { item, srcDoc: _overrideSrcDoc } });
       return;
     }
     setLoadingUrl(true);
@@ -168,6 +168,24 @@ function ManualViewer({ item }) {
   const [open, setOpen] = useState(false);
   const { isPremium, user } = useAuth();
   const canAccess = item.is_free || isPremium;
+
+  // Dacă manual_content e un HTML complet, îl deschidem în viewer (ca interactive)
+  const isFullHtml = item.manual_content && (
+    item.manual_content.trim().startsWith('<!DOCTYPE') ||
+    item.manual_content.trim().startsWith('<html')
+  );
+
+  if (isFullHtml && canAccess) {
+    return (
+      <ContentCard
+        item={{ ...item, content_type: 'interactive' }}
+        isPremium={isPremium}
+        user={user}
+        progress={null}
+        _overrideSrcDoc={item.manual_content}
+      />
+    );
+  }
 
   return (
     <div style={{ marginBottom: 8 }}>

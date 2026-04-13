@@ -123,7 +123,7 @@ export default function Navbar() {
               className={location.pathname === '/manuale' ? 'active' : ''}
               onClick={() => setOpen(false)}
             >
-              Manuale
+              Auxiliare
             </Link>
           </li>
           <li>

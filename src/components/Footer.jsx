@@ -10,7 +10,7 @@ export default function Footer() {
               <span style={{ color: 'var(--gold)' }}>Mate</span>Online
             </div>
             <p style={{ fontSize: '0.88rem', lineHeight: 1.7, maxWidth: 320 }}>
-              Platforma ta de matematică pentru exerciții, teste și manuale.
+              Platforma ta de matematică pentru exerciții, teste și auxiliare.
               Pregătire completă pentru clasele 5–12, Evaluarea Națională și Bacalaureat.
             </p>
           </div>
@@ -39,7 +39,7 @@ export default function Footer() {
               <li><Link to="/bacalaureat/mate-info">Bacalaureat Mate-Info</Link></li>
               <li><Link to="/bacalaureat/stiinte-naturii">Bacalaureat Șt. Naturii</Link></li>
               <li><Link to="/bacalaureat/tehnologic">Bacalaureat Tehnologic</Link></li>
-              <li><Link to="/manuale">Manuale Online</Link></li>
+              <li><Link to="/manuale">Auxiliare Online</Link></li>
             </ul>
           </div>
           <div>

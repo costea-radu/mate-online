@@ -15,7 +15,7 @@ export default function Home() {
   const features = [
     { icon: '📄', title: 'Exerciții PDF', desc: 'Descarcă fișe de lucru și teste în format PDF. Jumătate din materiale sunt gratuite.' },
     { icon: '🧩', title: 'Exerciții Interactive', desc: 'Rezolvă exerciții direct pe platformă cu feedback instant și explicații pas cu pas.' },
-    { icon: '📖', title: 'Manuale Online', desc: 'Acces la manuale digitale complete, disponibile oricând și de oriunde.' },
+    { icon: '📖', title: 'Auxiliare Online', desc: 'Acces la auxiliare și manuale digitale complete, disponibile oricând și de oriunde.' },
   ];
 
   return (
@@ -27,7 +27,7 @@ export default function Home() {
             Matematica devine <span>simplă</span> cu Mate-Online
           </h1>
           <p className="fade-in-up delay-1">
-            Exerciții PDF, teste interactive și manuale online pentru clasele 5–12,
+            Exerciții PDF, teste interactive și auxiliare online pentru clasele 5–12,
             Evaluarea Națională și Bacalaureat. Totul într-un singur loc.
           </p>
           <div className="hero-actions fade-in-up delay-2">

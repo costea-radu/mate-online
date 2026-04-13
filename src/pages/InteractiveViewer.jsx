@@ -19,7 +19,7 @@ export default function InteractiveViewer() {
   const { state } = useLocation();
   const navigate = useNavigate();
   const { isPremium, user, loading: authLoading } = useAuth();
-  const [srcDoc, setSrcDoc] = useState(null);
+  const [srcDoc, setSrcDoc] = useState(state?.srcDoc || null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [scoreSaved, setScoreSaved] = useState(false);
@@ -70,6 +70,12 @@ export default function InteractiveViewer() {
 
     const canAccess = item.is_free || isPremium;
     if (!canAccess) { navigate('/preturi'); return; }
+
+    // Dacă srcDoc vine direct din state (manual HTML inline), nu mai fetch-uim
+    if (state?.srcDoc) {
+      setLoading(false);
+      return;
+    }
 
     async function load() {
       try {
