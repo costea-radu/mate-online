@@ -481,95 +481,6 @@ function UploadInteractive({ onSuccess }) {
   );
 }
 
-// ─── Upload Manual Online ─────────────────────────────────────────────────────
-function UploadManual({ onSuccess }) {
-  const [form, setForm] = useState({
-    title: '', description: '', category: 'manuale', is_free: false, manual_content: '',
-  });
-  const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState(null);
-
-  async function handleSubmit() {
-    if (!form.title || !form.manual_content) {
-      setMsg({ type: 'error', text: 'Titlul și conținutul sunt obligatorii.' });
-      return;
-    }
-    setLoading(true);
-    setMsg(null);
-    try {
-      const { error } = await supabase.from('content').insert({
-        title: form.title, description: form.description,
-        category: form.category, content_type: 'manual',
-        is_free: form.is_free, manual_content: form.manual_content, sort_order: 0,
-      });
-      if (error) throw error;
-      setMsg({ type: 'success', text: 'Manual adăugat cu succes!' });
-      setForm({ title: '', description: '', category: 'manuale', is_free: false, manual_content: '' });
-      onSuccess?.();
-    } catch (err) {
-      setMsg({ type: 'error', text: err.message });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div style={s.card}>
-      <div style={s.cardTitle}>📖 Adaugă Manual Online</div>
-      {msg && <div style={s.alert(msg.type)}>{msg.text}</div>}
-
-      <div style={s.formRow}>
-        <div style={s.formGroup}>
-          <label style={s.label}>Titlu *</label>
-          <input style={s.input} value={form.title}
-            onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
-            placeholder="ex. Manual Matematică Clasa a V-a" />
-        </div>
-        <div style={s.formGroup}>
-          <label style={s.label}>Categorie *</label>
-          <select style={s.select} value={form.category}
-            onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
-            {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-          </select>
-        </div>
-      </div>
-
-      <div style={s.formRow}>
-        <div style={s.formGroup}>
-          <label style={s.label}>Descriere</label>
-          <input style={s.input} value={form.description}
-            onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
-            placeholder="Scurtă descriere" />
-        </div>
-        <div style={s.formGroup}>
-          <label style={s.label}>Acces</label>
-          <select style={s.select} value={form.is_free ? 'free' : 'premium'}
-            onChange={e => setForm(p => ({ ...p, is_free: e.target.value === 'free' }))}>
-            <option value="free">🟢 Gratuit</option>
-            <option value="premium">⭐ Premium</option>
-          </select>
-        </div>
-      </div>
-
-      <div style={s.formGroup}>
-        <label style={s.label}>Conținut Manual * (HTML sau text simplu)</label>
-        <textarea
-          style={{ ...s.textarea, minHeight: 220, fontFamily: 'monospace', fontSize: '0.85rem' }}
-          value={form.manual_content}
-          onChange={e => setForm(p => ({ ...p, manual_content: e.target.value }))}
-          placeholder={'<h2>Capitolul 1: Numere naturale</h2>\n<p>Conținutul manualului...</p>'}
-        />
-        <div style={{ fontSize: '0.78rem', color: '#8e95a3', marginTop: 4 }}>
-          Poți folosi HTML simplu: &lt;h2&gt;, &lt;p&gt;, &lt;ul&gt;, &lt;li&gt;, &lt;strong&gt;, &lt;em&gt;
-        </div>
-      </div>
-
-      <button style={s.btnPrimary} onClick={handleSubmit} disabled={loading}>
-        {loading ? 'Se salvează...' : '💾 Salvează Manual'}
-      </button>
-    </div>
-  );
-}
 
 // ─── Content List ─────────────────────────────────────────────────────────────
 function ContentList({ refresh }) {
@@ -754,132 +665,6 @@ function Dashboard() {
 }
 
 
-// ─── Lista Utilizatori ────────────────────────────────────────────────────────
-function UsersList({ user: adminUser, s }) {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [msg, setMsg] = useState(null);
-
-  useEffect(() => {
-    load();
-  }, []);
-
-  async function load() {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/admin-users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: adminUser.id }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setUsers(data.users || []);
-    } catch (err) {
-      setMsg({ type: 'error', text: err.message });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function toggleAdmin(targetId, currentVal) {
-    if (targetId === adminUser.id) return; // nu te poți retrage singur
-    const { error } = await supabase
-      .from('profiles')
-      .update({ is_admin: !currentVal })
-      .eq('id', targetId);
-    if (!error) {
-      setUsers(u => u.map(x => x.id === targetId ? { ...x, is_admin: !currentVal } : x));
-    }
-  }
-
-  const filtered = users.filter(u =>
-    !search ||
-    (u.full_name || '').toLowerCase().includes(search.toLowerCase()) ||
-    (u.email || '').toLowerCase().includes(search.toLowerCase())
-  );
-
-  const premium = filtered.filter(u => u.subscription_status === 'active').length;
-
-  return (
-    <div style={s.card}>
-      <div style={s.cardTitle}>👥 Utilizatori ({users.length})</div>
-
-      {msg && <div style={s.alert(msg.type)}>{msg.text}</div>}
-
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input
-          style={{ ...s.input, maxWidth: 300 }}
-          placeholder="🔍 Caută după nume sau email..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-        <span style={{ fontSize: '0.83rem', color: '#5a6170' }}>
-          {filtered.length} utilizatori · {premium} premium
-        </span>
-      </div>
-
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: 40, color: '#8e95a3' }}>Se încarcă...</div>
-      ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 40, color: '#8e95a3' }}>Niciun utilizator găsit.</div>
-      ) : (
-        <table style={s.table}>
-          <thead>
-            <tr>
-              <th style={s.th}>Nume</th>
-              <th style={s.th}>Email</th>
-              <th style={s.th}>Status</th>
-              <th style={s.th}>Admin</th>
-              <th style={s.th}>Data înregistrării</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(u => (
-              <tr key={u.id}>
-                <td style={s.td}>
-                  <div style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '0.88rem' }}>
-                    {u.full_name || '—'}
-                  </div>
-                </td>
-                <td style={{ ...s.td, fontSize: '0.83rem', color: '#5a6170' }}>{u.email}</td>
-                <td style={s.td}>
-                  <span style={{
-                    padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700,
-                    background: u.subscription_status === 'active' ? '#e8f5e9' : '#f0f4f8',
-                    color: u.subscription_status === 'active' ? '#2e7d32' : '#8e95a3',
-                  }}>
-                    {u.subscription_status === 'active' ? '⭐ Premium' : 'Gratuit'}
-                  </span>
-                </td>
-                <td style={s.td}>
-                  <button
-                    onClick={() => toggleAdmin(u.id, u.is_admin)}
-                    disabled={u.id === adminUser.id}
-                    style={{
-                      padding: '4px 12px', borderRadius: 6, fontSize: '0.78rem', fontWeight: 700,
-                      border: 'none', cursor: u.id === adminUser.id ? 'default' : 'pointer',
-                      background: u.is_admin ? 'rgba(232,185,49,0.15)' : '#f0f4f8',
-                      color: u.is_admin ? 'var(--gold)' : '#8e95a3',
-                      opacity: u.id === adminUser.id ? 0.5 : 1,
-                    }}
-                    title={u.id === adminUser.id ? 'Nu poți modifica propriul cont' : u.is_admin ? 'Click pentru a retrage admin' : 'Click pentru a face admin'}
-                  >
-                    {u.is_admin ? '⚙ Admin' : '— User'}
-                  </button>
-                </td>
-                <td style={{ ...s.td, fontSize: '0.78rem', color: '#8e95a3' }}>
-                  {new Date(u.created_at).toLocaleDateString('ro-RO')}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function Admin() {
@@ -904,10 +689,8 @@ export default function Admin() {
 
   const tabs = [
     { id: 'dashboard',   label: '📊 Dashboard' },
-    { id: 'users',       label: '👥 Utilizatori' },
     { id: 'pdf',         label: '📄 Adaugă PDF' },
     { id: 'interactive', label: '🧩 Exerciții Interactive' },
-    { id: 'manual',      label: '📖 Adaugă Auxiliar' },
     { id: 'list',        label: '📋 Tot Conținutul' },
   ];
 
@@ -936,10 +719,8 @@ export default function Admin() {
         </div>
         <div style={s.main}>
           {tab === 'dashboard'   && <Dashboard />}
-          {tab === 'users'       && <UsersList user={user} s={s} />}
           {tab === 'pdf'         && <UploadPDF onSuccess={onSuccess} />}
           {tab === 'interactive' && <UploadInteractive onSuccess={onSuccess} />}
-          {tab === 'manual'      && <UploadManual onSuccess={onSuccess} />}
           {tab === 'list'        && <ContentList refresh={refreshList} />}
         </div>
       </div>
