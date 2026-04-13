@@ -4,28 +4,10 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function extractStoragePath(url) {
-  try {
-    const marker = '/object/public/';
-    const idx = url.indexOf(marker);
-    if (idx === -1) return null;
-    const after = url.slice(idx + marker.length);
-    const slashIdx = after.indexOf('/');
-    if (slashIdx === -1) return null;
-    return { bucket: after.slice(0, slashIdx), path: after.slice(slashIdx + 1) };
-  } catch { return null; }
-}
-
-async function resolveFileUrl(item) {
-  if (!item.file_url) return null;
-  if (item.is_free) return item.file_url;
-  const parsed = extractStoragePath(item.file_url);
-  if (!parsed) return item.file_url;
-  const { data, error } = await supabase.storage
-    .from(parsed.bucket)
-    .createSignedUrl(parsed.path, 86400);
-  if (error || !data?.signedUrl) return null;
-  return data.signedUrl;
+// URL-ul direct funcționează pentru ambele bucket-uri (public)
+// Protecția premium e în UI — butonul nu apare dacă nu ești abonat
+function resolveFileUrl(item) {
+  return item.file_url || null;
 }
 
 // ─── Badge progres ────────────────────────────────────────────────────────────
@@ -52,7 +34,7 @@ function ProgressBadge({ progress }) {
 // ─── Card item ────────────────────────────────────────────────────────────────
 export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }) {
   const canAccess = item.is_free || isPremium;
-  const [loadingUrl, setLoadingUrl] = useState(false);
+
   const navigate = useNavigate();
 
   const typeConfig = {
@@ -130,7 +112,7 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
           {canAccess ? (
             <button
               onClick={handleOpen}
-              disabled={loadingUrl || (!item.file_url && item.content_type !== 'manual')}
+              disabled={!item.file_url && item.content_type !== 'manual'}
               style={{
                 padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem',
                 background: 'var(--navy)', color: '#fff', border: 'none', cursor: 'pointer',
@@ -138,7 +120,7 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
                 transition: 'background 0.2s', whiteSpace: 'nowrap',
               }}
             >
-              {loadingUrl ? '⏳' : cfg.actionLabel}
+              {cfg.actionLabel}
             </button>
           ) : !user ? (
             <Link to="/autentificare" style={{

@@ -1,8 +1,7 @@
 import ContentPage from '../components/ContentPage';
 
 const tabs = [
-  { id: 'manual',      label: '📖 Auxiliare' },
-  { id: 'interactive', label: '🧩 Interactive' },
+  { id: 'interactive', label: '📖 Auxiliare Online' },
 ];
 
 export default function Manuale() {
@@ -13,7 +12,7 @@ export default function Manuale() {
       subtitle="Auxiliare și materiale digitale de matematică, disponibile oricând"
       breadcrumb="Auxiliare Online"
       tabs={tabs}
-      emptyIcons={{ manual: '📖', interactive: '🧩' }}
+      emptyIcons={{ interactive: '📖' }}
     />
   );
 }

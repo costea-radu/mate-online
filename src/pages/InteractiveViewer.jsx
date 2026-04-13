@@ -3,18 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
-function extractStoragePath(url) {
-  try {
-    const marker = '/object/public/';
-    const idx = url.indexOf(marker);
-    if (idx === -1) return null;
-    const after = url.slice(idx + marker.length);
-    const slashIdx = after.indexOf('/');
-    if (slashIdx === -1) return null;
-    return { bucket: after.slice(0, slashIdx), path: after.slice(slashIdx + 1) };
-  } catch { return null; }
-}
-
 export default function InteractiveViewer() {
   const { state } = useLocation();
   const navigate = useNavigate();
@@ -79,19 +67,8 @@ export default function InteractiveViewer() {
 
     async function load() {
       try {
-        let url = item.file_url;
-
-        if (!item.is_free) {
-          const parsed = extractStoragePath(item.file_url);
-          if (parsed) {
-            const { data, error: signErr } = await supabase.storage
-              .from(parsed.bucket)
-              .createSignedUrl(parsed.path, 86400);
-            if (signErr) throw signErr;
-            url = data.signedUrl;
-          }
-        }
-
+        // URL direct — bucket-ul content-files e acum public
+        const url = item.file_url;
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const html = await res.text();
