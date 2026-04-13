@@ -696,24 +696,27 @@ function ContentList({ refresh }) {
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 function Dashboard() {
   const [stats, setStats] = useState({ total: 0, pdf: 0, interactive: 0, manual: 0, users: 0, premium: 0 });
+  const { user } = useAuth();
 
   useEffect(() => {
+    if (!user) return;
     async function load() {
-      const [
-        { count: total }, { count: pdf }, { count: interactive },
-        { count: manual }, { count: users }, { count: premium }
-      ] = await Promise.all([
-        supabase.from('content').select('*', { count: 'exact', head: true }),
-        supabase.from('content').select('*', { count: 'exact', head: true }).eq('content_type', 'pdf'),
-        supabase.from('content').select('*', { count: 'exact', head: true }).eq('content_type', 'interactive'),
-        supabase.from('content').select('*', { count: 'exact', head: true }).eq('content_type', 'manual'),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('subscription_status', 'active'),
-      ]);
-      setStats({ total: total||0, pdf: pdf||0, interactive: interactive||0, manual: manual||0, users: users||0, premium: premium||0 });
+      try {
+        // Folosim API route cu service role key pentru a ocoli RLS pe profiles
+        const res = await fetch('/api/admin-stats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id }),
+        });
+        if (!res.ok) throw new Error('Eroare la încărcarea statisticilor');
+        const data = await res.json();
+        setStats(data);
+      } catch (err) {
+        console.error('Dashboard stats error:', err);
+      }
     }
     load();
-  }, []);
+  }, [user]);
 
   const statItems = [
     { num: stats.total,       label: 'Total materiale',       color: 'var(--navy)' },
