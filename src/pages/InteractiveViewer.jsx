@@ -22,8 +22,47 @@ export default function InteractiveViewer() {
   const [srcDoc, setSrcDoc] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [scoreSaved, setScoreSaved] = useState(false);
+  const [savedScore, setSavedScore] = useState(null);
 
   const item = state?.item;
+
+  // ─── Salvare progres primit de la iframe ────────────────────────────────────
+  useEffect(() => {
+    async function handleMessage(event) {
+      // Acceptăm mesaje de la orice origine (iframe e încărcat din Supabase Storage)
+      if (!event.data || event.data.type !== 'MATE_SCORE') return;
+
+      const { score, maxScore } = event.data;
+      if (typeof score !== 'number' || typeof maxScore !== 'number') return;
+      if (!user || !item) return;
+
+      try {
+        const { error } = await supabase
+          .from('progress')
+          .upsert(
+            {
+              user_id: user.id,
+              content_id: item.id,
+              score,
+              max_score: maxScore,
+              completed_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_id,content_id' }
+          );
+
+        if (!error) {
+          setScoreSaved(true);
+          setSavedScore({ score, maxScore });
+        }
+      } catch (err) {
+        console.error('Progress save error:', err);
+      }
+    }
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [user, item]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -36,7 +75,6 @@ export default function InteractiveViewer() {
       try {
         let url = item.file_url;
 
-        // Fișiere premium — signed URL
         if (!item.is_free) {
           const parsed = extractStoragePath(item.file_url);
           if (parsed) {
@@ -48,7 +86,6 @@ export default function InteractiveViewer() {
           }
         }
 
-        // Fetch conținut HTML și injectăm în iframe via srcDoc
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const html = await res.text();
@@ -84,6 +121,9 @@ export default function InteractiveViewer() {
     );
   }
 
+  const scorePct = savedScore ? Math.round((savedScore.score / savedScore.maxScore) * 100) : null;
+  const scoreColor = scorePct >= 80 ? '#2e7d32' : scorePct >= 50 ? '#e65100' : '#c62828';
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--navy-dark)' }}>
       {/* Bara de sus */}
@@ -108,17 +148,32 @@ export default function InteractiveViewer() {
             🧩 {item?.title}
           </div>
         </div>
-        <div style={{
-          fontSize: '0.75rem', fontWeight: 700, padding: '4px 12px', borderRadius: 20,
-          background: item?.is_free ? 'rgba(39,174,96,0.2)' : 'rgba(232,185,49,0.2)',
-          color: item?.is_free ? '#27ae60' : 'var(--gold)',
-          border: `1px solid ${item?.is_free ? 'rgba(39,174,96,0.3)' : 'rgba(232,185,49,0.3)'}`,
-        }}>
-          {item?.is_free ? 'Gratuit' : '⭐ Premium'}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Scor salvat */}
+          {scoreSaved && savedScore && (
+            <div style={{
+              background: scoreColor, color: '#fff',
+              padding: '4px 14px', borderRadius: 20,
+              fontSize: '0.82rem', fontWeight: 700,
+              animation: 'fadeIn 0.4s ease',
+            }}>
+              ✓ Scor salvat: {savedScore.score}/{savedScore.maxScore} ({scorePct}%)
+            </div>
+          )}
+
+          <div style={{
+            fontSize: '0.75rem', fontWeight: 700, padding: '4px 12px', borderRadius: 20,
+            background: item?.is_free ? 'rgba(39,174,96,0.2)' : 'rgba(232,185,49,0.2)',
+            color: item?.is_free ? '#27ae60' : 'var(--gold)',
+            border: `1px solid ${item?.is_free ? 'rgba(39,174,96,0.3)' : 'rgba(232,185,49,0.3)'}`,
+          }}>
+            {item?.is_free ? 'Gratuit' : '⭐ Premium'}
+          </div>
         </div>
       </div>
 
-      {/* iframe cu srcDoc */}
+      {/* Instrucțiune pentru dezvoltatori de exerciții */}
       {srcDoc !== null && (
         <iframe
           srcDoc={srcDoc}

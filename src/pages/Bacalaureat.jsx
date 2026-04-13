@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { ContentCard } from '../components/ContentPage';
 
 const PROFILES = {
   'mate-info':       { label: 'Mate-Info',         icon: '📐' },
@@ -10,86 +11,10 @@ const PROFILES = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function extractStoragePath(url) {
-  try {
-    const marker = '/object/public/';
-    const idx = url.indexOf(marker);
-    if (idx === -1) return null;
-    const after = url.slice(idx + marker.length);
-    const slashIdx = after.indexOf('/');
-    if (slashIdx === -1) return null;
-    return { bucket: after.slice(0, slashIdx), path: after.slice(slashIdx + 1) };
-  } catch { return null; }
-}
-
-async function resolveFileUrl(item) {
-  if (!item.file_url) return null;
-  if (item.is_free) return item.file_url;
-  const parsed = extractStoragePath(item.file_url);
-  if (!parsed) return item.file_url;
-  const { data, error } = await supabase.storage.from(parsed.bucket).createSignedUrl(parsed.path, 86400);
-  if (error || !data?.signedUrl) return null;
-  return data.signedUrl;
-}
-
-// ─── Card item ────────────────────────────────────────────────────────────────
-function ContentCard({ item }) {
-  const { isPremium, user } = useAuth();
-  const canAccess = item.is_free || isPremium;
-  const [loadingUrl, setLoadingUrl] = useState(false);
-  const navigate = useNavigate();
-
-  const typeConfig = {
-    pdf:         { icon: '📄', bg: '#e3f2fd', actionLabel: 'Deschide / Descarcă' },
-    interactive: { icon: '🧩', bg: '#f3e5f5', actionLabel: 'Începe' },
-  };
-  const cfg = typeConfig[item.content_type] || typeConfig.pdf;
-
-  async function handleOpen() {
-    if (!canAccess || !item.file_url) return;
-    if (item.content_type === 'interactive') { navigate('/exercitiu', { state: { item } }); return; }
-    setLoadingUrl(true);
-    try {
-      const url = await resolveFileUrl(item);
-      if (url) window.open(url, '_blank', 'noopener,noreferrer');
-      else alert('Nu s-a putut genera linkul.');
-    } finally { setLoadingUrl(false); }
-  }
-
-  return (
-    <div
-      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', background: '#fff', borderRadius: 10, border: '1.5px solid #eef0f4', marginBottom: 8, opacity: canAccess ? 1 : 0.75, transition: 'box-shadow 0.2s' }}
-      onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 12px rgba(15,43,68,0.09)'}
-      onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
-        <div style={{ width: 36, height: 36, borderRadius: 7, flexShrink: 0, background: cfg.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>{cfg.icon}</div>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '0.93rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.title}</div>
-          {item.description && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 1 }}>{item.description}</div>}
-        </div>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginLeft: 14 }}>
-        <span style={{ padding: '2px 9px', borderRadius: 20, fontSize: '0.7rem', fontWeight: 700, background: item.is_free ? '#e8f5e9' : '#fff3e0', color: item.is_free ? '#2e7d32' : '#e65100' }}>
-          {item.is_free ? 'Gratuit' : 'Premium'}
-        </span>
-        {canAccess ? (
-          <button onClick={handleOpen} disabled={loadingUrl} style={{ padding: '6px 16px', borderRadius: 7, fontWeight: 600, fontSize: '0.83rem', background: 'var(--navy)', color: '#fff', border: 'none', cursor: 'pointer', minWidth: 80 }}>
-            {loadingUrl ? '⏳' : cfg.actionLabel}
-          </button>
-        ) : !user ? (
-          <Link to="/autentificare" style={{ padding: '6px 14px', borderRadius: 7, fontWeight: 600, fontSize: '0.83rem', background: '#f0f4f8', color: 'var(--navy)', border: '1.5px solid #dde1e8', textDecoration: 'none' }}>🔒 Autentifică-te</Link>
-        ) : (
-          <Link to="/preturi" style={{ padding: '6px 14px', borderRadius: 7, fontWeight: 600, fontSize: '0.83rem', background: 'var(--gold)', color: 'var(--navy-dark)', textDecoration: 'none' }}>⭐ Premium</Link>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Bloc iteme ───────────────────────────────────────────────────────────────
 function ItemBlock({ category, subcategory, profile, contentType, emptyText }) {
+  const { user, isPremium } = useAuth();
   const [items, setItems] = useState([]);
+  const [progressMap, setProgressMap] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -109,13 +34,26 @@ function ItemBlock({ category, subcategory, profile, contentType, emptyText }) {
     load();
   }, [category, subcategory, profile, contentType]);
 
+  useEffect(() => {
+    if (!user || items.length === 0 || contentType !== 'interactive') return;
+    const ids = items.map(i => i.id);
+    supabase.from('progress').select('*').eq('user_id', user.id).in('content_id', ids)
+      .then(({ data }) => {
+        if (data) {
+          const map = {};
+          data.forEach(p => { map[p.content_id] = p; });
+          setProgressMap(map);
+        }
+      });
+  }, [user, items, contentType]);
+
   if (loading) return <div style={{ padding: '10px 0', color: 'var(--text-muted)', fontSize: '0.83rem' }}>Se încarcă...</div>;
   if (items.length === 0) return (
     <div style={{ padding: '10px 14px', background: '#f7f9fc', borderRadius: 8, color: 'var(--text-muted)', fontSize: '0.82rem', marginBottom: 6 }}>
       {emptyText || 'Niciun material disponibil momentan.'}
     </div>
   );
-  return <div>{items.map(item => <ContentCard key={item.id} item={item} />)}</div>;
+  return <div>{items.map(item => <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} />)}</div>;
 }
 
 // ─── Secțiune colapsabilă ─────────────────────────────────────────────────────
