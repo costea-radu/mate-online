@@ -9,7 +9,6 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const fetchedForSession = useRef(null);
 
-  // useCallback previne re-render infinit cand fetchProfile e in dependency array
   const fetchProfile = useCallback(async (userId) => {
     try {
       const { data, error } = await supabase
@@ -78,6 +77,16 @@ export function AuthProvider({ children }) {
     return data;
   }
 
+  async function signInWithGoogle() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/profil`,
+      },
+    });
+    if (error) throw error;
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
     setUser(null);
@@ -91,7 +100,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       user, profile, loading, isPremium, isAdmin,
-      signUp, signIn, signOut, fetchProfile
+      signUp, signIn, signInWithGoogle, signOut, fetchProfile
     }}>
       {children}
     </AuthContext.Provider>
