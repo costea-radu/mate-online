@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { ContentCard } from '../components/ContentPage';
@@ -10,7 +10,7 @@ const PROFILES = {
   'tehnologic':      { label: 'Tehnologic',         icon: '⚙️' },
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Bloc de iteme ────────────────────────────────────────────────────────────
 function ItemBlock({ category, subcategory, profile, contentType, emptyText }) {
   const { user, isPremium } = useAuth();
   const [items, setItems] = useState([]);
@@ -47,13 +47,23 @@ function ItemBlock({ category, subcategory, profile, contentType, emptyText }) {
       });
   }, [user, items, contentType]);
 
-  if (loading) return <div style={{ padding: '10px 0', color: 'var(--text-muted)', fontSize: '0.83rem' }}>Se încarcă...</div>;
+  if (loading) return (
+    <div style={{ padding: '10px 0', color: 'var(--text-muted)', fontSize: '0.83rem' }}>
+      Se încarcă...
+    </div>
+  );
   if (items.length === 0) return (
     <div style={{ padding: '10px 14px', background: '#f7f9fc', borderRadius: 8, color: 'var(--text-muted)', fontSize: '0.82rem', marginBottom: 6 }}>
       {emptyText || 'Niciun material disponibil momentan.'}
     </div>
   );
-  return <div>{items.map(item => <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} />)}</div>;
+  return (
+    <div>
+      {items.map(item => (
+        <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} />
+      ))}
+    </div>
+  );
 }
 
 // ─── Secțiune colapsabilă ─────────────────────────────────────────────────────
@@ -104,19 +114,15 @@ function ProfilePDFContent({ profile }) {
         <SubTitle>🧩 Interactive</SubTitle>
         <ItemBlock category="bacalaureat" subcategory="exercitii" profile={profile} contentType="interactive" />
       </Section>
-
       <Section title="Variante Date + Olimpici + Rezerve" icon="📋" level={2}>
         <ItemBlock category="bacalaureat" subcategory="variante" profile={profile} contentType="pdf" />
       </Section>
-
       <Section title="Teste de Antrenament" icon="🏋" level={2}>
         <ItemBlock category="bacalaureat" subcategory="teste-antrenament" profile={profile} contentType="pdf" />
       </Section>
-
       <Section title="Simulări" icon="🎯" level={2}>
         <ItemBlock category="bacalaureat" subcategory="simulari" profile={profile} contentType="pdf" />
       </Section>
-
       <Section title="Bareme" icon="✅" level={2}>
         <ItemBlock category="bacalaureat" subcategory="bareme" profile={profile} contentType="pdf" />
       </Section>
@@ -144,7 +150,6 @@ export default function Bacalaureat() {
 
       <div className="content-list">
         <div className="container">
-          {/* Tab principal: PDF | Teste Interactive */}
           <div className="tabs">
             <button className={`tab ${mainTab === 'pdf' ? 'active' : ''}`} onClick={() => setMainTab('pdf')}>
               📄 PDF
@@ -156,7 +161,7 @@ export default function Bacalaureat() {
 
           {mainTab === 'pdf' && (
             <div style={{ marginTop: 16 }}>
-              {/* Capitole — comune tuturor profilurilor */}
+              {/* Capitole comune */}
               <Section title="Capitole cu Exerciții" icon="📚">
                 <SubTitle>📄 PDF</SubTitle>
                 <ItemBlock category="bacalaureat" subcategory="capitole" contentType="pdf" />
@@ -189,8 +194,7 @@ export default function Bacalaureat() {
 
           {mainTab === 'interactive' && (
             <div style={{ marginTop: 16 }}>
-              {/* Selector profil pentru interactive */}
-              <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
                 {Object.entries(PROFILES).map(([key, val]) => (
                   <Link
                     key={key}
@@ -207,7 +211,6 @@ export default function Bacalaureat() {
                   </Link>
                 ))}
               </div>
-
               <ItemBlock
                 category="bacalaureat"
                 subcategory="teste-interactive"

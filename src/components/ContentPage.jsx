@@ -79,18 +79,18 @@ export function ContentCard({ item, isPremium, user, progress }) {
   return (
     <div
       style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 20px', background: '#fff', borderRadius: 10,
+        display: 'flex', flexDirection: 'column',
+        padding: '14px 16px', background: '#fff', borderRadius: 10,
         border: '1.5px solid #eef0f4', marginBottom: 8,
-        transition: 'box-shadow 0.2s',
+        transition: 'box-shadow 0.2s', gap: 10,
       }}
       onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 12px rgba(15,43,68,0.09)'}
       onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
     >
-      {/* Stânga: icon + titlu */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+      {/* Rând 1: icon + titlu */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
         <div style={{
-          width: 38, height: 38, borderRadius: 8, flexShrink: 0,
+          width: 36, height: 36, borderRadius: 8, flexShrink: 0,
           background: cfg.bg, display: 'flex', alignItems: 'center',
           justifyContent: 'center', fontSize: '1.1rem',
           opacity: canAccess ? 1 : 0.5,
@@ -100,77 +100,64 @@ export function ContentCard({ item, isPremium, user, progress }) {
         <div style={{ minWidth: 0 }}>
           <div style={{
             fontWeight: 600, color: canAccess ? 'var(--navy)' : 'var(--text-muted)',
-            fontSize: '0.93rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            fontSize: '0.92rem',
           }}>
             {item.title}
           </div>
           {item.description && (
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 1 }}>
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: 2 }}>
               {item.description}
             </div>
           )}
         </div>
       </div>
 
-      {/* Dreapta: progres + badge + buton */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginLeft: 12 }}>
-        {/* Progres doar pentru interactive */}
+      {/* Rând 2: progres + badge + buton */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         {item.content_type === 'interactive' && user && canAccess && (
           <ProgressBadge progress={progress} />
         )}
 
-        {/* Badge acces */}
         <span style={{
-          padding: '2px 9px', borderRadius: 20, fontSize: '0.7rem', fontWeight: 700,
+          padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700,
           background: item.is_free ? '#e8f5e9' : '#fff3e0',
           color: item.is_free ? '#2e7d32' : '#e65100',
         }}>
           {item.is_free ? 'Gratuit' : 'Premium'}
         </span>
 
-        {/* Buton acțiune */}
-        {canAccess ? (
-          <button
-            onClick={handleOpen}
-            disabled={loadingUrl || (!item.file_url && item.content_type !== 'manual')}
-            style={{
-              padding: '6px 16px', borderRadius: 7, fontWeight: 600, fontSize: '0.83rem',
-              background: 'var(--navy)', color: '#fff', border: 'none', cursor: 'pointer',
-              opacity: (!item.file_url && item.content_type !== 'manual') ? 0.4 : 1,
-              minWidth: 90, transition: 'background 0.2s',
-            }}
-            onMouseEnter={e => { if (!loadingUrl) e.currentTarget.style.background = 'var(--navy-light)'; }}
-            onMouseLeave={e => e.currentTarget.style.background = 'var(--navy)'}
-          >
-            {loadingUrl ? '⏳' : cfg.actionLabel}
-          </button>
-        ) : !user ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-              🔒 Necesită cont
-            </span>
+        <div style={{ marginLeft: 'auto' }}>
+          {canAccess ? (
+            <button
+              onClick={handleOpen}
+              disabled={loadingUrl || (!item.file_url && item.content_type !== 'manual')}
+              style={{
+                padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem',
+                background: 'var(--navy)', color: '#fff', border: 'none', cursor: 'pointer',
+                opacity: (!item.file_url && item.content_type !== 'manual') ? 0.4 : 1,
+                transition: 'background 0.2s', whiteSpace: 'nowrap',
+              }}
+            >
+              {loadingUrl ? '⏳' : cfg.actionLabel}
+            </button>
+          ) : !user ? (
             <Link to="/autentificare" style={{
-              padding: '6px 14px', borderRadius: 7, fontWeight: 600, fontSize: '0.82rem',
+              padding: '7px 16px', borderRadius: 7, fontWeight: 600, fontSize: '0.83rem',
               background: '#f0f4f8', color: 'var(--navy)', border: '1.5px solid #dde1e8',
-              textDecoration: 'none', whiteSpace: 'nowrap',
+              textDecoration: 'none', whiteSpace: 'nowrap', display: 'inline-block',
             }}>
-              Autentifică-te
+              🔒 Autentifică-te
             </Link>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: '0.75rem', color: '#e65100', fontStyle: 'italic', whiteSpace: 'nowrap' }}>
-              🔒 Necesită Premium
-            </span>
+          ) : (
             <Link to="/preturi" style={{
-              padding: '6px 14px', borderRadius: 7, fontWeight: 600, fontSize: '0.82rem',
+              padding: '7px 16px', borderRadius: 7, fontWeight: 600, fontSize: '0.83rem',
               background: 'var(--gold)', color: 'var(--navy-dark)',
-              textDecoration: 'none', whiteSpace: 'nowrap',
+              textDecoration: 'none', whiteSpace: 'nowrap', display: 'inline-block',
             }}>
-              Abonează-te
+              🔒 Necesită Premium
             </Link>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

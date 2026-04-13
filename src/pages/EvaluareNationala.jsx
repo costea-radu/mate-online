@@ -1,13 +1,77 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { ContentCard } from '../components/ContentPage';
 
+// ─── Bloc iteme ───────────────────────────────────────────────────────────────
+function ItemBlock({ category, subcategory, contentType, emptyText }) {
+  const { user, isPremium } = useAuth();
+  const [items, setItems] = useState([]);
+  const [progressMap, setProgressMap] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      let q = supabase.from('content').select('*')
+        .eq('category', category)
+        .eq('content_type', contentType)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: false });
+      if (subcategory) q = q.eq('subcategory', subcategory);
+      const { data, error } = await q;
+      if (!error) setItems(data || []);
+      setLoading(false);
+    }
+    load();
+  }, [category, subcategory, contentType]);
+
+  useEffect(() => {
+    if (!user || items.length === 0 || contentType !== 'interactive') return;
+    const ids = items.map(i => i.id);
+    supabase.from('progress').select('*')
+      .eq('user_id', user.id)
+      .in('content_id', ids)
+      .then(({ data }) => {
+        if (data) {
+          const map = {};
+          data.forEach(p => { map[p.content_id] = p; });
+          setProgressMap(map);
+        }
+      });
+  }, [user, items, contentType]);
+
+  if (loading) return (
+    <div style={{ padding: '12px 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+      Se încarcă...
+    </div>
+  );
+
+  if (items.length === 0) return (
+    <div style={{ padding: '12px 16px', background: '#f7f9fc', borderRadius: 8, color: 'var(--text-muted)', fontSize: '0.83rem', marginBottom: 8 }}>
+      {emptyText || 'Niciun material disponibil momentan.'}
+    </div>
+  );
+
+  return (
+    <div>
+      {items.map(item => (
+        <ContentCard
+          key={item.id}
+          item={item}
+          isPremium={isPremium}
+          user={user}
+          progress={progressMap[item.id]}
+        />
+      ))}
+    </div>
+  );
+}
+
 // ─── Secțiune colapsabilă ─────────────────────────────────────────────────────
 function Section({ title, icon, defaultOpen = false, children, level = 1 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const indent = level === 1 ? 0 : 20;
   const bgColor = level === 1 ? 'var(--navy)' : level === 2 ? 'var(--navy-light)' : '#2a4a65';
   const fontSize = level === 1 ? '1rem' : level === 2 ? '0.92rem' : '0.87rem';
 
@@ -40,10 +104,13 @@ function Section({ title, icon, defaultOpen = false, children, level = 1 }) {
   );
 }
 
-// ─── Sub-secțiune cu titlu simplu ─────────────────────────────────────────────
 function SubTitle({ children }) {
   return (
-    <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.85rem', marginBottom: 8, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.7 }}>
+    <div style={{
+      fontWeight: 700, color: 'var(--navy)', fontSize: '0.82rem',
+      marginBottom: 6, marginTop: 4,
+      textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.65,
+    }}>
       {children}
     </div>
   );
@@ -67,12 +134,17 @@ export default function EvaluareNationala() {
 
       <div className="content-list">
         <div className="container">
-          {/* Tab principal: PDF | Teste Interactive */}
           <div className="tabs">
-            <button className={`tab ${mainTab === 'pdf' ? 'active' : ''}`} onClick={() => setMainTab('pdf')}>
+            <button
+              className={`tab ${mainTab === 'pdf' ? 'active' : ''}`}
+              onClick={() => setMainTab('pdf')}
+            >
               📄 PDF
             </button>
-            <button className={`tab ${mainTab === 'interactive' ? 'active' : ''}`} onClick={() => setMainTab('interactive')}>
+            <button
+              className={`tab ${mainTab === 'interactive' ? 'active' : ''}`}
+              onClick={() => setMainTab('interactive')}
+            >
               🧩 Teste Interactive
             </button>
           </div>
@@ -86,9 +158,7 @@ export default function EvaluareNationala() {
                 <ItemBlock category="evaluare-nationala" subcategory="capitole" contentType="interactive" />
               </Section>
 
-              {/* Teste de antrenament */}
               <Section title="Teste de Antrenament" icon="🏋">
-                {/* Exerciții pe subiecte */}
                 <Section title="Exerciții pe Subiecte" icon="📝" level={2}>
                   <SubTitle>📄 PDF</SubTitle>
                   <ItemBlock category="evaluare-nationala" subcategory="exercitii-subiecte" contentType="pdf" />
@@ -113,8 +183,12 @@ export default function EvaluareNationala() {
 
           {mainTab === 'interactive' && (
             <div style={{ marginTop: 16 }}>
-              <ItemBlock category="evaluare-nationala" subcategory="teste-interactive" contentType="interactive"
-                emptyText="Testele interactive vor fi adăugate în curând." />
+              <ItemBlock
+                category="evaluare-nationala"
+                subcategory="teste-interactive"
+                contentType="interactive"
+                emptyText="Testele interactive vor fi adăugate în curând."
+              />
             </div>
           )}
         </div>
