@@ -65,7 +65,7 @@ module.exports = async function handler(req, res) {
               name: 'ExamenMate Premium',
               description: 'Abonament lunar – acces complet la toate materialele',
             },
-            unit_amount: 5000, //50 lei = 5000 bani
+            unit_amount: 200, //50 lei = 5000 bani
             recurring: { interval: 'month' },
           },
           quantity: 1,
