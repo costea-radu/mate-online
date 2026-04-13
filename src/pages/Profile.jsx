@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 export default function Profile() {
   const { user, profile, isPremium, signOut, loading, fetchProfile } = useAuth();
   const navigate = useNavigate();
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
     if (!loading && !user) {
@@ -34,11 +37,12 @@ export default function Profile() {
     return null;
   }
 
-  const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
-  const displayName = profile?.full_name || user.user_metadata?.name || user.user_metadata?.full_name || 'Utilizator';
-  const initials = displayName === 'Utilizator'
-    ? (user.email?.[0] || '?').toUpperCase()
-    : displayName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+  const initials = (profile?.full_name || user.email || '?')
+    .split(' ')
+    .map(w => w[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
 
   async function handleManageSubscription() {
     try {
@@ -66,6 +70,31 @@ export default function Profile() {
     navigate('/');
   }
 
+  async function handleDeleteAccount() {
+    const confirmed = window.confirm(
+      'Ești sigur că vrei să îți ștergi contul? Această acțiune este ireversibilă și vei pierde accesul la toate materialele.'
+    );
+    if (!confirmed) return;
+
+    const doubleConfirmed = window.confirm(
+      'Ultima confirmare: contul și toate datele asociate vor fi șterse permanent. Continui?'
+    );
+    if (!doubleConfirmed) return;
+
+    setDeleteLoading(true);
+    setDeleteError('');
+    try {
+      const { error } = await supabase.rpc('delete_user_account');
+      if (error) throw error;
+      await signOut();
+      navigate('/');
+    } catch (err) {
+      console.error('Delete account error:', err);
+      setDeleteError('A apărut o eroare la ștergerea contului. Contactează suportul la costea.radu.ioan@gmail.com.');
+      setDeleteLoading(false);
+    }
+  }
+
   return (
     <section className="profile-section">
       <div className="container">
@@ -91,18 +120,9 @@ export default function Profile() {
           {/* Sidebar */}
           <div className="profile-sidebar">
             <div className="card">
-              {avatarUrl ? (
-                <img
-                  src={avatarUrl}
-                  alt="Avatar"
-                  className="profile-avatar"
-                  style={{ objectFit: 'cover', padding: 0 }}
-                  onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
-                />
-              ) : null}
-              <div className="profile-avatar" style={{ display: avatarUrl ? 'none' : 'flex' }}>{initials}</div>
+              <div className="profile-avatar">{initials}</div>
               <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 4 }}>
-                {displayName}
+                {profile?.full_name || 'Utilizator'}
               </h3>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>
                 {user.email}
@@ -191,14 +211,40 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Logout */}
-            <button
-              className="btn btn-outline btn-sm"
-              style={{ marginTop: 24 }}
-              onClick={handleSignOut}
-            >
-              Deconectare
-            </button>
+            {/* Logout + Delete */}
+            <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={handleSignOut}
+              >
+                Deconectare
+              </button>
+
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 4 }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 10 }}>
+                  <strong style={{ color: 'var(--danger)' }}>Zonă periculoasă</strong> — acțiunile de mai jos sunt ireversibile.
+                </div>
+                {deleteError && (
+                  <div style={{ background: '#fce4ec', color: 'var(--danger)', padding: '10px 14px', borderRadius: 8, fontSize: '0.83rem', marginBottom: 10 }}>
+                    {deleteError}
+                  </div>
+                )}
+                <button
+                  onClick={handleDeleteAccount}
+                  disabled={deleteLoading}
+                  style={{
+                    padding: '8px 18px', borderRadius: 8, fontWeight: 600, fontSize: '0.85rem',
+                    background: 'transparent', color: 'var(--danger)',
+                    border: '1.5px solid var(--danger)', cursor: 'pointer',
+                    opacity: deleteLoading ? 0.6 : 1, transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#fce4ec'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  {deleteLoading ? 'Se șterge...' : '🗑 Șterge contul'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -85,19 +85,19 @@ export default function PoliticaConfidentialitate() {
               <ul style={{ marginTop: 10, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <li><strong>Accesa</strong> datele personale pe care le deținem despre tine.</li>
                 <li><strong>Rectifica</strong> datele incorecte sau incomplete.</li>
-                <li><strong>Șterge</strong> contul și datele asociate („dreptul de a fi uitat").</li>
+                <li><strong>Șterge</strong> contul și datele asociate („dreptul de a fi uitat") — direct din secțiunea <strong>Contul meu → Șterge contul</strong>, fără a fi necesară contactarea suportului.</li>
                 <li><strong>Restricționa</strong> prelucrarea datelor tale în anumite circumstanțe.</li>
                 <li><strong>Portabiliza</strong> datele tale într-un format lizibil de mașină.</li>
                 <li><strong>Retrage consimțământul</strong> oricând, fără a afecta legalitatea prelucrării anterioare.</li>
               </ul>
               <p style={{ marginTop: 10 }}>
-                Pentru exercitarea acestor drepturi, ne contactezi la: <a href="mailto:costea.radu.ioan@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>costea.radu.ioan@gmail.com</a>
+                Ștergerea contului o poți face direct din <strong>Contul meu → Șterge contul</strong>. Pentru celelalte drepturi (acces, rectificare, portabilitate, restricționare), ne contactezi la: <a href="mailto:costea.radu.ioan@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>costea.radu.ioan@gmail.com</a>
               </p>
             </Section>
 
             <Section title="7. Retenția datelor">
               <p>
-                Datele de cont sunt păstrate pe durata existenței contului. La ștergerea contului, datele personale sunt eliminate în termen de 30 de zile, inclusiv datele obținute prin autentificarea Google. Datele de facturare pot fi păstrate conform obligațiilor legale (până la 5 ani).
+                Datele de cont sunt păstrate pe durata existenței contului. La ștergerea contului (inițiată direct de utilizator din <strong>Contul meu</strong> sau la cerere prin suport), datele personale și profilul sunt eliminate imediat din baza de date. Datele de facturare pot fi păstrate conform obligațiilor legale (până la 5 ani). Datele obținute prin autentificarea Google (nume, e-mail, fotografie) sunt eliminate odată cu contul.
               </p>
             </Section>
 
