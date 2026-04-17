@@ -37,12 +37,14 @@ export default function Profile() {
     return null;
   }
 
-  const initials = (profile?.full_name || user.email || '?')
-    .split(' ')
-    .map(w => w[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
+  const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+  const displayName = profile?.full_name
+    || user.user_metadata?.name
+    || user.user_metadata?.full_name
+    || 'Utilizator';
+  const initials = displayName === 'Utilizator'
+    ? (user.email?.[0] || '?').toUpperCase()
+    : displayName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
   async function handleManageSubscription() {
     try {
@@ -72,12 +74,11 @@ export default function Profile() {
 
   async function handleDeleteAccount() {
     const confirmed = window.confirm(
-      'Ești sigur că vrei să îți ștergi contul? Această acțiune este ireversibilă și vei pierde accesul la toate materialele.'
+      'Ești sigur că vrei să îți ștergi contul? Această acțiune este ireversibilă.'
     );
     if (!confirmed) return;
-
     const doubleConfirmed = window.confirm(
-      'Ultima confirmare: contul și toate datele asociate vor fi șterse permanent. Continui?'
+      'Ultima confirmare: contul și toate datele vor fi șterse permanent. Continui?'
     );
     if (!doubleConfirmed) return;
 
@@ -90,7 +91,7 @@ export default function Profile() {
       navigate('/');
     } catch (err) {
       console.error('Delete account error:', err);
-      setDeleteError('A apărut o eroare la ștergerea contului. Contactează suportul la costea.radu.ioan@gmail.com.');
+      setDeleteError('A apărut o eroare. Contactează suportul la costea.radu.ioan@gmail.com.');
       setDeleteLoading(false);
     }
   }
@@ -120,9 +121,18 @@ export default function Profile() {
           {/* Sidebar */}
           <div className="profile-sidebar">
             <div className="card">
-              <div className="profile-avatar">{initials}</div>
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt="Avatar"
+                  className="profile-avatar"
+                  style={{ objectFit: 'cover', padding: 0 }}
+                  onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
+                />
+              ) : null}
+              <div className="profile-avatar" style={{ display: avatarUrl ? 'none' : 'flex' }}>{initials}</div>
               <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 4 }}>
-                {profile?.full_name || 'Utilizator'}
+                {displayName}
               </h3>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>
                 {user.email}
@@ -211,18 +221,14 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Logout + Delete */}
+            {/* Logout */}
             <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <button
-                className="btn btn-outline btn-sm"
-                onClick={handleSignOut}
-              >
+              <button className="btn btn-outline btn-sm" onClick={handleSignOut}>
                 Deconectare
               </button>
-
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 4 }}>
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 10 }}>
-                  <strong style={{ color: 'var(--danger)' }}>Zonă periculoasă</strong> — acțiunile de mai jos sunt ireversibile.
+                  <strong style={{ color: 'var(--danger)' }}>Zonă periculoasă</strong>
                 </div>
                 {deleteError && (
                   <div style={{ background: '#fce4ec', color: 'var(--danger)', padding: '10px 14px', borderRadius: 8, fontSize: '0.83rem', marginBottom: 10 }}>
@@ -236,10 +242,8 @@ export default function Profile() {
                     padding: '8px 18px', borderRadius: 8, fontWeight: 600, fontSize: '0.85rem',
                     background: 'transparent', color: 'var(--danger)',
                     border: '1.5px solid var(--danger)', cursor: 'pointer',
-                    opacity: deleteLoading ? 0.6 : 1, transition: 'all 0.2s',
+                    opacity: deleteLoading ? 0.6 : 1,
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.background = '#fce4ec'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                 >
                   {deleteLoading ? 'Se șterge...' : '🗑 Șterge contul'}
                 </button>
