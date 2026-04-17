@@ -526,6 +526,25 @@ img { max-width: 100%; display: block; }
   }
 }
 
+/* ── Navbar mobile: ascunde linkurile desktop, afișează doar hamburger ── */
+@media (max-width: 768px) {
+  .navbar-links {
+    display: none !important;
+  }
+  .navbar-auth {
+    display: none !important;
+  }
+  .mobile-toggle {
+    display: flex !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .mobile-toggle {
+    display: none !important;
+  }
+}
+
 /* ======= AUTH ======= */
 .auth-page {
   min-height: calc(100vh - 68px);
