@@ -158,7 +158,7 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
         <div style={{ marginLeft: 'auto' }}>
           {canAccess ? (
             isPdf ? (
-              {signedUrl ? (
+              signedUrl ? (
                 <a
                   href={signedUrl}
                   target="_blank"
@@ -186,7 +186,7 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
                 >
                   {loadingUrl ? '⏳' : cfg.actionLabel}
                 </button>
-              )}
+              )
             ) : (
               // Interactive / Manual — navigare internă
               <button
