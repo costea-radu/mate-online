@@ -14,6 +14,7 @@ import Pricing from './pages/Pricing';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
 import InteractiveViewer from './pages/InteractiveViewer';
+import PDFViewer from './pages/PDFViewer';
 import Contact from './pages/Contact';
 import PoliticaConfidentialitate from './pages/PoliticaConfidentialitate';
 import TermeniConditii from './pages/TermeniConditii';
@@ -31,7 +32,7 @@ function ScrollToTop() {
 
 function Layout({ children }) {
   const { pathname } = useLocation();
-  const fullscreen = pathname === '/admin' || pathname === '/exercitiu';
+  const fullscreen = pathname === '/admin' || pathname === '/exercitiu' || pathname === '/pdf-viewer';
   return (
     <>
       {!fullscreen && <Navbar />}
@@ -62,6 +63,7 @@ export default function App() {
             <Route path="/profil" element={<Profile />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/exercitiu" element={<InteractiveViewer />} />
+            <Route path="/pdf-viewer" element={<PDFViewer />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/politica-confidentialitate" element={<PoliticaConfidentialitate />} />
             <Route path="/termeni-conditii" element={<TermeniConditii />} />

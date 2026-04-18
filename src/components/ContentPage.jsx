@@ -38,66 +38,10 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
 
   const isPdf = item.content_type === 'pdf';
   const isInteractive = item.content_type === 'interactive';
-  const [loadingUrl, setLoadingUrl] = useState(false);
-  const [signedUrl, setSignedUrl] = useState(null);
 
-  async function getFileUrl() {
-    // Fișiere gratuite — URL direct din bucket public
-    if (item.is_free) return item.file_url;
-
-    // Fișiere premium — URL semnat generat server-side (5 min expiry)
-    if (!user) return null;
-    try {
-      const res = await fetch('/api/get-file-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, contentId: item.id }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      return data.url;
-    } catch (err) {
-      console.error('Get file URL error:', err);
-      return null;
-    }
-  }
-
-  async function handlePdfOpen() {
-    // Deschidem tab-ul gol SINCRON (în handlerul de click direct)
-    // iOS Safari permite asta — blochează doar window.open din contexte async
-    const newTab = window.open('', '_blank');
-    if (!newTab) {
-      // Fallback dacă popup-urile sunt blocate: afișăm linkul în pagină
-      setLoadingUrl(true);
-      try {
-        const url = await getFileUrl();
-        if (url) {
-          setSignedUrl(url);
-        } else {
-          alert('Nu s-a putut accesa fișierul. Verifică abonamentul.');
-        }
-      } finally {
-        setLoadingUrl(false);
-      }
-      return;
-    }
-
-    // Tab deschis — acum facem fetch-ul async și setăm URL-ul
-    newTab.document.write('<html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f0f4f8"><p style="color:#5a6170">Se încarcă fișierul...</p></body></html>');
-    setLoadingUrl(true);
-    try {
-      const url = await getFileUrl();
-      if (url) {
-        newTab.location.href = url;
-      } else {
-        newTab.close();
-        alert('Nu s-a putut accesa fișierul. Verifică abonamentul.');
-      }
-    } catch {
-      newTab.close();
-    } finally {
-      setLoadingUrl(false);
-    }
+  function handlePdfOpen() {
+    // Navigăm intern la viewer — URL-ul real nu e vizibil niciodată
+    navigate('/pdf-viewer', { state: { item } });
   }
 
   function handleInteractive(e) {
@@ -158,35 +102,17 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
         <div style={{ marginLeft: 'auto' }}>
           {canAccess ? (
             isPdf ? (
-              signedUrl ? (
-                <a
-                  href={signedUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setSignedUrl(null)}
-                  style={{
-                    display: 'inline-block', padding: '7px 18px', borderRadius: 7,
-                    fontWeight: 700, fontSize: '0.85rem', background: '#2e7d32',
-                    color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap',
-                    animation: 'pulse 0.3s ease',
-                  }}
-                >
-                  📄 Apasă pentru a deschide
-                </a>
-              ) : (
-                <button
-                  onClick={handlePdfOpen}
-                  disabled={loadingUrl || !item.file_url}
-                  style={{
-                    padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem',
-                    background: item.file_url ? 'var(--navy)' : '#ccc',
-                    color: '#fff', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
-                    opacity: loadingUrl ? 0.7 : 1,
-                  }}
-                >
-                  {loadingUrl ? '⏳' : cfg.actionLabel}
-                </button>
-              )
+              <button
+                onClick={handlePdfOpen}
+                disabled={!item.file_url}
+                style={{
+                  padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem',
+                  background: item.file_url ? 'var(--navy)' : '#ccc',
+                  color: '#fff', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                }}
+              >
+                {cfg.actionLabel}
+              </button>
             ) : (
               // Interactive / Manual — navigare internă
               <button
