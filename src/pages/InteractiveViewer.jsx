@@ -59,19 +59,45 @@ export default function InteractiveViewer() {
     const canAccess = item.is_free || isPremium;
     if (!canAccess) { navigate('/preturi'); return; }
 
-    // Dacă srcDoc vine direct din state (manual HTML inline), nu mai fetch-uim
+    // srcDoc direct din state (transmis de ContentPage)
     if (state?.srcDoc) {
+      setLoading(false);
+      return;
+    }
+
+    // Manual cu conținut inline (manual_content) — nu e nevoie de fetch
+    if (item.content_type === 'manual' && item.manual_content && !item.file_url) {
+      setSrcDoc(item.manual_content);
       setLoading(false);
       return;
     }
 
     async function load() {
       try {
-        // URL direct — bucket-ul content-files e acum public
         const url = item.file_url;
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const html = await res.text();
+        let html = await res.text();
+
+        // Injectăm MATE_ITEM și MATE_USER în HTML
+        // Manualele PDF (recapitulare-cls5-8.html) le citesc pentru /api/get-file-url
+        const mateItem = JSON.stringify({
+          id: item.id,
+          file_url: item.file_url,
+          is_free: item.is_free,
+          title: item.title,
+        });
+        const mateUser = user ? JSON.stringify({ id: user.id }) : 'null';
+        const inject = '<script>window.MATE_ITEM=' + mateItem + ';window.MATE_USER=' + mateUser + ';<\/script>';
+
+        if (html.includes('<head>')) {
+          html = html.replace('<head>', '<head>' + inject);
+        } else if (html.includes('<html>')) {
+          html = html.replace('<html>', '<html>' + inject);
+        } else {
+          html = inject + html;
+        }
+
         setSrcDoc(html);
       } catch (err) {
         console.error(err);
@@ -162,7 +188,7 @@ export default function InteractiveViewer() {
           srcDoc={srcDoc}
           style={{ flex: 1, border: 'none', width: '100%' }}
           title={item?.title}
-          sandbox="allow-scripts allow-forms allow-same-origin allow-popups"
+          sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-top-navigation-by-user-activation"
         />
       )}
     </div>

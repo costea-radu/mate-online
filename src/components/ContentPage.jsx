@@ -38,14 +38,16 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
 
   const isPdf = item.content_type === 'pdf';
   const isInteractive = item.content_type === 'interactive';
+  const isManual = item.content_type === 'manual';
 
   function handlePdfOpen() {
-    // Navigăm intern la viewer — URL-ul real nu e vizibil niciodată
+    // PDF-urile normale → PDFViewer (blob URL, fără a expune URL-ul)
     navigate('/pdf-viewer', { state: { item } });
   }
 
   function handleInteractive(e) {
     e.preventDefault();
+    // Interactive și manuale HTML → InteractiveViewer (iframe cu srcDoc injectat)
     navigate('/exercitiu', { state: { item, srcDoc: _overrideSrcDoc } });
   }
 
@@ -102,6 +104,7 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
         <div style={{ marginLeft: 'auto' }}>
           {canAccess ? (
             isPdf ? (
+              // PDF normal → PDFViewer cu blob URL
               <button
                 onClick={handlePdfOpen}
                 disabled={!item.file_url}
@@ -114,14 +117,14 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
                 {cfg.actionLabel}
               </button>
             ) : (
-              // Interactive / Manual — navigare internă
+              // Interactive + Manual HTML → InteractiveViewer (cu MATE_ITEM injectat)
               <button
                 onClick={handleInteractive}
-                disabled={!item.file_url && !_overrideSrcDoc}
+                disabled={!item.file_url && !item.manual_content && !_overrideSrcDoc}
                 style={{
                   padding: '7px 18px', borderRadius: 7, fontWeight: 600, fontSize: '0.85rem',
                   background: 'var(--navy)', color: '#fff', border: 'none', cursor: 'pointer',
-                  opacity: (!item.file_url && !_overrideSrcDoc) ? 0.4 : 1,
+                  opacity: (!item.file_url && !item.manual_content && !_overrideSrcDoc) ? 0.4 : 1,
                   whiteSpace: 'nowrap',
                 }}
               >
