@@ -488,12 +488,16 @@ function ContentList({ refresh }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState({ category: '', type: '' });
   const [deleting, setDeleting] = useState(null);
+  const [moving, setMoving] = useState(null);
 
   useEffect(() => { load(); }, [refresh]);
 
   async function load() {
     setLoading(true);
-    const { data, error } = await supabase.from('content').select('*').order('created_at', { ascending: false });
+    const { data, error } = await supabase
+      .from('content').select('*')
+      .order('sort_order', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: false });
     if (!error) setItems(data || []);
     setLoading(false);
   }
@@ -501,8 +505,6 @@ function ContentList({ refresh }) {
   async function handleDelete(item) {
     if (!window.confirm(`Sigur vrei să ștergi "${item.title}"?`)) return;
     setDeleting(item.id);
-
-    // Șterge fișierul din Storage dacă există
     if (item.file_url) {
       try {
         const bucket = item.is_free ? 'content-files-free' : 'content-files';
@@ -513,12 +515,57 @@ function ContentList({ refresh }) {
           const storagePath = url.slice(idx + prefix.length);
           await supabase.storage.from(bucket).remove([storagePath]);
         }
-      } catch (_) { /* nu blocăm dacă Storage eșuează */ }
+      } catch (_) {}
     }
-
     await supabase.from('content').delete().eq('id', item.id);
     setItems(i => i.filter(x => x.id !== item.id));
     setDeleting(null);
+  }
+
+  // Mută un item în sus sau jos în cadrul aceleiași categorii
+  async function handleMove(item, direction) {
+    setMoving(item.id);
+    try {
+      // Luăm toate itemele din aceeași categorie, în ordinea curentă
+      const sameCategory = items.filter(i => i.category === item.category);
+      const idx = sameCategory.findIndex(i => i.id === item.id);
+      const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (swapIdx < 0 || swapIdx >= sameCategory.length) return;
+
+      const current = sameCategory[idx];
+      const swap = sameCategory[swapIdx];
+
+      // Calculăm noile sort_order
+      const currentOrder = current.sort_order ?? idx + 1;
+      const swapOrder = swap.sort_order ?? swapIdx + 1;
+
+      // Dacă sunt egale, forțăm valori distincte
+      const newCurrentOrder = swapOrder === currentOrder ? (direction === 'up' ? currentOrder - 1 : currentOrder + 1) : swapOrder;
+      const newSwapOrder = currentOrder;
+
+      await Promise.all([
+        supabase.from('content').update({ sort_order: newCurrentOrder }).eq('id', current.id),
+        supabase.from('content').update({ sort_order: newSwapOrder }).eq('id', swap.id),
+      ]);
+
+      // Actualizăm local
+      setItems(prev => {
+        const next = [...prev];
+        const ai = next.findIndex(i => i.id === current.id);
+        const bi = next.findIndex(i => i.id === swap.id);
+        next[ai] = { ...next[ai], sort_order: newCurrentOrder };
+        next[bi] = { ...next[bi], sort_order: newSwapOrder };
+        // Re-sort
+        return next.sort((a, b) => {
+          if (a.sort_order == null && b.sort_order == null) return new Date(b.created_at) - new Date(a.created_at);
+          if (a.sort_order == null) return 1;
+          if (b.sort_order == null) return -1;
+          return a.sort_order - b.sort_order;
+        });
+      });
+    } finally {
+      setMoving(null);
+    }
   }
 
   const filtered = items.filter(i =>
@@ -526,11 +573,21 @@ function ContentList({ refresh }) {
     (!filter.type || i.content_type === filter.type)
   );
 
+  // Pentru butoanele sus/jos: știm poziția în categoria filtrată
+  function isFirstInCategory(item) {
+    const same = filtered.filter(i => i.category === item.category);
+    return same[0]?.id === item.id;
+  }
+  function isLastInCategory(item) {
+    const same = filtered.filter(i => i.category === item.category);
+    return same[same.length - 1]?.id === item.id;
+  }
+
   return (
     <div style={s.card}>
       <div style={s.cardTitle}>📋 Tot Conținutul ({filtered.length})</div>
 
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <select style={{ ...s.select, width: 200 }} value={filter.category}
           onChange={e => setFilter(p => ({ ...p, category: e.target.value }))}>
           <option value="">Toate categoriile</option>
@@ -541,6 +598,9 @@ function ContentList({ refresh }) {
           <option value="">Toate tipurile</option>
           {CONTENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
+        <div style={{ fontSize: '0.78rem', color: '#8e95a3', alignSelf: 'center' }}>
+          💡 Folosește ▲▼ pentru a schimba ordinea în cadrul aceleiași categorii
+        </div>
       </div>
 
       {loading ? (
@@ -551,11 +611,11 @@ function ContentList({ refresh }) {
         <table style={s.table}>
           <thead>
             <tr>
+              <th style={{ ...s.th, width: 60 }}>Ordine</th>
               <th style={s.th}>Titlu</th>
               <th style={s.th}>Categorie</th>
               <th style={s.th}>Tip</th>
               <th style={s.th}>Acces</th>
-              <th style={s.th}>Fișier</th>
               <th style={s.th}>Data</th>
               <th style={s.th}></th>
             </tr>
@@ -563,36 +623,53 @@ function ContentList({ refresh }) {
           <tbody>
             {filtered.map(item => (
               <tr key={item.id}>
+                {/* Butoane ordonare */}
+                <td style={{ ...s.td, textAlign: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                    <button
+                      onClick={() => handleMove(item, 'up')}
+                      disabled={moving === item.id || isFirstInCategory(item)}
+                      title="Mută mai sus"
+                      style={{
+                        background: 'none', border: '1px solid #dde1e8', borderRadius: 4,
+                        width: 24, height: 22, cursor: isFirstInCategory(item) ? 'default' : 'pointer',
+                        opacity: isFirstInCategory(item) ? 0.25 : 1,
+                        fontSize: '0.7rem', lineHeight: 1, color: 'var(--navy)',
+                      }}
+                    >▲</button>
+                    <button
+                      onClick={() => handleMove(item, 'down')}
+                      disabled={moving === item.id || isLastInCategory(item)}
+                      title="Mută mai jos"
+                      style={{
+                        background: 'none', border: '1px solid #dde1e8', borderRadius: 4,
+                        width: 24, height: 22, cursor: isLastInCategory(item) ? 'default' : 'pointer',
+                        opacity: isLastInCategory(item) ? 0.25 : 1,
+                        fontSize: '0.7rem', lineHeight: 1, color: 'var(--navy)',
+                      }}
+                    >▼</button>
+                  </div>
+                </td>
                 <td style={s.td}>
-                  <div style={{ fontWeight: 600, color: 'var(--navy)' }}>{item.title}</div>
+                  <div style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '0.88rem' }}>{item.title}</div>
                   {item.description && (
-                    <div style={{ fontSize: '0.78rem', color: '#8e95a3', marginTop: 2 }}>{item.description}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#8e95a3', marginTop: 2 }}>{item.description}</div>
                   )}
                 </td>
                 <td style={s.td}>
-                  <span style={{ fontSize: '0.82rem', color: '#5a6170' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#5a6170' }}>
                     {CATEGORIES.find(c => c.value === item.category)?.label || item.category}
                   </span>
                 </td>
                 <td style={s.td}><span style={s.badge(item.content_type)}>{item.content_type}</span></td>
                 <td style={s.td}><span style={s.freeBadge(item.is_free)}>{item.is_free ? 'Gratuit' : 'Premium'}</span></td>
-                <td style={s.td}>
-                  {item.file_url ? (
-                    <a href={item.file_url} target="_blank" rel="noopener noreferrer"
-                      style={{ fontSize: '0.78rem', color: '#1565c0', textDecoration: 'underline' }}>
-                      {item.content_type === 'interactive' ? '🧩 HTML' : '📄 PDF'}
-                    </a>
-                  ) : (
-                    <span style={{ fontSize: '0.78rem', color: '#8e95a3' }}>—</span>
-                  )}
-                </td>
                 <td style={{ ...s.td, fontSize: '0.78rem', color: '#8e95a3' }}>
                   {new Date(item.created_at).toLocaleDateString('ro-RO')}
                 </td>
                 <td style={s.td}>
                   <button style={s.btnDanger} onClick={() => handleDelete(item)}
                     disabled={deleting === item.id}>
-                    {deleting === item.id ? '...' : '🗑 Șterge'}
+                    {deleting === item.id ? '...' : '🗑'}
                   </button>
                 </td>
               </tr>
