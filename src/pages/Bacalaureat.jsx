@@ -120,7 +120,7 @@ function ProfilePDFContent({ profile }) {
       <Section title="Teste de Antrenament" icon="🏋" level={2}>
         <ItemBlock category="bacalaureat" subcategory="teste-antrenament" profile={profile} contentType="pdf" />
       </Section>
-      <Section title="Simulări" icon="🎯" level={2}>
+      <Section title="Simulări + Modele" icon="🎯" level={2}>
         <ItemBlock category="bacalaureat" subcategory="simulari" profile={profile} contentType="pdf" />
       </Section>
       <Section title="Bareme" icon="✅" level={2}>
