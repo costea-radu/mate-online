@@ -81,6 +81,130 @@ function DesktopDropdown({ label, items }) {
   );
 }
 
+// ─── Search Modal ─────────────────────────────────────────────────────────────
+function SearchModal({ onClose }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+  const inputRef = useRef();
+
+  useEffect(() => {
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }, []);
+
+  useEffect(() => {
+    if (query.trim().length < 2) { setResults([]); return; }
+    setLoading(true);
+    const timer = setTimeout(async () => {
+      const { supabase } = await import('../lib/supabase');
+      const { data } = await supabase
+        .from('content')
+        .select('id, title, description, category, content_type, is_free')
+        .ilike('title', `%${query}%`)
+        .limit(12);
+      setResults(data || []);
+      setLoading(false);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const categoryLabels = {
+    'clasa-5':'Clasa a V-a','clasa-6':'Clasa a VI-a','clasa-7':'Clasa a VII-a',
+    'clasa-8':'Clasa a VIII-a','clasa-9':'Clasa a IX-a','clasa-10':'Clasa a X-a',
+    'clasa-11':'Clasa a XI-a','clasa-12':'Clasa a XII-a',
+    'evaluare-nationala':'Evaluare Națională','bacalaureat':'Bacalaureat','manuale':'Auxiliare',
+  };
+
+  function getCategoryUrl(item) {
+    if (item.category.startsWith('clasa-')) return `/clase/${item.category.replace('clasa-', '')}`;
+    if (item.category === 'evaluare-nationala') return '/evaluare-nationala';
+    if (item.category === 'bacalaureat') return '/bacalaureat/mate-info';
+    if (item.category === 'manuale') return '/manuale';
+    return '/';
+  }
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000 }} />
+      <div style={{
+        position:'fixed', top:'10%', left:'50%', transform:'translateX(-50%)',
+        width:'min(560px, 92vw)', background:'#fff', borderRadius:14,
+        boxShadow:'0 20px 60px rgba(0,0,0,0.3)', zIndex:1001, overflow:'hidden',
+      }}>
+        {/* Input */}
+        <div style={{ display:'flex', alignItems:'center', padding:'14px 16px', borderBottom:'1px solid #eef0f4', gap:10 }}>
+          <span style={{ fontSize:'1.1rem', flexShrink:0 }}>🔍</span>
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Caută exerciții, teste, capitole..."
+            style={{
+              flex:1, border:'none', outline:'none', fontSize:'1rem',
+              color:'var(--navy)', background:'transparent', fontFamily:'var(--font-body)',
+            }}
+            onKeyDown={e => e.key === 'Escape' && onClose()}
+          />
+          {query && (
+            <button onClick={() => setQuery('')} style={{ background:'none', border:'none', cursor:'pointer', color:'#aaa', fontSize:'1.1rem' }}>✕</button>
+          )}
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#aaa', fontSize:'0.85rem', fontWeight:600, padding:'4px 8px', borderRadius:6, whiteSpace:'nowrap' }}>
+            Închide
+          </button>
+        </div>
+
+        {/* Results */}
+        <div style={{ maxHeight:'60vh', overflowY:'auto' }}>
+          {query.length < 2 ? (
+            <div style={{ padding:'28px 20px', textAlign:'center', color:'#aaa', fontSize:'0.88rem' }}>
+              Scrie cel puțin 2 caractere pentru a căuta...
+            </div>
+          ) : loading ? (
+            <div style={{ padding:'28px 20px', textAlign:'center', color:'#aaa', fontSize:'0.88rem' }}>
+              Se caută...
+            </div>
+          ) : results.length === 0 ? (
+            <div style={{ padding:'28px 20px', textAlign:'center', color:'#aaa', fontSize:'0.88rem' }}>
+              Niciun rezultat pentru „{query}"
+            </div>
+          ) : results.map(item => (
+            <button
+              key={item.id}
+              onClick={() => { navigate(getCategoryUrl(item)); onClose(); }}
+              style={{
+                display:'block', width:'100%', textAlign:'left', padding:'12px 18px',
+                background:'none', border:'none', borderBottom:'1px solid #f0f4f8',
+                cursor:'pointer', transition:'background 0.15s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = '#f7f9fc'}
+              onMouseLeave={e => e.currentTarget.style.background = 'none'}
+            >
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <span style={{ fontSize:'1rem', flexShrink:0 }}>
+                  {item.content_type === 'pdf' ? '📄' : item.content_type === 'interactive' ? '🧩' : '📖'}
+                </span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:600, color:'var(--navy)', fontSize:'0.9rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                    {item.title}
+                  </div>
+                  <div style={{ fontSize:'0.75rem', color:'#8e95a3', marginTop:2 }}>
+                    {categoryLabels[item.category] || item.category}
+                    {' · '}
+                    <span style={{ color: item.is_free ? '#2e7d32' : '#e65100', fontWeight:600 }}>
+                      {item.is_free ? 'Gratuit' : 'Premium'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── Mobile menu overlay ──────────────────────────────────────────────────────
 function MobileMenu({ open, onClose, user, isPremium, isAdmin, onSignOut }) {
   const location = useLocation();
@@ -227,6 +351,7 @@ export default function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   async function handleSignOut() {
     setMobileOpen(false);
@@ -242,14 +367,23 @@ export default function Navbar() {
             <span className="logo-accent">Mate</span>Online
           </Link>
 
-          {/* Buton hamburgher — doar pe mobile */}
-          <button
-            className="mobile-toggle"
-            onClick={() => setMobileOpen(o => !o)}
-            aria-label="Meniu"
-          >
-            ☰
-          </button>
+          {/* Butoane mobile: Căutare + Meniu */}
+          <div className="mobile-actions">
+            <button
+              className="mobile-search-btn"
+              onClick={() => setSearchOpen(true)}
+              aria-label="Căutare"
+            >
+              🔍
+            </button>
+            <button
+              className="mobile-toggle"
+              onClick={() => setMobileOpen(o => !o)}
+              aria-label="Meniu"
+            >
+              ☰
+            </button>
+          </div>
 
           {/* Desktop nav links */}
           <ul className="navbar-links" style={{ alignItems: 'center' }}>
@@ -269,6 +403,14 @@ export default function Navbar() {
 
           {/* Desktop auth buttons */}
           <div className="navbar-auth">
+            {/* Buton căutare — vizibil pe desktop */}
+            <button
+              className="search-btn-desktop"
+              onClick={() => setSearchOpen(true)}
+              aria-label="Căutare"
+            >
+              🔍 Caută
+            </button>
             {isAdmin && (
               <Link to="/admin" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -302,6 +444,11 @@ export default function Navbar() {
           </div>
         </div>
       </nav>
+
+      {/* Search modal */}
+      {searchOpen && (
+        <SearchModal onClose={() => setSearchOpen(false)} />
+      )}
 
       {/* Mobile drawer */}
       <MobileMenu

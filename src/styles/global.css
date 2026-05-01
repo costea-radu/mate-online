@@ -526,23 +526,61 @@ img { max-width: 100%; display: block; }
   }
 }
 
-/* ── Navbar mobile: ascunde linkurile desktop, afișează doar hamburger ── */
+/* ── Navbar search button ── */
+.search-btn-desktop {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.85);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.2s;
+  white-space: nowrap;
+  font-family: var(--font-body);
+}
+.search-btn-desktop:hover {
+  background: rgba(255,255,255,0.18);
+  color: #fff;
+}
+
+/* ── Navbar mobile ── */
+.mobile-actions {
+  display: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.mobile-search-btn {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: #fff;
+  border-radius: 8px;
+  width: 38px;
+  height: 38px;
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+.mobile-search-btn:hover { background: rgba(255,255,255,0.2); }
+
 @media (max-width: 768px) {
-  .navbar-links {
-    display: none !important;
-  }
-  .navbar-auth {
-    display: none !important;
-  }
-  .mobile-toggle {
-    display: flex !important;
-  }
+  .navbar-links { display: none !important; }
+  .navbar-auth  { display: none !important; }
+  .mobile-toggle { display: flex !important; }
+  .mobile-actions { display: flex !important; }
 }
 
 @media (min-width: 769px) {
-  .mobile-toggle {
-    display: none !important;
-  }
+  .mobile-toggle  { display: none !important; }
+  .mobile-actions { display: none !important; }
 }
 
 /* ======= AUTH ======= */
