@@ -256,7 +256,9 @@ function PostCard({ post, onRefresh, depth = 0 }) {
 
   const canDelete = user && (user.id === post.user_id || isAdmin);
   const p = post.profile;
-  const name = p?.full_name || p?.email?.split('@')[0] || 'Utilizator';
+  const name = p?.full_name && p.full_name.trim()
+    ? p.full_name
+    : (p?.email?.split('@')[0] || post._authorName || 'Utilizator');
   const avatarUrl = p?.avatar_url || null;
   const catLabel = CATEGORIES.find(c => c.value === post.category_key)?.label;
 
@@ -350,32 +352,48 @@ export default function Discussions({ fixedCategory }) {
     if (filterCat) q = q.eq('category_key', filterCat);
 
     const { data, error } = await q;
+    let posts = data || [];
+
     if (error) {
       console.error('Discussions load error:', error);
-      // Retry fără join pe profiles dacă relația nu există
+      // Retry fără join pe profiles
       let q2 = supabase
-        .from('discussions')
-        .select('*')
+        .from('discussions').select('*')
         .is('parent_id', null)
         .order('created_at', { ascending: false })
         .range(from, from + PAGE_SIZE - 1);
       if (filterCat) q2 = q2.eq('category_key', filterCat);
-      const { data: data2, error: err2 } = await q2;
-      if (!err2) {
-        const items = (data2 || []).map(p => ({ ...p, profile: null }));
-        if (pageNum === 0) setPosts(items);
-        else setPosts(prev => [...prev, ...items]);
-        setHasMore(items.length === PAGE_SIZE);
-        setPage(pageNum);
-      } else {
-        console.error('Discussions retry error:', err2);
-      }
-    } else {
-      if (pageNum === 0) setPosts(data || []);
-      else setPosts(prev => [...prev, ...(data || [])]);
-      setHasMore((data || []).length === PAGE_SIZE);
-      setPage(pageNum);
+      const { data: data2 } = await q2;
+      posts = (data2 || []).map(p => ({ ...p, profile: null }));
     }
+
+    // Dacă profile.full_name e null, încarcă din profiles separat
+    const missingProfileIds = posts
+      .filter(p => !p.profile?.full_name)
+      .map(p => p.user_id)
+      .filter(Boolean);
+
+    if (missingProfileIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url, email')
+        .in('id', [...new Set(missingProfileIds)]);
+
+      if (profiles) {
+        const profileMap = Object.fromEntries(profiles.map(p => [p.id, p]));
+        posts = posts.map(post => ({
+          ...post,
+          profile: post.profile?.full_name
+            ? post.profile
+            : (profileMap[post.user_id] || post.profile),
+        }));
+      }
+    }
+
+    if (pageNum === 0) setPosts(posts);
+    else setPosts(prev => [...prev, ...posts]);
+    setHasMore(posts.length === PAGE_SIZE);
+    setPage(pageNum);
     setLoading(false);
   }
 

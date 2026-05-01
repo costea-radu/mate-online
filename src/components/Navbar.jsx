@@ -109,11 +109,16 @@ function SearchModal({ onClose }) {
     if (query.trim().length < 2) { setResults([]); return; }
     setLoading(true);
     const timer = setTimeout(async () => {
-      // Caută în conținut (titlu + filename)
-      const [{ data: byTitle }, { data: byFile }, { data: byDisc }] = await Promise.all([
+      // Caută în conținut (titlu + filename) și în discuții — în paralel
+      const [
+        { data: byTitle },
+        { data: byFile },
+        { data: byDisc }
+      ] = await Promise.all([
         supabase.from('content').select('*').ilike('title', `%${query}%`).limit(10),
         supabase.from('content').select('*').ilike('file_url', `%${query}%`).limit(10),
-        supabase.from('discussions').select('*, profile:profiles(full_name)').ilike('body', `%${query}%`).is('parent_id', null).limit(6),
+        supabase.from('discussions').select('id, body, category_key, created_at, user_id')
+          .ilike('body', `%${query}%`).is('parent_id', null).limit(5),
       ]);
 
       // Conținut — fără duplicate
@@ -123,7 +128,7 @@ function SearchModal({ onClose }) {
         if (!ids.has(item.id)) { combined.push(item); ids.add(item.id); }
       }
 
-      // Discuții — marcate cu tip special
+      // Discuții — fără join pe profiles (evităm erori RLS)
       const discItems = (byDisc || []).map(d => ({ ...d, _type: 'discussion' }));
 
       setResults([...combined.slice(0, 10), ...discItems]);
