@@ -176,11 +176,17 @@ function PostCard({ post, onRefresh, depth = 0 }) {
   }, [post.id]);
 
   async function loadReplies() {
-    const { data } = await supabase
+    let { data, error } = await supabase
       .from('discussions')
       .select('*, profile:profiles(full_name, email, avatar_url)')
       .eq('parent_id', post.id)
       .order('created_at', { ascending: true });
+    if (error) {
+      const { data: data2 } = await supabase
+        .from('discussions').select('*')
+        .eq('parent_id', post.id).order('created_at', { ascending: true });
+      data = (data2 || []).map(p => ({ ...p, profile: null }));
+    }
     setReplies(data || []);
     setShowReplies(true);
   }
@@ -299,7 +305,27 @@ export default function Discussions({ fixedCategory }) {
     if (filterCat) q = q.eq('category_key', filterCat);
 
     const { data, error } = await q;
-    if (!error) {
+    if (error) {
+      console.error('Discussions load error:', error);
+      // Retry fără join pe profiles dacă relația nu există
+      let q2 = supabase
+        .from('discussions')
+        .select('*')
+        .is('parent_id', null)
+        .order('created_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+      if (filterCat) q2 = q2.eq('category_key', filterCat);
+      const { data: data2, error: err2 } = await q2;
+      if (!err2) {
+        const items = (data2 || []).map(p => ({ ...p, profile: null }));
+        if (pageNum === 0) setPosts(items);
+        else setPosts(prev => [...prev, ...items]);
+        setHasMore(items.length === PAGE_SIZE);
+        setPage(pageNum);
+      } else {
+        console.error('Discussions retry error:', err2);
+      }
+    } else {
       if (pageNum === 0) setPosts(data || []);
       else setPosts(prev => [...prev, ...(data || [])]);
       setHasMore((data || []).length === PAGE_SIZE);
