@@ -60,7 +60,7 @@ export default function PoliticaRetur() {
                 <li><strong>Telefon:</strong> 0765 173 728</li>
               </ul>
               <p style={{ marginTop: 12 }}>
-                Cererea ta va fi procesată în termen de <strong>14 zile</strong> de la primire, iar suma plătită va fi rambursată prin același mijloc de plată utilizat la achiziție.
+                Cererea ta va fi procesată în termen de <strong>14 zile</strong> de la primire, iar suma plătită va fi rambursată prin același mijloc de plată utilizat la achiziție (card bancar, Apple Pay sau Google Pay). Rambursările prin Apple Pay sau Google Pay revin în contul bancar asociat wallet-ului respectiv.
               </p>
             </Section>
 

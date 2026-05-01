@@ -50,7 +50,7 @@ export default function TermeniConditii() {
 
             <Section title="3. Conturi de utilizator">
               <p>
-                Fiecare utilizator poate deține un singur cont. Te poți înregistra și autentifica fie prin e-mail și parolă, fie prin contul tău Google. Prin alegerea autentificării cu Google, ești de acord cu <a href="https://policies.google.com/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Termenii de utilizare Google</a> și autorizezi Mate-Online să primească informațiile de profil furnizate de Google (nume, e-mail, fotografie de profil).
+                Fiecare utilizator poate deține un singur cont. Te poți înregistra și autentifica prin e-mail și parolă, prin contul tău Google sau prin contul tău Discord. Prin autentificarea cu Google, ești de acord cu <a href="https://policies.google.com/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Termenii Google</a>. Prin autentificarea cu Discord, ești de acord cu <a href="https://discord.com/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Termenii Discord</a>. Autorizezi Mate-Online să primească informațiile de profil furnizate de aceste servicii (nume, e-mail, fotografie de profil).
               </p>
               <p style={{ marginTop: 10 }}>
                 Ești responsabil pentru toate activitățile desfășurate prin contul tău. În cazul în care suspectezi accesul neautorizat al unui terț la contul tău, ne informezi imediat. Ne rezervăm dreptul de a suspenda sau închide conturi care încalcă acești termeni.
@@ -92,7 +92,7 @@ export default function TermeniConditii() {
 
             <Section title="8. Servicii terțe">
               <p>
-                Platforma utilizează servicii terțe pentru funcționarea sa: Supabase (autentificare și baze de date), Google (autentificare OAuth), Stripe (procesare plăți) și Vercel (găzduire). Utilizarea acestor servicii este guvernată de propriii termeni și condiții ai fiecărui furnizor. Mate-Online nu este responsabilă pentru disponibilitatea sau funcționarea acestor servicii terțe.
+                Platforma utilizează servicii terțe pentru funcționarea sa: Supabase (autentificare și baze de date), Google (autentificare OAuth), Discord (autentificare OAuth), Stripe (procesare plăți, inclusiv Apple Pay și Google Pay) și Vercel (găzduire). Utilizarea acestor servicii este guvernată de propriii termeni și condiții ai fiecărui furnizor. Mate-Online nu este responsabilă pentru disponibilitatea sau funcționarea acestor servicii terțe.
               </p>
             </Section>
 
