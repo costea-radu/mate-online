@@ -3,20 +3,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-function getOriginalFilename(url) {
-  if (!url) return null;
-  try {
-    const decoded = decodeURIComponent(url);
-    const parts = decoded.split('/');
-    const filename = parts[parts.length - 1];
-    // Remove timestamp prefix (e.g. "1776193195857_")
-    return filename.replace(/^\d+_/, '');
-  } catch {
-    return null;
-  }
-}
-
 // ─── Badge progres ────────────────────────────────────────────────────────────
 function ProgressBadge({ progress }) {
   if (!progress) return null;
