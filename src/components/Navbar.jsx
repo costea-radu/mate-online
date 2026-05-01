@@ -83,6 +83,16 @@ function DesktopDropdown({ label, items }) {
 }
 
 // ─── Search Modal ─────────────────────────────────────────────────────────────
+function getOriginalFilename(url) {
+  if (!url) return null;
+  try {
+    const decoded = decodeURIComponent(url);
+    const parts = decoded.split('/');
+    const filename = parts[parts.length - 1];
+    return filename.replace(/^\d+_/, '');
+  } catch { return null; }
+}
+
 function SearchModal({ onClose }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -224,6 +234,11 @@ function SearchModal({ onClose }) {
                         <span style={{ color:'#e65100', fontSize:'0.7rem' }}>🔒 Necesită abonament</span>
                       )}
                     </div>
+                  {item.content_type === 'pdf' && getOriginalFilename(item.file_url) && (
+                    <div style={{ fontSize:'0.67rem', color:'#b0b8c4', marginTop:2, fontStyle:'italic', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:340 }}>
+                      {getOriginalFilename(item.file_url)}
+                    </div>
+                  )}
                   </div>
                   <span style={{ fontSize:'0.75rem', color:'#bbb', flexShrink:0 }}>
                     {canAccess ? '→' : '🔒'}
