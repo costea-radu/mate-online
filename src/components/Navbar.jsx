@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 const CLASE = [
   { to: '/clase/5',  label: 'Clasa a V-a' },
@@ -98,7 +99,6 @@ function SearchModal({ onClose }) {
     if (query.trim().length < 2) { setResults([]); return; }
     setLoading(true);
     const timer = setTimeout(async () => {
-      const { supabase } = await import('../lib/supabase');
       const { data } = await supabase
         .from('content')
         .select('*')
