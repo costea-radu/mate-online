@@ -80,9 +80,15 @@ export function AuthProvider({ children }) {
   async function signInWithGoogle() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/profil`,
-      },
+      options: { redirectTo: `${window.location.origin}/profil` },
+    });
+    if (error) throw error;
+  }
+
+  async function signInWithDiscord() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'discord',
+      options: { redirectTo: `${window.location.origin}/profil` },
     });
     if (error) throw error;
   }
@@ -100,7 +106,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       user, profile, loading, isPremium, isAdmin,
-      signUp, signIn, signInWithGoogle, signOut, fetchProfile
+      signUp, signIn, signInWithGoogle, signInWithDiscord, signOut, fetchProfile
     }}>
       {children}
     </AuthContext.Provider>
