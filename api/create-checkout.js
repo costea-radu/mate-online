@@ -51,7 +51,8 @@ module.exports = async function handler(req, res) {
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      payment_method_types: ['card'],
+      // Nu specificăm payment_method_types — Stripe activează automat
+      // card, Apple Pay, Google Pay și orice altă metodă activată în Dashboard
       customer_email: email,
       metadata: { supabase_user_id: userId },
       subscription_data: {
@@ -65,7 +66,7 @@ module.exports = async function handler(req, res) {
               name: 'Mate-Online Premium',
               description: 'Abonament lunar – acces complet la toate materialele',
             },
-            unit_amount: 5000, //50 lei = 5000 bani
+            unit_amount: 200,
             recurring: { interval: 'month' },
           },
           quantity: 1,
