@@ -99,12 +99,26 @@ function SearchModal({ onClose }) {
     if (query.trim().length < 2) { setResults([]); return; }
     setLoading(true);
     const timer = setTimeout(async () => {
-      const { data } = await supabase
+      // Caută după titlu SAU după numele original al fișierului (file_url)
+      const { data: byTitle } = await supabase
         .from('content')
         .select('*')
         .ilike('title', `%${query}%`)
         .limit(12);
-      setResults(data || []);
+
+      const { data: byFile } = await supabase
+        .from('content')
+        .select('*')
+        .ilike('file_url', `%${query}%`)
+        .limit(12);
+
+      // Combinăm și eliminăm duplicatele
+      const combined = [...(byTitle || [])];
+      const ids = new Set(combined.map(i => i.id));
+      for (const item of (byFile || [])) {
+        if (!ids.has(item.id)) { combined.push(item); ids.add(item.id); }
+      }
+      setResults(combined.slice(0, 15));
       setLoading(false);
     }, 300);
     return () => clearTimeout(timer);

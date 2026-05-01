@@ -485,6 +485,22 @@ img { max-width: 100%; display: block; }
 }
 
 /* ======= TABS ======= */
+.filename-original {
+  font-size: 0.67rem;
+  color: #b0b8c4;
+  margin-top: 3px;
+  font-style: italic;
+}
+
+@media (max-width: 768px) {
+  .filename-original {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 200px;
+  }
+}
+
 .tabs {
   display: flex;
   flex-wrap: wrap;

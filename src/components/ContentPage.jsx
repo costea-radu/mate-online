@@ -96,11 +96,7 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
             </div>
           )}
           {isPdf && getOriginalFilename(item.file_url) && (
-            <div style={{
-              fontSize: '0.67rem', color: '#b0b8c4', marginTop: 3,
-              fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap', maxWidth: 240,
-            }}>
+            <div className="filename-original">
               {getOriginalFilename(item.file_url)}
             </div>
           )}
