@@ -1,7 +1,27 @@
-import { Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import Discussions from '../components/Discussions';
 
 export default function DiscussionsPage() {
+  const location = useLocation();
+
+  // Scroll la postare dacă vine din căutare
+  useEffect(() => {
+    if (!location.state?.scrollTo) return;
+    const id = location.state.scrollTo;
+    const tryScroll = (attempts = 0) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.style.outline = '2px solid var(--gold)';
+        el.style.borderRadius = '12px';
+        setTimeout(() => { el.style.outline = ''; }, 2500);
+      } else if (attempts < 10) {
+        setTimeout(() => tryScroll(attempts + 1), 300);
+      }
+    };
+    setTimeout(() => tryScroll(), 200);
+  }, [location.state]);
   return (
     <>
       <div className="page-header">

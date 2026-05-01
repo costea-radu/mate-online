@@ -210,7 +210,10 @@ function SearchModal({ onClose }) {
               return (
                 <button
                   key={'disc-' + item.id}
-                  onClick={() => { navigate('/discutii'); onClose(); }}
+                  onClick={() => {
+                    onClose();
+                    navigate('/discutii', { state: { scrollTo: `disc-${item.id}` } });
+                  }}
                   style={{ display:'block', width:'100%', textAlign:'left', padding:'12px 18px', background:'none', border:'none', borderBottom:'1px solid #f0f4f8', cursor:'pointer', transition:'background 0.15s' }}
                   onMouseEnter={e => e.currentTarget.style.background = '#f7f9fc'}
                   onMouseLeave={e => e.currentTarget.style.background = 'none'}

@@ -207,8 +207,11 @@ function SecurePdf({ url, name }) {
   }
 
   return (
-    <button onClick={openPdf} style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'8px 14px', background:'#f0f4f8', borderRadius:8, color:'var(--navy)', border:'none', cursor:'pointer', fontSize:'0.83rem', fontWeight:600 }}>
-      📄 {loading ? 'Se deschide...' : (name || 'Deschide PDF')}
+    <button onClick={openPdf} style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'8px 14px', background:'#f0f4f8', borderRadius:8, color:'var(--navy)', border:'none', cursor:'pointer', fontSize:'0.83rem', fontWeight:600, maxWidth:'100%' }}>
+      <span style={{ flexShrink:0 }}>📄</span>
+      <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:240 }}>
+        {loading ? 'Se deschide...' : (name || 'Deschide PDF')}
+      </span>
     </button>
   );
 }
@@ -263,7 +266,7 @@ function PostCard({ post, onRefresh, depth = 0 }) {
   const catLabel = CATEGORIES.find(c => c.value === post.category_key)?.label;
 
   return (
-    <div style={{ marginLeft: depth > 0 ? 20 : 0, borderLeft: depth > 0 ? '2px solid #eef0f4' : 'none', paddingLeft: depth > 0 ? 14 : 0, marginBottom: 10 }}>
+    <div id={`disc-${post.id}`} style={{ marginLeft: depth > 0 ? 20 : 0, borderLeft: depth > 0 ? '2px solid #eef0f4' : 'none', paddingLeft: depth > 0 ? 14 : 0, marginBottom: 10 }}>
       <div style={{ background:'#fff', borderRadius:12, padding:'14px 16px', border:'1.5px solid #eef0f4', boxShadow:'0 1px 4px rgba(15,43,68,0.04)' }}>
         <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
           <Avatar name={name} avatarUrl={avatarUrl} size={34} />
