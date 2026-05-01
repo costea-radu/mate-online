@@ -88,6 +88,7 @@ function SearchModal({ onClose }) {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const inputRef = useRef();
+  const { user, isPremium } = useAuth();
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 50);
@@ -100,7 +101,7 @@ function SearchModal({ onClose }) {
       const { supabase } = await import('../lib/supabase');
       const { data } = await supabase
         .from('content')
-        .select('id, title, description, category, content_type, is_free')
+        .select('*')
         .ilike('title', `%${query}%`)
         .limit(12);
       setResults(data || []);
@@ -116,12 +117,20 @@ function SearchModal({ onClose }) {
     'evaluare-nationala':'Evaluare Națională','bacalaureat':'Bacalaureat','manuale':'Auxiliare',
   };
 
-  function getCategoryUrl(item) {
-    if (item.category.startsWith('clasa-')) return `/clase/${item.category.replace('clasa-', '')}`;
-    if (item.category === 'evaluare-nationala') return '/evaluare-nationala';
-    if (item.category === 'bacalaureat') return '/bacalaureat/mate-info';
-    if (item.category === 'manuale') return '/manuale';
-    return '/';
+  function openItem(item) {
+    const canAccess = item.is_free || isPremium;
+    if (!canAccess) {
+      // Nu poate accesa — duce la prețuri
+      navigate('/preturi');
+      onClose();
+      return;
+    }
+    if (item.content_type === 'pdf') {
+      navigate('/pdf-viewer', { state: { item } });
+    } else if (item.content_type === 'interactive' || item.content_type === 'manual') {
+      navigate('/exercitiu', { state: { item } });
+    }
+    onClose();
   }
 
   return (
@@ -168,37 +177,47 @@ function SearchModal({ onClose }) {
             <div style={{ padding:'28px 20px', textAlign:'center', color:'#aaa', fontSize:'0.88rem' }}>
               Niciun rezultat pentru „{query}"
             </div>
-          ) : results.map(item => (
-            <button
-              key={item.id}
-              onClick={() => { navigate(getCategoryUrl(item)); onClose(); }}
-              style={{
-                display:'block', width:'100%', textAlign:'left', padding:'12px 18px',
-                background:'none', border:'none', borderBottom:'1px solid #f0f4f8',
-                cursor:'pointer', transition:'background 0.15s',
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = '#f7f9fc'}
-              onMouseLeave={e => e.currentTarget.style.background = 'none'}
-            >
-              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <span style={{ fontSize:'1rem', flexShrink:0 }}>
-                  {item.content_type === 'pdf' ? '📄' : item.content_type === 'interactive' ? '🧩' : '📖'}
-                </span>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight:600, color:'var(--navy)', fontSize:'0.9rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                    {item.title}
+          ) : results.map(item => {
+            const canAccess = item.is_free || isPremium;
+            return (
+              <button
+                key={item.id}
+                onClick={() => openItem(item)}
+                style={{
+                  display:'block', width:'100%', textAlign:'left', padding:'12px 18px',
+                  background:'none', border:'none', borderBottom:'1px solid #f0f4f8',
+                  cursor:'pointer', transition:'background 0.15s',
+                  opacity: canAccess ? 1 : 0.7,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f7f9fc'}
+                onMouseLeave={e => e.currentTarget.style.background = 'none'}
+              >
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <span style={{ fontSize:'1rem', flexShrink:0 }}>
+                    {item.content_type === 'pdf' ? '📄' : item.content_type === 'interactive' ? '🧩' : '📖'}
+                  </span>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:600, color:'var(--navy)', fontSize:'0.9rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                      {item.title}
+                    </div>
+                    <div style={{ fontSize:'0.75rem', color:'#8e95a3', marginTop:2, display:'flex', gap:8, alignItems:'center' }}>
+                      <span>{categoryLabels[item.category] || item.category}</span>
+                      <span>·</span>
+                      <span style={{ color: item.is_free ? '#2e7d32' : '#e65100', fontWeight:600 }}>
+                        {item.is_free ? 'Gratuit' : 'Premium'}
+                      </span>
+                      {!canAccess && (
+                        <span style={{ color:'#e65100', fontSize:'0.7rem' }}>🔒 Necesită abonament</span>
+                      )}
+                    </div>
                   </div>
-                  <div style={{ fontSize:'0.75rem', color:'#8e95a3', marginTop:2 }}>
-                    {categoryLabels[item.category] || item.category}
-                    {' · '}
-                    <span style={{ color: item.is_free ? '#2e7d32' : '#e65100', fontWeight:600 }}>
-                      {item.is_free ? 'Gratuit' : 'Premium'}
-                    </span>
-                  </div>
+                  <span style={{ fontSize:'0.75rem', color:'#bbb', flexShrink:0 }}>
+                    {canAccess ? '→' : '🔒'}
+                  </span>
                 </div>
-              </div>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       </div>
     </>
