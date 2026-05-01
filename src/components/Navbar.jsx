@@ -109,26 +109,24 @@ function SearchModal({ onClose }) {
     if (query.trim().length < 2) { setResults([]); return; }
     setLoading(true);
     const timer = setTimeout(async () => {
-      // Caută după titlu SAU după numele original al fișierului (file_url)
-      const { data: byTitle } = await supabase
-        .from('content')
-        .select('*')
-        .ilike('title', `%${query}%`)
-        .limit(12);
+      // Caută în conținut (titlu + filename)
+      const [{ data: byTitle }, { data: byFile }, { data: byDisc }] = await Promise.all([
+        supabase.from('content').select('*').ilike('title', `%${query}%`).limit(10),
+        supabase.from('content').select('*').ilike('file_url', `%${query}%`).limit(10),
+        supabase.from('discussions').select('*, profile:profiles(full_name)').ilike('body', `%${query}%`).is('parent_id', null).limit(6),
+      ]);
 
-      const { data: byFile } = await supabase
-        .from('content')
-        .select('*')
-        .ilike('file_url', `%${query}%`)
-        .limit(12);
-
-      // Combinăm și eliminăm duplicatele
+      // Conținut — fără duplicate
       const combined = [...(byTitle || [])];
       const ids = new Set(combined.map(i => i.id));
       for (const item of (byFile || [])) {
         if (!ids.has(item.id)) { combined.push(item); ids.add(item.id); }
       }
-      setResults(combined.slice(0, 15));
+
+      // Discuții — marcate cu tip special
+      const discItems = (byDisc || []).map(d => ({ ...d, _type: 'discussion' }));
+
+      setResults([...combined.slice(0, 10), ...discItems]);
       setLoading(false);
     }, 300);
     return () => clearTimeout(timer);
@@ -202,17 +200,39 @@ function SearchModal({ onClose }) {
               Niciun rezultat pentru „{query}"
             </div>
           ) : results.map(item => {
+            // Postare din discuții
+            if (item._type === 'discussion') {
+              return (
+                <button
+                  key={'disc-' + item.id}
+                  onClick={() => { navigate('/discutii'); onClose(); }}
+                  style={{ display:'block', width:'100%', textAlign:'left', padding:'12px 18px', background:'none', border:'none', borderBottom:'1px solid #f0f4f8', cursor:'pointer', transition:'background 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#f7f9fc'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                >
+                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    <span style={{ fontSize:'1rem', flexShrink:0 }}>💬</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:600, color:'var(--navy)', fontSize:'0.88rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {item.body?.slice(0, 80)}{item.body?.length > 80 ? '...' : ''}
+                      </div>
+                      <div style={{ fontSize:'0.73rem', color:'#8e95a3', marginTop:2 }}>
+                        💬 Discuții · {item.profile?.full_name || 'Utilizator'}
+                      </div>
+                    </div>
+                    <span style={{ fontSize:'0.75rem', color:'#bbb', flexShrink:0 }}>→</span>
+                  </div>
+                </button>
+              );
+            }
+
+            // Fișier conținut
             const canAccess = item.is_free || isPremium;
             return (
               <button
                 key={item.id}
                 onClick={() => openItem(item)}
-                style={{
-                  display:'block', width:'100%', textAlign:'left', padding:'12px 18px',
-                  background:'none', border:'none', borderBottom:'1px solid #f0f4f8',
-                  cursor:'pointer', transition:'background 0.15s',
-                  opacity: canAccess ? 1 : 0.7,
-                }}
+                style={{ display:'block', width:'100%', textAlign:'left', padding:'12px 18px', background:'none', border:'none', borderBottom:'1px solid #f0f4f8', cursor:'pointer', transition:'background 0.15s', opacity: canAccess ? 1 : 0.7 }}
                 onMouseEnter={e => e.currentTarget.style.background = '#f7f9fc'}
                 onMouseLeave={e => e.currentTarget.style.background = 'none'}
               >
@@ -230,19 +250,15 @@ function SearchModal({ onClose }) {
                       <span style={{ color: item.is_free ? '#2e7d32' : '#e65100', fontWeight:600 }}>
                         {item.is_free ? 'Gratuit' : 'Premium'}
                       </span>
-                      {!canAccess && (
-                        <span style={{ color:'#e65100', fontSize:'0.7rem' }}>🔒 Necesită abonament</span>
-                      )}
+                      {!canAccess && <span style={{ color:'#e65100', fontSize:'0.7rem' }}>🔒</span>}
                     </div>
-                  {item.content_type === 'pdf' && getOriginalFilename(item.file_url) && (
-                    <div style={{ fontSize:'0.67rem', color:'#b0b8c4', marginTop:2, fontStyle:'italic', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:340 }}>
-                      {getOriginalFilename(item.file_url)}
-                    </div>
-                  )}
+                    {item.content_type === 'pdf' && getOriginalFilename(item.file_url) && (
+                      <div style={{ fontSize:'0.67rem', color:'#b0b8c4', marginTop:2, fontStyle:'italic', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:340 }}>
+                        {getOriginalFilename(item.file_url)}
+                      </div>
+                    )}
                   </div>
-                  <span style={{ fontSize:'0.75rem', color:'#bbb', flexShrink:0 }}>
-                    {canAccess ? '→' : '🔒'}
-                  </span>
+                  <span style={{ fontSize:'0.75rem', color:'#bbb', flexShrink:0 }}>{canAccess ? '→' : '🔒'}</span>
                 </div>
               </button>
             );

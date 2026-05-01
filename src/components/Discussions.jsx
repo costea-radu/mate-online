@@ -162,6 +162,57 @@ function PostForm({ fixedCategory, parentId, onPosted, onCancel, placeholder, is
   );
 }
 
+// ─── Componente fișiere fără URL vizibil ─────────────────────────────────────
+function SecureImage({ url, name }) {
+  const [blobUrl, setBlobUrl] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(url)
+      .then(r => r.blob())
+      .then(blob => setBlobUrl(URL.createObjectURL(blob)))
+      .catch(() => setBlobUrl(url)) // fallback la url direct
+      .finally(() => setLoading(false));
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+  }, [url]);
+
+  if (loading) return <div style={{ height:80, background:'#f0f4f8', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', color:'#aaa', fontSize:'0.82rem' }}>Se încarcă...</div>;
+
+  return (
+    <img
+      src={blobUrl}
+      alt={name}
+      onClick={() => { const a = document.createElement('a'); a.href = blobUrl; a.target = '_blank'; a.click(); }}
+      style={{ maxWidth:'100%', maxHeight:320, borderRadius:8, display:'block', cursor:'zoom-in' }}
+    />
+  );
+}
+
+function SecurePdf({ url, name }) {
+  const [blobUrl, setBlobUrl] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  function openPdf() {
+    if (blobUrl) { const a = document.createElement('a'); a.href = blobUrl; a.target = '_blank'; a.click(); return; }
+    setLoading(true);
+    fetch(url)
+      .then(r => r.blob())
+      .then(blob => {
+        const bu = URL.createObjectURL(blob);
+        setBlobUrl(bu);
+        const a = document.createElement('a'); a.href = bu; a.target = '_blank'; a.click();
+      })
+      .catch(() => { const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.click(); })
+      .finally(() => setLoading(false));
+  }
+
+  return (
+    <button onClick={openPdf} style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'8px 14px', background:'#f0f4f8', borderRadius:8, color:'var(--navy)', border:'none', cursor:'pointer', fontSize:'0.83rem', fontWeight:600 }}>
+      📄 {loading ? 'Se deschide...' : (name || 'Deschide PDF')}
+    </button>
+  );
+}
+
 // ─── Card postare ─────────────────────────────────────────────────────────────
 function PostCard({ post, onRefresh, depth = 0 }) {
   const { user, isAdmin } = useAuth();
@@ -205,7 +256,7 @@ function PostCard({ post, onRefresh, depth = 0 }) {
 
   const canDelete = user && (user.id === post.user_id || isAdmin);
   const p = post.profile;
-  const name = p?.full_name || 'Utilizator';
+  const name = p?.full_name || p?.email?.split('@')[0] || 'Utilizator';
   const avatarUrl = p?.avatar_url || null;
   const catLabel = CATEGORIES.find(c => c.value === post.category_key)?.label;
 
@@ -234,16 +285,10 @@ function PostCard({ post, onRefresh, depth = 0 }) {
 
         {post.file_url && (
           <div style={{ marginTop:8 }}>
-            {post.file_type === 'image' ? (
-              <a href={post.file_url} target="_blank" rel="noopener noreferrer">
-                <img src={post.file_url} alt={post.file_name} style={{ maxWidth:'100%', maxHeight:320, borderRadius:8, display:'block', cursor:'zoom-in' }} />
-              </a>
-            ) : (
-              <a href={post.file_url} target="_blank" rel="noopener noreferrer"
-                style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'8px 14px', background:'#f0f4f8', borderRadius:8, color:'var(--navy)', textDecoration:'none', fontSize:'0.83rem', fontWeight:600 }}>
-                📄 {post.file_name || 'Deschide PDF'}
-              </a>
-            )}
+            {post.file_type === 'image'
+              ? <SecureImage url={post.file_url} name={post.file_name} />
+              : <SecurePdf url={post.file_url} name={post.file_name} />
+            }
           </div>
         )}
 
