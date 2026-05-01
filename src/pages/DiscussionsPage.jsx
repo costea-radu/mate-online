@@ -15,7 +15,7 @@ export default function DiscussionsPage() {
       </div>
       <div className="content-list">
         <div className="container">
-          <Discussions contentId={null} />
+          <Discussions />
         </div>
       </div>
     </>

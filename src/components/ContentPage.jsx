@@ -338,7 +338,7 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
           )}
         </div>
         {/* Secțiune discuții per categorie */}
-        <Discussions categoryKey={category} />
+        <Discussions fixedCategory={category} />
       </div>
     </>
   );

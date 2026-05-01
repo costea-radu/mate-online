@@ -346,7 +346,7 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, onSignOut }) {
           💳 Prețuri
         </Link>
         <Link to="/discutii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/discutii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-          💬 Discuții
+          💬 Discuții/Rezolvări
         </Link>
 
         {/* Separator */}
@@ -452,7 +452,7 @@ export default function Navbar() {
             </li>
             <li>
               <Link to="/discutii" className={location.pathname === '/discutii' ? 'active' : ''}>
-                💬 Discuții
+                💬 Discuții/Rezolvări
               </Link>
             </li>
           </ul>
