@@ -345,6 +345,9 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, onSignOut }) {
         <Link to="/preturi" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/preturi' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           💳 Prețuri
         </Link>
+        <Link to="/discutii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/discutii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
+          💬 Discuții
+        </Link>
 
         {/* Separator */}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.12)', margin: '8px 0' }} />
@@ -445,6 +448,11 @@ export default function Navbar() {
             <li>
               <Link to="/preturi" className={location.pathname === '/preturi' ? 'active' : ''}>
                 Prețuri
+              </Link>
+            </li>
+            <li>
+              <Link to="/discutii" className={location.pathname === '/discutii' ? 'active' : ''}>
+                💬 Discuții
               </Link>
             </li>
           </ul>

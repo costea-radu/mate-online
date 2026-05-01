@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import Discussions from './Discussions';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -336,6 +337,8 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
             </div>
           )}
         </div>
+        {/* Secțiune discuții per categorie */}
+        <Discussions categoryKey={category} />
       </div>
     </>
   );
