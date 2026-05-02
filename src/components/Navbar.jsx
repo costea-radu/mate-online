@@ -109,16 +109,19 @@ function SearchModal({ onClose }) {
     if (query.trim().length < 2) { setResults([]); return; }
     setLoading(true);
     const timer = setTimeout(async () => {
-      // Caută în conținut (titlu + filename) și în discuții — în paralel
+      // Caută în conținut, discuții și rezolvări — în paralel
       const [
         { data: byTitle },
         { data: byFile },
-        { data: byDisc }
+        { data: byDisc },
+        { data: byRez }
       ] = await Promise.all([
         supabase.from('content').select('*').ilike('title', `%${query}%`).limit(10),
         supabase.from('content').select('*').ilike('file_url', `%${query}%`).limit(10),
         supabase.from('discussions').select('id, body, category_key, created_at, user_id')
           .ilike('body', `%${query}%`).is('parent_id', null).limit(5),
+        supabase.from('rezolvari').select('id, title, description, category, type, is_free')
+          .ilike('title', `%${query}%`).limit(5),
       ]);
 
       // Conținut — fără duplicate
@@ -128,10 +131,10 @@ function SearchModal({ onClose }) {
         if (!ids.has(item.id)) { combined.push(item); ids.add(item.id); }
       }
 
-      // Discuții — fără join pe profiles (evităm erori RLS)
       const discItems = (byDisc || []).map(d => ({ ...d, _type: 'discussion' }));
+      const rezItems = (byRez || []).map(r => ({ ...r, _type: 'rezolvare' }));
 
-      setResults([...combined.slice(0, 10), ...discItems]);
+      setResults([...combined.slice(0, 8), ...discItems, ...rezItems]);
       setLoading(false);
     }, 300);
     return () => clearTimeout(timer);
@@ -205,6 +208,34 @@ function SearchModal({ onClose }) {
               Niciun rezultat pentru „{query}"
             </div>
           ) : results.map(item => {
+            // Rezolvare
+            if (item._type === 'rezolvare') {
+              return (
+                <button
+                  key={'rez-' + item.id}
+                  onClick={() => { navigate('/rezolvari'); onClose(); }}
+                  style={{ display:'block', width:'100%', textAlign:'left', padding:'12px 18px', background:'none', border:'none', borderBottom:'1px solid #f0f4f8', cursor:'pointer', transition:'background 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#f7f9fc'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                >
+                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    <span style={{ fontSize:'1rem', flexShrink:0 }}>
+                      {item.type === 'video' ? '▶' : item.type === 'pdf' ? '📄' : '🖼'}
+                    </span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:600, color:'var(--navy)', fontSize:'0.9rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {item.title}
+                      </div>
+                      <div style={{ fontSize:'0.73rem', color:'#8e95a3', marginTop:2 }}>
+                        📝 Rezolvări · <span style={{ color: item.is_free ? '#2e7d32' : '#e65100', fontWeight:600 }}>{item.is_free ? 'Gratuit' : 'Premium'}</span>
+                      </div>
+                    </div>
+                    <span style={{ fontSize:'0.75rem', color:'#bbb', flexShrink:0 }}>→</span>
+                  </div>
+                </button>
+              );
+            }
+
             // Postare din discuții
             if (item._type === 'discussion') {
               return (
@@ -369,11 +400,8 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, onSignOut }) {
         <Link to="/preturi" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/preturi' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           💳 Prețuri
         </Link>
-        <Link to="/rezolvari" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/rezolvari' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-          📝 Rezolvări
-        </Link>
         <Link to="/discutii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/discutii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-          💬 Forum
+          💬 Discuții/Rezolvări
         </Link>
 
         {/* Separator */}
@@ -478,13 +506,8 @@ export default function Navbar() {
               </Link>
             </li>
             <li>
-              <Link to="/rezolvari" className={location.pathname === '/rezolvari' ? 'active' : ''}>
-                📝 Rezolvări
-              </Link>
-            </li>
-            <li>
               <Link to="/discutii" className={location.pathname === '/discutii' ? 'active' : ''}>
-                💬 Forum
+                💬 Discuții/Rezolvări
               </Link>
             </li>
           </ul>

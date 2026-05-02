@@ -45,24 +45,11 @@ function RezolvareCard({ item, user, isPremium }) {
   const navigate = useNavigate();
   const canAccess = item.is_free || isPremium;
   const [loading, setLoading] = useState(false);
-  const [imgBlobUrl, setImgBlobUrl] = useState(null);
+
   const catLabel = CATEGORIES.find(c => c.value === item.category)?.label || item.category;
   const video = item.type === 'video' ? getVideoEmbed(item.video_url) : null;
 
-  // Preîncarcă imaginea ca blob la mount
-  useEffect(() => {
-    if (item.type !== 'image' || !canAccess || !item.file_url) return;
-    async function loadImg() {
-      try {
-        const url = await getSecureUrl(item, user);
-        const resp = await fetch(url);
-        const blob = await resp.blob();
-        setImgBlobUrl(URL.createObjectURL(blob));
-      } catch {}
-    }
-    loadImg();
-    return () => { if (imgBlobUrl) URL.revokeObjectURL(imgBlobUrl); };
-  }, [item.id, canAccess]);
+  // Imaginile nu se preîncarcă automat — se deschid la click
 
   async function getSecureUrl(item, user) {
     if (item.is_free) return item.file_url;
@@ -94,21 +81,7 @@ function RezolvareCard({ item, user, isPremium }) {
       onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 16px rgba(15,43,68,0.12)'}
       onMouseLeave={e => e.currentTarget.style.boxShadow = '0 2px 8px rgba(15,43,68,0.06)'}
     >
-      {/* ── Imagine ── */}
-      {item.type === 'image' && (
-        canAccess ? (
-          imgBlobUrl
-            ? <img src={imgBlobUrl} alt={item.title}
-                style={{ width:'100%', maxHeight:300, objectFit:'cover', display:'block', cursor:'zoom-in' }}
-                onClick={() => { const w = window.open(''); w.document.write(`<img src="${imgBlobUrl}" style="max-width:100%">`); }} />
-            : <div style={{ height:160, background:'#f7f9fc', display:'flex', alignItems:'center', justifyContent:'center', color:'#aaa', fontSize:'0.85rem' }}>Se încarcă...</div>
-        ) : (
-          <div style={{ height:160, background:'#f7f9fc', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:8 }}>
-            <span style={{ fontSize:'2rem' }}>🔒</span>
-            <span style={{ fontSize:'0.8rem', color:'#aaa' }}>{!user ? 'Autentifică-te' : 'Necesită Premium'}</span>
-          </div>
-        )
-      )}
+
 
       {/* ── Video ── */}
       {item.type === 'video' && video && (
@@ -153,6 +126,36 @@ function RezolvareCard({ item, user, isPremium }) {
         )}
 
         {catLabel && <div style={{ fontSize:'0.72rem', color:'#aab0bb', marginTop:'auto' }}>{catLabel}</div>}
+
+        {/* Buton Imagine */}
+        {item.type === 'image' && (
+          canAccess ? (
+            <button onClick={async () => {
+              setLoading(true);
+              try {
+                const url = await getSecureUrl(item, user);
+                const resp = await fetch(url);
+                const blob = await resp.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const w = window.open('');
+                w.document.write(`<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${blobUrl}" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>`);
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+              } catch(e) { alert(e.message); }
+              setLoading(false);
+            }} disabled={loading}
+              style={{ padding:'8px 16px', background:'var(--navy)', color:'#fff', border:'none', borderRadius:8, fontWeight:600, fontSize:'0.85rem', cursor:'pointer', width:'100%' }}>
+              {loading ? '⏳' : '🖼 Deschide imaginea'}
+            </button>
+          ) : !user ? (
+            <Link to="/autentificare" style={{ display:'block', padding:'8px 16px', background:'#f0f4f8', color:'var(--navy)', border:'1.5px solid #dde1e8', borderRadius:8, fontWeight:600, fontSize:'0.85rem', textAlign:'center', textDecoration:'none' }}>
+              🔒 Autentifică-te
+            </Link>
+          ) : (
+            <Link to="/preturi" style={{ display:'block', padding:'8px 16px', background:'var(--gold)', color:'var(--navy-dark)', borderRadius:8, fontWeight:600, fontSize:'0.85rem', textAlign:'center', textDecoration:'none' }}>
+              🔒 Necesită Premium
+            </Link>
+          )
+        )}
 
         {/* Buton PDF */}
         {item.type === 'pdf' && (
