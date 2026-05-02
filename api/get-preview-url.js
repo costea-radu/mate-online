@@ -1,7 +1,3 @@
-// api/get-preview-url.js
-// Returnează signed URL pentru preview (prima pagină) — fără verificare premium
-// Oricine poate accesa preview-ul, dar URL-ul expiră în 2 minute
-
 const { createClient } = require('@supabase/supabase-js');
 
 const CORS = {
@@ -25,48 +21,53 @@ module.exports = async function handler(req, res) {
   );
 
   // Obține fișierul
-  const { data: content, error } = await supabase
+  const { data: content, error: dbErr } = await supabase
     .from('content')
     .select('id, file_url, content_type')
     .eq('id', contentId)
     .single();
 
-  if (error || !content || content.content_type !== 'pdf') {
-    return res.status(404).json({ error: 'Fișier negăsit' });
+  if (dbErr || !content) {
+    return res.status(404).json({ error: 'Fișier negăsit', detail: dbErr?.message });
   }
 
-  // Extrage bucket și path din URL (suportă /object/public/ și /object/sign/)
   const fileUrl = content.file_url;
-  
-  let bucket, path;
-  
-  // Încearcă /object/public/bucket/path
-  const pubMarker = '/object/public/';
-  const pubIdx = fileUrl.indexOf(pubMarker);
-  if (pubIdx !== -1) {
-    const after = fileUrl.slice(pubIdx + pubMarker.length);
-    const slashIdx = after.indexOf('/');
-    bucket = after.slice(0, slashIdx);
-    path = after.slice(slashIdx + 1);
-  } else {
-    // Încearcă /storage/v1/object/public/bucket/path
-    const parts = fileUrl.split('/storage/v1/');
-    if (parts.length < 2) return res.status(400).json({ error: 'URL invalid: ' + fileUrl });
-    const rest = parts[1].replace('object/public/', '').replace('object/sign/', '');
-    const slashIdx = rest.indexOf('/');
-    bucket = rest.slice(0, slashIdx);
-    path = rest.slice(slashIdx + 1).split('?')[0]; // elimină query params
-  }
-  
-  console.log('Preview:', { bucket, path, fileUrl });
 
-  // Signed URL valabil 2 minute — suficient pentru preview
+  // Extrage bucket și path — suportă orice format Supabase Storage URL
+  // Format: https://xxx.supabase.co/storage/v1/object/public/BUCKET/path/to/file.pdf
+  let bucket, filePath;
+  try {
+    const url = new URL(fileUrl);
+    // pathname = /storage/v1/object/public/BUCKET/path/to/file.pdf
+    const parts = url.pathname.split('/');
+    // parts = ['', 'storage', 'v1', 'object', 'public', 'BUCKET', 'path', ...]
+    const objIdx = parts.findIndex(p => p === 'object');
+    if (objIdx === -1) throw new Error('Nu am găsit /object/ în URL');
+    // după 'object' urmează 'public' sau 'sign', apoi bucket
+    bucket = parts[objIdx + 2];
+    filePath = parts.slice(objIdx + 3).join('/');
+    // Elimină query params din filePath
+    filePath = filePath.split('?')[0];
+  } catch (e) {
+    return res.status(400).json({ error: 'URL invalid', detail: e.message, fileUrl });
+  }
+
+  if (!bucket || !filePath) {
+    return res.status(400).json({ error: 'Nu s-a putut extrage calea', fileUrl });
+  }
+
+  // Signed URL valabil 2 minute
   const { data, error: signErr } = await supabase.storage
     .from(bucket)
-    .createSignedUrl(path, 120);
+    .createSignedUrl(filePath, 120);
 
   if (signErr || !data?.signedUrl) {
-    return res.status(500).json({ error: 'Nu s-a putut genera URL-ul' });
+    return res.status(500).json({
+      error: 'Nu s-a putut genera URL-ul semnat',
+      detail: signErr?.message,
+      bucket,
+      filePath,
+    });
   }
 
   return res.status(200).json({ url: data.signedUrl });

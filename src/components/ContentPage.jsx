@@ -36,16 +36,23 @@ function PreviewModal({ item, onClose }) {
         // Dacă e 403 (bucket privat), încearcă signed URL
         // Funcționează doar dacă userul e autentificat
         if (resp.status === 403) {
-          // Bucket privat — obținem signed URL pentru preview (2 minute, fără auth)
+          // Bucket privat — obținem signed URL pentru preview
           const r = await fetch('/api/get-preview-url', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ contentId: item.id }),
           });
-          if (!r.ok) { setError(true); setLoading(false); return; }
           const d = await r.json();
+          console.log('Preview URL response:', r.status, d);
+          if (!r.ok || !d.url) {
+            console.error('Preview error:', d);
+            setError(true);
+            setLoading(false);
+            return;
+          }
           url = d.url;
           resp = await fetch(url);
+          console.log('PDF fetch status:', resp.status);
         }
 
         if (!resp.ok) throw new Error();
