@@ -93,7 +93,7 @@ function PreviewModal({ item, onClose }) {
           </span>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)' }}>
-              Prima pagină • Nu se poate descărca
+              Prima pagină • Abonează-te pentru a descărca
             </span>
             <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>✕</button>
           </div>
