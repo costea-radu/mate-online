@@ -35,16 +35,30 @@ module.exports = async function handler(req, res) {
     return res.status(404).json({ error: 'Fișier negăsit' });
   }
 
-  // Extrage bucket și path din URL
+  // Extrage bucket și path din URL (suportă /object/public/ și /object/sign/)
   const fileUrl = content.file_url;
-  const marker = '/object/public/';
-  const idx = fileUrl.indexOf(marker);
-  if (idx === -1) return res.status(400).json({ error: 'URL invalid' });
-
-  const after = fileUrl.slice(idx + marker.length);
-  const slashIdx = after.indexOf('/');
-  const bucket = after.slice(0, slashIdx);
-  const path = after.slice(slashIdx + 1);
+  
+  let bucket, path;
+  
+  // Încearcă /object/public/bucket/path
+  const pubMarker = '/object/public/';
+  const pubIdx = fileUrl.indexOf(pubMarker);
+  if (pubIdx !== -1) {
+    const after = fileUrl.slice(pubIdx + pubMarker.length);
+    const slashIdx = after.indexOf('/');
+    bucket = after.slice(0, slashIdx);
+    path = after.slice(slashIdx + 1);
+  } else {
+    // Încearcă /storage/v1/object/public/bucket/path
+    const parts = fileUrl.split('/storage/v1/');
+    if (parts.length < 2) return res.status(400).json({ error: 'URL invalid: ' + fileUrl });
+    const rest = parts[1].replace('object/public/', '').replace('object/sign/', '');
+    const slashIdx = rest.indexOf('/');
+    bucket = rest.slice(0, slashIdx);
+    path = rest.slice(slashIdx + 1).split('?')[0]; // elimină query params
+  }
+  
+  console.log('Preview:', { bucket, path, fileUrl });
 
   // Signed URL valabil 2 minute — suficient pentru preview
   const { data, error: signErr } = await supabase.storage
