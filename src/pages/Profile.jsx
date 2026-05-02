@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import UserProgress from '../components/UserProgress';
+import { useToast } from '../components/Toast';
 import { supabase } from '../lib/supabase';
 
 export default function Profile() {

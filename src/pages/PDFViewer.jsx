@@ -109,30 +109,29 @@ export default function PDFViewer() {
           <span style={{ color:'#fff', fontWeight:600, fontSize:'0.9rem', flex:1, textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
             📄 {item?.title}
           </span>
-          <span style={badge}>{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>
+          <span style={badge}>{previewOnly ? '👁 Preview' : item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>
         </div>
+
+        {previewOnly && (
+          <div style={{ background:'linear-gradient(135deg,#e8b931,#f5c842)', padding:'10px 20px', textAlign:'center', fontSize:'0.83rem', fontWeight:600, color:'#1a1a2e' }}>
+            👁 Preview — primele {PREVIEW_PAGES} pagini · <a href="/preturi" style={{ color:'var(--navy-dark)', textDecoration:'underline' }}>Abonează-te pentru acces complet</a>
+          </div>
+        )}
 
         <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:24, padding:32, textAlign:'center' }}>
           <div style={{ fontSize:'4rem' }}>📄</div>
           <div style={{ color:'#fff', fontWeight:600, fontSize:'1.1rem' }}>{item?.title}</div>
           <p style={{ color:'rgba(255,255,255,0.6)', fontSize:'0.9rem', lineHeight:1.6, maxWidth:320 }}>
-            Apasă butonul de mai jos pentru a deschide PDF-ul în aplicația nativă a dispozitivului tău.
+            {previewOnly ? `Previzualizare gratuită — primele ${PREVIEW_PAGES} pagini.` : 'Apasă butonul de mai jos pentru a deschide PDF-ul.'}
           </p>
           <a
             href={blobUrl}
             target="_blank"
             rel="noopener noreferrer"
-            style={{
-              display:'inline-block', padding:'14px 36px', background:'var(--gold)',
-              color:'var(--navy-dark)', borderRadius:10, fontWeight:700,
-              fontSize:'1rem', textDecoration:'none', boxShadow:'0 4px 16px rgba(232,185,49,0.35)',
-            }}
+            style={{ display:'inline-block', padding:'14px 36px', background:'var(--gold)', color:'var(--navy-dark)', borderRadius:10, fontWeight:700, fontSize:'1rem', textDecoration:'none', boxShadow:'0 4px 16px rgba(232,185,49,0.35)' }}
           >
-            📂 Deschide PDF-ul
+            📂 {previewOnly ? `Deschide preview (${PREVIEW_PAGES} pag.)` : 'Deschide PDF-ul'}
           </a>
-          <p style={{ color:'rgba(255,255,255,0.35)', fontSize:'0.78rem' }}>
-            Linkul este temporar și expiră la închiderea paginii.
-          </p>
         </div>
       </div>
     );
@@ -150,9 +149,19 @@ export default function PDFViewer() {
         <span style={badge}>{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>
       </div>
 
+      {previewOnly && (
+        <div style={{ background:'linear-gradient(135deg,#e8b931,#f5c842)', padding:'10px 24px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <span style={{ fontSize:'0.85rem', fontWeight:600, color:'#1a1a2e' }}>
+            👁 Preview gratuit — primele {PREVIEW_PAGES} pagini
+          </span>
+          <a href="/preturi" style={{ padding:'6px 16px', background:'var(--navy)', color:'#fff', borderRadius:7, fontWeight:700, fontSize:'0.82rem', textDecoration:'none' }}>
+            ⭐ Abonează-te
+          </a>
+        </div>
+      )}
       {blobUrl && (
         <iframe
-          src={blobUrl}
+          src={`${blobUrl}#page=1&view=FitH`}
           style={{ flex:1, border:'none', width:'100%' }}
           title={item?.title}
         />

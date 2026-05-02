@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { useDarkMode } from '../hooks/useDarkMode';
 
 const CLASE = [
   { to: '/clase/5',  label: 'Clasa a V-a' },
@@ -373,6 +374,12 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, onSignOut }) {
           💬 Discuții/Rezolvări
         </Link>
 
+        {/* Dark mode în mobile */}
+        <button onClick={() => setDark(d => !d)} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', width:'100%', padding:'13px 24px', background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.88)', fontSize:'0.97rem', fontWeight:500, borderBottom:'1px solid rgba(255,255,255,0.06)', fontFamily:'var(--font-body)' }}>
+          <span>{dark ? '☀️ Mod luminos' : '🌙 Mod întunecat'}</span>
+          <span style={{ fontSize:'0.75rem', color:'rgba(255,255,255,0.4)' }}>{dark ? 'Activ' : ''}</span>
+        </button>
+
         {/* Separator */}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.12)', margin: '8px 0' }} />
 
@@ -427,6 +434,7 @@ export default function Navbar() {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [dark, setDark] = useDarkMode();
 
   async function handleSignOut() {
     setMobileOpen(false);
@@ -483,6 +491,14 @@ export default function Navbar() {
 
           {/* Desktop auth buttons */}
           <div className="navbar-auth">
+            {/* Dark mode toggle */}
+            <button
+              onClick={() => setDark(d => !d)}
+              title={dark ? 'Mod luminos' : 'Mod întunecat'}
+              style={{ background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.15)', color:'#fff', borderRadius:8, width:36, height:36, cursor:'pointer', fontSize:'1rem', display:'flex', alignItems:'center', justifyContent:'center' }}
+            >
+              {dark ? '☀️' : '🌙'}
+            </button>
             {/* Buton căutare — vizibil pe desktop */}
             <button
               className="search-btn-desktop"
