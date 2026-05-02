@@ -478,6 +478,11 @@ export default function Navbar() {
               </Link>
             </li>
             <li>
+              <Link to="/rezolvari" className={location.pathname === '/rezolvari' ? 'active' : ''}>
+                📝 Rezolvări
+              </Link>
+            </li>
+            <li>
               <Link to="/discutii" className={location.pathname === '/discutii' ? 'active' : ''}>
                 💬 Forum
               </Link>
