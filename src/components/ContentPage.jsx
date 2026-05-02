@@ -27,9 +27,27 @@ function PreviewModal({ item, onClose }) {
   useEffect(() => {
     async function load() {
       try {
-        // Încarcă PDF și randează prima pagină cu PDF.js
         await ensurePdfJs();
-        const resp = await fetch(item.file_url);
+
+        // Încearcă URL direct (pentru bucket public / fișiere gratuite)
+        let url = item.file_url;
+        let resp = await fetch(url);
+
+        // Dacă e 403 (bucket privat), încearcă signed URL
+        // Funcționează doar dacă userul e autentificat
+        if (resp.status === 403) {
+          // Bucket privat — obținem signed URL pentru preview (2 minute, fără auth)
+          const r = await fetch('/api/get-preview-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contentId: item.id }),
+          });
+          if (!r.ok) { setError(true); setLoading(false); return; }
+          const d = await r.json();
+          url = d.url;
+          resp = await fetch(url);
+        }
+
         if (!resp.ok) throw new Error();
         const buf = await resp.arrayBuffer();
         const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
@@ -88,7 +106,21 @@ function PreviewModal({ item, onClose }) {
               Se generează previzualizarea...
             </div>
           )}
-          {error && (
+          {error === 'login_required' && (
+            <div style={{ padding: 40, textAlign: 'center' }}>
+              <div style={{ fontSize:'2rem', marginBottom:12 }}>🔒</div>
+              <p style={{ color:'#5a6170', marginBottom:16, fontSize:'0.9rem' }}>Autentifică-te pentru a vedea previzualizarea.</p>
+              <a href="/autentificare" style={{ padding:'8px 20px', background:'var(--navy)', color:'#fff', borderRadius:8, textDecoration:'none', fontWeight:600, fontSize:'0.88rem' }}>Autentifică-te</a>
+            </div>
+          )}
+          {error === 'premium_required' && (
+            <div style={{ padding: 40, textAlign: 'center' }}>
+              <div style={{ fontSize:'2rem', marginBottom:12 }}>⭐</div>
+              <p style={{ color:'#5a6170', marginBottom:16, fontSize:'0.9rem' }}>Abonează-te pentru a vedea previzualizarea completă.</p>
+              <a href="/preturi" style={{ padding:'8px 20px', background:'var(--gold)', color:'var(--navy-dark)', borderRadius:8, textDecoration:'none', fontWeight:600, fontSize:'0.88rem' }}>Vezi prețuri</a>
+            </div>
+          )}
+          {error === true && (
             <div style={{ padding: 40, textAlign: 'center', color: '#e53935' }}>
               Nu s-a putut genera previzualizarea.
             </div>
