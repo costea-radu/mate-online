@@ -23,16 +23,17 @@ function ProgressBadge({ progress }) {
   if (!progress) return null;
   const pct = Math.round((progress.score / progress.max_score) * 100);
   const color = pct >= 80 ? '#2e7d32' : pct >= 50 ? '#e65100' : '#c62828';
-  const bg = pct >= 80 ? '#e8f5e9' : pct >= 50 ? '#fff3e0' : '#fce4ec';
+  const bg   = pct >= 80 ? '#e8f5e9' : pct >= 50 ? '#fff3e0' : '#fce4ec';
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+    <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0 }}>
       <span style={{
-        padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700,
-        background: bg, color,
+        display:'inline-flex', alignItems:'center', gap:4,
+        padding:'4px 10px', borderRadius:20, fontSize:'0.73rem', fontWeight:700,
+        background:bg, color,
       }}>
         ✓ {pct}%
       </span>
-      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+      <span style={{ fontSize:'0.69rem', color:'var(--text-muted)', whiteSpace:'nowrap' }}>
         {progress.score}/{progress.max_score} pct
       </span>
     </div>
@@ -106,7 +107,7 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
 
       {/* Rând 2: progres + badge + buton */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {isInteractive && user && canAccess && (
+        {isInteractive && user && progress && (
           <ProgressBadge progress={progress} />
         )}
 

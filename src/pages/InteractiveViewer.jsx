@@ -69,7 +69,7 @@ export default function InteractiveViewer() {
       try {
         let url = item.file_url;
 
-        // Dacă fișierul e premium (bucket privat), obținem signed URL
+        // Premium: obține signed URL de la server
         if (!item.is_free) {
           const res = await fetch('/api/get-file-url', {
             method: 'POST',
@@ -81,12 +81,21 @@ export default function InteractiveViewer() {
           url = data.url;
         }
 
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const html = await res.text();
+        // Fetch cu XMLHttpRequest ca fallback pentru iOS Safari
+        const html = await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', url, true);
+          xhr.responseType = 'text';
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText);
+            else reject(new Error(`HTTP ${xhr.status}`));
+          };
+          xhr.onerror = () => reject(new Error('Eroare de rețea'));
+          xhr.send();
+        });
         setSrcDoc(html);
       } catch (err) {
-        console.error(err);
+        console.error('InteractiveViewer load error:', err);
         setError('Nu s-a putut încărca exercițiul. Încearcă din nou.');
       } finally {
         setLoading(false);
@@ -111,7 +120,7 @@ export default function InteractiveViewer() {
         <div style={{ fontSize: '3rem' }}>⚠️</div>
         <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)' }}>Eroare</h2>
         <p style={{ color: 'var(--text-muted)' }}>{error}</p>
-        <button className="btn btn-primary" onClick={() => navigate('/')}>← Înapoi</button>
+        <button className="btn btn-primary" onClick={() => navigate(-1)}>← Înapoi</button>
       </div>
     );
   }
@@ -129,7 +138,7 @@ export default function InteractiveViewer() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button
-            onClick={() => navigate('/')}
+            onClick={() => item?.category === 'manuale' ? navigate('/') : navigate(-1)}
             style={{
               background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
               color: '#fff', borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
