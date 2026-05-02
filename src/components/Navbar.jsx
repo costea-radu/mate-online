@@ -124,16 +124,13 @@ function SearchModal({ onClose }) {
           .ilike('title', `%${query}%`).limit(5),
       ]);
 
-      // Conținut — fără duplicate
       const combined = [...(byTitle || [])];
       const ids = new Set(combined.map(i => i.id));
       for (const item of (byFile || [])) {
         if (!ids.has(item.id)) { combined.push(item); ids.add(item.id); }
       }
-
       const discItems = (byDisc || []).map(d => ({ ...d, _type: 'discussion' }));
-      const rezItems = (byRez || []).map(r => ({ ...r, _type: 'rezolvare' }));
-
+      const rezItems  = (byRez  || []).map(r => ({ ...r, _type: 'rezolvare' }));
       setResults([...combined.slice(0, 8), ...discItems, ...rezItems]);
       setLoading(false);
     }, 300);
@@ -211,26 +208,19 @@ function SearchModal({ onClose }) {
             // Rezolvare
             if (item._type === 'rezolvare') {
               return (
-                <button
-                  key={'rez-' + item.id}
-                  onClick={() => { navigate('/rezolvari'); onClose(); }}
+                <button key={'rez-'+item.id} onClick={() => { navigate('/rezolvari'); onClose(); }}
                   style={{ display:'block', width:'100%', textAlign:'left', padding:'12px 18px', background:'none', border:'none', borderBottom:'1px solid #f0f4f8', cursor:'pointer', transition:'background 0.15s' }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#f7f9fc'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                >
+                  onMouseEnter={e => e.currentTarget.style.background='#f7f9fc'}
+                  onMouseLeave={e => e.currentTarget.style.background='none'}>
                   <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                    <span style={{ fontSize:'1rem', flexShrink:0 }}>
-                      {item.type === 'video' ? '▶' : item.type === 'pdf' ? '📄' : '🖼'}
-                    </span>
+                    <span style={{ fontSize:'1rem', flexShrink:0 }}>{item.type==='video'?'▶':item.type==='pdf'?'📄':'🖼'}</span>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontWeight:600, color:'var(--navy)', fontSize:'0.9rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                        {item.title}
-                      </div>
+                      <div style={{ fontWeight:600, color:'var(--navy)', fontSize:'0.9rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.title}</div>
                       <div style={{ fontSize:'0.73rem', color:'#8e95a3', marginTop:2 }}>
-                        📝 Rezolvări · <span style={{ color: item.is_free ? '#2e7d32' : '#e65100', fontWeight:600 }}>{item.is_free ? 'Gratuit' : 'Premium'}</span>
+                        📝 Rezolvări · <span style={{ color:item.is_free?'#2e7d32':'#e65100', fontWeight:600 }}>{item.is_free?'Gratuit':'Premium'}</span>
                       </div>
                     </div>
-                    <span style={{ fontSize:'0.75rem', color:'#bbb', flexShrink:0 }}>→</span>
+                    <span style={{ fontSize:'0.75rem', color:'#bbb' }}>→</span>
                   </div>
                 </button>
               );
@@ -400,8 +390,11 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, onSignOut }) {
         <Link to="/preturi" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/preturi' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           💳 Prețuri
         </Link>
+        <Link to="/rezolvari" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/rezolvari' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
+          📝 Rezolvări
+        </Link>
         <Link to="/discutii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/discutii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-          💬 Discuții/Rezolvări
+          💬 Forum
         </Link>
 
         {/* Separator */}
@@ -506,8 +499,13 @@ export default function Navbar() {
               </Link>
             </li>
             <li>
+              <Link to="/rezolvari" className={location.pathname === '/rezolvari' ? 'active' : ''}>
+                📝 Rezolvări
+              </Link>
+            </li>
+            <li>
               <Link to="/discutii" className={location.pathname === '/discutii' ? 'active' : ''}>
-                💬 Discuții/Rezolvări
+                💬 Forum
               </Link>
             </li>
           </ul>
