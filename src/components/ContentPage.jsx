@@ -31,11 +31,10 @@ function PreviewModal({ item, onClose }) {
 
         // Încearcă URL direct (pentru bucket public / fișiere gratuite)
         let url = item.file_url;
-        let resp = await fetch(url);
+        // Pentru fișiere non-free, mergi direct la signed URL fără fetch inițial
+        let resp = item.is_free ? await fetch(url) : { status: 403 };
 
-        // Dacă e 403 (bucket privat), încearcă signed URL
-        // Funcționează doar dacă userul e autentificat
-        if (resp.status === 403) {
+        if (resp.status === 403 || resp.status === 400 || resp.status === 401) {
           // Bucket privat — obținem signed URL pentru preview
           const r = await fetch('/api/get-preview-url', {
             method: 'POST',
