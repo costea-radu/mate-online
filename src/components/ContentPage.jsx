@@ -18,6 +18,111 @@ function getOriginalFilename(url) {
   }
 }
 
+// ─── Preview prima pagină ────────────────────────────────────────────────────
+function PreviewModal({ item, onClose }) {
+  const [imgUrl, setImgUrl] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        // Încarcă PDF și randează prima pagină cu PDF.js
+        await ensurePdfJs();
+        const resp = await fetch(item.file_url);
+        if (!resp.ok) throw new Error();
+        const buf = await resp.arrayBuffer();
+        const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+        const page = await pdf.getPage(1);
+        const scale = window.innerWidth < 600 ? 1.2 : 1.8;
+        const vp = page.getViewport({ scale });
+        const canvas = document.createElement('canvas');
+        canvas.width = vp.width; canvas.height = vp.height;
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+        setImgUrl(canvas.toDataURL('image/jpeg', 0.92));
+      } catch {
+        setError(true);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
+        zIndex: 9999, display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', padding: 16,
+      }}
+    >
+      <div onClick={e => e.stopPropagation()} style={{ position: 'relative', maxWidth: '100%', maxHeight: '90vh' }}>
+        {/* Header */}
+        <div style={{
+          background: 'var(--navy)', padding: '10px 16px', borderRadius: '10px 10px 0 0',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <span style={{ color: '#fff', fontWeight: 600, fontSize: '0.88rem' }}>
+            👁 Preview — {item.title}
+          </span>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)' }}>
+              Prima pagină • Nu se poate descărca
+            </span>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>✕</button>
+          </div>
+        </div>
+
+        {/* Imagine */}
+        <div style={{
+          background: '#fff', borderRadius: '0 0 10px 10px', overflow: 'hidden',
+          maxHeight: 'calc(90vh - 50px)', overflowY: 'auto',
+          userSelect: 'none', WebkitUserSelect: 'none',
+        }}
+          onContextMenu={e => e.preventDefault()}
+        >
+          {loading && (
+            <div style={{ padding: 60, textAlign: 'center', color: '#999' }}>
+              Se generează previzualizarea...
+            </div>
+          )}
+          {error && (
+            <div style={{ padding: 40, textAlign: 'center', color: '#e53935' }}>
+              Nu s-a putut genera previzualizarea.
+            </div>
+          )}
+          {imgUrl && (
+            <img
+              src={imgUrl}
+              alt="Preview"
+              draggable={false}
+              style={{ display: 'block', maxWidth: '100%', pointerEvents: 'none' }}
+              onContextMenu={e => e.preventDefault()}
+            />
+          )}
+        </div>
+      </div>
+      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem', marginTop: 12 }}>
+        Apasă în afara imaginii pentru a închide
+      </p>
+    </div>
+  );
+}
+
+async function ensurePdfJs() {
+  if (window.pdfjsLib) return;
+  await new Promise((ok, err) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = ok; s.onerror = err;
+    document.head.appendChild(s);
+  });
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
 // ─── Badge progres ────────────────────────────────────────────────────────────
 function ProgressBadge({ progress }) {
   if (!progress) return null;
@@ -44,6 +149,7 @@ function ProgressBadge({ progress }) {
 export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }) {
   const canAccess = item.is_free || isPremium;
   const navigate = useNavigate();
+  const [showPreview, setShowPreview] = useState(false);
 
   const typeConfig = {
     pdf:         { icon: '📄', bg: '#e3f2fd', actionLabel: 'Deschide / Descarcă' },

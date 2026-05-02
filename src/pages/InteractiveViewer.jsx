@@ -138,7 +138,7 @@ export default function InteractiveViewer() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button
-            onClick={() => item?.category === 'manuale' ? navigate('/') : navigate(-1)}
+            onClick={() => navigate(-1)}
             style={{
               background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
               color: '#fff', borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
@@ -147,6 +147,18 @@ export default function InteractiveViewer() {
           >
             ← Înapoi
           </button>
+          {item?.category === 'manuale' && (
+            <button
+              onClick={() => navigate('/')}
+              style={{
+                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                color: 'rgba(255,255,255,0.7)', borderRadius: 6, padding: '6px 12px', cursor: 'pointer',
+                fontSize: '0.82rem', fontWeight: 500,
+              }}
+            >
+              🏠 Home
+            </button>
+          )}
           <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem' }}>|</div>
           <div style={{ color: '#fff', fontWeight: 600, fontSize: '0.95rem' }}>
             🧩 {item?.title}
