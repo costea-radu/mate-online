@@ -403,7 +403,7 @@ export default function Discussions({ fixedCategory }) {
   return (
     <div style={{ marginTop: 40, paddingTop: 28, borderTop: '2px solid #eef0f4' }}>
       <h2 style={{ fontFamily:'var(--font-display)', color:'var(--navy)', fontSize:'1.3rem', marginBottom:20 }}>
-        💬 Discuții / Rezolvări
+        💬 Forum
       </h2>
 
       {/* Formular postare */}

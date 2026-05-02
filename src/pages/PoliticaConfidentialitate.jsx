@@ -36,7 +36,7 @@ export default function PoliticaConfidentialitate() {
               <ul style={{ paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <li><strong>Date de cont (înregistrare prin email):</strong> nume complet, adresă de e-mail, parolă (stocată criptat prin hashing).</li>
                 <li><strong>Date de cont (autentificare cu Google sau Discord):</strong> dacă alegi să te autentifici prin contul Google sau Discord, primim de la aceste servicii numele tău, adresa de e-mail și fotografia de profil/avatarul asociate contului respectiv.</li>
-                <li><strong>Date de utilizare:</strong> paginile accesate, exercițiile parcurse, progresul înregistrat, postările din secțiunea Discuții/Rezolvări.</li>
+                <li><strong>Date de utilizare:</strong> paginile accesate, exercițiile parcurse, progresul înregistrat, postările din secțiunea Forum.</li>
                 <li><strong>Date de plată:</strong> procesate exclusiv prin Stripe (card bancar, Apple Pay sau Google Pay). Nu stocăm datele cardului, ale Apple Pay sau Google Pay — acestea sunt gestionate direct de Stripe.</li>
                 <li><strong>Date tehnice:</strong> adresa IP, tipul browserului și dispozitivului, necesare pentru securitate și diagnosticarea erorilor.</li>
               </ul>
@@ -55,7 +55,7 @@ export default function PoliticaConfidentialitate() {
 
             <Section title="3. Conținut generat de utilizatori">
               <p>
-                Conținutul pe care îl postezi în secțiunea Discuții/Rezolvări (texte, imagini, fișiere PDF) este stocat în Supabase Storage și afișat public celorlalți utilizatori autentificați ai platformei. Poți șterge propriile postări oricând direct din platformă. La ștergerea contului, toate postările și fișierele asociate sunt eliminate automat.
+                Conținutul pe care îl postezi în secțiunea Forum (texte, imagini, fișiere PDF) este stocat în Supabase Storage și afișat public celorlalți utilizatori autentificați ai platformei. Poți șterge propriile postări oricând direct din platformă. La ștergerea contului, toate postările și fișierele asociate sunt eliminate automat.
               </p>
             </Section>
 

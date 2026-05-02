@@ -666,6 +666,188 @@ function Dashboard() {
 
 
 
+
+// ─── Admin Rezolvări ──────────────────────────────────────────────────────────
+const REZ_CATS = [
+  { value: 'general', label: 'General' },
+  { value: 'clasa-5', label: 'Clasa a V-a' }, { value: 'clasa-6', label: 'Clasa a VI-a' },
+  { value: 'clasa-7', label: 'Clasa a VII-a' }, { value: 'clasa-8', label: 'Clasa a VIII-a' },
+  { value: 'clasa-9', label: 'Clasa a IX-a' }, { value: 'clasa-10', label: 'Clasa a X-a' },
+  { value: 'clasa-11', label: 'Clasa a XI-a' }, { value: 'clasa-12', label: 'Clasa a XII-a' },
+  { value: 'evaluare-nationala', label: 'Evaluare Națională' },
+  { value: 'bacalaureat', label: 'Bacalaureat' },
+];
+
+function AdminRezolvari({ user, s }) {
+  const empty = { title: '', description: '', category: 'general', type: 'video', file_url: '', video_url: '', sort_order: 0 };
+  const [form, setForm] = useState(empty);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+
+  useEffect(() => { loadItems(); }, []);
+
+  async function loadItems() {
+    const res = await fetch('/api/rezolvari-admin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'list', adminId: user.id }),
+    });
+    const d = await res.json();
+    if (d.rows) setItems(d.rows);
+  }
+
+  async function handleFile(file) {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const path = `rezolvari/${Date.now()}_${file.name}`;
+      const { error } = await supabase.storage.from('discussions').upload(path, file);
+      if (error) throw error;
+      const { data: { publicUrl } } = supabase.storage.from('discussions').getPublicUrl(path);
+      const isImg = file.type.startsWith('image');
+      setForm(p => ({ ...p, file_url: publicUrl, type: isImg ? 'image' : 'pdf' }));
+    } catch(e) { setMsg({ type: 'error', text: e.message }); }
+    setUploading(false);
+  }
+
+  async function handleSubmit() {
+    if (!form.title) { setMsg({ type: 'error', text: 'Titlul e obligatoriu.' }); return; }
+    if (form.type === 'video' && !form.video_url) { setMsg({ type: 'error', text: 'Adaugă URL video.' }); return; }
+    if ((form.type === 'image' || form.type === 'pdf') && !form.file_url) { setMsg({ type: 'error', text: 'Încarcă un fișier.' }); return; }
+    setLoading(true);
+    const res = await fetch('/api/rezolvari-admin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'create', adminId: user.id, data: form }),
+    });
+    const d = await res.json();
+    if (d.row) { setMsg({ type: 'success', text: 'Rezolvare adăugată!' }); setForm(empty); loadItems(); }
+    else setMsg({ type: 'error', text: d.error });
+    setLoading(false);
+  }
+
+  async function handleDelete(id) {
+    if (!window.confirm('Ștergi această rezolvare?')) return;
+    await fetch('/api/rezolvari-admin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', adminId: user.id, id }),
+    });
+    loadItems();
+  }
+
+  return (
+    <div>
+      {/* Formular adăugare */}
+      <div style={s.card}>
+        <div style={s.cardTitle}>📝 Adaugă Rezolvare</div>
+        {msg && <div style={s.alert(msg.type)}>{msg.text}</div>}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div style={s.formGroup}>
+            <label style={s.label}>Titlu *</label>
+            <input style={s.input} value={form.title} onChange={e => setForm(p => ({...p, title: e.target.value}))} placeholder="ex: Rezolvare Fracții – Set 1" />
+          </div>
+          <div style={s.formGroup}>
+            <label style={s.label}>Categorie</label>
+            <select style={s.select} value={form.category} onChange={e => setForm(p => ({...p, category: e.target.value}))}>
+              {REZ_CATS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={s.formGroup}>
+          <label style={s.label}>Descriere</label>
+          <input style={s.input} value={form.description} onChange={e => setForm(p => ({...p, description: e.target.value}))} placeholder="Scurtă descriere..." />
+        </div>
+
+        {/* Tip conținut */}
+        <div style={s.formGroup}>
+          <label style={s.label}>Tip conținut</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[{v:'video',l:'▶ Video (YouTube/TikTok)'},{v:'image',l:'🖼 Imagine'},{v:'pdf',l:'📄 PDF'}].map(t => (
+              <button key={t.v} type="button" onClick={() => setForm(p => ({...p, type: t.v, file_url: '', video_url: ''}))}
+                style={{ ...s.btnSecondary, flex:1, background: form.type === t.v ? 'var(--navy)' : '#f0f4f8', color: form.type === t.v ? '#fff' : 'var(--navy)' }}>
+                {t.l}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Input în funcție de tip */}
+        {form.type === 'video' && (
+          <div style={s.formGroup}>
+            <label style={s.label}>URL Video *</label>
+            <input style={s.input} value={form.video_url} onChange={e => setForm(p => ({...p, video_url: e.target.value}))}
+              placeholder="https://www.youtube.com/watch?v=... sau https://www.tiktok.com/..." />
+          </div>
+        )}
+
+        {(form.type === 'image' || form.type === 'pdf') && (
+          <div style={s.formGroup}>
+            <label style={s.label}>Fișier * ({form.type === 'image' ? 'imagine JPG/PNG' : 'document PDF'})</label>
+            <div onClick={() => fileRef.current?.click()}
+              style={{ border: '2px dashed #dde1e8', borderRadius: 10, padding: '24px', textAlign: 'center', cursor: 'pointer', background: '#fafbfc' }}>
+              <div style={{ fontSize: '2rem', marginBottom: 8 }}>{form.type === 'image' ? '🖼' : '📄'}</div>
+              <div style={{ fontSize: '0.85rem', color: '#5a6170' }}>
+                {uploading ? 'Se încarcă...' : form.file_url ? '✓ Fișier încărcat' : 'Click pentru a selecta fișierul'}
+              </div>
+              {form.file_url && <div style={{ fontSize: '0.75rem', color: '#2e7d32', marginTop: 4 }}>URL: {form.file_url.slice(-40)}...</div>}
+            </div>
+            <input ref={fileRef} type="file" accept={form.type === 'image' ? 'image/*' : '.pdf'}
+              style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div style={s.formGroup}>
+            <label style={s.label}>Ordine afișare</label>
+            <input type="number" style={s.input} value={form.sort_order}
+              onChange={e => setForm(p => ({...p, sort_order: parseInt(e.target.value)||0}))} />
+          </div>
+        </div>
+
+        <button style={s.btnPrimary} onClick={handleSubmit} disabled={loading || uploading}>
+          {loading ? 'Se salvează...' : '💾 Adaugă Rezolvare'}
+        </button>
+      </div>
+
+      {/* Lista rezolvări existente */}
+      <div style={s.card}>
+        <div style={s.cardTitle}>📋 Rezolvări existente ({items.length})</div>
+        {items.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '30px 0', color: '#8e95a3' }}>Nicio rezolvare adăugată.</div>
+        ) : (
+          <table style={s.table}>
+            <thead><tr>
+              <th style={s.th}>Titlu</th>
+              <th style={s.th}>Tip</th>
+              <th style={s.th}>Categorie</th>
+              <th style={s.th}>Ordine</th>
+              <th style={s.th}></th>
+            </tr></thead>
+            <tbody>
+              {items.map(item => (
+                <tr key={item.id}>
+                  <td style={s.td}><div style={{ fontWeight:600, color:'var(--navy)', fontSize:'0.88rem' }}>{item.title}</div>
+                    {item.description && <div style={{ fontSize:'0.75rem', color:'#8e95a3' }}>{item.description}</div>}
+                  </td>
+                  <td style={s.td}><span style={s.badge(item.type)}>{item.type}</span></td>
+                  <td style={{ ...s.td, fontSize:'0.82rem', color:'#5a6170' }}>{item.category}</td>
+                  <td style={{ ...s.td, fontSize:'0.82rem', color:'#8e95a3', textAlign:'center' }}>{item.sort_order}</td>
+                  <td style={s.td}>
+                    <button style={s.btnDanger} onClick={() => handleDelete(item.id)}>🗑 Șterge</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function Admin() {
   const { user, isAdmin, loading } = useAuth();
@@ -691,6 +873,7 @@ export default function Admin() {
     { id: 'dashboard',   label: '📊 Dashboard' },
     { id: 'pdf',         label: '📄 Adaugă PDF' },
     { id: 'interactive', label: '🧩 Exerciții Interactive' },
+    { id: 'rezolvari',   label: '📝 Rezolvări' },
     { id: 'list',        label: '📋 Tot Conținutul' },
   ];
 
@@ -719,6 +902,7 @@ export default function Admin() {
         </div>
         <div style={s.main}>
           {tab === 'dashboard'   && <Dashboard />}
+          {tab === 'rezolvari'   && <AdminRezolvari user={user} s={s} />}
           {tab === 'pdf'         && <UploadPDF onSuccess={onSuccess} />}
           {tab === 'interactive' && <UploadInteractive onSuccess={onSuccess} />}
           {tab === 'list'        && <ContentList refresh={refreshList} />}

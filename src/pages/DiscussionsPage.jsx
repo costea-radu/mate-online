@@ -29,8 +29,8 @@ export default function DiscussionsPage() {
           <div className="breadcrumb">
             <Link to="/">Acasă</Link><span>›</span><span>Discuții</span>
           </div>
-          <h1>💬 Discuții și Rezolvări</h1>
-          <p>Postează întrebări, comentarii sau rezolvări. Poți atașa poze sau PDF-uri.</p>
+          <h1>💬 Forum</h1>
+          <p>Postează întrebări, comentarii sau discuții cu ceilalți utilizatori. Poți atașa poze sau PDF-uri.</p>
         </div>
       </div>
       <div className="content-list">

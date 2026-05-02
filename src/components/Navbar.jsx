@@ -369,8 +369,11 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, onSignOut }) {
         <Link to="/preturi" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/preturi' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           💳 Prețuri
         </Link>
+        <Link to="/rezolvari" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/rezolvari' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
+          📝 Rezolvări
+        </Link>
         <Link to="/discutii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/discutii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-          💬 Discuții/Rezolvări
+          💬 Forum
         </Link>
 
         {/* Separator */}
@@ -476,7 +479,7 @@ export default function Navbar() {
             </li>
             <li>
               <Link to="/discutii" className={location.pathname === '/discutii' ? 'active' : ''}>
-                💬 Discuții/Rezolvări
+                💬 Forum
               </Link>
             </li>
           </ul>

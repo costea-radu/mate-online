@@ -16,6 +16,7 @@ import Admin from './pages/Admin';
 import InteractiveViewer from './pages/InteractiveViewer';
 import PDFViewer from './pages/PDFViewer';
 import DiscussionsPage from './pages/DiscussionsPage';
+import RezolvariPage from './pages/RezolvariPage';
 import Contact from './pages/Contact';
 import PoliticaConfidentialitate from './pages/PoliticaConfidentialitate';
 import TermeniConditii from './pages/TermeniConditii';
@@ -66,6 +67,7 @@ export default function App() {
             <Route path="/exercitiu" element={<InteractiveViewer />} />
             <Route path="/pdf-viewer" element={<PDFViewer />} />
             <Route path="/discutii" element={<DiscussionsPage />} />
+            <Route path="/rezolvari" element={<RezolvariPage />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/politica-confidentialitate" element={<PoliticaConfidentialitate />} />
             <Route path="/termeni-conditii" element={<TermeniConditii />} />
