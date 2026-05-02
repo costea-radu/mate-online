@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 
 const CATEGORIES = [
   { value: '', label: 'Toate categoriile' },
@@ -19,109 +20,156 @@ const CATEGORIES = [
 
 function getVideoEmbed(url) {
   if (!url) return null;
-  // YouTube
-  const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
-  if (ytMatch) return { type: 'youtube', id: ytMatch[1] };
-  // TikTok
-  const ttMatch = url.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/);
-  if (ttMatch) return { type: 'tiktok', id: ttMatch[1], url };
+  const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
+  if (yt) return { type: 'youtube', id: yt[1] };
+  const tt = url.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/);
+  if (tt) return { type: 'tiktok', url };
   return { type: 'link', url };
 }
 
-function VideoCard({ url, title }) {
-  const video = getVideoEmbed(url);
-  if (!video) return null;
-
-  if (video.type === 'youtube') {
-    return (
-      <div style={{ borderRadius: 10, overflow: 'hidden', aspectRatio: '16/9' }}>
-        <iframe
-          width="100%" height="100%"
-          src={`https://www.youtube.com/embed/${video.id}`}
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-          style={{ border: 'none', display: 'block' }}
-          title={title}
-        />
-      </div>
-    );
-  }
-  if (video.type === 'tiktok') {
-    return (
-      <a href={url} target="_blank" rel="noopener noreferrer"
-        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: '#000', borderRadius: 10, color: '#fff', textDecoration: 'none' }}>
-        <span style={{ fontSize: '1.5rem' }}>▶</span>
-        <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>Deschide pe TikTok</span>
-      </a>
-    );
-  }
-  return (
-    <a href={url} target="_blank" rel="noopener noreferrer"
-      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: '#f0f4f8', borderRadius: 10, color: 'var(--navy)', textDecoration: 'none' }}>
-      <span style={{ fontSize: '1.2rem' }}>🔗</span>
-      <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>Deschide link</span>
-    </a>
-  );
+// Deschide fișier ca blob (ascunde URL-ul Supabase)
+async function openAsBlob(url, mimeType = 'application/pdf') {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('Eroare fetch');
+  const buf = await resp.arrayBuffer();
+  const blob = new Blob([buf], { type: mimeType });
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl; a.target = '_blank';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
 }
 
-function RezolvareCard({ item }) {
+function RezolvareCard({ item, user, isPremium }) {
+  const navigate = useNavigate();
+  const canAccess = item.is_free || isPremium;
+  const [loading, setLoading] = useState(false);
+  const [imgBlobUrl, setImgBlobUrl] = useState(null);
   const catLabel = CATEGORIES.find(c => c.value === item.category)?.label || item.category;
+  const video = item.type === 'video' ? getVideoEmbed(item.video_url) : null;
+
+  // Preîncarcă imaginea ca blob la mount
+  useEffect(() => {
+    if (item.type !== 'image' || !canAccess || !item.file_url) return;
+    async function loadImg() {
+      try {
+        const url = await getSecureUrl(item, user);
+        const resp = await fetch(url);
+        const blob = await resp.blob();
+        setImgBlobUrl(URL.createObjectURL(blob));
+      } catch {}
+    }
+    loadImg();
+    return () => { if (imgBlobUrl) URL.revokeObjectURL(imgBlobUrl); };
+  }, [item.id, canAccess]);
+
+  async function getSecureUrl(item, user) {
+    if (item.is_free) return item.file_url;
+    const res = await fetch('/api/rezolvare-url', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rezolvareId: item.id, userId: user?.id }),
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error);
+    return d.url;
+  }
+
+  async function handleOpenPdf() {
+    if (!canAccess) { navigate('/preturi'); return; }
+    setLoading(true);
+    try {
+      const url = await getSecureUrl(item, user);
+      await openAsBlob(url, 'application/pdf');
+    } catch (e) { alert(e.message); }
+    setLoading(false);
+  }
 
   return (
     <div style={{
       background: '#fff', borderRadius: 14, border: '1.5px solid #eef0f4',
       overflow: 'hidden', boxShadow: '0 2px 8px rgba(15,43,68,0.06)',
-      transition: 'box-shadow 0.2s',
+      transition: 'box-shadow 0.2s', display: 'flex', flexDirection: 'column',
     }}
       onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 16px rgba(15,43,68,0.12)'}
       onMouseLeave={e => e.currentTarget.style.boxShadow = '0 2px 8px rgba(15,43,68,0.06)'}
     >
-      {/* Imagine */}
-      {item.type === 'image' && item.file_url && (
-        <a href={item.file_url} target="_blank" rel="noopener noreferrer">
-          <img src={item.file_url} alt={item.title}
-            style={{ width: '100%', maxHeight: 280, objectFit: 'cover', display: 'block', cursor: 'zoom-in' }} />
-        </a>
+      {/* ── Imagine ── */}
+      {item.type === 'image' && (
+        canAccess ? (
+          imgBlobUrl
+            ? <img src={imgBlobUrl} alt={item.title}
+                style={{ width:'100%', maxHeight:300, objectFit:'cover', display:'block', cursor:'zoom-in' }}
+                onClick={() => { const w = window.open(''); w.document.write(`<img src="${imgBlobUrl}" style="max-width:100%">`); }} />
+            : <div style={{ height:160, background:'#f7f9fc', display:'flex', alignItems:'center', justifyContent:'center', color:'#aaa', fontSize:'0.85rem' }}>Se încarcă...</div>
+        ) : (
+          <div style={{ height:160, background:'#f7f9fc', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:8 }}>
+            <span style={{ fontSize:'2rem' }}>🔒</span>
+            <span style={{ fontSize:'0.8rem', color:'#aaa' }}>{!user ? 'Autentifică-te' : 'Necesită Premium'}</span>
+          </div>
+        )
       )}
 
-      {/* Video embed */}
-      {item.type === 'video' && item.video_url && (
-        <div style={{ padding: '0' }}>
-          <VideoCard url={item.video_url} title={item.title} />
-        </div>
-      )}
-
-      {/* PDF */}
-      {item.type === 'pdf' && item.file_url && (
-        <div style={{ background: '#f7f9fc', padding: '20px 20px 8px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 48, height: 48, background: '#e3f2fd', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', flexShrink: 0 }}>📄</div>
-          <a href={item.file_url} target="_blank" rel="noopener noreferrer"
-            style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '0.9rem', textDecoration: 'none' }}>
-            Deschide PDF →
+      {/* ── Video ── */}
+      {item.type === 'video' && video && (
+        video.type === 'youtube' ? (
+          <div style={{ aspectRatio:'16/9' }}>
+            <iframe width="100%" height="100%"
+              src={`https://www.youtube.com/embed/${video.id}`}
+              allow="accelerometer; autoplay; encrypted-media; picture-in-picture"
+              allowFullScreen style={{ border:'none', display:'block' }} title={item.title} />
+          </div>
+        ) : (
+          <a href={video.url} target="_blank" rel="noopener noreferrer"
+            style={{ display:'flex', alignItems:'center', gap:10, padding:'20px', background:'#000', color:'#fff', textDecoration:'none' }}>
+            <span style={{ fontSize:'1.5rem' }}>▶</span>
+            <span style={{ fontSize:'0.88rem', fontWeight:600 }}>Deschide pe TikTok</span>
           </a>
-        </div>
+        )
       )}
 
-      {/* Info */}
-      <div style={{ padding: '14px 18px' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-          <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', fontSize: '1rem', fontWeight: 700, lineHeight: 1.3 }}>
+      {/* Info + butoane */}
+      <div style={{ padding:'14px 18px', flex:1, display:'flex', flexDirection:'column', gap:8 }}>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8 }}>
+          <h3 style={{ fontFamily:'var(--font-display)', color:'var(--navy)', fontSize:'0.98rem', fontWeight:700, lineHeight:1.3, flex:1 }}>
             {item.title}
           </h3>
-          <span style={{
-            padding: '2px 9px', borderRadius: 20, fontSize: '0.68rem', fontWeight: 700,
-            background: item.type === 'video' ? '#fce4ec' : item.type === 'pdf' ? '#e3f2fd' : '#e8f5e9',
-            color: item.type === 'video' ? '#c62828' : item.type === 'pdf' ? '#1565c0' : '#2e7d32',
-            flexShrink: 0,
-          }}>
-            {item.type === 'video' ? '▶ Video' : item.type === 'pdf' ? '📄 PDF' : '🖼 Imagine'}
-          </span>
+          <div style={{ display:'flex', gap:5, flexShrink:0 }}>
+            <span style={{
+              padding:'2px 8px', borderRadius:20, fontSize:'0.67rem', fontWeight:700,
+              background: item.is_free ? '#e8f5e9' : '#fff3e0',
+              color: item.is_free ? '#2e7d32' : '#e65100',
+            }}>{item.is_free ? 'Gratuit' : 'Premium'}</span>
+            <span style={{
+              padding:'2px 8px', borderRadius:20, fontSize:'0.67rem', fontWeight:700,
+              background: item.type==='video' ? '#fce4ec' : item.type==='pdf' ? '#e3f2fd' : '#e8f5e9',
+              color: item.type==='video' ? '#c62828' : item.type==='pdf' ? '#1565c0' : '#2e7d32',
+            }}>{item.type==='video' ? '▶ Video' : item.type==='pdf' ? '📄 PDF' : '🖼 Imagine'}</span>
+          </div>
         </div>
+
         {item.description && (
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1.6 }}>{item.description}</p>
+          <p style={{ color:'var(--text-muted)', fontSize:'0.84rem', lineHeight:1.6, margin:0 }}>{item.description}</p>
         )}
-        {catLabel && (
-          <div style={{ marginTop: 8, fontSize: '0.73rem', color: '#aab0bb' }}>{catLabel}</div>
+
+        {catLabel && <div style={{ fontSize:'0.72rem', color:'#aab0bb', marginTop:'auto' }}>{catLabel}</div>}
+
+        {/* Buton PDF */}
+        {item.type === 'pdf' && (
+          canAccess ? (
+            <button onClick={handleOpenPdf} disabled={loading}
+              style={{ padding:'8px 16px', background:'var(--navy)', color:'#fff', border:'none', borderRadius:8, fontWeight:600, fontSize:'0.85rem', cursor:'pointer', width:'100%' }}>
+              {loading ? '⏳ Se deschide...' : '📄 Deschide PDF'}
+            </button>
+          ) : !user ? (
+            <Link to="/autentificare" style={{ display:'block', padding:'8px 16px', background:'#f0f4f8', color:'var(--navy)', border:'1.5px solid #dde1e8', borderRadius:8, fontWeight:600, fontSize:'0.85rem', textAlign:'center', textDecoration:'none' }}>
+              🔒 Autentifică-te
+            </Link>
+          ) : (
+            <Link to="/preturi" style={{ display:'block', padding:'8px 16px', background:'var(--gold)', color:'var(--navy-dark)', borderRadius:8, fontWeight:600, fontSize:'0.85rem', textAlign:'center', textDecoration:'none' }}>
+              🔒 Necesită Premium
+            </Link>
+          )
         )}
       </div>
     </div>
@@ -129,23 +177,19 @@ function RezolvareCard({ item }) {
 }
 
 export default function RezolvariPage() {
+  const { user, isPremium } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [filterCat, setFilterCat] = useState(searchParams.get('cat') || '');
+  const [filterCat, setFilterCat] = useState('');
   const [filterType, setFilterType] = useState('');
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   async function load() {
     setLoading(true);
     const { data } = await supabase.from('rezolvari')
-      .select('*')
-      .order('sort_order', { ascending: true })
-      .order('created_at', { ascending: false });
+      .select('*').order('sort_order', { ascending: true }).order('created_at', { ascending: false });
     setItems(data || []);
     setLoading(false);
   }
@@ -162,9 +206,7 @@ export default function RezolvariPage() {
     <>
       <div className="page-header">
         <div className="container">
-          <div className="breadcrumb">
-            <Link to="/">Acasă</Link><span>›</span><span>Rezolvări</span>
-          </div>
+          <div className="breadcrumb"><Link to="/">Acasă</Link><span>›</span><span>Rezolvări</span></div>
           <h1>📝 Rezolvări</h1>
           <p>Rezolvări, explicații și tutoriale video pentru exercițiile de matematică</p>
         </div>
@@ -172,19 +214,16 @@ export default function RezolvariPage() {
 
       <div className="content-list">
         <div className="container">
-          {/* Filtre */}
-          <div style={{ display: 'flex', gap: 10, marginBottom: 24, flexWrap: 'wrap', alignItems: 'center' }}>
-            <input
-              type="text" placeholder="🔍 Caută rezolvare..."
-              value={search} onChange={e => setSearch(e.target.value)}
-              style={{ flex: 1, minWidth: 200, padding: '9px 14px', borderRadius: 8, border: '1.5px solid #dde1e8', fontSize: '0.88rem', outline: 'none', fontFamily: 'var(--font-body)' }}
-            />
+          <div style={{ display:'flex', gap:10, marginBottom:24, flexWrap:'wrap' }}>
+            <input type="text" placeholder="🔍 Caută rezolvare..." value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ flex:1, minWidth:180, padding:'9px 14px', borderRadius:8, border:'1.5px solid #dde1e8', fontSize:'0.88rem', outline:'none', fontFamily:'var(--font-body)' }} />
             <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
-              style={{ padding: '9px 12px', borderRadius: 8, border: '1.5px solid #dde1e8', fontSize: '0.85rem', fontFamily: 'var(--font-body)', background: '#fff' }}>
+              style={{ padding:'9px 12px', borderRadius:8, border:'1.5px solid #dde1e8', fontSize:'0.85rem', background:'#fff', fontFamily:'var(--font-body)' }}>
               {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
             <select value={filterType} onChange={e => setFilterType(e.target.value)}
-              style={{ padding: '9px 12px', borderRadius: 8, border: '1.5px solid #dde1e8', fontSize: '0.85rem', fontFamily: 'var(--font-body)', background: '#fff' }}>
+              style={{ padding:'9px 12px', borderRadius:8, border:'1.5px solid #dde1e8', fontSize:'0.85rem', background:'#fff', fontFamily:'var(--font-body)' }}>
               <option value="">Toate tipurile</option>
               <option value="video">▶ Video</option>
               <option value="pdf">📄 PDF</option>
@@ -193,9 +232,7 @@ export default function RezolvariPage() {
           </div>
 
           {loading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
-              <div className="spinner" />
-            </div>
+            <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div className="spinner" /></div>
           ) : filtered.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">📝</div>
@@ -203,8 +240,8 @@ export default function RezolvariPage() {
               <p>{search || filterCat || filterType ? 'Niciun rezultat pentru filtrele selectate.' : 'Rezolvările vor fi adăugate în curând!'}</p>
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
-              {filtered.map(item => <RezolvareCard key={item.id} item={item} />)}
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:20 }}>
+              {filtered.map(item => <RezolvareCard key={item.id} item={item} user={user} isPremium={isPremium} />)}
             </div>
           )}
         </div>

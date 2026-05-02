@@ -679,7 +679,7 @@ const REZ_CATS = [
 ];
 
 function AdminRezolvari({ user, s }) {
-  const empty = { title: '', description: '', category: 'general', type: 'video', file_url: '', video_url: '', sort_order: 0 };
+  const empty = { title: '', description: '', category: 'general', type: 'video', file_url: '', video_url: '', sort_order: 0, is_free: true };
   const [form, setForm] = useState(empty);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -805,6 +805,14 @@ function AdminRezolvari({ user, s }) {
             <input type="number" style={s.input} value={form.sort_order}
               onChange={e => setForm(p => ({...p, sort_order: parseInt(e.target.value)||0}))} />
           </div>
+          <div style={s.formGroup}>
+            <label style={s.label}>Acces</label>
+            <select style={s.select} value={form.is_free ? 'free' : 'premium'}
+              onChange={e => setForm(p => ({...p, is_free: e.target.value === 'free'}))}>
+              <option value="free">✅ Gratuit</option>
+              <option value="premium">⭐ Premium</option>
+            </select>
+          </div>
         </div>
 
         <button style={s.btnPrimary} onClick={handleSubmit} disabled={loading || uploading}>
@@ -823,7 +831,8 @@ function AdminRezolvari({ user, s }) {
               <th style={s.th}>Titlu</th>
               <th style={s.th}>Tip</th>
               <th style={s.th}>Categorie</th>
-              <th style={s.th}>Ordine</th>
+              <th style={s.th}>Acces</th>
+                  <th style={s.th}>Ordine</th>
               <th style={s.th}></th>
             </tr></thead>
             <tbody>
@@ -834,6 +843,7 @@ function AdminRezolvari({ user, s }) {
                   </td>
                   <td style={s.td}><span style={s.badge(item.type)}>{item.type}</span></td>
                   <td style={{ ...s.td, fontSize:'0.82rem', color:'#5a6170' }}>{item.category}</td>
+                  <td style={s.td}><span style={s.freeBadge(item.is_free)}>{item.is_free ? 'Gratuit' : 'Premium'}</span></td>
                   <td style={{ ...s.td, fontSize:'0.82rem', color:'#8e95a3', textAlign:'center' }}>{item.sort_order}</td>
                   <td style={s.td}>
                     <button style={s.btnDanger} onClick={() => handleDelete(item.id)}>🗑 Șterge</button>
