@@ -255,22 +255,31 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
               </button>
             )
           ) : !user ? (
-            <Link to="/autentificare" style={{
-              padding: '7px 16px', borderRadius: 7, fontWeight: 600, fontSize: '0.83rem',
-              background: '#f0f4f8', color: 'var(--navy)', border: '1.5px solid #dde1e8',
-              textDecoration: 'none', whiteSpace: 'nowrap', display: 'inline-block',
-            }}>
-              🔒 Autentifică-te
-            </Link>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+              {isPdf && item.file_url && (
+                <button onClick={() => setShowPreview(true)}
+                  style={{ padding:'7px 12px', borderRadius:7, fontWeight:600, fontSize:'0.8rem', background:'#f0f4f8', color:'var(--navy)', border:'1.5px solid #dde1e8', cursor:'pointer', whiteSpace:'nowrap' }}>
+                  👁 Preview
+                </button>
+              )}
+              <Link to="/autentificare" style={{ padding:'7px 14px', borderRadius:7, fontWeight:600, fontSize:'0.83rem', background:'#f0f4f8', color:'var(--navy)', border:'1.5px solid #dde1e8', textDecoration:'none', whiteSpace:'nowrap', display:'inline-block' }}>
+                🔒 Autentifică-te
+              </Link>
+            </div>
           ) : (
-            <Link to="/preturi" style={{
-              padding: '7px 16px', borderRadius: 7, fontWeight: 600, fontSize: '0.83rem',
-              background: 'var(--gold)', color: 'var(--navy-dark)',
-              textDecoration: 'none', whiteSpace: 'nowrap', display: 'inline-block',
-            }}>
-              🔒 Necesită Premium
-            </Link>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+              {isPdf && item.file_url && (
+                <button onClick={() => setShowPreview(true)}
+                  style={{ padding:'7px 12px', borderRadius:7, fontWeight:600, fontSize:'0.8rem', background:'#f0f4f8', color:'var(--navy)', border:'1.5px solid #dde1e8', cursor:'pointer', whiteSpace:'nowrap' }}>
+                  👁 Preview
+                </button>
+              )}
+              <Link to="/preturi" style={{ padding:'7px 14px', borderRadius:7, fontWeight:600, fontSize:'0.83rem', background:'var(--gold)', color:'var(--navy-dark)', textDecoration:'none', whiteSpace:'nowrap', display:'inline-block' }}>
+                🔒 Necesită Premium
+              </Link>
+            </div>
           )}
+          {showPreview && <PreviewModal item={item} onClose={() => setShowPreview(false)} />}
         </div>
       </div>
     </div>
