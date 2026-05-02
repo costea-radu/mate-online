@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import Discussions from '../components/Discussions';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -221,6 +222,7 @@ export default function Bacalaureat() {
             </div>
           )}
         </div>
+        <Discussions fixedCategory="bacalaureat" />
       </div>
     </>
   );
