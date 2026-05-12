@@ -164,7 +164,7 @@ export default function Profile() {
                     <div>
                       <strong>Abonament Premium activ</strong>
                       <br />
-                      <span style={{ fontSize: '0.85rem', opacity: 0.8 }}>Acces complet la toate materialele</span>
+                      <span style={{ fontSize: '0.85rem', opacity: 0.8 }}>Ai acces complet la toate materialele</span>
                     </div>
                   </div>
                   <button className="btn btn-outline btn-sm" onClick={handleManageSubscription}>
