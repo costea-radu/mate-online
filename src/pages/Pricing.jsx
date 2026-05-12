@@ -76,7 +76,7 @@ export default function Pricing() {
       <div className="page-header" style={{ textAlign: 'center' }}>
         <div className="container">
           <h1>Abonament Premium</h1>
-          <p>Acces complet la toate materialele Mate-Online</p>
+          <p>Acces complet la toate materialele Mate-Online. Poți anula oricând abonamentul</p>
         </div>
       </div>
 
@@ -90,12 +90,14 @@ export default function Pricing() {
             <div className="pricing-period">pe lună</div>
 
             <ul className="pricing-features">
-              <li><span className="pricing-check">✓</span> Toate exercițiile PDF (gratuite + premium)</li>
+              <li><span className="pricing-check">✓</span> Toate exercițiile și testele PDF (gratuite + premium)</li>
               <li><span className="pricing-check">✓</span> Exerciții interactive cu feedback</li>
               <li><span className="pricing-check">✓</span> Manuale online</li>
-              <li><span className="pricing-check">✓</span> Teste Evaluare Națională</li>
-              <li><span className="pricing-check">✓</span> Teste Bacalaureat</li>
+              <li><span className="pricing-check">✓</span> Teste interactive pentru Evaluarea Națională</li>
+              <li><span className="pricing-check">✓</span> Teste interactive pentru Bacalaureat</li>
               <li><span className="pricing-check">✓</span> Materiale noi adăugate regulat</li>
+              <li><span className="pricing-check">✓</span> Acces complet la toate rezolvările</li>
+              <li><span className="pricing-check">✓</span> Fără angajamente: te poți dezabona oricând, direct din contul tău</li>
             </ul>
 
             {isPremium ? (
