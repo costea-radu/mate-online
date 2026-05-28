@@ -71,7 +71,7 @@ export default function Register() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <h2>Creează un cont</h2>
+        <h2>Creează un cont gratuit</h2>
         <p className="auth-sub">Înregistrează-te pentru a accesa exerciții gratuite și premium.</p>
 
         {error && <div style={{ background:'#fce4ec', color:'var(--danger)', padding:'12px 16px', borderRadius:'var(--radius)', marginBottom:20, fontSize:'0.88rem' }}>{error}</div>}
