@@ -66,7 +66,7 @@ export default function PoliticaRetur() {
 
             <Section title="4. Anularea abonamentului recurent">
               <p>
-                Abonamentul Mate-Online se reînnoiește automat lunar. Îl poți anula oricând din secțiunea <Link to="/profil" style={{ color: 'var(--navy)', fontWeight: 600 }}>Contul meu</Link> → „Gestionează abonamentul". Accesul Premium rămâne activ până la sfârșitul perioadei deja plătite. Nu se oferă rambursări pro-rata pentru perioadele parțiale.
+                Abonamentul ExamenMate se reînnoiește automat lunar. Îl poți anula oricând din secțiunea <Link to="/profil" style={{ color: 'var(--navy)', fontWeight: 600 }}>Contul meu</Link> → „Gestionează abonamentul". Accesul Premium rămâne activ până la sfârșitul perioadei deja plătite. Nu se oferă rambursări pro-rata pentru perioadele parțiale.
               </p>
             </Section>
 
