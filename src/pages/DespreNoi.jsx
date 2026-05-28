@@ -32,7 +32,7 @@ export default function DespreNoi() {
               ExamenMate a luat naștere dintr-o nevoie reală: elevii din România aveau dificultăți în a găsi materiale de matematică de calitate, bine organizate, accesibile oricând și de oriunde. Manualele fizice nu sunt mereu la îndemână, meditațiile sunt costisitoare, iar internetul e plin de resurse disparate și greu de verificat.
             </p>
             <p style={{ color: 'var(--text)', lineHeight: 1.9, fontSize: '0.97rem' }}>
-              Am creat Mate-Online pentru a oferi o alternativă: o platformă cu exerciții PDF descărcabile, teste interactive cu feedback instant și manuale digitale — toate organizate pe clase și examene, verificate și actualizate constant.
+              Am creat ExamenMate pentru a oferi o alternativă: o platformă cu exerciții PDF descărcabile, teste interactive cu feedback instant și manuale digitale — toate organizate pe clase și examene, verificate și actualizate constant.
             </p>
           </div>
 

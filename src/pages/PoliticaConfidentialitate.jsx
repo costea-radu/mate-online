@@ -29,7 +29,7 @@ export default function PoliticaConfidentialitate() {
           <div style={{ background: '#fff', borderRadius: 14, padding: '40px 48px', boxShadow: 'var(--shadow)' }}>
 
             <p style={{ color: 'var(--text-light)', lineHeight: 1.8, marginBottom: 32, fontSize: '0.93rem' }}>
-              Mate-Online respectă confidențialitatea datelor tale. Această politică explică ce date colectăm, cum le folosim și cum le protejăm.
+              ExamenMate respectă confidențialitatea datelor tale. Această politică explică ce date colectăm, cum le folosim și cum le protejăm.
             </p>
 
             <Section title="1. Date colectate">

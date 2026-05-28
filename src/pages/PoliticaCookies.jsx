@@ -29,7 +29,7 @@ export default function PoliticaCookies() {
           <div style={{ background: '#fff', borderRadius: 14, padding: '40px 48px', boxShadow: 'var(--shadow)' }}>
 
             <p style={{ color: 'var(--text-light)', lineHeight: 1.8, marginBottom: 32, fontSize: '0.93rem' }}>
-              Această pagină explică ce sunt cookie-urile, ce tipuri de cookie-uri folosim pe Mate-Online și cum le poți controla.
+              Această pagină explică ce sunt cookie-urile, ce tipuri de cookie-uri folosim pe ExamenMate și cum le poți controla.
             </p>
 
             <Section title="1. Ce sunt cookie-urile?">
@@ -38,7 +38,7 @@ export default function PoliticaCookies() {
               </p>
             </Section>
 
-            <Section title="2. Cookie-uri folosite pe Mate-Online">
+            <Section title="2. Cookie-uri folosite pe ExamenMate">
               <p>Folosim exclusiv cookie-uri tehnice, strict necesare funcționării platformei:</p>
 
               <div style={{ overflowX: 'auto', marginTop: 16 }}>

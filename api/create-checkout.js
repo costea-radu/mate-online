@@ -63,7 +63,7 @@ module.exports = async function handler(req, res) {
           price_data: {
             currency: 'ron',
             product_data: {
-              name: 'Mate-Online Premium',
+              name: 'ExamenMate Premium',
               description: 'Abonament lunar – acces complet la toate materialele',
             },
             unit_amount: 200,

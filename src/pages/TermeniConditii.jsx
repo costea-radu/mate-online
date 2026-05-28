@@ -29,12 +29,12 @@ export default function TermeniConditii() {
           <div style={{ background: '#fff', borderRadius: 14, padding: '40px 48px', boxShadow: 'var(--shadow)' }}>
 
             <p style={{ color: 'var(--text-light)', lineHeight: 1.8, marginBottom: 32, fontSize: '0.93rem' }}>
-              Vă rugăm să citiți cu atenție acești Termeni și Condiții înainte de a utiliza platforma Mate-Online. Prin crearea unui cont sau utilizarea serviciilor noastre, acceptați în totalitate termenii de mai jos.
+              Vă rugăm să citiți cu atenție acești Termeni și Condiții înainte de a utiliza platforma ExamenMate. Prin crearea unui cont sau utilizarea serviciilor noastre, acceptați în totalitate termenii de mai jos.
             </p>
 
             <Section title="1. Descrierea serviciului">
               <p>
-                Mate-Online este o platformă educațională online care oferă materiale de matematică (exerciții PDF, teste interactive și manuale digitale) pentru elevii din clasele V–XII, precum și pentru pregătirea Evaluării Naționale și a Bacalaureatului. Platforma este operată de Costea Radu Ioan.
+                ExamenMate este o platformă educațională online care oferă materiale de matematică (exerciții PDF, teste interactive și manuale digitale) pentru elevii din clasele V–XII, precum și pentru pregătirea Evaluării Naționale și a Bacalaureatului. Platforma este operată de Costea Radu Ioan.
               </p>
             </Section>
 
@@ -50,7 +50,7 @@ export default function TermeniConditii() {
 
             <Section title="3. Conturi de utilizator">
               <p>
-                Fiecare utilizator poate deține un singur cont. Te poți înregistra și autentifica prin e-mail și parolă, prin contul tău Google sau prin contul tău Discord. Prin autentificarea cu Google, ești de acord cu <a href="https://policies.google.com/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Termenii Google</a>. Prin autentificarea cu Discord, ești de acord cu <a href="https://discord.com/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Termenii Discord</a>. Autorizezi Mate-Online să primească informațiile de profil furnizate de aceste servicii (nume, e-mail, fotografie de profil).
+                Fiecare utilizator poate deține un singur cont. Te poți înregistra și autentifica prin e-mail și parolă, prin contul tău Google sau prin contul tău Discord. Prin autentificarea cu Google, ești de acord cu <a href="https://policies.google.com/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Termenii Google</a>. Prin autentificarea cu Discord, ești de acord cu <a href="https://discord.com/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Termenii Discord</a>. Autorizezi ExamenMate să primească informațiile de profil furnizate de aceste servicii (nume, e-mail, fotografie de profil).
               </p>
               <p style={{ marginTop: 10 }}>
                 Ești responsabil pentru toate activitățile desfășurate prin contul tău. În cazul în care suspectezi accesul neautorizat al unui terț la contul tău, ne informezi imediat. Ne rezervăm dreptul de a suspenda sau închide conturi care încalcă acești termeni.
@@ -69,7 +69,7 @@ export default function TermeniConditii() {
 
             <Section title="5. Proprietate intelectuală">
               <p>
-                Toate materialele disponibile pe platformă (exerciții, teste, manuale, design, cod sursă) sunt proprietatea Mate-Online sau ale partenerilor licențiatori și sunt protejate de legislația privind drepturile de autor. Este interzisă reproducerea, distribuirea, publicarea sau vânzarea oricărui conținut de pe platformă fără acordul scris prealabil.
+                Toate materialele disponibile pe platformă (exerciții, teste, manuale, design, cod sursă) sunt proprietatea ExamenMate sau ale partenerilor licențiatori și sunt protejate de legislația privind drepturile de autor. Este interzisă reproducerea, distribuirea, publicarea sau vânzarea oricărui conținut de pe platformă fără acordul scris prealabil.
               </p>
             </Section>
 
@@ -86,13 +86,13 @@ export default function TermeniConditii() {
 
             <Section title="7. Limitarea răspunderii">
               <p>
-                Mate-Online oferă materialele educaționale „ca atare", fără garanții privind completitudinea sau acuratețea absolută a conținutului. Nu ne asumăm răspunderea pentru rezultatele școlare ale utilizatorilor. Platforma poate fi temporar indisponibilă din cauza lucrărilor de mentenanță, fără preaviz.
+                ExamenMate oferă materialele educaționale „ca atare", fără garanții privind completitudinea sau acuratețea absolută a conținutului. Nu ne asumăm răspunderea pentru rezultatele școlare ale utilizatorilor. Platforma poate fi temporar indisponibilă din cauza lucrărilor de mentenanță, fără preaviz.
               </p>
             </Section>
 
             <Section title="8. Servicii terțe">
               <p>
-                Platforma utilizează servicii terțe pentru funcționarea sa: Supabase (autentificare și baze de date), Google (autentificare OAuth), Discord (autentificare OAuth), Stripe (procesare plăți, inclusiv Apple Pay și Google Pay) și Vercel (găzduire). Utilizarea acestor servicii este guvernată de propriii termeni și condiții ai fiecărui furnizor. Mate-Online nu este responsabilă pentru disponibilitatea sau funcționarea acestor servicii terțe.
+                Platforma utilizează servicii terțe pentru funcționarea sa: Supabase (autentificare și baze de date), Google (autentificare OAuth), Discord (autentificare OAuth), Stripe (procesare plăți, inclusiv Apple Pay și Google Pay) și Vercel (găzduire). Utilizarea acestor servicii este guvernată de propriii termeni și condiții ai fiecărui furnizor. ExamenMate nu este responsabilă pentru disponibilitatea sau funcționarea acestor servicii terțe.
               </p>
             </Section>
 

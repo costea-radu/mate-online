@@ -896,7 +896,7 @@ export default function Admin() {
     <div style={s.page}>
       <div style={s.header}>
         <div>
-          <div style={s.headerTitle}>⚙ Panou Admin — Mate-Online</div>
+          <div style={s.headerTitle}>⚙ Panou Admin — ExamenMate (Mate-Online)</div>
           <div style={s.headerSub}>{user.email}</div>
         </div>
         <button style={s.btnSecondary} onClick={() => navigate('/')}>← Înapoi pe site</button>

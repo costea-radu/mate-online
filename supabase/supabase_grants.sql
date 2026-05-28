@@ -1,5 +1,5 @@
 -- ============================================================
--- MATE-ONLINE — Script GRANT-uri Supabase
+-- ExamenMATE — Script GRANT-uri Supabase
 -- Tabele: content, discussions, profiles, progress, rezolvari
 -- Rulează în: Supabase → SQL Editor → New Query
 -- ============================================================

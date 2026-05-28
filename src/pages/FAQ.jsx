@@ -129,7 +129,7 @@ export default function FAQ() {
             <Link to="/">Acasă</Link><span>›</span><span>Întrebări Frecvente</span>
           </div>
           <h1>Întrebări Frecvente</h1>
-          <p>Găsești aici răspunsuri la cele mai comune întrebări despre Mate-Online.</p>
+          <p>Găsești aici răspunsuri la cele mai comune întrebări despre ExamenMate.</p>
         </div>
       </div>
 

@@ -463,7 +463,7 @@ export default function Navbar() {
       <nav className="navbar">
         <div className="container navbar-inner">
           <Link to="/" className="navbar-logo">
-            <span className="logo-accent">ExamenMate</span>Online
+            <span className="logo-accent">Examen</span>Mate
           </Link>
 
           {/* Butoane mobile: Căutare + Meniu */}

@@ -46,7 +46,7 @@ function trimiteScor(punctajObtinut, punctajMaxim) {
       document.getElementById('rezultat').textContent =
         corect ? 'Corect! 🎉' : 'Greșit! ❌';
 
-      // Trimite scorul către Mate-Online
+      // Trimite scorul către  ExamenMate (Mate-Online)
       window.parent.postMessage({
         type: 'MATE_SCORE',
         score: corect ? 1 : 0,
