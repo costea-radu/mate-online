@@ -7,7 +7,7 @@ export default function Footer() {
         <div className="footer-grid">
           <div>
             <div className="footer-brand">
-              <span style={{ color: 'var(--gold)' }}>Mate</span>Online
+              <span style={{ color: 'var(--gold)' }}>ExamenMate</span>Online
             </div>
             <p style={{ fontSize: '0.88rem', lineHeight: 1.7, maxWidth: 320 }}>
               Platforma ta de matematică pentru exerciții, teste și auxiliare.
