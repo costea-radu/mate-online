@@ -42,33 +42,8 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Classes */}
-      <section className="section">
-        <div className="container">
-          <div className="section-header">
-            <h2 className="section-title">Alege clasa ta</h2>
-            <p className="section-subtitle">
-              Materiale adaptate pentru fiecare nivel, de la clasa a V-a până la clasa a XII-a.
-            </p>
-          </div>
-          <div className="card-grid">
-            {categories.map(cat => (
-              <Link to={cat.to} key={cat.to} style={{ textDecoration: 'none' }}>
-                <div className="card">
-                  <div className="card-icon" style={{ fontSize: '1.3rem', fontFamily: 'var(--font-display)', fontWeight: 700 }}>
-                    {cat.icon}
-                  </div>
-                  <h3>{cat.title}</h3>
-                  <p>{cat.desc}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* Exams */}
-      <section className="section" style={{ background: 'var(--white)' }}>
+      <section className="section">
         <div className="container">
           <div className="section-header">
             <h2 className="section-title">Pregătire pentru examene</h2>
@@ -91,6 +66,31 @@ export default function Home() {
                 <p>Materiale complete pentru pregătirea examenului de bacalaureat la matematică.</p>
               </div>
             </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Classes */}
+      <section className="section" style={{ background: 'var(--white)' }}>
+        <div className="container">
+          <div className="section-header">
+            <h2 className="section-title">Alege clasa ta</h2>
+            <p className="section-subtitle">
+              Materiale adaptate pentru fiecare nivel, de la clasa a V-a până la clasa a XII-a.
+            </p>
+          </div>
+          <div className="card-grid">
+            {categories.map(cat => (
+              <Link to={cat.to} key={cat.to} style={{ textDecoration: 'none' }}>
+                <div className="card">
+                  <div className="card-icon" style={{ fontSize: '1.3rem', fontFamily: 'var(--font-display)', fontWeight: 700 }}>
+                    {cat.icon}
+                  </div>
+                  <h3>{cat.title}</h3>
+                  <p>{cat.desc}</p>
+                </div>
+              </Link>
+            ))}
           </div>
         </div>
       </section>
