@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Discussions from './Discussions';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -200,6 +200,7 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
   const isInteractive = item.content_type === 'interactive';
 
   function handlePdfOpen() {
+    sessionStorage.setItem('returnScrollY', String(window.scrollY));
     navigate('/pdf-viewer', { state: { item } });
   }
 
@@ -400,6 +401,7 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
   const [items, setItems] = useState([]);
   const [progressMap, setProgressMap] = useState({});
   const [loading, setLoading] = useState(true);
+  const scrollRestored = useRef(false);
 
   useEffect(() => {
     async function load() {
@@ -437,6 +439,20 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
         }
       });
   }, [user, items]);
+
+  // Restaurează scroll-ul după revenirea din PDF viewer
+  useEffect(() => {
+    if (!loading && !authLoading && !scrollRestored.current) {
+      const savedY = sessionStorage.getItem('returnScrollY');
+      if (savedY != null) {
+        scrollRestored.current = true;
+        sessionStorage.removeItem('returnScrollY');
+        requestAnimationFrame(() => {
+          window.scrollTo({ top: Number(savedY), behavior: 'instant' });
+        });
+      }
+    }
+  }, [loading, authLoading]);
 
   const filtered = items.filter(item => item.content_type === activeTab);
 

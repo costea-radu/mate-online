@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Discussions from '../components/Discussions';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -136,6 +136,20 @@ export default function Bacalaureat() {
   const { profile: profileParam } = useParams();
   const profile = profileParam && PROFILES[profileParam] ? profileParam : 'mate-info';
   const [mainTab, setMainTab] = useState('interactive');
+  const scrollRestored = useRef(false);
+
+  useEffect(() => {
+    if (!scrollRestored.current) {
+      const savedY = sessionStorage.getItem('returnScrollY');
+      if (savedY != null) {
+        scrollRestored.current = true;
+        sessionStorage.removeItem('returnScrollY');
+        requestAnimationFrame(() => {
+          window.scrollTo({ top: Number(savedY), behavior: 'instant' });
+        });
+      }
+    }
+  }, []);
 
   return (
     <>

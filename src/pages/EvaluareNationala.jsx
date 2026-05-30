@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Discussions from '../components/Discussions';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -120,6 +120,20 @@ function SubTitle({ children }) {
 // ─── Pagina Evaluare Națională ────────────────────────────────────────────────
 export default function EvaluareNationala() {
   const [mainTab, setMainTab] = useState('interactive');
+  const scrollRestored = useRef(false);
+
+  useEffect(() => {
+    if (!scrollRestored.current) {
+      const savedY = sessionStorage.getItem('returnScrollY');
+      if (savedY != null) {
+        scrollRestored.current = true;
+        sessionStorage.removeItem('returnScrollY');
+        requestAnimationFrame(() => {
+          window.scrollTo({ top: Number(savedY), behavior: 'instant' });
+        });
+      }
+    }
+  }, []);
 
   return (
     <>
