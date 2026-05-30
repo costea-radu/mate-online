@@ -5,6 +5,43 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+// Scroll robust către un card: așteaptă apariția în DOM, apoi re-centrează
+// repetat câteva sute de ms, ca să compenseze deplasările de layout cauzate
+// de încărcarea asincronă a conținutului (important mai ales pe mobil).
+export function scrollToCard(cardId, { initialDelay = 150 } = {}) {
+  if (!cardId) return () => {};
+  let cancelled = false;
+  const timers = [];
+  let findAttempts = 0;
+  let recenters = 0;
+
+  function recenter() {
+    if (cancelled) return;
+    const el = document.getElementById(`card-${cardId}`);
+    if (el) el.scrollIntoView({ block: 'center' });
+  }
+
+  function tick() {
+    if (cancelled) return;
+    const el = document.getElementById(`card-${cardId}`);
+    if (el) {
+      recenter();
+      // Re-centrăm de mai multe ori pe măsură ce conținutul se așază
+      if (recenters < 12) {
+        recenters++;
+        timers.push(setTimeout(tick, 250));
+      }
+    } else if (findAttempts < 60) {
+      findAttempts++;
+      timers.push(setTimeout(tick, 100));
+    }
+  }
+
+  timers.push(setTimeout(tick, initialDelay));
+  return () => { cancelled = true; timers.forEach(clearTimeout); };
+}
+
 function getOriginalFilename(url) {
   if (!url) return null;
   try {
@@ -200,12 +237,12 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
   const isInteractive = item.content_type === 'interactive';
 
   function handlePdfOpen() {
-    navigate('/pdf-viewer', { state: { item, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab: item.content_type } });
+    navigate('/pdf-viewer', { state: { item, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab: item.content_type, returnSubcategory: item.subcategory } });
   }
 
   function handleInteractive(e) {
     e.preventDefault();
-    navigate('/exercitiu', { state: { item, srcDoc: _overrideSrcDoc, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab: item.content_type } });
+    navigate('/exercitiu', { state: { item, srcDoc: _overrideSrcDoc, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab: item.content_type, returnSubcategory: item.subcategory } });
   }
 
   return (
@@ -450,18 +487,8 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
     if (!cardId || scrollRestored.current) return;
     if (loading || authLoading) return;
     scrollRestored.current = true;
-
-    let attempts = 0;
-    function tryScroll() {
-      const el = document.getElementById(`card-${cardId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'instant', block: 'center' });
-      } else if (attempts < 40) {
-        attempts++;
-        setTimeout(tryScroll, 100);
-      }
-    }
-    setTimeout(tryScroll, 50);
+    const cancel = scrollToCard(cardId, { initialDelay: 50 });
+    return cancel;
   }, [loading, authLoading, location.state]);
 
   const filtered = items.filter(item => item.content_type === activeTab);

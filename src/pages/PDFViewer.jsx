@@ -19,7 +19,7 @@ export default function PDFViewer() {
 
   function goBack() {
     if (state?.returnTo) {
-      navigate(state.returnTo, { state: { scrollToCardId: state.scrollToCardId, returnTab: state.returnTab } });
+      navigate(state.returnTo, { state: { scrollToCardId: state.scrollToCardId, returnTab: state.returnTab, returnSubcategory: state.returnSubcategory } });
     } else {
       navigate(-1);
     }

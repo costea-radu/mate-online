@@ -3,7 +3,7 @@ import Discussions from '../components/Discussions';
 import { Link, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { ContentCard } from '../components/ContentPage';
+import { ContentCard, scrollToCard } from '../components/ContentPage';
 
 // ─── Bloc iteme ───────────────────────────────────────────────────────────────
 function ItemBlock({ category, subcategory, contentType, emptyText }) {
@@ -123,26 +123,18 @@ export default function EvaluareNationala() {
   const location = useLocation();
   const returnTab = location.state?.returnTab;
   const scrollCardId = location.state?.scrollToCardId;
+  const targetSub = location.state?.returnSubcategory;
   const [mainTab, setMainTab] = useState(returnTab || 'interactive');
   const scrollRestored = useRef(false);
-  // Forțăm deschiderea secțiunilor PDF dacă ne întoarcem la un card PDF
-  const forceOpen = !!scrollCardId && returnTab === 'pdf';
+
+  // Deschidem doar secțiunea care conține fișierul deschis anterior
+  const openOnly = (subs) => !!scrollCardId && subs.includes(targetSub);
 
   useEffect(() => {
     if (!scrollCardId || scrollRestored.current) return;
     scrollRestored.current = true;
-
-    let attempts = 0;
-    function tryScroll() {
-      const el = document.getElementById(`card-${scrollCardId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'instant', block: 'center' });
-      } else if (attempts < 50) {
-        attempts++;
-        setTimeout(tryScroll, 100);
-      }
-    }
-    setTimeout(tryScroll, 150);
+    const cancel = scrollToCard(scrollCardId, { initialDelay: 200 });
+    return cancel;
   }, [scrollCardId]);
 
   return (
@@ -176,30 +168,30 @@ export default function EvaluareNationala() {
 
           {mainTab === 'pdf' && (
             <div style={{ marginTop: 16 }}>
-              <Section title="Capitole cu Exerciții" icon="📚" defaultOpen={forceOpen}>
+              <Section title="Capitole cu Exerciții" icon="📚" defaultOpen={openOnly(['capitole'])}>
                 <SubTitle>📄 PDF</SubTitle>
                 <ItemBlock category="evaluare-nationala" subcategory="capitole" contentType="pdf" />
                 <SubTitle>🧩 Interactive</SubTitle>
                 <ItemBlock category="evaluare-nationala" subcategory="capitole" contentType="interactive" />
               </Section>
 
-              <Section title="Teste de Antrenament" icon="🏋" defaultOpen={forceOpen}>
-                <Section title="Exerciții pe Subiecte" icon="📝" level={2} defaultOpen={forceOpen}>
+              <Section title="Teste de Antrenament" icon="🏋" defaultOpen={openOnly(['exercitii-subiecte', 'variante', 'simulari', 'bareme'])}>
+                <Section title="Exerciții pe Subiecte" icon="📝" level={2} defaultOpen={openOnly(['exercitii-subiecte'])}>
                   <SubTitle>📄 PDF</SubTitle>
                   <ItemBlock category="evaluare-nationala" subcategory="exercitii-subiecte" contentType="pdf" />
                   <SubTitle>🧩 Interactive</SubTitle>
                   <ItemBlock category="evaluare-nationala" subcategory="exercitii-subiecte" contentType="interactive" />
                 </Section>
 
-                <Section title="Variante Date + Modele" icon="📋" level={2} defaultOpen={forceOpen}>
+                <Section title="Variante Date + Modele" icon="📋" level={2} defaultOpen={openOnly(['variante'])}>
                   <ItemBlock category="evaluare-nationala" subcategory="variante" contentType="pdf" />
                 </Section>
 
-                <Section title="Simulări" icon="🎯" level={2} defaultOpen={forceOpen}>
+                <Section title="Simulări" icon="🎯" level={2} defaultOpen={openOnly(['simulari'])}>
                   <ItemBlock category="evaluare-nationala" subcategory="simulari" contentType="pdf" />
                 </Section>
 
-                <Section title="Bareme" icon="✅" level={2} defaultOpen={forceOpen}>
+                <Section title="Bareme" icon="✅" level={2} defaultOpen={openOnly(['bareme'])}>
                   <ItemBlock category="evaluare-nationala" subcategory="bareme" contentType="pdf" />
                 </Section>
               </Section>

@@ -3,7 +3,7 @@ import Discussions from '../components/Discussions';
 import { Link, useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { ContentCard } from '../components/ContentPage';
+import { ContentCard, scrollToCard } from '../components/ContentPage';
 
 const PROFILES = {
   'mate-info':       { label: 'Mate-Info',         icon: '📐' },
@@ -107,25 +107,26 @@ function SubTitle({ children }) {
 }
 
 // ─── Conținut PDF pentru un profil ───────────────────────────────────────────
-function ProfilePDFContent({ profile, forceOpen = false }) {
+function ProfilePDFContent({ profile, targetSub }) {
+  const openOnly = (sub) => !!targetSub && sub === targetSub;
   return (
     <>
-      <Section title="Exerciții pe Subiecte" icon="📝" level={2} defaultOpen={forceOpen}>
+      <Section title="Exerciții pe Subiecte" icon="📝" level={2} defaultOpen={openOnly('exercitii')}>
         <SubTitle>📄 PDF</SubTitle>
         <ItemBlock category="bacalaureat" subcategory="exercitii" profile={profile} contentType="pdf" />
         <SubTitle>🧩 Interactive</SubTitle>
         <ItemBlock category="bacalaureat" subcategory="exercitii" profile={profile} contentType="interactive" />
       </Section>
-      <Section title="Variante Date + Olimpici + Rezerve" icon="📋" level={2} defaultOpen={forceOpen}>
+      <Section title="Variante Date + Olimpici + Rezerve" icon="📋" level={2} defaultOpen={openOnly('variante')}>
         <ItemBlock category="bacalaureat" subcategory="variante" profile={profile} contentType="pdf" />
       </Section>
-      <Section title="Teste de Antrenament" icon="🏋" level={2} defaultOpen={forceOpen}>
+      <Section title="Teste de Antrenament" icon="🏋" level={2} defaultOpen={openOnly('teste-antrenament')}>
         <ItemBlock category="bacalaureat" subcategory="teste-antrenament" profile={profile} contentType="pdf" />
       </Section>
-      <Section title="Simulări + Modele" icon="🎯" level={2} defaultOpen={forceOpen}>
+      <Section title="Simulări + Modele" icon="🎯" level={2} defaultOpen={openOnly('simulari')}>
         <ItemBlock category="bacalaureat" subcategory="simulari" profile={profile} contentType="pdf" />
       </Section>
-      <Section title="Bareme" icon="✅" level={2} defaultOpen={forceOpen}>
+      <Section title="Bareme" icon="✅" level={2} defaultOpen={openOnly('bareme')}>
         <ItemBlock category="bacalaureat" subcategory="bareme" profile={profile} contentType="pdf" />
       </Section>
     </>
@@ -139,25 +140,16 @@ export default function Bacalaureat() {
   const location = useLocation();
   const returnTab = location.state?.returnTab;
   const scrollCardId = location.state?.scrollToCardId;
+  const targetSub = location.state?.returnSubcategory;
   const [mainTab, setMainTab] = useState(returnTab || 'interactive');
   const scrollRestored = useRef(false);
-  const forceOpen = !!scrollCardId && returnTab === 'pdf';
+  const capitoleOpen = !!scrollCardId && targetSub === 'capitole';
 
   useEffect(() => {
     if (!scrollCardId || scrollRestored.current) return;
     scrollRestored.current = true;
-
-    let attempts = 0;
-    function tryScroll() {
-      const el = document.getElementById(`card-${scrollCardId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'instant', block: 'center' });
-      } else if (attempts < 50) {
-        attempts++;
-        setTimeout(tryScroll, 100);
-      }
-    }
-    setTimeout(tryScroll, 150);
+    const cancel = scrollToCard(scrollCardId, { initialDelay: 200 });
+    return cancel;
   }, [scrollCardId]);
 
   return (
@@ -186,7 +178,7 @@ export default function Bacalaureat() {
           {mainTab === 'pdf' && (
             <div style={{ marginTop: 16 }}>
               {/* Capitole comune */}
-              <Section title="Capitole cu Exerciții" icon="📚" defaultOpen={forceOpen}>
+              <Section title="Capitole cu Exerciții" icon="📚" defaultOpen={capitoleOpen}>
                 <SubTitle>📄 PDF</SubTitle>
                 <ItemBlock category="bacalaureat" subcategory="capitole" contentType="pdf" />
                 <SubTitle>🧩 Interactive</SubTitle>
@@ -212,7 +204,7 @@ export default function Bacalaureat() {
                 ))}
               </div>
 
-              <ProfilePDFContent profile={profile} forceOpen={forceOpen} />
+              <ProfilePDFContent profile={profile} targetSub={capitoleOpen ? null : targetSub} />
             </div>
           )}
 
