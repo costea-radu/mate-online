@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Discussions from './Discussions';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
@@ -200,14 +200,12 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
   const isInteractive = item.content_type === 'interactive';
 
   function handlePdfOpen() {
-    sessionStorage.setItem('scrollToCardId', item.id);
-    navigate('/pdf-viewer', { state: { item } });
+    navigate('/pdf-viewer', { state: { item, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab: item.content_type } });
   }
 
   function handleInteractive(e) {
     e.preventDefault();
-    sessionStorage.setItem('scrollToCardId', item.id);
-    navigate('/exercitiu', { state: { item, srcDoc: _overrideSrcDoc } });
+    navigate('/exercitiu', { state: { item, srcDoc: _overrideSrcDoc, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab: item.content_type } });
   }
 
   return (
@@ -399,7 +397,11 @@ function ManualViewer({ item }) {
 // ─── Componentă principală ────────────────────────────────────────────────────
 export default function ContentPage({ category, title, subtitle, breadcrumb, tabs, emptyIcons }) {
   const { user, isPremium, loading: authLoading } = useAuth();
-  const [activeTab, setActiveTab] = useState(tabs[0].id);
+  const location = useLocation();
+  const initialTab = (location.state?.returnTab && tabs.some(t => t.id === location.state.returnTab))
+    ? location.state.returnTab
+    : tabs[0].id;
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [items, setItems] = useState([]);
   const [progressMap, setProgressMap] = useState({});
   const [loading, setLoading] = useState(true);
@@ -444,16 +446,23 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
 
   // Restaurează poziția după revenirea din PDF/Interactive viewer
   useEffect(() => {
-    if (loading || authLoading || scrollRestored.current) return;
-    const cardId = sessionStorage.getItem('scrollToCardId');
-    if (!cardId) return;
+    const cardId = location.state?.scrollToCardId;
+    if (!cardId || scrollRestored.current) return;
+    if (loading || authLoading) return;
     scrollRestored.current = true;
-    sessionStorage.removeItem('scrollToCardId');
-    requestAnimationFrame(() => {
+
+    let attempts = 0;
+    function tryScroll() {
       const el = document.getElementById(`card-${cardId}`);
-      if (el) el.scrollIntoView({ behavior: 'instant', block: 'center' });
-    });
-  }, [loading, authLoading]);
+      if (el) {
+        el.scrollIntoView({ behavior: 'instant', block: 'center' });
+      } else if (attempts < 40) {
+        attempts++;
+        setTimeout(tryScroll, 100);
+      }
+    }
+    setTimeout(tryScroll, 50);
+  }, [loading, authLoading, location.state]);
 
   const filtered = items.filter(item => item.content_type === activeTab);
 

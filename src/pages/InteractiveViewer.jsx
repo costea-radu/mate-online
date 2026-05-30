@@ -15,6 +15,14 @@ export default function InteractiveViewer() {
 
   const item = state?.item;
 
+  function goBack() {
+    if (state?.returnTo) {
+      navigate(state.returnTo, { state: { scrollToCardId: state.scrollToCardId, returnTab: state.returnTab } });
+    } else {
+      navigate(-1);
+    }
+  }
+
   // ─── Salvare progres primit de la iframe ────────────────────────────────────
   useEffect(() => {
     async function handleMessage(event) {
@@ -120,7 +128,7 @@ export default function InteractiveViewer() {
         <div style={{ fontSize: '3rem' }}>⚠️</div>
         <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)' }}>Eroare</h2>
         <p style={{ color: 'var(--text-muted)' }}>{error}</p>
-        <button className="btn btn-primary" onClick={() => navigate(-1)}>← Înapoi</button>
+        <button className="btn btn-primary" onClick={goBack}>← Înapoi</button>
       </div>
     );
   }
@@ -138,7 +146,7 @@ export default function InteractiveViewer() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button
-            onClick={() => navigate(-1)}
+            onClick={goBack}
             style={{
               background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
               color: '#fff', borderRadius: 6, padding: '6px 14px', cursor: 'pointer',

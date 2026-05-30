@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Discussions from '../components/Discussions';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { ContentCard } from '../components/ContentPage';
@@ -73,6 +73,7 @@ function ItemBlock({ category, subcategory, contentType, emptyText }) {
 // ─── Secțiune colapsabilă ─────────────────────────────────────────────────────
 function Section({ title, icon, defaultOpen = false, children, level = 1 }) {
   const [open, setOpen] = useState(defaultOpen);
+  useEffect(() => { if (defaultOpen) setOpen(true); }, [defaultOpen]);
   const bgColor = level === 1 ? 'var(--navy)' : level === 2 ? 'var(--navy-light)' : '#2a4a65';
   const fontSize = level === 1 ? '1rem' : level === 2 ? '0.92rem' : '0.87rem';
 
@@ -119,29 +120,30 @@ function SubTitle({ children }) {
 
 // ─── Pagina Evaluare Națională ────────────────────────────────────────────────
 export default function EvaluareNationala() {
-  const [mainTab, setMainTab] = useState('interactive');
+  const location = useLocation();
+  const returnTab = location.state?.returnTab;
+  const scrollCardId = location.state?.scrollToCardId;
+  const [mainTab, setMainTab] = useState(returnTab || 'interactive');
   const scrollRestored = useRef(false);
+  // Forțăm deschiderea secțiunilor PDF dacă ne întoarcem la un card PDF
+  const forceOpen = !!scrollCardId && returnTab === 'pdf';
 
   useEffect(() => {
-    if (scrollRestored.current) return;
-    const cardId = sessionStorage.getItem('scrollToCardId');
-    if (!cardId) return;
+    if (!scrollCardId || scrollRestored.current) return;
     scrollRestored.current = true;
-    sessionStorage.removeItem('scrollToCardId');
 
-    // Așteptăm până apare cardul în DOM (ItemBlock-urile se încarcă async)
     let attempts = 0;
     function tryScroll() {
-      const el = document.getElementById(`card-${cardId}`);
+      const el = document.getElementById(`card-${scrollCardId}`);
       if (el) {
         el.scrollIntoView({ behavior: 'instant', block: 'center' });
-      } else if (attempts < 40) {
+      } else if (attempts < 50) {
         attempts++;
         setTimeout(tryScroll, 100);
       }
     }
-    setTimeout(tryScroll, 50);
-  }, []);
+    setTimeout(tryScroll, 150);
+  }, [scrollCardId]);
 
   return (
     <>
@@ -174,30 +176,30 @@ export default function EvaluareNationala() {
 
           {mainTab === 'pdf' && (
             <div style={{ marginTop: 16 }}>
-              <Section title="Capitole cu Exerciții" icon="📚">
+              <Section title="Capitole cu Exerciții" icon="📚" defaultOpen={forceOpen}>
                 <SubTitle>📄 PDF</SubTitle>
                 <ItemBlock category="evaluare-nationala" subcategory="capitole" contentType="pdf" />
                 <SubTitle>🧩 Interactive</SubTitle>
                 <ItemBlock category="evaluare-nationala" subcategory="capitole" contentType="interactive" />
               </Section>
 
-              <Section title="Teste de Antrenament" icon="🏋">
-                <Section title="Exerciții pe Subiecte" icon="📝" level={2}>
+              <Section title="Teste de Antrenament" icon="🏋" defaultOpen={forceOpen}>
+                <Section title="Exerciții pe Subiecte" icon="📝" level={2} defaultOpen={forceOpen}>
                   <SubTitle>📄 PDF</SubTitle>
                   <ItemBlock category="evaluare-nationala" subcategory="exercitii-subiecte" contentType="pdf" />
                   <SubTitle>🧩 Interactive</SubTitle>
                   <ItemBlock category="evaluare-nationala" subcategory="exercitii-subiecte" contentType="interactive" />
                 </Section>
 
-                <Section title="Variante Date + Modele" icon="📋" level={2}>
+                <Section title="Variante Date + Modele" icon="📋" level={2} defaultOpen={forceOpen}>
                   <ItemBlock category="evaluare-nationala" subcategory="variante" contentType="pdf" />
                 </Section>
 
-                <Section title="Simulări" icon="🎯" level={2}>
+                <Section title="Simulări" icon="🎯" level={2} defaultOpen={forceOpen}>
                   <ItemBlock category="evaluare-nationala" subcategory="simulari" contentType="pdf" />
                 </Section>
 
-                <Section title="Bareme" icon="✅" level={2}>
+                <Section title="Bareme" icon="✅" level={2} defaultOpen={forceOpen}>
                   <ItemBlock category="evaluare-nationala" subcategory="bareme" contentType="pdf" />
                 </Section>
               </Section>

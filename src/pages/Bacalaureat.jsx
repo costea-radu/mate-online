@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Discussions from '../components/Discussions';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { ContentCard } from '../components/ContentPage';
@@ -70,6 +70,7 @@ function ItemBlock({ category, subcategory, profile, contentType, emptyText }) {
 // ─── Secțiune colapsabilă ─────────────────────────────────────────────────────
 function Section({ title, icon, defaultOpen = false, children, level = 1 }) {
   const [open, setOpen] = useState(defaultOpen);
+  useEffect(() => { if (defaultOpen) setOpen(true); }, [defaultOpen]);
   const bgColor = level === 1 ? 'var(--navy)' : level === 2 ? 'var(--navy-light)' : '#2a4a65';
   const fontSize = level === 1 ? '1rem' : level === 2 ? '0.92rem' : '0.87rem';
 
@@ -106,25 +107,25 @@ function SubTitle({ children }) {
 }
 
 // ─── Conținut PDF pentru un profil ───────────────────────────────────────────
-function ProfilePDFContent({ profile }) {
+function ProfilePDFContent({ profile, forceOpen = false }) {
   return (
     <>
-      <Section title="Exerciții pe Subiecte" icon="📝" level={2}>
+      <Section title="Exerciții pe Subiecte" icon="📝" level={2} defaultOpen={forceOpen}>
         <SubTitle>📄 PDF</SubTitle>
         <ItemBlock category="bacalaureat" subcategory="exercitii" profile={profile} contentType="pdf" />
         <SubTitle>🧩 Interactive</SubTitle>
         <ItemBlock category="bacalaureat" subcategory="exercitii" profile={profile} contentType="interactive" />
       </Section>
-      <Section title="Variante Date + Olimpici + Rezerve" icon="📋" level={2}>
+      <Section title="Variante Date + Olimpici + Rezerve" icon="📋" level={2} defaultOpen={forceOpen}>
         <ItemBlock category="bacalaureat" subcategory="variante" profile={profile} contentType="pdf" />
       </Section>
-      <Section title="Teste de Antrenament" icon="🏋" level={2}>
+      <Section title="Teste de Antrenament" icon="🏋" level={2} defaultOpen={forceOpen}>
         <ItemBlock category="bacalaureat" subcategory="teste-antrenament" profile={profile} contentType="pdf" />
       </Section>
-      <Section title="Simulări + Modele" icon="🎯" level={2}>
+      <Section title="Simulări + Modele" icon="🎯" level={2} defaultOpen={forceOpen}>
         <ItemBlock category="bacalaureat" subcategory="simulari" profile={profile} contentType="pdf" />
       </Section>
-      <Section title="Bareme" icon="✅" level={2}>
+      <Section title="Bareme" icon="✅" level={2} defaultOpen={forceOpen}>
         <ItemBlock category="bacalaureat" subcategory="bareme" profile={profile} contentType="pdf" />
       </Section>
     </>
@@ -135,29 +136,29 @@ function ProfilePDFContent({ profile }) {
 export default function Bacalaureat() {
   const { profile: profileParam } = useParams();
   const profile = profileParam && PROFILES[profileParam] ? profileParam : 'mate-info';
-  const [mainTab, setMainTab] = useState('interactive');
+  const location = useLocation();
+  const returnTab = location.state?.returnTab;
+  const scrollCardId = location.state?.scrollToCardId;
+  const [mainTab, setMainTab] = useState(returnTab || 'interactive');
   const scrollRestored = useRef(false);
+  const forceOpen = !!scrollCardId && returnTab === 'pdf';
 
   useEffect(() => {
-    if (scrollRestored.current) return;
-    const cardId = sessionStorage.getItem('scrollToCardId');
-    if (!cardId) return;
+    if (!scrollCardId || scrollRestored.current) return;
     scrollRestored.current = true;
-    sessionStorage.removeItem('scrollToCardId');
 
-    // Așteptăm până apare cardul în DOM (ItemBlock-urile se încarcă async)
     let attempts = 0;
     function tryScroll() {
-      const el = document.getElementById(`card-${cardId}`);
+      const el = document.getElementById(`card-${scrollCardId}`);
       if (el) {
         el.scrollIntoView({ behavior: 'instant', block: 'center' });
-      } else if (attempts < 40) {
+      } else if (attempts < 50) {
         attempts++;
         setTimeout(tryScroll, 100);
       }
     }
-    setTimeout(tryScroll, 50);
-  }, []);
+    setTimeout(tryScroll, 150);
+  }, [scrollCardId]);
 
   return (
     <>
@@ -185,7 +186,7 @@ export default function Bacalaureat() {
           {mainTab === 'pdf' && (
             <div style={{ marginTop: 16 }}>
               {/* Capitole comune */}
-              <Section title="Capitole cu Exerciții" icon="📚">
+              <Section title="Capitole cu Exerciții" icon="📚" defaultOpen={forceOpen}>
                 <SubTitle>📄 PDF</SubTitle>
                 <ItemBlock category="bacalaureat" subcategory="capitole" contentType="pdf" />
                 <SubTitle>🧩 Interactive</SubTitle>
@@ -211,7 +212,7 @@ export default function Bacalaureat() {
                 ))}
               </div>
 
-              <ProfilePDFContent profile={profile} />
+              <ProfilePDFContent profile={profile} forceOpen={forceOpen} />
             </div>
           )}
 

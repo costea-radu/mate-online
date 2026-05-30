@@ -27,12 +27,12 @@ import DespreNoi from './pages/DespreNoi';
 import NotFound from './pages/NotFound';
 
 function ScrollToTop() {
-  const { pathname } = useLocation();
+  const location = useLocation();
   useEffect(() => {
     // Nu resetăm scroll-ul dacă ne întoarcem de la un viewer cu card de restaurat
-    if (sessionStorage.getItem('scrollToCardId')) return;
+    if (location.state?.scrollToCardId) return;
     window.scrollTo(0, 0);
-  }, [pathname]);
+  }, [location.pathname, location.state]);
   return null;
 }
 

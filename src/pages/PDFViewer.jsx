@@ -17,6 +17,14 @@ export default function PDFViewer() {
 
   const item = state?.item;
 
+  function goBack() {
+    if (state?.returnTo) {
+      navigate(state.returnTo, { state: { scrollToCardId: state.scrollToCardId, returnTab: state.returnTab } });
+    } else {
+      navigate(-1);
+    }
+  }
+
   useEffect(() => {
     setMobile(isMobile());
   }, []);
@@ -75,7 +83,7 @@ export default function PDFViewer() {
       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'#1a1a2e', gap:16, padding:24, textAlign:'center' }}>
         <div style={{ fontSize:'3rem' }}>⚠️</div>
         <p style={{ color:'rgba(255,255,255,0.7)' }}>{error}</p>
-        <button className="btn btn-primary" onClick={() => navigate(-1)}>← Înapoi</button>
+        <button className="btn btn-primary" onClick={goBack}>← Înapoi</button>
       </div>
     );
   }
@@ -105,7 +113,7 @@ export default function PDFViewer() {
     return (
       <div style={{ display:'flex', flexDirection:'column', height:'100vh', background:'#1a1a2e' }}>
         <div style={barStyle}>
-          <button onClick={() => navigate(-1)} style={backBtn}>← Înapoi</button>
+          <button onClick={goBack} style={backBtn}>← Înapoi</button>
           <span style={{ color:'#fff', fontWeight:600, fontSize:'0.9rem', flex:1, textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
             📄 {item?.title}
           </span>
@@ -142,7 +150,7 @@ export default function PDFViewer() {
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100vh', background:'#1a1a2e' }}>
       <div style={barStyle}>
-        <button onClick={() => navigate(-1)} style={backBtn}>← Înapoi</button>
+        <button onClick={goBack} style={backBtn}>← Înapoi</button>
         <span style={{ color:'rgba(255,255,255,0.35)' }}>|</span>
         <span style={{ color:'#fff', fontWeight:600, fontSize:'0.95rem', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
           📄 {item?.title}
