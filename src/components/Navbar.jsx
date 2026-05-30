@@ -486,8 +486,8 @@ export default function Navbar() {
 
           {/* Desktop nav links */}
           <ul className="navbar-links" style={{ alignItems: 'center' }}>
-            <li><DesktopDropdown label="Clase" items={CLASE} /></li>
             <li><DesktopDropdown label="Examene" items={EXAMENE} /></li>
+            <li><DesktopDropdown label="Clase" items={CLASE} /></li>
             <li>
               <Link to="/manuale" className={location.pathname === '/manuale' ? 'active' : ''}>
                 Auxiliare
