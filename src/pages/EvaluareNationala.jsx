@@ -123,16 +123,24 @@ export default function EvaluareNationala() {
   const scrollRestored = useRef(false);
 
   useEffect(() => {
-    if (!scrollRestored.current) {
-      const savedY = sessionStorage.getItem('returnScrollY');
-      if (savedY != null) {
-        scrollRestored.current = true;
-        sessionStorage.removeItem('returnScrollY');
-        requestAnimationFrame(() => {
-          window.scrollTo({ top: Number(savedY), behavior: 'instant' });
-        });
+    if (scrollRestored.current) return;
+    const cardId = sessionStorage.getItem('scrollToCardId');
+    if (!cardId) return;
+    scrollRestored.current = true;
+    sessionStorage.removeItem('scrollToCardId');
+
+    // Așteptăm până apare cardul în DOM (ItemBlock-urile se încarcă async)
+    let attempts = 0;
+    function tryScroll() {
+      const el = document.getElementById(`card-${cardId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'instant', block: 'center' });
+      } else if (attempts < 40) {
+        attempts++;
+        setTimeout(tryScroll, 100);
       }
     }
+    setTimeout(tryScroll, 50);
   }, []);
 
   return (

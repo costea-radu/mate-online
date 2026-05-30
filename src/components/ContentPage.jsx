@@ -200,17 +200,19 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
   const isInteractive = item.content_type === 'interactive';
 
   function handlePdfOpen() {
-    sessionStorage.setItem('returnScrollY', String(window.scrollY));
+    sessionStorage.setItem('scrollToCardId', item.id);
     navigate('/pdf-viewer', { state: { item } });
   }
 
   function handleInteractive(e) {
     e.preventDefault();
+    sessionStorage.setItem('scrollToCardId', item.id);
     navigate('/exercitiu', { state: { item, srcDoc: _overrideSrcDoc } });
   }
 
   return (
     <div
+      id={`card-${item.id}`}
       style={{
         display: 'flex', flexDirection: 'column',
         padding: '14px 16px', background: '#fff', borderRadius: 10,
@@ -440,18 +442,17 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
       });
   }, [user, items]);
 
-  // Restaurează scroll-ul după revenirea din PDF viewer
+  // Restaurează poziția după revenirea din PDF/Interactive viewer
   useEffect(() => {
-    if (!loading && !authLoading && !scrollRestored.current) {
-      const savedY = sessionStorage.getItem('returnScrollY');
-      if (savedY != null) {
-        scrollRestored.current = true;
-        sessionStorage.removeItem('returnScrollY');
-        requestAnimationFrame(() => {
-          window.scrollTo({ top: Number(savedY), behavior: 'instant' });
-        });
-      }
-    }
+    if (loading || authLoading || scrollRestored.current) return;
+    const cardId = sessionStorage.getItem('scrollToCardId');
+    if (!cardId) return;
+    scrollRestored.current = true;
+    sessionStorage.removeItem('scrollToCardId');
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`card-${cardId}`);
+      if (el) el.scrollIntoView({ behavior: 'instant', block: 'center' });
+    });
   }, [loading, authLoading]);
 
   const filtered = items.filter(item => item.content_type === activeTab);
