@@ -359,18 +359,6 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, onSignOut }) {
           }}>✕</button>
         </div>
 
-        {/* Clase — expandabil */}
-        <button style={sectionBtn(claseOpen)} onClick={() => setClaseOpen(o => !o)}>
-          <span>📚 Clase</span>
-          <span style={{ fontSize: '0.7rem', opacity: 0.6 }}>{claseOpen ? '▲' : '▼'}</span>
-        </button>
-        {claseOpen && CLASE.map(item => (
-          <Link key={item.to} to={item.to} onClick={onClose}
-            style={{ ...subLinkStyle, color: location.pathname === item.to ? 'var(--gold)' : 'rgba(255,255,255,0.65)' }}>
-            {item.label}
-          </Link>
-        ))}
-
         {/* Examene — expandabil */}
         <button style={sectionBtn(exameneOpen)} onClick={() => setExameneOpen(o => !o)}>
           <span>📝 Examene</span>
@@ -379,6 +367,18 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, onSignOut }) {
         {exameneOpen && EXAMENE.map(item => (
           <Link key={item.to} to={item.to} onClick={onClose}
             style={{ ...subLinkStyle, color: location.pathname.startsWith(item.to) ? 'var(--gold)' : 'rgba(255,255,255,0.65)' }}>
+            {item.label}
+          </Link>
+        ))}
+
+        {/* Clase — expandabil */}
+        <button style={sectionBtn(claseOpen)} onClick={() => setClaseOpen(o => !o)}>
+          <span>📚 Clase</span>
+          <span style={{ fontSize: '0.7rem', opacity: 0.6 }}>{claseOpen ? '▲' : '▼'}</span>
+        </button>
+        {claseOpen && CLASE.map(item => (
+          <Link key={item.to} to={item.to} onClick={onClose}
+            style={{ ...subLinkStyle, color: location.pathname === item.to ? 'var(--gold)' : 'rgba(255,255,255,0.65)' }}>
             {item.label}
           </Link>
         ))}

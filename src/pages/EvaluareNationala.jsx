@@ -119,7 +119,7 @@ function SubTitle({ children }) {
 
 // ─── Pagina Evaluare Națională ────────────────────────────────────────────────
 export default function EvaluareNationala() {
-  const [mainTab, setMainTab] = useState('pdf');
+  const [mainTab, setMainTab] = useState('interactive');
 
   return (
     <>
@@ -137,16 +137,16 @@ export default function EvaluareNationala() {
         <div className="container">
           <div className="tabs">
             <button
-              className={`tab ${mainTab === 'pdf' ? 'active' : ''}`}
-              onClick={() => setMainTab('pdf')}
-            >
-              📄 PDF
-            </button>
-            <button
               className={`tab ${mainTab === 'interactive' ? 'active' : ''}`}
               onClick={() => setMainTab('interactive')}
             >
               🧩 Teste Interactive
+            </button>
+            <button
+              className={`tab ${mainTab === 'pdf' ? 'active' : ''}`}
+              onClick={() => setMainTab('pdf')}
+            >
+              📄 PDF
             </button>
           </div>
 

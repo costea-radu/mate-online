@@ -13,8 +13,8 @@ const classNames = {
 };
 
 const tabs = [
-  { id: 'pdf',         label: '📄 Exerciții PDF' },
   { id: 'interactive', label: '🧩 Exerciții Interactive' },
+  { id: 'pdf',         label: '📄 Exerciții PDF' },
 ];
 
 export default function ClassPage() {

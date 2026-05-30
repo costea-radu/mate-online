@@ -135,7 +135,7 @@ function ProfilePDFContent({ profile }) {
 export default function Bacalaureat() {
   const { profile: profileParam } = useParams();
   const profile = profileParam && PROFILES[profileParam] ? profileParam : 'mate-info';
-  const [mainTab, setMainTab] = useState('pdf');
+  const [mainTab, setMainTab] = useState('interactive');
 
   return (
     <>
@@ -152,11 +152,11 @@ export default function Bacalaureat() {
       <div className="content-list">
         <div className="container">
           <div className="tabs">
-            <button className={`tab ${mainTab === 'pdf' ? 'active' : ''}`} onClick={() => setMainTab('pdf')}>
-              📄 PDF
-            </button>
             <button className={`tab ${mainTab === 'interactive' ? 'active' : ''}`} onClick={() => setMainTab('interactive')}>
               🧩 Teste Interactive
+            </button>
+            <button className={`tab ${mainTab === 'pdf' ? 'active' : ''}`} onClick={() => setMainTab('pdf')}>
+              📄 PDF
             </button>
           </div>
 
