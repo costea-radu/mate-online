@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { ContentCard, scrollToCard } from '../components/ContentPage';
 
 // ─── Bloc iteme ───────────────────────────────────────────────────────────────
-function ItemBlock({ category, subcategory, contentType, emptyText }) {
+function ItemBlock({ category, subcategory, contentType, emptyText, returnTab }) {
   const { user, isPremium } = useAuth();
   const [items, setItems] = useState([]);
   const [progressMap, setProgressMap] = useState({});
@@ -64,6 +64,7 @@ function ItemBlock({ category, subcategory, contentType, emptyText }) {
           isPremium={isPremium}
           user={user}
           progress={progressMap[item.id]}
+          forceTab={returnTab}
         />
       ))}
     </div>
@@ -134,7 +135,7 @@ export default function EvaluareNationala() {
     if (!scrollCardId || scrollRestored.current) return;
     scrollRestored.current = true;
     const cancel = scrollToCard(scrollCardId, { initialDelay: 200 });
-    return cancel;
+    return () => { scrollRestored.current = false; cancel(); };
   }, [scrollCardId]);
 
   return (
@@ -170,29 +171,29 @@ export default function EvaluareNationala() {
             <div style={{ marginTop: 16 }}>
               <Section title="Capitole cu Exerciții" icon="📚" defaultOpen={openOnly(['capitole'])}>
                 <SubTitle>📄 PDF</SubTitle>
-                <ItemBlock category="evaluare-nationala" subcategory="capitole" contentType="pdf" />
+                <ItemBlock category="evaluare-nationala" subcategory="capitole" contentType="pdf" returnTab="pdf" />
                 <SubTitle>🧩 Interactive</SubTitle>
-                <ItemBlock category="evaluare-nationala" subcategory="capitole" contentType="interactive" />
+                <ItemBlock category="evaluare-nationala" subcategory="capitole" contentType="interactive" returnTab="pdf" />
               </Section>
 
               <Section title="Teste de Antrenament" icon="🏋" defaultOpen={openOnly(['exercitii-subiecte', 'variante', 'simulari', 'bareme'])}>
                 <Section title="Exerciții pe Subiecte" icon="📝" level={2} defaultOpen={openOnly(['exercitii-subiecte'])}>
                   <SubTitle>📄 PDF</SubTitle>
-                  <ItemBlock category="evaluare-nationala" subcategory="exercitii-subiecte" contentType="pdf" />
+                  <ItemBlock category="evaluare-nationala" subcategory="exercitii-subiecte" contentType="pdf" returnTab="pdf" />
                   <SubTitle>🧩 Interactive</SubTitle>
-                  <ItemBlock category="evaluare-nationala" subcategory="exercitii-subiecte" contentType="interactive" />
+                  <ItemBlock category="evaluare-nationala" subcategory="exercitii-subiecte" contentType="interactive" returnTab="pdf" />
                 </Section>
 
                 <Section title="Variante Date + Modele" icon="📋" level={2} defaultOpen={openOnly(['variante'])}>
-                  <ItemBlock category="evaluare-nationala" subcategory="variante" contentType="pdf" />
+                  <ItemBlock category="evaluare-nationala" subcategory="variante" contentType="pdf" returnTab="pdf" />
                 </Section>
 
                 <Section title="Simulări" icon="🎯" level={2} defaultOpen={openOnly(['simulari'])}>
-                  <ItemBlock category="evaluare-nationala" subcategory="simulari" contentType="pdf" />
+                  <ItemBlock category="evaluare-nationala" subcategory="simulari" contentType="pdf" returnTab="pdf" />
                 </Section>
 
                 <Section title="Bareme" icon="✅" level={2} defaultOpen={openOnly(['bareme'])}>
-                  <ItemBlock category="evaluare-nationala" subcategory="bareme" contentType="pdf" />
+                  <ItemBlock category="evaluare-nationala" subcategory="bareme" contentType="pdf" returnTab="pdf" />
                 </Section>
               </Section>
             </div>
@@ -204,6 +205,7 @@ export default function EvaluareNationala() {
                 category="evaluare-nationala"
                 subcategory="teste-interactive"
                 contentType="interactive"
+                returnTab="interactive"
                 emptyText="Testele interactive vor fi adăugate în curând."
               />
             </div>

@@ -12,7 +12,7 @@ const PROFILES = {
 };
 
 // ─── Bloc de iteme ────────────────────────────────────────────────────────────
-function ItemBlock({ category, subcategory, profile, contentType, emptyText }) {
+function ItemBlock({ category, subcategory, profile, contentType, emptyText, returnTab }) {
   const { user, isPremium } = useAuth();
   const [items, setItems] = useState([]);
   const [progressMap, setProgressMap] = useState({});
@@ -61,7 +61,7 @@ function ItemBlock({ category, subcategory, profile, contentType, emptyText }) {
   return (
     <div>
       {items.map(item => (
-        <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} />
+        <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} forceTab={returnTab} />
       ))}
     </div>
   );
@@ -113,21 +113,21 @@ function ProfilePDFContent({ profile, targetSub }) {
     <>
       <Section title="Exerciții pe Subiecte" icon="📝" level={2} defaultOpen={openOnly('exercitii')}>
         <SubTitle>📄 PDF</SubTitle>
-        <ItemBlock category="bacalaureat" subcategory="exercitii" profile={profile} contentType="pdf" />
+        <ItemBlock category="bacalaureat" subcategory="exercitii" profile={profile} contentType="pdf" returnTab="pdf" />
         <SubTitle>🧩 Interactive</SubTitle>
-        <ItemBlock category="bacalaureat" subcategory="exercitii" profile={profile} contentType="interactive" />
+        <ItemBlock category="bacalaureat" subcategory="exercitii" profile={profile} contentType="interactive" returnTab="pdf" />
       </Section>
       <Section title="Variante Date + Olimpici + Rezerve" icon="📋" level={2} defaultOpen={openOnly('variante')}>
-        <ItemBlock category="bacalaureat" subcategory="variante" profile={profile} contentType="pdf" />
+        <ItemBlock category="bacalaureat" subcategory="variante" profile={profile} contentType="pdf" returnTab="pdf" />
       </Section>
       <Section title="Teste de Antrenament" icon="🏋" level={2} defaultOpen={openOnly('teste-antrenament')}>
-        <ItemBlock category="bacalaureat" subcategory="teste-antrenament" profile={profile} contentType="pdf" />
+        <ItemBlock category="bacalaureat" subcategory="teste-antrenament" profile={profile} contentType="pdf" returnTab="pdf" />
       </Section>
       <Section title="Simulări + Modele" icon="🎯" level={2} defaultOpen={openOnly('simulari')}>
-        <ItemBlock category="bacalaureat" subcategory="simulari" profile={profile} contentType="pdf" />
+        <ItemBlock category="bacalaureat" subcategory="simulari" profile={profile} contentType="pdf" returnTab="pdf" />
       </Section>
       <Section title="Bareme" icon="✅" level={2} defaultOpen={openOnly('bareme')}>
-        <ItemBlock category="bacalaureat" subcategory="bareme" profile={profile} contentType="pdf" />
+        <ItemBlock category="bacalaureat" subcategory="bareme" profile={profile} contentType="pdf" returnTab="pdf" />
       </Section>
     </>
   );
@@ -149,7 +149,7 @@ export default function Bacalaureat() {
     if (!scrollCardId || scrollRestored.current) return;
     scrollRestored.current = true;
     const cancel = scrollToCard(scrollCardId, { initialDelay: 200 });
-    return cancel;
+    return () => { scrollRestored.current = false; cancel(); };
   }, [scrollCardId]);
 
   return (
@@ -180,9 +180,9 @@ export default function Bacalaureat() {
               {/* Capitole comune */}
               <Section title="Capitole cu Exerciții" icon="📚" defaultOpen={capitoleOpen}>
                 <SubTitle>📄 PDF</SubTitle>
-                <ItemBlock category="bacalaureat" subcategory="capitole" contentType="pdf" />
+                <ItemBlock category="bacalaureat" subcategory="capitole" contentType="pdf" returnTab="pdf" />
                 <SubTitle>🧩 Interactive</SubTitle>
-                <ItemBlock category="bacalaureat" subcategory="capitole" contentType="interactive" />
+                <ItemBlock category="bacalaureat" subcategory="capitole" contentType="interactive" returnTab="pdf" />
               </Section>
 
               {/* Selector profil */}
@@ -232,6 +232,7 @@ export default function Bacalaureat() {
                 subcategory="teste-interactive"
                 profile={profile}
                 contentType="interactive"
+                returnTab="interactive"
                 emptyText="Testele interactive vor fi adăugate în curând."
               />
             </div>

@@ -221,7 +221,7 @@ function ProgressBadge({ progress }) {
 }
 
 // ─── Card item ────────────────────────────────────────────────────────────────
-export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }) {
+export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc, forceTab }) {
   const canAccess = item.is_free || isPremium;
   const navigate = useNavigate();
   const [showPreview, setShowPreview] = useState(false);
@@ -236,13 +236,17 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc }
   const isPdf = item.content_type === 'pdf';
   const isInteractive = item.content_type === 'interactive';
 
+  // Tab-ul la care ne întoarcem: forceTab (dacă e dat de pagina-părinte,
+  // ex. un bloc interactive aflat în tab-ul PDF) sau tipul conținutului.
+  const returnTab = forceTab || item.content_type;
+
   function handlePdfOpen() {
-    navigate('/pdf-viewer', { state: { item, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab: item.content_type, returnSubcategory: item.subcategory } });
+    navigate('/pdf-viewer', { state: { item, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab, returnSubcategory: item.subcategory } });
   }
 
   function handleInteractive(e) {
     e.preventDefault();
-    navigate('/exercitiu', { state: { item, srcDoc: _overrideSrcDoc, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab: item.content_type, returnSubcategory: item.subcategory } });
+    navigate('/exercitiu', { state: { item, srcDoc: _overrideSrcDoc, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab, returnSubcategory: item.subcategory } });
   }
 
   return (
@@ -488,7 +492,7 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
     if (loading || authLoading) return;
     scrollRestored.current = true;
     const cancel = scrollToCard(cardId, { initialDelay: 50 });
-    return cancel;
+    return () => { scrollRestored.current = false; cancel(); };
   }, [loading, authLoading, location.state]);
 
   const filtered = items.filter(item => item.content_type === activeTab);
