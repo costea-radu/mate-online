@@ -98,10 +98,30 @@ function Section({ title, icon, defaultOpen = false, children, level = 1 }) {
   );
 }
 
-function SubTitle({ children }) {
+// ─── Comutator Interactive / PDF în interiorul unei secțiuni ───────────────────
+function TypeTabs({ category, subcategory, profile, returnTab }) {
+  const [type, setType] = useState('interactive');
+  const btn = (active) => ({
+    flex: 1, padding: '8px 12px', cursor: 'pointer',
+    border: '1.5px solid var(--navy)',
+    background: active ? 'var(--navy)' : '#fff',
+    color: active ? '#fff' : 'var(--navy)',
+    fontWeight: 700, fontSize: '0.82rem', fontFamily: 'var(--font-body)',
+    transition: 'all 0.15s',
+  });
   return (
-    <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.82rem', marginBottom: 6, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.65 }}>
-      {children}
+    <div>
+      <div style={{ display: 'flex', gap: 0, marginBottom: 12, borderRadius: 8, overflow: 'hidden' }}>
+        <button style={{ ...btn(type === 'interactive'), borderRadius: '8px 0 0 8px' }} onClick={() => setType('interactive')}>
+          🧩 Interactive
+        </button>
+        <button style={{ ...btn(type === 'pdf'), borderRadius: '0 8px 8px 0', borderLeft: 'none' }} onClick={() => setType('pdf')}>
+          📄 PDF
+        </button>
+      </div>
+      {type === 'interactive'
+        ? <ItemBlock category={category} subcategory={subcategory} profile={profile} contentType="interactive" returnTab={returnTab} />
+        : <ItemBlock category={category} subcategory={subcategory} profile={profile} contentType="pdf" returnTab={returnTab} />}
     </div>
   );
 }
@@ -112,10 +132,7 @@ function ProfilePDFContent({ profile, targetSub }) {
   return (
     <>
       <Section title="Exerciții pe Subiecte" icon="📝" level={2} defaultOpen={openOnly('exercitii')}>
-        <SubTitle>📄 PDF</SubTitle>
-        <ItemBlock category="bacalaureat" subcategory="exercitii" profile={profile} contentType="pdf" returnTab="pdf" />
-        <SubTitle>🧩 Interactive</SubTitle>
-        <ItemBlock category="bacalaureat" subcategory="exercitii" profile={profile} contentType="interactive" returnTab="pdf" />
+        <TypeTabs category="bacalaureat" subcategory="exercitii" profile={profile} returnTab="pdf" />
       </Section>
       <Section title="Variante Date + Olimpici + Rezerve" icon="📋" level={2} defaultOpen={openOnly('variante')}>
         <ItemBlock category="bacalaureat" subcategory="variante" profile={profile} contentType="pdf" returnTab="pdf" />
@@ -171,7 +188,7 @@ export default function Bacalaureat() {
               🧩 Teste Interactive
             </button>
             <button className={`tab ${mainTab === 'pdf' ? 'active' : ''}`} onClick={() => setMainTab('pdf')}>
-              📄 PDF
+              📄 PDF+Interactive
             </button>
           </div>
 
@@ -179,10 +196,7 @@ export default function Bacalaureat() {
             <div style={{ marginTop: 16 }}>
               {/* Capitole comune */}
               <Section title="Capitole cu Exerciții" icon="📚" defaultOpen={capitoleOpen}>
-                <SubTitle>📄 PDF</SubTitle>
-                <ItemBlock category="bacalaureat" subcategory="capitole" contentType="pdf" returnTab="pdf" />
-                <SubTitle>🧩 Interactive</SubTitle>
-                <ItemBlock category="bacalaureat" subcategory="capitole" contentType="interactive" returnTab="pdf" />
+                <TypeTabs category="bacalaureat" subcategory="capitole" returnTab="pdf" />
               </Section>
 
               {/* Selector profil */}

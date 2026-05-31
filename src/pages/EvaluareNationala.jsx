@@ -107,14 +107,30 @@ function Section({ title, icon, defaultOpen = false, children, level = 1 }) {
   );
 }
 
-function SubTitle({ children }) {
+// ─── Comutator Interactive / PDF în interiorul unei secțiuni ───────────────────
+function TypeTabs({ category, subcategory, returnTab }) {
+  const [type, setType] = useState('interactive');
+  const btn = (active) => ({
+    flex: 1, padding: '8px 12px', cursor: 'pointer',
+    border: '1.5px solid var(--navy)',
+    background: active ? 'var(--navy)' : '#fff',
+    color: active ? '#fff' : 'var(--navy)',
+    fontWeight: 700, fontSize: '0.82rem', fontFamily: 'var(--font-body)',
+    transition: 'all 0.15s',
+  });
   return (
-    <div style={{
-      fontWeight: 700, color: 'var(--navy)', fontSize: '0.82rem',
-      marginBottom: 6, marginTop: 4,
-      textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.65,
-    }}>
-      {children}
+    <div>
+      <div style={{ display: 'flex', gap: 0, marginBottom: 12, borderRadius: 8, overflow: 'hidden' }}>
+        <button style={{ ...btn(type === 'interactive'), borderRadius: '8px 0 0 8px' }} onClick={() => setType('interactive')}>
+          🧩 Interactive
+        </button>
+        <button style={{ ...btn(type === 'pdf'), borderRadius: '0 8px 8px 0', borderLeft: 'none' }} onClick={() => setType('pdf')}>
+          📄 PDF
+        </button>
+      </div>
+      {type === 'interactive'
+        ? <ItemBlock category={category} subcategory={subcategory} contentType="interactive" returnTab={returnTab} />
+        : <ItemBlock category={category} subcategory={subcategory} contentType="pdf" returnTab={returnTab} />}
     </div>
   );
 }
@@ -163,25 +179,19 @@ export default function EvaluareNationala() {
               className={`tab ${mainTab === 'pdf' ? 'active' : ''}`}
               onClick={() => setMainTab('pdf')}
             >
-              📄 PDF
+              📄 PDF+Interactive
             </button>
           </div>
 
           {mainTab === 'pdf' && (
             <div style={{ marginTop: 16 }}>
               <Section title="Capitole cu Exerciții" icon="📚" defaultOpen={openOnly(['capitole'])}>
-                <SubTitle>📄 PDF</SubTitle>
-                <ItemBlock category="evaluare-nationala" subcategory="capitole" contentType="pdf" returnTab="pdf" />
-                <SubTitle>🧩 Interactive</SubTitle>
-                <ItemBlock category="evaluare-nationala" subcategory="capitole" contentType="interactive" returnTab="pdf" />
+                <TypeTabs category="evaluare-nationala" subcategory="capitole" returnTab="pdf" />
               </Section>
 
               <Section title="Teste de Antrenament" icon="🏋" defaultOpen={openOnly(['exercitii-subiecte', 'variante', 'simulari', 'bareme'])}>
                 <Section title="Exerciții pe Subiecte" icon="📝" level={2} defaultOpen={openOnly(['exercitii-subiecte'])}>
-                  <SubTitle>📄 PDF</SubTitle>
-                  <ItemBlock category="evaluare-nationala" subcategory="exercitii-subiecte" contentType="pdf" returnTab="pdf" />
-                  <SubTitle>🧩 Interactive</SubTitle>
-                  <ItemBlock category="evaluare-nationala" subcategory="exercitii-subiecte" contentType="interactive" returnTab="pdf" />
+                  <TypeTabs category="evaluare-nationala" subcategory="exercitii-subiecte" returnTab="pdf" />
                 </Section>
 
                 <Section title="Variante Date + Modele" icon="📋" level={2} defaultOpen={openOnly(['variante'])}>
