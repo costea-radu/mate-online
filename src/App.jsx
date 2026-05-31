@@ -25,8 +25,9 @@ import PoliticaRetur from './pages/PoliticaRetur';
 import FAQ from './pages/FAQ';
 import DespreNoi from './pages/DespreNoi';
 import NotFound from './pages/NotFound';
-
 import { Analytics } from '@vercel/analytics/react';
+
+function ScrollToTop() {
   const location = useLocation();
   useEffect(() => {
     // Nu resetăm scroll-ul dacă ne întoarcem de la un viewer cu card de restaurat
