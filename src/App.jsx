@@ -26,7 +26,7 @@ import FAQ from './pages/FAQ';
 import DespreNoi from './pages/DespreNoi';
 import NotFound from './pages/NotFound';
 
-function ScrollToTop() {
+import { Analytics } from '@vercel/analytics/react';
   const location = useLocation();
   useEffect(() => {
     // Nu resetăm scroll-ul dacă ne întoarcem de la un viewer cu card de restaurat
@@ -82,6 +82,7 @@ export default function App() {
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Layout>
+        <Analytics />
       </AuthProvider>
     </BrowserRouter>
   );
