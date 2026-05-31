@@ -241,12 +241,12 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc, 
   const returnTab = forceTab || item.content_type;
 
   function handlePdfOpen() {
-    navigate('/pdf-viewer', { state: { item, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab, returnSubcategory: item.subcategory } });
+    navigate('/pdf-viewer', { state: { item, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab, returnSubcategory: item.subcategory, returnContentType: item.content_type } });
   }
 
   function handleInteractive(e) {
     e.preventDefault();
-    navigate('/exercitiu', { state: { item, srcDoc: _overrideSrcDoc, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab, returnSubcategory: item.subcategory } });
+    navigate('/exercitiu', { state: { item, srcDoc: _overrideSrcDoc, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab, returnSubcategory: item.subcategory, returnContentType: item.content_type } });
   }
 
   return (

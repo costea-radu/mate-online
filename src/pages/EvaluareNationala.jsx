@@ -109,7 +109,11 @@ function Section({ title, icon, defaultOpen = false, children, level = 1 }) {
 
 // ─── Comutator Interactive / PDF în interiorul unei secțiuni ───────────────────
 function TypeTabs({ category, subcategory, returnTab }) {
-  const [type, setType] = useState('interactive');
+  const location = useLocation();
+  // Dacă ne întoarcem la un card din această subcategorie, pornim pe tab-ul lui
+  const returningHere = location.state?.scrollToCardId && location.state?.returnSubcategory === subcategory;
+  const initialType = returningHere ? (location.state?.returnContentType || 'interactive') : 'interactive';
+  const [type, setType] = useState(initialType);
   const btn = (active) => ({
     flex: 1, padding: '8px 12px', cursor: 'pointer',
     border: '1.5px solid var(--navy)',

@@ -17,7 +17,7 @@ export default function InteractiveViewer() {
 
   function goBack() {
     if (state?.returnTo) {
-      navigate(state.returnTo, { state: { scrollToCardId: state.scrollToCardId, returnTab: state.returnTab, returnSubcategory: state.returnSubcategory } });
+      navigate(state.returnTo, { state: { scrollToCardId: state.scrollToCardId, returnTab: state.returnTab, returnSubcategory: state.returnSubcategory, returnContentType: state.returnContentType } });
     } else {
       navigate(-1);
     }
