@@ -188,6 +188,8 @@ export default function Profile() {
               <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 16 }}>Accesează materialele</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
                 {[
+                  { to: '/evaluare-nationala', label: 'Evaluare Națională', icon: '📝' },
+                  { to: '/bacalaureat', label: 'Bacalaureat', icon: '🎓' },
                   { to: '/clase/5',  label: 'Clasa a V-a',    icon: '5️⃣' },
                   { to: '/clase/6',  label: 'Clasa a VI-a',   icon: '6️⃣' },
                   { to: '/clase/7',  label: 'Clasa a VII-a',  icon: '7️⃣' },
@@ -196,8 +198,6 @@ export default function Profile() {
                   { to: '/clase/10', label: 'Clasa a X-a',    icon: '🔟' },
                   { to: '/clase/11', label: 'Clasa a XI-a',   icon: '📘' },
                   { to: '/clase/12', label: 'Clasa a XII-a',  icon: '📗' },
-                  { to: '/evaluare-nationala', label: 'Evaluare Națională', icon: '📝' },
-                  { to: '/bacalaureat', label: 'Bacalaureat', icon: '🎓' },
                   { to: '/manuale', label: 'Manuale Online', icon: '📖' },
                 ].map(item => (
                   <Link
