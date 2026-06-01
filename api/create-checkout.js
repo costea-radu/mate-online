@@ -66,7 +66,7 @@ module.exports = async function handler(req, res) {
               name: 'ExamenMate Premium',
               description: 'Abonament lunar – acces complet la toate materialele',
             },
-            unit_amount: 200,
+            unit_amount: 5000,
             recurring: { interval: 'month' },
           },
           quantity: 1,
