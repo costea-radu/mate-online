@@ -26,6 +26,7 @@ import FAQ from './pages/FAQ';
 import DespreNoi from './pages/DespreNoi';
 import NotFound from './pages/NotFound';
 import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 function ScrollToTop() {
   const location = useLocation();
@@ -84,6 +85,7 @@ export default function App() {
           </Routes>
         </Layout>
         <Analytics />
+        <SpeedInsights />
       </AuthProvider>
     </BrowserRouter>
   );
