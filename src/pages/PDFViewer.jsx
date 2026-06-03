@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -14,6 +14,25 @@ export default function PDFViewer() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [mobile, setMobile] = useState(false);
+
+  // Cached PDF bytes so we can re-create a fresh blob URL at any time
+  // (iOS Safari purges blob: URLs from memory once the page is backgrounded,
+  // which otherwise produces "WebKitBlobResource error 1").
+  const bufferRef = useRef(null);
+  const blobUrlRef = useRef(null);
+
+  // Revoke the previous blob URL and build a brand-new one from the cached bytes.
+  function makeFreshBlobUrl() {
+    if (!bufferRef.current) return null;
+    if (blobUrlRef.current) {
+      try { URL.revokeObjectURL(blobUrlRef.current); } catch {}
+    }
+    const blob = new Blob([bufferRef.current], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    blobUrlRef.current = url;
+    setBlobUrl(url);
+    return url;
+  }
 
   const item = state?.item;
 
@@ -51,9 +70,8 @@ export default function PDFViewer() {
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const buffer = await response.arrayBuffer();
-        const blob = new Blob([buffer], { type: 'application/pdf' });
-        const localUrl = URL.createObjectURL(blob);
-        setBlobUrl(localUrl);
+        bufferRef.current = buffer;
+        makeFreshBlobUrl();
       } catch (err) {
         console.error(err);
         setError('Nu s-a putut încărca fișierul. Încearcă din nou.');
@@ -65,9 +83,50 @@ export default function PDFViewer() {
     load();
 
     return () => {
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      if (blobUrlRef.current) {
+        try { URL.revokeObjectURL(blobUrlRef.current); } catch {}
+        blobUrlRef.current = null;
+      }
     };
   }, [authLoading, item, isPremium]);
+
+  // When the user returns to this page (e.g. after closing the PDF tab on iOS),
+  // the old blob: URL has usually been purged. Rebuild a fresh one so the page
+  // always falls back to the working "Deschide PDF-ul" button instead of the
+  // Safari "WebKitBlobResource error 1" screen.
+  useEffect(() => {
+    function refresh() {
+      if (document.visibilityState === 'visible' && bufferRef.current) {
+        makeFreshBlobUrl();
+      }
+    }
+    function onPageShow(e) {
+      // bfcache restore or normal re-show
+      if (bufferRef.current) makeFreshBlobUrl();
+    }
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('pageshow', onPageShow);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('pageshow', onPageShow);
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
+
+  // Open the PDF using a blob URL created at the very moment of the tap, so the
+  // opened resource is never a stale/purged one.
+  function openPdf() {
+    const url = makeFreshBlobUrl();
+    if (!url) return;
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
 
   if (authLoading || loading) {
     return (
@@ -126,18 +185,17 @@ export default function PDFViewer() {
           <p style={{ color:'rgba(255,255,255,0.6)', fontSize:'0.9rem', lineHeight:1.6, maxWidth:320 }}>
             Apasă butonul de mai jos pentru a deschide PDF-ul în aplicația nativă a dispozitivului tău.
           </p>
-          <a
-            href={blobUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            onClick={openPdf}
             style={{
               display:'inline-block', padding:'14px 36px', background:'var(--gold)',
               color:'var(--navy-dark)', borderRadius:10, fontWeight:700,
-              fontSize:'1rem', textDecoration:'none', boxShadow:'0 4px 16px rgba(232,185,49,0.35)',
+              fontSize:'1rem', textDecoration:'none', border:'none', cursor:'pointer',
+              boxShadow:'0 4px 16px rgba(232,185,49,0.35)',
             }}
           >
             📂 Deschide PDF-ul
-          </a>
+          </button>
           <p style={{ color:'rgba(255,255,255,0.35)', fontSize:'0.78rem' }}>
             Linkul este temporar și expiră la închiderea paginii.
           </p>
