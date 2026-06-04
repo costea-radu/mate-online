@@ -12,6 +12,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Pricing from './pages/Pricing';
 import Profile from './pages/Profile';
+import Asociere from './pages/Asociere';
 import Admin from './pages/Admin';
 import InteractiveViewer from './pages/InteractiveViewer';
 import PDFViewer from './pages/PDFViewer';
@@ -69,6 +70,7 @@ export default function App() {
             <Route path="/inregistrare" element={<Register />} />
             <Route path="/preturi" element={<Pricing />} />
             <Route path="/profil" element={<Profile />} />
+            <Route path="/asociere" element={<Asociere />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/exercitiu" element={<InteractiveViewer />} />
             <Route path="/pdf-viewer" element={<PDFViewer />} />

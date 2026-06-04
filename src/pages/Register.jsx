@@ -10,6 +10,7 @@ const DiscordIcon = () => (
 
 export default function Register() {
   const [fullName, setFullName] = useState('');
+  const [accountType, setAccountType] = useState('elev');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -24,7 +25,7 @@ export default function Register() {
     e.preventDefault();
     setError(''); setLoading(true);
     try {
-      const data = await signUp(email, password, fullName);
+      const data = await signUp(email, password, fullName, accountType);
       if (data?.user && data.user.identities?.length === 0) {
         setError('Acest email este deja înregistrat. Încearcă să te autentifici.');
         return;
@@ -37,14 +38,18 @@ export default function Register() {
     } finally { setLoading(false); }
   }
 
+  function rememberAccountType() {
+    try { localStorage.setItem('pending_account_type', accountType); } catch { /* ignore */ }
+  }
+
   async function handleGoogle() {
-    setError(''); setGoogleLoading(true);
+    setError(''); setGoogleLoading(true); rememberAccountType();
     try { await signInWithGoogle(); }
     catch { setError('Eroare la autentificarea cu Google.'); setGoogleLoading(false); }
   }
 
   async function handleDiscord() {
-    setError(''); setDiscordLoading(true);
+    setError(''); setDiscordLoading(true); rememberAccountType();
     try { await signInWithDiscord(); }
     catch { setError('Eroare la autentificarea cu Discord.'); setDiscordLoading(false); }
   }
@@ -73,6 +78,42 @@ export default function Register() {
       <div className="auth-card">
         <h2>Creează un cont gratuit</h2>
         <p className="auth-sub">Înregistrează-te pentru a accesa exerciții gratuite și premium.</p>
+
+        {/* Tip de cont — se aplică atât la înregistrarea cu e-mail, cât și cu Google/Discord */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
+            Sunt…
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {[
+              { value: 'elev', icon: '🎒', title: 'Elev', tag: 'doar rezolv' },
+              { value: 'profesor', icon: '🧑‍🏫', title: 'Profesor', tag: 'rezolv || corectez' },
+            ].map(opt => {
+              const active = accountType === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setAccountType(opt.value)}
+                  style={{
+                    textAlign: 'left', padding: '12px 14px', borderRadius: 'var(--radius)',
+                    border: `2px solid ${active ? 'var(--gold)' : 'var(--border)'}`,
+                    background: active ? 'rgba(232,185,49,0.08)' : 'var(--white)',
+                    cursor: 'pointer', transition: 'all 0.2s',
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: '1.2rem' }}>{opt.icon}</span>
+                    <span style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.95rem' }}>{opt.title}</span>
+                  </span>
+                  <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                    ({opt.tag})
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         {error && <div style={{ background:'#fce4ec', color:'var(--danger)', padding:'12px 16px', borderRadius:'var(--radius)', marginBottom:20, fontSize:'0.88rem' }}>{error}</div>}
 

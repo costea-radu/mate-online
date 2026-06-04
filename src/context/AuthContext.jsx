@@ -61,11 +61,15 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe();
   }, [fetchProfile]);
 
-  async function signUp(email, password, fullName) {
+  async function signUp(email, password, fullName, accountType) {
+    const metadata = { full_name: fullName };
+    if (accountType === 'elev' || accountType === 'profesor') {
+      metadata.account_type = accountType;
+    }
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName } }
+      options: { data: metadata }
     });
     if (error) throw error;
     return data;
@@ -102,10 +106,12 @@ export function AuthProvider({ children }) {
 
   const isPremium = profile?.subscription_status === 'active';
   const isAdmin = profile?.is_admin === true;
+  const isTeacher = profile?.role === 'profesor';
+  const isStudent = profile?.role === 'elev';
 
   return (
     <AuthContext.Provider value={{
-      user, profile, loading, isPremium, isAdmin,
+      user, profile, loading, isPremium, isAdmin, isTeacher, isStudent,
       signUp, signIn, signInWithGoogle, signInWithDiscord, signOut, fetchProfile
     }}>
       {children}

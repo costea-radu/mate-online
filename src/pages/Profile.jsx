@@ -1,14 +1,125 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { assignTeacherCode } from '../lib/teacherCode';
+import RoleChooser from '../components/RoleChooser';
+import TeacherResults from '../components/TeacherResults';
 
 export default function Profile() {
-  const { user, profile, isPremium, signOut, loading, fetchProfile } = useAuth();
+  const { user, profile, isPremium, isTeacher, signOut, loading, fetchProfile } = useAuth();
   const navigate = useNavigate();
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [roleBusy, setRoleBusy] = useState(false);
+  const [roleError, setRoleError] = useState('');
+  const [roleSelected, setRoleSelected] = useState(null);
+  const [assocBanner, setAssocBanner] = useState('');
+  const onboardingRan = useRef(false);
+  const codeEnsured = useRef(false);
+  // Citit o singură dată la montare: dacă există un tip de cont în așteptare
+  // (înregistrare prin OAuth), nu afișăm selectorul cât timp se aplică.
+  const [pendingTypeFlag] = useState(() => {
+    try {
+      const t = localStorage.getItem('pending_account_type');
+      return t === 'elev' || t === 'profesor';
+    } catch { return false; }
+  });
+
+  const needsRole = !!profile && !profile.role && !pendingTypeFlag;
+
+  // Scrie rolul în baza de date (fără gestionarea stării UI).
+  async function persistRole(role) {
+    if (role === 'profesor') {
+      await assignTeacherCode(user.id, { role: 'profesor' });
+    } else {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ role: 'elev' })
+        .eq('id', user.id);
+      if (error) throw error;
+    }
+  }
+
+  // Persistă alegerea tipului de cont (o singură dată, la prima logare).
+  async function chooseRole(role) {
+    if (!user || roleBusy) return;
+    setRoleBusy(true); setRoleSelected(role); setRoleError('');
+    try {
+      await persistRole(role);
+      await fetchProfile(user.id);
+    } catch (e) {
+      setRoleError(e.message || 'A apărut o eroare. Încearcă din nou.');
+    } finally {
+      setRoleBusy(false);
+      setRoleSelected(null);
+    }
+  }
+
+  // Onboarding după autentificare: tip cont în așteptare (OAuth) + asociere în așteptare.
+  useEffect(() => {
+    if (loading || !user || !profile || onboardingRan.current) return;
+
+    let pendingType = null;
+    let pendingCode = null;
+    try {
+      pendingType = localStorage.getItem('pending_account_type');
+      pendingCode = localStorage.getItem('pending_teacher_code');
+    } catch { /* ignore */ }
+
+    const applyType = !profile.role && (pendingType === 'elev' || pendingType === 'profesor');
+    if (!applyType && !pendingCode) return;
+
+    onboardingRan.current = true;
+    (async () => {
+      let changed = false;
+
+      // 1) Aplică tipul de cont ales la înregistrarea prin OAuth.
+      if (applyType) {
+        try {
+          await persistRole(pendingType);
+          changed = true;
+          try { localStorage.removeItem('pending_account_type'); } catch { /* ignore */ }
+        } catch { /* păstrăm pentru reîncercare la următoarea încărcare */ }
+      }
+
+      // 2) Aplică asocierea cu profesorul (link accesat înainte de logare).
+      if (pendingCode) {
+        try {
+          const res = await fetch('/api/asociere', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id, code: pendingCode }),
+          });
+          const data = await res.json();
+          try { localStorage.removeItem('pending_teacher_code'); } catch { /* ignore */ }
+          if (res.ok) {
+            setAssocBanner(`Ai fost asociat cu Prof. ${data.teacher_name || ''}`.trim() + '.');
+            changed = true;
+          }
+        } catch { /* ignore */ }
+      }
+
+      if (changed) await fetchProfile(user.id);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, user, profile]);
+
+  // Profesor fără cod → generează unul (cont creat înainte de existența funcției).
+  useEffect(() => {
+    if (!user || !profile) return;
+    if (profile.role === 'profesor' && !profile.teacher_code && !codeEnsured.current) {
+      codeEnsured.current = true;
+      (async () => {
+        try {
+          await assignTeacherCode(user.id);
+          await fetchProfile(user.id);
+        } catch { /* ignore */ }
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, profile]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -117,6 +228,17 @@ export default function Profile() {
           </div>
         )}
 
+        {assocBanner && (
+          <div style={{
+            background: '#e8f5e9', color: '#2e7d32', padding: '14px 22px',
+            borderRadius: 'var(--radius)', marginBottom: 24, display: 'flex',
+            alignItems: 'center', gap: 12, fontWeight: 500,
+          }}>
+            <span style={{ fontSize: '1.2rem' }}>🤝</span>
+            <span>{assocBanner}</span>
+          </div>
+        )}
+
         <div className="profile-grid">
           {/* Sidebar */}
           <div className="profile-sidebar">
@@ -131,15 +253,28 @@ export default function Profile() {
                 />
               ) : null}
               <div className="profile-avatar" style={{ display: avatarUrl ? 'none' : 'flex' }}>{initials}</div>
-              <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 4 }}>
+              <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 2 }}>
                 {displayName}
               </h3>
+              {profile?.role && (
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                  ({profile.role === 'profesor' ? 'profesor' : 'elev'})
+                </div>
+              )}
               <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>
                 {user.email}
               </p>
               <div className={`subscription-badge ${isPremium ? 'premium' : 'free'}`}>
                 {isPremium ? '⭐ Premium' : 'Cont gratuit'}
               </div>
+              {profile?.teacher_name && (
+                <div style={{
+                  marginTop: 14, fontSize: '0.82rem', color: 'var(--navy)',
+                  background: 'var(--cream)', borderRadius: 8, padding: '9px 12px', fontWeight: 600,
+                }}>
+                  🧑‍🏫 Asociat cu Prof. {profile.teacher_name}
+                </div>
+              )}
             </div>
           </div>
 
@@ -182,6 +317,15 @@ export default function Profile() {
                 </div>
               )}
             </div>
+
+            {/* Rezultate elevi — doar pentru profesori, sub Abonament */}
+            {isTeacher && (
+              <TeacherResults
+                user={user}
+                teacherCode={profile?.teacher_code}
+                teacherName={displayName}
+              />
+            )}
 
             {/* Quick links */}
             <div className="card">
@@ -252,6 +396,15 @@ export default function Profile() {
           </div>
         </div>
       </div>
+
+      {needsRole && (
+        <RoleChooser
+          onSelect={chooseRole}
+          busy={roleBusy}
+          error={roleError}
+          selected={roleSelected}
+        />
+      )}
     </section>
   );
 }
