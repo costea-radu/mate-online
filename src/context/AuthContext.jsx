@@ -3,11 +3,17 @@ import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext({});
 
+// Schimbă această valoare pentru a forța TOȚI utilizatorii să se autentifice din nou
+// (o singură dată per dispozitiv) — de ex. după o resetare majoră a conturilor.
+// La următoarea încărcare a aplicației, sesiunile mai vechi sunt deconectate automat.
+const FORCE_RELOGIN_TOKEN = '2026-06-04';
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const fetchedForSession = useRef(null);
+  const forcedRef = useRef(false);
 
   const fetchProfile = useCallback(async (userId) => {
     try {
@@ -32,7 +38,28 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
+    const FORCE_KEY = `relogin_done_${FORCE_RELOGIN_TOKEN}`;
+
+    // Returnează true dacă a fost forțată deconectarea (apelantul se oprește).
+    function gateSession(session) {
+      if (!session) return false;
+      if (forcedRef.current) return true; // deconectare deja forțată — ignoră sesiunea reziduală
+      let done = false;
+      try { done = localStorage.getItem(FORCE_KEY) === '1'; } catch { /* ignore */ }
+      if (done) return false; // sesiune deja reînnoită după resetare
+      // Sesiune veche → forțează o deconectare unică pe acest dispozitiv.
+      forcedRef.current = true;
+      try { localStorage.setItem(FORCE_KEY, '1'); } catch { /* ignore */ }
+      supabase.auth.signOut();
+      setUser(null);
+      setProfile(null);
+      fetchedForSession.current = null;
+      setLoading(false);
+      return true;
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (gateSession(session)) return;
       setUser(session?.user ?? null);
       if (session?.user) {
         fetchedForSession.current = session.user.id;
@@ -42,7 +69,14 @@ export function AuthProvider({ children }) {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Autentificare nouă → marcăm dispozitivul drept reconectat (nu mai forțăm deconectarea).
+      if (event === 'SIGNED_IN') {
+        forcedRef.current = false;
+        try { localStorage.setItem(FORCE_KEY, '1'); } catch { /* ignore */ }
+      }
+      if (gateSession(session)) return;
+
       const newUserId = session?.user?.id ?? null;
       setUser(session?.user ?? null);
 

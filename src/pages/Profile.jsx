@@ -16,6 +16,7 @@ export default function Profile() {
   const [roleError, setRoleError] = useState('');
   const [roleSelected, setRoleSelected] = useState(null);
   const [assocBanner, setAssocBanner] = useState('');
+  const [showRoleSwitch, setShowRoleSwitch] = useState(false);
   const onboardingRan = useRef(false);
   const codeEnsured = useRef(false);
   // Citit o singură dată la montare: dacă există un tip de cont în așteptare
@@ -32,7 +33,16 @@ export default function Profile() {
   // Scrie rolul în baza de date (fără gestionarea stării UI).
   async function persistRole(role) {
     if (role === 'profesor') {
-      await assignTeacherCode(user.id, { role: 'profesor' });
+      // Păstrează codul existent (nu invalidăm linkul deja trimis elevilor).
+      if (profile?.teacher_code) {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ role: 'profesor' })
+          .eq('id', user.id);
+        if (error) throw error;
+      } else {
+        await assignTeacherCode(user.id, { role: 'profesor' });
+      }
     } else {
       const { error } = await supabase
         .from('profiles')
@@ -49,6 +59,7 @@ export default function Profile() {
     try {
       await persistRole(role);
       await fetchProfile(user.id);
+      setShowRoleSwitch(false);
     } catch (e) {
       setRoleError(e.message || 'A apărut o eroare. Încearcă din nou.');
     } finally {
@@ -264,6 +275,18 @@ export default function Profile() {
               <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>
                 {user.email}
               </p>
+              {profile?.role && (
+                <button
+                  onClick={() => setShowRoleSwitch(true)}
+                  style={{
+                    marginTop: 8, background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--navy)', fontSize: '0.78rem', fontWeight: 600,
+                    textDecoration: 'underline', padding: 0,
+                  }}
+                >
+                  Schimbă tipul contului
+                </button>
+              )}
               <div className={`subscription-badge ${isPremium ? 'premium' : 'free'}`}>
                 {isPremium ? '⭐ Premium' : 'Cont gratuit'}
               </div>
@@ -403,6 +426,19 @@ export default function Profile() {
           busy={roleBusy}
           error={roleError}
           selected={roleSelected}
+        />
+      )}
+
+      {showRoleSwitch && !needsRole && (
+        <RoleChooser
+          onSelect={chooseRole}
+          busy={roleBusy}
+          error={roleError}
+          selected={roleSelected}
+          current={profile?.role}
+          onCancel={roleBusy ? undefined : () => { setShowRoleSwitch(false); setRoleError(''); }}
+          title="Schimbă tipul contului"
+          subtitle="Poți comuta oricând între Elev și Profesor. Codul/linkul tău de profesor rămâne neschimbat."
         />
       )}
     </section>

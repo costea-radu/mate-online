@@ -57,34 +57,17 @@ function InviteBox({ teacherCode, teacherName }) {
         🔗 Invită elevi
       </h3>
       <p style={{ color: 'var(--text-light)', fontSize: '0.9rem', marginBottom: 18 }}>
-        Trimite linkul (sau codul) de mai jos elevilor tăi, pe e-mail sau WhatsApp. Când dau
+        Trimite linkul de mai jos elevilor tăi, pe e-mail sau WhatsApp. Când dau
         clic pe link și se autentifică, sunt <strong>asociați automat</strong> contului tău și
         le vei vedea rezultatele în tabelul de mai jos.
       </p>
 
       {!teacherCode ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)', fontSize: '0.88rem' }}>
-          <span className="spinner" style={{ width: 18, height: 18, borderWidth: 2 }} /> Se generează codul…
+          <span className="spinner" style={{ width: 18, height: 18, borderWidth: 2 }} /> Se generează linkul…
         </div>
       ) : (
         <>
-          {/* Cod */}
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>Codul tău</div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <code style={{
-                fontFamily: 'monospace', fontSize: '1.25rem', fontWeight: 700, letterSpacing: '0.12em',
-                color: 'var(--navy)', background: 'var(--cream)', padding: '8px 16px', borderRadius: 8,
-                border: '1px dashed var(--cream-dark)',
-              }}>
-                {teacherCode}
-              </code>
-              <button style={copyBtn(copied === 'code')} onClick={() => copy(teacherCode, 'code')}>
-                {copied === 'code' ? '✓ Copiat' : 'Copiază codul'}
-              </button>
-            </div>
-          </div>
-
           {/* Link */}
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>Link de asociere</div>

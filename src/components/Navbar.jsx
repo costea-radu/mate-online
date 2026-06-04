@@ -299,7 +299,7 @@ function SearchModal({ onClose }) {
 }
 
 // ─── Mobile menu overlay ──────────────────────────────────────────────────────
-function MobileMenu({ open, onClose, user, isPremium, isAdmin, onSignOut }) {
+function MobileMenu({ open, onClose, user, isPremium, isAdmin, forumUnread = 0, onSignOut }) {
   const location = useLocation();
   const [claseOpen, setClaseOpen] = useState(false);
   const [exameneOpen, setExameneOpen] = useState(false);
@@ -395,6 +395,9 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, onSignOut }) {
         </Link>
         <Link to="/discutii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/discutii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           💬 Forum
+          {forumUnread > 0 && (
+            <span style={{ color: '#ff6b6b', fontWeight: 700, marginLeft: 4 }}>({forumUnread})</span>
+          )}
         </Link>
 
         {/* Separator */}
@@ -451,6 +454,52 @@ export default function Navbar() {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [forumUnread, setForumUnread] = useState(0);
+
+  // Număr de răspunsuri noi la postările/comentariile utilizatorului (notificare lângă „Forum").
+  useEffect(() => {
+    let cancelled = false;
+
+    async function computeForumUnread() {
+      if (!user) { if (!cancelled) setForumUnread(0); return; }
+      const seenKey = `forum_seen_${user.id}`;
+
+      // Pe pagina de forum marcăm totul drept văzut.
+      if (location.pathname === '/discutii') {
+        try { localStorage.setItem(seenKey, new Date().toISOString()); } catch { /* ignore */ }
+        if (!cancelled) setForumUnread(0);
+        return;
+      }
+
+      let lastSeen = null;
+      try { lastSeen = localStorage.getItem(seenKey); } catch { /* ignore */ }
+
+      // Postările/comentariile mele (limităm numărul pentru lungimea URL-ului).
+      const { data: mine, error: mineErr } = await supabase
+        .from('discussions')
+        .select('id')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(150);
+
+      if (mineErr || !mine || mine.length === 0) { if (!cancelled) setForumUnread(0); return; }
+
+      const myIds = mine.map((d) => d.id);
+      let q = supabase
+        .from('discussions')
+        .select('id', { count: 'exact', head: true })
+        .in('parent_id', myIds)
+        .neq('user_id', user.id);
+      if (lastSeen) q = q.gt('created_at', lastSeen);
+
+      const { count } = await q;
+      if (!cancelled) setForumUnread(count || 0);
+    }
+
+    computeForumUnread();
+    const iv = setInterval(computeForumUnread, 60000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [user, location.pathname]);
 
   async function handleSignOut() {
     setMobileOpen(false);
@@ -506,6 +555,9 @@ export default function Navbar() {
             <li>
               <Link to="/discutii" className={location.pathname === '/discutii' ? 'active' : ''}>
                 💬 Forum
+                {forumUnread > 0 && (
+                  <span style={{ color: '#ff6b6b', fontWeight: 700, marginLeft: 4 }}>({forumUnread})</span>
+                )}
               </Link>
             </li>
           </ul>
@@ -566,6 +618,7 @@ export default function Navbar() {
         user={user}
         isPremium={isPremium}
         isAdmin={isAdmin}
+        forumUnread={forumUnread}
         onSignOut={handleSignOut}
       />
     </>

@@ -19,10 +19,22 @@ const OPTIONS = [
   },
 ];
 
-export default function RoleChooser({ onSelect, busy = false, error = '', selected = null }) {
+export default function RoleChooser({
+  onSelect,
+  busy = false,
+  error = '',
+  selected = null,
+  current = null,
+  onCancel = null,
+  title = 'Ce tip de cont ai?',
+  subtitle = 'Alege o opțiune pentru a continua. Setarea se face o singură dată.',
+}) {
   return (
     <>
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(9,30,48,0.55)', zIndex: 1200 }} />
+      <div
+        onClick={onCancel || undefined}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(9,30,48,0.55)', zIndex: 1200 }}
+      />
       <div
         role="dialog"
         aria-modal="true"
@@ -33,11 +45,24 @@ export default function RoleChooser({ onSelect, busy = false, error = '', select
           maxHeight: '90vh', overflowY: 'auto',
         }}
       >
+        {onCancel && (
+          <button
+            onClick={onCancel}
+            disabled={busy}
+            aria-label="Închide"
+            style={{
+              position: 'absolute', top: 14, right: 16, background: 'none', border: 'none',
+              cursor: busy ? 'default' : 'pointer', color: 'var(--text-muted)', fontSize: '1.4rem', lineHeight: 1,
+            }}
+          >
+            ✕
+          </button>
+        )}
         <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', fontSize: '1.5rem', marginBottom: 6 }}>
-          Ce tip de cont ai?
+          {title}
         </h2>
         <p style={{ color: 'var(--text-light)', fontSize: '0.92rem', marginBottom: 22 }}>
-          Alege o opțiune pentru a continua. Setarea se face o singură dată.
+          {subtitle}
         </p>
 
         {error && (
@@ -49,6 +74,7 @@ export default function RoleChooser({ onSelect, busy = false, error = '', select
         <div style={{ display: 'grid', gap: 14 }}>
           {OPTIONS.map((opt) => {
             const isSel = selected === opt.value;
+            const isCurrent = current === opt.value;
             return (
               <button
                 key={opt.value}
@@ -58,12 +84,12 @@ export default function RoleChooser({ onSelect, busy = false, error = '', select
                 style={{
                   textAlign: 'left', display: 'flex', alignItems: 'flex-start', gap: 16,
                   padding: '18px 20px', borderRadius: 'var(--radius-lg)', cursor: busy ? 'wait' : 'pointer',
-                  border: `2px solid ${isSel ? 'var(--gold)' : 'var(--border)'}`,
-                  background: isSel ? 'rgba(232,185,49,0.08)' : 'var(--white)',
+                  border: `2px solid ${isSel || isCurrent ? 'var(--gold)' : 'var(--border)'}`,
+                  background: isSel || isCurrent ? 'rgba(232,185,49,0.08)' : 'var(--white)',
                   transition: 'all 0.2s', opacity: busy && !isSel ? 0.6 : 1,
                 }}
-                onMouseEnter={(e) => { if (!busy && !isSel) e.currentTarget.style.borderColor = 'var(--navy-light)'; }}
-                onMouseLeave={(e) => { if (!isSel) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onMouseEnter={(e) => { if (!busy && !isSel && !isCurrent) e.currentTarget.style.borderColor = 'var(--navy-light)'; }}
+                onMouseLeave={(e) => { if (!isSel && !isCurrent) e.currentTarget.style.borderColor = 'var(--border)'; }}
               >
                 <span style={{ fontSize: '1.9rem', lineHeight: 1, flexShrink: 0 }}>{opt.icon}</span>
                 <span style={{ flex: 1 }}>
@@ -77,6 +103,14 @@ export default function RoleChooser({ onSelect, busy = false, error = '', select
                     }}>
                       {opt.tag}
                     </span>
+                    {isCurrent && (
+                      <span style={{
+                        fontSize: '0.7rem', fontWeight: 700, color: '#2e7d32',
+                        background: '#e8f5e9', padding: '2px 8px', borderRadius: 20,
+                      }}>
+                        ✓ curent
+                      </span>
+                    )}
                   </span>
                   <span style={{ display: 'block', color: 'var(--text-light)', fontSize: '0.88rem', marginTop: 4 }}>
                     {opt.desc}
