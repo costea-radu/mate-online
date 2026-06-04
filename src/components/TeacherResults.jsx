@@ -280,7 +280,7 @@ export default function TeacherResults({ user, teacherCode, teacherName }) {
               </div>
             ) : (
               <>
-                <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem', minWidth: 460 }}>
                     <thead>
                       <tr style={{ background: 'var(--cream)', textAlign: 'left' }}>

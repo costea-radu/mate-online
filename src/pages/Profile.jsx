@@ -276,18 +276,20 @@ export default function Profile() {
                 {user.email}
               </p>
               {profile?.role && (
-                <button
-                  onClick={() => setShowRoleSwitch(true)}
-                  style={{
-                    marginTop: 8, background: 'none', border: 'none', cursor: 'pointer',
-                    color: 'var(--navy)', fontSize: '0.78rem', fontWeight: 600,
-                    textDecoration: 'underline', padding: 0,
-                  }}
-                >
-                  Schimbă tipul contului
-                </button>
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    onClick={() => setShowRoleSwitch(true)}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: 'var(--navy)', fontSize: '0.78rem', fontWeight: 600,
+                      textDecoration: 'underline', padding: 0,
+                    }}
+                  >
+                    Schimbă tipul contului
+                  </button>
+                </div>
               )}
-              <div className={`subscription-badge ${isPremium ? 'premium' : 'free'}`}>
+              <div className={`subscription-badge ${isPremium ? 'premium' : 'free'}`} style={{ marginTop: 12 }}>
                 {isPremium ? '⭐ Premium' : 'Cont gratuit'}
               </div>
               {profile?.teacher_name && (
@@ -302,7 +304,7 @@ export default function Profile() {
           </div>
 
           {/* Main */}
-          <div>
+          <div style={{ minWidth: 0 }}>
             {/* Subscription */}
             <div className="card" style={{ marginBottom: 24 }}>
               <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 16 }}>Abonament</h3>
