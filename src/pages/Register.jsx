@@ -84,10 +84,11 @@ export default function Register() {
           <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
             Sunt…
           </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
             {[
               { value: 'elev', icon: '🎒', title: 'Elev', tag: 'doar rezolv' },
               { value: 'profesor', icon: '🧑‍🏫', title: 'Profesor', tag: 'rezolv || corectez' },
+              { value: 'parinte', icon: '👨‍👩‍👧', title: 'Părinte', tag: 'urmăresc' },
             ].map(opt => {
               const active = accountType === opt.value;
               return (

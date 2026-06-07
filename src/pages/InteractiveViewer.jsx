@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -12,8 +12,12 @@ export default function InteractiveViewer() {
   const [loading, setLoading] = useState(true);
   const [scoreSaved, setScoreSaved] = useState(false);
   const [savedScore, setSavedScore] = useState(null);
+  const startedAtRef = useRef(Date.now());
 
   const item = state?.item;
+
+  // Resetează cronometrul când se încarcă alt exercițiu
+  useEffect(() => { startedAtRef.current = Date.now(); }, [item?.id]);
 
   function goBack() {
     if (state?.returnTo) {
@@ -33,23 +37,49 @@ export default function InteractiveViewer() {
       if (typeof score !== 'number' || typeof maxScore !== 'number') return;
       if (!user || !item) return;
 
+      // Timpul petrecut în această sesiune (secunde) + cumulul anterior
+      const sessionSeconds = Math.max(0, Math.round((Date.now() - startedAtRef.current) / 1000));
+
       try {
-        const { error } = await supabase
+        // Citește înregistrarea existentă pentru a cumula încercări și timp
+        let existing = null;
+        try {
+          const { data: ex } = await supabase
+            .from('progress')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('content_id', item.id)
+            .maybeSingle();
+          existing = ex || null;
+        } catch { /* prima încercare */ }
+
+        const attempts = (existing?.attempts || 0) + 1;
+        const timeSpent = (existing?.time_spent || 0) + sessionSeconds;
+
+        const base = {
+          user_id: user.id,
+          content_id: item.id,
+          score,
+          max_score: maxScore,
+          completed_at: new Date().toISOString(),
+          attempts,
+        };
+
+        // Încearcă cu time_spent; dacă lipsește coloana (migrare nerulată), reia fără ea
+        let { error } = await supabase
           .from('progress')
-          .upsert(
-            {
-              user_id: user.id,
-              content_id: item.id,
-              score,
-              max_score: maxScore,
-              completed_at: new Date().toISOString(),
-            },
-            { onConflict: 'user_id,content_id' }
-          );
+          .upsert({ ...base, time_spent: timeSpent }, { onConflict: 'user_id,content_id' });
+        if (error) {
+          const retry = await supabase
+            .from('progress')
+            .upsert(base, { onConflict: 'user_id,content_id' });
+          error = retry.error;
+        }
 
         if (!error) {
           setScoreSaved(true);
           setSavedScore({ score, maxScore });
+          startedAtRef.current = Date.now(); // pregătește o eventuală reîncercare
         }
       } catch (err) {
         console.error('Progress save error:', err);

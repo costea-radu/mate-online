@@ -7,7 +7,7 @@ import RoleChooser from '../components/RoleChooser';
 import TeacherResults from '../components/TeacherResults';
 
 export default function Profile() {
-  const { user, profile, isPremium, isTeacher, signOut, loading, fetchProfile } = useAuth();
+  const { user, profile, isPremium, isTeacher, isParent, isMentor, signOut, loading, fetchProfile } = useAuth();
   const navigate = useNavigate();
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -17,6 +17,7 @@ export default function Profile() {
   const [roleSelected, setRoleSelected] = useState(null);
   const [assocBanner, setAssocBanner] = useState('');
   const [showRoleSwitch, setShowRoleSwitch] = useState(false);
+  const [myMentors, setMyMentors] = useState([]);
   const onboardingRan = useRef(false);
   const codeEnsured = useRef(false);
   // Citit o singură dată la montare: dacă există un tip de cont în așteptare
@@ -24,7 +25,7 @@ export default function Profile() {
   const [pendingTypeFlag] = useState(() => {
     try {
       const t = localStorage.getItem('pending_account_type');
-      return t === 'elev' || t === 'profesor';
+      return t === 'elev' || t === 'profesor' || t === 'parinte';
     } catch { return false; }
   });
 
@@ -32,16 +33,16 @@ export default function Profile() {
 
   // Scrie rolul în baza de date (fără gestionarea stării UI).
   async function persistRole(role) {
-    if (role === 'profesor') {
-      // Păstrează codul existent (nu invalidăm linkul deja trimis elevilor).
+    if (role === 'profesor' || role === 'parinte') {
+      // Păstrează codul existent (nu invalidăm linkul deja trimis).
       if (profile?.teacher_code) {
         const { error } = await supabase
           .from('profiles')
-          .update({ role: 'profesor' })
+          .update({ role })
           .eq('id', user.id);
         if (error) throw error;
       } else {
-        await assignTeacherCode(user.id, { role: 'profesor' });
+        await assignTeacherCode(user.id, { role });
       }
     } else {
       const { error } = await supabase
@@ -79,7 +80,7 @@ export default function Profile() {
       pendingCode = localStorage.getItem('pending_teacher_code');
     } catch { /* ignore */ }
 
-    const applyType = !profile.role && (pendingType === 'elev' || pendingType === 'profesor');
+    const applyType = !profile.role && (pendingType === 'elev' || pendingType === 'profesor' || pendingType === 'parinte');
     if (!applyType && !pendingCode) return;
 
     onboardingRan.current = true;
@@ -106,7 +107,9 @@ export default function Profile() {
           const data = await res.json();
           try { localStorage.removeItem('pending_teacher_code'); } catch { /* ignore */ }
           if (res.ok) {
-            setAssocBanner(`Ai fost asociat cu Prof. ${data.teacher_name || ''}`.trim() + '.');
+            const nm = data.mentor_name || data.teacher_name || '';
+            const prefix = data.mentor_role === 'parinte' ? '' : 'Prof. ';
+            setAssocBanner(`Ai fost asociat cu ${prefix}${nm}`.trim() + '.');
             changed = true;
           }
         } catch { /* ignore */ }
@@ -120,11 +123,11 @@ export default function Profile() {
   // Profesor fără cod → generează unul (cont creat înainte de existența funcției).
   useEffect(() => {
     if (!user || !profile) return;
-    if (profile.role === 'profesor' && !profile.teacher_code && !codeEnsured.current) {
+    if ((profile.role === 'profesor' || profile.role === 'parinte') && !profile.teacher_code && !codeEnsured.current) {
       codeEnsured.current = true;
       (async () => {
         try {
-          await assignTeacherCode(user.id);
+          await assignTeacherCode(user.id, { role: profile.role });
           await fetchProfile(user.id);
         } catch { /* ignore */ }
       })();
@@ -146,6 +149,23 @@ export default function Profile() {
       fetchProfile(user.id);
     }
   }, [user, fetchProfile]);
+
+  // Mentorii (profesori/părinți) cu care e asociat elevul
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/my-mentors', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id }),
+        });
+        const json = await res.json();
+        if (!cancelled && res.ok) setMyMentors(json.mentors || []);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, assocBanner]);
 
   if (loading) {
     return (
@@ -269,7 +289,7 @@ export default function Profile() {
               </h3>
               {profile?.role && (
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 4 }}>
-                  ({profile.role === 'profesor' ? 'profesor' : 'elev'})
+                  ({profile.role === 'profesor' ? 'profesor' : profile.role === 'parinte' ? 'părinte' : 'elev'})
                 </div>
               )}
               <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>
@@ -292,12 +312,18 @@ export default function Profile() {
               <div className={`subscription-badge ${isPremium ? 'premium' : 'free'}`} style={{ marginTop: 12 }}>
                 {isPremium ? '⭐ Premium' : 'Cont gratuit'}
               </div>
-              {profile?.teacher_name && (
+              {myMentors.length > 0 && (
                 <div style={{
                   marginTop: 14, fontSize: '0.82rem', color: 'var(--navy)',
-                  background: 'var(--cream)', borderRadius: 8, padding: '9px 12px', fontWeight: 600,
+                  background: 'var(--cream)', borderRadius: 8, padding: '9px 12px', textAlign: 'left',
                 }}>
-                  🧑‍🏫 Asociat cu Prof. {profile.teacher_name}
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Asociat cu:</div>
+                  {myMentors.some((m) => m.role === 'profesor') && (
+                    <div>🧑‍🏫 {myMentors.filter((m) => m.role === 'profesor').map((m) => m.name).join(', ')}</div>
+                  )}
+                  {myMentors.some((m) => m.role === 'parinte') && (
+                    <div style={{ marginTop: 4 }}>👨‍👩‍👧 {myMentors.filter((m) => m.role === 'parinte').map((m) => m.name).join(', ')}</div>
+                  )}
                 </div>
               )}
             </div>
@@ -343,12 +369,13 @@ export default function Profile() {
               )}
             </div>
 
-            {/* Rezultate elevi — doar pentru profesori, sub Abonament */}
-            {isTeacher && (
+            {/* Rezultate elevi — pentru profesori și părinți, sub Abonament */}
+            {isMentor && (
               <TeacherResults
                 user={user}
-                teacherCode={profile?.teacher_code}
-                teacherName={displayName}
+                inviteCode={profile?.teacher_code}
+                displayName={displayName}
+                role={profile?.role}
               />
             )}
 
@@ -440,7 +467,7 @@ export default function Profile() {
           current={profile?.role}
           onCancel={roleBusy ? undefined : () => { setShowRoleSwitch(false); setRoleError(''); }}
           title="Schimbă tipul contului"
-          subtitle="Poți comuta oricând între Elev și Profesor. Codul/linkul tău de profesor rămâne neschimbat."
+          subtitle="Poți comuta oricând între Elev, Profesor și Părinte. Linkul tău de invitație rămâne neschimbat."
         />
       )}
     </section>

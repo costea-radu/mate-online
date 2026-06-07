@@ -15,7 +15,14 @@ const OPTIONS = [
     icon: '🧑‍🏫',
     title: 'Profesor',
     tag: 'rezolv || corectez',
-    desc: 'Inviți elevi cu un link și le urmărești rezultatele la teste într-un tabel.',
+    desc: 'Inviți elevi cu un link, îi organizezi pe grupe și le urmărești rezultatele.',
+  },
+  {
+    value: 'parinte',
+    icon: '👨‍👩‍👧',
+    title: 'Părinte',
+    tag: 'urmăresc',
+    desc: 'Te asociezi cu copilul tău și îi urmărești punctajul, încercările, timpul și progresul.',
   },
 ];
 

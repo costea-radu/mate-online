@@ -9,6 +9,7 @@ export default function Asociere() {
   const navigate = useNavigate();
   const [status, setStatus] = useState('working'); // working | success | error | need-auth
   const [teacherName, setTeacherName] = useState('');
+  const [mentorRole, setMentorRole] = useState('profesor');
   const [message, setMessage] = useState('');
   const ran = useRef(false);
 
@@ -41,7 +42,8 @@ export default function Asociere() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'A apărut o eroare la asociere.');
         try { localStorage.removeItem('pending_teacher_code'); } catch { /* ignore */ }
-        setTeacherName(data.teacher_name || 'Profesor');
+        setTeacherName(data.mentor_name || data.teacher_name || 'Profesor');
+        setMentorRole(data.mentor_role || 'profesor');
         setStatus('success');
         await fetchProfile(user.id);
       } catch (e) {
@@ -57,7 +59,7 @@ export default function Asociere() {
         {status === 'working' && (
           <>
             <div className="spinner" style={{ margin: '0 auto 18px' }} />
-            <h2>Te asociem cu profesorul…</h2>
+            <h2>Te asociem cu contul…</h2>
             <p className="auth-sub">Durează doar o clipă.</p>
           </>
         )}
@@ -68,7 +70,7 @@ export default function Asociere() {
             <h2>Aproape gata!</h2>
             <p className="auth-sub">
               Autentifică-te sau creează-ți un cont. Imediat după aceea vei fi
-              asociat automat profesorului care ți-a trimis acest link.
+              asociat automat contului care ți-a trimis acest link.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 18 }}>
               <Link to="/autentificare" className="btn btn-primary" style={{ width: '100%' }}>
@@ -86,8 +88,11 @@ export default function Asociere() {
             <div style={{ fontSize: '3rem', marginBottom: 12 }}>✅</div>
             <h2>Asociere reușită!</h2>
             <p className="auth-sub">
-              Ai fost asociat cu <strong>Prof. {teacherName}</strong>. Profesorul îți va
-              putea vedea rezultatele la testele interactive.
+              {mentorRole === 'parinte' ? (
+                <>Ai fost asociat cu <strong>{teacherName}</strong> (părinte). Acesta îți va putea vedea rezultatele la testele interactive.</>
+              ) : (
+                <>Ai fost asociat cu <strong>Prof. {teacherName}</strong>. Profesorul îți va putea vedea rezultatele la testele interactive.</>
+              )}
             </p>
             <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => navigate('/profil')}>
               Mergi la contul meu

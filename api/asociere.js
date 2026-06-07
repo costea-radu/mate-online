@@ -28,50 +28,55 @@ module.exports = async function handler(req, res) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // 1. Găsește profesorul după cod
-  const { data: teacher, error: teacherErr } = await supabase
+  // 1. Găsește mentorul (profesor sau părinte) după cod
+  const { data: mentor, error: mentorErr } = await supabase
     .from('profiles')
     .select('id, full_name, role')
     .eq('teacher_code', normCode)
     .maybeSingle();
 
-  if (teacherErr) return res.status(500).json({ error: teacherErr.message });
-  if (!teacher) {
-    return res.status(404).json({ error: 'Codul nu corespunde niciunui profesor.' });
+  if (mentorErr) return res.status(500).json({ error: mentorErr.message });
+  if (!mentor) {
+    return res.status(404).json({ error: 'Codul nu corespunde niciunui cont.' });
   }
-  if (teacher.role && teacher.role !== 'profesor') {
+  const mentorRole = mentor.role === 'parinte' ? 'parinte' : 'profesor';
+  if (mentor.role && mentor.role !== 'profesor' && mentor.role !== 'parinte') {
     return res.status(400).json({ error: 'Cod invalid.' });
   }
-  if (teacher.id === userId) {
+  if (mentor.id === userId) {
     return res.status(400).json({ error: 'Nu te poți asocia cu propriul cont.' });
   }
 
-  // 2. Citește profilul elevului (pentru a nu suprascrie un role deja setat)
+  // 2. Citește profilul elevului (pentru a seta role='elev' dacă lipsește)
   const { data: student, error: studentErr } = await supabase
     .from('profiles')
-    .select('role, teacher_id')
+    .select('role')
     .eq('id', userId)
     .maybeSingle();
 
   if (studentErr) return res.status(500).json({ error: studentErr.message });
   if (!student) return res.status(404).json({ error: 'Profil inexistent.' });
 
-  // 3. Asociază elevul cu profesorul
-  const update = {
-    teacher_id: teacher.id,
-    teacher_name: teacher.full_name || 'Profesor',
-  };
-  if (!student.role) update.role = 'elev';
+  // 3. Asociere multiplă (un elev poate avea mai mulți profesori și părinți)
+  const { error: insertErr } = await supabase
+    .from('mentor_students')
+    .upsert(
+      { mentor_id: mentor.id, student_id: userId, mentor_role: mentorRole },
+      { onConflict: 'mentor_id,student_id', ignoreDuplicates: true }
+    );
 
-  const { error: updateErr } = await supabase
-    .from('profiles')
-    .update(update)
-    .eq('id', userId);
+  if (insertErr) return res.status(500).json({ error: insertErr.message });
 
-  if (updateErr) return res.status(500).json({ error: updateErr.message });
+  // 4. Dacă elevul nu avea rol, îl marcăm ca 'elev'
+  if (!student.role) {
+    await supabase.from('profiles').update({ role: 'elev' }).eq('id', userId);
+  }
 
   return res.status(200).json({
-    teacher_id: teacher.id,
-    teacher_name: teacher.full_name || 'Profesor',
+    mentor_id: mentor.id,
+    mentor_name: mentor.full_name || (mentorRole === 'parinte' ? 'Părinte' : 'Profesor'),
+    mentor_role: mentorRole,
+    // compat
+    teacher_name: mentor.full_name || (mentorRole === 'parinte' ? 'Părinte' : 'Profesor'),
   });
 };

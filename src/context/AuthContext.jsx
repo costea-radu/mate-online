@@ -97,7 +97,7 @@ export function AuthProvider({ children }) {
 
   async function signUp(email, password, fullName, accountType) {
     const metadata = { full_name: fullName };
-    if (accountType === 'elev' || accountType === 'profesor') {
+    if (accountType === 'elev' || accountType === 'profesor' || accountType === 'parinte') {
       metadata.account_type = accountType;
     }
     const { data, error } = await supabase.auth.signUp({
@@ -142,10 +142,12 @@ export function AuthProvider({ children }) {
   const isAdmin = profile?.is_admin === true;
   const isTeacher = profile?.role === 'profesor';
   const isStudent = profile?.role === 'elev';
+  const isParent = profile?.role === 'parinte';
+  const isMentor = isTeacher || isParent;
 
   return (
     <AuthContext.Provider value={{
-      user, profile, loading, isPremium, isAdmin, isTeacher, isStudent,
+      user, profile, loading, isPremium, isAdmin, isTeacher, isStudent, isParent, isMentor,
       signUp, signIn, signInWithGoogle, signInWithDiscord, signOut, fetchProfile
     }}>
       {children}
