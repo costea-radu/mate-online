@@ -223,6 +223,47 @@ function PostCard({ post, onRefresh, depth = 0 }) {
   const [replies, setReplies] = useState([]);
   const [showReplies, setShowReplies] = useState(false);
   const [replyCount, setReplyCount] = useState(0);
+  const [likeCount, setLikeCount] = useState(0);
+  const [liked, setLiked] = useState(false);
+  const [likeBusy, setLikeBusy] = useState(false);
+  const [loginHint, setLoginHint] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase.from('discussion_likes').select('id', { count: 'exact', head: true }).eq('discussion_id', post.id)
+      .then(({ count }) => { if (!cancelled) setLikeCount(count || 0); });
+    if (user) {
+      supabase.from('discussion_likes').select('id').eq('discussion_id', post.id).eq('user_id', user.id).maybeSingle()
+        .then(({ data }) => { if (!cancelled) setLiked(!!data); });
+    } else {
+      setLiked(false);
+    }
+    return () => { cancelled = true; };
+  }, [post.id, user?.id]);
+
+  async function toggleLike() {
+    if (!user) { setLoginHint(true); setTimeout(() => setLoginHint(false), 2500); return; }
+    if (likeBusy) return;
+    setLikeBusy(true);
+    const next = !liked;
+    setLiked(next);
+    setLikeCount((c) => Math.max(0, c + (next ? 1 : -1)));
+    try {
+      if (next) {
+        const { error } = await supabase.from('discussion_likes').insert({ discussion_id: post.id, user_id: user.id });
+        if (error && error.code !== '23505') throw error; // 23505 = duplicat, îl ignorăm
+      } else {
+        const { error } = await supabase.from('discussion_likes').delete().eq('discussion_id', post.id).eq('user_id', user.id);
+        if (error) throw error;
+      }
+    } catch (_) {
+      // revine la starea anterioară dacă a eșuat
+      setLiked(!next);
+      setLikeCount((c) => Math.max(0, c + (next ? -1 : 1)));
+    } finally {
+      setLikeBusy(false);
+    }
+  }
 
   useEffect(() => {
     supabase.from('discussions').select('id', { count: 'exact', head: true }).eq('parent_id', post.id)
@@ -297,23 +338,41 @@ function PostCard({ post, onRefresh, depth = 0 }) {
           </div>
         )}
 
-        {user && depth < 2 && (
-          <div style={{ marginTop:10, display:'flex', gap:12 }}>
+        <div style={{ marginTop:10, display:'flex', gap:14, alignItems:'center', flexWrap:'wrap' }}>
+          <button
+            onClick={toggleLike}
+            disabled={likeBusy}
+            title={user ? (liked ? 'Nu mai aprecia' : 'Apreciază') : 'Autentifică-te ca să apreciezi'}
+            style={{
+              background:'none', border:'none', cursor: likeBusy ? 'default' : 'pointer', padding:0,
+              color: liked ? 'var(--navy)' : '#5a6170', fontSize:'0.82rem', fontWeight:600,
+              display:'inline-flex', alignItems:'center', gap:6, opacity: likeBusy ? 0.6 : 1,
+            }}
+          >
+            <span style={{ fontSize:'1rem', filter: liked ? 'none' : 'grayscale(1) opacity(0.7)', transform: liked ? 'scale(1.1)' : 'none', transition:'transform 0.12s' }}>👍</span>
+            <span>{liked ? 'Apreciat' : 'Apreciază'}</span>
+            {likeCount > 0 && <span style={{ color:'#5a6170', fontWeight:700 }}>· {likeCount}</span>}
+          </button>
+
+          {user && depth < 2 && (
             <button onClick={() => setShowReply(r => !r)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--navy)', fontSize:'0.8rem', fontWeight:600, padding:0 }}>
               💬 Răspunde
             </button>
-            {replyCount > 0 && !showReplies && (
-              <button onClick={loadReplies} style={{ background:'none', border:'none', cursor:'pointer', color:'#5a6170', fontSize:'0.78rem', padding:0 }}>
-                ▼ {replyCount} răspuns{replyCount !== 1 ? 'uri' : ''}
-              </button>
-            )}
-            {showReplies && (
-              <button onClick={() => setShowReplies(false)} style={{ background:'none', border:'none', cursor:'pointer', color:'#5a6170', fontSize:'0.78rem', padding:0 }}>
-                ▲ Ascunde
-              </button>
-            )}
-          </div>
-        )}
+          )}
+          {user && depth < 2 && replyCount > 0 && !showReplies && (
+            <button onClick={loadReplies} style={{ background:'none', border:'none', cursor:'pointer', color:'#5a6170', fontSize:'0.78rem', padding:0 }}>
+              ▼ {replyCount} răspuns{replyCount !== 1 ? 'uri' : ''}
+            </button>
+          )}
+          {user && depth < 2 && showReplies && (
+            <button onClick={() => setShowReplies(false)} style={{ background:'none', border:'none', cursor:'pointer', color:'#5a6170', fontSize:'0.78rem', padding:0 }}>
+              ▲ Ascunde
+            </button>
+          )}
+          {loginHint && !user && (
+            <span style={{ fontSize:'0.74rem', color:'#aab0bb' }}>Autentifică-te ca să apreciezi.</span>
+          )}
+        </div>
       </div>
 
       {showReply && (
