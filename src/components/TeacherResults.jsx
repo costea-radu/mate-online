@@ -35,12 +35,19 @@ function fallbackCopy(value, done) {
 // ─── Bloc link de invitație (profesor sau părinte) ──────────────────────────
 function InviteBox({ inviteCode, displayName, role }) {
   const [copied, setCopied] = useState('');
+  const [showMailOpts, setShowMailOpts] = useState(false);
   const isParent = role === 'parinte';
   const roleWord = isParent ? 'părinte' : 'profesor';
   const link = inviteCode ? `${window.location.origin}/asociere?cod=${inviteCode}` : '';
   const shareMsg = `Salut! Asociază-te contului meu de ${roleWord}${displayName ? ` (${displayName})` : ''} pe ExamenMate cu un singur clic: ${link}`;
-  const mailHref = `mailto:?subject=${encodeURIComponent('Invitație ExamenMate')}&body=${encodeURIComponent(shareMsg)}`;
+  const subject = encodeURIComponent('Invitație ExamenMate');
+  const body = encodeURIComponent(shareMsg);
+  const mailHref = `mailto:?subject=${subject}&body=${body}`;
+  const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&su=${subject}&body=${body}`;
+  const outlookUrl = `https://outlook.live.com/mail/0/deeplink/compose?subject=${subject}&body=${body}`;
+  const yahooUrl = `https://compose.mail.yahoo.com/?subject=${subject}&body=${body}`;
   const waHref = `https://wa.me/?text=${encodeURIComponent(shareMsg)}`;
+  const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
 
   function copy(value, key) { copyText(value, () => { setCopied(key); setTimeout(() => setCopied(''), 1800); }); }
   const copyBtn = (active) => ({
@@ -48,6 +55,17 @@ function InviteBox({ inviteCode, displayName, role }) {
     border: '1.5px solid var(--navy)', background: active ? 'var(--navy)' : 'transparent',
     color: active ? '#fff' : 'var(--navy)', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s',
   });
+  const altMailBtn = {
+    padding: '8px 14px', borderRadius: 8, fontWeight: 600, fontSize: '0.8rem',
+    border: '1.5px solid var(--border)', background: '#fff', color: 'var(--navy)', cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center',
+  };
+  // Deschide direct fereastra de „Scriere" din webmail (în browser) + copiază mesajul.
+  function openMail(url) {
+    copy(shareMsg, 'mail');
+    window.open(url, '_blank', 'noopener,noreferrer');
+    setShowMailOpts(false);
+  }
 
   const title = isParent ? '🔗 Asociază-te cu copilul tău' : '🔗 Invită elevi';
   const intro = isParent
@@ -82,11 +100,24 @@ function InviteBox({ inviteCode, displayName, role }) {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <a href={mailHref} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderRadius: 8,
-              fontWeight: 600, fontSize: '0.85rem', background: 'var(--navy)', color: '#fff',
-            }}>✉️ Trimite pe e-mail</a>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            {isMobile ? (
+              <a href={mailHref} onClick={() => copy(shareMsg, 'mail')} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderRadius: 8,
+                fontWeight: 600, fontSize: '0.85rem', background: 'var(--navy)', color: '#fff',
+              }}>✉️ Trimite pe e-mail</a>
+            ) : (
+              <>
+                <button type="button" onClick={() => openMail(gmailUrl)} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderRadius: 8,
+                  fontWeight: 600, fontSize: '0.85rem', background: 'var(--navy)', color: '#fff', border: 'none', cursor: 'pointer',
+                }}>✉️ Trimite pe e-mail</button>
+                <button type="button" onClick={() => setShowMailOpts((v) => !v)} style={{
+                  padding: '9px 12px', borderRadius: 8, fontWeight: 600, fontSize: '0.8rem',
+                  background: 'transparent', color: 'var(--navy)', border: '1.5px solid var(--navy)', cursor: 'pointer', whiteSpace: 'nowrap',
+                }}>alt opțiuni {showMailOpts ? '▴' : '▾'}</button>
+              </>
+            )}
             <a href={waHref} target="_blank" rel="noopener noreferrer" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderRadius: 8,
               fontWeight: 600, fontSize: '0.85rem', background: '#25D366', color: '#fff',
@@ -95,6 +126,22 @@ function InviteBox({ inviteCode, displayName, role }) {
               Trimite pe WhatsApp
             </a>
           </div>
+
+          {!isMobile && showMailOpts && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10, alignItems: 'center' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Deschide „Scriere" în:</span>
+              <button type="button" onClick={() => openMail(gmailUrl)} style={altMailBtn}>Gmail</button>
+              <button type="button" onClick={() => openMail(outlookUrl)} style={altMailBtn}>Outlook</button>
+              <button type="button" onClick={() => openMail(yahooUrl)} style={altMailBtn}>Yahoo Mail</button>
+              <a href={mailHref} onClick={() => copy(shareMsg, 'mail')} style={{ ...altMailBtn, textDecoration: 'none' }}>Aplicația de e-mail</a>
+            </div>
+          )}
+
+          {copied === 'mail' && (
+            <div style={{ marginTop: 8, fontSize: '0.78rem', color: '#2e7d32', fontWeight: 600 }}>
+              ✓ Mesajul a fost copiat. Dacă fereastra de e-mail se deschide goală (de ex. după autentificare), lipește-l cu Ctrl+V.
+            </div>
+          )}
         </>
       )}
     </div>
