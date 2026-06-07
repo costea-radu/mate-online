@@ -101,9 +101,69 @@ function InviteBox({ inviteCode, displayName, role }) {
   );
 }
 
+// ─── Grafic „bursă" pentru progresul elevului ──────────────────────────────
+function ProgressChart({ rows }) {
+  const [active, setActive] = useState(null);
+  const data = useMemo(() => {
+    const arr = [...rows].sort((a, b) => new Date(a.completed_at || 0) - new Date(b.completed_at || 0));
+    return arr.map((r) => ({ p: pct(r.score, r.max_score), title: r.test_title, date: r.completed_at, score: r.score, max: r.max_score }));
+  }, [rows]);
+
+  const W = 480, H = 150, padL = 26, padR = 12, padT = 22, padB = 14;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const n = data.length;
+  const x = (i) => (n <= 1 ? padL + innerW / 2 : padL + (innerW * i) / (n - 1));
+  const y = (p) => padT + (1 - p / 100) * innerH;
+  const linePts = data.map((d, i) => `${x(i)},${y(d.p)}`).join(' ');
+  const act = active != null ? data[active] : null;
+
+  return (
+    <div style={{ width: '100%', maxWidth: 480 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', overflow: 'visible' }} role="img" aria-label="Grafic progres">
+        {[0, 50, 100].map((g) => (
+          <g key={g}>
+            <line x1={padL} x2={W - padR} y1={y(g)} y2={y(g)} stroke="var(--border)" strokeWidth="1" strokeDasharray={g === 0 ? '0' : '3 4'} />
+            <text x={padL - 6} y={y(g) + 3} fontSize="9" fill="var(--text-muted)" textAnchor="end">{g}%</text>
+          </g>
+        ))}
+        {act && <line x1={x(active)} x2={x(active)} y1={padT} y2={H - padB} stroke="var(--border)" strokeWidth="1" />}
+        {n > 1 && <polyline points={linePts} fill="none" stroke="var(--navy)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />}
+        {data.map((d, i) => (
+          <circle
+            key={i} cx={x(i)} cy={y(d.p)} r={active === i ? 6 : 4}
+            fill={scoreColor(d.p)} stroke="#fff" strokeWidth={active === i ? 2 : 1}
+            style={{ cursor: 'pointer' }}
+            onClick={() => setActive(active === i ? null : i)}
+          />
+        ))}
+        {act && (() => {
+          const tx = x(active), ty = y(act.p), boxW = 34, boxH = 16;
+          let bx = Math.max(padL, Math.min(tx - boxW / 2, W - padR - boxW));
+          let by = ty - boxH - 8; if (by < 0) by = ty + 8;
+          return (
+            <g>
+              <rect x={bx} y={by} width={boxW} height={boxH} rx={4} fill="var(--navy)" />
+              <text x={bx + boxW / 2} y={by + boxH - 4} fontSize="10" fill="#fff" textAnchor="middle" fontWeight="700">{act.p}%</text>
+            </g>
+          );
+        })()}
+      </svg>
+      {act ? (
+        <div style={{ fontSize: '0.74rem', color: 'var(--text)', marginTop: 6 }}>
+          <strong>{act.title}</strong>
+          <span style={{ color: 'var(--text-muted)' }}>{act.date ? ` · ${fmtDate(act.date)}` : ''} · {act.score}/{act.max} ({act.p}%)</span>
+        </div>
+      ) : (
+        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>Apasă pe un punct pentru a vedea procentul.</div>
+      )}
+    </div>
+  );
+}
+
 // ─── Rând elev (antet rolldown + detaliu cu Punctaj/Încercări/Timp/Progres) ──
 function StudentRow({ student, isOpen, onToggle, isTeacher, groups, onMove, onRemove, busy }) {
   const hasRows = student.count > 0;
+  const [showProgress, setShowProgress] = useState(false);
   const headerBg = 'transparent';
   return (
     <>
@@ -170,20 +230,30 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, groups, onMove, onRe
               </button>
             </div>
 
-            {/* Zona Progres */}
-            <div style={{ background: '#fff', borderRadius: 'var(--radius)', padding: '12px 14px', marginBottom: 14, border: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
-                <strong style={{ fontSize: '0.85rem', color: 'var(--navy)' }}>📈 Progres</strong>
-                <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                  {student.count} exerciții · {student.attemptsTotal} încercări · {fmtTime(student.timeTotal)} total
-                </span>
-              </div>
-              {student.avg !== null ? (
-                <div style={{ background: 'var(--cream-dark)', borderRadius: 20, height: 12, overflow: 'hidden' }}>
-                  <div style={{ width: `${student.avg}%`, height: '100%', background: scoreColor(student.avg), borderRadius: 20, transition: 'width 0.4s' }} />
+            {/* Zona Progres — buton cu rolldown + grafic „bursă" */}
+            <div style={{ background: '#fff', borderRadius: 'var(--radius)', marginBottom: 14, border: '1px solid var(--border)', overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => setShowProgress((v) => !v)}
+                style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-body)', textAlign: 'left' }}
+              >
+                <strong style={{ fontSize: '0.85rem', color: 'var(--navy)' }}>
+                  📈 Progres
+                  {student.avg !== null && (
+                    <span style={{ fontWeight: 600, color: scoreColor(student.avg), marginLeft: 8 }}>media {student.avg}%</span>
+                  )}
+                </strong>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{showProgress ? '▾ ascunde' : '▸ vezi'}</span>
+              </button>
+              {showProgress && (
+                <div style={{ padding: '0 14px 14px' }}>
+                  <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: 10 }}>
+                    {student.count} exerciții · {student.attemptsTotal} încercări · {fmtTime(student.timeTotal)} total
+                  </div>
+                  {hasRows
+                    ? <ProgressChart rows={student.rows} />
+                    : <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Niciun rezultat încă.</span>}
                 </div>
-              ) : (
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Niciun rezultat încă.</span>
               )}
             </div>
 
@@ -245,6 +315,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
   const [expanded, setExpanded] = useState({});
   const [selectedGroup, setSelectedGroup] = useState(null); // null = Toți
   const [busy, setBusy] = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
   const fetchedFor = useRef(null);
   const autoGroupRan = useRef(false);
   const searchRef = useRef(null);
@@ -448,25 +519,35 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
               </div>
             )}
 
-            {/* Clasament (doar profesor) */}
+            {/* Clasament (doar profesor) — buton cu rolldown */}
             {isTeacher && !loading && !error && leaderboard.length > 0 && (
-              <div style={{ background: 'var(--cream)', borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: 16 }}>
-                <strong style={{ fontSize: '0.85rem', color: 'var(--navy)', display: 'block', marginBottom: 8 }}>
-                  🏆 Clasament — {selectedGroup === null ? 'toți elevii' : (selectedGroupObj?.name || 'grupă')}
-                </strong>
-                <ol style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 4 }}>
-                  {leaderboard.map((s, i) => (
-                    <li key={s.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.84rem' }}>
-                      <span style={{ color: 'var(--text)' }}>
-                        <span style={{ display: 'inline-block', width: 22, fontWeight: 700 }}>
-                          {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`}
+              <div style={{ background: 'var(--cream)', borderRadius: 'var(--radius)', marginBottom: 16, overflow: 'hidden' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowLeaderboard((v) => !v)}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '12px 16px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-body)', textAlign: 'left' }}
+                >
+                  <strong style={{ fontSize: '0.85rem', color: 'var(--navy)' }}>
+                    🏆 Clasament — {selectedGroup === null ? 'toți elevii' : (selectedGroupObj?.name || 'grupă')}
+                    <span style={{ fontWeight: 500, color: 'var(--text-muted)', marginLeft: 6 }}>({leaderboard.length})</span>
+                  </strong>
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{showLeaderboard ? '▾ ascunde' : '▸ vezi'}</span>
+                </button>
+                {showLeaderboard && (
+                  <ol style={{ margin: 0, padding: '0 16px 14px', listStyle: 'none', display: 'grid', gap: 4 }}>
+                    {leaderboard.map((s, i) => (
+                      <li key={s.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.84rem' }}>
+                        <span style={{ color: 'var(--text)' }}>
+                          <span style={{ display: 'inline-block', width: 22, fontWeight: 700 }}>
+                            {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`}
+                          </span>
+                          {s.name}
                         </span>
-                        {s.name}
-                      </span>
-                      <span style={{ fontWeight: 700, color: scoreColor(s.avg) }}>{s.avg}%</span>
-                    </li>
-                  ))}
-                </ol>
+                        <span style={{ fontWeight: 700, color: scoreColor(s.avg) }}>{s.avg}%</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </div>
             )}
 
