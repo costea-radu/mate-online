@@ -21,6 +21,29 @@ module.exports = async function handler(req, res) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
+  // Listă de mentori (profesori/părinți) ai elevului curent — fără restricție de rol
+  if (action === 'my_mentors') {
+    const { data: links, error: linksErr } = await supabase
+      .from('mentor_students')
+      .select('mentor_id, mentor_role')
+      .eq('student_id', userId);
+    if (linksErr) return res.status(500).json({ error: linksErr.message });
+    const linkList = links || [];
+    if (linkList.length === 0) return res.status(200).json({ mentors: [] });
+    const mentorIds = [...new Set(linkList.map((l) => l.mentor_id))];
+    const { data: profiles, error: profErr } = await supabase
+      .from('profiles').select('id, full_name').in('id', mentorIds);
+    if (profErr) return res.status(500).json({ error: profErr.message });
+    const nameMap = {};
+    (profiles || []).forEach((p) => { nameMap[p.id] = p.full_name || ''; });
+    const mentors = linkList.map((l) => ({
+      id: l.mentor_id,
+      name: nameMap[l.mentor_id] || (l.mentor_role === 'parinte' ? 'Părinte' : 'Profesor'),
+      role: l.mentor_role,
+    }));
+    return res.status(200).json({ mentors });
+  }
+
   const { data: caller, error: callerErr } = await supabase
     .from('profiles')
     .select('role')

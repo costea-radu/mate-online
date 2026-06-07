@@ -156,9 +156,9 @@ export default function Profile() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/my-mentors', {
+        const res = await fetch('/api/teacher-manage', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: user.id }),
+          body: JSON.stringify({ userId: user.id, action: 'my_mentors' }),
         });
         const json = await res.json();
         if (!cancelled && res.ok) setMyMentors(json.mentors || []);
