@@ -178,6 +178,31 @@ img { max-width: 100%; display: block; }
   background: rgba(255,255,255,0.1);
 }
 
+/* ===== Indicator „activitate nouă" pe butonul Forum ===== */
+/* Bulină aurie pulsantă afișată când s-a postat ceva nou pe forum. */
+@keyframes forumPulse {
+  0%   { transform: scale(1);    box-shadow: 0 0 0 0 rgba(232,185,49,0.55); }
+  70%  { transform: scale(1.18); box-shadow: 0 0 0 6px rgba(232,185,49,0); }
+  100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(232,185,49,0); }
+}
+.forum-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--gold);
+  vertical-align: middle;
+  animation: forumPulse 1.8s ease-in-out infinite;
+}
+/* „Schimbă ușor culoarea" butonului Forum — tentă aurie subtilă, doar când
+   nu e hover/activ (ca să nu strice feedback-ul normal de hover). */
+.navbar-links a.forum-has-new:not(:hover):not(.active) {
+  color: var(--gold-light);
+  background: rgba(232,185,49,0.12);
+  box-shadow: 0 0 14px rgba(232,185,49,0.18);
+}
+
 .navbar-auth {
   display: flex;
   align-items: center;

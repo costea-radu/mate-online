@@ -299,7 +299,7 @@ function SearchModal({ onClose }) {
 }
 
 // ─── Mobile menu overlay ──────────────────────────────────────────────────────
-function MobileMenu({ open, onClose, user, isPremium, isAdmin, forumUnread = 0, onSignOut }) {
+function MobileMenu({ open, onClose, user, isPremium, isAdmin, forumUnread = 0, forumHasNew = false, onSignOut }) {
   const location = useLocation();
   const [claseOpen, setClaseOpen] = useState(false);
   const [exameneOpen, setExameneOpen] = useState(false);
@@ -393,8 +393,17 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, forumUnread = 0, 
         <Link to="/rezolvari" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/rezolvari' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           📝 Rezolvări
         </Link>
-        <Link to="/discutii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/discutii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
+        <Link to="/discutii" onClick={onClose} style={{
+          ...linkStyle,
+          color: location.pathname === '/discutii'
+            ? 'var(--gold)'
+            : (forumHasNew ? 'var(--gold-light)' : 'rgba(255,255,255,0.88)'),
+          background: (forumHasNew && location.pathname !== '/discutii') ? 'rgba(232,185,49,0.10)' : undefined,
+        }}>
           💬 Forum
+          {forumHasNew && (
+            <span className="forum-dot" title="Activitate nouă pe forum" aria-label="Activitate nouă pe forum" />
+          )}
           {forumUnread > 0 && (
             <span style={{ color: '#ff6b6b', fontWeight: 700, marginLeft: 4 }}>({forumUnread})</span>
           )}
@@ -454,25 +463,39 @@ export default function Navbar() {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [forumUnread, setForumUnread] = useState(0);
+  const [forumUnread, setForumUnread] = useState(0);   // răspunsuri la postările MELE (badge roșu)
+  const [forumHasNew, setForumHasNew] = useState(false); // s-a postat ceva nou pe forum (indiciu auriu)
 
-  // Număr de răspunsuri noi la postările/comentariile utilizatorului (notificare lângă „Forum").
+  // Calculează indicatorii de la „Forum": (1) activitate nouă în general și
+  // (2) răspunsuri la postările/comentariile utilizatorului. Reîmprospătat periodic.
   useEffect(() => {
     let cancelled = false;
 
-    async function computeForumUnread() {
-      if (!user) { if (!cancelled) setForumUnread(0); return; }
-      const seenKey = `forum_seen_${user.id}`;
+    async function computeForumState() {
+      // Cheia „văzut" — per utilizator dacă e logat, altfel comună pentru vizitatori.
+      const seenKey = user ? `forum_seen_${user.id}` : 'forum_seen_guest';
 
-      // Pe pagina de forum marcăm totul drept văzut.
+      // Pe pagina de forum marcăm totul drept văzut și ascundem indicatorii.
       if (location.pathname === '/discutii') {
         try { localStorage.setItem(seenKey, new Date().toISOString()); } catch { /* ignore */ }
-        if (!cancelled) setForumUnread(0);
+        if (!cancelled) { setForumUnread(0); setForumHasNew(false); }
         return;
       }
 
       let lastSeen = null;
       try { lastSeen = localStorage.getItem(seenKey); } catch { /* ignore */ }
+
+      // ── (1) Indiciu general: cineva a postat / a discutat ceva nou ──
+      let actQ = supabase
+        .from('discussions')
+        .select('id', { count: 'exact', head: true });
+      if (user) actQ = actQ.neq('user_id', user.id); // ignoră propriile postări
+      if (lastSeen) actQ = actQ.gt('created_at', lastSeen);
+      const { count: activityCount } = await actQ;
+      if (!cancelled) setForumHasNew((activityCount || 0) > 0);
+
+      // ── (2) Notificare de răspuns: răspunsuri la postările/comentariile MELE ──
+      if (!user) { if (!cancelled) setForumUnread(0); return; }
 
       // Postările/comentariile mele (limităm numărul pentru lungimea URL-ului).
       const { data: mine, error: mineErr } = await supabase
@@ -496,8 +519,8 @@ export default function Navbar() {
       if (!cancelled) setForumUnread(count || 0);
     }
 
-    computeForumUnread();
-    const iv = setInterval(computeForumUnread, 60000);
+    computeForumState();
+    const iv = setInterval(computeForumState, 60000);
     return () => { cancelled = true; clearInterval(iv); };
   }, [user, location.pathname]);
 
@@ -553,8 +576,14 @@ export default function Navbar() {
               </Link>
             </li>
             <li>
-              <Link to="/discutii" className={location.pathname === '/discutii' ? 'active' : ''}>
+              <Link
+                to="/discutii"
+                className={`${location.pathname === '/discutii' ? 'active' : ''}${forumHasNew ? ' forum-has-new' : ''}`.trim()}
+              >
                 💬 Forum
+                {forumHasNew && (
+                  <span className="forum-dot" title="Activitate nouă pe forum" aria-label="Activitate nouă pe forum" />
+                )}
                 {forumUnread > 0 && (
                   <span style={{ color: '#ff6b6b', fontWeight: 700, marginLeft: 4 }}>({forumUnread})</span>
                 )}
@@ -619,6 +648,7 @@ export default function Navbar() {
         isPremium={isPremium}
         isAdmin={isAdmin}
         forumUnread={forumUnread}
+        forumHasNew={forumHasNew}
         onSignOut={handleSignOut}
       />
     </>
