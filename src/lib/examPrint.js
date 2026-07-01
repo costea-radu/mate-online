@@ -36,6 +36,10 @@ export function openPrintDocument(title, bodyHtml) {
   .stmt { white-space: pre-wrap; line-height: 1.6; }
   .barem-item { margin: 10px 0; padding: 10px 12px; background: #f7f9fc; border-radius: 8px; }
   .barem-item .ans { color: #1e7e34; font-weight: bold; }
+  .opts { margin: 6px 0 2px 8px; }
+  .opt { margin: 2px 0; line-height: 1.5; }
+  .part { margin: 6px 0 6px 8px; line-height: 1.6; }
+  .part > b { color: #0f2b44; }
   .sol { white-space: pre-wrap; line-height: 1.55; color: #333; font-size: 14px; margin-top: 4px; }
   .foot { text-align: center; font-size: 11px; color: #888; margin-top: 30px; border-top: 1px solid #eee; padding-top: 8px; }
   @media print {
@@ -79,19 +83,33 @@ export function printExam(exam, { withSolutions = false } = {}) {
       ${withSolutions ? ' · <strong>BAREM DE CORECTARE</strong>' : ''}
     </div>`;
 
+  const optsHtml = (options) =>
+    `<div class="opts">${options.map((o, i) => `<div class="opt"><b>${String.fromCharCode(97 + i)})</b> ${esc(o)}</div>`).join('')}</div>`;
+  const partsHtml = (parts, withSol) =>
+    parts.map((p) => `<div class="part"><b>${esc(p.label || '')})</b> ${esc(p.text || '')}${(withSol && p.points != null) ? ` <span class="pts">(${p.points}p)</span>` : ''}${(withSol && p.solution) ? `<div class="sol">${esc(p.solution)}</div>` : ''}</div>`).join('');
+
   const body = subjects.map((s) => {
     const items = Array.isArray(s.items) ? s.items : [];
     const rows = items.map((it) => {
+      const hasOptions = Array.isArray(it.options) && it.options.length;
+      const hasParts = Array.isArray(it.parts) && it.parts.length;
       if (withSolutions) {
         return `<div class="barem-item">
           <div><strong>${esc(it.number || '')}.</strong> <span class="stmt">${esc(it.statement || '')}</span> <span class="pts">(${it.points ?? ''}p)</span></div>
-          ${it.answer ? `<div class="ans">Răspuns: ${esc(it.answer)}</div>` : ''}
-          ${it.solution ? `<div class="sol">${esc(it.solution)}</div>` : ''}
+          ${hasOptions ? optsHtml(it.options) : ''}
+          ${hasOptions && it.answer ? `<div class="ans">Răspuns corect: ${esc(it.answer)}</div>` : ''}
+          ${hasParts ? partsHtml(it.parts, true) : ''}
+          ${(!hasOptions && it.answer) ? `<div class="ans">Răspuns: ${esc(it.answer)}</div>` : ''}
+          ${(!hasParts && it.solution) ? `<div class="sol">${esc(it.solution)}</div>` : ''}
         </div>`;
       }
       return `<div class="item">
         <div class="num">${esc(it.number || '')}.</div>
-        <div class="body"><span class="stmt">${esc(it.statement || '')}</span></div>
+        <div class="body">
+          <span class="stmt">${esc(it.statement || '')}</span>
+          ${hasOptions ? optsHtml(it.options) : ''}
+          ${hasParts ? partsHtml(it.parts, false) : ''}
+        </div>
         <div class="pts">${it.points ?? ''}p</div>
       </div>`;
     }).join('');
