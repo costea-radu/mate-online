@@ -26,10 +26,7 @@ import PoliticaRetur from './pages/PoliticaRetur';
 import FAQ from './pages/FAQ';
 import DespreNoi from './pages/DespreNoi';
 import NotFound from './pages/NotFound';
-import ProfesorVirtual from './pages/ProfesorVirtual';
-import FloatingTutor from './components/AITutor';
 import { Analytics } from '@vercel/analytics/react';
-import { SpeedInsights } from '@vercel/speed-insights/react';
 
 function ScrollToTop() {
   const location = useLocation();
@@ -51,7 +48,6 @@ function Layout({ children }) {
         {children}
       </main>
       {!fullscreen && <Footer />}
-      {!fullscreen && <FloatingTutor />}
     </>
   );
 }
@@ -86,12 +82,10 @@ export default function App() {
             <Route path="/politica-retur" element={<PoliticaRetur />} />
             <Route path="/faq" element={<FAQ />} />
             <Route path="/despre-noi" element={<DespreNoi />} />
-            <Route path="/profesor-virtual" element={<ProfesorVirtual />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Layout>
         <Analytics />
-        <SpeedInsights />
       </AuthProvider>
     </BrowserRouter>
   );
