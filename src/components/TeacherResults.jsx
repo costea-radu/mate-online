@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import StudentAIMastery from './StudentAIMastery';
+import AITeacherReport from './AITeacherReport';
 
 const PER_PAGE = 10; // elevi pe pagină
 
@@ -343,6 +345,8 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, groups, onMove, onRe
                 </table>
               </div>
             )}
+
+            {isTeacher && <StudentAIMastery studentId={student.id} />}
           </td>
         </tr>
       )}
@@ -498,6 +502,12 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
   return (
     <>
       <InviteBox inviteCode={inviteCode} displayName={displayName} role={role} />
+
+      {isTeacher && (
+        <div className="card" style={{ marginBottom: 24 }}>
+          <AITeacherReport />
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>

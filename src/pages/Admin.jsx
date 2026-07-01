@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import AIAdminPanel from '../components/AIAdminPanel';
 
 
 const CATEGORIES = [
@@ -885,6 +886,7 @@ export default function Admin() {
     { id: 'interactive', label: '🧩 Exerciții Interactive' },
     { id: 'rezolvari',   label: '📝 Rezolvări' },
     { id: 'list',        label: '📋 Tot Conținutul' },
+    { id: 'ai',          label: '🎓 AI Tutor' },
   ];
 
   function onSuccess() {
@@ -916,6 +918,7 @@ export default function Admin() {
           {tab === 'pdf'         && <UploadPDF onSuccess={onSuccess} />}
           {tab === 'interactive' && <UploadInteractive onSuccess={onSuccess} />}
           {tab === 'list'        && <ContentList refresh={refreshList} />}
+          {tab === 'ai'          && <AIAdminPanel />}
         </div>
       </div>
     </div>

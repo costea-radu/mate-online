@@ -270,6 +270,28 @@ export default function Profile() {
           </div>
         )}
 
+        {/* Profesor Virtual (AI Tutor) */}
+        <div style={{
+          background: 'linear-gradient(120deg, var(--navy), #163a5a)', color: '#fff',
+          borderRadius: 'var(--radius-lg, 16px)', padding: '20px 24px', marginBottom: 24,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <span style={{ fontSize: '2.2rem' }}>🎓</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '1.1rem', fontFamily: 'var(--font-display)' }}>Profesor Virtual</div>
+              <div style={{ fontSize: '.85rem', opacity: 0.82 }}>
+                {isPremium
+                  ? 'Explicații, exerciții, foto-rezolvare, voce și teste de examen în PDF.'
+                  : 'Asistentul tău AI. Ai o încercare gratuită; abonează-te pentru acces complet.'}
+              </div>
+            </div>
+          </div>
+          <Link to="/profesor-virtual" className="btn" style={{ background: 'var(--gold)', color: 'var(--navy)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+            Deschide AI Tutor →
+          </Link>
+        </div>
+
         <div className="profile-grid">
           {/* Sidebar */}
           <div className="profile-sidebar">

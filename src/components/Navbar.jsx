@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import AINotifications from './AINotifications';
 
 const CLASE = [
   { to: '/clase/5',  label: 'Clasa a V-a' },
@@ -393,6 +394,9 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, forumUnread = 0, 
         <Link to="/rezolvari" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/rezolvari' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           📝 Rezolvări
         </Link>
+        <Link to="/profesor-virtual" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/profesor-virtual' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
+          🎓 Profesor Virtual
+        </Link>
         <Link to="/discutii" onClick={onClose} style={{
           ...linkStyle,
           color: location.pathname === '/discutii'
@@ -589,6 +593,11 @@ export default function Navbar() {
                 )}
               </Link>
             </li>
+            <li>
+              <Link to="/profesor-virtual" className={location.pathname === '/profesor-virtual' ? 'active' : ''}>
+                🎓 Profesor Virtual
+              </Link>
+            </li>
           </ul>
 
           {/* Desktop auth buttons */}
@@ -614,6 +623,7 @@ export default function Navbar() {
             )}
             {user ? (
               <>
+                <AINotifications />
                 <Link to="/profil" className="btn btn-sm btn-outline" style={{ borderColor: 'var(--gold)', color: 'var(--gold)' }}>
                   {isPremium ? '⭐ Contul meu' : 'Contul meu'}
                 </Link>
