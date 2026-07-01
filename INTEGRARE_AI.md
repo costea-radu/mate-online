@@ -335,4 +335,4 @@ Widgetul acceptă un `context` cu `{ category, contentId, exerciseText }`. Dacă
 
 ---
 
-Întrebări sau ajustări (alt furnizor, alt design, streaming)? Spune-mi și continuăm.
+Întrebări sau ajustări (alt furnizor, alt design, streaming)? Spune-mi și continuăm. ok iti spun
