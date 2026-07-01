@@ -593,11 +593,6 @@ export default function Navbar() {
                 )}
               </Link>
             </li>
-            <li>
-              <Link to="/profesor-virtual" className={location.pathname === '/profesor-virtual' ? 'active' : ''}>
-                🎓 Profesor Virtual
-              </Link>
-            </li>
           </ul>
 
           {/* Desktop auth buttons */}
