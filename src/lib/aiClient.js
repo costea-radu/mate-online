@@ -95,7 +95,8 @@ export const aiClient = {
   // Notificări
   notifications: () => post('/api/ai-notify', { action: 'list' }),
   notificationsUnread: () => post('/api/ai-notify', { action: 'unread_count' }),
-  notificationRead: ({ notificationId = null, all = false }) => post('/api/ai-notify', { action: 'read', notificationId, all }),
+  notificationRead: ({ id = null, kind = null, all = false }) => post('/api/ai-notify', { action: 'read', id, kind, all }),
+  sendBroadcast: ({ title, body = null, url = null, type = 'update' }) => post('/api/ai-notify', { action: 'broadcast', title, body, url, type }),
 
   // Voce: transcriere audio (fallback STT)
   transcribe: ({ audioBase64, mime = 'audio/webm' }) => post('/api/ai-transcribe', { audioBase64, mime }),

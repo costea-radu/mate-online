@@ -7,6 +7,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
+import ExamGenerator from './ExamGenerator';
 import { useAuth } from '../context/AuthContext';
 import { ensureKatex, renderMath } from '../lib/katex';
 import { fileToCompressedDataUrl } from '../lib/image';
@@ -40,7 +41,7 @@ const MODES = [
   { id: 'hint', label: 'Dă-mi un indiciu', hint: 'Un singur pas, fără rezolvare' },
 ];
 
-export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor' }) {
+export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null }) {
   const { user, isPremium } = useAuth();
   const [mode, setMode] = useState(initialMode);
   const [messages, setMessages] = useState([]);
@@ -87,7 +88,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       await aiClient.chatStream(
         { message: msg, mode, conversationId: convId, context: attached ? { ...context, exerciseText: attached } : context },
         {
-          onMeta: ({ conversationId, sources }) => { setConvId(conversationId); patchLast({ sources }); },
+          onMeta: ({ conversationId, sources, primaryMaterial }) => { setConvId(conversationId); patchLast({ sources, primaryMaterial }); },
           onDelta: (delta) => { acc += delta; patchLast((m) => ({ ...m, content: m.content + delta })); },
           onDone: ({ messageId }) => { patchLast({ streaming: false, id: messageId }); if (autoRead && acc.trim()) speak(acc, {}); },
         }
@@ -113,7 +114,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   async function loadConversation(id) {
     setShowHistory(false);
     const msgs = await aiClient.getMessages(id);
-    setMessages(msgs.map((m) => ({ role: m.role, content: m.content, id: m.id, sources: m.metadata?.sources })));
+    setMessages(msgs.map((m) => ({ role: m.role, content: m.content, id: m.id, sources: m.metadata?.sources, primaryMaterial: m.metadata?.primaryMaterial })));
     setConvId(id);
   }
 
@@ -267,6 +268,12 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
               border: m.role === 'user' ? 'none' : '1px solid var(--border)',
               fontSize: '.9rem', lineHeight: 1.55,
             }}>
+              {m.role === 'assistant' && m.primaryMaterial && m.primaryMaterial.url && (
+                <Link to={m.primaryMaterial.url} onClick={() => { if (onNavigate) onNavigate(); }}
+                  style={{ display: 'block', marginBottom: 8, padding: '7px 10px', borderRadius: 8, background: 'rgba(232,185,49,.12)', border: '1px solid var(--gold)', color: 'var(--navy)', fontSize: '.8rem', fontWeight: 600, textDecoration: 'none' }}>
+                  📎 Material pe site: {m.primaryMaterial.title} →
+                </Link>
+              )}
               {m.role === 'assistant'
                 ? <MathText text={m.content || (m.streaming ? '▍' : '')} ready={!m.streaming} />
                 : <div style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div>}
@@ -363,47 +370,114 @@ const fbBtn = { background: 'none', border: 'none', fontSize: '.95rem', cursor: 
 // ─── Widget plutitor (montat global) ─────────────────────────────────────────
 export default function FloatingTutor() {
   const [open, setOpen] = useState(false);
+  const [widgetTab, setWidgetTab] = useState('chat');
   const { pathname } = useLocation();
+  const [pos, setPos] = useState(null); // colțul stânga-sus al butonului
+  const drag = useRef({ active: false, moved: false, dx: 0, dy: 0 });
+  const BTN = 60;
+
+  useEffect(() => {
+    if (!pos) setPos({ x: window.innerWidth - BTN - 22, y: window.innerHeight - BTN - 22 });
+    const onResize = () => setPos((p) => (p ? { x: Math.min(p.x, window.innerWidth - BTN - 8), y: Math.min(p.y, window.innerHeight - BTN - 8) } : p));
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []); // eslint-disable-line
+
+  function onPointerDown(e) {
+    if (!pos) return;
+    drag.current = { active: true, moved: false, dx: e.clientX - pos.x, dy: e.clientY - pos.y, sx: e.clientX, sy: e.clientY };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
+  }
+  function onPointerMove(e) {
+    if (!drag.current.active) return;
+    if (Math.abs(e.clientX - drag.current.sx) > 4 || Math.abs(e.clientY - drag.current.sy) > 4) drag.current.moved = true;
+    setPos({
+      x: Math.max(8, Math.min(e.clientX - drag.current.dx, window.innerWidth - BTN - 8)),
+      y: Math.max(8, Math.min(e.clientY - drag.current.dy, window.innerHeight - BTN - 8)),
+    });
+  }
+  function onPointerUp() {
+    const moved = drag.current.moved;
+    drag.current.active = false;
+    if (!moved) setOpen((o) => !o); // apăsare simplă (nu tragere) → deschide/închide
+  }
 
   if (pathname === '/admin') return null;
+  if (!pos) return null;
+
+  const popupW = Math.min(400, window.innerWidth - 32);
+  const popupH = Math.min(640, window.innerHeight - 130);
+  const bottomHalf = pos.y > window.innerHeight / 2;
+  const labelLeft = pos.x < 150; // dacă butonul e lipit de stânga, punem eticheta în dreapta
+  const popupStyle = {
+    position: 'fixed', zIndex: 1000, width: popupW, height: popupH,
+    left: Math.max(8, Math.min(pos.x + BTN - popupW, window.innerWidth - popupW - 8)),
+    ...(bottomHalf ? { bottom: window.innerHeight - pos.y + 12 } : { top: pos.y + BTN + 12 }),
+    background: '#fff', borderRadius: 16, boxShadow: 'var(--shadow-lg, 0 12px 40px rgba(0,0,0,.25))',
+    display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border)',
+  };
+  const tabBtn = (active) => ({
+    flex: 1, padding: '8px 6px', fontSize: '.78rem', fontWeight: 700, cursor: 'pointer',
+    border: 'none', borderBottom: `2px solid ${active ? 'var(--gold)' : 'transparent'}`,
+    background: 'transparent', color: active ? 'var(--navy)' : 'var(--text-muted)',
+  });
 
   return (
     <>
+      <style>{`@keyframes pvGlow{0%,100%{box-shadow:0 0 0 0 rgba(232,185,49,.55),0 6px 18px rgba(0,0,0,.28)}50%{box-shadow:0 0 0 12px rgba(232,185,49,0),0 6px 18px rgba(0,0,0,.28)}}`}</style>
+
+      {/* Eticheta „Prof. Virtual" lângă buton (când e închis) */}
+      {!open && (
+        <div onClick={() => setOpen(true)}
+          style={{
+            position: 'fixed', zIndex: 1000, top: pos.y + 16, cursor: 'pointer',
+            ...(labelLeft ? { left: pos.x + BTN + 8 } : { left: pos.x - 122 }),
+            background: 'var(--navy)', color: '#fff', fontWeight: 700, fontSize: '.76rem',
+            padding: '6px 10px', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,.2)',
+            whiteSpace: 'nowrap', pointerEvents: 'auto',
+          }}>
+          Prof. Virtual
+        </div>
+      )}
+
+      {/* Butonul plutitor (draggable + strălucire) */}
       <button
-        onClick={() => setOpen((o) => !o)}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
         aria-label="Profesor Virtual"
         style={{
-          position: 'fixed', bottom: 22, right: 22, zIndex: 1000,
-          width: 60, height: 60, borderRadius: '50%', border: 'none',
-          background: 'linear-gradient(135deg, var(--gold), var(--gold-light))',
-          boxShadow: 'var(--shadow-gold)', fontSize: '1.7rem', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform .15s',
+          position: 'fixed', left: pos.x, top: pos.y, zIndex: 1001,
+          width: BTN, height: BTN, borderRadius: '50%', border: 'none',
+          background: 'linear-gradient(135deg, var(--gold), var(--gold-light, #f4d06f))',
+          fontSize: '1.7rem', cursor: 'grab', touchAction: 'none',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          animation: open ? 'none' : 'pvGlow 2s ease-in-out infinite',
         }}
-        onMouseDown={(e) => (e.currentTarget.style.transform = 'scale(.92)')}
-        onMouseUp={(e) => (e.currentTarget.style.transform = 'scale(1)')}
       >
         {open ? '✕' : '🎓'}
       </button>
 
       {open && (
-        <div style={{
-          position: 'fixed', bottom: 92, right: 22, zIndex: 1000,
-          width: 'min(400px, calc(100vw - 32px))', height: 'min(620px, calc(100vh - 130px))',
-          background: '#fff', borderRadius: 16, boxShadow: 'var(--shadow-lg)',
-          display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border)',
-        }}>
-          <div style={{ background: 'var(--navy)', color: '#fff', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontWeight: 700, fontFamily: 'var(--font-display)' }}>🎓 Profesor Virtual</div>
-              <div style={{ fontSize: '.72rem', opacity: 0.7 }}>Tutore AI · ExamenMate</div>
-            </div>
+        <div style={popupStyle}>
+          <div style={{ background: 'var(--navy)', color: '#fff', padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ fontWeight: 700, fontFamily: 'var(--font-display)', fontSize: '.95rem' }}>🎓 Prof. Virtual</div>
             <Link to="/profesor-virtual" onClick={() => setOpen(false)}
               style={{ fontSize: '.72rem', color: 'var(--gold)', border: '1px solid rgba(232,185,49,.4)', borderRadius: 6, padding: '4px 8px' }}>
               Deschide complet ↗
             </Link>
           </div>
-          <div style={{ flex: 1, minHeight: 0 }}>
-            <ChatPanel compact />
+
+          {/* Taburi */}
+          <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: '#fafbfc' }}>
+            <button style={tabBtn(widgetTab === 'chat')} onClick={() => setWidgetTab('chat')}>💬 Întreabă profesorul</button>
+            <button style={tabBtn(widgetTab === 'exam')} onClick={() => setWidgetTab('exam')}>📄 Generează subiect examen</button>
+          </div>
+
+          <div style={{ flex: 1, minHeight: 0, overflowY: widgetTab === 'exam' ? 'auto' : 'hidden' }}>
+            {widgetTab === 'chat'
+              ? <ChatPanel compact onNavigate={() => setOpen(false)} />
+              : <div style={{ padding: 12 }}><ExamGenerator compact /></div>}
           </div>
         </div>
       )}

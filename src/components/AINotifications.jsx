@@ -1,10 +1,16 @@
 // =====================================================================
 // src/components/AINotifications.jsx
-// Clopoțel de notificări (ex: alerte de stagnare pentru profesor).
-// Montează-l în Navbar sau în zona de profesor: <AINotifications />
+// Clopoțel de notificări: materiale noi, forum, like-uri, progres elevi/copil,
+// update-uri. Clic pe notificare → se deschide materialul. Montat în Navbar.
 // =====================================================================
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
+
+const ICONS = {
+  material: '📄', forum: '💬', forum_reply: '💬', like: '❤️',
+  stagnation: '⚠️', evolution: '📈', decline: '📉', update: '✨', info: 'ℹ️',
+};
 
 export default function AINotifications() {
   const [open, setOpen] = useState(false);
@@ -12,6 +18,7 @@ export default function AINotifications() {
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(false);
   const ref = useRef(null);
+  const navigate = useNavigate();
 
   async function loadCount() {
     try { const { count } = await aiClient.notificationsUnread(); setUnread(count || 0); } catch { /* ignore */ }
@@ -19,11 +26,10 @@ export default function AINotifications() {
 
   useEffect(() => {
     loadCount();
-    const t = setInterval(loadCount, 60000); // reîmprospătare la 1 min
+    const t = setInterval(loadCount, 60000);
     return () => clearInterval(t);
   }, []);
 
-  // închidere la click în afară
   useEffect(() => {
     function onDoc(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
     document.addEventListener('mousedown', onDoc);
@@ -42,10 +48,22 @@ export default function AINotifications() {
   }
 
   async function markAllRead() {
-    try { await aiClient.notificationRead({ all: true }); setItems((it) => it.map((n) => ({ ...n, read: true }))); setUnread(0); } catch { /* ignore */ }
+    try { await aiClient.notificationRead({ all: true }); setItems((it) => it.map((n) => ({ ...n, read: true }))); setUnread(0); }
+    catch { /* ignore */ }
   }
-  async function markRead(id) {
-    try { await aiClient.notificationRead({ notificationId: id }); setItems((it) => it.map((n) => (n.id === id ? { ...n, read: true } : n))); setUnread((u) => Math.max(0, u - 1)); } catch { /* ignore */ }
+
+  async function markRead(item) {
+    try {
+      await aiClient.notificationRead({ id: item.id, kind: item.kind });
+      setItems((it) => it.map((n) => (n.id === item.id && n.kind === item.kind ? { ...n, read: true } : n)));
+      setUnread((u) => Math.max(0, u - 1));
+    } catch { /* ignore */ }
+  }
+
+  function onClickItem(item) {
+    if (!item.read) markRead(item);
+    const url = item.data && item.data.url;
+    if (url) { setOpen(false); navigate(url); }
   }
 
   return (
@@ -63,30 +81,36 @@ export default function AINotifications() {
       {open && (
         <div style={{
           position: 'absolute', right: 0, top: '130%', zIndex: 1100,
-          width: 'min(340px, calc(100vw - 24px))', maxHeight: 440, overflowY: 'auto',
-          background: '#fff', border: '1px solid var(--border)', borderRadius: 12, boxShadow: 'var(--shadow-lg)',
+          width: 'min(360px, calc(100vw - 24px))', maxHeight: 460, overflowY: 'auto',
+          background: '#fff', border: '1px solid var(--border)', borderRadius: 12, boxShadow: 'var(--shadow-lg, 0 12px 40px rgba(0,0,0,.25))',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, background: '#fff' }}>
             <strong style={{ color: 'var(--navy)', fontSize: '.9rem' }}>Notificări</strong>
-            {items.some((n) => !n.read) && <button onClick={markAllRead} style={{ background: 'none', border: 'none', color: 'var(--gold-dim)', fontSize: '.78rem', fontWeight: 600, cursor: 'pointer' }}>Marchează toate citite</button>}
+            {items.some((n) => !n.read) && <button onClick={markAllRead} style={{ background: 'none', border: 'none', color: 'var(--gold-dim, #b8860b)', fontSize: '.78rem', fontWeight: 600, cursor: 'pointer' }}>Marchează toate citite</button>}
           </div>
 
           {loading && <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: '.85rem' }}>Se încarcă…</div>}
           {!loading && items.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: '.85rem' }}>Nicio notificare. 🎉</div>}
 
-          {items.map((n) => (
-            <div key={n.id} onClick={() => !n.read && markRead(n.id)}
-              style={{ padding: '11px 14px', borderBottom: '1px solid var(--border)', background: n.read ? '#fff' : 'rgba(232,185,49,.08)', cursor: n.read ? 'default' : 'pointer' }}>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <span>{n.type === 'stagnation' ? '⚠️' : 'ℹ️'}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '.85rem', fontWeight: 600, color: 'var(--navy)' }}>{n.title}</div>
-                  {n.body && <div style={{ fontSize: '.8rem', color: 'var(--text-light)', marginTop: 2 }}>{n.body}</div>}
-                  <div style={{ fontSize: '.7rem', color: 'var(--text-muted)', marginTop: 3 }}>{new Date(n.created_at).toLocaleString('ro-RO')}</div>
+          {items.map((n) => {
+            const clickable = !!(n.data && n.data.url);
+            return (
+              <div key={`${n.kind}:${n.id}`} onClick={() => onClickItem(n)}
+                style={{ padding: '11px 14px', borderBottom: '1px solid var(--border)', background: n.read ? '#fff' : 'rgba(232,185,49,.08)', cursor: (clickable || !n.read) ? 'pointer' : 'default' }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <span>{ICONS[n.type] || 'ℹ️'}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '.85rem', fontWeight: 600, color: 'var(--navy)' }}>{n.title}</div>
+                    {n.body && <div style={{ fontSize: '.8rem', color: 'var(--text-light)', marginTop: 2 }}>{n.body}</div>}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
+                      <span style={{ fontSize: '.7rem', color: 'var(--text-muted)' }}>{new Date(n.created_at).toLocaleString('ro-RO')}</span>
+                      {clickable && <span style={{ fontSize: '.7rem', color: 'var(--gold-dim, #b8860b)', fontWeight: 600 }}>Deschide →</span>}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -101,6 +101,8 @@ const EXAMS = {
 
 const JSON_RULE = `IMPORTANT pentru JSON valid: scrie fiecare backslash din comenzile LaTeX de DOUĂ ori (backslash dublu). Exemple corecte în JSON: pentru fracție folosește \\\\frac{...}{...}, pentru radical \\\\sqrt{...}, pentru înmulțire \\\\cdot, pentru unghi \\\\angle. Formulele se pun între $...$.`;
 
+const FIDELITY = `Fidelitate față de modele: respectă cât mai fidel exercițiile-model din baza de date — preia structura, tipul și stilul, iar unde e potrivit chiar formularea, schimbând DOAR minim datele (numere, notații, coeficienți). Nu introduce tipuri de itemi care nu apar în modele. La geometrie, include și FIGURA: descrie-o clar în enunț (puncte, laturi, unghiuri, măsuri) așa cum apare în model, ca elevul să o poată desena.`;
+
 function buildENSystem(examples) {
   return `${ai.PERSONA}
 
@@ -109,7 +111,8 @@ Sarcină: generează un MODEL COMPLET de test de Evaluare Națională la matemat
 ${EN_SPEC}
 
 Reguli:
-- Bazează-te pe EXERCIȚIILE DIN BAZA DE DATE de mai jos: ia modele de acolo, recombină-le și schimbă date minime (numere, notații) ca să obții itemi noi echivalenți. Creează un item complet nou doar dacă e simplu și necesar.
+- ${FIDELITY}
+- Bazează-te pe EXERCIȚIILE DIN BAZA DE DATE de mai jos: ia modele de acolo și schimbă date minime (numere, notații). Creează un item complet nou doar dacă e simplu și necesar.
 - La grilă (Subiectele I și II): fiecare item are exact 4 variante (I.6 are 2: „Adevărat"/„Fals"), un singur răspuns corect, iar variantele greșite trebuie să fie plauzibile.
 - La Subiectul III: dă rezolvare completă, pas cu pas, pentru fiecare subpunct a) și b).
 - Enunțuri clare, corecte matematic. Formulele în LaTeX între $...$.
@@ -160,7 +163,8 @@ ${cfg.programa}
 ${cfg.structure}
 
 Reguli de conținut:
-- Bazează-te pe EXERCIȚIILE DIN BAZA DE DATE de mai jos: recombină-le și schimbă date minime (numere, notații, coeficienți) ca să obții itemi noi echivalenți ca dificultate. Creează un exercițiu complet nou doar dacă e simplu și necesar.
+- ${FIDELITY}
+- Bazează-te pe EXERCIȚIILE DIN BAZA DE DATE de mai jos și schimbă date minime (numere, notații, coeficienți). Creează un exercițiu complet nou doar dacă e simplu și necesar.
 - Fiecare subiect (I, II, III) totalizează exact 30 de puncte.
 - Include baremul: pentru fiecare item, rezolvare scurtă și răspunsul final.
 - Enunțuri clare, corecte matematic. Formulele în LaTeX între $...$.
@@ -197,7 +201,7 @@ module.exports = async function handler(req, res) {
     const cfg = EXAMS[examType];
     if (!cfg) return res.status(400).json({ error: 'examType invalid' });
 
-    const docs = await ai.retrieve(supa, { query: cfg.query, category: cfg.category, allowPremium: true, k: 10 });
+    const docs = await ai.retrieve(supa, { query: cfg.query, category: cfg.category, allowPremium: true, k: 10, prefer: 'exercise' });
     const examples = ai.contextBlock(docs);
 
     const system = cfg.special === 'en' ? buildENSystem(examples) : buildGenericSystem(cfg, examples);

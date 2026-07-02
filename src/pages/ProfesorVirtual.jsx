@@ -8,6 +8,7 @@ import { ChatPanel, MathText } from '../components/AITutor';
 import { aiClient } from '../lib/aiClient';
 import { useAuth } from '../context/AuthContext';
 import { printExam, printExercise } from '../lib/examPrint';
+import ExamGenerator from '../components/ExamGenerator';
 
 const CATEGORIES = [
   { id: '', label: 'Toate' },
@@ -41,9 +42,9 @@ export default function ProfesorVirtual() {
       <div style={{ display: 'flex', gap: 8, borderBottom: '2px solid var(--border)', marginBottom: 24, flexWrap: 'wrap' }}>
         {[
           { id: 'chat', label: '💬 Întreabă profesorul' },
-          { id: 'practice', label: '✍️ Antrenament' },
+          { id: 'exam', label: '📄 Generează subiect examen' },
+          { id: 'practice', label: '✍️ Generează exerciții PDF' },
           { id: 'interactive', label: '🧩 Interactiv' },
-          { id: 'exam', label: '📄 Generează test' },
           { id: 'library', label: '📚 Testele mele' },
           { id: 'progress', label: '📈 Progresul meu' },
         ].map((t) => (
@@ -74,7 +75,7 @@ export default function ProfesorVirtual() {
           )}
           {tab === 'practice' && <PracticeTab />}
           {tab === 'interactive' && <InteractiveTab />}
-          {tab === 'exam' && <ExamTab />}
+          {tab === 'exam' && <ExamGenerator />}
           {tab === 'library' && <LibraryTab />}
           {tab === 'progress' && <ProgressTab />}
         </>
@@ -247,98 +248,6 @@ function PracticeTab() {
               </div>
             </div>
           )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── GENERATOR DE TESTE DE EXAMEN ────────────────────────────────────────────
-const EXAM_TYPES = [
-  { id: 'evaluare-nationala', label: 'Evaluare Națională', desc: 'Matematică · clasa a VIII-a' },
-  { id: 'bac-tehnologic', label: 'BAC · Tehnologic', desc: 'M_tehnologic' },
-  { id: 'bac-stiinte', label: 'BAC · Științele Naturii', desc: 'M_științele-naturii' },
-  { id: 'bac-mate-info', label: 'BAC · Mate-Info', desc: 'M_mate-info' },
-];
-
-function ExamTab() {
-  const [examType, setExamType] = useState('evaluare-nationala');
-  const [exam, setExam] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [upsell, setUpsell] = useState(false);
-
-  async function gen() {
-    setLoading(true); setError(null); setUpsell(false); setExam(null);
-    try {
-      const res = await aiClient.generateExam({ examType });
-      setExam(res.exam);
-      // Se salvează automat în „Testele mele" (privat, doar pentru abonat).
-      try { await aiClient.saveLibraryItem({ kind: 'exam', title: res.exam.title, category: examType, payload: { exam: res.exam } }); } catch { /* ignore */ }
-    } catch (e) { setError(e.message); if (e.premium) setUpsell(true); }
-    finally { setLoading(false); }
-  }
-
-  const card = { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 18 };
-  const totalItems = exam ? (exam.subjects || []).reduce((a, s) => a + (s.items?.length || 0), 0) : 0;
-
-  return (
-    <div>
-      <div style={card}>
-        <p style={{ color: 'var(--text-light)', fontSize: '.9rem', marginBottom: 14 }}>
-          Generează un <strong>model de test</strong> după structura oficială, în format PDF. Testul e construit din exercițiile de pe site (cu date schimbate) — material de pregătire, nu subiect oficial.
-        </p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10, marginBottom: 16 }}>
-          {EXAM_TYPES.map((t) => (
-            <button key={t.id} onClick={() => setExamType(t.id)}
-              style={{
-                textAlign: 'left', padding: '12px 14px', borderRadius: 12, cursor: 'pointer',
-                border: '2px solid', borderColor: examType === t.id ? 'var(--gold)' : 'var(--border)',
-                background: examType === t.id ? 'rgba(232,185,49,.1)' : '#fff',
-              }}>
-              <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.92rem' }}>{t.label}</div>
-              <div style={{ fontSize: '.76rem', color: 'var(--text-muted)' }}>{t.desc}</div>
-            </button>
-          ))}
-        </div>
-        <button className="btn btn-primary" onClick={gen} disabled={loading}>
-          {loading ? 'Se generează testul... (poate dura ~30s)' : '✨ Generează testul'}
-        </button>
-      </div>
-
-      {error && <div style={{ ...card, background: '#fdecea', color: '#b71c1c', borderColor: '#f5c6cb' }}>⚠️ {error}</div>}
-      {upsell && (
-        <div style={{ ...card, background: '#fff4e5', borderColor: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <span style={{ color: 'var(--navy)', fontWeight: 600 }}>🔒 Generatorul de teste face parte din abonament.</span>
-          <Link to="/preturi" className="btn btn-primary">Abonează-te →</Link>
-        </div>
-      )}
-
-      {exam && (
-        <div style={card}>
-          <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>{exam.title}</h3>
-          <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: 14 }}>
-            {exam.durationMin} minute · {exam.totalPoints} puncte ({exam.oficiu} din oficiu) · {(exam.subjects || []).length} subiecte · {totalItems} itemi
-          </div>
-
-          {/* Rezumat subiecte */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
-            {(exam.subjects || []).map((s, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: '#f7f9fc', borderRadius: 8, fontSize: '.85rem' }}>
-                <strong style={{ color: 'var(--navy)' }}>{s.label}</strong>
-                <span style={{ color: 'var(--text-muted)' }}>{s.items?.length || 0} itemi · {s.points} puncte</span>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn btn-primary" onClick={() => printExam(exam, { withSolutions: false })}>📄 Varianta elev (PDF)</button>
-            <button className="btn btn-outline" onClick={() => printExam(exam, { withSolutions: true })}>📝 Barem + rezolvări (PDF)</button>
-            <button className="btn btn-outline" onClick={gen} disabled={loading}>🔄 Alt test</button>
-          </div>
-          <p style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginTop: 12 }}>
-            Butoanele deschid testul într-o filă nouă; apasă „Printează / Salvează ca PDF".
-          </p>
         </div>
       )}
     </div>

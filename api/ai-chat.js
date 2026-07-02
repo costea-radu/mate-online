@@ -29,8 +29,10 @@ module.exports = async function handler(req, res) {
       category: context.category || null,
       allowPremium: premium,
       k: 6,
+      prefer: 'solution', // la explicații, prioritizează baremele/rezolvările
     });
     const ctxBlock = ai.contextBlock(docs);
+    const primaryMaterial = await ai.topMaterial(supa, docs);
 
     // 2. Conversație: o reluăm sau o creăm.
     let convId = conversationId || null;
@@ -68,12 +70,12 @@ module.exports = async function handler(req, res) {
     const sources = docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }));
     await supa.from('ai_messages').insert([
       { conversation_id: convId, role: 'user', content: message, mode },
-      { conversation_id: convId, role: 'assistant', content: text, mode, metadata: { sources } },
+      { conversation_id: convId, role: 'assistant', content: text, mode, metadata: { sources, primaryMaterial } },
     ]);
     await supa.from('ai_conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
     await ai.logUsage(supa, userId, 'ai-chat', usage);
 
-    return res.status(200).json({ reply: text, conversationId: convId, sources });
+    return res.status(200).json({ reply: text, conversationId: convId, sources, primaryMaterial });
   } catch (err) {
     console.error('ai-chat error:', err);
     return res.status(err.status || 500).json({ error: err.message || 'Eroare server' });

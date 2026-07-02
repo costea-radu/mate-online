@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
@@ -14,7 +14,19 @@ export default function InteractiveViewer() {
   const [savedScore, setSavedScore] = useState(null);
   const startedAtRef = useRef(Date.now());
 
-  const item = state?.item;
+  const [searchParams] = useSearchParams();
+  const idParam = searchParams.get('id');
+  const [item, setItem] = useState(state?.item || null);
+
+  // Deschidere directă prin link ?id= (din chat/notificări): aducem materialul.
+  useEffect(() => {
+    if (item || !idParam) return;
+    (async () => {
+      const { data } = await supabase.from('content').select('*').eq('id', idParam).single();
+      if (data) setItem(data);
+      else { setError('Materialul nu a fost găsit.'); setLoading(false); }
+    })();
+  }, [idParam]); // eslint-disable-line
 
   // Resetează cronometrul când se încarcă alt exercițiu
   useEffect(() => { startedAtRef.current = Date.now(); }, [item?.id]);
@@ -92,7 +104,7 @@ export default function InteractiveViewer() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!item) { navigate('/'); return; }
+    if (!item) { if (!idParam) navigate('/'); return; }
 
     const canAccess = item.is_free || isPremium;
     if (!canAccess) { navigate('/preturi'); return; }

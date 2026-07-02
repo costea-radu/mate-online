@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 function isMobile() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -15,7 +16,18 @@ export default function PDFViewer() {
   const [loading, setLoading] = useState(true);
   const [mobile, setMobile] = useState(false);
 
-  const item = state?.item;
+  const [searchParams] = useSearchParams();
+  const idParam = searchParams.get('id');
+  const [item, setItem] = useState(state?.item || null);
+
+  useEffect(() => {
+    if (item || !idParam) return;
+    (async () => {
+      const { data } = await supabase.from('content').select('*').eq('id', idParam).single();
+      if (data) setItem(data);
+      else { setError('Materialul nu a fost găsit.'); setLoading(false); }
+    })();
+  }, [idParam]); // eslint-disable-line
 
   function goBack() {
     if (state?.returnTo) {
@@ -31,7 +43,7 @@ export default function PDFViewer() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!item) { navigate('/'); return; }
+    if (!item) { if (!idParam) navigate('/'); return; }
     if (!item.is_free && !isPremium) { navigate('/preturi'); return; }
 
     async function load() {

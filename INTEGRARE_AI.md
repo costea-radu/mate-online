@@ -23,7 +23,8 @@ mate-ai-tutor/
 │   ├── ai_tutor_schema.sql          # Tabele, triggere, funcții RAG (rulezi o dată)
 │   ├── ai_tutor_v2.sql              # Feedback pe mesaje
 │   ├── ai_tutor_v3.sql              # Notificări (alerte de stagnare)
-│   └── ai_tutor_v4.sql              # Biblioteca personală (teste generate, privat)
+│   ├── ai_tutor_v4.sql              # Biblioteca personală (teste generate, privat)
+│   └── ai_tutor_v5.sql              # Notificări extinse (materiale, forum, like-uri, progres)
 ├── api/
 │   ├── _lib/ai.js                   # Client LLM + RAG + voce + notificări (partajat)
 │   ├── ai-chat.js                   # Chat-tutor (non-streaming, fallback)
@@ -66,6 +67,7 @@ mate-ai-tutor/
 3. **New Query** din nou → lipește `supabase/ai_tutor_v2.sql` → **Run** (tabela de feedback).
 4. **New Query** din nou → lipește `supabase/ai_tutor_v3.sql` → **Run** (notificări).
 5. **New Query** din nou → lipește `supabase/ai_tutor_v4.sql` → **Run** (biblioteca personală „Testele mele").
+6. **New Query** din nou → lipește `supabase/ai_tutor_v5.sql` → **Run** (notificări: materiale, forum, like-uri, progres).
 5. Verifică în **Table Editor** că au apărut: `ai_knowledge`, `ai_ingest_queue`, `ai_conversations`, `ai_messages`, `ai_skill_mastery`, `ai_usage`, `ai_feedback`, `ai_notifications`.
 
 > Dacă vezi eroarea „extension vector does not exist", rulează întâi `create extension vector;` din **Database → Extensions** (caută `vector` și activează-l), apoi re-rulează scriptul.
@@ -335,4 +337,4 @@ Widgetul acceptă un `context` cu `{ category, contentId, exerciseText }`. Dacă
 
 ---
 
-Întrebări sau ajustări (alt furnizor, alt design, streaming)? Spune-mi și continuăm. ok iti spun
+Întrebări sau ajustări (alt furnizor, alt design, streaming)? Spune-mi și continuăm.

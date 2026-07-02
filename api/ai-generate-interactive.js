@@ -22,7 +22,7 @@ module.exports = async function handler(req, res) {
     await ai.enforceRateLimit(supa, userId);
 
     const q = [topic, category, 'exercițiu matematică'].filter(Boolean).join(' ');
-    const docs = await ai.retrieve(supa, { query: q, category, allowPremium: true, k: 5 });
+    const docs = await ai.retrieve(supa, { query: q, category, allowPremium: true, k: 5, prefer: 'exercise' });
     const examples = ai.contextBlock(docs);
 
     const system = `${ai.PERSONA}
@@ -46,7 +46,8 @@ CONTRACT TEHNIC OBLIGATORIU (respectă-l exact):
    unde score = nr. răspunsuri corecte, maxScore = nr. total întrebări (numere ÎNTREGI).
 5. Design curat, responsive, culori sobre (bleumarin #0f2b44, auriu #e8b931, fundal alb/crem). Font sans-serif de sistem.
 6. Formulele se scriu în LaTeX ($...$). Matematica trebuie să fie corectă, iar răspunsurile marcate corect.
-7. Subiect: ${topic || 'potrivit categoriei'}${category ? ' · categoria ' + category : ''}. Dificultate: ${difficulty}.
+7. Respectă cât mai fidel exercițiile-model din baza de date (tip, stil, dificultate), schimbând doar minim datele. La geometrie, include o FIGURĂ simplă desenată în SVG inline (puncte, laturi, unghiuri etichetate), similară cu modelul.
+8. Subiect: ${topic || 'potrivit categoriei'}${category ? ' · categoria ' + category : ''}. Dificultate: ${difficulty}.
 
 Începe direct cu <!DOCTYPE html>.`;
 

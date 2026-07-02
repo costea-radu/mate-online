@@ -13,18 +13,19 @@
 // =====================================================================
 const ai = require('./_lib/ai');
 
-// Lista id-urilor elevilor unui profesor (+ nume), opțional dintr-o grupă.
-async function teacherStudents(supa, teacherId, groupId) {
+// Lista id-urilor elevilor/copiilor unui mentor (+ nume), opțional dintr-o grupă.
+// role: 'profesor' (default) sau 'parinte' → filtrează legătura potrivită.
+async function teacherStudents(supa, teacherId, groupId, role = 'profesor') {
   const ids = new Set();
 
   let q = supa.from('mentor_students').select('student_id, group_id')
-    .eq('mentor_id', teacherId).eq('mentor_role', 'profesor');
+    .eq('mentor_id', teacherId).eq('mentor_role', role);
   if (groupId) q = q.eq('group_id', groupId);
   const { data: links } = await q;
   (links || []).forEach((l) => ids.add(l.student_id));
 
-  // Retrocompatibil (asocieri vechi pe profiles.teacher_id)
-  if (!groupId) {
+  // Retrocompatibil (asocieri vechi pe profiles.teacher_id) — doar pentru profesori
+  if (!groupId && role === 'profesor') {
     const { data: legacy } = await supa.from('profiles').select('id').eq('teacher_id', teacherId);
     (legacy || []).forEach((p) => ids.add(p.id));
   }
@@ -47,14 +48,15 @@ module.exports = async function handler(req, res) {
     const { userId, studentId, groupId } = req.body || {};
     const action = req.body?.action || (studentId ? 'student' : 'report');
     const teacher = await ai.requireUser(supa, userId);
-    if (!(teacher.is_admin || teacher.role === 'profesor')) {
-      return res.status(403).json({ error: 'Doar profesorii pot vedea aceste date.' });
+    const callerRole = teacher.role === 'parinte' ? 'parinte' : 'profesor';
+    if (!(teacher.is_admin || teacher.role === 'profesor' || teacher.role === 'parinte')) {
+      return res.status(403).json({ error: 'Nu ai acces la aceste date.' });
     }
 
-    // ── Un singur elev ─────────────────────────────────────────────
+    // ── Un singur elev/copil ───────────────────────────────────────
     if (action === 'student') {
       if (!studentId) return res.status(400).json({ error: 'studentId obligatoriu' });
-      const { idList } = await teacherStudents(supa, userId, null);
+      const { idList } = await teacherStudents(supa, userId, null, callerRole);
       const allowed = teacher.is_admin || idList.includes(studentId);
       if (!allowed) return res.status(403).json({ error: 'Acest elev nu este asociat cu tine.' });
       const { data: mastery } = await supa.from('ai_skill_mastery')
@@ -67,7 +69,7 @@ module.exports = async function handler(req, res) {
     const { data: groups } = await supa.from('mentor_groups')
       .select('id, name').eq('teacher_id', userId).order('created_at');
 
-    const { idList, names } = await teacherStudents(supa, userId, groupId || null);
+    const { idList, names } = await teacherStudents(supa, userId, groupId || null, callerRole);
     if (idList.length === 0) {
       return res.status(200).json({ groups: groups || [], topics: [], students: [], totals: { students: 0, practiced: 0 } });
     }

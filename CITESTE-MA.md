@@ -16,6 +16,9 @@ Fișierele noi se adaugă, iar cele 5 existente se înlocuiesc cu versiunile mod
 | `src/components/Navbar.jsx` | Link „🎓 Profesor Virtual" (desktop + mobil) și clopoțelul de notificări 🔔 pentru utilizatorii logați. |
 | `src/pages/Admin.jsx` | Tab nou „🎓 AI Tutor" cu panoul de administrare a bazei de cunoștințe (aici se pot **publica** exerciții interactive generate). |
 | `src/pages/Profile.jsx` | Card „🎓 Profesor Virtual" în „Contul meu" (punctul de acces pentru abonați). |
+| `src/pages/InteractiveViewer.jsx` | Acceptă `?id=` (linkurile din chat/notificări deschid direct exercițiul). |
+| `src/pages/PDFViewer.jsx` | Acceptă `?id=` (linkurile din chat/notificări deschid direct PDF-ul). |
+| `src/components/TeacherResults.jsx` | Raport AI + progres per elev afișate acum și în contul de **părinte**. |
 | `src/components/TeacherResults.jsx` | Raport AI agregat pe clasă/grupă (sus) + progres AI pe subiecte la fiecare elev. |
 | `vercel.json` | Cron-uri: indexare automată (la 10 min) și scanarea stagnării (zilnic). |
 
@@ -28,9 +31,9 @@ secțiunea „Pasul 3" are exact liniile de adăugat, manual.
 
 **Backend (`api/`):** `_lib/ai.js`, `ai-chat.js`, `ai-chat-stream.js`, `ai-practice.js`, `ai-ingest.js`, `ai-progress.js`, `ai-feedback.js`, `ai-vision.js`, `ai-transcribe.js`, `ai-notify.js`, `ai-exam.js`, `ai-generate-interactive.js`, `ai-teacher.js`
 
-**Frontend (`src/`):** `lib/aiClient.js`, `lib/katex.js`, `lib/image.js`, `lib/voice.js`, `lib/examPrint.js`, `components/AITutor.jsx`, `components/AIAdminPanel.jsx`, `components/StudentAIMastery.jsx`, `components/AITeacherReport.jsx`, `components/AINotifications.jsx`, `pages/ProfesorVirtual.jsx`
+**Frontend (`src/`):** `lib/aiClient.js`, `lib/katex.js`, `lib/image.js`, `lib/voice.js`, `lib/examPrint.js`, `components/AITutor.jsx`, `components/ExamGenerator.jsx`, `components/AIAdminPanel.jsx`, `components/StudentAIMastery.jsx`, `components/AITeacherReport.jsx`, `components/AINotifications.jsx`, `pages/ProfesorVirtual.jsx`
 
-**Bază de date (`supabase/`):** `ai_tutor_schema.sql`, `ai_tutor_v2.sql`, `ai_tutor_v3.sql`, `ai_tutor_v4.sql` (biblioteca personală)
+**Bază de date (`supabase/`):** `ai_tutor_schema.sql`, `ai_tutor_v2.sql`, `ai_tutor_v3.sql`, `ai_tutor_v4.sql` (biblioteca personală), `ai_tutor_v5.sql` (notificări extinse)
 
 **Config:** `.env.ai.example`
 
@@ -41,7 +44,7 @@ Niciun pachet npm nou nu e necesar (se folosesc `fetch` și `crypto`, incluse î
 ## 🚀 Pornire rapidă (3 pași)
 
 1. **Bază de date** — în Supabase → SQL Editor, rulează pe rând:
-   `supabase/ai_tutor_schema.sql`, apoi `ai_tutor_v2.sql`, `ai_tutor_v3.sql`, `ai_tutor_v4.sql`.
+   `supabase/ai_tutor_schema.sql`, apoi `ai_tutor_v2.sql`, `ai_tutor_v3.sql`, `ai_tutor_v4.sql`, `ai_tutor_v5.sql`.
 2. **Cheie API** — în Vercel → Settings → Environment Variables, adaugă `OPENAI_API_KEY`.
    (acoperă chat, embeddings, foto-rezolvare și transcriere). Vezi `.env.ai.example` pentru opțiuni.
 3. **Indexare** — deploy, apoi intră ca admin → **Admin → 🎓 AI Tutor → „Reindexează tot"**
@@ -50,6 +53,15 @@ Niciun pachet npm nou nu e necesar (se folosesc `fetch` și `crypto`, incluse î
 Detalii complete, depanare și **estimarea de costuri** → `INTEGRARE_AI.md`.
 
 ---
+
+## 🆕 Ce e nou în această versiune
+
+- **Explicații mai bune:** la întrebări, AI-ul se sprijină întâi pe **bareme/rezolvări** și pe explicațiile exercițiilor interactive. La generare, urmează cât mai fidel exercițiile-model (inclusiv figurile la geometrie).
+- **Material întâi:** dacă răspunsul există într-un material de pe site, AI-ul pune **linkul către el** deasupra răspunsului (și păstrează lista „materiale folosite").
+- **Widget nou:** se poate **muta cu degetul/mouse-ul** (drag-and-drop), are **strălucire** pulsatorie, scrie „Prof. Virtual" lângă el, iar în fereastră are taburi: „Întreabă profesorul" și „Generează subiect examen".
+- **Taburi redenumite/reordonate** în pagină: „Generează subiect examen" (fost „Generează test") înaintea lui „Generează exerciții PDF" (fost „Antrenament").
+- **Raport în contul de părinte:** părintele vede progresul AI al copilului asociat.
+- **Clopoțel extins:** notificări pentru materiale noi (cu clasa/tipul), progres/stagnare/scădere elev sau copil, discuții pe forum, like-uri și anunțuri (update-uri). Clic pe notificare → se deschide materialul. Adminul poate trimite anunțuri din „🎓 AI Tutor → 📣 Trimite un anunț".
 
 ## ✅ Verificare după instalare
 

@@ -33,8 +33,9 @@ module.exports = async function handler(req, res) {
 
     // 1. RAG
     const retrievalQuery = [message, context.exerciseText].filter(Boolean).join('\n');
-    const docs = await ai.retrieve(supa, { query: retrievalQuery, category: context.category || null, allowPremium: premium, k: 6 });
+    const docs = await ai.retrieve(supa, { query: retrievalQuery, category: context.category || null, allowPremium: premium, k: 6, prefer: 'solution' });
     const ctxBlock = ai.contextBlock(docs);
+    const primaryMaterial = await ai.topMaterial(supa, docs);
 
     // 2. Conversație (reluare/creare)
     let convId = conversationId || null;
@@ -55,7 +56,7 @@ module.exports = async function handler(req, res) {
     const priorMsgs = (history || []).reverse().map((m) => ({ role: m.role, content: m.content }));
 
     const sources = docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }));
-    send({ type: 'meta', conversationId: convId, sources });
+    send({ type: 'meta', conversationId: convId, sources, primaryMaterial });
 
     const extra = context.exerciseText ? `\nElevul lucrează la acest exercițiu:\n"""${String(context.exerciseText).slice(0, 1500)}"""` : '';
     const system = ai.systemFor(mode, ctxBlock, extra);
@@ -75,7 +76,7 @@ module.exports = async function handler(req, res) {
     // 5. Salvăm după ce s-a terminat streamul
     await supa.from('ai_messages').insert({ conversation_id: convId, role: 'user', content: message, mode });
     const { data: saved } = await supa.from('ai_messages')
-      .insert({ conversation_id: convId, role: 'assistant', content: full, mode, metadata: { sources } })
+      .insert({ conversation_id: convId, role: 'assistant', content: full, mode, metadata: { sources, primaryMaterial } })
       .select('id').single();
     await supa.from('ai_conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
     await ai.logUsage(supa, userId, 'ai-chat-stream', { in: 0, out: Math.ceil(full.length / 4) });

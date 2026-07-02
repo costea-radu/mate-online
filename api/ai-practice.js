@@ -40,7 +40,7 @@ async function generate(req, res, supa) {
 
   // Aducem exemple similare ca șabloane de stil/dificultate.
   const q = [topic, category, 'exercițiu matematică'].filter(Boolean).join(' ');
-  const docs = await ai.retrieve(supa, { query: q, category, allowPremium: premium, k: 5 });
+  const docs = await ai.retrieve(supa, { query: q, category, allowPremium: premium, k: 5, prefer: 'exercise' });
   const examples = ai.contextBlock(docs);
 
   const system = `${ai.PERSONA}

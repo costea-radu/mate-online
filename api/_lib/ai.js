@@ -213,35 +213,91 @@ async function teachersOf(supa, studentId) {
   return [...ids];
 }
 
+// Toți mentorii (profesori ȘI părinți) asociați unui elev — pentru notificări.
+async function mentorsOf(supa, studentId) {
+  const ids = new Set();
+  const { data: links } = await supa.from('mentor_students')
+    .select('mentor_id').eq('student_id', studentId);
+  (links || []).forEach((l) => ids.add(l.mentor_id));
+  const { data: prof } = await supa.from('profiles').select('teacher_id').eq('id', studentId).single();
+  if (prof?.teacher_id) ids.add(prof.teacher_id);
+  return [...ids];
+}
+
 // ─── Recuperare context (RAG): vectorial, cu fallback lexical ────────────────
-async function retrieve(supa, { query, category = null, allowPremium = false, k = 6 }) {
+// Boost pe tip de sursă, în funcție de scop:
+//  prefer='solution' (explicații în chat) → barem/rezolvări primele
+//  prefer='exercise' (generare) → exercițiile-model primele
+const SOURCE_BOOST = {
+  solution: { solution: 0.20, exercise: 0.05, manual: 0.02 },
+  exercise: { exercise: 0.16, solution: 0.08, manual: 0.03 },
+};
+
+async function retrieve(supa, { query, category = null, allowPremium = false, k = 6, prefer = null }) {
   if (!query || !query.trim()) return [];
+  const fetchN = Math.min(k * 3, 24);
+  let docs = [];
   // 1. Semantic (dacă avem embeddings)
   if (hasEmbeddings()) {
     try {
       const qvec = await embed(query);
       if (qvec) {
         const { data, error } = await supa.rpc('match_ai_knowledge', {
-          query_embedding: qvec,
-          match_count: k,
-          filter_category: category,
-          allow_premium: allowPremium,
+          query_embedding: qvec, match_count: fetchN, filter_category: category, allow_premium: allowPremium,
         });
-        if (!error && data && data.length) return data;
+        if (!error && data) docs = data;
       }
     } catch (e) { console.warn('Vector retrieve failed, fallback lexical:', e.message); }
   }
   // 2. Lexical (fallback)
+  if (!docs.length) {
+    try {
+      const { data, error } = await supa.rpc('match_ai_knowledge_lexical', {
+        query_text: query, match_count: fetchN, filter_category: category, allow_premium: allowPremium,
+      });
+      if (!error && data) docs = data;
+    } catch (e) { console.warn('Lexical retrieve failed:', e.message); }
+  }
+  if (!docs.length) return [];
+  // Re-ranking după scop (barem vs exercițiu-model)
+  const boost = SOURCE_BOOST[prefer] || {};
+  return docs
+    .map((d) => ({ ...d, _score: (d.similarity || 0) + (boost[d.source_type] || 0) }))
+    .sort((a, b) => b._score - a._score)
+    .slice(0, k);
+}
+
+// Rută de vizualizare în funcție de categorie
+function routeForCategory(cat) {
+  if (!cat) return '/';
+  if (cat.startsWith('clasa-')) return `/clase/${cat.replace('clasa-', '')}`;
+  if (cat === 'evaluare-nationala') return '/evaluare-nationala';
+  if (cat === 'bacalaureat') return '/bacalaureat';
+  if (cat === 'manuale') return '/manuale';
+  return '/';
+}
+
+// Alege cel mai relevant MATERIAL real din rezultate și construiește un link către el.
+async function topMaterial(supa, docs) {
+  if (!docs || !docs.length) return null;
+  const doc = docs.find((d) => d.source_id && ['exercise', 'manual', 'solution'].includes(d.source_type));
+  if (!doc) return null;
+  if (doc.source_type === 'solution') {
+    return { title: doc.title || 'Rezolvare model', url: '/rezolvari', type: 'rezolvare', category: doc.category };
+  }
   try {
-    const { data, error } = await supa.rpc('match_ai_knowledge_lexical', {
-      query_text: query,
-      match_count: k,
-      filter_category: category,
-      allow_premium: allowPremium,
-    });
-    if (!error && data) return data;
-  } catch (e) { console.warn('Lexical retrieve failed:', e.message); }
-  return [];
+    const { data: c } = await supa.from('content')
+      .select('id, title, content_type, category, is_free').eq('id', doc.source_id).single();
+    if (c) {
+      let url;
+      if (c.content_type === 'pdf') url = `/pdf-viewer?id=${c.id}`;
+      else if (c.content_type === 'interactive') url = `/exercitiu?id=${c.id}`;
+      else if (c.content_type === 'manual') url = '/manuale';
+      else url = routeForCategory(c.category);
+      return { title: c.title || doc.title || 'Material', url, type: c.content_type, category: c.category, is_free: c.is_free };
+    }
+  } catch { /* fallback mai jos */ }
+  return { title: doc.title || 'Material', url: routeForCategory(doc.category), type: doc.source_type, category: doc.category };
 }
 
 // ─── Formatează contextul recuperat pentru prompt ────────────────────────────
@@ -338,8 +394,8 @@ function verifyToken(token) {
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
 module.exports = {
-  CORS, applyCors, admin, chat, chatStream, chatVision, embed, transcribe, retrieve, contextBlock, systemFor, PERSONA,
-  createNotification, teachersOf,
+  CORS, applyCors, admin, chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, PERSONA,
+  createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS,
 };

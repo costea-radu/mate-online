@@ -210,7 +210,7 @@ function ProgressChart({ rows }) {
 }
 
 // ─── Rând elev (antet rolldown + detaliu cu Punctaj/Încercări/Timp/Progres) ──
-function StudentRow({ student, isOpen, onToggle, isTeacher, groups, onMove, onRemove, busy }) {
+function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, onMove, onRemove, busy }) {
   const hasRows = student.count > 0;
   const [showProgress, setShowProgress] = useState(false);
   const headerBg = 'transparent';
@@ -346,7 +346,7 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, groups, onMove, onRe
               </div>
             )}
 
-            {isTeacher && <StudentAIMastery studentId={student.id} />}
+            {(isTeacher || isParent) && <StudentAIMastery studentId={student.id} />}
           </td>
         </tr>
       )}
@@ -357,6 +357,7 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, groups, onMove, onRe
 // ─── Dashboard mentor (profesor cu grupe / părinte simplu) ──────────────────
 export default function TeacherResults({ user, inviteCode, displayName, role = 'profesor' }) {
   const isTeacher = role === 'profesor';
+  const isParent = role === 'parinte';
   const [data, setData] = useState({ students: [], results: [], groups: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -645,6 +646,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
                           isOpen={!!expanded[s.id]}
                           onToggle={() => toggleStudent(s.id)}
                           isTeacher={isTeacher}
+                          isParent={isParent}
                           groups={groups}
                           onMove={moveStudent}
                           onRemove={removeStudent}

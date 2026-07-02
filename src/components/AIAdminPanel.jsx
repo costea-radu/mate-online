@@ -88,7 +88,42 @@ export default function AIAdminPanel() {
     </div>
 
     <InteractiveGenerator box={box} />
+    <BroadcastBox box={box} />
     </>
+  );
+}
+
+// ─── Trimite un anunț către toți utilizatorii (apare la clopoțel) ────────────
+function BroadcastBox({ box }) {
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [url, setUrl] = useState('');
+  const [sending, setSending] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const inp = { border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.9rem', width: '100%', marginTop: 4, marginBottom: 10 };
+
+  async function send() {
+    if (!title.trim()) { setMsg('Pune un titlu.'); return; }
+    setSending(true); setMsg(null);
+    try {
+      await aiClient.sendBroadcast({ title, body: body || null, url: url || null, type: 'update' });
+      setMsg('✅ Anunț trimis tuturor.'); setTitle(''); setBody(''); setUrl('');
+    } catch (e) { setMsg('Eroare: ' + e.message); }
+    finally { setSending(false); }
+  }
+
+  return (
+    <div style={{ ...box, marginTop: 18 }}>
+      <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 6 }}>📣 Trimite un anunț</h3>
+      <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
+        Apare la clopoțelul tuturor utilizatorilor (ex: „Am adăugat o funcție nouă la Profesorul Virtual"). Opțional, un link care se deschide la clic.
+      </p>
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Titlu (ex: Noutăți la Profesorul Virtual)" style={inp} />
+      <input value={body} onChange={(e) => setBody(e.target.value)} placeholder="Detalii (opțional)" style={inp} />
+      <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Link (opțional, ex: /profesor-virtual)" style={inp} />
+      <button className="btn btn-primary" onClick={send} disabled={sending}>{sending ? 'Se trimite...' : 'Trimite anunțul'}</button>
+      {msg && <div style={{ marginTop: 10, fontSize: '.85rem', color: msg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{msg}</div>}
+    </div>
   );
 }
 
