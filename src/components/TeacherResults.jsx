@@ -504,12 +504,6 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
     <>
       <InviteBox inviteCode={inviteCode} displayName={displayName} role={role} />
 
-      {isTeacher && (
-        <div className="card" style={{ marginBottom: 24 }}>
-          <AITeacherReport />
-        </div>
-      )}
-
       <div className="card" style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: 0 }}>

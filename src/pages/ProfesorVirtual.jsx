@@ -9,6 +9,8 @@ import { aiClient } from '../lib/aiClient';
 import { useAuth } from '../context/AuthContext';
 import { printExam, printExercise } from '../lib/examPrint';
 import ExamGenerator from '../components/ExamGenerator';
+import EinsteinIcon from '../components/EinsteinIcon';
+import SendToStudents from '../components/SendToStudents';
 
 const CATEGORIES = [
   { id: '', label: 'Toate' },
@@ -20,17 +22,28 @@ const CATEGORIES = [
 const DIFFS = ['ușor', 'mediu', 'greu'];
 
 export default function ProfesorVirtual() {
-  const { user, loading } = useAuth();
+  const { user, loading, isStudent, isTeacher, isParent } = useAuth();
   const [tab, setTab] = useState('chat');
 
   if (loading) return <div style={{ padding: 60, textAlign: 'center' }}><div className="spinner" /></div>;
+
+  // „Progresul meu" apare doar în contul de elev (profesorii/părinții văd raportul în „Contul meu").
+  const showProgress = isStudent || (!isTeacher && !isParent);
+  const TABS = [
+    { id: 'chat', label: '💬 Întreabă profesorul' },
+    { id: 'exam', label: '📄 Generează subiect examen' },
+    { id: 'practice', label: '✍️ Exerciții de antrenament' },
+    { id: 'interactive', label: '🧩 Generează interactiv' },
+    { id: 'library', label: '📚 Testele mele' },
+    ...(showProgress ? [{ id: 'progress', label: '📈 Progresul meu' }] : []),
+  ];
 
   return (
     <div style={{ maxWidth: 'var(--container)', margin: '0 auto', padding: '32px 20px 60px' }}>
       {/* Hero */}
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(1.8rem,4vw,2.6rem)', color: 'var(--navy)', marginBottom: 6 }}>
-          🎓 Profesor Virtual
+        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(1.8rem,4vw,2.6rem)', color: 'var(--navy)', marginBottom: 6, display:'flex', alignItems:'center', gap:12 }}>
+          <EinsteinIcon size={48} /> Profesor Virtual
         </h1>
         <p style={{ color: 'var(--text-light)', maxWidth: 620 }}>
           Tutorele tău AI care învață din toate exercițiile și explicațiile de pe ExamenMate.
@@ -40,14 +53,7 @@ export default function ProfesorVirtual() {
 
       {/* Tab-uri */}
       <div style={{ display: 'flex', gap: 8, borderBottom: '2px solid var(--border)', marginBottom: 24, flexWrap: 'wrap' }}>
-        {[
-          { id: 'chat', label: '💬 Întreabă profesorul' },
-          { id: 'exam', label: '📄 Generează subiect examen' },
-          { id: 'practice', label: '✍️ Generează exerciții PDF' },
-          { id: 'interactive', label: '🧩 Interactiv' },
-          { id: 'library', label: '📚 Testele mele' },
-          { id: 'progress', label: '📈 Progresul meu' },
-        ].map((t) => (
+        {TABS.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             style={{
               background: 'none', border: 'none', padding: '10px 4px', marginBottom: -2,
@@ -86,45 +92,53 @@ export default function ProfesorVirtual() {
 
 // ─── ANTRENAMENT ─────────────────────────────────────────────────────────────
 function PracticeTab() {
+  const { isPremium, isTeacher } = useAuth();
   const [category, setCategory] = useState('');
   const [topic, setTopic] = useState('');
   const [difficulty, setDifficulty] = useState('mediu');
-  const [exercise, setExercise] = useState(null);
-  const [token, setToken] = useState(null);
-  const [answer, setAnswer] = useState('');
-  const [work, setWork] = useState('');
-  const [result, setResult] = useState(null);
-  const [revealedHints, setRevealedHints] = useState(0);
+  const [items, setItems] = useState([]); // [{ exercise, token, id }]
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [upsell, setUpsell] = useState(false);
   const [exporting, setExporting] = useState(false);
 
+  const COUNT = isPremium ? 5 : 1;
+
   async function gen() {
-    setLoading(true); setError(null); setResult(null); setAnswer(''); setWork(''); setRevealedHints(0); setUpsell(false);
+    setLoading(true); setError(null); setUpsell(false); setItems([]);
     try {
-      const res = await aiClient.generate({ category: category || null, topic, difficulty });
-      setExercise(res.exercise); setToken(res.token);
+      const results = await Promise.allSettled(
+        Array.from({ length: COUNT }, () => aiClient.generate({ category: category || null, topic, difficulty }))
+      );
+      const ok = [];
+      let premiumErr = false, otherErr = null;
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled') ok.push({ ...r.value, id: `${Date.now()}_${i}` });
+        else if (r.reason?.premium) premiumErr = true;
+        else otherErr = r.reason?.message || 'Eroare la generare';
+      });
+      setItems(ok);
+      if (!ok.length && premiumErr) setUpsell(true);
+      else if (!ok.length && otherErr) setError(otherErr);
+      else if (premiumErr) setUpsell(true);
     } catch (e) { setError(e.message); if (e.premium) setUpsell(true); }
     finally { setLoading(false); }
   }
 
-  async function verify() {
-    if (!token) return;
-    setLoading(true); setError(null);
-    try {
-      const res = await aiClient.check({ token, studentAnswer: answer, studentWork: work });
-      setResult(res);
-    } catch (e) { setError(e.message); if (e.premium) setUpsell(true); }
-    finally { setLoading(false); }
-  }
-
-  async function exportPdf() {
-    if (!token) return;
+  async function exportAll() {
+    if (!items.length) return;
     setExporting(true); setError(null);
     try {
-      const full = await aiClient.reveal({ token });
-      printExercise({ ...full, options: exercise?.options });
+      const revealed = await Promise.all(items.map((it) => aiClient.reveal({ token: it.token }).catch(() => null)));
+      const exItems = revealed.filter(Boolean).map((full, i) => ({
+        number: String(i + 1), statement: full.statement, options: items[i]?.exercise?.options,
+        answer: full.answer, solution: full.solution, points: null,
+      }));
+      const exam = {
+        title: `Exerciții de antrenament${topic ? ' · ' + topic : ''}`, durationMin: 50, totalPoints: null, oficiu: null,
+        subjects: [{ label: 'Exerciții', points: null, items: exItems }],
+      };
+      printExam(exam, { withSolutions: true });
     } catch (e) { setError(e.message); if (e.premium) setUpsell(true); }
     finally { setExporting(false); }
   }
@@ -134,128 +148,148 @@ function PracticeTab() {
 
   return (
     <div>
-      {/* Configurare */}
       <div style={card}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginBottom: 14 }}>
-          <label style={{ fontSize: '.85rem', color: 'var(--text-light)' }}>
-            Categorie
+          <label style={{ fontSize: '.85rem', color: 'var(--text-light)' }}>Categorie
             <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ ...inp, width: '100%', marginTop: 4 }}>
               {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           </label>
-          <label style={{ fontSize: '.85rem', color: 'var(--text-light)' }}>
-            Subiect (opțional)
-            <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="ex: ecuații, fracții, arii"
-              style={{ ...inp, width: '100%', marginTop: 4 }} />
+          <label style={{ fontSize: '.85rem', color: 'var(--text-light)' }}>Subiect (opțional)
+            <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="ex: ecuații, fracții, arii" style={{ ...inp, width: '100%', marginTop: 4 }} />
           </label>
-          <label style={{ fontSize: '.85rem', color: 'var(--text-light)' }}>
-            Dificultate
+          <label style={{ fontSize: '.85rem', color: 'var(--text-light)' }}>Dificultate
             <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} style={{ ...inp, width: '100%', marginTop: 4 }}>
               {DIFFS.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
           </label>
         </div>
         <button className="btn btn-primary" onClick={gen} disabled={loading}>
-          {loading && !exercise ? 'Se generează...' : '✨ Generează un exercițiu nou'}
+          {loading ? 'Se generează...' : (isPremium ? '✨ Generează 5 exerciții' : '✨ Generează un exercițiu')}
         </button>
+        {items.length > 0 && (
+          <button className="btn btn-outline" onClick={exportAll} disabled={exporting} style={{ marginLeft: 8 }}>
+            {exporting ? 'Se pregătește...' : '📄 Exportă toate (PDF)'}
+          </button>
+        )}
       </div>
 
       {error && <div style={{ ...card, background: '#fdecea', color: '#b71c1c', borderColor: '#f5c6cb' }}>⚠️ {error}</div>}
-
       {upsell && (
         <div style={{ ...card, background: '#fff4e5', borderColor: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <span style={{ color: 'var(--navy)', fontWeight: 600 }}>🔒 Antrenamentul nelimitat și exportul PDF fac parte din abonament.</span>
+          <span style={{ color: 'var(--navy)', fontWeight: 600 }}>🔒 Antrenamentul (5 exerciții + export PDF) face parte din abonament.</span>
           <Link to="/preturi" className="btn btn-primary">Abonează-te →</Link>
         </div>
       )}
 
-      {/* Exercițiul */}
-      {exercise && (
-        <div style={card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <span style={{ fontSize: '.72rem', fontWeight: 700, color: 'var(--gold-dim)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-              {exercise.topic || 'Exercițiu'} · {exercise.difficulty}
-            </span>
-          </div>
-          <div style={{ fontSize: '1.05rem', color: 'var(--navy)', lineHeight: 1.6, marginBottom: 16 }}>
-            <MathText text={exercise.statement} />
-          </div>
+      {items.map((it, idx) => <PracticeCard key={it.id} item={it} index={idx} isTeacher={isTeacher} />)}
+    </div>
+  );
+}
 
-          {/* Indicii la cerere */}
-          {exercise.hints?.length > 0 && (
-            <div style={{ marginBottom: 16 }}>
-              {revealedHints < exercise.hints.length && (
-                <button onClick={() => setRevealedHints((h) => h + 1)}
-                  style={{ background: 'none', border: '1px dashed var(--gold)', color: 'var(--gold-dim)', borderRadius: 8, padding: '6px 12px', fontSize: '.82rem', fontWeight: 600 }}>
-                  💡 Arată un indiciu ({revealedHints}/{exercise.hints.length})
-                </button>
-              )}
-              {exercise.hints.slice(0, revealedHints).map((h, i) => (
-                <div key={i} style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(232,185,49,.1)', borderRadius: 8, fontSize: '.88rem', color: 'var(--text)' }}>
-                  💡 <MathText text={h} />
-                </div>
+function PracticeCard({ item, index, isTeacher }) {
+  const [answer, setAnswer] = useState('');
+  const [work, setWork] = useState('');
+  const [result, setResult] = useState(null);
+  const [revealedHints, setRevealedHints] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const exercise = item.exercise;
+
+  async function verify() {
+    setLoading(true); setError(null);
+    try {
+      const res = await aiClient.check({ token: item.token, studentAnswer: answer, studentWork: work });
+      setResult(res);
+      // salvează încercarea în „Testele mele" (privat) — apare și în raportul părintelui
+      try {
+        await aiClient.saveLibraryItem({
+          kind: 'practice', title: `Antrenament · ${exercise.topic || 'exercițiu'}`,
+          category: exercise.category || null, topic: exercise.topic || null,
+          payload: { statement: exercise.statement, options: exercise.options, solution: res.solution },
+          score: res.score, max_score: 100, completed_at: new Date().toISOString(),
+        });
+      } catch { /* ignore */ }
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }
+
+  const card = { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 18 };
+  const inp = { border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.9rem', fontFamily: 'var(--font-body)' };
+
+  return (
+    <div style={card}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: '.72rem', fontWeight: 700, color: 'var(--gold-dim)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+          Exercițiul {index + 1} · {exercise.topic || 'exercițiu'} · {exercise.difficulty}
+        </span>
+      </div>
+      <div style={{ fontSize: '1.05rem', color: 'var(--navy)', lineHeight: 1.6, marginBottom: 16 }}><MathText text={exercise.statement} /></div>
+
+      {exercise.hints?.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          {revealedHints < exercise.hints.length && (
+            <button onClick={() => setRevealedHints((h) => h + 1)}
+              style={{ background: 'none', border: '1px dashed var(--gold)', color: 'var(--gold-dim)', borderRadius: 8, padding: '6px 12px', fontSize: '.82rem', fontWeight: 600 }}>
+              💡 Arată un indiciu ({revealedHints}/{exercise.hints.length})
+            </button>
+          )}
+          {exercise.hints.slice(0, revealedHints).map((h, i) => (
+            <div key={i} style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(232,185,49,.1)', borderRadius: 8, fontSize: '.88rem', color: 'var(--text)' }}>💡 <MathText text={h} /></div>
+          ))}
+        </div>
+      )}
+
+      {error && <div style={{ padding: 10, background: '#fdecea', color: '#b71c1c', borderRadius: 8, fontSize: '.85rem', marginBottom: 10 }}>⚠️ {error}</div>}
+
+      {!result && (
+        <>
+          {exercise.answer_type === 'choice' && exercise.options?.length ? (
+            <div style={{ marginBottom: 12 }}>
+              {exercise.options.map((o, i) => (
+                <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 6, cursor: 'pointer', background: answer === o ? 'rgba(232,185,49,.12)' : '#fff' }}>
+                  <input type="radio" name={`opt-${item.id}`} checked={answer === o} onChange={() => setAnswer(o)} />
+                  <strong style={{ color: 'var(--navy)' }}>{String.fromCharCode(65 + i)})</strong>
+                  <span style={{ flex: 1 }}><MathText text={o} /></span>
+                </label>
               ))}
             </div>
+          ) : (
+            <input value={answer} onChange={(e) => setAnswer(e.target.value)}
+              inputMode={exercise.answer_type === 'numeric' ? 'decimal' : 'text'}
+              placeholder={exercise.answer_type === 'numeric' ? 'Răspunsul tău (număr)' : 'Răspunsul tău final'}
+              style={{ ...inp, width: '100%', marginBottom: 10 }} />
           )}
+          <textarea value={work} onChange={(e) => setWork(e.target.value)} placeholder="Pașii tăi (opțional)"
+            rows={3} style={{ ...inp, width: '100%', marginBottom: 12, resize: 'vertical' }} />
+          <button className="btn btn-primary" onClick={verify} disabled={loading || !answer.trim()}>
+            {loading ? 'Se verifică...' : '✓ Verifică'}
+          </button>
+        </>
+      )}
 
-          {/* Răspuns */}
-          {!result && (
-            <>
-              {exercise.answer_type === 'choice' && exercise.options?.length ? (
-                <div style={{ marginBottom: 12 }}>
-                  {exercise.options.map((o, i) => (
-                    <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 6, cursor: 'pointer', background: answer === o ? 'rgba(232,185,49,.12)' : '#fff' }}>
-                      <input type="radio" name="opt" checked={answer === o} onChange={() => setAnswer(o)} />
-                      <strong style={{ color: 'var(--navy)' }}>{String.fromCharCode(65 + i)})</strong>
-                      <span style={{ flex: 1 }}><MathText text={o} /></span>
-                    </label>
-                  ))}
-                </div>
-              ) : (
-                <input value={answer} onChange={(e) => setAnswer(e.target.value)}
-                  inputMode={exercise.answer_type === 'numeric' ? 'decimal' : 'text'}
-                  placeholder={exercise.answer_type === 'numeric' ? 'Răspunsul tău (număr)' : 'Răspunsul tău final'}
-                  style={{ ...inp, width: '100%', marginBottom: 10 }} />
-              )}
-              <textarea value={work} onChange={(e) => setWork(e.target.value)} placeholder="Pașii tăi (opțional — profesorul îți spune unde greșești)"
-                rows={4} style={{ ...inp, width: '100%', marginBottom: 12, resize: 'vertical' }} />
-              <button className="btn btn-primary" onClick={verify} disabled={loading || !answer.trim()}>
-                {loading ? 'Se verifică...' : '✓ Verifică rezolvarea'}
-              </button>
-            </>
-          )}
-
-          {/* Rezultat */}
-          {result && (
-            <div style={{
-              marginTop: 6, padding: 16, borderRadius: 12,
-              background: result.correct ? 'rgba(39,174,96,.1)' : 'rgba(231,76,60,.08)',
-              border: `1px solid ${result.correct ? 'rgba(39,174,96,.3)' : 'rgba(231,76,60,.25)'}`,
-            }}>
-              <div style={{ fontWeight: 800, fontSize: '1.1rem', color: result.correct ? '#1e7e34' : '#c0392b', marginBottom: 8 }}>
-                {result.correct ? '🎉 Corect!' : '❌ Nu chiar'} · {result.score}/100
-              </div>
-              <div style={{ fontSize: '.92rem', marginBottom: 12 }}><MathText text={result.feedback} /></div>
-              <details>
-                <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--navy)', fontSize: '.9rem' }}>Vezi rezolvarea completă</summary>
-                <div style={{ marginTop: 8, fontSize: '.9rem', color: 'var(--text)', lineHeight: 1.6 }}><MathText text={result.solution} /></div>
-              </details>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
-                <button className="btn btn-primary" onClick={gen} disabled={loading}>➡️ Următorul exercițiu</button>
-                <button className="btn btn-outline" onClick={exportPdf} disabled={exporting}>
-                  {exporting ? 'Se pregătește...' : '📄 Exportă PDF'}
-                </button>
-              </div>
-            </div>
-          )}
+      {result && (
+        <div style={{ marginTop: 6, padding: 16, borderRadius: 12, background: result.correct ? 'rgba(39,174,96,.1)' : 'rgba(231,76,60,.08)', border: `1px solid ${result.correct ? 'rgba(39,174,96,.3)' : 'rgba(231,76,60,.25)'}` }}>
+          <div style={{ fontWeight: 800, fontSize: '1.1rem', color: result.correct ? '#1e7e34' : '#c0392b', marginBottom: 8 }}>
+            {result.correct ? '🎉 Corect!' : '❌ Nu chiar'} · {result.score}/100
+          </div>
+          <div style={{ fontSize: '.92rem', marginBottom: 12 }}><MathText text={result.feedback} /></div>
+          <details>
+            <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--navy)', fontSize: '.9rem' }}>Vezi rezolvarea completă</summary>
+            <div style={{ marginTop: 8, fontSize: '.9rem', color: 'var(--text)', lineHeight: 1.6 }}><MathText text={result.solution} /></div>
+          </details>
         </div>
+      )}
+
+      {isTeacher && (
+        <SendToStudents create={() => aiClient.assignmentCreatePractice({ token: item.token, title: `Exercițiu de antrenament · ${exercise.topic || 'matematică'}` })} />
       )}
     </div>
   );
 }
 
-// ─── EXERCIȚII INTERACTIVE (generare + rezolvare + scor salvat privat) ───────
 function InteractiveTab() {
+  const { isTeacher } = useAuth();
   const [category, setCategory] = useState('');
   const [topic, setTopic] = useState('');
   const [difficulty, setDifficulty] = useState('mediu');
@@ -341,6 +375,9 @@ function InteractiveTab() {
             </div>
           )}
           <iframe title="exercițiu" srcDoc={html} style={{ width: '100%', height: 520, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
+          {isTeacher && (
+            <SendToStudents create={() => aiClient.assignmentCreateInteractive({ html, category: category || null, topic: topic || null, title: `Exercițiu interactiv · ${topic || category || 'matematică'}` })} />
+          )}
           <p style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: 10 }}>
             Vrei ca acest exercițiu să fie public, pentru toți elevii? Doar un administrator îl poate publica în conținut.
           </p>
@@ -446,12 +483,6 @@ function ProgressTab() {
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 14, marginBottom: 18 }}>
-        <StatCard label="Exerciții interactive rezolvate" value={data.interactive.completed} />
-        <StatCard label="Scor mediu" value={data.interactive.avgPercent != null ? data.interactive.avgPercent + '%' : '—'} />
-        <StatCard label="Subiecte exersate cu AI" value={data.mastery.length} />
-      </div>
-
       {/* Stăpânirea pe subiecte */}
       <div style={card}>
         <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 14 }}>Stăpânirea pe subiecte</h3>

@@ -28,6 +28,7 @@ import DespreNoi from './pages/DespreNoi';
 import NotFound from './pages/NotFound';
 import { Analytics } from '@vercel/analytics/react';
 import ProfesorVirtual from './pages/ProfesorVirtual';
+import AssignmentSolver from './pages/AssignmentSolver';
 import FloatingTutor from './components/AITutor';
 
 function ScrollToTop() {
@@ -86,6 +87,7 @@ export default function App() {
             <Route path="/faq" element={<FAQ />} />
             <Route path="/despre-noi" element={<DespreNoi />} />
             <Route path="/profesor-virtual" element={<ProfesorVirtual />} />
+            <Route path="/tema" element={<AssignmentSolver />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Layout>

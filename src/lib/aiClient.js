@@ -98,6 +98,21 @@ export const aiClient = {
   notificationRead: ({ id = null, kind = null, all = false }) => post('/api/ai-notify', { action: 'read', id, kind, all }),
   sendBroadcast: ({ title, body = null, url = null, type = 'update' }) => post('/api/ai-notify', { action: 'broadcast', title, body, url, type }),
 
+  // Activitatea unui copil (pentru părinte)
+  activityChildren: () => post('/api/ai-activity', { action: 'children' }),
+  activityDetail: ({ studentId }) => post('/api/ai-activity', { action: 'detail', studentId }),
+
+  // Teme profesor → elev
+  assignmentCreateInteractive: ({ html, title = null, category = null, topic = null }) =>
+    post('/api/ai-assignment', { action: 'create', kind: 'interactive', html, title, category, topic }),
+  assignmentCreatePractice: ({ token, title = null }) =>
+    post('/api/ai-assignment', { action: 'create', kind: 'practice', token, title }),
+  assignmentGet: ({ id }) => post('/api/ai-assignment', { action: 'get', id }),
+  assignmentSubmit: ({ id, answer = '', work = '', score = null, maxScore = null }) =>
+    post('/api/ai-assignment', { action: 'submit', id, answer, work, score, maxScore }),
+  assignmentResults: () => post('/api/ai-assignment', { action: 'results' }),
+  assignmentsMine: () => post('/api/ai-assignment', { action: 'mine' }),
+
   // Voce: transcriere audio (fallback STT)
   transcribe: ({ audioBase64, mime = 'audio/webm' }) => post('/api/ai-transcribe', { audioBase64, mime }),
 

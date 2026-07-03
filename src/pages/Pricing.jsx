@@ -92,6 +92,7 @@ export default function Pricing() {
             <ul className="pricing-features">
               <li><span className="pricing-check">✓</span> Toate exercițiile și testele PDF (gratuite + premium)</li>
               <li><span className="pricing-check">✓</span> Exerciții interactive cu feedback</li>
+              <li><span className="pricing-check">✓</span> Inteligența Artificială - Prof. Virtual: învățare cu AI, generare de teste, exerciții</li>
               <li><span className="pricing-check">✓</span> Manuale online</li>
               <li><span className="pricing-check">✓</span> Teste interactive pentru Evaluarea Națională</li>
               <li><span className="pricing-check">✓</span> Teste interactive pentru Bacalaureat</li>

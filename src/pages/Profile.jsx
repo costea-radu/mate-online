@@ -4,7 +4,10 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { assignTeacherCode } from '../lib/teacherCode';
 import RoleChooser from '../components/RoleChooser';
+import EinsteinIcon from '../components/EinsteinIcon';
 import TeacherResults from '../components/TeacherResults';
+import AITeacherReport from '../components/AITeacherReport';
+import ParentAIActivity from '../components/ParentAIActivity';
 
 export default function Profile() {
   const { user, profile, isPremium, isTeacher, isParent, isMentor, signOut, loading, fetchProfile } = useAuth();
@@ -277,7 +280,7 @@ export default function Profile() {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <span style={{ fontSize: '2.2rem' }}>🎓</span>
+            <EinsteinIcon size={44} />
             <div>
               <div style={{ fontWeight: 700, fontSize: '1.1rem', fontFamily: 'var(--font-display)' }}>Profesor Virtual</div>
               <div style={{ fontSize: '.85rem', opacity: 0.82 }}>
@@ -399,6 +402,31 @@ export default function Profile() {
                 displayName={displayName}
                 role={profile?.role}
               />
+            )}
+
+            {/* Raport AI — după „Rezultate elevi", ca rolldown */}
+            {isTeacher && (
+              <details className="card" style={{ marginBottom: 24 }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none' }}>
+                  🎓 Raport AI – activități cu Prof. Virtual
+                </summary>
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ background: 'rgba(232,185,49,.1)', border: '1px solid var(--gold)', borderRadius: 10, padding: '12px 14px', marginBottom: 16, fontSize: '.88rem', color: 'var(--navy)' }}>
+                    💡 <strong>Sfat:</strong> generează cu Profesorul Virtual exerciții de antrenament sau exerciții interactive și trimite-le elevilor spre rezolvare (butonul „Trimite elevilor"). Rezultatele lor apar aici, în raport, ca să vezi cine a lucrat și cum s-a descurcat.
+                  </div>
+                  <AITeacherReport />
+                </div>
+              </details>
+            )}
+            {isParent && (
+              <details className="card" style={{ marginBottom: 24 }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none' }}>
+                  🎓 Raport AI – activități cu Prof. Virtual
+                </summary>
+                <div style={{ marginTop: 16 }}>
+                  <ParentAIActivity />
+                </div>
+              </details>
             )}
 
             {/* Quick links */}

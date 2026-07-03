@@ -114,6 +114,7 @@ Reguli:
 - ${FIDELITY}
 - Bazează-te pe EXERCIȚIILE DIN BAZA DE DATE de mai jos: ia modele de acolo și schimbă date minime (numere, notații). Creează un item complet nou doar dacă e simplu și necesar.
 - La grilă (Subiectele I și II): fiecare item are exact 4 variante (I.6 are 2: „Adevărat"/„Fals"), un singur răspuns corect, iar variantele greșite trebuie să fie plauzibile.
+- DISTRIBUIE răspunsul corect aleatoriu între a), b), c) și d) de la un item la altul (NU pune mereu „a" corect). Aproximativ un sfert din itemi să aibă corect pe fiecare literă.
 - La Subiectul III: dă rezolvare completă, pas cu pas, pentru fiecare subpunct a) și b).
 - Enunțuri clare, corecte matematic. Formulele în LaTeX între $...$.
 ${JSON_RULE}
@@ -167,6 +168,7 @@ Reguli de conținut:
 - Bazează-te pe EXERCIȚIILE DIN BAZA DE DATE de mai jos și schimbă date minime (numere, notații, coeficienți). Creează un exercițiu complet nou doar dacă e simplu și necesar.
 - Fiecare subiect (I, II, III) totalizează exact 30 de puncte.
 - Include baremul: pentru fiecare item, rezolvare scurtă și răspunsul final.
+- Dacă un item e cu variante (grilă), distribuie răspunsul corect aleatoriu între variante (nu mereu prima).
 - Enunțuri clare, corecte matematic. Formulele în LaTeX între $...$.
 ${JSON_RULE}
 

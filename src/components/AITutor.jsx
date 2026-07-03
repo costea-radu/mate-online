@@ -8,6 +8,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
 import ExamGenerator from './ExamGenerator';
+import EinsteinIcon from './EinsteinIcon';
 import { useAuth } from '../context/AuthContext';
 import { ensureKatex, renderMath } from '../lib/katex';
 import { fileToCompressedDataUrl } from '../lib/image';
@@ -455,13 +456,13 @@ export default function FloatingTutor() {
           animation: open ? 'none' : 'pvGlow 2s ease-in-out infinite',
         }}
       >
-        {open ? '✕' : '🎓'}
+        {open ? '✕' : <EinsteinIcon size={36} />}
       </button>
 
       {open && (
         <div style={popupStyle}>
           <div style={{ background: 'var(--navy)', color: '#fff', padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ fontWeight: 700, fontFamily: 'var(--font-display)', fontSize: '.95rem' }}>🎓 Prof. Virtual</div>
+            <div style={{ fontWeight: 700, fontFamily: 'var(--font-display)', fontSize: '.95rem', display:'flex', alignItems:'center', gap:6 }}><EinsteinIcon size={22} /> Prof. Virtual</div>
             <Link to="/profesor-virtual" onClick={() => setOpen(false)}
               style={{ fontSize: '.72rem', color: 'var(--gold)', border: '1px solid rgba(232,185,49,.4)', borderRadius: 6, padding: '4px 8px' }}>
               Deschide complet ↗

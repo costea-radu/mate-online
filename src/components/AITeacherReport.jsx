@@ -15,6 +15,7 @@ export default function AITeacherReport() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [assignments, setAssignments] = useState([]);
 
   async function load(gid) {
     setLoading(true); setError(null);
@@ -23,13 +24,14 @@ export default function AITeacherReport() {
     finally { setLoading(false); }
   }
   useEffect(() => { load(groupId); /* eslint-disable-next-line */ }, [groupId]);
+  useEffect(() => { (async () => { try { const { assignments } = await aiClient.assignmentResults(); setAssignments(assignments || []); } catch { /* ignore */ } })(); }, []);
 
   const card = { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 16 };
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
-        <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: 0 }}>🎓 Raport AI — stăpânirea pe clasă</h3>
+        <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: 0 }}>🎓 Raport AI — activități cu Prof. Virtual</h3>
         {data?.groups?.length > 0 && (
           <select value={groupId} onChange={(e) => setGroupId(e.target.value)}
             style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '7px 10px', fontSize: '.85rem' }}>
@@ -94,7 +96,57 @@ export default function AITeacherReport() {
           )}
         </>
       )}
+
+      {/* Teme trimise elevilor */}
+      <div style={card}>
+        <h4 style={{ color: 'var(--navy)', marginBottom: 4 }}>📤 Exerciții trimise elevilor</h4>
+        <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+          Generează exerciții de antrenament sau interactive și trimite-le elevilor cu butonul „Trimite elevilor". Rezultatele apar aici.
+        </p>
+        {assignments.length === 0 ? (
+          <p style={{ fontSize: '.85rem', color: 'var(--text-muted)', margin: 0 }}>Încă nu ai trimis nicio temă.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {assignments.map((a) => (
+              <details key={a.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px' }}>
+                <summary style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '.88rem' }}>{a.kind === 'interactive' ? '🧩' : '✍️'} {a.title}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: '.8rem', color: 'var(--text-muted)' }}>{a.solvedCount} rezolvări{a.avgPercent != null ? ` · medie ${a.avgPercent}%` : ''}</span>
+                    <CopyLinkButton id={a.id} />
+                  </span>
+                </summary>
+                {a.results.length > 0 ? (
+                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {a.results.map((r) => (
+                      <div key={r.studentId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.82rem', padding: '4px 8px', background: '#f7f9fc', borderRadius: 6 }}>
+                        <span style={{ color: 'var(--navy)' }}>{r.name}</span>
+                        <span style={{ color: 'var(--text-muted)' }}>{r.score}/{r.maxScore} · {r.attempts} încercări</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : <div style={{ marginTop: 8, fontSize: '.8rem', color: 'var(--text-muted)' }}>Niciun elev nu a rezolvat încă.</div>}
+              </details>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+function CopyLinkButton({ id }) {
+  const [copied, setCopied] = useState(false);
+  function copy(e) {
+    e.preventDefault(); e.stopPropagation();
+    const link = `${window.location.origin}/tema?id=${id}`;
+    navigator.clipboard?.writeText(link).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }).catch(() => {});
+  }
+  return (
+    <button onClick={copy}
+      style={{ background: copied ? 'rgba(39,174,96,.15)' : 'rgba(232,185,49,.15)', color: copied ? '#1e7e34' : 'var(--navy)', border: '1px solid var(--border)', borderRadius: 7, padding: '4px 9px', fontSize: '.75rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+      {copied ? '✓ Copiat' : '🔗 Copiază link'}
+    </button>
   );
 }
 

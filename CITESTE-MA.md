@@ -33,7 +33,7 @@ secțiunea „Pasul 3" are exact liniile de adăugat, manual.
 
 **Frontend (`src/`):** `lib/aiClient.js`, `lib/katex.js`, `lib/image.js`, `lib/voice.js`, `lib/examPrint.js`, `components/AITutor.jsx`, `components/ExamGenerator.jsx`, `components/AIAdminPanel.jsx`, `components/StudentAIMastery.jsx`, `components/AITeacherReport.jsx`, `components/AINotifications.jsx`, `pages/ProfesorVirtual.jsx`
 
-**Bază de date (`supabase/`):** `ai_tutor_schema.sql`, `ai_tutor_v2.sql`, `ai_tutor_v3.sql`, `ai_tutor_v4.sql` (biblioteca personală), `ai_tutor_v5.sql` (notificări extinse)
+**Bază de date (`supabase/`):** `ai_tutor_schema.sql`, `ai_tutor_v2.sql`, `ai_tutor_v3.sql`, `ai_tutor_v4.sql` (biblioteca personală), `ai_tutor_v5.sql` (notificări extinse), `ai_tutor_v6.sql` (teme profesor→elev)
 
 **Config:** `.env.ai.example`
 
@@ -44,7 +44,7 @@ Niciun pachet npm nou nu e necesar (se folosesc `fetch` și `crypto`, incluse î
 ## 🚀 Pornire rapidă (3 pași)
 
 1. **Bază de date** — în Supabase → SQL Editor, rulează pe rând:
-   `supabase/ai_tutor_schema.sql`, apoi `ai_tutor_v2.sql`, `ai_tutor_v3.sql`, `ai_tutor_v4.sql`, `ai_tutor_v5.sql`.
+   `supabase/ai_tutor_schema.sql`, apoi `ai_tutor_v2.sql`, `ai_tutor_v3.sql`, `ai_tutor_v4.sql`, `ai_tutor_v5.sql`, `ai_tutor_v6.sql`.
 2. **Cheie API** — în Vercel → Settings → Environment Variables, adaugă `OPENAI_API_KEY`.
    (acoperă chat, embeddings, foto-rezolvare și transcriere). Vezi `.env.ai.example` pentru opțiuni.
 3. **Indexare** — deploy, apoi intră ca admin → **Admin → 🎓 AI Tutor → „Reindexează tot"**
