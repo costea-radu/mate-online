@@ -20,7 +20,7 @@ export default function TermeniConditii() {
             <Link to="/">Acasă</Link><span>›</span><span>Termeni și Condiții</span>
           </div>
           <h1>Termeni și Condiții</h1>
-          <p>Ultima actualizare: aprilie 2025</p>
+          <p>Ultima actualizare: iulie 2026</p>
         </div>
       </div>
 
@@ -84,31 +84,40 @@ export default function TermeniConditii() {
               </ul>
             </Section>
 
-            <Section title="7. Limitarea răspunderii">
+            <Section title="7. Profesorul Virtual (asistent AI)">
+              <p>
+                Platforma oferă un asistent educațional bazat pe inteligență artificială („Profesorul Virtual"), care generează explicații, exerciții, teste și corectări folosind tehnologia OpenAI. Conținutul generat de AI are caracter orientativ, poate conține erori sau inexactități și <strong>nu înlocuiește</strong> materialele oficiale, manualul sau îndrumarea unui profesor. Îți recomandăm să verifici răspunsurile importante.
+              </p>
+              <p style={{ marginTop: 12 }}>
+                Prin folosirea acestei funcții ești de acord ca întrebările și materialele trimise (text, imagini, voce) să fie procesate de OpenAI conform <Link to="/politica-confidentialitate" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politicii de Confidențialitate</Link>. Te obligi să nu folosești asistentul în scopuri ilegale, pentru a genera conform înșelător, ori pentru a încărca date personale sensibile ale altor persoane.
+              </p>
+            </Section>
+
+            <Section title="8. Limitarea răspunderii">
               <p>
                 ExamenMate oferă materialele educaționale „ca atare", fără garanții privind completitudinea sau acuratețea absolută a conținutului. Nu ne asumăm răspunderea pentru rezultatele școlare ale utilizatorilor. Platforma poate fi temporar indisponibilă din cauza lucrărilor de mentenanță, fără preaviz.
               </p>
             </Section>
 
-            <Section title="8. Servicii terțe">
+            <Section title="9. Servicii terțe">
               <p>
                 Platforma utilizează servicii terțe pentru funcționarea sa: Supabase (autentificare și baze de date), Google (autentificare OAuth), Discord (autentificare OAuth), Stripe (procesare plăți, inclusiv Apple Pay și Google Pay) și Vercel (găzduire). Utilizarea acestor servicii este guvernată de propriii termeni și condiții ai fiecărui furnizor. ExamenMate nu este responsabilă pentru disponibilitatea sau funcționarea acestor servicii terțe.
               </p>
             </Section>
 
-            <Section title="9. Modificarea serviciului">
+            <Section title="10. Modificarea serviciului">
               <p>
                 Ne rezervăm dreptul de a modifica, suspenda sau întrerupe orice parte a serviciului în orice moment, cu sau fără notificare prealabilă. Nu vom fi răspunzători față de tine sau față de terți pentru orice modificare, suspendare sau întrerupere a serviciului.
               </p>
             </Section>
 
-            <Section title="10. Legea aplicabilă">
+            <Section title="11. Legea aplicabilă">
               <p>
                 Acești termeni sunt guvernați de legislația română. Orice litigiu va fi soluționat de instanțele competente din România. Dacă orice prevedere a acestor termeni este considerată nulă sau inaplicabilă, restul prevederilor rămân în vigoare.
               </p>
             </Section>
 
-            <Section title="11. Contact">
+            <Section title="12. Contact">
               <p>
                 Pentru orice întrebări legate de acești termeni:<br />
                 <strong>E-mail:</strong> <a href="mailto:costea.radu.ioan@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>costea.radu.ioan@gmail.com</a><br />

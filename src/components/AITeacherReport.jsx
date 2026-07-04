@@ -6,6 +6,7 @@
 // =====================================================================
 import { useState, useEffect } from 'react';
 import { aiClient } from '../lib/aiClient';
+import EinsteinIcon from './EinsteinIcon';
 
 const color = (m) => (m >= 0.75 ? '#27ae60' : m >= 0.4 ? '#e8b931' : '#e74c3c');
 const pct = (m) => Math.round((m || 0) * 100) + '%';
@@ -16,6 +17,7 @@ export default function AITeacherReport() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [assignments, setAssignments] = useState([]);
+  const [students, setStudents] = useState([]);
 
   async function load(gid) {
     setLoading(true); setError(null);
@@ -24,14 +26,19 @@ export default function AITeacherReport() {
     finally { setLoading(false); }
   }
   useEffect(() => { load(groupId); /* eslint-disable-next-line */ }, [groupId]);
-  useEffect(() => { (async () => { try { const { assignments } = await aiClient.assignmentResults(); setAssignments(assignments || []); } catch { /* ignore */ } })(); }, []);
+  useEffect(() => { (async () => { try { const { assignments } = await aiClient.assignmentResults(); setAssignments(assignments || []); } catch { /* ignore */ } try { const { students } = await aiClient.assignmentStudents(); setStudents(students || []); } catch { /* ignore */ } })(); }, []);
+
+  async function deleteAssignment(id) {
+    if (!window.confirm('Ștergi tema și rezultatele ei?')) return;
+    try { await aiClient.assignmentDelete({ id }); setAssignments((a) => a.filter((x) => x.id !== id)); } catch { /* ignore */ }
+  }
 
   const card = { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 16 };
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
-        <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: 0 }}>🎓 Raport AI — activități cu Prof. Virtual</h3>
+        <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}><EinsteinIcon size={26} /> Raport AI — activități cu Prof. Virtual</h3>
         {data?.groups?.length > 0 && (
           <select value={groupId} onChange={(e) => setGroupId(e.target.value)}
             style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '7px 10px', fontSize: '.85rem' }}>
@@ -126,12 +133,46 @@ export default function AITeacherReport() {
                     ))}
                   </div>
                 ) : <div style={{ marginTop: 8, fontSize: '.8rem', color: 'var(--text-muted)' }}>Niciun elev nu a rezolvat încă.</div>}
+
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <SendToOne assignmentId={a.id} students={students} />
+                  <button onClick={() => deleteAssignment(a.id)}
+                    style={{ marginLeft: 'auto', background: 'none', border: '1px solid #f5c6cb', color: '#c0392b', borderRadius: 7, padding: '4px 9px', fontSize: '.76rem', fontWeight: 600, cursor: 'pointer' }}>
+                    🗑 Șterge tema
+                  </button>
+                </div>
               </details>
             ))}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+// Trimite tema direct unui elev ales (fără copiere manuală)
+function SendToOne({ assignmentId, students }) {
+  const [sid, setSid] = useState('');
+  const [state, setState] = useState(null); // null | 'sending' | 'ok' | 'err'
+  async function send() {
+    if (!sid) return;
+    setState('sending');
+    try { await aiClient.assignmentSend({ assignmentId, studentId: sid }); setState('ok'); setTimeout(() => setState(null), 2500); }
+    catch { setState('err'); }
+  }
+  if (!students.length) return <span style={{ fontSize: '.76rem', color: 'var(--text-muted)' }}>Adaugă elevi în „Rezultate elevi" ca să poți trimite direct.</span>;
+  return (
+    <span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+      <span style={{ fontSize: '.78rem', color: 'var(--text-light)' }}>Trimite unui elev:</span>
+      <select value={sid} onChange={(e) => setSid(e.target.value)} style={{ border: '1px solid var(--border)', borderRadius: 7, padding: '4px 8px', fontSize: '.8rem' }}>
+        <option value="">— alege —</option>
+        {students.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+      </select>
+      <button className="btn btn-sm btn-primary" onClick={send} disabled={!sid || state === 'sending'}>
+        {state === 'sending' ? '...' : state === 'ok' ? '✓ Trimis' : 'Trimite'}
+      </button>
+      {state === 'err' && <span style={{ fontSize: '.75rem', color: '#c0392b' }}>eroare</span>}
+    </span>
   );
 }
 

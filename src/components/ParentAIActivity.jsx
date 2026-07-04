@@ -102,7 +102,7 @@ function ChildDetail({ d }) {
 
       <Section title="👩‍🏫 Exerciții primite de la profesor + rezolvate" count={(d.assignments || []).length}>
         <List items={d.assignments} empty="Niciunul (funcția de trimitere de la profesor se activează separat)."
-          render={(a) => <>{a.title} <span style={{ color: 'var(--text-muted)' }}>· generat de {a.creator || 'profesor'} · scor {a.score}/{a.maxScore} · {a.attempts} încercări</span></>} />
+          render={(a) => <>{a.title} <span style={{ color: 'var(--text-muted)' }}>· generat de {a.creatorRole === 'parinte' ? 'părintele' : 'profesorul'} {a.creator || ''} · scor {a.score}/{a.maxScore} · {a.attempts} încercări</span></>} />
       </Section>
 
       <Section title="💬 Întrebări puse Profesorului Virtual">

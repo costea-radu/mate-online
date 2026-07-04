@@ -34,7 +34,7 @@ export default function ProfesorVirtual() {
     { id: 'exam', label: '📄 Generează subiect examen' },
     { id: 'practice', label: '✍️ Exerciții de antrenament' },
     { id: 'interactive', label: '🧩 Generează interactiv' },
-    { id: 'library', label: '📚 Testele mele' },
+    { id: 'library', label: '📚 Testele și exercițiile mele' },
     ...(showProgress ? [{ id: 'progress', label: '📈 Progresul meu' }] : []),
   ];
 
@@ -81,7 +81,7 @@ export default function ProfesorVirtual() {
           )}
           {tab === 'practice' && <PracticeTab />}
           {tab === 'interactive' && <InteractiveTab />}
-          {tab === 'exam' && <ExamGenerator />}
+          {tab === 'exam' && <ExamGenerator canManage={isTeacher} />}
           {tab === 'library' && <LibraryTab />}
           {tab === 'progress' && <ProgressTab />}
         </>
@@ -92,7 +92,7 @@ export default function ProfesorVirtual() {
 
 // ─── ANTRENAMENT ─────────────────────────────────────────────────────────────
 function PracticeTab() {
-  const { isPremium, isTeacher } = useAuth();
+  const { isPremium, isTeacher, isParent } = useAuth();
   const [category, setCategory] = useState('');
   const [topic, setTopic] = useState('');
   const [difficulty, setDifficulty] = useState('mediu');
@@ -182,19 +182,39 @@ function PracticeTab() {
         </div>
       )}
 
-      {items.map((it, idx) => <PracticeCard key={it.id} item={it} index={idx} isTeacher={isTeacher} />)}
+      {items.map((it, idx) => <PracticeCard key={it.id} item={it} index={idx} canSend={isTeacher || isParent} canEdit={isTeacher} />)}
     </div>
   );
 }
 
-function PracticeCard({ item, index, isTeacher }) {
+function PracticeCard({ item, index, canSend, canEdit }) {
   const [answer, setAnswer] = useState('');
   const [work, setWork] = useState('');
   const [result, setResult] = useState(null);
   const [revealedHints, setRevealedHints] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [edited, setEdited] = useState(null);
+  const [revealing, setRevealing] = useState(false);
+  const [publishMsg, setPublishMsg] = useState(null);
   const exercise = item.exercise;
+  const editTa = { width: '100%', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', fontSize: '.82rem', fontFamily: 'var(--font-body)', marginTop: 3, marginBottom: 4, resize: 'vertical' };
+
+  async function openEditor() {
+    if (edited) { setEditing((e) => !e); return; }
+    setRevealing(true); setError(null);
+    try {
+      const full = await aiClient.reveal({ token: item.token });
+      setEdited({
+        statement: full.statement || exercise.statement || '', options: exercise.options || [],
+        answer: full.answer || '', answer_type: exercise.answer_type || 'text',
+        solution: full.solution || '', topic: exercise.topic, category: exercise.category,
+      });
+      setEditing(true);
+    } catch (e) { setError(e.premium ? 'Editarea face parte din abonament.' : e.message); }
+    finally { setRevealing(false); }
+  }
 
   async function verify() {
     setLoading(true); setError(null);
@@ -281,15 +301,47 @@ function PracticeCard({ item, index, isTeacher }) {
         </div>
       )}
 
-      {isTeacher && (
-        <SendToStudents create={() => aiClient.assignmentCreatePractice({ token: item.token, title: `Exercițiu de antrenament · ${exercise.topic || 'matematică'}` })} />
+      {canSend && (
+        <SendToStudents create={() => (edited
+          ? aiClient.assignmentCreatePractice({ exercise: edited, title: `Exercițiu de antrenament · ${edited.topic || exercise.topic || 'matematică'}` })
+          : aiClient.assignmentCreatePractice({ token: item.token, title: `Exercițiu de antrenament · ${exercise.topic || 'matematică'}` }))} />
       )}
+
+      {canEdit && (
+        <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-outline btn-sm" onClick={openEditor} disabled={revealing}>
+            {revealing ? 'Se încarcă...' : editing ? '✓ Gata editarea' : '✏️ Editează'}
+          </button>
+          {edited && (
+            <button className="btn btn-outline btn-sm" onClick={async () => { setPublishMsg(null); try { await aiClient.publicPublish({ kind: 'practice', title: `Exercițiu · ${edited.topic || 'matematică'}`, category: edited.category || null, topic: edited.topic || null, payload: edited }); setPublishMsg('✅ Publicat în „Biblioteca utilizatorilor".'); } catch (e) { setPublishMsg('Eroare: ' + e.message); } }}>🏛️ Publică public</button>
+          )}
+        </div>
+      )}
+      {canEdit && editing && edited && (
+        <div style={{ marginTop: 10, padding: 10, background: '#f7f9fc', borderRadius: 8 }}>
+          <label style={{ fontSize: '.74rem', color: 'var(--text-muted)' }}>Enunț
+            <textarea rows={2} value={edited.statement} onChange={(e) => setEdited({ ...edited, statement: e.target.value })} style={editTa} />
+          </label>
+          {Array.isArray(edited.options) && edited.options.length > 0 && edited.options.map((o, oi) => (
+            <input key={oi} value={o} onChange={(e) => { const opts = [...edited.options]; opts[oi] = e.target.value; setEdited({ ...edited, options: opts }); }} placeholder={`Varianta ${String.fromCharCode(97 + oi)})`} style={editTa} />
+          ))}
+          <label style={{ fontSize: '.74rem', color: 'var(--text-muted)' }}>Răspuns corect
+            <input value={edited.answer} onChange={(e) => setEdited({ ...edited, answer: e.target.value })} style={editTa} />
+          </label>
+          <label style={{ fontSize: '.74rem', color: 'var(--text-muted)' }}>Rezolvare
+            <textarea rows={3} value={edited.solution} onChange={(e) => setEdited({ ...edited, solution: e.target.value })} style={editTa} />
+          </label>
+        </div>
+      )}
+      {publishMsg && <div style={{ marginTop: 8, fontSize: '.82rem', color: publishMsg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{publishMsg}</div>}
     </div>
   );
 }
 
 function InteractiveTab() {
-  const { isTeacher } = useAuth();
+  const { isTeacher, isParent } = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [publishMsg, setPublishMsg] = useState(null);
   const [category, setCategory] = useState('');
   const [topic, setTopic] = useState('');
   const [difficulty, setDifficulty] = useState('mediu');
@@ -375,11 +427,22 @@ function InteractiveTab() {
             </div>
           )}
           <iframe title="exercițiu" srcDoc={html} style={{ width: '100%', height: 520, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
-          {isTeacher && (
+          {(isTeacher || isParent) && (
             <SendToStudents create={() => aiClient.assignmentCreateInteractive({ html, category: category || null, topic: topic || null, title: `Exercițiu interactiv · ${topic || category || 'matematică'}` })} />
           )}
+          {isTeacher && (
+            <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="btn btn-outline btn-sm" onClick={() => setEditing((e) => !e)}>{editing ? '✓ Gata editarea' : '✏️ Editează HTML'}</button>
+              <button className="btn btn-outline btn-sm" onClick={async () => { setPublishMsg(null); try { await aiClient.publicPublish({ kind: 'interactive', title: `Exercițiu interactiv · ${topic || category || 'matematică'}`, category: category || null, topic: topic || null, payload: { html } }); setPublishMsg('✅ Publicat în „Biblioteca utilizatorilor".'); } catch (e) { setPublishMsg('Eroare: ' + e.message); } }}>🏛️ Publică public</button>
+            </div>
+          )}
+          {isTeacher && editing && (
+            <textarea value={html} onChange={(e) => setHtml(e.target.value)} rows={12}
+              style={{ width: '100%', marginTop: 10, fontFamily: 'monospace', fontSize: '.76rem', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }} />
+          )}
+          {publishMsg && <div style={{ marginTop: 8, fontSize: '.82rem', color: publishMsg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{publishMsg}</div>}
           <p style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: 10 }}>
-            Vrei ca acest exercițiu să fie public, pentru toți elevii? Doar un administrator îl poate publica în conținut.
+            {isTeacher ? 'Poți edita HTML-ul (se actualizează previzualizarea), trimite elevilor sau publica public. ' : ''}Doar un administrator îl poate publica în conținutul principal al site-ului.
           </p>
         </div>
       )}
@@ -421,14 +484,14 @@ function LibraryTab() {
         <div style={card}><p style={{ color: 'var(--text-muted)', fontSize: '.9rem', margin: 0 }}>Aici apar testele și exercițiile interactive pe care le generezi și le rezolvi. Încă nu ai niciunul.</p></div>
       ) : (
         <div style={card}>
-          <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>📚 Testele mele</h3>
+          <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>📚 Testele și exercițiile mele</h3>
           <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 14 }}>Private — vizibile doar pentru tine.</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {items.map((it) => (
               <div key={it.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 12px', background: '#f7f9fc', borderRadius: 10, flexWrap: 'wrap' }}>
                 <div>
                   <div style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '.9rem' }}>
-                    {it.kind === 'exam' ? '📄' : '🧩'} {it.title || (it.kind === 'exam' ? 'Test' : 'Exercițiu interactiv')}
+                    {it.kind === 'exam' ? '📄' : it.kind === 'practice' ? '✍️' : '🧩'} {it.title || (it.kind === 'exam' ? 'Test' : it.kind === 'practice' ? 'Exercițiu' : 'Exercițiu interactiv')}
                   </div>
                   <div style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>
                     {new Date(it.created_at).toLocaleDateString('ro-RO')}
@@ -442,7 +505,7 @@ function LibraryTab() {
                       <button className="btn btn-sm btn-outline" onClick={() => openExamPdf(it, true)}>📝 Barem</button>
                     </>
                   ) : (
-                    <button className="btn btn-sm btn-outline" onClick={() => openItem(it)}>▶ Redeschide</button>
+                    <button className="btn btn-sm btn-outline" onClick={() => openItem(it)}>▶ {it.kind === 'practice' ? 'Vezi' : 'Redeschide'}</button>
                   )}
                   <button className="btn btn-sm" style={{ color: '#c0392b' }} onClick={() => remove(it.id)}>🗑</button>
                 </div>
@@ -459,6 +522,21 @@ function LibraryTab() {
             <button className="btn btn-sm btn-outline" onClick={() => setOpen(null)}>✕ Închide</button>
           </div>
           <iframe title="reluare" srcDoc={open.payload.html} style={{ width: '100%', height: 520, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
+        </div>
+      )}
+
+      {open && open.kind === 'practice' && (
+        <div style={card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <strong style={{ color: 'var(--navy)' }}>{open.title}</strong>
+            <button className="btn btn-sm btn-outline" onClick={() => setOpen(null)}>✕ Închide</button>
+          </div>
+          <div style={{ fontSize: '.95rem', color: 'var(--navy)', marginBottom: 10 }}><MathText text={open.payload?.statement || ''} /></div>
+          {open.payload?.solution && (
+            <details><summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--navy)', fontSize: '.88rem' }}>Vezi rezolvarea</summary>
+              <div style={{ marginTop: 8, fontSize: '.9rem', lineHeight: 1.6 }}><MathText text={open.payload.solution} /></div>
+            </details>
+          )}
         </div>
       )}
     </div>

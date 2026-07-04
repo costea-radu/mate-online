@@ -151,11 +151,22 @@ async function processQueue(supa) {
 
 async function enqueueAll(supa) {
   let total = 0;
+  const PAGE = 1000;
+  const CHUNK = 50; // câte enqueue-uri rulăm în paralel
   for (const [src, table] of [['content', 'content'], ['rezolvari', 'rezolvari']]) {
-    const { data } = await supa.from(table).select('id');
-    for (const r of data || []) {
-      await supa.rpc('enqueue_ingest', { p_source: src, p_id: r.id, p_op: 'upsert' });
-      total++;
+    let from = 0;
+    while (true) {
+      const { data, error } = await supa.from(table).select('id')
+        .order('id', { ascending: true }).range(from, from + PAGE - 1);
+      if (error) break;
+      const rows = data || [];
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        await Promise.all(rows.slice(i, i + CHUNK).map((r) =>
+          supa.rpc('enqueue_ingest', { p_source: src, p_id: r.id, p_op: 'upsert' })));
+        total += Math.min(CHUNK, rows.length - i);
+      }
+      if (rows.length < PAGE) break;
+      from += PAGE;
     }
   }
   return total;

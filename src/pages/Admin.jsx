@@ -494,8 +494,20 @@ function ContentList({ refresh }) {
 
   async function load() {
     setLoading(true);
-    const { data, error } = await supabase.from('content').select('*').order('created_at', { ascending: false });
-    if (!error) setItems(data || []);
+    // Supabase întoarce implicit maxim 1000 rânduri — citim în pagini ca să apară TOT.
+    const PAGE = 1000;
+    let all = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase.from('content').select('*')
+        .order('created_at', { ascending: false }).range(from, from + PAGE - 1);
+      if (error) break;
+      const rows = data || [];
+      all = all.concat(rows);
+      if (rows.length < PAGE) break;
+      from += PAGE;
+    }
+    setItems(all);
     setLoading(false);
   }
 

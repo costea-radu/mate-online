@@ -20,7 +20,7 @@ export default function PoliticaConfidentialitate() {
             <Link to="/">Acasă</Link><span>›</span><span>Politica de Confidențialitate</span>
           </div>
           <h1>Politica de Confidențialitate</h1>
-          <p>Ultima actualizare: mai 2025</p>
+          <p>Ultima actualizare: iulie 2026</p>
         </div>
       </div>
 
@@ -39,6 +39,7 @@ export default function PoliticaConfidentialitate() {
                 <li><strong>Date de utilizare:</strong> paginile accesate, exercițiile parcurse, progresul înregistrat, postările din secțiunea Forum.</li>
                 <li><strong>Date de plată:</strong> procesate exclusiv prin Stripe (card bancar, Apple Pay sau Google Pay). Nu stocăm datele cardului, ale Apple Pay sau Google Pay — acestea sunt gestionate direct de Stripe.</li>
                 <li><strong>Date tehnice:</strong> adresa IP, tipul browserului și dispozitivului, necesare pentru securitate și diagnosticarea erorilor.</li>
+                <li><strong>Date trimise către asistentul AI (Profesorul Virtual):</strong> întrebările tale, textul și fotografiile exercițiilor pe care le încarci, precum și înregistrările vocale (dacă folosești dictarea) sunt trimise către OpenAI pentru a genera răspunsuri. Vezi secțiunea „8. Profesorul Virtual (AI)".</li>
               </ul>
             </Section>
 
@@ -93,10 +94,20 @@ export default function PoliticaConfidentialitate() {
                 <li><strong>Discord</strong> — autentificare OAuth. <a href="https://discord.com/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica Discord</a></li>
                 <li><strong>Stripe</strong> — procesare plăți (card, Apple Pay, Google Pay). <a href="https://stripe.com/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica Stripe</a></li>
                 <li><strong>Vercel</strong> — găzduire. <a href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica Vercel</a></li>
+                <li><strong>OpenAI</strong> — procesarea întrebărilor și materialelor pentru funcțiile de inteligență artificială (Profesorul Virtual). <a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica OpenAI</a></li>
               </ul>
             </Section>
 
-            <Section title="8. Contact">
+            <Section title="8. Profesorul Virtual (AI)">
+              <p>
+                Platforma include un asistent educațional bazat pe inteligență artificială („Profesorul Virtual"). Când îl folosești, întrebările tale, textul exercițiilor, fotografiile pe care le încarci și eventualele înregistrări vocale (pentru dictare) sunt transmise către <strong>OpenAI, L.L.C.</strong> (Statele Unite), care procesează aceste date pentru a genera răspunsuri, exerciții și corectări. Transferul implică o transmitere internațională de date către SUA, realizată cu garanțiile contractuale corespunzătoare.
+              </p>
+              <p style={{ marginTop: 12 }}>
+                Conform politicii pentru dezvoltatori a OpenAI (API), datele trimise prin acest tip de integrare <strong>nu sunt folosite pentru antrenarea modelelor</strong>. Îți recomandăm să nu introduci date personale sensibile în conversațiile cu Profesorul Virtual. Istoricul conversațiilor tale cu asistentul este stocat în contul tău și poate fi șters de tine. Vezi și <a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica de confidențialitate OpenAI</a>.
+              </p>
+            </Section>
+
+            <Section title="9. Contact">
               <p>
                 Pentru orice întrebări legate de această politică, ne poți contacta la:<br />
                 <strong>E-mail:</strong> <a href="mailto:costea.radu.ioan@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>costea.radu.ioan@gmail.com</a>

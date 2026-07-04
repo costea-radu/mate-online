@@ -79,7 +79,7 @@ export default function AssignmentSolver() {
     <div style={wrap}>
       <div style={{ marginBottom: 18 }}>
         <div style={{ fontSize: '.78rem', color: 'var(--gold-dim)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-          Temă de la {task.creator || 'profesor'}
+          Temă de la {task.creatorRole === 'parinte' ? 'părintele' : 'profesorul'} {task.creator || ''}
         </div>
         <h1 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', fontSize: '1.6rem' }}>{task.title}</h1>
       </div>

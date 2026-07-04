@@ -110,12 +110,13 @@ function SearchModal({ onClose }) {
     if (query.trim().length < 2) { setResults([]); return; }
     setLoading(true);
     const timer = setTimeout(async () => {
-      // Caută în conținut, discuții și rezolvări — în paralel
+      // Caută în conținut, discuții, rezolvări și biblioteca utilizatorilor — în paralel
       const [
         { data: byTitle },
         { data: byFile },
         { data: byDisc },
-        { data: byRez }
+        { data: byRez },
+        { data: byPub }
       ] = await Promise.all([
         supabase.from('content').select('*').ilike('title', `%${query}%`).limit(10),
         supabase.from('content').select('*').ilike('file_url', `%${query}%`).limit(10),
@@ -123,6 +124,8 @@ function SearchModal({ onClose }) {
           .ilike('body', `%${query}%`).is('parent_id', null).limit(5),
         supabase.from('rezolvari').select('id, title, description, category, type, is_free')
           .ilike('title', `%${query}%`).limit(5),
+        supabase.from('ai_public_library').select('id, kind, title, category, creator_name, creator_role')
+          .ilike('search_text', `%${query}%`).limit(6),
       ]);
 
       const combined = [...(byTitle || [])];
@@ -132,7 +135,8 @@ function SearchModal({ onClose }) {
       }
       const discItems = (byDisc || []).map(d => ({ ...d, _type: 'discussion' }));
       const rezItems  = (byRez  || []).map(r => ({ ...r, _type: 'rezolvare' }));
-      setResults([...combined.slice(0, 8), ...discItems, ...rezItems]);
+      const pubItems  = (byPub  || []).map(p => ({ ...p, _type: 'public' }));
+      setResults([...combined.slice(0, 8), ...pubItems, ...discItems, ...rezItems]);
       setLoading(false);
     }, 300);
     return () => clearTimeout(timer);
@@ -206,6 +210,28 @@ function SearchModal({ onClose }) {
               Niciun rezultat pentru „{query}"
             </div>
           ) : results.map(item => {
+            // Test/exercițiu din Biblioteca utilizatorilor
+            if (item._type === 'public') {
+              const icon = item.kind === 'exam' ? '📄' : item.kind === 'practice' ? '✍️' : '🧩';
+              return (
+                <button key={'pub-' + item.id} onClick={() => { onClose(); navigate('/biblioteca-utilizatorilor?q=' + encodeURIComponent(item.title)); }}
+                  style={{ display:'block', width:'100%', textAlign:'left', padding:'12px 18px', background:'none', border:'none', borderBottom:'1px solid #f0f4f8', cursor:'pointer', transition:'background 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.background='#f7f9fc'}
+                  onMouseLeave={e => e.currentTarget.style.background='none'}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    <span style={{ fontSize:'1rem', flexShrink:0 }}>{icon}</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:600, color:'var(--navy)', fontSize:'0.9rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.title}</div>
+                      <div style={{ fontSize:'0.73rem', color:'#8e95a3', marginTop:2 }}>
+                        🏛️ Biblioteca utilizatorilor · {item.creator_role === 'parinte' ? 'Părinte' : 'Prof.'} {item.creator_name || ''}
+                      </div>
+                    </div>
+                    <span style={{ fontSize:'0.75rem', color:'#bbb' }}>→</span>
+                  </div>
+                </button>
+              );
+            }
+
             // Rezolvare
             if (item._type === 'rezolvare') {
               return (
@@ -396,6 +422,9 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, forumUnread = 0, 
         </Link>
         <Link to="/profesor-virtual" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/profesor-virtual' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           🎓 Profesor Virtual
+        </Link>
+        <Link to="/biblioteca-utilizatorilor" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/biblioteca-utilizatorilor' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
+          🏛️ Biblioteca utilizatorilor
         </Link>
         <Link to="/discutii" onClick={onClose} style={{
           ...linkStyle,

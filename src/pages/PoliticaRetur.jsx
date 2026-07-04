@@ -64,19 +64,25 @@ export default function PoliticaRetur() {
               </p>
             </Section>
 
-            <Section title="4. Anularea abonamentului recurent">
+            <Section title="4. Funcțiile AI (Profesorul Virtual)">
+              <p>
+                Asistentul „Profesorul Virtual" și funcțiile sale (generare de exerciții, teste, corectări) fac parte din abonamentul Premium și se supun acelorași condiții de retur și anulare descrise în această politică. Fiind conținut digital furnizat imediat, se aplică și excepția de la punctul 2 în cazul în care ai folosit deja aceste funcții.
+              </p>
+            </Section>
+
+            <Section title="5. Anularea abonamentului recurent">
               <p>
                 Abonamentul ExamenMate se reînnoiește automat lunar. Îl poți anula oricând din secțiunea <Link to="/profil" style={{ color: 'var(--navy)', fontWeight: 600 }}>Contul meu</Link> → „Gestionează abonamentul". Accesul Premium rămâne activ până la sfârșitul perioadei deja plătite. Nu se oferă rambursări pro-rata pentru perioadele parțiale.
               </p>
             </Section>
 
-            <Section title="5. Probleme tehnice">
+            <Section title="6. Probleme tehnice">
               <p>
                 Dacă întâmpini probleme tehnice care te împiedică să accesezi conținutul pentru care ai plătit, ne contactezi imediat. Vom rezolva problema sau vom oferi o extensie a abonamentului echivalentă cu perioada de indisponibilitate.
               </p>
             </Section>
 
-            <Section title="6. Contact">
+            <Section title="7. Contact">
               <p>
                 Pentru orice întrebări legate de retururi sau anulări:<br />
                 <strong>E-mail:</strong> <a href="mailto:costea.radu.ioan@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>costea.radu.ioan@gmail.com</a><br />

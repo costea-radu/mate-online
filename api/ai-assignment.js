@@ -25,6 +25,9 @@ module.exports = async function handler(req, res) {
     if (action === 'submit') return await submit(req, res, supa);
     if (action === 'results') return await results(req, res, supa);
     if (action === 'mine') return await mine(req, res, supa);
+    if (action === 'delete') return await remove(req, res, supa);
+    if (action === 'send') return await sendToStudent(req, res, supa);
+    if (action === 'students') return await students(req, res, supa);
     return res.status(400).json({ error: 'action invalid' });
   } catch (err) {
     console.error('ai-assignment error:', err);
@@ -32,14 +35,15 @@ module.exports = async function handler(req, res) {
   }
 };
 
-// ─── Creare temă (profesor sau abonat) ───────────────────────────────────────
+// ─── Creare temă (profesor, PĂRINTE sau abonat) ──────────────────────────────
 async function create(req, res, supa) {
   const { userId, kind, title = null, category = null, topic = null } = req.body || {};
   const profile = await ai.requireUser(supa, userId);
-  // profesorii pot oricând; altfel doar abonații
-  if (profile.role !== 'profesor' && !profile.is_admin) ai.requirePremium(profile);
+  const isMentor = profile.role === 'profesor' || profile.role === 'parinte' || profile.is_admin;
+  if (!isMentor) ai.requirePremium(profile); // abonat obișnuit: ok; altfel blocat
 
-  const creatorName = profile.full_name || profile.email || 'Profesor';
+  const creatorName = profile.full_name || profile.email || (profile.role === 'parinte' ? 'Părinte' : 'Profesor');
+  const creatorRole = profile.role === 'parinte' ? 'parinte' : 'profesor';
   let payload = {};
   let t = title;
 
@@ -49,25 +53,88 @@ async function create(req, res, supa) {
     payload = { html };
     t = t || `Exercițiu interactiv · ${topic || category || 'matematică'}`;
   } else if (kind === 'practice') {
-    const { token } = req.body || {};
-    const data = ai.verifyToken(token);
-    if (!data) return res.status(400).json({ error: 'Token invalid sau expirat. Regenerează exercițiul.' });
-    payload = {
-      statement: data.statement, options: data.options || [], answer: data.answer || '',
-      answer_type: data.answer_type || 'text', solution: data.solution || '', topic: data.topic, category: data.category,
-    };
-    t = t || `Exercițiu de antrenament · ${data.topic || 'matematică'}`;
+    const { token, exercise } = req.body || {};
+    // Prioritar: exercițiul editat de profesor (câmpuri explicite). Altfel: din token.
+    if (exercise && exercise.statement) {
+      payload = {
+        statement: exercise.statement, options: exercise.options || [], answer: exercise.answer || '',
+        answer_type: exercise.answer_type || 'text', solution: exercise.solution || '',
+        topic: exercise.topic || topic, category: exercise.category || category,
+      };
+      t = t || `Exercițiu de antrenament · ${payload.topic || 'matematică'}`;
+    } else {
+      const data = ai.verifyToken(token);
+      if (!data) return res.status(400).json({ error: 'Token invalid sau expirat. Regenerează exercițiul.' });
+      payload = {
+        statement: data.statement, options: data.options || [], answer: data.answer || '',
+        answer_type: data.answer_type || 'text', solution: data.solution || '', topic: data.topic, category: data.category,
+      };
+      t = t || `Exercițiu de antrenament · ${data.topic || 'matematică'}`;
+    }
   } else {
     return res.status(400).json({ error: "kind trebuie 'interactive' sau 'practice'." });
   }
 
   const { data: row, error } = await supa.from('ai_assignments').insert({
-    created_by: userId, creator_name: creatorName, kind, title: t,
+    created_by: userId, creator_name: creatorName, creator_role: creatorRole, kind, title: t,
     category: category || payload.category || null, topic: topic || payload.topic || null, payload,
   }).select('id').single();
   if (error) return res.status(500).json({ error: error.message });
 
   return res.status(200).json({ id: row.id, url: `/tema?id=${row.id}`, title: t });
+}
+
+// ─── Ștergere temă (doar creatorul) ──────────────────────────────────────────
+async function remove(req, res, supa) {
+  const { userId, id } = req.body || {};
+  const profile = await ai.requireUser(supa, userId);
+  if (!id) return res.status(400).json({ error: 'id obligatoriu' });
+  const { data: a } = await supa.from('ai_assignments').select('created_by').eq('id', id).single();
+  if (!a) return res.status(404).json({ error: 'Tema nu există.' });
+  if (a.created_by !== userId && !profile.is_admin) return res.status(403).json({ error: 'Nu poți șterge tema altcuiva.' });
+  await supa.from('ai_assignments').delete().eq('id', id); // rezultatele se șterg în cascadă
+  return res.status(200).json({ ok: true });
+}
+
+// ─── Lista elevilor mentorului (pentru trimitere directă) ─────────────────────
+async function students(req, res, supa) {
+  const { userId } = req.body || {};
+  const profile = await ai.requireUser(supa, userId);
+  const role = profile.role === 'parinte' ? 'parinte' : 'profesor';
+  const { data: links } = await supa.from('mentor_students').select('student_id').eq('mentor_id', userId).eq('mentor_role', role);
+  const ids = [...new Set((links || []).map((l) => l.student_id))];
+  if (role === 'profesor') {
+    const { data: legacy } = await supa.from('profiles').select('id').eq('teacher_id', userId);
+    (legacy || []).forEach((p) => ids.push(p.id));
+  }
+  const uniq = [...new Set(ids)];
+  if (!uniq.length) return res.status(200).json({ students: [] });
+  const { data: profs } = await supa.from('profiles').select('id, full_name, email').in('id', uniq);
+  return res.status(200).json({ students: (profs || []).map((p) => ({ id: p.id, name: p.full_name || p.email || 'Elev' })) });
+}
+
+// ─── Trimite tema direct unui elev (notificare cu link) ───────────────────────
+async function sendToStudent(req, res, supa) {
+  const { userId, assignmentId, studentId } = req.body || {};
+  const profile = await ai.requireUser(supa, userId);
+  if (!assignmentId || !studentId) return res.status(400).json({ error: 'assignmentId și studentId obligatorii' });
+  const { data: a } = await supa.from('ai_assignments').select('created_by, title').eq('id', assignmentId).single();
+  if (!a) return res.status(404).json({ error: 'Tema nu există.' });
+  if (a.created_by !== userId && !profile.is_admin) return res.status(403).json({ error: 'Nu e tema ta.' });
+  // verifică legătura mentor-elev
+  const { data: link } = await supa.from('mentor_students').select('student_id').eq('mentor_id', userId).eq('student_id', studentId).limit(1);
+  const linked = (link && link.length) || (await (async () => { const { data: p } = await supa.from('profiles').select('teacher_id').eq('id', studentId).single(); return p?.teacher_id === userId; })());
+  if (!linked && !profile.is_admin) return res.status(403).json({ error: 'Elevul nu este asociat cu tine.' });
+
+  const who = profile.role === 'parinte' ? `părintele ${profile.full_name || ''}`.trim() : `profesorul ${profile.full_name || ''}`.trim();
+  await ai.createNotification(supa, {
+    recipientId: studentId, type: 'assignment',
+    title: `Ai o temă nouă de la ${who || 'profesor'}`,
+    body: a.title,
+    data: { url: `/tema?id=${assignmentId}`, assignmentId },
+    dedupeKey: `assignment:${assignmentId}:${studentId}`, dedupeDays: 30,
+  });
+  return res.status(200).json({ ok: true });
 }
 
 // ─── Deschidere temă de către elev (fără a dezvălui răspunsul) ────────────────
@@ -78,7 +145,7 @@ async function getOne(req, res, supa) {
   const { data: a } = await supa.from('ai_assignments').select('*').eq('id', id).single();
   if (!a) return res.status(404).json({ error: 'Tema nu a fost găsită.' });
 
-  const base = { id: a.id, kind: a.kind, title: a.title, creator: a.creator_name, topic: a.topic, category: a.category };
+  const base = { id: a.id, kind: a.kind, title: a.title, creator: a.creator_name, creatorRole: a.creator_role || 'profesor', topic: a.topic, category: a.category };
   if (a.kind === 'interactive') return res.status(200).json({ ...base, html: a.payload?.html || '' });
   // practice: fără answer/solution
   return res.status(200).json({

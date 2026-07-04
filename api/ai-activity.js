@@ -71,10 +71,10 @@ module.exports = async function handler(req, res) {
       let assignments = [];
       try {
         const { data: ar } = await supa.from('ai_assignment_results')
-          .select('score, max_score, attempts, completed_at, ai_assignments(title, kind, creator_name)')
+          .select('score, max_score, attempts, completed_at, ai_assignments(title, kind, creator_name, creator_role)')
           .eq('student_id', studentId).order('completed_at', { ascending: false }).limit(50);
         assignments = (ar || []).map((r) => ({
-          title: r.ai_assignments?.title, kind: r.ai_assignments?.kind, creator: r.ai_assignments?.creator_name,
+          title: r.ai_assignments?.title, kind: r.ai_assignments?.kind, creator: r.ai_assignments?.creator_name, creatorRole: r.ai_assignments?.creator_role,
           score: r.score, maxScore: r.max_score, attempts: r.attempts, completedAt: r.completed_at,
         }));
       } catch { assignments = []; }

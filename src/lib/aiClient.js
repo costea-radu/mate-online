@@ -112,6 +112,20 @@ export const aiClient = {
     post('/api/ai-assignment', { action: 'submit', id, answer, work, score, maxScore }),
   assignmentResults: () => post('/api/ai-assignment', { action: 'results' }),
   assignmentsMine: () => post('/api/ai-assignment', { action: 'mine' }),
+  assignmentDelete: ({ id }) => post('/api/ai-assignment', { action: 'delete', id }),
+  assignmentStudents: () => post('/api/ai-assignment', { action: 'students' }),
+  assignmentSend: ({ assignmentId, studentId }) => post('/api/ai-assignment', { action: 'send', assignmentId, studentId }),
+
+  // Anunțuri admin (listă + ștergere)
+  broadcastList: () => post('/api/ai-notify', { action: 'broadcast_list' }),
+  broadcastDelete: ({ id }) => post('/api/ai-notify', { action: 'broadcast_delete', id }),
+
+  // Biblioteca utilizatorilor (teste publice)
+  publicPublish: ({ kind, title, category = null, topic = null, payload }) =>
+    post('/api/ai-public', { action: 'publish', kind, title, category, topic, payload }),
+  publicList: ({ q = '', category = null } = {}) => post('/api/ai-public', { action: 'list', q, category }),
+  publicGet: ({ id }) => post('/api/ai-public', { action: 'get', id }),
+  publicDelete: ({ id }) => post('/api/ai-public', { action: 'delete', id }),
 
   // Voce: transcriere audio (fallback STT)
   transcribe: ({ audioBase64, mime = 'audio/webm' }) => post('/api/ai-transcribe', { audioBase64, mime }),

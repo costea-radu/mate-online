@@ -51,7 +51,7 @@ export default function Home() {
               Teste și exerciții special concepute pentru Evaluarea Națională și Bacalaureat.
             </p>
           </div>
-          <div className="card-grid" style={{ maxWidth: 700, margin: '0 auto' }}>
+          <div className="card-grid" style={{ maxWidth: 1000, margin: '0 auto' }}>
             <Link to="/evaluare-nationala" style={{ textDecoration: 'none' }}>
               <div className="card" style={{ borderLeft: '4px solid var(--gold)' }}>
                 <div className="card-icon">📝</div>
@@ -64,6 +64,13 @@ export default function Home() {
                 <div className="card-icon">🎓</div>
                 <h3>Bacalaureat</h3>
                 <p>Materiale complete pentru pregătirea examenului de bacalaureat la matematică.</p>
+              </div>
+            </Link>
+            <Link to="/biblioteca-utilizatorilor" style={{ textDecoration: 'none' }}>
+              <div className="card" style={{ borderLeft: '4px solid #7c5cbf' }}>
+                <div className="card-icon">🏛️</div>
+                <h3>Biblioteca utilizatorilor</h3>
+                <p>Teste și exerciții create și publicate de profesori cu Profesorul Virtual.</p>
               </div>
             </Link>
           </div>

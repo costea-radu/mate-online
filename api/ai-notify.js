@@ -172,6 +172,24 @@ module.exports = async function handler(req, res) {
       if (error) return res.status(500).json({ error: error.message });
       return res.status(200).json({ ok: true });
     }
+
+    // Admin: lista anunțurilor trimise
+    if (action === 'broadcast_list') {
+      if (!profile.is_admin) return res.status(403).json({ error: 'Doar adminul.' });
+      const { data } = await supa.from('ai_broadcasts').select('id, type, title, body, created_at')
+        .order('created_at', { ascending: false }).limit(50);
+      return res.status(200).json({ broadcasts: data || [] });
+    }
+
+    // Admin: șterge un anunț trimis
+    if (action === 'broadcast_delete') {
+      if (!profile.is_admin) return res.status(403).json({ error: 'Doar adminul.' });
+      const { id } = req.body || {};
+      if (!id) return res.status(400).json({ error: 'id obligatoriu' });
+      const { error } = await supa.from('ai_broadcasts').delete().eq('id', id);
+      if (error) return res.status(500).json({ error: error.message });
+      return res.status(200).json({ ok: true });
+    }
     return res.status(400).json({ error: 'action invalid' });
   } catch (err) {
     console.error('ai-notify error:', err);

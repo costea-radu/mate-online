@@ -407,8 +407,8 @@ export default function Profile() {
             {/* Raport AI — după „Rezultate elevi", ca rolldown */}
             {isTeacher && (
               <details className="card" style={{ marginBottom: 24 }}>
-                <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none' }}>
-                  🎓 Raport AI – activități cu Prof. Virtual
+                <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <EinsteinIcon size={24} /> Raport AI – activități cu Prof. Virtual
                 </summary>
                 <div style={{ marginTop: 16 }}>
                   <div style={{ background: 'rgba(232,185,49,.1)', border: '1px solid var(--gold)', borderRadius: 10, padding: '12px 14px', marginBottom: 16, fontSize: '.88rem', color: 'var(--navy)' }}>
@@ -420,8 +420,8 @@ export default function Profile() {
             )}
             {isParent && (
               <details className="card" style={{ marginBottom: 24 }}>
-                <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none' }}>
-                  🎓 Raport AI – activități cu Prof. Virtual
+                <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <EinsteinIcon size={24} /> Raport AI – activități cu Prof. Virtual
                 </summary>
                 <div style={{ marginTop: 16 }}>
                   <ParentAIActivity />

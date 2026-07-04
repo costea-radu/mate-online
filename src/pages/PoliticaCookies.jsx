@@ -20,7 +20,7 @@ export default function PoliticaCookies() {
             <Link to="/">Acasă</Link><span>›</span><span>Politica de Cookie-uri</span>
           </div>
           <h1>Politica de Cookie-uri</h1>
-          <p>Ultima actualizare: ianuarie 2025</p>
+          <p>Ultima actualizare: iulie 2026</p>
         </div>
       </div>
 
@@ -95,13 +95,19 @@ export default function PoliticaCookies() {
               </ul>
             </Section>
 
-            <Section title="5. Modificări ale politicii">
+            <Section title="5. Profesorul Virtual și stocarea locală">
+              <p>
+                Funcția Profesorul Virtual nu folosește cookie-uri de publicitate. Istoricul conversațiilor tale cu asistentul este stocat în contul tău (în baza de date), nu în cookie-uri, iar întrebările și materialele trimise sunt procesate de OpenAI conform <Link to="/politica-confidentialitate" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politicii de Confidențialitate</Link>. Aplicația poate folosi stocarea locală a browserului (localStorage) strict pentru funcționarea platformei (de exemplu, menținerea sesiunii de autentificare), nu în scopuri de urmărire.
+              </p>
+            </Section>
+
+            <Section title="6. Modificări ale politicii">
               <p>
                 Putem actualiza această politică de cookie-uri periodic. Modificările vor fi afișate pe această pagină cu data actualizării.
               </p>
             </Section>
 
-            <Section title="6. Contact">
+            <Section title="7. Contact">
               <p>
                 Pentru întrebări despre utilizarea cookie-urilor:<br />
                 <strong>E-mail:</strong> <a href="mailto:costea.radu.ioan@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>costea.radu.ioan@gmail.com</a>
