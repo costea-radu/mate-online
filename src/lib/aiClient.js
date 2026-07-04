@@ -103,11 +103,12 @@ export const aiClient = {
   activityDetail: ({ studentId }) => post('/api/ai-activity', { action: 'detail', studentId }),
 
   // Teme profesor → elev
-  assignmentCreateInteractive: ({ html, title = null, category = null, topic = null }) =>
-    post('/api/ai-assignment', { action: 'create', kind: 'interactive', html, title, category, topic }),
+  assignmentCreateInteractive: ({ html = null, questions = null, title = null, category = null, topic = null }) =>
+    post('/api/ai-assignment', { action: 'create', kind: 'interactive', html, questions, title, category, topic }),
   assignmentCreatePractice: ({ token, title = null }) =>
     post('/api/ai-assignment', { action: 'create', kind: 'practice', token, title }),
   assignmentGet: ({ id }) => post('/api/ai-assignment', { action: 'get', id }),
+  assignmentCreateFromPublic: ({ publicId }) => post('/api/ai-assignment', { action: 'create', fromPublicId: publicId }),
   assignmentSubmit: ({ id, answer = '', work = '', score = null, maxScore = null }) =>
     post('/api/ai-assignment', { action: 'submit', id, answer, work, score, maxScore }),
   assignmentResults: () => post('/api/ai-assignment', { action: 'results' }),
@@ -126,6 +127,7 @@ export const aiClient = {
   publicList: ({ q = '', category = null } = {}) => post('/api/ai-public', { action: 'list', q, category }),
   publicGet: ({ id }) => post('/api/ai-public', { action: 'get', id }),
   publicDelete: ({ id }) => post('/api/ai-public', { action: 'delete', id }),
+  publicRecord: ({ id, score, maxScore }) => post('/api/ai-public', { action: 'record', id, score, maxScore }),
 
   // Voce: transcriere audio (fallback STT)
   transcribe: ({ audioBase64, mime = 'audio/webm' }) => post('/api/ai-transcribe', { audioBase64, mime }),

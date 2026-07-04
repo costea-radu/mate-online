@@ -3,8 +3,10 @@
 // Redă frumos formulele (KaTeX din CDN) și oferă „Salvează ca PDF".
 // =====================================================================
 
+import { autoMath } from './katex';
+
 function esc(s = '') {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(autoMath(s || '')).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // Deschide un document tipăribil, autonom, cu KaTeX.

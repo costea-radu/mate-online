@@ -8,6 +8,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
 import { MathText } from '../components/AITutor';
+import { renderQuiz } from '../lib/quizRender';
 
 export default function AssignmentSolver() {
   const [params] = useSearchParams();
@@ -91,7 +92,7 @@ export default function AssignmentSolver() {
               ✓ Rezultat trimis profesorului: {savedScore.score}/{savedScore.maxScore}
             </div>
           )}
-          <iframe title="tema" srcDoc={task.html} style={{ width: '100%', height: 560, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
+          <iframe title="tema" srcDoc={task.questions ? renderQuiz(task.title, task.questions) : task.html} style={{ width: '100%', height: 560, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
         </div>
       ) : (
         <div style={card}>

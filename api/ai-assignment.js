@@ -37,20 +37,41 @@ module.exports = async function handler(req, res) {
 
 // ─── Creare temă (profesor, PĂRINTE sau abonat) ──────────────────────────────
 async function create(req, res, supa) {
-  const { userId, kind, title = null, category = null, topic = null } = req.body || {};
+  const { userId, kind, title = null, category = null, topic = null, fromPublicId = null } = req.body || {};
   const profile = await ai.requireUser(supa, userId);
+  const creatorName = profile.full_name || profile.email || (profile.role === 'parinte' ? 'Părinte' : 'Profesor');
+  const creatorRole = profile.role === 'parinte' ? 'parinte' : 'profesor';
+
+  // Trimitere dintr-un exercițiu public (Biblioteca utilizatorilor) — orice utilizator autentificat.
+  if (fromPublicId) {
+    const { data: pub } = await supa.from('ai_public_library').select('*').eq('id', fromPublicId).single();
+    if (!pub) return res.status(404).json({ error: 'Exercițiul public nu există.' });
+    if (!['interactive', 'practice'].includes(pub.kind)) {
+      return res.status(400).json({ error: 'Doar exercițiile interactive sau de antrenament pot fi trimise ca temă.' });
+    }
+    const { data: row, error } = await supa.from('ai_assignments').insert({
+      created_by: userId, creator_name: creatorName, creator_role: creatorRole, kind: pub.kind,
+      title: pub.title, category: pub.category, topic: pub.topic, payload: pub.payload,
+    }).select('id').single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ id: row.id, url: `/tema?id=${row.id}`, title: pub.title });
+  }
+
   const isMentor = profile.role === 'profesor' || profile.role === 'parinte' || profile.is_admin;
   if (!isMentor) ai.requirePremium(profile); // abonat obișnuit: ok; altfel blocat
 
-  const creatorName = profile.full_name || profile.email || (profile.role === 'parinte' ? 'Părinte' : 'Profesor');
-  const creatorRole = profile.role === 'parinte' ? 'parinte' : 'profesor';
   let payload = {};
   let t = title;
 
   if (kind === 'interactive') {
-    const { html } = req.body || {};
-    if (!html || !/<html|<!doctype/i.test(html)) return res.status(400).json({ error: 'HTML lipsă sau invalid.' });
-    payload = { html };
+    const { html, questions } = req.body || {};
+    if (Array.isArray(questions) && questions.length) {
+      payload = { questions };
+    } else if (html && /<html|<!doctype/i.test(html)) {
+      payload = { html };
+    } else {
+      return res.status(400).json({ error: 'Exercițiul interactiv e gol (fără întrebări sau HTML).' });
+    }
     t = t || `Exercițiu interactiv · ${topic || category || 'matematică'}`;
   } else if (kind === 'practice') {
     const { token, exercise } = req.body || {};
@@ -146,7 +167,7 @@ async function getOne(req, res, supa) {
   if (!a) return res.status(404).json({ error: 'Tema nu a fost găsită.' });
 
   const base = { id: a.id, kind: a.kind, title: a.title, creator: a.creator_name, creatorRole: a.creator_role || 'profesor', topic: a.topic, category: a.category };
-  if (a.kind === 'interactive') return res.status(200).json({ ...base, html: a.payload?.html || '' });
+  if (a.kind === 'interactive') return res.status(200).json({ ...base, questions: a.payload?.questions || null, html: a.payload?.html || '' });
   // practice: fără answer/solution
   return res.status(200).json({
     ...base,

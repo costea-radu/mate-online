@@ -45,6 +45,12 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
   function patchPart(si, ii, pi, patch) {
     setExam((ex) => { const c = structuredClone(ex); c.subjects[si].items[ii].parts[pi] = { ...c.subjects[si].items[ii].parts[pi], ...patch }; return c; });
   }
+  function addItem(si) {
+    setExam((ex) => { const c = structuredClone(ex); const items = c.subjects[si].items; items.push({ number: String(items.length + 1), statement: 'Enunț nou', options: ['', '', '', ''], answer: 'a', solution: '' }); return c; });
+  }
+  function delItem(si, ii) {
+    setExam((ex) => { const c = structuredClone(ex); c.subjects[si].items.splice(ii, 1); return c; });
+  }
 
   async function publish() {
     if (!exam) return;
@@ -102,7 +108,11 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
                   <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.85rem', marginBottom: 6 }}>{s.label}</div>
                   {(s.items || []).map((it, ii) => (
                     <div key={ii} style={{ padding: 8, background: '#f7f9fc', borderRadius: 8, marginBottom: 8 }}>
-                      <label style={{ fontSize: '.74rem', color: 'var(--text-muted)' }}>Enunț {it.number}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                        <span style={{ fontSize: '.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>Item {it.number}</span>
+                        <button onClick={() => delItem(si, ii)} style={{ background: 'none', border: '1px solid #f5c6cb', color: '#c0392b', borderRadius: 6, padding: '1px 7px', fontSize: '.72rem', cursor: 'pointer' }}>🗑</button>
+                      </div>
+                      <label style={{ fontSize: '.74rem', color: 'var(--text-muted)' }}>Enunț
                         <textarea rows={2} value={it.statement || ''} onChange={(e) => patchItem(si, ii, { statement: e.target.value })} style={ta} />
                       </label>
                       {Array.isArray(it.options) && it.options.length > 0 && (
@@ -125,6 +135,7 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
                       ))}
                     </div>
                   ))}
+                  <button className="btn btn-sm btn-outline" onClick={() => addItem(si)}>➕ Adaugă item la {s.label}</button>
                 </div>
               ))}
             </div>
@@ -145,7 +156,7 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
             <button className="btn btn-primary btn-sm" onClick={() => printExam(exam, { withSolutions: false })}>📄 Varianta elev (PDF)</button>
             <button className="btn btn-outline btn-sm" onClick={() => printExam(exam, { withSolutions: true })}>📝 Barem (PDF)</button>
             {canManage && <button className="btn btn-outline btn-sm" onClick={() => setEditing((e) => !e)}>{editing ? '✓ Gata editarea' : '✏️ Editează'}</button>}
-            {canManage && <button className="btn btn-outline btn-sm" onClick={publish} disabled={publishing}>{publishing ? 'Se publică...' : '🏛️ Publică public'}</button>}
+            {canManage && <button className="btn btn-outline btn-sm" onClick={publish} disabled={publishing}>{publishing ? 'Se publică...' : '🏛️ Publică'}</button>}
             <button className="btn btn-outline btn-sm" onClick={gen} disabled={loading}>🔄 Alt subiect</button>
           </div>
           {publishMsg && <div style={{ marginTop: 8, fontSize: '.82rem', color: publishMsg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{publishMsg}</div>}

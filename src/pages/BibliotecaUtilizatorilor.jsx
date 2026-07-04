@@ -4,9 +4,12 @@
 // =====================================================================
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
 import { printExam } from '../lib/examPrint';
 import { MathText } from '../components/AITutor';
+import { renderQuiz } from '../lib/quizRender';
+import SendToStudents from '../components/SendToStudents';
 
 const CATS = [
   { id: '', label: 'Toate' },
@@ -18,6 +21,7 @@ const KIND_ICON = { exam: '📄', practice: '✍️', interactive: '🧩' };
 
 export default function BibliotecaUtilizatorilor() {
   const [params] = useSearchParams();
+  const { user, isAdmin } = useAuth();
   const [q, setQ] = useState(params.get('q') || '');
   const [category, setCategory] = useState('');
   const [items, setItems] = useState([]);
@@ -32,6 +36,25 @@ export default function BibliotecaUtilizatorilor() {
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [category]);
   useEffect(() => { const t = setTimeout(load, 350); return () => clearTimeout(t); /* eslint-disable-next-line */ }, [q]);
+
+  // Înregistrează scorul când un elev logat rezolvă un exercițiu interactiv din bibliotecă
+  useEffect(() => {
+    if (!open || open.kind !== 'interactive' || !user) return;
+    function onMsg(e) {
+      if (!e.data || e.data.type !== 'MATE_SCORE') return;
+      const { score, maxScore } = e.data;
+      if (typeof score === 'number' && typeof maxScore === 'number' && maxScore > 0) {
+        aiClient.publicRecord({ id: open.id, score, maxScore }).catch(() => {});
+      }
+    }
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, [open, user]);
+
+  async function del(id) {
+    if (!window.confirm('Ștergi acest test din biblioteca publică?')) return;
+    try { await aiClient.publicDelete({ id }); setItems((it) => it.filter((x) => x.id !== id)); } catch { /* ignore */ }
+  }
 
   async function openItem(it) {
     try {
@@ -62,16 +85,22 @@ export default function BibliotecaUtilizatorilor() {
         : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 12 }}>
             {items.map((it) => (
-              <button key={it.id} onClick={() => openItem(it)} style={{ textAlign: 'left', ...card, marginBottom: 0, cursor: 'pointer' }}>
+              <div key={it.id} style={{ ...card, marginBottom: 0, display: 'flex', flexDirection: 'column' }}>
                 <div style={{ fontSize: '1.4rem', marginBottom: 6 }}>{KIND_ICON[it.kind] || '📘'}</div>
                 <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.95rem', marginBottom: 4 }}>{it.title}</div>
-                <div style={{ fontSize: '.76rem', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginBottom: 10 }}>
                   {it.creator_role === 'parinte' ? 'Părinte' : 'Prof.'} {it.creator_name || ''} · {new Date(it.created_at).toLocaleDateString('ro-RO')}
                 </div>
-                <div style={{ marginTop: 8, fontSize: '.78rem', color: 'var(--gold-dim)', fontWeight: 600 }}>
-                  {it.kind === 'exam' ? 'Deschide PDF →' : 'Deschide →'}
+                <div style={{ marginTop: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button className="btn btn-sm btn-primary" onClick={() => openItem(it)}>{it.kind === 'exam' ? '📄 Deschide PDF' : '▶ Deschide'}</button>
+                  {(isAdmin || (user && it.created_by === user.id)) && (
+                    <button onClick={() => del(it.id)} style={{ background: 'none', border: '1px solid #f5c6cb', color: '#c0392b', borderRadius: 7, padding: '5px 9px', fontSize: '.76rem', fontWeight: 600, cursor: 'pointer' }}>🗑 Șterge</button>
+                  )}
                 </div>
-              </button>
+                {user && it.kind !== 'exam' && (
+                  <SendToStudents label="📤 Trimite elevilor" create={() => aiClient.assignmentCreateFromPublic({ publicId: it.id })} />
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -82,8 +111,8 @@ export default function BibliotecaUtilizatorilor() {
             <strong style={{ color: 'var(--navy)' }}>{open.title}</strong>
             <button className="btn btn-sm btn-outline" onClick={() => setOpen(null)}>✕ Închide</button>
           </div>
-          {open.kind === 'interactive' && open.payload?.html && (
-            <iframe title="exercițiu" srcDoc={open.payload.html} style={{ width: '100%', height: 560, border: '1px solid var(--border)', borderRadius: 10 }} />
+          {open.kind === 'interactive' && (open.payload?.questions || open.payload?.html) && (
+            <iframe title="exercițiu" srcDoc={open.payload.questions ? renderQuiz(open.title, open.payload.questions) : open.payload.html} style={{ width: '100%', height: 560, border: '1px solid var(--border)', borderRadius: 10 }} />
           )}
           {open.kind === 'practice' && (
             <div>
