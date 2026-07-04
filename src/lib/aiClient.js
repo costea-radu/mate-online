@@ -126,6 +126,7 @@ export const aiClient = {
     post('/api/ai-public', { action: 'publish', kind, title, category, topic, payload }),
   publicList: ({ q = '', category = null } = {}) => post('/api/ai-public', { action: 'list', q, category }),
   publicGet: ({ id }) => post('/api/ai-public', { action: 'get', id }),
+  publicSetFree: ({ id, isFree }) => post('/api/ai-public', { action: 'set_free', id, isFree }),
   publicDelete: ({ id }) => post('/api/ai-public', { action: 'delete', id }),
   publicRecord: ({ id, score, maxScore }) => post('/api/ai-public', { action: 'record', id, score, maxScore }),
 
@@ -163,6 +164,11 @@ export const aiClient = {
   async updateLibraryScore(id, score, maxScore) {
     const { error } = await supabase.from('ai_personal_items')
       .update({ score, max_score: maxScore, completed_at: new Date().toISOString() }).eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+  async updateLibraryItem(id, patch) {
+    // salvează peste itemul privat (ex: payload editat). RLS permite doar proprietarului.
+    const { error } = await supabase.from('ai_personal_items').update(patch).eq('id', id);
     if (error) throw new Error(error.message);
   },
   async listLibrary(kind = null) {

@@ -1,0 +1,21 @@
+# Normalizează sfârșiturile de linie: text-ul se stochează cu LF în repo.
+# Elimină avertismentele „LF -> CRLF" din GitHub Desktop pe Windows.
+* text=auto eol=lf
+
+# Fișiere binare — nu se ating niciodată
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.svg   text
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+*.otf   binary
+*.mp3   binary
+*.mp4   binary

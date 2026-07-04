@@ -96,8 +96,9 @@ function ChildDetail({ d }) {
         <List items={lib.interactive} empty="Niciunul încă." render={(it) => <>{it.title}{scoreTxt(it)} <span style={{ color: 'var(--text-muted)' }}>· {dt(it.completed_at || it.created_at)}</span></>} />
       </Section>
 
-      <Section title="✍️ Exerciții de antrenament + rezultate" count={(lib.practice || []).length}>
-        <List items={lib.practice} empty="Niciunul încă." render={(it) => <>{it.title}{scoreTxt(it)} <span style={{ color: 'var(--text-muted)' }}>· {dt(it.completed_at || it.created_at)}</span></>} />
+      <Section title="🏛️ Exerciții din Biblioteca utilizatorilor rezolvate" count={(d.publicSolved || []).length}>
+        <List items={d.publicSolved} empty="Niciunul încă."
+          render={(a) => <>{a.title} <span style={{ color: 'var(--text-muted)' }}>· scor {a.score}/{a.maxScore} · {a.attempts} încercări · {dt(a.completedAt)}</span></>} />
       </Section>
 
       <Section title="👩‍🏫 Exerciții primite de la profesor + rezolvate" count={(d.assignments || []).length}>

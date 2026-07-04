@@ -445,6 +445,7 @@ export default function Profile() {
                   { to: '/clase/11', label: 'Clasa a XI-a',   icon: '📘' },
                   { to: '/clase/12', label: 'Clasa a XII-a',  icon: '📗' },
                   { to: '/manuale', label: 'Manuale Online', icon: '📖' },
+                  { to: '/biblioteca-utilizatorilor', label: 'Biblioteca utilizatorilor', icon: '🏛️' },
                 ].map(item => (
                   <Link
                     key={item.to}

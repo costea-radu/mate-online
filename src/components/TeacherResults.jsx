@@ -507,7 +507,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
       <div className="card" style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: 0 }}>
-            📊 Rezultate elevi{' '}
+            📊 {isTeacher ? 'Grupe / Rezultate elevi' : 'Rezultate elevi'}{' '}
             <span style={{ fontSize: '0.82rem', fontWeight: 500, color: 'var(--text-muted)' }}>({countLabel})</span>
           </h3>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -515,7 +515,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
               style={{ padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--text-light)', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 }}>↻</button>
             <button onClick={() => setOpen((o) => !o)}
               style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--navy)', color: '#fff', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>
-              {open ? 'Ascunde rezultatele ▴' : 'Vezi rezultatele ▾'}
+              {open ? (isTeacher ? 'Ascunde grupe / rezultate ▴' : 'Ascunde rezultatele ▴') : (isTeacher ? 'Vezi grupe / rezultate ▾' : 'Vezi rezultatele ▾')}
             </button>
           </div>
         </div>

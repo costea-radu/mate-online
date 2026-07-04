@@ -49,6 +49,11 @@ async function create(req, res, supa) {
     if (!['interactive', 'practice'].includes(pub.kind)) {
       return res.status(400).json({ error: 'Doar exercițiile interactive sau de antrenament pot fi trimise ca temă.' });
     }
+    // Barieră: neabonații pot trimite doar exercițiile gratuite din bibliotecă.
+    const premium = profile.subscription_status === 'active' || profile.is_admin;
+    if (!(pub.is_free || premium || pub.created_by === userId)) {
+      return res.status(402).json({ error: 'Acest exercițiu necesită abonament. Fără abonament poți trimite doar exercițiile gratuite.', code: 'PREMIUM_REQUIRED' });
+    }
     const { data: row, error } = await supa.from('ai_assignments').insert({
       created_by: userId, creator_name: creatorName, creator_role: creatorRole, kind: pub.kind,
       title: pub.title, category: pub.category, topic: pub.topic, payload: pub.payload,
@@ -190,6 +195,13 @@ async function submit(req, res, supa) {
   if (a.kind === 'interactive') {
     outScore = Math.max(0, parseInt(score, 10) || 0);
     outMax = Math.max(1, parseInt(maxScore, 10) || 100);
+    // Alimentează stăpânirea pe materie: interactiv rezolvat cu ≥60% = însușit.
+    try {
+      const ratio = outScore / outMax;
+      await supa.rpc('bump_skill_mastery', {
+        p_user: userId, p_category: a.category || 'general', p_topic: a.topic || 'general', p_correct: ratio >= 0.6,
+      });
+    } catch { /* ignoră */ }
   } else {
     // practice: corectare cu AI față de răspunsul stocat
     await ai.enforceRateLimit(supa, userId);

@@ -118,7 +118,35 @@ module.exports = async function handler(req, res) {
       atRisk: students.filter((s) => s.atRisk).length,
     };
 
-    return res.status(200).json({ groups: groups || [], topics, students, totals });
+    // ── Clasamente: elevi pe grupe + clasament grupe ──────────────────────────
+    const mMap = {}; students.forEach((s) => { mMap[s.id] = s.avgMastery; });
+    const { data: memb } = await supa.from('mentor_students')
+      .select('student_id, group_id').eq('mentor_id', userId).eq('mentor_role', 'profesor');
+    const groupName = {}; (groups || []).forEach((g) => { groupName[g.id] = g.name; });
+    const byGroup = {}; const ungrouped = [];
+    const seen = new Set();
+    (memb || []).forEach((m) => {
+      seen.add(m.student_id);
+      const entry = { id: m.student_id, name: names[m.student_id] || 'Elev', avgMastery: mMap[m.student_id] ?? null };
+      if (m.group_id && groupName[m.group_id]) (byGroup[m.group_id] ||= []).push(entry);
+      else ungrouped.push(entry);
+    });
+    // elevi fără nicio legătură group (ex: doar teacher_id) → ungrouped
+    idList.forEach((id) => { if (!seen.has(id)) ungrouped.push({ id, name: names[id] || 'Elev', avgMastery: mMap[id] ?? null }); });
+
+    const rank = (arr) => arr.slice().sort((a, b) => (b.avgMastery ?? -1) - (a.avgMastery ?? -1));
+    const groupBoards = Object.keys(byGroup).map((gid) => {
+      const list = rank(byGroup[gid]);
+      const scored = list.filter((x) => x.avgMastery != null);
+      const avg = scored.length ? Math.round((scored.reduce((a, x) => a + x.avgMastery, 0) / scored.length) * 100) / 100 : null;
+      return { id: gid, name: groupName[gid], avgMastery: avg, students: list };
+    });
+    const groupRanking = groupBoards.slice().sort((a, b) => (b.avgMastery ?? -1) - (a.avgMastery ?? -1))
+      .map((g) => ({ id: g.id, name: g.name, avgMastery: g.avgMastery, count: g.students.length }));
+
+    const leaderboard = { groups: groupBoards, ungrouped: rank(ungrouped), groupRanking };
+
+    return res.status(200).json({ groups: groups || [], topics, students, totals, leaderboard });
   } catch (err) {
     console.error('ai-teacher error:', err);
     return res.status(err.status || 500).json({ error: err.message || 'Eroare server' });

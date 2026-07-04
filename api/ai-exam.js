@@ -101,7 +101,7 @@ const EXAMS = {
 
 const JSON_RULE = `IMPORTANT pentru JSON valid: scrie fiecare backslash din comenzile LaTeX de DOUĂ ori (backslash dublu). Exemple corecte în JSON: pentru fracție folosește \\\\frac{...}{...}, pentru radical \\\\sqrt{...}, pentru înmulțire \\\\cdot, pentru unghi \\\\angle. Formulele se pun între $...$.`;
 
-const FIDELITY = `Fidelitate față de modele: respectă cât mai fidel exercițiile-model din baza de date — preia structura, tipul și stilul, iar unde e potrivit chiar formularea, schimbând DOAR minim datele (numere, notații, coeficienți). Nu introduce tipuri de itemi care nu apar în modele. La geometrie, include și FIGURA: descrie-o clar în enunț (puncte, laturi, unghiuri, măsuri) așa cum apare în model, ca elevul să o poată desena.`;
+const FIDELITY = `Fidelitate față de modele: respectă cât mai fidel exercițiile-model din baza de date — preia structura, tipul și stilul, iar unde e potrivit chiar formularea, schimbând DOAR minim datele (numere, notații, coeficienți). Nu introduce tipuri de itemi care nu apar în modele. Folosește „·" (\\cdot) pentru înmulțire, niciodată × sau x. La geometrie, include și FIGURA: descrie-o clar în enunț (puncte, laturi, unghiuri, măsuri) așa cum apare în model, ca elevul să o poată desena.`;
 
 function buildENSystem(examples) {
   return `${ai.PERSONA}
@@ -210,8 +210,8 @@ module.exports = async function handler(req, res) {
 
     const { text, usage } = await ai.chat({
       system,
-      messages: [{ role: 'user', content: 'Generează testul complet acum, în format JSON.' }],
-      temperature: 0.6, maxTokens: 5000, json: true,
+      messages: [{ role: 'user', content: `Generează testul complet acum, în format JSON. Fă-l DIFERIT de variantele anterioare (alte numere, alte enunțuri). Variantă #${Math.random().toString(36).slice(2, 8)}.` }],
+      temperature: 0.85, maxTokens: 5000, json: true,
     });
     await ai.logUsage(supa, userId, 'ai-exam', usage);
 

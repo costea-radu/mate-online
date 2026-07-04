@@ -71,8 +71,8 @@ Cerințe:
 
   const { text, usage } = await ai.chat({
     system,
-    messages: [{ role: 'user', content: 'Generează exercițiul acum în format JSON.' }],
-    temperature: 0.8, maxTokens: 1100, json: true,
+    messages: [{ role: 'user', content: `Generează exercițiul acum în format JSON. Fă-l DIFERIT de cele anterioare (alte numere, alt context). #${Math.random().toString(36).slice(2, 8)}.` }],
+    temperature: 0.95, maxTokens: 1100, json: true,
   });
   await ai.logUsage(supa, userId, 'ai-practice:generate', usage);
 

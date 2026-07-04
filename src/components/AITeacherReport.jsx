@@ -10,6 +10,7 @@ import EinsteinIcon from './EinsteinIcon';
 
 const color = (m) => (m >= 0.75 ? '#27ae60' : m >= 0.4 ? '#e8b931' : '#e74c3c');
 const pct = (m) => Math.round((m || 0) * 100) + '%';
+const medal = (i) => (i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`);
 
 export default function AITeacherReport() {
   const [groupId, setGroupId] = useState('');
@@ -104,6 +105,50 @@ export default function AITeacherReport() {
         </>
       )}
 
+      {/* Clasamente: grupe + elevi pe grupe */}
+      {data && data.leaderboard && (data.leaderboard.groupRanking.length > 0 || data.leaderboard.ungrouped.length > 0) && (
+        <div style={card}>
+          <h4 style={{ color: 'var(--navy)', marginBottom: 10 }}>🏆 Clasamente</h4>
+          {data.leaderboard.groupRanking.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.85rem', marginBottom: 6 }}>Clasament grupe (după stăpânirea medie)</div>
+              {data.leaderboard.groupRanking.map((g, i) => (
+                <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 10px', background: i === 0 ? 'rgba(232,185,49,.15)' : '#f7f9fc', borderRadius: 7, marginBottom: 4, fontSize: '.85rem' }}>
+                  <span style={{ color: 'var(--navy)', fontWeight: 600 }}>{medal(i)} {g.name} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({g.count} elevi)</span></span>
+                  <span style={{ color: 'var(--text-muted)' }}>{g.avgMastery != null ? pct(g.avgMastery) : '—'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {data.leaderboard.groups.map((g) => (
+            <details key={g.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 12px', marginBottom: 8 }}>
+              <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--navy)', fontSize: '.85rem' }}>{g.name} — clasament elevi</summary>
+              <div style={{ marginTop: 8 }}>
+                {g.students.map((s, i) => (
+                  <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px', background: '#f7f9fc', borderRadius: 6, marginBottom: 3, fontSize: '.83rem' }}>
+                    <span style={{ color: 'var(--navy)' }}>{medal(i)} {s.name}</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{s.avgMastery != null ? pct(s.avgMastery) : '— (fără date)'}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          ))}
+          {data.leaderboard.ungrouped.length > 0 && (
+            <details style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 12px' }}>
+              <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--navy)', fontSize: '.85rem' }}>Fără grupă — clasament elevi</summary>
+              <div style={{ marginTop: 8 }}>
+                {data.leaderboard.ungrouped.map((s, i) => (
+                  <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px', background: '#f7f9fc', borderRadius: 6, marginBottom: 3, fontSize: '.83rem' }}>
+                    <span style={{ color: 'var(--navy)' }}>{medal(i)} {s.name}</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{s.avgMastery != null ? pct(s.avgMastery) : '— (fără date)'}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+
       {/* Teme trimise elevilor */}
       <div style={card}>
         <h4 style={{ color: 'var(--navy)', marginBottom: 4 }}>📤 Exerciții trimise elevilor</h4>
@@ -135,7 +180,6 @@ export default function AITeacherReport() {
                 ) : <div style={{ marginTop: 8, fontSize: '.8rem', color: 'var(--text-muted)' }}>Niciun elev nu a rezolvat încă.</div>}
 
                 <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <SendToOne assignmentId={a.id} students={students} />
                   <button onClick={() => deleteAssignment(a.id)}
                     style={{ marginLeft: 'auto', background: 'none', border: '1px solid #f5c6cb', color: '#c0392b', borderRadius: 7, padding: '4px 9px', fontSize: '.76rem', fontWeight: 600, cursor: 'pointer' }}>
                     🗑 Șterge tema

@@ -58,12 +58,14 @@ Reguli:
 - Poți face și întrebări cu răspuns liber: OMITE "options" și pune "answer" ca text (ex: "12" sau "x=3").
 - Respectă cât mai fidel exercițiile-model (tip, stil, dificultate), schimbând doar minim datele.
 - Subiect: ${topic || 'potrivit categoriei'}${category ? ' · categoria ' + category : ''}. Dificultate: ${difficulty}.
+- Folosește „·" (\\cdot în LaTeX) pentru înmulțire, NICIODATĂ × sau litera x.
+- Variază: la cereri repetate pentru același model, generează exerciții DIFERITE (alte valori, alt context).
 - IMPORTANT JSON valid: scrie fiecare backslash din LaTeX de DOUĂ ori. Ex: pentru fracție "$\\\\frac{1}{2}$", radical "$\\\\sqrt{9}$".`;
 
     const { text, usage } = await ai.chat({
       system,
-      messages: [{ role: 'user', content: 'Generează array-ul JSON cu cele 5 întrebări acum.' }],
-      temperature: 0.6, maxTokens: 2200, json: true,
+      messages: [{ role: 'user', content: `Generează array-ul JSON cu cele 5 întrebări acum. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
+      temperature: 0.9, maxTokens: 2200, json: true,
     });
     await ai.logUsage(supa, userId, 'ai-generate-interactive', usage);
 

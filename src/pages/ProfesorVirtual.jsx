@@ -33,7 +33,6 @@ export default function ProfesorVirtual() {
   const TABS = [
     { id: 'chat', label: '💬 Întreabă profesorul' },
     { id: 'exam', label: '📄 Generează subiect examen' },
-    { id: 'practice', label: '✍️ Exerciții de antrenament' },
     { id: 'interactive', label: '🧩 Generează interactiv' },
     { id: 'library', label: '📚 Testele și exercițiile mele' },
     ...(showProgress ? [{ id: 'progress', label: '📈 Progresul meu' }] : []),
@@ -80,7 +79,6 @@ export default function ProfesorVirtual() {
               <ChatPanel />
             </div>
           )}
-          {tab === 'practice' && <PracticeTab />}
           {tab === 'interactive' && <InteractiveTab />}
           {tab === 'exam' && <ExamGenerator canManage={isTeacher} />}
           {tab === 'library' && <LibraryTab />}
@@ -401,9 +399,27 @@ function InteractiveTab() {
     setLoading(true); setError(null); setUpsell(false); setQuestions(null); setSavedScore(null); setEditing(false); setPublishMsg(null);
     try {
       const res = await aiClient.generateInteractive({ category: category || null, topic, difficulty });
-      setQuestions(res.questions || []); setTitle(res.title || 'Exercițiu interactiv');
+      const qs = res.questions || [];
+      const t = res.title || 'Exercițiu interactiv';
+      setQuestions(qs); setTitle(t);
+      // salvează în „Testele și exercițiile mele"
+      try { await aiClient.saveLibraryItem({ kind: 'interactive', title: t, category: category || null, topic: topic || null, payload: { questions: qs } }); } catch { /* ignore */ }
     } catch (e) { setError(e.message); if (e.premium) setUpsell(true); }
     finally { setLoading(false); }
+  }
+
+  // Export PDF al întrebărilor (fostul „antrenament" e integrat aici)
+  function exportPdf(withSolutions) {
+    if (!questions || !questions.length) return;
+    const exItems = questions.map((qq, i) => {
+      const hasOpts = Array.isArray(qq.options) && qq.options.length;
+      return {
+        number: String(i + 1), statement: qq.statement, options: hasOpts ? qq.options : undefined,
+        answer: hasOpts ? String.fromCharCode(97 + (Number(qq.answer) || 0)) : String(qq.answer ?? ''),
+        solution: qq.explanation || '', points: null,
+      };
+    });
+    printExam({ title, durationMin: 30, totalPoints: null, oficiu: null, subjects: [{ label: 'Exerciții', points: null, items: exItems }] }, { withSolutions });
   }
 
   // editare structurată
@@ -496,6 +512,8 @@ function InteractiveTab() {
           )}
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            <button className="btn btn-outline btn-sm" onClick={() => exportPdf(false)}>📄 Export PDF</button>
+            <button className="btn btn-outline btn-sm" onClick={() => exportPdf(true)}>📝 Cu răspunsuri</button>
             {(isTeacher || isParent) && (
               <SendToStudents create={() => aiClient.assignmentCreateInteractive({ questions, title, category: category || null, topic: topic || null })} />
             )}
@@ -514,28 +532,14 @@ function InteractiveTab() {
 }
 
 function LibraryTab() {
+  const { isTeacher } = useAuth();
   const [items, setItems] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(null); // item complet deschis (interactiv)
 
   async function load() { setLoading(true); setItems(await aiClient.listLibrary()); setLoading(false); }
   useEffect(() => { load(); }, []);
 
-  // scor la re-rezolvarea unui interactiv din bibliotecă
-  useEffect(() => {
-    async function onMsg(e) {
-      if (!e.data || e.data.type !== 'MATE_SCORE' || !open) return;
-      const { score, maxScore } = e.data;
-      if (typeof score !== 'number' || typeof maxScore !== 'number' || maxScore <= 0) return;
-      try { await aiClient.updateLibraryScore(open.id, score, maxScore); await load(); } catch { /* ignore */ }
-    }
-    window.addEventListener('message', onMsg);
-    return () => window.removeEventListener('message', onMsg);
-  }, [open]);
-
-  async function openItem(it) { setOpen(await aiClient.getLibraryItem(it.id)); }
-  async function remove(id) { await aiClient.deleteLibraryItem(id); setItems((x) => (x || []).filter((i) => i.id !== id)); if (open?.id === id) setOpen(null); }
-  function openExamPdf(it, withSol) { aiClient.getLibraryItem(it.id).then((full) => { if (full?.payload?.exam) printExam(full.payload.exam, { withSolutions: withSol }); }); }
+  async function remove(id) { await aiClient.deleteLibraryItem(id); setItems((x) => (x || []).filter((i) => i.id !== id)); }
 
   const card = { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 18 };
   if (loading) return <div style={{ padding: 40, textAlign: 'center' }}><div className="spinner" /></div>;
@@ -543,62 +547,130 @@ function LibraryTab() {
   return (
     <div>
       {(!items || items.length === 0) ? (
-        <div style={card}><p style={{ color: 'var(--text-muted)', fontSize: '.9rem', margin: 0 }}>Aici apar testele și exercițiile interactive pe care le generezi și le rezolvi. Încă nu ai niciunul.</p></div>
+        <div style={card}><p style={{ color: 'var(--text-muted)', fontSize: '.9rem', margin: 0 }}>Aici apar testele și exercițiile interactive pe care le generezi. Încă nu ai niciunul.</p></div>
       ) : (
         <div style={card}>
           <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>📚 Testele și exercițiile mele</h3>
-          <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 14 }}>Private — vizibile doar pentru tine.</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {items.map((it) => (
-              <div key={it.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 12px', background: '#f7f9fc', borderRadius: 10, flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '.9rem' }}>
-                    {it.kind === 'exam' ? '📄' : it.kind === 'practice' ? '✍️' : '🧩'} {it.title || (it.kind === 'exam' ? 'Test' : it.kind === 'practice' ? 'Exercițiu' : 'Exercițiu interactiv')}
-                  </div>
-                  <div style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>
-                    {new Date(it.created_at).toLocaleDateString('ro-RO')}
-                    {it.score != null && it.max_score ? ` · scor ${it.score}/${it.max_score}` : ''}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {it.kind === 'exam' ? (
-                    <>
-                      <button className="btn btn-sm btn-outline" onClick={() => openExamPdf(it, false)}>📄 PDF</button>
-                      <button className="btn btn-sm btn-outline" onClick={() => openExamPdf(it, true)}>📝 Barem</button>
-                    </>
-                  ) : (
-                    <button className="btn btn-sm btn-outline" onClick={() => openItem(it)}>▶ {it.kind === 'practice' ? 'Vezi' : 'Redeschide'}</button>
-                  )}
-                  <button className="btn btn-sm" style={{ color: '#c0392b' }} onClick={() => remove(it.id)}>🗑</button>
-                </div>
-              </div>
-            ))}
+          <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 14 }}>Private — vizibile doar pentru tine. {isTeacher ? 'Le poți deschide, edita și trimite elevilor ca temă.' : ''}</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {items.map((it) => <LibItem key={it.id} it={it} isTeacher={isTeacher} onRemove={() => remove(it.id)} />)}
           </div>
         </div>
       )}
+    </div>
+  );
+}
 
-      {open && open.kind === 'interactive' && open.payload?.html && (
-        <div style={card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <strong style={{ color: 'var(--navy)' }}>{open.title}</strong>
-            <button className="btn btn-sm btn-outline" onClick={() => setOpen(null)}>✕ Închide</button>
+function LibItem({ it, isTeacher, onRemove }) {
+  const [open, setOpen] = useState(false);
+  const [full, setFull] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [qs, setQs] = useState(null);
+  const [msg, setMsg] = useState(null);
+
+  async function toggle() {
+    if (open) { setOpen(false); return; }
+    if (!full) { const f = await aiClient.getLibraryItem(it.id); setFull(f); setQs(f?.payload?.questions ? structuredClone(f.payload.questions) : null); }
+    setOpen(true);
+  }
+  function openExamPdf(withSol) { aiClient.getLibraryItem(it.id).then((f) => { if (f?.payload?.exam) printExam(f.payload.exam, { withSolutions: withSol }); }); }
+
+  // scor la re-rezolvarea interactivului
+  useEffect(() => {
+    function onMsg(e) {
+      if (!e.data || e.data.type !== 'MATE_SCORE' || !open) return;
+      const { score, maxScore } = e.data;
+      if (typeof score === 'number' && typeof maxScore === 'number' && maxScore > 0) aiClient.updateLibraryScore(it.id, score, maxScore).catch(() => {});
+    }
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, [open, it.id]);
+
+  const patchQ = (i, patch) => setQs((a) => a.map((q, idx) => (idx === i ? { ...q, ...patch } : q)));
+  const patchOpt = (i, oi, v) => setQs((a) => a.map((q, idx) => { if (idx !== i) return q; const o = [...(q.options || [])]; o[oi] = v; return { ...q, options: o }; }));
+  const addQ = () => setQs((a) => [...(a || []), { statement: 'Enunț nou', options: ['', '', '', ''], answer: 0, explanation: '' }]);
+  const delQ = (i) => setQs((a) => a.filter((_, idx) => idx !== i));
+
+  const row = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' };
+  const box = { background: '#f7f9fc', borderRadius: 10, padding: '10px 12px' };
+  const ta = { width: '100%', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 7px', fontSize: '.8rem', marginTop: 3, marginBottom: 3 };
+  const icon = it.kind === 'exam' ? '📄' : it.kind === 'practice' ? '✍️' : '🧩';
+
+  return (
+    <div style={box}>
+      <div style={row}>
+        <div>
+          <div style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '.9rem' }}>{icon} {it.title || 'Exercițiu'}</div>
+          <div style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>
+            {new Date(it.created_at).toLocaleDateString('ro-RO')}{it.score != null && it.max_score ? ` · scor ${it.score}/${it.max_score}` : ''}
           </div>
-          <iframe title="reluare" srcDoc={open.payload.html} style={{ width: '100%', height: 520, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
         </div>
-      )}
-
-      {open && open.kind === 'practice' && (
-        <div style={card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <strong style={{ color: 'var(--navy)' }}>{open.title}</strong>
-            <button className="btn btn-sm btn-outline" onClick={() => setOpen(null)}>✕ Închide</button>
-          </div>
-          <div style={{ fontSize: '.95rem', color: 'var(--navy)', marginBottom: 10 }}><MathText text={open.payload?.statement || ''} /></div>
-          {open.payload?.solution && (
-            <details><summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--navy)', fontSize: '.88rem' }}>Vezi rezolvarea</summary>
-              <div style={{ marginTop: 8, fontSize: '.9rem', lineHeight: 1.6 }}><MathText text={open.payload.solution} /></div>
-            </details>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {it.kind === 'exam' ? (
+            <>
+              <button className="btn btn-sm btn-outline" onClick={() => openExamPdf(false)}>📄 PDF</button>
+              <button className="btn btn-sm btn-outline" onClick={() => openExamPdf(true)}>📝 Barem</button>
+            </>
+          ) : (
+            <button className="btn btn-sm btn-outline" onClick={toggle}>{open ? '✕ Închide' : '▶ Deschide'}</button>
           )}
+          <button className="btn btn-sm" style={{ color: '#c0392b' }} onClick={onRemove}>🗑</button>
+        </div>
+      </div>
+
+      {open && full && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+          {full.kind === 'interactive' && !editing && (full.payload?.questions || full.payload?.html) && (
+            <iframe title="reluare" srcDoc={full.payload.questions ? renderQuiz(full.title, qs || full.payload.questions) : full.payload.html} style={{ width: '100%', height: 500, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
+          )}
+
+          {full.kind === 'interactive' && editing && qs && (
+            <div style={{ maxHeight: 380, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+              {qs.map((q, i) => (
+                <div key={i} style={{ padding: 8, background: '#fff', borderRadius: 8, marginBottom: 8, border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '.74rem', color: 'var(--text-muted)' }}>Întrebarea {i + 1}</span>
+                    <button onClick={() => delQ(i)} style={{ background: 'none', border: '1px solid #f5c6cb', color: '#c0392b', borderRadius: 6, padding: '1px 7px', fontSize: '.72rem', cursor: 'pointer' }}>🗑</button>
+                  </div>
+                  <textarea rows={2} value={q.statement} onChange={(e) => patchQ(i, { statement: e.target.value })} style={ta} placeholder="Enunț" />
+                  {Array.isArray(q.options) && q.options.map((o, oi) => (
+                    <input key={oi} value={o} onChange={(e) => patchOpt(i, oi, e.target.value)} style={ta} placeholder={`Varianta ${String.fromCharCode(97 + oi)})`} />
+                  ))}
+                  {Array.isArray(q.options) && (
+                    <input value={q.answer} onChange={(e) => patchQ(i, { answer: Number(e.target.value) })} style={ta} placeholder="Index răspuns corect (0-3)" />
+                  )}
+                </div>
+              ))}
+              <button className="btn btn-sm btn-outline" onClick={addQ}>➕ Adaugă întrebare</button>
+            </div>
+          )}
+
+          {full.kind === 'practice' && (
+            <div>
+              <div style={{ fontSize: '.95rem', color: 'var(--navy)', marginBottom: 10 }}><MathText text={full.payload?.statement || ''} /></div>
+              {full.payload?.solution && <details><summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--navy)', fontSize: '.88rem' }}>Vezi rezolvarea</summary><div style={{ marginTop: 8 }}><MathText text={full.payload.solution} /></div></details>}
+            </div>
+          )}
+
+          {/* Control profesor pentru interactive: editează + trimite + publică */}
+          {isTeacher && full.kind === 'interactive' && qs && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+              <button className="btn btn-sm btn-outline" onClick={() => setEditing((e) => !e)}>{editing ? '✓ Gata editarea' : '✏️ Editează (text)'}</button>
+              {editing && (
+                <button className="btn btn-sm btn-primary" onClick={async () => {
+                  setMsg(null);
+                  try {
+                    await aiClient.updateLibraryItem(it.id, { payload: { ...(full.payload || {}), questions: qs }, title: full.title });
+                    setFull((f) => ({ ...f, payload: { ...(f.payload || {}), questions: qs } }));
+                    setMsg('✅ Modificările au fost salvate.');
+                  } catch (e) { setMsg('Eroare: ' + e.message); }
+                }}>💾 Salvează modificările</button>
+              )}
+              <SendToStudents label="📤 Trimite elevilor" create={() => aiClient.assignmentCreateInteractive({ questions: qs, title: full.title, category: full.category || null, topic: full.topic || null })} />
+              <button className="btn btn-sm btn-outline" onClick={async () => { setMsg(null); try { await aiClient.publicPublish({ kind: 'interactive', title: full.title, category: full.category || null, topic: full.topic || null, payload: { questions: qs } }); setMsg('✅ Publicat public.'); } catch (e) { setMsg('Eroare: ' + e.message); } }}>🏛️ Publică</button>
+            </div>
+          )}
+          {msg && <div style={{ marginTop: 8, fontSize: '.82rem', color: msg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{msg}</div>}
         </div>
       )}
     </div>

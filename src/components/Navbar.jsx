@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import AINotifications from './AINotifications';
+import EinsteinIcon from './EinsteinIcon';
 
 const CLASE = [
   { to: '/clase/5',  label: 'Clasa a V-a' },
@@ -20,6 +21,21 @@ const EXAMENE = [
   { to: '/bacalaureat/mate-info',   label: 'Bacalaureat Mate-Info' },
   { to: '/bacalaureat/stiinte-naturii', label: 'Bacalaureat Șt. Naturii' },
   { to: '/bacalaureat/tehnologic',  label: 'Bacalaureat Tehnologic' },
+];
+
+// „Mai multe" — pentru aerisirea barei principale
+const MAIMULTE = [
+  { to: '/preturi',                    label: '💳 Prețuri' },
+  { to: '/rezolvari',                  label: '📝 Rezolvări' },
+  { to: '/biblioteca-utilizatorilor',  label: '🏛️ Biblioteca utilizatorilor' },
+  { to: '/profesor-virtual',           label: '🎓 Profesor Virtual' },
+  { to: '/despre-noi',                 label: 'Despre noi' },
+  { to: '/faq',                        label: 'Întrebări frecvente' },
+  { to: '/contact',                    label: 'Contact' },
+  { to: '/termeni-conditii',           label: 'Termeni și condiții' },
+  { to: '/politica-confidentialitate', label: 'Confidențialitate' },
+  { to: '/politica-cookies',           label: 'Politica de cookie-uri' },
+  { to: '/politica-retur',             label: 'Politica de retur' },
 ];
 
 // ─── Desktop dropdown ─────────────────────────────────────────────────────────
@@ -420,8 +436,8 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, forumUnread = 0, 
         <Link to="/rezolvari" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/rezolvari' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           📝 Rezolvări
         </Link>
-        <Link to="/profesor-virtual" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/profesor-virtual' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-          🎓 Profesor Virtual
+        <Link to="/profesor-virtual" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/profesor-virtual' ? 'var(--gold)' : 'rgba(255,255,255,0.88)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <EinsteinIcon size={20} /> Profesor Virtual
         </Link>
         <Link to="/biblioteca-utilizatorilor" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/biblioteca-utilizatorilor' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           🏛️ Biblioteca utilizatorilor
@@ -599,16 +615,6 @@ export default function Navbar() {
               </Link>
             </li>
             <li>
-              <Link to="/preturi" className={location.pathname === '/preturi' ? 'active' : ''}>
-                Prețuri
-              </Link>
-            </li>
-            <li>
-              <Link to="/rezolvari" className={location.pathname === '/rezolvari' ? 'active' : ''}>
-                📝 Rezolvări
-              </Link>
-            </li>
-            <li>
               <Link
                 to="/discutii"
                 className={`${location.pathname === '/discutii' ? 'active' : ''}${forumHasNew ? ' forum-has-new' : ''}`.trim()}
@@ -622,6 +628,7 @@ export default function Navbar() {
                 )}
               </Link>
             </li>
+            <li><DesktopDropdown label="Mai multe" items={MAIMULTE} /></li>
           </ul>
 
           {/* Desktop auth buttons */}
