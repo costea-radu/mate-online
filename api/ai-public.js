@@ -18,6 +18,24 @@ function buildSearchText(kind, title, topic, payload) {
   return parts.join(' ').slice(0, 4000);
 }
 
+// Menține mereu (până la) 3 teste gratuite: dacă sunt sub 3, promovează cele
+// mai vechi teste ne-gratuite până se ajunge la 3. Idempotent — nu face nimic
+// dacă deja sunt 3 (sau mai puține teste în total).
+async function ensureThreeFree(supa) {
+  try {
+    const { count } = await supa.from('ai_public_library')
+      .select('*', { count: 'exact', head: true }).eq('is_free', true);
+    const need = 3 - (count || 0);
+    if (need > 0) {
+      const { data: cand } = await supa.from('ai_public_library')
+        .select('id').eq('is_free', false).order('created_at', { ascending: true }).limit(need);
+      if (cand && cand.length) {
+        await supa.from('ai_public_library').update({ is_free: true }).in('id', cand.map((c) => c.id));
+      }
+    }
+  } catch { /* ignoră */ }
+}
+
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -29,6 +47,7 @@ module.exports = async function handler(req, res) {
 
     if (action === 'list') {
       const { q = '', category = null, limit = 60 } = req.body || {};
+      await ensureThreeFree(supa); // autocorectează la 3 gratuite
       let query = supa.from('ai_public_library')
         .select('id, kind, title, category, topic, creator_name, creator_role, created_by, is_free, created_at')
         .order('is_free', { ascending: false })
@@ -105,6 +124,7 @@ module.exports = async function handler(req, res) {
         search_text: buildSearchText(kind, finalTitle, topic, payload),
       }).select('id, title').single();
       if (error) return res.status(500).json({ error: error.message });
+      await ensureThreeFree(supa);
       return res.status(200).json({ id: data.id, title: data.title });
     }
 
@@ -131,22 +151,7 @@ module.exports = async function handler(req, res) {
       if (!row) return res.status(404).json({ error: 'Nu există.' });
       if (row.created_by !== userId && !profile.is_admin) return res.status(403).json({ error: 'Nu poți șterge.' });
       await supa.from('ai_public_library').delete().eq('id', id);
-
-      // Menține mereu (până la) 3 teste gratuite: dacă a scăzut sub 3,
-      // promovează cele mai vechi teste ne-gratuite până se ajunge la 3.
-      try {
-        const { count: freeCount } = await supa.from('ai_public_library')
-          .select('*', { count: 'exact', head: true }).eq('is_free', true);
-        const need = 3 - (freeCount || 0);
-        if (need > 0) {
-          const { data: cand } = await supa.from('ai_public_library')
-            .select('id').eq('is_free', false).order('created_at', { ascending: true }).limit(need);
-          if (cand && cand.length) {
-            await supa.from('ai_public_library').update({ is_free: true }).in('id', cand.map((c) => c.id));
-          }
-        }
-      } catch { /* ignoră */ }
-
+      await ensureThreeFree(supa); // menține 3 gratuite
       return res.status(200).json({ ok: true });
     }
 
