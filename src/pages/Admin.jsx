@@ -1,3 +1,4 @@
+import { authHeaders } from '../lib/api';
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -629,7 +630,7 @@ function Dashboard() {
         // Folosim API route cu service role key pentru a ocoli RLS pe profiles
         const res = await fetch('/api/admin-stats', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: await authHeaders(),
           body: JSON.stringify({ userId: user.id }),
         });
         if (!res.ok) throw new Error('Eroare la încărcarea statisticilor');
@@ -704,7 +705,7 @@ function AdminRezolvari({ user, s }) {
 
   async function loadItems() {
     const res = await fetch('/api/rezolvari-admin', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: await authHeaders(),
       body: JSON.stringify({ action: 'list', adminId: user.id }),
     });
     const d = await res.json();
@@ -731,7 +732,7 @@ function AdminRezolvari({ user, s }) {
     if ((form.type === 'image' || form.type === 'pdf') && !form.file_url) { setMsg({ type: 'error', text: 'Încarcă un fișier.' }); return; }
     setLoading(true);
     const res = await fetch('/api/rezolvari-admin', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: await authHeaders(),
       body: JSON.stringify({ action: 'create', adminId: user.id, data: form }),
     });
     const d = await res.json();
@@ -743,7 +744,7 @@ function AdminRezolvari({ user, s }) {
   async function handleDelete(id) {
     if (!window.confirm('Ștergi această rezolvare?')) return;
     await fetch('/api/rezolvari-admin', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: await authHeaders(),
       body: JSON.stringify({ action: 'delete', adminId: user.id, id }),
     });
     loadItems();

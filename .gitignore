@@ -1,0 +1,23 @@
+# Dependențe
+node_modules/
+
+# Build
+dist/
+.vercel/
+
+# Variabile de mediu (NU comite chei!)
+.env
+.env.*
+!.env.ai.example
+
+# Loguri / unelte
+*.log
+npm-debug.log*
+jscpd-out/
+coverage/
+
+# Sistem
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

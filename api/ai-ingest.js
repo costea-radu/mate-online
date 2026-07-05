@@ -208,7 +208,8 @@ module.exports = async function handler(req, res) {
 
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
-    const { userId, action = 'process' } = req.body || {};
+    const userId = await ai.authUser(req, supa);
+    const { action = 'process' } = req.body || {};
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) return res.status(403).json({ error: 'Doar administratorii pot indexa.' });
 

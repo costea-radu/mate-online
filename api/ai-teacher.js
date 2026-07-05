@@ -45,7 +45,8 @@ module.exports = async function handler(req, res) {
 
   const supa = ai.admin();
   try {
-    const { userId, studentId, groupId } = req.body || {};
+    const userId = await ai.authUser(req, supa);
+    const { studentId, groupId } = req.body || {};
     const action = req.body?.action || (studentId ? 'student' : 'report');
     const teacher = await ai.requireUser(supa, userId);
     const callerRole = teacher.role === 'parinte' ? 'parinte' : 'profesor';

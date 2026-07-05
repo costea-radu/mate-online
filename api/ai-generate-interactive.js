@@ -27,7 +27,8 @@ module.exports = async function handler(req, res) {
 
   const supa = ai.admin();
   try {
-    const { userId, category = null, topic = '', difficulty = 'mediu' } = req.body || {};
+    const userId = await ai.authUser(req, supa);
+    const { category = null, topic = '', difficulty = 'mediu' } = req.body || {};
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) ai.requirePremium(profile);
     await ai.enforceRateLimit(supa, userId);

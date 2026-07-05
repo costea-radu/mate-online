@@ -32,7 +32,8 @@ module.exports = async function handler(req, res) {
 
 // ─── Generează un exercițiu nou, de tipul celor din baza de date ─────────────
 async function generate(req, res, supa) {
-  const { userId, category = null, topic = '', difficulty = 'mediu' } = req.body || {};
+  const userId = await ai.authUser(req, supa);
+  const { category = null, topic = '', difficulty = 'mediu' } = req.body || {};
   const profile = await ai.requireUser(supa, userId);
   await ai.enforceRateLimit(supa, userId);
   await ai.enforceFreeQuota(supa, profile);
@@ -107,7 +108,8 @@ Cerințe:
 
 // ─── Verifică rezolvarea elevului ────────────────────────────────────────────
 async function check(req, res, supa) {
-  const { userId, token, studentAnswer = '', studentWork = '' } = req.body || {};
+  const userId = await ai.authUser(req, supa);
+  const { token, studentAnswer = '', studentWork = '' } = req.body || {};
   const profile = await ai.requireUser(supa, userId);
   await ai.enforceRateLimit(supa, userId);
   await ai.enforceFreeQuota(supa, profile);
@@ -187,7 +189,8 @@ Răspunde STRICT cu JSON:
 // ─── Dezvăluie exercițiul complet (pentru export PDF / interactiv) ───────────
 // Doar pentru abonați. Întoarce enunțul + răspunsul + rezolvarea din token.
 async function reveal(req, res, supa) {
-  const { userId, token } = req.body || {};
+  const userId = await ai.authUser(req, supa);
+  const { token } = req.body || {};
   const profile = await ai.requireUser(supa, userId);
   ai.requirePremium(profile);
   const data = ai.verifyToken(token);

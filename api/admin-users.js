@@ -1,46 +1,22 @@
-const { createClient } = require('@supabase/supabase-js');
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Content-Type': 'application/json',
-};
+// api/admin-users.js — listă utilizatori (doar admin)
+const { admin, handledMethod, authUser, requireAdmin } = require('./_lib/http');
 
 module.exports = async function handler(req, res) {
-  Object.entries(CORS_HEADERS).forEach(([key, val]) => res.setHeader(key, val));
+  if (handledMethod(req, res)) return;
+  const supabase = admin();
+  try {
+    const userId = await authUser(req, supabase);
+    await requireAdmin(supabase, userId);
 
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
+    const { data: users, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, subscription_status, is_admin, created_at')
+      .order('created_at', { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
 
-  const { userId } = req.body;
-  if (!userId) return res.status(400).json({ error: 'userId obligatoriu' });
-
-  const supabase = createClient(
-    process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  );
-
-  // Verifică că userul e admin
-  const { data: caller, error: callerErr } = await supabase
-    .from('profiles')
-    .select('is_admin')
-    .eq('id', userId)
-    .single();
-
-  if (callerErr || !caller?.is_admin) {
-    return res.status(403).json({ error: 'Acces interzis' });
+    return res.status(200).json({ users: users || [] });
+  } catch (err) {
+    console.error('admin-users error:', err);
+    return res.status(err.status || 500).json({ error: err.message || 'Eroare server' });
   }
-
-  // Returnează toți utilizatorii cu service_role (ocolește RLS)
-  const { data: users, error } = await supabase
-    .from('profiles')
-    .select('id, full_name, email, subscription_status, is_admin, created_at')
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    return res.status(500).json({ error: error.message });
-  }
-
-  return res.status(200).json({ users: users || [] });
 };

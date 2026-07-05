@@ -12,7 +12,8 @@ module.exports = async function handler(req, res) {
 
   const supa = ai.admin();
   try {
-    const { userId, audioBase64, mime = 'audio/webm' } = req.body || {};
+    const userId = await ai.authUser(req, supa);
+    const { audioBase64, mime = 'audio/webm' } = req.body || {};
     const profile = await ai.requireUser(supa, userId);
     await ai.enforceRateLimit(supa, userId);
     await ai.enforceFreeQuota(supa, profile);

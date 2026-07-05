@@ -195,7 +195,8 @@ module.exports = async function handler(req, res) {
 
   const supa = ai.admin();
   try {
-    const { userId, examType } = req.body || {};
+    const userId = await ai.authUser(req, supa);
+    const { examType } = req.body || {};
     const profile = await ai.requireUser(supa, userId);
     ai.requirePremium(profile); // generatorul de teste e doar pentru abonați
     await ai.enforceRateLimit(supa, userId);

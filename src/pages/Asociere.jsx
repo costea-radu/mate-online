@@ -1,3 +1,4 @@
+import { authHeaders } from '../lib/api';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -36,7 +37,7 @@ export default function Asociere() {
       try {
         const res = await fetch('/api/asociere', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: await authHeaders(),
           body: JSON.stringify({ userId: user.id, code }),
         });
         const data = await res.json();

@@ -3,6 +3,7 @@
 // Atașează automat userId din sesiunea Supabase la fiecare cerere.
 // =====================================================================
 import { supabase } from './supabase';
+import { authHeaders } from './api';
 
 async function uid() {
   const { data: { session } } = await supabase.auth.getSession();
@@ -14,7 +15,7 @@ async function post(path, body) {
   if (!userId) throw new Error('Trebuie să fii autentificat pentru a folosi Profesorul Virtual.');
   const res = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await authHeaders(),
     body: JSON.stringify({ userId, ...body }),
   });
   const data = await res.json().catch(() => ({}));
@@ -38,7 +39,7 @@ export const aiClient = {
     if (!userId) throw new Error('Trebuie să fii autentificat pentru a folosi Profesorul Virtual.');
     const res = await fetch('/api/ai-chat-stream', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await authHeaders(),
       body: JSON.stringify({ userId, message, mode, conversationId, context }),
     });
     if (!res.ok || !res.body) {

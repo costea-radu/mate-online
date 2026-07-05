@@ -42,7 +42,7 @@ export default function AssignmentSolver() {
   useEffect(() => {
     if (!task || task.kind !== 'interactive') return;
     async function onMsg(e) {
-      if (!e.data || e.data.type !== 'MATE_SCORE') return;
+      if (e.source === window || !e.data || e.data.type !== 'MATE_SCORE') return;
       const { score, maxScore } = e.data;
       if (typeof score !== 'number' || typeof maxScore !== 'number' || maxScore <= 0) return;
       setSavedScore({ score, maxScore });
@@ -92,7 +92,7 @@ export default function AssignmentSolver() {
               ✓ Rezultat trimis profesorului: {savedScore.score}/{savedScore.maxScore}
             </div>
           )}
-          <iframe title="tema" srcDoc={task.questions ? renderQuiz(task.title, task.questions) : task.html} style={{ width: '100%', height: 560, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
+          <iframe title="tema" sandbox="allow-scripts" srcDoc={task.questions ? renderQuiz(task.title, task.questions) : task.html} style={{ width: '100%', height: 560, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
         </div>
       ) : (
         <div style={card}>

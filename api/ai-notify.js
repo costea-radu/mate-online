@@ -116,7 +116,8 @@ module.exports = async function handler(req, res) {
     }
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
-    const { userId, action = 'list', id, notificationId, kind, all } = req.body || {};
+    const userId = await ai.authUser(req, supa);
+    const { action = 'list', id, notificationId, kind, all } = req.body || {};
     const profile = await ai.requireUser(supa, userId);
 
     if (action === 'list') {

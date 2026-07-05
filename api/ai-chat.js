@@ -14,7 +14,8 @@ module.exports = async function handler(req, res) {
 
   const supa = ai.admin();
   try {
-    const { userId, message, mode = 'tutor', conversationId, context = {} } = req.body || {};
+    const userId = await ai.authUser(req, supa);
+    const { message, mode = 'tutor', conversationId, context = {} } = req.body || {};
     if (!message || !message.trim()) return res.status(400).json({ error: 'message obligatoriu' });
 
     const profile = await ai.requireUser(supa, userId);

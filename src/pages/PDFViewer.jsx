@@ -1,3 +1,4 @@
+import { authHeaders } from '../lib/api';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -52,7 +53,7 @@ export default function PDFViewer() {
         if (!item.is_free) {
           const res = await fetch('/api/get-file-url', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: await authHeaders(),
             body: JSON.stringify({ userId: user.id, contentId: item.id }),
           });
           const data = await res.json();

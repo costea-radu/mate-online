@@ -7,8 +7,8 @@
 // Together, Groq, Azure, Ollama local etc.) — schimbi doar URL-ul + modelul.
 // =====================================================================
 
-const { createClient } = require('@supabase/supabase-js');
 const crypto = require('crypto');
+const http = require('./http'); // CORS, autentificare, admin — partajate
 
 // ─── Configurare furnizor (chat + embeddings sunt independente) ──────────────
 const CHAT_BASE  = process.env.AI_CHAT_BASE_URL  || 'https://api.openai.com/v1';
@@ -31,21 +31,9 @@ const RATE_PER_HOUR = parseInt(process.env.AI_RATE_PER_HOUR || '80', 10);
 const FREE_ACTIONS = parseInt(process.env.AI_FREE_ACTIONS || '1', 10); // acțiuni AI gratuite pentru cont fără abonament
 const SIGNING_SECRET = process.env.AI_SIGNING_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'dev-secret';
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, x-cron-secret',
-  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-  'Content-Type': 'application/json',
-};
-
-function applyCors(res) { Object.entries(CORS).forEach(([k, v]) => res.setHeader(k, v)); }
-
-function admin() {
-  return createClient(
-    process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  );
-}
+// CORS / applyCors / admin / authUser / requireAdmin / signedUrlFromPublic
+// vin din _lib/http.js (sursă unică, cu antetul Authorization inclus).
+const { CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic } = http;
 
 const hasEmbeddings = () => !!EMBED_KEY;
 const hasChat = () => !!CHAT_KEY;
@@ -394,7 +382,8 @@ function verifyToken(token) {
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
 module.exports = {
-  CORS, applyCors, admin, chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, PERSONA,
+  CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic,
+  chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, PERSONA,
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS,

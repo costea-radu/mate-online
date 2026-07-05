@@ -249,7 +249,7 @@ function InteractiveGenerator({ box }) {
             <input value={title} onChange={(e) => setTitle(e.target.value)} style={{ ...inp, marginBottom: 10 }} />
           </label>
           <div style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>Previzualizare (interacționează cu ea ca să testezi):</div>
-          <iframe title="preview" srcDoc={html} style={{ width: '100%', height: 460, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
+          <iframe title="preview" sandbox="allow-scripts" srcDoc={html} style={{ width: '100%', height: 460, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
           <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Se salvează...' : '💾 Salvează în conținut'}</button>
             <button className="btn btn-outline" onClick={gen} disabled={loading}>🔄 Regenerează</button>

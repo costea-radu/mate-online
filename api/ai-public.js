@@ -70,7 +70,8 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'get') {
-      const { userId, id } = req.body || {};
+      const userId = await ai.authUser(req, supa);
+      const { id } = req.body || {};
       if (!id) return res.status(400).json({ error: 'id obligatoriu' });
       const profile = await ai.requireUser(supa, userId);
       const { data } = await supa.from('ai_public_library').select('*').eq('id', id).single();
@@ -86,7 +87,8 @@ module.exports = async function handler(req, res) {
 
     // Admin: marchează/demarchează un test ca gratuit
     if (action === 'set_free') {
-      const { userId, id, isFree } = req.body || {};
+      const userId = await ai.authUser(req, supa);
+      const { id, isFree } = req.body || {};
       const profile = await ai.requireUser(supa, userId);
       if (!profile.is_admin) return res.status(403).json({ error: 'Doar adminul poate marca teste gratuite.' });
       if (!id) return res.status(400).json({ error: 'id obligatoriu' });
@@ -96,7 +98,8 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'publish') {
-      const { userId, kind, title, category = null, topic = null, payload = {} } = req.body || {};
+      const userId = await ai.authUser(req, supa);
+      const { kind, title, category = null, topic = null, payload = {} } = req.body || {};
       const profile = await ai.requireUser(supa, userId);
       // doar profesorii (sau admin) pot publica public
       if (!(profile.role === 'profesor' || profile.is_admin)) {
@@ -129,7 +132,8 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'record') {
-      const { userId, id, score = 0, maxScore = 100 } = req.body || {};
+      const userId = await ai.authUser(req, supa);
+      const { id, score = 0, maxScore = 100 } = req.body || {};
       await ai.requireUser(supa, userId);
       if (!id) return res.status(400).json({ error: 'id obligatoriu' });
       const sc = Math.max(0, parseInt(score, 10) || 0);
@@ -144,7 +148,8 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'delete') {
-      const { userId, id } = req.body || {};
+      const userId = await ai.authUser(req, supa);
+      const { id } = req.body || {};
       const profile = await ai.requireUser(supa, userId);
       if (!id) return res.status(400).json({ error: 'id obligatoriu' });
       const { data: row } = await supa.from('ai_public_library').select('created_by').eq('id', id).single();

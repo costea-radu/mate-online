@@ -1,3 +1,4 @@
+import { authHeaders } from '../lib/api';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -105,7 +106,7 @@ export default function Profile() {
         try {
           const res = await fetch('/api/asociere', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: await authHeaders(),
             body: JSON.stringify({ userId: user.id, code: pendingCode }),
           });
           const data = await res.json();
@@ -161,7 +162,7 @@ export default function Profile() {
     (async () => {
       try {
         const res = await fetch('/api/teacher-manage', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: await authHeaders(),
           body: JSON.stringify({ userId: user.id, action: 'my_mentors' }),
         });
         const json = await res.json();
@@ -196,7 +197,7 @@ export default function Profile() {
     try {
       const response = await fetch('/api/create-portal', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await authHeaders(),
         body: JSON.stringify({ userId: user.id }),
       });
 

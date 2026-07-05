@@ -1,3 +1,4 @@
+import { authHeaders } from '../lib/api';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -17,7 +18,7 @@ export default function Pricing() {
     try {
       const response = await fetch('/api/create-checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await authHeaders(),
         body: JSON.stringify({ userId: user.id, email: user.email }),
       });
 
@@ -51,7 +52,7 @@ export default function Pricing() {
     try {
       const response = await fetch('/api/create-portal', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await authHeaders(),
         body: JSON.stringify({ userId: user.id }),
       });
 

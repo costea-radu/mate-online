@@ -13,7 +13,8 @@ module.exports = async function handler(req, res) {
 
   const supa = ai.admin();
   try {
-    const { userId, action } = req.body || {};
+    const userId = await ai.authUser(req, supa);
+    const { action } = req.body || {};
     await ai.requireUser(supa, userId);
 
     if (action === 'check_username') {

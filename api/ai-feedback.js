@@ -11,7 +11,8 @@ module.exports = async function handler(req, res) {
 
   const supa = ai.admin();
   try {
-    const { userId, messageId, value, note = null } = req.body || {};
+    const userId = await ai.authUser(req, supa);
+    const { messageId, value, note = null } = req.body || {};
     await ai.requireUser(supa, userId);
     if (!messageId || ![1, -1].includes(value)) return res.status(400).json({ error: 'messageId și value (1 sau -1) obligatorii' });
 

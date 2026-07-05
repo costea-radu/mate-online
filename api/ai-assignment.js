@@ -37,7 +37,8 @@ module.exports = async function handler(req, res) {
 
 // ─── Creare temă (profesor, PĂRINTE sau abonat) ──────────────────────────────
 async function create(req, res, supa) {
-  const { userId, kind, title = null, category = null, topic = null, fromPublicId = null } = req.body || {};
+  const userId = await ai.authUser(req, supa);
+  const { kind, title = null, category = null, topic = null, fromPublicId = null } = req.body || {};
   const profile = await ai.requireUser(supa, userId);
   const creatorName = profile.full_name || profile.email || (profile.role === 'parinte' ? 'Părinte' : 'Profesor');
   const creatorRole = profile.role === 'parinte' ? 'parinte' : 'profesor';
@@ -112,7 +113,8 @@ async function create(req, res, supa) {
 
 // ─── Ștergere temă (doar creatorul) ──────────────────────────────────────────
 async function remove(req, res, supa) {
-  const { userId, id } = req.body || {};
+  const userId = await ai.authUser(req, supa);
+  const { id } = req.body || {};
   const profile = await ai.requireUser(supa, userId);
   if (!id) return res.status(400).json({ error: 'id obligatoriu' });
   const { data: a } = await supa.from('ai_assignments').select('created_by').eq('id', id).single();
@@ -124,7 +126,7 @@ async function remove(req, res, supa) {
 
 // ─── Lista elevilor mentorului (pentru trimitere directă) ─────────────────────
 async function students(req, res, supa) {
-  const { userId } = req.body || {};
+  const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
   const role = profile.role === 'parinte' ? 'parinte' : 'profesor';
   const { data: links } = await supa.from('mentor_students').select('student_id').eq('mentor_id', userId).eq('mentor_role', role);
@@ -141,7 +143,8 @@ async function students(req, res, supa) {
 
 // ─── Trimite tema direct unui elev (notificare cu link) ───────────────────────
 async function sendToStudent(req, res, supa) {
-  const { userId, assignmentId, studentId } = req.body || {};
+  const userId = await ai.authUser(req, supa);
+  const { assignmentId, studentId } = req.body || {};
   const profile = await ai.requireUser(supa, userId);
   if (!assignmentId || !studentId) return res.status(400).json({ error: 'assignmentId și studentId obligatorii' });
   const { data: a } = await supa.from('ai_assignments').select('created_by, title').eq('id', assignmentId).single();
@@ -165,7 +168,8 @@ async function sendToStudent(req, res, supa) {
 
 // ─── Deschidere temă de către elev (fără a dezvălui răspunsul) ────────────────
 async function getOne(req, res, supa) {
-  const { userId, id } = req.body || {};
+  const userId = await ai.authUser(req, supa);
+  const { id } = req.body || {};
   await ai.requireUser(supa, userId);
   if (!id) return res.status(400).json({ error: 'id obligatoriu' });
   const { data: a } = await supa.from('ai_assignments').select('*').eq('id', id).single();
@@ -184,7 +188,8 @@ async function getOne(req, res, supa) {
 
 // ─── Trimitere rezultat de către elev ────────────────────────────────────────
 async function submit(req, res, supa) {
-  const { userId, id, answer = '', work = '', score = null, maxScore = null } = req.body || {};
+  const userId = await ai.authUser(req, supa);
+  const { id, answer = '', work = '', score = null, maxScore = null } = req.body || {};
   const profile = await ai.requireUser(supa, userId);
   if (!id) return res.status(400).json({ error: 'id obligatoriu' });
   const { data: a } = await supa.from('ai_assignments').select('*').eq('id', id).single();
@@ -264,7 +269,7 @@ Răspunde STRICT cu JSON: {"correct":true/false,"score":0-100,"feedback":"...","
 
 // ─── Rezultate agregate pentru profesor (pentru raport) ──────────────────────
 async function results(req, res, supa) {
-  const { userId } = req.body || {};
+  const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
   if (!(profile.role === 'profesor' || profile.is_admin)) return res.status(403).json({ error: 'Doar profesorii.' });
 
@@ -302,7 +307,7 @@ async function results(req, res, supa) {
 
 // ─── Temele mele (listă scurtă) ──────────────────────────────────────────────
 async function mine(req, res, supa) {
-  const { userId } = req.body || {};
+  const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
   if (!(profile.role === 'profesor' || profile.is_admin)) return res.status(403).json({ error: 'Doar profesorii.' });
   const { data } = await supa.from('ai_assignments')

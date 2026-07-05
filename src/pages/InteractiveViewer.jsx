@@ -1,3 +1,4 @@
+import { authHeaders } from '../lib/api';
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -43,7 +44,7 @@ export default function InteractiveViewer() {
   useEffect(() => {
     async function handleMessage(event) {
       // Acceptăm mesaje de la orice origine (iframe e încărcat din Supabase Storage)
-      if (!event.data || event.data.type !== 'MATE_SCORE') return;
+      if (event.source === window || !event.data || event.data.type !== 'MATE_SCORE') return;
 
       const { score, maxScore } = event.data;
       if (typeof score !== 'number' || typeof maxScore !== 'number') return;
@@ -123,7 +124,7 @@ export default function InteractiveViewer() {
         if (!item.is_free) {
           const res = await fetch('/api/get-file-url', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: await authHeaders(),
             body: JSON.stringify({ userId: user.id, contentId: item.id }),
           });
           const data = await res.json();

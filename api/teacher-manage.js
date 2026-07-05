@@ -1,25 +1,20 @@
 const { createClient } = require('@supabase/supabase-js');
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Content-Type': 'application/json',
-};
+const { handledMethod, authUser } = require('./_lib/http');
 
 module.exports = async function handler(req, res) {
-  Object.entries(CORS_HEADERS).forEach(([key, val]) => res.setHeader(key, val));
+  if (handledMethod(req, res)) return;
 
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
-
-  const { userId, action } = req.body || {};
-  if (!userId || !action) return res.status(400).json({ error: 'userId și action obligatorii' });
+  const { action } = req.body || {};
+  if (!action) return res.status(400).json({ error: 'action obligatoriu' });
 
   const supabase = createClient(
     process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
+
+  let userId;
+  try { userId = await authUser(req, supabase); }
+  catch (e) { return res.status(e.status || 401).json({ error: e.message }); }
 
   // Listă de mentori (profesori/părinți) ai elevului curent — fără restricție de rol
   if (action === 'my_mentors') {

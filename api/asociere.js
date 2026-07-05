@@ -1,25 +1,14 @@
 const { createClient } = require('@supabase/supabase-js');
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Content-Type': 'application/json',
-};
+const { handledMethod, authUser } = require('./_lib/http');
 
 function normalizeCode(code) {
   return String(code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
 module.exports = async function handler(req, res) {
-  Object.entries(CORS_HEADERS).forEach(([key, val]) => res.setHeader(key, val));
+  if (handledMethod(req, res)) return;
 
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
-
-  const { userId, code } = req.body || {};
-  if (!userId) return res.status(400).json({ error: 'userId obligatoriu' });
-
+  const { code } = req.body || {};
   const normCode = normalizeCode(code);
   if (!normCode) return res.status(400).json({ error: 'Cod invalid.' });
 
@@ -27,6 +16,10 @@ module.exports = async function handler(req, res) {
     process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
+
+  let userId;
+  try { userId = await authUser(req, supabase); }
+  catch (e) { return res.status(e.status || 401).json({ error: e.message }); }
 
   // 1. Găsește mentorul (profesor sau părinte) după cod
   const { data: mentor, error: mentorErr } = await supabase

@@ -1,3 +1,4 @@
+import { authHeaders } from '../lib/api';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import StudentAIMastery from './StudentAIMastery';
 import AITeacherReport from './AITeacherReport';
@@ -377,7 +378,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
     setLoading(true); setError('');
     try {
       const res = await fetch('/api/teacher-students', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: await authHeaders(),
         body: JSON.stringify({ userId: user.id }),
       });
       const json = await res.json();
@@ -399,7 +400,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
     setBusy(true);
     try {
       const res = await fetch('/api/teacher-manage', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: await authHeaders(),
         body: JSON.stringify({ userId: user.id, action, ...payload }),
       });
       const json = await res.json();

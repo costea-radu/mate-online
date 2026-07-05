@@ -1,84 +1,56 @@
+// api/create-checkout.js — creează o sesiune Stripe Checkout (abonat nou)
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { createClient } = require('@supabase/supabase-js');
+const { admin, handledMethod, authUser } = require('./_lib/http');
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Content-Type': 'application/json',
-};
+// URL-ul site-ului: SITE_URL explicit; fallback pe VERCEL_URL (deployment).
+function siteUrl() {
+  return process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+}
 
 module.exports = async function handler(req, res) {
-  Object.entries(CORS_HEADERS).forEach(([key, val]) => res.setHeader(key, val));
-
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
-  }
-
+  if (handledMethod(req, res)) return;
+  const supabase = admin();
   try {
-    const { userId, email } = req.body;
+    const userId = await authUser(req, supabase);
 
-    if (!userId || !email) {
-      return res.status(400).json({ error: 'userId și email sunt obligatorii' });
-    }
-
-    // Verificăm dacă userul are deja un abonament activ
-    const supabase = createClient(
-      process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    );
-
+    // Email + status abonament din profilul REAL (nu din body).
     const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('subscription_status')
-      .eq('id', userId)
-      .single();
-
+      .from('profiles').select('subscription_status, email').eq('id', userId).single();
     if (profileError) {
       console.error('Supabase profile error:', profileError);
       return res.status(500).json({ error: 'Eroare la citirea profilului' });
     }
-
     if (profile?.subscription_status === 'active') {
       return res.status(400).json({ error: 'Ai deja un abonament activ.' });
     }
+    const email = profile?.email || req.body?.email;
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || `https://${process.env.VERCEL_URL}`;
-
+    const base = siteUrl();
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      // Nu specificăm payment_method_types — Stripe activează automat
-      // card, Apple Pay, Google Pay și orice altă metodă activată în Dashboard
       customer_email: email,
       metadata: { supabase_user_id: userId },
-      subscription_data: {
-        metadata: { supabase_user_id: userId },
-      },
-      line_items: [
-        {
-          price_data: {
-            currency: 'ron',
-            product_data: {
-              name: 'ExamenMate Premium',
-              description: 'Abonament lunar – acces complet la toate materialele',
-            },
-            unit_amount: 5000,
-            recurring: { interval: 'month' },
+      subscription_data: { metadata: { supabase_user_id: userId } },
+      line_items: [{
+        price_data: {
+          currency: 'ron',
+          product_data: {
+            name: 'ExamenMate Premium',
+            description: 'Abonament lunar – acces complet la toate materialele',
           },
-          quantity: 1,
+          unit_amount: 5000,
+          recurring: { interval: 'month' },
         },
-      ],
-      success_url: `${siteUrl}/profil?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl}/preturi`,
+        quantity: 1,
+      }],
+      success_url: `${base}/profil?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${base}/preturi`,
     });
 
     return res.status(200).json({ url: session.url });
   } catch (err) {
     console.error('Checkout error:', err);
-    return res.status(500).json({ error: err.message });
+    return res.status(err.status || 500).json({ error: err.message });
   }
 };

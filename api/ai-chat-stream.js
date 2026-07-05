@@ -23,7 +23,8 @@ module.exports = async function handler(req, res) {
   const send = (obj) => { try { res.write(JSON.stringify(obj) + '\n'); } catch { /* clientul a închis */ } };
 
   try {
-    const { userId, message, mode = 'tutor', conversationId, context = {} } = req.body || {};
+    const userId = await ai.authUser(req, supa);
+    const { message, mode = 'tutor', conversationId, context = {} } = req.body || {};
     if (!message || !message.trim()) { send({ type: 'error', error: 'message obligatoriu' }); return res.end(); }
 
     const profile = await ai.requireUser(supa, userId);

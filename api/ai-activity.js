@@ -22,7 +22,8 @@ module.exports = async function handler(req, res) {
 
   const supa = ai.admin();
   try {
-    const { userId, action = 'children', studentId } = req.body || {};
+    const userId = await ai.authUser(req, supa);
+    const { action = 'children', studentId } = req.body || {};
     const me = await ai.requireUser(supa, userId);
     if (!(me.is_admin || me.role === 'parinte' || me.role === 'profesor')) {
       return res.status(403).json({ error: 'Nu ai acces.' });

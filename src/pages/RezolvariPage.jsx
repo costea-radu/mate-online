@@ -1,3 +1,4 @@
+import { authHeaders } from '../lib/api';
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -54,7 +55,7 @@ function RezolvareCard({ item, user, isPremium }) {
   async function getSecureUrl(item, user) {
     if (item.is_free) return item.file_url;
     const res = await fetch('/api/rezolvare-url', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: await authHeaders(),
       body: JSON.stringify({ rezolvareId: item.id, userId: user?.id }),
     });
     const d = await res.json();

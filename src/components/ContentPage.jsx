@@ -1,3 +1,4 @@
+import { authHeaders } from '../lib/api';
 import { useState, useEffect, useRef } from 'react';
 import Discussions from './Discussions';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
@@ -75,7 +76,7 @@ function PreviewModal({ item, onClose }) {
           // Bucket privat — obținem signed URL pentru preview
           const r = await fetch('/api/get-preview-url', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: await authHeaders(),
             body: JSON.stringify({ contentId: item.id }),
           });
           const d = await r.json();

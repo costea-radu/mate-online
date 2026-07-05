@@ -12,7 +12,7 @@ module.exports = async function handler(req, res) {
 
   const supa = ai.admin();
   try {
-    const { userId } = req.body || {};
+    const userId = await ai.authUser(req, supa);
     await ai.requireUser(supa, userId);
 
     // 1. Stăpânirea competențelor (din antrenamentele cu AI).

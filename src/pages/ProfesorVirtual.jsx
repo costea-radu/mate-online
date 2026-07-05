@@ -387,7 +387,7 @@ function InteractiveTab() {
 
   useEffect(() => {
     function onMsg(e) {
-      if (!e.data || e.data.type !== 'MATE_SCORE') return;
+      if (e.source === window || !e.data || e.data.type !== 'MATE_SCORE') return;
       const { score, maxScore } = e.data;
       if (typeof score === 'number' && typeof maxScore === 'number' && maxScore > 0) setSavedScore({ score, maxScore });
     }
@@ -476,7 +476,7 @@ function InteractiveTab() {
           </div>
 
           {!editing && (
-            <iframe title="exercițiu" srcDoc={html} style={{ width: '100%', height: 520, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
+            <iframe title="exercițiu" sandbox="allow-scripts" srcDoc={html} style={{ width: '100%', height: 520, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
           )}
 
           {isTeacher && editing && (
@@ -578,7 +578,7 @@ function LibItem({ it, isTeacher, onRemove }) {
   // scor la re-rezolvarea interactivului
   useEffect(() => {
     function onMsg(e) {
-      if (!e.data || e.data.type !== 'MATE_SCORE' || !open) return;
+      if (e.source === window || !e.data || e.data.type !== 'MATE_SCORE' || !open) return;
       const { score, maxScore } = e.data;
       if (typeof score === 'number' && typeof maxScore === 'number' && maxScore > 0) aiClient.updateLibraryScore(it.id, score, maxScore).catch(() => {});
     }
@@ -621,7 +621,7 @@ function LibItem({ it, isTeacher, onRemove }) {
       {open && full && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
           {full.kind === 'interactive' && !editing && (full.payload?.questions || full.payload?.html) && (
-            <iframe title="reluare" srcDoc={full.payload.questions ? renderQuiz(full.title, qs || full.payload.questions) : full.payload.html} style={{ width: '100%', height: 500, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
+            <iframe title="reluare" sandbox="allow-scripts" srcDoc={full.payload.questions ? renderQuiz(full.title, qs || full.payload.questions) : full.payload.html} style={{ width: '100%', height: 500, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
           )}
 
           {full.kind === 'interactive' && editing && qs && (
