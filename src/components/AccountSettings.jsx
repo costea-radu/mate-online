@@ -39,7 +39,7 @@ export default function AccountSettings() {
       }
       const { error } = await supabase.from('profiles').update({ full_name: fullName.trim() || null, username: username.trim() || null }).eq('id', user.id);
       if (error) throw error;
-      await fetchProfile(); setPOk(true); setPMsg('✅ Profil salvat.');
+      await fetchProfile(user.id); setPOk(true); setPMsg('✅ Profil salvat.');
     } catch (e) { setPOk(false); setPMsg('Eroare: ' + e.message); }
   }
 
@@ -75,7 +75,7 @@ export default function AccountSettings() {
     try {
       const { error } = await supabase.from('profiles').update({ role }).eq('id', user.id);
       if (error) throw error;
-      await fetchProfile(); setROk(true); setRMsg('✅ Tipul contului a fost schimbat.');
+      await fetchProfile(user.id); setROk(true); setRMsg('✅ Tipul contului a fost schimbat.');
     } catch (e) { setROk(false); setRMsg('Eroare: ' + e.message); }
   }
 
@@ -83,7 +83,7 @@ export default function AccountSettings() {
   const [notif, setNotif] = useState(profile?.notifications_enabled !== false);
   async function toggleNotif() {
     const next = !notif; setNotif(next);
-    try { await supabase.from('profiles').update({ notifications_enabled: next }).eq('id', user.id); await fetchProfile(); } catch { setNotif(!next); }
+    try { await supabase.from('profiles').update({ notifications_enabled: next }).eq('id', user.id); await fetchProfile(user.id); } catch { setNotif(!next); }
   }
 
   // Zonă periculoasă
