@@ -518,7 +518,7 @@ function InteractiveTab() {
               <SendToStudents create={() => aiClient.assignmentCreateInteractive({ questions, title, category: category || null, topic: topic || null })} />
             )}
             {isTeacher && <button className="btn btn-outline btn-sm" onClick={() => setEditing((e) => !e)}>{editing ? '✓ Gata editarea' : '✏️ Editează (text)'}</button>}
-            {isTeacher && <button className="btn btn-outline btn-sm" onClick={async () => { setPublishMsg(null); try { await aiClient.publicPublish({ kind: 'interactive', title, category: category || null, topic: topic || null, payload: { questions } }); setPublishMsg('✅ Publicat în „Biblioteca utilizatorilor".'); } catch (e) { setPublishMsg('Eroare: ' + e.message); } }}>🏛️ Publică</button>}
+            {isTeacher && <button className="btn btn-outline btn-sm" onClick={async () => { setPublishMsg(null); try { const r = await aiClient.publicPublish({ kind: 'interactive', title, category: category || null, topic: topic || null, payload: { questions } }); setPublishMsg(r && r.alreadyPublished ? 'ℹ️ Deja publicat.' : '✅ Publicat în „Biblioteca utilizatorilor".'); } catch (e) { setPublishMsg('Eroare: ' + e.message); } }}>🏛️ Publică</button>}
             <button className="btn btn-outline btn-sm" onClick={gen} disabled={loading}>🔄 Altul</button>
           </div>
           {publishMsg && <div style={{ marginTop: 8, fontSize: '.82rem', color: publishMsg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{publishMsg}</div>}
@@ -667,7 +667,7 @@ function LibItem({ it, isTeacher, onRemove }) {
                 }}>💾 Salvează modificările</button>
               )}
               <SendToStudents label="📤 Trimite elevilor" create={() => aiClient.assignmentCreateInteractive({ questions: qs, title: full.title, category: full.category || null, topic: full.topic || null })} />
-              <button className="btn btn-sm btn-outline" onClick={async () => { setMsg(null); try { await aiClient.publicPublish({ kind: 'interactive', title: full.title, category: full.category || null, topic: full.topic || null, payload: { questions: qs } }); setMsg('✅ Publicat public.'); } catch (e) { setMsg('Eroare: ' + e.message); } }}>🏛️ Publică</button>
+              <button className="btn btn-sm btn-outline" onClick={async () => { setMsg(null); try { const r = await aiClient.publicPublish({ kind: 'interactive', title: full.title, category: full.category || null, topic: full.topic || null, payload: { questions: qs } }); setMsg(r && r.alreadyPublished ? 'ℹ️ Deja publicat.' : '✅ Publicat public.'); } catch (e) { setMsg('Eroare: ' + e.message); } }}>🏛️ Publică</button>
             </div>
           )}
           {msg && <div style={{ marginTop: 8, fontSize: '.82rem', color: msg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{msg}</div>}

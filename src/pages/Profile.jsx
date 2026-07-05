@@ -8,6 +8,7 @@ import EinsteinIcon from '../components/EinsteinIcon';
 import TeacherResults from '../components/TeacherResults';
 import AITeacherReport from '../components/AITeacherReport';
 import ParentAIActivity from '../components/ParentAIActivity';
+import AccountSettings from '../components/AccountSettings';
 
 export default function Profile() {
   const { user, profile, isPremium, isTeacher, isParent, isMentor, signOut, loading, fetchProfile } = useAuth();
@@ -428,6 +429,16 @@ export default function Profile() {
                 </div>
               </details>
             )}
+
+            {/* Setări cont — toate tipurile de cont */}
+            <details className="card" style={{ marginBottom: 24 }}>
+              <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none' }}>
+                ⚙️ Setări cont
+              </summary>
+              <div style={{ marginTop: 16 }}>
+                <AccountSettings />
+              </div>
+            </details>
 
             {/* Quick links */}
             <div className="card">

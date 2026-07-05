@@ -56,8 +56,8 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
     if (!exam) return;
     setPublishing(true); setPublishMsg(null);
     try {
-      await aiClient.publicPublish({ kind: 'exam', title: exam.title, category: examType, topic: null, payload: { exam } });
-      setPublishMsg('✅ Publicat în „Biblioteca utilizatorilor".');
+      const r = await aiClient.publicPublish({ kind: 'exam', title: exam.title, category: examType, topic: null, payload: { exam } });
+      setPublishMsg(r && r.alreadyPublished ? 'ℹ️ Testul e deja publicat în „Biblioteca utilizatorilor".' : '✅ Publicat în „Biblioteca utilizatorilor".');
     } catch (e) { setPublishMsg('Eroare: ' + e.message); }
     finally { setPublishing(false); }
   }

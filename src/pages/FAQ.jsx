@@ -15,7 +15,7 @@ const faqs = [
       },
       {
         q: 'Pot schimba adresa de e-mail asociată contului?',
-        a: 'Momentan schimbarea adresei de e-mail se face prin contactarea suportului la costea.radu.ioan@gmail.com. Vom actualiza adresa în cel mai scurt timp.',
+        a: 'Da. Intră în „Contul meu”, apoi „Setări cont”, la „Date de autentificare”, și introdu noua adresă; vei primi un email de confirmare, iar schimbarea are loc după ce o confirmi. Alternativ, ne poți scrie la costea.radu.ioan@gmail.com.',
       },
       {
         q: 'Pot avea mai multe conturi?',

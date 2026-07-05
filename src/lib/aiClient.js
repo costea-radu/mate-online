@@ -127,6 +127,10 @@ export const aiClient = {
   publicList: ({ q = '', category = null } = {}) => post('/api/ai-public', { action: 'list', q, category }),
   publicGet: ({ id }) => post('/api/ai-public', { action: 'get', id }),
   publicSetFree: ({ id, isFree }) => post('/api/ai-public', { action: 'set_free', id, isFree }),
+
+  // Cont
+  accountDelete: () => post('/api/ai-account', { action: 'delete' }),
+  accountCheckUsername: ({ username }) => post('/api/ai-account', { action: 'check_username', username }),
   publicDelete: ({ id }) => post('/api/ai-public', { action: 'delete', id }),
   publicRecord: ({ id, score, maxScore }) => post('/api/ai-public', { action: 'record', id, score, maxScore }),
 

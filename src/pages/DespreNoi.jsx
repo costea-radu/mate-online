@@ -88,6 +88,7 @@ export default function DespreNoi() {
             </div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <Link to="/contact" className="btn btn-primary">Contact</Link>
+              <a href="mailto:costea.radu.ioan@gmail.com" style={{ marginLeft: 12, color: 'var(--navy)', fontWeight: 600, textDecoration: 'none' }}>costea.radu.ioan@gmail.com</a>
               <Link to="/faq" className="btn btn-lg" style={{ color: '#fff', border: '2px solid rgba(255,255,255,0.3)', padding: '10px 24px' }}>
                 Întrebări Frecvente
               </Link>

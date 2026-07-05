@@ -31,6 +31,7 @@ module.exports = async function handler(req, res) {
       const { q = '', category = null, limit = 60 } = req.body || {};
       let query = supa.from('ai_public_library')
         .select('id, kind, title, category, topic, creator_name, creator_role, created_by, is_free, created_at')
+        .order('is_free', { ascending: false })
         .order('created_at', { ascending: false }).limit(Math.min(limit, 100));
       if (category) query = query.eq('category', category);
       if (q && q.trim()) query = query.ilike('search_text', `%${q.trim()}%`);
@@ -72,6 +73,12 @@ module.exports = async function handler(req, res) {
         return res.status(403).json({ error: 'Doar profesorii pot publica în biblioteca publică.' });
       }
       if (!kind || !title) return res.status(400).json({ error: 'kind și title obligatorii' });
+      // Nu republica dacă profesorul a publicat deja același test (după titlu + tip).
+      const { data: existing } = await supa.from('ai_public_library')
+        .select('id').eq('created_by', userId).eq('kind', kind).eq('title', title).limit(1);
+      if (existing && existing.length) {
+        return res.status(200).json({ id: existing[0].id, alreadyPublished: true });
+      }
       const { data, error } = await supa.from('ai_public_library').insert({
         created_by: userId, creator_name: profile.full_name || profile.email || 'Profesor',
         creator_role: 'profesor', kind, title, category, topic, payload,

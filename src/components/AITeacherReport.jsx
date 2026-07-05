@@ -105,54 +105,10 @@ export default function AITeacherReport() {
         </>
       )}
 
-      {/* Clasamente: grupe + elevi pe grupe */}
-      {data && data.leaderboard && (data.leaderboard.groupRanking.length > 0 || data.leaderboard.ungrouped.length > 0) && (
-        <div style={card}>
-          <h4 style={{ color: 'var(--navy)', marginBottom: 10 }}>🏆 Clasamente</h4>
-          {data.leaderboard.groupRanking.length > 0 && (
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.85rem', marginBottom: 6 }}>Clasament grupe (după stăpânirea medie)</div>
-              {data.leaderboard.groupRanking.map((g, i) => (
-                <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 10px', background: i === 0 ? 'rgba(232,185,49,.15)' : '#f7f9fc', borderRadius: 7, marginBottom: 4, fontSize: '.85rem' }}>
-                  <span style={{ color: 'var(--navy)', fontWeight: 600 }}>{medal(i)} {g.name} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({g.count} elevi)</span></span>
-                  <span style={{ color: 'var(--text-muted)' }}>{g.avgMastery != null ? pct(g.avgMastery) : '—'}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {data.leaderboard.groups.map((g) => (
-            <details key={g.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 12px', marginBottom: 8 }}>
-              <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--navy)', fontSize: '.85rem' }}>{g.name} — clasament elevi</summary>
-              <div style={{ marginTop: 8 }}>
-                {g.students.map((s, i) => (
-                  <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px', background: '#f7f9fc', borderRadius: 6, marginBottom: 3, fontSize: '.83rem' }}>
-                    <span style={{ color: 'var(--navy)' }}>{medal(i)} {s.name}</span>
-                    <span style={{ color: 'var(--text-muted)' }}>{s.avgMastery != null ? pct(s.avgMastery) : '— (fără date)'}</span>
-                  </div>
-                ))}
-              </div>
-            </details>
-          ))}
-          {data.leaderboard.ungrouped.length > 0 && (
-            <details style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 12px' }}>
-              <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--navy)', fontSize: '.85rem' }}>Fără grupă — clasament elevi</summary>
-              <div style={{ marginTop: 8 }}>
-                {data.leaderboard.ungrouped.map((s, i) => (
-                  <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px', background: '#f7f9fc', borderRadius: 6, marginBottom: 3, fontSize: '.83rem' }}>
-                    <span style={{ color: 'var(--navy)' }}>{medal(i)} {s.name}</span>
-                    <span style={{ color: 'var(--text-muted)' }}>{s.avgMastery != null ? pct(s.avgMastery) : '— (fără date)'}</span>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-        </div>
-      )}
-
-      {/* Teme trimise elevilor */}
-      <div style={card}>
-        <h4 style={{ color: 'var(--navy)', marginBottom: 4 }}>📤 Exerciții trimise elevilor</h4>
-        <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+      {/* Teme trimise elevilor — rolldown */}
+      <details style={card}>
+        <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontSize: '1rem', fontFamily: 'var(--font-display)' }}>📤 Exerciții trimise elevilor</summary>
+        <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', margin: '10px 0 12px' }}>
           Generează exerciții de antrenament sau interactive și trimite-le elevilor cu butonul „Trimite elevilor". Rezultatele apar aici.
         </p>
         {assignments.length === 0 ? (
@@ -189,7 +145,53 @@ export default function AITeacherReport() {
             ))}
           </div>
         )}
-      </div>
+      </details>
+
+      {/* Clasamente — rolldown, după „Exerciții trimise elevilor" */}
+      {data && data.leaderboard && (data.leaderboard.groupRanking.length > 0 || data.leaderboard.ungrouped.length > 0) && (
+        <details style={card}>
+          <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontSize: '1rem', fontFamily: 'var(--font-display)' }}>🏆 Clasamente</summary>
+          <div style={{ marginTop: 10 }}>
+            {data.leaderboard.groupRanking.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.85rem', marginBottom: 6 }}>Clasament grupe (după stăpânirea medie)</div>
+                {data.leaderboard.groupRanking.map((g, i) => (
+                  <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 10px', background: i === 0 ? 'rgba(232,185,49,.15)' : '#f7f9fc', borderRadius: 7, marginBottom: 4, fontSize: '.85rem' }}>
+                    <span style={{ color: 'var(--navy)', fontWeight: 600 }}>{medal(i)} {g.name} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({g.count} elevi)</span></span>
+                    <span style={{ color: 'var(--text-muted)' }}>{g.avgMastery != null ? pct(g.avgMastery) : '—'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {data.leaderboard.groups.map((g) => (
+              <details key={g.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 12px', marginBottom: 8 }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--navy)', fontSize: '.85rem' }}>{g.name} — clasament elevi</summary>
+                <div style={{ marginTop: 8 }}>
+                  {g.students.map((s, i) => (
+                    <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px', background: '#f7f9fc', borderRadius: 6, marginBottom: 3, fontSize: '.83rem' }}>
+                      <span style={{ color: 'var(--navy)' }}>{medal(i)} {s.name}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{s.avgMastery != null ? pct(s.avgMastery) : '— (fără date)'}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ))}
+            {data.leaderboard.ungrouped.length > 0 && (
+              <details style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 12px' }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--navy)', fontSize: '.85rem' }}>Fără grupă — clasament elevi</summary>
+                <div style={{ marginTop: 8 }}>
+                  {data.leaderboard.ungrouped.map((s, i) => (
+                    <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px', background: '#f7f9fc', borderRadius: 6, marginBottom: 3, fontSize: '.83rem' }}>
+                      <span style={{ color: 'var(--navy)' }}>{medal(i)} {s.name}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{s.avgMastery != null ? pct(s.avgMastery) : '— (fără date)'}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+        </details>
+      )}
     </div>
   );
 }

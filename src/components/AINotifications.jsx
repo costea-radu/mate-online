@@ -5,6 +5,7 @@
 // =====================================================================
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
 
 const ICONS = {
@@ -19,6 +20,7 @@ export default function AINotifications() {
   const [loading, setLoading] = useState(false);
   const ref = useRef(null);
   const navigate = useNavigate();
+  const { profile } = useAuth();
 
   async function loadCount() {
     try { const { count } = await aiClient.notificationsUnread(); setUnread(count || 0); } catch { /* ignore */ }
@@ -65,6 +67,8 @@ export default function AINotifications() {
     const url = item.data && item.data.url;
     if (url) { setOpen(false); navigate(url); }
   }
+
+  if (profile && profile.notifications_enabled === false) return null;
 
   return (
     <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>

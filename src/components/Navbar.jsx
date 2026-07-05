@@ -25,10 +25,10 @@ const EXAMENE = [
 
 // „Mai multe" — pentru aerisirea barei principale
 const MAIMULTE = [
-  { to: '/preturi',                    label: '💳 Prețuri' },
+  { to: '/manuale',                    label: '📖 Auxiliare' },
   { to: '/rezolvari',                  label: '📝 Rezolvări' },
   { to: '/biblioteca-utilizatorilor',  label: '🏛️ Biblioteca utilizatorilor' },
-  { to: '/profesor-virtual',           label: '🎓 Profesor Virtual' },
+  { to: '/profesor-virtual',           label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> Profesor Virtual</span> },
   { to: '/despre-noi',                 label: 'Despre noi' },
   { to: '/faq',                        label: 'Întrebări frecvente' },
   { to: '/contact',                    label: 'Contact' },
@@ -431,7 +431,7 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, forumUnread = 0, 
           📖 Auxiliare
         </Link>
         <Link to="/preturi" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/preturi' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-          💳 Prețuri
+          💳 Abonament
         </Link>
         <Link to="/rezolvari" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/rezolvari' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           📝 Rezolvări
@@ -610,8 +610,8 @@ export default function Navbar() {
             <li><DesktopDropdown label="Examene" items={EXAMENE} /></li>
             <li><DesktopDropdown label="Clase" items={CLASE} /></li>
             <li>
-              <Link to="/manuale" className={location.pathname === '/manuale' ? 'active' : ''}>
-                Auxiliare
+              <Link to="/preturi" className={location.pathname === '/preturi' ? 'active' : ''}>
+                💳 Abonament
               </Link>
             </li>
             <li>
