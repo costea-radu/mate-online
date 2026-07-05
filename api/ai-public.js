@@ -36,7 +36,18 @@ module.exports = async function handler(req, res) {
       if (category) query = query.eq('category', category);
       if (q && q.trim()) query = query.ilike('search_text', `%${q.trim()}%`);
       const { data } = await query;
-      return res.status(200).json({ items: data || [] });
+      const items = data || [];
+      // Completează numele afișat cu numele/username-ul CURENT al profesorului.
+      const ids = [...new Set(items.map((i) => i.created_by).filter(Boolean))];
+      if (ids.length) {
+        const { data: profs } = await supa.from('profiles').select('id, full_name, username, email').in('id', ids);
+        const nameMap = {};
+        (profs || []).forEach((p) => {
+          nameMap[p.id] = p.full_name || p.username || (p.email ? p.email.split('@')[0] : null);
+        });
+        items.forEach((it) => { if (nameMap[it.created_by]) it.creator_name = nameMap[it.created_by]; });
+      }
+      return res.status(200).json({ items });
     }
 
     if (action === 'get') {
@@ -73,19 +84,28 @@ module.exports = async function handler(req, res) {
         return res.status(403).json({ error: 'Doar profesorii pot publica în biblioteca publică.' });
       }
       if (!kind || !title) return res.status(400).json({ error: 'kind și title obligatorii' });
-      // Nu republica dacă profesorul a publicat deja același test (după titlu + tip).
-      const { data: existing } = await supa.from('ai_public_library')
-        .select('id').eq('created_by', userId).eq('kind', kind).eq('title', title).limit(1);
-      if (existing && existing.length) {
-        return res.status(200).json({ id: existing[0].id, alreadyPublished: true });
-      }
+
+      // Nume afișat: nume complet → username → partea din email → „Profesor".
+      const creatorName = profile.full_name || profile.username
+        || (profile.email ? profile.email.split('@')[0] : null) || 'Profesor';
+
+      // Permite publicarea cu același nume; dacă ACELAȘI profesor a mai publicat
+      // un test cu acest nume, adaugă un număr: „X", „X 2", „X 3"...
+      const base = String(title).trim();
+      const esc = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const rx = new RegExp(`^${esc}(\\s+\\d+)?$`);
+      const { data: sameName } = await supa.from('ai_public_library')
+        .select('title').eq('created_by', userId).eq('kind', kind).ilike('title', `${base}%`);
+      const n = (sameName || []).filter((r) => rx.test((r.title || '').trim())).length;
+      const finalTitle = n === 0 ? base : `${base} ${n + 1}`;
+
       const { data, error } = await supa.from('ai_public_library').insert({
-        created_by: userId, creator_name: profile.full_name || profile.email || 'Profesor',
-        creator_role: 'profesor', kind, title, category, topic, payload,
-        search_text: buildSearchText(kind, title, topic, payload),
-      }).select('id').single();
+        created_by: userId, creator_name: creatorName,
+        creator_role: 'profesor', kind, title: finalTitle, category, topic, payload,
+        search_text: buildSearchText(kind, finalTitle, topic, payload),
+      }).select('id, title').single();
       if (error) return res.status(500).json({ error: error.message });
-      return res.status(200).json({ id: data.id });
+      return res.status(200).json({ id: data.id, title: data.title });
     }
 
     if (action === 'record') {
@@ -111,6 +131,22 @@ module.exports = async function handler(req, res) {
       if (!row) return res.status(404).json({ error: 'Nu există.' });
       if (row.created_by !== userId && !profile.is_admin) return res.status(403).json({ error: 'Nu poți șterge.' });
       await supa.from('ai_public_library').delete().eq('id', id);
+
+      // Menține mereu (până la) 3 teste gratuite: dacă a scăzut sub 3,
+      // promovează cele mai vechi teste ne-gratuite până se ajunge la 3.
+      try {
+        const { count: freeCount } = await supa.from('ai_public_library')
+          .select('*', { count: 'exact', head: true }).eq('is_free', true);
+        const need = 3 - (freeCount || 0);
+        if (need > 0) {
+          const { data: cand } = await supa.from('ai_public_library')
+            .select('id').eq('is_free', false).order('created_at', { ascending: true }).limit(need);
+          if (cand && cand.length) {
+            await supa.from('ai_public_library').update({ is_free: true }).in('id', cand.map((c) => c.id));
+          }
+        }
+      } catch { /* ignoră */ }
+
       return res.status(200).json({ ok: true });
     }
 
