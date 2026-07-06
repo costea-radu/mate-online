@@ -381,9 +381,49 @@ function verifyToken(token) {
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
+// ─── Pregătire mesaj chat (RAG + conversație + istoric + system) ──────────────
+// Flux comun pentru ai-chat și ai-chat-stream (evită duplicarea).
+async function prepareChat(supa, { userId, message, mode = 'tutor', conversationId = null, context = {}, premium = false }) {
+  // 1. RAG (întrebarea + textul exercițiului, dacă există)
+  const retrievalQuery = [message, context.exerciseText].filter(Boolean).join('\n');
+  const docs = await retrieve(supa, {
+    query: retrievalQuery, category: context.category || null,
+    allowPremium: premium, k: 6, prefer: 'solution',
+  });
+  const ctxBlock = contextBlock(docs);
+  const primaryMaterial = await topMaterial(supa, docs);
+
+  // 2. Conversație: o reluăm (dacă e a userului) sau o creăm.
+  let convId = conversationId || null;
+  if (convId) {
+    const { data } = await supa.from('ai_conversations').select('id, user_id').eq('id', convId).single();
+    if (!data || data.user_id !== userId) convId = null;
+  }
+  if (!convId) {
+    const { data } = await supa.from('ai_conversations')
+      .insert({ user_id: userId, title: message.slice(0, 60), context }).select('id').single();
+    convId = data?.id;
+  }
+
+  // 3. Istoric recent (ultimele 10 mesaje)
+  const { data: history } = await supa.from('ai_messages')
+    .select('role, content').eq('conversation_id', convId)
+    .order('created_at', { ascending: false }).limit(10);
+  const priorMsgs = (history || []).reverse().map((m) => ({ role: m.role, content: m.content }));
+
+  // 4. System prompt
+  const extra = context.exerciseText
+    ? `\nElevul lucrează la acest exercițiu:\n"""${String(context.exerciseText).slice(0, 1500)}"""`
+    : '';
+  const system = systemFor(mode, ctxBlock, extra);
+
+  const sources = docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }));
+  return { docs, ctxBlock, primaryMaterial, convId, priorMsgs, system, sources };
+}
+
 module.exports = {
   CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic,
-  chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, PERSONA,
+  chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, PERSONA,
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS,

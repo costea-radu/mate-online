@@ -199,6 +199,64 @@ function FileUploadZone({ accept, label, hint, file, onFile, icon }) {
   );
 }
 
+// ─── Câmpuri meta partajate (titlu/categorie/subcategorie/profil) ─────────────
+// Folosite atât la Upload PDF, cât și la Upload Interactive (evită duplicarea).
+function ContentMetaFields({ form, setForm, titlePlaceholder }) {
+  const isEN = form.category === 'evaluare-nationala';
+  const isBAC = form.category === 'bacalaureat';
+  return (
+    <>
+      <div style={s.formRow}>
+        <div style={s.formGroup}>
+          <label style={s.label}>Titlu *</label>
+          <input style={s.input} value={form.title}
+            onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
+            placeholder={titlePlaceholder} />
+        </div>
+        <div style={s.formGroup}>
+          <label style={s.label}>Categorie *</label>
+          <select style={s.select} value={form.category}
+            onChange={e => setForm(p => ({ ...p, category: e.target.value, subcategory: '', profile: '' }))}>
+            {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {isEN && (
+        <div style={s.formGroup}>
+          <label style={s.label}>Subcategorie EN</label>
+          <select style={s.select} value={form.subcategory}
+            onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
+            <option value="">— Selectează —</option>
+            {EN_SUBCATEGORIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
+      )}
+
+      {isBAC && (
+        <div style={s.formRow}>
+          <div style={s.formGroup}>
+            <label style={s.label}>Profil Bacalaureat</label>
+            <select style={s.select} value={form.profile}
+              onChange={e => setForm(p => ({ ...p, profile: e.target.value }))}>
+              <option value="">— Selectează —</option>
+              {BAC_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+          </div>
+          <div style={s.formGroup}>
+            <label style={s.label}>Subcategorie BAC</label>
+            <select style={s.select} value={form.subcategory}
+              onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
+              <option value="">— Selectează —</option>
+              {BAC_SUBCATEGORIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Upload PDF ───────────────────────────────────────────────────────────────
 function UploadPDF({ onSuccess }) {
   const [form, setForm] = useState({ title: '', description: '', category: 'clasa-5', subcategory: '', profile: '', is_free: true });
@@ -250,53 +308,7 @@ function UploadPDF({ onSuccess }) {
       <div style={s.cardTitle}>📄 Adaugă PDF</div>
       {msg && <div style={s.alert(msg.type)}>{msg.text}</div>}
 
-      <div style={s.formRow}>
-        <div style={s.formGroup}>
-          <label style={s.label}>Titlu *</label>
-          <input style={s.input} value={form.title}
-            onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
-            placeholder="ex. Fișă de lucru – Fracții" />
-        </div>
-        <div style={s.formGroup}>
-          <label style={s.label}>Categorie *</label>
-          <select style={s.select} value={form.category}
-            onChange={e => setForm(p => ({ ...p, category: e.target.value, subcategory: '', profile: '' }))}>
-            {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-          </select>
-        </div>
-      </div>
-
-      {isEN && (
-        <div style={s.formGroup}>
-          <label style={s.label}>Subcategorie EN</label>
-          <select style={s.select} value={form.subcategory}
-            onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
-            <option value="">— Selectează —</option>
-            {EN_SUBCATEGORIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
-        </div>
-      )}
-
-      {isBAC && (
-        <div style={s.formRow}>
-          <div style={s.formGroup}>
-            <label style={s.label}>Profil Bacalaureat</label>
-            <select style={s.select} value={form.profile}
-              onChange={e => setForm(p => ({ ...p, profile: e.target.value }))}>
-              <option value="">— Selectează —</option>
-              {BAC_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-            </select>
-          </div>
-          <div style={s.formGroup}>
-            <label style={s.label}>Subcategorie BAC</label>
-            <select style={s.select} value={form.subcategory}
-              onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
-              <option value="">— Selectează —</option>
-              {BAC_SUBCATEGORIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-          </div>
-        </div>
-      )}
+      <ContentMetaFields form={form} setForm={setForm} titlePlaceholder="ex. Fișă de lucru – Fracții" />
 
       <div style={s.formRow}>
         <div style={s.formGroup}>
@@ -385,53 +397,7 @@ function UploadInteractive({ onSuccess }) {
       </div>
       {msg && <div style={s.alert(msg.type)}>{msg.text}</div>}
 
-      <div style={s.formRow}>
-        <div style={s.formGroup}>
-          <label style={s.label}>Titlu *</label>
-          <input style={s.input} value={form.title}
-            onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
-            placeholder="ex. Test – Ecuații de gradul I" />
-        </div>
-        <div style={s.formGroup}>
-          <label style={s.label}>Categorie *</label>
-          <select style={s.select} value={form.category}
-            onChange={e => setForm(p => ({ ...p, category: e.target.value, subcategory: '', profile: '' }))}>
-            {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-          </select>
-        </div>
-      </div>
-
-      {isEN && (
-        <div style={s.formGroup}>
-          <label style={s.label}>Subcategorie EN</label>
-          <select style={s.select} value={form.subcategory}
-            onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
-            <option value="">— Selectează —</option>
-            {EN_SUBCATEGORIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
-        </div>
-      )}
-
-      {isBAC && (
-        <div style={s.formRow}>
-          <div style={s.formGroup}>
-            <label style={s.label}>Profil Bacalaureat</label>
-            <select style={s.select} value={form.profile}
-              onChange={e => setForm(p => ({ ...p, profile: e.target.value }))}>
-              <option value="">— Selectează —</option>
-              {BAC_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-            </select>
-          </div>
-          <div style={s.formGroup}>
-            <label style={s.label}>Subcategorie BAC</label>
-            <select style={s.select} value={form.subcategory}
-              onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
-              <option value="">— Selectează —</option>
-              {BAC_SUBCATEGORIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-          </div>
-        </div>
-      )}
+      <ContentMetaFields form={form} setForm={setForm} titlePlaceholder="ex. Test – Ecuații de gradul I" />
 
       <div style={s.formRow}>
         <div style={s.formGroup}>

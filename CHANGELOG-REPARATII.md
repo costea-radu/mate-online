@@ -1,6 +1,6 @@
 # Changelog reparații — ExamenMate
 
-Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vite build`, 131 module), testele trec (`npm test`, 7/7), toate rutele API validate sintactic.
+Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vite build`, 133 module), testele trec (`npm test`, 7/7), toate rutele API validate sintactic.
 
 ---
 
@@ -46,9 +46,12 @@ Lipsea complet. Acum ignoră `node_modules`, `dist`, `.env*` (mai puțin exemplu
 
 ## 🟡 Cod duplicat eliminat
 - **`api/_lib/http.js`** — sursă unică pentru CORS, guard de metodă, auth, admin, signed-URL. A eliminat boilerplate-ul CORS din ~10 rute, cele **3 implementări** diferite ale parserului de signed-URL (acum una singură, robustă) și verificarea de admin repetată.
+- **`api/_lib/ai.js` → `prepareChat()`** — blocul RAG + conversație + istoric (identic în `ai-chat` și `ai-chat-stream`) extras într-un singur helper.
+- **`src/components/OAuthButtons.jsx`** — butoanele Google/Discord + separator (identice în `Login` și `Register`).
+- **`src/components/ExamContent.jsx`** — `ItemBlock`, `Section`, `TypeTabs` (aproape identice în `EvaluareNationala` și `Bacalaureat`; `profile` devenit opțional) — o singură sursă.
+- **`Admin.jsx` → `ContentMetaFields`** — câmpurile titlu/categorie/subcategorie/profil, partajate de Upload PDF și Upload Interactive.
 - **`src/components/LegalSection.jsx`** — componenta `Section` (identică în 4 pagini legale) extrasă o singură dată.
-- Duplicare totală: **659 → 559 linii** (4,6% → 3,9%).
-- *Deferat intenționat* (refactor cosmetic, risc de regresie pe flux funcțional): șablonul `EvaluareNationala`/`Bacalaureat`, formularul din `Admin.jsx`, blocul comun `Login`/`Register`, helper RAG comun `ai-chat`/`ai-chat-stream`.
+- Duplicare totală: **659 → 359 linii** (4,62% → 2,57%), adică 44 → 30 clone. `Admin.jsx`: 939 → 905 linii.
 
 ---
 
@@ -69,6 +72,6 @@ Vezi `.env.ai.example` (secțiunea „SECURITATE / URL-uri").
 ## Verificare
 ```
 npm install
-npm run build   # ✓ 131 module
+npm run build   # ✓ 133 module
 npm test        # ✓ 7/7
 ```

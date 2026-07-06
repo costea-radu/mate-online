@@ -32,35 +32,10 @@ module.exports = async function handler(req, res) {
     await ai.enforceFreeQuota(supa, profile);
     const premium = ai.isPremium(profile);
 
-    // 1. RAG
-    const retrievalQuery = [message, context.exerciseText].filter(Boolean).join('\n');
-    const docs = await ai.retrieve(supa, { query: retrievalQuery, category: context.category || null, allowPremium: premium, k: 6, prefer: 'solution' });
-    const ctxBlock = ai.contextBlock(docs);
-    const primaryMaterial = await ai.topMaterial(supa, docs);
-
-    // 2. Conversație (reluare/creare)
-    let convId = conversationId || null;
-    if (convId) {
-      const { data } = await supa.from('ai_conversations').select('id, user_id').eq('id', convId).single();
-      if (!data || data.user_id !== userId) convId = null;
-    }
-    if (!convId) {
-      const { data } = await supa.from('ai_conversations')
-        .insert({ user_id: userId, title: message.slice(0, 60), context }).select('id').single();
-      convId = data?.id;
-    }
-
-    // 3. Istoric recent
-    const { data: history } = await supa.from('ai_messages')
-      .select('role, content').eq('conversation_id', convId)
-      .order('created_at', { ascending: false }).limit(10);
-    const priorMsgs = (history || []).reverse().map((m) => ({ role: m.role, content: m.content }));
-
-    const sources = docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }));
+    // 1-3. RAG + conversație + istoric + system prompt (helper comun cu ai-chat)
+    const { convId, primaryMaterial, priorMsgs, system, sources } =
+      await ai.prepareChat(supa, { userId, message, mode, conversationId, context, premium });
     send({ type: 'meta', conversationId: convId, sources, primaryMaterial });
-
-    const extra = context.exerciseText ? `\nElevul lucrează la acest exercițiu:\n"""${String(context.exerciseText).slice(0, 1500)}"""` : '';
-    const system = ai.systemFor(mode, ctxBlock, extra);
 
     // 4. STREAMING LLM
     let full = '';

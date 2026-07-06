@@ -6,7 +6,7 @@
 // =====================================================================
 const { createClient } = require('@supabase/supabase-js');
 
-// Originea permisă: setează SITE_ORIGIN în Vercel (ex: https://examenmate.com).
+// Originea permisă: setează SITE_ORIGIN în Vercel (ex: https://examenmate.ro).
 // Fallback '*' doar dacă nu e setată (retrocompatibil în dev).
 const ALLOW_ORIGIN = process.env.SITE_ORIGIN || '*';
 
