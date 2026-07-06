@@ -5,7 +5,7 @@
 // - FloatingTutor (export implicit): butonul plutitor de pe tot site-ul
 // =====================================================================
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
 import ExamGenerator from './ExamGenerator';
 import EinsteinIcon from './EinsteinIcon';
@@ -42,16 +42,11 @@ const MODES = [
   { id: 'explain', label: 'Teoria', hint: 'Explică teoria subiectului' },
   { id: 'hint', label: 'Dă-mi un indiciu', hint: 'Un singur pas, fără rezolvare' },
 ];
-// Moduri pentru profesor/părinte (Asistentul AI): examene + elevi.
-const MENTOR_MODES = [
-  { id: 'exams', label: 'Examene', hint: 'Subiecte, structură și unde le găsești' },
-  { id: 'students', label: 'Elevi', hint: 'Rezultatele și rapoartele elevilor asociați' },
-];
 
 export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null }) {
   const { user, isPremium, isTeacher, isParent } = useAuth();
+  const navigate = useNavigate();
   const isMentor = isTeacher || isParent;
-  const modeList = isMentor ? MENTOR_MODES : MODES;
   const [mode, setMode] = useState(isMentor ? 'exams' : initialMode);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -194,6 +189,18 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     ? ['Cum încep acest exercițiu?', 'Explică-mi teoria de care am nevoie', 'Verifică-mi gândirea']
     : ['Explică-mi fracțiile', 'Dă-mi un exemplu cu ecuații', 'Cum calculez aria unui triunghi?'];
 
+  // Pentru profesor/părinte: butoane care NAVIGHEAZĂ (nu trimit mesaj).
+  const mentorActions = [
+    { label: 'Unde găsesc subiecte de examen?', to: '/', anchor: 'examene' },
+    { label: 'Unde găsesc statistici despre elevi?', to: '/profil' },
+    { label: 'Generează subiect examen sau exercițiu interactiv', to: '/profesor-virtual' },
+  ];
+  function goTo(to, anchor) {
+    if (onNavigate) onNavigate();
+    navigate(to);
+    if (anchor) setTimeout(() => { document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 350);
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, position: 'relative' }}>
       {/* Bară: conversație nouă + istoric */}
@@ -211,9 +218,10 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         </div>
       </div>
 
-      {/* Selector mod */}
+      {/* Selector mod (doar pentru elevi) */}
+      {!isMentor && (
       <div style={{ display: 'flex', gap: 6, padding: '8px 12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
-        {modeList.map((m) => (
+        {MODES.map((m) => (
           <button key={m.id} title={m.hint} onClick={() => setMode(m.id)}
             style={{
               border: '1px solid', borderColor: mode === m.id ? 'var(--gold)' : 'var(--border)',
@@ -225,6 +233,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           </button>
         ))}
       </div>
+      )}
 
       {/* Banner abonament pentru utilizatorii fără abonament */}
       {user && !isPremium && (
@@ -256,14 +265,21 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 14, minHeight: compact ? 200 : 320, background: '#f7f9fc' }}>
         {messages.length === 0 && (
           <div style={{ color: 'var(--text-muted)', fontSize: '.9rem' }}>
-            <p style={{ marginBottom: 12 }}>Salut! Sunt profesorul tău virtual. Întreabă-mă orice despre matematică 👇</p>
+            <p style={{ marginBottom: 12 }}>{isMentor ? 'Salut! Sunt Asistentul tău. Alege mai jos sau întreabă-mă orice 👇' : 'Salut! Sunt profesorul tău virtual. Întreabă-mă orice despre matematică 👇'}</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {starters.map((s) => (
-                <button key={s} onClick={() => send(s)}
-                  style={{ textAlign: 'left', border: '1px solid var(--border)', background: '#fff', borderRadius: 8, padding: '8px 10px', fontSize: '.85rem', color: 'var(--navy)' }}>
-                  {s}
-                </button>
-              ))}
+              {isMentor
+                ? mentorActions.map((a) => (
+                    <button key={a.label} onClick={() => goTo(a.to, a.anchor)}
+                      style={{ textAlign: 'left', border: '1px solid var(--border)', background: '#fff', borderRadius: 8, padding: '8px 10px', fontSize: '.85rem', color: 'var(--navy)' }}>
+                      {a.label}
+                    </button>
+                  ))
+                : starters.map((s) => (
+                    <button key={s} onClick={() => send(s)}
+                      style={{ textAlign: 'left', border: '1px solid var(--border)', background: '#fff', borderRadius: 8, padding: '8px 10px', fontSize: '.85rem', color: 'var(--navy)' }}>
+                      {s}
+                    </button>
+                  ))}
             </div>
           </div>
         )}
@@ -382,9 +398,6 @@ export default function FloatingTutor() {
   const [widgetTab, setWidgetTab] = useState('chat');
   const { pathname } = useLocation();
   const { isTeacher, isParent } = useAuth();
-  const isMentor = isTeacher || isParent;
-  // Profesor/părinte: widgetul se deschide implicit pe „Generează subiect examen".
-  useEffect(() => { if (isMentor) setWidgetTab('exam'); }, [isMentor]);
   const [pos, setPos] = useState(null); // colțul stânga-sus al butonului
   const drag = useRef({ active: false, moved: false, dx: 0, dy: 0 });
   const BTN = 60;
@@ -483,11 +496,8 @@ export default function FloatingTutor() {
 
           {/* Taburi */}
           <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: '#fafbfc' }}>
-            {(isMentor ? ['exam', 'chat'] : ['chat', 'exam']).map((t) => (
-              t === 'chat'
-                ? <button key="chat" style={tabBtn(widgetTab === 'chat')} onClick={() => setWidgetTab('chat')}>💬 {askAiLabel({ isTeacher, isParent })}</button>
-                : <button key="exam" style={tabBtn(widgetTab === 'exam')} onClick={() => setWidgetTab('exam')}>📄 Generează subiect examen</button>
-            ))}
+            <button style={tabBtn(widgetTab === 'chat')} onClick={() => setWidgetTab('chat')}>💬 {askAiLabel({ isTeacher, isParent })}</button>
+            <button style={tabBtn(widgetTab === 'exam')} onClick={() => setWidgetTab('exam')}>📄 Generează subiect examen</button>
           </div>
 
           <div style={{ flex: 1, minHeight: 0, overflowY: widgetTab === 'exam' ? 'auto' : 'hidden' }}>

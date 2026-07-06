@@ -43,7 +43,7 @@ export default function Home() {
       </section>
 
       {/* Exams */}
-      <section className="section">
+      <section className="section" id="examene">
         <div className="container">
           <div className="section-header">
             <h2 className="section-title">Pregătire pentru examene</h2>
