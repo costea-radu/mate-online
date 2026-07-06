@@ -128,6 +128,7 @@ export const aiClient = {
   // Anunțuri admin (listă + ștergere)
   broadcastList: () => post('/api/ai-notify', { action: 'broadcast_list' }),
   broadcastDelete: ({ id }) => post('/api/ai-notify', { action: 'broadcast_delete', id }),
+  broadcastDeleteByContent: ({ contentId }) => post('/api/ai-notify', { action: 'broadcast_delete_by_content', contentId }),
 
   // Biblioteca utilizatorilor (teste publice)
   publicPublish: ({ kind, title, category = null, topic = null, payload }) =>

@@ -7,3 +7,9 @@ export function aiAssistantLabel({ isTeacher, isParent } = {}) {
   if (isParent) return 'Asistent AI pentru părinți';
   return 'Profesor Virtual';
 }
+
+// Eticheta butonului de chat: „Întreabă Asistentul" pentru profesor/părinte,
+// „Întreabă profesorul" pentru elev/nelogat.
+export function askAiLabel({ isTeacher, isParent } = {}) {
+  return (isTeacher || isParent) ? 'Întreabă Asistentul' : 'Întreabă profesorul';
+}

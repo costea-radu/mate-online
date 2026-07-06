@@ -191,6 +191,21 @@ module.exports = async function handler(req, res) {
       if (error) return res.status(500).json({ error: error.message });
       return res.status(200).json({ ok: true });
     }
+
+    // Admin: șterge anunțul asociat unui material șters (după data.contentId)
+    if (action === 'broadcast_delete_by_content') {
+      if (!profile.is_admin) return res.status(403).json({ error: 'Doar adminul.' });
+      const { contentId } = req.body || {};
+      if (!contentId) return res.status(400).json({ error: 'contentId obligatoriu' });
+      const { data: bs } = await supa.from('ai_broadcasts').select('id')
+        .eq('type', 'material').filter('data->>contentId', 'eq', String(contentId));
+      const ids = (bs || []).map((b) => b.id);
+      if (ids.length) {
+        await supa.from('ai_broadcast_reads').delete().in('broadcast_id', ids);
+        await supa.from('ai_broadcasts').delete().in('id', ids);
+      }
+      return res.status(200).json({ ok: true, removed: ids.length });
+    }
     return res.status(400).json({ error: 'action invalid' });
   } catch (err) {
     console.error('ai-notify error:', err);

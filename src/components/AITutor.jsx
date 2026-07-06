@@ -10,6 +10,7 @@ import { aiClient } from '../lib/aiClient';
 import ExamGenerator from './ExamGenerator';
 import EinsteinIcon from './EinsteinIcon';
 import { useAuth } from '../context/AuthContext';
+import { askAiLabel } from '../lib/aiLabel';
 import { ensureKatex, renderMath } from '../lib/katex';
 import { fileToCompressedDataUrl } from '../lib/image';
 import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, speak, stopSpeaking } from '../lib/voice';
@@ -41,10 +42,17 @@ const MODES = [
   { id: 'explain', label: 'Teoria', hint: 'Explică teoria subiectului' },
   { id: 'hint', label: 'Dă-mi un indiciu', hint: 'Un singur pas, fără rezolvare' },
 ];
+// Moduri pentru profesor/părinte (Asistentul AI): examene + elevi.
+const MENTOR_MODES = [
+  { id: 'exams', label: 'Examene', hint: 'Subiecte, structură și unde le găsești' },
+  { id: 'students', label: 'Elevi', hint: 'Rezultatele și rapoartele elevilor asociați' },
+];
 
 export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null }) {
-  const { user, isPremium } = useAuth();
-  const [mode, setMode] = useState(initialMode);
+  const { user, isPremium, isTeacher, isParent } = useAuth();
+  const isMentor = isTeacher || isParent;
+  const modeList = isMentor ? MENTOR_MODES : MODES;
+  const [mode, setMode] = useState(isMentor ? 'exams' : initialMode);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [convId, setConvId] = useState(null);
@@ -205,7 +213,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 
       {/* Selector mod */}
       <div style={{ display: 'flex', gap: 6, padding: '8px 12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
-        {MODES.map((m) => (
+        {modeList.map((m) => (
           <button key={m.id} title={m.hint} onClick={() => setMode(m.id)}
             style={{
               border: '1px solid', borderColor: mode === m.id ? 'var(--gold)' : 'var(--border)',
@@ -328,7 +336,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           {!editingAttach && attached.trim() && (
             <button onClick={() => send('Ajută-mă cu acest exercițiu.')} disabled={streaming}
               style={{ marginTop: 8, background: 'var(--gold)', color: 'var(--navy)', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: '.82rem', fontWeight: 700, opacity: streaming ? 0.5 : 1 }}>
-              Întreabă profesorul despre el →
+              {askAiLabel({ isTeacher, isParent })} despre el →
             </button>
           )}
         </div>
@@ -373,6 +381,10 @@ export default function FloatingTutor() {
   const [open, setOpen] = useState(false);
   const [widgetTab, setWidgetTab] = useState('chat');
   const { pathname } = useLocation();
+  const { isTeacher, isParent } = useAuth();
+  const isMentor = isTeacher || isParent;
+  // Profesor/părinte: widgetul se deschide implicit pe „Generează subiect examen".
+  useEffect(() => { if (isMentor) setWidgetTab('exam'); }, [isMentor]);
   const [pos, setPos] = useState(null); // colțul stânga-sus al butonului
   const drag = useRef({ active: false, moved: false, dx: 0, dy: 0 });
   const BTN = 60;
@@ -471,8 +483,11 @@ export default function FloatingTutor() {
 
           {/* Taburi */}
           <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: '#fafbfc' }}>
-            <button style={tabBtn(widgetTab === 'chat')} onClick={() => setWidgetTab('chat')}>💬 Întreabă profesorul</button>
-            <button style={tabBtn(widgetTab === 'exam')} onClick={() => setWidgetTab('exam')}>📄 Generează subiect examen</button>
+            {(isMentor ? ['exam', 'chat'] : ['chat', 'exam']).map((t) => (
+              t === 'chat'
+                ? <button key="chat" style={tabBtn(widgetTab === 'chat')} onClick={() => setWidgetTab('chat')}>💬 {askAiLabel({ isTeacher, isParent })}</button>
+                : <button key="exam" style={tabBtn(widgetTab === 'exam')} onClick={() => setWidgetTab('exam')}>📄 Generează subiect examen</button>
+            ))}
           </div>
 
           <div style={{ flex: 1, minHeight: 0, overflowY: widgetTab === 'exam' ? 'auto' : 'hidden' }}>

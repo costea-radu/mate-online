@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import { ChatPanel, MathText } from '../components/AITutor';
 import { aiClient } from '../lib/aiClient';
 import { useAuth } from '../context/AuthContext';
-import { aiAssistantLabel } from '../lib/aiLabel';
+import { aiAssistantLabel, askAiLabel } from '../lib/aiLabel';
 import { printExam, printExercise } from '../lib/examPrint';
 import ExamGenerator from '../components/ExamGenerator';
 import EinsteinIcon from '../components/EinsteinIcon';
@@ -32,7 +32,7 @@ export default function ProfesorVirtual() {
   // „Progresul meu" apare doar în contul de elev (profesorii/părinții văd raportul în „Contul meu").
   const showProgress = isStudent || (!isTeacher && !isParent);
   const TABS = [
-    { id: 'chat', label: '💬 Întreabă profesorul' },
+    { id: 'chat', label: `💬 ${askAiLabel({ isTeacher, isParent })}` },
     { id: 'exam', label: '📄 Generează subiect examen' },
     { id: 'interactive', label: '🧩 Generează interactiv' },
     { id: 'library', label: '📚 Testele și exercițiile mele' },

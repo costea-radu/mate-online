@@ -1,4 +1,4 @@
-import { authHeaders, getValidSession } from '../lib/api';
+import { authHeaders, getValidSession, apiPost } from '../lib/api';
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -498,6 +498,8 @@ function ContentList({ refresh }) {
     }
 
     await supabase.from('content').delete().eq('id', item.id);
+    // Șterge și notificarea (anunțul) creată automat la adăugarea materialului.
+    apiPost('/api/ai-notify', { action: 'broadcast_delete_by_content', contentId: item.id }).catch(() => {});
     setItems(i => i.filter(x => x.id !== item.id));
     setDeleting(null);
   }
