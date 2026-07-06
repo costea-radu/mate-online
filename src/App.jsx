@@ -71,11 +71,12 @@ function PageFallback() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <ScrollToTop />
-        <Layout>
-          <ErrorBoundary>
-            <Suspense fallback={<PageFallback />}>
+      <ErrorBoundary>
+        <AuthProvider>
+          <ScrollToTop />
+          <Layout>
+            <ErrorBoundary>
+              <Suspense fallback={<PageFallback />}>
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/clase/:grade" element={<ClassPage />} />
@@ -106,10 +107,11 @@ export default function App() {
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>
-          </ErrorBoundary>
-        </Layout>
-        <Analytics />
-      </AuthProvider>
+            </ErrorBoundary>
+          </Layout>
+          <Analytics />
+        </AuthProvider>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }

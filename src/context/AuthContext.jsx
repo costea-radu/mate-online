@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { getValidSession } from '../lib/api';
 
 const AuthContext = createContext({});
 
@@ -94,6 +95,21 @@ export function AuthProvider({ children }) {
 
     return () => subscription.unsubscribe();
   }, [fetchProfile]);
+
+  // Reîmprospătează proactiv sesiunea când utilizatorul revine în tab / revine
+  // online, ca tokenul să nu fie expirat la următoarea acțiune sau interogare
+  // directă Supabase (altfel PostgREST respinge JWT-ul expirat cu 401).
+  useEffect(() => {
+    const check = () => { if (document.visibilityState === 'visible') getValidSession(); };
+    document.addEventListener('visibilitychange', check);
+    window.addEventListener('online', check);
+    window.addEventListener('focus', check);
+    return () => {
+      document.removeEventListener('visibilitychange', check);
+      window.removeEventListener('online', check);
+      window.removeEventListener('focus', check);
+    };
+  }, []);
 
   async function signUp(email, password, fullName, accountType) {
     const metadata = { full_name: fullName };

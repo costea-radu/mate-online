@@ -1,4 +1,4 @@
-import { authHeaders } from '../lib/api';
+import { authHeaders, getValidSession } from '../lib/api';
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -461,6 +461,7 @@ function ContentList({ refresh }) {
 
   async function load() {
     setLoading(true);
+    await getValidSession(); // token proaspăt înainte de interogarea directă (evită 401 JWT expirat)
     // Supabase întoarce implicit maxim 1000 rânduri — citim în pagini ca să apară TOT.
     const PAGE = 1000;
     let all = [];

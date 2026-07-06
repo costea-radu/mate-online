@@ -3,7 +3,7 @@
 // Atașează automat userId din sesiunea Supabase la fiecare cerere.
 // =====================================================================
 import { supabase } from './supabase';
-import { authHeaders } from './api';
+import { authHeaders, getValidSession, forceRefresh } from './api';
 
 async function uid() {
   const { data: { session } } = await supabase.auth.getSession();
@@ -11,13 +11,18 @@ async function uid() {
 }
 
 async function post(path, body) {
-  const userId = await uid();
+  const session = await getValidSession();
+  const userId = session?.user?.id || null;
   if (!userId) throw new Error('Trebuie să fii autentificat pentru a folosi Profesorul Virtual.');
-  const res = await fetch(path, {
+  let res = await fetch(path, {
     method: 'POST',
     headers: await authHeaders(),
     body: JSON.stringify({ userId, ...body }),
   });
+  if (res.status === 401) { // token expirat între timp → reîmprospătează și reîncearcă o dată
+    await forceRefresh();
+    res = await fetch(path, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ userId, ...body }) });
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const e = new Error(data.error || `Eroare server (${res.status})`);
@@ -35,13 +40,15 @@ export const aiClient = {
   // Chat-tutor cu STREAMING. Apelează callback-urile pe măsură ce sosesc datele.
   // onMeta({conversationId, sources}), onDelta(textFragment), onDone({messageId})
   async chatStream({ message, mode = 'tutor', conversationId = null, context = {} }, { onMeta, onDelta, onDone } = {}) {
-    const userId = await uid();
+    const session = await getValidSession();
+    const userId = session?.user?.id || null;
     if (!userId) throw new Error('Trebuie să fii autentificat pentru a folosi Profesorul Virtual.');
-    const res = await fetch('/api/ai-chat-stream', {
-      method: 'POST',
-      headers: await authHeaders(),
-      body: JSON.stringify({ userId, message, mode, conversationId, context }),
-    });
+    const payload = () => JSON.stringify({ userId, message, mode, conversationId, context });
+    let res = await fetch('/api/ai-chat-stream', { method: 'POST', headers: await authHeaders(), body: payload() });
+    if (res.status === 401) { // token expirat → reîmprospătează și reîncearcă o dată
+      await forceRefresh();
+      res = await fetch('/api/ai-chat-stream', { method: 'POST', headers: await authHeaders(), body: payload() });
+    }
     if (!res.ok || !res.body) {
       const d = await res.json().catch(() => ({}));
       throw new Error(d.error || `Eroare server (${res.status})`);
