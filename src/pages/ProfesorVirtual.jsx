@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { ChatPanel, MathText } from '../components/AITutor';
 import { aiClient } from '../lib/aiClient';
 import { useAuth } from '../context/AuthContext';
+import { aiAssistantLabel } from '../lib/aiLabel';
 import { printExam, printExercise } from '../lib/examPrint';
 import ExamGenerator from '../components/ExamGenerator';
 import EinsteinIcon from '../components/EinsteinIcon';
@@ -43,7 +44,7 @@ export default function ProfesorVirtual() {
       {/* Hero */}
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(1.8rem,4vw,2.6rem)', color: 'var(--navy)', marginBottom: 6, display:'flex', alignItems:'center', gap:12 }}>
-          <EinsteinIcon size={48} /> Profesor Virtual
+          <EinsteinIcon size={48} /> {aiAssistantLabel({ isTeacher, isParent })}
         </h1>
         <p style={{ color: 'var(--text-light)', maxWidth: 620 }}>
           Tutorele tău AI care învață din toate exercițiile și explicațiile de pe ExamenMate.

@@ -24,7 +24,7 @@ const FREE_LIMIT = 3;
 
 export default function BibliotecaUtilizatorilor() {
   const [params] = useSearchParams();
-  const { user, isAdmin, isPremium } = useAuth();
+  const { user, isAdmin, isPremium, isStudent } = useAuth();
   const [q, setQ] = useState(params.get('q') || '');
   const [category, setCategory] = useState('');
   const [items, setItems] = useState([]);
@@ -154,7 +154,7 @@ export default function BibliotecaUtilizatorilor() {
                           {it.kind === 'exam' ? '📄 Deschide PDF' : (isOpen ? '✕ Închide' : '▶ Deschide')}
                         </button>
                       )}
-                      {user && it.kind !== 'exam' && !isLocked && (
+                      {user && !isStudent && it.kind !== 'exam' && !isLocked && (
                         <SendToStudents label="📤 Trimite elevilor" create={() => aiClient.assignmentCreateFromPublic({ publicId: it.id })} />
                       )}
                       {isAdmin && (

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import AINotifications from './AINotifications';
 import EinsteinIcon from './EinsteinIcon';
+import { aiAssistantLabel } from '../lib/aiLabel';
 
 const CLASE = [
   { to: '/clase/5',  label: 'Clasa a V-a' },
@@ -342,7 +343,7 @@ function SearchModal({ onClose }) {
 }
 
 // ─── Mobile menu overlay ──────────────────────────────────────────────────────
-function MobileMenu({ open, onClose, user, isPremium, isAdmin, forumUnread = 0, forumHasNew = false, onSignOut }) {
+function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profesor Virtual', forumUnread = 0, forumHasNew = false, onSignOut }) {
   const location = useLocation();
   const [claseOpen, setClaseOpen] = useState(false);
   const [exameneOpen, setExameneOpen] = useState(false);
@@ -437,7 +438,7 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, forumUnread = 0, 
           📝 Rezolvări
         </Link>
         <Link to="/profesor-virtual" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/profesor-virtual' ? 'var(--gold)' : 'rgba(255,255,255,0.88)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <EinsteinIcon size={20} /> Profesor Virtual
+          <EinsteinIcon size={20} /> {aiLabel}
         </Link>
         <Link to="/biblioteca-utilizatorilor" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/biblioteca-utilizatorilor' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           🏛️ Biblioteca utilizatorilor
@@ -507,7 +508,11 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, forumUnread = 0, 
 
 // ─── Navbar principal ─────────────────────────────────────────────────────────
 export default function Navbar() {
-  const { user, isPremium, isAdmin, signOut } = useAuth();
+  const { user, isPremium, isAdmin, isTeacher, isParent, signOut } = useAuth();
+  const aiLabel = aiAssistantLabel({ isTeacher, isParent });
+  const maiMulte = MAIMULTE.map((it) => it.to === '/profesor-virtual'
+    ? { ...it, label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> {aiLabel}</span> }
+    : it);
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -628,7 +633,7 @@ export default function Navbar() {
                 )}
               </Link>
             </li>
-            <li><DesktopDropdown label="Mai multe" items={MAIMULTE} /></li>
+            <li><DesktopDropdown label="Mai multe" items={maiMulte} /></li>
           </ul>
 
           {/* Desktop auth buttons */}
@@ -688,6 +693,7 @@ export default function Navbar() {
         user={user}
         isPremium={isPremium}
         isAdmin={isAdmin}
+        aiLabel={aiLabel}
         forumUnread={forumUnread}
         forumHasNew={forumHasNew}
         onSignOut={handleSignOut}

@@ -2,6 +2,7 @@ import { authHeaders } from '../lib/api';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { aiAssistantLabel } from '../lib/aiLabel';
 import { supabase } from '../lib/supabase';
 import { assignTeacherCode } from '../lib/teacherCode';
 import RoleChooser from '../components/RoleChooser';
@@ -284,7 +285,7 @@ export default function Profile() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <EinsteinIcon size={44} />
             <div>
-              <div style={{ fontWeight: 700, fontSize: '1.1rem', fontFamily: 'var(--font-display)' }}>Profesor Virtual</div>
+              <div style={{ fontWeight: 700, fontSize: '1.1rem', fontFamily: 'var(--font-display)' }}>{aiAssistantLabel({ isTeacher, isParent })}</div>
               <div style={{ fontSize: '.85rem', opacity: 0.82 }}>
                 {isPremium
                   ? 'Explicații, exerciții, foto-rezolvare, voce și teste de examen în PDF.'
