@@ -24,10 +24,12 @@ async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens 
       'anthropic-version': '2023-06-01',
       'content-type': 'application/json',
     },
+    // Notă: modelele Claude recente NU mai acceptă `temperature` (API-ul
+    // răspunde cu „temperature is deprecated for this model") — nu îl trimitem.
+    // Parametrul rămâne în semnătură pentru fallback-ul OpenAI, care îl suportă.
     body: JSON.stringify({
       model: MODEL,
       max_tokens: maxTokens,
-      temperature,
       system,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
     }),
