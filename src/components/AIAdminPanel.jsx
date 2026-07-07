@@ -6,6 +6,8 @@
 import { useState, useEffect } from 'react';
 import { aiClient } from '../lib/aiClient';
 import { supabase } from '../lib/supabase';
+import AIExerciseAgent from './AIExerciseAgent';
+import AISEOAgent from './AISEOAgent';
 
 export default function AIAdminPanel() {
   const [stats, setStats] = useState(null);
@@ -87,6 +89,8 @@ export default function AIAdminPanel() {
       {log && <pre style={{ marginTop: 14, padding: 12, background: '#f7f9fc', borderRadius: 8, fontSize: '.78rem', color: 'var(--text)', overflowX: 'auto', whiteSpace: 'pre-wrap' }}>{log}</pre>}
     </div>
 
+    <AIExerciseAgent box={box} />
+    <AISEOAgent box={box} />
     <InteractiveGenerator box={box} />
     <BroadcastBox box={box} />
     </>
