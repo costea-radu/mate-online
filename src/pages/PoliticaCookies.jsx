@@ -101,7 +101,7 @@ export default function PoliticaCookies() {
             <Section title="7. Contact">
               <p>
                 Pentru întrebări despre utilizarea cookie-urilor:<br />
-                <strong>E-mail:</strong> <a href="mailto:costea.radu.ioan@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>costea.radu.ioan@gmail.com</a>
+                <strong>E-mail:</strong> <a href="mailto:admin.examenmate@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>admin.examenmate@gmail.com</a>
               </p>
             </Section>
 

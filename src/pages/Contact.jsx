@@ -36,8 +36,8 @@ export default function Contact() {
               </div>
               <div>
                 <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>E-mail</div>
-                <a href="mailto:costea.radu.ioan@gmail.com" style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', textDecoration: 'none' }}>
-                  costea.radu.ioan@gmail.com
+                <a href="mailto:admin.examenmate@gmail.com" style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', textDecoration: 'none' }}>
+                  admin.examenmate@gmail.com
                 </a>
                 <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)', marginTop: 4 }}>Răspundem în maxim 24 de ore</div>
               </div>

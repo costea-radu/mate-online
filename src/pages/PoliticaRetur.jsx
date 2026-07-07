@@ -47,7 +47,7 @@ export default function PoliticaRetur() {
                 Dacă dorești să te retragi din contract în termen de 14 zile și nu ai accesat conținutul Premium, ne contactezi la:
               </p>
               <ul style={{ marginTop: 10, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <li><strong>E-mail:</strong> <a href="mailto:costea.radu.ioan@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>costea.radu.ioan@gmail.com</a></li>
+                <li><strong>E-mail:</strong> <a href="mailto:admin.examenmate@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>admin.examenmate@gmail.com</a></li>
                 <li><strong>Telefon:</strong> 0765 173 728</li>
               </ul>
               <p style={{ marginTop: 12 }}>
@@ -76,7 +76,7 @@ export default function PoliticaRetur() {
             <Section title="7. Contact">
               <p>
                 Pentru orice întrebări legate de retururi sau anulări:<br />
-                <strong>E-mail:</strong> <a href="mailto:costea.radu.ioan@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>costea.radu.ioan@gmail.com</a><br />
+                <strong>E-mail:</strong> <a href="mailto:admin.examenmate@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>admin.examenmate@gmail.com</a><br />
                 <strong>Telefon:</strong> 0765 173 728<br />
                 <strong>Program:</strong> Luni – Vineri, 09:00 – 18:00
               </p>

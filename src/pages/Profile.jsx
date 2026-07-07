@@ -239,7 +239,7 @@ export default function Profile() {
       navigate('/');
     } catch (err) {
       console.error('Delete account error:', err);
-      setDeleteError('A apărut o eroare. Contactează suportul la costea.radu.ioan@gmail.com.');
+      setDeleteError('A apărut o eroare. Contactează suportul la admin.examenmate@gmail.com.');
       setDeleteLoading(false);
     }
   }

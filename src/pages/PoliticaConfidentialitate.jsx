@@ -61,7 +61,7 @@ export default function PoliticaConfidentialitate() {
                 <li><strong>Portabilizezi</strong> datele tale într-un format structurat.</li>
               </ul>
               <p style={{ marginTop: 12 }}>
-                Ștergerea contului o poți face direct din <strong>Contul meu → Șterge contul</strong>. Pentru celelalte drepturi (acces, rectificare, portabilitate, restricționare), ne contactezi la: <a href="mailto:costea.radu.ioan@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>costea.radu.ioan@gmail.com</a>
+                Ștergerea contului o poți face direct din <strong>Contul meu → Șterge contul</strong>. Pentru celelalte drepturi (acces, rectificare, portabilitate, restricționare), ne contactezi la: <a href="mailto:admin.examenmate@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>admin.examenmate@gmail.com</a>
               </p>
             </Section>
 
@@ -101,7 +101,7 @@ export default function PoliticaConfidentialitate() {
             <Section title="9. Contact">
               <p>
                 Pentru orice întrebări legate de această politică, ne poți contacta la:<br />
-                <strong>E-mail:</strong> <a href="mailto:costea.radu.ioan@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>costea.radu.ioan@gmail.com</a>
+                <strong>E-mail:</strong> <a href="mailto:admin.examenmate@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>admin.examenmate@gmail.com</a>
               </p>
             </Section>
 

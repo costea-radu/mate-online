@@ -111,7 +111,7 @@ export default function TermeniConditii() {
             <Section title="12. Contact">
               <p>
                 Pentru orice întrebări legate de acești termeni:<br />
-                <strong>E-mail:</strong> <a href="mailto:costea.radu.ioan@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>costea.radu.ioan@gmail.com</a><br />
+                <strong>E-mail:</strong> <a href="mailto:admin.examenmate@gmail.com" style={{ color: 'var(--navy)', fontWeight: 600 }}>admin.examenmate@gmail.com</a><br />
                 <strong>Telefon:</strong> 0765 173 728
               </p>
             </Section>

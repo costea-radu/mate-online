@@ -15,7 +15,7 @@ const faqs = [
       },
       {
         q: 'Pot schimba adresa de e-mail asociată contului?',
-        a: 'Da. Intră în „Contul meu”, apoi „Setări cont”, la „Date de autentificare”, și introdu noua adresă; vei primi un email de confirmare, iar schimbarea are loc după ce o confirmi. Alternativ, ne poți scrie la costea.radu.ioan@gmail.com.',
+        a: 'Da. Intră în „Contul meu”, apoi „Setări cont”, la „Date de autentificare”, și introdu noua adresă; vei primi un email de confirmare, iar schimbarea are loc după ce o confirmi. Alternativ, ne poți scrie la admin.examenmate@gmail.com.',
       },
       {
         q: 'Pot avea mai multe conturi?',
@@ -82,7 +82,7 @@ const faqs = [
     items: [
       {
         q: 'Nu pot accesa un material deși sunt abonat. Ce fac?',
-        a: 'Încearcă să te deconectezi și să te reconectezi la cont. Dacă problema persistă, golește cache-ul browserului sau încearcă din alt browser. Dacă tot nu merge, contactează-ne la costea.radu.ioan@gmail.com.',
+        a: 'Încearcă să te deconectezi și să te reconectezi la cont. Dacă problema persistă, golește cache-ul browserului sau încearcă din alt browser. Dacă tot nu merge, contactează-ne la admin.examenmate@gmail.com.',
       },
       {
         q: 'Ce browsere sunt suportate?',
