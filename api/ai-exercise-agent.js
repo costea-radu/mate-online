@@ -128,7 +128,7 @@ Reguli:
       system,
       messages: [{ role: 'user', content: `Generează acum obiectul JSON (${action === 'similar' ? 'asemănător modelului' : 'nou'}). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
       temperature: 0.85,
-      maxTokens: 4000,
+      maxTokens: 2600,
     });
     await ai.logUsage(supa, userId, 'ai-exercise-agent', usage);
 

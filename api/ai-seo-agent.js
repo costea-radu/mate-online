@@ -71,7 +71,7 @@ SARCINA CURENTĂ: ${instr}`;
       { role: 'user', content: input ? String(input).slice(0, 12000) : 'Execută sarcina pe baza contextului site-ului.' },
     ];
 
-    const { text, usage, provider } = await claude.chatClaude({ system, messages, temperature: 0.6, maxTokens: 4000 });
+    const { text, usage, provider } = await claude.chatClaude({ system, messages, temperature: 0.6, maxTokens: 3000 });
     await ai.logUsage(supa, userId, 'ai-seo-agent', usage);
 
     return res.status(200).json({ text, provider });
