@@ -5,6 +5,7 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import ErrorBoundary from './components/ErrorBoundary';
 import FloatingTutor from './components/AITutor';
+import InstallPrompt from './components/InstallPrompt';
 import { Analytics } from '@vercel/analytics/react';
 import Home from './pages/Home';
 
@@ -56,6 +57,7 @@ function Layout({ children }) {
       </main>
       {!fullscreen && <Footer />}
       {!fullscreen && <FloatingTutor />}
+      {!fullscreen && <InstallPrompt />}
     </>
   );
 }
