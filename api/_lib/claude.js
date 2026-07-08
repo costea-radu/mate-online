@@ -25,37 +25,54 @@ async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens 
     return { text: r.text, usage: r.usage, provider: 'fallback:' + (ai.CHAT_MODEL || 'openai') };
   }
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    // Notă: modelele Claude recente NU mai acceptă `temperature` (API-ul
-    // răspunde cu „temperature is deprecated for this model") — nu îl trimitem.
-    // Parametrul rămâne în semnătură pentru fallback-ul OpenAI, care îl suportă.
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      system,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    }),
-  });
+  const payload = {
+    model: MODEL,
+    system,
+    messages: messages.map((m) => ({ role: m.role, content: m.content })),
+  };
 
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = data?.error?.message || `Claude API ${res.status}`;
-    const err = new Error(msg); err.status = res.status === 429 ? 429 : 502;
+  async function callOnce(extra) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      // Notă: modelele Claude recente nu mai acceptă `temperature` — nu îl trimitem.
+      body: JSON.stringify({ ...payload, ...extra }),
+    });
+    const data = await res.json().catch(() => ({}));
+    const text = (data.content || []).filter((bl) => typeof bl.text === 'string').map((bl) => bl.text).join('');
+    return { ok: res.ok, status: res.status, data, text, stop: data.stop_reason || null };
+  }
+
+  // Modelele Claude recente „gândesc” înainte să răspundă, iar gândirea
+  // consumă din max_tokens (de aceea buget mic → text gol, stop=max_tokens).
+  // Strategie: (1) cerem gândirea dezactivată — tot bugetul merge pe răspuns;
+  // (2) dacă modelul nu permite, dăm buget suplimentar pentru gândire;
+  // (3) dacă și așa a consumat tot, o singură reîncercare cu buget dublu.
+  let r = await callOnce({ max_tokens: maxTokens, thinking: { type: 'disabled' } });
+  if (!r.ok && r.status === 400) {
+    console.warn('claude: thinking:disabled respins (%s) — reîncerc cu buget extins', r.data?.error?.message || r.status);
+    r = await callOnce({ max_tokens: maxTokens + 10000 });
+  }
+  if (r.ok && r.stop === 'max_tokens' && !r.text.trim()) {
+    console.warn('claude: gândirea a consumat tot bugetul — reîncerc cu buget dublu');
+    r = await callOnce({ max_tokens: Math.min((maxTokens + 10000) * 2, 40000) });
+  }
+
+  if (!r.ok) {
+    const msg = r.data?.error?.message || `Claude API ${r.status}`;
+    const err = new Error(msg); err.status = r.status === 429 ? 429 : 502;
     throw err;
   }
 
-  const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
   const usage = {
-    prompt_tokens: data.usage?.input_tokens || 0,
-    completion_tokens: data.usage?.output_tokens || 0,
+    prompt_tokens: r.data.usage?.input_tokens || 0,
+    completion_tokens: r.data.usage?.output_tokens || 0,
   };
-  return { text, usage, provider: MODEL, stopReason: data.stop_reason || null };
+  return { text: r.text, usage, provider: MODEL, stopReason: r.stop };
 }
 
 // Extrage JSON (obiect sau array) dintr-un răspuns de model, tolerant la
