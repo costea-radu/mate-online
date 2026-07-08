@@ -18,6 +18,7 @@ const SCHEMAS = `— GRILĂ:
 {
   "title": "titlul exercițiului",
   "kind": "grila",
+  "output": "interactive sau pdf — formatul de salvare cerut de admin (implicit interactive)",
   "statement": "context general (opțional, poate fi gol)",
   "questions": [
     { "statement": "enunț (LaTeX între $...$)", "options": ["A", "B", "C", "D"],
@@ -39,7 +40,11 @@ const SCHEMAS = `— GRILĂ:
 function normalize(ex) {
   if (!ex || typeof ex !== 'object') return null;
   const kind = ex.kind === 'etape' ? 'etape' : 'grila';
-  const out = { title: String(ex.title || 'Exercițiu generat'), kind, statement: String(ex.statement || '') };
+  const out = {
+    title: String(ex.title || 'Exercițiu generat'), kind,
+    statement: String(ex.statement || ''),
+    output: ex.output === 'pdf' ? 'pdf' : 'interactive',
+  };
   if (kind === 'grila') {
     const qs = Array.isArray(ex.questions) ? ex.questions : [];
     out.questions = qs.slice(0, 20).map((q) => ({
@@ -76,15 +81,15 @@ module.exports = async function handler(req, res) {
     const userId = await ai.authUser(req, supa);
     await ai.requireAdmin(supa, userId);
 
-    const { instructions = '', model = null, modelPdf = null, history = [] } = req.body || {};
+    const { instructions = '', model = null, modelPdf = null, formatText = null, formatPdf = null, history = [] } = req.body || {};
     if (!instructions.trim() && !model && !modelPdf) {
       return res.status(400).json({ error: 'Încarcă un fișier-model sau scrie instrucțiuni pentru agent.' });
     }
-    if (modelPdf && !claude.HAS_KEY) {
+    if ((modelPdf || formatPdf) && !claude.HAS_KEY) {
       return res.status(400).json({ error: 'Modelele PDF necesită cheia ANTHROPIC_API_KEY (setează-o în Vercel). Alternativ, folosește un model HTML sau doar instrucțiuni.' });
     }
-    if (modelPdf && String(modelPdf).length > 4.2 * 1024 * 1024) {
-      return res.status(400).json({ error: 'PDF-ul e prea mare (max ~3 MB).' });
+    if ((String(modelPdf || '').length + String(formatPdf || '').length) > 4.2 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Fișierele PDF sunt prea mari (max ~3 MB în total).' });
     }
 
     // RAG ușor: stilul materialelor din site rămâne o referință
@@ -94,8 +99,9 @@ module.exports = async function handler(req, res) {
 
     const system = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește, clasele 5–12, Evaluare Națională, Bacalaureat).
 
-Primești (opțional) un EXERCIȚIU-MODEL (PDF sau text) și instrucțiunile adminului.
-Sarcina: generează UN exercițiu NOU, ASEMĂNĂTOR modelului (aceeași structură, temă, stil și dificultate — dar cu ALTE valori/context; NU copia modelul), respectând întocmai instrucțiunile adminului (ele au prioritate).
+Primești (opțional) un EXERCIȚIU-MODEL (PDF sau text), opțional un al doilea fișier: MODELUL DE FORMAT (structura/așezarea/stilul baremului dorite la rezultat), și instrucțiunile adminului.
+Sarcina: generează UN exercițiu NOU, ASEMĂNĂTOR modelului de exerciții (aceeași temă, stil și dificultate — dar cu ALTE valori numerice/context; NU copia modelul), turnat în structura modelului de format (număr de itemi, tip grilă/etape, barem), respectând întocmai instrucțiunile adminului (ele au prioritate absolută).
+Transformări permise și încurajate când sunt cerute: PDF → interactiv, interactiv → PDF, schimbarea numerelor/valorilor, schimbarea tipului (grilă ↔ etape).
 
 === MATERIALE DIN SITE (referință de stil și nivel) ===
 ${ctx}
@@ -104,7 +110,8 @@ ${ctx}
 Răspunde STRICT cu UN SINGUR obiect JSON valid (fără alt text, fără markdown), în UNUL din cele două formate:
 ${SCHEMAS}
 
-Alegerea formatului: potrivește-l cu modelul (grilă → "grila"; problemă rezolvată pe pași / cu barem → "etape"). Dacă adminul cere explicit un format, folosește-l pe acela.
+Alegerea formatului JSON: potrivește-l cu modelul de format dacă există, altfel cu modelul de exerciții (grilă → "grila"; problemă pe pași → "etape"). Dacă adminul cere explicit, are prioritate.
+Câmpul "output": pune "pdf" dacă adminul cere salvare/tipărire ca PDF ori fișă de lucru; altfel "interactive". Ambele scheme acceptă câmpul "output".
 
 Reguli:
 - Formule în LaTeX între $...$; fiecare backslash scris DUBLU (ex: "$\\\\frac{1}{2}$").
@@ -124,10 +131,16 @@ Reguli:
 
     const blocks = [];
     if (modelPdf) {
+      blocks.push({ type: 'text', text: 'FIȘIERUL 1 — EXERCIȚIILE-MODEL (PDF):' });
       blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: String(modelPdf) } });
     }
+    if (formatPdf) {
+      blocks.push({ type: 'text', text: 'FIȘIERUL 2 — MODELUL DE FORMAT (PDF):' });
+      blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: String(formatPdf) } });
+    }
     const textParts = [];
-    if (model) textParts.push(`EXERCIȚIU-MODEL:\n${typeof model === 'string' ? model.slice(0, 15000) : JSON.stringify(model, null, 2)}`);
+    if (model) textParts.push(`EXERCIȚIU-MODEL:\n${typeof model === 'string' ? model.slice(0, 20000) : JSON.stringify(model, null, 2)}`);
+    if (formatText) textParts.push(`MODEL DE FORMAT:\n${String(formatText).slice(0, 20000)}`);
     textParts.push(`INSTRUCȚIUNI: ${instructions.trim() || 'Generează un exercițiu asemănător modelului.'}`);
     textParts.push(`Generează acum obiectul JSON. Sesiune #${Math.random().toString(36).slice(2, 8)}.`);
     blocks.push({ type: 'text', text: textParts.join('\n\n') });
@@ -135,7 +148,7 @@ Reguli:
     const { text, usage, provider } = await claude.chatClaude({
       system,
       messages: [...past, { role: 'user', content: blocks }],
-      maxTokens: 2600,
+      maxTokens: 3200,
     });
     await ai.logUsage(supa, userId, 'ai-exercise-agent', usage);
 

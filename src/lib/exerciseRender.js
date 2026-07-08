@@ -147,3 +147,69 @@ function renderEtape(ex) {
   });
 <\/script></body></html>`;
 }
+
+// ─── Document PDF (A4, pentru tipărire / „Salvează ca PDF”) ─────────────────
+// solutions=true adaugă pagina „Barem de corectare și rezolvări”.
+// autoPrint=true deschide automat dialogul de tipărire după randarea formulelor.
+export function renderPrintDoc(exercise, { solutions = true, autoPrint = false } = {}) {
+  const ex = exercise || {};
+  const isEtape = ex.kind === 'etape';
+  const items = (isEtape ? ex.steps : ex.questions) || [];
+  const total = items.reduce((s, it) => s + (Number(it.points) || 0), 0);
+
+  const body = items.map((it, i) => {
+    const pts = `<span class="p">(${it.points || 0} p)</span>`;
+    if (isEtape) {
+      return `<div class="item"><b>${i + 1}.</b> ${esc(it.prompt)} ${pts}
+        <div class="ans">Răspuns: ................................................................</div></div>`;
+    }
+    const opts = Array.isArray(it.options) && it.options.length
+      ? `<div class="opts">${it.options.map((o, oi) => `<span class="o">${String.fromCharCode(97 + oi)}) ${esc(o)}</span>`).join('')}</div>`
+      : `<div class="ans">Răspuns: ................................................................</div>`;
+    return `<div class="item"><b>${i + 1}.</b> ${esc(it.statement)} ${pts}${opts}</div>`;
+  }).join('');
+
+  const sol = solutions ? `<div class="pagebreak"></div>
+    <h2>Barem de corectare și rezolvări</h2>
+    ${items.map((it, i) => {
+      const right = isEtape
+        ? esc(String(it.answer ?? ''))
+        : (Array.isArray(it.options) && it.options.length
+          ? `${String.fromCharCode(97 + (Number(it.answer) || 0))}) ${esc(it.options[Number(it.answer) || 0] || '')}`
+          : esc(String(it.answer ?? '')));
+      return `<div class="sitem"><b>${i + 1}.</b> <b>Răspuns:</b> ${right} <span class="p">(${it.points || 0} p)</span>
+        ${it.explanation ? `<div class="sexp">${esc(it.explanation)}</div>` : ''}</div>`;
+    }).join('')}
+    ${isEtape && ex.final_answer ? `<div class="sitem"><b>Răspuns final:</b> ${esc(ex.final_answer)}</div>` : ''}` : '';
+
+  return `<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(ex.title || 'Exercițiu')}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+  @page { size: A4; margin: 16mm; }
+  body{font-family:Georgia,'Times New Roman',serif;color:#111;margin:0;padding:24px;line-height:1.65;font-size:12.5pt}
+  h1{font-size:1.25rem;margin:0 0 2px} h2{font-size:1.05rem;margin:0 0 12px}
+  .sub{font-size:.85rem;color:#555;margin-bottom:16px;border-bottom:1.5px solid #111;padding-bottom:8px}
+  .enunt{margin-bottom:14px}
+  .item{margin-bottom:14px}
+  .p{color:#555;font-size:.85rem;white-space:nowrap}
+  .opts{margin:6px 0 0 18px;display:flex;flex-wrap:wrap;gap:6px 26px}
+  .ans{margin:8px 0 0 18px;color:#777}
+  .sitem{margin-bottom:10px}
+  .sexp{margin:4px 0 0 18px;color:#333;font-size:.95em}
+  .pagebreak{page-break-before:always}
+  @media print { body{padding:0} }
+</style></head><body>
+  <h1>${esc(ex.title || 'Exercițiu')}</h1>
+  <div class="sub">ExamenMate · ${isEtape ? items.length + ' etape' : items.length + ' itemi'} · Barem: ${total} puncte</div>
+  ${ex.statement ? `<div class="enunt"><b>${isEtape ? 'Enunț. ' : ''}</b>${esc(ex.statement)}</div>` : ''}
+  ${body}
+  ${sol}
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"><\/script>
+<script>
+  function rmath(){ if(window.renderMathInElement) renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false}); }
+  window.addEventListener('load', function(){ rmath(); ${autoPrint ? 'setTimeout(function(){ window.print(); }, 700);' : ''} });
+<\/script></body></html>`;
+}

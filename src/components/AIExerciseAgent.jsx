@@ -1,39 +1,44 @@
 // =====================================================================
 // src/components/AIExerciseAgent.jsx — Agentul Claude de exerciții (admin)
-// Flux: (1) încarci un fișier-MODEL (PDF/HTML) și/sau scrii instrucțiuni
-// în caseta de mesaj (stil Claude/ChatGPT) → „Generează”.
-// (2) Pe exercițiul generat: „Încarcă” (publicare cu Titlu/Categorie/
-// Descriere/Acces), „Modifică” (editare completă), „Șterge”.
-// Poți continua conversația („fă-l mai greu”, „adaugă o etapă”...) —
-// agentul regenerează pornind de la exercițiul curent.
+// (1) Încarci FIȘIERUL 1 = exercițiile-model (PDF/HTML) și, opțional,
+//     FIȘIERUL 2 = modelul de FORMAT (structura/baremul dorit la rezultat).
+// (2) Scrii instrucțiuni în caseta de mesaj (stil Claude) — inclusiv
+//     formatul de salvare dorit („salvează ca PDF” / „interactiv”).
+// (3) Pe exercițiul generat: Trimite la «Adaugă PDF» / «Adaugă Interactiv»
+//     (formularele existente din Admin, precompletate), descărcare pe
+//     calculator (HTML sau PDF prin tipărire), Modifică, Șterge.
 // =====================================================================
 import { useState, useEffect, useRef } from 'react';
 import { aiClient } from '../lib/aiClient';
 import { supabase } from '../lib/supabase';
-import { renderExercise } from '../lib/exerciseRender';
+import { renderExercise, renderPrintDoc } from '../lib/exerciseRender';
 
-const CATS = ['clasa-5', 'clasa-6', 'clasa-7', 'clasa-8', 'evaluare-nationala', 'bacalaureat'];
 const inp = { border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.9rem', width: '100%', marginTop: 4, boxSizing: 'border-box' };
 const ta = { ...inp, fontFamily: 'inherit', resize: 'vertical' };
 const lbl = { fontSize: '.82rem', color: 'var(--text-light)' };
 const smallBtn = { background: '#f7f9fc', border: '1px solid var(--border)', borderRadius: 7, padding: '4px 9px', fontSize: '.78rem', cursor: 'pointer', fontWeight: 600 };
 
+function slug(s) {
+  return String(s || 'exercitiu').toLowerCase()
+    .replace(/[ăâ]/g, 'a').replace(/î/g, 'i').replace(/[șş]/g, 's').replace(/[țţ]/g, 't')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'exercitiu';
+}
+
 export default function AIExerciseAgent({ box }) {
-  // Modelul (fișier) + conversația
-  const [modelFile, setModelFile] = useState(null); // {name, pdf(base64)|null, text|null}
+  // Fișierele-model + conversația
+  const [modelFile, setModelFile] = useState(null);   // {name, pdf|null, text|null}
+  const [formatFile, setFormatFile] = useState(null); // idem — modelul de FORMAT
   const [message, setMessage] = useState('');
-  const [chat, setChat] = useState([]); // {role:'user'|'assistant', content}
-  const fileRef = useRef(null);
+  const [chat, setChat] = useState([]);
+  const fileRef1 = useRef(null);
+  const fileRef2 = useRef(null);
 
   // Exercițiul curent
   const [ex, setEx] = useState(null);
   const [editing, setEditing] = useState(false);
   const [provider, setProvider] = useState(null);
-
-  // Publicare
-  const [publishOpen, setPublishOpen] = useState(false);
-  const [pub, setPub] = useState({ title: '', category: 'clasa-5', description: '', isFree: false });
   const [savedId, setSavedId] = useState(null);
+  const [savedMeta, setSavedMeta] = useState(null); // metadatele rândului la re-editare
   const [savedList, setSavedList] = useState([]);
 
   const [loading, setLoading] = useState(false);
@@ -52,8 +57,8 @@ export default function AIExerciseAgent({ box }) {
   }
   useEffect(() => { loadSaved(); }, []);
 
-  // ── Fișierul-model (PDF sau HTML) ──────────────────────────────────
-  async function onFile(f) {
+  // ── Fișierele-model (PDF sau HTML) ─────────────────────────────────
+  async function onFile(f, setFileState, ref) {
     setError(null);
     if (!f) return;
     if (f.size > 3 * 1024 * 1024) { setError('Fișierul e prea mare (max 3 MB).'); return; }
@@ -64,37 +69,59 @@ export default function AIExerciseAgent({ box }) {
         fr.onerror = reject;
         fr.readAsDataURL(f);
       });
-      setModelFile({ name: f.name, pdf: b64, text: null });
+      setFileState({ name: f.name, pdf: b64, text: null });
     } else if (/\.html?$/i.test(f.name)) {
       const raw = await f.text();
       let text = raw;
       try { text = new DOMParser().parseFromString(raw, 'text/html').body?.innerText || raw; } catch { /* raw */ }
-      setModelFile({ name: f.name, pdf: null, text: text.slice(0, 15000) });
+      setFileState({ name: f.name, pdf: null, text: text.slice(0, 20000) });
     } else {
-      setError('Acceptăm doar fișiere PDF sau HTML ca model.');
+      setError('Acceptăm doar fișiere PDF sau HTML.');
     }
+    if (ref?.current) ref.current.value = '';
+  }
+
+  function FileSlot({ title, hint, file, setFile, refEl, icon }) {
+    return (
+      <div style={{ flex: 1, minWidth: 240, border: '2px dashed var(--border)', borderRadius: 12, padding: 12 }}>
+        <div style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 6 }}>{title}</div>
+        <input ref={refEl} type="file" accept=".pdf,.html,.htm" style={{ display: 'none' }}
+          onChange={(e) => onFile(e.target.files?.[0], setFile, refEl)} />
+        {file ? (
+          <div style={{ fontSize: '.85rem', color: 'var(--navy)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {file.pdf ? '📕' : '📄'} {file.name}
+            <button onClick={() => setFile(null)} style={{ ...smallBtn, color: '#c0392b', borderColor: '#f5c6cb' }}>✕ scoate</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <button className="btn btn-outline" onClick={() => refEl.current?.click()} style={{ fontSize: '.82rem' }}>{icon} Alege fișier</button>
+            <span style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>{hint}</span>
+          </div>
+        )}
+      </div>
+    );
   }
 
   // ── Generare / conversație ─────────────────────────────────────────
   async function generate() {
     const text = message.trim();
-    if (!modelFile && !text && !ex) { setError('Încarcă un fișier-model sau scrie instrucțiuni.'); return; }
+    if (!modelFile && !formatFile && !text && !ex) { setError('Încarcă un fișier-model sau scrie instrucțiuni.'); return; }
     setLoading(true); setError(null); setMsg(null);
     try {
       const r = await aiClient.exerciseAgent({
         instructions: text,
-        // dacă există deja un exercițiu, el devine modelul (iterație);
-        // altfel modelul e textul din fișierul HTML
         model: ex ? JSON.stringify(ex) : (modelFile?.text || null),
         modelPdf: modelFile?.pdf || null,
-        history: chat.slice(-6),
+        formatText: formatFile?.text || null,
+        formatPdf: formatFile?.pdf || null,
+        history: chat.slice(-8),
       });
       setEx(r.exercise); setProvider(r.provider);
-      setEditing(false); setPublishOpen(false); setSavedId(null);
-      setPub((p) => ({ ...p, title: r.exercise.title, description: '' }));
+      setEditing(false); setSavedId(null); setSavedMeta(null);
+      const nItems = r.exercise.kind === 'etape' ? r.exercise.steps.length : r.exercise.questions.length;
       setChat((c) => [...c,
         ...(text ? [{ role: 'user', content: text }] : []),
-        { role: 'assistant', content: `Am generat: „${r.exercise.title}” (${r.exercise.kind === 'etape' ? r.exercise.steps.length + ' etape' : r.exercise.questions.length + ' întrebări'}, barem ${totalOf(r.exercise)} p). Îl poți Încărca, Modifica sau continua să-mi dai indicații.` },
+        { role: 'assistant', content: `Am generat: „${r.exercise.title}” (${nItems} ${r.exercise.kind === 'etape' ? 'etape' : 'întrebări'}, barem ${totalOf(r.exercise)} p). Format sugerat: ${r.exercise.output === 'pdf' ? 'PDF' : 'interactiv'}. Îl poți trimite la «Adaugă PDF» / «Adaugă Interactiv», descărca sau modifica.` },
       ]);
       setMessage('');
     } catch (e) { setError(e.message); }
@@ -135,45 +162,69 @@ export default function AIExerciseAgent({ box }) {
     });
   }
   function discard() {
-    if (!window.confirm('Ștergi exercițiul generat? (fișierul-model și conversația rămân)')) return;
-    setEx(null); setEditing(false); setPublishOpen(false); setSavedId(null); setMsg(null);
+    if (!window.confirm('Ștergi exercițiul generat? (fișierele-model și conversația rămân)')) return;
+    setEx(null); setEditing(false); setSavedId(null); setSavedMeta(null); setMsg(null);
   }
 
-  // ── Publicare în baza de date ──────────────────────────────────────
-  async function confirmUpload() {
-    if (!ex) return;
-    if (!pub.title.trim()) { setError('Pune un titlu.'); return; }
+  // ── Trimitere către formularele existente din Admin ────────────────
+  function sendToInteractive() {
+    sessionStorage.setItem('agent_prefill_interactive', JSON.stringify({
+      form: { title: ex.title, description: `Generat cu agentul Claude · barem ${totalPoints} p`, type: 'exercise' },
+      html: renderExercise(ex),
+      fileName: `${slug(ex.title)}.html`,
+    }));
+    window.dispatchEvent(new CustomEvent('admin:goto-tab', { detail: 'interactive' }));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function sendToPdf() {
+    openPrint(true); // întâi fereastra de tipărire (Salvează ca PDF), în același gest de click
+    sessionStorage.setItem('agent_prefill_pdf', JSON.stringify({
+      form: { title: ex.title, description: `Generat cu agentul Claude · barem ${totalPoints} p` },
+    }));
+    window.dispatchEvent(new CustomEvent('admin:goto-tab', { detail: 'pdf' }));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ── Salvare pe calculator ──────────────────────────────────────────
+  function downloadHtml() {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([renderExercise(ex)], { type: 'text/html' }));
+    a.download = `${slug(ex.title)}.html`;
+    a.click(); URL.revokeObjectURL(a.href);
+  }
+  function openPrint(withSolutions) {
+    const w = window.open('', '_blank');
+    if (!w) { setError('Browserul a blocat fereastra de tipărire — permite pop-up-urile.'); return; }
+    w.document.write(renderPrintDoc(ex, { solutions: withSolutions, autoPrint: true }));
+    w.document.close();
+  }
+
+  // ── Actualizarea unui exercițiu deja încărcat de agent ─────────────
+  async function updateSaved() {
+    if (!ex || !savedId || !savedMeta) return;
     setSaving(true); setError(null); setMsg(null);
     try {
-      const exFinal = { ...ex, title: pub.title.trim() };
-      const html = renderExercise(exFinal);
-      const bucket = pub.isFree ? 'content-files-free' : 'content-files';
-      const path = `interactive/${pub.category}/${Date.now()}_agent_claude.html`;
+      const html = renderExercise(ex);
+      const bucket = savedMeta.is_free ? 'content-files-free' : 'content-files';
+      const path = `interactive/${savedMeta.category}/${Date.now()}_agent_claude.html`;
       const { error: upErr } = await supabase.storage.from(bucket).upload(path, new Blob([html], { type: 'text/html' }), { contentType: 'text/html' });
       if (upErr) throw upErr;
       const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(path);
-      const row = {
-        title: pub.title.trim(),
-        description: pub.description.trim() || `Generat cu agentul Claude · barem ${totalPoints} p`,
-        category: pub.category, content_type: 'interactive', is_free: pub.isFree,
-        file_url: urlData?.publicUrl || path,
-        interactive_data: { type: 'exercise', html: true, ai_generated: true, agent: 'claude', exercise: exFinal },
-      };
-      let dbErr;
-      if (savedId) ({ error: dbErr } = await supabase.from('content').update(row).eq('id', savedId));
-      else ({ error: dbErr } = await supabase.from('content').insert(row));
+      const { error: dbErr } = await supabase.from('content').update({
+        title: ex.title, file_url: urlData?.publicUrl || path,
+        interactive_data: { type: 'exercise', html: true, ai_generated: true, agent: 'claude', exercise: ex },
+      }).eq('id', savedId);
       if (dbErr) throw dbErr;
-      setMsg(savedId ? '✅ Exercițiu actualizat pe site.' : '✅ Încărcat pe site! Apare în categoria aleasă și se indexează automat.');
-      setPublishOpen(false); setEx(exFinal);
+      setMsg('✅ Exercițiu actualizat pe site.');
       loadSaved();
-    } catch (e) { setError('Încărcare eșuată: ' + e.message); }
+    } catch (e) { setError('Actualizare eșuată: ' + e.message); }
     finally { setSaving(false); }
   }
 
   function loadForEdit(row) {
     setEx(row.interactive_data.exercise);
-    setSavedId(row.id); setEditing(true); setPublishOpen(false); setMsg(null); setError(null);
-    setPub({ title: row.title, category: row.category, description: row.description || '', isFree: !!row.is_free });
+    setSavedId(row.id); setSavedMeta({ category: row.category, is_free: !!row.is_free });
+    setEditing(true); setMsg(null); setError(null);
   }
 
   return (
@@ -182,32 +233,21 @@ export default function AIExerciseAgent({ box }) {
         🤖 Agent Claude — Generator de exerciții
       </h3>
       <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 14 }}>
-        Încarcă un <strong>exercițiu-model</strong> (PDF sau HTML) și scrie-i agentului ce vrei să genereze.
-        Apoi: <strong>Încarcă</strong> pe site, <strong>Modifică</strong> integral sau <strong>Șterge</strong>.
+        Fișierul 1 = <strong>exercițiile-model</strong>; fișierul 2 (opțional) = <strong>modelul de format</strong> al rezultatului.
+        Poți cere transformări: PDF → interactiv, interactiv → PDF, alte numere, alt tip.
+        Formatul de salvare îl poți cere direct în mesaj („salvează ca PDF”).
         {provider && <span style={{ color: 'var(--text-muted)' }}> · model: {provider}</span>}
       </p>
 
-      {/* 1. Fișierul-model */}
-      <div style={{ border: '2px dashed var(--border)', borderRadius: 12, padding: 14, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <input ref={fileRef} type="file" accept=".pdf,.html,.htm" style={{ display: 'none' }}
-          onChange={(e) => onFile(e.target.files?.[0])} />
-        <button className="btn btn-outline" onClick={() => fileRef.current?.click()}>
-          📎 {modelFile ? 'Schimbă fișierul-model' : 'Încarcă fișier-model (PDF / HTML)'}
-        </button>
-        {modelFile ? (
-          <span style={{ fontSize: '.85rem', color: 'var(--navy)', fontWeight: 600 }}>
-            {modelFile.pdf ? '📕' : '📄'} {modelFile.name}
-            <button onClick={() => { setModelFile(null); if (fileRef.current) fileRef.current.value = ''; }}
-              style={{ ...smallBtn, marginLeft: 8, color: '#c0392b', borderColor: '#f5c6cb' }}>✕ scoate</button>
-          </span>
-        ) : (
-          <span style={{ fontSize: '.8rem', color: 'var(--text-muted)' }}>Agentul va genera un exercițiu asemănător modelului (max 3 MB).</span>
-        )}
+      {/* 1. Fișierele-model */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+        <FileSlot title="1 · Exercițiile-model (PDF / HTML)" hint="de aici ia exercițiile" icon="📎" file={modelFile} setFile={setModelFile} refEl={fileRef1} />
+        <FileSlot title="2 · Modelul de format — opțional" hint="de aici ia structura/baremul" icon="🗂" file={formatFile} setFile={setFormatFile} refEl={fileRef2} />
       </div>
 
       {/* 2. Conversația cu agentul */}
       {chat.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, maxHeight: 260, overflowY: 'auto', padding: '2px 2px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, maxHeight: 280, overflowY: 'auto', padding: '2px 2px' }}>
           {chat.map((m, i) => m.role === 'user' ? (
             <div key={i} style={{ alignSelf: 'flex-end', background: 'var(--navy)', color: '#fff', borderRadius: '12px 12px 2px 12px', padding: '8px 12px', fontSize: '.85rem', maxWidth: '85%', whiteSpace: 'pre-wrap' }}>{m.content}</div>
           ) : (
@@ -217,12 +257,12 @@ export default function AIExerciseAgent({ box }) {
       )}
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 10 }}>
-        <textarea value={message} rows={2}
+        <textarea value={message} rows={3}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!loading) generate(); } }}
           placeholder={ex
-            ? 'Dă-i indicații agentului… (ex: „fă-l mai greu”, „adaugă o etapă cu verificare”, „transformă-l în grilă”)'
-            : 'Descrie exercițiul dorit… (ex: „5 grile cu fracții, clasa a 6-a, barem 20 p” sau doar „generează după model”)'}
+            ? 'Continuă să-i dai indicații… (ex: „fă-l mai greu”, „transformă-l în grilă”, „salvează ca PDF”)'
+            : 'Descrie ce vrei să genereze… (ex: „test de 90 min după modelul din fișierul 1, în formatul din fișierul 2, cu alte numere, salvat ca PDF”)'}
           style={{ flex: 1, border: 'none', outline: 'none', resize: 'none', fontSize: '.9rem', fontFamily: 'inherit', lineHeight: 1.5, background: 'transparent' }} />
         <button onClick={generate} disabled={loading} title="Generează (Enter)"
           style={{ background: 'var(--gold, #e8b931)', color: 'var(--navy, #0f2b44)', border: 'none', borderRadius: 10, width: 42, height: 42, fontSize: '1.2rem', fontWeight: 800, cursor: 'pointer', flexShrink: 0 }}>
@@ -240,15 +280,14 @@ export default function AIExerciseAgent({ box }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
             <div style={{ fontWeight: 700, color: 'var(--navy)' }}>
               {editing ? '✏️ Mod editare' : '👁 Previzualizare'} · barem {totalPoints} p · {items.length} {ex.kind === 'etape' ? 'etape' : 'întrebări'}
+              {ex.output === 'pdf' && !editing && <span style={{ marginLeft: 8, fontSize: '.75rem', background: '#fff4e5', color: '#8a6d00', borderRadius: 20, padding: '2px 10px' }}>sugerat: PDF</span>}
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {editing ? (
                 <button className="btn btn-primary" onClick={() => setEditing(false)}>✅ Finalizare</button>
               ) : (
                 <>
-                  <button className="btn btn-primary" onClick={() => { setPublishOpen((v) => !v); setMsg(null); }}>
-                    💾 {savedId ? 'Actualizează' : 'Încarcă'}
-                  </button>
+                  {savedId && <button className="btn btn-primary" onClick={updateSaved} disabled={saving}>{saving ? 'Se salvează…' : '💾 Actualizează pe site'}</button>}
                   <button className="btn btn-outline" onClick={() => setEditing(true)}>✏️ Modifică</button>
                   <button className="btn btn-outline" onClick={discard} style={{ color: '#c0392b', borderColor: '#f5c6cb' }}>🗑 Șterge</button>
                 </>
@@ -256,43 +295,23 @@ export default function AIExerciseAgent({ box }) {
             </div>
           </div>
 
-          {/* Formularul de publicare (Titlu / Categorie / Descriere / Acces) */}
-          {publishOpen && !editing && (
-            <div style={{ border: '1px solid var(--gold, #e8b931)', background: '#fffdf5', borderRadius: 12, padding: 14, marginBottom: 12 }}>
-              <div style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: 8, fontSize: '.92rem' }}>Încărcare în baza de date</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10, marginBottom: 10 }}>
-                <label style={lbl}>Titlu
-                  <input value={pub.title} onChange={(e) => setPub((p) => ({ ...p, title: e.target.value }))} style={inp} />
-                </label>
-                <label style={lbl}>Categorie
-                  <select value={pub.category} onChange={(e) => setPub((p) => ({ ...p, category: e.target.value }))} style={inp}>
-                    {CATS.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </label>
-                <label style={lbl}>Acces
-                  <select value={pub.isFree ? 'free' : 'premium'} onChange={(e) => setPub((p) => ({ ...p, isFree: e.target.value === 'free' }))} style={inp}>
-                    <option value="premium">Premium</option>
-                    <option value="free">Gratuit</option>
-                  </select>
-                </label>
-              </div>
-              <label style={lbl}>Descriere
-                <textarea value={pub.description} rows={2} onChange={(e) => setPub((p) => ({ ...p, description: e.target.value }))}
-                  placeholder={`Generat cu agentul Claude · barem ${totalPoints} p`} style={{ ...ta, marginBottom: 10 }} />
-              </label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn btn-primary" onClick={confirmUpload} disabled={saving}>
-                  {saving ? 'Se încarcă…' : savedId ? '✅ Confirmă actualizarea' : '✅ Confirmă încărcarea pe site'}
-                </button>
-                <button className="btn btn-outline" onClick={() => setPublishOpen(false)}>Renunță</button>
-              </div>
+          {/* Plasare pe site + salvare pe calculator */}
+          {!editing && (
+            <div style={{ border: '1px solid var(--gold, #e8b931)', background: '#fffdf5', borderRadius: 12, padding: 12, marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)' }}>Pune pe site:</span>
+              <button className="btn btn-primary" onClick={sendToInteractive} style={{ fontSize: '.85rem' }}>🧩 Trimite la «Adaugă Interactiv»</button>
+              <button className="btn btn-primary" onClick={sendToPdf} style={{ fontSize: '.85rem' }}>📄 Trimite la «Adaugă PDF»</button>
+              <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', marginLeft: 8 }}>Salvează pe calculator:</span>
+              <button className="btn btn-outline" onClick={downloadHtml} style={{ fontSize: '.82rem' }}>⬇️ HTML interactiv</button>
+              <button className="btn btn-outline" onClick={() => openPrint(true)} style={{ fontSize: '.82rem' }}>🖨 PDF cu barem</button>
+              <button className="btn btn-outline" onClick={() => openPrint(false)} style={{ fontSize: '.82rem' }}>🖨 PDF fără barem</button>
             </div>
           )}
 
           {editing ? (
             <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
               <label style={lbl}>Titlu
-                <input value={ex.title || ''} onChange={(e) => { patchEx({ title: e.target.value }); setPub((p) => ({ ...p, title: e.target.value })); }} style={{ ...inp, marginBottom: 10 }} />
+                <input value={ex.title || ''} onChange={(e) => patchEx({ title: e.target.value })} style={{ ...inp, marginBottom: 10 }} />
               </label>
               <label style={lbl}>{ex.kind === 'etape' ? 'Enunțul problemei' : 'Context general (opțional)'}
                 <textarea value={ex.statement || ''} onChange={(e) => patchEx({ statement: e.target.value })} rows={3} style={{ ...ta, marginBottom: 12 }} />

@@ -264,6 +264,18 @@ function UploadPDF({ onSuccess }) {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
 
+  // Preîncărcare de la agentul Claude (metadate; PDF-ul îl atașezi din descărcare)
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('agent_prefill_pdf');
+      if (!raw) return;
+      sessionStorage.removeItem('agent_prefill_pdf');
+      const pre = JSON.parse(raw);
+      setForm((f) => ({ ...f, ...pre.form }));
+      setMsg({ type: 'success', text: '📥 Date preluate de la agentul Claude. Atașează PDF-ul salvat din fereastra de tipărire, alege subcategoria/profilul și apasă Încarcă.' });
+    } catch { /* ignore */ }
+  }, []);
+
   const isEN = form.category === 'evaluare-nationala';
   const isBAC = form.category === 'bacalaureat';
 
@@ -352,6 +364,19 @@ function UploadInteractive({ onSuccess }) {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
+
+  // Preîncărcare de la agentul Claude (metadate + fișierul HTML gata atașat)
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('agent_prefill_interactive');
+      if (!raw) return;
+      sessionStorage.removeItem('agent_prefill_interactive');
+      const pre = JSON.parse(raw);
+      setForm((f) => ({ ...f, ...pre.form }));
+      if (pre.html) setFile(new File([pre.html], pre.fileName || 'exercitiu_agent.html', { type: 'text/html' }));
+      setMsg({ type: 'success', text: '📥 Exercițiul agentului Claude e atașat. Alege subcategoria/profilul dacă e cazul și apasă Încarcă.' });
+    } catch { /* ignore */ }
+  }, []);
   const isEN = form.category === 'evaluare-nationala';
   const isBAC = form.category === 'bacalaureat';
 
@@ -846,6 +871,13 @@ export default function Admin() {
   const { user, isAdmin, loading } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState('dashboard');
+
+  // Comutare tab cerută de agentul Claude („Trimite la Adaugă PDF/Interactiv”)
+  useEffect(() => {
+    const go = (e) => { if (e.detail) setTab(e.detail); };
+    window.addEventListener('admin:goto-tab', go);
+    return () => window.removeEventListener('admin:goto-tab', go);
+  }, []);
   const [refreshList, setRefreshList] = useState(0);
 
   useEffect(() => {
