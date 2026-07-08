@@ -35,6 +35,7 @@ export default function AIExerciseAgent({ box }) {
 
   // Exercițiul curent
   const [ex, setEx] = useState(null);
+  const [exHtml, setExHtml] = useState(null); // rezultat HTML brut (clonă a șablonului)
   const [editing, setEditing] = useState(false);
   const [provider, setProvider] = useState(null);
   const [savedId, setSavedId] = useState(null);
@@ -74,7 +75,8 @@ export default function AIExerciseAgent({ box }) {
       const raw = await f.text();
       let text = raw;
       try { text = new DOMParser().parseFromString(raw, 'text/html').body?.innerText || raw; } catch { /* raw */ }
-      setFileState({ name: f.name, pdf: null, text: text.slice(0, 20000) });
+      // păstrăm și sursa brută: la slotul de FORMAT ea permite clonarea 1:1
+      setFileState({ name: f.name, pdf: null, text: text.slice(0, 20000), html: raw.slice(0, 70000) });
     } else {
       setError('Acceptăm doar fișiere PDF sau HTML.');
     }
@@ -105,7 +107,7 @@ export default function AIExerciseAgent({ box }) {
   // ── Generare / conversație ─────────────────────────────────────────
   async function generate() {
     const text = message.trim();
-    if (!modelFile && !formatFile && !text && !ex) { setError('Încarcă un fișier-model sau scrie instrucțiuni.'); return; }
+    if (!modelFile && !formatFile && !text && !ex && !exHtml) { setError('Încarcă un fișier-model sau scrie instrucțiuni.'); return; }
     setLoading(true); setError(null); setMsg(null);
     try {
       const r = await aiClient.exerciseAgent({
@@ -114,15 +116,29 @@ export default function AIExerciseAgent({ box }) {
         modelPdf: modelFile?.pdf || null,
         formatText: formatFile?.text || null,
         formatPdf: formatFile?.pdf || null,
+        // șablon HTML → agentul clonează EXACT fișierul de format;
+        // la iterații, șablonul devine rezultatul curent
+        formatHtml: formatFile?.html || null,
+        currentHtml: exHtml || null,
         history: chat.slice(-8),
       });
-      setEx(r.exercise); setProvider(r.provider);
+      setProvider(r.provider);
       setEditing(false); setSavedId(null); setSavedMeta(null);
-      const nItems = r.exercise.kind === 'etape' ? r.exercise.steps.length : r.exercise.questions.length;
-      setChat((c) => [...c,
-        ...(text ? [{ role: 'user', content: text }] : []),
-        { role: 'assistant', content: `Am generat: „${r.exercise.title}” (${nItems} ${r.exercise.kind === 'etape' ? 'etape' : 'întrebări'}, barem ${totalOf(r.exercise)} p). Format sugerat: ${r.exercise.output === 'pdf' ? 'PDF' : 'interactiv'}. Îl poți trimite la «Adaugă PDF» / «Adaugă Interactiv», descărca sau modifica.` },
-      ]);
+      if (r.html) {
+        setExHtml(r.html); setEx(null);
+        const t = r.html.match(/<title>([^<]*)<\/title>/i)?.[1]?.trim() || 'Exercițiu în șablonul model';
+        setChat((c) => [...c,
+          ...(text ? [{ role: 'user', content: text }] : []),
+          { role: 'assistant', content: `Am generat fișierul „${t}” exact în formatul șablonului (${Math.round(r.html.length / 1024)} KB). Îl poți testa în previzualizare, trimite la «Adaugă Interactiv», descărca sau modifica prin mesaje.` },
+        ]);
+      } else {
+        setEx(r.exercise); setExHtml(null);
+        const nItems = r.exercise.kind === 'etape' ? r.exercise.steps.length : r.exercise.questions.length;
+        setChat((c) => [...c,
+          ...(text ? [{ role: 'user', content: text }] : []),
+          { role: 'assistant', content: `Am generat: „${r.exercise.title}” (${nItems} ${r.exercise.kind === 'etape' ? 'etape' : 'întrebări'}, barem ${totalOf(r.exercise)} p). Format sugerat: ${r.exercise.output === 'pdf' ? 'PDF' : 'interactiv'}. Îl poți trimite la «Adaugă PDF» / «Adaugă Interactiv», descărca sau modifica.` },
+        ]);
+      }
       setMessage('');
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
@@ -163,7 +179,7 @@ export default function AIExerciseAgent({ box }) {
   }
   function discard() {
     if (!window.confirm('Ștergi exercițiul generat? (fișierele-model și conversația rămân)')) return;
-    setEx(null); setEditing(false); setSavedId(null); setSavedMeta(null); setMsg(null);
+    setEx(null); setExHtml(null); setEditing(false); setSavedId(null); setSavedMeta(null); setMsg(null);
   }
 
   // ── Trimitere către formularele existente din Admin ────────────────
@@ -233,7 +249,8 @@ export default function AIExerciseAgent({ box }) {
         🤖 Agent Claude — Generator de exerciții
       </h3>
       <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 14 }}>
-        Fișierul 1 = <strong>exercițiile-model</strong>; fișierul 2 (opțional) = <strong>modelul de format</strong> al rezultatului.
+        Fișierul 1 = <strong>exercițiile-model</strong>; fișierul 2 (opțional) = <strong>modelul de format</strong>.
+        Dacă fișierul 2 e HTML, rezultatul păstrează <strong>exact</strong> designul și funcționalitățile lui, doar cu exercițiile noi.
         Poți cere transformări: PDF → interactiv, interactiv → PDF, alte numere, alt tip.
         Formatul de salvare îl poți cere direct în mesaj („salvează ca PDF”).
         {provider && <span style={{ color: 'var(--text-muted)' }}> · model: {provider}</span>}
@@ -273,6 +290,42 @@ export default function AIExerciseAgent({ box }) {
 
       {error && <div style={{ marginTop: 12, padding: 12, background: '#fdecea', color: '#b71c1c', borderRadius: 8, fontSize: '.85rem' }}>⚠️ {error}</div>}
       {msg && <div style={{ marginTop: 12, padding: 12, background: 'rgba(39,174,96,.1)', color: '#1e7e34', borderRadius: 8, fontSize: '.85rem' }}>{msg}</div>}
+
+      {/* 3a. Rezultat HTML brut — clonă a șablonului de format */}
+      {exHtml && !ex && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+            <div style={{ fontWeight: 700, color: 'var(--navy)' }}>
+              👁 Previzualizare · fișier în formatul șablonului ({Math.round(exHtml.length / 1024)} KB)
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="btn btn-outline" onClick={() => { if (window.confirm('Ștergi fișierul generat?')) { setExHtml(null); setMsg(null); } }} style={{ color: '#c0392b', borderColor: '#f5c6cb' }}>🗑 Șterge</button>
+            </div>
+          </div>
+          <div style={{ border: '1px solid var(--gold, #e8b931)', background: '#fffdf5', borderRadius: 12, padding: 12, marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)' }}>Pune pe site:</span>
+            <button className="btn btn-primary" style={{ fontSize: '.85rem' }} onClick={() => {
+              const t = exHtml.match(/<title>([^<]*)<\/title>/i)?.[1]?.trim() || 'Exercițiu generat';
+              sessionStorage.setItem('agent_prefill_interactive', JSON.stringify({
+                form: { title: t, description: 'Generat cu agentul Claude (șablon model)', type: 'exercise' },
+                html: exHtml, fileName: `${slug(t)}.html`,
+              }));
+              window.dispatchEvent(new CustomEvent('admin:goto-tab', { detail: 'interactive' }));
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}>🧩 Trimite la «Adaugă Interactiv»</button>
+            <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', marginLeft: 8 }}>Salvează pe calculator:</span>
+            <button className="btn btn-outline" style={{ fontSize: '.82rem' }} onClick={() => {
+              const t = exHtml.match(/<title>([^<]*)<\/title>/i)?.[1]?.trim() || 'exercitiu';
+              const el = document.createElement('a');
+              el.href = URL.createObjectURL(new Blob([exHtml], { type: 'text/html' }));
+              el.download = `${slug(t)}.html`; el.click(); URL.revokeObjectURL(el.href);
+            }}>⬇️ HTML</button>
+            <span style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>Modificările se cer prin mesaje în chat (ex: „schimbă exercițiul 3”).</span>
+          </div>
+          <iframe title="preview-sablon" sandbox="allow-scripts" srcDoc={exHtml}
+            style={{ width: '100%', height: 560, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
+        </div>
+      )}
 
       {/* 3. Exercițiul generat */}
       {ex && (

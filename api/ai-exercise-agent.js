@@ -81,8 +81,8 @@ module.exports = async function handler(req, res) {
     const userId = await ai.authUser(req, supa);
     await ai.requireAdmin(supa, userId);
 
-    const { instructions = '', model = null, modelPdf = null, formatText = null, formatPdf = null, history = [] } = req.body || {};
-    if (!instructions.trim() && !model && !modelPdf) {
+    const { instructions = '', model = null, modelPdf = null, formatText = null, formatPdf = null, formatHtml = null, currentHtml = null, history = [] } = req.body || {};
+    if (!instructions.trim() && !model && !modelPdf && !formatHtml && !currentHtml) {
       return res.status(400).json({ error: 'Încarcă un fișier-model sau scrie instrucțiuni pentru agent.' });
     }
     if ((modelPdf || formatPdf) && !claude.HAS_KEY) {
@@ -90,6 +90,55 @@ module.exports = async function handler(req, res) {
     }
     if ((String(modelPdf || '').length + String(formatPdf || '').length) > 4.2 * 1024 * 1024) {
       return res.status(400).json({ error: 'Fișierele PDF sunt prea mari (max ~3 MB în total).' });
+    }
+
+    // ── MOD „HTML BRUT”: modelul de format e un fișier HTML → clonăm exact
+    // acel fișier (design + funcționalitate), doar cu exercițiile noi. ──
+    if (formatHtml || currentHtml) {
+      const sysHtml = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
+Primești un FIȘIER HTML ȘABLON (un exercițiu/test interactiv complet) și, opțional, un fișier cu EXERCIȚII-MODEL.
+Sarcina: produci un fișier HTML COMPLET și AUTONOM care păstrează EXACT designul, stilul (CSS), structura și funcționalitatea (JavaScript) șablonului — schimbi DOAR conținutul exercițiilor (enunțuri, variante, răspunsuri, rezolvări, punctaje), preluat/adaptat din exercițiile-model sau generat conform instrucțiunilor, cu ALTE valori numerice decât modelul.
+Reguli stricte:
+- Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), fără explicații, fără markdown.
+- Păstrează TOATE funcțiile șablonului (verificare, punctaj, indicii, navigare etc.).
+- Păstrează (sau adaugă, dacă lipsește) raportarea scorului: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*').
+- Un singur fișier: CSS și JS inline sau din CDN (păstrează CDN-urile șablonului, ex. KaTeX).
+- Răspunsurile corecte trebuie să fie corecte matematic; verifică-ți calculele.
+- Instrucțiunile adminului au prioritate absolută.`;
+
+      const blocksH = [];
+      if (modelPdf) {
+        blocksH.push({ type: 'text', text: 'EXERCIȚIILE-MODEL (PDF):' });
+        blocksH.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: String(modelPdf) } });
+      }
+      const partsH = [];
+      if (model) partsH.push(`EXERCIȚII-MODEL:\n${typeof model === 'string' ? model.slice(0, 20000) : JSON.stringify(model)}`);
+      partsH.push(`FIȘIERUL HTML ȘABLON:\n${String(currentHtml || formatHtml).slice(0, 70000)}`);
+      partsH.push(`INSTRUCȚIUNI: ${instructions.trim() || (currentHtml ? 'Aplică modificările cerute păstrând totul altfel identic.' : 'Generează exercițiile în acest șablon.')}`);
+      partsH.push('Returnează acum DOAR documentul HTML complet.');
+      blocksH.push({ type: 'text', text: partsH.join('\n\n') });
+
+      const pastH = (Array.isArray(history) ? history : []).slice(-4).map((m) => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: String(m.content || '').slice(0, 1500),
+      }));
+
+      const rH = await claude.chatClaude({ system: sysHtml, messages: [...pastH, { role: 'user', content: blocksH }], maxTokens: 16000 });
+      await ai.logUsage(supa, userId, 'ai-exercise-agent', rH.usage);
+
+      let html = String(rH.text || '');
+      const fence = html.match(/```(?:html)?\s*([\s\S]*?)```/i);
+      if (fence) html = fence[1];
+      const start = html.search(/<!doctype html|<html[\s>]/i);
+      const endTag = html.lastIndexOf('</html>');
+      if (start !== -1 && endTag > start) html = html.slice(start, endTag + 7);
+      html = html.trim();
+
+      if (start === -1 || html.length < 600) {
+        console.error('ai-exercise-agent(html): rezultat invalid. stopReason=%s, primele 300: %s', rH.stopReason, String(rH.text || '').slice(0, 300));
+        return res.status(502).json({ error: rH.stopReason === 'max_tokens' ? 'Șablonul + exercițiile depășesc limita — folosește un șablon mai mic sau cere mai puține exerciții.' : 'Agentul nu a produs un fișier HTML valid. Mai încearcă sau reformulează.' });
+      }
+      return res.status(200).json({ html, provider: rH.provider });
     }
 
     // RAG ușor: stilul materialelor din site rămâne o referință
