@@ -13,7 +13,15 @@ const MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-5';
 async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens = 3000 }) {
   if (!KEY) {
     const ai = require('./ai');
-    const r = await ai.chat({ system, messages, temperature, maxTokens });
+    // Fallback-ul (format OpenAI) nu suportă blocuri compuse (ex: PDF) —
+    // păstrăm doar textul din ele.
+    const flat = messages.map((m) => ({
+      role: m.role,
+      content: Array.isArray(m.content)
+        ? m.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n')
+        : m.content,
+    }));
+    const r = await ai.chat({ system, messages: flat, temperature, maxTokens });
     return { text: r.text, usage: r.usage, provider: 'fallback:' + (ai.CHAT_MODEL || 'openai') };
   }
 
