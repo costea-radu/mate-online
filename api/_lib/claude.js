@@ -55,7 +55,7 @@ async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens 
     prompt_tokens: data.usage?.input_tokens || 0,
     completion_tokens: data.usage?.output_tokens || 0,
   };
-  return { text, usage, provider: MODEL };
+  return { text, usage, provider: MODEL, stopReason: data.stop_reason || null };
 }
 
 // Extrage JSON (obiect sau array) dintr-un răspuns de model, tolerant la
@@ -71,8 +71,34 @@ function extractJson(text) {
   const last = s.lastIndexOf(close);
   if (last <= first) return null;
   s = s.slice(first, last + 1);
-  try { return JSON.parse(s); } catch { /* reparat */ }
-  try { return JSON.parse(s.replace(/\\(?![\\/"bfnrtu])/g, '\\\\')); } catch { return null; }
+  try { return JSON.parse(s); } catch { /* încearcă reparat */ }
+  const fixed = s.replace(/\\(?![\\/"bfnrtu])/g, '\\\\');
+  try { return JSON.parse(fixed); } catch { /* încearcă închis */ }
+  return closeAndParse(fixed) || closeAndParse(s);
+}
+
+// Repară un JSON TRUNCHIAT (răspuns tăiat la limita de lungime): taie până la
+// ultimul obiect complet și închide parantezele rămase deschise.
+function closeAndParse(input) {
+  for (let cut = input.length; cut > 0; cut = input.lastIndexOf('}', cut - 1)) {
+    const part = input.slice(0, cut === input.length ? cut : cut + 1);
+    let inStr = false, escNext = false;
+    const stack = [];
+    for (const ch of part) {
+      if (escNext) { escNext = false; continue; }
+      if (ch === '\\') { escNext = true; continue; }
+      if (ch === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (ch === '{' || ch === '[') stack.push(ch);
+      else if (ch === '}' || ch === ']') stack.pop();
+    }
+    if (inStr) continue;
+    let candidate = part.replace(/,\s*$/, '');
+    for (let i = stack.length - 1; i >= 0; i--) candidate += stack[i] === '{' ? '}' : ']';
+    try { return JSON.parse(candidate); } catch { /* mai taie */ }
+    if (cut === input.length) cut = input.length; // prima iterație: continuă cu lastIndexOf
+  }
+  return null;
 }
 
 module.exports = { chatClaude, extractJson, MODEL, HAS_KEY: !!KEY };

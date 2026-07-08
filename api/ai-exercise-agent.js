@@ -145,15 +145,21 @@ Reguli:
     textParts.push(`Generează acum obiectul JSON. Sesiune #${Math.random().toString(36).slice(2, 8)}.`);
     blocks.push({ type: 'text', text: textParts.join('\n\n') });
 
-    const { text, usage, provider } = await claude.chatClaude({
+    const { text, usage, provider, stopReason } = await claude.chatClaude({
       system,
       messages: [...past, { role: 'user', content: blocks }],
-      maxTokens: 3200,
+      maxTokens: 8000,
     });
     await ai.logUsage(supa, userId, 'ai-exercise-agent', usage);
 
     const exercise = normalize(claude.extractJson(text));
-    if (!exercise) return res.status(502).json({ error: 'Agentul nu a produs un exercițiu valid. Reformulează instrucțiunile și mai încearcă.' });
+    if (!exercise) {
+      console.error('ai-exercise-agent: JSON invalid. stopReason=%s, primele 400 caractere: %s', stopReason, String(text || '').slice(0, 400));
+      const explain = stopReason === 'max_tokens'
+        ? 'Răspunsul a fost tăiat (testul cerut e foarte lung). Cere mai puține întrebări sau împarte-l în două generări.'
+        : 'Agentul nu a produs un exercițiu valid. Reformulează instrucțiunile și mai încearcă.';
+      return res.status(502).json({ error: explain });
+    }
 
     return res.status(200).json({ exercise, provider });
   } catch (err) {
