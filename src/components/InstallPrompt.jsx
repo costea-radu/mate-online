@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { getInstallPrompt, clearInstallPrompt, onInstallChange, isStandalone, isIOS } from '../lib/installPrompt';
 
 // Buton „Instalează aplicația” (PWA).
 // Android/desktop: folosește evenimentul beforeinstallprompt (instalare cu 1 tap).
@@ -7,13 +8,6 @@ import { useEffect, useState } from 'react';
 
 const DISMISS_KEY = 'em_install_dismissed_at';
 const DISMISS_DAYS = 14;
-
-const isStandalone = () =>
-  window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true;
-
-const isIOS = () =>
-  /iphone|ipad|ipod/i.test(navigator.userAgent) ||
-  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS
 
 export default function InstallPrompt() {
   const [deferred, setDeferred] = useState(null);
@@ -25,19 +19,18 @@ export default function InstallPrompt() {
     const dismissedAt = Number(localStorage.getItem(DISMISS_KEY) || 0);
     if (Date.now() - dismissedAt < DISMISS_DAYS * 864e5) return;
 
-    const onPrompt = (e) => { e.preventDefault(); setDeferred(e); setVisible(true); };
-    const onInstalled = () => setVisible(false);
-    window.addEventListener('beforeinstallprompt', onPrompt);
-    window.addEventListener('appinstalled', onInstalled);
+    // evenimentul e captat central în lib/installPrompt.js
+    if (getInstallPrompt()) { setDeferred(getInstallPrompt()); setVisible(true); }
+    const off = onInstallChange(() => {
+      const d = getInstallPrompt();
+      setDeferred(d);
+      if (d) setVisible(true); else setVisible(false);
+    });
 
     let t;
     if (isIOS()) t = setTimeout(() => setVisible(true), 3000);
 
-    return () => {
-      window.removeEventListener('beforeinstallprompt', onPrompt);
-      window.removeEventListener('appinstalled', onInstalled);
-      clearTimeout(t);
-    };
+    return () => { off(); clearTimeout(t); };
   }, []);
 
   if (!visible) return null;
@@ -51,7 +44,7 @@ export default function InstallPrompt() {
     if (!deferred) { setIosHelp((v) => !v); return; }
     deferred.prompt();
     const { outcome } = await deferred.userChoice;
-    setDeferred(null);
+    clearInstallPrompt(); setDeferred(null);
     if (outcome === 'accepted') setVisible(false);
     else dismiss();
   };

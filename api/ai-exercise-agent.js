@@ -206,7 +206,7 @@ Sarcina: construiește URMĂTORUL test al rubricii (nr. ${rows.length + 1}), ÎN
 - COPIAZĂ ÎNTOCMAI tot ce nu ține de conținutul itemilor: CSS-ul complet, TOT JavaScript-ul, instrumentele de desen, structura pe subiecte, bara de scor — NIMIC eliminat sau simplificat;
 - itemul 1 preluat/adaptat din TESTUL A, itemul 2 din TESTUL B, itemul 3 din TESTUL C... (fiecare din ALT test, ciclic), cu numerele/notațiile SCHIMBATE și rezultatele recalculate corect;
 - același număr de itemi și aceeași structură (subiecte, punctaje) ca șablonul;
-- figurile geometrice SVG: adaptează etichetele/valorile la noile date, păstrând stilul figurilor;
+- FIGURILE/DESENELE (SVG, canvas) NU SE MODIFICĂ — le copiezi identic din șablon; schimbi doar notațiile (literele) și potrivești enunțul/numerele LA figura existentă (numere noi DOAR dacă se potrivesc perfect desenului; altfel păstrezi numerele care corespund figurii);
 - păstrează raportarea scorului (MATE_SCORE) exact ca în șablon.
 Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), fără explicații, fără markdown.`;
 
@@ -250,6 +250,7 @@ Sarcina: produci un fișier HTML COMPLET și AUTONOM care păstrează EXACT desi
 Reguli stricte:
 - Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), fără explicații, fără markdown.
 - COPIAZĂ ÎNTOCMAI tot ce nu ține de conținutul exercițiilor: CSS-ul complet, TOT JavaScript-ul, toate elementele de interfață — inclusiv butoane/unelte care par auxiliare (desen, creion, radieră, calculator, cronometru etc.). NU ai voie să elimini, simplifici sau „cureți” NIMIC din șablon.
+- FIGURILE/DESENELE (SVG, canvas, imagini) NU SE MODIFICĂ NICIODATĂ — copiază-le identic, element cu element, mai ales la Subiectul II (geometrie). Poți schimba doar NOTAȚIILE (literele punctelor) în enunțuri și, dacă e necesar, în etichetele-text ale figurii, fără să atingi liniile/formele. NUMERELE se schimbă DOAR dacă rămân perfect consistente cu figura existentă (aceleași proporții/configurație); altfel păstrezi numerele originale ale itemului.
 - Dacă instrucțiunile cer doar „schimbă numerele/notațiile”, modifici EXCLUSIV valorile numerice/notațiile din enunțuri, variante, răspunsuri și rezolvări — restul rămâne identic caracter cu caracter.
 - Păstrează TOATE funcțiile șablonului (verificare, punctaj, indicii, navigare, desen etc.).
 - Păstrează (sau adaugă, dacă lipsește) raportarea scorului: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*').

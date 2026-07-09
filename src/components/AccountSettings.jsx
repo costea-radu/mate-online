@@ -2,11 +2,12 @@
 // src/components/AccountSettings.jsx — „Setări cont" (toate tipurile de cont)
 // Profil, date de autentificare, abonament, tip cont, notificări, ștergere.
 // =====================================================================
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { aiClient } from '../lib/aiClient';
+import { getInstallPrompt, clearInstallPrompt, onInstallChange, isStandalone, isIOS } from '../lib/installPrompt';
 
 const ROLES = [
   { id: 'elev', label: 'Elev' },
@@ -111,6 +112,10 @@ export default function AccountSettings() {
       <button className={btn} onClick={saveProfile}>Salvează profilul</button>
       <Note ok={pOk}>{pMsg}</Note>
 
+      {/* APLICAȚIA (PWA) */}
+      <div style={sub}>📲 Aplicația ExamenMate</div>
+      <InstallAppRow />
+
       {/* AUTENTIFICARE */}
       <div style={sub}>🔐 Date de autentificare</div>
       <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: 6 }}>Email actual: <strong>{user?.email || '—'}</strong></div>
@@ -159,6 +164,55 @@ export default function AccountSettings() {
           🗑 Șterge definitiv contul
         </button>
       </div>
+    </div>
+  );
+}
+
+
+// ─── Butonul „Instalează aplicația” din Setări cont ──────────────────────────
+function InstallAppRow() {
+  const [canInstall, setCanInstall] = useState(!!getInstallPrompt());
+  const [installed, setInstalled] = useState(isStandalone());
+  const [iosHelp, setIosHelp] = useState(false);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => onInstallChange(() => {
+    setCanInstall(!!getInstallPrompt());
+    setInstalled(isStandalone());
+  }), []);
+
+  async function install() {
+    const p = getInstallPrompt();
+    if (!p) { setIosHelp((v) => !v); return; }
+    p.prompt();
+    try { const { outcome } = await p.userChoice; if (outcome === 'accepted') setDone(true); } catch { /* ignore */ }
+    clearInstallPrompt(); setCanInstall(false);
+  }
+
+  if (installed || done) {
+    return <div style={{ fontSize: '.85rem', color: '#1e7e34', fontWeight: 600, marginBottom: 6 }}>✅ Aplicația este instalată pe acest dispozitiv.</div>;
+  }
+
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+        Instalează ExamenMate pe telefon sau pe calculator: pornește pe tot ecranul și se actualizează automat.
+      </div>
+      <button className="btn btn-primary btn-sm" onClick={install}>
+        {canInstall ? '📲 Instalează aplicația' : (isIOS() ? '📲 Cum instalez pe iPhone/iPad?' : '📲 Instalează aplicația')}
+      </button>
+      {iosHelp && (
+        <div style={{ fontSize: '.82rem', marginTop: 8, background: '#f7f9fc', borderRadius: 8, padding: '8px 10px', lineHeight: 1.5 }}>
+          1. Deschide site-ul în <strong>Safari</strong><br />
+          2. Apasă butonul <strong>Share</strong> (pătratul cu săgeată ↑)<br />
+          3. Alege <strong>„Adaugă la ecranul principal”</strong>
+        </div>
+      )}
+      {!canInstall && !isIOS() && (
+        <div style={{ fontSize: '.74rem', color: 'var(--text-muted)', marginTop: 6 }}>
+          Dacă butonul nu deschide instalarea, folosește meniul browserului (⋮) → „Instalează aplicația”.
+        </div>
+      )}
     </div>
   );
 }

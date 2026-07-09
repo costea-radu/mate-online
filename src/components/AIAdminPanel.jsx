@@ -6,6 +6,8 @@
 import { useState, useEffect } from 'react';
 import { aiClient } from '../lib/aiClient';
 import { supabase } from '../lib/supabase';
+import { renderQuiz } from '../lib/quizRender';
+import ExamGenerator from './ExamGenerator';
 import AIExerciseAgent from './AIExerciseAgent';
 import AISEOAgent from './AISEOAgent';
 
@@ -87,6 +89,15 @@ export default function AIAdminPanel() {
 
       {error && <div style={{ marginTop: 14, padding: 12, background: '#fdecea', color: '#b71c1c', borderRadius: 8, fontSize: '.85rem' }}>⚠️ {error}</div>}
       {log && <pre style={{ marginTop: 14, padding: 12, background: '#f7f9fc', borderRadius: 8, fontSize: '.78rem', color: 'var(--text)', overflowX: 'auto', whiteSpace: 'pre-wrap' }}>{log}</pre>}
+    </div>
+
+    <div style={{ ...box, marginTop: 18 }}>
+      <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 6 }}>📄 Subiecte de examen PDF (OpenAI)</h3>
+      <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
+        Generează subiecte în formatul exact al subiectelor din site (PDF prin „Varianta elev” / „Barem”),
+        combinând exerciții din testele existente ale rubricii, cu numerele schimbate.
+      </p>
+      <ExamGenerator canManage />
     </div>
 
     <AIExerciseAgent box={box} />
@@ -179,7 +190,12 @@ function InteractiveGenerator({ box }) {
     setLoading(true); setError(null); setMsg(null); setWarning(null); setHtml('');
     try {
       const res = await aiClient.generateInteractive({ category, topic, difficulty });
-      setHtml(res.html); setTitle(res.title || `Exercițiu interactiv · ${topic || category}`);
+      // endpointul returnează întrebări STRUCTURATE; HTML-ul se construiește aici
+      if (!Array.isArray(res.questions) || !res.questions.length) {
+        throw new Error('Generatorul nu a întors întrebări valide. Mai încearcă o dată.');
+      }
+      const t = res.title || `Exercițiu interactiv · ${topic || category}`;
+      setHtml(renderQuiz(t, res.questions)); setTitle(t);
       setWarning(res.warning || null);
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }

@@ -198,7 +198,7 @@ module.exports = async function handler(req, res) {
     const userId = await ai.authUser(req, supa);
     const { examType } = req.body || {};
     const profile = await ai.requireUser(supa, userId);
-    ai.requirePremium(profile); // generatorul de teste e doar pentru abonați
+    if (!profile.is_admin) ai.requirePremium(profile); // abonați sau admin
     await ai.enforceRateLimit(supa, userId);
 
     const cfg = EXAMS[examType];
@@ -207,7 +207,38 @@ module.exports = async function handler(req, res) {
     const docs = await ai.retrieve(supa, { query: cfg.query, category: cfg.category, allowPremium: true, k: 10, prefer: 'exercise' });
     const examples = ai.contextBlock(docs);
 
-    const system = cfg.special === 'en' ? buildENSystem(examples) : buildGenericSystem(cfg, examples);
+    // ── Testele REALE din site (rubrica examenului) — sursa combinării:
+    //    itemul 1 preluat dintr-un test, itemul 2 din altul, cu numere noi. ──
+    let siteTests = '';
+    try {
+      const { data: rows } = await supa.from('content')
+        .select('title, file_url, interactive_data')
+        .eq('content_type', 'interactive').eq('category', cfg.category).limit(30);
+      const pick = (rows || []).sort(() => Math.random() - 0.5).slice(0, 5);
+      const parts = [];
+      for (const r of pick) {
+        try {
+          if (r.interactive_data?.exercise) {
+            parts.push(`=== TESTUL ${String.fromCharCode(65 + parts.length)}: ${r.title} ===\n${JSON.stringify(r.interactive_data.exercise).slice(0, 4500)}`);
+            continue;
+          }
+          const url = new URL(r.file_url);
+          const seg = url.pathname.split('/');
+          const oi = seg.findIndex((x) => x === 'object');
+          const { data: blob } = await supa.storage.from(seg[oi + 2]).download(seg.slice(oi + 3).join('/').split('?')[0]);
+          if (!blob) continue;
+          const raw = Buffer.from(await blob.arrayBuffer()).toString('utf8');
+          const txt = raw.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          if (txt.length > 200) parts.push(`=== TESTUL ${String.fromCharCode(65 + parts.length)}: ${r.title} ===\n${txt.slice(0, 4500)}`);
+        } catch { /* sursă ignorată */ }
+      }
+      if (parts.length >= 2) siteTests = parts.join('\n\n');
+    } catch { /* fără combinare */ }
+
+    let system = cfg.special === 'en' ? buildENSystem(examples) : buildGenericSystem(cfg, examples);
+    if (siteTests) {
+      system += `\n\n=== TESTE REALE DIN SITE (folosește-le ca sursă) ===\n${siteTests}\n=== SFÂRȘIT TESTE ===\nConstruiește subiectele PRIN COMBINARE: itemul 1 preluat/adaptat dintr-un test, itemul 2 din ALT test, itemul 3 din altul (și tot așa, ciclic), SCHIMBÂND numerele/notațiile și recalculând corect rezultatele și baremul. Structura și formatul JSON rămân EXACT cele cerute mai sus.`;
+    }
 
     const { text, usage } = await ai.chat({
       system,
