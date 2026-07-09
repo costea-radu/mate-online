@@ -35,6 +35,7 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 const ProfesorVirtual = lazy(() => import('./pages/ProfesorVirtual'));
 const AssignmentSolver = lazy(() => import('./pages/AssignmentSolver'));
 const BibliotecaUtilizatorilor = lazy(() => import('./pages/BibliotecaUtilizatorilor'));
+const ExercitiuAIViewer = lazy(() => import('./pages/ExercitiuAIViewer'));
 
 function ScrollToTop() {
   const location = useLocation();
@@ -48,7 +49,7 @@ function ScrollToTop() {
 
 function Layout({ children }) {
   const { pathname } = useLocation();
-  const fullscreen = pathname === '/admin' || pathname === '/exercitiu' || pathname === '/pdf-viewer';
+  const fullscreen = pathname === '/admin' || pathname === '/exercitiu' || pathname === '/pdf-viewer' || pathname === '/exercitiu-ai';
   return (
     <>
       {!fullscreen && <Navbar />}
@@ -93,6 +94,7 @@ export default function App() {
                 <Route path="/asociere" element={<Asociere />} />
                 <Route path="/admin" element={<Admin />} />
                 <Route path="/exercitiu" element={<InteractiveViewer />} />
+                <Route path="/exercitiu-ai" element={<ExercitiuAIViewer />} />
                 <Route path="/pdf-viewer" element={<PDFViewer />} />
                 <Route path="/discutii" element={<DiscussionsPage />} />
                 <Route path="/rezolvari" element={<RezolvariPage />} />

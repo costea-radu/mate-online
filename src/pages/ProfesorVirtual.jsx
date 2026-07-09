@@ -3,7 +3,7 @@
 // Tab-uri: Întreabă profesorul · Antrenament · Progresul meu
 // =====================================================================
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ChatPanel, MathText } from '../components/AITutor';
 import { aiClient } from '../lib/aiClient';
 import { useAuth } from '../context/AuthContext';
@@ -390,8 +390,21 @@ function InteractiveTab() {
   const [editing, setEditing] = useState(false);
   const [publishMsg, setPublishMsg] = useState(null);
   const [savedScore, setSavedScore] = useState(null);
+  const navigate = useNavigate();
 
   const html = questions ? renderQuiz(title, questions) : '';
+
+  // Revenire din pagina exercițiului: restaurăm ultimul exercițiu generat
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('pv_last_interactive');
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (p.questions?.length) { setQuestions(p.questions); setTitle(p.title || 'Exercițiu interactiv'); }
+      }
+    } catch { /* ignore */ }
+    // eslint-disable-next-line
+  }, []);
 
   useEffect(() => {
     function onMsg(e) {
@@ -412,6 +425,9 @@ function InteractiveTab() {
       setQuestions(qs); setTitle(t);
       // salvează în „Testele și exercițiile mele"
       try { await aiClient.saveLibraryItem({ kind: 'interactive', title: t, category: category || null, topic: topic || null, payload: { questions: qs } }); } catch { /* ignore */ }
+      // păstrăm exercițiul pentru revenire și îl deschidem DIRECT în pagina nouă
+      sessionStorage.setItem('pv_last_interactive', JSON.stringify({ questions: qs, title: t }));
+      navigate('/exercitiu-ai', { state: { html: renderQuiz(t, qs), title: t } });
     } catch (e) { setError(e.message); if (e.premium) setUpsell(true); }
     finally { setLoading(false); }
   }
@@ -487,9 +503,9 @@ function InteractiveTab() {
             <div style={{ border: '2px dashed var(--border)', borderRadius: 12, padding: 26, textAlign: 'center' }}>
               <div style={{ fontSize: '2rem', marginBottom: 6 }}>🗗</div>
               <div style={{ color: 'var(--text-light)', fontSize: '.9rem', marginBottom: 12 }}>
-                Exercițiul se deschide într-o fereastră separată. Scorul se salvează automat aici când îl termini.
+                Exercițiul se deschide în pagină separată, cu buton „Închide” — ca la PDF-uri.
               </div>
-              <button className="btn btn-primary" onClick={() => openInNewWindow(html)}>🗗 Deschide exercițiul în fereastră nouă</button>
+              <button className="btn btn-primary" onClick={() => navigate('/exercitiu-ai', { state: { html, title } })}>🗗 Deschide exercițiul</button>
             </div>
           )}
 
@@ -576,6 +592,7 @@ function LibraryTab() {
 }
 
 function LibItem({ it, isTeacher, onRemove }) {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [full, setFull] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -638,9 +655,8 @@ function LibItem({ it, isTeacher, onRemove }) {
             <>
               <button className="btn btn-outline btn-sm" style={{ marginBottom: 8 }} onClick={() => {
                 const doc = full.payload.questions ? renderQuiz(full.title, qs || full.payload.questions) : full.payload.html;
-                const w = window.open('', '_blank');
-                if (w) { w.document.write(doc); w.document.close(); }
-              }}>🗗 Deschide în fereastră nouă</button>
+                navigate('/exercitiu-ai', { state: { html: doc, title: full.title, mode: 'library', id: full.id } });
+              }}>🗗 Deschide în pagină nouă</button>
               <iframe title="reluare" sandbox="allow-scripts" srcDoc={full.payload.questions ? renderQuiz(full.title, qs || full.payload.questions) : full.payload.html} style={{ width: '100%', height: 500, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
             </>
           )}

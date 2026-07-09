@@ -5,7 +5,7 @@
 // Exercițiul se deschide inline, sub cardul lui.
 // =====================================================================
 import { useState, useEffect } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
 import { printExam } from '../lib/examPrint';
@@ -24,6 +24,7 @@ const FREE_LIMIT = 3;
 
 export default function BibliotecaUtilizatorilor() {
   const [params] = useSearchParams();
+  const navigate = useNavigate();
   const { user, isAdmin, isPremium, isStudent } = useAuth();
   const [q, setQ] = useState(params.get('q') || '');
   const [category, setCategory] = useState('');
@@ -74,6 +75,11 @@ export default function BibliotecaUtilizatorilor() {
     try {
       const { item } = await aiClient.publicGet({ id: it.id });
       if (item.kind === 'exam') { printExam(item.payload.exam, { withSolutions: false }); }
+      else if (item.kind === 'interactive' && (item.payload?.questions || item.payload?.html)) {
+        // pagină nouă cu buton „Închide”, exact ca la PDF-uri
+        const doc = item.payload.questions ? renderQuiz(item.title, item.payload.questions) : item.payload.html;
+        navigate('/exercitiu-ai', { state: { html: doc, title: item.title, mode: user ? 'public' : null, id: item.id } });
+      }
       else setOpen(item);
     } catch (e) {
       if (e.premium) alert('Acest test necesită abonament. Fără abonament poți deschide doar testele marcate „Gratuit".');

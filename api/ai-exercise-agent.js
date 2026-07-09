@@ -11,6 +11,8 @@
 //   - modelPdf = PDF-ul model, base64 (necesită ANTHROPIC_API_KEY).
 // Răspuns: { exercise, provider }
 // =====================================================================
+const fs = require('fs');
+const path = require('path');
 const ai = require('./_lib/ai');
 const claude = require('./_lib/claude');
 
@@ -107,69 +109,127 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ title: row.title, html: rawHtml.slice(0, 120000), text: textOnly.slice(0, 20000) });
     }
 
-    // ── Acțiune: AUTOMATIZARE — testul următor al unei rubrici, combinând
-    //    exerciții din testele existente (ex. 1 dintr-un fișier, ex. 2 din
-    //    altul...), cu numere/notații schimbate ──
+    // ── Acțiune: AUTOMATIZARE — testul următor al unei rubrici ──
+    // Rubrici INTERACTIVE → rezultat în FORMATUL STANDARD („interactiv Claude”:
+    // figuri geometrice + instrumente de desen), clonat dintr-un test existent
+    // al rubricii sau din șablonul standard inclus. Rubrici PDF → test structurat,
+    // cu sursele PDF citite nativ de Claude.
     if (action === 'auto') {
-      const { category, subcategory = null } = req.body || {};
+      const { category, subcategory = null, ctype = 'interactive' } = req.body || {};
       if (!category) return res.status(400).json({ error: 'Alege rubrica (categoria).' });
       let q = supa.from('content')
-        .select('id, title, file_url, interactive_data, subcategory')
-        .eq('content_type', 'interactive').eq('category', category);
+        .select('id, title, file_url, interactive_data, subcategory, content_type')
+        .eq('content_type', ctype).eq('category', category);
       if (subcategory) q = q.eq('subcategory', subcategory);
       const { data: rows } = await q.limit(40);
-      if (!rows || rows.length < 2) return res.status(400).json({ error: 'Rubrica are prea puține teste (minim 2) pentru combinare.' });
+      if (!rows || rows.length < 2) return res.status(400).json({ error: 'Rubrica are prea puține materiale (minim 2) pentru combinare.' });
 
-      // alege la întâmplare până la 6 surse și extrage conținutul lor
-      const shuffled = [...rows].sort(() => Math.random() - 0.5).slice(0, 6);
+      const parsePath = (fileUrl) => {
+        const url = new URL(fileUrl);
+        const parts = url.pathname.split('/');
+        const oi = parts.findIndex((x) => x === 'object');
+        return { bucket: parts[oi + 2], filePath: parts.slice(oi + 3).join('/').split('?')[0] };
+      };
+      const shuffled = [...rows].sort(() => Math.random() - 0.5);
+
+      // ── Rubrici PDF (exerciții / teste / bareme) ──
+      if (ctype === 'pdf') {
+        const blocksA = [];
+        const names = [];
+        for (const r of shuffled) {
+          if (names.length >= 3) break;
+          try {
+            const { bucket, filePath } = parsePath(r.file_url);
+            const { data: blob } = await supa.storage.from(bucket).download(filePath);
+            if (!blob) continue;
+            const buf = Buffer.from(await blob.arrayBuffer());
+            if (buf.length > 2.5 * 1024 * 1024) continue;
+            blocksA.push({ type: 'text', text: `TESTUL ${String.fromCharCode(65 + names.length)}: ${r.title}` });
+            blocksA.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buf.toString('base64') } });
+            names.push(r.title);
+          } catch { /* sursă ignorată */ }
+        }
+        if (names.length < 2) return res.status(400).json({ error: 'Nu am putut folosi suficiente PDF-uri din rubrică (fiecare max ~2,5 MB).' });
+
+        const sysPdf = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
+Primești ${names.length} teste PDF existente din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
+Construiește URMĂTORUL test al rubricii (nr. ${rows.length + 1}) prin COMBINARE: itemul 1 preluat/adaptat din TESTUL A, itemul 2 din TESTUL B, itemul 3 din TESTUL C... (ciclic), SCHIMBÂND numerele/valorile sau notațiile (rezultate recalculate corect). Păstrează structura și baremul tipic rubricii.
+Răspunde STRICT cu UN obiect JSON valid (fără alt text):
+{ "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] }
+Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ cu backslash dublu. Verifică-ți calculele.`;
+        blocksA.push({ type: 'text', text: `Construiește acum testul nr. ${rows.length + 1}. Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+        const rP = await claude.chatClaude({ system: sysPdf, messages: [{ role: 'user', content: blocksA }], maxTokens: 9000 });
+        await ai.logUsage(supa, userId, 'ai-exercise-agent', rP.usage);
+        const exP = normalize(claude.extractJson(rP.text));
+        if (!exP) {
+          console.error('ai-exercise-agent(auto-pdf): invalid. stopReason=%s', rP.stopReason);
+          return res.status(502).json({ error: 'Automatizarea nu a produs un test valid din PDF-uri. Mai încearcă o dată.' });
+        }
+        exP.title = exP.title || `Test ${rows.length + 1} · ${category}${subcategory ? ' / ' + subcategory : ''}`;
+        exP.output = 'pdf';
+        return res.status(200).json({ exercise: exP, provider: rP.provider, combinedFrom: names });
+      }
+
+      // ── Rubrici INTERACTIVE → FORMATUL STANDARD (figuri + desen) ──
+      let templateHtml = null;
+      let templateName = null;
       const sources = [];
       for (const r of shuffled) {
         try {
           if (r.interactive_data?.exercise) {
-            sources.push({ title: r.title, text: JSON.stringify(r.interactive_data.exercise).slice(0, 6000) });
+            if (sources.length < 5) sources.push({ title: r.title, text: JSON.stringify(r.interactive_data.exercise).slice(0, 6000) });
             continue;
           }
-          const url = new URL(r.file_url);
-          const parts = url.pathname.split('/');
-          const oi = parts.findIndex((x) => x === 'object');
-          const bucket = parts[oi + 2];
-          const filePath = parts.slice(oi + 3).join('/').split('?')[0];
+          const { bucket, filePath } = parsePath(r.file_url);
           const { data: blob } = await supa.storage.from(bucket).download(filePath);
           if (!blob) continue;
           const raw = Buffer.from(await blob.arrayBuffer()).toString('utf8');
+          // formatul standard: figuri geometrice + instrumente de desen + scor
+          const isStandard = /desen|<canvas|class="fig"/i.test(raw) && /MATE_SCORE/.test(raw);
+          if (!templateHtml && isStandard && raw.length < 200000) { templateHtml = raw.slice(0, 120000); templateName = r.title; }
           const textOnly = raw.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-          if (textOnly.length > 200) sources.push({ title: r.title, text: textOnly.slice(0, 6000) });
+          if (textOnly.length > 200 && sources.length < 5) sources.push({ title: r.title, text: textOnly.slice(0, 6000) });
         } catch { /* sursă ignorată */ }
       }
+      if (!templateHtml) {
+        try {
+          templateHtml = fs.readFileSync(path.join(__dirname, '_lib', 'template-standard.html'), 'utf8').slice(0, 120000);
+          templateName = 'șablonul standard al site-ului';
+        } catch { /* lipsă */ }
+      }
       if (sources.length < 2) return res.status(400).json({ error: 'Nu am putut extrage conținut din suficiente teste ale rubricii.' });
+      if (!templateHtml) return res.status(500).json({ error: 'Nu am găsit șablonul formatului standard.' });
 
       const sysAuto = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
-Primești ${sources.length} TESTE EXISTENTE din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
-Sarcina: construiește URMĂTORUL test al rubricii (testul nr. ${rows.length + 1}) prin COMBINARE:
-- exercițiul 1 preluat/adaptat din TESTUL A, exercițiul 2 din TESTUL B, exercițiul 3 din TESTUL C... (fiecare item din ALT test, ales aleatoriu; reia ciclic dacă itemii sunt mai mulți decât sursele);
-- pentru fiecare item SCHIMBĂ numerele/valorile sau notațiile (alt rezultat corect, recalculat de tine); păstrează tipul, stilul și dificultatea itemului-sursă;
-- același număr de itemi și aceeași structură de barem ca un test tipic al rubricii.
-Răspunde STRICT cu UN obiect JSON valid (fără alt text), după schema:
-{
-  "title": "…", "kind": "grila", "statement": "",
-  "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ]
-}
-Itemii cu răspuns liber: OMITE "options", pune "answer" ca text. Formule LaTeX între $...$ cu backslash dublu. Verifică-ți calculele.`;
+Primești un ȘABLON HTML în FORMATUL STANDARD al site-ului (test interactiv cu figuri geometrice SVG și instrumente de desen) și ${sources.length} teste existente din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
+Sarcina: construiește URMĂTORUL test al rubricii (nr. ${rows.length + 1}), ÎN ACELAȘI FIȘIER-FORMAT ca șablonul:
+- COPIAZĂ ÎNTOCMAI tot ce nu ține de conținutul itemilor: CSS-ul complet, TOT JavaScript-ul, instrumentele de desen, structura pe subiecte, bara de scor — NIMIC eliminat sau simplificat;
+- itemul 1 preluat/adaptat din TESTUL A, itemul 2 din TESTUL B, itemul 3 din TESTUL C... (fiecare din ALT test, ciclic), cu numerele/notațiile SCHIMBATE și rezultatele recalculate corect;
+- același număr de itemi și aceeași structură (subiecte, punctaje) ca șablonul;
+- figurile geometrice SVG: adaptează etichetele/valorile la noile date, păstrând stilul figurilor;
+- păstrează raportarea scorului (MATE_SCORE) exact ca în șablon.
+Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), fără explicații, fără markdown.`;
 
       const srcBlock = sources.map((x, i) => `=== TESTUL ${String.fromCharCode(65 + i)}: ${x.title} ===\n${x.text}`).join('\n\n');
-      const rAuto = await claude.chatClaude({
+      const rA = await claude.chatClaude({
         system: sysAuto,
-        messages: [{ role: 'user', content: `${srcBlock}\n\nConstruiește acum testul nr. ${rows.length + 1}. Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
-        maxTokens: 9000,
+        messages: [{ role: 'user', content: `ȘABLONUL (formatul standard):\n${templateHtml}\n\n${srcBlock}\n\nConstruiește ACUM testul nr. ${rows.length + 1} — doar documentul HTML. Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
+        maxTokens: 24000,
       });
-      await ai.logUsage(supa, userId, 'ai-exercise-agent', rAuto.usage);
-      const exAuto = normalize(claude.extractJson(rAuto.text));
-      if (!exAuto) {
-        console.error('ai-exercise-agent(auto): invalid. stopReason=%s, primele 300: %s', rAuto.stopReason, String(rAuto.text || '').slice(0, 300));
-        return res.status(502).json({ error: 'Automatizarea nu a produs un test valid. Mai încearcă o dată.' });
+      await ai.logUsage(supa, userId, 'ai-exercise-agent', rA.usage);
+
+      let htmlOut = String(rA.text || '');
+      const fenceA = htmlOut.match(/```(?:html)?\s*([\s\S]*?)```/i);
+      if (fenceA) htmlOut = fenceA[1];
+      const st = htmlOut.search(/<!doctype html|<html[\s>]/i);
+      const en = htmlOut.lastIndexOf('</html>');
+      if (st !== -1 && en > st) htmlOut = htmlOut.slice(st, en + 7);
+      htmlOut = htmlOut.trim();
+      if (st === -1 || htmlOut.length < 600) {
+        console.error('ai-exercise-agent(auto-html): invalid. stopReason=%s', rA.stopReason);
+        return res.status(502).json({ error: rA.stopReason === 'max_tokens' ? 'Șablonul rubricii e prea mare pentru o singură generare — mai încearcă (sau folosește o rubrică cu teste mai mici).' : 'Automatizarea nu a produs un fișier valid. Mai încearcă o dată.' });
       }
-      exAuto.title = exAuto.title || `Test ${rows.length + 1} · ${category}${subcategory ? ' / ' + subcategory : ''}`;
-      return res.status(200).json({ exercise: exAuto, provider: rAuto.provider, combinedFrom: sources.map((x) => x.title) });
+      return res.status(200).json({ html: htmlOut, provider: rA.provider, combinedFrom: sources.map((x) => x.title), template: templateName });
     }
     if (!instructions.trim() && !model && !modelPdf && !formatHtml && !currentHtml) {
       return res.status(400).json({ error: 'Încarcă un fișier-model sau scrie instrucțiuni pentru agent.' });

@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Test interactiv 4 — Matematică (Subiectul I & II)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Lora:wght@500;700&family=DM+Sans:wght@400;500;600&display=swap');
+:root{
+  --navy:#0f2b44;--gold:#e8b931;--cream:#fdf9f2;--green:#2e7d32;
+  --red:#c62828;--border:#dde3ec;--text:#222c3a;--muted:#6b7689;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);font-size:15px;}
+.hdr{background:var(--navy);color:#fff;padding:22px 16px 16px;text-align:center;border-bottom:4px solid var(--gold);}
+.hdr h1{font-family:'Lora',serif;font-size:1.35rem;color:var(--gold);margin-bottom:4px;}
+.hdr p{font-size:0.82rem;color:rgba(255,255,255,0.6);}
+.sbar{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:center;background:#fff;padding:11px 16px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,0.07);}
+.pill{padding:5px 14px;border-radius:20px;font-weight:700;font-size:0.82rem;background:#f0f4f8;color:var(--navy);}
+.pill b{color:var(--gold);}
+.btn{padding:7px 18px;border-radius:8px;font-weight:700;font-size:0.85rem;cursor:pointer;border:none;}
+.btn-ok{background:var(--navy);color:#fff;} .btn-ok:hover{background:#1a3d5e;}
+.btn-rs{background:#f0f4f8;color:var(--muted);border:1.5px solid var(--border);}
+.wrap{max-width:820px;margin:0 auto;padding:20px 14px 60px;}
+.sec-title{font-family:'Lora',serif;font-size:1.15rem;color:var(--navy);font-weight:700;margin:26px 0 14px;padding:10px 16px;background:#fff;border-radius:10px;border-left:5px solid var(--gold);box-shadow:0 2px 8px rgba(15,43,68,0.05);}
+.sec-title span{font-family:'DM Sans',sans-serif;font-size:0.8rem;color:var(--muted);font-weight:500;display:block;margin-top:2px;}
+.prog-wrap{margin-bottom:18px;}
+.prog-bar{height:6px;background:#e0e7f0;border-radius:20px;overflow:hidden;}
+.prog-fill{height:100%;background:var(--gold);border-radius:20px;transition:width .3s;}
+.prog-txt{font-size:0.78rem;color:var(--muted);margin-top:5px;text-align:right;}
+.card{background:#fff;border-radius:14px;border:1.5px solid var(--border);box-shadow:0 2px 10px rgba(15,43,68,0.05);margin-bottom:14px;overflow:hidden;transition:box-shadow .2s;}
+.card:hover{box-shadow:0 4px 16px rgba(15,43,68,0.09);}
+.card-hdr{display:flex;align-items:flex-start;gap:10px;padding:14px 18px 10px;border-bottom:1px solid #f0f4f8;}
+.nr{min-width:26px;height:26px;border-radius:50%;background:var(--navy);color:var(--gold);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.8rem;flex-shrink:0;margin-top:2px;}
+.qbody{flex:1;}
+.qtxt{font-size:0.95rem;line-height:1.6;margin-bottom:6px;}
+.pts-lbl{font-size:0.72rem;color:var(--muted);white-space:nowrap;}
+.tbl{border-collapse:collapse;margin:8px 0;font-size:0.85rem;}
+.tbl th,.tbl td{border:1px solid var(--border);padding:5px 10px;text-align:center;}
+.tbl th{background:#f0f4f8;color:var(--navy);font-weight:700;}
+.fig svg{max-width:100%;}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:12px 18px 14px;}
+.opts-2{grid-template-columns:1fr 1fr;}
+.opts-4{grid-template-columns:1fr 1fr;}
+@media(max-width:500px){.opts{grid-template-columns:1fr;}}
+.opt{display:flex;align-items:center;gap:10px;padding:9px 13px;border-radius:8px;border:1.5px solid var(--border);cursor:pointer;transition:all .13s;user-select:none;}
+.opt:hover{border-color:var(--navy);background:#f5f8fc;}
+.opt.sel{border-color:var(--navy);background:#e8edf7;}
+.opt.ok{border-color:var(--green);background:#e8f5e9;}
+.opt.err{border-color:var(--red);background:#fce4ec;}
+.opt.show-ok{border-color:var(--green);background:#e8f5e9;}
+.olbl{width:24px;height:24px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.78rem;flex-shrink:0;transition:all .13s;}
+.sel .olbl{border-color:var(--navy);background:var(--navy);color:#fff;}
+.ok .olbl{border-color:var(--green);background:var(--green);color:#fff;}
+.err .olbl{border-color:var(--red);background:var(--red);color:#fff;}
+.show-ok .olbl{border-color:var(--green);background:var(--green);color:#fff;}
+.otxt{font-size:0.9rem;}
+.expl{margin:0 18px 14px;padding:11px 14px;border-radius:8px;background:#fffde7;border-left:3px solid var(--gold);font-size:0.85rem;line-height:1.6;display:none;}
+.expl.show{display:block;} .expl strong{color:var(--navy);}
+.final{background:#fff;border-radius:14px;border:1.5px solid var(--border);padding:28px 24px;text-align:center;display:none;margin-top:8px;}
+.final.show{display:block;}
+.final-score{font-size:2.4rem;font-weight:800;color:var(--navy);}
+.final-msg{font-size:1rem;color:var(--muted);margin-top:6px;}
+.final-bar{height:12px;border-radius:20px;background:#e0e7f0;overflow:hidden;margin:16px 0;}
+.final-bar-fill{height:100%;border-radius:20px;transition:width 1s;}
+.fig{position:relative;display:flex;flex-direction:column;align-items:center;padding:30px;width:100%;box-sizing:border-box;background:#f7f9fc;border:1px dashed var(--border);border-radius:8px;margin:8px 0;overflow:hidden;}
+.fig-wrap{position:relative;display:flex;justify-content:center;align-items:center;width:100%;}
+.fig-wrap svg{display:block;max-width:100%;}
+.draw-layer{position:absolute;top:-30px;left:-30px;width:calc(100% + 60px);height:calc(100% + 60px);touch-action:none;cursor:crosshair;}
+.draw-layer.mode-text{cursor:text;} .draw-layer.mode-eraser{cursor:cell;}
+.draw-toolbar{display:flex;gap:5px;align-items:center;justify-content:center;flex-wrap:wrap;padding:6px 10px;background:#f0f4f8;border-top:1px solid #dde3ec;width:100%;margin-top:30px;}
+.dt-btn{padding:5px 12px;border-radius:8px;font-size:0.82rem;font-weight:700;border:1.5px solid #dde3ec;background:#fff;color:#0f2b44;cursor:pointer;transition:all .12s;display:flex;align-items:center;gap:5px;white-space:nowrap;}
+.dt-btn:hover{border-color:#0f2b44;background:#e8edf7;} .dt-btn.active{background:#0f2b44;color:#fff;border-color:#0f2b44;}
+.dt-color{width:22px;height:22px;border-radius:50%;border:2px solid #ccc;cursor:pointer;flex-shrink:0;}
+.dt-color.active{border-color:#0f2b44;box-shadow:0 0 0 2px rgba(15,43,68,0.3);}
+.dt-sep{width:1px;height:22px;background:#dde3ec;margin:0 2px;}
+.draw-text-input{position:absolute;background:rgba(255,255,255,0.92);border:1.5px solid #0f2b44;border-radius:4px;font-family:serif;font-size:13px;padding:2px 5px;outline:none;min-width:60px;z-index:50;}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>Test interactiv 4 &nbsp;&#xB7;&nbsp; Matematică</h1>
+  <p>Subiectul I &amp; Subiectul II &nbsp;&#xB7;&nbsp; 12 exerciții &nbsp;&#xB7;&nbsp; 5 puncte / exercițiu &nbsp;&#xB7;&nbsp; Total: 60 puncte</p>
+</div>
+
+<div class="sbar">
+  <div class="pill">Rezolvate: <b id="done">0</b>/12</div>
+  <div class="pill">Scor: <b id="sc">0</b>/60 pct</div>
+  <div class="pill">Corecte: <b id="cor">0</b></div>
+  <button class="btn btn-ok" onclick="checkAll()">&#x2713; Corectează</button>
+  <button class="btn btn-rs" onclick="resetAll()">&#x21BA; Resetează</button>
+</div>
+
+<div class="wrap">
+
+<div class="prog-wrap">
+  <div class="prog-bar"><div class="prog-fill" id="progfill" style="width:0%"></div></div>
+  <div class="prog-txt" id="progtxt">0 din 12 răspunsuri selectate</div>
+</div>
+
+<div class="sec-title">Subiectul I <span>Numere, rapoarte, mulțimi — alegeți varianta corectă</span></div>
+<div id="exList1"></div>
+
+<div class="sec-title">Subiectul II <span>Geometrie — folosiți instrumentele de desen pe figuri</span></div>
+<div class="card" data-correct="c" data-points="5">
+    <div class="card-hdr">
+      <div class="nr">1</div>
+      <div class="qbody">
+        <div class="qtxt">Fie punctele A,B,C,D coliniare. B=mijlocul AC, C=mijlocul AD, BC=3cm. Lungimea AD este:</div>
+        <div class="fig"><svg width="340" height="55" viewBox="0 0 340 55">
+  <line x1="15" y1="28" x2="325" y2="28" stroke="#0f2b44" stroke-width="2"/>
+  <circle cx="15" cy="28" r="4" fill="#0f2b44"/><text x="15" y="18" text-anchor="middle" font-size="13" font-family="serif">A</text>
+  <circle cx="100" cy="28" r="4" fill="#e8b931"/><text x="100" y="18" text-anchor="middle" font-size="13" font-family="serif" fill="#e8b931">B</text>
+  <circle cx="185" cy="28" r="4" fill="#e8b931"/><text x="185" y="18" text-anchor="middle" font-size="13" font-family="serif" fill="#e8b931">C</text>
+  <circle cx="325" cy="28" r="4" fill="#0f2b44"/><text x="325" y="18" text-anchor="middle" font-size="13" font-family="serif">D</text>
+  <text x="143" y="46" text-anchor="middle" font-size="11" fill="#5a6170"></text>
+</svg></div>
+      </div>
+    </div>
+    <div class="opts"><div class="opt" data-opt="a"><div class="olbl">a</div><div class="otxt">6 cm</div></div>
+<div class="opt" data-opt="b"><div class="olbl">b</div><div class="otxt">9 cm</div></div>
+<div class="opt" data-opt="c"><div class="olbl">c</div><div class="otxt">12 cm</div></div>
+<div class="opt" data-opt="d"><div class="olbl">d</div><div class="otxt">18 cm</div></div>
+</div>
+    <div class="expl"><strong>Răspuns: c) 12 cm</strong><br>B=mijlocul AC → AB=BC=3cm → AC=6cm.<br>C=mijlocul AD → CD=AC=6cm → AD=12cm.</div>
+  </div>
+  
+<div class="card" data-correct="c" data-points="5">
+<div class="card-hdr">
+<div class="nr">2</div>
+<div class="qbody">
+<div class="qtxt">Unghiurile AOB, BOC și COA sunt unghiuri în jurul punctului O. AOB=120°, BOC=130°. Măsura unghiului AOC este:</div>
+<div class="fig"><svg height="180" viewbox="0 0 200 180" width="200">
+<circle cx="100" cy="110" fill="#0f2b44" r="3"></circle>
+<text font-family="serif" font-size="12" x="106" y="108">O</text>
+<!-- OA vertical sus -->
+<line stroke="#0f2b44" stroke-width="1.5" x1="100" x2="100" y1="110" y2="15"></line>
+<text font-family="serif" font-size="13" x="97" y="12">A</text>
+<!-- OB dreapta-jos -->
+<line stroke="#0f2b44" stroke-width="1.5" x1="100" x2="185" y1="110" y2="160"></line>
+<text font-family="serif" font-size="13" x="187" y="165">B</text>
+<!-- OC stanga-jos -->
+<line stroke="#0f2b44" stroke-width="1.5" x1="100" x2="15" y1="110" y2="160"></line>
+<text font-family="serif" font-size="13" x="5" y="165">C</text>
+<!-- masuri unghiuri -->
+<text fill="#0f2b44" font-size="11" x="120" y="90">120°</text>
+<text fill="#0f2b44" font-size="11" x="95" y="135">130°</text>
+<text fill="#e8b931" font-size="11" x="70" y="90">?</text>
+</svg></div>
+</div>
+</div>
+<div class="opts"><div class="opt" data-opt="a"><div class="olbl">a</div><div class="otxt">100°</div></div>
+<div class="opt" data-opt="b"><div class="olbl">b</div><div class="otxt">105°</div></div>
+<div class="opt" data-opt="c"><div class="olbl">c</div><div class="otxt">110°</div></div>
+<div class="opt" data-opt="d"><div class="olbl">d</div><div class="otxt">115°</div></div>
+</div>
+<div class="expl"><strong>Răspuns: c) 110°</strong><br/>AOB + BOC + COA = 360° → 120° + 130° + COA = 360° → COA = 110°.</div>
+</div>
+
+<div class="card" data-correct="b" data-points="5">
+<div class="card-hdr">
+<div class="nr">3</div>
+<div class="qbody">
+<div class="qtxt">Triunghiul dreptunghic isoscel ABC cu ipotenuza BC. Punctele D,E,F=mijloacele laturilor BC, AB, AC. Perimetrul patrulaterului AEDF este:</div>
+<div class="fig"><svg height="185" viewbox="0 0 200 185" width="200">
+<polygon fill="#f0f4f8" points="20,170 20,10 185,170" stroke="#0f2b44" stroke-width="1.5"></polygon>
+<rect fill="none" height="18" stroke="#0f2b44" stroke-width="1.5" width="18" x="20" y="152"></rect>
+<circle cx="20" cy="90" fill="#0f2b44" r="3"></circle>
+<text font-family="serif" font-size="12" x="5" y="88">F</text>
+<circle cx="102" cy="90" fill="#0f2b44" r="3"></circle>
+<text font-family="serif" font-size="12" x="106" y="88">D</text>
+<circle cx="102" cy="170" fill="#0f2b44" r="3"></circle>
+<text font-family="serif" font-size="12" x="106" y="168">E</text>
+<polygon fill="rgba(232,185,49,0.1)" points="20,90 102,90 102,170 20,170" stroke="#e8b931" stroke-width="1.5"></polygon>
+<text font-family="serif" font-size="13" x="25" y="10">C</text>
+<text font-family="serif" font-size="13" x="7" y="178">A</text>
+<text font-family="serif" font-size="13" x="187" y="178">B</text>
+</svg></div>
+</div>
+</div>
+<div class="opts"><div class="opt" data-opt="a"><div class="olbl">a</div><div class="otxt">AB/2</div></div>
+<div class="opt" data-opt="b"><div class="olbl">b</div><div class="otxt">2AB</div></div>
+<div class="opt" data-opt="c"><div class="olbl">c</div><div class="otxt">3AB/2</div></div>
+<div class="opt" data-opt="d"><div class="olbl">d</div><div class="otxt">AB</div></div>
+</div>
+<div class="expl"><strong>Răspuns: b) 2AB</strong><br/>D=mij.BC, E=mij.AB, F=mij.AC → ED și FD = linii mijlocii deci FD=AE=AB/2, ED=AF=AC/2. ABC = triunghi dreptunghic isoscel cu ipotenuza BC, deci AB=AC=a → AE=ED=FD=AF=a/2 → AEDF=pătrat → perimetru=4a/2=2AB.</div>
+</div>
+
+<div class="card" data-correct="c" data-points="5">
+    <div class="card-hdr">
+      <div class="nr">4</div>
+      <div class="qbody">
+        <div class="qtxt">Paralelogramul ABCD, O=intersecția diagonalelor, AO+DO=8cm. Suma AC+BD este egală cu:</div>
+        <div class="fig"><svg width="220" height="145" viewBox="0 0 220 145">
+  <polygon points="40,125 200,125 180,20 20,20" stroke="#0f2b44" stroke-width="1.5" fill="#f0f4f8"/>
+  <line x1="40" y1="125" x2="180" y2="20" stroke="#0f2b44" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="200" y1="125" x2="20" y2="20" stroke="#0f2b44" stroke-width="1" stroke-dasharray="3,2"/>
+  <circle cx="110" cy="72" r="3" fill="#0f2b44"/>
+  <text x="106" y="65" font-size="12" font-family="serif">O</text>
+  <text x="16" y="14" font-size="13" font-family="serif">A</text>
+  <text x="180" y="14" font-size="13" font-family="serif">B</text>
+  <text x="34" y="136" font-size="13" font-family="serif">D</text>
+  <text x="200" y="136" font-size="13" font-family="serif">C</text>
+</svg></div>
+      </div>
+    </div>
+    <div class="opts"><div class="opt" data-opt="a"><div class="olbl">a</div><div class="otxt">32 cm</div></div>
+<div class="opt" data-opt="b"><div class="olbl">b</div><div class="otxt">24 cm</div></div>
+<div class="opt" data-opt="c"><div class="olbl">c</div><div class="otxt">16 cm</div></div>
+<div class="opt" data-opt="d"><div class="olbl">d</div><div class="otxt">8 cm</div></div>
+</div>
+    <div class="expl"><strong>Răspuns: c) 16 cm</strong><br>În paralelogram, diagonalele se taie la jumatate: AO=OC și BO=OD. AO+DO=8cm. AC=2·AO, BD=2·DO. AC+BD=2(AO+DO)=2·8.=16cm.</div>
+  </div>
+  
+<div class="card" data-correct="c" data-points="5">
+<div class="card-hdr"><div class="nr">5</div><div class="qbody">
+<div class="qtxt">AB este diametru în cercul de centru O, AB = 8 cm. Lungimea cercului este egală cu:</div>
+<div class="fig"><svg width="220" height="130" viewBox="0 0 220 130">
+  <circle cx="110" cy="65" r="55" fill="#f0f4f8" stroke="#0f2b44" stroke-width="1.5"/>
+  <line x1="55" y1="65" x2="165" y2="65" stroke="#0f2b44" stroke-width="1.5"/>
+  <circle cx="110" cy="65" r="3" fill="#0f2b44"/>
+  <text font-family="serif" font-size="13" x="42" y="70">A</text>
+  <text font-family="serif" font-size="13" x="167" y="70">B</text>
+  <text font-family="serif" font-size="12" x="114" y="78">O</text>
+  
+</svg></div>
+</div></div>
+<div class="opts">
+<div class="opt" data-opt="a"><div class="olbl">a</div><div class="otxt">2π cm</div></div>
+<div class="opt" data-opt="b"><div class="olbl">b</div><div class="otxt">16π cm</div></div>
+<div class="opt" data-opt="c"><div class="olbl">c</div><div class="otxt">8π cm</div></div>
+<div class="opt" data-opt="d"><div class="olbl">d</div><div class="otxt">4π cm</div></div>
+</div>
+<div class="expl"><strong>Răspuns: c) 8π cm</strong><br/>Diametrul AB = 8 cm ⟹ raza r = 4 cm. Lungimea cercului = 2πr = 2π·4 = 8π cm.</div>
+</div>
+
+<!-- Q5 -->
+
+<div class="card" data-correct="b" data-points="5">
+<div class="card-hdr"><div class="nr">6</div><div class="qbody">
+<div class="qtxt">În cubul ABCDA'B'C'D', măsura unghiului dintre dreptele BC' și DD' este de:</div>
+<div class="fig"><svg width="200" height="200" viewBox="0 0 200 200">
+  <!-- Cube with BC' and DD' highlighted -->
+  <polygon points="30,160 110,160 110,90 30,90" fill="#f0f4f8" stroke="#0f2b44" stroke-width="1.2"/>
+  <polygon points="110,160 170,125 170,55 110,90" fill="#dce6f0" stroke="#0f2b44" stroke-width="1.2"/>
+  <polygon points="30,90 110,90 170,55 90,55" fill="#e8eef7" stroke="#0f2b44" stroke-width="1.2"/>
+  <line x1="30" y1="160" x2="90" y2="125" stroke="#0f2b44" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="90" y1="125" x2="170" y2="125" stroke="#0f2b44" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="90" y1="125" x2="90" y2="55" stroke="#0f2b44" stroke-width="1" stroke-dasharray="3,2"/>
+  <!-- BC': B=bottom-right-front=(110,160), C'=top-right-back=(170,55) -->
+  <line x1="110" y1="160" x2="170" y2="55" stroke="#e8b931" stroke-width="2.5"/>
+  <!-- DD': D=bottom-left-back=(90,125), D'=top-left-back=(90,55) -->
+  <line x1="90" y1="125" x2="90" y2="55" stroke="#c62828" stroke-width="2.5"/>
+  <text font-family="serif" font-size="11" x="20" y="167">A</text>
+  <text font-family="serif" font-size="11" x="114" y="167">B</text>
+  <text font-family="serif" font-size="11" x="172" y="128">C</text>
+  <text font-family="serif" font-size="11" x="72" y="125">D</text>
+  <text font-family="serif" font-size="11" x="20" y="87">A'</text>
+  <text font-family="serif" font-size="11" x="105" y="87">B'</text>
+  <text font-family="serif" font-size="11" x="172" y="52">C'</text>
+  <text font-family="serif" font-size="11" x="82" y="52">D'</text>
+  
+</svg></div>
+</div></div>
+<div class="opts">
+<div class="opt" data-opt="a"><div class="olbl">a</div><div class="otxt">30°</div></div>
+<div class="opt" data-opt="b"><div class="olbl">b</div><div class="otxt">45°</div></div>
+<div class="opt" data-opt="c"><div class="olbl">c</div><div class="otxt">60°</div></div>
+<div class="opt" data-opt="d"><div class="olbl">d</div><div class="otxt">90°</div></div>
+</div>
+<div class="expl"><strong>Răspuns: b) 45°</strong><br/>BC' este diagonala unei fețe laterale a cubului. DD'∥ BB' ⟹ ∠(DD', BC')=∠(BB', BC') = 45° (diagonala și latura pătrat).</div>
+</div>
+
+<!-- Q5 -->
+
+
+<div class="final" id="final">
+  <div class="final-score" id="fscore"></div>
+  <div class="final-msg" id="fmsg"></div>
+  <div class="final-bar"><div class="final-bar-fill" id="fbar"></div></div>
+</div>
+
+</div>
+
+<script>
+var EX1 = [
+  {q:'Dintre numerele 0, 2, 4 și 15, numărul prim este:',
+   a:'0', b:'4', c:'2', d:'15', ok:'c',
+   e:'Un număr prim are exact 2 divizori: 1 și el însuși. \\(2\\) este singurul număr prim par.'},
+  {q:'Tipul manualului care reprezintă un sfert din totalul manualelor de matematică pentru gimnaziu este:',
+   tbl:`<table class="tbl"><thead><tr><th>Tip manual</th><th>Nr. manuale</th></tr></thead><tbody>
+     <tr><td>Mate_V</td><td>280</td></tr><tr><td>Mate_VI</td><td>200</td></tr>
+     <tr><td>Mate_VII</td><td>250</td></tr><tr><td>Mate_VIII</td><td>270</td></tr>
+   </tbody></table>`,
+   a:'Mate_V', b:'Mate_VI', c:'Mate_VII', d:'Mate_VIII', ok:'c',
+   e:'<strong>Răspuns: b) Mate_VI</strong><br>Total = \\(280+200+250+270=1000\\). Un sfert = \\(\\dfrac{1000}{4} = 250\\).'},
+  {n:4, q:'Suma numerelor întregi negative din intervalul \\((-5; 4]\\) este egală cu:',
+   a:'−10', b:'−14', c:'−15', d:'−9', ok:'a',
+   e:'<strong>Răspuns: a) −10</strong><br>Numerele întregi negative din \\((-5;4]\\): \\(-4, -3, -2, -1\\)<br>Suma \\(= -4 + (-3) + (-2) + (-1) = \\mathbf{-10}\\)<br><em>Atenție: −5 nu este inclus (paranteză rotundă)</em>', ok2:'a'},
+  {q:'Dintre numerele \\(\\dfrac{1}{2^4},\\; \\dfrac{1}{2^7},\\; \\dfrac{1}{2^3}\\) și \\(\\dfrac{1}{2^8}\\), cel mai mare este:',
+   a:'\\(\\dfrac{1}{2^4}\\)', b:'\\(\\dfrac{1}{2^7}\\)', c:'\\(\\dfrac{1}{2^3}\\)', d:'\\(\\dfrac{1}{2^8}\\)', ok:'c',
+   e:'<strong>Răspuns: c) \\(\\dfrac{1}{2^3}\\)</strong><br>Cu cât exponentul e mai mic, cu atât numitorul e mai mic și fracția mai mare.<br>\\(2^3=8 < 2^4=16 < 2^7 < 2^8\\) → \\(\\frac{1}{8}\\) este cel mai mare.'},
+  {q:'Patru elevi au calculat suma numerelor \\(a\\) și \\(b\\), știind că \\(a^2 - b^2 = 12\\) și \\(a - b = 4\\). Rezultatul corect a fost obținut de:',
+   tbl:`<table class="tbl"><thead><tr><th>Cătălin</th><th>Nicolae</th><th>Anastasia</th><th>Ana</th></tr></thead><tbody><tr><td>48</td><td>16</td><td>4</td><td>3</td></tr></tbody></table>`,
+   a:'Cătălin', b:'Nicolae', c:'Anastasia', d:'Ana', ok:'d',
+   e:'<strong>Răspuns: d) Ana — 3</strong><br>\\(a^2 - b^2 = (a-b)(a+b) = 12\\)<br>\\(4 \\cdot (a+b) = 12 \\Rightarrow a+b = \\mathbf{3}\\)'},
+  {tf:false, q:'Suma numerelor întregi din intervalul \\([-2, 3]\\) este egală cu:',
+   a:'3', b:'1', c:'6', d:'0', ok:'a', mc:true,
+   e:'<strong>Răspuns: a) 3</strong><br>Numerele întregi: \\(-2,-1,0,1,2,3\\). Suma \\(= -2-1+0+1+2+3 = 3\\)'}
+];
+
+
+const list1 = document.getElementById('exList1');
+EX1.forEach((ex, i) => {
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.dataset.correct = ex.ok;
+  div.dataset.points = 5;
+  const hasCD = (ex.c !== undefined && ex.c !== null && ex.c !== '');
+  const keys = hasCD ? ['a','b','c','d'] : ['a','b'];
+  const optsClass = hasCD ? 'opts opts-4' : 'opts opts-2';
+  const optsHtml = keys.map(k =>
+    `<div class="opt" data-opt="${k}"><div class="olbl">${k}</div><div class="otxt">${ex[k]}</div></div>`
+  ).join('');
+  const tblHtml = ex.tbl ? `<div style="overflow-x:auto">${ex.tbl}</div>` : '';
+  div.innerHTML = `
+    <div class="card-hdr">
+      <div class="nr">${i+1}</div>
+      <div class="qbody">
+        <div class="qtxt">${ex.q}</div>
+        ${tblHtml}
+      </div>
+      <div class="pts-lbl">5 pct</div>
+    </div>
+    <div class="${optsClass}">${optsHtml}</div>
+    <div class="expl">${ex.e || ex.expl || ''}</div>
+  `;
+  list1.appendChild(div);
+});
+
+let selected = 0;
+function allCards(){ return document.querySelectorAll('.card'); }
+const TOTAL = () => allCards().length;
+
+document.querySelectorAll('.opt').forEach(opt => {
+  opt.addEventListener('click', function() {
+    const card = this.closest('.card');
+    if (card.dataset.checked) return;
+    const wasSelected = this.classList.contains('sel');
+    card.querySelectorAll('.opt').forEach(o => {
+      if (o.classList.contains('sel') && o !== this) { o.classList.remove('sel'); selected--; }
+    });
+    if (!wasSelected) { this.classList.add('sel'); selected++; }
+    updateProgress();
+  });
+});
+
+function updateProgress() {
+  const total = TOTAL();
+  const pct = Math.round(selected / total * 100);
+  document.getElementById('progfill').style.width = pct + '%';
+  document.getElementById('progtxt').textContent = `${selected} din ${total} răspunsuri selectate`;
+  document.getElementById('done').textContent = selected;
+}
+
+function checkAll() {
+  let correct = 0;
+  allCards().forEach(card => {
+    if (card.dataset.checked) return;
+    card.dataset.checked = '1';
+    const ok = card.dataset.correct;
+    const sel = card.querySelector('.opt.sel');
+    const expl = card.querySelector('.expl');
+    if (expl) expl.classList.add('show');
+    if (sel) {
+      if (sel.dataset.opt === ok) { sel.classList.add('ok'); correct++; }
+      else sel.classList.add('err');
+    }
+    const okEl = card.querySelector(`.opt[data-opt="${ok}"]`);
+    if (okEl && !okEl.classList.contains('ok')) okEl.classList.add('show-ok');
+  });
+  const total = TOTAL();
+  const score = correct * 5;
+  document.getElementById('sc').textContent = score;
+  document.getElementById('cor').textContent = correct;
+  const pct = Math.round(correct / total * 100);
+  const final = document.getElementById('final');
+  final.classList.add('show');
+  document.getElementById('fscore').textContent = `${score} / ${total * 5} puncte`;
+  const msgs = ['Continuă să exersezi! 📚','Mai ai de lucrat! 💪','Destul de bine! 👍','Foarte bine! 🌟','Excelent! 🏆'];
+  document.getElementById('fmsg').textContent = `${pct}% răspunsuri corecte (${correct}/${total}) — ${msgs[Math.min(4, Math.floor(pct/25))]}`;
+  const bar = document.getElementById('fbar');
+  bar.style.width = '0%';
+  bar.style.background = pct >= 80 ? '#2e7d32' : pct >= 60 ? '#e8b931' : '#c62828';
+  setTimeout(() => bar.style.width = pct + '%', 100);
+  if (window.parent && window.parent !== window)
+    window.parent.postMessage({ type: 'MATE_SCORE', score, maxScore: total * 5 }, '*');
+  if (window.MathJax) MathJax.typesetPromise();
+  final.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function resetAll() {
+  allCards().forEach(card => {
+    delete card.dataset.checked;
+    card.querySelectorAll('.opt').forEach(o => o.classList.remove('sel','ok','err','show-ok'));
+    const expl = card.querySelector('.expl');
+    if (expl) expl.classList.remove('show');
+  });
+  selected = 0; updateProgress();
+  ['sc','cor','done'].forEach(id => document.getElementById(id).textContent = '0');
+  document.getElementById('final').classList.remove('show');
+}
+
+window.MathJax = {
+  tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
+  svg: { fontCache: 'global' },
+  startup: { typeset: true }
+};
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js"></script>
+
+<script>
+(function(){
+  document.querySelectorAll('.fig').forEach(function(fig, figIdx) {
+    var svg = fig.querySelector('svg');
+    if (!svg) return;
+    var wrap = document.createElement('div');
+    wrap.className = 'fig-wrap';
+    fig.insertBefore(wrap, svg);
+    wrap.appendChild(svg);
+    var ns = 'http://www.w3.org/2000/svg';
+    var svgW = parseFloat(svg.getAttribute('width')) || 300;
+    var svgH = parseFloat(svg.getAttribute('height')) || 100;
+    var vb = svg.getAttribute('viewBox') || svg.getAttribute('viewbox') || ('0 0 '+svgW+' '+svgH);
+    var vbParts = vb.split(' ').map(Number);
+    var PAD_X = 30, PAD_Y = 30;
+    var expandedVb = (vbParts[0]-PAD_X)+' '+(vbParts[1]-PAD_Y)+' '+(vbParts[2]+PAD_X*2)+' '+(vbParts[3]+PAD_Y*2);
+    var overlay = document.createElementNS(ns, 'svg');
+    overlay.setAttribute('viewBox', expandedVb);
+    overlay.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    overlay.classList.add('draw-layer');
+    overlay.style.pointerEvents = 'auto';
+    wrap.appendChild(overlay);
+    var state = {mode:'pencil', color:'#c62828', drawing:false, startPt:null, previewEl:null, history:[]};
+    var colors = ['#c62828','#2e7d32','#0f2b44','#e8b931','#1565c0'];
+    var tb = document.createElement('div');
+    tb.className = 'draw-toolbar';
+    tb.innerHTML =
+      '<button class="dt-btn active" data-mode="pencil" title="Creion">&#9998; Creion</button>'+
+      '<button class="dt-btn" data-mode="seg" title="Segment">&#8213; Segment</button>'+
+      '<button class="dt-btn" data-mode="text" title="Text">T Text</button>'+
+      '<div class="dt-sep"></div>'+
+      colors.map(function(c,i){return '<div class="dt-color'+(i===0?' active':'')+'" data-color="'+c+'" style="background:'+c+'" title="Culoare"></div>';}).join('')+
+      '<div class="dt-sep"></div>'+
+      '<button class="dt-btn" id="undo-'+figIdx+'" title="Undo">&#8617; Undo</button>'+
+      '<button class="dt-btn" id="clear-'+figIdx+'" title="Șterge tot">&#x2715; Șterge</button>'+
+      '<button class="dt-btn" data-mode="eraser" title="Radieră">&#9675; Radieră</button>';
+    fig.appendChild(tb);
+    tb.querySelectorAll('[data-mode]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        state.mode = this.dataset.mode;
+        tb.querySelectorAll('[data-mode]').forEach(function(b){b.classList.remove('active');});
+        this.classList.add('active');
+        overlay.className = 'draw-layer mode-'+state.mode;
+      });
+    });
+    tb.querySelectorAll('[data-color]').forEach(function(dot){
+      dot.addEventListener('click', function(){
+        state.color = this.dataset.color;
+        tb.querySelectorAll('[data-color]').forEach(function(d){d.classList.remove('active');});
+        this.classList.add('active');
+      });
+    });
+    document.getElementById('undo-'+figIdx).addEventListener('click', function(){
+      if (state.history.length > 0) { var el = state.history.pop(); overlay.removeChild(el); }
+    });
+    document.getElementById('clear-'+figIdx).addEventListener('click', function(){
+      state.history.forEach(function(el){overlay.removeChild(el);}); state.history = [];
+    });
+    function clientToSVG(cx, cy) {
+      var pt = overlay.createSVGPoint(); pt.x = cx; pt.y = cy;
+      return pt.matrixTransform(overlay.getScreenCTM().inverse());
+    }
+    function getEvtXY(e) {
+      if (e.touches && e.touches.length > 0) return {clientX:e.touches[0].clientX, clientY:e.touches[0].clientY};
+      if (e.changedTouches && e.changedTouches.length > 0) return {clientX:e.changedTouches[0].clientX, clientY:e.changedTouches[0].clientY};
+      return {clientX:e.clientX, clientY:e.clientY};
+    }
+    var pencilPath=null; var pencilPoints=[];
+    function onPencilDown(e) {
+      if (state.mode!=='pencil') return; e.preventDefault();
+      var ev=getEvtXY(e); var pt=clientToSVG(ev.clientX,ev.clientY);
+      state.drawing=true; pencilPoints=[pt];
+      pencilPath=document.createElementNS(ns,'path');
+      pencilPath.setAttribute('d','M'+pt.x+','+pt.y);
+      pencilPath.setAttribute('stroke',state.color); pencilPath.setAttribute('stroke-width','1.2');
+      pencilPath.setAttribute('stroke-linecap','round'); pencilPath.setAttribute('stroke-linejoin','round');
+      pencilPath.setAttribute('fill','none'); pencilPath.style.pointerEvents='none';
+      overlay.appendChild(pencilPath);
+    }
+    function onPencilMove(e) {
+      if (!state.drawing || state.mode!=='pencil') return; e.preventDefault();
+      var ev=getEvtXY(e); var pt=clientToSVG(ev.clientX,ev.clientY);
+      pencilPoints.push(pt);
+      var d='M'+pencilPoints[0].x+','+pencilPoints[0].y;
+      for (var i=1;i<pencilPoints.length-1;i++) {
+        var mx=(pencilPoints[i].x+pencilPoints[i+1].x)/2;
+        var my=(pencilPoints[i].y+pencilPoints[i+1].y)/2;
+        d+=' Q'+pencilPoints[i].x+','+pencilPoints[i].y+' '+mx+','+my;
+      }
+      var last=pencilPoints[pencilPoints.length-1];
+      d+=' L'+last.x+','+last.y;
+      pencilPath.setAttribute('d',d);
+    }
+    function onPencilUp(e) {
+      if (!state.drawing || state.mode!=='pencil') return; e.preventDefault();
+      state.drawing=false;
+      if (pencilPoints.length<2) { overlay.removeChild(pencilPath); }
+      else { state.history.push(pencilPath); }
+      pencilPath=null; pencilPoints=[];
+    }
+    function onPointerDown(e) {
+      if (state.mode!=='seg') return; e.preventDefault();
+      var ev=getEvtXY(e); var pt=clientToSVG(ev.clientX,ev.clientY);
+      state.drawing=true; state.startPt=pt;
+      var line=document.createElementNS(ns,'line');
+      line.setAttribute('x1',pt.x); line.setAttribute('y1',pt.y);
+      line.setAttribute('x2',pt.x); line.setAttribute('y2',pt.y);
+      line.setAttribute('stroke',state.color); line.setAttribute('stroke-width','2');
+      line.setAttribute('stroke-linecap','round'); line.style.pointerEvents='none';
+      overlay.appendChild(line); state.previewEl=line;
+    }
+    function onPointerMove(e) {
+      if (!state.drawing || state.mode!=='seg') return; e.preventDefault();
+      var ev=getEvtXY(e); var pt=clientToSVG(ev.clientX,ev.clientY);
+      state.previewEl.setAttribute('x2',pt.x); state.previewEl.setAttribute('y2',pt.y);
+    }
+    function onPointerUp(e) {
+      if (!state.drawing || state.mode!=='seg') return; e.preventDefault();
+      state.drawing=false;
+      var ev=getEvtXY(e); var pt=clientToSVG(ev.clientX,ev.clientY);
+      var dx=pt.x-state.startPt.x, dy=pt.y-state.startPt.y;
+      if (Math.sqrt(dx*dx+dy*dy)<2) { overlay.removeChild(state.previewEl); }
+      else { state.previewEl.setAttribute('x2',pt.x); state.previewEl.setAttribute('y2',pt.y); state.history.push(state.previewEl); }
+      state.previewEl=null;
+    }
+    var eraserPath=null; var eraserPoints=[];
+    function onEraserDown(e) {
+      if (state.mode!=='eraser') return; e.preventDefault();
+      var ev=getEvtXY(e); var pt=clientToSVG(ev.clientX,ev.clientY);
+      state.drawing=true; eraserPoints=[pt];
+      eraserPath=document.createElementNS(ns,'path');
+      eraserPath.setAttribute('d','M'+pt.x+','+pt.y);
+      eraserPath.setAttribute('stroke','#f7f9fc'); eraserPath.setAttribute('stroke-width','12');
+      eraserPath.setAttribute('stroke-linecap','round'); eraserPath.setAttribute('stroke-linejoin','round');
+      eraserPath.setAttribute('fill','none'); eraserPath.style.pointerEvents='none';
+      overlay.appendChild(eraserPath);
+    }
+    function onEraserMove(e) {
+      if (!state.drawing || state.mode!=='eraser') return; e.preventDefault();
+      var ev=getEvtXY(e); var pt=clientToSVG(ev.clientX,ev.clientY);
+      eraserPoints.push(pt);
+      var d='M'+eraserPoints[0].x+','+eraserPoints[0].y;
+      for (var i=1;i<eraserPoints.length-1;i++) {
+        var mx=(eraserPoints[i].x+eraserPoints[i+1].x)/2;
+        var my=(eraserPoints[i].y+eraserPoints[i+1].y)/2;
+        d+=' Q'+eraserPoints[i].x+','+eraserPoints[i].y+' '+mx+','+my;
+      }
+      var last=eraserPoints[eraserPoints.length-1];
+      d+=' L'+last.x+','+last.y;
+      eraserPath.setAttribute('d',d);
+    }
+    function onEraserUp(e) {
+      if (!state.drawing || state.mode!=='eraser') return; e.preventDefault();
+      state.drawing=false;
+      if (eraserPoints.length<2) { overlay.removeChild(eraserPath); }
+      else { state.history.push(eraserPath); }
+      eraserPath=null; eraserPoints=[];
+    }
+    function onTap(e) {
+      if (state.mode!=='text') return; e.preventDefault();
+      var ev=getEvtXY(e); var pt=clientToSVG(ev.clientX,ev.clientY);
+      var svgPt2=overlay.createSVGPoint(); svgPt2.x=pt.x; svgPt2.y=pt.y;
+      var screenPt=svgPt2.matrixTransform(overlay.getScreenCTM());
+      var wrapRect=wrap.getBoundingClientRect();
+      var inp=document.createElement('input');
+      inp.type='text'; inp.className='draw-text-input';
+      inp.style.left=(screenPt.x-wrapRect.left)+'px';
+      inp.style.top=(screenPt.y-wrapRect.top-12)+'px';
+      wrap.appendChild(inp); inp.focus();
+      function commitText() {
+        var val=inp.value.trim();
+        if (inp.parentNode) wrap.removeChild(inp);
+        if (!val) return;
+        var txt=document.createElementNS(ns,'text');
+        txt.setAttribute('x',pt.x); txt.setAttribute('y',pt.y);
+        txt.setAttribute('fill',state.color); txt.setAttribute('font-size','13');
+        txt.setAttribute('font-family','serif'); txt.setAttribute('text-anchor','middle');
+        txt.style.pointerEvents='none'; txt.textContent=val;
+        overlay.appendChild(txt); state.history.push(txt);
+      }
+      inp.addEventListener('keydown',function(ev){
+        if (ev.key==='Enter') commitText();
+        if (ev.key==='Escape' && inp.parentNode) wrap.removeChild(inp);
+      });
+      inp.addEventListener('blur', commitText);
+    }
+    overlay.addEventListener('mousedown', function(e){ onPointerDown(e); onPencilDown(e); onEraserDown(e); });
+    overlay.addEventListener('mousemove', function(e){ onPointerMove(e); onPencilMove(e); onEraserMove(e); });
+    overlay.addEventListener('mouseup',   function(e){ onPointerUp(e);   onPencilUp(e);   onEraserUp(e);   });
+    overlay.addEventListener('mouseleave',function(e){ if(state.drawing){ onPointerUp(e); onPencilUp(e); onEraserUp(e); } });
+    overlay.addEventListener('touchstart', function(e){
+      if (state.mode==='text')   { onTap(e); return; }
+      if (state.mode==='pencil') { onPencilDown(e); return; }
+      if (state.mode==='eraser') { onEraserDown(e); return; }
+      onPointerDown(e);
+    }, {passive:false});
+    overlay.addEventListener('touchmove', function(e){ onPointerMove(e); onPencilMove(e); onEraserMove(e); }, {passive:false});
+    overlay.addEventListener('touchend',  function(e){ onPointerUp(e);   onPencilUp(e);   onEraserUp(e);   }, {passive:false});
+    overlay.addEventListener('click', function(e){ if (state.mode==='text') onTap(e); });
+  });
+})();
+</script>
+
+</body>
+</html>
