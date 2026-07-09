@@ -42,6 +42,15 @@ export default function AIExerciseAgent({ box }) {
   const [savedMeta, setSavedMeta] = useState(null); // metadatele rândului la re-editare
   const [savedList, setSavedList] = useState([]);
 
+  // Alegere model din baza de date + automatizare pe rubrică
+  const [picker, setPicker] = useState(null); // null | 'model' | 'format'
+  const [pickerItems, setPickerItems] = useState([]);
+  const [pickerSearch, setPickerSearch] = useState('');
+  const [pickerBusy, setPickerBusy] = useState(false);
+  const [rubrics, setRubrics] = useState([]);
+  const [autoKey, setAutoKey] = useState('');
+  const [autoBusy, setAutoBusy] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -57,6 +66,60 @@ export default function AIExerciseAgent({ box }) {
     setSavedList((data || []).filter((r) => r.interactive_data?.agent === 'claude'));
   }
   useEffect(() => { loadSaved(); }, []);
+
+  // Rubricile cu teste interactive (pentru automatizare)
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('content')
+        .select('category, subcategory').eq('content_type', 'interactive').limit(1000);
+      const counts = {};
+      (data || []).forEach((r) => {
+        const k = `${r.category}||${r.subcategory || ''}`;
+        counts[k] = (counts[k] || 0) + 1;
+      });
+      setRubrics(Object.entries(counts)
+        .filter(([, n]) => n >= 2)
+        .map(([k, n]) => { const [c, sub] = k.split('||'); return { category: c, subcategory: sub || null, n }; })
+        .sort((x, y) => x.category.localeCompare(y.category)));
+    })();
+  }, []);
+
+  async function openPicker(which) {
+    setPicker(which); setPickerSearch('');
+    if (!pickerItems.length) {
+      const { data } = await supabase.from('content')
+        .select('id, title, category, subcategory, content_type')
+        .in('content_type', ['interactive', 'pdf'])
+        .order('created_at', { ascending: false }).limit(300);
+      setPickerItems(data || []);
+    }
+  }
+
+  async function pickFromDb(item) {
+    setPickerBusy(true); setError(null);
+    try {
+      const r = await aiClient.exerciseAgent({ action: 'fetch-model', contentId: item.id });
+      const slot = r.pdf
+        ? { name: `${r.title}.pdf`, pdf: r.pdf, text: null }
+        : { name: `${r.title}.html`, pdf: null, text: r.text || null, html: r.html || null };
+      if (picker === 'format') setFormatFile(slot); else setModelFile(slot);
+      setPicker(null);
+    } catch (e) { setError(e.message); }
+    finally { setPickerBusy(false); }
+  }
+
+  async function runAuto() {
+    const r = rubrics.find((x) => `${x.category}||${x.subcategory || ''}` === autoKey);
+    if (!r) { setError('Alege rubrica pentru automatizare.'); return; }
+    setAutoBusy(true); setError(null); setMsg(null);
+    try {
+      const resp = await aiClient.exerciseAgent({ action: 'auto', category: r.category, subcategory: r.subcategory });
+      setEx(resp.exercise); setExHtml(null); setProvider(resp.provider);
+      setEditing(false); setSavedId(null); setSavedMeta(null);
+      setChat((c) => [...c, { role: 'assistant', content: `⚙️ Test automat pentru „${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}”: „${resp.exercise.title}” — combinat din: ${(resp.combinedFrom || []).join('; ')}. Verifică-l, modifică-l dacă e nevoie și trimite-l la «Adaugă Interactiv».` }]);
+    } catch (e) { setError(e.message); }
+    finally { setAutoBusy(false); }
+  }
 
   // ── Fișierele-model (PDF sau HTML) ─────────────────────────────────
   async function onFile(f, setFileState, ref) {
@@ -83,7 +146,7 @@ export default function AIExerciseAgent({ box }) {
     if (ref?.current) ref.current.value = '';
   }
 
-  function FileSlot({ title, hint, file, setFile, refEl, icon }) {
+  function FileSlot({ title, hint, file, setFile, refEl, icon, onPick }) {
     return (
       <div style={{ flex: 1, minWidth: 240, border: '2px dashed var(--border)', borderRadius: 12, padding: 12 }}>
         <div style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 6 }}>{title}</div>
@@ -97,6 +160,7 @@ export default function AIExerciseAgent({ box }) {
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <button className="btn btn-outline" onClick={() => refEl.current?.click()} style={{ fontSize: '.82rem' }}>{icon} Alege fișier</button>
+            <button className="btn btn-outline" onClick={onPick} style={{ fontSize: '.82rem' }}>📚 Din baza de date</button>
             <span style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>{hint}</span>
           </div>
         )}
@@ -258,9 +322,31 @@ export default function AIExerciseAgent({ box }) {
 
       {/* 1. Fișierele-model */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-        <FileSlot title="1 · Exercițiile-model (PDF / HTML)" hint="de aici ia exercițiile" icon="📎" file={modelFile} setFile={setModelFile} refEl={fileRef1} />
-        <FileSlot title="2 · Modelul de format — opțional" hint="de aici ia structura/baremul" icon="🗂" file={formatFile} setFile={setFormatFile} refEl={fileRef2} />
+        <FileSlot title="1 · Exercițiile-model (PDF / HTML)" hint="de aici ia exercițiile" icon="📎" file={modelFile} setFile={setModelFile} refEl={fileRef1} onPick={() => openPicker('model')} />
+        <FileSlot title="2 · Modelul de format — opțional" hint="de aici ia structura/baremul" icon="🗂" file={formatFile} setFile={setFormatFile} refEl={fileRef2} onPick={() => openPicker('format')} />
       </div>
+
+      {/* Automatizare: testul următor al unei rubrici, combinat din cele existente */}
+      {rubrics.length > 0 && (
+        <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, marginBottom: 12, display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', background: '#f7f9fc' }}>
+          <label style={{ ...lbl, flex: 1, minWidth: 230 }}>⚙️ Automatizare — rubrică (teste existente)
+            <select value={autoKey} onChange={(e) => setAutoKey(e.target.value)} style={inp}>
+              <option value="">— alege rubrica —</option>
+              {rubrics.map((r) => (
+                <option key={`${r.category}||${r.subcategory || ''}`} value={`${r.category}||${r.subcategory || ''}`}>
+                  {r.category}{r.subcategory ? ` / ${r.subcategory}` : ''} · {r.n} teste
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="btn btn-primary" onClick={runAuto} disabled={autoBusy || !autoKey} style={{ fontSize: '.85rem' }}>
+            {autoBusy ? 'Combin testele… (~30-60s)' : '⚙️ Generează testul următor'}
+          </button>
+          <span style={{ fontSize: '.72rem', color: 'var(--text-muted)', flexBasis: '100%' }}>
+            Ia câte un exercițiu din teste diferite, alese la întâmplare, și schimbă numerele/notațiile.
+          </span>
+        </div>
+      )}
 
       {/* 2. Conversația cu agentul */}
       {chat.length > 0 && (
@@ -437,6 +523,37 @@ export default function AIExerciseAgent({ box }) {
             <iframe title="preview-exercitiu" sandbox="allow-scripts" srcDoc={renderExercise(ex)}
               style={{ width: '100%', height: 520, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
           )}
+        </div>
+      )}
+
+      {/* Modal: alege un material din baza de date ca model */}
+      {picker && (
+        <div onClick={() => !pickerBusy && setPicker(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(9,30,48,.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 14, padding: 16, width: 'min(560px, 100%)', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <b style={{ color: 'var(--navy)' }}>📚 Alege {picker === 'format' ? 'modelul de format' : 'exercițiile-model'} din baza de date</b>
+              <button onClick={() => setPicker(null)} style={{ ...smallBtn }}>✕</button>
+            </div>
+            <input value={pickerSearch} onChange={(e) => setPickerSearch(e.target.value)} placeholder="Caută după titlu / categorie…"
+              style={{ ...inp, marginTop: 0, marginBottom: 10 }} />
+            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {pickerItems
+                .filter((it) => (it.title + ' ' + it.category + ' ' + (it.subcategory || '')).toLowerCase().includes(pickerSearch.toLowerCase()))
+                .slice(0, 60)
+                .map((it) => (
+                  <button key={it.id} disabled={pickerBusy} onClick={() => pickFromDb(it)}
+                    style={{ textAlign: 'left', background: '#f7f9fc', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', cursor: 'pointer' }}>
+                    <div style={{ fontSize: '.85rem', fontWeight: 600, color: 'var(--navy)' }}>
+                      {it.content_type === 'pdf' ? '📄' : '🧩'} {it.title}
+                    </div>
+                    <div style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>{it.category}{it.subcategory ? ` / ${it.subcategory}` : ''}</div>
+                  </button>
+                ))}
+              {pickerBusy && <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', padding: 8 }}>Se descarcă materialul…</div>}
+            </div>
+          </div>
         </div>
       )}
 

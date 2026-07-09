@@ -59,7 +59,7 @@ async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens 
   }
   if (r.ok && r.stop === 'max_tokens' && !r.text.trim()) {
     console.warn('claude: gândirea a consumat tot bugetul — reîncerc cu buget dublu');
-    r = await callOnce({ max_tokens: Math.min((maxTokens + 10000) * 2, 40000) });
+    r = await callOnce({ max_tokens: Math.min((maxTokens + 10000) * 2, 64000) });
   }
 
   if (!r.ok) {

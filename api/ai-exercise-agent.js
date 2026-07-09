@@ -81,7 +81,96 @@ module.exports = async function handler(req, res) {
     const userId = await ai.authUser(req, supa);
     await ai.requireAdmin(supa, userId);
 
-    const { instructions = '', model = null, modelPdf = null, formatText = null, formatPdf = null, formatHtml = null, currentHtml = null, history = [] } = req.body || {};
+    const { action = null, instructions = '', model = null, modelPdf = null, formatText = null, formatPdf = null, formatHtml = null, currentHtml = null, history = [] } = req.body || {};
+
+    // ── Acțiune: adu un material din baza de date ca model (HTML sau PDF) ──
+    if (action === 'fetch-model') {
+      const { contentId } = req.body || {};
+      const { data: row, error: rowErr } = await supa.from('content')
+        .select('id, title, content_type, file_url').eq('id', contentId).single();
+      if (rowErr || !row) return res.status(404).json({ error: 'Materialul nu a fost găsit.' });
+      const { bucket, filePath } = (() => {
+        const url = new URL(row.file_url);
+        const parts = url.pathname.split('/');
+        const oi = parts.findIndex((x) => x === 'object');
+        return { bucket: parts[oi + 2], filePath: parts.slice(oi + 3).join('/').split('?')[0] };
+      })();
+      const { data: blob, error: dlErr } = await supa.storage.from(bucket).download(filePath);
+      if (dlErr || !blob) return res.status(502).json({ error: 'Nu am putut descărca fișierul din storage.' });
+      const buf = Buffer.from(await blob.arrayBuffer());
+      if (/\.pdf(\?|$)/i.test(filePath) || row.content_type === 'pdf') {
+        if (buf.length > 3.2 * 1024 * 1024) return res.status(400).json({ error: 'PDF-ul din baza de date e prea mare (max ~3 MB).' });
+        return res.status(200).json({ title: row.title, pdf: buf.toString('base64') });
+      }
+      const rawHtml = buf.toString('utf8');
+      const textOnly = rawHtml.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      return res.status(200).json({ title: row.title, html: rawHtml.slice(0, 120000), text: textOnly.slice(0, 20000) });
+    }
+
+    // ── Acțiune: AUTOMATIZARE — testul următor al unei rubrici, combinând
+    //    exerciții din testele existente (ex. 1 dintr-un fișier, ex. 2 din
+    //    altul...), cu numere/notații schimbate ──
+    if (action === 'auto') {
+      const { category, subcategory = null } = req.body || {};
+      if (!category) return res.status(400).json({ error: 'Alege rubrica (categoria).' });
+      let q = supa.from('content')
+        .select('id, title, file_url, interactive_data, subcategory')
+        .eq('content_type', 'interactive').eq('category', category);
+      if (subcategory) q = q.eq('subcategory', subcategory);
+      const { data: rows } = await q.limit(40);
+      if (!rows || rows.length < 2) return res.status(400).json({ error: 'Rubrica are prea puține teste (minim 2) pentru combinare.' });
+
+      // alege la întâmplare până la 6 surse și extrage conținutul lor
+      const shuffled = [...rows].sort(() => Math.random() - 0.5).slice(0, 6);
+      const sources = [];
+      for (const r of shuffled) {
+        try {
+          if (r.interactive_data?.exercise) {
+            sources.push({ title: r.title, text: JSON.stringify(r.interactive_data.exercise).slice(0, 6000) });
+            continue;
+          }
+          const url = new URL(r.file_url);
+          const parts = url.pathname.split('/');
+          const oi = parts.findIndex((x) => x === 'object');
+          const bucket = parts[oi + 2];
+          const filePath = parts.slice(oi + 3).join('/').split('?')[0];
+          const { data: blob } = await supa.storage.from(bucket).download(filePath);
+          if (!blob) continue;
+          const raw = Buffer.from(await blob.arrayBuffer()).toString('utf8');
+          const textOnly = raw.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          if (textOnly.length > 200) sources.push({ title: r.title, text: textOnly.slice(0, 6000) });
+        } catch { /* sursă ignorată */ }
+      }
+      if (sources.length < 2) return res.status(400).json({ error: 'Nu am putut extrage conținut din suficiente teste ale rubricii.' });
+
+      const sysAuto = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
+Primești ${sources.length} TESTE EXISTENTE din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
+Sarcina: construiește URMĂTORUL test al rubricii (testul nr. ${rows.length + 1}) prin COMBINARE:
+- exercițiul 1 preluat/adaptat din TESTUL A, exercițiul 2 din TESTUL B, exercițiul 3 din TESTUL C... (fiecare item din ALT test, ales aleatoriu; reia ciclic dacă itemii sunt mai mulți decât sursele);
+- pentru fiecare item SCHIMBĂ numerele/valorile sau notațiile (alt rezultat corect, recalculat de tine); păstrează tipul, stilul și dificultatea itemului-sursă;
+- același număr de itemi și aceeași structură de barem ca un test tipic al rubricii.
+Răspunde STRICT cu UN obiect JSON valid (fără alt text), după schema:
+{
+  "title": "…", "kind": "grila", "statement": "",
+  "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ]
+}
+Itemii cu răspuns liber: OMITE "options", pune "answer" ca text. Formule LaTeX între $...$ cu backslash dublu. Verifică-ți calculele.`;
+
+      const srcBlock = sources.map((x, i) => `=== TESTUL ${String.fromCharCode(65 + i)}: ${x.title} ===\n${x.text}`).join('\n\n');
+      const rAuto = await claude.chatClaude({
+        system: sysAuto,
+        messages: [{ role: 'user', content: `${srcBlock}\n\nConstruiește acum testul nr. ${rows.length + 1}. Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
+        maxTokens: 9000,
+      });
+      await ai.logUsage(supa, userId, 'ai-exercise-agent', rAuto.usage);
+      const exAuto = normalize(claude.extractJson(rAuto.text));
+      if (!exAuto) {
+        console.error('ai-exercise-agent(auto): invalid. stopReason=%s, primele 300: %s', rAuto.stopReason, String(rAuto.text || '').slice(0, 300));
+        return res.status(502).json({ error: 'Automatizarea nu a produs un test valid. Mai încearcă o dată.' });
+      }
+      exAuto.title = exAuto.title || `Test ${rows.length + 1} · ${category}${subcategory ? ' / ' + subcategory : ''}`;
+      return res.status(200).json({ exercise: exAuto, provider: rAuto.provider, combinedFrom: sources.map((x) => x.title) });
+    }
     if (!instructions.trim() && !model && !modelPdf && !formatHtml && !currentHtml) {
       return res.status(400).json({ error: 'Încarcă un fișier-model sau scrie instrucțiuni pentru agent.' });
     }
@@ -100,7 +189,9 @@ Primești un FIȘIER HTML ȘABLON (un exercițiu/test interactiv complet) și, o
 Sarcina: produci un fișier HTML COMPLET și AUTONOM care păstrează EXACT designul, stilul (CSS), structura și funcționalitatea (JavaScript) șablonului — schimbi DOAR conținutul exercițiilor (enunțuri, variante, răspunsuri, rezolvări, punctaje), preluat/adaptat din exercițiile-model sau generat conform instrucțiunilor, cu ALTE valori numerice decât modelul.
 Reguli stricte:
 - Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), fără explicații, fără markdown.
-- Păstrează TOATE funcțiile șablonului (verificare, punctaj, indicii, navigare etc.).
+- COPIAZĂ ÎNTOCMAI tot ce nu ține de conținutul exercițiilor: CSS-ul complet, TOT JavaScript-ul, toate elementele de interfață — inclusiv butoane/unelte care par auxiliare (desen, creion, radieră, calculator, cronometru etc.). NU ai voie să elimini, simplifici sau „cureți” NIMIC din șablon.
+- Dacă instrucțiunile cer doar „schimbă numerele/notațiile”, modifici EXCLUSIV valorile numerice/notațiile din enunțuri, variante, răspunsuri și rezolvări — restul rămâne identic caracter cu caracter.
+- Păstrează TOATE funcțiile șablonului (verificare, punctaj, indicii, navigare, desen etc.).
 - Păstrează (sau adaugă, dacă lipsește) raportarea scorului: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*').
 - Un singur fișier: CSS și JS inline sau din CDN (păstrează CDN-urile șablonului, ex. KaTeX).
 - Răspunsurile corecte trebuie să fie corecte matematic; verifică-ți calculele.
@@ -113,7 +204,7 @@ Reguli stricte:
       }
       const partsH = [];
       if (model) partsH.push(`EXERCIȚII-MODEL:\n${typeof model === 'string' ? model.slice(0, 20000) : JSON.stringify(model)}`);
-      partsH.push(`FIȘIERUL HTML ȘABLON:\n${String(currentHtml || formatHtml).slice(0, 70000)}`);
+      partsH.push(`FIȘIERUL HTML ȘABLON:\n${String(currentHtml || formatHtml).slice(0, 120000)}`);
       partsH.push(`INSTRUCȚIUNI: ${instructions.trim() || (currentHtml ? 'Aplică modificările cerute păstrând totul altfel identic.' : 'Generează exercițiile în acest șablon.')}`);
       partsH.push('Returnează acum DOAR documentul HTML complet.');
       blocksH.push({ type: 'text', text: partsH.join('\n\n') });
@@ -123,7 +214,7 @@ Reguli stricte:
         content: String(m.content || '').slice(0, 1500),
       }));
 
-      const rH = await claude.chatClaude({ system: sysHtml, messages: [...pastH, { role: 'user', content: blocksH }], maxTokens: 16000 });
+      const rH = await claude.chatClaude({ system: sysHtml, messages: [...pastH, { role: 'user', content: blocksH }], maxTokens: 24000 });
       await ai.logUsage(supa, userId, 'ai-exercise-agent', rH.usage);
 
       let html = String(rH.text || '');

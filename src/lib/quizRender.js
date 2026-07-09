@@ -87,7 +87,9 @@ export function renderQuiz(title, questions) {
     render();
     var total=ANS.length||1; var score=Math.round(correct/total*100);
     document.getElementById('res').textContent='Scor: '+correct+'/'+total+' ('+score+'%)';
-    try{ parent.postMessage({type:'MATE_SCORE',score:score,maxScore:100},'*'); }catch(e){}
+    var MSG={type:'MATE_SCORE',score:score,maxScore:100};
+    try{ parent.postMessage(MSG,'*'); }catch(e){}
+    try{ if(window.opener) window.opener.postMessage(MSG,'*'); }catch(e){}
   });
 </script></body></html>`;
 }

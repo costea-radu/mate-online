@@ -101,7 +101,9 @@ function renderGrila(ex) {
     rmath();
     var pct=max?Math.round(got/max*100):0;
     document.getElementById('res').innerHTML='Punctaj: '+got+' / '+max+' puncte ('+pct+'%)';
-    try{ parent.postMessage({type:'MATE_SCORE',score:pct,maxScore:100},'*'); }catch(e){}
+    var MSG={type:'MATE_SCORE',score:pct,maxScore:100};
+    try{ parent.postMessage(MSG,'*'); }catch(e){}
+    try{ if(window.opener) window.opener.postMessage(MSG,'*'); }catch(e){}
   });
 <\/script></body></html>`;
 }
@@ -143,7 +145,9 @@ function renderEtape(ex) {
     document.getElementById('final').style.display='block';
     var pct=max?Math.round(got/max*100):0;
     document.getElementById('res').innerHTML='Punctaj: '+got+' / '+max+' puncte ('+pct+'%)';
-    try{ parent.postMessage({type:'MATE_SCORE',score:pct,maxScore:100},'*'); }catch(e){}
+    var MSG={type:'MATE_SCORE',score:pct,maxScore:100};
+    try{ parent.postMessage(MSG,'*'); }catch(e){}
+    try{ if(window.opener) window.opener.postMessage(MSG,'*'); }catch(e){}
   });
 <\/script></body></html>`;
 }

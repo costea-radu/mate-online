@@ -169,6 +169,13 @@ function PracticeTab() {
     return aiClient.assignmentCreateInteractive({ questions, title: `Set de exerciții de antrenament${topic ? ' · ' + topic : ''}` });
   }
 
+  // Deschide exercițiul într-o fereastră nouă; scorul revine prin window.opener
+  function openInNewWindow(docHtml) {
+    const w = window.open('', '_blank');
+    if (!w) { setError('Browserul a blocat fereastra — permite pop-up-urile pentru acest site.'); return; }
+    w.document.write(docHtml); w.document.close();
+  }
+
   const card = { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 18 };
   const inp = { border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.9rem', fontFamily: 'var(--font-body)' };
 
@@ -477,7 +484,13 @@ function InteractiveTab() {
           </div>
 
           {!editing && (
-            <iframe title="exercițiu" sandbox="allow-scripts" srcDoc={html} style={{ width: '100%', height: 520, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
+            <div style={{ border: '2px dashed var(--border)', borderRadius: 12, padding: 26, textAlign: 'center' }}>
+              <div style={{ fontSize: '2rem', marginBottom: 6 }}>🗗</div>
+              <div style={{ color: 'var(--text-light)', fontSize: '.9rem', marginBottom: 12 }}>
+                Exercițiul se deschide într-o fereastră separată. Scorul se salvează automat aici când îl termini.
+              </div>
+              <button className="btn btn-primary" onClick={() => openInNewWindow(html)}>🗗 Deschide exercițiul în fereastră nouă</button>
+            </div>
           )}
 
           {isTeacher && editing && (
@@ -622,7 +635,14 @@ function LibItem({ it, isTeacher, onRemove }) {
       {open && full && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
           {full.kind === 'interactive' && !editing && (full.payload?.questions || full.payload?.html) && (
-            <iframe title="reluare" sandbox="allow-scripts" srcDoc={full.payload.questions ? renderQuiz(full.title, qs || full.payload.questions) : full.payload.html} style={{ width: '100%', height: 500, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
+            <>
+              <button className="btn btn-outline btn-sm" style={{ marginBottom: 8 }} onClick={() => {
+                const doc = full.payload.questions ? renderQuiz(full.title, qs || full.payload.questions) : full.payload.html;
+                const w = window.open('', '_blank');
+                if (w) { w.document.write(doc); w.document.close(); }
+              }}>🗗 Deschide în fereastră nouă</button>
+              <iframe title="reluare" sandbox="allow-scripts" srcDoc={full.payload.questions ? renderQuiz(full.title, qs || full.payload.questions) : full.payload.html} style={{ width: '100%', height: 500, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
+            </>
           )}
 
           {full.kind === 'interactive' && editing && qs && (
