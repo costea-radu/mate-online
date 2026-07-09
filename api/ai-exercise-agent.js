@@ -206,7 +206,8 @@ Sarcina: construiește URMĂTORUL test al rubricii (nr. ${rows.length + 1}), ÎN
 - COPIAZĂ ÎNTOCMAI tot ce nu ține de conținutul itemilor: CSS-ul complet, TOT JavaScript-ul, instrumentele de desen, structura pe subiecte, bara de scor — NIMIC eliminat sau simplificat;
 - itemul 1 preluat/adaptat din TESTUL A, itemul 2 din TESTUL B, itemul 3 din TESTUL C... (fiecare din ALT test, ciclic), cu numerele/notațiile SCHIMBATE și rezultatele recalculate corect;
 - același număr de itemi și aceeași structură (subiecte, punctaje) ca șablonul;
-- FIGURILE/DESENELE (SVG, canvas) NU SE MODIFICĂ — le copiezi identic din șablon; schimbi doar notațiile (literele) și potrivești enunțul/numerele LA figura existentă (numere noi DOAR dacă se potrivesc perfect desenului; altfel păstrezi numerele care corespund figurii);
+- FIGURILE/DESENELE (SVG, canvas) NU SE MODIFICĂ DELOC — rămân EXACT cele din șablon, cu aceleași etichete și valori (oricum vor fi restaurate programatic din șablon, deci orice modificare a lor e inutilă și greșită);
+- itemii CU figură rămân cei ai șablonului: enunț, valori și notații consistente cu figura, cel mult mici reformulări care NU contrazic figura; combini din celelalte teste DOAR itemii FĂRĂ figură;
 - păstrează raportarea scorului (MATE_SCORE) exact ca în șablon.
 Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), fără explicații, fără markdown.`;
 
@@ -225,6 +226,14 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
       const en = htmlOut.lastIndexOf('</html>');
       if (st !== -1 && en > st) htmlOut = htmlOut.slice(st, en + 7);
       htmlOut = htmlOut.trim();
+
+      // Garanție: restaurăm figurile EXACT din șablon (desenele nu se modifică deloc)
+      const tplSvgs = templateHtml.match(/<svg[\s\S]*?<\/svg>/gi) || [];
+      if (tplSvgs.length) {
+        let svgIdx = 0;
+        htmlOut = htmlOut.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (svgIdx < tplSvgs.length ? tplSvgs[svgIdx++] : m));
+      }
+
       if (st === -1 || htmlOut.length < 600) {
         console.error('ai-exercise-agent(auto-html): invalid. stopReason=%s', rA.stopReason);
         return res.status(502).json({ error: rA.stopReason === 'max_tokens' ? 'Șablonul rubricii e prea mare pentru o singură generare — mai încearcă (sau folosește o rubrică cu teste mai mici).' : 'Automatizarea nu a produs un fișier valid. Mai încearcă o dată.' });

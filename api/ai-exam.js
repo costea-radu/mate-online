@@ -101,7 +101,7 @@ const EXAMS = {
 
 const JSON_RULE = `IMPORTANT pentru JSON valid: scrie fiecare backslash din comenzile LaTeX de DOUĂ ori (backslash dublu). Exemple corecte în JSON: pentru fracție folosește \\\\frac{...}{...}, pentru radical \\\\sqrt{...}, pentru înmulțire \\\\cdot, pentru unghi \\\\angle. Formulele se pun între $...$.`;
 
-const FIDELITY = `Fidelitate față de modele: respectă cât mai fidel exercițiile-model din baza de date — preia structura, tipul și stilul, iar unde e potrivit chiar formularea, schimbând DOAR minim datele (numere, notații, coeficienți). Nu introduce tipuri de itemi care nu apar în modele. Folosește „·" (\\cdot) pentru înmulțire, niciodată × sau x. La geometrie, include și FIGURA: descrie-o clar în enunț (puncte, laturi, unghiuri, măsuri) așa cum apare în model, ca elevul să o poată desena.`;
+const FIDELITY = `Fidelitate față de modele: respectă cât mai fidel exercițiile-model din baza de date — preia structura, tipul și stilul, iar unde e potrivit chiar formularea, schimbând DOAR minim datele (numere, notații, coeficienți). Nu introduce tipuri de itemi care nu apar în modele. STRUCTURA este LEGE: același număr de subiecte și itemi, aceleași punctaje pe item, aceeași ordine a tipurilor de itemi și același stil de formulare ca în modelele/testele site-ului — nu adăuga, nu elimina și nu rearanja itemi. Folosește „·" (\\cdot) pentru înmulțire, niciodată × sau x. La geometrie, include și FIGURA: descrie-o clar în enunț (puncte, laturi, unghiuri, măsuri) așa cum apare în model, ca elevul să o poată desena.`;
 
 function buildENSystem(examples) {
   return `${ai.PERSONA}
@@ -237,13 +237,13 @@ module.exports = async function handler(req, res) {
 
     let system = cfg.special === 'en' ? buildENSystem(examples) : buildGenericSystem(cfg, examples);
     if (siteTests) {
-      system += `\n\n=== TESTE REALE DIN SITE (folosește-le ca sursă) ===\n${siteTests}\n=== SFÂRȘIT TESTE ===\nConstruiește subiectele PRIN COMBINARE: itemul 1 preluat/adaptat dintr-un test, itemul 2 din ALT test, itemul 3 din altul (și tot așa, ciclic), SCHIMBÂND numerele/notațiile și recalculând corect rezultatele și baremul. Structura și formatul JSON rămân EXACT cele cerute mai sus.`;
+      system += `\n\n=== TESTE REALE DIN SITE (folosește-le ca sursă) ===\n${siteTests}\n=== SFÂRȘIT TESTE ===\nConstruiește subiectele PRIN COMBINARE: itemul 1 preluat/adaptat dintr-un test, itemul 2 din ALT test, itemul 3 din altul (și tot așa, ciclic), SCHIMBÂND numerele/notațiile și recalculând corect rezultatele și baremul. Structura și formatul JSON rămân EXACT cele cerute mai sus, iar punctajele, numărul de itemi și stilul de formulare trebuie să fie IDENTICE cu testele site-ului.`;
     }
 
     const { text, usage } = await ai.chat({
       system,
       messages: [{ role: 'user', content: `Generează testul complet acum, în format JSON. Fă-l DIFERIT de variantele anterioare (alte numere, alte enunțuri). Variantă #${Math.random().toString(36).slice(2, 8)}.` }],
-      temperature: 0.85, maxTokens: 5000, json: true,
+      temperature: 0.7, maxTokens: 5000, json: true,
     });
     await ai.logUsage(supa, userId, 'ai-exam', usage);
 

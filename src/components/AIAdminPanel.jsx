@@ -5,9 +5,6 @@
 // =====================================================================
 import { useState, useEffect } from 'react';
 import { aiClient } from '../lib/aiClient';
-import { supabase } from '../lib/supabase';
-import { renderQuiz } from '../lib/quizRender';
-import ExamGenerator from './ExamGenerator';
 import AIExerciseAgent from './AIExerciseAgent';
 import AISEOAgent from './AISEOAgent';
 
@@ -91,18 +88,8 @@ export default function AIAdminPanel() {
       {log && <pre style={{ marginTop: 14, padding: 12, background: '#f7f9fc', borderRadius: 8, fontSize: '.78rem', color: 'var(--text)', overflowX: 'auto', whiteSpace: 'pre-wrap' }}>{log}</pre>}
     </div>
 
-    <div style={{ ...box, marginTop: 18 }}>
-      <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 6 }}>📄 Subiecte de examen PDF (OpenAI)</h3>
-      <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
-        Generează subiecte în formatul exact al subiectelor din site (PDF prin „Varianta elev” / „Barem”),
-        combinând exerciții din testele existente ale rubricii, cu numerele schimbate.
-      </p>
-      <ExamGenerator canManage />
-    </div>
-
     <AIExerciseAgent box={box} />
     <AISEOAgent box={box} />
-    <InteractiveGenerator box={box} />
     <BroadcastBox box={box} />
     </>
   );
@@ -163,116 +150,6 @@ function BroadcastBox({ box }) {
                 <button onClick={() => del(b.id)} style={{ background: 'none', border: '1px solid #f5c6cb', color: '#c0392b', borderRadius: 7, padding: '4px 9px', fontSize: '.75rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>🗑 Șterge</button>
               </div>
             ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Generator de exerciții INTERACTIVE (HTML) + salvare în conținut ─────────
-const GEN_CATS = ['clasa-5', 'clasa-6', 'clasa-7', 'clasa-8', 'evaluare-nationala', 'bacalaureat'];
-
-function InteractiveGenerator({ box }) {
-  const [category, setCategory] = useState('clasa-5');
-  const [topic, setTopic] = useState('');
-  const [difficulty, setDifficulty] = useState('mediu');
-  const [isFree, setIsFree] = useState(false);
-  const [title, setTitle] = useState('');
-  const [html, setHtml] = useState('');
-  const [warning, setWarning] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState(null);
-  const [error, setError] = useState(null);
-
-  async function gen() {
-    setLoading(true); setError(null); setMsg(null); setWarning(null); setHtml('');
-    try {
-      const res = await aiClient.generateInteractive({ category, topic, difficulty });
-      // endpointul returnează întrebări STRUCTURATE; HTML-ul se construiește aici
-      if (!Array.isArray(res.questions) || !res.questions.length) {
-        throw new Error('Generatorul nu a întors întrebări valide. Mai încearcă o dată.');
-      }
-      const t = res.title || `Exercițiu interactiv · ${topic || category}`;
-      setHtml(renderQuiz(t, res.questions)); setTitle(t);
-      setWarning(res.warning || null);
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
-  }
-
-  async function save() {
-    if (!html || !title) { setError('Generează întâi exercițiul și pune un titlu.'); return; }
-    setSaving(true); setError(null); setMsg(null);
-    try {
-      const bucket = isFree ? 'content-files-free' : 'content-files';
-      const path = `interactive/${category}/${Date.now()}_ai_generat.html`;
-      const blob = new Blob([html], { type: 'text/html' });
-      const { error: upErr } = await supabase.storage.from(bucket).upload(path, blob, { contentType: 'text/html' });
-      if (upErr) throw upErr;
-      const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(path);
-      const { error: dbErr } = await supabase.from('content').insert({
-        title, description: `Generat cu AI · ${topic || category}`,
-        category, content_type: 'interactive', is_free: isFree,
-        file_url: urlData?.publicUrl || path,
-        interactive_data: { type: 'exercise', html: true, ai_generated: true },
-      });
-      if (dbErr) throw dbErr;
-      setMsg('✅ Salvat în conținut! Se va indexa automat pentru Profesorul Virtual.');
-      setHtml('');
-    } catch (e) { setError('Salvare eșuată: ' + e.message); }
-    finally { setSaving(false); }
-  }
-
-  const inp = { border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.9rem', width: '100%', marginTop: 4 };
-
-  return (
-    <div style={{ ...box, marginTop: 18 }}>
-      <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 6 }}>🧩 Generează exercițiu interactiv (AI)</h3>
-      <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 14 }}>
-        AI-ul creează un exercițiu interactiv (HTML) în stilul celor din baza de date. Îl previzualizezi și, dacă e bun, îl salvezi în conținut ca exercițiu real.
-      </p>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
-        <label style={{ fontSize: '.82rem', color: 'var(--text-light)' }}>Categorie
-          <select value={category} onChange={(e) => setCategory(e.target.value)} style={inp}>
-            {GEN_CATS.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </label>
-        <label style={{ fontSize: '.82rem', color: 'var(--text-light)' }}>Subiect
-          <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="ex: fracții, ecuații" style={inp} />
-        </label>
-        <label style={{ fontSize: '.82rem', color: 'var(--text-light)' }}>Dificultate
-          <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} style={inp}>
-            {['ușor', 'mediu', 'greu'].map((d) => <option key={d} value={d}>{d}</option>)}
-          </select>
-        </label>
-        <label style={{ fontSize: '.82rem', color: 'var(--text-light)' }}>Acces
-          <select value={isFree ? 'free' : 'premium'} onChange={(e) => setIsFree(e.target.value === 'free')} style={inp}>
-            <option value="premium">Premium</option>
-            <option value="free">Gratuit</option>
-          </select>
-        </label>
-      </div>
-
-      <button className="btn btn-primary" onClick={gen} disabled={loading}>
-        {loading ? 'Se generează... (~20s)' : '✨ Generează exercițiu interactiv'}
-      </button>
-
-      {error && <div style={{ marginTop: 12, padding: 12, background: '#fdecea', color: '#b71c1c', borderRadius: 8, fontSize: '.85rem' }}>⚠️ {error}</div>}
-      {msg && <div style={{ marginTop: 12, padding: 12, background: 'rgba(39,174,96,.1)', color: '#1e7e34', borderRadius: 8, fontSize: '.85rem' }}>{msg}</div>}
-      {warning && <div style={{ marginTop: 12, padding: 12, background: '#fff4e5', color: '#8a6d00', borderRadius: 8, fontSize: '.82rem' }}>{warning}</div>}
-
-      {html && (
-        <div style={{ marginTop: 16 }}>
-          <label style={{ fontSize: '.82rem', color: 'var(--text-light)' }}>Titlu (pentru conținut)
-            <input value={title} onChange={(e) => setTitle(e.target.value)} style={{ ...inp, marginBottom: 10 }} />
-          </label>
-          <div style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>Previzualizare (interacționează cu ea ca să testezi):</div>
-          <iframe title="preview" sandbox="allow-scripts" srcDoc={html} style={{ width: '100%', height: 460, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
-          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-            <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Se salvează...' : '💾 Salvează în conținut'}</button>
-            <button className="btn btn-outline" onClick={gen} disabled={loading}>🔄 Regenerează</button>
           </div>
         </div>
       )}
