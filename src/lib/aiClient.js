@@ -83,7 +83,7 @@ export const aiClient = {
   reveal: ({ token }) => post('/api/ai-practice', { action: 'reveal', token }),
 
   // Generator de teste de examen (model oficial) — doar abonați
-  generateExam: ({ examType }) => post('/api/ai-exam', { examType }),
+  generateExam: ({ examType, instructions = '' }) => post('/api/ai-exam', { examType, instructions }),
 
   // Generator de exerciții interactive (HTML) — admin sau abonat
   generateInteractive: ({ category = null, topic = '', difficulty = 'mediu' }) =>

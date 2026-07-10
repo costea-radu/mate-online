@@ -25,11 +25,12 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
   const [editing, setEditing] = useState(false);
   const [publishMsg, setPublishMsg] = useState(null);
   const [publishing, setPublishing] = useState(false);
+  const [instructions, setInstructions] = useState('');
 
   async function gen() {
     setLoading(true); setError(null); setUpsell(false); setExam(null); setEditing(false); setPublishMsg(null);
     try {
-      const res = await aiClient.generateExam({ examType });
+      const res = await aiClient.generateExam({ examType, instructions });
       setExam(res.exam);
       try { await aiClient.saveLibraryItem({ kind: 'exam', title: res.exam.title, category: examType, payload: { exam: res.exam } }); } catch { /* ignore */ }
     } catch (e) { setError(e.message); if (e.premium) setUpsell(true); }
@@ -81,6 +82,12 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
             </button>
           ))}
         </div>
+        <label style={{ display: 'block', fontSize: compact ? '.78rem' : '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
+          Instrucțiuni pentru AI (opțional)
+          <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={2}
+            placeholder="ex: pune accent pe geometrie; Subiectul III mai ușor; folosește exercițiile din testele 3 și 7…"
+            style={{ width: '100%', marginTop: 4, border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', fontSize: '.85rem', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' }} />
+        </label>
         <button className="btn btn-primary" onClick={gen} disabled={loading} style={compact ? { width: '100%' } : undefined}>
           {loading ? 'Se generează... (~30s)' : '✨ Generează subiectul'}
         </button>

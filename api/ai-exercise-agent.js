@@ -115,7 +115,7 @@ module.exports = async function handler(req, res) {
     // al rubricii sau din șablonul standard inclus. Rubrici PDF → test structurat,
     // cu sursele PDF citite nativ de Claude.
     if (action === 'auto') {
-      const { category, subcategory = null, ctype = 'interactive' } = req.body || {};
+      const { category, subcategory = null, ctype = 'interactive', instructions: autoInstr = '' } = req.body || {};
       if (!category) return res.status(400).json({ error: 'Alege rubrica (categoria).' });
       let q = supa.from('content')
         .select('id, title, file_url, interactive_data, subcategory, content_type')
@@ -157,7 +157,7 @@ Construiește URMĂTORUL test al rubricii (nr. ${rows.length + 1}) prin COMBINAR
 Răspunde STRICT cu UN obiect JSON valid (fără alt text):
 { "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] }
 Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ cu backslash dublu. Verifică-ți calculele.`;
-        blocksA.push({ type: 'text', text: `Construiește acum testul nr. ${rows.length + 1}. Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+        blocksA.push({ type: 'text', text: `Construiește acum testul nr. ${rows.length + 1}.${autoInstr.trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
         const rP = await claude.chatClaude({ system: sysPdf, messages: [{ role: 'user', content: blocksA }], maxTokens: 9000 });
         await ai.logUsage(supa, userId, 'ai-exercise-agent', rP.usage);
         const exP = normalize(claude.extractJson(rP.text));
@@ -214,7 +214,7 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
       const srcBlock = sources.map((x, i) => `=== TESTUL ${String.fromCharCode(65 + i)}: ${x.title} ===\n${x.text}`).join('\n\n');
       const rA = await claude.chatClaude({
         system: sysAuto,
-        messages: [{ role: 'user', content: `ȘABLONUL (formatul standard):\n${templateHtml}\n\n${srcBlock}\n\nConstruiește ACUM testul nr. ${rows.length + 1} — doar documentul HTML. Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
+        messages: [{ role: 'user', content: `ȘABLONUL (formatul standard):\n${templateHtml}\n\n${srcBlock}\n\nConstruiește ACUM testul nr. ${rows.length + 1} — doar documentul HTML.${autoInstr.trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare, dar desenele tot NU se modifică): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
         maxTokens: 24000,
       });
       await ai.logUsage(supa, userId, 'ai-exercise-agent', rA.usage);

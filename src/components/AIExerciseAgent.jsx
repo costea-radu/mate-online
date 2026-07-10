@@ -49,6 +49,7 @@ export default function AIExerciseAgent({ box }) {
   const [pickerBusy, setPickerBusy] = useState(false);
   const [rubrics, setRubrics] = useState([]);
   const [autoKey, setAutoKey] = useState('');
+  const [autoInstr, setAutoInstr] = useState('');
   const [autoBusy, setAutoBusy] = useState(false);
 
   const [loading, setLoading] = useState(false);
@@ -120,7 +121,7 @@ export default function AIExerciseAgent({ box }) {
     if (!r) { setError('Alege rubrica pentru automatizare.'); return; }
     setAutoBusy(true); setError(null); setMsg(null);
     try {
-      const resp = await aiClient.exerciseAgent({ action: 'auto', category: r.category, subcategory: r.subcategory, ctype: r.ctype });
+      const resp = await aiClient.exerciseAgent({ action: 'auto', category: r.category, subcategory: r.subcategory, ctype: r.ctype, instructions: autoInstr });
       setProvider(resp.provider);
       setEditing(false); setSavedId(null); setSavedMeta(null);
       const rubEt = `${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}`;
@@ -353,6 +354,10 @@ export default function AIExerciseAgent({ box }) {
                 </option>
               ))}
             </select>
+          </label>
+          <label style={{ ...lbl, flex: 2, minWidth: 260 }}>Instrucțiuni (opțional)
+            <input value={autoInstr} onChange={(e) => setAutoInstr(e.target.value)}
+              placeholder="ex: dificultate medie; grile la Subiectul I; accent pe fracții…" style={inp} />
           </label>
           <button className="btn btn-primary" onClick={runAuto} disabled={autoBusy || !autoKey} style={{ fontSize: '.85rem' }}>
             {autoBusy ? 'Combin testele… (~30-60s)' : '⚙️ Generează testul următor'}
