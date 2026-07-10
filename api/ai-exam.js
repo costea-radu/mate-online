@@ -205,11 +205,13 @@ module.exports = async function handler(req, res) {
     if (!cfg) return res.status(400).json({ error: 'examType invalid' });
 
     const docs = await ai.retrieve(supa, { query: cfg.query, category: cfg.category, allowPremium: true, k: 10, prefer: 'exercise' });
-    const examples = ai.contextBlock(docs);
+    // amestecăm exemplele → generările succesive pornesc de la modele diferite
+    const examples = ai.contextBlock([...docs].sort(() => Math.random() - 0.5).slice(0, 6));
 
     // ── Testele REALE din site (rubrica examenului) — sursa combinării:
     //    itemul 1 preluat dintr-un test, itemul 2 din altul, cu numere noi. ──
     let siteTests = '';
+    let combinePlan = '';
     try {
       const { data: rows } = await supa.from('content')
         .select('title, file_url, interactive_data')
@@ -232,12 +234,26 @@ module.exports = async function handler(req, res) {
           if (txt.length > 200) parts.push(`=== TESTUL ${String.fromCharCode(65 + parts.length)}: ${r.title} ===\n${txt.slice(0, 4500)}`);
         } catch { /* sursă ignorată */ }
       }
-      if (parts.length >= 2) siteTests = parts.join('\n\n');
+      if (parts.length >= 2) {
+        siteTests = parts.join('\n\n');
+        // PLAN DE COMBINARE generat ALEATORIU pe server → fiecare generare
+        // combină alte teste și alți itemi (rezolvă „aceleași câteva teste”)
+        const letters = parts.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
+        combinePlan = Array.from({ length: 12 }, (_, i) => {
+          const L = letters[i % letters.length];
+          return `- Itemul ${i + 1} → copiază/adaptează din TESTUL ${L} itemul nr. ${1 + Math.floor(Math.random() * 5)} (dacă nu există, alt item din TESTUL ${L}).`;
+        }).join('\n');
+      }
     } catch { /* fără combinare */ }
 
     let system = cfg.special === 'en' ? buildENSystem(examples) : buildGenericSystem(cfg, examples);
     if (siteTests) {
-      system += `\n\n=== TESTE REALE DIN SITE (folosește-le ca sursă) ===\n${siteTests}\n=== SFÂRȘIT TESTE ===\nConstruiește subiectele PRIN COMBINARE: itemul 1 preluat/adaptat dintr-un test, itemul 2 din ALT test, itemul 3 din altul (și tot așa, ciclic), SCHIMBÂND numerele/notațiile și recalculând corect rezultatele și baremul. Structura și formatul JSON rămân EXACT cele cerute mai sus, iar punctajele, numărul de itemi și stilul de formulare trebuie să fie IDENTICE cu testele site-ului.`;
+      system += `\n\n=== TESTE REALE DIN SITE (SURSA OBLIGATORIE a itemilor) ===\n${siteTests}\n=== SFÂRȘIT TESTE ===
+
+PLAN DE COMBINARE — OBLIGATORIU, poziție cu poziție (a fost tras la sorți pe server; respectă-l întocmai):
+${combinePlan}
+
+Pentru FIECARE poziție: COPIAZĂ itemul indicat (enunț, tip, structură, stil) și schimbă DOAR numerele/notațiile; recalculează rezultatul, variantele greșite și baremul. Valorile noi trebuie să DIFERE de cele din sursă. NU inventa itemi în alt stil. Structura, punctajele și numărul de itemi rămân EXACT cele cerute mai sus.`;
     }
 
     const { text, usage } = await ai.chat({

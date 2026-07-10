@@ -151,9 +151,13 @@ module.exports = async function handler(req, res) {
         }
         if (names.length < 2) return res.status(400).json({ error: 'Nu am putut folosi suficiente PDF-uri din rubrică (fiecare max ~2,5 MB).' });
 
+        const lettersP = names.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
+        const planP = Array.from({ length: 10 }, (_, i) => `- Itemul ${i + 1} ← TESTUL ${lettersP[i % lettersP.length]}, itemul nr. ${1 + Math.floor(Math.random() * 5)} din el (sau alt item al aceluiași test).`).join('\n');
         const sysPdf = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
 Primești ${names.length} teste PDF existente din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
-Construiește URMĂTORUL test al rubricii (nr. ${rows.length + 1}) prin COMBINARE: itemul 1 preluat/adaptat din TESTUL A, itemul 2 din TESTUL B, itemul 3 din TESTUL C... (ciclic), SCHIMBÂND numerele/valorile sau notațiile (rezultate recalculate corect). Păstrează structura și baremul tipic rubricii.
+Construiește URMĂTORUL test al rubricii (nr. ${rows.length + 1}) prin COMBINARE, după PLANUL DE MAI JOS (tras la sorți pe server — respectă-l întocmai, ca generările succesive să fie DIFERITE):
+${planP}
+Pentru fiecare poziție: COPIAZĂ itemul indicat (enunț, tip, structură) și SCHIMBĂ numerele/valorile sau notațiile (rezultate recalculate corect; valorile noi să DIFERE de sursă). Păstrează structura și baremul tipic rubricii.
 Răspunde STRICT cu UN obiect JSON valid (fără alt text):
 { "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] }
 Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ cu backslash dublu. Verifică-ți calculele.`;
@@ -200,11 +204,18 @@ Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ 
       if (sources.length < 2) return res.status(400).json({ error: 'Nu am putut extrage conținut din suficiente teste ale rubricii.' });
       if (!templateHtml) return res.status(500).json({ error: 'Nu am găsit șablonul formatului standard.' });
 
+      const lettersI = sources.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
+      const planI = Array.from({ length: 8 }, (_, i) => `- Itemul ${i + 1} (DOAR dacă nu are figură) ← TESTUL ${lettersI[i % lettersI.length]}, itemul nr. ${1 + Math.floor(Math.random() * 5)} din el (sau alt item al aceluiași test), cu numere/notații noi.`).join('\n');
       const sysAuto = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
 Primești un ȘABLON HTML în FORMATUL STANDARD al site-ului (test interactiv cu figuri geometrice SVG și instrumente de desen) și ${sources.length} teste existente din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
-Sarcina: construiește URMĂTORUL test al rubricii (nr. ${rows.length + 1}), ÎN ACELAȘI FIȘIER-FORMAT ca șablonul:
+Sarcina: construiește URMĂTORUL test al rubricii (nr. ${rows.length + 1}), ÎN ACELAȘI FIȘIER-FORMAT ca șablonul.
+
+PLAN DE COMBINARE — tras la sorți pe server; respectă-l întocmai, ca generările succesive să fie DIFERITE (excepție: itemii cu figură, care rămân ai șablonului):
+${planI}
+
+Reguli:
 - COPIAZĂ ÎNTOCMAI tot ce nu ține de conținutul itemilor: CSS-ul complet, TOT JavaScript-ul, instrumentele de desen, structura pe subiecte, bara de scor — NIMIC eliminat sau simplificat;
-- itemul 1 preluat/adaptat din TESTUL A, itemul 2 din TESTUL B, itemul 3 din TESTUL C... (fiecare din ALT test, ciclic), cu numerele/notațiile SCHIMBATE și rezultatele recalculate corect;
+- pentru pozițiile din plan: COPIAZĂ itemul indicat și schimbă numerele/notațiile, cu rezultatele recalculate corect; valorile noi să DIFERE și de sursă, și de șablon;
 - același număr de itemi și aceeași structură (subiecte, punctaje) ca șablonul;
 - FIGURILE/DESENELE (SVG, canvas) NU SE MODIFICĂ DELOC — rămân EXACT cele din șablon, cu aceleași etichete și valori (oricum vor fi restaurate programatic din șablon, deci orice modificare a lor e inutilă și greșită);
 - itemii CU figură rămân cei ai șablonului: enunț, valori și notații consistente cu figura, cel mult mici reformulări care NU contrazic figura; combini din celelalte teste DOAR itemii FĂRĂ figură;
