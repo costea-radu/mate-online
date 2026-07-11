@@ -175,6 +175,8 @@ function InstallAppRow() {
   const [installed, setInstalled] = useState(isStandalone());
   const [iosHelp, setIosHelp] = useState(false);
   const [done, setDone] = useState(false);
+  const [unHelp, setUnHelp] = useState(false);
+  const [cleanMsg, setCleanMsg] = useState(null);
 
   useEffect(() => onInstallChange(() => {
     setCanInstall(!!getInstallPrompt());
@@ -189,8 +191,51 @@ function InstallAppRow() {
     clearInstallPrompt(); setCanInstall(false);
   }
 
+  const isAndroid = /android/i.test(navigator.userAgent);
+
+  async function clearAppData() {
+    if (!window.confirm('Ștergi datele offline ale aplicației (cache) de pe acest dispozitiv?')) return;
+    try {
+      const regs = (await navigator.serviceWorker?.getRegistrations?.()) || [];
+      await Promise.all(regs.map((r) => r.unregister()));
+      const keys = (await window.caches?.keys?.()) || [];
+      await Promise.all(keys.map((k) => caches.delete(k)));
+      setCleanMsg('✅ Datele aplicației au fost șterse de pe acest dispozitiv.');
+    } catch (e) { setCleanMsg('Nu am putut șterge datele: ' + (e?.message || e)); }
+  }
+
+  const uninstallPanel = (
+    <div style={{ marginTop: 10 }}>
+      <button className="btn btn-outline btn-sm" onClick={() => setUnHelp((v) => !v)} style={{ color: '#c0392b', borderColor: '#f5c6cb' }}>
+        🗑 Dezinstalează aplicația
+      </button>
+      {unHelp && (
+        <div style={{ fontSize: '.82rem', marginTop: 8, background: '#f7f9fc', borderRadius: 8, padding: '10px 12px', lineHeight: 1.55 }}>
+          Dezinstalarea se face din sistemul de operare (browserul nu are voie să șteargă singur aplicația):
+          {isIOS() ? (
+            <div style={{ marginTop: 6 }}>📱 <strong>iPhone/iPad:</strong> ține apăsat pe iconița ExamenMate → „Elimină aplicația” → „Șterge de pe ecranul principal”.</div>
+          ) : isAndroid ? (
+            <div style={{ marginTop: 6 }}>🤖 <strong>Android:</strong> ține apăsat pe iconița ExamenMate → „Dezinstalează”. Alternativ: Chrome → ⋮ → „Aplicații” → ExamenMate → Dezinstalează.</div>
+          ) : (
+            <div style={{ marginTop: 6 }}>💻 <strong>PC (Chrome/Edge):</strong> deschide aplicația ExamenMate → meniul ⋮ din bara de sus a aplicației → „Dezinstalează ExamenMate…”.</div>
+          )}
+          <div style={{ marginTop: 8 }}>
+            Opțional, poți șterge și datele offline salvate de aplicație în acest browser:
+          </div>
+          <button className="btn btn-outline btn-sm" onClick={clearAppData} style={{ marginTop: 6 }}>🧹 Șterge datele aplicației</button>
+          {cleanMsg && <div style={{ marginTop: 6, color: cleanMsg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{cleanMsg}</div>}
+        </div>
+      )}
+    </div>
+  );
+
   if (installed || done) {
-    return <div style={{ fontSize: '.85rem', color: '#1e7e34', fontWeight: 600, marginBottom: 6 }}>✅ Aplicația este instalată pe acest dispozitiv.</div>;
+    return (
+      <div style={{ marginBottom: 6 }}>
+        <div style={{ fontSize: '.85rem', color: '#1e7e34', fontWeight: 600 }}>✅ Aplicația este instalată pe acest dispozitiv.</div>
+        {uninstallPanel}
+      </div>
+    );
   }
 
   return (
@@ -213,6 +258,7 @@ function InstallAppRow() {
           Dacă butonul nu deschide instalarea, folosește meniul browserului (⋮) → „Instalează aplicația”.
         </div>
       )}
+      {uninstallPanel}
     </div>
   );
 }
