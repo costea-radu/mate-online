@@ -226,8 +226,18 @@ module.exports = async function handler(req, res) {
       if (cfg.profile) qSrc = qSrc.eq('profile', cfg.profile);
       const { data: rowsAll } = await qSrc;
       // separăm strict categoria/profilul; excludem baremele și capitolele teoretice
-      const rows = (rowsAll || []).filter((r) => !['bareme', 'capitole'].includes(r.subcategory || ''));
-      const pick = rows.sort(() => Math.random() - 0.5).slice(0, 5);
+      const rows = (rowsAll || []).filter((r) => (r.subcategory || '') !== 'bareme');
+      // stratificat pe subcategorii: Simulările se combină cu Variante Date + Modele etc.
+    const stratify = (arr) => {
+      const g = {};
+      arr.forEach((r) => { (g[r.subcategory || ''] = g[r.subcategory || ''] || []).push(r); });
+      Object.values(g).forEach((a) => a.sort(() => Math.random() - 0.5));
+      const ks = Object.keys(g).sort(() => Math.random() - 0.5);
+      const out = []; let added = true;
+      while (added) { added = false; for (const k of ks) { const it = g[k].pop(); if (it) { out.push(it); added = true; } } }
+      return out;
+    };
+      const pick = stratify(rows).slice(0, 5);
       const parts = [];
       for (const r of pick) {
         try {

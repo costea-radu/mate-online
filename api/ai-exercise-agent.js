@@ -121,7 +121,8 @@ module.exports = async function handler(req, res) {
       let q = supa.from('content')
         .select('id, title, file_url, interactive_data, subcategory, content_type')
         .eq('content_type', ctype).eq('category', category);
-      if (subcategory) q = q.eq('subcategory', subcategory);
+      if (subcategory && String(subcategory).includes('+')) q = q.in('subcategory', String(subcategory).split('+'));
+      else if (subcategory) q = q.eq('subcategory', subcategory);
       if (profile) q = q.eq('profile', profile); // separă strict profilurile BAC
       const { data: rows } = await q.limit(40);
       if (!rows || rows.length < 2) return res.status(400).json({ error: 'Rubrica are prea puține materiale (minim 2) pentru combinare.' });

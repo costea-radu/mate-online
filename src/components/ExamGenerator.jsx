@@ -10,7 +10,7 @@ import { aiClient } from '../lib/aiClient';
 import { printExam } from '../lib/examPrint';
 import { supabase } from '../lib/supabase';
 import { authHeaders } from '../lib/api';
-import { combineExamPdfs, fetchPdfSources } from '../lib/pdfCombine';
+import { combineExamPdfs, fetchPdfSources, stratifyBySubcategory } from '../lib/pdfCombine';
 
 // separarea STRICTĂ a categoriilor: fiecare tip de examen combină doar propriile subiecte
 const EXAM_SOURCES = {
@@ -71,9 +71,10 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
         .eq('content_type', 'pdf').eq('category', cfgS.category).limit(60);
       if (cfgS.profile) q = q.eq('profile', cfgS.profile);
       const { data } = await q;
-      const rows = (data || []).filter((r) => !['bareme', 'capitole'].includes(r.subcategory || ''));
-      if (rows.length < 2) throw new Error('Categoria are prea puține subiecte PDF (minim 2 dintre: teste de antrenament, variante date, simulări).');
-      const sources = await fetchPdfSources(rows, getUrlFor, { max: 5, onProgress: setCombineMsg });
+      const rows = (data || []).filter((r) => (r.subcategory || '') !== 'bareme');
+      if (rows.length < 2) throw new Error('Categoria are prea puține subiecte PDF (minim 2 dintre: simulări, variante date + modele, exerciții pe subiecte, capitole).');
+      // stratificat: câte un subiect din FIECARE subcategorie (Simulări + Variante Date + …)
+      const sources = await fetchPdfSources(stratifyBySubcategory(rows), getUrlFor, { max: 5, onProgress: setCombineMsg, ordered: true });
       if (sources.length < 2) throw new Error('Nu am putut descărca suficiente subiecte-sursă.');
       const r = await combineExamPdfs(sources, { onProgress: setCombineMsg });
       const blob = new Blob([r.bytes.buffer ? r.bytes : new Uint8Array(r.bytes)], { type: 'application/pdf' });

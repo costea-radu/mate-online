@@ -196,8 +196,8 @@ export async function combineExamPdfs(sources, { onProgress } = {}) {
 }
 
 // Descarcă sursele PDF ale unei rubrici (listă de rânduri `content`).
-export async function fetchPdfSources(rows, getUrl, { max = 5, onProgress } = {}) {
-  const picked = [...rows].sort(() => Math.random() - 0.5).slice(0, max);
+export async function fetchPdfSources(rows, getUrl, { max = 5, onProgress, ordered = false } = {}) {
+  const picked = (ordered ? [...rows] : [...rows].sort(() => Math.random() - 0.5)).slice(0, max);
   const out = [];
   for (const r of picked) {
     try {
@@ -209,6 +209,23 @@ export async function fetchPdfSources(rows, getUrl, { max = 5, onProgress } = {}
       if (buf.length > 12 * 1024 * 1024) continue;
       out.push({ label: r.title, bytes: buf });
     } catch { /* sursă ignorată */ }
+  }
+  return out;
+}
+
+// Amestecă rândurile STRATIFICAT pe subcategorii: câte unul din fiecare
+// (Simulări, Variante Date + Modele, Exerciții pe Subiecte…), apoi reia —
+// garantează combinarea între subcategorii diferite.
+export function stratifyBySubcategory(rows) {
+  const groups = {};
+  rows.forEach((r) => { (groups[r.subcategory || ''] = groups[r.subcategory || ''] || []).push(r); });
+  Object.values(groups).forEach((a) => a.sort(() => Math.random() - 0.5));
+  const keys = Object.keys(groups).sort(() => Math.random() - 0.5);
+  const out = [];
+  let added = true;
+  while (added) {
+    added = false;
+    for (const k of keys) { const it = groups[k].pop(); if (it) { out.push(it); added = true; } }
   }
   return out;
 }

@@ -13,7 +13,7 @@ import { aiClient } from '../lib/aiClient';
 import { supabase } from '../lib/supabase';
 import { renderExercise, renderPrintDoc } from '../lib/exerciseRender';
 import { authHeaders } from '../lib/api';
-import { combineExamPdfs, fetchPdfSources } from '../lib/pdfCombine';
+import { combineExamPdfs, fetchPdfSources, stratifyBySubcategory } from '../lib/pdfCombine';
 
 const inp = { border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.9rem', width: '100%', marginTop: 4, boxSizing: 'border-box' };
 const ta = { ...inp, fontFamily: 'inherit', resize: 'vertical' };
@@ -80,24 +80,64 @@ export default function AIExerciseAgent({ box }) {
       const { data } = await supabase.from('content')
         .select('category, subcategory, profile, content_type')
         .in('content_type', ['interactive', 'pdf']).limit(3000);
-      const counts = {};
+      // potrivire TOLERANTĂ a subcategoriilor (diacritice/spații/cratime diferite
+      //  în datele mai vechi) — fișierele încărcate apar întotdeauna la numărătoare
+      const normSub = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const counts = {};   // cheie normalizată → n
+      const rawSeen = {};  // cheie normalizată → {category, subcategory brută, profile, ctype, n}
       (data || []).forEach((r) => {
-        const k = `${r.category}||${r.subcategory || ''}||${r.profile || ''}||${r.content_type}`;
+        const k = `${r.category}||${normSub(r.subcategory)}||${r.profile || ''}||${r.content_type}`;
         counts[k] = (counts[k] || 0) + 1;
+        rawSeen[k] = { category: r.category, subcategory: r.subcategory || null, profile: r.profile || null, ctype: r.content_type, n: counts[k] };
       });
-      const EN_SUBS = [['exercitii-subiecte', 'Exerciții pe Subiecte'], ['variante', 'Variante Date + Modele'], ['simulari', 'Simulări'], ['teste-interactive', 'Teste Interactive']];
-      const BAC_SUBS = [['exercitii', 'Exerciții pe Subiecte'], ['variante', 'Variante Date + Olimpici + Rezerve'], ['teste-antrenament', 'Teste de Antrenament'], ['simulari', 'Simulări'], ['teste-interactive', 'Teste Interactive']];
+      const consumed = new Set();
+      const EN_SUBS = [
+        ['exercitii-subiecte', 'Exerciții pe Subiecte'],
+        ['variante', 'Variante Date + Modele'],
+        ['simulari', 'Simulări'],
+        ['capitole', 'Capitole cu exerciții'],
+        ['simulari+variante', 'Simulări + Variante Date (mix)'],
+        ['teste-interactive', 'Teste Interactive'],
+      ];
+      const BAC_SUBS = [
+        ['exercitii', 'Exerciții pe Subiecte'],
+        ['variante', 'Variante Date + Olimpici + Rezerve'],
+        ['teste-antrenament', 'Teste de Antrenament'],
+        ['simulari', 'Simulări'],
+        ['capitole', 'Capitole cu exerciții'],
+        ['teste-interactive', 'Teste Interactive'],
+      ];
       const BAC_PROFILES = [['tehnologic', 'BAC Tehnologic'], ['stiinte-naturii', 'BAC Științele Naturii'], ['mate-info', 'BAC Mate-Info']];
       const list = [];
+      const countFor = (category, sub, profile, ct) => {
+        // „a+b” = rubrică-mix: adună fișierele din toate subcategoriile componente
+        const subs = String(sub || '').split('+');
+        let n = 0;
+        for (const one of subs) {
+          const k = `${category}||${normSub(one)}||${profile || ''}||${ct}`;
+          n += counts[k] || 0;
+          consumed.add(k);
+        }
+        return n;
+      };
       const push = (group, label, category, sub, profile) => {
         for (const ct of ['pdf', 'interactive']) {
-          const n = counts[`${category}||${sub || ''}||${profile || ''}||${ct}`] || 0;
+          const n = countFor(category, sub, profile, ct);
           list.push({ group, label: `${label} · ${ct === 'pdf' ? 'PDF' : 'interactiv'} (${n})`, category, subcategory: sub, profile: profile || null, ctype: ct, n });
         }
       };
       for (const [sub, lbl] of EN_SUBS) push('Evaluare Națională', lbl, 'evaluare-nationala', sub, null);
       for (const [prof, plbl] of BAC_PROFILES) for (const [sub, lbl] of BAC_SUBS) push(plbl, lbl, 'bacalaureat', sub, prof);
       for (const c of ['clasa-5', 'clasa-6', 'clasa-7', 'clasa-8']) push('Clase', c, c, null, null);
+      // tot ce există în baza de date dar nu s-a potrivit taxonomiei — vizibil separat
+      for (const [k, info] of Object.entries(rawSeen)) {
+        if (consumed.has(k)) continue;
+        list.push({
+          group: 'Alte rubrici din baza de date',
+          label: `${info.category}${info.subcategory ? ' / ' + info.subcategory : ' (fără subcategorie)'}${info.profile ? ' · ' + info.profile : ''} · ${info.ctype === 'pdf' ? 'PDF' : 'interactiv'} (${info.n})`,
+          category: info.category, subcategory: info.subcategory, profile: info.profile, ctype: info.ctype, n: info.n,
+        });
+      }
       setRubrics(list);
     })();
   }, []);
@@ -149,12 +189,14 @@ export default function AIExerciseAgent({ box }) {
     try {
       let q = supabase.from('content').select('id, title, file_url, is_free, subcategory')
         .eq('content_type', 'pdf').eq('category', r.category).limit(60);
-      if (r.subcategory) q = q.eq('subcategory', r.subcategory);
+      if (r.subcategory && String(r.subcategory).includes('+')) q = q.in('subcategory', String(r.subcategory).split('+'));
+      else if (r.subcategory) q = q.eq('subcategory', r.subcategory);
       if (r.profile) q = q.eq('profile', r.profile);
       const { data } = await q;
-      const rows = (data || []).filter((x) => !['bareme', 'capitole'].includes(x.subcategory || ''));
+      const rows = (data || []).filter((x) => (x.subcategory || '') !== 'bareme');
       if (rows.length < 2) throw new Error('Rubrica are prea puține PDF-uri pentru combinare (minim 2).');
-      const sources = await fetchPdfSources(rows, getUrlFor, { max: 5, onProgress: setCombineMsg });
+      // stratificat: un subiect din fiecare subcategorie (ex: Simulări + Variante Date)
+      const sources = await fetchPdfSources(stratifyBySubcategory(rows), getUrlFor, { max: 5, onProgress: setCombineMsg, ordered: true });
       if (sources.length < 2) throw new Error('Nu am putut descărca suficiente subiecte-sursă.');
       const res = await combineExamPdfs(sources, { onProgress: setCombineMsg });
       const a = document.createElement('a');

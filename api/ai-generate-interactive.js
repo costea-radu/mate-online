@@ -47,8 +47,17 @@ module.exports = async function handler(req, res) {
         const { data: rowsAll } = await supa.from('content')
           .select('title, file_url, interactive_data, content_type, subcategory')
           .in('content_type', ['interactive', 'pdf']).eq('category', category).limit(80);
-        const rows = (rowsAll || []).filter((r) => !['bareme', 'capitole'].includes(r.subcategory || ''));
-        const pick = rows.sort(() => Math.random() - 0.5).slice(0, 4);
+        const rows = (rowsAll || []).filter((r) => (r.subcategory || '') !== 'bareme');
+          const stratify = (arr) => {
+            const g = {};
+        arr.forEach((r) => { (g[r.subcategory || ''] = g[r.subcategory || ''] || []).push(r); });
+        Object.values(g).forEach((a) => a.sort(() => Math.random() - 0.5));
+            const ks = Object.keys(g).sort(() => Math.random() - 0.5);
+            const out = []; let added = true;
+        while (added) { added = false; for (const k of ks) { const it = g[k].pop(); if (it) { out.push(it); added = true; } } }
+        return out;
+    };
+        const pick = stratify(rows).slice(0, 4);
         const parts = [];
         for (const r of pick) {
           try {
