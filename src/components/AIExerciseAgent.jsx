@@ -73,21 +73,32 @@ export default function AIExerciseAgent({ box }) {
   }
   useEffect(() => { loadSaved(); }, []);
 
-  // TOATE rubricile din site (exerciții, teste, bareme — interactive și PDF)
+  // TOATE rubricile site-ului — taxonomie fixă (apar și cele fără fișiere încă),
+  // cu profilurile BAC separate; numărul de materiale vine din baza de date.
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from('content')
-        .select('category, subcategory, content_type')
-        .in('content_type', ['interactive', 'pdf']).limit(2000);
+        .select('category, subcategory, profile, content_type')
+        .in('content_type', ['interactive', 'pdf']).limit(3000);
       const counts = {};
       (data || []).forEach((r) => {
-        const k = `${r.category}||${r.subcategory || ''}||${r.content_type}`;
+        const k = `${r.category}||${r.subcategory || ''}||${r.profile || ''}||${r.content_type}`;
         counts[k] = (counts[k] || 0) + 1;
       });
-      setRubrics(Object.entries(counts)
-        .filter(([, n]) => n >= 2)
-        .map(([k, n]) => { const [c, sub, ct] = k.split('||'); return { category: c, subcategory: sub || null, ctype: ct, n }; })
-        .sort((x, y) => (x.category + x.ctype).localeCompare(y.category + y.ctype)));
+      const EN_SUBS = [['exercitii-subiecte', 'Exerciții pe Subiecte'], ['variante', 'Variante Date + Modele'], ['simulari', 'Simulări'], ['teste-interactive', 'Teste Interactive']];
+      const BAC_SUBS = [['exercitii', 'Exerciții pe Subiecte'], ['variante', 'Variante Date + Olimpici + Rezerve'], ['teste-antrenament', 'Teste de Antrenament'], ['simulari', 'Simulări'], ['teste-interactive', 'Teste Interactive']];
+      const BAC_PROFILES = [['tehnologic', 'BAC Tehnologic'], ['stiinte-naturii', 'BAC Științele Naturii'], ['mate-info', 'BAC Mate-Info']];
+      const list = [];
+      const push = (group, label, category, sub, profile) => {
+        for (const ct of ['pdf', 'interactive']) {
+          const n = counts[`${category}||${sub || ''}||${profile || ''}||${ct}`] || 0;
+          list.push({ group, label: `${label} · ${ct === 'pdf' ? 'PDF' : 'interactiv'} (${n})`, category, subcategory: sub, profile: profile || null, ctype: ct, n });
+        }
+      };
+      for (const [sub, lbl] of EN_SUBS) push('Evaluare Națională', lbl, 'evaluare-nationala', sub, null);
+      for (const [prof, plbl] of BAC_PROFILES) for (const [sub, lbl] of BAC_SUBS) push(plbl, lbl, 'bacalaureat', sub, prof);
+      for (const c of ['clasa-5', 'clasa-6', 'clasa-7', 'clasa-8']) push('Clase', c, c, null, null);
+      setRubrics(list);
     })();
   }, []);
 
@@ -132,13 +143,14 @@ export default function AIExerciseAgent({ box }) {
   // COMBINARE EXACTĂ (vectorială, fără AI) din PDF-urile rubricii selectate:
   // exercițiile sunt decupate din fișierele-sursă și recompuse identic.
   async function combineExactRubric() {
-    const r = rubrics.find((x) => `${x.category}||${x.subcategory || ''}||${x.ctype}` === autoKey);
+    const r = rubrics.find((x) => `${x.category}||${x.subcategory || ''}||${x.profile || ''}||${x.ctype}` === autoKey);
     if (!r || r.ctype !== 'pdf') { setError('Alege o rubrică PDF pentru combinarea exactă.'); return; }
     setAutoBusy(true); setError(null); setMsg(null); setCombineMsg('Caut subiectele rubricii…');
     try {
       let q = supabase.from('content').select('id, title, file_url, is_free, subcategory')
         .eq('content_type', 'pdf').eq('category', r.category).limit(60);
       if (r.subcategory) q = q.eq('subcategory', r.subcategory);
+      if (r.profile) q = q.eq('profile', r.profile);
       const { data } = await q;
       const rows = (data || []).filter((x) => !['bareme', 'capitole'].includes(x.subcategory || ''));
       if (rows.length < 2) throw new Error('Rubrica are prea puține PDF-uri pentru combinare (minim 2).');
@@ -149,21 +161,18 @@ export default function AIExerciseAgent({ box }) {
       a.href = URL.createObjectURL(new Blob([res.bytes], { type: 'application/pdf' }));
       a.download = `subiect_combinat_${slug(r.category + (r.subcategory ? '-' + r.subcategory : ''))}.pdf`;
       a.click(); URL.revokeObjectURL(a.href);
-      sessionStorage.setItem('agent_prefill_pdf', JSON.stringify({
-        form: { title: `Subiect combinat · ${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}`, description: 'Combinare exactă din subiectele site-ului (fără AI) · ' + res.sources.join('; ') },
-      }));
-      setCombineMsg('✅ PDF combinat descărcat (redactare identică, fără AI). Formularul «Adaugă PDF» e precompletat — atașează fișierul descărcat.');
+      setCombineMsg('✅ PDF combinat descărcat (redactare identică, fără AI). Îl poți verifica și încărca manual unde vrei, prin «Adaugă PDF».');
       setChat((c) => [...c, { role: 'assistant', content: `📎 Combinare exactă pentru „${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}”: ${res.report.length} exerciții preluate identic din: ${res.sources.join('; ')}.` }]);
     } catch (e) { setError(e.message); setCombineMsg(null); }
     finally { setAutoBusy(false); }
   }
 
   async function runAuto() {
-    const r = rubrics.find((x) => `${x.category}||${x.subcategory || ''}||${x.ctype}` === autoKey);
+    const r = rubrics.find((x) => `${x.category}||${x.subcategory || ''}||${x.profile || ''}||${x.ctype}` === autoKey);
     if (!r) { setError('Alege rubrica pentru automatizare.'); return; }
     setAutoBusy(true); setError(null); setMsg(null);
     try {
-      const resp = await aiClient.exerciseAgent({ action: 'auto', category: r.category, subcategory: r.subcategory, ctype: r.ctype, instructions: autoInstr, resultKind: autoResult, dataMode });
+      const resp = await aiClient.exerciseAgent({ action: 'auto', category: r.category, subcategory: r.subcategory, profile: r.profile, ctype: r.ctype, instructions: autoInstr, resultKind: autoResult, dataMode });
       setProvider(resp.provider);
       setEditing(false); setSavedId(null); setSavedMeta(null);
       const rubEt = `${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}`;
@@ -386,15 +395,20 @@ export default function AIExerciseAgent({ box }) {
       </div>
 
       {/* Automatizare: testul următor al unei rubrici, combinat din cele existente */}
-      {rubrics.length > 0 && (
+      {(
         <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, marginBottom: 12, display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', background: '#f7f9fc' }}>
           <label style={{ ...lbl, flex: 1, minWidth: 230 }}>⚙️ Automatizare — rubrică (teste existente)
             <select value={autoKey} onChange={(e) => setAutoKey(e.target.value)} style={inp}>
               <option value="">— alege rubrica —</option>
-              {rubrics.map((r) => (
-                <option key={`${r.category}||${r.subcategory || ''}||${r.ctype}`} value={`${r.category}||${r.subcategory || ''}||${r.ctype}`}>
-                  {r.category}{r.subcategory ? ` / ${r.subcategory}` : ''} · {r.n} {r.ctype === 'pdf' ? 'PDF-uri' : 'teste interactive'}
-                </option>
+              {[...new Set(rubrics.map((r) => r.group))].map((g) => (
+                <optgroup key={g} label={g}>
+                  {rubrics.filter((r) => r.group === g).map((r) => (
+                    <option key={`${r.category}||${r.subcategory || ''}||${r.profile || ''}||${r.ctype}`}
+                      value={`${r.category}||${r.subcategory || ''}||${r.profile || ''}||${r.ctype}`}>
+                      {r.label}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </label>

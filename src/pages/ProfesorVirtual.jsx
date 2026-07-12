@@ -662,6 +662,16 @@ function LibItem({ it, isTeacher, onRemove }) {
 
       {open && full && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+          {full.kind === 'pdf' && full.payload?.pdfBase64 && (
+            <button className="btn btn-primary btn-sm" style={{ marginBottom: 8 }} onClick={() => {
+              const bin = atob(full.payload.pdfBase64);
+              const arr = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+              const url = URL.createObjectURL(new Blob([arr], { type: 'application/pdf' }));
+              window.open(url, '_blank');
+            }}>📄 Deschide PDF-ul</button>
+          )}
+
           {full.kind === 'interactive' && !editing && (full.payload?.questions || full.payload?.html) && (
             <>
               <button className="btn btn-outline btn-sm" style={{ marginBottom: 8 }} onClick={() => {

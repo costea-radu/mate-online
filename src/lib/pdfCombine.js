@@ -25,8 +25,12 @@ async function ensureLibs() {
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
 }
 
-const HEADER_KEYS = ['Ministerul', 'Centrul Na', 'Evaluarea Na', 'Examenul na', 'Politici și Evaluare', 'Politici şi Evaluare'];
-const FOOTER_KEYS = ['Probă scrisă', 'Proba scrisă', 'Pagina '];
+// pdf.js sparge deseori diacriticele în bucăți („Prob ă scris ă”) — de aceea
+// detectăm antetele/footerele pe text NORMALIZAT (fără diacritice și spații).
+const normTxt = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '').toLowerCase();
+const HEADER_N = ['ministerul', 'centrulnational', 'evaluareanationala', 'examenulnational', 'politicisievaluare'];
+const FOOTER_N = ['probascrisa', 'pagina'];
+const BAREM_N = ['baremdeevaluare', 'baremdecorectare', 'baremdenotare'];
 
 // Analizează un PDF: markerele subiectelor/itemilor + zona de conținut pe pagini.
 // Coordonate pdf.js/pdf-lib: originea JOS-stânga (y crește în sus).
@@ -58,22 +62,26 @@ async function analyze(bytes) {
 
     let maxY = H - 30, minY = 34;
     for (const L of arr) {
-      if (HEADER_KEYS.some((k) => L.text.includes(k)) && L.y > H * 0.8) maxY = Math.min(maxY, L.y - 6);
-      if (FOOTER_KEYS.some((k) => L.text.includes(k)) && L.y < H * 0.25) minY = Math.max(minY, L.y + 10);
+      const nt = normTxt(L.text);
+      if (HEADER_N.some((k) => nt.includes(k)) && L.y > H * 0.7) maxY = Math.min(maxY, L.y - 6);
+      if (FOOTER_N.some((k) => nt.includes(k)) && L.y < H * 0.3) minY = Math.max(minY, L.y + 12);
     }
     contentMaxY[p] = maxY; contentMinY[p] = minY;
   }
 
   // markere, cu filtru secvențial (1→6 în interiorul subiectului)
   const marks = [];
-  for (let p = 2; p <= n; p++) {
+  let baremAt = null; // NU preluăm partea de barem din fișier
+  for (let p = 2; p <= n && !baremAt; p++) {
     for (const L of pageLines[p]) {
       if (L.y > contentMaxY[p] || L.y < contentMinY[p]) continue;
-      if (/^SUBIECTUL/i.test(L.text)) {
-        const which = /III/.test(L.text) ? 3 : (/II/.test(L.text) ? 2 : 1);
+      const nt = normTxt(L.text);
+      if (BAREM_N.some((k) => nt.includes(k)) || nt.startsWith('baremdeevaluare')) { baremAt = { p, y: L.y }; break; }
+      if (/^SUBIECTUL/i.test(L.text) || nt.startsWith('subiectul')) {
+        const which = /III|3-?lea/i.test(L.text) ? 3 : (/II|2-?lea/i.test(L.text) ? 2 : 1);
         marks.push({ p, y: L.y, kind: 'S', v: which });
       } else {
-        const m = L.text.match(/^(?:\d+\s*p\.?\s+)?([1-6])\.\s/);
+        const m = L.text.match(/^(?:\d+\s*p\.?\s*)?([1-6])\s*\.(?:\s|$)/);
         if (m && L.x < 100) marks.push({ p, y: L.y, kind: 'I', v: Number(m[1]) });
       }
     }
@@ -85,16 +93,26 @@ async function analyze(bytes) {
     if (mk.kind === 'S') { curS = mk.v; expect = 1; seq.push({ ...mk }); }
     else if (curS && mk.v === expect) { seq.push({ ...mk, s: curS }); expect++; }
   }
+  // limita de sus a decupajului: la JUMĂTATEA distanței față de rândul de deasupra
+  // (formulele înalte — fracții, radicali — nu mai sunt tăiate)
+  for (const mk of seq) {
+    const above = pageLines[mk.p].filter((L) => L.y > mk.y + 3 && L.y <= contentMaxY[mk.p]).sort((a, b) => a.y - b.y)[0];
+    const pad = above ? Math.max(14, Math.min(30, (above.y - mk.y) * 0.55)) : 18;
+    mk.cut = Math.min(mk.y + pad, contentMaxY[mk.p]);
+  }
 
   // regiuni (posibil pe mai multe pagini)
   const regions = {};
   for (let i = 0; i < seq.length; i++) {
     const cur = seq[i];
-    const startTop = Math.min(cur.y + 11, contentMaxY[cur.p]);
+    const startTop = cur.cut;
     let endP, endTop;
     if (i + 1 < seq.length) {
       endP = seq[i + 1].p;
-      endTop = Math.min(seq[i + 1].y + 11, contentMaxY[endP]);
+      endTop = seq[i + 1].cut;
+    } else if (baremAt) {
+      // ultimul item se oprește ÎNAINTE de barem
+      endP = baremAt.p; endTop = Math.min(baremAt.y + 8, contentMaxY[baremAt.p]);
     } else {
       endP = n; endTop = contentMinY[n];
     }

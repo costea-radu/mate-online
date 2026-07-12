@@ -6,7 +6,7 @@
 // Doar pentru abonați.
 // =====================================================================
 const ai = require('./_lib/ai');
-const { pdfText, storagePath, modeLine } = require('./_lib/pdftext');
+const { pdfText, storagePath, modeLine, cutBarem } = require('./_lib/pdftext');
 
 // ── Reparare LaTeX corupt de JSON.parse ──────────────────────────────────────
 // Modelele scriu uneori "\frac" cu un singur backslash în JSON. JSON.parse
@@ -102,7 +102,13 @@ const EXAMS = {
 
 const JSON_RULE = `IMPORTANT pentru JSON valid: scrie fiecare backslash din comenzile LaTeX de DOUĂ ori (backslash dublu). Exemple corecte în JSON: pentru fracție folosește \\\\frac{...}{...}, pentru radical \\\\sqrt{...}, pentru înmulțire \\\\cdot, pentru unghi \\\\angle. Formulele se pun între $...$.`;
 
-const FIDELITY = `Fidelitate față de modele: respectă cât mai fidel exercițiile-model din baza de date — preia structura, tipul și stilul, iar unde e potrivit chiar formularea, schimbând DOAR minim datele (numere, notații, coeficienți). Nu introduce tipuri de itemi care nu apar în modele. STRUCTURA este LEGE: același număr de subiecte și itemi, aceleași punctaje pe item, aceeași ordine a tipurilor de itemi și același stil de formulare ca în modelele/testele site-ului — nu adăuga, nu elimina și nu rearanja itemi. Folosește „·" (\\cdot) pentru înmulțire, niciodată × sau x. La geometrie, include și FIGURA: descrie-o clar în enunț (puncte, laturi, unghiuri, măsuri) așa cum apare în model, ca elevul să o poată desena.`;
+const FIDELITY = `Fidelitate față de modele:
+1) STRUCTURA este LEGE — același număr de subiecte și itemi, aceleași punctaje, aceeași ordine a tipurilor de itemi și același stil de formulare ca în subiectele reale ale site-ului; nu adăuga, nu elimina, nu rearanja.
+2) ITEMII SE COPIAZĂ din surse (enunț, tip, structură), conform regimului de lucru cu datele; nu introduce tipuri de itemi care nu apar în surse.
+3) IGNORĂ complet secțiunile de BAREM din surse — baremele NU sunt itemi și nu se preiau ca exerciții; folosește-le doar ca referință de punctaj.
+4) Folosește „·" (\\cdot) pentru înmulțire, niciodată × sau x. La geometrie include FIGURA descrisă clar în enunț (puncte, laturi, unghiuri, măsuri), ca elevul să o poată desena.
+5) Dacă menționezi platforma, adresa este EXACT https://examenmate.com (nu .ro).
+6) Enunțurile trebuie să fie complete și autonome (fără „vezi figura din fișier").`;
 
 function buildENSystem(examples) {
   return `${ai.PERSONA}
@@ -237,7 +243,7 @@ module.exports = async function handler(req, res) {
           if (r.content_type === 'pdf' || /\.pdf(\?|$)/i.test(filePath)) {
             txt = await pdfText(buf, 4500); // subiecte PDF: antrenament / variante date / simulări
           } else {
-            txt = buf.toString('utf8').replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            txt = cutBarem(buf.toString('utf8')).replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
           }
           if (txt.length > 200) parts.push(`=== TESTUL ${String.fromCharCode(65 + parts.length)} (${r.subcategory || r.content_type}): ${r.title} ===\n${txt.slice(0, 4500)}`);
         } catch { /* sursă ignorată */ }

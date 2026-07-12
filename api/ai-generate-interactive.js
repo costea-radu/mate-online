@@ -7,7 +7,7 @@
 // Randarea în HTML interactiv se face pe client (src/lib/quizRender.js).
 // =====================================================================
 const ai = require('./_lib/ai');
-const { pdfText, storagePath, modeLine } = require('./_lib/pdftext');
+const { pdfText, storagePath, modeLine, cutBarem } = require('./_lib/pdftext');
 
 // Parsare JSON tolerantă la LaTeX (backslash-uri simple ca \frac devin \\frac).
 function safeParse(text) {
@@ -62,7 +62,7 @@ module.exports = async function handler(req, res) {
             const buf = Buffer.from(await blob.arrayBuffer());
             const txt = (r.content_type === 'pdf' || /\.pdf(\?|$)/i.test(filePath))
               ? await pdfText(buf, 4000)
-              : buf.toString('utf8').replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 4000);
+              : cutBarem(buf.toString('utf8')).replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 4000);
             if (txt.length > 200) parts.push(`=== SURSA ${String.fromCharCode(65 + parts.length)} (${r.subcategory || r.content_type}): ${r.title} ===\n${txt}`);
           } catch { /* sursă ignorată */ }
         }

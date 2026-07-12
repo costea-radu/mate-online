@@ -76,10 +76,27 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
       const sources = await fetchPdfSources(rows, getUrlFor, { max: 5, onProgress: setCombineMsg });
       if (sources.length < 2) throw new Error('Nu am putut descărca suficiente subiecte-sursă.');
       const r = await combineExamPdfs(sources, { onProgress: setCombineMsg });
+      const blob = new Blob([r.bytes.buffer ? r.bytes : new Uint8Array(r.bytes)], { type: 'application/pdf' });
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([r.bytes.buffer ? r.bytes : new Uint8Array(r.bytes)], { type: 'application/pdf' }));
+      a.href = URL.createObjectURL(blob);
       a.download = `subiect_combinat_${examType}.pdf`; a.click(); URL.revokeObjectURL(a.href);
-      setCombineMsg('✅ Subiect nou descărcat — exerciții combinate din: ' + r.sources.join('; ') + '. Redactare identică cu originalele (fără AI).');
+      // salvăm și în „Testele și exercițiile mele” (dacă nu e prea mare)
+      let saved = '';
+      if (blob.size < 4 * 1024 * 1024) {
+        try {
+          const b64 = await new Promise((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+            fr.onerror = reject; fr.readAsDataURL(blob);
+          });
+          await aiClient.saveLibraryItem({
+            kind: 'pdf', title: `Subiect combinat · ${EXAM_TYPES.find((t) => t.id === examType)?.label || examType}`,
+            category: examType, topic: null, payload: { pdfBase64: b64, sources: r.sources },
+          });
+          saved = ' Salvat și în „Testele și exercițiile mele”.';
+        } catch { /* biblioteca e opțională */ }
+      }
+      setCombineMsg('✅ Subiect nou descărcat — exerciții combinate din: ' + r.sources.join('; ') + '. Redactare identică cu originalele (fără AI).' + saved);
       setCombineReport(r.report);
     } catch (e) { setError(e.message); setCombineMsg(null); }
     finally { setCombining(false); }
