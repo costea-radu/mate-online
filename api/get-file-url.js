@@ -18,8 +18,8 @@ module.exports = async function handler(req, res) {
     // Premium — verifică abonamentul utilizatorului REAL (din token).
     const userId = await authUser(req, supabase);
     const { data: profile, error: profileError } = await supabase
-      .from('profiles').select('subscription_status').eq('id', userId).single();
-    if (profileError || profile?.subscription_status !== 'active') {
+      .from('profiles').select('subscription_status, is_admin').eq('id', userId).single();
+    if (profileError || (profile?.subscription_status !== 'active' && !profile?.is_admin)) {
       return res.status(403).json({ error: 'Acces interzis. Necesită abonament Premium.' });
     }
 

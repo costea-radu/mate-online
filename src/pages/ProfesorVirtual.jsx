@@ -390,6 +390,7 @@ function InteractiveTab() {
   const [editing, setEditing] = useState(false);
   const [publishMsg, setPublishMsg] = useState(null);
   const [savedScore, setSavedScore] = useState(null);
+  const [dataMode, setDataMode] = useState('modify');
   const navigate = useNavigate();
 
   const html = questions ? renderQuiz(title, questions) : '';
@@ -419,7 +420,7 @@ function InteractiveTab() {
   async function gen() {
     setLoading(true); setError(null); setUpsell(false); setQuestions(null); setSavedScore(null); setEditing(false); setPublishMsg(null);
     try {
-      const res = await aiClient.generateInteractive({ category: category || null, topic, difficulty });
+      const res = await aiClient.generateInteractive({ category: category || null, topic, difficulty, dataMode });
       const qs = res.questions || [];
       const t = res.title || 'Exercițiu interactiv';
       setQuestions(qs); setTitle(t);
@@ -479,6 +480,16 @@ function InteractiveTab() {
             <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} style={{ ...inp, width: '100%', marginTop: 4 }}>
               {DIFFS.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
+          </label>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12, fontSize: '.85rem', color: 'var(--text-light)' }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+            <input type="radio" checked={dataMode === 'keep'} onChange={() => setDataMode('keep')} style={{ marginTop: 3 }} />
+            <span><strong>Păstrează datele problemelor</strong> — preia exercițiile din subiectele site-ului fără să schimbe valorile</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+            <input type="radio" checked={dataMode === 'modify'} onChange={() => setDataMode('modify')} style={{ marginTop: 3 }} />
+            <span><strong>Modifică numerele și notațiile</strong> (verifică problemele — poate greși!)</span>
           </label>
         </div>
         <button className="btn btn-primary" onClick={gen} disabled={loading}>{loading ? 'Se generează... (~20s)' : '✨ Generează exercițiu interactiv'}</button>

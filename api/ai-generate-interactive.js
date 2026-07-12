@@ -7,6 +7,7 @@
 // Randarea în HTML interactiv se face pe client (src/lib/quizRender.js).
 // =====================================================================
 const ai = require('./_lib/ai');
+const { pdfText, storagePath, modeLine } = require('./_lib/pdftext');
 
 // Parsare JSON tolerantă la LaTeX (backslash-uri simple ca \frac devin \\frac).
 function safeParse(text) {
@@ -28,7 +29,7 @@ module.exports = async function handler(req, res) {
   const supa = ai.admin();
   try {
     const userId = await ai.authUser(req, supa);
-    const { category = null, topic = '', difficulty = 'mediu' } = req.body || {};
+    const { category = null, topic = '', difficulty = 'mediu', dataMode = 'modify' } = req.body || {};
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) ai.requirePremium(profile);
     await ai.enforceRateLimit(supa, userId);
@@ -37,6 +38,42 @@ module.exports = async function handler(req, res) {
     const docs = await ai.retrieve(supa, { query: q, category, allowPremium: true, k: 5, prefer: 'exercise' });
     const examples = ai.contextBlock(docs);
 
+    // ── Surse REALE din categoria aleasă: teste interactive + subiecte PDF
+    //    (teste de antrenament, variante date, simulări) — strict aceeași categorie ──
+    let srcBlock = '';
+    let plan = '';
+    if (category) {
+      try {
+        const { data: rowsAll } = await supa.from('content')
+          .select('title, file_url, interactive_data, content_type, subcategory')
+          .in('content_type', ['interactive', 'pdf']).eq('category', category).limit(80);
+        const rows = (rowsAll || []).filter((r) => !['bareme', 'capitole'].includes(r.subcategory || ''));
+        const pick = rows.sort(() => Math.random() - 0.5).slice(0, 4);
+        const parts = [];
+        for (const r of pick) {
+          try {
+            if (r.interactive_data?.exercise) {
+              parts.push(`=== SURSA ${String.fromCharCode(65 + parts.length)}: ${r.title} ===\n${JSON.stringify(r.interactive_data.exercise).slice(0, 4000)}`);
+              continue;
+            }
+            const { bucket, filePath } = storagePath(r.file_url);
+            const { data: blob } = await supa.storage.from(bucket).download(filePath);
+            if (!blob) continue;
+            const buf = Buffer.from(await blob.arrayBuffer());
+            const txt = (r.content_type === 'pdf' || /\.pdf(\?|$)/i.test(filePath))
+              ? await pdfText(buf, 4000)
+              : buf.toString('utf8').replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 4000);
+            if (txt.length > 200) parts.push(`=== SURSA ${String.fromCharCode(65 + parts.length)} (${r.subcategory || r.content_type}): ${r.title} ===\n${txt}`);
+          } catch { /* sursă ignorată */ }
+        }
+        if (parts.length >= 2) {
+          srcBlock = parts.join('\n\n');
+          const letters = parts.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
+          plan = Array.from({ length: 5 }, (_, i) => `- Întrebarea ${i + 1} ← SURSA ${letters[i % letters.length]}, un exercițiu ales aleatoriu din ea.`).join('\n');
+        }
+      } catch { /* fără surse */ }
+    }
+
     const system = `${ai.PERSONA}
 
 Sarcină: creează un set de 5 întrebări de matematică pentru un exercițiu interactiv, în stilul exemplelor din baza de date.
@@ -44,6 +81,8 @@ Sarcină: creează un set de 5 întrebări de matematică pentru un exercițiu i
 === EXEMPLE DIN BAZA DE DATE (temă/stil) ===
 ${examples}
 === SFÂRȘIT ===
+${srcBlock ? `\n=== SUBIECTE REALE DIN CATEGORIE (sursa itemilor — antrenament/variante/simulări) ===\n${srcBlock}\n=== SFÂRȘIT SURSE ===\nPLAN (tras la sorți — respectă-l): fiecare întrebare vine din sursa indicată:\n${plan}\n` : ''}
+REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}
 
 Răspunde STRICT cu un array JSON valid (fără text în plus, fără markdown), cu 5 obiecte:
 [

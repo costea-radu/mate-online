@@ -83,11 +83,11 @@ export const aiClient = {
   reveal: ({ token }) => post('/api/ai-practice', { action: 'reveal', token }),
 
   // Generator de teste de examen (model oficial) — doar abonați
-  generateExam: ({ examType, instructions = '' }) => post('/api/ai-exam', { examType, instructions }),
+  generateExam: ({ examType, instructions = '', dataMode = 'modify' }) => post('/api/ai-exam', { examType, instructions, dataMode }),
 
   // Generator de exerciții interactive (HTML) — admin sau abonat
-  generateInteractive: ({ category = null, topic = '', difficulty = 'mediu' }) =>
-    post('/api/ai-generate-interactive', { category, topic, difficulty }),
+  generateInteractive: ({ category = null, topic = '', difficulty = 'mediu', dataMode = 'modify' }) =>
+    post('/api/ai-generate-interactive', { category, topic, difficulty, dataMode }),
 
   // Agenți Claude (admin): generator exerciții + SEO/marketing
   exerciseAgent: (payload) => post('/api/ai-exercise-agent', payload),

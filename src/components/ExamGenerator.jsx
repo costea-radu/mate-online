@@ -8,6 +8,17 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
 import { printExam } from '../lib/examPrint';
+import { supabase } from '../lib/supabase';
+import { authHeaders } from '../lib/api';
+import { combineExamPdfs, fetchPdfSources } from '../lib/pdfCombine';
+
+// separarea STRICTĂ a categoriilor: fiecare tip de examen combină doar propriile subiecte
+const EXAM_SOURCES = {
+  'evaluare-nationala': { category: 'evaluare-nationala', profile: null },
+  'bac-tehnologic': { category: 'bacalaureat', profile: 'tehnologic' },
+  'bac-stiinte': { category: 'bacalaureat', profile: 'stiinte-naturii' },
+  'bac-mate-info': { category: 'bacalaureat', profile: 'mate-info' },
+};
 
 export const EXAM_TYPES = [
   { id: 'evaluare-nationala', label: 'Evaluare Națională', desc: 'Matematică · clasa a VIII-a' },
@@ -26,15 +37,52 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
   const [publishMsg, setPublishMsg] = useState(null);
   const [publishing, setPublishing] = useState(false);
   const [instructions, setInstructions] = useState('');
+  const [dataMode, setDataMode] = useState('keep');
+  const [combining, setCombining] = useState(false);
+  const [combineMsg, setCombineMsg] = useState(null);
+  const [combineReport, setCombineReport] = useState(null);
 
   async function gen() {
     setLoading(true); setError(null); setUpsell(false); setExam(null); setEditing(false); setPublishMsg(null);
     try {
-      const res = await aiClient.generateExam({ examType, instructions });
+      const res = await aiClient.generateExam({ examType, instructions, dataMode });
       setExam(res.exam);
       try { await aiClient.saveLibraryItem({ kind: 'exam', title: res.exam.title, category: examType, payload: { exam: res.exam } }); } catch { /* ignore */ }
     } catch (e) { setError(e.message); if (e.premium) setUpsell(true); }
     finally { setLoading(false); }
+  }
+
+  // ── COMBINARE EXACTĂ (vectorială): exercițiile sunt decupate din PDF-urile
+  //    reale ale categoriei (antrenament / variante date / simulări) și
+  //    recompuse fără AI — redactare identică, zero greșeli. ──
+  async function getUrlFor(row) {
+    if (row.is_free) return row.file_url;
+    const res = await fetch('/api/get-file-url', { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ contentId: row.id }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.error || 'URL indisponibil');
+    return d.url;
+  }
+  async function combineExact() {
+    setCombining(true); setError(null); setUpsell(false); setCombineReport(null);
+    setCombineMsg('Caut subiectele-sursă ale categoriei…');
+    try {
+      const cfgS = EXAM_SOURCES[examType];
+      let q = supabase.from('content').select('id, title, file_url, is_free, subcategory')
+        .eq('content_type', 'pdf').eq('category', cfgS.category).limit(60);
+      if (cfgS.profile) q = q.eq('profile', cfgS.profile);
+      const { data } = await q;
+      const rows = (data || []).filter((r) => !['bareme', 'capitole'].includes(r.subcategory || ''));
+      if (rows.length < 2) throw new Error('Categoria are prea puține subiecte PDF (minim 2 dintre: teste de antrenament, variante date, simulări).');
+      const sources = await fetchPdfSources(rows, getUrlFor, { max: 5, onProgress: setCombineMsg });
+      if (sources.length < 2) throw new Error('Nu am putut descărca suficiente subiecte-sursă.');
+      const r = await combineExamPdfs(sources, { onProgress: setCombineMsg });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([r.bytes.buffer ? r.bytes : new Uint8Array(r.bytes)], { type: 'application/pdf' }));
+      a.download = `subiect_combinat_${examType}.pdf`; a.click(); URL.revokeObjectURL(a.href);
+      setCombineMsg('✅ Subiect nou descărcat — exerciții combinate din: ' + r.sources.join('; ') + '. Redactare identică cu originalele (fără AI).');
+      setCombineReport(r.report);
+    } catch (e) { setError(e.message); setCombineMsg(null); }
+    finally { setCombining(false); }
   }
 
   function patchItem(si, ii, patch) {
@@ -82,15 +130,38 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
             </button>
           ))}
         </div>
-        <label style={{ display: 'block', fontSize: compact ? '.78rem' : '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12, fontSize: compact ? '.78rem' : '.85rem', color: 'var(--text-light)' }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+            <input type="radio" checked={dataMode === 'keep'} onChange={() => setDataMode('keep')} style={{ marginTop: 3 }} />
+            <span><strong>Păstrează datele problemelor</strong> — combinare exactă din PDF-urile site-ului, fără AI (redactare identică, zero greșeli)</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+            <input type="radio" checked={dataMode === 'modify'} onChange={() => setDataMode('modify')} style={{ marginTop: 3 }} />
+            <span><strong>Modifică numerele și notațiile</strong> — cu AI (verifică problemele — poate greși!)</span>
+          </label>
+        </div>
+        <label style={{ display: dataMode === 'modify' ? 'block' : 'none', fontSize: compact ? '.78rem' : '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
           Instrucțiuni pentru AI (opțional)
           <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={2}
             placeholder="ex: pune accent pe geometrie; Subiectul III mai ușor; folosește exercițiile din testele 3 și 7…"
             style={{ width: '100%', marginTop: 4, border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', fontSize: '.85rem', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' }} />
         </label>
-        <button className="btn btn-primary" onClick={gen} disabled={loading} style={compact ? { width: '100%' } : undefined}>
-          {loading ? 'Se generează... (~30s)' : '✨ Generează subiectul'}
-        </button>
+        {dataMode === 'keep' ? (
+          <button className="btn btn-primary" onClick={combineExact} disabled={combining} style={compact ? { width: '100%' } : undefined}>
+            {combining ? 'Combin subiectele…' : '📎 Combină exact din subiectele site-ului (PDF)'}
+          </button>
+        ) : (
+          <button className="btn btn-primary" onClick={gen} disabled={loading} style={compact ? { width: '100%' } : undefined}>
+            {loading ? 'Se generează... (~30s)' : '✨ Generează subiectul (AI)'}
+          </button>
+        )}
+        {combineMsg && <div style={{ marginTop: 10, fontSize: '.85rem', color: combineMsg.startsWith('✅') ? '#1e7e34' : 'var(--text-muted)' }}>{combineMsg}</div>}
+        {combineReport && (
+          <details style={{ marginTop: 6, fontSize: '.78rem', color: 'var(--text-muted)' }}>
+            <summary>Vezi de unde vine fiecare exercițiu</summary>
+            <div style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>{combineReport.join('\n')}</div>
+          </details>
+        )}
       </div>
 
       {error && <div style={{ ...card, background: '#fdecea', color: '#b71c1c', borderColor: '#f5c6cb' }}>⚠️ {error}</div>}

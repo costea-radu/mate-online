@@ -6,6 +6,7 @@
 // Doar pentru abonați.
 // =====================================================================
 const ai = require('./_lib/ai');
+const { pdfText, storagePath, modeLine } = require('./_lib/pdftext');
 
 // ── Reparare LaTeX corupt de JSON.parse ──────────────────────────────────────
 // Modelele scriu uneori "\frac" cu un singur backslash în JSON. JSON.parse
@@ -69,7 +70,7 @@ const EXAMS = {
   },
   'bac-tehnologic': {
     title: 'Bacalaureat · Matematică M_tehnologic',
-    category: 'bacalaureat', durationMin: 180,
+    category: 'bacalaureat', profile: 'tehnologic', durationMin: 180,
     query: 'bacalaureat matematică tehnologic exercițiu',
     programa: 'Programa M_tehnologic (cea mai accesibilă filieră): mulțimi de numere, funcții elementare, progresii, trigonometrie de bază, numere complexe (simplu), geometrie analitică simplă, elemente de analiză (șiruri, limite simple, derivate), matematici financiare, statistică și probabilități.',
     structure: `Structură oficială:
@@ -79,7 +80,7 @@ const EXAMS = {
   },
   'bac-stiinte': {
     title: 'Bacalaureat · Matematică M_științele-naturii',
-    category: 'bacalaureat', durationMin: 180,
+    category: 'bacalaureat', profile: 'stiinte-naturii', durationMin: 180,
     query: 'bacalaureat matematică științele naturii exercițiu',
     programa: 'Programa M_științe-ale-naturii (nivel intermediar): funcții, progresii, trigonometrie, numere complexe, geometrie analitică, combinatorică și binomul lui Newton, analiză matematică (limite, continuitate, derivate, primitive și integrale — nivel mediu), probabilități.',
     structure: `Structură oficială:
@@ -89,7 +90,7 @@ const EXAMS = {
   },
   'bac-mate-info': {
     title: 'Bacalaureat · Matematică M_mate-info',
-    category: 'bacalaureat', durationMin: 180,
+    category: 'bacalaureat', profile: 'mate-info', durationMin: 180,
     query: 'bacalaureat matematică mate-info exercițiu dificil',
     programa: 'Programa M_mate-info (cea mai dificilă filieră): structuri algebrice (grupuri, inele, corpuri), matrice și determinanți, sisteme, polinoame, numere complexe, combinatorică, analiză matematică riguroasă (șiruri, limite, continuitate, derivabilitate, studiul funcțiilor, primitive, integrala definită și aplicații).',
     structure: `Structură oficială:
@@ -196,7 +197,7 @@ module.exports = async function handler(req, res) {
   const supa = ai.admin();
   try {
     const userId = await ai.authUser(req, supa);
-    const { examType, instructions = '' } = req.body || {};
+    const { examType, instructions = '', dataMode = 'modify' } = req.body || {};
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) ai.requirePremium(profile); // abonați sau admin
     await ai.enforceRateLimit(supa, userId);
@@ -213,10 +214,14 @@ module.exports = async function handler(req, res) {
     let siteTests = '';
     let combinePlan = '';
     try {
-      const { data: rows } = await supa.from('content')
-        .select('title, file_url, interactive_data')
-        .eq('content_type', 'interactive').eq('category', cfg.category).limit(30);
-      const pick = (rows || []).sort(() => Math.random() - 0.5).slice(0, 5);
+      let qSrc = supa.from('content')
+        .select('title, file_url, interactive_data, content_type, subcategory, profile')
+        .in('content_type', ['interactive', 'pdf']).eq('category', cfg.category).limit(80);
+      if (cfg.profile) qSrc = qSrc.eq('profile', cfg.profile);
+      const { data: rowsAll } = await qSrc;
+      // separăm strict categoria/profilul; excludem baremele și capitolele teoretice
+      const rows = (rowsAll || []).filter((r) => !['bareme', 'capitole'].includes(r.subcategory || ''));
+      const pick = rows.sort(() => Math.random() - 0.5).slice(0, 5);
       const parts = [];
       for (const r of pick) {
         try {
@@ -224,14 +229,17 @@ module.exports = async function handler(req, res) {
             parts.push(`=== TESTUL ${String.fromCharCode(65 + parts.length)}: ${r.title} ===\n${JSON.stringify(r.interactive_data.exercise).slice(0, 4500)}`);
             continue;
           }
-          const url = new URL(r.file_url);
-          const seg = url.pathname.split('/');
-          const oi = seg.findIndex((x) => x === 'object');
-          const { data: blob } = await supa.storage.from(seg[oi + 2]).download(seg.slice(oi + 3).join('/').split('?')[0]);
+          const { bucket, filePath } = storagePath(r.file_url);
+          const { data: blob } = await supa.storage.from(bucket).download(filePath);
           if (!blob) continue;
-          const raw = Buffer.from(await blob.arrayBuffer()).toString('utf8');
-          const txt = raw.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-          if (txt.length > 200) parts.push(`=== TESTUL ${String.fromCharCode(65 + parts.length)}: ${r.title} ===\n${txt.slice(0, 4500)}`);
+          const buf = Buffer.from(await blob.arrayBuffer());
+          let txt = '';
+          if (r.content_type === 'pdf' || /\.pdf(\?|$)/i.test(filePath)) {
+            txt = await pdfText(buf, 4500); // subiecte PDF: antrenament / variante date / simulări
+          } else {
+            txt = buf.toString('utf8').replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          }
+          if (txt.length > 200) parts.push(`=== TESTUL ${String.fromCharCode(65 + parts.length)} (${r.subcategory || r.content_type}): ${r.title} ===\n${txt.slice(0, 4500)}`);
         } catch { /* sursă ignorată */ }
       }
       if (parts.length >= 2) {
@@ -247,13 +255,14 @@ module.exports = async function handler(req, res) {
     } catch { /* fără combinare */ }
 
     let system = cfg.special === 'en' ? buildENSystem(examples) : buildGenericSystem(cfg, examples);
+    system += `\n\nREGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}`;
     if (siteTests) {
       system += `\n\n=== TESTE REALE DIN SITE (SURSA OBLIGATORIE a itemilor) ===\n${siteTests}\n=== SFÂRȘIT TESTE ===
 
 PLAN DE COMBINARE — OBLIGATORIU, poziție cu poziție (a fost tras la sorți pe server; respectă-l întocmai):
 ${combinePlan}
 
-Pentru FIECARE poziție: COPIAZĂ itemul indicat (enunț, tip, structură, stil) și schimbă DOAR numerele/notațiile; recalculează rezultatul, variantele greșite și baremul. Valorile noi trebuie să DIFERE de cele din sursă. NU inventa itemi în alt stil. Structura, punctajele și numărul de itemi rămân EXACT cele cerute mai sus.`;
+Pentru FIECARE poziție: COPIAZĂ itemul indicat (enunț, tip, structură, stil). ${modeLine(dataMode)} NU inventa itemi în alt stil. Structura, punctajele și numărul de itemi rămân EXACT cele cerute mai sus.`;
     }
 
     const { text, usage } = await ai.chat({

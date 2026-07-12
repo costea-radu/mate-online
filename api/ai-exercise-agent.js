@@ -14,6 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const ai = require('./_lib/ai');
+const { modeLine } = require('./_lib/pdftext');
 const claude = require('./_lib/claude');
 
 const SCHEMAS = `— GRILĂ:
@@ -83,7 +84,7 @@ module.exports = async function handler(req, res) {
     const userId = await ai.authUser(req, supa);
     await ai.requireAdmin(supa, userId);
 
-    const { action = null, instructions = '', model = null, modelPdf = null, formatText = null, formatPdf = null, formatHtml = null, currentHtml = null, history = [] } = req.body || {};
+    const { action = null, instructions = '', model = null, modelPdf = null, formatText = null, formatPdf = null, formatHtml = null, currentHtml = null, history = [], dataMode = 'modify' } = req.body || {};
 
     // ── Acțiune: adu un material din baza de date ca model (HTML sau PDF) ──
     if (action === 'fetch-model') {
@@ -115,7 +116,7 @@ module.exports = async function handler(req, res) {
     // al rubricii sau din șablonul standard inclus. Rubrici PDF → test structurat,
     // cu sursele PDF citite nativ de Claude.
     if (action === 'auto') {
-      const { category, subcategory = null, ctype = 'interactive', instructions: autoInstr = '' } = req.body || {};
+      const { category, subcategory = null, ctype = 'interactive', instructions: autoInstr = '', resultKind = 'auto' } = req.body || {};
       if (!category) return res.status(400).json({ error: 'Alege rubrica (categoria).' });
       let q = supa.from('content')
         .select('id, title, file_url, interactive_data, subcategory, content_type')
@@ -151,13 +152,40 @@ module.exports = async function handler(req, res) {
         }
         if (names.length < 2) return res.status(400).json({ error: 'Nu am putut folosi suficiente PDF-uri din rubrică (fiecare max ~2,5 MB).' });
 
+        // ── rezultat INTERACTIV (format standard) cu exerciții din PDF-uri ──
+        if (resultKind === 'interactive') {
+          let tpl = null;
+          try { tpl = fs.readFileSync(path.join(__dirname, '_lib', 'template-standard.html'), 'utf8').slice(0, 120000); } catch { /* n/a */ }
+          if (!tpl) return res.status(500).json({ error: 'Șablonul standard lipsește.' });
+          const lettersD = names.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
+          const planD = Array.from({ length: 8 }, (_, i) => `- Itemul ${i + 1} (dacă nu are figură) ← TESTUL ${lettersD[i % lettersD.length]}, un exercițiu ales aleatoriu.`).join('\n');
+          const sysD = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
+Primești ȘABLONUL HTML STANDARD al site-ului (test interactiv cu figuri și instrumente de desen) și ${names.length} subiecte PDF din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
+Construiește un TEST INTERACTIV NOU în ACELAȘI fișier-format ca șablonul, cu exercițiile preluate din PDF-uri după plan:
+${planD}
+Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente de desen, bara de scor, MATE_SCORE). FIGURILE din șablon NU se modifică deloc; itemii cu figură rămân ai șablonului. REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}
+Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
+          blocksA.push({ type: 'text', text: `ȘABLONUL STANDARD:\n${tpl}\n\nConstruiește acum testul interactiv.${autoInstr.trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+          const rD = await claude.chatClaude({ system: sysD, messages: [{ role: 'user', content: blocksA }], maxTokens: 24000 });
+          await ai.logUsage(supa, userId, 'ai-exercise-agent', rD.usage);
+          let hOut = String(rD.text || '');
+          const fD = hOut.match(/```(?:html)?\s*([\s\S]*?)```/i); if (fD) hOut = fD[1];
+          const sD = hOut.search(/<!doctype html|<html[\s>]/i); const eD = hOut.lastIndexOf('</html>');
+          if (sD !== -1 && eD > sD) hOut = hOut.slice(sD, eD + 7);
+          hOut = hOut.trim();
+          const tplSvgsD = tpl.match(/<svg[\s\S]*?<\/svg>/gi) || [];
+          if (tplSvgsD.length) { let k = 0; hOut = hOut.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (k < tplSvgsD.length ? tplSvgsD[k++] : m)); }
+          if (sD === -1 || hOut.length < 600) return res.status(502).json({ error: 'Nu am obținut un fișier interactiv valid din PDF-uri. Mai încearcă.' });
+          return res.status(200).json({ html: hOut, provider: rD.provider, combinedFrom: names, template: 'șablonul standard' });
+        }
+
         const lettersP = names.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
         const planP = Array.from({ length: 10 }, (_, i) => `- Itemul ${i + 1} ← TESTUL ${lettersP[i % lettersP.length]}, itemul nr. ${1 + Math.floor(Math.random() * 5)} din el (sau alt item al aceluiași test).`).join('\n');
         const sysPdf = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
 Primești ${names.length} teste PDF existente din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
 Construiește URMĂTORUL test al rubricii (nr. ${rows.length + 1}) prin COMBINARE, după PLANUL DE MAI JOS (tras la sorți pe server — respectă-l întocmai, ca generările succesive să fie DIFERITE):
 ${planP}
-Pentru fiecare poziție: COPIAZĂ itemul indicat (enunț, tip, structură) și SCHIMBĂ numerele/valorile sau notațiile (rezultate recalculate corect; valorile noi să DIFERE de sursă). Păstrează structura și baremul tipic rubricii.
+Pentru fiecare poziție: COPIAZĂ itemul indicat (enunț, tip, structură). REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)} Păstrează structura și baremul tipic rubricii.
 Răspunde STRICT cu UN obiect JSON valid (fără alt text):
 { "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] }
 Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ cu backslash dublu. Verifică-ți calculele.`;
@@ -172,6 +200,38 @@ Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ 
         exP.title = exP.title || `Test ${rows.length + 1} · ${category}${subcategory ? ' / ' + subcategory : ''}`;
         exP.output = 'pdf';
         return res.status(200).json({ exercise: exP, provider: rP.provider, combinedFrom: names });
+      }
+
+      // ── rubrici interactive → SUBIECT PDF (test structurat) la cerere ──
+      if (ctype === 'interactive' && resultKind === 'exam') {
+        const srcTexts = [];
+        for (const r of shuffled) {
+          if (srcTexts.length >= 5) break;
+          try {
+            if (r.interactive_data?.exercise) { srcTexts.push({ title: r.title, text: JSON.stringify(r.interactive_data.exercise).slice(0, 5000) }); continue; }
+            const { bucket, filePath } = parsePath(r.file_url);
+            const { data: blob } = await supa.storage.from(bucket).download(filePath);
+            if (!blob) continue;
+            const raw = Buffer.from(await blob.arrayBuffer()).toString('utf8');
+            const t = raw.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            if (t.length > 200) srcTexts.push({ title: r.title, text: t.slice(0, 5000) });
+          } catch { /* ignorată */ }
+        }
+        if (srcTexts.length < 2) return res.status(400).json({ error: 'Prea puține surse utilizabile în rubrică.' });
+        const lettersE = srcTexts.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
+        const planE = Array.from({ length: 10 }, (_, i) => `- Itemul ${i + 1} ← TESTUL ${lettersE[i % lettersE.length]}, un exercițiu ales aleatoriu.`).join('\n');
+        const sysE = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
+Primești ${srcTexts.length} teste din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”. Construiește un SUBIECT DE EXAMEN NOU prin combinare, după plan:
+${planE}
+REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}
+Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] } (itemii cu răspuns liber: fără "options", "answer" text; LaTeX cu backslash dublu).`;
+        const blkE = srcTexts.map((x, i) => `=== TESTUL ${String.fromCharCode(65 + i)}: ${x.title} ===\n${x.text}`).join('\n\n');
+        const rE = await claude.chatClaude({ system: sysE, messages: [{ role: 'user', content: `${blkE}\n\nConstruiește subiectul acum.${autoInstr.trim() ? ` INSTRUCȚIUNI: ${String(autoInstr).slice(0, 3000)}` : ''} #${Math.random().toString(36).slice(2, 8)}` }], maxTokens: 9000 });
+        await ai.logUsage(supa, userId, 'ai-exercise-agent', rE.usage);
+        const exE = normalize(claude.extractJson(rE.text));
+        if (!exE) return res.status(502).json({ error: 'Nu am obținut un subiect valid. Mai încearcă.' });
+        exE.output = 'pdf';
+        return res.status(200).json({ exercise: exE, provider: rE.provider, combinedFrom: srcTexts.map((x) => x.title) });
       }
 
       // ── Rubrici INTERACTIVE → FORMATUL STANDARD (figuri + desen) ──
@@ -215,7 +275,7 @@ ${planI}
 
 Reguli:
 - COPIAZĂ ÎNTOCMAI tot ce nu ține de conținutul itemilor: CSS-ul complet, TOT JavaScript-ul, instrumentele de desen, structura pe subiecte, bara de scor — NIMIC eliminat sau simplificat;
-- pentru pozițiile din plan: COPIAZĂ itemul indicat și schimbă numerele/notațiile, cu rezultatele recalculate corect; valorile noi să DIFERE și de sursă, și de șablon;
+- pentru pozițiile din plan: COPIAZĂ itemul indicat; REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)};
 - același număr de itemi și aceeași structură (subiecte, punctaje) ca șablonul;
 - FIGURILE/DESENELE (SVG, canvas) NU SE MODIFICĂ DELOC — rămân EXACT cele din șablon, cu aceleași etichete și valori (oricum vor fi restaurate programatic din șablon, deci orice modificare a lor e inutilă și greșită);
 - itemii CU figură rămân cei ai șablonului: enunț, valori și notații consistente cu figura, cel mult mici reformulări care NU contrazic figura; combini din celelalte teste DOAR itemii FĂRĂ figură;
@@ -276,7 +336,8 @@ Reguli stricte:
 - Păstrează (sau adaugă, dacă lipsește) raportarea scorului: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*').
 - Un singur fișier: CSS și JS inline sau din CDN (păstrează CDN-urile șablonului, ex. KaTeX).
 - Răspunsurile corecte trebuie să fie corecte matematic; verifică-ți calculele.
-- Instrucțiunile adminului au prioritate absolută.`;
+- Instrucțiunile adminului au prioritate absolută.
+- REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}`;
 
       const blocksH = [];
       if (modelPdf) {
@@ -342,7 +403,8 @@ Reguli:
 - La grilă: exact 4 variante, "answer" = indexul corect (0–3), distribuit aleatoriu.
 - La etape: răspunsuri scurte, verificabile prin comparație de text.
 - Numărul de itemi: ca în model sau conform instrucțiunilor.
-- Generările repetate trebuie să DIFERE (alte valori, alt context).`;
+- Generările repetate trebuie să DIFERE (alte valori, alt context).
+- REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}`;
 
     // Conversație: instrucțiunile anterioare (context), apoi mesajul curent
     const past = (Array.isArray(history) ? history : []).slice(-6).map((m) => ({

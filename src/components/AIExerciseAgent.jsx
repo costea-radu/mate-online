@@ -12,6 +12,8 @@ import { useState, useEffect, useRef } from 'react';
 import { aiClient } from '../lib/aiClient';
 import { supabase } from '../lib/supabase';
 import { renderExercise, renderPrintDoc } from '../lib/exerciseRender';
+import { authHeaders } from '../lib/api';
+import { combineExamPdfs, fetchPdfSources } from '../lib/pdfCombine';
 
 const inp = { border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.9rem', width: '100%', marginTop: 4, boxSizing: 'border-box' };
 const ta = { ...inp, fontFamily: 'inherit', resize: 'vertical' };
@@ -51,6 +53,9 @@ export default function AIExerciseAgent({ box }) {
   const [autoKey, setAutoKey] = useState('');
   const [autoInstr, setAutoInstr] = useState('');
   const [autoBusy, setAutoBusy] = useState(false);
+  const [autoResult, setAutoResult] = useState('auto'); // auto | interactive | exam
+  const [dataMode, setDataMode] = useState('modify');   // keep | modify
+  const [combineMsg, setCombineMsg] = useState(null);
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -116,12 +121,49 @@ export default function AIExerciseAgent({ box }) {
     finally { setPickerBusy(false); }
   }
 
+  async function getUrlFor(row) {
+    if (row.is_free) return row.file_url;
+    const res = await fetch('/api/get-file-url', { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ contentId: row.id }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.error || 'URL indisponibil');
+    return d.url;
+  }
+
+  // COMBINARE EXACTĂ (vectorială, fără AI) din PDF-urile rubricii selectate:
+  // exercițiile sunt decupate din fișierele-sursă și recompuse identic.
+  async function combineExactRubric() {
+    const r = rubrics.find((x) => `${x.category}||${x.subcategory || ''}||${x.ctype}` === autoKey);
+    if (!r || r.ctype !== 'pdf') { setError('Alege o rubrică PDF pentru combinarea exactă.'); return; }
+    setAutoBusy(true); setError(null); setMsg(null); setCombineMsg('Caut subiectele rubricii…');
+    try {
+      let q = supabase.from('content').select('id, title, file_url, is_free, subcategory')
+        .eq('content_type', 'pdf').eq('category', r.category).limit(60);
+      if (r.subcategory) q = q.eq('subcategory', r.subcategory);
+      const { data } = await q;
+      const rows = (data || []).filter((x) => !['bareme', 'capitole'].includes(x.subcategory || ''));
+      if (rows.length < 2) throw new Error('Rubrica are prea puține PDF-uri pentru combinare (minim 2).');
+      const sources = await fetchPdfSources(rows, getUrlFor, { max: 5, onProgress: setCombineMsg });
+      if (sources.length < 2) throw new Error('Nu am putut descărca suficiente subiecte-sursă.');
+      const res = await combineExamPdfs(sources, { onProgress: setCombineMsg });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([res.bytes], { type: 'application/pdf' }));
+      a.download = `subiect_combinat_${slug(r.category + (r.subcategory ? '-' + r.subcategory : ''))}.pdf`;
+      a.click(); URL.revokeObjectURL(a.href);
+      sessionStorage.setItem('agent_prefill_pdf', JSON.stringify({
+        form: { title: `Subiect combinat · ${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}`, description: 'Combinare exactă din subiectele site-ului (fără AI) · ' + res.sources.join('; ') },
+      }));
+      setCombineMsg('✅ PDF combinat descărcat (redactare identică, fără AI). Formularul «Adaugă PDF» e precompletat — atașează fișierul descărcat.');
+      setChat((c) => [...c, { role: 'assistant', content: `📎 Combinare exactă pentru „${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}”: ${res.report.length} exerciții preluate identic din: ${res.sources.join('; ')}.` }]);
+    } catch (e) { setError(e.message); setCombineMsg(null); }
+    finally { setAutoBusy(false); }
+  }
+
   async function runAuto() {
     const r = rubrics.find((x) => `${x.category}||${x.subcategory || ''}||${x.ctype}` === autoKey);
     if (!r) { setError('Alege rubrica pentru automatizare.'); return; }
     setAutoBusy(true); setError(null); setMsg(null);
     try {
-      const resp = await aiClient.exerciseAgent({ action: 'auto', category: r.category, subcategory: r.subcategory, ctype: r.ctype, instructions: autoInstr });
+      const resp = await aiClient.exerciseAgent({ action: 'auto', category: r.category, subcategory: r.subcategory, ctype: r.ctype, instructions: autoInstr, resultKind: autoResult, dataMode });
       setProvider(resp.provider);
       setEditing(false); setSavedId(null); setSavedMeta(null);
       const rubEt = `${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}`;
@@ -192,6 +234,7 @@ export default function AIExerciseAgent({ box }) {
     try {
       const r = await aiClient.exerciseAgent({
         instructions: text,
+        dataMode,
         model: ex ? JSON.stringify(ex) : (modelFile?.text || null),
         modelPdf: modelFile?.pdf || null,
         formatText: formatFile?.text || null,
@@ -355,13 +398,36 @@ export default function AIExerciseAgent({ box }) {
               ))}
             </select>
           </label>
+          <label style={{ ...lbl, minWidth: 190 }}>Rezultatul
+            <select value={autoResult} onChange={(e) => setAutoResult(e.target.value)} style={inp}>
+              <option value="auto">După rubrică (implicit)</option>
+              <option value="interactive">Test interactiv (format standard)</option>
+              <option value="exam">Subiect de examen (PDF)</option>
+            </select>
+          </label>
           <label style={{ ...lbl, flex: 2, minWidth: 260 }}>Instrucțiuni (opțional)
             <input value={autoInstr} onChange={(e) => setAutoInstr(e.target.value)}
               placeholder="ex: dificultate medie; grile la Subiectul I; accent pe fracții…" style={inp} />
           </label>
           <button className="btn btn-primary" onClick={runAuto} disabled={autoBusy || !autoKey} style={{ fontSize: '.85rem' }}>
-            {autoBusy ? 'Combin testele… (~30-60s)' : '⚙️ Generează testul următor'}
+            {autoBusy ? 'Lucrez… (~30-60s)' : '⚙️ Generează (AI)'}
           </button>
+          <button className="btn btn-outline" onClick={combineExactRubric}
+            disabled={autoBusy || !autoKey || !autoKey.endsWith('||pdf')} title="Doar pentru rubrici PDF"
+            style={{ fontSize: '.85rem' }}>
+            📎 Combinare exactă (fără AI)
+          </button>
+          <div style={{ flexBasis: '100%', display: 'flex', gap: 14, fontSize: '.78rem', color: 'var(--text-light)', flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', gap: 6, cursor: 'pointer' }}>
+              <input type="radio" checked={dataMode === 'keep'} onChange={() => setDataMode('keep')} />
+              <span><strong>păstrează datele problemelor</strong></span>
+            </label>
+            <label style={{ display: 'flex', gap: 6, cursor: 'pointer' }}>
+              <input type="radio" checked={dataMode === 'modify'} onChange={() => setDataMode('modify')} />
+              <span><strong>modifică numerele și notațiile</strong> (verifică problemele — poate greși!)</span>
+            </label>
+          </div>
+          {combineMsg && <div style={{ flexBasis: '100%', fontSize: '.8rem', color: combineMsg.startsWith('✅') ? '#1e7e34' : 'var(--text-muted)' }}>{combineMsg}</div>}
           <span style={{ fontSize: '.72rem', color: 'var(--text-muted)', flexBasis: '100%' }}>
             Ia câte un exercițiu din teste diferite, alese la întâmplare, și schimbă numerele/notațiile.
             Rubricile interactive ies în FORMATUL STANDARD (figuri geometrice + instrumente de desen); rubricile PDF ies ca test structurat, de trimis la «Adaugă PDF».
