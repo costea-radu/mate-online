@@ -46,7 +46,10 @@ module.exports = async function handler(req, res) {
       try {
         const { data: rowsAll } = await supa.from('content')
           .select('title, file_url, interactive_data, content_type, subcategory')
-          .in('content_type', ['interactive', 'pdf']).eq('category', category).limit(80);
+          .in('content_type', ['interactive', 'pdf']).eq('category', category)
+          // recente întâi + limită mare, ca sursele să acopere TOATE subcategoriile
+          // (Simulări, Variante Date, capitole…), nu doar primele 80 nesortate.
+          .order('created_at', { ascending: false }).limit(300);
         const rows = (rowsAll || []).filter((r) => (r.subcategory || '') !== 'bareme');
           const stratify = (arr) => {
             const g = {};

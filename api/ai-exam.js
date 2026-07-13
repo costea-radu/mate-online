@@ -67,10 +67,14 @@ const EXAMS = {
     durationMin: 120,
     query: 'evaluare națională matematică clasa 8 exercițiu grilă',
     special: 'en',
+    // Subcategoriile-sursă din care se COMBINĂ itemii (nu doar Simulări):
+    // Simulări + Variante Date + Modele + Exerciții pe Subiecte.
+    sourceSubs: ['simulari', 'variante', 'exercitii-subiecte'],
   },
   'bac-tehnologic': {
     title: 'Bacalaureat · Matematică M_tehnologic',
     category: 'bacalaureat', profile: 'tehnologic', durationMin: 180,
+    sourceSubs: ['simulari', 'variante', 'teste-antrenament', 'exercitii'],
     query: 'bacalaureat matematică tehnologic exercițiu',
     programa: 'Programa M_tehnologic (cea mai accesibilă filieră): mulțimi de numere, funcții elementare, progresii, trigonometrie de bază, numere complexe (simplu), geometrie analitică simplă, elemente de analiză (șiruri, limite simple, derivate), matematici financiare, statistică și probabilități.',
     structure: `Structură oficială:
@@ -81,6 +85,7 @@ const EXAMS = {
   'bac-stiinte': {
     title: 'Bacalaureat · Matematică M_științele-naturii',
     category: 'bacalaureat', profile: 'stiinte-naturii', durationMin: 180,
+    sourceSubs: ['simulari', 'variante', 'teste-antrenament', 'exercitii'],
     query: 'bacalaureat matematică științele naturii exercițiu',
     programa: 'Programa M_științe-ale-naturii (nivel intermediar): funcții, progresii, trigonometrie, numere complexe, geometrie analitică, combinatorică și binomul lui Newton, analiză matematică (limite, continuitate, derivate, primitive și integrale — nivel mediu), probabilități.',
     structure: `Structură oficială:
@@ -91,6 +96,7 @@ const EXAMS = {
   'bac-mate-info': {
     title: 'Bacalaureat · Matematică M_mate-info',
     category: 'bacalaureat', profile: 'mate-info', durationMin: 180,
+    sourceSubs: ['simulari', 'variante', 'teste-antrenament', 'exercitii'],
     query: 'bacalaureat matematică mate-info exercițiu dificil',
     programa: 'Programa M_mate-info (cea mai dificilă filieră): structuri algebrice (grupuri, inele, corpuri), matrice și determinanți, sisteme, polinoame, numere complexe, combinatorică, analiză matematică riguroasă (șiruri, limite, continuitate, derivabilitate, studiul funcțiilor, primitive, integrala definită și aplicații).',
     structure: `Structură oficială:
@@ -222,8 +228,14 @@ module.exports = async function handler(req, res) {
     try {
       let qSrc = supa.from('content')
         .select('title, file_url, interactive_data, content_type, subcategory, profile')
-        .in('content_type', ['interactive', 'pdf']).eq('category', cfg.category).limit(80);
+        .in('content_type', ['interactive', 'pdf']).eq('category', cfg.category)
+        // cele mai recente întâi + limită mare: altfel un eșantion nesortat de 80
+        // de rânduri sărea peste Variante Date (rămâneau doar Simulările).
+        .order('created_at', { ascending: false }).limit(300);
       if (cfg.profile) qSrc = qSrc.eq('profile', cfg.profile);
+      // sursele COMBINĂRII: Simulări + Variante Date + Modele (+ celelalte teste),
+      // ca itemii să vină din mai multe subcategorii, nu doar din Simulări.
+      if (Array.isArray(cfg.sourceSubs) && cfg.sourceSubs.length) qSrc = qSrc.in('subcategory', cfg.sourceSubs);
       const { data: rowsAll } = await qSrc;
       // separăm strict categoria/profilul; excludem baremele și capitolele teoretice
       const rows = (rowsAll || []).filter((r) => (r.subcategory || '') !== 'bareme');

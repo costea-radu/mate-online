@@ -77,9 +77,22 @@ export default function AIExerciseAgent({ box }) {
   // cu profilurile BAC separate; numărul de materiale vine din baza de date.
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from('content')
-        .select('category, subcategory, profile, content_type')
-        .in('content_type', ['interactive', 'pdf']).limit(3000);
+      // Supabase întoarce implicit maxim 1000 rânduri pe cerere — .limit(3000) NU
+      // ocolește plafonul. Peste 1000 de materiale, rubrici întregi (ex. Variante
+      // Date, Capitole) ieșeau cu „0 fișiere". Citim în pagini ca să numărăm TOT.
+      const PAGE = 1000;
+      let data = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data: page, error } = await supabase.from('content')
+          .select('category, subcategory, profile, content_type')
+          .in('content_type', ['interactive', 'pdf'])
+          .order('created_at', { ascending: false })
+          .range(from, from + PAGE - 1);
+        if (error) break;
+        const rows = page || [];
+        data = data.concat(rows);
+        if (rows.length < PAGE) break;
+      }
       // potrivire TOLERANTĂ a subcategoriilor (diacritice/spații/cratime diferite
       //  în datele mai vechi) — fișierele încărcate apar întotdeauna la numărătoare
       const normSub = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -199,11 +212,28 @@ export default function AIExerciseAgent({ box }) {
       const sources = await fetchPdfSources(stratifyBySubcategory(rows), getUrlFor, { max: 5, onProgress: setCombineMsg, ordered: true });
       if (sources.length < 2) throw new Error('Nu am putut descărca suficiente subiecte-sursă.');
       const res = await combineExamPdfs(sources, { onProgress: setCombineMsg });
+      const blob = new Blob([res.bytes], { type: 'application/pdf' });
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([res.bytes], { type: 'application/pdf' }));
+      a.href = URL.createObjectURL(blob);
       a.download = `subiect_combinat_${slug(r.category + (r.subcategory ? '-' + r.subcategory : ''))}.pdf`;
       a.click(); URL.revokeObjectURL(a.href);
-      setCombineMsg('✅ PDF combinat descărcat (redactare identică, fără AI). Îl poți verifica și încărca manual unde vrei, prin «Adaugă PDF».');
+      // salvăm subiectul combinat exact și în „Testele și exercițiile mele"
+      let savedNote = '';
+      if (blob.size < 15 * 1024 * 1024) {
+        try {
+          const b64 = await new Promise((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+            fr.onerror = reject; fr.readAsDataURL(blob);
+          });
+          await aiClient.saveLibraryItem({
+            kind: 'pdf', title: `Subiect combinat · ${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}`,
+            category: r.category, topic: null, payload: { pdfBase64: b64, sources: res.sources },
+          });
+          savedNote = ' Salvat și în „Testele și exercițiile mele".';
+        } catch { /* biblioteca e opțională */ }
+      }
+      setCombineMsg('✅ PDF combinat descărcat (redactare identică, fără AI). Îl poți verifica și încărca manual unde vrei, prin «Adaugă PDF».' + savedNote);
       setChat((c) => [...c, { role: 'assistant', content: `📎 Combinare exactă pentru „${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}”: ${res.report.length} exerciții preluate identic din: ${res.sources.join('; ')}.` }]);
     } catch (e) { setError(e.message); setCombineMsg(null); }
     finally { setAutoBusy(false); }

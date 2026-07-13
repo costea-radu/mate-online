@@ -81,9 +81,11 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `subiect_combinat_${examType}.pdf`; a.click(); URL.revokeObjectURL(a.href);
-      // salvăm și în „Testele și exercițiile mele” (dacă nu e prea mare)
+      // salvăm și în „Testele și exercițiile mele”. Subiectele combinate din mai
+      // multe PDF-uri depășesc adesea 4 MB, deci vechea limită le sărea tăcut —
+      // o ridicăm la 15 MB și afișăm motivul dacă totuși nu s-au putut salva.
       let saved = '';
-      if (blob.size < 4 * 1024 * 1024) {
+      if (blob.size < 15 * 1024 * 1024) {
         try {
           const b64 = await new Promise((resolve, reject) => {
             const fr = new FileReader();
@@ -95,7 +97,9 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
             category: examType, topic: null, payload: { pdfBase64: b64, sources: r.sources },
           });
           saved = ' Salvat și în „Testele și exercițiile mele”.';
-        } catch { /* biblioteca e opțională */ }
+        } catch (e) { saved = ' (Nu s-a putut salva în „Testele și exercițiile mele”: ' + (e?.message || 'eroare') + '.)'; }
+      } else {
+        saved = ' (Prea mare pentru „Testele și exercițiile mele” — doar descărcat pe calculator.)';
       }
       setCombineMsg('✅ Subiect nou descărcat — exerciții combinate din: ' + r.sources.join('; ') + '. Redactare identică cu originalele (fără AI).' + saved);
       setCombineReport(r.report);
