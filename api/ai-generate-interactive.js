@@ -1,5 +1,5 @@
 // =====================================================================
-// api/ai-generate-interactive.js — generează un EXERCIȚIU INTERACTIV
+// api/ai-generate-interactive.js — generează un EXERCIȚIU INTERACTIV.
 // STRUCTURAT (listă de întrebări), ca să poată fi editat ca text (fără HTML)
 // și completat cu adăugare/ștergere de întrebări.
 // Body: { userId, category?, topic?, difficulty? }
@@ -60,12 +60,20 @@ module.exports = async function handler(req, res) {
         while (added) { added = false; for (const k of ks) { const it = g[k].pop(); if (it) { out.push(it); added = true; } } }
         return out;
     };
-        const pick = stratify(rows).slice(0, 4);
+        // Parcurgem TOATĂ coada stratificată: dacă un PDF nu are text extractibil
+        // (ex. scanat), încercăm următorul din aceeași subcategorie — altfel
+        // Variantele Date cădeau tăcut și rămâneau doar Simulările.
+        const queue = stratify(rows);
         const parts = [];
-        for (const r of pick) {
+        const covered = new Set();
+        for (const r of queue) {
+          const sub = r.subcategory || r.content_type || '';
+          if (parts.length >= 4 && covered.has(sub)) continue; // căutăm doar subcategorii lipsă
+          if (parts.length >= 6) break;
           try {
             if (r.interactive_data?.exercise) {
-              parts.push(`=== SURSA ${String.fromCharCode(65 + parts.length)}: ${r.title} ===\n${JSON.stringify(r.interactive_data.exercise).slice(0, 4000)}`);
+              parts.push(`=== SURSA ${String.fromCharCode(65 + parts.length)} (${sub}): ${r.title} ===\n${JSON.stringify(r.interactive_data.exercise).slice(0, 4000)}`);
+              covered.add(sub);
               continue;
             }
             const { bucket, filePath } = storagePath(r.file_url);
@@ -75,8 +83,8 @@ module.exports = async function handler(req, res) {
             const txt = (r.content_type === 'pdf' || /\.pdf(\?|$)/i.test(filePath))
               ? await pdfText(buf, 4000)
               : cutBarem(buf.toString('utf8')).replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 4000);
-            if (txt.length > 200) parts.push(`=== SURSA ${String.fromCharCode(65 + parts.length)} (${r.subcategory || r.content_type}): ${r.title} ===\n${txt}`);
-          } catch { /* sursă ignorată */ }
+            if (txt.length > 200) { parts.push(`=== SURSA ${String.fromCharCode(65 + parts.length)} (${sub}): ${r.title} ===\n${txt}`); covered.add(sub); }
+          } catch { /* sursă ignorată — trecem la următoarea */ }
         }
         if (parts.length >= 2) {
           srcBlock = parts.join('\n\n');

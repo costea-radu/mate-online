@@ -1,5 +1,5 @@
 // =====================================================================
-// api/ai-exam.js — generează un MODEL de test de examen (structură oficială)
+// api/ai-exam.js — generează un MODEL de test de examen (structura oficială)
 // Body: { userId, examType }
 //   examType: 'evaluare-nationala' | 'bac-tehnologic' | 'bac-stiinte' | 'bac-mate-info'
 // Răspuns: { exam: {...structură cu subiecte, itemi, punctaje, barem} }
@@ -67,9 +67,9 @@ const EXAMS = {
     durationMin: 120,
     query: 'evaluare națională matematică clasa 8 exercițiu grilă',
     special: 'en',
-    // Subcategoriile-sursă din care se COMBINĂ itemii (nu doar Simulări):
-    // Simulări + Variante Date + Modele + Exerciții pe Subiecte.
-    sourceSubs: ['simulari', 'variante', 'exercitii-subiecte'],
+    // Subcategoriile-sursă din care se COMBINĂ itemii — exact ca rubrica
+    // „Simulări + Variante Date (mix)” a agentului Claude.
+    sourceSubs: ['simulari', 'variante'],
   },
   'bac-tehnologic': {
     title: 'Bacalaureat · Matematică M_tehnologic',
@@ -126,6 +126,7 @@ ${EN_SPEC}
 Reguli:
 - ${FIDELITY}
 - COPIAZĂ itemii din TESTELE REALE DIN SITE (dacă sunt furnizate) sau din exercițiile-model: păstrează enunțul și structura itemului-sursă, schimbă DOAR numerele/notațiile și recalculează rezultatul și variantele. COMBINĂ sursele: itemul 1 preluat dintr-un test, itemul 2 din ALT test, itemul 3 din altul (ciclic). Creezi un item complet nou NUMAI dacă sursele nu acoperă poziția respectivă.
+- SUBIECTUL I este EXCLUSIV de aritmetică și algebră — NICIUN item de geometrie la Subiectul I (fără figuri, segmente, unghiuri, triunghiuri, patrulatere, cerc, arii, perimetre, volume, corpuri geometrice). Geometria apare NUMAI la Subiectul al II-lea și la problemele III.4–III.6. Dacă itemul-sursă indicat pentru o poziție de la Subiectul I este de geometrie, alege în loc un item de algebră.
 - La grilă (Subiectele I și II): fiecare item are exact 4 variante (I.6 are 2: „Adevărat"/„Fals"), un singur răspuns corect, iar variantele greșite trebuie să fie plauzibile.
 - DISTRIBUIE răspunsul corect aleatoriu între a), b), c) și d) de la un item la altul (NU pune mereu „a" corect). Aproximativ un sfert din itemi să aibă corect pe fiecare literă.
 - La Subiectul III: dă rezolvare completă, pas cu pas, pentru fiecare subpunct a) și b).
@@ -225,6 +226,7 @@ module.exports = async function handler(req, res) {
     //    itemul 1 preluat dintr-un test, itemul 2 din altul, cu numere noi. ──
     let siteTests = '';
     let combinePlan = '';
+    let combinedFrom = [];
     try {
       let qSrc = supa.from('content')
         .select('title, file_url, interactive_data, content_type, subcategory, profile')
@@ -249,12 +251,23 @@ module.exports = async function handler(req, res) {
       while (added) { added = false; for (const k of ks) { const it = g[k].pop(); if (it) { out.push(it); added = true; } } }
       return out;
     };
-      const pick = stratify(rows).slice(0, 5);
+      // Parcurgem TOATĂ coada stratificată (nu doar primele 5 rânduri): dacă un
+      // PDF nu are text extractibil (ex. scanat), încercăm URMĂTORUL din aceeași
+      // subcategorie — altfel Variantele Date cădeau tăcut și rămâneau doar
+      // Simulările. Continuăm până acoperim TOATE subcategoriile-sursă.
+      const queue = stratify(rows);
       const parts = [];
-      for (const r of pick) {
+      const partSubs = [];       // subcategoria fiecărui TEST inclus (A, B, C…)
+      const partTitles = [];
+      const covered = new Set(); // subcategoriile deja reprezentate
+      for (const r of queue) {
+        const sub = r.subcategory || r.content_type || '';
+        if (parts.length >= 5 && covered.has(sub)) continue; // căutăm doar subcategorii lipsă
+        if (parts.length >= 7) break;
         try {
           if (r.interactive_data?.exercise) {
-            parts.push(`=== TESTUL ${String.fromCharCode(65 + parts.length)}: ${r.title} ===\n${JSON.stringify(r.interactive_data.exercise).slice(0, 4500)}`);
+            parts.push(`=== TESTUL ${String.fromCharCode(65 + parts.length)} (${sub}): ${r.title} ===\n${JSON.stringify(r.interactive_data.exercise).slice(0, 4500)}`);
+            partSubs.push(sub); partTitles.push(r.title); covered.add(sub);
             continue;
           }
           const { bucket, filePath } = storagePath(r.file_url);
@@ -263,22 +276,46 @@ module.exports = async function handler(req, res) {
           const buf = Buffer.from(await blob.arrayBuffer());
           let txt = '';
           if (r.content_type === 'pdf' || /\.pdf(\?|$)/i.test(filePath)) {
-            txt = await pdfText(buf, 4500); // subiecte PDF: antrenament / variante date / simulări
+            txt = await pdfText(buf, 4500); // subiecte PDF: variante date / simulări
           } else {
             txt = cutBarem(buf.toString('utf8')).replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
           }
-          if (txt.length > 200) parts.push(`=== TESTUL ${String.fromCharCode(65 + parts.length)} (${r.subcategory || r.content_type}): ${r.title} ===\n${txt.slice(0, 4500)}`);
-        } catch { /* sursă ignorată */ }
+          if (txt.length > 200) {
+            parts.push(`=== TESTUL ${String.fromCharCode(65 + parts.length)} (${sub}): ${r.title} ===\n${txt.slice(0, 4500)}`);
+            partSubs.push(sub); partTitles.push(r.title); covered.add(sub);
+          }
+        } catch { /* sursă ignorată — trecem la următoarea */ }
       }
       if (parts.length >= 2) {
         siteTests = parts.join('\n\n');
         // PLAN DE COMBINARE generat ALEATORIU pe server → fiecare generare
-        // combină alte teste și alți itemi (rezolvă „aceleași câteva teste”)
-        const letters = parts.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
-        combinePlan = Array.from({ length: 12 }, (_, i) => {
-          const L = letters[i % letters.length];
-          return `- Itemul ${i + 1} → copiază/adaptează din TESTUL ${L} itemul nr. ${1 + Math.floor(Math.random() * 5)} (dacă nu există, alt item din TESTUL ${L}).`;
-        }).join('\n');
+        // combină alte teste și alți itemi (rezolvă „aceleași câteva teste”).
+        // Literele alternează subcategoriile (Simulări ↔ Variante Date), ca
+        // itemii să fie un MIX real, nu preluați dintr-o singură subcategorie.
+        const bySub = {};
+        parts.forEach((_, i) => { (bySub[partSubs[i]] = bySub[partSubs[i]] || []).push(String.fromCharCode(65 + i)); });
+        const groups = Object.values(bySub).map((a) => a.sort(() => Math.random() - 0.5));
+        groups.sort(() => Math.random() - 0.5);
+        const letters = [];
+        for (let added = true; added;) { added = false; for (const g of groups) { const L = g.shift(); if (L) { letters.push(L); added = true; } } }
+        if (cfg.special === 'en') {
+          // poziții explicite pe subiecte — Subiectul I NUMAI algebră (fără geometrie)
+          const positions = [
+            ...Array.from({ length: 6 }, (_, i) => ({ label: `SUBIECTUL I, itemul ${i + 1}`, constraint: 'item de ARITMETICĂ/ALGEBRĂ (FĂRĂ geometrie), conform conținutului I.' + (i + 1) }),),
+            ...Array.from({ length: 6 }, (_, i) => ({ label: `SUBIECTUL al II-lea, itemul ${i + 1}`, constraint: 'item de GEOMETRIE, conform conținutului II.' + (i + 1) }),),
+            ...Array.from({ length: 6 }, (_, i) => ({ label: `SUBIECTUL al III-lea, problema ${i + 1}`, constraint: 'problemă cu rezolvare completă, conform conținutului III.' + (i + 1) }),),
+          ];
+          combinePlan = positions.map((p, i) => {
+            const L = letters[i % letters.length];
+            return `- ${p.label} → copiază/adaptează din TESTUL ${L} un ${p.constraint} (dacă TESTUL ${L} nu are un astfel de item, ia-l din alt test).`;
+          }).join('\n');
+        } else {
+          combinePlan = Array.from({ length: 12 }, (_, i) => {
+            const L = letters[i % letters.length];
+            return `- Itemul ${i + 1} → copiază/adaptează din TESTUL ${L} itemul nr. ${1 + Math.floor(Math.random() * 5)} (dacă nu există, alt item din TESTUL ${L}).`;
+          }).join('\n');
+        }
+        combinedFrom = parts.map((_, i) => `${partTitles[i]} [${partSubs[i]}]`);
       }
     } catch { /* fără combinare */ }
 
@@ -290,7 +327,8 @@ module.exports = async function handler(req, res) {
 PLAN DE COMBINARE — OBLIGATORIU, poziție cu poziție (a fost tras la sorți pe server; respectă-l întocmai):
 ${combinePlan}
 
-Pentru FIECARE poziție: COPIAZĂ itemul indicat (enunț, tip, structură, stil). ${modeLine(dataMode)} NU inventa itemi în alt stil. Structura, punctajele și numărul de itemi rămân EXACT cele cerute mai sus.`;
+Pentru FIECARE poziție: COPIAZĂ itemul indicat (enunț, tip, structură, stil). ${modeLine(dataMode)} NU inventa itemi în alt stil. Structura, punctajele și numărul de itemi rămân EXACT cele cerute mai sus.
+Sursele provin din subcategorii diferite (marcate în paranteză la fiecare TEST — ex. „simulari”, „variante”): testul final trebuie să fie un MIX REAL, cu itemi preluați din TOATE subcategoriile prezente, nu doar dintr-una.`;
     }
 
     const { text, usage } = await ai.chat({
@@ -312,7 +350,7 @@ Pentru FIECARE poziție: COPIAZĂ itemul indicat (enunț, tip, structură, stil)
       oficiu: 10,
       subjects: Array.isArray(parsed.subjects) ? parsed.subjects : [],
     };
-    return res.status(200).json({ exam });
+    return res.status(200).json({ exam, combinedFrom });
   } catch (err) {
     console.error('ai-exam error:', err);
     return res.status(err.status || 500).json({ error: err.message || 'Eroare server', code: err.code || null });

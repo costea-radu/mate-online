@@ -56,6 +56,10 @@ export function renderQuiz(title, questions) {
   .exp{margin-top:6px;font-weight:400;color:#444;font-size:.86rem}
   button{background:#e8b931;color:#0f2b44;border:none;border-radius:10px;padding:11px 20px;font-weight:700;font-size:.95rem;cursor:pointer;margin-top:6px}
   .res{font-size:1.1rem;font-weight:800;margin:10px 0}
+  /* fracțiile KaTeX nu se mai taie sus: rândul crește cât formula + aer de
+     protecție deasupra (compensat cu margin negativ — spațierea nu se schimbă) */
+  .katex{display:inline-block;padding:.4em .05em .25em;margin:-.4em -.05em -.25em}
+  .katex-display .katex{display:block}
 </style></head><body>
   <h1>${esc(title || 'Exercițiu interactiv')}</h1>
   <div id="quiz">${qHtml}</div>

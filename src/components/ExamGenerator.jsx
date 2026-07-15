@@ -43,10 +43,13 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
   const [combineReport, setCombineReport] = useState(null);
 
   async function gen() {
-    setLoading(true); setError(null); setUpsell(false); setExam(null); setEditing(false); setPublishMsg(null);
+    setLoading(true); setError(null); setUpsell(false); setExam(null); setEditing(false); setPublishMsg(null); setCombineMsg(null); setCombineReport(null);
     try {
       const res = await aiClient.generateExam({ examType, instructions, dataMode });
       setExam(res.exam);
+      if (Array.isArray(res.combinedFrom) && res.combinedFrom.length) {
+        setCombineMsg('✅ Itemii au fost combinați din: ' + res.combinedFrom.join('; ') + '.');
+      }
       try { await aiClient.saveLibraryItem({ kind: 'exam', title: res.exam.title, category: examType, payload: { exam: res.exam } }); } catch { /* ignore */ }
     } catch (e) { setError(e.message); if (e.premium) setUpsell(true); }
     finally { setLoading(false); }
@@ -81,26 +84,17 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `subiect_combinat_${examType}.pdf`; a.click(); URL.revokeObjectURL(a.href);
-      // salvăm și în „Testele și exercițiile mele”. Subiectele combinate din mai
-      // multe PDF-uri depășesc adesea 4 MB, deci vechea limită le sărea tăcut —
-      // o ridicăm la 15 MB și afișăm motivul dacă totuși nu s-au putut salva.
+      // salvăm și în „Testele și exercițiile mele”. PDF-ul merge în Storage
+      // (bucket privat), nu ca base64 în tabel — API-ul Supabase respingea
+      // cererile JSON mari (eroare 413), de aceea subiectele „nu se salvau”.
       let saved = '';
-      if (blob.size < 15 * 1024 * 1024) {
-        try {
-          const b64 = await new Promise((resolve, reject) => {
-            const fr = new FileReader();
-            fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
-            fr.onerror = reject; fr.readAsDataURL(blob);
-          });
-          await aiClient.saveLibraryItem({
-            kind: 'pdf', title: `Subiect combinat · ${EXAM_TYPES.find((t) => t.id === examType)?.label || examType}`,
-            category: examType, topic: null, payload: { pdfBase64: b64, sources: r.sources },
-          });
-          saved = ' Salvat și în „Testele și exercițiile mele”.';
-        } catch (e) { saved = ' (Nu s-a putut salva în „Testele și exercițiile mele”: ' + (e?.message || 'eroare') + '.)'; }
-      } else {
-        saved = ' (Prea mare pentru „Testele și exercițiile mele” — doar descărcat pe calculator.)';
-      }
+      try {
+        await aiClient.savePdfLibraryItem({
+          title: `Subiect combinat · ${EXAM_TYPES.find((t) => t.id === examType)?.label || examType}`,
+          category: examType, blob, sources: r.sources,
+        });
+        saved = ' Salvat și în „Testele și exercițiile mele”.';
+      } catch (e) { saved = ' (Nu s-a putut salva în „Testele și exercițiile mele”: ' + (e?.message || 'eroare') + ')'; }
       setCombineMsg('✅ Subiect nou descărcat — exerciții combinate din: ' + r.sources.join('; ') + '. Redactare identică cu originalele (fără AI).' + saved);
       setCombineReport(r.report);
     } catch (e) { setError(e.message); setCombineMsg(null); }

@@ -662,13 +662,16 @@ function LibItem({ it, isTeacher, onRemove }) {
 
       {open && full && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
-          {full.kind === 'pdf' && full.payload?.pdfBase64 && (
-            <button className="btn btn-primary btn-sm" style={{ marginBottom: 8 }} onClick={() => {
-              const bin = atob(full.payload.pdfBase64);
-              const arr = new Uint8Array(bin.length);
-              for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-              const url = URL.createObjectURL(new Blob([arr], { type: 'application/pdf' }));
-              window.open(url, '_blank');
+          {full.kind === 'pdf' && (full.payload?.pdfPath || full.payload?.pdfBase64) && (
+            <button className="btn btn-primary btn-sm" style={{ marginBottom: 8 }} onClick={async () => {
+              // fereastra se deschide SINCRON (altfel browserul o blochează),
+              // apoi primește PDF-ul descărcat din Storage sau din base64 (vechi)
+              const w = window.open('', '_blank');
+              try {
+                const blob = await aiClient.getLibraryPdfBlob(full.payload);
+                const url = URL.createObjectURL(blob);
+                if (w) w.location = url; else window.open(url, '_blank');
+              } catch (e) { if (w) w.close(); setMsg('Eroare: ' + (e?.message || 'PDF indisponibil')); }
             }}>📄 Deschide PDF-ul</button>
           )}
 

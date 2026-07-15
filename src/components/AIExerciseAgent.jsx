@@ -218,21 +218,15 @@ export default function AIExerciseAgent({ box }) {
       a.download = `subiect_combinat_${slug(r.category + (r.subcategory ? '-' + r.subcategory : ''))}.pdf`;
       a.click(); URL.revokeObjectURL(a.href);
       // salvăm subiectul combinat exact și în „Testele și exercițiile mele"
+      // (PDF-ul merge în Storage — base64 în tabel era respins de API la >~1 MB)
       let savedNote = '';
-      if (blob.size < 15 * 1024 * 1024) {
-        try {
-          const b64 = await new Promise((resolve, reject) => {
-            const fr = new FileReader();
-            fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
-            fr.onerror = reject; fr.readAsDataURL(blob);
-          });
-          await aiClient.saveLibraryItem({
-            kind: 'pdf', title: `Subiect combinat · ${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}`,
-            category: r.category, topic: null, payload: { pdfBase64: b64, sources: res.sources },
-          });
-          savedNote = ' Salvat și în „Testele și exercițiile mele".';
-        } catch { /* biblioteca e opțională */ }
-      }
+      try {
+        await aiClient.savePdfLibraryItem({
+          title: `Subiect combinat · ${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}`,
+          category: r.category, blob, sources: res.sources,
+        });
+        savedNote = ' Salvat și în „Testele și exercițiile mele".';
+      } catch (e) { savedNote = ' (Nu s-a putut salva în „Testele și exercițiile mele": ' + (e?.message || 'eroare') + ')'; }
       setCombineMsg('✅ PDF combinat descărcat (redactare identică, fără AI). Îl poți verifica și încărca manual unde vrei, prin «Adaugă PDF».' + savedNote);
       setChat((c) => [...c, { role: 'assistant', content: `📎 Combinare exactă pentru „${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}”: ${res.report.length} exerciții preluate identic din: ${res.sources.join('; ')}.` }]);
     } catch (e) { setError(e.message); setCombineMsg(null); }

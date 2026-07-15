@@ -36,6 +36,12 @@ export function openPrintDocument(title, bodyHtml) {
   .item .body { flex: 1; }
   .pts { color: #666; font-size: 12px; white-space: nowrap; }
   .stmt { white-space: pre-wrap; line-height: 1.6; }
+  /* Formulele KaTeX nu se mai taie sus (numărătorul fracțiilor): fiecare
+     formulă devine un bloc propriu — rândul crește cât formula — și primește
+     aer de protecție deasupra, compensat cu margin negativ (spațierea
+     vizibilă rămâne neschimbată, dar nimic nu mai iese din cutia formulei). */
+  .katex { display: inline-block; padding: .4em .05em .25em; margin: -.4em -.05em -.25em; }
+  .katex-display .katex { display: block; }
   .barem-item { margin: 10px 0; padding: 10px 12px; background: #f7f9fc; border-radius: 8px; }
   .barem-item .ans { color: #1e7e34; font-weight: bold; }
   .opts { margin: 6px 0 2px 8px; }

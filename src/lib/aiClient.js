@@ -178,6 +178,52 @@ export const aiClient = {
     if (error) throw new Error(error.message);
     return data?.id || null;
   },
+  // Salvează un PDF (ex. subiect combinat exact) în bibliotecă: fișierul merge
+  // în Storage (bucket privat 'personal-pdfs'), în tabel rămâne doar calea.
+  // Base64 în payload NU merge pentru fișiere mari: API-ul Supabase respinge
+  // cererile JSON de peste ~1 MB cu eroarea 413 — de aceea „nu se salvau”.
+  async savePdfLibraryItem({ title, category = null, topic = null, blob, sources = [] }) {
+    const userId = await uid();
+    if (!userId) throw new Error('Trebuie să fii autentificat.');
+    if (blob.size > 24 * 1024 * 1024) throw new Error('PDF-ul e prea mare pentru bibliotecă (max 24 MB).');
+    const path = `${userId}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.pdf`;
+    const { error: upErr } = await supabase.storage.from('personal-pdfs')
+      .upload(path, blob, { contentType: 'application/pdf', upsert: false });
+    if (upErr) {
+      // instalări fără bucket: doar PDF-urile mici mai încap ca base64 în payload
+      if (blob.size <= 700 * 1024) {
+        const b64 = await new Promise((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+          fr.onerror = reject; fr.readAsDataURL(blob);
+        });
+        return this.saveLibraryItem({ kind: 'pdf', title, category, topic, payload: { pdfBase64: b64, sources } });
+      }
+      throw new Error(`Storage indisponibil (${upErr.message}). Rulează scriptul supabase/personal_pdfs_bucket.sql în Supabase → SQL Editor.`);
+    }
+    try {
+      return await this.saveLibraryItem({ kind: 'pdf', title, category, topic, payload: { pdfPath: path, bucket: 'personal-pdfs', sources } });
+    } catch (e) {
+      await supabase.storage.from('personal-pdfs').remove([path]).catch(() => {});
+      const hint = /check|constraint|kind/i.test(e.message) ? ' — rulează scriptul supabase/personal_pdfs_bucket.sql (permite kind=pdf).' : '';
+      throw new Error(e.message + hint);
+    }
+  },
+  // Descarcă PDF-ul unui element din bibliotecă (Storage sau base64 vechi) ca Blob.
+  async getLibraryPdfBlob(payload) {
+    if (payload?.pdfPath) {
+      const { data, error } = await supabase.storage.from(payload.bucket || 'personal-pdfs').download(payload.pdfPath);
+      if (error || !data) throw new Error(error?.message || 'PDF-ul nu a putut fi descărcat.');
+      return data;
+    }
+    if (payload?.pdfBase64) {
+      const bin = atob(payload.pdfBase64);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return new Blob([arr], { type: 'application/pdf' });
+    }
+    throw new Error('Elementul nu conține un PDF.');
+  },
   async updateLibraryScore(id, score, maxScore) {
     const { error } = await supabase.from('ai_personal_items')
       .update({ score, max_score: maxScore, completed_at: new Date().toISOString() }).eq('id', id);
@@ -203,6 +249,12 @@ export const aiClient = {
     return data;
   },
   async deleteLibraryItem(id) {
+    // dacă elementul are un PDF în Storage, îl ștergem și pe acela (best-effort)
+    try {
+      const { data } = await supabase.from('ai_personal_items').select('payload').eq('id', id).single();
+      const p = data?.payload;
+      if (p?.pdfPath) await supabase.storage.from(p.bucket || 'personal-pdfs').remove([p.pdfPath]);
+    } catch { /* ignorăm — ștergem măcar rândul */ }
     await supabase.from('ai_personal_items').delete().eq('id', id);
   },
 };
