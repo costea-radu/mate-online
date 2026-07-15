@@ -323,6 +323,15 @@ const SITE_MAP = `LINKURI INTERNE utile (folosește-le ca link-uri relative în 
 - Contul tău — rezultatele elevilor asociați, RAPORTUL AI pe subiecte, grupe și codul de asociere: /profil
 - Asistentul AI / generare de subiecte și exerciții: /profesor-virtual`;
 
+// Recomandare activă pentru ELEVI: testele și exercițiile interactive din site.
+const STUDENT_TIP = `RECOMANDARE ACTIVĂ (pentru elevi): când elevul cere ajutor la învățat, la exersat sau la pregătirea pentru examen/teză (ex. „vreau să învăț fracțiile", „cum mă pregătesc pentru Evaluare?", „dă-mi exerciții"), pe lângă explicația ta, RECOMANDĂ-I testele și exercițiile INTERACTIVE de pe site: spune-i că acolo se verifică pe loc, primește REZOLVĂRI IMEDIATE și EXPLICAȚII la fiecare întrebare, și vede instant ce a greșit. Dă link-ul intern potrivit (relativ):
+- Evaluare Națională (secțiunea „Teste Interactive"): /evaluare-nationala
+- Bacalaureat (pe profilul lui): /bacalaureat
+- Clasa lui (a 5-a … a 12-a): /clase/5 … /clase/12
+- Teste publicate de profesori: /biblioteca-utilizatorilor
+- Exerciții interactive generate pe loc, pe subiectul dorit: /profesor-virtual (tabul „Generează interactiv")
+Fă recomandarea natural, într-o singură frază sau două la finalul răspunsului, legată de subiectul cerut — nu transforma răspunsul în reclamă și nu o repeta la fiecare mesaj din aceeași conversație.`;
+
 // Persona pentru PROFESORI și PĂRINȚI (public adult, ton colegial).
 const MENTOR_PERSONA = `Ești „Asistentul AI" de pe ExamenMate, pentru PROFESORI și PĂRINȚI. Ești un coleg calm, clar și practic.
 Reguli:
@@ -335,7 +344,7 @@ Reguli:
 function systemFor(mode, ctxBlock, extra = '') {
   const mentor = mode === 'exams' || mode === 'students';
   const persona = mentor ? MENTOR_PERSONA : PERSONA;
-  const base = `${persona}\n\n=== MATERIALE DIN BAZA DE DATE (context RAG) ===\n${ctxBlock}\n=== SFÂRȘIT CONTEXT ===\n${mentor ? '\n' + SITE_MAP + '\n' : ''}`;
+  const base = `${persona}\n\n=== MATERIALE DIN BAZA DE DATE (context RAG) ===\n${ctxBlock}\n=== SFÂRȘIT CONTEXT ===\n${mentor ? '\n' + SITE_MAP + '\n' : '\n' + STUDENT_TIP + '\n'}`;
   const byMode = {
     assistant: 'Rol: asistent al platformei. Ajuți cu întrebări despre matematică ȘI despre folosirea site-ului (exerciții, abonament, rezolvări). Răspunsuri scurte și utile.',
     tutor: 'Rol: profesor. Explică pas cu pas, cu un exemplu scurt, apoi verifică înțelegerea printr-o întrebare. Încurajează elevul.',

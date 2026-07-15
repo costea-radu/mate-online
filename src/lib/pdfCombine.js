@@ -78,7 +78,12 @@ async function analyze(bytes) {
       const nt = normTxt(L.text);
       if (BAREM_N.some((k) => nt.includes(k)) || nt.startsWith('baremdeevaluare')) { baremAt = { p, y: L.y }; break; }
       if (/^SUBIECTUL/i.test(L.text) || nt.startsWith('subiectul')) {
-        const which = /III|3-?lea/i.test(L.text) ? 3 : (/II|2-?lea/i.test(L.text) ? 2 : 1);
+        // numărul subiectului se citește din textul NORMALIZAT (pdf.js sparge
+        // des literele: „I I - l e a”) și DOAR imediat după „subiectul(al)” —
+        // altfel „(30 de puncte)” de pe rândul Subiectului I era luat drept 3,
+        // iar geometria Subiectului II ajungea sub cheile Subiectului I.
+        const tail = nt.replace(/^subiectul(al)?/, '');
+        const which = /^(iii|3)/.test(tail) ? 3 : (/^(ii|2)/.test(tail) ? 2 : 1);
         marks.push({ p, y: L.y, kind: 'S', v: which });
       } else {
         const m = L.text.match(/^(?:\d+\s*p\.?\s*)?([1-6])\s*\.(?:\s|$)/);
@@ -92,6 +97,13 @@ async function analyze(bytes) {
   for (const mk of marks) {
     if (mk.kind === 'S') { curS = mk.v; expect = 1; seq.push({ ...mk }); }
     else if (curS && mk.v === expect) { seq.push({ ...mk, s: curS }); expect++; }
+  }
+  // GARANȚIE: subiectele trebuie să apară în ordine strict crescătoare (I → II → III).
+  // Dubluri sau ordine inversă = antete citite greșit → sursa e refuzată, ca un
+  // item de geometrie (S2) să nu poată ajunge niciodată sub cheile Subiectului I.
+  const sOrder = seq.filter((m) => m.kind === 'S').map((m) => m.v);
+  if (sOrder.length < 2 || !sOrder.every((v, i) => i === 0 || v > sOrder[i - 1])) {
+    throw new Error('structură de subiecte nerecunoscută');
   }
   // limita de sus a decupajului: la JUMĂTATEA distanței față de rândul de deasupra
   // (formulele înalte — fracții, radicali — nu mai sunt tăiate)
@@ -195,11 +207,39 @@ export async function combineExamPdfs(sources, { onProgress } = {}) {
   return { bytes: bytesOut, report, sources: idx.map((a) => a.label) };
 }
 
+// Verifică rapid dacă un PDF are structura oficială de subiect (minim 12 itemi
+// detectabili din textul PDF-ului) — scanările fără strat de text și capitolele
+// fără structură de examen sunt refuzate, ca să fie ÎNLOCUITE cu alt fișier.
+export async function probeExamPdf(bytes) {
+  await ensureLibs();
+  try {
+    const a = await analyze(bytes);
+    return Object.keys(a.regions).filter((k) => k.includes('.')).length >= 12;
+  } catch { return false; }
+}
+
 // Descarcă sursele PDF ale unei rubrici (listă de rânduri `content`).
-export async function fetchPdfSources(rows, getUrl, { max = 5, onProgress, ordered = false } = {}) {
-  const picked = (ordered ? [...rows] : [...rows].sort(() => Math.random() - 0.5)).slice(0, max);
+// NU se oprește la primele `max` rânduri: dacă un fișier pică (download,
+// mărime, structură), încearcă URMĂTORUL — altfel subcategorii întregi
+// (ex. Variante Date) cădeau tăcut și rămâneau doar Simulările.
+// Continuă până acoperă TOATE subcategoriile prezente (când se poate).
+export async function fetchPdfSources(rows, getUrl, { max = 5, onProgress, ordered = false, probe = null } = {}) {
+  const queue = ordered ? [...rows] : [...rows].sort(() => Math.random() - 0.5);
+  const allSubs = new Set(queue.map((r) => r.subcategory || ''));
+  // plafon pe subcategorie → mix ECHILIBRAT (nu 4 simulări + 1 variantă)
+  const perSubCap = Math.max(2, Math.ceil(max / Math.max(1, allSubs.size)));
+  const covered = new Set();
+  const perSub = {};
   const out = [];
-  for (const r of picked) {
+  let tried = 0;
+  for (const r of queue) {
+    const sub = r.subcategory || '';
+    if ((perSub[sub] || 0) >= perSubCap) continue;
+    if (out.length >= max && covered.has(sub)) {
+      if (covered.size >= allSubs.size) break;
+      continue; // mai căutăm doar subcategorii lipsă
+    }
+    if (out.length >= max + 2 || ++tried > Math.max(12, max * 4)) break;
     try {
       onProgress?.(`Descarc: ${r.title}…`);
       const url = await getUrl(r);
@@ -207,8 +247,14 @@ export async function fetchPdfSources(rows, getUrl, { max = 5, onProgress, order
       if (!resp.ok) continue;
       const buf = new Uint8Array(await resp.arrayBuffer());
       if (buf.length > 12 * 1024 * 1024) continue;
-      out.push({ label: r.title, bytes: buf });
-    } catch { /* sursă ignorată */ }
+      if (probe) {
+        onProgress?.(`Verific structura: ${r.title}…`);
+        if (!(await probe(buf))) continue; // fără structură de subiect → următorul
+      }
+      out.push({ label: `${r.title}${sub ? ` [${sub}]` : ''}`, bytes: buf, subcategory: sub });
+      covered.add(sub);
+      perSub[sub] = (perSub[sub] || 0) + 1;
+    } catch { /* sursă ignorată — încercăm următoarea */ }
   }
   return out;
 }

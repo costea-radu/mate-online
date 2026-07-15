@@ -13,7 +13,7 @@ import { aiClient } from '../lib/aiClient';
 import { supabase } from '../lib/supabase';
 import { renderExercise, renderPrintDoc } from '../lib/exerciseRender';
 import { authHeaders } from '../lib/api';
-import { combineExamPdfs, fetchPdfSources, stratifyBySubcategory } from '../lib/pdfCombine';
+import { combineExamPdfs, fetchPdfSources, stratifyBySubcategory, probeExamPdf } from '../lib/pdfCombine';
 
 const inp = { border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.9rem', width: '100%', marginTop: 4, boxSizing: 'border-box' };
 const ta = { ...inp, fontFamily: 'inherit', resize: 'vertical' };
@@ -200,17 +200,20 @@ export default function AIExerciseAgent({ box }) {
     if (!r || r.ctype !== 'pdf') { setError('Alege o rubrică PDF pentru combinarea exactă.'); return; }
     setAutoBusy(true); setError(null); setMsg(null); setCombineMsg('Caut subiectele rubricii…');
     try {
+      // ordonat + limită mare (eșantionul nesortat de 60 sărea subcategorii întregi)
       let q = supabase.from('content').select('id, title, file_url, is_free, subcategory')
-        .eq('content_type', 'pdf').eq('category', r.category).limit(60);
+        .eq('content_type', 'pdf').eq('category', r.category)
+        .order('created_at', { ascending: false }).limit(300);
       if (r.subcategory && String(r.subcategory).includes('+')) q = q.in('subcategory', String(r.subcategory).split('+'));
       else if (r.subcategory) q = q.eq('subcategory', r.subcategory);
       if (r.profile) q = q.eq('profile', r.profile);
       const { data } = await q;
       const rows = (data || []).filter((x) => (x.subcategory || '') !== 'bareme');
       if (rows.length < 2) throw new Error('Rubrica are prea puține PDF-uri pentru combinare (minim 2).');
-      // stratificat: un subiect din fiecare subcategorie (ex: Simulări + Variante Date)
-      const sources = await fetchPdfSources(stratifyBySubcategory(rows), getUrlFor, { max: 5, onProgress: setCombineMsg, ordered: true });
-      if (sources.length < 2) throw new Error('Nu am putut descărca suficiente subiecte-sursă.');
+      // stratificat: un subiect din fiecare subcategorie (ex: Simulări + Variante Date),
+      // cu verificarea structurii — un PDF nefolosibil e înlocuit cu următorul
+      const sources = await fetchPdfSources(stratifyBySubcategory(rows), getUrlFor, { max: 5, onProgress: setCombineMsg, ordered: true, probe: probeExamPdf });
+      if (sources.length < 2) throw new Error('Nu am putut descărca suficiente subiecte-sursă cu structură de examen.');
       const res = await combineExamPdfs(sources, { onProgress: setCombineMsg });
       const blob = new Blob([res.bytes], { type: 'application/pdf' });
       const a = document.createElement('a');

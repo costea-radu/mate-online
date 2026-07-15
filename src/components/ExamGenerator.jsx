@@ -10,7 +10,7 @@ import { aiClient } from '../lib/aiClient';
 import { printExam } from '../lib/examPrint';
 import { supabase } from '../lib/supabase';
 import { authHeaders } from '../lib/api';
-import { combineExamPdfs, fetchPdfSources, stratifyBySubcategory } from '../lib/pdfCombine';
+import { combineExamPdfs, fetchPdfSources, stratifyBySubcategory, probeExamPdf } from '../lib/pdfCombine';
 
 // separarea STRICTĂ a categoriilor: fiecare tip de examen combină doar propriile subiecte
 const EXAM_SOURCES = {
@@ -70,15 +70,21 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
     setCombineMsg('Caut subiectele-sursă ale categoriei…');
     try {
       const cfgS = EXAM_SOURCES[examType];
+      // ordonat + limită mare: interogarea veche lua un eșantion NESORTAT de 60
+      // de rânduri, în care Variantele Date lipseau des → combina doar Simulări
       let q = supabase.from('content').select('id, title, file_url, is_free, subcategory')
-        .eq('content_type', 'pdf').eq('category', cfgS.category).limit(60);
+        .eq('content_type', 'pdf').eq('category', cfgS.category)
+        .order('created_at', { ascending: false }).limit(300);
       if (cfgS.profile) q = q.eq('profile', cfgS.profile);
       const { data } = await q;
       const rows = (data || []).filter((r) => (r.subcategory || '') !== 'bareme');
       if (rows.length < 2) throw new Error('Categoria are prea puține subiecte PDF (minim 2 dintre: simulări, variante date + modele, exerciții pe subiecte, capitole).');
-      // stratificat: câte un subiect din FIECARE subcategorie (Simulări + Variante Date + …)
-      const sources = await fetchPdfSources(stratifyBySubcategory(rows), getUrlFor, { max: 5, onProgress: setCombineMsg, ordered: true });
-      if (sources.length < 2) throw new Error('Nu am putut descărca suficiente subiecte-sursă.');
+      // stratificat: câte un subiect din FIECARE subcategorie (Simulări, Variante
+      // Date + Modele, Exerciții pe Subiecte…), cu verificarea structurii: dacă un
+      // PDF nu poate fi folosit (scanat / fără structură), se ia URMĂTORUL din
+      // aceeași subcategorie — mixul e garantat, nu mai rămân doar Simulările.
+      const sources = await fetchPdfSources(stratifyBySubcategory(rows), getUrlFor, { max: 5, onProgress: setCombineMsg, ordered: true, probe: probeExamPdf });
+      if (sources.length < 2) throw new Error('Nu am putut descărca suficiente subiecte-sursă cu structură de examen.');
       const r = await combineExamPdfs(sources, { onProgress: setCombineMsg });
       const blob = new Blob([r.bytes.buffer ? r.bytes : new Uint8Array(r.bytes)], { type: 'application/pdf' });
       const a = document.createElement('a');
@@ -149,7 +155,7 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12, fontSize: compact ? '.78rem' : '.85rem', color: 'var(--text-light)' }}>
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
             <input type="radio" checked={dataMode === 'keep'} onChange={() => setDataMode('keep')} style={{ marginTop: 3 }} />
-            <span><strong>Păstrează datele problemelor</strong> — combinare exactă din PDF-urile site-ului, fără AI (redactare identică, zero greșeli)</span>
+            <span><strong>Păstrează datele problemelor</strong> — combinare exactă, fără AI, cu mix garantat din Simulări + Variante Date + Modele + celelalte subiecte ale categoriei (redactare identică, zero greșeli)</span>
           </label>
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
             <input type="radio" checked={dataMode === 'modify'} onChange={() => setDataMode('modify')} style={{ marginTop: 3 }} />
