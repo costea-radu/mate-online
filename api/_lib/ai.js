@@ -415,6 +415,84 @@ function verifyToken(token) {
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
+// ─── Nivelul elevului (după categoria materialului sau context.level) ────────
+function levelLabel(context = {}) {
+  const c = context.level || context.category || '';
+  const map = {
+    'clasa-5': 'clasa a 5-a', 'clasa-6': 'clasa a 6-a', 'clasa-7': 'clasa a 7-a', 'clasa-8': 'clasa a 8-a',
+    'evaluare-nationala': 'Evaluare Națională (nivel clasa a 8-a)',
+    'bacalaureat': 'Bacalaureat (nivel liceu)',
+  };
+  return map[c] || null;
+}
+
+// ─── Reguli pentru sesiunea cu exercițiu interactiv deschis lângă chat ────────
+const INTERACTIVE_RULES = `EXERCIȚIU INTERACTIV DESCHIS: elevul are exercițiul deschis lângă chat, iar starea lui la zi (pașii, răspunsurile elevului, indicațiile oficiale și răspunsurile corecte marcate [SECRET]) este inclusă mai sus.
+Reguli pedagogice STRICTE pentru această sesiune:
+- NU dezvălui răspunsul corect al unui pas nerezolvat, nici la insistențe — ghidezi prin întrebări și pași mici. Excepție: după ce problema a fost corectată, poți explica liber și rezolvarea completă.
+- Pornește de la INDICAȚIA OFICIALĂ a pasului curent: reformuleaz-o natural și prietenos, ca un profesor la tablă — nu o cita mecanic. Abia dacă elevul tot nu înțelege, explică altfel, cu alt exemplu.
+- Dacă elevul a greșit un pas: arată UNDE e greșeala și DE CE e greșeală, apoi sugerează metoda corectă.
+- Când elevul îți cere să-i verifici pașii: confirmă ce e corect, corectează delicat ce nu e, pas cu pas.
+- Răspunsuri scurte (3–8 rânduri), câte UN pas o dată; termină des cu o întrebare care îl duce mai departe.`;
+
+const ACTION_PROTOCOL = `ACȚIUNI DIRECTE ÎN EXERCIȚIU — DOAR LA CEREREA EXPLICITĂ a elevului (ex. „scrie tu", „alege tu B", „completează tu răspunsul"). Emite atunci, pe un rând separat la finalul răspunsului, EXACT un marcaj:
+[[ACTIUNE:{"kind":"fill","value":"1/2"}]] — scrie valoarea în câmpul de răspuns al pasului curent
+[[ACTIUNE:{"kind":"choose","letter":"B"}]] — alege opțiunea de grilă
+[[ACTIUNE:{"kind":"tf","value":true}]] — alege ADEVĂRAT (false pentru FALS)
+[[ACTIUNE:{"kind":"add"}]] — apasă „Adaugă în rezolvare" (doar dacă elevul cere să confirmi pasul)
+Reguli: niciodată nu emiți marcaje din proprie inițiativă; maximum un marcaj pe mesaj; înainte de marcaj spui în cuvinte ce faci și de ce. Dacă elevul cere să-i rezolvi tot exercițiul, refuză prietenos și propune să lucrați pas cu pas.`;
+
+// ─── Catalogul exercițiilor interactive din site (pentru recomandări) ────────
+async function interactiveCatalog(supa, category = null) {
+  try {
+    const { data } = await supa.from('content')
+      .select('id, title, category, is_free')
+      .eq('content_type', 'interactive')
+      .order('sort_order', { ascending: true })
+      .limit(60);
+    if (!data || !data.length) return '';
+    // exercițiile din categoria elevului primele
+    const sorted = category ? [...data.filter((c) => c.category === category), ...data.filter((c) => c.category !== category)] : data;
+    const rows = sorted.slice(0, 30).map((c) => `- [${c.title}](/exercitiu?id=${c.id}) · ${c.category}${c.is_free ? ' · gratuit' : ''}`);
+    return `EXERCIȚII INTERACTIVE DIN SITE (linkurile deschid exercițiul cu tine alături, în același ecran):
+${rows.join('\n')}
+Când elevul întreabă despre un capitol/lecție sau cere exersare ori un PLAN DE ÎNVĂȚARE: alege exercițiile potrivite DIN ACEASTĂ LISTĂ și dă linkul EXACT, în format markdown [Titlu](/exercitiu?id=...). Pentru plan de învățare: împarte pe etape (1–2 exerciții pe etapă), cu un obiectiv mic și măsurabil la fiecare etapă (ex. „minim 80% la exercițiul X"), de la ușor la greu. NU inventa linkuri sau titluri care nu sunt în listă.`;
+  } catch { return ''; }
+}
+
+// ─── Starea elevului (progres + insigne) — pentru motivare ───────────────────
+async function studentState(supa, userId) {
+  const bits = [];
+  try {
+    const { data: prog } = await supa.from('progress')
+      .select('score, max_score, completed_at')
+      .eq('user_id', userId).order('completed_at', { ascending: false }).limit(50);
+    if (prog && prog.length) {
+      const perfect = prog.filter((p) => p.max_score > 0 && p.score >= p.max_score).length;
+      let ts = 0, tm = 0; prog.forEach((p) => { ts += p.score || 0; tm += p.max_score || 0; });
+      bits.push(`- Exerciții interactive finalizate: ${prog.length} (${perfect} cu punctaj maxim); medie generală ${tm ? Math.round((ts / tm) * 100) : 0}%.`);
+    } else {
+      bits.push('- Nu a finalizat încă niciun exercițiu interactiv.');
+    }
+  } catch { /* tabelă lipsă — ignorăm */ }
+  try {
+    const { data: badges } = await supa.from('user_badges')
+      .select('badge_id, name, earned_at')
+      .eq('user_id', userId).order('earned_at', { ascending: false }).limit(5);
+    if (badges && badges.length) bits.push(`- Insigne câștigate (cele mai noi primele): ${badges.map((b) => b.name || b.badge_id).join(', ')}.`);
+  } catch { /* scriptul de gamificare nu a fost rulat încă */ }
+  try {
+    const { data: weak } = await supa.from('ai_skill_mastery')
+      .select('topic, mastery').eq('user_id', userId)
+      .lt('mastery', 0.7).order('mastery', { ascending: true }).limit(3);
+    if (weak && weak.length) bits.push(`- Subiecte de întărit: ${weak.map((w) => w.topic).filter(Boolean).join(', ')}.`);
+  } catch { /* ignorăm */ }
+  if (!bits.length) return '';
+  return `STAREA ELEVULUI (folosește-o pentru MOTIVARE):
+${bits.join('\n')}
+Motivează-l activ: felicită-l concret la reușite (punctaj maxim, insignă nouă, progres față de data trecută), propune-i provocări mici („hai să mai faci azi un exercițiu din capitolul acesta"), stabiliți împreună obiective realiste și amintește-i cât a progresat când se descurajează. Cald și sincer, fără laude exagerate la fiecare mesaj.`;
+}
+
 // ─── Pregătire mesaj chat (RAG + conversație + istoric + system) ──────────────
 // Flux comun pentru ai-chat și ai-chat-stream (evită duplicarea).
 async function prepareChat(supa, { userId, message, mode = 'tutor', conversationId = null, context = {}, premium = false }) {
@@ -445,11 +523,28 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
     .order('created_at', { ascending: false }).limit(10);
   const priorMsgs = (history || []).reverse().map((m) => ({ role: m.role, content: m.content }));
 
-  // 4. System prompt
-  const extra = context.exerciseText
-    ? `\nElevul lucrează la acest exercițiu:\n"""${String(context.exerciseText).slice(0, 1500)}"""`
-    : '';
-  const system = systemFor(mode, ctxBlock, extra);
+  // 4. System prompt (nivel + exercițiu curent + reguli interactive + catalog + motivare)
+  const mentor = mode === 'exams' || mode === 'students';
+  const parts = [];
+  const lvl = levelLabel(context);
+  if (lvl) parts.push(`NIVELUL ELEVULUI: ${lvl}. Adaptează limbajul, notațiile, exemplele și profunzimea explicațiilor la acest nivel.`);
+  if (context.exerciseText) {
+    const cap = context.interactive ? 3500 : 1500;
+    parts.push(`Elevul lucrează la acest exercițiu:\n"""${String(context.exerciseText).slice(0, cap)}"""`);
+  }
+  if (context.interactive) {
+    parts.push(INTERACTIVE_RULES);
+    parts.push(ACTION_PROTOCOL);
+  }
+  if (!mentor) {
+    const [catalog, state] = await Promise.all([
+      interactiveCatalog(supa, context.category || null),
+      studentState(supa, userId),
+    ]);
+    if (catalog) parts.push(catalog);
+    if (state) parts.push(state);
+  }
+  const system = systemFor(mode, ctxBlock, parts.length ? '\n' + parts.join('\n\n') : '');
 
   const sources = docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }));
   return { docs, ctxBlock, primaryMaterial, convId, priorMsgs, system, sources };
@@ -458,7 +553,9 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
 module.exports = {
   CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic,
   chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, PERSONA,
+  levelLabel, interactiveCatalog, studentState,
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS,
 };
+// (integrare Profesor Virtual ↔ exerciții interactive: levelLabel, interactiveCatalog, studentState — vezi mai sus)

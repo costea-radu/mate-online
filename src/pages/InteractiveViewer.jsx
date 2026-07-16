@@ -1,8 +1,12 @@
 import { authHeaders } from '../lib/api';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { ChatPanel } from '../components/AITutor';
+import { injectTutorBridge } from '../lib/tutorBridge';
+import { awardBadges } from '../lib/badges';
+import EinsteinIcon from '../components/EinsteinIcon';
 
 export default function InteractiveViewer() {
   const { state } = useLocation();
@@ -14,6 +18,20 @@ export default function InteractiveViewer() {
   const [scoreSaved, setScoreSaved] = useState(false);
   const [savedScore, setSavedScore] = useState(null);
   const startedAtRef = useRef(Date.now());
+  const iframeRef = useRef(null);
+
+  // ─── Profesorul Virtual lângă exercițiu ───────────────────────────────────
+  const [tutorOpen, setTutorOpen] = useState(!!state?.openTutor);   // deschis din chat → rămâne deschis
+  const tutorConvId = state?.tutorConvId || null;                    // conversația continuă
+  const [exState, setExState] = useState(null);                     // starea live din exercițiu (bridge)
+  const [autoPrompt, setAutoPrompt] = useState(null);                // mesaj trimis automat în chat
+  const [newBadges, setNewBadges] = useState([]);                    // insigne proaspăt câștigate (toast)
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 800);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 800);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const [searchParams] = useSearchParams();
   const idParam = searchParams.get('id');
@@ -93,6 +111,11 @@ export default function InteractiveViewer() {
           setScoreSaved(true);
           setSavedScore({ score, maxScore });
           startedAtRef.current = Date.now(); // pregătește o eventuală reîncercare
+
+          // Insigne: verifică dacă scorul aduce insigne noi (nu blocăm UI-ul)
+          awardBadges(user.id, { score, maxScore, attempts, category: item.category })
+            .then((earned) => { if (earned.length) setNewBadges(earned); })
+            .catch(() => {});
         }
       } catch (err) {
         console.error('Progress save error:', err);
@@ -102,6 +125,53 @@ export default function InteractiveViewer() {
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, [user, item]);
+
+  // ─── Mesajele bridge-ului (exercițiu → tutor) ───────────────────────────────
+  useEffect(() => {
+    function onTutorMsg(event) {
+      const d = event.data;
+      if (event.source === window || !d || typeof d !== 'object') return;
+      if (d.type === 'MATE_TUTOR_STATE' && d.payload) setExState(d.payload);
+      if (d.type === 'MATE_TUTOR_OPEN') {
+        if (d.payload) setExState(d.payload);
+        setTutorOpen(true);
+        // „Întreabă profesorul virtual" → profesorul explică pasul curent natural,
+        // pornind de la indicațiile exercițiului, fără să dea răspunsul.
+        setAutoPrompt({
+          id: Date.now(),
+          text: 'Ajută-mă la pasul la care sunt acum: explică-mi ce am de făcut și dă-mi un indiciu, fără să-mi spui răspunsul.',
+        });
+      }
+    }
+    window.addEventListener('message', onTutorMsg);
+    return () => window.removeEventListener('message', onTutorMsg);
+  }, []);
+
+  // Trimite o acțiune a AI-ului către exercițiu (completare răspuns / alegere grilă)
+  function sendTutorAction(action) {
+    try { iframeRef.current?.contentWindow?.postMessage({ type: 'MATE_TUTOR_ACTION', action }, '*'); } catch { /* noop */ }
+  }
+
+  // Insignele-toast dispar singure
+  useEffect(() => {
+    if (!newBadges.length) return;
+    const t = setTimeout(() => setNewBadges([]), 7000);
+    return () => clearTimeout(t);
+  }, [newBadges]);
+
+  // Contextul viu trimis Profesorului Virtual (starea exercițiului + nivelul)
+  const tutorContext = useMemo(() => ({
+    interactive: true,
+    category: item?.category || null,
+    contentId: item?.id || null,
+    title: item?.title || null,
+    exerciseText: exState?.text
+      ? `Exercițiul „${item?.title || exState.title || ''}":\n${exState.text}`
+      : (item?.title ? `Exercițiul „${item.title}" (elevul nu a început încă niciun pas).` : ''),
+  }), [item, exState]);
+
+  // HTML-ul exercițiului cu bridge-ul injectat (exercițiile din DB NU se modifică)
+  const finalDoc = useMemo(() => (srcDoc ? injectTutorBridge(srcDoc) : null), [srcDoc]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -217,6 +287,20 @@ export default function InteractiveViewer() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Profesorul Virtual lângă exercițiu */}
+          <button
+            onClick={() => setTutorOpen((o) => !o)}
+            title="Deschide Profesorul Virtual lângă exercițiu"
+            style={{
+              background: tutorOpen ? 'var(--gold)' : 'rgba(232,185,49,0.15)',
+              border: '1px solid var(--gold)', color: tutorOpen ? 'var(--navy)' : 'var(--gold)',
+              borderRadius: 20, padding: '5px 14px', cursor: 'pointer',
+              fontSize: '0.83rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            <EinsteinIcon size={18} /> {tutorOpen ? 'Închide profesorul' : 'Profesorul virtual'}
+          </button>
+
           {/* Scor salvat */}
           {scoreSaved && savedScore && (
             <div style={{
@@ -240,14 +324,65 @@ export default function InteractiveViewer() {
         </div>
       </div>
 
-      {/* Instrucțiune pentru dezvoltatori de exerciții */}
-      {srcDoc !== null && (
-        <iframe
-          srcDoc={srcDoc}
-          style={{ flex: 1, border: 'none', width: '100%' }}
-          title={item?.title}
-          sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-top-navigation-by-user-activation"
-        />
+      {/* Exercițiul + Profesorul Virtual, unul lângă altul, interconectate */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: 0 }}>
+        {finalDoc !== null && (
+          <iframe
+            ref={iframeRef}
+            srcDoc={finalDoc}
+            style={{ flex: 1, border: 'none', width: '100%', minHeight: 0, background: '#fff' }}
+            title={item?.title}
+            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-top-navigation-by-user-activation"
+          />
+        )}
+
+        {tutorOpen && (
+          <div style={{
+            flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', minHeight: 0,
+            ...(isMobile
+              ? { height: '48%', borderTop: '3px solid var(--gold)' }
+              : { width: 400, maxWidth: '45vw', borderLeft: '3px solid var(--gold)' }),
+          }}>
+            <div style={{ background: 'var(--navy)', color: '#fff', padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: '.9rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <EinsteinIcon size={20} /> Profesorul Virtual
+              </div>
+              <button onClick={() => setTutorOpen(false)}
+                style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: '.78rem', fontWeight: 600 }}>
+                ✕
+              </button>
+            </div>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <ChatPanel
+                compact
+                context={tutorContext}
+                onAction={sendTutorAction}
+                initialConversationId={tutorConvId}
+                autoPrompt={autoPrompt}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Toast: insigne noi câștigate */}
+      {newBadges.length > 0 && (
+        <div style={{ position: 'fixed', top: 70, right: 16, zIndex: 2000, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {newBadges.map((b) => (
+            <div key={b.id} style={{
+              background: '#fff', border: '2px solid var(--gold)', borderRadius: 12, padding: '10px 14px',
+              boxShadow: '0 8px 24px rgba(0,0,0,.25)', display: 'flex', alignItems: 'center', gap: 10, maxWidth: 340,
+            }}>
+              <span style={{ fontSize: '1.6rem' }}>{b.icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '.9rem' }}>Insignă nouă: {b.name}</div>
+                <div style={{ fontSize: '.78rem', color: '#6b7689' }}>{b.desc}</div>
+              </div>
+              <button onClick={() => setNewBadges([])}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7689', fontSize: '.9rem' }}>✕</button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

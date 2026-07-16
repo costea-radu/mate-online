@@ -11,6 +11,7 @@ import TeacherResults from '../components/TeacherResults';
 import AITeacherReport from '../components/AITeacherReport';
 import ParentAIActivity from '../components/ParentAIActivity';
 import AccountSettings from '../components/AccountSettings';
+import { getMyBadges } from '../lib/badges';
 
 export default function Profile() {
   const { user, profile, isPremium, isTeacher, isParent, isMentor, signOut, loading, fetchProfile } = useAuth();
@@ -36,6 +37,13 @@ export default function Profile() {
   });
 
   const needsRole = !!profile && !profile.role && !pendingTypeFlag;
+
+  // Insignele elevului (gamificare — exerciții interactive + Prof. Virtual)
+  const [myBadges, setMyBadges] = useState([]);
+  useEffect(() => {
+    if (!user || isMentor) return;
+    getMyBadges(user.id).then(setMyBadges).catch(() => {});
+  }, [user, isMentor]);
 
   // Scrie rolul în baza de date (fără gestionarea stării UI).
   async function persistRole(role) {
@@ -396,6 +404,36 @@ export default function Profile() {
                 </div>
               )}
             </div>
+
+            {/* Insignele elevului (gamificare) */}
+            {!isMentor && (
+              <div className="card" style={{ marginBottom: 24 }}>
+                <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 12 }}>🏅 Insignele mele</h3>
+                {myBadges.length === 0 ? (
+                  <p style={{ color: 'var(--text-light)', fontSize: '.9rem' }}>
+                    Încă nu ai insigne. Rezolvă exerciții interactive — Profesorul Virtual te premiază pentru fiecare reușită! 🎯
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {myBadges.map((b) => (
+                      <div key={b.id} title={b.desc} style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        border: '1.5px solid var(--gold)', background: 'rgba(232,185,49,.08)',
+                        borderRadius: 12, padding: '8px 12px',
+                      }}>
+                        <span style={{ fontSize: '1.4rem' }}>{b.icon}</span>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '.85rem', color: 'var(--navy)' }}>{b.name}</div>
+                          <div style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>
+                            {new Date(b.earned_at).toLocaleDateString('ro-RO')}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Rezultate elevi — pentru profesori și părinți, sub Abonament */}
             {isMentor && (

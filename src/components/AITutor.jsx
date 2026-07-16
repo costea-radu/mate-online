@@ -14,11 +14,19 @@ import { askAiLabel } from '../lib/aiLabel';
 import { ensureKatex, renderMath } from '../lib/katex';
 import { fileToCompressedDataUrl } from '../lib/image';
 import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, speak, stopSpeaking } from '../lib/voice';
+import { extractTutorActions } from '../lib/tutorBridge';
 
 // ─── Formatare ușoară (bold, cod, paragrafe). Formulele LaTeX le lasă KaTeX. ──
 function formatMessage(text = '') {
-  const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const esc = text
+    // marcajele de acțiune nu se afișează niciodată (nici complete, nici parțiale la streaming)
+    .replace(/\[\[\s*ACTIUNE[\s\S]*?\]\]/gi, '')
+    .replace(/\[\[\s*ACTIUNE[^\]]*$/i, '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return esc
+    // linkuri interne markdown [Titlu](/cale) → ancoră clicabilă (deschide exercițiul/materialul)
+    .replace(/\[([^\]\n]+)\]\((\/[^)\s]*)\)/g,
+      '<a href="$2" data-internal="1" style="display:inline-block;margin:2px 0;padding:2px 8px;border-radius:6px;background:rgba(232,185,49,.15);border:1px solid var(--gold);color:var(--navy);font-weight:600;text-decoration:none">🧩 $1 →</a>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code style="background:rgba(15,43,68,.08);padding:1px 5px;border-radius:4px;font-size:.92em">$1</code>')
     .replace(/\n{2,}/g, '</p><p style="margin:.55em 0 0">')
@@ -27,14 +35,21 @@ function formatMessage(text = '') {
 
 // Text cu formule. `ready=false` în timpul streamingului (afișează brut, fără flicker);
 // la final `ready=true` → randează KaTeX.
-export function MathText({ text, ready = true }) {
+// `onInternalLink(cale)` — apelat la click pe un link intern din mesaj.
+export function MathText({ text, ready = true, onInternalLink = null }) {
   const ref = useRef(null);
   useEffect(() => {
     if (!ref.current) return;
     ref.current.innerHTML = '<p style="margin:0">' + formatMessage(text || '') + '</p>';
     if (ready && text) ensureKatex().then(() => { if (ref.current) renderMath(ref.current); });
   }, [text, ready]);
-  return <div ref={ref} />;
+  function onClick(e) {
+    const a = e.target.closest?.('a[data-internal]');
+    if (!a) return;
+    e.preventDefault();
+    if (onInternalLink) onInternalLink(a.getAttribute('href'));
+  }
+  return <div ref={ref} onClick={onClick} />;
 }
 
 const MODES = [
@@ -43,7 +58,11 @@ const MODES = [
   { id: 'hint', label: 'Dă-mi un indiciu', hint: 'Un singur pas, fără rezolvare' },
 ];
 
-export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null }) {
+// Props noi pentru integrarea cu exercițiile interactive:
+//  onAction(actiune)        — execută o acțiune AI în exercițiu (fill/choose/tf/add)
+//  initialConversationId    — reia o conversație existentă (chat → exercițiu)
+//  autoPrompt {id, text, mode?} — mesaj trimis automat (butonul din exercițiu)
+export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null, onAction = null, initialConversationId = null, autoPrompt = null }) {
   const { user, isPremium, isTeacher, isParent } = useAuth();
   const navigate = useNavigate();
   const isMentor = isTeacher || isParent;
@@ -81,7 +100,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     });
   }, []);
 
-  async function send(text) {
+  async function send(text, { modeOverride = null } = {}) {
     const msg = (text ?? input).trim();
     if (!msg || streaming) return;
     setError(null); setInput(''); setShowHistory(false);
@@ -90,11 +109,17 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     try {
       let acc = '';
       await aiClient.chatStream(
-        { message: msg, mode, conversationId: convId, context: attached ? { ...context, exerciseText: attached } : context },
+        { message: msg, mode: modeOverride || mode, conversationId: convId, context: attached ? { ...context, exerciseText: attached } : context },
         {
           onMeta: ({ conversationId, sources, primaryMaterial }) => { setConvId(conversationId); patchLast({ sources, primaryMaterial }); },
           onDelta: (delta) => { acc += delta; patchLast((m) => ({ ...m, content: m.content + delta })); },
-          onDone: ({ messageId }) => { patchLast({ streaming: false, id: messageId }); if (autoRead && acc.trim()) speak(acc, {}); },
+          onDone: ({ messageId }) => {
+            // extrage acțiunile [[ACTIUNE:...]] și curăță textul afișat
+            const { text: cleanText, actions } = extractTutorActions(acc);
+            patchLast({ streaming: false, id: messageId, content: cleanText });
+            if (onAction && actions.length) actions.slice(0, 2).forEach((a) => { try { onAction(a); } catch { /* noop */ } });
+            if (autoRead && cleanText.trim()) speak(cleanText, {});
+          },
         }
       );
     } catch (e) {
@@ -108,6 +133,31 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 
   function newConversation() {
     setMessages([]); setConvId(null); setError(null); setShowHistory(false);
+  }
+
+  // Reia conversația începută în altă parte (ex: chat plutitor → exercițiu)
+  const resumedRef = useRef(false);
+  useEffect(() => {
+    if (!initialConversationId || resumedRef.current) return;
+    resumedRef.current = true;
+    loadConversation(initialConversationId).catch(() => {});
+  }, [initialConversationId]); // eslint-disable-line
+
+  // Mesaj trimis automat (butonul „Întreabă profesorul virtual" din exercițiu)
+  const autoRef = useRef(null);
+  useEffect(() => {
+    if (!autoPrompt || !autoPrompt.text || autoPrompt.id === autoRef.current) return;
+    if (streaming) return;
+    autoRef.current = autoPrompt.id;
+    send(autoPrompt.text, { modeOverride: autoPrompt.mode || null });
+  }, [autoPrompt]); // eslint-disable-line
+
+  // Click pe un link intern din mesaj: exercițiile se deschid CU conversația curentă
+  function openInternal(href) {
+    if (!href) return;
+    if (onNavigate) onNavigate();
+    const isExercise = href.startsWith('/exercitiu');
+    navigate(href, isExercise ? { state: { openTutor: true, tutorConvId: convId } } : undefined);
   }
 
   async function openHistory() {
@@ -185,9 +235,11 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     );
   }
 
-  const starters = context.exerciseText
+  const starters = context.interactive
+    ? ['Dă-mi un indiciu la pasul curent', 'Explică-mi metoda pentru acest exercițiu', 'Verifică-mi pașii de până acum', 'Nu înțeleg unde am greșit']
+    : context.exerciseText
     ? ['Cum încep acest exercițiu?', 'Explică-mi teoria de care am nevoie', 'Verifică-mi gândirea']
-    : ['Explică-mi fracțiile', 'Dă-mi un exemplu cu ecuații', 'Cum calculez aria unui triunghi?'];
+    : ['Explică-mi fracțiile', 'Dă-mi un exemplu cu ecuații', 'Fă-mi un plan de învățare pentru capitolul meu'];
 
   // Pentru profesor/părinte: butoane care NAVIGHEAZĂ (nu trimit mesaj).
   const mentorActions = [
@@ -294,13 +346,14 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
               fontSize: '.9rem', lineHeight: 1.55,
             }}>
               {m.role === 'assistant' && m.primaryMaterial && m.primaryMaterial.url && (
-                <Link to={m.primaryMaterial.url} onClick={() => { if (onNavigate) onNavigate(); }}
-                  style={{ display: 'block', marginBottom: 8, padding: '7px 10px', borderRadius: 8, background: 'rgba(232,185,49,.12)', border: '1px solid var(--gold)', color: 'var(--navy)', fontSize: '.8rem', fontWeight: 600, textDecoration: 'none' }}>
+                <a href={m.primaryMaterial.url}
+                  onClick={(e) => { e.preventDefault(); openInternal(m.primaryMaterial.url); }}
+                  style={{ display: 'block', marginBottom: 8, padding: '7px 10px', borderRadius: 8, background: 'rgba(232,185,49,.12)', border: '1px solid var(--gold)', color: 'var(--navy)', fontSize: '.8rem', fontWeight: 600, textDecoration: 'none', cursor: 'pointer' }}>
                   📎 Material pe site: {m.primaryMaterial.title} →
-                </Link>
+                </a>
               )}
               {m.role === 'assistant'
-                ? <MathText text={m.content || (m.streaming ? '▍' : '')} ready={!m.streaming} />
+                ? <MathText text={m.content || (m.streaming ? '▍' : '')} ready={!m.streaming} onInternalLink={openInternal} />
                 : <div style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div>}
 
               {m.sources && m.sources.length > 0 && !m.streaming && (
