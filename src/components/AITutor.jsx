@@ -398,6 +398,8 @@ export default function FloatingTutor() {
   const [widgetTab, setWidgetTab] = useState('chat');
   const { pathname } = useLocation();
   const { isTeacher, isParent } = useAuth();
+  // profesor/părinte → „Asistent AI"; elev/nelogat → „Prof. Virtual"
+  const widgetLabel = (isTeacher || isParent) ? 'Asistent AI' : 'Prof. Virtual';
   const [pos, setPos] = useState(null); // colțul stânga-sus al butonului
   const drag = useRef({ active: false, moved: false, dx: 0, dy: 0 });
   const BTN = 60;
@@ -452,7 +454,7 @@ export default function FloatingTutor() {
     <>
       <style>{`@keyframes pvGlow{0%,100%{box-shadow:0 0 0 0 rgba(232,185,49,.55),0 6px 18px rgba(0,0,0,.28)}50%{box-shadow:0 0 0 12px rgba(232,185,49,0),0 6px 18px rgba(0,0,0,.28)}}`}</style>
 
-      {/* Eticheta „Prof. Virtual" lângă buton (când e închis) */}
+      {/* Eticheta widgetului lângă buton (când e închis) — după rol */}
       {!open && (
         <div onClick={() => setOpen(true)}
           style={{
@@ -462,7 +464,7 @@ export default function FloatingTutor() {
             padding: '6px 10px', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,.2)',
             whiteSpace: 'nowrap', pointerEvents: 'auto',
           }}>
-          Prof. Virtual
+          {widgetLabel}
         </div>
       )}
 
@@ -471,7 +473,7 @@ export default function FloatingTutor() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        aria-label="Profesor Virtual"
+        aria-label={widgetLabel}
         style={{
           position: 'fixed', left: pos.x, top: pos.y, zIndex: 1001,
           width: BTN, height: BTN, borderRadius: '50%', border: 'none',
@@ -487,7 +489,7 @@ export default function FloatingTutor() {
       {open && (
         <div style={popupStyle}>
           <div style={{ background: 'var(--navy)', color: '#fff', padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ fontWeight: 700, fontFamily: 'var(--font-display)', fontSize: '.95rem', display:'flex', alignItems:'center', gap:6 }}><EinsteinIcon size={22} /> Prof. Virtual</div>
+            <div style={{ fontWeight: 700, fontFamily: 'var(--font-display)', fontSize: '.95rem', display:'flex', alignItems:'center', gap:6 }}><EinsteinIcon size={22} /> {widgetLabel}</div>
             <Link to="/profesor-virtual" onClick={() => setOpen(false)}
               style={{ fontSize: '.72rem', color: 'var(--gold)', border: '1px solid rgba(232,185,49,.4)', borderRadius: 6, padding: '4px 8px' }}>
               Deschide complet ↗
