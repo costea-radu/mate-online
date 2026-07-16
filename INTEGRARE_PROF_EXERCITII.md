@@ -27,6 +27,12 @@ Rulează în Supabase → SQL Editor: `supabase/gamification_schema.sql` (tabelu
 - nou: `src/lib/tutorBridge.js`, `src/lib/badges.js`, `supabase/gamification_schema.sql`
 - modificate: `src/pages/InteractiveViewer.jsx`, `src/components/AITutor.jsx`, `src/pages/Profile.jsx`, `api/_lib/ai.js`
 
+## Corecturi (runda 2)
+- Formulele `$$...$$` se randează corect (conținutul e adus pe un singur rând înainte de afișare; LaTeX fără delimitatori primește automat `$...$`).
+- Orice link `examenmate.ro` (halucinat) e corectat automat în frontend → linkuri interne relative; modelul e instruit să folosească DOAR linkuri relative și `examenmate.com`.
+- Linkurile din răspunsuri sunt clicabile; linkurile de categorie (`/evaluare-nationala`, `/bacalaureat`, `/clase/...`) deschid direct tabul „Teste interactive"; `/exercitiu?id=...` deschide exercițiul cu conversația păstrată. Catalogul de exerciții e trimis și profesorilor/părinților.
+- Vizibilitate: butonul din bară are subtitlul „te ajută să rezolvi exercițiul"; pe desktop există și widget plutitor „Întreabă-mă orice"; în exercițiu, fiecare pas are „🎓 Ajutor — întreabă profesorul virtual" (pastilă fixă la exercițiile pe alt șablon).
+
 ## Protocolul (pentru depanare)
 - iframe → aplicație: `MATE_TUTOR_READY`, `MATE_TUTOR_STATE` (stare), `MATE_TUTOR_OPEN` (buton apăsat), `MATE_TUTOR_ACK`
 - aplicație → iframe: `MATE_TUTOR_STATE_REQ`, `MATE_TUTOR_ACTION`

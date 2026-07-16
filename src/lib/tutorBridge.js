@@ -133,6 +133,36 @@ const BRIDGE_SCRIPT = String.raw`
     });
   }
 
+  // ── „Ajutor" la FIECARE pas de rezolvare + pastilă de rezervă ─────
+  var BTN_CSS = 'background:#fff8e1;border:1.5px solid #e8b931;color:#8a6d00;border-radius:8px;padding:6px 12px;font-family:inherit;font-weight:700;font-size:.78rem;cursor:pointer;';
+  function makeHelpBtn(){
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('data-mt-step', '1');
+    b.textContent = '🎓 Ajutor — întreabă profesorul virtual';
+    b.style.cssText = BTN_CSS;
+    b.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); post('MATE_TUTOR_OPEN', collect()); });
+    return b;
+  }
+  function ensureStepHelpers(){
+    // pe cardul activ al pasului curent (dacă nu există deja butonul de indicii rescris)
+    document.querySelectorAll('.acard').forEach(function(card){
+      if (card.querySelector('[data-mt-step]') || card.querySelector('[data-mt-done]')) return;
+      var host = card.querySelector('.acts') || card;
+      host.appendChild(makeHelpBtn());
+    });
+    // exerciții pe alt șablon (fără .acard / fără buton de indicii): pastilă fixă jos-stânga
+    var structured = document.querySelector('.acard') || document.querySelector('[data-mt-done]');
+    var pill = document.getElementById('mtHelpPill');
+    if (structured) { if (pill) pill.remove(); return; }
+    if (!pill && document.body) {
+      pill = makeHelpBtn();
+      pill.id = 'mtHelpPill';
+      pill.style.cssText = BTN_CSS + 'position:fixed;left:14px;bottom:14px;z-index:99999;box-shadow:0 4px 14px rgba(0,0,0,.18);';
+      document.body.appendChild(pill);
+    }
+  }
+
   // ── Acțiuni cerute de AI (la cererea explicită a elevului) ────────
   function setNativeValue(input, value){
     try {
@@ -204,13 +234,14 @@ const BRIDGE_SCRIPT = String.raw`
 
   // ── Observă re-randările exercițiului ─────────────────────────────
   var deb = null;
+  function refreshUI(){ rewireHintButtons(); ensureStepHelpers(); }
   function onMutate(){
-    rewireHintButtons();
+    refreshUI();
     if (deb) clearTimeout(deb);
     deb = setTimeout(function(){ post('MATE_TUTOR_STATE', collect()); }, 400);
   }
   function start(){
-    rewireHintButtons();
+    refreshUI();
     try { new MutationObserver(onMutate).observe(document.body, { childList: true, subtree: true }); } catch(e){}
     post('MATE_TUTOR_READY', { title: document.title || '' });
     post('MATE_TUTOR_STATE', collect());

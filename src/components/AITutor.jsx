@@ -11,17 +11,24 @@ import ExamGenerator from './ExamGenerator';
 import EinsteinIcon from './EinsteinIcon';
 import { useAuth } from '../context/AuthContext';
 import { askAiLabel } from '../lib/aiLabel';
-import { ensureKatex, renderMath } from '../lib/katex';
+import { ensureKatex, renderMath, autoMath } from '../lib/katex';
 import { fileToCompressedDataUrl } from '../lib/image';
 import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, speak, stopSpeaking } from '../lib/voice';
 import { extractTutorActions } from '../lib/tutorBridge';
 
 // ─── Formatare ușoară (bold, cod, paragrafe). Formulele LaTeX le lasă KaTeX. ──
 function formatMessage(text = '') {
-  const esc = text
+  let t = String(text)
     // marcajele de acțiune nu se afișează niciodată (nici complete, nici parțiale la streaming)
     .replace(/\[\[\s*ACTIUNE[\s\S]*?\]\]/gi, '')
-    .replace(/\[\[\s*ACTIUNE[^\]]*$/i, '')
+    .replace(/\[\[\s*ACTIUNE[^\]]*$/i, '');
+  // linkurile absolute către site (inclusiv „.ro" greșit) devin RELATIVE → clicabile intern
+  t = t.replace(/https?:\/\/(?:www\.)?examenmate\.(?:ro|com)(\/[^\s)"'<>\]]*)?/gi, (_, p) => p || '/');
+  // formulele afișate $$...$$ pe UN singur rând — altfel <br/> le rupe și KaTeX nu le mai randează
+  t = t.replace(/\$\$([\s\S]+?)\$\$/g, (_, b) => '$$' + b.replace(/\s*\n\s*/g, ' ').trim() + '$$');
+  // LaTeX „gol" (fără $...$) primește automat delimitatori
+  t = autoMath(t);
+  const esc = t
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return esc
     // linkuri interne markdown [Titlu](/cale) → ancoră clicabilă (deschide exercițiul/materialul)
@@ -115,7 +122,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           onDelta: (delta) => { acc += delta; patchLast((m) => ({ ...m, content: m.content + delta })); },
           onDone: ({ messageId }) => {
             // extrage acțiunile [[ACTIUNE:...]] și curăță textul afișat
-            const { text: cleanText, actions } = extractTutorActions(acc);
+            const { text: cleanText0, actions } = extractTutorActions(acc);
+            // adresa oficială e examenmate.com — corectăm eventualul „.ro" halucinat
+            const cleanText = cleanText0.replace(/https?:\/\/(?:www\.)?examenmate\.ro/gi, 'https://examenmate.com');
             patchLast({ streaming: false, id: messageId, content: cleanText });
             if (onAction && actions.length) actions.slice(0, 2).forEach((a) => { try { onAction(a); } catch { /* noop */ } });
             if (autoRead && cleanText.trim()) speak(cleanText, {});
@@ -152,12 +161,19 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     send(autoPrompt.text, { modeOverride: autoPrompt.mode || null });
   }, [autoPrompt]); // eslint-disable-line
 
-  // Click pe un link intern din mesaj: exercițiile se deschid CU conversația curentă
+  // Click pe un link intern din mesaj: exercițiile se deschid CU conversația curentă,
+  // iar paginile de categorie se deschid direct pe tabul „Teste interactive".
   function openInternal(href) {
     if (!href) return;
+    href = href.replace(/^https?:\/\/(?:www\.)?examenmate\.(?:ro|com)/i, '') || '/';
     if (onNavigate) onNavigate();
-    const isExercise = href.startsWith('/exercitiu');
-    navigate(href, isExercise ? { state: { openTutor: true, tutorConvId: convId } } : undefined);
+    if (href.startsWith('/exercitiu')) {
+      navigate(href, { state: { openTutor: true, tutorConvId: convId } });
+    } else if (/^\/(evaluare-nationala|bacalaureat|clase)/.test(href)) {
+      navigate(href, { state: { returnTab: 'interactive' } });
+    } else {
+      navigate(href);
+    }
   }
 
   async function openHistory() {

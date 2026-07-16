@@ -303,7 +303,8 @@ const PERSONA = `Ești "Profesorul Virtual" de pe ExamenMate, un profesor de mat
 Reguli:
 - Răspunzi DOAR în limba română, clar și la nivelul elevului.
 - Te bazezi pe MATERIALELE DIN CONTEXT pentru stilul de explicație, notații și tipurile de exerciții. Dacă în context apar exemple, urmează-le stilul.
-- Scrii formulele în LaTeX: între $...$ pentru inline și $$...$$ pe rând separat. Exemple: $x^2$, $\\frac{a}{b}$, $\\sqrt{2}$, $\\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$. Restul textului rămâne în română normală.
+- Scrii formulele în LaTeX: între $...$ pentru inline și $$...$$ pe rând separat. Exemple: $x^2$, $\\frac{a}{b}$, $\\sqrt{2}$, $\\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$. Restul textului rămâne în română normală. IMPORTANT: conținutul dintre $$...$$ stă pe UN SINGUR rând, fără Enter în interior.
+- Linkurile către paginile site-ului le scrii mereu RELATIVE, în format markdown: [Titlu](/cale) — ex: [Evaluare Națională](/evaluare-nationala). NICIODATĂ cu domeniu; adresa „examenmate.ro" NU există.
 - Explici pas cu pas, numerotat, cu un exemplu scurt când ajută.
 - Nu inventezi formule sau rezultate; dacă nu ești sigur, spui sincer și explici metoda generală. Nu inventezi surse.
 - Adresa oficială a platformei este https://examenmate.com — dacă o menționezi, folosește EXACT această adresă (nu .ro, nu altă terminație).
@@ -337,8 +338,8 @@ const MENTOR_PERSONA = `Ești „Asistentul AI" de pe ExamenMate, pentru PROFESO
 Reguli:
 - Răspunzi în limba română.
 - Poți răspunde la: (a) matematică (explicații, verificări, idei de exerciții); (b) folosirea platformei și navigarea (UNDE se găsesc materialele, cu LINK-uri interne); (c) elevii asociați (unde se văd rezultatele lor și RAPORTUL AI pe subiecte, cum asociezi un elev prin cod, grupe, ce teme le poți trimite); (d) idei de planuri de lecție și structura examenelor (Evaluare Națională, Bacalaureat).
-- Când spui unde se găsește ceva, dă LINK-ul intern relativ (ex: „subiectele de Evaluare Națională sunt la /evaluare-nationala").
-- Formulele în LaTeX: $...$ inline, $$...$$ pe rând separat.
+- Când spui unde se găsește ceva, dă LINK-ul intern RELATIV, în format markdown: [Titlu](/cale) — ex: [Evaluare Națională](/evaluare-nationala). NICIODATĂ cu domeniu; adresa „examenmate.ro" NU există.
+- Formulele în LaTeX: $...$ inline, $$...$$ pe rând separat; conținutul dintre $$...$$ stă pe UN SINGUR rând, fără Enter în interior.
 - Nu inventezi date despre elevi anume; pentru cifre exacte trimite la raportul din /profil. Rămâi pe teme educaționale și de platformă.`;
 
 function systemFor(mode, ctxBlock, extra = '') {
@@ -454,9 +455,9 @@ async function interactiveCatalog(supa, category = null) {
     // exercițiile din categoria elevului primele
     const sorted = category ? [...data.filter((c) => c.category === category), ...data.filter((c) => c.category !== category)] : data;
     const rows = sorted.slice(0, 30).map((c) => `- [${c.title}](/exercitiu?id=${c.id}) · ${c.category}${c.is_free ? ' · gratuit' : ''}`);
-    return `EXERCIȚII INTERACTIVE DIN SITE (linkurile deschid exercițiul cu tine alături, în același ecran):
+    return `EXERCIȚII INTERACTIVE DIN SITE (linkurile deschid exercițiul direct, cu Profesorul Virtual alături):
 ${rows.join('\n')}
-Când elevul întreabă despre un capitol/lecție sau cere exersare ori un PLAN DE ÎNVĂȚARE: alege exercițiile potrivite DIN ACEASTĂ LISTĂ și dă linkul EXACT, în format markdown [Titlu](/exercitiu?id=...). Pentru plan de învățare: împarte pe etape (1–2 exerciții pe etapă), cu un obiectiv mic și măsurabil la fiecare etapă (ex. „minim 80% la exercițiul X"), de la ușor la greu. NU inventa linkuri sau titluri care nu sunt în listă.`;
+Când utilizatorul (elev sau profesor) întreabă despre un capitol/lecție, cere exersare, materiale ori un PLAN DE ÎNVĂȚARE: alege exercițiile potrivite DIN ACEASTĂ LISTĂ și dă linkul EXACT cum e scris, RELATIV, în format markdown [Titlu](/exercitiu?id=...) — niciodată cu domeniu, niciodată „examenmate.ro". Pentru secțiuni întregi folosește tot linkuri relative: [Evaluare Națională](/evaluare-nationala), [Bacalaureat](/bacalaureat), [Clasa a 5-a](/clase/5) etc. Pentru plan de învățare: împarte pe etape (1–2 exerciții pe etapă), cu un obiectiv mic și măsurabil la fiecare etapă (ex. „minim 80% la exercițiul X"), de la ușor la greu. NU inventa linkuri sau titluri care nu sunt în listă.`;
   } catch { return ''; }
 }
 
@@ -536,14 +537,14 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
     parts.push(INTERACTIVE_RULES);
     parts.push(ACTION_PROTOCOL);
   }
-  if (!mentor) {
-    const [catalog, state] = await Promise.all([
-      interactiveCatalog(supa, context.category || null),
-      studentState(supa, userId),
-    ]);
-    if (catalog) parts.push(catalog);
-    if (state) parts.push(state);
-  }
+  // catalogul de exerciții e util tuturor (elevi ȘI profesori/părinți);
+  // starea de progres + motivarea sunt doar pentru elevi
+  const [catalog, state] = await Promise.all([
+    interactiveCatalog(supa, context.category || null),
+    mentor ? Promise.resolve('') : studentState(supa, userId),
+  ]);
+  if (catalog) parts.push(catalog);
+  if (state) parts.push(state);
   const system = systemFor(mode, ctxBlock, parts.length ? '\n' + parts.join('\n\n') : '');
 
   const sources = docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }));

@@ -290,15 +290,22 @@ export default function InteractiveViewer() {
           {/* Profesorul Virtual lângă exercițiu */}
           <button
             onClick={() => setTutorOpen((o) => !o)}
-            title="Deschide Profesorul Virtual lângă exercițiu"
+            title="Te ajută să rezolvi exercițiul, pas cu pas"
             style={{
               background: tutorOpen ? 'var(--gold)' : 'rgba(232,185,49,0.15)',
               border: '1px solid var(--gold)', color: tutorOpen ? 'var(--navy)' : 'var(--gold)',
-              borderRadius: 20, padding: '5px 14px', cursor: 'pointer',
-              fontSize: '0.83rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6,
+              borderRadius: 14, padding: '4px 14px', cursor: 'pointer',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1.25,
             }}
           >
-            <EinsteinIcon size={18} /> {tutorOpen ? 'Închide profesorul' : 'Profesorul virtual'}
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.83rem', fontWeight: 700 }}>
+              <EinsteinIcon size={18} /> {tutorOpen ? 'Închide profesorul' : 'Profesorul virtual'}
+            </span>
+            {!tutorOpen && (
+              <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.9 }}>
+                te ajută să rezolvi exercițiul
+              </span>
+            )}
           </button>
 
           {/* Scor salvat */}
@@ -364,6 +371,38 @@ export default function InteractiveViewer() {
           </div>
         )}
       </div>
+
+      {/* Widget plutitor pe desktop (FloatingTutor global e ascuns pe /exercitiu):
+          deschide profesorul LÂNGĂ exercițiu, interconectat cu el */}
+      {!tutorOpen && !isMobile && (
+        <>
+          <style>{`@keyframes ivGlow{0%,100%{box-shadow:0 0 0 0 rgba(232,185,49,.55),0 6px 18px rgba(0,0,0,.28)}50%{box-shadow:0 0 0 12px rgba(232,185,49,0),0 6px 18px rgba(0,0,0,.28)}}`}</style>
+          <div
+            onClick={() => setTutorOpen(true)}
+            style={{
+              position: 'fixed', right: 24, bottom: 84, zIndex: 1500, cursor: 'pointer',
+              background: 'var(--navy)', color: '#fff', fontWeight: 700, fontSize: '.78rem',
+              padding: '6px 11px', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,.25)', whiteSpace: 'nowrap',
+            }}
+          >
+            Întreabă-mă orice 👇
+          </div>
+          <button
+            onClick={() => setTutorOpen(true)}
+            aria-label="Profesorul Virtual — întreabă-mă orice"
+            title="Întreabă-mă orice despre acest exercițiu"
+            style={{
+              position: 'fixed', right: 24, bottom: 20, zIndex: 1500,
+              width: 58, height: 58, borderRadius: '50%', border: 'none', cursor: 'pointer',
+              background: 'linear-gradient(135deg, var(--gold), #f4d06f)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              animation: 'ivGlow 2s ease-in-out infinite',
+            }}
+          >
+            <EinsteinIcon size={34} />
+          </button>
+        </>
+      )}
 
       {/* Toast: insigne noi câștigate */}
       {newBadges.length > 0 && (
