@@ -13,7 +13,7 @@ Rulează în Supabase → SQL Editor: `supabase/gamification_schema.sql` (tabelu
 ### 1. Exercițiu → Profesor
 - Butonul „💡 Arată indiciile" devine „🎓 Întreabă profesorul virtual". La apăsare se deschide chatul LÂNGĂ exercițiu (dreapta pe desktop, jos pe mobil) și profesorul explică pasul curent natural, pornind de la indicațiile din exercițiu, fără să dea răspunsul.
 - Chatul primește permanent starea exercițiului: enunț, pașii, răspunsurile elevului, indicațiile oficiale și răspunsurile corecte (marcate SECRET — doar pentru verificare, nu pentru dezvăluire). Elevul poate pune orice întrebare pe marginea exercițiului.
-- Reguli pedagogice (în `api/_lib/ai.js`): nu dă răspunsul direct, explică greșeala, sugerează metoda, verifică pașii, întreabă la final.
+- Reguli pedagogice (în `api/_lib/ai.js`): implicit nu dă răspunsul direct — explică greșeala, sugerează metoda, verifică pașii, întreabă la final. EXCEPȚIE: dacă elevul cere explicit răspunsul final, îl primește concret, împreună cu toți pașii rezolvării.
 - La cererea EXPLICITĂ a elevului („scrie tu", „alege tu B"), AI-ul completează direct în exercițiu prin marcaje `[[ACTIUNE:...]]` (fill / choose / tf / add) executate de bridge.
 - Explicațiile se adaptează la nivel după categoria exercițiului: clasa 5–8, Evaluare Națională, Bacalaureat.
 - Butonul „Profesorul virtual" există și în bara de sus a viewerului.

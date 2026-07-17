@@ -88,7 +88,7 @@ const BRIDGE_SCRIPT = String.raw`
         else if (step.t === 'mc') corect = String.fromCharCode(65 + step.ci);
         else if (step.t === 'tf') corect = step.ok ? 'ADEVĂRAT' : 'FALS';
         else if (step.t === 'calc') corect = String.fromCharCode(65 + step.ci) + ', rezultat ' + String(step.a);
-        if (corect) row += ' | [SECRET — NU dezvălui elevului: răspuns corect = ' + corect + ']';
+        if (corect) row += ' | [răspuns corect — dezvăluie DOAR dacă elevul îl cere explicit: ' + corect + ']';
         if (step.help) row += ' | Indicația oficială: ' + plain(step.help);
         lines.push(row);
       }
