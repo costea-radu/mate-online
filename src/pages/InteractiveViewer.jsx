@@ -287,9 +287,9 @@ export default function InteractiveViewer() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {/* Profesorul Virtual lângă exercițiu */}
+          {/* Profesorul Virtual lângă exercițiu — deschidere manuală: chat gol, așteaptă întrebarea elevului */}
           <button
-            onClick={() => setTutorOpen((o) => !o)}
+            onClick={() => { setAutoPrompt(null); setTutorOpen((o) => !o); }}
             title="Te ajută să rezolvi exercițiul, pas cu pas"
             style={{
               background: tutorOpen ? 'var(--gold)' : 'rgba(232,185,49,0.15)',
@@ -354,7 +354,7 @@ export default function InteractiveViewer() {
               <div style={{ fontWeight: 700, fontSize: '.9rem', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <EinsteinIcon size={20} /> Profesorul Virtual
               </div>
-              <button onClick={() => setTutorOpen(false)}
+              <button onClick={() => { setAutoPrompt(null); setTutorOpen(false); }}
                 style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: '.78rem', fontWeight: 600 }}>
                 ✕
               </button>
@@ -378,7 +378,7 @@ export default function InteractiveViewer() {
         <>
           <style>{`@keyframes ivGlow{0%,100%{box-shadow:0 0 0 0 rgba(232,185,49,.55),0 6px 18px rgba(0,0,0,.28)}50%{box-shadow:0 0 0 12px rgba(232,185,49,0),0 6px 18px rgba(0,0,0,.28)}}`}</style>
           <div
-            onClick={() => setTutorOpen(true)}
+            onClick={() => { setAutoPrompt(null); setTutorOpen(true); }}
             style={{
               position: 'fixed', right: 24, bottom: 84, zIndex: 1500, cursor: 'pointer',
               background: 'var(--navy)', color: '#fff', fontWeight: 700, fontSize: '.78rem',
@@ -388,7 +388,7 @@ export default function InteractiveViewer() {
             Întreabă-mă orice 👇
           </div>
           <button
-            onClick={() => setTutorOpen(true)}
+            onClick={() => { setAutoPrompt(null); setTutorOpen(true); }}
             aria-label="Profesorul Virtual — întreabă-mă orice"
             title="Întreabă-mă orice despre acest exercițiu"
             style={{
