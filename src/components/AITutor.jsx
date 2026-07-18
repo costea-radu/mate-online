@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { askAiLabel } from '../lib/aiLabel';
 import { ensureKatex, renderMath, autoMath } from '../lib/katex';
 import { fileToCompressedDataUrl } from '../lib/image';
-import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, speak, stopSpeaking } from '../lib/voice';
+import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, speak, stopSpeaking, pauseSpeaking, resumeSpeaking } from '../lib/voice';
 import { extractTutorActions } from '../lib/tutorBridge';
 
 // ─── Formatare ușoară (bold, cod, paragrafe). Formulele LaTeX le lasă KaTeX. ──
@@ -88,7 +88,17 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   const scrollRef = useRef(null);
   const [autoRead, setAutoRead] = useState(false);
   const [listening, setListening] = useState(false);
-  const [speakingIdx, setSpeakingIdx] = useState(null);
+  // Conversație vocală: „🎤 întreabă cu vocea" + „▶ Ascultă răspunsul" (play/pauză)
+  const [voiceState, setVoiceState] = useState({ idx: null, paused: false });
+  const speakTokenRef = useRef(null);
+  function toggleListen(i, content) {
+    if (voiceState.idx === i && !voiceState.paused) { pauseSpeaking(); setVoiceState({ idx: i, paused: true }); return; }
+    if (voiceState.idx === i && voiceState.paused) { resumeSpeaking(); setVoiceState({ idx: i, paused: false }); return; }
+    speakTokenRef.current = i;
+    setVoiceState({ idx: i, paused: false });
+    speak(content, { onEnd: () => { if (speakTokenRef.current === i) setVoiceState({ idx: null, paused: false }); } });
+  }
+  useEffect(() => () => stopSpeaking(), []); // la închiderea panoului, vocea tace
   const [upsell, setUpsell] = useState(false);
   const dictationRef = useRef(null);
   const recorderRef = useRef(null);
@@ -142,6 +152,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 
   function newConversation() {
     setMessages([]); setConvId(null); setError(null); setShowHistory(false);
+    stopSpeaking(); setVoiceState({ idx: null, paused: false });
   }
 
   // Reia conversația începută în altă parte (ex: chat plutitor → exercițiu)
@@ -183,6 +194,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 
   async function loadConversation(id) {
     setShowHistory(false);
+    stopSpeaking(); setVoiceState({ idx: null, paused: false });
     const msgs = await aiClient.getMessages(id);
     setMessages(msgs.map((m) => ({ role: m.role, content: m.content, id: m.id, sources: m.metadata?.sources, primaryMaterial: m.metadata?.primaryMaterial })));
     setConvId(id);
@@ -382,13 +394,22 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
               )}
             </div>
 
-            {/* Acțiuni: citește cu voce + feedback */}
+            {/* Acțiuni: „Ascultă răspunsul" (play/pauză) + feedback */}
             {m.role === 'assistant' && !m.streaming && !m.isError && (
-              <div style={{ display: 'flex', gap: 6, marginTop: 4, paddingLeft: 4, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 6, marginTop: 4, paddingLeft: 4, alignItems: 'center', flexWrap: 'wrap' }}>
                 {ttsSupported() && (
-                  <button title="Citește cu voce tare" style={fbBtn}
-                    onClick={() => { if (speakingIdx === i) { stopSpeaking(); setSpeakingIdx(null); } else { setSpeakingIdx(i); speak(m.content, { onEnd: () => setSpeakingIdx(null) }); } }}>
-                    {speakingIdx === i ? '⏹️' : '🔊'}
+                  <button
+                    title={voiceState.idx === i && !voiceState.paused ? 'Pune pauză' : 'Ascultă explicația cu voce tare'}
+                    onClick={() => toggleListen(i, m.content)}
+                    style={{
+                      ...listenBtn,
+                      ...(voiceState.idx === i && !voiceState.paused
+                        ? { background: 'var(--gold)', color: 'var(--navy)', borderColor: 'var(--gold)' }
+                        : {}),
+                    }}>
+                    {voiceState.idx === i
+                      ? (voiceState.paused ? '▶ Continuă' : '❚❚ Pauză')
+                      : '▶ Ascultă răspunsul'}
                   </button>
                 )}
                 {m.id && (
@@ -460,6 +481,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 
 const miniBtn = { background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px', fontSize: '.76rem', color: 'var(--text-light)', fontWeight: 600 };
 const fbBtn = { background: 'none', border: 'none', fontSize: '.95rem', cursor: 'pointer', padding: '2px 4px' };
+const listenBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid var(--gold)', color: 'var(--navy)', borderRadius: 16, padding: '3px 11px', fontSize: '.75rem', fontWeight: 700, cursor: 'pointer' };
 
 // ─── Widget plutitor (montat global) ─────────────────────────────────────────
 export default function FloatingTutor() {

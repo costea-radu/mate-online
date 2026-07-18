@@ -77,10 +77,15 @@ export function speak(text, { lang = 'ro-RO', onEnd } = {}) {
   window.speechSynthesis.speak(u);
 }
 export function stopSpeaking() { if (ttsSupported()) window.speechSynthesis.cancel(); }
+export function pauseSpeaking() { if (ttsSupported()) { try { window.speechSynthesis.pause(); } catch { /* ignore */ } } }
+export function resumeSpeaking() { if (ttsSupported()) { try { window.speechSynthesis.resume(); } catch { /* ignore */ } } }
 
 // ─── Transformă LaTeX/markdown în text citibil în română ─────────────────────
 export function speakableText(text = '') {
   let t = text;
+  // marcaje de acțiune (nu se citesc) + linkuri markdown → doar titlul
+  t = t.replace(/\[\[\s*ACTIUNE[\s\S]*?\]\]/gi, ' ');
+  t = t.replace(/\[([^\]\n]+)\]\(([^)]*)\)/g, '$1');
   // markdown
   t = t.replace(/\*\*(.+?)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1').replace(/[#>*_]/g, ' ');
   // LaTeX uzual
