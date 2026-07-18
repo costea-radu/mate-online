@@ -50,6 +50,19 @@ function ScrollToTop() {
 function Layout({ children }) {
   const { pathname } = useLocation();
   const fullscreen = pathname === '/admin' || pathname === '/exercitiu' || pathname === '/pdf-viewer' || pathname === '/exercitiu-ai';
+
+  // Viewerele ocupă exact înălțimea ferestrei (100vh) și au scroll intern.
+  // Blocăm scroll-ul documentului cât timp sunt deschise — altfel apare uneori
+  // o bară de derulare în plus (ultima din dreapta) care duce la o zonă goală.
+  const lockScroll = pathname === '/exercitiu' || pathname === '/pdf-viewer' || pathname === '/exercitiu-ai';
+  useEffect(() => {
+    if (!lockScroll) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.scrollTo(0, 0);
+    return () => { document.body.style.overflow = prev; };
+  }, [lockScroll]);
+
   return (
     <>
       {!fullscreen && <Navbar />}

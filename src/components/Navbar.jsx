@@ -539,6 +539,17 @@ export default function Navbar() {
       let lastSeen = null;
       try { lastSeen = localStorage.getItem(seenKey); } catch { /* ignore */ }
 
+      // Fără reper „văzut" (primă utilizare, alt browser sau după re-logare):
+      // moștenim reperul de vizitator sau pornim de la momentul curent și îl
+      // salvăm. Altfel s-ar număra tot istoricul forumului și indicatorii
+      // s-ar aprinde la fiecare reconectare, fără activitate cu adevărat nouă.
+      if (!lastSeen) {
+        let inherited = null;
+        if (user) { try { inherited = localStorage.getItem('forum_seen_guest'); } catch { /* ignore */ } }
+        lastSeen = inherited || new Date().toISOString();
+        try { localStorage.setItem(seenKey, lastSeen); } catch { /* ignore */ }
+      }
+
       // ── (1) Indiciu general: cineva a postat / a discutat ceva nou ──
       let actQ = supabase
         .from('discussions')
