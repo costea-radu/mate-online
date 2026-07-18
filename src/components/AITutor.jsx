@@ -333,7 +333,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       {/* Banner abonament pentru utilizatorii fără abonament */}
       {user && !isPremium && (
         <div style={{ padding: '8px 12px', background: upsell ? '#fff4e5' : 'rgba(232,185,49,.10)', borderBottom: '1px solid var(--border)', fontSize: '.78rem', color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <span>{upsell ? '🔒 Ai folosit încercarea gratuită.' : '✨ Încercare gratuită: 1 acțiune cu AI-ul.'}</span>
+          <span>{upsell ? '🔒 Ai folosit cele 2 încercări gratuite.' : '✨ Încercare gratuită: 2 acțiuni cu AI-ul.'}</span>
           <Link to="/preturi" style={{ color: 'var(--navy)', fontWeight: 700, whiteSpace: 'nowrap', background: 'var(--gold)', borderRadius: 6, padding: '4px 10px' }}>Abonează-te →</Link>
         </div>
       )}

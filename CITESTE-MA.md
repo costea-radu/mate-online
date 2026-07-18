@@ -73,6 +73,6 @@ Detalii complete, depanare și **estimarea de costuri** → `INTEGRARE_AI.md`.
 - La **Antrenament**: butonul „📄 Exportă PDF" pe un exercițiu.
 - Ca profesor: raportul agregat + progres AI per elev + clopoțel 🔔.
 - Ca admin: tabul „🎓 AI Tutor" → statistici KB + **„🧩 Generează exercițiu interactiv"** cu **salvare în conținut public**.
-- Fără abonament: widgetul e vizibil, 1 acțiune gratuită, apoi mesaj de abonare.
+- Fără abonament: widgetul e vizibil, 2 acțiuni gratuite, apoi mesaj de abonare.
 
 > ⚠️ Exportul PDF deschide o filă nouă (print → „Salvează ca PDF"). Dacă browserul blochează pop-up-urile, permite-le pentru site. Pentru KaTeX și PDF, dacă ai o politică CSP, permite `cdn.jsdelivr.net`.

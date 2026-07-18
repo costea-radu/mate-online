@@ -289,7 +289,7 @@ Cu alte cuvinte, la 500 de elevi plătitori costul AI e sub ~1% din venituri. Co
 - **Moduri de chat**: „Învață-mă" (explicație), „Teoria" (teorie structurată), „Dă-mi un indiciu" (un singur pas).
 
 ### Funcționalități AI incluse
-- **🔒 Acces pe abonament** — funcțiile AI sunt pentru abonați. Un cont fără abonament vede widgetul și are **1 acțiune gratuită** (configurabil prin `AI_FREE_ACTIONS`), apoi apare un mesaj de abonare. Gating-ul e aplicat pe server (nu poate fi ocolit din browser).
+- **🔒 Acces pe abonament** — funcțiile AI sunt pentru abonați. Un cont fără abonament vede widgetul și are **2 acțiuni gratuite** (configurabil prin `AI_FREE_ACTIONS`), apoi apare un mesaj de abonare. Gating-ul e aplicat pe server (nu poate fi ocolit din browser).
 - **📄 Generator de teste de examen (PDF)** — în pagina „Profesor Virtual" → tabul „Generează test": 4 tipuri (Evaluare Națională, BAC Tehnologic, BAC Științele Naturii, BAC Mate-Info). Testul respectă structura oficială (Subiectele I/II/III, 30p fiecare, 10p oficiu) și e construit **recombinând exercițiile din baza ta** (cu date/notații schimbate). Se deschide ca document tipăribil (KaTeX) → „Salvează ca PDF", în două variante: **elev** și **barem + rezolvări**. Doar abonați.
 - **📄 Export PDF exercițiu** — la Antrenament, butonul „Exportă PDF" produce o fișă (enunț + rezolvare) prin fereastra de print. Doar abonați.
 - **🧩 Exerciții interactive generate** — două niveluri de acces:

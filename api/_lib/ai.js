@@ -28,7 +28,7 @@ const STT_KEY   = process.env.AI_STT_API_KEY  || CHAT_KEY;
 const STT_MODEL = process.env.AI_STT_MODEL    || 'whisper-1';
 
 const RATE_PER_HOUR = parseInt(process.env.AI_RATE_PER_HOUR || '80', 10);
-const FREE_ACTIONS = parseInt(process.env.AI_FREE_ACTIONS || '1', 10); // acțiuni AI gratuite pentru cont fără abonament
+const FREE_ACTIONS = parseInt(process.env.AI_FREE_ACTIONS || '2', 10); // acțiuni AI gratuite pentru cont fără abonament
 const SIGNING_SECRET = process.env.AI_SIGNING_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'dev-secret';
 
 // CORS / applyCors / admin / authUser / requireAdmin / signedUrlFromPublic
@@ -382,7 +382,7 @@ async function enforceFreeQuota(supa, profile) {
   if (isPremium(profile)) return;
   const { count } = await supa.from('ai_usage').select('*', { count: 'exact', head: true }).eq('user_id', profile.id);
   if ((count || 0) >= FREE_ACTIONS) {
-    throw premiumError(`Ai folosit acțiunea gratuită cu Profesorul Virtual. Abonează-te pentru acces nelimitat (explicații, exerciții, foto-rezolvare, voce și teste de examen).`);
+    throw premiumError(`Ai folosit cele ${FREE_ACTIONS} acțiuni gratuite cu Profesorul Virtual. Abonează-te pentru acces nelimitat (explicații, exerciții, foto-rezolvare, voce și teste de examen).`);
   }
 }
 

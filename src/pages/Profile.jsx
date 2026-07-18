@@ -297,7 +297,7 @@ export default function Profile() {
               <div style={{ fontSize: '.85rem', opacity: 0.82 }}>
                 {isPremium
                   ? 'Explicații, exerciții, foto-rezolvare, voce și teste de examen în PDF.'
-                  : 'Asistentul tău AI. Ai o încercare gratuită; abonează-te pentru acces complet.'}
+                  : 'Asistentul tău AI. Ai 2 încercări gratuite; abonează-te pentru acces complet.'}
               </div>
             </div>
           </div>
