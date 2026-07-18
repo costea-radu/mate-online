@@ -16,9 +16,23 @@ import { fileToCompressedDataUrl } from '../lib/image';
 import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, speak, stopSpeaking, pauseSpeaking, resumeSpeaking } from '../lib/voice';
 import { extractTutorActions } from '../lib/tutorBridge';
 
+// ─── Terminologie școlară: „factorizare" → „descompunere în factori" ─────────
+const FACTORIZARE = {
+  'factorizare': 'descompunere în factori', 'factorizarea': 'descompunerea în factori',
+  'factorizări': 'descompuneri în factori', 'factorizarii': 'descompunerii în factori',
+  'factorizării': 'descompunerii în factori', 'factorizările': 'descompunerile în factori',
+  'factorizărilor': 'descompunerilor în factori',
+};
+export function fixTerminology(text = '') {
+  return String(text).replace(/\bfactoriz(ările|ărilor|area|ării|arii|ări|are)\b/gi, (m) => {
+    const rep = FACTORIZARE[m.toLowerCase()] || 'descompunere în factori';
+    return m[0] === m[0].toUpperCase() ? rep[0].toUpperCase() + rep.slice(1) : rep;
+  });
+}
+
 // ─── Formatare ușoară (bold, cod, paragrafe). Formulele LaTeX le lasă KaTeX. ──
 function formatMessage(text = '') {
-  let t = String(text)
+  let t = fixTerminology(text)
     // marcajele de acțiune nu se afișează niciodată (nici complete, nici parțiale la streaming)
     .replace(/\[\[\s*ACTIUNE[\s\S]*?\]\]/gi, '')
     .replace(/\[\[\s*ACTIUNE[^\]]*$/i, '');
@@ -133,8 +147,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           onDone: ({ messageId }) => {
             // extrage acțiunile [[ACTIUNE:...]] și curăță textul afișat
             const { text: cleanText0, actions } = extractTutorActions(acc);
-            // adresa oficială e examenmate.com — corectăm eventualul „.ro" halucinat
-            const cleanText = cleanText0.replace(/https?:\/\/(?:www\.)?examenmate\.ro/gi, 'https://examenmate.com');
+            // adresa oficială e examenmate.com — corectăm eventualul „.ro" halucinat;
+            // terminologie: „factorizare" → „descompunere în factori" (și pentru voce)
+            const cleanText = fixTerminology(cleanText0.replace(/https?:\/\/(?:www\.)?examenmate\.ro/gi, 'https://examenmate.com'));
             patchLast({ streaming: false, id: messageId, content: cleanText });
             if (onAction && actions.length) actions.slice(0, 2).forEach((a) => { try { onAction(a); } catch { /* noop */ } });
             if (autoRead && cleanText.trim()) speak(cleanText, {});
