@@ -240,16 +240,21 @@ Răspunde STRICT cu JSON: {"correct":true/false,"score":0-100,"feedback":"...","
 
   // upsert rezultat: păstrăm cel mai bun scor, incrementăm încercările
   const { data: existing } = await supa.from('ai_assignment_results')
-    .select('id, attempts, score').eq('assignment_id', id).eq('student_id', userId).single();
-  if (existing) {
-    await supa.from('ai_assignment_results').update({
-      score: Math.max(existing.score || 0, outScore), max_score: outMax,
-      attempts: (existing.attempts || 1) + 1, completed_at: new Date().toISOString(),
-    }).eq('id', existing.id);
-  } else {
-    await supa.from('ai_assignment_results').insert({
-      assignment_id: id, student_id: userId, score: outScore, max_score: outMax, attempts: 1,
-    });
+    .select('id, attempts, score').eq('assignment_id', id).eq('student_id', userId).maybeSingle();
+  // Eroarea de scriere NU se ignoră: altfel profesorul primește notificarea
+  // „elevul a rezolvat tema" fără ca scorul să existe în baza de date.
+  const wr = existing
+    ? await supa.from('ai_assignment_results').update({
+        score: Math.max(existing.score || 0, outScore), max_score: outMax,
+        attempts: (existing.attempts || 1) + 1, completed_at: new Date().toISOString(),
+      }).eq('id', existing.id)
+    : await supa.from('ai_assignment_results').insert({
+        assignment_id: id, student_id: userId, score: outScore, max_score: outMax, attempts: 1,
+      });
+  if (wr.error) {
+    console.error('ai-assignment: salvare rezultat eșuată:', wr.error);
+    const e = new Error('Rezultatul nu a putut fi salvat.');
+    e.status = 500; throw e;
   }
 
   // notifică profesorul-creator că elevul a rezolvat tema

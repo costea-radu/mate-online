@@ -139,7 +139,14 @@ module.exports = async function handler(req, res) {
     if (action === 'read') {
       const itemId = id || notificationId;
       if (all) {
-        await supa.from('ai_notifications').update({ read: true }).eq('recipient_id', userId).eq('read', false);
+        // Fără verificare, clientul primea ok:true iar notificările reapăreau
+        // necitite la reîncărcare.
+        const { error: rdErr } = await supa.from('ai_notifications')
+          .update({ read: true }).eq('recipient_id', userId).eq('read', false);
+        if (rdErr) {
+          console.error('ai-notify: marcare citit eșuată:', rdErr);
+          return res.status(500).json({ error: 'Notificările nu au putut fi marcate ca citite.' });
+        }
         const cutoff = new Date(Date.now() - 60 * 86400 * 1000).toISOString();
         const { data: broadcasts } = await supa.from('ai_broadcasts').select('id').gte('created_at', cutoff);
         if (broadcasts && broadcasts.length) {

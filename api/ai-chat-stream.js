@@ -49,12 +49,18 @@ module.exports = async function handler(req, res) {
       send({ type: 'delta', text: delta });
     }
 
-    // 5. Salvăm după ce s-a terminat streamul
-    await supa.from('ai_messages').insert({ conversation_id: convId, role: 'user', content: message, mode });
-    const { data: saved } = await supa.from('ai_messages')
+    // 5. Salvăm după ce s-a terminat streamul. Textul a ajuns deja la client,
+    // deci nu rupem streamul dacă persistarea eșuează — dar o logăm.
+    const { error: uErr } = await supa.from('ai_messages')
+      .insert({ conversation_id: convId, role: 'user', content: message, mode });
+    if (uErr) console.error('ai-chat-stream: salvare mesaj user eșuată:', uErr);
+    const { data: saved, error: aErr } = await supa.from('ai_messages')
       .insert({ conversation_id: convId, role: 'assistant', content: full, mode, metadata: { sources, primaryMaterial } })
       .select('id').single();
-    await supa.from('ai_conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
+    if (aErr) console.error('ai-chat-stream: salvare răspuns eșuată:', aErr);
+    const { error: cErr } = await supa.from('ai_conversations')
+      .update({ updated_at: new Date().toISOString() }).eq('id', convId);
+    if (cErr) console.error('ai-chat-stream: update conversație eșuat:', cErr);
     await ai.logUsage(supa, userId, 'ai-chat-stream', { in: 0, out: Math.ceil(full.length / 4) });
 
     send({ type: 'done', messageId: saved?.id || null });

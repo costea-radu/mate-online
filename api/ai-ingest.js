@@ -139,9 +139,12 @@ async function processQueue(supa) {
     embedded = vectors ? rows.length : 0;
   }
 
-  // Marchează joburile ca procesate.
+  // Marchează joburile ca procesate. Dacă asta eșuează în tăcere, cronul
+  // reia ACELEAȘI joburi la fiecare rulare (re-embedding la nesfârșit = cost).
   const ids = jobs.map((j) => j.id);
-  await supa.from('ai_ingest_queue').update({ processed_at: new Date().toISOString() }).in('id', ids);
+  const { error: markErr } = await supa.from('ai_ingest_queue')
+    .update({ processed_at: new Date().toISOString() }).in('id', ids);
+  if (markErr) throw new Error('Marcare coadă procesată: ' + markErr.message);
 
   const { count: remaining } = await supa.from('ai_ingest_queue')
     .select('*', { count: 'exact', head: true }).is('processed_at', null);

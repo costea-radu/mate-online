@@ -512,13 +512,20 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
   // 2. Conversație: o reluăm (dacă e a userului) sau o creăm.
   let convId = conversationId || null;
   if (convId) {
-    const { data } = await supa.from('ai_conversations').select('id, user_id').eq('id', convId).single();
+    const { data } = await supa.from('ai_conversations').select('id, user_id').eq('id', convId).maybeSingle();
     if (!data || data.user_id !== userId) convId = null;
   }
   if (!convId) {
-    const { data } = await supa.from('ai_conversations')
+    // Dacă inserarea eșuează, convId rămâne undefined și TOATE scrierile
+    // ulterioare (mesaje, update conversație) eșuează în lanț, tăcut. Oprim aici.
+    const { data, error } = await supa.from('ai_conversations')
       .insert({ user_id: userId, title: message.slice(0, 60), context }).select('id').single();
-    convId = data?.id;
+    if (error || !data?.id) {
+      console.error('ai: creare conversație eșuată:', error);
+      const e = new Error('Nu s-a putut porni conversația. Încearcă din nou.');
+      e.status = 500; throw e;
+    }
+    convId = data.id;
   }
 
   // 3. Istoric recent (ultimele 10 mesaje)

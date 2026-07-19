@@ -36,11 +36,16 @@ module.exports = async function handler(req, res) {
     });
 
     // 5. Salvăm mesajele + actualizăm conversația.
-    await supa.from('ai_messages').insert([
+    // Răspunsul e deja generat — nu picăm cererea dacă persistarea eșuează,
+    // dar o logăm (altfel istoricul dispare fără nicio urmă).
+    const { error: msgErr } = await supa.from('ai_messages').insert([
       { conversation_id: convId, role: 'user', content: message, mode },
       { conversation_id: convId, role: 'assistant', content: text, mode, metadata: { sources, primaryMaterial } },
     ]);
-    await supa.from('ai_conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
+    if (msgErr) console.error('ai-chat: salvare mesaje eșuată:', msgErr);
+    const { error: convErr } = await supa.from('ai_conversations')
+      .update({ updated_at: new Date().toISOString() }).eq('id', convId);
+    if (convErr) console.error('ai-chat: update conversație eșuat:', convErr);
     await ai.logUsage(supa, userId, 'ai-chat', usage);
 
     return res.status(200).json({ reply: text, conversationId: convId, sources, primaryMaterial });
