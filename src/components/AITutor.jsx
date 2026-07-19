@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { askAiLabel } from '../lib/aiLabel';
 import { ensureKatex, renderMath, autoMath } from '../lib/katex';
 import { fileToCompressedDataUrl } from '../lib/image';
-import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, speak, stopSpeaking, pauseSpeaking, resumeSpeaking } from '../lib/voice';
+import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, speak, stopSpeaking, sentencesOf } from '../lib/voice';
 import { extractTutorActions } from '../lib/tutorBridge';
 
 // ─── Terminologie școlară: „factorizare" → „descompunere în factori" ─────────
@@ -30,8 +30,8 @@ export function fixTerminology(text = '') {
   });
 }
 
-// ─── Formatare ușoară (bold, cod, paragrafe). Formulele LaTeX le lasă KaTeX. ──
-function formatMessage(text = '') {
+// ─── Curățare comună (afișare + voce): terminologie, acțiuni, linkuri, $$ ────
+export function preMessage(text = '') {
   let t = fixTerminology(text)
     // marcajele de acțiune nu se afișează niciodată (nici complete, nici parțiale la streaming)
     .replace(/\[\[\s*ACTIUNE[\s\S]*?\]\]/gi, '')
@@ -40,9 +40,12 @@ function formatMessage(text = '') {
   t = t.replace(/https?:\/\/(?:www\.)?examenmate\.(?:ro|com)(\/[^\s)"'<>\]]*)?/gi, (_, p) => p || '/');
   // formulele afișate $$...$$ pe UN singur rând — altfel <br/> le rupe și KaTeX nu le mai randează
   t = t.replace(/\$\$([\s\S]+?)\$\$/g, (_, b) => '$$' + b.replace(/\s*\n\s*/g, ' ').trim() + '$$');
-  // LaTeX „gol" (fără $...$) primește automat delimitatori
-  t = autoMath(t);
-  const esc = t
+  return t;
+}
+
+// Un fragment de text (fără paragrafe) → HTML: escape, linkuri, bold, cod.
+function inlineHtml(t = '') {
+  const esc = autoMath(t)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return esc
     // linkuri interne markdown [Titlu](/cale) → ancoră clicabilă (deschide exercițiul/materialul)
@@ -50,20 +53,49 @@ function formatMessage(text = '') {
       '<a href="$2" data-internal="1" style="display:inline-block;margin:2px 0;padding:2px 8px;border-radius:6px;background:rgba(232,185,49,.15);border:1px solid var(--gold);color:var(--navy);font-weight:600;text-decoration:none">🧩 $1 →</a>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code style="background:rgba(15,43,68,.08);padding:1px 5px;border-radius:4px;font-size:.92em">$1</code>')
-    .replace(/\n{2,}/g, '</p><p style="margin:.55em 0 0">')
     .replace(/\n/g, '<br/>');
+}
+
+// ─── Formatare ușoară (bold, cod, paragrafe). Formulele LaTeX le lasă KaTeX. ──
+function formatMessage(text = '') {
+  return preMessage(text).split(/\n{2,}/)
+    .map((p, i) => (i ? '</p><p style="margin:.55em 0 0">' : '') + inlineHtml(p))
+    .join('');
+}
+
+// Mesaj împărțit pe „propoziții" marcate <span data-s="i"> — pentru evidențierea
+// părții deja citite cu voce. Folosește ACEEAȘI împărțire ca redarea vocală.
+function sentencesHtml(text = '') {
+  const sents = sentencesOf(preMessage(text));
+  let html = '', lastP = -1;
+  sents.forEach((s, i) => {
+    if (s.p !== lastP) { html += (lastP === -1 ? '' : '</p><p style="margin:.55em 0 0">'); lastP = s.p; }
+    else html += ' ';
+    html += '<span data-s="' + i + '">' + inlineHtml(s.text) + '</span>';
+  });
+  return html;
 }
 
 // Text cu formule. `ready=false` în timpul streamingului (afișează brut, fără flicker);
 // la final `ready=true` → randează KaTeX.
 // `onInternalLink(cale)` — apelat la click pe un link intern din mesaj.
-export function MathText({ text, ready = true, onInternalLink = null }) {
+// `sentences` + `readPos` — evidențiază propozițiile deja citite cu voce.
+export function MathText({ text, ready = true, onInternalLink = null, sentences = false, readPos = null }) {
   const ref = useRef(null);
   useEffect(() => {
     if (!ref.current) return;
-    ref.current.innerHTML = '<p style="margin:0">' + formatMessage(text || '') + '</p>';
+    ref.current.innerHTML = '<p style="margin:0">' + (sentences ? sentencesHtml(text || '') : formatMessage(text || '')) + '</p>';
     if (ready && text) ensureKatex().then(() => { if (ref.current) renderMath(ref.current); });
-  }, [text, ready]);
+  }, [text, ready, sentences]);
+  // indiciul vizual al părții parcurse de voce (fără re-randare KaTeX)
+  useEffect(() => {
+    if (!ref.current || !sentences) return;
+    ref.current.querySelectorAll('[data-s]').forEach((el) => {
+      const k = Number(el.getAttribute('data-s'));
+      el.classList.toggle('pv-now', readPos != null && k === readPos);
+      el.classList.toggle('pv-said', readPos != null && k < readPos);
+    });
+  }, [readPos, sentences, text, ready]);
   function onClick(e) {
     const a = e.target.closest?.('a[data-internal]');
     if (!a) return;
@@ -102,17 +134,57 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   const scrollRef = useRef(null);
   const [autoRead, setAutoRead] = useState(false);
   const [listening, setListening] = useState(false);
-  // Conversație vocală: „🎤 întreabă cu vocea" + „▶ Ascultă răspunsul" (play/pauză)
-  const [voiceState, setVoiceState] = useState({ idx: null, paused: false });
-  const speakTokenRef = useRef(null);
-  function toggleListen(i, content) {
-    if (voiceState.idx === i && !voiceState.paused) { pauseSpeaking(); setVoiceState({ idx: i, paused: true }); return; }
-    if (voiceState.idx === i && voiceState.paused) { resumeSpeaking(); setVoiceState({ idx: i, paused: false }); return; }
-    speakTokenRef.current = i;
-    setVoiceState({ idx: i, paused: false });
-    speak(content, { onEnd: () => { if (speakTokenRef.current === i) setVoiceState({ idx: null, paused: false }); } });
+  // ── Conversație vocală: „🎤 întreabă cu vocea" + „▶ Ascultă răspunsul" ──
+  // Redare pe propoziții (aceeași împărțire ca evidențierea din text), cu
+  // pauză/reluare și derulare (bara de progres e clicabilă).
+  const [voiceState, setVoiceState] = useState({ idx: null, sent: 0, total: 0, paused: false });
+  const playerRef = useRef(null);
+
+  function stopPlayback() {
+    const st = playerRef.current;
+    if (st) { st.gen++; playerRef.current = null; }
+    stopSpeaking();
+    setVoiceState({ idx: null, sent: 0, total: 0, paused: false });
   }
-  useEffect(() => () => stopSpeaking(), []); // la închiderea panoului, vocea tace
+  function startListen(msgIdx, content, fromSent = 0) {
+    const sents = sentencesOf(preMessage(content)).map((s) => s.text);
+    if (!sents.length) return;
+    const st = { msgIdx, sents, i: Math.max(0, Math.min(fromSent, sents.length - 1)), gen: 0, paused: false };
+    playerRef.current = st;
+    st.step = () => {
+      while (st.i < st.sents.length && !st.sents[st.i].trim()) st.i++;
+      if (st.i >= st.sents.length) {
+        if (playerRef.current === st) { playerRef.current = null; setVoiceState({ idx: null, sent: 0, total: 0, paused: false }); }
+        return;
+      }
+      setVoiceState({ idx: st.msgIdx, sent: st.i, total: st.sents.length, paused: false });
+      const g = st.gen;
+      speak(st.sents[st.i], {
+        onEnd: () => { if (playerRef.current === st && !st.paused && st.gen === g) { st.i++; st.step(); } },
+      });
+    };
+    st.step();
+  }
+  function toggleListen(msgIdx, content) {
+    const st = playerRef.current;
+    if (st && st.msgIdx === msgIdx) {
+      if (!st.paused) { st.paused = true; st.gen++; stopSpeaking(); setVoiceState((v) => ({ ...v, paused: true })); }
+      else { st.paused = false; st.step(); } // reia de la propoziția curentă
+      return;
+    }
+    stopPlayback();
+    startListen(msgIdx, content);
+  }
+  function seekListen(frac, msgIdx, content) {
+    let st = playerRef.current;
+    if (!st || st.msgIdx !== msgIdx) { startListen(msgIdx, content); st = playerRef.current; if (!st) return; }
+    const k = Math.max(0, Math.min(st.sents.length - 1, Math.floor(frac * st.sents.length)));
+    st.gen++; st.paused = false; st.i = k;
+    stopSpeaking();
+    st.step();
+  }
+  // la închiderea panoului, vocea tace
+  useEffect(() => () => { const st = playerRef.current; if (st) st.gen++; playerRef.current = null; stopSpeaking(); }, []);
   const [upsell, setUpsell] = useState(false);
   const dictationRef = useRef(null);
   const recorderRef = useRef(null);
@@ -134,6 +206,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   async function send(text, { modeOverride = null } = {}) {
     const msg = (text ?? input).trim();
     if (!msg || streaming) return;
+    const asstIdx = messages.length + 1; // indexul mesajului de răspuns (pentru redarea vocală auto)
     setError(null); setInput(''); setShowHistory(false);
     setMessages((m) => [...m, { role: 'user', content: msg }, { role: 'assistant', content: '', streaming: true }]);
     setStreaming(true);
@@ -152,7 +225,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
             const cleanText = fixTerminology(cleanText0.replace(/https?:\/\/(?:www\.)?examenmate\.ro/gi, 'https://examenmate.com'));
             patchLast({ streaming: false, id: messageId, content: cleanText });
             if (onAction && actions.length) actions.slice(0, 2).forEach((a) => { try { onAction(a); } catch { /* noop */ } });
-            if (autoRead && cleanText.trim()) speak(cleanText, {});
+            if (autoRead && cleanText.trim()) startListen(asstIdx, cleanText); // cu bară + evidențiere
           },
         }
       );
@@ -167,7 +240,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 
   function newConversation() {
     setMessages([]); setConvId(null); setError(null); setShowHistory(false);
-    stopSpeaking(); setVoiceState({ idx: null, paused: false });
+    stopPlayback();
   }
 
   // Reia conversația începută în altă parte (ex: chat plutitor → exercițiu)
@@ -209,7 +282,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 
   async function loadConversation(id) {
     setShowHistory(false);
-    stopSpeaking(); setVoiceState({ idx: null, paused: false });
+    stopPlayback();
     const msgs = await aiClient.getMessages(id);
     setMessages(msgs.map((m) => ({ role: m.role, content: m.content, id: m.id, sources: m.metadata?.sources, primaryMaterial: m.metadata?.primaryMaterial })));
     setConvId(id);
@@ -298,6 +371,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, position: 'relative' }}>
+      {/* evidențierea părții citite cu voce din răspuns */}
+      <style>{`.pv-said{background:rgba(232,185,49,.16);border-radius:3px}.pv-now{background:rgba(232,185,49,.42);border-radius:3px}`}</style>
       {/* Bară: conversație nouă + istoric */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid var(--border)', gap: 8 }}>
         <button onClick={newConversation} style={miniBtn}>＋ Conversație nouă</button>
@@ -396,7 +471,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                 </a>
               )}
               {m.role === 'assistant'
-                ? <MathText text={m.content || (m.streaming ? '▍' : '')} ready={!m.streaming} onInternalLink={openInternal} />
+                ? <MathText text={m.content || (m.streaming ? '▍' : '')} ready={!m.streaming} onInternalLink={openInternal}
+                    sentences readPos={voiceState.idx === i ? voiceState.sent : null} />
                 : <div style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div>}
 
               {m.sources && m.sources.length > 0 && !m.streaming && (
@@ -426,6 +502,21 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                       ? (voiceState.paused ? '▶ Continuă' : '❚❚ Pauză')
                       : '▶ Ascultă răspunsul'}
                   </button>
+                )}
+                {/* Bara de derulare a răspunsului vocal (click = salt) */}
+                {voiceState.idx === i && voiceState.total > 1 && (
+                  <div
+                    title="Derulează răspunsul vocal"
+                    onClick={(e) => {
+                      const r = e.currentTarget.getBoundingClientRect();
+                      seekListen((e.clientX - r.left) / r.width, i, m.content);
+                    }}
+                    style={{ width: 150, height: 9, borderRadius: 6, background: 'rgba(15,43,68,.15)', cursor: 'pointer', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', background: 'var(--gold)', transition: 'width .25s',
+                      width: `${Math.round(((voiceState.sent + 1) / voiceState.total) * 100)}%`,
+                    }} />
+                  </div>
                 )}
                 {m.id && (
                   <>

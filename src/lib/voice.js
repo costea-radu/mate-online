@@ -62,23 +62,61 @@ export const ttsSupported = () => typeof window !== 'undefined' && 'speechSynthe
 
 function pickRoVoice() {
   const voices = window.speechSynthesis.getVoices() || [];
-  return voices.find((v) => /ro(-|_)?/i.test(v.lang)) || voices.find((v) => /Romanian/i.test(v.name)) || null;
+  const ro = voices.filter((v) => /ro(-|_)?RO/i.test(v.lang) || /romanian|română/i.test(v.name));
+  // profil „narator": preferăm o voce masculină românească, dacă sistemul are una
+  return ro.find((v) => /emil|male|masculin|bărbat|barbat/i.test(v.name)) || ro[0] || null;
 }
 
-export function speak(text, { lang = 'ro-RO', onEnd } = {}) {
+// Profil „narator de documentar": ton mai jos, ritm calm și așezat.
+const NARRATOR = { rate: 0.95, pitch: 0.7 };
+
+export function speak(text, { lang = 'ro-RO', onEnd, rate, pitch } = {}) {
   if (!ttsSupported()) { onEnd?.(); return; }
   window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(speakableText(text));
   u.lang = lang;
   const v = pickRoVoice();
   if (v) u.voice = v;
-  u.rate = 1; u.pitch = 1;
+  u.rate = rate ?? NARRATOR.rate; u.pitch = pitch ?? NARRATOR.pitch;
   u.onend = () => onEnd?.();
+  u.onerror = () => onEnd?.();
   window.speechSynthesis.speak(u);
 }
 export function stopSpeaking() { if (ttsSupported()) window.speechSynthesis.cancel(); }
 export function pauseSpeaking() { if (ttsSupported()) { try { window.speechSynthesis.pause(); } catch { /* ignore */ } } }
 export function resumeSpeaking() { if (ttsSupported()) { try { window.speechSynthesis.resume(); } catch { /* ignore */ } } }
+
+// ─── Împarte un mesaj în „propoziții" (segmente de citit), conștient de LaTeX ─
+// Returnează [{ text, p }] unde p = indexul paragrafului. Aceeași împărțire e
+// folosită și la afișare (evidențierea părții citite) și la redarea vocală,
+// ca să rămână perfect sincronizate.
+export function sentencesOf(text = '') {
+  const out = [];
+  const push = (cur, p) => {
+    const t = cur.replace(/^[ \t]+/, '').replace(/\s+$/, '');
+    if (t) out.push({ text: t, p });
+  };
+  String(text).split(/\n{2,}/).forEach((para, p) => {
+    let cur = '', inD = false, inS = false; // în $$...$$ / $...$
+    for (let i = 0; i < para.length; i++) {
+      const ch = para[i];
+      if (ch === '$') {
+        if (para[i + 1] === '$') { inD = !inD; cur += '$$'; i++; continue; }
+        if (!inD) inS = !inS;
+      }
+      cur += ch;
+      if (!inD && !inS && /[.!?…:;]/.test(ch)) {
+        const nxt = para[i + 1];
+        if (nxt === undefined || /\s/.test(nxt)) {
+          push(cur, p); cur = '';
+          while (i + 1 < para.length && (para[i + 1] === ' ' || para[i + 1] === '\t')) i++;
+        }
+      }
+    }
+    push(cur, p);
+  });
+  return out;
+}
 
 // ─── Transformă LaTeX/markdown în text citibil în română ─────────────────────
 export function speakableText(text = '') {
