@@ -138,11 +138,21 @@ module.exports = async function handler(req, res) {
       if (!id) return res.status(400).json({ error: 'id obligatoriu' });
       const sc = Math.max(0, parseInt(score, 10) || 0);
       const mx = Math.max(1, parseInt(maxScore, 10) || 100);
-      const { data: ex } = await supa.from('ai_public_results').select('id, attempts, score').eq('public_id', id).eq('student_id', userId).single();
-      if (ex) {
-        await supa.from('ai_public_results').update({ score: Math.max(ex.score || 0, sc), max_score: mx, attempts: (ex.attempts || 1) + 1, completed_at: new Date().toISOString() }).eq('id', ex.id);
-      } else {
-        await supa.from('ai_public_results').insert({ public_id: id, student_id: userId, score: sc, max_score: mx, attempts: 1 });
+      // Notă: erorile de scriere NU se mai ignoră — altfel scorul se pierde
+      // în tăcere iar clientul primește {ok:true} (bug istoric).
+      const { data: ex } = await supa.from('ai_public_results')
+        .select('id, attempts, score').eq('public_id', id).eq('student_id', userId).maybeSingle();
+      const wr = ex
+        ? await supa.from('ai_public_results').update({
+            score: Math.max(ex.score || 0, sc), max_score: mx,
+            attempts: (ex.attempts || 1) + 1, completed_at: new Date().toISOString(),
+          }).eq('id', ex.id)
+        : await supa.from('ai_public_results').insert({
+            public_id: id, student_id: userId, score: sc, max_score: mx, attempts: 1,
+          });
+      if (wr.error) {
+        console.error('ai-public record error:', wr.error);
+        return res.status(500).json({ error: 'Scorul nu a putut fi salvat.', detail: wr.error.message });
       }
       return res.status(200).json({ ok: true });
     }
