@@ -23,9 +23,15 @@ Rulează în Supabase → SQL Editor: `supabase/gamification_schema.sql` (tabelu
 - Plan de învățare: la cerere, construiește etape din exercițiile din site, cu obiective măsurabile (ex. „minim 80%").
 - Motivare: felicitări concrete (vede progresul și insignele elevului), provocări și obiective mici. Insigne acordate automat la salvarea scorului (Primul pas, Punctaj maxim, Perseverent, În formă 5/10/25, Perfecționist, Pregătit de Bac/Evaluare) — toast în exercițiu + secțiunea „🏅 Insignele mele" în profil.
 
+### 3. Profesorul Virtual în vizualizatorul de PDF-uri
+- Widgetul plutitor „Întreabă-mă orice" rămâne vizibil în `/pdf-viewer`, iar în bara de sus există butonul „Profesorul virtual · te ajută la exercițiile din PDF" (desktop și mobil).
+- Panoul se deschide lângă PDF (lateral pe desktop, jos pe mobil — se redimensionează trăgând de bara albastră).
+- AI-ul **vede** materialul: la deschiderea panoului, `api/ai-pdf-context.js` extrage textul PDF-ului pe server (pdf-parse, max 20 pagini / 9000 caractere, cu verificarea accesului premium) și îl trimite în contextul conversației. Elevul poate întreba „explică-mi exercițiul 3", „de unde încep la subiectul II" etc.
+- Reguli proprii (`PDF_RULES`): lucrează pe enunțul real din material, spune sincer când textul extras e incomplet (PDF scanat) și propune fotografierea exercițiului, nu divulgă baremul nesolicitat.
+
 ## Fișiere atinse
-- nou: `src/lib/tutorBridge.js`, `src/lib/badges.js`, `supabase/gamification_schema.sql`
-- modificate: `src/pages/InteractiveViewer.jsx`, `src/components/AITutor.jsx`, `src/pages/Profile.jsx`, `api/_lib/ai.js`
+- nou: `src/lib/tutorBridge.js`, `src/lib/badges.js`, `supabase/gamification_schema.sql`, `api/ai-pdf-context.js`
+- modificate: `src/pages/InteractiveViewer.jsx`, `src/pages/PDFViewer.jsx`, `src/components/AITutor.jsx`, `src/pages/Profile.jsx`, `src/lib/aiClient.js`, `api/_lib/ai.js`
 
 ## Corecturi (runda 2)
 - Formulele `$$...$$` se randează corect (conținutul e adus pe un singur rând înainte de afișare; LaTeX fără delimitatori primește automat `$...$`).

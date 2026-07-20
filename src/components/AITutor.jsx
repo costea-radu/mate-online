@@ -259,7 +259,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     if (!href) return;
     href = href.replace(/^https?:\/\/(?:www\.)?examenmate\.(?:ro|com)/i, '') || '/';
     if (onNavigate) onNavigate();
-    if (href.startsWith('/exercitiu')) {
+    if (href.startsWith('/exercitiu') || href.startsWith('/pdf-viewer')) {
       navigate(href, { state: { openTutor: true, tutorConvId: convId } });
     } else if (/^\/(evaluare-nationala|bacalaureat|clase)/.test(href)) {
       navigate(href, { state: { returnTab: 'interactive' } });
@@ -346,6 +346,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 
   const starters = context.interactive
     ? ['Dă-mi un indiciu la pasul curent', 'Explică-mi metoda pentru acest exercițiu', 'Verifică-mi pașii de până acum', 'Nu înțeleg unde am greșit']
+    : context.pdf
+    ? ['Explică-mi exercițiul 1', 'De unde încep la subiectul II?', 'Ce formule îmi trebuie aici?', 'Fă-mi un rezumat al cerințelor']
     : context.exerciseText
     ? ['Cum încep acest exercițiu?', 'Explică-mi teoria de care am nevoie', 'Verifică-mi gândirea']
     : ['Explică-mi fracțiile', 'Dă-mi un exemplu cu ecuații', 'Fă-mi un plan de învățare pentru capitolul meu'];

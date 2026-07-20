@@ -439,6 +439,15 @@ Reguli pedagogice STRICTE pentru această sesiune:
 - Când elevul îți cere să-i verifici pașii: confirmă ce e corect, corectează delicat ce nu e, pas cu pas.
 - Răspunsuri scurte (3–8 rânduri), câte UN pas o dată; termină des cu o întrebare care îl duce mai departe.`;
 
+// ─── Reguli pentru sesiunea cu un PDF deschis lângă chat ─────────────────────
+const PDF_RULES = `MATERIAL PDF DESCHIS: elevul are deschis un material PDF (variantă de examen, fișă de lucru, culegere) și textul lui extras automat este inclus mai sus.
+Reguli pentru această sesiune:
+- Textul e extras automat, deci poate fi imperfect: formulele, indicii, exponenții și figurile geometrice se pot pierde. Dacă un enunț pare incomplet sau ambiguu, spune-i sincer elevului ce ai înțeles și cere-i să îți confirme datele (sau să fotografieze exercițiul cu butonul 📷).
+- Când elevul zice „exercițiul 3", „subiectul II punctul b" etc., caută-l în textul de mai sus și lucrează pe enunțul REAL din material, nu pe unul inventat.
+- Implicit îl ghidezi pas cu pas, fără să dai rezolvarea de-a gata. Dacă în material există și baremul, NU îl divulgi din proprie inițiativă.
+- EXCEPȚIE: dacă cere explicit răspunsul final, i-l dai concret, cu toți pașii până la el.
+- Dacă un exercițiu cerut nu apare în textul extras (PDF scanat sau prea lung), spune-i și propune-i să îl fotografieze ori să îl scrie în chat.`;
+
 const ACTION_PROTOCOL = `ACȚIUNI DIRECTE ÎN EXERCIȚIU — DOAR LA CEREREA EXPLICITĂ a elevului (ex. „scrie tu", „alege tu B", „completează tu răspunsul"). Emite atunci, pe un rând separat la finalul răspunsului, EXACT un marcaj:
 [[ACTIUNE:{"kind":"fill","value":"1/2"}]] — scrie valoarea în câmpul de răspuns al pasului curent
 [[ACTIUNE:{"kind":"choose","letter":"B"}]] — alege opțiunea de grilă
@@ -540,13 +549,17 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
   const lvl = levelLabel(context);
   if (lvl) parts.push(`NIVELUL ELEVULUI: ${lvl}. Adaptează limbajul, notațiile, exemplele și profunzimea explicațiilor la acest nivel.`);
   if (context.exerciseText) {
-    const cap = context.interactive ? 3500 : 1500;
-    parts.push(`Elevul lucrează la acest exercițiu:\n"""${String(context.exerciseText).slice(0, cap)}"""`);
+    const cap = context.pdf ? 9000 : context.interactive ? 3500 : 1500;
+    const head = context.pdf
+      ? `Elevul are deschis materialul PDF „${context.title || 'material'}". Textul lui:`
+      : 'Elevul lucrează la acest exercițiu:';
+    parts.push(`${head}\n"""${String(context.exerciseText).slice(0, cap)}"""`);
   }
   if (context.interactive) {
     parts.push(INTERACTIVE_RULES);
     parts.push(ACTION_PROTOCOL);
   }
+  if (context.pdf) parts.push(PDF_RULES);
   // catalogul de exerciții e util tuturor (elevi ȘI profesori/părinți);
   // starea de progres + motivarea sunt doar pentru elevi
   const [catalog, state] = await Promise.all([
