@@ -137,31 +137,27 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // ── Conversație vocală: „🎤 întreabă cu vocea" + „▶ Ascultă răspunsul" ──
   // Glasul vine de pe server (identic pe desktop și pe telefon), cu revenire
   // automată la sinteza din browser. Bara de progres e clicabilă (derulare).
-  const [voiceState, setVoiceState] = useState({ idx: null, frac: 0, sent: 0, total: 0, paused: false, loading: false });
+  const [voiceState, setVoiceState] = useState({ idx: null, frac: 0, sent: 0, total: 0, paused: false });
   const playerRef = useRef(null);
 
   function stopPlayback() {
     try { playerRef.current?.stop?.(); } catch { /* ignore */ }
     playerRef.current = null;
     stopSpeaking();
-    setVoiceState({ idx: null, frac: 0, sent: 0, total: 0, paused: false, loading: false });
+    setVoiceState({ idx: null, frac: 0, sent: 0, total: 0, paused: false });
   }
 
-  async function startListen(msgIdx, content) {
+  function startListen(msgIdx, content) {
     stopPlayback();
-    setVoiceState({ idx: msgIdx, frac: 0, sent: 0, total: 0, paused: false, loading: true });
-    // element creat sincron, în timpul click-ului: iOS permite redarea doar așa
-    let el = null;
-    try { el = new Audio(); el.src = SILENT_WAV; el.play().catch(() => {}); } catch { /* ignore */ }
-    const ctl = await playAnswer(preMessage(content), {
-      audioEl: el,
+    let ctl = null;
+    ctl = playAnswer(preMessage(content), {
       onProgress: ({ frac, sent, total }) =>
-        setVoiceState((v) => (v.idx === msgIdx ? { ...v, frac, sent, total, loading: false } : v)),
-      onEnd: () => { if (playerRef.current === ctl) { playerRef.current = null; setVoiceState({ idx: null, frac: 0, sent: 0, total: 0, paused: false, loading: false }); } },
+        setVoiceState((v) => (v.idx === msgIdx ? { ...v, frac, sent, total } : v)),
+      onEnd: () => { if (playerRef.current === ctl) stopPlayback(); },
     });
-    if (!ctl) { setVoiceState({ idx: null, frac: 0, sent: 0, total: 0, paused: false, loading: false }); return; }
+    if (!ctl) return;
     playerRef.current = ctl;
-    setVoiceState((v) => (v.idx === msgIdx ? { ...v, loading: false } : v));
+    setVoiceState({ idx: msgIdx, frac: 0, sent: 0, total: 0, paused: false });
   }
 
   function toggleListen(msgIdx, content) {
@@ -429,7 +425,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       )}
 
       {/* Mesaje */}
-      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 14, minHeight: compact ? 200 : 320, background: '#f7f9fc' }}>
+      {/* minHeight 0 în modul compact: altfel, pe panouri mici (mobil),
+          zona de mesaje împinge câmpul de scris în afara ecranului */}
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 14, minHeight: compact ? 0 : 320, background: '#f7f9fc' }}>
         {messages.length === 0 && (
           <div style={{ color: 'var(--text-muted)', fontSize: '.9rem' }}>
             <p style={{ marginBottom: 12 }}>{isMentor ? 'Salut! Sunt Asistentul tău. Alege mai jos sau întreabă-mă orice 👇' : 'Salut! Sunt profesorul tău virtual. Întreabă-mă orice despre matematică 👇'}</p>
@@ -496,12 +494,12 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                         : {}),
                     }}>
                     {voiceState.idx === i
-                      ? (voiceState.loading ? '… se pregătește' : voiceState.paused ? '▶ Continuă' : '❚❚ Pauză')
+                      ? (voiceState.paused ? '▶ Continuă' : '❚❚ Pauză')
                       : '▶ Ascultă răspunsul'}
                   </button>
                 )}
                 {/* Bara de derulare a răspunsului vocal (click = salt) */}
-                {voiceState.idx === i && !voiceState.loading && (
+                {voiceState.idx === i && voiceState.total > 1 && (
                   <div
                     title="Derulează răspunsul vocal"
                     onClick={(e) => {
@@ -551,8 +549,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         </div>
       )}
 
-      {/* Input */}
-      <div style={{ display: 'flex', gap: 8, padding: 12, borderTop: '1px solid var(--border)', background: '#fff' }}>
+      {/* Input — rămâne mereu vizibil, chiar și pe panouri mici */}
+      <div style={{ display: 'flex', gap: 8, padding: 12, borderTop: '1px solid var(--border)', background: '#fff', flexShrink: 0 }}>
         <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onPickPhoto} style={{ display: 'none' }} />
         <button onClick={() => fileRef.current?.click()} disabled={visionLoading} title="Fotografiază un exercițiu"
           style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '0 12px', fontSize: '1.1rem', cursor: visionLoading ? 'default' : 'pointer', opacity: visionLoading ? 0.5 : 1 }}>
@@ -585,8 +583,6 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 const miniBtn = { background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px', fontSize: '.76rem', color: 'var(--text-light)', fontWeight: 600 };
 const fbBtn = { background: 'none', border: 'none', fontSize: '.95rem', cursor: 'pointer', padding: '2px 4px' };
 const listenBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid var(--gold)', color: 'var(--navy)', borderRadius: 16, padding: '3px 11px', fontSize: '.75rem', fontWeight: 700, cursor: 'pointer' };
-// sunet mut de 44 de octeți: „deblochează" redarea audio pe iOS în timpul click-ului
-const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
 
 // ─── Widget plutitor (montat global) ─────────────────────────────────────────
 export default function FloatingTutor() {

@@ -33,6 +33,27 @@ export default function InteractiveViewer() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  // Înălțimea panoului pe mobil (% din ecran) — se trage de bara albastră
+  const [panelPct, setPanelPct] = useState(48);
+  const dragBar = useRef(null);
+  function barDown(e) {
+    if (!isMobile) return;
+    dragBar.current = { y: e.clientY, pct: panelPct };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
+  }
+  function barMove(e) {
+    const d = dragBar.current;
+    if (!d) return;
+    e.preventDefault();
+    const pct = d.pct - ((e.clientY - d.y) / window.innerHeight) * 100;
+    setPanelPct(Math.max(22, Math.min(90, pct)));
+  }
+  function barUp(e) {
+    if (!dragBar.current) return;
+    dragBar.current = null;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+  }
+
   const [searchParams] = useSearchParams();
   const idParam = searchParams.get('id');
   const [item, setItem] = useState(state?.item || null);
@@ -250,7 +271,9 @@ export default function InteractiveViewer() {
   const scoreColor = scorePct >= 80 ? '#2e7d32' : scorePct >= 50 ? '#e65100' : '#c62828';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--navy-dark)' }}>
+    <div className="iv-root" style={{ display: 'flex', flexDirection: 'column', background: 'var(--navy-dark)' }}>
+      {/* 100dvh pe mobil: altfel bara browserului taie câmpul de scris al chatului */}
+      <style>{`.iv-root{height:100vh;height:100dvh}`}</style>
       {/* Bara de sus */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -347,10 +370,23 @@ export default function InteractiveViewer() {
           <div style={{
             flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', minHeight: 0,
             ...(isMobile
-              ? { height: '48%', borderTop: '3px solid var(--gold)' }
+              ? { height: `${panelPct}%`, borderTop: '3px solid var(--gold)' }
               : { width: 400, maxWidth: '45vw', borderLeft: '3px solid var(--gold)' }),
           }}>
-            <div style={{ background: 'var(--navy)', color: '#fff', padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            {/* Pe mobil, bara albastră e și mâner: trage în sus/jos ca să mărești sau să micșorezi panoul */}
+            <div
+              onPointerDown={barDown} onPointerMove={barMove} onPointerUp={barUp} onPointerCancel={barUp}
+              style={{
+                background: 'var(--navy)', color: '#fff', padding: isMobile ? '4px 12px 8px' : '8px 12px',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
+                ...(isMobile ? { cursor: 'ns-resize', touchAction: 'none', position: 'relative' } : {}),
+              }}>
+              {isMobile && (
+                <div style={{
+                  position: 'absolute', top: 4, left: '50%', transform: 'translateX(-50%)',
+                  width: 44, height: 4, borderRadius: 3, background: 'rgba(255,255,255,.45)',
+                }} />
+              )}
               <div style={{ fontWeight: 700, fontSize: '.9rem', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <EinsteinIcon size={20} /> Profesorul Virtual
               </div>

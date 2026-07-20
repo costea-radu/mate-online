@@ -142,95 +142,46 @@ export function sentencesOf(text = '') {
   return out;
 }
 
-// ─── Player pentru un răspuns întreg ─────────────────────────────────────────
-// Glasul vine de pe SERVER (identic pe orice dispozitiv: masculin, grav). Dacă
-// serverul nu e disponibil (fără cheie, offline, cotă atinsă), revine automat
-// la sinteza din browser. API: { pause, resume, seek(frac), stop, paused }.
+// ─── Player pentru un răspuns întreg (vocile instalate în sistem) ────────────
+// Citește propoziție cu propoziție, ca pauza, derularea și evidențierea din
+// text să fie exacte. API: { pause, resume, seek(frac), stop, paused }.
+// onProgress({ frac, sent, total }); onEnd() la final.
 //
-// onProgress({ frac, sent, total }) — pentru bara de derulare și evidențierea
-// propoziției citite; onEnd() la final.
-// `audioEl` (opțional): element <audio> creat în handlerul de click, ca iOS să
-// permită redarea (politica „user gesture").
-export async function playAnswer(text, { onProgress, onEnd, audioEl = null } = {}) {
+// Un singur player poate vorbi la un moment dat: fiecare redare nouă
+// invalidează redările anterioare (altfel vocile se suprapun la apăsări dese).
+let PLAY_TOKEN = 0;
+
+export function playAnswer(text, { onProgress, onEnd } = {}) {
   const sents = sentencesOf(text).map((s) => s.text).filter((t) => t.trim());
   if (!sents.length) { onEnd?.(); return null; }
-  const spoken = sents.map(speakableText).filter(Boolean);
 
-  // 1) Voce de pe server — aceeași pe desktop și pe telefon
-  try {
-    const { aiClient } = await import('./aiClient');
-    const { audioBase64, mime } = await aiClient.tts({ text: spoken.join(' ') });
-    if (audioBase64) {
-      const bin = atob(audioBase64);
-      const arr = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-      const url = URL.createObjectURL(new Blob([arr], { type: mime || 'audio/mpeg' }));
-      const ctl = await audioController(url, spoken, { onProgress, onEnd, audioEl });
-      if (ctl) return ctl;
-    }
-  } catch { /* fără voce de server → sinteza din browser */ }
-
-  // 2) Rezervă: sinteza din browser (voce masculină dacă sistemul are una)
-  await ensureVoices();
-  return synthController(sents, { onProgress, onEnd });
-}
-
-// Redare a unui fișier audio; poziția propoziției se estimează din durata
-// consumată, proporțional cu lungimea fiecărei propoziții.
-async function audioController(url, spoken, { onProgress, onEnd, audioEl }) {
-  const audio = audioEl || new Audio();
-  audio.src = url;
-  audio.preload = 'auto';
-  const lens = spoken.map((s) => s.length);
-  const total = lens.reduce((a, b) => a + b, 0) || 1;
-  const cum = []; lens.reduce((a, l, i) => (cum[i] = a + l), 0);
-  const sentAt = (frac) => {
-    const pos = frac * total;
-    for (let i = 0; i < cum.length; i++) if (pos <= cum[i]) return i;
-    return cum.length - 1;
-  };
-  audio.ontimeupdate = () => {
-    const d = audio.duration;
-    if (!d || !isFinite(d)) return;
-    const frac = Math.min(1, audio.currentTime / d);
-    onProgress?.({ frac, sent: sentAt(frac), total: spoken.length });
-  };
-  audio.onended = () => { URL.revokeObjectURL(url); onEnd?.(); };
-  audio.onerror = () => { URL.revokeObjectURL(url); onEnd?.(); };
-  try { await audio.play(); } catch { URL.revokeObjectURL(url); return null; } // iOS fără gest → rezervă
-  return {
-    engine: 'server',
-    get paused() { return audio.paused; },
-    pause() { audio.pause(); },
-    resume() { audio.play().catch(() => {}); },
-    seek(frac) {
-      const d = audio.duration;
-      if (d && isFinite(d)) { audio.currentTime = Math.max(0, Math.min(0.999, frac)) * d; audio.play().catch(() => {}); }
-    },
-    stop() { try { audio.pause(); } catch { /* ignore */ } audio.src = ''; URL.revokeObjectURL(url); },
-  };
-}
-
-// Sinteza din browser: citește propoziție cu propoziție (pauza și derularea
-// funcționează exact pe propoziții).
-function synthController(sents, { onProgress, onEnd }) {
+  const token = ++PLAY_TOKEN;
   const st = { i: 0, gen: 0, paused: false, dead: false };
+  const mine = () => token === PLAY_TOKEN && !st.dead;
+  stopSpeaking(); // taie orice se aude acum
+
   const step = () => {
-    if (st.dead) return;
+    if (!mine()) return;
     while (st.i < sents.length && !sents[st.i].trim()) st.i++;
     if (st.i >= sents.length) { st.dead = true; onEnd?.(); return; }
     onProgress?.({ frac: (st.i + 1) / sents.length, sent: st.i, total: sents.length });
     const g = ++st.gen;
-    speak(sents[st.i], { onEnd: () => { if (!st.dead && !st.paused && st.gen === g) { st.i++; step(); } } });
+    speak(sents[st.i], { onEnd: () => { if (mine() && !st.paused && st.gen === g) { st.i++; step(); } } });
   };
-  step();
+  // pe mobil lista de voci se încarcă asincron — o așteptăm o singură dată
+  ensureVoices().then(() => { if (mine()) step(); });
+
   return {
-    engine: 'browser',
     get paused() { return st.paused; },
     pause() { st.paused = true; st.gen++; stopSpeaking(); },
-    resume() { if (st.paused) { st.paused = false; step(); } },
-    seek(frac) { st.gen++; st.paused = false; st.i = Math.max(0, Math.min(sents.length - 1, Math.floor(frac * sents.length))); stopSpeaking(); step(); },
-    stop() { st.dead = true; st.gen++; stopSpeaking(); },
+    resume() { if (st.paused && mine()) { st.paused = false; step(); } },
+    seek(frac) {
+      if (!mine()) return;
+      st.gen++; st.paused = false;
+      st.i = Math.max(0, Math.min(sents.length - 1, Math.floor(frac * sents.length)));
+      stopSpeaking(); step();
+    },
+    stop() { st.dead = true; st.gen++; if (token === PLAY_TOKEN) stopSpeaking(); },
   };
 }
 
