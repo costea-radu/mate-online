@@ -27,6 +27,15 @@ const STT_BASE  = process.env.AI_STT_BASE_URL || CHAT_BASE;
 const STT_KEY   = process.env.AI_STT_API_KEY  || CHAT_KEY;
 const STT_MODEL = process.env.AI_STT_MODEL    || 'whisper-1';
 
+// Text-to-speech: glasul Profesorului Virtual. Sintetizat pe SERVER ca să fie
+// IDENTIC pe orice dispozitiv (pe telefon singura voce română din sistem e,
+// de regulă, feminină). „onyx" = voce masculină gravă, ton de narator.
+const TTS_BASE  = process.env.AI_TTS_BASE_URL || CHAT_BASE;
+const TTS_KEY   = process.env.AI_TTS_API_KEY  || CHAT_KEY;
+const TTS_MODEL = process.env.AI_TTS_MODEL    || 'tts-1';
+const TTS_VOICE = process.env.AI_TTS_VOICE    || 'onyx';
+const TTS_SPEED = parseFloat(process.env.AI_TTS_SPEED || '0.95');
+
 const RATE_PER_HOUR = parseInt(process.env.AI_RATE_PER_HOUR || '80', 10);
 const FREE_ACTIONS = parseInt(process.env.AI_FREE_ACTIONS || '2', 10); // acțiuni AI gratuite pentru cont fără abonament
 const SIGNING_SECRET = process.env.AI_SIGNING_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'dev-secret';
@@ -174,6 +183,24 @@ async function transcribe({ audioBuffer, mime = 'audio/webm', language = 'ro' })
   }
   const data = await r.json().catch(() => ({}));
   return data.text || '';
+}
+
+// ─── Text-to-speech — glasul (masculin) al Profesorului Virtual ──────────────
+const hasTTS = () => !!TTS_KEY;
+async function tts({ text, voice = TTS_VOICE, speed = TTS_SPEED, format = 'mp3' }) {
+  if (!hasTTS()) { const e = new Error('TTS neconfigurat (lipsește cheia).'); e.status = 501; throw e; }
+  const r = await fetch(`${TTS_BASE}/audio/speech`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${TTS_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: TTS_MODEL, voice, input: text, speed, response_format: format }),
+  });
+  if (!r.ok) {
+    const t = await r.text().catch(() => '');
+    const e = new Error(`TTS ${r.status}: ${t.slice(0, 200)}`);
+    e.status = r.status === 429 ? 429 : 502;
+    throw e;
+  }
+  return Buffer.from(await r.arrayBuffer());
 }
 
 // ─── Notificări (cu dedup pe interval) ───────────────────────────────────────
@@ -380,7 +407,9 @@ function requirePremium(profile) {
 // Utilizatorii fără abonament au voie la un număr limitat de acțiuni AI (default 1).
 async function enforceFreeQuota(supa, profile) {
   if (isPremium(profile)) return;
-  const { count } = await supa.from('ai_usage').select('*', { count: 'exact', head: true }).eq('user_id', profile.id);
+  // citirea cu voce a unui răspuns deja primit NU consumă din acțiunile gratuite
+  const { count } = await supa.from('ai_usage').select('*', { count: 'exact', head: true })
+    .eq('user_id', profile.id).neq('endpoint', 'ai-tts');
   if ((count || 0) >= FREE_ACTIONS) {
     throw premiumError(`Ai folosit cele ${FREE_ACTIONS} acțiuni gratuite cu Profesorul Virtual. Abonează-te pentru acces nelimitat (explicații, exerciții, foto-rezolvare, voce și teste de examen).`);
   }
@@ -563,8 +592,8 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
 
 module.exports = {
   CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic,
-  chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, PERSONA,
-  levelLabel, interactiveCatalog, studentState,
+  chat, chatStream, chatVision, embed, transcribe, tts, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, PERSONA,
+  levelLabel, interactiveCatalog, studentState, hasTTS, TTS_VOICE, TTS_MODEL,
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS,

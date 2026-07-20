@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { askAiLabel } from '../lib/aiLabel';
 import { ensureKatex, renderMath, autoMath } from '../lib/katex';
 import { fileToCompressedDataUrl } from '../lib/image';
-import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, speak, stopSpeaking, sentencesOf } from '../lib/voice';
+import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, stopSpeaking, playAnswer, sentencesOf } from '../lib/voice';
 import { extractTutorActions } from '../lib/tutorBridge';
 
 // ─── Terminologie școlară: „factorizare" → „descompunere în factori" ─────────
@@ -135,56 +135,53 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   const [autoRead, setAutoRead] = useState(false);
   const [listening, setListening] = useState(false);
   // ── Conversație vocală: „🎤 întreabă cu vocea" + „▶ Ascultă răspunsul" ──
-  // Redare pe propoziții (aceeași împărțire ca evidențierea din text), cu
-  // pauză/reluare și derulare (bara de progres e clicabilă).
-  const [voiceState, setVoiceState] = useState({ idx: null, sent: 0, total: 0, paused: false });
+  // Glasul vine de pe server (identic pe desktop și pe telefon), cu revenire
+  // automată la sinteza din browser. Bara de progres e clicabilă (derulare).
+  const [voiceState, setVoiceState] = useState({ idx: null, frac: 0, sent: 0, total: 0, paused: false, loading: false });
   const playerRef = useRef(null);
 
   function stopPlayback() {
-    const st = playerRef.current;
-    if (st) { st.gen++; playerRef.current = null; }
+    try { playerRef.current?.stop?.(); } catch { /* ignore */ }
+    playerRef.current = null;
     stopSpeaking();
-    setVoiceState({ idx: null, sent: 0, total: 0, paused: false });
+    setVoiceState({ idx: null, frac: 0, sent: 0, total: 0, paused: false, loading: false });
   }
-  function startListen(msgIdx, content, fromSent = 0) {
-    const sents = sentencesOf(preMessage(content)).map((s) => s.text);
-    if (!sents.length) return;
-    const st = { msgIdx, sents, i: Math.max(0, Math.min(fromSent, sents.length - 1)), gen: 0, paused: false };
-    playerRef.current = st;
-    st.step = () => {
-      while (st.i < st.sents.length && !st.sents[st.i].trim()) st.i++;
-      if (st.i >= st.sents.length) {
-        if (playerRef.current === st) { playerRef.current = null; setVoiceState({ idx: null, sent: 0, total: 0, paused: false }); }
-        return;
-      }
-      setVoiceState({ idx: st.msgIdx, sent: st.i, total: st.sents.length, paused: false });
-      const g = st.gen;
-      speak(st.sents[st.i], {
-        onEnd: () => { if (playerRef.current === st && !st.paused && st.gen === g) { st.i++; st.step(); } },
-      });
-    };
-    st.step();
+
+  async function startListen(msgIdx, content) {
+    stopPlayback();
+    setVoiceState({ idx: msgIdx, frac: 0, sent: 0, total: 0, paused: false, loading: true });
+    // element creat sincron, în timpul click-ului: iOS permite redarea doar așa
+    let el = null;
+    try { el = new Audio(); el.src = SILENT_WAV; el.play().catch(() => {}); } catch { /* ignore */ }
+    const ctl = await playAnswer(preMessage(content), {
+      audioEl: el,
+      onProgress: ({ frac, sent, total }) =>
+        setVoiceState((v) => (v.idx === msgIdx ? { ...v, frac, sent, total, loading: false } : v)),
+      onEnd: () => { if (playerRef.current === ctl) { playerRef.current = null; setVoiceState({ idx: null, frac: 0, sent: 0, total: 0, paused: false, loading: false }); } },
+    });
+    if (!ctl) { setVoiceState({ idx: null, frac: 0, sent: 0, total: 0, paused: false, loading: false }); return; }
+    playerRef.current = ctl;
+    setVoiceState((v) => (v.idx === msgIdx ? { ...v, loading: false } : v));
   }
+
   function toggleListen(msgIdx, content) {
-    const st = playerRef.current;
-    if (st && st.msgIdx === msgIdx) {
-      if (!st.paused) { st.paused = true; st.gen++; stopSpeaking(); setVoiceState((v) => ({ ...v, paused: true })); }
-      else { st.paused = false; st.step(); } // reia de la propoziția curentă
+    const ctl = playerRef.current;
+    if (ctl && voiceState.idx === msgIdx) {
+      if (!ctl.paused) { ctl.pause(); setVoiceState((v) => ({ ...v, paused: true })); }
+      else { ctl.resume(); setVoiceState((v) => ({ ...v, paused: false })); }
       return;
     }
-    stopPlayback();
     startListen(msgIdx, content);
   }
+
   function seekListen(frac, msgIdx, content) {
-    let st = playerRef.current;
-    if (!st || st.msgIdx !== msgIdx) { startListen(msgIdx, content); st = playerRef.current; if (!st) return; }
-    const k = Math.max(0, Math.min(st.sents.length - 1, Math.floor(frac * st.sents.length)));
-    st.gen++; st.paused = false; st.i = k;
-    stopSpeaking();
-    st.step();
+    const ctl = playerRef.current;
+    if (ctl && voiceState.idx === msgIdx) { ctl.seek(frac); setVoiceState((v) => ({ ...v, paused: false })); }
+    else startListen(msgIdx, content);
   }
+
   // la închiderea panoului, vocea tace
-  useEffect(() => () => { const st = playerRef.current; if (st) st.gen++; playerRef.current = null; stopSpeaking(); }, []);
+  useEffect(() => () => { try { playerRef.current?.stop?.(); } catch { /* ignore */ } stopSpeaking(); }, []);
   const [upsell, setUpsell] = useState(false);
   const dictationRef = useRef(null);
   const recorderRef = useRef(null);
@@ -499,12 +496,12 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                         : {}),
                     }}>
                     {voiceState.idx === i
-                      ? (voiceState.paused ? '▶ Continuă' : '❚❚ Pauză')
+                      ? (voiceState.loading ? '… se pregătește' : voiceState.paused ? '▶ Continuă' : '❚❚ Pauză')
                       : '▶ Ascultă răspunsul'}
                   </button>
                 )}
                 {/* Bara de derulare a răspunsului vocal (click = salt) */}
-                {voiceState.idx === i && voiceState.total > 1 && (
+                {voiceState.idx === i && !voiceState.loading && (
                   <div
                     title="Derulează răspunsul vocal"
                     onClick={(e) => {
@@ -514,7 +511,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                     style={{ width: 150, height: 9, borderRadius: 6, background: 'rgba(15,43,68,.15)', cursor: 'pointer', overflow: 'hidden' }}>
                     <div style={{
                       height: '100%', background: 'var(--gold)', transition: 'width .25s',
-                      width: `${Math.round(((voiceState.sent + 1) / voiceState.total) * 100)}%`,
+                      width: `${Math.round(Math.min(1, voiceState.frac) * 100)}%`,
                     }} />
                   </div>
                 )}
@@ -588,6 +585,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 const miniBtn = { background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px', fontSize: '.76rem', color: 'var(--text-light)', fontWeight: 600 };
 const fbBtn = { background: 'none', border: 'none', fontSize: '.95rem', cursor: 'pointer', padding: '2px 4px' };
 const listenBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid var(--gold)', color: 'var(--navy)', borderRadius: 16, padding: '3px 11px', fontSize: '.75rem', fontWeight: 700, cursor: 'pointer' };
+// sunet mut de 44 de octeți: „deblochează" redarea audio pe iOS în timpul click-ului
+const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
 
 // ─── Widget plutitor (montat global) ─────────────────────────────────────────
 export default function FloatingTutor() {

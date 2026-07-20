@@ -150,6 +150,9 @@ export const aiClient = {
   // Voce: transcriere audio (fallback STT)
   transcribe: ({ audioBase64, mime = 'audio/webm' }) => post('/api/ai-transcribe', { audioBase64, mime }),
 
+  // Voce: glasul (masculin, identic pe orice dispozitiv) al Profesorului Virtual
+  tts: ({ text, voice = null }) => post('/api/ai-tts', { text, voice }),
+
   // Conversații (citite direct din Supabase, protejate de RLS)
   async listConversations(limit = 20) {
     const userId = await uid();
