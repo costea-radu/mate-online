@@ -4,6 +4,23 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 22 iulie 2026 — Punctaje teste încărcate · Prof. Virtual în raport · context complet · PDF pe mobil
+
+### #A — Testele HTML încărcate își salvează acum punctajul
+**Înainte:** testele de liceu încărcate manual (ex. variantele BAC) își calculau scorul intern, dar nu îl trimiteau platformei (`MATE_SCORE` lipsea) → nu apărea nici la elev, nici la profesorul asociat.
+**Acum:** `src/lib/tutorBridge.js` include un „reporter de scor" injectat automat: la „✓ Corectează" detectează punctajul (șablonul `PROBS/stats/GRADED` sau panoul final „X / Y puncte") și trimite `MATE_SCORE` către platformă. Protecții: nu raportează la simpla redeschidere, nu dublează la dublu-clic, nu re-raportează la navigare după corectare; fișierele care au deja `MATE_SCORE` propriu primesc flagul `__MATE_NATIVE_SCORE__` (fără raport dublu). Verificat cu simulare completă pe `bac-2014-varianta-7.html` (17/17 teste).
+
+### #B — Raportul profesorului arată folosirea Prof. Virtual
+`api/teacher-students.js` numără întrebările puse AI-ului per elev+material (din `ai_conversations.context.contentId` + `ai_messages` cu `role='user'`). În `TeacherResults`, lângă Punctaj / Nr. încercări / Timp apare coloana **„A folosit Prof. Virtual"** („Da, N întrebări" / „Nu"). În **Progres AI** (`StudentAIMastery`) apare lista „Teste rezolvate cu ajutorul Prof. Virtual" cu punctajul fiecărui test (sau „fără punctaj încă").
+
+### #C — Prof. Virtual vede FIȘIERUL CURENT complet
+Bridge-ul trimite acum întreg conținutul testului (toate exercițiile, cu subiecte și cerințe), plus detaliile exercițiului deschis; limită 14000 caractere (era 4000). Serverul (`api/_lib/ai.js`) acceptă context mărit (interactiv 14000, PDF 15000 — și `ai-pdf-context`) și are regulă explicită: la „exercițiul 3" / „subiectul II 2.b" caută exercițiul REAL în conținut, nu inventează enunțuri.
+
+### #D — PDF pe telefon cu Prof. Virtual activ
+`PDFViewer.jsx`: pe mobil PDF-ul se redă ÎN pagină (pdf.js de pe CDN, pagini pe `<canvas>`, zoom −/+), deci profesorul rămâne lângă material — nu se mai pierde în viewerul nativ / la descărcare. Dacă pdf.js nu se poate încărca, rămâne varianta veche („Deschide PDF-ul") ca rezervă.
+
+---
+
 ## 🔴 CRITIC
 
 ### #1 — Autentificare reală pe tot API-ul (era falsificabilă)

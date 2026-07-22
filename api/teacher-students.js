@@ -81,8 +81,37 @@ module.exports = async function handler(req, res) {
   if (progressErr) return res.status(500).json({ error: progressErr.message });
   const prog = progress || [];
 
-  // 6. Titlurile testelor/exercițiilor
-  const contentIds = [...new Set(prog.map((p) => p.content_id))];
+  // 6. Utilizarea Profesorului Virtual: câte întrebări a pus fiecare elev
+  //    la fiecare material (conversațiile AI păstrează contentId în context).
+  const aiQ = {}; // "userId|contentId" -> nr. întrebări
+  try {
+    const { data: convs } = await supabase
+      .from('ai_conversations')
+      .select('id, user_id, context')
+      .in('user_id', studentIds);
+    const convKey = {}; // conversationId -> "userId|contentId"
+    (convs || []).forEach((c) => {
+      const cid = c.context && (c.context.contentId || c.context.content_id);
+      if (cid) convKey[c.id] = `${c.user_id}|${cid}`;
+    });
+    const convIds = Object.keys(convKey);
+    for (let i = 0; i < convIds.length; i += 150) {
+      const chunk = convIds.slice(i, i + 150);
+      const { data: msgs } = await supabase
+        .from('ai_messages')
+        .select('conversation_id')
+        .eq('role', 'user')
+        .in('conversation_id', chunk);
+      (msgs || []).forEach((m) => {
+        const k = convKey[m.conversation_id];
+        if (k) aiQ[k] = (aiQ[k] || 0) + 1;
+      });
+    }
+  } catch { /* raportul funcționează și fără datele AI */ }
+
+  // 7. Titlurile testelor/exercițiilor (din progres + din conversațiile AI)
+  const aiContentIds = Object.keys(aiQ).map((k) => k.split('|')[1]);
+  const contentIds = [...new Set([...prog.map((p) => p.content_id), ...aiContentIds])];
   const contentMap = {};
   if (contentIds.length > 0) {
     const { data: content } = await supabase
@@ -111,8 +140,27 @@ module.exports = async function handler(req, res) {
       attempts: p.attempts != null ? p.attempts : 1,
       time_spent: p.time_spent != null ? p.time_spent : 0,
       completed_at: p.completed_at,
+      ai_questions: aiQ[`${p.user_id}|${p.content_id}`] || 0,
     };
   });
 
-  return res.status(200).json({ role, students, results, groups });
+  // 8. Materiale la care elevul a folosit Prof. Virtual dar nu are (încă) punctaj
+  const covered = new Set(prog.map((p) => `${p.user_id}|${p.content_id}`));
+  const aiUsage = Object.keys(aiQ)
+    .filter((k) => !covered.has(k))
+    .map((k) => {
+      const [sid, cid] = k.split('|');
+      const c = contentMap[cid] || {};
+      return {
+        student_id: sid,
+        content_id: cid,
+        test_title: c.title || 'Material',
+        content_type: c.content_type || '',
+        ai_questions: aiQ[k],
+      };
+    })
+    // doar materiale reale din platformă (conversațiile fără material nu apar)
+    .filter((r) => contentMap[r.content_id]);
+
+  return res.status(200).json({ role, students, results, groups, aiUsage });
 };

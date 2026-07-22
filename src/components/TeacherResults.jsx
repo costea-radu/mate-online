@@ -307,16 +307,17 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
               )}
             </div>
 
-            {/* Detaliu rezultate: Punctaj / Nr. încercări / Timp */}
+            {/* Detaliu rezultate: Punctaj / Nr. încercări / Timp / Prof. Virtual */}
             {hasRows && (
               <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', minWidth: 420 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', minWidth: 540 }}>
                   <thead>
                     <tr style={{ textAlign: 'left', color: 'var(--text-muted)' }}>
                       <th style={{ padding: '6px 10px', fontWeight: 700 }}>Test sau exercițiu</th>
                       <th style={{ padding: '6px 10px', fontWeight: 700, textAlign: 'right', whiteSpace: 'nowrap' }}>Punctaj</th>
                       <th style={{ padding: '6px 10px', fontWeight: 700, textAlign: 'right', whiteSpace: 'nowrap' }}>Nr. încercări</th>
                       <th style={{ padding: '6px 10px', fontWeight: 700, textAlign: 'right', whiteSpace: 'nowrap' }}>Timp</th>
+                      <th style={{ padding: '6px 10px', fontWeight: 700, textAlign: 'right', whiteSpace: 'nowrap' }}>A folosit Prof. Virtual</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -339,6 +340,15 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                           </td>
                           <td style={{ padding: '7px 10px', textAlign: 'right', color: 'var(--text)' }}>{r.attempts}</td>
                           <td style={{ padding: '7px 10px', textAlign: 'right', color: 'var(--text)', whiteSpace: 'nowrap' }}>{fmtTime(r.time_spent)}</td>
+                          <td style={{ padding: '7px 10px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            {r.ai_questions > 0 ? (
+                              <span style={{ fontWeight: 700, color: '#8a6d00', background: 'rgba(232,185,49,.18)', border: '1px solid rgba(232,185,49,.5)', borderRadius: 12, padding: '2px 9px', fontSize: '0.76rem' }}>
+                                Da, {r.ai_questions} {r.ai_questions === 1 ? 'întrebare' : 'întrebări'}
+                              </span>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>Nu</span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -347,7 +357,15 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
               </div>
             )}
 
-            {(isTeacher || isParent) && <StudentAIMastery studentId={student.id} />}
+            {(isTeacher || isParent) && (
+              <StudentAIMastery
+                studentId={student.id}
+                aiTests={[
+                  ...student.rows.filter((r) => r.ai_questions > 0),
+                  ...(student.aiOnly || []),
+                ]}
+              />
+            )}
           </td>
         </tr>
       )}
@@ -359,7 +377,7 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
 export default function TeacherResults({ user, inviteCode, displayName, role = 'profesor' }) {
   const isTeacher = role === 'profesor';
   const isParent = role === 'parinte';
-  const [data, setData] = useState({ students: [], results: [], groups: [] });
+  const [data, setData] = useState({ students: [], results: [], groups: [], aiUsage: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
@@ -383,7 +401,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Eroare server (${res.status})`);
-      setData({ students: json.students || [], results: json.results || [], groups: json.groups || [] });
+      setData({ students: json.students || [], results: json.results || [], groups: json.groups || [], aiUsage: json.aiUsage || [] });
     } catch (e) {
       setError(e.message || 'Nu s-au putut încărca rezultatele.');
     } finally { setLoading(false); }
@@ -434,6 +452,13 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
         map.set(r.student_id, { id: r.student_id, name: r.student_name || 'Elev', email: r.student_email || '', group_id: null, rows: [] });
       }
       map.get(r.student_id).rows.push(r);
+    });
+    // materiale la care elevul a pus întrebări Prof. Virtual, dar fără punctaj încă
+    (data.aiUsage || []).forEach((r) => {
+      const s = map.get(r.student_id);
+      if (!s) return;
+      if (!s.aiOnly) s.aiOnly = [];
+      s.aiOnly.push(r);
     });
     const arr = [...map.values()];
     arr.forEach((g) => {

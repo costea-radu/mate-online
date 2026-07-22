@@ -11,11 +11,162 @@ function isMobile() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
+// ─── pdf.js de pe CDN (doar pe mobil): redăm PDF-ul ÎN pagină, pe <canvas>,
+// ca Profesorul Virtual să rămână activ lângă el (vizualizatoarele native
+// de pe telefon descarcă fișierul sau acoperă complet aplicația). ─────────
+const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+let pdfjsPromise = null;
+function loadPdfJs() {
+  if (typeof window !== 'undefined' && window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (!pdfjsPromise) {
+    pdfjsPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = PDFJS_URL;
+      s.async = true;
+      s.onload = () => {
+        try {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+          resolve(window.pdfjsLib);
+        } catch (e) { reject(e); }
+      };
+      s.onerror = () => { pdfjsPromise = null; reject(new Error('Nu s-a putut încărca vizualizatorul PDF.')); };
+      document.head.appendChild(s);
+    });
+  }
+  return pdfjsPromise;
+}
+
+// Vizualizator PDF intern (canvas + zoom). `data` = ArrayBuffer-ul PDF-ului.
+function PdfCanvasViewer({ data, blobUrl, onFail }) {
+  const holderRef = useRef(null);
+  const pdfRef = useRef(null);
+  const renderSeq = useRef(0);
+  const [status, setStatus] = useState('loading'); // loading | ok | error
+  const [zoom, setZoom] = useState(1);
+  const [vw, setVw] = useState(0); // re-randare la rotirea ecranului
+
+  useEffect(() => {
+    let t = null;
+    const onResize = () => { clearTimeout(t); t = setTimeout(() => setVw((n) => n + 1), 300); };
+    window.addEventListener('resize', onResize);
+    return () => { clearTimeout(t); window.removeEventListener('resize', onResize); };
+  }, []);
+
+  // Deschide documentul (o singură dată per `data`)
+  useEffect(() => {
+    let dead = false;
+    setStatus('loading');
+    (async () => {
+      try {
+        const pdfjs = await loadPdfJs();
+        // copie: pdf.js transferă bufferul către worker (l-ar „goli" pe original)
+        const doc = await pdfjs.getDocument({ data: new Uint8Array(data.slice(0)) }).promise;
+        if (dead) { try { doc.destroy(); } catch { /* noop */ } return; }
+        pdfRef.current = doc;
+        setStatus('ok');
+      } catch (e) {
+        console.error('PdfCanvasViewer:', e);
+        if (!dead) { setStatus('error'); if (onFail) onFail(); }
+      }
+    })();
+    return () => {
+      dead = true;
+      renderSeq.current++;
+      try { pdfRef.current?.destroy?.(); } catch { /* noop */ }
+      pdfRef.current = null;
+    };
+  }, [data]); // eslint-disable-line
+
+  // Redă paginile (la deschidere, zoom sau rotire)
+  useEffect(() => {
+    const doc = pdfRef.current;
+    const holder = holderRef.current;
+    if (status !== 'ok' || !doc || !holder) return;
+    const seq = ++renderSeq.current;
+    (async () => {
+      try {
+        holder.innerHTML = '';
+        const cw = holder.clientWidth || window.innerWidth;
+        for (let n = 1; n <= doc.numPages; n++) {
+          if (seq !== renderSeq.current) return; // s-a schimbat zoomul între timp
+          const page = await doc.getPage(n);
+          const base = page.getViewport({ scale: 1 });
+          const scale = ((cw - 12) / base.width) * zoom;
+          const vp = page.getViewport({ scale });
+          // limită de pixeli per pagină (memoria pe telefoane)
+          let dpr = Math.min(window.devicePixelRatio || 1, 2);
+          const MAX_PX = 4000000;
+          if (vp.width * vp.height * dpr * dpr > MAX_PX) {
+            dpr = Math.max(1, Math.sqrt(MAX_PX / (vp.width * vp.height)));
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.floor(vp.width * dpr);
+          canvas.height = Math.floor(vp.height * dpr);
+          canvas.style.width = Math.floor(vp.width) + 'px';
+          canvas.style.height = Math.floor(vp.height) + 'px';
+          canvas.style.display = 'block';
+          canvas.style.margin = '0 auto 10px';
+          canvas.style.background = '#fff';
+          canvas.style.borderRadius = '4px';
+          canvas.style.boxShadow = '0 2px 10px rgba(0,0,0,.35)';
+          if (seq !== renderSeq.current) return;
+          holder.appendChild(canvas);
+          const ctx = canvas.getContext('2d');
+          await page.render({
+            canvasContext: ctx,
+            viewport: vp,
+            transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null,
+          }).promise;
+        }
+      } catch (e) {
+        if (seq === renderSeq.current) console.error('PdfCanvasViewer render:', e);
+      }
+    })();
+  }, [status, zoom, vw]);
+
+  const zBtn = {
+    background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)',
+    color: '#fff', borderRadius: 8, width: 34, height: 30, cursor: 'pointer',
+    fontSize: '1rem', fontWeight: 700, lineHeight: 1,
+  };
+
+  if (status === 'error') return null; // părintele afișează varianta de rezervă
+
+  return (
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* bara de zoom + deschidere externă (rezervă) */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '6px 10px', background: 'rgba(0,0,0,0.25)', flexShrink: 0 }}>
+        <button style={zBtn} onClick={() => setZoom((z) => Math.max(0.6, Math.round((z - 0.25) * 100) / 100))} aria-label="Micșorează">−</button>
+        <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.78rem', fontWeight: 700, minWidth: 44, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+        <button style={zBtn} onClick={() => setZoom((z) => Math.min(3, Math.round((z + 0.25) * 100) / 100))} aria-label="Mărește">+</button>
+        {blobUrl && (
+          <a href={blobUrl} target="_blank" rel="noopener noreferrer"
+            style={{ marginLeft: 8, color: 'rgba(255,255,255,0.55)', fontSize: '0.72rem', textDecoration: 'underline', whiteSpace: 'nowrap' }}>
+            deschide extern ↗
+          </a>
+        )}
+      </div>
+      {/* paginile */}
+      <div ref={holderRef} style={{ flex: 1, minHeight: 0, overflow: 'auto', WebkitOverflowScrolling: 'touch', padding: '8px 6px' }}>
+        {status === 'loading' && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, paddingTop: 40 }}>
+            <div className="spinner" />
+            <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem' }}>Se pregătește PDF-ul…</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function PDFViewer() {
   const { state } = useLocation();
   const navigate = useNavigate();
   const { user, isPremium, loading: authLoading } = useAuth();
   const [blobUrl, setBlobUrl] = useState(null);
+  const [pdfData, setPdfData] = useState(null);       // ArrayBuffer — viewerul intern de pe mobil
+  const [viewerFailed, setViewerFailed] = useState(false); // pdf.js indisponibil → varianta veche
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [mobile, setMobile] = useState(false);
@@ -122,6 +273,7 @@ export default function PDFViewer() {
         const buffer = await response.arrayBuffer();
         const blob = new Blob([buffer], { type: 'application/pdf' });
         const localUrl = URL.createObjectURL(blob);
+        setPdfData(buffer);
         setBlobUrl(localUrl);
       } catch (err) {
         console.error(err);
@@ -265,8 +417,11 @@ export default function PDFViewer() {
     </div>
   );
 
-  // ── Mobile: blob URL deschis ca link direct ──────────────────────────────
-  if (mobile && blobUrl) {
+  // ── Mobile: PDF-ul se redă ÎN pagină (pdf.js), cu Profesorul Virtual activ ──
+  // Vizualizatoarele native de pe telefon descarcă fișierul sau acoperă
+  // aplicația (și profesorul dispărea). Canvas-ul intern păstrează totul la un loc.
+  if (mobile && (pdfData || blobUrl)) {
+    const internalViewer = pdfData && !viewerFailed;
     return (
       <div className="pdf-root" style={{ display:'flex', flexDirection:'column', background:'#1a1a2e' }}>
         <style>{`.pdf-root{height:100vh;height:100dvh}`}</style>
@@ -279,30 +434,36 @@ export default function PDFViewer() {
           <span style={badge}>{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>
         </div>
 
-        <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:24, padding:32, textAlign:'center', overflowY:'auto' }}>
-          <div style={{ fontSize:'4rem' }}>📄</div>
-          <div style={{ color:'#fff', fontWeight:600, fontSize:'1.1rem' }}>{item?.title}</div>
-          <p style={{ color:'rgba(255,255,255,0.6)', fontSize:'0.9rem', lineHeight:1.6, maxWidth:320 }}>
-            Apasă butonul de mai jos pentru a deschide PDF-ul în aplicația nativă a dispozitivului tău.
-          </p>
-          <a
-            href={blobUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display:'inline-block', padding:'14px 36px', background:'var(--gold)',
-              color:'var(--navy-dark)', borderRadius:10, fontWeight:700,
-              fontSize:'1rem', textDecoration:'none', boxShadow:'0 4px 16px rgba(232,185,49,0.35)',
-            }}
-          >
-            📂 Deschide PDF-ul
-          </a>
-          <p style={{ color:'rgba(255,255,255,0.35)', fontSize:'0.78rem' }}>
-            Linkul este temporar și expiră la închiderea paginii.
-          </p>
-        </div>
+        <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column' }}>
+          {internalViewer ? (
+            <PdfCanvasViewer data={pdfData} blobUrl={blobUrl} onFail={() => setViewerFailed(true)} />
+          ) : (
+            <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:24, padding:32, textAlign:'center', overflowY:'auto' }}>
+              <div style={{ fontSize:'4rem' }}>📄</div>
+              <div style={{ color:'#fff', fontWeight:600, fontSize:'1.1rem' }}>{item?.title}</div>
+              <p style={{ color:'rgba(255,255,255,0.6)', fontSize:'0.9rem', lineHeight:1.6, maxWidth:320 }}>
+                Apasă butonul de mai jos pentru a deschide PDF-ul în aplicația nativă a dispozitivului tău.
+              </p>
+              <a
+                href={blobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display:'inline-block', padding:'14px 36px', background:'var(--gold)',
+                  color:'var(--navy-dark)', borderRadius:10, fontWeight:700,
+                  fontSize:'1rem', textDecoration:'none', boxShadow:'0 4px 16px rgba(232,185,49,0.35)',
+                }}
+              >
+                📂 Deschide PDF-ul
+              </a>
+              <p style={{ color:'rgba(255,255,255,0.35)', fontSize:'0.78rem' }}>
+                Linkul este temporar și expiră la închiderea paginii.
+              </p>
+            </div>
+          )}
 
-        {tutorPanel}
+          {tutorPanel}
+        </div>
         {tutorWidget}
       </div>
     );

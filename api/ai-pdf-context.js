@@ -11,7 +11,7 @@ const ai = require('./_lib/ai');
 const { storagePath } = require('./_lib/pdftext');
 
 const MAX_PAGES = parseInt(process.env.AI_PDF_MAX_PAGES || '20', 10);
-const MAX_CHARS = parseInt(process.env.AI_PDF_MAX_CHARS || '9000', 10);
+const MAX_CHARS = parseInt(process.env.AI_PDF_MAX_CHARS || '15000', 10);
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);

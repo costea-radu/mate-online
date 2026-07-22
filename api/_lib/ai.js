@@ -431,6 +431,7 @@ function levelLabel(context = {}) {
 
 // ─── Reguli pentru sesiunea cu exercițiu interactiv deschis lângă chat ────────
 const INTERACTIVE_RULES = `EXERCIȚIU INTERACTIV DESCHIS: elevul are exercițiul deschis lângă chat, iar starea lui la zi (pașii, răspunsurile elevului, indicațiile oficiale și răspunsurile corecte — de dezvăluit doar la cerere explicită) este inclusă mai sus.
+IDENTIFICAREA EXERCIȚIULUI: contextul include și CONȚINUTUL COMPLET AL TESTULUI (toate exercițiile, cu numerele și subiectele lor). Când elevul spune „exercițiul 3", „subiectul II, 2.b", „problema cu matricea" etc., CAUTĂ exercițiul EXACT în acest conținut și lucrează pe enunțul lui REAL — nu inventa niciodată un enunț. Dacă nu îl găsești, spune-i ce exerciții vezi în test și cere-i să confirme la care se referă.
 Reguli pedagogice STRICTE pentru această sesiune:
 - Implicit NU dezvălui răspunsul unui pas nerezolvat — ghidezi prin întrebări și pași mici.
 - EXCEPȚIE (are prioritate): dacă elevul îți cere EXPLICIT răspunsul final (ex. „spune-mi răspunsul", „dă-mi rezultatul", „care e soluția?", „zi-mi direct cât face"), i-l dai CONCRET și complet, împreună cu TOȚI pașii rezolvării până la el, în ordine, clar și concis. La final încurajează-l scurt să încerce singur un pas sau un exercițiu asemănător. La fel după ce problema a fost corectată: explici liber rezolvarea completă.
@@ -549,7 +550,9 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
   const lvl = levelLabel(context);
   if (lvl) parts.push(`NIVELUL ELEVULUI: ${lvl}. Adaptează limbajul, notațiile, exemplele și profunzimea explicațiilor la acest nivel.`);
   if (context.exerciseText) {
-    const cap = context.pdf ? 9000 : context.interactive ? 3500 : 1500;
+    // Limite mari: AI-ul primește FIȘIERUL CURENT complet (test interactiv sau PDF),
+    // ca să recunoască exact exercițiul la care se referă elevul.
+    const cap = context.pdf ? 15000 : context.interactive ? 14000 : 1500;
     const head = context.pdf
       ? `Elevul are deschis materialul PDF „${context.title || 'material'}". Textul lui:`
       : 'Elevul lucrează la acest exercițiu:';

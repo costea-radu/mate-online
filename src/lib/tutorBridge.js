@@ -23,7 +23,7 @@ const BRIDGE_SCRIPT = String.raw`
 <script>
 (function(){
   if (window.__MATE_TUTOR_BRIDGE__) return; window.__MATE_TUTOR_BRIDGE__ = true;
-  var MAXLEN = 4000;
+  var MAXLEN = 14000;
 
   function txt(el){ return el ? (el.textContent || '').replace(/\s+/g,' ').trim() : ''; }
   function visible(el){ return !!(el && el.offsetParent !== null); }
@@ -39,22 +39,41 @@ const BRIDGE_SCRIPT = String.raw`
     return s;
   }
 
+  // ── Tot testul, compact: fiecare exercițiu cu enunț + cerințe ─────
+  // AI-ul primește astfel FIȘIERUL CURENT complet și poate recunoaște
+  // exact exercițiul la care se referă elevul („exercițiul 3", „subiectul II 2.b").
+  function allProblemsText(){
+    try {
+      if (typeof PROBS === 'undefined' || !PROBS || !PROBS.length) return null;
+      var lines = ['CONȚINUTUL COMPLET AL TESTULUI' + (document.title ? ' „' + document.title + '"' : '') + ' (toate exercițiile, în ordine):'];
+      var lastPart = null;
+      for (var i = 0; i < PROBS.length; i++) {
+        var p = PROBS[i];
+        if (p.part && p.part !== lastPart) { lastPart = p.part; lines.push('— ' + p.part + ' —'); }
+        lines.push('Exercițiul ' + (p.lbl || p.n) + ': ' + plain(p.lead));
+        if (p.req) for (var r = 0; r < p.req.length; r++) lines.push('   ' + plain(p.req[r]));
+      }
+      return lines.join('\n');
+    } catch (e) { return null; }
+  }
+
   // ── Colectare BOGATĂ: exerciții pe șablonul PROBS/ST/cur ──────────
   function collectRich(){
     try {
       if (typeof PROBS === 'undefined' || !PROBS || !PROBS.length) return null;
+      var all = allProblemsText();
       var lines = [];
       var curN = (typeof cur !== 'undefined') ? cur : null;
       if (curN == null) {
-        lines.push('Elevul este la lista de probleme. Probleme disponibile:');
-        for (var i = 0; i < PROBS.length; i++) lines.push('Problema ' + PROBS[i].n + ': ' + plain(PROBS[i].lead));
+        lines.push('Elevul este la LISTA de exerciții (niciun exercițiu deschis acum).');
+        if (all) lines.push('', all);
         return lines.join('\n');
       }
       var p = null;
       for (var j = 0; j < PROBS.length; j++) if (PROBS[j].n === curN) { p = PROBS[j]; break; }
       if (!p) return null;
       var st = (typeof ST !== 'undefined' && ST && ST[p.n]) ? ST[p.n] : { ans: [], corr: false, score: 0 };
-      lines.push('PROBLEMA ' + p.n + ': ' + plain(p.lead));
+      lines.push('EXERCIȚIUL DESCHIS ACUM — ' + (p.lbl || p.n) + ': ' + plain(p.lead));
       if (p.req) for (var r = 0; r < p.req.length; r++) lines.push(plain(p.req[r]));
 
       // pasul deschis = primul fără răspuns (sau cel în re-editare)
@@ -93,6 +112,8 @@ const BRIDGE_SCRIPT = String.raw`
         lines.push(row);
       }
       if (st.corr) lines.push('Problema a fost corectată: ' + st.score + '/' + p.max + ' puncte.');
+      var all = allProblemsText();
+      if (all) lines.push('', all);
       return lines.join('\n');
     } catch (e) { return null; }
   }
@@ -100,11 +121,15 @@ const BRIDGE_SCRIPT = String.raw`
   // ── Colectare GENERICĂ (orice alt exercițiu): text vizibil din DOM ─
   function collectDom(){
     var parts = [document.title || ''];
-    var sel = ['#stmt', '.statement', '.a-title', '.acard', '#stepHelp', '.stephelp', '.question', '.enunt', 'main', 'body'];
+    var sel = ['#stmt', '.statement', '.a-title', '.acard', '#stepHelp', '.stephelp', '.question', '.enunt'];
     for (var i = 0; i < sel.length; i++) {
       var el = document.querySelector(sel[i]);
       if (el) { var t = txt(el); if (t && parts.join(' ').indexOf(t.slice(0, 80)) === -1) parts.push(t); }
-      if (parts.join('\n').length > MAXLEN) break;
+    }
+    // întregul conținut vizibil al fișierului (ca AI-ul să vadă TOATE exercițiile)
+    var body = txt(document.body);
+    if (body && parts.join('\n').length < MAXLEN) {
+      parts.push('CONȚINUTUL COMPLET AL FIȘIERULUI (text vizibil):\n' + body);
     }
     return parts.filter(Boolean).join('\n').slice(0, MAXLEN);
   }
@@ -223,6 +248,64 @@ const BRIDGE_SCRIPT = String.raw`
     return false;
   }
 
+  // ── RAPORTAREA SCORULUI pentru testele care nu au postMessage propriu ──
+  // Testele încărcate manual (ex. variante BAC) își calculează punctajul
+  // intern, dar nu îl trimit platformei. Aici îl detectăm și îl trimitem
+  // ca MATE_SCORE, exact ca exercițiile generate de platformă.
+  var NATIVE_SCORE = !!window.__MATE_NATIVE_SCORE__; // fișierul are deja postMessage MATE_SCORE
+  var userActed = false, lastSig = '', lastSigAt = 0;
+  ['click', 'keydown', 'touchend'].forEach(function(ev){
+    document.addEventListener(ev, function(){ userActed = true; }, true);
+  });
+  function parseNum(s){ return parseFloat(String(s).replace(/\s+/g, '').replace(',', '.')); }
+  function postScore(score, max, force){
+    if (!isFinite(score) || !isFinite(max) || max <= 0 || score < 0 || score > max) return;
+    var sig = score + '/' + max, now = Date.now();
+    // fără „force" (observatorul DOM): raportăm doar când scorul se SCHIMBĂ;
+    // cu „force" (corectare explicită): raportăm, dar nu de două ori în 4s.
+    if (!force && sig === lastSig) return;
+    if (sig === lastSig && now - lastSigAt < 4000) return;
+    lastSig = sig; lastSigAt = now;
+    try { window.parent.postMessage({ type: 'MATE_SCORE', score: Math.round(score), maxScore: Math.round(max) }, '*'); } catch(e){}
+  }
+  // 1) șablonul PROBS/stats/GRADED (variantele de examen încărcate)
+  function scoreFromStats(){
+    try {
+      if (typeof stats !== 'function' || typeof GRAND_MAX === 'undefined') return null;
+      if (typeof GRADED === 'undefined' || !GRADED) return null; // doar DUPĂ corectare
+      var g = stats();
+      if (g && typeof g.score === 'number') return { s: g.score, m: GRAND_MAX };
+    } catch(e){}
+    return null;
+  }
+  // 2) generic: panoul final vizibil cu „X / Y puncte"
+  function scoreFromDom(){
+    var sels = ['#fScore', '.final-score', '#finalScore', '.score-final', '#scorFinal', '.rezultat-final', '.final.show', '#final.show'];
+    for (var i = 0; i < sels.length; i++) {
+      var el = document.querySelector(sels[i]);
+      if (!visible(el)) continue;
+      var m = (el.textContent || '').match(/(\d+(?:[.,]\d+)?)\s*(?:\/|din)\s*(\d+(?:[.,]\d+)?)\s*(?:puncte|pct|p\b)/i);
+      if (m) { var s = parseNum(m[1]), mx = parseNum(m[2]); if (isFinite(s) && isFinite(mx)) return { s: s, m: mx }; }
+    }
+    return null;
+  }
+  function tryReportScore(force){
+    if (NATIVE_SCORE || !userActed) return; // fără dubluri; fără raport la simpla re-deschidere
+    var r = scoreFromStats() || scoreFromDom();
+    if (r) postScore(r.s, r.m, !!force);
+  }
+  // înfășoară funcțiile uzuale de corectare (rulăm DUPĂ scriptul testului)
+  ['checkAll', 'gradeAll', 'corecteaza', 'verificaTot', 'finalizeaza'].forEach(function(name){
+    try {
+      var f = window[name];
+      if (typeof f === 'function' && !f.__mateScoreWrap) {
+        var wrapped = function(){ var r = f.apply(this, arguments); setTimeout(function(){ tryReportScore(true); }, 80); return r; };
+        wrapped.__mateScoreWrap = true;
+        window[name] = wrapped;
+      }
+    } catch(e){}
+  });
+
   // ── Ascultă părintele ──────────────────────────────────────────────
   window.addEventListener('message', function(ev){
     var d = ev && ev.data;
@@ -241,10 +324,20 @@ const BRIDGE_SCRIPT = String.raw`
   function onMutate(){
     refreshUI();
     if (deb) clearTimeout(deb);
-    deb = setTimeout(function(){ post('MATE_TUTOR_STATE', collect()); }, 400);
+    deb = setTimeout(function(){
+      tryReportScore(); // rezervă: teste cu altă funcție de corectare (detectăm panoul final)
+      post('MATE_TUTOR_STATE', collect());
+    }, 400);
   }
   function start(){
     refreshUI();
+    // Dacă testul se deschide DEJA corectat (stare salvată local), reținem
+    // scorul existent ca punct de plecare — nu îl re-raportăm la simpla
+    // redeschidere; doar o corectare nouă (sau un scor schimbat) se trimite.
+    try {
+      var r0 = scoreFromStats() || scoreFromDom();
+      if (r0) lastSig = r0.s + '/' + r0.m;
+    } catch(e){}
     try { new MutationObserver(onMutate).observe(document.body, { childList: true, subtree: true }); } catch(e){}
     post('MATE_TUTOR_READY', { title: document.title || '' });
     post('MATE_TUTOR_STATE', collect());
@@ -259,9 +352,15 @@ const BRIDGE_SCRIPT = String.raw`
 export function injectTutorBridge(html) {
   if (!html || typeof html !== 'string') return html;
   if (html.includes('__MATE_TUTOR_BRIDGE__')) return html; // deja injectat
+  // Dacă exercițiul își raportează SINGUR scorul (șablonul platformei),
+  // reporterul din bridge stă deoparte — altfel scorul s-ar salva de două ori.
+  const nativeFlag = /MATE_SCORE/.test(html)
+    ? '<scr' + 'ipt>window.__MATE_NATIVE_SCORE__=true;</scr' + 'ipt>'
+    : '';
+  const inject = nativeFlag + BRIDGE_SCRIPT;
   const idx = html.toLowerCase().lastIndexOf('</body>');
-  if (idx === -1) return html + BRIDGE_SCRIPT;
-  return html.slice(0, idx) + BRIDGE_SCRIPT + html.slice(idx);
+  if (idx === -1) return html + inject;
+  return html.slice(0, idx) + inject + html.slice(idx);
 }
 
 // ── Parsarea acțiunilor emise de AI în răspuns: [[ACTIUNE:{...}]] ────
