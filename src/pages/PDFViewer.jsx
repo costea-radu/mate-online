@@ -380,6 +380,28 @@ export default function PDFViewer() {
     setMobile(isMobile());
   }, []);
 
+  // iOS: tastatura poate „împinge" pagina în sus; după închiderea ei rămânea
+  // aplicația deplasată, cu o zonă goală dedesubt. O readucem la poziția 0
+  // (doar când nu se scrie — cât timp e focus pe input, lăsăm iOS să-l țină vizibil).
+  useEffect(() => {
+    let t = null;
+    const reset = () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        const ae = document.activeElement;
+        const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable);
+        if (!typing) { try { window.scrollTo(0, 0); } catch { /* noop */ } }
+      }, 120);
+    };
+    window.addEventListener('focusout', reset);
+    window.visualViewport?.addEventListener('resize', reset);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('focusout', reset);
+      window.visualViewport?.removeEventListener('resize', reset);
+    };
+  }, []);
+
   useEffect(() => {
     if (authLoading) return;
     if (!item) { if (!idParam) navigate('/'); return; }
@@ -555,7 +577,9 @@ export default function PDFViewer() {
     const internalViewer = pdfData && !viewerFailed;
     return (
       <div className="pdf-root" style={{ display:'flex', flexDirection:'column', background:'#1a1a2e' }}>
-        <style>{`.pdf-root{height:100vh;height:100dvh}`}</style>
+        {/* html/body blocate cât e deschis PDF-ul: fără derulat „pe lângă" aplicație
+            (zona goală albă care apărea la unele derulări pe telefon) */}
+        <style>{`.pdf-root{height:100vh;height:100dvh}html,body{overflow:hidden;overscroll-behavior:none}`}</style>
         <div style={barStyle}>
           <button onClick={goBack} style={backBtn}>← Înapoi</button>
           <span style={{ color:'#fff', fontWeight:600, fontSize:'0.9rem', flex:1, textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>

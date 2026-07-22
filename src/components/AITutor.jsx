@@ -40,6 +40,14 @@ export function preMessage(text = '') {
   t = t.replace(/https?:\/\/(?:www\.)?examenmate\.(?:ro|com)(\/[^\s)"'<>\]]*)?/gi, (_, p) => p || '/');
   // formulele afișate $$...$$ pe UN singur rând — altfel <br/> le rupe și KaTeX nu le mai randează
   t = t.replace(/\$\$([\s\S]+?)\$\$/g, (_, b) => '$$' + b.replace(/\s*\n\s*/g, ' ').trim() + '$$');
+  // reparații pentru „$" pus greșit de model ÎN INTERIORUL expresiei (ex: 10$^3$, 4(10$)^3$)
+  t = t.replace(/(\w)\$(\)|\^|_)/g, '$1$2');
+  // un „$" rămas fără pereche pe o linie strică randarea întregii linii → îl eliminăm
+  t = t.split('\n').map((ln) => {
+    const c = (ln.match(/\$/g) || []).length;
+    if (c % 2 === 1) { const i = ln.lastIndexOf('$'); return ln.slice(0, i) + ln.slice(i + 1); }
+    return ln;
+  }).join('\n');
   return t;
 }
 
@@ -429,7 +437,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       {/* Mesaje */}
       {/* minHeight 0 în modul compact: altfel, pe panouri mici (mobil),
           zona de mesaje împinge câmpul de scris în afara ecranului */}
-      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 14, minHeight: compact ? 0 : 320, background: '#f7f9fc' }}>
+      {/* overscrollBehavior contain: derularea din chat nu se mai „scurge" în pagină */}
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain', padding: 14, minHeight: compact ? 0 : 320, background: '#f7f9fc' }}>
         {messages.length === 0 && (
           <div style={{ color: 'var(--text-muted)', fontSize: '.9rem' }}>
             <p style={{ marginBottom: 12 }}>{isMentor ? 'Salut! Sunt Asistentul tău. Alege mai jos sau întreabă-mă orice 👇' : 'Salut! Sunt profesorul tău virtual. Întreabă-mă orice despre matematică 👇'}</p>

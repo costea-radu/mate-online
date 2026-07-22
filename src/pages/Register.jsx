@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import OAuthButtons from '../components/OAuthButtons';
@@ -15,6 +15,21 @@ export default function Register() {
   const [discordLoading, setDiscordLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const { signUp, signInWithGoogle, signInWithDiscord } = useAuth();
+
+  // Dacă utilizatorul apasă „Back" din pagina Google/Discord, browserul
+  // restaurează pagina din bfcache cu starea veche („Se redirecționează...").
+  // Resetăm stările de loading la restaurare, ca butoanele să redevină active.
+  useEffect(() => {
+    const reset = (e) => {
+      if (e.persisted) {
+        setGoogleLoading(false);
+        setDiscordLoading(false);
+        setLoading(false);
+      }
+    };
+    window.addEventListener('pageshow', reset);
+    return () => window.removeEventListener('pageshow', reset);
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
