@@ -17,6 +17,47 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      Fallback fără JavaScript. Aplicația este un SPA (React), iar la o simplă
+      descărcare a paginii (fără executarea JS) conținutul din #root lipsește.
+      Recenzorii Google OAuth și crawlerele care nu rulează JS trebuie totuși
+      să vadă scopul aplicației și linkul către politica de confidențialitate,
+      altfel verificarea de brand eșuează cu „home page does not explain the
+      purpose of your app". Acest bloc nu este afișat utilizatorilor cu JS activ.
+    -->
+    <noscript>
+      <div style="max-width:760px;margin:40px auto;padding:0 22px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:#1a3a5c;line-height:1.65;">
+        <h1 style="font-size:1.9rem;margin:0 0 12px;">ExamenMate — platformă de matematică pentru clasele 5–12</h1>
+        <p>
+          <strong>ExamenMate</strong> este o platformă educațională online din România care
+          ajută elevii să învețe matematică și să se pregătească pentru
+          <strong>Evaluarea Națională</strong> și <strong>Bacalaureat</strong>. Platforma oferă
+          exerciții și teste în format PDF, exerciții interactive cu explicații pas cu pas,
+          auxiliare digitale și un profesor virtual bazat pe inteligență artificială.
+        </p>
+        <p>
+          <strong>What is ExamenMate?</strong> ExamenMate is an online learning platform that helps
+          Romanian students in grades 5–12 study mathematics and prepare for their national exams,
+          through downloadable PDF worksheets, interactive exercises with step-by-step feedback,
+          digital textbooks, and an AI-powered math tutor.
+        </p>
+        <p>
+          Îți poți crea un cont gratuit — inclusiv prin autentificare cu Google — pentru a-ți salva
+          progresul, a accesa materialele și a te abona la conținutul premium. Datele contului Google
+          (nume și adresă de e-mail) sunt folosite exclusiv pentru autentificare și pentru crearea
+          profilului tău în aplicație. Detalii în politica de confidențialitate.
+        </p>
+        <p style="margin-top:18px;">
+          <a href="/politica-confidentialitate" style="color:#1a3a5c;">Politica de Confidențialitate</a> &middot;
+          <a href="/termeni-conditii" style="color:#1a3a5c;">Termeni și Condiții</a> &middot;
+          <a href="/contact" style="color:#1a3a5c;">Contact</a>
+        </p>
+        <p style="color:#666;margin-top:18px;">
+          Această aplicație folosește JavaScript pentru funcționalitatea completă.
+          Activează JavaScript în browser pentru a folosi ExamenMate.
+        </p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
