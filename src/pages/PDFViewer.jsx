@@ -39,15 +39,14 @@ function loadPdfJs() {
 
 // Vizualizator PDF intern (canvas + zoom din butoane sau CU DOUĂ DEGETE).
 // `data` = ArrayBuffer-ul PDF-ului.
-const MIN_ZOOM = 0.6, MAX_ZOOM = 3;
+const MIN_ZOOM = 0.6, MAX_ZOOM = 5;
 function PdfCanvasViewer({ data, blobUrl, onFail }) {
   const holderRef = useRef(null);   // containerul cu scroll
   const pagesRef = useRef(null);    // învelișul paginilor — scalat CSS în timpul pinch-ului
   const pdfRef = useRef(null);
   const renderSeq = useRef(0);
-  const pointers = useRef(new Map()); // degetele active (pointerId → poziție)
-  const pinchRef = useRef(null);      // starea gestului de pinch
   const pendingScroll = useRef(null); // scroll de aplicat după re-randare (păstrează punctul ciupit)
+  const zoomRef = useRef(1);          // zoomul curent, citit din handlerele touch (montate o dată)
   const [status, setStatus] = useState('loading'); // loading | ok | error
   const [zoom, setZoom] = useState(1);
   const [vw, setVw] = useState(0); // re-randare la rotirea ecranului
@@ -72,73 +71,88 @@ function PdfCanvasViewer({ data, blobUrl, onFail }) {
     };
   }, []);
 
-  // ── Pinch-to-zoom (două degete) ─────────────────────────────────────────
-  // În timpul gestului scalăm CSS (fluid, fără re-randare); la ridicarea
-  // degetelor re-randăm clar la noul zoom și păstrăm punctul ciupit pe loc.
-  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
 
-  function onPointerDown(e) {
-    if (e.pointerType !== 'touch') return;
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.current.size === 2) {
-      const [p1, p2] = [...pointers.current.values()];
-      const holder = holderRef.current;
+  // ── Pinch-to-zoom (două degete) — pe evenimente TOUCH native ────────────
+  // De ce touch, nu pointer events: lista `e.touches` are MEREU pozițiile
+  // proaspete ale AMBELOR degete (pointer events „îngheață" un deget când
+  // browserul preia derularea → direcție inversată, zoom accidental la
+  // scroll), iar preventDefault() pe gestul cu două degete oprește complet
+  // derularea nativă cât timp ciupești. Cu un deget derulezi normal.
+  useEffect(() => {
+    const holder = holderRef.current;
+    if (!holder) return;
+    const st = { active: false, d0: 1, zoom0: 1, scale: 1, originX: 0, originY: 0, midX: 0, midY: 0 };
+    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const mid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+
+    function onTouchStart(e) {
+      if (e.touches.length !== 2) return;
+      e.preventDefault(); // gestul cu două degete e al nostru — fără scroll/zoom nativ
       const rect = holder.getBoundingClientRect();
-      const midX = (p1.x + p2.x) / 2, midY = (p1.y + p2.y) / 2;
-      const pz = {
-        d0: Math.max(20, dist(p1, p2)),
-        zoom0: zoom,
-        scale: 1,
-        // punctul ciupit, în coordonatele conținutului și ale ferestrei
-        originX: midX - rect.left + holder.scrollLeft,
-        originY: midY - rect.top + holder.scrollTop,
-        viewX: midX - rect.left,
-        viewY: midY - rect.top,
-      };
-      pinchRef.current = pz;
+      const m = mid(e.touches);
+      st.active = true;
+      st.d0 = Math.max(30, dist(e.touches));
+      st.zoom0 = zoomRef.current;
+      st.scale = 1;
+      st.midX = m.x; st.midY = m.y;
+      // punctul ciupit, în coordonatele conținutului
+      st.originX = m.x - rect.left + holder.scrollLeft;
+      st.originY = m.y - rect.top + holder.scrollTop;
       const w = pagesRef.current;
       if (w) {
-        w.style.transformOrigin = `${pz.originX}px ${pz.originY}px`;
+        w.style.transformOrigin = `${st.originX}px ${st.originY}px`;
         w.style.willChange = 'transform';
       }
     }
-  }
 
-  function onPointerMove(e) {
-    if (e.pointerType !== 'touch' || !pointers.current.has(e.pointerId)) return;
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    const pz = pinchRef.current;
-    if (!pz || pointers.current.size < 2) return;
-    const [p1, p2] = [...pointers.current.values()];
-    let s = dist(p1, p2) / pz.d0;
-    s = Math.min(MAX_ZOOM / pz.zoom0, Math.max(MIN_ZOOM / pz.zoom0, s));
-    pz.scale = s;
-    const w = pagesRef.current;
-    if (w) w.style.transform = `scale(${s})`;
-  }
-
-  function onPointerEnd(e) {
-    if (e.pointerType !== 'touch') return;
-    pointers.current.delete(e.pointerId);
-    const pz = pinchRef.current;
-    if (!pz || pointers.current.size >= 2) return;
-    pinchRef.current = null;
-    const w = pagesRef.current;
-    const newZoom = Math.round(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pz.zoom0 * pz.scale)) * 100) / 100;
-    if (Math.abs(newZoom - pz.zoom0) < 0.02) {
-      // gest neglijabil — revenim fără re-randare
-      if (w) { w.style.transform = ''; w.style.willChange = ''; }
-      return;
+    function onTouchMove(e) {
+      if (!st.active || e.touches.length < 2) return;
+      e.preventDefault();
+      const m = mid(e.touches);
+      // pan cu două degete: mișcarea mijlocului dintre degete mută pagina
+      holder.scrollLeft -= m.x - st.midX;
+      holder.scrollTop -= m.y - st.midY;
+      st.midX = m.x; st.midY = m.y;
+      // scalare fluidă din CSS; desenul clar vine la ridicarea degetelor
+      let s = dist(e.touches) / st.d0;
+      s = Math.min(MAX_ZOOM / st.zoom0, Math.max(MIN_ZOOM / st.zoom0, s));
+      st.scale = s;
+      const w = pagesRef.current;
+      if (w) w.style.transform = `scale(${s})`;
     }
-    // păstrăm punctul ciupit pe loc după re-randare
-    const f = newZoom / pz.zoom0;
-    pendingScroll.current = {
-      left: pz.originX * f - pz.viewX,
-      top: pz.originY * f - pz.viewY,
+
+    function onTouchEnd(e) {
+      if (!st.active || e.touches.length >= 2) return;
+      st.active = false;
+      const w = pagesRef.current;
+      const newZoom = Math.round(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, st.zoom0 * st.scale)) * 100) / 100;
+      if (Math.abs(newZoom - st.zoom0) < 0.02) {
+        // gest neglijabil — revenim fără re-randare
+        if (w) { w.style.transform = ''; w.style.willChange = ''; }
+        return;
+      }
+      // Scrollul care ține punctul ciupit pe loc (corect și dacă s-a făcut pan
+      // în timpul gestului): left' = scroll_curent + origin·(s−1).
+      pendingScroll.current = {
+        left: holder.scrollLeft + st.originX * (st.scale - 1),
+        top: holder.scrollTop + st.originY * (st.scale - 1),
+      };
+      // transformarea CSS rămâne până redesenăm (fără „săritură" vizuală)
+      setZoom(newZoom);
+    }
+
+    holder.addEventListener('touchstart', onTouchStart, { passive: false });
+    holder.addEventListener('touchmove', onTouchMove, { passive: false });
+    holder.addEventListener('touchend', onTouchEnd, { passive: false });
+    holder.addEventListener('touchcancel', onTouchEnd, { passive: false });
+    return () => {
+      holder.removeEventListener('touchstart', onTouchStart);
+      holder.removeEventListener('touchmove', onTouchMove);
+      holder.removeEventListener('touchend', onTouchEnd);
+      holder.removeEventListener('touchcancel', onTouchEnd);
     };
-    // transformarea CSS rămâne până redesenăm (fără „săritură" vizuală)
-    setZoom(newZoom);
-  }
+  }, []); // eslint-disable-line
 
   // Deschide documentul (o singură dată per `data`)
   useEffect(() => {
@@ -185,12 +199,13 @@ function PdfCanvasViewer({ data, blobUrl, onFail }) {
           const base = page.getViewport({ scale: 1 });
           const scale = ((cw - 12) / base.width) * zoom;
           const vp = page.getViewport({ scale });
-          // limită de pixeli per pagină (memoria pe telefoane)
+          // limită de pixeli per pagină (memoria pe telefoane) + laturi ≤4096 (limită iOS)
           let dpr = Math.min(window.devicePixelRatio || 1, 2);
-          const MAX_PX = 4000000;
+          const MAX_PX = 5000000;
           if (vp.width * vp.height * dpr * dpr > MAX_PX) {
-            dpr = Math.max(1, Math.sqrt(MAX_PX / (vp.width * vp.height)));
+            dpr = Math.max(0.5, Math.sqrt(MAX_PX / (vp.width * vp.height)));
           }
+          dpr = Math.min(dpr, 4096 / vp.width, 4096 / vp.height);
           const canvas = document.createElement('canvas');
           canvas.width = Math.floor(vp.width * dpr);
           canvas.height = Math.floor(vp.height * dpr);
@@ -256,10 +271,6 @@ function PdfCanvasViewer({ data, blobUrl, onFail }) {
       {/* paginile — cu un deget derulezi, cu două degete dai zoom */}
       <div
         ref={holderRef}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerEnd}
-        onPointerCancel={onPointerEnd}
         style={{
           flex: 1, minHeight: 0, overflow: 'auto', WebkitOverflowScrolling: 'touch', padding: '8px 6px',
           // pan-x/pan-y: derularea cu UN deget rămâne nativă; pinch-ul cu DOUĂ
