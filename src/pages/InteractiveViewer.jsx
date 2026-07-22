@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { ChatPanel } from '../components/AITutor';
+import { ChatPanel, TutorFab } from '../components/AITutor';
 import { injectTutorBridge } from '../lib/tutorBridge';
 import { awardBadges } from '../lib/badges';
 import EinsteinIcon from '../components/EinsteinIcon';
@@ -409,35 +409,9 @@ export default function InteractiveViewer() {
       </div>
 
       {/* Widget plutitor pe desktop (FloatingTutor global e ascuns pe /exercitiu):
-          deschide profesorul LÂNGĂ exercițiu, interconectat cu el */}
+          deschide profesorul LÂNGĂ exercițiu; se poate MUTA (tragi de el) */}
       {!tutorOpen && !isMobile && (
-        <>
-          <style>{`@keyframes ivGlow{0%,100%{box-shadow:0 0 0 0 rgba(232,185,49,.55),0 6px 18px rgba(0,0,0,.28)}50%{box-shadow:0 0 0 12px rgba(232,185,49,0),0 6px 18px rgba(0,0,0,.28)}}`}</style>
-          <div
-            onClick={() => { setAutoPrompt(null); setTutorOpen(true); }}
-            style={{
-              position: 'fixed', right: 24, bottom: 84, zIndex: 1500, cursor: 'pointer',
-              background: 'var(--navy)', color: '#fff', fontWeight: 700, fontSize: '.78rem',
-              padding: '6px 11px', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,.25)', whiteSpace: 'nowrap',
-            }}
-          >
-            Întreabă-mă orice 👇
-          </div>
-          <button
-            onClick={() => { setAutoPrompt(null); setTutorOpen(true); }}
-            aria-label="Profesorul Virtual — întreabă-mă orice"
-            title="Întreabă-mă orice despre acest exercițiu"
-            style={{
-              position: 'fixed', right: 24, bottom: 20, zIndex: 1500,
-              width: 58, height: 58, borderRadius: '50%', border: 'none', cursor: 'pointer',
-              background: 'linear-gradient(135deg, var(--gold), #f4d06f)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              animation: 'ivGlow 2s ease-in-out infinite',
-            }}
-          >
-            <EinsteinIcon size={34} />
-          </button>
-        </>
+        <TutorFab onOpen={() => { setAutoPrompt(null); setTutorOpen(true); }} />
       )}
 
       {/* Toast: insigne noi câștigate */}

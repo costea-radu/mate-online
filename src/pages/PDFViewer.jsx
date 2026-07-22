@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-import { ChatPanel } from '../components/AITutor';
+import { ChatPanel, TutorFab } from '../components/AITutor';
 import EinsteinIcon from '../components/EinsteinIcon';
 import { aiClient } from '../lib/aiClient';
 
@@ -310,6 +310,7 @@ export default function PDFViewer() {
   const [tutorOpen, setTutorOpen] = useState(!!state?.openTutor);
   const tutorConvId = state?.tutorConvId || null;
   const [pdfText, setPdfText] = useState(null);      // textul extras din PDF
+  const [barem, setBarem] = useState(null);          // {title, text} — baremul asociat testului
   const [pdfLoading, setPdfLoading] = useState(false);
   const [narrow, setNarrow] = useState(typeof window !== 'undefined' && window.innerWidth < 800);
   useEffect(() => {
@@ -344,7 +345,10 @@ export default function PDFViewer() {
     if (!tutorOpen || !item?.id || pdfText !== null || pdfLoading) return;
     setPdfLoading(true);
     aiClient.pdfContext({ contentId: item.id })
-      .then((r) => setPdfText(r?.text || ''))
+      .then((r) => {
+        setPdfText(r?.text || '');
+        setBarem(r?.baremText && r?.barem ? { title: r.barem.title || 'Barem', text: r.baremText } : null);
+      })
       .catch(() => setPdfText(''))
       .finally(() => setPdfLoading(false));
   }, [tutorOpen, item?.id]); // eslint-disable-line
@@ -357,7 +361,9 @@ export default function PDFViewer() {
     exerciseText: pdfText
       ? pdfText
       : (item?.title ? `Materialul PDF „${item.title}" este deschis, dar textul lui nu a putut fi citit automat (poate fi un PDF scanat). Cere-i elevului să scrie enunțul sau să îl fotografieze.` : ''),
-  }), [item, pdfText]);
+    baremText: barem?.text || null,
+    baremTitle: barem?.title || null,
+  }), [item, pdfText, barem]);
 
   useEffect(() => {
     if (item || !idParam) return;
@@ -505,30 +511,8 @@ export default function PDFViewer() {
     </button>
   );
 
-  // ── Widgetul plutitor (rămâne vizibil în vizualizatorul de PDF) ──────────
-  const tutorWidget = !tutorOpen && (
-    <>
-      <style>{`@keyframes pdfGlow{0%,100%{box-shadow:0 0 0 0 rgba(232,185,49,.55),0 6px 18px rgba(0,0,0,.28)}50%{box-shadow:0 0 0 12px rgba(232,185,49,0),0 6px 18px rgba(0,0,0,.28)}}`}</style>
-      <div onClick={() => setTutorOpen(true)}
-        style={{
-          position: 'fixed', right: 24, bottom: 84, zIndex: 1500, cursor: 'pointer',
-          background: 'var(--navy)', color: '#fff', fontWeight: 700, fontSize: '.76rem',
-          padding: '6px 11px', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,.25)', whiteSpace: 'nowrap',
-        }}>
-        Întreabă-mă orice 👇
-      </div>
-      <button onClick={() => setTutorOpen(true)} aria-label="Profesorul Virtual"
-        style={{
-          position: 'fixed', right: 24, bottom: 20, zIndex: 1500,
-          width: 58, height: 58, borderRadius: '50%', border: 'none', cursor: 'pointer',
-          background: 'linear-gradient(135deg, var(--gold), #f4d06f)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          animation: 'pdfGlow 2s ease-in-out infinite',
-        }}>
-        <EinsteinIcon size={34} />
-      </button>
-    </>
-  );
+  // ── Widgetul plutitor (vizibil în vizualizatorul de PDF; se poate MUTA) ──
+  const tutorWidget = !tutorOpen && <TutorFab onOpen={() => setTutorOpen(true)} />;
 
   // ── Panoul de chat, interconectat cu PDF-ul deschis ─────────────────────
   const tutorPanel = tutorOpen && (
@@ -562,6 +546,12 @@ export default function PDFViewer() {
       {pdfLoading && (
         <div style={{ padding: '6px 12px', fontSize: '.76rem', color: 'var(--text-muted)', background: '#fffdf5', borderBottom: '1px solid var(--border)' }}>
           📄 citesc materialul…
+        </div>
+      )}
+      {!pdfLoading && barem && (
+        <div title="Explicațiile se dau pe baza acestui barem oficial"
+          style={{ padding: '5px 12px', fontSize: '.74rem', fontWeight: 600, color: '#1e7e34', background: '#f0f9f1', borderBottom: '1px solid var(--border)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          📋 Barem asociat: {barem.title}
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0 }}>

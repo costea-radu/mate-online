@@ -9,9 +9,38 @@
 // =====================================================================
 const ai = require('./_lib/ai');
 const { storagePath } = require('./_lib/pdftext');
+const { matchBarem, isBaremTitle } = require('./_lib/barem');
 
 const MAX_PAGES = parseInt(process.env.AI_PDF_MAX_PAGES || '20', 10);
 const MAX_CHARS = parseInt(process.env.AI_PDF_MAX_CHARS || '15000', 10);
+const BAREM_MAX_CHARS = parseInt(process.env.AI_BAREM_MAX_CHARS || '12000', 10);
+
+// Descarcă un PDF din `content` și îi extrage textul (cu rezervă pe Storage).
+async function contentPdfText(supa, content, maxChars) {
+  const url = content.is_free ? content.file_url : await ai.signedUrlFromPublic(supa, content.file_url, 300);
+  let buf = null;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    buf = Buffer.from(await r.arrayBuffer());
+  } catch (e) {
+    try {
+      const { bucket, filePath } = storagePath(content.file_url);
+      const { data } = await supa.storage.from(bucket).download(filePath);
+      if (data) buf = Buffer.from(await data.arrayBuffer());
+    } catch { /* rămâne null */ }
+    if (!buf) throw new Error('Nu am putut descărca fișierul: ' + e.message);
+  }
+  let text = '';
+  try {
+    const pdfParse = require('pdf-parse');
+    const parsed = await pdfParse(buf, { max: MAX_PAGES });
+    text = String(parsed.text || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  } catch (e) {
+    console.warn('ai-pdf-context pdf-parse:', e.message);
+  }
+  return { text: text.slice(0, maxChars), chars: text.length, truncated: text.length > maxChars };
+}
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -26,48 +55,59 @@ module.exports = async function handler(req, res) {
     const { contentId } = req.body || {};
     if (!contentId) return res.status(400).json({ error: 'contentId obligatoriu' });
 
+    // select('*') — tolerează deploy-uri cu/fără coloanele subcategory/profile
     const { data: content } = await supa.from('content')
-      .select('id, title, file_url, is_free, content_type, category').eq('id', contentId).single();
+      .select('*').eq('id', contentId).single();
     if (!content || !content.file_url) return res.status(404).json({ error: 'Material negăsit' });
     if (!content.is_free && !ai.isPremium(profile) && !profile.is_admin) {
       return res.status(403).json({ error: 'Acces interzis. Necesită abonament.' });
     }
 
-    // Descarcă PDF-ul (public pentru materialele gratuite, semnat pentru premium)
-    const url = content.is_free ? content.file_url : await ai.signedUrlFromPublic(supa, content.file_url, 300);
-    let buf = null;
+    // 1) Textul testului deschis
+    let main;
     try {
-      const r = await fetch(url);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      buf = Buffer.from(await r.arrayBuffer());
+      main = await contentPdfText(supa, content, MAX_CHARS);
     } catch (e) {
-      // rezervă: descărcare directă din Storage
+      return res.status(502).json({ error: e.message });
+    }
+
+    // 2) BAREMUL corespunzător (strict: an + variantă + profil + tip sesiune).
+    //    Explicațiile din barem sunt sursa de adevăr — dar NUMAI baremul corect.
+    let barem = null, baremText = '', baremStatus = 'negasit';
+    const subjectIsBarem = content.subcategory === 'bareme' || isBaremTitle(content.title);
+    if (subjectIsBarem) {
+      baremStatus = 'este_barem'; // e deschis chiar baremul — nu mai căutăm altul
+    } else if (content.category) {
       try {
-        const { bucket, filePath } = storagePath(content.file_url);
-        const { data } = await supa.storage.from(bucket).download(filePath);
-        if (data) buf = Buffer.from(await data.arrayBuffer());
-      } catch { /* rămâne null */ }
-      if (!buf) return res.status(502).json({ error: 'Nu am putut descărca fișierul: ' + e.message });
+        const { data: cands } = await supa.from('content')
+          .select('*')
+          .eq('content_type', 'pdf')
+          .eq('category', content.category);
+        const m = matchBarem(content, cands || []);
+        baremStatus = m.status;
+        if (m.barem && m.barem.file_url) {
+          const bt = await contentPdfText(supa, m.barem, BAREM_MAX_CHARS);
+          if (bt.text && bt.text.length > 50) {
+            barem = { id: m.barem.id, title: m.barem.title || 'Barem' };
+            baremText = bt.text;
+          } else {
+            baremStatus = 'negasit'; // PDF scanat / fără text → nu ne bazăm pe el
+          }
+        }
+      } catch (e) {
+        console.warn('ai-pdf-context barem:', e.message);
+      }
     }
 
-    // Extrage textul (păstrăm și baremul: profesorul îl folosește ca să verifice,
-    // dar regulile din prompt îi interzic să dea rezolvarea necerută).
-    let text = '';
-    try {
-      const pdfParse = require('pdf-parse');
-      const parsed = await pdfParse(buf, { max: MAX_PAGES });
-      text = String(parsed.text || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
-    } catch (e) {
-      console.warn('ai-pdf-context pdf-parse:', e.message);
-    }
-
-    const truncated = text.length > MAX_CHARS;
     return res.status(200).json({
-      text: text.slice(0, MAX_CHARS),
-      chars: text.length,
-      truncated,
+      text: main.text,
+      chars: main.chars,
+      truncated: main.truncated,
       title: content.title || null,
       category: content.category || null,
+      barem,
+      baremText,
+      baremStatus,
     });
   } catch (err) {
     console.error('ai-pdf-context error:', err);

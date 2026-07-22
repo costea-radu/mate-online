@@ -450,6 +450,18 @@ Reguli pentru această sesiune:
 - EXCEPȚIE: dacă cere explicit răspunsul final, i-l dai concret, cu toți pașii până la el.
 - Dacă un exercițiu cerut nu apare în textul extras (PDF scanat sau prea lung), spune-i și propune-i să îl fotografieze ori să îl scrie în chat.`;
 
+// ─── Reguli pentru BAREMUL asociat testului PDF deschis ──────────────────────
+const BAREM_RULES = `BAREMUL OFICIAL al testului deschis este inclus mai sus — el este SURSA TA DE ADEVĂR pentru rezolvări.
+Reguli STRICTE:
+- Înainte de a explica un exercițiu, VERIFICĂ potrivirea: enunțul din test și itemul corespunzător din barem trebuie să aibă aceleași numere, aceleași expresii și aceeași cerință.
+- Dacă SE POTRIVESC: explicația ta urmează EXACT pașii și rezultatele intermediare din barem, traduse pe limba elevului, pas cu pas — nu improviza altă metodă când baremul dă una clară. Punctajele pe pași le menționezi doar dacă elevul le cere.
+- Dacă NU SE POTRIVESC (alt exercițiu, alte valori, altă variantă): SPUI explicit „baremul asociat nu corespunde acestui exercițiu", NU îl folosești deloc, rezolvi atent pas cu pas (verifică de două ori calculele) și îi recomanzi elevului baremul oficial de pe internet (subiecte.edu.ro) sau secțiunea [Rezolvări](/rezolvari).
+- NU amesteca NICIODATĂ bareme de la alte variante, alte profiluri sau alți ani.
+- Textul baremului e extras automat și poate avea mici imperfecțiuni (formule pierdute); dacă un pas pare trunchiat, spune asta sincer.
+- Regulile pedagogice rămân valabile: ghidezi pas cu pas, nu dai rezolvarea completă și punctajele nesolicitate.`;
+
+const BAREM_MISSING = `BAREM: pentru acest test NU am găsit în platformă baremul corespunzător (sau potrivirea era nesigură — decât baremul greșit, mai bine niciunul). Dacă elevul cere explicații „din barem": spune-i sincer că baremul nu e disponibil aici, rezolvă atent pas cu pas (verifică de două ori fiecare calcul) și recomandă-i baremul oficial de pe internet (subiecte.edu.ro) ori secțiunea [Rezolvări](/rezolvari).`;
+
 const ACTION_PROTOCOL = `ACȚIUNI DIRECTE ÎN EXERCIȚIU — DOAR LA CEREREA EXPLICITĂ a elevului (ex. „scrie tu", „alege tu B", „completează tu răspunsul"). Emite atunci, pe un rând separat la finalul răspunsului, EXACT un marcaj:
 [[ACTIUNE:{"kind":"fill","value":"1/2"}]] — scrie valoarea în câmpul de răspuns al pasului curent
 [[ACTIUNE:{"kind":"choose","letter":"B"}]] — alege opțiunea de grilă
@@ -563,7 +575,16 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
     parts.push(INTERACTIVE_RULES);
     parts.push(ACTION_PROTOCOL);
   }
-  if (context.pdf) parts.push(PDF_RULES);
+  if (context.pdf) {
+    parts.push(PDF_RULES);
+    // Baremul asociat testului (dacă a fost găsit fără dubii) — sursă de adevăr
+    if (context.baremText) {
+      parts.push(`BAREMUL OFICIAL asociat testului deschis („${context.baremTitle || 'barem'}"):\n"""${String(context.baremText).slice(0, 12000)}"""`);
+      parts.push(BAREM_RULES);
+    } else {
+      parts.push(BAREM_MISSING);
+    }
+  }
   // catalogul de exerciții e util tuturor (elevi ȘI profesori/părinți);
   // starea de progres + motivarea sunt doar pentru elevi
   const [catalog, state] = await Promise.all([

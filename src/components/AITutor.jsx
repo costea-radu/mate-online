@@ -591,6 +591,81 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   );
 }
 
+// ─── Butonul plutitor al Profesorului Virtual — MUTABIL (tragi de el) ────────
+// Folosit lângă exercițiile interactive și PDF-uri. Apăsare scurtă = deschide;
+// ținut apăsat și tras = îl muți unde nu îți acoperă exercițiul.
+export function TutorFab({ onOpen, label = 'Întreabă-mă orice 👇' }) {
+  const BTN = 58;
+  const [pos, setPos] = useState(null); // colțul stânga-sus al butonului
+  const drag = useRef({ active: false, moved: false, dx: 0, dy: 0, sx: 0, sy: 0 });
+
+  useEffect(() => {
+    setPos({ x: window.innerWidth - BTN - 24, y: window.innerHeight - BTN - 20 });
+    const onResize = () => setPos((p) => (p
+      ? { x: Math.max(8, Math.min(p.x, window.innerWidth - BTN - 8)), y: Math.max(8, Math.min(p.y, window.innerHeight - BTN - 8)) }
+      : p));
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  function down(e) {
+    if (!pos) return;
+    drag.current = { active: true, moved: false, dx: e.clientX - pos.x, dy: e.clientY - pos.y, sx: e.clientX, sy: e.clientY };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
+  }
+  function move(e) {
+    if (!drag.current.active) return;
+    if (Math.abs(e.clientX - drag.current.sx) > 4 || Math.abs(e.clientY - drag.current.sy) > 4) drag.current.moved = true;
+    setPos({
+      x: Math.max(8, Math.min(e.clientX - drag.current.dx, window.innerWidth - BTN - 8)),
+      y: Math.max(8, Math.min(e.clientY - drag.current.dy, window.innerHeight - BTN - 8)),
+    });
+  }
+  function up() {
+    const moved = drag.current.moved;
+    drag.current.active = false;
+    if (!moved && onOpen) onOpen(); // apăsare simplă (nu tragere) → deschide
+  }
+
+  if (!pos) return null;
+  const labelLeft = pos.x < 150; // lipit de stânga → eticheta se întinde spre dreapta
+
+  return (
+    <>
+      <style>{`@keyframes fabGlow{0%,100%{box-shadow:0 0 0 0 rgba(232,185,49,.55),0 6px 18px rgba(0,0,0,.28)}50%{box-shadow:0 0 0 12px rgba(232,185,49,0),0 6px 18px rgba(0,0,0,.28)}}`}</style>
+      {label && (
+        <div
+          onClick={() => onOpen && onOpen()}
+          style={{
+            position: 'fixed', zIndex: 1500, cursor: 'pointer',
+            top: Math.max(8, pos.y - 38),
+            ...(labelLeft ? { left: pos.x } : { left: pos.x + BTN, transform: 'translateX(-100%)' }),
+            background: 'var(--navy)', color: '#fff', fontWeight: 700, fontSize: '.76rem',
+            padding: '6px 11px', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,.25)', whiteSpace: 'nowrap',
+          }}
+        >
+          {label}
+        </div>
+      )}
+      <button
+        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
+        aria-label="Profesorul Virtual — apasă pentru ajutor, trage ca să mă muți"
+        title="Apasă pentru ajutor · ține apăsat și trage ca să mă muți"
+        style={{
+          position: 'fixed', left: pos.x, top: pos.y, zIndex: 1501,
+          width: BTN, height: BTN, borderRadius: '50%', border: 'none',
+          cursor: 'grab', touchAction: 'none',
+          background: 'linear-gradient(135deg, var(--gold), #f4d06f)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          animation: 'fabGlow 2s ease-in-out infinite',
+        }}
+      >
+        <EinsteinIcon size={34} />
+      </button>
+    </>
+  );
+}
+
 const miniBtn = { background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px', fontSize: '.76rem', color: 'var(--text-light)', fontWeight: 600 };
 const fbBtn = { background: 'none', border: 'none', fontSize: '.95rem', cursor: 'pointer', padding: '2px 4px' };
 const listenBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid var(--gold)', color: 'var(--navy)', borderRadius: 16, padding: '3px 11px', fontSize: '.75rem', fontWeight: 700, cursor: 'pointer' };
