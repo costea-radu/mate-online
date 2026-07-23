@@ -463,6 +463,50 @@ Reguli STRICTE:
 
 const BAREM_MISSING = `BAREM: pentru acest test NU am găsit în platformă baremul corespunzător (sau potrivirea era nesigură — decât baremul greșit, mai bine niciunul). Dacă elevul cere explicații „din barem": spune-i sincer că baremul nu e disponibil în platformă pentru acest test, rezolvă atent pas cu pas (verifică de două ori fiecare calcul) și recomandă-i secțiunea [Rezolvări](/rezolvari) sau celelalte materiale din platformă. NU trimite elevul pe site-uri externe.`;
 
+// Reguli SCURTE și imperative pentru rezolvarea oficială extrasă (itemul exact).
+// Stau la FINALUL promptului — acolo modelul le respectă cel mai bine.
+const BAREM_ITEM_RULES = `AȘA RĂSPUNZI (obligatoriu):
+- Rezolvarea de mai sus este SINGURA metodă pe care o predai la acest exercițiu. Nu improviza alta.
+- Elevul vrea un INDICIU sau îndrumare? Dă-i DOAR primul pas din rezolvarea oficială, reformulat prietenos ca îndrumare, fără rezultatul final.
+- Elevul cere explicația sau rezolvarea completă? Prezinți TOȚI pașii rezolvării oficiale, în ordinea lor: la fiecare pas spui CE facem, DE CE, și scrii calculul cu formulele lui (în LaTeX). Rezultatele intermediare și finale sunt EXACT cele din rezolvarea oficială.
+- INTERZIS: să anunți rezultatul cu formulări de tip „conform baremului, rezultatul este..." fără să fi arătat pașii; să folosești altă metodă; să adaugi pași, condiții sau „verificări" care nu apar în rezolvarea oficială.
+- Nu folosi cuvântul „barem" decât dacă elevul întreabă explicit de barem sau de punctaje — predă rezolvarea natural, ca metoda de la clasă.`;
+
+// Câte din numerele fragmentului se regăsesc în barem — anti-halucinație:
+// fragmentul „extras" trebuie să provină CHIAR din textul baremului.
+function fragmentFromBarem(frag, baremText) {
+  const nums = (s) => String(s || '').match(/\d+(?:[.,]\d+)?/g) || [];
+  const fn = nums(frag);
+  if (fn.length < 2) {
+    const nfrag = String(frag || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    return nfrag.length >= 20 &&
+      String(baremText || '').replace(/\s+/g, ' ').toLowerCase().includes(nfrag.slice(0, 40));
+  }
+  const bset = new Set(nums(baremText));
+  const hit = fn.filter((n) => bset.has(n)).length;
+  return hit / fn.length >= 0.7;
+}
+
+// ── Extrage din barem rezolvarea EXERCIȚIULUI ÎNTREBAT (focalizare) ──────────
+// Baremul întreg are mii de caractere și modelul „se pierde" în el. Un pas
+// separat, ieftin, identifică exercițiul din întrebare și copiază identic
+// fragmentul lui de barem; promptul principal primește apoi FIX rezolvarea.
+async function extractBaremItem({ message, priorMsgs = [], subjectText = '', baremText = '' }) {
+  if (!hasChat() || !baremText) return null;
+  try {
+    const prior = priorMsgs.filter((m) => m.role === 'user').slice(-2).map((m) => m.content).join('\n');
+    const sys = 'Primești întrebarea unui elev despre un test, textul testului și BAREMUL testului. Identifică exercițiul la care se referă întrebarea (folosește și mesajele anterioare dacă întrebarea e vagă) și extrage din BAREM, CUVÂNT CU CUVÂNT, fragmentul care rezolvă EXACT acel exercițiu (toate rândurile lui). Răspunde DOAR cu JSON: {"exercitiu":"II.2.b","barem":"<fragmentul copiat identic din barem>"}. Dacă întrebarea nu se referă la un exercițiu anume, răspunde {"exercitiu":null,"barem":""}.';
+    const user = `ÎNTREBAREA ELEVULUI: ${String(message).slice(0, 600)}\n\nMESAJELE ANTERIOARE ALE ELEVULUI (context): ${prior || '—'}\n\nTESTUL:\n"""${String(subjectText).slice(0, 8000)}"""\n\nBAREMUL:\n"""${String(baremText).slice(0, 11000)}"""`;
+    const { text } = await chat({ system: sys, messages: [{ role: 'user', content: user }], temperature: 0, maxTokens: 900, json: true });
+    const parsed = JSON.parse(text);
+    const frag = parsed && parsed.barem ? String(parsed.barem).trim() : '';
+    if (frag.length > 20 && fragmentFromBarem(frag, baremText)) {
+      return { exercitiu: parsed.exercitiu || null, barem: frag.slice(0, 3500) };
+    }
+  } catch (e) { console.warn('extractBaremItem:', e.message); }
+  return null; // fără fragment sigur → rămâne baremul întreg din prompt
+}
+
 const ACTION_PROTOCOL = `ACȚIUNI DIRECTE ÎN EXERCIȚIU — DOAR LA CEREREA EXPLICITĂ a elevului (ex. „scrie tu", „alege tu B", „completează tu răspunsul"). Emite atunci, pe un rând separat la finalul răspunsului, EXACT un marcaj:
 [[ACTIUNE:{"kind":"fill","value":"1/2"}]] — scrie valoarea în câmpul de răspuns al pasului curent
 [[ACTIUNE:{"kind":"choose","letter":"B"}]] — alege opțiunea de grilă
@@ -576,24 +620,34 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
     parts.push(INTERACTIVE_RULES);
     parts.push(ACTION_PROTOCOL);
   }
+  // catalogul de exerciții e util tuturor (elevi ȘI profesori/părinți) — dar NU
+  // în sesiunea de test PDF cu barem, unde doar distrage de la rezolvarea oficială;
+  // starea de progres + motivarea sunt doar pentru elevi.
+  const hasBarem = !!(context.pdf && context.baremText);
+  const [catalog, state, baremItem] = await Promise.all([
+    hasBarem ? Promise.resolve('') : interactiveCatalog(supa, context.category || null),
+    mentor ? Promise.resolve('') : studentState(supa, userId),
+    hasBarem
+      ? extractBaremItem({ message, priorMsgs, subjectText: context.exerciseText || '', baremText: context.baremText })
+      : Promise.resolve(null),
+  ]);
+  if (catalog) parts.push(catalog);
+  if (state) parts.push(state);
+  // Blocul PDF + barem vine ULTIMUL: finalul promptului e locul unde modelul
+  // respectă cel mai fidel instrucțiunile, iar rezolvarea oficială extrasă
+  // pentru exercițiul întrebat este chiar ultima — cea mai „vizibilă".
   if (context.pdf) {
     parts.push(PDF_RULES);
-    // Baremul asociat testului (dacă a fost găsit fără dubii) — sursă de adevăr
     if (context.baremText) {
       parts.push(`BAREMUL OFICIAL asociat testului deschis („${context.baremTitle || 'barem'}"):\n"""${String(context.baremText).slice(0, 12000)}"""`);
       parts.push(BAREM_RULES);
+      if (baremItem) {
+        parts.push(`REZOLVAREA OFICIALĂ A EXERCIȚIULUI DESPRE CARE ÎNTREABĂ ELEVUL${baremItem.exercitiu ? ` (${baremItem.exercitiu})` : ''} — copiată din barem:\n"""${baremItem.barem}"""\n\n${BAREM_ITEM_RULES}`);
+      }
     } else {
       parts.push(BAREM_MISSING);
     }
   }
-  // catalogul de exerciții e util tuturor (elevi ȘI profesori/părinți);
-  // starea de progres + motivarea sunt doar pentru elevi
-  const [catalog, state] = await Promise.all([
-    interactiveCatalog(supa, context.category || null),
-    mentor ? Promise.resolve('') : studentState(supa, userId),
-  ]);
-  if (catalog) parts.push(catalog);
-  if (state) parts.push(state);
   const system = systemFor(mode, ctxBlock, parts.length ? '\n' + parts.join('\n\n') : '');
 
   const sources = docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }));
@@ -603,6 +657,7 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
 module.exports = {
   CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic,
   chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, PERSONA,
+  extractBaremItem, fragmentFromBarem,
   levelLabel, interactiveCatalog, studentState,
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,
