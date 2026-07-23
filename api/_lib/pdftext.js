@@ -28,6 +28,66 @@ function linesFromTextContent(textContent) {
   }
   lines.sort((a, b) => b.y - a.y); // de sus în jos
 
+  // 2a) SĂGEȚI DE VECTOR (Word/MathType): săgeata de deasupra literelor din
+  //     $\vec{AB}$ ajunge în text ca glife separate — „r" (vârful) precedat de
+  //     „u"-uri (tija): „ur", „uur", „uuur" — pe o micro-linie proprie, cu
+  //     câțiva pt deasupra literelor. Fără pasul acesta săgeata se pierdea sau
+  //     devenea fals „exponent", iar „vectorii AB și DC sunt egali" se citea
+  //     „lungimile AB și DC sunt egale" — greșeală de matematică. Aici:
+  //     recunoaștem micro-linia-săgeată, o consumăm și împachetăm literele de
+  //     sub ea în \vec{...}, ca AI-ul să vadă explicit că sunt vectori.
+  // Pe un rând pot sta MAI MULTE săgeți (ex. deasupra lui „AB = DC" stau două),
+  // deci lucrăm pe SERII de glife adiacente, nu pe linia întreagă.
+  const isArrowText = (s) => /^(?:u{1,6}r|→|⇀|⃗)$/.test(s);
+  for (let i = 0; i < lines.length; i++) {
+    const L = lines[i];
+    if (!L || !L.items.length) continue;
+    const base = lines[i + 1] || null; // rândul imediat de sub potențiala săgeată
+    if (!base || !base.items.length) continue;
+    const gap = L.y - base.y;
+    if (gap < 1.2 || gap > 9) continue; // săgeata stă cu doar câțiva pt deasupra literelor
+    // seriile de glife-săgeată de pe rândul L (itemi adiacenți din doar u/r/→)
+    const sorted = [...L.items].sort((a, b) => a.x - b.x);
+    const runs = [];
+    let run = null;
+    for (const it of sorted) {
+      const s = it.str.replace(/\s+/g, '').toLowerCase();
+      const glyph = /^(?:u{1,6}r?|r|[→⇀⃗]+)$/.test(s) && s.length > 0;
+      if (glyph) {
+        if (run && it.x - run.xend < 6) { run.items.push(it); run.text += s; run.xend = it.x + (it.w || 0); }
+        else { run = { items: [it], text: s, xmin: it.x, xend: it.x + (it.w || 0) }; runs.push(run); }
+      } else { run = null; }
+    }
+    let consumed = false;
+    for (const r of runs) {
+      const singleR = r.text === 'r'; // vârf fără tijă (vector scurt) — cere verificări în plus
+      if (!isArrowText(r.text) && !singleR) continue;
+      // literele acoperite de săgeată (suprapunere pe orizontală)
+      const hit = base.items
+        .filter((it) => !it.sup && !it.sub && it.x < r.xend + 1.5 && it.x + (it.w || 0) > r.xmin - 1.5)
+        .sort((a, b) => a.x - b.x);
+      while (hit.length && !/^[A-Za-z]{1,4}$/.test(hit[0].str.trim())) hit.shift();
+      while (hit.length && !/^[A-Za-z]{1,4}$/.test(hit[hit.length - 1].str.trim())) hit.pop();
+      if (singleR) {
+        // doar „r": acceptăm numai deasupra unor litere mari (AB, MN...) și doar
+        // dacă săgeata le ACOPERĂ de la stânga (exponentul x^r stă în dreapta-sus)
+        if (!hit.length || !hit.every((it) => /^[A-Z]{1,3}$/.test(it.str.trim())) || r.xmin > hit[0].x + (hit[0].w || 0) * 0.5) continue;
+      }
+      if (hit.length) {
+        hit[0].str = '\\vec{' + hit[0].str.trim();
+        hit[hit.length - 1].str = hit[hit.length - 1].str.trim() + '}';
+      } else if (!/^u{2,6}r$/.test(r.text)) {
+        continue; // fără bază și fără tijă clară — nu consumăm nimic
+      }
+      r.items.forEach((it) => { it._arrow = true; });
+      consumed = true;
+    }
+    if (consumed) {
+      L.items = L.items.filter((it) => !it._arrow);
+      if (!L.items.length) { lines.splice(i, 1); i -= 1; }
+    }
+  }
+
   // 2) EXPONENȚI și INDICI: o micro-linie măruntă („2", „n"...) aflată cu
   //    2–6pt deasupra unui rând este exponentul lui → „^{2}"; cu 2–6pt sub
   //    rând este indice → „_{1}". Fără pasul acesta, „(x1x2x3x4)^2" și „m^2"
@@ -74,6 +134,14 @@ function linesFromTextContent(textContent) {
       out += s;
       lastEnd = Math.max(lastEnd == null ? -Infinity : lastEnd, it.x + (it.w || 0));
     }
+    // săgeți de vector scăpate pasului 2a (grupate pe același rând ori devenite
+    // fals „exponent"): „AB uuur" / „uuur AB" / „AB^{uur}" → \vec{AB}; resturile
+    // de tijă fără bază identificabilă se elimină (sunt doar zgomot).
+    out = out
+      .replace(/([A-Za-z]{1,3})\s*\^\{u{1,6}r\}/g, '\\vec{$1}')
+      .replace(/\b([A-Z]{1,3})\s*u{2,6}r\b/g, '\\vec{$1}')
+      .replace(/\bu{2,6}r\s*([A-Z]{1,3})\b/g, '\\vec{$1}')
+      .replace(/\s*\bu{2,6}r\b/g, '');
     return out.replace(/\s+/g, ' ').trim();
   }).filter(Boolean).join('\n');
 }

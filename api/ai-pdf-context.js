@@ -12,7 +12,7 @@ const { storagePath, pageRenderer } = require('./_lib/pdftext');
 const { matchBarem, isBaremTitle, contentMatchScore } = require('./_lib/barem');
 
 const MAX_PAGES = parseInt(process.env.AI_PDF_MAX_PAGES || '20', 10);
-const MAX_CHARS = parseInt(process.env.AI_PDF_MAX_CHARS || '15000', 10);
+const MAX_CHARS = parseInt(process.env.AI_PDF_MAX_CHARS || '20000', 10);
 const BAREM_MAX_CHARS = parseInt(process.env.AI_BAREM_MAX_CHARS || '12000', 10);
 
 // Descarcă un PDF din `content` și îi extrage textul (cu rezervă pe Storage).

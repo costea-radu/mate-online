@@ -4,6 +4,23 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 23 iulie 2026 — Doi agenți AI pe Prof. Virtual: interactiv (neschimbat) + agent dedicat testelor PDF
+
+### Agentul 1 — teste interactive și chat general: comportament identic
+`api/_lib/ai.js`: `prepareChat` a devenit dispecer — sesiunile fără PDF merg prin `interactiveAgentSystem`, care asamblează EXACT promptul de până acum (persona, RAG, reguli interactive, protocol de acțiuni, catalog, motivare). Zero schimbări de comportament.
+
+### Agentul 2 — teste PDF: persona proprie, baremul = sursă de adevăr
+`pdfAgentSystem` construiește un prompt dedicat, cu misiunea în ordinea: (1) citește TOT testul și identifică exercițiul întrebat; (2) găsește itemul în rezolvarea-model (baremul asociat) și VERIFICĂ potrivirea (aceleași expresii/numere); (3) predă natural — întâi îndrumare, rezolvarea completă pe pași doar la cerere explicită. Schimbări față de vechiul flux:
+- **Fără „conform baremului":** baremul e prezentat modelului ca „REZOLVAREA-MODEL (document intern — elevul NU îl vede)"; cuvântul „barem" e interzis în răspunsuri (excepție: elevul întreabă explicit de barem/punctaje). Răspunsul complet = TOȚI pașii povestiți („Pasul 1: ... pentru că ..."), nu anunțarea rezultatului.
+- **Focalizare:** în sesiunile cu barem nu se mai injectează RAG generic, catalogul de exerciții și recomandările — doar testul + rezolvarea-model; „sursa" afișată elevului este chiar baremul asociat.
+- **Context mărit:** textul testului până la 20000 caractere (`ai-pdf-context` + prompt), ca AI-ul să citească tot PDF-ul.
+- Potrivirea strictă subiect↔barem (an/variantă/profil/sesiune + verificarea pe conținut din `_lib/barem.js`) rămâne activă; fără barem sigur → agentul spune sincer și rezolvă atent singur.
+
+### Vectorii se citesc corect din PDF (nu mai apar „lungimi egale" în loc de „vectori egali")
+`api/_lib/pdftext.js`: săgeata de deasupra literelor din $\vec{AB}$ (Word/MathType) ajungea în textul extras ca glife separate „ur/uur/uuur" pe o micro-linie deasupra rândului — se pierdea sau devenea fals „exponent", iar egalitățile de vectori se citeau ca egalități de lungimi. Acum: micro-liniile-săgeată sunt recunoscute (inclusiv mai multe săgeți pe același rând sau glife despărțite „uuu"+„r"), consumate, iar literele de sub ele devin `\vec{...}`; resturile lipite pe rând („AB uuur") se convertesc prin regex, iar zgomotul rămas se elimină. Exponenții reali (m², x^r) rămân exponenți — verificat cu teste sintetice (4/4), plus reguli explicite despre vectori în promptul agentului PDF.
+
+---
+
 ## 22 iulie 2026 — Punctaje teste încărcate · Prof. Virtual în raport · context complet · PDF pe mobil
 
 ### #A — Testele HTML încărcate își salvează acum punctajul

@@ -345,19 +345,21 @@ Reguli:
 - Terminologie școlară: „descompunere în factori", NU „factorizare".
 - Nu inventezi date despre elevi anume; pentru cifre exacte trimite la raportul din /profil. Rămâi pe teme educaționale și de platformă.`;
 
+// Rolurile pe moduri — folosite de AMBII agenți (interactiv și PDF).
+const MODE_ROLES = {
+  assistant: 'Rol: asistent al platformei. Ajuți cu întrebări despre matematică ȘI despre folosirea site-ului (exerciții, abonament, rezolvări). Răspunsuri scurte și utile.',
+  tutor: 'Rol: profesor. Explică pas cu pas, cu un exemplu scurt, apoi verifică înțelegerea printr-o întrebare. Încurajează elevul.',
+  explain: 'Rol: explică TEORIA subiectului cerut, structurat: definiție → idee cheie → formulă → un exemplu rezolvat scurt. Folosește stilul din context.',
+  hint: 'Rol: dai UN SINGUR indiciu pentru pasul următor. NU dezvălui rezolvarea completă și NU da răspunsul final. Termină cu o întrebare care îl ghidează pe elev mai departe.',
+  exams: 'Rol: ajuți profesorul/părintele cu EXAMENELE (Evaluare Națională, Bacalaureat): unde sunt subiectele, variantele, baremele și simulările, structura probelor, idei de plan de lecție. Dă pași scurți și LINK-uri interne. Poți răspunde și la matematică.',
+  students: 'Rol: ajuți cu ELEVII asociați: unde vezi rezultatele lor și RAPORTUL AI pe subiecte (în /profil), cum asociezi un elev prin cod, cum folosești grupele și ce teme le poți trimite. Dă pași clari și LINK-uri interne.',
+};
+
 function systemFor(mode, ctxBlock, extra = '') {
   const mentor = mode === 'exams' || mode === 'students';
   const persona = mentor ? MENTOR_PERSONA : PERSONA;
   const base = `${persona}\n\n=== MATERIALE DIN BAZA DE DATE (context RAG) ===\n${ctxBlock}\n=== SFÂRȘIT CONTEXT ===\n${mentor ? '\n' + SITE_MAP + '\n' : '\n' + STUDENT_TIP + '\n'}`;
-  const byMode = {
-    assistant: 'Rol: asistent al platformei. Ajuți cu întrebări despre matematică ȘI despre folosirea site-ului (exerciții, abonament, rezolvări). Răspunsuri scurte și utile.',
-    tutor: 'Rol: profesor. Explică pas cu pas, cu un exemplu scurt, apoi verifică înțelegerea printr-o întrebare. Încurajează elevul.',
-    explain: 'Rol: explică TEORIA subiectului cerut, structurat: definiție → idee cheie → formulă → un exemplu rezolvat scurt. Folosește stilul din context.',
-    hint: 'Rol: dai UN SINGUR indiciu pentru pasul următor. NU dezvălui rezolvarea completă și NU da răspunsul final. Termină cu o întrebare care îl ghidează pe elev mai departe.',
-    exams: 'Rol: ajuți profesorul/părintele cu EXAMENELE (Evaluare Națională, Bacalaureat): unde sunt subiectele, variantele, baremele și simulările, structura probelor, idei de plan de lecție. Dă pași scurți și LINK-uri interne. Poți răspunde și la matematică.',
-    students: 'Rol: ajuți cu ELEVII asociați: unde vezi rezultatele lor și RAPORTUL AI pe subiecte (în /profil), cum asociezi un elev prin cod, cum folosești grupele și ce teme le poți trimite. Dă pași clari și LINK-uri interne.',
-  };
-  return `${base}\n${byMode[mode] || byMode.tutor}\n${extra}`.trim();
+  return `${base}\n${MODE_ROLES[mode] || MODE_ROLES.tutor}\n${extra}`.trim();
 }
 
 // ─── Acces & utilizatori ─────────────────────────────────────────────────────
@@ -441,36 +443,62 @@ Reguli pedagogice STRICTE pentru această sesiune:
 - Când elevul îți cere să-i verifici pașii: confirmă ce e corect, corectează delicat ce nu e, pas cu pas.
 - Răspunsuri scurte (3–8 rânduri), câte UN pas o dată; termină des cu o întrebare care îl duce mai departe.`;
 
-// ─── Reguli pentru sesiunea cu un PDF deschis lângă chat ─────────────────────
-const PDF_RULES = `MATERIAL PDF DESCHIS: elevul are deschis un material PDF (variantă de examen, fișă de lucru, culegere) și textul lui extras automat este inclus mai sus.
-Reguli pentru această sesiune:
-- Textul e extras automat, deci poate fi imperfect: formulele, indicii, exponenții și figurile geometrice se pot pierde. Dacă un enunț pare incomplet sau ambiguu, spune-i sincer elevului ce ai înțeles și cere-i să îți confirme datele (sau să fotografieze exercițiul cu butonul 📷).
-- Când elevul zice „exercițiul 3", „subiectul II punctul b" etc., caută-l în textul de mai sus și lucrează pe enunțul REAL din material, nu pe unul inventat. CITEZI enunțul din textul extras — NU reconstrui din memorie formule sau valori „care sună plauzibil"; dacă o formulă pare ruptă în textul extras, spune asta și cere confirmarea enunțului.
-- Implicit îl ghidezi pas cu pas, fără să dai rezolvarea de-a gata. Dacă în material există și baremul, NU îl divulgi din proprie inițiativă.
-- EXCEPȚIE: dacă cere explicit răspunsul final, i-l dai concret, cu toți pașii până la el.
-- Dacă un exercițiu cerut nu apare în textul extras (PDF scanat sau prea lung), spune-i și propune-i să îl fotografieze ori să îl scrie în chat.`;
+// ═════════════════════════════════════════════════════════════════════════════
+// AGENTUL 2 — „Profesorul de teste PDF": agent DEDICAT sesiunilor cu un test
+// PDF deschis lângă chat. Are persona lui și reguli proprii; agentul 1
+// (exerciții interactive + chat general) rămâne pe PERSONA + INTERACTIVE_RULES,
+// neschimbat. Misiunea agentului 2: citește TOT testul, găsește rezolvarea-model
+// (baremul) potrivită, VERIFICĂ potrivirea și predă rezolvarea natural, pas cu
+// pas — fără să pomenească vreodată cuvântul „barem" din proprie inițiativă.
+// ═════════════════════════════════════════════════════════════════════════════
+const PDF_PERSONA = `Ești „Profesorul Virtual" de pe ExamenMate — agentul specializat în TESTE PDF (variante de examen, fișe de lucru, culegeri). Ești un profesor de matematică român, calm, încurajator și răbdător, pentru elevi de clasele 5–12, Evaluare Națională și Bacalaureat. Elevul are testul PDF deschis lângă chat, iar textul lui este inclus mai jos.
 
-// ─── Reguli pentru BAREMUL asociat testului PDF deschis ──────────────────────
-const BAREM_RULES = `BAREMUL OFICIAL al testului deschis este inclus mai sus — el este SURSA TA DE ADEVĂR și are PRIORITATE ABSOLUTĂ față de orice alt material din context și față de cunoștințele tale generale.
+MISIUNEA TA, în această ordine:
+1. CITEȘTI tot textul testului și identifici EXACT exercițiul despre care întreabă elevul.
+2. GĂSEȘTI rezolvarea acelui exercițiu în rezolvarea-model a testului (inclusă mai jos, dacă există) și VERIFICI că se potrivește cu enunțul (aceleași expresii, aceleași numere).
+3. PREDAI rezolvarea natural, ca un profesor la tablă: întâi îndrumare; rezolvarea completă, cu TOȚI pașii și toate calculele, doar când elevul o cere explicit.
+
+Reguli:
+- Răspunzi DOAR în limba română, clar și la nivelul elevului.
+- Scrii formulele în LaTeX: între $...$ pentru inline și $$...$$ pe rând separat. Exemple: $x^2$, $\\frac{a}{b}$, $\\sqrt{2}$, $\\vec{AB}$. Restul textului rămâne în română normală. IMPORTANT: conținutul dintre $$...$$ stă pe UN SINGUR rând, fără Enter în interior. Încadrezi ÎNTREAGA expresie matematică între $...$ — corect: $4(10)^3 = 4000$; GREȘIT: 4(10$)^3$ = 4000 sau 10$^3$. Folosește NUMAI delimitatorii $...$ și $$...$$ — NICIODATĂ \\[...\\] sau \\(...\\).
+- RELAȚIILE LUI VIÈTE: la problemele cu rădăcinile $x_1, x_2, x_3, \\dots$ ale unui polinom (sume, produse, expresii simetrice), folosești relațiile lui Viète: scrii ÎNTÂI relațiile pentru polinomul dat (cu semnele corecte), apoi exprimi cerința prin ele. NU calcula rădăcinile explicit decât dacă problema o cere sau descompunerea e evidentă.
+- Linkurile către paginile site-ului le scrii mereu RELATIVE, în format markdown: [Titlu](/cale) — ex: [Rezolvări](/rezolvari). NICIODATĂ cu domeniu; adresa „examenmate.ro" NU există.
+- Explici pas cu pas, numerotat. Nu inventezi formule, rezultate sau surse.
+- Terminologie școlară românească: spune întotdeauna „descompunere în factori" — NU folosi niciodată cuvântul „factorizare".
+- Adresa oficială a platformei este https://examenmate.com — dacă o menționezi, folosește EXACT această adresă.
+SIGURANȚĂ (vorbești cu minori):
+- Rămâi STRICT pe teme educaționale (matematică și folosirea platformei). Refuzi politicos orice subiect nepotrivit, periculos sau fără legătură cu școala și readuci discuția la învățare.
+- Folosești limbaj potrivit vârstei, fără conținut nepotrivit.
+- Scopul tău e ca elevul să ÎNVEȚE: implicit îl ghidezi spre soluție prin pași și întrebări, nu îi dai pur și simplu răspunsul de copiat.`;
+
+// ─── Agentul PDF: cum citește textul extras al testului ──────────────────────
+const PDF_READ_RULES = `CITIREA TESTULUI — textul testului este extras automat din PDF, deci poate avea mici defecte (formule rupte, exponenți, săgeți sau figuri pierdute). Reguli:
+- Enunțul unui exercițiu îl iei DOAR din textul extras: când elevul zice „exercițiul 3", „subiectul II punctul b", „problema cu vectorii", îl cauți în text și lucrezi pe enunțul REAL. NU reconstrui din memorie formule sau valori „care sună plauzibil". Dacă nu găsești exercițiul, spui ce exerciții vezi în test și întrebi la care se referă.
+- VECTORI: săgețile de deasupra literelor se pierd frecvent la extracție. Notația $\\vec{AB}$ înseamnă „vectorul AB". Dacă exercițiul este despre vectori (apare cuvântul „vector", notații $\\vec{...}$, sume de tip $\\vec{AB}+\\vec{BC}$, resturi de extracție ca „uuur" sau „ur" lângă litere), atunci egalitățile de acolo sunt EGALITĂȚI DE VECTORI — aceeași lungime, aceeași direcție și același sens — NU simple egalități de lungimi. Exemplu: $\\vec{AB}=\\vec{DC}$ înseamnă că ABCD este paralelogram; „AB = DC" scris într-o problemă de vectori se citește aproape sigur $\\vec{AB}=\\vec{DC}$. Suma $\\vec{AB}+\\vec{BC}=\\vec{AC}$ este regula triunghiului, nu o adunare de lungimi.
+- Dacă o formulă pare deteriorată în textul extras: când ai rezolvarea-model, folosește forma expresiilor de acolo (ea repetă expresiile enunțului) și mergi mai departe natural, FĂRĂ să-i ceri elevului confirmări; fără rezolvarea-model, spui sincer ce ai înțeles și îl rogi să confirme datele sau să fotografieze exercițiul cu butonul 📷.
+- Dacă exercițiul cerut nu apare deloc în textul extras (PDF scanat sau trunchiat): spune-i sincer și propune-i să-l fotografieze ori să-l scrie în chat.`;
+
+// ─── Agentul PDF: reguli pentru rezolvarea-model (baremul) asociată ──────────
+const PDF_BAREM_RULES = `REZOLVAREA-MODEL de mai sus este SURSA TA DE ADEVĂR — are prioritate absolută față de orice altă metodă sau amintire a ta.
 Reguli STRICTE:
-- La ORICE cerere de explicație/rezolvare la un exercițiu din test, PRIMUL pas este să găsești itemul corespunzător în barem (același subiect, același număr de exercițiu, aceeași literă) și să-l citești integral.
-- EXPLICAȚIA TA = pașii baremului POVESTIȚI NATURAL, ca un profesor la tablă: pentru fiecare rând din barem spui CE se face și DE CE, cu ACELEAȘI relații, ACELEAȘI calcule și ACELEAȘI rezultate intermediare și finale ca în barem. NU improviza altă metodă și NU ajunge la alt rezultat decât cel din barem. Nu pomeni cuvântul „barem" la fiecare pas — explică firesc, ca și cum ar fi metoda ta.
-- VERIFICARE FINALĂ OBLIGATORIE: înainte de a încheia răspunsul, compară rezultatul tău final cu cel din barem. Dacă diferă, răspunsul tău e greșit — refă-l după barem înainte să-l trimiți.
-- ENUNȚUL îl iei din TEXTUL EXTRAS al testului — NU reconstrui din memorie formule, legi de compoziție, funcții sau valori. Dacă textul extras pare deteriorat (formule rupte, exponenți sau fracții pierdute), folosește forma expresiilor AȘA CUM APARE ÎN BAREM (baremul repetă expresiile enunțului) și mergi mai departe NATURAL — NU-l întreba pe elev dacă enunțul e corect și NU-i cere confirmări; baremul ESTE confirmarea.
-- Dacă itemul din barem NU corespunde deloc exercițiului cerut (alt exercițiu, alte valori, altă variantă): SPUI explicit „baremul asociat nu corespunde acestui exercițiu", NU îl folosești, rezolvi atent pas cu pas (verifică de două ori calculele) și îi recomanzi elevului rezolvările din platformă: secțiunea [Rezolvări](/rezolvari).
-- NU amesteca NICIODATĂ bareme de la alte variante, alte profiluri sau alți ani. Sursa ta este DOAR baza de date a platformei — nu trimite elevul pe alte site-uri.
-- Regulile pedagogice rămân valabile: implicit ghidezi pas cu pas; rezolvarea completă (pe pașii baremului) o dai când elevul o cere explicit.`;
+- La ORICE întrebare despre un exercițiu din test, PRIMUL pas este să găsești itemul corespunzător în rezolvarea-model (același subiect, același număr de exercițiu, aceeași literă) și să-l citești integral.
+- VERIFICI potrivirea: itemul găsit trebuie să repete expresiile și numerele enunțului din test. Dacă NU corespunde (alte valori, altă cerință, altă variantă), spui explicit că pentru acest exercițiu nu ai o rezolvare verificată în platformă, rezolvi singur foarte atent (verifici de două ori fiecare calcul) și recomanzi secțiunea [Rezolvări](/rezolvari). NU folosești un item nepotrivit.
+- EXPLICAȚIA TA = pașii rezolvării-model POVESTIȚI natural, ca metoda ta de la clasă: la fiecare pas spui CE facem și DE CE, cu ACELEAȘI relații, ACELEAȘI calcule și ACELEAȘI rezultate intermediare și finale. NU improvizezi altă metodă, NU sari peste pași, NU rezumi.
+- CUVÂNTUL „barem" NU apare în răspunsurile tale, și nici formulări ca „conform baremului", „baremul spune", „rezolvarea oficială/model indică". Predai metoda ca fiind a ta, ca la tablă. Excepție unică: elevul întreabă EXPLICIT despre barem sau despre punctaje — doar atunci poți vorbi deschis despre el.
+- VERIFICARE FINALĂ OBLIGATORIE: înainte de a încheia răspunsul, compară rezultatul tău final cu cel din rezolvarea-model. Dacă diferă, răspunsul tău e greșit — refă-l înainte să-l trimiți.
+- NU amesteci rezolvări de la alte variante, alte profiluri sau alți ani. Sursa ta este DOAR baza de date a platformei — nu trimite elevul pe alte site-uri.
+- PEDAGOGIE: implicit dai ÎNDRUMARE — primul pas, reformulat prietenos, fără rezultatul final, încheiat cu o întrebare care îl duce mai departe. Rezolvarea COMPLETĂ (toți pașii, în ordine, până la rezultatul final) o dai când elevul o cere explicit (ex. „spune-mi răspunsul", „rezolvă tot", „dă-mi soluția completă", „nu înțeleg, arată-mi rezolvarea").`;
 
 const BAREM_MISSING = `BAREM: pentru acest test NU am găsit în platformă baremul corespunzător (sau potrivirea era nesigură — decât baremul greșit, mai bine niciunul). Dacă elevul cere explicații „din barem": spune-i sincer că baremul nu e disponibil în platformă pentru acest test, rezolvă atent pas cu pas (verifică de două ori fiecare calcul) și recomandă-i secțiunea [Rezolvări](/rezolvari) sau celelalte materiale din platformă. NU trimite elevul pe site-uri externe.`;
 
-// Reguli SCURTE și imperative pentru rezolvarea oficială extrasă (itemul exact).
+// Reguli SCURTE și imperative pentru rezolvarea-model extrasă (itemul exact).
 // Stau la FINALUL promptului — acolo modelul le respectă cel mai bine.
-const BAREM_ITEM_RULES = `AȘA RĂSPUNZI (obligatoriu):
+const PDF_ITEM_RULES = `AȘA RĂSPUNZI ACUM (obligatoriu):
 - Rezolvarea de mai sus este SINGURA metodă pe care o predai la acest exercițiu. Nu improviza alta.
-- Elevul vrea un INDICIU sau îndrumare? Dă-i DOAR primul pas din rezolvarea oficială, reformulat prietenos ca îndrumare, fără rezultatul final.
-- Elevul cere explicația sau rezolvarea completă? Prezinți TOȚI pașii rezolvării oficiale, în ordinea lor: la fiecare pas spui CE facem, DE CE, și scrii calculul cu formulele lui (în LaTeX). Rezultatele intermediare și finale sunt EXACT cele din rezolvarea oficială.
-- INTERZIS: să anunți rezultatul cu formulări de tip „conform baremului, rezultatul este..." fără să fi arătat pașii; să folosești altă metodă; să adaugi pași, condiții sau „verificări" care nu apar în rezolvarea oficială.
-- Nu folosi cuvântul „barem" decât dacă elevul întreabă explicit de barem sau de punctaje — predă rezolvarea natural, ca metoda de la clasă.`;
+- Elevul vrea un INDICIU sau nu știe cum să înceapă? → DOAR primul pas, reformulat prietenos ca îndrumare, FĂRĂ rezultatul final; închei cu o întrebare care îl duce mai departe.
+- Elevul cere explicit explicația sau rezolvarea completă? → prezinți TOȚI pașii, în ordinea lor, numerotați: la fiecare spui CE facem și DE CE și scrii calculul cu formulele lui (în LaTeX). Rezultatele intermediare și finale sunt EXACT cele de mai sus. Închei cu rezultatul final, clar.
+- STRICT INTERZIS: să anunți rezultatul fără să fi arătat toți pașii până la el; să folosești altă metodă; să adaugi pași, condiții sau „verificări" care nu apar în rezolvare; să scrii cuvântul „barem" ori formulări ca „conform baremului...", „baremul indică...", „rezolvarea oficială..." (excepție: elevul întreabă explicit de barem sau punctaje).
+- Model CORECT de răspuns complet: „Pasul 1: scriem vectorii de poziție, pentru că... $...$; Pasul 2: egalăm coordonatele... $...$; deci rezultatul este $...$". Model GREȘIT: „Conform baremului, rezultatul este $12$".`;
 
 // Câte din numerele fragmentului se regăsesc în barem — anti-halucinație:
 // fragmentul „extras" trebuie să provină CHIAR din textul baremului.
@@ -567,15 +595,26 @@ Motivează-l activ: felicită-l concret la reușite (punctaj maxim, insignă nou
 
 // ─── Pregătire mesaj chat (RAG + conversație + istoric + system) ──────────────
 // Flux comun pentru ai-chat și ai-chat-stream (evită duplicarea).
+// DOI AGENȚI: context.pdf → agentul de teste PDF (pdfAgentSystem);
+//             altfel      → agentul interactiv/general (interactiveAgentSystem),
+//             cu EXACT comportamentul de până acum.
 async function prepareChat(supa, { userId, message, mode = 'tutor', conversationId = null, context = {}, premium = false }) {
-  // 1. RAG (întrebarea + textul exercițiului, dacă există)
-  const retrievalQuery = [message, context.exerciseText].filter(Boolean).join('\n');
-  const docs = await retrieve(supa, {
-    query: retrievalQuery, category: context.category || null,
-    allowPremium: premium, k: 6, prefer: 'solution',
-  });
-  const ctxBlock = contextBlock(docs);
-  const primaryMaterial = await topMaterial(supa, docs);
+  const isPdfAgent = !!context.pdf;
+  const hasBarem = !!(context.pdf && context.baremText);
+
+  // 1. RAG (întrebarea + textul exercițiului, dacă există).
+  //    Agentul PDF cu rezolvare-model NU primește alte materiale — ar dilua
+  //    sursa de adevăr; sursa afișată elevului este chiar baremul asociat.
+  let docs = [], ctxBlock = '', primaryMaterial = null;
+  if (!hasBarem) {
+    const retrievalQuery = [message, context.exerciseText].filter(Boolean).join('\n');
+    docs = await retrieve(supa, {
+      query: retrievalQuery, category: context.category || null,
+      allowPremium: premium, k: 6, prefer: 'solution',
+    });
+    ctxBlock = contextBlock(docs);
+    primaryMaterial = await topMaterial(supa, docs);
+  }
 
   // 2. Conversație: o reluăm (dacă e a userului) sau o creăm.
   let convId = conversationId || null;
@@ -602,56 +641,75 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
     .order('created_at', { ascending: false }).limit(10);
   const priorMsgs = (history || []).reverse().map((m) => ({ role: m.role, content: m.content }));
 
-  // 4. System prompt (nivel + exercițiu curent + reguli interactive + catalog + motivare)
+  // 4. System prompt — construit de agentul potrivit.
+  const system = isPdfAgent
+    ? await pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs, ctxBlock })
+    : await interactiveAgentSystem(supa, { userId, mode, context, ctxBlock });
+
+  const sources = hasBarem
+    ? [{ type: 'solution', title: context.baremTitle || 'Baremul oficial al testului', topic: null, category: context.category || null }]
+    : docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }));
+  return { docs, ctxBlock, primaryMaterial, convId, priorMsgs, system, sources };
+}
+
+// ─── AGENTUL 1: exerciții interactive + chat general (comportament NESCHIMBAT) ─
+async function interactiveAgentSystem(supa, { userId, mode, context, ctxBlock }) {
   const mentor = mode === 'exams' || mode === 'students';
   const parts = [];
   const lvl = levelLabel(context);
   if (lvl) parts.push(`NIVELUL ELEVULUI: ${lvl}. Adaptează limbajul, notațiile, exemplele și profunzimea explicațiilor la acest nivel.`);
   if (context.exerciseText) {
-    // Limite mari: AI-ul primește FIȘIERUL CURENT complet (test interactiv sau PDF),
-    // ca să recunoască exact exercițiul la care se referă elevul.
-    const cap = context.pdf ? 15000 : context.interactive ? 14000 : 1500;
-    const head = context.pdf
-      ? `Elevul are deschis materialul PDF „${context.title || 'material'}". Textul lui:`
-      : 'Elevul lucrează la acest exercițiu:';
-    parts.push(`${head}\n"""${String(context.exerciseText).slice(0, cap)}"""`);
+    // Limită mare: AI-ul primește TESTUL INTERACTIV complet, ca să recunoască
+    // exact exercițiul la care se referă elevul.
+    const cap = context.interactive ? 14000 : 1500;
+    parts.push(`Elevul lucrează la acest exercițiu:\n"""${String(context.exerciseText).slice(0, cap)}"""`);
   }
   if (context.interactive) {
     parts.push(INTERACTIVE_RULES);
     parts.push(ACTION_PROTOCOL);
   }
-  // catalogul de exerciții e util tuturor (elevi ȘI profesori/părinți) — dar NU
-  // în sesiunea de test PDF cu barem, unde doar distrage de la rezolvarea oficială;
+  // catalogul de exerciții e util tuturor (elevi ȘI profesori/părinți);
   // starea de progres + motivarea sunt doar pentru elevi.
-  const hasBarem = !!(context.pdf && context.baremText);
-  const [catalog, state, baremItem] = await Promise.all([
-    hasBarem ? Promise.resolve('') : interactiveCatalog(supa, context.category || null),
+  const [catalog, state] = await Promise.all([
+    interactiveCatalog(supa, context.category || null),
     mentor ? Promise.resolve('') : studentState(supa, userId),
-    hasBarem
-      ? extractBaremItem({ message, priorMsgs, subjectText: context.exerciseText || '', baremText: context.baremText })
-      : Promise.resolve(null),
   ]);
   if (catalog) parts.push(catalog);
   if (state) parts.push(state);
-  // Blocul PDF + barem vine ULTIMUL: finalul promptului e locul unde modelul
-  // respectă cel mai fidel instrucțiunile, iar rezolvarea oficială extrasă
-  // pentru exercițiul întrebat este chiar ultima — cea mai „vizibilă".
-  if (context.pdf) {
-    parts.push(PDF_RULES);
-    if (context.baremText) {
-      parts.push(`BAREMUL OFICIAL asociat testului deschis („${context.baremTitle || 'barem'}"):\n"""${String(context.baremText).slice(0, 12000)}"""`);
-      parts.push(BAREM_RULES);
-      if (baremItem) {
-        parts.push(`REZOLVAREA OFICIALĂ A EXERCIȚIULUI DESPRE CARE ÎNTREABĂ ELEVUL${baremItem.exercitiu ? ` (${baremItem.exercitiu})` : ''} — copiată din barem:\n"""${baremItem.barem}"""\n\n${BAREM_ITEM_RULES}`);
-      }
-    } else {
-      parts.push(BAREM_MISSING);
-    }
-  }
-  const system = systemFor(mode, ctxBlock, parts.length ? '\n' + parts.join('\n\n') : '');
+  return systemFor(mode, ctxBlock, parts.length ? '\n' + parts.join('\n\n') : '');
+}
 
-  const sources = docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }));
-  return { docs, ctxBlock, primaryMaterial, convId, priorMsgs, system, sources };
+// ─── AGENTUL 2: teste PDF (persona proprie, barem = sursă de adevăr) ──────────
+async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs, ctxBlock }) {
+  const parts = [];
+  const lvl = levelLabel(context);
+  if (lvl) parts.push(`NIVELUL ELEVULUI: ${lvl}. Adaptează limbajul, notațiile, exemplele și profunzimea explicațiilor la acest nivel.`);
+  parts.push(`TESTUL DESCHIS: „${context.title || 'material PDF'}". TEXTUL LUI COMPLET (extras automat):\n"""${String(context.exerciseText || '').slice(0, 20000)}"""`);
+  parts.push(PDF_READ_RULES);
+  const [state, baremItem] = await Promise.all([
+    studentState(supa, userId),
+    context.baremText
+      ? extractBaremItem({ message, priorMsgs, subjectText: context.exerciseText || '', baremText: context.baremText })
+      : Promise.resolve(null),
+  ]);
+  // Fără barem: materialele din platformă ajută la rezolvarea atentă.
+  if (!context.baremText && ctxBlock) {
+    parts.push(`=== MATERIALE DIN BAZA DE DATE (context) ===\n${ctxBlock}\n=== SFÂRȘIT CONTEXT ===`);
+  }
+  if (state) parts.push(state);
+  // Blocul rezolvării-model vine ULTIMUL: finalul promptului e locul unde
+  // modelul respectă cel mai fidel instrucțiunile, iar itemul extras pentru
+  // exercițiul întrebat este chiar ultimul — cel mai „vizibil".
+  if (context.baremText) {
+    parts.push(`REZOLVAREA-MODEL a testului deschis (document intern pentru tine — elevul NU îl vede; NU îl numi „barem" în răspuns):\n"""${String(context.baremText).slice(0, 12000)}"""`);
+    parts.push(PDF_BAREM_RULES);
+    if (baremItem) {
+      parts.push(`REZOLVAREA EXERCIȚIULUI DESPRE CARE ÎNTREABĂ ELEVUL${baremItem.exercitiu ? ` (${baremItem.exercitiu})` : ''} — copiată din rezolvarea-model:\n"""${baremItem.barem}"""\n\n${PDF_ITEM_RULES}`);
+    }
+  } else {
+    parts.push(BAREM_MISSING);
+  }
+  return `${PDF_PERSONA}\n\n${MODE_ROLES[mode] || MODE_ROLES.tutor}\n\n${parts.join('\n\n')}`.trim();
 }
 
 module.exports = {
