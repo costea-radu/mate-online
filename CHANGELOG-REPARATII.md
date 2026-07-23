@@ -16,6 +16,14 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 - **Context mărit:** textul testului până la 20000 caractere (`ai-pdf-context` + prompt), ca AI-ul să citească tot PDF-ul.
 - Potrivirea strictă subiect↔barem (an/variantă/profil/sesiune + verificarea pe conținut din `_lib/barem.js`) rămâne activă; fără barem sigur → agentul spune sincer și rezolvă atent singur.
 
+### Pipeline „rezolvarea din barem, nu alta" (fix pentru improvizații de tip 81/256)
+Cauza problemei: modelul primea un prompt uriaș (tot testul + tot baremul + reguli) și improviza propria metodă în loc să urmeze fragmentul de barem. Acum, agentul PDF lucrează în 2 pași cu verificare:
+1. **Extracție** (`extractBaremItem`): identifică exercițiul întrebat și copiază CUVÂNT CU CUVÂNT enunțul din test + fragmentul de barem (validate anti-halucinație pe numere).
+2. **Generare FOCALIZATĂ:** când fragmentul există, promptul conține DOAR enunțul + rezolvarea + regulile (~2700 caractere în loc de ~30000) — modelul nu mai are din ce improviza. Temperatura 0.2.
+3. **Verificare înainte de trimitere** (`verifiedPdfReply`, în ai-chat și ai-chat-stream — streamul se bufferizează și textul verificat pleacă în bucăți): (a) verificare numerică — numere ≥2 cifre care nu apar nici în rezolvare, nici în test = deviere (prinde „81/256"); (b) verificator LLM de fidelitate — prinde expresii stricate (ex. „m−3" în loc de „m²−3"). La deviere → o regenerare cu avertisment; dacă și a doua deviază → **fallback sigur**: se prezintă direct pașii baremului (fără punctaje). Elevul nu mai poate primi altă rezolvare decât cea din barem.
+- Model opțional dedicat agentului PDF: `AI_PDF_CHAT_MODEL` în env (recomandat un model mai puternic decât gpt-4o-mini; folosit la extracție + generare).
+- Simulare completă a scenariului raportat (polinom, $(x_1x_2x_3x_4)^2$): improvizația 81/256 e prinsă și corectată; „m−3" e prins de verificatorul semantic; fallback-ul funcționează; fluxul interactiv rămâne pe streaming normal.
+
 ### Vectorii se citesc corect din PDF (nu mai apar „lungimi egale" în loc de „vectori egali")
 `api/_lib/pdftext.js`: săgeata de deasupra literelor din $\vec{AB}$ (Word/MathType) ajungea în textul extras ca glife separate „ur/uur/uuur" pe o micro-linie deasupra rândului — se pierdea sau devenea fals „exponent", iar egalitățile de vectori se citeau ca egalități de lungimi. Acum: micro-liniile-săgeată sunt recunoscute (inclusiv mai multe săgeți pe același rând sau glife despărțite „uuu"+„r"), consumate, iar literele de sub ele devin `\vec{...}`; resturile lipite pe rând („AB uuur") se convertesc prin regex, iar zgomotul rămas se elimină. Exponenții reali (m², x^r) rămân exponenți — verificat cu teste sintetice (4/4), plus reguli explicite despre vectori în promptul agentului PDF.
 

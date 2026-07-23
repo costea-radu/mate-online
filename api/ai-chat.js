@@ -24,16 +24,21 @@ module.exports = async function handler(req, res) {
     const premium = ai.isPremium(profile);
 
     // 1-3. RAG + conversație + istoric + system prompt (helper comun cu ai-chat-stream)
-    const { convId, primaryMaterial, priorMsgs, system, sources } =
+    const { convId, primaryMaterial, priorMsgs, system, sources, baremItem } =
       await ai.prepareChat(supa, { userId, message, mode, conversationId, context, premium });
 
-    // 4. Apel LLM.
-    const { text, usage } = await ai.chat({
-      system,
-      messages: [...priorMsgs, { role: 'user', content: message }],
-      temperature: mode === 'hint' ? 0.3 : 0.5,
-      maxTokens: 900,
-    });
+    // 4. Apel LLM. Cu rezolvare din barem → generare VERIFICATĂ față de barem.
+    const { text, usage } = baremItem
+      ? await ai.verifiedPdfReply({
+          system, baremItem, mode,
+          messages: [...priorMsgs, { role: 'user', content: message }],
+        })
+      : await ai.chat({
+          system,
+          messages: [...priorMsgs, { role: 'user', content: message }],
+          temperature: mode === 'hint' ? 0.3 : 0.5,
+          maxTokens: 900,
+        });
 
     // 5. Salvăm mesajele + actualizăm conversația.
     // Răspunsul e deja generat — nu picăm cererea dacă persistarea eșuează,

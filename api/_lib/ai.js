@@ -38,11 +38,15 @@ const { CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic } = 
 const hasEmbeddings = () => !!EMBED_KEY;
 const hasChat = () => !!CHAT_KEY;
 
+// Model separat (opțional) pentru agentul de teste PDF — fidelitatea față de
+// barem cere un model bun; setează AI_PDF_CHAT_MODEL (ex. gpt-4o) în env.
+const PDF_MODEL = process.env.AI_PDF_CHAT_MODEL || CHAT_MODEL;
+
 // ─── Apel LLM (chat completions, format OpenAI) ──────────────────────────────
-async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900, json = false }) {
+async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900, json = false, model = CHAT_MODEL }) {
   if (!hasChat()) throw new Error('AI_CHAT_API_KEY (sau OPENAI_API_KEY) nu este setat.');
   const body = {
-    model: CHAT_MODEL,
+    model,
     temperature,
     max_tokens: maxTokens,
     messages: system ? [{ role: 'system', content: system }, ...messages] : messages,
@@ -491,6 +495,16 @@ Reguli STRICTE:
 
 const BAREM_MISSING = `BAREM: pentru acest test NU am găsit în platformă baremul corespunzător (sau potrivirea era nesigură — decât baremul greșit, mai bine niciunul). Dacă elevul cere explicații „din barem": spune-i sincer că baremul nu e disponibil în platformă pentru acest test, rezolvă atent pas cu pas (verifică de două ori fiecare calcul) și recomandă-i secțiunea [Rezolvări](/rezolvari) sau celelalte materiale din platformă. NU trimite elevul pe site-uri externe.`;
 
+// Persona SCURTĂ pentru promptul focalizat (enunț + rezolvare, nimic altceva).
+// Un prompt mic = modelul nu are din ce să improvizeze și urmează fidel pașii.
+const PDF_FOCUS_PERSONA = `Ești „Profesorul Virtual" de pe ExamenMate — profesor de matematică român, calm, prietenos și răbdător. Elevul are deschis un test PDF și te-a întrebat despre un exercițiu anume. Mai jos ai ENUNȚUL exercițiului și REZOLVAREA lui — aceasta este SINGURA metodă pe care o predai; tu doar o POVESTEȘTI natural, ca la tablă.
+Reguli:
+- Răspunzi DOAR în limba română, clar și la nivelul elevului.
+- Formulele în LaTeX: $...$ inline sau $$...$$ pe rând separat (conținutul dintre $$...$$ stă pe UN singur rând). Folosește NUMAI acești delimitatori.
+- COPIEZI expresiile EXACT, cu exponenți și semne intacte: dacă în rezolvare scrie $m^2-3$, scrii $m^2-3$, NU $m-3$; dacă scrie $(x_1x_2x_3x_4)^2$, păstrezi puterea a 2-a.
+- Terminologie școlară: „descompunere în factori", NU „factorizare".
+- Rămâi strict pe teme educaționale, cu limbaj potrivit minorilor.`;
+
 // Reguli SCURTE și imperative pentru rezolvarea-model extrasă (itemul exact).
 // Stau la FINALUL promptului — acolo modelul le respectă cel mai bine.
 const PDF_ITEM_RULES = `AȘA RĂSPUNZI ACUM (obligatoriu):
@@ -523,13 +537,16 @@ async function extractBaremItem({ message, priorMsgs = [], subjectText = '', bar
   if (!hasChat() || !baremText) return null;
   try {
     const prior = priorMsgs.filter((m) => m.role === 'user').slice(-2).map((m) => m.content).join('\n');
-    const sys = 'Primești întrebarea unui elev despre un test, textul testului și BAREMUL testului. Identifică exercițiul la care se referă întrebarea (folosește și mesajele anterioare dacă întrebarea e vagă) și extrage din BAREM, CUVÂNT CU CUVÂNT, fragmentul care rezolvă EXACT acel exercițiu (toate rândurile lui). Răspunde DOAR cu JSON: {"exercitiu":"II.2.b","barem":"<fragmentul copiat identic din barem>"}. Dacă întrebarea nu se referă la un exercițiu anume, răspunde {"exercitiu":null,"barem":""}.';
-    const user = `ÎNTREBAREA ELEVULUI: ${String(message).slice(0, 600)}\n\nMESAJELE ANTERIOARE ALE ELEVULUI (context): ${prior || '—'}\n\nTESTUL:\n"""${String(subjectText).slice(0, 8000)}"""\n\nBAREMUL:\n"""${String(baremText).slice(0, 11000)}"""`;
-    const { text } = await chat({ system: sys, messages: [{ role: 'user', content: user }], temperature: 0, maxTokens: 900, json: true });
+    const sys = 'Primești întrebarea unui elev despre un test, textul testului și BAREMUL testului. Identifică exercițiul la care se referă întrebarea (folosește și mesajele anterioare dacă întrebarea e vagă), apoi: (1) extrage din TEST, CUVÂNT CU CUVÂNT, enunțul acelui exercițiu; (2) extrage din BAREM, CUVÂNT CU CUVÂNT, fragmentul care rezolvă EXACT acel exercițiu (toate rândurile lui, cu exponenții și semnele intacte). Răspunde DOAR cu JSON: {"exercitiu":"II.2.b","enunt":"<enunțul copiat identic din test>","barem":"<fragmentul copiat identic din barem>"}. Dacă întrebarea nu se referă la un exercițiu anume, răspunde {"exercitiu":null,"enunt":"","barem":""}.';
+    const user = `ÎNTREBAREA ELEVULUI: ${String(message).slice(0, 600)}\n\nMESAJELE ANTERIOARE ALE ELEVULUI (context): ${prior || '—'}\n\nTESTUL:\n"""${String(subjectText).slice(0, 9000)}"""\n\nBAREMUL:\n"""${String(baremText).slice(0, 11000)}"""`;
+    const { text } = await chat({ system: sys, messages: [{ role: 'user', content: user }], temperature: 0, maxTokens: 1100, json: true, model: PDF_MODEL });
     const parsed = JSON.parse(text);
     const frag = parsed && parsed.barem ? String(parsed.barem).trim() : '';
     if (frag.length > 20 && fragmentFromBarem(frag, baremText)) {
-      return { exercitiu: parsed.exercitiu || null, barem: frag.slice(0, 3500) };
+      // enunțul e acceptat doar dacă provine într-adevăr din textul testului
+      const en = parsed.enunt ? String(parsed.enunt).trim() : '';
+      const enOk = en.length > 10 && fragmentFromBarem(en, subjectText);
+      return { exercitiu: parsed.exercitiu || null, enunt: enOk ? en.slice(0, 1500) : null, barem: frag.slice(0, 3500) };
     }
   } catch (e) { console.warn('extractBaremItem:', e.message); }
   return null; // fără fragment sigur → rămâne baremul întreg din prompt
@@ -642,14 +659,19 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
   const priorMsgs = (history || []).reverse().map((m) => ({ role: m.role, content: m.content }));
 
   // 4. System prompt — construit de agentul potrivit.
-  const system = isPdfAgent
-    ? await pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs, ctxBlock })
-    : await interactiveAgentSystem(supa, { userId, mode, context, ctxBlock });
+  let system, baremItem = null;
+  if (isPdfAgent) {
+    const built = await pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs, ctxBlock });
+    system = built.system;
+    baremItem = built.baremItem;
+  } else {
+    system = await interactiveAgentSystem(supa, { userId, mode, context, ctxBlock });
+  }
 
   const sources = hasBarem
     ? [{ type: 'solution', title: context.baremTitle || 'Baremul oficial al testului', topic: null, category: context.category || null }]
     : docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }));
-  return { docs, ctxBlock, primaryMaterial, convId, priorMsgs, system, sources };
+  return { docs, ctxBlock, primaryMaterial, convId, priorMsgs, system, sources, baremItem };
 }
 
 // ─── AGENTUL 1: exerciții interactive + chat general (comportament NESCHIMBAT) ─
@@ -680,42 +702,125 @@ async function interactiveAgentSystem(supa, { userId, mode, context, ctxBlock })
 }
 
 // ─── AGENTUL 2: teste PDF (persona proprie, barem = sursă de adevăr) ──────────
+// Întoarce { system, baremItem }. Când itemul de barem a fost extras sigur,
+// promptul este FOCALIZAT: DOAR enunțul + rezolvarea lui + regulile — fără tot
+// testul, fără tot baremul, fără RAG/motivare. Un model mic „se pierde" într-un
+// prompt de zeci de mii de caractere și improviza propria metodă (greșită);
+// cu promptul mic nu are din ce să improvizeze.
 async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs, ctxBlock }) {
-  const parts = [];
   const lvl = levelLabel(context);
-  if (lvl) parts.push(`NIVELUL ELEVULUI: ${lvl}. Adaptează limbajul, notațiile, exemplele și profunzimea explicațiilor la acest nivel.`);
+  const lvlLine = lvl ? `NIVELUL ELEVULUI: ${lvl}. Adaptează limbajul și explicațiile la acest nivel.` : '';
+
+  // Pasul 1: identificăm exercițiul și îi extragem enunțul + rezolvarea din barem.
+  const baremItem = context.baremText
+    ? await extractBaremItem({ message, priorMsgs, subjectText: context.exerciseText || '', baremText: context.baremText })
+    : null;
+
+  // Pasul 2a: PROMPT FOCALIZAT — avem rezolvarea exactă a exercițiului întrebat.
+  if (baremItem) {
+    baremItem.allowed = [context.exerciseText, baremItem.enunt, baremItem.barem, message]
+      .filter(Boolean).join('\n'); // pentru verificarea anti-deviere (numere permise)
+    const system = [
+      PDF_FOCUS_PERSONA,
+      MODE_ROLES[mode] || MODE_ROLES.tutor,
+      lvlLine,
+      `EXERCIȚIUL${baremItem.exercitiu ? ` ${baremItem.exercitiu}` : ''} din testul „${context.title || 'PDF'}" — ENUNȚUL:\n"""${baremItem.enunt || '(enunțul nu a putut fi izolat din test — folosește forma expresiilor așa cum apare în rezolvarea de mai jos)'}"""`,
+      `REZOLVAREA LUI (document intern — elevul NU îl vede; predă-l ca metoda ta):\n"""${baremItem.barem}"""`,
+      PDF_ITEM_RULES,
+    ].filter(Boolean).join('\n\n');
+    return { system, baremItem };
+  }
+
+  // Pasul 2b: fără item sigur → promptul amplu (test întreg + barem întreg).
+  const parts = [];
+  if (lvlLine) parts.push(lvlLine);
   parts.push(`TESTUL DESCHIS: „${context.title || 'material PDF'}". TEXTUL LUI COMPLET (extras automat):\n"""${String(context.exerciseText || '').slice(0, 20000)}"""`);
   parts.push(PDF_READ_RULES);
-  const [state, baremItem] = await Promise.all([
-    studentState(supa, userId),
-    context.baremText
-      ? extractBaremItem({ message, priorMsgs, subjectText: context.exerciseText || '', baremText: context.baremText })
-      : Promise.resolve(null),
-  ]);
+  const state = await studentState(supa, userId);
   // Fără barem: materialele din platformă ajută la rezolvarea atentă.
   if (!context.baremText && ctxBlock) {
     parts.push(`=== MATERIALE DIN BAZA DE DATE (context) ===\n${ctxBlock}\n=== SFÂRȘIT CONTEXT ===`);
   }
   if (state) parts.push(state);
   // Blocul rezolvării-model vine ULTIMUL: finalul promptului e locul unde
-  // modelul respectă cel mai fidel instrucțiunile, iar itemul extras pentru
-  // exercițiul întrebat este chiar ultimul — cel mai „vizibil".
+  // modelul respectă cel mai fidel instrucțiunile.
   if (context.baremText) {
     parts.push(`REZOLVAREA-MODEL a testului deschis (document intern pentru tine — elevul NU îl vede; NU îl numi „barem" în răspuns):\n"""${String(context.baremText).slice(0, 12000)}"""`);
     parts.push(PDF_BAREM_RULES);
-    if (baremItem) {
-      parts.push(`REZOLVAREA EXERCIȚIULUI DESPRE CARE ÎNTREABĂ ELEVUL${baremItem.exercitiu ? ` (${baremItem.exercitiu})` : ''} — copiată din rezolvarea-model:\n"""${baremItem.barem}"""\n\n${PDF_ITEM_RULES}`);
-    }
   } else {
     parts.push(BAREM_MISSING);
   }
-  return `${PDF_PERSONA}\n\n${MODE_ROLES[mode] || MODE_ROLES.tutor}\n\n${parts.join('\n\n')}`.trim();
+  const system = `${PDF_PERSONA}\n\n${MODE_ROLES[mode] || MODE_ROLES.tutor}\n\n${parts.join('\n\n')}`.trim();
+  return { system, baremItem: null };
+}
+
+// ─── Agentul PDF: VERIFICAREA răspunsului față de rezolvarea-model ────────────
+// Garanția cerută: elevul primește rezolvarea DIN BAREM, nu alta. Generăm,
+// verificăm (numeric + semantic), regenerăm o dată dacă a deviat; dacă și a
+// doua încercare deviază, prezentăm direct pașii din barem (fallback sigur).
+
+// numerele „străine": apar în răspuns (≥2 cifre), dar nu apar nici în rezolvare,
+// nici în enunț/test/întrebare — semn de metodă improvizată (ex. 81/256)
+function foreignNums(reply, allowedText) {
+  const nums = (s) => String(s || '').match(/\d+(?:[.,]\d+)?/g) || [];
+  const allowed = new Set(nums(allowedText));
+  return [...new Set(nums(reply))].filter((n) => n.length >= 2 && !allowed.has(n));
+}
+
+async function pdfReplyCheck({ reply, baremItem }) {
+  // 1) verificarea numerică (deterministă, gratuită)
+  const foreign = foreignNums(reply, baremItem.allowed || baremItem.barem);
+  if (foreign.length) {
+    return { ok: false, motiv: `folosește numere care nu apar în rezolvare: ${foreign.slice(0, 4).join(', ')}` };
+  }
+  // 2) verificarea semantică (LLM ieftin) — prinde metode/expresii schimbate
+  //    (ex. „m^2-3" devenit „m-3"); dacă verificatorul pică, nu blocăm.
+  try {
+    const sys = 'Ești verificator de fidelitate. Primești REZOLVAREA-MODEL a unui exercițiu și RĂSPUNSUL unui profesor către elev. Răspunsul poate fi doar o îndrumare (primul pas) sau rezolvarea completă — ambele sunt în regulă. Verifică STRICT: tot ce afirmă matematic răspunsul provine din rezolvarea-model, cu ACEEAȘI metodă, ACELEAȘI expresii (atenție la exponenți și semne: m^2-3 NU e totuna cu m-3) și ACELEAȘI rezultate? Dacă răspunsul introduce altă metodă, alte valori, alte concluzii sau strică o expresie, e deviere. Răspunde DOAR cu JSON: {"ok":true} sau {"ok":false,"motiv":"<pe scurt ce a deviat>"}.';
+    const user = `REZOLVAREA-MODEL:\n"""${String(baremItem.barem).slice(0, 3500)}"""\n\nRĂSPUNSUL PROFESORULUI:\n"""${String(reply).slice(0, 3500)}"""`;
+    const { text } = await chat({ system: sys, messages: [{ role: 'user', content: user }], temperature: 0, maxTokens: 200, json: true });
+    const p = JSON.parse(text);
+    if (p && p.ok === false) return { ok: false, motiv: String(p.motiv || 'a deviat de la rezolvare').slice(0, 160) };
+  } catch (e) { console.warn('pdfReplyCheck:', e.message); }
+  return { ok: true };
+}
+
+// fallback determinist: pașii baremului, prezentați direct (fără punctaje)
+function fragmentFallback(baremItem, mode) {
+  const clean = String(baremItem.barem)
+    .replace(/\b\d+\s*p(?:uncte)?\.?(?=\s|$)/gi, '')
+    .replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  if (mode === 'hint') {
+    const first = (clean.split(/\n+/)[0] || clean).slice(0, 300);
+    return `Uite de unde să pornești: ${first}\n\nÎncearcă pasul acesta și spune-mi ce obții.`;
+  }
+  return `Hai să vedem rezolvarea, pas cu pas:\n\n${clean}\n\nDacă vrei, îți explic mai pe îndelete oricare dintre pași.`;
+}
+
+// generare + verificare + o reîncercare + fallback — folosit de ai-chat și
+// ai-chat-stream când itemul de barem a fost extras (răspunsul se bufferizează).
+async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', maxTokens = 900 }) {
+  const gen = (sys) => chat({ system: sys, messages, temperature: 0.2, maxTokens, model: PDF_MODEL });
+  const first = await gen(system);
+  let usage = { in: first.usage.in, out: first.usage.out };
+  const c1 = await pdfReplyCheck({ reply: first.text, baremItem });
+  if (c1.ok) return { text: first.text, usage, verified: true };
+
+  console.warn('verifiedPdfReply: prima încercare a deviat —', c1.motiv);
+  const harder = `${system}\n\nATENȚIE: încercarea anterioară a deviat de la rezolvare (${c1.motiv}). Scrie din nou răspunsul STRICT pe pașii, expresiile și rezultatele REZOLVĂRII de mai sus, fără nicio abatere și fără numere din altă parte.`;
+  const second = await gen(harder);
+  usage = { in: usage.in + second.usage.in, out: usage.out + second.usage.out };
+  const c2 = await pdfReplyCheck({ reply: second.text, baremItem });
+  if (c2.ok) return { text: second.text, usage, verified: true };
+
+  console.warn('verifiedPdfReply: și a doua încercare a deviat —', c2.motiv, '→ fallback pe pașii baremului');
+  return { text: fragmentFallback(baremItem, mode), usage, verified: false };
 }
 
 module.exports = {
   CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic,
   chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, PERSONA,
-  extractBaremItem, fragmentFromBarem,
+  extractBaremItem, fragmentFromBarem, verifiedPdfReply,
   levelLabel, interactiveCatalog, studentState,
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,

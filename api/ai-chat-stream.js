@@ -33,20 +33,34 @@ module.exports = async function handler(req, res) {
     const premium = ai.isPremium(profile);
 
     // 1-3. RAG + conversație + istoric + system prompt (helper comun cu ai-chat)
-    const { convId, primaryMaterial, priorMsgs, system, sources } =
+    const { convId, primaryMaterial, priorMsgs, system, sources, baremItem } =
       await ai.prepareChat(supa, { userId, message, mode, conversationId, context, premium });
     send({ type: 'meta', conversationId: convId, sources, primaryMaterial });
 
-    // 4. STREAMING LLM
+    // 4. Generare.
     let full = '';
-    for await (const delta of ai.chatStream({
-      system,
-      messages: [...priorMsgs, { role: 'user', content: message }],
-      temperature: mode === 'hint' ? 0.3 : 0.5,
-      maxTokens: 900,
-    })) {
-      full += delta;
-      send({ type: 'delta', text: delta });
+    if (baremItem) {
+      // AGENTUL PDF cu rezolvare din barem: generăm ÎNTREG răspunsul, îl
+      // VERIFICĂM față de barem (numeric + semantic; reîncercare + fallback)
+      // și abia apoi îl trimitem, în bucăți. Elevul nu vede niciodată un
+      // răspuns care deviază de la barem.
+      const r = await ai.verifiedPdfReply({
+        system, baremItem, mode,
+        messages: [...priorMsgs, { role: 'user', content: message }],
+      });
+      full = r.text;
+      for (const chunk of full.match(/[\s\S]{1,160}/g) || []) send({ type: 'delta', text: chunk });
+    } else {
+      // STREAMING LLM (comportamentul de până acum)
+      for await (const delta of ai.chatStream({
+        system,
+        messages: [...priorMsgs, { role: 'user', content: message }],
+        temperature: mode === 'hint' ? 0.3 : 0.5,
+        maxTokens: 900,
+      })) {
+        full += delta;
+        send({ type: 'delta', text: delta });
+      }
     }
 
     // 5. Salvăm după ce s-a terminat streamul. Textul a ajuns deja la client,
