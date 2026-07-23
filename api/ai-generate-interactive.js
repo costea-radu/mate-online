@@ -133,13 +133,22 @@ Reguli:
     if (!Array.isArray(questions) || !questions.length) {
       return res.status(502).json({ error: 'Generatorul nu a produs întrebări valide. Mai încearcă o dată.' });
     }
-    // normalizează
+    // normalizează + VALIDEAZĂ: fără întrebări cu enunț gol, grile fără opțiuni
+    // sau răspunsuri lipsă. Altfel clientul primea `questions: []` cu 200 și
+    // randa o pagină albă.
     questions = questions.slice(0, 8).map((q) => ({
-      statement: String(q.statement || ''),
+      statement: String(q.statement || '').trim(),
       options: Array.isArray(q.options) ? q.options.map((o) => String(o)) : undefined,
-      answer: Array.isArray(q.options) ? Number(q.answer) || 0 : String(q.answer ?? ''),
+      answer: Array.isArray(q.options) ? Number(q.answer) || 0 : String(q.answer ?? '').trim(),
       explanation: q.explanation ? String(q.explanation) : '',
-    })).filter((q) => q.statement);
+    })).filter((q) => {
+      if (q.statement.length < 6) return false;
+      if (q.options) return q.options.length >= 2 && q.answer >= 0 && q.answer < q.options.length;
+      return String(q.answer).length > 0;
+    });
+    if (!questions.length) {
+      return res.status(502).json({ error: 'Generatorul nu a produs întrebări valide. Mai încearcă o dată.' });
+    }
 
     return res.status(200).json({
       questions,

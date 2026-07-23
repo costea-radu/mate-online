@@ -55,8 +55,13 @@ const GEN_MODEL = process.env.AI_GEN_CHAT_MODEL || CHAT_MODEL;
 const isNewGenModel = (m) => /\bgpt-5|^o[1-9]\b|\bo[1-9]-/i.test(String(m || ''));
 function buildBody({ model, temperature, maxTokens, messages, system, json, stream }) {
   const body = { model, messages: system ? [{ role: 'system', content: system }, ...messages] : messages };
-  if (isNewGenModel(model)) body.max_completion_tokens = maxTokens;
-  else { body.max_tokens = maxTokens; body.temperature = temperature; }
+  if (isNewGenModel(model)) {
+    // Modelele cu raționament „ard" tokeni pe gândirea internă ÎNAINTE de a
+    // scrie răspunsul; cu bugetul clasic (900–5000) rămân des cu răspuns GOL
+    // sau trunchiat (JSON invalid). Le dăm spațiu de raționament: 3× bugetul,
+    // minim 3000, plafonat la 16000.
+    body.max_completion_tokens = Math.min(Math.max(maxTokens * 3, 3000), 16000);
+  } else { body.max_tokens = maxTokens; body.temperature = temperature; }
   if (json) body.response_format = { type: 'json_object' };
   if (stream) body.stream = true;
   return body;
@@ -830,32 +835,45 @@ async function pdfReplyCheck({ reply, baremItem }) {
   return { ok: true };
 }
 
-// fallback determinist: pașii baremului, prezentați direct (fără punctaje)
+// fallback determinist: pașii baremului, prezentați direct (fără punctaje).
+// Textul extras din PDF poate conține „moloz" de la fracțiile sparte pe
+// rânduri (linii doar cu cifre/simboluri) — le eliminăm, nu ajută elevul.
 function fragmentFallback(baremItem, mode) {
   const clean = String(baremItem.barem)
     .replace(/\b\d+\s*p(?:uncte)?\.?(?=\s|$)/gi, '')
-    .replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+    .split(/\n+/)
+    .map((l) => l.replace(/[ \t]+/g, ' ').trim())
+    .filter((l) => l && !(l.length < 14 && !/[a-zA-ZăâîșțĂÂÎȘȚ]{2,}/.test(l))) // fără resturi de fracții
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n').trim();
   if (mode === 'hint') {
     const first = (clean.split(/\n+/)[0] || clean).slice(0, 300);
     return `Uite de unde să pornești: ${first}\n\nÎncearcă pasul acesta și spune-mi ce obții.`;
   }
-  return `Hai să vedem rezolvarea, pas cu pas:\n\n${clean}\n\nDacă vrei, îți explic mai pe îndelete oricare dintre pași.`;
+  return `Hai să vedem rezolvarea, pas cu pas (redactarea poate fi imperfectă — textul vine direct din document):\n\n${clean}\n\nSpune-mi „explică pasul 1" (sau alt pas) și ți-l detaliez cu toate calculele.`;
 }
 
 // generare + verificare + o reîncercare + fallback — folosit de ai-chat și
 // ai-chat-stream când itemul de barem a fost extras (răspunsul se bufferizează).
 async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', maxTokens = 900 }) {
   const gen = (sys) => chat({ system: sys, messages, temperature: 0.2, maxTokens, model: PDF_MODEL });
+  // răspuns gol/trunchiat (modelele cu raționament pot epuiza bugetul) = eșec
+  const checked = async (reply) => {
+    if (!String(reply || '').trim() || String(reply).trim().length < 30) {
+      return { ok: false, motiv: 'răspuns gol sau trunchiat' };
+    }
+    return pdfReplyCheck({ reply, baremItem });
+  };
   const first = await gen(system);
   let usage = { in: first.usage.in, out: first.usage.out };
-  const c1 = await pdfReplyCheck({ reply: first.text, baremItem });
+  const c1 = await checked(first.text);
   if (c1.ok) return { text: first.text, usage, verified: true };
 
   console.warn('verifiedPdfReply: prima încercare a deviat —', c1.motiv);
   const harder = `${system}\n\nATENȚIE: încercarea anterioară a deviat de la rezolvare (${c1.motiv}). Scrie din nou răspunsul STRICT pe pașii, expresiile și rezultatele REZOLVĂRII de mai sus, fără nicio abatere și fără numere din altă parte.`;
   const second = await gen(harder);
   usage = { in: usage.in + second.usage.in, out: usage.out + second.usage.out };
-  const c2 = await pdfReplyCheck({ reply: second.text, baremItem });
+  const c2 = await checked(second.text);
   if (c2.ok) return { text: second.text, usage, verified: true };
 
   console.warn('verifiedPdfReply: și a doua încercare a deviat —', c2.motiv, '→ fallback pe pașii baremului');

@@ -350,6 +350,14 @@ Sursele provin din subcategorii diferite (marcate în paranteză la fiecare TEST
       oficiu: 10,
       subjects: Array.isArray(parsed.subjects) ? parsed.subjects : [],
     };
+    // Validare: un „test" fără subiecte sau fără itemi = răspuns trunchiat/gol
+    // (modelele cu raționament pot epuiza bugetul) — mai bine eroare cu retry
+    // decât un PDF gol.
+    const itemCount = exam.subjects.reduce((n, s) => n + (Array.isArray(s?.items) ? s.items.length : 0), 0);
+    if (!exam.subjects.length || !itemCount) {
+      console.error('ai-exam: structură goală (subiecte/itemi lipsă)');
+      return res.status(502).json({ error: 'Generatorul a returnat un test incomplet. Mai încearcă o dată.' });
+    }
     return res.status(200).json({ exam, combinedFrom });
   } catch (err) {
     console.error('ai-exam error:', err);
