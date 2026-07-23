@@ -334,7 +334,7 @@ Sursele provin din subcategorii diferite (marcate în paranteză la fiecare TEST
     const { text, usage } = await ai.chat({
       system,
       messages: [{ role: 'user', content: `Generează testul complet acum, în format JSON. Fă-l DIFERIT de variantele anterioare (alte numere, alte enunțuri). Variantă #${Math.random().toString(36).slice(2, 8)}.${instructions.trim() ? `\n\nINSTRUCȚIUNILE PROFESORULUI (respectă-le întocmai, au prioritate): ${String(instructions).slice(0, 4000)}` : ''}` }],
-      temperature: 0.7, maxTokens: 5000, json: true,
+      temperature: 0.7, maxTokens: 5000, json: true, model: ai.GEN_MODEL,
     });
     await ai.logUsage(supa, userId, 'ai-exam', usage);
 

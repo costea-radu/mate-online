@@ -223,7 +223,7 @@ Evaluează matematic (echivalențe acceptate, ex: 1/2 = 0,5). Fii încurajator d
 Răspunde STRICT cu JSON: {"correct":true/false,"score":0-100,"feedback":"...","solution":"rezolvarea corectă pe scurt"}`;
     const { text, usage } = await ai.chat({
       system, messages: [{ role: 'user', content: 'Corectează și răspunde JSON.' }],
-      temperature: 0.2, maxTokens: 800, json: true,
+      temperature: 0.2, maxTokens: 800, json: true, model: ai.GEN_MODEL,
     });
     await ai.logUsage(supa, userId, 'ai-assignment:check', usage);
     let parsed = {};

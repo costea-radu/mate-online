@@ -39,8 +39,12 @@ const hasEmbeddings = () => !!EMBED_KEY;
 const hasChat = () => !!CHAT_KEY;
 
 // Model separat (opțional) pentru agentul de teste PDF — fidelitatea față de
-// barem cere un model bun; setează AI_PDF_CHAT_MODEL (ex. gpt-4o) în env.
+// barem cere un model bun; setează AI_PDF_CHAT_MODEL (ex. gpt-5.6-terra) în env.
 const PDF_MODEL = process.env.AI_PDF_CHAT_MODEL || CHAT_MODEL;
+// Model separat (opțional) pentru GENERAREA de teste/exerciții și CORECTAREA
+// răspunsurilor — acolo modelul calculează singur (fără barem), deci greșelile
+// de calcul ajung direct „răspuns oficial". Setează AI_GEN_CHAT_MODEL în env.
+const GEN_MODEL = process.env.AI_GEN_CHAT_MODEL || CHAT_MODEL;
 
 // ─── Apel LLM (chat completions, format OpenAI) ──────────────────────────────
 async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900, json = false, model = CHAT_MODEL }) {
@@ -824,6 +828,6 @@ module.exports = {
   levelLabel, interactiveCatalog, studentState,
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,
-  hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS,
+  hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS, PDF_MODEL, GEN_MODEL,
 };
 // (integrare Profesor Virtual ↔ exerciții interactive: levelLabel, interactiveCatalog, studentState — vezi mai sus)

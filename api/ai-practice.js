@@ -73,7 +73,7 @@ Cerințe:
   const { text, usage } = await ai.chat({
     system,
     messages: [{ role: 'user', content: `Generează exercițiul acum în format JSON. Fă-l DIFERIT de cele anterioare (alte numere, alt context). #${Math.random().toString(36).slice(2, 8)}.` }],
-    temperature: 0.95, maxTokens: 1100, json: true,
+    temperature: 0.95, maxTokens: 1100, json: true, model: ai.GEN_MODEL,
   });
   await ai.logUsage(supa, userId, 'ai-practice:generate', usage);
 
@@ -140,7 +140,7 @@ Răspunde STRICT cu JSON:
   const { text, usage } = await ai.chat({
     system,
     messages: [{ role: 'user', content: 'Corectează și răspunde în format JSON.' }],
-    temperature: 0.2, maxTokens: 800, json: true,
+    temperature: 0.2, maxTokens: 800, json: true, model: ai.GEN_MODEL,
   });
   await ai.logUsage(supa, userId, 'ai-practice:check', usage);
 

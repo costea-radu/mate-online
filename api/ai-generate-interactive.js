@@ -125,7 +125,7 @@ Reguli:
     const { text, usage } = await ai.chat({
       system,
       messages: [{ role: 'user', content: `Generează array-ul JSON cu cele 5 întrebări acum. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
-      temperature: 0.9, maxTokens: 2200, json: true,
+      temperature: 0.9, maxTokens: 2200, json: true, model: ai.GEN_MODEL,
     });
     await ai.logUsage(supa, userId, 'ai-generate-interactive', usage);
 
