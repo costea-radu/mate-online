@@ -552,7 +552,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           {editingAttach
             ? <textarea value={attached} onChange={(e) => setAttached(e.target.value)} rows={3}
                 placeholder="Verifică textul citit și corectează dacă e nevoie..."
-                style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', fontSize: '.85rem', fontFamily: 'var(--font-body)', resize: 'vertical' }} />
+                style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', fontSize: 16, fontFamily: 'var(--font-body)', resize: 'vertical' }} />
             : <div style={{ fontSize: '.85rem', color: 'var(--text)' }}><MathText text={attached} /></div>}
           {!editingAttach && attached.trim() && (
             <button onClick={() => send('Ajută-mă cu acest exercițiu.')} disabled={streaming}
@@ -579,7 +579,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           placeholder="Scrie întrebarea ta..."
-          style={{ flex: 1, border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', fontSize: '.9rem', fontFamily: 'var(--font-body)' }}
+          style={{ flex: 1, minWidth: 0, border: '1px solid var(--border)', borderRadius: 10, padding: '9px 12px', fontSize: 16, fontFamily: 'var(--font-body)' }}
         />
         <button onClick={() => send()} disabled={streaming || !input.trim()}
           style={{

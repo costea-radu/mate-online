@@ -9,6 +9,7 @@
 
 const crypto = require('crypto');
 const http = require('./http'); // CORS, autentificare, admin — partajate
+const { parseExerciseRef, sliceExercise, formatRef } = require('./barem'); // localizare deterministă item
 
 // ─── Configurare furnizor (chat + embeddings sunt independente) ──────────────
 const CHAT_BASE  = process.env.AI_CHAT_BASE_URL  || 'https://api.openai.com/v1';
@@ -46,26 +47,57 @@ const PDF_MODEL = process.env.AI_PDF_CHAT_MODEL || CHAT_MODEL;
 // de calcul ajung direct „răspuns oficial". Setează AI_GEN_CHAT_MODEL în env.
 const GEN_MODEL = process.env.AI_GEN_CHAT_MODEL || CHAT_MODEL;
 
-// ─── Apel LLM (chat completions, format OpenAI) ──────────────────────────────
-async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900, json = false, model = CHAT_MODEL }) {
-  if (!hasChat()) throw new Error('AI_CHAT_API_KEY (sau OPENAI_API_KEY) nu este setat.');
-  const body = {
-    model,
-    temperature,
-    max_tokens: maxTokens,
-    messages: system ? [{ role: 'system', content: system }, ...messages] : messages,
-  };
+// ─── Compatibilitate parametri între generațiile de modele ───────────────────
+// Modelele noi OpenAI (gpt-5.x, o1/o3/o4...) REFUZĂ `max_tokens` (cer
+// `max_completion_tokens`) și unele refuză `temperature` ≠ 1. Construim
+// corpul potrivit după numele modelului și, ca plasă de siguranță, reparăm
+// automat la eroarea 400 „unsupported parameter" și reîncercăm o dată.
+const isNewGenModel = (m) => /\bgpt-5|^o[1-9]\b|\bo[1-9]-/i.test(String(m || ''));
+function buildBody({ model, temperature, maxTokens, messages, system, json, stream }) {
+  const body = { model, messages: system ? [{ role: 'system', content: system }, ...messages] : messages };
+  if (isNewGenModel(model)) body.max_completion_tokens = maxTokens;
+  else { body.max_tokens = maxTokens; body.temperature = temperature; }
   if (json) body.response_format = { type: 'json_object' };
-
-  const r = await fetch(`${CHAT_BASE}/chat/completions`, {
+  if (stream) body.stream = true;
+  return body;
+}
+// repară corpul după mesajul de eroare al providerului; întoarce true dacă a schimbat ceva
+function adaptBodyToError(body, errText) {
+  const t = String(errText || '');
+  let changed = false;
+  if (/max_tokens/.test(t) && 'max_tokens' in body) {
+    body.max_completion_tokens = body.max_tokens; delete body.max_tokens; changed = true;
+  } else if (/max_completion_tokens/.test(t) && 'max_completion_tokens' in body) {
+    body.max_tokens = body.max_completion_tokens; delete body.max_completion_tokens; changed = true;
+  }
+  if (/temperature/.test(t) && 'temperature' in body) { delete body.temperature; changed = true; }
+  if (/response_format/.test(t) && body.response_format) { delete body.response_format; changed = true; }
+  return changed;
+}
+async function postLLM(body) {
+  const call = () => fetch(`${CHAT_BASE}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CHAT_KEY}` },
     body: JSON.stringify(body),
   });
+  let r = await call();
+  if (!r.ok && r.status === 400) {
+    const t = await r.text().catch(() => '');
+    if (adaptBodyToError(body, t)) r = await call();
+    else throw new Error(`LLM 400: ${t.slice(0, 300)}`);
+  }
   if (!r.ok) {
     const t = await r.text().catch(() => '');
     throw new Error(`LLM ${r.status}: ${t.slice(0, 300)}`);
   }
+  return r;
+}
+
+// ─── Apel LLM (chat completions, format OpenAI) ──────────────────────────────
+async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900, json = false, model = CHAT_MODEL }) {
+  if (!hasChat()) throw new Error('AI_CHAT_API_KEY (sau OPENAI_API_KEY) nu este setat.');
+  const body = buildBody({ model, temperature, maxTokens, messages, system, json });
+  const r = await postLLM(body);
   const data = await r.json();
   const text = data.choices?.[0]?.message?.content ?? '';
   const usage = {
@@ -76,21 +108,10 @@ async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900,
 }
 
 // ─── Apel LLM în STREAMING (async generator de fragmente text) ───────────────
-async function* chatStream({ system, messages = [], temperature = 0.5, maxTokens = 900 }) {
+async function* chatStream({ system, messages = [], temperature = 0.5, maxTokens = 900, model = CHAT_MODEL }) {
   if (!hasChat()) throw new Error('AI_CHAT_API_KEY (sau OPENAI_API_KEY) nu este setat.');
-  const body = {
-    model: CHAT_MODEL, temperature, max_tokens: maxTokens, stream: true,
-    messages: system ? [{ role: 'system', content: system }, ...messages] : messages,
-  };
-  const r = await fetch(`${CHAT_BASE}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CHAT_KEY}` },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) {
-    const t = await r.text().catch(() => '');
-    throw new Error(`LLM ${r.status}: ${t.slice(0, 300)}`);
-  }
+  const body = buildBody({ model, temperature, maxTokens, messages, system, stream: true });
+  const r = await postLLM(body);
   const reader = r.body.getReader();
   const dec = new TextDecoder();
   let buf = '';
@@ -117,25 +138,14 @@ async function* chatStream({ system, messages = [], temperature = 0.5, maxTokens
 // ─── Apel LLM cu VEDERE (foto-rezolvare: citește o imagine) ──────────────────
 async function chatVision({ system, text, imageDataUrl, maxTokens = 800, temperature = 0.1 }) {
   if (!hasChat()) throw new Error('AI_CHAT_API_KEY (sau OPENAI_API_KEY) nu este setat.');
-  const body = {
-    model: VISION_MODEL, temperature, max_tokens: maxTokens,
-    messages: [
-      ...(system ? [{ role: 'system', content: system }] : []),
-      { role: 'user', content: [
-        { type: 'text', text: text || 'Transcrie exercițiul din imagine.' },
-        { type: 'image_url', image_url: { url: imageDataUrl } },
-      ] },
-    ],
-  };
-  const r = await fetch(`${CHAT_BASE}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CHAT_KEY}` },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) {
-    const t = await r.text().catch(() => '');
-    throw new Error(`Vision ${r.status}: ${t.slice(0, 300)}`);
-  }
+  const messages = [
+    { role: 'user', content: [
+      { type: 'text', text: text || 'Transcrie exercițiul din imagine.' },
+      { type: 'image_url', image_url: { url: imageDataUrl } },
+    ] },
+  ];
+  const body = buildBody({ model: VISION_MODEL, temperature, maxTokens, messages, system });
+  const r = await postLLM(body);
   const data = await r.json();
   return {
     text: data.choices?.[0]?.message?.content ?? '',
@@ -512,6 +522,7 @@ Reguli:
 // Reguli SCURTE și imperative pentru rezolvarea-model extrasă (itemul exact).
 // Stau la FINALUL promptului — acolo modelul le respectă cel mai bine.
 const PDF_ITEM_RULES = `AȘA RĂSPUNZI ACUM (obligatoriu):
+- ÎNCEPI răspunsul numind exercițiul și reluând pe scurt cerința lui din enunț (ex. „La subiectul III, exercițiul 2 b), trebuie să arătăm că…") — exact cerința din ENUNȚUL de mai sus, nu alta.
 - Rezolvarea de mai sus este SINGURA metodă pe care o predai la acest exercițiu. Nu improviza alta.
 - Elevul vrea un INDICIU sau nu știe cum să înceapă? → DOAR primul pas, reformulat prietenos ca îndrumare, FĂRĂ rezultatul final; închei cu o întrebare care îl duce mai departe.
 - Elevul cere explicit explicația sau rezolvarea completă? → prezinți TOȚI pașii, în ordinea lor, numerotați: la fiecare spui CE facem și DE CE și scrii calculul cu formulele lui (în LaTeX). Rezultatele intermediare și finale sunt EXACT cele de mai sus. Închei cu rezultatul final, clar.
@@ -531,6 +542,21 @@ function fragmentFromBarem(frag, baremText) {
   const bset = new Set(nums(baremText));
   const hit = fn.filter((n) => bset.has(n)).length;
   return hit / fn.length >= 0.7;
+}
+
+// ── Referința exercițiului din conversație (mesajul curent + cele anterioare) ─
+// „dă-mi rezolvarea completă" după „explică-mi III 2 b" → referința vine din
+// mesajul anterior; „și punctul c?" moștenește subiectul și exercițiul.
+function refFromConversation(message, priorMsgs = []) {
+  const texts = [message, ...priorMsgs.filter((m) => m.role === 'user').map((m) => m.content).reverse()];
+  let acc = { subject: null, ex: null, letter: null };
+  for (const t of texts) {
+    const p = parseExerciseRef(t);
+    if (!p) continue;
+    acc = { subject: acc.subject || p.subject, ex: acc.ex || p.ex, letter: acc.letter || p.letter };
+    if (acc.ex) break; // cea mai recentă referință clară câștigă
+  }
+  return acc.ex ? acc : null;
 }
 
 // ── Extrage din barem rezolvarea EXERCIȚIULUI ÎNTREBAT (focalizare) ──────────
@@ -716,9 +742,24 @@ async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs,
   const lvlLine = lvl ? `NIVELUL ELEVULUI: ${lvl}. Adaptează limbajul și explicațiile la acest nivel.` : '';
 
   // Pasul 1: identificăm exercițiul și îi extragem enunțul + rezolvarea din barem.
-  const baremItem = context.baremText
-    ? await extractBaremItem({ message, priorMsgs, subjectText: context.exerciseText || '', baremText: context.baremText })
-    : null;
+  // ÎNTÂI DETERMINIST: referința elevului („subiectul III ex 2 b") taie DIRECT
+  // itemul din barem și enunțul din test, pe structura oficială — fără să
+  // depindem de „citirea" vreunui model. AI-ul extrage doar când referința e
+  // vagă („problema cu vectorii") sau structura nu se potrivește.
+  let baremItem = null;
+  if (context.baremText) {
+    const ref = refFromConversation(message, priorMsgs);
+    if (ref) {
+      const frag = sliceExercise(context.baremText, ref);
+      if (frag) {
+        const enunt = sliceExercise(context.exerciseText || '', ref);
+        baremItem = { exercitiu: formatRef(ref), enunt: enunt ? enunt.slice(0, 1500) : null, barem: frag.slice(0, 3500) };
+      }
+    }
+    if (!baremItem) {
+      baremItem = await extractBaremItem({ message, priorMsgs, subjectText: context.exerciseText || '', baremText: context.baremText });
+    }
+  }
 
   // Pasul 2a: PROMPT FOCALIZAT — avem rezolvarea exactă a exercițiului întrebat.
   if (baremItem) {

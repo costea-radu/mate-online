@@ -76,4 +76,86 @@ function contentMatchScore(subjectText, baremText) {
   return hit / a.size;
 }
 
-module.exports = { norm, isBaremTitle, profileOf, tokensOf, matchBarem, contentMatchScore };
+// ═══════════════════════════════════════════════════════════════════════════
+// LOCALIZARE DETERMINISTĂ a unui item (subiect/exercițiu/literă) într-un text
+// structurat (test sau barem). Nu depinde de „citirea" AI: parsează referința
+// elevului („subiectul III ex 2 b", „II.2.b") și taie fragmentul pe structura
+// oficială (SUBIECTUL al III-lea → „2." → „b)").
+// ═══════════════════════════════════════════════════════════════════════════
+const ROMAN = { i: 'I', ii: 'II', iii: 'III', 1: 'I', 2: 'II', 3: 'III' };
+
+// „subiectul III ex 2 b", „II.2.b", „subiectul al ii-lea problema 1 litera a"
+function parseExerciseRef(text) {
+  const t = norm(text);
+  if (!t) return null;
+  let subject = null, ex = null, letter = null;
+  let m = t.match(/subiect\w*\s*(?:al\s*)?(i{1,3}|[123])(?:\s*lea)?\b/);
+  if (m) subject = ROMAN[m[1]] || null;
+  m = t.match(/\b(?:ex|exercitiul?|exercitiu|problema|punctul|intrebarea|cerinta)\s*([1-9])\b/);
+  if (m) ex = parseInt(m[1], 10);
+  m = t.match(/\b(?:litera|punctul|subpunctul|cerinta)\s*([a-d])\b/);
+  if (m) letter = m[1];
+  // forma compactă: „iii 2 b" / „ii 1" (normalizarea a transformat punctele în spații)
+  m = t.match(/\b(i{1,3})\s+([1-9])(?:\s+([a-d])\b)?/);
+  if (m) {
+    if (!subject) subject = ROMAN[m[1]];
+    if (!ex) ex = parseInt(m[2], 10);
+    if (!letter && m[3]) letter = m[3];
+  }
+  // literă izolată la final: „... 2 b" / „... 2, b)"
+  if (ex && !letter) {
+    m = t.match(new RegExp(`\\b${ex}\\s+([a-d])\\b`));
+    if (m) letter = m[1];
+  }
+  if (!subject && !ex && !letter) return null;
+  return { subject, ex, letter };
+}
+
+// începutul unui exercițiu: „2." / „2)" la început de rând (nu „2.5")
+function exStartRe(n) { return new RegExp(`(?:^|\\n)[ \\t]*${n}\\s*[\\.\\)](?!\\d)`); }
+
+// Taie din `text` fragmentul corespunzător referinței. null = negăsit sigur.
+function sliceExercise(text, ref) {
+  let src = String(text || '');
+  if (!src.trim() || !ref) return null;
+  // 1) secțiunea subiectului
+  const secs = [...src.matchAll(/SUBIECTUL\s+(?:al\s+)?(I{1,3}|[123])(?:\s*-?\s*lea)?/gi)]
+    .map((m) => ({ idx: m.index, sub: ROMAN[String(m[1]).toLowerCase()] }));
+  if (ref.subject) {
+    const at = secs.findIndex((s) => s.sub === ref.subject);
+    if (at === -1) return null;
+    src = src.slice(secs[at].idx, at + 1 < secs.length ? secs[at + 1].idx : src.length);
+  } else if (ref.ex && secs.length > 1) {
+    // fără subiect precizat: acceptăm doar dacă numărul de exercițiu e unic în tot textul
+    const hits = [...src.matchAll(new RegExp(exStartRe(ref.ex).source, 'g'))];
+    if (hits.length !== 1) return null;
+  }
+  // 2) exercițiul
+  if (ref.ex) {
+    const i = src.search(exStartRe(ref.ex));
+    if (i === -1) return null;
+    const rest = src.slice(i + 1);
+    const j = rest.search(exStartRe(ref.ex + 1));
+    src = j === -1 ? src.slice(i) : src.slice(i, i + 1 + j);
+  }
+  // 3) litera („b)" precedată de spațiu/rând nou — nu „(a+b)")
+  if (ref.letter) {
+    const lRe = new RegExp(`(?:^|\\n|\\s)${ref.letter}\\s*\\)`);
+    const li = src.search(lRe);
+    if (li !== -1) {
+      const next = String.fromCharCode(ref.letter.charCodeAt(0) + 1);
+      const rest = src.slice(li + 1);
+      const ni = rest.search(new RegExp(`(?:^|\\n|\\s)${next}\\s*\\)`));
+      src = ni === -1 ? src.slice(li) : src.slice(li, li + 1 + ni);
+    } // litera negăsită → păstrăm tot exercițiul (mai bine mai mult decât greșit)
+  }
+  src = src.trim();
+  return src.length >= 15 ? src : null;
+}
+
+function formatRef(ref) {
+  if (!ref) return null;
+  return [ref.subject, ref.ex, ref.letter].filter(Boolean).join('.');
+}
+
+module.exports = { norm, isBaremTitle, profileOf, tokensOf, matchBarem, contentMatchScore, parseExerciseRef, sliceExercise, formatRef };
