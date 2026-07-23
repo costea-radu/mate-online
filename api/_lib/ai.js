@@ -102,13 +102,25 @@ async function postLLM(body) {
 async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900, json = false, model = CHAT_MODEL }) {
   if (!hasChat()) throw new Error('AI_CHAT_API_KEY (sau OPENAI_API_KEY) nu este setat.');
   const body = buildBody({ model, temperature, maxTokens, messages, system, json });
-  const r = await postLLM(body);
-  const data = await r.json();
-  const text = data.choices?.[0]?.message?.content ?? '';
+  let r = await postLLM(body);
+  let data = await r.json();
+  let text = data.choices?.[0]?.message?.content ?? '';
   const usage = {
     in: data.usage?.prompt_tokens || 0,
     out: data.usage?.completion_tokens || 0,
   };
+  // AUTO-VINDECARE: modelele cu raționament pot epuiza tot bugetul pe gândire
+  // și întorc conținut GOL (finish_reason=length). Reîncercăm O dată cu
+  // bugetul maxim — altfel apar „format invalid" / fallback-uri inutile.
+  if (!String(text).trim() && isNewGenModel(model) && (body.max_completion_tokens || 0) < 16000) {
+    console.warn(`chat: răspuns gol la ${model} (finish=${data.choices?.[0]?.finish_reason || '?'}) — reîncerc cu buget maxim`);
+    body.max_completion_tokens = 16000;
+    r = await postLLM(body);
+    data = await r.json();
+    text = data.choices?.[0]?.message?.content ?? '';
+    usage.in += data.usage?.prompt_tokens || 0;
+    usage.out += data.usage?.completion_tokens || 0;
+  }
   return { text, usage };
 }
 
@@ -810,23 +822,32 @@ async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs,
 // doua încercare deviază, prezentăm direct pașii din barem (fallback sigur).
 
 // numerele „străine": apar în răspuns (≥2 cifre), dar nu apar nici în rezolvare,
-// nici în enunț/test/întrebare — semn de metodă improvizată (ex. 81/256)
+// nici în enunț/test/întrebare — semn de metodă improvizată (ex. 81/256).
+// Zecimalele compuse din cifre permise (ex. „3,5" din fracția 7/2 spartă la
+// extracție) NU sunt străine — altfel respingeam răspunsuri corecte.
 function foreignNums(reply, allowedText) {
   const nums = (s) => String(s || '').match(/\d+(?:[.,]\d+)?/g) || [];
-  const allowed = new Set(nums(allowedText));
-  return [...new Set(nums(reply))].filter((n) => n.length >= 2 && !allowed.has(n));
+  const allowed = new Set(nums(allowedText).flatMap((n) => [n, ...n.split(/[.,]/)]));
+  const isAllowed = (n) => {
+    if (n.length < 2 || allowed.has(n)) return true;
+    const parts = n.split(/[.,]/);
+    return parts.length > 1 && parts.every((p) => p.length < 2 || allowed.has(p));
+  };
+  return [...new Set(nums(reply))].filter((n) => !isAllowed(n));
 }
 
 async function pdfReplyCheck({ reply, baremItem }) {
-  // 1) verificarea numerică (deterministă, gratuită)
+  // 1) verificarea numerică (deterministă, gratuită). UN singur număr nou poate
+  //    fi un calcul intermediar legitim (extracția pierde fracții) — improvizația
+  //    reală aduce MAI MULTE numere străine (ex. 81 și 256).
   const foreign = foreignNums(reply, baremItem.allowed || baremItem.barem);
-  if (foreign.length) {
+  if (foreign.length >= 2) {
     return { ok: false, motiv: `folosește numere care nu apar în rezolvare: ${foreign.slice(0, 4).join(', ')}` };
   }
   // 2) verificarea semantică (LLM ieftin) — prinde metode/expresii schimbate
   //    (ex. „m^2-3" devenit „m-3"); dacă verificatorul pică, nu blocăm.
   try {
-    const sys = 'Ești verificator de fidelitate. Primești REZOLVAREA-MODEL a unui exercițiu și RĂSPUNSUL unui profesor către elev. Răspunsul poate fi doar o îndrumare (primul pas) sau rezolvarea completă — ambele sunt în regulă. Verifică STRICT: tot ce afirmă matematic răspunsul provine din rezolvarea-model, cu ACEEAȘI metodă, ACELEAȘI expresii (atenție la exponenți și semne: m^2-3 NU e totuna cu m-3) și ACELEAȘI rezultate? Dacă răspunsul introduce altă metodă, alte valori, alte concluzii sau strică o expresie, e deviere. Răspunde DOAR cu JSON: {"ok":true} sau {"ok":false,"motiv":"<pe scurt ce a deviat>"}.';
+    const sys = 'Ești verificator de fidelitate. Primești REZOLVAREA-MODEL a unui exercițiu și RĂSPUNSUL unui profesor către elev. Răspunsul poate fi doar o îndrumare (primul pas) sau rezolvarea completă — ambele sunt în regulă. ATENȚIE: textul rezolvării-model provine din extracție automată din PDF și poate avea fracții sau expresii sparte pe rânduri ori simboluri pierdute — dacă răspunsul le reconstruiește coerent (ex. „(3+4)/2 = 7/2" acolo unde textul arată cifre împrăștiate), NU e deviere. Verifică: metoda și rezultatele răspunsului sunt cele din rezolvarea-model (atenție la exponenți și semne: m^2-3 NU e totuna cu m-3)? Dacă răspunsul introduce ALTĂ metodă, ALTE valori sau ALTE concluzii decât cele din rezolvare, e deviere. Răspunde DOAR cu JSON: {"ok":true} sau {"ok":false,"motiv":"<pe scurt ce a deviat>"}.';
     const user = `REZOLVAREA-MODEL:\n"""${String(baremItem.barem).slice(0, 3500)}"""\n\nRĂSPUNSUL PROFESORULUI:\n"""${String(reply).slice(0, 3500)}"""`;
     const { text } = await chat({ system: sys, messages: [{ role: 'user', content: user }], temperature: 0, maxTokens: 200, json: true });
     const p = JSON.parse(text);

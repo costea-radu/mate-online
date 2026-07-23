@@ -131,6 +131,7 @@ Reguli:
 
     let questions = safeParse(text);
     if (!Array.isArray(questions) || !questions.length) {
+      console.error('ai-generate-interactive: răspuns neparsabil:', String(text).slice(0, 300));
       return res.status(502).json({ error: 'Generatorul nu a produs întrebări valide. Mai încearcă o dată.' });
     }
     // normalizează + VALIDEAZĂ: fără întrebări cu enunț gol, grile fără opțiuni

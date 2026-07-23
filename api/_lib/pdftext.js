@@ -134,6 +134,12 @@ function linesFromTextContent(textContent) {
       out += s;
       lastEnd = Math.max(lastEnd == null ? -Infinity : lastEnd, it.x + (it.w || 0));
     }
+    // glife pe care fontul PDF nu le mapează la caractere reale (apar ca „□"
+    // sau caractere private) — le eliminăm; la fel exponenții/indicii rămași
+    // goi după curățare. Altfel elevul vedea „□^{□}" în răspunsuri.
+    out = out
+      .replace(/[\uE000-\uF8FF\uFFFD\u25A1\u25AF]/g, '') // glife nemapate: zona privată a fontului, „�", „□", „▯"
+      .replace(/[\^_]\{\s*\}/g, '');
     // săgeți de vector scăpate pasului 2a (grupate pe același rând ori devenite
     // fals „exponent"): „AB uuur" / „uuur AB" / „AB^{uur}" → \vec{AB}; resturile
     // de tijă fără bază identificabilă se elimină (sunt doar zgomot).
