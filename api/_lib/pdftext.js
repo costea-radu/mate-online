@@ -12,24 +12,67 @@ function cutBarem(text) {
 // cu toleranță), le ordonăm de la stânga la dreapta și punem spațiu doar unde
 // există distanță reală între ele.
 function linesFromTextContent(textContent) {
-  const lines = [];
+  const raw = [];
   for (const it of (textContent && textContent.items) || []) {
-    if (!it || typeof it.str !== 'string') continue;
-    const y = it.transform ? it.transform[5] : 0;
-    const x = it.transform ? it.transform[4] : 0;
+    if (!it || typeof it.str !== 'string' || !it.str.trim()) continue;
+    const tr = it.transform || [1, 0, 0, 1, 0, 0];
+    raw.push({ str: it.str, x: tr[4], y: tr[5], w: it.width || 0, size: Math.hypot(tr[0], tr[1]) || 10 });
+  }
+  // 1) micro-linii: itemii cu același Y (toleranță mică)
+  const lines = [];
+  for (const it of raw) {
     let ln = null;
-    for (const l of lines) { if (Math.abs(l.y - y) < 2.5) { ln = l; break; } }
-    if (!ln) { ln = { y, items: [] }; lines.push(ln); }
-    ln.items.push({ x, str: it.str, w: it.width || 0 });
+    for (const l of lines) { if (Math.abs(l.y - it.y) < 2.2) { ln = l; break; } }
+    if (!ln) { ln = { y: it.y, items: [] }; lines.push(ln); }
+    ln.items.push(it);
   }
   lines.sort((a, b) => b.y - a.y); // de sus în jos
+
+  // 2) EXPONENȚI și INDICI: o micro-linie măruntă („2", „n"...) aflată cu
+  //    2–6pt deasupra unui rând este exponentul lui → „^{2}"; cu 2–6pt sub
+  //    rând este indice → „_{1}". Fără pasul acesta, „(x1x2x3x4)^2" și „m^2"
+  //    își pierdeau puterea a 2-a (exponentul cădea pe rând separat), iar
+  //    AI-ul citea greșit și testul, și baremul.
+  const metaOf = (l) => {
+    let xmin = Infinity, xmax = -Infinity, maxLen = 0, size = 0;
+    for (const i of l.items) {
+      xmin = Math.min(xmin, i.x); xmax = Math.max(xmax, i.x + (i.w || 0));
+      maxLen = Math.max(maxLen, i.str.trim().length); size = Math.max(size, i.size);
+    }
+    return { xmin, xmax, maxLen, size, n: l.items.length };
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const L = lines[i];
+    if (!L || !L.items.length) continue;
+    const m = metaOf(L);
+    if (!(m.maxLen <= 3 && m.n <= 6)) continue; // doar fragmente mărunte (2, n, ...)
+    const below = lines[i + 1] || null, above = lines[i - 1] || null;
+    const gapBelow = below ? L.y - below.y : Infinity;
+    const gapAbove = above ? above.y - L.y : Infinity;
+    const fits = (T) => {
+      const t = metaOf(T);
+      return m.xmin >= t.xmin - 4 && m.xmin <= t.xmax + 30 && m.size <= t.size * 1.05;
+    };
+    if (below && gapBelow >= 2.2 && gapBelow <= 6 && fits(below)) {
+      L.items.forEach((it) => { it.sup = true; below.items.push(it); }); // exponent
+      lines.splice(i, 1); i -= 1; continue;
+    }
+    if (above && gapAbove >= 2.2 && gapAbove <= 6 && fits(above)) {
+      L.items.forEach((it) => { it.sub = true; above.items.push(it); }); // indice
+      lines.splice(i, 1); i -= 1; continue;
+    }
+  }
+
+  // 3) redare: în fiecare rând, de la stânga la dreapta, cu spații doar unde
+  //    există distanță reală; exponenții/indicii se lipesc de baza lor
   return lines.map((l) => {
-    l.items.sort((a, b) => a.x - b.x); // de la stânga la dreapta
+    l.items.sort((a, b) => a.x - b.x);
     let out = '', lastEnd = null;
     for (const it of l.items) {
-      if (lastEnd != null && it.x - lastEnd > 1.5 && out && !out.endsWith(' ')) out += ' ';
-      out += it.str;
-      lastEnd = it.x + (it.w || 0);
+      const s = it.sup ? '^{' + it.str.trim() + '}' : it.sub ? '_{' + it.str.trim() + '}' : it.str;
+      if (!it.sup && !it.sub && lastEnd != null && it.x - lastEnd > 1.5 && out && !out.endsWith(' ')) out += ' ';
+      out += s;
+      lastEnd = Math.max(lastEnd == null ? -Infinity : lastEnd, it.x + (it.w || 0));
     }
     return out.replace(/\s+/g, ' ').trim();
   }).filter(Boolean).join('\n');

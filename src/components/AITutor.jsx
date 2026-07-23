@@ -38,6 +38,9 @@ export function preMessage(text = '') {
     .replace(/\[\[\s*ACTIUNE[^\]]*$/i, '');
   // linkurile absolute către site (inclusiv „.ro" greșit) devin RELATIVE → clicabile intern
   t = t.replace(/https?:\/\/(?:www\.)?examenmate\.(?:ro|com)(\/[^\s)"'<>\]]*)?/gi, (_, p) => p || '/');
+  // delimitatorii \[...\] și \(...\) (scriși uneori de model) → $$/$, altfel apar cruzi în chat
+  t = t.replace(/\\\[([\s\S]+?)\\\]/g, (_, b) => '$$' + b.replace(/\s*\n\s*/g, ' ').trim() + '$$');
+  t = t.replace(/\\\(([\s\S]+?)\\\)/g, (_, b) => '$' + b.replace(/\s*\n\s*/g, ' ').trim() + '$');
   // formulele afișate $$...$$ pe UN singur rând — altfel <br/> le rupe și KaTeX nu le mai randează
   t = t.replace(/\$\$([\s\S]+?)\$\$/g, (_, b) => '$$' + b.replace(/\s*\n\s*/g, ' ').trim() + '$$');
   // reparații pentru „$" pus greșit de model ÎN INTERIORUL expresiei (ex: 10$^3$, 4(10$)^3$)
