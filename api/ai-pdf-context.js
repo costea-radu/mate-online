@@ -8,8 +8,8 @@
 // (pdf-parse) și îl trimitem în contextul conversației.
 // =====================================================================
 const ai = require('./_lib/ai');
-const { storagePath } = require('./_lib/pdftext');
-const { matchBarem, isBaremTitle } = require('./_lib/barem');
+const { storagePath, pageRenderer } = require('./_lib/pdftext');
+const { matchBarem, isBaremTitle, contentMatchScore } = require('./_lib/barem');
 
 const MAX_PAGES = parseInt(process.env.AI_PDF_MAX_PAGES || '20', 10);
 const MAX_CHARS = parseInt(process.env.AI_PDF_MAX_CHARS || '15000', 10);
@@ -34,7 +34,9 @@ async function contentPdfText(supa, content, maxChars) {
   let text = '';
   try {
     const pdfParse = require('pdf-parse');
-    const parsed = await pdfParse(buf, { max: MAX_PAGES });
+    // pageRenderer: rânduri în ordinea vizuală, cu spații corecte — altfel
+    // formulele („x*y=5(x-1)(y-1)+1", fracții) ies terci și AI-ul citește greșit
+    const parsed = await pdfParse(buf, { max: MAX_PAGES, pagerender: pageRenderer });
     text = String(parsed.text || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
   } catch (e) {
     console.warn('ai-pdf-context pdf-parse:', e.message);
@@ -88,8 +90,17 @@ module.exports = async function handler(req, res) {
         if (m.barem && m.barem.file_url) {
           const bt = await contentPdfText(supa, m.barem, BAREM_MAX_CHARS);
           if (bt.text && bt.text.length > 50) {
-            barem = { id: m.barem.id, title: m.barem.title || 'Barem' };
-            baremText = bt.text;
+            // VERIFICARE PE CONȚINUT (peste an/variantă/profil/sesiune):
+            // numerele distinctive din test trebuie să se regăsească în barem.
+            // Dacă nu se regăsesc, titlurile mint — respingem baremul.
+            const score = contentMatchScore(main.text, bt.text);
+            if (score !== null && score < 0.35) {
+              console.warn(`ai-pdf-context: barem respins pe conținut (scor ${score.toFixed(2)}): "${content.title}" vs "${m.barem.title}"`);
+              baremStatus = 'continut_diferit';
+            } else {
+              barem = { id: m.barem.id, title: m.barem.title || 'Barem', contentScore: score };
+              baremText = bt.text;
+            }
           } else {
             baremStatus = 'negasit'; // PDF scanat / fără text → nu ne bazăm pe el
           }

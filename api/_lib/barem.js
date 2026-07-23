@@ -58,4 +58,22 @@ function matchBarem(subject, candidates) {
   return { barem: null, status: 'negasit' };
 }
 
-module.exports = { norm, isBaremTitle, profileOf, tokensOf, matchBarem };
+// ── Verificare de CONȚINUT: baremul trebuie să „vorbească" despre același test ──
+// Baremul unei variante repetă numerele din enunțuri (rezultate, coeficienți).
+// Măsurăm câte dintre numerele distinctive ale testului apar și în barem.
+// Răspuns: 0..1, sau null dacă testul nu are destule numere ca să judecăm.
+function contentMatchScore(subjectText, baremText) {
+  const numsOf = (s) => {
+    const m = String(s || '').match(/\d+(?:[.,]\d+)?/g) || [];
+    // păstrăm numerele purtătoare de informație (≥2 cifre sau zecimale);
+    // 0/1/2/5 etc. apar peste tot și nu diferențiază variantele
+    return new Set(m.filter((x) => x.length >= 2));
+  };
+  const a = numsOf(subjectText), b = numsOf(baremText);
+  if (a.size < 6) return null; // prea puține numere — nu decidem pe conținut
+  let hit = 0;
+  a.forEach((n) => { if (b.has(n)) hit++; });
+  return hit / a.size;
+}
+
+module.exports = { norm, isBaremTitle, profileOf, tokensOf, matchBarem, contentMatchScore };
