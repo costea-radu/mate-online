@@ -19,7 +19,7 @@ const CATS = [
   { id: 'clasa-7', label: 'Clasa a VII-a' }, { id: 'clasa-8', label: 'Clasa a VIII-a' },
   { id: 'evaluare-nationala', label: 'Evaluare Națională' }, { id: 'bacalaureat', label: 'Bacalaureat' },
 ];
-const KIND_ICON = { exam: '📄', practice: '✍️', interactive: '🧩' };
+const KIND_ICON = { exam: '📄', pdf: '📄', practice: '✍️', interactive: '🧩' };
 const FREE_LIMIT = 3;
 
 export default function BibliotecaUtilizatorilor() {
@@ -72,9 +72,17 @@ export default function BibliotecaUtilizatorilor() {
 
   async function openItem(it) {
     if (open?.id === it.id) { setOpen(null); return; } // toggle
+    // PDF: fereastra se deschide SINCRON (altfel browserul o blochează),
+    // apoi primește fișierul descărcat prin URL-ul semnat de server
+    const pdfWin = it.kind === 'pdf' ? window.open('', '_blank') : null;
     try {
       const { item } = await aiClient.publicGet({ id: it.id });
       if (item.kind === 'exam') { printExam(item.payload.exam, { withSolutions: false }); }
+      else if (item.kind === 'pdf') {
+        const blob = await aiClient.getLibraryPdfBlob(item.payload);
+        const url = URL.createObjectURL(blob);
+        if (pdfWin) pdfWin.location = url; else window.open(url, '_blank');
+      }
       else if (item.kind === 'interactive' && (item.payload?.questions || item.payload?.html)) {
         // pagină nouă cu buton „Închide”, exact ca la PDF-uri
         const doc = item.payload.questions ? renderQuiz(item.title, item.payload.questions) : item.payload.html;
@@ -82,7 +90,9 @@ export default function BibliotecaUtilizatorilor() {
       }
       else setOpen(item);
     } catch (e) {
+      if (pdfWin) pdfWin.close();
       if (e.premium) alert('Acest test necesită abonament. Fără abonament poți deschide doar testele marcate „Gratuit".');
+      else if (it.kind === 'pdf') alert('PDF-ul nu a putut fi deschis: ' + (e?.message || 'eroare necunoscută'));
     }
   }
 
@@ -157,10 +167,10 @@ export default function BibliotecaUtilizatorilor() {
                         <Link to="/preturi" className="btn btn-sm" style={{ background: 'var(--gold)', color: 'var(--navy)', fontWeight: 700 }}>🔒 Deblochează</Link>
                       ) : (
                         <button className="btn btn-sm btn-primary" onClick={() => openItem(it)}>
-                          {it.kind === 'exam' ? '📄 Deschide PDF' : (isOpen ? '✕ Închide' : '▶ Deschide')}
+                          {it.kind === 'exam' || it.kind === 'pdf' ? '📄 Deschide PDF' : (isOpen ? '✕ Închide' : '▶ Deschide')}
                         </button>
                       )}
-                      {user && !isStudent && it.kind !== 'exam' && !isLocked && (
+                      {user && !isStudent && it.kind !== 'exam' && it.kind !== 'pdf' && !isLocked && (
                         <SendToStudents label="📤 Trimite elevilor" create={() => aiClient.assignmentCreateFromPublic({ publicId: it.id })} />
                       )}
                       {isAdmin && (

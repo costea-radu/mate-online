@@ -214,6 +214,13 @@ export const aiClient = {
   },
   // Descarcă PDF-ul unui element din bibliotecă (Storage sau base64 vechi) ca Blob.
   async getLibraryPdfBlob(payload) {
+    // PDF publicat: serverul a atașat un URL semnat (bucketul e privat,
+    // descărcarea directă merge doar pentru proprietar)
+    if (payload?.signedUrl) {
+      const r = await fetch(payload.signedUrl);
+      if (!r.ok) throw new Error('PDF-ul nu a putut fi descărcat.');
+      return await r.blob();
+    }
     if (payload?.pdfPath) {
       const { data, error } = await supabase.storage.from(payload.bucket || 'personal-pdfs').download(payload.pdfPath);
       if (error || !data) throw new Error(error?.message || 'PDF-ul nu a putut fi descărcat.');

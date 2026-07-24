@@ -82,6 +82,15 @@ module.exports = async function handler(req, res) {
       if (!allowed) {
         return res.status(402).json({ error: 'Acest test necesită abonament. Fără abonament poți deschide doar testele gratuite din bibliotecă.', code: 'PREMIUM_REQUIRED' });
       }
+      // PDF publicat: bucketul e privat, deci cititorul primește un URL semnat
+      // (generat cu clientul admin — RLS nu-l blochează).
+      if (data.kind === 'pdf' && data.payload?.pdfPath) {
+        try {
+          const { data: signed } = await supa.storage.from(data.payload.bucket || 'personal-pdfs')
+            .createSignedUrl(data.payload.pdfPath, 3600);
+          if (signed?.signedUrl) data.payload = { ...data.payload, signedUrl: signed.signedUrl };
+        } catch (e) { console.warn('ai-public get signedUrl:', e.message); }
+      }
       return res.status(200).json({ item: data });
     }
 
@@ -111,6 +120,21 @@ module.exports = async function handler(req, res) {
       const creatorName = profile.full_name || profile.username
         || (profile.email ? profile.email.split('@')[0] : null) || 'Profesor';
 
+      // PDF-urile stau în bucketul PRIVAT al profesorului — publicăm o COPIE
+      // independentă (dacă profesorul își șterge itemul privat, cel public
+      // rămâne întreg). Cititorii primesc URL semnat la 'get'.
+      let pubPayload = payload;
+      if (kind === 'pdf' && payload?.pdfPath) {
+        const bucket = payload.bucket || 'personal-pdfs';
+        const { data: fileData, error: dlErr } = await supa.storage.from(bucket).download(payload.pdfPath);
+        if (dlErr || !fileData) return res.status(502).json({ error: 'PDF-ul nu a putut fi citit din Storage: ' + (dlErr?.message || 'necunoscut') });
+        const copyPath = `public-library/${Date.now()}_${Math.random().toString(36).slice(2, 10)}.pdf`;
+        const buf = Buffer.from(await fileData.arrayBuffer());
+        const { error: upErr } = await supa.storage.from(bucket).upload(copyPath, buf, { contentType: 'application/pdf', upsert: false });
+        if (upErr) return res.status(502).json({ error: 'Copia publică nu a putut fi creată: ' + upErr.message });
+        pubPayload = { ...payload, pdfPath: copyPath, bucket };
+      }
+
       // Permite publicarea cu același nume; dacă ACELAȘI profesor a mai publicat
       // un test cu acest nume, adaugă un număr: „X", „X 2", „X 3"...
       const base = String(title).trim();
@@ -123,8 +147,8 @@ module.exports = async function handler(req, res) {
 
       const { data, error } = await supa.from('ai_public_library').insert({
         created_by: userId, creator_name: creatorName,
-        creator_role: 'profesor', kind, title: finalTitle, category, topic, payload,
-        search_text: buildSearchText(kind, finalTitle, topic, payload),
+        creator_role: 'profesor', kind, title: finalTitle, category, topic, payload: pubPayload,
+        search_text: buildSearchText(kind, finalTitle, topic, pubPayload),
       }).select('id, title').single();
       if (error) return res.status(500).json({ error: error.message });
       await ensureThreeFree(supa);
@@ -162,10 +186,15 @@ module.exports = async function handler(req, res) {
       const { id } = req.body || {};
       const profile = await ai.requireUser(supa, userId);
       if (!id) return res.status(400).json({ error: 'id obligatoriu' });
-      const { data: row } = await supa.from('ai_public_library').select('created_by').eq('id', id).single();
+      const { data: row } = await supa.from('ai_public_library').select('created_by, kind, payload').eq('id', id).single();
       if (!row) return res.status(404).json({ error: 'Nu există.' });
       if (row.created_by !== userId && !profile.is_admin) return res.status(403).json({ error: 'Nu poți șterge.' });
       await supa.from('ai_public_library').delete().eq('id', id);
+      // ștergem și COPIA publică a PDF-ului din Storage (doar pe a noastră,
+      // din public-library/ — nu fișierul privat al profesorului)
+      if (row.kind === 'pdf' && row.payload?.pdfPath && String(row.payload.pdfPath).startsWith('public-library/')) {
+        await supa.storage.from(row.payload.bucket || 'personal-pdfs').remove([row.payload.pdfPath]).catch(() => {});
+      }
       await ensureThreeFree(supa); // menține 3 gratuite
       return res.status(200).json({ ok: true });
     }

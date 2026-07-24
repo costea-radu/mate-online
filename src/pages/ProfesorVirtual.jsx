@@ -617,6 +617,23 @@ function LibItem({ it, isTeacher, onRemove }) {
   }
   function openExamPdf(withSol) { aiClient.getLibraryItem(it.id).then((f) => { if (f?.payload?.exam) printExam(f.payload.exam, { withSolutions: withSol }); }); }
 
+  // Publică un subiect generat (kind 'exam' — JSON printabil; kind 'pdf' —
+  // fișier combinat exact; serverul face o copie publică a fișierului).
+  const [publishing, setPublishing] = useState(false);
+  async function publishPdf() {
+    setMsg(null); setPublishing(true);
+    try {
+      const f = full || await aiClient.getLibraryItem(it.id);
+      if (!full) setFull(f);
+      const payload = it.kind === 'exam' ? { exam: f?.payload?.exam } : (f?.payload || {});
+      if (it.kind === 'exam' && !payload.exam) throw new Error('Subiectul nu a putut fi încărcat.');
+      if (it.kind === 'pdf' && !payload.pdfPath && !payload.pdfBase64) throw new Error('PDF-ul nu a putut fi încărcat.');
+      const r = await aiClient.publicPublish({ kind: it.kind, title: it.title || f?.title || 'Subiect', category: f?.category || null, topic: f?.topic || null, payload });
+      setMsg('✅ Publicat în „Biblioteca utilizatorilor" ca „' + (r?.title || it.title) + '".');
+    } catch (e) { setMsg('Eroare: ' + e.message); }
+    finally { setPublishing(false); }
+  }
+
   // scor la re-rezolvarea interactivului
   useEffect(() => {
     function onMsg(e) {
@@ -656,9 +673,15 @@ function LibItem({ it, isTeacher, onRemove }) {
           ) : (
             <button className="btn btn-sm btn-outline" onClick={toggle}>{open ? '✕ Închide' : '▶ Deschide'}</button>
           )}
+          {isTeacher && (it.kind === 'exam' || it.kind === 'pdf') && (
+            <button className="btn btn-sm btn-outline" disabled={publishing} onClick={publishPdf}>
+              {publishing ? '⏳ Se publică...' : '🏛️ Publică'}
+            </button>
+          )}
           <button className="btn btn-sm" style={{ color: '#c0392b' }} onClick={onRemove}>🗑</button>
         </div>
       </div>
+      {!open && msg && <div style={{ marginTop: 8, fontSize: '.82rem', color: msg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{msg}</div>}
 
       {open && full && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
