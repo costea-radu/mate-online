@@ -110,10 +110,11 @@ async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900,
     out: data.usage?.completion_tokens || 0,
   };
   // AUTO-VINDECARE: modelele cu raționament pot epuiza tot bugetul pe gândire
-  // și întorc conținut GOL (finish_reason=length). Reîncercăm O dată cu
-  // bugetul maxim — altfel apar „format invalid" / fallback-uri inutile.
-  if (!String(text).trim() && isNewGenModel(model) && (body.max_completion_tokens || 0) < 16000) {
-    console.warn(`chat: răspuns gol la ${model} (finish=${data.choices?.[0]?.finish_reason || '?'}) — reîncerc cu buget maxim`);
+  // și întorc conținut GOL sau TĂIAT la mijloc (finish_reason=length → JSON
+  // invalid la generatoare). Reîncercăm O dată cu bugetul maxim.
+  const finish = data.choices?.[0]?.finish_reason || '';
+  if ((!String(text).trim() || finish === 'length') && isNewGenModel(model) && (body.max_completion_tokens || 0) < 16000) {
+    console.warn(`chat: răspuns ${String(text).trim() ? 'trunchiat' : 'gol'} la ${model} (finish=${finish}) — reîncerc cu buget maxim`);
     body.max_completion_tokens = 16000;
     r = await postLLM(body);
     data = await r.json();
@@ -533,6 +534,7 @@ Reguli:
 - Răspunzi DOAR în limba română, clar și la nivelul elevului.
 - Formulele în LaTeX: $...$ inline sau $$...$$ pe rând separat (conținutul dintre $$...$$ stă pe UN singur rând). Folosește NUMAI acești delimitatori.
 - COPIEZI expresiile EXACT, cu exponenți și semne intacte: dacă în rezolvare scrie $m^2-3$, scrii $m^2-3$, NU $m-3$; dacă scrie $(x_1x_2x_3x_4)^2$, păstrezi puterea a 2-a.
+- TEXTUL REZOLVĂRII vine din extracție automată din PDF și poate avea fracții, exponenți sau limite de integrare SPARTE pe bucăți (cifre împrăștiate, resturi ca „^{2}^{1}"). NU copia molozul: reconstruiește expresiile coerent matematic, în LaTeX îngrijit, păstrând metoda și valorile rezolvării.
 - Terminologie școlară: „descompunere în factori", NU „factorizare".
 - Rămâi strict pe teme educaționale, cu limbaj potrivit minorilor.`;
 
@@ -836,16 +838,22 @@ function foreignNums(reply, allowedText) {
   return [...new Set(nums(reply))].filter((n) => !isAllowed(n));
 }
 
-async function pdfReplyCheck({ reply, baremItem }) {
-  // 1) verificarea numerică (deterministă, gratuită). UN singur număr nou poate
-  //    fi un calcul intermediar legitim (extracția pierde fracții) — improvizația
-  //    reală aduce MAI MULTE numere străine (ex. 81 și 256).
+// verificarea numerică (deterministă, gratuită). UN singur număr nou poate fi
+// un calcul intermediar legitim (extracția pierde fracții) — improvizația
+// reală aduce MAI MULTE numere străine (ex. 81 și 256). BLOCANTĂ.
+function numericCheck(reply, baremItem) {
   const foreign = foreignNums(reply, baremItem.allowed || baremItem.barem);
   if (foreign.length >= 2) {
     return { ok: false, motiv: `folosește numere care nu apar în rezolvare: ${foreign.slice(0, 4).join(', ')}` };
   }
-  // 2) verificarea semantică (LLM ieftin) — prinde metode/expresii schimbate
-  //    (ex. „m^2-3" devenit „m-3"); dacă verificatorul pică, nu blocăm.
+  return { ok: true };
+}
+
+// verificarea semantică (LLM ieftin) — prinde metode/expresii schimbate
+// (ex. „m^2-3" devenit „m-3"). DOAR CONSULTATIVĂ: pe fragmente deteriorate de
+// extracție dă fals-pozitive, deci poate cere o regenerare, dar nu poate
+// împinge elevul pe fallback-ul cu text brut.
+async function semanticCheck(reply, baremItem) {
   try {
     const sys = 'Ești verificator de fidelitate. Primești REZOLVAREA-MODEL a unui exercițiu și RĂSPUNSUL unui profesor către elev. Răspunsul poate fi doar o îndrumare (primul pas) sau rezolvarea completă — ambele sunt în regulă. ATENȚIE: textul rezolvării-model provine din extracție automată din PDF și poate avea fracții sau expresii sparte pe rânduri ori simboluri pierdute — dacă răspunsul le reconstruiește coerent (ex. „(3+4)/2 = 7/2" acolo unde textul arată cifre împrăștiate), NU e deviere. Verifică: metoda și rezultatele răspunsului sunt cele din rezolvarea-model (atenție la exponenți și semne: m^2-3 NU e totuna cu m-3)? Dacă răspunsul introduce ALTĂ metodă, ALTE valori sau ALTE concluzii decât cele din rezolvare, e deviere. Răspunde DOAR cu JSON: {"ok":true} sau {"ok":false,"motiv":"<pe scurt ce a deviat>"}.';
     const user = `REZOLVAREA-MODEL:\n"""${String(baremItem.barem).slice(0, 3500)}"""\n\nRĂSPUNSUL PROFESORULUI:\n"""${String(reply).slice(0, 3500)}"""`;
@@ -876,28 +884,47 @@ function fragmentFallback(baremItem, mode) {
 
 // generare + verificare + o reîncercare + fallback — folosit de ai-chat și
 // ai-chat-stream când itemul de barem a fost extras (răspunsul se bufferizează).
+// Reguli de decizie:
+//  - BLOCANTE (pot duce la fallback-ul cu pașii bruți): răspuns gol/trunchiat
+//    și verificarea numerică (≥2 numere străine = improvizație certă).
+//  - CONSULTATIVĂ (doar cere o regenerare): verificarea semantică — pe
+//    fragmente deteriorate de extracție dă fals-pozitive, iar un răspuns bine
+//    redactat nu trebuie înlocuit cu text brut din cauza ei.
 async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', maxTokens = 900 }) {
   const gen = (sys) => chat({ system: sys, messages, temperature: 0.2, maxTokens, model: PDF_MODEL });
-  // răspuns gol/trunchiat (modelele cu raționament pot epuiza bugetul) = eșec
-  const checked = async (reply) => {
-    if (!String(reply || '').trim() || String(reply).trim().length < 30) {
-      return { ok: false, motiv: 'răspuns gol sau trunchiat' };
-    }
-    return pdfReplyCheck({ reply, baremItem });
+  const isEmpty = (t) => !String(t || '').trim() || String(t).trim().length < 20;
+
+  const attempt = async (sys) => {
+    const g = await gen(sys);
+    if (isEmpty(g.text)) return { ...g, hard: 'răspuns gol sau trunchiat', soft: null };
+    const n = numericCheck(g.text, baremItem);
+    if (!n.ok) return { ...g, hard: n.motiv, soft: null };
+    const s = await semanticCheck(g.text, baremItem);
+    return { ...g, hard: null, soft: s.ok ? null : s.motiv };
   };
-  const first = await gen(system);
+
+  const first = await attempt(system);
   let usage = { in: first.usage.in, out: first.usage.out };
-  const c1 = await checked(first.text);
-  if (c1.ok) return { text: first.text, usage, verified: true };
+  if (!first.hard && !first.soft) return { text: first.text, usage, verified: true };
 
-  console.warn('verifiedPdfReply: prima încercare a deviat —', c1.motiv);
-  const harder = `${system}\n\nATENȚIE: încercarea anterioară a deviat de la rezolvare (${c1.motiv}). Scrie din nou răspunsul STRICT pe pașii, expresiile și rezultatele REZOLVĂRII de mai sus, fără nicio abatere și fără numere din altă parte.`;
-  const second = await gen(harder);
+  const motiv = first.hard || first.soft;
+  console.warn('verifiedPdfReply: prima încercare —', motiv);
+  const harder = `${system}\n\nATENȚIE: încercarea anterioară a deviat de la rezolvare (${motiv}). Scrie din nou răspunsul STRICT pe pașii, expresiile și rezultatele REZOLVĂRII de mai sus, fără nicio abatere și fără numere din altă parte.`;
+  const second = await attempt(harder);
   usage = { in: usage.in + second.usage.in, out: usage.out + second.usage.out };
-  const c2 = await checked(second.text);
-  if (c2.ok) return { text: second.text, usage, verified: true };
+  if (!second.hard && !second.soft) return { text: second.text, usage, verified: true };
 
-  console.warn('verifiedPdfReply: și a doua încercare a deviat —', c2.motiv, '→ fallback pe pașii baremului');
+  // best-effort: un răspuns care a trecut de verificările BLOCANTE e mai bun
+  // decât textul brut, chiar dacă verificatorul semantic încă „cârtește".
+  if (!second.hard) {
+    console.warn('verifiedPdfReply: trimit a doua încercare (semantic nesigur:', second.soft, ')');
+    return { text: second.text, usage, verified: false };
+  }
+  if (!first.hard) {
+    console.warn('verifiedPdfReply: trimit prima încercare (semantic nesigur:', first.soft, ')');
+    return { text: first.text, usage, verified: false };
+  }
+  console.warn('verifiedPdfReply: ambele încercări blocate (', first.hard, '/', second.hard, ') → fallback pe pașii baremului');
   return { text: fragmentFallback(baremItem, mode), usage, verified: false };
 }
 
