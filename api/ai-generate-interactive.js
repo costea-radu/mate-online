@@ -104,15 +104,17 @@ ${examples}
 ${srcBlock ? `\n=== SUBIECTE REALE DIN CATEGORIE (sursa itemilor — antrenament/variante/simulări) ===\n${srcBlock}\n=== SFÂRȘIT SURSE ===\nPLAN (tras la sorți — respectă-l): fiecare întrebare vine din sursa indicată:\n${plan}\n` : ''}
 REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}
 
-Răspunde STRICT cu un array JSON valid (fără text în plus, fără markdown), cu 5 obiecte:
-[
-  {
-    "statement": "enunțul întrebării (formule LaTeX între $...$)",
-    "options": ["varianta a", "varianta b", "varianta c", "varianta d"],
-    "answer": 0,
-    "explanation": "de ce e corect (scurt)"
-  }
-]
+Răspunde STRICT cu un OBIECT JSON valid (fără text în plus, fără markdown), cu EXACT această formă — cheia "questions" conține cele 5 obiecte:
+{
+  "questions": [
+    {
+      "statement": "enunțul întrebării (formule LaTeX între $...$)",
+      "options": ["varianta a", "varianta b", "varianta c", "varianta d"],
+      "answer": 0,
+      "explanation": "de ce e corect (scurt)"
+    }
+  ]
+}
 Reguli:
 - Majoritatea întrebărilor cu "options" (grilă, exact 4 variante) și "answer" = INDEXUL variantei corecte (0,1,2,3). DISTRIBUIE răspunsul corect aleatoriu între cele 4 poziții (nu mereu 0).
 - Poți face și întrebări cu răspuns liber: OMITE "options" și pune "answer" ca text (ex: "12" sau "x=3").
@@ -124,12 +126,18 @@ Reguli:
 
     const { text, usage } = await ai.chat({
       system,
-      messages: [{ role: 'user', content: `Generează array-ul JSON cu cele 5 întrebări acum. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
+      messages: [{ role: 'user', content: `Generează obiectul JSON cu cele 5 întrebări acum. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
       temperature: 0.9, maxTokens: 2200, json: true, model: ai.GEN_MODEL,
     });
     await ai.logUsage(supa, userId, 'ai-generate-interactive', usage);
 
     let questions = safeParse(text);
+    // modelele în modul JSON întorc un OBIECT — despachetăm orice formă:
+    // {"questions":[...]}, {"intrebari":[...]}, sau {"1":{...},"2":{...}}
+    if (questions && !Array.isArray(questions) && typeof questions === 'object') {
+      questions = Object.values(questions).find(Array.isArray)
+        || Object.values(questions).filter((v) => v && typeof v === 'object' && (v.statement || v.enunt));
+    }
     if (!Array.isArray(questions) || !questions.length) {
       console.error('ai-generate-interactive: răspuns neparsabil:', String(text).slice(0, 300));
       return res.status(502).json({ error: 'Generatorul nu a produs întrebări valide. Mai încearcă o dată.' });

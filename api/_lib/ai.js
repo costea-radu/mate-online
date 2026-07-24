@@ -563,6 +563,32 @@ function fragmentFromBarem(frag, baremText) {
   return hit / fn.length >= 0.7;
 }
 
+// ── Cerința reconstruită din barem (enunțul din test poate pierde simboluri) ──
+// Baremul repetă enunțul: prima egalitate începe cu membrul stâng al cerinței,
+// iar ultimul „=" dă rezultatul final. Ex: „∫√(f(x)(x+1))dx = ... = 1 − ln 2"
+// → cerința: „∫√(f(x)(x+1))dx = 1 − ln 2". Testul extras pierduse radicalul.
+function claimFromBarem(baremFrag) {
+  const lines = String(baremFrag || '').split(/\n+/).map((l) => l.replace(/\b\d+\s*p(?:uncte)?\.?\s*$/i, '').trim()).filter(Boolean);
+  if (!lines.length) return null;
+  // membrul stâng: din prima linie cu „=", partea dinaintea primului „="
+  let lhs = null;
+  for (const l of lines) {
+    const i = l.indexOf('=');
+    if (i > 2) { lhs = l.slice(0, i).replace(/^[a-d]\s*\)\s*/i, '').trim(); break; }
+  }
+  // rezultatul final: ultima linie cu „=", partea de după ultimul „="
+  let final = null;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const eq = lines[i].lastIndexOf('=');
+    if (eq !== -1 && eq < lines[i].length - 1) {
+      const r = lines[i].slice(eq + 1).trim();
+      if (r.length >= 1 && r.length <= 90) { final = r; break; }
+    }
+  }
+  if (!lhs || !final || lhs.length < 3 || lhs.length > 160) return null;
+  return { lhs, final };
+}
+
 // ── Referința exercițiului din conversație (mesajul curent + cele anterioare) ─
 // „dă-mi rezolvarea completă" după „explică-mi III 2 b" → referința vine din
 // mesajul anterior; „și punctul c?" moștenește subiectul și exercițiul.
@@ -784,11 +810,17 @@ async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs,
   if (baremItem) {
     baremItem.allowed = [context.exerciseText, baremItem.enunt, baremItem.barem, message]
       .filter(Boolean).join('\n'); // pentru verificarea anti-deviere (numere permise)
+    // cerința reconstruită din barem — enunțul extras din test poate pierde
+    // radicali/săgeți/bare (sunt desenate, nu caractere), baremul o repetă corect.
+    // DOAR la exerciții de tip „Arătați că / Demonstrați" (au forma LHS = rezultat);
+    // la „Determinați..." egalitatea reconstruită ar fi falsă.
+    const claim = /ar[ăa]ta[țt]?i|demonstra/i.test(baremItem.enunt || '') ? claimFromBarem(baremItem.barem) : null;
     const system = [
       PDF_FOCUS_PERSONA,
       MODE_ROLES[mode] || MODE_ROLES.tutor,
       lvlLine,
-      `EXERCIȚIUL${baremItem.exercitiu ? ` ${baremItem.exercitiu}` : ''} din testul „${context.title || 'PDF'}" — ENUNȚUL:\n"""${baremItem.enunt || '(enunțul nu a putut fi izolat din test — folosește forma expresiilor așa cum apare în rezolvarea de mai jos)'}"""`,
+      `EXERCIȚIUL${baremItem.exercitiu ? ` ${baremItem.exercitiu}` : ''} din testul „${context.title || 'PDF'}" — ENUNȚUL (extras din test; poate avea simboluri pierdute):\n"""${baremItem.enunt || '(enunțul nu a putut fi izolat din test — folosește forma expresiilor așa cum apare în rezolvarea de mai jos)'}"""`,
+      claim ? `CERINȚA DE DEMONSTRAT, reconstruită din rezolvare (pe ACEASTA o enunți elevului, NU varianta din test dacă diferă): arată că $${claim.lhs} = ${claim.final}$. Rezultatul final al rezolvării tale trebuie să fie EXACT ${claim.final}.` : '',
       `REZOLVAREA LUI (document intern — elevul NU îl vede; predă-l ca metoda ta):\n"""${baremItem.barem}"""`,
       PDF_ITEM_RULES,
     ].filter(Boolean).join('\n\n');
