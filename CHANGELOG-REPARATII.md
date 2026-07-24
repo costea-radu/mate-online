@@ -25,6 +25,9 @@ Cauza problemei: modelul primea un prompt uriaș (tot testul + tot baremul + reg
 - Model opțional dedicat GENERĂRII și CORECTĂRII: `AI_GEN_CHAT_MODEL` în env — folosit la generarea de teste de examen (`ai-exam`), teste interactive (`ai-generate-interactive`), exerciții de practică (`ai-practice:generate`) și la corectarea răspunsurilor elevilor (`ai-practice:check`, `ai-assignment:check`). Acolo modelul calculează singur, fără barem, deci merită cel mai puternic model. (Generatorul admin de exerciții folosește deja Claude, separat — neatins.)
 - Simulare completă a scenariului raportat (polinom, $(x_1x_2x_3x_4)^2$): improvizația 81/256 e prinsă și corectată; „m−3" e prins de verificatorul semantic; fallback-ul funcționează; fluxul interactiv rămâne pe streaming normal.
 
+### Biblioteca utilizatorilor: premium implicit + minim 3 gratuite, fără a suprascrie adminul
+Publicările sunt premium implicit (`is_free: false`), iar sistemul menține minim 3 teste gratuite — acum cele mai RECENTE (înainte: cele mai vechi) — DAR cu memorie a deciziilor adminului: coloana nouă `free_set_by_admin` (script `supabase/public_library_pdf.sql`, idempotent) se setează la orice comutare manuală din admin („☆ Fă gratuit"/„★ Gratuit"), iar auto-promovarea nu atinge NICIODATĂ rândurile marcate așa (în niciun sens). Dacă adminul retrage un test de la gratuit, minimul de 3 se reface din alte teste, nu din al lui. Fallback tolerant dacă scriptul SQL nu a fost încă rulat.
+
 ### „Publică" pentru PDF-urile generate, direct din „Testele și exercițiile mele"
 Subiectele generate (kind `exam` — JSON printabil; kind `pdf` — combinare exactă salvată în Storage) pot fi publicate în Biblioteca utilizatorilor și DUPĂ generare, nu doar imediat:
 - **ProfesorVirtual → Testele și exercițiile mele:** buton „🏛️ Publică" pe rândul fiecărui subiect (doar profesori), cu stare „Se publică..." și mesaj de confirmare/eroare vizibil fără expand.

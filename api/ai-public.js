@@ -18,9 +18,11 @@ function buildSearchText(kind, title, topic, payload) {
   return parts.join(' ').slice(0, 4000);
 }
 
-// Menține mereu (până la) 3 teste gratuite: dacă sunt sub 3, promovează cele
-// mai vechi teste ne-gratuite până se ajunge la 3. Idempotent — nu face nimic
-// dacă deja sunt 3 (sau mai puține teste în total).
+// POLITICĂ: tot ce se publică e PREMIUM implicit. Sistemul menține însă minim
+// 3 teste gratuite (cele mai RECENTE), ca vizitatorii să aibă mostre — DAR
+// fără să suprascrie vreodată deciziile adminului: auto-promovarea atinge doar
+// rândurile cu free_set_by_admin = false, iar orice comutare manuală (gratuit
+// SAU premium) blochează rândul (free_set_by_admin = true) pentru mecanism.
 async function ensureThreeFree(supa) {
   try {
     const { count } = await supa.from('ai_public_library')
@@ -28,12 +30,13 @@ async function ensureThreeFree(supa) {
     const need = 3 - (count || 0);
     if (need > 0) {
       const { data: cand } = await supa.from('ai_public_library')
-        .select('id').eq('is_free', false).order('created_at', { ascending: true }).limit(need);
+        .select('id').eq('is_free', false).eq('free_set_by_admin', false)
+        .order('created_at', { ascending: false }).limit(need);
       if (cand && cand.length) {
         await supa.from('ai_public_library').update({ is_free: true }).in('id', cand.map((c) => c.id));
       }
     }
-  } catch { /* ignoră */ }
+  } catch { /* coloana lipsă (script nerulat) sau eroare trecătoare — nu blocăm */ }
 }
 
 module.exports = async function handler(req, res) {
@@ -47,7 +50,7 @@ module.exports = async function handler(req, res) {
 
     if (action === 'list') {
       const { q = '', category = null, limit = 60 } = req.body || {};
-      await ensureThreeFree(supa); // autocorectează la 3 gratuite
+      await ensureThreeFree(supa); // minim 3 gratuite, fără a atinge deciziile adminului
       let query = supa.from('ai_public_library')
         .select('id, kind, title, category, topic, creator_name, creator_role, created_by, is_free, created_at')
         .order('is_free', { ascending: false })
@@ -101,8 +104,15 @@ module.exports = async function handler(req, res) {
       const profile = await ai.requireUser(supa, userId);
       if (!profile.is_admin) return res.status(403).json({ error: 'Doar adminul poate marca teste gratuite.' });
       if (!id) return res.status(400).json({ error: 'id obligatoriu' });
-      const { error } = await supa.from('ai_public_library').update({ is_free: !!isFree }).eq('id', id);
+      // decizia adminului devine DEFINITIVĂ pentru acest test (în ambele sensuri)
+      let { error } = await supa.from('ai_public_library')
+        .update({ is_free: !!isFree, free_set_by_admin: true }).eq('id', id);
+      if (error && /free_set_by_admin|column/i.test(error.message || '')) {
+        // instalare fără coloana nouă (scriptul public_library_pdf.sql nerulat)
+        ({ error } = await supa.from('ai_public_library').update({ is_free: !!isFree }).eq('id', id));
+      }
       if (error) return res.status(500).json({ error: error.message });
+      if (!isFree) await ensureThreeFree(supa); // reface minimul de 3 din alte teste
       return res.status(200).json({ ok: true, is_free: !!isFree });
     }
 
@@ -149,9 +159,10 @@ module.exports = async function handler(req, res) {
         created_by: userId, creator_name: creatorName,
         creator_role: 'profesor', kind, title: finalTitle, category, topic, payload: pubPayload,
         search_text: buildSearchText(kind, finalTitle, topic, pubPayload),
+        is_free: false, // premium implicit; auto-promovarea/adminul pot marca gratuit
       }).select('id, title').single();
       if (error) return res.status(500).json({ error: error.message });
-      await ensureThreeFree(supa);
+      await ensureThreeFree(supa); // dacă-s sub 3 gratuite, cel nou (cel mai recent) devine gratuit
       return res.status(200).json({ id: data.id, title: data.title });
     }
 
@@ -195,7 +206,7 @@ module.exports = async function handler(req, res) {
       if (row.kind === 'pdf' && row.payload?.pdfPath && String(row.payload.pdfPath).startsWith('public-library/')) {
         await supa.storage.from(row.payload.bucket || 'personal-pdfs').remove([row.payload.pdfPath]).catch(() => {});
       }
-      await ensureThreeFree(supa); // menține 3 gratuite
+      await ensureThreeFree(supa); // dacă s-a șters un test gratuit, completează minimul
       return res.status(200).json({ ok: true });
     }
 

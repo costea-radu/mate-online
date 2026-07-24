@@ -9,3 +9,10 @@ alter table public.ai_public_library drop constraint if exists ai_public_library
 alter table public.ai_public_library
   add constraint ai_public_library_kind_check
   check (kind in ('exam', 'practice', 'interactive', 'pdf'));
+
+-- Gratuite automate CU respectarea deciziilor adminului:
+-- • sistemul menține minim 3 teste gratuite (cele mai RECENTE), dar
+-- • atinge doar rândurile cu free_set_by_admin = false;
+-- • orice comutare făcută de admin (gratuit SAU premium) marchează rândul
+--   free_set_by_admin = true și nu mai e suprascrisă niciodată automat.
+alter table public.ai_public_library add column if not exists free_set_by_admin boolean default false;
