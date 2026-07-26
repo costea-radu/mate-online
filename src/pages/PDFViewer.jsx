@@ -308,6 +308,7 @@ export default function PDFViewer() {
 
   // ─── Profesorul Virtual lângă PDF ─────────────────────────────────────────
   const [tutorOpen, setTutorOpen] = useState(!!state?.openTutor);
+  const [tutorWide, setTutorWide] = useState(false); // fereastră mărită (doar pe desktop)
   const tutorConvId = state?.tutorConvId || null;
   const [pdfText, setPdfText] = useState(null);      // textul extras din PDF
   const [pdfFileName, setPdfFileName] = useState(null); // numele original al fișierului testului
@@ -524,6 +525,8 @@ export default function PDFViewer() {
       flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', minHeight: 0,
       ...(narrow
         ? { height: `${panelPct}%`, borderTop: '3px solid var(--gold)' }
+        : tutorWide
+        ? { width: 'min(900px, 75vw)', maxWidth: '75vw', borderLeft: '3px solid var(--gold)' }
         : { width: 400, maxWidth: '45vw', borderLeft: '3px solid var(--gold)' }),
     }}>
       <div
@@ -542,10 +545,21 @@ export default function PDFViewer() {
         <div style={{ fontWeight: 700, fontSize: '.9rem', display: 'flex', alignItems: 'center', gap: 6 }}>
           <EinsteinIcon size={20} /> Profesorul Virtual
         </div>
-        <button onClick={() => setTutorOpen(false)}
-          style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: '.78rem', fontWeight: 600 }}>
-          ✕
-        </button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {/* Mărire/micșorare fereastră — doar pe desktop (pe mobil se trage de bară) */}
+          {!narrow && (
+            <button onClick={() => setTutorWide((w) => !w)}
+              title={tutorWide ? 'Micșorează fereastra' : 'Mărește fereastra'}
+              aria-label={tutorWide ? 'Micșorează fereastra profesorului' : 'Mărește fereastra profesorului'}
+              style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: '.82rem', fontWeight: 600, lineHeight: 1.2 }}>
+              {tutorWide ? '❐' : '□'}
+            </button>
+          )}
+          <button onClick={() => setTutorOpen(false)}
+            style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: '.78rem', fontWeight: 600 }}>
+            ✕
+          </button>
+        </div>
       </div>
       {pdfLoading && (
         <div style={{ padding: '6px 12px', fontSize: '.76rem', color: 'var(--text-muted)', background: '#fffdf5', borderBottom: '1px solid var(--border)' }}>
