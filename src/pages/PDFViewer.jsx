@@ -310,7 +310,8 @@ export default function PDFViewer() {
   const [tutorOpen, setTutorOpen] = useState(!!state?.openTutor);
   const tutorConvId = state?.tutorConvId || null;
   const [pdfText, setPdfText] = useState(null);      // textul extras din PDF
-  const [barem, setBarem] = useState(null);          // {title, text} — baremul asociat testului
+  const [pdfFileName, setPdfFileName] = useState(null); // numele original al fișierului testului
+  const [barem, setBarem] = useState(null);          // {title, text, fileName} — baremul asociat testului
   const [pdfLoading, setPdfLoading] = useState(false);
   const [narrow, setNarrow] = useState(typeof window !== 'undefined' && window.innerWidth < 800);
   useEffect(() => {
@@ -347,7 +348,8 @@ export default function PDFViewer() {
     aiClient.pdfContext({ contentId: item.id })
       .then((r) => {
         setPdfText(r?.text || '');
-        setBarem(r?.baremText && r?.barem ? { title: r.barem.title || 'Barem', text: r.baremText } : null);
+        setPdfFileName(r?.fileName || null);
+        setBarem(r?.baremText && r?.barem ? { title: r.barem.title || 'Barem', text: r.baremText, fileName: r.barem.fileName || null } : null);
       })
       .catch(() => setPdfText(''))
       .finally(() => setPdfLoading(false));
@@ -361,9 +363,11 @@ export default function PDFViewer() {
     exerciseText: pdfText
       ? pdfText
       : (item?.title ? `Materialul PDF „${item.title}" este deschis, dar textul lui nu a putut fi citit automat (poate fi un PDF scanat). Cere-i elevului să scrie enunțul sau să îl fotografieze.` : ''),
+    fileName: pdfFileName,               // numele original al fișierului testului
     baremText: barem?.text || null,
     baremTitle: barem?.title || null,
-  }), [item, pdfText, barem]);
+    baremFileName: barem?.fileName || null, // numele original al fișierului baremului
+  }), [item, pdfText, pdfFileName, barem]);
 
   useEffect(() => {
     if (item || !idParam) return;
@@ -549,7 +553,7 @@ export default function PDFViewer() {
         </div>
       )}
       {!pdfLoading && barem && (
-        <div title="Explicațiile se dau pe baza acestui barem oficial"
+        <div title={`Explicațiile se dau pe baza acestui barem oficial${barem.fileName ? ` (fișier: ${barem.fileName})` : ''}`}
           style={{ padding: '5px 12px', fontSize: '.74rem', fontWeight: 600, color: '#1e7e34', background: '#f0f9f1', borderBottom: '1px solid var(--border)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           📋 Barem asociat: {barem.title}
         </div>

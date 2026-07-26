@@ -364,6 +364,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     : ['Explică-mi fracțiile', 'Dă-mi un exemplu cu ecuații', 'Fă-mi un plan de învățare pentru capitolul meu'];
 
   // Pentru profesor/părinte: butoane care NAVIGHEAZĂ (nu trimit mesaj).
+  // NU se afișează când e deschis un test PDF (acolo întrebările sunt despre
+  // test, nu despre navigarea în site) — se arată sugestiile despre PDF.
+  const showMentorActions = isMentor && !context.pdf;
   const mentorActions = [
     { label: 'Unde găsesc subiecte de examen?', to: '/', anchor: 'examene' },
     { label: 'Unde găsesc statistici despre elevi?', to: '/profil' },
@@ -446,7 +449,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           <div style={{ color: 'var(--text-muted)', fontSize: '.9rem' }}>
             <p style={{ marginBottom: 12 }}>{isMentor ? 'Salut! Sunt Asistentul tău. Alege mai jos sau întreabă-mă orice 👇' : 'Salut! Sunt profesorul tău virtual. Întreabă-mă orice despre matematică 👇'}</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {isMentor
+              {showMentorActions
                 ? mentorActions.map((a) => (
                     <button key={a.label} onClick={() => goTo(a.to, a.anchor)}
                       style={{ textAlign: 'left', border: '1px solid var(--border)', background: '#fff', borderRadius: 8, padding: '8px 10px', fontSize: '.85rem', color: 'var(--navy)' }}>

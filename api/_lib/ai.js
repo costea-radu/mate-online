@@ -9,7 +9,7 @@
 
 const crypto = require('crypto');
 const http = require('./http'); // CORS, autentificare, admin — partajate
-const { parseExerciseRef, sliceExercise, formatRef } = require('./barem'); // localizare deterministă item
+const { parseExerciseRef, sliceExercise, formatRef, norm } = require('./barem'); // localizare deterministă item
 
 // ─── Configurare furnizor (chat + embeddings sunt independente) ──────────────
 const CHAT_BASE  = process.env.AI_CHAT_BASE_URL  || 'https://api.openai.com/v1';
@@ -523,9 +523,19 @@ Reguli STRICTE:
 - CUVÂNTUL „barem" NU apare în răspunsurile tale, și nici formulări ca „conform baremului", „baremul spune", „rezolvarea oficială/model indică". Predai metoda ca fiind a ta, ca la tablă. Excepție unică: elevul întreabă EXPLICIT despre barem sau despre punctaje — doar atunci poți vorbi deschis despre el.
 - VERIFICARE FINALĂ OBLIGATORIE: înainte de a încheia răspunsul, compară rezultatul tău final cu cel din rezolvarea-model. Dacă diferă, răspunsul tău e greșit — refă-l înainte să-l trimiți.
 - NU amesteci rezolvări de la alte variante, alte profiluri sau alți ani. Sursa ta este DOAR baza de date a platformei — nu trimite elevul pe alte site-uri.
-- PEDAGOGIE: implicit dai ÎNDRUMARE — primul pas, reformulat prietenos, fără rezultatul final, încheiat cu o întrebare care îl duce mai departe. Rezolvarea COMPLETĂ (toți pașii, în ordine, până la rezultatul final) o dai când elevul o cere explicit (ex. „spune-mi răspunsul", „rezolvă tot", „dă-mi soluția completă", „nu înțeleg, arată-mi rezolvarea").`;
+- PEDAGOGIE: la PRIMA întrebare despre un exercițiu PREZINȚI CLAR rezolvarea lui din rezolvarea-model: toți pașii, în ordine, numerotați, cu calculele și rezultatul final. Excepție: în modul „indiciu" sau când elevul cere explicit doar un indiciu/un început, dai DOAR primul pas, fără rezultatul final, încheiat cu o întrebare care îl duce mai departe.
+- NELĂMURIRI ULTERIOARE: după ce ai prezentat rezolvarea, RECITEȘTI enunțul exercițiului din TEXTUL TESTULUI și discuți pe marginea lui: lămurești „de unde vine" un număr sau o formulă, explici altfel un pas, dai un exemplu ajutător sau chiar o abordare alternativă CORECTĂ — cu două condiții: să nu contrazici rezultatele rezolvării-model și, când metodele diferă, să spui că metoda prezentată prima este cea oficială.`;
 
 const BAREM_MISSING = `BAREM: pentru acest test NU am găsit în platformă baremul corespunzător (sau potrivirea era nesigură — decât baremul greșit, mai bine niciunul). Dacă elevul cere explicații „din barem": spune-i sincer că baremul nu e disponibil în platformă pentru acest test, rezolvă atent pas cu pas (verifică de două ori fiecare calcul) și recomandă-i secțiunea [Rezolvări](/rezolvari) sau celelalte materiale din platformă. NU trimite elevul pe site-uri externe.`;
+
+// ─── Agentul PDF: REFORMULAREA explicației, la cerere (pentru orice răspuns) ──
+const PDF_REFORMULATE = `REFORMULARE LA CERERE — elevul îți poate cere ORICÂND ultima explicație spusă altfel. Recunoști cererea și reformulezi TOT ce ai explicat, păstrând ACEEAȘI metodă și ACELEAȘI rezultate:
+- „mai detaliat" / „cu mai multe detalii" → explicația completă, cu FIECARE pas scris, fiecare calcul făcut mărunt și motivul fiecărei treceri;
+- „pe scurt" / „mai scurt" → doar esențialul, în 3–5 rânduri: pașii-cheie și rezultatul;
+- „mai simplu" / „ca la un copil" → cuvinte foarte simple, de zi cu zi, comparații din viața reală, fără termeni tehnici (păstrezi doar notațiile strict necesare); cald, fără să-l faci pe elev să se simtă prost;
+- „tot răspunsul" / „repetă tot" → reiei întreaga explicație de la capăt, curat și ordonat;
+- orice altă cerere de acest fel (alt exemplu, altă perspectivă, doar un anumit pas etc.) → o urmezi întocmai.
+ÎNCHEIERE OBLIGATORIE: închei FIECARE răspuns cu întrebarea, pe un rând separat, exact așa: „Reformulez mai simplu sau mai detaliat?"`;
 
 // Persona SCURTĂ pentru promptul focalizat (enunț + rezolvare, nimic altceva).
 // Un prompt mic = modelul nu are din ce să improvizeze și urmează fidel pașii.
@@ -542,10 +552,10 @@ Reguli:
 // Stau la FINALUL promptului — acolo modelul le respectă cel mai bine.
 const PDF_ITEM_RULES = `AȘA RĂSPUNZI ACUM (obligatoriu):
 - ÎNCEPI răspunsul numind exercițiul și reluând pe scurt cerința lui din enunț (ex. „La subiectul III, exercițiul 2 b), trebuie să arătăm că…") — exact cerința din ENUNȚUL de mai sus, nu alta.
-- Rezolvarea de mai sus este SINGURA metodă pe care o predai la acest exercițiu. Nu improviza alta.
-- Elevul vrea un INDICIU sau nu știe cum să înceapă? → DOAR primul pas, reformulat prietenos ca îndrumare, FĂRĂ rezultatul final; închei cu o întrebare care îl duce mai departe.
-- Elevul cere explicit explicația sau rezolvarea completă? → prezinți TOȚI pașii, în ordinea lor, numerotați: la fiecare spui CE facem și DE CE și scrii calculul cu formulele lui (în LaTeX). Rezultatele intermediare și finale sunt EXACT cele de mai sus. Închei cu rezultatul final, clar.
-- STRICT INTERZIS: să anunți rezultatul fără să fi arătat toți pașii până la el; să folosești altă metodă; să adaugi pași, condiții sau „verificări" care nu apar în rezolvare; să scrii cuvântul „barem" ori formulări ca „conform baremului...", „baremul indică...", „rezolvarea oficială..." (excepție: elevul întreabă explicit de barem sau punctaje).
+- LA PRIMA ÎNTREBARE despre acest exercițiu (și ori de câte ori elevul cere explicația sau rezolvarea): PREZINȚI CLAR rezolvarea de mai sus, COMPLETĂ — TOȚI pașii, în ordinea lor, numerotați: la fiecare spui CE facem și DE CE și scrii calculul cu formulele lui (în LaTeX). Rezultatele intermediare și finale sunt EXACT cele de mai sus. Închei cu rezultatul final, clar.
+- Elevul cere DOAR un indiciu sau un început (ori modul e „indiciu")? → DOAR primul pas, reformulat prietenos ca îndrumare, FĂRĂ rezultatul final; închei cu o întrebare care îl duce mai departe.
+- NELĂMURIRI ULTERIOARE („de unde vine...?", „de ce ai făcut așa?", „nu înțeleg pasul..."): răspunzi la obiect, sprijinit pe ENUNȚUL din test, pe TEXTUL TESTULUI și pe rezolvarea de mai sus; aici POȚI adăuga explicații proprii, un exemplu ajutător sau o abordare alternativă CORECTĂ — fără să contrazici rezultatele rezolvării de mai sus; când metodele diferă, spui că metoda prezentată prima este cea oficială.
+- STRICT INTERZIS: să anunți rezultatul fără să fi arătat toți pașii până la el; să schimbi rezultatele intermediare sau finale; să scrii cuvântul „barem" ori formulări ca „conform baremului...", „baremul indică...", „rezolvarea oficială..." (excepție: elevul întreabă explicit de barem sau punctaje).
 - Model CORECT de răspuns complet: „Pasul 1: scriem vectorii de poziție, pentru că... $...$; Pasul 2: egalăm coordonatele... $...$; deci rezultatul este $...$". Model GREȘIT: „Conform baremului, rezultatul este $12$".`;
 
 // Câte din numerele fragmentului se regăsesc în barem — anti-halucinație:
@@ -743,8 +753,15 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
     system = await interactiveAgentSystem(supa, { userId, mode, context, ctxBlock });
   }
 
-  const sources = hasBarem
-    ? [{ type: 'solution', title: context.baremTitle || 'Baremul oficial al testului', topic: null, category: context.category || null }]
+  // „Materiale folosite": agentul PDF citește TESTUL + BAREMUL — le afișăm pe
+  // amândouă (cu numele original al fișierului, ca dovadă a corespondenței).
+  const sources = isPdfAgent
+    ? [
+        { type: 'exercise', title: `Testul: ${context.title || 'materialul PDF deschis'}`, topic: context.fileName || null, category: context.category || null },
+        ...(hasBarem
+          ? [{ type: 'solution', title: `Baremul: ${context.baremTitle || 'baremul oficial al testului'}`, topic: context.baremFileName || null, category: context.category || null }]
+          : docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }))),
+      ]
     : docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }));
   return { docs, ctxBlock, primaryMaterial, convId, priorMsgs, system, sources, baremItem };
 }
@@ -815,14 +832,23 @@ async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs,
     // DOAR la exerciții de tip „Arătați că / Demonstrați" (au forma LHS = rezultat);
     // la „Determinați..." egalitatea reconstruită ar fi falsă.
     const claim = /ar[ăa]ta[țt]?i|demonstra/i.test(baremItem.enunt || '') ? claimFromBarem(baremItem.barem) : null;
+    // numele ORIGINALE ale fișierelor — dovada corespondenței test ↔ barem
+    const fileLine = (context.fileName || context.baremFileName)
+      ? `FIȘIERELE SURSĂ (numele originale, pentru corespondența test ↔ barem):${context.fileName ? ` testul „${context.fileName}"` : ''}${context.fileName && context.baremFileName ? ' ·' : ''}${context.baremFileName ? ` baremul „${context.baremFileName}"` : ''}.`
+      : '';
     const system = [
       PDF_FOCUS_PERSONA,
       MODE_ROLES[mode] || MODE_ROLES.tutor,
       lvlLine,
-      `EXERCIȚIUL${baremItem.exercitiu ? ` ${baremItem.exercitiu}` : ''} din testul „${context.title || 'PDF'}" — ENUNȚUL (extras din test; poate avea simboluri pierdute):\n"""${baremItem.enunt || '(enunțul nu a putut fi izolat din test — folosește forma expresiilor așa cum apare în rezolvarea de mai jos)'}"""`,
+      fileLine,
+      `EXERCIȚIUL${baremItem.exercitiu ? ` ${baremItem.exercitiu}` : ''} din testul „${context.title || 'PDF'}" — ENUNȚUL (extras din test; poate avea simboluri pierdute):\n"""${baremItem.enunt || '(enunțul nu a putut fi izolat automat — caută-l în TEXTUL COMPLET AL TESTULUI de mai jos și folosește forma expresiilor din rezolvare)'}"""`,
       claim ? `CERINȚA DE DEMONSTRAT, reconstruită din rezolvare (pe ACEASTA o enunți elevului, NU varianta din test dacă diferă): arată că $${claim.lhs} = ${claim.final}$. Rezultatul final al rezolvării tale trebuie să fie EXACT ${claim.final}.` : '',
       `REZOLVAREA LUI (document intern — elevul NU îl vede; predă-l ca metoda ta):\n"""${baremItem.barem}"""`,
+      context.exerciseText
+        ? `TEXTUL COMPLET AL TESTULUI (context suplimentar — enunțul și rezolvarea de mai sus rămân reperul principal; de aici citești restul testului când elevul are nelămuriri sau întreabă „de unde vine..."):\n"""${String(context.exerciseText).slice(0, 12000)}"""`
+        : '',
       PDF_ITEM_RULES,
+      PDF_REFORMULATE,
     ].filter(Boolean).join('\n\n');
     return { system, baremItem };
   }
@@ -830,7 +856,7 @@ async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs,
   // Pasul 2b: fără item sigur → promptul amplu (test întreg + barem întreg).
   const parts = [];
   if (lvlLine) parts.push(lvlLine);
-  parts.push(`TESTUL DESCHIS: „${context.title || 'material PDF'}". TEXTUL LUI COMPLET (extras automat):\n"""${String(context.exerciseText || '').slice(0, 20000)}"""`);
+  parts.push(`TESTUL DESCHIS: „${context.title || 'material PDF'}"${context.fileName ? ` (fișier original: „${context.fileName}")` : ''}. TEXTUL LUI COMPLET (extras automat):\n"""${String(context.exerciseText || '').slice(0, 20000)}"""`);
   parts.push(PDF_READ_RULES);
   const state = await studentState(supa, userId);
   // Fără barem: materialele din platformă ajută la rezolvarea atentă.
@@ -841,11 +867,12 @@ async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs,
   // Blocul rezolvării-model vine ULTIMUL: finalul promptului e locul unde
   // modelul respectă cel mai fidel instrucțiunile.
   if (context.baremText) {
-    parts.push(`REZOLVAREA-MODEL a testului deschis (document intern pentru tine — elevul NU îl vede; NU îl numi „barem" în răspuns):\n"""${String(context.baremText).slice(0, 12000)}"""`);
+    parts.push(`REZOLVAREA-MODEL a testului deschis${context.baremFileName ? ` (fișier original: „${context.baremFileName}")` : ''} (document intern pentru tine — elevul NU îl vede; NU îl numi „barem" în răspuns):\n"""${String(context.baremText).slice(0, 12000)}"""`);
     parts.push(PDF_BAREM_RULES);
   } else {
     parts.push(BAREM_MISSING);
   }
+  parts.push(PDF_REFORMULATE);
   const system = `${PDF_PERSONA}\n\n${MODE_ROLES[mode] || MODE_ROLES.tutor}\n\n${parts.join('\n\n')}`.trim();
   return { system, baremItem: null };
 }
@@ -909,10 +936,17 @@ function fragmentFallback(baremItem, mode) {
     .replace(/\n{3,}/g, '\n\n').trim();
   if (mode === 'hint') {
     const first = (clean.split(/\n+/)[0] || clean).slice(0, 300);
-    return `Uite de unde să pornești: ${first}\n\nÎncearcă pasul acesta și spune-mi ce obții.`;
+    return `Uite de unde să pornești: ${first}\n\nÎncearcă pasul acesta și spune-mi ce obții.\n\nReformulez mai simplu sau mai detaliat?`;
   }
-  return `Hai să vedem rezolvarea, pas cu pas (redactarea poate fi imperfectă — textul vine direct din document):\n\n${clean}\n\nSpune-mi „explică pasul 1" (sau alt pas) și ți-l detaliez cu toate calculele.`;
+  return `Hai să vedem rezolvarea, pas cu pas (redactarea poate fi imperfectă — textul vine direct din document):\n\n${clean}\n\nSpune-mi „explică pasul 1" (sau alt pas) și ți-l detaliez cu toate calculele.\n\nReformulez mai simplu sau mai detaliat?`;
 }
+
+// ── Cereri de tip „explică altfel" (reformulare / altă abordare) ─────────────
+// Elevul cere DELIBERAT altă formulare, alt nivel de detaliu sau altă
+// perspectivă — verificările stricte de fidelitate ar respinge exact ce a
+// cerut (alt exemplu = alte numere), deci pentru aceste mesaje ele se opresc.
+const OTHER_EXPLANATION_RE = /\breformul|alta metoda|alt mod|altfel|alta abordare|alta explicatie|alt exemplu|alta perspectiva|mai simplu|mai detaliat|mai multe detalii|detaliaza|pe scurt|mai scurt|rezuma|ca la un copil|ca unui copil|ca la prosti|pentru copii|nu inteleg|n am inteles|nu am inteles|tot nu|inca o data|din nou|repeta|tot raspunsul/;
+const wantsOtherExplanation = (text) => OTHER_EXPLANATION_RE.test(norm(String(text || '')));
 
 // generare + verificare + o reîncercare + fallback — folosit de ai-chat și
 // ai-chat-stream când itemul de barem a fost extras (răspunsul se bufferizează).
@@ -922,13 +956,18 @@ function fragmentFallback(baremItem, mode) {
 //  - CONSULTATIVĂ (doar cere o regenerare): verificarea semantică — pe
 //    fragmente deteriorate de extracție dă fals-pozitive, iar un răspuns bine
 //    redactat nu trebuie înlocuit cu text brut din cauza ei.
+//  - RELAXARE: dacă mesajul curent cere o REFORMULARE sau o altă explicație,
+//    verificările de fidelitate se sar (doar răspunsul gol rămâne blocant).
 async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', maxTokens = 900 }) {
   const gen = (sys) => chat({ system: sys, messages, temperature: 0.2, maxTokens, model: PDF_MODEL });
   const isEmpty = (t) => !String(t || '').trim() || String(t).trim().length < 20;
+  const lastUser = [...messages].reverse().find((m) => m && m.role === 'user');
+  const relaxed = wantsOtherExplanation(lastUser && lastUser.content);
 
   const attempt = async (sys) => {
     const g = await gen(sys);
     if (isEmpty(g.text)) return { ...g, hard: 'răspuns gol sau trunchiat', soft: null };
+    if (relaxed) return { ...g, hard: null, soft: null }; // reformulare cerută explicit
     const n = numericCheck(g.text, baremItem);
     if (!n.ok) return { ...g, hard: n.motiv, soft: null };
     const s = await semanticCheck(g.text, baremItem);
@@ -963,7 +1002,7 @@ async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', m
 module.exports = {
   CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic,
   chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, PERSONA,
-  extractBaremItem, fragmentFromBarem, verifiedPdfReply,
+  extractBaremItem, fragmentFromBarem, verifiedPdfReply, wantsOtherExplanation,
   levelLabel, interactiveCatalog, studentState,
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,

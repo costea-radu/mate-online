@@ -16,26 +16,66 @@ function norm(s) {
 
 const isBaremTitle = (title) => /\bbarem/.test(norm(title));
 
-// profilul de BAC: din coloana `profile` sau, în lipsă, din titlu
-function profileOf(row) {
-  if (row && row.profile) return String(row.profile);
-  const t = norm(row && row.title);
-  if (/(mate|matematica)\s*(si\s*)?(info|informatica)|m1\b|mate info/.test(t)) return 'mate-info';
-  if (/stiint/.test(t)) return 'stiinte-naturii';
-  if (/tehnolog|m2\b/.test(t)) return 'tehnologic';
-  if (/pedagog/.test(t)) return 'pedagogic';
-  return null;
+// ── Numele ORIGINAL al fișierului (din file_url) ─────────────────────────────
+// Titlul scris în site poate omite informații (an, variantă, profil), dar numele
+// oficial al fișierului încărcat (ex. „E_c_matematica_M_mate-info_2012_var_05_lro.pdf",
+// baremul: „..._bar_05_lro.pdf") le conține pe toate. Îl citim ALĂTURI de titlu
+// la potrivirea test ↔ barem. La upload, Admin pune prefix „Date.now()_" — îl tăiem.
+function fileNameOf(row) {
+  let last = String((row && row.file_url) || '').split('#')[0].split('?')[0].split('/').pop() || '';
+  try { last = decodeURIComponent(last); } catch { /* rămâne cum e */ }
+  return last
+    .replace(/\.[a-z0-9]{2,5}$/i, '')  // extensia (.pdf)
+    .replace(/^\d{9,}[_-]/, '');       // prefixul de timestamp de la upload
 }
 
-// amprenta unui titlu: an + variantă + tipul sesiunii + profil
-function tokensOf(row) {
-  const t = norm(row && row.title);
+// barem după RÂND (nu doar titlu): subcategoria, titlul SAU numele original al
+// fișierului — numele oficiale de barem au „bar" acolo unde testul are „var".
+function isBaremRow(row) {
+  if (!row) return false;
+  if (row.subcategory === 'bareme') return true;
+  if (isBaremTitle(row.title)) return true;
+  return /\bbarem\b|\bbar\b/.test(norm(fileNameOf(row)));
+}
+
+// profilul de BAC: din coloana `profile` sau, în lipsă, din titlu ori din
+// numele original al fișierului („M_mate-info", „M_st-nat", „M_tehnologic", „M_ped")
+function profileOf(row) {
+  if (row && row.profile) return String(row.profile);
+  const detect = (t) => {
+    if (!t) return null;
+    if (/(mate|matematica)\s*(si\s*)?(info|informatica)|m1\b|mate info/.test(t)) return 'mate-info';
+    if (/stiint|\bst\s*nat\b/.test(t)) return 'stiinte-naturii';
+    if (/tehnolog|m2\b/.test(t)) return 'tehnologic';
+    if (/pedagog|\bped\b/.test(t)) return 'pedagogic';
+    return null;
+  };
+  return detect(norm(row && row.title)) || detect(norm(fileNameOf(row)));
+}
+
+// amprenta unui TEXT (titlu sau nume de fișier): an + variantă + tipul sesiunii
+function tokensFromText(t) {
   const year = (t.match(/\b(?:19|20)\d{2}\b/) || [null])[0];
-  const vm = t.match(/\b(?:varianta|var|v)\s*(\d{1,3})\b/);
+  // „varianta 7", „var 05", „v3" — iar la bareme și „bar 05" / „barem 7"
+  const vm = t.match(/\b(?:varianta|var|v|barem|bar)\s*(\d{1,3})\b/);
   const variant = vm ? String(parseInt(vm[1], 10)) : null;
-  const flags = ['simulare', 'model', 'rezerva', 'speciala', 'olimpic']
-    .filter((f) => t.includes(f)).sort().join(',');
-  return { year, variant, flags, profile: profileOf(row) };
+  // „olimpi" prinde și „olimpic", și „olimpiada"
+  const flags = ['simulare', 'model', 'rezerva', 'speciala', 'olimpi'].filter((f) => t.includes(f));
+  return { year, variant, flags };
+}
+
+// amprenta unui RÂND: titlul din site + numele original al fișierului se
+// completează reciproc (titlul are prioritate; fișierul umple ce lipsește,
+// iar tipul sesiunii e reuniunea celor două — strictețe, nu relaxare).
+function tokensOf(row) {
+  const a = tokensFromText(norm(row && row.title));
+  const b = tokensFromText(norm(fileNameOf(row)));
+  return {
+    year: a.year || b.year,
+    variant: a.variant || b.variant,
+    flags: [...new Set([...a.flags, ...b.flags])].sort().join(','),
+    profile: profileOf(row),
+  };
 }
 
 // Alege baremul pentru `subject` din lista `candidates` (rânduri `content`).
@@ -44,7 +84,7 @@ function matchBarem(subject, candidates) {
   const s = tokensOf(subject);
   const ok = (candidates || []).filter((c) => {
     if (!c || c.id === subject.id) return false;
-    if (c.subcategory !== 'bareme' && !isBaremTitle(c.title)) return false;
+    if (!isBaremRow(c)) return false; // titlu, subcategorie SAU nume original de fișier
     const b = tokensOf(c);
     if (s.profile && b.profile !== s.profile) return false;      // profil diferit → nu
     if (!s.profile && b.profile) return false;                    // baremul are profil, subiectul nu → nesigur
@@ -56,6 +96,48 @@ function matchBarem(subject, candidates) {
   if (ok.length === 1) return { barem: ok[0], status: 'ok' };
   if (ok.length > 1) return { barem: null, status: 'ambiguu' };
   return { barem: null, status: 'negasit' };
+}
+
+// ── Compatibilitate TOLERANTĂ pentru potrivirea PE CONȚINUT ──────────────────
+// Contradicție = ambele părți au câmpul DEFINIT și el diferă. Câmpurile LIPSĂ
+// nu blochează — metadatele incomplete sunt exact cazul în care decide
+// conținutul. Un candidat cu an/variantă/profil/sesiune explicit DIFERITE nu
+// are voie să câștige nici cu scor mare (regula de aur: mai bine niciunul).
+function tokensContradict(subject, candidate) {
+  const s = tokensOf(subject), b = tokensOf(candidate);
+  if (s.year && b.year && s.year !== b.year) return true;
+  if (s.variant && b.variant && s.variant !== b.variant) return true;
+  if (s.profile && b.profile && s.profile !== b.profile) return true;
+  if (s.flags && b.flags && s.flags !== b.flags) return true;
+  return false;
+}
+
+// câte câmpuri CUNOSCUTE coincid — pentru a citi întâi candidații promițători
+function tokensAgreement(subject, candidate) {
+  const s = tokensOf(subject), b = tokensOf(candidate);
+  let n = 0;
+  if (s.variant && s.variant === b.variant) n += 3; // varianta e cel mai specifică
+  if (s.year && s.year === b.year) n += 2;
+  if (s.profile && s.profile === b.profile) n += 1;
+  if (s.flags && s.flags === b.flags) n += 1;
+  return n;
+}
+
+// Decizia pe scoruri de conținut: candidatul cel mai bun câștigă DOAR cu scor
+// mare ȘI cu distanță clară față de următorul (altfel e ambiguu → refuz).
+// `scores` = listă de numere (aceeași ordine ca și candidații); răspuns: indexul
+// câștigătorului sau -1.
+function pickByContentScore(scores, { accept = 0.5, margin = 0.15 } = {}) {
+  let best = -1, second = -1;
+  (scores || []).forEach((sc, i) => {
+    if (typeof sc !== 'number') return;
+    if (best === -1 || sc > scores[best]) { second = best; best = i; }
+    else if (second === -1 || sc > scores[second]) { second = i; }
+  });
+  if (best === -1) return -1;
+  if (scores[best] < accept) return -1;                                  // nu e clar „despre acest test"
+  if (second !== -1 && scores[best] - scores[second] < margin) return -1; // doi la fel de buni = ambiguu
+  return best;
 }
 
 // ── Verificare de CONȚINUT: baremul trebuie să „vorbească" despre același test ──
@@ -158,4 +240,4 @@ function formatRef(ref) {
   return [ref.subject, ref.ex, ref.letter].filter(Boolean).join('.');
 }
 
-module.exports = { norm, isBaremTitle, profileOf, tokensOf, matchBarem, contentMatchScore, parseExerciseRef, sliceExercise, formatRef };
+module.exports = { norm, isBaremTitle, isBaremRow, fileNameOf, profileOf, tokensOf, matchBarem, tokensContradict, tokensAgreement, pickByContentScore, contentMatchScore, parseExerciseRef, sliceExercise, formatRef };
