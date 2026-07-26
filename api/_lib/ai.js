@@ -511,6 +511,7 @@ SIGURANȚĂ (vorbești cu minori):
 const PDF_READ_RULES = `CITIREA TESTULUI — textul testului este extras automat din PDF, deci poate avea mici defecte (formule rupte, exponenți, săgeți sau figuri pierdute). Reguli:
 - Enunțul unui exercițiu îl iei DOAR din textul extras: când elevul zice „exercițiul 3", „subiectul II punctul b", „problema cu vectorii", îl cauți în text și lucrezi pe enunțul REAL. NU reconstrui din memorie formule sau valori „care sună plauzibil". Dacă nu găsești exercițiul, spui ce exerciții vezi în test și întrebi la care se referă.
 - VECTORI: săgețile de deasupra literelor se pierd frecvent la extracție. Notația $\\vec{AB}$ înseamnă „vectorul AB". Dacă exercițiul este despre vectori (apare cuvântul „vector", notații $\\vec{...}$, sume de tip $\\vec{AB}+\\vec{BC}$, resturi de extracție ca „uuur" sau „ur" lângă litere), atunci egalitățile de acolo sunt EGALITĂȚI DE VECTORI — aceeași lungime, aceeași direcție și același sens — NU simple egalități de lungimi. Exemplu: $\\vec{AB}=\\vec{DC}$ înseamnă că ABCD este paralelogram; „AB = DC" scris într-o problemă de vectori se citește aproape sigur $\\vec{AB}=\\vec{DC}$. Suma $\\vec{AB}+\\vec{BC}=\\vec{AC}$ este regula triunghiului, nu o adunare de lungimi.
+- RADICALI: semnul de radical se pierde des la extracție ($\\sqrt{3x+6}=6$ poate apărea ca „3x+6=6"). Semne că enunțul avea radical: cuvintele „radical"/„rădăcina", resturi ca „√", ori rezolvarea ÎNCEPE prin ridicare la pătrat / membrul drept din rezolvare este PĂTRATUL celui din enunț (36 = 6²). Atunci reconstruiești enunțul cu radical, iar numerele „noi" din rezolvare le explici prin ridicarea la pătrat ($6^2=36$) — membrul drept al ENUNȚULUI rămâne cel din test (6), NU cel din rezolvare (36). NU afirma niciodată că un număr „vine direct din enunț" dacă în enunțul din test scrie alt număr.
 - Dacă o formulă pare deteriorată în textul extras: când ai rezolvarea-model, folosește forma expresiilor de acolo (ea repetă expresiile enunțului) și mergi mai departe natural, FĂRĂ să-i ceri elevului confirmări; fără rezolvarea-model, spui sincer ce ai înțeles și îl rogi să confirme datele sau să fotografieze exercițiul cu butonul 📷.
 - Dacă exercițiul cerut nu apare deloc în textul extras (PDF scanat sau trunchiat): spune-i sincer și propune-i să-l fotografieze ori să-l scrie în chat.`;
 
@@ -545,6 +546,7 @@ Reguli:
 - Formulele în LaTeX: $...$ inline sau $$...$$ pe rând separat (conținutul dintre $$...$$ stă pe UN singur rând). Folosește NUMAI acești delimitatori.
 - COPIEZI expresiile EXACT, cu exponenți și semne intacte: dacă în rezolvare scrie $m^2-3$, scrii $m^2-3$, NU $m-3$; dacă scrie $(x_1x_2x_3x_4)^2$, păstrezi puterea a 2-a.
 - TEXTUL REZOLVĂRII vine din extracție automată din PDF și poate avea fracții, exponenți sau limite de integrare SPARTE pe bucăți (cifre împrăștiate, resturi ca „^{2}^{1}"). NU copia molozul: reconstruiește expresiile coerent matematic, în LaTeX îngrijit, păstrând metoda și valorile rezolvării.
+- SIMBOLURI PIERDUTE (radicali, exponenți): dacă enunțul din test și rezolvarea par să NU se potrivească (ex. în enunț membrul drept e 6, în rezolvare apare 36), aproape sigur extracția a pierdut un simbol: enunțul era $\\sqrt{3x+6}=6$, iar 36 vine din ridicarea la pătrat ($6^2=36$). Reconstruiește enunțul corect, explică elevului exact această legătură și NU afirma că un număr „vine direct din enunț" dacă în enunțul din test scrie alt număr.
 - Terminologie școlară: „descompunere în factori", NU „factorizare".
 - Rămâi strict pe teme educaționale, cu limbaj potrivit minorilor.`;
 
@@ -557,6 +559,36 @@ const PDF_ITEM_RULES = `AȘA RĂSPUNZI ACUM (obligatoriu):
 - NELĂMURIRI ULTERIOARE („de unde vine...?", „de ce ai făcut așa?", „nu înțeleg pasul..."): răspunzi la obiect, sprijinit pe ENUNȚUL din test, pe TEXTUL TESTULUI și pe rezolvarea de mai sus; aici POȚI adăuga explicații proprii, un exemplu ajutător sau o abordare alternativă CORECTĂ — fără să contrazici rezultatele rezolvării de mai sus; când metodele diferă, spui că metoda prezentată prima este cea oficială.
 - STRICT INTERZIS: să anunți rezultatul fără să fi arătat toți pașii până la el; să schimbi rezultatele intermediare sau finale; să scrii cuvântul „barem" ori formulări ca „conform baremului...", „baremul indică...", „rezolvarea oficială..." (excepție: elevul întreabă explicit de barem sau punctaje).
 - Model CORECT de răspuns complet: „Pasul 1: scriem vectorii de poziție, pentru că... $...$; Pasul 2: egalăm coordonatele... $...$; deci rezultatul este $...$". Model GREȘIT: „Conform baremului, rezultatul este $12$".`;
+
+// Reguli pentru NELĂMURIRILE de după prima explicație: sursa principală devine
+// TESTUL (baremul rămâne sprijin) și profesorul are libertate de explicare.
+const PDF_FOLLOWUP_RULES = `AȘA RĂSPUNZI ACUM (elevul revine cu o NELĂMURIRE după explicația inițială) — obligatoriu:
+- SURSA PRINCIPALĂ este acum TESTUL: recitește enunțul exercițiului din test (îl ai mai sus) și răspunde pe baza LUI. Când e relevant, CITEAZĂ în răspuns bucata exactă din enunț despre care întreabă elevul.
+- Răspunzi ÎNTÂI la întrebarea pusă, concret și la obiect; abia apoi, dacă ajută, reiei pe scurt pașii.
+- Rezolvarea-model rămâne reperul pentru metodă și rezultate (NU le contrazici), dar ai LIBERTATE de explicare: cuvinte proprii, alt unghi, un exemplu asemănător, pași intermediari suplimentari, legături cu teoria — orice îl ajută pe elev să înțeleagă.
+- SIMBOLURI PIERDUTE LA EXTRACȚIE: dacă enunțul din test și rezolvarea par să nu se potrivească (ex. în test membrul drept e 6, în rezolvare apare 36), aproape sigur s-a pierdut un simbol (radical, exponent, fracție). Reconstruiește enunțul corect (ex. $\\sqrt{3x+6}=6$; 36 apare din ridicarea la pătrat: $6^2=36$) și explică-i elevului exact această legătură. NU afirma niciodată că un număr „vine direct din enunț" dacă în enunțul din test scrie alt număr.
+- Cuvântul „barem" tot NU apare în răspuns (excepție: elevul întreabă explicit de barem sau punctaje).`;
+
+// ── Prima întrebare vs. NELĂMURIRE ulterioară despre ACELAȘI exercițiu ────────
+// Prima explicație a unui exercițiu vine STRICT din barem; nelămuririle de
+// după se sprijină pe TEST. Întrebare „nouă" = mesajul numește explicit un alt
+// exercițiu (sau altă literă) decât cele deja discutate în conversație.
+function isFollowUpQuestion(message, priorMsgs = []) {
+  if (!(priorMsgs || []).some((m) => m && m.role === 'assistant')) return false; // încă nu am răspuns la nimic
+  const now = parseExerciseRef(message);
+  if (!now) return true; // întrebare vagă („de unde 36?", „nu înțeleg") → continuă discuția
+  const priorRefs = (priorMsgs || [])
+    .filter((m) => m && m.role === 'user')
+    .map((m) => parseExerciseRef(m.content))
+    .filter(Boolean);
+  // compatibil cu o referință deja discutată: niciun câmp definit în ambele nu
+  // diferă ȘI există cel puțin un câmp comun egal (altfel e alt exercițiu)
+  return priorRefs.some((r) =>
+    (!now.ex || !r.ex || now.ex === r.ex) &&
+    (!now.subject || !r.subject || now.subject === r.subject) &&
+    (!now.letter || !r.letter || now.letter === r.letter) &&
+    ((now.ex && r.ex) || (now.subject && r.subject) || (now.letter && r.letter)));
+}
 
 // Câte din numerele fragmentului se regăsesc în barem — anti-halucinație:
 // fragmentul „extras" trebuie să provină CHIAR din textul baremului.
@@ -827,6 +859,9 @@ async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs,
   if (baremItem) {
     baremItem.allowed = [context.exerciseText, baremItem.enunt, baremItem.barem, message]
       .filter(Boolean).join('\n'); // pentru verificarea anti-deviere (numere permise)
+    // PRIMA întrebare despre exercițiu → explicația vine STRICT din barem;
+    // NELĂMURIRE ulterioară → sursa principală devine TESTUL, cu libertate.
+    baremItem.followUp = isFollowUpQuestion(message, priorMsgs);
     // cerința reconstruită din barem — enunțul extras din test poate pierde
     // radicali/săgeți/bare (sunt desenate, nu caractere), baremul o repetă corect.
     // DOAR la exerciții de tip „Arătați că / Demonstrați" (au forma LHS = rezultat);
@@ -836,6 +871,24 @@ async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs,
     const fileLine = (context.fileName || context.baremFileName)
       ? `FIȘIERELE SURSĂ (numele originale, pentru corespondența test ↔ barem):${context.fileName ? ` testul „${context.fileName}"` : ''}${context.fileName && context.baremFileName ? ' ·' : ''}${context.baremFileName ? ` baremul „${context.baremFileName}"` : ''}.`
       : '';
+    // ── NELĂMURIRE ulterioară: TESTUL este sursa principală, baremul sprijin ──
+    if (baremItem.followUp) {
+      const system = [
+        PDF_FOCUS_PERSONA,
+        MODE_ROLES[mode] || MODE_ROLES.tutor,
+        lvlLine,
+        fileLine,
+        `EXERCIȚIUL${baremItem.exercitiu ? ` ${baremItem.exercitiu}` : ''} din testul „${context.title || 'PDF'}" — ENUNȚUL DIN TEST, SURSA PRINCIPALĂ a răspunsului de acum (extras automat; poate avea simboluri pierdute):\n"""${baremItem.enunt || '(enunțul nu a putut fi izolat automat — caută-l NEAPĂRAT în textul complet al testului de mai jos)'}"""`,
+        context.exerciseText
+          ? `TEXTUL COMPLET AL TESTULUI (citește-l — de aici răspunzi la nelămuriri):\n"""${String(context.exerciseText).slice(0, 12000)}"""`
+          : '',
+        `REZOLVAREA-MODEL a exercițiului (sprijin — metoda și rezultatele ei rămân valabile; document intern, elevul NU îl vede):\n"""${baremItem.barem}"""`,
+        PDF_FOLLOWUP_RULES,
+        PDF_REFORMULATE,
+      ].filter(Boolean).join('\n\n');
+      return { system, baremItem };
+    }
+    // ── PRIMA întrebare: explicația vine STRICT din rezolvarea-model ──
     const system = [
       PDF_FOCUS_PERSONA,
       MODE_ROLES[mode] || MODE_ROLES.tutor,
@@ -956,13 +1009,15 @@ const wantsOtherExplanation = (text) => OTHER_EXPLANATION_RE.test(norm(String(te
 //  - CONSULTATIVĂ (doar cere o regenerare): verificarea semantică — pe
 //    fragmente deteriorate de extracție dă fals-pozitive, iar un răspuns bine
 //    redactat nu trebuie înlocuit cu text brut din cauza ei.
-//  - RELAXARE: dacă mesajul curent cere o REFORMULARE sau o altă explicație,
-//    verificările de fidelitate se sar (doar răspunsul gol rămâne blocant).
+//  - RELAXARE: la NELĂMURIRI ulterioare (baremItem.followUp — testul e sursa
+//    principală, cu libertate de explicare) și la cererile de REFORMULARE,
+//    verificările de fidelitate se sar (doar răspunsul gol rămâne blocant) —
+//    prima explicație a unui exercițiu rămâne strict verificată față de barem.
 async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', maxTokens = 900 }) {
   const gen = (sys) => chat({ system: sys, messages, temperature: 0.2, maxTokens, model: PDF_MODEL });
   const isEmpty = (t) => !String(t || '').trim() || String(t).trim().length < 20;
   const lastUser = [...messages].reverse().find((m) => m && m.role === 'user');
-  const relaxed = wantsOtherExplanation(lastUser && lastUser.content);
+  const relaxed = !!(baremItem && baremItem.followUp) || wantsOtherExplanation(lastUser && lastUser.content);
 
   const attempt = async (sys) => {
     const g = await gen(sys);
@@ -1002,7 +1057,7 @@ async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', m
 module.exports = {
   CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic,
   chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, PERSONA,
-  extractBaremItem, fragmentFromBarem, verifiedPdfReply, wantsOtherExplanation,
+  extractBaremItem, fragmentFromBarem, verifiedPdfReply, wantsOtherExplanation, isFollowUpQuestion,
   levelLabel, interactiveCatalog, studentState,
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,
