@@ -39,6 +39,9 @@ Rulează în Supabase → SQL Editor: `supabase/gamification_schema.sql` (tabelu
 - Linkurile din răspunsuri sunt clicabile; linkurile de categorie (`/evaluare-nationala`, `/bacalaureat`, `/clase/...`) deschid direct tabul „Teste interactive"; `/exercitiu?id=...` deschide exercițiul cu conversația păstrată. Catalogul de exerciții e trimis și profesorilor/părinților.
 - Vizibilitate: butonul din bară are subtitlul „te ajută să rezolvi exercițiul"; pe desktop există și widget plutitor „Întreabă-mă orice"; în exercițiu, fiecare pas are „🎓 Ajutor — întreabă profesorul virtual" (pastilă fixă la exercițiile pe alt șablon).
 
+## Corecturi (runda 3)
+- Butonul „🎓 Ajutor — întreabă profesorul virtual" apare acum și pe **fiecare exercițiu-grilă de la Subiectul I și II** (cardurile cu variante a/b/c/d), nu doar la pașii de la Subiectul al III-lea. La apăsare, profesorul primește exact exercițiul respectiv: enunț, tabel, variante, alegerea elevului, răspunsul corect și explicația oficială (marcate SECRET), iar mesajul automat numește exercițiul („Ajută-mă la Subiectul II, exercițiul 3…"). Ca și până acum, **nu trebuie modificat niciun fișier HTML** — bridge-ul injectat face totul automat, inclusiv pentru testele viitoare.
+
 ## Protocolul (pentru depanare)
 - iframe → aplicație: `MATE_TUTOR_READY`, `MATE_TUTOR_STATE` (stare), `MATE_TUTOR_OPEN` (buton apăsat), `MATE_TUTOR_ACK`
 - aplicație → iframe: `MATE_TUTOR_STATE_REQ`, `MATE_TUTOR_ACTION`

@@ -158,9 +158,14 @@ export default function InteractiveViewer() {
         setTutorOpen(true);
         // „Întreabă profesorul virtual" → profesorul explică pasul curent natural,
         // pornind de la indicațiile exercițiului, fără să dea răspunsul.
+        // Dacă elevul a apăsat „Ajutor" pe un exercițiu-grilă (Subiectul I/II),
+        // bridge-ul trimite eticheta lui în payload.focus → mesajul îl numește exact.
+        const focus = d.payload && d.payload.focus;
         setAutoPrompt({
           id: Date.now(),
-          text: 'Ajută-mă la pasul la care sunt acum: explică-mi ce am de făcut și dă-mi un indiciu, fără să-mi spui răspunsul.',
+          text: focus
+            ? `Ajută-mă la ${focus}: explică-mi ce am de făcut și dă-mi un indiciu, fără să-mi spui răspunsul.`
+            : 'Ajută-mă la pasul la care sunt acum: explică-mi ce am de făcut și dă-mi un indiciu, fără să-mi spui răspunsul.',
         });
       }
     }

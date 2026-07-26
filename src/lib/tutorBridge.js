@@ -134,9 +134,57 @@ const BRIDGE_SCRIPT = String.raw`
     return parts.filter(Boolean).join('\n').slice(0, MAXLEN);
   }
 
+  // ── Exercițiul-grilă pe care elevul a cerut ajutor (Subiectul I & II) ─
+  // Când elevul apasă „Ajutor" pe un card-grilă, reținem cardul și punem
+  // în context TOT ce ține de el: enunț, variante, alegerea elevului,
+  // răspunsul corect (secret) și explicația oficială (secret).
+  var focusCard = null;
+  function sectionOf(card){
+    var secs = document.querySelectorAll('.sec-title'), name = '';
+    for (var i = 0; i < secs.length; i++) {
+      if (secs[i].compareDocumentPosition(card) & 4) { // titlul e ÎNAINTEA cardului
+        var fc = secs[i].firstChild;
+        name = ((fc && fc.nodeType === 3 ? fc.textContent : secs[i].textContent) || '').replace(/\s+/g, ' ').trim();
+      }
+    }
+    return name;
+  }
+  function cardLabel(card){
+    if (!card || !document.body || !document.body.contains(card)) return null;
+    var sec = sectionOf(card), nr = txt(card.querySelector('.nr'));
+    var lbl = sec + (nr ? (sec ? ', ' : '') + 'exercițiul ' + nr : '');
+    return lbl || null;
+  }
+  function cardInfo(card){
+    if (!card || !document.body || !document.body.contains(card) || !visible(card)) return null;
+    var lines = ['EXERCIȚIUL LA CARE ELEVUL A CERUT AJUTOR — ' + (cardLabel(card) || 'exercițiu grilă') + ':'];
+    var q = txt(card.querySelector('.qtxt')) || txt(card.querySelector('.card-hdr'));
+    if (q) lines.push('Enunț: ' + q);
+    var tb = card.querySelector('table'); if (tb) lines.push('Tabel: ' + txt(tb));
+    var opts = [];
+    card.querySelectorAll('.opt').forEach(function(o){
+      var l = txt(o.querySelector('.olbl')) || '?', t = txt(o.querySelector('.otxt'));
+      opts.push(l + ') ' + t + (o.classList.contains('sel') ? ' ← ALES DE ELEV' : ''));
+    });
+    if (opts.length) lines.push('Variante: ' + opts.join('   '));
+    if (!card.querySelector('.opt.sel')) lines.push('Elevul nu a ales încă niciun răspuns.');
+    var ok = card.getAttribute('data-correct');
+    if (ok) {
+      var okTxt = txt(card.querySelector('.opt[data-opt="' + ok + '"] .otxt'));
+      lines.push('[răspuns corect — dezvăluie DOAR dacă elevul îl cere explicit: ' + ok + (okTxt ? ') ' + okTxt : '') + ']');
+    }
+    var ex = card.querySelector('.expl');
+    if (ex) { var et = txt(ex); if (et) lines.push('[explicația oficială — folosește-o pentru indicii, nu o recita nesolicitat: ' + et + ']'); }
+    if (card.dataset && card.dataset.checked) lines.push('Exercițiul a fost deja corectat — elevul vede pe ecran răspunsul corect și explicația.');
+    return lines.join('\n');
+  }
+
   function collect(){
     var rich = collectRich();
-    return { text: (rich || collectDom()).slice(0, MAXLEN), rich: !!rich, title: document.title || '' };
+    var base = rich || collectDom();
+    var fx = cardInfo(focusCard);
+    var text = fx ? fx + '\n\n' + base : base;
+    return { text: String(text || '').slice(0, MAXLEN), rich: !!rich, title: document.title || '', focus: fx ? cardLabel(focusCard) : null };
   }
 
   // ── Butonul de indicații → „Întreabă profesorul virtual" ──────────
@@ -154,6 +202,7 @@ const BRIDGE_SCRIPT = String.raw`
       b.removeAttribute('onclick'); b.onclick = null;
       b.addEventListener('click', function(ev){
         ev.preventDefault(); ev.stopPropagation();
+        focusCard = null;
         post('MATE_TUTOR_OPEN', collect());
       });
     });
@@ -163,13 +212,13 @@ const BRIDGE_SCRIPT = String.raw`
   // Fața Einstein (același desen ca EinsteinIcon.jsx), inline pentru iframe.
   var EINSTEIN_SVG = '<svg width="18" height="18" viewBox="0 0 64 64" role="img" aria-label="Profesor Virtual" style="flex-shrink:0"><g fill="#f3f4f6" stroke="#d9dce1" stroke-width="1"><path d="M14 30 C4 30 6 16 14 16 C10 8 22 4 26 10 C30 3 44 5 44 13 C54 10 58 24 50 28 C60 30 56 42 48 40 L16 40 C8 42 6 32 14 30 Z"/><circle cx="12" cy="26" r="5"/><circle cx="9" cy="33" r="4"/><circle cx="52" cy="24" r="5"/><circle cx="55" cy="32" r="4"/><circle cx="18" cy="15" r="4"/><circle cx="46" cy="15" r="4"/></g><ellipse cx="32" cy="33" rx="15" ry="16" fill="#f7d9b8" stroke="#e0b98f" stroke-width="1"/><path d="M24 24 Q32 21 40 24" fill="none" stroke="#e0b98f" stroke-width="1" opacity=".7"/><path d="M22 29 Q26 26 30 29" fill="none" stroke="#c9ccd1" stroke-width="3" stroke-linecap="round"/><path d="M34 29 Q38 26 42 29" fill="none" stroke="#c9ccd1" stroke-width="3" stroke-linecap="round"/><circle cx="26" cy="33" r="2" fill="#3a3f47"/><circle cx="38" cy="33" r="2" fill="#3a3f47"/><path d="M32 34 L30 40 Q32 42 34 40" fill="none" stroke="#d9a878" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 43 Q27 41 32 43 Q37 41 42 43 Q40 48 32 46 Q24 48 22 43 Z" fill="#e6e8eb" stroke="#c9ccd1" stroke-width="1"/><path d="M28 47 Q32 49 36 47" fill="none" stroke="#b98a63" stroke-width="1.3" stroke-linecap="round"/></svg>';
   var BTN_CSS = 'display:inline-flex;align-items:center;gap:7px;background:#fff8e1;border:1.5px solid #e8b931;color:#8a6d00;border-radius:8px;padding:6px 12px;font-family:inherit;font-weight:700;font-size:.78rem;cursor:pointer;';
-  function makeHelpBtn(){
+  function makeHelpBtn(card){
     var b = document.createElement('button');
     b.type = 'button';
     b.setAttribute('data-mt-step', '1');
     b.innerHTML = EINSTEIN_SVG + '<span>Ajutor — întreabă profesorul virtual</span>';
     b.style.cssText = BTN_CSS;
-    b.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); post('MATE_TUTOR_OPEN', collect()); });
+    b.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); focusCard = card || null; post('MATE_TUTOR_OPEN', collect()); });
     return b;
   }
   function ensureStepHelpers(){
@@ -179,8 +228,19 @@ const BRIDGE_SCRIPT = String.raw`
       var host = card.querySelector('.acts') || card;
       host.appendChild(makeHelpBtn());
     });
+    // exercițiile-grilă (Subiectul I & II): butonul „Ajutor" pe FIECARE card,
+    // exact ca la pașii de la Subiectul al III-lea.
+    document.querySelectorAll('.card').forEach(function(card){
+      if (!card.querySelector('.opt')) return;                        // doar carduri cu variante de răspuns
+      if (card.querySelector('[data-mt-step]') || card.querySelector('[data-mt-done]')) return;
+      var row = document.createElement('div');
+      row.setAttribute('data-mt-row', '1');
+      row.style.cssText = 'padding:0 18px 14px;';
+      row.appendChild(makeHelpBtn(card));
+      card.appendChild(row);
+    });
     // exerciții pe alt șablon (fără .acard / fără buton de indicii): pastilă fixă jos-stânga
-    var structured = document.querySelector('.acard') || document.querySelector('[data-mt-done]');
+    var structured = document.querySelector('.acard') || document.querySelector('[data-mt-done]') || document.querySelector('.card [data-mt-step]');
     var pill = document.getElementById('mtHelpPill');
     if (structured) { if (pill) pill.remove(); return; }
     if (!pill && document.body) {
