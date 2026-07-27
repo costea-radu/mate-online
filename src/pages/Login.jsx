@@ -11,7 +11,9 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [discordLoading, setDiscordLoading] = useState(false);
-  const { signIn, signInWithGoogle, signInWithDiscord } = useAuth();
+  const [mode, setMode] = useState('login'); // 'login' | 'forgot'
+  const [resetSent, setResetSent] = useState(false);
+  const { signIn, signInWithGoogle, signInWithDiscord, resetPassword } = useAuth();
   const navigate = useNavigate();
 
   // Dacă utilizatorul apasă „Back" din pagina Google/Discord, browserul
@@ -41,6 +43,29 @@ export default function Login() {
     } finally { setLoading(false); }
   }
 
+  // „Am uitat parola": trimite pe email linkul de resetare (Supabase Auth).
+  // Emailul pleacă de pe adresa configurată la SMTP (admin.examenmate@gmail.com),
+  // iar linkul duce la pagina /resetare-parola.
+  async function handleForgot(e) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await resetPassword(email);
+      setResetSent(true);
+    } catch (err) {
+      setError(/rate limit|60 seconds|security purposes|too many/i.test(err?.message || '')
+        ? 'Din motive de securitate, poți cere un nou link doar o dată pe minut. Așteaptă puțin și reîncearcă.'
+        : 'Nu am putut trimite emailul. Verifică adresa și încearcă din nou.');
+    } finally { setLoading(false); }
+  }
+
+  function switchMode(next) {
+    setMode(next);
+    setError('');
+    setResetSent(false);
+  }
+
   async function handleGoogle() {
     setError(''); setGoogleLoading(true);
     try { await signInWithGoogle(); }
@@ -53,6 +78,45 @@ export default function Login() {
     catch { setError('Eroare la autentificarea cu Discord.'); setDiscordLoading(false); }
   }
 
+  // ─── Modul „Am uitat parola" ────────────────────────────────────────────────
+  if (mode === 'forgot') {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <h2>Resetare parolă</h2>
+          <p className="auth-sub">Îți trimitem pe email un link cu care îți setezi o parolă nouă.</p>
+
+          {error && <div style={{ background:'#fce4ec', color:'var(--danger)', padding:'12px 16px', borderRadius:'var(--radius)', marginBottom:20, fontSize:'0.88rem' }}>{error}</div>}
+
+          {resetSent ? (
+            <div style={{ background:'rgba(46,160,67,0.08)', border:'1px solid rgba(46,160,67,0.35)', color:'#1a7f37', padding:'16px 18px', borderRadius:'var(--radius)', fontSize:'0.9rem', lineHeight:1.6 }}>
+              ✅ Dacă există un cont pentru <strong>{email}</strong>, linkul de resetare e pe drum.
+              Verifică inboxul (și folderul Spam). Linkul e valabil o oră.
+            </div>
+          ) : (
+            <form onSubmit={handleForgot}>
+              <div className="form-group">
+                <label htmlFor="email">Email</label>
+                <input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="adresa@email.com" required autoFocus />
+              </div>
+              <button type="submit" className="btn btn-primary" style={{ width:'100%', marginTop:8 }} disabled={loading}>
+                {loading ? 'Se trimite...' : 'Trimite linkul de resetare'}
+              </button>
+            </form>
+          )}
+
+          <div className="auth-footer">
+            <button type="button" onClick={() => switchMode('login')}
+              style={{ background:'none', border:'none', cursor:'pointer', color:'var(--navy)', fontWeight:600, fontSize:'inherit', fontFamily:'inherit', padding:0 }}>
+              ← Înapoi la autentificare
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Modul normal de autentificare ──────────────────────────────────────────
   return (
     <div className="auth-page">
       <div className="auth-card">
@@ -78,6 +142,12 @@ export default function Login() {
                 ) : (
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                 )}
+              </button>
+            </div>
+            <div style={{ textAlign:'right', marginTop:6 }}>
+              <button type="button" onClick={() => switchMode('forgot')}
+                style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', fontSize:'0.83rem', fontFamily:'inherit', padding:0, textDecoration:'underline' }}>
+                Ai uitat parola?
               </button>
             </div>
           </div>

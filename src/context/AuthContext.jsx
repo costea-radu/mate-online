@@ -72,7 +72,9 @@ export function AuthProvider({ children }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       // Autentificare nouă → marcăm dispozitivul drept reconectat (nu mai forțăm deconectarea).
-      if (event === 'SIGNED_IN') {
+      // PASSWORD_RECOVERY = sesiune creată din linkul „Resetare parolă" — o tratăm la fel,
+      // altfel gate-ul de mai jos ar deconecta utilizatorul chiar când vrea să-și schimbe parola.
+      if (event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') {
         forcedRef.current = false;
         try { localStorage.setItem(FORCE_KEY, '1'); } catch { /* ignore */ }
       }
@@ -131,6 +133,16 @@ export function AuthProvider({ children }) {
     return data;
   }
 
+  // „Am uitat parola": Supabase trimite emailul de resetare (prin SMTP-ul
+  // configurat — admin.examenmate@gmail.com), cu link către /resetare-parola.
+  // URL-ul trebuie să fie în Supabase → Authentication → URL Configuration → Redirect URLs.
+  async function resetPassword(email) {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/resetare-parola`,
+    });
+    if (error) throw error;
+  }
+
   async function signInWithGoogle() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -164,7 +176,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       user, profile, loading, isPremium, isAdmin, isTeacher, isStudent, isParent, isMentor,
-      signUp, signIn, signInWithGoogle, signInWithDiscord, signOut, fetchProfile
+      signUp, signIn, signInWithGoogle, signInWithDiscord, signOut, fetchProfile, resetPassword
     }}>
       {children}
     </AuthContext.Provider>

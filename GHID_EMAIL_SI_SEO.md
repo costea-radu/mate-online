@@ -94,7 +94,7 @@ Acum emailurile de confirmare cont / resetare parolă pleacă de pe serverul Sup
 3. **Save**.
 4. Ridică limita de trimitere (Supabase o pune la 30/oră după activarea SMTP-ului):
    - **Authentication** → **Rate Limits** (`.../auth/rate-limits`) → „Rate limit for sending emails" → pune **100**/oră → Save.
-5. Verifică URL-urile de redirect: **Authentication** → **URL Configuration** → Site URL = `https://examenmate.com`.
+5. Verifică URL-urile de redirect: **Authentication** → **URL Configuration** → Site URL = `https://examenmate.com`, iar la **Redirect URLs** apasă „Add URL" și adaugă `https://examenmate.com/resetare-parola` — pagina unde aterizează linkul din emailul „Am uitat parola". (Pentru teste locale poți adăuga și `http://localhost:5173/resetare-parola`.)
 6. (Opțional, recomandat) Traduce șabloanele: **Authentication** → **Emails** → **Templates** — poți pune subiecte în română, de ex.:
    - Confirm signup → `Confirmă-ți contul ExamenMate`
    - Reset password → `Resetează parola contului ExamenMate`

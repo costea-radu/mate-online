@@ -16,6 +16,7 @@ const Bacalaureat = lazy(() => import('./pages/Bacalaureat'));
 const Manuale = lazy(() => import('./pages/Manuale'));
 const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
+const ResetareParola = lazy(() => import('./pages/ResetareParola'));
 const Pricing = lazy(() => import('./pages/Pricing'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Asociere = lazy(() => import('./pages/Asociere'));
@@ -102,6 +103,7 @@ export default function App() {
                 <Route path="/manuale" element={<Manuale />} />
                 <Route path="/autentificare" element={<Login />} />
                 <Route path="/inregistrare" element={<Register />} />
+                <Route path="/resetare-parola" element={<ResetareParola />} />
                 <Route path="/preturi" element={<Pricing />} />
                 <Route path="/profil" element={<Profile />} />
                 <Route path="/asociere" element={<Asociere />} />
