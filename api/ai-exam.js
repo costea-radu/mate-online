@@ -108,6 +108,31 @@ const EXAMS = {
 
 const JSON_RULE = `IMPORTANT pentru JSON valid: scrie fiecare backslash din comenzile LaTeX de DOUĂ ori (backslash dublu). Exemple corecte în JSON: pentru fracție folosește \\\\frac{...}{...}, pentru radical \\\\sqrt{...}, pentru înmulțire \\\\cdot, pentru unghi \\\\angle. Formulele se pun între $...$.`;
 
+// ── Specificația figurilor geometrice: AI-ul descrie figura ca obiect JSON,
+//    iar clientul o desenează determinist (src/lib/figureRender.js) — figura
+//    apare sub enunț, în dreapta paginii, ca în subiectele oficiale. ─────────
+const FIGURE_SPEC = `FIGURI GEOMETRICE — cheia "figure" a itemului:
+- OBLIGATORIU la TOȚI itemii Subiectului al II-lea (II.1–II.6) și la problemele III.3, III.4, III.5, III.6.
+- NU pune "figure" la Subiectul I și nici la problemele III.1 și III.2 (sunt de algebră).
+- Figura trebuie să corespundă EXACT enunțului: aceleași litere, același tip de configurație.
+- "type" poate fi: segment, unghi, triunghi, patrat, dreptunghi, paralelogram, romb, trapez, cerc, xOy, cub, paralelipiped, prisma, piramida, con, cilindru, sfera, trunchi-con, trunchi-piramida.
+- Formatele pe tipuri (folosește DOAR cheile de mai jos):
+  · segment: {"type":"segment","labels":["A","B","C","D"]} — punctele de pe dreaptă, în ordine; opțional "pozitii":[0,0.5,0.75,1] (fracții 0..1, câte una pentru fiecare literă).
+  · unghi: {"type":"unghi","varf":"O","raze":["A","M","B"]} — semidreptele care pleacă din vârf, în ordinea rotirii (pentru bisectoare pune litera bisectoarei între laturile unghiului).
+  · triunghi: {"type":"triunghi","variant":"oarecare|isoscel|echilateral|dreptunghic","labels":["A","B","C"]} — labels[0] = vârful de sus, apoi stânga-jos, dreapta-jos; la "dreptunghic" adaugă "unghi_drept":"B" (litera vârfului cu unghiul drept). Opțional "inaltime":{"din":"A","picior":"D"}.
+  · patrat/dreptunghi/paralelogram/romb/trapez: {"type":"...","labels":["A","B","C","D"]} — conturul în ordinea: A=stânga-jos, B=dreapta-jos, C=dreapta-sus, D=stânga-sus. La trapez: "variant":"oarecare|dreptunghic|isoscel" (bazele sunt AB — mare, jos — și DC — mică, sus). Opțional "diagonale":true.
+  · Puncte pe laturi (orice poligon): "puncte":[{"label":"M","pe":"BC","la":0.5}] ("la" = fracția de la primul capăt al laturii). Segmente suplimentare între orice puncte etichetate: "segmente":[["A","M"],["B","D"]] (și "segmente_punctate" pentru linii punctate).
+  · cerc: {"type":"cerc","centru":"O"} + opțional: "inscris":["A","B","C"] (poligon înscris în cerc), "puncte":[{"label":"D","unghi":250}] (alt punct pe cerc; unghiul în grade, 0=dreapta, sens trigonometric), "raza":"A", "diametru":["A","B"], "coarda":["M","N"], "tangenta":{"la":"A"}, "segmente":[["B","D"]].
+  · xOy (grafic de funcție): {"type":"xOy","functie":{"a":2,"b":-4}} pentru f(x)=ax+b + opțional "puncte":[{"label":"A","x":2,"y":0},{"label":"B","x":0,"y":-4}].
+  · cub/paralelipiped: {"type":"cub","labels":["A","B","C","D","A'","B'","C'","D'"]} (baza jos, apoi vârfurile de sus) + opțional "segmente":[["A","C'"]] pentru diagonale.
+  · prisma: {"type":"prisma","variant":"triunghiulara|patrulatera","labels":["A","B","C","A'","B'","C'"]} (6 sau 8 litere).
+  · piramida: {"type":"piramida","variant":"patrulatera|triunghiulara","labels":["V","A","B","C","D"]} — PRIMA literă este vârful. Opțional "inaltime":{"picior":"O"}.
+  · con: {"type":"con","labels":["V","A","B"]} + opțional "inaltime":{"picior":"O"}. cilindru: {"type":"cilindru","inaltime":true}. sfera: {"type":"sfera","centru":"O","raza":"A"}. trunchi-con: {"type":"trunchi-con","inaltime":true}. trunchi-piramida: {"type":"trunchi-piramida","labels":["A","B","C","D","A'","B'","C'","D'"]}.
+- Exemple complete:
+  {"type":"triunghi","variant":"isoscel","labels":["A","B","C"],"puncte":[{"label":"E","pe":"BC","la":0.65}],"segmente":[["A","E"]]}
+  {"type":"cerc","centru":"O","inscris":["A","B","C"],"puncte":[{"label":"D","unghi":268}],"segmente":[["B","D"],["D","C"]]}
+  {"type":"trapez","variant":"dreptunghic","labels":["A","B","C","D"],"puncte":[{"label":"M","pe":"DC","la":0.5}],"segmente":[["A","M"],["B","D"]]}`;
+
 const FIDELITY = `Fidelitate față de modele:
 1) STRUCTURA este LEGE — același număr de subiecte și itemi, aceleași punctaje, aceeași ordine a tipurilor de itemi și același stil de formulare ca în subiectele reale ale site-ului; nu adăuga, nu elimina, nu rearanja.
 2) ITEMII SE COPIAZĂ din surse (enunț, tip, structură), conform regimului de lucru cu datele; nu introduce tipuri de itemi care nu apar în surse.
@@ -123,8 +148,11 @@ Sarcină: generează un MODEL COMPLET de test de Evaluare Națională la matemat
 
 ${EN_SPEC}
 
+${FIGURE_SPEC}
+
 Reguli:
 - ${FIDELITY}
+- FIGURA itemilor de geometrie este OBLIGATORIE (cheia "figure", conform specificației de mai sus): la II.1–II.6 și III.3–III.6. Literele din figură trebuie să fie EXACT cele din enunț.
 - COPIAZĂ itemii din TESTELE REALE DIN SITE (dacă sunt furnizate) sau din exercițiile-model: păstrează enunțul și structura itemului-sursă, schimbă DOAR numerele/notațiile și recalculează rezultatul și variantele. COMBINĂ sursele: itemul 1 preluat dintr-un test, itemul 2 din ALT test, itemul 3 din altul (ciclic). Creezi un item complet nou NUMAI dacă sursele nu acoperă poziția respectivă.
 - SUBIECTUL I este EXCLUSIV de aritmetică și algebră — NICIUN item de geometrie la Subiectul I (fără figuri, segmente, unghiuri, triunghiuri, patrulatere, cerc, arii, perimetre, volume, corpuri geometrice). Geometria apare NUMAI la Subiectul al II-lea și la problemele III.4–III.6. Dacă itemul-sursă indicat pentru o poziție de la Subiectul I este de geometrie, alege în loc un item de algebră.
 - La grilă (Subiectele I și II): fiecare item are exact 4 variante (I.6 are 2: „Adevărat"/„Fals"), un singur răspuns corect, iar variantele greșite trebuie să fie plauzibile.
@@ -152,7 +180,7 @@ Răspunde STRICT cu un obiect JSON, fără text în plus:
     {
       "label": "SUBIECTUL al II-lea", "points": 30,
       "instructions": "Scrieți litera corespunzătoare răspunsului corect. Fiecare item: 5 puncte.",
-      "items": [ { "number": "1", "statement": "...", "options": ["...","...","...","..."], "answer": "b", "points": 5, "solution": "..." } ]
+      "items": [ { "number": "1", "statement": "...", "options": ["...","...","...","..."], "answer": "b", "points": 5, "solution": "...", "figure": { "type": "segment", "labels": ["A","B","C","D"] } } ]
     },
     {
       "label": "SUBIECTUL al III-lea", "points": 30,
@@ -160,7 +188,8 @@ Răspunde STRICT cu un obiect JSON, fără text în plus:
       "items": [
         { "number": "1", "statement": "enunțul problemei",
           "parts": [ { "label": "a", "text": "cerința a)", "points": 2, "solution": "rezolvare completă a)" },
-                     { "label": "b", "text": "cerința b)", "points": 3, "solution": "rezolvare completă b)" } ] }
+                     { "label": "b", "text": "cerința b)", "points": 3, "solution": "rezolvare completă b)" } ],
+          "figure": "(DOAR la problemele 3–6, conform specificației figurilor; la 1 și 2 NU pune cheia)" }
       ]
     }
   ]
@@ -334,7 +363,9 @@ Sursele provin din subcategorii diferite (marcate în paranteză la fiecare TEST
     const { text, usage } = await ai.chat({
       system,
       messages: [{ role: 'user', content: `Generează testul complet acum, în format JSON. Fă-l DIFERIT de variantele anterioare (alte numere, alte enunțuri). Variantă #${Math.random().toString(36).slice(2, 8)}.${instructions.trim() ? `\n\nINSTRUCȚIUNILE PROFESORULUI (respectă-le întocmai, au prioritate): ${String(instructions).slice(0, 4000)}` : ''}` }],
-      temperature: 0.7, maxTokens: 5000, json: true, model: ai.GEN_MODEL,
+      // 7500: figurile ("figure") adaugă ~1000 de tokeni peste cei 18 itemi —
+      // cu 5000 răspunsul se trunchia și parse-ul eșua.
+      temperature: 0.7, maxTokens: 7500, json: true, model: ai.GEN_MODEL,
     });
     await ai.logUsage(supa, userId, 'ai-exam', usage);
 

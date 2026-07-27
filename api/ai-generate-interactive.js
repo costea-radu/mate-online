@@ -34,7 +34,14 @@ module.exports = async function handler(req, res) {
     if (!profile.is_admin) ai.requirePremium(profile);
     await ai.enforceRateLimit(supa, userId);
 
-    const q = [topic, category, 'exercițiu matematică'].filter(Boolean).join(' ');
+    // „Subiect + instrucțiuni": câmpul acceptă un prompt amplu de la profesor
+    // (temă + cerințe pentru AI). Versiunea integrală intră în promptul de
+    // generare; pentru căutarea în baza de date și pentru titlu folosim doar
+    // prima linie (scurtă).
+    const topicFull = String(topic || '').trim().slice(0, 2500);
+    const topicShort = (topicFull.split(/\r?\n/)[0] || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+
+    const q = [topicShort, category, 'exercițiu matematică'].filter(Boolean).join(' ');
     const docs = await ai.retrieve(supa, { query: q, category, allowPremium: true, k: 5, prefer: 'exercise' });
     const examples = ai.contextBlock(docs);
 
@@ -96,7 +103,7 @@ module.exports = async function handler(req, res) {
 
     const system = `${ai.PERSONA}
 
-Sarcină: creează un set de 5 întrebări de matematică pentru un exercițiu interactiv, în stilul exemplelor din baza de date.
+Sarcină: creează un set de întrebări de matematică pentru un exercițiu interactiv, în stilul exemplelor din baza de date. Implicit 5 întrebări; dacă profesorul cere alt număr în instrucțiunile lui, respectă-l (minim 3, maxim 8).
 
 === EXEMPLE DIN BAZA DE DATE (temă/stil) ===
 ${examples}
@@ -104,7 +111,7 @@ ${examples}
 ${srcBlock ? `\n=== SUBIECTE REALE DIN CATEGORIE (sursa itemilor — antrenament/variante/simulări) ===\n${srcBlock}\n=== SFÂRȘIT SURSE ===\nPLAN (tras la sorți — respectă-l): fiecare întrebare vine din sursa indicată:\n${plan}\n` : ''}
 REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}
 
-Răspunde STRICT cu un OBIECT JSON valid (fără text în plus, fără markdown), cu EXACT această formă — cheia "questions" conține cele 5 obiecte:
+Răspunde STRICT cu un OBIECT JSON valid (fără text în plus, fără markdown), cu EXACT această formă — cheia "questions" conține obiectele-întrebare:
 {
   "questions": [
     {
@@ -119,15 +126,20 @@ Reguli:
 - Majoritatea întrebărilor cu "options" (grilă, exact 4 variante) și "answer" = INDEXUL variantei corecte (0,1,2,3). DISTRIBUIE răspunsul corect aleatoriu între cele 4 poziții (nu mereu 0).
 - Poți face și întrebări cu răspuns liber: OMITE "options" și pune "answer" ca text (ex: "12" sau "x=3").
 - Respectă cât mai fidel exercițiile-model (tip, stil, dificultate), schimbând doar minim datele.
-- Subiect: ${topic || 'potrivit categoriei'}${category ? ' · categoria ' + category : ''}. Dificultate: ${difficulty}.
+- Subiect: ${topicShort || 'potrivit categoriei'}${category ? ' · categoria ' + category : ''}. Dificultate: ${difficulty}.
 - Folosește „·" (\\cdot în LaTeX) pentru înmulțire, NICIODATĂ × sau litera x.
 - Variază: la cereri repetate pentru același model, generează exerciții DIFERITE (alte valori, alt context).
-- IMPORTANT JSON valid: scrie fiecare backslash din LaTeX de DOUĂ ori. Ex: pentru fracție "$\\\\frac{1}{2}$", radical "$\\\\sqrt{9}$".`;
+- IMPORTANT JSON valid: scrie fiecare backslash din LaTeX de DOUĂ ori. Ex: pentru fracție "$\\\\frac{1}{2}$", radical "$\\\\sqrt{9}$".${topicFull ? `
+
+SUBIECT + INSTRUCȚIUNI DE LA PROFESOR — au PRIORITATE față de regulile de stil și de plan de mai sus (temă, tipuri de întrebări, număr de întrebări, dificultate, restricții asupra numerelor, contexte etc.); respectă-le întocmai, păstrând DOAR formatul JSON cerut:
+"""
+${topicFull}
+"""` : ''}`;
 
     const { text, usage } = await ai.chat({
       system,
-      messages: [{ role: 'user', content: `Generează obiectul JSON cu cele 5 întrebări acum. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
-      temperature: 0.9, maxTokens: 2200, json: true, model: ai.GEN_MODEL,
+      messages: [{ role: 'user', content: `Generează obiectul JSON cu întrebările acum${topicFull ? ', respectând întocmai subiectul și instrucțiunile profesorului' : ''}. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
+      temperature: 0.9, maxTokens: 3200, json: true, model: ai.GEN_MODEL,
     });
     await ai.logUsage(supa, userId, 'ai-generate-interactive', usage);
 
@@ -161,8 +173,8 @@ Reguli:
 
     return res.status(200).json({
       questions,
-      title: `Exercițiu interactiv · ${topic || category || 'matematică'}`,
-      topic: topic || null,
+      title: `Exercițiu interactiv · ${topicShort || category || 'matematică'}`,
+      topic: topicShort || null,
     });
   } catch (err) {
     console.error('ai-generate-interactive error:', err);

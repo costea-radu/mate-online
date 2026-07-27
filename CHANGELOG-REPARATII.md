@@ -4,6 +4,20 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 27 iulie 2026 — Subiecte PDF cu figuri geometrice + spații de redactare · „Subiect + instrucțiuni" la interactive
+
+### Figuri geometrice în subiectele de examen generate cu AI (ca în modelele oficiale EN)
+- **`src/lib/figureRender.js` (NOU):** bibliotecă de desen determinist — AI-ul descrie figura ca obiect JSON (cheia `figure` a itemului), iar clientul o desenează SVG în stilul subiectelor oficiale (linii negre subțiri, etichete italice serif, muchii nevăzute punctate). Tipuri: segment, unghi (cu bisectoare), triunghi (oarecare/isoscel/echilateral/dreptunghic, cu înălțime), pătrat, dreptunghi, paralelogram, romb, trapez (dreptunghic/isoscel), cerc (poligon înscris, puncte pe cerc, rază, diametru, coardă, tangentă), sistem de axe xOy cu graficul f(x)=ax+b, cub, paralelipiped, prismă, piramidă (cu înălțimea VO), con, cilindru, sferă, trunchi de con, trunchi de piramidă + puncte pe laturi și segmente suplimentare. Renderer-ul e defensiv: specificație invalidă → fără figură, PDF-ul rămâne intact (nu se aruncă excepții).
+- **`api/ai-exam.js`:** promptul EN cere OBLIGATORIU `figure` la toți itemii Subiectului al II-lea și la problemele III.3–III.6 (nu la Subiectul I și III.1–III.2 — algebră), cu specificația completă a formatelor + exemple; literele figurii trebuie să coincidă cu enunțul. `maxTokens` 5000 → 7500 (figurile adaugă ~1000 tokeni; altfel JSON-ul se trunchia).
+- **`src/lib/examPrint.js`:** figura apare SUB enunț, în DREAPTA paginii (float; variantele de răspuns curg în stânga ei), și în barem (scară 0.82). La **Subiectul al III-lea** (varianta elev, doar la subiectele „oficiale" — cu puncte din oficiu): spațiu de redactare a rezolvării — caroiaj discret desenat ca SVG (fundalurile CSS nu se tipăresc implicit, conținutul SVG da) — în STÂNGA figurii și DEDESUBTUL ei, respectiv sub fiecare cerință la problemele fără figură; punctajele subpunctelor apar ca „(2p) a)". Problemele cu spații pot curge pe mai multe pagini, dar caroiajele/figurile nu se taie la mijloc. Exporturile interactive/antrenament (fără oficiu) rămân neschimbate.
+- Verificat vizual (Chromium): galerie cu toate tipurile de figuri + varianta elev + barem, comparate cu modelul oficial ENVIII 2025 var. 07.
+
+### „Subiect (opțional)" → „Subiect + instrucțiuni pentru AI" la exercițiile interactive
+- **`src/pages/ProfesorVirtual.jsx` (InteractiveTab):** câmpul a devenit textarea amplu (3 rânduri, pe toată lățimea), cu placeholder-exemplu de instrucțiuni compuse; pentru titluri/metadate (bibliotecă, teme, publicare) se folosește doar prima linie (max 120 caractere).
+- **`api/ai-generate-interactive.js`:** textul integral (până la 2500 caractere) intră în prompt ca „SUBIECT + INSTRUCȚIUNI DE LA PROFESOR" cu PRIORITATE față de regulile de stil (temă, tipuri de întrebări, dificultate, restricții); numărul de întrebări devine variabil (implicit 5, între 3 și 8, la cererea profesorului); pentru căutarea RAG și titlu se folosește varianta scurtă; `maxTokens` 2200 → 3200.
+
+---
+
 ## 23 iulie 2026 — Doi agenți AI pe Prof. Virtual: interactiv (neschimbat) + agent dedicat testelor PDF
 
 ### Agentul 1 — teste interactive și chat general: comportament identic

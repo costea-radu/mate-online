@@ -4,9 +4,30 @@
 // =====================================================================
 
 import { autoMath } from './katex';
+import { renderFigure } from './figureRender';
 
 function esc(s = '') {
   return String(autoMath(s || '')).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Figura itemului (SVG generat determinist din specificația AI) ────────────
+function itemFigure(it, scale = 1) {
+  try {
+    const f = it && it.figure ? renderFigure(it.figure) : null;
+    if (!f) return null;
+    const w = Math.round(f.w * scale);
+    return { svg: f.svg.replace(`width="${f.w}"`, `width="${w}"`), w, h: Math.round(f.h * scale) };
+  } catch { return null; }
+}
+const figFloat = (f) => (f ? `<div class="fig" style="width:${f.w}px">${f.svg}</div>` : '');
+
+// ── Spațiu de redactare a rezolvării (caroiaj discret, ca în modelele
+//    oficiale; fiind conținut SVG, se tipărește sigur — spre deosebire de
+//    fundalurile CSS, pe care browserele nu le printează implicit). ──────────
+let gridSeq = 0;
+function solutionSpace(h) {
+  const id = 'sgrid' + (++gridSeq);
+  return `<div class="solspace"><svg width="100%" height="${h}" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="${id}" width="15" height="15" patternUnits="userSpaceOnUse"><path d="M15 0H0V15" fill="none" stroke="#e2e2e2" stroke-width="0.7"/></pattern></defs><rect x="0.5" y="0.5" width="99.7%" height="${h - 1}" fill="url(#${id})" stroke="#cfcfcf" stroke-width="0.8"/></svg></div>`;
 }
 
 // Deschide un document tipăribil, autonom, cu KaTeX.
@@ -44,6 +65,19 @@ export function openPrintDocument(title, bodyHtml) {
   .katex-display .katex { display: block; }
   .barem-item { margin: 10px 0; padding: 10px 12px; background: #f7f9fc; border-radius: 8px; }
   .barem-item .ans { color: #1e7e34; font-weight: bold; }
+  /* Figura geometrică: sub enunț, în dreapta paginii; textul și variantele
+     curg în stânga ei (ca în subiectele oficiale). */
+  .fig { float: right; margin: 2px 0 8px 16px; }
+  .fig svg { display: block; }
+  .item .body::after, .barem-item::after { content: ""; display: block; clear: both; }
+  /* Spațiul de redactare a rezolvării (Subiectul al III-lea) */
+  .solspace { margin: 6px 0 4px; }
+  .solspace svg { display: block; width: 100%; }
+  .solrow { display: flex; gap: 14px; align-items: flex-start; margin: 6px 0 0; }
+  .solrow .space { flex: 1; min-width: 0; }
+  .solrow .solspace { margin: 0; }
+  .solrow .figcell { flex: 0 0 auto; }
+  .solrow .figcell svg { display: block; }
   .opts { margin: 6px 0 2px 8px; }
   .opt { margin: 2px 0; line-height: 1.5; }
   .part { margin: 6px 0 6px 8px; line-height: 1.6; }
@@ -56,6 +90,10 @@ export function openPrintDocument(title, bodyHtml) {
     .sheet { box-shadow: none; margin: 0; max-width: none; padding: 0; }
     .subject { break-inside: avoid; }
     .item, .barem-item { break-inside: avoid; }
+    /* problemele cu spațiu de redactare pot curge pe mai multe pagini,
+       dar caroiajele și figurile nu se taie la mijloc */
+    .item.written { break-inside: auto; }
+    .solrow, .solspace, .fig, .part { break-inside: avoid; }
   }
 </style>
 </head><body>
@@ -96,13 +134,40 @@ export function printExam(exam, { withSolutions = false } = {}) {
   const partsHtml = (parts, withSol) =>
     parts.map((p) => `<div class="part"><b>${esc(p.label || '')})</b> ${esc(p.text || '')}${(withSol && p.points != null) ? ` <span class="pts">(${p.points}p)</span>` : ''}${(withSol && p.solution) ? `<div class="sol">${esc(p.solution)}</div>` : ''}</div>`).join('');
 
+  // Subiect „oficial" (are puncte din oficiu) → problemele cu rezolvare scrisă
+  // primesc spațiu de redactare, ca în modelele reale de examen.
+  const isOfficial = exam.oficiu != null;
+
+  // Problemă cu rezolvare scrisă (Subiectul al III-lea / itemii fără grilă):
+  // figura în dreapta, spațiu de redactare în stânga figurii și dedesubtul ei,
+  // respectiv sub fiecare cerință la problemele fără figură.
+  const writtenBody = (it, fig) => {
+    const parts = Array.isArray(it.parts) ? it.parts : [];
+    let out = `<span class="stmt">${esc(it.statement || '')}</span>`;
+    const figRow = fig
+      ? `<div class="solrow"><div class="space">${solutionSpace(Math.max(fig.h, 120))}</div><div class="figcell">${fig.svg}</div></div>`
+      : '';
+    if (!parts.length) {
+      out += fig ? figRow + solutionSpace(90) : solutionSpace(235);
+      return out;
+    }
+    parts.forEach((p, pi) => {
+      out += `<div class="part"><b>${p.points != null ? `(${p.points}p) ` : ''}${esc(p.label || '')})</b> ${esc(p.text || '')}</div>`;
+      if (pi === 0 && fig) out += figRow + solutionSpace(66);
+      else out += solutionSpace(pi === 0 ? 150 : 215);
+    });
+    return out;
+  };
+
   const body = subjects.map((s) => {
     const items = Array.isArray(s.items) ? s.items : [];
     const rows = items.map((it) => {
       const hasOptions = Array.isArray(it.options) && it.options.length;
       const hasParts = Array.isArray(it.parts) && it.parts.length;
       if (withSolutions) {
+        const fig = itemFigure(it, 0.82);
         return `<div class="barem-item">
+          ${figFloat(fig)}
           <div><strong>${esc(it.number || '')}.</strong> <span class="stmt">${esc(it.statement || '')}</span> <span class="pts">(${it.points ?? ''}p)</span></div>
           ${hasOptions ? optsHtml(it.options) : ''}
           ${hasOptions && it.answer ? `<div class="ans">Răspuns corect: ${esc(it.answer)}</div>` : ''}
@@ -111,10 +176,20 @@ export function printExam(exam, { withSolutions = false } = {}) {
           ${(!hasParts && it.solution) ? `<div class="sol">${esc(it.solution)}</div>` : ''}
         </div>`;
       }
+      const fig = itemFigure(it);
+      const written = isOfficial && (hasParts || !hasOptions);
+      if (written) {
+        return `<div class="item written">
+          <div class="num">${esc(it.number || '')}.</div>
+          <div class="body">${writtenBody(it, fig)}</div>
+          <div class="pts">${it.points ?? ''}p</div>
+        </div>`;
+      }
       return `<div class="item">
         <div class="num">${esc(it.number || '')}.</div>
         <div class="body">
           <span class="stmt">${esc(it.statement || '')}</span>
+          ${figFloat(fig)}
           ${hasOptions ? optsHtml(it.options) : ''}
           ${hasParts ? partsHtml(it.parts, false) : ''}
         </div>

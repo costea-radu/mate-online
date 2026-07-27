@@ -393,6 +393,10 @@ function InteractiveTab() {
   const [dataMode, setDataMode] = useState('modify');
   const navigate = useNavigate();
 
+  // Câmpul „Subiect + instrucțiuni" poate fi lung — pentru titluri și
+  // metadate (bibliotecă, teme, publicare) folosim doar prima linie, scurtă.
+  const topicShort = (topic || '').split(/\r?\n/)[0].replace(/\s+/g, ' ').trim().slice(0, 120) || null;
+
   const html = questions ? renderQuiz(title, questions) : '';
 
   // Revenire din pagina exercițiului: restaurăm ultimul exercițiu generat
@@ -425,7 +429,7 @@ function InteractiveTab() {
       const t = res.title || 'Exercițiu interactiv';
       setQuestions(qs); setTitle(t);
       // salvează în „Testele și exercițiile mele"
-      try { await aiClient.saveLibraryItem({ kind: 'interactive', title: t, category: category || null, topic: topic || null, payload: { questions: qs } }); } catch { /* ignore */ }
+      try { await aiClient.saveLibraryItem({ kind: 'interactive', title: t, category: category || null, topic: topicShort, payload: { questions: qs } }); } catch { /* ignore */ }
       // păstrăm exercițiul pentru revenire și îl deschidem DIRECT în pagina nouă
       sessionStorage.setItem('pv_last_interactive', JSON.stringify({ questions: qs, title: t }));
       navigate('/exercitiu-ai', { state: { html: renderQuiz(t, qs), title: t } });
@@ -473,15 +477,19 @@ function InteractiveTab() {
               {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           </label>
-          <label style={{ fontSize: '.85rem', color: 'var(--text-light)' }}>Subiect (opțional)
-            <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="ex: ecuații, arii" style={{ ...inp, width: '100%', marginTop: 4 }} />
-          </label>
           <label style={{ fontSize: '.85rem', color: 'var(--text-light)' }}>Dificultate
             <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} style={{ ...inp, width: '100%', marginTop: 4 }}>
               {DIFFS.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
           </label>
         </div>
+        {/* Subiect + instrucțiuni: prompt amplu pentru AI — temă, număr de
+            întrebări, tipuri de itemi, restricții etc. (nu doar un cuvânt-cheie). */}
+        <label style={{ display: 'block', fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 14 }}>Subiect + instrucțiuni pentru AI (opțional)
+          <textarea value={topic} onChange={(e) => setTopic(e.target.value)} rows={3}
+            placeholder={'ex: ecuații de gradul I cu o necunoscută; 6 întrebări, de la ușor la greu; doar numere naturale; ultima întrebare să fie o problemă cu text, în stilul Evaluării Naționale'}
+            style={{ ...inp, width: '100%', marginTop: 4, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+        </label>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12, fontSize: '.85rem', color: 'var(--text-light)' }}>
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
             <input type="radio" checked={dataMode === 'keep'} onChange={() => setDataMode('keep')} style={{ marginTop: 3 }} />
@@ -556,10 +564,10 @@ function InteractiveTab() {
             <button className="btn btn-outline btn-sm" onClick={() => exportPdf(false)}>📄 Export PDF</button>
             <button className="btn btn-outline btn-sm" onClick={() => exportPdf(true)}>📝 Cu răspunsuri</button>
             {(isTeacher || isParent) && (
-              <SendToStudents create={() => aiClient.assignmentCreateInteractive({ questions, title, category: category || null, topic: topic || null })} />
+              <SendToStudents create={() => aiClient.assignmentCreateInteractive({ questions, title, category: category || null, topic: topicShort })} />
             )}
             {isTeacher && <button className="btn btn-outline btn-sm" onClick={() => setEditing((e) => !e)}>{editing ? '✓ Gata editarea' : '✏️ Editează (text)'}</button>}
-            {isTeacher && <button className="btn btn-outline btn-sm" onClick={async () => { setPublishMsg(null); try { const r = await aiClient.publicPublish({ kind: 'interactive', title, category: category || null, topic: topic || null, payload: { questions } }); setPublishMsg('✅ Publicat ca „' + (r?.title || title) + '".'); } catch (e) { setPublishMsg('Eroare: ' + e.message); } }}>🏛️ Publică</button>}
+            {isTeacher && <button className="btn btn-outline btn-sm" onClick={async () => { setPublishMsg(null); try { const r = await aiClient.publicPublish({ kind: 'interactive', title, category: category || null, topic: topicShort, payload: { questions } }); setPublishMsg('✅ Publicat ca „' + (r?.title || title) + '".'); } catch (e) { setPublishMsg('Eroare: ' + e.message); } }}>🏛️ Publică</button>}
             <button className="btn btn-outline btn-sm" onClick={gen} disabled={loading}>🔄 Altul</button>
           </div>
           {publishMsg && <div style={{ marginTop: 8, fontSize: '.82rem', color: publishMsg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{publishMsg}</div>}
