@@ -5,6 +5,7 @@
 //   action='check_username'  → { available }  (verifică disponibilitatea)
 // =====================================================================
 const ai = require('./_lib/ai');
+const inactivity = require('./_lib/inactivity');
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -26,10 +27,16 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'delete') {
-      // șterge datele legate (best-effort) apoi contul auth
-      const tables = ['ai_conversations', 'ai_messages', 'ai_personal_items', 'ai_skill_mastery',
-        'ai_assignment_results', 'ai_notifications', 'progress', 'rezolvari'];
-      // (majoritatea au ON DELETE CASCADE pe user; ștergerea userului le curăță oricum)
+      // Înainte de ștergere, ARHIVĂM rezultatele elevului pentru mentorii lui
+      // (profesor/părinte) — aceeași regulă ca la ștergerea pentru inactivitate.
+      // Best-effort: dacă arhivarea pică, ștergerea cerută de utilizator continuă.
+      try {
+        const { data: prof } = await supa.from('profiles')
+          .select('id, full_name, email, role').eq('id', userId).maybeSingle();
+        if (prof) await inactivity.archiveStudentData(supa, prof, 'self_delete');
+      } catch (e) { console.error('ai-account: arhivarea rezultatelor a eșuat:', e.message); }
+
+      // apoi contul auth (ON DELETE CASCADE curăță profilul și datele legate)
       try { await supa.auth.admin.deleteUser(userId); }
       catch (e) { return res.status(500).json({ error: 'Nu am putut șterge contul: ' + e.message }); }
       return res.status(200).json({ ok: true });

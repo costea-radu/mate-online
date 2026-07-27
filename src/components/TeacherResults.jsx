@@ -229,7 +229,12 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
               {isOpen ? '▾' : '▸'}
             </span>
             <span>
-              <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{student.name}</span>
+              <span style={{ fontWeight: 600, color: student.archived ? 'var(--text-muted)' : 'var(--navy)' }}>{student.name}</span>
+              {student.archived && (
+                <span style={{ marginLeft: 8, fontSize: '0.68rem', fontWeight: 700, color: '#8a3b3b', background: 'rgba(198,40,40,.08)', border: '1px solid rgba(198,40,40,.35)', borderRadius: 12, padding: '2px 8px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                  cont șters{student.deletedAt ? ` · ${fmtDate(student.deletedAt)}` : ''}
+                </span>
+              )}
               {student.email && (
                 <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{student.email}</span>
               )}
@@ -252,8 +257,15 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
         <tr style={{ background: 'var(--cream)', borderTop: '1px solid var(--border)' }}>
           <td colSpan={3} style={{ padding: '14px 16px' }}>
             {/* Opțiuni sub nume: mutare (profesor) + ștergere */}
+            {student.archived && (
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-light)', background: 'rgba(198,40,40,.06)', border: '1px solid rgba(198,40,40,.25)', borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
+                Contul acestui elev a fost șters{student.deletedAt ? ` la ${fmtDate(student.deletedAt)}` : ''}
+                {student.reason === 'inactivity' ? ' (inactivitate de peste 12 luni)' : student.reason === 'self_delete' ? ' (la cererea lui)' : ''}.
+                Rezultatele de mai jos rămân doar aici — le poți elimina definitiv cu butonul de ștergere.
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-              {isTeacher && (
+              {isTeacher && !student.archived && (
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', color: 'var(--text)' }}>
                   <span style={{ fontWeight: 600 }}>↪ Mutare în grupă:</span>
                   <select
@@ -268,7 +280,7 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                 </label>
               )}
               <button
-                onClick={() => onRemove(student.id)}
+                onClick={() => onRemove(student)}
                 disabled={busy}
                 style={{
                   padding: '6px 14px', borderRadius: 8, fontWeight: 600, fontSize: '0.8rem',
@@ -276,7 +288,7 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                   cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1,
                 }}
               >
-                🗑 Ștergere elev
+                {student.archived ? '🗑 Șterge definitiv datele' : '🗑 Ștergere elev'}
               </button>
             </div>
 
@@ -357,7 +369,7 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
               </div>
             )}
 
-            {(isTeacher || isParent) && (
+            {(isTeacher || isParent) && !student.archived && (
               <StudentAIMastery
                 studentId={student.id}
                 aiTests={[
@@ -365,6 +377,33 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                   ...(student.aiOnly || []),
                 ]}
               />
+            )}
+
+            {/* Pentru conturile șterse: stăpânirea subiectelor din arhivă */}
+            {student.archived && (student.masteryArchived || []).length > 0 && (
+              <div style={{ background: '#fff', borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '12px 14px', marginTop: 14 }}>
+                <strong style={{ fontSize: '0.85rem', color: 'var(--navy)' }}>🧠 Stăpânirea subiectelor (arhivă)</strong>
+                <div style={{ display: 'grid', gap: 6, marginTop: 10 }}>
+                  {student.masteryArchived.slice(0, 12).map((m, i) => {
+                    const p = Math.round((Number(m.mastery) || 0) * 100);
+                    return (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.8rem' }}>
+                        <span style={{ flex: '0 0 170px', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.topic}>{m.topic}</span>
+                        <span style={{ flex: 1, background: 'var(--cream-dark)', borderRadius: 20, height: 6, overflow: 'hidden' }}>
+                          <span style={{ display: 'block', width: `${p}%`, height: '100%', background: scoreColor(p), borderRadius: 20 }} />
+                        </span>
+                        <span style={{ fontWeight: 700, color: scoreColor(p), width: 40, textAlign: 'right' }}>{p}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {student.archived && (student.assignmentsArchived || []).length > 0 && (
+              <div style={{ marginTop: 12, fontSize: '0.8rem', color: 'var(--text-light)' }}>
+                <strong style={{ color: 'var(--navy)' }}>📝 Teme rezolvate:</strong>{' '}
+                {student.assignmentsArchived.map((t) => `${t.title}${t.score != null ? ` (${t.score}/${t.max_score})` : ''}`).join(' · ')}
+              </div>
             )}
           </td>
         </tr>
@@ -377,7 +416,7 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
 export default function TeacherResults({ user, inviteCode, displayName, role = 'profesor' }) {
   const isTeacher = role === 'profesor';
   const isParent = role === 'parinte';
-  const [data, setData] = useState({ students: [], results: [], groups: [], aiUsage: [] });
+  const [data, setData] = useState({ students: [], results: [], groups: [], aiUsage: [], archived: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
@@ -401,7 +440,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Eroare server (${res.status})`);
-      setData({ students: json.students || [], results: json.results || [], groups: json.groups || [], aiUsage: json.aiUsage || [] });
+      setData({ students: json.students || [], results: json.results || [], groups: json.groups || [], aiUsage: json.aiUsage || [], archived: json.archived || [] });
     } catch (e) {
       setError(e.message || 'Nu s-au putut încărca rezultatele.');
     } finally { setLoading(false); }
@@ -460,6 +499,25 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
       if (!s.aiOnly) s.aiOnly = [];
       s.aiOnly.push(r);
     });
+    // Elevii cu CONT ȘTERS (inactivitate sau la cerere) — rezultatele lor rămân
+    // arhivate pentru mentor; apar în aceeași listă, marcați „cont șters".
+    (data.archived || []).forEach((a) => {
+      const ex = a.extras || {};
+      map.set('arh-' + a.id, {
+        id: 'arh-' + a.id,
+        archived: true,
+        archiveId: a.id,
+        deletedAt: a.deleted_at,
+        reason: a.reason,
+        name: a.student_name || 'Elev',
+        email: a.student_email || '',
+        group_id: null,
+        rows: Array.isArray(a.results) ? a.results : [],
+        aiOnly: Array.isArray(ex.aiOnly) && ex.aiOnly.length ? ex.aiOnly : undefined,
+        masteryArchived: Array.isArray(ex.mastery) ? ex.mastery : [],
+        assignmentsArchived: Array.isArray(ex.assignments) ? ex.assignments : [],
+      });
+    });
     const arr = [...map.values()];
     arr.forEach((g) => {
       g.count = g.rows.length;
@@ -486,7 +544,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
   }, [inGroup, query]);
 
   const leaderboard = useMemo(
-    () => inGroup.filter((s) => s.avg !== null).sort((a, b) => b.avg - a.avg).slice(0, 20),
+    () => inGroup.filter((s) => !s.archived && s.avg !== null).sort((a, b) => b.avg - a.avg).slice(0, 20),
     [inGroup]
   );
 
@@ -498,6 +556,10 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
 
   function onQueryChange(v) { setQuery(v); setPage(0); if (v && !open) setOpen(true); }
   function toggleStudent(id) { setExpanded((p) => ({ ...p, [id]: !p[id] })); }
+
+  // Elevii activi ≠ arhivele elevilor șterși (grupele numără doar activii)
+  const activeCount = studentsAll.filter((s) => !s.archived).length;
+  const archivedCount = totalStudents - activeCount;
 
   function createGroup() { manage('create_group', { name: `Grupa ${groups.length + 1}` }); }
   function renameGroup(g) {
@@ -511,9 +573,16 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
     }
   }
   function moveStudent(studentId, groupId) { manage('move_student', { studentId, groupId }); }
-  function removeStudent(studentId) {
+  function removeStudent(student) {
+    if (student.archived) {
+      // arhiva unui elev cu cont șters → eliminare DEFINITIVĂ a datelor păstrate
+      if (window.confirm(`Ștergi definitiv rezultatele păstrate ale elevului „${student.name}"? Contul lui a fost deja șters — după această acțiune datele nu mai pot fi recuperate.`)) {
+        manage('delete_archived', { archiveId: student.archiveId });
+      }
+      return;
+    }
     if (window.confirm('Ștergi elevul din lista ta? Asocierea va fi eliminată (contul elevului rămâne).')) {
-      manage('remove_student', { studentId });
+      manage('remove_student', { studentId: student.id });
     }
   }
 
@@ -524,7 +593,8 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
     whiteSpace: 'nowrap', transition: 'all 0.15s',
   });
 
-  const countLabel = `${totalStudents} ${totalStudents === 1 ? 'elev asociat' : 'elevi asociați'}`;
+  const countLabel = `${activeCount} ${activeCount === 1 ? 'elev asociat' : 'elevi asociați'}`
+    + (archivedCount ? ` · ${archivedCount} ${archivedCount === 1 ? 'cont șters' : 'conturi șterse'}` : '');
 
   return (
     <>

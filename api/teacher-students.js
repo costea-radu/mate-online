@@ -46,9 +46,21 @@ module.exports = async function handler(req, res) {
 
   if (linksErr) return res.status(500).json({ error: linksErr.message });
 
+  // 3b. Elevii ȘTERȘI (conturi dezactivate/eliminate) — rezultatele lor rămân
+  //     arhivate pentru acest mentor până când acesta le șterge definitiv.
+  let archived = [];
+  try {
+    const { data: arch } = await supabase
+      .from('archived_student_results')
+      .select('id, student_id, student_name, student_email, student_role, reason, results, extras, deleted_at')
+      .eq('mentor_id', userId)
+      .order('deleted_at', { ascending: false });
+    archived = arch || [];
+  } catch { /* tabelul poate lipsi până se rulează supabase/inactive_accounts.sql */ }
+
   const linkList = links || [];
   if (linkList.length === 0) {
-    return res.status(200).json({ role, students: [], results: [], groups });
+    return res.status(200).json({ role, students: [], results: [], groups, aiUsage: [], archived });
   }
 
   const studentIds = linkList.map((l) => l.student_id);
@@ -162,5 +174,5 @@ module.exports = async function handler(req, res) {
     // doar materiale reale din platformă (conversațiile fără material nu apar)
     .filter((r) => contentMap[r.content_id]);
 
-  return res.status(200).json({ role, students, results, groups, aiUsage });
+  return res.status(200).json({ role, students, results, groups, aiUsage, archived });
 };

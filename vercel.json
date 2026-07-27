@@ -9,6 +9,10 @@
     {
       "path": "/api/ai-notify?action=scan",
       "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/account-cleanup?action=run",
+      "schedule": "0 6 * * *"
     }
   ],
   "rewrites": [

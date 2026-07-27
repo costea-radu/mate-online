@@ -56,7 +56,7 @@ module.exports = async function handler(req, res) {
   if (teacherOnly.includes(action) && !isTeacher) {
     return res.status(403).json({ error: 'Doar profesorii pot gestiona grupe.' });
   }
-  if (action === 'remove_student' && !isMentor) {
+  if ((action === 'remove_student' || action === 'delete_archived') && !isMentor) {
     return res.status(403).json({ error: 'Acces interzis.' });
   }
 
@@ -130,6 +130,20 @@ module.exports = async function handler(req, res) {
       await supabase.from('profiles')
         .update({ teacher_id: null, teacher_name: null })
         .eq('id', studentId).eq('teacher_id', userId);
+      return res.status(200).json({ ok: true });
+    }
+
+    // Șterge DEFINITIV arhiva unui elev șters (rezultatele păstrate pentru
+    // acest mentor). Doar mentorul proprietar își poate șterge arhiva.
+    if (action === 'delete_archived') {
+      const { archiveId } = req.body;
+      if (!archiveId) return res.status(400).json({ error: 'archiveId obligatoriu' });
+      const { data: gone, error } = await supabase
+        .from('archived_student_results').delete()
+        .eq('id', archiveId).eq('mentor_id', userId)
+        .select('id');
+      if (error) throw error;
+      if (!gone || !gone.length) return res.status(404).json({ error: 'Arhiva nu există (sau nu îți aparține).' });
       return res.status(200).json({ ok: true });
     }
 

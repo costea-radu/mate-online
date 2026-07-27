@@ -1,4 +1,5 @@
 import { authHeaders } from '../lib/api';
+import { aiClient } from '../lib/aiClient';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -241,8 +242,9 @@ export default function Profile() {
     setDeleteLoading(true);
     setDeleteError('');
     try {
-      const { error } = await supabase.rpc('delete_user_account');
-      if (error) throw error;
+      // Prin API (nu prin RPC): serverul arhivează întâi rezultatele elevului
+      // pentru profesorii/părinții asociați, apoi șterge contul definitiv.
+      await aiClient.accountDelete();
       await signOut();
       navigate('/');
     } catch (err) {

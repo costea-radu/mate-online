@@ -98,6 +98,36 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe();
   }, [fetchProfile]);
 
+  // PING DE ACTIVITATE — politica de conturi inactive (12 luni → avertizare,
+  // +30 zile → ștergere). Orice sesiune validă actualizează last_active_at și
+  // ANULEAZĂ o eventuală ștergere programată, deci simpla autentificare
+  // salvează contul. Throttle: cel mult o dată la 12 ore per dispozitiv;
+  // cheia se scrie DOAR după o actualizare reușită (offline → reîncercăm).
+  useEffect(() => {
+    if (!user?.id) return;
+    const PING_KEY = 'em_activity_ping';
+    let last = 0;
+    try { last = Number(localStorage.getItem(PING_KEY) || 0); } catch { /* ignore */ }
+    if (Date.now() - last < 12 * 3600 * 1000) return;
+    supabase
+      .from('profiles')
+      .update({
+        last_active_at: new Date().toISOString(),
+        deletion_warned_at: null,
+        deletion_reminded_at: null,
+        deletion_scheduled_at: null,
+      })
+      .eq('id', user.id)
+      .then(({ error }) => {
+        if (error) {
+          // coloanele apar după rularea supabase/inactive_accounts.sql
+          console.warn('Ping activitate eșuat:', error.message);
+        } else {
+          try { localStorage.setItem(PING_KEY, String(Date.now())); } catch { /* ignore */ }
+        }
+      });
+  }, [user?.id]);
+
   // Reîmprospătează proactiv sesiunea când utilizatorul revine în tab / revine
   // online, ca tokenul să nu fie expirat la următoarea acțiune sau interogare
   // directă Supabase (altfel PostgREST respinge JWT-ul expirat cu 401).
