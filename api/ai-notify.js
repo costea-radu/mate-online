@@ -8,8 +8,90 @@
 //   action='scan'         → (admin/cron) evoluție/stagnare/scădere elevi → alerte
 //
 // CRON: GET /api/ai-notify?action=scan  (header x-vercel-cron sau ?secret=AI_CRON_SECRET)
+//
+// EMAIL (nou): dacă EMAIL_USER + EMAIL_APP_PASSWORD sunt setate în Vercel,
+//   scanarea zilnică trimite și:
+//   • un email-rezumat fiecărui profesor/părinte cu alertele elevilor lui
+//     (dezactivabil per profil prin profiles.email_alerts = false);
+//   • un rezumat zilnic al platformei către ADMIN_EMAIL
+//     (utilizatori noi, abonați, mesaje de contact, alertele create).
 // =====================================================================
 const ai = require('./_lib/ai');
+const mailer = require('./_lib/mailer');
+
+// ── Email-digest către mentori (profesori + părinți) ─────────────────────────
+async function emailMentors(supa, mentorAlerts) {
+  if (!mailer.enabled() || !mentorAlerts.size) return 0;
+  const ids = [...mentorAlerts.keys()];
+
+  // email_alerts poate lipsi dacă SQL-ul nu a fost rulat încă → reîncercăm fără el
+  let profs = null;
+  {
+    const r = await supa.from('profiles').select('id, email, full_name, email_alerts').in('id', ids);
+    if (r.error) {
+      const r2 = await supa.from('profiles').select('id, email, full_name').in('id', ids);
+      profs = r2.data;
+    } else profs = r.data;
+  }
+
+  let emailed = 0;
+  for (const p of profs || []) {
+    if (!p.email || p.email_alerts === false) continue;
+    const items = mentorAlerts.get(p.id) || [];
+    if (!items.length) continue;
+    const list = items.slice(0, 20).map((it) =>
+      `<li style="margin:7px 0"><strong>${mailer.escapeHtml(it.title)}</strong><br><span style="color:#5a6379">${mailer.escapeHtml(it.body || '')}</span></li>`
+    ).join('');
+    const html = mailer.template({
+      title: `Alertele elevilor tăi (${items.length})`,
+      preheader: items[0]?.title || '',
+      bodyHtml: `
+        <p>Salut${p.full_name ? ', ' + mailer.escapeHtml(String(p.full_name).split(' ')[0]) : ''}!</p>
+        <p>Profesorul Virtual a observat următoarele la elevii tăi:</p>
+        <ul style="padding-left:20px">${list}</ul>
+        <p style="margin-top:16px"><a href="https://examenmate.com/profil" style="display:inline-block;background:#17233f;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Vezi detaliile în cont</a></p>`,
+      footerNote: 'Primești aceste alerte fiindcă ai elevi asociați pe ExamenMate. Le poți opri din Contul meu → Setări.',
+    });
+    const r = await mailer.sendMail({ to: p.email, subject: `ExamenMate: ${items.length === 1 ? 'o alertă nouă' : items.length + ' alerte noi'} despre elevii tăi`, html });
+    if (r.ok) emailed++;
+    await mailer.sleep(150); // menajăm limita SMTP Gmail
+  }
+  return emailed;
+}
+
+// ── Rezumat zilnic către admin ───────────────────────────────────────────────
+async function emailAdminSummary(supa, { scanned, created, emailed }) {
+  if (!mailer.enabled()) return false;
+  const dayAgo = new Date(Date.now() - 86400 * 1000).toISOString();
+  const cnt = async (q) => { try { const { count } = await q; return count || 0; } catch { return 0; } };
+
+  const [total, newUsers, premium, contacts] = await Promise.all([
+    cnt(supa.from('profiles').select('*', { count: 'exact', head: true })),
+    cnt(supa.from('profiles').select('*', { count: 'exact', head: true }).gte('created_at', dayAgo)),
+    cnt(supa.from('profiles').select('*', { count: 'exact', head: true }).eq('subscription_status', 'active')),
+    cnt(supa.from('contact_messages').select('*', { count: 'exact', head: true }).gte('created_at', dayAgo)),
+  ]);
+
+  const row = (label, val) =>
+    `<tr><td style="padding:8px 12px;border-bottom:1px solid #eef1f6;color:#5a6379">${label}</td><td style="padding:8px 12px;border-bottom:1px solid #eef1f6;text-align:right;font-weight:700;color:#17233f">${val}</td></tr>`;
+  const html = mailer.template({
+    title: 'Rezumatul zilnic ExamenMate',
+    preheader: `${newUsers} utilizatori noi · ${premium} abonați activi`,
+    bodyHtml: `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eef1f6;border-radius:10px;border-collapse:separate;overflow:hidden">
+        ${row('Utilizatori (total)', total)}
+        ${row('Utilizatori noi (24h)', newUsers)}
+        ${row('Abonați premium activi', premium)}
+        ${row('Mesaje de contact (24h)', contacts)}
+        ${row('Elevi scanați azi', scanned)}
+        ${row('Alerte create (in-app)', created)}
+        ${row('Emailuri trimise mentorilor', emailed)}
+      </table>
+      <p style="margin-top:14px"><a href="https://examenmate.com/admin" style="color:#1d4ed8">Deschide panoul de admin →</a></p>`,
+  });
+  const r = await mailer.sendMail({ to: mailer.ADMIN_EMAIL, subject: `📊 ExamenMate azi: +${newUsers} utilizatori, ${created} alerte`, html });
+  return !!r.ok;
+}
 
 // ── Scanare progres: stagnare / evoluție / scădere → profesori ȘI părinți ──────
 async function scan(supa) {
@@ -17,7 +99,11 @@ async function scan(supa) {
   const { data: rows } = await supa.from('ai_skill_mastery')
     .select('user_id, category, topic, mastery, attempts, last_interaction')
     .gte('last_interaction', since);
-  if (!rows || !rows.length) return { scanned: 0, created: 0 };
+  if (!rows || !rows.length) {
+    const emptyStats = { scanned: 0, created: 0, emailed: 0 };
+    emptyStats.adminEmail = await emailAdminSummary(supa, emptyStats);
+    return emptyStats;
+  }
 
   const userIds = [...new Set(rows.map((r) => r.user_id))];
   // snapshoturile anterioare
@@ -43,6 +129,7 @@ async function scan(supa) {
 
   let created = 0;
   const upserts = [];
+  const mentorAlerts = new Map(); // mentorId → [{title, body}] pentru email-digest
   for (const r of rows) {
     const cur = Number(r.mastery);
     const prev = prevMap.get(`${r.user_id}:${r.topic}`);
@@ -73,7 +160,12 @@ async function scan(supa) {
         data: { studentId: r.user_id, topic: r.topic, category: r.category, mastery: cur, url: '/profil' },
         dedupeKey: `${kind}:${r.user_id}:${r.category || 'general'}:${r.topic}`, dedupeDays: 7,
       });
-      if (ok) created++;
+      if (ok) {
+        created++;
+        // email-digest doar pentru alertele NOI (nededuplicate)
+        if (!mentorAlerts.has(mId)) mentorAlerts.set(mId, []);
+        mentorAlerts.get(mId).push({ title, body });
+      }
     }
   }
 
@@ -81,7 +173,16 @@ async function scan(supa) {
   for (let i = 0; i < upserts.length; i += 200) {
     await supa.from('ai_mastery_snapshots').upsert(upserts.slice(i, i + 200), { onConflict: 'user_id,topic' });
   }
-  return { scanned: rows.length, created };
+
+  // Emailuri (best-effort — nu blochează scanarea dacă SMTP-ul dă eroare)
+  let emailed = 0;
+  try { emailed = await emailMentors(supa, mentorAlerts); }
+  catch (e) { console.error('ai-notify: email mentori eșuat:', e.message); }
+  let adminEmail = false;
+  try { adminEmail = await emailAdminSummary(supa, { scanned: rows.length, created, emailed }); }
+  catch (e) { console.error('ai-notify: rezumat admin eșuat:', e.message); }
+
+  return { scanned: rows.length, created, emailed, adminEmail };
 }
 
 // ── Listă unificată: personale + anunțuri ─────────────────────────────────────

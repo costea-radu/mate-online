@@ -1,12 +1,6 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { createClient } = require('@supabase/supabase-js');
-
-// IMPORTANT: dezactivăm body parser-ul Vercel pentru verificarea semnăturii Stripe
-module.exports.config = {
-  api: {
-    bodyParser: false,
-  },
-};
+const mailer = require('./_lib/mailer');
 
 async function getRawBody(req) {
   return new Promise((resolve, reject) => {
@@ -17,7 +11,26 @@ async function getRawBody(req) {
   });
 }
 
-module.exports = async function handler(req, res) {
+// Alertă pe email către admin (best-effort — nu blochează niciodată webhookul).
+async function alertAdmin({ emoji, subject, lines }) {
+  if (!mailer.enabled()) return;
+  try {
+    const html = mailer.template({
+      title: subject,
+      bodyHtml: lines.map((l) => `<p style="margin:6px 0">${l}</p>`).join(''),
+      footerNote: 'Alertă automată de la webhookul Stripe al ExamenMate.',
+    });
+    await mailer.sendMail({ to: mailer.ADMIN_EMAIL, subject: `${emoji} ${subject}`, html });
+  } catch (e) { console.error('stripe-webhook: alertă email eșuată:', e.message); }
+}
+
+async function profileByCustomer(supabase, customerId) {
+  const { data } = await supabase.from('profiles')
+    .select('full_name, email').eq('stripe_customer_id', customerId).single();
+  return data || {};
+}
+
+const handler = async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).send('Method Not Allowed');
   }
@@ -68,6 +81,19 @@ module.exports = async function handler(req, res) {
           console.error('Supabase update error (checkout.session.completed):', error);
           return res.status(500).send('Database update failed');
         }
+
+        // 🔔 Email către admin: abonament nou
+        const { data: prof } = await supabase.from('profiles').select('full_name, email').eq('id', userId).single();
+        const amount = session.amount_total != null ? `${(session.amount_total / 100).toFixed(2)} ${String(session.currency || '').toUpperCase()}` : '—';
+        await alertAdmin({
+          emoji: '🎉',
+          subject: 'Abonament NOU pe ExamenMate',
+          lines: [
+            `<strong>${mailer.escapeHtml(prof?.full_name || 'Utilizator')}</strong> (${mailer.escapeHtml(prof?.email || session.customer_details?.email || '?')})`,
+            `Sumă: <strong>${amount}</strong>`,
+            `Stripe customer: <code>${mailer.escapeHtml(String(customerId || ''))}</code>`,
+          ],
+        });
         break;
       }
 
@@ -104,6 +130,14 @@ module.exports = async function handler(req, res) {
           console.error('Supabase update error (customer.subscription.deleted):', error);
           return res.status(500).send('Database update failed');
         }
+
+        // 🔔 Email către admin: abonament anulat
+        const prof = await profileByCustomer(supabase, customerId);
+        await alertAdmin({
+          emoji: '📉',
+          subject: 'Abonament ANULAT pe ExamenMate',
+          lines: [`<strong>${mailer.escapeHtml(prof.full_name || 'Utilizator')}</strong> (${mailer.escapeHtml(prof.email || '?')}) și-a anulat abonamentul.`],
+        });
         break;
       }
 
@@ -120,6 +154,14 @@ module.exports = async function handler(req, res) {
           console.error('Supabase update error (invoice.payment_failed):', error);
           return res.status(500).send('Database update failed');
         }
+
+        // 🔔 Email către admin: plată eșuată
+        const prof = await profileByCustomer(supabase, customerId);
+        await alertAdmin({
+          emoji: '⚠️',
+          subject: 'Plată EȘUATĂ pe ExamenMate',
+          lines: [`Plata pentru <strong>${mailer.escapeHtml(prof.full_name || 'un utilizator')}</strong> (${mailer.escapeHtml(prof.email || '?')}) a eșuat — abonamentul a fost dezactivat.`],
+        });
         break;
       }
 
@@ -132,4 +174,13 @@ module.exports = async function handler(req, res) {
   }
 
   return res.status(200).json({ received: true });
+};
+
+module.exports = handler;
+// IMPORTANT: config-ul trebuie atașat DUPĂ module.exports = handler — în
+// versiunea veche era setat înainte și era suprascris (bodyParser rămânea activ).
+module.exports.config = {
+  api: {
+    bodyParser: false,
+  },
 };
