@@ -66,23 +66,89 @@ async function accessToken(scope) {
   return data.access_token;
 }
 
-async function gJson(url, { scope, body = null }) {
+async function gJson(url, { scope, body = null, method = null }) {
   const token = await accessToken(scope);
   const res = await fetch(url, {
-    method: body ? 'POST' : 'GET',
+    method: method || (body ? 'POST' : 'GET'),
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
+  // unele apeluri (ex. sitemaps.submit) răspund 204 fără corp
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error?.message || `Google API ${res.status}`);
   return data;
 }
 
 // ─── Search Console ──────────────────────────────────────────────────────────
-const GSC_SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly';
+// Scope COMPLET (nu doar readonly): necesar pentru sitemaps.submit (Faza 1 din
+// GHID_AGENT_SEO_ACTIUNI.md). Contul de serviciu are permisiune „Full" în GSC.
+const GSC_SCOPE = 'https://www.googleapis.com/auth/webmasters';
 async function gscQuery(body) {
   const url = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(GSC_SITE)}/searchAnalytics/query`;
   return gJson(url, { scope: GSC_SCOPE, body });
+}
+
+// Inspecția unei pagini: cum o vede Google (indexată? canonical? probleme?).
+async function urlInspect(inspectionUrl) {
+  const data = await gJson('https://searchconsole.googleapis.com/v1/urlInspection/index:inspect', {
+    scope: GSC_SCOPE,
+    body: { inspectionUrl, siteUrl: GSC_SITE },
+  });
+  const r = data.inspectionResult || {};
+  const idx = r.indexStatusResult || {};
+  return {
+    url: inspectionUrl,
+    verdict: idx.verdict || null,               // PASS / NEUTRAL / FAIL
+    coverageState: idx.coverageState || null,   // ex. „Submitted and indexed"
+    indexingState: idx.indexingState || null,
+    robotsTxtState: idx.robotsTxtState || null,
+    pageFetchState: idx.pageFetchState || null,
+    lastCrawlTime: idx.lastCrawlTime || null,
+    googleCanonical: idx.googleCanonical || null,
+    userCanonical: idx.userCanonical || null,
+    inSitemaps: idx.sitemap || [],
+    richResults: r.richResultsResult?.verdict || null,
+    inspectionLink: r.inspectionResultLink || null,
+  };
+}
+
+// Trimite sitemap-ul către Search Console (înlocuiește vechiul „ping", retras).
+async function submitSitemap(feedUrl) {
+  const url = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(GSC_SITE)}/sitemaps/${encodeURIComponent(feedUrl)}`;
+  await gJson(url, { scope: GSC_SCOPE, method: 'PUT' });
+  return { submitted: feedUrl };
+}
+
+// ─── PageSpeed Insights (Core Web Vitals) ────────────────────────────────────
+// Cheie gratuită din Google Cloud (PAGESPEED_API_KEY) — opțională, dar fără ea
+// limita anonimă e foarte mică.
+async function psiReport(url, strategy = 'mobile') {
+  const key = process.env.PAGESPEED_API_KEY || '';
+  const qs = new URLSearchParams({ url, strategy, category: 'performance' });
+  qs.append('category', 'seo');
+  if (key) qs.set('key', key);
+  const res = await fetch(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${qs}`, {
+    signal: AbortSignal.timeout(90_000), // Lighthouse rulează zeci de secunde
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error?.message || `PageSpeed API ${res.status}`);
+  const lr = data.lighthouseResult || {};
+  const audit = (id) => lr.audits?.[id]?.displayValue || null;
+  const score = (c) => (lr.categories?.[c]?.score != null ? Math.round(lr.categories[c].score * 100) : null);
+  const opportunities = Object.values(lr.audits || {})
+    .filter((a) => a.details?.type === 'opportunity' && (a.details.overallSavingsMs || 0) > 100)
+    .sort((a, b) => (b.details.overallSavingsMs || 0) - (a.details.overallSavingsMs || 0))
+    .slice(0, 5)
+    .map((a) => ({ title: a.title, savingsMs: Math.round(a.details.overallSavingsMs) }));
+  const field = data.loadingExperience?.metrics || {};
+  const fm = (k) => (field[k] ? { value: field[k].percentile, category: field[k].category } : null);
+  return {
+    url, strategy,
+    scores: { performance: score('performance'), seo: score('seo') },
+    lab: { FCP: audit('first-contentful-paint'), LCP: audit('largest-contentful-paint'), CLS: audit('cumulative-layout-shift'), TBT: audit('total-blocking-time'), speedIndex: audit('speed-index') },
+    fieldData: { LCP: fm('LARGEST_CONTENTFUL_PAINT_MS'), CLS: fm('CUMULATIVE_LAYOUT_SHIFT_SCORE'), INP: fm('INTERACTION_TO_NEXT_PAINT') },
+    opportunities,
+  };
 }
 
 // ─── GA4 (Analytics Data API) ────────────────────────────────────────────────
@@ -171,4 +237,5 @@ async function contextBlock() {
   return parts.join('\n\n');
 }
 
-module.exports = { enabled, gscQuery, ga4Run, contextBlock, GSC_SITE };
+const ga4Enabled = () => !!GA4_PROPERTY;
+module.exports = { enabled, ga4Enabled, gscQuery, ga4Run, urlInspect, submitSitemap, psiReport, contextBlock, GSC_SITE };

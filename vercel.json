@@ -13,12 +13,48 @@
     {
       "path": "/api/account-cleanup?action=run",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/seo-cron?action=snapshot",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/seo-cron?action=autorun",
+      "schedule": "0 6 * * 1"
     }
   ],
   "rewrites": [
     {
       "source": "/api/(.*)",
       "destination": "/api/$1"
+    },
+    {
+      "source": "/sitemap.xml",
+      "destination": "/api/sitemap"
+    },
+    {
+      "source": "/",
+      "destination": "/api/page-meta?route=/"
+    },
+    {
+      "source": "/:page(evaluare-nationala|manuale|rezolvari|discutii|profesor-virtual|tema|biblioteca-utilizatorilor|preturi|faq|despre-noi|contact|politica-confidentialitate|termeni-conditii|politica-cookies|politica-retur)",
+      "destination": "/api/page-meta?route=/:page"
+    },
+    {
+      "source": "/bacalaureat",
+      "destination": "/api/page-meta?route=/bacalaureat"
+    },
+    {
+      "source": "/bacalaureat/:profil",
+      "destination": "/api/page-meta?route=/bacalaureat/:profil"
+    },
+    {
+      "source": "/clase/:grade",
+      "destination": "/api/page-meta?route=/clase/:grade"
+    },
+    {
+      "source": "/rezolvari/:slug",
+      "destination": "/api/page-meta?route=/rezolvari/:slug"
     },
     {
       "source": "/(.*)",

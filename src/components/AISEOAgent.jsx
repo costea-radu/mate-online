@@ -25,9 +25,10 @@ export default function AISEOAgent({ box }) {
   const [provider, setProvider] = useState(null);
   const [googleOn, setGoogleOn] = useState(null);
   const [nlStatus, setNlStatus] = useState(null);
+  const [propStatus, setPropStatus] = useState(null);
 
   async function run(task, text = '') {
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setPropStatus(null);
     const userMsg = text || PRESETS.find((p) => p.id === task)?.label || task;
     try {
       const r = await aiClient.seoAgent({
@@ -38,6 +39,12 @@ export default function AISEOAgent({ box }) {
       if (typeof r.googleConnected === 'boolean') setGoogleOn(r.googleConnected);
       setHistory((h) => [...h, { role: 'user', content: userMsg }, { role: 'assistant', content: r.text }]);
       setInput('');
+      // Faza 1: agentul poate trimite PROPUNERI (meta, redenumiri, sitemap) —
+      // anunțăm coada de aprobare de mai jos să se reîncarce.
+      if (r.proposals > 0) {
+        setPropStatus(`Agentul a trimis ${r.proposals === 1 ? 'o propunere' : r.proposals + ' propuneri'} în coada de aprobare (secțiunea „Coada de aprobare" de mai jos). Nimic nu se aplică fără OK-ul tău.`);
+        window.dispatchEvent(new CustomEvent('seo-actions-updated'));
+      }
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   }
@@ -86,7 +93,8 @@ export default function AISEOAgent({ box }) {
       </h3>
       <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
         Analizează site-ul (folosind conținutul real din baza de date{googleOn ? ' + datele reale din Google Search Console/GA4' : ''}) și produce materiale gata de folosit.
-        Alege o sarcină rapidă sau scrie liber (ex: „scrie articolul despre formulele de arii pentru EN").
+        Are și unelte de ACȚIUNE: poate propune meta noi pe pagini, redenumiri de materiale și retrimiterea sitemapului — propunerile apar în coada de aprobare de mai jos și se aplică doar cu OK-ul tău.
+        Alege o sarcină rapidă sau scrie liber (ex: „propune meta pentru paginile cu CTR mic").
         {provider && <span style={{ color: 'var(--text-muted)' }}> · model: {provider}</span>}
         {googleOn === false && <span style={{ color: '#b26a00' }}> · ⚠️ Google neconectat (vezi GHID_EMAIL_SI_SEO.md)</span>}
       </p>
@@ -111,7 +119,8 @@ export default function AISEOAgent({ box }) {
       </div>
 
       {error && <div style={{ marginTop: 12, padding: 12, background: '#fdecea', color: '#b71c1c', borderRadius: 8, fontSize: '.85rem' }}>⚠️ {error}</div>}
-      {loading && <div style={{ marginTop: 12, fontSize: '.85rem', color: 'var(--text-muted)' }}>Agentul analizează site-ul…</div>}
+      {loading && <div style={{ marginTop: 12, fontSize: '.85rem', color: 'var(--text-muted)' }}>Agentul analizează site-ul (poate folosi uneltele: date GSC, inspecție pagini, statistici DB)…</div>}
+      {propStatus && <div style={{ marginTop: 12, padding: 12, background: '#fff7e0', color: '#8a6d00', borderRadius: 8, fontSize: '.85rem' }}>🔔 {propStatus}</div>}
       {nlStatus && <div style={{ marginTop: 12, padding: 10, background: '#f0f6ff', color: 'var(--navy)', borderRadius: 8, fontSize: '.85rem' }}>📨 {nlStatus}</div>}
 
       {history.length > 0 && (

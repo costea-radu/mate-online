@@ -93,6 +93,9 @@ export const aiClient = {
   exerciseAgent: (payload) => post('/api/ai-exercise-agent', payload),
   seoAgent: (payload) => post('/api/ai-seo-agent', payload),
 
+  // Coada de aprobare a agentului SEO (admin): list / approve / reject / revert
+  seoActions: (payload) => post('/api/seo-actions', payload),
+
   // Newsletter (admin): campanii scrise de agentul SEO, trimise pe email
   newsletter: (payload) => post('/api/newsletter', payload),
 

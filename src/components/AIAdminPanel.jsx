@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { aiClient } from '../lib/aiClient';
 import AIExerciseAgent from './AIExerciseAgent';
 import AISEOAgent from './AISEOAgent';
+import SEOActionsQueue from './SEOActionsQueue';
 
 export default function AIAdminPanel() {
   const [stats, setStats] = useState(null);
@@ -90,6 +91,7 @@ export default function AIAdminPanel() {
 
     <AIExerciseAgent box={box} />
     <AISEOAgent box={box} />
+    <SEOActionsQueue box={box} />
     <BroadcastBox box={box} />
     </>
   );

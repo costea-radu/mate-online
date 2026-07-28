@@ -69,8 +69,19 @@ Două principii:
 
 ## FAZA 1 — Fundația: meta dinamice + unelte + coada de aprobare
 
+> **✅ FAZA 1 IMPLEMENTATĂ (28 iulie 2026).** Fișierele: `supabase/seo_agent.sql`
+> (tabelele 1a — DE RULAT MANUAL în SQL Editor), `api/page-meta.js` (1b),
+> `api/sitemap.js` + `public/robots.txt` (1c), bucla de tool-use în
+> `api/_lib/claude.js` + uneltele în `api/_lib/seo.js` (1d — inclusiv
+> `rename_material` și scope-ul complet `webmasters` în `google.js`),
+> `api/seo-actions.js` + `src/components/SEOActionsQueue.jsx` (1e — coada de
+> aprobare, cu revert), `api/seo-cron.js` + cron-urile din `vercel.json` (1f).
+> După deploy: rulează SQL-ul, apoi fă backfill-ul istoricului GSC:
+> `/api/seo-cron?action=snapshot&days=28&secret=AI_CRON_SECRET`.
+> Teste: `test/seo.test.js` (injectarea meta) — `npm test`.
+
 > **✅ Deja implementat (iulie 2026):** structura site-ului din promptul agentului se
-> generează acum DINAMIC — vezi `siteStructure()` în `api/ai-seo-agent.js`: rute statice
+> generează acum DINAMIC — vezi `siteStructure()` (mutat în `api/_lib/seo.js`): rute statice
 > + paginile pe clasă care au materiale în DB + articolele publicate din tabelul
 > `articole` + URL-urile din `sitemap.xml` (ultimele două se activează automat când
 > Fazele 1–2 le creează). Agentul nu mai depinde de o listă scrisă de mână.

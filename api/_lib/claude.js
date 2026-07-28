@@ -25,54 +25,117 @@ async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens 
     return { text: r.text, usage: r.usage, provider: 'fallback:' + (ai.CHAT_MODEL || 'openai') };
   }
 
-  const payload = {
+  const r = await apiCall({
     model: MODEL,
     system,
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
-  };
-
-  async function callOnce(extra) {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': KEY,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      // Notă: modelele Claude recente nu mai acceptă `temperature` — nu îl trimitem.
-      body: JSON.stringify({ ...payload, ...extra }),
-    });
-    const data = await res.json().catch(() => ({}));
-    const text = (data.content || []).filter((bl) => typeof bl.text === 'string').map((bl) => bl.text).join('');
-    return { ok: res.ok, status: res.status, data, text, stop: data.stop_reason || null };
-  }
-
-  // Modelele Claude recente „gândesc” înainte să răspundă, iar gândirea
-  // consumă din max_tokens (de aceea buget mic → text gol, stop=max_tokens).
-  // Strategie: (1) cerem gândirea dezactivată — tot bugetul merge pe răspuns;
-  // (2) dacă modelul nu permite, dăm buget suplimentar pentru gândire;
-  // (3) dacă și așa a consumat tot, o singură reîncercare cu buget dublu.
-  let r = await callOnce({ max_tokens: maxTokens, thinking: { type: 'disabled' } });
-  if (!r.ok && r.status === 400) {
-    console.warn('claude: thinking:disabled respins (%s) — reîncerc cu buget extins', r.data?.error?.message || r.status);
-    r = await callOnce({ max_tokens: maxTokens + 10000 });
-  }
-  if (r.ok && r.stop === 'max_tokens' && !r.text.trim()) {
-    console.warn('claude: gândirea a consumat tot bugetul — reîncerc cu buget dublu');
-    r = await callOnce({ max_tokens: Math.min((maxTokens + 10000) * 2, 64000) });
-  }
-
-  if (!r.ok) {
-    const msg = r.data?.error?.message || `Claude API ${r.status}`;
-    const err = new Error(msg); err.status = r.status === 429 ? 429 : 502;
-    throw err;
-  }
+    max_tokens: maxTokens,
+  });
 
   const usage = {
     prompt_tokens: r.data.usage?.input_tokens || 0,
     completion_tokens: r.data.usage?.output_tokens || 0,
   };
   return { text: r.text, usage, provider: MODEL, stopReason: r.stop };
+}
+
+// ─── Apelul brut către API (partajat de chatClaude și chatClaudeTools) ───────
+async function apiCallOnce(body) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': KEY,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    // Notă: modelele Claude recente nu mai acceptă `temperature` — nu îl trimitem.
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  const text = (data.content || []).filter((bl) => typeof bl.text === 'string').map((bl) => bl.text).join('');
+  return { ok: res.ok, status: res.status, data, text, stop: data.stop_reason || null };
+}
+
+// Modelele Claude recente „gândesc” înainte să răspundă, iar gândirea
+// consumă din max_tokens (de aceea buget mic → text gol, stop=max_tokens).
+// Strategie: (1) cerem gândirea dezactivată — tot bugetul merge pe răspuns;
+// (2) dacă modelul nu permite, dăm buget suplimentar pentru gândire;
+// (3) dacă și așa a consumat tot (fără unelte cerute), reîncercare cu buget dublu.
+async function apiCall(body) {
+  const maxTokens = body.max_tokens || 3000;
+  let r = await apiCallOnce({ ...body, max_tokens: maxTokens, thinking: { type: 'disabled' } });
+  if (!r.ok && r.status === 400) {
+    console.warn('claude: thinking:disabled respins (%s) — reîncerc cu buget extins', r.data?.error?.message || r.status);
+    r = await apiCallOnce({ ...body, max_tokens: maxTokens + 10000 });
+  }
+  const wantsTool = (r.data?.content || []).some((bl) => bl.type === 'tool_use');
+  if (r.ok && r.stop === 'max_tokens' && !r.text.trim() && !wantsTool) {
+    console.warn('claude: gândirea a consumat tot bugetul — reîncerc cu buget dublu');
+    r = await apiCallOnce({ ...body, max_tokens: Math.min((maxTokens + 10000) * 2, 64000) });
+  }
+  if (!r.ok) {
+    const msg = r.data?.error?.message || `Claude API ${r.status}`;
+    const err = new Error(msg); err.status = r.status === 429 ? 429 : 502;
+    throw err;
+  }
+  return r;
+}
+
+// ─── Bucla agentică cu UNELTE (tool use) — Faza 1, GHID_AGENT_SEO_ACTIUNI ────
+// Rulează conversația cât timp modelul cere unelte: execută funcția prin
+// `executeTool(name, input)`, adaugă rezultatul în conversație și continuă.
+// `executeTool` întoarce un string (rezultatul pentru model); erorile lui devin
+// text de eroare pentru model (bucla nu se oprește la o unealtă eșuată).
+// Se oprește după `maxIters` runde de unelte, cu o cerere finală de raport.
+async function chatClaudeTools({ system, messages = [], tools = [], executeTool, maxTokens = 3000, maxIters = 8 }) {
+  if (!KEY) {
+    const e = new Error('Uneltele agentului au nevoie de ANTHROPIC_API_KEY (providerul fallback nu suportă bucla de unelte).');
+    e.status = 501; e.code = 'NO_ANTHROPIC_KEY';
+    throw e;
+  }
+  const msgs = messages.map((m) => ({ role: m.role, content: m.content }));
+  const usage = { prompt_tokens: 0, completion_tokens: 0 };
+  const track = (r) => {
+    usage.prompt_tokens += r.data.usage?.input_tokens || 0;
+    usage.completion_tokens += r.data.usage?.output_tokens || 0;
+  };
+  let toolCalls = 0;
+  let lastText = '';
+
+  for (let iter = 0; iter < maxIters; iter++) {
+    const r = await apiCall({ model: MODEL, system, messages: msgs, tools, max_tokens: maxTokens });
+    track(r);
+    const content = r.data.content || [];
+    if (r.text.trim()) lastText = r.text;
+    const uses = content.filter((bl) => bl.type === 'tool_use');
+    if (r.stop !== 'tool_use' || !uses.length) {
+      return { text: lastText, usage, provider: MODEL, toolCalls, stopReason: r.stop };
+    }
+
+    // Păstrăm conținutul asistentului EXACT cum a venit (inclusiv blocurile de
+    // gândire, dacă există) — API-ul cere asta pentru continuarea buclei.
+    msgs.push({ role: 'assistant', content });
+    const results = [];
+    for (const u of uses) {
+      toolCalls++;
+      let out;
+      try { out = await executeTool(u.name, u.input || {}); }
+      catch (err) { out = `EROARE la ${u.name}: ${err.message}`; }
+      results.push({ type: 'tool_result', tool_use_id: u.id, content: String(out ?? '').slice(0, 20000) });
+    }
+    if (iter === maxIters - 1) {
+      results.push({ type: 'text', text: 'Ai atins limita de unelte pentru această rulare. Încheie ACUM cu raportul final (fără alte unelte); propunerile trimise deja rămân în coada de aprobare.' });
+    }
+    msgs.push({ role: 'user', content: results });
+  }
+
+  // Plafonul de iterații atins → o ultimă cerere pentru concluzie.
+  const fin = await apiCall({ model: MODEL, system, messages: msgs, tools, max_tokens: maxTokens });
+  track(fin);
+  return {
+    text: fin.text.trim() || lastText || '(Limita de unelte a fost atinsă — vezi propunerile din coada de aprobare.)',
+    usage, provider: MODEL, toolCalls, stopReason: 'max_iterations',
+  };
 }
 
 // Extrage JSON (obiect sau array) dintr-un răspuns de model, tolerant la
@@ -118,4 +181,4 @@ function closeAndParse(input) {
   return null;
 }
 
-module.exports = { chatClaude, extractJson, MODEL, HAS_KEY: !!KEY };
+module.exports = { chatClaude, chatClaudeTools, extractJson, MODEL, HAS_KEY: !!KEY };

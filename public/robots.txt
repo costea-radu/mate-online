@@ -1,0 +1,18 @@
+# ExamenMate — robots.txt (Faza 1c din GHID_AGENT_SEO_ACTIUNI.md)
+# Paginile publice sunt permise; admin, cont și viewerele (au nevoie de
+# stare din aplicație) nu au ce căuta în index.
+
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /profil
+Disallow: /autentificare
+Disallow: /inregistrare
+Disallow: /resetare-parola
+Disallow: /asociere
+Disallow: /exercitiu
+Disallow: /exercitiu-ai
+Disallow: /pdf-viewer
+Disallow: /api/
+
+Sitemap: https://examenmate.com/sitemap.xml
