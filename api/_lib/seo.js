@@ -1,5 +1,5 @@
 // =====================================================================
-// api/_lib/seo.js — NUCLEUL agentului SEO care ACȚIONEAZĂ (Faza 1 din
+// api/_lib/seo.js — NUCLEUL agentului SEO care ACȚIONEAZĂ (Fazele 1–2 din
 // GHID_AGENT_SEO_ACTIUNI.md). Partajat de:
 //   • api/ai-seo-agent.js  (rulare interactivă din admin)
 //   • api/seo-cron.js      (snapshot zilnic GSC + rulare automată săptămânală)
@@ -10,12 +10,25 @@
 //      rânduri `proposed` în `seo_actions` — execuția are loc EXCLUSIV după
 //      aprobarea adminului (executeAction / revertAction).
 //   2. Singura cale de modificare a site-ului este baza de date Supabase
-//      (seo_meta, content, rezolvari) — zero acces la cod sau deploy.
+//      (seo_meta, content, rezolvari, articole) — zero acces la cod sau deploy.
+//
+// FAZA 2 (motorul de conținut): publish_article / update_article scriu în
+// tabelul `articole` (supabase/articole.sql); articolele apar pe pagina
+// Rezolvări și pe /rezolvari/{slug}, servite SSR de api/page-meta.js, cu
+// HTML generat din markdown de api/_lib/markdown.js (escape-first, fără XSS).
 // =====================================================================
 const claude = require('./claude');
 const google = require('./google');
 const { signedUrlFromPublic } = require('./http');
 const { pdfText } = require('./pdftext');
+const { mdToHtml, stripLeadingTitle, mdExcerpt, validSlug } = require('./markdown');
+
+// ─── FAZA 2 — articolele din pagina Rezolvări ────────────────────────────────
+const ARTICLE_KINDS = ['articol', 'rezolvare', 'explicatie'];
+const ARTICLE_CATEGORIES = [
+  'general', 'clasa-5', 'clasa-6', 'clasa-7', 'clasa-8', 'clasa-9',
+  'clasa-10', 'clasa-11', 'clasa-12', 'evaluare-nationala', 'bacalaureat',
+];
 
 const SITE = (process.env.SITE_ORIGIN && process.env.SITE_ORIGIN !== '*')
   ? process.env.SITE_ORIGIN.replace(/\/$/, '')
@@ -124,10 +137,10 @@ async function contentContext(supa) {
 const TASKS = {
   audit: 'Fă un AUDIT SEO on-page al site-ului pe baza contextului. Identifică problemele probabile (titluri, meta, structură, conținut subțire, interlinking, viteze) și dă o listă de acțiuni concrete, prioritizate (impact/efort). Dacă adminul a lipit conținutul unei pagini, auditeaz-o în detaliu. Folosește uneltele (fetch_page, url_inspect, psi_report, get_seo_meta) ca să verifici realitatea, nu presupuneri.',
   meta: 'Scrie META TITLE (max 60 caractere) și META DESCRIPTION (max 155 caractere) în română, optimizate pentru CTR, pentru fiecare pagină/categorie din context (sau pentru pagina lipită de admin). Verifică întâi cu get_seo_meta ce e deja setat și cu gsc_query ce interogări primește fiecare pagină, apoi PROPUNE modificările prin unealta set_page_meta (nu doar în text).',
-  blog: 'Propune 10 idei de ARTICOLE DE BLOG cu potențial SEO (cuvinte cheie căutate de elevi/părinți: evaluare națională, bacalaureat, formule etc.). Pentru fiecare: titlu, cuvânt-cheie principal, intenția de căutare, schiță H2-uri. Ancorează ideile în interogările reale din gsc_query. Dacă adminul cere un articol anume, scrie-l complet. (Publicarea automată vine în Faza 2.)',
+  blog: 'Scrie CONȚINUT pentru pagina Rezolvări (articole SEO, rezolvări scrise pas cu pas, explicații de noțiuni). Fluxul: (1) gsc_query — ce caută oamenii și pentru ce NU există pagină dedicată (prioritatea #1: cerere dovedită); (2) list_articles — ce există deja, ca să nu dublezi; (3) read_material — bazează rezolvările/explicațiile pe materialele REALE din site; (4) scrie articolul COMPLET (substanță: explicație + exemple + formule LaTeX + linkuri interne + tabele unde ajută) și trimite-l prin publish_article, cu materialele folosite în sources. Ține cont de calendarul școlar (simulări feb–mar, EN+BAC iunie — publică cu 2–3 luni înainte). Dacă adminul cere doar idei, dă lista (titlu + cuvânt cheie + intenție + schiță H2) fără să publici; dacă cere un articol anume, scrie-l și propune-l.',
   social: 'Creează conținut SOCIAL MEDIA pentru platfomă: 5 postări Facebook/Instagram (text + idee vizual) și 3 idei TikTok/Reels pentru elevi. Ton prietenos, românesc, orientat pe examene. (Postarea automată vine în Faza 3.)',
   keywords: 'Fă o listă de CUVINTE CHEIE (română) pe care ExamenMate ar trebui să le țintească, grupate pe intenție (informațional/tranzacțional) și pe pagini-țintă existente. Include long-tail specifice claselor 5–12, EN și BAC. Pornește de la interogările reale din gsc_query (inclusiv pozițiile 5–20 cu impresii mari).',
-  performance: 'Analizează PERFORMANȚA REALĂ din datele Google (Search Console și, dacă există, GA4): tendința clicurilor/impresiilor față de perioada anterioară, interogările și paginile câștigătoare, OPORTUNITĂȚILE (poziții 5–20 cu impresii mari — ce pagini de optimizat ca să urce în top 3), paginile cu impresii mari și CTR mic (de rescris meta). Folosește gsc_query pentru detalii pe interogările/paginile care contează. Pentru fiecare oportunitate clară, trimite o propunere concretă prin set_page_meta sau rename_material, cu explicația în `note`. Încheie cu un plan pe 2 săptămâni și cu lista propunerilor trimise. Dacă datele Google lipsesc, spune exact asta și recomandă conectarea lor.',
+  performance: 'Analizează PERFORMANȚA REALĂ din datele Google (Search Console și, dacă există, GA4): tendința clicurilor/impresiilor față de perioada anterioară, interogările și paginile câștigătoare, OPORTUNITĂȚILE (poziții 5–20 cu impresii mari — ce pagini de optimizat ca să urce în top 3), paginile cu impresii mari și CTR mic (de rescris meta), interogările FĂRĂ pagină dedicată (candidate la articol nou), articolele care stagnează/pierd poziții (candidate la refresh). Folosește gsc_query pentru detalii pe interogările/paginile care contează. Pentru fiecare oportunitate clară, trimite o propunere concretă prin set_page_meta / rename_material / publish_article / update_article, cu explicația în `note`. Încheie cu un plan pe 2 săptămâni și cu lista propunerilor trimise. Dacă datele Google lipsesc, spune exact asta și recomandă conectarea lor.',
   chat: 'Răspunde la întrebarea adminului ca expert SEO & marketing pentru platforma de educație. Când e util, verifică realitatea cu uneltele de citire; când propui modificări concrete de meta/titluri, trimite-le prin uneltele de scriere.',
 };
 
@@ -217,6 +230,24 @@ const TOOLS = [
     description: 'Meta-urile dinamice deja setate în tabelul seo_meta (toate rutele sau una singură).',
     input_schema: { type: 'object', properties: { route: str('opțional: doar această rută') } },
   },
+  {
+    name: 'list_articles',
+    description: 'Listează articolele de pe pagina Rezolvări (tabelul articole): slug, titlu, tip, categorie, status, date. OBLIGATORIU înainte de publish_article (ca să nu dublezi teme/sluguri) și înainte de update_article.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['published', 'draft', 'toate'], description: 'implicit „toate"' },
+        category: str(`opțional: ${ARTICLE_CATEGORIES.join(', ')}`),
+        search: str('opțional: caută în titlu/slug'),
+        limit: { type: 'integer', description: 'max 100 (implicit 30)' },
+      },
+    },
+  },
+  {
+    name: 'read_article',
+    description: 'Citește un articol complet (metadate + sursa markdown). Folosește înainte de update_article, ca să pornești de la textul real.',
+    input_schema: { type: 'object', properties: { slug: str('slug-ul articolului (din list_articles)') }, required: ['slug'] },
+  },
 
   // ── SCRIERE — creează PROPUNERI în coada de aprobare (nu execută direct) ──
   {
@@ -251,8 +282,63 @@ const TOOLS = [
     },
   },
   {
+    name: 'publish_article',
+    description: `PROPUNE publicarea unui articol NOU pe pagina Rezolvări, cu URL propriu ${'`/rezolvari/{slug}`'} — indexabil, servit server-side, gratuit (aduce trafic; conversia vine din linkurile interne și CTA-ul automat către materialele premium). Scrie articolul COMPLET, cu substanță reală (explicație + exemple + formule LaTeX între $...$): „thin content" face rău în Google. Bazează rezolvările/explicațiile pe materialele reale (read_material) și listează-le în sources. Verifică ÎNTÂI cu list_articles că tema/slug-ul nu există deja.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        slug: str('URL-ul: litere mici, cifre, cratime (ex. "formule-arii-clasa-7"). Scurt, cu cuvântul cheie.'),
+        kind: { type: 'string', enum: ARTICLE_KINDS, description: 'articol = ghid/SEO; rezolvare = rezolvare scrisă pas cu pas; explicatie = noțiune explicată' },
+        title: str('titlul afișat (H1 + <title>), clar, cu cuvântul cheie căutat — 10–120 caractere (ideal ≤ 60)'),
+        description: str('meta description + textul cardului din listă — 40–200 caractere (ideal 140–155)'),
+        category: { type: 'string', enum: ARTICLE_CATEGORIES, description: 'categoria din filtrele paginii Rezolvări' },
+        content_md: str('articolul COMPLET în Markdown (fără titlul repetat pe prima linie): ## secțiuni, liste, tabele pentru formule, LaTeX între $...$, linkuri interne relative (ex. /clase/7, /evaluare-nationala, /rezolvari). Minim ~800 caractere; țintește 600–1500 de cuvinte cu valoare reală. HTML brut NU e permis (se escapează).'),
+        keywords: { type: 'array', items: { type: 'string' }, description: 'max 12 cuvinte cheie țintite (din gsc_query unde există date)' },
+        sources: {
+          type: 'array',
+          description: 'materialele din site pe care se bazează articolul (id-uri REALE din list_materials) — apar ca linkuri „Materiale folosite" în pagină',
+          items: {
+            type: 'object',
+            properties: { table: { type: 'string', enum: ['content', 'rezolvari'] }, id: str('uuid-ul materialului') },
+            required: ['table', 'id'],
+          },
+        },
+        note: str('DE CE propui articolul — cu cifre din date unde există (apare în coada de aprobare)'),
+      },
+      required: ['slug', 'kind', 'title', 'description', 'category', 'content_md', 'note'],
+    },
+  },
+  {
+    name: 'update_article',
+    description: 'PROPUNE actualizarea unui articol EXISTENT (refresh de conținut pentru poziții care stagnează/scad, corecturi, extinderi). Trimite DOAR câmpurile care se schimbă; valorile vechi se păstrează în propunere (reversibil). Cu publish=true republici un articol retras în draft.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        slug: str('slug-ul articolului existent (din list_articles)'),
+        title: str('opțional: titlu nou'),
+        description: str('opțional: descriere nouă (40–200 caractere)'),
+        category: { type: 'string', enum: ARTICLE_CATEGORIES, description: 'opțional: categorie nouă' },
+        kind: { type: 'string', enum: ARTICLE_KINDS, description: 'opțional: tip nou' },
+        content_md: str('opțional: conținutul Markdown COMPLET nou (înlocuiește tot corpul; minim ~800 caractere)'),
+        keywords: { type: 'array', items: { type: 'string' }, description: 'opțional: lista nouă de cuvinte cheie' },
+        sources: {
+          type: 'array',
+          description: 'opțional: lista nouă de materiale-sursă (înlocuiește lista veche)',
+          items: {
+            type: 'object',
+            properties: { table: { type: 'string', enum: ['content', 'rezolvari'] }, id: str('uuid-ul materialului') },
+            required: ['table', 'id'],
+          },
+        },
+        publish: { type: 'boolean', description: 'true: publică articolul dacă e în draft (ex. republici unul retras)' },
+        note: str('DE CE propui actualizarea — cu cifre din gsc_snapshots/gsc_query unde există'),
+      },
+      required: ['slug', 'note'],
+    },
+  },
+  {
     name: 'submit_sitemap',
-    description: 'PROPUNE retrimiterea sitemap.xml către Search Console (după modificări importante de structură/conținut).',
+    description: 'PROPUNE retrimiterea sitemap.xml către Search Console (după modificări importante de structură/conținut). La publicarea articolelor NU e nevoie separat — publish_article retrimite sitemap-ul automat la aprobare.',
     input_schema: { type: 'object', properties: { note: str('de ce acum') } },
   },
 ];
@@ -267,6 +353,61 @@ const cleanRoute = (r) => {
   if (!/^\/[a-zA-Z0-9\-_/]{0,90}$/.test(s)) throw new Error(`Rută invalidă: ${r}`);
   return s;
 };
+
+// ─── Validări pentru articole (publish_article / update_article) ─────────────
+function checkArticleField(name, value) {
+  switch (name) {
+    case 'title': {
+      const v = String(value || '').trim();
+      if (v.length < 10 || v.length > 120) throw new Error(`Titlul are ${v.length} caractere — permis 10–120 (ideal ≤ 60).`);
+      return v;
+    }
+    case 'description': {
+      const v = String(value || '').trim();
+      if (v.length < 40 || v.length > 200) throw new Error(`Descrierea are ${v.length} caractere — permis 40–200 (ideal 140–155).`);
+      return v;
+    }
+    case 'category': {
+      const v = String(value || '').trim();
+      if (!ARTICLE_CATEGORIES.includes(v)) throw new Error(`Categorie invalidă: „${v}". Permise: ${ARTICLE_CATEGORIES.join(', ')}.`);
+      return v;
+    }
+    case 'kind': {
+      const v = String(value || '').trim();
+      if (!ARTICLE_KINDS.includes(v)) throw new Error(`Tip invalid: „${v}". Permise: ${ARTICLE_KINDS.join(', ')}.`);
+      return v;
+    }
+    case 'content_md': {
+      const v = String(value || '').replace(/\r\n?/g, '\n').trim();
+      if (v.length < 800) throw new Error(`Conținutul are doar ${v.length} caractere — minim 800. Articolele subțiri („thin content") fac rău în Google: scrie explicația completă, cu exemple.`);
+      if (v.length > 60000) throw new Error('Conținutul depășește 60.000 de caractere — împarte în mai multe articole.');
+      return v;
+    }
+    case 'keywords': {
+      const arr = Array.isArray(value) ? value : [];
+      return arr.map((k) => String(k).trim().slice(0, 60)).filter(Boolean).slice(0, 12);
+    }
+    default:
+      return value;
+  }
+}
+
+// Verifică id-urile din `sources` în DB și le îmbogățește cu titlu/categorie
+// (apar ca linkuri „Materiale folosite" în pagină — deci trebuie să fie reale).
+async function resolveSources(supa, sources) {
+  if (!Array.isArray(sources) || !sources.length) return [];
+  if (sources.length > 10) throw new Error('Maxim 10 materiale în sources.');
+  const out = [];
+  for (const s of sources) {
+    const table = s && s.table === 'rezolvari' ? 'rezolvari' : s && s.table === 'content' ? 'content' : null;
+    if (!table || !s.id) throw new Error('Fiecare intrare din sources are nevoie de {table: content|rezolvari, id}.');
+    const { data: row, error } = await supa.from(table).select('id, title, category, is_free').eq('id', String(s.id)).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!row) throw new Error(`Materialul ${s.id} nu există în ${table} — folosește id-uri REALE din list_materials.`);
+    out.push({ table, id: row.id, title: row.title, category: row.category || null, is_free: row.is_free ?? null });
+  }
+  return out;
+}
 
 // Creează un rând `proposed` în coada de aprobare și întoarce confirmarea.
 async function proposeAction(supa, { type, payload, note }, state) {
@@ -425,6 +566,30 @@ function makeToolExecutor({ supa, state }) {
         if (error) return `(tabelul seo_meta lipsește — rulează supabase/seo_agent.sql): ${error.message}`;
         return J({ rows: data || [] });
       }
+      case 'list_articles': {
+        let q = supa.from('articole')
+          .select('slug, title, description, category, kind, status, keywords, published_at, updated_at')
+          .order('updated_at', { ascending: false })
+          .limit(Math.min(Math.max(parseInt(input.limit, 10) || 30, 1), 100));
+        if (input.status === 'published' || input.status === 'draft') q = q.eq('status', input.status);
+        if (input.category) q = q.eq('category', String(input.category));
+        if (input.search) {
+          const s = String(input.search).replace(/[%_]/g, '');
+          q = q.or(`title.ilike.%${s}%,slug.ilike.%${s}%`);
+        }
+        const { data, error } = await q;
+        if (error) return `(tabelul articole lipsește — rulează supabase/articole.sql): ${error.message}`;
+        return J({
+          rows: (data || []).map((r) => ({ ...r, url: `/rezolvari/${r.slug}`, description: r.description ? String(r.description).slice(0, 120) : null })),
+        });
+      }
+      case 'read_article': {
+        const { data: row, error } = await supa.from('articole').select('*').eq('slug', String(input.slug || '').trim()).maybeSingle();
+        if (error) return `(tabelul articole lipsește — rulează supabase/articole.sql): ${error.message}`;
+        if (!row) return `Nu există articolul cu slug="${input.slug}". Folosește list_articles pentru sluguri reale.`;
+        const { content_html, ...rest } = row;
+        return J({ ...rest, content_md: String(rest.content_md || '').slice(0, 24000) });
+      }
 
       // ── SCRIERE → coada de aprobare ────────────────────────────────────
       case 'set_page_meta': {
@@ -466,6 +631,68 @@ function makeToolExecutor({ supa, state }) {
         const id = await proposeAction(supa, { type: 'rename_material', payload, note: input.note }, state);
         return `Propunerea ${id} (rename_material „${row.title}" → „${newTitle}") a fost trimisă în coada de aprobare.`;
       }
+      case 'publish_article': {
+        const slug = String(input.slug || '').trim().toLowerCase();
+        if (!validSlug(slug)) throw new Error(`Slug invalid: „${input.slug}" — doar litere mici, cifre și cratime (3–120 caractere), ex. "formule-arii-clasa-7".`);
+        const { data: existing, error: exErr } = await supa.from('articole').select('slug, status').eq('slug', slug).maybeSingle();
+        if (exErr) throw new Error(`Tabelul articole lipsește? Rulează supabase/articole.sql. (${exErr.message})`);
+        if (existing) throw new Error(`Slug-ul „${slug}" există deja (status: ${existing.status}) — folosește update_article sau alt slug.`);
+
+        const title = checkArticleField('title', input.title);
+        const description = checkArticleField('description', input.description);
+        const category = checkArticleField('category', input.category);
+        const kind = checkArticleField('kind', input.kind);
+        const content_md = checkArticleField('content_md', stripLeadingTitle(input.content_md, title));
+        const keywords = checkArticleField('keywords', input.keywords);
+        const sources = await resolveSources(supa, input.sources);
+
+        // HTML-ul e generat ACUM: adminul aprobă exact ce se va publica.
+        const payload = {
+          slug, kind, title, description, category, content_md,
+          content_html: mdToHtml(content_md),
+          keywords, sources,
+          url: `${SITE}/rezolvari/${slug}`,
+        };
+        const id = await proposeAction(supa, { type: 'publish_article', payload, note: input.note }, state);
+        return `Propunerea ${id} (publish_article „${title}" → /rezolvari/${slug}, ${content_md.length} caractere) a fost trimisă în coada de aprobare. Se publică DOAR după aprobarea adminului.`;
+      }
+      case 'update_article': {
+        const slug = String(input.slug || '').trim().toLowerCase();
+        const { data: row, error } = await supa.from('articole').select('*').eq('slug', slug).maybeSingle();
+        if (error) throw new Error(`Tabelul articole lipsește? Rulează supabase/articole.sql. (${error.message})`);
+        if (!row) throw new Error(`Nu există articolul cu slug="${slug}" — folosește list_articles (sau publish_article pentru unul nou).`);
+
+        const changes = {};
+        if (input.title != null) changes.title = { old: row.title, new: checkArticleField('title', input.title) };
+        if (input.description != null) changes.description = { old: row.description, new: checkArticleField('description', input.description) };
+        if (input.category != null) changes.category = { old: row.category, new: checkArticleField('category', input.category) };
+        if (input.kind != null) changes.kind = { old: row.kind, new: checkArticleField('kind', input.kind) };
+        if (input.content_md != null) {
+          const titleForStrip = changes.title ? changes.title.new : row.title;
+          changes.content_md = { old: row.content_md, new: checkArticleField('content_md', stripLeadingTitle(input.content_md, titleForStrip)) };
+        }
+        if (input.keywords != null) changes.keywords = { old: row.keywords || [], new: checkArticleField('keywords', input.keywords) };
+        if (input.sources != null) changes.sources = { old: row.sources || [], new: await resolveSources(supa, input.sources) };
+
+        const publish = input.publish === true && row.status !== 'published';
+        Object.keys(changes).forEach((k) => {
+          const c = changes[k];
+          if (JSON.stringify(c.old ?? null) === JSON.stringify(c.new ?? null)) delete changes[k];
+        });
+        if (!Object.keys(changes).length && !publish) {
+          throw new Error('Nicio schimbare față de articolul actual — trimite doar câmpurile care se modifică (sau publish=true pentru un draft).');
+        }
+
+        const payload = {
+          slug, changes,
+          content_html: changes.content_md ? mdToHtml(changes.content_md.new) : undefined,
+          publish, old_status: row.status,
+          url: `${SITE}/rezolvari/${slug}`,
+        };
+        const id = await proposeAction(supa, { type: 'update_article', payload, note: input.note }, state);
+        const what = [...Object.keys(changes), ...(publish ? ['publicare (din draft)'] : [])].join(', ');
+        return `Propunerea ${id} (update_article /rezolvari/${slug} — schimbă: ${what}) a fost trimisă în coada de aprobare.`;
+      }
       case 'submit_sitemap': {
         const id = await proposeAction(supa, {
           type: 'submit_sitemap',
@@ -504,8 +731,44 @@ async function executeAction(supa, action) {
       if (!google.enabled()) throw new Error('Contul de serviciu Google nu e configurat.');
       return await google.submitSitemap(p.sitemap || `${SITE}/sitemap.xml`);
     }
-    case 'publish_article':
-      throw new Error('publish_article se activează în Faza 2 (tabelul articole + pagina de articol).');
+    case 'publish_article': {
+      const now = new Date().toISOString();
+      const { error } = await supa.from('articole').insert({
+        slug: p.slug, title: p.title, description: p.description,
+        category: p.category, kind: p.kind,
+        content_md: p.content_md,
+        content_html: p.content_html || mdToHtml(p.content_md),
+        keywords: p.keywords || [], sources: p.sources || [],
+        status: 'published', published_at: now, updated_at: now,
+      });
+      if (error) {
+        if (/duplicate|unique|23505/i.test(error.message + (error.code || ''))) {
+          throw new Error(`Slug-ul „${p.slug}" a fost ocupat între timp — cere agentului o propunere nouă (update_article sau alt slug).`);
+        }
+        throw new Error(`Nu am putut publica (rulează supabase/articole.sql?): ${error.message}`);
+      }
+      const result = { published: `/rezolvari/${p.slug}`, url: `${SITE}/rezolvari/${p.slug}`, live_in: '≤ 5 minute (cache CDN)' };
+      // Sitemap-ul include automat articolul — îl retrimitem către GSC (best effort).
+      try {
+        if (google.enabled()) { await google.submitSitemap(`${SITE}/sitemap.xml`); result.sitemap = 'retrimis către Search Console'; }
+        else result.sitemap = 'neretrimis (contul de serviciu Google nu e configurat)';
+      } catch (e) { result.sitemap = `retrimitere eșuată: ${e.message}`; }
+      return result;
+    }
+    case 'update_article': {
+      const patch = { updated_at: new Date().toISOString() };
+      for (const [field, c] of Object.entries(p.changes || {})) patch[field] = c.new;
+      if (p.changes?.content_md) patch.content_html = p.content_html || mdToHtml(p.changes.content_md.new);
+      if (p.publish) { patch.status = 'published'; patch.published_at = patch.published_at || new Date().toISOString(); }
+      const { data, error } = await supa.from('articole').update(patch).eq('slug', p.slug).select('slug').maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) throw new Error(`Articolul „${p.slug}" nu mai există.`);
+      return {
+        updated: `/rezolvari/${p.slug}`, url: `${SITE}/rezolvari/${p.slug}`,
+        fields: Object.keys(p.changes || {}), ...(p.publish ? { republished: true } : {}),
+        live_in: '≤ 5 minute (cache CDN)',
+      };
+    }
     case 'schedule_social':
       throw new Error('schedule_social se activează în Faza 3 (Meta Graph API + social_posts).');
     default:
@@ -538,6 +801,24 @@ async function revertAction(supa, action) {
       if (error) throw new Error(error.message);
       return { reverted: p.table, id: p.id, title: p.old_title };
     }
+    case 'publish_article': {
+      // Retragere de pe site: articolul trece în draft (conținutul se păstrează;
+      // dispare din pagină, sitemap și page-meta — republicabil cu update_article).
+      const { error } = await supa.from('articole')
+        .update({ status: 'draft', updated_at: new Date().toISOString() })
+        .eq('slug', p.slug);
+      if (error) throw new Error(error.message);
+      return { reverted: `/rezolvari/${p.slug}`, status: 'draft (retras de pe site, conținutul păstrat)' };
+    }
+    case 'update_article': {
+      const patch = { updated_at: new Date().toISOString() };
+      for (const [field, c] of Object.entries(p.changes || {})) patch[field] = c.old;
+      if (p.changes?.content_md) patch.content_html = mdToHtml(String(p.changes.content_md.old || ''));
+      if (p.publish && p.old_status === 'draft') patch.status = 'draft';
+      const { error } = await supa.from('articole').update(patch).eq('slug', p.slug);
+      if (error) throw new Error(error.message);
+      return { reverted: `/rezolvari/${p.slug}`, restored: Object.keys(p.changes || {}) };
+    }
     default:
       throw new Error(`Acțiunea ${action.type} nu are revert automat.`);
   }
@@ -548,11 +829,12 @@ function buildSystem({ routesCtx, contentCtx, googleCtx, instr, hasTools }) {
   const toolsBlock = hasTools ? `
 
 === UNELTELE TALE (folosește-le!) ===
-CITIRE — se execută imediat: gsc_query, ga4_report, url_inspect, psi_report, fetch_page, db_stats, list_materials, read_material, get_seo_meta.
-SCRIERE — NU modifică nimic direct: creează PROPUNERI în coada de aprobare din admin: set_page_meta, rename_material, submit_sitemap.
+CITIRE — se execută imediat: gsc_query, ga4_report, url_inspect, psi_report, fetch_page, db_stats, list_materials, read_material, get_seo_meta, list_articles, read_article.
+SCRIERE — NU modifică nimic direct: creează PROPUNERI în coada de aprobare din admin: set_page_meta, rename_material, publish_article, update_article, submit_sitemap.
 
-Fluxul corect: (1) verifică datele reale (gsc_query / db_stats / get_seo_meta / fetch_page); (2) decide pe cifre, nu pe presupuneri; (3) trimite propuneri concrete prin uneltele de scriere, fiecare cu «note» care explică DE CE (cu cifrele care o justifică); (4) încheie cu un raport scurt: ce ai găsit + ce propuneri ai trimis.
-Reguli: nu inventa rute sau id-uri (ia-le din structura site-ului / list_materials / db_stats); titluri ≤ 60 caractere, descrieri ≤ 155; propune DOAR modificări justificate de date; maximum ~6 propuneri pe rulare — calitate, nu volum. Modificările devin live abia după aprobarea adminului.` : `
+Fluxul corect: (1) verifică datele reale (gsc_query / db_stats / get_seo_meta / fetch_page / list_articles); (2) decide pe cifre, nu pe presupuneri; (3) trimite propuneri concrete prin uneltele de scriere, fiecare cu «note» care explică DE CE (cu cifrele care o justifică); (4) încheie cu un raport scurt: ce ai găsit + ce propuneri ai trimis.
+Reguli: nu inventa rute sau id-uri (ia-le din structura site-ului / list_materials / list_articles / db_stats); titluri ≤ 60 caractere, descrieri ≤ 155; propune DOAR modificări justificate de date; maximum ~6 propuneri pe rulare — calitate, nu volum (un articol = o propunere mare, nu-l fragmenta). Modificările devin live abia după aprobarea adminului.
+ARTICOLE (pagina Rezolvări, /rezolvari/{slug}): conținut GRATUIT și indexabil — rezolvări scrise pas cu pas, explicații de noțiuni, articole SEO. Fiecare trebuie să aibă substanță reală (explicație + exemple + formule LaTeX între $...$ + linkuri interne relative + tabele unde ajută) — „thin content" în serie face rău. Bazează-te pe materialele reale (read_material) și listează-le în sources: pagina afișează automat linkuri către ele + CTA premium (așa se face conversia).` : `
 
 (Uneltele de acțiune nu sunt disponibile în această rulare — dai doar recomandări în text.)`;
 
@@ -649,7 +931,9 @@ async function snapshotGsc(supa, days = 1) {
 
 module.exports = {
   SITE, STATIC_ROUTES, TASKS, TOOLS,
+  ARTICLE_KINDS, ARTICLE_CATEGORIES,
   siteStructure, contentContext, allRows,
   makeToolExecutor, proposeAction, executeAction, revertAction,
+  checkArticleField, resolveSources,
   runAgent, snapshotGsc,
 };

@@ -14,9 +14,12 @@ const TYPE_INFO = {
   set_page_meta:   { icon: '🏷️', label: 'Meta pagină' },
   rename_material: { icon: '✏️', label: 'Redenumire material' },
   submit_sitemap:  { icon: '🗺️', label: 'Retrimitere sitemap' },
-  publish_article: { icon: '📰', label: 'Articol (Faza 2)' },
+  publish_article: { icon: '📰', label: 'Publicare articol' },
+  update_article:  { icon: '🔄', label: 'Actualizare articol' },
   schedule_social: { icon: '📱', label: 'Postare social (Faza 3)' },
 };
+
+const KIND_LABELS = { articol: '📖 Articol', rezolvare: '✍️ Rezolvare scrisă', explicatie: '💡 Explicație' };
 
 const STATUS_INFO = {
   proposed: { label: 'în așteptare', bg: '#fff7e0', fg: '#8a6d00' },
@@ -75,6 +78,73 @@ function PayloadView({ action }) {
   if (action.type === 'submit_sitemap') {
     return <div style={{ fontSize: '.85rem' }}>Trimite <code>{p.sitemap}</code> către Google Search Console.</div>;
   }
+  if (action.type === 'publish_article') {
+    const words = String(p.content_md || '').split(/\s+/).filter(Boolean).length;
+    return (
+      <div>
+        <div style={{ fontSize: '.85rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 4 }}>
+          {KIND_LABELS[p.kind] || p.kind} · <code style={{ background: '#eef2f8', padding: '1px 6px', borderRadius: 5 }}>/rezolvari/{p.slug}</code>
+          {p.category && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> · {p.category}</span>}
+        </div>
+        <Diff label="Titlu (H1 + title)" oldVal={null} newVal={p.title} />
+        <Diff label={`Descriere (${(p.description || '').length} car.)`} oldVal={null} newVal={p.description} />
+        {Array.isArray(p.keywords) && p.keywords.length > 0 && (
+          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', margin: '6px 0' }}>
+            {p.keywords.map((k, i) => (
+              <span key={i} style={{ fontSize: '.7rem', background: '#eef2f8', color: 'var(--navy)', borderRadius: 20, padding: '2px 9px' }}>{k}</span>
+            ))}
+          </div>
+        )}
+        {Array.isArray(p.sources) && p.sources.length > 0 && (
+          <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', margin: '4px 0' }}>
+            📚 Bazat pe: {p.sources.map((s) => s.title).filter(Boolean).join(' · ')}
+          </div>
+        )}
+        <details style={{ fontSize: '.8rem', marginTop: 6 }}>
+          <summary style={{ cursor: 'pointer', color: 'var(--navy)', fontWeight: 600 }}>
+            📄 Conținutul complet ({words} cuvinte, {(p.content_md || '').length} caractere) — apasă pentru preview
+          </summary>
+          {p.content_html ? (
+            <div style={{ background: '#fff', border: '1px solid var(--border)', padding: '10px 14px', borderRadius: 6, marginTop: 6, maxHeight: 380, overflowY: 'auto' }}
+              dangerouslySetInnerHTML={{ __html: p.content_html }} />
+          ) : (
+            <pre style={{ background: '#f7f9fc', padding: 10, borderRadius: 6, whiteSpace: 'pre-wrap', maxHeight: 380, overflowY: 'auto', marginTop: 6 }}>{p.content_md}</pre>
+          )}
+        </details>
+        <div style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginTop: 6 }}>
+          Gratuit & indexabil. La aprobare: publicare imediată + sitemap retrimis către Google. Se poate retrage oricând (revine în draft).
+        </div>
+      </div>
+    );
+  }
+  if (action.type === 'update_article') {
+    const ch = p.changes || {};
+    const simple = ['title', 'description', 'category', 'kind'];
+    return (
+      <div>
+        <div style={{ fontSize: '.85rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 4 }}>
+          <code style={{ background: '#eef2f8', padding: '1px 6px', borderRadius: 5 }}>/rezolvari/{p.slug}</code>
+          {p.publish && <span style={{ marginLeft: 8, fontSize: '.7rem', background: '#e6f6ea', color: '#1e7e34', borderRadius: 20, padding: '2px 10px', fontWeight: 700 }}>republicare (din draft)</span>}
+        </div>
+        {simple.map((f) => ch[f] && <Diff key={f} label={f} oldVal={String(ch[f].old ?? '')} newVal={String(ch[f].new ?? '')} />)}
+        {ch.keywords && <Diff label="Cuvinte cheie" oldVal={(ch.keywords.old || []).join(', ')} newVal={(ch.keywords.new || []).join(', ')} />}
+        {ch.sources && <Diff label="Materiale-sursă" oldVal={(ch.sources.old || []).map((s) => s.title || s.id).join(' · ')} newVal={(ch.sources.new || []).map((s) => s.title || s.id).join(' · ')} />}
+        {ch.content_md && (
+          <details style={{ fontSize: '.8rem', marginTop: 6 }}>
+            <summary style={{ cursor: 'pointer', color: 'var(--navy)', fontWeight: 600 }}>
+              📄 Conținut nou ({String(ch.content_md.new || '').length} caractere, înainte {String(ch.content_md.old || '').length}) — preview
+            </summary>
+            {p.content_html ? (
+              <div style={{ background: '#fff', border: '1px solid var(--border)', padding: '10px 14px', borderRadius: 6, marginTop: 6, maxHeight: 380, overflowY: 'auto' }}
+                dangerouslySetInnerHTML={{ __html: p.content_html }} />
+            ) : (
+              <pre style={{ background: '#f7f9fc', padding: 10, borderRadius: 6, whiteSpace: 'pre-wrap', maxHeight: 380, overflowY: 'auto', marginTop: 6 }}>{ch.content_md.new}</pre>
+            )}
+          </details>
+        )}
+      </div>
+    );
+  }
   return <pre style={{ fontSize: '.75rem', background: '#f7f9fc', padding: 8, borderRadius: 6, overflowX: 'auto', maxHeight: 160 }}>{JSON.stringify(p, null, 2)}</pre>;
 }
 
@@ -121,7 +191,9 @@ export default function SEOActionsQueue({ box }) {
   const card = (a, isPending) => {
     const t = TYPE_INFO[a.type] || { icon: '⚙️', label: a.type };
     const s = STATUS_INFO[a.status] || { label: a.status, bg: '#f0f1f4', fg: '#5a6379' };
-    const canRevert = a.status === 'executed' && (a.type === 'set_page_meta' || a.type === 'rename_material');
+    const canRevert = a.status === 'executed'
+      && (a.type === 'set_page_meta' || a.type === 'rename_material' || a.type === 'publish_article' || a.type === 'update_article');
+    const revertLabel = a.type === 'publish_article' ? '↩️ Retrage articolul (înapoi în draft)' : '↩️ Anulează (valorile vechi)';
     return (
       <div key={a.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', background: isPending ? '#fffdf5' : '#fff' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
@@ -155,8 +227,13 @@ export default function SEOActionsQueue({ box }) {
           )}
           {canRevert && (
             <button className="btn btn-outline" disabled={busyId === a.id} onClick={() => decide(a.id, 'revert')} style={{ fontSize: '.78rem', padding: '6px 12px' }}>
-              ↩️ Anulează (valorile vechi)
+              {revertLabel}
             </button>
+          )}
+          {a.status === 'executed' && (a.type === 'publish_article' || a.type === 'update_article') && (
+            <a className="btn btn-outline" href={(a.payload || {}).url || `/rezolvari/${(a.payload || {}).slug || ''}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '.78rem', padding: '6px 12px' }}>
+              🔗 Deschide articolul
+            </a>
           )}
         </div>
       </div>
@@ -177,8 +254,8 @@ export default function SEOActionsQueue({ box }) {
         <button className="btn btn-outline" onClick={load} disabled={loading} style={{ fontSize: '.78rem', padding: '5px 12px' }}>↻ Reîmprospătează</button>
       </div>
       <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
-        Nimic nu se aplică fără OK-ul tău: agentul doar propune (meta, redenumiri, sitemap), tu aprobi sau respingi.
-        Meta-urile aprobate sunt live în max. 5 minute, fără deploy; acțiunile executate se pot anula.
+        Nimic nu se aplică fără OK-ul tău: agentul doar propune (meta, redenumiri, articole pentru pagina Rezolvări, sitemap), tu aprobi sau respingi.
+        Modificările aprobate sunt live în max. 5 minute, fără deploy; acțiunile executate se pot anula (articolele revin în draft).
       </p>
 
       {warning && <div style={{ padding: 12, background: '#fff7e0', color: '#8a6d00', borderRadius: 8, fontSize: '.85rem', marginBottom: 10 }}>⚠️ {warning}</div>}

@@ -4,6 +4,33 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 28 iulie 2026 — Agent SEO Faza 2: pagina Rezolvări devine motor de conținut (articole indexabile)
+
+Implementarea Fazei 2 din `GHID_AGENT_SEO_ACTIUNI.md`: agentul SEO poate scrie și publica (prin coada de aprobare) articole, rezolvări scrise pas cu pas și explicații — fiecare cu URL propriu `/rezolvari/{slug}`, servit server-side (Google și Facebook văd conținutul complet fără JavaScript). **După deploy: rulează `supabase/articole.sql` în Supabase → SQL Editor.**
+
+### Baza de date și randarea conținutului
+- **`supabase/articole.sql` (NOU):** tabelul `articole` (slug PK, title, description, category, kind articol/rezolvare/explicatie, content_md, content_html, keywords, sources, status draft/published) + constrângeri defensive (slug `^[a-z0-9-]+$`, kind/status din listă) + indexuri + RLS: citire publică DOAR pentru `status='published'` (scrierea trece exclusiv prin server).
+- **`api/_lib/markdown.js` (NOU):** Markdown→HTML fără dependențe, design „escape-first" — TOT textul e escapat înainte de construirea tagurilor, deci HTML brut din markdown (inclusiv injectat printr-un eventual prompt injection în agent) nu poate deveni XSS; linkurile acceptă doar https/http/rute interne/#ancore (javascript: rămâne text). Formulele LaTeX (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`) sunt protejate ca text și randate în browser de KaTeX. Suportă titluri (H1 rezervat paginii — decalare automată), bold/italic (fără să strice `a_1 * b` din formule), liste cu un nivel de imbricare, tabele GitHub cu aliniere (esențiale pentru „toate formulele de..."), citate, cod, imagini https; newline simplu → `<br />` (rezolvările pas cu pas se scriu natural). Utilitare: `stripLeadingTitle` (evită H1 dublat), `mdExcerpt` (meta description derivată), `validSlug`.
+
+### Servirea SSR a articolelor
+- **`api/page-meta.js`:** rutele `/rezolvari/{slug}` sunt detectate și servite complet: `<title>`/description din articol (un rând `seo_meta` pe aceeași rută le poate suprascrie — fine-tuning ulterior prin `set_page_meta`), `og:type=article` + `article:published_time/modified_time`, JSON-LD `Article`, iar **conținutul complet al articolului e injectat în `<div id="root">`** — crawlerele și share-urile văd articolul întreg fără JS; datele merg și în `<script id="__ARTICOL__">` (JSON cu `<` escapat), ca React să hidrateze fără a doua cerere. Slug inexistent/nepublicat sau invalid → **404 real cu `noindex`** (fără soft-404-uri indexate), cache CDN scurt (60s). Cache-uri în memorie ca la meta (60s/slug).
+
+### Site (React)
+- **`src/pages/ArticolPage.jsx` (NOU)** + ruta `/rezolvari/:slug` în `App.jsx` (lazy): breadcrumb, badge tip + categorie (link) + date publicare/actualizare, conținutul randat cu KaTeX, secțiunea „📚 Materiale folosite" (sources → link către pagina categoriei, cu tag Premium), CTA către materialele categoriei + `/preturi`, „Citește și:" (3 articole din aceeași categorie). La prima încărcare folosește datele injectate de server; la navigare client-side citește din Supabase (RLS: doar published).
+- **`src/pages/RezolvariPage.jsx`:** încarcă și articolele publicate ca noi carduri (Gratuit + badge tip) lângă materialele video/PDF/imagine; filtrul „Toate tipurile" primește „📖 Articol / ✍️ Rezolvare scrisă / 💡 Explicație"; căutarea și filtrul pe categorie funcționează peste ambele liste; cardul duce la `/rezolvari/{slug}`.
+- **`src/styles/global.css`:** stiluri `.articol-*` (tipografie articol, tabele cu `.table-wrap`, blockquote, cod, surse, CTA, articole înrudite) — folosite ATÂT de pagina React, CÂT ȘI de HTML-ul injectat server-side.
+
+### Uneltele agentului (prin coada de aprobare)
+- **`api/_lib/seo.js`:** citire nouă `list_articles` (anti-dubluri, obligatoriu înainte de publicare) și `read_article`; scriere nouă **`publish_article`** (validări stricte: slug unic `[a-z0-9-]`, title 10–120, description 40–200, categorie/kind din listă, conținut minim 800 caractere — anti „thin content", max 12 keywords, `sources` cu id-uri REALE verificate în DB și îmbogățite cu titluri) și **`update_article`** (doar câmpurile schimbate, cu valorile vechi păstrate; `publish=true` republică un draft). HTML-ul e generat LA PROPUNERE — adminul aprobă exact ce se publică. Execuție: insert/update în `articole` + retrimiterea automată a sitemap-ului către Search Console (best effort). Revert: publicarea → articolul revine în `draft` (conținut păstrat, dispare de pe site/sitemap); actualizarea → valorile vechi (cu regenerarea HTML-ului). Prompturile actualizate: sarcina `blog` scrie și propune articole complete (nu doar idei), `performance` include interogările fără pagină dedicată → articol nou și articolele care stagnează → refresh.
+- **`src/components/SEOActionsQueue.jsx`:** preview complet pentru propunerile de articol (tip, slug, titlu, descriere, keywords, surse, conținutul RANDAT în `<details>`), diff-uri pe câmpuri la actualizări, butoane „↩️ Retrage articolul (înapoi în draft)" și „🔗 Deschide articolul" după execuție.
+- **`src/components/AISEOAgent.jsx`:** presetul „Idei articole blog" → „Articole Rezolvări (scrie & propune)"; descrierea panoului menționează articolele.
+
+### Teste și verificare
+- **`test/articole.test.js` (NOU):** 13 teste — markdown (XSS: script/onerror/javascript: blocate; LaTeX intact; decalarea titlurilor; tabele+aliniere; liste imbricate; `<br />`), `articleShell`/`articleJsonLd`/`injectRoot`/`injectArticleData` (conținut în `#root`, JSON sigur fără `</script>`, fără `content_md` în browser), `categoryRoute`, validările `checkArticleField` și `resolveSources` (id-uri verificate în DB, pe client Supabase simulat).
+- `npm test`: **47/47** (inclusiv cele vechi — injectarea meta neatinsă); `vite build` trece (chunk separat `ArticolPage`); handler-ul `page-meta` verificat end-to-end pe DB simulat (articol → 200 cu conținut în #root; slug inexistent → 404+noindex; rutele vechi neschimbate).
+
+---
+
 ## 27 iulie 2026 — Subiecte PDF cu figuri geometrice + spații de redactare · „Subiect + instrucțiuni" la interactive
 
 ### Figuri geometrice în subiectele de examen generate cu AI (ca în modelele oficiale EN)

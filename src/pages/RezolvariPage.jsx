@@ -19,6 +19,53 @@ const CATEGORIES = [
   { value: 'bacalaureat', label: 'Bacalaureat' },
 ];
 
+// ─── Articolele scrise (Faza 2 din GHID_AGENT_SEO_ACTIUNI.md) ────────────────
+// Conținut GRATUIT și indexabil, publicat de agentul SEO (după aprobare) în
+// tabelul `articole` — apare aici drept carduri lângă materialele existente,
+// fiecare cu pagina lui: /rezolvari/{slug}.
+const ARTICLE_KINDS = {
+  articol:    { icon: '📖', label: 'Articol',          bg: '#ede7f6', fg: '#4527a0' },
+  rezolvare:  { icon: '✍️', label: 'Rezolvare scrisă', bg: '#e0f2f1', fg: '#00695c' },
+  explicatie: { icon: '💡', label: 'Explicație',       bg: '#fff8e1', fg: '#b26a00' },
+};
+
+function ArticolCard({ item }) {
+  const kind = ARTICLE_KINDS[item.kind] || ARTICLE_KINDS.articol;
+  const catLabel = CATEGORIES.find(c => c.value === item.category)?.label || item.category;
+  return (
+    <Link to={`/rezolvari/${item.slug}`} style={{
+      background: '#fff', borderRadius: 14, border: '1.5px solid #eef0f4',
+      overflow: 'hidden', boxShadow: '0 2px 8px rgba(15,43,68,0.06)',
+      transition: 'box-shadow 0.2s', display: 'flex', flexDirection: 'column',
+      textDecoration: 'none', color: 'inherit',
+    }}
+      onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 16px rgba(15,43,68,0.12)'}
+      onMouseLeave={e => e.currentTarget.style.boxShadow = '0 2px 8px rgba(15,43,68,0.06)'}
+    >
+      <div style={{ padding:'14px 18px', flex:1, display:'flex', flexDirection:'column', gap:8 }}>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8 }}>
+          <h3 style={{ fontFamily:'var(--font-display)', color:'var(--navy)', fontSize:'0.98rem', fontWeight:700, lineHeight:1.3, flex:1, margin:0 }}>
+            {item.title}
+          </h3>
+          <div style={{ display:'flex', gap:5, flexShrink:0 }}>
+            <span style={{ padding:'2px 8px', borderRadius:20, fontSize:'0.67rem', fontWeight:700, background:'#e8f5e9', color:'#2e7d32' }}>Gratuit</span>
+            <span style={{ padding:'2px 8px', borderRadius:20, fontSize:'0.67rem', fontWeight:700, background:kind.bg, color:kind.fg }}>{kind.icon} {kind.label}</span>
+          </div>
+        </div>
+
+        {item.description && (
+          <p style={{ color:'var(--text-muted)', fontSize:'0.84rem', lineHeight:1.6, margin:0 }}>{item.description}</p>
+        )}
+
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:'auto', gap:8 }}>
+          {catLabel && <span style={{ fontSize:'0.72rem', color:'#aab0bb' }}>{catLabel}</span>}
+          <span style={{ fontSize:'0.82rem', fontWeight:700, color:'var(--navy)' }}>Citește →</span>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
 function getVideoEmbed(url) {
   if (!url) return null;
   const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
@@ -183,6 +230,7 @@ function RezolvareCard({ item, user, isPremium }) {
 export default function RezolvariPage() {
   const { user, isPremium } = useAuth();
   const [items, setItems] = useState([]);
+  const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterCat, setFilterCat] = useState('');
   const [filterType, setFilterType] = useState('');
@@ -192,19 +240,35 @@ export default function RezolvariPage() {
 
   async function load() {
     setLoading(true);
-    const { data } = await supabase.from('rezolvari')
-      .select('*').order('sort_order', { ascending: true }).order('created_at', { ascending: false });
+    const [{ data }, artRes] = await Promise.all([
+      supabase.from('rezolvari')
+        .select('*').order('sort_order', { ascending: true }).order('created_at', { ascending: false }),
+      // articolele publicate (tabelul poate lipsi înainte de Faza 2 — atunci vine eroare, ignorată)
+      supabase.from('articole')
+        .select('slug, title, description, category, kind, published_at')
+        .eq('status', 'published').order('published_at', { ascending: false }),
+    ]);
     setItems(data || []);
+    setArticles(artRes.data || []);
     setLoading(false);
   }
 
-  const filtered = items.filter(item => {
+  const q = search.toLowerCase();
+  const matchesSearch = (it) => !search ||
+    it.title.toLowerCase().includes(q) || (it.description || '').toLowerCase().includes(q);
+
+  const isArticleFilter = !!ARTICLE_KINDS[filterType];
+  const filtered = (isArticleFilter ? [] : items).filter(item => {
     if (filterCat && item.category !== filterCat) return false;
     if (filterType && item.type !== filterType) return false;
-    if (search && !item.title.toLowerCase().includes(search.toLowerCase()) &&
-        !(item.description || '').toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
+    return matchesSearch(item);
   });
+  const filteredArticles = (filterType && !isArticleFilter ? [] : articles).filter(a => {
+    if (filterCat && a.category !== filterCat) return false;
+    if (isArticleFilter && a.kind !== filterType) return false;
+    return matchesSearch(a);
+  });
+  const nothing = filtered.length === 0 && filteredArticles.length === 0;
 
   return (
     <>
@@ -212,7 +276,7 @@ export default function RezolvariPage() {
         <div className="container">
           <div className="breadcrumb"><Link to="/">Acasă</Link><span>›</span><span>Rezolvări</span></div>
           <h1>📝 Rezolvări</h1>
-          <p>Rezolvări, explicații și tutoriale video pentru exercițiile de matematică</p>
+          <p>Rezolvări video și scrise, explicații și articole pentru matematica de gimnaziu și liceu</p>
         </div>
       </div>
 
@@ -232,12 +296,15 @@ export default function RezolvariPage() {
               <option value="video">▶ Video</option>
               <option value="pdf">📄 PDF</option>
               <option value="image">🖼 Imagine</option>
+              <option value="articol">📖 Articol</option>
+              <option value="rezolvare">✍️ Rezolvare scrisă</option>
+              <option value="explicatie">💡 Explicație</option>
             </select>
           </div>
 
           {loading ? (
             <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div className="spinner" /></div>
-          ) : filtered.length === 0 ? (
+          ) : nothing ? (
             <div className="empty-state">
               <div className="empty-state-icon">📝</div>
               <h3>Nicio rezolvare</h3>
@@ -246,6 +313,7 @@ export default function RezolvariPage() {
           ) : (
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:20 }}>
               {filtered.map(item => <RezolvareCard key={item.id} item={item} user={user} isPremium={isPremium} />)}
+              {filteredArticles.map(a => <ArticolCard key={a.slug} item={a} />)}
             </div>
           )}
         </div>

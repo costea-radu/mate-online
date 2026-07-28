@@ -239,6 +239,25 @@ cu cifre din `gsc_snapshots`, dacă a funcționat.
 
 ## FAZA 2 — Pagina „Rezolvări" devine Blog / Rezolvări (motorul de conținut)
 
+> **✅ FAZA 2 IMPLEMENTATĂ (28 iulie 2026).** Fișierele: `supabase/articole.sql`
+> (tabelul 2a — DE RULAT MANUAL în SQL Editor), `api/_lib/markdown.js` (Markdown→HTML
+> „escape-first", fără dependențe: zero HTML brut ⇒ zero XSS, formulele LaTeX rămân
+> text pentru KaTeX), `api/page-meta.js` extins (2b — `/rezolvari/{slug}` servit cu
+> meta din articol + JSON-LD `Article` + og:type article + **conținutul complet în
+> `#root`**, plus datele în `<script id="__ARTICOL__">` ca React să nu refacă
+> cererea la hidratare; slug inexistent → **404 + noindex**), `src/pages/ArticolPage.jsx`
+> + ruta `/rezolvari/:slug` în `App.jsx`, carduri de articol + filtrele „📖 Articol /
+> ✍️ Rezolvare scrisă / 💡 Explicație" în `RezolvariPage.jsx`; (2c) uneltele agentului:
+> `list_articles`, `read_article` (citire) + `publish_article`, `update_article`
+> (scriere, prin coada de aprobare; HTML-ul e generat la propunere — aprobi exact ce
+> se publică; la aprobare sitemap-ul se retrimite automat către GSC; revert =
+> articolul revine în draft / valorile vechi), preview complet + revert în
+> `SEOActionsQueue.jsx`, stiluri `.articol-*` în `global.css` (folosite și de SSR,
+> și de pagina React). Rewrite-ul din `vercel.json`, articolele din `sitemap.xml`
+> și din `siteStructure()` existau din Faza 1 — se activează singure.
+> **După deploy: rulează `supabase/articole.sql` în SQL Editor — atât.**
+> Teste: `test/articole.test.js` (markdown, XSS, LaTeX, shell articol, 404) — `npm test`.
+
 **Nu se creează o pagină nouă de blog.** Pagina existentă `/rezolvari` (care listează
 acum materiale video/PDF/imagine din tabelul `rezolvari`) se extinde cu **conținut
 scris indexabil** — articole, rezolvări pas cu pas și explicații — fiecare cu URL

@@ -1,14 +1,15 @@
 // =====================================================================
 // api/ai-seo-agent.js — AGENTUL CLAUDE de SEO & marketing (admin).
 //
-// FAZA 1 (GHID_AGENT_SEO_ACTIUNI.md): agentul nu mai doar recomandă — are
+// FAZELE 1–2 (GHID_AGENT_SEO_ACTIUNI.md): agentul nu mai doar recomandă — are
 // UNELTE reale (bucla de tool-use e în api/_lib/claude.js, uneltele și
 // contextul în api/_lib/seo.js):
 //   • citire (se execută pe loc): gsc_query, ga4_report, url_inspect,
 //     psi_report, fetch_page, db_stats, list_materials, read_material,
-//     get_seo_meta;
+//     get_seo_meta, list_articles, read_article;
 //   • scriere (NUMAI prin coada de aprobare `seo_actions` din admin):
-//     set_page_meta, rename_material, submit_sitemap.
+//     set_page_meta, rename_material, publish_article, update_article,
+//     submit_sitemap.
 //
 // Agentul NU are acces la cod — singura cale de modificare e baza de date.
 // Fără ANTHROPIC_API_KEY, cade elegant pe comportamentul vechi (doar analiză).

@@ -25,6 +25,7 @@ const InteractiveViewer = lazy(() => import('./pages/InteractiveViewer'));
 const PDFViewer = lazy(() => import('./pages/PDFViewer'));
 const DiscussionsPage = lazy(() => import('./pages/DiscussionsPage'));
 const RezolvariPage = lazy(() => import('./pages/RezolvariPage'));
+const ArticolPage = lazy(() => import('./pages/ArticolPage'));
 const Contact = lazy(() => import('./pages/Contact'));
 const PoliticaConfidentialitate = lazy(() => import('./pages/PoliticaConfidentialitate'));
 const TermeniConditii = lazy(() => import('./pages/TermeniConditii'));
@@ -113,6 +114,7 @@ export default function App() {
                 <Route path="/pdf-viewer" element={<PDFViewer />} />
                 <Route path="/discutii" element={<DiscussionsPage />} />
                 <Route path="/rezolvari" element={<RezolvariPage />} />
+                <Route path="/rezolvari/:slug" element={<ArticolPage />} />
                 <Route path="/contact" element={<Contact />} />
                 <Route path="/politica-confidentialitate" element={<PoliticaConfidentialitate />} />
                 <Route path="/termeni-conditii" element={<TermeniConditii />} />
