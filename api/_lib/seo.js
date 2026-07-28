@@ -853,7 +853,9 @@ Reguli: răspunzi în română, concret și acționabil, fără generalități. 
 SARCINA CURENTĂ: ${instr}`;
 }
 
-async function runAgent({ supa, task = 'chat', input = '', history = [], maxIters = 8 }) {
+// `model` (opțional): ID-ul Claude ales de admin din selectorul de model
+// (validat în claude.resolveModel — orice valoare necunoscută cade pe implicit).
+async function runAgent({ supa, task = 'chat', input = '', history = [], maxIters = 8, model = null }) {
   const instr = TASKS[task] || TASKS.chat;
   const { contentCtx, byCat } = await contentContext(supa);
 
@@ -880,13 +882,13 @@ async function runAgent({ supa, task = 'chat', input = '', history = [], maxIter
 
   // Fără cheie Anthropic: comportamentul vechi (doar analiză/recomandări).
   if (!hasTools) {
-    const r = await claude.chatClaude({ system, messages, temperature: 0.6, maxTokens: 3000 });
+    const r = await claude.chatClaude({ system, messages, temperature: 0.6, maxTokens: 3000, model });
     return { ...r, toolCalls: 0, proposals: 0, googleConnected: google.enabled() };
   }
 
   const state = { proposals: [] };
   const executeTool = makeToolExecutor({ supa, state });
-  const r = await claude.chatClaudeTools({ system, messages, tools: TOOLS, executeTool, maxTokens: 3000, maxIters });
+  const r = await claude.chatClaudeTools({ system, messages, tools: TOOLS, executeTool, maxTokens: 3000, maxIters, model });
   return { ...r, proposals: state.proposals.length, proposalsList: state.proposals, googleConnected: google.enabled() };
 }
 

@@ -15,8 +15,10 @@
 // Fără ANTHROPIC_API_KEY, cade elegant pe comportamentul vechi (doar analiză).
 // Contul folosit în consolele Google: admin.examenmate@gmail.com.
 //
-// Body: { userId, task, input?, history? }
-//   task: 'audit'|'meta'|'blog'|'social'|'keywords'|'performance'|'chat'
+// Body: { userId, task, input?, history?, model? }
+//   task:  'audit'|'meta'|'blog'|'social'|'keywords'|'performance'|'chat'
+//   model: opțional — ID Claude din selectorul adminului (ex. 'claude-opus-5');
+//          lista permisă e în api/_lib/claude.js (MODELS).
 // =====================================================================
 const ai = require('./_lib/ai');
 const seo = require('./_lib/seo');
@@ -31,9 +33,12 @@ module.exports = async function handler(req, res) {
     const userId = await ai.authUser(req, supa);
     await ai.requireAdmin(supa, userId);
 
-    const { task = 'chat', input = '', history = [] } = req.body || {};
+    // `model` (opțional): ID-ul Claude ales din selectorul de model al adminului
+    // (Sonnet/Opus). Validat pe server în claude.resolveModel — valorile
+    // necunoscute cad pe modelul implicit (CLAUDE_MODEL sau claude-sonnet-5).
+    const { task = 'chat', input = '', history = [], model = null } = req.body || {};
 
-    const r = await seo.runAgent({ supa, task, input, history });
+    const r = await seo.runAgent({ supa, task, input, history, model });
     await ai.logUsage(supa, userId, 'ai-seo-agent', {
       in: r.usage?.prompt_tokens || 0,
       out: r.usage?.completion_tokens || 0,

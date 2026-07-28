@@ -10,7 +10,25 @@
 const KEY = process.env.ANTHROPIC_API_KEY || '';
 const MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-5';
 
-async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens = 3000 }) {
+// Modelele dintre care adminul poate alege în agenți (selectorul din admin).
+// ATENȚIE: lista e oglindită în src/components/AISEOAgent.jsx — ține-le sincron.
+// ID-urile sunt cele oficiale Anthropic (iulie 2026): Sonnet 5 / Opus 5 sunt
+// generația curentă; 4.6/4.8 sunt snapshot-urile anterioare, încă disponibile.
+const MODELS = [
+  { id: 'claude-sonnet-5',   label: 'Sonnet 5',   note: 'rapid și echilibrat — implicit' },
+  { id: 'claude-opus-5',     label: 'Opus 5',     note: 'cel mai capabil — mai lent și mai scump' },
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', note: 'generația anterioară Sonnet' },
+  { id: 'claude-opus-4-8',   label: 'Opus 4.8',   note: 'generația anterioară Opus' },
+];
+
+// Modelul efectiv al unei rulări: cel cerut de admin (doar dacă e în lista de
+// mai sus — nu trimitem string-uri arbitrare către API), altfel implicitul.
+function resolveModel(requested) {
+  const id = String(requested || '').trim();
+  return MODELS.some((m) => m.id === id) ? id : MODEL;
+}
+
+async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens = 3000, model = null }) {
   if (!KEY) {
     const ai = require('./ai');
     // Fallback-ul (format OpenAI) nu suportă blocuri compuse (ex: PDF) —
@@ -25,8 +43,9 @@ async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens 
     return { text: r.text, usage: r.usage, provider: 'fallback:' + (ai.CHAT_MODEL || 'openai') };
   }
 
+  const useModel = resolveModel(model);
   const r = await apiCall({
-    model: MODEL,
+    model: useModel,
     system,
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
     max_tokens: maxTokens,
@@ -36,7 +55,7 @@ async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens 
     prompt_tokens: r.data.usage?.input_tokens || 0,
     completion_tokens: r.data.usage?.output_tokens || 0,
   };
-  return { text: r.text, usage, provider: MODEL, stopReason: r.stop };
+  return { text: r.text, usage, provider: useModel, stopReason: r.stop };
 }
 
 // ─── Apelul brut către API (partajat de chatClaude și chatClaudeTools) ───────
@@ -87,12 +106,13 @@ async function apiCall(body) {
 // `executeTool` întoarce un string (rezultatul pentru model); erorile lui devin
 // text de eroare pentru model (bucla nu se oprește la o unealtă eșuată).
 // Se oprește după `maxIters` runde de unelte, cu o cerere finală de raport.
-async function chatClaudeTools({ system, messages = [], tools = [], executeTool, maxTokens = 3000, maxIters = 8 }) {
+async function chatClaudeTools({ system, messages = [], tools = [], executeTool, maxTokens = 3000, maxIters = 8, model = null }) {
   if (!KEY) {
     const e = new Error('Uneltele agentului au nevoie de ANTHROPIC_API_KEY (providerul fallback nu suportă bucla de unelte).');
     e.status = 501; e.code = 'NO_ANTHROPIC_KEY';
     throw e;
   }
+  const useModel = resolveModel(model);
   const msgs = messages.map((m) => ({ role: m.role, content: m.content }));
   const usage = { prompt_tokens: 0, completion_tokens: 0 };
   const track = (r) => {
@@ -103,13 +123,13 @@ async function chatClaudeTools({ system, messages = [], tools = [], executeTool,
   let lastText = '';
 
   for (let iter = 0; iter < maxIters; iter++) {
-    const r = await apiCall({ model: MODEL, system, messages: msgs, tools, max_tokens: maxTokens });
+    const r = await apiCall({ model: useModel, system, messages: msgs, tools, max_tokens: maxTokens });
     track(r);
     const content = r.data.content || [];
     if (r.text.trim()) lastText = r.text;
     const uses = content.filter((bl) => bl.type === 'tool_use');
     if (r.stop !== 'tool_use' || !uses.length) {
-      return { text: lastText, usage, provider: MODEL, toolCalls, stopReason: r.stop };
+      return { text: lastText, usage, provider: useModel, toolCalls, stopReason: r.stop };
     }
 
     // Păstrăm conținutul asistentului EXACT cum a venit (inclusiv blocurile de
@@ -130,11 +150,11 @@ async function chatClaudeTools({ system, messages = [], tools = [], executeTool,
   }
 
   // Plafonul de iterații atins → o ultimă cerere pentru concluzie.
-  const fin = await apiCall({ model: MODEL, system, messages: msgs, tools, max_tokens: maxTokens });
+  const fin = await apiCall({ model: useModel, system, messages: msgs, tools, max_tokens: maxTokens });
   track(fin);
   return {
     text: fin.text.trim() || lastText || '(Limita de unelte a fost atinsă — vezi propunerile din coada de aprobare.)',
-    usage, provider: MODEL, toolCalls, stopReason: 'max_iterations',
+    usage, provider: useModel, toolCalls, stopReason: 'max_iterations',
   };
 }
 
@@ -181,4 +201,4 @@ function closeAndParse(input) {
   return null;
 }
 
-module.exports = { chatClaude, chatClaudeTools, extractJson, MODEL, HAS_KEY: !!KEY };
+module.exports = { chatClaude, chatClaudeTools, extractJson, MODEL, MODELS, resolveModel, HAS_KEY: !!KEY };

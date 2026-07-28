@@ -522,3 +522,28 @@ de resurse didactice, schimb de mențiuni cu creatori educaționali.
 Fiecare fază e valoroasă singură și se poate lansa independent. Când vrei să pornim,
 deschide o sesiune pe folderul `mate-online` și cere: **„implementează Faza 1 din
 GHID_AGENT_SEO_ACTIUNI.md"**.
+
+---
+
+## Update (28 iulie 2026): selector de model AI + tema articolelor de blog
+
+Două îmbunătățiri în agentul SEO din admin:
+
+1. **Selector de model AI (Sonnet/Opus, inclusiv Opus 5).** Deasupra sarcinilor
+   rapide există acum butoane de model: **Sonnet 5** (implicit — rapid și echilibrat),
+   **Opus 5** (cel mai capabil, recomandat pentru articole și analize complexe;
+   mai lent și mai scump), plus generația anterioară (Sonnet 4.6, Opus 4.8).
+   - Alegerea se trimite per cerere (`model` în body-ul către `api/ai-seo-agent.js`)
+     și e validată pe server: lista permisă e `MODELS` din `api/_lib/claude.js`
+     (oglindită în `src/components/AISEOAgent.jsx` — ține-le sincron). Un ID
+     necunoscut cade pe implicitul `CLAUDE_MODEL`/`claude-sonnet-5`.
+   - Rularea săptămânală automată (`api/seo-cron.js?action=autorun`) folosește în
+     continuare modelul implicit din env (`CLAUDE_MODEL`).
+   - Răspunsul afișează modelul folosit („model: claude-opus-5") în antetul agentului.
+
+2. **„Articole Blog" cu temă aleasă de admin.** Click pe sarcina „📝 Articole
+   Blog/Rezolvări" deschide un panou în care scrii TEMA articolului (ex. „Formule
+   de arii și perimetre — clasa a 7-a"); agentul se documentează (list_articles,
+   read_material, gsc_query) și trimite articolul complet prin `publish_article`
+   în coada de aprobare. Butonul „🎲 Lasă agentul să aleagă tema" păstrează
+   comportamentul vechi (tema se alege din datele Google / golurile de conținut).

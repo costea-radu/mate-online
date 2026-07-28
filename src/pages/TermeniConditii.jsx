@@ -11,7 +11,7 @@ export default function TermeniConditii() {
             <Link to="/">Acasă</Link><span>›</span><span>Termeni și Condiții</span>
           </div>
           <h1>Termeni și Condiții</h1>
-          <p>Ultima actualizare: iulie 2026</p>
+          <p>Ultima actualizare: 28 iulie 2026</p>
         </div>
       </div>
 
@@ -45,6 +45,9 @@ export default function TermeniConditii() {
               </p>
               <p style={{ marginTop: 10 }}>
                 Ești responsabil pentru toate activitățile desfășurate prin contul tău. În cazul în care suspectezi accesul neautorizat al unui terț la contul tău, ne informezi imediat. Ne rezervăm dreptul de a suspenda sau închide conturi care încalcă acești termeni.
+              </p>
+              <p style={{ marginTop: 10 }}>
+                <strong>Conturi inactive:</strong> conturile fără nicio autentificare timp de <strong>12 luni (1 an)</strong> sunt șterse automat, împreună cu datele asociate, după un e-mail de avertizare trimis cu 30 de zile înainte (orice autentificare anulează ștergerea; conturile cu abonament premium activ nu se șterg automat). Detalii complete în <Link to="/politica-confidentialitate" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica de Confidențialitate</Link>, secțiunea „Retenția datelor".
               </p>
             </Section>
 
@@ -92,7 +95,7 @@ export default function TermeniConditii() {
 
             <Section title="9. Servicii terțe">
               <p>
-                Platforma utilizează servicii terțe pentru funcționarea sa: Supabase (autentificare și baze de date), Google (autentificare OAuth), Discord (autentificare OAuth), Stripe (procesare plăți, inclusiv Apple Pay și Google Pay) și Vercel (găzduire). Utilizarea acestor servicii este guvernată de propriii termeni și condiții ai fiecărui furnizor. ExamenMate nu este responsabilă pentru disponibilitatea sau funcționarea acestor servicii terțe.
+                Platforma utilizează servicii terțe pentru funcționarea sa: Supabase (autentificare, baze de date și stocare — datele de cont se păstrează conform politicii de retenție descrise în Politica de Confidențialitate), Google (autentificare OAuth), Discord (autentificare OAuth), Stripe (procesare plăți, inclusiv Apple Pay și Google Pay), Vercel (găzduire), OpenAI (funcțiile de inteligență artificială — Profesorul Virtual) și Anthropic (generare de conținut educațional și unelte administrative). Utilizarea acestor servicii este guvernată de propriii termeni și condiții ai fiecărui furnizor. ExamenMate nu este responsabilă pentru disponibilitatea sau funcționarea acestor servicii terțe.
               </p>
             </Section>
 

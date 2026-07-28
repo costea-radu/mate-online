@@ -16,6 +16,8 @@ export default function Home() {
     { icon: '📄', title: 'Exerciții PDF', desc: 'Descarcă fișe de lucru și teste în format PDF. Jumătate din materiale sunt gratuite.' },
     { icon: '🧩', title: 'Exerciții Interactive', desc: 'Rezolvă exerciții direct pe platformă cu feedback instant și explicații pas cu pas.' },
     { icon: '📖', title: 'Auxiliare Online', desc: 'Acces la auxiliare și manuale digitale complete, disponibile oricând și de oriunde.' },
+    { icon: '🤖', title: 'Profesor Virtual (AI)', desc: 'Tutor AI disponibil non-stop: explică pas cu pas, generează teste interactive și fișe PDF și îți corectează rezolvările.' },
+    { icon: '🧑‍🏫', title: 'Generator de teste (profesori)', desc: 'Profesorii creează teste interactive sau PDF, inclusiv după modele oficiale, le trimit elevilor și văd rezultatele automat.' },
   ];
 
   return (
@@ -27,8 +29,9 @@ export default function Home() {
             Matematica devine <span>simplă</span> cu ExamenMate
           </h1>
           <p className="fade-in-up delay-1">
-            Exerciții PDF, teste interactive și auxiliare online pentru clasele 5–12,
-            Evaluarea Națională și Bacalaureat. Totul într-un singur loc.
+            Exerciții PDF, teste interactive, auxiliare online și un Profesor Virtual (AI)
+            care te ajută pas cu pas — pentru clasele 5–12, Evaluarea Națională și Bacalaureat.
+            Totul într-un singur loc.
           </p>
           <div className="hero-actions fade-in-up delay-2">
             <Link to="/inregistrare" className="btn btn-primary btn-lg">Începe gratuit</Link>
@@ -77,6 +80,45 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Profesorul Virtual (AI) + Generatorul de teste */}
+      <section className="section" style={{ background: 'linear-gradient(180deg, #f4f7fb, #fff)' }} id="profesor-virtual">
+        <div className="container">
+          <div className="section-header">
+            <h2 className="section-title">Învață cu Profesorul Virtual (AI)</h2>
+            <p className="section-subtitle">
+              Un tutor inteligent pentru elevi și un generator de teste pentru profesori — incluse în platformă.
+            </p>
+          </div>
+          <div className="card-grid" style={{ maxWidth: 1000, margin: '0 auto' }}>
+            <div className="card" style={{ borderTop: '4px solid var(--gold)' }}>
+              <div className="card-icon">🤖</div>
+              <h3>Profesor Virtual — teste interactive și PDF</h3>
+              <p>
+                Asistentul AI îți explică noțiunile pas cu pas, te ajută la teme (poți chiar
+                fotografia exercițiul), generează <strong>teste interactive</strong> cu feedback
+                instant și <strong>fișe PDF</strong> de antrenament, apoi îți corectează
+                rezolvările și îți urmărește progresul.
+              </p>
+              <Link to="/profesor-virtual" className="btn btn-primary" style={{ marginTop: 14 }}>
+                Încearcă Profesorul Virtual
+              </Link>
+            </div>
+            <div className="card" style={{ borderTop: '4px solid var(--navy)' }}>
+              <div className="card-icon">🧑‍🏫</div>
+              <h3>Generator de teste pentru profesori</h3>
+              <p>
+                Profesorii creează în câteva minute <strong>teste interactive sau PDF</strong> —
+                inclusiv după modelele oficiale de Evaluare Națională și Bacalaureat — le trimit
+                elevilor direct din platformă și văd automat rezultatele și progresul fiecărui elev.
+              </p>
+              <Link to="/profesor-virtual" className="btn btn-outline" style={{ marginTop: 14 }}>
+                Descoperă uneltele pentru profesori
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Classes */}
       <section className="section" style={{ background: 'var(--white)' }}>
         <div className="container">
@@ -108,7 +150,7 @@ export default function Home() {
           <div className="section-header">
             <h2 className="section-title">Ce găsești pe ExamenMate</h2>
             <p className="section-subtitle">
-              Trei tipuri de resurse care te ajută să înveți eficient.
+              Resurse clasice plus inteligență artificială — tot ce te ajută să înveți eficient.
             </p>
           </div>
           <div className="card-grid">

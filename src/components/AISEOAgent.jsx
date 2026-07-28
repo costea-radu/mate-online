@@ -2,6 +2,8 @@
 // src/components/AISEOAgent.jsx — Agentul Claude de SEO & marketing (admin)
 // Sarcini presetate (audit, meta, blog, social, cuvinte cheie, performanță
 // Google cu date reale) + chat liber, cu context real din site.
+// Selector de model AI (Sonnet/Opus, inclusiv Opus 5) — alegerea se trimite
+// la server per cerere; la „Articole Blog" adminul își poate alege TEMA.
 // Răspunsurile se pot copia, descărca ca .md sau trimite ca NEWSLETTER
 // pe email tuturor utilizatorilor abonați (de pe admin.examenmate@gmail.com).
 // =====================================================================
@@ -17,6 +19,16 @@ const PRESETS = [
   { id: 'social',      icon: '📱', label: 'Postări social media' },
 ];
 
+// Modelele Claude dintre care poate alege adminul. Oglinda listei permise de
+// server (api/_lib/claude.js → MODELS) — ține-le sincron. Serverul validează
+// oricum: un ID necunoscut cade pe modelul implicit.
+const MODELS = [
+  { id: 'claude-sonnet-5',   label: 'Sonnet 5',   hint: 'rapid și echilibrat — recomandat pentru sarcinile de zi cu zi' },
+  { id: 'claude-opus-5',     label: 'Opus 5',     hint: 'cel mai capabil model — ideal pentru articole și analize complexe (mai lent și mai scump)' },
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', hint: 'generația anterioară Sonnet' },
+  { id: 'claude-opus-4-8',   label: 'Opus 4.8',   hint: 'generația anterioară Opus' },
+];
+
 export default function AISEOAgent({ box }) {
   const [input, setInput] = useState('');
   const [history, setHistory] = useState([]); // {role, content, task?}
@@ -26,13 +38,16 @@ export default function AISEOAgent({ box }) {
   const [googleOn, setGoogleOn] = useState(null);
   const [nlStatus, setNlStatus] = useState(null);
   const [propStatus, setPropStatus] = useState(null);
+  const [model, setModel] = useState(MODELS[0].id);      // selectorul de model AI
+  const [showBlogTheme, setShowBlogTheme] = useState(false); // panoul „tema articolului"
+  const [blogTheme, setBlogTheme] = useState('');
 
   async function run(task, text = '') {
     setLoading(true); setError(null); setPropStatus(null);
     const userMsg = text || PRESETS.find((p) => p.id === task)?.label || task;
     try {
       const r = await aiClient.seoAgent({
-        task, input: text,
+        task, input: text, model,
         history: history.map(({ role, content }) => ({ role, content })),
       });
       setProvider(r.provider);
@@ -47,6 +62,17 @@ export default function AISEOAgent({ box }) {
       }
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
+  }
+
+  // „Articole Blog": adminul poate scrie TEMA articolului (sau lasă agentul
+  // să o aleagă din datele Google). Tema pleacă drept input al sarcinii `blog`
+  // — promptul serverului spune deja: „dacă adminul cere un articol anume,
+  // scrie-l și propune-l".
+  function runBlog(theme = '') {
+    const t = String(theme || '').trim();
+    setShowBlogTheme(false);
+    setBlogTheme('');
+    run('blog', t ? `Scrie un articol pe tema aleasă de mine: „${t}". Documentează-te întâi (list_articles, read_material, gsc_query unde ajută), apoi scrie articolul complet și trimite-l prin publish_article.` : '');
   }
 
   function copy(text) { navigator.clipboard?.writeText(text); }
@@ -99,14 +125,59 @@ export default function AISEOAgent({ box }) {
         {googleOn === false && <span style={{ color: '#b26a00' }}> · ⚠️ Google neconectat (vezi GHID_EMAIL_SI_SEO.md)</span>}
       </p>
 
+      {/* Selectorul de model AI (Sonnet/Opus) — se aplică fiecărei cereri următoare */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+        <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)' }}>🧠 Model AI:</span>
+        {MODELS.map((m) => (
+          <button key={m.id} type="button" disabled={loading} title={m.hint}
+            onClick={() => setModel(m.id)}
+            style={{
+              border: model === m.id ? '2px solid var(--navy)' : '1px solid var(--border)',
+              background: model === m.id ? 'var(--navy)' : '#fff',
+              color: model === m.id ? '#fff' : 'var(--navy)',
+              borderRadius: 20, padding: '4px 12px', fontSize: '.78rem', fontWeight: 600,
+              cursor: loading ? 'default' : 'pointer',
+            }}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <p style={{ fontSize: '.74rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+        {MODELS.find((m) => m.id === model)?.hint}
+      </p>
+
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         {PRESETS.map((p) => (
-          <button key={p.id} className="btn btn-outline" disabled={loading} onClick={() => run(p.id)}
-            style={{ fontSize: '.85rem' }}>
+          <button key={p.id} className="btn btn-outline" disabled={loading}
+            onClick={() => (p.id === 'blog' ? setShowBlogTheme((v) => !v) : run(p.id))}
+            style={{ fontSize: '.85rem', ...(p.id === 'blog' && showBlogTheme ? { borderColor: 'var(--navy)', boxShadow: '0 0 0 1px var(--navy) inset' } : {}) }}>
             {p.icon} {p.label}
           </button>
         ))}
       </div>
+
+      {/* „Articole Blog": adminul alege tema — sau lasă agentul să decidă din date */}
+      {showBlogTheme && (
+        <div style={{ border: '1px dashed var(--border)', background: '#fbfcfe', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
+          <div style={{ fontSize: '.83rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 6 }}>
+            📝 Articol nou — despre ce să scrie agentul?
+          </div>
+          <input value={blogTheme} onChange={(e) => setBlogTheme(e.target.value)} autoFocus
+            onKeyDown={(e) => { if (e.key === 'Enter' && blogTheme.trim() && !loading) runBlog(blogTheme); }}
+            placeholder='Tema ta (ex: „Formule de arii și perimetre — clasa a 7-a") · Enter pentru trimitere'
+            style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.88rem', marginBottom: 8 }} />
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" disabled={loading || !blogTheme.trim()} onClick={() => runBlog(blogTheme)}
+              style={{ fontSize: '.82rem' }}>
+              ✍️ Scrie articolul pe tema mea
+            </button>
+            <button className="btn btn-outline" disabled={loading} onClick={() => runBlog('')}
+              style={{ fontSize: '.82rem' }}>
+              🎲 Lasă agentul să aleagă tema (din datele Google)
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8 }}>
         <input value={input} onChange={(e) => setInput(e.target.value)}

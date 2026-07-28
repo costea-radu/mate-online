@@ -11,7 +11,7 @@ export default function PoliticaConfidentialitate() {
             <Link to="/">Acasă</Link><span>›</span><span>Politica de Confidențialitate</span>
           </div>
           <h1>Politica de Confidențialitate</h1>
-          <p>Ultima actualizare: iulie 2026</p>
+          <p>Ultima actualizare: 28 iulie 2026</p>
         </div>
       </div>
 
@@ -67,7 +67,19 @@ export default function PoliticaConfidentialitate() {
 
             <Section title="5. Retenția datelor">
               <p>
-                Datele de cont sunt păstrate pe durata existenței contului. La ștergerea contului (inițiată direct de utilizator din <strong>Contul meu</strong> sau la cerere prin suport), datele personale și profilul sunt eliminate imediat din baza de date. Datele de facturare pot fi păstrate conform obligațiilor legale (până la 5 ani). Datele obținute prin autentificarea Google sau Discord sunt eliminate odată cu contul.
+                Datele tale sunt stocate în baza de date Supabase și sunt păstrate <strong>doar cât timp contul tău este activ</strong>. Nu păstrăm datele pe termen nelimitat — conturile inactive sunt șterse automat, după cum urmează:
+              </p>
+              <ul style={{ paddingLeft: 20, marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <li><strong>După 12 luni (1 an) fără nicio autentificare</strong>, îți trimitem un e-mail de avertizare: dacă nu te autentifici în următoarele <strong>30 de zile</strong>, contul va fi șters. Cu 7 zile înainte de termen primești o ultimă reamintire.</li>
+                <li>Dacă termenul expiră fără nicio autentificare, <strong>contul și toate datele personale asociate sunt șterse definitiv</strong> din baza de date (profil, progres, conversații cu Profesorul Virtual, postări, fișiere).</li>
+                <li><strong>Orice autentificare anulează automat ștergerea programată</strong> — datele tale rămân în siguranță cât timp folosești platforma.</li>
+                <li>Conturile cu <strong>abonament premium activ</strong> și conturile de administrator nu sunt niciodată șterse automat.</li>
+              </ul>
+              <p style={{ marginTop: 12 }}>
+                Cu alte cuvinte: datele unui cont nefolosit sunt păstrate în Supabase cel mult aproximativ 13 luni de la ultima activitate (12 luni + termenul de avertizare de 30 de zile), după care sunt șterse definitiv.
+              </p>
+              <p style={{ marginTop: 12 }}>
+                La ștergerea contului (inițiată direct de tine din <strong>Contul meu → Șterge contul</strong>, la cerere prin suport, sau automat pentru inactivitate), datele personale și profilul sunt eliminate din baza de date. Datele obținute prin autentificarea Google sau Discord sunt eliminate odată cu contul. <strong>Excepții:</strong> datele de facturare pot fi păstrate conform obligațiilor legale (până la 5 ani), iar dacă ești elev asociat unui profesor sau părinte pe platformă, rezultatele tale școlare (punctaje, progres, teme) rămân arhivate în contul mentorului, marcate „cont șters", fără datele de autentificare — mentorul le poate șterge definitiv oricând. Despre această arhivare ești informat și în e-mailul de avertizare.
               </p>
             </Section>
 
@@ -86,6 +98,7 @@ export default function PoliticaConfidentialitate() {
                 <li><strong>Stripe</strong> — procesare plăți (card, Apple Pay, Google Pay). <a href="https://stripe.com/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica Stripe</a></li>
                 <li><strong>Vercel</strong> — găzduire. <a href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica Vercel</a></li>
                 <li><strong>OpenAI</strong> — procesarea întrebărilor și materialelor pentru funcțiile de inteligență artificială (Profesorul Virtual). <a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica OpenAI</a></li>
+                <li><strong>Anthropic (Claude)</strong> — generarea de conținut educațional și unelte administrative interne (de ex. articole și optimizări ale paginilor). Acestor unelte nu le sunt transmise datele tale personale. <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica Anthropic</a></li>
               </ul>
             </Section>
 
@@ -94,7 +107,10 @@ export default function PoliticaConfidentialitate() {
                 Platforma include un asistent educațional bazat pe inteligență artificială („Profesorul Virtual"). Când îl folosești, întrebările tale, textul exercițiilor, fotografiile pe care le încarci și eventualele înregistrări vocale (pentru dictare) sunt transmise către <strong>OpenAI, L.L.C.</strong> (Statele Unite), care procesează aceste date pentru a genera răspunsuri, exerciții și corectări. Transferul implică o transmitere internațională de date către SUA, realizată cu garanțiile contractuale corespunzătoare.
               </p>
               <p style={{ marginTop: 12 }}>
-                Conform politicii pentru dezvoltatori a OpenAI (API), datele trimise prin acest tip de integrare <strong>nu sunt folosite pentru antrenarea modelelor</strong>. Îți recomandăm să nu introduci date personale sensibile în conversațiile cu Profesorul Virtual. Istoricul conversațiilor tale cu asistentul este stocat în contul tău și poate fi șters de tine. Vezi și <a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica de confidențialitate OpenAI</a>.
+                Conform politicii pentru dezvoltatori a OpenAI (API), datele trimise prin acest tip de integrare <strong>nu sunt folosite pentru antrenarea modelelor</strong>. Îți recomandăm să nu introduci date personale sensibile în conversațiile cu Profesorul Virtual. Istoricul conversațiilor tale cu asistentul este stocat în contul tău (în Supabase), poate fi șters de tine oricând și este eliminat definitiv la ștergerea contului (inclusiv la ștergerea automată pentru inactivitate — vezi secțiunea „5. Retenția datelor"). Vezi și <a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica de confidențialitate OpenAI</a>.
+              </p>
+              <p style={{ marginTop: 12 }}>
+                Pentru generarea de conținut educațional și pentru unelte administrative interne, platforma folosește și modele <strong>Claude</strong> de la <strong>Anthropic, PBC</strong> (Statele Unite). Aceste unelte lucrează cu materialele și statisticile agregate ale platformei, <strong>nu cu datele tale personale</strong>.
               </p>
             </Section>
 
