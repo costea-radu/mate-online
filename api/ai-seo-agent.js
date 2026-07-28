@@ -9,6 +9,13 @@
 // din Search Console (clicuri, impresii, poziții, interogări) și GA4 (trafic).
 // Contul folosit în consolele Google: admin.examenmate@gmail.com.
 //
+// NOU (2): structura site-ului din prompt NU mai e o listă scrisă de mână —
+// se generează DINAMIC la fiecare cerere: rute statice (din App.jsx) +
+// paginile pe clasă care au materiale în DB + articolele publicate în
+// tabelul `articole` (Faza 2 din GHID_AGENT_SEO_ACTIUNI.md) + URL-urile din
+// sitemap.xml (Faza 1), imediat ce acestea vor exista. Agentul vede mereu
+// structura reală și actuală a site-ului, fără modificări de cod.
+//
 // Body: { userId, task, input?, history? }
 //   task: 'audit'|'meta'|'blog'|'social'|'keywords'|'performance'|'chat'
 // =====================================================================
@@ -17,11 +24,83 @@ const claude = require('./_lib/claude');
 const google = require('./_lib/google');
 
 const SITE = 'https://examenmate.com';
-const ROUTES = [
-  '/', '/clase/5..8 (pagini pe clasă)', '/evaluare-nationala', '/bacalaureat',
-  '/manuale', '/rezolvari', '/discutii', '/profesor-virtual (tutor AI)',
-  '/tema (rezolvare temă AI)', '/preturi', '/faq', '/despre-noi', '/contact',
+
+// ─── Structura site-ului — generată dinamic ──────────────────────────────────
+// Rutele statice publice (oglinda rutelor din src/App.jsx; fără admin/auth/viewere).
+const STATIC_ROUTES = [
+  '/ (acasă)',
+  '/evaluare-nationala',
+  '/bacalaureat (+ /bacalaureat/:profil)',
+  '/manuale',
+  '/rezolvari (rezolvări video/PDF + articole scrise)',
+  '/discutii (comunitate)',
+  '/profesor-virtual (tutor AI)',
+  '/tema (rezolvare temă AI)',
+  '/biblioteca-utilizatorilor',
+  '/preturi',
+  '/faq',
+  '/despre-noi',
+  '/contact',
 ];
+
+// sitemap.xml se schimbă rar — îl ținem în cache 10 minute.
+let _sitemapCache = { urls: null, exp: 0 };
+
+async function sitemapUrls() {
+  if (_sitemapCache.exp > Date.now()) return _sitemapCache.urls;
+  let out = null;
+  try {
+    const res = await fetch(`${SITE}/sitemap.xml`, { signal: AbortSignal.timeout(4000) });
+    const xml = res.ok ? await res.text() : '';
+    // Atenție: fiind SPA cu rewrite catch-all, /sitemap.xml poate răspunde 200 cu
+    // index.html dacă sitemapul nu există încă — acceptăm doar XML real de sitemap.
+    if (xml.includes('<urlset') || xml.includes('<sitemapindex')) {
+      const urls = [...xml.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/g)]
+        .map((m) => m[1].trim().replace(/^https?:\/\/[^/]+/, '') || '/');
+      if (urls.length) out = urls.slice(0, 60);
+    }
+  } catch { /* sitemapul apare în Faza 1 — până atunci mergem pe DB */ }
+  _sitemapCache = { urls: out, exp: Date.now() + 10 * 60_000 };
+  return out;
+}
+
+async function siteStructure(supa, byCat) {
+  const lines = [...STATIC_ROUTES];
+
+  // Paginile pe clasă — doar clasele care au efectiv materiale în DB.
+  Object.keys(byCat || {})
+    .map((c) => (/^clasa-(\d+)$/.exec(c) || [])[1])
+    .filter(Boolean)
+    .sort((a, b) => Number(a) - Number(b))
+    .forEach((n) => lines.push(`/clase/${n} (clasa a ${n}-a — ${byCat[`clasa-${n}`]} materiale)`));
+
+  // Câte rezolvări (video/PDF/imagine) există în tabelul dedicat.
+  try {
+    const { count } = await supa.from('rezolvari').select('id', { count: 'exact', head: true });
+    if (count) lines.push(`(pe /rezolvari: ${count} materiale video/PDF/imagine)`);
+  } catch { /* tabel indisponibil — ignorăm */ }
+
+  // Articolele publicate de agent — tabelul `articole` apare în Faza 2.
+  try {
+    const { data: arts } = await supa
+      .from('articole')
+      .select('slug, title, kind')
+      .eq('status', 'published')
+      .order('published_at', { ascending: false })
+      .limit(30);
+    (arts || []).forEach((a) => lines.push(`/rezolvari/${a.slug} — [${a.kind}] ${a.title}`));
+  } catch { /* tabelul nu există încă — normal înainte de Faza 2 */ }
+
+  // Sitemap-ul live — sursa de adevăr completă, imediat ce există (Faza 1).
+  const sm = await sitemapUrls();
+  if (sm) {
+    const known = new Set(lines.map((l) => l.split(' ')[0]));
+    const extra = sm.filter((u) => !known.has(u));
+    if (extra.length) lines.push('— în plus, din sitemap.xml:', ...extra.map((u) => `  ${u}`));
+  }
+
+  return lines.join('\n');
+}
 
 const TASKS = {
   audit: 'Fă un AUDIT SEO on-page al site-ului pe baza contextului. Identifică problemele probabile (titluri, meta, structură, conținut subțire, interlinking, viteze) și dă o listă de acțiuni concrete, prioritizate (impact/efort). Dacă adminul a lipit conținutul unei pagini, auditeaz-o în detaliu.',
@@ -48,17 +127,22 @@ module.exports = async function handler(req, res) {
 
     // Context real din site: materiale pe categorii + titluri recente
     let contentCtx = '';
+    let byCat = {};
     try {
       const { data: rows } = await supa
         .from('content')
         .select('title, category, content_type, is_free, created_at')
         .order('created_at', { ascending: false })
         .limit(400);
-      const byCat = {};
       (rows || []).forEach((r) => { byCat[r.category] = (byCat[r.category] || 0) + 1; });
       const recent = (rows || []).slice(0, 25).map((r) => `- [${r.category}/${r.content_type}${r.is_free ? '/gratuit' : ''}] ${r.title}`).join('\n');
       contentCtx = `Materiale pe categorii: ${JSON.stringify(byCat)}\nCele mai recente titluri:\n${recent}`;
     } catch { contentCtx = '(nu am putut citi conținutul)'; }
+
+    // Structura REALĂ a site-ului — generată dinamic din DB (+ sitemap când există)
+    let routesCtx = '';
+    try { routesCtx = await siteStructure(supa, byCat); }
+    catch { routesCtx = STATIC_ROUTES.join('\n'); }
 
     // Date REALE din Google (Search Console + GA4) — dacă sunt conectate
     let googleCtx = '';
@@ -75,8 +159,8 @@ module.exports = async function handler(req, res) {
 
 Public țintă: elevi 10–19 ani, părinți, profesori (România). Concurență: siteuri de meditații, culegeri online, canale YouTube.
 
-=== STRUCTURA SITE-ULUI (SPA React) ===
-${ROUTES.join('\n')}
+=== STRUCTURA SITE-ULUI (SPA React — generată dinamic din DB și sitemap) ===
+${routesCtx}
 
 === CONȚINUT ACTUAL ===
 ${contentCtx}${googleCtx}
