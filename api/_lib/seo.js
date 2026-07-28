@@ -41,7 +41,7 @@ const STATIC_ROUTES = [
   '/evaluare-nationala',
   '/bacalaureat (+ /bacalaureat/:profil)',
   '/manuale',
-  '/rezolvari (rezolvări video/PDF + articole scrise)',
+  '/rezolvari (pagina „Blog / Rezolvări / Teorie": rezolvări video/PDF + articole scrise)',
   '/discutii (comunitate)',
   '/profesor-virtual (tutor AI)',
   '/tema (rezolvare temă AI)',
@@ -137,7 +137,7 @@ async function contentContext(supa) {
 const TASKS = {
   audit: 'Fă un AUDIT SEO on-page al site-ului pe baza contextului. Identifică problemele probabile (titluri, meta, structură, conținut subțire, interlinking, viteze) și dă o listă de acțiuni concrete, prioritizate (impact/efort). Dacă adminul a lipit conținutul unei pagini, auditeaz-o în detaliu. Folosește uneltele (fetch_page, url_inspect, psi_report, get_seo_meta) ca să verifici realitatea, nu presupuneri.',
   meta: 'Scrie META TITLE (max 60 caractere) și META DESCRIPTION (max 155 caractere) în română, optimizate pentru CTR, pentru fiecare pagină/categorie din context (sau pentru pagina lipită de admin). Verifică întâi cu get_seo_meta ce e deja setat și cu gsc_query ce interogări primește fiecare pagină, apoi PROPUNE modificările prin unealta set_page_meta (nu doar în text).',
-  blog: 'Scrie CONȚINUT pentru pagina Rezolvări (articole SEO, rezolvări scrise pas cu pas, explicații de noțiuni). Fluxul: (1) gsc_query — ce caută oamenii și pentru ce NU există pagină dedicată (prioritatea #1: cerere dovedită); (2) list_articles — ce există deja, ca să nu dublezi; (3) read_material — bazează rezolvările/explicațiile pe materialele REALE din site; (4) scrie articolul COMPLET (substanță: explicație + exemple + formule LaTeX + linkuri interne + tabele unde ajută) și trimite-l prin publish_article, cu materialele folosite în sources. Ține cont de calendarul școlar (simulări feb–mar, EN+BAC iunie — publică cu 2–3 luni înainte). Dacă adminul cere doar idei, dă lista (titlu + cuvânt cheie + intenție + schiță H2) fără să publici; dacă cere un articol anume, scrie-l și propune-l.',
+  blog: 'Scrie CONȚINUT pentru pagina „Blog / Rezolvări / Teorie" (/rezolvari): articole SEO, rezolvări scrise pas cu pas, explicații/teorie. Fluxul: (1) gsc_query — ce caută oamenii și pentru ce NU există pagină dedicată (prioritatea #1: cerere dovedită); (2) list_articles — ce există deja, ca să nu dublezi; (3) read_material — bazează rezolvările/explicațiile pe materialele REALE din site; (4) scrie articolul COMPLET (substanță: explicație + exemple + formule LaTeX + linkuri interne + tabele unde ajută) și trimite-l prin publish_article, cu materialele folosite în sources. Ține cont de calendarul școlar (simulări feb–mar, EN+BAC iunie — publică cu 2–3 luni înainte). Dacă adminul cere doar idei, dă lista (titlu + cuvânt cheie + intenție + schiță H2) fără să publici; dacă cere un articol anume, scrie-l și propune-l.',
   social: 'Creează conținut SOCIAL MEDIA pentru platfomă: 5 postări Facebook/Instagram (text + idee vizual) și 3 idei TikTok/Reels pentru elevi. Ton prietenos, românesc, orientat pe examene. (Postarea automată vine în Faza 3.)',
   keywords: 'Fă o listă de CUVINTE CHEIE (română) pe care ExamenMate ar trebui să le țintească, grupate pe intenție (informațional/tranzacțional) și pe pagini-țintă existente. Include long-tail specifice claselor 5–12, EN și BAC. Pornește de la interogările reale din gsc_query (inclusiv pozițiile 5–20 cu impresii mari).',
   performance: 'Analizează PERFORMANȚA REALĂ din datele Google (Search Console și, dacă există, GA4): tendința clicurilor/impresiilor față de perioada anterioară, interogările și paginile câștigătoare, OPORTUNITĂȚILE (poziții 5–20 cu impresii mari — ce pagini de optimizat ca să urce în top 3), paginile cu impresii mari și CTR mic (de rescris meta), interogările FĂRĂ pagină dedicată (candidate la articol nou), articolele care stagnează/pierd poziții (candidate la refresh). Folosește gsc_query pentru detalii pe interogările/paginile care contează. Pentru fiecare oportunitate clară, trimite o propunere concretă prin set_page_meta / rename_material / publish_article / update_article, cu explicația în `note`. Încheie cu un plan pe 2 săptămâni și cu lista propunerilor trimise. Dacă datele Google lipsesc, spune exact asta și recomandă conectarea lor.',
@@ -232,7 +232,7 @@ const TOOLS = [
   },
   {
     name: 'list_articles',
-    description: 'Listează articolele de pe pagina Rezolvări (tabelul articole): slug, titlu, tip, categorie, status, date. OBLIGATORIU înainte de publish_article (ca să nu dublezi teme/sluguri) și înainte de update_article.',
+    description: 'Listează articolele de pe pagina „Blog / Rezolvări / Teorie" (tabelul articole): slug, titlu, tip, categorie, status, date. OBLIGATORIU înainte de publish_article (ca să nu dublezi teme/sluguri) și înainte de update_article.',
     input_schema: {
       type: 'object',
       properties: {
@@ -283,7 +283,7 @@ const TOOLS = [
   },
   {
     name: 'publish_article',
-    description: `PROPUNE publicarea unui articol NOU pe pagina Rezolvări, cu URL propriu ${'`/rezolvari/{slug}`'} — indexabil, servit server-side, gratuit (aduce trafic; conversia vine din linkurile interne și CTA-ul automat către materialele premium). Scrie articolul COMPLET, cu substanță reală (explicație + exemple + formule LaTeX între $...$): „thin content" face rău în Google. Bazează rezolvările/explicațiile pe materialele reale (read_material) și listează-le în sources. Verifică ÎNTÂI cu list_articles că tema/slug-ul nu există deja.`,
+    description: `PROPUNE publicarea unui articol NOU pe pagina „Blog / Rezolvări / Teorie", cu URL propriu ${'`/rezolvari/{slug}`'} — indexabil, servit server-side, gratuit (aduce trafic; conversia vine din linkurile interne și CTA-ul automat către materialele premium). Scrie articolul COMPLET, cu substanță reală (explicație + exemple + formule LaTeX între $...$): „thin content" face rău în Google. Bazează rezolvările/explicațiile pe materialele reale (read_material) și listează-le în sources. Verifică ÎNTÂI cu list_articles că tema/slug-ul nu există deja.`,
     input_schema: {
       type: 'object',
       properties: {
@@ -291,7 +291,7 @@ const TOOLS = [
         kind: { type: 'string', enum: ARTICLE_KINDS, description: 'articol = ghid/SEO; rezolvare = rezolvare scrisă pas cu pas; explicatie = noțiune explicată' },
         title: str('titlul afișat (H1 + <title>), clar, cu cuvântul cheie căutat — 10–120 caractere (ideal ≤ 60)'),
         description: str('meta description + textul cardului din listă — 40–200 caractere (ideal 140–155)'),
-        category: { type: 'string', enum: ARTICLE_CATEGORIES, description: 'categoria din filtrele paginii Rezolvări' },
+        category: { type: 'string', enum: ARTICLE_CATEGORIES, description: 'categoria din filtrele paginii Blog / Rezolvări / Teorie' },
         content_md: str('articolul COMPLET în Markdown (fără titlul repetat pe prima linie): ## secțiuni, liste, tabele pentru formule, LaTeX între $...$, linkuri interne relative (ex. /clase/7, /evaluare-nationala, /rezolvari). Minim ~800 caractere; țintește 600–1500 de cuvinte cu valoare reală. HTML brut NU e permis (se escapează).'),
         keywords: { type: 'array', items: { type: 'string' }, description: 'max 12 cuvinte cheie țintite (din gsc_query unde există date)' },
         sources: {
@@ -834,7 +834,7 @@ SCRIERE — NU modifică nimic direct: creează PROPUNERI în coada de aprobare 
 
 Fluxul corect: (1) verifică datele reale (gsc_query / db_stats / get_seo_meta / fetch_page / list_articles); (2) decide pe cifre, nu pe presupuneri; (3) trimite propuneri concrete prin uneltele de scriere, fiecare cu «note» care explică DE CE (cu cifrele care o justifică); (4) încheie cu un raport scurt: ce ai găsit + ce propuneri ai trimis.
 Reguli: nu inventa rute sau id-uri (ia-le din structura site-ului / list_materials / list_articles / db_stats); titluri ≤ 60 caractere, descrieri ≤ 155; propune DOAR modificări justificate de date; maximum ~6 propuneri pe rulare — calitate, nu volum (un articol = o propunere mare, nu-l fragmenta). Modificările devin live abia după aprobarea adminului.
-ARTICOLE (pagina Rezolvări, /rezolvari/{slug}): conținut GRATUIT și indexabil — rezolvări scrise pas cu pas, explicații de noțiuni, articole SEO. Fiecare trebuie să aibă substanță reală (explicație + exemple + formule LaTeX între $...$ + linkuri interne relative + tabele unde ajută) — „thin content" în serie face rău. Bazează-te pe materialele reale (read_material) și listează-le în sources: pagina afișează automat linkuri către ele + CTA premium (așa se face conversia).` : `
+ARTICOLE (pagina „Blog / Rezolvări / Teorie", /rezolvari/{slug}): conținut GRATUIT și indexabil — rezolvări scrise pas cu pas, explicații de noțiuni, articole SEO. Fiecare trebuie să aibă substanță reală (explicație + exemple + formule LaTeX între $...$ + linkuri interne relative + tabele unde ajută) — „thin content" în serie face rău. Bazează-te pe materialele reale (read_material) și listează-le în sources: pagina afișează automat linkuri către ele + CTA premium (așa se face conversia).` : `
 
 (Uneltele de acțiune nu sunt disponibile în această rulare — dai doar recomandări în text.)`;
 

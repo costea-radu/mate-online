@@ -254,7 +254,7 @@ export default function SEOActionsQueue({ box }) {
         <button className="btn btn-outline" onClick={load} disabled={loading} style={{ fontSize: '.78rem', padding: '5px 12px' }}>↻ Reîmprospătează</button>
       </div>
       <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
-        Nimic nu se aplică fără OK-ul tău: agentul doar propune (meta, redenumiri, articole pentru pagina Rezolvări, sitemap), tu aprobi sau respingi.
+        Nimic nu se aplică fără OK-ul tău: agentul doar propune (meta, redenumiri, articole pentru pagina „Blog / Rezolvări / Teorie", sitemap), tu aprobi sau respingi.
         Modificările aprobate sunt live în max. 5 minute, fără deploy; acțiunile executate se pot anula (articolele revin în draft).
       </p>
 

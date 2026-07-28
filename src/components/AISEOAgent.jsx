@@ -13,7 +13,7 @@ const PRESETS = [
   { id: 'performance', icon: '📊', label: 'Performanță Google (date reale)' },
   { id: 'meta',        icon: '🏷️', label: 'Meta title & description' },
   { id: 'keywords',    icon: '🎯', label: 'Cuvinte cheie' },
-  { id: 'blog',        icon: '📝', label: 'Articole Rezolvări (scrie & propune)' },
+  { id: 'blog',        icon: '📝', label: 'Articole Blog/Rezolvări (scrie & propune)' },
   { id: 'social',      icon: '📱', label: 'Postări social media' },
 ];
 
@@ -93,7 +93,7 @@ export default function AISEOAgent({ box }) {
       </h3>
       <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
         Analizează site-ul (folosind conținutul real din baza de date{googleOn ? ' + datele reale din Google Search Console/GA4' : ''}) și produce materiale gata de folosit.
-        Are și unelte de ACȚIUNE: poate propune meta noi pe pagini, redenumiri de materiale, articole/rezolvări scrise pentru pagina Rezolvări (publicate pe /rezolvari/slug) și retrimiterea sitemapului — propunerile apar în coada de aprobare de mai jos și se aplică doar cu OK-ul tău.
+        Are și unelte de ACȚIUNE: poate propune meta noi pe pagini, redenumiri de materiale, articole/rezolvări scrise pentru pagina „Blog / Rezolvări / Teorie" (publicate pe /rezolvari/slug) și retrimiterea sitemapului — propunerile apar în coada de aprobare de mai jos și se aplică doar cu OK-ul tău.
         Alege o sarcină rapidă sau scrie liber (ex: „propune meta pentru paginile cu CTR mic").
         {provider && <span style={{ color: 'var(--text-muted)' }}> · model: {provider}</span>}
         {googleOn === false && <span style={{ color: '#b26a00' }}> · ⚠️ Google neconectat (vezi GHID_EMAIL_SI_SEO.md)</span>}

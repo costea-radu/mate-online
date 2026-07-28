@@ -248,7 +248,7 @@ function articleShell(a, site = SITE) {
   return `
     <div class="page-header">
       <div class="container">
-        <nav class="breadcrumb"><a href="/">Acasă</a><span>›</span><a href="/rezolvari">Rezolvări</a><span>›</span><span>${esc(kind.label)}</span></nav>
+        <nav class="breadcrumb"><a href="/">Acasă</a><span>›</span><a href="/rezolvari">Blog / Rezolvări / Teorie</a><span>›</span><span>${esc(kind.label)}</span></nav>
         <h1>${esc(a.title)}</h1>
         ${a.description ? `<p>${esc(a.description)}</p>` : ''}
       </div>
@@ -264,7 +264,7 @@ ${a.content_html || ''}
           <p>Pe ExamenMate găsești exerciții interactive, rezolvări video și teste complete${catLabel ? ` pentru ${esc(catLabel)}` : ''} — plus Profesorul Virtual care îți explică pas cu pas.</p>
           <p><a class="btn btn-primary" href="${esc(catRoute)}">Vezi materialele${catLabel ? ` pentru ${esc(catLabel)}` : ''}</a> <a class="btn btn-outline" href="/preturi">Abonamente</a></p>
         </div>
-        <p class="articol-back"><a href="/rezolvari">← Toate rezolvările și articolele</a></p>
+        <p class="articol-back"><a href="/rezolvari">← Înapoi la Blog / Rezolvări / Teorie</a></p>
       </div>
     </div>`;
 }

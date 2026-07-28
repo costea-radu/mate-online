@@ -27,7 +27,7 @@ const EXAMENE = [
 // „Mai multe" — pentru aerisirea barei principale
 const MAIMULTE = [
   { to: '/manuale',                    label: '📖 Auxiliare' },
-  { to: '/rezolvari',                  label: '📝 Rezolvări' },
+  { to: '/rezolvari',                  label: '📝 Blog / Rezolvări / Teorie' },
   { to: '/biblioteca-utilizatorilor',  label: '🏛️ Biblioteca utilizatorilor' },
   { to: '/profesor-virtual',           label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> Profesor Virtual</span> },
   { to: '/despre-noi',                 label: 'Despre noi' },
@@ -261,7 +261,7 @@ function SearchModal({ onClose }) {
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontWeight:600, color:'var(--navy)', fontSize:'0.9rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.title}</div>
                       <div style={{ fontSize:'0.73rem', color:'#8e95a3', marginTop:2 }}>
-                        📝 Rezolvări · <span style={{ color:item.is_free?'#2e7d32':'#e65100', fontWeight:600 }}>{item.is_free?'Gratuit':'Premium'}</span>
+                        📝 Blog / Rezolvări / Teorie · <span style={{ color:item.is_free?'#2e7d32':'#e65100', fontWeight:600 }}>{item.is_free?'Gratuit':'Premium'}</span>
                       </div>
                     </div>
                     <span style={{ fontSize:'0.75rem', color:'#bbb' }}>→</span>
@@ -435,7 +435,7 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profes
           💳 Abonament
         </Link>
         <Link to="/rezolvari" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/rezolvari' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-          📝 Rezolvări
+          📝 Blog / Rezolvări / Teorie
         </Link>
         <Link to="/profesor-virtual" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/profesor-virtual' ? 'var(--gold)' : 'rgba(255,255,255,0.88)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <EinsteinIcon size={20} /> {aiLabel}

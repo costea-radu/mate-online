@@ -4,6 +4,20 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 28 iulie 2026 — Redenumire: pagina „Rezolvări" → „Blog / Rezolvări / Teorie"
+
+Numele AFIȘAT al paginii `/rezolvari` devine „Blog / Rezolvări / Teorie" peste tot în interfață; **URL-ul rămâne `/rezolvari`** (rutele indexate de Google, slugurile articolelor, sitemap-ul și rewrite-urile nu se ating — zero pierdere SEO).
+
+- **`src/components/Navbar.jsx`:** linkul din meniul „Mai multe", linkul din meniul mobil și eticheta rezultatelor de căutare.
+- **`src/pages/RezolvariPage.jsx`:** breadcrumb, H1 („📝 Blog / Rezolvări / Teorie") și subtitlul paginii (menționează articole + teorie).
+- **`src/pages/ArticolPage.jsx` + `api/page-meta.js` (shell-ul SSR):** breadcrumb-ul articolelor și linkul „← Înapoi la Blog / Rezolvări / Teorie" — identice în React și în HTML-ul servit crawlerelor.
+- **`api/_lib/seo.js`:** structura site-ului din promptul agentului + descrierile uneltelor (list_articles, publish_article, sarcina `blog`) folosesc noul nume.
+- **`api/_lib/ai.js`:** Profesorul Virtual recomandă secțiunea ca `[Blog / Rezolvări / Teorie](/rezolvari)` (SITE_MAP + mesajele despre barem).
+- **`src/components/AISEOAgent.jsx` / `SEOActionsQueue.jsx`:** textele din admin actualizate.
+- Tab-ul „📝 Rezolvări" din admin (gestionarea materialelor video/PDF) rămâne neschimbat — e denumirea internă a tipului de material, nu a paginii publice.
+
+---
+
 ## 28 iulie 2026 — Agent SEO Faza 2: pagina Rezolvări devine motor de conținut (articole indexabile)
 
 Implementarea Fazei 2 din `GHID_AGENT_SEO_ACTIUNI.md`: agentul SEO poate scrie și publica (prin coada de aprobare) articole, rezolvări scrise pas cu pas și explicații — fiecare cu URL propriu `/rezolvari/{slug}`, servit server-side (Google și Facebook văd conținutul complet fără JavaScript). **După deploy: rulează `supabase/articole.sql` în Supabase → SQL Editor.**

@@ -128,7 +128,7 @@ export default function ArticolPage() {
         <div className="container">
           <nav className="breadcrumb">
             <Link to="/">Acasă</Link><span>›</span>
-            <Link to="/rezolvari">Rezolvări</Link><span>›</span>
+            <Link to="/rezolvari">Blog / Rezolvări / Teorie</Link><span>›</span>
             <span>{kind.label}</span>
           </nav>
           <h1>{article.title}</h1>
@@ -192,7 +192,7 @@ export default function ArticolPage() {
             </div>
           )}
 
-          <p className="articol-back"><Link to="/rezolvari">← Toate rezolvările și articolele</Link></p>
+          <p className="articol-back"><Link to="/rezolvari">← Înapoi la Blog / Rezolvări / Teorie</Link></p>
         </div>
       </div>
     </>

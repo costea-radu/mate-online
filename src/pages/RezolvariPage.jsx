@@ -274,9 +274,9 @@ export default function RezolvariPage() {
     <>
       <div className="page-header">
         <div className="container">
-          <div className="breadcrumb"><Link to="/">Acasă</Link><span>›</span><span>Rezolvări</span></div>
-          <h1>📝 Rezolvări</h1>
-          <p>Rezolvări video și scrise, explicații și articole pentru matematica de gimnaziu și liceu</p>
+          <div className="breadcrumb"><Link to="/">Acasă</Link><span>›</span><span>Blog / Rezolvări / Teorie</span></div>
+          <h1>📝 Blog / Rezolvări / Teorie</h1>
+          <p>Articole, teorie și explicații scrise, plus rezolvări video și PDF pentru matematica de gimnaziu și liceu</p>
         </div>
       </div>
 
