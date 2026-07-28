@@ -92,19 +92,30 @@ async function siteStructure(supa, byCat) {
   return lines.join('\n');
 }
 
+// Supabase (PostgREST) întoarce max 1000 de rânduri PER CERERE — pentru
+// numărători corecte peste tot, citim paginat (plafonat la maxPages×1000).
+async function allRows(supa, table, cols, { orderCol = null, desc = true, maxPages = 12 } = {}) {
+  const out = [];
+  for (let p = 0; p < maxPages; p++) {
+    let q = supa.from(table).select(cols).range(p * 1000, p * 1000 + 999);
+    if (orderCol) q = q.order(orderCol, { ascending: !desc });
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    out.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+}
+
 // Context real din site: materiale pe categorii + titluri recente.
 async function contentContext(supa) {
   let contentCtx = '';
   const byCat = {};
   try {
-    const { data: rows } = await supa
-      .from('content')
-      .select('title, category, content_type, is_free, created_at')
-      .order('created_at', { ascending: false })
-      .limit(400);
-    (rows || []).forEach((r) => { byCat[r.category] = (byCat[r.category] || 0) + 1; });
-    const recent = (rows || []).slice(0, 25).map((r) => `- [${r.category}/${r.content_type}${r.is_free ? '/gratuit' : ''}] ${r.title}`).join('\n');
-    contentCtx = `Materiale pe categorii: ${JSON.stringify(byCat)}\nCele mai recente titluri:\n${recent}`;
+    const rows = await allRows(supa, 'content', 'title, category, content_type, is_free, created_at', { orderCol: 'created_at' });
+    rows.forEach((r) => { byCat[r.category] = (byCat[r.category] || 0) + 1; });
+    const recent = rows.slice(0, 25).map((r) => `- [${r.category}/${r.content_type}${r.is_free ? '/gratuit' : ''}] ${r.title}`).join('\n');
+    contentCtx = `Materiale pe categorii (total ${rows.length}): ${JSON.stringify(byCat)}\nCele mai recente titluri:\n${recent}`;
   } catch { contentCtx = '(nu am putut citi conținutul)'; }
   return { contentCtx, byCat };
 }
@@ -331,20 +342,23 @@ function makeToolExecutor({ supa, state }) {
       case 'db_stats': {
         const out = {};
         try {
-          const { data } = await supa.from('content').select('category, content_type, is_free').limit(1000);
+          // numărul EXACT (count pe server) + distribuția pe categorii (paginat)
+          const { count: total } = await supa.from('content').select('id', { count: 'exact', head: true });
+          const data = await allRows(supa, 'content', 'category, content_type, is_free');
           const byCat = {}, byType = {}; let free = 0;
-          (data || []).forEach((r) => {
+          data.forEach((r) => {
             byCat[r.category] = (byCat[r.category] || 0) + 1;
             byType[r.content_type] = (byType[r.content_type] || 0) + 1;
             if (r.is_free) free++;
           });
-          out.content = { total: (data || []).length, byCat, byType, gratuite: free };
+          out.content = { total: total ?? data.length, byCat, byType, gratuite: free };
         } catch (e) { out.content = `eroare: ${e.message}`; }
         try {
-          const { data } = await supa.from('rezolvari').select('type').limit(1000);
+          const { count: total } = await supa.from('rezolvari').select('id', { count: 'exact', head: true });
+          const data = await allRows(supa, 'rezolvari', 'type');
           const byType = {};
-          (data || []).forEach((r) => { byType[r.type] = (byType[r.type] || 0) + 1; });
-          out.rezolvari = { total: (data || []).length, byType };
+          data.forEach((r) => { byType[r.type] = (byType[r.type] || 0) + 1; });
+          out.rezolvari = { total: total ?? data.length, byType };
         } catch { out.rezolvari = null; }
         try {
           const { count } = await supa.from('articole').select('slug', { count: 'exact', head: true }).eq('status', 'published');
@@ -635,7 +649,7 @@ async function snapshotGsc(supa, days = 1) {
 
 module.exports = {
   SITE, STATIC_ROUTES, TASKS, TOOLS,
-  siteStructure, contentContext,
+  siteStructure, contentContext, allRows,
   makeToolExecutor, proposeAction, executeAction, revertAction,
   runAgent, snapshotGsc,
 };

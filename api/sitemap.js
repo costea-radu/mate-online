@@ -49,10 +49,17 @@ module.exports = async function handler(req, res) {
   const supa = http.admin();
 
   // Paginile pe clasă — doar clasele care au efectiv materiale.
+  // (paginat: PostgREST întoarce max 1000 de rânduri per cerere)
   try {
-    const { data } = await supa.from('content').select('category').limit(1000);
+    const rows = [];
+    for (let p = 0; p < 12; p++) {
+      const { data, error } = await supa.from('content').select('category').range(p * 1000, p * 1000 + 999);
+      if (error) throw new Error(error.message);
+      rows.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
     const grades = new Set();
-    (data || []).forEach((r) => {
+    rows.forEach((r) => {
       const m = /^clasa-(\d+)$/.exec(r.category || '');
       if (m) grades.add(Number(m[1]));
     });
