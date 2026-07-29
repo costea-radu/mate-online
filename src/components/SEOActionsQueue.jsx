@@ -17,6 +17,7 @@ const TYPE_INFO = {
   publish_article: { icon: '📰', label: 'Publicare articol' },
   update_article:  { icon: '🔄', label: 'Actualizare articol' },
   schedule_social: { icon: '📱', label: 'Postare social media' },
+  yt_update_video: { icon: '▶️', label: 'Metadate YouTube' },
 };
 
 const KIND_LABELS = { articol: '📖 Articol', rezolvare: '✍️ Rezolvare scrisă', explicatie: '💡 Explicație' };
@@ -189,6 +190,34 @@ function PayloadView({ action }) {
       </div>
     );
   }
+  if (action.type === 'yt_update_video') {
+    const ch = p.changes || {};
+    return (
+      <div>
+        <div style={{ fontSize: '.85rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 4 }}>
+          ▶️ {p.video_title || p.id}
+          {p.url && <a href={p.url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8, fontWeight: 400, fontSize: '.78rem', color: 'var(--navy)' }}>deschide clipul ↗</a>}
+          {p.stats && <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8, fontSize: '.75rem' }}>👁 {p.stats.views} · ❤ {p.stats.likes}</span>}
+        </div>
+        {ch.title && <Diff label={`Titlu (${String(ch.title.new || '').length} car.)`} oldVal={ch.title.old} newVal={ch.title.new} />}
+        {ch.tags && <Diff label={`Taguri (${(ch.tags.new || []).length})`} oldVal={(ch.tags.old || []).join(', ') || '(fără)'} newVal={(ch.tags.new || []).join(', ')} />}
+        {ch.description && (
+          <details style={{ fontSize: '.8rem', marginTop: 6 }}>
+            <summary style={{ cursor: 'pointer', color: 'var(--navy)', fontWeight: 600 }}>
+              📄 Descrierea nouă ({String(ch.description.new || '').length} caractere, înainte {String(ch.description.old || '').length}) — preview
+            </summary>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 8, marginTop: 6 }}>
+              <pre style={{ background: '#fdf2f0', padding: 10, borderRadius: 6, whiteSpace: 'pre-wrap', maxHeight: 260, overflowY: 'auto', margin: 0, fontSize: '.76rem' }}>{ch.description.old || '(goală)'}</pre>
+              <pre style={{ background: '#eef8f0', padding: 10, borderRadius: 6, whiteSpace: 'pre-wrap', maxHeight: 260, overflowY: 'auto', margin: 0, fontSize: '.76rem' }}>{ch.description.new}</pre>
+            </div>
+          </details>
+        )}
+        <div style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginTop: 6 }}>
+          La aprobare se aplică imediat pe YouTube. Reversibil: valorile vechi sunt păstrate în propunere.
+        </div>
+      </div>
+    );
+  }
   return <pre style={{ fontSize: '.75rem', background: '#f7f9fc', padding: 8, borderRadius: 6, overflowX: 'auto', maxHeight: 160 }}>{JSON.stringify(p, null, 2)}</pre>;
 }
 
@@ -238,7 +267,7 @@ export default function SEOActionsQueue({ box }) {
     const t = TYPE_INFO[a.type] || { icon: '⚙️', label: a.type };
     const s = STATUS_INFO[a.status] || { label: a.status, bg: '#f0f1f4', fg: '#5a6379' };
     const canRevert = a.status === 'executed'
-      && (a.type === 'set_page_meta' || a.type === 'rename_material' || a.type === 'publish_article' || a.type === 'update_article' || a.type === 'schedule_social');
+      && (a.type === 'set_page_meta' || a.type === 'rename_material' || a.type === 'publish_article' || a.type === 'update_article' || a.type === 'schedule_social' || a.type === 'yt_update_video');
     const revertLabel = a.type === 'publish_article' ? '↩️ Retrage articolul (înapoi în draft)'
       : a.type === 'schedule_social' ? '↩️ Anulează postarea'
       : '↩️ Anulează (valorile vechi)';
@@ -278,6 +307,11 @@ export default function SEOActionsQueue({ box }) {
               {revertLabel}
             </button>
           )}
+          {a.status === 'executed' && a.type === 'yt_update_video' && (a.payload || {}).url && (
+            <a className="btn btn-outline" href={a.payload.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '.78rem', padding: '6px 12px' }}>
+              ▶️ Deschide clipul
+            </a>
+          )}
           {a.status === 'executed' && (a.type === 'publish_article' || a.type === 'update_article') && (
             <a className="btn btn-outline" href={(a.payload || {}).url || `/rezolvari/${(a.payload || {}).slug || ''}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '.78rem', padding: '6px 12px' }}>
               🔗 Deschide articolul
@@ -302,7 +336,7 @@ export default function SEOActionsQueue({ box }) {
         <button className="btn btn-outline" onClick={load} disabled={loading} style={{ fontSize: '.78rem', padding: '5px 12px' }}>↻ Reîmprospătează</button>
       </div>
       <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
-        Nimic nu se aplică fără OK-ul tău: agentul doar propune (meta, redenumiri, articole pentru pagina „Blog / Rezolvări / Teorie", sitemap, postări social media), tu aprobi sau respingi.
+        Nimic nu se aplică fără OK-ul tău: agentul doar propune (meta, redenumiri, articole pentru pagina „Blog / Rezolvări / Teorie", sitemap, postări social media, metadate YouTube), tu aprobi sau respingi.
         Modificările aprobate sunt live în max. 5 minute, fără deploy; acțiunile executate se pot anula (articolele revin în draft, postările programate se retrag din calendar).
       </p>
 

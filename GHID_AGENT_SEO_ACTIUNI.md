@@ -461,26 +461,84 @@ dar agentul îți scrie textele adaptate fiecărui grup (fără ton de reclamă,
 
 ## FAZA 4 — YouTube și măsurare avansată
 
+> **✅ FAZA 4 IMPLEMENTATĂ (29 iulie 2026).** Fișierele: `api/_lib/youtube.js`
+> (4a — YouTube Data API v3 prin OAuth cu refresh token, fetch fără dependențe),
+> uneltele agentului `yt_list_videos` + `yt_get_video` (citire) și
+> **`yt_update_video`** (scriere, prin coada de aprobare; valorile vechi se
+> păstrează — revert cu un click; validări pe limitele YouTube: titlu ≤ 100,
+> descriere ≤ 5000 bytes, taguri ≤ ~500 caractere total), sarcina nouă
+> „▶️ YouTube — titluri & descrieri" în `AISEOAgent.jsx`, preview cu diff +
+> revert în `SEOActionsQueue.jsx`; (4b) `api/seo-rank.js` +
+> `src/components/SEORankTracker.jsx` (rank-tracking în admin: clicuri/zi,
+> impresii/zi, evoluția POZIȚIEI pe interogări/pagini cu momentele acțiunilor
+> marcate pe grafic, efectul măsurat 14 zile înainte vs. după, tabel cu Δ;
+> paletă verificată pentru daltonism; fără dependențe noi — SVG curat),
+> helperele de măsurare în `api/_lib/seo.js` (rankData, measureActionEffects,
+> monthlyContext…), raportul lunar `api/seo-cron.js?action=monthly` + cron
+> `0 7 1 * *` în `vercel.json` (datele calculate în cod, agentul doar le
+> interpretează prin sarcina `report`; emailul pleacă adminului cu mailer-ul
+> existent). **Fără SQL nou — folosește tabelele din Faza 1.**
+> **După deploy: fă pasul 4a de mai jos (~15 min, manual) și pune
+> `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN` în Vercel — până
+> atunci uneltele YouTube răspund elegant „neconectat", restul Fazei 4
+> (rank-tracking + raport lunar) merge de la prima zi.**
+> Teste: `test/youtube.test.js` (validări metadate, îmbinarea snippet-ului,
+> agregarea rank, efectul acțiunilor, luna raportului) — `npm test`.
+
 > **Reamintire:** agentul nu modifică niciodată codul. Când auditurile lui găsesc
 > probleme tehnice (viteză, structură, atribute lipsă), le raportează cu instrucțiuni
 > precise, iar tu le implementezi separat, într-o sesiune de dezvoltare.
 
-### 4a. YouTube
+### 4a. YouTube — configurarea OAuth (o singură dată, ~15 min, manual)
 
-- **Chiar înainte de audit:** unealta `yt_update_video(id, title, description, tags)`
-  (scope `youtube` prin OAuth cu refresh token) — agentul optimizează metadatele
-  clipurilor EXISTENTE pe baza interogărilor din GSC. Câștig imediat, fără restricții.
-- **Upload automat:** cere auditul YouTube (altfel clipurile rămân private) — sau rămâi
-  pe fluxul semi-automat: agentul pregătește titlul/descrierea/capitolele, tu urci din
-  YouTube Studio.
+YouTube nu acceptă contul de serviciu din Faza 1 pentru canale — e nevoie de un
+refresh token OAuth pe contul canalului. Totul logat cu **admin.examenmate@gmail.com**:
 
-### 4b. Rank-tracking și raportare
+1. **console.cloud.google.com** → proiectul `examenmate-seo` (există din
+   GHID_EMAIL_SI_SEO, Pasul 5b) → **APIs & Services → Library** → caută
+   **„YouTube Data API v3"** → **Enable**.
+2. **OAuth consent screen** (dacă nu există): User type **External** → nume
+   „ExamenMate SEO" + emailul tău → Save. La **Audience/Publishing status**
+   apasă **„Publish app"** (In production). *Atenție: în modul „Testing"
+   refresh tokenurile EXPIRĂ după 7 zile — publicarea rezolvă asta; avertismentul
+   „app neverificată" e ok, doar tu o folosești (Advanced → Go to app).*
+3. **Credentials → Create credentials → OAuth client ID** → tip **„Web
+   application"** → la **Authorized redirect URIs** adaugă exact
+   `https://developers.google.com/oauthplayground` → Create → copiază
+   **Client ID** și **Client Secret**.
+4. Refresh tokenul, din **https://developers.google.com/oauthplayground**:
+   ⚙️ (dreapta sus) → bifează **„Use your own OAuth credentials"** → lipește
+   Client ID + Secret → în stânga, la Step 1, scrie scope-ul
+   `https://www.googleapis.com/auth/youtube` → **Authorize APIs** → loghează-te
+   cu **contul canalului YouTube** → Step 2: **Exchange authorization code for
+   tokens** → copiază **Refresh token**.
+5. În Vercel: `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN` → Redeploy.
+6. Test: Admin → agentul SEO → **„▶️ YouTube — titluri & descrieri"** — agentul
+   listează clipurile și propune metadate prin coada de aprobare.
 
-- Grafice în admin din `gsc_snapshots`: evoluția pozițiilor pe interogările-țintă,
-  marcată cu momentele acțiunilor executate (`seo_actions.executed_at`) — vezi negru
-  pe alb efectul fiecărei optimizări.
-- Raport lunar generat de agent (are toate datele): trafic, poziții, conversii pe canale
-  (UTM), acțiuni executate și efectul lor, planul lunii următoare — trimis pe email.
+Ce face agentul (implementat):
+
+- **`yt_update_video(id, title?, description?, tags?)`** — optimizează metadatele
+  clipurilor EXISTENTE pe baza interogărilor din GSC. Câștig imediat, fără audit;
+  reversibil (valorile vechi rămân în propunere).
+- **Upload automat: NU** (clipurile urcate de aplicații ne-auditate rămân forțat
+  private) — rămâne fluxul semi-automat din Faza 3: agentul pregătește
+  titlul/descrierea/capitolele în coada manuală, tu urci din YouTube Studio.
+
+### 4b. Rank-tracking și raportare (implementate)
+
+- **Panoul „📉 Rank-tracking"** în admin (sub coada de aprobare): grafice din
+  `gsc_snapshots` — clicuri/zi, impresii/zi și evoluția pozițiilor pe
+  interogările/paginile-țintă (14/28/90 de zile), cu momentele acțiunilor
+  executate (`seo_actions.executed_at`) marcate vertical pe grafic și cu
+  **efectul măsurat** al fiecărei optimizări (medii pe zi + poziția, 14 zile
+  înainte vs. după) — vezi negru pe alb ce a funcționat.
+- **Raport lunar** (`/api/seo-cron?action=monthly`, cron pe 1 ale lunii, 07:00):
+  cifrele lunii anterioare sunt calculate ÎN COD din `gsc_snapshots` (trafic,
+  urcări/căderi de poziții), `seo_actions` (acțiunile + efectul lor), `articole`,
+  `social_posts` (postările cu metrici) și GA4 (canale + campanii UTM); agentul
+  doar le interpretează și scrie planul lunii următoare; totul pleacă pe emailul
+  adminului. Test manual: `/api/seo-cron?action=monthly&secret=AI_CRON_SECRET`.
 
 ---
 
@@ -544,7 +602,7 @@ de resurse didactice, schimb de mențiuni cu creatori educaționali.
 | **1. Fundația** | SQL + `page-meta` + sitemap/robots + tool use + unealta de redenumire + coada de aprobare + 2 cron-uri | 1–2 zile de lucru cu AI |
 | **2. Blog/Rezolvări** | tabel `articole` + extinderea paginii Rezolvări + ruta `/rezolvari/:slug` servită SSR + unelte de publicare | ~1 zi |
 | **3. Social** | setup Meta (30 min, manual) + `social.js` + calendar + cron + generator imagini | 1–2 zile |
-| **4. YouTube & măsurare** | metadate YouTube prin API + grafice rank-tracking + raport lunar | ~1 zi |
+| **4. YouTube & măsurare** ✅ | metadate YouTube prin API + grafice rank-tracking + raport lunar | ~1 zi |
 
 Fiecare fază e valoroasă singură și se poate lansa independent. Când vrei să pornim,
 deschide o sesiune pe folderul `mate-online` și cere: **„implementează Faza 1 din

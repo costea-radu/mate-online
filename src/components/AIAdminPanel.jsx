@@ -8,6 +8,7 @@ import { aiClient } from '../lib/aiClient';
 import AIExerciseAgent from './AIExerciseAgent';
 import AISEOAgent from './AISEOAgent';
 import SEOActionsQueue from './SEOActionsQueue';
+import SEORankTracker from './SEORankTracker';
 import SocialQueue from './SocialQueue';
 
 export default function AIAdminPanel() {
@@ -93,6 +94,7 @@ export default function AIAdminPanel() {
     <AIExerciseAgent box={box} />
     <AISEOAgent box={box} />
     <SEOActionsQueue box={box} />
+    <SEORankTracker box={box} />
     <SocialQueue box={box} />
     <BroadcastBox box={box} />
     </>

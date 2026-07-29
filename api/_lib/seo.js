@@ -23,10 +23,18 @@
 // (supabase/social_posts.sql); Facebook/Instagram se publică automat de
 // api/social-cron.js (Meta Graph API în api/_lib/social.js, imagini branded
 // din api/social-image.js), TikTok/YouTube intră în coada manuală din admin.
+//
+// FAZA 4 (YouTube + măsurare): yt_update_video optimizează metadatele
+// clipurilor EXISTENTE (api/_lib/youtube.js, OAuth cu refresh token) — tot
+// prin coada de aprobare; rank-trackingul din admin (api/seo-rank.js →
+// SEORankTracker.jsx) și raportul lunar (api/seo-cron.js?action=monthly)
+// se hrănesc din helperele de la finalul acestui fișier (rankData,
+// measureActionEffects, monthlyContext).
 // =====================================================================
 const claude = require('./claude');
 const google = require('./google');
 const social = require('./social');
+const youtube = require('./youtube');
 const { signedUrlFromPublic } = require('./http');
 const { pdfText } = require('./pdftext');
 const { mdToHtml, stripLeadingTitle, mdExcerpt, validSlug } = require('./markdown');
@@ -149,6 +157,8 @@ const TASKS = {
   social: 'Planifică și PROGRAMEAZĂ postări social media reale prin unealta schedule_social. Fluxul: (1) list_social_posts — vezi ce e deja programat (fără dubluri) și ce metrici au avut postările vechi (învață din ele); (2) list_articles + gsc_query — ce merită promovat acum (articole noi, teme căutate, calendarul școlar); (3) programează un mix pe săptămâna următoare (3–6 postări, la ore cu audiență, ex. 17:00–20:30): PĂRINȚI → Facebook (ghiduri, calendarul examenelor, articolele noi din Blog/Rezolvări, ton cald fără reclamă agresivă); ELEVI → Instagram (formula/exercițiul zilei cu card generat prin image:{template,…}) și TikTok/Reels (clip scurt — scrie scenariul în text; intră în coada manuală); (4) fiecare postare cu linkul ei (primește UTM automat — efectul se vede în ga4_report). Textele în română, gata de publicat, cu 2–4 hashtag-uri relevante (#matematica #evaluareanationala #bacalaureat). Dacă adminul cere o campanie sau o temă anume, fă exact asta.',
   keywords: 'Fă o listă de CUVINTE CHEIE (română) pe care ExamenMate ar trebui să le țintească, grupate pe intenție (informațional/tranzacțional) și pe pagini-țintă existente. Include long-tail specifice claselor 5–12, EN și BAC. Pornește de la interogările reale din gsc_query (inclusiv pozițiile 5–20 cu impresii mari).',
   performance: 'Analizează PERFORMANȚA REALĂ din datele Google (Search Console și, dacă există, GA4): tendința clicurilor/impresiilor față de perioada anterioară, interogările și paginile câștigătoare, OPORTUNITĂȚILE (poziții 5–20 cu impresii mari — ce pagini de optimizat ca să urce în top 3), paginile cu impresii mari și CTR mic (de rescris meta), interogările FĂRĂ pagină dedicată (candidate la articol nou), articolele care stagnează/pierd poziții (candidate la refresh). Folosește gsc_query pentru detalii pe interogările/paginile care contează. Pentru fiecare oportunitate clară, trimite o propunere concretă prin set_page_meta / rename_material / publish_article / update_article, cu explicația în `note`. Încheie cu un plan pe 2 săptămâni și cu lista propunerilor trimise. Dacă datele Google lipsesc, spune exact asta și recomandă conectarea lor.',
+  youtube: 'Optimizează METADATELE clipurilor YouTube EXISTENTE (titlu, descriere, taguri) pe baza căutărilor reale. Fluxul: (1) yt_list_videos — canalul și clipurile, cu vizualizări; (2) gsc_query + interogările din context — CE CAUTĂ oamenii pe temele clipurilor (folosește exact formulările căutate); (3) yt_get_video pe clipurile cu potențial (multe impresii pe temă, titlu slab/generic, descriere goală sau fără linkuri); (4) pentru fiecare, PROPUNE prin yt_update_video: titlu ≤ 70 caractere cu formularea căutată (fără clickbait), descriere cu primele 2 rânduri care „vând" + capitole (timestamps) dacă se pot deduce + link către pagina/articolul relevant de pe site (cu UTM: ?utm_source=youtube&utm_medium=video&utm_campaign=slug-clip) + 8–15 taguri. Propune DOAR unde ai motiv concret (în note); nu atinge clipurile care performează deja bine. Dacă YouTube nu e conectat (YT_CLIENT_ID/SECRET/REFRESH_TOKEN), spune exact asta — iar pentru clipuri NOI scrie metadatele în text (adminul le pune din YouTube Studio).',
+  report: 'Scrie RAPORTUL LUNAR de SEO & marketing al platformei, pe baza DATELOR MĂSURATE primite în mesaj (nu inventa cifre — folosește-le pe acelea; uneltele doar pentru verificări punctuale, max 2–3 apeluri). Structura: (1) Rezumat executiv — 3–5 fraze: ce s-a schimbat luna asta și de ce; (2) Trafic organic — clicuri/impresii/CTR/poziție medie vs. luna anterioară, cu interpretare; (3) Interogări & pagini — câștigătorii, pierzătorii, oportunitățile rămase; (4) Efectul acțiunilor executate — pentru fiecare acțiune măsurată: a funcționat? (cifrele înainte/după sunt în date); ce învățăm; (5) Conținut & social — articolele noi și postările (cu metricile lor), ce canal aduce vizite (UTM/GA4); (6) Planul lunii următoare — 4–6 acțiuni concrete, prioritizate (impact/efort), legate de calendarul școlar; NU trimite propuneri prin unelte acum — raportul e pentru citit. Ton: direct, cu cifre, fără umplutură. Format: Markdown cu titluri ## și liste scurte.',
   chat: 'Răspunde la întrebarea adminului ca expert SEO & marketing pentru platforma de educație. Când e util, verifică realitatea cu uneltele de citire; când propui modificări concrete de meta/titluri, trimite-le prin uneltele de scriere.',
 };
 
@@ -269,6 +279,23 @@ const TOOLS = [
     },
   },
 
+  {
+    name: 'yt_list_videos',
+    description: 'Clipurile canalului YouTube ExamenMate, cu vizualizări/like-uri/comentarii și data publicării. Folosește înainte de yt_update_video (id-uri reale) și ca să vezi ce clipuri au titluri slabe față de ce caută oamenii.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        search: str('opțional: filtrează clipurile care conțin acest text în titlu/descriere'),
+        limit: { type: 'integer', description: 'max 50 (implicit 25)' },
+      },
+    },
+  },
+  {
+    name: 'yt_get_video',
+    description: 'Un clip YouTube cu metadatele COMPLETE (titlul, descrierea integrală, tagurile) + statistici. OBLIGATORIU înainte de yt_update_video — pornești de la ce există.',
+    input_schema: { type: 'object', properties: { id: str('ID-ul clipului (din yt_list_videos)') }, required: ['id'] },
+  },
+
   // ── SCRIERE — creează PROPUNERI în coada de aprobare (nu execută direct) ──
   {
     name: 'set_page_meta',
@@ -387,6 +414,21 @@ const TOOLS = [
         note: str('DE CE propui postarea acum — public țintă + cârlig (apare în coada de aprobare)'),
       },
       required: ['platform', 'text', 'note'],
+    },
+  },
+  {
+    name: 'yt_update_video',
+    description: 'PROPUNE metadate noi pentru un clip YouTube EXISTENT (titlu ≤ 100 caractere — ideal ≤ 70; descriere ≤ 5000 bytes, cu primele 2 rânduri care contează + link către site cu UTM; 8–15 taguri). Trimite DOAR câmpurile care se schimbă; valorile vechi se păstrează (reversibil). Citește ÎNTÂI clipul cu yt_get_video.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: str('ID-ul clipului (REAL, din yt_list_videos / yt_get_video — nu inventa)'),
+        title: str('opțional: titlul nou (formularea căutată de oameni, fără clickbait)'),
+        description: str('opțional: descrierea nouă COMPLETĂ (înlocuiește tot: primele 2 rânduri „vând", apoi capitole/timestamps dacă există, linkuri către site cu UTM)'),
+        tags: { type: 'array', items: { type: 'string' }, description: 'opțional: lista nouă de taguri (înlocuiește toate; 8–15, max ~480 caractere în total)' },
+        note: str('DE CE propui schimbarea — cu interogările/cifrele din GSC care o justifică (apare în coada de aprobare)'),
+      },
+      required: ['id', 'note'],
     },
   },
 ];
@@ -669,6 +711,30 @@ function makeToolExecutor({ supa, state }) {
         rows.forEach((r) => { byStatus[r.status] = (byStatus[r.status] || 0) + 1; });
         return J({ rows, byStatus, metaConfigurat: { facebook: social.enabled(), instagram: social.igEnabled() } });
       }
+      case 'yt_list_videos': {
+        if (!youtube.enabled()) return 'YouTube neconectat (YT_CLIENT_ID / YT_CLIENT_SECRET / YT_REFRESH_TOKEN lipsesc — vezi Faza 4a din GHID_AGENT_SEO_ACTIUNI.md). Poți totuși scrie metadate în text, pentru pus manual din YouTube Studio.';
+        const r = await youtube.listVideos({ search: input.search ? String(input.search) : '', limit: input.limit });
+        return J({
+          canal: { titlu: r.channel.title, abonati: r.channel.stats.subscribers, vizualizariTotal: r.channel.stats.views, clipuri: r.channel.stats.videos },
+          clipuri: r.videos.map((v) => ({
+            id: v.id, titlu: v.title, publicat: v.publishedAt ? String(v.publishedAt).slice(0, 10) : null,
+            vizibilitate: v.privacy, vizualizari: v.stats.views, likes: v.stats.likes, comentarii: v.stats.comments,
+            descriere_inceput: String(v.description || '').slice(0, 120) || '(goală)',
+            taguri: (v.tags || []).length,
+          })),
+          total: r.total,
+        });
+      }
+      case 'yt_get_video': {
+        if (!youtube.enabled()) return 'YouTube neconectat (YT_CLIENT_ID / YT_CLIENT_SECRET / YT_REFRESH_TOKEN lipsesc — vezi Faza 4a din GHID_AGENT_SEO_ACTIUNI.md).';
+        const v = await youtube.getVideo(String(input.id));
+        return J({
+          id: v.id, url: v.url, vizibilitate: v.privacy, statistici: v.stats,
+          titlu: v.snippet.title || '', descriere: String(v.snippet.description || '').slice(0, 4000),
+          taguri: v.snippet.tags || [], categoryId: v.snippet.categoryId || null,
+          publicat: v.snippet.publishedAt || null,
+        });
+      }
 
       // ── SCRIERE → coada de aprobare ────────────────────────────────────
       case 'set_page_meta': {
@@ -838,6 +904,28 @@ function makeToolExecutor({ supa, state }) {
           : 'cât mai curând după aprobare';
         return `Propunerea ${id} (schedule_social ${platform}, ${cand}) a fost trimisă în coada de aprobare. ${auto ? 'După aprobare se publică automat.' : 'După aprobare intră în coada MANUALĂ din admin (TikTok/YouTube nu au API de postare fără audit).'}`;
       }
+      case 'yt_update_video': {
+        if (!youtube.enabled()) throw new Error('YouTube neconectat (YT_CLIENT_ID / YT_CLIENT_SECRET / YT_REFRESH_TOKEN) — fă pasul 4a din GHID_AGENT_SEO_ACTIUNI.md, apoi reia.');
+        // Validăm ACUM (limitele YouTube) și citim clipul REAL — propunerea
+        // păstrează valorile vechi pentru diff-ul din admin + revert.
+        const checked = youtube.checkVideoMeta({
+          title: input.title != null ? input.title : null,
+          description: input.description != null ? input.description : null,
+          tags: input.tags != null ? input.tags : null,
+        });
+        if (checked.title == null && checked.description == null && checked.tags == null) {
+          throw new Error('Nicio schimbare: trimite cel puțin unul dintre title / description / tags.');
+        }
+        const v = await youtube.getVideo(String(input.id));
+        const changes = {};
+        if (checked.title != null && checked.title !== (v.snippet.title || '')) changes.title = { old: v.snippet.title || '', new: checked.title };
+        if (checked.description != null && checked.description !== String(v.snippet.description || '').trim()) changes.description = { old: v.snippet.description || '', new: checked.description };
+        if (checked.tags != null && JSON.stringify(checked.tags) !== JSON.stringify(v.snippet.tags || [])) changes.tags = { old: v.snippet.tags || [], new: checked.tags };
+        if (!Object.keys(changes).length) throw new Error('Valorile propuse sunt identice cu cele actuale ale clipului — nimic de schimbat.');
+        const payload = { id: v.id, url: v.url, video_title: v.snippet.title || '', changes, stats: v.stats };
+        const pid = await proposeAction(supa, { type: 'yt_update_video', payload, note: input.note }, state);
+        return `Propunerea ${pid} (yt_update_video „${v.snippet.title}" — schimbă: ${Object.keys(changes).join(', ')}) a fost trimisă în coada de aprobare. Se aplică pe YouTube DOAR după aprobarea adminului.`;
+      }
       default:
         return `Unealtă necunoscută: ${name}`;
     }
@@ -935,6 +1023,16 @@ async function executeAction(supa, action) {
       }
       return result;
     }
+    case 'yt_update_video': {
+      const changes = p.changes || {};
+      const r = await youtube.updateVideo({
+        id: p.id,
+        title: changes.title ? changes.title.new : null,
+        description: changes.description ? changes.description.new : null,
+        tags: changes.tags ? changes.tags.new : null,
+      });
+      return { applied: 'youtube', id: r.id, url: r.url, title: r.title, fields: Object.keys(changes), live_in: 'imediat (YouTube)' };
+    }
     default:
       throw new Error(`Tip de acțiune necunoscut: ${action.type}`);
   }
@@ -1005,6 +1103,16 @@ async function revertAction(supa, action) {
       if (upErr) throw new Error(upErr.message);
       return { reverted: postId, status: 'anulată (nu se mai publică)' };
     }
+    case 'yt_update_video': {
+      const changes = p.changes || {};
+      const r = await youtube.updateVideo({
+        id: p.id,
+        title: changes.title ? changes.title.old : null,
+        description: changes.description ? changes.description.old : null,
+        tags: changes.tags ? changes.tags.old : null,
+      });
+      return { reverted: 'youtube', id: r.id, url: r.url, restored: Object.keys(changes) };
+    }
     default:
       throw new Error(`Acțiunea ${action.type} nu are revert automat.`);
   }
@@ -1015,13 +1123,14 @@ function buildSystem({ routesCtx, contentCtx, googleCtx, instr, hasTools }) {
   const toolsBlock = hasTools ? `
 
 === UNELTELE TALE (folosește-le!) ===
-CITIRE — se execută imediat: gsc_query, ga4_report, url_inspect, psi_report, fetch_page, db_stats, list_materials, read_material, get_seo_meta, list_articles, read_article, list_social_posts.
-SCRIERE — NU modifică nimic direct: creează PROPUNERI în coada de aprobare din admin: set_page_meta, rename_material, publish_article, update_article, submit_sitemap, schedule_social.
+CITIRE — se execută imediat: gsc_query, ga4_report, url_inspect, psi_report, fetch_page, db_stats, list_materials, read_material, get_seo_meta, list_articles, read_article, list_social_posts, yt_list_videos, yt_get_video.
+SCRIERE — NU modifică nimic direct: creează PROPUNERI în coada de aprobare din admin: set_page_meta, rename_material, publish_article, update_article, submit_sitemap, schedule_social, yt_update_video.
 
 Fluxul corect: (1) verifică datele reale (gsc_query / db_stats / get_seo_meta / fetch_page / list_articles); (2) decide pe cifre, nu pe presupuneri; (3) trimite propuneri concrete prin uneltele de scriere, fiecare cu «note» care explică DE CE (cu cifrele care o justifică); (4) încheie cu un raport scurt: ce ai găsit + ce propuneri ai trimis.
 Reguli: nu inventa rute sau id-uri (ia-le din structura site-ului / list_materials / list_articles / db_stats); titluri ≤ 60 caractere, descrieri ≤ 155; propune DOAR modificări justificate de date; maximum ~6 propuneri pe rulare — calitate, nu volum (un articol = o propunere mare, nu-l fragmenta). Modificările devin live abia după aprobarea adminului.
 ARTICOLE (pagina „Blog / Rezolvări / Teorie", /rezolvari/{slug}): conținut GRATUIT și indexabil — rezolvări scrise pas cu pas, explicații de noțiuni, articole SEO. Fiecare trebuie să aibă substanță reală (explicație + exemple + formule LaTeX între $...$ + linkuri interne relative + tabele unde ajută) — „thin content" în serie face rău. Bazează-te pe materialele reale (read_material) și listează-le în sources: pagina afișează automat linkuri către ele + CTA premium (așa se face conversia).
-SOCIAL (schedule_social): Facebook/Instagram se publică AUTOMAT la ora programată (după aprobare); TikTok/YouTube intră în coada manuală a adminului. Public: părinți → Facebook (ghiduri, calendar examene, articole noi); elevi → Instagram/TikTok (formula/exercițiul zilei, greșeli frecvente, countdown examene). Instagram cere media: folosește image:{template: formula|exercitiu|greseala|countdown|anunt, title, subtitle, badge} — carduri branded generate de site (text scurt, simboluri Unicode π √ ² — NU LaTeX). Linkurile către site primesc UTM automat; verifică efectul în ga4_report și învață din metricile din list_social_posts.` : `
+SOCIAL (schedule_social): Facebook/Instagram se publică AUTOMAT la ora programată (după aprobare); TikTok/YouTube intră în coada manuală a adminului. Public: părinți → Facebook (ghiduri, calendar examene, articole noi); elevi → Instagram/TikTok (formula/exercițiul zilei, greșeli frecvente, countdown examene). Instagram cere media: folosește image:{template: formula|exercitiu|greseala|countdown|anunt, title, subtitle, badge} — carduri branded generate de site (text scurt, simboluri Unicode π √ ² — NU LaTeX). Linkurile către site primesc UTM automat; verifică efectul în ga4_report și învață din metricile din list_social_posts.
+YOUTUBE (yt_update_video): optimizezi metadatele clipurilor EXISTENTE (titlu cu formularea căutată din GSC, descriere cu linkuri UTM către site, taguri) — schimbările sunt reversibile; upload-ul de clipuri NOI rămâne manual (agentul pregătește textele).` : `
 
 (Uneltele de acțiune nu sunt disponibile în această rulare — dai doar recomandări în text.)`;
 
@@ -1118,6 +1227,320 @@ async function snapshotGsc(supa, days = 1) {
   return out;
 }
 
+// =====================================================================
+// FAZA 4b — RANK-TRACKING și MĂSURARE (grafice în admin + raport lunar).
+// Sursa: gsc_snapshots (populat zilnic de seo-cron?action=snapshot).
+// =====================================================================
+const dayStr = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
+// Ultima zi „finalizată" din GSC: acum 3 zile (datele au ~2 zile întârziere).
+const lastFinalizedDay = (now = new Date()) => dayStr(new Date(now.getTime() - 3 * 86400 * 1000));
+const addDays = (day, n) => dayStr(new Date(Date.parse(day + 'T00:00:00Z') + n * 86400 * 1000));
+
+// Citește gsc_snapshots paginat (peste limita de 1000 de rânduri PostgREST).
+async function snapshotRows(supa, { dim, fromDay, toDay, keys = null, maxPages = 30 }) {
+  const out = [];
+  for (let p = 0; p < maxPages; p++) {
+    let q = supa.from('gsc_snapshots')
+      .select('day, dim, key, clicks, impressions, ctr, position')
+      .eq('dim', dim).gte('day', fromDay).lte('day', toDay)
+      .order('day', { ascending: true })
+      .range(p * 1000, p * 1000 + 999);
+    if (Array.isArray(keys) && keys.length) q = q.in('key', keys.slice(0, 50));
+    const { data, error } = await q;
+    if (error) throw new Error(`gsc_snapshots (rulează supabase/seo_agent.sql?): ${error.message}`);
+    out.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+}
+
+// Agregarea PURĂ a snapshot-urilor (testată în test/youtube.test.js):
+// totaluri zilnice + top chei (după clicuri, apoi impresii) + seriile pe zi
+// ale cheilor alese. Poziția pe cheie e media ponderată cu impresiile.
+function buildRankData(rows, { keys = null, top = 8 } = {}) {
+  const daily = new Map();   // day → {clicks, impressions}
+  const byKey = new Map();   // key → {clicks, impressions, posW, impW, days}
+  for (const r of rows || []) {
+    const day = dayStr(r.day);
+    const d = daily.get(day) || { clicks: 0, impressions: 0 };
+    d.clicks += r.clicks || 0; d.impressions += r.impressions || 0;
+    daily.set(day, d);
+    const k = byKey.get(r.key) || { key: r.key, clicks: 0, impressions: 0, posW: 0, impW: 0, days: 0 };
+    k.clicks += r.clicks || 0; k.impressions += r.impressions || 0; k.days++;
+    if (r.position != null && (r.impressions || 0) > 0) { k.posW += Number(r.position) * r.impressions; k.impW += r.impressions; }
+    byKey.set(r.key, k);
+  }
+  const aggregates = [...byKey.values()]
+    .map((k) => ({ key: k.key, clicks: k.clicks, impressions: k.impressions, position: k.impW ? Number((k.posW / k.impW).toFixed(1)) : null, days: k.days }))
+    .sort((a, b) => (b.clicks - a.clicks) || (b.impressions - a.impressions));
+
+  const wanted = (Array.isArray(keys) && keys.length)
+    ? keys.slice(0, 10)
+    : aggregates.slice(0, Math.min(Math.max(top, 1), 10)).map((k) => k.key);
+  const wantedSet = new Set(wanted);
+  const series = {};
+  wanted.forEach((k) => { series[k] = []; });
+  for (const r of rows || []) {
+    if (!wantedSet.has(r.key)) continue;
+    series[r.key].push({
+      day: dayStr(r.day),
+      position: r.position != null ? Number(Number(r.position).toFixed(1)) : null,
+      clicks: r.clicks || 0,
+      impressions: r.impressions || 0,
+    });
+  }
+  return {
+    daily: [...daily.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([day, v]) => ({ day, ...v })),
+    aggregates,
+    series,
+  };
+}
+
+// Eticheta + ruta măsurabilă a unei acțiuni executate (pure; pentru markerele
+// de pe grafice și pentru „efectul acțiunilor"). rename_material și acțiunile
+// sociale nu au o rută proprie în GSC → doar marker, fără măsurare pe pagină.
+function actionSummary(action) {
+  const p = action?.payload || {};
+  switch (action?.type) {
+    case 'set_page_meta':   return { label: `Meta ${p.route || '?'}`, route: p.route || null };
+    case 'publish_article': return { label: `Articol /rezolvari/${p.slug || '?'}`, route: p.slug ? `/rezolvari/${p.slug}` : null };
+    case 'update_article':  return { label: `Refresh /rezolvari/${p.slug || '?'}`, route: p.slug ? `/rezolvari/${p.slug}` : null };
+    case 'rename_material': return { label: `Redenumire „${String(p.new_title || '').slice(0, 40)}"`, route: null };
+    case 'submit_sitemap':  return { label: 'Sitemap retrimis', route: null };
+    case 'schedule_social': return { label: `Postare ${p.platform || 'social'}`, route: null };
+    case 'yt_update_video': return { label: `YouTube „${String(p.video_title || '').slice(0, 40)}"`, route: null };
+    default:                return { label: action?.type || '?', route: null };
+  }
+}
+
+// Acțiunile EXECUTATE din ultimele `sinceDays` zile — markerele graficelor.
+async function actionMarkers(supa, sinceDays = 90) {
+  const since = new Date(Date.now() - sinceDays * 86400 * 1000).toISOString();
+  const { data, error } = await supa.from('seo_actions')
+    .select('id, type, payload, note, executed_at, status')
+    .in('status', ['executed', 'reverted'])
+    .gte('executed_at', since)
+    .order('executed_at', { ascending: true })
+    .limit(120);
+  if (error) return [];
+  return (data || []).map((a) => {
+    const s = actionSummary(a);
+    return { id: a.id, type: a.type, day: dayStr(a.executed_at), label: s.label, route: s.route, status: a.status, note: a.note || null };
+  });
+}
+
+// Efectul fiecărei acțiuni executate care ARE o rută: media pe zi a
+// clicurilor/impresiilor + poziția, `windowDays` înainte vs. după execuție
+// (din gsc_snapshots, dim='page'). „După" cere minim 5 zile finalizate.
+function computeEffect(rows, { day, windowDays = 14 }) {
+  const from = addDays(day, -windowDays), until = addDays(day, windowDays);
+  const last = lastFinalizedDay();
+  const bucket = (a, b) => {
+    const rr = rows.filter((r) => dayStr(r.day) >= a && dayStr(r.day) <= b);
+    if (!rr.length) return null;
+    const clicks = rr.reduce((s, r) => s + (r.clicks || 0), 0);
+    const imps = rr.reduce((s, r) => s + (r.impressions || 0), 0);
+    const posW = rr.reduce((s, r) => s + (r.position != null ? Number(r.position) * (r.impressions || 0) : 0), 0);
+    const impW = rr.reduce((s, r) => s + (r.position != null ? (r.impressions || 0) : 0), 0);
+    const nDays = Math.max((Date.parse(b) - Date.parse(a)) / 86400000 + 1, 1);
+    return {
+      days: Math.round(nDays),
+      clicksPerDay: Number((clicks / nDays).toFixed(2)),
+      impressionsPerDay: Number((imps / nDays).toFixed(1)),
+      position: impW ? Number((posW / impW).toFixed(1)) : null,
+    };
+  };
+  const afterEnd = until < last ? until : last;
+  const afterDays = Math.floor((Date.parse(afterEnd) - Date.parse(day)) / 86400000);
+  if (afterDays < 5) return { pending: true, daysSoFar: Math.max(afterDays, 0) }; // prea devreme de măsurat
+  return { before: bucket(addDays(day, -windowDays), addDays(day, -1)), after: bucket(day, afterEnd) };
+}
+
+async function measureActionEffects(supa, { sinceDays = 90, windowDays = 14 } = {}) {
+  const markers = await actionMarkers(supa, sinceDays);
+  const withRoute = markers.filter((m) => m.route && m.status === 'executed');
+  if (!withRoute.length) return [];
+  const routes = [...new Set(withRoute.map((m) => m.route))];
+  const fromDay = addDays(withRoute.reduce((min, m) => (m.day < min ? m.day : min), lastFinalizedDay()), -windowDays);
+  const rows = await snapshotRows(supa, { dim: 'page', fromDay, toDay: lastFinalizedDay(), keys: routes });
+  const byRoute = new Map();
+  rows.forEach((r) => {
+    if (!byRoute.has(r.key)) byRoute.set(r.key, []);
+    byRoute.get(r.key).push(r);
+  });
+  return withRoute.map((m) => ({
+    ...m,
+    effect: computeEffect(byRoute.get(m.route) || [], { day: m.day, windowDays }),
+  }));
+}
+
+// Datele complete pentru panoul de rank-tracking din admin (api/seo-rank.js).
+async function rankData(supa, { days = 28, dim = 'query', keys = null } = {}) {
+  const nDays = [14, 28, 90].includes(Number(days)) ? Number(days) : 28;
+  const d = dim === 'page' ? 'page' : 'query';
+  const end = lastFinalizedDay();
+  const start = addDays(end, -(nDays - 1));
+  const prevStart = addDays(start, -nDays);
+
+  const rows = await snapshotRows(supa, { dim: d, fromDay: prevStart, toDay: end });
+  const cur = rows.filter((r) => dayStr(r.day) >= start);
+  const prev = rows.filter((r) => dayStr(r.day) < start);
+
+  const data = buildRankData(cur, { keys, top: 8 });
+  const prevAgg = buildRankData(prev, { keys: [], top: 0 }).aggregates;
+  const prevByKey = new Map(prevAgg.map((k) => [k.key, k]));
+  const topWithDelta = data.aggregates.slice(0, 25).map((k) => {
+    const p = prevByKey.get(k.key);
+    return { ...k, prevClicks: p ? p.clicks : null, prevPosition: p ? p.position : null };
+  });
+
+  const markers = (await actionMarkers(supa, nDays + 3)).filter((m) => m.day >= start);
+  const effects = await measureActionEffects(supa, { sinceDays: 60 }).catch(() => []);
+  const totals = data.daily.reduce((s, d2) => ({ clicks: s.clicks + d2.clicks, impressions: s.impressions + d2.impressions }), { clicks: 0, impressions: 0 });
+  const prevTotals = prev.reduce((s, r) => ({ clicks: s.clicks + (r.clicks || 0), impressions: s.impressions + (r.impressions || 0) }), { clicks: 0, impressions: 0 });
+
+  return {
+    start, end, days: nDays, dim: d,
+    daily: data.daily, top: topWithDelta, series: data.series,
+    markers, effects, totals, prevTotals,
+    snapshotDays: new Set(cur.map((r) => dayStr(r.day))).size,
+  };
+}
+
+// ─── Raportul LUNAR (seo-cron?action=monthly) ────────────────────────────────
+// Luna calendaristică ANTERIOARĂ momentului dat (cronul rulează pe 1 ale lunii).
+function monthRange(now = new Date()) {
+  const y = now.getUTCFullYear(), m = now.getUTCMonth(); // luna curentă (0-based)
+  const start = new Date(Date.UTC(m === 0 ? y - 1 : y, (m + 11) % 12, 1));
+  const end = new Date(Date.UTC(y, m, 0)); // ziua 0 a lunii curente = ultima zi a lunii trecute
+  const label = start.toLocaleDateString('ro-RO', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  return { start: dayStr(start), end: dayStr(end), label };
+}
+
+const fmtDelta = (cur, prev) => {
+  if (prev == null || !prev) return '';
+  const d = ((cur - prev) / prev) * 100;
+  return ` (${d >= 0 ? '+' : ''}${d.toFixed(0)}% vs. luna anterioară)`;
+};
+
+// Blocul de DATE MĂSURATE pe care îl primește agentul pentru raportul lunar.
+// Totul e best-effort: ce lipsește se spune explicit, nu se inventează.
+async function monthlyContext(supa, now = new Date()) {
+  const { start, end, label } = monthRange(now);
+  const prevRange = monthRange(new Date(Date.parse(start + 'T00:00:00Z')));
+  const parts = [`=== DATE MĂSURATE PENTRU RAPORTUL LUNAR (${label}: ${start} → ${end}) ===`];
+
+  // 1) GSC din gsc_snapshots: luna raportată vs. luna anterioară
+  try {
+    const rows = await snapshotRows(supa, { dim: 'query', fromDay: prevRange.start, toDay: end });
+    const cur = rows.filter((r) => dayStr(r.day) >= start);
+    const prev = rows.filter((r) => dayStr(r.day) < start);
+    if (!cur.length) {
+      parts.push(`— GSC: NICIO zi în gsc_snapshots pentru ${label}. Rulează backfill: /api/seo-cron?action=snapshot&days=28&secret=AI_CRON_SECRET.`);
+    } else {
+      const agg = buildRankData(cur, { keys: [], top: 0 });
+      const prevData = buildRankData(prev, { keys: [], top: 0 });
+      const t = agg.daily.reduce((s, d2) => ({ c: s.c + d2.clicks, i: s.i + d2.impressions }), { c: 0, i: 0 });
+      const pt = prevData.daily.reduce((s, d2) => ({ c: s.c + d2.clicks, i: s.i + d2.impressions }), { c: 0, i: 0 });
+      parts.push(
+        `— TRAFIC ORGANIC (${agg.daily.length} zile cu date): clicuri ${t.c}${fmtDelta(t.c, pt.c)} · impresii ${t.i}${fmtDelta(t.i, pt.i)}` +
+        ` · CTR ${t.i ? ((t.c / t.i) * 100).toFixed(1) : 0}%`
+      );
+      const prevByKey = new Map(prevData.aggregates.map((k) => [k.key, k]));
+      const fmtQ = (k) => {
+        const p = prevByKey.get(k.key);
+        const pos = k.position != null ? `poz. ${k.position}` : 'poz. n/a';
+        const posD = p && p.position != null && k.position != null ? ` (era ${p.position})` : '';
+        return `„${k.key}" — ${k.clicks} clicuri, ${k.impressions} impresii, ${pos}${posD}`;
+      };
+      parts.push('— TOP INTEROGĂRI (luna raportată):\n' + agg.aggregates.slice(0, 12).map((k) => '  • ' + fmtQ(k)).join('\n'));
+      const movers = agg.aggregates
+        .filter((k) => k.position != null && prevByKey.get(k.key)?.position != null && k.impressions >= 10)
+        .map((k) => ({ ...k, delta: prevByKey.get(k.key).position - k.position }))
+        .sort((a, b) => b.delta - a.delta);
+      const up = movers.filter((m) => m.delta >= 1).slice(0, 6);
+      const down = movers.filter((m) => m.delta <= -1).sort((a, b) => a.delta - b.delta).slice(0, 6);
+      if (up.length) parts.push('— URCĂRI de poziție:\n' + up.map((m) => `  • „${m.key}": ${(m.position + m.delta).toFixed(1)} → ${m.position} (+${m.delta.toFixed(1)})`).join('\n'));
+      if (down.length) parts.push('— CĂDERI de poziție:\n' + down.map((m) => `  • „${m.key}": ${(m.position + m.delta).toFixed(1)} → ${m.position} (${m.delta.toFixed(1)})`).join('\n'));
+    }
+    const pageRows = await snapshotRows(supa, { dim: 'page', fromDay: start, toDay: end });
+    const pages = buildRankData(pageRows, { keys: [], top: 0 }).aggregates.slice(0, 10);
+    if (pages.length) parts.push('— TOP PAGINI:\n' + pages.map((k) => `  • ${k.key} — ${k.clicks} clicuri, ${k.impressions} impresii${k.position != null ? `, poz. ${k.position}` : ''}`).join('\n'));
+  } catch (e) { parts.push(`— GSC (gsc_snapshots) indisponibil: ${e.message}`); }
+
+  // 2) Acțiunile executate în lună + efectul celor măsurabile
+  try {
+    const { data: acts } = await supa.from('seo_actions')
+      .select('id, type, payload, note, status, executed_at')
+      .gte('executed_at', start + 'T00:00:00Z').lte('executed_at', end + 'T23:59:59Z')
+      .in('status', ['executed', 'reverted'])
+      .order('executed_at', { ascending: true }).limit(60);
+    const list = acts || [];
+    if (!list.length) parts.push('— ACȚIUNI EXECUTATE în lună: niciuna.');
+    else {
+      parts.push(`— ACȚIUNI EXECUTATE în lună (${list.length}):\n` + list.map((a) => `  • ${dayStr(a.executed_at)} · ${actionSummary(a).label}${a.status === 'reverted' ? ' (ANULATĂ ulterior)' : ''}`).join('\n'));
+      const effects = await measureActionEffects(supa, { sinceDays: Math.ceil((Date.now() - Date.parse(start)) / 86400000) + 3 });
+      const measured = effects.filter((e) => e.day >= start && e.day <= end && e.effect && !e.effect.pending && (e.effect.before || e.effect.after));
+      if (measured.length) {
+        parts.push('— EFECTUL MĂSURAT (14 zile înainte vs. după, din gsc_snapshots):\n' + measured.map((e) => {
+          const b = e.effect.before, a = e.effect.after;
+          const pos = (x) => (x && x.position != null ? x.position : '–');
+          const cd = (x) => (x ? x.clicksPerDay : '–');
+          return `  • ${e.label} (${e.day}): poziție ${pos(b)} → ${pos(a)} · clicuri/zi ${cd(b)} → ${cd(a)} · impresii/zi ${b ? b.impressionsPerDay : '–'} → ${a ? a.impressionsPerDay : '–'}`;
+        }).join('\n'));
+      }
+    }
+  } catch (e) { parts.push(`— Acțiuni: eroare la citire (${e.message})`); }
+
+  // 3) Conținut publicat în lună
+  try {
+    const { data: arts } = await supa.from('articole')
+      .select('slug, title, kind, published_at')
+      .gte('published_at', start + 'T00:00:00Z').lte('published_at', end + 'T23:59:59Z')
+      .order('published_at', { ascending: true }).limit(30);
+    parts.push((arts || []).length
+      ? `— ARTICOLE PUBLICATE în lună (${arts.length}):\n` + arts.map((a) => `  • [${a.kind}] „${a.title}" → /rezolvari/${a.slug}`).join('\n')
+      : '— ARTICOLE PUBLICATE în lună: niciunul.');
+  } catch { /* tabelul poate lipsi */ }
+
+  // 4) Social: postările lunii + metricile lor
+  try {
+    const { data: posts } = await supa.from('social_posts')
+      .select('platform, status, posted_at, metrics, campaign')
+      .gte('posted_at', start + 'T00:00:00Z').lte('posted_at', end + 'T23:59:59Z')
+      .eq('status', 'posted').limit(120);
+    const byPlat = {};
+    (posts || []).forEach((p) => {
+      const b = byPlat[p.platform] || { n: 0, reach: 0, likes: 0, comments: 0 };
+      b.n++; b.reach += p.metrics?.reach || 0; b.likes += p.metrics?.likes || 0; b.comments += p.metrics?.comments || 0;
+      byPlat[p.platform] = b;
+    });
+    parts.push(Object.keys(byPlat).length
+      ? '— SOCIAL (postări publicate în lună): ' + Object.entries(byPlat).map(([pl, b]) => `${pl}: ${b.n} postări (reach ${b.reach || '–'}, like ${b.likes}, comentarii ${b.comments})`).join(' · ')
+      : '— SOCIAL: nicio postare publicată în lună.');
+  } catch { /* tabelul poate lipsi */ }
+
+  // 5) GA4: sesiuni pe canale + campaniile UTM (dacă e conectat)
+  if (google.ga4Enabled()) {
+    try {
+      const dateRanges = [{ startDate: start, endDate: end }];
+      const [channels, campaigns] = await Promise.all([
+        google.ga4Run({ dateRanges, dimensions: [{ name: 'sessionDefaultChannelGroup' }], metrics: [{ name: 'sessions' }, { name: 'activeUsers' }], limit: 10 }),
+        google.ga4Run({ dateRanges, dimensions: [{ name: 'sessionCampaignName' }], metrics: [{ name: 'sessions' }], orderBys: [{ metric: { metricName: 'sessions' }, desc: true }], limit: 12 }),
+      ]);
+      if (channels?.rows?.length) {
+        parts.push('— GA4 CANALE (sesiuni · utilizatori):\n' + channels.rows.map((r) => `  • ${r.dimensionValues[0].value}: ${r.metricValues[0].value} · ${r.metricValues[1].value}`).join('\n'));
+      }
+      const camps = (campaigns?.rows || []).filter((r) => !/^\(/.test(r.dimensionValues[0].value));
+      if (camps.length) parts.push('— GA4 CAMPANII UTM:\n' + camps.map((r) => `  • ${r.dimensionValues[0].value}: ${r.metricValues[0].value} sesiuni`).join('\n'));
+    } catch (e) { parts.push(`— GA4 indisponibil: ${e.message}`); }
+  } else {
+    parts.push('— GA4: neconectat (GA4_PROPERTY_ID lipsește) — conversiile pe canale nu se pot măsura încă.');
+  }
+
+  return { label, start, end, text: parts.join('\n\n') };
+}
+
 module.exports = {
   SITE, STATIC_ROUTES, TASKS, TOOLS,
   ARTICLE_KINDS, ARTICLE_CATEGORIES,
@@ -1125,4 +1548,7 @@ module.exports = {
   makeToolExecutor, proposeAction, executeAction, revertAction,
   checkArticleField, resolveSources,
   runAgent, snapshotGsc,
+  // Faza 4b — rank-tracking + raport lunar
+  buildRankData, actionSummary, computeEffect, measureActionEffects,
+  actionMarkers, rankData, monthRange, monthlyContext, lastFinalizedDay,
 };

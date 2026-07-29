@@ -29,6 +29,10 @@
     {
       "path": "/api/social-cron?action=metrics",
       "schedule": "30 7 * * *"
+    },
+    {
+      "path": "/api/seo-cron?action=monthly",
+      "schedule": "0 7 1 * *"
     }
   ],
   "rewrites": [
