@@ -346,6 +346,33 @@ create policy articole_public_read on articole for select using (status = 'publi
 
 ## FAZA 3 — Social media: Facebook + Instagram automat, TikTok/YouTube semi-automat
 
+> **✅ FAZA 3 IMPLEMENTATĂ (29 iulie 2026).** Fișierele: `supabase/social_posts.sql`
+> (tabelul 3b — DE RULAT MANUAL în SQL Editor), `api/_lib/social.js` (Meta Graph
+> API fără dependențe: FB feed/foto/video, IG imagine + Reels cu polling,
+> metrici best-effort, UTM automat doar pe linkurile proprii, semnarea HMAC a
+> parametrilor de imagine), `api/social-image.js` (3c — generatorul de carduri
+> branded: 5 șabloane `formula|exercitiu|greseala|countdown|anunt`, satori +
+> sharp → JPEG 1080×1080, fonturile DM Sans/Fraunces/DejaVu în `api/_lib/fonts/`,
+> endpoint public dar cu parametri SEMNAȚI — nimeni nu generează carduri cu alt
+> text), uneltele agentului `schedule_social` (scriere, prin coada de aprobare;
+> Instagram cere obligatoriu imagine — cel mai simplu prin `image:{template,…}`)
+> și `list_social_posts` (citire: calendar + metricile postărilor — agentul
+> învață ce funcționează), `api/social-cron.js` (publish la 15 min + metrics
+> zilnic, în `vercel.json`), `api/social-queue.js` + `src/components/SocialQueue.jsx`
+> (panoul „Calendar social" din admin: coada manuală TikTok/YouTube cu
+> copy-paste, programate cu „Publică acum" — și test al config Meta —, eșuate cu
+> reîncercare, istoric cu metrici), preview complet + revert în
+> `SEOActionsQueue.jsx` (anulare programare; postările FB deja publicate se pot
+> șterge prin API — la IG doar din aplicație).
+> **După deploy: (1) rulează `supabase/social_posts.sql` în SQL Editor;
+> (2) `npm install` local înainte de commit (satori + sharp au intrat în
+> package.json); (3) fă pasul 3a de mai jos (~30 min, manual) și pune
+> `META_PAGE_ID`, `META_PAGE_TOKEN`, `META_IG_USER_ID` în Vercel — până atunci
+> agentul poate propune și programa, dar publicarea FB/IG va eșua elegant.**
+> Teste: `test/social.test.js` (UTM, semnătură, șabloane, randare JPEG) — `npm test`.
+> Metrici complete (reach): opțional, adaugă permisiunile `read_insights` (FB) și
+> `instagram_manage_insights` (IG) pe token — fără ele se salvează like/comentarii.
+
 ### Ce permite fiecare platformă (situația reală)
 
 | Platformă | Postare prin API | Condiții |

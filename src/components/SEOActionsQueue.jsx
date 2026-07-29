@@ -16,10 +16,12 @@ const TYPE_INFO = {
   submit_sitemap:  { icon: '🗺️', label: 'Retrimitere sitemap' },
   publish_article: { icon: '📰', label: 'Publicare articol' },
   update_article:  { icon: '🔄', label: 'Actualizare articol' },
-  schedule_social: { icon: '📱', label: 'Postare social (Faza 3)' },
+  schedule_social: { icon: '📱', label: 'Postare social media' },
 };
 
 const KIND_LABELS = { articol: '📖 Articol', rezolvare: '✍️ Rezolvare scrisă', explicatie: '💡 Explicație' };
+
+const PLATFORM_LABELS = { facebook: '📘 Facebook', instagram: '📸 Instagram', tiktok: '🎵 TikTok', youtube: '▶️ YouTube' };
 
 const STATUS_INFO = {
   proposed: { label: 'în așteptare', bg: '#fff7e0', fg: '#8a6d00' },
@@ -145,6 +147,48 @@ function PayloadView({ action }) {
       </div>
     );
   }
+  if (action.type === 'schedule_social') {
+    const when = p.scheduled_at
+      ? new Date(p.scheduled_at).toLocaleString('ro-RO', { dateStyle: 'medium', timeStyle: 'short' })
+      : 'cât mai curând după aprobare';
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6, fontSize: '.85rem' }}>
+          <span style={{ fontWeight: 700, color: 'var(--navy)' }}>{PLATFORM_LABELS[p.platform] || p.platform}</span>
+          <span style={{ fontSize: '.72rem', background: p.auto ? '#e6f6ea' : '#fff7e0', color: p.auto ? '#1e7e34' : '#8a6d00', borderRadius: 20, padding: '2px 10px', fontWeight: 700 }}>
+            {p.auto ? 'publicare automată' : 'coada manuală (copy-paste)'}
+          </span>
+          <span style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>⏰ {when}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          {p.media_url && (
+            <a href={p.media_url} target="_blank" rel="noopener noreferrer" title="Deschide imaginea generată">
+              <img src={p.media_url} alt="" style={{ width: 130, height: 130, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }}
+                onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            </a>
+          )}
+          <pre style={{ flex: 1, minWidth: 220, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0, fontSize: '.84rem', lineHeight: 1.5, background: '#f7f9fc', borderRadius: 8, padding: '8px 10px', maxHeight: 220, overflowY: 'auto' }}>{p.text}</pre>
+        </div>
+        {p.image && (
+          <div style={{ fontSize: '.74rem', color: 'var(--text-muted)', marginTop: 6 }}>
+            🖼 Card generat: șablonul „{p.image.template}" — {p.image.title}{p.image.badge ? ` · insignă: ${p.image.badge}` : ''}
+          </div>
+        )}
+        {p.utm_link && (
+          <div style={{ fontSize: '.75rem', marginTop: 4, wordBreak: 'break-all' }}>
+            🔗 <a href={p.utm_link} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)' }}>{p.utm_link}</a>
+            <span style={{ color: 'var(--text-muted)' }}> (UTM aplicat automat — campania „{p.campaign}")</span>
+          </div>
+        )}
+        <div style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginTop: 6 }}>
+          {p.auto
+            ? 'La aprobare intră în „Calendar social" și se publică automat la ora programată (cron la 15 min). Se poate anula până la publicare.'
+            : 'La aprobare intră în lista „De postat manual" din „Calendar social" — o copiezi în aplicație în ~1 minut.'}
+          {p.meta_configurat === false && ' ⚠️ Meta neconectat încă (META_PAGE_ID/TOKEN) — configurează pasul 3a înainte de ora publicării.'}
+        </div>
+      </div>
+    );
+  }
   return <pre style={{ fontSize: '.75rem', background: '#f7f9fc', padding: 8, borderRadius: 6, overflowX: 'auto', maxHeight: 160 }}>{JSON.stringify(p, null, 2)}</pre>;
 }
 
@@ -181,6 +225,8 @@ export default function SEOActionsQueue({ box }) {
     try {
       await aiClient.seoActions({ action: verb, id });
       await load();
+      // postările sociale aprobate/anulate apar în panoul „Calendar social"
+      window.dispatchEvent(new CustomEvent('social-posts-updated'));
     } catch (e) { setError(e.message); }
     finally { setBusyId(null); }
   }
@@ -192,8 +238,10 @@ export default function SEOActionsQueue({ box }) {
     const t = TYPE_INFO[a.type] || { icon: '⚙️', label: a.type };
     const s = STATUS_INFO[a.status] || { label: a.status, bg: '#f0f1f4', fg: '#5a6379' };
     const canRevert = a.status === 'executed'
-      && (a.type === 'set_page_meta' || a.type === 'rename_material' || a.type === 'publish_article' || a.type === 'update_article');
-    const revertLabel = a.type === 'publish_article' ? '↩️ Retrage articolul (înapoi în draft)' : '↩️ Anulează (valorile vechi)';
+      && (a.type === 'set_page_meta' || a.type === 'rename_material' || a.type === 'publish_article' || a.type === 'update_article' || a.type === 'schedule_social');
+    const revertLabel = a.type === 'publish_article' ? '↩️ Retrage articolul (înapoi în draft)'
+      : a.type === 'schedule_social' ? '↩️ Anulează postarea'
+      : '↩️ Anulează (valorile vechi)';
     return (
       <div key={a.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', background: isPending ? '#fffdf5' : '#fff' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
@@ -254,8 +302,8 @@ export default function SEOActionsQueue({ box }) {
         <button className="btn btn-outline" onClick={load} disabled={loading} style={{ fontSize: '.78rem', padding: '5px 12px' }}>↻ Reîmprospătează</button>
       </div>
       <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
-        Nimic nu se aplică fără OK-ul tău: agentul doar propune (meta, redenumiri, articole pentru pagina „Blog / Rezolvări / Teorie", sitemap), tu aprobi sau respingi.
-        Modificările aprobate sunt live în max. 5 minute, fără deploy; acțiunile executate se pot anula (articolele revin în draft).
+        Nimic nu se aplică fără OK-ul tău: agentul doar propune (meta, redenumiri, articole pentru pagina „Blog / Rezolvări / Teorie", sitemap, postări social media), tu aprobi sau respingi.
+        Modificările aprobate sunt live în max. 5 minute, fără deploy; acțiunile executate se pot anula (articolele revin în draft, postările programate se retrag din calendar).
       </p>
 
       {warning && <div style={{ padding: 12, background: '#fff7e0', color: '#8a6d00', borderRadius: 8, fontSize: '.85rem', marginBottom: 10 }}>⚠️ {warning}</div>}

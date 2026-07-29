@@ -1,24 +1,32 @@
 // =====================================================================
-// api/_lib/seo.js — NUCLEUL agentului SEO care ACȚIONEAZĂ (Fazele 1–2 din
+// api/_lib/seo.js — NUCLEUL agentului SEO care ACȚIONEAZĂ (Fazele 1–3 din
 // GHID_AGENT_SEO_ACTIUNI.md). Partajat de:
 //   • api/ai-seo-agent.js  (rulare interactivă din admin)
 //   • api/seo-cron.js      (snapshot zilnic GSC + rulare automată săptămânală)
 //   • api/seo-actions.js   (coada de aprobare: approve execută acțiunile)
+//   • api/social-cron.js   (publicarea postărilor sociale aprobate, la 15 min)
 //
 // Principii:
 //   1. Uneltele de CITIRE se execută pe loc; cele de SCRIERE doar creează
 //      rânduri `proposed` în `seo_actions` — execuția are loc EXCLUSIV după
 //      aprobarea adminului (executeAction / revertAction).
 //   2. Singura cale de modificare a site-ului este baza de date Supabase
-//      (seo_meta, content, rezolvari, articole) — zero acces la cod sau deploy.
+//      (seo_meta, content, rezolvari, articole, social_posts) — zero acces
+//      la cod sau deploy.
 //
 // FAZA 2 (motorul de conținut): publish_article / update_article scriu în
 // tabelul `articole` (supabase/articole.sql); articolele apar pe pagina
 // Rezolvări și pe /rezolvari/{slug}, servite SSR de api/page-meta.js, cu
 // HTML generat din markdown de api/_lib/markdown.js (escape-first, fără XSS).
+//
+// FAZA 3 (social): schedule_social scrie în `social_posts`
+// (supabase/social_posts.sql); Facebook/Instagram se publică automat de
+// api/social-cron.js (Meta Graph API în api/_lib/social.js, imagini branded
+// din api/social-image.js), TikTok/YouTube intră în coada manuală din admin.
 // =====================================================================
 const claude = require('./claude');
 const google = require('./google');
+const social = require('./social');
 const { signedUrlFromPublic } = require('./http');
 const { pdfText } = require('./pdftext');
 const { mdToHtml, stripLeadingTitle, mdExcerpt, validSlug } = require('./markdown');
@@ -138,7 +146,7 @@ const TASKS = {
   audit: 'Fă un AUDIT SEO on-page al site-ului pe baza contextului. Identifică problemele probabile (titluri, meta, structură, conținut subțire, interlinking, viteze) și dă o listă de acțiuni concrete, prioritizate (impact/efort). Dacă adminul a lipit conținutul unei pagini, auditeaz-o în detaliu. Folosește uneltele (fetch_page, url_inspect, psi_report, get_seo_meta) ca să verifici realitatea, nu presupuneri.',
   meta: 'Scrie META TITLE (max 60 caractere) și META DESCRIPTION (max 155 caractere) în română, optimizate pentru CTR, pentru fiecare pagină/categorie din context (sau pentru pagina lipită de admin). Verifică întâi cu get_seo_meta ce e deja setat și cu gsc_query ce interogări primește fiecare pagină, apoi PROPUNE modificările prin unealta set_page_meta (nu doar în text).',
   blog: 'Scrie CONȚINUT pentru pagina „Blog / Rezolvări / Teorie" (/rezolvari): articole SEO, rezolvări scrise pas cu pas, explicații/teorie. Fluxul: (1) gsc_query — ce caută oamenii și pentru ce NU există pagină dedicată (prioritatea #1: cerere dovedită); (2) list_articles — ce există deja, ca să nu dublezi; (3) read_material — bazează rezolvările/explicațiile pe materialele REALE din site; (4) scrie articolul COMPLET (substanță: explicație + exemple + formule LaTeX + linkuri interne + tabele unde ajută) și trimite-l prin publish_article, cu materialele folosite în sources. Ține cont de calendarul școlar (simulări feb–mar, EN+BAC iunie — publică cu 2–3 luni înainte). Dacă adminul cere doar idei, dă lista (titlu + cuvânt cheie + intenție + schiță H2) fără să publici; dacă cere un articol anume, scrie-l și propune-l.',
-  social: 'Creează conținut SOCIAL MEDIA pentru platfomă: 5 postări Facebook/Instagram (text + idee vizual) și 3 idei TikTok/Reels pentru elevi. Ton prietenos, românesc, orientat pe examene. (Postarea automată vine în Faza 3.)',
+  social: 'Planifică și PROGRAMEAZĂ postări social media reale prin unealta schedule_social. Fluxul: (1) list_social_posts — vezi ce e deja programat (fără dubluri) și ce metrici au avut postările vechi (învață din ele); (2) list_articles + gsc_query — ce merită promovat acum (articole noi, teme căutate, calendarul școlar); (3) programează un mix pe săptămâna următoare (3–6 postări, la ore cu audiență, ex. 17:00–20:30): PĂRINȚI → Facebook (ghiduri, calendarul examenelor, articolele noi din Blog/Rezolvări, ton cald fără reclamă agresivă); ELEVI → Instagram (formula/exercițiul zilei cu card generat prin image:{template,…}) și TikTok/Reels (clip scurt — scrie scenariul în text; intră în coada manuală); (4) fiecare postare cu linkul ei (primește UTM automat — efectul se vede în ga4_report). Textele în română, gata de publicat, cu 2–4 hashtag-uri relevante (#matematica #evaluareanationala #bacalaureat). Dacă adminul cere o campanie sau o temă anume, fă exact asta.',
   keywords: 'Fă o listă de CUVINTE CHEIE (română) pe care ExamenMate ar trebui să le țintească, grupate pe intenție (informațional/tranzacțional) și pe pagini-țintă existente. Include long-tail specifice claselor 5–12, EN și BAC. Pornește de la interogările reale din gsc_query (inclusiv pozițiile 5–20 cu impresii mari).',
   performance: 'Analizează PERFORMANȚA REALĂ din datele Google (Search Console și, dacă există, GA4): tendința clicurilor/impresiilor față de perioada anterioară, interogările și paginile câștigătoare, OPORTUNITĂȚILE (poziții 5–20 cu impresii mari — ce pagini de optimizat ca să urce în top 3), paginile cu impresii mari și CTR mic (de rescris meta), interogările FĂRĂ pagină dedicată (candidate la articol nou), articolele care stagnează/pierd poziții (candidate la refresh). Folosește gsc_query pentru detalii pe interogările/paginile care contează. Pentru fiecare oportunitate clară, trimite o propunere concretă prin set_page_meta / rename_material / publish_article / update_article, cu explicația în `note`. Încheie cu un plan pe 2 săptămâni și cu lista propunerilor trimise. Dacă datele Google lipsesc, spune exact asta și recomandă conectarea lor.',
   chat: 'Răspunde la întrebarea adminului ca expert SEO & marketing pentru platforma de educație. Când e util, verifică realitatea cu uneltele de citire; când propui modificări concrete de meta/titluri, trimite-le prin uneltele de scriere.',
@@ -248,6 +256,18 @@ const TOOLS = [
     description: 'Citește un articol complet (metadate + sursa markdown). Folosește înainte de update_article, ca să pornești de la textul real.',
     input_schema: { type: 'object', properties: { slug: str('slug-ul articolului (din list_articles)') }, required: ['slug'] },
   },
+  {
+    name: 'list_social_posts',
+    description: 'Calendarul social media (tabelul social_posts): postările programate, cele care așteaptă postare manuală (TikTok/YouTube), cele publicate cu METRICILE lor (reach/like/comentarii) și cele eșuate. OBLIGATORIU înainte de schedule_social — eviți dublurile și înveți din ce a funcționat.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        platform: { type: 'string', enum: social.PLATFORMS, description: 'opțional: doar această platformă' },
+        status: { type: 'string', enum: ['approved', 'manual', 'posted', 'failed', 'canceled', 'toate'], description: 'implicit „toate"' },
+        limit: { type: 'integer', description: 'max 60 (implicit 25)' },
+      },
+    },
+  },
 
   // ── SCRIERE — creează PROPUNERI în coada de aprobare (nu execută direct) ──
   {
@@ -340,6 +360,34 @@ const TOOLS = [
     name: 'submit_sitemap',
     description: 'PROPUNE retrimiterea sitemap.xml către Search Console (după modificări importante de structură/conținut). La publicarea articolelor NU e nevoie separat — publish_article retrimite sitemap-ul automat la aprobare.',
     input_schema: { type: 'object', properties: { note: str('de ce acum') } },
+  },
+  {
+    name: 'schedule_social',
+    description: `PROPUNE o postare social media. După aprobare: Facebook/Instagram se PUBLICĂ AUTOMAT la ora programată (cron la 15 min); TikTok/YouTube intră în coada manuală din admin (adminul postează copy-paste). Instagram cere OBLIGATORIU media: dă "image" (card branded generat de site) sau "media_url" (imagine JPEG/video MP4 public). Linkurile către site primesc UTM automat (utm_source=platformă, utm_medium=social) — efectul se urmărește apoi cu ga4_report. Verifică ÎNTÂI list_social_posts (fără dubluri; învață din metricile postărilor vechi).`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        platform: { type: 'string', enum: social.PLATFORMS, description: 'facebook = pagina (părinți); instagram = feed/Reels (elevi); tiktok/youtube = coada manuală' },
+        text: str('textul COMPLET al postării, în română, gata de publicat, cu 2–4 hashtag-uri. Pentru TikTok/YouTube include și scenariul clipului (cadre + replici). Max ~2000 caractere pe Instagram, ~4000 în rest.'),
+        when: str('când se publică: ISO 8601 cu fus orar, ex. "2026-08-03T18:30:00+03:00" (ora României). Lipsă = cât mai curând. Alege ore cu audiență: 17:00–20:30 în timpul săptămânii.'),
+        link: str('opțional: linkul promovat — rută relativă (ex. "/rezolvari/formule-arii-clasa-7") sau URL absolut. Primește UTM automat dacă e pe examenmate.com.'),
+        media_url: str('opțional: URL public de imagine (JPEG) sau video (MP4 → Reels pe Instagram, video pe Facebook). NU inventa URL-uri — folosește doar imagini care există (sau folosește "image").'),
+        image: {
+          type: 'object',
+          description: `alternativă la media_url: card branded ExamenMate generat automat (1080×1080 JPEG). Șabloane: ${social.IMAGE_TEMPLATES.join(' | ')}. Texte SCURTE, cu simboluri Unicode (π √ ² ≈ ×) — NU LaTeX.`,
+          properties: {
+            template: { type: 'string', enum: social.IMAGE_TEMPLATES, description: 'formula = formula zilei; exercitiu = provocare cu răspunsul în comentarii; greseala = greșeala frecventă; countdown = zile până la examen (title = NUMĂRUL); anunt = articol/funcție nouă' },
+            title: str('textul mare al cardului (≤ 90 caractere; la countdown: doar numărul, ex. "325")'),
+            subtitle: str('opțional: rândul secundar (≤ 200 caractere; la countdown: "de zile până la …")'),
+            badge: str('opțional: insigna din colț, ex. "Clasa a 7-a", "EN 2027" (≤ 30 caractere)'),
+          },
+          required: ['template', 'title'],
+        },
+        campaign: str('opțional: slugul utm_campaign (ex. "formule-arii-clasa-7"); implicit derivat din link'),
+        note: str('DE CE propui postarea acum — public țintă + cârlig (apare în coada de aprobare)'),
+      },
+      required: ['platform', 'text', 'note'],
+    },
   },
 ];
 
@@ -515,6 +563,12 @@ function makeToolExecutor({ supa, state }) {
           (data || []).forEach((r) => { byStatus[r.status] = (byStatus[r.status] || 0) + 1; });
           out.coadaActiuni = byStatus;
         } catch { out.coadaActiuni = null; }
+        try {
+          const { data } = await supa.from('social_posts').select('status');
+          const byStatus = {};
+          (data || []).forEach((r) => { byStatus[r.status] = (byStatus[r.status] || 0) + 1; });
+          out.social = byStatus;
+        } catch { out.social = '(tabelul social_posts apare în Faza 3 — rulează supabase/social_posts.sql)'; }
         return J(out);
       }
       case 'list_materials': {
@@ -589,6 +643,31 @@ function makeToolExecutor({ supa, state }) {
         if (!row) return `Nu există articolul cu slug="${input.slug}". Folosește list_articles pentru sluguri reale.`;
         const { content_html, ...rest } = row;
         return J({ ...rest, content_md: String(rest.content_md || '').slice(0, 24000) });
+      }
+      case 'list_social_posts': {
+        let q = supa.from('social_posts')
+          .select('platform, status, text_content, media_url, link_url, campaign, scheduled_at, posted_at, metrics, error, created_at')
+          .order('created_at', { ascending: false })
+          .limit(Math.min(Math.max(parseInt(input.limit, 10) || 25, 1), 60));
+        if (input.platform && social.PLATFORMS.includes(input.platform)) q = q.eq('platform', input.platform);
+        if (input.status && input.status !== 'toate') q = q.eq('status', input.status);
+        const { data, error } = await q;
+        if (error) return `(tabelul social_posts lipsește — rulează supabase/social_posts.sql): ${error.message}`;
+        const rows = (data || []).map((r) => ({
+          platform: r.platform, status: r.status,
+          scheduled_at: r.scheduled_at, posted_at: r.posted_at,
+          text: String(r.text_content || '').slice(0, 160),
+          link: r.link_url || null, campaign: r.campaign || null,
+          are_media: !!r.media_url,
+          metrici: r.metrics ? {
+            reach: r.metrics.reach ?? null, likes: r.metrics.likes ?? null,
+            comments: r.metrics.comments ?? null, shares: r.metrics.shares ?? null,
+          } : null,
+          eroare: r.error || null,
+        }));
+        const byStatus = {};
+        rows.forEach((r) => { byStatus[r.status] = (byStatus[r.status] || 0) + 1; });
+        return J({ rows, byStatus, metaConfigurat: { facebook: social.enabled(), instagram: social.igEnabled() } });
       }
 
       // ── SCRIERE → coada de aprobare ────────────────────────────────────
@@ -701,6 +780,64 @@ function makeToolExecutor({ supa, state }) {
         }, state);
         return `Propunerea ${id} (submit_sitemap) a fost trimisă în coada de aprobare.`;
       }
+      case 'schedule_social': {
+        const platform = String(input.platform || '').toLowerCase();
+        if (!social.PLATFORMS.includes(platform)) throw new Error(`Platformă necunoscută: „${input.platform}". Permise: ${social.PLATFORMS.join(', ')}.`);
+        const auto = social.AUTO_PLATFORMS.includes(platform);
+
+        const text = String(input.text || '').replace(/\r\n?/g, '\n').trim();
+        const maxText = platform === 'instagram' ? 2000 : 4000;
+        if (text.length < 20) throw new Error('Textul postării e prea scurt (minim 20 de caractere) — scrie postarea completă, gata de publicat.');
+        if (text.length > maxText) throw new Error(`Textul are ${text.length} caractere — maxim ${maxText} pe ${platform}.`);
+
+        // când se publică (ISO cu fus orar; lipsă/trecut = cât mai curând)
+        let scheduledAt = null;
+        if (input.when) {
+          const t = Date.parse(String(input.when));
+          if (Number.isNaN(t)) throw new Error(`Data „${input.when}" nu e ISO 8601 valid — ex. "2026-08-03T18:30:00+03:00".`);
+          if (t > Date.now() + 90 * 86400 * 1000) throw new Error('Postarea e programată la peste 90 de zile — prea departe; planifică pe săptămânile următoare.');
+          scheduledAt = t <= Date.now() ? null : new Date(t).toISOString();
+        }
+
+        // media: imagine generată (card branded) SAU URL extern — nu ambele
+        if (input.image && input.media_url) throw new Error('Alege ori "image" (card generat), ori "media_url" — nu ambele.');
+        let mediaUrl = null, imageSpec = null;
+        if (input.image && typeof input.image === 'object') {
+          imageSpec = {
+            template: String(input.image.template || ''),
+            title: String(input.image.title || '').trim().slice(0, 90),
+            subtitle: String(input.image.subtitle || '').trim().slice(0, 200),
+            badge: String(input.image.badge || '').trim().slice(0, 30),
+          };
+          if (!imageSpec.title) throw new Error('image.title e obligatoriu (textul mare al cardului).');
+          mediaUrl = social.imageUrl(imageSpec); // validează și șablonul; URL semnat
+        } else if (input.media_url) {
+          const m = String(input.media_url).trim();
+          if (!/^https?:\/\//.test(m)) throw new Error('media_url trebuie să fie URL public absolut (https://…).');
+          mediaUrl = m;
+        }
+        if (platform === 'instagram' && !mediaUrl) {
+          throw new Error('Instagram cere imagine sau video: dă "image" (card branded — cel mai simplu) sau "media_url".');
+        }
+
+        // linkul promovat + UTM (doar pe domeniul propriu)
+        const campaign = social.campaignSlug(input.campaign, input.link);
+        const utmLink = input.link ? social.addUtm(String(input.link), { source: platform, campaign }) : null;
+
+        const payload = {
+          platform, text, scheduled_at: scheduledAt,
+          link: input.link ? String(input.link) : null,
+          utm_link: utmLink, campaign,
+          media_url: mediaUrl, image: imageSpec,
+          auto, // fb/ig = publicare automată; tiktok/youtube = coada manuală
+          meta_configurat: platform === 'instagram' ? social.igEnabled() : platform === 'facebook' ? social.enabled() : null,
+        };
+        const id = await proposeAction(supa, { type: 'schedule_social', payload, note: input.note }, state);
+        const cand = scheduledAt
+          ? `programată ${new Date(scheduledAt).toLocaleString('ro-RO', { timeZone: 'Europe/Bucharest' })}`
+          : 'cât mai curând după aprobare';
+        return `Propunerea ${id} (schedule_social ${platform}, ${cand}) a fost trimisă în coada de aprobare. ${auto ? 'După aprobare se publică automat.' : 'După aprobare intră în coada MANUALĂ din admin (TikTok/YouTube nu au API de postare fără audit).'}`;
+      }
       default:
         return `Unealtă necunoscută: ${name}`;
     }
@@ -769,8 +906,35 @@ async function executeAction(supa, action) {
         live_in: '≤ 5 minute (cache CDN)',
       };
     }
-    case 'schedule_social':
-      throw new Error('schedule_social se activează în Faza 3 (Meta Graph API + social_posts).');
+    case 'schedule_social': {
+      // Aprobare ≠ publicare: rândul intră în calendarul social_posts, iar
+      // publicarea o face api/social-cron.js la ora programată (FB/IG) sau
+      // adminul, manual, din panoul Social (TikTok/YouTube).
+      const status = p.auto ? 'approved' : 'manual';
+      const { data, error } = await supa.from('social_posts').insert({
+        platform: p.platform,
+        text_content: p.text,
+        media_url: p.media_url || null,
+        link_url: p.utm_link || null,
+        campaign: p.campaign || null,
+        image: p.image || null,
+        scheduled_at: p.scheduled_at || null,
+        status,
+        action_id: action.id || null,
+      }).select('id').single();
+      if (error) throw new Error(`Nu am putut programa postarea (rulează supabase/social_posts.sql?): ${error.message}`);
+      const result = { queued: p.platform, post_id: data.id, status };
+      if (p.auto) {
+        result.publicare = p.scheduled_at
+          ? `automat, la ${new Date(p.scheduled_at).toLocaleString('ro-RO', { timeZone: 'Europe/Bucharest' })} (cron la 15 min)`
+          : 'automat, la următoarea rulare a cronului (≤ 15 min)';
+        const configured = p.platform === 'instagram' ? social.igEnabled() : social.enabled();
+        if (!configured) result.atentie = 'Meta neconfigurat (META_PAGE_ID / META_PAGE_TOKEN / META_IG_USER_ID) — publicarea va eșua până faci pasul 3a din GHID_AGENT_SEO_ACTIUNI.md.';
+      } else {
+        result.publicare = 'manual — apare în panoul „Calendar social" din admin (copy-paste)';
+      }
+      return result;
+    }
     default:
       throw new Error(`Tip de acțiune necunoscut: ${action.type}`);
   }
@@ -819,6 +983,28 @@ async function revertAction(supa, action) {
       if (error) throw new Error(error.message);
       return { reverted: `/rezolvari/${p.slug}`, restored: Object.keys(p.changes || {}) };
     }
+    case 'schedule_social': {
+      const postId = action.result?.post_id;
+      if (!postId) throw new Error('Nu găsesc postarea programată (result.post_id lipsește).');
+      const { data: row, error } = await supa.from('social_posts').select('*').eq('id', postId).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!row) throw new Error('Postarea nu mai există în social_posts.');
+      if (row.status === 'canceled') return { reverted: postId, status: 'era deja anulată' };
+      if (row.status === 'posted') {
+        // publicată deja: pe Facebook o putem șterge prin API; pe restul nu
+        if (row.platform === 'facebook' && row.external_id) {
+          await social.deleteFbPost(row.external_id);
+          const { error: upErr } = await supa.from('social_posts')
+            .update({ status: 'canceled', error: 'ștearsă de pe Facebook prin revert' }).eq('id', postId);
+          if (upErr) throw new Error(upErr.message);
+          return { reverted: postId, deleted: 'postarea a fost ștearsă de pe Facebook' };
+        }
+        throw new Error(`Postarea e deja publicată pe ${row.platform} — ${row.platform === 'instagram' ? 'Instagram nu permite ștergerea prin API; șterge-o din aplicație' : 'marcheaz-o manual'}.`);
+      }
+      const { error: upErr } = await supa.from('social_posts').update({ status: 'canceled' }).eq('id', postId);
+      if (upErr) throw new Error(upErr.message);
+      return { reverted: postId, status: 'anulată (nu se mai publică)' };
+    }
     default:
       throw new Error(`Acțiunea ${action.type} nu are revert automat.`);
   }
@@ -829,12 +1015,13 @@ function buildSystem({ routesCtx, contentCtx, googleCtx, instr, hasTools }) {
   const toolsBlock = hasTools ? `
 
 === UNELTELE TALE (folosește-le!) ===
-CITIRE — se execută imediat: gsc_query, ga4_report, url_inspect, psi_report, fetch_page, db_stats, list_materials, read_material, get_seo_meta, list_articles, read_article.
-SCRIERE — NU modifică nimic direct: creează PROPUNERI în coada de aprobare din admin: set_page_meta, rename_material, publish_article, update_article, submit_sitemap.
+CITIRE — se execută imediat: gsc_query, ga4_report, url_inspect, psi_report, fetch_page, db_stats, list_materials, read_material, get_seo_meta, list_articles, read_article, list_social_posts.
+SCRIERE — NU modifică nimic direct: creează PROPUNERI în coada de aprobare din admin: set_page_meta, rename_material, publish_article, update_article, submit_sitemap, schedule_social.
 
 Fluxul corect: (1) verifică datele reale (gsc_query / db_stats / get_seo_meta / fetch_page / list_articles); (2) decide pe cifre, nu pe presupuneri; (3) trimite propuneri concrete prin uneltele de scriere, fiecare cu «note» care explică DE CE (cu cifrele care o justifică); (4) încheie cu un raport scurt: ce ai găsit + ce propuneri ai trimis.
 Reguli: nu inventa rute sau id-uri (ia-le din structura site-ului / list_materials / list_articles / db_stats); titluri ≤ 60 caractere, descrieri ≤ 155; propune DOAR modificări justificate de date; maximum ~6 propuneri pe rulare — calitate, nu volum (un articol = o propunere mare, nu-l fragmenta). Modificările devin live abia după aprobarea adminului.
-ARTICOLE (pagina „Blog / Rezolvări / Teorie", /rezolvari/{slug}): conținut GRATUIT și indexabil — rezolvări scrise pas cu pas, explicații de noțiuni, articole SEO. Fiecare trebuie să aibă substanță reală (explicație + exemple + formule LaTeX între $...$ + linkuri interne relative + tabele unde ajută) — „thin content" în serie face rău. Bazează-te pe materialele reale (read_material) și listează-le în sources: pagina afișează automat linkuri către ele + CTA premium (așa se face conversia).` : `
+ARTICOLE (pagina „Blog / Rezolvări / Teorie", /rezolvari/{slug}): conținut GRATUIT și indexabil — rezolvări scrise pas cu pas, explicații de noțiuni, articole SEO. Fiecare trebuie să aibă substanță reală (explicație + exemple + formule LaTeX între $...$ + linkuri interne relative + tabele unde ajută) — „thin content" în serie face rău. Bazează-te pe materialele reale (read_material) și listează-le în sources: pagina afișează automat linkuri către ele + CTA premium (așa se face conversia).
+SOCIAL (schedule_social): Facebook/Instagram se publică AUTOMAT la ora programată (după aprobare); TikTok/YouTube intră în coada manuală a adminului. Public: părinți → Facebook (ghiduri, calendar examene, articole noi); elevi → Instagram/TikTok (formula/exercițiul zilei, greșeli frecvente, countdown examene). Instagram cere media: folosește image:{template: formula|exercitiu|greseala|countdown|anunt, title, subtitle, badge} — carduri branded generate de site (text scurt, simboluri Unicode π √ ² — NU LaTeX). Linkurile către site primesc UTM automat; verifică efectul în ga4_report și învață din metricile din list_social_posts.` : `
 
 (Uneltele de acțiune nu sunt disponibile în această rulare — dai doar recomandări în text.)`;
 

@@ -21,6 +21,14 @@
     {
       "path": "/api/seo-cron?action=autorun",
       "schedule": "0 6 * * 1"
+    },
+    {
+      "path": "/api/social-cron?action=publish",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/social-cron?action=metrics",
+      "schedule": "30 7 * * *"
     }
   ],
   "rewrites": [
@@ -84,7 +92,7 @@
   "functions": {
     "api/**/*.js": {
       "maxDuration": 300,
-      "includeFiles": "api/_lib/template-standard.html"
+      "includeFiles": "api/_lib/**"
     }
   }
 }

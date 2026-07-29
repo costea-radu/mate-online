@@ -4,6 +4,33 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 29 iulie 2026 — Agent SEO Faza 3: social media (Facebook + Instagram automat, TikTok/YouTube semi-automat)
+
+Implementarea Fazei 3 din `GHID_AGENT_SEO_ACTIUNI.md`: agentul programează postări reale prin coada de aprobare; Facebook/Instagram se publică AUTOMAT la ora aleasă, TikTok/YouTube intră într-o coadă manuală (copy-paste din admin, ~5 min/zi). **După deploy: rulează `supabase/social_posts.sql` în SQL Editor + `npm install` (dependențe noi: satori, sharp) + pasul 3a din ghid (config Meta, ~30 min) cu `META_PAGE_ID`/`META_PAGE_TOKEN`/`META_IG_USER_ID` în Vercel.**
+
+### Baza de date și Meta Graph API
+- **`supabase/social_posts.sql` (NOU):** calendarul social — platform, text, media, link (cu UTM), campaign, image (șablonul cardului), scheduled_at, status `draft/approved/manual/posted/failed/canceled`, external_id, metrics, action_id (legătura cu propunerea) + constrângeri + indexuri + RLS server-only (fără politici publice — tabelul e citit doar prin endpointuri admin).
+- **`api/_lib/social.js` (NOU):** Meta Graph API cu fetch simplu, fără dependențe (ca `google.js`): FB text/link (`/feed`), foto (`/photos`), video (`/videos`); IG imagine și Reels (`/media` → polling `status_code` până FINISHED → `/media_publish`); ștergere post FB (pentru revert); metrici best-effort (like/comentarii/share din câmpuri; reach din insights DOAR dacă tokenul are `read_insights`/`instagram_manage_insights` — altfel se sare elegant). **UTM automat** (`utm_source={platformă}&utm_medium=social&utm_campaign={slug}`) DOAR pe linkurile examenmate.com — linkurile externe rămân neatinse; slugul campaniei se derivă din link (cu transliterarea diacriticelor). Semnarea HMAC-SHA256 a parametrilor de imagine (secret: `AI_SIGNING_SECRET`/service role).
+
+### Generatorul de carduri branded (rezolvă cerința de media a Instagramului)
+- **`api/social-image.js` (NOU):** `GET /api/social-image?template=…&title=…&sig=…` → JPEG 1080×1080 în culorile brandului (navy/auriu din `global.css`), 5 șabloane: `formula` (formula zilei), `exercitiu` (+ „Răspunsul — în comentarii"), `greseala`, `countdown` (număr uriaș auriu), `anunt` (articol/funcție nouă). Lanțul: satori (layout + glife→contururi) → sharp (SVG→JPEG). Endpointul e public (Meta descarcă imaginea la publicare), dar parametrii sunt SEMNAȚI — nimeni nu poate genera carduri „ExamenMate" cu alt text. Cache CDN agresiv (conținut = funcție pură de parametri). Fără satori/sharp instalate → 501 cu mesaj clar, restul agentului merge.
+- **`api/_lib/fonts/` (NOU):** DM Sans 400/700 + Fraunces 800 (fonturile site-ului, cu diacritice) + DejaVu Sans Bold (fallback per-glifă pentru π √ Δ ∑ ≈) + licențele (OFL). Textele cardurilor folosesc Unicode, NU LaTeX. `vercel.json`: `includeFiles` extins la `api/_lib/**`.
+
+### Uneltele agentului (prin coada de aprobare)
+- **`api/_lib/seo.js`:** scriere nouă **`schedule_social`** (validări: platformă din listă, text 20–2000/4000 caractere, `when` ISO cu fus orar — trecutul devine „cât mai curând", max 90 zile; Instagram FĂRĂ media → respins la propunere; `image` XOR `media_url`; media doar URL public https) — payload-ul păstrează linkul original + linkul cu UTM + specificația cardului; citire nouă **`list_social_posts`** (calendar + metrici + starea config Meta — obligatorie înainte de programare: anti-dubluri + învățare din postările vechi). Execuție la aprobare: rând în `social_posts` cu `approved` (FB/IG — publicat de cron) sau `manual` (TikTok/YouTube), cu avertisment în rezultat dacă Meta nu e configurat încă. Revert: postare neprogramată → `canceled`; deja publicată pe FB → ștearsă prin API; pe IG → mesaj clar (API-ul nu permite). Sarcina `social` rescrisă (playbook pe publicuri: părinți→FB, elevi→IG/TikTok; ore cu audiență; hashtag-uri; metrici) + blocul SOCIAL în promptul de sistem + `db_stats` include starea calendarului.
+- **`api/social-cron.js` (NOU):** `?action=publish` (cron `*/15 * * * *`): publică postările `approved` scadente pe FB/IG (max 10/rulare); eșec → `failed` + eroarea Graph în rând (retry din admin). `?action=metrics` (cron zilnic 7:30): insights + permalink pentru postările din ultimele 14 zile → `social_posts.metrics`. Protecție: `x-vercel-cron` sau `?secret=AI_CRON_SECRET`; fără config Meta → skip elegant, nu eroare.
+
+### Adminul
+- **`api/social-queue.js` (NOU, admin-only):** `list` / `publish_now` (publică imediat o postare aprobată — și TEST al configurării Meta) / `mark_posted` (coada manuală, cu link opțional) / `cancel` / `retry` (eșuată → reluată de cron) / `refresh_metrics`.
+- **`src/components/SocialQueue.jsx` (NOU),** montat în `AIAdminPanel` sub coada SEO: secțiunile „✍️ De postat manual" (TikTok/YouTube: copy textul cu un click + deschide media + „Am postat-o"), „⏳ Programate" (cu ora, preview-ul cardului generat, „🚀 Publică acum"), „⚠️ Eșuate" (eroarea Graph + reîncercare), istoric cu metrici (👁 reach ❤ like 💬 comentarii + „Deschide postarea"). Bannere de configurare când META_* lipsesc. `aiClient.socialQueue` în `src/lib/aiClient.js`.
+- **`src/components/SEOActionsQueue.jsx`:** preview complet pentru propunerile `schedule_social` (platformă + insigna automat/manual, ora, textul, IMAGINEA generată — adminul vede exact cardul —, linkul cu UTM și campania, avertisment dacă Meta nu e configurat) + revert „↩️ Anulează postarea"; la orice decizie panoul social se reîmprospătează (`social-posts-updated`).
+
+### Teste și verificare
+- **`test/social.test.js` (NOU):** 13 teste — UTM (linkuri proprii/relative/externe/parametri existenți), slugul campaniei (diacritice transliterate), caption, detecția video, semnătura imaginilor (validă/tamper/falsă), URL-ul semnat, structura celor 5 șabloane, scalarea fontului + **testul de fum al randării** (JPEG real cu diacritice și π, verificat pe magic bytes).
+- `npm test`: **59/59** (toate cele vechi neatinse); fluxul propunere → aprobare → revert verificat end-to-end pe DB simulat (IG fără imagine respins; media_url semnat; UTM aplicat; FB/IG→approved, TikTok→manual; revert→canceled); toate rutele noi validate sintactic; cardurile verificate VIZUAL (5 șabloane randate).
+
+---
+
 ## 28 iulie 2026 — Redenumire: pagina „Rezolvări" → „Blog / Rezolvări / Teorie"
 
 Numele AFIȘAT al paginii `/rezolvari` devine „Blog / Rezolvări / Teorie" peste tot în interfață; **URL-ul rămâne `/rezolvari`** (rutele indexate de Google, slugurile articolelor, sitemap-ul și rewrite-urile nu se ating — zero pierdere SEO).

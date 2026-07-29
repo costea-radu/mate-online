@@ -96,6 +96,9 @@ export const aiClient = {
   // Coada de aprobare a agentului SEO (admin): list / approve / reject / revert
   seoActions: (payload) => post('/api/seo-actions', payload),
 
+  // Calendarul social (admin): list / publish_now / mark_posted / cancel / retry / refresh_metrics
+  socialQueue: (payload) => post('/api/social-queue', payload),
+
   // Newsletter (admin): campanii scrise de agentul SEO, trimise pe email
   newsletter: (payload) => post('/api/newsletter', payload),
 

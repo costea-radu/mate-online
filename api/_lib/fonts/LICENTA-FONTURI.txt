@@ -1,0 +1,25 @@
+Fonturile din acest director sunt folosite DOAR de generatorul de carduri
+social media (api/social-image.js) — randare server-side cu satori.
+
+• DMSans-Regular.ttf / DMSans-Bold.ttf
+    DM Sans — Copyright 2014-2025 Indian Type Foundry, Jonny Pinhorn,
+    Google LLC. Licență: SIL Open Font License 1.1 (OFL)
+    https://fonts.google.com/specimen/DM+Sans/license
+
+• Fraunces-ExtraBold-latin.woff / Fraunces-ExtraBold-latin-ext.woff
+    Fraunces — Copyright 2020 The Fraunces Project Authors
+    Licență: SIL Open Font License 1.1 (OFL)
+    https://fonts.google.com/specimen/Fraunces/license
+    (subseturile woff de la fontsource.org; cel latin-ext e încărcat ca
+    familia „Fraunces Ext" — fallback-ul per-glifă al satori aduce de acolo
+    diacriticele românești ă ș ț în titlurile serif)
+
+• DejaVuSans-Bold.ttf
+    DejaVu Sans — Copyright Bitstream + DejaVu changes (public domain);
+    licență permisivă Bitstream Vera / DejaVu
+    https://dejavu-fonts.github.io/License.html
+    (folosit ca fallback pentru simbolurile matematice: π √ Δ ∑ ≈ ∞)
+
+Licența OFL permite folosirea, embedding-ul și redistribuirea fonturilor
+împreună cu software-ul, inclusiv comercial; fonturile nu pot fi vândute
+separat. Textul complet: https://openfontlicense.org
