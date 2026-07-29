@@ -20,9 +20,13 @@
 // Fetch simplu, fără dependențe (ca google.js / social.js).
 // =====================================================================
 
-const CLIENT_ID = process.env.YT_CLIENT_ID || '';
-const CLIENT_SECRET = process.env.YT_CLIENT_SECRET || '';
-const REFRESH_TOKEN = process.env.YT_REFRESH_TOKEN || '';
+// Valorile din env se curăță defensiv: spațiile/newline-urile luate la
+// copy-paste în Vercel și ghilimelele din jur produc altfel erori derutante
+// de la Google („The provided client secret is invalid").
+const envClean = (v) => String(v || '').trim().replace(/^["']|["']$/g, '').trim();
+const CLIENT_ID = envClean(process.env.YT_CLIENT_ID);
+const CLIENT_SECRET = envClean(process.env.YT_CLIENT_SECRET);
+const REFRESH_TOKEN = envClean(process.env.YT_REFRESH_TOKEN);
 
 const API = 'https://www.googleapis.com/youtube/v3';
 

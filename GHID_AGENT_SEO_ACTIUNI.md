@@ -516,6 +516,20 @@ refresh token OAuth pe contul canalului. Totul logat cu **admin.examenmate@gmail
 6. Test: Admin → agentul SEO → **„▶️ YouTube — titluri & descrieri"** — agentul
    listează clipurile și propune metadate prin coada de aprobare.
 
+**Depanare (erorile reale de la Google, în ordinea frecvenței):**
+
+- **„The provided client secret is invalid"** → secretul din Vercel nu corespunde
+  Client ID-ului: re-copiază **Client secret** din Cloud Console → Credentials →
+  clientul „Web application" (fără spații/ghilimele; dacă ai apăsat vreodată
+  „Reset secret", e valabil DOAR cel nou afișat) → Redeploy. Refresh token-ul NU
+  trebuie refăcut — e legat de Client ID, nu de secret.
+- **`unauthorized_client` la Exchange în OAuth Playground** → bifa „Use your own
+  OAuth credentials" s-a pierdut între pași: refă ⚙️ → bifă + ID + secret, apoi
+  REIA Step 1 (codul de autorizare e de unică folosință).
+- **`invalid_grant` / „expired or revoked"** → refresh token-ul a murit: aplicația
+  era în „Testing" (expiră după 7 zile — apasă „Publish app"), ori accesul a fost
+  retras din myaccount.google.com → Security → Third-party access. Refă pasul 4.
+
 Ce face agentul (implementat):
 
 - **`yt_update_video(id, title?, description?, tags?)`** — optimizează metadatele
