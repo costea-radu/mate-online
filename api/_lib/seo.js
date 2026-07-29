@@ -35,6 +35,7 @@ const claude = require('./claude');
 const google = require('./google');
 const social = require('./social');
 const youtube = require('./youtube');
+const video = require('./video');
 const { signedUrlFromPublic } = require('./http');
 const { pdfText } = require('./pdftext');
 const { mdToHtml, stripLeadingTitle, mdExcerpt, validSlug } = require('./markdown');
@@ -154,10 +155,10 @@ const TASKS = {
   audit: 'Fă un AUDIT SEO on-page al site-ului pe baza contextului. Identifică problemele probabile (titluri, meta, structură, conținut subțire, interlinking, viteze) și dă o listă de acțiuni concrete, prioritizate (impact/efort). Dacă adminul a lipit conținutul unei pagini, auditeaz-o în detaliu. Folosește uneltele (fetch_page, url_inspect, psi_report, get_seo_meta) ca să verifici realitatea, nu presupuneri.',
   meta: 'Scrie META TITLE (max 60 caractere) și META DESCRIPTION (max 155 caractere) în română, optimizate pentru CTR, pentru fiecare pagină/categorie din context (sau pentru pagina lipită de admin). Verifică întâi cu get_seo_meta ce e deja setat și cu gsc_query ce interogări primește fiecare pagină, apoi PROPUNE modificările prin unealta set_page_meta (nu doar în text).',
   blog: 'Scrie CONȚINUT pentru pagina „Blog / Rezolvări / Teorie" (/rezolvari): articole SEO, rezolvări scrise pas cu pas, explicații/teorie. Fluxul: (1) gsc_query — ce caută oamenii și pentru ce NU există pagină dedicată (prioritatea #1: cerere dovedită); (2) list_articles — ce există deja, ca să nu dublezi; (3) read_material — bazează rezolvările/explicațiile pe materialele REALE din site; (4) scrie articolul COMPLET (substanță: explicație + exemple + formule LaTeX + linkuri interne + tabele unde ajută) și trimite-l prin publish_article, cu materialele folosite în sources. Ține cont de calendarul școlar (simulări feb–mar, EN+BAC iunie — publică cu 2–3 luni înainte). Dacă adminul cere doar idei, dă lista (titlu + cuvânt cheie + intenție + schiță H2) fără să publici; dacă cere un articol anume, scrie-l și propune-l.',
-  social: 'Planifică și PROGRAMEAZĂ postări social media reale prin unealta schedule_social. Fluxul: (1) list_social_posts — vezi ce e deja programat (fără dubluri) și ce metrici au avut postările vechi (învață din ele); (2) list_articles + gsc_query — ce merită promovat acum (articole noi, teme căutate, calendarul școlar); (3) programează un mix pe săptămâna următoare (3–6 postări, la ore cu audiență, ex. 17:00–20:30): PĂRINȚI → Facebook (ghiduri, calendarul examenelor, articolele noi din Blog/Rezolvări, ton cald fără reclamă agresivă); ELEVI → Instagram (formula/exercițiul zilei cu card generat prin image:{template,…}) și TikTok/Reels (clip scurt — scrie scenariul în text; intră în coada manuală); (4) fiecare postare cu linkul ei (primește UTM automat — efectul se vede în ga4_report). Textele în română, gata de publicat, cu 2–4 hashtag-uri relevante (#matematica #evaluareanationala #bacalaureat). Dacă adminul cere o campanie sau o temă anume, fă exact asta.',
+  social: 'Planifică și PROGRAMEAZĂ postări social media reale prin unealta schedule_social (și, unde un clip scurt ar prinde mai bine, creează-l cu create_video — montaj de slide-uri branded, publicat automat ca Reels/video la aprobare). Fluxul: (1) list_social_posts — vezi ce e deja programat (fără dubluri) și ce metrici au avut postările vechi (învață din ele); (2) list_articles + gsc_query — ce merită promovat acum (articole noi, teme căutate, calendarul școlar); (3) programează un mix pe săptămâna următoare (3–6 postări, la ore cu audiență, ex. 17:00–20:30): PĂRINȚI → Facebook (ghiduri, calendarul examenelor, articolele noi din Blog/Rezolvări, ton cald fără reclamă agresivă); ELEVI → Instagram (formula/exercițiul zilei cu card generat prin image:{template,…}) și TikTok/Reels (clip scurt — scrie scenariul în text; intră în coada manuală); (4) fiecare postare cu linkul ei (primește UTM automat — efectul se vede în ga4_report). Textele în română, gata de publicat, cu 2–4 hashtag-uri relevante (#matematica #evaluareanationala #bacalaureat). Dacă adminul cere o campanie sau o temă anume, fă exact asta.',
   keywords: 'Fă o listă de CUVINTE CHEIE (română) pe care ExamenMate ar trebui să le țintească, grupate pe intenție (informațional/tranzacțional) și pe pagini-țintă existente. Include long-tail specifice claselor 5–12, EN și BAC. Pornește de la interogările reale din gsc_query (inclusiv pozițiile 5–20 cu impresii mari).',
   performance: 'Analizează PERFORMANȚA REALĂ din datele Google (Search Console și, dacă există, GA4): tendința clicurilor/impresiilor față de perioada anterioară, interogările și paginile câștigătoare, OPORTUNITĂȚILE (poziții 5–20 cu impresii mari — ce pagini de optimizat ca să urce în top 3), paginile cu impresii mari și CTR mic (de rescris meta), interogările FĂRĂ pagină dedicată (candidate la articol nou), articolele care stagnează/pierd poziții (candidate la refresh). Folosește gsc_query pentru detalii pe interogările/paginile care contează. Pentru fiecare oportunitate clară, trimite o propunere concretă prin set_page_meta / rename_material / publish_article / update_article, cu explicația în `note`. Încheie cu un plan pe 2 săptămâni și cu lista propunerilor trimise. Dacă datele Google lipsesc, spune exact asta și recomandă conectarea lor.',
-  youtube: 'Optimizează METADATELE clipurilor YouTube EXISTENTE (titlu, descriere, taguri) pe baza căutărilor reale. Fluxul: (1) yt_list_videos — canalul și clipurile, cu vizualizări; (2) gsc_query + interogările din context — CE CAUTĂ oamenii pe temele clipurilor (folosește exact formulările căutate); (3) yt_get_video pe clipurile cu potențial (multe impresii pe temă, titlu slab/generic, descriere goală sau fără linkuri); (4) pentru fiecare, PROPUNE prin yt_update_video: titlu ≤ 70 caractere cu formularea căutată (fără clickbait), descriere cu primele 2 rânduri care „vând" + capitole (timestamps) dacă se pot deduce + link către pagina/articolul relevant de pe site (cu UTM: ?utm_source=youtube&utm_medium=video&utm_campaign=slug-clip) + 8–15 taguri. Propune DOAR unde ai motiv concret (în note); nu atinge clipurile care performează deja bine. Dacă YouTube nu e conectat (YT_CLIENT_ID/SECRET/REFRESH_TOKEN), spune exact asta — iar pentru clipuri NOI scrie metadatele în text (adminul le pune din YouTube Studio).',
+  youtube: 'Două moduri de lucru pe YouTube — alege după situație (sau după cererea adminului). MODUL A — OPTIMIZARE metadate pentru clipurile EXISTENTE: (1) yt_list_videos; (2) gsc_query — CE CAUTĂ oamenii (folosește exact formulările căutate); (3) yt_get_video pe clipurile cu potențial (titlu generic, descriere goală); (4) yt_update_video: titlu ≤ 70 caractere cu formularea căutată (fără clickbait), descriere cu primele 2 rânduri care „vând" + link către site cu UTM (?utm_source=youtube&utm_medium=video&utm_campaign=slug) + 8–15 taguri; propune DOAR cu motiv concret în note. MODUL B — CLIPURI NOI cu create_video (mai ales când canalul e gol): montaje simple de 15–45s — prezentarea site-ului (intro → lista funcții → statistica → final), turul unei pagini (scene imagine cu og:image/carduri generate), formula/exercițiul zilei, countdown examene; dă titlu + descriere + taguri gata de lipit (clipul ajunge randat în coada manuală — adminul îl urcă din YouTube Studio în 2 minute; același clip poate merge și pe Instagram Reels, AUTOMAT, cu o a doua propunere create_video pe instagram). Texte scurte pe scene, Unicode — NU LaTeX; imagini DOAR cu URL-uri reale. Dacă adminul dă o temă/indicații, urmează-le exact. Dacă YouTube nu e conectat (YT_CLIENT_ID/SECRET/REFRESH_TOKEN), spune asta pentru modul A — modul B funcționează oricum.',
   report: 'Scrie RAPORTUL LUNAR de SEO & marketing al platformei, pe baza DATELOR MĂSURATE primite în mesaj (nu inventa cifre — folosește-le pe acelea; uneltele doar pentru verificări punctuale, max 2–3 apeluri). Structura: (1) Rezumat executiv — 3–5 fraze: ce s-a schimbat luna asta și de ce; (2) Trafic organic — clicuri/impresii/CTR/poziție medie vs. luna anterioară, cu interpretare; (3) Interogări & pagini — câștigătorii, pierzătorii, oportunitățile rămase; (4) Efectul acțiunilor executate — pentru fiecare acțiune măsurată: a funcționat? (cifrele înainte/după sunt în date); ce învățăm; (5) Conținut & social — articolele noi și postările (cu metricile lor), ce canal aduce vizite (UTM/GA4); (6) Planul lunii următoare — 4–6 acțiuni concrete, prioritizate (impact/efort), legate de calendarul școlar; NU trimite propuneri prin unelte acum — raportul e pentru citit. Ton: direct, cu cifre, fără umplutură. Format: Markdown cu titluri ## și liste scurte.',
   chat: 'Răspunde la întrebarea adminului ca expert SEO & marketing pentru platforma de educație. Când e util, verifică realitatea cu uneltele de citire; când propui modificări concrete de meta/titluri, trimite-le prin uneltele de scriere.',
 };
@@ -395,7 +396,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         platform: { type: 'string', enum: social.PLATFORMS, description: 'facebook = pagina (părinți); instagram = feed/Reels (elevi); tiktok/youtube = coada manuală' },
-        text: str('textul COMPLET al postării, în română, gata de publicat, cu 2–4 hashtag-uri. Pentru TikTok/YouTube include și scenariul clipului (cadre + replici). Max ~2000 caractere pe Instagram, ~4000 în rest.'),
+        text: str('textul COMPLET al postării, în română, gata de publicat, cu 2–4 hashtag-uri. FĂRĂ LaTeX și fără $...$ — captionurile nu randează formule: scrie matematica cu simboluri Unicode (² ³ √ π × ≤). Pentru TikTok/YouTube include și scenariul clipului (cadre + replici). Max ~2000 caractere pe Instagram, ~4000 în rest.'),
         when: str('când se publică: ISO 8601 cu fus orar, ex. "2026-08-03T18:30:00+03:00" (ora României). Lipsă = cât mai curând. Alege ore cu audiență: 17:00–20:30 în timpul săptămânii.'),
         link: str('opțional: linkul promovat — rută relativă (ex. "/rezolvari/formule-arii-clasa-7") sau URL absolut. Primește UTM automat dacă e pe examenmate.com.'),
         media_url: str('opțional: URL public de imagine (JPEG) sau video (MP4 → Reels pe Instagram, video pe Facebook). NU inventa URL-uri — folosește doar imagini care există (sau folosește "image").'),
@@ -429,6 +430,42 @@ const TOOLS = [
         note: str('DE CE propui schimbarea — cu interogările/cifrele din GSC care o justifică (apare în coada de aprobare)'),
       },
       required: ['id', 'note'],
+    },
+  },
+  {
+    name: 'create_video',
+    description: 'PROPUNE crearea unui VIDEOCLIP simplu branded ExamenMate: montaj de slide-uri (intro | lista | imagine | statistica | final) + imagini reale din site, MP4 vertical 1080×1920 (Reels/Shorts/TikTok) sau orizontal, 10–75s, fără voce. Clipul se RANDEAZĂ automat la aprobare. Destinație: instagram/facebook → se PUBLICĂ AUTOMAT la ora aleasă (Reels); youtube/tiktok → intră GATA FĂCUT în coada manuală (adminul îl descarcă și îl urcă — API-urile lor cer audit pentru publicare directă). Idei: prezentarea site-ului, turul unei pagini/funcții, formula zilei pe scene, countdown examene, articol nou. Texte SCURTE pe scene, cu simboluri Unicode (² √ π) — NU LaTeX. Imagini: DOAR URL-uri reale (og_image, carduri social-image generate anterior, imagini publice din site).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        platform: { type: 'string', enum: social.PLATFORMS, description: 'unde ajunge clipul: instagram (Reels, automat) | facebook (video, automat) | youtube | tiktok (coada manuală)' },
+        scenes: {
+          type: 'array',
+          description: '2–12 scene, în ordinea redării. Fiecare: {template, title, subtitle?, bullets? (doar la lista, 1–5), image_url? (obligatoriu la imagine), badge?, seconds? (1.5–10, implicit 3.5)}',
+          items: {
+            type: 'object',
+            properties: {
+              template: { type: 'string', enum: ['intro', 'lista', 'imagine', 'statistica', 'final'], description: 'intro = titlu mare; lista = titlu + puncte; imagine = imagine reală + titlu; statistica = număr uriaș + explicație; final = CTA examenmate.com' },
+              title: str('textul principal al scenei (≤ 120 caractere; la statistica: numărul/valoarea, ex. "500+")'),
+              subtitle: str('opțional: rândul secundar (≤ 220 caractere)'),
+              bullets: { type: 'array', items: { type: 'string' }, description: 'doar la template=lista: 1–5 puncte scurte (≤ 90 caractere fiecare)' },
+              image_url: str('doar la template=imagine: URL absolut real (https://…) sau rută pe site (/…)'),
+              badge: str('opțional: insigna din colț (ex. "Clasa a 7-a", ≤ 30 caractere)'),
+              seconds: { type: 'number', description: 'durata scenei în secunde (1.5–10, implicit 3.5)' },
+            },
+            required: ['template'],
+          },
+        },
+        text: str('FB/IG/TikTok: captionul complet al postării (cu hashtag-uri). YouTube: DESCRIEREA clipului (cu link către site). Fără LaTeX/$ — Unicode.'),
+        title: str('obligatoriu la youtube: titlul clipului (≤ 100 caractere, ideal ≤ 70)'),
+        tags: { type: 'array', items: { type: 'string' }, description: 'opțional (youtube): 8–15 taguri' },
+        when: str('opțional (facebook/instagram): când se publică — ISO 8601 cu fus orar, ex. "2026-08-03T18:30:00+03:00". Lipsă = cât mai curând după aprobare.'),
+        link: str('opțional: linkul promovat (rută relativă sau URL) — primește UTM automat pe FB/IG'),
+        campaign: str('opțional: slugul utm_campaign; implicit derivat din link'),
+        format: { type: 'string', enum: ['vertical', 'orizontal'], description: 'implicit vertical (1080×1920 — Reels/Shorts/TikTok); orizontal (1920×1080) pentru YouTube clasic' },
+        note: str('DE CE propui clipul — public țintă + obiectiv (apare în coada de aprobare)'),
+      },
+      required: ['platform', 'scenes', 'text', 'note'],
     },
   },
 ];
@@ -851,7 +888,8 @@ function makeToolExecutor({ supa, state }) {
         if (!social.PLATFORMS.includes(platform)) throw new Error(`Platformă necunoscută: „${input.platform}". Permise: ${social.PLATFORMS.join(', ')}.`);
         const auto = social.AUTO_PLATFORMS.includes(platform);
 
-        const text = String(input.text || '').replace(/\r\n?/g, '\n').trim();
+        // LaTeX-ul nu se randează în postări — convertim în Unicode (² √ π …)
+        const text = social.plainMath(String(input.text || '')).replace(/\r\n?/g, '\n').trim();
         const maxText = platform === 'instagram' ? 2000 : 4000;
         if (text.length < 20) throw new Error('Textul postării e prea scurt (minim 20 de caractere) — scrie postarea completă, gata de publicat.');
         if (text.length > maxText) throw new Error(`Textul are ${text.length} caractere — maxim ${maxText} pe ${platform}.`);
@@ -871,8 +909,8 @@ function makeToolExecutor({ supa, state }) {
         if (input.image && typeof input.image === 'object') {
           imageSpec = {
             template: String(input.image.template || ''),
-            title: String(input.image.title || '').trim().slice(0, 90),
-            subtitle: String(input.image.subtitle || '').trim().slice(0, 200),
+            title: social.plainMath(String(input.image.title || '')).trim().slice(0, 90),
+            subtitle: social.plainMath(String(input.image.subtitle || '')).trim().slice(0, 200),
             badge: String(input.image.badge || '').trim().slice(0, 30),
           };
           if (!imageSpec.title) throw new Error('image.title e obligatoriu (textul mare al cardului).');
@@ -926,10 +964,136 @@ function makeToolExecutor({ supa, state }) {
         const pid = await proposeAction(supa, { type: 'yt_update_video', payload, note: input.note }, state);
         return `Propunerea ${pid} (yt_update_video „${v.snippet.title}" — schimbă: ${Object.keys(changes).join(', ')}) a fost trimisă în coada de aprobare. Se aplică pe YouTube DOAR după aprobarea adminului.`;
       }
+      case 'create_video': {
+        const platform = String(input.platform || '').toLowerCase();
+        if (!social.PLATFORMS.includes(platform)) throw new Error(`Platformă necunoscută: „${input.platform}". Permise: ${social.PLATFORMS.join(', ')}.`);
+        const auto = social.AUTO_PLATFORMS.includes(platform);
+
+        // scenele: validate + curățate de LaTeX (slide-urile nu randează formule)
+        const rawScenes = (Array.isArray(input.scenes) ? input.scenes : []).map((sc) => ({
+          ...sc,
+          title: social.plainMath(String(sc?.title || '')),
+          subtitle: social.plainMath(String(sc?.subtitle || '')),
+          bullets: Array.isArray(sc?.bullets) ? sc.bullets.map((b) => social.plainMath(String(b))) : sc?.bullets,
+        }));
+        const spec = video.checkVideoSpec({ format: input.format, scenes: rawScenes });
+
+        const text = social.plainMath(String(input.text || '')).replace(/\r\n?/g, '\n').trim();
+        const maxText = platform === 'instagram' ? 2000 : platform === 'youtube' ? 4800 : 4000;
+        if (text.length < 20) throw new Error('text e prea scurt (minim 20 de caractere) — scrie captionul/descrierea completă.');
+        if (text.length > maxText) throw new Error(`text are ${text.length} caractere — maxim ${maxText} pe ${platform}.`);
+
+        let ytTitle = null, ytTags = null;
+        if (platform === 'youtube') {
+          if (!input.title) throw new Error('La youtube, title (titlul clipului) e obligatoriu.');
+          const checked = youtube.checkVideoMeta({ title: input.title, tags: input.tags != null ? input.tags : null });
+          ytTitle = checked.title;
+          ytTags = checked.tags || null;
+        }
+
+        let scheduledAt = null;
+        if (auto && input.when) {
+          const t = Date.parse(String(input.when));
+          if (Number.isNaN(t)) throw new Error(`Data „${input.when}" nu e ISO 8601 valid — ex. "2026-08-03T18:30:00+03:00".`);
+          if (t > Date.now() + 90 * 86400 * 1000) throw new Error('Programat la peste 90 de zile — prea departe.');
+          scheduledAt = t <= Date.now() ? null : new Date(t).toISOString();
+        }
+
+        const campaign = social.campaignSlug(input.campaign, input.link);
+        const utmLink = (auto && input.link) ? social.addUtm(String(input.link), { source: platform, campaign }) : null;
+
+        const payload = {
+          platform, auto,
+          format: spec.format, scenes: spec.scenes, seconds: spec.seconds,
+          text, title: ytTitle, tags: ytTags,
+          scheduled_at: scheduledAt,
+          link: input.link ? String(input.link) : null,
+          utm_link: utmLink, campaign,
+          meta_configurat: platform === 'instagram' ? social.igEnabled() : platform === 'facebook' ? social.enabled() : null,
+        };
+        const pid = await proposeAction(supa, { type: 'create_video', payload, note: input.note }, state);
+        return `Propunerea ${pid} (create_video ${platform}, ${spec.scenes.length} scene, ~${spec.seconds}s, ${spec.format}) a fost trimisă în coada de aprobare. Clipul se randează DOAR la aprobare; apoi ${auto ? 'se publică automat' : 'intră gata făcut în coada manuală din admin (download + upload de către admin)'}.`;
+      }
       default:
         return `Unealtă necunoscută: ${name}`;
     }
   };
+}
+
+// ─── EDITAREA unei propuneri „proposed" (chemată din api/seo-actions.js) ─────
+// Adminul poate corecta TEXTELE unei propuneri înainte de aprobare — cu
+// ACELEAȘI validări ca la creare. Patch-ul conține doar câmpurile schimbate.
+// Întoarce payload-ul nou (nu scrie în DB — endpointul face update-ul).
+function editActionPayload(action, patch = {}) {
+  if (!action || action.status !== 'proposed') throw new Error('Doar propunerile în așteptare se pot edita.');
+  const p = JSON.parse(JSON.stringify(action.payload || {}));
+
+  switch (action.type) {
+    case 'schedule_social': {
+      if (patch.text != null) {
+        const text = social.plainMath(String(patch.text)).replace(/\r\n?/g, '\n').trim();
+        const maxText = p.platform === 'instagram' ? 2000 : 4000;
+        if (text.length < 20) throw new Error('Textul postării e prea scurt (minim 20 de caractere).');
+        if (text.length > maxText) throw new Error(`Textul are ${text.length} caractere — maxim ${maxText} pe ${p.platform}.`);
+        p.text = text;
+      }
+      return p;
+    }
+    case 'create_video': {
+      if (patch.text != null) {
+        const text = social.plainMath(String(patch.text)).replace(/\r\n?/g, '\n').trim();
+        const maxText = p.platform === 'instagram' ? 2000 : p.platform === 'youtube' ? 4800 : 4000;
+        if (text.length < 20) throw new Error('Textul e prea scurt (minim 20 de caractere).');
+        if (text.length > maxText) throw new Error(`Textul are ${text.length} caractere — maxim ${maxText} pe ${p.platform}.`);
+        p.text = text;
+      }
+      if (patch.title != null && p.platform === 'youtube') p.title = youtube.checkVideoMeta({ title: patch.title }).title;
+      if (patch.tags != null && p.platform === 'youtube') p.tags = youtube.checkVideoMeta({ tags: patch.tags }).tags;
+      return p;
+    }
+    case 'yt_update_video': {
+      const ch = p.changes || {};
+      for (const f of ['title', 'description', 'tags']) {
+        if (patch[f] == null) continue;
+        if (!ch[f]) throw new Error(`Câmpul „${f}" nu era în această propunere — respinge-o și cere agentului una nouă cu el.`);
+        const checked = youtube.checkVideoMeta({ [f]: patch[f] })[f];
+        if (JSON.stringify(checked ?? null) === JSON.stringify(ch[f].old ?? null)) delete ch[f];
+        else ch[f].new = checked;
+      }
+      if (!Object.keys(ch).length) throw new Error('După editare nu mai rămâne nicio schimbare față de clipul actual — respinge propunerea.');
+      p.changes = ch;
+      return p;
+    }
+    case 'publish_article': {
+      if (patch.title != null) p.title = checkArticleField('title', patch.title);
+      if (patch.description != null) p.description = checkArticleField('description', patch.description);
+      if (patch.content_md != null) {
+        p.content_md = checkArticleField('content_md', stripLeadingTitle(patch.content_md, p.title));
+        p.content_html = mdToHtml(p.content_md);
+      }
+      return p;
+    }
+    case 'update_article': {
+      const ch = p.changes || {};
+      const editable = { title: 'title', description: 'description', content_md: 'content_md' };
+      for (const f of Object.keys(editable)) {
+        if (patch[f] == null) continue;
+        if (!ch[f]) throw new Error(`Câmpul „${f}" nu era în această propunere — respinge-o și cere agentului una nouă cu el.`);
+        const titleForStrip = ch.title ? ch.title.new : (patch.title != null ? patch.title : null);
+        const val = f === 'content_md'
+          ? checkArticleField('content_md', stripLeadingTitle(patch.content_md, titleForStrip || ''))
+          : checkArticleField(f, patch[f]);
+        if (JSON.stringify(val ?? null) === JSON.stringify(ch[f].old ?? null)) delete ch[f];
+        else ch[f].new = val;
+      }
+      if (ch.content_md) p.content_html = mdToHtml(ch.content_md.new);
+      if (!Object.keys(ch).length && !p.publish) throw new Error('După editare nu mai rămâne nicio schimbare — respinge propunerea.');
+      p.changes = ch;
+      return p;
+    }
+    default:
+      throw new Error(`Propunerile de tip „${action.type}" nu se pot edita — respinge-o și cere agentului una nouă.`);
+  }
 }
 
 // ─── Execuția acțiunilor APROBATE (chemată din api/seo-actions.js) ───────────
@@ -1033,6 +1197,40 @@ async function executeAction(supa, action) {
       });
       return { applied: 'youtube', id: r.id, url: r.url, title: r.title, fields: Object.keys(changes), live_in: 'imediat (YouTube)' };
     }
+    case 'create_video': {
+      // 1) randăm clipul (satori → sharp → ffmpeg) — poate dura 30–90s
+      const spec = video.checkVideoSpec({ format: p.format, scenes: p.scenes });
+      const rendered = await video.renderVideo(spec);
+      // 2) îl urcăm în Storage (bucket public agent-media) → URL pentru Meta/coada manuală
+      const up = await video.uploadVideo(supa, rendered.buffer, p.campaign || p.platform || 'clip');
+      // 3) intră în calendarul social: FB/IG → publicare automată; YouTube/TikTok → manual
+      const status = p.auto ? 'approved' : 'manual';
+      const textContent = p.platform === 'youtube'
+        ? `TITLU: ${p.title}\n\nDESCRIERE:\n${p.text}${(p.tags || []).length ? `\n\nTAGURI: ${p.tags.join(', ')}` : ''}`
+        : p.text;
+      const { data, error } = await supa.from('social_posts').insert({
+        platform: p.platform,
+        text_content: textContent,
+        media_url: up.url,
+        link_url: p.utm_link || null,
+        campaign: p.campaign || null,
+        scheduled_at: p.scheduled_at || null,
+        status,
+        action_id: action.id || null,
+      }).select('id').single();
+      if (error) throw new Error(`Clipul e randat (${up.url}), dar nu am putut crea postarea (rulează supabase/social_posts.sql?): ${error.message}`);
+      const result = { video: up.url, storage_path: up.path, seconds: rendered.seconds, post_id: data.id, status };
+      if (p.auto) {
+        result.publicare = p.scheduled_at
+          ? `automat (${p.platform === 'instagram' ? 'Reels' : 'video'}), la ${new Date(p.scheduled_at).toLocaleString('ro-RO', { timeZone: 'Europe/Bucharest' })}`
+          : 'automat, la următoarea rulare a cronului (≤ 15 min)';
+        const configured = p.platform === 'instagram' ? social.igEnabled() : social.enabled();
+        if (!configured) result.atentie = 'Meta neconfigurat — publicarea va eșua până la pasul 3a din ghid.';
+      } else {
+        result.publicare = 'manual — clipul e gata în panoul „Calendar social" (descarcă MP4 + copiază textele, ~2 min)';
+      }
+      return result;
+    }
     default:
       throw new Error(`Tip de acțiune necunoscut: ${action.type}`);
   }
@@ -1113,6 +1311,26 @@ async function revertAction(supa, action) {
       });
       return { reverted: 'youtube', id: r.id, url: r.url, restored: Object.keys(changes) };
     }
+    case 'create_video': {
+      // identic cu schedule_social: anulăm postarea din calendar (clipul rămâne
+      // în Storage — inofensiv; îl poți refolosi sau șterge din Supabase).
+      const postId = action.result?.post_id;
+      if (!postId) throw new Error('Nu găsesc postarea clipului (result.post_id lipsește).');
+      const { data: row, error } = await supa.from('social_posts').select('*').eq('id', postId).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!row) throw new Error('Postarea clipului nu mai există în social_posts.');
+      if (row.status === 'canceled') return { reverted: postId, status: 'era deja anulată' };
+      if (row.status === 'posted') {
+        if (row.platform === 'facebook' && row.external_id) {
+          await social.deleteFbPost(row.external_id);
+          await supa.from('social_posts').update({ status: 'canceled', error: 'ștearsă de pe Facebook prin revert' }).eq('id', postId);
+          return { reverted: postId, deleted: 'clipul a fost șters de pe Facebook (fișierul rămâne în Storage)' };
+        }
+        throw new Error(`Clipul e deja publicat pe ${row.platform} — ${row.platform === 'instagram' ? 'Instagram nu permite ștergerea prin API; șterge-l din aplicație' : 'marchează manual'}.`);
+      }
+      await supa.from('social_posts').update({ status: 'canceled' }).eq('id', postId);
+      return { reverted: postId, status: 'anulat (nu se mai publică; fișierul MP4 rămâne în Storage)' };
+    }
     default:
       throw new Error(`Acțiunea ${action.type} nu are revert automat.`);
   }
@@ -1129,8 +1347,9 @@ SCRIERE — NU modifică nimic direct: creează PROPUNERI în coada de aprobare 
 Fluxul corect: (1) verifică datele reale (gsc_query / db_stats / get_seo_meta / fetch_page / list_articles); (2) decide pe cifre, nu pe presupuneri; (3) trimite propuneri concrete prin uneltele de scriere, fiecare cu «note» care explică DE CE (cu cifrele care o justifică); (4) încheie cu un raport scurt: ce ai găsit + ce propuneri ai trimis.
 Reguli: nu inventa rute sau id-uri (ia-le din structura site-ului / list_materials / list_articles / db_stats); titluri ≤ 60 caractere, descrieri ≤ 155; propune DOAR modificări justificate de date; maximum ~6 propuneri pe rulare — calitate, nu volum (un articol = o propunere mare, nu-l fragmenta). Modificările devin live abia după aprobarea adminului.
 ARTICOLE (pagina „Blog / Rezolvări / Teorie", /rezolvari/{slug}): conținut GRATUIT și indexabil — rezolvări scrise pas cu pas, explicații de noțiuni, articole SEO. Fiecare trebuie să aibă substanță reală (explicație + exemple + formule LaTeX între $...$ + linkuri interne relative + tabele unde ajută) — „thin content" în serie face rău. Bazează-te pe materialele reale (read_material) și listează-le în sources: pagina afișează automat linkuri către ele + CTA premium (așa se face conversia).
-SOCIAL (schedule_social): Facebook/Instagram se publică AUTOMAT la ora programată (după aprobare); TikTok/YouTube intră în coada manuală a adminului. Public: părinți → Facebook (ghiduri, calendar examene, articole noi); elevi → Instagram/TikTok (formula/exercițiul zilei, greșeli frecvente, countdown examene). Instagram cere media: folosește image:{template: formula|exercitiu|greseala|countdown|anunt, title, subtitle, badge} — carduri branded generate de site (text scurt, simboluri Unicode π √ ² — NU LaTeX). Linkurile către site primesc UTM automat; verifică efectul în ga4_report și învață din metricile din list_social_posts.
-YOUTUBE (yt_update_video): optimizezi metadatele clipurilor EXISTENTE (titlu cu formularea căutată din GSC, descriere cu linkuri UTM către site, taguri) — schimbările sunt reversibile; upload-ul de clipuri NOI rămâne manual (agentul pregătește textele).` : `
+SOCIAL (schedule_social): Facebook/Instagram se publică AUTOMAT la ora programată (după aprobare); TikTok/YouTube intră în coada manuală a adminului. Public: părinți → Facebook (ghiduri, calendar examene, articole noi); elevi → Instagram/TikTok (formula/exercițiul zilei, greșeli frecvente, countdown examene). Instagram cere media: folosește image:{template: formula|exercitiu|greseala|countdown|anunt, title, subtitle, badge} — carduri branded generate de site. ATENȚIE: NICIODATĂ LaTeX sau $...$ în textele sociale (nici în caption, nici pe carduri) — captionurile nu randează formule; scrie matematica cu simboluri Unicode (² ³ √ π × ≤ ≠). Linkurile către site primesc UTM automat; verifică efectul în ga4_report și învață din metricile din list_social_posts.
+VIDEO (create_video): poți CREA clipuri simple branded — montaj de slide-uri (titlu/bullets/imagine/statistică/outro) randate în stilul ExamenMate, MP4 vertical 1080×1920 (sau orizontal). După aprobare: pe Instagram (Reels) și Facebook se PUBLICĂ AUTOMAT la ora aleasă; pe YouTube/TikTok clipul intră gata făcut în coada manuală (adminul îl descarcă și îl urcă în 2 minute — API-urile lor nu permit publicare directă fără audit). Scenele au text scurt (Unicode, nu LaTeX); imaginile doar URL-uri REALE (og_image, carduri generate, imagini din site — nu inventa).
+YOUTUBE: yt_update_video optimizează metadatele clipurilor EXISTENTE (titlu cu formularea căutată din GSC, descriere cu linkuri UTM, taguri) — reversibil; pentru clipuri NOI folosește create_video (clipul e produs de site, adminul doar îl urcă din YouTube Studio — coada manuală).` : `
 
 (Uneltele de acțiune nu sunt disponibile în această rulare — dai doar recomandări în text.)`;
 
@@ -1545,7 +1764,7 @@ module.exports = {
   SITE, STATIC_ROUTES, TASKS, TOOLS,
   ARTICLE_KINDS, ARTICLE_CATEGORIES,
   siteStructure, contentContext, allRows,
-  makeToolExecutor, proposeAction, executeAction, revertAction,
+  makeToolExecutor, proposeAction, executeAction, revertAction, editActionPayload,
   checkArticleField, resolveSources,
   runAgent, snapshotGsc,
   // Faza 4b — rank-tracking + raport lunar

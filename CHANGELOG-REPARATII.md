@@ -4,6 +4,33 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 29 iulie 2026 (seara) — Agent SEO: editare propuneri, teme la Social/YouTube, FĂRĂ LaTeX în postări, generator de VIDEOCLIPURI
+
+Patru cereri ale adminului peste Faza 4. **După deploy: `npm install` local înainte de commit (pachet nou `ffmpeg-static`) + rulează `supabase/agent_media.sql` în SQL Editor.**
+
+### „✏️ Editează" pe propunerile în așteptare
+- **`api/_lib/seo.js` → `editActionPayload`:** editarea unei propuneri `proposed` cu ACELEAȘI validări ca la creare — schedule_social (textul, cu plainMath), create_video (titlu/caption/taguri), yt_update_video (doar câmpurile propuse; valoare identică cu cea veche → schimbarea dispare; zero schimbări rămase → eroare clară), publish_article / update_article (titlu/descriere/content_md, cu regenerarea HTML-ului). Tipurile fără editare → mesaj explicit.
+- **`api/seo-actions.js`:** acțiunea nouă `update` (admin-only; doar status `proposed`; nota primește marcajul unic „[editat de admin]").
+- **`src/components/SEOActionsQueue.jsx`:** buton „✏️ Editează" pe propunerile editabile → formular inline (input/textarea, tagurile ca listă cu virgule, monospace pe Markdown) → „💾 Salvează modificările" trimite DOAR câmpurile schimbate.
+
+### Fără `$`/LaTeX în postările sociale (bug raportat cu captură din Instagram)
+- **`api/_lib/social.js` → `plainMath()`:** formulele `$...$`/`\(...\)` din texte devin Unicode lizibil: exponenți/indici (² ³ ⁿ x₁), `\frac`→(a)/(b), `\sqrt`→√, `\cdot·`, `\pi`→π, ≤ ≥ ≠ ± × ∞ →, comenzile rămase eliminate; dolarul „monetar" (fără pereche pe linie) rămâne neatins. Aplicat la `schedule_social` (text + textele cardurilor), la `create_video` (caption + scenele) și la editare; prompturile interzic explicit LaTeX-ul în social.
+
+### „Subiect ales de mine / lasă agentul să aleagă" și la Social + YouTube
+- **`src/components/AISEOAgent.jsx`:** panoul de temă de la „Articole Blog" e generalizat (`THEME_PANELS`) — apare și la „📱 Postări social media" (tema/campania adminului sau alegerea agentului din calendarul școlar + date) și la „▶️ YouTube" (cererea adminului — clip nou/optimizări — sau alegerea agentului). Instrucțiunile „tema mea" sunt specifice fiecărei sarcini.
+
+### Generatorul de VIDEOCLIPURI simple (create_video)
+- **`api/_lib/video.js` (NOU):** montaj de slide-uri branded (aceleași fonturi/culori ca social-image) — șabloane `intro | lista | imagine | statistica | final`, imagini reale descărcate și încadrate (data URL), satori→sharp→PNG-uri→**ffmpeg-static**→MP4 H.264 (vertical 1080×1920 implicit sau orizontal; 2–12 scene, 1.5–10s/scenă, max 75s; pistă de liniște AAC pentru compatibilitate; `yuv420p + faststart`). Validarea specificației (`checkVideoSpec`) e pură și testată; ffmpeg/satori se încarcă lazy — fără ele restul agentului merge, cu mesaj clar.
+- **`api/_lib/seo.js`:** unealta nouă **`create_video`** (prin coada de aprobare; scenele curățate de LaTeX; youtube cere titlu validat pe limitele reale; `when` + UTM ca la schedule_social). Execuție LA APROBARE: randare (30–90s) → upload în Storage (bucket public **`agent-media`** — `supabase/agent_media.sql`, NOU) → rând în `social_posts`: **Instagram (Reels)/Facebook → publicare AUTOMATĂ** la ora aleasă (cron-ul existent detectează .mp4); **YouTube/TikTok → coada manuală cu clipul GATA FĂCUT** (download + titlu/descriere/taguri de lipit — publicarea prin API rămâne blocată de platforme fără audit). Revert: postarea → `canceled` (MP4-ul rămâne în Storage). Sarcinile `youtube` (modul B — clipuri noi, funcționează și fără YT conectat) și `social` + blocul VIDEO din promptul de sistem.
+- **`src/components/SEOActionsQueue.jsx`:** preview complet al propunerii (platformă + automat/manual, format/durată, scenele numerotate cu texte/imagini, captionul, tagurile, UTM) + „↩️ Anulează clipul" + „🎬 Deschide clipul (MP4)" după execuție. **`SocialQueue.jsx`:** preview `<video>` cu controale pentru media .mp4 (clipurile generate) în toate secțiunile.
+- **`package.json`:** dependență nouă `ffmpeg-static` (^5.2.0).
+
+### Teste și verificare
+- **`test/video.test.js` (NOU):** 17 teste — plainMath (cazul REAL din postarea cu `$`, comenzi LaTeX, indicii/exponenții, dolarul monetar neatins, curățarea end-to-end prin executor), checkVideoSpec (normalizări + toate respingerile + rutele relative de imagine), buildScene (logo/footer/bullets), create_video prin executor (youtube cere titlu; instagram automat + UTM), editActionPayload (toate tipurile + cazurile de eroare) și **testul de fum al montajului MP4 REAL** (magic bytes `ftyp`; sare elegant fără ffmpeg).
+- `npm test`: **89/89**; `vite build` trece; slide-urile verificate VIZUAL (listă cu diacritice + (a±b)² Unicode, imagine încadrată cu ramă, brand corect); clip de test randat end-to-end (5 scene, 15.5s, 0.9s de procesare la scară mică).
+
+---
+
 ## 29 iulie 2026 — Agent SEO Faza 4: YouTube + măsurare avansată (rank-tracking & raport lunar)
 
 Implementarea Fazei 4 (ultima) din `GHID_AGENT_SEO_ACTIUNI.md`: agentul optimizează metadatele clipurilor YouTube EXISTENTE prin coada de aprobare, adminul vede negru pe alb efectul fiecărei optimizări (grafice de rank-tracking cu momentele acțiunilor marcate), iar pe 1 ale lunii pleacă automat raportul lunar pe email. **Fără SQL nou și fără dependențe noi. După deploy: pasul 4a din ghid (config OAuth YouTube, ~15 min, opțional) cu `YT_CLIENT_ID`/`YT_CLIENT_SECRET`/`YT_REFRESH_TOKEN` în Vercel — fără ele uneltele YouTube răspund „neconectat", rank-trackingul și raportul lunar merg din prima zi.**

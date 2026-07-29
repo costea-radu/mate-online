@@ -45,6 +45,7 @@ async function emailDigest(supa, agentText) {
     set_page_meta: '🏷️ Meta pagină', rename_material: '✏️ Redenumire material',
     submit_sitemap: '🗺️ Retrimitere sitemap', publish_article: '📰 Articol', schedule_social: '📱 Postare social',
     update_article: '🔄 Actualizare articol', yt_update_video: '▶️ Metadate YouTube',
+    create_video: '🎬 Videoclip nou',
   };
   const list = items.map((a) =>
     `<li style="margin:7px 0"><strong>${labels[a.type] || a.type}</strong><br><span style="color:#5a6379">${mailer.escapeHtml(a.note || '(fără notă)')}</span></li>`

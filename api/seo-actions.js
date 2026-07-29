@@ -4,6 +4,9 @@
 //
 // POST { action }
 //   action='list'            → { actions[] }  (ultimele 100, toate statusurile)
+//   action='update', id, patch → EDITEAZĂ o propunere „proposed" (textele
+//                              postărilor/articolelor/metadatelor YouTube),
+//                              cu aceleași validări ca la creare
 //   action='approve', id     → aprobă + EXECUTĂ acțiunea; scrie result
 //   action='reject',  id     → respinge (nu se execută nimic)
 //   action='revert',  id     → anulează o acțiune EXECUTATĂ (meta/redenumire),
@@ -25,7 +28,7 @@ module.exports = async function handler(req, res) {
     const userId = await ai.authUser(req, supa);
     await ai.requireAdmin(supa, userId);
 
-    const { action = 'list', id = null } = req.body || {};
+    const { action = 'list', id = null, patch = null } = req.body || {};
 
     if (action === 'list') {
       const { data, error } = await supa
@@ -44,6 +47,22 @@ module.exports = async function handler(req, res) {
     const { data: row, error: readErr } = await supa.from('seo_actions').select('*').eq('id', id).maybeSingle();
     if (readErr) return res.status(500).json({ error: readErr.message });
     if (!row) return res.status(404).json({ error: 'Acțiunea nu există.' });
+
+    if (action === 'update') {
+      if (row.status !== 'proposed') return res.status(409).json({ error: `Acțiunea are deja statusul „${row.status}" — doar propunerile în așteptare se editează.` });
+      try {
+        const payload = seo.editActionPayload(row, patch && typeof patch === 'object' ? patch : {});
+        // marcajul [editat de admin] apare o singură dată, oricâte editări ar fi
+        const baseNote = String(row.note || '').replace(/\s*\[editat de admin\]\s*$/, '').slice(0, 900);
+        const { data: upd, error } = await supa.from('seo_actions')
+          .update({ payload, note: (baseNote ? baseNote + ' ' : '') + '[editat de admin]' })
+          .eq('id', id).select('*').single();
+        if (error) return res.status(500).json({ error: error.message });
+        return res.status(200).json({ action: upd });
+      } catch (editErr) {
+        return res.status(400).json({ error: editErr.message });
+      }
+    }
 
     if (action === 'reject') {
       if (row.status !== 'proposed') return res.status(409).json({ error: `Acțiunea are deja statusul „${row.status}".` });

@@ -95,6 +95,45 @@ function campaignSlug(explicit, link) {
 
 const isVideoUrl = (u) => /\.(mp4|mov|m4v)(\?|#|$)/i.test(String(u || ''));
 
+// ─── LaTeX → text simplu Unicode (postările NU randează LaTeX!) ──────────────
+// Modelele scriu uneori formule ca `$(a+b)^2 = a^2 + 2ab + b^2$` — în caption
+// dolarii apar ca atare. Convertim ce se poate în Unicode (² ³ √ π ×) și
+// eliminăm delimitatorii; ce nu se poate converti rămâne text lizibil.
+const SUP = { 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', n: 'ⁿ', x: 'ˣ', '+': '⁺', '-': '⁻', '(': '⁽', ')': '⁾' };
+const SUB = { 0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄', 5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉', n: 'ₙ' };
+const supStr = (t) => [...String(t)].map((c) => SUP[c] ?? null).every((c) => c !== null)
+  ? [...String(t)].map((c) => SUP[c]).join('')
+  : '^(' + t + ')';
+const subStr = (t) => [...String(t)].map((c) => SUB[c] ?? null).every((c) => c !== null)
+  ? [...String(t)].map((c) => SUB[c]).join('')
+  : String(t);
+const LATEX_SYMBOLS = [
+  [/\\cdot/g, '·'], [/\\times/g, '×'], [/\\div/g, '÷'], [/\\pm/g, '±'], [/\\mp/g, '∓'],
+  [/\\leq?\b/g, '≤'], [/\\geq?\b/g, '≥'], [/\\neq?\b/g, '≠'], [/\\approx/g, '≈'],
+  [/\\infty/g, '∞'], [/\\pi\b/g, 'π'], [/\\alpha\b/g, 'α'], [/\\beta\b/g, 'β'],
+  [/\\Delta\b/g, 'Δ'], [/\\delta\b/g, 'δ'], [/\\circ\b/g, '°'], [/\\degree\b/g, '°'],
+  [/\\rightarrow|\\to\b/g, '→'], [/\\in\b/g, '∈'], [/\\subset\b/g, '⊂'],
+];
+function cleanMathSegment(seg) {
+  let m = String(seg);
+  for (let i = 0; i < 3; i++) m = m.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '($1)/($2)');
+  m = m.replace(/\\sqrt\{([^{}]+)\}/g, '√($1)').replace(/\\sqrt\s*/g, '√');
+  for (const [re, rep] of LATEX_SYMBOLS) m = m.replace(re, rep);
+  m = m.replace(/\^\{([^{}]+)\}/g, (_, t) => supStr(t)).replace(/\^([0-9a-zA-Z+\-()])/g, (_, c) => SUP[c] || '^' + c);
+  m = m.replace(/_\{([^{}]+)\}/g, (_, t) => subStr(t)).replace(/_([0-9a-zA-Z])/g, (_, c) => SUB[c] || c);
+  m = m.replace(/\\left|\\right/g, '').replace(/\\[a-zA-Z]+/g, ' ');
+  m = m.replace(/[{}]/g, '').replace(/\(\(([^()]*)\)\)/g, '($1)');
+  return m.replace(/[ \t]{2,}/g, ' ').trim();
+}
+function plainMath(text) {
+  let s = String(text || '');
+  s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_, seg) => cleanMathSegment(seg));
+  s = s.replace(/\$([^$\n]+?)\$/g, (_, seg) => cleanMathSegment(seg));
+  s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_, seg) => cleanMathSegment(seg));
+  s = s.replace(/\\\[([\s\S]+?)\\\]/g, (_, seg) => cleanMathSegment(seg));
+  return s;
+}
+
 // Caption-ul final: textul + linkul (cu UTM) pe rând separat. Pe Instagram
 // linkul nu e clicabil în caption, dar rămâne vizibil (și copiabil).
 function buildCaption({ text, utmLink }) {
@@ -231,7 +270,7 @@ function imageUrl({ template, title = '', subtitle = '', badge = '' }) {
 module.exports = {
   SITE, PLATFORMS, AUTO_PLATFORMS, IMAGE_TEMPLATES,
   enabled, igEnabled, graph,
-  addUtm, campaignSlug, isVideoUrl, buildCaption,
+  addUtm, campaignSlug, isVideoUrl, buildCaption, plainMath,
   publishPost, deleteFbPost, fetchInsights,
   signImage, verifyImageSig, imageUrl,
 };

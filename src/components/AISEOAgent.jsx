@@ -3,7 +3,9 @@
 // Sarcini presetate (audit, meta, blog, social, cuvinte cheie, performanță
 // Google cu date reale) + chat liber, cu context real din site.
 // Selector de model AI (Sonnet/Opus, inclusiv Opus 5) — alegerea se trimite
-// la server per cerere; la „Articole Blog" adminul își poate alege TEMA.
+// la server per cerere; la „Articole Blog", „Postări social media" și
+// „YouTube" adminul poate da TEMA/cererea lui („subiect ales de mine")
+// sau lasă agentul să aleagă din date.
 // Răspunsurile se pot copia, descărca ca .md sau trimite ca NEWSLETTER
 // pe email tuturor utilizatorilor abonați (de pe admin.examenmate@gmail.com).
 // =====================================================================
@@ -30,6 +32,32 @@ const MODELS = [
   { id: 'claude-opus-4-8',   label: 'Opus 4.8',   hint: 'generația anterioară Opus' },
 ];
 
+// Panourile „✍️ subiectul meu / 🎲 alege agentul" — la ce presete apar și ce
+// instrucțiune primește agentul când adminul își scrie propria temă.
+const THEME_PANELS = {
+  blog: {
+    title: '📝 Articol nou — despre ce să scrie agentul?',
+    placeholder: 'Tema ta (ex: „Formule de arii și perimetre — clasa a 7-a") · Enter pentru trimitere',
+    mineLabel: '✍️ Scrie articolul pe tema mea',
+    agentLabel: '🎲 Lasă agentul să aleagă tema (din datele Google)',
+    mine: (t) => `Scrie un articol pe tema aleasă de mine: „${t}". Documentează-te întâi (list_articles, read_material, gsc_query unde ajută), apoi scrie articolul complet și trimite-l prin publish_article.`,
+  },
+  social: {
+    title: '📱 Postări social — pe ce temă / campanie?',
+    placeholder: 'ex: „countdown până la Evaluarea Națională" sau „promovează articolul despre calcul prescurtat" · Enter',
+    mineLabel: '📣 Programează pe tema mea',
+    agentLabel: '🎲 Lasă agentul să aleagă (calendar școlar + date)',
+    mine: (t) => `Fă postări pe tema aleasă de mine: „${t}". Verifică întâi list_social_posts (fără dubluri), apoi propune prin schedule_social — sau create_video, dacă un clip scurt servește mai bine tema — 2–4 postări: text final FĂRĂ LaTeX (matematica cu simboluri Unicode), card/imagine unde ajută, ore cu audiență.`,
+  },
+  youtube: {
+    title: '▶️ YouTube — ce vrei de la agent?',
+    placeholder: 'ex: „fă un clip de prezentare a site-ului" sau „optimizează titlurile clipurilor despre EN" · Enter',
+    mineLabel: '🎯 Execută cererea mea',
+    agentLabel: '🎲 Lasă agentul să aleagă (din canal + date)',
+    mine: (t) => `Cererea mea, pe YouTube: „${t}". Dacă ține de clipuri EXISTENTE: yt_list_videos → yt_get_video → propuneri yt_update_video. Dacă cer un clip NOU (prezentare site, tur de pagină, formula zilei, countdown etc.): construiește-l prin create_video, cu scene concrete (texte scurte Unicode, imagini cu URL-uri reale) și titlu/descriere/taguri gata de folosit.`,
+  },
+};
+
 export default function AISEOAgent({ box }) {
   const [input, setInput] = useState('');
   const [history, setHistory] = useState([]); // {role, content, task?}
@@ -40,8 +68,8 @@ export default function AISEOAgent({ box }) {
   const [nlStatus, setNlStatus] = useState(null);
   const [propStatus, setPropStatus] = useState(null);
   const [model, setModel] = useState(MODELS[0].id);      // selectorul de model AI
-  const [showBlogTheme, setShowBlogTheme] = useState(false); // panoul „tema articolului"
-  const [blogTheme, setBlogTheme] = useState('');
+  const [themeFor, setThemeFor] = useState(null);        // panoul de temă deschis (blog/social/youtube)
+  const [theme, setTheme] = useState('');
 
   async function run(task, text = '') {
     setLoading(true); setError(null); setPropStatus(null);
@@ -65,15 +93,15 @@ export default function AISEOAgent({ box }) {
     finally { setLoading(false); }
   }
 
-  // „Articole Blog": adminul poate scrie TEMA articolului (sau lasă agentul
-  // să o aleagă din datele Google). Tema pleacă drept input al sarcinii `blog`
-  // — promptul serverului spune deja: „dacă adminul cere un articol anume,
-  // scrie-l și propune-l".
-  function runBlog(theme = '') {
-    const t = String(theme || '').trim();
-    setShowBlogTheme(false);
-    setBlogTheme('');
-    run('blog', t ? `Scrie un articol pe tema aleasă de mine: „${t}". Documentează-te întâi (list_articles, read_material, gsc_query unde ajută), apoi scrie articolul complet și trimite-l prin publish_article.` : '');
+  // Blog/Social/YouTube: adminul își scrie SUBIECTUL (sau lasă agentul să
+  // aleagă din date). Subiectul devine inputul sarcinii — prompturile
+  // serverului spun deja „dacă adminul cere ceva anume, fă exact asta".
+  function runTheme(presetId, text = '') {
+    const cfg = THEME_PANELS[presetId];
+    const t = String(text || '').trim();
+    setThemeFor(null);
+    setTheme('');
+    run(presetId, t && cfg ? cfg.mine(t) : '');
   }
 
   function copy(text) { navigator.clipboard?.writeText(text); }
@@ -150,31 +178,31 @@ export default function AISEOAgent({ box }) {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         {PRESETS.map((p) => (
           <button key={p.id} className="btn btn-outline" disabled={loading}
-            onClick={() => (p.id === 'blog' ? setShowBlogTheme((v) => !v) : run(p.id))}
-            style={{ fontSize: '.85rem', ...(p.id === 'blog' && showBlogTheme ? { borderColor: 'var(--navy)', boxShadow: '0 0 0 1px var(--navy) inset' } : {}) }}>
+            onClick={() => (THEME_PANELS[p.id] ? setThemeFor((v) => (v === p.id ? null : p.id)) : run(p.id))}
+            style={{ fontSize: '.85rem', ...(themeFor === p.id ? { borderColor: 'var(--navy)', boxShadow: '0 0 0 1px var(--navy) inset' } : {}) }}>
             {p.icon} {p.label}
           </button>
         ))}
       </div>
 
-      {/* „Articole Blog": adminul alege tema — sau lasă agentul să decidă din date */}
-      {showBlogTheme && (
+      {/* Blog/Social/YouTube: adminul dă subiectul — sau lasă agentul să decidă */}
+      {themeFor && THEME_PANELS[themeFor] && (
         <div style={{ border: '1px dashed var(--border)', background: '#fbfcfe', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
           <div style={{ fontSize: '.83rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 6 }}>
-            📝 Articol nou — despre ce să scrie agentul?
+            {THEME_PANELS[themeFor].title}
           </div>
-          <input value={blogTheme} onChange={(e) => setBlogTheme(e.target.value)} autoFocus
-            onKeyDown={(e) => { if (e.key === 'Enter' && blogTheme.trim() && !loading) runBlog(blogTheme); }}
-            placeholder='Tema ta (ex: „Formule de arii și perimetre — clasa a 7-a") · Enter pentru trimitere'
+          <input value={theme} onChange={(e) => setTheme(e.target.value)} autoFocus
+            onKeyDown={(e) => { if (e.key === 'Enter' && theme.trim() && !loading) runTheme(themeFor, theme); }}
+            placeholder={THEME_PANELS[themeFor].placeholder}
             style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.88rem', marginBottom: 8 }} />
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn btn-primary" disabled={loading || !blogTheme.trim()} onClick={() => runBlog(blogTheme)}
+            <button className="btn btn-primary" disabled={loading || !theme.trim()} onClick={() => runTheme(themeFor, theme)}
               style={{ fontSize: '.82rem' }}>
-              ✍️ Scrie articolul pe tema mea
+              {THEME_PANELS[themeFor].mineLabel}
             </button>
-            <button className="btn btn-outline" disabled={loading} onClick={() => runBlog('')}
+            <button className="btn btn-outline" disabled={loading} onClick={() => runTheme(themeFor, '')}
               style={{ fontSize: '.82rem' }}>
-              🎲 Lasă agentul să aleagă tema (din datele Google)
+              {THEME_PANELS[themeFor].agentLabel}
             </button>
           </div>
         </div>

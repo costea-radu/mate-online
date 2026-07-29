@@ -124,12 +124,15 @@ export default function SocialQueue({ box }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          {p.media_url && (
+          {p.media_url && (/\.(mp4|mov|m4v)(\?|#|$)/i.test(p.media_url) ? (
+            <video src={p.media_url} controls preload="metadata"
+              style={{ width: 150, maxHeight: 220, borderRadius: 8, border: '1px solid var(--border)', background: '#000' }} />
+          ) : (
             <a href={p.media_url} target="_blank" rel="noopener noreferrer" title="Deschide media">
               <img src={p.media_url} alt="" style={{ width: 110, height: 110, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }}
                 onError={(e) => { e.currentTarget.style.display = 'none'; }} />
             </a>
-          )}
+          ))}
           <div style={{ flex: 1, minWidth: 220 }}>
             <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0, fontSize: '.84rem', lineHeight: 1.5, maxHeight: 150, overflowY: 'auto' }}>{p.text_content}</pre>
             {p.link_url && (
@@ -206,7 +209,7 @@ export default function SocialQueue({ box }) {
         </div>
       )}
 
-      {section(`✍️ De postat manual (${manual.length}) — TikTok / YouTube`, manual, (p) => (
+      {section(`✍️ De postat manual (${manual.length}) — TikTok / YouTube (clipurile create de agent vin gata făcute: descarcă + urcă)`, manual, (p) => (
         <>
           {btn(copiedId === p.id ? '✅ Copiat!' : '📋 Copiază textul', () => copyText(p.id, p.text_content))}
           {p.media_url && btn('🎬 Deschide media', () => window.open(p.media_url, '_blank'))}

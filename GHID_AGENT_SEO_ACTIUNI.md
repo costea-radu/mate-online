@@ -494,6 +494,13 @@ dar agentul îți scrie textele adaptate fiecărui grup (fără ton de reclamă,
 YouTube nu acceptă contul de serviciu din Faza 1 pentru canale — e nevoie de un
 refresh token OAuth pe contul canalului. Totul logat cu **admin.examenmate@gmail.com**:
 
+0. **Canalul trebuie să EXISTE întâi** (un cont Google NU are canal automat):
+   **youtube.com** logat cu admin.examenmate@gmail.com → click pe avatar →
+   **„Creează un canal"** → numele „ExamenMate" → Create. Dacă la autorizare
+   (pasul 4) Google îți arată un selector cu contul personal ȘI canalul,
+   alege **canalul** — tokenul se leagă de identitatea aleasă. Fără canal,
+   uneltele răspund „Niciun canal YouTube pe contul autorizat".
+
 1. **console.cloud.google.com** → proiectul `examenmate-seo` (există din
    GHID_EMAIL_SI_SEO, Pasul 5b) → **APIs & Services → Library** → caută
    **„YouTube Data API v3"** → **Enable**.
@@ -646,3 +653,54 @@ Două îmbunătățiri în agentul SEO din admin:
    read_material, gsc_query) și trimite articolul complet prin `publish_article`
    în coada de aprobare. Butonul „🎲 Lasă agentul să aleagă tema" păstrează
    comportamentul vechi (tema se alege din datele Google / golurile de conținut).
+
+
+---
+
+## Update (29 iulie 2026, seara): editare propuneri · teme la Social/YouTube · generator de VIDEOCLIPURI
+
+Patru îmbunătățiri cerute de admin, implementate peste Faza 4.
+**După deploy: (1) `npm install` local înainte de commit (pachet nou:
+`ffmpeg-static`); (2) rulează `supabase/agent_media.sql` în SQL Editor
+(bucketul public pentru clipurile generate) — atât.**
+
+1. **„✏️ Editează" în coada de aprobare.** Textele propunerilor în așteptare
+   se pot corecta direct din admin, înainte de aprobare: postări social
+   (textul), metadate YouTube (titlu/descriere/taguri — doar câmpurile
+   propuse), articole (titlu/descriere/conținut Markdown — HTML-ul se
+   regenerează) și clipuri (titlu/caption/taguri). Serverul re-validează cu
+   ACELEAȘI reguli ca la creare (`seo.editActionPayload`, endpointul
+   `seo-actions?action=update`); nota primește marcajul „[editat de admin]".
+
+2. **Fără `$` în postări.** Modelul mai scria formule LaTeX în captionuri
+   (`$(a+b)^2$…`) — acum orice text de postare trece prin `plainMath()`
+   (social.js): delimitatorii dispar, iar formulele devin Unicode lizibil
+   ((a+b)² = a² + 2ab + b², √, π, ≤, x₁…). Se aplică la propunere, la
+   editare și pe textele cardurilor; prompturile interzic explicit LaTeX-ul
+   în social.
+
+3. **„Subiect ales de mine / lasă agentul să aleagă"** — panoul de temă de la
+   „Articole Blog" există acum și la **„📱 Postări social media"** (tema/
+   campania ta sau alegerea agentului din calendar școlar + date) și la
+   **„▶️ YouTube"** (cererea ta — clip nou sau optimizări — sau alegerea
+   agentului din canal + date).
+
+4. **Generatorul de VIDEOCLIPURI (`create_video`).** Agentul poate crea
+   clipuri simple branded: montaj de slide-uri (intro | listă | imagine |
+   statistică | final) în stilul ExamenMate + imagini reale din site,
+   MP4 vertical 1080×1920 (Reels/Shorts/TikTok) sau orizontal, 10–75s,
+   fără voce (satori + sharp + ffmpeg-static — `api/_lib/video.js`).
+   Idei tipice: prezentarea site-ului, turul unei pagini, formula zilei,
+   countdown examene — sau orice indicații dai în prompt.
+   - Clipul se RANDEAZĂ doar la aprobare (preview-ul scenelor e în coada
+     de aprobare), apoi urcă în Storage (bucket `agent-media`).
+   - **Instagram (Reels) și Facebook: publicare AUTOMATĂ** la ora aleasă,
+     prin cron-ul social existent.
+   - **YouTube și TikTok: clipul vine GATA FĂCUT în „Calendar social" →
+     De postat manual** (preview video + download + titlu/descriere/taguri
+     de lipit; ~2 minute în YouTube Studio). Publicarea directă prin API
+     rămâne imposibilă fără auditul platformelor — clipurile urcate de
+     aplicații ne-auditate sunt blocate pe „private" de YouTube.
+   - Revert: anulează postarea din calendar (fișierul MP4 rămâne în
+     Storage, reutilizabil).
+   Teste: `test/video.test.js` — `npm test`.
