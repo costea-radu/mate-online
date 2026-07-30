@@ -491,9 +491,17 @@ export default function SEOActionsQueue({ box }) {
             </button>
           )}
           {a.status === 'executed' && a.type === 'create_video' && (a.result || {}).video && (
-            <a className="btn btn-outline" href={a.result.video} target="_blank" rel="noopener noreferrer" style={{ fontSize: '.78rem', padding: '6px 12px' }}>
-              🎬 Deschide clipul (MP4)
-            </a>
+            <>
+              <a className="btn btn-outline" href={a.result.video} target="_blank" rel="noopener noreferrer" style={{ fontSize: '.78rem', padding: '6px 12px' }}>
+                🎬 Deschide clipul (MP4)
+              </a>
+              {/* Supabase Storage: ?download=nume → browserul descarcă fișierul */}
+              <a className="btn btn-outline"
+                href={a.result.video + (a.result.video.includes('?') ? '&' : '?') + 'download=' + encodeURIComponent(`examenmate-${(a.payload || {}).campaign || 'clip'}.mp4`)}
+                style={{ fontSize: '.78rem', padding: '6px 12px' }}>
+                ⬇️ Descarcă clipul
+              </a>
+            </>
           )}
           {a.status === 'executed' && a.type === 'yt_update_video' && (a.payload || {}).url && (
             <a className="btn btn-outline" href={a.payload.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '.78rem', padding: '6px 12px' }}>

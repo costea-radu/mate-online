@@ -104,6 +104,15 @@ export default function SocialQueue({ box }) {
     setTimeout(() => setCopiedId((v) => (v === id ? null : v)), 1600);
   }
 
+  // Supabase Storage acceptă ?download=nume → browserul DESCARCĂ fișierul
+  // (în loc să-l deschidă) — util la clipurile pentru TikTok/YouTube.
+  const isVideoUrl = (u) => /\.(mp4|mov|m4v)(\?|#|$)/i.test(String(u || ''));
+  function downloadUrl(p) {
+    if (!p.media_url) return null;
+    const name = `examenmate-${p.campaign || p.platform || 'clip'}${isVideoUrl(p.media_url) ? '.mp4' : '.jpg'}`;
+    return p.media_url + (p.media_url.includes('?') ? '&' : '?') + 'download=' + encodeURIComponent(name);
+  }
+
   const manual = posts.filter((p) => p.status === 'manual');
   const upcoming = posts.filter((p) => p.status === 'approved');
   const failed = posts.filter((p) => p.status === 'failed');
@@ -211,6 +220,7 @@ export default function SocialQueue({ box }) {
 
       {section(`✍️ De postat manual (${manual.length}) — TikTok / YouTube (clipurile create de agent vin gata făcute: descarcă + urcă)`, manual, (p) => (
         <>
+          {p.media_url && btn(isVideoUrl(p.media_url) ? '⬇️ Descarcă clipul' : '⬇️ Descarcă imaginea', () => window.open(downloadUrl(p), '_blank'))}
           {btn(copiedId === p.id ? '✅ Copiat!' : '📋 Copiază textul', () => copyText(p.id, p.text_content))}
           {p.media_url && btn('🎬 Deschide media', () => window.open(p.media_url, '_blank'))}
           {btn('✅ Am postat-o', () => markPosted(p.id), { primary: true, disabled: busyId === p.id })}
