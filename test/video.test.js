@@ -238,6 +238,26 @@ test('renderVideo: montajul produce un MP4 real (scară mică)', { skip: !video.
   assert.ok(r.buffer.length > 5000, 'MP4 suspect de mic');
 });
 
+// ─── Muzica de fundal ────────────────────────────────────────────────────────
+test('resolveMusic: fără Storage cade pe instrumentalul din repo', async () => {
+  const m = await video.resolveMusic(null);
+  assert.ok(typeof m === 'string' && m.endsWith('fundal.mp3'), 'instrumentalul api/_lib/audio/fundal.mp3 lipsește');
+});
+
+test('renderVideo: clipul cu muzică e MP4 valid și mai mare decât cel pe liniște', { skip: !video.available() && 'ffmpeg-static neinstalat (npm install)' }, async () => {
+  const spec = video.checkVideoSpec({
+    scenes: [
+      { template: 'intro', title: 'Test muzică', seconds: 1.5 },
+      { template: 'final', title: 'examenmate.com', seconds: 1.5 },
+    ],
+  });
+  const silent = await video.renderVideo(spec, { _scale: 0.12 });
+  const withMusic = await video.renderVideo(spec, { _scale: 0.12, music: await video.resolveMusic(null) });
+  assert.strictEqual(withMusic.buffer.slice(4, 8).toString('ascii'), 'ftyp');
+  // pista audio reală (AAC 128k) ocupă vizibil mai mult decât liniștea
+  assert.ok(withMusic.buffer.length > silent.buffer.length + 5000, 'clipul cu muzică nu pare să conțină audio real');
+});
+
 test('uneltele/etichetele noi există', () => {
   assert.ok(seo.TOOLS.some((t) => t.name === 'create_video'));
   assert.ok(/create_video/.test(seo.TASKS.youtube) && /create_video/.test(seo.TASKS.social));

@@ -240,16 +240,20 @@ function PayloadView({ action }) {
     const when = p.scheduled_at
       ? new Date(p.scheduled_at).toLocaleString('ro-RO', { dateStyle: 'medium', timeStyle: 'short' })
       : 'cât mai curând după aprobare';
-    // clip youtube/tiktok = intră în AMBELE cozi manuale dintr-o propunere
+    // clip youtube/tiktok = intră în AMBELE cozi manuale dintr-o propunere;
+    // clip instagram/facebook = se publică AUTOMAT pe AMBELE platforme Meta
     const dualVideo = !!p.dual || (!p.auto && (p.platform === 'youtube' || p.platform === 'tiktok'));
+    const metaDualVideo = !!p.auto && !!p.meta_dual;
     return (
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6, fontSize: '.85rem' }}>
           <span style={{ fontWeight: 700, color: 'var(--navy)' }}>
-            {dualVideo ? `${PLATFORM_LABELS.youtube} + ${PLATFORM_LABELS.tiktok}` : (PLATFORM_LABELS[p.platform] || p.platform)}
+            {dualVideo ? `${PLATFORM_LABELS.youtube} + ${PLATFORM_LABELS.tiktok}`
+              : metaDualVideo ? `${PLATFORM_LABELS.instagram} + ${PLATFORM_LABELS.facebook}`
+                : (PLATFORM_LABELS[p.platform] || p.platform)}
           </span>
           <span style={{ fontSize: '.72rem', background: p.auto ? '#e6f6ea' : '#fff7e0', color: p.auto ? '#1e7e34' : '#8a6d00', borderRadius: 20, padding: '2px 10px', fontWeight: 700 }}>
-            {p.auto ? `publicare automată · ⏰ ${when}` : dualVideo ? 'ambele cozi manuale (download + upload)' : 'coada manuală (download + upload)'}
+            {p.auto ? `publicare automată${metaDualVideo ? ' pe ambele (Reels + video FB)' : ''} · ⏰ ${when}` : dualVideo ? 'ambele cozi manuale (download + upload)' : 'coada manuală (download + upload)'}
           </span>
           <span style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>🎬 {p.format} · {(p.scenes || []).length} scene · ~{p.seconds}s</span>
         </div>
@@ -297,9 +301,11 @@ function PayloadView({ action }) {
           </div>
         )}
         <div style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginTop: 6 }}>
-          Clipul se RANDEAZĂ la aprobare (30–90s) — slide-uri branded ExamenMate, MP4 {p.format === 'orizontal' ? '1920×1080' : '1080×1920'}, fără voce.
+          Clipul se RANDEAZĂ la aprobare (30–90s) — slide-uri branded ExamenMate, MP4 {p.format === 'orizontal' ? '1920×1080' : '1080×1920'}, cu muzică de fundal (fără voce).
           {p.auto
-            ? ' Apoi intră în „Calendar social" și se publică automat.'
+            ? (metaDualVideo
+              ? ' Apoi intră în „Calendar social" și se publică automat pe AMBELE: Instagram (Reels) + Facebook (video) — Reels-urile din API nu se pot redistribui manual între platforme.'
+              : ' Apoi intră în „Calendar social" și se publică automat.')
             : dualVideo
               ? ' Apoi apare gata făcut în „Calendar social" → De postat manual, pe AMBELE platforme: YouTube și TikTok (îl descarci o dată + urci în câte ~2 min; API-urile lor cer audit pentru publicare directă).'
               : ' Apoi apare gata făcut în „Calendar social" → De postat manual (îl descarci + urci în ~2 min; API-ul platformei cere audit pentru publicare directă).'}

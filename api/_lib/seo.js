@@ -434,11 +434,11 @@ const TOOLS = [
   },
   {
     name: 'create_video',
-    description: 'PROPUNE crearea unui VIDEOCLIP simplu branded ExamenMate: montaj de slide-uri (intro | lista | imagine | statistica | final) + imagini reale din site, MP4 vertical 1080×1920 (Reels/Shorts/TikTok) sau orizontal, 10–75s, fără voce. Clipul se RANDEAZĂ automat la aprobare. Destinație: instagram/facebook → se PUBLICĂ AUTOMAT la ora aleasă (Reels); youtube/tiktok → ACELAȘI clip intră GATA FĂCUT în AMBELE cozi manuale, YouTube ȘI TikTok (o singură propunere = ambele platforme; adminul îl descarcă și îl urcă — API-urile lor cer audit pentru publicare directă). Idei: prezentarea site-ului, turul unei pagini/funcții, formula zilei pe scene, countdown examene, articol nou. Texte SCURTE pe scene, cu simboluri Unicode (² √ π) — NU LaTeX. Imagini: DOAR URL-uri reale (og_image, carduri social-image generate anterior, imagini publice din site).',
+    description: 'PROPUNE crearea unui VIDEOCLIP simplu branded ExamenMate: montaj de slide-uri (intro | lista | imagine | statistica | final) + imagini reale din site, MP4 vertical 1080×1920 (Reels/Shorts/TikTok) sau orizontal, 10–75s, cu muzică de fundal (instrumental propriu, fără voce). Clipul se RANDEAZĂ automat la aprobare. Destinație: instagram/facebook → ACELAȘI clip se PUBLICĂ AUTOMAT pe AMBELE platforme Meta la ora aleasă (Reels pe Instagram + video pe Facebook — o singură propunere); youtube/tiktok → ACELAȘI clip intră GATA FĂCUT în AMBELE cozi manuale, YouTube ȘI TikTok (adminul îl descarcă și îl urcă — API-urile lor cer audit pentru publicare directă). Idei: prezentarea site-ului, turul unei pagini/funcții, formula zilei pe scene, countdown examene, articol nou. Texte SCURTE pe scene, cu simboluri Unicode (² √ π) — NU LaTeX. Imagini: DOAR URL-uri reale (og_image, carduri social-image generate anterior, imagini publice din site).',
     input_schema: {
       type: 'object',
       properties: {
-        platform: { type: 'string', enum: social.PLATFORMS, description: 'unde ajunge clipul: instagram (Reels, automat) | facebook (video, automat) | youtube sau tiktok (clipul intră automat în AMBELE cozi manuale — YouTube + TikTok)' },
+        platform: { type: 'string', enum: social.PLATFORMS, description: 'unde ajunge clipul: instagram sau facebook (se publică AUTOMAT pe AMBELE platforme Meta — Reels + video Facebook) | youtube sau tiktok (clipul intră automat în AMBELE cozi manuale — YouTube + TikTok)' },
         scenes: {
           type: 'array',
           description: '2–12 scene, în ordinea redării. Fiecare: {template, title, subtitle?, bullets? (doar la lista, 1–5), image_url? (obligatoriu la imagine), badge?, seconds? (1.5–10, implicit 3.5)}',
@@ -1016,8 +1016,11 @@ function makeToolExecutor({ supa, state }) {
         const campaign = social.campaignSlug(input.campaign, input.link);
         const utmLink = (auto && input.link) ? social.addUtm(String(input.link), { source: platform, campaign }) : null;
 
+        // clip FB/IG → la execuție se publică pe AMBELE platforme Meta
+        // (Reels + video Facebook), dacă ambele sunt configurate
+        const metaDual = auto && (platform === 'instagram' ? social.enabled() : social.igEnabled());
         const payload = {
-          platform, auto, dual,
+          platform, auto, dual, meta_dual: metaDual,
           format: spec.format, scenes: spec.scenes, seconds: spec.seconds,
           text, title: ytTitle, tags: ytTags, tiktok_text: tiktokText,
           scheduled_at: scheduledAt,
@@ -1026,7 +1029,8 @@ function makeToolExecutor({ supa, state }) {
           meta_configurat: platform === 'instagram' ? social.igEnabled() : platform === 'facebook' ? social.enabled() : null,
         };
         const pid = await proposeAction(supa, { type: 'create_video', payload, note: input.note }, state);
-        return `Propunerea ${pid} (create_video ${dual ? 'youtube + tiktok' : platform}, ${spec.scenes.length} scene, ~${spec.seconds}s, ${spec.format}) a fost trimisă în coada de aprobare. Clipul se randează DOAR la aprobare; apoi ${auto ? 'se publică automat' : 'intră gata făcut în AMBELE cozi manuale din admin — YouTube și TikTok (download + upload de către admin)'}.`;
+        const eticheta = dual ? 'youtube + tiktok' : metaDual ? 'instagram + facebook' : platform;
+        return `Propunerea ${pid} (create_video ${eticheta}, ${spec.scenes.length} scene, ~${spec.seconds}s, ${spec.format}) a fost trimisă în coada de aprobare. Clipul se randează DOAR la aprobare (cu muzică de fundal); apoi ${auto ? (metaDual ? 'se publică automat pe AMBELE: Instagram (Reels) + Facebook (video)' : 'se publică automat') : 'intră gata făcut în AMBELE cozi manuale din admin — YouTube și TikTok (download + upload de către admin)'}.`;
       }
       default:
         return `Unealtă necunoscută: ${name}`;
@@ -1220,16 +1224,24 @@ async function executeAction(supa, action) {
       return { applied: 'youtube', id: r.id, url: r.url, title: r.title, fields: Object.keys(changes), live_in: 'imediat (YouTube)' };
     }
     case 'create_video': {
-      // 1) randăm clipul (satori → sharp → ffmpeg) — poate dura 30–90s
+      // 1) randăm clipul (satori → sharp → ffmpeg) — poate dura 30–90s.
+      //    Cu MUZICĂ de fundal: fișierul adminului din Storage
+      //    (agent-media/audio/fundal.mp3) sau instrumentalul din repo.
       const spec = video.checkVideoSpec({ format: p.format, scenes: p.scenes });
-      const rendered = await video.renderVideo(spec);
+      const music = await video.resolveMusic(supa).catch(() => null);
+      const rendered = await video.renderVideo(spec, { music });
       // 2) îl urcăm în Storage (bucket public agent-media) → URL pentru Meta/coada manuală
       const up = await video.uploadVideo(supa, rendered.buffer, p.campaign || p.platform || 'clip');
-      // 3) intră în calendarul social: FB/IG → publicare automată;
-      //    youtube/tiktok → ACELAȘI clip intră în AMBELE cozi manuale
-      //    (cerința adminului: clipurile agentului merg și pe YouTube, și pe TikTok)
+      // 3) intră în calendarul social: youtube/tiktok → ACELAȘI clip în AMBELE
+      //    cozi manuale; instagram/facebook → se publică AUTOMAT pe AMBELE
+      //    platforme Meta (Reels + video Facebook) — Reels-urile publicate
+      //    prin API NU se pot redistribui manual de pe Instagram pe Facebook.
       const status = p.auto ? 'approved' : 'manual';
       const dual = p.dual || (!p.auto && (p.platform === 'youtube' || p.platform === 'tiktok'));
+      const metaDual = p.auto && (
+        (p.platform === 'instagram' && social.enabled()) ||
+        (p.platform === 'facebook' && social.igEnabled())
+      );
       const ytText = `TITLU: ${p.title || ''}\n\nDESCRIERE:\n${p.text}${(p.tags || []).length ? `\n\nTAGURI: ${p.tags.join(', ')}` : ''}`;
       const ttFallback = String(p.tiktok_text || p.text || '');
       const ttText = ttFallback.length > 2200 ? ttFallback.slice(0, 2197).trimEnd() + '…' : ttFallback;
@@ -1238,7 +1250,12 @@ async function executeAction(supa, action) {
           { platform: 'youtube', text_content: p.title ? ytText : p.text },
           { platform: 'tiktok', text_content: ttText },
         ]
-        : [{ platform: p.platform, text_content: p.platform === 'youtube' ? ytText : p.text }];
+        : metaDual
+          ? [
+            { platform: p.platform, text_content: p.text },
+            { platform: p.platform === 'instagram' ? 'facebook' : 'instagram', text_content: p.text },
+          ]
+          : [{ platform: p.platform, text_content: p.platform === 'youtube' ? ytText : p.text }];
 
       const base = {
         media_url: up.url,
@@ -1260,9 +1277,10 @@ async function executeAction(supa, action) {
         post_id: inserted[0]?.id || null, post_ids: postIds, status,
       };
       if (p.auto) {
+        const unde = metaDual ? 'pe AMBELE: Instagram (Reels) + Facebook (video)' : `(${p.platform === 'instagram' ? 'Reels' : 'video'})`;
         result.publicare = p.scheduled_at
-          ? `automat (${p.platform === 'instagram' ? 'Reels' : 'video'}), la ${new Date(p.scheduled_at).toLocaleString('ro-RO', { timeZone: 'Europe/Bucharest' })}`
-          : 'automat, la următoarea rulare a cronului (≤ 15 min)';
+          ? `automat ${unde}, la ${new Date(p.scheduled_at).toLocaleString('ro-RO', { timeZone: 'Europe/Bucharest' })}`
+          : `automat ${unde}, la următoarea rulare a cronului (≤ 15 min)`;
         const configured = p.platform === 'instagram' ? social.igEnabled() : social.enabled();
         if (!configured) result.atentie = 'Meta neconfigurat — publicarea va eșua până la pasul 3a din ghid.';
       } else if (dual) {
@@ -1399,7 +1417,7 @@ Fluxul corect: (1) verifică datele reale (gsc_query / db_stats / get_seo_meta /
 Reguli: nu inventa rute sau id-uri (ia-le din structura site-ului / list_materials / list_articles / db_stats); titluri ≤ 60 caractere, descrieri ≤ 155; propune DOAR modificări justificate de date; maximum ~6 propuneri pe rulare — calitate, nu volum (un articol = o propunere mare, nu-l fragmenta). Modificările devin live abia după aprobarea adminului.
 ARTICOLE (pagina „Blog / Rezolvări / Teorie", /rezolvari/{slug}): conținut GRATUIT și indexabil — rezolvări scrise pas cu pas, explicații de noțiuni, articole SEO. Fiecare trebuie să aibă substanță reală (explicație + exemple + formule LaTeX între $...$ + linkuri interne relative + tabele unde ajută) — „thin content" în serie face rău. Bazează-te pe materialele reale (read_material) și listează-le în sources: pagina afișează automat linkuri către ele + CTA premium (așa se face conversia).
 SOCIAL (schedule_social): Facebook/Instagram se publică AUTOMAT la ora programată (după aprobare); TikTok/YouTube intră în coada manuală a adminului. Public: părinți → Facebook (ghiduri, calendar examene, articole noi); elevi → Instagram/TikTok (formula/exercițiul zilei, greșeli frecvente, countdown examene). Instagram cere media: folosește image:{template: formula|exercitiu|greseala|countdown|anunt, title, subtitle, badge} — carduri branded generate de site. ATENȚIE: NICIODATĂ LaTeX sau $...$ în textele sociale (nici în caption, nici pe carduri) — captionurile nu randează formule; scrie matematica cu simboluri Unicode (² ³ √ π × ≤ ≠). Linkurile către site primesc UTM automat; verifică efectul în ga4_report și învață din metricile din list_social_posts.
-VIDEO (create_video): poți CREA clipuri simple branded — montaj de slide-uri (titlu/bullets/imagine/statistică/outro) randate în stilul ExamenMate, MP4 vertical 1080×1920 (sau orizontal). După aprobare: pe Instagram (Reels) și Facebook se PUBLICĂ AUTOMAT la ora aleasă; un clip pe youtube sau tiktok intră gata făcut în AMBELE cozi manuale — YouTube ȘI TikTok, dintr-o singură propunere (adminul îl descarcă și îl urcă în câte 2 minute — API-urile lor nu permit publicare directă fără audit; dă title/tags pentru YouTube și, opțional, tiktok_text pentru captionul TikTok). Scenele au text scurt (Unicode, nu LaTeX); imaginile doar URL-uri REALE (og_image, carduri generate, imagini din site — nu inventa).
+VIDEO (create_video): poți CREA clipuri simple branded — montaj de slide-uri (titlu/bullets/imagine/statistică/outro) randate în stilul ExamenMate, MP4 vertical 1080×1920 (sau orizontal), cu muzică de fundal. După aprobare: un clip pe instagram sau facebook se PUBLICĂ AUTOMAT pe AMBELE platforme Meta la ora aleasă (Reels pe Instagram + video pe Facebook — Reels-urile publicate prin API nu se pot redistribui manual între ele, de-asta merg pe ambele din start); un clip pe youtube sau tiktok intră gata făcut în AMBELE cozi manuale — YouTube ȘI TikTok, dintr-o singură propunere (adminul îl descarcă și îl urcă în câte 2 minute — API-urile lor nu permit publicare directă fără audit; dă title/tags pentru YouTube și, opțional, tiktok_text pentru captionul TikTok). Scenele au text scurt (Unicode, nu LaTeX); imaginile doar URL-uri REALE (og_image, carduri generate, imagini din site — nu inventa).
 YOUTUBE: yt_update_video optimizează metadatele clipurilor EXISTENTE (titlu cu formularea căutată din GSC, descriere cu linkuri UTM, taguri) — reversibil; pentru clipuri NOI folosește create_video (clipul e produs de site, adminul doar îl urcă din YouTube Studio — coada manuală).` : `
 
 (Uneltele de acțiune nu sunt disponibile în această rulare — dai doar recomandări în text.)`;

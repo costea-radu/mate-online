@@ -4,8 +4,12 @@
 //
 // Ce face: montaj de SLIDE-URI branded (aceleași fonturi/culori ca
 // api/social-image.js) + imagini reale din site → MP4 H.264 (implicit
-// vertical 1080×1920 — Reels/Shorts/TikTok; opțional orizontal), fără
-// sunet vorbit (o pistă de liniște AAC pentru compatibilitate maximă).
+// vertical 1080×1920 — Reels/Shorts/TikTok; opțional orizontal), cu
+// MUZICĂ DE FUNDAL: instrumental original sintetizat, inclus în repo
+// (api/_lib/audio/fundal.mp3 — fără drepturi de autor). Adminul îl poate
+// înlocui oricând urcând propriul fișier în Storage, bucketul
+// `agent-media`, la calea `audio/fundal.mp3` (are prioritate; vezi
+// resolveMusic). Fără niciun fișier → pistă de liniște (ca înainte).
 //
 // Șabloane de scenă:
 //   intro      — titlu mare + subtitlu (deschiderea clipului)
@@ -93,6 +97,35 @@ function fontDir() {
   const local = path.join(__dirname, 'fonts');
   if (fs.existsSync(local)) return local;
   return path.join(process.cwd(), 'api', '_lib', 'fonts');
+}
+
+// ─── Muzica de fundal ────────────────────────────────────────────────────────
+// Prioritate: (1) fișierul adminului din Storage (agent-media/audio/fundal.*),
+// (2) instrumentalul inclus în repo, (3) null → pistă de liniște.
+const MUSIC_STORAGE_PATHS = ['audio/fundal.mp3', 'audio/fundal.m4a', 'audio/fundal.wav'];
+
+function bundledMusicPath() {
+  for (const base of [path.join(__dirname, 'audio'), path.join(process.cwd(), 'api', '_lib', 'audio')]) {
+    const f = path.join(base, 'fundal.mp3');
+    if (fs.existsSync(f)) return f;
+  }
+  return null;
+}
+
+// Întoarce Buffer (din Storage), string (cale locală) sau null. Nu aruncă.
+async function resolveMusic(supa) {
+  if (supa) {
+    for (const p of MUSIC_STORAGE_PATHS) {
+      try {
+        const { data, error } = await supa.storage.from(STORAGE_BUCKET).download(p);
+        if (!error && data) {
+          const buf = Buffer.from(await data.arrayBuffer());
+          if (buf.length > 1000) return buf;
+        }
+      } catch { /* lipsă/bucket inexistent — trecem la fallback */ }
+    }
+  }
+  return bundledMusicPath();
 }
 let _fonts = null;
 function loadFonts() {
@@ -244,7 +277,9 @@ function runFfmpeg(args, cwd) {
 
 // spec = rezultatul checkVideoSpec(); întoarce { buffer, seconds, width, height }.
 // `_scale` (0–1) e DOAR pentru teste — randează micșorat, mult mai rapid.
-async function renderVideo(spec, { _scale = 1 } = {}) {
+// `music`: Buffer (din Storage) sau cale locală (instrumentalul din repo) —
+// pusă în buclă pe toată durata clipului, cu fade-out la final; null = liniște.
+async function renderVideo(spec, { _scale = 1, music = null } = {}) {
   const w = Math.max(Math.round((spec.w * _scale) / 2) * 2, 64);
   const hh = Math.max(Math.round((spec.h * _scale) / 2) * 2, 64);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'emvid-'));
@@ -260,12 +295,34 @@ async function renderVideo(spec, { _scale = 1 } = {}) {
     listLines.push(`file 'f${String(spec.scenes.length - 1).padStart(2, '0')}.png'`);
     fs.writeFileSync(path.join(dir, 'list.txt'), listLines.join('\n'));
 
+    // Muzica: buffer din Storage → fișier temporar; cale locală → direct.
+    let musicFile = null;
+    if (Buffer.isBuffer(music)) {
+      musicFile = path.join(dir, 'music.audio');
+      fs.writeFileSync(musicFile, music);
+    } else if (typeof music === 'string' && fs.existsSync(music)) {
+      musicFile = music;
+    }
+    const fadeStart = Math.max(0, spec.seconds - 1.2);
+    const audioIn = musicFile
+      ? ['-stream_loop', '-1', '-i', musicFile]           // în buclă cât ține clipul
+      : ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100'];
+    const audioFx = musicFile
+      ? ['-af', `afade=t=in:st=0:d=0.4,afade=t=out:st=${fadeStart.toFixed(2)}:d=1.2`]
+      : [];
+    // ATENȚIE: cu muzică pe intrare reală, `-shortest` + `-stream_loop` taie
+    // clipul prea devreme (cadrele video sunt rare — unul pe scenă); limităm
+    // explicit cu `-t` la durata montajului. Pentru liniște (lavfi) rămâne
+    // `-shortest`, comportamentul verificat inițial.
+    const cut = musicFile ? ['-t', String(spec.seconds)] : ['-shortest'];
+
     await runFfmpeg([
       '-y', '-f', 'concat', '-safe', '0', '-i', 'list.txt',
-      '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
-      '-shortest',
+      ...audioIn,
+      ...cut,
       '-c:v', 'libx264', '-r', '30', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-crf', '23',
-      '-c:a', 'aac', '-b:a', '96k',
+      ...audioFx,
+      '-c:a', 'aac', '-b:a', '128k',
       '-movflags', '+faststart',
       'out.mp4',
     ], dir);
@@ -288,8 +345,9 @@ async function uploadVideo(supa, buffer, slug) {
 }
 
 module.exports = {
-  SCENE_TEMPLATES, FORMATS, STORAGE_BUCKET,
+  SCENE_TEMPLATES, FORMATS, STORAGE_BUCKET, MUSIC_STORAGE_PATHS,
   checkVideoSpec, buildScene, titleSize,
   renderScenePng, renderVideo, uploadVideo,
+  resolveMusic, bundledMusicPath,
   available,
 };

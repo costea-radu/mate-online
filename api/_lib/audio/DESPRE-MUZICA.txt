@@ -1,0 +1,17 @@
+fundal.mp3 — muzica de fundal a clipurilor generate de agent (create_video)
+===========================================================================
+
+• Compoziție ORIGINALĂ, sintetizată programatic pentru ExamenMate
+  (progresie C–G–Am–F, pad + arpegiu + bas, 100 BPM, ~19s, în buclă).
+  NU conține mostre sau materiale cu drepturi de autor — poate fi folosită
+  liber pe YouTube/TikTok/Instagram/Facebook fără risc de Content ID.
+
+• Cum o înlocuiești cu muzica ta (fără deploy):
+  Supabase → Storage → bucketul `agent-media` → încarcă fișierul la calea
+  `audio/fundal.mp3` (sau .m4a / .wav). Fișierul din Storage are PRIORITATE
+  față de acesta; îl ștergi → se revine la instrumentalul din repo.
+  Atenție la drepturi: pe rețelele sociale folosește doar muzică proprie,
+  royalty-free sau din bibliotecile oficiale ale platformelor.
+
+• Cum e folosită: api/_lib/video.js → resolveMusic() + renderVideo()
+  (pusă în buclă pe durata clipului, fade-in 0.4s, fade-out 1.2s).
