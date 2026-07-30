@@ -116,8 +116,50 @@ test('create_video: instagram e automat + primește UTM pe link', async () => {
   });
   const p = inserted[0].payload;
   assert.strictEqual(p.auto, true);
+  assert.strictEqual(p.dual, false);                       // instagram NU intră în cozile YouTube/TikTok
   assert.match(p.utm_link, /utm_source=instagram/);
   assert.strictEqual(p.campaign, 'formule-arii-clasa-7');
+});
+
+// ─── create_video pe youtube/tiktok → AMBELE cozi manuale (o propunere) ──────
+test('create_video: clipul youtube e dual — captionul TikTok implicit din descriere sau explicit', async () => {
+  const inserted = [];
+  const exec = seo.makeToolExecutor({ supa: fakeSupa(inserted), state: { proposals: [] } });
+  const msg = await exec('create_video', {
+    platform: 'youtube', title: 'Prezentarea platformei ExamenMate',
+    scenes: okScenes, text: 'Descriere completă a clipului, cu link către site.', note: 'n',
+  });
+  assert.match(msg, /youtube \+ tiktok/);
+  assert.match(msg, /AMBELE cozi/);
+  const p = inserted[0].payload;
+  assert.strictEqual(p.dual, true);
+  assert.strictEqual(p.tiktok_text, p.text);               // fără tiktok_text → refolosește descrierea
+
+  await exec('create_video', {
+    platform: 'youtube', title: 'Alt clip ExamenMate valid',
+    scenes: okScenes, text: 'Descriere completă a clipului, cu link către site.',
+    tiktok_text: 'Caption separat pentru TikTok cu formula $(a+b)^2$! #matematica', note: 'n',
+  });
+  const p2 = inserted[1].payload;
+  assert.ok(p2.tiktok_text.includes('(a+b)²') && !p2.tiktok_text.includes('$')); // curățat de LaTeX
+});
+
+test('create_video: tiktok cere titlul YouTube (clipul intră în ambele cozi); textul e captionul TikTok', async () => {
+  const inserted = [];
+  const exec = seo.makeToolExecutor({ supa: fakeSupa(inserted), state: { proposals: [] } });
+  await assert.rejects(
+    exec('create_video', { platform: 'tiktok', scenes: okScenes, text: 'Caption suficient de lung pentru TikTok.', note: 'n' }),
+    /title/,
+  );
+  await exec('create_video', {
+    platform: 'tiktok', title: 'Titlu pentru varianta YouTube',
+    scenes: okScenes, text: 'Caption suficient de lung pentru TikTok. #matematica', note: 'n',
+  });
+  const p = inserted[0].payload;
+  assert.strictEqual(p.dual, true);
+  assert.strictEqual(p.auto, false);
+  assert.strictEqual(p.tiktok_text, p.text);
+  assert.strictEqual(p.title, 'Titlu pentru varianta YouTube');
 });
 
 // ─── editActionPayload: editarea propunerilor din coada de aprobare ──────────
@@ -131,6 +173,25 @@ test('editActionPayload: schedule_social — textul se curăță de LaTeX și se
   assert.ok(p.text.includes('(a-b)² = a² - 2ab + b²') && !p.text.includes('$'));
   assert.throws(() => seo.editActionPayload(action, { text: 'scurt' }), /prea scurt/);
   assert.throws(() => seo.editActionPayload(action, { text: 'x'.repeat(2100) }), /maxim 2000/);
+});
+
+test('editActionPayload: create_video dual — titlul/tagurile/captionul TikTok se editează', () => {
+  const yt = {
+    type: 'create_video', status: 'proposed',
+    payload: { platform: 'youtube', dual: true, text: 'Descrierea veche, suficient de lungă.', title: 'Titlu vechi de clip', tiktok_text: 'Caption TikTok vechi, destul de lung.' },
+  };
+  const p = seo.editActionPayload(yt, { tiktok_text: 'Caption TikTok nou cu $(a+b)^2$ formule! #mate' });
+  assert.ok(p.tiktok_text.includes('(a+b)²') && !p.tiktok_text.includes('$'));
+  assert.strictEqual(p.text, 'Descrierea veche, suficient de lungă.'); // neatins
+
+  const tt = {
+    type: 'create_video', status: 'proposed',
+    payload: { platform: 'tiktok', dual: true, text: 'Caption TikTok vechi, destul de lung.', title: 'Titlu vechi de clip', tiktok_text: 'Caption TikTok vechi, destul de lung.' },
+  };
+  const p2 = seo.editActionPayload(tt, { text: 'Caption TikTok corectat de admin, destul de lung.', title: 'Titlu YouTube corectat' });
+  assert.strictEqual(p2.tiktok_text, 'Caption TikTok corectat de admin, destul de lung.'); // ținut în sincron
+  assert.strictEqual(p2.title, 'Titlu YouTube corectat');
+  assert.throws(() => seo.editActionPayload(tt, { text: 'x'.repeat(2300) }), /maxim 2200/);
 });
 
 test('editActionPayload: yt_update_video — editare pe câmpurile propuse; egal cu vechiul → schimbarea dispare', () => {

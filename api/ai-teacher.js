@@ -12,29 +12,36 @@
 // sau, retrocompatibil, profiles.teacher_id == userId.
 // =====================================================================
 const ai = require('./_lib/ai');
+// citire paginată (PostgREST întoarce max 1000 de rânduri per cerere — fără
+// paginare, clasele mari pierdeau TĂCUT elevi/rânduri de progres din raport)
+const { allRows, inBatches } = require('./_lib/http');
 
 // Lista id-urilor elevilor/copiilor unui mentor (+ nume), opțional dintr-o grupă.
 // role: 'profesor' (default) sau 'parinte' → filtrează legătura potrivită.
 async function teacherStudents(supa, teacherId, groupId, role = 'profesor') {
   const ids = new Set();
 
-  let q = supa.from('mentor_students').select('student_id, group_id')
-    .eq('mentor_id', teacherId).eq('mentor_role', role);
-  if (groupId) q = q.eq('group_id', groupId);
-  const { data: links } = await q;
-  (links || []).forEach((l) => ids.add(l.student_id));
+  const links = await allRows((from, to) => {
+    let q = supa.from('mentor_students').select('student_id, group_id')
+      .eq('mentor_id', teacherId).eq('mentor_role', role);
+    if (groupId) q = q.eq('group_id', groupId);
+    return q.range(from, to);
+  }).catch(() => []);
+  links.forEach((l) => ids.add(l.student_id));
 
   // Retrocompatibil (asocieri vechi pe profiles.teacher_id) — doar pentru profesori
   if (!groupId && role === 'profesor') {
-    const { data: legacy } = await supa.from('profiles').select('id').eq('teacher_id', teacherId);
-    (legacy || []).forEach((p) => ids.add(p.id));
+    const legacy = await allRows((from, to) => supa.from('profiles')
+      .select('id').eq('teacher_id', teacherId).range(from, to)).catch(() => []);
+    legacy.forEach((p) => ids.add(p.id));
   }
 
   const idList = [...ids];
   if (idList.length === 0) return { idList: [], names: {} };
-  const { data: profs } = await supa.from('profiles').select('id, full_name, email').in('id', idList);
+  const profs = await inBatches(idList, (chunk, from, to) => supa
+    .from('profiles').select('id, full_name, email').in('id', chunk).range(from, to)).catch(() => []);
   const names = {};
-  (profs || []).forEach((p) => { names[p.id] = p.full_name || p.email || 'Elev'; });
+  profs.forEach((p) => { names[p.id] = p.full_name || p.email || 'Elev'; });
   return { idList, names };
 }
 
@@ -75,9 +82,12 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ groups: groups || [], topics: [], students: [], totals: { students: 0, practiced: 0 } });
     }
 
-    const { data: rows } = await supa.from('ai_skill_mastery')
+    // paginat + în loturi: o clasă întreagă × zeci de subiecte depășește ușor
+    // limita de 1000 de rânduri per cerere
+    const rows = await inBatches(idList, (chunk, from, to) => supa.from('ai_skill_mastery')
       .select('user_id, category, topic, mastery, attempts, correct')
-      .in('user_id', idList);
+      .in('user_id', chunk)
+      .range(from, to)).catch(() => []);
 
     // Agregare pe subiect
     const byTopic = {};
@@ -121,8 +131,9 @@ module.exports = async function handler(req, res) {
 
     // ── Clasamente: elevi pe grupe + clasament grupe ──────────────────────────
     const mMap = {}; students.forEach((s) => { mMap[s.id] = s.avgMastery; });
-    const { data: memb } = await supa.from('mentor_students')
-      .select('student_id, group_id').eq('mentor_id', userId).eq('mentor_role', 'profesor');
+    const memb = await allRows((from, to) => supa.from('mentor_students')
+      .select('student_id, group_id').eq('mentor_id', userId).eq('mentor_role', 'profesor')
+      .range(from, to)).catch(() => []);
     const groupName = {}; (groups || []).forEach((g) => { groupName[g.id] = g.name; });
     const byGroup = {}; const ungrouped = [];
     const seen = new Set();

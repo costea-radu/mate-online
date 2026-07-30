@@ -4,6 +4,35 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 30 iulie 2026 — Rezultatele elevilor REAPAR în contul de profesor + agentul descrie funcțiile platformei + clipurile merg pe YouTube ȘI TikTok
+
+Trei cereri ale adminului. **Fără SQL nou și fără dependențe noi — doar deploy.**
+
+### BUG REZOLVAT: rezultatele vechi ale elevilor dispăreau din contul de profesor
+**Cauza (dovedită prin simulare):** Supabase (PostgREST) întoarce maxim **1000 de rânduri PER CERERE** (aceeași limită reparată pe 28 iulie în seo.js/sitemap.js — dar nu și aici). Interogarea progresului din `api/teacher-students.js` era ordonată DESCRESCĂTOR după dată, deci întorcea doar cele mai NOI 1000 de rânduri: pe măsură ce elevii activi recent adăugau rânduri (ex. cei doi din cealaltă grupă care au rezolvat în ultima lună cu AI), rezultatele VECHI (grupa de anul trecut) cădeau TĂCUT din listă — exact simptomul raportat. Reprodus pe 2500 de rânduri simulate: codul vechi afișa 1000 (elevul „vechi" — 0 rezultate); codul nou — toate 2500. **Nimic nu s-a pierdut din baza de date** — rezultatele erau doar ne-citite; reapar la următoarea încărcare a dashboardului, fără nicio migrare.
+
+- **`api/_lib/http.js`:** helpere noi partajate — `allRows` (citire paginată cu `.range()`, pagini de 1000) și `inBatches` (filtre `.in()` pe liste mari de id-uri: loturi de 100 + paginare pe fiecare lot).
+- **`api/teacher-students.js`:** toate interogările cu potențial de trunchiere citesc paginat: asocierile mentor→elevi, profilurile, **PROGRESUL (bug-ul principal)**, conversațiile AI, mesajele AI (numărătoarea întrebărilor pe material — loturile de 150 de conversații se citesc acum și ele paginat) și titlurile materialelor.
+- **`api/ai-teacher.js`:** raportul AI + clasamentele citesc paginat mentor_students / profiles / ai_skill_mastery (o clasă × zeci de subiecte depășește ușor 1000 de rânduri).
+- **`api/_lib/inactivity.js` → buildSnapshot:** arhiva unui elev (creată înainte de ștergerea contului inactiv) citește paginat progress/conversații/mesaje/content — snapshotul permanent nu se mai poate trunchia tăcut.
+- **`test/http.test.js` (+3):** allRows adună 2350 de rânduri în pagini de 1000 și nu pierde ultimul rând; oprire la prima pagină incompletă + propagarea erorilor; inBatches combină loturile de 100.
+
+### Agentul SEO descrie funcționalitățile platformei în articole și postări (+ interzis „teză")
+- **`api/_lib/seo.js` → buildSystem:** bloc nou „FUNCȚIONALITĂȚILE PLATFORMEI" în promptul de sistem, pe publicuri: ELEVI — Profesorul Virtual răspunde la întrebări din PDF-uri, exerciții interactive sau orice exercițiu, explică pas cu pas; teste interactive cu verificare pe loc și explicații; PĂRINȚI — contul de părinte: rezultatele și evoluția copilului, dacă a folosit Profesorul Virtual sau a rezolvat independent, câte încercări a avut la fiecare test, cât a lucrat, ce teme a primit; PROFESORI — contul de profesor: grupe de elevi, teste interactive trimise ca temă, clasamente și evoluția fiecărui elev, generare de teste în formatul EXACT EN/BAC (cu barem), exerciții interactive sau PDF, publicarea testelor și folosirea la clasă; + alte facilități (asistent AI, biblioteca utilizatorilor, rezolvări). **REGULĂ DE VOCABULAR:** cuvântul „teză"/„teze" e INTERZIS în tot ce scrie agentul (în România nu se mai susțin teze) — se folosește „lucrare/test/evaluare/examen".
+- **Sarcinile `social` + `blog`:** playbook pe publicuri actualizat (părinți → contul de părinte pe Facebook; elevi → Profesorul Virtual + teste interactive pe Instagram/TikTok; PROFESORI → public nou pe Facebook, cu contul de profesor); articolele menționează funcțiile potrivite publicului, cu linkuri interne.
+- **`api/_lib/ai.js`:** „examen/teză" → „un examen, un test sau o lucrare" în recomandarea activă a Profesorului Virtual.
+
+### TikTok la fel ca YouTube: clipurile agentului intră în AMBELE cozi
+- **`api/_lib/seo.js` → create_video:** o propunere pe `youtube` SAU `tiktok` creează la aprobare **DOUĂ postări** în calendarul social, cu același MP4: una **YouTube** (TITLU/DESCRIERE/TAGURI de lipit) și una **TikTok** (caption ≤ 2200 de caractere — limita reală TikTok; câmp nou opțional `tiktok_text`, altfel se refolosește descrierea, scurtată automat). Titlul YouTube e acum obligatoriu și la tiktok; revert-ul anulează AMBELE postări (`result.post_ids`); editarea din admin acoperă titlul/tagurile/captionul TikTok (la clipurile tiktok, textul editat rămâne sincron cu captionul).
+- **`src/components/SEOActionsQueue.jsx`:** preview-ul arată „▶️ YouTube + 🎵 TikTok" + insigna „ambele cozi manuale", captionul TikTok separat (marcat „identic cu descrierea" când e refolosit), iar formularul „✏️ Editează" are câmpurile ambelor platforme. Panoul „Calendar social" nu are nevoie de modificări — cele două postări apar firesc în „De postat manual".
+- **Prompturile agentului** (sarcinile `social`/`youtube`, blocul VIDEO, descrierile uneltelor) explică fluxul: o singură propunere → ambele platforme.
+- **`test/video.test.js` (+3):** youtube → dual cu tiktok_text implicit/explicit (curățat de LaTeX); tiktok cere titlul YouTube + textul devine captionul; editarea dual (sincronizarea captionului, limita 2200); instagram rămâne NE-dual.
+
+### Verificare
+- `npm test`: **95/95** (89 vechi neatinse + 6 noi); simulare end-to-end a dashboardului de profesor pe un Supabase fals cu paginare de 1000: înainte — 1000 de rezultate afișate și elevul vechi cu 0; după — toate 2500, cu titluri corecte. Toate rutele modificate validate sintactic; `SEOActionsQueue.jsx` verificat cu esbuild.
+
+---
+
 ## 29 iulie 2026 (seara) — Agent SEO: editare propuneri, teme la Social/YouTube, FĂRĂ LaTeX în postări, generator de VIDEOCLIPURI
 
 Patru cereri ale adminului peste Faza 4. **După deploy: `npm install` local înainte de commit (pachet nou `ffmpeg-static`) + rulează `supabase/agent_media.sql` în SQL Editor.**

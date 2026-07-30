@@ -1,5 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
-const { handledMethod, authUser } = require('./_lib/http');
+const { handledMethod, authUser, allRows, inBatches } = require('./_lib/http');
 
 module.exports = async function handler(req, res) {
   if (handledMethod(req, res)) return;
@@ -38,13 +38,17 @@ module.exports = async function handler(req, res) {
     groups = g || [];
   }
 
-  // 3. Asocierile (elev + grupă) acestui mentor
-  const { data: links, error: linksErr } = await supabase
-    .from('mentor_students')
-    .select('student_id, group_id')
-    .eq('mentor_id', userId);
-
-  if (linksErr) return res.status(500).json({ error: linksErr.message });
+  // 3. Asocierile (elev + grupă) acestui mentor — PAGINAT (PostgREST
+  //    întoarce max 1000 de rânduri per cerere; fără paginare, listele mari
+  //    se trunchiază tăcut și elevi/rezultate „dispar" din dashboard).
+  let links;
+  try {
+    links = await allRows((from, to) => supabase
+      .from('mentor_students')
+      .select('student_id, group_id')
+      .eq('mentor_id', userId)
+      .range(from, to));
+  } catch (e) { return res.status(500).json({ error: e.message }); }
 
   // 3b. Elevii ȘTERȘI (conturi dezactivate/eliminate) — rezultatele lor rămân
   //     arhivate pentru acest mentor până când acesta le șterge definitiv.
@@ -67,12 +71,15 @@ module.exports = async function handler(req, res) {
   const groupByStudent = {};
   linkList.forEach((l) => { groupByStudent[l.student_id] = l.group_id || null; });
 
-  // 4. Profilurile elevilor
-  const { data: profiles, error: profErr } = await supabase
-    .from('profiles')
-    .select('id, full_name, email')
-    .in('id', studentIds);
-  if (profErr) return res.status(500).json({ error: profErr.message });
+  // 4. Profilurile elevilor (în loturi + paginat)
+  let profiles;
+  try {
+    profiles = await inBatches(studentIds, (chunk, from, to) => supabase
+      .from('profiles')
+      .select('id, full_name, email')
+      .in('id', chunk)
+      .range(from, to));
+  } catch (e) { return res.status(500).json({ error: e.message }); }
 
   const students = (profiles || [])
     .map((p) => ({
@@ -83,42 +90,48 @@ module.exports = async function handler(req, res) {
     }))
     .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '', 'ro'));
 
-  // 5. Progresul elevilor (select * pentru a tolera coloane lipsă: attempts/time_spent)
-  const { data: progress, error: progressErr } = await supabase
-    .from('progress')
-    .select('*')
-    .in('user_id', studentIds)
-    .order('completed_at', { ascending: false });
-
-  if (progressErr) return res.status(500).json({ error: progressErr.message });
-  const prog = progress || [];
+  // 5. Progresul elevilor (select * pentru a tolera coloane lipsă: attempts/time_spent).
+  //    ATENȚIE — PAGINAT: ordonat descrescător după dată + limita implicită de
+  //    1000 de rânduri însemna că REZULTATELE VECHI cădeau din listă imediat ce
+  //    elevii activi (recent) umpleau primele 1000 — exact bug-ul „nu mai apar
+  //    rezultatele de până acum ale grupei, apar doar elevii din ultima lună".
+  let prog;
+  try {
+    prog = await inBatches(studentIds, (chunk, from, to) => supabase
+      .from('progress')
+      .select('*')
+      .in('user_id', chunk)
+      .order('completed_at', { ascending: false })
+      .range(from, to));
+  } catch (e) { return res.status(500).json({ error: e.message }); }
 
   // 6. Utilizarea Profesorului Virtual: câte întrebări a pus fiecare elev
   //    la fiecare material (conversațiile AI păstrează contentId în context).
   const aiQ = {}; // "userId|contentId" -> nr. întrebări
   try {
-    const { data: convs } = await supabase
+    const convs = await inBatches(studentIds, (chunk, from, to) => supabase
       .from('ai_conversations')
       .select('id, user_id, context')
-      .in('user_id', studentIds);
+      .in('user_id', chunk)
+      .range(from, to));
     const convKey = {}; // conversationId -> "userId|contentId"
-    (convs || []).forEach((c) => {
+    convs.forEach((c) => {
       const cid = c.context && (c.context.contentId || c.context.content_id);
       if (cid) convKey[c.id] = `${c.user_id}|${cid}`;
     });
     const convIds = Object.keys(convKey);
-    for (let i = 0; i < convIds.length; i += 150) {
-      const chunk = convIds.slice(i, i + 150);
-      const { data: msgs } = await supabase
-        .from('ai_messages')
-        .select('conversation_id')
-        .eq('role', 'user')
-        .in('conversation_id', chunk);
-      (msgs || []).forEach((m) => {
-        const k = convKey[m.conversation_id];
-        if (k) aiQ[k] = (aiQ[k] || 0) + 1;
-      });
-    }
+    // loturi de 150 de conversații, fiecare citit PAGINAT (un lot poate avea
+    // peste 1000 de mesaje — fără paginare numărătoarea ieșea trunchiată)
+    const msgs = await inBatches(convIds, (chunk, from, to) => supabase
+      .from('ai_messages')
+      .select('conversation_id')
+      .eq('role', 'user')
+      .in('conversation_id', chunk)
+      .range(from, to), { batchSize: 150 });
+    msgs.forEach((m) => {
+      const k = convKey[m.conversation_id];
+      if (k) aiQ[k] = (aiQ[k] || 0) + 1;
+    });
   } catch { /* raportul funcționează și fără datele AI */ }
 
   // 7. Titlurile testelor/exercițiilor (din progres + din conversațiile AI)
@@ -126,11 +139,14 @@ module.exports = async function handler(req, res) {
   const contentIds = [...new Set([...prog.map((p) => p.content_id), ...aiContentIds])];
   const contentMap = {};
   if (contentIds.length > 0) {
-    const { data: content } = await supabase
-      .from('content')
-      .select('id, title, content_type, category')
-      .in('id', contentIds);
-    (content || []).forEach((c) => { contentMap[c.id] = c; });
+    try {
+      const content = await inBatches(contentIds, (chunk, from, to) => supabase
+        .from('content')
+        .select('id, title, content_type, category')
+        .in('id', chunk)
+        .range(from, to));
+      content.forEach((c) => { contentMap[c.id] = c; });
+    } catch { /* titlurile lipsă cad pe „Test" */ }
   }
 
   const studentMap = {};

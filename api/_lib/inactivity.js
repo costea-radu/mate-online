@@ -16,6 +16,9 @@
 // de EXECUȚIE (api/account-cleanup.js — interogări, emailuri, ștergeri).
 // =====================================================================
 const mailer = require('./mailer');
+// citire paginată (PostgREST întoarce max 1000 de rânduri per cerere) — arhiva
+// unui elev foarte activ NU trebuie trunchiată tăcut înainte de ștergerea contului
+const { allRows, inBatches } = require('./http');
 
 // ── Constante (zile) ─────────────────────────────────────────────────────────
 const INACTIVITY_DAYS = 365;   // 12 luni fără autentificare → avertizare
@@ -170,34 +173,31 @@ function buildAdminSummaryEmail(stats) {
 async function buildSnapshot(supa, userId) {
   const snap = { results: [], aiOnly: [], mastery: [], assignments: [], stats: {} };
 
-  // 1) Rezultatele la teste (progress) + titlurile materialelor
+  // 1) Rezultatele la teste (progress) + titlurile materialelor — PAGINAT
   let prog = [];
   try {
-    const { data } = await supa.from('progress').select('*')
-      .eq('user_id', userId).order('completed_at', { ascending: false });
-    prog = data || [];
+    prog = await allRows((from, to) => supa.from('progress').select('*')
+      .eq('user_id', userId).order('completed_at', { ascending: false }).range(from, to));
   } catch { /* tabelul poate lipsi */ }
 
   // 2) Întrebările puse Profesorului Virtual, per material
   const aiQ = {}; // contentId -> nr. întrebări
   try {
-    const { data: convs } = await supa.from('ai_conversations')
-      .select('id, context').eq('user_id', userId);
+    const convs = await allRows((from, to) => supa.from('ai_conversations')
+      .select('id, context').eq('user_id', userId).range(from, to));
     const convKey = {};
-    (convs || []).forEach((c) => {
+    convs.forEach((c) => {
       const cid = c.context && (c.context.contentId || c.context.content_id);
       if (cid) convKey[c.id] = String(cid);
     });
     const convIds = Object.keys(convKey);
-    for (let i = 0; i < convIds.length; i += 150) {
-      const chunk = convIds.slice(i, i + 150);
-      const { data: msgs } = await supa.from('ai_messages')
-        .select('conversation_id').eq('role', 'user').in('conversation_id', chunk);
-      (msgs || []).forEach((m) => {
-        const cid = convKey[m.conversation_id];
-        if (cid) aiQ[cid] = (aiQ[cid] || 0) + 1;
-      });
-    }
+    const msgs = await inBatches(convIds, (chunk, from, to) => supa.from('ai_messages')
+      .select('conversation_id').eq('role', 'user').in('conversation_id', chunk)
+      .range(from, to), { batchSize: 150 });
+    msgs.forEach((m) => {
+      const cid = convKey[m.conversation_id];
+      if (cid) aiQ[cid] = (aiQ[cid] || 0) + 1;
+    });
   } catch { /* raportul merge și fără datele AI */ }
 
   // 3) Titlurile materialelor (din progres + din conversațiile AI)
@@ -205,9 +205,9 @@ async function buildSnapshot(supa, userId) {
   const contentMap = {};
   if (contentIds.length) {
     try {
-      const { data: content } = await supa.from('content')
-        .select('id, title, content_type, category').in('id', contentIds);
-      (content || []).forEach((c) => { contentMap[c.id] = c; });
+      const content = await inBatches(contentIds, (chunk, from, to) => supa.from('content')
+        .select('id, title, content_type, category').in('id', chunk).range(from, to));
+      content.forEach((c) => { contentMap[c.id] = c; });
     } catch { /* ignore */ }
   }
 

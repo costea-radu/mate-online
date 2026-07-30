@@ -31,10 +31,13 @@ function editableFields(a) {
     return [{ key: 'text', label: 'Textul postării', kind: 'textarea', value: p.text || '' }];
   }
   if (a.type === 'create_video') {
+    // clip youtube/tiktok = AMBELE cozi (YouTube + TikTok) dintr-o propunere
+    const dual = !!p.dual || p.platform === 'tiktok';
     const f = [];
-    if (p.platform === 'youtube') f.push({ key: 'title', label: 'Titlul clipului', kind: 'input', value: p.title || '' });
-    f.push({ key: 'text', label: p.platform === 'youtube' ? 'Descrierea clipului' : 'Captionul postării', kind: 'textarea', value: p.text || '' });
-    if (p.platform === 'youtube') f.push({ key: 'tags', label: 'Taguri (separate prin virgulă)', kind: 'input', value: (p.tags || []).join(', '), isTags: true });
+    if (p.platform === 'youtube' || dual) f.push({ key: 'title', label: 'Titlul clipului (YouTube)', kind: 'input', value: p.title || '' });
+    f.push({ key: 'text', label: p.platform === 'youtube' ? 'Descrierea clipului (YouTube)' : dual ? 'Captionul postării (TikTok)' : 'Captionul postării', kind: 'textarea', value: p.text || '' });
+    if (dual && p.platform === 'youtube') f.push({ key: 'tiktok_text', label: 'Captionul TikTok', kind: 'textarea', value: p.tiktok_text || '' });
+    if (p.platform === 'youtube' || dual) f.push({ key: 'tags', label: 'Taguri YouTube (separate prin virgulă)', kind: 'input', value: (p.tags || []).join(', '), isTags: true });
     return f;
   }
   if (a.type === 'yt_update_video') {
@@ -237,12 +240,16 @@ function PayloadView({ action }) {
     const when = p.scheduled_at
       ? new Date(p.scheduled_at).toLocaleString('ro-RO', { dateStyle: 'medium', timeStyle: 'short' })
       : 'cât mai curând după aprobare';
+    // clip youtube/tiktok = intră în AMBELE cozi manuale dintr-o propunere
+    const dualVideo = !!p.dual || (!p.auto && (p.platform === 'youtube' || p.platform === 'tiktok'));
     return (
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6, fontSize: '.85rem' }}>
-          <span style={{ fontWeight: 700, color: 'var(--navy)' }}>{PLATFORM_LABELS[p.platform] || p.platform}</span>
+          <span style={{ fontWeight: 700, color: 'var(--navy)' }}>
+            {dualVideo ? `${PLATFORM_LABELS.youtube} + ${PLATFORM_LABELS.tiktok}` : (PLATFORM_LABELS[p.platform] || p.platform)}
+          </span>
           <span style={{ fontSize: '.72rem', background: p.auto ? '#e6f6ea' : '#fff7e0', color: p.auto ? '#1e7e34' : '#8a6d00', borderRadius: 20, padding: '2px 10px', fontWeight: 700 }}>
-            {p.auto ? `publicare automată · ⏰ ${when}` : 'coada manuală (download + upload)'}
+            {p.auto ? `publicare automată · ⏰ ${when}` : dualVideo ? 'ambele cozi manuale (download + upload)' : 'coada manuală (download + upload)'}
           </span>
           <span style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>🎬 {p.format} · {(p.scenes || []).length} scene · ~{p.seconds}s</span>
         </div>
@@ -267,10 +274,18 @@ function PayloadView({ action }) {
         </div>
         <details style={{ fontSize: '.8rem', marginTop: 4 }}>
           <summary style={{ cursor: 'pointer', color: 'var(--navy)', fontWeight: 600 }}>
-            📄 {p.platform === 'youtube' ? 'Descrierea clipului' : 'Captionul postării'} ({String(p.text || '').length} caractere)
+            📄 {p.platform === 'youtube' ? 'Descrierea clipului (YouTube)' : dualVideo ? 'Captionul postării (TikTok)' : 'Captionul postării'} ({String(p.text || '').length} caractere)
           </summary>
           <pre style={{ background: '#f7f9fc', padding: 10, borderRadius: 6, whiteSpace: 'pre-wrap', maxHeight: 220, overflowY: 'auto', marginTop: 6 }}>{p.text}</pre>
         </details>
+        {dualVideo && p.platform === 'youtube' && p.tiktok_text && (
+          <details style={{ fontSize: '.8rem', marginTop: 4 }}>
+            <summary style={{ cursor: 'pointer', color: 'var(--navy)', fontWeight: 600 }}>
+              🎵 Captionul TikTok ({String(p.tiktok_text).length} caractere{p.tiktok_text === p.text ? ' — identic cu descrierea' : ''})
+            </summary>
+            <pre style={{ background: '#f7f9fc', padding: 10, borderRadius: 6, whiteSpace: 'pre-wrap', maxHeight: 220, overflowY: 'auto', marginTop: 6 }}>{p.tiktok_text}</pre>
+          </details>
+        )}
         {Array.isArray(p.tags) && p.tags.length > 0 && (
           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', margin: '6px 0' }}>
             {p.tags.map((k, i) => <span key={i} style={{ fontSize: '.7rem', background: '#eef2f8', color: 'var(--navy)', borderRadius: 20, padding: '2px 9px' }}>{k}</span>)}
@@ -285,7 +300,9 @@ function PayloadView({ action }) {
           Clipul se RANDEAZĂ la aprobare (30–90s) — slide-uri branded ExamenMate, MP4 {p.format === 'orizontal' ? '1920×1080' : '1080×1920'}, fără voce.
           {p.auto
             ? ' Apoi intră în „Calendar social" și se publică automat.'
-            : ' Apoi apare gata făcut în „Calendar social" → De postat manual (îl descarci + urci în ~2 min; API-ul platformei cere audit pentru publicare directă).'}
+            : dualVideo
+              ? ' Apoi apare gata făcut în „Calendar social" → De postat manual, pe AMBELE platforme: YouTube și TikTok (îl descarci o dată + urci în câte ~2 min; API-urile lor cer audit pentru publicare directă).'
+              : ' Apoi apare gata făcut în „Calendar social" → De postat manual (îl descarci + urci în ~2 min; API-ul platformei cere audit pentru publicare directă).'}
           {p.meta_configurat === false && ' ⚠️ Meta neconectat încă (META_PAGE_ID/TOKEN).'}
         </div>
       </div>

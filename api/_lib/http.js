@@ -61,6 +61,35 @@ async function requireAdmin(supa, userId) {
   return true;
 }
 
+// ─── Citire PAGINATĂ din Supabase (PostgREST întoarce max 1000/cerere) ───────
+// Fără paginare, listele mari se trunchiază TĂCUT la 1000 de rânduri — caz
+// real: progresul elevilor unui profesor era ordonat descrescător după dată,
+// deci rezultatele VECHI (grupa de anul trecut) dispăreau din dashboard pe
+// măsură ce elevii activi adăugau rânduri noi. `build(from, to)` primește
+// intervalul și întoarce cererea Supabase cu .range(from, to) aplicat.
+async function allRows(build, { pageSize = 1000, maxPages = 30 } = {}) {
+  const out = [];
+  for (let p = 0; p < maxPages; p++) {
+    const { data, error } = await build(p * pageSize, p * pageSize + pageSize - 1);
+    if (error) throw new Error(error.message);
+    out.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+  }
+  return out;
+}
+
+// Filtre .in(...) pe liste mari de id-uri: împărțim în loturi (URL-ul cererii
+// PostgREST are limită de lungime) și citim fiecare lot paginat cu allRows.
+async function inBatches(ids, buildBatch, { batchSize = 100, ...opts } = {}) {
+  const list = Array.isArray(ids) ? ids : [];
+  const out = [];
+  for (let i = 0; i < list.length; i += batchSize) {
+    const chunk = list.slice(i, i + batchSize);
+    out.push(...await allRows((from, to) => buildBatch(chunk, from, to), opts));
+  }
+  return out;
+}
+
 // ─── Parsează bucket + cale dintr-un URL public Supabase Storage (PUR) ───────
 // Suportă .../object/public/BUCKET/path și .../object/sign/BUCKET/path.
 function parseStoragePath(fileUrl) {
@@ -85,4 +114,5 @@ async function signedUrlFromPublic(supa, fileUrl, ttl = 300) {
 module.exports = {
   CORS, applyCors, handledMethod, admin,
   authUser, requireAdmin, parseStoragePath, signedUrlFromPublic,
+  allRows, inBatches,
 };

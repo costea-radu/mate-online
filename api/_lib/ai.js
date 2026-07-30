@@ -363,7 +363,7 @@ const SITE_MAP = `LINKURI INTERNE utile (folosește-le ca link-uri relative în 
 - Asistentul AI / generare de subiecte și exerciții: /profesor-virtual`;
 
 // Recomandare activă pentru ELEVI: testele și exercițiile interactive din site.
-const STUDENT_TIP = `RECOMANDARE ACTIVĂ (pentru elevi): când elevul cere ajutor la învățat, la exersat sau la pregătirea pentru examen/teză (ex. „vreau să învăț fracțiile", „cum mă pregătesc pentru Evaluare?", „dă-mi exerciții"), pe lângă explicația ta, RECOMANDĂ-I testele și exercițiile INTERACTIVE de pe site: spune-i că acolo se verifică pe loc, primește REZOLVĂRI IMEDIATE și EXPLICAȚII la fiecare întrebare, și vede instant ce a greșit. Dă link-ul intern potrivit (relativ):
+const STUDENT_TIP = `RECOMANDARE ACTIVĂ (pentru elevi): când elevul cere ajutor la învățat, la exersat sau la pregătirea pentru un examen, un test sau o lucrare (ex. „vreau să învăț fracțiile", „cum mă pregătesc pentru Evaluare?", „dă-mi exerciții"), pe lângă explicația ta, RECOMANDĂ-I testele și exercițiile INTERACTIVE de pe site: spune-i că acolo se verifică pe loc, primește REZOLVĂRI IMEDIATE și EXPLICAȚII la fiecare întrebare, și vede instant ce a greșit. Dă link-ul intern potrivit (relativ):
 - Evaluare Națională (secțiunea „Teste Interactive"): /evaluare-nationala
 - Bacalaureat (pe profilul lui): /bacalaureat
 - Clasa lui (a 5-a … a 12-a): /clase/5 … /clase/12
