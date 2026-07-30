@@ -74,7 +74,12 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'approve') {
-      if (row.status !== 'proposed') return res.status(409).json({ error: `Acțiunea are deja statusul „${row.status}".` });
+      // 'failed' se poate REEXECUTA: execuția eșuată nu a produs efecte
+      // (ex. „Bucket not found" la primul create_video — admin rulează
+      // supabase/agent_media.sql și apasă „Reîncearcă execuția").
+      if (row.status !== 'proposed' && row.status !== 'failed') {
+        return res.status(409).json({ error: `Acțiunea are deja statusul „${row.status}".` });
+      }
       const decidedAt = new Date().toISOString();
       try {
         const result = await seo.executeAction(supa, row);

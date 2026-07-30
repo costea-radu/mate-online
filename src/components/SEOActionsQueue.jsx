@@ -480,6 +480,11 @@ export default function SEOActionsQueue({ box }) {
               </button>
             </>
           )}
+          {a.status === 'failed' && (
+            <button className="btn btn-primary" disabled={busyId === a.id} onClick={() => decide(a.id, 'approve')} style={{ fontSize: '.82rem', padding: '7px 14px' }}>
+              {busyId === a.id ? '…' : '🔁 Reîncearcă execuția'}
+            </button>
+          )}
           {canRevert && (
             <button className="btn btn-outline" disabled={busyId === a.id} onClick={() => decide(a.id, 'revert')} style={{ fontSize: '.78rem', padding: '6px 12px' }}>
               {revertLabel}
