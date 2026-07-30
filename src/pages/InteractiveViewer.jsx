@@ -116,16 +116,32 @@ export default function InteractiveViewer() {
           completed_at: new Date().toISOString(),
           attempts,
         };
+        // Snapshot: titlul/tipul/categoria testului se salvează ÎN rezultat,
+        // ca rezultatul să rămână lizibil și DUPĂ ștergerea materialului
+        // (supabase/pastreaza_rezultate.sql — fără el, coloanele lipsesc și
+        // se reia salvarea fără snapshot).
+        const snapshot = {
+          test_title: item.title || null,
+          content_type: item.content_type || null,
+          category: item.category || null,
+        };
 
-        // Încearcă cu time_spent; dacă lipsește coloana (migrare nerulată), reia fără ea
+        // Încearcă complet (snapshot + time_spent); dacă lipsesc coloane
+        // (migrări nerulate), reia progresiv fără ele.
         let { error } = await supabase
           .from('progress')
-          .upsert({ ...base, time_spent: timeSpent }, { onConflict: 'user_id,content_id' });
+          .upsert({ ...base, ...snapshot, time_spent: timeSpent }, { onConflict: 'user_id,content_id' });
         if (error) {
-          const retry = await supabase
+          const retry1 = await supabase
+            .from('progress')
+            .upsert({ ...base, time_spent: timeSpent }, { onConflict: 'user_id,content_id' });
+          error = retry1.error;
+        }
+        if (error) {
+          const retry2 = await supabase
             .from('progress')
             .upsert(base, { onConflict: 'user_id,content_id' });
-          error = retry.error;
+          error = retry2.error;
         }
 
         if (!error) {

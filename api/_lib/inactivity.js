@@ -216,9 +216,10 @@ async function buildSnapshot(supa, userId) {
     const c = contentMap[p.content_id] || {};
     return {
       content_id: p.content_id,
-      test_title: c.title || 'Test',
-      content_type: c.content_type || 'interactive',
-      category: c.category || '',
+      // materialul poate fi șters — titlul rămâne din snapshotul salvat în rezultat
+      test_title: c.title || p.test_title || 'Test (material șters)',
+      content_type: c.content_type || p.content_type || 'interactive',
+      category: c.category || p.category || '',
       score: p.score,
       max_score: p.max_score,
       attempts: p.attempts != null ? p.attempts : 1,

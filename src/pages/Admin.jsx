@@ -505,7 +505,26 @@ function ContentList({ refresh }) {
   }
 
   async function handleDelete(item) {
-    if (!window.confirm(`Sigur vrei să ștergi "${item.title}"?`)) return;
+    // Câte rezultate au elevii la acest material? Sonda pe coloana snapshot
+    // `test_title` spune și dacă migrarea supabase/pastreaza_rezultate.sql a
+    // fost rulată: cu ea, rezultatele RĂMÂN după ștergere (FK SET NULL +
+    // titlul salvat în rezultat); fără ea, CASCADE le-ar șterge definitiv.
+    let nRez = null, snapshotOk = false;
+    try {
+      const probe = await supabase
+        .from('progress')
+        .select('test_title', { count: 'exact', head: true })
+        .eq('content_id', item.id);
+      if (!probe.error) { snapshotOk = true; nRez = probe.count ?? 0; }
+    } catch (_) { /* coloana lipsește → migrarea nu a fost rulată */ }
+
+    const rezTxt = nRez === 1 ? 'un rezultat salvat' : `${nRez} rezultate salvate`;
+    const msg = snapshotOk
+      ? (nRez > 0
+        ? `Sigur vrei să ștergi "${item.title}"?\n\nElevii au ${rezTxt} la acest material. Rezultatele lor RĂMÂN în conturile profesorilor/părinților (cu titlul testului păstrat) — doar materialul dispare.`
+        : `Sigur vrei să ștergi "${item.title}"?`)
+      : `Sigur vrei să ștergi "${item.title}"?\n\n⚠️ ATENȚIE: rezultatele elevilor la acest material se vor ȘTERGE DEFINITIV odată cu el. Ca rezultatele să rămână, rulează întâi supabase/pastreaza_rezultate.sql în Supabase → SQL Editor.`;
+    if (!window.confirm(msg)) return;
     setDeleting(item.id);
 
     // Șterge fișierul din Storage dacă există

@@ -136,7 +136,7 @@ module.exports = async function handler(req, res) {
 
   // 7. Titlurile testelor/exercițiilor (din progres + din conversațiile AI)
   const aiContentIds = Object.keys(aiQ).map((k) => k.split('|')[1]);
-  const contentIds = [...new Set([...prog.map((p) => p.content_id), ...aiContentIds])];
+  const contentIds = [...new Set([...prog.map((p) => p.content_id), ...aiContentIds])].filter(Boolean);
   const contentMap = {};
   if (contentIds.length > 0) {
     try {
@@ -160,9 +160,11 @@ module.exports = async function handler(req, res) {
       student_name: s.full_name || 'Elev',
       student_email: s.email || '',
       content_id: p.content_id,
-      test_title: c.title || 'Test',
-      content_type: c.content_type || 'interactive',
-      category: c.category || '',
+      // materialul poate fi ȘTERS între timp — titlul rămâne din snapshotul
+      // salvat în rezultat (supabase/pastreaza_rezultate.sql)
+      test_title: c.title || p.test_title || 'Test (material șters)',
+      content_type: c.content_type || p.content_type || 'interactive',
+      category: c.category || p.category || '',
       score: p.score,
       max_score: p.max_score,
       attempts: p.attempts != null ? p.attempts : 1,
