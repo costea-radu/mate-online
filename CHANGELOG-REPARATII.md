@@ -4,6 +4,12 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 31 iulie 2026 — Cele 7 lint-uri INFO „RLS Enabled No Policy" din Supabase Advisor, stinse explicit
+
+Raportul de lints Supabase (Performance + Security Advisor) conținea DOAR 7 intrări — toate INFO, toate același lint: RLS activat fără nicio politică pe `archived_student_results`, `contact_messages`, `gsc_snapshots`, `newsletter_campaigns`, `newsletter_sends`, `seo_actions`, `social_posts`. Zero warning-uri sau erori, zero lint-uri de performanță. Verificat în cod: toate cele 7 tabele sunt folosite EXCLUSIV de rutele API de pe server cu service role (care ocolește RLS) — frontend-ul nu le atinge direct (mențiunile din `src/` sunt doar comentarii; datele ajung în UI prin `/api/seo-rank` și `/api/social-queue`). Deci NU era o gaură de securitate: RLS fără politici = acces interzis pentru toată lumea; linterul doar cerea confirmarea intenției.
+
+- **`supabase/fix_rls_info_lints.sql` (NOU — de rulat în SQL Editor):** politică explicită deny-all („…_service_only", `USING (false) WITH CHECK (false)` pentru anon + authenticated) pe fiecare din cele 7 tabele — documentează intenția și stinge lint-urile, zero schimbări de comportament; + REVOKE pe drepturile implicite anon/authenticated (întărire: inerte azi, dar previn o politică permisivă adăugată din greșeală în viitor); + interogare de verificare la final (așteptat: 7 rânduri, apoi „Rerun linter" în Advisors). Sigur de rulat repetat. Niciun fișier de cod modificat.
+
 ## 30 iulie 2026 — Rezultatele elevilor REAPAR în contul de profesor + agentul descrie funcțiile platformei + clipurile merg pe YouTube ȘI TikTok
 
 Patru cereri ale adminului. **După deploy: rulează `supabase/pastreaza_rezultate.sql` în SQL Editor (rezultatele elevilor NU se mai șterg odată cu materialele); fără dependențe noi.**
