@@ -7,6 +7,10 @@
 // (3) Pe exercițiul generat: Trimite la «Adaugă PDF» / «Adaugă Interactiv»
 //     (formularele existente din Admin, precompletate), descărcare pe
 //     calculator (HTML sau PDF prin tipărire), Modifică, Șterge.
+// Selector de model AI (Sonnet/Opus/Fable, ca la agentul SEO) — alegerea
+// se trimite la server per cerere (aiModel). Sub agent: TASK-URILE
+// PROGRAMATE (AgentScheduledTasks) — generare automată pe rubrici, după
+// program, cu postare automată sau cu aprobare.
 // =====================================================================
 import { useState, useEffect, useRef } from 'react';
 import { aiClient } from '../lib/aiClient';
@@ -14,6 +18,9 @@ import { supabase } from '../lib/supabase';
 import { renderExercise, renderPrintDoc } from '../lib/exerciseRender';
 import { authHeaders } from '../lib/api';
 import { combineExamPdfs, fetchPdfSources, stratifyBySubcategory, probeExamPdf } from '../lib/pdfCombine';
+import { DEFAULT_AI_MODEL } from '../lib/aiModels';
+import AIModelPicker from './AIModelPicker';
+import AgentScheduledTasks from './AgentScheduledTasks';
 
 const inp = { border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.9rem', width: '100%', marginTop: 4, boxSizing: 'border-box' };
 const ta = { ...inp, fontFamily: 'inherit', resize: 'vertical' };
@@ -61,6 +68,7 @@ export default function AIExerciseAgent({ box }) {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
   const [error, setError] = useState(null);
+  const [aiModel, setAiModel] = useState(DEFAULT_AI_MODEL); // selectorul de model AI (ca la agentul SEO)
 
   async function loadSaved() {
     const { data } = await supabase
@@ -241,7 +249,7 @@ export default function AIExerciseAgent({ box }) {
     if (!r) { setError('Alege rubrica pentru automatizare.'); return; }
     setAutoBusy(true); setError(null); setMsg(null);
     try {
-      const resp = await aiClient.exerciseAgent({ action: 'auto', category: r.category, subcategory: r.subcategory, profile: r.profile, ctype: r.ctype, instructions: autoInstr, resultKind: autoResult, dataMode });
+      const resp = await aiClient.exerciseAgent({ action: 'auto', category: r.category, subcategory: r.subcategory, profile: r.profile, ctype: r.ctype, instructions: autoInstr, resultKind: autoResult, dataMode, aiModel });
       setProvider(resp.provider);
       setEditing(false); setSavedId(null); setSavedMeta(null);
       const rubEt = `${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}`;
@@ -313,6 +321,7 @@ export default function AIExerciseAgent({ box }) {
       const r = await aiClient.exerciseAgent({
         instructions: text,
         dataMode,
+        aiModel,
         model: ex ? JSON.stringify(ex) : (modelFile?.text || null),
         modelPdf: modelFile?.pdf || null,
         formatText: formatFile?.text || null,
@@ -456,6 +465,9 @@ export default function AIExerciseAgent({ box }) {
         Formatul de salvare îl poți cere direct în mesaj („salvează ca PDF”).
         {provider && <span style={{ color: 'var(--text-muted)' }}> · model: {provider}</span>}
       </p>
+
+      {/* Selectorul de model AI (ca la agentul SEO) — se aplică generărilor următoare */}
+      <AIModelPicker value={aiModel} onChange={setAiModel} disabled={loading || autoBusy} />
 
       {/* 1. Fișierele-model */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -747,6 +759,9 @@ export default function AIExerciseAgent({ box }) {
           </div>
         </div>
       )}
+
+      {/* Task-uri programate: agentul generează singur, după program, pe rubrici */}
+      <AgentScheduledTasks rubrics={rubrics} box={{ border: '1px solid var(--border)', borderRadius: 12, padding: 14, background: '#fff' }} />
     </div>
   );
 }

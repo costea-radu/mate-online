@@ -11,6 +11,8 @@
 // =====================================================================
 import { useState } from 'react';
 import { aiClient } from '../lib/aiClient';
+import { DEFAULT_AI_MODEL } from '../lib/aiModels';
+import AIModelPicker from './AIModelPicker';
 
 const PRESETS = [
   { id: 'audit',       icon: '🔍', label: 'Audit SEO' },
@@ -22,15 +24,10 @@ const PRESETS = [
   { id: 'youtube',     icon: '▶️', label: 'YouTube — titluri & descrieri' },
 ];
 
-// Modelele Claude dintre care poate alege adminul. Oglinda listei permise de
-// server (api/_lib/claude.js → MODELS) — ține-le sincron. Serverul validează
-// oricum: un ID necunoscut cade pe modelul implicit.
-const MODELS = [
-  { id: 'claude-sonnet-5',   label: 'Sonnet 5',   hint: 'rapid și echilibrat — recomandat pentru sarcinile de zi cu zi' },
-  { id: 'claude-opus-5',     label: 'Opus 5',     hint: 'cel mai capabil model — ideal pentru articole și analize complexe (mai lent și mai scump)' },
-  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', hint: 'generația anterioară Sonnet' },
-  { id: 'claude-opus-4-8',   label: 'Opus 4.8',   hint: 'generația anterioară Opus' },
-];
+// Modelele Claude dintre care poate alege adminul s-au mutat în
+// src/lib/aiModels.js (AI_MODELS) — listă partajată cu agentul de exerciții
+// și cu task-urile programate; oglinda listei permise de server
+// (api/_lib/claude.js → MODELS) — ține-le sincron.
 
 // Panourile „✍️ subiectul meu / 🎲 alege agentul" — la ce presete apar și ce
 // instrucțiune primește agentul când adminul își scrie propria temă.
@@ -67,7 +64,7 @@ export default function AISEOAgent({ box }) {
   const [googleOn, setGoogleOn] = useState(null);
   const [nlStatus, setNlStatus] = useState(null);
   const [propStatus, setPropStatus] = useState(null);
-  const [model, setModel] = useState(MODELS[0].id);      // selectorul de model AI
+  const [model, setModel] = useState(DEFAULT_AI_MODEL);  // selectorul de model AI
   const [themeFor, setThemeFor] = useState(null);        // panoul de temă deschis (blog/social/youtube)
   const [theme, setTheme] = useState('');
 
@@ -154,26 +151,8 @@ export default function AISEOAgent({ box }) {
         {googleOn === false && <span style={{ color: '#b26a00' }}> · ⚠️ Google neconectat (vezi GHID_EMAIL_SI_SEO.md)</span>}
       </p>
 
-      {/* Selectorul de model AI (Sonnet/Opus) — se aplică fiecărei cereri următoare */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-        <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)' }}>🧠 Model AI:</span>
-        {MODELS.map((m) => (
-          <button key={m.id} type="button" disabled={loading} title={m.hint}
-            onClick={() => setModel(m.id)}
-            style={{
-              border: model === m.id ? '2px solid var(--navy)' : '1px solid var(--border)',
-              background: model === m.id ? 'var(--navy)' : '#fff',
-              color: model === m.id ? '#fff' : 'var(--navy)',
-              borderRadius: 20, padding: '4px 12px', fontSize: '.78rem', fontWeight: 600,
-              cursor: loading ? 'default' : 'pointer',
-            }}>
-            {m.label}
-          </button>
-        ))}
-      </div>
-      <p style={{ fontSize: '.74rem', color: 'var(--text-muted)', marginBottom: 12 }}>
-        {MODELS.find((m) => m.id === model)?.hint}
-      </p>
+      {/* Selectorul de model AI (partajat cu agentul de exerciții) — per cerere */}
+      <AIModelPicker value={model} onChange={setModel} disabled={loading} />
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         {PRESETS.map((p) => (

@@ -4,6 +4,25 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 31 iulie 2026 — Agentul de exerciții: selector de model AI (ca la SEO) + TASK-URI PROGRAMATE cu postare automată pe rubrici
+
+Două cereri ale adminului. **După deploy: rulează `supabase/agent_tasks.sql` în SQL Editor. Fără chei noi în Vercel** — `ANTHROPIC_API_KEY` existentă acoperă TOATE modelele Claude (modelul e parametru per cerere); Vercel AI Gateway NU e necesar. Ghid complet: `GHID_TASKURI_PROGRAMATE.md`.
+
+### 🧠 Selector de model AI la generatorul de exerciții
+- **`src/lib/aiModels.js` (NOU):** lista partajată de modele (o singură sursă pentru ambii agenți + task-uri): Sonnet 5 (implicit), Opus 5, **Fable 5** (cel mai nou/capabil model Anthropic, iunie 2026), Haiku 4.5, Sonnet 4.6, Opus 4.8. **`src/components/AIModelPicker.jsx` (NOU):** rândul de butoane „🧠 Model AI", refolosit peste tot.
+- **`src/components/AIExerciseAgent.jsx`:** selectorul de model apare sub descriere; alegerea (`aiModel`) se trimite la TOATE generările (mesaje + automatizarea pe rubrică). **`src/components/AISEOAgent.jsx`:** folosește lista/selectorul partajat (înainte avea propria listă de 4 modele — acum vede și Fable 5/Haiku 4.5).
+- **`api/_lib/claude.js`:** lista permisă MODELS extinsă cu `claude-fable-5` și `claude-haiku-4-5` (validarea per cerere rămâne: ID necunoscut → modelul implicit). **`api/ai-exercise-agent.js`:** primește `aiModel` (numele `model` era deja ocupat de exercițiul-model!) și îl dă mai departe tuturor apelurilor Claude.
+
+### 🗓 Task-uri programate („Create scheduled task", ca în Claude.ai — dar cu RUBRICA drept context, nu folder)
+Adminul alege clasa / tipul de examen (aceeași listă de rubrici ca automatizarea manuală), programul (zilnic / săptămânal / lunar + ora, ORA ROMÂNIEI), instrucțiuni, modelul AI, regimul datelor, iar agentul generează SINGUR testul următor al rubricii și: **postează automat pe site** în rubrica aleasă (opțional gratuit/premium, test/exercițiu) SAU lasă rezultatul „🕓 așteaptă aprobare" (previzualizare + „✅ Postează pe site" din istoric). Email către admin după fiecare rulare (mailerul existent).
+- **`supabase/agent_tasks.sql` (NOU — de rulat):** tabelele `agent_tasks` (definiții + program + context + postare) și `agent_task_runs` (istoricul rulărilor, cu rezultatul păstrat la cele neaprobate); RLS deny-all explicit (tiparul din `fix_rls_info_lints.sql` — Advisor rămâne curat).
+- **`api/_lib/exgen.js` (NOU):** logica partajată — `runAuto` (automatizarea pe rubrică, MUTATĂ ca atare din `ai-exercise-agent.js`, + parametrul `aiModel`), `renderExerciseHtml` (exercițiu JSON → HTML interactiv; copie CJS a `src/lib/exerciseRender.js`), `postContent` (Storage + rând în `content`, identic cu formularul «Adaugă Interactiv»: `interactive_data.agent='claude'`, deci materialele apar și în lista reeditabilă a agentului), `runTask`, `postRun`, emailul de raport.
+- **`api/ai-exercise-agent.js`:** acțiunea `auto` deleagă la `exgen.runAuto` — butonul „⚙️ Generează (AI)" se comportă IDENTIC (logica doar s-a mutat).
+- **`api/agent-tasks.js` (NOU):** CRUD task-uri + `run_now` + istoricul rulărilor + `post_run`/`delete_run` — doar admin, validare strictă a câmpurilor (ora 0–23, ziua 1–7/1–28, modelul din lista permisă).
+- **`api/agent-cron.js` (NOU) + `vercel.json`:** cron ORAR (`0 * * * *`) — execută task-urile scadente la ora curentă a României (conversie cu `Intl`/Europe/Bucharest, corectă și la ora de vară), max 3 per tic, gardă anti-dublare 2h, protejat ca celelalte cron-uri (`x-vercel-cron` / `AI_CRON_SECRET`).
+- **`src/components/AgentScheduledTasks.jsx` (NOU):** panoul „🗓 Task-uri programate" sub generatorul de exerciții: creare/editare, pornit/oprit, „▶️ Rulează acum" (~30–90s), următoarea rulare estimată, istoric cu statusuri (✅ postat / 🕓 așteaptă aprobare / ⚠️ eroare), previzualizare în iframe și postare cu un click. **`src/lib/aiClient.js`:** metoda `agentTasks`.
+- **Postarea automată** publică materiale INTERACTIVE în rubrica aleasă (la rubricile PDF, sursele sunt PDF-urile, rezultatul e interactiv — PDF-uri noi nu se pot fabrica pe server; pentru PDF rămâne fluxul manual). **`.env.ai.example`:** secțiune nouă despre `ANTHROPIC_API_KEY`/`CLAUDE_MODEL` (o singură cheie pentru toate modelele).
+
 ## 31 iulie 2026 — Cele 7 lint-uri INFO „RLS Enabled No Policy" din Supabase Advisor, stinse explicit
 
 Raportul de lints Supabase (Performance + Security Advisor) conținea DOAR 7 intrări — toate INFO, toate același lint: RLS activat fără nicio politică pe `archived_student_results`, `contact_messages`, `gsc_snapshots`, `newsletter_campaigns`, `newsletter_sends`, `seo_actions`, `social_posts`. Zero warning-uri sau erori, zero lint-uri de performanță. Verificat în cod: toate cele 7 tabele sunt folosite EXCLUSIV de rutele API de pe server cu service role (care ocolește RLS) — frontend-ul nu le atinge direct (mențiunile din `src/` sunt doar comentarii; datele ajung în UI prin `/api/seo-rank` și `/api/social-queue`). Deci NU era o gaură de securitate: RLS fără politici = acces interzis pentru toată lumea; linterul doar cerea confirmarea intenției.

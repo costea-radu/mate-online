@@ -11,12 +11,18 @@ const KEY = process.env.ANTHROPIC_API_KEY || '';
 const MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-5';
 
 // Modelele dintre care adminul poate alege în agenți (selectorul din admin).
-// ATENȚIE: lista e oglindită în src/components/AISEOAgent.jsx — ține-le sincron.
+// ATENȚIE: lista e oglindită în src/lib/aiModels.js (folosită de selectoarele
+// din AISEOAgent, AIExerciseAgent și task-urile programate) — ține-le sincron.
 // ID-urile sunt cele oficiale Anthropic (iulie 2026): Sonnet 5 / Opus 5 sunt
-// generația curentă; 4.6/4.8 sunt snapshot-urile anterioare, încă disponibile.
+// generația curentă; Fable 5 e cel mai nou și mai capabil (iunie 2026);
+// Haiku 4.5 e cel mai rapid/ieftin; 4.6/4.8 sunt snapshot-urile anterioare.
+// TOATE funcționează cu ACEEAȘI cheie ANTHROPIC_API_KEY — nu e nevoie de
+// chei separate per model; modelul se alege per cerere în câmpul `model`.
 const MODELS = [
   { id: 'claude-sonnet-5',   label: 'Sonnet 5',   note: 'rapid și echilibrat — implicit' },
-  { id: 'claude-opus-5',     label: 'Opus 5',     note: 'cel mai capabil — mai lent și mai scump' },
+  { id: 'claude-opus-5',     label: 'Opus 5',     note: 'foarte capabil — mai lent și mai scump' },
+  { id: 'claude-fable-5',    label: 'Fable 5',    note: 'cel mai nou și mai capabil model (iunie 2026) — cel mai scump' },
+  { id: 'claude-haiku-4-5',  label: 'Haiku 4.5',  note: 'cel mai rapid și mai ieftin — pentru sarcini simple' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', note: 'generația anterioară Sonnet' },
   { id: 'claude-opus-4-8',   label: 'Opus 4.8',   note: 'generația anterioară Opus' },
 ];
