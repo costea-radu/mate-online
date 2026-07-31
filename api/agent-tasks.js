@@ -52,7 +52,20 @@ function cleanTask(input = {}, partial = false) {
   if (!partial || has('subcategory')) put('subcategory', input.subcategory ? String(input.subcategory).slice(0, 120) : null);
   if (!partial || has('profile')) put('profile', input.profile ? String(input.profile).slice(0, 80) : null);
   if (!partial || has('ctype')) put('ctype', input.ctype === 'pdf' ? 'pdf' : 'interactive');
-  if (!partial || has('result_kind')) put('result_kind', ['auto', 'interactive', 'exam'].includes(input.result_kind) ? input.result_kind : 'auto');
+  if (!partial || has('extra_rubrics')) {
+    // context suplimentar: alte rubrici-referință (ex. baremele) — max 3
+    // (întâi eliminăm intrările fără categorie, apoi plafonăm — o intrare
+    // invalidă nu „consumă" un loc din cele 3)
+    const arr = Array.isArray(input.extra_rubrics) ? input.extra_rubrics : [];
+    const clean = arr.map((r) => ({
+      category: String(r?.category || '').trim().slice(0, 80),
+      subcategory: r?.subcategory ? String(r.subcategory).slice(0, 120) : null,
+      profile: r?.profile ? String(r.profile).slice(0, 80) : null,
+      ctype: r?.ctype === 'pdf' ? 'pdf' : 'interactive',
+    })).filter((r) => r.category).slice(0, 3);
+    put('extra_rubrics', clean.length ? clean : null);
+  }
+  if (!partial || has('result_kind')) put('result_kind', ['auto', 'interactive', 'exam', 'format'].includes(input.result_kind) ? input.result_kind : 'auto');
   if (!partial || has('data_mode')) put('data_mode', input.data_mode === 'keep' ? 'keep' : 'modify');
   if (!partial || has('instructions')) put('instructions', input.instructions ? String(input.instructions).slice(0, 3000) : null);
   if (!partial || has('ai_model')) {
@@ -89,17 +102,46 @@ module.exports = async function handler(req, res) {
 
     if (action === 'create') {
       const task = cleanTask(req.body.task || {});
+      // modelul de format (fișier HTML/PDF trimis din formular) → Storage
+      const file = req.body.format_file || null;
+      if (file && (file.html || file.pdf)) {
+        task.format_model = await exgen.storeFormatModel({ supa, name: file.name, html: file.html || null, pdf: file.pdf || null });
+      }
+      if (task.result_kind === 'format' && !task.format_model) {
+        return res.status(400).json({ error: 'Rezultatul „după modelul de format” cere un fișier: încarcă modelul de format (HTML sau PDF).' });
+      }
       const { data, error } = await supa.from('agent_tasks').insert(task).select('*').single();
-      if (error) throw new Error(`Nu am putut salva task-ul: ${error.message}`);
+      if (error) {
+        await exgen.removeFormatModel({ supa, formatModel: task.format_model }).catch(() => {});
+        throw new Error(`Nu am putut salva task-ul: ${error.message}`);
+      }
       return res.status(200).json({ task: data });
     }
 
     if (action === 'update') {
       const id = req.body.id;
       if (!id) return res.status(400).json({ error: 'Lipsește id-ul task-ului.' });
+      const { data: existing, error: exErr } = await supa.from('agent_tasks').select('*').eq('id', id).single();
+      if (exErr || !existing) return res.status(404).json({ error: 'Task-ul nu a fost găsit.' });
       const patch = cleanTask(req.body.patch || {}, true);
+      // modelul de format: fișier nou → înlocuiește; remove_format → scoate
+      if (req.body.remove_format) patch.format_model = null;
+      const file = req.body.format_file || null;
+      if (file && (file.html || file.pdf)) {
+        patch.format_model = await exgen.storeFormatModel({ supa, name: file.name, html: file.html || null, pdf: file.pdf || null });
+      }
+      const effKind = 'result_kind' in patch ? patch.result_kind : existing.result_kind;
+      const effFormat = 'format_model' in patch ? patch.format_model : existing.format_model;
+      if (effKind === 'format' && !effFormat) {
+        await exgen.removeFormatModel({ supa, formatModel: 'format_model' in patch ? patch.format_model : null }).catch(() => {});
+        return res.status(400).json({ error: 'Rezultatul „după modelul de format” cere un fișier: încarcă modelul de format (HTML sau PDF).' });
+      }
       const { data, error } = await supa.from('agent_tasks').update(patch).eq('id', id).select('*').single();
       if (error) throw new Error(`Actualizarea a eșuat: ${error.message}`);
+      // ștergem vechiul fișier de format dacă a fost înlocuit sau scos
+      if ('format_model' in patch && existing.format_model?.path && existing.format_model.path !== patch.format_model?.path) {
+        await exgen.removeFormatModel({ supa, formatModel: existing.format_model });
+      }
       return res.status(200).json({ task: data });
     }
 
@@ -114,8 +156,11 @@ module.exports = async function handler(req, res) {
     if (action === 'delete') {
       const id = req.body.id;
       if (!id) return res.status(400).json({ error: 'Lipsește id-ul task-ului.' });
+      // best-effort: ștergem și fișierul modelului de format din Storage
+      const { data: t } = await supa.from('agent_tasks').select('format_model').eq('id', id).maybeSingle();
       const { error } = await supa.from('agent_tasks').delete().eq('id', id);
       if (error) throw new Error(error.message);
+      if (t?.format_model) await exgen.removeFormatModel({ supa, formatModel: t.format_model });
       return res.status(200).json({ ok: true });
     }
 
@@ -173,3 +218,6 @@ module.exports = async function handler(req, res) {
     return res.status(err.status || 500).json({ error: err.message || 'Eroare server', code: err.code || null });
   }
 };
+
+// pentru teste (test/agent-tasks.test.js) — Vercel folosește doar funcția default
+module.exports.cleanTask = cleanTask;

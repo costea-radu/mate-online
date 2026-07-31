@@ -31,12 +31,22 @@ create table if not exists agent_tasks (
   ctype         text not null default 'interactive'
                 check (ctype in ('pdf','interactive')),  -- tipul SURSELOR din rubrică
 
+  -- CONTEXT SUPLIMENTAR (opțional): alte rubrici-referință (ex. baremele
+  -- testelor) — array de {category, subcategory, profile, ctype}, max 3.
+  -- NU sunt teste-sursă de combinat; agentul le primește ca referință.
+  extra_rubrics jsonb,
+
   -- CE generează (aceleași opțiuni ca automatizarea manuală din admin)
   result_kind   text not null default 'auto'
-                check (result_kind in ('auto','interactive','exam')),
+                check (result_kind in ('auto','interactive','exam','format')),
   data_mode     text not null default 'modify' check (data_mode in ('keep','modify')),
   instructions  text,                                -- instrucțiuni opționale pentru agent
   ai_model      text,                                -- ID Claude (ex. 'claude-opus-5'); null = implicitul serverului
+
+  -- MODELUL DE FORMAT (la result_kind='format'): fișier HTML/PDF încărcat de
+  -- admin, păstrat în Storage — {bucket, path, name, kind:'html'|'pdf'}.
+  -- HTML → rezultatul clonează EXACT designul lui; PDF → structura testului.
+  format_model  jsonb,
 
   -- POSTAREA
   auto_post     boolean not null default false,      -- true = publică direct pe site; false = așteaptă aprobarea
@@ -64,6 +74,14 @@ create table if not exists agent_task_runs (
   combined_from jsonb,                               -- titlurile testelor-sursă
   result        jsonb                                -- {kind:'html',html} sau {kind:'exercise',exercise} — golit după postare
 );
+
+-- MIGRARE pentru instalările care au rulat deja versiunea inițială a acestui
+-- script (create table if not exists NU adaugă coloane noi la tabele vechi):
+alter table agent_tasks add column if not exists extra_rubrics jsonb;
+alter table agent_tasks add column if not exists format_model  jsonb;
+alter table agent_tasks drop constraint if exists agent_tasks_result_kind_check;
+alter table agent_tasks add  constraint agent_tasks_result_kind_check
+  check (result_kind in ('auto','interactive','exam','format'));
 
 create index if not exists idx_agent_tasks_enabled  on agent_tasks(enabled, run_hour);
 create index if not exists idx_agent_task_runs_task on agent_task_runs(task_id, created_at desc);

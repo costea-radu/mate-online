@@ -12,6 +12,7 @@ const assert = require('node:assert');
 const exgen = require('../api/_lib/exgen');
 const claude = require('../api/_lib/claude');
 const cron = require('../api/agent-cron');
+const tasksApi = require('../api/agent-tasks');
 
 test('exgen.normalize validează grila și etapele', () => {
   const g = exgen.normalize({
@@ -65,6 +66,36 @@ test('agent-cron.bucharestNow: conversie corectă UTC → ora României (vară �
   const mid = cron.bucharestNow(new Date('2026-07-30T21:00:00Z'));
   assert.strictEqual(mid.hour, 0);
   assert.strictEqual(mid.monthday, 31);
+});
+
+test('agent-tasks.cleanTask: contextul suplimentar (extra_rubrics) e curățat și plafonat la 3', () => {
+  const t = tasksApi.cleanTask({
+    name: 'T', category: 'evaluare-nationala',
+    extra_rubrics: [
+      { category: 'evaluare-nationala', subcategory: 'bareme', ctype: 'pdf' },
+      { category: 'clasa-7', ctype: 'interactive', profile: null },
+      { category: '', subcategory: 'ignorat' },              // fără categorie → eliminat
+      { category: 'clasa-8', ctype: 'altceva' },             // ctype invalid → interactive
+      { category: 'clasa-5' },                               // peste plafonul de 3 → tăiat
+    ],
+  });
+  assert.strictEqual(t.extra_rubrics.length, 3, 'max 3, intrările goale eliminate');
+  assert.deepStrictEqual(t.extra_rubrics[0], { category: 'evaluare-nationala', subcategory: 'bareme', profile: null, ctype: 'pdf' });
+  assert.strictEqual(t.extra_rubrics[2].ctype, 'interactive', 'ctype invalid cade pe interactive');
+
+  const gol = tasksApi.cleanTask({ name: 'T', category: 'x', extra_rubrics: [] });
+  assert.strictEqual(gol.extra_rubrics, null, 'listă goală → null');
+});
+
+test('agent-tasks.cleanTask + exgen.runAuto: rezultatul „format”', async () => {
+  // result_kind 'format' e acceptat de validare
+  const t = tasksApi.cleanTask({ name: 'T', category: 'x', result_kind: 'format' });
+  assert.strictEqual(t.result_kind, 'format');
+  // …dar rularea fără fișier de format eșuează devreme, cu mesaj clar
+  await assert.rejects(
+    () => exgen.runAuto({ supa: null, category: 'x', resultKind: 'format' }),
+    /modelul de format lipsește/i,
+  );
 });
 
 test('agent-cron.isDue: potrivirea programului + garda anti-dublare', () => {

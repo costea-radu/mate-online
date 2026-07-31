@@ -10,7 +10,7 @@
 // Serverul: api/agent-tasks.js (CRUD + rulare manuală) și api/agent-cron.js
 // (cronul orar Vercel). Tabelele: supabase/agent_tasks.sql.
 // =====================================================================
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { aiClient } from '../lib/aiClient';
 import { renderExercise } from '../lib/exerciseRender';
 import { DEFAULT_AI_MODEL } from '../lib/aiModels';
@@ -27,6 +27,10 @@ const EMPTY_FORM = {
   name: '', rubricKey: '', schedule_kind: 'weekly', run_hour: 7, run_weekday: 1, run_monthday: 1,
   result_kind: 'auto', data_mode: 'modify', instructions: '', ai_model: DEFAULT_AI_MODEL,
   auto_post: false, is_free: false, post_type: 'test', notify: true,
+  extraKeys: [],            // context suplimentar: alte rubrici (ex. baremele), max 3
+  formatFile: null,         // model de format NOU încărcat: {name, html?|pdf?}
+  existingFormatName: null, // numele modelului de format deja salvat (la editare)
+  removeFormat: false,      // la editare: scoate modelul de format existent
 };
 
 const rubricKeyOf = (t) => `${t.category}||${t.subcategory || ''}||${t.profile || ''}||${t.ctype}`;
@@ -75,8 +79,31 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
   const [runsBusy, setRunsBusy] = useState(false);
   const [preview, setPreview] = useState(null);        // {title, html}
   const [busyRun, setBusyRun] = useState(null);        // runId în postare/ștergere
+  const formatFileRef = useRef(null);                  // inputul de fișier al modelului de format
 
   const patch = (p) => setF((x) => ({ ...x, ...p }));
+
+  // Modelul de format (rezultat „după modelul de format"): fișier local PDF/HTML
+  async function onFormatFile(file) {
+    setError(null);
+    if (!file) return;
+    if (file.size > 2.5 * 1024 * 1024) { setError('Modelul de format e prea mare (max 2,5 MB).'); return; }
+    if (/\.pdf$/i.test(file.name)) {
+      const b64 = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+        fr.onerror = reject;
+        fr.readAsDataURL(file);
+      });
+      patch({ formatFile: { name: file.name, pdf: b64, html: null }, removeFormat: false });
+    } else if (/\.html?$/i.test(file.name)) {
+      const raw = await file.text();
+      patch({ formatFile: { name: file.name, html: raw.slice(0, 250000), pdf: null }, removeFormat: false });
+    } else {
+      setError('Modelul de format: doar fișiere PDF sau HTML.');
+    }
+    if (formatFileRef.current) formatFileRef.current.value = '';
+  }
 
   async function load() {
     setError(null);
@@ -101,25 +128,49 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
       result_kind: t.result_kind, data_mode: t.data_mode, instructions: t.instructions || '',
       ai_model: t.ai_model || DEFAULT_AI_MODEL, auto_post: !!t.auto_post, is_free: !!t.is_free,
       post_type: t.post_type || 'test', notify: t.notify !== false,
+      extraKeys: (t.extra_rubrics || []).map(rubricKeyOf),
+      formatFile: null,
+      existingFormatName: t.format_model?.name || null,
+      removeFormat: false,
     });
     setFormOpen(true); setMsg(null); setError(null);
   }
+
+  // Contextul suplimentar: adaugă/scoate o rubrică din lista de chips (max 3)
+  function addExtraKey(key) {
+    if (!key) return;
+    setF((x) => {
+      if (key === x.rubricKey || x.extraKeys.includes(key) || x.extraKeys.length >= 3) return x;
+      return { ...x, extraKeys: [...x.extraKeys, key] };
+    });
+  }
+  const delExtraKey = (key) => setF((x) => ({ ...x, extraKeys: x.extraKeys.filter((k) => k !== key) }));
+  const rubricByKey = (key) => rubrics.find((r) => rubricKeyOf(r) === key) || null;
 
   async function save() {
     const r = rubrics.find((x) => rubricKeyOf(x) === f.rubricKey);
     if (!f.name.trim()) { setError('Dă-i task-ului un nume.'); return; }
     if (!r) { setError('Alege rubrica (clasa / tipul de examen).'); return; }
+    if (f.result_kind === 'format' && !f.formatFile && (!f.existingFormatName || f.removeFormat)) {
+      setError('Rezultatul „după modelul de format” cere un fișier: apasă «📎 Alege modelul de format» și încarcă un HTML sau PDF.');
+      return;
+    }
     setSaving(true); setError(null);
     const task = {
       name: f.name.trim(),
       schedule_kind: f.schedule_kind, run_hour: Number(f.run_hour), run_weekday: Number(f.run_weekday), run_monthday: Number(f.run_monthday),
       category: r.category, subcategory: r.subcategory, profile: r.profile, ctype: r.ctype,
+      extra_rubrics: f.extraKeys
+        .map(rubricByKey).filter(Boolean)
+        .map((x) => ({ category: x.category, subcategory: x.subcategory, profile: x.profile, ctype: x.ctype })),
       result_kind: f.result_kind, data_mode: f.data_mode, instructions: f.instructions.trim() || null,
       ai_model: f.ai_model, auto_post: f.auto_post, is_free: f.is_free, post_type: f.post_type, notify: f.notify,
     };
+    const payload = editId
+      ? { action: 'update', id: editId, patch: task, format_file: f.formatFile || null, remove_format: f.removeFormat || false }
+      : { action: 'create', task, format_file: f.formatFile || null };
     try {
-      if (editId) await aiClient.agentTasks({ action: 'update', id: editId, patch: task });
-      else await aiClient.agentTasks({ action: 'create', task });
+      await aiClient.agentTasks(payload);
       setFormOpen(false); setEditId(null);
       setMsg(editId ? '✅ Task actualizat.' : '✅ Task creat. Va rula automat conform programului (sau apasă ▶️ ca să-l testezi acum).');
       load();
@@ -212,7 +263,9 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
       <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
         Ca „scheduled tasks” din Claude.ai, dar contextul e o <strong>rubrică a site-ului</strong> (clasă sau tip de examen), nu un folder:
         agentul generează singur, după program, testul următor al rubricii alese și îl poate <strong>posta automat</strong> acolo —
-        sau ți-l lasă la aprobat aici (primești și email). Orele sunt <strong>ora României</strong>.
+        sau ți-l lasă la aprobat aici (primești și email). Poți adăuga <strong>rubrici suplimentare drept context</strong> (ex. baremele testelor)
+        și poți cere rezultatul <strong>după modelul tău de format</strong> (fișier HTML/PDF încărcat de pe calculator).
+        Orele sunt <strong>ora României</strong>. Task-urile de mai jos se pot edita oricând (✏️) sau șterge (🗑).
       </p>
 
       {warning && <div style={{ marginBottom: 10, padding: 12, background: '#fff7e0', color: '#8a6d00', borderRadius: 8, fontSize: '.85rem' }}>🔧 {warning}</div>}
@@ -229,7 +282,7 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
               <input value={f.name} onChange={(e) => patch({ name: e.target.value })}
                 placeholder="ex: Test nou EN în fiecare luni" style={inp} />
             </label>
-            <label style={{ ...lbl, flex: 3, minWidth: 260 }}>Contextul — rubrica (clasa / tipul de examen)
+            <label style={{ ...lbl, flex: 3, minWidth: 260 }}>Contextul — rubrica principală (aici lucrează și POSTEAZĂ)
               <select value={f.rubricKey} onChange={(e) => patch({ rubricKey: e.target.value })} style={inp}>
                 <option value="">— alege rubrica —</option>
                 {[...new Set(rubrics.map((r) => r.group))].map((g) => (
@@ -241,6 +294,43 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
                 ))}
               </select>
             </label>
+          </div>
+
+          {/* Context suplimentar: alte rubrici-referință (ex. baremele testelor), max 3 */}
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ ...lbl, display: 'block' }}>Context suplimentar (opțional) — alte rubrici, ex. baremele testelor (max 3)
+              <select value="" disabled={f.extraKeys.length >= 3}
+                onChange={(e) => { addExtraKey(e.target.value); e.target.value = ''; }} style={inp}>
+                <option value="">➕ adaugă o rubrică drept context…</option>
+                {[...new Set(rubrics.map((r) => r.group))].map((g) => (
+                  <optgroup key={g} label={g}>
+                    {rubrics.filter((r) => r.group === g).map((r) => (
+                      <option key={rubricKeyOf(r)} value={rubricKeyOf(r)}
+                        disabled={rubricKeyOf(r) === f.rubricKey || f.extraKeys.includes(rubricKeyOf(r))}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+            {f.extraKeys.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                {f.extraKeys.map((k) => {
+                  const r = rubricByKey(k);
+                  return (
+                    <span key={k} style={{ ...chip('#eef2fb', 'var(--navy)'), display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 8px 3px 12px' }}>
+                      📚 {r ? `${r.group} · ${r.label}` : k}
+                      <button onClick={() => delExtraKey(k)} title="Scoate din context"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontWeight: 800, fontSize: '.8rem', padding: 0 }}>✕</button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
+              Din fiecare rubrică suplimentară agentul primește câteva materiale ca REFERINȚĂ (ex. stilul baremelor) — nu le combină ca teste-sursă și nu postează în ele.
+            </div>
           </div>
 
           {/* Programul */}
@@ -276,9 +366,37 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
                 <option value="auto">După rubrică (implicit)</option>
                 <option value="interactive">Test interactiv (format standard)</option>
                 <option value="exam">Subiect de examen (structurat)</option>
+                <option value="format">După modelul de format (fișierul meu)</option>
               </select>
             </label>
           </div>
+
+          {/* Rezultat „după modelul de format": fișier HTML/PDF de pe calculator */}
+          {f.result_kind === 'format' && (
+            <div style={{ border: '2px dashed var(--border)', borderRadius: 10, padding: 10, marginBottom: 10, background: '#fff' }}>
+              <input ref={formatFileRef} type="file" accept=".pdf,.html,.htm" style={{ display: 'none' }}
+                onChange={(e) => onFormatFile(e.target.files?.[0])} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)' }}>🗂 Modelul de format:</span>
+                {(f.formatFile || (f.existingFormatName && !f.removeFormat)) ? (
+                  <span style={{ fontSize: '.85rem', color: 'var(--navy)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {(f.formatFile?.pdf || /\.pdf$/i.test(f.existingFormatName || '')) ? '📕' : '📄'} {f.formatFile?.name || f.existingFormatName}
+                    {!f.formatFile && f.existingFormatName && <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>(deja salvat)</span>}
+                    <button style={{ ...smallBtn, color: '#c0392b', borderColor: '#f5c6cb' }}
+                      onClick={() => patch(f.formatFile ? { formatFile: null } : { removeFormat: true })}>✕ scoate</button>
+                    <button style={smallBtn} onClick={() => formatFileRef.current?.click()}>↻ înlocuiește</button>
+                  </span>
+                ) : (
+                  <button className="btn btn-outline" style={{ fontSize: '.82rem' }} onClick={() => formatFileRef.current?.click()}>
+                    📎 Alege modelul de format (PDF / HTML, max 2,5 MB)
+                  </button>
+                )}
+              </div>
+              <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: 6 }}>
+                Ca „modelul de format” de la generarea manuală: <strong>HTML</strong> → rezultatul clonează EXACT designul și funcționalitatea fișierului, doar cu exerciții noi din rubrică; <strong>PDF</strong> → structura testului (itemi, secțiuni, barem) se potrivește cu el. Fișierul se salvează pe server și se refolosește la fiecare rulare programată.
+              </div>
+            </div>
+          )}
 
           <label style={{ ...lbl, display: 'block', marginBottom: 10 }}>Instrucțiuni pentru agent (opțional)
             <input value={f.instructions} onChange={(e) => patch({ instructions: e.target.value })}
@@ -352,6 +470,8 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
                   {t.enabled ? '🟢' : '⏸'} {t.name}
                   {t.auto_post ? <span style={chip('#e8f5e9', '#1e7e34')}>postare automată</span> : <span style={chip('#fff4e5', '#8a6d00')}>cu aprobare</span>}
                   {t.ai_model && <span style={chip('#eef2fb', 'var(--navy)')}>{t.ai_model.replace('claude-', '')}</span>}
+                  {t.extra_rubrics?.length > 0 && <span style={chip('#e8f0fe', '#1a4b8c')} title={t.extra_rubrics.map((r) => `${r.category}${r.subcategory ? ' / ' + r.subcategory : ''} (${r.ctype})`).join(' · ')}>📚 +{t.extra_rubrics.length} context</span>}
+                  {t.result_kind === 'format' && t.format_model && <span style={chip('#f3e5f5', '#4a148c')} title={t.format_model.name}>🗂 {t.format_model.name}</span>}
                 </div>
                 <div style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
                   {rubricLabel(t)} · {scheduleText(t)} · următoarea: {nextRunText(t)}

@@ -17,6 +17,9 @@ Două funcții noi în **Admin → Agent Claude — Generator de exerciții**:
 
 1. **Supabase → SQL Editor → New Query** → rulează `supabase/agent_tasks.sql`
    (creează `agent_tasks` + `agent_task_runs`; sigur de rulat repetat).
+   **Dacă l-ai rulat deja pe versiunea veche, rulează-l DIN NOU** — scriptul
+   conține și migrarea (coloanele `extra_rubrics` + `format_model` și opțiunea
+   `format` la rezultat) pentru tabelele existente, fără pierdere de date.
 2. **Deploy pe Vercel** (git push). `vercel.json` are un cron nou:
    `/api/agent-cron?action=run` — **orar** (`0 * * * *`); Vercel îl preia
    automat la deploy.
@@ -35,14 +38,31 @@ Admin → Generator de exerciții → jos, panoul **„🗓 Task-uri programate"
 **➕ Creează task programat**:
 
 - **Nume** — ex. „Test nou EN în fiecare luni".
-- **Contextul (rubrica)** — aceeași listă ca la automatizarea manuală: Evaluare
-  Națională / BAC (pe profiluri) / Clasele 5–8, cu subcategorie și tip
-  (PDF / interactiv). Agentul COMBINĂ testele existente din rubrică, exact ca
-  butonul „⚙️ Generează (AI)".
+- **Contextul — rubrica principală** — aceeași listă ca la automatizarea
+  manuală: Evaluare Națională / BAC (pe profiluri) / Clasele 5–8, cu
+  subcategorie și tip (PDF / interactiv). Agentul COMBINĂ testele existente
+  din rubrică, exact ca butonul „⚙️ Generează (AI)", și tot aici POSTEAZĂ.
+- **Context suplimentar (opțional, max 3 rubrici)** — alte rubrici drept
+  REFERINȚĂ, ex. rubrica cu BAREMELE testelor: din fiecare, agentul primește
+  câteva materiale alese la întâmplare (PDF-urile native, restul ca text) și
+  le folosește pentru stilul baremului/punctării și formulările cerințelor —
+  NU le combină ca teste-sursă și NU postează în ele. Se adaugă din
+  dropdown-ul „➕ adaugă o rubrică drept context…" (apar ca etichete cu ✕).
+  Poți lăsa lista goală — o singură rubrică rămâne comportamentul implicit.
 - **Programul** — zilnic / săptămânal (ziua) / lunar (ziua lunii) + ora
   (**ora României**; cronul convertește automat, inclusiv ora de vară).
 - **Rezultatul** — după rubrică / test interactiv (format standard) / subiect
-  structurat; **Instrucțiuni** opționale; **Modelul AI**; regimul datelor
+  structurat / **„După modelul de format (fișierul meu)"**: încarci de pe
+  calculator un fișier-model (max 2,5 MB) care se salvează pe server și se
+  refolosește la FIECARE rulare:
+  - **HTML** → rezultatul CLONEAZĂ exact designul, stilul și funcționalitatea
+    fișierului (ca „modelul de format" de la generarea manuală), doar cu
+    exerciții noi combinate din rubrică;
+  - **PDF** → STRUCTURA testului generat (numărul de itemi, secțiunile, tipul
+    itemilor, proporțiile baremului) se potrivește cu modelul, iar conținutul
+    vine din rubrică.
+  Fișierul apare în listă pe task (🗂) și se poate înlocui/scoate din ✏️ Editare.
+- **Instrucțiuni** opționale; **Modelul AI**; regimul datelor
   (păstrează / modifică numerele).
 - **📤 Postează automat** — bifat: materialul apare direct pe site în rubrica
   aleasă (alegi și Gratuit/Premium + Test/Exercițiu). Nebifat: rezultatul

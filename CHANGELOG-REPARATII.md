@@ -4,6 +4,24 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 31 iulie 2026 (2) — Task-urile programate: CONTEXT MULTIPLU (ex. teste + baremele lor) și rezultat „DUPĂ MODELUL DE FORMAT" (fișier local)
+
+Două cereri ale adminului, peste task-urile programate livrate mai devreme azi. **După deploy: rulează DIN NOU `supabase/agent_tasks.sql`** — conține migrarea (coloanele `extra_rubrics` + `format_model` și opțiunea `format` în constrângerea `result_kind`), sigură pe tabelele existente. (Panoul cu lista task-urilor + editare completă (nume, frecvență, zi, oră…) + ștergere exista deja din prima livrare; acum afișează și noile setări.)
+
+### 📚 Context suplimentar: mai multe rubrici per task (opțional, max 3)
+Pe lângă rubrica principală (sursele de combinat + locul postării), task-ul poate primi ALTE rubrici drept REFERINȚĂ — ex. rubrica cu baremele testelor. Din fiecare, agentul ia câte max 2 materiale la întâmplare (PDF-urile trimise NATIV către Claude, plafonate la ~3 MB în total; interactivele ca text) și e instruit explicit să NU le combine ca surse, ci să le folosească pentru stilul baremului/punctării și formulările cerințelor. O singură rubrică rămâne comportamentul implicit (lista goală).
+- **`api/_lib/exgen.js`:** `fetchExtraContext` (nou) + injectarea contextului în TOATE cele 4 căi de generare (system prompt + blocuri PDF native + extras text); `runAuto` primește `extraRubrics`.
+- **`api/agent-tasks.js`:** validarea `extra_rubrics` (curățare, apoi plafon 3 — o intrare invalidă nu consumă un loc; testul a prins exact cazul ăsta).
+- **`src/components/AgentScheduledTasks.jsx`:** dropdown „➕ adaugă o rubrică drept context…" cu etichete ✕ (max 3, fără dubluri/rubrica principală); eticheta „📚 +N context" pe task.
+
+### 🗂 Rezultat „După modelul de format (fișierul meu)" — ca la generarea manuală, dar programat
+Opțiune nouă în dropdown-ul „Rezultatul": adminul încarcă de pe calculator un fișier-model (PDF sau HTML, max 2,5 MB), salvat în Storage (bucketul privat `content-files`, folderul `agent-formats/`) și refolosit la FIECARE rulare. HTML → rezultatul CLONEAZĂ exact designul/funcționalitatea fișierului (aceleași reguli stricte ca modul „HTML brut": CSS/JS copiate întocmai, figurile SVG restaurate programatic din șablon, MATE_SCORE adăugat dacă lipsește), cu exerciții noi din rubrică; PDF → structura testului structurat (itemi, secțiuni, barem) se potrivește cu modelul, trimis nativ către Claude.
+- **`api/_lib/exgen.js`:** `storeFormatModel` / `removeFormatModel` / `loadFormatModel` (noi); `runAuto` acceptă `resultKind='format'` + `formatHtml`/`formatPdf` — HTML-ul devine șablonul căilor de clonare (înlocuiește formatul standard), PDF-ul devine referință de STRUCTURĂ în căile JSON; eroare clară dacă fișierul lipsește.
+- **`api/agent-tasks.js`:** `create`/`update` primesc `format_file` {name, html|pdf(base64)} → Storage; înlocuirea/scoaterea șterge vechiul fișier; validare: rezultatul `format` fără fișier → 400; `delete` curăță și fișierul din Storage.
+- **`src/components/AgentScheduledTasks.jsx`:** zona „🗂 Modelul de format" (alege / înlocuiește / scoate, PDF→base64, HTML→text, max 2,5 MB) vizibilă doar la rezultatul „format"; numele fișierului apare pe task și la editare („deja salvat").
+- **`supabase/agent_tasks.sql`:** coloanele `extra_rubrics` + `format_model` (în create + `alter table add column if not exists` pentru instalările existente) și `result_kind` extins cu `'format'` (drop + recreare constrângere).
+- **`test/agent-tasks.test.js`:** 2 teste noi (curățarea extra_rubrics; result_kind `format` acceptat + rularea fără fișier respinsă devreme cu mesaj clar). Build trece, **104/104 teste trec**.
+
 ## 31 iulie 2026 — Agentul de exerciții: selector de model AI (ca la SEO) + TASK-URI PROGRAMATE cu postare automată pe rubrici
 
 Două cereri ale adminului. **După deploy: rulează `supabase/agent_tasks.sql` în SQL Editor. Fără chei noi în Vercel** — `ANTHROPIC_API_KEY` existentă acoperă TOATE modelele Claude (modelul e parametru per cerere); Vercel AI Gateway NU e necesar. Ghid complet: `GHID_TASKURI_PROGRAMATE.md`.
