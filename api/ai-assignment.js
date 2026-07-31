@@ -1,7 +1,7 @@
 // =====================================================================
 // api/ai-assignment.js — teme profesor → elev
 // POST { userId, action, ... }
-//   action='create'  (profesor/abonat):
+//   action='create'  (profesor/părinte/abonat — NU elev):
 //       interactiv: { kind:'interactive', html, title, category?, topic? }
 //       antrenament:{ kind:'practice', token, title }   (token de la ai-practice generate)
 //     → { id, url }
@@ -35,11 +35,19 @@ module.exports = async function handler(req, res) {
   }
 };
 
-// ─── Creare temă (profesor, PĂRINTE sau abonat) ──────────────────────────────
+// ─── Creare temă (profesor, PĂRINTE sau abonat — elevii sunt blocați) ────────
 async function create(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const { kind, title = null, category = null, topic = null, fromPublicId = null } = req.body || {};
   const profile = await ai.requireUser(supa, userId);
+
+  // ELEVII nu pot „posta"/distribui ce generează: nici teme cu link partajabil
+  // (/tema?id=...), nici trimiteri din biblioteca publică. Butoanele nu apar
+  // oricum în UI pentru elevi — acesta e blocajul de siguranță de pe server.
+  if (profile.role === 'elev' && !profile.is_admin) {
+    return res.status(403).json({ error: 'Conturile de elev nu pot posta sau distribui conținutul generat. Doar profesorii și părinții pot crea și trimite teme.' });
+  }
+
   const creatorName = profile.full_name || profile.email || (profile.role === 'parinte' ? 'Părinte' : 'Profesor');
   const creatorRole = profile.role === 'parinte' ? 'parinte' : 'profesor';
 

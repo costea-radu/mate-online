@@ -13,6 +13,17 @@ export default function InstallPrompt() {
   const [deferred, setDeferred] = useState(null);
   const [visible, setVisible] = useState(false);
   const [iosHelp, setIosHelp] = useState(false);
+  // Pe ecrane înguste (telefon) butonul plutitor „Prof. Virtual" + eticheta lui
+  // ocupă colțul dreapta-jos și se suprapuneau peste butonul „Nu acum" al
+  // cardului. Sub 600px ridicăm cardul DEASUPRA zonei butonului plutitor
+  // (care are ~82px + eticheta) și îl lăsăm să folosească toată lățimea.
+  const [narrow, setNarrow] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 600 : false));
+
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth < 600);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   useEffect(() => {
     if (isStandalone()) return;
@@ -51,8 +62,8 @@ export default function InstallPrompt() {
 
   return (
     <div style={{
-      position: 'fixed', left: 16, bottom: 16, zIndex: 998,
-      width: 'min(340px, calc(100vw - 110px))',
+      position: 'fixed', left: 16, bottom: narrow ? 96 : 16, zIndex: 998,
+      width: narrow ? 'min(340px, calc(100vw - 32px))' : 'min(340px, calc(100vw - 110px))',
       background: 'var(--navy, #0f2b44)', color: 'var(--cream, #faf6ec)',
       borderRadius: 14, boxShadow: '0 8px 30px rgba(0,0,0,.35)', padding: '14px 16px',
     }}>

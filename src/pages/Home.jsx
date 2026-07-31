@@ -26,14 +26,21 @@ export default function Home() {
       <section className="hero">
         <div className="container hero-content">
           <h1 className="fade-in-up">
-            Matematica devine <span>simplă</span> cu ExamenMate
+            Repetiția este <span>mama învățăturii</span>
           </h1>
-          <p className="fade-in-up delay-1">
+          <p className="fade-in-up delay-1" style={{
+            fontFamily: 'var(--font-display)', fontStyle: 'italic',
+            fontSize: '1rem', color: 'rgba(255,255,255,0.6)',
+            marginTop: -8, marginBottom: 22,
+          }}>
+            „repetitio est mater studiorum”
+          </p>
+          <p className="fade-in-up delay-2">
             Exerciții PDF, teste interactive, auxiliare online și un Profesor Virtual (AI)
             care te ajută pas cu pas — pentru clasele 5–12, Evaluarea Națională și Bacalaureat.
-            Totul într-un singur loc.
+            Totul într-un singur loc, pe ExamenMate.
           </p>
-          <div className="hero-actions fade-in-up delay-2">
+          <div className="hero-actions fade-in-up delay-3">
             <Link to="/inregistrare" className="btn btn-primary btn-lg">Începe gratuit</Link>
             <Link to="/preturi" className="btn btn-lg" style={{
               color: 'rgba(255,255,255,0.85)',

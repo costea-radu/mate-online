@@ -57,8 +57,8 @@ export default function AITeacherReport() {
           {/* Sumar */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginBottom: 16 }}>
             <Stat label="Elevi" value={data.totals.students} />
-            <Stat label="Au exersat cu AI" value={data.totals.practiced} />
-            <Stat label="Stăpânire medie" value={data.totals.avgMastery != null ? pct(data.totals.avgMastery) : '—'} />
+            <Stat label="Au exersat cu AI (au generat teste și le-au rezolvat)" value={data.totals.practiced} />
+            <Stat label="Stăpânire medie (media reușitei elevilor la exercițiile rezolvate cu AI)" value={data.totals.avgMastery != null ? pct(data.totals.avgMastery) : '—'} />
             <Stat label="În dificultate" value={data.totals.atRisk} highlight={data.totals.atRisk > 0} />
           </div>
 
