@@ -58,8 +58,9 @@ function nextRunText(t) {
 }
 
 function statusChip(status) {
-  if (status === 'posted') return <span style={chip('rgba(39,174,96,.12)', '#1e7e34')}>✅ postat pe site</span>;
+  if (status === 'posted') return <span style={chip('rgba(39,174,96,.12)', '#1e7e34')}>✅ publicat pe site</span>;
   if (status === 'pending_review') return <span style={chip('#fff4e5', '#8a6d00')}>🕓 așteaptă aprobare</span>;
+  if (status === 'skipped') return <span style={chip('#eef1f6', '#5a6379')}>ℹ️ nimic de generat</span>;
   if (status === 'error') return <span style={chip('#fdecea', '#b71c1c')}>⚠️ eroare</span>;
   return <span style={chip('#eef1f6', '#5a6379')}>—</span>;
 }
@@ -187,6 +188,13 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
     try { await aiClient.agentTasks({ action: 'delete', id: t.id }); if (openRuns === t.id) setOpenRuns(null); load(); }
     catch (e) { setError(e.message); }
   }
+  async function resetProgress(t) {
+    const n = t.seq_done?.length || 0;
+    if (!window.confirm(`Reiei progresul „pe rând” al task-ului „${t.name}” de la PRIMUL fișier al rubricii? (cele ${n} fișiere marcate ca procesate se uită; materialele deja publicate rămân pe site)`)) return;
+    try { await aiClient.agentTasks({ action: 'reset_progress', id: t.id }); setMsg('↺ Progresul „pe rând” a fost resetat — următoarea rulare începe de la primul fișier.'); load(); }
+    catch (e) { setError(e.message); }
+  }
+
   async function runNow(t) {
     setRunningId(t.id); setError(null); setMsg(null);
     try {
@@ -228,7 +236,7 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
     finally { setBusyRun(null); }
   }
   async function approveRun(run, t) {
-    if (!window.confirm(`Postezi „${run.title}” pe site, în rubrica task-ului „${t.name}”?`)) return;
+    if (!window.confirm(`Publici „${run.title}” pe site, în rubrica task-ului „${t.name}”?`)) return;
     setBusyRun(run.id); setError(null);
     try {
       await aiClient.agentTasks({ action: 'post_run', runId: run.id });
@@ -398,10 +406,15 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
             </div>
           )}
 
-          <label style={{ ...lbl, display: 'block', marginBottom: 10 }}>Instrucțiuni pentru agent (opțional)
-            <input value={f.instructions} onChange={(e) => patch({ instructions: e.target.value })}
-              placeholder="ex: dificultate medie; accent pe geometrie; grile la Subiectul I…" style={inp} />
-          </label>
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ ...lbl, display: 'block' }}>Instrucțiuni pentru agent (opțional) — aici alegi și METODA de lucru
+              <input value={f.instructions} onChange={(e) => patch({ instructions: e.target.value })}
+                placeholder="ex: „ia pe rând fișierele rubricii” · „combină modelele din rubrică” · „folosește baremele corespondente” · dificultate medie…" style={inp} />
+            </label>
+            <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>
+              🧭 Metode înțelese de agent: <strong>„ia pe rând fișierele rubricii”</strong> (sau „câte un fișier”, „unul câte unul”) — la fiecare rulare transformă URMĂTORUL fișier neprelucrat într-un test interactiv nou, cu progres ținut minte per task (↺ îl resetează); <strong>„combină modelele din rubrică”</strong> — metoda clasică (implicită); <strong>„folosește baremele”</strong> + rubrica de bareme la context — face singur corespondența test ↔ barem după titlu și ia rezolvările/punctajele din barem.
+            </div>
+          </div>
 
           <AIModelPicker value={f.ai_model} onChange={(m) => patch({ ai_model: m })} />
 
@@ -475,6 +488,7 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
                 </div>
                 <div style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
                   {rubricLabel(t)} · {scheduleText(t)} · următoarea: {nextRunText(t)}
+                  {t.seq_done?.length > 0 && <> · pe rând: {t.seq_done.length}{rubricByKey(rubricKeyOf(t))?.n ? `/${rubricByKey(rubricKeyOf(t)).n}` : ''} fișiere procesate</>}
                   {t.last_run_at && <> · ultima: {new Date(t.last_run_at).toLocaleString('ro-RO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} {statusChip(t.last_status)}</>}
                 </div>
                 {t.last_status === 'error' && t.last_error && (
@@ -486,6 +500,9 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
                   {runningId === t.id ? '⏳ Rulează… (~30-90s)' : '▶️ Rulează acum'}
                 </button>
                 <button style={smallBtn} onClick={() => toggleRuns(t)}>📜 Istoric</button>
+                {t.seq_done?.length > 0 && (
+                  <button style={smallBtn} onClick={() => resetProgress(t)} title="Modul «pe rând»: reia rubrica de la primul fișier">↺</button>
+                )}
                 <button style={smallBtn} onClick={() => toggle(t)}>{t.enabled ? '⏸ Oprește' : '▶ Pornește'}</button>
                 <button style={smallBtn} onClick={() => openEdit(t)}>✏️</button>
                 <button style={{ ...smallBtn, color: '#c0392b', borderColor: '#f5c6cb' }} onClick={() => remove(t)}>🗑</button>
@@ -513,9 +530,9 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {r.status === 'pending_review' && (
                         <>
-                          <button style={smallBtn} disabled={busyRun === r.id} onClick={() => previewRun(r)}>👁 Previzualizare</button>
+                          <button style={smallBtn} disabled={busyRun === r.id} onClick={() => previewRun(r)}>👁 Vizualizează</button>
                           <button style={{ ...smallBtn, background: 'var(--navy)', color: '#fff' }} disabled={busyRun === r.id} onClick={() => approveRun(r, t)}>
-                            {busyRun === r.id ? '…' : '✅ Postează pe site'}
+                            {busyRun === r.id ? '…' : '✅ Publică acum'}
                           </button>
                         </>
                       )}

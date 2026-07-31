@@ -54,9 +54,13 @@ create table if not exists agent_tasks (
   post_type     text not null default 'test' check (post_type in ('exercise','test')),
   notify        boolean not null default true,       -- email către admin după fiecare rulare
 
+  -- PROGRESUL modului „pe rând" (instrucțiuni de tip „ia pe rând fișierele"):
+  -- id-urile materialelor din rubrică deja procesate de acest task
+  seq_done      jsonb,
+
   -- STAREA ultimei rulări (istoricul complet e în agent_task_runs)
   last_run_at   timestamptz,
-  last_status   text,                                -- 'posted' | 'pending_review' | 'error'
+  last_status   text,                                -- 'posted' | 'pending_review' | 'skipped' | 'error'
   last_error    text
 );
 
@@ -79,6 +83,7 @@ create table if not exists agent_task_runs (
 -- script (create table if not exists NU adaugă coloane noi la tabele vechi):
 alter table agent_tasks add column if not exists extra_rubrics jsonb;
 alter table agent_tasks add column if not exists format_model  jsonb;
+alter table agent_tasks add column if not exists seq_done      jsonb;
 alter table agent_tasks drop constraint if exists agent_tasks_result_kind_check;
 alter table agent_tasks add  constraint agent_tasks_result_kind_check
   check (result_kind in ('auto','interactive','exam','format'));

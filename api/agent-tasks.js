@@ -10,6 +10,7 @@
 //   update  {id, patch}         → { task }
 //   toggle  {id, enabled}       → { ok }
 //   delete  {id}                → { ok }
+//   reset_progress {id}         → { ok }    (modul „pe rând": reia de la primul fișier)
 //   run_now {id}                → { run }   (execută imediat, ~30–90s)
 //   runs    {taskId}            → { runs: [...] }  (fără HTML-ul mare)
 //   run_result {runId}          → { result }        (pentru previzualizare)
@@ -161,6 +162,15 @@ module.exports = async function handler(req, res) {
       const { error } = await supa.from('agent_tasks').delete().eq('id', id);
       if (error) throw new Error(error.message);
       if (t?.format_model) await exgen.removeFormatModel({ supa, formatModel: t.format_model });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'reset_progress') {
+      // modul „pe rând": reia rubrica de la primul fișier (golește seq_done)
+      const id = req.body.id;
+      if (!id) return res.status(400).json({ error: 'Lipsește id-ul task-ului.' });
+      const { error } = await supa.from('agent_tasks').update({ seq_done: null }).eq('id', id);
+      if (error) throw new Error(error.message);
       return res.status(200).json({ ok: true });
     }
 

@@ -98,6 +98,57 @@ test('agent-tasks.cleanTask + exgen.runAuto: rezultatul „format”', async () 
   );
 });
 
+test('exgen.detectMode: metoda de lucru dedusă din instrucțiuni', () => {
+  // „pe rând" — cu și fără diacritice, formulări diferite
+  assert.ok(exgen.detectMode('generează exerciții interactive din rubrică, luând pe rând fișierele rubricii').sequential);
+  assert.ok(exgen.detectMode('ia pe rand fisierele').sequential);
+  assert.ok(exgen.detectMode('câte un fișier per rulare').sequential);
+  assert.ok(exgen.detectMode('unul cate unul').sequential);
+  assert.ok(exgen.detectMode('fiecare fișier din rubrică într-un test nou').sequential);
+  // combinarea (implicit) — NU e secvențială
+  assert.ok(!exgen.detectMode('generează test interactiv după modelele din rubrică, combinându-le').sequential);
+  assert.ok(!exgen.detectMode('').sequential);
+  assert.ok(!exgen.detectMode('dificultate medie, accent pe geometrie').sequential);
+  // pair: cere „barem" în instrucțiuni SAU o rubrică extra cu „barem" în nume — și context prezent
+  const bareme = [{ category: 'evaluare-nationala', subcategory: 'bareme', ctype: 'pdf' }];
+  assert.ok(exgen.detectMode('folosește baremele corespondente', bareme).pair);
+  assert.ok(exgen.detectMode('', bareme).pair, 'rubrica „bareme" la context → pair automat');
+  assert.ok(!exgen.detectMode('folosește baremele', []).pair, 'fără rubrici extra → fără pair');
+  assert.ok(!exgen.detectMode('', [{ category: 'clasa-7', subcategory: 'teste', ctype: 'pdf' }]).pair);
+});
+
+test('exgen.titleMatchScore: corespondența test ↔ barem după titlu', () => {
+  const s = exgen.titleMatchScore;
+  // numărul comun + cuvinte comune → scor mare
+  assert.ok(s('Testul 3 · Evaluare Națională 2025', 'Barem Testul 3 Evaluare Națională 2025') > 0.5);
+  // numere diferite → 0 (Testul 3 ≠ Testul 7)
+  assert.strictEqual(s('Testul 3 EN', 'Barem Testul 7 EN'), 0);
+  // potrivirea corectă câștigă dintre mai mulți candidați
+  const candidates = ['Barem Testul 1', 'Barem Testul 2', 'Barem Testul 3'];
+  const best = candidates.map((c) => [c, s('Testul 3', c)]).sort((a, b) => b[1] - a[1])[0][0];
+  assert.strictEqual(best, 'Barem Testul 3');
+  // fără nicio legătură → scor mic
+  assert.ok(s('Simulare aprilie geometrie', 'Barem algebra decembrie') < 0.35);
+});
+
+test('exgen.runAuto „pe rând”: când toate fișierele au fost procesate → skipped', async () => {
+  // supa fals: rubrica are 2 materiale, ambele deja în seq_done
+  const rows = [{ id: 'a1', title: 'Testul 1' }, { id: 'a2', title: 'Testul 2' }];
+  const fakeQ = {
+    select() { return this; }, eq() { return this; }, in() { return this; },
+    order() { return this; },
+    limit: async () => ({ data: rows }),
+  };
+  const fakeSupa = { from: () => fakeQ };
+  const r = await exgen.runAuto({
+    supa: fakeSupa, category: 'clasa-7', ctype: 'pdf',
+    instructions: 'ia pe rând fișierele rubricii',
+    seqDone: ['a1', 'a2'],
+  });
+  assert.strictEqual(r.skipped, true);
+  assert.match(r.reason, /procesate/);
+});
+
 test('agent-cron.isDue: potrivirea programului + garda anti-dublare', () => {
   const now = { hour: 7, weekday: 5, monthday: 31 }; // vineri 31, ora 7
   assert.ok(cron.isDue({ enabled: true, schedule_kind: 'daily', run_hour: 7 }, now));

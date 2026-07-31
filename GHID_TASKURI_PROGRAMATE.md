@@ -64,6 +64,22 @@ Admin → Generator de exerciții → jos, panoul **„🗓 Task-uri programate"
   Fișierul apare în listă pe task (🗂) și se poate înlocui/scoate din ✏️ Editare.
 - **Instrucțiuni** opționale; **Modelul AI**; regimul datelor
   (păstrează / modifică numerele).
+
+### Metoda de lucru — o alegi în „Instrucțiuni pentru agent"
+
+Agentul înțelege trei metode, per task (fiecare task își păstrează metoda,
+modelul AI și modelul de format propriu — pot fi diferite între task-uri):
+
+| Ce scrii în instrucțiuni | Ce face agentul |
+|---|---|
+| *(nimic special)* sau „**combină modelele din rubrică**" | metoda clasică: combină exerciții din mai multe fișiere ale rubricii într-un test nou |
+| „**ia pe rând fișierele rubricii**" (sau „câte un fișier", „unul câte unul", „fiecare fișier") | la FIECARE rulare ia URMĂTORUL fișier neprelucrat din rubrică (cel mai vechi primul) și îl transformă singur într-un test/exercițiu interactiv nou — câte unul per publicare. Progresul se ține minte per task (rândul task-ului arată „pe rând: N/M fișiere procesate"; ↺ resetează). Când toate au fost procesate, rularea raportează „nimic nou de generat" (email ℹ️) — dar dacă adaugi fișiere NOI în rubrică, le prinde automat |
+| „**folosește baremele**" (sau „corespondente") + rubrica de bareme adăugată la context | pentru fiecare test-sursă caută singur BAREMUL CORESPONDENT în rubrica de bareme, potrivind titlurile (numerele cântăresc cel mai mult: „Testul 3" ↔ „Barem Testul 3"), și ia din barem răspunsurile, rezolvările și punctajele. Se activează și AUTOMAT când rubrica din context are „barem" în nume. Merge combinat cu „pe rând" |
+
+Sursa „pe rând": PDF → test interactiv structurat (itemii și baremul sursei,
+transformate); fișier interactiv → varianta lui nouă (același design și
+figuri, alte valori după regimul datelor); cu model de format HTML →
+exercițiile sursei turnate în formatul tău.
 - **📤 Postează automat** — bifat: materialul apare direct pe site în rubrica
   aleasă (alegi și Gratuit/Premium + Test/Exercițiu). Nebifat: rezultatul
   rămâne în **istoricul task-ului** cu „🕓 așteaptă aprobare" — îl

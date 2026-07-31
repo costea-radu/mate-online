@@ -131,6 +131,121 @@ const extraLine = (names) => (names.length
   ? `\nPrimești și MATERIALE DE CONTEXT SUPLIMENTAR (${names.length}, ex. bareme oficiale): NU le combina ca teste-sursă — folosește-le ca referință pentru stilul baremului/punctării, formulările cerințelor și rigoarea rezolvărilor.`
   : '');
 
+// ─── MODUL DE GENERARE — detectat din „Instrucțiuni pentru agent" ────────────
+// • sequential („pe rând"): fiecare rulare ia URMĂTORUL fișier neprelucrat din
+//   rubrică și îl transformă singur într-un exercițiu/test interactiv nou —
+//   fraze de tip „ia pe rând fișierele rubricii", „câte un fișier", „unul câte
+//   unul", „fiecare fișier în parte".
+// • pair (corespondență test↔barem): rubrica principală = modelele, o rubrică
+//   suplimentară = baremele; agentul primește pentru fiecare test-sursă
+//   BAREMUL CORESPONDENT, potrivit după titlu (numere + cuvinte comune) —
+//   activat de cuvântul „barem"/„corespondent" în instrucțiuni SAU automat
+//   când o rubrică din context are „barem" în nume.
+// Fără fraze speciale → combinarea clasică (comportamentul de până acum).
+const deDia = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+function detectMode(instructions, extraRubrics = []) {
+  const t = ' ' + deDia(instructions).replace(/[^a-z0-9]+/g, ' ') + ' ';
+  const sequential =
+    / pe rand /.test(t) || / rand pe rand /.test(t) ||
+    / unul cate unul /.test(t) || / una cate una /.test(t) ||
+    / cate un (fisier|material|test|model|subiect) /.test(t) ||
+    / cate unul /.test(t) ||
+    / fiecare (fisier|material|test|subiect) /.test(t) ||
+    / luand pe rand /.test(t) || / ia pe rand /.test(t) || / luate pe rand /.test(t);
+  const extraHasBarem = (Array.isArray(extraRubrics) ? extraRubrics : [])
+    .some((r) => /barem/.test(deDia(`${r?.category || ''} ${r?.subcategory || ''}`)));
+  const pair = (Array.isArray(extraRubrics) && extraRubrics.length > 0)
+    && (/barem|corespondent/.test(t) || extraHasBarem);
+  return { sequential, pair };
+}
+
+// ─── Potrivirea test ↔ barem după TITLU (numerele cântăresc cel mai mult) ────
+const TITLE_STOP = new Set(['barem', 'bareme', 'baremul', 'baremele', 'rezolvare', 'rezolvari', 'rezolvarea', 'corectare', 'evaluare', 'si', 'de', 'la', 'cu', 'din', 'pentru', 'al', 'a', 'lui']);
+
+function titleMatchScore(srcTitle, candTitle) {
+  const tok = (s) => deDia(s).replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter((w) => w && !TITLE_STOP.has(w));
+  const at = tok(srcTitle);
+  const bt = tok(candTitle);
+  if (!at.length || !bt.length) return 0;
+  const aNums = at.filter((w) => /^\d+$/.test(w));
+  const bNums = bt.filter((w) => /^\d+$/.test(w));
+  // ambele au numere dar niciunul comun → aproape sigur alt test (Testul 3 ≠ Testul 7)
+  if (aNums.length && bNums.length && !aNums.some((n) => bNums.includes(n))) return 0;
+  const bset = new Set(bt);
+  const common = at.filter((w) => bset.has(w)).length;
+  let score = common / Math.max(at.length, bt.length);
+  if (aNums.length && bNums.length && aNums.some((n) => bNums.includes(n))) score += 0.4;
+  return score;
+}
+
+// Pentru fiecare titlu-sursă, caută în rubricile suplimentare materialul
+// CORESPONDENT (ex. baremul aceluiași test) și îl atașează: PDF nativ (≤ ~2,5MB
+// fiecare, ≤ ~5MB în total) sau extras text. Returnează și `pairs` (cine cu cine).
+async function fetchPairedContext(supa, extraRubrics, srcTitles, parsePath) {
+  const candidates = [];
+  for (const r of (Array.isArray(extraRubrics) ? extraRubrics : []).slice(0, 3)) {
+    if (!r || !r.category) continue;
+    try {
+      let q = supa.from('content')
+        .select('id, title, file_url, interactive_data, content_type')
+        .eq('content_type', r.ctype === 'pdf' ? 'pdf' : 'interactive')
+        .eq('category', r.category);
+      if (r.subcategory && String(r.subcategory).includes('+')) q = q.in('subcategory', String(r.subcategory).split('+'));
+      else if (r.subcategory) q = q.eq('subcategory', r.subcategory);
+      if (r.profile) q = q.eq('profile', r.profile);
+      const { data: rows } = await q.limit(200);
+      candidates.push(...(rows || []));
+    } catch { /* rubrică ignorată */ }
+  }
+  const docBlocks = [];
+  const texts = [];
+  const pairs = [];
+  const used = new Set();
+  let pdfBytes = 0;
+  for (const st of srcTitles.slice(0, 3)) {
+    let best = null;
+    let bestScore = 0;
+    for (const c of candidates) {
+      if (used.has(c.id)) continue;
+      const s = titleMatchScore(st, c.title);
+      if (s > bestScore) { bestScore = s; best = c; }
+    }
+    if (!best || bestScore < 0.35) continue;
+    used.add(best.id);
+    try {
+      if (best.content_type === 'pdf') {
+        const { bucket, filePath } = parsePath(best.file_url);
+        const { data: blob } = await supa.storage.from(bucket).download(filePath);
+        if (!blob) continue;
+        const buf = Buffer.from(await blob.arrayBuffer());
+        if (buf.length > 2.5 * 1024 * 1024 || pdfBytes + buf.length > 5 * 1024 * 1024) continue;
+        pdfBytes += buf.length;
+        docBlocks.push({ type: 'text', text: `BAREMUL/REZOLVAREA CORESPONDENTĂ pentru „${st}”: ${best.title}` });
+        docBlocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buf.toString('base64') } });
+      } else if (best.interactive_data?.exercise) {
+        texts.push({ title: `${best.title} (corespondent pentru „${st}”)`, text: JSON.stringify(best.interactive_data.exercise).slice(0, 5000) });
+      } else {
+        const { bucket, filePath } = parsePath(best.file_url);
+        const { data: blob } = await supa.storage.from(bucket).download(filePath);
+        if (!blob) continue;
+        const raw = Buffer.from(await blob.arrayBuffer()).toString('utf8');
+        const txt = raw.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (txt.length < 100) continue;
+        texts.push({ title: `${best.title} (corespondent pentru „${st}”)`, text: txt.slice(0, 5000) });
+      }
+      pairs.push(`${st} ↔ ${best.title}`);
+    } catch { /* material ignorat */ }
+  }
+  const textBlock = texts.length
+    ? `\n\n=== BAREME/REZOLVĂRI CORESPONDENTE (potrivite după titlu) ===\n${texts.map((x) => `— ${x.title}:\n${x.text}`).join('\n\n')}\n=== SFÂRȘIT BAREME CORESPONDENTE ===`
+    : '';
+  const line = pairs.length
+    ? `\nAi și BAREMELE/REZOLVĂRILE CORESPONDENTE ale unor teste-sursă, potrivite după titlu (${pairs.join('; ')}): folosește-le pentru RĂSPUNSURILE corecte, REZOLVĂRILE din "explanation" și proporțiile baremului ("points") — au prioritate față de propriile tale calcule când diferă.`
+    : '';
+  return { docBlocks, textBlock, names: pairs, line, pairs };
+}
+
 // ─── AUTOMATIZAREA pe rubrică (mutată din ai-exercise-agent.js, acțiunea
 // „auto") — combină teste existente din rubrică într-un test NOU.
 // Rubrici INTERACTIVE → FORMATUL STANDARD (HTML cu figuri + desen), sau
@@ -142,21 +257,28 @@ const extraLine = (names) => (names.length
 // adminului: HTML → rezultatul CLONEAZĂ exact fișierul (design+funcții),
 // PDF → structura testului structurat se potrivește cu el.
 // Adună usage-ul tuturor apelurilor; apelantul face ai.logUsage.
-async function runAuto({ supa, category, subcategory = null, profile = null, ctype = 'interactive', instructions: autoInstr = '', resultKind = 'auto', dataMode = 'modify', aiModel = null, extraRubrics = [], formatHtml = null, formatPdf = null }) {
+async function runAuto({ supa, category, subcategory = null, profile = null, ctype = 'interactive', instructions: autoInstr = '', resultKind = 'auto', dataMode = 'modify', aiModel = null, extraRubrics = [], formatHtml = null, formatPdf = null, seqDone = [] }) {
   if (!category) throw httpErr(400, 'Alege rubrica (categoria).');
   if (resultKind === 'format' && !formatHtml && !formatPdf) {
     throw httpErr(400, 'Task-ul cere rezultat „după modelul de format", dar modelul de format lipsește — încarcă un fișier HTML sau PDF în setările task-ului.');
   }
   const wantFormatHtml = resultKind === 'format' && !!formatHtml; // clonare exactă a șablonului încărcat
   const wantFormatPdf = resultKind === 'format' && !formatHtml && !!formatPdf; // structură după PDF
+
+  // Modul de lucru, dedus din instrucțiuni: „pe rând" / combinare (implicit),
+  // + corespondența test↔barem când contextul suplimentar o permite.
+  const mode = detectMode(autoInstr, extraRubrics);
+  const hasExtras = Array.isArray(extraRubrics) && extraRubrics.length > 0;
+
   let q = supa.from('content')
     .select('id, title, file_url, interactive_data, subcategory, content_type')
     .eq('content_type', ctype).eq('category', category);
   if (subcategory && String(subcategory).includes('+')) q = q.in('subcategory', String(subcategory).split('+'));
   else if (subcategory) q = q.eq('subcategory', subcategory);
   if (profile) q = q.eq('profile', profile); // separă strict profilurile BAC
-  const { data: rows } = await q.limit(40);
-  if (!rows || rows.length < 2) throw httpErr(400, 'Rubrica are prea puține materiale (minim 2) pentru combinare.');
+  const { data: rows } = await q.order('created_at', { ascending: true }).limit(200);
+  if (!rows || !rows.length) throw httpErr(400, 'Rubrica nu are materiale de tipul ales.');
+  if (!mode.sequential && rows.length < 2) throw httpErr(400, 'Rubrica are prea puține materiale (minim 2) pentru combinare.');
 
   const parsePath = (fileUrl) => {
     const url = new URL(fileUrl);
@@ -166,10 +288,142 @@ async function runAuto({ supa, category, subcategory = null, profile = null, cty
   };
   const shuffled = [...rows].sort(() => Math.random() - 0.5);
 
-  // Context suplimentar din alte rubrici (ex. baremele) — referință, nu surse
-  const extra = (Array.isArray(extraRubrics) && extraRubrics.length)
-    ? await fetchExtraContext(supa, extraRubrics, parsePath)
-    : { docBlocks: [], textBlock: '', names: [] };
+  // Contextul suplimentar pentru sursele date: la modul „pair" întâi caută
+  // BAREMELE CORESPONDENTE (după titlu); dacă nu găsește nimic — sau modul e
+  // simplu — cade pe referințele alese la întâmplare din rubricile extra.
+  async function ctxFor(srcTitles) {
+    if (!hasExtras) return { docBlocks: [], textBlock: '', names: [], line: '' };
+    if (mode.pair) {
+      const paired = await fetchPairedContext(supa, extraRubrics, srcTitles, parsePath);
+      if (paired.names.length) return paired;
+    }
+    const e = await fetchExtraContext(supa, extraRubrics, parsePath);
+    return { ...e, line: extraLine(e.names) };
+  }
+
+  // ── MOD „PE RÂND": fiecare rulare ia URMĂTORUL fișier neprelucrat din
+  // rubrică și îl transformă singur într-un test/exercițiu interactiv nou.
+  // Progresul (ce fișiere s-au procesat) vine din task.seq_done (seqDone).
+  if (mode.sequential) {
+    const doneSet = new Set(Array.isArray(seqDone) ? seqDone : []);
+    const src = rows.find((r) => !doneSet.has(r.id));
+    if (!src) {
+      return {
+        skipped: true,
+        reason: 'Toate fișierele din rubrică au fost deja procesate de acest task. Adaugă materiale noi în rubrică sau resetează progresul (↺) din panoul task-ului.',
+      };
+    }
+    const ctx = await ctxFor([src.title]);
+
+    // sursa: PDF → bloc nativ; interactiv → JSON-ul exercițiului sau HTML brut
+    let srcPdf = null;
+    let srcHtml = null;
+    let srcText = null;
+    if (src.content_type === 'pdf') {
+      const { bucket, filePath } = parsePath(src.file_url);
+      const { data: blob } = await supa.storage.from(bucket).download(filePath);
+      if (!blob) throw httpErr(502, `Nu am putut descărca fișierul-sursă „${src.title}" din Storage.`);
+      const buf = Buffer.from(await blob.arrayBuffer());
+      if (buf.length > 3 * 1024 * 1024) throw httpErr(400, `Fișierul-sursă „${src.title}" e prea mare (max ~3 MB).`);
+      srcPdf = buf.toString('base64');
+    } else if (src.interactive_data?.exercise) {
+      srcText = JSON.stringify(src.interactive_data.exercise).slice(0, 20000);
+    } else {
+      const { bucket, filePath } = parsePath(src.file_url);
+      const { data: blob } = await supa.storage.from(bucket).download(filePath);
+      if (!blob) throw httpErr(502, `Nu am putut descărca fișierul-sursă „${src.title}" din Storage.`);
+      srcHtml = Buffer.from(await blob.arrayBuffer()).toString('utf8').slice(0, 160000);
+    }
+
+    // (a) sursă HTML fără model de format → CLONĂM chiar fișierul-sursă:
+    // același design și funcționalitate, conținutul ajustat după dataMode.
+    if (srcHtml && !wantFormatHtml) {
+      const sysSeq = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
+Primești UN SINGUR fișier HTML sursă (un test/exercițiu interactiv al rubricii „${category}${subcategory ? ' / ' + subcategory : ''}”). Sarcina: produci un fișier HTML NOU, COMPLET și AUTONOM, pornind de la acest fișier — VARIANTA lui nouă.
+Reguli stricte:
+- COPIAZĂ ÎNTOCMAI tot ce nu ține de conținutul exercițiilor: CSS-ul complet, TOT JavaScript-ul, instrumentele (desen, creion, radieră etc.), structura și bara de scor — NIMIC eliminat sau simplificat;
+- FIGURILE/DESENELE (SVG, canvas, imagini) NU SE MODIFICĂ DELOC (vor fi restaurate programatic din sursă, deci modificarea lor e inutilă și greșită); itemii cu figură rămân consistenți cu figura;
+- REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}
+- păstrează (sau adaugă, dacă lipsește) raportarea scorului: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*');
+- răspunsurile corecte trebuie să fie corecte matematic; verifică-ți calculele.${ctx.line}
+Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), fără explicații, fără markdown.`;
+      const blocksS = [];
+      blocksS.push(...ctx.docBlocks);
+      blocksS.push({ type: 'text', text: `FIȘIERUL-SURSĂ („${src.title}”):\n${srcHtml}${ctx.textBlock}\n\nProdu ACUM varianta nouă — doar documentul HTML.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare, dar desenele tot NU se modifică): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+      const rS = await claude.chatClaude({ system: sysSeq, messages: [{ role: 'user', content: blocksS }], maxTokens: 24000, model: aiModel });
+      let hS = String(rS.text || '');
+      const fS = hS.match(/```(?:html)?\s*([\s\S]*?)```/i); if (fS) hS = fS[1];
+      const sS = hS.search(/<!doctype html|<html[\s>]/i); const eS = hS.lastIndexOf('</html>');
+      if (sS !== -1 && eS > sS) hS = hS.slice(sS, eS + 7);
+      hS = hS.trim();
+      const srcSvgs = srcHtml.match(/<svg[\s\S]*?<\/svg>/gi) || [];
+      if (srcSvgs.length) { let k = 0; hS = hS.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (k < srcSvgs.length ? srcSvgs[k++] : m)); }
+      if (sS === -1 || hS.length < 600) {
+        console.error('exgen(seq-html): invalid. stopReason=%s', rS.stopReason);
+        throw httpErr(502, `Nu am obținut o variantă validă a fișierului „${src.title}”. Mai încearcă.`);
+      }
+      return { html: hS, provider: rS.provider, combinedFrom: [src.title, ...ctx.names], usage: rS.usage, sourceId: src.id, sourceTitle: src.title, template: src.title };
+    }
+
+    // (b) model de format HTML → clonăm MODELUL DE FORMAT, cu exercițiile
+    // preluate/adaptate din fișierul-sursă curent.
+    if (wantFormatHtml) {
+      const sysSeqF = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
+Primești un ȘABLON HTML — MODELUL DE FORMAT ales de admin — și UN SINGUR material-sursă („${src.title}”, din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”).
+Construiește un fișier HTML NOU în ACELAȘI fișier-format ca șablonul, cu exercițiile preluate/adaptate din materialul-sursă.
+Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente, bara de scor); FIGURILE din șablon NU se modifică; raportarea scorului MATE_SCORE se păstrează (sau se adaugă: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${ctx.line}
+Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
+      const tplF = String(formatHtml).slice(0, 180000);
+      const blocksF = [];
+      if (srcPdf) {
+        blocksF.push({ type: 'text', text: `MATERIALUL-SURSĂ (PDF): ${src.title}` });
+        blocksF.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: srcPdf } });
+      }
+      blocksF.push(...ctx.docBlocks);
+      blocksF.push({ type: 'text', text: `ȘABLONUL (modelul de format):\n${tplF}${srcText ? `\n\nMATERIALUL-SURSĂ („${src.title}”):\n${srcText}` : ''}${srcHtml ? `\n\nMATERIALUL-SURSĂ („${src.title}”, HTML):\n${srcHtml.slice(0, 60000)}` : ''}${ctx.textBlock}\n\nConstruiește acum fișierul.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+      const rF = await claude.chatClaude({ system: sysSeqF, messages: [{ role: 'user', content: blocksF }], maxTokens: 24000, model: aiModel });
+      let hF = String(rF.text || '');
+      const fF = hF.match(/```(?:html)?\s*([\s\S]*?)```/i); if (fF) hF = fF[1];
+      const sF = hF.search(/<!doctype html|<html[\s>]/i); const eF = hF.lastIndexOf('</html>');
+      if (sF !== -1 && eF > sF) hF = hF.slice(sF, eF + 7);
+      hF = hF.trim();
+      const tplSvgsF = tplF.match(/<svg[\s\S]*?<\/svg>/gi) || [];
+      if (tplSvgsF.length) { let k = 0; hF = hF.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (k < tplSvgsF.length ? tplSvgsF[k++] : m)); }
+      if (sF === -1 || hF.length < 600) {
+        console.error('exgen(seq-format): invalid. stopReason=%s', rF.stopReason);
+        throw httpErr(502, `Nu am obținut un fișier valid din „${src.title}” în modelul de format. Mai încearcă.`);
+      }
+      return { html: hF, provider: rF.provider, combinedFrom: [src.title, ...ctx.names], usage: rF.usage, sourceId: src.id, sourceTitle: src.title, template: 'modelul de format al task-ului' };
+    }
+
+    // (c) sursă PDF sau exercițiu JSON → test interactiv STRUCTURAT (JSON),
+    // transformarea întregului fișier-sursă (opțional după modelul de format PDF).
+    const sysSeqJ = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
+Primești UN SINGUR material-sursă („${src.title}”, din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”). Transformă-l ÎNTREG într-un test/exercițiu INTERACTIV NOU: păstrează numărul de itemi, ordinea, structura și baremul materialului-sursă.
+REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA rezultatului (itemi, secțiuni, barem) cu el, iar CONȚINUTUL cu materialul-sursă.' : ''}${ctx.line}
+Răspunde STRICT cu UN obiect JSON valid (fără alt text):
+{ "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] }
+Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ cu backslash dublu. Indiciile („hint”) ghidează fără să dea răspunsul; „explanation” = rezolvarea completă. Verifică-ți calculele.`;
+    const blocksJ = [];
+    if (srcPdf) {
+      blocksJ.push({ type: 'text', text: `MATERIALUL-SURSĂ (PDF): ${src.title}` });
+      blocksJ.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: srcPdf } });
+    }
+    if (wantFormatPdf) {
+      blocksJ.push({ type: 'text', text: 'MODELUL DE FORMAT (PDF) — structura rezultatului se potrivește cu el:' });
+      blocksJ.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: String(formatPdf) } });
+    }
+    blocksJ.push(...ctx.docBlocks);
+    blocksJ.push({ type: 'text', text: `${srcText ? `MATERIALUL-SURSĂ („${src.title}”):\n${srcText}\n\n` : ''}${ctx.textBlock ? ctx.textBlock + '\n\n' : ''}Transformă acum materialul-sursă în test interactiv.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+    const rJ = await claude.chatClaude({ system: sysSeqJ, messages: [{ role: 'user', content: blocksJ }], maxTokens: 12000, model: aiModel });
+    const exJ = normalize(claude.extractJson(rJ.text));
+    if (!exJ) {
+      console.error('exgen(seq-json): invalid. stopReason=%s', rJ.stopReason);
+      throw httpErr(502, `Nu am obținut un test valid din „${src.title}”. Mai încearcă.`);
+    }
+    exJ.title = exJ.title || `${src.title} · interactiv`;
+    return { exercise: exJ, provider: rJ.provider, combinedFrom: [src.title, ...ctx.names], usage: rJ.usage, sourceId: src.id, sourceTitle: src.title };
+  }
 
   // ── Rubrici PDF (exerciții / teste / bareme) ──
   if (ctype === 'pdf') {
@@ -189,6 +443,7 @@ async function runAuto({ supa, category, subcategory = null, profile = null, cty
       } catch { /* sursă ignorată */ }
     }
     if (names.length < 2) throw httpErr(400, 'Nu am putut folosi suficiente PDF-uri din rubrică (fiecare max ~2,5 MB).');
+    const ctx = await ctxFor(names); // bareme corespondente (pair) sau referințe la întâmplare
 
     // ── rezultat INTERACTIV cu exerciții din PDF-uri: în FORMATUL STANDARD
     // sau, la result_kind='format' cu HTML, în MODELUL DE FORMAT al adminului ──
@@ -210,10 +465,10 @@ async function runAuto({ supa, category, subcategory = null, profile = null, cty
 Primești ${tplDesc} și ${names.length} subiecte PDF din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
 Construiește un TEST INTERACTIV NOU în ACELAȘI fișier-format ca șablonul, cu exercițiile preluate din PDF-uri după plan:
 ${planD}
-Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente de desen, bara de scor, raportarea scorului MATE_SCORE — dacă șablonul nu o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). FIGURILE din șablon NU se modifică deloc; itemii cu figură rămân ai șablonului. REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${extraLine(extra.names)}
+Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente de desen, bara de scor, raportarea scorului MATE_SCORE — dacă șablonul nu o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). FIGURILE din șablon NU se modifică deloc; itemii cu figură rămân ai șablonului. REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${ctx.line}
 Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
-      blocksA.push(...extra.docBlocks);
-      blocksA.push({ type: 'text', text: `ȘABLONUL (${tplName}):\n${tpl}${extra.textBlock}\n\nConstruiește acum testul interactiv.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+      blocksA.push(...ctx.docBlocks);
+      blocksA.push({ type: 'text', text: `ȘABLONUL (${tplName}):\n${tpl}${ctx.textBlock}\n\nConstruiește acum testul interactiv.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
       const rD = await claude.chatClaude({ system: sysD, messages: [{ role: 'user', content: blocksA }], maxTokens: 24000, model: aiModel });
       let hOut = String(rD.text || '');
       const fD = hOut.match(/```(?:html)?\s*([\s\S]*?)```/i); if (fD) hOut = fD[1];
@@ -235,7 +490,7 @@ Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
 Primești ${names.length} teste PDF existente din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
 Construiește URMĂTORUL test al rubricii (nr. ${rows.length + 1}) prin COMBINARE, după PLANUL DE MAI JOS (tras la sorți pe server — respectă-l întocmai, ca generările succesive să fie DIFERITE):
 ${planP}
-Pentru fiecare poziție: COPIAZĂ itemul indicat (enunț, tip, structură). REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)} Păstrează structura și baremul tipic rubricii.${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA testului generat cu el — numărul de itemi, împărțirea pe secțiuni/subiecte, tipul itemilor (grilă/răspuns liber) și proporțiile baremului vin din modelul de format, iar CONȚINUTUL din testele-sursă.' : ''}${extraLine(extra.names)}
+Pentru fiecare poziție: COPIAZĂ itemul indicat (enunț, tip, structură). REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)} Păstrează structura și baremul tipic rubricii.${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA testului generat cu el — numărul de itemi, împărțirea pe secțiuni/subiecte, tipul itemilor (grilă/răspuns liber) și proporțiile baremului vin din modelul de format, iar CONȚINUTUL din testele-sursă.' : ''}${ctx.line}
 Răspunde STRICT cu UN obiect JSON valid (fără alt text):
 { "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] }
 Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ cu backslash dublu. Verifică-ți calculele.`;
@@ -243,8 +498,8 @@ Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ 
       blocksA.push({ type: 'text', text: 'MODELUL DE FORMAT (PDF) — structura rezultatului se potrivește cu el:' });
       blocksA.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: String(formatPdf) } });
     }
-    blocksA.push(...extra.docBlocks);
-    blocksA.push({ type: 'text', text: `${extra.textBlock ? extra.textBlock + '\n\n' : ''}Construiește acum testul nr. ${rows.length + 1}.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+    blocksA.push(...ctx.docBlocks);
+    blocksA.push({ type: 'text', text: `${ctx.textBlock ? ctx.textBlock + '\n\n' : ''}Construiește acum testul nr. ${rows.length + 1}.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
     const rP = await claude.chatClaude({ system: sysPdf, messages: [{ role: 'user', content: blocksA }], maxTokens: 9000, model: aiModel });
     const exP = normalize(claude.extractJson(rP.text));
     if (!exP) {
@@ -273,12 +528,13 @@ Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ 
       } catch { /* ignorată */ }
     }
     if (srcTexts.length < 2) throw httpErr(400, 'Prea puține surse utilizabile în rubrică.');
+    const ctx = await ctxFor(srcTexts.map((x) => x.title)); // bareme corespondente sau referințe
     const lettersE = srcTexts.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
     const planE = Array.from({ length: 10 }, (_, i) => `- Itemul ${i + 1} ← TESTUL ${lettersE[i % lettersE.length]}, un exercițiu ales aleatoriu.`).join('\n');
     const sysE = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
 Primești ${srcTexts.length} teste din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”. Construiește un SUBIECT DE EXAMEN NOU prin combinare, după plan:
 ${planE}
-REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA subiectului cu el — numărul de itemi, secțiunile, tipul itemilor și proporțiile baremului vin din modelul de format, iar CONȚINUTUL din testele-sursă.' : ''}${extraLine(extra.names)}
+REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA subiectului cu el — numărul de itemi, secțiunile, tipul itemilor și proporțiile baremului vin din modelul de format, iar CONȚINUTUL din testele-sursă.' : ''}${ctx.line}
 Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] } (itemii cu răspuns liber: fără "options", "answer" text; LaTeX cu backslash dublu).`;
     const blkE = srcTexts.map((x, i) => `=== TESTUL ${String.fromCharCode(65 + i)}: ${x.title} ===\n${x.text}`).join('\n\n');
     const blocksE = [];
@@ -286,8 +542,8 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "st
       blocksE.push({ type: 'text', text: 'MODELUL DE FORMAT (PDF) — structura rezultatului se potrivește cu el:' });
       blocksE.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: String(formatPdf) } });
     }
-    blocksE.push(...extra.docBlocks);
-    blocksE.push({ type: 'text', text: `${blkE}${extra.textBlock}\n\nConstruiește subiectul acum.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNI: ${String(autoInstr).slice(0, 3000)}` : ''} #${Math.random().toString(36).slice(2, 8)}` });
+    blocksE.push(...ctx.docBlocks);
+    blocksE.push({ type: 'text', text: `${blkE}${ctx.textBlock}\n\nConstruiește subiectul acum.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNI: ${String(autoInstr).slice(0, 3000)}` : ''} #${Math.random().toString(36).slice(2, 8)}` });
     const rE = await claude.chatClaude({ system: sysE, messages: [{ role: 'user', content: blocksE }], maxTokens: 9000, model: aiModel });
     const exE = normalize(claude.extractJson(rE.text));
     if (!exE) throw httpErr(502, 'Nu am obținut un subiect valid. Mai încearcă.');
@@ -325,6 +581,7 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "st
   }
   if (sources.length < 2) throw httpErr(400, 'Nu am putut extrage conținut din suficiente teste ale rubricii.');
   if (!templateHtml) throw httpErr(500, 'Nu am găsit șablonul formatului standard.');
+  const ctx = await ctxFor(sources.map((x) => x.title)); // bareme corespondente sau referințe
 
   const lettersI = sources.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
   const planI = Array.from({ length: 8 }, (_, i) => `- Itemul ${i + 1} (DOAR dacă nu are figură) ← TESTUL ${lettersI[i % lettersI.length]}, itemul nr. ${1 + Math.floor(Math.random() * 5)} din el (sau alt item al aceluiași test), cu numere/notații noi.`).join('\n');
@@ -344,13 +601,13 @@ Reguli:
 - același număr de itemi și aceeași structură (subiecte, punctaje) ca șablonul;
 - FIGURILE/DESENELE (SVG, canvas) NU SE MODIFICĂ DELOC — rămân EXACT cele din șablon, cu aceleași etichete și valori (oricum vor fi restaurate programatic din șablon, deci orice modificare a lor e inutilă și greșită);
 - itemii CU figură rămân cei ai șablonului: enunț, valori și notații consistente cu figura, cel mult mici reformulări care NU contrazic figura; combini din celelalte teste DOAR itemii FĂRĂ figură;
-- păstrează raportarea scorului (MATE_SCORE) exact ca în șablon; dacă șablonul NU o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*').${extraLine(extra.names)}
+- păstrează raportarea scorului (MATE_SCORE) exact ca în șablon; dacă șablonul NU o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*').${ctx.line}
 Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), fără explicații, fără markdown.`;
 
   const srcBlock = sources.map((x, i) => `=== TESTUL ${String.fromCharCode(65 + i)}: ${x.title} ===\n${x.text}`).join('\n\n');
   const blocksI = [];
-  blocksI.push(...extra.docBlocks);
-  blocksI.push({ type: 'text', text: `ȘABLONUL (${wantFormatHtml ? 'modelul de format' : 'formatul standard'}):\n${templateHtml}\n\n${srcBlock}${extra.textBlock}\n\nConstruiește ACUM testul nr. ${rows.length + 1} — doar documentul HTML.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare, dar desenele tot NU se modifică): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+  blocksI.push(...ctx.docBlocks);
+  blocksI.push({ type: 'text', text: `ȘABLONUL (${wantFormatHtml ? 'modelul de format' : 'formatul standard'}):\n${templateHtml}\n\n${srcBlock}${ctx.textBlock}\n\nConstruiește ACUM testul nr. ${rows.length + 1} — doar documentul HTML.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare, dar desenele tot NU se modifică): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
   const rA = await claude.chatClaude({
     system: sysAuto,
     messages: [{ role: 'user', content: blocksI }],
@@ -634,7 +891,9 @@ async function notifyAdmin({ task, run }) {
     ? { subj: `🤖 Task „${task.name}”: test nou PUBLICAT pe site`, head: 'Testul a fost generat și publicat automat pe site.' }
     : run.status === 'pending_review'
       ? { subj: `🤖 Task „${task.name}”: test generat — așteaptă aprobarea ta`, head: 'Testul a fost generat și AȘTEAPTĂ aprobarea ta în admin (nu e pe site încă).' }
-      : { subj: `⚠️ Task „${task.name}”: eroare la generare`, head: 'Rularea programată a eșuat.' };
+      : run.status === 'skipped'
+        ? { subj: `ℹ️ Task „${task.name}”: nimic nou de generat`, head: 'Modul „pe rând”: toate fișierele din rubrică au fost deja procesate de acest task. Adaugă materiale noi în rubrică sau resetează progresul (↺) din panoul task-ului.' }
+        : { subj: `⚠️ Task „${task.name}”: eroare la generare`, head: 'Rularea programată a eșuat.' };
   const html = mailer.template({
     title: state.subj.replace(/^[^ ]+ /, ''),
     preheader: run.title || rubric,
@@ -662,6 +921,7 @@ async function runTask({ supa, task, triggerKind = 'cron' }) {
     title: null, provider: null, content_id: null, error: null, result: null, combined_from: null,
   };
   let usage = null;
+  let seqAppend = null; // id-ul fișierului-sursă procesat (modul „pe rând")
   try {
     // modelul de format (dacă task-ul cere rezultat „după modelul de format")
     const { formatHtml, formatPdf } = await loadFormatModel({ supa, task });
@@ -675,35 +935,48 @@ async function runTask({ supa, task, triggerKind = 'cron' }) {
       aiModel: task.ai_model || null,
       extraRubrics: task.extra_rubrics || [],
       formatHtml, formatPdf,
+      seqDone: Array.isArray(task.seq_done) ? task.seq_done : [],
     });
     usage = g.usage || null;
-    run.provider = g.provider || null;
-    run.combined_from = g.combinedFrom || null;
-    run.title = (g.exercise && g.exercise.title)
-      || (String(g.html || '').match(/<title>([^<]*)<\/title>/i)?.[1] || '').trim()
-      || `Test generat · ${task.name}`;
 
-    if (task.auto_post) {
-      const dateRo = new Date().toLocaleDateString('ro-RO', { timeZone: 'Europe/Bucharest' });
-      const posted = await postContent({
-        supa,
-        title: run.title,
-        description: `Generat automat de agentul Claude (task „${task.name}”) · ${dateRo}`,
-        category: task.category, subcategory: task.subcategory, profile: task.profile,
-        isFree: !!task.is_free,
-        html: g.html || null, exercise: g.exercise || null,
-        postType: task.post_type || 'test',
-        taskId: task.id,
-      });
-      run.status = 'posted';
-      run.content_id = posted.contentId;
+    if (g.skipped) {
+      // modul „pe rând": nu mai există fișiere neprelucrate în rubrică
+      run.status = 'skipped';
+      run.title = 'Nimic nou de generat — toate fișierele din rubrică au fost procesate';
+      run.result = { kind: 'note', note: g.reason };
     } else {
-      run.status = 'pending_review';
-      // rezultatul rămâne în istoricul rulărilor până îl aprobi/ștergi din
-      // admin (plafonat sub ~1 MB — limita payload-ului API-ului Supabase)
-      run.result = g.html
-        ? { kind: 'html', html: String(g.html).slice(0, 700000) }
-        : { kind: 'exercise', exercise: g.exercise };
+      run.provider = g.provider || null;
+      run.combined_from = g.combinedFrom || null;
+      run.title = (g.exercise && g.exercise.title)
+        || (String(g.html || '').match(/<title>([^<]*)<\/title>/i)?.[1] || '').trim()
+        || `Test generat · ${task.name}`;
+
+      if (task.auto_post) {
+        const dateRo = new Date().toLocaleDateString('ro-RO', { timeZone: 'Europe/Bucharest' });
+        const posted = await postContent({
+          supa,
+          title: run.title,
+          description: `Generat automat de agentul Claude (task „${task.name}”) · ${dateRo}`,
+          category: task.category, subcategory: task.subcategory, profile: task.profile,
+          isFree: !!task.is_free,
+          html: g.html || null, exercise: g.exercise || null,
+          postType: task.post_type || 'test',
+          taskId: task.id,
+        });
+        run.status = 'posted';
+        run.content_id = posted.contentId;
+      } else {
+        run.status = 'pending_review';
+        // rezultatul rămâne în istoricul rulărilor până îl aprobi/ștergi din
+        // admin (plafonat sub ~1 MB — limita payload-ului API-ului Supabase)
+        run.result = g.html
+          ? { kind: 'html', html: String(g.html).slice(0, 700000) }
+          : { kind: 'exercise', exercise: g.exercise };
+      }
+      // progresul modului „pe rând": fișierul-sursă e bifat ca procesat
+      // (inclusiv la „pending_review" — a fost consumat de generare; resetarea
+      // progresului se face cu ↺ din panoul task-ului)
+      if (g.sourceId) seqAppend = g.sourceId;
     }
   } catch (e) {
     run.error = String(e?.message || e || 'eroare necunoscută').slice(0, 900);
@@ -714,6 +987,7 @@ async function runTask({ supa, task, triggerKind = 'cron' }) {
     last_run_at: startedAt,
     last_status: run.status,
     last_error: run.error,
+    ...(seqAppend ? { seq_done: [...(Array.isArray(task.seq_done) ? task.seq_done : []), seqAppend] } : {}),
   }).eq('id', task.id);
   const emailed = await notifyAdmin({ task, run }).catch((e) => { console.warn('exgen: email eșuat:', e.message); return false; });
 
@@ -748,4 +1022,5 @@ async function postRun({ supa, runId }) {
 module.exports = {
   runAuto, normalize, renderExerciseHtml, postContent, runTask, postRun, notifyAdmin,
   storeFormatModel, removeFormatModel, loadFormatModel, fetchExtraContext,
+  detectMode, titleMatchScore, fetchPairedContext,
 };

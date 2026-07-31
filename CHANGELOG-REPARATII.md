@@ -4,6 +4,22 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 31 iulie 2026 (3) — Task-urile programate: METODA DE LUCRU din instrucțiuni („pe rând" / combinare / corespondență test↔barem) + butoanele „Publică acum" / „Vizualizează"
+
+Cereri ale adminului. **După deploy: rulează DIN NOU `supabase/agent_tasks.sql`** (adaugă coloana `seq_done` — progresul modului „pe rând"). Până acum agentul folosea DOAR combinarea mai multor fișiere din rubrică; acum metoda se alege per task, direct din câmpul „Instrucțiuni pentru agent" (fiecare task își păstrează metoda, modelul AI și modelul de format proprii — pot diferi între task-uri):
+
+### 🔁 „Ia pe rând fișierele rubricii" (nou)
+Fraze de tip „ia pe rând fișierele", „câte un fișier", „unul câte unul", „fiecare fișier" (cu sau fără diacritice) → la fiecare rulare agentul ia URMĂTORUL fișier neprelucrat din rubrică (cel mai vechi primul) și îl transformă SINGUR într-un test interactiv nou — câte unul per publicare, exact cum a cerut adminul. Progresul per task în coloana nouă `agent_tasks.seq_done`; rândul task-ului arată „pe rând: N/M fișiere procesate" + buton ↺ (reset, cu acțiunea nouă `reset_progress`); când totul e procesat → rulare `skipped` („ℹ️ nimic de generat", email informativ), iar fișierele noi adăugate ulterior în rubrică sunt prinse automat. Transformări: sursă PDF → test interactiv structurat (păstrează itemii/baremul sursei, regimul datelor decide valorile); sursă interactivă → VARIANTA ei nouă (clonă a propriului fișier: design/figuri identice — SVG-urile restaurate programatic — alte valori); cu model de format HTML → exercițiile sursei turnate în formatul adminului.
+
+### 🔗 Corespondența test ↔ barem (nou)
+„Folosește baremele (corespondente)" în instrucțiuni + rubrica de bareme la context — SAU automat când o rubrică din context are „barem" în nume → pentru fiecare test-sursă, agentul caută singur baremul-pereche în rubricile suplimentare, potrivind TITLURILE (`titleMatchScore`: numerele comune cântăresc decisiv — „Testul 3" ↔ „Barem Testul 3"; numere diferite = eliminare; + cuvinte comune, cu „barem/rezolvare" ignorate la comparație; prag 0,35). Baremele potrivite merg la Claude (PDF nativ, ≤ ~5 MB total) cu instrucțiunea că răspunsurile/rezolvările/punctajele din barem AU PRIORITATE. Dacă nu găsește nicio pereche, cade elegant pe referințele alese la întâmplare (comportamentul de ieri). Merge în ambele metode (combinare și „pe rând").
+
+### Restul
+- **Combinarea clasică** rămâne implicită (nimic special în instrucțiuni sau „combină modelele din rubrică").
+- **Butoanele din istoric** redenumite cum a cerut adminul: „👁 Vizualizează" + „✅ Publică acum" (existau ca „Previzualizare"/„Postează pe site"); chip nou „ℹ️ nimic de generat".
+- **`api/_lib/exgen.js`:** `detectMode` (fraze RO, tolerant la diacritice), `titleMatchScore` + `fetchPairedContext`, ramura secvențială completă în `runAuto` (3 sub-căi: clonă HTML propriu / model de format / JSON structurat), `runTask` scrie progresul și starea `skipped`; interogarea rubricii acum ordonată (`created_at asc`) cu plafon 200. **`api/agent-tasks.js`:** acțiunea `reset_progress`. **UI:** hint „🧭 Metode înțelese de agent" sub câmpul de instrucțiuni, progres + ↺ pe task.
+- **`test/agent-tasks.test.js`:** 3 teste noi (detectMode pe formulările adminului; potrivirea titlurilor test↔barem, inclusiv respingerea numerelor diferite; „pe rând" cu totul procesat → skipped, pe un client Supabase fals). Build trece, **107/107 teste trec**.
+
 ## 31 iulie 2026 (2) — Task-urile programate: CONTEXT MULTIPLU (ex. teste + baremele lor) și rezultat „DUPĂ MODELUL DE FORMAT" (fișier local)
 
 Două cereri ale adminului, peste task-urile programate livrate mai devreme azi. **După deploy: rulează DIN NOU `supabase/agent_tasks.sql`** — conține migrarea (coloanele `extra_rubrics` + `format_model` și opțiunea `format` în constrângerea `result_kind`), sigură pe tabelele existente. (Panoul cu lista task-urilor + editare completă (nume, frecvență, zi, oră…) + ștergere exista deja din prima livrare; acum afișează și noile setări.)
