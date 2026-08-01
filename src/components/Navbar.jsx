@@ -26,6 +26,7 @@ const EXAMENE = [
 
 // „Mai multe" — pentru aerisirea barei principale
 const MAIMULTE = [
+  { to: '/preturi',                    label: '💳 Abonament' },
   { to: '/manuale',                    label: '📖 Auxiliare' },
   { to: '/rezolvari',                  label: '📝 Blog / Rezolvări / Teorie' },
   { to: '/biblioteca-utilizatorilor',  label: '🏛️ Biblioteca utilizatorilor' },
@@ -431,6 +432,9 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profes
         <Link to="/manuale" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/manuale' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           📖 Auxiliare
         </Link>
+        <Link to="/meditatii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/meditatii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
+          🎓 Meditații cu Prof. Virtual
+        </Link>
         <Link to="/preturi" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/preturi' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           💳 Abonament
         </Link>
@@ -626,8 +630,8 @@ export default function Navbar() {
             <li><DesktopDropdown label="Examene" items={EXAMENE} /></li>
             <li><DesktopDropdown label="Clase" items={CLASE} /></li>
             <li>
-              <Link to="/preturi" className={location.pathname === '/preturi' ? 'active' : ''}>
-                💳 Abonament
+              <Link to="/meditatii" className={location.pathname === '/meditatii' ? 'active' : ''}>
+                🎓 Meditații cu AI
               </Link>
             </li>
             <li>

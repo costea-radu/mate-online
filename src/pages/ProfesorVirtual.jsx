@@ -26,18 +26,25 @@ const DIFFS = ['ușor', 'mediu', 'greu'];
 export default function ProfesorVirtual() {
   const { user, loading, isStudent, isTeacher, isParent } = useAuth();
   const [tab, setTab] = useState('chat');
+  const navigate = useNavigate();
 
   if (loading) return <div style={{ padding: 60, textAlign: 'center' }}><div className="spinner" /></div>;
 
-  // „Progresul meu" apare doar în contul de elev (profesorii/părinții văd raportul în „Contul meu").
-  const showProgress = isStudent || (!isTeacher && !isParent);
-  const TABS = [
-    { id: 'chat', label: `💬 ${askAiLabel({ isTeacher, isParent })}` },
-    { id: 'exam', label: '📄 Generează subiect examen' },
-    { id: 'interactive', label: '🧩 Generează interactiv' },
-    { id: 'library', label: '📚 Testele și exercițiile mele' },
-    ...(showProgress ? [{ id: 'progress', label: '📈 Progresul meu' }] : []),
-  ];
+  // Contul de ELEV: „Întreabă profesorul" + „Meditații cu Prof. Virtual" + „Progresul meu".
+  // (Generatoarele de subiecte/interactive și biblioteca rămân pentru profesori/părinți.)
+  const isStudentView = isStudent || (!isTeacher && !isParent);
+  const TABS = isStudentView
+    ? [
+        { id: 'chat', label: `💬 ${askAiLabel({ isTeacher, isParent })}` },
+        { id: 'meditatii', label: '🎓 Meditații cu Prof. Virtual' },
+        { id: 'progress', label: '📈 Progresul meu' },
+      ]
+    : [
+        { id: 'chat', label: `💬 ${askAiLabel({ isTeacher, isParent })}` },
+        { id: 'exam', label: '📄 Generează subiect examen' },
+        { id: 'interactive', label: '🧩 Generează interactiv' },
+        { id: 'library', label: '📚 Testele și exercițiile mele' },
+      ];
 
   return (
     <div style={{ maxWidth: 'var(--container)', margin: '0 auto', padding: '32px 20px 60px' }}>
@@ -55,7 +62,7 @@ export default function ProfesorVirtual() {
       {/* Tab-uri */}
       <div style={{ display: 'flex', gap: 8, borderBottom: '2px solid var(--border)', marginBottom: 24, flexWrap: 'wrap' }}>
         {TABS.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)}
+          <button key={t.id} onClick={() => (t.id === 'meditatii' ? navigate('/meditatii') : setTab(t.id))}
             style={{
               background: 'none', border: 'none', padding: '10px 4px', marginBottom: -2,
               borderBottom: '3px solid', borderColor: tab === t.id ? 'var(--gold)' : 'transparent',

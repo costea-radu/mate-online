@@ -682,8 +682,9 @@ export default function FloatingTutor() {
   const [widgetTab, setWidgetTab] = useState('chat');
   const { pathname } = useLocation();
   const { isTeacher, isParent } = useAuth();
+  const isMentorAcc = isTeacher || isParent;
   // profesor/părinte → „Asistent AI"; elev/nelogat → „Prof. Virtual"
-  const widgetLabel = (isTeacher || isParent) ? 'Asistent AI' : 'Prof. Virtual';
+  const widgetLabel = isMentorAcc ? 'Asistent AI' : 'Prof. Virtual';
   const [pos, setPos] = useState(null); // colțul stânga-sus al butonului
   const drag = useRef({ active: false, moved: false, dx: 0, dy: 0 });
   const BTN = 60;
@@ -780,16 +781,37 @@ export default function FloatingTutor() {
             </Link>
           </div>
 
-          {/* Taburi */}
+          {/* Taburi: elevii au „Meditații cu Prof. Virtual"; mentorii — generatorul */}
           <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: '#fafbfc' }}>
             <button style={tabBtn(widgetTab === 'chat')} onClick={() => setWidgetTab('chat')}>💬 {askAiLabel({ isTeacher, isParent })}</button>
-            <button style={tabBtn(widgetTab === 'exam')} onClick={() => setWidgetTab('exam')}>📄 Generează subiect examen</button>
+            {isMentorAcc
+              ? <button style={tabBtn(widgetTab === 'exam')} onClick={() => setWidgetTab('exam')}>📄 Generează subiect examen</button>
+              : <button style={tabBtn(widgetTab === 'meditatii')} onClick={() => setWidgetTab('meditatii')}>🎓 Meditații cu Prof. Virtual</button>}
           </div>
 
-          <div style={{ flex: 1, minHeight: 0, overflowY: widgetTab === 'exam' ? 'auto' : 'hidden' }}>
-            {widgetTab === 'chat'
-              ? <ChatPanel compact onNavigate={() => setOpen(false)} />
-              : <div style={{ padding: 12 }}><ExamGenerator compact /></div>}
+          <div style={{ flex: 1, minHeight: 0, overflowY: widgetTab === 'chat' ? 'hidden' : 'auto' }}>
+            {widgetTab === 'chat' && <ChatPanel compact onNavigate={() => setOpen(false)} />}
+            {widgetTab === 'exam' && <div style={{ padding: 12 }}><ExamGenerator compact /></div>}
+            {widgetTab === 'meditatii' && (
+              <div style={{ padding: 16 }}>
+                <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '.95rem', marginBottom: 8 }}>🎓 Meditații cu Profesorul Virtual</div>
+                <p style={{ fontSize: '.83rem', color: 'var(--text-light)', lineHeight: 1.55, marginBottom: 10 }}>
+                  Meditatorul tău personal: îți face <strong>testul inițial</strong>, îți construiește <strong>planul de învățare</strong>,
+                  îți explică <strong>teoria</strong>, îți dă <strong>exerciții și teme</strong> pe nivelul tău, îți analizează
+                  <strong> greșelile</strong> și revine cu <strong>recapitulări</strong> ca să nu uiți materia.
+                </p>
+                <ul style={{ fontSize: '.8rem', color: 'var(--text)', lineHeight: 1.7, margin: '0 0 12px', paddingLeft: 18 }}>
+                  <li>Plan personalizat cu obiective săptămânale</li>
+                  <li>Teme corectate, notate și explicate</li>
+                  <li>„Încă 10 exerciții la fel" unde greșești</li>
+                  <li>Recapitulări după 1 zi · 7 zile · 30 de zile</li>
+                  <li>Simulări de examen + nota estimată</li>
+                </ul>
+                <Link to="/meditatii" onClick={() => setOpen(false)} className="btn btn-primary" style={{ width: '100%', textAlign: 'center' }}>
+                  Deschide meditațiile →
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       )}

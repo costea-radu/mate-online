@@ -22,6 +22,7 @@ const STATIC_ROUTES = [
   ['/manuale', 'weekly', '0.7'],
   ['/discutii', 'daily', '0.6'],
   ['/profesor-virtual', 'weekly', '0.8'],
+  ['/meditatii', 'weekly', '0.9'],
   ['/tema', 'weekly', '0.7'],
   ['/biblioteca-utilizatorilor', 'weekly', '0.6'],
   ['/preturi', 'monthly', '0.8'],

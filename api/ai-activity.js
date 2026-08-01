@@ -6,6 +6,7 @@
 //   action='detail'   → { library, mastery, chat, assignments }
 // =====================================================================
 const ai = require('./_lib/ai');
+const med = require('./_lib/meditatii');
 
 async function isLinked(supa, mentorId, studentId) {
   const { data } = await supa.from('mentor_students')
@@ -80,7 +81,13 @@ module.exports = async function handler(req, res) {
         }));
       } catch { assignments = []; }
 
-      return res.status(200).json({ library, mastery: mastery || [], chat, assignments });
+      // Meditații cu Profesorul Virtual: progres, timp, capitole, dificultăți,
+      // recomandări (null dacă elevul nu folosește meditațiile)
+      let meditatii = null;
+      try { meditatii = await med.buildMentorReport(supa, studentId); }
+      catch (e) { console.warn('ai-activity meditatii:', e.message); }
+
+      return res.status(200).json({ library, mastery: mastery || [], chat, assignments, meditatii });
     }
 
     return res.status(400).json({ error: 'action invalid' });

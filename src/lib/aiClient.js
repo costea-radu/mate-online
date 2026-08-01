@@ -109,6 +109,12 @@ export const aiClient = {
   // Newsletter (admin): campanii scrise de agentul SEO, trimise pe email
   newsletter: (payload) => post('/api/newsletter', payload),
 
+  // Meditații cu Profesorul Virtual (payload: { action, ... })
+  // Acțiuni: state · setup · assessment_submit · lesson · exercises ·
+  // submit_set · remediation · homework_assign/list/start/submit ·
+  // review_start · simulare · set_style · mentor_report · reset
+  meditatii: (payload) => post('/api/ai-meditatii', payload),
+
   // Progres + feedback
   progress: () => post('/api/ai-progress', {}),
   feedback: ({ messageId, value, note = null }) => post('/api/ai-feedback', { messageId, value, note }),

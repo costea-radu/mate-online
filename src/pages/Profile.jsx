@@ -458,6 +458,13 @@ export default function Profile() {
                     💡 <strong>Sfat:</strong> generează cu Profesorul Virtual exerciții de antrenament sau exerciții interactive și trimite-le elevilor spre rezolvare (butonul „Trimite elevilor"). Rezultatele lor apar aici, în raport, ca să vezi cine a lucrat și cum s-a descurcat.
                   </div>
                   <AITeacherReport />
+                  <div style={{ marginTop: 20 }}>
+                    <h4 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 6 }}>Activitatea pe elev — inclusiv 🎓 Meditații cu Prof. Virtual</h4>
+                    <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 10 }}>
+                      Pentru fiecare elev asociat: progresul din meditații (plan, timp de studiu, capitole finalizate, dificultăți și recomandări), materialele generate și temele rezolvate.
+                    </p>
+                    <ParentAIActivity />
+                  </div>
                 </div>
               </details>
             )}

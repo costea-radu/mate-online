@@ -479,6 +479,49 @@ Reguli pedagogice STRICTE pentru această sesiune:
 - Când elevul îți cere să-i verifici pașii: confirmă ce e corect, corectează delicat ce nu e, pas cu pas.
 - Răspunsuri scurte (3–8 rânduri), câte UN pas o dată; termină des cu o întrebare care îl duce mai departe.`;
 
+// ─── Reguli pentru sesiunile de MEDITAȚII (profesor socratic + memorie) ──────
+const MEDITATII_RULES = `SESIUNE DE MEDITAȚII: elevul lucrează cu tine în rubrica „Meditații cu Profesorul Virtual" — ești profesorul lui personal, care îl cunoaște și îi urmărește planul de învățare (profilul lui e mai jos).
+Reguli pedagogice pentru meditații:
+- PROFESOR SOCRATIC: implicit NU dai soluția direct — pui întrebări, oferi indicii pas cu pas și îl lași pe elev să descopere singur. EXCEPȚIE: dacă cere EXPLICIT răspunsul final, i-l dai complet, cu toți pașii.
+- EXPLICAȚII DIFERITE: dacă elevul nu înțelege, schimbi abordarea la cerere sau din proprie inițiativă: (1) mai simplu, cu cuvinte de zi cu zi; (2) vizual, descriind un desen/o schemă; (3) prin exemple din viața reală; (4) pas cu pas, mărunt; (5) printr-o ALTĂ metodă de rezolvare. Dacă profilul elevului indică un stil preferat, începe direct cu acela.
+- Îi cunoști greșelile frecvente (vezi profilul): când explici, atrage-i atenția exact asupra capcanelor unde greșește de obicei, fără să-l descurajezi.
+- Leagă explicațiile de PLANUL lui: amintește-i natural la ce capitol lucrați și ce urmează; dacă cere „ce facem azi?", propune TU pasul următor din plan (teorie → exerciții → recapitulare), fără să-l întrebi ce vrea să studieze.
+- MOTIVARE: felicită-l concret pentru progres (serie de zile, capitole terminate), stabilește obiective mici și realiste.
+- Rămâi cald, răbdător și încurajator — ești meditatorul lui de încredere, disponibil oricând.`;
+
+// Profilul de meditații al elevului (memoria pedagogică) — injectat în chat.
+async function meditatiiMemory(supa, userId) {
+  try {
+    const { data: p } = await supa.from('ai_meditatii_profile').select('*').eq('user_id', userId).maybeSingle();
+    if (!p) return '';
+    const bits = [];
+    bits.push(`- Clasa a ${p.grade}-a${p.exam_target ? ` · se pregătește pentru ${p.exam_target === 'evaluare-nationala' ? 'Evaluarea Națională' : 'Bacalaureat (' + String(p.exam_target).replace('bac-', '') + ')'}` : ''}.`);
+    if (p.level) bits.push(`- Nivel stabilit la evaluarea inițială: ${p.level}.`);
+    const ch = p.plan?.chapters || [];
+    if (ch.length) {
+      const done = ch.filter((c) => c.status === 'finalizat').length;
+      const cur = ch.find((c) => c.status === 'in_lucru' || c.status === 'teorie') || ch.find((c) => c.status === 'de_parcurs');
+      bits.push(`- Plan: ${done}/${ch.length} capitole finalizate${cur ? `; capitolul curent: „${cur.title}"` : ''}.`);
+    }
+    const gaps = (p.assessment?.gaps || []).map((g) => g.title || g.chapter).filter(Boolean).slice(0, 3);
+    if (gaps.length) bits.push(`- Lacune din anii anteriori: ${gaps.join('; ')}.`);
+    const errs = Object.entries(p.memory?.errorTypes || {}).sort((a, b) => b[1] - a[1]).slice(0, 2);
+    if (errs.length) {
+      const labels = { calcul: 'greșeli de calcul', formula: 'formule aplicate greșit', concept: 'confuzii între concepte', regula: 'reguli uitate', neatentie: 'neatenție' };
+      bits.push(`- Greșeli frecvente: ${errs.map(([k, v]) => `${labels[k] || k} (${v}×)`).join(', ')}.`);
+    }
+    if (p.memory?.styles?.preferred) bits.push(`- Stilul de explicație care funcționează cel mai bine la el: ${p.memory.styles.preferred}.`);
+    if (p.streak_days > 1) bits.push(`- Serie de studiu: ${p.streak_days} zile consecutive (felicită-l când e cazul).`);
+    try {
+      const { data: mist } = await supa.from('ai_meditatii_mistakes')
+        .select('topic, error_type').eq('user_id', userId).eq('remediated', false)
+        .order('created_at', { ascending: false }).limit(3);
+      if (mist && mist.length) bits.push(`- Greșeli recente neremediate la: ${[...new Set(mist.map((m) => m.topic).filter(Boolean))].join(', ')}.`);
+    } catch { /* ignorăm */ }
+    return `PROFILUL DE MEDITAȚII AL ELEVULUI (memoria ta pedagogică — folosește-o discret, nu o recita):\n${bits.join('\n')}`;
+  } catch { return ''; }
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // AGENTUL 2 — „Profesorul de teste PDF": agent DEDICAT sesiunilor cu un test
 // PDF deschis lângă chat. Are persona lui și reguli proprii; agentul 1
@@ -814,6 +857,12 @@ async function interactiveAgentSystem(supa, { userId, mode, context, ctxBlock })
     parts.push(INTERACTIVE_RULES);
     parts.push(ACTION_PROTOCOL);
   }
+  // Meditații cu Profesorul Virtual: profesor socratic + memoria pedagogică
+  if (context.meditatii && !mentor) {
+    parts.push(MEDITATII_RULES);
+    const medMem = await meditatiiMemory(supa, userId);
+    if (medMem) parts.push(medMem);
+  }
   // catalogul de exerciții e util tuturor (elevi ȘI profesori/părinți);
   // starea de progres + motivarea sunt doar pentru elevi.
   const [catalog, state] = await Promise.all([
@@ -1058,7 +1107,7 @@ module.exports = {
   CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic,
   chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, PERSONA,
   extractBaremItem, fragmentFromBarem, verifiedPdfReply, wantsOtherExplanation, isFollowUpQuestion,
-  levelLabel, interactiveCatalog, studentState,
+  levelLabel, interactiveCatalog, studentState, meditatiiMemory,
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS, PDF_MODEL, GEN_MODEL,

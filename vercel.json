@@ -37,6 +37,10 @@
     {
       "path": "/api/agent-cron?action=run",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/ai-meditatii?action=cron",
+      "schedule": "0 14 * * *"
     }
   ],
   "rewrites": [
@@ -53,7 +57,7 @@
       "destination": "/api/page-meta?route=/"
     },
     {
-      "source": "/:page(evaluare-nationala|manuale|rezolvari|discutii|profesor-virtual|tema|biblioteca-utilizatorilor|preturi|faq|despre-noi|contact|politica-confidentialitate|termeni-conditii|politica-cookies|politica-retur)",
+      "source": "/:page(evaluare-nationala|manuale|rezolvari|discutii|profesor-virtual|meditatii|tema|biblioteca-utilizatorilor|preturi|faq|despre-noi|contact|politica-confidentialitate|termeni-conditii|politica-cookies|politica-retur)",
       "destination": "/api/page-meta?route=/:page"
     },
     {

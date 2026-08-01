@@ -83,11 +83,53 @@ function List({ items, render, empty }) {
   );
 }
 
+const EXAM_SHORT = {
+  'evaluare-nationala': 'Evaluarea Națională', 'bac-mate-info': 'BAC Mate-Info',
+  'bac-stiinte': 'BAC Șt. Naturii', 'bac-tehnologic': 'BAC Tehnologic',
+};
+
+function MeditatiiReport({ m }) {
+  const chipStyle = { display: 'inline-block', background: 'rgba(15,43,68,.07)', color: 'var(--navy)', borderRadius: 14, padding: '3px 10px', fontSize: '.76rem', fontWeight: 700, marginRight: 6, marginBottom: 4 };
+  const errLabels = { calcul: 'greșeli de calcul', formula: 'formule aplicate greșit', concept: 'confuzii între concepte', regula: 'reguli uitate', neatentie: 'neatenție', necunoscut: 'de analizat' };
+  return (
+    <div style={{ border: '1.5px solid var(--gold)', background: 'rgba(232,185,49,.06)', borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
+      <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.92rem', marginBottom: 8 }}>🎓 Meditații cu Profesorul Virtual</div>
+      <div style={{ marginBottom: 8 }}>
+        <span style={chipStyle}>Clasa a {m.grade}-a</span>
+        {m.examTarget && <span style={chipStyle}>🎯 {EXAM_SHORT[m.examTarget] || m.examTarget}</span>}
+        {m.level && <span style={chipStyle}>Nivel: {m.level}</span>}
+        <span style={chipStyle}>Plan: {m.planProgress}%</span>
+        <span style={chipStyle}>⏱ {m.totalMinutes} min de studiu</span>
+        {m.streakDays > 0 && <span style={chipStyle}>🔥 {m.streakDays} zile la rând</span>}
+      </div>
+      <div style={{ fontSize: '.83rem', color: 'var(--text)', lineHeight: 1.6 }}>
+        <div><strong>Capitole finalizate ({m.chaptersDone.length}):</strong> {m.chaptersDone.length ? m.chaptersDone.join('; ') : 'încă niciunul'}</div>
+        {m.inProgress.length > 0 && <div><strong>În lucru:</strong> {m.inProgress.join('; ')}</div>}
+        <div><strong>Teme:</strong> {m.homework.done}/{m.homework.total} rezolvate{m.homework.avgPercent != null ? ` · medie ${m.homework.avgPercent}%` : ''}{m.homework.pending ? ` · ${m.homework.pending} în așteptare` : ''}</div>
+        {(m.difficulties.weakChapters.length > 0 || m.difficulties.topErrors.length > 0) && (
+          <div><strong>Dificultăți:</strong> {[
+            m.difficulties.weakChapters.length ? `capitole slabe: ${m.difficulties.weakChapters.join('; ')}` : null,
+            m.difficulties.topErrors.length ? `tipuri de greșeli: ${m.difficulties.topErrors.map((e) => `${errLabels[e.type] || e.type} (${e.count}×)`).join(', ')}` : null,
+          ].filter(Boolean).join(' · ')}</div>
+        )}
+        <div style={{ marginTop: 6, padding: '7px 10px', background: '#fff', borderRadius: 8 }}>
+          <strong>💡 Recomandări pentru perioada următoare:</strong>
+          {m.recommendations.map((r, i) => <div key={i} style={{ marginTop: 3 }}>• {r}</div>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChildDetail({ d }) {
   const lib = d.library || {};
   const scoreTxt = (it) => (it.score != null && it.max_score ? ` — scor ${it.score}/${it.max_score}` : '');
   return (
     <div>
+      {d.meditatii
+        ? <MeditatiiReport m={d.meditatii} />
+        : <div style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>🎓 Nu folosește încă „Meditații cu Profesorul Virtual".</div>}
+
       <Section title="📄 Subiecte de examen generate (PDF)" count={(lib.exam || []).length}>
         <List items={lib.exam} empty="Niciunul încă." render={(it) => <>{it.title} <span style={{ color: 'var(--text-muted)' }}>· {dt(it.created_at)}</span></>} />
       </Section>
