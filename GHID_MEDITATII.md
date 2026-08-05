@@ -194,6 +194,30 @@ părinții nu au meditații proprii — văd raportul elevilor în profil.
    teme nefăcute (cu „Rezolvă"), greșeli de vindecat (cu „10 la fel"), nota
    estimată și „cum să îți explic" (preferința de stil).
 
+## 🔄 Runda 5 — sistemul de teme, refăcut cap-coadă
+
+Fluxul temelor (cel mai important) este acum:
+1. **AI-ul dă tema** — un test/exercițiu interactiv EXISTENT în site (nefinalizat
+   și nedat înainte); generează doar la epuizare.
+2. **Elevul rezolvă** — linkul „Rezolvă" deschide exercițiul cu `temaId`.
+3. **Rezultatul se înregistrează GARANTAT**: la „Corectează", serverul
+   (`homework_score`) bifează tema (notă 1–10, cel mai bun scor) și scrie
+   rezultatul și în tabela `progress` cu service role — deci apare SIGUR la
+   profesori/părinți în „Rezultate elevi" și în rapoarte, chiar dacă salvarea
+   din browser eșuează.
+4. **„Progresul meu"** arată acum și rezultatele: temele rezolvate (cu notă) +
+   testele din site finalizate (scor, încercări, dată).
+
+În plus:
+- **„Reia evaluarea de la zero" șterge TOT** (plan, teme, sesiuni, greșeli,
+  recapitulări, notificări) — temele vechi nu mai rămân „nefăcute" după reset
+  (cauza erorii raportate).
+- **Pagina se strânge DOAR cât e deschis Meditatorul** și revine pe toată
+  lățimea la închidere; la formularul de înscriere/reset widgetul se închide
+  singur (starea e sincronizată global, nu se mai „blochează" strânsă).
+- Slug-urile de subiecte („raportul_de_asemanare") apar peste tot ca text
+  lizibil, nu ca indici LaTeX.
+
 ## 🛠️ Depanare
 
 | Simptom | Cauză / soluție |

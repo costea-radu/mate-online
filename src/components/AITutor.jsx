@@ -772,10 +772,20 @@ export default function FloatingTutor() {
   // (accentul cade pe conversație — el dă de lucru), iar pagina se strânge lângă el.
   const medMode = onMeditatii && !isMentorAcc;
   useEffect(() => {
-    if (!medMode) return;
-    window.dispatchEvent(new CustomEvent('mate:meditatii-chat-state', { detail: { open } }));
-    return () => window.dispatchEvent(new CustomEvent('mate:meditatii-chat-state', { detail: { open: false } }));
+    const isOpen = medMode && open;
+    window.__medChatOpen = isOpen; // starea globală — pagina o citește și la montare
+    window.dispatchEvent(new CustomEvent('mate:meditatii-chat-state', { detail: { open: isOpen } }));
+    return () => {
+      window.__medChatOpen = false;
+      window.dispatchEvent(new CustomEvent('mate:meditatii-chat-state', { detail: { open: false } }));
+    };
   }, [open, medMode]);
+  // pagina poate cere închiderea widgetului (ex. la reset / formularul de înscriere)
+  useEffect(() => {
+    function onClose() { setOpen(false); setMedChat(null); }
+    window.addEventListener('mate:meditatii-close', onClose);
+    return () => window.removeEventListener('mate:meditatii-close', onClose);
+  }, []);
   const [pos, setPos] = useState(null); // colțul stânga-sus al butonului
   const drag = useRef({ active: false, moved: false, dx: 0, dy: 0 });
   const BTN = 60;

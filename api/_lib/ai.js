@@ -538,9 +538,9 @@ async function meditatiiMemory(supa, userId) {
       ]);
       const firstName = (acc?.full_name || '').trim().split(/\s+/)[0];
       if (firstName) bits.unshift(`- Numele elevului: ${firstName} — adresează-i-te pe nume.`);
-      if (mist && mist.length) bits.push(`- Greșeli recente neremediate la: ${[...new Set(mist.map((m) => m.topic).filter(Boolean))].join(', ')} — propune-i „încă 10 de același fel" în rubrica Meditații.`);
+      if (mist && mist.length) bits.push(`- Greșeli recente neremediate la: ${[...new Set(mist.map((m) => String(m.topic || '').replace(/_/g, ' ')).filter(Boolean))].join(', ')} — propune-i „încă 10 de același fel" în rubrica Meditații.`);
       if (hw && hw.length) bits.push(`- Teme nefăcute: ${hw.map((h) => `„${h.title}"`).join(', ')} — amintește-i prietenos de ele.`);
-      if (revs && revs.length) bits.push(`- Recapitulări scadente (să nu uite materia): ${revs.map((r) => r.topic || r.chapter).join(', ')} — propune-le TU la începutul discuției.`);
+      if (revs && revs.length) bits.push(`- Recapitulări scadente (să nu uite materia): ${revs.map((r) => String(r.topic || r.chapter || '').replace(/_/g, ' ')).join(', ')} — propune-le TU la începutul discuției.`);
     } catch { /* ignorăm */ }
     return `PROFILUL DE MEDITAȚII AL ELEVULUI (memoria ta pedagogică — folosește-o discret, nu o recita):\n${bits.join('\n')}`;
   } catch { return ''; }

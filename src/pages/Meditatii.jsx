@@ -10,6 +10,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
+import { supabase } from '../lib/supabase';
 import { MathText, preMessage } from '../components/AITutor';
 import EinsteinIcon from '../components/EinsteinIcon';
 import ExamGenerator from '../components/ExamGenerator';
@@ -54,6 +55,7 @@ const EXAM_LABELS = {
   'evaluare-nationala': 'Evaluarea Națională',
   'bac-mate-info': 'BAC Mate-Info', 'bac-stiinte': 'BAC Științele Naturii', 'bac-tehnologic': 'BAC Tehnologic',
 };
+const niceTopic = (t) => String(t || '').replace(/_/g, ' ').trim();
 const fmtMin = (sec) => {
   const m = Math.round((sec || 0) / 60);
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}min`;
@@ -315,12 +317,18 @@ export default function Meditatii() {
   const [actionError, setActionError] = useState(null);
   const runSuggestionRef = useRef(null);       // legătura listener-e → runSuggestion
   // widgetul „Meditatorul tău" e andocat lateral → pagina se strânge lângă el
-  const [chatDocked, setChatDocked] = useState(false);
+  // DOAR cât timp e deschis; la închidere revine pe toată lățimea.
+  const [chatDocked, setChatDocked] = useState(() => (typeof window !== 'undefined' ? !!window.__medChatOpen : false));
   useEffect(() => {
     function onChatState(e) { setChatDocked(!!e.detail?.open); }
     window.addEventListener('mate:meditatii-chat-state', onChatState);
     return () => window.removeEventListener('mate:meditatii-chat-state', onChatState);
   }, []);
+  // la înscriere/reset (fără profil) widgetul vechi se închide — conversația
+  // lui ar fi despre planul șters, iar formularul are nevoie de toată pagina
+  useEffect(() => {
+    if (st?.needsSetup) window.dispatchEvent(new CustomEvent('mate:meditatii-close'));
+  }, [st?.needsSetup]);
 
   const refresh = useCallback(async () => {
     try { setSt(await aiClient.meditatii({ action: 'state' })); setStError(null); }
@@ -922,7 +930,7 @@ function RaportTab({ st, busy, onOpenHomework, onRemediation, onStyle }) {
           {mistakes.slice(0, 6).map((m) => (
             <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#f7f9fc', borderRadius: 8, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ fontSize: '.78rem', fontWeight: 700, color: '#c0392b' }}>{ERROR_LABELS[m.error_type] || m.error_type}{m.topic ? ` · ${m.topic}` : ''}</div>
+                <div style={{ fontSize: '.78rem', fontWeight: 700, color: '#c0392b' }}>{ERROR_LABELS[m.error_type] || m.error_type}{m.topic ? ` · ${niceTopic(m.topic)}` : ''}</div>
                 <div style={{ fontSize: '.82rem', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 420 }}><MathText text={fixLatexClient(m.statement || '')} /></div>
               </div>
               <button className="btn btn-sm btn-outline" disabled={!!busy} onClick={() => onRemediation(m.id)}>🔁 10 la fel</button>
@@ -967,15 +975,29 @@ function RaportTab({ st, busy, onOpenHomework, onRemediation, onStyle }) {
   );
 }
 
-// ─── „Progresul meu" — stăpânirea pe subiecte + statistici de meditații ──────
+// ─── „Progresul meu" — stăpânire + REZULTATELE la temele și testele rezolvate ─
 function ProgressMeTab({ st }) {
+  const { user } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [results, setResults] = useState(null); // testele din site rezolvate (progress)
   useEffect(() => {
     aiClient.progress().then(setData).catch((e) => setError(e.message));
   }, []);
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      try {
+        const { data: rows } = await supabase.from('progress')
+          .select('content_id, score, max_score, attempts, completed_at, test_title')
+          .eq('user_id', user.id).order('completed_at', { ascending: false }).limit(30);
+        setResults(rows || []);
+      } catch { setResults([]); }
+    })();
+  }, [user?.id]);
   const masteryColor = (m) => (m >= 0.75 ? '#27ae60' : m >= 0.4 ? '#e8b931' : '#e74c3c');
   const p = st.profile || {};
+  const hwDone = (st.homework || []).filter((h) => h.status === 'rezolvata');
   return (
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginBottom: 18 }}>
@@ -995,6 +1017,43 @@ function ProgressMeTab({ st }) {
       {error && <div style={{ ...card, background: '#fdecea', color: '#b71c1c' }}>⚠️ {error}</div>}
       {!data && !error && <div style={{ padding: 30, textAlign: 'center' }}><div className="spinner" /></div>}
 
+      {/* Rezultatele la temele de la profesor + testele din site rezolvate */}
+      <div style={card}>
+        <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>📚 Rezultatele tale la teme și teste</h3>
+        <p style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: 12 }}>Aceleași rezultate le văd și profesorii/părinții asociați, în raportul lor.</p>
+        {hwDone.length === 0 && (results || []).length === 0 ? (
+          <p style={{ color: 'var(--text-muted)', fontSize: '.88rem', margin: 0 }}>Încă nimic — rezolvă temele de la profesor și testele din site, iar rezultatele apar aici.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {hwDone.slice(0, 10).map((h) => {
+              const pc = h.max_score ? Math.round((h.score / h.max_score) * 100) : 0;
+              return (
+                <div key={'hw-' + h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '7px 10px', background: 'rgba(232,185,49,.08)', border: '1px solid rgba(232,185,49,.4)', borderRadius: 8, fontSize: '.85rem', flexWrap: 'wrap' }}>
+                  <span style={{ color: 'var(--navy)', fontWeight: 600 }}>📚 Temă · {h.title}
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{h.completed_at ? ` · ${new Date(h.completed_at).toLocaleDateString('ro-RO')}` : ''}</span>
+                  </span>
+                  <span style={{ whiteSpace: 'nowrap' }}>
+                    <strong style={{ color: masteryColor(pc / 100) }}>{h.score}/{h.max_score} ({pc}%)</strong>
+                    {h.feedback?.grade != null && <span style={{ marginLeft: 8, fontWeight: 700, color: '#8a6d1a' }}>nota {h.feedback.grade}</span>}
+                  </span>
+                </div>
+              );
+            })}
+            {(results || []).filter((r) => !hwDone.some((h) => h.content_id === r.content_id)).slice(0, 10).map((r, i) => {
+              const pc = r.max_score ? Math.round((r.score / r.max_score) * 100) : 0;
+              return (
+                <div key={'pr-' + r.content_id + i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '7px 10px', background: '#f7f9fc', borderRadius: 8, fontSize: '.85rem', flexWrap: 'wrap' }}>
+                  <span style={{ color: 'var(--navy)', fontWeight: 600 }}>🧩 {r.test_title || 'Test interactiv'}
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{r.completed_at ? ` · ${new Date(r.completed_at).toLocaleDateString('ro-RO')}` : ''} · {r.attempts || 1} încercări</span>
+                  </span>
+                  <strong style={{ color: masteryColor(pc / 100), whiteSpace: 'nowrap' }}>{r.score}/{r.max_score} ({pc}%)</strong>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {data && (
         <div style={card}>
           <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 14 }}>Stăpânirea pe subiecte</h3>
@@ -1005,7 +1064,7 @@ function ProgressMeTab({ st }) {
               {data.mastery.map((m) => (
                 <div key={m.category + m.topic}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.85rem', marginBottom: 4 }}>
-                    <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{m.topic} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>· {m.category}</span></span>
+                    <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{niceTopic(m.topic)} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>· {m.category}</span></span>
                     <span style={{ color: 'var(--text-muted)' }}>{Math.round(m.mastery * 100)}% · {m.correct}/{m.attempts}</span>
                   </div>
                   <div style={{ height: 8, background: 'var(--border)', borderRadius: 99, overflow: 'hidden' }}>

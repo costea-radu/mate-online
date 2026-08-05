@@ -150,6 +150,9 @@ function styleNoteOf(profile) {
 // Răspuns: { message, suggestions[] } — widgetul le afișează ca butoane.
 // ═════════════════════════════════════════════════════════════════════════════
 const COACH_MODEL = process.env.AI_COACH_MODEL || 'gpt-4o-mini';
+// slug-urile de subiecte (ex. „raportul_de_asemanare") devin text lizibil în
+// mesajele către elev — altfel underscorele se citeau ca indici LaTeX în chat
+const nice = (t) => String(t || '').replace(/_/g, ' ').trim();
 
 async function coachBits(supa, userId, medProfile) {
   const [{ data: hw }, { data: reviews }, { data: mistakes }, { data: acc }] = await Promise.all([
@@ -166,7 +169,7 @@ async function coachBits(supa, userId, medProfile) {
     plan,
     firstName: (acc?.full_name || '').trim().split(/\s+/)[0] || null,
     pendingHw: hw || [],
-    dueReviews: (reviews || []).map((r) => ({ ...r, chapterTitle: titles[r.chapter] || r.topic || r.chapter })),
+    dueReviews: (reviews || []).map((r) => ({ ...r, chapterTitle: titles[r.chapter] || nice(r.topic || r.chapter) })),
     openMistakes: mistakes || [],
   };
 }
@@ -204,7 +207,7 @@ async function coach(req, res, supa) {
   const pct = event.maxScore ? Math.round(((event.score || 0) / event.maxScore) * 100) : null;
   const kindLabels = { evaluare: 'testul inițial', exercitii: 'setul de exerciții', remediere: 'exercițiile de remediere', recapitulare: 'recapitularea', simulare: 'simularea de examen', tema: 'tema' };
   if (event.type === 'set_done') {
-    facts.push(`Elevul tocmai a terminat ${kindLabels[event.kind] || 'un set'}${event.topic ? ` la „${event.topic}"` : ''} cu scorul ${event.score}/${event.maxScore} (${pct}%).`);
+    facts.push(`Elevul tocmai a terminat ${kindLabels[event.kind] || 'un set'}${event.topic ? ` la „${nice(event.topic)}"` : ''} cu scorul ${event.score}/${event.maxScore} (${pct}%).`);
     if (event.chapterDone) facts.push('A FINALIZAT capitolul (≥80%) — felicită-l și amintește-i că recapitularea vine mâine, ca să fixeze.');
     else if (pct != null && pct < 50) facts.push('Scorul e mic — încurajează-l cald, fără reproșuri; propune-i să simplificați și să reia noțiunile de bază.');
     if (event.wrongCount) facts.push(`A greșit ${event.wrongCount} exerciții; îi poți propune remedierea („încă 10 la fel").`);
@@ -263,7 +266,7 @@ function buildBriefing({ firstName, medProfile, plan, dueReviews, pendingHw, ope
   const lastDone = (sessions || []).find((s) => s.status === 'finalizata' && s.max_score);
   if (lastDone) {
     const p = Math.round((lastDone.score / lastDone.max_score) * 100);
-    const what = lastDone.topic || lastDone.chapter || 'setul de exerciții';
+    const what = nice(lastDone.topic || lastDone.chapter || 'setul de exerciții');
     if (p >= 80) bits.push(`Data trecută te-ai descurcat foarte bine la „${what}" (${p}%).`);
     else bits.push(`Data trecută am lucrat la „${what}" și a mai rămas de șlefuit (${p}%).`);
   }
@@ -275,7 +278,7 @@ function buildBriefing({ firstName, medProfile, plan, dueReviews, pendingHw, ope
   }
   if ((openMistakes || []).length) {
     const m = openMistakes[0];
-    bits.push(`Observ că ai greșeli nevindecate${m.topic ? ` la „${m.topic}"` : ''} — îți propun 10 exerciții de exact același fel, până îl stăpânești.`);
+    bits.push(`Observ că ai greșeli nevindecate${m.topic ? ` la „${nice(m.topic)}"` : ''} — îți propun 10 exerciții de exact același fel, până îl stăpânești.`);
     suggestions.push({ kind: 'remediere', label: '🩹 10 exerciții ca acela greșit', mistakeId: m.id });
   }
   if ((pendingHw || []).length) {
@@ -912,10 +915,32 @@ async function homeworkScore(req, res, supa) {
     feedback: { grade, auto: true },
   }).eq('id', hw.id);
   await med.clearHomeworkNotifications(supa, userId, hw.id);
+
+  // REZULTATUL SE ÎNREGISTREAZĂ ȘI ÎN `progress` PE SERVER (service role):
+  // așa profesorii și părinții îl văd GARANTAT în „Rezultate elevi" / rapoarte,
+  // chiar dacă salvarea din browser a eșuat din orice motiv.
+  let content = null;
+  try {
+    const { data: c } = await supa.from('content')
+      .select('id, title, category, content_type').eq('id', hw.content_id).single();
+    content = c || null;
+    const { data: existing } = await supa.from('progress')
+      .select('id, score, max_score, attempts, time_spent').eq('user_id', userId).eq('content_id', hw.content_id).maybeSingle();
+    const row = {
+      user_id: userId, content_id: hw.content_id,
+      score: existing ? Math.max(existing.score || 0, sc) : sc, max_score: mx,
+      attempts: (existing?.attempts || 0) + 1, completed_at: new Date().toISOString(),
+    };
+    const snapshot = content ? { test_title: content.title, content_type: content.content_type, category: content.category } : {};
+    let { error: pErr } = await supa.from('progress').upsert({ ...row, ...snapshot }, { onConflict: 'user_id,content_id' });
+    if (pErr) ({ error: pErr } = await supa.from('progress').upsert(row, { onConflict: 'user_id,content_id' }));
+    if (pErr) console.warn('homework_score progress:', pErr.message);
+  } catch (e) { console.warn('homework_score progress:', e.message); }
+
   try {
     await supa.rpc('bump_skill_mastery', {
-      p_user: userId, p_category: 'general',
-      p_topic: hw.topic || hw.title || 'general', p_correct: pct >= 0.6,
+      p_user: userId, p_category: content?.category || 'general',
+      p_topic: (hw.topic || hw.title || 'general').replace(/_/g, ' '), p_correct: pct >= 0.6,
     });
   } catch { /* ignorăm */ }
   const medProfile = await getMedProfile(supa, userId);
@@ -1082,12 +1107,25 @@ async function setStyle(req, res, supa) {
   return res.status(200).json({ ok: true, preferred: style });
 }
 
-// resetul profilului (reia evaluarea de la zero)
+// resetul profilului (reia evaluarea de la zero) — șterge TOT ce ține de
+// meditații: plan, teme, sesiuni, greșeli, recapitulări + stinge notificările
+// (altfel temele vechi rămâneau „nefăcute" după reset — cauza erorii raportate)
 async function resetProfile(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
   requireMeditatii(profile);
+  await Promise.allSettled([
+    supa.from('ai_meditatii_homework').delete().eq('user_id', userId),
+    supa.from('ai_meditatii_sessions').delete().eq('user_id', userId),
+    supa.from('ai_meditatii_mistakes').delete().eq('user_id', userId),
+    supa.from('ai_meditatii_reviews').delete().eq('user_id', userId),
+  ]);
   await supa.from('ai_meditatii_profile').delete().eq('user_id', userId);
+  try {
+    await supa.from('ai_notifications').update({ read: true })
+      .eq('recipient_id', userId)
+      .in('type', ['meditatii_homework', 'meditatii_review']);
+  } catch { /* best-effort */ }
   return res.status(200).json({ ok: true });
 }
 
