@@ -2,6 +2,7 @@ import { authHeaders } from '../lib/api';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import StudentAIMastery from './StudentAIMastery';
 import AITeacherReport from './AITeacherReport';
+import { notaDinScor } from '../lib/nota';
 
 const PER_PAGE = 10; // elevi pe pagină
 
@@ -201,7 +202,7 @@ function ProgressChart({ rows }) {
       {act ? (
         <div style={{ fontSize: '0.74rem', color: 'var(--text)', marginTop: 6 }}>
           <strong>{act.title}</strong>
-          <span style={{ color: 'var(--text-muted)' }}>{act.date ? ` · ${fmtDate(act.date)}` : ''} · {act.score}/{act.max} ({act.p}%)</span>
+          <span style={{ color: 'var(--text-muted)' }}>{act.date ? ` · ${fmtDate(act.date)}` : ''} · {act.score}/{act.max} ({act.p}%){notaDinScor(act.score, act.max) != null ? ` · nota ${notaDinScor(act.score, act.max)}` : ''}</span>
         </div>
       ) : (
         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>Apasă pe un punct pentru a vedea procentul.</div>
@@ -349,6 +350,11 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                           <td style={{ padding: '7px 10px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                             <span style={{ fontWeight: 700, color: scoreColor(p) }}>{r.score}/{r.max_score}</span>
                             <span style={{ color: scoreColor(p), fontSize: '0.74rem', marginLeft: 5 }}>({p}%)</span>
+                            {notaDinScor(r.score, r.max_score) != null && (
+                              <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#8a6d00', marginTop: 2 }} title="Nota include 10 puncte din oficiu">
+                                nota {notaDinScor(r.score, r.max_score)}
+                              </span>
+                            )}
                           </td>
                           <td style={{ padding: '7px 10px', textAlign: 'right', color: 'var(--text)' }}>{r.attempts}</td>
                           <td style={{ padding: '7px 10px', textAlign: 'right', color: 'var(--text)', whiteSpace: 'nowrap' }}>{fmtTime(r.time_spent)}</td>
@@ -388,7 +394,12 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                         {solved ? (
                           <span style={{ whiteSpace: 'nowrap' }}>
                             <span style={{ fontWeight: 700, color: scoreColor(p) }}>{h.score}/{h.max_score} ({p}%)</span>
-                            {h.grade != null && <span style={{ marginLeft: 8, fontWeight: 700, color: '#8a6d00', background: 'rgba(232,185,49,.18)', border: '1px solid rgba(232,185,49,.5)', borderRadius: 12, padding: '1px 8px', fontSize: '0.74rem' }}>nota {h.grade}</span>}
+                            {/* nota vine de la server dacă există; altfel se calculează aici — niciodată ambele */}
+                            {(h.grade != null || notaDinScor(h.score, h.max_score) != null) && (
+                              <span style={{ marginLeft: 8, fontWeight: 700, color: '#8a6d00', background: 'rgba(232,185,49,.18)', border: '1px solid rgba(232,185,49,.5)', borderRadius: 12, padding: '1px 8px', fontSize: '0.74rem' }}>
+                                nota {h.grade != null ? h.grade : notaDinScor(h.score, h.max_score)}
+                              </span>
+                            )}
                           </span>
                         ) : (
                           <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', whiteSpace: 'nowrap' }}>nerezolvată încă</span>
@@ -433,7 +444,7 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
             {student.archived && (student.assignmentsArchived || []).length > 0 && (
               <div style={{ marginTop: 12, fontSize: '0.8rem', color: 'var(--text-light)' }}>
                 <strong style={{ color: 'var(--navy)' }}>📝 Teme rezolvate:</strong>{' '}
-                {student.assignmentsArchived.map((t) => `${t.title}${t.score != null ? ` (${t.score}/${t.max_score})` : ''}`).join(' · ')}
+                {student.assignmentsArchived.map((t) => `${t.title}${t.score != null ? ` (${t.score}/${t.max_score}${notaDinScor(t.score, t.max_score) != null ? ` · nota ${notaDinScor(t.score, t.max_score)}` : ''})` : ''}`).join(' · ')}
               </div>
             )}
           </td>

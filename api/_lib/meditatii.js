@@ -462,6 +462,18 @@ Răspunde STRICT cu JSON: {"analysis":[{"index":1,"errorType":"calcul","analysis
   }
 }
 
+// ─── NOTA UNUI TEST INTERACTIV (cu 10 puncte din oficiu) ─────────────────────
+// Aceeași regulă ca în frontend (src/lib/nota.js): testele care raportează
+// „din 100" (maxScore = 100) au oficiul DEJA inclus în scor ⇒ nota = scor/10;
+// la punctaj brut (ex. 35/45) oficiul se acordă aici ⇒ nota = 1 + 9×procent.
+// Nota păstrează 2 zecimale și e limitată la [1, 10].
+function notaTest(score, maxScore) {
+  const s = Number(score), m = Number(maxScore);
+  if (!Number.isFinite(s) || !Number.isFinite(m) || m <= 0) return null;
+  const raw = m === 100 ? s / 10 : 1 + 9 * (s / m);
+  return Math.max(1, Math.min(10, Math.round(raw * 100) / 100));
+}
+
 // ─── PREDICȚIA NOTEI (funcția 17) ────────────────────────────────────────────
 // Heuristică transparentă din: stăpânirea medie pe subiecte, media temelor,
 // media simulărilor. Notă pe scala 1–10 + capitolele de consolidat.
@@ -520,12 +532,11 @@ async function reconcileContentHomework(supa, userId) {
       // rezolvate), deci un rând apărut ulterior = tema a fost lucrată.
       // (Comparația strictă de timp pierdea rezolvări reale — cerința 2.)
       if (p) {
-        const pct = p.max_score ? p.score / p.max_score : 0;
         await supa.from('ai_meditatii_homework').update({
           status: 'rezolvata', score: p.score, max_score: p.max_score,
           attempts: p.attempts || 1, completed_at: p.completed_at || new Date().toISOString(),
-          // nota cu partea zecimală (2 zecimale) — nu se rotunjește la întreg
-          feedback: { grade: Math.max(1, Math.min(10, Math.round((1 + 9 * pct) * 100) / 100)), auto: true },
+          // nota cu 10 p din oficiu, fără dublare la testele „din 100" (notaTest)
+          feedback: { grade: notaTest(p.score, p.max_score) ?? 1, auto: true },
         }).eq('id', h.id);
         await clearHomeworkNotifications(supa, userId, h.id);
       }
@@ -610,6 +621,6 @@ module.exports = {
   buildPlan, planProgress, nextChapter, siteChaptersFor, siteChapterCategoriesFor, mergeSiteChapters,
   siteInteractiveFor, siteTheoryFor,
   genQuestions, normalizeQuestions, classifyMistakes, fixLatex,
-  predictGrade, bumpStreak, nextReviewDue,
+  predictGrade, notaTest, bumpStreak, nextReviewDue,
   getProfile, reconcileContentHomework, buildMentorReport, clearHomeworkNotifications,
 };

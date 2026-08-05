@@ -4,6 +4,24 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 5 august 2026 — Nota (1–10, cu 10 puncte din oficiu) afișată la testele interactive, peste tot unde apare scorul
+
+Cererea adminului. Regula (o singură sursă de adevăr, aplicată identic pe client și pe server):
+- testele care raportează scorul „din 100" (`MATE_SCORE` cu `maxScore = 100` — ex. cele generate de `exgen.js`/`exerciseRender.js`/`quizRender.js`) au punctele din oficiu **DEJA incluse** în scor ⇒ **nota = scor/10** (fără dublarea oficiului);
+- testele cu punctaj brut (ex. `35/45`, EN pe 90 de puncte) primesc oficiul la calcul ⇒ **nota = 1 + 9×(scor/maxim)**;
+- nota păstrează 2 zecimale (ca mediile școlare) și e limitată la [1, 10].
+
+Unde apare acum nota:
+- **`/exercitiu`** (`InteractiveViewer.jsx`): pastila „✓ Scor salvat: 63/90 (70%) · nota 7.30"; dacă e temă de la Meditator, pastila „Temă bifată · nota …" există deja de la server, deci nota NU se mai repetă și în pastila de scor;
+- **cardurile de teste** (`ContentPage.jsx`): badge-ul de progres „✓ 70% · nota 7.30";
+- **viewerul exercițiilor AI** (`ExercitiuAIViewer.jsx`): chipul „Scor: … · nota …";
+- **Rezultate elevi** (`TeacherResults.jsx`): coloana „Punctaj" din tabel, tooltip-ul graficului „bursă", temele de meditații (nota serverului dacă există, altfel calculată — niciodată ambele) și lista arhivată de teme;
+- **raportul părintelui** (`ParentAIActivity.jsx`): rezultatele recente de la meditații, exercițiile interactive generate, cele din Biblioteca utilizatorilor și cele primite de la profesor.
+
+Server (aceeași „grijă" la dublarea oficiului): `api/_lib/meditatii.js` — funcția nouă **`notaTest`** (exportată) folosită la bifarea automată a temelor din site (`reconcileContentHomework`) și în `api/ai-meditatii.js` → `homework_score`; până acum ambele aplicau `1 + 9×pct` necondiționat, deci la testele „din 100" oficiul se aduna de două ori (ex. 55/100 → nota 5.95 în loc de 5.50).
+
+Fișier nou: `src/lib/nota.js` (`notaDinScor`). Nicio schimbare la HTML-urile testelor din Storage și nicio migrare SQL. Verificat: esbuild pe toate fișierele editate + 12 cazuri de test pe formulă (client și server) — toate trec.
+
 ## 31 iulie 2026 (3) — Task-urile programate: METODA DE LUCRU din instrucțiuni („pe rând" / combinare / corespondență test↔barem) + butoanele „Publică acum" / „Vizualizează"
 
 Cereri ale adminului. **După deploy: rulează DIN NOU `supabase/agent_tasks.sql`** (adaugă coloana `seq_done` — progresul modului „pe rând"). Până acum agentul folosea DOAR combinarea mai multor fișiere din rubrică; acum metoda se alege per task, direct din câmpul „Instrucțiuni pentru agent" (fiecare task își păstrează metoda, modelul AI și modelul de format proprii — pot diferi între task-uri):

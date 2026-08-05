@@ -4,6 +4,7 @@ import Discussions from './Discussions';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { notaDinScor } from '../lib/nota';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -203,6 +204,7 @@ async function ensurePdfJs() {
 function ProgressBadge({ progress }) {
   if (!progress) return null;
   const pct = Math.round((progress.score / progress.max_score) * 100);
+  const nota = notaDinScor(progress.score, progress.max_score); // cu 10 p din oficiu
   const color = pct >= 80 ? '#2e7d32' : pct >= 50 ? '#e65100' : '#c62828';
   const bg   = pct >= 80 ? '#e8f5e9' : pct >= 50 ? '#fff3e0' : '#fce4ec';
   return (
@@ -212,7 +214,7 @@ function ProgressBadge({ progress }) {
         padding:'4px 10px', borderRadius:20, fontSize:'0.73rem', fontWeight:700,
         background:bg, color,
       }}>
-        ✓ {pct}%
+        ✓ {pct}%{nota != null ? ` · nota ${nota}` : ''}
       </span>
       <span style={{ fontSize:'0.69rem', color:'var(--text-muted)', whiteSpace:'nowrap' }}>
         {progress.score}/{progress.max_score} pct

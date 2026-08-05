@@ -7,6 +7,7 @@ import { aiClient } from '../lib/aiClient';
 import { ChatPanel, TutorFab } from '../components/AITutor';
 import { injectTutorBridge } from '../lib/tutorBridge';
 import { awardBadges } from '../lib/badges';
+import { notaDinScor } from '../lib/nota';
 import EinsteinIcon from '../components/EinsteinIcon';
 
 export default function InteractiveViewer() {
@@ -354,6 +355,8 @@ export default function InteractiveViewer() {
 
   const scorePct = savedScore ? Math.round((savedScore.score / savedScore.maxScore) * 100) : null;
   const scoreColor = scorePct >= 80 ? '#2e7d32' : scorePct >= 50 ? '#e65100' : '#c62828';
+  // Nota cu 10 puncte din oficiu (testele care raportează „din 100" o au deja inclusă)
+  const savedNota = savedScore ? notaDinScor(savedScore.score, savedScore.maxScore) : null;
 
   return (
     <div className="iv-root" style={{ display: 'flex', flexDirection: 'column', background: 'var(--navy-dark)' }}>
@@ -454,7 +457,7 @@ export default function InteractiveViewer() {
               fontSize: '0.82rem', fontWeight: 700,
               animation: 'fadeIn 0.4s ease',
             }}>
-              ✓ Scor salvat: {savedScore.score}/{savedScore.maxScore} ({scorePct}%)
+              ✓ Scor salvat: {savedScore.score}/{savedScore.maxScore} ({scorePct}%){savedNota != null && !hwMarked ? ` · nota ${savedNota}` : ''}
             </div>
           )}
 

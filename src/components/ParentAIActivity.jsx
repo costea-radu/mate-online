@@ -6,6 +6,7 @@
 // =====================================================================
 import { useState, useEffect } from 'react';
 import { aiClient } from '../lib/aiClient';
+import { notaDinScor } from '../lib/nota';
 
 const pct = (m) => `${Math.round((m || 0) * 100)}%`;
 const dt = (d) => (d ? new Date(d).toLocaleDateString('ro-RO') : '');
@@ -114,7 +115,7 @@ function MeditatiiReport({ m }) {
               const p = r.maxScore ? Math.round((r.score / r.maxScore) * 100) : 0;
               return (
                 <div key={i} style={{ marginTop: 3 }}>
-                  {kindIcon} {r.label}{r.topic ? ` · ${EXAM_SHORT[r.topic] || r.topic}` : ''} — <strong>{r.score}/{r.maxScore} ({p}%)</strong>
+                  {kindIcon} {r.label}{r.topic ? ` · ${EXAM_SHORT[r.topic] || r.topic}` : ''} — <strong>{r.score}/{r.maxScore} ({p}%){notaDinScor(r.score, r.maxScore) != null ? ` · nota ${notaDinScor(r.score, r.maxScore)}` : ''}</strong>
                   <span style={{ color: 'var(--text-muted)' }}> · {dt(r.at)}</span>
                 </div>
               );
@@ -138,7 +139,11 @@ function MeditatiiReport({ m }) {
 
 function ChildDetail({ d }) {
   const lib = d.library || {};
-  const scoreTxt = (it) => (it.score != null && it.max_score ? ` — scor ${it.score}/${it.max_score}` : '');
+  const scoreTxt = (it) => {
+    if (it.score == null || !it.max_score) return '';
+    const nota = notaDinScor(it.score, it.max_score);
+    return ` — scor ${it.score}/${it.max_score}${nota != null ? ` · nota ${nota}` : ''}`;
+  };
   return (
     <div>
       {d.meditatii
@@ -155,12 +160,12 @@ function ChildDetail({ d }) {
 
       <Section title="🏛️ Exerciții din Biblioteca utilizatorilor rezolvate" count={(d.publicSolved || []).length}>
         <List items={d.publicSolved} empty="Niciunul încă."
-          render={(a) => <>{a.title} <span style={{ color: 'var(--text-muted)' }}>· scor {a.score}/{a.maxScore} · {a.attempts} încercări · {dt(a.completedAt)}</span></>} />
+          render={(a) => <>{a.title} <span style={{ color: 'var(--text-muted)' }}>· scor {a.score}/{a.maxScore}{notaDinScor(a.score, a.maxScore) != null ? ` · nota ${notaDinScor(a.score, a.maxScore)}` : ''} · {a.attempts} încercări · {dt(a.completedAt)}</span></>} />
       </Section>
 
       <Section title="👩‍🏫 Exerciții primite de la profesor + rezolvate" count={(d.assignments || []).length}>
         <List items={d.assignments} empty="Niciunul (funcția de trimitere de la profesor se activează separat)."
-          render={(a) => <>{a.title} <span style={{ color: 'var(--text-muted)' }}>· generat de {a.creatorRole === 'parinte' ? 'părintele' : 'profesorul'} {a.creator || ''} · scor {a.score}/{a.maxScore} · {a.attempts} încercări</span></>} />
+          render={(a) => <>{a.title} <span style={{ color: 'var(--text-muted)' }}>· generat de {a.creatorRole === 'parinte' ? 'părintele' : 'profesorul'} {a.creator || ''} · scor {a.score}/{a.maxScore}{notaDinScor(a.score, a.maxScore) != null ? ` · nota ${notaDinScor(a.score, a.maxScore)}` : ''} · {a.attempts} încercări</span></>} />
       </Section>
 
       <Section title="💬 Întrebări puse Profesorului Virtual">

@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
+import { notaDinScor } from '../lib/nota';
 
 export default function ExercitiuAIViewer() {
   const navigate = useNavigate();
@@ -61,7 +62,7 @@ export default function ExercitiuAIViewer() {
         <span style={{ color: '#fff', fontWeight: 600, fontSize: '0.9rem', flex: 1, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           🧩 {title}
         </span>
-        {score ? <span style={chip}>Scor: {score.sc}/{score.mx}</span> : <span style={{ minWidth: 90 }} />}
+        {score ? <span style={chip}>Scor: {score.sc}/{score.mx}{notaDinScor(score.sc, score.mx) ? ` · nota ${notaDinScor(score.sc, score.mx)}` : ''}</span> : <span style={{ minWidth: 90 }} />}
       </div>
       <iframe title={title} sandbox="allow-scripts" srcDoc={html} style={{ flex: 1, width: '100%', border: 'none', background: '#fff' }} />
     </div>

@@ -1039,8 +1039,8 @@ async function homeworkScore(req, res, supa) {
   const mx = Math.max(1, parseInt(maxScore, 10) || 100);
   const best = hw.max_score ? Math.max(hw.score || 0, sc) : sc; // păstrăm cel mai bun scor
   const pct = best / mx;
-  // nota păstrează partea zecimală (2 zecimale, ca mediile școlare) — nu se rotunjește la întreg
-  const grade = Math.max(1, Math.min(10, Math.round((1 + 9 * pct) * 100) / 100));
+  // nota cu 10 p din oficiu, 2 zecimale; testele „din 100" îl au deja inclus (med.notaTest)
+  const grade = med.notaTest(best, mx) ?? 1;
   await supa.from('ai_meditatii_homework').update({
     status: 'rezolvata', score: best, max_score: mx,
     attempts: (hw.attempts || 0) + 1, completed_at: new Date().toISOString(),
