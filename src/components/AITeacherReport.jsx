@@ -86,11 +86,13 @@ export default function AITeacherReport() {
             </details>
           )}
 
-          {/* Elevi în dificultate */}
+          {/* Elevi în dificultate — rolldown (cerința 4, runda 5) */}
           {data.students.some((s) => s.atRisk) && (
-            <div style={card}>
-              <h4 style={{ color: 'var(--navy)', marginBottom: 12 }}>Elevi care au nevoie de atenție</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <details style={card}>
+              <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontSize: '1rem', fontFamily: 'var(--font-display)' }}>
+                ⚠️ Elevi care au nevoie de atenție ({data.students.filter((s) => s.atRisk).length})
+              </summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
                 {data.students.filter((s) => s.atRisk).map((s) => (
                   <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 12px', background: 'rgba(231,76,60,.06)', borderRadius: 10, fontSize: '.88rem' }}>
                     <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{s.name}</span>
@@ -100,7 +102,7 @@ export default function AITeacherReport() {
                   </div>
                 ))}
               </div>
-            </div>
+            </details>
           )}
         </>
       )}

@@ -369,18 +369,20 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
               </div>
             )}
 
-            {/* Temele de la „Meditații cu Profesorul Virtual" (inclusiv generate) */}
+            {/* Meditații cu Prof. Virtual: temele + seturile lucrate (exerciții,
+                recapitulări, simulări) — rezultatele complete pentru mentor */}
             {(student.meditatii || []).length > 0 && (
               <div style={{ background: '#fff', borderRadius: 'var(--radius)', border: '1.5px solid rgba(232,185,49,.55)', padding: '12px 14px', marginBottom: 14 }}>
-                <strong style={{ fontSize: '0.85rem', color: 'var(--navy)' }}>🎓 Teme de la Meditații cu Prof. Virtual</strong>
+                <strong style={{ fontSize: '0.85rem', color: 'var(--navy)' }}>🎓 Meditații cu Prof. Virtual — teme și seturi lucrate</strong>
                 <div style={{ display: 'grid', gap: 5, marginTop: 8 }}>
                   {student.meditatii.slice(0, 12).map((h, i) => {
                     const solved = h.status === 'rezolvata';
                     const p = solved && h.max_score ? pct(h.score, h.max_score) : null;
+                    const icon = { content: '🧩', interactive: '📚', exercitii: '✍️', remediere: '🩹', recapitulare: '🔁', simulare: '🎯', evaluare: '🧭' }[h.kind] || '📚';
                     return (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, fontSize: '0.8rem', padding: '5px 8px', background: 'var(--cream)', borderRadius: 7, flexWrap: 'wrap' }}>
                         <span style={{ color: 'var(--text)', fontWeight: 500 }}>
-                          {h.kind === 'content' ? '🧩' : '📚'} {h.title}
+                          {icon} {h.title}
                           <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{h.completed_at ? ` · ${fmtDate(h.completed_at)}` : h.assigned_at ? ` · dată pe ${fmtDate(h.assigned_at)}` : ''}</span>
                         </span>
                         {solved ? (

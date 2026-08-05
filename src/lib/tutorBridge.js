@@ -349,17 +349,51 @@ const BRIDGE_SCRIPT = String.raw`
     }
     return null;
   }
+  // 3) bara de statistici a testelor mari („Scor: 45/90 pct") — ancorată pe „Scor"
+  function scoreFromHeader(){
+    try {
+      var m = (document.body.innerText || '').match(/Scor\s*[:  ]\s*(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)\s*(?:pct|puncte|p\b)/i);
+      if (m) { var s = parseNum(m[1]), mx = parseNum(m[2]); if (isFinite(s) && isFinite(mx)) return { s: s, m: mx }; }
+    } catch(e){}
+    return null;
+  }
   function tryReportScore(force){
     if (NATIVE_SCORE || !userActed) return; // fără dubluri; fără raport la simpla re-deschidere
     var r = scoreFromStats() || scoreFromDom();
     if (r) postScore(r.s, r.m, !!force);
   }
+  // ── PLASA DE SIGURANȚĂ: unele teste „native" (au cod MATE_SCORE în fișier)
+  // NU îl trimit totuși la „Corectează". La fiecare corectare explicită emitem
+  // un HINT cu scorul citit din pagină; PĂRINTELE îl folosește DOAR dacă nu
+  // primește un MATE_SCORE direct — fără el, tema/rezultatul nu se salvau deloc.
+  var lastHintSig = '', lastHintAt = 0;
+  function emitScoreHint(){
+    if (!userActed) return;
+    var r = scoreFromStats() || scoreFromDom() || scoreFromHeader();
+    if (!r || !isFinite(r.s) || !isFinite(r.m) || r.m <= 0 || r.s < 0 || r.s > r.m) return;
+    var sig = r.s + '/' + r.m, now = Date.now();
+    if (sig === lastHintSig && now - lastHintAt < 4000) return;
+    lastHintSig = sig; lastHintAt = now;
+    try { window.parent.postMessage({ type: 'MATE_SCORE_HINT', score: Math.round(r.s), maxScore: Math.round(r.m) }, '*'); } catch(e){}
+  }
+  // corectarea explicită: click pe butoane de tip „Corectează / Verifică / Finalizează"
+  document.addEventListener('click', function(ev){
+    try {
+      var b = ev.target && ev.target.closest ? ev.target.closest('button, a, [role="button"]') : null;
+      if (!b) return;
+      var t = (b.textContent || '').toLowerCase();
+      if (/corecteaz|verific[aă]\s*(tot|toate)?$|finalizeaz|corectare/.test(t.replace(/\s+/g, ' ').trim())) {
+        setTimeout(emitScoreHint, 500);
+        setTimeout(emitScoreHint, 1500); // testele care redau scorul mai lent
+      }
+    } catch(e){}
+  }, true);
   // înfășoară funcțiile uzuale de corectare (rulăm DUPĂ scriptul testului)
   ['checkAll', 'gradeAll', 'corecteaza', 'verificaTot', 'finalizeaza'].forEach(function(name){
     try {
       var f = window[name];
       if (typeof f === 'function' && !f.__mateScoreWrap) {
-        var wrapped = function(){ var r = f.apply(this, arguments); setTimeout(function(){ tryReportScore(true); }, 80); return r; };
+        var wrapped = function(){ var r = f.apply(this, arguments); setTimeout(function(){ tryReportScore(true); emitScoreHint(); }, 80); return r; };
         wrapped.__mateScoreWrap = true;
         window[name] = wrapped;
       }

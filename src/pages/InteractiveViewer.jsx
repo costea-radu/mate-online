@@ -21,6 +21,8 @@ export default function InteractiveViewer() {
   const [saveError, setSaveError] = useState(null); // eroarea de salvare devine VIZIBILĂ
   const startedAtRef = useRef(Date.now());
   const iframeRef = useRef(null);
+  const realScoreAtRef = useRef(0);   // când a sosit ultimul MATE_SCORE autentic
+  const hintTimerRef = useRef(null);  // hint în așteptare (plasa de siguranță)
 
   // ─── Profesorul Virtual lângă exercițiu ───────────────────────────────────
   const [tutorOpen, setTutorOpen] = useState(!!state?.openTutor);   // deschis din chat → rămâne deschis
@@ -59,7 +61,9 @@ export default function InteractiveViewer() {
   const [searchParams] = useSearchParams();
   const idParam = searchParams.get('id');
   const temaId = searchParams.get('temaId'); // deschis ca TEMĂ de la Meditatorul AI
+  const medSesId = searchParams.get('medSesId'); // sesiune „site-first" de la Meditator (exerciții/simulare din site)
   const [hwMarked, setHwMarked] = useState(null); // { grade } — tema bifată
+  const [medMarked, setMedMarked] = useState(null); // { pct } — sesiunea de meditații bifată
   const [item, setItem] = useState(state?.item || null);
 
   // Deschidere directă prin link ?id= (din chat/notificări): aducem materialul.
@@ -85,11 +89,7 @@ export default function InteractiveViewer() {
 
   // ─── Salvare progres primit de la iframe ────────────────────────────────────
   useEffect(() => {
-    async function handleMessage(event) {
-      // Acceptăm mesaje de la orice origine (iframe e încărcat din Supabase Storage)
-      if (event.source === window || !event.data || event.data.type !== 'MATE_SCORE') return;
-
-      const { score, maxScore } = event.data;
+    async function saveScore(score, maxScore) {
       if (typeof score !== 'number' || typeof maxScore !== 'number') return;
       if (!user || !item) return;
 
@@ -98,6 +98,15 @@ export default function InteractiveViewer() {
       if (temaId) {
         aiClient.meditatii({ action: 'homework_score', id: temaId, score, maxScore })
           .then((r) => { if (r?.ok) setHwMarked({ grade: r.grade }); })
+          .catch(() => {});
+      }
+
+      // Sesiune „site-first" de la Meditator (exerciții/simulare cu test din
+      // site): rezultatul intră în planul de meditații, predicția notei și
+      // rapoartele pentru părinți/profesori.
+      if (medSesId) {
+        aiClient.meditatii({ action: 'session_score', id: medSesId, score, maxScore })
+          .then((r) => { if (r?.ok) setMedMarked({ pct: r.pct }); })
           .catch(() => {});
       }
 
@@ -180,9 +189,41 @@ export default function InteractiveViewer() {
       }
     }
 
+    function handleMessage(event) {
+      // Acceptăm mesaje de la orice origine (iframe e încărcat din Supabase Storage)
+      if (event.source === window || !event.data || typeof event.data !== 'object') return;
+      const d = event.data;
+
+      if (d.type === 'MATE_SCORE') {
+        // Scorul autentic, trimis de codul testului — are întotdeauna prioritate.
+        realScoreAtRef.current = Date.now();
+        if (hintTimerRef.current) { clearTimeout(hintTimerRef.current); hintTimerRef.current = null; }
+        saveScore(d.score, d.maxScore);
+        return;
+      }
+
+      if (d.type === 'MATE_SCORE_HINT') {
+        // PLASA DE SIGURANȚĂ: unele teste au codul MATE_SCORE în fișier, dar nu
+        // îl trimit la „Corectează". Bridge-ul citește atunci scorul din pagină
+        // și trimite un HINT. Îl folosim DOAR dacă nu sosește un MATE_SCORE
+        // autentic — altfel tema rămânea „nerezolvată" și părinții neanunțați.
+        if (typeof d.score !== 'number' || typeof d.maxScore !== 'number' || d.maxScore <= 0) return;
+        if (Date.now() - realScoreAtRef.current < 5000) return; // scor real deja primit
+        if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+        hintTimerRef.current = setTimeout(() => {
+          hintTimerRef.current = null;
+          if (Date.now() - realScoreAtRef.current < 5000) return; // a sosit între timp
+          saveScore(d.score, d.maxScore);
+        }, 1200);
+      }
+    }
+
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [user, item, temaId]);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      if (hintTimerRef.current) { clearTimeout(hintTimerRef.current); hintTimerRef.current = null; }
+    };
+  }, [user, item, temaId, medSesId]);
 
   // ─── Mesajele bridge-ului (exercițiu → tutor) ───────────────────────────────
   useEffect(() => {
@@ -382,6 +423,16 @@ export default function InteractiveViewer() {
               fontSize: '0.82rem', fontWeight: 700, animation: 'fadeIn 0.4s ease',
             }}>
               ✓ Temă bifată · nota {hwMarked.grade}
+            </div>
+          )}
+
+          {/* Sesiune de meditații (exerciții/simulare din site) — înregistrată */}
+          {!hwMarked && medMarked && (
+            <div style={{
+              background: 'var(--gold)', color: 'var(--navy)', padding: '4px 14px', borderRadius: 20,
+              fontSize: '0.82rem', fontWeight: 700, animation: 'fadeIn 0.4s ease',
+            }}>
+              ✓ Trimis Meditatorului · {medMarked.pct}%
             </div>
           )}
 

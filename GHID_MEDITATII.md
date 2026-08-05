@@ -218,6 +218,39 @@ Fluxul temelor (cel mai important) este acum:
 - Slug-urile de subiecte („raportul_de_asemanare") apar peste tot ca text
   lizibil, nu ca indici LaTeX.
 
+## 🔗 Runda 6 — legarea completă de site (site-first peste tot)
+
+**Principiu: profesorul folosește ÎNTÂI materialele site-ului, generează doar
+la epuizare — iar TOT ce lucrează elevul se înregistrează și se vede.**
+
+1. **Exercițiile din plan sunt „site-first"**: la „✍️ Exerciții", dacă există un
+   test interactiv în site potrivit capitolului (nefăcut, nedat ca temă), se
+   deschide ACELA (`?medSesId=` în URL) — fără nicio generare. Abia când s-au
+   epuizat se generează un set nou (Opus 5, după modelul din site).
+2. **Simulările sunt „site-first"**: întâi testele din categoria examenului
+   (EN/BAC) neînregistrate și nedate ca temă; după epuizare se generează.
+3. **`session_score`** (acțiune nouă): viewerul de exerciții trimite scorul
+   imediat după „Corectează" pentru sesiunile site-first — sesiunea se
+   finalizează, capitolul avansează (≥80% → finalizat + recapitulare), stăpânirea
+   și seria de zile se actualizează, iar părinții sunt anunțați.
+4. **Plasă de siguranță pentru scoruri (MATE_SCORE_HINT)**: unele teste „native"
+   au codul MATE_SCORE în fișier dar nu îl trimit la „Corectează". Bridge-ul
+   citește atunci scorul din pagină („Scor: 45/90 pct") și trimite un HINT;
+   viewerul îl folosește DOAR dacă nu sosește un scor autentic în ~1,2s —
+   așa se salvează rezultatul + tema + notificarea părinților și la aceste teste.
+5. **Rezultatele se văd peste tot**: elevul — în „Progresul meu" (teme + seturi
+   lucrate + teste din site); profesorii/părinții — în „Rezultate elevi"
+   („Meditații cu Prof. Virtual — teme și seturi lucrate") și în raportul
+   pentru părinți („Rezultate recente" cu fiecare set și scor).
+6. **Butoane noi, în pagină și în widget**: „✍️ Știu teoria — direct la
+   exerciții" (sare peste lecție), „📋 Alege alt capitol", „🧩 Test din site ·
+   Evaluarea Națională/BAC" și „🏁 Încheie meditația și dă-mi tema" (dă temă și
+   închide sesiunea; data viitoare briefingul propune reluarea de unde a rămas).
+   Chat-ul are marcaje noi: `[[MEDITATII:{"kind":"plan"}]]` și `"end"`.
+7. **Rapoarte mai curate**: „Elevi care au nevoie de atenție" e rolldown;
+   „Progres AI" din Rezultate elevi arată doar media (fără titlurile lecțiilor) —
+   detaliile pe subiecte rămân la Raport AI → „Subiecte după dificultate".
+
 ## 🛠️ Depanare
 
 | Simptom | Cauză / soluție |

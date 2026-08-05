@@ -575,6 +575,18 @@ async function buildMentorReport(supa, studentId) {
   if (pendingHw) recommendations.push(`Are ${pendingHw} temă/teme nefăcute de la Profesorul Virtual — o încurajare ajută.`);
   if (!recommendations.length) recommendations.push('Progres constant — continuați ritmul actual de studiu.');
 
+  // rezultatele recente, CONCRETE (cerința 6, runda 5): fiecare set lucrat cu
+  // profesorul — exerciții, recapitulări, simulări — cu scorul obținut
+  const KIND_RO = { evaluare: 'Testul inițial', exercitii: 'Exerciții', remediere: 'Remediere', recapitulare: 'Recapitulare', simulare: 'Simulare de examen', tema: 'Temă' };
+  const recentResults = (sessions || [])
+    .filter((s) => s.status === 'finalizata' && s.max_score)
+    .slice(0, 10)
+    .map((s) => ({
+      kind: s.kind, label: KIND_RO[s.kind] || 'Set de lucru',
+      topic: String(s.topic || s.chapter || '').replace(/_/g, ' '),
+      score: s.score, maxScore: s.max_score, at: s.created_at,
+    }));
+
   return {
     grade: medProfile.grade, examTarget: medProfile.exam_target, level: medProfile.level,
     planProgress: planProgress(plan),
@@ -584,6 +596,7 @@ async function buildMentorReport(supa, studentId) {
     homework: { total: (hw || []).length, done: hwDone.length, pending: pendingHw, avgPercent: hwAvg },
     sessionsCount: (sessions || []).length,
     lastActivity: sessions && sessions[0] ? sessions[0].created_at : null,
+    recentResults,
     difficulties: { topErrors, weakChapters: weakChapters.slice(0, 5), openMistakes: (mistakes || []).filter((m) => !m.remediated).length },
     recommendations,
   };

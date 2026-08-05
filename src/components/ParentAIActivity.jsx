@@ -106,6 +106,21 @@ function MeditatiiReport({ m }) {
         <div><strong>Capitole finalizate ({m.chaptersDone.length}):</strong> {m.chaptersDone.length ? m.chaptersDone.join('; ') : 'încă niciunul'}</div>
         {m.inProgress.length > 0 && <div><strong>În lucru:</strong> {m.inProgress.join('; ')}</div>}
         <div><strong>Teme:</strong> {m.homework.done}/{m.homework.total} rezolvate{m.homework.avgPercent != null ? ` · medie ${m.homework.avgPercent}%` : ''}{m.homework.pending ? ` · ${m.homework.pending} în așteptare` : ''}</div>
+        {(m.recentResults || []).length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            <strong>Rezultate recente (exerciții, recapitulări, simulări):</strong>
+            {m.recentResults.map((r, i) => {
+              const kindIcon = { evaluare: '🧭', exercitii: '✍️', remediere: '🩹', recapitulare: '🔁', simulare: '🎯', tema: '📚' }[r.kind] || '✍️';
+              const p = r.maxScore ? Math.round((r.score / r.maxScore) * 100) : 0;
+              return (
+                <div key={i} style={{ marginTop: 3 }}>
+                  {kindIcon} {r.label}{r.topic ? ` · ${EXAM_SHORT[r.topic] || r.topic}` : ''} — <strong>{r.score}/{r.maxScore} ({p}%)</strong>
+                  <span style={{ color: 'var(--text-muted)' }}> · {dt(r.at)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {(m.difficulties.weakChapters.length > 0 || m.difficulties.topErrors.length > 0) && (
           <div><strong>Dificultăți:</strong> {[
             m.difficulties.weakChapters.length ? `capitole slabe: ${m.difficulties.weakChapters.join('; ')}` : null,

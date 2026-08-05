@@ -198,6 +198,36 @@ module.exports = async function handler(req, res) {
     }));
   } catch { /* schema meditațiilor poate lipsi — raportul merge și fără */ }
 
+  // 7c. Seturile LUCRATE cu profesorul (exerciții/recapitulări/simulări
+  //     generate) — rezultatele lor apar și ele mentorilor (cerința 6,
+  //     runda 5). Cele „din site" nu se dublează: sunt deja în rezultate.
+  try {
+    const rows = await inBatches(studentIds, (chunk, from, to) => supabase
+      .from('ai_meditatii_sessions')
+      .select('user_id, kind, chapter, topic, status, score, max_score, completed_at, created_at, cid:payload->>contentId')
+      .in('user_id', chunk)
+      .eq('status', 'finalizata')
+      .order('created_at', { ascending: false })
+      .range(from, to));
+    const kindLabels = { exercitii: 'Exerciții', remediere: 'Remediere', recapitulare: 'Recapitulare', simulare: 'Simulare de examen', evaluare: 'Testul inițial' };
+    (rows || []).forEach((s) => {
+      if (!s.max_score || s.cid) return; // fără scor / test „din site" (deja în rezultate)
+      meditatii.push({
+        student_id: s.user_id,
+        title: `${kindLabels[s.kind] || 'Set de lucru'}${s.topic ? ` · ${String(s.topic).replace(/_/g, ' ')}` : ''}`,
+        topic: s.topic || s.chapter || '',
+        kind: s.kind,
+        status: 'rezolvata',
+        score: s.score,
+        max_score: s.max_score,
+        grade: null,
+        completed_at: s.completed_at,
+        assigned_at: s.created_at,
+      });
+    });
+    meditatii.sort((a, b) => new Date(b.completed_at || b.assigned_at || 0) - new Date(a.completed_at || a.assigned_at || 0));
+  } catch { /* opțional */ }
+
   // 8. Materiale la care elevul a folosit Prof. Virtual dar nu are (încă) punctaj
   const covered = new Set(prog.map((p) => `${p.user_id}|${p.content_id}`));
   const aiUsage = Object.keys(aiQ)

@@ -42,6 +42,7 @@ module.exports = async function handler(req, res) {
       review_start: reviewStart, simulare, set_style: setStyle,
       mentor_report: mentorReportAction, reset: resetProfile,
       coach, homework_check: homeworkCheck, homework_score: homeworkScore,
+      session_score: sessionScore,
     };
     const fn = handlers[action];
     if (!fn) return res.status(400).json({ error: 'action invalid' });
@@ -131,6 +132,78 @@ async function notifyParents(supa, studentId, body) {
   } catch (e) { console.warn('notifyParents:', e.message); }
 }
 
+// Materialele din site deja FOLOSITE la meditații (date ca temă sau deschise
+// ca sesiune site-first) — nu se dau de două ori (cerința: „teste din site
+// care nu s-au dat temă sau nu au fost înregistrate").
+async function usedContentIds(supa, userId) {
+  const [{ data: hw }, { data: sess }] = await Promise.all([
+    supa.from('ai_meditatii_homework').select('content_id').eq('user_id', userId).limit(300),
+    supa.from('ai_meditatii_sessions').select('cid:payload->>contentId').eq('user_id', userId).limit(300),
+  ]);
+  const ids = [];
+  (hw || []).forEach((h) => { if (h.content_id) ids.push(h.content_id); });
+  (sess || []).forEach((s) => { const cid = s.cid ?? s.payload?.contentId; if (cid) ids.push(cid); });
+  return ids;
+}
+
+// Bifarea unei sesiuni „din site" (exerciții/simulare deschise ca TEST
+// INTERACTIV existent): viewerul trimite scorul imediat după „Corectează" —
+// rezultatul intră în sesiuni (predicția notei, rapoarte, „Progresul meu"),
+// planul avansează, iar părinții sunt anunțați (cerințele 6–7, runda 5).
+async function sessionScore(req, res, supa) {
+  const userId = await ai.authUser(req, supa);
+  await ai.requireUser(supa, userId);
+  const { id, score = 0, maxScore = 0 } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'id obligatoriu' });
+  const { data: sess } = await supa.from('ai_meditatii_sessions').select('*').eq('id', id).eq('user_id', userId).single();
+  if (!sess) return res.status(404).json({ error: 'Sesiunea nu există.' });
+  if (!sess.payload?.contentId) return res.status(400).json({ error: 'Doar sesiunile din site se bifează pe această cale.' });
+
+  const sc = Math.max(0, parseInt(score, 10) || 0);
+  const mx = Math.max(1, parseInt(maxScore, 10) || 100);
+  const best = sess.max_score ? Math.max(sess.score || 0, sc) : sc; // păstrăm cel mai bun scor
+  const pct = best / mx;
+  await supa.from('ai_meditatii_sessions').update({
+    status: 'finalizata', score: best, max_score: mx, completed_at: new Date().toISOString(),
+  }).eq('id', sess.id);
+
+  const medProfile = await getMedProfile(supa, userId);
+  try {
+    await supa.rpc('bump_skill_mastery', {
+      p_user: userId, p_category: med.categoryFor(medProfile || {}),
+      p_topic: nice(sess.topic || sess.payload?.siteTitle || 'general'), p_correct: pct >= 0.6,
+    });
+  } catch { /* ignorăm */ }
+
+  let chapterDone = false;
+  if (medProfile) {
+    const streak = med.bumpStreak(medProfile);
+    const patch = { streak_days: streak.streak_days, last_study_date: streak.last_study_date };
+    const plan = medProfile.plan || {};
+    const chapter = (plan.chapters || []).find((c) => c.id === sess.chapter);
+    if (chapter && sess.kind === 'exercitii') {
+      chapter.mastery = chapter.mastery == null ? pct : Math.round((chapter.mastery * 0.5 + pct * 0.5) * 100) / 100;
+      if (pct >= 0.8 && chapter.status !== 'finalizat') {
+        chapter.status = 'finalizat';
+        chapterDone = true;
+        // programăm recapitulările: după 1 zi → 7 → 30
+        await supa.from('ai_meditatii_reviews').upsert({
+          user_id: userId, chapter: chapter.id, topic: chapter.title,
+          stage: 0, due_at: med.nextReviewDue(0), done_at: null,
+        }, { onConflict: 'user_id,chapter' });
+      }
+      patch.plan = plan;
+    }
+    await supa.from('ai_meditatii_profile').update(patch).eq('user_id', userId);
+  }
+
+  const what = sess.kind === 'simulare'
+    ? `o simulare de examen (test din site${sess.payload?.siteTitle ? `: „${sess.payload.siteTitle}"` : ''})`
+    : `un test din site${sess.topic ? ` la „${nice(sess.topic)}"` : ''}`;
+  await notifyParents(supa, userId, `A rezolvat ${what}: ${best}/${mx} (${Math.round(pct * 100)}%).`);
+  return res.status(200).json({ ok: true, chapterDone, pct: Math.round(pct * 100) });
+}
+
 // memoria pedagogică: linia de adaptare trimisă generatoarelor
 function styleNoteOf(profile) {
   const m = profile?.memory || {};
@@ -175,19 +248,31 @@ async function coachBits(supa, userId, medProfile) {
 }
 
 // pașii următori (butoane) — aceeași ordine pedagogică precum briefingul
-function coachSuggestions({ plan, dueReviews, pendingHw, openMistakes }) {
+const EXAM_RO = { 'evaluare-nationala': 'Evaluarea Națională', 'bac-mate-info': 'BAC Mate-Info', 'bac-stiinte': 'BAC Științe', 'bac-tehnologic': 'BAC Tehnologic' };
+function coachSuggestions({ plan, dueReviews, pendingHw, openMistakes, medProfile }) {
   const out = [];
   if (dueReviews[0]) out.push({ kind: 'recapitulare', label: `🔁 Recapitulare: ${dueReviews[0].chapterTitle}`, reviewId: dueReviews[0].id, chapterTitle: dueReviews[0].chapterTitle });
   if (openMistakes[0]) out.push({ kind: 'remediere', label: '🩹 10 exerciții ca acela greșit', mistakeId: openMistakes[0].id });
   if (pendingHw[0]) out.push({ kind: 'tema', label: `📚 Tema: ${pendingHw[0].title}`, homeworkId: pendingHw[0].id });
   const next = med.nextChapter(plan);
   if (next) {
-    out.push(next.status === 'de_parcurs'
-      ? { kind: 'lectie', label: `📖 Teoria: ${next.title}`, chapterId: next.id }
-      : { kind: 'exercitii', label: `✍️ Exerciții: ${next.title}`, chapterId: next.id });
-  } else {
-    out.push({ kind: 'simulare', label: '🎯 Simulare de examen' });
+    if (next.status === 'de_parcurs') {
+      out.push({ kind: 'lectie', label: `📖 Teoria: ${next.title}`, chapterId: next.id });
+      // elevul poate ști deja teoria → sare direct la exerciții (cerința 2, runda 5)
+      out.push({ kind: 'exercitii', label: '✍️ Știu teoria — direct la exerciții', chapterId: next.id });
+    } else {
+      out.push({ kind: 'exercitii', label: `✍️ Exerciții: ${next.title}`, chapterId: next.id });
+      out.push({ kind: 'plan', label: '📋 Alege alt capitol' });
+    }
   }
+  // elevii cu examen: un TEST INTERACTIV din site (cerința 1, runda 5) —
+  // acțiunea „simulare" deschide întâi testele din site, apoi generează
+  if (medProfile && (medProfile.exam_target || !next)) {
+    const ex = med.examTypeFor(medProfile);
+    out.push({ kind: 'simulare', label: `🧩 Test din site · ${EXAM_RO[ex] || 'examen'}` });
+  }
+  // oricând: încheie sesiunea cu temă pentru acasă (cerința 3, runda 5)
+  out.push({ kind: 'end', label: '🏁 Încheie meditația și dă-mi tema' });
   return out;
 }
 
@@ -200,7 +285,9 @@ async function coach(req, res, supa) {
   if (!medProfile) return res.status(400).json({ error: 'Începe cu testul inițial.' });
 
   const bits = await coachBits(supa, userId, medProfile);
-  const suggestions = coachSuggestions(bits);
+  let suggestions = coachSuggestions({ ...bits, medProfile });
+  // la încheierea meditației nu mai propunem pași noi — doar tema primită
+  if (event.type === 'session_end') suggestions = suggestions.filter((s) => s.kind === 'tema');
 
   // faptele evenimentului (deterministe) — mini-modelul doar le „încălzește"
   const facts = [];
@@ -215,12 +302,18 @@ async function coach(req, res, supa) {
     facts.push(`Elevul a terminat tema „${event.title || ''}" cu nota ${event.grade}.`);
   } else if (event.type === 'lesson_done') {
     facts.push(`Elevul tocmai a citit teoria la „${event.chapterTitle || 'capitolul curent'}" — propune-i să treacă la exerciții.`);
+  } else if (event.type === 'session_end') {
+    facts.push(event.title
+      ? `Elevul încheie meditația de azi și tocmai a primit tema „${event.title}". Încheie cald: spune-i tema pe scurt și că data viitoare reluați de unde ați rămas (sau alege alt capitol, cum preferă).`
+      : `Elevul încheie meditația de azi${event.skipped ? ' — are deja teme nefăcute, reamintește-i-le blând' : ''}. Încheie cald și spune-i că data viitoare reluați de unde ați rămas.`);
   } else {
     facts.push('Elevul a revenit la meditații.');
   }
   if (suggestions[0]) facts.push(`PASUL URMĂTOR pe care îl anunți: ${suggestions[0].label.replace(/^[^\s]+\s/, '')}.`);
 
-  const fallback = `${bits.firstName ? bits.firstName + ', ' : ''}${event.type === 'set_done' && pct != null ? (pct >= 80 ? 'bravo, ai lucrat foarte bine! ' : 'bine că ai lucrat — mai șlefuim împreună. ') : ''}${suggestions[0] ? `Următorul pas pe care ți-l propun: ${suggestions[0].label.replace(/^[^\s]+\s/, '')}.` : 'Continuăm când ești gata.'}`;
+  const fallback = event.type === 'session_end'
+    ? `${bits.firstName ? bits.firstName + ', ' : ''}bravo pentru azi! ${event.title ? `Tema ta: „${event.title}" — o găsești la rubrica Teme. ` : ''}Data viitoare reluăm de unde am rămas. Spor!`
+    : `${bits.firstName ? bits.firstName + ', ' : ''}${event.type === 'set_done' && pct != null ? (pct >= 80 ? 'bravo, ai lucrat foarte bine! ' : 'bine că ai lucrat — mai șlefuim împreună. ') : ''}${suggestions[0] ? `Următorul pas pe care ți-l propun: ${suggestions[0].label.replace(/^[^\s]+\s/, '')}.` : 'Continuăm când ești gata.'}`;
 
   let message = fallback;
   try {
@@ -287,14 +380,24 @@ function buildBriefing({ firstName, medProfile, plan, dueReviews, pendingHw, ope
   }
   const next = med.nextChapter(plan);
   if (next) {
-    const step = next.status === 'de_parcurs' ? 'începem cu teoria, apoi exersăm' : 'continuăm exercițiile până îl stăpânești';
-    bits.push(`În plan urmează „${next.title}" — ${step}.`);
-    suggestions.push(next.status === 'de_parcurs'
-      ? { kind: 'lectie', label: `📖 Teoria: ${next.title}`, chapterId: next.id }
-      : { kind: 'exercitii', label: `✍️ Exerciții: ${next.title}`, chapterId: next.id });
+    if (next.status === 'de_parcurs') {
+      bits.push(`În plan urmează „${next.title}" — începem cu teoria, apoi exersăm.`);
+      suggestions.push({ kind: 'lectie', label: `📖 Teoria: ${next.title}`, chapterId: next.id });
+      // sare peste teorie dacă o știe deja (cerința 2, runda 5)
+      suggestions.push({ kind: 'exercitii', label: '✍️ Știu teoria — direct la exerciții', chapterId: next.id });
+    } else {
+      // RELUARE de unde a rămas — sau alt capitol, la alegere (cerința 3, runda 5)
+      bits.push(`Reluăm de unde am rămas: „${next.title}" — continuăm exercițiile până îl stăpânești. Dacă preferi, alegem alt capitol din plan.`);
+      suggestions.push({ kind: 'exercitii', label: `✍️ Continuă: ${next.title}`, chapterId: next.id });
+      suggestions.push({ kind: 'plan', label: '📋 Alege alt capitol' });
+    }
   } else {
     bits.push('Ai parcurs tot planul — acum ne antrenăm pentru examen cu simulări.');
     suggestions.push({ kind: 'simulare', label: '🎯 Simulare de examen' });
+  }
+  // elevii cu examen au mereu la îndemână un TEST din site (cerința 1, runda 5)
+  if (medProfile.exam_target && next) {
+    suggestions.push({ kind: 'simulare', label: `🧩 Test din site · ${EXAM_RO[med.examTypeFor(medProfile)] || 'examen'}` });
   }
 
   return { message: `${hello} ${bits.join(' ')}`.trim(), suggestions };
@@ -320,8 +423,8 @@ async function state(req, res, supa) {
       .eq('user_id', userId).order('assigned_at', { ascending: false }).limit(30),
     supa.from('ai_meditatii_reviews').select('id, chapter, topic, stage, due_at, done_at')
       .eq('user_id', userId).order('due_at', { ascending: true }).limit(50),
-    supa.from('ai_meditatii_sessions').select('id, kind, chapter, topic, status, score, max_score, duration_sec, created_at, completed_at')
-      .eq('user_id', userId).order('created_at', { ascending: false }).limit(20),
+    supa.from('ai_meditatii_sessions').select('id, kind, chapter, topic, status, score, max_score, duration_sec, created_at, completed_at, site:payload->>contentId, siteTitle:payload->>siteTitle')
+      .eq('user_id', userId).order('created_at', { ascending: false }).limit(30),
     supa.from('ai_skill_mastery').select('category, topic, mastery, attempts').eq('user_id', userId),
     supa.from('ai_meditatii_mistakes').select('id, chapter, topic, error_type, statement, remediated, created_at')
       .eq('user_id', userId).eq('remediated', false).order('created_at', { ascending: false }).limit(12),
@@ -598,13 +701,41 @@ async function exercises(req, res, supa) {
     : (level === 'incepator' ? 'ușor' : level === 'avansat' ? 'greu' : 'mediu');
   const count = Math.min(12, Math.max(5, parseInt(req.body?.count, 10) || 10));
 
-  // 1) materialele din site — recomandate ca pas următor (interactive nefinalizate)
+  // 1) SITE-FIRST (cerința 1, runda 5): dacă există un exercițiu interactiv în
+  //    site potrivit capitolului, nefolosit încă, îl deschidem pe ACELA.
+  //    Generăm doar după epuizare (sau la cerere explicită: forceGenerate).
+  if (!req.body?.forceGenerate) {
+    const used = await usedContentIds(supa, userId);
+    const site = await med.siteInteractiveFor(supa, {
+      userId, categories: [med.categoryFor(medProfile), med.classCategory(medProfile)],
+      topics: [chapter.title, ...(chapter.topics || [])], limit: 1,
+      minMatch: true, excludeIds: used,
+    });
+    if (site.length) {
+      const s = site[0];
+      const { data: sess, error: sErr } = await supa.from('ai_meditatii_sessions').insert({
+        user_id: userId, kind: 'exercitii', chapter: chapter.id, topic: chapter.title, difficulty,
+        status: 'activa', payload: { contentId: s.id, siteTitle: s.title, site: true },
+      }).select('id').single();
+      if (!sErr && sess) {
+        if (chapter.status === 'de_parcurs' || chapter.status === 'teorie') chapter.status = 'in_lucru';
+        chapter.sessions = (chapter.sessions || 0) + 1;
+        await savePlan(supa, userId, plan);
+        return res.status(200).json({
+          sessionId: sess.id, chapter: { id: chapter.id, title: chapter.title }, difficulty,
+          siteTest: { id: s.id, title: s.title, url: `/exercitiu?id=${s.id}&medSesId=${sess.id}`, is_free: s.is_free },
+        });
+      }
+    }
+  }
+
+  // 2) recomandările din site rămase (nefinalizate) — afișate lângă set
   const siteItems = await med.siteInteractiveFor(supa, {
     userId, categories: [med.categoryFor(medProfile), med.classCategory(medProfile)],
     topics: [chapter.title, ...(chapter.topics || [])], limit: 3,
   });
 
-  // 2) setul generat după modelul din site (Claude Opus 5, fallback existent)
+  // 3) setul generat după modelul din site (Claude Opus 5, fallback existent)
   const { questions, provider, usage } = await med.genQuestions(supa, {
     category: med.categoryFor(medProfile), chapter: chapter.title,
     topics: chapter.topics || [], difficulty, count,
@@ -1064,6 +1195,29 @@ async function simulare(req, res, supa) {
     ? req.body.examType : med.examTypeFor(medProfile);
   const isEN = examType === 'evaluare-nationala';
   const category = isEN ? 'evaluare-nationala' : 'bacalaureat';
+
+  // SITE-FIRST (cerința 1, runda 5): întâi TESTELE din site din categoria
+  // examenului, care nu s-au dat ca temă și nu au fost înregistrate.
+  // Generăm după modelul din site DOAR după epuizare (sau forceGenerate).
+  if (!req.body?.forceGenerate) {
+    const used = await usedContentIds(supa, userId);
+    const site = await med.siteInteractiveFor(supa, {
+      userId, categories: [category], topics: [], limit: 1, excludeIds: used,
+    });
+    if (site.length) {
+      const s = site[0];
+      const { data: sess, error: sErr } = await supa.from('ai_meditatii_sessions').insert({
+        user_id: userId, kind: 'simulare', topic: examType, status: 'activa',
+        payload: { contentId: s.id, siteTitle: s.title, examType, site: true },
+      }).select('id').single();
+      if (!sErr && sess) {
+        return res.status(200).json({
+          sessionId: sess.id, examType,
+          siteTest: { id: s.id, title: s.title, url: `/exercitiu?id=${s.id}&medSesId=${sess.id}`, is_free: s.is_free },
+        });
+      }
+    }
+  }
 
   // punctele slabe intră în test (teste personalizate după punctele slabe)
   const { data: weak } = await supa.from('ai_skill_mastery')

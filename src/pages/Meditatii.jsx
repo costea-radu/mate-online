@@ -423,9 +423,13 @@ export default function Meditatii() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
-  const startExercises = (chapterId, difficulty = null) => run('exercises', async () => {
-    const r = await aiClient.meditatii({ action: 'exercises', chapterId, difficulty });
+  const startExercises = (chapterId, difficulty = null, forceGenerate = false) => run('exercises', async () => {
+    const r = await aiClient.meditatii({ action: 'exercises', chapterId, difficulty, forceGenerate });
     setLessonView(null);
+    // SITE-FIRST (cerința 1, runda 5): există un exercițiu interactiv potrivit
+    // chiar în site → îl deschidem pe ACELA; rezultatul se înregistrează
+    // automat (medSesId) în plan, rapoarte și „Progresul meu".
+    if (r.siteTest) { navigate(r.siteTest.url); return; }
     setQuiz({
       kind: 'exercitii', sessionId: r.sessionId, questions: r.questions, topic: r.chapter.title,
       title: `✍️ Exerciții · ${r.chapter.title}`, subtitle: `Dificultate: ${r.difficulty}. Rezolvă în ritmul tău — la final îți explic tot.`,
@@ -452,8 +456,11 @@ export default function Meditatii() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
-  const startSimulare = () => run('simulare', async () => {
-    const r = await aiClient.meditatii({ action: 'simulare' });
+  const startSimulare = (forceGenerate = false) => run('simulare', async () => {
+    const r = await aiClient.meditatii({ action: 'simulare', forceGenerate });
+    // SITE-FIRST: un TEST din site (categoria examenului) nefolosit încă →
+    // se deschide acela; abia după epuizare se generează unul nou.
+    if (r.siteTest) { navigate(r.siteTest.url); return; }
     setQuiz({
       kind: 'simulare', sessionId: r.sessionId, questions: r.questions, topic: EXAM_LABELS[r.examType] || r.examType,
       title: `🎯 Simulare interactivă · ${EXAM_LABELS[r.examType] || r.examType}`, subtitle: 'Construită după modelul subiectelor din site, cu punctele tale slabe incluse.',
@@ -466,6 +473,17 @@ export default function Meditatii() {
     await refresh();
     if (r.skipped) setActionError(r.skipped === 'are deja teme nefăcute' ? 'Ai deja teme nefăcute — rezolvă-le întâi pe acelea. 😊' : 'Nu am găsit acum un material potrivit — mai încearcă după ce avansezi în plan.');
     else setTab('teme');
+  });
+
+  // „Încheie meditația și dă-mi tema" (cerința 3, runda 5): închide lucrul,
+  // primește temă pentru acasă; data viitoare reiei de unde ai rămas.
+  const endSession = () => run('homework', async () => {
+    setQuiz(null); setLessonView(null);
+    const r = await aiClient.meditatii({ action: 'homework_assign' });
+    await refresh();
+    setTab('teme');
+    coachAfter({ type: 'session_end', title: r.assigned?.title || null, skipped: r.skipped || null });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
   const openHomework = (hw) => run('homework', async () => {
@@ -492,6 +510,8 @@ export default function Meditatii() {
     else if (s.kind === 'remediere') startRemediation(s.mistakeId);
     else if (s.kind === 'tema') openHomework({ id: s.homeworkId });
     else if (s.kind === 'simulare') startSimulare();
+    else if (s.kind === 'plan') { setQuiz(null); setLessonView(null); setTab('plan'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    else if (s.kind === 'end') endSession();
   }
   runSuggestionRef.current = runSuggestion;
 
@@ -586,7 +606,8 @@ export default function Meditatii() {
       {st && premium && lessonView && !quiz && (
         <LessonView data={lessonView} busyLabel={busy}
           onClose={() => setLessonView(null)}
-          onExercises={() => startExercises(lessonView.chapter.id)} />
+          onExercises={() => startExercises(lessonView.chapter.id)}
+          onEnd={endSession} />
       )}
 
       {/* Un set în lucru (test/exerciții/temă/recapitulare/simulare) */}
@@ -628,7 +649,7 @@ export default function Meditatii() {
 
           {actionError && <div style={{ ...card, background: '#fff4e5', color: '#8a6d1a', borderColor: 'var(--gold)' }}>{actionError}</div>}
 
-          {tab === 'azi' && <TodayTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onReview={startReview} onHomeworkTab={() => setTab('teme')} />}
+          {tab === 'azi' && <TodayTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onReview={startReview} onHomeworkTab={() => setTab('teme')} onEnd={endSession} />}
           {tab === 'plan' && <PlanTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onReset={async () => { if (window.confirm('Sigur reluăm totul de la zero? Planul și evaluarea inițială se șterg.')) { await aiClient.meditatii({ action: 'reset' }); await refresh(); } }} />}
           {tab === 'teme' && <HomeworkTab st={st} busy={busy} onOpen={openHomework} onAsk={askHomework} />}
           {tab === 'recapitulari' && <ReviewsTab st={st} busy={busy} onReview={startReview} />}
@@ -664,7 +685,7 @@ function Hero({ profile }) {
   );
 }
 
-function LessonView({ data, onClose, onExercises, busyLabel }) {
+function LessonView({ data, onClose, onExercises, onEnd, busyLabel }) {
   // „Ascultă" — profesorul recită toată teoria (vocile din sistem, gratuit)
   const [voice, setVoice] = useState(null); // { frac, paused }
   const ctlRef = useRef(null);
@@ -717,14 +738,19 @@ function LessonView({ data, onClose, onExercises, busyLabel }) {
       <div style={{ ...card, fontSize: '.95rem', lineHeight: 1.7 }}>
         <MathText text={data.lesson} />
       </div>
-      <button className="btn btn-primary btn-lg" onClick={onExercises} disabled={busyLabel === 'exercises'}>
-        {busyLabel === 'exercises' ? 'Pregătesc exercițiile...' : '✍️ Am citit — trecem la exerciții'}
-      </button>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button className="btn btn-primary btn-lg" onClick={onExercises} disabled={busyLabel === 'exercises'}>
+          {busyLabel === 'exercises' ? 'Pregătesc exercițiile...' : '✍️ Am citit — trecem la exerciții'}
+        </button>
+        {onEnd && (
+          <button className="btn btn-outline" onClick={onEnd} disabled={!!busyLabel}>🏁 Încheie meditația și dă-mi tema</button>
+        )}
+      </div>
     </div>
   );
 }
 
-function TodayTab({ st, busy, onLesson, onExercises, onReview, onHomeworkTab }) {
+function TodayTab({ st, busy, onLesson, onExercises, onReview, onHomeworkTab, onEnd }) {
   const next = st.nextChapter;
   return (
     <div>
@@ -739,8 +765,12 @@ function TodayTab({ st, busy, onLesson, onExercises, onReview, onHomeworkTab }) 
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn btn-primary" onClick={() => (next.status === 'de_parcurs' ? onLesson(next.id) : onExercises(next.id))} disabled={!!busy}>
-              {busy === 'lesson' || busy === 'exercises' ? 'Se pregătește...' : next.status === 'de_parcurs' ? '📖 Începe cu teoria' : '✍️ Exersează acum'}
+              {busy === 'lesson' || busy === 'exercises' ? 'Se pregătește...' : next.status === 'de_parcurs' ? '📖 Începe cu teoria' : next.status === 'teorie' ? '✍️ Fă exerciții' : '✍️ Continuă de unde ai rămas'}
             </button>
+            {/* Știe deja teoria? Sare direct la exerciții (cerința 2, runda 5) */}
+            {next.status === 'de_parcurs' && (
+              <button className="btn btn-outline" onClick={() => onExercises(next.id)} disabled={!!busy}>✍️ Știu teoria — fă exerciții</button>
+            )}
             {next.status !== 'de_parcurs' && (
               <button className="btn btn-outline" onClick={() => onLesson(next.id)} disabled={!!busy}>📖 Recitesc teoria</button>
             )}
@@ -773,6 +803,12 @@ function TodayTab({ st, busy, onLesson, onExercises, onReview, onHomeworkTab }) 
           <button className="btn btn-primary btn-sm" onClick={onHomeworkTab}>Vezi temele →</button>
         </div>
       )}
+
+      {/* Încheie meditația cu temă pentru acasă (cerința 3, runda 5) */}
+      <div style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#f7f9fc' }}>
+        <span style={{ fontSize: '.88rem', color: 'var(--text-light)' }}>Gata pentru azi? Profesorul îți dă temă și data viitoare reluați de unde ați rămas.</span>
+        <button className="btn btn-outline btn-sm" disabled={!!busy} onClick={onEnd}>🏁 Încheie meditația și dă-mi tema</button>
+      </div>
 
     </div>
   );
@@ -998,6 +1034,7 @@ function ProgressMeTab({ st }) {
   const masteryColor = (m) => (m >= 0.75 ? '#27ae60' : m >= 0.4 ? '#e8b931' : '#e74c3c');
   const p = st.profile || {};
   const hwDone = (st.homework || []).filter((h) => h.status === 'rezolvata');
+  const doneSessions = (st.sessions || []).filter((s) => s.status === 'finalizata' && s.max_score && !s.site && s.kind !== 'evaluare');
   return (
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginBottom: 18 }}>
@@ -1021,7 +1058,7 @@ function ProgressMeTab({ st }) {
       <div style={card}>
         <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>📚 Rezultatele tale la teme și teste</h3>
         <p style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: 12 }}>Aceleași rezultate le văd și profesorii/părinții asociați, în raportul lor.</p>
-        {hwDone.length === 0 && (results || []).length === 0 ? (
+        {hwDone.length === 0 && (results || []).length === 0 && doneSessions.length === 0 ? (
           <p style={{ color: 'var(--text-muted)', fontSize: '.88rem', margin: 0 }}>Încă nimic — rezolvă temele de la profesor și testele din site, iar rezultatele apar aici.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1039,6 +1076,20 @@ function ProgressMeTab({ st }) {
                 </div>
               );
             })}
+            {/* Seturile lucrate CU profesorul (exerciții/recapitulări/simulări
+                generate) — cele „din site" apar mai jos, cu titlul testului */}
+            {doneSessions.slice(0, 10).map((s) => {
+                const pc = Math.round((s.score / s.max_score) * 100);
+                const icons = { exercitii: '✍️ Exerciții', remediere: '🩹 Remediere', recapitulare: '🔁 Recapitulare', simulare: '🎯 Simulare', tema: '📚 Temă' };
+                return (
+                  <div key={'ss-' + s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '7px 10px', background: '#f7f9fc', borderRadius: 8, fontSize: '.85rem', flexWrap: 'wrap' }}>
+                    <span style={{ color: 'var(--navy)', fontWeight: 600 }}>{icons[s.kind] || '✍️ Set'}{s.topic ? ` · ${EXAM_LABELS[s.topic] || niceTopic(s.topic)}` : ''}
+                      <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{s.completed_at ? ` · ${new Date(s.completed_at).toLocaleDateString('ro-RO')}` : ''}</span>
+                    </span>
+                    <strong style={{ color: masteryColor(pc / 100), whiteSpace: 'nowrap' }}>{s.score}/{s.max_score} ({pc}%)</strong>
+                  </div>
+                );
+              })}
             {(results || []).filter((r) => !hwDone.some((h) => h.content_id === r.content_id)).slice(0, 10).map((r, i) => {
               const pc = r.max_score ? Math.round((r.score / r.max_score) * 100) : 0;
               return (
@@ -1095,9 +1146,10 @@ function SimTab({ st, busy, onSimulare }) {
       <div style={{ ...card, borderLeft: '4px solid var(--navy)' }}>
         <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.05rem', marginBottom: 4 }}>🎯 Simulare interactivă · {examLabel}</div>
         <p style={{ fontSize: '.86rem', color: 'var(--text-light)', marginBottom: 12 }}>
-          Test în stilul subiectelor oficiale din site, cu <strong>punctele tale slabe incluse</strong>. Îl corectez pe loc și îți spun exact unde mai ai de lucrat.
+          Întâi primești <strong>testele interactive din site</strong> (cele pe care nu le-ai făcut încă) — abia după ce le epuizezi îți generez unul nou,
+          în stilul subiectelor oficiale, cu <strong>punctele tale slabe incluse</strong>. Rezultatul se înregistrează și îl văd și părinții/profesorii tăi.
         </p>
-        <button className="btn btn-primary" disabled={!!busy} onClick={onSimulare}>{busy === 'simulare' ? 'Pregătesc simularea... (~30s)' : '▶ Începe simularea'}</button>
+        <button className="btn btn-primary" disabled={!!busy} onClick={() => onSimulare()}>{busy === 'simulare' ? 'Pregătesc simularea...' : '▶ Începe simularea'}</button>
         {sims.length > 0 && (
           <div style={{ marginTop: 14, fontSize: '.83rem', color: 'var(--text)' }}>
             <strong>Simulările tale:</strong>{' '}

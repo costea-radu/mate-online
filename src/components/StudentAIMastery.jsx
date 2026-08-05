@@ -68,7 +68,9 @@ export default function StudentAIMastery({ studentId, aiTests = [] }) {
             </div>
           )}
 
-          {/* Stăpânirea pe subiecte (antrenamentele AI) */}
+          {/* Stăpânirea la antrenamentele AI — DOAR media, fără titlurile
+              lecțiilor/subiectelor (cerința 5, runda 5): lista detaliată pe
+              subiecte rămâne la Raport AI → „Subiecte după dificultate". */}
           {loading && <span style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>Se încarcă…</span>}
           {error && <span style={{ fontSize: '.82rem', color: '#b71c1c' }}>⚠️ {error}</span>}
           {rows && rows.length === 0 && aiTests.length === 0 && (
@@ -77,21 +79,25 @@ export default function StudentAIMastery({ studentId, aiTests = [] }) {
           {rows && rows.length === 0 && aiTests.length > 0 && (
             <span style={{ fontSize: '.78rem', color: 'var(--text-muted)' }}>Fără antrenamente AI pe subiecte încă.</span>
           )}
-          {rows && rows.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              {rows.map((m) => (
-                <div key={m.category + m.topic}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.8rem', marginBottom: 3 }}>
-                    <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{m.topic} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>· {m.category}</span></span>
-                    <span style={{ color: 'var(--text-muted)' }}>{Math.round(m.mastery * 100)}% · {m.correct}/{m.attempts}</span>
-                  </div>
-                  <div style={{ height: 7, background: 'var(--border)', borderRadius: 99, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${Math.round(m.mastery * 100)}%`, background: color(m.mastery), borderRadius: 99 }} />
-                  </div>
+          {rows && rows.length > 0 && (() => {
+            const avg = rows.reduce((s, m) => s + Number(m.mastery || 0), 0) / rows.length;
+            const attempts = rows.reduce((s, m) => s + (m.attempts || 0), 0);
+            const correct = rows.reduce((s, m) => s + (m.correct || 0), 0);
+            return (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.8rem', marginBottom: 3 }}>
+                  <span style={{ fontWeight: 600, color: 'var(--navy)' }}>Stăpânire medie (antrenamente AI)</span>
+                  <span style={{ color: 'var(--text-muted)' }}>{Math.round(avg * 100)}% · {correct}/{attempts} corecte</span>
                 </div>
-              ))}
-            </div>
-          )}
+                <div style={{ height: 7, background: 'var(--border)', borderRadius: 99, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${Math.round(avg * 100)}%`, background: color(avg), borderRadius: 99 }} />
+                </div>
+                <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: 6 }}>
+                  Detaliile pe subiecte sunt la <strong>Raport AI → Subiecte după dificultate</strong>.
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
