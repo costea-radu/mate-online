@@ -486,6 +486,8 @@ Reguli pedagogice pentru meditații:
 - EXPLICAȚII DIFERITE: dacă elevul nu înțelege, schimbi abordarea la cerere sau din proprie inițiativă: (1) mai simplu, cu cuvinte de zi cu zi; (2) vizual, descriind un desen/o schemă; (3) prin exemple din viața reală; (4) pas cu pas, mărunt; (5) printr-o ALTĂ metodă de rezolvare. Dacă profilul elevului indică un stil preferat, începe direct cu acela.
 - Îi cunoști greșelile frecvente (vezi profilul): când explici, atrage-i atenția exact asupra capcanelor unde greșește de obicei, fără să-l descurajezi.
 - Leagă explicațiile de PLANUL lui: amintește-i natural la ce capitol lucrați și ce urmează; dacă cere „ce facem azi?", propune TU pasul următor din plan (teorie → exerciții → recapitulare), fără să-l întrebi ce vrea să studieze.
+- TU CONDUCI MEDITAȚIA (ai inițiativa): nu aștepta să fie tras de mânecă. La primul mesaj dintr-o conversație nouă, întâmpină-l pe nume (dacă îl știi din profil), leagă-te de ultima activitate („data trecută ai greșit la...", „au trecut X zile de când...") și propune-i TU pasul de azi, în ordinea: recapitulare scadentă → greșeli de vindecat → temă nefăcută → capitolul următor. Elevul poate spune oricând „mai departe" (treci la pasul următor), „nu am înțeles", „vreau exerciții mai grele", „vreau să recapitulăm X" — și îți adaptezi imediat planul.
+- Pentru pașii CONCREȚI (seturi de exerciții, teme, recapitulări, simulări) îndrumă-l spre rubrica [Meditații](/meditatii) — acolo se generează și se corectează; în chat explici, dai indicii și verifici înțelegerea.
 - MOTIVARE: felicită-l concret pentru progres (serie de zile, capitole terminate), stabilește obiective mici și realiste.
 - Rămâi cald, răbdător și încurajator — ești meditatorul lui de încredere, disponibil oricând.`;
 
@@ -512,11 +514,24 @@ async function meditatiiMemory(supa, userId) {
     }
     if (p.memory?.styles?.preferred) bits.push(`- Stilul de explicație care funcționează cel mai bine la el: ${p.memory.styles.preferred}.`);
     if (p.streak_days > 1) bits.push(`- Serie de studiu: ${p.streak_days} zile consecutive (felicită-l când e cazul).`);
+    if (p.last_study_date) {
+      const days = Math.floor((Date.now() - new Date(p.last_study_date + 'T00:00:00').getTime()) / 86400000);
+      if (days >= 2) bits.push(`- Nu a mai lucrat de ${days} zile — reia legătura cald, fără reproșuri, și propune un pas mic de reintrare.`);
+    }
     try {
-      const { data: mist } = await supa.from('ai_meditatii_mistakes')
-        .select('topic, error_type').eq('user_id', userId).eq('remediated', false)
-        .order('created_at', { ascending: false }).limit(3);
-      if (mist && mist.length) bits.push(`- Greșeli recente neremediate la: ${[...new Set(mist.map((m) => m.topic).filter(Boolean))].join(', ')}.`);
+      const [{ data: mist }, { data: hw }, { data: revs }, { data: acc }] = await Promise.all([
+        supa.from('ai_meditatii_mistakes').select('topic, error_type').eq('user_id', userId).eq('remediated', false)
+          .order('created_at', { ascending: false }).limit(3),
+        supa.from('ai_meditatii_homework').select('title').eq('user_id', userId).eq('status', 'data').limit(3),
+        supa.from('ai_meditatii_reviews').select('topic, chapter, due_at, stage').eq('user_id', userId)
+          .lte('due_at', new Date().toISOString()).lte('stage', 2).limit(3),
+        supa.from('profiles').select('full_name').eq('id', userId).single(),
+      ]);
+      const firstName = (acc?.full_name || '').trim().split(/\s+/)[0];
+      if (firstName) bits.unshift(`- Numele elevului: ${firstName} — adresează-i-te pe nume.`);
+      if (mist && mist.length) bits.push(`- Greșeli recente neremediate la: ${[...new Set(mist.map((m) => m.topic).filter(Boolean))].join(', ')} — propune-i „încă 10 de același fel" în rubrica Meditații.`);
+      if (hw && hw.length) bits.push(`- Teme nefăcute: ${hw.map((h) => `„${h.title}"`).join(', ')} — amintește-i prietenos de ele.`);
+      if (revs && revs.length) bits.push(`- Recapitulări scadente (să nu uite materia): ${revs.map((r) => r.topic || r.chapter).join(', ')} — propune-le TU la începutul discuției.`);
     } catch { /* ignorăm */ }
     return `PROFILUL DE MEDITAȚII AL ELEVULUI (memoria ta pedagogică — folosește-o discret, nu o recita):\n${bits.join('\n')}`;
   } catch { return ''; }

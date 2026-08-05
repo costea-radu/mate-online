@@ -36,7 +36,7 @@ export default function ProfesorVirtual() {
   const TABS = isStudentView
     ? [
         { id: 'chat', label: `💬 ${askAiLabel({ isTeacher, isParent })}` },
-        { id: 'meditatii', label: '🎓 Meditații cu Prof. Virtual' },
+        { id: 'meditatii', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={17} /> Meditații cu Prof. Virtual</span> },
         { id: 'progress', label: '📈 Progresul meu' },
       ]
     : [

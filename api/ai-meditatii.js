@@ -100,6 +100,36 @@ function gradeAnswers(questions, answers) {
   return { results, correct, total: results.length, pct: results.length ? correct / results.length : 0 };
 }
 
+// stăpânirea pe subiecte, actualizată în PARALEL (bucla secvențială făcea
+// corectarea vizibil de lentă la seturi de 10–12 întrebări)
+async function bumpMasteryAll(supa, userId, category, rows, fallbackTopic = 'general') {
+  await Promise.allSettled(rows.map((r) =>
+    supa.rpc('bump_skill_mastery', {
+      p_user: userId, p_category: category, p_topic: r.topic || fallbackTopic, p_correct: r.correct,
+    })
+  ));
+}
+
+// Părinții asociați află când copilul a lucrat (dedup: o notificare pe zi).
+async function notifyParents(supa, studentId, body) {
+  try {
+    const [{ data: links }, { data: prof }] = await Promise.all([
+      supa.from('mentor_students').select('mentor_id').eq('student_id', studentId).eq('mentor_role', 'parinte'),
+      supa.from('profiles').select('full_name, email').eq('id', studentId).single(),
+    ]);
+    const parents = [...new Set((links || []).map((l) => l.mentor_id))];
+    if (!parents.length) return;
+    const who = prof?.full_name || prof?.email || 'Copilul tău';
+    const today = new Date().toISOString().slice(0, 10);
+    await Promise.allSettled(parents.map((pid) => ai.createNotification(supa, {
+      recipientId: pid, type: 'meditatii_parent',
+      title: `🎓 ${who} a lucrat azi cu Profesorul Virtual`,
+      body, data: { url: '/profil', studentId },
+      dedupeKey: `med_parent:${studentId}:${today}`, dedupeDays: 1,
+    })));
+  } catch (e) { console.warn('notifyParents:', e.message); }
+}
+
 // memoria pedagogică: linia de adaptare trimisă generatoarelor
 function styleNoteOf(profile) {
   const m = profile?.memory || {};
@@ -109,6 +139,59 @@ function styleNoteOf(profile) {
   const errs = Object.entries(m.errorTypes || {}).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => k);
   if (errs.length) bits.push(`greșeli frecvente: ${errs.join(', ')} — include capcane care îl antrenează exact pe acestea`);
   return bits.join('; ');
+}
+
+// ─── BRIEFINGUL PROFESORULUI (inițiativa lui — cerința 10) ───────────────────
+// Mesaj de întâmpinare construit determinist din stare (fără LLM = instant):
+// continuitate („au trecut X zile"), ce s-a lucrat data trecută, unde a
+// greșit, și PAȘII propuși în ordine — elevul poate da „Mai departe".
+function buildBriefing({ firstName, medProfile, plan, dueReviews, pendingHw, openMistakes, sessions }) {
+  const bits = [];
+  const suggestions = [];
+  const hello = firstName ? `Bun venit, ${firstName}!` : 'Bun venit!';
+
+  // continuitatea: câte zile au trecut de la ultima activitate
+  const last = medProfile.last_study_date ? new Date(medProfile.last_study_date + 'T00:00:00') : null;
+  const days = last ? Math.floor((Date.now() - last.getTime()) / 86400000) : null;
+  if (days != null && days >= 2) bits.push(`Au trecut ${days} zile de la ultima noastră meditație — hai să reintrăm în ritm.`);
+  else if (medProfile.streak_days >= 3) bits.push(`Ești la a ${medProfile.streak_days}-a zi de studiu la rând — bravo, așa se construiește o notă mare! 🔥`);
+
+  // ce s-a întâmplat data trecută
+  const lastDone = (sessions || []).find((s) => s.status === 'finalizata' && s.max_score);
+  if (lastDone) {
+    const p = Math.round((lastDone.score / lastDone.max_score) * 100);
+    const what = lastDone.topic || lastDone.chapter || 'setul de exerciții';
+    if (p >= 80) bits.push(`Data trecută te-ai descurcat foarte bine la „${what}" (${p}%).`);
+    else bits.push(`Data trecută am lucrat la „${what}" și a mai rămas de șlefuit (${p}%).`);
+  }
+
+  // pașii propuși, în ordinea priorității pedagogice
+  for (const r of (dueReviews || []).slice(0, 1)) {
+    bits.push('Înainte să mergem mai departe, verificăm ce ai învățat — o recapitulare scurtă, să nu se aștearnă praful.');
+    suggestions.push({ kind: 'recapitulare', label: `🔁 Recapitulare: ${r.chapterTitle || r.chapter}`, reviewId: r.id, chapterTitle: r.chapterTitle });
+  }
+  if ((openMistakes || []).length) {
+    const m = openMistakes[0];
+    bits.push(`Observ că ai greșeli nevindecate${m.topic ? ` la „${m.topic}"` : ''} — îți propun 10 exerciții de exact același fel, până îl stăpânești.`);
+    suggestions.push({ kind: 'remediere', label: '🩹 10 exerciții ca acela greșit', mistakeId: m.id });
+  }
+  if ((pendingHw || []).length) {
+    suggestions.push({ kind: 'tema', label: `📚 Tema: ${pendingHw[0].title}`, homeworkId: pendingHw[0].id });
+    bits.push(`Ai și ${pendingHw.length === 1 ? 'o temă care te așteaptă' : pendingHw.length + ' teme care te așteaptă'}.`);
+  }
+  const next = med.nextChapter(plan);
+  if (next) {
+    const step = next.status === 'de_parcurs' ? 'începem cu teoria, apoi exersăm' : 'continuăm exercițiile până îl stăpânești';
+    bits.push(`În plan urmează „${next.title}" — ${step}.`);
+    suggestions.push(next.status === 'de_parcurs'
+      ? { kind: 'lectie', label: `📖 Teoria: ${next.title}`, chapterId: next.id }
+      : { kind: 'exercitii', label: `✍️ Exerciții: ${next.title}`, chapterId: next.id });
+  } else {
+    bits.push('Ai parcurs tot planul — acum ne antrenăm pentru examen cu simulări.');
+    suggestions.push({ kind: 'simulare', label: '🎯 Simulare de examen' });
+  }
+
+  return { message: `${hello} ${bits.join(' ')}`.trim(), suggestions };
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -155,8 +238,21 @@ async function state(req, res, supa) {
   const weakChapters = (plan.chapters || []).filter((c) => c.mastery != null && c.mastery < 0.5).map((c) => c.title);
   const prediction = med.predictGrade({ masteryAvg, homeworkAvg, simAvg, weakChapters });
 
+  // briefingul profesorului (inițiativa lui) — determinist, instant
+  const dueWithTitles = dueReviews.map((r) => ({ ...r, chapterTitle: chapterTitles[r.chapter] || r.chapter }));
+  let firstName = null;
+  try {
+    const { data: acc } = await supa.from('profiles').select('full_name').eq('id', userId).single();
+    firstName = (acc?.full_name || '').trim().split(/\s+/)[0] || null;
+  } catch { /* fără nume */ }
+  const briefing = buildBriefing({
+    firstName, medProfile, plan,
+    dueReviews: dueWithTitles, pendingHw, openMistakes: mistakes || [], sessions: sessions || [],
+  });
+
   return res.status(200).json({
     premium,
+    briefing,
     profile: {
       grade: medProfile.grade, examTarget: medProfile.exam_target, level: medProfile.level,
       streakDays: medProfile.streak_days, totalSeconds: medProfile.total_seconds,
@@ -252,7 +348,10 @@ async function assessmentSubmit(req, res, supa) {
 
   const level = graded.pct >= 0.75 ? 'avansat' : graded.pct >= 0.45 ? 'mediu' : 'incepator';
   const assessment = { score: graded.correct, maxScore: graded.total, pct: Math.round(graded.pct * 100), gaps, level, at: new Date().toISOString() };
-  const plan = med.buildPlan({ ...medProfile0, level }, assessment);
+  // TOATĂ teoria din site intră în plan: capitolele din rubricile
+  // „Capitole pentru BAC / Evaluare Națională" (subcategory='capitole')
+  const siteRows = await med.siteChaptersFor(supa, [med.categoryFor(medProfile0), med.classCategory(medProfile0)]);
+  const plan = med.buildPlan({ ...medProfile0, level }, assessment, siteRows);
 
   // memoria pedagogică + streak + timp
   const wrong = graded.results.filter((r) => !r.correct);
@@ -279,11 +378,10 @@ async function assessmentSubmit(req, res, supa) {
     completed_at: new Date().toISOString(),
   }).eq('id', sessionId);
 
-  // stăpânirea inițială pe subiecte
-  for (const r of graded.results) {
-    try { await supa.rpc('bump_skill_mastery', { p_user: userId, p_category: med.categoryFor(medProfile0), p_topic: r.topic || titles[r.chapter] || 'general', p_correct: r.correct }); }
-    catch { /* ignorăm */ }
-  }
+  // stăpânirea inițială pe subiecte (în paralel) + anunțul pentru părinți
+  await bumpMasteryAll(supa, userId, med.categoryFor(medProfile0),
+    graded.results.map((r) => ({ ...r, topic: r.topic || titles[r.chapter] })));
+  await notifyParents(supa, userId, `A făcut testul inițial la meditații: ${graded.correct}/${graded.total} — nivel ${level}.`);
 
   return res.status(200).json({
     score: graded.correct, maxScore: graded.total, pct: assessment.pct,
@@ -313,6 +411,14 @@ async function lesson(req, res, supa) {
   const materials = await med.siteTheoryFor(supa, {
     categories, topics: chapter.topics || [], chapterTitle: chapter.title, limit: 5,
   });
+  // capitol venit din rubrica „Capitole" a site-ului → materialul lui e primul
+  if (chapter.siteContentId) {
+    materials.unshift({
+      kind: chapter.siteContentType || 'pdf', title: chapter.title,
+      url: chapter.siteContentType === 'interactive' ? `/exercitiu?id=${chapter.siteContentId}` : `/pdf-viewer?id=${chapter.siteContentId}`,
+      is_free: true,
+    });
+  }
 
   // lecția: stil din materialele din site (RAG), generată cu modelul existent
   const docs = await ai.retrieve(supa, {
@@ -466,11 +572,8 @@ async function submitSet(req, res, supa) {
     mistakeIds = (ins || []).map((m) => m.id);
   }
 
-  // stăpânirea pe subiecte
-  for (const r of graded.results) {
-    try { await supa.rpc('bump_skill_mastery', { p_user: userId, p_category: med.categoryFor(medProfile || {}), p_topic: r.topic || sess.topic || 'general', p_correct: r.correct }); }
-    catch { /* ignorăm */ }
-  }
+  // stăpânirea pe subiecte (în paralel — corectarea era lentă la 10+ itemi)
+  await bumpMasteryAll(supa, userId, med.categoryFor(medProfile || {}), graded.results, sess.topic || 'general');
 
   // sesiunea + timpul + streak
   await supa.from('ai_meditatii_sessions').update({
@@ -539,6 +642,10 @@ async function submitSet(req, res, supa) {
   else if (graded.pct < 0.5) nextStep = { kind: 'easier', label: 'Simplificăm puțin și reluăm noțiunile de bază, pas cu pas.' };
   else nextStep = { kind: 'same', label: 'Bine! Mai exersăm o dată la același nivel ca să fixăm.' };
 
+  // părinții asociați află că s-a lucrat azi (dedup: o dată pe zi)
+  const kindLabels = { exercitii: 'exerciții', remediere: 'exerciții de remediere', recapitulare: 'o recapitulare', simulare: 'o simulare de examen', tema: 'o temă' };
+  await notifyParents(supa, userId, `A rezolvat ${kindLabels[sess.kind] || 'un set'}${sess.topic ? ` la „${sess.topic}"` : ''}: ${graded.correct}/${graded.total} (${Math.round(graded.pct * 100)}%).`);
+
   return res.status(200).json({
     score: graded.correct, maxScore: graded.total, pct: Math.round(graded.pct * 100),
     results: graded.results, mistakeIds, chapterDone, reviewAdvanced, nextStep,
@@ -588,15 +695,19 @@ async function pickAndAssignHomework(supa, userId, medProfile, { notify = true }
   const difficulty = level === 'incepator' ? 'ușor' : level === 'avansat' ? 'greu' : 'mediu';
   const dueAt = new Date(Date.now() + 3 * 86400000).toISOString();
 
-  // temele „data" existente nu se dublează
-  const { data: pending } = await supa.from('ai_meditatii_homework')
-    .select('id').eq('user_id', userId).eq('status', 'data').limit(3);
-  if ((pending || []).length >= 2) return { skipped: 'are deja teme nefăcute' };
+  // temele „data" existente nu se dublează + NU dăm de două ori același
+  // material ca temă (indiferent de status) — cerința 8
+  const { data: allHw } = await supa.from('ai_meditatii_homework')
+    .select('id, status, content_id').eq('user_id', userId).limit(200);
+  const pending = (allHw || []).filter((h) => h.status === 'data');
+  if (pending.length >= 2) return { skipped: 'are deja teme nefăcute' };
+  const alreadyAssigned = (allHw || []).map((h) => h.content_id).filter(Boolean);
 
-  // 1) ÎNTÂI: un exercițiu interactiv EXISTENT în site, nefinalizat
+  // 1) ÎNTÂI: un exercițiu interactiv EXISTENT în site, nefinalizat și NEDAT încă
   const site = await med.siteInteractiveFor(supa, {
     userId, categories: [med.categoryFor(medProfile), med.classCategory(medProfile)],
     topics: chapter ? [chapter.title, ...(chapter.topics || [])] : [], limit: 1,
+    excludeIds: alreadyAssigned,
   });
   let hwRow = null;
   if (site.length) {
@@ -718,15 +829,14 @@ async function homeworkSubmit(req, res, supa) {
     attempts: (hw.attempts || 0) + 1, completed_at: new Date().toISOString(), feedback,
   }).eq('id', id);
 
-  for (const r of graded.results) {
-    try { await supa.rpc('bump_skill_mastery', { p_user: userId, p_category: med.categoryFor(medProfile || {}), p_topic: r.topic || hw.topic || 'general', p_correct: r.correct }); }
-    catch { /* ignorăm */ }
-  }
+  await bumpMasteryAll(supa, userId, med.categoryFor(medProfile || {}), graded.results, hw.topic || 'general');
+  await med.clearHomeworkNotifications(supa, userId, hw.id); // „temă nefăcută" dispare din clopoțel
   const streak = med.bumpStreak(medProfile || {});
   await supa.from('ai_meditatii_profile').update({
     streak_days: streak.streak_days, last_study_date: streak.last_study_date,
     total_seconds: (medProfile?.total_seconds || 0) + Math.max(0, parseInt(durationSec, 10) || 0),
   }).eq('user_id', userId);
+  await notifyParents(supa, userId, `A rezolvat tema „${hw.title}": ${graded.correct}/${graded.total} — nota ${grade}.`);
 
   return res.status(200).json({
     score: graded.correct, maxScore: graded.total, pct: Math.round(graded.pct * 100),
@@ -882,7 +992,13 @@ async function cronScan(supa) {
     if (ok) out.reviewsNotified++;
   }
 
-  // 2) teme restante (trecute de termen) → reamintire (dedup 2 zile)
+  // 2) teme restante (trecute de termen) → reamintire (dedup 2 zile).
+  //    ÎNTÂI reconciliem temele „din site" cu tabela progress — altfel elevul
+  //    care A REZOLVAT exercițiul primea în continuare „ai o temă nefăcută".
+  const { data: lateRaw } = await supa.from('ai_meditatii_homework')
+    .select('id, user_id, title, kind').eq('status', 'data').lte('due_at', nowIso).limit(300);
+  const lateUsers = [...new Set((lateRaw || []).filter((h) => h.kind === 'content').map((h) => h.user_id))];
+  await Promise.allSettled(lateUsers.slice(0, 150).map((uid) => med.reconcileContentHomework(supa, uid)));
   const { data: late } = await supa.from('ai_meditatii_homework')
     .select('id, user_id, title').eq('status', 'data').lte('due_at', nowIso).limit(300);
   for (const h of late || []) {

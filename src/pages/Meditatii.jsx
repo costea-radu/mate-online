@@ -10,10 +10,27 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
-import { ChatPanel, MathText } from '../components/AITutor';
+import { MathText } from '../components/AITutor';
 import EinsteinIcon from '../components/EinsteinIcon';
 import ExamGenerator from '../components/ExamGenerator';
 import { openPrintDocument } from '../lib/examPrint';
+
+// Chatul meditațiilor trăiește în widgetul plutitor „Prof. Virtual" (un singur
+// buton, o singură conversație): pagina îi trimite contextul + mesajul automat.
+function openMeditatorChat(context, autoPrompt = null) {
+  window.dispatchEvent(new CustomEvent('mate:meditatii-chat', { detail: { context, autoPrompt } }));
+}
+
+// Plasă de siguranță pe client pentru LaTeX-ul corupt din seturile mai vechi
+// (backslash dublu → „rând nou" + comanda ca text: „frac32", „sqrt13").
+const LATEX_CMDS_RE = 'frac|sqrt|cdot|pi|alpha|beta|gamma|delta|theta|angle|triangle|overline|vec|times|div|leq?|geq?|neq?|pm|infty|sin|cos|tan|log|ln|lim|sum|int|in|text|mathbb|widehat|circ|perp|parallel|approx';
+function fixLatexClient(s) {
+  if (typeof s !== 'string' || !s) return s;
+  let t = s.replace(new RegExp('\\\\{2,}(?=(?:' + LATEX_CMDS_RE + ')(?![a-zA-Z]))', 'g'), '\\');
+  const cmdRe = new RegExp('(^|[^\\\\a-zA-Z])(' + LATEX_CMDS_RE + ')(?=[\\s{_^\\d(])', 'g');
+  t = t.replace(/\$([^$]+)\$/g, (m, inner) => '$' + inner.replace(cmdRe, '$1\\$2') + '$');
+  return t;
+}
 
 const card = { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 18 };
 const inp = { border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.9rem', fontFamily: 'var(--font-body)' };
@@ -109,7 +126,7 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
           <div key={i} style={{ ...card, borderColor: r ? (r.correct ? 'rgba(39,174,96,.4)' : 'rgba(231,76,60,.35)') : 'var(--border)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
               <div style={{ fontSize: '1rem', color: 'var(--navy)', lineHeight: 1.6, flex: 1 }}>
-                <strong>{i + 1}.</strong> <MathText text={q.statement} />
+                <strong>{i + 1}.</strong> <MathText text={fixLatexClient(q.statement)} />
               </div>
               {r && <span style={{ fontSize: '1.2rem' }}>{r.correct ? '✅' : '❌'}</span>}
             </div>
@@ -127,7 +144,7 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
                     }}>
                       <input type="radio" disabled={!!result} checked={chosen} onChange={() => setAnswers((a) => a.map((v, k) => (k === i ? oi : v)))} />
                       <strong style={{ color: 'var(--navy)' }}>{String.fromCharCode(65 + oi)})</strong>
-                      <span style={{ flex: 1 }}><MathText text={o} /></span>
+                      <span style={{ flex: 1 }}><MathText text={fixLatexClient(o)} /></span>
                     </label>
                   );
                 })}
@@ -141,19 +158,19 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
             {r && !r.correct && (
               <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(231,76,60,.06)', borderRadius: 10, fontSize: '.88rem' }}>
                 {r.errorType && <div style={{ fontWeight: 700, color: '#c0392b', marginBottom: 4 }}>{ERROR_LABELS[r.errorType] || ''}</div>}
-                {r.analysis && <div style={{ marginBottom: 6 }}><MathText text={r.analysis} /></div>}
-                <div style={{ color: 'var(--text)' }}><strong>Răspunsul corect:</strong> <MathText text={q.options ? q.options[r.answer] : String(r.answer)} /></div>
+                {r.analysis && <div style={{ marginBottom: 6 }}><MathText text={fixLatexClient(r.analysis)} /></div>}
+                <div style={{ color: 'var(--text)' }}><strong>Răspunsul corect:</strong> <MathText text={fixLatexClient(q.options ? q.options[r.answer] : String(r.answer))} /></div>
               </div>
             )}
             {r && r.explanation && (
               <details style={{ marginTop: 8 }}>
                 <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--navy)', fontSize: '.86rem' }}>Vezi rezolvarea pas cu pas</summary>
-                <div style={{ marginTop: 6, fontSize: '.9rem', lineHeight: 1.6 }}><MathText text={r.explanation} /></div>
+                <div style={{ marginTop: 6, fontSize: '.9rem', lineHeight: 1.6 }}><MathText text={fixLatexClient(r.explanation)} /></div>
               </details>
             )}
             {onAskTeacher && !result && (
-              <button onClick={() => onAskTeacher(q, i)} style={{ marginTop: 10, background: 'none', border: '1px dashed var(--gold)', color: 'var(--gold-dim)', borderRadius: 8, padding: '5px 11px', fontSize: '.8rem', fontWeight: 600, cursor: 'pointer' }}>
-                🎓 Nu înțeleg — întreabă profesorul
+              <button onClick={() => onAskTeacher(q, i)} style={{ marginTop: 10, background: 'none', border: '1px dashed var(--gold)', color: 'var(--gold-dim)', borderRadius: 8, padding: '5px 11px', fontSize: '.8rem', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <EinsteinIcon size={16} /> Nu înțeleg — întreabă profesorul
               </button>
             )}
           </div>
@@ -161,9 +178,12 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
       })}
 
       {!result ? (
-        <button className="btn btn-primary btn-lg" onClick={submit} disabled={loading || answered === 0}>
-          {loading ? 'Profesorul corectează...' : submitLabel}
-        </button>
+        <div>
+          <button className="btn btn-primary btn-lg" onClick={submit} disabled={loading || answered === 0}>
+            {loading ? '⏳ Profesorul corectează...' : submitLabel}
+          </button>
+          {loading && <div style={{ marginTop: 8, fontSize: '.82rem', color: 'var(--text-muted)' }}>Corectez și analizez fiecare greșeală (motivul ei) — durează câteva secunde…</div>}
+        </div>
       ) : (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn btn-primary" onClick={() => onClose(true)}>✓ Am înțeles — continuăm</button>
@@ -172,6 +192,63 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Feedback instant cât timp profesorul „lucrează" (generările durează) ────
+const BUSY_MSGS = {
+  setup: 'Pregătesc testul tău inițial — aleg întrebări potrivite clasei tale… (~30s)',
+  lesson: 'Pregătesc lecția: adun materialele din site și scriu explicația… (~20s)',
+  exercises: 'Generez exercițiile după modelul din site… (~30s)',
+  remediation: 'Pregătesc cele 10 exerciții de același fel… (~30s)',
+  review: 'Pregătesc recapitularea — 5 întrebări scurte… (~20s)',
+  simulare: 'Construiesc simularea, cu punctele tale slabe incluse… (~40s)',
+  homework: 'Pregătesc tema…',
+  style: 'Țin minte preferința ta…',
+};
+function BusyOverlay({ label }) {
+  return (
+    <div style={{
+      position: 'fixed', top: 78, left: '50%', transform: 'translateX(-50%)', zIndex: 1300,
+      background: 'var(--navy)', color: '#fff', borderRadius: 14, padding: '12px 18px',
+      boxShadow: '0 10px 30px rgba(0,0,0,.35)', display: 'flex', alignItems: 'center', gap: 12,
+      maxWidth: 'min(92vw, 500px)',
+    }}>
+      <style>{'@keyframes medspin{to{transform:rotate(360deg)}}'}</style>
+      <span style={{ width: 20, height: 20, border: '3px solid rgba(255,255,255,.25)', borderTopColor: 'var(--gold)', borderRadius: '50%', animation: 'medspin .9s linear infinite', flexShrink: 0 }} />
+      <div style={{ fontSize: '.88rem', fontWeight: 600 }}>{BUSY_MSGS[label] || 'Profesorul lucrează…'}</div>
+    </div>
+  );
+}
+
+// ─── Mesajul profesorului (inițiativa lui) + „Mai departe" ───────────────────
+function ProfessorCard({ briefing, onSuggestion, onChat, busy }) {
+  const [idx, setIdx] = useState(0);
+  if (!briefing?.message) return null;
+  const sugg = briefing.suggestions || [];
+  const cur = sugg.length ? sugg[idx % sugg.length] : null;
+  return (
+    <div style={{ ...card, border: '1.5px solid var(--gold)', background: 'linear-gradient(120deg, #fffdf5, #fff)', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+      <div style={{ flexShrink: 0, marginTop: 2 }}><EinsteinIcon size={44} /></div>
+      <div style={{ flex: 1, minWidth: 240 }}>
+        <div style={{ fontSize: '.76rem', fontWeight: 800, color: 'var(--gold-dim)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Meditatorul tău</div>
+        <div style={{ fontSize: '.95rem', color: 'var(--text)', lineHeight: 1.65, marginBottom: 12 }}>{briefing.message}</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {cur && <button className="btn btn-primary" disabled={!!busy} onClick={() => onSuggestion(cur)}>{cur.label}</button>}
+          {sugg.length > 1 && (
+            <button className="btn btn-outline" disabled={!!busy} onClick={() => setIdx((i) => (i + 1) % sugg.length)}>Mai departe →</button>
+          )}
+          <button onClick={onChat} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 13px', fontSize: '.85rem', fontWeight: 600, color: 'var(--navy)', cursor: 'pointer' }}>
+            💬 Continuă în conversație
+          </button>
+        </div>
+        {sugg.length > 1 && (
+          <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: 7 }}>
+            Pasul {(idx % sugg.length) + 1} din {sugg.length} propuși de profesor — cu „Mai departe" treci la următorul sau revii.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -239,9 +316,6 @@ export default function Meditatii() {
   const [lessonView, setLessonView] = useState(null); // { chapter, lesson, materials }
   const [busy, setBusy] = useState(null);      // eticheta acțiunii în curs
   const [actionError, setActionError] = useState(null);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [autoPrompt, setAutoPrompt] = useState(null);
-  const [chatCtxText, setChatCtxText] = useState('');
 
   const refresh = useCallback(async () => {
     try { setSt(await aiClient.meditatii({ action: 'state' })); setStError(null); }
@@ -253,12 +327,13 @@ export default function Meditatii() {
     ? (st.profile.examTarget === 'evaluare-nationala' ? 'evaluare-nationala'
       : st.profile.examTarget ? 'bacalaureat' : `clasa-${st.profile.grade}`)
     : null;
-  const chatContext = { meditatii: true, category, ...(chatCtxText ? { exerciseText: chatCtxText } : {}) };
 
+  // „Nu înțeleg" / „Continuă în conversație" → widgetul plutitor (Meditatorul tău)
   function askTeacher(q) {
-    setChatCtxText(q?.statement || '');
-    setChatOpen(true);
-    if (q) setAutoPrompt({ id: Date.now(), text: 'Nu înțeleg acest exercițiu. Dă-mi un indiciu, fără să-mi spui răspunsul.', mode: 'hint' });
+    const ctx = { meditatii: true, category, ...(q?.statement ? { exerciseText: q.statement } : {}) };
+    openMeditatorChat(ctx, q
+      ? { id: Date.now(), text: 'Nu înțeleg acest exercițiu. Dă-mi un indiciu, fără să-mi spui răspunsul.', mode: 'hint' }
+      : { id: Date.now(), text: 'Salut! Ce facem azi la meditație?', mode: 'tutor' });
   }
 
   async function run(label, fn) {
@@ -343,6 +418,17 @@ export default function Meditatii() {
     await refresh();
   });
 
+  // execută pasul propus de profesor în briefing („Hai" / „Mai departe")
+  function runSuggestion(s) {
+    if (!s) return;
+    if (s.kind === 'lectie') openLesson(s.chapterId);
+    else if (s.kind === 'exercitii') startExercises(s.chapterId);
+    else if (s.kind === 'recapitulare') startReview(s.reviewId, s.chapterTitle);
+    else if (s.kind === 'remediere') startRemediation(s.mistakeId);
+    else if (s.kind === 'tema') openHomework({ id: s.homeworkId });
+    else if (s.kind === 'simulare') startSimulare();
+  }
+
   // trimiterea unui set → acțiunea corectă pe server
   async function submitQuiz(answers, durationSec) {
     let r;
@@ -418,29 +504,8 @@ export default function Meditatii() {
         <SetupWizard onStart={startSetup} starting={busy === 'setup'} error={actionError} />
       )}
 
-      {/* Chat cu profesorul — sertar lateral */}
-      {st && premium && !st.needsSetup && !chatOpen && (
-        <button onClick={() => askTeacher(null)} style={{
-          position: 'fixed', right: 18, bottom: 92, zIndex: 900,
-          background: 'var(--navy)', color: '#fff', border: 'none', borderRadius: 24,
-          padding: '10px 16px', fontWeight: 700, fontSize: '.85rem', cursor: 'pointer', boxShadow: '0 6px 18px rgba(0,0,0,.25)',
-        }}>💬 Întreabă profesorul</button>
-      )}
-      {chatOpen && (
-        <div style={{
-          position: 'fixed', right: 12, bottom: 12, zIndex: 1200, width: 'min(400px, 94vw)', height: 'min(600px, 80vh)',
-          background: '#fff', borderRadius: 16, border: '1px solid var(--border)', boxShadow: '0 16px 48px rgba(0,0,0,.3)',
-          display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        }}>
-          <div style={{ background: 'var(--navy)', color: '#fff', padding: '9px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 700, fontSize: '.9rem', display: 'flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={20} /> Meditatorul tău</span>
-            <button onClick={() => { setChatOpen(false); setAutoPrompt(null); }} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.1rem', cursor: 'pointer' }}>✕</button>
-          </div>
-          <div style={{ flex: 1, minHeight: 0 }}>
-            <ChatPanel compact context={chatContext} autoPrompt={autoPrompt} onNavigate={() => setChatOpen(false)} />
-          </div>
-        </div>
-      )}
+      {/* Feedback instant: profesorul „lucrează" (generările durează 20–60s) */}
+      {busy && <BusyOverlay label={busy} />}
 
       {/* Lecția deschisă */}
       {st && premium && lessonView && !quiz && (
@@ -453,7 +518,7 @@ export default function Meditatii() {
       {st && premium && quiz && (
         <QuizRunner key={quiz.sessionId || quiz.homeworkId} title={quiz.title} subtitle={quiz.subtitle}
           questions={quiz.questions} onSubmit={submitQuiz} onAskTeacher={askTeacher}
-          onClose={async (finished) => { setQuiz(null); setChatCtxText(''); if (finished) await refresh(); }} />
+          onClose={async (finished) => { setQuiz(null); if (finished) await refresh(); }} />
       )}
       {st && premium && quiz?.siteExercises?.length > 0 && (
         <div style={{ ...card, background: '#f7f9fc' }}>
@@ -486,7 +551,7 @@ export default function Meditatii() {
 
           {actionError && <div style={{ ...card, background: '#fff4e5', color: '#8a6d1a', borderColor: 'var(--gold)' }}>{actionError}</div>}
 
-          {tab === 'azi' && <TodayTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onReview={startReview} onRemediation={startRemediation} onHomeworkTab={() => setTab('teme')} onStyle={setStyle} />}
+          {tab === 'azi' && <TodayTab st={st} busy={busy} briefing={st.briefing} onSuggestion={runSuggestion} onChat={() => askTeacher(null)} onLesson={openLesson} onExercises={startExercises} onReview={startReview} onRemediation={startRemediation} onHomeworkTab={() => setTab('teme')} onStyle={setStyle} />}
           {tab === 'plan' && <PlanTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onReset={async () => { if (window.confirm('Sigur reluăm totul de la zero? Planul și evaluarea inițială se șterg.')) { await aiClient.meditatii({ action: 'reset' }); await refresh(); } }} />}
           {tab === 'teme' && <HomeworkTab st={st} busy={busy} onOpen={openHomework} onAsk={askHomework} />}
           {tab === 'recapitulari' && <ReviewsTab st={st} busy={busy} onReview={startReview} />}
@@ -550,14 +615,16 @@ function LessonView({ data, onClose, onExercises, busyLabel }) {
   );
 }
 
-function TodayTab({ st, busy, onLesson, onExercises, onReview, onRemediation, onHomeworkTab, onStyle }) {
+function TodayTab({ st, busy, briefing, onSuggestion, onChat, onLesson, onExercises, onReview, onRemediation, onHomeworkTab, onStyle }) {
   const next = st.nextChapter;
   const styles = ['mai simplu, cu cuvinte de zi cu zi', 'vizual, cu desene și scheme', 'prin exemple din viața reală', 'pas cu pas, foarte mărunt'];
   const preferred = st.profile?.memory?.preferredStyle;
   return (
     <div>
-      {/* Pasul recomandat — profesorul decide singur ce urmează */}
-      {next ? (
+      {/* Profesorul IA INIȚIATIVA: te întâmpină, leagă firul și propune pașii */}
+      {briefing?.message ? (
+        <ProfessorCard briefing={briefing} onSuggestion={onSuggestion} onChat={onChat} busy={busy} />
+      ) : next ? (
         <div style={{ ...card, borderLeft: '4px solid var(--gold)' }}>
           <div style={{ fontSize: '.78rem', fontWeight: 800, color: 'var(--gold-dim)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>Profesorul îți recomandă azi</div>
           <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.1rem', marginBottom: 4 }}>{next.title}</div>

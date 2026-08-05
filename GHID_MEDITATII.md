@@ -111,6 +111,38 @@ părinții nu au meditații proprii — văd raportul elevilor în profil.
   pentru profesori), `src/components/ParentAIActivity.jsx`, `vercel.json`
   (cron + SEO meta pentru `/meditatii`).
 
+## 🔄 Runda 2 (după testarea pe site)
+
+1. **Icon unitar**: toca 🎓 a fost înlocuită cu iconul Einstein al Profesorului
+   Virtual peste tot (navbar, burger, widget, taburi, Home, butoanele „Nu înțeleg").
+2. **Redactarea testelor**: LaTeX-ul corupt („sqrt13", „frac32") se repară
+   automat la generare (`fixLatex` în `api/_lib/meditatii.js`) și, ca plasă de
+   siguranță, la afișare (pentru seturile deja salvate). Promptul cere acolade
+   obligatorii la argumente.
+3. **Un singur chat**: butonul separat „Întreabă profesorul" a dispărut de pe
+   /meditatii — widgetul plutitor preia rolul și se numește acolo
+   **„Meditatorul tău"**; „Nu înțeleg" la un exercițiu deschide widgetul cu
+   exercițiul în context.
+4. **Feedback instant**: orice apăsare care pornește o generare arată imediat
+   bannerul „Profesorul pregătește… (~30s)"; corectarea rulează actualizările
+   de stăpânire în paralel (era secvențial → lent).
+5. **Raport AI**: „Subiecte după dificultate (media clasei)" și „Progresul pe
+   subiecte" sunt acum rolldown; părinții primesc clopoțel când copilul
+   lucrează (o dată pe zi).
+6. **Rezultate elevi**: temele de meditații (inclusiv cele generate) apar în
+   „Grupe / Rezultate elevi", cu punctaj și notă.
+7. **„Temă nefăcută" fals**: cronul reconciliază întâi temele „din site" cu
+   `progress`, iar la rezolvare notificarea veche se marchează citită.
+8. **Fără teme duplicate**: un material dat o dată ca temă nu mai e dat a doua oară.
+9. **Toată teoria din site în plan**: capitolele din rubricile „Capitole
+   pentru BAC / Evaluare Națională" (subcategory=`capitole`) intră automat în
+   plan (fără dubluri față de programă); lecția lor deschide întâi materialul din site.
+10. **Profesorul conduce meditația**: în „Astăzi", mesajul lui de întâmpinare
+    (construit din memoria pedagogică: zile de pauză, ultimul scor, greșeli,
+    recapitulări scadente) propune pașii în ordine — butonul principal + „Mai
+    departe →" + „Continuă în conversație"; chatul primește aceeași stare și
+    are instrucțiuni să ia inițiativa. Butoanele statice rămân pentru sărituri rapide.
+
 ## 🛠️ Depanare
 
 | Simptom | Cauză / soluție |

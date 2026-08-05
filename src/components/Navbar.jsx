@@ -432,8 +432,8 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profes
         <Link to="/manuale" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/manuale' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           📖 Auxiliare
         </Link>
-        <Link to="/meditatii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/meditatii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-          🎓 Meditații cu Prof. Virtual
+        <Link to="/meditatii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/meditatii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <EinsteinIcon size={20} /> Meditații cu Prof. Virtual
         </Link>
         <Link to="/preturi" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/preturi' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           💳 Abonament
@@ -630,8 +630,8 @@ export default function Navbar() {
             <li><DesktopDropdown label="Examene" items={EXAMENE} /></li>
             <li><DesktopDropdown label="Clase" items={CLASE} /></li>
             <li>
-              <Link to="/meditatii" className={location.pathname === '/meditatii' ? 'active' : ''}>
-                🎓 Meditații cu AI
+              <Link to="/meditatii" className={location.pathname === '/meditatii' ? 'active' : ''} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <EinsteinIcon size={18} /> Meditații cu AI
               </Link>
             </li>
             <li>

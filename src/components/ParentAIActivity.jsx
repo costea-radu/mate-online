@@ -154,10 +154,13 @@ function ChildDetail({ d }) {
         </div>
       </Section>
 
-      <Section title="📈 Progresul pe subiecte" count={(d.mastery || []).length}>
-        <List items={d.mastery} empty="Încă fără date de progres."
-          render={(m) => <><strong>{m.topic}</strong> <span style={{ color: 'var(--text-muted)' }}>· {m.category || 'general'} · stăpânire {pct(m.mastery)} · {m.attempts} încercări</span></>} />
-      </Section>
+      <details style={{ marginBottom: 6 }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontSize: '.9rem' }}>📈 Progresul pe subiecte ({(d.mastery || []).length})</summary>
+        <div style={{ marginTop: 8 }}>
+          <List items={d.mastery} empty="Încă fără date de progres."
+            render={(m) => <><strong>{m.topic}</strong> <span style={{ color: 'var(--text-muted)' }}>· {m.category || 'general'} · stăpânire {pct(m.mastery)} · {m.attempts} încercări</span></>} />
+        </div>
+      </details>
     </div>
   );
 }

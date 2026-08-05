@@ -683,8 +683,23 @@ export default function FloatingTutor() {
   const { pathname } = useLocation();
   const { isTeacher, isParent } = useAuth();
   const isMentorAcc = isTeacher || isParent;
-  // profesor/părinte → „Asistent AI"; elev/nelogat → „Prof. Virtual"
-  const widgetLabel = isMentorAcc ? 'Asistent AI' : 'Prof. Virtual';
+  const onMeditatii = pathname === '/meditatii';
+  // profesor/părinte → „Asistent AI"; elev pe /meditatii → „Meditatorul tău"; altfel „Prof. Virtual"
+  const widgetLabel = isMentorAcc ? 'Asistent AI' : onMeditatii ? 'Meditatorul tău' : 'Prof. Virtual';
+
+  // Pagina de meditații trimite contextul + mesajul automat („Nu înțeleg
+  // exercițiul...") către ACEST widget — o singură conversație, un singur buton.
+  const [medChat, setMedChat] = useState(null); // { context, autoPrompt }
+  useEffect(() => {
+    function onMedChat(e) {
+      setMedChat({ context: e.detail?.context || { meditatii: true }, autoPrompt: e.detail?.autoPrompt || null });
+      setWidgetTab('chat');
+      setOpen(true);
+    }
+    window.addEventListener('mate:meditatii-chat', onMedChat);
+    return () => window.removeEventListener('mate:meditatii-chat', onMedChat);
+  }, []);
+  const chatContext = medChat?.context || (onMeditatii && !isMentorAcc ? { meditatii: true } : undefined);
   const [pos, setPos] = useState(null); // colțul stânga-sus al butonului
   const drag = useRef({ active: false, moved: false, dx: 0, dy: 0 });
   const BTN = 60;
@@ -786,15 +801,15 @@ export default function FloatingTutor() {
             <button style={tabBtn(widgetTab === 'chat')} onClick={() => setWidgetTab('chat')}>💬 {askAiLabel({ isTeacher, isParent })}</button>
             {isMentorAcc
               ? <button style={tabBtn(widgetTab === 'exam')} onClick={() => setWidgetTab('exam')}>📄 Generează subiect examen</button>
-              : <button style={tabBtn(widgetTab === 'meditatii')} onClick={() => setWidgetTab('meditatii')}>🎓 Meditații cu Prof. Virtual</button>}
+              : <button style={{ ...tabBtn(widgetTab === 'meditatii'), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }} onClick={() => setWidgetTab('meditatii')}><EinsteinIcon size={15} /> Meditații cu Prof. Virtual</button>}
           </div>
 
           <div style={{ flex: 1, minHeight: 0, overflowY: widgetTab === 'chat' ? 'hidden' : 'auto' }}>
-            {widgetTab === 'chat' && <ChatPanel compact onNavigate={() => setOpen(false)} />}
+            {widgetTab === 'chat' && <ChatPanel compact context={chatContext || {}} autoPrompt={medChat?.autoPrompt || null} onNavigate={() => setOpen(false)} />}
             {widgetTab === 'exam' && <div style={{ padding: 12 }}><ExamGenerator compact /></div>}
             {widgetTab === 'meditatii' && (
               <div style={{ padding: 16 }}>
-                <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '.95rem', marginBottom: 8 }}>🎓 Meditații cu Profesorul Virtual</div>
+                <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '.95rem', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 7 }}><EinsteinIcon size={22} /> Meditații cu Profesorul Virtual</div>
                 <p style={{ fontSize: '.83rem', color: 'var(--text-light)', lineHeight: 1.55, marginBottom: 10 }}>
                   Meditatorul tău personal: îți face <strong>testul inițial</strong>, îți construiește <strong>planul de învățare</strong>,
                   îți explică <strong>teoria</strong>, îți dă <strong>exerciții și teme</strong> pe nivelul tău, îți analizează

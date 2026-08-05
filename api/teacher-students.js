@@ -64,7 +64,7 @@ module.exports = async function handler(req, res) {
 
   const linkList = links || [];
   if (linkList.length === 0) {
-    return res.status(200).json({ role, students: [], results: [], groups, aiUsage: [], archived });
+    return res.status(200).json({ role, students: [], results: [], groups, aiUsage: [], archived, meditatii: [] });
   }
 
   const studentIds = linkList.map((l) => l.student_id);
@@ -174,6 +174,30 @@ module.exports = async function handler(req, res) {
     };
   });
 
+  // 7b. Temele de la „Meditații cu Profesorul Virtual" rezolvate de elevi
+  //     (cele „din site" apar deja în progress; aici intră și cele GENERATE).
+  let meditatii = [];
+  try {
+    const rows = await inBatches(studentIds, (chunk, from, to) => supabase
+      .from('ai_meditatii_homework')
+      .select('user_id, kind, title, chapter, topic, status, score, max_score, feedback, completed_at, assigned_at')
+      .in('user_id', chunk)
+      .order('assigned_at', { ascending: false })
+      .range(from, to));
+    meditatii = (rows || []).map((h) => ({
+      student_id: h.user_id,
+      title: h.title,
+      topic: h.topic || h.chapter || '',
+      kind: h.kind,
+      status: h.status,
+      score: h.score,
+      max_score: h.max_score,
+      grade: h.feedback?.grade ?? null,
+      completed_at: h.completed_at,
+      assigned_at: h.assigned_at,
+    }));
+  } catch { /* schema meditațiilor poate lipsi — raportul merge și fără */ }
+
   // 8. Materiale la care elevul a folosit Prof. Virtual dar nu are (încă) punctaj
   const covered = new Set(prog.map((p) => `${p.user_id}|${p.content_id}`));
   const aiUsage = Object.keys(aiQ)
@@ -192,5 +216,5 @@ module.exports = async function handler(req, res) {
     // doar materiale reale din platformă (conversațiile fără material nu apar)
     .filter((r) => contentMap[r.content_id]);
 
-  return res.status(200).json({ role, students, results, groups, aiUsage, archived });
+  return res.status(200).json({ role, students, results, groups, aiUsage, archived, meditatii });
 };

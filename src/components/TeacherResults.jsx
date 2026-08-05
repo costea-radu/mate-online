@@ -369,6 +369,35 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
               </div>
             )}
 
+            {/* Temele de la „Meditații cu Profesorul Virtual" (inclusiv generate) */}
+            {(student.meditatii || []).length > 0 && (
+              <div style={{ background: '#fff', borderRadius: 'var(--radius)', border: '1.5px solid rgba(232,185,49,.55)', padding: '12px 14px', marginBottom: 14 }}>
+                <strong style={{ fontSize: '0.85rem', color: 'var(--navy)' }}>🎓 Teme de la Meditații cu Prof. Virtual</strong>
+                <div style={{ display: 'grid', gap: 5, marginTop: 8 }}>
+                  {student.meditatii.slice(0, 12).map((h, i) => {
+                    const solved = h.status === 'rezolvata';
+                    const p = solved && h.max_score ? pct(h.score, h.max_score) : null;
+                    return (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, fontSize: '0.8rem', padding: '5px 8px', background: 'var(--cream)', borderRadius: 7, flexWrap: 'wrap' }}>
+                        <span style={{ color: 'var(--text)', fontWeight: 500 }}>
+                          {h.kind === 'content' ? '🧩' : '📚'} {h.title}
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{h.completed_at ? ` · ${fmtDate(h.completed_at)}` : h.assigned_at ? ` · dată pe ${fmtDate(h.assigned_at)}` : ''}</span>
+                        </span>
+                        {solved ? (
+                          <span style={{ whiteSpace: 'nowrap' }}>
+                            <span style={{ fontWeight: 700, color: scoreColor(p) }}>{h.score}/{h.max_score} ({p}%)</span>
+                            {h.grade != null && <span style={{ marginLeft: 8, fontWeight: 700, color: '#8a6d00', background: 'rgba(232,185,49,.18)', border: '1px solid rgba(232,185,49,.5)', borderRadius: 12, padding: '1px 8px', fontSize: '0.74rem' }}>nota {h.grade}</span>}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', whiteSpace: 'nowrap' }}>nerezolvată încă</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {(isTeacher || isParent) && !student.archived && (
               <StudentAIMastery
                 studentId={student.id}
@@ -416,7 +445,7 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
 export default function TeacherResults({ user, inviteCode, displayName, role = 'profesor' }) {
   const isTeacher = role === 'profesor';
   const isParent = role === 'parinte';
-  const [data, setData] = useState({ students: [], results: [], groups: [], aiUsage: [], archived: [] });
+  const [data, setData] = useState({ students: [], results: [], groups: [], aiUsage: [], archived: [], meditatii: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
@@ -440,7 +469,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Eroare server (${res.status})`);
-      setData({ students: json.students || [], results: json.results || [], groups: json.groups || [], aiUsage: json.aiUsage || [], archived: json.archived || [] });
+      setData({ students: json.students || [], results: json.results || [], groups: json.groups || [], aiUsage: json.aiUsage || [], archived: json.archived || [], meditatii: json.meditatii || [] });
     } catch (e) {
       setError(e.message || 'Nu s-au putut încărca rezultatele.');
     } finally { setLoading(false); }
@@ -498,6 +527,13 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
       if (!s) return;
       if (!s.aiOnly) s.aiOnly = [];
       s.aiOnly.push(r);
+    });
+    // temele de la Meditații cu Profesorul Virtual (inclusiv cele generate)
+    (data.meditatii || []).forEach((r) => {
+      const s = map.get(r.student_id);
+      if (!s) return;
+      if (!s.meditatii) s.meditatii = [];
+      s.meditatii.push(r);
     });
     // Elevii cu CONT ȘTERS (inactivitate sau la cerere) — rezultatele lor rămân
     // arhivate pentru mentor; apar în aceeași listă, marcați „cont șters".

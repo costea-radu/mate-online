@@ -130,13 +130,57 @@ function examTypeFor(profile) {
   return 'bac-tehnologic';
 }
 
+// ─── Capitolele din rubricile site-ului („Capitole pentru BAC / EN") ─────────
+// Materialele cu subcategory='capitole' din categoria examenului — TOATĂ
+// teoria din site intră în planul de parcurs/recapitulare (cerința 9).
+async function siteChaptersFor(supa, categories = []) {
+  try {
+    const { data } = await supa.from('content')
+      .select('id, title, category, content_type, is_free')
+      .eq('subcategory', 'capitole').in('category', categories.filter(Boolean))
+      .order('sort_order', { ascending: true }).limit(120);
+    return data || [];
+  } catch { return []; }
+}
+
+// Adaugă în plan capitolele din site care NU se regăsesc deja în programă
+// (potrivire pe cuvinte SEMNIFICATIVE din titlu — cuvintele generice precum
+// „probleme"/„exerciții" nu contează, altfel totul părea „acoperit deja").
+const GENERIC_WORDS = new Set(['probleme', 'problema', 'exercitii', 'exercitiu', 'teste', 'testul', 'matematica', 'capitol', 'capitole', 'capitolul', 'recapitulare', 'aplicatii', 'aplicata', 'aplicate', 'elemente', 'notiuni', 'introducere', 'clasa', 'partea', 'metode', 'rezolvate', 'rezolvare', 'teorie', 'formule', 'evaluare', 'nationala', 'bacalaureat', 'pregatire']);
+function mergeSiteChapters(chapters, siteRows = []) {
+  const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const words = (s) => norm(s).split(/[^a-z0-9]+/).filter((w) => w.length >= 5);
+  const sigWords = (s) => words(s).filter((w) => !GENERIC_WORDS.has(w));
+  const known = chapters.map((c) => new Set(words(c.title + ' ' + (c.topics || []).join(' '))));
+  const out = [...chapters];
+  for (const row of siteRows) {
+    const sig = sigWords(row.title);
+    const w = sig.length ? sig : words(row.title);
+    if (!w.length) continue;
+    // acoperit = cel puțin 2 cuvinte semnificative comune (sau singurul cuvânt, dacă e unul)
+    const covered = known.some((set) => {
+      const hits = w.filter((x) => set.has(x)).length;
+      return w.length === 1 ? hits === 1 : hits >= 2;
+    });
+    if (covered) continue;
+    known.push(new Set(words(row.title)));
+    out.push({
+      id: 'site-' + row.id, title: row.title, topics: [row.title],
+      order: out.length, siteContentId: row.id, siteContentType: row.content_type,
+    });
+  }
+  return out;
+}
+
 // ─── PLANUL PERSONALIZAT ─────────────────────────────────────────────────────
-// Construit din programă + rezultatul evaluării inițiale (lacunele primele
-// devin prioritare). status: 'de_parcurs' | 'teorie' | 'in_lucru' | 'finalizat'
-function buildPlan(profile, assessment = {}) {
-  const chapters = curriculumFor(profile).map((c) => ({
+// Construit din programă + capitolele din site + rezultatul evaluării
+// inițiale (lacunele primele). status: de_parcurs | teorie | in_lucru | finalizat
+function buildPlan(profile, assessment = {}, siteRows = []) {
+  const base = mergeSiteChapters(curriculumFor(profile), siteRows);
+  const chapters = base.map((c) => ({
     id: c.id, title: c.title, topics: c.topics, order: c.order,
     status: 'de_parcurs', mastery: null, sessions: 0,
+    ...(c.siteContentId ? { siteContentId: c.siteContentId, siteContentType: c.siteContentType } : {}),
   }));
   const gaps = new Set((assessment.gaps || []).map((g) => g.chapter || g));
   // lacunele identificate urcă la începutul planului (remediere întâi)
@@ -175,7 +219,7 @@ function nextChapter(plan) {
 // ─── MATERIALELE DIN SITE (prioritare — cerința B) ───────────────────────────
 // Exerciții interactive din categoria potrivită pe care elevul NU le-a
 // finalizat încă (după tabela progress) — acestea se dau primele ca teme.
-async function siteInteractiveFor(supa, { userId, categories = [], topics = [], limit = 6, minMatch = false }) {
+async function siteInteractiveFor(supa, { userId, categories = [], topics = [], limit = 6, minMatch = false, excludeIds = [] }) {
   const cats = categories.filter(Boolean);
   if (!cats.length) return [];
   const { data: rows } = await supa.from('content')
@@ -184,7 +228,7 @@ async function siteInteractiveFor(supa, { userId, categories = [], topics = [], 
     .order('sort_order', { ascending: true }).limit(400);
   if (!rows || !rows.length) return [];
   const { data: prog } = await supa.from('progress').select('content_id').eq('user_id', userId);
-  const done = new Set((prog || []).map((p) => p.content_id));
+  const done = new Set([...(prog || []).map((p) => p.content_id), ...excludeIds]);
   const norm = (s) => String(s || '').toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '');
   const words = topics.flatMap((t) => norm(t).split(/[^a-z0-9]+/)).filter((w) => w.length >= 4);
@@ -294,7 +338,8 @@ Reguli:
 - Grilă cu EXACT 4 variante și "answer" = indexul corect (0–3), distribuit aleatoriu; poți pune și întrebări cu răspuns liber (omite "options", "answer" = textul/numărul corect).
 - Fiecare întrebare COMPLET rezolvabilă, fără ambiguități; verifică-ți calculele de două ori.
 - Folosește „·" (\\cdot) pentru înmulțire, NICIODATĂ litera x sau ×.
-- IMPORTANT pentru JSON valid: fiecare backslash LaTeX scris DUBLU (ex: "$\\\\frac{1}{2}$", "$\\\\sqrt{9}$").`;
+- Comenzile LaTeX cu argumentele MEREU între acolade: \\frac{3}{2} (nu \\frac32), \\sqrt{13} (nu \\sqrt13).
+- IMPORTANT pentru JSON valid: în interiorul stringurilor JSON fiecare comandă LaTeX are EXACT un backslash dublat — corect: "$\\\\frac{1}{2}$", "$\\\\sqrt{9}$"; GREȘIT: patru backslash-uri sau niciunul ("frac{1}{2}").`;
 
   const userMsg = `Generează obiectul JSON cu ${count} întrebări acum. Fă-le diferite de orice generare anterioară (alte numere, alte contexte). Sesiune #${Math.random().toString(36).slice(2, 8)}.`;
 
@@ -302,7 +347,7 @@ Reguli:
   try {
     const r = await claude.chatClaude({
       system, messages: [{ role: 'user', content: userMsg }],
-      maxTokens: 6000, model: OPUS_MODEL,
+      maxTokens: Math.min(6000, 1200 + count * 350), model: OPUS_MODEL,
     });
     const parsed = claude.extractJson(r.text);
     const questions = normalizeQuestions(parsed);
@@ -322,6 +367,28 @@ Reguli:
 
 function toUsage(u = {}) { return { in: u.prompt_tokens || 0, out: u.completion_tokens || 0 }; }
 
+// ─── Repararea LaTeX-ului corupt de JSON (cauza „sqrt13", „frac32") ──────────
+// Trei stricăciuni posibile după parcursul model → JSON → parse:
+//  1. \f/\t/\b din \frac/\times/\begin devin caractere de CONTROL (JSON valid);
+//  2. backslash DUBLU rămas în text (modelul a scris \\\\frac) → KaTeX îl
+//     citește ca „rând nou" + comanda fără backslash → afișează „frac32";
+//  3. backslash PIERDUT complet → „sqrt{13}" ca text simplu.
+const LATEX_CMDS = 'frac|sqrt|cdot|pi|alpha|beta|gamma|delta|theta|angle|triangle|overline|underline|vec|times|div|le|leq|ge|geq|neq|ne|pm|infty|sin|cos|tan|ctg|tg|log|ln|lim|sum|int|cup|cap|subset|in|Rightarrow|rightarrow|text|mathbb|widehat|degree|circ|perp|parallel|equiv|approx|sim|forall|exists|emptyset|varnothing|prod|binom|left|right|begin|end';
+function fixLatex(s) {
+  if (typeof s !== 'string' || !s) return s;
+  let t = s
+    .replace(/\f/g, '\\f')        // form-feed → \frac, \forall...
+    .replace(/\t/g, '\\t')        // tab → \times, \theta, \tan, \text...
+    .replace(/\u0008/g, '\\b');   // backspace → \begin, \binom, \beta...
+  // backslash dublu (sau mai multe) înaintea unei comenzi → unul singur
+  // (granița NU e \b: la forma scurtă „\frac32" comanda e urmată de cifre)
+  t = t.replace(new RegExp('\\\\{2,}(?=(?:' + LATEX_CMDS + ')(?![a-zA-Z]))', 'g'), '\\');
+  // comenzi rămase FĂRĂ backslash în interiorul formulelor $...$
+  const cmdRe = new RegExp('(^|[^\\\\a-zA-Z])(' + LATEX_CMDS + ')(?=[\\s{_^\\d(])', 'g');
+  t = t.replace(/\$([^$]+)\$/g, (m, inner) => '$' + inner.replace(cmdRe, '$1\\$2') + '$');
+  return t;
+}
+
 // normalizează + validează lista de întrebări (aceleași reguli ca generatorul existent)
 function normalizeQuestions(parsed) {
   let list = parsed;
@@ -331,10 +398,10 @@ function normalizeQuestions(parsed) {
   }
   if (!Array.isArray(list)) return [];
   return list.slice(0, 20).map((q) => ({
-    statement: String(q.statement || q.enunt || '').trim(),
-    options: Array.isArray(q.options) ? q.options.map((o) => String(o)) : undefined,
-    answer: Array.isArray(q.options) ? Number(q.answer) || 0 : String(q.answer ?? '').trim(),
-    explanation: q.explanation ? String(q.explanation) : '',
+    statement: fixLatex(String(q.statement || q.enunt || '').trim()),
+    options: Array.isArray(q.options) ? q.options.map((o) => fixLatex(String(o))) : undefined,
+    answer: Array.isArray(q.options) ? Number(q.answer) || 0 : fixLatex(String(q.answer ?? '').trim()),
+    explanation: q.explanation ? fixLatex(String(q.explanation)) : '',
     chapter: q.chapter ? String(q.chapter) : undefined,
     topic: q.topic ? String(q.topic) : undefined,
   })).filter((q) => {
@@ -437,9 +504,20 @@ async function reconcileContentHomework(supa, userId) {
           attempts: p.attempts || 1, completed_at: p.completed_at,
           feedback: { grade: Math.max(1, Math.min(10, Math.round((1 + 9 * pct) * 10) / 10)), auto: true },
         }).eq('id', h.id);
+        await clearHomeworkNotifications(supa, userId, h.id);
       }
     }
   } catch (e) { console.warn('reconcileContentHomework:', e.message); }
+}
+
+// Tema rezolvată → notificările ei („temă nouă" / „temă nefăcută") se
+// marchează citite, ca elevul să nu mai vadă alerta după ce a lucrat.
+async function clearHomeworkNotifications(supa, userId, homeworkId) {
+  try {
+    await supa.from('ai_notifications').update({ read: true })
+      .eq('recipient_id', userId)
+      .in('dedupe_key', [`med_hw:${homeworkId}`, `med_hw_late:${homeworkId}`]);
+  } catch { /* best-effort */ }
 }
 
 // ─── RAPORTUL PENTRU MENTORI (profesori/părinți asociați) — funcția 18 ───────
@@ -493,9 +571,9 @@ async function buildMentorReport(supa, studentId) {
 module.exports = {
   CURRICULUM, EN_RECAP, OPUS_MODEL, REVIEW_STAGES_DAYS,
   curriculumFor, categoryFor, classCategory, examTypeFor,
-  buildPlan, planProgress, nextChapter,
+  buildPlan, planProgress, nextChapter, siteChaptersFor, mergeSiteChapters,
   siteInteractiveFor, siteTheoryFor,
-  genQuestions, normalizeQuestions, classifyMistakes,
+  genQuestions, normalizeQuestions, classifyMistakes, fixLatex,
   predictGrade, bumpStreak, nextReviewDue,
-  getProfile, reconcileContentHomework, buildMentorReport,
+  getProfile, reconcileContentHomework, buildMentorReport, clearHomeworkNotifications,
 };

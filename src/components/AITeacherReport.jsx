@@ -66,11 +66,11 @@ export default function AITeacherReport() {
             <div style={card}><p style={{ color: 'var(--text-muted)', fontSize: '.9rem', margin: 0 }}>Niciun elev nu a folosit încă antrenamentul AI. Datele apar pe măsură ce elevii exersează.</p></div>
           )}
 
-          {/* Subiecte (cele mai grele primele) */}
+          {/* Subiecte (cele mai grele primele) — rolldown */}
           {data.topics.length > 0 && (
-            <div style={card}>
-              <h4 style={{ color: 'var(--navy)', marginBottom: 12 }}>Subiecte după dificultate (media clasei)</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <details style={card}>
+              <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontSize: '1rem', fontFamily: 'var(--font-display)' }}>📊 Subiecte după dificultate (media clasei)</summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
                 {data.topics.map((t) => (
                   <div key={t.category + t.topic}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.85rem', marginBottom: 3 }}>
@@ -83,7 +83,7 @@ export default function AITeacherReport() {
                   </div>
                 ))}
               </div>
-            </div>
+            </details>
           )}
 
           {/* Elevi în dificultate */}
