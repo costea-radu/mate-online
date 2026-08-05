@@ -38,6 +38,145 @@ function httpErr(status, message) {
 // (cuvinte italice lipite: „Știindcăm(∠B)") sau grade „70^∘" cu caret vizibil.
 const MATH_RULE = '\n- REDACTAREA MATEMATICII: între $...$ pui DOAR expresii și simboluri matematice — NICIODATĂ propoziții sau cuvinte românești (cuvintele rămân în afara delimitatorilor, altfel apar italice și lipite); gradele se scriu $70^\\circ$ (nu „70^∘” în text); după punctul de la finalul unei propoziții pui mereu spațiu.';
 
+// ─── FIGURILE GEOMETRICE: permise DOAR la Evaluare Națională ─────────────────
+// Cererea adminului: modelul mai înlocuia enunțul unui item cu figură, iar
+// figura (restaurată programatic din șablon) nu se mai potrivea cu noul enunț
+// (ex. un cub cu apă lângă o problemă cu triunghi dreptunghic). La clase și
+// BAC generăm de acum FĂRĂ figuri (enunțuri complete, self-contained); la
+// Evaluare Națională păstrăm comportamentul de până acum (figurile șablonului,
+// restaurate întocmai, cu itemii lor).
+const figuresAllowed = (category) => String(category || '') === 'evaluare-nationala';
+
+const NO_FIG_RULE = '\n- FĂRĂ FIGURI: NU pune figuri geometrice în test — ELIMINĂ COMPLET blocurile de figură din itemi (SVG-urile, <canvas>, imaginile și containerele lor, ex. <div class="fig">…</div>); problemele de geometrie se formulează SELF-CONTAINED, cu TOATE datele în enunț, fără nicio referire la vreo figură/desen („din figura alăturată” e interzis). Figurile geometrice sunt permise doar la testele de Evaluare Națională, iar acest test NU este de Evaluare Națională.';
+
+// Regulă anti-„secțiuni goale”: modelul mai omitea Subiectul III (itemii cu
+// rezolvări complexe) sau lăsa array-urile de itemi goale.
+const COMPLETE_RULE_HTML = '\n- TEST COMPLET, FĂRĂ SECȚIUNI GOALE: generezi TOȚI itemii și TOATE secțiunile/subiectele prezente în șablon/sursă — INCLUSIV Subiectul III, dacă există (exercițiile lui au rezolvări mai complexe: grilă SAU completare de răspuns/pași — le incluzi cu enunț, răspunsuri și rezolvări complete). Toate datele itemilor din JavaScript (array-urile de exerciții/pași) se scriu COMPLETE — niciodată liste goale.';
+const COMPLETE_RULE_JSON = '\nOBLIGATORIU: acoperi TOATE subiectele/secțiunile testului-sursă (Subiectul I, II ȘI III, dacă există). Itemii de la Subiectul III (rezolvări complexe) NU se omit: devin fie grilă (cu "options"), fie itemi cu răspuns liber/completare (fără "options", "answer" ca text).';
+
+// Curăță figurile rămase într-un HTML generat pentru rubrici non-EN: SVG-urile
+// mari (figurile; pictogramele mici, sub ~300 de caractere, scapă), canvas-urile
+// statice și containerele de figură golite.
+function stripFigures(html) {
+  let h = String(html || '');
+  h = h.replace(/<div class="fig">\s*(?:<svg[\s\S]*?<\/svg>\s*)+<\/div>/gi, '');
+  h = h.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (m.length > 300 ? '' : m));
+  h = h.replace(/<canvas[^>]*>[\s\S]*?<\/canvas>/gi, '');
+  h = h.replace(/<div class="fig">\s*<\/div>/gi, '');
+  return h;
+}
+
+// ─── GARDA DE COMPLETITUDINE a HTML-urilor generate ──────────────────────────
+// Se mai publicau teste TRUNCHIATE (răspuns tăiat la max_tokens) sau cu
+// carcasa întreagă dar FĂRĂ exerciții (array-ul de itemi gol) — pe site
+// apăreau doar antetul și „0 pași”. De acum: (1) răspunsurile tăiate se
+// CONTINUĂ automat (chatClaudeLong); (2) documentul trebuie să fie complet
+// (…</html> — cutHtml); (3) trebuie să conțină itemi interactivi;
+// (4) secțiunile sursei (Subiectul II/III) trebuie să apară și în rezultat.
+// Altfel: eroare clară pe rulare — nu se publică nimic stricat.
+const ITEM_SIGNAL_RES = [
+  /data-correct\s*=/gi, /data-opt\s*=/gi, /data-answer\s*=/gi,
+  /type=["']radio["']/gi, /class=["']opt[\s"']/gi,
+  /["'](?:ok|answer|raspuns|correct|corect)["']\s*:/gi,
+  /<input\b[^>]*type=["']?(?:text|number)/gi, /contenteditable/gi,
+];
+function itemSignals(html) {
+  const s = String(html || '');
+  let n = 0;
+  for (const re of ITEM_SIGNAL_RES) n += (s.match(re) || []).length;
+  return n;
+}
+
+// „Subiectul II/III există în text?” — tolerant la diacritice și formulări:
+// „SUBIECTUL III”, „Subiectul al III-lea”, „Subiectele I, II și III”.
+// (separatorul acceptă și enumerări de cifre romane: „ i, ii si ”)
+const hasSection = (text, roman) => {
+  const t = deDia(text);
+  const re = roman === 'iii'
+    ? /subiect[a-z]*[\s,.&:;()ivxs-]{0,30}?(al[\s.-]{1,3})?iii(?![a-z0-9])/
+    : /subiect[a-z]*[\s,.&:;()ivxs-]{0,30}?(al[\s.-]{1,3})?ii(?!i)(?![a-z0-9])/;
+  return re.test(t);
+};
+function missingSections(baseline, out) {
+  const missing = [];
+  if (hasSection(baseline, 'ii') && !hasSection(out, 'ii')) missing.push('Subiectul II');
+  if (hasSection(baseline, 'iii') && !hasSection(out, 'iii')) missing.push('Subiectul III');
+  return missing;
+}
+
+function assertCompleteHtml({ html, baseline = '', what = 'generarea' }) {
+  if (!html || html.length < 600) {
+    throw httpErr(502, `${what}: nu am obținut un document HTML complet (răspunsul s-a întrerupt). Mai încearcă.`);
+  }
+  const got = itemSignals(html);
+  const ref = itemSignals(baseline);
+  const need = ref >= 12 ? Math.max(4, Math.floor(ref / 6)) : (ref > 0 ? 2 : 1);
+  if (got < need) {
+    throw httpErr(502, `${what}: testul generat NU conține exerciții (${got} semnale de itemi, față de ${ref} în șablon/sursă) — nu îl public. Mai încearcă.`);
+  }
+  const miss = missingSections(baseline, html);
+  if (miss.length) {
+    throw httpErr(502, `${what}: din testul generat lipsesc secțiuni întregi (${miss.join(', ')}) — nu îl public. Mai încearcă.`);
+  }
+}
+
+// Taie documentul HTML din răspunsul modelului (```fence + <!doctype…</html>).
+// Întoarce null dacă documentul e INCOMPLET (fără </html>) — până acum un
+// răspuns trunchiat trecea drept „valid” și ajungea publicat pe site.
+function cutHtml(raw) {
+  let h = String(raw || '');
+  const fence = h.match(/```(?:html)?\s*([\s\S]*?)```/i);
+  if (fence) h = fence[1];
+  const e = h.lastIndexOf('</html>');
+  if (e === -1) return null;
+  // dacă în text apar mai multe începuturi de document (ex. modelul a luat-o
+  // de la capăt la continuare), păstrăm ULTIMUL document complet
+  const starts = (re) => {
+    let s = -1;
+    let m;
+    while ((m = re.exec(h)) !== null) { if (m.index >= e) break; s = m.index; }
+    return s;
+  };
+  const s = starts(/<!doctype html/gi);
+  const s2 = s !== -1 ? s : starts(/<html[\s>]/gi);
+  if (s2 === -1 || e <= s2) return null;
+  return h.slice(s2, e + 7).trim();
+}
+
+// Apel Claude pentru RĂSPUNSURI LUNGI: când răspunsul se taie la max_tokens,
+// îl CONTINUĂ automat (partea deja generată devine mesaj de asistent —
+// „prefill” — iar modelul continuă exact de unde a rămas), până la 3 reluări.
+// Așa nu se mai pierde finalul testelor mari (ex. tocmai Subiectul III).
+async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null }) {
+  const baseMessages = [{ role: 'user', content: blocks }];
+  let r = await claude.chatClaude({ system, messages: baseMessages, maxTokens, model });
+  let text = String(r.text || '');
+  const usage = {
+    prompt_tokens: r.usage?.prompt_tokens || 0,
+    completion_tokens: r.usage?.completion_tokens || 0,
+  };
+  let rounds = 0;
+  while (r.stopReason === 'max_tokens' && rounds < 3) {
+    rounds++;
+    const prefill = text.replace(/\s+$/, '');
+    if (!prefill) break;
+    try {
+      r = await claude.chatClaude({
+        system,
+        messages: [...baseMessages, { role: 'assistant', content: prefill }],
+        maxTokens, model,
+      });
+    } catch (e) {
+      console.warn('exgen: continuarea răspunsului lung a eșuat (%s) — folosesc ce am', e.message);
+      break;
+    }
+    usage.prompt_tokens += r.usage?.prompt_tokens || 0;
+    usage.completion_tokens += r.usage?.completion_tokens || 0;
+    text = prefill + String(r.text || '');
+  }
+  return { text, usage, provider: r.provider, stopReason: r.stopReason, continuations: rounds };
+}
+
 // ─── Validarea exercițiului JSON (mutat din ai-exercise-agent.js) ───────────
 function normalize(ex) {
   if (!ex || typeof ex !== 'object') return null;
@@ -274,6 +413,8 @@ async function runAuto({ supa, category, subcategory = null, profile = null, cty
   // + corespondența test↔barem când contextul suplimentar o permite.
   const mode = detectMode(autoInstr, extraRubrics);
   const hasExtras = Array.isArray(extraRubrics) && extraRubrics.length > 0;
+  // figurile geometrice: DOAR la Evaluare Națională (cererea adminului)
+  const allowFig = figuresAllowed(category);
 
   let q = supa.from('content')
     .select('id, title, file_url, interactive_data, subcategory, content_type')
@@ -337,7 +478,9 @@ async function runAuto({ supa, category, subcategory = null, profile = null, cty
       const { bucket, filePath } = parsePath(src.file_url);
       const { data: blob } = await supa.storage.from(bucket).download(filePath);
       if (!blob) throw httpErr(502, `Nu am putut descărca fișierul-sursă „${src.title}" din Storage.`);
-      srcHtml = Buffer.from(await blob.arrayBuffer()).toString('utf8').slice(0, 160000);
+      // plafon mărit: la 160k se tăia uneori chiar array-ul de itemi de la
+      // finalul fișierelor mari — modelul primea carcasa fără exerciții
+      srcHtml = Buffer.from(await blob.arrayBuffer()).toString('utf8').slice(0, 320000);
     }
 
     // (a) sursă HTML fără model de format → CLONĂM chiar fișierul-sursă:
@@ -347,25 +490,28 @@ async function runAuto({ supa, category, subcategory = null, profile = null, cty
 Primești UN SINGUR fișier HTML sursă (un test/exercițiu interactiv al rubricii „${category}${subcategory ? ' / ' + subcategory : ''}”). Sarcina: produci un fișier HTML NOU, COMPLET și AUTONOM, pornind de la acest fișier — VARIANTA lui nouă.
 Reguli stricte:
 - COPIAZĂ ÎNTOCMAI tot ce nu ține de conținutul exercițiilor: CSS-ul complet, TOT JavaScript-ul, instrumentele (desen, creion, radieră etc.), structura și bara de scor — NIMIC eliminat sau simplificat;
-- FIGURILE/DESENELE (SVG, canvas, imagini) NU SE MODIFICĂ DELOC (vor fi restaurate programatic din sursă, deci modificarea lor e inutilă și greșită); itemii cu figură rămân consistenți cu figura;
+${allowFig
+    ? '- FIGURILE/DESENELE (SVG, canvas, imagini) NU SE MODIFICĂ DELOC (vor fi restaurate programatic din sursă, deci modificarea lor e inutilă și greșită); itemii cu figură rămân consistenți cu figura;'
+    : NO_FIG_RULE.slice(1) + ' Itemii care în sursă aveau figură se REFORMULEAZĂ cu toate datele în enunț (sau se înlocuiesc cu itemi echivalenți fără figură);'}
 - REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}
 - păstrează (sau adaugă, dacă lipsește) raportarea scorului: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*');
-- răspunsurile corecte trebuie să fie corecte matematic; verifică-ți calculele.${MATH_RULE}${ctx.line}
+- răspunsurile corecte trebuie să fie corecte matematic; verifică-ți calculele.${COMPLETE_RULE_HTML}${MATH_RULE}${ctx.line}
 Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), fără explicații, fără markdown.`;
       const blocksS = [];
       blocksS.push(...ctx.docBlocks);
-      blocksS.push({ type: 'text', text: `FIȘIERUL-SURSĂ („${src.title}”):\n${srcHtml}${ctx.textBlock}\n\nProdu ACUM varianta nouă — doar documentul HTML.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare, dar desenele tot NU se modifică): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
-      const rS = await claude.chatClaude({ system: sysSeq, messages: [{ role: 'user', content: blocksS }], maxTokens: 24000, model: aiModel });
-      let hS = String(rS.text || '');
-      const fS = hS.match(/```(?:html)?\s*([\s\S]*?)```/i); if (fS) hS = fS[1];
-      const sS = hS.search(/<!doctype html|<html[\s>]/i); const eS = hS.lastIndexOf('</html>');
-      if (sS !== -1 && eS > sS) hS = hS.slice(sS, eS + 7);
-      hS = hS.trim();
-      const srcSvgs = srcHtml.match(/<svg[\s\S]*?<\/svg>/gi) || [];
-      if (srcSvgs.length) { let k = 0; hS = hS.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (k < srcSvgs.length ? srcSvgs[k++] : m)); }
-      if (sS === -1 || hS.length < 600) {
-        console.error('exgen(seq-html): invalid. stopReason=%s', rS.stopReason);
-        throw httpErr(502, `Nu am obținut o variantă validă a fișierului „${src.title}”. Mai încearcă.`);
+      blocksS.push({ type: 'text', text: `FIȘIERUL-SURSĂ („${src.title}”):\n${srcHtml}${ctx.textBlock}\n\nProdu ACUM varianta nouă — doar documentul HTML.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? ', dar desenele tot NU se modifică' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+      const rS = await chatClaudeLong({ system: sysSeq, blocks: blocksS, maxTokens: 30000, model: aiModel });
+      let hS = cutHtml(rS.text);
+      if (hS && allowFig) {
+        const srcSvgs = srcHtml.match(/<svg[\s\S]*?<\/svg>/gi) || [];
+        if (srcSvgs.length) { let k = 0; hS = hS.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (k < srcSvgs.length ? srcSvgs[k++] : m)); }
+      }
+      if (hS && !allowFig) hS = stripFigures(hS);
+      try {
+        assertCompleteHtml({ html: hS, baseline: srcHtml, what: `Varianta fișierului „${src.title}”` });
+      } catch (e) {
+        console.error('exgen(seq-html): invalid. stopReason=%s continuations=%s', rS.stopReason, rS.continuations);
+        throw e;
       }
       return { html: hS, provider: rS.provider, combinedFrom: [src.title, ...ctx.names], usage: rS.usage, sourceId: src.id, sourceTitle: src.title, template: src.title };
     }
@@ -376,7 +522,7 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
       const sysSeqF = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
 Primești un ȘABLON HTML — MODELUL DE FORMAT ales de admin — și UN SINGUR material-sursă („${src.title}”, din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”).
 Construiește un fișier HTML NOU în ACELAȘI fișier-format ca șablonul, cu exercițiile preluate/adaptate din materialul-sursă.
-Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente, bara de scor); FIGURILE din șablon NU se modifică; raportarea scorului MATE_SCORE se păstrează (sau se adaugă: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${MATH_RULE}${ctx.line}
+Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente, bara de scor); ${allowFig ? 'FIGURILE din șablon NU se modifică; ' : NO_FIG_RULE.slice(3) + ' '}raportarea scorului MATE_SCORE se păstrează (sau se adaugă: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${COMPLETE_RULE_HTML}${MATH_RULE}${ctx.line}
 Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
       const tplF = String(formatHtml).slice(0, 180000);
       const blocksF = [];
@@ -386,17 +532,18 @@ Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
       }
       blocksF.push(...ctx.docBlocks);
       blocksF.push({ type: 'text', text: `ȘABLONUL (modelul de format):\n${tplF}${srcText ? `\n\nMATERIALUL-SURSĂ („${src.title}”):\n${srcText}` : ''}${srcHtml ? `\n\nMATERIALUL-SURSĂ („${src.title}”, HTML):\n${srcHtml.slice(0, 60000)}` : ''}${ctx.textBlock}\n\nConstruiește acum fișierul.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
-      const rF = await claude.chatClaude({ system: sysSeqF, messages: [{ role: 'user', content: blocksF }], maxTokens: 24000, model: aiModel });
-      let hF = String(rF.text || '');
-      const fF = hF.match(/```(?:html)?\s*([\s\S]*?)```/i); if (fF) hF = fF[1];
-      const sF = hF.search(/<!doctype html|<html[\s>]/i); const eF = hF.lastIndexOf('</html>');
-      if (sF !== -1 && eF > sF) hF = hF.slice(sF, eF + 7);
-      hF = hF.trim();
-      const tplSvgsF = tplF.match(/<svg[\s\S]*?<\/svg>/gi) || [];
-      if (tplSvgsF.length) { let k = 0; hF = hF.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (k < tplSvgsF.length ? tplSvgsF[k++] : m)); }
-      if (sF === -1 || hF.length < 600) {
-        console.error('exgen(seq-format): invalid. stopReason=%s', rF.stopReason);
-        throw httpErr(502, `Nu am obținut un fișier valid din „${src.title}” în modelul de format. Mai încearcă.`);
+      const rF = await chatClaudeLong({ system: sysSeqF, blocks: blocksF, maxTokens: 30000, model: aiModel });
+      let hF = cutHtml(rF.text);
+      if (hF && allowFig) {
+        const tplSvgsF = tplF.match(/<svg[\s\S]*?<\/svg>/gi) || [];
+        if (tplSvgsF.length) { let k = 0; hF = hF.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (k < tplSvgsF.length ? tplSvgsF[k++] : m)); }
+      }
+      if (hF && !allowFig) hF = stripFigures(hF);
+      try {
+        assertCompleteHtml({ html: hF, baseline: `${tplF}\n${srcHtml || ''}\n${srcText || ''}`, what: `Fișierul din „${src.title}” în modelul de format` });
+      } catch (e) {
+        console.error('exgen(seq-format): invalid. stopReason=%s continuations=%s', rF.stopReason, rF.continuations);
+        throw e;
       }
       return { html: hF, provider: rF.provider, combinedFrom: [src.title, ...ctx.names], usage: rF.usage, sourceId: src.id, sourceTitle: src.title, template: 'modelul de format al task-ului' };
     }
@@ -404,7 +551,8 @@ Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
     // (c) sursă PDF sau exercițiu JSON → test interactiv STRUCTURAT (JSON),
     // transformarea întregului fișier-sursă (opțional după modelul de format PDF).
     const sysSeqJ = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
-Primești UN SINGUR material-sursă („${src.title}”, din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”). Transformă-l ÎNTREG într-un test/exercițiu INTERACTIV NOU: păstrează numărul de itemi, ordinea, structura și baremul materialului-sursă.
+Primești UN SINGUR material-sursă („${src.title}”, din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”). Transformă-l ÎNTREG într-un test/exercițiu INTERACTIV NOU: păstrează numărul de itemi, ordinea, structura și baremul materialului-sursă.${COMPLETE_RULE_JSON}
+Rezultatul NU are figuri: enunțurile se scriu SELF-CONTAINED, cu toate datele în text — nicio referire la „figura alăturată/de mai jos”.
 REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA rezultatului (itemi, secțiuni, barem) cu el, iar CONȚINUTUL cu materialul-sursă.' : ''}${ctx.line}
 Răspunde STRICT cu UN obiect JSON valid (fără alt text):
 { "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] }
@@ -420,10 +568,10 @@ Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ 
     }
     blocksJ.push(...ctx.docBlocks);
     blocksJ.push({ type: 'text', text: `${srcText ? `MATERIALUL-SURSĂ („${src.title}”):\n${srcText}\n\n` : ''}${ctx.textBlock ? ctx.textBlock + '\n\n' : ''}Transformă acum materialul-sursă în test interactiv.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
-    const rJ = await claude.chatClaude({ system: sysSeqJ, messages: [{ role: 'user', content: blocksJ }], maxTokens: 12000, model: aiModel });
+    const rJ = await chatClaudeLong({ system: sysSeqJ, blocks: blocksJ, maxTokens: 16000, model: aiModel });
     const exJ = normalize(claude.extractJson(rJ.text));
     if (!exJ) {
-      console.error('exgen(seq-json): invalid. stopReason=%s', rJ.stopReason);
+      console.error('exgen(seq-json): invalid. stopReason=%s continuations=%s', rJ.stopReason, rJ.continuations);
       throw httpErr(502, `Nu am obținut un test valid din „${src.title}”. Mai încearcă.`);
     }
     exJ.title = exJ.title || `${src.title} · interactiv`;
@@ -455,7 +603,7 @@ Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ 
     if (resultKind === 'interactive' || wantFormatHtml) {
       let tpl = null;
       let tplName = 'șablonul standard';
-      let tplDesc = 'ȘABLONUL HTML STANDARD al site-ului (test interactiv cu figuri și instrumente de desen)';
+      let tplDesc = `ȘABLONUL HTML STANDARD al site-ului (test interactiv ${figuresAllowed(category) ? 'cu figuri și instrumente de desen' : 'cu instrumente de desen, FĂRĂ figuri'})`;
       if (wantFormatHtml) {
         tpl = String(formatHtml).slice(0, 180000);
         tplName = 'modelul de format al task-ului';
@@ -465,26 +613,27 @@ Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ 
       }
       if (!tpl) throw httpErr(500, 'Șablonul standard lipsește.');
       const lettersD = names.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
-      const planD = Array.from({ length: 8 }, (_, i) => `- Itemul ${i + 1} (dacă nu are figură) ← TESTUL ${lettersD[i % lettersD.length]}, un exercițiu ales aleatoriu.`).join('\n');
+      const planD = Array.from({ length: 8 }, (_, i) => `- Itemul ${i + 1}${allowFig ? ' (dacă nu are figură)' : ''} ← TESTUL ${lettersD[i % lettersD.length]}, un exercițiu ales aleatoriu.`).join('\n');
       const sysD = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
 Primești ${tplDesc} și ${names.length} subiecte PDF din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
 Construiește un TEST INTERACTIV NOU în ACELAȘI fișier-format ca șablonul, cu exercițiile preluate din PDF-uri după plan:
 ${planD}
-Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente de desen, bara de scor, raportarea scorului MATE_SCORE — dacă șablonul nu o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). FIGURILE din șablon NU se modifică deloc; itemii cu figură rămân ai șablonului. REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${MATH_RULE}${ctx.line}
+Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente de desen, bara de scor, raportarea scorului MATE_SCORE — dacă șablonul nu o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). ${allowFig ? 'FIGURILE din șablon NU se modifică deloc; itemii cu figură rămân ai șablonului. ' : NO_FIG_RULE.slice(3) + ' '}REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${COMPLETE_RULE_HTML}${MATH_RULE}${ctx.line}
 Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
       blocksA.push(...ctx.docBlocks);
-      blocksA.push({ type: 'text', text: `ȘABLONUL (${tplName}):\n${tpl}${ctx.textBlock}\n\nConstruiește acum testul interactiv.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
-      const rD = await claude.chatClaude({ system: sysD, messages: [{ role: 'user', content: blocksA }], maxTokens: 24000, model: aiModel });
-      let hOut = String(rD.text || '');
-      const fD = hOut.match(/```(?:html)?\s*([\s\S]*?)```/i); if (fD) hOut = fD[1];
-      const sD = hOut.search(/<!doctype html|<html[\s>]/i); const eD = hOut.lastIndexOf('</html>');
-      if (sD !== -1 && eD > sD) hOut = hOut.slice(sD, eD + 7);
-      hOut = hOut.trim();
-      const tplSvgsD = tpl.match(/<svg[\s\S]*?<\/svg>/gi) || [];
-      if (tplSvgsD.length) { let k = 0; hOut = hOut.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (k < tplSvgsD.length ? tplSvgsD[k++] : m)); }
-      if (sD === -1 || hOut.length < 600) {
-        console.error('exgen(auto-pdf-interactiv): invalid. stopReason=%s', rD.stopReason);
-        throw httpErr(502, 'Nu am obținut un fișier interactiv valid din PDF-uri. Mai încearcă.');
+      blocksA.push({ type: 'text', text: `ȘABLONUL (${tplName}):\n${tpl}${ctx.textBlock}\n\nConstruiește acum testul interactiv.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? '' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+      const rD = await chatClaudeLong({ system: sysD, blocks: blocksA, maxTokens: 30000, model: aiModel });
+      let hOut = cutHtml(rD.text);
+      if (hOut && allowFig) {
+        const tplSvgsD = tpl.match(/<svg[\s\S]*?<\/svg>/gi) || [];
+        if (tplSvgsD.length) { let k = 0; hOut = hOut.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (k < tplSvgsD.length ? tplSvgsD[k++] : m)); }
+      }
+      if (hOut && !allowFig) hOut = stripFigures(hOut);
+      try {
+        assertCompleteHtml({ html: hOut, baseline: tpl, what: 'Testul interactiv din PDF-uri' });
+      } catch (e) {
+        console.error('exgen(auto-pdf-interactiv): invalid. stopReason=%s continuations=%s', rD.stopReason, rD.continuations);
+        throw e;
       }
       return { html: hOut, provider: rD.provider, combinedFrom: names, template: tplName, usage: rD.usage };
     }
@@ -495,7 +644,8 @@ Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
 Primești ${names.length} teste PDF existente din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
 Construiește URMĂTORUL test al rubricii (nr. ${rows.length + 1}) prin COMBINARE, după PLANUL DE MAI JOS (tras la sorți pe server — respectă-l întocmai, ca generările succesive să fie DIFERITE):
 ${planP}
-Pentru fiecare poziție: COPIAZĂ itemul indicat (enunț, tip, structură). REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)} Păstrează structura și baremul tipic rubricii.${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA testului generat cu el — numărul de itemi, împărțirea pe secțiuni/subiecte, tipul itemilor (grilă/răspuns liber) și proporțiile baremului vin din modelul de format, iar CONȚINUTUL din testele-sursă.' : ''}${ctx.line}
+Pentru fiecare poziție: COPIAZĂ itemul indicat (enunț, tip, structură). REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)} Păstrează structura și baremul tipic rubricii.${COMPLETE_RULE_JSON}
+Rezultatul NU are figuri: enunțurile se scriu SELF-CONTAINED, cu toate datele în text — nicio referire la „figura alăturată”; itemii-sursă care depind de o figură se înlocuiesc cu alți itemi din același test.${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA testului generat cu el — numărul de itemi, împărțirea pe secțiuni/subiecte, tipul itemilor (grilă/răspuns liber) și proporțiile baremului vin din modelul de format, iar CONȚINUTUL din testele-sursă.' : ''}${ctx.line}
 Răspunde STRICT cu UN obiect JSON valid (fără alt text):
 { "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] }
 Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ cu backslash dublu — DOAR expresii/simboluri, NICIODATĂ propoziții sau cuvinte românești în $...$ (textul rămâne în afară; gradele: $70^\\circ$). Verifică-ți calculele.`;
@@ -505,11 +655,13 @@ Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ 
     }
     blocksA.push(...ctx.docBlocks);
     blocksA.push({ type: 'text', text: `${ctx.textBlock ? ctx.textBlock + '\n\n' : ''}Construiește acum testul nr. ${rows.length + 1}.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
-    const rP = await claude.chatClaude({ system: sysPdf, messages: [{ role: 'user', content: blocksA }], maxTokens: 9000, model: aiModel });
+    const rP = await chatClaudeLong({ system: sysPdf, blocks: blocksA, maxTokens: 12000, model: aiModel });
     const exP = normalize(claude.extractJson(rP.text));
-    if (!exP) {
-      console.error('exgen(auto-pdf): invalid. stopReason=%s', rP.stopReason);
-      throw httpErr(502, 'Automatizarea nu a produs un test valid din PDF-uri. Mai încearcă o dată.');
+    if (!exP || (exP.questions || []).length < 6) {
+      console.error('exgen(auto-pdf): invalid/incomplet (%s itemi). stopReason=%s continuations=%s', exP ? (exP.questions || []).length : 0, rP.stopReason, rP.continuations);
+      throw httpErr(502, exP
+        ? `Testul generat din PDF-uri a ieșit INCOMPLET (doar ${(exP.questions || []).length} itemi din 10) — nu îl public. Mai încearcă.`
+        : 'Automatizarea nu a produs un test valid din PDF-uri. Mai încearcă o dată.');
     }
     exP.title = exP.title || `Test ${rows.length + 1} · ${category}${subcategory ? ' / ' + subcategory : ''}`;
     exP.output = 'pdf';
@@ -539,7 +691,8 @@ Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ 
     const sysE = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
 Primești ${srcTexts.length} teste din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”. Construiește un SUBIECT DE EXAMEN NOU prin combinare, după plan:
 ${planE}
-REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA subiectului cu el — numărul de itemi, secțiunile, tipul itemilor și proporțiile baremului vin din modelul de format, iar CONȚINUTUL din testele-sursă.' : ''}${ctx.line}
+REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${COMPLETE_RULE_JSON}
+Rezultatul NU are figuri: enunțurile se scriu SELF-CONTAINED, cu toate datele în text — nicio referire la „figura alăturată”; itemii-sursă care depind de o figură se înlocuiesc cu alți itemi din același test.${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA subiectului cu el — numărul de itemi, secțiunile, tipul itemilor și proporțiile baremului vin din modelul de format, iar CONȚINUTUL din testele-sursă.' : ''}${ctx.line}
 Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] } (itemii cu răspuns liber: fără "options", "answer" text; LaTeX cu backslash dublu).`;
     const blkE = srcTexts.map((x, i) => `=== TESTUL ${String.fromCharCode(65 + i)}: ${x.title} ===\n${x.text}`).join('\n\n');
     const blocksE = [];
@@ -549,9 +702,14 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "st
     }
     blocksE.push(...ctx.docBlocks);
     blocksE.push({ type: 'text', text: `${blkE}${ctx.textBlock}\n\nConstruiește subiectul acum.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNI: ${String(autoInstr).slice(0, 3000)}` : ''} #${Math.random().toString(36).slice(2, 8)}` });
-    const rE = await claude.chatClaude({ system: sysE, messages: [{ role: 'user', content: blocksE }], maxTokens: 9000, model: aiModel });
+    const rE = await chatClaudeLong({ system: sysE, blocks: blocksE, maxTokens: 12000, model: aiModel });
     const exE = normalize(claude.extractJson(rE.text));
-    if (!exE) throw httpErr(502, 'Nu am obținut un subiect valid. Mai încearcă.');
+    if (!exE || (exE.questions || []).length < 6) {
+      console.error('exgen(auto-exam): invalid/incomplet (%s itemi). stopReason=%s continuations=%s', exE ? (exE.questions || []).length : 0, rE.stopReason, rE.continuations);
+      throw httpErr(502, exE
+        ? `Subiectul generat a ieșit INCOMPLET (doar ${(exE.questions || []).length} itemi din 10) — nu îl public. Mai încearcă.`
+        : 'Nu am obținut un subiect valid. Mai încearcă.');
+    }
     exE.output = 'pdf';
     return { exercise: exE, provider: rE.provider, combinedFrom: srcTexts.map((x) => x.title), usage: rE.usage };
   }
@@ -589,55 +747,61 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "st
   const ctx = await ctxFor(sources.map((x) => x.title)); // bareme corespondente sau referințe
 
   const lettersI = sources.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
-  const planI = Array.from({ length: 8 }, (_, i) => `- Itemul ${i + 1} (DOAR dacă nu are figură) ← TESTUL ${lettersI[i % lettersI.length]}, itemul nr. ${1 + Math.floor(Math.random() * 5)} din el (sau alt item al aceluiași test), cu numere/notații noi.`).join('\n');
+  const planI = Array.from({ length: 8 }, (_, i) => `- Itemul ${i + 1}${allowFig ? ' (DOAR dacă nu are figură)' : ''} ← TESTUL ${lettersI[i % lettersI.length]}, itemul nr. ${1 + Math.floor(Math.random() * 5)} din el (sau alt item al aceluiași test), cu numere/notații noi.`).join('\n');
   const tplIntro = wantFormatHtml
     ? 'Primești un ȘABLON HTML — MODELUL DE FORMAT ales de admin (clonează-i EXACT designul, stilul CSS și funcționalitatea JavaScript)'
-    : 'Primești un ȘABLON HTML în FORMATUL STANDARD al site-ului (test interactiv cu figuri geometrice SVG și instrumente de desen)';
+    : `Primești un ȘABLON HTML în FORMATUL STANDARD al site-ului (test interactiv ${allowFig ? 'cu figuri geometrice SVG și instrumente de desen' : 'cu instrumente de desen, FĂRĂ figuri'})`;
+  const figRules = allowFig
+    ? `- FIGURILE/DESENELE (SVG, canvas) NU SE MODIFICĂ DELOC — rămân EXACT cele din șablon, cu aceleași etichete și valori (oricum vor fi restaurate programatic din șablon, deci orice modificare a lor e inutilă și greșită);
+- itemii CU figură rămân cei ai șablonului: enunț, valori și notații consistente cu figura, cel mult mici reformulări care NU contrazic figura; combini din celelalte teste DOAR itemii FĂRĂ figură;`
+    : `${NO_FIG_RULE.slice(1)} Itemii care în șablon aveau figură se ÎNLOCUIESC cu itemi fără figură, combinați din testele-sursă (enunț complet, cu toate datele în text);`;
   const sysAuto = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
 ${tplIntro} și ${sources.length} teste existente din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
 Sarcina: construiește URMĂTORUL test al rubricii (nr. ${rows.length + 1}), ÎN ACELAȘI FIȘIER-FORMAT ca șablonul.
 
-PLAN DE COMBINARE — tras la sorți pe server; respectă-l întocmai, ca generările succesive să fie DIFERITE (excepție: itemii cu figură, care rămân ai șablonului):
+PLAN DE COMBINARE — tras la sorți pe server; respectă-l întocmai, ca generările succesive să fie DIFERITE${allowFig ? ' (excepție: itemii cu figură, care rămân ai șablonului)' : ''}:
 ${planI}
 
 Reguli:
 - COPIAZĂ ÎNTOCMAI tot ce nu ține de conținutul itemilor: CSS-ul complet, TOT JavaScript-ul, instrumentele de desen, structura pe subiecte, bara de scor — NIMIC eliminat sau simplificat;
 - pentru pozițiile din plan: COPIAZĂ itemul indicat; REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)};
 - același număr de itemi și aceeași structură (subiecte, punctaje) ca șablonul;
-- FIGURILE/DESENELE (SVG, canvas) NU SE MODIFICĂ DELOC — rămân EXACT cele din șablon, cu aceleași etichete și valori (oricum vor fi restaurate programatic din șablon, deci orice modificare a lor e inutilă și greșită);
-- itemii CU figură rămân cei ai șablonului: enunț, valori și notații consistente cu figura, cel mult mici reformulări care NU contrazic figura; combini din celelalte teste DOAR itemii FĂRĂ figură;
-- păstrează raportarea scorului (MATE_SCORE) exact ca în șablon; dacă șablonul NU o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*').${MATH_RULE}${ctx.line}
+${figRules}
+- păstrează raportarea scorului (MATE_SCORE) exact ca în șablon; dacă șablonul NU o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*').${COMPLETE_RULE_HTML}${MATH_RULE}${ctx.line}
 Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), fără explicații, fără markdown.`;
 
   const srcBlock = sources.map((x, i) => `=== TESTUL ${String.fromCharCode(65 + i)}: ${x.title} ===\n${x.text}`).join('\n\n');
   const blocksI = [];
   blocksI.push(...ctx.docBlocks);
-  blocksI.push({ type: 'text', text: `ȘABLONUL (${wantFormatHtml ? 'modelul de format' : 'formatul standard'}):\n${templateHtml}\n\n${srcBlock}${ctx.textBlock}\n\nConstruiește ACUM testul nr. ${rows.length + 1} — doar documentul HTML.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare, dar desenele tot NU se modifică): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
-  const rA = await claude.chatClaude({
+  blocksI.push({ type: 'text', text: `ȘABLONUL (${wantFormatHtml ? 'modelul de format' : 'formatul standard'}):\n${templateHtml}\n\n${srcBlock}${ctx.textBlock}\n\nConstruiește ACUM testul nr. ${rows.length + 1} — doar documentul HTML.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? ', dar desenele tot NU se modifică' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+  const rA = await chatClaudeLong({
     system: sysAuto,
-    messages: [{ role: 'user', content: blocksI }],
-    maxTokens: 24000,
+    blocks: blocksI,
+    maxTokens: 30000,
     model: aiModel,
   });
 
-  let htmlOut = String(rA.text || '');
-  const fenceA = htmlOut.match(/```(?:html)?\s*([\s\S]*?)```/i);
-  if (fenceA) htmlOut = fenceA[1];
-  const st = htmlOut.search(/<!doctype html|<html[\s>]/i);
-  const en = htmlOut.lastIndexOf('</html>');
-  if (st !== -1 && en > st) htmlOut = htmlOut.slice(st, en + 7);
-  htmlOut = htmlOut.trim();
+  let htmlOut = cutHtml(rA.text);
 
-  // Garanție: restaurăm figurile EXACT din șablon (desenele nu se modifică deloc)
-  const tplSvgs = templateHtml.match(/<svg[\s\S]*?<\/svg>/gi) || [];
-  if (tplSvgs.length) {
-    let svgIdx = 0;
-    htmlOut = htmlOut.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (svgIdx < tplSvgs.length ? tplSvgs[svgIdx++] : m));
+  if (htmlOut && allowFig) {
+    // Garanție (doar EN): restaurăm figurile EXACT din șablon
+    const tplSvgs = templateHtml.match(/<svg[\s\S]*?<\/svg>/gi) || [];
+    if (tplSvgs.length) {
+      let svgIdx = 0;
+      htmlOut = htmlOut.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (svgIdx < tplSvgs.length ? tplSvgs[svgIdx++] : m));
+    }
   }
+  if (htmlOut && !allowFig) htmlOut = stripFigures(htmlOut);
 
-  if (st === -1 || htmlOut.length < 600) {
-    console.error('exgen(auto-html): invalid. stopReason=%s', rA.stopReason);
-    throw httpErr(502, rA.stopReason === 'max_tokens' ? 'Șablonul rubricii e prea mare pentru o singură generare — mai încearcă (sau folosește o rubrică cu teste mai mici).' : 'Automatizarea nu a produs un fișier valid. Mai încearcă o dată.');
+  if (!htmlOut && rA.stopReason === 'max_tokens') {
+    console.error('exgen(auto-html): trunchiat și după continuări. continuations=%s', rA.continuations);
+    throw httpErr(502, 'Șablonul rubricii e prea mare pentru o singură generare — mai încearcă (sau folosește o rubrică cu teste mai mici).');
+  }
+  try {
+    assertCompleteHtml({ html: htmlOut, baseline: templateHtml, what: 'Testul generat pe rubrică' });
+  } catch (e) {
+    console.error('exgen(auto-html): invalid. stopReason=%s continuations=%s', rA.stopReason, rA.continuations);
+    throw e;
   }
   return { html: htmlOut, provider: rA.provider, combinedFrom: sources.map((x) => x.title), template: templateName, usage: rA.usage };
 }
@@ -832,6 +996,27 @@ function renderExerciseHtml(exercise) {
 }
 
 // ─── Postarea pe site: Storage + rând în `content` (ca formularele din Admin) ─
+// Subcategoria sub care materialul INTERACTIV e chiar VIZIBIL pe site.
+// Cauza lui „am bifat postare automată și nu a apărut pe site": paginile
+// Evaluare Națională / Bacalaureat afișează conținut interactiv DOAR la
+// anumite subcategorii (tab-ul „Teste Interactive" = 'teste-interactive';
+// comutatoarele Interactive/PDF există doar la 'capitole' și
+// 'exercitii-subiecte' / 'exercitii'). Un rând postat cu subcategory
+// 'variante', 'simulari', 'bareme' sau o rubrică-mix 'a+b' se salva în baza
+// de date, dar NICIO pagină nu-l interoga — părea că postarea a eșuat.
+// Clasele nu filtrează după subcategorie → rămân neatinse.
+const INTERACTIVE_VISIBLE_SUBS = {
+  'evaluare-nationala': ['teste-interactive', 'capitole', 'exercitii-subiecte'],
+  'bacalaureat': ['teste-interactive', 'capitole', 'exercitii'],
+};
+function visibleSubcategory(category, subcategory) {
+  let sub = subcategory ? String(subcategory) : null;
+  if (sub && sub.includes('+')) sub = sub.split('+')[0]; // rubrică-mix „a+b"
+  const ok = INTERACTIVE_VISIBLE_SUBS[String(category || '')];
+  if (!ok) return sub;                 // clasele: orice subcategorie se vede
+  return ok.includes(sub) ? sub : 'teste-interactive';
+}
+
 function slug(s) {
   return String(s || 'exercitiu').toLowerCase()
     .replace(/[ăâ]/g, 'a').replace(/î/g, 'i').replace(/[șş]/g, 's').replace(/[țţ]/g, 't')
@@ -858,7 +1043,8 @@ async function postContent({ supa, title, description = '', category, subcategor
       ...(taskId ? { agent_task: taskId } : {}),
       ...(exercise ? { exercise } : {}),
     },
-    subcategory: subcategory || null,
+    // subcategoria e mapată pe una VIZIBILĂ pe site (vezi visibleSubcategory)
+    subcategory: visibleSubcategory(category, subcategory),
     profile: profile || null,
     sort_order: 0,
   };
@@ -1049,4 +1235,6 @@ module.exports = {
   runAuto, normalize, renderExerciseHtml, postContent, runTask, postRun, notifyAdmin,
   storeFormatModel, removeFormatModel, loadFormatModel, fetchExtraContext,
   detectMode, titleMatchScore, fetchPairedContext,
+  // pentru teste (test/agent-tasks.test.js)
+  figuresAllowed, stripFigures, itemSignals, missingSections, cutHtml, visibleSubcategory,
 };

@@ -4,6 +4,30 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 5 august 2026 (2) — Task-urile programate: FĂRĂ figuri în afara EN, teste complete (Subiectul III / „nimic generat”), postarea automată chiar VIZIBILĂ pe site
+
+Trei probleme raportate de admin la agenții din „Creează task programat” (aceleași reparații acoperă și butonul manual „⚙️ Generează (AI)”, care folosește aceeași logică din `exgen.js`). **Doar `api/_lib/exgen.js`** + teste + ghid — fără migrare SQL, fără schimbări de UI.
+
+### 1) 🖼 Figurile geometrice: DOAR la Evaluare Națională
+Simptomul: la un test generat pe o clasă, itemul „triunghi dreptunghic, cateta AC și mediana AM” avea alături figura unui CUB cu „9L apă” — modelul înlocuia enunțul unui item cu figură, iar figura (restaurată programatic din șablon) nu se mai potrivea. Cererea adminului: figuri doar la testele EN.
+- `figuresAllowed(category)` — `true` doar la `evaluare-nationala`. La EN, comportamentul vechi e neschimbat (figurile șablonului restaurate întocmai + itemii lor păstrați).
+- La clase și BAC, în TOATE căile de generare HTML: promptul cere explicit eliminarea figurilor (`NO_FIG_RULE` — enunțuri self-contained, „din figura alăturată” interzis), planul de combinare nu mai exceptează „itemii cu figură”, restaurarea SVG se sare, iar `stripFigures` curăță programatic ce mai scapă (SVG-urile mari >300 caractere, `<canvas>`, containerele `<div class="fig">`; pictogramele mici rămân).
+- Căile JSON (test structurat) primesc și ele regula: rezultatul nu are figuri, deci enunțurile se scriu cu toate datele în text; itemii-sursă dependenți de figură se înlocuiesc.
+
+### 2) 🧩 Teste generate GOALE sau fără Subiectul III (răspunsuri trunchiate)
+Simptomul: teste de tip „rezolvare interactivă” (grilă + completare pe pași) publicate cu antet și „0 pași” dar FĂRĂ niciun exercițiu; la altele lipsea fix Subiectul III. Cauza: răspunsul modelului se tăia la `max_tokens` (array-ul de itemi e la FINALUL fișierului → JS rupt → nimic randat), iar validarea veche (`length > 600` + există `<!doctype`) lăsa documentul trunchiat să treacă drept valid și să fie publicat.
+- **`chatClaudeLong`** (nou): la `stop_reason = max_tokens`, răspunsul se CONTINUĂ automat cu prefill de asistent (partea generată devine mesaj de asistent, modelul continuă exact de unde a rămas), până la 3 reluări; usage-ul se cumulează. Folosit în toate cele 7 apeluri de generare (4 HTML + 3 JSON); `maxTokens` mărit (24000→30000 la HTML, 9000/12000→12000/16000 la JSON); plafonul sursei HTML „pe rând” mărit 160k→320k caractere (la 160k se tăia uneori chiar array-ul de itemi al surselor mari).
+- **`cutHtml`** (nou): documentul trebuie să se termine cu `</html>` — un răspuns trunchiat NU mai trece; dacă modelul „a luat-o de la capăt” la continuare, se păstrează ultimul document complet.
+- **`assertCompleteHtml`** (nou): testul trebuie să CONȚINĂ itemi (`itemSignals` — numără `data-correct`, `data-opt`, `"answer":`, radio, input-uri etc., comparat cu șablonul/sursa) și toate secțiunile sursei (`missingSections` — „Subiectul II/III”, tolerant la „al III-lea”, „Subiectele I, II și III”). Testele structurate din planul de 10 itemi cer minim 6. Dacă nu se poate, rularea se încheie cu EROARE clară (email ⚠️, nimic publicat) în loc de test gol pe site.
+- Prompturile cer explicit TOATE subiectele, inclusiv III (`COMPLETE_RULE_HTML` / `COMPLETE_RULE_JSON`: itemii complecși devin grilă sau completare de răspuns, cu array-urile JS scrise complet).
+
+### 3) 📤 „Am bifat postare automată și nu a apărut pe site”
+Cauza reală: postarea REUȘEA (rând în `content`, email „publicat”), dar paginile EN/BAC afișează conținut interactiv doar la anumite subcategorii — tab-ul „Teste Interactive” citește `teste-interactive`, iar comutatoarele Interactive/PDF există doar la `capitole` și `exercitii-subiecte` (EN) / `exercitii` (BAC). Un task pe rubrica `variante`/`simulari`/`bareme` sau pe un mix `a+b` posta cu acea subcategorie → nicio pagină nu interoga rândul → „invizibil”.
+- **`visibleSubcategory`** (nou, aplicat în `postContent`, deci și la „✅ Publică acum”): EN → rămân `teste-interactive`/`capitole`/`exercitii-subiecte`, restul cad pe `teste-interactive`; BAC → rămân `teste-interactive`/`capitole`/`exercitii`, restul pe `teste-interactive` (profilul se păstrează); mixurile `a+b` iau prima componentă înainte de mapare; clasele neschimbate (paginile lor nu filtrează după subcategorie).
+
+**`test/agent-tasks.test.js`:** 4 teste noi — figuri EN-only + `stripFigures`; `cutHtml` (trunchiat → respins, „restart” la continuare → ultimul document); `itemSignals`/`missingSections` (carcasă goală prinsă; „Subiectele I, II și III” detectat); maparea `visibleSubcategory` pe toate cazurile. **14/14 trec**; `node --check` pe toate fișierele editate.
+**De verificat după deploy:** rulează un task cu „▶️ Rulează acum” pe o clasă (fără figuri, toate subiectele) și unul pe o rubrică EN/BAC `variante` cu postare automată (materialul apare la „Teste Interactive”).
+
 ## 5 august 2026 — Nota (1–10, cu 10 puncte din oficiu) afișată la testele interactive, peste tot unde apare scorul
 
 Cererea adminului. Regula (o singură sursă de adevăr, aplicată identic pe client și pe server):

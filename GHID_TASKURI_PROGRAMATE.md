@@ -102,6 +102,31 @@ tot interactiv (subiect structurat sau format standard). **PDF-uri noi** nu se
 pot publica automat (PDF-ul se face în browser, prin fereastra de tipărire) —
 pentru PDF rămâne fluxul manual «Adaugă PDF».
 
+**Unde apare exact postarea (important):** paginile Evaluare Națională și
+Bacalaureat afișează conținut interactiv doar la anumite subcategorii, așa că
+serverul mapează automat subcategoria la una VIZIBILĂ: la EN rămân
+`teste-interactive`, `capitole`, `exercitii-subiecte`; la BAC rămân
+`teste-interactive`, `capitole`, `exercitii`; rubricile doar-PDF (`variante`,
+`simulari`, `bareme`) și mixurile `a+b` publică în **Teste Interactive** (cu
+profilul păstrat la BAC). Fără maparea asta, materialul se salva în baza de
+date dar nu apărea pe nicio pagină — părea că „nu s-a postat”. La clase nu se
+schimbă nimic (paginile claselor nu filtrează după subcategorie).
+
+## Reguli de generare (figuri + completitudine)
+
+- **Figurile geometrice apar DOAR la Evaluare Națională.** La clase și la BAC
+  agentul generează fără figuri: promptul cere eliminarea lor, enunțuri
+  self-contained (toate datele în text), iar serverul curăță programatic
+  SVG-urile/canvas-urile rămase. La EN comportamentul vechi se păstrează:
+  figurile șablonului rămân neatinse (restaurate programatic), cu itemii lor.
+- **Testele trunchiate nu se mai publică.** Răspunsurile tăiate la limita de
+  tokeni se CONTINUĂ automat (până la 3 reluări), documentul trebuie să fie
+  complet (`…</html>`), să conțină itemi interactivi și toate secțiunile
+  sursei (inclusiv **Subiectul III** — grilă sau completare de răspuns).
+  Testele structurate (JSON) cer minim 6 itemi din planul de 10. Dacă tot nu
+  iese, rularea se încheie cu EROARE clară (email ⚠️) — nu se mai publică
+  teste goale sau fără Subiectul III.
+
 ## Cum funcționează în spate
 
 - `supabase/agent_tasks.sql` — definițiile task-urilor + istoricul rulărilor

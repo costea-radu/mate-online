@@ -161,3 +161,70 @@ test('agent-cron.isDue: potrivirea programului + garda anti-dublare', () => {
   assert.ok(!cron.isDue({ enabled: true, schedule_kind: 'daily', run_hour: 7, last_run_at: new Date(Date.now() - 30 * 60000).toISOString() }, now));
   assert.ok(cron.isDue({ enabled: true, schedule_kind: 'daily', run_hour: 7, last_run_at: new Date(Date.now() - 25 * 3600 * 1000).toISOString() }, now));
 });
+
+test('exgen.figuresAllowed + stripFigures: figurile geometrice DOAR la Evaluare Națională', () => {
+  assert.ok(exgen.figuresAllowed('evaluare-nationala'));
+  assert.ok(!exgen.figuresAllowed('bacalaureat'));
+  assert.ok(!exgen.figuresAllowed('clasa-7'));
+  assert.ok(!exgen.figuresAllowed(null));
+
+  // curățarea figurilor: SVG-urile mari și canvas dispar, pictogramele mici rămân
+  const fig = `<div class="fig"><svg width="340" height="180">${'<line x1="0"/>'.repeat(40)}</svg></div>`;
+  const icon = '<svg class="ic"><path d="M0 0"/></svg>';
+  const out = exgen.stripFigures(`<body>${fig}${icon}<canvas id="c">x</canvas><p>enunț</p></body>`);
+  assert.ok(!out.includes('class="fig"'), 'blocul de figură eliminat');
+  assert.ok(!out.includes('<canvas'), 'canvas eliminat');
+  assert.ok(out.includes('class="ic"'), 'pictograma mică rămâne');
+  assert.ok(out.includes('<p>enunț</p>'), 'conținutul rămâne');
+});
+
+test('exgen.cutHtml: documentele trunchiate NU mai trec drept valide', () => {
+  // complet (și cu ```fence) → extras
+  const ok = exgen.cutHtml('text ```html\n<!doctype html><html><body>x</body></html>\n``` rest');
+  assert.ok(ok && ok.startsWith('<!doctype html') && ok.endsWith('</html>'));
+  // trunchiat (fără </html>) → null — înainte ajungea publicat pe site
+  assert.strictEqual(exgen.cutHtml('<!doctype html><html><body>tăiat la max_tokens...'), null);
+  // continuare în care modelul a luat-o de la capăt → păstrăm ULTIMUL document
+  const dbl = exgen.cutHtml('<!doctype html><html><body>parțial <!doctype html><html><body>întreg</body></html>');
+  assert.ok(dbl.includes('întreg') && !dbl.startsWith('<!doctype html><html><body>parțial'));
+});
+
+test('exgen.itemSignals + missingSections: garda „testul chiar are exerciții și toate subiectele”', () => {
+  // carcasă fără itemi (cazul „0 pași, nimic generat”) → aproape zero semnale
+  const shell = '<!doctype html><html><body><h1>Test</h1><div class="pill">Rezolvate: 0/10</div><div id="exList"></div><script>var EX=[]</script></body></html>';
+  const full = '<div class="card" data-correct="c" data-points="5"><div class="opt" data-opt="a">a</div><div class="opt" data-opt="b">b</div></div>'.repeat(6)
+    + '<script>var D=[{"ok":"a","answer":"5"}]</script>';
+  assert.ok(exgen.itemSignals(shell) < 2, 'carcasa goală nu are semnale de itemi');
+  assert.ok(exgen.itemSignals(full) >= 12, 'testul adevărat are multe semnale');
+
+  // secțiunile din sursă trebuie să apară și în rezultat (inclusiv „Subiectele I, II și III”)
+  assert.deepStrictEqual(
+    exgen.missingSections('Subiectul I … Subiectul II … SUBIECTUL al III-lea', 'aici doar Subiectul I'),
+    ['Subiectul II', 'Subiectul III'],
+  );
+  assert.deepStrictEqual(
+    exgen.missingSections('Subiectele I, II și III · 10 exerciții', 'Subiectul I și Subiectul II'),
+    ['Subiectul III'],
+  );
+  assert.deepStrictEqual(exgen.missingSections('Subiectul I & Subiectul II', 'Subiectul I, Subiectul II'), []);
+  assert.deepStrictEqual(exgen.missingSections('fără subiecte numerotate', 'orice'), []);
+});
+
+test('exgen.visibleSubcategory: postarea automată ajunge într-o rubrică VIZIBILĂ pe site', () => {
+  const v = exgen.visibleSubcategory;
+  // EN/BAC: subcategoriile doar-PDF și mixurile „a+b” cad pe teste-interactive
+  assert.strictEqual(v('evaluare-nationala', 'variante'), 'teste-interactive');
+  assert.strictEqual(v('evaluare-nationala', 'simulari'), 'teste-interactive');
+  assert.strictEqual(v('evaluare-nationala', 'simulari+variante'), 'teste-interactive');
+  assert.strictEqual(v('bacalaureat', 'teste-antrenament'), 'teste-interactive');
+  assert.strictEqual(v('bacalaureat', 'variante'), 'teste-interactive');
+  // subcategoriile cu afișare interactivă proprie rămân neschimbate
+  assert.strictEqual(v('evaluare-nationala', 'capitole'), 'capitole');
+  assert.strictEqual(v('evaluare-nationala', 'exercitii-subiecte'), 'exercitii-subiecte');
+  assert.strictEqual(v('evaluare-nationala', 'teste-interactive'), 'teste-interactive');
+  assert.strictEqual(v('bacalaureat', 'exercitii'), 'exercitii');
+  assert.strictEqual(v('bacalaureat', 'capitole'), 'capitole');
+  // clasele nu filtrează după subcategorie → rămân cum au fost
+  assert.strictEqual(v('clasa-7', null), null);
+  assert.strictEqual(v('clasa-7', 'algebra'), 'algebra');
+});
