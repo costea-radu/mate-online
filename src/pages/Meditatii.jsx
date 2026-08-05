@@ -1054,10 +1054,12 @@ function ProgressMeTab({ st }) {
       {error && <div style={{ ...card, background: '#fdecea', color: '#b71c1c' }}>⚠️ {error}</div>}
       {!data && !error && <div style={{ padding: 30, textAlign: 'center' }}><div className="spinner" /></div>}
 
-      {/* Rezultatele la temele de la profesor + testele din site rezolvate */}
-      <div style={card}>
-        <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>📚 Rezultatele tale la teme și teste</h3>
-        <p style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: 12 }}>Aceleași rezultate le văd și profesorii/părinții asociați, în raportul lor.</p>
+      {/* Rezultatele la temele de la profesor + testele din site rezolvate — rolldown */}
+      <details style={card} open={false}>
+        <summary style={{ cursor: 'pointer', fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--navy)', fontSize: '1.05rem' }}>
+          📚 Rezultatele tale la teme și teste{(hwDone.length + doneSessions.length + (results || []).length) ? ` (${hwDone.length + doneSessions.length + (results || []).filter((r) => !hwDone.some((h) => h.content_id === r.content_id)).length})` : ''}
+        </summary>
+        <p style={{ fontSize: '.78rem', color: 'var(--text-muted)', margin: '8px 0 12px' }}>Aceleași rezultate le văd și profesorii/părinții asociați, în raportul lor.</p>
         {hwDone.length === 0 && (results || []).length === 0 && doneSessions.length === 0 ? (
           <p style={{ color: 'var(--text-muted)', fontSize: '.88rem', margin: 0 }}>Încă nimic — rezolvă temele de la profesor și testele din site, iar rezultatele apar aici.</p>
         ) : (
@@ -1103,11 +1105,14 @@ function ProgressMeTab({ st }) {
             })}
           </div>
         )}
-      </div>
+      </details>
 
       {data && (
-        <div style={card}>
-          <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 14 }}>Stăpânirea pe subiecte</h3>
+        <details style={card} open={false}>
+          <summary style={{ cursor: 'pointer', fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--navy)', fontSize: '1.05rem' }}>
+            📈 Stăpânirea pe subiecte{(data.mastery || []).length ? ` (${data.mastery.length})` : ''}
+          </summary>
+          <div style={{ height: 12 }} />
           {(data.mastery || []).length === 0 ? (
             <p style={{ color: 'var(--text-muted)', fontSize: '.9rem', margin: 0 }}>Încă nu ai date — rezolvă seturi de exerciții și progresul apare aici, subiect cu subiect.</p>
           ) : (
@@ -1125,7 +1130,7 @@ function ProgressMeTab({ st }) {
               ))}
             </div>
           )}
-        </div>
+        </details>
       )}
 
       {st.prediction?.weakChapters?.length > 0 && (

@@ -473,7 +473,8 @@ function predictGrade({ masteryAvg = null, homeworkAvg = null, simAvg = null, we
   if (!parts.length) return null;
   const wsum = parts.reduce((s, p) => s + p.w, 0);
   const pct = parts.reduce((s, p) => s + p.v * p.w, 0) / wsum; // 0..1
-  const grade = Math.max(1, Math.min(10, Math.round((1 + 9 * pct) * 10) / 10));
+  // nota estimată păstrează partea zecimală (2 zecimale) — nu se rotunjește
+  const grade = Math.max(1, Math.min(10, Math.round((1 + 9 * pct) * 100) / 100));
   const confidence = parts.length >= 3 ? 'bună' : parts.length === 2 ? 'medie' : 'orientativă';
   return { grade, confidence, weakChapters: weakChapters.slice(0, 4) };
 }
@@ -523,7 +524,8 @@ async function reconcileContentHomework(supa, userId) {
         await supa.from('ai_meditatii_homework').update({
           status: 'rezolvata', score: p.score, max_score: p.max_score,
           attempts: p.attempts || 1, completed_at: p.completed_at || new Date().toISOString(),
-          feedback: { grade: Math.max(1, Math.min(10, Math.round((1 + 9 * pct) * 10) / 10)), auto: true },
+          // nota cu partea zecimală (2 zecimale) — nu se rotunjește la întreg
+          feedback: { grade: Math.max(1, Math.min(10, Math.round((1 + 9 * pct) * 100) / 100)), auto: true },
         }).eq('id', h.id);
         await clearHomeworkNotifications(supa, userId, h.id);
       }

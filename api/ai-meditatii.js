@@ -318,7 +318,7 @@ async function coach(req, res, supa) {
   let message = fallback;
   try {
     const { text, usage } = await ai.chat({
-      system: `Ești „Profesorul Virtual" de pe ExamenMate — meditatorul personal al unui elev român${bits.firstName ? ` pe nume ${bits.firstName}` : ''}. Scrie-i un mesaj scurt (2–3 fraze, sub 55 de cuvinte), cald și concret, în română, pe baza faptelor de mai jos: apreciezi ce a făcut (concret, nu generic) și anunți natural pasul următor. Fără liste, fără markdown, fără emoji-uri multe (maximum unul).`,
+      system: `Ești „Profesorul Virtual" de pe ExamenMate — meditatorul personal al unui elev român${bits.firstName ? ` pe nume ${bits.firstName}` : ''}. Scrie-i un mesaj scurt (2–3 fraze, sub 55 de cuvinte), cald și concret, în română, pe baza faptelor de mai jos: apreciezi ce a făcut (concret, nu generic) și anunți natural pasul următor. Notele, scorurile și procentele le redai EXACT cum apar în fapte (cu partea zecimală — „nota 8.33", nu „nota 8"). Fără liste, fără markdown, fără emoji-uri multe (maximum unul).`,
       messages: [{ role: 'user', content: facts.join('\n') }],
       temperature: 0.7, maxTokens: 160, model: COACH_MODEL,
     });
@@ -1039,7 +1039,8 @@ async function homeworkScore(req, res, supa) {
   const mx = Math.max(1, parseInt(maxScore, 10) || 100);
   const best = hw.max_score ? Math.max(hw.score || 0, sc) : sc; // păstrăm cel mai bun scor
   const pct = best / mx;
-  const grade = Math.max(1, Math.min(10, Math.round((1 + 9 * pct) * 10) / 10));
+  // nota păstrează partea zecimală (2 zecimale, ca mediile școlare) — nu se rotunjește la întreg
+  const grade = Math.max(1, Math.min(10, Math.round((1 + 9 * pct) * 100) / 100));
   await supa.from('ai_meditatii_homework').update({
     status: 'rezolvata', score: best, max_score: mx,
     attempts: (hw.attempts || 0) + 1, completed_at: new Date().toISOString(),
@@ -1118,7 +1119,8 @@ async function homeworkSubmit(req, res, supa) {
     mistakeIds = (ins || []).map((m) => m.id);
   }
 
-  const grade = Math.max(1, Math.min(10, Math.round((1 + 9 * graded.pct) * 10) / 10));
+  // nota păstrează partea zecimală (2 zecimale) — nu se rotunjește la întreg
+  const grade = Math.max(1, Math.min(10, Math.round((1 + 9 * graded.pct) * 100) / 100));
   const feedback = {
     grade,
     message: graded.pct >= 0.9 ? 'Temă excelentă! Felicitări! 🎉'

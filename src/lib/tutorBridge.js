@@ -412,6 +412,49 @@ const BRIDGE_SCRIPT = String.raw`
     }
   });
 
+  // ── Reparație de AFIȘARE pentru redactarea greșită din unele teste
+  // generate mai demult (nu modifică fișierul din baza de date):
+  //  • „70^$\circ$" / „70^∘" (caret rămas literal) → „70°"
+  //  • „$Știind că m(\angle B)=70^\circ$" (propoziție întreagă în math mode →
+  //    litere italice lipite) → text normal cu simboluri unicode
+  //  • „BC).Știind" → „BC). Știind" (spațiu după punct)
+  var ROMTXT = /[ăâîșțĂÂÎȘȚ]|(?:^|[^\\a-zA-Z])(și|sau|este|sunt|fie|dacă|atunci|deci|află|arată|calculează|determină|știind|unghiul|unghiului|triunghiul|laturile|numerele|valoarea)(?![a-zA-Z])/i;
+  function texToPlain(s){
+    s = String(s || '');
+    s = s.replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, '($1)/($2)');
+    s = s.replace(/\^\s*\{?\s*(?:\\circ|∘|°)\s*\}?/g, '°');
+    s = s.replace(/\\angle\b\s*/g, '∠').replace(/\\triangle\b\s*/g, '△')
+         .replace(/\\in\b\s*/g, ' ∈ ').replace(/\\cdot\b\s*/g, '·').replace(/\\times\b\s*/g, '×')
+         .replace(/\\pi\b/g, 'π').replace(/\\sqrt\s*\{([^{}]*)\}/g, '√($1)')
+         .replace(/\\(leq?|geq?)\b/g, function(m, c){ return c[0] === 'l' ? '≤' : '≥'; })
+         .replace(/\\neq?\b/g, '≠').replace(/\\pm\b/g, '±').replace(/\\equiv\b/g, '≡');
+    s = s.replace(/\\[a-zA-Z]+\s*/g, ' ').replace(/[{}]/g, '');
+    return s.replace(/\s{2,}/g, ' ');
+  }
+  function fixTypography(){
+    try {
+      var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null), n;
+      var nodes = [];
+      while ((n = w.nextNode())) nodes.push(n);
+      for (var i = 0; i < nodes.length; i++) {
+        var t = nodes[i].nodeValue;
+        if (!t || !/[$^.]/.test(t)) continue;
+        var r = t
+          // propoziție românească împachetată în $...$ → text simplu lizibil
+          .replace(/\$([^$]+)\$/g, function(m, inner){ return ROMTXT.test(inner) ? texToPlain(inner) : m; })
+          // grade cu caret literal, inclusiv forma „70^$\circ$" pre-KaTeX
+          .replace(/(\d)\s*\^\s*\$\s*\\circ\s*\$/g, '$1°')
+          .replace(/(\d)\s*\^\s*\{?\s*[∘°]\s*\}?/g, '$1°')
+          // spațiu după punct înaintea propoziției următoare
+          .replace(/([)\]])\.(?=[A-ZĂÎÂȘȚ])/g, '$1. ');
+        if (r !== t) nodes[i].nodeValue = r;
+      }
+    } catch(e){}
+  }
+  fixTypography();
+  setTimeout(fixTypography, 350);
+  setTimeout(fixTypography, 1500);
+
   // ── Observă re-randările exercițiului ─────────────────────────────
   var deb = null;
   function refreshUI(){ rewireHintButtons(); ensureStepHelpers(); }

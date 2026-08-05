@@ -862,23 +862,27 @@ export default function FloatingTutor() {
         </div>
       )}
 
-      {/* Butonul plutitor (draggable + strălucire) */}
-      <button
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        aria-label={widgetLabel}
-        style={{
-          position: 'fixed', left: pos.x, top: pos.y, zIndex: 1001,
-          width: BTN, height: BTN, borderRadius: '50%', border: 'none',
-          background: 'linear-gradient(135deg, var(--gold), var(--gold-light, #f4d06f))',
-          fontSize: '1.7rem', cursor: 'grab', touchAction: 'none',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          animation: open ? 'none' : 'pvGlow 2s ease-in-out infinite',
-        }}
-      >
-        {open ? '✕' : <EinsteinIcon size={36} />}
-      </button>
+      {/* Butonul plutitor (draggable + strălucire) — ASCUNS cât timp panoul
+          andocat al Meditatorului e deschis: rondela „✕" se suprapunea peste
+          săgeata de trimitere a chatului (panoul are propriul ✕ în antet). */}
+      {!(open && medMode) && (
+        <button
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          aria-label={widgetLabel}
+          style={{
+            position: 'fixed', left: pos.x, top: pos.y, zIndex: 1001,
+            width: BTN, height: BTN, borderRadius: '50%', border: 'none',
+            background: 'linear-gradient(135deg, var(--gold), var(--gold-light, #f4d06f))',
+            fontSize: '1.7rem', cursor: 'grab', touchAction: 'none',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            animation: open ? 'none' : 'pvGlow 2s ease-in-out infinite',
+          }}
+        >
+          {open ? '✕' : <EinsteinIcon size={36} />}
+        </button>
+      )}
 
       {open && (
         <div style={popupStyle}>

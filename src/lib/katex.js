@@ -59,24 +59,45 @@ const CMDS = 'cdot|times|div|pm|mp|angle|pi|alpha|beta|gamma|delta|theta|lambda|
 
 function wrapBare(s) {
   if (!s) return s;
+  // grade scrise stricat în text: „70^∘" / „70^{∘}" (caret literal) → „70°"
+  s = s.replace(/(\d)\s*\^\s*(?:\{\s*[∘°]\s*\}|[∘°])/g, '$1°');
   // \frac{..}{..}
   s = s.replace(/\\frac\s*\{[^{}]*\}\s*\{[^{}]*\}/g, (m) => '$' + m + '$');
   // \sqrt[..]{..} sau \sqrt{..}
   s = s.replace(/\\sqrt\s*(\[[^\]]*\])?\s*\{[^{}]*\}/g, (m) => '$' + m + '$');
-  // puteri / indici: x^2, a_1, x^{10}, a_{n}, 4(10)^3, (x+1)^2, [a]_n
+  // puteri / indici: x^2, a_1, x^{10}, a_{n}, 4(10)^3, (x+1)^2, [a]_n, 70^\circ
   // Baza cu paranteze e prinsă ÎNTREAGĂ (cu tot cu coeficient), altfel „$"
   // ar cădea în mijlocul expresiei: 4(10)^3 devenea 4(10$)^3$ (roșu, nerandat).
-  s = s.replace(/((?:\d+[A-Za-z]?)?\([^()]*\)|\[[^\][]*\]|\d+(?:[.,]\d+)?|[A-Za-z0-9])(\^|_)(\{[^{}]*\}|[A-Za-z0-9]+)/g, (m) => '$' + m + '$');
-  // comenzi de sine stătătoare rămase
-  s = s.replace(new RegExp('\\\\(' + CMDS + ')\\b', 'g'), (m) => '$' + m + '$');
+  // Exponentul poate fi și o COMANDĂ (\circ): altfel „70^\circ" rămânea
+  // „70^" + „∘" — caretul apărea literal în enunț (eroarea de redactare).
+  s = s.replace(/((?:\d+[A-Za-z]?)?\([^()]*\)|\[[^\][]*\]|\d+(?:[.,]\d+)?|[A-Za-z0-9])(\^|_)(\{[^{}]*\}|\\[a-zA-Z]+|[A-Za-z0-9]+)/g, (m) => '$' + m + '$');
+  // comenzile rămase se încadrează DOAR în afara zonelor deja împachetate mai
+  // sus (altfel \circ din „$70^\circ$" se re-împacheta și strica expresia)
+  const cmdRe = new RegExp('\\\\(' + CMDS + ')\\b', 'g');
+  s = s.split(/(\$[^$]*\$)/g).map((seg, i) => (i % 2 === 1 ? seg : seg.replace(cmdRe, (m) => '$' + m + '$'))).join('');
   // colapsează încadrările alăturate ($$ apărut din tokeni lipiți) → un spațiu
   s = s.replace(/\$\s*\$/g, ' ');
   return s;
 }
 
+// Propoziții românești împachetate GREȘIT în $...$ (modelul pune uneori tot
+// enunțul în math mode → cuvinte italice lipite: „Știindcăm(∠B)"). Le scoatem
+// din matematică și re-încadrăm DOAR bucățile cu adevărat matematice.
+const ROM_TEXT_RE = /[ăâîșțĂÂÎȘȚ]|(?:^|[^\\a-zA-Z])(și|sau|este|sunt|fie|dacă|atunci|deci|află|arată|calculează|determină|știind|unghiul|unghiului|triunghiul|laturile|numerele|valoarea)(?![a-zA-Z])/i;
+function unwrapTextMath(seg) {
+  const m = seg.match(/^(\${1,2})([\s\S]*)\1$/);
+  if (!m) return seg;
+  const inner = m[2];
+  if (!ROM_TEXT_RE.test(inner)) return seg; // matematică adevărată — nu o atingem
+  return wrapBare(inner.replace(/\.\s*(?=[A-ZĂÎÂȘȚ])/g, '. ')); // + spațiu după punct
+}
+
 export function autoMath(input) {
-  if (!input || (input.indexOf('\\') === -1 && input.indexOf('^') === -1 && input.indexOf('_') === -1)) return input;
-  // separă zonele deja-matematice ca să nu le atingem
-  const parts = input.split(/(\$\$[^$]*\$\$|\$[^$]*\$|\\\([^)]*\\\)|\\\[[^\]]*\\\])/g);
-  return parts.map((seg, i) => (i % 2 === 1 ? seg : wrapBare(seg))).join('');
+  if (!input || (input.indexOf('\\') === -1 && input.indexOf('^') === -1 && input.indexOf('_') === -1 && input.indexOf('$') === -1)) return input;
+  // separă zonele deja-matematice: textul se încadrează, iar math-ul cu
+  // propoziții românești înăuntru se DESPACHETEAZĂ (eroare de redactare)
+  const parts = String(input).split(/(\$\$[^$]*\$\$|\$[^$]*\$|\\\([^)]*\\\)|\\\[[^\]]*\\\])/g);
+  const out = parts.map((seg, i) => (i % 2 === 1 ? unwrapTextMath(seg) : wrapBare(seg))).join('');
+  // spațiu după punctul dintre propoziții („BC).Știind" → „BC). Știind")
+  return out.replace(/([)\]a-zăâîșț])\.(?=[A-ZĂÎÂȘȚ])/g, '$1. ');
 }

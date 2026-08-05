@@ -33,6 +33,11 @@ function httpErr(status, message) {
   return e;
 }
 
+// Regula de REDACTARE a matematicii — inclusă în toate prompturile de
+// generare: fără ea, modelul punea uneori PROPOZIȚII întregi în $...$
+// (cuvinte italice lipite: „Știindcăm(∠B)") sau grade „70^∘" cu caret vizibil.
+const MATH_RULE = '\n- REDACTAREA MATEMATICII: între $...$ pui DOAR expresii și simboluri matematice — NICIODATĂ propoziții sau cuvinte românești (cuvintele rămân în afara delimitatorilor, altfel apar italice și lipite); gradele se scriu $70^\\circ$ (nu „70^∘” în text); după punctul de la finalul unei propoziții pui mereu spațiu.';
+
 // ─── Validarea exercițiului JSON (mutat din ai-exercise-agent.js) ───────────
 function normalize(ex) {
   if (!ex || typeof ex !== 'object') return null;
@@ -345,7 +350,7 @@ Reguli stricte:
 - FIGURILE/DESENELE (SVG, canvas, imagini) NU SE MODIFICĂ DELOC (vor fi restaurate programatic din sursă, deci modificarea lor e inutilă și greșită); itemii cu figură rămân consistenți cu figura;
 - REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}
 - păstrează (sau adaugă, dacă lipsește) raportarea scorului: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*');
-- răspunsurile corecte trebuie să fie corecte matematic; verifică-ți calculele.${ctx.line}
+- răspunsurile corecte trebuie să fie corecte matematic; verifică-ți calculele.${MATH_RULE}${ctx.line}
 Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), fără explicații, fără markdown.`;
       const blocksS = [];
       blocksS.push(...ctx.docBlocks);
@@ -371,7 +376,7 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
       const sysSeqF = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
 Primești un ȘABLON HTML — MODELUL DE FORMAT ales de admin — și UN SINGUR material-sursă („${src.title}”, din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”).
 Construiește un fișier HTML NOU în ACELAȘI fișier-format ca șablonul, cu exercițiile preluate/adaptate din materialul-sursă.
-Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente, bara de scor); FIGURILE din șablon NU se modifică; raportarea scorului MATE_SCORE se păstrează (sau se adaugă: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${ctx.line}
+Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente, bara de scor); FIGURILE din șablon NU se modifică; raportarea scorului MATE_SCORE se păstrează (sau se adaugă: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${MATH_RULE}${ctx.line}
 Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
       const tplF = String(formatHtml).slice(0, 180000);
       const blocksF = [];
@@ -403,7 +408,7 @@ Primești UN SINGUR material-sursă („${src.title}”, din rubrica „${catego
 REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA rezultatului (itemi, secțiuni, barem) cu el, iar CONȚINUTUL cu materialul-sursă.' : ''}${ctx.line}
 Răspunde STRICT cu UN obiect JSON valid (fără alt text):
 { "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] }
-Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ cu backslash dublu. Indiciile („hint”) ghidează fără să dea răspunsul; „explanation” = rezolvarea completă. Verifică-ți calculele.`;
+Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ cu backslash dublu — DOAR expresii/simboluri, NICIODATĂ propoziții sau cuvinte românești în $...$ (textul rămâne în afară; gradele: $70^\\circ$). Indiciile („hint”) ghidează fără să dea răspunsul; „explanation” = rezolvarea completă. Verifică-ți calculele.`;
     const blocksJ = [];
     if (srcPdf) {
       blocksJ.push({ type: 'text', text: `MATERIALUL-SURSĂ (PDF): ${src.title}` });
@@ -465,7 +470,7 @@ Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ 
 Primești ${tplDesc} și ${names.length} subiecte PDF din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
 Construiește un TEST INTERACTIV NOU în ACELAȘI fișier-format ca șablonul, cu exercițiile preluate din PDF-uri după plan:
 ${planD}
-Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente de desen, bara de scor, raportarea scorului MATE_SCORE — dacă șablonul nu o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). FIGURILE din șablon NU se modifică deloc; itemii cu figură rămân ai șablonului. REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${ctx.line}
+Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente de desen, bara de scor, raportarea scorului MATE_SCORE — dacă șablonul nu o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). FIGURILE din șablon NU se modifică deloc; itemii cu figură rămân ai șablonului. REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${MATH_RULE}${ctx.line}
 Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
       blocksA.push(...ctx.docBlocks);
       blocksA.push({ type: 'text', text: `ȘABLONUL (${tplName}):\n${tpl}${ctx.textBlock}\n\nConstruiește acum testul interactiv.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
@@ -493,7 +498,7 @@ ${planP}
 Pentru fiecare poziție: COPIAZĂ itemul indicat (enunț, tip, structură). REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)} Păstrează structura și baremul tipic rubricii.${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA testului generat cu el — numărul de itemi, împărțirea pe secțiuni/subiecte, tipul itemilor (grilă/răspuns liber) și proporțiile baremului vin din modelul de format, iar CONȚINUTUL din testele-sursă.' : ''}${ctx.line}
 Răspunde STRICT cu UN obiect JSON valid (fără alt text):
 { "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] }
-Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ cu backslash dublu. Verifică-ți calculele.`;
+Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ cu backslash dublu — DOAR expresii/simboluri, NICIODATĂ propoziții sau cuvinte românești în $...$ (textul rămâne în afară; gradele: $70^\\circ$). Verifică-ți calculele.`;
     if (wantFormatPdf) {
       blocksA.push({ type: 'text', text: 'MODELUL DE FORMAT (PDF) — structura rezultatului se potrivește cu el:' });
       blocksA.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: String(formatPdf) } });
@@ -601,7 +606,7 @@ Reguli:
 - același număr de itemi și aceeași structură (subiecte, punctaje) ca șablonul;
 - FIGURILE/DESENELE (SVG, canvas) NU SE MODIFICĂ DELOC — rămân EXACT cele din șablon, cu aceleași etichete și valori (oricum vor fi restaurate programatic din șablon, deci orice modificare a lor e inutilă și greșită);
 - itemii CU figură rămân cei ai șablonului: enunț, valori și notații consistente cu figura, cel mult mici reformulări care NU contrazic figura; combini din celelalte teste DOAR itemii FĂRĂ figură;
-- păstrează raportarea scorului (MATE_SCORE) exact ca în șablon; dacă șablonul NU o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*').${ctx.line}
+- păstrează raportarea scorului (MATE_SCORE) exact ca în șablon; dacă șablonul NU o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*').${MATH_RULE}${ctx.line}
 Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), fără explicații, fără markdown.`;
 
   const srcBlock = sources.map((x, i) => `=== TESTUL ${String.fromCharCode(65 + i)}: ${x.title} ===\n${x.text}`).join('\n\n');
@@ -646,18 +651,39 @@ const CMDS = 'cdot|times|div|pm|mp|angle|pi|alpha|beta|gamma|delta|theta|lambda|
 
 function wrapBare(s) {
   if (!s) return s;
+  // grade scrise stricat în text: „70^∘" / „70^{∘}" (caret literal) → „70°"
+  s = s.replace(/(\d)\s*\^\s*(?:\{\s*[∘°]\s*\}|[∘°])/g, '$1°');
   s = s.replace(/\\frac\s*\{[^{}]*\}\s*\{[^{}]*\}/g, (m) => '$' + m + '$');
   s = s.replace(/\\sqrt\s*(\[[^\]]*\])?\s*\{[^{}]*\}/g, (m) => '$' + m + '$');
-  s = s.replace(/((?:\d+[A-Za-z]?)?\([^()]*\)|\[[^\][]*\]|\d+(?:[.,]\d+)?|[A-Za-z0-9])(\^|_)(\{[^{}]*\}|[A-Za-z0-9]+)/g, (m) => '$' + m + '$');
-  s = s.replace(new RegExp('\\\\(' + CMDS + ')\\b', 'g'), (m) => '$' + m + '$');
+  // exponentul poate fi și o COMANDĂ (\circ): altfel „70^\circ" rămânea
+  // „70^" + „∘" — caretul apărea literal în enunț (eroarea de redactare)
+  s = s.replace(/((?:\d+[A-Za-z]?)?\([^()]*\)|\[[^\][]*\]|\d+(?:[.,]\d+)?|[A-Za-z0-9])(\^|_)(\{[^{}]*\}|\\[a-zA-Z]+|[A-Za-z0-9]+)/g, (m) => '$' + m + '$');
+  // comenzile rămase se încadrează DOAR în afara zonelor deja împachetate mai
+  // sus (altfel \circ din „$70^\circ$" se re-împacheta și strica expresia)
+  const cmdRe = new RegExp('\\\\(' + CMDS + ')\\b', 'g');
+  s = s.split(/(\$[^$]*\$)/g).map((seg, i) => (i % 2 === 1 ? seg : seg.replace(cmdRe, (m) => '$' + m + '$'))).join('');
   s = s.replace(/\$\s*\$/g, ' ');
   return s;
 }
 
+// Propoziții românești împachetate GREȘIT în $...$ (tot enunțul în math mode
+// → cuvinte italice lipite: „Știindcăm(∠B)"): le scoatem din matematică și
+// re-încadrăm DOAR bucățile cu adevărat matematice.
+const ROM_TEXT_RE = /[ăâîșțĂÂÎȘȚ]|(?:^|[^\\a-zA-Z])(și|sau|este|sunt|fie|dacă|atunci|deci|află|arată|calculează|determină|știind|unghiul|unghiului|triunghiul|laturile|numerele|valoarea)(?![a-zA-Z])/i;
+function unwrapTextMath(seg) {
+  const m = seg.match(/^(\${1,2})([\s\S]*)\1$/);
+  if (!m) return seg;
+  const inner = m[2];
+  if (!ROM_TEXT_RE.test(inner)) return seg;
+  return wrapBare(inner.replace(/\.\s*(?=[A-ZĂÎÂȘȚ])/g, '. '));
+}
+
 function autoMath(input) {
-  if (!input || (input.indexOf('\\') === -1 && input.indexOf('^') === -1 && input.indexOf('_') === -1)) return input;
+  if (!input || (String(input).indexOf('\\') === -1 && String(input).indexOf('^') === -1 && String(input).indexOf('_') === -1 && String(input).indexOf('$') === -1)) return input;
   const parts = String(input).split(/(\$\$[^$]*\$\$|\$[^$]*\$|\\\([^)]*\\\)|\\\[[^\]]*\\\])/g);
-  return parts.map((seg, i) => (i % 2 === 1 ? seg : wrapBare(seg))).join('');
+  const out = parts.map((seg, i) => (i % 2 === 1 ? unwrapTextMath(seg) : wrapBare(seg))).join('');
+  // spațiu după punctul dintre propoziții („BC).Știind" → „BC). Știind")
+  return out.replace(/([)\]a-zăâîșț])\.(?=[A-ZĂÎÂȘȚ])/g, '$1. ');
 }
 
 function esc(s = '') {
