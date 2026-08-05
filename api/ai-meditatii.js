@@ -41,7 +41,7 @@ module.exports = async function handler(req, res) {
       homework_start: homeworkStart, homework_submit: homeworkSubmit,
       review_start: reviewStart, simulare, set_style: setStyle,
       mentor_report: mentorReportAction, reset: resetProfile,
-      coach, homework_check: homeworkCheck,
+      coach, homework_check: homeworkCheck, homework_score: homeworkScore,
     };
     const fn = handlers[action];
     if (!fn) return res.status(400).json({ error: 'action invalid' });
@@ -881,9 +881,52 @@ async function homeworkStart(req, res, supa) {
   const { data: hw } = await supa.from('ai_meditatii_homework').select('*').eq('id', id).eq('user_id', userId).single();
   if (!hw) return res.status(404).json({ error: 'Tema nu există.' });
   if (hw.kind === 'content') {
-    return res.status(200).json({ kind: 'content', url: hw.payload?.url || `/exercitiu?id=${hw.content_id}`, title: hw.title });
+    // temaId în URL → viewerul bifează tema DIRECT pe server la salvarea
+    // scorului (nu mai depinde de reconcilierea prin tabela progress)
+    const base = hw.payload?.url || `/exercitiu?id=${hw.content_id}`;
+    const url = `${base}${base.includes('?') ? '&' : '?'}temaId=${hw.id}`;
+    return res.status(200).json({ kind: 'content', url, title: hw.title });
   }
   return res.status(200).json({ kind: hw.kind, homeworkId: hw.id, title: hw.title, questions: sanitize(hw.payload?.questions || []) });
+}
+
+// Bifarea DIRECTĂ a unei teme „din site": viewerul de exerciții trimite
+// scorul imediat ce elevul apasă „Corectează" — drumul sigur (cerința 1).
+async function homeworkScore(req, res, supa) {
+  const userId = await ai.authUser(req, supa);
+  await ai.requireUser(supa, userId);
+  const { id, score = 0, maxScore = 0 } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'id obligatoriu' });
+  const { data: hw } = await supa.from('ai_meditatii_homework').select('*').eq('id', id).eq('user_id', userId).single();
+  if (!hw) return res.status(404).json({ error: 'Tema nu există.' });
+  if (hw.kind !== 'content') return res.status(400).json({ error: 'Doar temele din site se bifează pe această cale.' });
+
+  const sc = Math.max(0, parseInt(score, 10) || 0);
+  const mx = Math.max(1, parseInt(maxScore, 10) || 100);
+  const best = hw.max_score ? Math.max(hw.score || 0, sc) : sc; // păstrăm cel mai bun scor
+  const pct = best / mx;
+  const grade = Math.max(1, Math.min(10, Math.round((1 + 9 * pct) * 10) / 10));
+  await supa.from('ai_meditatii_homework').update({
+    status: 'rezolvata', score: best, max_score: mx,
+    attempts: (hw.attempts || 0) + 1, completed_at: new Date().toISOString(),
+    feedback: { grade, auto: true },
+  }).eq('id', hw.id);
+  await med.clearHomeworkNotifications(supa, userId, hw.id);
+  try {
+    await supa.rpc('bump_skill_mastery', {
+      p_user: userId, p_category: 'general',
+      p_topic: hw.topic || hw.title || 'general', p_correct: pct >= 0.6,
+    });
+  } catch { /* ignorăm */ }
+  const medProfile = await getMedProfile(supa, userId);
+  if (medProfile) {
+    const streak = med.bumpStreak(medProfile);
+    await supa.from('ai_meditatii_profile').update({
+      streak_days: streak.streak_days, last_study_date: streak.last_study_date,
+    }).eq('user_id', userId);
+  }
+  await notifyParents(supa, userId, `A rezolvat tema „${hw.title}": ${best}/${mx} — nota ${grade}.`);
+  return res.status(200).json({ ok: true, grade, score: best, maxScore: mx });
 }
 
 // corectează + notează + explică greșelile + propune exerciții suplimentare

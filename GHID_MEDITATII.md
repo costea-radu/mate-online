@@ -174,6 +174,26 @@ părinții nu au meditații proprii — văd raportul elevilor în profil.
 7. **Eticheta nivelului**: „Nivel (evaluare inițială): avansat" — clar că vine
    din testul inițial.
 
+## 🔄 Runda 4 — accent pe widget + bifarea sigură a temelor
+
+1. **Tema se bifează DIRECT din exercițiu**: linkul temei conține acum
+   `?temaId=...`, iar viewerul trimite scorul către `homework_score` imediat ce
+   elevul apasă „Corectează" — bifarea nu mai depinde deloc de tabela
+   `progress` (chip „✓ Temă bifată · nota X" în bara de sus). Reîncercările
+   păstrează scorul cel mai bun. Temele vechi blocate se rezolvă apăsând
+   „Rezolvă" (noul link) sau se bifează automat dacă există scor în `progress`.
+2. **Accentul cade pe widget**: mesajul static al meditatorului a dispărut din
+   pagină; pe /meditatii widgetul devine **panou lateral andocat, mare**
+   (~460px), iar pagina se strânge lângă el (pe ecrane late) ca să se vadă
+   amândouă. Widgetul dă de lucru: bun venit + butoane de pași, aprecieri și
+   pasul următor după fiecare set.
+3. **Widgetul „Meditatorul tău" e doar conversație**: fără „Învață-mă /
+   Teoria / Dă-mi un indiciu", fără „Deschide complet", fără taburi — doar
+   chatul și butoanele de lucru.
+4. **„📋 Raport meditator"** — tab nou lângă „Progresul meu", cu rolldown-uri:
+   teme nefăcute (cu „Rezolvă"), greșeli de vindecat (cu „10 la fel"), nota
+   estimată și „cum să îți explic" (preferința de stil).
+
 ## 🛠️ Depanare
 
 | Simptom | Cauză / soluție |

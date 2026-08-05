@@ -446,8 +446,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         </div>
       </div>
 
-      {/* Selector mod (doar pentru elevi) */}
-      {!isMentor && (
+      {/* Selector mod (doar pentru elevi; în meditații dispare — profesorul
+          alege singur cum explică, elevul doar scrie) */}
+      {!isMentor && !context?.meditatii && (
       <div style={{ display: 'flex', gap: 6, padding: '8px 12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
         {MODES.map((m) => (
           <button key={m.id} title={m.hint} onClick={() => setMode(m.id)}
@@ -767,6 +768,14 @@ export default function FloatingTutor() {
     return () => window.removeEventListener('mate:meditatii-chat', onMedChat);
   }, []);
   const chatContext = medChat?.context || (onMeditatii && !isMentorAcc ? { meditatii: true } : undefined);
+  // „Meditatorul tău": pe /meditatii widgetul e PANOU LATERAL ANDOCAT, mai mare
+  // (accentul cade pe conversație — el dă de lucru), iar pagina se strânge lângă el.
+  const medMode = onMeditatii && !isMentorAcc;
+  useEffect(() => {
+    if (!medMode) return;
+    window.dispatchEvent(new CustomEvent('mate:meditatii-chat-state', { detail: { open } }));
+    return () => window.dispatchEvent(new CustomEvent('mate:meditatii-chat-state', { detail: { open: false } }));
+  }, [open, medMode]);
   const [pos, setPos] = useState(null); // colțul stânga-sus al butonului
   const drag = useRef({ active: false, moved: false, dx: 0, dy: 0 });
   const BTN = 60;
@@ -804,13 +813,21 @@ export default function FloatingTutor() {
   const popupH = Math.min(640, window.innerHeight - 130);
   const bottomHalf = pos.y > window.innerHeight / 2;
   const labelLeft = pos.x < 150; // dacă butonul e lipit de stânga, punem eticheta în dreapta
-  const popupStyle = {
-    position: 'fixed', zIndex: 1000, width: popupW, height: popupH,
-    left: Math.max(8, Math.min(pos.x + BTN - popupW, window.innerWidth - popupW - 8)),
-    ...(bottomHalf ? { bottom: window.innerHeight - pos.y + 12 } : { top: pos.y + BTN + 12 }),
-    background: '#fff', borderRadius: 16, boxShadow: 'var(--shadow-lg, 0 12px 40px rgba(0,0,0,.25))',
-    display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border)',
-  };
+  const popupStyle = medMode
+    ? {
+        // panou lateral andocat, mare — pagina de meditații se strânge lângă el
+        position: 'fixed', zIndex: 1000, right: 10, top: 74, bottom: 10,
+        width: 'min(460px, 94vw)',
+        background: '#fff', borderRadius: 16, boxShadow: 'var(--shadow-lg, 0 12px 40px rgba(0,0,0,.25))',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border)',
+      }
+    : {
+        position: 'fixed', zIndex: 1000, width: popupW, height: popupH,
+        left: Math.max(8, Math.min(pos.x + BTN - popupW, window.innerWidth - popupW - 8)),
+        ...(bottomHalf ? { bottom: window.innerHeight - pos.y + 12 } : { top: pos.y + BTN + 12 }),
+        background: '#fff', borderRadius: 16, boxShadow: 'var(--shadow-lg, 0 12px 40px rgba(0,0,0,.25))',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border)',
+      };
   const tabBtn = (active) => ({
     flex: 1, padding: '8px 6px', fontSize: '.78rem', fontWeight: 700, cursor: 'pointer',
     border: 'none', borderBottom: `2px solid ${active ? 'var(--gold)' : 'transparent'}`,
@@ -857,24 +874,33 @@ export default function FloatingTutor() {
         <div style={popupStyle}>
           <div style={{ background: 'var(--navy)', color: '#fff', padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ fontWeight: 700, fontFamily: 'var(--font-display)', fontSize: '.95rem', display:'flex', alignItems:'center', gap:6 }}><EinsteinIcon size={22} /> {widgetLabel}</div>
-            <Link to="/profesor-virtual" onClick={() => setOpen(false)}
-              style={{ fontSize: '.72rem', color: 'var(--gold)', border: '1px solid rgba(232,185,49,.4)', borderRadius: 6, padding: '4px 8px' }}>
-              Deschide complet ↗
-            </Link>
+            {medMode ? (
+              <button onClick={() => setOpen(false)}
+                style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: '.8rem', fontWeight: 600 }}>
+                ✕
+              </button>
+            ) : (
+              <Link to="/profesor-virtual" onClick={() => setOpen(false)}
+                style={{ fontSize: '.72rem', color: 'var(--gold)', border: '1px solid rgba(232,185,49,.4)', borderRadius: 6, padding: '4px 8px' }}>
+                Deschide complet ↗
+              </Link>
+            )}
           </div>
 
-          {/* Taburi: elevii au „Meditații cu Prof. Virtual"; mentorii — generatorul */}
-          <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: '#fafbfc' }}>
-            <button style={tabBtn(widgetTab === 'chat')} onClick={() => setWidgetTab('chat')}>💬 {askAiLabel({ isTeacher, isParent })}</button>
-            {isMentorAcc
-              ? <button style={tabBtn(widgetTab === 'exam')} onClick={() => setWidgetTab('exam')}>📄 Generează subiect examen</button>
-              : <button style={{ ...tabBtn(widgetTab === 'meditatii'), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }} onClick={() => setWidgetTab('meditatii')}><EinsteinIcon size={15} /> Meditații cu Prof. Virtual</button>}
-          </div>
+          {/* Taburi (ascunse în modul „Meditatorul tău" — acolo e doar conversația) */}
+          {!medMode && (
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: '#fafbfc' }}>
+              <button style={tabBtn(widgetTab === 'chat')} onClick={() => setWidgetTab('chat')}>💬 {askAiLabel({ isTeacher, isParent })}</button>
+              {isMentorAcc
+                ? <button style={tabBtn(widgetTab === 'exam')} onClick={() => setWidgetTab('exam')}>📄 Generează subiect examen</button>
+                : <button style={{ ...tabBtn(widgetTab === 'meditatii'), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }} onClick={() => setWidgetTab('meditatii')}><EinsteinIcon size={15} /> Meditații cu Prof. Virtual</button>}
+            </div>
+          )}
 
-          <div style={{ flex: 1, minHeight: 0, overflowY: widgetTab === 'chat' ? 'hidden' : 'auto' }}>
-            {widgetTab === 'chat' && <ChatPanel compact context={chatContext || {}} autoPrompt={medChat?.autoPrompt || null} coachInject={medChat?.coach || null} onNavigate={() => setOpen(false)} />}
-            {widgetTab === 'exam' && <div style={{ padding: 12 }}><ExamGenerator compact /></div>}
-            {widgetTab === 'meditatii' && (
+          <div style={{ flex: 1, minHeight: 0, overflowY: (widgetTab === 'chat' || medMode) ? 'hidden' : 'auto' }}>
+            {(widgetTab === 'chat' || medMode) && <ChatPanel compact context={chatContext || {}} autoPrompt={medChat?.autoPrompt || null} coachInject={medChat?.coach || null} onNavigate={() => setOpen(false)} />}
+            {!medMode && widgetTab === 'exam' && <div style={{ padding: 12 }}><ExamGenerator compact /></div>}
+            {!medMode && widgetTab === 'meditatii' && (
               <div style={{ padding: 16 }}>
                 <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '.95rem', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 7 }}><EinsteinIcon size={22} /> Meditații cu Profesorul Virtual</div>
                 <p style={{ fontSize: '.83rem', color: 'var(--text-light)', lineHeight: 1.55, marginBottom: 10 }}>

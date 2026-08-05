@@ -58,6 +58,8 @@ export default function InteractiveViewer() {
 
   const [searchParams] = useSearchParams();
   const idParam = searchParams.get('id');
+  const temaId = searchParams.get('temaId'); // deschis ca TEMĂ de la Meditatorul AI
+  const [hwMarked, setHwMarked] = useState(null); // { grade } — tema bifată
   const [item, setItem] = useState(state?.item || null);
 
   // Deschidere directă prin link ?id= (din chat/notificări): aducem materialul.
@@ -90,6 +92,14 @@ export default function InteractiveViewer() {
       const { score, maxScore } = event.data;
       if (typeof score !== 'number' || typeof maxScore !== 'number') return;
       if (!user || !item) return;
+
+      // TEMĂ de la Meditatorul AI (deschisă cu ?temaId=...): se bifează DIRECT
+      // pe server, independent de salvarea în `progress` — drumul sigur.
+      if (temaId) {
+        aiClient.meditatii({ action: 'homework_score', id: temaId, score, maxScore })
+          .then((r) => { if (r?.ok) setHwMarked({ grade: r.grade }); })
+          .catch(() => {});
+      }
 
       // Timpul petrecut în această sesiune (secunde) + cumulul anterior
       const sessionSeconds = Math.max(0, Math.round((Date.now() - startedAtRef.current) / 1000));
@@ -172,7 +182,7 @@ export default function InteractiveViewer() {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [user, item]);
+  }, [user, item, temaId]);
 
   // ─── Mesajele bridge-ului (exercițiu → tutor) ───────────────────────────────
   useEffect(() => {
@@ -364,6 +374,16 @@ export default function InteractiveViewer() {
               </span>
             )}
           </button>
+
+          {/* Tema de la Meditatorul AI — bifată */}
+          {hwMarked && (
+            <div style={{
+              background: 'var(--gold)', color: 'var(--navy)', padding: '4px 14px', borderRadius: 20,
+              fontSize: '0.82rem', fontWeight: 700, animation: 'fadeIn 0.4s ease',
+            }}>
+              ✓ Temă bifată · nota {hwMarked.grade}
+            </div>
+          )}
 
           {/* Eroare de salvare — vizibilă, nu doar în consolă */}
           {saveError && (

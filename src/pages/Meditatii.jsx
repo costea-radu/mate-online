@@ -250,37 +250,6 @@ function BusyOverlay({ label }) {
   );
 }
 
-// ─── Mesajul profesorului (inițiativa lui) + „Mai departe" ───────────────────
-function ProfessorCard({ briefing, onSuggestion, onChat, busy }) {
-  const [idx, setIdx] = useState(0);
-  if (!briefing?.message) return null;
-  const sugg = briefing.suggestions || [];
-  const cur = sugg.length ? sugg[idx % sugg.length] : null;
-  return (
-    <div style={{ ...card, border: '1.5px solid var(--gold)', background: 'linear-gradient(120deg, #fffdf5, #fff)', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-      <div style={{ flexShrink: 0, marginTop: 2 }}><EinsteinIcon size={44} /></div>
-      <div style={{ flex: 1, minWidth: 240 }}>
-        <div style={{ fontSize: '.76rem', fontWeight: 800, color: 'var(--gold-dim)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Meditatorul tău</div>
-        <div style={{ fontSize: '.95rem', color: 'var(--text)', lineHeight: 1.65, marginBottom: 12 }}>{briefing.message}</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          {cur && <button className="btn btn-primary" disabled={!!busy} onClick={() => onSuggestion(cur)}>{cur.label}</button>}
-          {sugg.length > 1 && (
-            <button className="btn btn-outline" disabled={!!busy} onClick={() => setIdx((i) => (i + 1) % sugg.length)}>Mai departe →</button>
-          )}
-          <button onClick={onChat} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 13px', fontSize: '.85rem', fontWeight: 600, color: 'var(--navy)', cursor: 'pointer' }}>
-            💬 Continuă în conversație
-          </button>
-        </div>
-        {sugg.length > 1 && (
-          <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: 7 }}>
-            Pasul {(idx % sugg.length) + 1} din {sugg.length} propuși de profesor — cu „Mai departe" treci la următorul sau revii.
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ─── Înscrierea: clasa + examenul ────────────────────────────────────────────
 function SetupWizard({ onStart, starting, error }) {
   const [grade, setGrade] = useState(8);
@@ -345,6 +314,13 @@ export default function Meditatii() {
   const [busy, setBusy] = useState(null);      // eticheta acțiunii în curs
   const [actionError, setActionError] = useState(null);
   const runSuggestionRef = useRef(null);       // legătura listener-e → runSuggestion
+  // widgetul „Meditatorul tău" e andocat lateral → pagina se strânge lângă el
+  const [chatDocked, setChatDocked] = useState(false);
+  useEffect(() => {
+    function onChatState(e) { setChatDocked(!!e.detail?.open); }
+    window.addEventListener('mate:meditatii-chat-state', onChatState);
+    return () => window.removeEventListener('mate:meditatii-chat-state', onChatState);
+  }, []);
 
   const refresh = useCallback(async () => {
     try { setSt(await aiClient.meditatii({ action: 'state' })); setStError(null); }
@@ -571,7 +547,9 @@ export default function Meditatii() {
   const premium = st ? st.premium : isPremium;
 
   return (
-    <div style={{ maxWidth: 'var(--container)', margin: '0 auto', padding: '32px 20px 60px' }}>
+    <div className="med-page" style={{ maxWidth: 'var(--container)', margin: '0 auto', padding: '32px 20px 60px', transition: 'padding .25s ease' }}>
+      {/* pagina se strânge lângă panoul andocat al Meditatorului (doar pe ecrane late) */}
+      {chatDocked && <style>{'@media (min-width: 1100px){ .med-page{ padding-right: 500px !important; max-width: none !important; } }'}</style>}
       <Hero profile={st?.profile} />
 
       {stError && <div style={{ ...card, background: '#fdecea', color: '#b71c1c', borderColor: '#f5c6cb' }}>⚠️ {stError}</div>}
@@ -629,6 +607,7 @@ export default function Meditatii() {
               ['teme', `📚 Teme${st.pendingHomework ? ` (${st.pendingHomework})` : ''}`],
               ['recapitulari', `🔁 Recapitulări${st.dueReviews?.length ? ` (${st.dueReviews.length})` : ''}`],
               ['simulari', '🎯 Simulări'],
+              ['raport', `📋 Raport meditator${(st.openMistakes?.length || st.pendingHomework) ? ' •' : ''}`],
               ['progres', '📈 Progresul meu'],
             ].map(([id, label]) => (
               <button key={id} onClick={() => setTab(id)} style={{
@@ -641,11 +620,12 @@ export default function Meditatii() {
 
           {actionError && <div style={{ ...card, background: '#fff4e5', color: '#8a6d1a', borderColor: 'var(--gold)' }}>{actionError}</div>}
 
-          {tab === 'azi' && <TodayTab st={st} busy={busy} briefing={st.briefing} onSuggestion={runSuggestion} onChat={() => askTeacher(null)} onLesson={openLesson} onExercises={startExercises} onReview={startReview} onRemediation={startRemediation} onHomeworkTab={() => setTab('teme')} onStyle={setStyle} />}
+          {tab === 'azi' && <TodayTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onReview={startReview} onHomeworkTab={() => setTab('teme')} />}
           {tab === 'plan' && <PlanTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onReset={async () => { if (window.confirm('Sigur reluăm totul de la zero? Planul și evaluarea inițială se șterg.')) { await aiClient.meditatii({ action: 'reset' }); await refresh(); } }} />}
           {tab === 'teme' && <HomeworkTab st={st} busy={busy} onOpen={openHomework} onAsk={askHomework} />}
           {tab === 'recapitulari' && <ReviewsTab st={st} busy={busy} onReview={startReview} />}
           {tab === 'simulari' && <SimTab st={st} busy={busy} onSimulare={startSimulare} />}
+          {tab === 'raport' && <RaportTab st={st} busy={busy} onOpenHomework={openHomework} onRemediation={startRemediation} onStyle={setStyle} />}
           {tab === 'progres' && <ProgressMeTab st={st} />}
         </>
       )}
@@ -736,16 +716,12 @@ function LessonView({ data, onClose, onExercises, busyLabel }) {
   );
 }
 
-function TodayTab({ st, busy, briefing, onSuggestion, onChat, onLesson, onExercises, onReview, onRemediation, onHomeworkTab, onStyle }) {
+function TodayTab({ st, busy, onLesson, onExercises, onReview, onHomeworkTab }) {
   const next = st.nextChapter;
-  const styles = ['mai simplu, cu cuvinte de zi cu zi', 'vizual, cu desene și scheme', 'prin exemple din viața reală', 'pas cu pas, foarte mărunt'];
-  const preferred = st.profile?.memory?.preferredStyle;
   return (
     <div>
-      {/* Profesorul IA INIȚIATIVA: te întâmpină, leagă firul și propune pașii */}
-      {briefing?.message ? (
-        <ProfessorCard briefing={briefing} onSuggestion={onSuggestion} onChat={onChat} busy={busy} />
-      ) : next ? (
+      {/* Pasul din plan — mesajele și îndrumarea vin în WIDGET (Meditatorul tău) */}
+      {next ? (
         <div style={{ ...card, borderLeft: '4px solid var(--gold)' }}>
           <div style={{ fontSize: '.78rem', fontWeight: 800, color: 'var(--gold-dim)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>Profesorul îți recomandă azi</div>
           <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.1rem', marginBottom: 4 }}>{next.title}</div>
@@ -790,53 +766,6 @@ function TodayTab({ st, busy, briefing, onSuggestion, onChat, onLesson, onExerci
         </div>
       )}
 
-      {/* Greșeli de remediat */}
-      {st.openMistakes?.length > 0 && (
-        <div style={card}>
-          <div style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: 4 }}>🩹 Greșeli de vindecat (exerciții de același fel)</div>
-          <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 10 }}>La fiecare greșeală îți dau 10 exerciții de exact același tip, până stăpânești procedeul.</p>
-          {st.openMistakes.slice(0, 4).map((m) => (
-            <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#f7f9fc', borderRadius: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ fontSize: '.8rem', fontWeight: 700, color: '#c0392b' }}>{ERROR_LABELS[m.error_type] || m.error_type}{m.topic ? ` · ${m.topic}` : ''}</div>
-                <div style={{ fontSize: '.82rem', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 460 }}><MathText text={m.statement || ''} /></div>
-              </div>
-              <button className="btn btn-sm btn-outline" disabled={!!busy} onClick={() => onRemediation(m.id)}>{busy === 'remediation' ? '...' : '🔁 10 la fel'}</button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Predicția notei */}
-      {st.prediction && (
-        <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <div style={{ fontSize: '2.2rem', fontWeight: 800, fontFamily: 'var(--font-display)', color: 'var(--navy)', background: 'rgba(232,185,49,.15)', borderRadius: 14, padding: '10px 18px' }}>
-            {st.prediction.grade}
-          </div>
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ fontWeight: 700, color: 'var(--navy)' }}>Nota estimată la {st.profile?.examTarget ? EXAM_LABELS[st.profile.examTarget] : 'următorul test'}</div>
-            <div style={{ fontSize: '.8rem', color: 'var(--text-muted)' }}>
-              Estimare {st.prediction.confidence} — din stăpânirea subiectelor, teme și simulări.
-              {st.prediction.weakChapters?.length ? ` Pentru o notă mai mare, consolidează: ${st.prediction.weakChapters.join('; ')}.` : ''}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Cum îți explic cel mai bine? (memorie pedagogică) */}
-      <div style={card}>
-        <div style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: 8 }}>💡 Cum îți explic cel mai bine?</div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {styles.map((s) => (
-            <button key={s} disabled={!!busy} onClick={() => onStyle(s)} style={{
-              border: `1px solid ${preferred === s ? 'var(--gold)' : 'var(--border)'}`,
-              background: preferred === s ? 'rgba(232,185,49,.15)' : '#fff',
-              color: 'var(--navy)', borderRadius: 18, padding: '6px 12px', fontSize: '.8rem', fontWeight: 600, cursor: 'pointer',
-            }}>{preferred === s ? '✓ ' : ''}{s}</button>
-          ))}
-        </div>
-        <p style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginTop: 8, marginBottom: 0 }}>Țin minte alegerea ta și explic mereu așa — în lecții, la exerciții și în chat.</p>
-      </div>
     </div>
   );
 }
@@ -953,6 +882,87 @@ function ReviewsTab({ st, busy, onReview }) {
           <button className="btn btn-sm btn-primary" disabled={!!busy} onClick={() => onReview(r.id, r.chapterTitle)}>{busy === 'review' ? '...' : '▶ Începe (5 întrebări)'}</button>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ─── „Raportul meditatorului" — ce are elevul de lucrat, pe scurt (rolldown) ─
+function RaportTab({ st, busy, onOpenHomework, onRemediation, onStyle }) {
+  const pendingHw = (st.homework || []).filter((h) => h.status === 'data');
+  const mistakes = st.openMistakes || [];
+  const styles = ['mai simplu, cu cuvinte de zi cu zi', 'vizual, cu desene și scheme', 'prin exemple din viața reală', 'pas cu pas, foarte mărunt'];
+  const preferred = st.profile?.memory?.preferredStyle;
+  const roll = { ...card, padding: '14px 18px' };
+  const sum = { cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontSize: '.95rem', fontFamily: 'var(--font-display)' };
+  return (
+    <div>
+      {/* Teme nefăcute */}
+      <details style={roll} open={pendingHw.length > 0}>
+        <summary style={sum}>📚 Teme nefăcute {pendingHw.length ? `(${pendingHw.length})` : '— niciuna 🎉'}</summary>
+        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {pendingHw.length === 0 && <span style={{ fontSize: '.85rem', color: 'var(--text-muted)' }}>Ești la zi cu temele. Bravo!</span>}
+          {pendingHw.map((h) => (
+            <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#f7f9fc', borderRadius: 8, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <span style={{ fontSize: '.88rem', fontWeight: 600, color: 'var(--navy)' }}>{h.kind === 'content' ? '🧩' : '📚'} {h.title}</span>
+                <span style={{ display: 'block', fontSize: '.74rem', color: 'var(--text-muted)' }}>{h.due_at ? `termen ${new Date(h.due_at).toLocaleDateString('ro-RO')}` : ''}</span>
+              </div>
+              <button className="btn btn-sm btn-primary" disabled={!!busy} onClick={() => onOpenHomework(h)}>▶ Rezolvă</button>
+            </div>
+          ))}
+        </div>
+      </details>
+
+      {/* Greșeli de vindecat */}
+      <details style={roll} open={mistakes.length > 0}>
+        <summary style={sum}>🩹 Greșeli de vindecat {mistakes.length ? `(${mistakes.length})` : '— niciuna 🎉'}</summary>
+        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <p style={{ fontSize: '.78rem', color: 'var(--text-muted)', margin: 0 }}>La fiecare greșeală îți dau 10 exerciții de exact același tip, până stăpânești procedeul.</p>
+          {mistakes.length === 0 && <span style={{ fontSize: '.85rem', color: 'var(--text-muted)' }}>Nimic de vindecat acum.</span>}
+          {mistakes.slice(0, 6).map((m) => (
+            <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#f7f9fc', borderRadius: 8, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontSize: '.78rem', fontWeight: 700, color: '#c0392b' }}>{ERROR_LABELS[m.error_type] || m.error_type}{m.topic ? ` · ${m.topic}` : ''}</div>
+                <div style={{ fontSize: '.82rem', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 420 }}><MathText text={fixLatexClient(m.statement || '')} /></div>
+              </div>
+              <button className="btn btn-sm btn-outline" disabled={!!busy} onClick={() => onRemediation(m.id)}>🔁 10 la fel</button>
+            </div>
+          ))}
+        </div>
+      </details>
+
+      {/* Nota estimată */}
+      <details style={roll}>
+        <summary style={sum}>🎯 Nota estimată{st.prediction ? `: ${st.prediction.grade}` : ''}</summary>
+        <div style={{ marginTop: 10 }}>
+          {st.prediction ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: '2rem', fontWeight: 800, fontFamily: 'var(--font-display)', color: 'var(--navy)', background: 'rgba(232,185,49,.15)', borderRadius: 12, padding: '8px 16px' }}>{st.prediction.grade}</div>
+              <div style={{ flex: 1, minWidth: 220, fontSize: '.84rem', color: 'var(--text)' }}>
+                Estimare {st.prediction.confidence} — din stăpânirea subiectelor, teme și simulări.
+                {st.prediction.weakChapters?.length ? <div style={{ marginTop: 4 }}><strong>Pentru o notă mai mare:</strong> {st.prediction.weakChapters.join('; ')}.</div> : null}
+              </div>
+            </div>
+          ) : <span style={{ fontSize: '.85rem', color: 'var(--text-muted)' }}>Apare după primele seturi rezolvate, teme și simulări.</span>}
+        </div>
+      </details>
+
+      {/* Cum să îți explic */}
+      <details style={roll}>
+        <summary style={sum}>💡 Cum să îți explic{preferred ? `: ${preferred}` : ''}</summary>
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {styles.map((sName) => (
+              <button key={sName} disabled={!!busy} onClick={() => onStyle(sName)} style={{
+                border: `1px solid ${preferred === sName ? 'var(--gold)' : 'var(--border)'}`,
+                background: preferred === sName ? 'rgba(232,185,49,.15)' : '#fff',
+                color: 'var(--navy)', borderRadius: 18, padding: '6px 12px', fontSize: '.8rem', fontWeight: 600, cursor: 'pointer',
+              }}>{preferred === sName ? '✓ ' : ''}{sName}</button>
+            ))}
+          </div>
+          <p style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginTop: 8, marginBottom: 0 }}>Țin minte alegerea ta și explic mereu așa — în lecții, la exerciții și în conversație.</p>
+        </div>
+      </details>
     </div>
   );
 }
