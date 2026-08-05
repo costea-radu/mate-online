@@ -97,7 +97,7 @@ function MeditatiiReport({ m }) {
       <div style={{ marginBottom: 8 }}>
         <span style={chipStyle}>Clasa a {m.grade}-a</span>
         {m.examTarget && <span style={chipStyle}>🎯 {EXAM_SHORT[m.examTarget] || m.examTarget}</span>}
-        {m.level && <span style={chipStyle}>Nivel: {m.level}</span>}
+        {m.level && <span style={chipStyle} title="Nivelul stabilit la testul inițial de meditații">Nivel (ev. inițială): {m.level}</span>}
         <span style={chipStyle}>Plan: {m.planProgress}%</span>
         <span style={chipStyle}>⏱ {m.totalMinutes} min de studiu</span>
         {m.streakDays > 0 && <span style={chipStyle}>🔥 {m.streakDays} zile la rând</span>}

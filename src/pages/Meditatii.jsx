@@ -10,15 +10,18 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
-import { MathText } from '../components/AITutor';
+import { MathText, preMessage } from '../components/AITutor';
 import EinsteinIcon from '../components/EinsteinIcon';
 import ExamGenerator from '../components/ExamGenerator';
 import { openPrintDocument } from '../lib/examPrint';
+import { playAnswer, stopSpeaking, ttsSupported } from '../lib/voice';
 
 // Chatul meditațiilor trăiește în widgetul plutitor „Prof. Virtual" (un singur
-// buton, o singură conversație): pagina îi trimite contextul + mesajul automat.
-function openMeditatorChat(context, autoPrompt = null) {
-  window.dispatchEvent(new CustomEvent('mate:meditatii-chat', { detail: { context, autoPrompt } }));
+// buton, o singură conversație): pagina îi trimite contextul, mesajele automate
+// („Nu înțeleg...") și mesajele COACH (bun venit, aprecieri, pasul următor) —
+// widgetul se deschide singur ori de câte ori profesorul are ceva de spus.
+function openMeditatorChat(context, autoPrompt = null, coach = null) {
+  window.dispatchEvent(new CustomEvent('mate:meditatii-chat', { detail: { context, autoPrompt, coach } }));
 }
 
 // Plasă de siguranță pe client pentru LaTeX-ul corupt din seturile mai vechi
@@ -55,6 +58,31 @@ const fmtMin = (sec) => {
   const m = Math.round((sec || 0) / 60);
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}min`;
 };
+
+// Completează id-urile lipsă ale unei acțiuni de meditație (venită din chat —
+// marcaj [[MEDITATII:...]] sau buton coach) folosind starea curentă.
+function resolveAction(a, st) {
+  if (!a || !a.kind || !st) return null;
+  const out = { ...a };
+  if (out.kind === 'recapitulare' && !out.reviewId) {
+    const r = st.dueReviews?.[0]; if (!r) return null;
+    out.reviewId = r.id; out.chapterTitle = r.chapterTitle;
+  }
+  if (out.kind === 'tema' && !out.homeworkId) {
+    const h = (st.homework || []).find((x) => x.status === 'data'); if (!h) return null;
+    out.homeworkId = h.id;
+  }
+  if (out.kind === 'remediere' && !out.mistakeId) {
+    const m = st.openMistakes?.[0]; if (!m) return null;
+    out.mistakeId = m.id;
+  }
+  if (out.kind === 'exercitii' || out.kind === 'lectie') {
+    const exists = out.chapterId && (st.plan?.chapters || []).some((c) => c.id === out.chapterId);
+    if (!exists) out.chapterId = st.nextChapter?.id || null;
+    if (!out.chapterId) return null;
+  }
+  return out;
+}
 
 // lecția (markdown simplu) → HTML pentru documentul tipăribil
 function lessonHtml(title, text) {
@@ -316,6 +344,7 @@ export default function Meditatii() {
   const [lessonView, setLessonView] = useState(null); // { chapter, lesson, materials }
   const [busy, setBusy] = useState(null);      // eticheta acțiunii în curs
   const [actionError, setActionError] = useState(null);
+  const runSuggestionRef = useRef(null);       // legătura listener-e → runSuggestion
 
   const refresh = useCallback(async () => {
     try { setSt(await aiClient.meditatii({ action: 'state' })); setStError(null); }
@@ -335,6 +364,58 @@ export default function Meditatii() {
       ? { id: Date.now(), text: 'Nu înțeleg acest exercițiu. Dă-mi un indiciu, fără să-mi spui răspunsul.', mode: 'hint' }
       : { id: Date.now(), text: 'Salut! Ce facem azi la meditație?', mode: 'tutor' });
   }
+
+  // ── PROFESORUL COMUNICĂ PRIN WIDGET (se deschide singur) ──────────────────
+  // 1) La sosire: mesajul de bun venit (briefingul) + pașii propuși ca butoane.
+  const welcomedRef = useRef(false);
+  useEffect(() => {
+    if (welcomedRef.current || !st || !st.premium || st.needsSetup || !st.briefing?.message) return;
+    welcomedRef.current = true;
+    openMeditatorChat({ meditatii: true, category }, null, {
+      id: 'welcome-' + Date.now(), message: st.briefing.message, suggestions: st.briefing.suggestions || [],
+    });
+    // eslint-disable-next-line
+  }, [st]);
+
+  // 2) După evenimente (set terminat, temă notată): apreciere + pasul următor,
+  //    scrise de coach (gpt-4o-mini pe server — economie de tokeni).
+  async function coachAfter(event) {
+    try {
+      const c = await aiClient.meditatii({ action: 'coach', event });
+      if (c?.message) {
+        openMeditatorChat({ meditatii: true, category }, null, {
+          id: 'coach-' + Date.now(), message: c.message, suggestions: c.suggestions || [],
+        });
+      }
+    } catch { /* coach e opțional — tăcut */ }
+  }
+
+  // 3) Profesorul pornește pași DIN conversație ([[MEDITATII:...]]) sau prin
+  //    butoanele coach — pagina execută; id-urile lipsă se completează din stare.
+  const stRef = useRef(st);
+  useEffect(() => { stRef.current = st; }, [st]);
+  useEffect(() => {
+    function onAction(e) {
+      const a = resolveAction(e.detail, stRef.current);
+      if (a) runSuggestionRef.current?.(a);
+    }
+    window.addEventListener('mate:meditatii-action', onAction);
+    return () => window.removeEventListener('mate:meditatii-action', onAction);
+    // eslint-disable-next-line
+  }, []);
+  // acțiune „în așteptare" venită de pe altă pagină (marcaj emis în alt loc)
+  useEffect(() => {
+    if (!st || !st.premium || st.needsSetup) return;
+    try {
+      const raw = sessionStorage.getItem('med_pending_action');
+      if (raw) {
+        sessionStorage.removeItem('med_pending_action');
+        const a = resolveAction(JSON.parse(raw), st);
+        if (a) setTimeout(() => runSuggestionRef.current?.(a), 400);
+      }
+    } catch { /* ignore */ }
+    // eslint-disable-next-line
+  }, [st]);
 
   async function run(label, fn) {
     setBusy(label); setActionError(null);
@@ -362,7 +443,7 @@ export default function Meditatii() {
     const r = await aiClient.meditatii({ action: 'exercises', chapterId, difficulty });
     setLessonView(null);
     setQuiz({
-      kind: 'exercitii', sessionId: r.sessionId, questions: r.questions,
+      kind: 'exercitii', sessionId: r.sessionId, questions: r.questions, topic: r.chapter.title,
       title: `✍️ Exerciții · ${r.chapter.title}`, subtitle: `Dificultate: ${r.difficulty}. Rezolvă în ritmul tău — la final îți explic tot.`,
       siteExercises: r.siteExercises,
     });
@@ -381,7 +462,7 @@ export default function Meditatii() {
   const startReview = (reviewId, chapterTitle) => run('review', async () => {
     const r = await aiClient.meditatii({ action: 'review_start', reviewId });
     setQuiz({
-      kind: 'recapitulare', sessionId: r.sessionId, questions: r.questions,
+      kind: 'recapitulare', sessionId: r.sessionId, questions: r.questions, topic: r.chapterTitle || chapterTitle,
       title: `🔁 Recapitulare · ${r.chapterTitle || chapterTitle}`, subtitle: 'Scurt și la obiect — ca să nu uiți materia.',
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -390,7 +471,7 @@ export default function Meditatii() {
   const startSimulare = () => run('simulare', async () => {
     const r = await aiClient.meditatii({ action: 'simulare' });
     setQuiz({
-      kind: 'simulare', sessionId: r.sessionId, questions: r.questions,
+      kind: 'simulare', sessionId: r.sessionId, questions: r.questions, topic: EXAM_LABELS[r.examType] || r.examType,
       title: `🎯 Simulare interactivă · ${EXAM_LABELS[r.examType] || r.examType}`, subtitle: 'Construită după modelul subiectelor din site, cu punctele tale slabe incluse.',
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -418,7 +499,7 @@ export default function Meditatii() {
     await refresh();
   });
 
-  // execută pasul propus de profesor în briefing („Hai" / „Mai departe")
+  // execută pasul propus de profesor (briefing, butoane coach, marcaje din chat)
   function runSuggestion(s) {
     if (!s) return;
     if (s.kind === 'lectie') openLesson(s.chapterId);
@@ -428,6 +509,7 @@ export default function Meditatii() {
     else if (s.kind === 'tema') openHomework({ id: s.homeworkId });
     else if (s.kind === 'simulare') startSimulare();
   }
+  runSuggestionRef.current = runSuggestion;
 
   // trimiterea unui set → acțiunea corectă pe server
   async function submitQuiz(answers, durationSec) {
@@ -442,6 +524,13 @@ export default function Meditatii() {
       r = await aiClient.meditatii({ action: 'submit_set', sessionId: quiz.sessionId, answers, durationSec });
     }
     r.onRemediate = (mid) => startRemediation(mid);
+    // profesorul comentează prin widget: apreciere + pasul următor (gpt-4o-mini)
+    const wrongCount = (r.results || []).filter((x) => !x.correct).length;
+    if (quiz.kind === 'tema') {
+      coachAfter({ type: 'homework_done', title: (quiz.title || '').replace(/^📚\s*/, ''), grade: r.grade, score: r.score, maxScore: r.maxScore });
+    } else {
+      coachAfter({ type: 'set_done', kind: quiz.kind, topic: quiz.topic || null, score: r.score, maxScore: r.maxScore, chapterDone: !!r.chapterDone, wrongCount });
+    }
     return r;
   }
 
@@ -536,10 +625,11 @@ export default function Meditatii() {
         <>
           <div style={{ display: 'flex', gap: 8, borderBottom: '2px solid var(--border)', marginBottom: 20, flexWrap: 'wrap' }}>
             {[
-              ['azi', '🎓 Astăzi'], ['plan', `🗺️ Planul meu${st.plan?.progress != null ? ` · ${st.plan.progress}%` : ''}`],
+              ['azi', '📅 Astăzi'], ['plan', `🗺️ Planul meu${st.plan?.progress != null ? ` · ${st.plan.progress}%` : ''}`],
               ['teme', `📚 Teme${st.pendingHomework ? ` (${st.pendingHomework})` : ''}`],
               ['recapitulari', `🔁 Recapitulări${st.dueReviews?.length ? ` (${st.dueReviews.length})` : ''}`],
               ['simulari', '🎯 Simulări'],
+              ['progres', '📈 Progresul meu'],
             ].map(([id, label]) => (
               <button key={id} onClick={() => setTab(id)} style={{
                 background: 'none', border: 'none', padding: '10px 4px', marginBottom: -2,
@@ -556,6 +646,7 @@ export default function Meditatii() {
           {tab === 'teme' && <HomeworkTab st={st} busy={busy} onOpen={openHomework} onAsk={askHomework} />}
           {tab === 'recapitulari' && <ReviewsTab st={st} busy={busy} onReview={startReview} />}
           {tab === 'simulari' && <SimTab st={st} busy={busy} onSimulare={startSimulare} />}
+          {tab === 'progres' && <ProgressMeTab st={st} />}
         </>
       )}
     </div>
@@ -576,7 +667,7 @@ function Hero({ profile }) {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <span style={chip('rgba(15,43,68,.08)', 'var(--navy)')}>🎒 Clasa a {profile.grade}-a</span>
           {profile.examTarget && <span style={chip('rgba(15,43,68,.08)', 'var(--navy)')}>🎯 {EXAM_LABELS[profile.examTarget]}</span>}
-          {profile.level && <span style={chip('rgba(232,185,49,.18)', '#8a6d1a')}>📊 Nivel: {profile.level}</span>}
+          {profile.level && <span title="Nivelul stabilit la testul inițial — se recalibrează pe măsură ce lucrezi" style={chip('rgba(232,185,49,.18)', '#8a6d1a')}>📊 Nivel (evaluare inițială): {profile.level}</span>}
           {profile.streakDays > 0 && <span style={chip('rgba(231,76,60,.1)', '#c0392b')}>🔥 {profile.streakDays} {profile.streakDays === 1 ? 'zi' : 'zile'} la rând</span>}
           {profile.totalSeconds > 60 && <span style={chip('rgba(39,174,96,.1)', '#1e7e34')}>⏱ {fmtMin(profile.totalSeconds)} de studiu</span>}
         </div>
@@ -586,11 +677,41 @@ function Hero({ profile }) {
 }
 
 function LessonView({ data, onClose, onExercises, busyLabel }) {
+  // „Ascultă" — profesorul recită toată teoria (vocile din sistem, gratuit)
+  const [voice, setVoice] = useState(null); // { frac, paused }
+  const ctlRef = useRef(null);
+  useEffect(() => () => { try { ctlRef.current?.stop?.(); } catch { /* ignore */ } stopSpeaking(); }, []);
+  function toggleListen() {
+    const ctl = ctlRef.current;
+    if (ctl && voice) {
+      if (!voice.paused) { ctl.pause(); setVoice((v) => ({ ...v, paused: true })); }
+      else { ctl.resume(); setVoice((v) => ({ ...v, paused: false })); }
+      return;
+    }
+    const c = playAnswer(preMessage(String(data.lesson || '')), {
+      onProgress: ({ frac }) => setVoice((v) => (v ? { ...v, frac } : v)),
+      onEnd: () => { ctlRef.current = null; setVoice(null); },
+    });
+    if (!c) return;
+    ctlRef.current = c;
+    setVoice({ frac: 0, paused: false });
+  }
   return (
     <div>
       <div style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.05rem' }}>📖 Teoria · {data.chapter.title}</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {ttsSupported() && (
+            <button className="btn btn-outline btn-sm" onClick={toggleListen}
+              style={voice && !voice.paused ? { background: 'var(--gold)', color: 'var(--navy)', borderColor: 'var(--gold)' } : {}}>
+              {voice ? (voice.paused ? '▶ Continuă' : '❚❚ Pauză') : '🔊 Ascultă teoria'}
+            </button>
+          )}
+          {voice && (
+            <div title="Progresul citirii" style={{ width: 90, height: 8, borderRadius: 6, background: 'rgba(15,43,68,.15)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${Math.round(Math.min(1, voice.frac || 0) * 100)}%`, background: 'var(--gold)', transition: 'width .3s' }} />
+            </div>
+          )}
           <button className="btn btn-outline btn-sm" onClick={() => openPrintDocument(`Lecție · ${data.chapter.title}`, lessonHtml(`Lecție · ${data.chapter.title}`, data.lesson))}>📄 Salvează lecția PDF</button>
           <button className="btn btn-outline btn-sm" onClick={onClose}>✕ Închide</button>
         </div>
@@ -832,6 +953,67 @@ function ReviewsTab({ st, busy, onReview }) {
           <button className="btn btn-sm btn-primary" disabled={!!busy} onClick={() => onReview(r.id, r.chapterTitle)}>{busy === 'review' ? '...' : '▶ Începe (5 întrebări)'}</button>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ─── „Progresul meu" — stăpânirea pe subiecte + statistici de meditații ──────
+function ProgressMeTab({ st }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    aiClient.progress().then(setData).catch((e) => setError(e.message));
+  }, []);
+  const masteryColor = (m) => (m >= 0.75 ? '#27ae60' : m >= 0.4 ? '#e8b931' : '#e74c3c');
+  const p = st.profile || {};
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginBottom: 18 }}>
+        {[
+          ['Plan parcurs', `${st.plan?.progress ?? 0}%`],
+          ['Timp de studiu', fmtMin(p.totalSeconds)],
+          ['Zile la rând', `${p.streakDays || 0} 🔥`],
+          ['Nota estimată', st.prediction ? st.prediction.grade : '—'],
+        ].map(([label, value]) => (
+          <div key={label} style={{ background: 'var(--navy)', color: '#fff', borderRadius: 'var(--radius-lg)', padding: 16 }}>
+            <div style={{ fontSize: '1.6rem', fontWeight: 800, fontFamily: 'var(--font-display)', color: 'var(--gold)' }}>{value}</div>
+            <div style={{ fontSize: '.78rem', opacity: 0.85 }}>{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {error && <div style={{ ...card, background: '#fdecea', color: '#b71c1c' }}>⚠️ {error}</div>}
+      {!data && !error && <div style={{ padding: 30, textAlign: 'center' }}><div className="spinner" /></div>}
+
+      {data && (
+        <div style={card}>
+          <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 14 }}>Stăpânirea pe subiecte</h3>
+          {(data.mastery || []).length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontSize: '.9rem', margin: 0 }}>Încă nu ai date — rezolvă seturi de exerciții și progresul apare aici, subiect cu subiect.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {data.mastery.map((m) => (
+                <div key={m.category + m.topic}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.85rem', marginBottom: 4 }}>
+                    <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{m.topic} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>· {m.category}</span></span>
+                    <span style={{ color: 'var(--text-muted)' }}>{Math.round(m.mastery * 100)}% · {m.correct}/{m.attempts}</span>
+                  </div>
+                  <div style={{ height: 8, background: 'var(--border)', borderRadius: 99, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.round(m.mastery * 100)}%`, background: masteryColor(m.mastery), borderRadius: 99, transition: 'width .4s' }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {st.prediction?.weakChapters?.length > 0 && (
+        <div style={{ ...card, background: 'rgba(232,185,49,.08)', borderColor: 'var(--gold)' }}>
+          <strong style={{ color: 'var(--navy)', fontSize: '.9rem' }}>🎯 Pentru o notă mai mare, consolidează:</strong>
+          <div style={{ fontSize: '.88rem', color: 'var(--text)', marginTop: 6 }}>{st.prediction.weakChapters.join(' · ')}</div>
+        </div>
+      )}
     </div>
   );
 }

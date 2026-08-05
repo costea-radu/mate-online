@@ -41,6 +41,7 @@ module.exports = async function handler(req, res) {
       homework_start: homeworkStart, homework_submit: homeworkSubmit,
       review_start: reviewStart, simulare, set_style: setStyle,
       mentor_report: mentorReportAction, reset: resetProfile,
+      coach, homework_check: homeworkCheck,
     };
     const fn = handlers[action];
     if (!fn) return res.status(400).json({ error: 'action invalid' });
@@ -139,6 +140,108 @@ function styleNoteOf(profile) {
   const errs = Object.entries(m.errorTypes || {}).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => k);
   if (errs.length) bits.push(`greșeli frecvente: ${errs.join(', ')} — include capcane care îl antrenează exact pe acestea`);
   return bits.join('; ');
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// COACH — mesajele automate ale profesorului prin widget (cerința: comunicarea
+// cu elevul prin widget, cu gpt-4o-mini pentru economie de tokeni; generarea
+// de exerciții rămâne pe modelele stabilite: sol / terra / Opus 5).
+// event: { type: 'set_done'|'homework_done'|'lesson_done', ... }
+// Răspuns: { message, suggestions[] } — widgetul le afișează ca butoane.
+// ═════════════════════════════════════════════════════════════════════════════
+const COACH_MODEL = process.env.AI_COACH_MODEL || 'gpt-4o-mini';
+
+async function coachBits(supa, userId, medProfile) {
+  const [{ data: hw }, { data: reviews }, { data: mistakes }, { data: acc }] = await Promise.all([
+    supa.from('ai_meditatii_homework').select('id, title, status').eq('user_id', userId).eq('status', 'data').limit(3),
+    supa.from('ai_meditatii_reviews').select('id, chapter, topic, stage, due_at').eq('user_id', userId)
+      .lte('due_at', new Date().toISOString()).lte('stage', 2).limit(3),
+    supa.from('ai_meditatii_mistakes').select('id, topic').eq('user_id', userId).eq('remediated', false)
+      .order('created_at', { ascending: false }).limit(3),
+    supa.from('profiles').select('full_name').eq('id', userId).single(),
+  ]);
+  const plan = medProfile.plan || {};
+  const titles = {}; (plan.chapters || []).forEach((c) => { titles[c.id] = c.title; });
+  return {
+    plan,
+    firstName: (acc?.full_name || '').trim().split(/\s+/)[0] || null,
+    pendingHw: hw || [],
+    dueReviews: (reviews || []).map((r) => ({ ...r, chapterTitle: titles[r.chapter] || r.topic || r.chapter })),
+    openMistakes: mistakes || [],
+  };
+}
+
+// pașii următori (butoane) — aceeași ordine pedagogică precum briefingul
+function coachSuggestions({ plan, dueReviews, pendingHw, openMistakes }) {
+  const out = [];
+  if (dueReviews[0]) out.push({ kind: 'recapitulare', label: `🔁 Recapitulare: ${dueReviews[0].chapterTitle}`, reviewId: dueReviews[0].id, chapterTitle: dueReviews[0].chapterTitle });
+  if (openMistakes[0]) out.push({ kind: 'remediere', label: '🩹 10 exerciții ca acela greșit', mistakeId: openMistakes[0].id });
+  if (pendingHw[0]) out.push({ kind: 'tema', label: `📚 Tema: ${pendingHw[0].title}`, homeworkId: pendingHw[0].id });
+  const next = med.nextChapter(plan);
+  if (next) {
+    out.push(next.status === 'de_parcurs'
+      ? { kind: 'lectie', label: `📖 Teoria: ${next.title}`, chapterId: next.id }
+      : { kind: 'exercitii', label: `✍️ Exerciții: ${next.title}`, chapterId: next.id });
+  } else {
+    out.push({ kind: 'simulare', label: '🎯 Simulare de examen' });
+  }
+  return out;
+}
+
+async function coach(req, res, supa) {
+  const userId = await ai.authUser(req, supa);
+  const profile = await ai.requireUser(supa, userId);
+  requireMeditatii(profile);
+  const event = req.body?.event || {};
+  const medProfile = await getMedProfile(supa, userId);
+  if (!medProfile) return res.status(400).json({ error: 'Începe cu testul inițial.' });
+
+  const bits = await coachBits(supa, userId, medProfile);
+  const suggestions = coachSuggestions(bits);
+
+  // faptele evenimentului (deterministe) — mini-modelul doar le „încălzește"
+  const facts = [];
+  const pct = event.maxScore ? Math.round(((event.score || 0) / event.maxScore) * 100) : null;
+  const kindLabels = { evaluare: 'testul inițial', exercitii: 'setul de exerciții', remediere: 'exercițiile de remediere', recapitulare: 'recapitularea', simulare: 'simularea de examen', tema: 'tema' };
+  if (event.type === 'set_done') {
+    facts.push(`Elevul tocmai a terminat ${kindLabels[event.kind] || 'un set'}${event.topic ? ` la „${event.topic}"` : ''} cu scorul ${event.score}/${event.maxScore} (${pct}%).`);
+    if (event.chapterDone) facts.push('A FINALIZAT capitolul (≥80%) — felicită-l și amintește-i că recapitularea vine mâine, ca să fixeze.');
+    else if (pct != null && pct < 50) facts.push('Scorul e mic — încurajează-l cald, fără reproșuri; propune-i să simplificați și să reia noțiunile de bază.');
+    if (event.wrongCount) facts.push(`A greșit ${event.wrongCount} exerciții; îi poți propune remedierea („încă 10 la fel").`);
+  } else if (event.type === 'homework_done') {
+    facts.push(`Elevul a terminat tema „${event.title || ''}" cu nota ${event.grade}.`);
+  } else if (event.type === 'lesson_done') {
+    facts.push(`Elevul tocmai a citit teoria la „${event.chapterTitle || 'capitolul curent'}" — propune-i să treacă la exerciții.`);
+  } else {
+    facts.push('Elevul a revenit la meditații.');
+  }
+  if (suggestions[0]) facts.push(`PASUL URMĂTOR pe care îl anunți: ${suggestions[0].label.replace(/^[^\s]+\s/, '')}.`);
+
+  const fallback = `${bits.firstName ? bits.firstName + ', ' : ''}${event.type === 'set_done' && pct != null ? (pct >= 80 ? 'bravo, ai lucrat foarte bine! ' : 'bine că ai lucrat — mai șlefuim împreună. ') : ''}${suggestions[0] ? `Următorul pas pe care ți-l propun: ${suggestions[0].label.replace(/^[^\s]+\s/, '')}.` : 'Continuăm când ești gata.'}`;
+
+  let message = fallback;
+  try {
+    const { text, usage } = await ai.chat({
+      system: `Ești „Profesorul Virtual" de pe ExamenMate — meditatorul personal al unui elev român${bits.firstName ? ` pe nume ${bits.firstName}` : ''}. Scrie-i un mesaj scurt (2–3 fraze, sub 55 de cuvinte), cald și concret, în română, pe baza faptelor de mai jos: apreciezi ce a făcut (concret, nu generic) și anunți natural pasul următor. Fără liste, fără markdown, fără emoji-uri multe (maximum unul).`,
+      messages: [{ role: 'user', content: facts.join('\n') }],
+      temperature: 0.7, maxTokens: 160, model: COACH_MODEL,
+    });
+    if (text && text.trim().length > 10) message = text.trim();
+    await ai.logUsage(supa, userId, 'ai-meditatii:coach', usage);
+  } catch (e) { console.warn('coach LLM:', e.message); }
+
+  return res.status(200).json({ message, suggestions });
+}
+
+// reconciliere „la cerere" — apelată de viewerul de exerciții imediat după
+// salvarea scorului, ca tema din site să se bifeze PE LOC (cerința 2)
+async function homeworkCheck(req, res, supa) {
+  const userId = await ai.authUser(req, supa);
+  await ai.requireUser(supa, userId);
+  await reconcileContentHomework(supa, userId);
+  const { data: left } = await supa.from('ai_meditatii_homework')
+    .select('id').eq('user_id', userId).eq('status', 'data').limit(5);
+  return res.status(200).json({ ok: true, pending: (left || []).length });
 }
 
 // ─── BRIEFINGUL PROFESORULUI (inițiativa lui — cerința 10) ───────────────────
@@ -348,9 +451,9 @@ async function assessmentSubmit(req, res, supa) {
 
   const level = graded.pct >= 0.75 ? 'avansat' : graded.pct >= 0.45 ? 'mediu' : 'incepator';
   const assessment = { score: graded.correct, maxScore: graded.total, pct: Math.round(graded.pct * 100), gaps, level, at: new Date().toISOString() };
-  // TOATĂ teoria din site intră în plan: capitolele din rubricile
-  // „Capitole pentru BAC / Evaluare Națională" (subcategory='capitole')
-  const siteRows = await med.siteChaptersFor(supa, [med.categoryFor(medProfile0), med.classCategory(medProfile0)]);
+  // TOATĂ teoria din site intră în plan: rubricile „Capitole" de la
+  // Evaluare Națională / BAC + capitolele claselor acoperite de plan
+  const siteRows = await med.siteChaptersFor(supa, med.siteChapterCategoriesFor(medProfile0));
   const plan = med.buildPlan({ ...medProfile0, level }, assessment, siteRows);
 
   // memoria pedagogică + streak + timp

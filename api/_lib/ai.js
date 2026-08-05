@@ -487,7 +487,14 @@ Reguli pedagogice pentru meditații:
 - Îi cunoști greșelile frecvente (vezi profilul): când explici, atrage-i atenția exact asupra capcanelor unde greșește de obicei, fără să-l descurajezi.
 - Leagă explicațiile de PLANUL lui: amintește-i natural la ce capitol lucrați și ce urmează; dacă cere „ce facem azi?", propune TU pasul următor din plan (teorie → exerciții → recapitulare), fără să-l întrebi ce vrea să studieze.
 - TU CONDUCI MEDITAȚIA (ai inițiativa): nu aștepta să fie tras de mânecă. La primul mesaj dintr-o conversație nouă, întâmpină-l pe nume (dacă îl știi din profil), leagă-te de ultima activitate („data trecută ai greșit la...", „au trecut X zile de când...") și propune-i TU pasul de azi, în ordinea: recapitulare scadentă → greșeli de vindecat → temă nefăcută → capitolul următor. Elevul poate spune oricând „mai departe" (treci la pasul următor), „nu am înțeles", „vreau exerciții mai grele", „vreau să recapitulăm X" — și îți adaptezi imediat planul.
-- Pentru pașii CONCREȚI (seturi de exerciții, teme, recapitulări, simulări) îndrumă-l spre rubrica [Meditații](/meditatii) — acolo se generează și se corectează; în chat explici, dai indicii și verifici înțelegerea.
+- PORNEȘTI PAȘII DIRECT DIN CONVERSAȚIE: când elevul ACCEPTĂ un pas concret („da", „hai", „începem", „dă-mi exercițiile", „vreau recapitularea"), emite la FINALUL răspunsului, pe un rând separat, EXACT UN marcaj (platforma îl execută automat):
+[[MEDITATII:{"kind":"exercitii","chapterId":"<id>"}]] — pornește setul de exerciții la capitol
+[[MEDITATII:{"kind":"lectie","chapterId":"<id>"}]] — deschide teoria capitolului
+[[MEDITATII:{"kind":"recapitulare"}]] — pornește recapitularea scadentă
+[[MEDITATII:{"kind":"tema"}]] — deschide tema nefăcută
+[[MEDITATII:{"kind":"remediere"}]] — pornește cele 10 exerciții de remediere
+[[MEDITATII:{"kind":"simulare"}]] — pornește simularea de examen
+Reguli pentru marcaje: id-urile capitolelor sunt în PROFILUL elevului de mai jos — folosește-le EXACT; înainte de marcaj anunți natural ce urmează („Îți pregătesc acum exercițiile la Funcții — durează puțin."); NICIODATĂ marcaj fără acordul elevului din acest mesaj sau cel anterior; maximum UN marcaj pe mesaj.
 - MOTIVARE: felicită-l concret pentru progres (serie de zile, capitole terminate), stabilește obiective mici și realiste.
 - Rămâi cald, răbdător și încurajator — ești meditatorul lui de încredere, disponibil oricând.`;
 
@@ -504,6 +511,8 @@ async function meditatiiMemory(supa, userId) {
       const done = ch.filter((c) => c.status === 'finalizat').length;
       const cur = ch.find((c) => c.status === 'in_lucru' || c.status === 'teorie') || ch.find((c) => c.status === 'de_parcurs');
       bits.push(`- Plan: ${done}/${ch.length} capitole finalizate${cur ? `; capitolul curent: „${cur.title}"` : ''}.`);
+      const upcoming = ch.filter((c) => c.status !== 'finalizat').slice(0, 6);
+      if (upcoming.length) bits.push(`- Capitole din plan pentru marcajele MEDITATII (id → titlu): ${upcoming.map((c) => `${c.id} → ${c.title}`).join('; ')}.`);
     }
     const gaps = (p.assessment?.gaps || []).map((g) => g.title || g.chapter).filter(Boolean).slice(0, 3);
     if (gaps.length) bits.push(`- Lacune din anii anteriori: ${gaps.join('; ')}.`);
@@ -877,6 +886,10 @@ async function interactiveAgentSystem(supa, { userId, mode, context, ctxBlock })
     parts.push(MEDITATII_RULES);
     const medMem = await meditatiiMemory(supa, userId);
     if (medMem) parts.push(medMem);
+    // mesajul automat afișat de platformă (coach) — modelul continuă natural de la el
+    if (context.coachNote) {
+      parts.push(`ULTIMUL TĂU MESAJ CĂTRE ELEV (trimis automat de platformă în numele tău — dacă elevul răspunde la el, ex. „da", „hai", continuă natural de la el, cu marcajul potrivit dacă acceptă): """${String(context.coachNote).slice(0, 600)}"""`);
+    }
   }
   // catalogul de exerciții e util tuturor (elevi ȘI profesori/părinți);
   // starea de progres + motivarea sunt doar pentru elevi.

@@ -102,12 +102,14 @@ function categoryFor(profile) {
 // Categoria „de clasă" (materialele pe lecții) — complementară celei de examen
 function classCategory(profile) { return `clasa-${profile.grade}`; }
 
-// Capitolele de parcurs pentru un profil (clasă + examen-țintă)
+// Capitolele de parcurs pentru un profil (clasă + examen-țintă).
+// TOATĂ teoria intră în plan (fără plafon de capitole): la EN — programa
+// completă a claselor 5–8; la BAC — clasele 9–12; plus capitolele din site.
 function curriculumFor(profile) {
   const grade = Math.min(12, Math.max(5, parseInt(profile.grade, 10) || 8));
   let chapters = [];
   if (profile.exam_target === 'evaluare-nationala') {
-    chapters = [...EN_RECAP, ...CURRICULUM[7], ...CURRICULUM[8]];
+    chapters = [...CURRICULUM[5], ...CURRICULUM[6], ...CURRICULUM[7], ...CURRICULUM[8]];
   } else if (profile.exam_target && profile.exam_target.startsWith('bac')) {
     // BAC: materia claselor 9–12, până la clasa elevului (min. 9)
     const upto = Math.max(9, grade);
@@ -138,9 +140,24 @@ async function siteChaptersFor(supa, categories = []) {
     const { data } = await supa.from('content')
       .select('id, title, category, content_type, is_free')
       .eq('subcategory', 'capitole').in('category', categories.filter(Boolean))
-      .order('sort_order', { ascending: true }).limit(120);
+      .order('sort_order', { ascending: true }).limit(300);
     return data || [];
   } catch { return []; }
+}
+
+// Categoriile din care se culeg capitolele site-ului pentru plan (cerința 3):
+// rubricile „Capitole" de la examen + TOATE clasele acoperite de plan.
+function siteChapterCategoriesFor(profile) {
+  const grade = Math.min(12, Math.max(5, parseInt(profile.grade, 10) || 8));
+  if (profile.exam_target === 'evaluare-nationala') {
+    return ['evaluare-nationala', 'clasa-5', 'clasa-6', 'clasa-7', 'clasa-8'];
+  }
+  if (profile.exam_target && profile.exam_target.startsWith('bac')) {
+    const out = ['bacalaureat'];
+    for (let g = 9; g <= Math.max(9, grade); g++) out.push(`clasa-${g}`);
+    return out;
+  }
+  return [`clasa-${grade}`];
 }
 
 // Adaugă în plan capitolele din site care NU se regăsesc deja în programă
@@ -497,11 +514,15 @@ async function reconcileContentHomework(supa, userId) {
       .select('content_id, score, max_score, attempts, completed_at').eq('user_id', userId).in('content_id', ids);
     for (const h of hw) {
       const p = (prog || []).find((x) => x.content_id === h.content_id);
-      if (p && p.completed_at && new Date(p.completed_at) >= new Date(h.assigned_at)) {
+      // Orice rezultat din `progress` bifează tema: la momentul dării temei
+      // exercițiul NU avea niciun rezultat (selecția exclude materialele
+      // rezolvate), deci un rând apărut ulterior = tema a fost lucrată.
+      // (Comparația strictă de timp pierdea rezolvări reale — cerința 2.)
+      if (p) {
         const pct = p.max_score ? p.score / p.max_score : 0;
         await supa.from('ai_meditatii_homework').update({
           status: 'rezolvata', score: p.score, max_score: p.max_score,
-          attempts: p.attempts || 1, completed_at: p.completed_at,
+          attempts: p.attempts || 1, completed_at: p.completed_at || new Date().toISOString(),
           feedback: { grade: Math.max(1, Math.min(10, Math.round((1 + 9 * pct) * 10) / 10)), auto: true },
         }).eq('id', h.id);
         await clearHomeworkNotifications(supa, userId, h.id);
@@ -571,7 +592,7 @@ async function buildMentorReport(supa, studentId) {
 module.exports = {
   CURRICULUM, EN_RECAP, OPUS_MODEL, REVIEW_STAGES_DAYS,
   curriculumFor, categoryFor, classCategory, examTypeFor,
-  buildPlan, planProgress, nextChapter, siteChaptersFor, mergeSiteChapters,
+  buildPlan, planProgress, nextChapter, siteChaptersFor, siteChapterCategoriesFor, mergeSiteChapters,
   siteInteractiveFor, siteTheoryFor,
   genQuestions, normalizeQuestions, classifyMistakes, fixLatex,
   predictGrade, bumpStreak, nextReviewDue,

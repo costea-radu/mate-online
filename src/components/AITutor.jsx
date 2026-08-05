@@ -35,7 +35,10 @@ export function preMessage(text = '') {
   let t = fixTerminology(text)
     // marcajele de acțiune nu se afișează niciodată (nici complete, nici parțiale la streaming)
     .replace(/\[\[\s*ACTIUNE[\s\S]*?\]\]/gi, '')
-    .replace(/\[\[\s*ACTIUNE[^\]]*$/i, '');
+    .replace(/\[\[\s*ACTIUNE[^\]]*$/i, '')
+    // marcajele de meditații (pornesc pași în rubrica /meditatii) — la fel, invizibile
+    .replace(/\[\[\s*MEDITATII[\s\S]*?\]\]/gi, '')
+    .replace(/\[\[\s*MEDITATII[^\]]*$/i, '');
   // linkurile absolute către site (inclusiv „.ro" greșit) devin RELATIVE → clicabile intern
   t = t.replace(/https?:\/\/(?:www\.)?examenmate\.(?:ro|com)(\/[^\s)"'<>\]]*)?/gi, (_, p) => p || '/');
   // delimitatorii \[...\] și \(...\) (scriși uneori de model) → $$/$, altfel apar cruzi în chat
@@ -122,11 +125,37 @@ const MODES = [
   { id: 'hint', label: 'Dă-mi un indiciu', hint: 'Un singur pas, fără rezolvare' },
 ];
 
+// ─── Marcajele [[MEDITATII:{...}]] — profesorul pornește pași din conversație ─
+// Extrase din răspunsul modelului; executate de pagina /meditatii. Dacă elevul
+// nu e pe /meditatii, acțiunea se pune „în așteptare" și navigăm acolo.
+export function extractMeditatiiActions(text = '') {
+  const out = [];
+  const re = /\[\[\s*MEDITATII\s*:\s*([\s\S]*?)\]\]/gi;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    try {
+      const a = JSON.parse(m[1]);
+      if (a && a.kind) out.push(a);
+    } catch { /* marcaj malformat — ignorat */ }
+  }
+  return out;
+}
+export function dispatchMeditatiiAction(action, navigate, onNavigate = null) {
+  if (!action) return;
+  if (window.location.pathname === '/meditatii') {
+    window.dispatchEvent(new CustomEvent('mate:meditatii-action', { detail: action }));
+  } else {
+    try { sessionStorage.setItem('med_pending_action', JSON.stringify(action)); } catch { /* ignore */ }
+    if (onNavigate) onNavigate();
+    navigate('/meditatii');
+  }
+}
+
 // Props noi pentru integrarea cu exercițiile interactive:
 //  onAction(actiune)        — execută o acțiune AI în exercițiu (fill/choose/tf/add)
 //  initialConversationId    — reia o conversație existentă (chat → exercițiu)
 //  autoPrompt {id, text, mode?} — mesaj trimis automat (butonul din exercițiu)
-export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null, onAction = null, initialConversationId = null, autoPrompt = null }) {
+export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null, onAction = null, initialConversationId = null, autoPrompt = null, coachInject = null }) {
   const { user, isPremium, isTeacher, isParent } = useAuth();
   const navigate = useNavigate();
   const isMentor = isTeacher || isParent;
@@ -207,6 +236,10 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     });
   }, []);
 
+  // ultimul mesaj „coach" (trimis automat de platformă) — intră în contextul
+  // conversației, ca modelul să continue natural când elevul răspunde „da"/„hai"
+  const coachNoteRef = useRef(null);
+
   async function send(text, { modeOverride = null } = {}) {
     const msg = (text ?? input).trim();
     if (!msg || streaming) return;
@@ -216,19 +249,24 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     setStreaming(true);
     try {
       let acc = '';
+      const baseCtx = attached ? { ...context, exerciseText: attached } : context;
+      const sendCtx = coachNoteRef.current ? { ...baseCtx, coachNote: coachNoteRef.current } : baseCtx;
       await aiClient.chatStream(
-        { message: msg, mode: modeOverride || mode, conversationId: convId, context: attached ? { ...context, exerciseText: attached } : context },
+        { message: msg, mode: modeOverride || mode, conversationId: convId, context: sendCtx },
         {
           onMeta: ({ conversationId, sources, primaryMaterial }) => { setConvId(conversationId); patchLast({ sources, primaryMaterial }); },
           onDelta: (delta) => { acc += delta; patchLast((m) => ({ ...m, content: m.content + delta })); },
           onDone: ({ messageId }) => {
             // extrage acțiunile [[ACTIUNE:...]] și curăță textul afișat
             const { text: cleanText0, actions } = extractTutorActions(acc);
+            // marcajele [[MEDITATII:...]] — profesorul pornește un pas de meditație
+            const medActions = extractMeditatiiActions(acc);
             // adresa oficială e examenmate.com — corectăm eventualul „.ro" halucinat;
             // terminologie: „factorizare" → „descompunere în factori" (și pentru voce)
-            const cleanText = fixTerminology(cleanText0.replace(/https?:\/\/(?:www\.)?examenmate\.ro/gi, 'https://examenmate.com'));
+            const cleanText = fixTerminology(preMessage(cleanText0).replace(/https?:\/\/(?:www\.)?examenmate\.ro/gi, 'https://examenmate.com'));
             patchLast({ streaming: false, id: messageId, content: cleanText });
             if (onAction && actions.length) actions.slice(0, 2).forEach((a) => { try { onAction(a); } catch { /* noop */ } });
+            if (medActions.length) setTimeout(() => dispatchMeditatiiAction(medActions[0], navigate, onNavigate), 600);
             if (autoRead && cleanText.trim()) startListen(asstIdx, cleanText); // cu bară + evidențiere
           },
         }
@@ -263,6 +301,17 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     autoRef.current = autoPrompt.id;
     send(autoPrompt.text, { modeOverride: autoPrompt.mode || null });
   }, [autoPrompt]); // eslint-disable-line
+
+  // Mesaj automat al PROFESORULUI (coach de meditații): apare ca mesaj al lui,
+  // cu BUTOANE de pași („Recapitulare", „Exerciții"...). Nu se salvează în
+  // istoric — e ghidajul de interfață; modelul îl primește prin coachNote.
+  const coachIdRef = useRef(null);
+  useEffect(() => {
+    if (!coachInject || !coachInject.message || coachInject.id === coachIdRef.current) return;
+    coachIdRef.current = coachInject.id;
+    coachNoteRef.current = coachInject.message;
+    setMessages((m) => [...m, { role: 'assistant', content: coachInject.message, coach: true, suggestions: coachInject.suggestions || [] }]);
+  }, [coachInject]); // eslint-disable-line
 
   // Click pe un link intern din mesaj: exercițiile se deschid CU conversația curentă,
   // iar paginile de categorie se deschid direct pe tabul „Teste interactive".
@@ -495,6 +544,18 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                   </ul>
                 </details>
               )}
+
+              {/* Butoanele de pași propuși de profesor (mesajele „coach") */}
+              {m.coach && m.suggestions?.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+                  {m.suggestions.map((s, k) => (
+                    <button key={k} onClick={() => dispatchMeditatiiAction(s, navigate, onNavigate)}
+                      style={{ textAlign: 'left', border: '1px solid var(--gold)', background: 'rgba(232,185,49,.12)', borderRadius: 8, padding: '8px 10px', fontSize: '.85rem', color: 'var(--navy)', fontWeight: 600, cursor: 'pointer' }}>
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Acțiuni: „Ascultă răspunsul" (play/pauză) + feedback */}
@@ -688,11 +749,17 @@ export default function FloatingTutor() {
   const widgetLabel = isMentorAcc ? 'Asistent AI' : onMeditatii ? 'Meditatorul tău' : 'Prof. Virtual';
 
   // Pagina de meditații trimite contextul + mesajul automat („Nu înțeleg
-  // exercițiul...") către ACEST widget — o singură conversație, un singur buton.
-  const [medChat, setMedChat] = useState(null); // { context, autoPrompt }
+  // exercițiul...") + mesajele COACH (bun venit, aprecieri, pasul următor)
+  // către ACEST widget — o singură conversație, un singur buton. Widgetul se
+  // DESCHIDE SINGUR ori de câte ori profesorul are ceva de comunicat.
+  const [medChat, setMedChat] = useState(null); // { context, autoPrompt, coach }
   useEffect(() => {
     function onMedChat(e) {
-      setMedChat({ context: e.detail?.context || { meditatii: true }, autoPrompt: e.detail?.autoPrompt || null });
+      setMedChat((prev) => ({
+        context: e.detail?.context || prev?.context || { meditatii: true },
+        autoPrompt: e.detail?.autoPrompt || null,
+        coach: e.detail?.coach || null,
+      }));
       setWidgetTab('chat');
       setOpen(true);
     }
@@ -805,7 +872,7 @@ export default function FloatingTutor() {
           </div>
 
           <div style={{ flex: 1, minHeight: 0, overflowY: widgetTab === 'chat' ? 'hidden' : 'auto' }}>
-            {widgetTab === 'chat' && <ChatPanel compact context={chatContext || {}} autoPrompt={medChat?.autoPrompt || null} onNavigate={() => setOpen(false)} />}
+            {widgetTab === 'chat' && <ChatPanel compact context={chatContext || {}} autoPrompt={medChat?.autoPrompt || null} coachInject={medChat?.coach || null} onNavigate={() => setOpen(false)} />}
             {widgetTab === 'exam' && <div style={{ padding: 12 }}><ExamGenerator compact /></div>}
             {widgetTab === 'meditatii' && (
               <div style={{ padding: 16 }}>

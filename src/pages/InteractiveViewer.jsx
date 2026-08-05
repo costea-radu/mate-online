@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { aiClient } from '../lib/aiClient';
 import { ChatPanel, TutorFab } from '../components/AITutor';
 import { injectTutorBridge } from '../lib/tutorBridge';
 import { awardBadges } from '../lib/badges';
@@ -11,12 +12,13 @@ import EinsteinIcon from '../components/EinsteinIcon';
 export default function InteractiveViewer() {
   const { state } = useLocation();
   const navigate = useNavigate();
-  const { isPremium, user, loading: authLoading } = useAuth();
+  const { isPremium, isAdmin, user, loading: authLoading } = useAuth();
   const [srcDoc, setSrcDoc] = useState(state?.srcDoc || null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [scoreSaved, setScoreSaved] = useState(false);
   const [savedScore, setSavedScore] = useState(null);
+  const [saveError, setSaveError] = useState(null); // eroarea de salvare devine VIZIBILĂ
   const startedAtRef = useRef(Date.now());
   const iframeRef = useRef(null);
 
@@ -147,15 +149,24 @@ export default function InteractiveViewer() {
         if (!error) {
           setScoreSaved(true);
           setSavedScore({ score, maxScore });
+          setSaveError(null);
           startedAtRef.current = Date.now(); // pregătește o eventuală reîncercare
+
+          // Meditații: dacă exercițiul era TEMĂ de la Profesorul Virtual, se
+          // bifează PE LOC „rezolvată" (nu abia la următoarea vizită pe /meditatii)
+          aiClient.meditatii({ action: 'homework_check' }).catch(() => {});
 
           // Insigne: verifică dacă scorul aduce insigne noi (nu blocăm UI-ul)
           awardBadges(user.id, { score, maxScore, attempts, category: item.category })
             .then((earned) => { if (earned.length) setNewBadges(earned); })
             .catch(() => {});
+        } else {
+          console.error('Progress save error:', error);
+          setSaveError(error.message || 'Scorul nu s-a putut salva.');
         }
       } catch (err) {
         console.error('Progress save error:', err);
+        setSaveError(err.message || 'Scorul nu s-a putut salva.');
       }
     }
 
@@ -219,7 +230,9 @@ export default function InteractiveViewer() {
     if (authLoading) return;
     if (!item) { if (!idParam) navigate('/'); return; }
 
-    const canAccess = item.is_free || isPremium;
+    // adminul are acces la orice material (altfel testarea temelor premium
+    // dintr-un cont de admin fără abonament era respinsă tăcut → /preturi)
+    const canAccess = item.is_free || isPremium || isAdmin;
     if (!canAccess) { navigate('/preturi'); return; }
 
     // srcDoc direct din state (transmis de ContentPage)
@@ -351,6 +364,16 @@ export default function InteractiveViewer() {
               </span>
             )}
           </button>
+
+          {/* Eroare de salvare — vizibilă, nu doar în consolă */}
+          {saveError && (
+            <div style={{
+              background: '#c62828', color: '#fff', padding: '4px 14px', borderRadius: 20,
+              fontSize: '0.8rem', fontWeight: 700,
+            }} title={saveError}>
+              ⚠ Scorul nu s-a salvat — reîncearcă „Verifică"
+            </div>
+          )}
 
           {/* Scor salvat */}
           {scoreSaved && savedScore && (

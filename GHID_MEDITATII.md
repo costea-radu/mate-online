@@ -143,6 +143,37 @@ părinții nu au meditații proprii — văd raportul elevilor în profil.
     departe →" + „Continuă în conversație"; chatul primește aceeași stare și
     are instrucțiuni să ia inițiativa. Butoanele statice rămân pentru sărituri rapide.
 
+## 🔄 Runda 3 — meditația condusă prin widget
+
+1. **Profesorul comunică prin widget și pornește singur**: la sosirea pe
+   /meditatii widgetul se deschide cu mesajul de bun venit + pașii propuși ca
+   BUTOANE în conversație; după fiecare set corectat / temă notată, widgetul
+   revine automat cu aprecierea și pasul următor. Aceste mesaje „coach" sunt
+   scrise cu **gpt-4o-mini** (economie de tokeni; opțional `AI_COACH_MODEL` în
+   Vercel), cu fallback determinist fără cost. Generarea de exerciții rămâne
+   neschimbată: sol / terra / **Claude Opus 5**.
+2. **Profesorul pornește pași direct din conversație**: când elevul acceptă
+   („da", „hai"), modelul emite un marcaj invizibil
+   `[[MEDITATII:{"kind":"exercitii","chapterId":"..."}]]` — platforma pornește
+   automat exercițiile/teoria/recapitularea/tema/simularea. Dacă elevul nu e pe
+   /meditatii, e dus acolo și pasul pornește singur.
+3. **„Progresul meu"** — tab nou în meditații: plan parcurs, timp, serie de
+   zile, nota estimată + stăpânirea pe subiecte.
+4. **„🔊 Ascultă teoria"** — profesorul recită întreaga lecție (vocile din
+   sistem, gratuit), cu pauză/continuare și bară de progres.
+5. **Tema se bifează PE LOC**: viewerul de exerciții apelează `homework_check`
+   imediat după salvarea scorului; reconcilierea nu mai depinde de comparația
+   strictă de timp (orice rezultat apărut după darea temei contează); eroarea
+   de salvare a scorului e acum VIZIBILĂ în bara de sus (nu doar în consolă);
+   adminul are acces la materialele premium (testarea temelor nu mai fugea la
+   /preturi).
+6. **Plan fără plafon de capitole**: EN = toată programa claselor 5–8 (24 de
+   capitole) + rubricile „Capitole" din site (EN **și** clasele 5–8); BAC =
+   clasele 9–12 + rubricile „Capitole" (BAC și clasele 9–12). Planurile
+   existente rămân cum sunt — pentru planul lărgit: „Reia evaluarea inițială".
+7. **Eticheta nivelului**: „Nivel (evaluare inițială): avansat" — clar că vine
+   din testul inițial.
+
 ## 🛠️ Depanare
 
 | Simptom | Cauză / soluție |
