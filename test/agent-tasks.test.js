@@ -149,17 +149,90 @@ test('exgen.runAuto „pe rând”: când toate fișierele au fost procesate →
   assert.match(r.reason, /procesate/);
 });
 
-test('agent-cron.isDue: potrivirea programului + garda anti-dublare', () => {
-  const now = { hour: 7, weekday: 5, monthday: 31 }; // vineri 31, ora 7
-  assert.ok(cron.isDue({ enabled: true, schedule_kind: 'daily', run_hour: 7 }, now));
-  assert.ok(!cron.isDue({ enabled: false, schedule_kind: 'daily', run_hour: 7 }, now), 'oprit → nu rulează');
-  assert.ok(!cron.isDue({ enabled: true, schedule_kind: 'daily', run_hour: 8 }, now), 'altă oră');
-  assert.ok(cron.isDue({ enabled: true, schedule_kind: 'weekly', run_hour: 7, run_weekday: 5 }, now), 'vineri, săptămânal');
-  assert.ok(!cron.isDue({ enabled: true, schedule_kind: 'weekly', run_hour: 7, run_weekday: 1 }, now), 'luni ≠ vineri');
-  assert.ok(!cron.isDue({ enabled: true, schedule_kind: 'monthly', run_hour: 7, run_monthday: 1 }, now), 'altă zi a lunii');
-  // garda: a rulat acum 30 min → nu iar; a rulat ieri → da
-  assert.ok(!cron.isDue({ enabled: true, schedule_kind: 'daily', run_hour: 7, last_run_at: new Date(Date.now() - 30 * 60000).toISOString() }, now));
-  assert.ok(cron.isDue({ enabled: true, schedule_kind: 'daily', run_hour: 7, last_run_at: new Date(Date.now() - 25 * 3600 * 1000).toISOString() }, now));
+test('agent-cron.isDue: potrivirea programului + garda anti-dublare + fereastra de recuperare', () => {
+  // vineri, 31 iulie 2026, 07:00 ora României (vară, UTC+3) = 04:00Z
+  const laOra = new Date('2026-07-31T04:00:00Z');
+  assert.ok(cron.isDue({ enabled: true, schedule_kind: 'daily', run_hour: 7 }, laOra));
+  assert.ok(!cron.isDue({ enabled: false, schedule_kind: 'daily', run_hour: 7 }, laOra), 'oprit → nu rulează');
+  assert.ok(!cron.isDue({ enabled: true, schedule_kind: 'daily', run_hour: 8 }, laOra), 'altă oră');
+  assert.ok(cron.isDue({ enabled: true, schedule_kind: 'weekly', run_hour: 7, run_weekday: 5 }, laOra), 'vineri, săptămânal');
+  assert.ok(!cron.isDue({ enabled: true, schedule_kind: 'weekly', run_hour: 7, run_weekday: 1 }, laOra), 'luni ≠ vineri');
+  assert.ok(!cron.isDue({ enabled: true, schedule_kind: 'monthly', run_hour: 7, run_monthday: 1 }, laOra), 'altă zi a lunii');
+  // iarnă (UTC+2): 15 ianuarie, 05:00Z = 07:00 la București
+  assert.ok(cron.isDue({ enabled: true, schedule_kind: 'daily', run_hour: 7 }, new Date('2026-01-15T05:00:00Z')));
+
+  // FEREASTRA DE RECUPERARE: un task ratat la fix (tic aglomerat cu >3 task-uri,
+  // tic pierdut, funcție întreruptă) mai e scadent și în orele următoare…
+  const dupa2h = new Date('2026-07-31T06:30:00Z'); // 09:30 ora României
+  assert.ok(cron.isDue({ enabled: true, schedule_kind: 'daily', run_hour: 7 }, dupa2h), 'recuperat la 2h după oră');
+  assert.ok(cron.isDue({ enabled: true, schedule_kind: 'weekly', run_hour: 7, run_weekday: 5 }, dupa2h));
+  // …dar nu la nesfârșit (fereastra e de 6 ore)
+  assert.ok(!cron.isDue({ enabled: true, schedule_kind: 'daily', run_hour: 7 }, new Date('2026-07-31T10:30:00Z')), '7h mai târziu → expirat');
+  // și nu în altă zi (sâmbătă nu recuperează task-ul de vineri)
+  assert.ok(!cron.isDue({ enabled: true, schedule_kind: 'weekly', run_hour: 7, run_weekday: 5 }, new Date('2026-08-01T04:00:00Z')));
+
+  // garda anti-dublare, pe ora PROGRAMATĂ: a rulat după ora programată → gata;
+  // a rulat cu puțin înaintea ei („Rulează acum” la 06:50) → tot gata;
+  // ultima rulare e de ieri → scadent
+  const daily7 = { enabled: true, schedule_kind: 'daily', run_hour: 7 };
+  assert.ok(!cron.isDue({ ...daily7, last_run_at: '2026-07-31T04:05:00Z' }, dupa2h), 'a rulat la 07:05 → nu iar');
+  assert.ok(!cron.isDue({ ...daily7, last_run_at: '2026-07-31T03:50:00Z' }, dupa2h), 'manual la 06:50 → contează ca rularea zilei');
+  assert.ok(cron.isDue({ ...daily7, last_run_at: '2026-07-30T04:05:00Z' }, dupa2h), 'rulat ieri → scadent azi');
+
+  // dueAt întoarce chiar începutul orei programate
+  assert.strictEqual(cron.dueAt(daily7, dupa2h), new Date('2026-07-31T04:00:00Z').getTime());
+});
+
+test('exgen.chatClaudeLong: continuă răspunsurile tăiate/neterminate și re-cere strict documentul', async () => {
+  const orig = claude.chatClaude;
+  const untilHtml = (t) => /<\/html>/i.test(t);
+  try {
+    // (a) tăiat la max_tokens → continuare cu prefill de asistent, textele se lipesc
+    let calls = 0;
+    claude.chatClaude = async ({ messages }) => {
+      calls++;
+      if (calls === 1) return { text: '<!doctype html><html><body>înc', usage: { prompt_tokens: 1, completion_tokens: 1 }, provider: 'stub', stopReason: 'max_tokens' };
+      assert.strictEqual(messages[messages.length - 1].role, 'assistant', 'continuarea folosește prefill');
+      return { text: 'eput</body></html>', usage: { prompt_tokens: 1, completion_tokens: 1 }, provider: 'stub', stopReason: 'end_turn' };
+    };
+    let r = await exgen.chatClaudeLong({ system: 's', blocks: [{ type: 'text', text: 'x' }], until: untilHtml });
+    assert.strictEqual(r.text, '<!doctype html><html><body>început</body></html>');
+    assert.strictEqual(r.continuations, 1);
+    assert.strictEqual(r.usage.completion_tokens, 2, 'usage cumulat');
+
+    // (b) oprit cu end_turn dar documentul NETERMINAT → tot continuă (până iese </html>)
+    calls = 0;
+    claude.chatClaude = async () => {
+      calls++;
+      return calls === 1
+        ? { text: '<!doctype html><html><body>jumătate', usage: {}, provider: 'stub', stopReason: 'end_turn' }
+        : { text: ' și restul</body></html>', usage: {}, provider: 'stub', stopReason: 'end_turn' };
+    };
+    r = await exgen.chatClaudeLong({ system: 's', blocks: [{ type: 'text', text: 'x' }], until: untilHtml });
+    assert.ok(untilHtml(r.text), 'documentul e complet după continuare');
+
+    // (c) modelul răspunde cu PROZĂ (fără doctype) → o re-cerere strictă aduce documentul
+    calls = 0;
+    claude.chatClaude = async ({ messages }) => {
+      calls++;
+      if (calls === 1) return { text: 'Nu pot clona fișierul, e prea mare.', usage: {}, provider: 'stub', stopReason: 'end_turn' };
+      assert.match(messages[messages.length - 1].content, /EXCLUSIV cu documentul HTML complet/, 're-cererea strictă');
+      return { text: '<!doctype html><html><body>doc</body></html>', usage: {}, provider: 'stub', stopReason: 'end_turn' };
+    };
+    r = await exgen.chatClaudeLong({ system: 's', blocks: [{ type: 'text', text: 'x' }], until: untilHtml });
+    assert.ok(r.strictRetry, 'a făcut re-cererea strictă');
+    assert.ok(untilHtml(r.text) && r.text.includes('doc'));
+    assert.strictEqual(calls, 2, 'proza NU se continuă cu prefill — direct re-cererea strictă');
+
+    // (d) providerul fallback (fără stopReason) → nicio continuare
+    calls = 0;
+    claude.chatClaude = async () => { calls++; return { text: 'text scurt', usage: {}, provider: 'fallback:gpt' }; };
+    r = await exgen.chatClaudeLong({ system: 's', blocks: [{ type: 'text', text: 'x' }], until: untilHtml });
+    assert.strictEqual(calls, 1);
+    assert.strictEqual(r.continuations, 0);
+  } finally {
+    claude.chatClaude = orig;
+  }
 });
 
 test('exgen.figuresAllowed + stripFigures: figurile geometrice DOAR la Evaluare Națională', () => {

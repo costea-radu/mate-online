@@ -4,6 +4,27 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 6 august 2026 — Task-urile programate: generarea nu se mai „întrerupe” (continuare + re-cerere strictă) și ORA PROGRAMATĂ nu se mai pierde (fereastră de recuperare în cron)
+
+Două erori raportate de admin după livrarea de ieri. Fișiere: `api/_lib/exgen.js`, `api/agent-cron.js`, teste, ghid — fără migrare SQL.
+
+### 1) ⚠️ „nu am obținut un document HTML complet (răspunsul s-a întrerupt)” (ex. task „pe rând” + model de format, Opus 5)
+Garda de completitudine de ieri a refuzat corect un document neterminat — dar continuarea automată pornea DOAR la `stop_reason = max_tokens`. Dacă modelul se oprea din alt motiv cu documentul la jumătate, sau răspundea cu proză („nu pot clona fișierul…”) în loc de HTML, rularea rămânea pe eroare. `chatClaudeLong` acum:
+- **continuă și când modelul s-a oprit cu documentul neterminat** (parametrul nou `until` — ex. „textul conține `</html>`?”), nu doar la `max_tokens`; până la 4 reluări cu prefill de asistent;
+- **re-cere o dată, strict, DOAR documentul** când răspunsul nu conține deloc `<!doctype`/`<html` (proză) — conversația + refuzul modelului + reamintirea formatului; dacă și răspunsul strict se taie, e continuat și el (până la 2 reluări);
+- providerul fallback (fără `stop_reason`) nu încearcă continuarea (nu are prefill garantat);
+- mesajele de eroare includ diagnosticul `[stop=…, continuări=…, re-cerere strictă]` — se văd în istoricul rulării și în emailul ⚠️.
+Recomandare operațională (în ghid): la task-urile cu model de format MARE, Sonnet 5 e alegerea mai sigură decât Opus (generările uriașe cu Opus se pot apropia de limita de timp a funcției Vercel, 300s).
+
+### 2) 🕖 „nu a publicat la ora programată — merge doar manual”
+Cauza demonstrabilă în `agent-cron.js`: un task era scadent DOAR la fix ora lui (`run_hour !== now.hour` → afară), iar cronul executa max 3 task-uri per tic. Cu mai mult de 3 task-uri la aceeași oră (cazul adminului: mai multe profiluri BAC la 07:00), al 4-lea+ nu era luat — iar la 08:00 nu mai era „scadent”, deci NU mai rula deloc în ziua aceea. La fel se pierdeau task-urile dintr-un tic ratat de Vercel sau dintr-o funcție întreruptă la maxDuration.
+- **`dueAt` (nou):** momentul programat cel mai recent din ultimele **6 ore** (fereastra de recuperare `CATCHUP_HOURS`), calculat pe ora României (cu tot cu treceri de zi/lună la miezul nopții).
+- **`isDue` rescris:** scadent dacă ora programată a trecut de sub 6 ore și task-ul NU a rulat de la (ora programată − 2h) încoace — garda anti-dublare veche, păstrată ca semantică: o rulare manuală „▶️ Rulează acum” cu puțin înaintea orei contează ca rularea zilei.
+- **Buget de timp per tic:** după ~220s nu se mai pornesc task-uri noi (`postponed` în răspunsul cronului) — le prinde ticul următor prin fereastra de recuperare, în loc să moară odată cu funcția.
+- De verificat în admin: task-urile din poză sunt pe ⏸ pauză („următoarea: oprit") — cele oprite nu rulează niciodată singure; apasă „▶ Pornește".
+
+**`test/agent-tasks.test.js`:** testul `isDue` rescris pe momente reale (vară/iarnă, recuperare la +2h, expirare la +7h, fără recuperare în altă zi, garda pe ora programată, `dueAt` exact) + test nou `chatClaudeLong` (stub pe `claude.chatClaude`): lipirea continuărilor la `max_tokens`, continuarea documentelor neterminate pe `end_turn`, re-cererea strictă la proză (fără continuarea prozei), fallback fără continuare. **15/15 trec**; `node --check` pe toate fișierele editate.
+
 ## 5 august 2026 (2) — Task-urile programate: FĂRĂ figuri în afara EN, teste complete (Subiectul III / „nimic generat”), postarea automată chiar VIZIBILĂ pe site
 
 Trei probleme raportate de admin la agenții din „Creează task programat” (aceleași reparații acoperă și butonul manual „⚙️ Generează (AI)”, care folosește aceeași logică din `exgen.js`). **Doar `api/_lib/exgen.js`** + teste + ghid — fără migrare SQL, fără schimbări de UI.

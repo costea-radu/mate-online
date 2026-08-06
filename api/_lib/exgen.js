@@ -143,11 +143,15 @@ function cutHtml(raw) {
   return h.slice(s2, e + 7).trim();
 }
 
-// Apel Claude pentru RĂSPUNSURI LUNGI: când răspunsul se taie la max_tokens,
-// îl CONTINUĂ automat (partea deja generată devine mesaj de asistent —
-// „prefill” — iar modelul continuă exact de unde a rămas), până la 3 reluări.
+// Apel Claude pentru RĂSPUNSURI LUNGI: când răspunsul se taie la max_tokens
+// — SAU se oprește cu documentul neterminat (`until` neîndeplinit, ex. fără
+// `</html>`) — îl CONTINUĂ automat (partea deja generată devine mesaj de
+// asistent — „prefill” — iar modelul continuă exact de unde a rămas), până la
+// 4 reluări. Dacă modelul a răspuns cu PROZĂ în loc de document (fără niciun
+// <!doctype/<html>), i se RE-CERE o dată, strict, doar documentul.
 // Așa nu se mai pierde finalul testelor mari (ex. tocmai Subiectul III).
-async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null }) {
+const LOOKS_HTML_RE = /<!doctype html|<html[\s>]/i;
+async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null, until = null }) {
   const baseMessages = [{ role: 'user', content: blocks }];
   let r = await claude.chatClaude({ system, messages: baseMessages, maxTokens, model });
   let text = String(r.text || '');
@@ -155,8 +159,18 @@ async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null 
     prompt_tokens: r.usage?.prompt_tokens || 0,
     completion_tokens: r.usage?.completion_tokens || 0,
   };
+  const addUsage = () => {
+    usage.prompt_tokens += r.usage?.prompt_tokens || 0;
+    usage.completion_tokens += r.usage?.completion_tokens || 0;
+  };
+  // continuăm cât timp: (a) răspunsul s-a tăiat la max_tokens, sau (b) modelul
+  // s-a oprit dar documentul început e NETERMINAT (`until` fals pe un text care
+  // arată a document). `r.stopReason` există doar pe API-ul Claude real —
+  // providerul fallback nu-l are, deci acolo nu încercăm continuarea.
+  const needsMore = () => r.stopReason === 'max_tokens'
+    || (!!r.stopReason && typeof until === 'function' && !until(text) && LOOKS_HTML_RE.test(text));
   let rounds = 0;
-  while (r.stopReason === 'max_tokens' && rounds < 3) {
+  while (needsMore() && rounds < 4) {
     rounds++;
     const prefill = text.replace(/\s+$/, '');
     if (!prefill) break;
@@ -170,11 +184,46 @@ async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null 
       console.warn('exgen: continuarea răspunsului lung a eșuat (%s) — folosesc ce am', e.message);
       break;
     }
-    usage.prompt_tokens += r.usage?.prompt_tokens || 0;
-    usage.completion_tokens += r.usage?.completion_tokens || 0;
+    addUsage();
     text = prefill + String(r.text || '');
   }
-  return { text, usage, provider: r.provider, stopReason: r.stopReason, continuations: rounds };
+  // Modelul a răspuns cu explicații/proză în loc de document → o singură
+  // re-cerere STRICTĂ (conversația + refuzul lui + reamintirea formatului).
+  let strictRetry = false;
+  if (!!r.stopReason && typeof until === 'function' && !until(text) && !LOOKS_HTML_RE.test(text)) {
+    strictRetry = true;
+    try {
+      const r2 = await claude.chatClaude({
+        system,
+        messages: [
+          ...baseMessages,
+          { role: 'assistant', content: text.replace(/\s+$/, '') || '(răspuns gol)' },
+          { role: 'user', content: 'Răspunsul tău NU conține documentul cerut. Fără nicio explicație, scuză sau întrebare: răspunde ACUM EXCLUSIV cu documentul HTML complet, de la <!doctype html> până la </html>, respectând toate regulile din instrucțiuni.' },
+        ],
+        maxTokens, model,
+      });
+      r = r2;
+      addUsage();
+      if (LOOKS_HTML_RE.test(String(r2.text || ''))) text = String(r2.text || '');
+      // …iar dacă și răspunsul strict s-a tăiat la limită, îl continuăm și pe el
+      let extra = 0;
+      while (r.stopReason === 'max_tokens' && extra < 2) {
+        extra++;
+        const prefill = text.replace(/\s+$/, '');
+        r = await claude.chatClaude({
+          system,
+          messages: [...baseMessages, { role: 'assistant', content: prefill }],
+          maxTokens, model,
+        });
+        addUsage();
+        text = prefill + String(r.text || '');
+        rounds++;
+      }
+    } catch (e) {
+      console.warn('exgen: re-cererea strictă a eșuat (%s) — folosesc ce am', e.message);
+    }
+  }
+  return { text, usage, provider: r.provider, stopReason: r.stopReason, continuations: rounds, strictRetry };
 }
 
 // ─── Validarea exercițiului JSON (mutat din ai-exercise-agent.js) ───────────
@@ -500,7 +549,7 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
       const blocksS = [];
       blocksS.push(...ctx.docBlocks);
       blocksS.push({ type: 'text', text: `FIȘIERUL-SURSĂ („${src.title}”):\n${srcHtml}${ctx.textBlock}\n\nProdu ACUM varianta nouă — doar documentul HTML.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? ', dar desenele tot NU se modifică' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
-      const rS = await chatClaudeLong({ system: sysSeq, blocks: blocksS, maxTokens: 30000, model: aiModel });
+      const rS = await chatClaudeLong({ system: sysSeq, blocks: blocksS, maxTokens: 30000, model: aiModel, until: (t) => /<\/html>/i.test(t) });
       let hS = cutHtml(rS.text);
       if (hS && allowFig) {
         const srcSvgs = srcHtml.match(/<svg[\s\S]*?<\/svg>/gi) || [];
@@ -510,6 +559,7 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
       try {
         assertCompleteHtml({ html: hS, baseline: srcHtml, what: `Varianta fișierului „${src.title}”` });
       } catch (e) {
+        e.message += ` [stop=${rS.stopReason || '?'}, continuări=${rS.continuations || 0}${rS.strictRetry ? ', re-cerere strictă' : ''}]`;
         console.error('exgen(seq-html): invalid. stopReason=%s continuations=%s', rS.stopReason, rS.continuations);
         throw e;
       }
@@ -532,7 +582,7 @@ Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
       }
       blocksF.push(...ctx.docBlocks);
       blocksF.push({ type: 'text', text: `ȘABLONUL (modelul de format):\n${tplF}${srcText ? `\n\nMATERIALUL-SURSĂ („${src.title}”):\n${srcText}` : ''}${srcHtml ? `\n\nMATERIALUL-SURSĂ („${src.title}”, HTML):\n${srcHtml.slice(0, 60000)}` : ''}${ctx.textBlock}\n\nConstruiește acum fișierul.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
-      const rF = await chatClaudeLong({ system: sysSeqF, blocks: blocksF, maxTokens: 30000, model: aiModel });
+      const rF = await chatClaudeLong({ system: sysSeqF, blocks: blocksF, maxTokens: 30000, model: aiModel, until: (t) => /<\/html>/i.test(t) });
       let hF = cutHtml(rF.text);
       if (hF && allowFig) {
         const tplSvgsF = tplF.match(/<svg[\s\S]*?<\/svg>/gi) || [];
@@ -542,6 +592,7 @@ Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
       try {
         assertCompleteHtml({ html: hF, baseline: `${tplF}\n${srcHtml || ''}\n${srcText || ''}`, what: `Fișierul din „${src.title}” în modelul de format` });
       } catch (e) {
+        e.message += ` [stop=${rF.stopReason || '?'}, continuări=${rF.continuations || 0}${rF.strictRetry ? ', re-cerere strictă' : ''}]`;
         console.error('exgen(seq-format): invalid. stopReason=%s continuations=%s', rF.stopReason, rF.continuations);
         throw e;
       }
@@ -622,7 +673,7 @@ Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScr
 Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
       blocksA.push(...ctx.docBlocks);
       blocksA.push({ type: 'text', text: `ȘABLONUL (${tplName}):\n${tpl}${ctx.textBlock}\n\nConstruiește acum testul interactiv.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? '' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
-      const rD = await chatClaudeLong({ system: sysD, blocks: blocksA, maxTokens: 30000, model: aiModel });
+      const rD = await chatClaudeLong({ system: sysD, blocks: blocksA, maxTokens: 30000, model: aiModel, until: (t) => /<\/html>/i.test(t) });
       let hOut = cutHtml(rD.text);
       if (hOut && allowFig) {
         const tplSvgsD = tpl.match(/<svg[\s\S]*?<\/svg>/gi) || [];
@@ -632,6 +683,7 @@ Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
       try {
         assertCompleteHtml({ html: hOut, baseline: tpl, what: 'Testul interactiv din PDF-uri' });
       } catch (e) {
+        e.message += ` [stop=${rD.stopReason || '?'}, continuări=${rD.continuations || 0}${rD.strictRetry ? ', re-cerere strictă' : ''}]`;
         console.error('exgen(auto-pdf-interactiv): invalid. stopReason=%s continuations=%s', rD.stopReason, rD.continuations);
         throw e;
       }
@@ -779,6 +831,7 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
     blocks: blocksI,
     maxTokens: 30000,
     model: aiModel,
+    until: (t) => /<\/html>/i.test(t),
   });
 
   let htmlOut = cutHtml(rA.text);
@@ -800,6 +853,7 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
   try {
     assertCompleteHtml({ html: htmlOut, baseline: templateHtml, what: 'Testul generat pe rubrică' });
   } catch (e) {
+    e.message += ` [stop=${rA.stopReason || '?'}, continuări=${rA.continuations || 0}${rA.strictRetry ? ', re-cerere strictă' : ''}]`;
     console.error('exgen(auto-html): invalid. stopReason=%s continuations=%s', rA.stopReason, rA.continuations);
     throw e;
   }
@@ -1236,5 +1290,5 @@ module.exports = {
   storeFormatModel, removeFormatModel, loadFormatModel, fetchExtraContext,
   detectMode, titleMatchScore, fetchPairedContext,
   // pentru teste (test/agent-tasks.test.js)
-  figuresAllowed, stripFigures, itemSignals, missingSections, cutHtml, visibleSubcategory,
+  figuresAllowed, stripFigures, itemSignals, missingSections, cutHtml, visibleSubcategory, chatClaudeLong,
 };

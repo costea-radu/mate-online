@@ -163,9 +163,22 @@ vrei cândva gateway-ul, se schimbă doar URL-ul și cheia în acel fișier.
 
 - Panoul afișează „Tabelul agent_tasks lipsește" → rulează
   `supabase/agent_tasks.sql`.
-- Task-ul nu a rulat la ora aleasă → verifică-l că e 🟢 pornit; cronul rulează
-  la minutul 0 (task de ora 7 → rulează 7:00–7:05); Vercel → Settings → Cron
+- Task-ul nu a rulat la ora aleasă → verifică-l ÎNTÂI că e 🟢 pornit (un task
+  ⏸ oprit nu rulează niciodată singur; rândul lui arată „următoarea: oprit").
+  Cronul rulează la minutul 0 (task de ora 7 → rulează 7:00–7:05) și execută
+  max 3 task-uri per tic, cu buget de timp — dar există o **fereastră de
+  recuperare de 6 ore**: un task ratat la fix (mai multe task-uri la aceeași
+  oră, tic pierdut, funcție întreruptă) e prins automat de ticurile
+  următoare, până la 6 ore după ora programată. Vercel → Settings → Cron
   Jobs arată execuțiile. Manual: `/api/agent-cron?action=run&secret=AI_CRON_SECRET`.
+- Eroare „nu am obținut un document HTML complet (răspunsul s-a întrerupt)" →
+  garda de completitudine a refuzat să publice un test neterminat. Serverul
+  continuă singur răspunsurile tăiate (până la 4 reluări) și re-cere strict
+  documentul dacă modelul răspunde cu explicații; dacă eroarea persistă pe
+  task-urile cu model de format MARE + Opus, încearcă Sonnet 5 (mai rapid —
+  generările uriașe cu Opus se pot apropia de limita de timp a funcției) sau
+  un model de format mai mic. Mesajul include acum diagnosticul
+  `[stop=…, continuări=…]`.
 - Eroare „Rubrica are prea puține materiale" → rubrica aleasă are sub 2
   materiale de tipul selectat (PDF/interactiv).
 - Rulările „🕓 așteaptă aprobare" se păstrează în istoric până le postezi sau

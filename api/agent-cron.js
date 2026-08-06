@@ -8,11 +8,17 @@
 // Vercel) sau ?secret=AI_CRON_SECRET.
 //
 // GET /api/agent-cron?action=run
-//   • ia task-urile enabled scadente (ora + ziua potrivite, nerulate recent);
-//   • le execută pe rând (max 3 per tic — restul prind ora următoare doar
-//     dacă mai sunt scadente atunci; practic rar se suprapun 3+ la fix
-//     aceeași oră) prin exgen.runTask: generare → postare automată SAU
-//     rezultat „așteaptă aprobare" → email către admin (dacă task.notify).
+//   • ia task-urile enabled scadente (ora + ziua potrivite, nerulate de la
+//     ora programată încoace) — cu FEREASTRĂ DE RECUPERARE de 6 ore: un task
+//     care nu a apucat să ruleze fix la ora lui (mai mult de 3 scadente în
+//     același tic, un tic ratat de Vercel, o funcție întreruptă la
+//     maxDuration) mai e încercat la fiecare tic orar, până la 6 ore după
+//     ora programată. Înainte, ratarea orei = task-ul NU mai rula deloc în
+//     ziua aceea („nu a publicat la ora programată”).
+//   • le execută pe rând (max 3 per tic, cu buget de timp ~220s — restul
+//     rămân scadente și îi prinde ticul următor) prin exgen.runTask:
+//     generare → postare automată SAU rezultat „așteaptă aprobare" → email
+//     către admin (dacă task.notify).
 // =====================================================================
 const ai = require('./_lib/ai');
 const exgen = require('./_lib/exgen');
@@ -33,13 +39,33 @@ function bucharestNow(at = new Date()) {
   };
 }
 
-function isDue(task, now) {
+// Fereastra de RECUPERARE: câte ore după ora programată mai încercăm un task
+// care nu a apucat să ruleze (tic aglomerat / ratat / întrerupt la maxDuration).
+const CATCHUP_HOURS = 6;
+
+// Momentul programat cel mai RECENT (ms UTC, începutul orei) din ultimele
+// CATCHUP_HOURS ore care se potrivește programului task-ului; null dacă nu e.
+function dueAt(task, at = new Date()) {
+  const topOfHour = Math.floor(at.getTime() / 3600000) * 3600000;
+  for (let h = 0; h < CATCHUP_HOURS; h++) {
+    const t = new Date(topOfHour - h * 3600000);
+    const ro = bucharestNow(t);
+    if ((task.run_hour ?? 7) !== ro.hour) continue;
+    if (task.schedule_kind === 'weekly' && (task.run_weekday || 1) !== ro.weekday) continue;
+    if (task.schedule_kind === 'monthly' && (task.run_monthday || 1) !== ro.monthday) continue;
+    return t.getTime();
+  }
+  return null;
+}
+
+function isDue(task, at = new Date()) {
   if (!task.enabled) return false;
-  if ((task.run_hour ?? 7) !== now.hour) return false;
-  if (task.schedule_kind === 'weekly' && (task.run_weekday || 1) !== now.weekday) return false;
-  if (task.schedule_kind === 'monthly' && (task.run_monthday || 1) !== now.monthday) return false;
-  // gardă anti-dublare: nu rula din nou dacă a rulat în ultimele 2 ore
-  if (task.last_run_at && Date.now() - new Date(task.last_run_at).getTime() < 2 * 3600 * 1000) return false;
+  const sched = dueAt(task, at);
+  if (sched == null) return false;
+  // task-ul e „făcut” dacă a rulat DE LA ora programată încoace — sau cu până
+  // la 2 ore ÎNAINTE de ea (ex. „▶️ Rulează acum” chiar înaintea orei; vechea
+  // gardă anti-dublare, cu aceeași semantică)
+  if (task.last_run_at && new Date(task.last_run_at).getTime() >= sched - 2 * 3600 * 1000) return false;
   return true;
 }
 
@@ -67,14 +93,21 @@ module.exports = async function handler(req, res) {
       if (error) {
         return res.status(200).json({ ok: false, warning: `Tabelul agent_tasks lipsește — rulează supabase/agent_tasks.sql (${error.message})` });
       }
-      const now = bucharestNow();
-      const due = (tasks || []).filter((t) => isDue(t, now))
+      const at = new Date();
+      const now = bucharestNow(at);
+      const due = (tasks || []).filter((t) => isDue(t, at))
         .sort((a, b) => new Date(a.last_run_at || 0) - new Date(b.last_run_at || 0))
-        .slice(0, 3); // buget de timp: fiecare generare durează ~30–90s (maxDuration 300s)
+        .slice(0, 3); // per tic; restul rămân scadente (fereastra de recuperare) și îi ia ticul următor
 
       const uid = await adminUserId(supa);
+      const started = Date.now();
       const ran = [];
+      const postponed = [];
       for (const task of due) {
+        // buget de timp: generările lungi (Opus + continuări) pot apropia
+        // maxDuration (300s) — ce nu încape acum rămâne scadent pentru ticul
+        // următor, în loc să fie pierdut la întreruperea funcției
+        if (Date.now() - started > 220 * 1000) { postponed.push(task.name); continue; }
         const r = await exgen.runTask({ supa, task, triggerKind: 'cron' });
         if (uid && r.usage) await ai.logUsage(supa, uid, 'agent-task-cron', r.usage).catch(() => {});
         ran.push({
@@ -82,7 +115,7 @@ module.exports = async function handler(req, res) {
           contentId: r.run.content_id || null, error: r.run.error || null, emailed: r.emailed,
         });
       }
-      return res.status(200).json({ ok: true, now, checked: (tasks || []).length, due: due.length, ran });
+      return res.status(200).json({ ok: true, now, checked: (tasks || []).length, due: due.length, ran, postponed });
     }
 
     return res.status(400).json({ error: `Acțiune necunoscută: ${action}` });
@@ -95,3 +128,5 @@ module.exports = async function handler(req, res) {
 // pentru teste (test/agent-tasks.test.js) — Vercel folosește doar funcția default
 module.exports.bucharestNow = bucharestNow;
 module.exports.isDue = isDue;
+module.exports.dueAt = dueAt;
+module.exports.CATCHUP_HOURS = CATCHUP_HOURS;
