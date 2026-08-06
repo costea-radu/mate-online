@@ -1218,11 +1218,13 @@ async function runTask({ supa, task, triggerKind = 'cron' }) {
         || `Test generat · ${task.name}`;
 
       if (task.auto_post) {
-        const dateRo = new Date().toLocaleDateString('ro-RO', { timeZone: 'Europe/Bucharest' });
         const posted = await postContent({
           supa,
           title: run.title,
-          description: `Generat automat de agentul Claude (task „${task.name}”) · ${dateRo}`,
+          // fără descrierea „Generat automat de agentul Claude…” pe site
+          // (cererea adminului) — proveniența rămâne în interactive_data
+          // (agent: 'claude', agent_task) și în istoricul task-ului
+          description: '',
           category: task.category, subcategory: task.subcategory, profile: task.profile,
           isFree: !!task.is_free,
           html: g.html || null, exercise: g.exercise || null,
@@ -1269,11 +1271,11 @@ async function postRun({ supa, runId }) {
   const { data: task } = await supa.from('agent_tasks').select('*').eq('id', run.task_id).single();
   if (!task) throw httpErr(404, 'Task-ul rulării nu mai există.');
 
-  const dateRo = new Date().toLocaleDateString('ro-RO', { timeZone: 'Europe/Bucharest' });
   const posted = await postContent({
     supa,
     title: run.title || `Test generat · ${task.name}`,
-    description: `Generat de agentul Claude (task „${task.name}”) · aprobat ${dateRo}`,
+    // fără descrierea „Generat de agentul Claude…” pe site (cererea adminului)
+    description: '',
     category: task.category, subcategory: task.subcategory, profile: task.profile,
     isFree: !!task.is_free,
     html: run.result.html || null, exercise: run.result.exercise || null,

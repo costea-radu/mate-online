@@ -4,6 +4,12 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 6 august 2026 (2) — Fără descrierea „Generat automat de agentul Claude (task „…”) · data” pe materialele postate
+
+Cererea adminului. Materialele NOI postate de task-urile programate (postare automată sau „✅ Publică acum”) nu mai primesc descrierea „Generat (automat) de agentul Claude (task „…”) · …” — câmpul `description` rămâne gol, deci cardul de pe site afișează doar titlul. Proveniența NU se pierde: rămâne în `interactive_data` (`agent: 'claude'`, `agent_task`) și în istoricul task-ului, deci lista „Exerciții încărcate de agent” din admin funcționează neschimbat. (`api/_lib/exgen.js` — `runTask` + `postRun`.)
+
+Pentru materialele DEJA postate cu descrierea veche: **`supabase/curata_descrieri_agent.sql`** (nou) — rulează-l o dată în Supabase → SQL Editor; șterge doar descrierile care încep cu „Generat” de pe rândurile postate de agent, descrierile scrise de mână rămân neatinse. **15/15 teste trec.**
+
 ## 6 august 2026 — Task-urile programate: generarea nu se mai „întrerupe” (continuare + re-cerere strictă) și ORA PROGRAMATĂ nu se mai pierde (fereastră de recuperare în cron)
 
 Două erori raportate de admin după livrarea de ieri. Fișiere: `api/_lib/exgen.js`, `api/agent-cron.js`, teste, ghid — fără migrare SQL.
