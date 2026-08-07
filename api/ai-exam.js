@@ -242,7 +242,7 @@ module.exports = async function handler(req, res) {
     const { examType, instructions = '', dataMode = 'modify' } = req.body || {};
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) ai.requirePremium(profile); // abonați sau admin
-    await ai.enforceRateLimit(supa, userId);
+    const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
 
     const cfg = EXAMS[examType];
     if (!cfg) return res.status(400).json({ error: 'examType invalid' });
@@ -365,7 +365,8 @@ Sursele provin din subcategorii diferite (marcate în paranteză la fiecare TEST
       messages: [{ role: 'user', content: `Generează testul complet acum, în format JSON. Fă-l DIFERIT de variantele anterioare (alte numere, alte enunțuri). Variantă #${Math.random().toString(36).slice(2, 8)}.${instructions.trim() ? `\n\nINSTRUCȚIUNILE PROFESORULUI (respectă-le întocmai, au prioritate): ${String(instructions).slice(0, 4000)}` : ''}` }],
       // 7500: figurile ("figure") adaugă ~1000 de tokeni peste cei 18 itemi —
       // cu 5000 răspunsul se trunchia și parse-ul eșua.
-      temperature: 0.7, maxTokens: 7500, json: true, model: ai.GEN_MODEL,
+      temperature: 0.7, maxTokens: 7500, json: true,
+      model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
     });
     await ai.logUsage(supa, userId, 'ai-exam', usage);
 

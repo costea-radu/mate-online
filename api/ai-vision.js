@@ -17,7 +17,7 @@ module.exports = async function handler(req, res) {
     const userId = await ai.authUser(req, supa);
     const { imageBase64, note } = req.body || {};
     const profile = await ai.requireUser(supa, userId);
-    await ai.enforceRateLimit(supa, userId);
+    await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
     await ai.enforceFreeQuota(supa, profile);
 
     if (!imageBase64) return res.status(400).json({ error: 'imageBase64 obligatoriu' });

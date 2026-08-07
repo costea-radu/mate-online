@@ -4,6 +4,19 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 7 august 2026 (2) — 💰 Limite de consum AI în BANI: cost per acțiune, bugete zi/lună, degradare pe model ieftin
+
+Primul pas din planul de limitare a costurilor AI (vezi **`GHID_LIMITE_AI.md`** — nou). Fiecare acțiune AI e transformată în bani la logare, iar pe sume se aplică bugete per utilizator, ca la serviciile AI comerciale. Toate rutele modificate validate sintactic (`node --check`); test nou **`test/limite-cost.test.js`** (7 teste: prețuri pe prefix, cost în micro-lei, whisper per apel, miezul nopții la București, degradarea modelelor — rulează cu `npm test`). **Înainte de deploy: rulează `supabase/ai_limite_cost.sql` în SQL Editor** (codul merge și fără — bugetele rămân doar inactive, cu avertisment în loguri).
+
+- **`supabase/ai_limite_cost.sql` (nou):** coloanele `ai_usage.model` + `ai_usage.cost_micro` (micro-lei), funcția agregată `ai_spent` (doar service_role, pe indexul existent) și vederea de monitorizare `ai_usage_daily` (zi × endpoint × model, cost în lei; `security_invoker`).
+- **`api/_lib/ai.js`:** tabel de prețuri per model (USD/1M, potrivire pe cel mai lung prefix; extensibil FĂRĂ cod prin `AI_PRICES_JSON`; model necunoscut → preț implicit conservator + avertisment) și conversie în micro-lei cu `AI_USD_RON` (default 4,6). `chat`/`chatVision`/`verifiedPdfReply` întorc modelul în `usage`; `chatStream` primește un obiect `stats` și raportează usage-ul REAL din stream (`stream_options.include_usage`, cu auto-reparare dacă providerul îl refuză) — până acum streamingul loga `in: 0` și o estimare. `logUsage` scrie model + cost, cu fallback pe forma veche dacă migrarea nu e rulată.
+- **Bugete în `enforceRateLimit`** (aceeași funcție, deci TOATE endpoint-urile AI sunt protejate automat): rata orară (ca înainte) → buget lunar hard (**6 lei / 30 de zile rulante**, `code: BUDGET_MONTH`) → buget zilnic hard (**2,5 lei/zi**, resetare la miezul nopții ora României, `code: BUDGET_DAY`) → buget zilnic soft (**0,8 lei/zi**) care NU blochează, ci marchează cererea pentru degradare. Adminii scutiți de bugete; mesaje de eroare prietenoase, fără jargon; toate pragurile configurabile prin env (`AI_BUDGET_*`, 0 = dezactivat).
+- **Degradare pe model ieftin (`ai.pickModel`)** peste bugetul zilnic soft: chatul coboară pe `AI_ECON_CHAT_MODEL` (default gpt-4o-mini), iar corectarea/generarea de pe modelele premium (`PDF_MODEL`/`GEN_MODEL`) pe modelul standard de chat. Aplicat în: `ai-chat`, `ai-chat-stream` (inclusiv agentul PDF), `ai-correct` (formular + notare), `ai-exam`, `ai-generate-interactive`, `ai-practice` (generare + verificare), `ai-assignment` (corectarea temelor), `ai-meditatii` (lecția). Elevul nu primește eroare — doar răspunsuri de la un model mai economic până a doua zi.
+- **`api/ai-progress.js`:** răspunsul include acum `budget` (consum azi/30 zile, număr de acțiuni, limite, stare degradat/scutit) — gata de afișat în UI; `null` până la migrare.
+- **`api/ai-transcribe.js`:** STT-ul se loghează cu cost estimat per apel (înainte: 0).
+- **`.env.ai.example`:** secțiune nouă cu toate variabilele de buget, documentate.
+- Nemodificat intenționat: sub-apelurile interne din meditații (quiz inițial, remediere) rămân pe modelul lor — acoperite de limitele hard; agenții de admin (Claude) neafectați de bugete.
+
 ## 7 august 2026 — Generarea EN cu șablon mare merge (figurile devin marcaje), Contact pe mobil, meniu părinți/profesori, Despre noi cu AI, lints Supabase
 
 Cinci cereri ale adminului, într-o singură livrare. **Build-ul trece (`vite build`), 23/23 teste trec.**

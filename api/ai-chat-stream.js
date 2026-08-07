@@ -28,7 +28,7 @@ module.exports = async function handler(req, res) {
     if (!message || !message.trim()) { send({ type: 'error', error: 'message obligatoriu' }); return res.end(); }
 
     const profile = await ai.requireUser(supa, userId);
-    await ai.enforceRateLimit(supa, userId);
+    const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete (vezi GHID_LIMITE_AI.md)
     await ai.enforceFreeQuota(supa, profile);
     const premium = ai.isPremium(profile);
 
@@ -39,6 +39,7 @@ module.exports = async function handler(req, res) {
 
     // 4. Generare.
     let full = '';
+    const stats = {}; // chatStream/verifiedPdfReply pun aici usage-ul + modelul real
     if (baremItem) {
       // AGENTUL PDF cu rezolvare din barem: generăm ÎNTREG răspunsul, îl
       // VERIFICĂM față de barem (numeric + semantic; reîncercare + fallback)
@@ -47,8 +48,10 @@ module.exports = async function handler(req, res) {
       const r = await ai.verifiedPdfReply({
         system, baremItem, mode,
         messages: [...priorMsgs, { role: 'user', content: message }],
+        model: ai.pickModel(ai.PDF_MODEL, lim), // peste bugetul zilnic soft → modelul standard
       });
       full = r.text;
+      stats.usage = r.usage;
       for (const chunk of full.match(/[\s\S]{1,160}/g) || []) send({ type: 'delta', text: chunk });
     } else {
       // STREAMING LLM (comportamentul de până acum)
@@ -57,6 +60,8 @@ module.exports = async function handler(req, res) {
         messages: [...priorMsgs, { role: 'user', content: message }],
         temperature: mode === 'hint' ? 0.3 : 0.5,
         maxTokens: 900,
+        model: ai.pickModel(ai.CHAT_MODEL, lim), // peste bugetul zilnic soft → modelul economic
+        stats,
       })) {
         full += delta;
         send({ type: 'delta', text: delta });
@@ -75,7 +80,10 @@ module.exports = async function handler(req, res) {
     const { error: cErr } = await supa.from('ai_conversations')
       .update({ updated_at: new Date().toISOString() }).eq('id', convId);
     if (cErr) console.error('ai-chat-stream: update conversație eșuat:', cErr);
-    await ai.logUsage(supa, userId, 'ai-chat-stream', { in: 0, out: Math.ceil(full.length / 4) });
+    // usage-ul REAL din stream (stream_options.include_usage); dacă providerul
+    // nu l-a trimis, estimăm ieșirea din lungimea textului, ca înainte.
+    await ai.logUsage(supa, userId, 'ai-chat-stream',
+      stats.usage || { in: 0, out: Math.ceil(full.length / 4), model: stats.model });
 
     send({ type: 'done', messageId: saved?.id || null });
     return res.end();

@@ -19,7 +19,7 @@ module.exports = async function handler(req, res) {
     if (!message || !message.trim()) return res.status(400).json({ error: 'message obligatoriu' });
 
     const profile = await ai.requireUser(supa, userId);
-    await ai.enforceRateLimit(supa, userId);
+    const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete (vezi GHID_LIMITE_AI.md)
     await ai.enforceFreeQuota(supa, profile);
     const premium = ai.isPremium(profile);
 
@@ -32,12 +32,14 @@ module.exports = async function handler(req, res) {
       ? await ai.verifiedPdfReply({
           system, baremItem, mode,
           messages: [...priorMsgs, { role: 'user', content: message }],
+          model: ai.pickModel(ai.PDF_MODEL, lim), // peste bugetul zilnic soft → modelul standard
         })
       : await ai.chat({
           system,
           messages: [...priorMsgs, { role: 'user', content: message }],
           temperature: mode === 'hint' ? 0.3 : 0.5,
           maxTokens: 900,
+          model: ai.pickModel(ai.CHAT_MODEL, lim), // peste bugetul zilnic soft → modelul economic
         });
 
     // 5. Salvăm mesajele + actualizăm conversația.

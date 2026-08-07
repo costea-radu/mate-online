@@ -35,13 +35,13 @@ module.exports = async function handler(req, res) {
   try {
     const userId = await ai.authUser(req, supa);
     const profile = await ai.requireUser(supa, userId);
-    await ai.enforceRateLimit(supa, userId);
+    const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete (vezi GHID_LIMITE_AI.md)
     await ai.enforceFreeQuota(supa, profile);
 
     const { action } = req.body || {};
     if (action === 'pdf_text') return await pdfText(req, res, supa, userId);
-    if (action === 'form') return await buildForm(req, res, supa, userId);
-    if (action === 'grade') return await grade(req, res, supa, userId);
+    if (action === 'form') return await buildForm(req, res, supa, userId, lim);
+    if (action === 'grade') return await grade(req, res, supa, userId, lim);
     return res.status(400).json({ error: 'action invalid' });
   } catch (err) {
     console.error('ai-correct error:', err);
@@ -229,7 +229,7 @@ function officialStructureNote(category) {
 }
 
 // ─── FORMULARUL: câmpurile de răspuns, construite din barem (sau din test) ───
-async function buildForm(req, res, supa, userId) {
+async function buildForm(req, res, supa, userId, lim) {
   const { testText = '', baremText = '', title = '', category = '' } = req.body || {};
   const test = String(testText || '').slice(0, MAX_TEXT);
   const barem = String(baremText || '').slice(0, MAX_TEXT);
@@ -261,7 +261,7 @@ Răspunde DOAR cu JSON: {"titlu":"<titlu scurt: despre ce e testul>","oficiu":${
   const { text, usage } = await ai.chat({
     system, messages: [{ role: 'user', content: user }],
     temperature: 0, maxTokens: 3500, json: true,
-    model: hasBarem ? ai.PDF_MODEL : ai.GEN_MODEL,
+    model: ai.pickModel(hasBarem ? ai.PDF_MODEL : ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
   });
   await ai.logUsage(supa, userId, 'ai-correct:form', usage);
 
@@ -287,7 +287,7 @@ Răspunde DOAR cu JSON: {"titlu":"<titlu scurt: despre ce e testul>","oficiu":${
 // ─── CORECTAREA: test + barem + răspunsuri → punctaj pe subpuncte ────────────
 const VERDICTE = ['corect', 'partial', 'gresit', 'necompletat'];
 
-async function grade(req, res, supa, userId) {
+async function grade(req, res, supa, userId, lim) {
   const {
     conversationId = null, context = {}, testText = '', baremText = '',
     items = [], answers = {}, durationSec = 0, meditatii = false, title: bodyTitle = '',
@@ -332,13 +332,14 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
   const user = `TESTUL${title ? ` „${title}"` : ''}:\n"""${String(testText || '').slice(0, MAX_TEXT)}"""\n\n${hasBarem ? `BAREMUL OFICIAL:\n"""${String(baremText).slice(0, MAX_TEXT)}"""\n\n` : ''}RĂSPUNSURILE ELEVULUI (corectează fiecare cerință):\n${listing}`;
 
   const maxTokens = Math.min(7000, 900 + leaves.length * 220);
-  let parsed = null, usage = { in: 0, out: 0 };
+  const gradeModel = ai.pickModel(hasBarem ? ai.PDF_MODEL : ai.GEN_MODEL, lim); // peste bugetul zilnic → model standard
+  let parsed = null, usage = { in: 0, out: 0, model: gradeModel };
   for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
     const r = await ai.chat({
       system: attempt ? system + '\n\nATENȚIE: răspunsul anterior nu a fost JSON valid. Răspunde STRICT cu obiectul JSON cerut, fără alt text.' : system,
       messages: [{ role: 'user', content: user }],
       temperature: 0.1, maxTokens, json: true,
-      model: hasBarem ? ai.PDF_MODEL : ai.GEN_MODEL,
+      model: gradeModel,
     });
     usage.in += r.usage.in; usage.out += r.usage.out;
     try { parsed = JSON.parse(r.text); } catch { parsed = null; }

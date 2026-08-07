@@ -13,7 +13,7 @@ module.exports = async function handler(req, res) {
   const supa = ai.admin();
   try {
     const userId = await ai.authUser(req, supa);
-    await ai.requireUser(supa, userId);
+    const profile = await ai.requireUser(supa, userId);
 
     // 1. Stăpânirea competențelor (din antrenamentele cu AI).
     const { data: mastery } = await supa.from('ai_skill_mastery')
@@ -57,7 +57,12 @@ module.exports = async function handler(req, res) {
 
     const recommendations = [...weakTopics, ...nextExercises];
 
-    return res.status(200).json({ mastery: mastery || [], interactive, recommendations });
+    // 4. Consumul AI (azi / ultimele 30 de zile) + limitele — pentru afișare
+    //    în UI („mesaje azi: N", bare de progres etc.). null dacă migrarea
+    //    supabase/ai_limite_cost.sql nu a fost rulată încă.
+    const budget = await ai.budgetInfo(supa, userId, profile);
+
+    return res.status(200).json({ mastery: mastery || [], interactive, recommendations, budget });
   } catch (err) {
     console.error('ai-progress error:', err);
     return res.status(err.status || 500).json({ error: err.message || 'Eroare server' });

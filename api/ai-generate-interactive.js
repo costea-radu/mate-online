@@ -32,7 +32,7 @@ module.exports = async function handler(req, res) {
     const { category = null, topic = '', difficulty = 'mediu', dataMode = 'modify' } = req.body || {};
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) ai.requirePremium(profile);
-    await ai.enforceRateLimit(supa, userId);
+    const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
 
     // „Subiect + instrucțiuni": câmpul acceptă un prompt amplu de la profesor
     // (temă + cerințe pentru AI). Versiunea integrală intră în promptul de
@@ -139,7 +139,8 @@ ${topicFull}
     const { text, usage } = await ai.chat({
       system,
       messages: [{ role: 'user', content: `Generează obiectul JSON cu întrebările acum${topicFull ? ', respectând întocmai subiectul și instrucțiunile profesorului' : ''}. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
-      temperature: 0.9, maxTokens: 3200, json: true, model: ai.GEN_MODEL,
+      temperature: 0.9, maxTokens: 3200, json: true,
+      model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
     });
     await ai.logUsage(supa, userId, 'ai-generate-interactive', usage);
 

@@ -35,7 +35,7 @@ async function generate(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const { category = null, topic = '', difficulty = 'mediu' } = req.body || {};
   const profile = await ai.requireUser(supa, userId);
-  await ai.enforceRateLimit(supa, userId);
+  const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
   await ai.enforceFreeQuota(supa, profile);
   const premium = ai.isPremium(profile);
 
@@ -73,7 +73,8 @@ Cerințe:
   const { text, usage } = await ai.chat({
     system,
     messages: [{ role: 'user', content: `Generează exercițiul acum în format JSON. Fă-l DIFERIT de cele anterioare (alte numere, alt context). #${Math.random().toString(36).slice(2, 8)}.` }],
-    temperature: 0.95, maxTokens: 1100, json: true, model: ai.GEN_MODEL,
+    temperature: 0.95, maxTokens: 1100, json: true,
+    model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
   });
   await ai.logUsage(supa, userId, 'ai-practice:generate', usage);
 
@@ -111,7 +112,7 @@ async function check(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const { token, studentAnswer = '', studentWork = '' } = req.body || {};
   const profile = await ai.requireUser(supa, userId);
-  await ai.enforceRateLimit(supa, userId);
+  const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
   await ai.enforceFreeQuota(supa, profile);
 
   const data = ai.verifyToken(token);
@@ -140,7 +141,8 @@ Răspunde STRICT cu JSON:
   const { text, usage } = await ai.chat({
     system,
     messages: [{ role: 'user', content: 'Corectează și răspunde în format JSON.' }],
-    temperature: 0.2, maxTokens: 800, json: true, model: ai.GEN_MODEL,
+    temperature: 0.2, maxTokens: 800, json: true,
+    model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
   });
   await ai.logUsage(supa, userId, 'ai-practice:check', usage);
 

@@ -607,7 +607,7 @@ async function lesson(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
   requireMeditatii(profile);
-  await ai.enforceRateLimit(supa, userId);
+  const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
 
   const medProfile = await getMedProfile(supa, userId);
   if (!medProfile) return res.status(400).json({ error: 'Începe cu testul inițial.' });
@@ -661,7 +661,8 @@ Subiectele capitolului: ${chapter.topics?.join('; ') || chapter.title}.`;
   const { text, usage } = await ai.chat({
     system,
     messages: [{ role: 'user', content: 'Scrie lecția acum, caldă și clară, potrivită nivelului meu.' }],
-    temperature: 0.4, maxTokens: 2200, model: ai.GEN_MODEL,
+    temperature: 0.4, maxTokens: 2200,
+    model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
   });
   await ai.logUsage(supa, userId, 'ai-meditatii:lesson', usage);
 

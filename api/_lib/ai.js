@@ -47,6 +47,98 @@ const PDF_MODEL = process.env.AI_PDF_CHAT_MODEL || CHAT_MODEL;
 // de calcul ajung direct „răspuns oficial". Setează AI_GEN_CHAT_MODEL în env.
 const GEN_MODEL = process.env.AI_GEN_CHAT_MODEL || CHAT_MODEL;
 
+// =====================================================================
+// COSTURI & BUGETE DE CONSUM AI (vezi GHID_LIMITE_AI.md)
+// Fiecare acțiune AI e transformată în BANI (micro-lei) la logare, după
+// modelul folosit. Pe baza sumelor din `ai_usage` se aplică:
+//   · buget zilnic „soft"  → peste el, cererile trec pe un model mai ieftin
+//   · buget zilnic „hard"  → peste el, AI-ul se oprește până a doua zi
+//   · buget lunar (30 zile rulante) → plafonul economic al abonamentului
+// =====================================================================
+
+// Prețuri în USD per 1 MILION de tokeni {in, out}, per model. Potrivirea se
+// face pe CEL MAI LUNG prefix (ex. „gpt-5.6-terra" → intrarea „gpt-5.6").
+// Verificate în august 2026. Completezi/suprascrii FĂRĂ cod prin env:
+//   AI_PRICES_JSON='{"gpt-5.6-terra":{"in":5,"out":30}}'
+const PRICES_USD = {
+  'gpt-4o-mini':            { in: 0.15, out: 0.60 },
+  'gpt-4o':                 { in: 2.50, out: 10 },
+  'gpt-5-nano':             { in: 0.05, out: 0.40 },
+  'gpt-5-mini':             { in: 0.25, out: 2 },
+  'gpt-5':                  { in: 1.25, out: 10 },
+  'gpt-5.4-nano':           { in: 0.20, out: 1.25 },
+  'gpt-5.4':                { in: 1.25, out: 10 },
+  'gpt-5.5':                { in: 5,    out: 30 },
+  'gpt-5.6':                { in: 5,    out: 30 },   // sol / terra (flagship)
+  'text-embedding-3-small': { in: 0.02, out: 0 },
+  'text-embedding-3-large': { in: 0.13, out: 0 },
+  'claude-haiku-4-5':       { in: 1,    out: 5 },
+  'claude-sonnet-4-6':      { in: 3,    out: 15 },
+  'claude-sonnet-5':        { in: 2,    out: 10 },
+  'claude-opus-4-8':        { in: 5,    out: 25 },
+  'claude-opus-5':          { in: 5,    out: 25 },
+  'claude-fable-5':         { in: 10,   out: 50 },
+  'whisper':                { perCall: 0.003 },      // STT e pe minut → estimare per apel (~20-30s)
+};
+let PRICES_EXTRA = {};
+try { PRICES_EXTRA = JSON.parse(process.env.AI_PRICES_JSON || '{}'); }
+catch { console.warn('AI_PRICES_JSON invalid (nu e JSON) — ignorat.'); }
+const ALL_PRICES = { ...PRICES_USD, ...PRICES_EXTRA };
+
+// Model necunoscut → preț implicit CONSERVATOR (mai bine supraestimăm costul
+// decât să lăsăm un model scump nelimitat) + avertisment o singură dată.
+const DEFAULT_PRICE = {
+  in:  parseFloat(process.env.AI_PRICE_DEFAULT_IN  || '3'),
+  out: parseFloat(process.env.AI_PRICE_DEFAULT_OUT || '15'),
+};
+// Curs USD→RON fix, setat puțin PESTE piață (marjă de siguranță în calcule).
+const USD_RON = parseFloat(process.env.AI_USD_RON || '4.6');
+
+const warnedOnce = new Set();
+const warnOnce = (key, msg) => { if (!warnedOnce.has(key)) { warnedOnce.add(key); console.warn(msg); } };
+
+function priceFor(model) {
+  const id = String(model || '').toLowerCase();
+  if (!id) return null;
+  let best = null;
+  for (const key of Object.keys(ALL_PRICES)) {
+    if (id.startsWith(key) && (!best || key.length > best.length)) best = key;
+  }
+  if (best) return ALL_PRICES[best];
+  warnOnce(`price:${id}`, `priceFor: model necunoscut „${id}" — aplic prețul implicit (${DEFAULT_PRICE.in}/${DEFAULT_PRICE.out} USD/1M). Adaugă-l în AI_PRICES_JSON.`);
+  return DEFAULT_PRICE;
+}
+
+// Costul unei acțiuni în MICRO-LEI (1 leu = 1.000.000 micro-lei; întreg → bigint).
+function costMicroLei(model, usage = {}) {
+  const p = priceFor(model);
+  if (!p) return 0; // fără model (ex: acțiune fără LLM) → cost 0
+  const usd = p.perCall != null
+    ? p.perCall
+    : ((usage.in || 0) * (p.in || 0) + (usage.out || 0) * (p.out || 0)) / 1e6;
+  return Math.round(usd * USD_RON * 1e6);
+}
+
+// Bugetele, în LEI (0 = limita respectivă e dezactivată).
+const BUDGET_DAY_SOFT_LEI = parseFloat(process.env.AI_BUDGET_DAY_SOFT_LEI || '0.8');
+const BUDGET_DAY_HARD_LEI = parseFloat(process.env.AI_BUDGET_DAY_HARD_LEI || '2.5');
+const BUDGET_MONTH_LEI    = parseFloat(process.env.AI_BUDGET_MONTH_LEI    || '6');
+// Modelul „economic" pe care coboară CHATUL peste bugetul zilnic soft.
+// (Cererile pe modele premium — PDF/GEN — coboară pe CHAT_MODEL.)
+const ECON_CHAT_MODEL = process.env.AI_ECON_CHAT_MODEL || 'gpt-4o-mini';
+
+// Miezul nopții de AZI pe ora României, ca timestamp ISO (începutul „zilei" de buget).
+function dayStartBucharest(now = new Date()) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Bucharest', hour12: false,
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(now).map((p) => [p.type, p.value])
+  );
+  const msSinceMidnight = (((+parts.hour % 24) * 3600) + (+parts.minute * 60) + (+parts.second)) * 1000;
+  return new Date(now.getTime() - msSinceMidnight).toISOString();
+}
+
 // ─── Compatibilitate parametri între generațiile de modele ───────────────────
 // Modelele noi OpenAI (gpt-5.x, o1/o3/o4...) REFUZĂ `max_tokens` (cer
 // `max_completion_tokens`) și unele refuză `temperature` ≠ 1. Construim
@@ -63,7 +155,12 @@ function buildBody({ model, temperature, maxTokens, messages, system, json, stre
     body.max_completion_tokens = Math.min(Math.max(maxTokens * 3, 3000), 16000);
   } else { body.max_tokens = maxTokens; body.temperature = temperature; }
   if (json) body.response_format = { type: 'json_object' };
-  if (stream) body.stream = true;
+  if (stream) {
+    body.stream = true;
+    // cerem usage-ul real în ultimul chunk (OpenAI o suportă; dacă providerul
+    // o refuză, adaptBodyToError o scoate și reîncearcă)
+    body.stream_options = { include_usage: true };
+  }
   return body;
 }
 // repară corpul după mesajul de eroare al providerului; întoarce true dacă a schimbat ceva
@@ -77,6 +174,7 @@ function adaptBodyToError(body, errText) {
   }
   if (/temperature/.test(t) && 'temperature' in body) { delete body.temperature; changed = true; }
   if (/response_format/.test(t) && body.response_format) { delete body.response_format; changed = true; }
+  if (/stream_options/.test(t) && body.stream_options) { delete body.stream_options; changed = true; }
   return changed;
 }
 async function postLLM(body) {
@@ -108,6 +206,7 @@ async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900,
   const usage = {
     in: data.usage?.prompt_tokens || 0,
     out: data.usage?.completion_tokens || 0,
+    model, // pentru calculul costului la logUsage
   };
   // AUTO-VINDECARE: modelele cu raționament pot epuiza tot bugetul pe gândire
   // și întorc conținut GOL sau TĂIAT la mijloc (finish_reason=length → JSON
@@ -126,8 +225,13 @@ async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900,
 }
 
 // ─── Apel LLM în STREAMING (async generator de fragmente text) ───────────────
-async function* chatStream({ system, messages = [], temperature = 0.5, maxTokens = 900, model = CHAT_MODEL }) {
+// `stats` (opțional): un obiect al apelantului pe care generatorul îl umple cu
+// { model, usage:{in,out,model} } — usage-ul REAL vine în ultimul chunk SSE
+// (stream_options.include_usage); dacă providerul nu-l trimite, rămâne doar
+// `model`, iar apelantul estimează tokenii.
+async function* chatStream({ system, messages = [], temperature = 0.5, maxTokens = 900, model = CHAT_MODEL, stats = null }) {
   if (!hasChat()) throw new Error('AI_CHAT_API_KEY (sau OPENAI_API_KEY) nu este setat.');
+  if (stats) stats.model = model;
   const body = buildBody({ model, temperature, maxTokens, messages, system, stream: true });
   const r = await postLLM(body);
   const reader = r.body.getReader();
@@ -146,6 +250,9 @@ async function* chatStream({ system, messages = [], temperature = 0.5, maxTokens
       if (data === '[DONE]') return;
       try {
         const json = JSON.parse(data);
+        if (stats && json.usage) {
+          stats.usage = { in: json.usage.prompt_tokens || 0, out: json.usage.completion_tokens || 0, model };
+        }
         const delta = json.choices?.[0]?.delta?.content;
         if (delta) yield delta;
       } catch { /* keepalive/parțial — ignorăm */ }
@@ -167,7 +274,7 @@ async function chatVision({ system, text, imageDataUrl, maxTokens = 800, tempera
   const data = await r.json();
   return {
     text: data.choices?.[0]?.message?.content ?? '',
-    usage: { in: data.usage?.prompt_tokens || 0, out: data.usage?.completion_tokens || 0 },
+    usage: { in: data.usage?.prompt_tokens || 0, out: data.usage?.completion_tokens || 0, model: VISION_MODEL },
   };
 }
 
@@ -425,18 +532,109 @@ async function enforceFreeQuota(supa, profile) {
   }
 }
 
-async function enforceRateLimit(supa, userId) {
+// Limitele de consum, în ordinea severității:
+//   1. rata orară (anti-abuz, ca înainte)
+//   2. bugetul lunar hard (30 de zile rulante) → blocare
+//   3. bugetul zilnic hard → blocare până a doua zi
+//   4. bugetul zilnic soft → NU blochează: întoarce { degraded:true }, iar
+//      endpoint-urile aleg un model mai ieftin prin ai.pickModel(...)
+// `profile` e opțional (compatibil cu apelurile vechi); cu el, adminul e scutit
+// de bugete (rata orară rămâne). Întoarce starea limitelor.
+async function enforceRateLimit(supa, userId, profile = null) {
   const since = new Date(Date.now() - 3600 * 1000).toISOString();
   const { count } = await supa.from('ai_usage').select('*', { count: 'exact', head: true })
     .eq('user_id', userId).gte('created_at', since);
   if ((count || 0) >= RATE_PER_HOUR) {
     const e = new Error(`Ai atins limita de ${RATE_PER_HOUR} cereri AI pe oră. Încearcă din nou mai târziu.`);
-    e.status = 429; throw e;
+    e.status = 429; e.code = 'RATE_HOUR'; throw e;
   }
+  return enforceBudgets(supa, userId, profile);
 }
+
+// Sumele consumate (azi / ultimele 30 de zile), prin funcția SQL `ai_spent`
+// (o singură interogare agregată, pe indexul existent). Dacă migrarea
+// supabase/ai_limite_cost.sql nu a fost rulată încă → null (nu blocăm).
+async function budgetSpent(supa, userId) {
+  try {
+    const { data, error } = await supa.rpc('ai_spent', {
+      p_user: userId,
+      p_day_start: dayStartBucharest(),
+      p_month_start: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString(),
+    });
+    if (error) throw new Error(error.message || 'rpc error');
+    const row = Array.isArray(data) ? data[0] : data;
+    if (row && row.month_micro != null) return row;
+  } catch (e) {
+    warnOnce('ai_spent', `Bugetele AI inactive — funcția SQL ai_spent lipsește (rulează supabase/ai_limite_cost.sql). Detaliu: ${e.message}`);
+  }
+  return null;
+}
+
+const budgetsEnabled = () => BUDGET_DAY_SOFT_LEI > 0 || BUDGET_DAY_HARD_LEI > 0 || BUDGET_MONTH_LEI > 0;
+const isBudgetExempt = (profile) => !!(profile && (profile.is_admin || profile.role === 'admin'));
+
+async function enforceBudgets(supa, userId, profile = null) {
+  const state = {
+    degraded: false, dayLei: 0, monthLei: 0,
+    limits: { daySoftLei: BUDGET_DAY_SOFT_LEI, dayHardLei: BUDGET_DAY_HARD_LEI, monthLei: BUDGET_MONTH_LEI },
+  };
+  if (!budgetsEnabled() || isBudgetExempt(profile)) return state;
+  const spent = await budgetSpent(supa, userId);
+  if (!spent) return state; // migrarea nu e rulată → comportamentul de dinainte
+  state.dayLei = (spent.day_micro || 0) / 1e6;
+  state.monthLei = (spent.month_micro || 0) / 1e6;
+  if (BUDGET_MONTH_LEI > 0 && state.monthLei >= BUDGET_MONTH_LEI) {
+    const e = new Error('Ai folosit bugetul lunar de AI inclus în abonament. Se eliberează treptat, pe măsură ce trec zilele (fereastră de 30 de zile). Restul platformei funcționează normal.');
+    e.status = 429; e.code = 'BUDGET_MONTH'; throw e;
+  }
+  if (BUDGET_DAY_HARD_LEI > 0 && state.dayLei >= BUDGET_DAY_HARD_LEI) {
+    const e = new Error('Ai atins limita zilnică de utilizare AI. Se resetează la miezul nopții — te așteptăm mâine!');
+    e.status = 429; e.code = 'BUDGET_DAY'; throw e;
+  }
+  if (BUDGET_DAY_SOFT_LEI > 0 && state.dayLei >= BUDGET_DAY_SOFT_LEI) state.degraded = true;
+  return state;
+}
+
+// Alege modelul după starea bugetului (starea = ce întoarce enforceRateLimit).
+// Sub limite → modelul cerut. Peste limita zilnică soft:
+//   · chatul standard coboară pe modelul economic;
+//   · orice model premium (PDF/GEN etc.) coboară pe modelul standard de chat.
+function pickModel(preferred, limits) {
+  if (!limits || !limits.degraded) return preferred;
+  return preferred === CHAT_MODEL ? ECON_CHAT_MODEL : CHAT_MODEL;
+}
+
+// Rezumat de consum pentru UI/rapoarte (nu aruncă erori, nu blochează).
+// null dacă migrarea SQL nu e rulată încă.
+async function budgetInfo(supa, userId, profile = null) {
+  const spent = await budgetSpent(supa, userId);
+  if (!spent) return null;
+  const dayLei = (spent.day_micro || 0) / 1e6;
+  const monthLei = (spent.month_micro || 0) / 1e6;
+  const exempt = isBudgetExempt(profile);
+  return {
+    dayLei: +dayLei.toFixed(4), monthLei: +monthLei.toFixed(4),
+    dayActions: spent.day_actions || 0, monthActions: spent.month_actions || 0,
+    limits: { daySoftLei: BUDGET_DAY_SOFT_LEI, dayHardLei: BUDGET_DAY_HARD_LEI, monthLei: BUDGET_MONTH_LEI },
+    degraded: !exempt && BUDGET_DAY_SOFT_LEI > 0 && dayLei >= BUDGET_DAY_SOFT_LEI,
+    exempt,
+  };
+}
+
+// Logare consum: tokenii + modelul + costul în micro-lei. Dacă tabela nu are
+// încă coloanele noi (migrarea nerulată), recade pe forma veche — logarea nu
+// blochează NICIODATĂ răspunsul către elev.
 async function logUsage(supa, userId, endpoint, usage = {}) {
-  try { await supa.from('ai_usage').insert({ user_id: userId, endpoint, tokens_in: usage.in || 0, tokens_out: usage.out || 0 }); }
-  catch { /* nu blocăm răspunsul pentru logare */ }
+  try {
+    const base = { user_id: userId, endpoint, tokens_in: usage.in || 0, tokens_out: usage.out || 0 };
+    const model = usage.model || null;
+    const { error } = await supa.from('ai_usage')
+      .insert({ ...base, model, cost_micro: costMicroLei(model, usage) });
+    if (error) {
+      warnOnce('usage_cols', `ai_usage fără coloanele model/cost_micro? Rulează supabase/ai_limite_cost.sql. Detaliu: ${error.message}`);
+      await supa.from('ai_usage').insert(base); // forma veche
+    }
+  } catch { /* nu blocăm răspunsul pentru logare */ }
 }
 
 // ─── Token semnat (generator efemer: păstrează răspunsul fără DB) ────────────
@@ -1093,8 +1291,8 @@ const wantsOtherExplanation = (text) => OTHER_EXPLANATION_RE.test(norm(String(te
 //    principală, cu libertate de explicare) și la cererile de REFORMULARE,
 //    verificările de fidelitate se sar (doar răspunsul gol rămâne blocant) —
 //    prima explicație a unui exercițiu rămâne strict verificată față de barem.
-async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', maxTokens = 900 }) {
-  const gen = (sys) => chat({ system: sys, messages, temperature: 0.2, maxTokens, model: PDF_MODEL });
+async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', maxTokens = 900, model = PDF_MODEL }) {
+  const gen = (sys) => chat({ system: sys, messages, temperature: 0.2, maxTokens, model });
   const isEmpty = (t) => !String(t || '').trim() || String(t).trim().length < 20;
   const lastUser = [...messages].reverse().find((m) => m && m.role === 'user');
   const relaxed = !!(baremItem && baremItem.followUp) || wantsOtherExplanation(lastUser && lastUser.content);
@@ -1110,14 +1308,14 @@ async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', m
   };
 
   const first = await attempt(system);
-  let usage = { in: first.usage.in, out: first.usage.out };
+  let usage = { in: first.usage.in, out: first.usage.out, model };
   if (!first.hard && !first.soft) return { text: first.text, usage, verified: true };
 
   const motiv = first.hard || first.soft;
   console.warn('verifiedPdfReply: prima încercare —', motiv);
   const harder = `${system}\n\nATENȚIE: încercarea anterioară a deviat de la rezolvare (${motiv}). Scrie din nou răspunsul STRICT pe pașii, expresiile și rezultatele REZOLVĂRII de mai sus, fără nicio abatere și fără numere din altă parte.`;
   const second = await attempt(harder);
-  usage = { in: usage.in + second.usage.in, out: usage.out + second.usage.out };
+  usage = { in: usage.in + second.usage.in, out: usage.out + second.usage.out, model };
   if (!second.hard && !second.soft) return { text: second.text, usage, verified: true };
 
   // best-effort: un răspuns care a trecut de verificările BLOCANTE e mai bun
@@ -1142,5 +1340,7 @@ module.exports = {
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS, PDF_MODEL, GEN_MODEL,
+  // limite de consum (vezi GHID_LIMITE_AI.md)
+  pickModel, budgetInfo, costMicroLei, priceFor, dayStartBucharest, ECON_CHAT_MODEL, USD_RON,
 };
 // (integrare Profesor Virtual ↔ exerciții interactive: levelLabel, interactiveCatalog, studentState — vezi mai sus)

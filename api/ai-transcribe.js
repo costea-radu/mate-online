@@ -15,7 +15,7 @@ module.exports = async function handler(req, res) {
     const userId = await ai.authUser(req, supa);
     const { audioBase64, mime = 'audio/webm' } = req.body || {};
     const profile = await ai.requireUser(supa, userId);
-    await ai.enforceRateLimit(supa, userId);
+    await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
     await ai.enforceFreeQuota(supa, profile);
     if (!audioBase64) return res.status(400).json({ error: 'audioBase64 obligatoriu' });
 
@@ -24,7 +24,7 @@ module.exports = async function handler(req, res) {
     if (buffer.length > 8_000_000) return res.status(413).json({ error: 'Înregistrare prea lungă.' });
 
     const text = await ai.transcribe({ audioBuffer: buffer, mime, language: 'ro' });
-    await ai.logUsage(supa, userId, 'ai-transcribe', {});
+    await ai.logUsage(supa, userId, 'ai-transcribe', { model: ai.STT_MODEL }); // cost estimat per apel
     return res.status(200).json({ text: (text || '').trim() });
   } catch (err) {
     console.error('ai-transcribe error:', err);

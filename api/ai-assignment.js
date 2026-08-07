@@ -217,7 +217,7 @@ async function submit(req, res, supa) {
     } catch { /* ignoră */ }
   } else {
     // practice: corectare cu AI față de răspunsul stocat
-    await ai.enforceRateLimit(supa, userId);
+    const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
     const p = a.payload || {};
     const system = `${ai.PERSONA}
 
@@ -231,7 +231,8 @@ Evaluează matematic (echivalențe acceptate, ex: 1/2 = 0,5). Fii încurajator d
 Răspunde STRICT cu JSON: {"correct":true/false,"score":0-100,"feedback":"...","solution":"rezolvarea corectă pe scurt"}`;
     const { text, usage } = await ai.chat({
       system, messages: [{ role: 'user', content: 'Corectează și răspunde JSON.' }],
-      temperature: 0.2, maxTokens: 800, json: true, model: ai.GEN_MODEL,
+      temperature: 0.2, maxTokens: 800, json: true,
+      model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
     });
     await ai.logUsage(supa, userId, 'ai-assignment:check', usage);
     let parsed = {};
