@@ -15,6 +15,8 @@ import { ensureKatex, renderMath, autoMath } from '../lib/katex';
 import { fileToCompressedDataUrl } from '../lib/image';
 import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, stopSpeaking, playAnswer, sentencesOf } from '../lib/voice';
 import { extractTutorActions } from '../lib/tutorBridge';
+import { awardBadges } from '../lib/badges';
+import { notaDinScor } from '../lib/nota';
 
 // ─── Terminologie școlară: „factorizare" → „descompunere în factori" ─────────
 const FACTORIZARE = {
@@ -119,11 +121,9 @@ export function MathText({ text, ready = true, onInternalLink = null, sentences 
   return <div ref={ref} onClick={onClick} />;
 }
 
-const MODES = [
-  { id: 'tutor', label: 'Învață-mă', hint: 'Explicație pas cu pas' },
-  { id: 'explain', label: 'Teoria', hint: 'Explică teoria subiectului' },
-  { id: 'hint', label: 'Dă-mi un indiciu', hint: 'Un singur pas, fără rezolvare' },
-];
+// Butoanele de mod („Învață-mă" / „Teoria" / „Dă-mi un indiciu") au fost
+// eliminate — locul lor l-a luat „📝 Răspunde în chat": formularul prin care
+// elevul completează răspunsurile, iar profesorul le corectează după barem.
 
 // ─── Marcajele [[MEDITATII:{...}]] — profesorul pornește pași din conversație ─
 // Extrase din răspunsul modelului; executate de pagina /meditatii. Dacă elevul
@@ -149,6 +149,71 @@ export function dispatchMeditatiiAction(action, navigate, onNavigate = null) {
     if (onNavigate) onNavigate();
     navigate('/meditatii');
   }
+}
+
+// ─── Rezultatul corectării unui test/exercițiu PDF — afișat în chat ──────────
+// Punctajul total + nota + punctajul PE FIECARE subpunct a), b), c) (ca în barem).
+const VERDICT_UI = {
+  corect: { icon: '✔', color: '#1e7e34' },
+  partial: { icon: '◐', color: '#e65100' },
+  gresit: { icon: '✖', color: '#c62828' },
+  necompletat: { icon: '—', color: '#8a94a3' },
+};
+function CorrectionBlock({ r }) {
+  const [openId, setOpenId] = useState(null);
+  if (!r || !Array.isArray(r.items)) return null;
+  const pctCol = r.pct >= 80 ? '#1e7e34' : r.pct >= 50 ? '#e65100' : '#c62828';
+  return (
+    <div style={{ marginTop: 10, border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ background: 'rgba(232,185,49,.14)', padding: '8px 11px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: '.82rem', color: 'var(--navy)' }}>📋 Punctajul tău</strong>
+        <span style={{ fontSize: '.85rem' }}>
+          <strong style={{ color: pctCol }}>{r.score}/{r.maxScore}p ({r.pct}%)</strong>
+          {r.nota != null && (
+            <span title={r.oficiu ? 'Nota include cele 10 puncte din oficiu' : 'Nota echivalentă'}
+              style={{ marginLeft: 8, fontWeight: 800, color: '#8a6d00', background: 'rgba(232,185,49,.25)', borderRadius: 12, padding: '1px 9px', fontSize: '.78rem' }}>
+              nota {r.nota}
+            </span>
+          )}
+        </span>
+      </div>
+      <div>
+        {r.items.map((g) => {
+          const v = VERDICT_UI[g.verdict] || VERDICT_UI.gresit;
+          const open = openId === g.id;
+          return (
+            <div key={g.id} style={{ borderTop: '1px solid var(--border)' }}>
+              <button onClick={() => setOpenId(open ? null : g.id)}
+                style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, background: open ? '#fbfcfe' : 'transparent', border: 'none', padding: '6px 11px', cursor: 'pointer', textAlign: 'left' }}>
+                <span style={{ fontSize: '.78rem', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                  <span style={{ color: v.color, fontWeight: 800 }}>{v.icon}</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.eticheta}</span>
+                </span>
+                <span style={{ fontSize: '.78rem', fontWeight: 800, color: v.color, whiteSpace: 'nowrap' }}>
+                  {g.puncte}/{g.maxPuncte}p {g.explicatie ? (open ? '▴' : '▾') : ''}
+                </span>
+              </button>
+              {open && g.explicatie && (
+                <div style={{ padding: '0 11px 8px 29px', fontSize: '.78rem', color: 'var(--text-light)' }}>
+                  <MathText text={g.explicatie} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {(r.necompletate || []).length > 0 && (
+        <div style={{ borderTop: '1px solid var(--border)', padding: '6px 11px', fontSize: '.74rem', color: '#8a6d1a', background: '#fffdf5' }}>
+          Nu ai completat: {r.necompletate.join(', ')}.
+        </div>
+      )}
+      {r.saved?.kind === 'nesalvat' && (
+        <div style={{ borderTop: '1px solid var(--border)', padding: '6px 11px', fontSize: '.72rem', color: '#c62828' }}>
+          ⚠ Punctajul nu s-a putut salva în cont ({r.saved.error || 'eroare'}).
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Props noi pentru integrarea cu exercițiile interactive:
@@ -221,6 +286,96 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   const [upsell, setUpsell] = useState(false);
   const dictationRef = useRef(null);
   const recorderRef = useRef(null);
+
+  // ── FORMULARUL DE RĂSPUNS („Răspunde în chat" → „Corectează") ─────────────
+  // Sursa: testul PDF deschis (cu baremul lui, dacă există) SAU poza / PDF-ul
+  // încărcat de elev în chat. Formularul NU pornește automat.
+  const [form, setForm] = useState(null);            // { items, hasBarem, total, oficiu, title, src }
+  const [formAnswers, setFormAnswers] = useState({});
+  const [formLoading, setFormLoading] = useState(false);
+  const [grading, setGrading] = useState(false);
+  const formStartRef = useRef(null);
+
+  // textul testului „citibil" din PDF-ul deschis (nu mesajul de avertizare)
+  const pdfTextOk = !!(context.pdf && context.pdfReadable !== false && (context.exerciseText || '').trim().length > 80);
+  const attachedOk = !!(attached && attached.trim().length > 15);
+  const canAnswer = attachedOk || pdfTextOk;
+  const answerHasBarem = pdfTextOk && !!context.baremText;
+
+  // Sursa corectării: testul PDF deschis (cu baremul lui oficial) are
+  // prioritate; poza / PDF-ul încărcat de elev se folosește în rest
+  // (acolo fără barem — completează doar răspunsuri).
+  function answerSource() {
+    if (pdfTextOk) {
+      return {
+        testText: context.exerciseText || '', baremText: context.baremText || '',
+        title: context.title || 'Testul deschis', contentId: context.contentId || null, category: context.category || null,
+      };
+    }
+    return { testText: attached, baremText: '', title: 'Exercițiul din poza/PDF-ul tău', contentId: null, category: context.category || null };
+  }
+
+  async function openAnswerForm() {
+    if (formLoading || form) return;
+    setFormLoading(true); setError(null);
+    try {
+      const src = answerSource();
+      const r = await aiClient.correctForm({ testText: src.testText, baremText: src.baremText, title: src.title });
+      setForm({ ...r, src });
+      setFormAnswers({});
+      formStartRef.current = Date.now();
+    } catch (e) {
+      setError(e.message);
+      if (e.premium) setUpsell(true);
+    } finally { setFormLoading(false); }
+  }
+
+  async function submitCorrection() {
+    if (!form || grading) return;
+    const answered = Object.values(formAnswers).filter((v) => String(v || '').trim()).length;
+    if (!answered) { setError('Completează măcar un răspuns înainte de „Corectează".'); return; }
+    setGrading(true); setError(null);
+    try {
+      const durationSec = Math.round((Date.now() - (formStartRef.current || Date.now())) / 1000);
+      const r = await aiClient.correctGrade({
+        conversationId: convId,
+        context: { pdf: !!context.pdf, contentId: form.src.contentId, category: form.src.category, title: form.src.title, meditatii: !!context.meditatii },
+        testText: form.src.testText, baremText: form.src.baremText, title: form.title || form.src.title,
+        items: form.items, answers: formAnswers, durationSec,
+        meditatii: !!context.meditatii,
+      });
+      if (r.conversationId) setConvId(r.conversationId);
+      // corectarea apare în chat: mesajul elevului + verdictul profesorului
+      const extra = [];
+      if (context.meditatii) {
+        // rezultatul alimentează meditatorul: remediere / plan / recomandări din site
+        const sug = [];
+        if ((r.mistakeIds || []).length) sug.push({ kind: 'remediere', mistakeId: r.mistakeIds[0], label: '🔁 Încă 10 exerciții ca acelea greșite' });
+        sug.push({ kind: 'chat', text: 'Fă-mi un plan de învățare pornind de la rezultatul corectării de mai sus.', label: '🗺️ Fă-mi plan de învățare după acest rezultat' });
+        sug.push({ kind: 'chat', text: 'Recomandă-mi exerciții de pe site pentru cerințele la care am greșit la corectarea de mai sus.', label: '🧩 Recomandă-mi exerciții de pe site' });
+        extra.push({
+          role: 'assistant', coach: true, suggestions: sug,
+          content: 'Cum mergem mai departe cu ce am văzut la corectare?',
+        });
+      }
+      setMessages((m) => [
+        ...m,
+        { role: 'user', content: `📝 Am completat răspunsurile la „${r.saved?.kind === 'upload' ? form.title || 'exercițiul meu' : form.src.title}" — corectează-le.` },
+        { role: 'assistant', content: r.feedback || 'Am corectat lucrarea ta — vezi punctajul mai jos.', id: r.messageId || undefined, correction: r },
+        ...extra,
+      ]);
+      setForm(null); setFormAnswers({});
+      formStartRef.current = Date.now(); // pregătește o eventuală reîncercare
+      // insigne, ca la testele interactive (doar când punctajul s-a salvat)
+      if (user && r.saved && r.saved.kind !== 'nesalvat') {
+        awardBadges(user.id, { score: r.score, maxScore: r.maxScore, attempts: r.attempts || 1, category: form.src.category })
+          .catch(() => {});
+      }
+    } catch (e) {
+      setError(e.message);
+      if (e.premium) setUpsell(true);
+    } finally { setGrading(false); }
+  }
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -353,12 +508,28 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     if (!file) return;
     setVisionLoading(true); setError(null);
     try {
-      const dataUrl = await fileToCompressedDataUrl(file, { maxDim: 1280, quality: 0.7 });
-      const { problemText } = await aiClient.visionExtract({ imageBase64: dataUrl });
-      setAttached(problemText || '');
-      setEditingAttach(true); // arătăm textul ca să-l poată corecta dacă e nevoie
+      if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')) {
+        // PDF încărcat de elev (temă, fișă, variantă) → textul lui devine
+        // exercițiul atașat: se poate discuta ȘI corecta („Răspunde în chat")
+        if (file.size > 3.5 * 1024 * 1024) throw new Error('PDF-ul e prea mare (max ~3.5 MB). Fotografiază exercițiul în loc.');
+        const fileBase64 = await new Promise((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result));
+          fr.onerror = () => reject(new Error('Fișierul nu a putut fi citit.'));
+          fr.readAsDataURL(file);
+        });
+        const { text } = await aiClient.correctPdfText({ fileBase64 });
+        setAttached(text || '');
+        setEditingAttach(false); // textul e de obicei lung — îl arătăm doar, se poate edita din buton
+      } else {
+        const dataUrl = await fileToCompressedDataUrl(file, { maxDim: 1280, quality: 0.7 });
+        const { problemText } = await aiClient.visionExtract({ imageBase64: dataUrl });
+        setAttached(problemText || '');
+        setEditingAttach(true); // arătăm textul ca să-l poată corecta dacă e nevoie
+      }
     } catch (err) {
-      setError('Nu am putut citi imaginea: ' + err.message);
+      setError('Nu am putut citi fișierul: ' + err.message);
+      if (err.premium) setUpsell(true);
     } finally {
       setVisionLoading(false);
     }
@@ -446,22 +617,23 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         </div>
       </div>
 
-      {/* Selector mod (doar pentru elevi; în meditații dispare — profesorul
-          alege singur cum explică, elevul doar scrie) */}
-      {!isMentor && !context?.meditatii && (
-      <div style={{ display: 'flex', gap: 6, padding: '8px 12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
-        {MODES.map((m) => (
-          <button key={m.id} title={m.hint} onClick={() => setMode(m.id)}
+      {/* „Răspunde în chat" (doar pentru elevi, când există un test PDF deschis
+          sau o poză / un PDF încărcat): deschide formularul de răspunsuri.
+          NU pornește automat — doar la apăsarea butonului. */}
+      {!isMentor && canAnswer && !form && (
+        <div style={{ display: 'flex', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)', alignItems: 'center', flexWrap: 'wrap', background: '#fffdf5' }}>
+          <button onClick={openAnswerForm} disabled={formLoading || streaming}
             style={{
-              border: '1px solid', borderColor: mode === m.id ? 'var(--gold)' : 'var(--border)',
-              background: mode === m.id ? 'var(--gold)' : 'transparent',
-              color: mode === m.id ? 'var(--navy)' : 'var(--text-light)',
-              borderRadius: 20, padding: '5px 12px', fontSize: '.8rem', fontWeight: 600,
+              background: 'var(--gold)', color: 'var(--navy)', border: 'none', borderRadius: 20,
+              padding: '7px 15px', fontSize: '.84rem', fontWeight: 800, cursor: formLoading ? 'default' : 'pointer',
+              opacity: formLoading ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6,
             }}>
-            {m.label}
+            {formLoading ? '⏳ Pregătesc formularul…' : '📝 Răspunde în chat'}
           </button>
-        ))}
-      </div>
+          <span style={{ fontSize: '.74rem', color: 'var(--text-muted)' }}>
+            {answerHasBarem ? 'Completezi răspunsurile, eu le corectez după barem, pe fiecare subpunct.' : 'Completezi răspunsurile, eu le corectez și îți dau punctajul.'}
+          </span>
+        </div>
       )}
 
       {/* Banner abonament pentru utilizatorii fără abonament */}
@@ -537,6 +709,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                     sentences readPos={voiceState.idx === i ? voiceState.sent : null} />
                 : <div style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div>}
 
+              {/* Rezultatul corectării: punctaj total + punctaj pe fiecare subpunct */}
+              {m.correction && <CorrectionBlock r={m.correction} />}
+
               {m.sources && m.sources.length > 0 && !m.streaming && (
                 <details style={{ marginTop: 8 }}>
                   <summary style={{ cursor: 'pointer', fontSize: '.72rem', color: 'var(--text-muted)' }}>📚 {m.sources.length} materiale folosite</summary>
@@ -550,7 +725,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
               {m.coach && m.suggestions?.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
                   {m.suggestions.map((s, k) => (
-                    <button key={k} onClick={() => dispatchMeditatiiAction(s, navigate, onNavigate)}
+                    <button key={k}
+                      onClick={() => (s.kind === 'chat' ? send(s.text) : dispatchMeditatiiAction(s, navigate, onNavigate))}
                       style={{ textAlign: 'left', border: '1px solid var(--gold)', background: 'rgba(232,185,49,.12)', borderRadius: 8, padding: '8px 10px', fontSize: '.85rem', color: 'var(--navy)', fontWeight: 600, cursor: 'pointer' }}>
                       {s.label}
                     </button>
@@ -604,11 +780,91 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         ))}
       </div>
 
+      {/* FORMULARUL DE RĂSPUNS: câte un câmp pentru fiecare exercițiu și
+          subpunct a), b), c) — cu punctele din barem. Butonul „Corectează"
+          trimite testul + baremul + răspunsurile la corectare. */}
+      {form && (
+        <div style={{ borderTop: '2px solid var(--gold)', background: '#fffdf5', display: 'flex', flexDirection: 'column', maxHeight: '58%', minHeight: 160 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+            <div style={{ minWidth: 0 }}>
+              <strong style={{ fontSize: '.82rem', color: 'var(--navy)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                📝 Răspunsurile tale · {form.title || form.src.title}
+              </strong>
+              <span style={{ fontSize: '.7rem', color: form.hasBarem ? '#1e7e34' : 'var(--text-muted)', fontWeight: 600 }}>
+                {form.hasBarem ? `📋 punctat după barem — ${form.total}p${form.oficiu ? ` + ${form.oficiu}p din oficiu` : ''}` : 'fără barem — completezi doar răspunsurile'}
+              </span>
+            </div>
+            <button onClick={() => { setForm(null); setFormAnswers({}); }} style={miniBtn}>✕ Renunț</button>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', padding: '10px 12px' }}>
+            <p style={{ fontSize: '.74rem', color: 'var(--text-muted)', margin: '0 0 10px' }}>
+              Scrie răspunsul tău (sau pașii rezolvării) la fiecare cerință. Lasă gol ce nu ai rezolvat — îți spun eu ce lipsește.
+            </p>
+            {form.items.map((it) => (
+              <div key={it.id} style={{ marginBottom: 12, background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 11px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+                  <strong style={{ fontSize: '.8rem', color: 'var(--navy)' }}>{it.eticheta}</strong>
+                  {!it.subpuncte?.length && it.puncte != null && (
+                    <span style={{ fontSize: '.7rem', fontWeight: 700, color: '#8a6d00', whiteSpace: 'nowrap' }}>{it.puncte}p</span>
+                  )}
+                </div>
+                {it.cerinta && (
+                  <div style={{ fontSize: '.78rem', color: 'var(--text-light)', margin: '3px 0 6px' }}>
+                    <MathText text={it.cerinta} />
+                  </div>
+                )}
+                {it.subpuncte?.length ? (
+                  it.subpuncte.map((s) => (
+                    <div key={s.id} style={{ margin: '7px 0 0 6px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+                        <span style={{ fontSize: '.76rem', fontWeight: 700, color: 'var(--navy)' }}>{s.eticheta}</span>
+                        {s.puncte != null && <span style={{ fontSize: '.7rem', fontWeight: 700, color: '#8a6d00', whiteSpace: 'nowrap' }}>{s.puncte}p</span>}
+                      </div>
+                      {s.cerinta && (
+                        <div style={{ fontSize: '.76rem', color: 'var(--text-light)', margin: '2px 0 4px' }}>
+                          <MathText text={s.cerinta} />
+                        </div>
+                      )}
+                      <textarea
+                        value={formAnswers[s.id] || ''}
+                        onChange={(e) => setFormAnswers((a) => ({ ...a, [s.id]: e.target.value }))}
+                        rows={2} placeholder="Răspunsul / rezolvarea ta…"
+                        style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 9px', fontSize: 16, fontFamily: 'var(--font-body)', resize: 'vertical', background: '#fbfcfe' }}
+                      />
+                    </div>
+                  ))
+                ) : (
+                  <textarea
+                    value={formAnswers[it.id] || ''}
+                    onChange={(e) => setFormAnswers((a) => ({ ...a, [it.id]: e.target.value }))}
+                    rows={2} placeholder="Răspunsul / rezolvarea ta…"
+                    style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 9px', fontSize: 16, fontFamily: 'var(--font-body)', resize: 'vertical', background: '#fbfcfe' }}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '9px 12px', borderTop: '1px solid var(--border)', flexShrink: 0, background: '#fff' }}>
+            <button onClick={submitCorrection} disabled={grading}
+              style={{
+                background: 'var(--gold)', color: 'var(--navy)', border: 'none', borderRadius: 10,
+                padding: '9px 18px', fontSize: '.88rem', fontWeight: 800, cursor: grading ? 'default' : 'pointer', opacity: grading ? 0.6 : 1,
+              }}>
+              {grading ? '⏳ Corectez…' : '✅ Corectează'}
+            </button>
+            <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>
+              {Object.values(formAnswers).filter((v) => String(v || '').trim()).length} răspunsuri completate
+              {grading ? ' · acord punctajul pe fiecare subpunct…' : ''}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Exercițiu atașat din fotografie */}
-      {attached !== null && (
+      {attached !== null && !form && (
         <div style={{ borderTop: '1px solid var(--border)', background: '#fffdf5', padding: '10px 12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <strong style={{ fontSize: '.78rem', color: 'var(--navy)' }}>📎 Exercițiu din fotografie</strong>
+            <strong style={{ fontSize: '.78rem', color: 'var(--navy)' }}>📎 Exercițiul tău (poză / PDF)</strong>
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={() => setEditingAttach((s) => !s)} style={miniBtn}>{editingAttach ? '✓ Gata' : '✎ Editează'}</button>
               <button onClick={() => { setAttached(null); setEditingAttach(false); }} style={miniBtn}>✕ Șterge</button>
@@ -618,7 +874,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
             ? <textarea value={attached} onChange={(e) => setAttached(e.target.value)} rows={3}
                 placeholder="Verifică textul citit și corectează dacă e nevoie..."
                 style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', fontSize: 16, fontFamily: 'var(--font-body)', resize: 'vertical' }} />
-            : <div style={{ fontSize: '.85rem', color: 'var(--text)' }}><MathText text={attached} /></div>}
+            : <div style={{ fontSize: '.85rem', color: 'var(--text)', maxHeight: 120, overflowY: 'auto' }}>
+                <MathText text={attached.length > 900 ? attached.slice(0, 900) + '…' : attached} />
+              </div>}
           {!editingAttach && attached.trim() && (
             <button onClick={() => send('Ajută-mă cu acest exercițiu.')} disabled={streaming}
               style={{ marginTop: 8, background: 'var(--gold)', color: 'var(--navy)', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: '.82rem', fontWeight: 700, opacity: streaming ? 0.5 : 1 }}>
@@ -630,8 +888,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 
       {/* Input — rămâne mereu vizibil, chiar și pe panouri mici */}
       <div style={{ display: 'flex', gap: 8, padding: 12, borderTop: '1px solid var(--border)', background: '#fff', flexShrink: 0 }}>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onPickPhoto} style={{ display: 'none' }} />
-        <button onClick={() => fileRef.current?.click()} disabled={visionLoading} title="Fotografiază un exercițiu"
+        <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={onPickPhoto} style={{ display: 'none' }} />
+        <button onClick={() => fileRef.current?.click()} disabled={visionLoading} title="Fotografiază un exercițiu sau încarcă un PDF"
           style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '0 12px', fontSize: '1.1rem', cursor: visionLoading ? 'default' : 'pointer', opacity: visionLoading ? 0.5 : 1 }}>
           {visionLoading ? '…' : '📷'}
         </button>

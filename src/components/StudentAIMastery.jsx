@@ -51,12 +51,17 @@ export default function StudentAIMastery({ studentId, aiTests = [] }) {
                 {aiTests.map((t, i) => {
                   const hasScore = t.max_score != null && t.max_score > 0;
                   const p = hasScore ? scorePct(t.score, t.max_score) : null;
+                  const tip = t.content_type === 'interactive' ? 'interactiv' : t.content_type === 'pdf' ? 'PDF' : t.content_type;
                   return (
                     <div key={(t.content_id || '') + '-' + i}
                       style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: '.8rem', background: '#fff', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px' }}>
-                      <span style={{ color: 'var(--navy)', fontWeight: 600, flex: '1 1 160px', minWidth: 0 }}>{t.test_title}</span>
+                      <span style={{ color: 'var(--navy)', fontWeight: 600, flex: '1 1 160px', minWidth: 0 }}>
+                        {t.test_title}{tip ? <span style={{ color: '#8a94a3', fontWeight: 600, fontSize: '.72rem' }}> ({tip})</span> : null}
+                      </span>
                       <span style={{ color: '#8a6d00', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                        {t.ai_questions} {t.ai_questions === 1 ? 'întrebare' : 'întrebări'}
+                        {t.ai_questions > 0
+                          ? `${t.ai_questions} ${t.ai_questions === 1 ? 'întrebare' : 'întrebări'}`
+                          : 'corectare AI'}
                       </span>
                       {hasScore
                         ? <span style={{ fontWeight: 700, color: scoreCol(p), whiteSpace: 'nowrap' }}>{t.score}/{t.max_score} ({p}%)</span>

@@ -174,6 +174,39 @@ module.exports = async function handler(req, res) {
     };
   });
 
+  // 5b. Corectările AI ale exercițiilor ÎNCĂRCATE de elevi (poză / PDF trimis
+  //     în chatul Prof. Virtual — fără material în platformă). Testele PDF DIN
+  //     site corectate cu formularul sunt deja în `progress`, mai sus.
+  try {
+    const uploads = await inBatches(studentIds, (chunk, from, to) => supabase
+      .from('ai_pdf_results')
+      .select('id, user_id, content_id, source, title, category, score, max_score, attempts, time_spent, used_tutor, completed_at')
+      .in('user_id', chunk)
+      .is('content_id', null)
+      .order('completed_at', { ascending: false })
+      .range(from, to));
+    (uploads || []).forEach((r) => {
+      const s = studentMap[r.user_id] || {};
+      results.push({
+        student_id: r.user_id,
+        student_name: s.full_name || 'Elev',
+        student_email: s.email || '',
+        content_id: 'pdfup-' + r.id,
+        test_title: r.title || 'Exercițiu corectat de Prof. Virtual',
+        content_type: 'pdf',
+        category: r.category || '',
+        score: Number(r.score) || 0,
+        max_score: Number(r.max_score) || 0,
+        attempts: r.attempts != null ? r.attempts : 1,
+        time_spent: r.time_spent != null ? r.time_spent : 0,
+        completed_at: r.completed_at,
+        ai_questions: 0,
+        used_tutor: r.used_tutor !== false, // corectat în chatul Prof. Virtual
+        upload: true,                       // încărcat de elev (nu din platformă)
+      });
+    });
+  } catch { /* tabelul poate lipsi până se rulează supabase/corectare_pdf.sql */ }
+
   // 7b. Temele de la „Meditații cu Profesorul Virtual" rezolvate de elevi
   //     (cele „din site" apar deja în progress; aici intră și cele GENERATE).
   let meditatii = [];

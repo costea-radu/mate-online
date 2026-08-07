@@ -21,6 +21,8 @@ function fmtTime(sec) {
   return `${m} min ${s}s`;
 }
 const typeLabel = { interactive: 'Test interactiv', manual: 'Manual', pdf: 'PDF' };
+// eticheta din paranteză, lângă titlul fiecărui exercițiu: (interactiv) / (PDF)
+const parenType = (t) => (t === 'interactive' ? 'interactiv' : t === 'pdf' ? 'PDF' : t === 'manual' ? 'manual' : t || '?');
 
 function copyText(value, done) {
   if (navigator.clipboard?.writeText) {
@@ -339,9 +341,12 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                       return (
                         <tr key={r.content_id + '-' + i} style={{ borderTop: '1px solid var(--border)' }}>
                           <td style={{ padding: '7px 10px' }}>
-                            <span style={{ color: 'var(--text)', fontWeight: 500 }}>{r.test_title}</span>
+                            <span style={{ color: 'var(--text)', fontWeight: 500 }}>
+                              {r.test_title}{' '}
+                              <span style={{ color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.74rem' }}>({parenType(r.content_type)})</span>
+                            </span>
                             <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                              {(typeLabel[r.content_type] || r.content_type)}{r.completed_at ? ` · ${fmtDate(r.completed_at)}` : ''}
+                              {(typeLabel[r.content_type] || r.content_type)}{r.upload ? ' · încărcat de elev în chat' : ''}{r.completed_at ? ` · ${fmtDate(r.completed_at)}` : ''}
                             </span>
                             <span style={{ display: 'block', marginTop: 4, background: 'var(--cream-dark)', borderRadius: 20, height: 5, maxWidth: 180, overflow: 'hidden' }}>
                               <span style={{ display: 'block', width: `${p}%`, height: '100%', background: scoreColor(p), borderRadius: 20 }} />
@@ -362,6 +367,11 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                             {r.ai_questions > 0 ? (
                               <span style={{ fontWeight: 700, color: '#8a6d00', background: 'rgba(232,185,49,.18)', border: '1px solid rgba(232,185,49,.5)', borderRadius: 12, padding: '2px 9px', fontSize: '0.76rem' }}>
                                 Da, {r.ai_questions} {r.ai_questions === 1 ? 'întrebare' : 'întrebări'}
+                              </span>
+                            ) : r.used_tutor ? (
+                              <span title="Rezolvat și corectat în chatul Profesorului Virtual"
+                                style={{ fontWeight: 700, color: '#8a6d00', background: 'rgba(232,185,49,.18)', border: '1px solid rgba(232,185,49,.5)', borderRadius: 12, padding: '2px 9px', fontSize: '0.76rem' }}>
+                                Da (corectare AI)
                               </span>
                             ) : (
                               <span style={{ color: 'var(--text-muted)' }}>Nu</span>
@@ -415,7 +425,7 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
               <StudentAIMastery
                 studentId={student.id}
                 aiTests={[
-                  ...student.rows.filter((r) => r.ai_questions > 0),
+                  ...student.rows.filter((r) => r.ai_questions > 0 || r.used_tutor),
                   ...(student.aiOnly || []),
                 ]}
               />
@@ -569,6 +579,8 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
     });
     const arr = [...map.values()];
     arr.forEach((g) => {
+      // cele mai noi rezultate primele (progress + corectările PDF, amestecate)
+      g.rows.sort((a, b) => new Date(b.completed_at || 0) - new Date(a.completed_at || 0));
       g.count = g.rows.length;
       g.avg = g.count ? Math.round(g.rows.reduce((a, r) => a + pct(r.score, r.max_score), 0) / g.count) : null;
       g.attemptsTotal = g.rows.reduce((a, r) => a + (r.attempts || 0), 0);

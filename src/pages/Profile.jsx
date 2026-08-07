@@ -13,6 +13,139 @@ import AITeacherReport from '../components/AITeacherReport';
 import ParentAIActivity from '../components/ParentAIActivity';
 import AccountSettings from '../components/AccountSettings';
 import { getMyBadges } from '../lib/badges';
+import { notaDinScor } from '../lib/nota';
+
+// ─── Rezultatele ELEVULUI: testele și exercițiile rezolvate de el ────────────
+// Din `progress` (teste interactive + teste PDF corectate de Prof. Virtual) și
+// din `ai_pdf_results` (poze / PDF-uri încărcate în chat) — ambele protejate
+// de RLS (elevul își vede doar propriile rânduri). Lângă fiecare exercițiu se
+// menționează în paranteză dacă e (interactiv) sau (PDF).
+function MyResults({ user }) {
+  const [rows, setRows] = useState(null);
+  const loadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!user?.id || loadedRef.current) return;
+    loadedRef.current = true;
+    (async () => {
+      const out = [];
+      try {
+        const { data: prog } = await supabase.from('progress')
+          .select('*').eq('user_id', user.id)
+          .order('completed_at', { ascending: false }).limit(120);
+        const ids = [...new Set((prog || []).map((p) => p.content_id).filter(Boolean))];
+        const titleMap = {};
+        if (ids.length) {
+          try {
+            const { data: cont } = await supabase.from('content')
+              .select('id, title, content_type, category').in('id', ids);
+            (cont || []).forEach((c) => { titleMap[c.id] = c; });
+          } catch { /* titlurile lipsă cad pe snapshot */ }
+        }
+        (prog || []).forEach((p) => {
+          const c = titleMap[p.content_id] || {};
+          out.push({
+            id: 'pr-' + (p.id || p.content_id),
+            title: c.title || p.test_title || 'Test',
+            type: c.content_type || p.content_type || 'interactive',
+            score: p.score, max: p.max_score,
+            attempts: p.attempts || 1, time: p.time_spent || 0,
+            at: p.completed_at,
+          });
+        });
+      } catch { /* fără progres încă */ }
+      try {
+        const { data: pdfr } = await supabase.from('ai_pdf_results')
+          .select('id, title, category, score, max_score, attempts, time_spent, completed_at, content_id')
+          .eq('user_id', user.id)
+          .is('content_id', null)
+          .order('completed_at', { ascending: false }).limit(60);
+        (pdfr || []).forEach((r) => {
+          out.push({
+            id: 'up-' + r.id,
+            title: r.title || 'Exercițiu corectat de Prof. Virtual',
+            type: 'pdf', upload: true,
+            score: Number(r.score) || 0, max: Number(r.max_score) || 0,
+            attempts: r.attempts || 1, time: r.time_spent || 0,
+            at: r.completed_at,
+          });
+        });
+      } catch { /* tabelul apare după rularea supabase/corectare_pdf.sql */ }
+      out.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+      setRows(out);
+    })();
+  }, [user?.id]);
+
+  const fmtT = (sec) => {
+    if (!sec || sec <= 0) return '—';
+    const m = Math.floor(sec / 60), s = sec % 60;
+    return m === 0 ? `${s}s` : s === 0 ? `${m} min` : `${m} min ${s}s`;
+  };
+  const pct = (s, m) => (m ? Math.round((s / m) * 100) : 0);
+  const col = (p) => (p >= 80 ? '#2e7d32' : p >= 50 ? '#e65100' : '#c62828');
+
+  return (
+    <details className="card" style={{ marginBottom: 24 }} open={false}>
+      <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none' }}>
+        📊 Rezultatele mele — teste și exerciții rezolvate{rows ? ` (${rows.length})` : ''}
+      </summary>
+      <div style={{ marginTop: 14 }}>
+        {rows === null && <p style={{ color: 'var(--text-muted)', fontSize: '.88rem' }}>Se încarcă…</p>}
+        {rows !== null && rows.length === 0 && (
+          <p style={{ color: 'var(--text-muted)', fontSize: '.88rem' }}>
+            Încă nu ai rezultate. Rezolvă un test interactiv sau corectează-ți un test PDF cu „Răspunde în chat" la Profesorul Virtual.
+          </p>
+        )}
+        {rows !== null && rows.length > 0 && (
+          <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem', minWidth: 520 }}>
+              <thead>
+                <tr style={{ textAlign: 'left', color: 'var(--text-muted)' }}>
+                  <th style={{ padding: '6px 10px', fontWeight: 700 }}>Test sau exercițiu</th>
+                  <th style={{ padding: '6px 10px', fontWeight: 700, textAlign: 'right', whiteSpace: 'nowrap' }}>Punctaj</th>
+                  <th style={{ padding: '6px 10px', fontWeight: 700, textAlign: 'right', whiteSpace: 'nowrap' }}>Nr. încercări</th>
+                  <th style={{ padding: '6px 10px', fontWeight: 700, textAlign: 'right', whiteSpace: 'nowrap' }}>Timp</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.slice(0, 60).map((r) => {
+                  const p = pct(r.score, r.max);
+                  const nota = notaDinScor(r.score, r.max);
+                  return (
+                    <tr key={r.id} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: '7px 10px' }}>
+                        <span style={{ color: 'var(--text)', fontWeight: 500 }}>
+                          {r.title}{' '}
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 600, fontSize: '.74rem' }}>
+                            ({r.type === 'interactive' ? 'interactiv' : r.type === 'pdf' ? 'PDF' : r.type})
+                          </span>
+                        </span>
+                        <span style={{ display: 'block', fontSize: '.7rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                          {r.upload ? 'încărcat de tine în chat · ' : ''}{r.at ? new Date(r.at).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+                        </span>
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontWeight: 700, color: col(p) }}>{r.score}/{r.max}</span>
+                        <span style={{ color: col(p), fontSize: '.74rem', marginLeft: 5 }}>({p}%)</span>
+                        {nota != null && (
+                          <span style={{ display: 'block', fontSize: '.72rem', fontWeight: 700, color: '#8a6d00', marginTop: 2 }} title="Nota include 10 puncte din oficiu">
+                            nota {nota}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: 'var(--text)' }}>{r.attempts}</td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: 'var(--text)', whiteSpace: 'nowrap' }}>{fmtT(r.time)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
 
 export default function Profile() {
   const { user, profile, isPremium, isTeacher, isParent, isMentor, signOut, loading, fetchProfile } = useAuth();
@@ -436,6 +569,10 @@ export default function Profile() {
                 )}
               </div>
             )}
+
+            {/* Rezultatele ELEVULUI: testele și exercițiile rezolvate de el
+                (interactive + PDF corectate de Prof. Virtual) */}
+            {!isMentor && <MyResults user={user} />}
 
             {/* Rezultate elevi — pentru profesori și părinți, sub Abonament */}
             {isMentor && (

@@ -122,6 +122,15 @@ export const aiClient = {
   // Foto-rezolvare: transcrie exercițiul dintr-o imagine (data URL)
   visionExtract: ({ imageBase64, note = '' }) => post('/api/ai-vision', { imageBase64, note }),
 
+  // ── Corectarea cu punctaj a testelor / exercițiilor PDF („Răspunde în chat") ──
+  // Textul unui PDF încărcat de elev direct în chat (temă, fișă, variantă)
+  correctPdfText: ({ fileBase64 }) => post('/api/ai-correct', { action: 'pdf_text', fileBase64 }),
+  // Formularul de răspuns: câmpuri pe exerciții și subpuncte a), b), c) — din barem
+  correctForm: ({ testText, baremText = '', title = '' }) =>
+    post('/api/ai-correct', { action: 'form', testText, baremText, title }),
+  // Corectarea: AI-ul primește testul + baremul + răspunsurile și dă punctajul
+  correctGrade: (payload) => post('/api/ai-correct', { action: 'grade', ...payload }),
+
   // Profesor: stăpânirea AI a unui elev al său + raport agregat
   teacherStudentMastery: (studentId) => post('/api/ai-teacher', { action: 'student', studentId }),
   teacherReport: ({ groupId = null } = {}) => post('/api/ai-teacher', { action: 'report', groupId }),

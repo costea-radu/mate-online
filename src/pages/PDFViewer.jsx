@@ -361,6 +361,8 @@ export default function PDFViewer() {
     category: item?.category || null,
     contentId: item?.id || null,
     title: item?.title || null,
+    // formularul „Răspunde în chat" pornește doar dacă textul testului e citibil
+    pdfReadable: !!(pdfText && pdfText.trim().length > 80),
     exerciseText: pdfText
       ? pdfText
       : (item?.title ? `Materialul PDF „${item.title}" este deschis, dar textul lui nu a putut fi citit automat (poate fi un PDF scanat). Cere-i elevului să scrie enunțul sau să îl fotografieze.` : ''),
