@@ -12,6 +12,7 @@ import { printExam, printExercise } from '../lib/examPrint';
 import ExamGenerator from '../components/ExamGenerator';
 import EinsteinIcon from '../components/EinsteinIcon';
 import SendToStudents from '../components/SendToStudents';
+import AILimite from '../components/AILimite';
 import { renderQuiz } from '../lib/quizRender';
 
 const CATEGORIES = [
@@ -28,11 +29,22 @@ export default function ProfesorVirtual() {
   const [tab, setTab] = useState('chat');
   const navigate = useNavigate();
 
-  if (loading) return <div style={{ padding: 60, textAlign: 'center' }}><div className="spinner" /></div>;
-
   // Contul de ELEV: „Întreabă profesorul" + „Meditații cu Prof. Virtual" + „Progresul meu".
   // (Generatoarele de subiecte/interactive și biblioteca rămân pentru profesori/părinți.)
   const isStudentView = isStudent || (!isTeacher && !isParent);
+
+  // Întoarcerea de la plata unui pachet AI (?topup=succes/anulat) → deschide
+  // direct tabul cu consumul, unde AILimite afișează confirmarea.
+  useEffect(() => {
+    if (loading) return;
+    if (new URLSearchParams(window.location.search).get('topup')) {
+      setTab(isStudentView ? 'progress' : 'limits');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
+  if (loading) return <div style={{ padding: 60, textAlign: 'center' }}><div className="spinner" /></div>;
+
   const TABS = isStudentView
     ? [
         { id: 'chat', label: `💬 ${askAiLabel({ isTeacher, isParent })}` },
@@ -44,6 +56,7 @@ export default function ProfesorVirtual() {
         { id: 'exam', label: '📄 Generează subiect examen' },
         { id: 'interactive', label: '🧩 Generează interactiv' },
         { id: 'library', label: '📚 Testele și exercițiile mele' },
+        { id: 'limits', label: '⚡ Consum AI' },
       ];
 
   return (
@@ -91,6 +104,7 @@ export default function ProfesorVirtual() {
           {tab === 'exam' && <ExamGenerator canManage={isTeacher} />}
           {tab === 'library' && <LibraryTab />}
           {tab === 'progress' && <ProgressTab />}
+          {tab === 'limits' && <AILimite />}
         </>
       )}
     </div>
@@ -794,6 +808,9 @@ function ProgressTab() {
 
   return (
     <div>
+      {/* Consumul AI: cote per funcție + pachete suplimentare */}
+      <AILimite budget={data.budget} />
+
       {/* Stăpânirea pe subiecte */}
       <div style={card}>
         <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 14 }}>Stăpânirea pe subiecte</h3>

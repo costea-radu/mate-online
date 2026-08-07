@@ -33,6 +33,7 @@ module.exports = async function handler(req, res) {
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) ai.requirePremium(profile);
     const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
+    await ai.enforceFeatureQuota(supa, userId, profile, 'interactive', lim); // cota lunară
 
     // „Subiect + instrucțiuni": câmpul acceptă un prompt amplu de la profesor
     // (temă + cerințe pentru AI). Versiunea integrală intră în promptul de

@@ -243,6 +243,7 @@ module.exports = async function handler(req, res) {
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) ai.requirePremium(profile); // abonați sau admin
     const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
+    await ai.enforceFeatureQuota(supa, userId, profile, 'teste', lim); // cota lunară de subiecte
 
     const cfg = EXAMS[examType];
     if (!cfg) return res.status(400).json({ error: 'examType invalid' });

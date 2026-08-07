@@ -127,6 +127,50 @@ const BUDGET_MONTH_LEI    = parseFloat(process.env.AI_BUDGET_MONTH_LEI    || '6'
 // (Cererile pe modele premium — PDF/GEN — coboară pe CHAT_MODEL.)
 const ECON_CHAT_MODEL = process.env.AI_ECON_CHAT_MODEL || 'gpt-4o-mini';
 
+// ─── Pachete TOP-UP (buget suplimentar, cumpărat prin Stripe) ────────────────
+// Un pachet adaugă `creditLei` la bugetul lunar, pentru AI_TOPUP_DAYS zile
+// (implicit 30 — aceeași fereastră ca bugetul rulant). Prețul include marja
+// (recomandat 2–3× costul real). Suprascriere fără cod:
+//   AI_TOPUP_PACKS_JSON='[{"id":"mic","nume":"Pachet AI Mic","pretLei":10,"creditLei":4}]'
+const TOPUP_DAYS = parseInt(process.env.AI_TOPUP_DAYS || '30', 10);
+const DEFAULT_TOPUP_PACKS = [
+  { id: 'mic',  nume: 'Pachet AI Mic',  pretLei: 10, creditLei: 4 },
+  { id: 'mare', nume: 'Pachet AI Mare', pretLei: 20, creditLei: 10 },
+];
+function topupPacks() {
+  try {
+    const arr = JSON.parse(process.env.AI_TOPUP_PACKS_JSON || 'null');
+    if (Array.isArray(arr)) {
+      const ok = arr.filter((p) => p && p.id && p.nume && +p.pretLei > 0 && +p.creditLei > 0)
+        .map((p) => ({ id: String(p.id), nume: String(p.nume), pretLei: +p.pretLei, creditLei: +p.creditLei }));
+      if (ok.length) return ok;
+      if (arr.length === 0) return []; // listă goală explicită = pachetele sunt dezactivate
+    }
+  } catch { warnOnce('packs', 'AI_TOPUP_PACKS_JSON invalid (nu e JSON) — folosesc pachetele implicite.'); }
+  return DEFAULT_TOPUP_PACKS;
+}
+
+// ─── Cote per funcție (vizibile în UI; se aplică DOAR fără pachet activ) ─────
+// Numără acțiunile din ai_usage pe endpointul funcției. 0 = cota dezactivată.
+const FEATURE_QUOTAS = {
+  corectari: {
+    endpoint: 'ai-correct:grade', label: 'Corectări de teste', emoji: '📝',
+    perMonth: parseInt(process.env.AI_QUOTA_CORECTARI_LUNA || '10', 10),
+  },
+  teste: {
+    endpoint: 'ai-exam', label: 'Subiecte de examen generate', emoji: '📄',
+    perMonth: parseInt(process.env.AI_QUOTA_TESTE_LUNA || '20', 10),
+  },
+  interactive: {
+    endpoint: 'ai-generate-interactive', label: 'Exerciții interactive generate', emoji: '🧩',
+    perMonth: parseInt(process.env.AI_QUOTA_INTERACTIVE_LUNA || '40', 10),
+  },
+  foto: {
+    endpoint: 'ai-vision', label: 'Foto-rezolvări', emoji: '📷',
+    perDay: parseInt(process.env.AI_QUOTA_FOTO_ZI || '10', 10),
+  },
+};
+
 // Miezul nopții de AZI pe ora României, ca timestamp ISO (începutul „zilei" de buget).
 function dayStartBucharest(now = new Date()) {
   const parts = Object.fromEntries(
@@ -551,21 +595,32 @@ async function enforceRateLimit(supa, userId, profile = null) {
   return enforceBudgets(supa, userId, profile);
 }
 
-// Sumele consumate (azi / ultimele 30 de zile), prin funcția SQL `ai_spent`
-// (o singură interogare agregată, pe indexul existent). Dacă migrarea
-// supabase/ai_limite_cost.sql nu a fost rulată încă → null (nu blocăm).
+// Sumele consumate (azi / ultimele 30 de zile) + creditul top-up activ.
+// Încearcă `ai_spent2` (cu top-up; migrarea ai_topup.sql), apoi `ai_spent`
+// (fără top-up; migrarea ai_limite_cost.sql). Nimic rulat → null (nu blocăm).
 async function budgetSpent(supa, userId) {
-  try {
-    const { data, error } = await supa.rpc('ai_spent', {
-      p_user: userId,
-      p_day_start: dayStartBucharest(),
-      p_month_start: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString(),
-    });
-    if (error) throw new Error(error.message || 'rpc error');
-    const row = Array.isArray(data) ? data[0] : data;
-    if (row && row.month_micro != null) return row;
-  } catch (e) {
-    warnOnce('ai_spent', `Bugetele AI inactive — funcția SQL ai_spent lipsește (rulează supabase/ai_limite_cost.sql). Detaliu: ${e.message}`);
+  const args = {
+    p_user: userId,
+    p_day_start: dayStartBucharest(),
+    p_month_start: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString(),
+  };
+  for (const fn of ['ai_spent2', 'ai_spent']) {
+    try {
+      const { data, error } = await supa.rpc(fn, args);
+      if (error) throw new Error(error.message || 'rpc error');
+      const row = Array.isArray(data) ? data[0] : data;
+      if (row && row.month_micro != null) {
+        if (row.topup_micro == null) { // varianta veche, fără top-up
+          row.topup_micro = 0; row.topup_expires = null;
+          warnOnce('ai_spent2', 'Pachetele top-up inactive — rulează supabase/ai_topup.sql (funcția ai_spent2 lipsește).');
+        }
+        return row;
+      }
+    } catch (e) {
+      if (fn === 'ai_spent') {
+        warnOnce('ai_spent', `Bugetele AI inactive — funcția SQL ai_spent lipsește (rulează supabase/ai_limite_cost.sql). Detaliu: ${e.message}`);
+      }
+    }
   }
   return null;
 }
@@ -575,7 +630,8 @@ const isBudgetExempt = (profile) => !!(profile && (profile.is_admin || profile.r
 
 async function enforceBudgets(supa, userId, profile = null) {
   const state = {
-    degraded: false, dayLei: 0, monthLei: 0,
+    degraded: false, dayLei: 0, monthLei: 0, topupLei: 0, topupActive: false, topupExpires: null,
+    effectiveMonthLei: BUDGET_MONTH_LEI,
     limits: { daySoftLei: BUDGET_DAY_SOFT_LEI, dayHardLei: BUDGET_DAY_HARD_LEI, monthLei: BUDGET_MONTH_LEI },
   };
   if (!budgetsEnabled() || isBudgetExempt(profile)) return state;
@@ -583,16 +639,50 @@ async function enforceBudgets(supa, userId, profile = null) {
   if (!spent) return state; // migrarea nu e rulată → comportamentul de dinainte
   state.dayLei = (spent.day_micro || 0) / 1e6;
   state.monthLei = (spent.month_micro || 0) / 1e6;
-  if (BUDGET_MONTH_LEI > 0 && state.monthLei >= BUDGET_MONTH_LEI) {
-    const e = new Error('Ai folosit bugetul lunar de AI inclus în abonament. Se eliberează treptat, pe măsură ce trec zilele (fereastră de 30 de zile). Restul platformei funcționează normal.');
+  state.topupLei = (spent.topup_micro || 0) / 1e6;
+  state.topupExpires = spent.topup_expires || null;
+  // Pachetele top-up MĂRESC bugetul lunar pe durata valabilității lor.
+  state.effectiveMonthLei = BUDGET_MONTH_LEI > 0 ? BUDGET_MONTH_LEI + state.topupLei : 0;
+  // „Pachet activ" = mai există credit de acoperit (elevul a plătit pentru
+  // capacitate suplimentară) → degradarea pe model ieftin NU se aplică,
+  // iar cotele incluse per funcție se sar (vezi enforceFeatureQuota).
+  state.topupActive = state.topupLei > 0 && (state.effectiveMonthLei === 0 || state.monthLei < state.effectiveMonthLei);
+  if (state.effectiveMonthLei > 0 && state.monthLei >= state.effectiveMonthLei) {
+    const packs = topupPacks();
+    const e = new Error('Ai folosit bugetul de AI inclus în abonament pe această lună. Se eliberează treptat, pe măsură ce trec zilele (fereastră de 30 de zile).' +
+      (packs.length ? ' Poți continua imediat cu un pachet AI suplimentar, din pagina Profesor Virtual.' : ' Restul platformei funcționează normal.'));
     e.status = 429; e.code = 'BUDGET_MONTH'; throw e;
   }
-  if (BUDGET_DAY_HARD_LEI > 0 && state.dayLei >= BUDGET_DAY_HARD_LEI) {
+  if (BUDGET_DAY_HARD_LEI > 0 && state.dayLei >= BUDGET_DAY_HARD_LEI && !state.topupActive) {
     const e = new Error('Ai atins limita zilnică de utilizare AI. Se resetează la miezul nopții — te așteptăm mâine!');
     e.status = 429; e.code = 'BUDGET_DAY'; throw e;
   }
-  if (BUDGET_DAY_SOFT_LEI > 0 && state.dayLei >= BUDGET_DAY_SOFT_LEI) state.degraded = true;
+  if (BUDGET_DAY_SOFT_LEI > 0 && state.dayLei >= BUDGET_DAY_SOFT_LEI && !state.topupActive) state.degraded = true;
   return state;
+}
+
+// Cota inclusă a unei funcții scumpe (corectări / teste / interactive / foto).
+// Se aplică DOAR utilizatorilor fără pachet top-up activ și fără scutire.
+// Aruncă 429 cu code='QUOTA_FEATURE' și feature=<cheia> când cota e atinsă.
+async function enforceFeatureQuota(supa, userId, profile, featureKey, lim = null) {
+  const q = FEATURE_QUOTAS[featureKey];
+  if (!q) return;
+  if (isBudgetExempt(profile)) return;
+  if (lim && lim.topupActive) return; // pachet plătit → cotele incluse nu limitează
+  const packs = topupPacks();
+  const hint = packs.length ? ' Poți continua imediat cu un pachet AI suplimentar, din pagina Profesor Virtual.' : ' Cota se eliberează pe măsură ce trec zilele.';
+  const checks = [];
+  if (q.perDay > 0) checks.push({ since: dayStartBucharest(), limit: q.perDay, win: 'azi', reset: 'Se resetează la miezul nopții.' });
+  if (q.perMonth > 0) checks.push({ since: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString(), limit: q.perMonth, win: 'luna aceasta', reset: '' });
+  for (const c of checks) {
+    const { count, error } = await supa.from('ai_usage').select('*', { count: 'exact', head: true })
+      .eq('user_id', userId).eq('endpoint', q.endpoint).gte('created_at', c.since);
+    if (error) { warnOnce(`quota:${featureKey}`, `enforceFeatureQuota(${featureKey}): ${error.message}`); return; }
+    if ((count || 0) >= c.limit) {
+      const e = new Error(`Ai folosit toate cele ${c.limit} „${q.label.toLowerCase()}" incluse ${c.win}. ${c.reset}${hint}`.replace(/\s+/g, ' ').trim());
+      e.status = 429; e.code = 'QUOTA_FEATURE'; e.feature = featureKey; throw e;
+    }
+  }
 }
 
 // Alege modelul după starea bugetului (starea = ce întoarce enforceRateLimit).
@@ -611,12 +701,39 @@ async function budgetInfo(supa, userId, profile = null) {
   if (!spent) return null;
   const dayLei = (spent.day_micro || 0) / 1e6;
   const monthLei = (spent.month_micro || 0) / 1e6;
+  const topupLei = (spent.topup_micro || 0) / 1e6;
+  const effectiveMonthLei = BUDGET_MONTH_LEI > 0 ? BUDGET_MONTH_LEI + topupLei : 0;
   const exempt = isBudgetExempt(profile);
+  const topupActive = !exempt && topupLei > 0 && (effectiveMonthLei === 0 || monthLei < effectiveMonthLei);
+
+  // Consumul pe funcțiile cu cotă (o singură interogare pentru toate).
+  const monthStart = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+  const dayStart = dayStartBucharest();
+  const endpoints = Object.values(FEATURE_QUOTAS).map((q) => q.endpoint);
+  const features = [];
+  try {
+    const { data } = await supa.from('ai_usage').select('endpoint, created_at')
+      .eq('user_id', userId).in('endpoint', endpoints).gte('created_at', monthStart).limit(2000);
+    for (const [key, q] of Object.entries(FEATURE_QUOTAS)) {
+      if (!(q.perMonth > 0) && !(q.perDay > 0)) continue; // cotă dezactivată → nu apare
+      const rows = (data || []).filter((r) => r.endpoint === q.endpoint);
+      features.push({
+        key, label: q.label, emoji: q.emoji,
+        usedMonth: rows.length, limitMonth: q.perMonth > 0 ? q.perMonth : null,
+        usedDay: rows.filter((r) => r.created_at >= dayStart).length, limitDay: q.perDay > 0 ? q.perDay : null,
+      });
+    }
+  } catch { /* doar afișare — nu blocăm */ }
+
   return {
     dayLei: +dayLei.toFixed(4), monthLei: +monthLei.toFixed(4),
     dayActions: spent.day_actions || 0, monthActions: spent.month_actions || 0,
     limits: { daySoftLei: BUDGET_DAY_SOFT_LEI, dayHardLei: BUDGET_DAY_HARD_LEI, monthLei: BUDGET_MONTH_LEI },
-    degraded: !exempt && BUDGET_DAY_SOFT_LEI > 0 && dayLei >= BUDGET_DAY_SOFT_LEI,
+    effectiveMonthLei: +effectiveMonthLei.toFixed(4),
+    topup: { creditLei: +topupLei.toFixed(4), active: topupActive, expiresAt: spent.topup_expires || null, days: TOPUP_DAYS },
+    packs: topupPacks(),
+    features,
+    degraded: !exempt && !topupActive && BUDGET_DAY_SOFT_LEI > 0 && dayLei >= BUDGET_DAY_SOFT_LEI,
     exempt,
   };
 }
@@ -1342,5 +1459,7 @@ module.exports = {
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS, PDF_MODEL, GEN_MODEL,
   // limite de consum (vezi GHID_LIMITE_AI.md)
   pickModel, budgetInfo, costMicroLei, priceFor, dayStartBucharest, ECON_CHAT_MODEL, USD_RON,
+  // cote per funcție + pachete top-up (pasul 2)
+  enforceFeatureQuota, FEATURE_QUOTAS, topupPacks, TOPUP_DAYS,
 };
 // (integrare Profesor Virtual ↔ exerciții interactive: levelLabel, interactiveCatalog, studentState — vezi mai sus)

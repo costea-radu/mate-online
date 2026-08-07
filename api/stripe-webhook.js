@@ -68,6 +68,56 @@ const handler = async function handler(req, res) {
           return res.status(400).send('Missing supabase_user_id in metadata');
         }
 
+        // ── PACHET AI SUPLIMENTAR (top-up, mode: 'payment') ──────────────
+        // NU atinge abonamentul. Creditează bugetul AI în `ai_topups`,
+        // idempotent pe stripe_session_id (Stripe poate retrimite evenimentul).
+        if (session.metadata?.topup_pack) {
+          const creditLei = parseFloat(session.metadata.topup_credit_lei || '0');
+          const days = parseInt(session.metadata.topup_days || '30', 10);
+          if (!(creditLei > 0)) {
+            console.error('topup: topup_credit_lei invalid în metadata:', session.metadata.topup_credit_lei);
+            return res.status(400).send('Invalid topup_credit_lei');
+          }
+          const { error: tErr } = await supabase.from('ai_topups').upsert({
+            user_id: userId,
+            pack_id: session.metadata.topup_pack,
+            name: session.metadata.topup_name || session.metadata.topup_pack,
+            credit_micro: Math.round(creditLei * 1e6),
+            price_bani: session.amount_total != null ? session.amount_total : null,
+            stripe_session_id: session.id,
+            expires_at: new Date(Date.now() + days * 24 * 3600 * 1000).toISOString(),
+          }, { onConflict: 'stripe_session_id', ignoreDuplicates: true });
+
+          if (tErr) {
+            // BANI ÎNCASAȚI fără creditare → 500, ca Stripe să REÎNCERCE
+            // (se vindecă singur după rularea migrării ai_topup.sql) + alertă.
+            console.error('topup: creditarea a eșuat:', tErr);
+            await alertAdmin({
+              emoji: '🚨',
+              subject: 'Top-up AI plătit dar NECREDITAT — verifică urgent',
+              lines: [
+                `Utilizator: <code>${mailer.escapeHtml(String(userId))}</code>, pachet: ${mailer.escapeHtml(String(session.metadata.topup_pack))}.`,
+                `Eroare: <code>${mailer.escapeHtml(String(tErr.message || tErr))}</code>`,
+                'Stripe va reîncerca automat webhookul. Dacă eroarea persistă, rulează supabase/ai_topup.sql.',
+              ],
+            });
+            return res.status(500).send('Topup credit failed');
+          }
+
+          const { data: prof2 } = await supabase.from('profiles').select('full_name, email').eq('id', userId).single();
+          const amount2 = session.amount_total != null ? `${(session.amount_total / 100).toFixed(2)} ${String(session.currency || '').toUpperCase()}` : '—';
+          await alertAdmin({
+            emoji: '💳',
+            subject: 'Pachet AI suplimentar cumpărat pe ExamenMate',
+            lines: [
+              `<strong>${mailer.escapeHtml(prof2?.full_name || 'Utilizator')}</strong> (${mailer.escapeHtml(prof2?.email || session.customer_details?.email || '?')})`,
+              `Pachet: <strong>${mailer.escapeHtml(session.metadata.topup_name || session.metadata.topup_pack)}</strong> · Sumă: <strong>${amount2}</strong> · Buget adăugat: <strong>${creditLei} lei</strong> (${days} zile)`,
+            ],
+          });
+          break;
+        }
+
+        // ── ABONAMENT NOU (mode: 'subscription', ca înainte) ─────────────
         const { error } = await supabase
           .from('profiles')
           .update({

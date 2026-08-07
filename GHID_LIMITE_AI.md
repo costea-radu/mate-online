@@ -1,10 +1,15 @@
-# 💰 Limite de consum AI — cost per acțiune + bugete (zi / lună)
+# 💰 Limite de consum AI — cost per acțiune, bugete, cote și pachete top-up
 
 Acest sistem transformă fiecare acțiune AI în **bani** (micro-lei) la logare și aplică
 bugete per utilizator, ca serviciile AI comerciale: sub limite nu se simte nimic,
 peste limita zilnică „soft" cererile trec **automat pe un model mai ieftin**
 (degradare, nu blocare), iar limitele „hard" opresc politicos AI-ul până la resetare.
 Restul platformei (materiale, exerciții, rezolvări) nu e afectat niciodată.
+
+**Pasul 2 (inclus):** cote **vizibile per funcție** („Corectări: 3/10 luna aceasta")
+și **pachete top-up prin Stripe** — după epuizarea bugetului inclus, utilizatorul
+poate plăti o sumă unică pentru buget suplimentar (cu marjă de profit), exact
+mecanismul serviciilor AI comerciale.
 
 **De ce în bani, nu în număr de mesaje?** Un mesaj de chat pe `gpt-4o-mini` costă
 ~0,005 lei, dar o corectare de test pe modelul premium costă ~0,65 lei — de peste
@@ -18,9 +23,10 @@ exact partea scumpă. Intern totul se măsoară în micro-lei; în UI poți afi�
 
 ### Pasul 1 — Baza de date (ÎNTÂI!)
 
-Supabase → **SQL Editor** → **New Query** → lipește tot conținutul din
-**`supabase/ai_limite_cost.sql`** → **Run**. Scriptul e idempotent (poate fi rulat
-de mai multe ori) și adaugă:
+Supabase → **SQL Editor** → **New Query** → rulează, în ordine, cele două scripturi
+(idempotente — pot fi rulate de mai multe ori):
+
+**1a. `supabase/ai_limite_cost.sql`** (dacă nu l-ai rulat deja):
 
 | Ce | Rol |
 |---|---|
@@ -28,6 +34,13 @@ de mai multe ori) și adaugă:
 | `ai_usage.cost_micro` (coloană) | costul acțiunii în micro-lei (1 leu = 1.000.000) |
 | `ai_spent(...)` (funcție) | sumele consumate azi / în 30 de zile — o singură interogare, doar pentru server |
 | `ai_usage_daily` (vedere) | monitorizare pe zi × endpoint × model, cu cost în lei |
+
+**1b. `supabase/ai_topup.sql`** (pachetele top-up):
+
+| Ce | Rol |
+|---|---|
+| `ai_topups` (tabelă) | pachetele cumpărate: credit în micro-lei, valabilitate, id-ul sesiunii Stripe (idempotență) |
+| `ai_spent2(...)` (funcție) | ca `ai_spent`, dar întoarce și creditul top-up activ + expirarea lui |
 
 ### Pasul 2 — Deploy pe Vercel
 
@@ -81,12 +94,37 @@ peste cursul real, ca marjă). Whisper (STT) are cost fix estimat per apel.
 — adaugă-l în `AI_PRICES_JSON` ca să fie exact. Streamingul loghează acum usage-ul
 REAL (`stream_options.include_usage`), nu estimarea `lungime/4` de dinainte.
 
-### Ce vede elevul
+### Cotele per funcție (pasul 2)
+
+Peste bugetele în bani, funcțiile scumpe au cote **vizibile**, numărate din
+`ai_usage` (fereastră de 30 de zile, respectiv ziua curentă la foto):
+
+| Funcție | Endpoint numărat | Cota implicită | Env |
+|---|---|---|---|
+| 📝 Corectări de teste | `ai-correct:grade` | 10 / lună | `AI_QUOTA_CORECTARI_LUNA` |
+| 📄 Subiecte de examen | `ai-exam` | 20 / lună | `AI_QUOTA_TESTE_LUNA` |
+| 🧩 Exerciții interactive | `ai-generate-interactive` | 40 / lună | `AI_QUOTA_INTERACTIVE_LUNA` |
+| 📷 Foto-rezolvări | `ai-vision` | 10 / zi | `AI_QUOTA_FOTO_ZI` |
+
+0 = cota dezactivată. Adminii sunt scutiți. Cota atinsă → eroare 429 cu
+`code: 'QUOTA_FEATURE'` + `feature: '<cheia>'` și un mesaj care trimite spre
+pachete. **Cu un pachet top-up activ, cotele nu se aplică** — utilizatorul a
+plătit pentru capacitate, îl oprește doar bugetul efectiv (bază + credit).
+
+### Pachetele top-up (pasul 2)
+
+- Definite în `AI_TOPUP_PACKS_JSON` (implicit: **Pachet AI Mic — 10 lei → +4 lei buget**, **Pachet AI Mare — 20 lei → +10 lei buget**; marjă ~2,5×). Valabilitate `AI_TOPUP_DAYS` (implicit 30 de zile — aceeași fereastră ca bugetul rulant, deci semantica e „+X lei la luna curentă").
+- **Doar pentru abonați** (plată unică `mode: 'payment'`, prin `create-checkout` cu `type: 'topup'`); creditarea o face `stripe-webhook` la `checkout.session.completed`, idempotent pe `stripe_session_id` — nu e nevoie de NICIO configurare nouă în Stripe (webhookul existent primește deja evenimentul).
+- Cât timp există credit activ: bugetul lunar efectiv crește cu creditul, **degradarea pe model ieftin și limita zilnică hard nu se aplică**, iar cotele per funcție sunt deblocate. Mesajul de „buget epuizat" trimite spre pachete.
+- Plasă de siguranță: dacă tabela `ai_topups` lipsește (migrarea nerulată), cumpărarea e refuzată ÎNAINTE de plată (503), iar dacă webhookul nu poate credita o plată deja încasată, întoarce 500 (Stripe reîncearcă automat → se vindecă singur după migrare) și primești email de alertă 🚨.
+
+### Ce vede utilizatorul
 
 - Sub limite: nimic diferit.
 - Peste limita soft: răspunsurile vin de la modelul mai ieftin (fără mesaj de eroare).
-- Peste hard/lunar: mesaj prietenos („Ai atins limita zilnică... Se resetează la miezul nopții") — fără termeni tehnici.
-- `/api/ai-progress` întoarce acum și `budget: { dayLei, monthLei, dayActions, monthActions, limits, degraded, exempt }` — poți afișa în UI „azi: N acțiuni" sau o bară de progres. `null` până rulezi migrarea.
+- Peste hard/lunar sau peste o cotă: mesaj prietenos, cu invitația de a continua cu un pachet.
+- **UI (pasul 2):** componenta `AILimite` afișează „Utilizare AI luna aceasta" (procent, fără lei), cotele per funcție cu bare, pachetul activ + expirarea și butoanele de cumpărare. La elevi apare sus în „📈 Progresul meu"; la profesori/părinți în tabul nou „⚡ Consum AI" din pagina Profesor Virtual. După plată, Stripe redirecționează către `/profesor-virtual?topup=succes`, care deschide direct tabul potrivit cu confirmarea.
+- `/api/ai-progress` întoarce `budget: { dayLei, monthLei, dayActions, monthActions, limits, effectiveMonthLei, topup:{creditLei,active,expiresAt,days}, packs, features[], degraded, exempt }`. `null` până rulezi migrarea.
 
 ---
 
@@ -139,11 +177,16 @@ de propriul cod.
 
 | Simptom | Cauză / soluție |
 |---|---|
-| În loguri: „Bugetele AI inactive — funcția SQL ai_spent lipsește" | Rulează `supabase/ai_limite_cost.sql` (Pasul 1). Totul merge, dar fără bugete. |
+| În loguri: „Bugetele AI inactive — funcția SQL ai_spent lipsește" | Rulează `supabase/ai_limite_cost.sql` (Pasul 1a). Totul merge, dar fără bugete. |
+| În loguri: „Pachetele top-up inactive — rulează supabase/ai_topup.sql" | Rulează `supabase/ai_topup.sql` (Pasul 1b). Bugetele merg, dar fără credit top-up. |
 | În loguri: „ai_usage fără coloanele model/cost_micro" | Același lucru — migrarea nerulată; se loghează în forma veche. |
 | În loguri: „model necunoscut «X» — aplic prețul implicit" | Adaugă modelul în `AI_PRICES_JSON` cu prețul lui real. Până atunci se supraestimează (3/15 USD/1M). |
-| Un elev se plânge că „AI-ul răspunde mai simplu" azi | A trecut de limita zilnică soft → modelul economic. Se resetează la miezul nopții. |
+| Un elev se plânge că „AI-ul răspunde mai simplu" azi | A trecut de limita zilnică soft → modelul economic. Se resetează la miezul nopții (sau imediat, cu un pachet). |
 | Eroare 429 cu `BUDGET_DAY` / `BUDGET_MONTH` prea des | Mărește `AI_BUDGET_DAY_HARD_LEI` / `AI_BUDGET_MONTH_LEI` în Vercel (redeploy) — sau verifică în top 10 dacă nu e abuz real. |
+| Eroare 429 cu `QUOTA_FEATURE` prea des | Mărește cota funcției respective (`AI_QUOTA_*`) — sau lasă pachetele să facă upsell-ul. |
+| „Pachetele AI nu sunt încă activate" la cumpărare | Tabela `ai_topups` lipsește → rulează `supabase/ai_topup.sql`. Protecția refuză plata ca să nu încaseze bani necreditabili. |
+| Email 🚨 „Top-up plătit dar NECREDITAT" | Webhookul n-a putut scrie creditul (de obicei migrarea nerulată). Stripe reîncearcă automat; după migrare se creditează singur. Verifică apoi în `ai_topups`. |
+| Pachetul plătit nu apare imediat în UI | Webhookul rulează la câteva secunde după redirect. Reîncarcă pagina. Dacă nu apare în ~1 minut, vezi rândul de mai sus. |
 | Adminul e limitat | Nu ar trebui (scutit prin `is_admin`). Excepție: rata orară se aplică și adminului, ca înainte. |
 | Vrei costul REAL, nu estimat | Verifică `AI_USD_RON` și prețurile din tabel față de facturile furnizorului; ajustează prin env. |
 
@@ -151,7 +194,7 @@ de propriul cod.
 
 ## 🔮 Pașii următori (din planul de limitare a costurilor)
 
-1. **Cote vizibile per funcție** în UI („corectări: 7/10 luna asta") pe baza `budget` din ai-progress.
-2. **Pachete top-up prin Stripe** (`mode: 'payment'`) consumate după bugetul lunar — plus, eventual, un tier Premium+ cu bugete mai mari.
+1. ✅ ~~Cote vizibile per funcție în UI~~ — implementat (pasul 2).
+2. ✅ ~~Pachete top-up prin Stripe~~ — implementat (pasul 2). Rămâne opțional: un tier **Premium+** (abonament mai scump cu bugete mai mari) pentru utilizatorii care cumpără pachete lună de lună — vezi în `ai_topups` cine cumpără repetat.
 3. **Prompt caching** (reordonarea system promptului: partea statică prima) și **pre-generare** de explicații per exercițiu (Batch API, −50%).
 4. **Alerte automate** (cron zilnic cu email către admin peste un prag de cost/zi).

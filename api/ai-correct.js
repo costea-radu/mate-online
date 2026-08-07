@@ -41,7 +41,11 @@ module.exports = async function handler(req, res) {
     const { action } = req.body || {};
     if (action === 'pdf_text') return await pdfText(req, res, supa, userId);
     if (action === 'form') return await buildForm(req, res, supa, userId, lim);
-    if (action === 'grade') return await grade(req, res, supa, userId, lim);
+    if (action === 'grade') {
+      // cota lunară de corectări (doar notarea propriu-zisă; formularul nu consumă cota)
+      await ai.enforceFeatureQuota(supa, userId, profile, 'corectari', lim);
+      return await grade(req, res, supa, userId, lim);
+    }
     return res.status(400).json({ error: 'action invalid' });
   } catch (err) {
     console.error('ai-correct error:', err);

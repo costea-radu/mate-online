@@ -119,6 +119,9 @@ export const aiClient = {
   progress: () => post('/api/ai-progress', {}),
   feedback: ({ messageId, value, note = null }) => post('/api/ai-feedback', { messageId, value, note }),
 
+  // Pachet AI suplimentar (top-up de buget): întoarce { url } către Stripe Checkout
+  topupCheckout: (pack) => post('/api/create-checkout', { type: 'topup', pack }),
+
   // Foto-rezolvare: transcrie exercițiul dintr-o imagine (data URL)
   visionExtract: ({ imageBase64, note = '' }) => post('/api/ai-vision', { imageBase64, note }),
 
