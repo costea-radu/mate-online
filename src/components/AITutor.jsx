@@ -511,23 +511,40 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     setConvId(id);
   }
 
-  // Lista testelor PDF din baza de date a site-ului (categoria elevului) —
-  // pentru butonul „Alege un test PDF din site" din chatul de meditații.
+  // Lista testelor PDF din baza de date — STRICT pe NIVELUL elevului, luat
+  // din profilul lui de meditații (EN / BAC cu profilul lui / clasa lui), nu
+  // toate nivelurile. Contextul e doar rezervă, dacă profilul nu poate fi citit.
   async function togglePdfPicker() {
     if (pdfPick) { setPdfPick(null); setPdfPickFilter(''); return; }
     setPdfPick({ loading: true, rows: [] });
     try {
+      let cat = null, prof = null, label = '';
+      try {
+        const stt = await aiClient.meditatii({ action: 'state' });
+        const p = stt?.profile;
+        if (p?.examTarget === 'evaluare-nationala') { cat = 'evaluare-nationala'; label = 'Evaluarea Națională'; }
+        else if (p?.examTarget === 'bac-mate-info') { cat = 'bacalaureat'; prof = 'mate-info'; label = 'BAC Mate-Info'; }
+        else if (p?.examTarget === 'bac-stiinte') { cat = 'bacalaureat'; prof = 'stiinte-naturii'; label = 'BAC Științele Naturii'; }
+        else if (p?.examTarget === 'bac-tehnologic') { cat = 'bacalaureat'; prof = 'tehnologic'; label = 'BAC Tehnologic'; }
+        else if (p?.grade) { cat = `clasa-${p.grade}`; label = `clasa a ${p.grade}-a`; }
+      } catch { /* profilul nu a putut fi citit — cădem pe contextul paginii */ }
+      if (!cat && context.category) {
+        cat = context.category;
+        label = cat === 'evaluare-nationala' ? 'Evaluarea Națională' : cat === 'bacalaureat' ? 'Bacalaureat'
+          : cat.startsWith('clasa-') ? `clasa a ${cat.replace('clasa-', '')}-a` : cat;
+      }
+      if (!cat) throw new Error('Nu îți cunosc încă nivelul — alege întâi clasa și examenul în rubrica Meditații.');
       let q = supabase.from('content')
         .select('id, title, subcategory, profile, is_free, category')
-        .eq('content_type', 'pdf')
+        .eq('content_type', 'pdf').eq('category', cat)
         .order('sort_order', { ascending: true }).order('created_at', { ascending: false })
         .limit(400);
-      if (context.category) q = q.eq('category', context.category);
+      if (prof) q = q.eq('profile', prof);
       const { data, error } = await q;
       if (error) throw new Error(error.message);
       // baremele nu se dau ca „test de rezolvat" — le aduce viewerul, lângă test
       const rows = (data || []).filter((r) => (r.subcategory || '') !== 'bareme');
-      setPdfPick({ loading: false, rows, error: rows.length ? null : 'Nu am găsit încă teste PDF în baza de date pentru categoria ta.' });
+      setPdfPick({ loading: false, rows, label, error: rows.length ? null : `Nu am găsit încă teste PDF pentru ${label || 'nivelul tău'}.` });
     } catch (e) { setPdfPick({ loading: false, rows: [], error: e.message }); }
   }
   function openPickedPdf(id) {
@@ -723,8 +740,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: '#fff', zIndex: 6, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
             <strong style={{ color: 'var(--navy)', fontSize: '.9rem' }}>
-              📄 Teste PDF din site
-              {context.category === 'evaluare-nationala' ? ' · Evaluarea Națională' : context.category === 'bacalaureat' ? ' · Bacalaureat' : ''}
+              📄 Teste PDF din site{pdfPick.label ? ` · ${pdfPick.label}` : ''}
             </strong>
             <button onClick={() => { setPdfPick(null); setPdfPickFilter(''); }} style={miniBtn}>✕ Închide</button>
           </div>
