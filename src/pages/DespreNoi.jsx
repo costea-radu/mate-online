@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import EinsteinIcon from '../components/EinsteinIcon';
 
 export default function DespreNoi() {
   const values = [
@@ -31,8 +32,11 @@ export default function DespreNoi() {
             <p style={{ color: 'var(--text)', lineHeight: 1.9, fontSize: '0.97rem', marginBottom: 16 }}>
               ExamenMate a luat naștere dintr-o nevoie reală: elevii din România aveau dificultăți în a găsi materiale de matematică de calitate, bine organizate, accesibile oricând și de oriunde. Manualele fizice nu sunt mereu la îndemână, meditațiile sunt costisitoare, iar internetul e plin de resurse disparate și greu de verificat.
             </p>
-            <p style={{ color: 'var(--text)', lineHeight: 1.9, fontSize: '0.97rem' }}>
+            <p style={{ color: 'var(--text)', lineHeight: 1.9, fontSize: '0.97rem', marginBottom: 16 }}>
               Am creat ExamenMate pentru a oferi o alternativă: o platformă cu exerciții PDF descărcabile, teste interactive cu feedback instant și manuale digitale — toate organizate pe clase și examene, verificate și actualizate constant.
+            </p>
+            <p style={{ color: 'var(--text)', lineHeight: 1.9, fontSize: '0.97rem' }}>
+              Astăzi, ExamenMate înseamnă și inteligență artificială folosită cu rost: <strong>Prof. Virtual</strong>, asistentul AI al platformei, explică pas cu pas orice exercițiu și răspunde întrebărilor tale oricând, iar <Link to="/meditatii" style={{ color: 'var(--navy)', fontWeight: 700, textDecoration: 'underline' }}>Meditațiile cu AI</Link> îți oferă pregătire personalizată — plan de lucru, lecții, teme și progres urmărit ședință de ședință, la o fracțiune din costul meditațiilor clasice.
             </p>
           </div>
 
@@ -48,9 +52,11 @@ export default function DespreNoi() {
                 { icon: '📖', label: 'Manuale Online', desc: 'Manuale digitale complete, accesibile oricând' },
                 { icon: '📝', label: 'Evaluare Națională', desc: 'Materiale complete pentru examenul de clasa a VIII-a' },
                 { icon: '🎓', label: 'Bacalaureat', desc: 'Toate profilurile: Mate-Info, Șt. Naturii, Tehnologic' },
+                { icon: <EinsteinIcon size={30} />, label: 'Prof. Virtual', desc: 'Asistentul AI al platformei — explicații pas cu pas, oricând ai nevoie' },
+                { icon: '🧠', label: 'Meditații cu AI', desc: 'Pregătire personalizată cu AI: plan de lucru, teme și progres urmărit' },
               ].map(item => (
                 <div key={item.label} style={{ background: '#f7f9fc', borderRadius: 10, padding: '20px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.8rem', marginBottom: 8 }}>{item.icon}</div>
+                  <div style={{ fontSize: '1.8rem', marginBottom: 8, display: 'flex', justifyContent: 'center' }}>{item.icon}</div>
                   <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.9rem', marginBottom: 4 }}>{item.label}</div>
                   <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: 1.5 }}>{item.desc}</div>
                 </div>
@@ -88,7 +94,8 @@ export default function DespreNoi() {
             </div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <Link to="/contact" className="btn btn-primary">Contact</Link>
-              <a href="mailto:admin.examenmate@gmail.com" style={{ marginLeft: 12, color: 'var(--navy)', fontWeight: 600, textDecoration: 'none' }}>admin.examenmate@gmail.com</a>
+              {/* pe fundal navy, linkul trebuie să fie auriu, altfel nu se vede */}
+              <a href="mailto:admin.examenmate@gmail.com" style={{ alignSelf: 'center', color: 'var(--gold)', fontWeight: 600, textDecoration: 'none', overflowWrap: 'anywhere' }}>admin.examenmate@gmail.com</a>
               <Link to="/faq" className="btn btn-lg" style={{ color: '#fff', border: '2px solid rgba(255,255,255,0.3)', padding: '10px 24px' }}>
                 Întrebări Frecvente
               </Link>

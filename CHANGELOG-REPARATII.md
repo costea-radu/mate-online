@@ -4,6 +4,34 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 7 august 2026 — Generarea EN cu șablon mare merge (figurile devin marcaje), Contact pe mobil, meniu părinți/profesori, Despre noi cu AI, lints Supabase
+
+Cinci cereri ale adminului, într-o singură livrare. **Build-ul trece (`vite build`), 23/23 teste trec.**
+
+### 1) 🧩 „Șablonul rubricii e prea mare pentru o singură generare” la task-urile EN cu model de format (`api/_lib/exgen.js`)
+Cauza: la rubricile Evaluare Națională modelul era pus să COPIEZE integral figurile SVG din șablon (sute de linii de path-uri per figură), deși serverul oricum le restaura programatic din șablon după generare. La un model de format mare (ex. `test_interactiv_1.html`), doar copierea figurilor consuma tot bugetul de tokeni — răspunsul se tăia la `max_tokens` și după toate continuările.
+- **`svgToPlaceholders` (nou):** în promptul modelului fiecare `<svg>…</svg>` din șablon devine un marcaj minuscul `<svg data-tpl-fig="N"></svg>`; instrucțiunile îi cer modelului să copieze marcajele neschimbate.
+- **`restoreSvgPlaceholders` (nou):** după generare, marcajele se înlocuiesc cu figurile ORIGINALE din șablon, după numărul `N` (fallback: în ordinea apariției — acoperă și cazul în care modelul „uită” numărul). Înlocuiește vechea restaurare „în ordine” din toate cele 4 rute de generare HTML (pe rând/clonare, pe rând/format, PDF→interactiv, postare automată).
+- Plafonul de 180k caractere al șablonului se aplică acum DUPĂ scoaterea figurilor — șablonul „util” (CSS+JS+itemi) nu mai e tăiat de figuri.
+- Continuările automate din `chatClaudeLong`: 4 → **6 reluări** (plasă suplimentară pentru șabloane uriașe fără figuri).
+- Rubricile non-EN neatinse (acolo figurile se elimină oricum). Test nou: „svgToPlaceholders + restoreSvgPlaceholders” (23/23 trec). Ghidul task-urilor actualizat.
+
+### 2) 📱 Pagina Contact „ieșea din ecran” pe telefon (`src/pages/Contact.jsx`, `src/styles/global.css`)
+Gridul NUME/EMAIL pe 2 coloane forța o lățime minimă mai mare decât ecranul (inputurile au lățime intrinsecă) → pagină mai lată decât viewport-ul, dungă albă în dreapta, tot site-ul „micșorat”. Stiluri noi `.contact-card`/`.contact-two`/`.contact-row`/`.contact-note` în `global.css`: sub 640px formularul trece pe o coloană, padding-urile cardurilor scad, adresa de email se poate rupe (`overflow-wrap: anywhere`).
+
+### 3) 🧭 Părinți/profesori, pe desktop: „Abonament” în bară, „Meditații cu AI” în „Mai multe” (`src/components/Navbar.jsx`)
+La conturile de părinte și profesor, în bara principală desktop apare „💳 Abonament” în locul „Meditații cu AI”, care coboară în „Mai multe” exact pe poziția Abonamentului. Elevii, vizitatorii și meniul de mobil rămân neschimbate.
+
+### 4) 🧑‍🏫 „Despre noi” menționează Prof. Virtual, asistentul AI și Meditațiile cu AI (`src/pages/DespreNoi.jsx`)
+Paragraf nou la misiune (cu link către /meditatii) + două carduri noi la „Ce oferim”: „Prof. Virtual” (cu iconița Einstein) și „Meditații cu AI”. Bonus reparat: emailul din cutia „Vrei să ne contactezi?” era navy pe fundal navy (invizibil) — acum auriu.
+
+### 5) 🔐 Warning-urile Supabase din raportul CSV (7 aug) — **`supabase/fix_security_lints_aug2026.sql`** (nou)
+- `med_profile_touch` → `SET search_path = public` (era mutabil);
+- `delete_user_account()` → REVOKE pentru PUBLIC/anon/authenticated (ștergerea contului merge de mult prin `/api/ai-account` cu service_role; RPC-ul nu mai e apelat nicăieri în cod);
+- extensia `vector` → mutare în schema `extensions`, ÎMPREUNĂ cu lărgirea search_path-ului la `match_ai_knowledge` (altfel pică RAG-ul) — totul într-o tranzacție, cu instrucțiuni de ROLLBACK dacă extensia nu suportă mutarea;
+- „Leaked Password Protection” — doar din Dashboard: Authentication → Sign In / Providers → Passwords → „Prevent use of leaked passwords”.
+Fișierul se rulează manual în Supabase → SQL Editor și conține interogări de verificare la final.
+
 ## 6 august 2026 (2) — Fără descrierea „Generat automat de agentul Claude (task „…”) · data” pe materialele postate
 
 Cererea adminului. Materialele NOI postate de task-urile programate (postare automată sau „✅ Publică acum”) nu mai primesc descrierea „Generat (automat) de agentul Claude (task „…”) · …” — câmpul `description` rămâne gol, deci cardul de pe site afișează doar titlul. Proveniența NU se pierde: rămâne în `interactive_data` (`agent: 'claude'`, `agent_task`) și în istoricul task-ului, deci lista „Exerciții încărcate de agent” din admin funcționează neschimbat. (`api/_lib/exgen.js` — `runTask` + `postRun`.)

@@ -51,7 +51,7 @@ export default function Contact() {
           <div style={{ display: 'grid', gap: 20 }}>
 
             {/* Formular de contact → mesajul ajunge pe admin.examenmate@gmail.com */}
-            <form onSubmit={submit} style={{ background: '#fff', borderRadius: 14, padding: '32px 36px', boxShadow: 'var(--shadow)' }}>
+            <form onSubmit={submit} className="contact-card">
               <div style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', fontSize: '1.2rem', fontWeight: 700, marginBottom: 4 }}>
                 Trimite-ne un mesaj
               </div>
@@ -69,7 +69,8 @@ export default function Contact() {
                 </div>
               ) : (
                 <div style={{ display: 'grid', gap: 14 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                  {/* pe mobil trece pe o singură coloană (vezi .contact-two în global.css) */}
+                  <div className="contact-two">
                     <div>
                       <label style={labelStyle} htmlFor="ct-name">Nume</label>
                       <input id="ct-name" style={inputStyle} value={form.name} onChange={set('name')} required minLength={2} maxLength={80} placeholder="Numele tău" />
@@ -100,7 +101,7 @@ export default function Contact() {
               )}
             </form>
 
-            <div style={{ background: '#fff', borderRadius: 14, padding: '32px 36px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', gap: 24 }}>
+            <div className="contact-card contact-row">
               <div style={{ width: 56, height: 56, borderRadius: 14, background: 'rgba(232,185,49,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.6rem', flexShrink: 0 }}>
                 📞
               </div>
@@ -113,7 +114,7 @@ export default function Contact() {
               </div>
             </div>
 
-            <div style={{ background: '#fff', borderRadius: 14, padding: '32px 36px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', gap: 24 }}>
+            <div className="contact-card contact-row">
               <div style={{ width: 56, height: 56, borderRadius: 14, background: 'rgba(232,185,49,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.6rem', flexShrink: 0 }}>
                 ✉️
               </div>
@@ -126,7 +127,7 @@ export default function Contact() {
               </div>
             </div>
 
-            <div style={{ background: 'var(--navy)', borderRadius: 14, padding: '28px 36px', color: 'rgba(255,255,255,0.75)', fontSize: '0.9rem', lineHeight: 1.7 }}>
+            <div className="contact-note">
               <div style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', fontSize: '1.05rem', fontWeight: 700, marginBottom: 8 }}>
                 Ai o întrebare despre platformă?
               </div>

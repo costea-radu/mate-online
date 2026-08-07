@@ -514,9 +514,19 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profes
 export default function Navbar() {
   const { user, isPremium, isAdmin, isTeacher, isParent, signOut } = useAuth();
   const aiLabel = aiAssistantLabel({ isTeacher, isParent });
-  const maiMulte = MAIMULTE.map((it) => it.to === '/profesor-virtual'
-    ? { ...it, label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> {aiLabel}</span> }
-    : it);
+  // Părinți și profesori (desktop): „Meditații cu AI" trece în „Mai multe"
+  // (pe locul lui „Abonament"), iar în bara principală apare „💳 Abonament".
+  // Elevii și vizitatorii rămân cu bara de până acum. Meniul de mobil nu se schimbă.
+  const meditatiiInMaiMulte = isTeacher || isParent;
+  const maiMulte = MAIMULTE.map((it) => {
+    if (it.to === '/profesor-virtual') {
+      return { ...it, label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> {aiLabel}</span> };
+    }
+    if (meditatiiInMaiMulte && it.to === '/preturi') {
+      return { to: '/meditatii', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> Meditații cu AI</span> };
+    }
+    return it;
+  });
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -630,9 +640,15 @@ export default function Navbar() {
             <li><DesktopDropdown label="Examene" items={EXAMENE} /></li>
             <li><DesktopDropdown label="Clase" items={CLASE} /></li>
             <li>
-              <Link to="/meditatii" className={location.pathname === '/meditatii' ? 'active' : ''} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <EinsteinIcon size={18} /> Meditații cu AI
-              </Link>
+              {meditatiiInMaiMulte ? (
+                <Link to="/preturi" className={location.pathname === '/preturi' ? 'active' : ''}>
+                  💳 Abonament
+                </Link>
+              ) : (
+                <Link to="/meditatii" className={location.pathname === '/meditatii' ? 'active' : ''} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <EinsteinIcon size={18} /> Meditații cu AI
+                </Link>
+              )}
             </li>
             <li>
               <Link

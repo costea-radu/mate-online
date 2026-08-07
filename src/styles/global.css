@@ -1106,3 +1106,42 @@ img { max-width: 100%; display: block; }
 @media (max-width: 640px) {
   .articol-content { padding: 20px 18px; font-size: 0.98rem; }
 }
+
+/* ======= CONTACT — carduri + formular (încadrare corectă pe mobil) =======
+   Pe telefon, gridul NUME/EMAIL pe 2 coloane împingea pagina mai lată decât
+   ecranul (inputurile au lățime minimă intrinsecă) → dungă albă în dreapta
+   și pagină „mărită". Sub 640px totul trece pe o coloană, cu padding redus. */
+.contact-card {
+  background: #fff;
+  border-radius: 14px;
+  padding: 32px 36px;
+  box-shadow: var(--shadow);
+}
+.contact-note {
+  background: var(--navy);
+  border-radius: 14px;
+  padding: 28px 36px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+.contact-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.contact-two > div { min-width: 0; }
+.contact-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.contact-row > div:last-child { min-width: 0; }
+.contact-row a { overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  .contact-card { padding: 24px 18px; }
+  .contact-note { padding: 22px 18px; }
+  .contact-two { grid-template-columns: 1fr; }
+  .contact-row { gap: 16px; }
+}

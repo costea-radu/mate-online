@@ -173,12 +173,19 @@ vrei cândva gateway-ul, se schimbă doar URL-ul și cheia în acel fișier.
   Jobs arată execuțiile. Manual: `/api/agent-cron?action=run&secret=AI_CRON_SECRET`.
 - Eroare „nu am obținut un document HTML complet (răspunsul s-a întrerupt)" →
   garda de completitudine a refuzat să publice un test neterminat. Serverul
-  continuă singur răspunsurile tăiate (până la 4 reluări) și re-cere strict
+  continuă singur răspunsurile tăiate (până la 6 reluări) și re-cere strict
   documentul dacă modelul răspunde cu explicații; dacă eroarea persistă pe
   task-urile cu model de format MARE + Opus, încearcă Sonnet 5 (mai rapid —
   generările uriașe cu Opus se pot apropia de limita de timp a funcției) sau
   un model de format mai mic. Mesajul include acum diagnosticul
   `[stop=…, continuări=…]`.
+- Eroare „Șablonul rubricii e prea mare pentru o singură generare" → nu ar
+  mai trebui să apară la rubricile Evaluare Națională: figurile SVG din
+  șablon nu se mai copiază de model (primește marcaje `data-tpl-fig`, iar
+  serverul pune înapoi figurile originale după generare), deci și șabloanele
+  mari (ex. `test_interactiv_1.html`) încap într-o singură generare. Dacă
+  totuși apare (șablon uriaș fără figuri), împarte modelul de format sau
+  folosește unul mai mic.
 - Eroare „Rubrica are prea puține materiale" → rubrica aleasă are sub 2
   materiale de tipul selectat (PDF/interactiv).
 - Rulările „🕓 așteaptă aprobare" se păstrează în istoric până le postezi sau
