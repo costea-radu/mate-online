@@ -123,7 +123,7 @@ plătit pentru capacitate, îl oprește doar bugetul efectiv (bază + credit).
 - Sub limite: nimic diferit.
 - Peste limita soft: răspunsurile vin de la modelul mai ieftin (fără mesaj de eroare).
 - Peste hard/lunar sau peste o cotă: mesaj prietenos, cu invitația de a continua cu un pachet.
-- **UI (pasul 2):** componenta `AILimite` afișează „Utilizare AI luna aceasta" (procent, fără lei), cotele per funcție cu bare, pachetul activ + expirarea și butoanele de cumpărare. La elevi apare sus în „📈 Progresul meu"; la profesori/părinți în tabul nou „⚡ Consum AI" din pagina Profesor Virtual. După plată, Stripe redirecționează către `/profesor-virtual?topup=succes`, care deschide direct tabul potrivit cu confirmarea.
+- **UI (pasul 2):** componenta `AILimite` afișează „Utilizare AI luna aceasta" (procent, fără lei), cotele per funcție cu bare, pachetul activ + expirarea și butoanele de cumpărare. Locul ei principal: **„Contul meu" (`/profil`), rolldown-ul „⚡ Consum AI" de sub cardul Abonament — pentru TOATE rolurile** (elev, profesor, părinte). Elevii o văd și sus în „📈 Progresul meu" (pagina Profesor Virtual). După plată, Stripe redirecționează către `/profil?topup=succes`, iar rolldown-ul se deschide singur cu confirmarea.
 - `/api/ai-progress` întoarce `budget: { dayLei, monthLei, dayActions, monthActions, limits, effectiveMonthLei, topup:{creditLei,active,expiresAt,days}, packs, features[], degraded, exempt }`. `null` până rulezi migrarea.
 
 ---

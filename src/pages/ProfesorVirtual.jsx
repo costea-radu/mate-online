@@ -33,15 +33,8 @@ export default function ProfesorVirtual() {
   // (Generatoarele de subiecte/interactive și biblioteca rămân pentru profesori/părinți.)
   const isStudentView = isStudent || (!isTeacher && !isParent);
 
-  // Întoarcerea de la plata unui pachet AI (?topup=succes/anulat) → deschide
-  // direct tabul cu consumul, unde AILimite afișează confirmarea.
-  useEffect(() => {
-    if (loading) return;
-    if (new URLSearchParams(window.location.search).get('topup')) {
-      setTab(isStudentView ? 'progress' : 'limits');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
+  // (Întoarcerea de la plata unui pachet AI merge acum în „Contul meu" —
+  //  /profil?topup=... — unde rolldown-ul „⚡ Consum AI" se deschide singur.)
 
   if (loading) return <div style={{ padding: 60, textAlign: 'center' }}><div className="spinner" /></div>;
 
@@ -56,7 +49,6 @@ export default function ProfesorVirtual() {
         { id: 'exam', label: '📄 Generează subiect examen' },
         { id: 'interactive', label: '🧩 Generează interactiv' },
         { id: 'library', label: '📚 Testele și exercițiile mele' },
-        { id: 'limits', label: '⚡ Consum AI' },
       ];
 
   return (
@@ -104,7 +96,6 @@ export default function ProfesorVirtual() {
           {tab === 'exam' && <ExamGenerator canManage={isTeacher} />}
           {tab === 'library' && <LibraryTab />}
           {tab === 'progress' && <ProgressTab />}
-          {tab === 'limits' && <AILimite />}
         </>
       )}
     </div>

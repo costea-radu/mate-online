@@ -650,7 +650,7 @@ async function enforceBudgets(supa, userId, profile = null) {
   if (state.effectiveMonthLei > 0 && state.monthLei >= state.effectiveMonthLei) {
     const packs = topupPacks();
     const e = new Error('Ai folosit bugetul de AI inclus în abonament pe această lună. Se eliberează treptat, pe măsură ce trec zilele (fereastră de 30 de zile).' +
-      (packs.length ? ' Poți continua imediat cu un pachet AI suplimentar, din pagina Profesor Virtual.' : ' Restul platformei funcționează normal.'));
+      (packs.length ? ' Poți continua imediat cu un pachet AI suplimentar, din Contul meu → „⚡ Consum AI".' : ' Restul platformei funcționează normal.'));
     e.status = 429; e.code = 'BUDGET_MONTH'; throw e;
   }
   if (BUDGET_DAY_HARD_LEI > 0 && state.dayLei >= BUDGET_DAY_HARD_LEI && !state.topupActive) {
@@ -670,7 +670,7 @@ async function enforceFeatureQuota(supa, userId, profile, featureKey, lim = null
   if (isBudgetExempt(profile)) return;
   if (lim && lim.topupActive) return; // pachet plătit → cotele incluse nu limitează
   const packs = topupPacks();
-  const hint = packs.length ? ' Poți continua imediat cu un pachet AI suplimentar, din pagina Profesor Virtual.' : ' Cota se eliberează pe măsură ce trec zilele.';
+  const hint = packs.length ? ' Poți continua imediat cu un pachet AI suplimentar, din Contul meu → „⚡ Consum AI".' : ' Cota se eliberează pe măsură ce trec zilele.';
   const checks = [];
   if (q.perDay > 0) checks.push({ since: dayStartBucharest(), limit: q.perDay, win: 'azi', reset: 'Se resetează la miezul nopții.' });
   if (q.perMonth > 0) checks.push({ since: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString(), limit: q.perMonth, win: 'luna aceasta', reset: '' });

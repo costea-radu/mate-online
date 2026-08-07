@@ -4,6 +4,16 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 7 august 2026 (4) — ⚡ „Consum AI" mutat în „Contul meu", ca rolldown, pentru toate rolurile
+
+Cererea adminului. Secțiunea cu consumul AI (cote, buget, pachete) stă acum în **„Contul meu" (`/profil`)**, imediat **sub cardul „Abonament"**, ca **rolldown** (`<details>`, același tipar ca „Raport AI" și „Setări cont") — vizibilă pentru **toate tipurile de cont: elev, profesor, părinte**. Validat cu esbuild (JSX) și `node --check`; 13/13 teste trec.
+
+- **`src/pages/Profile.jsx`:** rolldown nou „⚡ Consum AI" după Abonament, cu `<AILimite bare />`; se deschide singur la întoarcerea de la plata unui pachet (`/profil?topup=succes|anulat`).
+- **`src/components/AILimite.jsx`:** mod nou `bare` — fără card propriu și fără titlu (titlul îl dă `<summary>`); când limitele nu sunt activate (migrarea nerulată), în rolldown apare o notă scurtă în loc de nimic.
+- **`src/pages/ProfesorVirtual.jsx`:** tabul „⚡ Consum AI" (profesori/părinți) scos — s-a mutat în Contul meu; la elevi, panoul din „📈 Progresul meu" rămâne. Efectul de deschidere după plată scos (redirectul nu mai vine aici).
+- **`api/create-checkout.js`:** redirecturile Stripe pentru pachete duc acum la `/profil?topup=…` (Contul meu).
+- **`api/_lib/ai.js`:** mesajele de buget/cotă epuizată trimit spre „Contul meu → «⚡ Consum AI»" (înainte: pagina Profesor Virtual).
+
 ## 7 august 2026 (3) — 💳 Pasul 2 al limitelor AI: cote vizibile per funcție + pachete top-up prin Stripe
 
 Continuarea limitelor de consum (vezi **`GHID_LIMITE_AI.md`**, actualizat). După epuizarea bugetului inclus, utilizatorul poate cumpăra un **pachet AI suplimentar** (plată unică, cu marjă), iar funcțiile scumpe au **cote vizibile** în UI. Rutele validate sintactic (`node --check`), JSX-ul validat cu esbuild; teste noi în **`test/limite-topup.test.js`**. **Înainte de deploy: rulează `supabase/ai_topup.sql`** (după `ai_limite_cost.sql`; codul merge și fără — pachetele rămân inactive, cu avertisment, iar cumpărarea e refuzată înainte de plată).

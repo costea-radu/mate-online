@@ -12,6 +12,7 @@ import TeacherResults from '../components/TeacherResults';
 import AITeacherReport from '../components/AITeacherReport';
 import ParentAIActivity from '../components/ParentAIActivity';
 import AccountSettings from '../components/AccountSettings';
+import AILimite from '../components/AILimite';
 import { getMyBadges } from '../lib/badges';
 import { notaDinScor } from '../lib/nota';
 
@@ -159,6 +160,12 @@ export default function Profile() {
   const [assocBanner, setAssocBanner] = useState('');
   const [showRoleSwitch, setShowRoleSwitch] = useState(false);
   const [myMentors, setMyMentors] = useState([]);
+  // Rolldown-ul „⚡ Consum AI" pornește deschis la întoarcerea de la plata
+  // unui pachet AI (Stripe redirecționează către /profil?topup=...).
+  const [aiConsumOpen] = useState(() => {
+    try { return new URLSearchParams(window.location.search).has('topup'); }
+    catch { return false; }
+  });
   const onboardingRan = useRef(false);
   const codeEnsured = useRef(false);
   // Citit o singură dată la montare: dacă există un tip de cont în așteptare
@@ -539,6 +546,19 @@ export default function Profile() {
                 </div>
               )}
             </div>
+
+            {/* Consum AI — după Abonament, ca rolldown, pentru TOATE rolurile
+                (elev / profesor / părinte): cote per funcție, buget lunar și
+                pachete suplimentare. Se deschide singur la întoarcerea de la
+                plata unui pachet (?topup=succes / ?topup=anulat). */}
+            <details className="card" style={{ marginBottom: 24 }} open={aiConsumOpen || undefined}>
+              <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none' }}>
+                ⚡ Consum AI
+              </summary>
+              <div style={{ marginTop: 16 }}>
+                <AILimite bare />
+              </div>
+            </details>
 
             {/* Insignele elevului (gamificare) */}
             {!isMentor && (

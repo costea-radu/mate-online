@@ -53,8 +53,10 @@ async function topupCheckout(req, res, supabase, userId, profile) {
       },
       quantity: 1,
     }],
-    success_url: `${base}/profesor-virtual?topup=succes`,
-    cancel_url: `${base}/profesor-virtual?topup=anulat`,
+    // Întoarcerea aterizează în „Contul meu", unde rolldown-ul „⚡ Consum AI"
+    // se deschide singur și afișează confirmarea.
+    success_url: `${base}/profil?topup=succes`,
+    cancel_url: `${base}/profil?topup=anulat`,
   });
   return res.status(200).json({ url: session.url });
 }

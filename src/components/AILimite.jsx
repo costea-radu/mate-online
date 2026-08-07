@@ -6,8 +6,11 @@
 //
 // Folosire:
 //   <AILimite budget={data.budget} />   — cu datele deja încărcate (ProgressTab)
-//   <AILimite />                        — se încarcă singură (tabul „Consum AI")
-// Dacă budget e null (migrarea SQL nerulată), componenta nu afișează nimic.
+//   <AILimite />                        — se încarcă singură
+//   <AILimite bare />                   — fără card propriu și fără titlu, pentru
+//                                         rolldown-ul „⚡ Consum AI" din Contul meu
+//                                         (titlul îl dă <summary>-ul de acolo)
+// Dacă budget e null (migrarea SQL nerulată): nimic (normal) / o notă scurtă (bare).
 // =====================================================================
 import { useEffect, useState } from 'react';
 import { aiClient } from '../lib/aiClient';
@@ -23,7 +26,7 @@ function Bar({ value, max, color }) {
   );
 }
 
-export default function AILimite({ budget: budgetProp = undefined }) {
+export default function AILimite({ budget: budgetProp = undefined, bare = false }) {
   const selfLoad = budgetProp === undefined;
   const [budget, setBudget] = useState(selfLoad ? null : budgetProp);
   const [loading, setLoading] = useState(selfLoad);
@@ -46,8 +49,14 @@ export default function AILimite({ budget: budgetProp = undefined }) {
     else if (p === 'anulat') setNotice('Plata a fost anulată — nu s-a încasat nimic.');
   }, []);
 
-  if (loading) return null;
-  if (!budget) return null; // limitele nu sunt activate (migrarea SQL nerulată) → nu afișăm nimic
+  if (loading) return bare ? <div style={{ padding: 10, textAlign: 'center' }}><div className="spinner" /></div> : null;
+  if (!budget) {
+    // limitele nu sunt activate (migrarea SQL nerulată): în rolldown lăsăm o
+    // notă scurtă (altfel secțiunea ar părea goală); în rest nu afișăm nimic
+    return bare
+      ? <p style={{ color: 'var(--text-muted)', fontSize: '.88rem' }}>Statisticile de consum AI nu sunt disponibile momentan.</p>
+      : null;
+  }
 
   const lim = budget.limits || {};
   const monthMax = budget.effectiveMonthLei || lim.monthLei || 0;
@@ -69,8 +78,8 @@ export default function AILimite({ budget: budgetProp = undefined }) {
   }
 
   return (
-    <div style={card}>
-      <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>⚡ Consumul tău AI</h3>
+    <div style={bare ? undefined : card}>
+      {!bare && <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>⚡ Consumul tău AI</h3>}
       <p style={{ color: 'var(--text-muted)', fontSize: '.82rem', marginBottom: 14 }}>
         Abonamentul include o utilizare generoasă a Profesorului Virtual, reîmprospătată continuu (fereastră de 30 de zile).
         {budget.exempt ? ' (Cont de administrator — fără limite.)' : ''}
