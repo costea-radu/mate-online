@@ -320,7 +320,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     setFormLoading(true); setError(null);
     try {
       const src = answerSource();
-      const r = await aiClient.correctForm({ testText: src.testText, baremText: src.baremText, title: src.title });
+      const r = await aiClient.correctForm({ testText: src.testText, baremText: src.baremText, title: src.title, category: src.category });
       setForm({ ...r, src });
       setFormAnswers({});
       formStartRef.current = Date.now();

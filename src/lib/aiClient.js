@@ -126,8 +126,9 @@ export const aiClient = {
   // Textul unui PDF încărcat de elev direct în chat (temă, fișă, variantă)
   correctPdfText: ({ fileBase64 }) => post('/api/ai-correct', { action: 'pdf_text', fileBase64 }),
   // Formularul de răspuns: câmpuri pe exerciții și subpuncte a), b), c) — din barem
-  correctForm: ({ testText, baremText = '', title = '' }) =>
-    post('/api/ai-correct', { action: 'form', testText, baremText, title }),
+  // (categoria activează punctajele oficiale: EN 5p/grilă + a)2p/b)3p; BAC 5p)
+  correctForm: ({ testText, baremText = '', title = '', category = null }) =>
+    post('/api/ai-correct', { action: 'form', testText, baremText, title, category }),
   // Corectarea: AI-ul primește testul + baremul + răspunsurile și dă punctajul
   correctGrade: (payload) => post('/api/ai-correct', { action: 'grade', ...payload }),
 

@@ -71,6 +71,17 @@ async function pdfText(req, res, supa, userId) {
   return res.status(200).json({ text: text.slice(0, 20000), chars: text.length, truncated: text.length > 20000 });
 }
 
+// ─── Repararea LaTeX-ului corupt de JSON (poza cu „rac{30}{100}") ────────────
+// Modelul scrie „\frac" în stringul JSON → JSON.parse transformă „\f" în
+// form-feed și rămâne „␌rac{30}{100}". med.fixLatex repară exact cazul acesta
+// (\f/\t/\b de control, backslash dublu, comenzi rămase fără backslash în $...$).
+function cleanMath(s) {
+  if (typeof s !== 'string' || !s) return s;
+  // „\r" mâncat din \right / \rightarrow (carriage return + „ight...")
+  let t = s.replace(/\r(?=ight)/g, '\\r').replace(/\r/g, ' ');
+  return med.fixLatex(t);
+}
+
 // ─── Normalizarea formularului venit de la model ─────────────────────────────
 const cleanPts = (v) => {
   const n = parseFloat(String(v ?? '').replace(',', '.').replace(/[^\d.]/g, ''));
@@ -84,8 +95,8 @@ function normalizeItems(raw, { hasBarem }) {
     const id = String(it.id || `ex${i + 1}`).slice(0, 24);
     const base = {
       id,
-      eticheta: String(it.eticheta || it.label || id).slice(0, 120),
-      cerinta: String(it.cerinta || it.statement || '').slice(0, 600),
+      eticheta: cleanMath(String(it.eticheta || it.label || id).slice(0, 120)),
+      cerinta: cleanMath(String(it.cerinta || it.statement || '').slice(0, 600)),
     };
     const subs = Array.isArray(it.subpuncte) ? it.subpuncte : [];
     if (subs.length) {
@@ -95,20 +106,68 @@ function normalizeItems(raw, { hasBarem }) {
         const sid = String(s.id || String.fromCharCode(97 + j)).slice(0, 8);
         base.subpuncte.push({
           id: `${id}.${sid}`,
-          eticheta: String(s.eticheta || `${sid})`).slice(0, 80),
-          cerinta: String(s.cerinta || s.statement || '').slice(0, 600),
-          puncte: cleanPts(s.puncte) ?? (hasBarem ? 5 : 10),
+          eticheta: cleanMath(String(s.eticheta || `${sid})`).slice(0, 80)),
+          cerinta: cleanMath(String(s.cerinta || s.statement || '').slice(0, 600)),
+          puncte: cleanPts(s.puncte), // null = lipsă; se umple după punctajele oficiale
         });
         leaves++;
       });
       if (base.subpuncte.length) items.push(base);
     } else {
-      base.puncte = cleanPts(it.puncte) ?? (hasBarem ? 5 : 10);
+      base.puncte = cleanPts(it.puncte);
       items.push(base);
       leaves++;
     }
   });
   return items;
+}
+
+// punctele încă lipsă primesc valoarea implicită (se apelează DUPĂ ce
+// punctajele oficiale EN/BAC au avut ocazia să le umple)
+function fillMissingPoints(items, fallback) {
+  leavesOf(items).forEach((l) => { if (cleanPts(l.puncte) == null) l.puncte = fallback; });
+}
+
+// ─── PUNCTAJELE OFICIALE — Evaluare Națională și Bacalaureat ─────────────────
+// EN:  Subiectul I și II → 5p pe fiecare exercițiu grilă; Subiectul III →
+//      a) 2p + b) 3p (subiectele vechi, cu a,b,c la III → 5p pe subpunct).
+// BAC: 5p pe fiecare cerință (I: 6×5, II: 2×3×5, III: 2×3×5).
+// Total 90p + 10p din oficiu = 100p.
+// Regula de prioritate: BAREMUL are întotdeauna ultimul cuvânt — cu barem,
+// valorile oficiale doar UMPLU punctele lipsă; FĂRĂ barem, ele se FORȚEAZĂ
+// determinist (altfel modelul punea 10p peste tot — cazul raportat).
+function applyOfficialPoints(items, category, hasBarem) {
+  const cat = String(category || '').toLowerCase();
+  const en = cat === 'evaluare-nationala';
+  const bac = cat === 'bacalaureat';
+  if (!en && !bac) return false;
+  const force = !hasBarem; // baremul, când există, rămâne sursa punctelor
+  const subjOf = (it) => {
+    const m1 = /^(i{1,3})(?=[.\s]|$)/i.exec(String(it.id || ''));
+    if (m1) return m1[1].toUpperCase();
+    const m2 = /subiect\w*\s+(?:al\s+)?(i{1,3})\b/i.exec(String(it.eticheta || ''));
+    return m2 ? m2[1].toUpperCase() : null;
+  };
+  const put = (leaf, val) => {
+    if (force || cleanPts(leaf.puncte) == null) leaf.puncte = val;
+  };
+  let official = false;
+  (items || []).forEach((it) => {
+    const subj = subjOf(it);
+    if (!subj) return; // structură neoficială (fișă) — punctele rămân cum sunt
+    official = true;
+    if (Array.isArray(it.subpuncte) && it.subpuncte.length) {
+      if (en && subj === 'III' && it.subpuncte.length === 2) {
+        put(it.subpuncte[0], 2); // a) 2p
+        put(it.subpuncte[1], 3); // b) 3p
+      } else {
+        it.subpuncte.forEach((s) => put(s, 5));
+      }
+    } else {
+      put(it, 5);
+    }
+  });
+  return official;
 }
 // toate CERINȚELE punctabile (frunzele: exerciții simple + subpunctele a,b,c)
 const leavesOf = (items) => (items || []).flatMap((it) => (it.subpuncte?.length ? it.subpuncte : [it]));
@@ -151,33 +210,53 @@ function flattenClientItems(items) {
   return leaves;
 }
 
+// Regulile comune despre textul extras din PDF + scrierea LaTeX în JSON.
+const FORM_TEXT_RULES = `ATENȚIE la textul extras automat din PDF:
+- RADICALII, exponenții, fracțiile și săgețile de vectori se PIERD des la extracție. Semne că enunțul avea radical: cuvântul „radical", resturi „√", ori rezolvarea din barem ÎNCEPE prin ridicare la pătrat / membrul drept din barem este PĂTRATUL celui din test (în test „3x+6=6", în barem apare 36, adică 6² → enunțul real era $\\\\sqrt{3x+6}=6$). Atunci scrii cerința RECONSTRUITĂ corect, cu radical.
+- "cerinta" este ÎNTOTDEAUNA enunțul din TEST (reconstruit dacă a pierdut simboluri) — NICIODATĂ primul pas de calcul din barem (ex. NU scrie „3x+6=36": aceea e ridicarea la pătrat din rezolvare, nu enunțul).
+- În stringurile JSON, comenzile LaTeX se scriu cu backslash DUBLAT: "$\\\\sqrt{3x+6}=6$", "$\\\\frac{30}{100}$" — altfel se pierd la parsare. Nu pune ** în interiorul formulelor.`;
+
+// Structura oficială de punctaj, după categorie (cerința utilizatorului).
+function officialStructureNote(category) {
+  const cat = String(category || '').toLowerCase();
+  if (cat === 'evaluare-nationala') {
+    return `PUNCTAJUL OFICIAL (Evaluare Națională): Subiectul I — 6 exerciții grilă × 5p; Subiectul II — 6 exerciții grilă × 5p; Subiectul III — exerciții cu subpunctele a) 2p și b) 3p (subiectele vechi, cu a,b,c la III → 5p pe subpunct). Total 90p, plus 10p din oficiu ("oficiu":10). Folosește EXACT aceste puncte.`;
+  }
+  if (cat === 'bacalaureat') {
+    return `PUNCTAJUL OFICIAL (Bacalaureat): fiecare cerință valorează 5p — Subiectul I: 6 exerciții × 5p; Subiectul II: 2 probleme cu subpunctele a), b), c) × 5p; Subiectul III: la fel. Total 90p, plus 10p din oficiu ("oficiu":10).`;
+  }
+  return '';
+}
+
 // ─── FORMULARUL: câmpurile de răspuns, construite din barem (sau din test) ───
 async function buildForm(req, res, supa, userId) {
-  const { testText = '', baremText = '', title = '' } = req.body || {};
+  const { testText = '', baremText = '', title = '', category = '' } = req.body || {};
   const test = String(testText || '').slice(0, MAX_TEXT);
   const barem = String(baremText || '').slice(0, MAX_TEXT);
   if (test.trim().length < 30 && barem.trim().length < 30) {
     return res.status(400).json({ error: 'Nu am textul testului. Deschide un test PDF sau fotografiază / încarcă exercițiul în chat.' });
   }
   const hasBarem = barem.trim().length > 80;
+  const structura = officialStructureNote(category);
 
   const system = hasBarem
     ? `Primești un TEST de matematică (bac / Evaluare Națională / fișă) și BAREMUL lui oficial. Construiește STRUCTURA formularului de răspuns al elevului, EXACT pe structura baremului:
 - câte un element pentru FIECARE exercițiu punctat în barem, în ordinea din test (Subiectul I, II, III...);
 - unde exercițiul are subpuncte a), b), c) — fiecare subpunct devine element SEPARAT, cu punctele LUI din barem (ca în barem);
 - "puncte" = punctajul maxim al cerinței EXACT ca în barem (ex. 5, 3, 2). NU include punctele din oficiu în items; scrie-le separat în "oficiu" (10 la examenele oficiale, altfel 0);
-- "cerinta" = cerința exercițiului, copiată pe scurt din TEST (max 2 rânduri, cu formulele în LaTeX $...$); dacă nu o găsești în test, resum-o din barem;
+- "cerinta" = cerința exercițiului, copiată pe scurt din TEST (max 2 rânduri, cu formulele în LaTeX $...$);
 - "eticheta" = numele scurt al cerinței (ex. "Subiectul I, ex. 3" / "Subiectul III, pr. 1, a)").
+${structura ? structura + '\n' : ''}${FORM_TEXT_RULES}
 Răspunde DOAR cu JSON: {"titlu":"<titlul scurt al testului>","oficiu":10,"items":[{"id":"I.1","eticheta":"Subiectul I, ex. 1","cerinta":"...","puncte":5},{"id":"III.1","eticheta":"Subiectul III, pr. 1","cerinta":"...","subpuncte":[{"id":"a","eticheta":"a)","cerinta":"...","puncte":2},{"id":"b","eticheta":"b)","cerinta":"...","puncte":3}]}]}`
-    : `Primești un exercițiu / test de matematică (transcris dintr-o poză sau un PDF al elevului). Construiește STRUCTURA formularului de răspuns:
-- câte un element pentru FIECARE exercițiu / cerință din text, în ordinea lor;
+    : `Primești un exercițiu / test de matematică (extras dintr-un PDF sau transcris dintr-o poză a elevului). Construiește STRUCTURA formularului de răspuns:
+- câte un element pentru FIECARE exercițiu / cerință din text, în ordinea lor (Subiectul I, II, III dacă există);
 - unde exercițiul are subpuncte a), b), c) — fiecare subpunct devine element SEPARAT;
-- fără barem, fiecare cerință valorează 10 puncte ("puncte":10); "oficiu":0;
-- "cerinta" = cerința, copiată pe scurt (max 2 rânduri, formulele în LaTeX $...$);
-- "eticheta" = numele scurt (ex. "Exercițiul 1" / "Exercițiul 2, b)").
-Răspunde DOAR cu JSON: {"titlu":"<titlu scurt: despre ce e exercițiul>","oficiu":0,"items":[{"id":"1","eticheta":"Exercițiul 1","cerinta":"...","puncte":10},{"id":"2","eticheta":"Exercițiul 2","cerinta":"...","subpuncte":[{"id":"a","eticheta":"a)","cerinta":"...","puncte":10}]}]}`;
+${structura ? '- ' + structura + '\n' : '- fără barem și fără structură de examen, fiecare cerință valorează 10 puncte ("puncte":10); "oficiu":0;\n'}- "cerinta" = cerința, copiată pe scurt (max 2 rânduri, formulele în LaTeX $...$);
+- "eticheta" = numele scurt (ex. "Subiectul I, ex. 1" / "Exercițiul 2, b)").
+${FORM_TEXT_RULES}
+Răspunde DOAR cu JSON: {"titlu":"<titlu scurt: despre ce e testul>","oficiu":${structura ? 10 : 0},"items":[{"id":"I.1","eticheta":"Subiectul I, ex. 1","cerinta":"...","puncte":5},{"id":"III.1","eticheta":"Subiectul III, ex. 1","cerinta":"...","subpuncte":[{"id":"a","eticheta":"a)","cerinta":"...","puncte":2},{"id":"b","eticheta":"b)","cerinta":"...","puncte":3}]}]}`;
 
-  const user = `TESTUL${title ? ` „${String(title).slice(0, 120)}"` : ''}:\n"""${test || '(textul testului nu e disponibil — folosește baremul)'}"""${hasBarem ? `\n\nBAREMUL OFICIAL:\n"""${barem}"""` : ''}`;
+  const user = `TESTUL${title ? ` „${String(title).slice(0, 120)}"` : ''}${category ? ` (categoria: ${category})` : ''}:\n"""${test || '(textul testului nu e disponibil — folosește baremul)'}"""${hasBarem ? `\n\nBAREMUL OFICIAL:\n"""${barem}"""` : ''}`;
 
   const { text, usage } = await ai.chat({
     system, messages: [{ role: 'user', content: user }],
@@ -192,12 +271,16 @@ Răspunde DOAR cu JSON: {"titlu":"<titlu scurt: despre ce e exercițiul>","ofici
   if (!items.length) {
     return res.status(422).json({ error: 'Nu am putut construi formularul din acest material. Încearcă din nou sau fotografiază exercițiul mai clar.' });
   }
+  // punctajele OFICIALE: fără barem se forțează; cu barem doar umplu golurile
+  // (EN: 5p grile, III a=2p/b=3p; BAC: 5p pe cerință)
+  const official = applyOfficialPoints(items, category, hasBarem);
+  fillMissingPoints(items, hasBarem ? 5 : 10);
   const leaves = leavesOf(items);
   const total = Math.round(leaves.reduce((s, l) => s + (l.puncte || 0), 0) * 100) / 100;
-  const oficiu = hasBarem ? Math.max(0, Math.min(10, parseInt(parsed?.oficiu, 10) || 0)) : 0;
+  const oficiu = (official || hasBarem) ? Math.max(0, Math.min(10, parseInt(parsed?.oficiu, 10) || (official ? 10 : 0))) : 0;
   return res.status(200).json({
     items, hasBarem, total, oficiu,
-    title: String(parsed?.titlu || title || 'Exercițiu').slice(0, 140),
+    title: cleanMath(String(parsed?.titlu || title || 'Exercițiu').slice(0, 140)),
   });
 }
 
@@ -210,9 +293,11 @@ async function grade(req, res, supa, userId) {
     items = [], answers = {}, durationSec = 0, meditatii = false, title: bodyTitle = '',
   } = req.body || {};
 
+  const hasBarem = String(baremText || '').trim().length > 80;
+  // plasă de siguranță: punctajele oficiale EN/BAC se respectă și la corectare
+  applyOfficialPoints(items, context.category, hasBarem);
   const leaves = flattenClientItems(items);
   if (!leaves.length) return res.status(400).json({ error: 'Formularul nu are cerințe de corectat.' });
-  const hasBarem = String(baremText || '').trim().length > 80;
   const title = String(bodyTitle || context.title || 'Exercițiu').slice(0, 140);
 
   // răspunsurile elevului, pe cerințe (gol = necompletat)
@@ -236,10 +321,12 @@ ${hasBarem ? `- BAREMUL este SINGURA sursă a punctajului: pentru fiecare cerin�
 - La cerințele de tip grilă sau „se punctează doar rezultatul": rezultat corect = punctaj întreg; altfel 0.
 - Rezultatul corect al fiecărei cerințe este cel din barem — NU recalcula altă valoare.` : `- Fără barem oficial: rezolvă TU fiecare cerință foarte atent (verifică de două ori calculele), apoi compară cu răspunsul elevului și punctează din maximul cerinței (punctaj parțial pentru metodă corectă cu greșeli de calcul).`}
 - Acceptă forme echivalente ale rezultatului (ex. $1/2$ = $0,5$, ordinea factorilor, simplificări echivalente).
+- SIMBOLURI PIERDUTE LA EXTRACȚIE: textul testului vine dintr-o extracție automată din PDF — radicalii, exponenții și fracțiile se pot pierde. Dacă enunțul din test și ${hasBarem ? 'baremul' : 'logica rezolvării'} nu se potrivesc numeric (ex. în test „3x+6=6", ${hasBarem ? 'în barem apare 36, adică 6²' : 'iar rezolvarea firească trece prin 36 = 6²'}), enunțul REAL avea radical ($\\\\sqrt{3x+6}=6$) — corectează după enunțul reconstruit și explică-i elevului legătura, fără să afirmi că un număr „vine din enunț" dacă acolo scrie altceva.
 - Răspuns gol → "verdict":"necompletat", 0 puncte.
 - "explicatie": 1–3 propoziții calde, în română, la persoana a II-a: ce a făcut bine, UNDE a greșit și ce trebuia făcut (cu formulele în LaTeX $...$). La cerințele corecte, o confirmare scurtă.
 - "tema": subiectul matematic al cerinței, în 1–3 cuvinte (ex. "ecuații", "progresii", "funcții", "geometrie").
 - "feedback" general: 2–4 propoziții despre întreaga lucrare: ce stăpânește, la ce a greșit, ce nu a completat și ce să exerseze.
+- REDACTARE: în stringurile JSON, comenzile LaTeX se scriu cu backslash DUBLAT ("$\\\\frac{30}{100} \\\\cdot 500 = 150$", "$\\\\sqrt{3x+6}$") — altfel se pierd la parsare. Nu pune ** sau alte marcaje în interiorul formulelor $...$.
 Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"verdict":"corect|partial|gresit|necompletat","explicatie":"...","tema":"..."}],"feedback":"..."} — cu EXACT un element pentru FIECARE cerință primită, cu id-ul ei neschimbat.`;
 
   const user = `TESTUL${title ? ` „${title}"` : ''}:\n"""${String(testText || '').slice(0, MAX_TEXT)}"""\n\n${hasBarem ? `BAREMUL OFICIAL:\n"""${String(baremText).slice(0, MAX_TEXT)}"""\n\n` : ''}RĂSPUNSURILE ELEVULUI (corectează fiecare cerință):\n${listing}`;
@@ -274,9 +361,9 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
     if (verdict === 'corect') puncte = l.puncte;
     puncte = Math.round(puncte * 100) / 100;
     return {
-      id: l.id, eticheta: l.eticheta, cerinta: l.cerinta, maxPuncte: l.puncte,
+      id: l.id, eticheta: cleanMath(l.eticheta), cerinta: cleanMath(l.cerinta), maxPuncte: l.puncte,
       puncte, verdict, answered,
-      explicatie: String(g.explicatie || '').slice(0, 700),
+      explicatie: cleanMath(String(g.explicatie || '').slice(0, 700)),
       tema: String(g.tema || '').slice(0, 60),
       raspuns: ans[l.id] || null,
     };
@@ -286,7 +373,7 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
   const maxScore = Math.round(graded.reduce((s, g) => s + g.maxPuncte, 0) * 100) / 100;
   const pct = maxScore ? Math.round((score / maxScore) * 100) : 0;
   const nota = med.notaTest(score, maxScore); // include cele 10 puncte din oficiu (regula notaDinScor)
-  const feedback = String(parsed.feedback || '').slice(0, 1500);
+  const feedback = cleanMath(String(parsed.feedback || '').slice(0, 1500));
   const necompletate = graded.filter((g) => g.verdict === 'necompletat').map((g) => g.eticheta);
 
   // ── salvarea punctajului (ca la testele interactive) ──

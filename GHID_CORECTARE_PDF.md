@@ -22,6 +22,19 @@ exact cum corectează testele interactive.
    - explică **greșelile**, ce a făcut **bine** și ce **nu a completat**;
    - răspunde apoi la orice întrebare despre corectare (corectarea intră în
      conversație, deci „de ce am luat doar 2p la III.1.a?" funcționează).
+
+### Punctajele oficiale (rundă de corecturi)
+
+- **Baremul are întotdeauna prioritate** — punctele cerințelor vin din el.
+- Fără barem, la **Evaluare Națională** se aplică determinist punctajul
+  oficial: Subiectul I și II — **5p pe exercițiu grilă**; Subiectul III —
+  **a) 2p + b) 3p** (subiectele vechi cu a,b,c la III → 5p/subpunct);
+  total **90p + 10p din oficiu = 100p**. La **Bacalaureat**: 5p pe cerință.
+- Textul extras din PDF poate pierde **radicali/exponenți** — cerințele se
+  reconstruiesc din barem (ex. „3x+6=6" cu 36 în barem → $\sqrt{3x+6}=6$),
+  iar corectarea judecă după enunțul real.
+- LaTeX-ul stricat de JSON (ex. „rac{30}{100}" în loc de \frac) se repară
+  automat pe server în explicații și cerințe.
 5. Merge și pentru **poze 📷 și PDF-uri încărcate de elev direct în chat**
    (butonul 📷 acceptă acum și fișiere PDF) — acolo fără barem, doar răspunsuri.
 
