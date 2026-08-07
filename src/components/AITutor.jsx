@@ -7,6 +7,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
+import { supabase } from '../lib/supabase';
 import ExamGenerator from './ExamGenerator';
 import EinsteinIcon from './EinsteinIcon';
 import { useAuth } from '../context/AuthContext';
@@ -151,6 +152,14 @@ export function dispatchMeditatiiAction(action, navigate, onNavigate = null) {
   }
 }
 
+// ─── „Alege un test PDF din site" (chatul de meditații) — etichete listă ─────
+const PDF_SUBCAT_RO = {
+  simulari: '🎯 Simulări', variante: '📋 Variante date + modele', 'teste-antrenament': '🏋 Teste de antrenament',
+  'exercitii-subiecte': '📝 Exerciții pe subiecte', exercitii: '📝 Exerciții pe subiecte', capitole: '📚 Capitole',
+};
+const PDF_PROFILE_RO = { 'mate-info': 'Mate-Info', 'stiinte-naturii': 'Șt. Naturii', tehnologic: 'Tehnologic' };
+const pickTag = (bg, color) => ({ fontSize: '.66rem', fontWeight: 700, background: bg, color, borderRadius: 12, padding: '2px 8px', whiteSpace: 'nowrap' });
+
 // ─── Rezultatul corectării unui test/exercițiu PDF — afișat în chat ──────────
 // Punctajul total + nota + punctajul PE FIECARE subpunct a), b), c) (ca în barem).
 const VERDICT_UI = {
@@ -286,6 +295,12 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   const [upsell, setUpsell] = useState(false);
   const dictationRef = useRef(null);
   const recorderRef = useRef(null);
+
+  // ── „ALEGE UN TEST PDF DIN SITE" (chatul de meditații): elevul alege un
+  //    test din baza de date → se deschide în vizualizator cu ACEEAȘI
+  //    conversație alături, unde „Răspunde în chat" îl corectează după barem.
+  const [pdfPick, setPdfPick] = useState(null);      // null | { loading, rows, error }
+  const [pdfPickFilter, setPdfPickFilter] = useState('');
 
   // ── FORMULARUL DE RĂSPUNS („Răspunde în chat" → „Corectează") ─────────────
   // Sursa: testul PDF deschis (cu baremul lui, dacă există) SAU poza / PDF-ul
@@ -496,6 +511,30 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     setConvId(id);
   }
 
+  // Lista testelor PDF din baza de date a site-ului (categoria elevului) —
+  // pentru butonul „Alege un test PDF din site" din chatul de meditații.
+  async function togglePdfPicker() {
+    if (pdfPick) { setPdfPick(null); setPdfPickFilter(''); return; }
+    setPdfPick({ loading: true, rows: [] });
+    try {
+      let q = supabase.from('content')
+        .select('id, title, subcategory, profile, is_free, category')
+        .eq('content_type', 'pdf')
+        .order('sort_order', { ascending: true }).order('created_at', { ascending: false })
+        .limit(400);
+      if (context.category) q = q.eq('category', context.category);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      // baremele nu se dau ca „test de rezolvat" — le aduce viewerul, lângă test
+      const rows = (data || []).filter((r) => (r.subcategory || '') !== 'bareme');
+      setPdfPick({ loading: false, rows, error: rows.length ? null : 'Nu am găsit încă teste PDF în baza de date pentru categoria ta.' });
+    } catch (e) { setPdfPick({ loading: false, rows: [], error: e.message }); }
+  }
+  function openPickedPdf(id) {
+    setPdfPick(null); setPdfPickFilter('');
+    openInternal(`/pdf-viewer?id=${id}`); // păstrează conversația (openTutor + tutorConvId)
+  }
+
   async function sendFeedback(messageId, value) {
     patchLast((m) => m); // no-op to keep lint calm
     setMessages((msgs) => msgs.map((m) => (m.id === messageId ? { ...m, feedback: value } : m)));
@@ -617,6 +656,23 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         </div>
       </div>
 
+      {/* Chatul de MEDITAȚII: elevul poate ALEGE UN TEST PDF DIN SITE — se
+          deschide în vizualizator cu aceeași conversație alături, iar acolo
+          „Răspunde în chat" îl corectează după barem. */}
+      {!isMentor && context.meditatii && !form && (
+        <div style={{ display: 'flex', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)', alignItems: 'center', flexWrap: 'wrap', background: '#f6f9ff' }}>
+          <button onClick={togglePdfPicker}
+            style={{
+              background: '#fff', color: 'var(--navy)', border: '1px solid var(--navy)', borderRadius: 20,
+              padding: '6px 14px', fontSize: '.82rem', fontWeight: 800, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+            }}>
+            📄 Alege un test PDF din site
+          </button>
+          <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>Îl deschid lângă conversație și îl corectăm împreună, după barem.</span>
+        </div>
+      )}
+
       {/* „Răspunde în chat" (doar pentru elevi, când există un test PDF deschis
           sau o poză / un PDF încărcat): deschide formularul de răspunsuri.
           NU pornește automat — doar la apăsarea butonului. */}
@@ -659,6 +715,44 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
               <span style={{ display: 'block', fontSize: '.72rem', color: 'var(--text-muted)' }}>{new Date(c.updated_at).toLocaleString('ro-RO')}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Lista testelor PDF din site (overlay) — „Alege un test PDF din site" */}
+      {pdfPick && (
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: '#fff', zIndex: 6, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
+            <strong style={{ color: 'var(--navy)', fontSize: '.9rem' }}>
+              📄 Teste PDF din site
+              {context.category === 'evaluare-nationala' ? ' · Evaluarea Națională' : context.category === 'bacalaureat' ? ' · Bacalaureat' : ''}
+            </strong>
+            <button onClick={() => { setPdfPick(null); setPdfPickFilter(''); }} style={miniBtn}>✕ Închide</button>
+          </div>
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+            <input value={pdfPickFilter} onChange={(e) => setPdfPickFilter(e.target.value)} placeholder="Caută după titlu…"
+              style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 10px', fontSize: 16, fontFamily: 'var(--font-body)', boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain', padding: 12 }}>
+            {pdfPick.loading && <p style={{ color: 'var(--text-muted)', fontSize: '.85rem' }}>Caut testele PDF din baza de date…</p>}
+            {pdfPick.error && <p style={{ color: '#8a6d1a', fontSize: '.85rem' }}>{pdfPick.error}</p>}
+            {!pdfPick.loading && (pdfPick.rows || [])
+              .filter((r) => !pdfPickFilter.trim() || (r.title || '').toLowerCase().includes(pdfPickFilter.trim().toLowerCase()))
+              .map((r) => (
+                <button key={r.id} onClick={() => openPickedPdf(r.id)}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: '1px solid var(--border)', background: '#f7f9fc', borderRadius: 8, padding: '9px 11px', marginBottom: 6, fontSize: '.85rem', color: 'var(--navy)', fontWeight: 600, cursor: 'pointer' }}>
+                  <span style={{ flex: 1 }}>📄 {r.title}</span>
+                  <span style={{ display: 'inline-flex', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    {r.subcategory && PDF_SUBCAT_RO[r.subcategory] && (
+                      <span style={pickTag('rgba(15,43,68,.08)', 'var(--navy)')}>{PDF_SUBCAT_RO[r.subcategory]}</span>
+                    )}
+                    {r.profile && PDF_PROFILE_RO[r.profile] && (
+                      <span style={pickTag('rgba(232,185,49,.18)', '#8a6d1a')}>{PDF_PROFILE_RO[r.profile]}</span>
+                    )}
+                    <span style={pickTag(r.is_free ? '#e8f5e9' : '#fff3e0', r.is_free ? '#2e7d32' : '#e65100')}>{r.is_free ? 'Gratuit' : 'Premium'}</span>
+                  </span>
+                </button>
+              ))}
+          </div>
         </div>
       )}
 

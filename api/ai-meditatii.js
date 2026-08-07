@@ -1199,6 +1199,26 @@ async function simulare(req, res, supa) {
   const isEN = examType === 'evaluare-nationala';
   const category = isEN ? 'evaluare-nationala' : 'bacalaureat';
 
+  // Elevul a ALES un anumit test din baza de date a site-ului (rubrica
+  // Simulări → „Alege din baza de date a site-ului"): îl deschidem exact pe
+  // acela, înregistrat ca sesiune de simulare — rezultatul intră în plan,
+  // predicția notei și rapoartele mentorilor, ca la site-first.
+  if (req.body?.contentId) {
+    const { data: chosen } = await supa.from('content')
+      .select('id, title, is_free, content_type')
+      .eq('id', req.body.contentId).eq('content_type', 'interactive').single();
+    if (!chosen) return res.status(404).json({ error: 'Testul ales nu mai există în baza de date a site-ului.' });
+    const { data: sess, error: sErr } = await supa.from('ai_meditatii_sessions').insert({
+      user_id: userId, kind: 'simulare', topic: examType, status: 'activa',
+      payload: { contentId: chosen.id, siteTitle: chosen.title, examType, site: true },
+    }).select('id').single();
+    if (sErr) return res.status(500).json({ error: sErr.message });
+    return res.status(200).json({
+      sessionId: sess.id, examType,
+      siteTest: { id: chosen.id, title: chosen.title, url: `/exercitiu?id=${chosen.id}&medSesId=${sess.id}`, is_free: chosen.is_free },
+    });
+  }
+
   // SITE-FIRST (cerința 1, runda 5): întâi TESTELE din site din categoria
   // examenului, care nu s-au dat ca temă și nu au fost înregistrate.
   // Generăm după modelul din site DOAR după epuizare (sau forceGenerate).

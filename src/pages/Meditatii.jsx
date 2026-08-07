@@ -13,7 +13,7 @@ import { aiClient } from '../lib/aiClient';
 import { supabase } from '../lib/supabase';
 import { MathText, preMessage } from '../components/AITutor';
 import EinsteinIcon from '../components/EinsteinIcon';
-import ExamGenerator from '../components/ExamGenerator';
+import ExamGenerator, { EXAM_SOURCES } from '../components/ExamGenerator';
 import { openPrintDocument } from '../lib/examPrint';
 import { playAnswer, stopSpeaking, ttsSupported } from '../lib/voice';
 
@@ -54,6 +54,11 @@ const STATUS_LABELS = {
 const EXAM_LABELS = {
   'evaluare-nationala': 'Evaluarea Națională',
   'bac-mate-info': 'BAC Mate-Info', 'bac-stiinte': 'BAC Științele Naturii', 'bac-tehnologic': 'BAC Tehnologic',
+};
+// etichetele subcategoriilor de PDF-uri (rubrica Simulări → „Alege PDF din baza de date")
+const PDF_SUBCAT_RO = {
+  simulari: '🎯 Simulări', variante: '📋 Variante date + modele', 'teste-antrenament': '🏋 Teste de antrenament',
+  'exercitii-subiecte': '📝 Exerciții pe subiecte', exercitii: '📝 Exerciții pe subiecte', capitole: '📚 Capitole',
 };
 const niceTopic = (t) => String(t || '').replace(/_/g, ' ').trim();
 const fmtMin = (sec) => {
@@ -234,6 +239,7 @@ const BUSY_MSGS = {
   remediation: 'Pregătesc cele 10 exerciții de același fel… (~30s)',
   review: 'Pregătesc recapitularea — 5 întrebări scurte… (~20s)',
   simulare: 'Construiesc simularea, cu punctele tale slabe incluse… (~40s)',
+  simulare_site: 'Deschid testul ales din baza de date a site-ului…',
   homework: 'Pregătesc tema…',
   style: 'Țin minte preferința ta…',
 };
@@ -468,6 +474,15 @@ export default function Meditatii() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
+  // Simulare pe un TEST ALES de elev din baza de date a site-ului (rubrica
+  // Simulări → „Alege din baza de date"): serverul îl înregistrează ca
+  // sesiune de simulare (medSesId), apoi îl deschidem în viewer.
+  const startSimulareFromContent = (contentId) => run('simulare_site', async () => {
+    const r = await aiClient.meditatii({ action: 'simulare', contentId });
+    if (r.siteTest) { navigate(r.siteTest.url); return; }
+    setActionError('Testul ales nu a putut fi deschis — mai încearcă o dată.');
+  });
+
   const askHomework = () => run('homework', async () => {
     const r = await aiClient.meditatii({ action: 'homework_assign' });
     await refresh();
@@ -653,7 +668,7 @@ export default function Meditatii() {
           {tab === 'plan' && <PlanTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onReset={async () => { if (window.confirm('Sigur reluăm totul de la zero? Planul și evaluarea inițială se șterg.')) { await aiClient.meditatii({ action: 'reset' }); await refresh(); } }} />}
           {tab === 'teme' && <HomeworkTab st={st} busy={busy} onOpen={openHomework} onAsk={askHomework} />}
           {tab === 'recapitulari' && <ReviewsTab st={st} busy={busy} onReview={startReview} />}
-          {tab === 'simulari' && <SimTab st={st} busy={busy} onSimulare={startSimulare} />}
+          {tab === 'simulari' && <SimTab st={st} busy={busy} onSimulare={startSimulare} onSimulareContent={startSimulareFromContent} />}
           {tab === 'raport' && <RaportTab st={st} busy={busy} onOpenHomework={openHomework} onRemediation={startRemediation} onStyle={setStyle} />}
           {tab === 'progres' && <ProgressMeTab st={st} />}
         </>
@@ -1143,18 +1158,108 @@ function ProgressMeTab({ st }) {
   );
 }
 
-function SimTab({ st, busy, onSimulare }) {
+function SimTab({ st, busy, onSimulare, onSimulareContent }) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const sims = (st.sessions || []).filter((s) => s.kind === 'simulare' && s.status === 'finalizata');
   const examLabel = EXAM_LABELS[st.examType] || 'examen';
+
+  // ── 1) Simulare interactivă: elevul ALEGE un test din baza de date ────────
+  const [simPick, setSimPick] = useState(null); // null | { loading, rows, error }
+  async function toggleSimPick() {
+    if (simPick) { setSimPick(null); return; }
+    setSimPick({ loading: true, rows: [] });
+    try {
+      const category = st.examType === 'evaluare-nationala' ? 'evaluare-nationala' : 'bacalaureat';
+      const { data, error } = await supabase.from('content')
+        .select('id, title, subcategory, is_free')
+        .eq('content_type', 'interactive').eq('category', category)
+        .order('sort_order', { ascending: true }).order('created_at', { ascending: false }).limit(300);
+      if (error) throw new Error(error.message);
+      let done = new Set();
+      try {
+        const { data: prog } = await supabase.from('progress').select('content_id').eq('user_id', user.id);
+        done = new Set((prog || []).map((p) => p.content_id));
+      } catch { /* progresul e opțional aici */ }
+      const rows = (data || []).map((r) => ({ ...r, done: done.has(r.id) }));
+      rows.sort((a, b) => Number(a.done) - Number(b.done)); // nefăcutele primele (ordine stabilă)
+      setSimPick({ loading: false, rows, error: rows.length ? null : 'Nu am găsit încă teste interactive pentru categoria ta.' });
+    } catch (e) { setSimPick({ loading: false, rows: [], error: e.message }); }
+  }
+
+  // ── 2) Subiect de examen PDF: „Alege din baza de date" / „Generează cu AI" ─
+  const [pdfMode, setPdfMode] = useState(null); // null | 'db' | 'ai'
+  const [pdfDb, setPdfDb] = useState(null);     // null | { loading, rows, error }
+  async function openPdfDb() {
+    setPdfMode((m) => (m === 'db' ? null : 'db'));
+    if (pdfDb?.loading || pdfDb?.rows?.length) return;
+    setPdfDb({ loading: true, rows: [] });
+    try {
+      const cfg = EXAM_SOURCES[st.examType] || EXAM_SOURCES['evaluare-nationala'];
+      let q = supabase.from('content')
+        .select('id, title, subcategory, profile, is_free')
+        .eq('content_type', 'pdf').eq('category', cfg.category)
+        .order('sort_order', { ascending: true }).order('created_at', { ascending: false }).limit(300);
+      if (cfg.profile) q = q.eq('profile', cfg.profile);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      const rows = (data || []).filter((r) => (r.subcategory || '') !== 'bareme'); // baremul vine odată cu testul, în viewer
+      setPdfDb({ loading: false, rows, error: rows.length ? null : 'Nu am găsit încă subiecte PDF pentru categoria ta.' });
+    } catch (e) { setPdfDb({ loading: false, rows: [], error: e.message }); }
+  }
+
+  const rowBtn = {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%',
+    textAlign: 'left', padding: '8px 10px', background: '#fff', border: '1px solid var(--border)',
+    borderRadius: 8, marginBottom: 6, fontSize: '.86rem', color: 'var(--navy)', fontWeight: 600, cursor: 'pointer',
+  };
+  const tag = (bg, color, text) => (
+    <span style={{ fontSize: '.68rem', fontWeight: 700, background: bg, color, borderRadius: 12, padding: '2px 8px', whiteSpace: 'nowrap' }}>{text}</span>
+  );
+
   return (
     <div>
+      {/* ── Simulare interactivă: 1) alege din baza de date · 2) generează nou ── */}
       <div style={{ ...card, borderLeft: '4px solid var(--navy)' }}>
         <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.05rem', marginBottom: 4 }}>🎯 Simulare interactivă · {examLabel}</div>
         <p style={{ fontSize: '.86rem', color: 'var(--text-light)', marginBottom: 12 }}>
-          Întâi primești <strong>testele interactive din site</strong> (cele pe care nu le-ai făcut încă) — abia după ce le epuizezi îți generez unul nou,
-          în stilul subiectelor oficiale, cu <strong>punctele tale slabe incluse</strong>. Rezultatul se înregistrează și îl văd și părinții/profesorii tăi.
+          <strong>Alege un test din baza de date a site-ului</strong> sau cere-mi să îți <strong>generez unul nou</strong> în stilul
+          subiectelor oficiale, cu <strong>punctele tale slabe incluse</strong>. Rezultatul se înregistrează și îl văd și părinții/profesorii tăi.
         </p>
-        <button className="btn btn-primary" disabled={!!busy} onClick={() => onSimulare()}>{busy === 'simulare' ? 'Pregătesc simularea...' : '▶ Începe simularea'}</button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-primary" disabled={!!busy} onClick={toggleSimPick}>
+            {busy === 'simulare_site' ? 'Deschid testul...' : simPick ? '▲ Închide lista' : '📚 Alege din baza de date a site-ului'}
+          </button>
+          <button className="btn btn-outline" disabled={!!busy} onClick={() => onSimulare(true)}>
+            {busy === 'simulare' ? 'Generez simularea...' : '✨ Generează nou'}
+          </button>
+        </div>
+
+        {simPick && (
+          <div style={{ marginTop: 12, background: '#f7f9fc', border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>
+            {simPick.loading && <div style={{ fontSize: '.85rem', color: 'var(--text-muted)' }}>Caut testele din baza de date…</div>}
+            {simPick.error && <div style={{ fontSize: '.85rem', color: '#8a6d1a' }}>{simPick.error}</div>}
+            {!simPick.loading && simPick.rows.length > 0 && (
+              <>
+                <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+                  Testele interactive din categoria ta ({simPick.rows.length}) — cele nefăcute apar primele. Alege unul și îl deschid ca simulare:
+                </div>
+                <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                  {simPick.rows.map((r) => (
+                    <button key={r.id} style={{ ...rowBtn, opacity: r.done ? 0.75 : 1 }} disabled={!!busy} onClick={() => onSimulareContent(r.id)}>
+                      <span style={{ flex: 1 }}>🧩 {r.title}</span>
+                      <span style={{ display: 'inline-flex', gap: 5 }}>
+                        {r.done && tag('rgba(39,174,96,.12)', '#1e7e34', '✓ rezolvat')}
+                        {tag(r.is_free ? '#e8f5e9' : '#fff3e0', r.is_free ? '#2e7d32' : '#e65100', r.is_free ? 'Gratuit' : 'Premium')}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {sims.length > 0 && (
           <div style={{ marginTop: 14, fontSize: '.83rem', color: 'var(--text)' }}>
             <strong>Simulările tale:</strong>{' '}
@@ -1166,10 +1271,44 @@ function SimTab({ st, busy, onSimulare }) {
           </div>
         )}
       </div>
+
+      {/* ── Subiect PDF: 1) alege din baza de date · 2) generează cu AI ── */}
       <details style={{ ...card }}>
         <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)' }}>📄 Vreau un subiect de examen PDF (ca la examen, cu barem)</summary>
-        <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', margin: '8px 0 14px' }}>Generatorul de subiecte în format oficial — se deschide ca document tipăribil, cu variantă de elev și barem.</p>
-        <ExamGenerator />
+        <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', margin: '8px 0 12px' }}>
+          Alege un subiect PDF gata pregătit din baza de date a site-ului sau generează unul nou — document tipăribil, cu variantă de elev și barem.
+        </p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          <button className={pdfMode === 'db' ? 'btn btn-primary' : 'btn btn-outline'} onClick={openPdfDb}>📚 Alege PDF din baza de date</button>
+          <button className={pdfMode === 'ai' ? 'btn btn-primary' : 'btn btn-outline'} onClick={() => setPdfMode((m) => (m === 'ai' ? null : 'ai'))}>✨ Generează subiect nou cu AI</button>
+        </div>
+
+        {pdfMode === 'db' && (
+          <div style={{ background: '#f7f9fc', border: '1px solid var(--border)', borderRadius: 10, padding: 10, marginBottom: 6 }}>
+            {pdfDb?.loading && <div style={{ fontSize: '.85rem', color: 'var(--text-muted)' }}>Caut subiectele PDF din baza de date…</div>}
+            {pdfDb?.error && <div style={{ fontSize: '.85rem', color: '#8a6d1a' }}>{pdfDb.error}</div>}
+            {pdfDb && !pdfDb.loading && pdfDb.rows.length > 0 && (
+              <>
+                <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+                  Subiectele PDF din categoria ta ({pdfDb.rows.length}) — se deschid în vizualizator, cu Profesorul Virtual alături:
+                </div>
+                <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                  {pdfDb.rows.map((r) => (
+                    <button key={r.id} style={rowBtn} onClick={() => navigate(`/pdf-viewer?id=${r.id}`)}>
+                      <span style={{ flex: 1 }}>📄 {r.title}</span>
+                      <span style={{ display: 'inline-flex', gap: 5 }}>
+                        {r.subcategory && PDF_SUBCAT_RO[r.subcategory] && tag('rgba(15,43,68,.08)', 'var(--navy)', PDF_SUBCAT_RO[r.subcategory])}
+                        {tag(r.is_free ? '#e8f5e9' : '#fff3e0', r.is_free ? '#2e7d32' : '#e65100', r.is_free ? 'Gratuit' : 'Premium')}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {pdfMode === 'ai' && <ExamGenerator />}
       </details>
     </div>
   );

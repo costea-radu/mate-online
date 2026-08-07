@@ -13,7 +13,8 @@ import { authHeaders } from '../lib/api';
 import { combineExamPdfs, fetchPdfSources, stratifyBySubcategory, probeExamPdf } from '../lib/pdfCombine';
 
 // separarea STRICTĂ a categoriilor: fiecare tip de examen combină doar propriile subiecte
-const EXAM_SOURCES = {
+// (exportat: rubrica Simulări din /meditatii îl folosește la „Alege PDF din baza de date")
+export const EXAM_SOURCES = {
   'evaluare-nationala': { category: 'evaluare-nationala', profile: null },
   'bac-tehnologic': { category: 'bacalaureat', profile: 'tehnologic' },
   'bac-stiinte': { category: 'bacalaureat', profile: 'stiinte-naturii' },
