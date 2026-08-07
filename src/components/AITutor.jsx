@@ -673,22 +673,10 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         </div>
       </div>
 
-      {/* Chatul de MEDITAȚII: elevul poate ALEGE UN TEST PDF DIN SITE — se
-          deschide în vizualizator cu aceeași conversație alături, iar acolo
-          „Răspunde în chat" îl corectează după barem. */}
-      {!isMentor && context.meditatii && !form && (
-        <div style={{ display: 'flex', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)', alignItems: 'center', flexWrap: 'wrap', background: '#f6f9ff' }}>
-          <button onClick={togglePdfPicker}
-            style={{
-              background: '#fff', color: 'var(--navy)', border: '1px solid var(--navy)', borderRadius: 20,
-              padding: '6px 14px', fontSize: '.82rem', fontWeight: 800, cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-            }}>
-            📄 Alege un test PDF din site
-          </button>
-          <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>Îl deschid lângă conversație și îl corectăm împreună, după barem.</span>
-        </div>
-      )}
+      {/* „Alege un test PDF din site" NU mai are bandă separată aici: butonul
+          stă în LISTA de butoane a meditatorului (mesajul de întâmpinare,
+          ultimul — după „🧩 Test din site"), cu kind 'pdf_site'; el deschide
+          lista de teste PDF (filtrată pe nivelul elevului) chiar în chat. */}
 
       {/* „Răspunde în chat" (doar pentru elevi, când există un test PDF deschis
           sau o poză / un PDF încărcat): deschide formularul de răspunsuri.
@@ -836,7 +824,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
                   {m.suggestions.map((s, k) => (
                     <button key={k}
-                      onClick={() => (s.kind === 'chat' ? send(s.text) : dispatchMeditatiiAction(s, navigate, onNavigate))}
+                      onClick={() => (s.kind === 'chat' ? send(s.text)
+                        : s.kind === 'pdf_site' ? togglePdfPicker() // lista testelor PDF, chiar în chat
+                        : dispatchMeditatiiAction(s, navigate, onNavigate))}
                       style={{ textAlign: 'left', border: '1px solid var(--gold)', background: 'rgba(232,185,49,.12)', borderRadius: 8, padding: '8px 10px', fontSize: '.85rem', color: 'var(--navy)', fontWeight: 600, cursor: 'pointer' }}>
                       {s.label}
                     </button>

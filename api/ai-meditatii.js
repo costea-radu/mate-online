@@ -399,6 +399,9 @@ function buildBriefing({ firstName, medProfile, plan, dueReviews, pendingHw, ope
   if (medProfile.exam_target && next) {
     suggestions.push({ kind: 'simulare', label: `🧩 Test din site · ${EXAM_RO[med.examTypeFor(medProfile)] || 'examen'}` });
   }
+  // ultimul buton din listă: alegerea unui TEST PDF din site — lista (filtrată
+  // pe nivelul elevului) se deschide chiar în chat; kind gestionat de ChatPanel.
+  suggestions.push({ kind: 'pdf_site', label: '📄 Alege un test PDF din site' });
 
   return { message: `${hello} ${bits.join(' ')}`.trim(), suggestions };
 }
