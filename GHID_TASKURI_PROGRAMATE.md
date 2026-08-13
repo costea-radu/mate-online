@@ -186,6 +186,14 @@ vrei cândva gateway-ul, se schimbă doar URL-ul și cheia în acel fișier.
   extras (primele ~12 pagini, până la 50k caractere) — pentru task-urile de
   tip „primele N exerciții din fișier" e de obicei suficient. Dacă vrei tot
   fișierul, împarte PDF-ul în bucăți mai mici în rubrică.
+- Eroare 504 / FUNCTION_INVOCATION_TIMEOUT la „Rulează acum" → generarea nu a
+  încăput în limita funcției Vercel (300s). De la reparația din 13 august,
+  cazul e mult mai rar: șabloanele NU se mai regenerează integral (blocurile
+  <style>/<script> nemodificate devin marcaje reinserate de server — timpul
+  de generare scade de ~3-4 ori), iar generarea se oprește singură cu eroare
+  CLARĂ înregistrată înainte de limita Vercel. Dacă totuși apare des și ai
+  plan Vercel Pro, poți ridica `maxDuration` la 800 în `vercel.json`
+  (funcțiile rulează pe Fluid).
 - Eroare „Rubrica are prea puține materiale" → rubrica aleasă are sub 2
   materiale de tipul selectat (PDF/interactiv).
 - Rulările „🕓 așteaptă aprobare" se păstrează în istoric până le postezi sau

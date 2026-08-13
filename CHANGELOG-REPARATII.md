@@ -4,6 +4,22 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 13 august 2026 (2) — Clonarea șabloanelor de ~3-4 ori mai RAPIDĂ (marcaje TPL) — scapă de FUNCTION_INVOCATION_TIMEOUT (300s)
+
+Logurile Vercel de la admin au arătat lanțul complet: (1) modelul folosit NU suportă deloc prefill de asistent („This model does not support assistant message prefill”) — trecerea pe continuarea prin mesaj de utilizator a funcționat corect; dar (2) PRIMA generare singură a durat ~230s (clonarea unui șablon de ~107KB ≈ ~35k tokeni de ieșire), continuarea a împins totalul peste limita funcției Vercel → `FUNCTION_INVOCATION_TIMEOUT` la 5m, cu rularea PIERDUTĂ (nimic în istoric). Trei schimbări:
+
+### 🚀 Marcaje TPL — modelul nu mai rescrie ce nu schimbă (`api/_lib/exgen.js`)
+Șablonul trimis modelului e adnotat cu `<!--TPL:N-->` înaintea fiecărui bloc `<style>`/`<script>`, iar regula nouă din prompt (`TPL_RULE`) îi cere ca blocurile pe care le-ar copia NESCHIMBATE să devină doar marcaje GOALE `<style/script data-tpl="N">` — serverul le reinserează programatic (`tplAnnotate`/`tplRestore`, aplicate pe toate cele 4 căi de clonare HTML). Blocul cu DATELE itemilor se rescrie mereu complet. La șablonul de 107KB (67% scripturi), ieșirea scade de la ~35k la ~10-12k tokeni → generarea încape confortabil într-un singur apel.
+
+### ⏱ Gardă de timp în `chatClaudeLong`
+Nu se mai pornesc continuări după ~200s scurse: mai bine o eroare CLARĂ, înregistrată în istoric + email, decât funcția ucisă de Vercel cu rularea pierdută. (Dacă timeout-urile mai apar și contul e pe Vercel Pro, `maxDuration` se poate ridica la 800 în `vercel.json` — funcțiile rulează pe Fluid.)
+
+### 🧠 Fără apeluri irosite (`api/_lib/claude.js` + `exgen.js`)
+- `apiCall` mai reîncearcă „fără thinking” DOAR când chiar parametrul thinking a fost respins — alte erori 400 (ex. cea de prefill) ies imediat, ca apelantul să schimbe metoda (înainte, fiecare respingere de prefill consuma un apel dublu).
+- Modelele care au respins prefill-ul sunt ținute minte (`NO_PREFILL`) — generările următoare încep direct cu continuarea prin mesaj de utilizator.
+
+**`test/agent-tasks.test.js`:** teste noi — marcajele TPL (numerotare, reinserare, blocul de date rămâne cel rescris, index inexistent tolerat) + pornirea directă fără prefill la modelele ținute minte. **16/16 trec.**
+
 ## 13 august 2026 — Continuarea generărilor lungi funcționează și când API-ul RESPINGE prefill-ul („[stop=max_tokens, continuări=0]”)
 
 Aceeași eroare „Șablonul rubricii e prea mare…”, dar diagnosticul nou a arătat exact cauza: **continuări=0** cu `stop=max_tokens` — adică prima continuare nici nu a apucat să ruleze. Continuarea folosea „prefill de asistent” (partea generată devine mesaj final de asistent), iar API-ul o RESPINGE pe configurațiile unde modelul rulează cu thinking activ (când `thinking: disabled` nu e acceptat, `api/_lib/claude.js` reia cererea fără parametru, deci modelul poate gândi — iar prefill + thinking = 400 imediat, ne-tranzitoriu → lanțul de continuări murea pe loc).

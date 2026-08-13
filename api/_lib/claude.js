@@ -89,7 +89,11 @@ async function apiCallOnce(body) {
 async function apiCall(body) {
   const maxTokens = body.max_tokens || 3000;
   let r = await apiCallOnce({ ...body, max_tokens: maxTokens, thinking: { type: 'disabled' } });
-  if (!r.ok && r.status === 400) {
+  // Reîncercarea fără `thinking` are sens DOAR când chiar parametrul thinking a
+  // fost respins — alte erori 400 (ex. „This model does not support assistant
+  // message prefill”) trebuie să iasă imediat, ca apelantul să schimbe metoda
+  // (exgen.chatClaudeLong trece pe continuarea prin mesaj de utilizator).
+  if (!r.ok && r.status === 400 && /thinking/i.test(String(r.data?.error?.message || ''))) {
     console.warn('claude: thinking:disabled respins (%s) — reîncerc cu buget extins', r.data?.error?.message || r.status);
     r = await apiCallOnce({ ...body, max_tokens: maxTokens + 10000 });
   }

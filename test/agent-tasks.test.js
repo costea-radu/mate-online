@@ -278,9 +278,44 @@ test('exgen.chatClaudeLong: continuă răspunsurile tăiate/neterminate și re-c
     assert.strictEqual(r.text, '<!doctype html><html><body>ABCDEFGHI</body></html>', 'fără dublarea cozii');
     assert.ok(r.viaUserMode, 'a trecut pe continuarea fără prefill');
     assert.strictEqual(r.continuations, 1);
+
+    // (g) modelul e ținut minte: următoarea generare pornește DIRECT fără
+    // prefill (niciun apel irosit cu mesaj de asistent)
+    calls = 0;
+    claude.chatClaude = async ({ messages }) => {
+      calls++;
+      assert.notStrictEqual(messages[messages.length - 1].role, 'assistant', 'niciun prefill după ce modelul l-a respins');
+      if (calls === 1) return { text: '<!doctype html><html><body>X', usage: {}, provider: 'stub', stopReason: 'max_tokens' };
+      return { text: 'Y</body></html>', usage: {}, provider: 'stub', stopReason: 'end_turn' };
+    };
+    r = await exgen.chatClaudeLong({ system: 's', blocks: [{ type: 'text', text: 'x' }], until: untilHtml });
+    assert.ok(untilHtml(r.text));
+    assert.ok(r.viaUserMode);
   } finally {
     claude.chatClaude = orig;
   }
+});
+
+test('exgen.tplAnnotate + tplRestore: șablonul nu se mai regenerează integral (marcaje data-tpl)', () => {
+  const tpl = '<!doctype html><html><head><style>.a{color:red}</style></head><body><div id="x"></div>'
+    + '<script src="katex.js"></script><script>var EX=[{q:"veche"}];</script></body></html>';
+  const { annotated, blocks } = exgen.tplAnnotate(tpl);
+  assert.strictEqual(blocks.length, 3, 'style + 2 scripturi');
+  assert.ok(annotated.includes('<!--TPL:0--><style>'), 'blocurile sunt numerotate');
+  assert.ok(annotated.includes('<!--TPL:2--><script>var EX='), 'numerotare în ordinea documentului');
+
+  // modelul copiază stilul și scriptul extern ca marcaje, rescrie doar datele
+  const out = '<!doctype html><html><head><style data-tpl="0"></style></head><body><div id="x"></div>'
+    + '<script data-tpl="1"></script><script>var EX=[{q:"NOUĂ"}];</script></body></html>';
+  const restored = exgen.tplRestore(out, blocks);
+  assert.ok(restored.includes('.a{color:red}'), 'stilul original reinserat');
+  assert.ok(restored.includes('src="katex.js"'), 'scriptul extern reinserat');
+  assert.ok(restored.includes('var EX=[{q:"NOUĂ"}]'), 'blocul de date rămâne cel rescris');
+  assert.ok(!restored.includes('data-tpl='), 'marcajele au dispărut');
+  assert.ok(!restored.includes('<!--TPL:'), 'comentariile de numerotare nu rămân în rezultat');
+
+  // marcaj cu index inexistent → rămâne cum e (nu aruncăm)
+  assert.ok(exgen.tplRestore('<script data-tpl="9"></script>', blocks).includes('data-tpl="9"'));
 });
 
 test('exgen.figuresAllowed + stripFigures: figurile geometrice DOAR la Evaluare Națională', () => {
