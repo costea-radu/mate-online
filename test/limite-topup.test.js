@@ -60,9 +60,10 @@ test('FEATURE_QUOTAS: cheile și endpointurile așteptate de endpoint-uri', () =
   assert.strictEqual(q.foto.endpoint, 'ai-vision');
   for (const [key, f] of Object.entries(q)) {
     assert.ok(f.label && f.emoji, `${key} are etichetă pentru UI`);
-    assert.ok((f.perMonth ?? 0) >= 0 && (f.perDay ?? 0) >= 0, `${key} are limite numerice`);
-    assert.ok((f.perMonth > 0) || (f.perDay > 0) || f.perMonth === 0 || f.perDay === 0, `${key} configurabil`);
+    assert.ok(f.window === 'month' || f.window === 'day', `${key} are fereastră validă`);
   }
+  // limitele stau PER ROL în quotasForRole (vezi test/cote-rol.test.js)
+  assert.strictEqual(typeof ai.quotasForRole, 'function');
 });
 
 test('TOPUP_DAYS: valabilitate pozitivă, aliniată cu fereastra lunară', () => {

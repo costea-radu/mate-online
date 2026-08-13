@@ -150,26 +150,86 @@ function topupPacks() {
   return DEFAULT_TOPUP_PACKS;
 }
 
-// ─── Cote per funcție (vizibile în UI; se aplică DOAR fără pachet activ) ─────
-// Numără acțiunile din ai_usage pe endpointul funcției. 0 = cota dezactivată.
+// ─── Cote per funcție, PER ROL, cu POOL comun (vizibile în UI) ───────────────
+// Registrul funcțiilor cu cotă: endpointul numărat din ai_usage + etichete.
+// window: 'month' = fereastră de 30 de zile; 'day' = ziua curentă (ora RO).
 const FEATURE_QUOTAS = {
-  corectari: {
-    endpoint: 'ai-correct:grade', label: 'Corectări de teste', emoji: '📝',
-    perMonth: parseInt(process.env.AI_QUOTA_CORECTARI_LUNA || '10', 10),
-  },
-  teste: {
-    endpoint: 'ai-exam', label: 'Subiecte de examen generate', emoji: '📄',
-    perMonth: parseInt(process.env.AI_QUOTA_TESTE_LUNA || '20', 10),
-  },
-  interactive: {
-    endpoint: 'ai-generate-interactive', label: 'Exerciții interactive generate', emoji: '🧩',
-    perMonth: parseInt(process.env.AI_QUOTA_INTERACTIVE_LUNA || '40', 10),
-  },
-  foto: {
-    endpoint: 'ai-vision', label: 'Foto-rezolvări', emoji: '📷',
-    perDay: parseInt(process.env.AI_QUOTA_FOTO_ZI || '10', 10),
-  },
+  corectari:   { endpoint: 'ai-correct:grade',        label: 'Corectări de teste',            emoji: '📝', window: 'month' },
+  teste:       { endpoint: 'ai-exam',                 label: 'Subiecte de examen generate',   emoji: '📄', window: 'month' },
+  interactive: { endpoint: 'ai-generate-interactive', label: 'Exerciții interactive generate', emoji: '🧩', window: 'month' },
+  foto:        { endpoint: 'ai-vision',               label: 'Foto-rezolvări',                emoji: '📷', window: 'day' },
 };
+
+// Limitele implicite PER ROL (0 = cota funcției e dezactivată pentru acel rol).
+// Elevii corectează mult (teme, simulări) → corectări mai multe; profesorii
+// generează subiecte pentru clase → subiecte mai multe, corectări puține
+// (ei corectează cu baremul, nu cu AI-ul).
+const QUOTA_ROLE_DEFAULTS = {
+  elev:     { corectari: 20, teste: 20, interactive: 40, foto: 10 },
+  profesor: { corectari: 5,  teste: 40, interactive: 40, foto: 10 },
+  parinte:  { corectari: 20, teste: 20, interactive: 40, foto: 10 },
+};
+// Suprascrieri din env: GLOBALE (aceeași valoare pentru toate rolurile) —
+// env-urile existente AI_QUOTA_* — și FINE, per rol:
+//   AI_QUOTAS_JSON='{"profesor":{"corectari":3},"elev":{"teste":30}}'
+const QUOTA_GLOBAL_ENV = {
+  corectari: process.env.AI_QUOTA_CORECTARI_LUNA,
+  teste: process.env.AI_QUOTA_TESTE_LUNA,
+  interactive: process.env.AI_QUOTA_INTERACTIVE_LUNA,
+  foto: process.env.AI_QUOTA_FOTO_ZI,
+};
+let QUOTAS_JSON = {};
+try { QUOTAS_JSON = JSON.parse(process.env.AI_QUOTAS_JSON || '{}'); }
+catch { console.warn('AI_QUOTAS_JSON invalid (nu e JSON) — ignorat.'); }
+
+// Limitele efective ale unui rol ('elev' | 'profesor' | 'parinte'; altceva → elev).
+function quotasForRole(role) {
+  const r = role === 'profesor' || role === 'parinte' ? role : 'elev';
+  const out = {};
+  for (const key of Object.keys(FEATURE_QUOTAS)) {
+    let v = QUOTA_ROLE_DEFAULTS[r][key];
+    const g = QUOTA_GLOBAL_ENV[key];
+    if (g != null && g !== '' && !Number.isNaN(+g)) v = +g;
+    const j = QUOTAS_JSON && QUOTAS_JSON[r] ? QUOTAS_JSON[r][key] : null;
+    if (j != null && !Number.isNaN(+j)) v = +j;
+    out[key] = Math.max(0, Math.trunc(+v || 0));
+  }
+  return out;
+}
+
+// ─── POOL comun + „transfer" între cotele LUNARE ─────────────────────────────
+// Cotele lunare (corectări / subiecte / interactive) se COMPLETEAZĂ între ele:
+// când una se termină, acțiunile în plus consumă din rezerva celorlalte —
+// echivalentul se scade de acolo, iar UI-ul arată „transferate la …".
+// Foto rămâne separată (fereastră ZILNICĂ — nu se amestecă cu cele lunare).
+// Alocarea e PURĂ, derivată din numărători — nimic de stocat: fereastra
+// alunecă, iar alocarea se recalculează identic la fiecare citire.
+function allocateQuotas(items) {
+  const st = items.map((it) => ({
+    key: it.key,
+    used: Math.max(0, Math.trunc(+it.used || 0)),
+    limit: Math.max(0, Math.trunc(+it.limit || 0)),
+    absorbed: 0, borrowedIn: [], borrowedOut: [], unallocated: 0,
+  }));
+  for (const it of st) {
+    let need = Math.max(0, it.used - it.limit);
+    for (const src of st) {
+      if (src === it || need <= 0) continue;
+      const free = Math.max(0, src.limit - Math.min(src.used, src.limit) - src.absorbed);
+      if (!free) continue;
+      const take = Math.min(free, need);
+      src.absorbed += take; need -= take;
+      it.borrowedIn.push({ from: src.key, n: take });
+      src.borrowedOut.push({ to: it.key, n: take });
+    }
+    it.unallocated = need; // >0 doar dacă tot pool-ul e epuizat
+  }
+  return st.map((it) => ({
+    key: it.key, used: it.used, limit: it.limit,
+    effUsed: Math.min(it.used, it.limit) + it.absorbed, // propriu (plafonat) + absorbit de la alții
+    borrowedIn: it.borrowedIn, borrowedOut: it.borrowedOut, unallocated: it.unallocated,
+  }));
+}
 
 // Miezul nopții de AZI pe ora României, ca timestamp ISO (începutul „zilei" de buget).
 function dayStartBucharest(now = new Date()) {
@@ -670,26 +730,50 @@ async function enforceBudgets(supa, userId, profile = null) {
 
 // Cota inclusă a unei funcții scumpe (corectări / teste / interactive / foto).
 // Se aplică DOAR utilizatorilor fără pachet top-up activ și fără scutire.
-// Aruncă 429 cu code='QUOTA_FEATURE' și feature=<cheia> când cota e atinsă.
+// Cotele LUNARE formează un POOL comun (limita reală = suma lor; depășirea
+// uneia „transferă" din rezerva celorlalte); foto are cotă ZILNICĂ separată.
+// Aruncă 429 cu code='QUOTA_FEATURE' și feature=<cheia> când nu mai e loc.
 async function enforceFeatureQuota(supa, userId, profile, featureKey, lim = null) {
   const q = FEATURE_QUOTAS[featureKey];
   if (!q) return;
   if (isBudgetExempt(profile)) return;
   if (lim && lim.topupActive) return; // pachet plătit → cotele incluse nu limitează
+  const quotas = quotasForRole(profile && profile.role);
   const packs = topupPacks();
   const hint = packs.length ? ' Poți continua imediat cu un pachet AI suplimentar, din Contul meu → „⚡ Consum AI".' : ' Cota se eliberează pe măsură ce trec zilele.';
-  const checks = [];
-  if (q.perDay > 0) checks.push({ since: dayStartBucharest(), limit: q.perDay, win: 'azi', reset: 'Se resetează la miezul nopții.' });
-  if (q.perMonth > 0) checks.push({ since: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString(), limit: q.perMonth, win: 'luna aceasta', reset: '' });
-  for (const c of checks) {
+
+  // ── Fereastra ZILNICĂ (foto) — cotă proprie, fără pool ──
+  if (q.window === 'day') {
+    const limit = quotas[featureKey];
+    if (!(limit > 0)) return; // dezactivată pentru acest rol
     const { count, error } = await supa.from('ai_usage').select('*', { count: 'exact', head: true })
-      .eq('user_id', userId).eq('endpoint', q.endpoint).gte('created_at', c.since);
+      .eq('user_id', userId).eq('endpoint', q.endpoint).gte('created_at', dayStartBucharest());
     if (error) { warnOnce(`quota:${featureKey}`, `enforceFeatureQuota(${featureKey}): ${error.message}`); return; }
-    if ((count || 0) >= c.limit) {
-      const e = new Error(`Ai folosit toate cele ${c.limit} „${q.label.toLowerCase()}" incluse ${c.win}. ${c.reset}${hint}`.replace(/\s+/g, ' ').trim());
+    if ((count || 0) >= limit) {
+      const e = new Error(`Ai folosit toate cele ${limit} „${q.label.toLowerCase()}" incluse azi. Se resetează la miezul nopții.${hint}`);
       e.status = 429; e.code = 'QUOTA_FEATURE'; e.feature = featureKey; throw e;
     }
+    return;
   }
+
+  // ── Fereastra LUNARĂ → POOL comun între cotele lunare active ale rolului ──
+  const activeKeys = Object.keys(FEATURE_QUOTAS)
+    .filter((k) => FEATURE_QUOTAS[k].window === 'month' && quotas[k] > 0);
+  if (!activeKeys.includes(featureKey)) return; // cota funcției e dezactivată pt. rol
+  const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+  const endpoints = activeKeys.map((k) => FEATURE_QUOTAS[k].endpoint);
+  const { data, error } = await supa.from('ai_usage').select('endpoint')
+    .eq('user_id', userId).in('endpoint', endpoints).gte('created_at', since).limit(5000);
+  if (error) { warnOnce(`quota:${featureKey}`, `enforceFeatureQuota(${featureKey}): ${error.message}`); return; }
+  const totalUsed = (data || []).length;
+  const totalLimit = activeKeys.reduce((s, k) => s + quotas[k], 0);
+  if (totalUsed >= totalLimit) {
+    const labels = activeKeys.map((k) => FEATURE_QUOTAS[k].label.toLowerCase()).join(' + ');
+    const e = new Error(`Ai folosit toate acțiunile incluse luna aceasta (${labels} — cotele se completează între ele).${hint}`);
+    e.status = 429; e.code = 'QUOTA_FEATURE'; e.feature = featureKey; throw e;
+  }
+  // Sub totalul pool-ului → permis. Dacă propria cotă e depășită, diferența se
+  // „transferă" din rezerva celorlalte — vizibil în Contul meu → ⚡ Consum AI.
 }
 
 // Alege modelul după starea bugetului (starea = ce întoarce enforceRateLimit).
@@ -713,22 +797,46 @@ async function budgetInfo(supa, userId, profile = null) {
   const exempt = isBudgetExempt(profile);
   const topupActive = !exempt && topupLei > 0 && (effectiveMonthLei === 0 || monthLei < effectiveMonthLei);
 
-  // Consumul pe funcțiile cu cotă (o singură interogare pentru toate).
+  // Consumul pe funcțiile cu cotă (o singură interogare pentru toate),
+  // cu limitele ROLULUI și alocarea „transferurilor" din pool-ul lunar.
   const monthStart = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
   const dayStart = dayStartBucharest();
+  const quotas = quotasForRole(profile && profile.role);
   const endpoints = Object.values(FEATURE_QUOTAS).map((q) => q.endpoint);
   const features = [];
   try {
     const { data } = await supa.from('ai_usage').select('endpoint, created_at')
-      .eq('user_id', userId).in('endpoint', endpoints).gte('created_at', monthStart).limit(2000);
+      .eq('user_id', userId).in('endpoint', endpoints).gte('created_at', monthStart).limit(5000);
+    const countFor = (endpoint, since = null) =>
+      (data || []).filter((r) => r.endpoint === endpoint && (!since || r.created_at >= since)).length;
+
+    // pool-ul lunar: alocăm depășirile pe rezerva celorlalte cote
+    const monthlyKeys = Object.keys(FEATURE_QUOTAS)
+      .filter((k) => FEATURE_QUOTAS[k].window === 'month' && quotas[k] > 0);
+    const alloc = allocateQuotas(monthlyKeys.map((k) => ({
+      key: k, used: countFor(FEATURE_QUOTAS[k].endpoint), limit: quotas[k],
+    })));
+    const byKey = new Map(alloc.map((a) => [a.key, a]));
+    const labelOf = (k) => FEATURE_QUOTAS[k] ? FEATURE_QUOTAS[k].label : k;
+
     for (const [key, q] of Object.entries(FEATURE_QUOTAS)) {
-      if (!(q.perMonth > 0) && !(q.perDay > 0)) continue; // cotă dezactivată → nu apare
-      const rows = (data || []).filter((r) => r.endpoint === q.endpoint);
-      features.push({
-        key, label: q.label, emoji: q.emoji,
-        usedMonth: rows.length, limitMonth: q.perMonth > 0 ? q.perMonth : null,
-        usedDay: rows.filter((r) => r.created_at >= dayStart).length, limitDay: q.perDay > 0 ? q.perDay : null,
-      });
+      if (!(quotas[key] > 0)) continue; // cotă dezactivată pentru rol → nu apare
+      if (q.window === 'day') {
+        features.push({
+          key, label: q.label, emoji: q.emoji, window: 'day',
+          usedDay: countFor(q.endpoint, dayStart), limitDay: quotas[key],
+          usedMonth: null, limitMonth: null,
+        });
+      } else {
+        const a = byKey.get(key);
+        features.push({
+          key, label: q.label, emoji: q.emoji, window: 'month',
+          usedMonth: a.used, limitMonth: a.limit, effUsedMonth: a.effUsed,
+          borrowedIn: a.borrowedIn.map((b) => ({ ...b, fromLabel: labelOf(b.from) })),
+          borrowedOut: a.borrowedOut.map((b) => ({ ...b, toLabel: labelOf(b.to) })),
+          usedDay: null, limitDay: null,
+        });
+      }
     }
   } catch { /* doar afișare — nu blocăm */ }
 
@@ -1466,8 +1574,8 @@ module.exports = {
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS, PDF_MODEL, GEN_MODEL,
   // limite de consum (vezi GHID_LIMITE_AI.md)
   pickModel, budgetInfo, costMicroLei, priceFor, dayStartBucharest, ECON_CHAT_MODEL, USD_RON,
-  // cote per funcție + pachete top-up (pasul 2)
-  enforceFeatureQuota, FEATURE_QUOTAS, topupPacks, TOPUP_DAYS,
+  // cote per funcție + pachete top-up (pasul 2); per rol + pool comun
+  enforceFeatureQuota, FEATURE_QUOTAS, topupPacks, TOPUP_DAYS, quotasForRole, allocateQuotas,
   // folosit de _lib/pregen.js ca tonul explicațiilor pre-generate să fie identic cu chatul (pasul 3)
   MODE_ROLES,
 };

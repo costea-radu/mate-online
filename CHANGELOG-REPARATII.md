@@ -4,6 +4,15 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 13 august 2026 (2) — 🔁 Cote per ROL + pool comun între cote („transferate la…"); numărul real „De pre-generat"
+
+Două cereri ale adminului. Validat: `node --check`, esbuild pe JSX; teste noi în **`test/cote-rol.test.js`** (6 teste; 34/34 în total trec). Fără migrări noi — totul e aritmetică pe numărătorile existente.
+
+- **Cote per ROL (`api/_lib/ai.js` — `quotasForRole`):** elev/părinte: corectări **20**/lună (era 10), subiecte 20, interactive 40, foto 10/zi; profesor: corectări **5**/lună, subiecte **40**/lună, interactive 40, foto 10/zi. Reglaje: env-urile `AI_QUOTA_*` existente (global) sau `AI_QUOTAS_JSON='{"profesor":{"corectari":3}}'` (fin, per rol).
+- **Pool comun cu transfer (`allocateQuotas`):** cotele LUNARE se completează între ele — limita reală e suma lor; când una se termină, acțiunile în plus consumă din rezerva celorlalte. `enforceFeatureQuota` blochează doar la epuizarea POOL-ului (mesaj: „cotele se completează între ele" + trimitere la pachete); alocarea transferurilor e PURĂ (derivată din numărători, nimic de stocat — fereastra alunecă și se recalculează singură; test de conservare: nu se pierde/creează capacitate). Foto rămâne separată (fereastră zilnică). Bugetele în BANI rămân plafonul suprem — pool-ul nu poate ocoli costul.
+- **UI (`AILimite.jsx`):** pe cota-sursă apare „↪ N transferate la «Corectări de teste»", pe cea depășită „20/20 +N din alte cote"; notă sub cote: „Cotele lunare se completează între ele…". `budgetInfo` trimite `effUsedMonth` + `borrowedIn/borrowedOut` (cu etichete) per funcție.
+- **„De pre-generat" arăta 1000 fix (`api/_lib/pregen.js`):** statisticile cereau candidații cu plafonul interogării la 1000 — acum numărul e cel REAL (plafon 100.000; funcția întoarce doar id-uri, e ieftină).
+
 ## 13 august 2026 — 🚨 Pasul 4 (ultimul) al limitelor AI: raport zilnic de cost + alarmă de prag pe email
 
 Planul de limitare a costurilor AI e COMPLET (vezi **`GHID_LIMITE_AI.md`**). Fără infrastructură nouă — ambele mecanisme „călătoresc" pe cron-urile existente. Validat: `node --check`, teste noi în **`test/costwatch.test.js`** (7 teste; 28/28 în total trec). **Înainte de deploy: rulează `supabase/ai_alerte.sql`** (codul merge și fără — alertele rămân inactive, cu avertisment în loguri).

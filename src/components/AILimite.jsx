@@ -113,25 +113,41 @@ export default function AILimite({ budget: budgetProp = undefined, bare = false 
         </div>
       )}
 
-      {/* Cotele per funcție */}
+      {/* Cotele per funcție (limitele vin de la server, după rolul contului).
+          Cotele LUNARE se completează între ele: depășirea uneia consumă din
+          rezerva celorlalte — transferul e afișat sub bara respectivă. */}
       {features.length > 0 && !budget.exempt && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: packs.length ? 16 : 0 }}>
           {features.map((f) => {
-            const day = f.limitDay ? { used: f.usedDay, max: f.limitDay, win: 'azi' } : null;
-            const month = f.limitMonth ? { used: f.usedMonth, max: f.limitMonth, win: 'luna aceasta' } : null;
-            const main = day || month;
+            const isDay = f.window === 'day' || (!f.limitMonth && f.limitDay);
+            const max = isDay ? f.limitDay : f.limitMonth;
+            const shown = isDay ? f.usedDay : (f.effUsedMonth != null ? f.effUsedMonth : f.usedMonth);
+            const borrowedIn = (f.borrowedIn || []).reduce((s, b) => s + b.n, 0);
+            const label = isDay
+              ? `${f.usedDay}/${max} azi`
+              : borrowedIn > 0
+              ? `${max}/${max} +${borrowedIn} din alte cote · luna aceasta`
+              : `${shown}/${max} luna aceasta`;
             return (
               <div key={f.key}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.85rem', marginBottom: 4 }}>
                   <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{f.emoji} {f.label}</span>
-                  <span style={{ color: main.used >= main.max ? '#e74c3c' : 'var(--text-muted)' }}>
-                    {main.used}/{main.max} {main.win}
-                  </span>
+                  <span style={{ color: shown >= max ? '#e74c3c' : 'var(--text-muted)' }}>{label}</span>
                 </div>
-                <Bar value={main.used} max={main.max} />
+                <Bar value={Math.min(shown, max)} max={max} />
+                {(f.borrowedOut || []).length > 0 && (
+                  <div style={{ fontSize: '.75rem', color: '#b8860b', marginTop: 3 }}>
+                    ↪ {f.borrowedOut.map((b) => `${b.n} transferate la „${b.toLabel || b.to}"`).join(' · ')}
+                  </div>
+                )}
               </div>
             );
           })}
+          {features.some((f) => f.window === 'month') && (
+            <div style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>
+              Cotele lunare se completează între ele: când una se termină, continui din rezerva celorlalte.
+            </div>
+          )}
           {budget.topup?.active && (
             <div style={{ fontSize: '.78rem', color: '#27ae60', fontWeight: 600 }}>
               ✓ Cu pachetul activ, cotele de mai sus nu te opresc — le poți depăși cât timp ai buget.

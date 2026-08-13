@@ -120,22 +120,35 @@ peste cursul real, ca marjă). Whisper (STT) are cost fix estimat per apel.
 — adaugă-l în `AI_PRICES_JSON` ca să fie exact. Streamingul loghează acum usage-ul
 REAL (`stream_options.include_usage`), nu estimarea `lungime/4` de dinainte.
 
-### Cotele per funcție (pasul 2)
+### Cotele per funcție, PER ROL, cu pool comun (pasul 2, extins)
 
 Peste bugetele în bani, funcțiile scumpe au cote **vizibile**, numărate din
-`ai_usage` (fereastră de 30 de zile, respectiv ziua curentă la foto):
+`ai_usage` (fereastră de 30 de zile, respectiv ziua curentă la foto).
+Limitele diferă după rolul contului:
 
-| Funcție | Endpoint numărat | Cota implicită | Env |
-|---|---|---|---|
-| 📝 Corectări de teste | `ai-correct:grade` | 10 / lună | `AI_QUOTA_CORECTARI_LUNA` |
-| 📄 Subiecte de examen | `ai-exam` | 20 / lună | `AI_QUOTA_TESTE_LUNA` |
-| 🧩 Exerciții interactive | `ai-generate-interactive` | 40 / lună | `AI_QUOTA_INTERACTIVE_LUNA` |
-| 📷 Foto-rezolvări | `ai-vision` | 10 / zi | `AI_QUOTA_FOTO_ZI` |
+| Funcție (endpoint numărat) | Elev / Părinte | Profesor |
+|---|---|---|
+| 📝 Corectări de teste (`ai-correct:grade`) | **20 / lună** | **5 / lună** |
+| 📄 Subiecte de examen (`ai-exam`) | 20 / lună | **40 / lună** |
+| 🧩 Exerciții interactive (`ai-generate-interactive`) | 40 / lună | 40 / lună |
+| 📷 Foto-rezolvări (`ai-vision`) | 10 / zi | 10 / zi |
 
-0 = cota dezactivată. Adminii sunt scutiți. Cota atinsă → eroare 429 cu
-`code: 'QUOTA_FEATURE'` + `feature: '<cheia>'` și un mesaj care trimite spre
-pachete. **Cu un pachet top-up activ, cotele nu se aplică** — utilizatorul a
-plătit pentru capacitate, îl oprește doar bugetul efectiv (bază + credit).
+Reglaje: env-urile `AI_QUOTA_*` (global, toate rolurile) sau
+`AI_QUOTAS_JSON='{"profesor":{"corectari":3}}'` (fin, per rol). 0 = dezactivată.
+
+**Pool comun (transfer între cote):** cotele LUNARE se completează între ele —
+limita reală e SUMA lor (elev: 20+20+40 = 80 de acțiuni lunare). Când o cotă
+se termină, acțiunile în plus consumă din rezerva celorlalte, iar în UI apare
+pe cota-sursă „↪ N transferate la «Corectări de teste»", iar pe cea depășită
+„20/20 +N din alte cote". Alocarea e derivată aritmetic din numărători (nimic
+stocat — fereastra alunecă și totul se recalculează). Foto rămâne separată
+(fereastră zilnică, nu se amestecă cu cele lunare). Bugetele în BANI rămân
+plafonul suprem — pool-ul nu poate ocoli costul.
+
+Adminii sunt scutiți. Pool epuizat → eroare 429 cu `code: 'QUOTA_FEATURE'` +
+`feature: '<cheia>'` și un mesaj care trimite spre pachete. **Cu un pachet
+top-up activ, cotele nu se aplică** — utilizatorul a plătit pentru capacitate,
+îl oprește doar bugetul efectiv (bază + credit).
 
 ### Pachetele top-up (pasul 2)
 

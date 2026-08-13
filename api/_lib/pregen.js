@@ -153,11 +153,12 @@ async function getServable(supa, { contentId, mode, premium }) {
   }
 }
 
-// Statistici pentru panoul de admin (best-effort).
+// Statistici pentru panoul de admin (best-effort). p_limit mare ca numărul
+// „De pre-generat" să fie cel REAL, nu plafonat (funcția întoarce doar id-uri).
 async function stats(supa) {
   try {
     const { count: total } = await supa.from('ai_pregen').select('*', { count: 'exact', head: true });
-    const { data: cand } = await supa.rpc('ai_pregen_candidates', { p_limit: 1000 });
+    const { data: cand } = await supa.rpc('ai_pregen_candidates', { p_limit: 100000 });
     return { pregen_total: total || 0, pregen_pending: (cand || []).length };
   } catch { return { pregen_total: 0, pregen_pending: null }; }
 }
