@@ -153,13 +153,23 @@ async function getServable(supa, { contentId, mode, premium }) {
   }
 }
 
-// Statistici pentru panoul de admin (best-effort). p_limit mare ca numărul
-// „De pre-generat" să fie cel REAL, nu plafonat (funcția întoarce doar id-uri).
+// Statistici pentru panoul de admin (best-effort). Cerem doar COUNT-ul
+// (head + count exact) pe RPC, nu rândurile: PostgREST trunchiază orice
+// răspuns la „Max rows" (implicit 1000), deci numărarea rândurilor plafona
+// „De pre-generat" la 1000. Content-Range cu count=exact dă totalul real.
+// Funcția e STABLE, deci HEAD e permis. Fallback: metoda veche (plafonată).
 async function stats(supa) {
   try {
     const { count: total } = await supa.from('ai_pregen').select('*', { count: 'exact', head: true });
-    const { data: cand } = await supa.rpc('ai_pregen_candidates', { p_limit: 100000 });
-    return { pregen_total: total || 0, pregen_pending: (cand || []).length };
+    let pending = null;
+    const { count, error } = await supa.rpc('ai_pregen_candidates', { p_limit: 100000 },
+      { count: 'exact', head: true });
+    if (!error && typeof count === 'number') pending = count;
+    else {
+      const { data: cand } = await supa.rpc('ai_pregen_candidates', { p_limit: 100000 });
+      pending = (cand || []).length;
+    }
+    return { pregen_total: total || 0, pregen_pending: pending };
   } catch { return { pregen_total: 0, pregen_pending: null }; }
 }
 
