@@ -9,8 +9,13 @@
 //   action='stats'   : statistici despre baza de cunoștințe
 //
 // CRON (Vercel): GET /api/ai-ingest?action=process  (rulează automat la interval)
+//
+// Pe același cron rulează și PRE-GENERAREA explicațiilor per exercițiu
+// (_lib/pregen.js, pasul 3 din GHID_LIMITE_AI.md) — doar când coada de
+// indexare e GOALĂ, ca explicațiile să se genereze din cunoștințe la zi.
 // =====================================================================
 const ai = require('./_lib/ai');
+const pregen = require('./_lib/pregen');
 
 const BATCH = parseInt(process.env.AI_INGEST_BATCH || '20', 10);
 
@@ -152,6 +157,17 @@ async function processQueue(supa) {
   return { processed: jobs.length, embedded, deleted, remaining: remaining || 0 };
 }
 
+// Coada de indexare goală → folosim rularea cronului pentru pre-generare
+// (câteva materiale per rulare; nu blochează niciodată indexarea).
+async function processWithPregen(supa) {
+  const q = await processQueue(supa);
+  if (q.remaining === 0) {
+    try { q.pregen = await pregen.processBatch(supa); }
+    catch (e) { console.warn('pregen în cron:', e.message); q.pregen = { pregenerated: 0, note: e.message }; }
+  }
+  return q;
+}
+
 async function enqueueAll(supa) {
   let total = 0;
   const PAGE = 1000;
@@ -192,6 +208,7 @@ async function stats(supa) {
     pending_queue: pending || 0,
     embeddings_provider: ai.hasEmbeddings() ? ai.EMBED_MODEL : 'inactiv (fallback lexical)',
     chat_model: ai.CHAT_MODEL,
+    ...(await pregen.stats(supa)), // pregen_total + pregen_pending (pasul 3)
   };
 }
 
@@ -205,7 +222,7 @@ module.exports = async function handler(req, res) {
     if (req.method === 'GET') {
       const action = (req.query.action || 'process');
       const cronOk = req.headers['x-vercel-cron'] || (process.env.AI_CRON_SECRET && req.query.secret === process.env.AI_CRON_SECRET);
-      if (action === 'process' && cronOk) return res.status(200).json(await processQueue(supa));
+      if (action === 'process' && cronOk) return res.status(200).json(await processWithPregen(supa));
       return res.status(403).json({ error: 'Neautorizat' });
     }
 
@@ -216,7 +233,7 @@ module.exports = async function handler(req, res) {
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) return res.status(403).json({ error: 'Doar administratorii pot indexa.' });
 
-    if (action === 'process') return res.status(200).json(await processQueue(supa));
+    if (action === 'process') return res.status(200).json(await processWithPregen(supa));
     if (action === 'stats')   return res.status(200).json(await stats(supa));
     if (action === 'reindex') {
       const enqueued = await enqueueAll(supa);

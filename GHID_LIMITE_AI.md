@@ -11,6 +11,12 @@ Restul platformei (materiale, exerciții, rezolvări) nu e afectat niciodată.
 poate plăti o sumă unică pentru buget suplimentar (cu marjă de profit), exact
 mecanismul serviciilor AI comerciale.
 
+**Pasul 3 (inclus):** REDUCEREA costului în sine, nu doar limitarea lui:
+**prompt caching** (promptul de sistem reordonat — partea statică devine prefix
+identic, pe care furnizorul îl cachează automat cu reducere mare la intrare) și
+**pre-generarea explicațiilor per exercițiu** (baza de exerciții e finită —
+explicația canonică se generează O DATĂ, offline, și se servește apoi cu cost 0).
+
 **De ce în bani, nu în număr de mesaje?** Un mesaj de chat pe `gpt-4o-mini` costă
 ~0,005 lei, dar o corectare de test pe modelul premium costă ~0,65 lei — de peste
 100× mai mult. Numărând „mesaje" ai limita degeaba chatul ieftin și ai lăsa liberă
@@ -41,6 +47,13 @@ Supabase → **SQL Editor** → **New Query** → rulează, în ordine, cele dou
 |---|---|
 | `ai_topups` (tabelă) | pachetele cumpărate: credit în micro-lei, valabilitate, id-ul sesiunii Stripe (idempotență) |
 | `ai_spent2(...)` (funcție) | ca `ai_spent`, dar întoarce și creditul top-up activ + expirarea lui |
+
+**1c. `supabase/ai_pregen.sql`** (explicațiile pre-generate, pasul 3):
+
+| Ce | Rol |
+|---|---|
+| `ai_pregen` (tabelă) | explicația + indiciul canonic per material, cu hash-ul sursei (detectează învechirea) |
+| `ai_pregen_candidates(...)` (funcție) | materialele care au nevoie de (re)generare — lipsă sau editate între timp |
 
 ### Pasul 2 — Deploy pe Vercel
 
@@ -118,6 +131,43 @@ plătit pentru capacitate, îl oprește doar bugetul efectiv (bază + credit).
 - Cât timp există credit activ: bugetul lunar efectiv crește cu creditul, **degradarea pe model ieftin și limita zilnică hard nu se aplică**, iar cotele per funcție sunt deblocate. Mesajul de „buget epuizat" trimite spre pachete.
 - Plasă de siguranță: dacă tabela `ai_topups` lipsește (migrarea nerulată), cumpărarea e refuzată ÎNAINTE de plată (503), iar dacă webhookul nu poate credita o plată deja încasată, întoarce 500 (Stripe reîncearcă automat → se vindecă singur după migrare) și primești email de alertă 🚨.
 
+### Prompt caching (pasul 3) — reducere automată pe intrare
+
+`systemFor()` (promptul chatului) e acum ordonat: **partea statică întâi**
+(persona + recomandări + rolul modului — identică la fiecare cerere cu același
+mod, ~1050–1100 tokeni la elevi), **partea variabilă după** (contextul RAG al
+întrebării + detaliile cererii). OpenAI cachează automat prefixele identice de
+≥1024 tokeni — reducerea pe intrarea repetată se aplică singură, fără nicio
+configurare. Două atenționări: (1) NU muta contextul RAG înapoi înaintea
+rolului — sparge prefixul cacheabil; (2) dacă scurtezi `PERSONA`, prefixul
+poate coborî sub pragul de 1024 tokeni și cachingul nu se mai declanșează
+(testul `pregen-cache.test.js` verifică mărimea). La mentori (persona scurtă)
+prefixul e sub prag — volumul lor e mic, nu contează.
+
+### Pre-generarea explicațiilor (pasul 3) — cost 0 la servire
+
+Baza de exerciții e finită, deci „explică-mi exercițiul X" are un răspuns bun
+COMUN tuturor elevilor. Sistemul îl generează O DATĂ și îl refolosește:
+
+- **Generarea** rulează pe cronul EXISTENT de ingest (fără cron nou), doar când
+  coada de indexare e goală (cunoștințele sunt la zi): câte `AI_PREGEN_BATCH`
+  (implicit 3) materiale per rulare, explicație + indiciu fiecare, pe modelul
+  ieftin (`AI_PREGEN_MODEL`, implicit modelul de chat). Costul e de PLATFORMĂ
+  (logat cu `user_id null`, endpoint `ai-pregen:*`) — nu intră în bugetul
+  niciunui elev. La ~2.000 de materiale, generarea completă costă câțiva dolari,
+  O SINGURĂ DATĂ; materialele editate se regenerează singure (hash pe sursă).
+- **Servirea** (în `ai-chat` + `ai-chat-stream`) e conservatoare — răspunsul
+  pre-generat se dă DOAR când: modul e `explain`/`hint` cu `context.contentId`,
+  e PRIMUL mesaj din conversație, cererea e CANONICĂ („explică-mi", „nu înțeleg",
+  „dă-mi un indiciu" — sub 120 de caractere), iar materialul e gratuit sau elevul
+  e abonat. Orice întrebare specifică merge pe fluxul normal, personalizat.
+  Servirile apar în jurnal ca `ai-chat:pregen` / `ai-chat-stream:pregen`, cu
+  cost 0 — în `ai_usage_daily` vezi exact câți bani economisește.
+- **Batch API (−50%)**: am ales intenționat generarea prin cron pe modelul
+  ieftin în locul Batch API-ului — la costul unic de câțiva dolari, economia de
+  50% nu justifică infrastructura de fișiere JSONL + polling de 24h. Dacă baza
+  crește la zeci de mii de materiale, reconsiderăm.
+
 ### Ce vede utilizatorul
 
 - Sub limite: nimic diferit.
@@ -189,6 +239,9 @@ de propriul cod.
 | Pachetul plătit nu apare imediat în UI | Webhookul rulează la câteva secunde după redirect. Reîncarcă pagina. Dacă nu apare în ~1 minut, vezi rândul de mai sus. |
 | Adminul e limitat | Nu ar trebui (scutit prin `is_admin`). Excepție: rata orară se aplică și adminului, ca înainte. |
 | Vrei costul REAL, nu estimat | Verifică `AI_USD_RON` și prețurile din tabel față de facturile furnizorului; ajustează prin env. |
+| În loguri: „Pre-generarea inactivă — rulează supabase/ai_pregen.sql" | Migrarea 1c nerulată. Chatul merge normal, doar fără servire cu cost 0. |
+| Pre-generarea nu avansează (`pregen_pending` mare la Stats) | Cronul rulează pregen doar când coada de indexare e goală; verifică `pending_queue`. Sau apasă „Procesează coada" din Admin de câteva ori. |
+| Un elev primește o explicație „prea generică" | A nimerit servirea canonică. E răspunsul standard al materialului; orice întrebare de continuare intră pe fluxul normal, personalizat. Dacă deranjează, `AI_PREGEN_DISABLED=1`. |
 
 ---
 
@@ -196,5 +249,5 @@ de propriul cod.
 
 1. ✅ ~~Cote vizibile per funcție în UI~~ — implementat (pasul 2).
 2. ✅ ~~Pachete top-up prin Stripe~~ — implementat (pasul 2). Rămâne opțional: un tier **Premium+** (abonament mai scump cu bugete mai mari) pentru utilizatorii care cumpără pachete lună de lună — vezi în `ai_topups` cine cumpără repetat.
-3. **Prompt caching** (reordonarea system promptului: partea statică prima) și **pre-generare** de explicații per exercițiu (Batch API, −50%).
-4. **Alerte automate** (cron zilnic cu email către admin peste un prag de cost/zi).
+3. ✅ ~~Prompt caching + pre-generare de explicații per exercițiu~~ — implementat (pasul 3).
+4. **Alerte automate** (cron zilnic cu email către admin peste un prag de cost/zi) — ultimul pas din plan.

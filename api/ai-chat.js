@@ -6,6 +6,7 @@
 // Răspuns: { reply, conversationId, sources }
 // =====================================================================
 const ai = require('./_lib/ai');
+const pregen = require('./_lib/pregen');
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -27,8 +28,19 @@ module.exports = async function handler(req, res) {
     const { convId, primaryMaterial, priorMsgs, system, sources, baremItem } =
       await ai.prepareChat(supa, { userId, message, mode, conversationId, context, premium });
 
-    // 4. Apel LLM. Cu rezolvare din barem → generare VERIFICATĂ față de barem.
-    const { text, usage } = baremItem
+    // 3½. Explicație PRE-GENERATA (pasul 3): la prima cerere CANONICĂ
+    // („explică-mi” / „dă-mi un indiciu”) despre un material din site,
+    // servim răspunsul deja generat — cost 0, latență ~0. Gard premium inclus.
+    let served = null;
+    if (!baremItem && pregen.canServe({ mode, context, conversationId, message })) {
+      served = await pregen.getServable(supa, { contentId: context.contentId, mode, premium });
+    }
+
+    // 4. Apel LLM (dacă nu am servit din pre-generare).
+    //    Cu rezolvare din barem → generare VERIFICATĂ față de barem.
+    const { text, usage } = served
+      ? { text: served.text, usage: { in: 0, out: 0, model: null } } // fără cost
+      : baremItem
       ? await ai.verifiedPdfReply({
           system, baremItem, mode,
           messages: [...priorMsgs, { role: 'user', content: message }],
@@ -53,7 +65,8 @@ module.exports = async function handler(req, res) {
     const { error: convErr } = await supa.from('ai_conversations')
       .update({ updated_at: new Date().toISOString() }).eq('id', convId);
     if (convErr) console.error('ai-chat: update conversație eșuat:', convErr);
-    await ai.logUsage(supa, userId, 'ai-chat', usage);
+    // servirea din pre-generare se loghează separat (cost 0) — o vezi în ai_usage_daily
+    await ai.logUsage(supa, userId, served ? 'ai-chat:pregen' : 'ai-chat', usage);
 
     return res.status(200).json({ reply: text, conversationId: convId, sources, primaryMaterial });
   } catch (err) {

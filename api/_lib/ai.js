@@ -542,11 +542,18 @@ const MODE_ROLES = {
   students: 'Rol: ajuți cu ELEVII asociați: unde vezi rezultatele lor și RAPORTUL AI pe subiecte (în /profil), cum asociezi un elev prin cod, cum folosești grupele și ce teme le poți trimite. Dă pași clari și LINK-uri interne.',
 };
 
+// Ordinea e gândită pentru PROMPT CACHING la furnizor (OpenAI cachează AUTOMAT
+// prefixele identice de ≥1024 tokeni, cu reducere mare la intrarea repetată):
+// întâi TOT ce e STATIC — persona + recomandările + rolul modului, identice la
+// fiecare cerere cu același mod (~1050-1100 tokeni la elevi) — și abia apoi
+// partea VARIABILĂ (contextul RAG al întrebării + detaliile cererii).
+// NU muta contextul RAG înapoi înaintea rolului: ar sparge prefixul cacheabil
+// imediat după persona și pierzi reducerea. (Vezi GHID_LIMITE_AI.md, pasul 3.)
 function systemFor(mode, ctxBlock, extra = '') {
   const mentor = mode === 'exams' || mode === 'students';
   const persona = mentor ? MENTOR_PERSONA : PERSONA;
-  const base = `${persona}\n\n=== MATERIALE DIN BAZA DE DATE (context RAG) ===\n${ctxBlock}\n=== SFÂRȘIT CONTEXT ===\n${mentor ? '\n' + SITE_MAP + '\n' : '\n' + STUDENT_TIP + '\n'}`;
-  return `${base}\n${MODE_ROLES[mode] || MODE_ROLES.tutor}\n${extra}`.trim();
+  const staticPrefix = `${persona}\n\n${mentor ? SITE_MAP : STUDENT_TIP}\n\n${MODE_ROLES[mode] || MODE_ROLES.tutor}`;
+  return `${staticPrefix}\n\n=== MATERIALE DIN BAZA DE DATE (context RAG) ===\n${ctxBlock}\n=== SFÂRȘIT CONTEXT ===\n${extra}`.trim();
 }
 
 // ─── Acces & utilizatori ─────────────────────────────────────────────────────
@@ -1461,5 +1468,7 @@ module.exports = {
   pickModel, budgetInfo, costMicroLei, priceFor, dayStartBucharest, ECON_CHAT_MODEL, USD_RON,
   // cote per funcție + pachete top-up (pasul 2)
   enforceFeatureQuota, FEATURE_QUOTAS, topupPacks, TOPUP_DAYS,
+  // folosit de _lib/pregen.js ca tonul explicațiilor pre-generate să fie identic cu chatul (pasul 3)
+  MODE_ROLES,
 };
 // (integrare Profesor Virtual ↔ exerciții interactive: levelLabel, interactiveCatalog, studentState — vezi mai sus)

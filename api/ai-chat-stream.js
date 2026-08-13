@@ -8,6 +8,7 @@
 //   {"type":"error","error":"..."}
 // =====================================================================
 const ai = require('./_lib/ai');
+const pregen = require('./_lib/pregen');
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -37,10 +38,25 @@ module.exports = async function handler(req, res) {
       await ai.prepareChat(supa, { userId, message, mode, conversationId, context, premium });
     send({ type: 'meta', conversationId: convId, sources, primaryMaterial });
 
-    // 4. Generare.
+    // 3½. Explicație PRE-GENERATA (pasul 3): la prima cerere CANONICĂ despre
+    // un material din site, trimitem răspunsul deja generat, în bucăți —
+    // cost 0, latență ~0. Gard premium inclus.
     let full = '';
+    let servedPregen = false;
+    if (!baremItem && pregen.canServe({ mode, context, conversationId, message })) {
+      const served = await pregen.getServable(supa, { contentId: context.contentId, mode, premium });
+      if (served) {
+        servedPregen = true;
+        full = served.text;
+        for (const chunk of full.match(/[\s\S]{1,160}/g) || []) send({ type: 'delta', text: chunk });
+      }
+    }
+
+    // 4. Generare (dacă nu am servit din pre-generare).
     const stats = {}; // chatStream/verifiedPdfReply pun aici usage-ul + modelul real
-    if (baremItem) {
+    if (servedPregen) {
+      // nimic de generat
+    } else if (baremItem) {
       // AGENTUL PDF cu rezolvare din barem: generăm ÎNTREG răspunsul, îl
       // VERIFICĂM față de barem (numeric + semantic; reîncercare + fallback)
       // și abia apoi îl trimitem, în bucăți. Elevul nu vede niciodată un
@@ -82,8 +98,11 @@ module.exports = async function handler(req, res) {
     if (cErr) console.error('ai-chat-stream: update conversație eșuat:', cErr);
     // usage-ul REAL din stream (stream_options.include_usage); dacă providerul
     // nu l-a trimis, estimăm ieșirea din lungimea textului, ca înainte.
-    await ai.logUsage(supa, userId, 'ai-chat-stream',
-      stats.usage || { in: 0, out: Math.ceil(full.length / 4), model: stats.model });
+    // Servirea din pre-generare se loghează separat, cu cost 0.
+    await ai.logUsage(supa, userId,
+      servedPregen ? 'ai-chat-stream:pregen' : 'ai-chat-stream',
+      servedPregen ? { in: 0, out: 0, model: null }
+        : (stats.usage || { in: 0, out: Math.ceil(full.length / 4), model: stats.model }));
 
     send({ type: 'done', messageId: saved?.id || null });
     return res.end();

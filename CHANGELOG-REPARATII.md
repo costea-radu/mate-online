@@ -4,6 +4,18 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 7 august 2026 (5) — 📉 Pasul 3 al limitelor AI: prompt caching + explicații pre-generate per exercițiu
+
+Ultimul pas mare din planul de costuri (vezi **`GHID_LIMITE_AI.md`**): REDUCEREA costului per cerere, nu doar limitarea lui. Validat: `node --check`, teste noi în **`test/pregen-cache.test.js`** (8 teste; 21/21 în total trec). **Înainte de deploy: rulează `supabase/ai_pregen.sql`** (codul merge și fără — pre-generarea rămâne inactivă, cu avertisment în loguri).
+
+- **Prompt caching — `systemFor()` reordonat (`api/_lib/ai.js`):** partea STATICĂ (persona + recomandări + rolul modului, ~1050–1100 tokeni la elevi) devine PREFIX identic la fiecare cerere cu același mod; contextul RAG variabil coboară după. OpenAI cachează automat prefixele identice ≥1024 tokeni → reducere mare pe intrarea repetată a chatului, fără nicio configurare. Test de gardă: prefixul rămâne identic între cereri și peste pragul de caching (dacă scurtezi PERSONA sub prag, testul te anunță).
+- **`supabase/ai_pregen.sql` (nou):** tabela `ai_pregen` (explicație + indiciu canonic per material, cu hash-ul sursei; RLS service-only) + funcția `ai_pregen_candidates` (materiale fără explicații sau editate după ultima generare).
+- **`api/_lib/pregen.js` (nou):** sursa = chunk-urile deja indexate în `ai_knowledge` (enunț + rezolvare); generare pe modelul ieftin (`AI_PREGEN_MODEL`, implicit chat), în tonul chatului (aceleași MODE_ROLES); costul e de platformă (`user_id null`, endpoint `ai-pregen:*` — nu intră în bugetul elevilor); regenerare automată la editarea materialului (hash). Matcher conservator de cereri canonice (`isCanonicalAsk`) + garduri de servire (`canServe`).
+- **`api/ai-ingest.js`:** cronul EXISTENT (la 10 min) rulează și pre-generarea — DOAR când coada de indexare e goală (explicațiile se generează din cunoștințe la zi), câte `AI_PREGEN_BATCH` (implicit 3) materiale per rulare; niciun cron nou, nicio funcție serverless nouă. `action='stats'` raportează acum și `pregen_total` / `pregen_pending`.
+- **`api/ai-chat.js` + `api/ai-chat-stream.js`:** la PRIMA cerere CANONICĂ („explică-mi...", „dă-mi un indiciu", sub 120 caractere) despre un material cu `contentId`, în modurile `explain`/`hint`, răspunsul vine din pre-generare — cost 0, latență ~0, logat separat (`ai-chat:pregen`) ca să vezi economia în `ai_usage_daily`. Întrebările specifice, conversațiile în curs și agentul PDF merg neatinse pe fluxul normal; conținutul premium nu se servește conturilor gratuite.
+- **De ce NU Batch API (−50%):** generarea completă a bazei costă câțiva dolari o singură dată pe modelul ieftin — infrastructura JSONL + polling 24h nu se justifică; decizia e documentată în ghid.
+- **`.env.ai.example`:** `AI_PREGEN_BATCH`, `AI_PREGEN_MODEL`, `AI_PREGEN_DISABLED`.
+
 ## 7 august 2026 (4) — ⚡ „Consum AI" mutat în „Contul meu", ca rolldown, pentru toate rolurile
 
 Cererea adminului. Secțiunea cu consumul AI (cote, buget, pachete) stă acum în **„Contul meu" (`/profil`)**, imediat **sub cardul „Abonament"**, ca **rolldown** (`<details>`, același tipar ca „Raport AI" și „Setări cont") — vizibilă pentru **toate tipurile de cont: elev, profesor, părinte**. Validat cu esbuild (JSX) și `node --check`; 13/13 teste trec.
