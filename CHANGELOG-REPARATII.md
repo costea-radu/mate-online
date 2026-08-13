@@ -4,6 +4,17 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 13 august 2026 — Continuarea generărilor lungi funcționează și când API-ul RESPINGE prefill-ul („[stop=max_tokens, continuări=0]”)
+
+Aceeași eroare „Șablonul rubricii e prea mare…”, dar diagnosticul nou a arătat exact cauza: **continuări=0** cu `stop=max_tokens` — adică prima continuare nici nu a apucat să ruleze. Continuarea folosea „prefill de asistent” (partea generată devine mesaj final de asistent), iar API-ul o RESPINGE pe configurațiile unde modelul rulează cu thinking activ (când `thinking: disabled` nu e acceptat, `api/_lib/claude.js` reia cererea fără parametru, deci modelul poate gândi — iar prefill + thinking = 400 imediat, ne-tranzitoriu → lanțul de continuări murea pe loc).
+
+`chatClaudeLong` (`api/_lib/exgen.js`) are acum a doua metodă de continuare, folosită AUTOMAT când prefill-ul e respins (și păstrată pe restul rundelor):
+- **continuare prin mesaj de utilizator:** modelul primește partea deja generată (ultimele ~150k caractere) + instrucțiunea să scrie DOAR ce urmează, până la `</html>`, fără introduceri și fără ``` ;
+- **lipire pe suprapunere:** coada (ultimele 400 de caractere) e căutată în răspuns și dublura se taie; dacă modelul o ia totuși de la capăt cu tot documentul, se păstrează varianta lui completă (iar `cutHtml` oricum reține ultimul document închis);
+- diagnosticul din erori s-a extins: `[stop=…, continuări=…, fără prefill, lungime=…]` — „lungime” ajută să vedem dacă modelul a produs ceva sau bugetul s-a dus pe thinking.
+
+**`test/agent-tasks.test.js`:** caz nou — prefill respins cu 400 → trecerea pe continuarea prin mesaj de utilizator + lipirea fără dublarea cozii. **15/15 trec.**
+
 ## 7 august 2026 — Task-urile programate: „prompt is too long” la PDF-uri dense (fallback pe text) + continuări reziliente la rate-limit / degenerare
 
 Două erori raportate de admin, ambele în `chatClaudeLong` (`api/_lib/exgen.js`):

@@ -220,6 +220,65 @@ async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null,
   };
   addUsage();
   let text = String(r.text || '');
+
+  // O RUNDĂ de continuare. Întâi prin PREFILL de asistent (continuare perfectă,
+  // caracter cu caracter). Dacă API-ul RESPINGE prefill-ul (ex. configurațiile
+  // cu thinking activ interzic mesajul final de asistent — cazul
+  // „[stop=max_tokens, continuări=0]”), trecem definitiv pe continuarea prin
+  // MESAJ DE UTILIZATOR: modelul primește partea deja generată și scrie doar
+  // restul, iar lipirea se face pe suprapunerea de la coadă.
+  let userMode = false;
+  let retriesLeft = 2; // reîncercări la erori tranzitorii, pe toată durata continuărilor
+  async function continueOnce() {
+    const prefill = text.replace(/\s+$/, '');
+    if (!prefill) return false;
+    for (;;) {
+      try {
+        if (!userMode) {
+          r = await call([...baseMessages, { role: 'assistant', content: prefill }]);
+          addUsage();
+          text = prefill + String(r.text || '');
+          return true;
+        }
+        const tail = prefill.slice(-400);
+        const partial = prefill.length > 150000 ? `…${prefill.slice(-150000)}` : prefill;
+        r = await call([...baseMessages, {
+          role: 'user',
+          content: `Răspunsul tău anterior s-a ÎNTRERUPT înainte de final. Iată partea deja generată:\n${partial}\n\nCONTINUĂ EXACT de unde s-a întrerupt: fără nicio introducere, fără \u0060\u0060\u0060, fără să reiei documentul de la început — scrie DOAR conținutul care urmează imediat după finalul de mai sus, până închizi documentul cu </html>.`,
+        }]);
+        addUsage();
+        let add = String(r.text || '');
+        add = add.replace(/^\s*```(?:html)?\s*/i, '').replace(/\s*```\s*$/, '');
+        const ti = add.indexOf(tail);
+        if (ti !== -1) {
+          add = add.slice(ti + tail.length);
+        } else {
+          for (let k = 400; k >= 40; k--) {
+            const suf = prefill.slice(-k);
+            if (suf && add.startsWith(suf)) { add = add.slice(k); break; }
+          }
+        }
+        // dacă modelul a luat-o oricum de la capăt cu TOT documentul, păstrăm varianta lui
+        text = (LOOKS_HTML_RE.test(add) && add.length > prefill.length / 2) ? add : prefill + add;
+        return true;
+      } catch (e) {
+        const msg = String(e.message || '');
+        if (retriesLeft > 0 && (e.status === 429 || TRANSIENT_RE.test(msg))) {
+          retriesLeft--;
+          await sleep(15000);
+          continue; // reîncearcă ACELAȘI segment
+        }
+        if (!userMode) {
+          userMode = true;
+          console.warn('exgen: continuarea cu prefill a fost respinsă (%s) — trec pe continuarea prin mesaj de utilizator', msg.slice(0, 140));
+          continue;
+        }
+        console.warn('exgen: continuarea răspunsului lung a eșuat (%s) — folosesc ce am', e.message);
+        return false;
+      }
+    }
+  }
+
   // continuăm cât timp: (a) răspunsul s-a tăiat la max_tokens, sau (b) modelul
   // s-a oprit dar documentul început e NETERMINAT (`until` fals pe un text care
   // arată a document). `r.stopReason` există doar pe API-ul Claude real —
@@ -228,24 +287,9 @@ async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null,
     || (!!r.stopReason && typeof until === 'function' && !until(text) && LOOKS_HTML_RE.test(text)))
     && text.length < 800000;
   let rounds = 0;
-  let retriesLeft = 2; // reîncercări la erori tranzitorii, pe toată durata continuărilor
   while (needsMore() && rounds < 4) {
-    const prefill = text.replace(/\s+$/, '');
-    if (!prefill) break;
-    try {
-      r = await call([...baseMessages, { role: 'assistant', content: prefill }]);
-    } catch (e) {
-      if (retriesLeft > 0 && (e.status === 429 || TRANSIENT_RE.test(String(e.message || '')))) {
-        retriesLeft--;
-        await sleep(15000);
-        continue; // reîncearcă ACELAȘI segment, fără să consume o rundă
-      }
-      console.warn('exgen: continuarea răspunsului lung a eșuat (%s) — folosesc ce am', e.message);
-      break;
-    }
+    if (!(await continueOnce())) break;
     rounds++;
-    addUsage();
-    text = prefill + String(r.text || '');
   }
   // Modelul a răspuns cu explicații/proză în loc de document → o singură
   // re-cerere STRICTĂ (conversația + refuzul lui + reamintirea formatului).
@@ -268,22 +312,15 @@ async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null,
       // …iar dacă și răspunsul strict s-a tăiat la limită, îl continuăm și pe el
       let extra = 0;
       while (r.stopReason === 'max_tokens' && extra < 2) {
+        if (!(await continueOnce())) break;
         extra++;
-        const prefill = text.replace(/\s+$/, '');
-        r = await claude.chatClaude({
-          system,
-          messages: [...baseMessages, { role: 'assistant', content: prefill }],
-          maxTokens, model,
-        });
-        addUsage();
-        text = prefill + String(r.text || '');
         rounds++;
       }
     } catch (e) {
       console.warn('exgen: re-cererea strictă a eșuat (%s) — folosesc ce am', e.message);
     }
   }
-  return { text, usage, provider: r.provider, stopReason: r.stopReason, continuations: rounds, strictRetry };
+  return { text, usage, provider: r.provider, stopReason: r.stopReason, continuations: rounds, strictRetry, viaUserMode: userMode, textLength: text.length };
 }
 
 // ─── Validarea exercițiului JSON (mutat din ai-exercise-agent.js) ───────────
@@ -619,7 +656,7 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
       try {
         assertCompleteHtml({ html: hS, baseline: srcHtml, what: `Varianta fișierului „${src.title}”` });
       } catch (e) {
-        e.message += ` [stop=${rS.stopReason || '?'}, continuări=${rS.continuations || 0}${rS.strictRetry ? ', re-cerere strictă' : ''}]`;
+        e.message += ` [stop=${rS.stopReason || '?'}, continuări=${rS.continuations || 0}${rS.viaUserMode ? ', fără prefill' : ''}${rS.strictRetry ? ', re-cerere strictă' : ''}, lungime=${rS.textLength ?? '?'}]`;
         console.error('exgen(seq-html): invalid. stopReason=%s continuations=%s', rS.stopReason, rS.continuations);
         throw e;
       }
@@ -652,7 +689,7 @@ Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
       try {
         assertCompleteHtml({ html: hF, baseline: `${tplF}\n${srcHtml || ''}\n${srcText || ''}`, what: `Fișierul din „${src.title}” în modelul de format` });
       } catch (e) {
-        e.message += ` [stop=${rF.stopReason || '?'}, continuări=${rF.continuations || 0}${rF.strictRetry ? ', re-cerere strictă' : ''}]`;
+        e.message += ` [stop=${rF.stopReason || '?'}, continuări=${rF.continuations || 0}${rF.viaUserMode ? ', fără prefill' : ''}${rF.strictRetry ? ', re-cerere strictă' : ''}, lungime=${rF.textLength ?? '?'}]`;
         console.error('exgen(seq-format): invalid. stopReason=%s continuations=%s', rF.stopReason, rF.continuations);
         throw e;
       }
@@ -743,7 +780,7 @@ Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
       try {
         assertCompleteHtml({ html: hOut, baseline: tpl, what: 'Testul interactiv din PDF-uri' });
       } catch (e) {
-        e.message += ` [stop=${rD.stopReason || '?'}, continuări=${rD.continuations || 0}${rD.strictRetry ? ', re-cerere strictă' : ''}]`;
+        e.message += ` [stop=${rD.stopReason || '?'}, continuări=${rD.continuations || 0}${rD.viaUserMode ? ', fără prefill' : ''}${rD.strictRetry ? ', re-cerere strictă' : ''}, lungime=${rD.textLength ?? '?'}]`;
         console.error('exgen(auto-pdf-interactiv): invalid. stopReason=%s continuations=%s', rD.stopReason, rD.continuations);
         throw e;
       }
@@ -908,12 +945,12 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
 
   if (!htmlOut && rA.stopReason === 'max_tokens') {
     console.error('exgen(auto-html): trunchiat și după continuări. continuations=%s', rA.continuations);
-    throw httpErr(502, `Șablonul rubricii e prea mare pentru o singură generare — mai încearcă (sau folosește o rubrică cu teste mai mici). [stop=max_tokens, continuări=${rA.continuations || 0}]`);
+    throw httpErr(502, `Șablonul rubricii e prea mare pentru o singură generare — mai încearcă (sau folosește o rubrică cu teste mai mici). [stop=max_tokens, continuări=${rA.continuations || 0}${rA.viaUserMode ? ', fără prefill' : ''}, lungime=${rA.textLength ?? '?'}]`);
   }
   try {
     assertCompleteHtml({ html: htmlOut, baseline: templateHtml, what: 'Testul generat pe rubrică' });
   } catch (e) {
-    e.message += ` [stop=${rA.stopReason || '?'}, continuări=${rA.continuations || 0}${rA.strictRetry ? ', re-cerere strictă' : ''}]`;
+    e.message += ` [stop=${rA.stopReason || '?'}, continuări=${rA.continuations || 0}${rA.viaUserMode ? ', fără prefill' : ''}${rA.strictRetry ? ', re-cerere strictă' : ''}, lungime=${rA.textLength ?? '?'}]`;
     console.error('exgen(auto-html): invalid. stopReason=%s continuations=%s', rA.stopReason, rA.continuations);
     throw e;
   }

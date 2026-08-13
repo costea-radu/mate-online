@@ -255,6 +255,29 @@ test('exgen.chatClaudeLong: continuă răspunsurile tăiate/neterminate și re-c
     });
     assert.strictEqual(calls, 2, 'a doua încercare, cu PDF-ul ca text');
     assert.ok(untilHtml(r.text));
+
+    // (f) prefill-ul e RESPINS de API (ex. thinking activ) → continuarea trece
+    // pe mesaj de utilizator, iar lipirea elimină coada repetată de model
+    calls = 0;
+    claude.chatClaude = async ({ messages }) => {
+      calls++;
+      const last = messages[messages.length - 1];
+      if (calls === 1) {
+        return { text: '<!doctype html><html><body>ABCDEF', usage: {}, provider: 'stub', stopReason: 'max_tokens' };
+      }
+      if (last.role === 'assistant') {
+        const err = new Error('prefill is not allowed when thinking is enabled');
+        err.status = 400;
+        throw err;
+      }
+      assert.match(String(last.content), /CONTINUĂ EXACT de unde s-a întrerupt/, 'continuarea prin mesaj de utilizator');
+      // modelul repetă coada primită, apoi continuă — lipirea trebuie să taie dublura
+      return { text: '<!doctype html><html><body>ABCDEF' + 'GHI</body></html>', usage: {}, provider: 'stub', stopReason: 'end_turn' };
+    };
+    r = await exgen.chatClaudeLong({ system: 's', blocks: [{ type: 'text', text: 'x' }], until: untilHtml });
+    assert.strictEqual(r.text, '<!doctype html><html><body>ABCDEFGHI</body></html>', 'fără dublarea cozii');
+    assert.ok(r.viaUserMode, 'a trecut pe continuarea fără prefill');
+    assert.strictEqual(r.continuations, 1);
   } finally {
     claude.chatClaude = orig;
   }
