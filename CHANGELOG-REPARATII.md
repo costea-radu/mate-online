@@ -4,6 +4,14 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 13 august 2026 (5) — Lint Supabase: funcțiile SECURITY DEFINER din „păstrează datele publice” nu mai sunt apelabile prin API
+
+Linterul Supabase a semnalat (0028/0029) că cele trei funcții noi din `pastreaza_date_publice.sql` — `display_name_of(uuid)`, `discussions_fill_author()`, `pubres_fill_student()` — erau apelabile prin PostgREST (`/rest/v1/rpc/...`) de `anon` și `authenticated`, fiindcă Postgres dă implicit `EXECUTE` tuturor. Practic oricine ar fi putut afla numele afișabil al oricărui cont după UUID. Scriptul are acum **`REVOKE EXECUTE ... FROM public, anon, authenticated`** după fiecare funcție (rămâne doar proprietarul).
+
+**Verificat pe PostgreSQL real:** după revocare, `anon`/`authenticated` primesc „permission denied” la apel direct, DAR postarea de comentarii **funcționează neschimbat** — la INSERT, triggerul rulează ca proprietarul funcției, nu ca utilizatorul care postează, deci `author_name`/`student_name` se completează în continuare automat. Re-rularea scriptului pe o bază deja migrată e sigură (idempotent).
+
+**De rulat:** `supabase/pastreaza_date_publice.sql` (varianta actualizată) încă o dată în Supabase → SQL Editor. Al treilea avertisment din raport (`auth_leaked_password_protection`) nu ține de SQL: se activează din Dashboard → Authentication → protecția împotriva parolelor compromise (HaveIBeenPwned).
+
 ## 13 august 2026 (4) — Admin cu secțiuni pliabile (rolldown) + robotul 🤖 în loc de tocă + datele publice supraviețuiesc ștergerii conturilor
 
 Trei schimbări cerute de admin:

@@ -59,6 +59,13 @@ exception when undefined_column then
   return n;
 end $$;
 
+-- Funcția e doar pentru uz INTERN (triggere + backfill) — nu prin API.
+-- Fără revocare, PostgREST ar expune-o la /rest/v1/rpc/display_name_of și
+-- oricine (anon) ar putea afla numele oricărui cont după UUID (lint 0028/0029).
+-- Triggerele NU sunt afectate: la INSERT ele rulează ca proprietarul funcției,
+-- nu ca utilizatorul care postează.
+revoke execute on function public.display_name_of(uuid) from public, anon, authenticated;
+
 -- ─────────────────────────────────────────────────────────────────────
 -- 1) FORUM (discussions): snapshot cu numele autorului + FK → SET NULL
 -- ─────────────────────────────────────────────────────────────────────
@@ -88,6 +95,9 @@ drop trigger if exists trg_discussions_fill_author on public.discussions;
 create trigger trg_discussions_fill_author
   before insert on public.discussions
   for each row execute function public.discussions_fill_author();
+
+-- funcție de trigger, nu de API — o scoatem din /rest/v1/rpc (lint 0028/0029)
+revoke execute on function public.discussions_fill_author() from public, anon, authenticated;
 
 -- legătura cu contul: ON DELETE CASCADE → ON DELETE SET NULL
 -- (comentariul rămâne pe site; doar referința spre cont se golește)
@@ -189,6 +199,9 @@ do $$ begin
       for each row execute function public.pubres_fill_student();
   end if;
 end $$;
+
+-- funcție de trigger, nu de API — o scoatem din /rest/v1/rpc (lint 0028/0029)
+revoke execute on function public.pubres_fill_student() from public, anon, authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────
 -- 4) BIBLIOTECA UTILIZATORILOR (ai_public_library): era deja pe
