@@ -4,6 +4,17 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 13 august 2026 — 🚨 Pasul 4 (ultimul) al limitelor AI: raport zilnic de cost + alarmă de prag pe email
+
+Planul de limitare a costurilor AI e COMPLET (vezi **`GHID_LIMITE_AI.md`**). Fără infrastructură nouă — ambele mecanisme „călătoresc" pe cron-urile existente. Validat: `node --check`, teste noi în **`test/costwatch.test.js`** (7 teste; 28/28 în total trec). **Înainte de deploy: rulează `supabase/ai_alerte.sql`** (codul merge și fără — alertele rămân inactive, cu avertisment în loguri).
+
+- **`supabase/ai_alerte.sql` (nou):** tabela `ai_cost_alerts` (dedup atomic: o alarmă pe zi) + funcțiile `ai_cost_breakdown` (cost pe endpoint × model într-o fereastră) și `ai_top_users` (top utilizatori după cost; user NULL = „(platformă)" — pre-generarea). Toate service-only, ca restul.
+- **`api/_lib/costwatch.js` (nou):** `dailyReport` — emailul zilnic către admin: costul ultimelor 24h pe funcții, top 5 utilizatori, câte răspunsuri s-au servit gratuit din pre-generare (vezi economia pasului 3 în bani); nu se trimite fără activitate; oprire `AI_COST_REPORT=0`. `checkThreshold` — alarma 🚨: costul de AZI (miezul nopții, ora României — aceeași „zi" ca limitele utilizatorilor) peste `AI_ALERT_DAY_LEI` (implicit 20 lei/platformă/zi) → email imediat cu funcțiile vinovate și pașii de verificare; dedup prin INSERȚIE atomică (rulări simultane nu dublează emailul), iar dacă SMTP-ul pică, dedup-ul se retrage și se reîncearcă la următoarea rulare.
+- **`api/ai-notify.js`:** scanarea zilnică (cron 17:00 UTC) trimite acum și raportul de cost (best-effort — nu blochează notificările de stagnare; rezultatul apare în răspunsul scanării ca `costReport`).
+- **`api/ai-ingest.js`:** cronul de 10 minute verifică pragul la FIECARE rulare (o singură interogare agregată, indiferent de coadă) → alarma ajunge la admin în cel mult 10 minute de la depășire.
+- **`.env.ai.example`:** `AI_ALERT_DAY_LEI`, `AI_COST_REPORT`.
+- Ghid actualizat, inclusiv cum testezi alarma pe loc (prag temporar 0,01 lei + „Procesează coada").
+
 ## 7 august 2026 (5) — 📉 Pasul 3 al limitelor AI: prompt caching + explicații pre-generate per exercițiu
 
 Ultimul pas mare din planul de costuri (vezi **`GHID_LIMITE_AI.md`**): REDUCEREA costului per cerere, nu doar limitarea lui. Validat: `node --check`, teste noi în **`test/pregen-cache.test.js`** (8 teste; 21/21 în total trec). **Înainte de deploy: rulează `supabase/ai_pregen.sql`** (codul merge și fără — pre-generarea rămâne inactivă, cu avertisment în loguri).

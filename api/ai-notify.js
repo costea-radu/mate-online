@@ -14,10 +14,14 @@
 //   • un email-rezumat fiecărui profesor/părinte cu alertele elevilor lui
 //     (dezactivabil per profil prin profiles.email_alerts = false);
 //   • un rezumat zilnic al platformei către ADMIN_EMAIL
-//     (utilizatori noi, abonați, mesaje de contact, alertele create).
+//     (utilizatori noi, abonați, mesaje de contact, alertele create);
+//   • RAPORTUL ZILNIC DE COST AI (_lib/costwatch.js — pasul 4 din
+//     GHID_LIMITE_AI.md): consum pe funcții, top utilizatori, economia
+//     din pre-generare. Oprire: AI_COST_REPORT=0.
 // =====================================================================
 const ai = require('./_lib/ai');
 const mailer = require('./_lib/mailer');
+const costwatch = require('./_lib/costwatch');
 
 // ── Email-digest către mentori (profesori + părinți) ─────────────────────────
 async function emailMentors(supa, mentorAlerts) {
@@ -182,7 +186,12 @@ async function scan(supa) {
   try { adminEmail = await emailAdminSummary(supa, { scanned: rows.length, created, emailed }); }
   catch (e) { console.error('ai-notify: rezumat admin eșuat:', e.message); }
 
-  return { scanned: rows.length, created, emailed, adminEmail };
+  // Raportul zilnic de COST AI (pasul 4) — best-effort, nu blochează scanarea.
+  let costReport = null;
+  try { costReport = await costwatch.dailyReport(supa); }
+  catch (e) { console.error('ai-notify: raport cost eșuat:', e.message); costReport = { sent: false, error: e.message }; }
+
+  return { scanned: rows.length, created, emailed, adminEmail, costReport };
 }
 
 // ── Listă unificată: personale + anunțuri ─────────────────────────────────────

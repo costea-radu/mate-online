@@ -17,6 +17,11 @@ identic, pe care furnizorul îl cachează automat cu reducere mare la intrare) �
 **pre-generarea explicațiilor per exercițiu** (baza de exerciții e finită —
 explicația canonică se generează O DATĂ, offline, și se servește apoi cu cost 0).
 
+**Pasul 4 (inclus, ultimul):** OCHII pe sistem — **raport zilnic de cost pe
+email** (pe funcții + top utilizatori + economia din pre-generare) și **alarmă
+🚨 în cel mult 10 minute** când costul zilei trece de un prag, cu dedup „o dată
+pe zi". Ambele pe cron-urile existente, fără infrastructură nouă.
+
 **De ce în bani, nu în număr de mesaje?** Un mesaj de chat pe `gpt-4o-mini` costă
 ~0,005 lei, dar o corectare de test pe modelul premium costă ~0,65 lei — de peste
 100× mai mult. Numărând „mesaje" ai limita degeaba chatul ieftin și ai lăsa liberă
@@ -54,6 +59,14 @@ Supabase → **SQL Editor** → **New Query** → rulează, în ordine, cele dou
 |---|---|
 | `ai_pregen` (tabelă) | explicația + indiciul canonic per material, cu hash-ul sursei (detectează învechirea) |
 | `ai_pregen_candidates(...)` (funcție) | materialele care au nevoie de (re)generare — lipsă sau editate între timp |
+
+**1d. `supabase/ai_alerte.sql`** (alertele de cost, pasul 4):
+
+| Ce | Rol |
+|---|---|
+| `ai_cost_alerts` (tabelă) | dedup: alarma de prag se trimite cel mult o dată pe zi (inserție atomică) |
+| `ai_cost_breakdown(...)` (funcție) | costul pe endpoint × model într-o fereastră de timp |
+| `ai_top_users(...)` (funcție) | top utilizatori după cost (user NULL = costurile de platformă) |
 
 ### Pasul 2 — Deploy pe Vercel
 
@@ -168,6 +181,25 @@ COMUN tuturor elevilor. Sistemul îl generează O DATĂ și îl refolosește:
   50% nu justifică infrastructura de fișiere JSONL + polling de 24h. Dacă baza
   crește la zeci de mii de materiale, reconsiderăm.
 
+### Alertele de cost (pasul 4) — ochii pe sistem, fără să te uiți tu
+
+- **Raportul zilnic** (`_lib/costwatch.js` → `dailyReport`): vine pe emailul de
+  admin odată cu scanarea zilnică existentă (`/api/ai-notify?action=scan`,
+  cron la 17:00 UTC / 20:00 România): costul ultimelor 24h, defalcat pe funcții,
+  top 5 utilizatori (inclusiv „(platformă)" = pre-generarea) și câte răspunsuri
+  s-au servit GRATUIT din pre-generare. Nu se trimite când nu a existat
+  activitate. Oprire: `AI_COST_REPORT=0`.
+- **Alarma 🚨 de prag** (`checkThreshold`): pe cronul de ingest (la 10 minute),
+  o interogare agregată ieftină compară costul de AZI (de la miezul nopții, ora
+  României — aceeași „zi" ca limitele utilizatorilor) cu `AI_ALERT_DAY_LEI`
+  (implicit **20 lei/zi pe toată platforma**; 0 = oprit). Peste prag → email
+  imediat, cu top-ul funcțiilor vinovate și pașii de verificare. Dedup atomic în
+  `ai_cost_alerts` — cel mult o alarmă pe zi, chiar cu rulări simultane; dacă
+  emailul pică, dedup-ul se retrage și următoarea rulare reîncearcă.
+- Ambele sunt best-effort: fără migrarea 1d sau fără SMTP configurat se retrag
+  tăcut (avertisment în loguri) și nu ating niciodată indexarea sau notificările
+  pe care „călătoresc".
+
 ### Ce vede utilizatorul
 
 - Sub limite: nimic diferit.
@@ -240,6 +272,9 @@ de propriul cod.
 | Adminul e limitat | Nu ar trebui (scutit prin `is_admin`). Excepție: rata orară se aplică și adminului, ca înainte. |
 | Vrei costul REAL, nu estimat | Verifică `AI_USD_RON` și prețurile din tabel față de facturile furnizorului; ajustează prin env. |
 | În loguri: „Pre-generarea inactivă — rulează supabase/ai_pregen.sql" | Migrarea 1c nerulată. Chatul merge normal, doar fără servire cu cost 0. |
+| În loguri: „Alertele de cost inactive — rulează supabase/ai_alerte.sql" | Migrarea 1d nerulată. Totul merge, doar fără raport/alarmă. |
+| Nu primești raportul zilnic | Verifică: SMTP configurat (mailer), `AI_COST_REPORT` nu e 0, a existat activitate AI în 24h, cronul ai-notify rulează (Vercel → Crons). |
+| Vrei să testezi alarma fără să aștepți | Pune temporar `AI_ALERT_DAY_LEI=0.01`, redeploy, apasă „Procesează coada" din Admin → emailul 🚨 vine la prima rulare; apoi pune pragul la loc și șterge rândul din `ai_cost_alerts` dacă vrei să retestezi în aceeași zi. |
 | Pre-generarea nu avansează (`pregen_pending` mare la Stats) | Cronul rulează pregen doar când coada de indexare e goală; verifică `pending_queue`. Sau apasă „Procesează coada" din Admin de câteva ori. |
 | Un elev primește o explicație „prea generică" | A nimerit servirea canonică. E răspunsul standard al materialului; orice întrebare de continuare intră pe fluxul normal, personalizat. Dacă deranjează, `AI_PREGEN_DISABLED=1`. |
 
@@ -250,4 +285,9 @@ de propriul cod.
 1. ✅ ~~Cote vizibile per funcție în UI~~ — implementat (pasul 2).
 2. ✅ ~~Pachete top-up prin Stripe~~ — implementat (pasul 2). Rămâne opțional: un tier **Premium+** (abonament mai scump cu bugete mai mari) pentru utilizatorii care cumpără pachete lună de lună — vezi în `ai_topups` cine cumpără repetat.
 3. ✅ ~~Prompt caching + pre-generare de explicații per exercițiu~~ — implementat (pasul 3).
-4. **Alerte automate** (cron zilnic cu email către admin peste un prag de cost/zi) — ultimul pas din plan.
+4. ✅ ~~Alerte automate de cost~~ — implementat (pasul 4). **Planul e complet.**
+
+Singura piesă care rămâne MANUALĂ (și merită cele 5 minute): plafoanele hard din
+dashboardurile furnizorilor (OpenAI → Billing → Limits; Anthropic → Plans &
+Billing) — apărarea de ultimă instanță, care funcționează și când site-ul însuși
+are un bug.

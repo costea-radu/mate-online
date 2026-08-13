@@ -12,10 +12,13 @@
 //
 // Pe același cron rulează și PRE-GENERAREA explicațiilor per exercițiu
 // (_lib/pregen.js, pasul 3 din GHID_LIMITE_AI.md) — doar când coada de
-// indexare e GOALĂ, ca explicațiile să se genereze din cunoștințe la zi.
+// indexare e GOALĂ, ca explicațiile să se genereze din cunoștințe la zi —
+// și ALARMA DE COST (_lib/costwatch.js, pasul 4): dacă costul AI de azi
+// trece de AI_ALERT_DAY_LEI, adminul primește email în cel mult 10 minute.
 // =====================================================================
 const ai = require('./_lib/ai');
 const pregen = require('./_lib/pregen');
+const costwatch = require('./_lib/costwatch');
 
 const BATCH = parseInt(process.env.AI_INGEST_BATCH || '20', 10);
 
@@ -165,6 +168,10 @@ async function processWithPregen(supa) {
     try { q.pregen = await pregen.processBatch(supa); }
     catch (e) { console.warn('pregen în cron:', e.message); q.pregen = { pregenerated: 0, note: e.message }; }
   }
+  // Alarma de cost (pasul 4) — o interogare agregată ieftină, la FIECARE
+  // rulare (indiferent de coadă); trimite email cel mult o dată pe zi.
+  try { q.costAlert = await costwatch.checkThreshold(supa); }
+  catch (e) { console.warn('costwatch în cron:', e.message); }
   return q;
 }
 
