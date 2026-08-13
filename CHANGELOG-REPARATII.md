@@ -4,100 +4,20 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
-## 13 august 2026 (2) — 🔁 Cote per ROL + pool comun între cote („transferate la…"); numărul real „De pre-generat"
+## 7 august 2026 — Task-urile programate: „prompt is too long” la PDF-uri dense (fallback pe text) + continuări reziliente la rate-limit / degenerare
 
-Două cereri ale adminului. Validat: `node --check`, esbuild pe JSX; teste noi în **`test/cote-rol.test.js`** (6 teste; 34/34 în total trec). Fără migrări noi — totul e aritmetică pe numărătorile existente.
+Două erori raportate de admin, ambele în `chatClaudeLong` (`api/_lib/exgen.js`):
 
-- **Cote per ROL (`api/_lib/ai.js` — `quotasForRole`):** elev/părinte: corectări **20**/lună (era 10), subiecte 20, interactive 40, foto 10/zi; profesor: corectări **5**/lună, subiecte **40**/lună, interactive 40, foto 10/zi. Reglaje: env-urile `AI_QUOTA_*` existente (global) sau `AI_QUOTAS_JSON='{"profesor":{"corectari":3}}'` (fin, per rol).
-- **Pool comun cu transfer (`allocateQuotas`):** cotele LUNARE se completează între ele — limita reală e suma lor; când una se termină, acțiunile în plus consumă din rezerva celorlalte. `enforceFeatureQuota` blochează doar la epuizarea POOL-ului (mesaj: „cotele se completează între ele" + trimitere la pachete); alocarea transferurilor e PURĂ (derivată din numărători, nimic de stocat — fereastra alunecă și se recalculează singură; test de conservare: nu se pierde/creează capacitate). Foto rămâne separată (fereastră zilnică). Bugetele în BANI rămân plafonul suprem — pool-ul nu poate ocoli costul.
-- **UI (`AILimite.jsx`):** pe cota-sursă apare „↪ N transferate la «Corectări de teste»", pe cea depășită „20/20 +N din alte cote"; notă sub cote: „Cotele lunare se completează între ele…". `budgetInfo` trimite `effUsedMonth` + `borrowedIn/borrowedOut` (cu etichete) per funcție.
-- **„De pre-generat" arăta 1000 fix (`api/_lib/pregen.js`):** statisticile cereau candidații cu plafonul interogării la 1000 — acum numărul e cel REAL (plafon 100.000; funcția întoarce doar id-uri, e ieftină).
+### 1) ⚠️ „prompt is too long: 2120089 tokens > 1000000 maximum” (task „pe rând” pe clasa-12, PDF)
+Un PDF-sursă foarte dens (culegere) depășește contextul modelului ca DOCUMENT NATIV (tokenii unui PDF pot sări cu mult peste dimensiunea fișierului). Acum, când API-ul răspunde „prompt is too long / request too large”, cererea se reface AUTOMAT o dată, cu blocurile PDF înlocuite de TEXT EXTRAS (`pdftext.pdfText` — primele ~12 pagini, max 50k caractere, cu mențiune explicită în prompt) — suficient pentru sarcini de tip „primele 9 exerciții din fișier”. Funcția nouă `blocksWithPdfText`; se aplică pe orice cale de generare (sursă „pe rând”, combinare PDF, bareme-context, model de format PDF).
 
-## 13 august 2026 — 🚨 Pasul 4 (ultimul) al limitelor AI: raport zilnic de cost + alarmă de prag pe email
+### 2) ⚠️ „Șablonul rubricii e prea mare pentru o singură generare” pe un model de format de doar ~107 KB (test EN, Sonnet 5)
+Șablonul NU era prea mare — clonarea lui cere ~35k tokeni, adică fix peste bugetul unei singure generări (30k), deci fiecare rulare depindea de continuări. O singură eroare TRANZITORIE (rate-limit 429 / suprasarcină) în mijlocul continuărilor rupea lanțul și lăsa documentul neterminat. Acum:
+- erorile tranzitorii (429, „overloaded”, „rate limit”, timeout) se REÎNCEARCĂ după o pauză de 15s — o dată la primul apel, de două ori pe parcursul continuărilor, fără să consume rundele;
+- gardă ANTI-BUCLĂ: dacă textul depășește ~800k de caractere fără `</html>` (model degenerat care o ia de la capăt), ne oprim cu diagnostic în loc să ardem toate rundele;
+- mesajul „Șablonul rubricii e prea mare…” include acum `[stop=…, continuări=…]` ca să se vadă exact unde s-a rupt.
 
-Planul de limitare a costurilor AI e COMPLET (vezi **`GHID_LIMITE_AI.md`**). Fără infrastructură nouă — ambele mecanisme „călătoresc" pe cron-urile existente. Validat: `node --check`, teste noi în **`test/costwatch.test.js`** (7 teste; 28/28 în total trec). **Înainte de deploy: rulează `supabase/ai_alerte.sql`** (codul merge și fără — alertele rămân inactive, cu avertisment în loguri).
-
-- **`supabase/ai_alerte.sql` (nou):** tabela `ai_cost_alerts` (dedup atomic: o alarmă pe zi) + funcțiile `ai_cost_breakdown` (cost pe endpoint × model într-o fereastră) și `ai_top_users` (top utilizatori după cost; user NULL = „(platformă)" — pre-generarea). Toate service-only, ca restul.
-- **`api/_lib/costwatch.js` (nou):** `dailyReport` — emailul zilnic către admin: costul ultimelor 24h pe funcții, top 5 utilizatori, câte răspunsuri s-au servit gratuit din pre-generare (vezi economia pasului 3 în bani); nu se trimite fără activitate; oprire `AI_COST_REPORT=0`. `checkThreshold` — alarma 🚨: costul de AZI (miezul nopții, ora României — aceeași „zi" ca limitele utilizatorilor) peste `AI_ALERT_DAY_LEI` (implicit 20 lei/platformă/zi) → email imediat cu funcțiile vinovate și pașii de verificare; dedup prin INSERȚIE atomică (rulări simultane nu dublează emailul), iar dacă SMTP-ul pică, dedup-ul se retrage și se reîncearcă la următoarea rulare.
-- **`api/ai-notify.js`:** scanarea zilnică (cron 17:00 UTC) trimite acum și raportul de cost (best-effort — nu blochează notificările de stagnare; rezultatul apare în răspunsul scanării ca `costReport`).
-- **`api/ai-ingest.js`:** cronul de 10 minute verifică pragul la FIECARE rulare (o singură interogare agregată, indiferent de coadă) → alarma ajunge la admin în cel mult 10 minute de la depășire.
-- **`.env.ai.example`:** `AI_ALERT_DAY_LEI`, `AI_COST_REPORT`.
-- Ghid actualizat, inclusiv cum testezi alarma pe loc (prag temporar 0,01 lei + „Procesează coada").
-
-## 7 august 2026 (5) — 📉 Pasul 3 al limitelor AI: prompt caching + explicații pre-generate per exercițiu
-
-Ultimul pas mare din planul de costuri (vezi **`GHID_LIMITE_AI.md`**): REDUCEREA costului per cerere, nu doar limitarea lui. Validat: `node --check`, teste noi în **`test/pregen-cache.test.js`** (8 teste; 21/21 în total trec). **Înainte de deploy: rulează `supabase/ai_pregen.sql`** (codul merge și fără — pre-generarea rămâne inactivă, cu avertisment în loguri).
-
-- **Prompt caching — `systemFor()` reordonat (`api/_lib/ai.js`):** partea STATICĂ (persona + recomandări + rolul modului, ~1050–1100 tokeni la elevi) devine PREFIX identic la fiecare cerere cu același mod; contextul RAG variabil coboară după. OpenAI cachează automat prefixele identice ≥1024 tokeni → reducere mare pe intrarea repetată a chatului, fără nicio configurare. Test de gardă: prefixul rămâne identic între cereri și peste pragul de caching (dacă scurtezi PERSONA sub prag, testul te anunță).
-- **`supabase/ai_pregen.sql` (nou):** tabela `ai_pregen` (explicație + indiciu canonic per material, cu hash-ul sursei; RLS service-only) + funcția `ai_pregen_candidates` (materiale fără explicații sau editate după ultima generare).
-- **`api/_lib/pregen.js` (nou):** sursa = chunk-urile deja indexate în `ai_knowledge` (enunț + rezolvare); generare pe modelul ieftin (`AI_PREGEN_MODEL`, implicit chat), în tonul chatului (aceleași MODE_ROLES); costul e de platformă (`user_id null`, endpoint `ai-pregen:*` — nu intră în bugetul elevilor); regenerare automată la editarea materialului (hash). Matcher conservator de cereri canonice (`isCanonicalAsk`) + garduri de servire (`canServe`).
-- **`api/ai-ingest.js`:** cronul EXISTENT (la 10 min) rulează și pre-generarea — DOAR când coada de indexare e goală (explicațiile se generează din cunoștințe la zi), câte `AI_PREGEN_BATCH` (implicit 3) materiale per rulare; niciun cron nou, nicio funcție serverless nouă. `action='stats'` raportează acum și `pregen_total` / `pregen_pending`.
-- **`api/ai-chat.js` + `api/ai-chat-stream.js`:** la PRIMA cerere CANONICĂ („explică-mi...", „dă-mi un indiciu", sub 120 caractere) despre un material cu `contentId`, în modurile `explain`/`hint`, răspunsul vine din pre-generare — cost 0, latență ~0, logat separat (`ai-chat:pregen`) ca să vezi economia în `ai_usage_daily`. Întrebările specifice, conversațiile în curs și agentul PDF merg neatinse pe fluxul normal; conținutul premium nu se servește conturilor gratuite.
-- **De ce NU Batch API (−50%):** generarea completă a bazei costă câțiva dolari o singură dată pe modelul ieftin — infrastructura JSONL + polling 24h nu se justifică; decizia e documentată în ghid.
-- **`.env.ai.example`:** `AI_PREGEN_BATCH`, `AI_PREGEN_MODEL`, `AI_PREGEN_DISABLED`.
-
-## 7 august 2026 (4) — ⚡ „Consum AI" mutat în „Contul meu", ca rolldown, pentru toate rolurile
-
-Cererea adminului. Secțiunea cu consumul AI (cote, buget, pachete) stă acum în **„Contul meu" (`/profil`)**, imediat **sub cardul „Abonament"**, ca **rolldown** (`<details>`, același tipar ca „Raport AI" și „Setări cont") — vizibilă pentru **toate tipurile de cont: elev, profesor, părinte**. Validat cu esbuild (JSX) și `node --check`; 13/13 teste trec.
-
-- **`src/pages/Profile.jsx`:** rolldown nou „⚡ Consum AI" după Abonament, cu `<AILimite bare />`; se deschide singur la întoarcerea de la plata unui pachet (`/profil?topup=succes|anulat`).
-- **`src/components/AILimite.jsx`:** mod nou `bare` — fără card propriu și fără titlu (titlul îl dă `<summary>`); când limitele nu sunt activate (migrarea nerulată), în rolldown apare o notă scurtă în loc de nimic.
-- **`src/pages/ProfesorVirtual.jsx`:** tabul „⚡ Consum AI" (profesori/părinți) scos — s-a mutat în Contul meu; la elevi, panoul din „📈 Progresul meu" rămâne. Efectul de deschidere după plată scos (redirectul nu mai vine aici).
-- **`api/create-checkout.js`:** redirecturile Stripe pentru pachete duc acum la `/profil?topup=…` (Contul meu).
-- **`api/_lib/ai.js`:** mesajele de buget/cotă epuizată trimit spre „Contul meu → «⚡ Consum AI»" (înainte: pagina Profesor Virtual).
-
-## 7 august 2026 (3) — 💳 Pasul 2 al limitelor AI: cote vizibile per funcție + pachete top-up prin Stripe
-
-Continuarea limitelor de consum (vezi **`GHID_LIMITE_AI.md`**, actualizat). După epuizarea bugetului inclus, utilizatorul poate cumpăra un **pachet AI suplimentar** (plată unică, cu marjă), iar funcțiile scumpe au **cote vizibile** în UI. Rutele validate sintactic (`node --check`), JSX-ul validat cu esbuild; teste noi în **`test/limite-topup.test.js`**. **Înainte de deploy: rulează `supabase/ai_topup.sql`** (după `ai_limite_cost.sql`; codul merge și fără — pachetele rămân inactive, cu avertisment, iar cumpărarea e refuzată înainte de plată).
-
-- **`supabase/ai_topup.sql` (nou):** tabela `ai_topups` (credit în micro-lei, valabilitate, `stripe_session_id` unic pentru idempotență, RLS service-only) + funcția `ai_spent2` (ca `ai_spent`, plus creditul activ și expirarea lui).
-- **`api/_lib/ai.js`:** pachete configurabile prin `AI_TOPUP_PACKS_JSON` (implicit: Mic 10 lei→+4 lei buget, Mare 20 lei→+10 lei; valabilitate `AI_TOPUP_DAYS`=30 zile, aliniată cu fereastra lunară rulantă — semantica „+X lei la luna curentă"). Bugetul lunar efectiv = bază + credit activ; cu pachet activ NU se aplică degradarea pe model ieftin, limita zilnică hard și cotele — utilizatorul a plătit pentru capacitate, îl oprește doar bugetul efectiv. `enforceFeatureQuota` (nou): cote numărate din `ai_usage` per endpoint — corectări 10/lună, subiecte 20/lună, interactive 40/lună, foto 10/zi (env `AI_QUOTA_*`, 0=oprit), eroare 429 `QUOTA_FEATURE` cu mesaj care trimite spre pachete; adminii scutiți. `budgetInfo` întoarce acum și `features[]` (consum/cotă per funcție), `packs`, `topup{creditLei,active,expiresAt}`, `effectiveMonthLei`.
-- **`api/create-checkout.js`:** `type:'topup'` → Stripe Checkout `mode:'payment'` (doar abonați; 402 altfel). Creditul și valabilitatea intră în metadata sesiunii (webhookul creditează exact ce s-a vândut, chiar dacă reconfigurezi pachetele între timp). Plasă de siguranță: dacă `ai_topups` lipsește, cumpărarea e refuzată cu 503 ÎNAINTE de plată. Abonamentele — neatinse.
-- **`api/stripe-webhook.js`:** la `checkout.session.completed` cu `topup_pack` în metadata → creditare idempotentă în `ai_topups` (upsert pe `stripe_session_id`) + email 💳 către admin; NU atinge starea abonamentului. La eșec de creditare → 500 (Stripe reîncearcă → se vindecă singur după migrare) + email de alertă 🚨. Nicio configurare nouă în Stripe (webhookul existent primește deja evenimentul).
-- **Cote aplicate în endpoint-uri:** `ai-correct` (doar `grade` — formularul nu consumă cota), `ai-exam`, `ai-generate-interactive`, `ai-vision`.
-- **UI — `src/components/AILimite.jsx` (nou):** „Utilizare AI luna aceasta" ca procent (elevul nu vede lei), cote cu bare colorate, pachetul activ cu expirarea, butoanele de cumpărare (redirect Stripe) și confirmarea la întoarcere (`?topup=succes` deschide automat tabul potrivit). Montată sus în „📈 Progresul meu" (elevi) și în tabul nou „⚡ Consum AI" (profesori/părinți) din `ProfesorVirtual.jsx`; dacă migrarea nu e rulată (budget null), componenta nu afișează nimic. `aiClient.topupCheckout(pack)` (nou).
-- **`.env.ai.example`:** secțiune nouă cu variabilele cotelor și pachetelor.
-
-## 7 august 2026 (2) — 💰 Limite de consum AI în BANI: cost per acțiune, bugete zi/lună, degradare pe model ieftin
-
-Primul pas din planul de limitare a costurilor AI (vezi **`GHID_LIMITE_AI.md`** — nou). Fiecare acțiune AI e transformată în bani la logare, iar pe sume se aplică bugete per utilizator, ca la serviciile AI comerciale. Toate rutele modificate validate sintactic (`node --check`); test nou **`test/limite-cost.test.js`** (7 teste: prețuri pe prefix, cost în micro-lei, whisper per apel, miezul nopții la București, degradarea modelelor — rulează cu `npm test`). **Înainte de deploy: rulează `supabase/ai_limite_cost.sql` în SQL Editor** (codul merge și fără — bugetele rămân doar inactive, cu avertisment în loguri).
-
-- **`supabase/ai_limite_cost.sql` (nou):** coloanele `ai_usage.model` + `ai_usage.cost_micro` (micro-lei), funcția agregată `ai_spent` (doar service_role, pe indexul existent) și vederea de monitorizare `ai_usage_daily` (zi × endpoint × model, cost în lei; `security_invoker`).
-- **`api/_lib/ai.js`:** tabel de prețuri per model (USD/1M, potrivire pe cel mai lung prefix; extensibil FĂRĂ cod prin `AI_PRICES_JSON`; model necunoscut → preț implicit conservator + avertisment) și conversie în micro-lei cu `AI_USD_RON` (default 4,6). `chat`/`chatVision`/`verifiedPdfReply` întorc modelul în `usage`; `chatStream` primește un obiect `stats` și raportează usage-ul REAL din stream (`stream_options.include_usage`, cu auto-reparare dacă providerul îl refuză) — până acum streamingul loga `in: 0` și o estimare. `logUsage` scrie model + cost, cu fallback pe forma veche dacă migrarea nu e rulată.
-- **Bugete în `enforceRateLimit`** (aceeași funcție, deci TOATE endpoint-urile AI sunt protejate automat): rata orară (ca înainte) → buget lunar hard (**6 lei / 30 de zile rulante**, `code: BUDGET_MONTH`) → buget zilnic hard (**2,5 lei/zi**, resetare la miezul nopții ora României, `code: BUDGET_DAY`) → buget zilnic soft (**0,8 lei/zi**) care NU blochează, ci marchează cererea pentru degradare. Adminii scutiți de bugete; mesaje de eroare prietenoase, fără jargon; toate pragurile configurabile prin env (`AI_BUDGET_*`, 0 = dezactivat).
-- **Degradare pe model ieftin (`ai.pickModel`)** peste bugetul zilnic soft: chatul coboară pe `AI_ECON_CHAT_MODEL` (default gpt-4o-mini), iar corectarea/generarea de pe modelele premium (`PDF_MODEL`/`GEN_MODEL`) pe modelul standard de chat. Aplicat în: `ai-chat`, `ai-chat-stream` (inclusiv agentul PDF), `ai-correct` (formular + notare), `ai-exam`, `ai-generate-interactive`, `ai-practice` (generare + verificare), `ai-assignment` (corectarea temelor), `ai-meditatii` (lecția). Elevul nu primește eroare — doar răspunsuri de la un model mai economic până a doua zi.
-- **`api/ai-progress.js`:** răspunsul include acum `budget` (consum azi/30 zile, număr de acțiuni, limite, stare degradat/scutit) — gata de afișat în UI; `null` până la migrare.
-- **`api/ai-transcribe.js`:** STT-ul se loghează cu cost estimat per apel (înainte: 0).
-- **`.env.ai.example`:** secțiune nouă cu toate variabilele de buget, documentate.
-- Nemodificat intenționat: sub-apelurile interne din meditații (quiz inițial, remediere) rămân pe modelul lor — acoperite de limitele hard; agenții de admin (Claude) neafectați de bugete.
-
-## 7 august 2026 — Generarea EN cu șablon mare merge (figurile devin marcaje), Contact pe mobil, meniu părinți/profesori, Despre noi cu AI, lints Supabase
-
-Cinci cereri ale adminului, într-o singură livrare. **Build-ul trece (`vite build`), 23/23 teste trec.**
-
-### 1) 🧩 „Șablonul rubricii e prea mare pentru o singură generare” la task-urile EN cu model de format (`api/_lib/exgen.js`)
-Cauza: la rubricile Evaluare Națională modelul era pus să COPIEZE integral figurile SVG din șablon (sute de linii de path-uri per figură), deși serverul oricum le restaura programatic din șablon după generare. La un model de format mare (ex. `test_interactiv_1.html`), doar copierea figurilor consuma tot bugetul de tokeni — răspunsul se tăia la `max_tokens` și după toate continuările.
-- **`svgToPlaceholders` (nou):** în promptul modelului fiecare `<svg>…</svg>` din șablon devine un marcaj minuscul `<svg data-tpl-fig="N"></svg>`; instrucțiunile îi cer modelului să copieze marcajele neschimbate.
-- **`restoreSvgPlaceholders` (nou):** după generare, marcajele se înlocuiesc cu figurile ORIGINALE din șablon, după numărul `N` (fallback: în ordinea apariției — acoperă și cazul în care modelul „uită” numărul). Înlocuiește vechea restaurare „în ordine” din toate cele 4 rute de generare HTML (pe rând/clonare, pe rând/format, PDF→interactiv, postare automată).
-- Plafonul de 180k caractere al șablonului se aplică acum DUPĂ scoaterea figurilor — șablonul „util” (CSS+JS+itemi) nu mai e tăiat de figuri.
-- Continuările automate din `chatClaudeLong`: 4 → **6 reluări** (plasă suplimentară pentru șabloane uriașe fără figuri).
-- Rubricile non-EN neatinse (acolo figurile se elimină oricum). Test nou: „svgToPlaceholders + restoreSvgPlaceholders” (23/23 trec). Ghidul task-urilor actualizat.
-
-### 2) 📱 Pagina Contact „ieșea din ecran” pe telefon (`src/pages/Contact.jsx`, `src/styles/global.css`)
-Gridul NUME/EMAIL pe 2 coloane forța o lățime minimă mai mare decât ecranul (inputurile au lățime intrinsecă) → pagină mai lată decât viewport-ul, dungă albă în dreapta, tot site-ul „micșorat”. Stiluri noi `.contact-card`/`.contact-two`/`.contact-row`/`.contact-note` în `global.css`: sub 640px formularul trece pe o coloană, padding-urile cardurilor scad, adresa de email se poate rupe (`overflow-wrap: anywhere`).
-
-### 3) 🧭 Părinți/profesori, pe desktop: „Abonament” în bară, „Meditații cu AI” în „Mai multe” (`src/components/Navbar.jsx`)
-La conturile de părinte și profesor, în bara principală desktop apare „💳 Abonament” în locul „Meditații cu AI”, care coboară în „Mai multe” exact pe poziția Abonamentului. Elevii, vizitatorii și meniul de mobil rămân neschimbate.
-
-### 4) 🧑‍🏫 „Despre noi” menționează Prof. Virtual, asistentul AI și Meditațiile cu AI (`src/pages/DespreNoi.jsx`)
-Paragraf nou la misiune (cu link către /meditatii) + două carduri noi la „Ce oferim”: „Prof. Virtual” (cu iconița Einstein) și „Meditații cu AI”. Bonus reparat: emailul din cutia „Vrei să ne contactezi?” era navy pe fundal navy (invizibil) — acum auriu.
-
-### 5) 🔐 Warning-urile Supabase din raportul CSV (7 aug) — **`supabase/fix_security_lints_aug2026.sql`** (nou)
-- `med_profile_touch` → `SET search_path = public` (era mutabil);
-- `delete_user_account()` → REVOKE pentru PUBLIC/anon/authenticated (ștergerea contului merge de mult prin `/api/ai-account` cu service_role; RPC-ul nu mai e apelat nicăieri în cod);
-- extensia `vector` → mutare în schema `extensions`, ÎMPREUNĂ cu lărgirea search_path-ului la `match_ai_knowledge` (altfel pică RAG-ul) — totul într-o tranzacție, cu instrucțiuni de ROLLBACK dacă extensia nu suportă mutarea;
-- „Leaked Password Protection” — doar din Dashboard: Authentication → Sign In / Providers → Passwords → „Prevent use of leaked passwords”.
-Fișierul se rulează manual în Supabase → SQL Editor și conține interogări de verificare la final.
+**`test/agent-tasks.test.js`:** caz nou în testul `chatClaudeLong` — „prompt is too long” cu bloc PDF → a doua cerere pleacă FĂRĂ blocuri document (PDF ca text) și reușește. **15/15 trec.**
 
 ## 6 august 2026 (2) — Fără descrierea „Generat automat de agentul Claude (task „…”) · data” pe materialele postate
 

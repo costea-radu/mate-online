@@ -66,34 +66,6 @@ function stripFigures(html) {
   return h;
 }
 
-// ─── FIGURILE din șabloane, la generare (rubricile EN, cu figuri permise) ────
-// Modelul oricum NU are voie să modifice figurile — după generare ele se
-// restaurează programatic din șablon. Copierea SVG-urilor (sute de linii de
-// path-uri) doar umfla răspunsul: la șabloanele EN mari generarea se tăia la
-// max_tokens și după toate continuările — eroarea „Șablonul rubricii e prea
-// mare pentru o singură generare". De acum modelul primește și produce doar
-// MARCAJE minuscule în locul figurilor, iar serverul pune înapoi SVG-urile
-// reale (după numărul din marcaj; fallback: în ordinea apariției).
-function svgToPlaceholders(html) {
-  const svgs = [];
-  const out = String(html || '').replace(/<svg[\s\S]*?<\/svg>/gi, (m) => {
-    svgs.push(m);
-    return `<svg data-tpl-fig="${svgs.length - 1}"></svg>`;
-  });
-  return { out, svgs };
-}
-function restoreSvgPlaceholders(html, svgs) {
-  if (!svgs || !svgs.length) return String(html || '');
-  let order = 0;
-  return String(html || '').replace(/<svg\b[^>]*?(?:\/>|>[\s\S]*?<\/svg>)/gi, (m) => {
-    const num = m.match(/data-tpl-fig\s*=\s*["']?(\d+)/i);
-    const idx = num ? Number(num[1]) : order;
-    order = idx + 1;
-    return idx >= 0 && idx < svgs.length ? svgs[idx] : m;
-  });
-}
-const FIG_MARK_RULE = 'figurile apar în șablon PRESCURTAT, ca marcaje <svg data-tpl-fig="N"></svg> — copiază marcajele NESCHIMBATE, pe aceleași poziții (serverul le înlocuiește automat cu figurile reale; NU desena alte figuri în locul lor)';
-
 // ─── GARDA DE COMPLETITUDINE a HTML-urilor generate ──────────────────────────
 // Se mai publicau teste TRUNCHIATE (răspuns tăiat la max_tokens) sau cu
 // carcasa întreagă dar FĂRĂ exerciții (array-ul de itemi gol) — pe site
@@ -175,43 +147,103 @@ function cutHtml(raw) {
 // — SAU se oprește cu documentul neterminat (`until` neîndeplinit, ex. fără
 // `</html>`) — îl CONTINUĂ automat (partea deja generată devine mesaj de
 // asistent — „prefill” — iar modelul continuă exact de unde a rămas), până la
-// 6 reluări. Dacă modelul a răspuns cu PROZĂ în loc de document (fără niciun
+// 4 reluări. Dacă modelul a răspuns cu PROZĂ în loc de document (fără niciun
 // <!doctype/<html>), i se RE-CERE o dată, strict, doar documentul.
 // Așa nu se mai pierde finalul testelor mari (ex. tocmai Subiectul III).
+// Plase de siguranță suplimentare:
+//  • „prompt is too long” (unele PDF-uri — culegeri dense — sar de limita de
+//    tokeni ca documente native): PDF-urile devin TEXT extras (pdfText) și
+//    cererea se reia o dată;
+//  • erori TRANZITORII (429 / suprasarcină): reîncercare după 15s — înainte,
+//    o singură eroare de rate-limit în mijlocul continuărilor lăsa documentul
+//    neterminat și rularea pe eroare;
+//  • anti-buclă: dacă textul crește peste ~800k de caractere fără să se
+//    închidă documentul, ne oprim (model degenerat), cu diagnostic.
 const LOOKS_HTML_RE = /<!doctype html|<html[\s>]/i;
+const TOO_LONG_RE = /prompt is too long|request.{0,30}too large|exceed.{0,40}(context|maximum)/i;
+const TRANSIENT_RE = /overloaded|rate.?limit|too many requests|internal server|timed?.?out/i;
+
+// Înlocuiește blocurile PDF native cu TEXT extras (primele pagini) — folosit
+// când API-ul respinge cererea ca fiind prea mare. Întoarce null dacă nu
+// există blocuri PDF (nu are ce ușura).
+async function blocksWithPdfText(blocks) {
+  const { pdfText } = require('./pdftext');
+  const out = [];
+  let changed = false;
+  for (const b of (Array.isArray(blocks) ? blocks : [])) {
+    if (b && b.type === 'document' && b.source?.data) {
+      changed = true;
+      let t = '';
+      try { t = await pdfText(Buffer.from(String(b.source.data), 'base64'), 50000); } catch { /* gol */ }
+      out.push({ type: 'text', text: t
+        ? `(conținutul PDF-ului, extras ca TEXT — primele pagini; PDF-ul întreg era prea mare pentru context):\n${t}`
+        : '(PDF-ul nu a putut fi citit ca text — era prea mare pentru context ca document nativ)' });
+    } else {
+      out.push(b);
+    }
+  }
+  return changed ? out : null;
+}
+
 async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null, until = null }) {
-  const baseMessages = [{ role: 'user', content: blocks }];
-  let r = await claude.chatClaude({ system, messages: baseMessages, maxTokens, model });
-  let text = String(r.text || '');
-  const usage = {
-    prompt_tokens: r.usage?.prompt_tokens || 0,
-    completion_tokens: r.usage?.completion_tokens || 0,
-  };
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  const call = (messages) => claude.chatClaude({ system, messages, maxTokens, model });
+  let baseMessages = [{ role: 'user', content: blocks }];
+  const usage = { prompt_tokens: 0, completion_tokens: 0 };
+  let r;
+  let pdfSwapped = false;
+  let transientLeft = 1;
+  for (;;) {
+    try { r = await call(baseMessages); break; }
+    catch (e) {
+      const msg = String(e.message || '');
+      if (!pdfSwapped && TOO_LONG_RE.test(msg)) {
+        const lighter = await blocksWithPdfText(blocks);
+        if (lighter) {
+          console.warn('exgen: cerere prea mare (%s) — PDF-urile devin text extras și reîncerc', msg.slice(0, 120));
+          pdfSwapped = true;
+          baseMessages = [{ role: 'user', content: lighter }];
+          continue;
+        }
+      }
+      if (transientLeft > 0 && (e.status === 429 || TRANSIENT_RE.test(msg))) {
+        transientLeft--;
+        await sleep(15000);
+        continue;
+      }
+      throw e;
+    }
+  }
   const addUsage = () => {
     usage.prompt_tokens += r.usage?.prompt_tokens || 0;
     usage.completion_tokens += r.usage?.completion_tokens || 0;
   };
+  addUsage();
+  let text = String(r.text || '');
   // continuăm cât timp: (a) răspunsul s-a tăiat la max_tokens, sau (b) modelul
   // s-a oprit dar documentul început e NETERMINAT (`until` fals pe un text care
   // arată a document). `r.stopReason` există doar pe API-ul Claude real —
   // providerul fallback nu-l are, deci acolo nu încercăm continuarea.
-  const needsMore = () => r.stopReason === 'max_tokens'
-    || (!!r.stopReason && typeof until === 'function' && !until(text) && LOOKS_HTML_RE.test(text));
+  const needsMore = () => (r.stopReason === 'max_tokens'
+    || (!!r.stopReason && typeof until === 'function' && !until(text) && LOOKS_HTML_RE.test(text)))
+    && text.length < 800000;
   let rounds = 0;
-  while (needsMore() && rounds < 6) {
-    rounds++;
+  let retriesLeft = 2; // reîncercări la erori tranzitorii, pe toată durata continuărilor
+  while (needsMore() && rounds < 4) {
     const prefill = text.replace(/\s+$/, '');
     if (!prefill) break;
     try {
-      r = await claude.chatClaude({
-        system,
-        messages: [...baseMessages, { role: 'assistant', content: prefill }],
-        maxTokens, model,
-      });
+      r = await call([...baseMessages, { role: 'assistant', content: prefill }]);
     } catch (e) {
+      if (retriesLeft > 0 && (e.status === 429 || TRANSIENT_RE.test(String(e.message || '')))) {
+        retriesLeft--;
+        await sleep(15000);
+        continue; // reîncearcă ACELAȘI segment, fără să consume o rundă
+      }
       console.warn('exgen: continuarea răspunsului lung a eșuat (%s) — folosesc ce am', e.message);
       break;
     }
+    rounds++;
     addUsage();
     text = prefill + String(r.text || '');
   }
@@ -563,13 +595,12 @@ async function runAuto({ supa, category, subcategory = null, profile = null, cty
     // (a) sursă HTML fără model de format → CLONĂM chiar fișierul-sursă:
     // același design și funcționalitate, conținutul ajustat după dataMode.
     if (srcHtml && !wantFormatHtml) {
-      const litS = allowFig ? svgToPlaceholders(srcHtml) : null;
       const sysSeq = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
 Primești UN SINGUR fișier HTML sursă (un test/exercițiu interactiv al rubricii „${category}${subcategory ? ' / ' + subcategory : ''}”). Sarcina: produci un fișier HTML NOU, COMPLET și AUTONOM, pornind de la acest fișier — VARIANTA lui nouă.
 Reguli stricte:
 - COPIAZĂ ÎNTOCMAI tot ce nu ține de conținutul exercițiilor: CSS-ul complet, TOT JavaScript-ul, instrumentele (desen, creion, radieră etc.), structura și bara de scor — NIMIC eliminat sau simplificat;
 ${allowFig
-    ? `- FIGURILE/DESENELE NU SE MODIFICĂ DELOC: ${FIG_MARK_RULE}; itemii cu figură rămân consistenți cu figura;`
+    ? '- FIGURILE/DESENELE (SVG, canvas, imagini) NU SE MODIFICĂ DELOC (vor fi restaurate programatic din sursă, deci modificarea lor e inutilă și greșită); itemii cu figură rămân consistenți cu figura;'
     : NO_FIG_RULE.slice(1) + ' Itemii care în sursă aveau figură se REFORMULEAZĂ cu toate datele în enunț (sau se înlocuiesc cu itemi echivalenți fără figură);'}
 - REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}
 - păstrează (sau adaugă, dacă lipsește) raportarea scorului: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*');
@@ -577,10 +608,13 @@ ${allowFig
 Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), fără explicații, fără markdown.`;
       const blocksS = [];
       blocksS.push(...ctx.docBlocks);
-      blocksS.push({ type: 'text', text: `FIȘIERUL-SURSĂ („${src.title}”):\n${litS ? litS.out : srcHtml}${ctx.textBlock}\n\nProdu ACUM varianta nouă — doar documentul HTML.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? ', dar desenele tot NU se modifică' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+      blocksS.push({ type: 'text', text: `FIȘIERUL-SURSĂ („${src.title}”):\n${srcHtml}${ctx.textBlock}\n\nProdu ACUM varianta nouă — doar documentul HTML.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? ', dar desenele tot NU se modifică' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
       const rS = await chatClaudeLong({ system: sysSeq, blocks: blocksS, maxTokens: 30000, model: aiModel, until: (t) => /<\/html>/i.test(t) });
       let hS = cutHtml(rS.text);
-      if (hS && allowFig && litS) hS = restoreSvgPlaceholders(hS, litS.svgs);
+      if (hS && allowFig) {
+        const srcSvgs = srcHtml.match(/<svg[\s\S]*?<\/svg>/gi) || [];
+        if (srcSvgs.length) { let k = 0; hS = hS.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (k < srcSvgs.length ? srcSvgs[k++] : m)); }
+      }
       if (hS && !allowFig) hS = stripFigures(hS);
       try {
         assertCompleteHtml({ html: hS, baseline: srcHtml, what: `Varianta fișierului „${src.title}”` });
@@ -598,12 +632,9 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
       const sysSeqF = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
 Primești un ȘABLON HTML — MODELUL DE FORMAT ales de admin — și UN SINGUR material-sursă („${src.title}”, din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”).
 Construiește un fișier HTML NOU în ACELAȘI fișier-format ca șablonul, cu exercițiile preluate/adaptate din materialul-sursă.
-Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente, bara de scor); ${allowFig ? `FIGURILE din șablon NU se modifică (${FIG_MARK_RULE}); ` : NO_FIG_RULE.slice(3) + ' '}raportarea scorului MATE_SCORE se păstrează (sau se adaugă: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${COMPLETE_RULE_HTML}${MATH_RULE}${ctx.line}
+Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente, bara de scor); ${allowFig ? 'FIGURILE din șablon NU se modifică; ' : NO_FIG_RULE.slice(3) + ' '}raportarea scorului MATE_SCORE se păstrează (sau se adaugă: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${COMPLETE_RULE_HTML}${MATH_RULE}${ctx.line}
 Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
-      // figurile ies din șablon ÎNAINTE de plafonul de lungime — un model de
-      // format plin de SVG-uri nu mai „mănâncă” limita de 180k caractere
-      const litF = allowFig ? svgToPlaceholders(String(formatHtml)) : null;
-      const tplF = (litF ? litF.out : String(formatHtml)).slice(0, 180000);
+      const tplF = String(formatHtml).slice(0, 180000);
       const blocksF = [];
       if (srcPdf) {
         blocksF.push({ type: 'text', text: `MATERIALUL-SURSĂ (PDF): ${src.title}` });
@@ -613,7 +644,10 @@ Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
       blocksF.push({ type: 'text', text: `ȘABLONUL (modelul de format):\n${tplF}${srcText ? `\n\nMATERIALUL-SURSĂ („${src.title}”):\n${srcText}` : ''}${srcHtml ? `\n\nMATERIALUL-SURSĂ („${src.title}”, HTML):\n${srcHtml.slice(0, 60000)}` : ''}${ctx.textBlock}\n\nConstruiește acum fișierul.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
       const rF = await chatClaudeLong({ system: sysSeqF, blocks: blocksF, maxTokens: 30000, model: aiModel, until: (t) => /<\/html>/i.test(t) });
       let hF = cutHtml(rF.text);
-      if (hF && allowFig && litF) hF = restoreSvgPlaceholders(hF, litF.svgs);
+      if (hF && allowFig) {
+        const tplSvgsF = tplF.match(/<svg[\s\S]*?<\/svg>/gi) || [];
+        if (tplSvgsF.length) { let k = 0; hF = hF.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (k < tplSvgsF.length ? tplSvgsF[k++] : m)); }
+      }
       if (hF && !allowFig) hF = stripFigures(hF);
       try {
         assertCompleteHtml({ html: hF, baseline: `${tplF}\n${srcHtml || ''}\n${srcText || ''}`, what: `Fișierul din „${src.title}” în modelul de format` });
@@ -682,29 +716,29 @@ Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ 
       let tplName = 'șablonul standard';
       let tplDesc = `ȘABLONUL HTML STANDARD al site-ului (test interactiv ${figuresAllowed(category) ? 'cu figuri și instrumente de desen' : 'cu instrumente de desen, FĂRĂ figuri'})`;
       if (wantFormatHtml) {
-        tpl = String(formatHtml);
+        tpl = String(formatHtml).slice(0, 180000);
         tplName = 'modelul de format al task-ului';
         tplDesc = 'ȘABLONUL HTML — MODELUL DE FORMAT ales de admin (clonează-i EXACT designul, stilul și funcționalitatea)';
       } else {
         try { tpl = fs.readFileSync(path.join(__dirname, 'template-standard.html'), 'utf8').slice(0, 120000); } catch { /* n/a */ }
       }
       if (!tpl) throw httpErr(500, 'Șablonul standard lipsește.');
-      // în prompt, figurile șablonului devin marcaje (se restaurează la final)
-      const litD = allowFig ? svgToPlaceholders(tpl) : null;
-      const tplPromptD = (litD ? litD.out : tpl).slice(0, 180000);
       const lettersD = names.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
       const planD = Array.from({ length: 8 }, (_, i) => `- Itemul ${i + 1}${allowFig ? ' (dacă nu are figură)' : ''} ← TESTUL ${lettersD[i % lettersD.length]}, un exercițiu ales aleatoriu.`).join('\n');
       const sysD = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
 Primești ${tplDesc} și ${names.length} subiecte PDF din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
 Construiește un TEST INTERACTIV NOU în ACELAȘI fișier-format ca șablonul, cu exercițiile preluate din PDF-uri după plan:
 ${planD}
-Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente de desen, bara de scor, raportarea scorului MATE_SCORE — dacă șablonul nu o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). ${allowFig ? `FIGURILE din șablon NU se modifică deloc (${FIG_MARK_RULE}); itemii cu figură rămân ai șablonului. ` : NO_FIG_RULE.slice(3) + ' '}REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${COMPLETE_RULE_HTML}${MATH_RULE}${ctx.line}
+Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScript, instrumente de desen, bara de scor, raportarea scorului MATE_SCORE — dacă șablonul nu o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*')). ${allowFig ? 'FIGURILE din șablon NU se modifică deloc; itemii cu figură rămân ai șablonului. ' : NO_FIG_RULE.slice(3) + ' '}REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${COMPLETE_RULE_HTML}${MATH_RULE}${ctx.line}
 Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
       blocksA.push(...ctx.docBlocks);
-      blocksA.push({ type: 'text', text: `ȘABLONUL (${tplName}):\n${tplPromptD}${ctx.textBlock}\n\nConstruiește acum testul interactiv.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? '' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+      blocksA.push({ type: 'text', text: `ȘABLONUL (${tplName}):\n${tpl}${ctx.textBlock}\n\nConstruiește acum testul interactiv.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? '' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
       const rD = await chatClaudeLong({ system: sysD, blocks: blocksA, maxTokens: 30000, model: aiModel, until: (t) => /<\/html>/i.test(t) });
       let hOut = cutHtml(rD.text);
-      if (hOut && allowFig && litD) hOut = restoreSvgPlaceholders(hOut, litD.svgs);
+      if (hOut && allowFig) {
+        const tplSvgsD = tpl.match(/<svg[\s\S]*?<\/svg>/gi) || [];
+        if (tplSvgsD.length) { let k = 0; hOut = hOut.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (k < tplSvgsD.length ? tplSvgsD[k++] : m)); }
+      }
       if (hOut && !allowFig) hOut = stripFigures(hOut);
       try {
         assertCompleteHtml({ html: hOut, baseline: tpl, what: 'Testul interactiv din PDF-uri' });
@@ -794,9 +828,7 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "st
 
   // ── Rubrici INTERACTIVE → FORMATUL STANDARD (figuri + desen) sau, la
   // result_kind='format' cu HTML, MODELUL DE FORMAT încărcat de admin ──
-  // (șablonul se ține ÎNTREG aici — plafonul de lungime se aplică abia pe
-  // varianta pentru prompt, DUPĂ scoaterea figurilor în marcaje)
-  let templateHtml = wantFormatHtml ? String(formatHtml) : null;
+  let templateHtml = wantFormatHtml ? String(formatHtml).slice(0, 180000) : null;
   let templateName = wantFormatHtml ? 'modelul de format al task-ului' : null;
   const sources = [];
   for (const r of shuffled) {
@@ -824,10 +856,6 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "st
   }
   if (sources.length < 2) throw httpErr(400, 'Nu am putut extrage conținut din suficiente teste ale rubricii.');
   if (!templateHtml) throw httpErr(500, 'Nu am găsit șablonul formatului standard.');
-  // Varianta de PROMPT a șablonului: la rubricile EN figurile devin marcaje
-  // minuscule (se restaurează după generare) — șablonul „încape” în buget.
-  const litA = allowFig ? svgToPlaceholders(templateHtml) : null;
-  const templatePrompt = (litA ? litA.out : templateHtml).slice(0, 180000);
   const ctx = await ctxFor(sources.map((x) => x.title)); // bareme corespondente sau referințe
 
   const lettersI = sources.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
@@ -836,7 +864,7 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "st
     ? 'Primești un ȘABLON HTML — MODELUL DE FORMAT ales de admin (clonează-i EXACT designul, stilul CSS și funcționalitatea JavaScript)'
     : `Primești un ȘABLON HTML în FORMATUL STANDARD al site-ului (test interactiv ${allowFig ? 'cu figuri geometrice SVG și instrumente de desen' : 'cu instrumente de desen, FĂRĂ figuri'})`;
   const figRules = allowFig
-    ? `- FIGURILE/DESENELE NU SE MODIFICĂ DELOC: ${FIG_MARK_RULE};
+    ? `- FIGURILE/DESENELE (SVG, canvas) NU SE MODIFICĂ DELOC — rămân EXACT cele din șablon, cu aceleași etichete și valori (oricum vor fi restaurate programatic din șablon, deci orice modificare a lor e inutilă și greșită);
 - itemii CU figură rămân cei ai șablonului: enunț, valori și notații consistente cu figura, cel mult mici reformulări care NU contrazic figura; combini din celelalte teste DOAR itemii FĂRĂ figură;`
     : `${NO_FIG_RULE.slice(1)} Itemii care în șablon aveau figură se ÎNLOCUIESC cu itemi fără figură, combinați din testele-sursă (enunț complet, cu toate datele în text);`;
   const sysAuto = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
@@ -857,7 +885,7 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
   const srcBlock = sources.map((x, i) => `=== TESTUL ${String.fromCharCode(65 + i)}: ${x.title} ===\n${x.text}`).join('\n\n');
   const blocksI = [];
   blocksI.push(...ctx.docBlocks);
-  blocksI.push({ type: 'text', text: `ȘABLONUL (${wantFormatHtml ? 'modelul de format' : 'formatul standard'}):\n${templatePrompt}\n\n${srcBlock}${ctx.textBlock}\n\nConstruiește ACUM testul nr. ${rows.length + 1} — doar documentul HTML.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? ', dar desenele tot NU se modifică' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+  blocksI.push({ type: 'text', text: `ȘABLONUL (${wantFormatHtml ? 'modelul de format' : 'formatul standard'}):\n${templateHtml}\n\n${srcBlock}${ctx.textBlock}\n\nConstruiește ACUM testul nr. ${rows.length + 1} — doar documentul HTML.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? ', dar desenele tot NU se modifică' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
   const rA = await chatClaudeLong({
     system: sysAuto,
     blocks: blocksI,
@@ -868,14 +896,19 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
 
   let htmlOut = cutHtml(rA.text);
 
-  // Garanție (doar EN): marcajele/figurile din răspuns se înlocuiesc cu
-  // figurile EXACTE din șablon (după numărul marcajului; fallback: în ordine)
-  if (htmlOut && allowFig && litA) htmlOut = restoreSvgPlaceholders(htmlOut, litA.svgs);
+  if (htmlOut && allowFig) {
+    // Garanție (doar EN): restaurăm figurile EXACT din șablon
+    const tplSvgs = templateHtml.match(/<svg[\s\S]*?<\/svg>/gi) || [];
+    if (tplSvgs.length) {
+      let svgIdx = 0;
+      htmlOut = htmlOut.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => (svgIdx < tplSvgs.length ? tplSvgs[svgIdx++] : m));
+    }
+  }
   if (htmlOut && !allowFig) htmlOut = stripFigures(htmlOut);
 
   if (!htmlOut && rA.stopReason === 'max_tokens') {
     console.error('exgen(auto-html): trunchiat și după continuări. continuations=%s', rA.continuations);
-    throw httpErr(502, 'Șablonul rubricii e prea mare pentru o singură generare — mai încearcă (sau folosește o rubrică cu teste mai mici).');
+    throw httpErr(502, `Șablonul rubricii e prea mare pentru o singură generare — mai încearcă (sau folosește o rubrică cu teste mai mici). [stop=max_tokens, continuări=${rA.continuations || 0}]`);
   }
   try {
     assertCompleteHtml({ html: htmlOut, baseline: templateHtml, what: 'Testul generat pe rubrică' });
@@ -1320,5 +1353,4 @@ module.exports = {
   detectMode, titleMatchScore, fetchPairedContext,
   // pentru teste (test/agent-tasks.test.js)
   figuresAllowed, stripFigures, itemSignals, missingSections, cutHtml, visibleSubcategory, chatClaudeLong,
-  svgToPlaceholders, restoreSvgPlaceholders,
 };

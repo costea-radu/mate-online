@@ -230,6 +230,31 @@ test('exgen.chatClaudeLong: continuă răspunsurile tăiate/neterminate și re-c
     r = await exgen.chatClaudeLong({ system: 's', blocks: [{ type: 'text', text: 'x' }], until: untilHtml });
     assert.strictEqual(calls, 1);
     assert.strictEqual(r.continuations, 0);
+
+    // (e) „prompt is too long” (PDF dens) → PDF-ul devine TEXT extras și cererea se reia
+    calls = 0;
+    claude.chatClaude = async ({ messages }) => {
+      calls++;
+      const blocks = messages[0].content;
+      if (blocks.some((b) => b.type === 'document')) {
+        const err = new Error('prompt is too long: 2120089 tokens > 1000000 maximum');
+        err.status = 400;
+        throw err;
+      }
+      assert.ok(blocks.every((b) => b.type === 'text'), 'după fallback nu mai există blocuri document');
+      return { text: '<!doctype html><html><body>din text</body></html>', usage: {}, provider: 'stub', stopReason: 'end_turn' };
+    };
+    r = await exgen.chatClaudeLong({
+      system: 's',
+      blocks: [
+        { type: 'text', text: 'MATERIALUL-SURSĂ (PDF): Culegere' },
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: Buffer.from('nu-e-pdf-adevărat').toString('base64') } },
+        { type: 'text', text: 'restul cererii' },
+      ],
+      until: untilHtml,
+    });
+    assert.strictEqual(calls, 2, 'a doua încercare, cu PDF-ul ca text');
+    assert.ok(untilHtml(r.text));
   } finally {
     claude.chatClaude = orig;
   }
@@ -300,35 +325,4 @@ test('exgen.visibleSubcategory: postarea automată ajunge într-o rubrică VIZIB
   // clasele nu filtrează după subcategorie → rămân cum au fost
   assert.strictEqual(v('clasa-7', null), null);
   assert.strictEqual(v('clasa-7', 'algebra'), 'algebra');
-});
-
-test('exgen.svgToPlaceholders + restoreSvgPlaceholders: șabloanele EN mari încap în prompt, figurile revin exacte', () => {
-  const fig1 = '<svg viewBox="0 0 100 100"><path d="M0 0 L100 100"/><text>ABC</text></svg>';
-  const fig2 = '<svg width="80"><circle cx="40" cy="40" r="30"/></svg>';
-  const tpl = `<!doctype html><html><body><div class="fig">${fig1}</div><p>Item 1</p>${fig2}<p>Item 2</p></body></html>`;
-
-  // 1) în prompt, figurile devin marcaje minuscule, numerotate
-  const lit = exgen.svgToPlaceholders(tpl);
-  assert.ok(lit.out.includes('<svg data-tpl-fig="0"></svg>'), 'primul marcaj');
-  assert.ok(lit.out.includes('<svg data-tpl-fig="1"></svg>'), 'al doilea marcaj');
-  assert.ok(!lit.out.includes('<path'), 'conținutul SVG nu mai apare în prompt');
-  assert.strictEqual(lit.svgs.length, 2, 'figurile originale sunt păstrate pentru restaurare');
-  assert.ok(lit.out.length < tpl.length, 'promptul e mai scurt decât șablonul');
-
-  // 2) răspunsul modelului cu marcaje → figurile originale revin după NUMĂR
-  const out = `<!doctype html><html><body><div class="fig"><svg data-tpl-fig="0"></svg></div><p>Item nou 1</p><svg data-tpl-fig="1"></svg><p>Item nou 2</p></body></html>`;
-  const restored = exgen.restoreSvgPlaceholders(out, lit.svgs);
-  assert.ok(restored.includes(fig1) && restored.includes(fig2), 'ambele figuri restaurate exact');
-  assert.ok(!restored.includes('data-tpl-fig'), 'marcajele au dispărut din rezultat');
-
-  // 3) marcaje în ALTĂ ordine → tot după număr se restaurează
-  const swapped = exgen.restoreSvgPlaceholders('<svg data-tpl-fig="1"></svg><svg data-tpl-fig="0"></svg>', lit.svgs);
-  assert.ok(swapped.indexOf('circle') < swapped.indexOf('ABC'), 'numărul marcajului primează asupra ordinii');
-
-  // 4) fallback: modelul a „uitat" numărul → restaurare în ordinea apariției
-  const noNum = exgen.restoreSvgPlaceholders('<svg></svg> text <svg></svg>', lit.svgs);
-  assert.ok(noNum.includes(fig1) && noNum.includes(fig2), 'fallback în ordine');
-
-  // 5) fără figuri → nimic de făcut
-  assert.strictEqual(exgen.restoreSvgPlaceholders('<p>x</p>', []), '<p>x</p>');
 });
