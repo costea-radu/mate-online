@@ -222,7 +222,11 @@ const NO_PREFILL = new Set();
 
 async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null, until = null }) {
   const t0 = Date.now();
-  const DEADLINE_MS = 200 * 1000; // sub limita funcției Vercel (300s): mai bine o eroare CLARĂ înregistrată decât FUNCTION_INVOCATION_TIMEOUT cu rularea pierdută
+  // Sub limita funcției Vercel: mai bine o eroare CLARĂ înregistrată decât
+  // FUNCTION_INVOCATION_TIMEOUT cu rularea pierdută. Limita e maxDuration=800
+  // din vercel.json (plan Pro, Fluid) → deadline ~710s; ține-le SINCRON (dacă
+  // schimbi maxDuration, setează env FUNCTION_MAX_SECONDS la aceeași valoare).
+  const DEADLINE_MS = Math.max(120, (Number(process.env.FUNCTION_MAX_SECONDS) || 800) - 90) * 1000;
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
   const call = (messages) => claude.chatClaude({ system, messages, maxTokens, model });
   let baseMessages = [{ role: 'user', content: blocks }];
@@ -688,7 +692,7 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
       const tplSeqA = tplAnnotate(srcHtml);
       const blocksS = [];
       blocksS.push(...ctx.docBlocks);
-      blocksS.push({ type: 'text', text: `FIȘIERUL-SURSĂ („${src.title}”, cu blocurile <style>/<script> numerotate <!--TPL:N-->):\n${tplSeqA.annotated}${ctx.textBlock}\n\nProdu ACUM varianta nouă — doar documentul HTML.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? ', dar desenele tot NU se modifică' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+      blocksS.push({ type: 'text', text: `FIȘIERUL-SURSĂ („${src.title}”, cu blocurile <style>/<script> numerotate <!--TPL:N-->):\n${tplSeqA.annotated}${ctx.textBlock}\n\nProdu ACUM varianta nouă — doar documentul HTML. REAMINTIRE FINALĂ (economie de tokeni): blocurile <style>/<script> pe care NU le modifici = DOAR marcajele goale <style data-tpl=\"N\"></style> / <script data-tpl=\"N\"></script> — nu le rescrie; blocul cu DATELE itemilor se scrie complet.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? ', dar desenele tot NU se modifică' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
       const rS = await chatClaudeLong({ system: sysSeq, blocks: blocksS, maxTokens: 30000, model: aiModel, until: (t) => /<\/html>/i.test(t) });
       let hS = cutHtml(rS.text);
       if (hS) hS = tplRestore(hS, tplSeqA.blocks);
@@ -723,7 +727,7 @@ Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
         blocksF.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: srcPdf } });
       }
       blocksF.push(...ctx.docBlocks);
-      blocksF.push({ type: 'text', text: `ȘABLONUL (modelul de format, cu blocurile <style>/<script> numerotate <!--TPL:N-->):\n${tplFA.annotated}${srcText ? `\n\nMATERIALUL-SURSĂ („${src.title}”):\n${srcText}` : ''}${srcHtml ? `\n\nMATERIALUL-SURSĂ („${src.title}”, HTML):\n${srcHtml.slice(0, 60000)}` : ''}${ctx.textBlock}\n\nConstruiește acum fișierul.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+      blocksF.push({ type: 'text', text: `ȘABLONUL (modelul de format, cu blocurile <style>/<script> numerotate <!--TPL:N-->):\n${tplFA.annotated}${srcText ? `\n\nMATERIALUL-SURSĂ („${src.title}”):\n${srcText}` : ''}${srcHtml ? `\n\nMATERIALUL-SURSĂ („${src.title}”, HTML):\n${srcHtml.slice(0, 60000)}` : ''}${ctx.textBlock}\n\nConstruiește acum fișierul. REAMINTIRE FINALĂ (economie de tokeni): blocurile <style>/<script> pe care NU le modifici = DOAR marcajele goale <style data-tpl=\"N\"></style> / <script data-tpl=\"N\"></script> — nu le rescrie; blocul cu DATELE itemilor se scrie complet.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
       const rF = await chatClaudeLong({ system: sysSeqF, blocks: blocksF, maxTokens: 30000, model: aiModel, until: (t) => /<\/html>/i.test(t) });
       let hF = cutHtml(rF.text);
       if (hF) hF = tplRestore(hF, tplFA.blocks);
@@ -816,7 +820,7 @@ Reguli: COPIAZĂ întocmai tot ce nu ține de conținutul itemilor (CSS, JavaScr
 Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
       const tplDA = tplAnnotate(tpl);
       blocksA.push(...ctx.docBlocks);
-      blocksA.push({ type: 'text', text: `ȘABLONUL (${tplName}, cu blocurile <style>/<script> numerotate <!--TPL:N-->):\n${tplDA.annotated}${ctx.textBlock}\n\nConstruiește acum testul interactiv.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? '' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+      blocksA.push({ type: 'text', text: `ȘABLONUL (${tplName}, cu blocurile <style>/<script> numerotate <!--TPL:N-->):\n${tplDA.annotated}${ctx.textBlock}\n\nConstruiește acum testul interactiv. REAMINTIRE FINALĂ (economie de tokeni): blocurile <style>/<script> pe care NU le modifici = DOAR marcajele goale <style data-tpl=\"N\"></style> / <script data-tpl=\"N\"></script> — nu le rescrie; blocul cu DATELE itemilor se scrie complet.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? '' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
       const rD = await chatClaudeLong({ system: sysD, blocks: blocksA, maxTokens: 30000, model: aiModel, until: (t) => /<\/html>/i.test(t) });
       let hOut = cutHtml(rD.text);
       if (hOut) hOut = tplRestore(hOut, tplDA.blocks);
@@ -971,7 +975,7 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
   const tplIA = tplAnnotate(templateHtml);
   const blocksI = [];
   blocksI.push(...ctx.docBlocks);
-  blocksI.push({ type: 'text', text: `ȘABLONUL (${wantFormatHtml ? 'modelul de format' : 'formatul standard'}, cu blocurile <style>/<script> numerotate <!--TPL:N-->):\n${tplIA.annotated}\n\n${srcBlock}${ctx.textBlock}\n\nConstruiește ACUM testul nr. ${rows.length + 1} — doar documentul HTML.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? ', dar desenele tot NU se modifică' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+  blocksI.push({ type: 'text', text: `ȘABLONUL (${wantFormatHtml ? 'modelul de format' : 'formatul standard'}, cu blocurile <style>/<script> numerotate <!--TPL:N-->):\n${tplIA.annotated}\n\n${srcBlock}${ctx.textBlock}\n\nConstruiește ACUM testul nr. ${rows.length + 1} — doar documentul HTML. REAMINTIRE FINALĂ (economie de tokeni): blocurile <style>/<script> pe care NU le modifici = DOAR marcajele goale <style data-tpl=\"N\"></style> / <script data-tpl=\"N\"></script> — nu le rescrie; blocul cu DATELE itemilor se scrie complet.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? ', dar desenele tot NU se modifică' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
   const rA = await chatClaudeLong({
     system: sysAuto,
     blocks: blocksI,

@@ -103,7 +103,7 @@
   ],
   "functions": {
     "api/**/*.js": {
-      "maxDuration": 300,
+      "maxDuration": 800,
       "includeFiles": "api/_lib/**"
     }
   }

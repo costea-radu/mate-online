@@ -4,6 +4,16 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 13 august 2026 (3) — Limita funcțiilor ridicată la 800s (Vercel Pro/Fluid) + reamintirea marcajelor TPL — testele mari chiar au timp să se termine
+
+Diagnosticul „[stop=max_tokens, continuări=0, lungime=57232]” a arătat matematica exactă: modelul a scris ~57KB (tot bugetul de 30k tokeni) în ~230s, iar garda de timp a refuzat corect continuarea pentru că nu mai încăpea în limita de 300s. Munca totală pe acest task cere ~5 minute de generare — pe limita de 300s NU are cum să încapă, indiferent de optimizări. Adminul e pe **Vercel Pro**, deci:
+- **`vercel.json`: `maxDuration` 300 → 800** (funcțiile rulează pe Fluid; Pro suportă 800s);
+- **deadline-urile interne urmează limita:** `chatClaudeLong` se oprește cu ~90s înainte (default 800, suprascriptibil prin env `FUNCTION_MAX_SECONDS` — ține-l sincron cu maxDuration dacă o schimbi vreodată), iar bugetul cronului per tic devine limita − 80s;
+- **reamintire finală a marcajelor TPL** în toate cele 4 prompturi de clonare (modelele respectă mai bine instrucțiunile repetate la coada promptului) — mai puțini tokeni de scris, generare mai scurtă;
+- **UI:** butonul „▶️ Rulează acum” arată „poate dura câteva minute la teste mari” în loc de „~30-90s”.
+
+**16/16 teste trec.** După deploy: „▶️ Rulează acum” pe taskul EN — are acum până la ~11 minute de spațiu (deadline ~710s), față de ~200s cât avea.
+
 ## 13 august 2026 (2) — Clonarea șabloanelor de ~3-4 ori mai RAPIDĂ (marcaje TPL) — scapă de FUNCTION_INVOCATION_TIMEOUT (300s)
 
 Logurile Vercel de la admin au arătat lanțul complet: (1) modelul folosit NU suportă deloc prefill de asistent („This model does not support assistant message prefill”) — trecerea pe continuarea prin mesaj de utilizator a funcționat corect; dar (2) PRIMA generare singură a durat ~230s (clonarea unui șablon de ~107KB ≈ ~35k tokeni de ieșire), continuarea a împins totalul peste limita funcției Vercel → `FUNCTION_INVOCATION_TIMEOUT` la 5m, cu rularea PIERDUTĂ (nimic în istoric). Trei schimbări:

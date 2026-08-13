@@ -497,7 +497,7 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button style={smallBtn} onClick={() => runNow(t)} disabled={runningId === t.id} title="Execută task-ul chiar acum (test)">
-                  {runningId === t.id ? '⏳ Rulează… (~30-90s)' : '▶️ Rulează acum'}
+                  {runningId === t.id ? '⏳ Rulează… (poate dura câteva minute la teste mari)' : '▶️ Rulează acum'}
                 </button>
                 <button style={smallBtn} onClick={() => toggleRuns(t)}>📜 Istoric</button>
                 {t.seq_done?.length > 0 && (

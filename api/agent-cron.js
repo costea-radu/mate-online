@@ -104,10 +104,12 @@ module.exports = async function handler(req, res) {
       const ran = [];
       const postponed = [];
       for (const task of due) {
-        // buget de timp: generările lungi (Opus + continuări) pot apropia
-        // maxDuration (300s) — ce nu încape acum rămâne scadent pentru ticul
-        // următor, în loc să fie pierdut la întreruperea funcției
-        if (Date.now() - started > 220 * 1000) { postponed.push(task.name); continue; }
+        // buget de timp: generările lungi (Opus/Sonnet + continuări) pot
+        // apropia maxDuration (800s în vercel.json) — ce nu încape acum
+        // rămâne scadent pentru ticul următor (fereastra de recuperare),
+        // în loc să fie pierdut la întreruperea funcției
+        const budgetMs = Math.max(120, (Number(process.env.FUNCTION_MAX_SECONDS) || 800) - 80) * 1000;
+        if (Date.now() - started > budgetMs) { postponed.push(task.name); continue; }
         const r = await exgen.runTask({ supa, task, triggerKind: 'cron' });
         if (uid && r.usage) await ai.logUsage(supa, uid, 'agent-task-cron', r.usage).catch(() => {});
         ran.push({
