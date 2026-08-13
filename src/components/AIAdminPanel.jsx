@@ -68,12 +68,19 @@ export default function AIAdminPanel() {
           <Mini label="Exerciții" value={stats.knowledge.exercise} />
           <Mini label="Rezolvări" value={stats.knowledge.solution} />
           <Mini label="Manuale" value={stats.knowledge.manual} />
+          {/* Pre-generarea explicațiilor (pasul 3 din GHID_LIMITE_AI.md) */}
+          <Mini label="Explicații pre-generate" value={stats.pregen_total} />
+          <Mini label="De pre-generat" value={stats.pregen_pending == null ? '—' : stats.pregen_pending}
+            highlight={stats.pregen_pending > 0} />
         </div>
       )}
 
       {stats && (
         <p style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: 14 }}>
           Embeddings: <strong>{stats.embeddings_provider}</strong> · Model chat: <strong>{stats.chat_model}</strong>
+          {stats.pregen_pending == null
+            ? <> · Pre-generare: <strong>inactivă</strong> — rulează supabase/ai_pregen.sql</>
+            : <> · Pre-generarea rulează automat (cron), câte puține, după ce coada de indexare ajunge la 0 — sau apasă „Procesează coada"</>}
         </p>
       )}
 
