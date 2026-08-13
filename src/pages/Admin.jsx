@@ -919,7 +919,7 @@ export default function Admin() {
     { id: 'interactive', label: '🧩 Exerciții Interactive' },
     { id: 'rezolvari',   label: '📝 Rezolvări' },
     { id: 'list',        label: '📋 Tot Conținutul' },
-    { id: 'ai',          label: '🎓 AI Tutor' },
+    { id: 'ai',          label: '🤖 AI Tutor' },
   ];
 
   function onSuccess() {

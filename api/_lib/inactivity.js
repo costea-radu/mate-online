@@ -100,6 +100,11 @@ function studentNote(p) {
   if (p?.role !== 'elev') return '';
   return `<p style="margin:12px 0;color:#5a6379;font-size:13.5px">Notă: dacă ești asociat unui profesor sau părinte pe ExamenMate, rezultatele tale la teste rămân vizibile în contul acestuia și după ștergere.</p>`;
 }
+// Transparență (GDPR): contribuțiile publice nu dispar odată cu contul —
+// vezi supabase/pastreaza_date_publice.sql (FK → SET NULL + nume snapshot).
+function publicNote() {
+  return `<p style="margin:12px 0;color:#5a6379;font-size:13.5px">Comentariile publicate pe forum și materialele publicate în Biblioteca utilizatorilor rămân pe site și după ștergerea contului, afișate cu numele de la momentul publicării, fără vreo legătură cu contul șters.</p>`;
+}
 
 // Emailul 1 — avertizare la 12 luni de inactivitate.
 function buildWarningEmail(p, scheduledAt) {
@@ -117,7 +122,8 @@ function buildWarningEmail(p, scheduledAt) {
       <p>Ca să-ți păstrezi contul, e suficient să te <strong>autentifici o singură dată</strong>
          până la această dată — nu trebuie să faci nimic altceva, ștergerea se anulează automat.</p>
       ${loginButton()}
-      ${studentNote(p)}`,
+      ${studentNote(p)}
+      ${publicNote()}`,
     footerNote: 'Primești acest email fiindcă ai un cont pe ExamenMate. Dacă vrei ștergerea imediată a contului, o poți face din Contul meu → Setări după autentificare.',
   });
   return { subject, html };
@@ -140,7 +146,8 @@ function buildReminderEmail(p, scheduledAt, now = new Date()) {
       <p>După această dată, contul și datele lui nu mai pot fi recuperate.
          O simplă <strong>autentificare</strong> anulează ștergerea.</p>
       ${loginButton('Autentifică-te acum')}
-      ${studentNote(p)}`,
+      ${studentNote(p)}
+      ${publicNote()}`,
     footerNote: 'Acesta este ultimul mesaj pe care ți-l trimitem despre acest cont.',
   });
   return { subject, html };

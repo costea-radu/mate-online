@@ -90,7 +90,7 @@ export default function AccountSettings() {
   // Zonă periculoasă
   const [busy, setBusy] = useState(false);
   async function deleteAccount() {
-    if (!window.confirm('ȘTERGERE DEFINITIVĂ: contul și toate datele vor fi șterse ireversibil. Continui?')) return;
+    if (!window.confirm('ȘTERGERE DEFINITIVĂ: contul și datele lui vor fi șterse ireversibil.\n\nComentariile publicate pe forum și materialele publicate în Biblioteca utilizatorilor rămân pe site (cu numele de la momentul publicării, fără legătură cu contul). Continui?')) return;
     if (!window.confirm('Ești sigur? Această acțiune NU poate fi anulată.')) return;
     setBusy(true);
     try { await aiClient.accountDelete(); await signOut(); }

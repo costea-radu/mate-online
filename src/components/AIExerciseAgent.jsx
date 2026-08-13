@@ -21,6 +21,7 @@ import { combineExamPdfs, fetchPdfSources, stratifyBySubcategory, probeExamPdf }
 import { DEFAULT_AI_MODEL } from '../lib/aiModels';
 import AIModelPicker from './AIModelPicker';
 import AgentScheduledTasks from './AgentScheduledTasks';
+import Rolldown from './Rolldown';
 
 const inp = { border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.9rem', width: '100%', marginTop: 4, boxSizing: 'border-box' };
 const ta = { ...inp, fontFamily: 'inherit', resize: 'vertical' };
@@ -453,11 +454,9 @@ export default function AIExerciseAgent({ box }) {
     setEditing(true); setMsg(null); setError(null);
   }
 
+  // Rolldown: tot generatorul de exerciții (starea rămâne și când e închis)
   return (
-    <div style={{ ...box, marginTop: 18 }}>
-      <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 6 }}>
-        🤖 Agent Claude — Generator de exerciții
-      </h3>
+    <Rolldown box={{ ...box, marginTop: 18 }} storageKey="exagent" title="🤖 Agent Claude — Generator de exerciții">
       <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 14 }}>
         Fișierul 1 = <strong>exercițiile-model</strong>; fișierul 2 (opțional) = <strong>modelul de format</strong>.
         Dacă fișierul 2 e HTML, rezultatul păstrează <strong>exact</strong> designul și funcționalitățile lui, doar cu exercițiile noi.
@@ -738,10 +737,11 @@ export default function AIExerciseAgent({ box }) {
         </div>
       )}
 
-      {/* Exerciții încărcate de agent — reeditabile */}
+      {/* Rolldown: exercițiile încărcate de agent — reeditabile */}
       {savedList.length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.9rem', marginBottom: 8 }}>Exerciții încărcate de agent (poți să le modifici oricând)</div>
+        <Rolldown small box={{ marginTop: 20 }} storageKey="exagent-incarcate"
+          title={`📁 Exerciții încărcate de agent (${savedList.length})`}
+          hint="poți să le modifici oricând">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {savedList.map((r) => (
               <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#f7f9fc', borderRadius: 8 }}>
@@ -757,11 +757,11 @@ export default function AIExerciseAgent({ box }) {
               </div>
             ))}
           </div>
-        </div>
+        </Rolldown>
       )}
 
-      {/* Task-uri programate: agentul generează singur, după program, pe rubrici */}
+      {/* Rolldown (în AgentScheduledTasks): task-urile programate ale agentului */}
       <AgentScheduledTasks rubrics={rubrics} box={{ border: '1px solid var(--border)', borderRadius: 12, padding: 14, background: '#fff' }} />
-    </div>
+    </Rolldown>
   );
 }

@@ -15,6 +15,7 @@ import { aiClient } from '../lib/aiClient';
 import { renderExercise } from '../lib/exerciseRender';
 import { DEFAULT_AI_MODEL } from '../lib/aiModels';
 import AIModelPicker from './AIModelPicker';
+import Rolldown from './Rolldown';
 
 const inp = { border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.9rem', width: '100%', marginTop: 4, boxSizing: 'border-box' };
 const lbl = { fontSize: '.82rem', color: 'var(--text-light)' };
@@ -258,23 +259,24 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
     return r ? `${r.group} · ${r.label}` : `${t.category}${t.subcategory ? ' / ' + t.subcategory : ''}${t.profile ? ' · ' + t.profile : ''} (${t.ctype})`;
   };
 
+  // Rolldown: secțiunea se pliază/depliază; conținutul rămâne montat (starea
+  // formularului/istoricului nu se pierde). Butonul de creare stă în conținut.
   return (
-    <div style={{ ...box, marginTop: 18 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
-        <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: 0 }}>
-          🗓 Task-uri programate — agentul de exerciții
-        </h3>
-        <button className="btn btn-primary" onClick={() => (formOpen && !editId ? setFormOpen(false) : openCreate())} style={{ fontSize: '.85rem' }}>
+    <Rolldown box={{ ...box, marginTop: 18 }} storageKey="agent-taskuri"
+      title="🗓 Task-uri programate — agentul de exerciții"
+      hint={tasks.length > 0 ? `${tasks.length} task${tasks.length === 1 ? '' : '-uri'}` : null}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+        <p style={{ fontSize: '.85rem', color: 'var(--text-light)', margin: 0, flex: '1 1 320px' }}>
+          Ca „scheduled tasks” din Claude.ai, dar contextul e o <strong>rubrică a site-ului</strong> (clasă sau tip de examen), nu un folder:
+          agentul generează singur, după program, testul următor al rubricii alese și îl poate <strong>posta automat</strong> acolo —
+          sau ți-l lasă la aprobat aici (primești și email). Poți adăuga <strong>rubrici suplimentare drept context</strong> (ex. baremele testelor)
+          și poți cere rezultatul <strong>după modelul tău de format</strong> (fișier HTML/PDF încărcat de pe calculator).
+          Orele sunt <strong>ora României</strong>. Task-urile de mai jos se pot edita oricând (✏️) sau șterge (🗑).
+        </p>
+        <button className="btn btn-primary" onClick={() => (formOpen && !editId ? setFormOpen(false) : openCreate())} style={{ fontSize: '.85rem', flexShrink: 0 }}>
           {formOpen && !editId ? '✕ Închide' : '➕ Creează task programat'}
         </button>
       </div>
-      <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
-        Ca „scheduled tasks” din Claude.ai, dar contextul e o <strong>rubrică a site-ului</strong> (clasă sau tip de examen), nu un folder:
-        agentul generează singur, după program, testul următor al rubricii alese și îl poate <strong>posta automat</strong> acolo —
-        sau ți-l lasă la aprobat aici (primești și email). Poți adăuga <strong>rubrici suplimentare drept context</strong> (ex. baremele testelor)
-        și poți cere rezultatul <strong>după modelul tău de format</strong> (fișier HTML/PDF încărcat de pe calculator).
-        Orele sunt <strong>ora României</strong>. Task-urile de mai jos se pot edita oricând (✏️) sau șterge (🗑).
-      </p>
 
       {warning && <div style={{ marginBottom: 10, padding: 12, background: '#fff7e0', color: '#8a6d00', borderRadius: 8, fontSize: '.85rem' }}>🔧 {warning}</div>}
       {error && <div style={{ marginBottom: 10, padding: 12, background: '#fdecea', color: '#b71c1c', borderRadius: 8, fontSize: '.85rem' }}>⚠️ {error}</div>}
@@ -561,6 +563,6 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
           </div>
         </div>
       )}
-    </div>
+    </Rolldown>
   );
 }

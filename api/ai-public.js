@@ -169,22 +169,34 @@ module.exports = async function handler(req, res) {
     if (action === 'record') {
       const userId = await ai.authUser(req, supa);
       const { id, score = 0, maxScore = 100 } = req.body || {};
-      await ai.requireUser(supa, userId);
+      const profile = await ai.requireUser(supa, userId);
       if (!id) return res.status(400).json({ error: 'id obligatoriu' });
       const sc = Math.max(0, parseInt(score, 10) || 0);
       const mx = Math.max(1, parseInt(maxScore, 10) || 100);
+      // Snapshot cu numele elevului: scorul rămâne lizibil pentru autorul
+      // testului și după ștergerea contului elevului (vezi
+      // supabase/pastreaza_date_publice.sql — FK devine SET NULL).
+      const studentName = profile.full_name || profile.username
+        || (profile.email ? profile.email.split('@')[0] : null) || null;
       // Notă: erorile de scriere NU se mai ignoră — altfel scorul se pierde
       // în tăcere iar clientul primește {ok:true} (bug istoric).
       const { data: ex } = await supa.from('ai_public_results')
         .select('id, attempts, score').eq('public_id', id).eq('student_id', userId).maybeSingle();
-      const wr = ex
-        ? await supa.from('ai_public_results').update({
+      const writeRow = (withName) => ex
+        ? supa.from('ai_public_results').update({
             score: Math.max(ex.score || 0, sc), max_score: mx,
             attempts: (ex.attempts || 1) + 1, completed_at: new Date().toISOString(),
+            ...(withName ? { student_name: studentName } : {}),
           }).eq('id', ex.id)
-        : await supa.from('ai_public_results').insert({
+        : supa.from('ai_public_results').insert({
             public_id: id, student_id: userId, score: sc, max_score: mx, attempts: 1,
+            ...(withName ? { student_name: studentName } : {}),
           });
+      let wr = await writeRow(true);
+      if (wr.error && /student_name/i.test(wr.error.message || '')) {
+        // instalare fără coloana nouă (pastreaza_date_publice.sql nerulat)
+        wr = await writeRow(false);
+      }
       if (wr.error) {
         console.error('ai-public record error:', wr.error);
         return res.status(500).json({ error: 'Scorul nu a putut fi salvat.', detail: wr.error.message });

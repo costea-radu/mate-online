@@ -300,9 +300,12 @@ function PostCard({ post, onRefresh, depth = 0 }) {
 
   const canDelete = user && (user.id === post.user_id || isAdmin);
   const p = post.profile;
+  // Numele autorului: profilul curent → snapshotul salvat în comentariu
+  // (author_name rămâne și după ștergerea contului — vezi
+  // supabase/pastreaza_date_publice.sql) → „Utilizator".
   const name = p?.full_name && p.full_name.trim()
     ? p.full_name
-    : (p?.email?.split('@')[0] || post._authorName || 'Utilizator');
+    : (p?.email?.split('@')[0] || post.author_name || post._authorName || 'Utilizator');
   const avatarUrl = p?.avatar_url || null;
   const catLabel = CATEGORIES.find(c => c.value === post.category_key)?.label;
 

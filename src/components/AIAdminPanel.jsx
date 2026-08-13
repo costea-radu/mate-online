@@ -5,6 +5,7 @@
 // =====================================================================
 import { useState, useEffect } from 'react';
 import { aiClient } from '../lib/aiClient';
+import Rolldown from './Rolldown';
 import AIExerciseAgent from './AIExerciseAgent';
 import AISEOAgent from './AISEOAgent';
 import SEOActionsQueue from './SEOActionsQueue';
@@ -51,10 +52,8 @@ export default function AIAdminPanel() {
 
   return (
     <>
-    <div style={box}>
-      <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 6 }}>
-        🎓 Profesor Virtual — Bază de cunoștințe
-      </h3>
+    {/* Rolldown: baza de cunoștințe (conținutul rămâne montat și închis) */}
+    <Rolldown box={box} storageKey="kb" title="🤖 Profesor Virtual — Bază de cunoștințe">
       <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 16 }}>
         Conținutul nou se indexează automat. Folosește „Reindexează tot" o singură dată după instalare
         sau dacă vrei să reconstruiești complet baza de cunoștințe.
@@ -96,7 +95,7 @@ export default function AIAdminPanel() {
 
       {error && <div style={{ marginTop: 14, padding: 12, background: '#fdecea', color: '#b71c1c', borderRadius: 8, fontSize: '.85rem' }}>⚠️ {error}</div>}
       {log && <pre style={{ marginTop: 14, padding: 12, background: '#f7f9fc', borderRadius: 8, fontSize: '.78rem', color: 'var(--text)', overflowX: 'auto', whiteSpace: 'pre-wrap' }}>{log}</pre>}
-    </div>
+    </Rolldown>
 
     <AIExerciseAgent box={box} />
     <AISEOAgent box={box} />

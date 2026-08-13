@@ -4,6 +4,32 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 13 august 2026 (4) — Admin cu secțiuni pliabile (rolldown) + robotul 🤖 în loc de tocă + datele publice supraviețuiesc ștergerii conturilor
+
+Trei schimbări cerute de admin:
+
+### 📂 Rolldown-uri în Admin → AI Tutor (`src/components/Rolldown.jsx` — NOU)
+Tab-ul AI din Admin crescuse foarte lung. Secțiunile mari sunt acum **pliabile** (închise implicit, cu săgeată ▶/▼):
+- **„🤖 Profesor Virtual — Bază de cunoștințe"** (`AIAdminPanel.jsx`);
+- **„🤖 Agent Claude — Generator de exerciții"** (`AIExerciseAgent.jsx`), iar ÎN el, ca subsecțiuni pliabile:
+  - **„📁 Exerciții încărcate de agent (N)"** — lista reeditabilă;
+  - **„🗓 Task-uri programate — agentul de exerciții"** (`AgentScheduledTasks.jsx`) — butonul „➕ Creează task programat" s-a mutat în interiorul secțiunii, ca formularul deschis să nu rămână niciodată ascuns.
+Detalii de implementare: conținutul rămâne **montat** și când secțiunea e închisă (`display:none`) — chat-ul agentului, exercițiul generat și formularele NU se pierd la pliere; starea deschis/închis se ține minte per secțiune în `localStorage` (`admin_rolldown:*`).
+
+### 🤖 Robotul agentului în loc de tocă (🎓 → 🤖)
+- `src/pages/Admin.jsx`: tab-ul din bara laterală „🎓 AI Tutor" → „**🤖 AI Tutor**";
+- `src/components/AIAdminPanel.jsx`: titlul „🎓 Profesor Virtual — Bază de cunoștințe" → „**🤖 Profesor Virtual — Bază de cunoștințe**" — aceeași figură de robot ca la agentul generator de exerciții.
+
+### 🛟 Datele publice rămân pe site după ștergerea conturilor (`supabase/pastreaza_date_publice.sql` — NOU, idempotent)
+Până acum, ștergerea unui cont (din Setări cont, de către admin sau prin curățarea automată a conturilor inactive) ștergea în CASCADĂ și **comentariile lui din forum**, **aprecierile** date și **scorurile la testele publice** — după modelul reparației `pastreaza_rezultate.sql`, acum:
+- `discussions`: coloană snapshot **`author_name`** (backfill din profiluri + trigger la INSERT care o completează automat), FK `user_id` → **ON DELETE SET NULL** — comentariul rămâne pe site cu numele autorului; `Discussions.jsx` afișează numele din snapshot când profilul nu mai există;
+- `discussion_likes`: FK → **SET NULL** — numărul de aprecieri nu mai scade când dispare un cont (UNIQUE-ul rămâne valid, NULL-urile sunt distincte în Postgres);
+- `ai_public_results`: coloană snapshot **`student_name`** + FK → **SET NULL** — autorul unui test public își păstrează statistica scorurilor; `api/ai-public.js` (action `record`) salvează numele elevului la fiecare scor, cu fallback dacă scriptul SQL nu a fost încă rulat;
+- `ai_public_library` era DEJA pregătită (SET NULL + `creator_name`) — scriptul doar completează numele lipsă și verifică defensiv legătura; materialele din `content` (inclusiv cele postate de agent), rezolvările și articolele nu au legături spre conturi, deci rămân oricum;
+- transparență: emailurile de avertizare/reamintire (`api/_lib/inactivity.js`) și dialogul de ștergere din `AccountSettings.jsx` spun explicit că datele publice rămân pe site, cu numele de la momentul publicării.
+
+**De rulat la instalare:** `supabase/pastreaza_date_publice.sql` în Supabase → SQL Editor (sigur de rulat repetat). `GHID_CONTURI_INACTIVE.md` actualizat.
+
 ## 13 august 2026 (3) — Limita funcțiilor ridicată la 800s (Vercel Pro/Fluid) + reamintirea marcajelor TPL — testele mari chiar au timp să se termine
 
 Diagnosticul „[stop=max_tokens, continuări=0, lungime=57232]” a arătat matematica exactă: modelul a scris ~57KB (tot bugetul de 30k tokeni) în ~230s, iar garda de timp a refuzat corect continuarea pentru că nu mai încăpea în limita de 300s. Munca totală pe acest task cere ~5 minute de generare — pe limita de 300s NU are cum să încapă, indiferent de optimizări. Adminul e pe **Vercel Pro**, deci:

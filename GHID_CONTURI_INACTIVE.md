@@ -7,8 +7,9 @@
 | **12 luni** fără autentificare | Contul primește un **e-mail de avertizare**: „autentifică-te în 30 de zile, altfel contul se șterge". Ștergerea este programată la +30 de zile. |
 | Cu **7 zile** înainte de termen | O **ultimă reamintire** pe e-mail. |
 | **Orice autentificare** între timp | Ștergerea se **anulează automat** (aplicația actualizează `last_active_at` și golește câmpurile `deletion_*`). |
-| Termenul **expiră** | Contul este **șters definitiv** (auth + toate datele, prin CASCADE). |
+| Termenul **expiră** | Contul este **șters definitiv** (auth + datele personale, prin CASCADE). |
 | Elev șters | **Rezultatele lui rămân la profesor/părinte**: apar în continuare în dashboard, marcate „cont șters", cu rezultate, stăpânirea subiectelor și temele din arhivă. Mentorul le poate **șterge definitiv** cu un buton. |
+| Orice cont șters | **Datele publice rămân pe site** (după rularea `supabase/pastreaza_date_publice.sql`): comentariile din forum (cu numele autorului salvat în comentariu), aprecierile, testele publicate în Biblioteca utilizatorilor și scorurile elevilor la ele. Doar legătura cu contul se golește (SET NULL). |
 
 **Nu se șterg niciodată automat:** adminii (`is_admin`) și abonații premium activi (`subscription_status = 'active'`).
 
@@ -19,6 +20,7 @@
 1. **SQL** — rulează `supabase/inactive_accounts.sql` în Supabase → SQL Editor → Run.
    - Adaugă pe `profiles`: `last_active_at` (cu backfill din ultima autentificare reală din `auth.users`), `deletion_warned_at`, `deletion_reminded_at`, `deletion_scheduled_at`.
    - Creează tabela `archived_student_results` (arhiva elevilor șterși, un rând per mentor+elev, RLS închis — acces doar prin server).
+   - Rulează și `supabase/pastreaza_date_publice.sql` (idempotent) — fără el, ștergerea unui cont șterge în CASCADĂ și comentariile lui din forum, aprecierile și scorurile la testele publice; cu el, acestea rămân pe site cu numele autorului salvat.
 2. **Deploy** — `git push` / deploy pe Vercel. Cron-ul nou este deja în `vercel.json`:
    `GET /api/account-cleanup?action=run` — zilnic la **06:00 UTC** (09:00 România vara).
 
