@@ -42,7 +42,7 @@ module.exports = async function handler(req, res) {
       review_start: reviewStart, simulare, set_style: setStyle,
       mentor_report: mentorReportAction, reset: resetProfile,
       coach, homework_check: homeworkCheck, homework_score: homeworkScore,
-      session_score: sessionScore, set_focus: setFocus,
+      session_score: sessionScore, set_focus: setFocus, set_exam_scope: setExamScope,
     };
     const fn = handlers[action];
     if (!fn) return res.status(400).json({ error: 'action invalid' });
@@ -62,6 +62,15 @@ function requireMeditatii(profile) {
 }
 
 const getMedProfile = (supa, userId) => med.getProfile(supa, userId);
+
+// PRIORITATEA din plan a unui elev: întâi pregătirea pentru LUCRARE (focus),
+// altfel capitolele SUBIECTELOR alese la pregătirea de examen (exam_scope) —
+// obiect în forma { chapter_ids } acceptată de med.nextChapter.
+function planPriority(medProfile) {
+  if (medProfile?.focus?.chapter_ids?.length) return medProfile.focus;
+  const ids = med.examScopeIds(medProfile, medProfile?.plan || {}, medProfile?.memory?.exam_scope);
+  return ids ? { chapter_ids: ids } : null;
+}
 const reconcileContentHomework = (supa, userId) => med.reconcileContentHomework(supa, userId);
 async function savePlan(supa, userId, plan) {
   await supa.from('ai_meditatii_profile').update({ plan }).eq('user_id', userId);
@@ -254,7 +263,7 @@ function coachSuggestions({ plan, dueReviews, pendingHw, openMistakes, medProfil
   if (dueReviews[0]) out.push({ kind: 'recapitulare', label: `🔁 Recapitulare: ${dueReviews[0].chapterTitle}`, reviewId: dueReviews[0].id, chapterTitle: dueReviews[0].chapterTitle });
   if (openMistakes[0]) out.push({ kind: 'remediere', label: '🩹 10 exerciții ca acela greșit', mistakeId: openMistakes[0].id });
   if (pendingHw[0]) out.push({ kind: 'tema', label: `📚 Tema: ${pendingHw[0].title}`, homeworkId: pendingHw[0].id });
-  const next = med.nextChapter(plan, medProfile?.focus);
+  const next = med.nextChapter(plan, planPriority(medProfile));
   if (next) {
     if (next.status === 'de_parcurs') {
       out.push({ kind: 'lectie', label: `📖 Teoria: ${next.title}`, chapterId: next.id });
@@ -394,8 +403,13 @@ function buildBriefing({ firstName, medProfile, plan, dueReviews, pendingHw, ope
     suggestions.push({ kind: 'tema', label: `📚 Tema: ${pendingHw[0].title}`, homeworkId: pendingHw[0].id });
     bits.push(`Ai și ${pendingHw.length === 1 ? 'o temă care te așteaptă' : pendingHw.length + ' teme care te așteaptă'}.`);
   }
+  // pregătirea pe SUBIECTELE examenului (doar Subiectul I / II / I+II)
+  const scope = medProfile.memory?.exam_scope || null;
+  if (!focus && scope && med.EXAM_SCOPES[scope] && medProfile.exam_target) {
+    bits.push(`Ne pregătim țintit: ${med.EXAM_SCOPES[scope]} — planul, simulările și explicațiile țin cont de asta (poți schimba oricând din „Astăzi").`);
+  }
   const focusActive = focus && focus.total > 0;
-  const next = med.nextChapter(plan, medProfile.focus);
+  const next = med.nextChapter(plan, planPriority(medProfile));
   const inFocus = focusActive && next && (medProfile.focus?.chapter_ids || []).includes(next.id);
   if (next) {
     if (next.status === 'de_parcurs') {
@@ -496,8 +510,9 @@ async function state(req, res, supa) {
       assessment: { score: medProfile.assessment?.score ?? null, maxScore: medProfile.assessment?.maxScore ?? null, gaps: medProfile.assessment?.gaps || [] },
     },
     plan: { ...plan, progress: med.planProgress(plan) },
-    nextChapter: med.nextChapter(plan, medProfile.focus),
+    nextChapter: med.nextChapter(plan, planPriority(medProfile)),
     focus,
+    examScope: medProfile.memory?.exam_scope || null,
     focusOptions: med.focusPool(medProfile, plan).map(({ id, title, group }) => ({ id, title, group })),
     dueReviews: dueReviews.map((r) => ({ ...r, chapterTitle: chapterTitles[r.chapter] || r.chapter })),
     homework: hw || [],
@@ -991,8 +1006,9 @@ async function remediation(req, res, supa) {
 // ═════════════════════════════════════════════════════════════════════════════
 async function pickAndAssignHomework(supa, userId, medProfile, { notify = true } = {}) {
   const plan = medProfile.plan || {};
-  // cu pregătire de lucrare activă, TEMA vine tot din capitolele lucrării
-  const chapter = med.nextChapter(plan, medProfile.focus) || (plan.chapters || [])[0] || null;
+  // tema urmează prioritatea elevului: capitolele lucrării (focus) sau ale
+  // subiectelor alese la pregătirea de examen (exam_scope)
+  const chapter = med.nextChapter(plan, planPriority(medProfile)) || (plan.chapters || [])[0] || null;
   const level = medProfile.level || 'mediu';
   const difficulty = level === 'incepator' ? 'ușor' : level === 'avansat' ? 'greu' : 'mediu';
   const dueAt = new Date(Date.now() + 3 * 86400000).toISOString();
@@ -1366,14 +1382,21 @@ async function simulare(req, res, supa) {
     .order('mastery', { ascending: true }).limit(4);
   const weakLine = (weak || []).map((w) => w.topic).filter(Boolean).join(', ');
 
+  // pregătirea pe SUBIECTELE alese (doar Subiectul I / II / I+II): simularea
+  // conține DOAR itemii subiectelor alese (nota de conținut din examScopeNote)
+  const scope = medProfile.memory?.exam_scope || null;
+  const scopeNote = scope ? med.examScopeNote(medProfile.exam_target, scope) : null;
+  const structura = scopeNote
+    ? `TOATE întrebările acoperă ${scopeNote} — nu include itemi din alte subiecte ale examenului`
+    : (isEN
+      ? 'structura: primele 6 întrebări de algebră (stil Subiectul I), următoarele 6 de geometrie (stil Subiectul al II-lea), toate grilă cu 4 variante'
+      : 'itemi reprezentativi pentru toate cele trei subiecte ale probei, de la accesibil la dificil');
   const { questions, provider, usage } = await med.genQuestions(supa, {
     category, chapter: isEN ? 'Simulare Evaluare Națională' : `Simulare Bacalaureat (${examType.replace('bac-', '')})`,
     topics: [], difficulty: 'mediu', count: isEN ? 12 : 9,
     purpose: 'simulare',
     styleNote: [
-      isEN
-        ? 'structura: primele 6 întrebări de algebră (stil Subiectul I), următoarele 6 de geometrie (stil Subiectul al II-lea), toate grilă cu 4 variante'
-        : 'itemi reprezentativi pentru toate cele trei subiecte ale probei, de la accesibil la dificil',
+      structura,
       weakLine ? `include obligatoriu itemi din punctele slabe ale elevului: ${weakLine}` : '',
       styleNoteOf(medProfile),
     ].filter(Boolean).join('; '),
@@ -1400,6 +1423,25 @@ async function setStyle(req, res, supa) {
   const memory = { ...(medProfile.memory || {}), styles: { ...(medProfile.memory?.styles || {}), preferred: style } };
   await saveMemory(supa, userId, memory);
   return res.status(200).json({ ok: true, preferred: style });
+}
+
+// ─── PREGĂTIREA PE SUBIECTELE EXAMENULUI: doar Subiectul I / II / I+II ───────
+// Body: { scope: 's1' | 's2' | 's1s2' | null }  (null/'toate' = tot examenul)
+// Se ține în memory.exam_scope (fără migrare SQL). Meditatorul adaptează:
+// planul (capitolele subiectelor alese au prioritate), simulările (doar
+// itemii subiectelor alese) și chatul (nota intră în context).
+async function setExamScope(req, res, supa) {
+  const userId = await ai.authUser(req, supa);
+  const profile = await ai.requireUser(supa, userId);
+  requireMeditatii(profile);
+  const medProfile = await getMedProfile(supa, userId);
+  if (!medProfile) return res.status(400).json({ error: 'Începe cu testul inițial.' });
+  if (!medProfile.exam_target) return res.status(400).json({ error: 'Alegerea subiectelor e pentru pregătirea de examen (Evaluarea Națională / BAC).' });
+  const raw = String(req.body?.scope || '').trim();
+  const scope = med.EXAM_SCOPES[raw] ? raw : null; // orice altceva = tot examenul
+  const memory = { ...(medProfile.memory || {}), exam_scope: scope };
+  await saveMemory(supa, userId, memory);
+  return res.status(200).json({ ok: true, examScope: scope, label: scope ? med.EXAM_SCOPES[scope] : 'tot examenul' });
 }
 
 // ─── PREGĂTIREA PENTRU LUCRARE/TEST (focus) — setare/renunțare oricând ───────

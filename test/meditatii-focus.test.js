@@ -98,3 +98,37 @@ test('focusPool: planul + programa + materia anului trecut, fără dubluri', () 
   const prev = pool.find((c) => c.id === 'c6-rapoarte');
   assert.ok(/anul trecut/.test(prev.group));
 });
+
+// ─── Pregătirea pe SUBIECTELE examenului (doar Subiectul I / II / I+II) ──────
+test('examScopeIds: EN separă algebra de geometrie; BAC separă algebra de analiză', () => {
+  const planEN = { chapters: [
+    { id: 'c8-calcul-algebric', title: 'Calcul algebric: formule și descompuneri', topics: ['formulele de calcul prescurtat'] },
+    { id: 'c8-functii', title: 'Funcții', topics: ['funcția liniară'] },
+    { id: 'c7-patrulatere', title: 'Patrulatere', topics: ['arii ale patrulaterelor'] },
+    { id: 'c8-corpuri', title: 'Corpuri geometrice: arii și volume', topics: ['prisma dreaptă'] },
+  ] };
+  const en = { grade: 8, exam_target: 'evaluare-nationala' };
+  assert.deepStrictEqual(med.examScopeIds(en, planEN, 's1'), ['c8-calcul-algebric', 'c8-functii']);
+  assert.deepStrictEqual(med.examScopeIds(en, planEN, 's2'), ['c7-patrulatere', 'c8-corpuri']);
+  assert.strictEqual(med.examScopeIds(en, planEN, 's1s2'), null);   // I+II = tot conținutul
+  assert.strictEqual(med.examScopeIds(en, planEN, 'invalid'), null);
+  assert.strictEqual(med.examScopeIds({ grade: 8 }, planEN, 's1'), null); // fără examen-țintă
+
+  const planBAC = { chapters: [
+    { id: 'c11-matrice', title: 'Matrice și determinanți', topics: [] },
+    { id: 'c11-derivate', title: 'Derivabilitate', topics: [] },
+    { id: 'c12-polinoame', title: 'Polinoame', topics: [] },
+    { id: 'c12-integrala', title: 'Integrala definită', topics: [] },
+  ] };
+  const bac = { grade: 12, exam_target: 'bac-mate-info' };
+  assert.deepStrictEqual(med.examScopeIds(bac, planBAC, 's2'), ['c11-matrice', 'c12-polinoame']);
+  assert.deepStrictEqual(med.examScopeIds(bac, planBAC, 's1s2'), ['c11-matrice', 'c12-polinoame']); // fără analiză
+  assert.strictEqual(med.examScopeIds(bac, planBAC, 's1'), null);   // Subiectul I = toată programa
+});
+
+test('examScopeNote: descrierea conținutului pe examen și alegere', () => {
+  assert.ok(/geometrie/i.test(med.examScopeNote('evaluare-nationala', 's2')));
+  assert.ok(/algebr/i.test(med.examScopeNote('evaluare-nationala', 's1')));
+  assert.ok(/analiz/i.test(med.examScopeNote('bac-mate-info', 's1s2')));
+  assert.strictEqual(med.examScopeNote('evaluare-nationala', 'nu-exista'), null);
+});

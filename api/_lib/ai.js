@@ -955,6 +955,18 @@ async function meditatiiMemory(supa, userId) {
       bits.push(`- Greșeli frecvente: ${errs.map(([k, v]) => `${labels[k] || k} (${v}×)`).join(', ')}.`);
     }
     if (p.memory?.styles?.preferred) bits.push(`- Stilul de explicație care funcționează cel mai bine la el: ${p.memory.styles.preferred}.`);
+    // pregătirea pentru LUCRARE/TEST (focus): capitolele + data — prioritizează-le
+    if (p.focus?.chapter_ids?.length) {
+      const titleOf = new Map((p.plan?.chapters || []).map((c) => [c.id, c.title]));
+      const names = p.focus.chapter_ids.map((id) => titleOf.get(id) || id).slice(0, 5).join('; ');
+      const kindRo = { lucrare: 'o lucrare/un test din capitole', lectii: 'un test din lecții', 'test-initial': 'testul inițial (materia anului trecut)' }[p.focus.kind] || 'un test';
+      bits.push(`- Se pregătește pentru ${kindRo}${p.focus.deadline ? `, cu data testului pe ${p.focus.deadline}` : ''}, din capitolele: ${names}${p.focus.chapter_ids.length > 5 ? '…' : ''} — prioritizează aceste capitole în recomandări și exerciții.${p.focus.custom ? ` Indicațiile lui: „${String(p.focus.custom).slice(0, 200)}".` : ''}`);
+    }
+    // pregătirea pe SUBIECTELE examenului (doar Subiectul I / II / I+II)
+    if (p.exam_target && p.memory?.exam_scope) {
+      const scopeRo = { s1: 'doar Subiectul I', s2: 'doar Subiectul al II-lea', s1s2: 'Subiectele I și II (fără al III-lea)' }[p.memory.exam_scope];
+      if (scopeRo) bits.push(`- La pregătirea de examen și-a ales: ${scopeRo} — adaptează explicațiile, exercițiile propuse și recomandările STRICT la subiectele alese (tipurile de itemi și conținuturile lor).`);
+    }
     if (p.streak_days > 1) bits.push(`- Serie de studiu: ${p.streak_days} zile consecutive (felicită-l când e cazul).`);
     if (p.last_study_date) {
       const days = Math.floor((Date.now() - new Date(p.last_study_date + 'T00:00:00').getTime()) / 86400000);

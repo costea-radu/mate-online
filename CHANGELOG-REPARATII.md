@@ -4,6 +4,22 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 14 august 2026 (3) — Meditații: data lucrării modificabilă + pregătire „doar Subiectul I / II / I+II" · Profesor: „alt capitol" scris liber + itemi grilă/redactare
+
+### 🎓 Contul de elev (Meditații cu AI)
+1. **Data lucrării se schimbă direct din bannerul 🎯** („Astăzi" → câmpul „📅 Data testului"): alegi altă dată și recapitularea se recalculează (zile rămase + ritm). Merge în continuare și din „✏️ Modifică" (formularul complet); ștergerea datei = recapitulare fără termen.
+2. **Pregătirea de examen pe SUBIECTE** — card nou în „Astăzi" (doar la elevii cu examen-țintă): „Tot examenul (implicit) / Doar Subiectul I / Doar Subiectul al II-lea / Subiectele I și II". Meditatorul se adaptează peste tot:
+   - **planul**: capitolele subiectelor alese au prioritate (EN: Subiectul I = aritmetică/algebră, Subiectul II = geometrie; BAC: Subiectul II = matrice/sisteme/structuri/polinoame, „I și II" = fără analiză) — inclusiv temele automate;
+   - **simulările generate**: DOAR itemii subiectelor alese (`examScopeNote` intră în prompt);
+   - **chatul meditatorului**: alegerea intră în memoria pedagogică (`_lib/ai.js → meditatiiMemory`), împreună cu pregătirea de lucrare (capitole + dată) — explicațiile și recomandările țin cont; briefingul o anunță. Când elevul e gata, „trece mai departe" schimbând alegerea oricând (se ține în `memory.exam_scope` — fără migrare SQL; acțiunea nouă `set_exam_scope`).
+
+### 👨‍🏫 Contul de profesor („Generează exerciții/teste interactive/PDF")
+3. **Câmp „Alt capitol, dacă lipsește din listă"** sub rolldown-ul de capitole (ca la pregătirea pentru lucrare a elevului): capitolul scris liber intră în ACEEAȘI restricție obligatorie de conținut ca cele bifate (se trimite ca al N-lea capitol; fără schimbări de server).
+4. **Tipul itemilor**: „🔀 Mixt (implicit) / 🔘 Doar grilă / ✍️ Cu redactarea răspunsului". Serverul (`qtype`) forțează tipul în prompt (grilă: toate cu 4 variante, distractori plauzibili; redactare: fără variante, `explanation` = redactarea model pas cu pas, afișată la barem — și în PDF), cu buget de tokeni mărit la redactare și filtrare blândă a itemilor de alt tip.
+
+Teste noi: `examScopeIds` (EN algebra/geometrie, BAC algebra/analiză) + `examScopeNote`. **Build + 158/158 teste trec.**
+---
+
 ## 14 august 2026 (2) — „Generează exerciții/teste interactive/PDF": alegi tipul, rezultatul și numărul de itemi
 
 Cererea adminului, la asistentul AI pentru profesori (tabul fost „🧩 Generează interactiv"):

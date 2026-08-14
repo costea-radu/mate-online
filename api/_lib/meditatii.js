@@ -349,6 +349,60 @@ function applyFocus({ profile, plan, focus }) {
   };
 }
 
+// ─── PREGĂTIREA PE SUBIECTELE EXAMENULUI (elevii cu examen-țintă) ───────────
+// Elevul poate restrânge pregătirea la „doar Subiectul I”, „doar Subiectul al
+// II-lea” sau „Subiectele I și II” (alegerea se ține în memory.exam_scope;
+// null/lipsă = tot examenul, ca până acum). Meditatorul adaptează: planul
+// (capitolele potrivite au prioritate), simulările (doar itemii subiectelor
+// alese) și chatul (nota de conținut intră în context).
+const EXAM_SCOPES = {
+  s1: 'doar Subiectul I',
+  s2: 'doar Subiectul al II-lea',
+  s1s2: 'Subiectele I și II',
+};
+
+// Ce ÎNSEAMNĂ alegerea, pe tip de examen — intră în prompturile de generare.
+function examScopeNote(examTarget, scope) {
+  if (!EXAM_SCOPES[scope]) return null;
+  const en = String(examTarget || '') === 'evaluare-nationala';
+  const map = en ? {
+    s1: 'DOAR Subiectul I al Evaluării Naționale: itemi GRILĂ de aritmetică și algebră (fără nicio problemă de geometrie)',
+    s2: 'DOAR Subiectul al II-lea al Evaluării Naționale: itemi GRILĂ de geometrie',
+    s1s2: 'Subiectele I și II ale Evaluării Naționale: itemi GRILĂ de algebră și geometrie — FĂRĂ Subiectul al III-lea (problemele cu rezolvare completă)',
+  } : {
+    s1: 'DOAR Subiectul I al Bacalaureatului: itemi scurți, accesibili, din toată programa',
+    s2: 'DOAR Subiectul al II-lea al Bacalaureatului: ALGEBRĂ — matrice, determinanți, sisteme, structuri algebrice, polinoame',
+    s1s2: 'Subiectele I și II ale Bacalaureatului — FĂRĂ Subiectul al III-lea (analiza matematică)',
+  };
+  return map[scope] || null;
+}
+
+// Capitolele din plan care corespund alegerii — folosite ca PRIORITATE în
+// plan (nextChapter), nu ca filtru dur. null = fără restricție (toate).
+const GEO_RE = /(geometri|unghi|triungh|patrulater|cerc|corp|spati|piramid|prism|cilindr|sfer|metrice|aseman|segment|arie|arii|perimetr|drepte)/;
+const BAC_S2 = new Set(['c11-matrice', 'c11-sisteme', 'c12-grupuri', 'c12-polinoame']);
+const BAC_S3 = new Set(['c11-limite-siruri', 'c11-limite-functii', 'c11-derivate', 'c11-grafic', 'c12-primitive', 'c12-integrala', 'c12-aplicatii']);
+function examScopeIds(profile, plan, scope) {
+  if (!EXAM_SCOPES[scope] || !profile?.exam_target) return null;
+  const ch = plan?.chapters || [];
+  if (!ch.length) return null;
+  const deacc = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const isGeo = (c) => GEO_RE.test(deacc(c.title + ' ' + (c.topics || []).join(' ')));
+  const en = profile.exam_target === 'evaluare-nationala';
+  let picked;
+  if (en) {
+    if (scope === 's1') picked = ch.filter((c) => !isGeo(c));        // algebră/aritmetică
+    else if (scope === 's2') picked = ch.filter((c) => isGeo(c));    // geometrie
+    else return null;                                                // I+II = tot conținutul (diferă doar stilul itemilor)
+  } else {
+    if (scope === 's2') picked = ch.filter((c) => BAC_S2.has(c.id)); // algebra Subiectului II
+    else if (scope === 's1s2') picked = ch.filter((c) => !BAC_S3.has(c.id)); // fără analiză
+    else return null;                                                // Subiectul I = toată programa
+  }
+  const ids = picked.map((c) => c.id);
+  return ids.length ? ids : null;
+}
+
 // Detaliile focusului pentru client (starea /meditatii): capitolele cu
 // statusul lor din plan, progresul, zilele rămase și ritmul necesar.
 function focusInfo(medProfile, plan) {
@@ -767,4 +821,6 @@ module.exports = {
   getProfile, reconcileContentHomework, buildMentorReport, clearHomeworkNotifications,
   // pregătirea pentru lucrare/test (focus) — vezi secțiunea de mai sus
   FOCUS_KINDS, cleanFocus, focusPool, applyFocus, focusInfo,
+  // pregătirea pe subiectele examenului (doar Subiectul I / II / I+II)
+  EXAM_SCOPES, examScopeNote, examScopeIds,
 };

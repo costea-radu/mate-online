@@ -553,6 +553,22 @@ export default function Meditatii() {
     await refresh();
     setFocusModal(false);
   });
+  // schimbarea rapidă a DATEI lucrării, direct din bannerul 🎯 (fără formular):
+  // păstrează tipul/capitolele/indicațiile, modifică doar data limită
+  const changeFocusDate = (newDate) => run('focus', async () => {
+    const f = st?.focus; if (!f) return;
+    await aiClient.meditatii({
+      action: 'set_focus', kind: f.kind,
+      chapterIds: (f.chapters || []).map((c) => c.id).filter((id) => !String(id).startsWith('custom-')),
+      custom: f.custom || '', deadline: newDate || null,
+    });
+    await refresh();
+  });
+  // pregătirea pe SUBIECTELE examenului: doar Subiectul I / II / I+II
+  const setExamScope = (scope) => run('focus', async () => {
+    await aiClient.meditatii({ action: 'set_exam_scope', scope: scope || null });
+    await refresh();
+  });
 
   const openLesson = (chapterId) => run('lesson', async () => {
     const r = await aiClient.meditatii({ action: 'lesson', chapterId });
@@ -793,7 +809,7 @@ export default function Meditatii() {
 
           {actionError && <div style={{ ...card, background: '#fff4e5', color: '#8a6d1a', borderColor: 'var(--gold)' }}>{actionError}</div>}
 
-          {tab === 'azi' && <TodayTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onReview={startReview} onHomeworkTab={() => setTab('teme')} onEnd={endSession} onFocusOpen={() => setFocusModal(true)} onFocusTest={() => startSimulare(false, true)} />}
+          {tab === 'azi' && <TodayTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onReview={startReview} onHomeworkTab={() => setTab('teme')} onEnd={endSession} onFocusOpen={() => setFocusModal(true)} onFocusTest={() => startSimulare(false, true)} onFocusDate={changeFocusDate} onExamScope={setExamScope} />}
           {tab === 'plan' && <PlanTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onFocusOpen={() => setFocusModal(true)} onReset={async () => { if (window.confirm('Sigur reluăm totul de la zero? Planul și evaluarea inițială se șterg.')) { await aiClient.meditatii({ action: 'reset' }); await refresh(); } }} />}
           {tab === 'teme' && <HomeworkTab st={st} busy={busy} onOpen={openHomework} onAsk={askHomework} />}
           {tab === 'recapitulari' && <ReviewsTab st={st} busy={busy} onReview={startReview} />}
@@ -905,9 +921,12 @@ function LessonView({ data, onClose, onExercises, onEnd, busyLabel }) {
   );
 }
 
-function TodayTab({ st, busy, onLesson, onExercises, onReview, onHomeworkTab, onEnd, onFocusOpen, onFocusTest }) {
+function TodayTab({ st, busy, onLesson, onExercises, onReview, onHomeworkTab, onEnd, onFocusOpen, onFocusTest, onFocusDate, onExamScope }) {
   const next = st.nextChapter;
   const focus = st.focus;
+  const isEN = st.profile?.examTarget === 'evaluare-nationala';
+  const today = new Date();
+  const minDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   return (
     <div>
       {/* 🎯 PREGĂTIREA PENTRU LUCRARE/TEST — recapitulare pe capitolele alese,
@@ -943,6 +962,14 @@ function TodayTab({ st, busy, onLesson, onExercises, onReview, onHomeworkTab, on
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flexDirection: 'column' }}>
+              {/* data lucrării se schimbă DIRECT de aici (fără formular) */}
+              <label style={{ fontSize: '.72rem', fontWeight: 700, color: '#8e44ad', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                📅 Data testului
+                <input type="date" value={focus.deadline || ''} min={minDate} disabled={!!busy}
+                  onChange={(e) => onFocusDate(e.target.value)}
+                  title="Schimbă data lucrării — recapitularea se recalculează după ea"
+                  style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '6px 9px', fontSize: '.82rem', fontFamily: 'inherit', color: 'var(--navy)' }} />
+              </label>
               <button className="btn btn-sm btn-primary" disabled={!!busy} onClick={onFocusTest} title="Test generat DOAR din capitolele lucrării">
                 🧩 Test de verificare
               </button>
@@ -956,6 +983,24 @@ function TodayTab({ st, busy, onLesson, onExercises, onReview, onHomeworkTab, on
             🎯 <strong>Ai un test sau o lucrare în curând?</strong> Alege capitolele și data — îți fac planul de recapitulare pentru el.
           </span>
           <button className="btn btn-outline btn-sm" disabled={!!busy} onClick={onFocusOpen}>Pregătește-mă pentru lucrare/test</button>
+        </div>
+      )}
+
+      {/* Pregătirea pe SUBIECTELE examenului: doar Subiectul I / II / I+II —
+          planul, simulările și explicațiile meditatorului se adaptează */}
+      {st.profile?.examTarget && (
+        <div style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderColor: st.examScope ? 'var(--gold)' : 'var(--border)', background: st.examScope ? 'rgba(232,185,49,.05)' : '#fff' }}>
+          <span style={{ fontSize: '.88rem', color: 'var(--text)', flex: '1 1 300px' }}>
+            📚 <strong>Pregătirea pentru {EXAM_LABELS[st.profile.examTarget] || 'examen'}:</strong> poți să te concentrezi întâi doar pe anumite subiecte —
+            planul, simulările și explicațiile meditatorului se adaptează; când ești gata, treci mai departe (schimbi alegerea de aici oricând).
+          </span>
+          <select value={st.examScope || ''} disabled={!!busy} onChange={(e) => onExamScope(e.target.value)}
+            style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '8px 11px', fontSize: '.86rem', fontFamily: 'inherit', color: 'var(--navy)', fontWeight: 600 }}>
+            <option value="">Tot examenul (toate subiectele)</option>
+            <option value="s1">{isEN ? 'Doar Subiectul I (grilă · algebră)' : 'Doar Subiectul I (itemi scurți)'}</option>
+            <option value="s2">{isEN ? 'Doar Subiectul al II-lea (grilă · geometrie)' : 'Doar Subiectul al II-lea (algebră)'}</option>
+            <option value="s1s2">{isEN ? 'Subiectele I și II (fără Subiectul III)' : 'Subiectele I și II (fără analiză)'}</option>
+          </select>
         </div>
       )}
 

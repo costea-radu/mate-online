@@ -402,10 +402,19 @@ function InteractiveTab() {
   const [output, setOutput] = useState('interactive'); // 'interactive' | 'pdf'
   const [itemKind, setItemKind] = useState('exercitiu'); // 'exercitiu' | 'test'
   const [itemCount, setItemCount] = useState(10);        // itemii testului (4–24)
+  const [qtype, setQtype] = useState('mixt');            // itemii: 'mixt' | 'grila' | 'redactare'
+  const [chapterExtra, setChapterExtra] = useState('');  // alt capitol, scris liber (lipsă din listă)
   const chapterOptions = capitoleForCategory(category);
   // la schimbarea categoriei păstrăm doar capitolele care există și în noua listă
   const pickCategory = (c) => { setCategory(c); setChapters((sel) => sel.filter((id) => capitoleForCategory(c).some((o) => o.id === id))); };
-  const chapterTitles = () => chapters.map((id) => chapterOptions.find((o) => o.id === id)?.title).filter(Boolean);
+  // capitolele trimise serverului: cele bifate din listă + capitolul scris
+  // liber (intră în aceeași restricție obligatorie de conținut)
+  const chapterTitles = () => {
+    const out = chapters.map((id) => chapterOptions.find((o) => o.id === id)?.title).filter(Boolean);
+    const extra = chapterExtra.trim().split(/\r?\n/)[0].replace(/\s+/g, ' ').trim().slice(0, 140);
+    if (extra) out.push(extra);
+    return out;
+  };
   const [questions, setQuestions] = useState(null); // listă structurată
   const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(false);
@@ -450,7 +459,7 @@ function InteractiveTab() {
     try {
       const res = await aiClient.generateInteractive({
         category: category || null, topic, difficulty, dataMode, chapters: chapterTitles(),
-        kind: itemKind, count: itemKind === 'test' ? itemCount : null,
+        kind: itemKind, count: itemKind === 'test' ? itemCount : null, qtype,
       });
       const qs = res.questions || [];
       const t = res.title || (itemKind === 'test' ? 'Test' : 'Exercițiu interactiv');
@@ -537,6 +546,14 @@ function InteractiveTab() {
               <button style={seg(output === 'pdf')} onClick={() => setOutput('pdf')} title="Document tipăribil, ca la «Generează subiect examen»: variantă elev + variantă cu barem">📄 PDF</button>
             </div>
           </div>
+          <div>
+            <div style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 6 }}>Itemii (tipul problemelor)</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button style={seg(qtype === 'mixt')} onClick={() => setQtype('mixt')} title="Amestec: majoritatea grilă + câteva cu răspuns liber">🔀 Mixt</button>
+              <button style={seg(qtype === 'grila')} onClick={() => setQtype('grila')} title="Toate problemele cu 4 variante de răspuns (a, b, c, d)">🔘 Doar grilă</button>
+              <button style={seg(qtype === 'redactare')} onClick={() => setQtype('redactare')} title="Toate problemele cu redactarea răspunsului (fără variante) — rezolvarea model apare la barem">✍️ Cu redactarea răspunsului</button>
+            </div>
+          </div>
         </div>
         {output === 'pdf' && (
           <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: -8, marginBottom: 12 }}>
@@ -555,13 +572,16 @@ function InteractiveTab() {
             </select>
           </label>
         </div>
-        {/* Capitolele programei (rolldown cu selecție multiplă): întrebările vin
-            DOAR din capitolele alese; capitolele lipsă se scriu în câmpul de
-            subiect + instrucțiuni de mai jos. */}
+        {/* Capitolele programei (rolldown cu selecție multiplă) + câmpul liber
+            „alt capitol” (ca la pregătirea pentru lucrare a elevului):
+            întrebările vin DOAR din capitolele alese/scrise. */}
         <CapitolePicker
           options={chapterOptions} selected={chapters} onChange={setChapters}
+          extraText={chapterExtra} onExtraText={setChapterExtra}
           label="Din anumite capitole (opțional) — gol = potrivit categoriei"
-          hint='Un capitol care lipsește din listă (ex. o lecție anume) se scrie în câmpul „Subiect + instrucțiuni” de mai jos.'
+          extraLabel="Alt capitol, dacă lipsește din listă (opțional) — scrie-l aici"
+          extraPlaceholder='ex: „Ecuații cu modul” · „Media aritmetică ponderată” · „Probleme cu procente și dobânzi”'
+          hint='Capitolul scris liber intră în aceeași restricție de conținut ca cele bifate. Alte indicații pentru AI (număr de întrebări, stil, restricții) se scriu în „Subiect + instrucțiuni” de mai jos.'
         />
         {/* Subiect + instrucțiuni: prompt amplu pentru AI — temă, număr de
             întrebări, tipuri de itemi, restricții etc. (nu doar un cuvânt-cheie). */}

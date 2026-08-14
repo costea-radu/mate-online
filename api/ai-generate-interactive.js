@@ -42,6 +42,8 @@ module.exports = async function handler(req, res) {
     const countReq = parseInt(req.body?.count, 10);
     const count = kind === 'test' ? Math.min(24, Math.max(4, Number.isFinite(countReq) ? countReq : 10)) : null;
     const maxItems = kind === 'test' ? count : 8;
+    // tipul itemilor: mixt (implicit) / doar grilă / doar cu redactarea răspunsului
+    const qtype = ['grila', 'redactare'].includes(req.body?.qtype) ? req.body.qtype : 'mixt';
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) ai.requirePremium(profile);
     const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
@@ -140,8 +142,12 @@ Răspunde STRICT cu un OBIECT JSON valid (fără text în plus, fără markdown)
   ]
 }
 Reguli:
-- Majoritatea întrebărilor cu "options" (grilă, exact 4 variante) și "answer" = INDEXUL variantei corecte (0,1,2,3). DISTRIBUIE răspunsul corect aleatoriu între cele 4 poziții (nu mereu 0).
-- Poți face și întrebări cu răspuns liber: OMITE "options" și pune "answer" ca text (ex: "12" sau "x=3").
+${qtype === 'grila'
+    ? `- TOATE întrebările sunt GRILĂ: "options" cu exact 4 variante și "answer" = INDEXUL variantei corecte (0,1,2,3). DISTRIBUIE răspunsul corect aleatoriu între cele 4 poziții (nu mereu 0). Variantele greșite trebuie să fie plauzibile (greșeli tipice de calcul). NU face nicio întrebare cu răspuns liber.`
+    : qtype === 'redactare'
+      ? `- TOATE întrebările sunt CU REDACTAREA RĂSPUNSULUI (fără variante): OMITE complet "options"; "answer" = răspunsul final, scurt, ca text (ex: "12", "x=3", "aria = 24 cm²"); "explanation" = REDACTAREA MODEL a rezolvării, pas cu pas, cum ar scrie-o elevul pe foaie (ea apare la barem). NU face nicio întrebare grilă.`
+      : `- Majoritatea întrebărilor cu "options" (grilă, exact 4 variante) și "answer" = INDEXUL variantei corecte (0,1,2,3). DISTRIBUIE răspunsul corect aleatoriu între cele 4 poziții (nu mereu 0).
+- Poți face și întrebări cu răspuns liber: OMITE "options" și pune "answer" ca text (ex: "12" sau "x=3").`}
 - Respectă cât mai fidel exercițiile-model (tip, stil, dificultate), schimbând doar minim datele.
 - Subiect: ${topicShort || 'potrivit categoriei'}${category ? ' · categoria ' + category : ''}. Dificultate: ${difficulty}.
 - Folosește „·" (\\cdot în LaTeX) pentru înmulțire, NICIODATĂ × sau litera x.
@@ -155,8 +161,11 @@ ${topicFull}
 """` : ''}`;
 
     // bugetul de tokeni crește cu numărul de itemi (un item ≈ 350–450 tokeni cu
-    // opțiuni + explicație); la 3200, testele de 15–24 itemi s-ar trunchia
-    const maxTokens = maxItems <= 8 ? 3200 : Math.min(10000, 3200 + (maxItems - 8) * 450);
+    // opțiuni + explicație); la 3200, testele de 15–24 itemi s-ar trunchia.
+    // Redactările model (qtype='redactare') sunt mai lungi → buget mai mare.
+    const perItem = qtype === 'redactare' ? 600 : 450;
+    const base = qtype === 'redactare' ? 4000 : 3200;
+    const maxTokens = maxItems <= 8 ? base : Math.min(12000, base + (maxItems - 8) * perItem);
     const { text, usage } = await ai.chat({
       system,
       messages: [{ role: 'user', content: `Generează obiectul JSON cu ${kind === 'test' ? `TESTUL de ${count} itemi` : 'întrebările'} acum${topicFull ? ', respectând întocmai subiectul și instrucțiunile profesorului' : ''}. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
@@ -191,6 +200,13 @@ ${topicFull}
     });
     if (!questions.length) {
       return res.status(502).json({ error: 'Generatorul nu a produs întrebări valide. Mai încearcă o dată.' });
+    }
+    // tipul de itemi cerut strict (doar grilă / doar redactare): păstrăm doar
+    // itemii de tipul cerut — DAR nu aruncăm tot setul pentru 1-2 scăpări ale
+    // modelului (filtrăm doar dacă rămân destui)
+    if (qtype !== 'mixt') {
+      const wanted = questions.filter((q) => (qtype === 'grila' ? Array.isArray(q.options) : !q.options));
+      if (wanted.length >= Math.min(3, questions.length)) questions = wanted;
     }
     // un „test" cu prea puține întrebări valide față de cerere = răspuns
     // trunchiat — mai bine eroare cu retry decât un test pe jumătate

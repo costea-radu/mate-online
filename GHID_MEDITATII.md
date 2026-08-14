@@ -295,6 +295,20 @@ banner, plan, simulări) + `src/components/CapitolePicker.jsx` și
 `src/lib/capitole.js` (rolldown-ul de capitole, partajat cu generatoarele
 profesorului). Teste: `test/meditatii-focus.test.js`.
 
+## 🎯 Runda 8 — data lucrării modificabilă + pregătirea pe subiectele examenului
+
+1. **Data lucrării** se schimbă direct din bannerul 🎯 („Astăzi") — câmpul „📅
+   Data testului"; recapitularea (zile rămase, ritm) se recalculează. Merge și
+   din „✏️ Modifică".
+2. **Pregătirea de examen pe subiecte** (elevii cu EN/BAC): în „Astăzi", elevul
+   alege „Tot examenul / Doar Subiectul I / Doar Subiectul al II-lea /
+   Subiectele I și II". Planul dă prioritate capitolelor subiectelor alese
+   (EN: I=algebră, II=geometrie; BAC: II=algebră, I+II=fără analiză),
+   simulările generate conțin doar itemii subiectelor alese, iar chatul
+   meditatorului primește alegerea în memoria pedagogică. Se ține în
+   `memory.exam_scope` — fără migrare SQL. Când elevul stăpânește subiectele
+   alese, trece mai departe schimbând alegerea (oricând).
+
 ## 🛠️ Depanare
 
 | Simptom | Cauză / soluție |
