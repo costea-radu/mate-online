@@ -4,6 +4,24 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 14 august 2026 (5) — Lint-urile Supabase din raportul de azi: recidiva explicată și reparată la sursă
+
+Raportul Advisors (CSV, 14 august): 2 warninguri.
+
+### 1) 🔁 „Function Search Path Mutable" pe `med_profile_touch` — RECIDIVĂ, cu cauza găsită
+Mai fusese reparat pe 7 august prin ALTER (fix_security_lints_aug2026.sql), dar warningul a REVENIT — și ar fi revenit la nesfârșit: meditatii_schema.sql definește funcția cu `create or replace` FĂRĂ search_path, iar fiecare re-rulare a schemei (adică fiecare update la Meditații) reseta setarea pusă de ALTER. Reparat la sursă, în trei locuri:
+- **supabase/meditatii_schema.sql** — `set search_path = public` chiar în definiția funcției `med_profile_touch`; orice re-rulare viitoare păstrează setarea;
+- **supabase/ai_tutor_schema.sql** — la fel pentru `aik_tsv_update` (singura altă funcție din fișiere cu aceeași capcană — prevenim înainte să apară în raport);
+- **supabase/fix_lints_14aug2026.sql (NOU — DE RULAT o dată în SQL Editor)** — ALTER pe ambele funcții, ca baza de date să fie corectă ACUM, fără re-rularea schemelor; include interogarea de verificare.
+
+Verificat pe un Postgres 16 curat: definițiile patchate compilează, `proconfig` arată `search_path=public` pe ambele funcții, iar triggerul `trg_med_profile_touch` chiar setează `updated_at` după schimbare.
+
+### 2) 🔒 „Leaked Password Protection Disabled" — nu se poate rezolva pe planul Free
+Verificarea parolelor compromise (HaveIBeenPwned) există DOAR pe planul Pro sau mai sus; pe Free comutatorul nu poate fi activat, deci warningul rămâne afișat orice am face. Intră pe lista scurtă „la trecerea pe Pro": Authentication → Sign In / Up → Password Protection → „Prevent use of leaked passwords" — un click, fără cod.
+
+Fișiere: supabase/meditatii_schema.sql, supabase/ai_tutor_schema.sql, supabase/fix_lints_14aug2026.sql (nou). Zero schimbări în codul aplicației — build/teste neafectate (161/161, ca la intrarea (4)).
+---
+
 ## 14 august 2026 (4) — Pregătire pentru trafic mare: singura grijă la creștere rămâne planul Supabase
 
 Obiectivul cererii: arhitectura să țină un număr mare de utilizatori fără alte intervenții în cod — când vine traficul, singurul pas rămas să fie upgrade-ul de plan în Supabase (Free → Pro → tier de compute mai mare), adică o setare plătită, nu o rearhitecturare. Patru schimbări:

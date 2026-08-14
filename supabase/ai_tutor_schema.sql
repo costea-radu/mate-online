@@ -39,11 +39,13 @@ create index if not exists idx_aik_tsv       on public.ai_knowledge using gin(ts
 create index if not exists idx_aik_embedding on public.ai_knowledge using hnsw (embedding vector_cosine_ops);
 
 -- tsvector se actualizează automat (limba 'simple' funcționează bine și pentru română)
+-- search_path fixat în definiție (aceeași capcană ca la med_profile_touch:
+-- un create or replace fără setare ar reseta-o la re-rularea fișierului)
 create or replace function public.aik_tsv_update() returns trigger as $$
 begin
   new.tsv := to_tsvector('simple', coalesce(new.title,'') || ' ' || coalesce(new.content,''));
   return new;
-end$$ language plpgsql;
+end$$ language plpgsql set search_path = public;
 
 drop trigger if exists trg_aik_tsv on public.ai_knowledge;
 create trigger trg_aik_tsv

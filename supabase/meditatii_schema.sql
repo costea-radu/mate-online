@@ -127,11 +127,14 @@ create index if not exists idx_medrev_due on public.ai_meditatii_reviews(user_id
 -- =====================================================================
 -- 6. updated_at automat pe profil
 -- =====================================================================
+-- search_path fixat chiar în definiție: lint-ul „Function Search Path Mutable"
+-- revenea pentru că ALTER-ul din fix_security_lints_aug2026.sql era ANULAT la
+-- fiecare re-rulare a acestui fișier (create or replace resetează setarea).
 create or replace function public.med_profile_touch() returns trigger as $$
 begin
   new.updated_at := now();
   return new;
-end$$ language plpgsql;
+end$$ language plpgsql set search_path = public;
 
 drop trigger if exists trg_med_profile_touch on public.ai_meditatii_profile;
 create trigger trg_med_profile_touch
