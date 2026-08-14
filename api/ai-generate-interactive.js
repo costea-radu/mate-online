@@ -30,6 +30,9 @@ module.exports = async function handler(req, res) {
   try {
     const userId = await ai.authUser(req, supa);
     const { category = null, topic = '', difficulty = 'mediu', dataMode = 'modify' } = req.body || {};
+    // capitolele alese de profesor (titluri) — întrebările vin DOAR din ele
+    const chapters = (Array.isArray(req.body?.chapters) ? req.body.chapters : [])
+      .map((c) => String(c || '').replace(/\s+/g, ' ').trim().slice(0, 140)).filter(Boolean).slice(0, 12);
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) ai.requirePremium(profile);
     const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
@@ -42,7 +45,7 @@ module.exports = async function handler(req, res) {
     const topicFull = String(topic || '').trim().slice(0, 2500);
     const topicShort = (topicFull.split(/\r?\n/)[0] || '').replace(/\s+/g, ' ').trim().slice(0, 120);
 
-    const q = [topicShort, category, 'exercițiu matematică'].filter(Boolean).join(' ');
+    const q = [topicShort, chapters.join(' '), category, 'exercițiu matematică'].filter(Boolean).join(' ');
     const docs = await ai.retrieve(supa, { query: q, category, allowPremium: true, k: 5, prefer: 'exercise' });
     const examples = ai.contextBlock(docs);
 
@@ -129,7 +132,8 @@ Reguli:
 - Respectă cât mai fidel exercițiile-model (tip, stil, dificultate), schimbând doar minim datele.
 - Subiect: ${topicShort || 'potrivit categoriei'}${category ? ' · categoria ' + category : ''}. Dificultate: ${difficulty}.
 - Folosește „·" (\\cdot în LaTeX) pentru înmulțire, NICIODATĂ × sau litera x.
-- Variază: la cereri repetate pentru același model, generează exerciții DIFERITE (alte valori, alt context).
+- Variază: la cereri repetate pentru același model, generează exerciții DIFERITE (alte valori, alt context).${chapters.length ? `
+- CAPITOLELE CERUTE DE PROFESOR (restricție OBLIGATORIE de conținut): ${chapters.join(' · ')}. TOATE întrebările provin EXCLUSIV din aceste capitole — dacă o sursă sau planul indică un exercițiu din alt capitol, alege/compune în loc unul din capitolele cerute, în același stil.` : ''}
 - IMPORTANT JSON valid: scrie fiecare backslash din LaTeX de DOUĂ ori. Ex: pentru fracție "$\\\\frac{1}{2}$", radical "$\\\\sqrt{9}$".${topicFull ? `
 
 SUBIECT + INSTRUCȚIUNI DE LA PROFESOR — au PRIORITATE față de regulile de stil și de plan de mai sus (temă, tipuri de întrebări, număr de întrebări, dificultate, restricții asupra numerelor, contexte etc.); respectă-le întocmai, păstrând DOAR formatul JSON cerut:
@@ -175,8 +179,8 @@ ${topicFull}
 
     return res.status(200).json({
       questions,
-      title: `Exercițiu interactiv · ${topicShort || category || 'matematică'}`,
-      topic: topicShort || null,
+      title: `Exercițiu interactiv · ${topicShort || chapters[0] || category || 'matematică'}`,
+      topic: topicShort || chapters[0] || null,
     });
   } catch (err) {
     console.error('ai-generate-interactive error:', err);

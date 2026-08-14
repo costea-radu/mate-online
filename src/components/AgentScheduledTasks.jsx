@@ -58,6 +58,34 @@ function nextRunText(t) {
   return '—';
 }
 
+// Sănătatea cronului orar: verde dacă a bătut în ultimele ~75 min, altfel
+// avertisment cu pașii de verificat în Vercel. Fără heartbeat deloc → cronul
+// nu a rulat NICIODATĂ de la acest deploy (sau nu s-a făcut deploy încă).
+function CronHealth({ cron, hasTasks }) {
+  if (!hasTasks && !cron) return null;
+  const at = cron?.at ? new Date(cron.at) : null;
+  const mins = at ? Math.round((Date.now() - at.getTime()) / 60000) : null;
+  const fresh = mins != null && mins <= 75;
+  if (fresh) {
+    return (
+      <div style={{ marginBottom: 10, fontSize: '.78rem', color: '#1e7e34' }}>
+        🫀 Cronul orar funcționează — ultimul tic: acum {mins} min
+        {typeof cron.due === 'number' ? ` (task-uri scadente atunci: ${cron.due})` : ''}.
+      </div>
+    );
+  }
+  return (
+    <div style={{ marginBottom: 10, padding: 12, background: '#fdecea', color: '#b71c1c', borderRadius: 8, fontSize: '.82rem', lineHeight: 1.55 }}>
+      🫀 <strong>Cronul orar nu a mai „bătut”{at ? ` de ${mins >= 120 ? Math.round(mins / 60) + ' ore' : mins + ' min'}` : ' niciodată (de la acest deploy)'}</strong> — de aceea task-urile nu rulează singure.
+      După acest update, fă <strong>deploy</strong> (git push) și verifică în Vercel: <strong>Settings → Cron Jobs</strong> să fie
+      Enabled (butonul „Enable Cron Jobs” dacă apar dezactivate) și deployul să fie pe <strong>Production</strong>.
+      Recomandat: adaugă variabila <strong>CRON_SECRET</strong> (un șir aleatoriu, fără caractere speciale) în Vercel → Settings →
+      Environment Variables — Vercel o trimite automat la fiecare invocare de cron, iar serverul o acceptă de acum. Ora exactă a
+      ticurilor se vede în Vercel → Settings → Cron Jobs → „View Logs”.
+    </div>
+  );
+}
+
 function statusChip(status) {
   if (status === 'posted') return <span style={chip('rgba(39,174,96,.12)', '#1e7e34')}>✅ publicat pe site</span>;
   if (status === 'pending_review') return <span style={chip('#fff4e5', '#8a6d00')}>🕓 așteaptă aprobare</span>;
@@ -68,6 +96,7 @@ function statusChip(status) {
 
 export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
   const [tasks, setTasks] = useState([]);
+  const [cron, setCron] = useState(null);      // heartbeat-ul cronului orar (agent-cron)
   const [warning, setWarning] = useState(null);
   const [error, setError] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -112,6 +141,7 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
     try {
       const r = await aiClient.agentTasks({ action: 'list' });
       setTasks(r.tasks || []);
+      setCron(r.cron || null);
       setWarning(r.warning || null);
     } catch (e) { setError(e.message); }
   }
@@ -279,6 +309,7 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
       </div>
 
       {warning && <div style={{ marginBottom: 10, padding: 12, background: '#fff7e0', color: '#8a6d00', borderRadius: 8, fontSize: '.85rem' }}>🔧 {warning}</div>}
+      <CronHealth cron={cron} hasTasks={tasks.length > 0} />
       {error && <div style={{ marginBottom: 10, padding: 12, background: '#fdecea', color: '#b71c1c', borderRadius: 8, fontSize: '.85rem' }}>⚠️ {error}</div>}
       {msg && <div style={{ marginBottom: 10, padding: 12, background: 'rgba(39,174,96,.1)', color: '#1e7e34', borderRadius: 8, fontSize: '.85rem' }}>{msg}</div>}
 

@@ -23,7 +23,7 @@ module.exports = async function handler(req, res) {
 
   // ── CRON zilnic: recapitulări scadente + teme restante + teme noi ──────────
   if (req.method === 'GET') {
-    const cronOk = req.headers['x-vercel-cron'] || (process.env.AI_CRON_SECRET && req.query.secret === process.env.AI_CRON_SECRET);
+    const cronOk = ai.isCronRequest(req); // x-vercel-cron(-schedule) / vercel-cron UA / Bearer CRON_SECRET / ?secret=
     if (req.query.action === 'cron' && cronOk) {
       try { return res.status(200).json(await cronScan(supa)); }
       catch (e) { console.error('meditatii cron:', e); return res.status(500).json({ error: e.message }); }
@@ -42,7 +42,7 @@ module.exports = async function handler(req, res) {
       review_start: reviewStart, simulare, set_style: setStyle,
       mentor_report: mentorReportAction, reset: resetProfile,
       coach, homework_check: homeworkCheck, homework_score: homeworkScore,
-      session_score: sessionScore,
+      session_score: sessionScore, set_focus: setFocus,
     };
     const fn = handlers[action];
     if (!fn) return res.status(400).json({ error: 'action invalid' });
@@ -254,7 +254,7 @@ function coachSuggestions({ plan, dueReviews, pendingHw, openMistakes, medProfil
   if (dueReviews[0]) out.push({ kind: 'recapitulare', label: `🔁 Recapitulare: ${dueReviews[0].chapterTitle}`, reviewId: dueReviews[0].id, chapterTitle: dueReviews[0].chapterTitle });
   if (openMistakes[0]) out.push({ kind: 'remediere', label: '🩹 10 exerciții ca acela greșit', mistakeId: openMistakes[0].id });
   if (pendingHw[0]) out.push({ kind: 'tema', label: `📚 Tema: ${pendingHw[0].title}`, homeworkId: pendingHw[0].id });
-  const next = med.nextChapter(plan);
+  const next = med.nextChapter(plan, medProfile?.focus);
   if (next) {
     if (next.status === 'de_parcurs') {
       out.push({ kind: 'lectie', label: `📖 Teoria: ${next.title}`, chapterId: next.id });
@@ -264,6 +264,10 @@ function coachSuggestions({ plan, dueReviews, pendingHw, openMistakes, medProfil
       out.push({ kind: 'exercitii', label: `✍️ Exerciții: ${next.title}`, chapterId: next.id });
       out.push({ kind: 'plan', label: '📋 Alege alt capitol' });
     }
+  }
+  // pregătirea pentru lucrare activă → test de verificare din capitolele ei
+  if (medProfile?.focus?.chapter_ids?.length) {
+    out.push({ kind: 'simulare', focus: true, label: '🧩 Test de verificare · capitolele lucrării' });
   }
   // elevii cu examen: un TEST INTERACTIV din site (cerința 1, runda 5) —
   // acțiunea „simulare" deschide întâi testele din site, apoi generează
@@ -344,10 +348,22 @@ async function homeworkCheck(req, res, supa) {
 // Mesaj de întâmpinare construit determinist din stare (fără LLM = instant):
 // continuitate („au trecut X zile"), ce s-a lucrat data trecută, unde a
 // greșit, și PAȘII propuși în ordine — elevul poate da „Mai departe".
-function buildBriefing({ firstName, medProfile, plan, dueReviews, pendingHw, openMistakes, sessions }) {
+function buildBriefing({ firstName, medProfile, plan, dueReviews, pendingHw, openMistakes, sessions, focus = null }) {
   const bits = [];
   const suggestions = [];
   const hello = firstName ? `Bun venit, ${firstName}!` : 'Bun venit!';
+
+  // PREGĂTIREA PENTRU LUCRARE/TEST (focus) — profesorul o pune pe primul loc:
+  // numără zilele până la data limită și ține recapitularea pe capitolele alese
+  if (focus && focus.total) {
+    const ce = focus.kind === 'test-initial' ? 'testul inițial' : focus.kind === 'lectii' ? 'testul din lecții' : 'lucrare';
+    const timp = focus.deadline
+      ? (focus.overdue ? ' (data testului a trecut — o poți încheia din „Planul meu")'
+        : focus.daysLeft === 0 ? ' — TESTUL E AZI! Repetăm esențialul, fără panică'
+        : ` — mai sunt ${focus.daysLeft} ${focus.daysLeft === 1 ? 'zi' : 'zile'}`)
+      : '';
+    bits.push(`Ne pregătim pentru ${ce}${timp}: ${focus.done}/${focus.total} capitole recapitulate${focus.perWeek ? ` (ritmul necesar: ~${focus.perWeek} capitole/săptămână)` : ''}.`);
+  }
 
   // continuitatea: câte zile au trecut de la ultima activitate
   const last = medProfile.last_study_date ? new Date(medProfile.last_study_date + 'T00:00:00') : null;
@@ -378,10 +394,12 @@ function buildBriefing({ firstName, medProfile, plan, dueReviews, pendingHw, ope
     suggestions.push({ kind: 'tema', label: `📚 Tema: ${pendingHw[0].title}`, homeworkId: pendingHw[0].id });
     bits.push(`Ai și ${pendingHw.length === 1 ? 'o temă care te așteaptă' : pendingHw.length + ' teme care te așteaptă'}.`);
   }
-  const next = med.nextChapter(plan);
+  const focusActive = focus && focus.total > 0;
+  const next = med.nextChapter(plan, medProfile.focus);
+  const inFocus = focusActive && next && (medProfile.focus?.chapter_ids || []).includes(next.id);
   if (next) {
     if (next.status === 'de_parcurs') {
-      bits.push(`În plan urmează „${next.title}" — începem cu teoria, apoi exersăm.`);
+      bits.push(`${inFocus ? 'Din capitolele lucrării urmează' : 'În plan urmează'} „${next.title}" — începem cu teoria, apoi exersăm.`);
       suggestions.push({ kind: 'lectie', label: `📖 Teoria: ${next.title}`, chapterId: next.id });
       // sare peste teorie dacă o știe deja (cerința 2, runda 5)
       suggestions.push({ kind: 'exercitii', label: '✍️ Știu teoria — direct la exerciții', chapterId: next.id });
@@ -394,6 +412,10 @@ function buildBriefing({ firstName, medProfile, plan, dueReviews, pendingHw, ope
   } else {
     bits.push('Ai parcurs tot planul — acum ne antrenăm pentru examen cu simulări.');
     suggestions.push({ kind: 'simulare', label: '🎯 Simulare de examen' });
+  }
+  // cu pregătire de lucrare activă: un TEST DE VERIFICARE doar din capitolele ei
+  if (focusActive) {
+    suggestions.push({ kind: 'simulare', focus: true, label: '🧩 Test de verificare · capitolele lucrării' });
   }
   // elevii cu examen au mereu la îndemână un TEST din site (cerința 1, runda 5)
   if (medProfile.exam_target && next) {
@@ -457,8 +479,10 @@ async function state(req, res, supa) {
     const { data: acc } = await supa.from('profiles').select('full_name').eq('id', userId).single();
     firstName = (acc?.full_name || '').trim().split(/\s+/)[0] || null;
   } catch { /* fără nume */ }
+  // pregătirea pentru lucrare/test (focus) + lista de capitole a formularului
+  const focus = med.focusInfo(medProfile, plan);
   const briefing = buildBriefing({
-    firstName, medProfile, plan,
+    firstName, medProfile, plan, focus,
     dueReviews: dueWithTitles, pendingHw, openMistakes: mistakes || [], sessions: sessions || [],
   });
 
@@ -472,7 +496,9 @@ async function state(req, res, supa) {
       assessment: { score: medProfile.assessment?.score ?? null, maxScore: medProfile.assessment?.maxScore ?? null, gaps: medProfile.assessment?.gaps || [] },
     },
     plan: { ...plan, progress: med.planProgress(plan) },
-    nextChapter: med.nextChapter(plan),
+    nextChapter: med.nextChapter(plan, medProfile.focus),
+    focus,
+    focusOptions: med.focusPool(medProfile, plan).map(({ id, title, group }) => ({ id, title, group })),
     dueReviews: dueReviews.map((r) => ({ ...r, chapterTitle: chapterTitles[r.chapter] || r.chapter })),
     homework: hw || [],
     pendingHomework: pendingHw.length,
@@ -495,28 +521,48 @@ async function setup(req, res, supa) {
   const grade = Math.min(12, Math.max(5, parseInt(req.body?.grade, 10) || 8));
   const rawTarget = String(req.body?.examTarget || '').trim();
   const examTarget = ['evaluare-nationala', 'bac-mate-info', 'bac-stiinte', 'bac-tehnologic'].includes(rawTarget) ? rawTarget : null;
+  // pregătirea pentru lucrare/test (opțională, aleasă din formularul de înscriere)
+  const focus = med.cleanFocus(req.body?.focus);
 
-  const { error: upErr } = await supa.from('ai_meditatii_profile').upsert({
+  const row = {
     user_id: userId, grade, exam_target: examTarget, level: null,
-    assessment: {}, plan: {}, memory: {},
-  }, { onConflict: 'user_id' });
+    assessment: {}, plan: {}, memory: {}, focus,
+  };
+  let { error: upErr } = await supa.from('ai_meditatii_profile').upsert(row, { onConflict: 'user_id' });
+  if (upErr && /focus/i.test(upErr.message || '')) {
+    // instalare fără coloana `focus` (migrarea meditatii_focus.sql nerulată):
+    // înscrierea NU se blochează — doar pregătirea de lucrare rămâne inactivă
+    delete row.focus;
+    ({ error: upErr } = await supa.from('ai_meditatii_profile').upsert(row, { onConflict: 'user_id' }));
+    console.warn('meditatii setup: coloana focus lipsește — rulează supabase/meditatii_focus.sql');
+  }
   if (upErr) return res.status(500).json({ error: upErr.message });
 
   const medProfile = { grade, exam_target: examTarget };
   const chapters = med.curriculumFor(medProfile);
-  const chaptersSpec = chapters.map((c) => `- ${c.id}: ${c.title}`).join('\n');
+  // cu pregătire pentru lucrare/test: TESTUL INIȚIAL se dă din capitolele alese
+  // (planul complet se construiește oricum după corectare)
+  const pool = med.focusPool(medProfile, { chapters: [] });
+  const focusIds = new Set(focus?.chapter_ids || []);
+  let assessChapters = focusIds.size ? pool.filter((c) => focusIds.has(c.id)) : [];
+  if (!assessChapters.length && focus?.kind === 'test-initial' && grade > 5) {
+    assessChapters = med.CURRICULUM[grade - 1] || [];
+  }
+  if (!assessChapters.length) assessChapters = chapters;
+  const chaptersSpec = assessChapters.map((c) => `- ${c.id}: ${c.title}`).join('\n');
   const category = med.categoryFor(medProfile);
 
   const { questions, provider, usage } = await med.genQuestions(supa, {
     category, purpose: 'evaluare', count: 12, chaptersSpec,
-    topics: chapters.slice(0, 6).flatMap((c) => c.topics.slice(0, 2)),
+    topics: assessChapters.slice(0, 6).flatMap((c) => (c.topics || [c.title]).slice(0, 2)),
+    styleNote: focus?.custom ? `elevul se pregătește pentru: ${focus.custom.slice(0, 200)}` : null,
   });
   await ai.logUsage(supa, userId, 'ai-meditatii:setup', usage || {});
   if (!questions.length) return res.status(502).json({ error: 'Testul inițial nu a putut fi generat. Mai încearcă o dată.' });
 
   // fiecare întrebare trebuie să aparțină unui capitol valid (altfel prima potrivire)
-  const validIds = new Set(chapters.map((c) => c.id));
-  questions.forEach((q, i) => { if (!validIds.has(q.chapter)) q.chapter = chapters[Math.floor(i / Math.max(1, questions.length / chapters.length)) % chapters.length].id; });
+  const validIds = new Set(assessChapters.map((c) => c.id));
+  questions.forEach((q, i) => { if (!validIds.has(q.chapter)) q.chapter = assessChapters[Math.floor(i / Math.max(1, questions.length / assessChapters.length)) % assessChapters.length].id; });
 
   const { data: sess, error: sErr } = await supa.from('ai_meditatii_sessions').insert({
     user_id: userId, kind: 'evaluare', status: 'activa',
@@ -554,6 +600,9 @@ async function assessmentSubmit(req, res, supa) {
   const medProfile0 = await getMedProfile(supa, userId);
   const chapters = med.curriculumFor(medProfile0);
   const titles = {}; chapters.forEach((c) => { titles[c.id] = c.title; });
+  // titlurile capitolelor din afara programei planului (ex. „test inițial” pe
+  // materia anului trecut) vin din pool-ul de focus
+  med.focusPool(medProfile0, medProfile0.plan || { chapters: [] }).forEach((c) => { if (!titles[c.id]) titles[c.id] = c.title; });
   const gaps = Object.entries(byChapter)
     .filter(([, v]) => v.total > 0 && v.correct / v.total < 0.5)
     .map(([id, v]) => ({ chapter: id, title: titles[id] || id, correct: v.correct, total: v.total }));
@@ -563,7 +612,16 @@ async function assessmentSubmit(req, res, supa) {
   // TOATĂ teoria din site intră în plan: rubricile „Capitole" de la
   // Evaluare Națională / BAC + capitolele claselor acoperite de plan
   const siteRows = await med.siteChaptersFor(supa, med.siteChapterCategoriesFor(medProfile0));
-  const plan = med.buildPlan({ ...medProfile0, level }, assessment, siteRows);
+  let plan = med.buildPlan({ ...medProfile0, level }, assessment, siteRows);
+  // pregătirea pentru lucrare/test aleasă la înscriere: capitolele ei intră în
+  // plan (inclusiv materia anului trecut / capitolul scris liber) și primesc
+  // prioritate prin nextChapter(plan, focus)
+  let focusPatch = {};
+  if (medProfile0.focus) {
+    const applied = med.applyFocus({ profile: medProfile0, plan, focus: medProfile0.focus });
+    plan = applied.plan;
+    focusPatch = { focus: applied.focus };
+  }
 
   // memoria pedagogică + streak + timp
   const wrong = graded.results.filter((r) => !r.correct);
@@ -577,7 +635,7 @@ async function assessmentSubmit(req, res, supa) {
 
   const streak = med.bumpStreak(medProfile0);
   await supa.from('ai_meditatii_profile').update({
-    level, assessment, plan,
+    level, assessment, plan, ...focusPatch,
     memory: { ...(medProfile0.memory || {}), errorTypes },
     streak_days: streak.streak_days, last_study_date: streak.last_study_date,
     total_seconds: (medProfile0.total_seconds || 0) + Math.max(0, parseInt(durationSec, 10) || 0),
@@ -885,7 +943,9 @@ async function submitSet(req, res, supa) {
 
   // părinții asociați află că s-a lucrat azi (dedup: o dată pe zi)
   const kindLabels = { exercitii: 'exerciții', remediere: 'exerciții de remediere', recapitulare: 'o recapitulare', simulare: 'o simulare de examen', tema: 'o temă' };
-  await notifyParents(supa, userId, `A rezolvat ${kindLabels[sess.kind] || 'un set'}${sess.topic ? ` la „${sess.topic}"` : ''}: ${graded.correct}/${graded.total} (${Math.round(graded.pct * 100)}%).`);
+  const setLabel = sess.kind === 'simulare' && (sess.topic === 'lucrare' || sess.payload?.focusTest)
+    ? 'un test de verificare pentru lucrare' : (kindLabels[sess.kind] || 'un set');
+  await notifyParents(supa, userId, `A rezolvat ${setLabel}${sess.topic && sess.topic !== 'lucrare' ? ` la „${sess.topic}"` : ''}: ${graded.correct}/${graded.total} (${Math.round(graded.pct * 100)}%).`);
 
   return res.status(200).json({
     score: graded.correct, maxScore: graded.total, pct: Math.round(graded.pct * 100),
@@ -931,7 +991,8 @@ async function remediation(req, res, supa) {
 // ═════════════════════════════════════════════════════════════════════════════
 async function pickAndAssignHomework(supa, userId, medProfile, { notify = true } = {}) {
   const plan = medProfile.plan || {};
-  const chapter = med.nextChapter(plan) || (plan.chapters || [])[0] || null;
+  // cu pregătire de lucrare activă, TEMA vine tot din capitolele lucrării
+  const chapter = med.nextChapter(plan, medProfile.focus) || (plan.chapters || [])[0] || null;
   const level = medProfile.level || 'mediu';
   const difficulty = level === 'incepator' ? 'ușor' : level === 'avansat' ? 'greu' : 'mediu';
   const dueAt = new Date(Date.now() + 3 * 86400000).toISOString();
@@ -1197,6 +1258,60 @@ async function simulare(req, res, supa) {
 
   const medProfile = await getMedProfile(supa, userId);
   if (!medProfile) return res.status(400).json({ error: 'Începe cu testul inițial.' });
+
+  // ── TEST DE VERIFICARE din capitolele PREGĂTIRII PENTRU LUCRARE (focus) ────
+  // (nu simulare de examen): întrebările vin DOAR din capitolele alese de elev;
+  // site-first pe materialele care se potrivesc capitolelor, apoi generare.
+  const focus = medProfile.focus;
+  if (req.body?.focus && focus?.chapter_ids?.length) {
+    const fInfo = med.focusInfo(medProfile, medProfile.plan || {});
+    const fTopics = (fInfo?.chapters || []).map((c) => c.title).slice(0, 24);
+    const classCat = med.classCategory(medProfile);
+    if (!req.body?.forceGenerate) {
+      const used = await usedContentIds(supa, userId);
+      const site = await med.siteInteractiveFor(supa, {
+        userId, categories: [classCat, med.categoryFor(medProfile)],
+        topics: fTopics, limit: 1, minMatch: true, excludeIds: used,
+      });
+      if (site.length) {
+        const s = site[0];
+        const { data: sess, error: sErr } = await supa.from('ai_meditatii_sessions').insert({
+          user_id: userId, kind: 'simulare', topic: 'lucrare', status: 'activa',
+          payload: { contentId: s.id, siteTitle: s.title, focusTest: true, site: true },
+        }).select('id').single();
+        if (!sErr && sess) {
+          return res.status(200).json({
+            sessionId: sess.id, examType: 'lucrare', focusTest: true,
+            siteTest: { id: s.id, title: s.title, url: `/exercitiu?id=${s.id}&medSesId=${sess.id}`, is_free: s.is_free },
+          });
+        }
+      }
+    }
+    // punctele slabe DIN capitolele lucrării intră obligatoriu în test
+    const { data: weakF } = await supa.from('ai_skill_mastery')
+      .select('topic, mastery').eq('user_id', userId).lt('mastery', 0.6)
+      .order('mastery', { ascending: true }).limit(6);
+    const weakLine = (weakF || []).map((w) => w.topic).filter(Boolean).slice(0, 4).join(', ');
+    const { questions, provider, usage } = await med.genQuestions(supa, {
+      category: classCat, chapter: 'Lucrare de verificare',
+      topics: fTopics, difficulty: 'mediu', count: 10, purpose: 'simulare',
+      styleNote: [
+        `test de verificare (lucrare la clasă) STRICT din capitolele: ${fTopics.join('; ')} — nicio întrebare din alte capitole`,
+        focus.custom ? `indicațiile elevului: ${focus.custom.slice(0, 300)}` : '',
+        weakLine ? `dacă se potrivesc capitolelor, include itemi din punctele slabe: ${weakLine}` : '',
+        styleNoteOf(medProfile),
+      ].filter(Boolean).join('; '),
+    });
+    await ai.logUsage(supa, userId, 'ai-meditatii:simulare', usage || {});
+    if (!questions.length) return res.status(502).json({ error: 'Testul de verificare nu a putut fi generat. Mai încearcă o dată.' });
+    const { data: sess, error } = await supa.from('ai_meditatii_sessions').insert({
+      user_id: userId, kind: 'simulare', topic: 'lucrare', status: 'activa',
+      payload: { questions, provider, focusTest: true },
+    }).select('id').single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ sessionId: sess.id, examType: 'lucrare', focusTest: true, questions: sanitize(questions) });
+  }
+
   const examType = ['evaluare-nationala', 'bac-mate-info', 'bac-stiinte', 'bac-tehnologic'].includes(req.body?.examType)
     ? req.body.examType : med.examTypeFor(medProfile);
   const isEN = examType === 'evaluare-nationala';
@@ -1285,6 +1400,44 @@ async function setStyle(req, res, supa) {
   const memory = { ...(medProfile.memory || {}), styles: { ...(medProfile.memory?.styles || {}), preferred: style } };
   await saveMemory(supa, userId, memory);
   return res.status(200).json({ ok: true, preferred: style });
+}
+
+// ─── PREGĂTIREA PENTRU LUCRARE/TEST (focus) — setare/renunțare oricând ───────
+// Body: { kind: 'lucrare'|'lectii'|'test-initial'|'examen'|null,
+//         chapterIds: [..], custom, deadline: 'YYYY-MM-DD' }
+// kind='examen' sau null → focusul se ȘTERGE (examenul final = toată materia,
+// ca până acum). Capitolele alese care nu sunt în plan (materia anului trecut,
+// capitolul scris liber) se ADAUGĂ în plan; nu se șterge nimic din plan.
+async function setFocus(req, res, supa) {
+  const userId = await ai.authUser(req, supa);
+  const profile = await ai.requireUser(supa, userId);
+  requireMeditatii(profile);
+  const medProfile = await getMedProfile(supa, userId);
+  if (!medProfile) return res.status(400).json({ error: 'Începe cu testul inițial.' });
+  if (!('focus' in medProfile)) {
+    return res.status(400).json({ error: 'Pregătirea pentru lucrări cere o mică actualizare a bazei de date: rulează supabase/meditatii_focus.sql în Supabase → SQL Editor (o singură dată).' });
+  }
+
+  const cleaned = med.cleanFocus(req.body || {});
+  if (!cleaned) {
+    // renunțare / examen final → fără focus (planul întreg rămâne neatins)
+    const { error } = await supa.from('ai_meditatii_profile').update({ focus: null }).eq('user_id', userId);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ ok: true, focus: null });
+  }
+
+  const plan0 = medProfile.plan || { chapters: [] };
+  const { plan, focus } = med.applyFocus({ profile: medProfile, plan: plan0, focus: cleaned });
+  if (!focus.chapter_ids.length && focus.kind !== 'lucrare') {
+    return res.status(400).json({ error: 'Alege cel puțin un capitol din listă sau scrie capitolul în câmpul liber.' });
+  }
+  const { error } = await supa.from('ai_meditatii_profile').update({ plan, focus }).eq('user_id', userId);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.status(200).json({
+    ok: true,
+    focus: med.focusInfo({ ...medProfile, focus }, plan),
+    plan: { ...plan, progress: med.planProgress(plan) },
+  });
 }
 
 // resetul profilului (reia evaluarea de la zero) — șterge TOT ce ține de

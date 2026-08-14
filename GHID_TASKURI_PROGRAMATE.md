@@ -161,6 +161,31 @@ vrei cândva gateway-ul, se schimbă doar URL-ul și cheia în acel fișier.
 
 ## Depanare
 
+- **„Task-urile nu rulează singure — merge doar ▶️ Rulează acum” (reparat
+  14 august):** cauza era AUTORIZAREA cronului. Toate rutele-cron verificau
+  DOAR headerul `x-vercel-cron`, pe care Vercel nu îl mai trimite garantat la
+  invocările de cron — fiecare tic orar primea 403 „Neautorizat”, deci
+  task-urile nu rulau niciodată singure (la fel și cronurile SEO / social /
+  notificări / meditații). Verificarea partajată nouă (`api/_lib/http.js →
+  isCronRequest`) acceptă TOATE semnalele legitime: headerul documentat azi
+  `x-vercel-cron-schedule`, vechiul `x-vercel-cron` (retrocompatibil),
+  user-agent-ul `vercel-cron/…`, `Authorization: Bearer CRON_SECRET` (mecanismul
+  oficial Vercel) și `?secret=AI_CRON_SECRET`. **După deploy, recomandat:**
+  adaugă în Vercel → Settings → Environment Variables variabila
+  **`CRON_SECRET`** (șir aleatoriu, minim 16 caractere, FĂRĂ caractere
+  speciale) — Vercel o trimite automat la fiecare invocare de cron, iar
+  serverul o acceptă de-acum; e plasa de siguranță independentă de headere.
+- **🫀 Bătaia de inimă a cronului:** panoul „Task-uri programate” arată acum
+  dacă cronul orar chiar rulează („ultimul tic: acum X min”). Cronul scrie la
+  fiecare tic un mic JSON în Storage (`content-files/agent-formats/_cron-heartbeat.json`
+  — fără migrare SQL). Dacă panoul arată roșu că nu a bătut niciodată /
+  de multe ore, problema e la Vercel, nu la task-uri — verifică în ordinea:
+  (1) s-a făcut deploy (git push) pe **Production**; (2) Vercel → Settings →
+  **Cron Jobs**: lista conține `/api/agent-cron?action=run` și cronurile sunt
+  **Enabled** (buton „Enable Cron Jobs” dacă au fost oprite); (3) „View Logs”
+  la cron arată invocările și codul de răspuns; (4) `CRON_SECRET` nu conține
+  caractere invalide pentru un header. Test manual oricând:
+  `/api/agent-cron?action=run&secret=AI_CRON_SECRET`.
 - Panoul afișează „Tabelul agent_tasks lipsește" → rulează
   `supabase/agent_tasks.sql`.
 - Task-ul nu a rulat la ora aleasă → verifică-l ÎNTÂI că e 🟢 pornit (un task

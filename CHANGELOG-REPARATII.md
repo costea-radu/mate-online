@@ -4,6 +4,29 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 14 august 2026 — Cronurile chiar RULEAZĂ (403 reparat, cu heartbeat) + teste pe capitole (profesor) + pregătire pentru lucrări cu dată limită (elev)
+
+### 1) 🕖 Task-urile programate nu rulau singure — cauza REALĂ: cronul primea 403 la fiecare tic
+Simptomul raportat („nu rulează singure deloc — nimic în istoric, niciun email; merge doar ▶️ Rulează acum”) nu venea din logica de scadență, ci din AUTORIZARE: toate cele 8 rute-cron acceptau doar headerul `x-vercel-cron`, pe care Vercel NU îl mai trimite garantat la invocări (documentația actuală: headerul e `x-vercel-cron-schedule`, iar mecanismul oficial de securizare e `Authorization: Bearer CRON_SECRET`). Fiecare tic orar era deci respins cu „Neautorizat” — de aceea nici recuperarea de 6 ore din 6 august nu avea ce recupera. Afectate în tăcere și: SEO (snapshot/autorun/monthly), social (publish/metrics), ai-ingest, ai-notify, account-cleanup, cronul meditațiilor.
+- **`api/_lib/http.js` → `isCronRequest(req)`** (nou, partajat; expus și prin `_lib/ai.js`): acceptă `x-vercel-cron-schedule` / `x-vercel-cron` (retrocompatibil) / user-agent `vercel-cron/…` / `Authorization: Bearer CRON_SECRET sau AI_CRON_SECRET` / `?secret=AI_CRON_SECRET`. Toate rutele-cron folosesc acum această verificare unică.
+- **🫀 Heartbeat:** `agent-cron` scrie la fiecare tic un JSON mic în Storage (`content-files/agent-formats/_cron-heartbeat.json` — fără migrare SQL); panoul „Task-uri programate” îl afișează: verde „ultimul tic: acum X min”, sau roșu cu pașii de verificat în Vercel (Production, Cron Jobs Enabled, CRON_SECRET fără caractere speciale, View Logs) când cronul nu bate.
+- **Recomandat după deploy:** adaugă env `CRON_SECRET` (șir aleatoriu ≥16 caractere) în Vercel — Vercel îl trimite automat la invocările de cron; serverul îl acceptă de-acum.
+- `test/http.test.js`: 2 teste noi pe toate semnalele acceptate/refuzate.
+
+### 2) 📘 Generarea de teste DIN ANUMITE CAPITOLE (contul de profesor)
+La „Generează subiect examen” (PDF) și „Generează interactiv” din Profesor Virtual apare un ROLLDOWN cu capitolele programei (grupate pe clase: EN → clasele 5–8, BAC → 9–12 după profil, categoriile de clasă → programa clasei), cu selecție multiplă (etichete cu ✕) + câmpul liber existent pentru alt capitol / alte indicații pentru AI.
+- **`src/lib/capitole.js`** (nou): capitolele programei pe clase, GENERAT MECANIC din `api/_lib/meditatii.js → CURRICULUM` (id-uri identice cu serverul); **`src/components/CapitolePicker.jsx`** (nou): rolldown + etichete + câmp liber, refolosit și la meditații.
+- **`api/ai-exam.js` + `api/ai-generate-interactive.js`**: primesc `chapters` (titluri, max 12) — capitolele intră în căutarea exemplelor-model și devin RESTRICȚIE OBLIGATORIE de conținut în prompt, cu prioritate peste prescripțiile tematice per item (structura oficială, punctajele și numărul de itemi rămân neatinse). La subiectele PDF, selecția de capitole funcționează la generarea cu AI („modifică numerele”); combinarea exactă fără AI folosește în continuare subiectele întregi (decupaj vectorial — nu se poate filtra pe capitole).
+
+### 3) 🎯 Meditații: PREGĂTIRE PENTRU LUCRĂRI/TESTE din anumite capitole sau toată clasa, cu DATĂ LIMITĂ (contul de elev)
+Elevul se poate pregăti și pentru testele de la școală, nu doar pentru examen: tipul testului (**lucrare/test din capitole · test din lecții · test inițial — materia anului trecut**; „lucrare” fără selecție = toată clasa), ROLLDOWN cu capitole (programa clasei + anul trecut + capitolele din site/plan), câmp liber pentru capitol lipsă / alte indicații și **data testului**. Planul de recapitulare ține cont de toate: capitolele testului au prioritate (briefing/coach/pasul zilei), cele lipsă se ADAUGĂ în plan, bannerul 🎯 din „Astăzi” arată progresul, zilele rămase și ritmul necesar (~capitole/săptămână), testul inițial de la înscriere se dă din capitolele alese, iar „🧩 Test de verificare” generează un test DOAR din ele (site-first). **Pentru examenul final nu se schimbă nimic: planul rămâne întreaga materie, ca până acum.**
+- Server: `api/_lib/meditatii.js` (`FOCUS_KINDS`/`cleanFocus`/`focusPool`/`applyFocus`/`focusInfo` + prioritatea din `nextChapter`), `api/ai-meditatii.js` (acțiunea nouă `set_focus`, setup/assessment cu focus, testul de verificare în `simulare`, briefing + coach). Client: `src/pages/Meditatii.jsx` (FocusFields în SetupWizard, FocusModal, banner „Astăzi”, marcaje 🎯 în plan, buton în Simulări, chip în Hero).
+- **De rulat la instalare:** `supabase/meditatii_focus.sql` (idempotent; inclus și în `meditatii_schema.sql`). Fără migrare, înscrierea și restul meditațiilor merg neschimbate — doar `set_focus` cere scriptul, cu mesaj clar.
+- `test/meditatii-focus.test.js` (nou): 7 teste — validare, aplicare pe plan (anul trecut / capitol liber / toată clasa), prioritate `nextChapter`, progres + ritm.
+
+**Build-ul trece (`vite build`), 156/156 teste trec (`npm test`), `node --check` pe toate rutele editate.**
+---
+
 ## 13 august 2026 (5) — Lint Supabase: funcțiile SECURITY DEFINER din „păstrează datele publice” nu mai sunt apelabile prin API
 
 Linterul Supabase a semnalat (0028/0029) că cele trei funcții noi din `pastreaza_date_publice.sql` — `display_name_of(uuid)`, `discussions_fill_author()`, `pubres_fill_student()` — erau apelabile prin PostgREST (`/rest/v1/rpc/...`) de `anon` și `authenticated`, fiindcă Postgres dă implicit `EXECUTE` tuturor. Practic oricine ar fi putut afla numele afișabil al oricărui cont după UUID. Scriptul are acum **`REVOKE EXECUTE ... FROM public, anon, authenticated`** după fiecare funcție (rămâne doar proprietarul).

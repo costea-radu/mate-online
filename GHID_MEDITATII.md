@@ -251,10 +251,55 @@ la epuizare — iar TOT ce lucrează elevul se înregistrează și se vede.**
    „Progres AI" din Rezultate elevi arată doar media (fără titlurile lecțiilor) —
    detaliile pe subiecte rămân la Raport AI → „Subiecte după dificultate".
 
+## 🎯 Runda 7 — pregătirea pentru LUCRĂRI și TESTE (nu doar examen)
+
+Elevul se poate pregăti cu meditațiile și pentru **lucrările/testele de la
+școală**, din anumite capitole sau toată clasa — nu doar pentru examenul final.
+
+**Instalare:** rulează o dată `supabase/meditatii_focus.sql` în Supabase →
+SQL Editor (adaugă coloana `focus` pe profilul de meditații; idempotent —
+inclus și în `meditatii_schema.sql` pentru instalările noi).
+
+**Cum funcționează (elev):**
+1. **Unde:** la înscriere (secțiunea „🎯 Am un test / o lucrare în curând”) sau
+   oricând după aceea — butonul „🎯 Pregătire pentru lucrare/test” din tab-urile
+   „Astăzi” / „Planul meu”.
+2. **Ce alege:** tipul testului — **lucrare/test din capitole**, **test din
+   lecții** (lecțiile se scriu în câmpul liber) sau **test inițial** (materia
+   anului trecut; fără selecție = tot anul trecut) — apoi **capitolele** dintr-un
+   rolldown (programa clasei + materia anului trecut + capitolele din site/plan),
+   un **câmp liber** pentru un capitol care lipsește din listă sau alte
+   indicații și **data testului** (până când se face recapitularea).
+   „Lucrare” fără capitole alese = **toată clasa**.
+3. **Planul de recapitulare ține cont de ele:** capitolele testului au
+   PRIORITATE în plan (profesorul le propune primele — briefing, coach, pasul
+   zilei), cele care nu erau în plan (anul trecut / capitol scris liber) se
+   ADAUGĂ automat, iar bannerul 🎯 din „Astăzi” arată progresul
+   (N/M capitole), zilele rămase și **ritmul necesar** (~capitole/săptămână)
+   ca recapitularea să se termine până la dată.
+4. **Testul inițial** de la înscriere se dă din capitolele alese (dacă există),
+   ca lacunele găsite să fie exact pe materia testului.
+5. **„🧩 Test de verificare”** (banner + tab-ul Simulări + butonul din chat):
+   un test DOAR din capitolele pregătirii — întâi un test potrivit din site
+   (site-first), apoi generat; rezultatul intră în plan/rapoarte ca orice set.
+6. **Examenul final rămâne neschimbat:** pentru EN/BAC nu se setează nimic —
+   planul de recapitulare rămâne întreaga materie, ca până acum („renunță la
+   pregătire” face același lucru). Pregătirea de lucrare se poate folosi și în
+   paralel cu planul de examen (ex. elev de a 8-a cu EN + teză pe 2 capitole).
+
+Server: `api/_lib/meditatii.js` (`cleanFocus` / `applyFocus` / `focusInfo` /
+`focusPool` + prioritatea din `nextChapter`), `api/ai-meditatii.js` (acțiunea
+`set_focus`, setup/assessment cu focus, testul de verificare în `simulare`,
+briefing/coach). Client: `src/pages/Meditatii.jsx` (FocusFields/FocusModal,
+banner, plan, simulări) + `src/components/CapitolePicker.jsx` și
+`src/lib/capitole.js` (rolldown-ul de capitole, partajat cu generatoarele
+profesorului). Teste: `test/meditatii-focus.test.js`.
+
 ## 🛠️ Depanare
 
 | Simptom | Cauză / soluție |
 |---|---|
+| „Pregătirea pentru lucrări cere o mică actualizare a bazei de date” | Rulează `supabase/meditatii_focus.sql` (o singură dată). Fără el, restul meditațiilor merge normal — doar pregătirea de lucrare e inactivă. |
 | „Meditațiile fac parte din abonament" | Contul nu are abonament activ — comportament intenționat. |
 | Testul inițial nu se generează | Verifică `ANTHROPIC_API_KEY` sau `OPENAI_API_KEY` în Vercel; vezi logurile funcției `ai-meditatii`. |
 | Tabelele lipsesc / erori 500 la `state` | Rulează `supabase/meditatii_schema.sql`. |

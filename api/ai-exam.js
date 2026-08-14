@@ -240,6 +240,9 @@ module.exports = async function handler(req, res) {
   try {
     const userId = await ai.authUser(req, supa);
     const { examType, instructions = '', dataMode = 'modify' } = req.body || {};
+    // capitolele alese de profesor (titluri) — itemii vin DOAR din ele
+    const chapters = (Array.isArray(req.body?.chapters) ? req.body.chapters : [])
+      .map((c) => String(c || '').replace(/\s+/g, ' ').trim().slice(0, 140)).filter(Boolean).slice(0, 12);
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) ai.requirePremium(profile); // abonați sau admin
     const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
@@ -248,7 +251,8 @@ module.exports = async function handler(req, res) {
     const cfg = EXAMS[examType];
     if (!cfg) return res.status(400).json({ error: 'examType invalid' });
 
-    const docs = await ai.retrieve(supa, { query: cfg.query, category: cfg.category, allowPremium: true, k: 10, prefer: 'exercise' });
+    // capitolele cerute intră și în căutarea exemplelor-model din baza de date
+    const docs = await ai.retrieve(supa, { query: [cfg.query, ...chapters].join(' '), category: cfg.category, allowPremium: true, k: 10, prefer: 'exercise' });
     // amestecăm exemplele → generările succesive pornesc de la modele diferite
     const examples = ai.contextBlock([...docs].sort(() => Math.random() - 0.5).slice(0, 6));
 
@@ -351,6 +355,16 @@ module.exports = async function handler(req, res) {
 
     let system = cfg.special === 'en' ? buildENSystem(examples) : buildGenericSystem(cfg, examples);
     system += `\n\nREGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}`;
+    if (chapters.length) {
+      // profesorul a restrâns testul la anumite capitole — restricția de
+      // CONȚINUT primează asupra prescripțiilor tematice per item (I.1…III.6 la
+      // EN), dar STRUCTURA (subiecte, număr de itemi, punctaje) rămâne neatinsă
+      system += `
+
+CAPITOLELE CERUTE DE PROFESOR — restricție de conținut OBLIGATORIE:
+${chapters.map((c) => `- ${c}`).join('\n')}
+TOATE enunțurile (fiecare item al fiecărui subiect) trebuie să provină EXCLUSIV din capitolele de mai sus. Această restricție are PRIORITATE față de prescripțiile tematice per item din structura standard: păstrează structura (numărul de subiecte, numărul de itemi, punctajele, tipurile de itemi — grilă/rezolvare), dar înlocuiește temele care nu fac parte din capitolele cerute cu teme din capitolele cerute. Dacă un item-sursă din testele reale nu aparține capitolelor cerute, alege alt item-sursă potrivit sau compune unul nou în același stil, din capitolele cerute. Nu strecura conținut din alte capitole.`;
+    }
     if (siteTests) {
       system += `\n\n=== TESTE REALE DIN SITE (SURSA OBLIGATORIE a itemilor) ===\n${siteTests}\n=== SFÂRȘIT TESTE ===
 

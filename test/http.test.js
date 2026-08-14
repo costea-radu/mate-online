@@ -1,8 +1,9 @@
 // Teste pentru parsarea căilor Supabase Storage (node --test, fără dependențe)
-// + citirea paginată peste limita de 1000 de rânduri PostgREST.
+// + citirea paginată peste limita de 1000 de rânduri PostgREST
+// + recunoașterea invocărilor de cron (cauza „task-urile nu rulează singure").
 const test = require('node:test');
 const assert = require('node:assert');
-const { parseStoragePath, allRows, inBatches } = require('../api/_lib/http');
+const { parseStoragePath, allRows, inBatches, isCronRequest } = require('../api/_lib/http');
 
 test('parseStoragePath: URL public standard', () => {
   const { bucket, filePath } = parseStoragePath(
@@ -47,6 +48,50 @@ test('allRows: se oprește la prima pagină incompletă și propagă erorile', a
   const rows = await allRows(async () => ({ data: [{ a: 1 }], error: null }));
   assert.strictEqual(rows.length, 1); // < 1000 → o singură cerere
   await assert.rejects(allRows(async () => ({ data: null, error: { message: 'boom' } })), /boom/);
+});
+
+// ─── isCronRequest: TOATE semnalele legitime de cron sunt acceptate ──────────
+// Bug-ul reparat: se accepta DOAR headerul `x-vercel-cron` (nedocumentat azi la
+// Vercel) → ticurile orare reale primeau 403 și task-urile nu rulau singure.
+test('isCronRequest: acceptă semnalele Vercel actuale și secretele', () => {
+  const old = { CRON_SECRET: process.env.CRON_SECRET, AI_CRON_SECRET: process.env.AI_CRON_SECRET };
+  process.env.CRON_SECRET = 'topsecret123456';
+  process.env.AI_CRON_SECRET = 'ai-secret';
+  try {
+    // headerul documentat AZI: x-vercel-cron-schedule (expresia cron a invocării)
+    assert.ok(isCronRequest({ headers: { 'x-vercel-cron-schedule': '0 * * * *' }, query: {} }));
+    // headerul istoric x-vercel-cron rămâne acceptat (retrocompatibil)
+    assert.ok(isCronRequest({ headers: { 'x-vercel-cron': '1' }, query: {} }));
+    // user-agent-ul invocărilor de cron
+    assert.ok(isCronRequest({ headers: { 'user-agent': 'vercel-cron/1.0' }, query: {} }));
+    // mecanismul oficial: Authorization: Bearer CRON_SECRET
+    assert.ok(isCronRequest({ headers: { authorization: 'Bearer topsecret123456' }, query: {} }));
+    // și AI_CRON_SECRET pe post de bearer (aceeași variabilă ca la ?secret=)
+    assert.ok(isCronRequest({ headers: { authorization: 'Bearer ai-secret' }, query: {} }));
+    // declanșare manuală cu ?secret= (testare / pinger extern)
+    assert.ok(isCronRequest({ headers: {}, query: { secret: 'ai-secret' } }));
+    assert.ok(isCronRequest({ headers: {}, query: { secret: 'topsecret123456' } }));
+    // cereri obișnuite: refuzate
+    assert.ok(!isCronRequest({ headers: { 'user-agent': 'Mozilla/5.0' }, query: {} }));
+    assert.ok(!isCronRequest({ headers: { authorization: 'Bearer gresit' }, query: { secret: 'gresit' } }));
+    assert.ok(!isCronRequest({ headers: {}, query: {} }));
+  } finally {
+    if (old.CRON_SECRET === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = old.CRON_SECRET;
+    if (old.AI_CRON_SECRET === undefined) delete process.env.AI_CRON_SECRET; else process.env.AI_CRON_SECRET = old.AI_CRON_SECRET;
+  }
+});
+
+test('isCronRequest: fără secrete setate, bearerul nu deschide nimic', () => {
+  const old = { CRON_SECRET: process.env.CRON_SECRET, AI_CRON_SECRET: process.env.AI_CRON_SECRET };
+  delete process.env.CRON_SECRET; delete process.env.AI_CRON_SECRET;
+  try {
+    assert.ok(!isCronRequest({ headers: { authorization: 'Bearer ' }, query: {} }));
+    assert.ok(!isCronRequest({ headers: {}, query: { secret: '' } }));
+    assert.ok(isCronRequest({ headers: { 'x-vercel-cron-schedule': '0 7 * * *' }, query: {} }));
+  } finally {
+    if (old.CRON_SECRET !== undefined) process.env.CRON_SECRET = old.CRON_SECRET;
+    if (old.AI_CRON_SECRET !== undefined) process.env.AI_CRON_SECRET = old.AI_CRON_SECRET;
+  }
 });
 
 test('inBatches: loturile .in(...) se combină și fiecare lot e paginat', async () => {

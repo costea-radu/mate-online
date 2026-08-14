@@ -228,7 +228,7 @@ module.exports = async function handler(req, res) {
     // CRON (Vercel) sau apel automat: GET ?action=process
     if (req.method === 'GET') {
       const action = (req.query.action || 'process');
-      const cronOk = req.headers['x-vercel-cron'] || (process.env.AI_CRON_SECRET && req.query.secret === process.env.AI_CRON_SECRET);
+      const cronOk = ai.isCronRequest(req); // x-vercel-cron(-schedule) / vercel-cron UA / Bearer CRON_SECRET / ?secret=
       if (action === 'process' && cronOk) return res.status(200).json(await processWithPregen(supa));
       return res.status(403).json({ error: 'Neautorizat' });
     }

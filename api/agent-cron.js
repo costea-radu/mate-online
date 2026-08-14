@@ -76,13 +76,38 @@ async function adminUserId(supa) {
   } catch { return null; }
 }
 
+// ─── „Bătaia de inimă” a cronului ────────────────────────────────────────────
+// La FIECARE tic scriem un mic JSON în Storage (bucketul existent
+// 'content-files', folderul agent-formats/ — fără migrare SQL). Panoul de
+// admin îl citește (agent-tasks → list) și arată când a bătut ultima oară
+// cronul: dacă nu bate deloc, problema e la Vercel (cron dezactivat / deploy
+// non-producție / CRON_SECRET cu caractere invalide), nu la task-uri.
+const HEARTBEAT = { bucket: 'content-files', path: 'agent-formats/_cron-heartbeat.json' };
+async function writeHeartbeat(supa, summary) {
+  try {
+    const body = Buffer.from(JSON.stringify({ at: new Date().toISOString(), ...summary }), 'utf8');
+    await supa.storage.from(HEARTBEAT.bucket).upload(HEARTBEAT.path, body, { contentType: 'application/json', upsert: true });
+  } catch (e) { console.warn('agent-cron: heartbeat eșuat:', e.message); }
+}
+async function readHeartbeat(supa) {
+  try {
+    const { data } = await supa.storage.from(HEARTBEAT.bucket).download(HEARTBEAT.path);
+    if (!data) return null;
+    return JSON.parse(Buffer.from(await data.arrayBuffer()).toString('utf8'));
+  } catch { return null; }
+}
+
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' });
 
-  const cronOk = req.headers['x-vercel-cron'] || (process.env.AI_CRON_SECRET && req.query.secret === process.env.AI_CRON_SECRET);
-  if (!cronOk) return res.status(403).json({ error: 'Neautorizat' });
+  // Verificarea VECHE accepta doar headerul `x-vercel-cron`, pe care Vercel nu
+  // îl mai trimite garantat → fiecare tic orar era respins cu 403 și task-urile
+  // „nu rulau singure” (doar ▶️ Rulează acum mergea). Verificarea partajată
+  // acceptă toate semnalele legitime (x-vercel-cron-schedule, user-agent
+  // vercel-cron/, Bearer CRON_SECRET, ?secret=) — vezi _lib/http.js.
+  if (!ai.isCronRequest(req)) return res.status(403).json({ error: 'Neautorizat' });
 
   const supa = ai.admin();
   const action = req.query.action || 'run';
@@ -91,6 +116,7 @@ module.exports = async function handler(req, res) {
     if (action === 'run') {
       const { data: tasks, error } = await supa.from('agent_tasks').select('*').eq('enabled', true);
       if (error) {
+        await writeHeartbeat(supa, { checked: 0, due: 0, warning: 'tabelul agent_tasks lipsește' });
         return res.status(200).json({ ok: false, warning: `Tabelul agent_tasks lipsește — rulează supabase/agent_tasks.sql (${error.message})` });
       }
       const at = new Date();
@@ -117,6 +143,8 @@ module.exports = async function handler(req, res) {
           contentId: r.run.content_id || null, error: r.run.error || null, emailed: r.emailed,
         });
       }
+      const summary = { checked: (tasks || []).length, due: due.length, ran: ran.map((r) => ({ task: r.task, status: r.status })), postponed };
+      await writeHeartbeat(supa, summary);
       return res.status(200).json({ ok: true, now, checked: (tasks || []).length, due: due.length, ran, postponed });
     }
 
@@ -132,3 +160,4 @@ module.exports.bucharestNow = bucharestNow;
 module.exports.isDue = isDue;
 module.exports.dueAt = dueAt;
 module.exports.CATCHUP_HOURS = CATCHUP_HOURS;
+module.exports.readHeartbeat = readHeartbeat; // panoul de admin (agent-tasks → list)

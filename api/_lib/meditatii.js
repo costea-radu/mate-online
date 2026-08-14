@@ -225,12 +225,154 @@ function planProgress(plan) {
 }
 
 // Capitolul următor pe care profesorul îl alege SINGUR (memorie pedagogică):
-// întâi capitolele-lacună neîncepute, apoi cele în lucru, apoi următorul din plan.
-function nextChapter(plan) {
+// întâi capitolele-lacună neîncepute, apoi cele în lucru, apoi următorul din
+// plan. Cu o PREGĂTIRE DE LUCRARE activă (focus), capitolele lucrării au
+// prioritate absolută până sunt toate finalizate (recapitularea pentru test).
+function nextChapter(plan, focus = null) {
   const ch = plan?.chapters || [];
+  const ids = new Set(focus?.chapter_ids || []);
+  if (ids.size) {
+    const f = ch.find((c) => ids.has(c.id) && (c.status === 'in_lucru' || c.status === 'teorie'))
+          || ch.find((c) => ids.has(c.id) && c.status === 'de_parcurs');
+    if (f) return f;
+  }
   return ch.find((c) => c.status === 'in_lucru' || c.status === 'teorie')
       || ch.find((c) => c.status === 'de_parcurs')
       || null;
+}
+
+// ─── PREGĂTIRE PENTRU LUCRARE / TEST („focus”) ───────────────────────────────
+// Elevul își poate pregăti cu meditațiile și LUCRĂRILE de la școală, nu doar
+// examenul: alege tipul testului, capitolele (din listă sau scrise liber) și
+// o DATĂ LIMITĂ — planul de recapitulare ține cont de ele (capitolele lucrării
+// au prioritate, briefingul numără zilele rămase, iar „testul de verificare”
+// se generează doar din capitolele alese). Pentru EXAMENUL FINAL (EN/BAC) nu
+// se setează focus — planul rămâne toată materia, ca până acum.
+// Structura salvată în ai_meditatii_profile.focus (jsonb):
+//   { kind, chapter_ids: [..], custom, deadline: 'YYYY-MM-DD', set_at }
+const FOCUS_KINDS = {
+  lucrare: 'lucrare / test din capitole',
+  lectii: 'test din lecții',
+  'test-initial': 'test inițial (materia anului trecut)',
+};
+
+const roToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Bucharest' }).format(new Date()); // YYYY-MM-DD
+
+function focusSlug(s) {
+  return String(s || 'capitol').toLowerCase()
+    .replace(/[ăâ]/g, 'a').replace(/î/g, 'i').replace(/[șş]/g, 's').replace(/[țţ]/g, 't')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'capitol';
+}
+
+// Curăță/validează datele venite din formular. 'examen' (examenul final) sau
+// lipsa tipului → null (fără focus — toată materia, comportamentul de acum).
+function cleanFocus(input) {
+  if (!input || typeof input !== 'object') return null;
+  const kind = String(input.kind || '').trim();
+  if (!FOCUS_KINDS[kind]) return null;
+  const chapterIds = (Array.isArray(input.chapterIds) ? input.chapterIds : [])
+    .map((x) => String(x || '').trim().slice(0, 80)).filter(Boolean).slice(0, 24);
+  const custom = String(input.custom || '').trim().slice(0, 500) || null;
+  let deadline = String(input.deadline || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline) || Number.isNaN(Date.parse(deadline))) deadline = null;
+  if (deadline) {
+    const diff = (Date.parse(deadline) - Date.parse(roToday())) / 86400000;
+    if (diff < 0 || diff > 400) deadline = null; // în trecut sau absurd de departe
+  }
+  return { kind, chapter_ids: chapterIds, custom, deadline, set_at: new Date().toISOString() };
+}
+
+// Lista de capitole din care poate alege elevul (dropdown-ul formularului):
+// planul lui (programă + capitolele din site + cele adăugate) + programa
+// anului TRECUT (pentru „test inițial” — recapitularea de la început de an).
+function focusPool(profile, plan) {
+  const grade = Math.min(12, Math.max(5, parseInt(profile.grade, 10) || 8));
+  const seen = new Set();
+  const out = [];
+  const push = (c, group) => { if (c && c.id && !seen.has(c.id)) { seen.add(c.id); out.push({ id: c.id, title: c.title, topics: c.topics || [c.title], group }); } };
+  (plan?.chapters || []).forEach((c) => {
+    const g = /^c(\d+)-/.exec(String(c.id));
+    push(c, g ? `Clasa ${g[1]}` : 'Din planul meu');
+  });
+  curriculumFor(profile).forEach((c) => {
+    const g = /^c(\d+)-/.exec(String(c.id));
+    push(c, g ? `Clasa ${g[1]}` : 'Programă');
+  });
+  if (grade > 5) (CURRICULUM[grade - 1] || []).forEach((c) => push(c, `Clasa ${grade - 1} (anul trecut)`));
+  return out;
+}
+
+// Aplică focusul pe plan: capitolele alese care NU sunt în plan (ex. materia
+// anului trecut la „test inițial”, sau capitolul scris liber de elev) se
+// ADAUGĂ în plan ca „de parcurs”. Întoarce { plan, focus } (obiecte noi).
+function applyFocus({ profile, plan, focus }) {
+  if (!focus) return { plan, focus: null };
+  const pool = new Map(focusPool(profile, plan).map((c) => [c.id, c]));
+  const chapters = [...(plan?.chapters || [])];
+  const inPlan = new Set(chapters.map((c) => c.id));
+  let ids = [...(focus.chapter_ids || [])];
+
+  // „test inițial” fără capitole alese → implicit TOATĂ materia anului trecut;
+  // „lucrare” fără capitole și fără text liber → TOATĂ clasa (materia clasei
+  // curente — cerința „din anumite capitole sau toată clasa”)
+  const grade = Math.min(12, Math.max(5, parseInt(profile.grade, 10) || 8));
+  if (focus.kind === 'test-initial' && !ids.length && grade > 5) {
+    ids = (CURRICULUM[grade - 1] || []).map((c) => c.id);
+  }
+  if (focus.kind === 'lucrare' && !ids.length && !focus.custom) {
+    ids = (CURRICULUM[grade] || []).map((c) => c.id);
+  }
+  // capitolul scris liber (lipsă din listă) devine capitol de plan de sine stătător
+  if (focus.custom) {
+    const title = focus.custom.split(/\r?\n/)[0].replace(/\s+/g, ' ').trim().slice(0, 90);
+    if (title.length >= 3) {
+      const id = 'custom-' + focusSlug(title);
+      if (!pool.has(id)) pool.set(id, { id, title, topics: [focus.custom.slice(0, 300)] });
+      if (!ids.includes(id)) ids.push(id);
+    }
+  }
+  // păstrăm doar id-urile pe care le cunoaștem (plan sau pool)
+  ids = ids.filter((id) => inPlan.has(id) || pool.has(id));
+  // capitolele lipsă din plan se adaugă la coadă, „de parcurs”
+  for (const id of ids) {
+    if (inPlan.has(id)) continue;
+    const c = pool.get(id);
+    chapters.push({
+      id: c.id, title: c.title, topics: c.topics || [c.title], order: chapters.length,
+      status: 'de_parcurs', mastery: null, sessions: 0,
+    });
+    inPlan.add(id);
+  }
+  return {
+    plan: { ...(plan || {}), chapters },
+    focus: { ...focus, chapter_ids: ids },
+  };
+}
+
+// Detaliile focusului pentru client (starea /meditatii): capitolele cu
+// statusul lor din plan, progresul, zilele rămase și ritmul necesar.
+function focusInfo(medProfile, plan) {
+  const focus = medProfile?.focus;
+  if (!focus || !FOCUS_KINDS[focus.kind]) return null;
+  const byId = new Map((plan?.chapters || []).map((c) => [c.id, c]));
+  const chapters = (focus.chapter_ids || []).map((id) => {
+    const c = byId.get(id);
+    return c ? { id, title: c.title, status: c.status, mastery: c.mastery ?? null }
+             : { id, title: id, status: 'de_parcurs', mastery: null };
+  });
+  const done = chapters.filter((c) => c.status === 'finalizat').length;
+  let daysLeft = null;
+  if (focus.deadline) daysLeft = Math.round((Date.parse(focus.deadline) - Date.parse(roToday())) / 86400000);
+  const remaining = chapters.length - done;
+  // ritmul necesar ca recapitularea să se termine până la data limită
+  let perWeek = null;
+  if (daysLeft != null && daysLeft > 0 && remaining > 0) perWeek = Math.ceil(remaining / Math.max(1, daysLeft / 7));
+  return {
+    kind: focus.kind, kindLabel: FOCUS_KINDS[focus.kind],
+    custom: focus.custom || null, deadline: focus.deadline || null,
+    daysLeft, overdue: daysLeft != null && daysLeft < 0,
+    chapters, total: chapters.length, done, perWeek,
+  };
 }
 
 // ─── MATERIALELE DIN SITE (prioritare — cerința B) ───────────────────────────
@@ -623,4 +765,6 @@ module.exports = {
   genQuestions, normalizeQuestions, classifyMistakes, fixLatex,
   predictGrade, notaTest, bumpStreak, nextReviewDue,
   getProfile, reconcileContentHomework, buildMentorReport, clearHomeworkNotifications,
+  // pregătirea pentru lucrare/test (focus) — vezi secțiunea de mai sus
+  FOCUS_KINDS, cleanFocus, focusPool, applyFocus, focusInfo,
 };

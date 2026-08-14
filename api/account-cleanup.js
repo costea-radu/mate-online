@@ -21,7 +21,7 @@
 //
 // Niciodată nu se șterg: adminii și abonații premium activi.
 // =====================================================================
-const { applyCors, admin, authUser, requireAdmin } = require('./_lib/http');
+const { applyCors, admin, authUser, requireAdmin, isCronRequest } = require('./_lib/http');
 const mailer = require('./_lib/mailer');
 const inact = require('./_lib/inactivity');
 
@@ -166,8 +166,7 @@ module.exports = async function handler(req, res) {
 
     if (req.method === 'GET') {
       // CRON Vercel sau apel manual cu secretul
-      const cronOk = req.headers['x-vercel-cron'] ||
-        (process.env.AI_CRON_SECRET && req.query.secret === process.env.AI_CRON_SECRET);
+      const cronOk = isCronRequest(req); // x-vercel-cron(-schedule) / vercel-cron UA / Bearer CRON_SECRET / ?secret=
       if (req.query.action !== 'run') return res.status(400).json({ error: 'Folosește ?action=run' });
       if (!cronOk) return res.status(403).json({ error: 'Neautorizat' });
       return res.status(200).json(await runCleanup(supa, { dry }));

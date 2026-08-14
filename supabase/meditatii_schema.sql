@@ -23,9 +23,14 @@ create table if not exists public.ai_meditatii_profile (
   streak_days    int  not null default 0,             -- zile consecutive de studiu
   last_study_date date,
   total_seconds  int  not null default 0,             -- timp total de studiu (secunde)
+  focus          jsonb,                               -- pregătirea pentru lucrare/test {kind, chapter_ids[], custom, deadline}
   created_at     timestamptz default now(),
   updated_at     timestamptz default now()
 );
+
+-- instalările mai vechi primesc coloana `focus` la re-rulare (idempotent);
+-- vezi și supabase/meditatii_focus.sql (doar acest pas, separat)
+alter table public.ai_meditatii_profile add column if not exists focus jsonb;
 
 -- =====================================================================
 -- 2. SESIUNILE DE MEDITAȚIE (jurnalul activității)

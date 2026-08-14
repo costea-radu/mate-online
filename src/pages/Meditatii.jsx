@@ -16,6 +16,8 @@ import EinsteinIcon from '../components/EinsteinIcon';
 import ExamGenerator from '../components/ExamGenerator';
 import { openPrintDocument } from '../lib/examPrint';
 import { playAnswer, stopSpeaking, ttsSupported } from '../lib/voice';
+import CapitolePicker from '../components/CapitolePicker';
+import { capitoleForCategory } from '../lib/capitole';
 
 // Chatul meditațiilor trăiește în widgetul plutitor „Prof. Virtual" (un singur
 // buton, o singură conversație): pagina îi trimite contextul, mesajele automate
@@ -55,6 +57,13 @@ const EXAM_LABELS = {
   'evaluare-nationala': 'Evaluarea Națională',
   'bac-mate-info': 'BAC Mate-Info', 'bac-stiinte': 'BAC Științele Naturii', 'bac-tehnologic': 'BAC Tehnologic',
 };
+// Pregătirea pentru lucrare/test (focus) — tipurile de teste de la școală
+const FOCUS_KIND_LABELS = {
+  lucrare: '📝 Lucrare / test din capitole',
+  lectii: '📒 Test din lecții',
+  'test-initial': '🧭 Test inițial (materia anului trecut)',
+};
+const roDate = (iso) => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('ro-RO', { day: 'numeric', month: 'long' }) : '');
 const niceTopic = (t) => String(t || '').replace(/_/g, ' ').trim();
 const fmtMin = (sec) => {
   const m = Math.round((sec || 0) / 60);
@@ -252,16 +261,108 @@ function BusyOverlay({ label }) {
   );
 }
 
-// ─── Înscrierea: clasa + examenul ────────────────────────────────────────────
+// ─── Pregătirea pentru LUCRARE/TEST (focus): tip + capitole + dată limită ────
+// Formular refolosit în două locuri: la înscriere (SetupWizard, embedded=true,
+// cu lista de capitole calculată local din clasă) și după înscriere (fereastra
+// „🎯 Pregătire pentru lucrare/test", cu lista venită de pe server —
+// st.focusOptions — care include și capitolele din site / planul elevului).
+function FocusFields({ grade, options = null, value, onChange }) {
+  const f = value;
+  const patch = (p) => onChange({ ...f, ...p });
+  // lista locală (la înscriere): programa clasei + materia anului trecut
+  const localOptions = (() => {
+    const cur = capitoleForCategory(`clasa-${grade}`);
+    const prev = grade > 5 ? capitoleForCategory(`clasa-${grade - 1}`).map((c) => ({ ...c, group: `Clasa ${grade - 1} (anul trecut)` })) : [];
+    return [...cur, ...prev];
+  })();
+  const opts = options && options.length ? options : localOptions;
+  const today = new Date();
+  const minDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+  return (
+    <div>
+      <div style={{ fontSize: '.85rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 6 }}>Ce fel de test ai?</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+        {Object.entries(FOCUS_KIND_LABELS).map(([val, label]) => (
+          (val !== 'test-initial' || grade > 5) && (
+            <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: `1px solid ${f.kind === val ? 'var(--gold)' : 'var(--border)'}`, borderRadius: 10, cursor: 'pointer', background: f.kind === val ? 'rgba(232,185,49,.1)' : '#fff', fontSize: '.88rem' }}>
+              <input type="radio" checked={f.kind === val} onChange={() => patch({ kind: val })} /> {label}
+              {val === 'test-initial' && <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>— fără capitole alese = toată clasa a {grade - 1}-a</span>}
+              {val === 'lucrare' && <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>— fără capitole alese = toată clasa</span>}
+            </label>
+          )
+        ))}
+      </div>
+      <CapitolePicker
+        options={opts} selected={f.chapterIds} onChange={(ids) => patch({ chapterIds: ids })}
+        extraText={f.custom} onExtraText={(t) => patch({ custom: t })}
+        label="Capitolele testului (din listă) — gol = toată materia tipului ales"
+        extraLabel="Alt capitol (dacă lipsește din listă), lecțiile testului sau alte indicații (opțional)"
+        extraPlaceholder="ex: „Ecuații cu modul” · „lecțiile: media aritmetică, procente” · „doamna pune accent pe probleme cu text”"
+        max={24}
+      />
+      <label style={{ display: 'block', fontSize: '.82rem', color: 'var(--text-light)', marginBottom: 4 }}>
+        Data testului (până când recapitulăm) — opțional
+        <input type="date" value={f.deadline || ''} min={minDate} onChange={(e) => patch({ deadline: e.target.value })}
+          style={{ display: 'block', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 11px', fontSize: '.9rem', marginTop: 4, fontFamily: 'inherit' }} />
+      </label>
+      <div style={{ fontSize: '.74rem', color: 'var(--text-muted)' }}>
+        Planul de recapitulare pune capitolele testului primele, îți calculează ritmul ca să termini până la dată
+        și îți dă un „test de verificare” doar din capitolele alese.
+      </div>
+    </div>
+  );
+}
+
+const EMPTY_FOCUS = { kind: 'lucrare', chapterIds: [], custom: '', deadline: '' };
+
+// Fereastra „🎯 Pregătire pentru lucrare/test” (după înscriere)
+function FocusModal({ st, saving, error, onSave, onClear, onClose }) {
+  const [f, setF] = useState(() => (st.focus ? {
+    kind: st.focus.kind || 'lucrare',
+    chapterIds: (st.focus.chapters || []).map((c) => c.id).filter((id) => !id.startsWith('custom-')),
+    custom: st.focus.custom || '', deadline: st.focus.deadline || '',
+  } : EMPTY_FOCUS));
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(9,30,48,.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 18, width: 'min(680px, 100%)', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <b style={{ color: 'var(--navy)' }}>🎯 Pregătire pentru lucrare / test</b>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 7, padding: '4px 9px', cursor: 'pointer', fontSize: '.8rem' }}>✕ Închide</button>
+        </div>
+        <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
+          Ai un test sau o lucrare la școală? Alege capitolele și data — recapitularea se organizează după ele.
+          Pentru <strong>examenul final</strong> (Evaluarea Națională / BAC) nu e nevoie de nimic aici: planul rămâne toată materia, ca până acum.
+        </p>
+        <FocusFields grade={st.profile?.grade || 8} options={st.focusOptions} value={f} onChange={setF} />
+        {error && <div style={{ padding: 10, background: '#fdecea', color: '#b71c1c', borderRadius: 8, fontSize: '.85rem', margin: '10px 0' }}>⚠️ {error}</div>}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          <button className="btn btn-primary" disabled={saving} onClick={() => onSave(f)}>
+            {saving ? 'Se salvează…' : st.focus ? '💾 Actualizează pregătirea' : '🎯 Pornește pregătirea'}
+          </button>
+          {st.focus && (
+            <button className="btn btn-outline" disabled={saving} onClick={onClear} style={{ color: '#c0392b', borderColor: '#f5c6cb' }}>
+              ✕ Renunță la pregătire (revin la planul întreg)
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Înscrierea: clasa + examenul (+ opțional lucrarea pentru care se pregătește)
 function SetupWizard({ onStart, starting, error }) {
   const [grade, setGrade] = useState(8);
   const [exam, setExam] = useState('');
+  const [withFocus, setWithFocus] = useState(false);  // are un test/o lucrare în curând
+  const [focus, setFocus] = useState(EMPTY_FOCUS);
   const examOptions = grade >= 9
     ? [['', 'Fără examen (materia clasei)'], ['bac-mate-info', 'Bacalaureat Mate-Info'], ['bac-stiinte', 'Bacalaureat Științele Naturii'], ['bac-tehnologic', 'Bacalaureat Tehnologic']]
     : grade >= 7
     ? [['', 'Fără examen (materia clasei)'], ['evaluare-nationala', 'Evaluarea Națională']]
     : [['', 'Materia clasei']];
-  useEffect(() => { setExam(grade === 8 ? 'evaluare-nationala' : ''); }, [grade]);
+  useEffect(() => { setExam(grade === 8 ? 'evaluare-nationala' : ''); setFocus((f) => ({ ...f, chapterIds: [] })); }, [grade]);
 
   return (
     <div style={{ ...card, maxWidth: 640 }}>
@@ -292,12 +393,32 @@ function SetupWizard({ onStart, starting, error }) {
           ))}
         </div>
       </div>
+      {/* Opțional: are un TEST / o LUCRARE în curând → pregătirea țintită
+          (capitole + dată limită); pentru examenul final NU e nevoie — planul
+          rămâne toată materia, ca până acum. */}
+      <div style={{ border: '1px dashed var(--border)', borderRadius: 12, padding: '10px 14px', marginBottom: 16, background: withFocus ? '#fbfcfe' : '#fff' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '.9rem', fontWeight: 700, color: 'var(--navy)' }}>
+          <input type="checkbox" checked={withFocus} onChange={(e) => setWithFocus(e.target.checked)} />
+          🎯 Am un test / o lucrare în curând (opțional)
+        </label>
+        {withFocus && (
+          <div style={{ marginTop: 10 }}>
+            <FocusFields grade={grade} value={focus} onChange={setFocus} />
+          </div>
+        )}
+        {!withFocus && (
+          <div style={{ fontSize: '.74rem', color: 'var(--text-muted)', marginTop: 4 }}>
+            Bifează dacă vrei să te pregătesc pentru o lucrare sau un test anume (din anumite capitole, până la o dată).
+            Poți porni pregătirea și mai târziu, din pagina meditațiilor. Pentru examenul final nu e nevoie — îl acoperă planul întreg.
+          </div>
+        )}
+      </div>
       {error && <div style={{ padding: 10, background: '#fdecea', color: '#b71c1c', borderRadius: 8, fontSize: '.85rem', marginBottom: 10 }}>⚠️ {error}</div>}
-      <button className="btn btn-primary btn-lg" disabled={starting} onClick={() => onStart({ grade, examTarget: exam || null })}>
+      <button className="btn btn-primary btn-lg" disabled={starting} onClick={() => onStart({ grade, examTarget: exam || null, focus: withFocus ? focus : null })}>
         {starting ? 'Pregătesc testul inițial... (~30s)' : '🚀 Începe cu testul inițial'}
       </button>
       <p style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: 10 }}>
-        Testul are ~12 întrebări, de la ușor la greu, și acoperă și materia anilor anteriori — ca să găsesc eventualele lacune. Nu e o notă, e busola noastră. 🧭
+        Testul are ~12 întrebări, de la ușor la greu. Dacă ți-ai ales capitolele unui test, întrebările vin din ele; altfel acoperă și materia anilor anteriori, ca să găsesc eventualele lacune. Nu e o notă, e busola noastră. 🧭
       </p>
     </div>
   );
@@ -409,12 +530,28 @@ export default function Meditatii() {
   }
 
   // ── acțiunile principale ──
-  const startSetup = ({ grade, examTarget }) => run('setup', async () => {
-    const r = await aiClient.meditatii({ action: 'setup', grade, examTarget });
+  const startSetup = ({ grade, examTarget, focus = null }) => run('setup', async () => {
+    // focus = pregătirea pentru lucrare/test aleasă la înscriere (opțional):
+    // testul inițial se dă din capitolele ei, iar planul le pune primele
+    const r = await aiClient.meditatii({ action: 'setup', grade, examTarget, focus });
     setQuiz({
       kind: 'evaluare', sessionId: r.sessionId, questions: r.questions,
       title: '🧭 Testul inițial', subtitle: 'Fără stres: îl folosesc doar ca să-ți construiesc planul potrivit ție.',
     });
+  });
+
+  // ── pregătirea pentru lucrare/test (focus): setare / renunțare oricând ──
+  const [focusModal, setFocusModal] = useState(false);
+  const saveFocus = (f) => run('focus', async () => {
+    await aiClient.meditatii({ action: 'set_focus', kind: f.kind, chapterIds: f.chapterIds, custom: f.custom, deadline: f.deadline || null });
+    await refresh();
+    setFocusModal(false);
+  });
+  const clearFocus = () => run('focus', async () => {
+    if (!window.confirm('Renunți la pregătirea pentru lucrare/test? Planul întreg rămâne neschimbat.')) return;
+    await aiClient.meditatii({ action: 'set_focus', kind: 'examen' }); // examen final / renunțare = fără focus
+    await refresh();
+    setFocusModal(false);
   });
 
   const openLesson = (chapterId) => run('lesson', async () => {
@@ -456,14 +593,21 @@ export default function Meditatii() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
-  const startSimulare = (forceGenerate = false) => run('simulare', async () => {
-    const r = await aiClient.meditatii({ action: 'simulare', forceGenerate });
-    // SITE-FIRST: un TEST din site (categoria examenului) nefolosit încă →
-    // se deschide acela; abia după epuizare se generează unul nou.
+  // focusTest=true → TEST DE VERIFICARE doar din capitolele pregătirii pentru
+  // lucrare (focus), nu simulare de examen
+  const startSimulare = (forceGenerate = false, focusTest = false) => run('simulare', async () => {
+    const r = await aiClient.meditatii({ action: 'simulare', forceGenerate, focus: focusTest });
+    // SITE-FIRST: un TEST din site (categoria examenului / capitolele lucrării)
+    // nefolosit încă → se deschide acela; abia după epuizare se generează unul.
     if (r.siteTest) { navigate(r.siteTest.url); return; }
+    const isLucrare = r.focusTest || r.examType === 'lucrare';
     setQuiz({
-      kind: 'simulare', sessionId: r.sessionId, questions: r.questions, topic: EXAM_LABELS[r.examType] || r.examType,
-      title: `🎯 Simulare interactivă · ${EXAM_LABELS[r.examType] || r.examType}`, subtitle: 'Construită după modelul subiectelor din site, cu punctele tale slabe incluse.',
+      kind: 'simulare', sessionId: r.sessionId, questions: r.questions,
+      topic: isLucrare ? 'Lucrare de verificare' : (EXAM_LABELS[r.examType] || r.examType),
+      title: isLucrare ? '🧩 Test de verificare · capitolele lucrării' : `🎯 Simulare interactivă · ${EXAM_LABELS[r.examType] || r.examType}`,
+      subtitle: isLucrare
+        ? 'Doar din capitolele alese pentru lucrare — să vedem cât de pregătit ești.'
+        : 'Construită după modelul subiectelor din site, cu punctele tale slabe incluse.',
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
@@ -509,7 +653,7 @@ export default function Meditatii() {
     else if (s.kind === 'recapitulare') startReview(s.reviewId, s.chapterTitle);
     else if (s.kind === 'remediere') startRemediation(s.mistakeId);
     else if (s.kind === 'tema') openHomework({ id: s.homeworkId });
-    else if (s.kind === 'simulare') startSimulare();
+    else if (s.kind === 'simulare') startSimulare(false, !!s.focus);
     else if (s.kind === 'plan') { setQuiz(null); setLessonView(null); setTab('plan'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     else if (s.kind === 'end') endSession();
   }
@@ -578,7 +722,7 @@ export default function Meditatii() {
     <div className="med-page" style={{ maxWidth: 'var(--container)', margin: '0 auto', padding: '32px 20px 60px', transition: 'padding .25s ease' }}>
       {/* pagina se strânge lângă panoul andocat al Meditatorului (doar pe ecrane late) */}
       {chatDocked && <style>{'@media (min-width: 1100px){ .med-page{ padding-right: 500px !important; max-width: none !important; } }'}</style>}
-      <Hero profile={st?.profile} />
+      <Hero profile={st?.profile} focus={st?.focus} />
 
       {stError && <div style={{ ...card, background: '#fdecea', color: '#b71c1c', borderColor: '#f5c6cb' }}>⚠️ {stError}</div>}
       {!st && !stError && <div style={{ padding: 40, textAlign: 'center' }}><div className="spinner" /></div>}
@@ -649,20 +793,26 @@ export default function Meditatii() {
 
           {actionError && <div style={{ ...card, background: '#fff4e5', color: '#8a6d1a', borderColor: 'var(--gold)' }}>{actionError}</div>}
 
-          {tab === 'azi' && <TodayTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onReview={startReview} onHomeworkTab={() => setTab('teme')} onEnd={endSession} />}
-          {tab === 'plan' && <PlanTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onReset={async () => { if (window.confirm('Sigur reluăm totul de la zero? Planul și evaluarea inițială se șterg.')) { await aiClient.meditatii({ action: 'reset' }); await refresh(); } }} />}
+          {tab === 'azi' && <TodayTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onReview={startReview} onHomeworkTab={() => setTab('teme')} onEnd={endSession} onFocusOpen={() => setFocusModal(true)} onFocusTest={() => startSimulare(false, true)} />}
+          {tab === 'plan' && <PlanTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onFocusOpen={() => setFocusModal(true)} onReset={async () => { if (window.confirm('Sigur reluăm totul de la zero? Planul și evaluarea inițială se șterg.')) { await aiClient.meditatii({ action: 'reset' }); await refresh(); } }} />}
           {tab === 'teme' && <HomeworkTab st={st} busy={busy} onOpen={openHomework} onAsk={askHomework} />}
           {tab === 'recapitulari' && <ReviewsTab st={st} busy={busy} onReview={startReview} />}
-          {tab === 'simulari' && <SimTab st={st} busy={busy} onSimulare={startSimulare} />}
+          {tab === 'simulari' && <SimTab st={st} busy={busy} onSimulare={startSimulare} onFocusTest={() => startSimulare(false, true)} />}
           {tab === 'raport' && <RaportTab st={st} busy={busy} onOpenHomework={openHomework} onRemediation={startRemediation} onStyle={setStyle} />}
           {tab === 'progres' && <ProgressMeTab st={st} />}
         </>
+      )}
+
+      {/* Fereastra „🎯 Pregătire pentru lucrare/test” */}
+      {focusModal && st && premium && !st.needsSetup && (
+        <FocusModal st={st} saving={busy === 'focus'} error={actionError}
+          onSave={saveFocus} onClear={clearFocus} onClose={() => setFocusModal(false)} />
       )}
     </div>
   );
 }
 
-function Hero({ profile }) {
+function Hero({ profile, focus }) {
   return (
     <div style={{ marginBottom: 22 }}>
       <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(1.7rem,4vw,2.4rem)', color: 'var(--navy)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -676,6 +826,11 @@ function Hero({ profile }) {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <span style={chip('rgba(15,43,68,.08)', 'var(--navy)')}>🎒 Clasa a {profile.grade}-a</span>
           {profile.examTarget && <span style={chip('rgba(15,43,68,.08)', 'var(--navy)')}>🎯 {EXAM_LABELS[profile.examTarget]}</span>}
+          {focus && (
+            <span style={chip('rgba(142,68,173,.12)', '#8e44ad')} title={`Pregătire pentru ${focus.kindLabel}`}>
+              🎯 {focus.kindLabel}{focus.deadline && !focus.overdue ? ` · ${roDate(focus.deadline)}` : ''}
+            </span>
+          )}
           {profile.level && <span title="Nivelul stabilit la testul inițial — se recalibrează pe măsură ce lucrezi" style={chip('rgba(232,185,49,.18)', '#8a6d1a')}>📊 Nivel (evaluare inițială): {profile.level}</span>}
           {profile.streakDays > 0 && <span style={chip('rgba(231,76,60,.1)', '#c0392b')}>🔥 {profile.streakDays} {profile.streakDays === 1 ? 'zi' : 'zile'} la rând</span>}
           {profile.totalSeconds > 60 && <span style={chip('rgba(39,174,96,.1)', '#1e7e34')}>⏱ {fmtMin(profile.totalSeconds)} de studiu</span>}
@@ -750,10 +905,60 @@ function LessonView({ data, onClose, onExercises, onEnd, busyLabel }) {
   );
 }
 
-function TodayTab({ st, busy, onLesson, onExercises, onReview, onHomeworkTab, onEnd }) {
+function TodayTab({ st, busy, onLesson, onExercises, onReview, onHomeworkTab, onEnd, onFocusOpen, onFocusTest }) {
   const next = st.nextChapter;
+  const focus = st.focus;
   return (
     <div>
+      {/* 🎯 PREGĂTIREA PENTRU LUCRARE/TEST — recapitulare pe capitolele alese,
+          cu numărătoarea zilelor până la data testului */}
+      {focus ? (
+        <div style={{ ...card, borderLeft: '4px solid #8e44ad', background: 'rgba(142,68,173,.04)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 240, flex: 1 }}>
+              <div style={{ fontSize: '.78rem', fontWeight: 800, color: '#8e44ad', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 4 }}>
+                🎯 Pregătire pentru {focus.kindLabel}
+              </div>
+              <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.02rem' }}>
+                {focus.done}/{focus.total} capitole recapitulate
+                {focus.deadline && (
+                  focus.overdue
+                    ? ' · data testului a trecut'
+                    : focus.daysLeft === 0
+                      ? ' · TESTUL E AZI! 💪'
+                      : ` · până pe ${roDate(focus.deadline)} (${focus.daysLeft} ${focus.daysLeft === 1 ? 'zi' : 'zile'})`
+                )}
+              </div>
+              {focus.perWeek != null && (
+                <div style={{ fontSize: '.8rem', color: 'var(--text-light)', marginTop: 2 }}>
+                  Ritmul necesar ca să termini la timp: ~{focus.perWeek} {focus.perWeek === 1 ? 'capitol' : 'capitole'}/săptămână.
+                </div>
+              )}
+              {focus.custom && <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: 2 }}>📝 Indicațiile tale: {focus.custom}</div>}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                {focus.chapters.map((c) => {
+                  const stl = STATUS_LABELS[c.status] || STATUS_LABELS.de_parcurs;
+                  return <span key={c.id} style={chip(stl.bg, stl.color)} title={stl.label}>{c.status === 'finalizat' ? '✓' : '•'} {c.title}</span>;
+                })}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flexDirection: 'column' }}>
+              <button className="btn btn-sm btn-primary" disabled={!!busy} onClick={onFocusTest} title="Test generat DOAR din capitolele lucrării">
+                🧩 Test de verificare
+              </button>
+              <button className="btn btn-sm btn-outline" disabled={!!busy} onClick={onFocusOpen}>✏️ Modifică</button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: 'rgba(142,68,173,.04)', borderColor: 'rgba(142,68,173,.25)' }}>
+          <span style={{ fontSize: '.88rem', color: 'var(--text)' }}>
+            🎯 <strong>Ai un test sau o lucrare în curând?</strong> Alege capitolele și data — îți fac planul de recapitulare pentru el.
+          </span>
+          <button className="btn btn-outline btn-sm" disabled={!!busy} onClick={onFocusOpen}>Pregătește-mă pentru lucrare/test</button>
+        </div>
+      )}
+
       {/* Pasul din plan — mesajele și îndrumarea vin în WIDGET (Meditatorul tău) */}
       {next ? (
         <div style={{ ...card, borderLeft: '4px solid var(--gold)' }}>
@@ -814,15 +1019,23 @@ function TodayTab({ st, busy, onLesson, onExercises, onReview, onHomeworkTab, on
   );
 }
 
-function PlanTab({ st, busy, onLesson, onExercises, onReset }) {
+function PlanTab({ st, busy, onLesson, onExercises, onReset, onFocusOpen }) {
   const plan = st.plan || {};
   const chapters = plan.chapters || [];
+  const focus = st.focus;
+  const focusIds = new Set((focus?.chapters || []).map((c) => c.id));
   return (
     <div>
       <div style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
           <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: 0 }}>Planul tău de învățare</h3>
-          <span style={{ fontWeight: 800, color: 'var(--navy)' }}>{plan.progress || 0}%</span>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button className="btn btn-sm btn-outline" disabled={!!busy} onClick={onFocusOpen}
+              title="Pregătire pentru o lucrare sau un test din anumite capitole, cu dată limită">
+              🎯 {focus ? 'Pregătirea pentru lucrare' : 'Pregătire pentru lucrare/test'}
+            </button>
+            <span style={{ fontWeight: 800, color: 'var(--navy)' }}>{plan.progress || 0}%</span>
+          </div>
         </div>
         <div style={{ height: 12, background: 'var(--border)', borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}>
           <div style={{ height: '100%', width: `${plan.progress || 0}%`, background: 'linear-gradient(90deg, var(--gold), #27ae60)', borderRadius: 99, transition: 'width .5s' }} />
@@ -831,12 +1044,20 @@ function PlanTab({ st, busy, onLesson, onExercises, onReset }) {
           🎯 Obiectivul săptămânal: <strong>{plan.weeklyGoal?.chapters || 2} capitole</strong>, ~{plan.weeklyGoal?.exercises || 20} exerciții, ~{plan.weeklyGoal?.minutes || 180} minute.
           {plan.estWeeks ? <> · Timp estimat pentru tot planul: <strong>~{plan.estWeeks} săptămâni</strong>.</> : null}
         </div>
+        {focus && (
+          <div style={{ fontSize: '.83rem', color: '#8e44ad', marginTop: 6 }}>
+            🎯 Recapitulare pentru <strong>{focus.kindLabel}</strong>: {focus.done}/{focus.total} capitole (marcate mai jos)
+            {focus.deadline && !focus.overdue ? <> · până pe <strong>{roDate(focus.deadline)}</strong>{focus.daysLeft != null ? ` (${focus.daysLeft} ${focus.daysLeft === 1 ? 'zi' : 'zile'})` : ''}</> : null}
+            {focus.perWeek != null ? <> · ritm necesar ~{focus.perWeek}/săptămână</> : null}.
+          </div>
+        )}
       </div>
 
       {chapters.map((c, i) => {
         const stl = STATUS_LABELS[c.status] || STATUS_LABELS.de_parcurs;
+        const inFocus = focusIds.has(c.id);
         return (
-          <div key={c.id} style={{ ...card, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div key={c.id} style={{ ...card, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', ...(inFocus ? { borderColor: 'rgba(142,68,173,.45)', background: 'rgba(142,68,173,.03)' } : {}) }}>
             <div style={{ width: 30, height: 30, borderRadius: '50%', background: c.status === 'finalizat' ? '#27ae60' : 'var(--navy)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '.85rem', flexShrink: 0 }}>
               {c.status === 'finalizat' ? '✓' : i + 1}
             </div>
@@ -844,6 +1065,7 @@ function PlanTab({ st, busy, onLesson, onExercises, onReset }) {
               <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.95rem' }}>{c.title}</div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4, flexWrap: 'wrap' }}>
                 <span style={chip(stl.bg, stl.color)}>{stl.label}</span>
+                {inFocus && <span style={chip('rgba(142,68,173,.12)', '#8e44ad')} title="Capitol din pregătirea pentru lucrare/test">🎯 pentru lucrare</span>}
                 {c.mastery != null && <span style={{ fontSize: '.76rem', color: 'var(--text-muted)' }}>stăpânire {Math.round(c.mastery * 100)}%</span>}
               </div>
             </div>
@@ -1143,10 +1365,11 @@ function ProgressMeTab({ st }) {
   );
 }
 
-function SimTab({ st, busy, onSimulare }) {
+function SimTab({ st, busy, onSimulare, onFocusTest }) {
   const navigate = useNavigate();
   const sims = (st.sessions || []).filter((s) => s.kind === 'simulare' && s.status === 'finalizata');
   const examLabel = EXAM_LABELS[st.examType] || 'examen';
+  const focus = st.focus;
 
   // Pagina din site cu exercițiile NIVELULUI elevului (stabilit la înscriere):
   // EN → /evaluare-nationala · BAC → /bacalaureat/<profilul lui> · fără examen
@@ -1164,6 +1387,21 @@ function SimTab({ st, busy, onSimulare }) {
 
   return (
     <div>
+      {/* ── Testul lucrării (pregătirea pe capitole activă) ── */}
+      {focus && (
+        <div style={{ ...card, borderLeft: '4px solid #8e44ad' }}>
+          <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.02rem', marginBottom: 4 }}>🧩 Test de verificare · {focus.kindLabel}</div>
+          <p style={{ fontSize: '.86rem', color: 'var(--text-light)', marginBottom: 10 }}>
+            Un test DOAR din capitolele pregătirii tale ({focus.chapters.map((c) => c.title).join(' · ')})
+            {focus.deadline && !focus.overdue ? <> — testul tău e pe <strong>{roDate(focus.deadline)}</strong></> : null}.
+            Întâi caut un test potrivit în site; dacă nu găsesc, îl generez.
+          </p>
+          <button className="btn btn-primary" disabled={!!busy} onClick={onFocusTest}>
+            {busy === 'simulare' ? 'Pregătesc testul...' : '🧩 Dă-mi testul de verificare'}
+          </button>
+        </div>
+      )}
+
       {/* ── Simulare interactivă: 1) alege din baza de date · 2) generează nou ── */}
       <div style={{ ...card, borderLeft: '4px solid var(--navy)' }}>
         <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.05rem', marginBottom: 4 }}>🎯 Simulare interactivă · {examLabel}</div>

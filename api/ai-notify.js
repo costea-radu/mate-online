@@ -220,7 +220,7 @@ module.exports = async function handler(req, res) {
   const supa = ai.admin();
   try {
     if (req.method === 'GET') {
-      const cronOk = req.headers['x-vercel-cron'] || (process.env.AI_CRON_SECRET && req.query.secret === process.env.AI_CRON_SECRET);
+      const cronOk = ai.isCronRequest(req); // x-vercel-cron(-schedule) / vercel-cron UA / Bearer CRON_SECRET / ?secret=
       if (req.query.action === 'scan' && cronOk) return res.status(200).json(await scan(supa));
       return res.status(403).json({ error: 'Neautorizat' });
     }

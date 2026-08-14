@@ -42,6 +42,32 @@ function admin() {
   );
 }
 
+// ─── CRON: e cererea o invocare legitimă de cron? ────────────────────────────
+// FOLOSITĂ DE TOATE RUTELE-CRON. Cauza reală a „task-urile nu rulează singure”:
+// verificarea veche accepta DOAR headerul `x-vercel-cron`, dar Vercel NU mai
+// documentează/trimite garantat acel header — invocările cron actuale se
+// recunosc prin headerul `x-vercel-cron-schedule` (documentat: conține expresia
+// cron care a declanșat invocarea), prin user-agent-ul `vercel-cron/1.0` și,
+// oficial, prin `Authorization: Bearer CRON_SECRET` (Vercel îl trimite automat
+// dacă variabila de mediu CRON_SECRET există în proiect). Cronul era deci
+// respins cu 403 la fiecare tic — doar „▶️ Rulează acum” (autentificat ca
+// admin) mai funcționa. Acceptăm ORICARE dintre semnale (retrocompatibil):
+//   1. x-vercel-cron / x-vercel-cron-schedule (puse de platformă);
+//   2. user-agent care începe cu „vercel-cron/”;
+//   3. Authorization: Bearer <CRON_SECRET sau AI_CRON_SECRET>;
+//   4. ?secret=AI_CRON_SECRET (declanșare manuală / servicii externe de ping).
+function isCronRequest(req) {
+  const h = req.headers || {};
+  if (h['x-vercel-cron'] || h['x-vercel-cron-schedule']) return true;
+  if (/^vercel-cron\//i.test(String(h['user-agent'] || ''))) return true;
+  const bearer = String(h.authorization || h.Authorization || '').replace(/^Bearer\s+/i, '').trim();
+  const secrets = [process.env.CRON_SECRET, process.env.AI_CRON_SECRET].filter(Boolean);
+  if (bearer && secrets.includes(bearer)) return true;
+  const qSecret = (req.query && req.query.secret) || null;
+  if (qSecret && secrets.includes(qSecret)) return true;
+  return false;
+}
+
 // ─── AUTENTIFICARE REALĂ ─────────────────────────────────────────────────────
 // Derivă userId-ul din tokenul de sesiune Supabase (Authorization: Bearer ...).
 // NU se mai are încredere în `req.body.userId` (era falsificabil de oricine).
@@ -114,5 +140,5 @@ async function signedUrlFromPublic(supa, fileUrl, ttl = 300) {
 module.exports = {
   CORS, applyCors, handledMethod, admin,
   authUser, requireAdmin, parseStoragePath, signedUrlFromPublic,
-  allRows, inBatches,
+  allRows, inBatches, isCronRequest,
 };

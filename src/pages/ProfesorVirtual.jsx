@@ -14,6 +14,8 @@ import EinsteinIcon from '../components/EinsteinIcon';
 import SendToStudents from '../components/SendToStudents';
 import AILimite from '../components/AILimite';
 import { renderQuiz } from '../lib/quizRender';
+import CapitolePicker from '../components/CapitolePicker';
+import { capitoleForCategory } from '../lib/capitole';
 
 const CATEGORIES = [
   { id: '', label: 'Toate' },
@@ -393,7 +395,12 @@ function InteractiveTab() {
   const { isTeacher, isParent } = useAuth();
   const [category, setCategory] = useState('');
   const [topic, setTopic] = useState('');
+  const [chapters, setChapters] = useState([]); // capitolele alese din programă (id-uri)
   const [difficulty, setDifficulty] = useState('mediu');
+  const chapterOptions = capitoleForCategory(category);
+  // la schimbarea categoriei păstrăm doar capitolele care există și în noua listă
+  const pickCategory = (c) => { setCategory(c); setChapters((sel) => sel.filter((id) => capitoleForCategory(c).some((o) => o.id === id))); };
+  const chapterTitles = () => chapters.map((id) => chapterOptions.find((o) => o.id === id)?.title).filter(Boolean);
   const [questions, setQuestions] = useState(null); // listă structurată
   const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(false);
@@ -436,7 +443,7 @@ function InteractiveTab() {
   async function gen() {
     setLoading(true); setError(null); setUpsell(false); setQuestions(null); setSavedScore(null); setEditing(false); setPublishMsg(null);
     try {
-      const res = await aiClient.generateInteractive({ category: category || null, topic, difficulty, dataMode });
+      const res = await aiClient.generateInteractive({ category: category || null, topic, difficulty, dataMode, chapters: chapterTitles() });
       const qs = res.questions || [];
       const t = res.title || 'Exercițiu interactiv';
       setQuestions(qs); setTitle(t);
@@ -485,7 +492,7 @@ function InteractiveTab() {
       <div style={card}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginBottom: 14 }}>
           <label style={{ fontSize: '.85rem', color: 'var(--text-light)' }}>Categorie
-            <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ ...inp, width: '100%', marginTop: 4 }}>
+            <select value={category} onChange={(e) => pickCategory(e.target.value)} style={{ ...inp, width: '100%', marginTop: 4 }}>
               {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           </label>
@@ -495,6 +502,14 @@ function InteractiveTab() {
             </select>
           </label>
         </div>
+        {/* Capitolele programei (rolldown cu selecție multiplă): întrebările vin
+            DOAR din capitolele alese; capitolele lipsă se scriu în câmpul de
+            subiect + instrucțiuni de mai jos. */}
+        <CapitolePicker
+          options={chapterOptions} selected={chapters} onChange={setChapters}
+          label="Din anumite capitole (opțional) — gol = potrivit categoriei"
+          hint='Un capitol care lipsește din listă (ex. o lecție anume) se scrie în câmpul „Subiect + instrucțiuni” de mai jos.'
+        />
         {/* Subiect + instrucțiuni: prompt amplu pentru AI — temă, număr de
             întrebări, tipuri de itemi, restricții etc. (nu doar un cuvânt-cheie). */}
         <label style={{ display: 'block', fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 14 }}>Subiect + instrucțiuni pentru AI (opțional)

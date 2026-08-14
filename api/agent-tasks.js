@@ -98,7 +98,10 @@ module.exports = async function handler(req, res) {
       if (error) {
         return res.status(200).json({ tasks: [], warning: `Tabelul agent_tasks lipsește — rulează supabase/agent_tasks.sql în Supabase → SQL Editor (${error.message})` });
       }
-      return res.status(200).json({ tasks: data || [] });
+      // „bătaia de inimă” a cronului orar (scrisă de api/agent-cron.js la
+      // fiecare tic) — panoul arată dacă cronul Vercel chiar rulează
+      const heartbeat = await require('./agent-cron').readHeartbeat(supa);
+      return res.status(200).json({ tasks: data || [], cron: heartbeat });
     }
 
     if (action === 'create') {

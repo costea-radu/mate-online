@@ -34,7 +34,7 @@ const SIGNING_SECRET = process.env.AI_SIGNING_SECRET || process.env.SUPABASE_SER
 
 // CORS / applyCors / admin / authUser / requireAdmin / signedUrlFromPublic
 // vin din _lib/http.js (sursă unică, cu antetul Authorization inclus).
-const { CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic } = http;
+const { CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic, isCronRequest } = http;
 
 const hasEmbeddings = () => !!EMBED_KEY;
 const hasChat = () => !!CHAT_KEY;
@@ -1565,7 +1565,7 @@ async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', m
 }
 
 module.exports = {
-  CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic,
+  CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic, isCronRequest,
   chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, PERSONA,
   extractBaremItem, fragmentFromBarem, verifiedPdfReply, wantsOtherExplanation, isFollowUpQuestion,
   levelLabel, interactiveCatalog, studentState, meditatiiMemory,

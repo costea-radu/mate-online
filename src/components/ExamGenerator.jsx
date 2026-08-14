@@ -11,6 +11,8 @@ import { printExam } from '../lib/examPrint';
 import { supabase } from '../lib/supabase';
 import { authHeaders } from '../lib/api';
 import { combineExamPdfs, fetchPdfSources, stratifyBySubcategory, probeExamPdf } from '../lib/pdfCombine';
+import CapitolePicker from './CapitolePicker';
+import { capitoleForExamType } from '../lib/capitole';
 
 // separarea STRICTĂ a categoriilor: fiecare tip de examen combină doar propriile subiecte
 // (exportat: rubrica Simulări din /meditatii îl folosește la „Alege PDF din baza de date")
@@ -38,7 +40,12 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
   const [publishMsg, setPublishMsg] = useState(null);
   const [publishing, setPublishing] = useState(false);
   const [instructions, setInstructions] = useState('');
+  const [chapters, setChapters] = useState([]); // capitolele alese (id-uri din programa clasei/examenului)
   const [dataMode, setDataMode] = useState('keep');
+  const chapterOptions = capitoleForExamType(examType);
+  // la schimbarea tipului de examen, capitolele alese rămân doar dacă există și în noua programă
+  const pickExamType = (id) => { setExamType(id); setChapters((c) => c.filter((x) => capitoleForExamType(id).some((o) => o.id === x))); };
+  const chapterTitles = () => chapters.map((id) => chapterOptions.find((o) => o.id === id)?.title).filter(Boolean);
   const [combining, setCombining] = useState(false);
   const [combineMsg, setCombineMsg] = useState(null);
   const [combineReport, setCombineReport] = useState(null);
@@ -46,7 +53,7 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
   async function gen() {
     setLoading(true); setError(null); setUpsell(false); setExam(null); setEditing(false); setPublishMsg(null); setCombineMsg(null); setCombineReport(null);
     try {
-      const res = await aiClient.generateExam({ examType, instructions, dataMode });
+      const res = await aiClient.generateExam({ examType, instructions, dataMode, chapters: chapterTitles() });
       setExam(res.exam);
       if (Array.isArray(res.combinedFrom) && res.combinedFrom.length) {
         setCombineMsg('✅ Itemii au fost combinați din: ' + res.combinedFrom.join('; ') + '.');
@@ -146,7 +153,7 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr 1fr' : 'repeat(auto-fit,minmax(180px,1fr))', gap: 8, marginBottom: 14 }}>
           {EXAM_TYPES.map((t) => (
-            <button key={t.id} onClick={() => setExamType(t.id)}
+            <button key={t.id} onClick={() => pickExamType(t.id)}
               style={{ textAlign: 'left', padding: compact ? '8px 10px' : '12px 14px', borderRadius: 10, cursor: 'pointer', border: '2px solid', borderColor: examType === t.id ? 'var(--gold)' : 'var(--border)', background: examType === t.id ? 'rgba(232,185,49,.1)' : '#fff' }}>
               <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: compact ? '.8rem' : '.92rem' }}>{t.label}</div>
               <div style={{ fontSize: compact ? '.68rem' : '.76rem', color: 'var(--text-muted)' }}>{t.desc}</div>
@@ -163,12 +170,18 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
             <span><strong>Modifică numerele și notațiile</strong> — cu AI (verifică problemele — poate greși!)</span>
           </label>
         </div>
-        <label style={{ display: dataMode === 'modify' ? 'block' : 'none', fontSize: compact ? '.78rem' : '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
-          Instrucțiuni pentru AI (opțional)
-          <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={2}
-            placeholder="ex: pune accent pe geometrie; Subiectul III mai ușor; folosește exercițiile din testele 3 și 7…"
-            style={{ width: '100%', marginTop: 4, border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', fontSize: '.85rem', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' }} />
-        </label>
+        {dataMode === 'modify' && (
+          <div style={{ marginBottom: 4 }}>
+            <CapitolePicker
+              options={chapterOptions} selected={chapters} onChange={setChapters}
+              extraText={instructions} onExtraText={setInstructions}
+              label="Doar din anumite capitole (opțional) — gol = toată programa"
+              extraLabel="Alt capitol (dacă lipsește din listă) sau alte indicații pentru AI (opțional)"
+              extraPlaceholder="ex: pune accent pe geometrie; Subiectul III mai ușor; capitolul „Ecuații cu modul”…"
+              hint="Subiectul păstrează structura oficială (subiecte, punctaje), dar itemii vin DOAR din capitolele alese. Selecția de capitole funcționează la generarea cu AI; „combinarea exactă” de mai sus folosește subiectele întregi ale site-ului."
+            />
+          </div>
+        )}
         {dataMode === 'keep' ? (
           <button className="btn btn-primary" onClick={combineExact} disabled={combining} style={compact ? { width: '100%' } : undefined}>
             {combining ? 'Combin subiectele…' : '📎 Combină exact din subiectele site-ului (PDF)'}
