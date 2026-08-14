@@ -87,9 +87,10 @@ export const aiClient = {
   generateExam: ({ examType, instructions = '', dataMode = 'modify', chapters = [] }) =>
     post('/api/ai-exam', { examType, instructions, dataMode, chapters }),
 
-  // Generator de exerciții interactive (HTML) — admin sau abonat
-  generateInteractive: ({ category = null, topic = '', difficulty = 'mediu', dataMode = 'modify', chapters = [] }) =>
-    post('/api/ai-generate-interactive', { category, topic, difficulty, dataMode, chapters }),
+  // Generator de exerciții/teste interactive (HTML) — admin sau abonat.
+  // kind: 'exercitiu' (implicit) | 'test' + count = numărul de itemi ai testului (4–24)
+  generateInteractive: ({ category = null, topic = '', difficulty = 'mediu', dataMode = 'modify', chapters = [], kind = 'exercitiu', count = null }) =>
+    post('/api/ai-generate-interactive', { category, topic, difficulty, dataMode, chapters, kind, count }),
 
   // Agenți Claude (admin): generator exerciții + SEO/marketing
   exerciseAgent: (payload) => post('/api/ai-exercise-agent', payload),

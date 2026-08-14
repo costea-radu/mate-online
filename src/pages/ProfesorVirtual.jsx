@@ -49,7 +49,7 @@ export default function ProfesorVirtual() {
     : [
         { id: 'chat', label: `💬 ${askAiLabel({ isTeacher, isParent })}` },
         { id: 'exam', label: '📄 Generează subiect examen' },
-        { id: 'interactive', label: '🧩 Generează interactiv' },
+        { id: 'interactive', label: '🧩 Generează exerciții/teste interactive/PDF' },
         { id: 'library', label: '📚 Testele și exercițiile mele' },
       ];
 
@@ -397,6 +397,11 @@ function InteractiveTab() {
   const [topic, setTopic] = useState('');
   const [chapters, setChapters] = useState([]); // capitolele alese din programă (id-uri)
   const [difficulty, setDifficulty] = useState('mediu');
+  // rezultatul generării: interactiv (viewerul intern) sau DIRECT PDF
+  // (documentul tipăribil din examPrint — variantă elev / cu barem)
+  const [output, setOutput] = useState('interactive'); // 'interactive' | 'pdf'
+  const [itemKind, setItemKind] = useState('exercitiu'); // 'exercitiu' | 'test'
+  const [itemCount, setItemCount] = useState(10);        // itemii testului (4–24)
   const chapterOptions = capitoleForCategory(category);
   // la schimbarea categoriei păstrăm doar capitolele care există și în noua listă
   const pickCategory = (c) => { setCategory(c); setChapters((sel) => sel.filter((id) => capitoleForCategory(c).some((o) => o.id === id))); };
@@ -443,20 +448,28 @@ function InteractiveTab() {
   async function gen() {
     setLoading(true); setError(null); setUpsell(false); setQuestions(null); setSavedScore(null); setEditing(false); setPublishMsg(null);
     try {
-      const res = await aiClient.generateInteractive({ category: category || null, topic, difficulty, dataMode, chapters: chapterTitles() });
+      const res = await aiClient.generateInteractive({
+        category: category || null, topic, difficulty, dataMode, chapters: chapterTitles(),
+        kind: itemKind, count: itemKind === 'test' ? itemCount : null,
+      });
       const qs = res.questions || [];
-      const t = res.title || 'Exercițiu interactiv';
+      const t = res.title || (itemKind === 'test' ? 'Test' : 'Exercițiu interactiv');
       setQuestions(qs); setTitle(t);
       // salvează în „Testele și exercițiile mele"
       try { await aiClient.saveLibraryItem({ kind: 'interactive', title: t, category: category || null, topic: topicShort, payload: { questions: qs } }); } catch { /* ignore */ }
-      // păstrăm exercițiul pentru revenire și îl deschidem DIRECT în pagina nouă
+      // păstrăm rezultatul pentru revenire
       sessionStorage.setItem('pv_last_interactive', JSON.stringify({ questions: qs, title: t }));
+      // rezultat PDF: NU deschidem viewerul interactiv — rămân la îndemână
+      // butoanele „PDF variantă elev / PDF cu barem" (fereastra de tipărire nu
+      // se poate deschide singură după o generare lungă — browserul o blochează)
+      if (output === 'pdf') return;
       navigate('/exercitiu-ai', { state: { html: renderQuiz(t, qs), title: t } });
     } catch (e) { setError(e.message); if (e.premium) setUpsell(true); }
     finally { setLoading(false); }
   }
 
-  // Export PDF al întrebărilor (fostul „antrenament" e integrat aici)
+  // Export PDF al întrebărilor — ACELEAȘI metode ca la „Generează subiect
+  // examen" (examPrint.printExam): document tipăribil, variantă elev / cu barem
   function exportPdf(withSolutions) {
     if (!questions || !questions.length) return;
     const exItems = questions.map((qq, i) => {
@@ -467,7 +480,11 @@ function InteractiveTab() {
         solution: qq.explanation || '', points: null,
       };
     });
-    printExam({ title, durationMin: 30, totalPoints: null, oficiu: null, subjects: [{ label: 'Exerciții', points: null, items: exItems }] }, { withSolutions });
+    const isTest = itemKind === 'test' || /^Test/.test(title || '');
+    printExam({
+      title, durationMin: isTest ? Math.max(30, exItems.length * 4) : 30, totalPoints: null, oficiu: null,
+      subjects: [{ label: isTest ? 'Test' : 'Exerciții', points: null, items: exItems }],
+    }, { withSolutions });
   }
 
   // editare structurată
@@ -486,10 +503,46 @@ function InteractiveTab() {
   const card = { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 18 };
   const inp = { border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.9rem', fontFamily: 'var(--font-body)' };
   const eta = { width: '100%', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', fontSize: '.82rem', marginTop: 3, marginBottom: 4, resize: 'vertical' };
+  // buton „segmentat" (alegeri: interactiv/PDF, exercițiu/test)
+  const seg = (active) => ({
+    padding: '8px 14px', fontSize: '.85rem', fontWeight: 700, cursor: 'pointer',
+    border: `2px solid ${active ? 'var(--gold)' : 'var(--border)'}`, borderRadius: 10,
+    background: active ? 'rgba(232,185,49,.12)' : '#fff', color: 'var(--navy)',
+  });
 
   return (
     <div>
       <div style={card}>
+        {/* Ce generăm: EXERCIȚIU sau TEST · rezultat INTERACTIV sau PDF direct */}
+        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 6 }}>Ce generez</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button style={seg(itemKind === 'exercitiu')} onClick={() => setItemKind('exercitiu')}>🧠 Exercițiu</button>
+              <button style={seg(itemKind === 'test')} onClick={() => setItemKind('test')}>📋 Test</button>
+              {itemKind === 'test' && (
+                <label style={{ fontSize: '.82rem', color: 'var(--text-light)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  Itemi:
+                  <select value={itemCount} onChange={(e) => setItemCount(Number(e.target.value))} style={{ ...inp, padding: '7px 9px' }}>
+                    {Array.from({ length: 21 }, (_, i) => i + 4).map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </label>
+              )}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 6 }}>Rezultatul</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button style={seg(output === 'interactive')} onClick={() => setOutput('interactive')} title="Se deschide în viewerul interactiv, cu corectare și scor">🧩 Interactiv</button>
+              <button style={seg(output === 'pdf')} onClick={() => setOutput('pdf')} title="Document tipăribil, ca la «Generează subiect examen»: variantă elev + variantă cu barem">📄 PDF</button>
+            </div>
+          </div>
+        </div>
+        {output === 'pdf' && (
+          <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: -8, marginBottom: 12 }}>
+            📄 La rezultat PDF primești documentul tipăribil (ca la „Generează subiect examen"): <strong>varianta elev</strong> și <strong>varianta cu barem</strong> — fereastra de tipărire → „Salvează ca PDF". {itemKind === 'test' ? 'Testul' : 'Exercițiul'} rămâne salvat și în „Testele și exercițiile mele".
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginBottom: 14 }}>
           <label style={{ fontSize: '.85rem', color: 'var(--text-light)' }}>Categorie
             <select value={category} onChange={(e) => pickCategory(e.target.value)} style={{ ...inp, width: '100%', marginTop: 4 }}>
@@ -527,7 +580,13 @@ function InteractiveTab() {
             <span><strong>Modifică numerele și notațiile</strong> (verifică problemele — poate greși!)</span>
           </label>
         </div>
-        <button className="btn btn-primary" onClick={gen} disabled={loading}>{loading ? 'Se generează... (~20s)' : '✨ Generează exercițiu interactiv'}</button>
+        <button className="btn btn-primary" onClick={gen} disabled={loading}>
+          {loading
+            ? `Se generează... (${itemKind === 'test' && itemCount > 10 ? '~30–60s' : '~20s'})`
+            : itemKind === 'test'
+              ? `✨ Generează testul (${itemCount} itemi, ${output === 'pdf' ? 'PDF' : 'interactiv'})`
+              : `✨ Generează exercițiul (${output === 'pdf' ? 'PDF' : 'interactiv'})`}
+        </button>
       </div>
 
       {error && <div style={{ ...card, background: '#fdecea', color: '#b71c1c', borderColor: '#f5c6cb' }}>⚠️ {error}</div>}
@@ -545,13 +604,26 @@ function InteractiveTab() {
             {savedScore && <span style={{ fontSize: '.85rem', color: '#1e7e34', fontWeight: 700 }}>Scor test: {savedScore.score}/{savedScore.maxScore}</span>}
           </div>
 
-          {!editing && (
+          {!editing && output === 'pdf' && (
+            <div style={{ border: '2px dashed var(--gold)', borderRadius: 12, padding: 22, textAlign: 'center', background: 'rgba(232,185,49,.05)' }}>
+              <div style={{ fontSize: '2rem', marginBottom: 6 }}>📄</div>
+              <div style={{ color: 'var(--text-light)', fontSize: '.9rem', marginBottom: 12 }}>
+                {/^Test/.test(title || '') ? 'Testul e gata' : 'Exercițiul e gata'} — descarcă PDF-ul (se deschide fereastra de tipărire → „Salvează ca PDF"):
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <button className="btn btn-primary" onClick={() => exportPdf(false)}>📄 PDF varianta elev</button>
+                <button className="btn btn-outline" onClick={() => exportPdf(true)}>📝 PDF cu barem (răspunsuri)</button>
+                <button className="btn btn-outline" onClick={() => navigate('/exercitiu-ai', { state: { html, title } })}>🗗 Deschide și interactiv</button>
+              </div>
+            </div>
+          )}
+          {!editing && output !== 'pdf' && (
             <div style={{ border: '2px dashed var(--border)', borderRadius: 12, padding: 26, textAlign: 'center' }}>
               <div style={{ fontSize: '2rem', marginBottom: 6 }}>🗗</div>
               <div style={{ color: 'var(--text-light)', fontSize: '.9rem', marginBottom: 12 }}>
-                Exercițiul se deschide în pagină separată, cu buton „Închide” — ca la PDF-uri.
+                {/^Test/.test(title || '') ? 'Testul' : 'Exercițiul'} se deschide în pagină separată, cu buton „Închide” — ca la PDF-uri.
               </div>
-              <button className="btn btn-primary" onClick={() => navigate('/exercitiu-ai', { state: { html, title } })}>🗗 Deschide exercițiul</button>
+              <button className="btn btn-primary" onClick={() => navigate('/exercitiu-ai', { state: { html, title } })}>🗗 Deschide {/^Test/.test(title || '') ? 'testul' : 'exercițiul'}</button>
             </div>
           )}
 

@@ -4,6 +4,17 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 14 august 2026 (2) — „Generează exerciții/teste interactive/PDF": alegi tipul, rezultatul și numărul de itemi
+
+Cererea adminului, la asistentul AI pentru profesori (tabul fost „🧩 Generează interactiv"):
+- **Tabul redenumit**: „🧩 Generează exerciții/teste interactive/PDF".
+- **„Ce generez": Exercițiu sau Test** (butoane segmentate). La TEST apare selectorul **„Itemi"** (4–24, implicit 10) — serverul generează EXACT atâția itemi (bugetul de tokeni crește cu numărul de itemi, ca testele mari să nu se trunchieze; un test ieșit incomplet dă eroare cu retry, nu jumătate de test).
+- **„Rezultatul": Interactiv sau PDF** (se poate alege PDF direct, înainte de generare). La PDF nu se mai deschide viewerul interactiv: apare caseta „📄 gata de tipărit" cu **PDF varianta elev** / **PDF cu barem** — ACELEAȘI metode ca la „Generează subiect examen" (`examPrint.printExam`, fereastra de tipărire → „Salvează ca PDF"); rămâne și butonul „Deschide și interactiv". (Fereastra de tipărire nu se deschide singură după o generare lungă — browserele blochează pop-up-urile fără click direct.)
+- Restul rămâne la fel: categorii, dificultate, capitolele din rolldown, „Subiect + instrucțiuni", salvarea în „Testele și exercițiile mele", trimiterea la elevi și publicarea.
+
+Fișiere: `src/pages/ProfesorVirtual.jsx` (UI), `src/lib/aiClient.js` (kind/count), `api/ai-generate-interactive.js` (kind='test' + count 4–24, plan de combinare pe N itemi, maxTokens scalat, validare de completitudine). Build + 156/156 teste trec.
+---
+
 ## 14 august 2026 — Cronurile chiar RULEAZĂ (403 reparat, cu heartbeat) + teste pe capitole (profesor) + pregătire pentru lucrări cu dată limită (elev)
 
 ### 1) 🕖 Task-urile programate nu rulau singure — cauza REALĂ: cronul primea 403 la fiecare tic

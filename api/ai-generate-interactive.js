@@ -1,9 +1,12 @@
 // =====================================================================
-// api/ai-generate-interactive.js — generează un EXERCIȚIU INTERACTIV.
-// STRUCTURAT (listă de întrebări), ca să poată fi editat ca text (fără HTML)
-// și completat cu adăugare/ștergere de întrebări.
-// Body: { userId, category?, topic?, difficulty? }
-// Răspuns: { questions:[{statement, options?, answer, explanation?}], title, topic }
+// api/ai-generate-interactive.js — generează un EXERCIȚIU sau un TEST
+// INTERACTIV, STRUCTURAT (listă de întrebări), ca să poată fi editat ca
+// text (fără HTML), completat cu adăugare/ștergere de întrebări, deschis
+// interactiv sau exportat PDF (variantă elev / cu barem — examPrint).
+// Body: { userId, category?, topic?, difficulty?, dataMode?, chapters?,
+//         kind?: 'exercitiu' (implicit, ~5 întrebări) | 'test',
+//         count?: numărul de itemi ai TESTULUI (4–24, ales de profesor) }
+// Răspuns: { questions:[{statement, options?, answer, explanation?}], kind, title, topic }
 // Randarea în HTML interactiv se face pe client (src/lib/quizRender.js).
 // =====================================================================
 const ai = require('./_lib/ai');
@@ -33,6 +36,12 @@ module.exports = async function handler(req, res) {
     // capitolele alese de profesor (titluri) — întrebările vin DOAR din ele
     const chapters = (Array.isArray(req.body?.chapters) ? req.body.chapters : [])
       .map((c) => String(c || '').replace(/\s+/g, ' ').trim().slice(0, 140)).filter(Boolean).slice(0, 12);
+    // EXERCIȚIU (implicit, ca până acum: ~5 întrebări, max 8) sau TEST cu un
+    // NUMĂR DE ITEMI ales direct de profesor (4–24)
+    const kind = req.body?.kind === 'test' ? 'test' : 'exercitiu';
+    const countReq = parseInt(req.body?.count, 10);
+    const count = kind === 'test' ? Math.min(24, Math.max(4, Number.isFinite(countReq) ? countReq : 10)) : null;
+    const maxItems = kind === 'test' ? count : 8;
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) ai.requirePremium(profile);
     const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
@@ -100,14 +109,18 @@ module.exports = async function handler(req, res) {
         if (parts.length >= 2) {
           srcBlock = parts.join('\n\n');
           const letters = parts.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
-          plan = Array.from({ length: 5 }, (_, i) => `- Întrebarea ${i + 1} ← SURSA ${letters[i % letters.length]}, un exercițiu ales aleatoriu din ea.`).join('\n');
+          // planul acoperă numărul de itemi cerut (test cu N itemi) sau 5 (exercițiu)
+          plan = Array.from({ length: kind === 'test' ? count : 5 }, (_, i) => `- Întrebarea ${i + 1} ← SURSA ${letters[i % letters.length]}, un exercițiu ales aleatoriu din ea.`).join('\n');
         }
       } catch { /* fără surse */ }
     }
 
+    const taskLine = kind === 'test'
+      ? `Sarcină: creează un TEST de matematică cu EXACT ${count} itemi (întrebări numerotate), în stilul exemplelor din baza de date, de la mai simplu la mai complex — ca o lucrare de verificare. Scrie TOȚI cei ${count} itemi, fără să te oprești mai devreme.`
+      : 'Sarcină: creează un set de întrebări de matematică pentru un exercițiu interactiv, în stilul exemplelor din baza de date. Implicit 5 întrebări; dacă profesorul cere alt număr în instrucțiunile lui, respectă-l (minim 3, maxim 8).';
     const system = `${ai.PERSONA}
 
-Sarcină: creează un set de întrebări de matematică pentru un exercițiu interactiv, în stilul exemplelor din baza de date. Implicit 5 întrebări; dacă profesorul cere alt număr în instrucțiunile lui, respectă-l (minim 3, maxim 8).
+${taskLine}
 
 === EXEMPLE DIN BAZA DE DATE (temă/stil) ===
 ${examples}
@@ -141,10 +154,13 @@ SUBIECT + INSTRUCȚIUNI DE LA PROFESOR — au PRIORITATE față de regulile de s
 ${topicFull}
 """` : ''}`;
 
+    // bugetul de tokeni crește cu numărul de itemi (un item ≈ 350–450 tokeni cu
+    // opțiuni + explicație); la 3200, testele de 15–24 itemi s-ar trunchia
+    const maxTokens = maxItems <= 8 ? 3200 : Math.min(10000, 3200 + (maxItems - 8) * 450);
     const { text, usage } = await ai.chat({
       system,
-      messages: [{ role: 'user', content: `Generează obiectul JSON cu întrebările acum${topicFull ? ', respectând întocmai subiectul și instrucțiunile profesorului' : ''}. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
-      temperature: 0.9, maxTokens: 3200, json: true,
+      messages: [{ role: 'user', content: `Generează obiectul JSON cu ${kind === 'test' ? `TESTUL de ${count} itemi` : 'întrebările'} acum${topicFull ? ', respectând întocmai subiectul și instrucțiunile profesorului' : ''}. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
+      temperature: 0.9, maxTokens, json: true,
       model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
     });
     await ai.logUsage(supa, userId, 'ai-generate-interactive', usage);
@@ -162,8 +178,8 @@ ${topicFull}
     }
     // normalizează + VALIDEAZĂ: fără întrebări cu enunț gol, grile fără opțiuni
     // sau răspunsuri lipsă. Altfel clientul primea `questions: []` cu 200 și
-    // randa o pagină albă.
-    questions = questions.slice(0, 8).map((q) => ({
+    // randa o pagină albă. (plafonul urmează numărul de itemi cerut la teste)
+    questions = questions.slice(0, maxItems).map((q) => ({
       statement: String(q.statement || '').trim(),
       options: Array.isArray(q.options) ? q.options.map((o) => String(o)) : undefined,
       answer: Array.isArray(q.options) ? Number(q.answer) || 0 : String(q.answer ?? '').trim(),
@@ -176,10 +192,16 @@ ${topicFull}
     if (!questions.length) {
       return res.status(502).json({ error: 'Generatorul nu a produs întrebări valide. Mai încearcă o dată.' });
     }
+    // un „test" cu prea puține întrebări valide față de cerere = răspuns
+    // trunchiat — mai bine eroare cu retry decât un test pe jumătate
+    if (kind === 'test' && questions.length < Math.min(4, count)) {
+      return res.status(502).json({ error: 'Testul a ieșit incomplet. Mai încearcă o dată (sau alege mai puțini itemi).' });
+    }
 
     return res.status(200).json({
       questions,
-      title: `Exercițiu interactiv · ${topicShort || chapters[0] || category || 'matematică'}`,
+      kind,
+      title: `${kind === 'test' ? `Test (${questions.length} itemi)` : 'Exercițiu interactiv'} · ${topicShort || chapters[0] || category || 'matematică'}`,
       topic: topicShort || chapters[0] || null,
     });
   } catch (err) {
