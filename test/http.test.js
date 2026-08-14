@@ -3,7 +3,8 @@
 // + recunoașterea invocărilor de cron (cauza „task-urile nu rulează singure").
 const test = require('node:test');
 const assert = require('node:assert');
-const { parseStoragePath, allRows, inBatches, isCronRequest } = require('../api/_lib/http');
+const crypto = require('node:crypto');
+const { parseStoragePath, allRows, inBatches, isCronRequest, verifyJwtLocal, jwksCache } = require('../api/_lib/http');
 
 test('parseStoragePath: URL public standard', () => {
   const { bucket, filePath } = parseStoragePath(
@@ -105,3 +106,70 @@ test('inBatches: loturile .in(...) se combină și fiecare lot e paginat', async
   assert.strictEqual(rows.length, 250);
   assert.deepStrictEqual(batches.map((b) => b.n), [100, 100, 50]); // loturi de 100
 });
+
+// ─── verifyJwtLocal: sesiunea se verifică LOCAL, fără drum la Supabase Auth ──
+// (scalare: authUser nu mai face un apel de rețea per cerere API)
+const b64u = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
+const PROJECT = 'https://xyz.supabase.co';
+
+function hsToken(payload, secret, header = { alg: 'HS256', typ: 'JWT' }) {
+  const signed = `${b64u(header)}.${b64u(payload)}`;
+  const sig = crypto.createHmac('sha256', secret).update(signed).digest('base64url');
+  return `${signed}.${sig}`;
+}
+
+function baseClaims(over = {}) {
+  return {
+    iss: `${PROJECT}/auth/v1`, aud: 'authenticated', sub: 'user-123',
+    exp: Math.floor(Date.now() / 1000) + 3600, ...over,
+  };
+}
+
+function withEnv(vars, fn) {
+  const old = {};
+  for (const [k, v] of Object.entries(vars)) { old[k] = process.env[k]; if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  return Promise.resolve(fn()).finally(() => {
+    for (const [k, v] of Object.entries(old)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  });
+}
+
+test('verifyJwtLocal (HS256): token valid → sub; expirat/alterat/alt proiect → null', () =>
+  withEnv({ SUPABASE_URL: PROJECT, SUPABASE_JWT_SECRET: 'secret-de-test' }, async () => {
+    const ok = await verifyJwtLocal(hsToken(baseClaims(), 'secret-de-test'));
+    assert.strictEqual(ok && ok.sub, 'user-123');
+    // expirat
+    assert.strictEqual(await verifyJwtLocal(hsToken(baseClaims({ exp: Math.floor(Date.now() / 1000) - 120 }), 'secret-de-test')), null);
+    // semnat cu ALT secret (falsificat)
+    assert.strictEqual(await verifyJwtLocal(hsToken(baseClaims(), 'alt-secret')), null);
+    // emis de ALT proiect
+    assert.strictEqual(await verifyJwtLocal(hsToken(baseClaims({ iss: 'https://strain.supabase.co/auth/v1' }), 'secret-de-test')), null);
+    // audiența nu e 'authenticated' (ex. token de service)
+    assert.strictEqual(await verifyJwtLocal(hsToken(baseClaims({ aud: 'service_role' }), 'secret-de-test')), null);
+    // gunoi / alg 'none' → null (adică fallback la auth.getUser, care refuză)
+    assert.strictEqual(await verifyJwtLocal('nu.e.jwt'), null);
+    const none = `${b64u({ alg: 'none' })}.${b64u(baseClaims())}.`;
+    assert.strictEqual(await verifyJwtLocal(none), null);
+  }));
+
+test('verifyJwtLocal (HS256): fără SUPABASE_JWT_SECRET nu verificăm local (fallback)', () =>
+  withEnv({ SUPABASE_URL: PROJECT, SUPABASE_JWT_SECRET: undefined }, async () => {
+    assert.strictEqual(await verifyJwtLocal(hsToken(baseClaims(), 'orice')), null);
+  }));
+
+test('verifyJwtLocal (ES256): verifică cu cheia publică din JWKS (cache)', () =>
+  withEnv({ SUPABASE_URL: PROJECT }, async () => {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'k1', alg: 'ES256', use: 'sig' };
+    const signed = `${b64u({ alg: 'ES256', typ: 'JWT', kid: 'k1' })}.${b64u(baseClaims())}`;
+    const sig = crypto.sign('sha256', Buffer.from(signed), { key: privateKey, dsaEncoding: 'ieee-p1363' }).toString('base64url');
+    // umplem cache-ul JWKS ca testul să nu facă rețea
+    const old = { ...jwksCache };
+    Object.assign(jwksCache, { keys: [jwk], at: Date.now(), url: `${PROJECT}/auth/v1/.well-known/jwks.json` });
+    try {
+      const ok = await verifyJwtLocal(`${signed}.${sig}`);
+      assert.strictEqual(ok && ok.sub, 'user-123');
+      // aceeași semnătură pe ALT conținut → refuzat
+      const tampered = `${b64u({ alg: 'ES256', typ: 'JWT', kid: 'k1' })}.${b64u(baseClaims({ sub: 'atacator' }))}`;
+      assert.strictEqual(await verifyJwtLocal(`${tampered}.${sig}`), null);
+    } finally { Object.assign(jwksCache, old); }
+  }));

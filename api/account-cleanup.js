@@ -41,6 +41,7 @@ async function runCleanup(supa, { dry = false } = {}) {
     dry, emailEnabled: mailer.enabled(),
     reactivated: 0, warned: 0, warnFailed: 0, reminded: 0,
     deleted: 0, archivedFor: 0, deleteFailed: 0, skippedProtected: 0,
+    usagePruned: 0,
   };
 
   // ── 0) REACTIVARE ──────────────────────────────────────────────────────────
@@ -141,6 +142,29 @@ async function runCleanup(supa, { dry = false } = {}) {
         stats.deleteFailed++;
       }
     }
+  }
+
+  // ── 3½) IGIENĂ DB: ai_usage mai vechi de 90 de zile (best-effort) ──────────
+  // Jurnalul de consum AI crește cu fiecare acțiune și NU mai e citit de nimeni
+  // după 30 de zile (bugetele lunare: ai_spent/ai_spent2 pe 30 zile; rapoartele:
+  // 24h). Îl tundem la 90 de zile ca baza de date să nu crească nelimitat —
+  // exact genul de „grăsime" care împinge inutil spre un plan Supabase mai mare.
+  // Loturi de 1000 (max 20/rulare): fiecare comandă rămâne mică și rapidă;
+  // ce nu se termină azi se termină la rulările următoare. Erorile nu blochează.
+  if (!dry) {
+    try {
+      const cutoff = new Date(now.getTime() - 90 * inact.DAY_MS).toISOString();
+      for (let lot = 0; lot < 20; lot++) {
+        const { data: old, error: selErr } = await supa.from('ai_usage')
+          .select('id').lt('created_at', cutoff).limit(1000);
+        if (selErr || !old || !old.length) break;
+        const { error: delErr } = await supa.from('ai_usage')
+          .delete().in('id', old.map((r) => r.id));
+        if (delErr) { console.warn('account-cleanup: curățarea ai_usage a eșuat (neblocant):', delErr.message); break; }
+        stats.usagePruned += old.length;
+        if (old.length < 1000) break;
+      }
+    } catch (e) { console.warn('account-cleanup: curățarea ai_usage a sărit peste (neblocant):', e.message); }
   }
 
   // ── 4) Rezumat către admin (best-effort) ───────────────────────────────────

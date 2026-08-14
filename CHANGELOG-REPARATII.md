@@ -4,6 +4,31 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 14 august 2026 (4) — Pregătire pentru trafic mare: singura grijă la creștere rămâne planul Supabase
+
+Obiectivul cererii: arhitectura să țină un număr mare de utilizatori fără alte intervenții în cod — când vine traficul, singurul pas rămas să fie upgrade-ul de plan în Supabase (Free → Pro → tier de compute mai mare), adică o setare plătită, nu o rearhitecturare. Patru schimbări:
+
+### 1) 🌍 Funcțiile Vercel rulau în SUA; baza de date e la Frankfurt
+`vercel.json` nu seta nicio regiune → toate rutele API rulau în `iad1` (SUA, implicitul Vercel), iar FIECARE cerere făcea 3–6 interogări către Supabase (eu-central-1, Frankfurt): tot atâtea drumuri peste Atlantic a ~90 ms, la fiecare apel, pentru orice utilizator, indiferent de trafic. Adăugat `"regions": ["fra1"]` — funcțiile rulează de-acum la Frankfurt, lipite de baza de date; interogările coboară la câteva ms, iar utilizatorii din România sunt și ei aproape. Probabil cel mai mare câștig de viteză din toată lista, gratuit. Intră în vigoare la primul deploy.
+
+### 2) 🔑 Sesiunea se verifică LOCAL — a dispărut un apel de rețea din FIECARE cerere API
+`authUser()` (api/_lib/http.js — folosit de TOATE rutele, direct sau prin `_lib/ai.js`) chema `supa.auth.getUser(token)`: un drum de rețea la Supabase Auth per cerere, +50–150 ms latență și presiune pe Auth exact când traficul crește. Tokenul e însă un JWT semnat de propriul proiect, deci acum îl verificăm criptografic LOCAL (`verifyJwtLocal`, fără dependențe noi — doar `node:crypto`): semnătura (chei ASIMETRICE din JWKS-ul public al proiectului, ținut în cache 10 minute per instanță; sau HMAC, dacă proiectul e pe „Legacy HS256" și există `SUPABASE_JWT_SECRET` în Vercel), expirarea, emitentul (doar proiectul nostru) și audiența (`authenticated`). Orice caz neacoperit (fără secret, JWKS indisponibil, algoritm necunoscut, token alterat) → fallback EXACT pe drumul vechi — nimic nu se poate strica, doar drumul de rețea dispare în cazul obișnuit. Compromis standard, asumat: un token rămâne valabil până la expirare (≤1h) chiar dacă sesiunea a fost închisă între timp de pe alt dispozitiv.
+
+### 3) 📉 Polling-ul din fundal nu mai bate serverul degeaba
+Navbar (indicatorii de forum) și clopoțelul de notificări interogau la fiecare 60 s, în fiecare tab deschis, inclusiv ASCUNS în fundal — 1.000 de tab-uri lăsate deschise ≈ 33 de cereri/sec non-stop numai din asta. Acum: (a) tab ascuns → nu se interoghează deloc; (b) la revenirea în tab → reîmprospătare IMEDIATĂ (utilizatorul nu simte nicio diferență); (c) intervalul 60 s → 120 s. Fișiere: src/components/Navbar.jsx, src/components/AINotifications.jsx.
+
+### 4) 🗂️ Indexuri pentru interogările repetitive + baza de date nu mai crește nelimitat
+- **supabase/perf_indexes.sql (NOU — DE RULAT o dată în Supabase → SQL Editor):** `idx_disc_created` (countul „activitate nouă pe forum" nu mai citește tot tabelul discussions la fiecare tic, pentru fiecare vizitator), `idx_disc_parent_created` („răspunsuri la postările mele") și `idx_usage_time` (rapoartele + alarma de cost filtrează ai_usage global după dată; indexul existent începe cu user_id și nu ajută acolo).
+- **api/account-cleanup.js:** cronul zilnic tunde acum și `ai_usage` la 90 de zile (bugetele folosesc maxim 30 de zile în urmă — ai_spent/ai_spent2; rapoartele 24h) — în loturi de 1000, cel mult 20 de loturi/rulare, best-effort: o eroare aici nu blochează niciodată curățarea conturilor. În rezumat apare `usagePruned`.
+
+### După deploy (o singură dată)
+1. Rulează `supabase/perf_indexes.sql` în SQL Editor.
+2. DOAR dacă proiectul e pe „Legacy HS256" (Supabase → Settings → API arată „JWT Secret" în loc de „JWT Signing Keys"): copiază secretul în Vercel ca variabila `SUPABASE_JWT_SECRET`. Cu chei asimetrice nu e nevoie de nimic — JWKS-ul e public și merge singur.
+3. Nimic altceva — fallback-urile păstrează comportamentul identic până sunt făcute cele de mai sus.
+
+Teste noi în test/http.test.js: HS256 valid / expirat / falsificat / alt proiect / audiență greșită / `alg:none`; lipsă secret → fallback; ES256 cu cheia din JWKS (+ respinge semnătura mutată pe alt conținut). **Build: ✓ 158 module. Teste: 161/161 trec.**
+---
+
 ## 14 august 2026 (3) — Meditații: data lucrării modificabilă + pregătire „doar Subiectul I / II / I+II" · Profesor: „alt capitol" scris liber + itemi grilă/redactare
 
 ### 🎓 Contul de elev (Meditații cu AI)

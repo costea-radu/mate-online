@@ -23,13 +23,18 @@ export default function AINotifications() {
   const { profile } = useAuth();
 
   async function loadCount() {
+    // SCALARE: tab-ul ascuns nu mai cheamă serverul (fiecare apel = o invocare
+    // de funcție + interogări în DB); recuperăm imediat la revenirea în tab.
+    if (document.visibilityState === 'hidden') return;
     try { const { count } = await aiClient.notificationsUnread(); setUnread(count || 0); } catch { /* ignore */ }
   }
 
   useEffect(() => {
     loadCount();
-    const t = setInterval(loadCount, 60000);
-    return () => clearInterval(t);
+    const t = setInterval(loadCount, 120000); // era 60s: la mulți utilizatori simultani se adună
+    const onVisible = () => { if (document.visibilityState === 'visible') loadCount(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); };
   }, []);
 
   useEffect(() => {

@@ -536,10 +536,15 @@ export default function Navbar() {
 
   // Calculează indicatorii de la „Forum": (1) activitate nouă în general și
   // (2) răspunsuri la postările/comentariile utilizatorului. Reîmprospătat periodic.
+  // SCALARE: interogăm DOAR cu tab-ul vizibil (un tab lăsat deschis în fundal nu
+  // mai bate baza de date degeaba) și la 2 minute în loc de 1; la revenirea în
+  // tab reîmprospătăm imediat, deci utilizatorul nu simte nicio diferență.
   useEffect(() => {
     let cancelled = false;
 
     async function computeForumState() {
+      // Tab ascuns → nu interogăm; recuperăm imediat la 'visibilitychange'.
+      if (document.visibilityState === 'hidden') return;
       // Cheia „văzut" — per utilizator dacă e logat, altfel comună pentru vizitatori.
       const seenKey = user ? `forum_seen_${user.id}` : 'forum_seen_guest';
 
@@ -599,8 +604,10 @@ export default function Navbar() {
     }
 
     computeForumState();
-    const iv = setInterval(computeForumState, 60000);
-    return () => { cancelled = true; clearInterval(iv); };
+    const iv = setInterval(computeForumState, 120000);
+    const onVisible = () => { if (document.visibilityState === 'visible') computeForumState(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { cancelled = true; clearInterval(iv); document.removeEventListener('visibilitychange', onVisible); };
   }, [user, location.pathname]);
 
   async function handleSignOut() {

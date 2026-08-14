@@ -1,6 +1,9 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "regions": [
+    "fra1"
+  ],
   "crons": [
     {
       "path": "/api/ai-ingest?action=process",
