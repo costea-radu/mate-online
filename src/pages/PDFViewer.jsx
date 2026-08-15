@@ -420,6 +420,7 @@ export default function PDFViewer() {
     if (!item) { if (!idParam) navigate('/'); return; }
     if (!item.is_free && !isPremium) { navigate('/preturi'); return; }
 
+    let createdUrl = null; // pt. revocarea CORECTĂ a blob-ului în cleanup
     async function load() {
       try {
         // Semnăm TOT (gratuit + premium) prin get-file-url — funcționează și pe
@@ -438,6 +439,7 @@ export default function PDFViewer() {
         const buffer = await response.arrayBuffer();
         const blob = new Blob([buffer], { type: 'application/pdf' });
         const localUrl = URL.createObjectURL(blob);
+        createdUrl = localUrl;
         setPdfData(buffer);
         setBlobUrl(localUrl);
       } catch (err) {
@@ -451,7 +453,8 @@ export default function PDFViewer() {
     load();
 
     return () => {
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      // revocăm URL-ul CHIAR creat (starea blobUrl e încă null când rulează efectul)
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
   }, [authLoading, item, isPremium]);
 

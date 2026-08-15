@@ -80,14 +80,16 @@ module.exports = async function handler(req, res) {
     });
     if (!sent.ok && !sent.skipped) console.error('contact: email admin eșuat:', sent.error);
 
-    // 2) Confirmare către expeditor (best-effort).
+    // 2) Confirmare către expeditor (best-effort). Adresa NU e verificată, deci
+    // NU mai ecouăm conținutul mesajului înapoi (altfel formularul putea fi
+    // folosit ca vector de backscatter/hărțuire către o victimă cu text arbitrar).
+    // Păstrăm doar confirmarea generică de primire.
     const confHtml = mailer.template({
       title: 'Am primit mesajul tău 👍',
       preheader: 'Îți răspundem în maxim 24 de ore.',
       bodyHtml: `
         <p>Salut, ${mailer.escapeHtml(nm.split(' ')[0])}!</p>
-        <p>Mesajul tău a ajuns la echipa ExamenMate. Îți răspundem în <strong>maxim 24 de ore</strong> pe această adresă.</p>
-        <div style="margin-top:12px;padding:14px 16px;background:#f7f9fc;border-radius:10px;white-space:pre-wrap;color:#5a6379">${mailer.escapeHtml(msg.slice(0, 800))}${msg.length > 800 ? '…' : ''}</div>`,
+        <p>Mesajul tău a ajuns la echipa ExamenMate. Îți răspundem în <strong>maxim 24 de ore</strong> pe această adresă.</p>`,
       footerNote: 'Ai primit acest email fiindcă ai completat formularul de contact pe examenmate.com.',
     });
     await mailer.sendMail({ to: em, subject: 'Am primit mesajul tău — ExamenMate', html: confHtml });

@@ -34,6 +34,30 @@ function slug(s) {
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'exercitiu';
 }
 
+// Definit la nivel de modul (nu în render) → tip de componentă STABIL, inputul de
+// fișier nu se mai remontează la fiecare render. `onFile` vine ca prop.
+function FileSlot({ title, hint, file, setFile, refEl, icon, onPick, onFile }) {
+  return (
+    <div style={{ flex: 1, minWidth: 240, border: '2px dashed var(--border)', borderRadius: 12, padding: 12 }}>
+      <div style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 6 }}>{title}</div>
+      <input ref={refEl} type="file" accept=".pdf,.html,.htm" style={{ display: 'none' }}
+        onChange={(e) => onFile(e.target.files?.[0], setFile, refEl)} />
+      {file ? (
+        <div style={{ fontSize: '.85rem', color: 'var(--navy)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {file.pdf ? '📕' : '📄'} {file.name}
+          <button onClick={() => setFile(null)} style={{ ...smallBtn, color: '#c0392b', borderColor: '#f5c6cb' }}>✕ scoate</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <button className="btn btn-outline" onClick={() => refEl.current?.click()} style={{ fontSize: '.82rem' }}>{icon} Alege fișier</button>
+          <button className="btn btn-outline" onClick={onPick} style={{ fontSize: '.82rem' }}>📚 Din baza de date</button>
+          <span style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>{hint}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AIExerciseAgent({ box }) {
   // Fișierele-model + conversația
   const [modelFile, setModelFile] = useState(null);   // {name, pdf|null, text|null}
@@ -291,27 +315,9 @@ export default function AIExerciseAgent({ box }) {
     if (ref?.current) ref.current.value = '';
   }
 
-  function FileSlot({ title, hint, file, setFile, refEl, icon, onPick }) {
-    return (
-      <div style={{ flex: 1, minWidth: 240, border: '2px dashed var(--border)', borderRadius: 12, padding: 12 }}>
-        <div style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 6 }}>{title}</div>
-        <input ref={refEl} type="file" accept=".pdf,.html,.htm" style={{ display: 'none' }}
-          onChange={(e) => onFile(e.target.files?.[0], setFile, refEl)} />
-        {file ? (
-          <div style={{ fontSize: '.85rem', color: 'var(--navy)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {file.pdf ? '📕' : '📄'} {file.name}
-            <button onClick={() => setFile(null)} style={{ ...smallBtn, color: '#c0392b', borderColor: '#f5c6cb' }}>✕ scoate</button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <button className="btn btn-outline" onClick={() => refEl.current?.click()} style={{ fontSize: '.82rem' }}>{icon} Alege fișier</button>
-            <button className="btn btn-outline" onClick={onPick} style={{ fontSize: '.82rem' }}>📚 Din baza de date</button>
-            <span style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>{hint}</span>
-          </div>
-        )}
-      </div>
-    );
-  }
+  // FileSlot e definit la nivel de MODUL (vezi mai jos) ca să NU se recreeze la
+  // fiecare render — altfel inputul de fișier se remonta și o selecție în curs
+  // se putea pierde.
 
   // ── Generare / conversație ─────────────────────────────────────────
   async function generate() {
@@ -395,19 +401,23 @@ export default function AIExerciseAgent({ box }) {
 
   // ── Trimitere către formularele existente din Admin ────────────────
   function sendToInteractive() {
-    sessionStorage.setItem('agent_prefill_interactive', JSON.stringify({
-      form: { title: ex.title, description: `Generat cu agentul Claude · barem ${totalPoints} p`, type: 'exercise' },
-      html: renderExercise(ex),
-      fileName: `${slug(ex.title)}.html`,
-    }));
+    try {
+      sessionStorage.setItem('agent_prefill_interactive', JSON.stringify({
+        form: { title: ex.title, description: `Generat cu agentul Claude · barem ${totalPoints} p`, type: 'exercise' },
+        html: renderExercise(ex),
+        fileName: `${slug(ex.title)}.html`,
+      }));
+    } catch { setError('Nu am putut pregăti trimiterea (storage indisponibil).'); return; }
     window.dispatchEvent(new CustomEvent('admin:goto-tab', { detail: 'interactive' }));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   function sendToPdf() {
     openPrint(true); // întâi fereastra de tipărire (Salvează ca PDF), în același gest de click
-    sessionStorage.setItem('agent_prefill_pdf', JSON.stringify({
-      form: { title: ex.title, description: `Generat cu agentul Claude · barem ${totalPoints} p` },
-    }));
+    try {
+      sessionStorage.setItem('agent_prefill_pdf', JSON.stringify({
+        form: { title: ex.title, description: `Generat cu agentul Claude · barem ${totalPoints} p` },
+      }));
+    } catch { setError('Nu am putut pregăti trimiterea (storage indisponibil).'); return; }
     window.dispatchEvent(new CustomEvent('admin:goto-tab', { detail: 'pdf' }));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -470,8 +480,8 @@ export default function AIExerciseAgent({ box }) {
 
       {/* 1. Fișierele-model */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-        <FileSlot title="1 · Exercițiile-model (PDF / HTML)" hint="de aici ia exercițiile" icon="📎" file={modelFile} setFile={setModelFile} refEl={fileRef1} onPick={() => openPicker('model')} />
-        <FileSlot title="2 · Modelul de format — opțional" hint="de aici ia structura/baremul" icon="🗂" file={formatFile} setFile={setFormatFile} refEl={fileRef2} onPick={() => openPicker('format')} />
+        <FileSlot title="1 · Exercițiile-model (PDF / HTML)" hint="de aici ia exercițiile" icon="📎" file={modelFile} setFile={setModelFile} refEl={fileRef1} onPick={() => openPicker('model')} onFile={onFile} />
+        <FileSlot title="2 · Modelul de format — opțional" hint="de aici ia structura/baremul" icon="🗂" file={formatFile} setFile={setFormatFile} refEl={fileRef2} onPick={() => openPicker('format')} onFile={onFile} />
       </div>
 
       {/* Automatizare: testul următor al unei rubrici, combinat din cele existente */}
@@ -573,10 +583,12 @@ export default function AIExerciseAgent({ box }) {
             <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)' }}>Pune pe site:</span>
             <button className="btn btn-primary" style={{ fontSize: '.85rem' }} onClick={() => {
               const t = exHtml.match(/<title>([^<]*)<\/title>/i)?.[1]?.trim() || 'Exercițiu generat';
-              sessionStorage.setItem('agent_prefill_interactive', JSON.stringify({
-                form: { title: t, description: 'Generat cu agentul Claude (șablon model)', type: 'exercise' },
-                html: exHtml, fileName: `${slug(t)}.html`,
-              }));
+              try {
+                sessionStorage.setItem('agent_prefill_interactive', JSON.stringify({
+                  form: { title: t, description: 'Generat cu agentul Claude (șablon model)', type: 'exercise' },
+                  html: exHtml, fileName: `${slug(t)}.html`,
+                }));
+              } catch { setError('Nu am putut pregăti trimiterea (storage indisponibil).'); return; }
               window.dispatchEvent(new CustomEvent('admin:goto-tab', { detail: 'interactive' }));
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}>🧩 Trimite la «Adaugă Interactiv»</button>

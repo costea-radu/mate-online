@@ -27,12 +27,14 @@ export function AuthProvider({ children }) {
       if (error) {
         console.warn('Profile not found for user:', userId, error.message);
         setProfile(null);
-      } else {
-        setProfile(data);
+        return null;
       }
+      setProfile(data);
+      return data; // întoarce profilul (folosit ex. la poll-ul de după checkout)
     } catch (err) {
       console.error('Profile fetch error:', err);
       setProfile(null);
+      return null;
     } finally {
       setLoading(false);
     }

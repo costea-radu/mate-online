@@ -8,9 +8,15 @@ import './styles/global.css';
 // automat O SINGURĂ dată ca să luăm versiunea nouă (marcaj de timp = anti-buclă).
 window.addEventListener('vite:preloadError', () => {
   const key = 'mate_chunk_reload';
-  const last = Number(sessionStorage.getItem(key) || 0);
-  if (Date.now() - last < 15000) return; // deja am reîncărcat recent → nu bucla
-  sessionStorage.setItem(key, String(Date.now()));
+  try {
+    const last = Number(sessionStorage.getItem(key) || 0);
+    if (Date.now() - last < 15000) return; // deja am reîncărcat recent → nu bucla
+    sessionStorage.setItem(key, String(Date.now()));
+  } catch {
+    // storage indisponibil (ex. Safari privat) → marcaj în memorie ca să nu buclăm
+    if (window.__mateChunkReloaded) return;
+    window.__mateChunkReloaded = true;
+  }
   window.location.reload();
 });
 

@@ -40,7 +40,7 @@ export default defineConfig({
         // …dar NU rutele serverless (/api/*) și NU fișierele de verificare
         // Google (ex. /google88f99a4244b17e5a.html) — trebuie servite ca atare,
         // altfel service worker-ul returnează app shell-ul și verificarea eșuează.
-        navigateFallbackDenylist: [/^\/api\//, /^\/google[0-9a-f]+\.html$/],
+        navigateFallbackDenylist: [/^\/api\//, /^\/google[0-9a-f]+\.html$/, /^\/sitemap\.xml$/],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         runtimeCaching: [
           {

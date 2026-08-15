@@ -168,12 +168,14 @@ function SecureImage({ url, name }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let created = null;
     fetch(url)
       .then(r => r.blob())
-      .then(blob => setBlobUrl(URL.createObjectURL(blob)))
+      .then(blob => { created = URL.createObjectURL(blob); setBlobUrl(created); })
       .catch(() => setBlobUrl(url)) // fallback la url direct
       .finally(() => setLoading(false));
-    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+    // revocăm URL-ul CHIAR creat (starea blobUrl e null când rulează efectul)
+    return () => { if (created) URL.revokeObjectURL(created); };
   }, [url]);
 
   if (loading) return <div style={{ height:80, background:'#f0f4f8', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', color:'#aaa', fontSize:'0.82rem' }}>Se încarcă...</div>;

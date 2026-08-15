@@ -876,8 +876,11 @@ async function logUsage(supa, userId, endpoint, usage = {}) {
 }
 
 // ─── Token semnat (generator efemer: păstrează răspunsul fără DB) ────────────
-function signToken(payload) {
-  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+function signToken(payload, ttlSeconds = null) {
+  // ttlSeconds (opțional): pune un `exp` (secunde unix) în token; verifyToken îl
+  // respinge după expirare. Fără ttl → token fără expirare (comportament vechi).
+  const data = ttlSeconds ? { ...payload, exp: Math.floor(Date.now() / 1000) + ttlSeconds } : payload;
+  const body = Buffer.from(JSON.stringify(data)).toString('base64url');
   const sig = crypto.createHmac('sha256', SIGNING_SECRET).update(body).digest('base64url');
   return `${body}.${sig}`;
 }
@@ -888,7 +891,11 @@ function verifyToken(token) {
   try {
     if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
   } catch { return null; }
-  try { return JSON.parse(Buffer.from(body, 'base64url').toString()); } catch { return null; }
+  let data;
+  try { data = JSON.parse(Buffer.from(body, 'base64url').toString()); } catch { return null; }
+  // dacă tokenul poartă un `exp` (secunde unix), îl respingem după expirare.
+  if (data && typeof data.exp === 'number' && Date.now() / 1000 > data.exp) return null;
+  return data;
 }
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');

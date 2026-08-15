@@ -97,10 +97,12 @@ const EN_RECAP = [
 function categoryFor(profile) {
   if (profile.exam_target === 'evaluare-nationala') return 'evaluare-nationala';
   if (profile.exam_target && profile.exam_target.startsWith('bac')) return 'bacalaureat';
-  return `clasa-${profile.grade}`;
+  // fără clasă (ex. utilizator non-meditații care corectează un PDF) → 'general'
+  // în loc de „clasa-undefined" (care polua ai_skill_mastery).
+  return profile.grade ? `clasa-${profile.grade}` : 'general';
 }
 // Categoria „de clasă" (materialele pe lecții) — complementară celei de examen
-function classCategory(profile) { return `clasa-${profile.grade}`; }
+function classCategory(profile) { return profile.grade ? `clasa-${profile.grade}` : 'general'; }
 
 // Capitolele de parcurs pentru un profil (clasă + examen-țintă).
 // TOATĂ teoria intră în plan (fără plafon de capitole): la EN — programa
@@ -693,10 +695,12 @@ function predictGrade({ masteryAvg = null, homeworkAvg = null, simAvg = null, we
 
 // ─── Streak (zile consecutive de studiu) ─────────────────────────────────────
 function bumpStreak(profile) {
-  const today = new Date().toISOString().slice(0, 10);
+  // Ora României (ca roToday / restul modulului), NU UTC — altfel sesiunile
+  // dintre 00:00 și 03:00 local se atribuiau zilei greșite (streak greșit).
+  const today = roToday();
   const last = profile.last_study_date ? String(profile.last_study_date).slice(0, 10) : null;
   if (last === today) return { streak_days: profile.streak_days || 1, last_study_date: today };
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const yesterday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Bucharest' }).format(new Date(Date.now() - 86400000));
   const streak = last === yesterday ? (profile.streak_days || 0) + 1 : 1;
   return { streak_days: streak, last_study_date: today };
 }

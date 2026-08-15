@@ -382,14 +382,28 @@ function normalize(ex) {
   };
   if (kind === 'grila') {
     const qs = Array.isArray(ex.questions) ? ex.questions : [];
-    out.questions = qs.slice(0, 20).map((q) => ({
-      statement: String(q.statement || ''),
-      options: Array.isArray(q.options) && q.options.length ? q.options.slice(0, 6).map(String) : undefined,
-      answer: Array.isArray(q.options) && q.options.length ? Math.max(0, Number(q.answer) || 0) : String(q.answer ?? ''),
-      hint: String(q.hint || ''),
-      explanation: String(q.explanation || ''),
-      points: Math.max(1, Number(q.points) || 10),
-    })).filter((q) => q.statement);
+    out.questions = qs.slice(0, 20).map((q) => {
+      const opts = Array.isArray(q.options) && q.options.length ? q.options.slice(0, 6).map(String) : undefined;
+      let answer;
+      if (opts) {
+        const idx = Number(q.answer);
+        // răspuns cu variante: DOAR un index întreg valid [0, opts.length). Un
+        // index 1-based ("4" la 4 opțiuni) sau o literă ("B"→NaN) ar face
+        // întrebarea imposibil de răspuns corect → o eliminăm (ca normalizeQuestions).
+        if (!Number.isInteger(idx) || idx < 0 || idx >= opts.length) return null;
+        answer = idx;
+      } else {
+        answer = String(q.answer ?? '');
+      }
+      return {
+        statement: String(q.statement || ''),
+        options: opts,
+        answer,
+        hint: String(q.hint || ''),
+        explanation: String(q.explanation || ''),
+        points: Math.max(1, Number(q.points) || 10),
+      };
+    }).filter((q) => q && q.statement);
     if (!out.questions.length) return null;
   } else {
     const st = Array.isArray(ex.steps) ? ex.steps : [];
@@ -1119,7 +1133,7 @@ function renderGrila(ex) {
     t: Array.isArray(q.options) && q.options.length ? 'c' : 'o',
     a: Array.isArray(q.options) && q.options.length ? Number(q.answer) : String(q.answer ?? ''),
     p: Number(q.points) || 0,
-    e: q.explanation || '',
+    e: esc(q.explanation || ''), // escapat: se afișează prin innerHTML (matematica $..$ rămâne)
   }));
 
   return `${HEAD}
@@ -1131,7 +1145,7 @@ function renderGrila(ex) {
   <div class="res" id="res"></div>
   ${KATEX}
 <script>
-  var D=${JSON.stringify(data)};
+  var D=${JSON.stringify(data).replace(/</g, '\\u003c')};
   document.getElementById('check').addEventListener('click', function(){
     var got=0, max=0;
     for(var i=0;i<D.length;i++){
@@ -1162,7 +1176,7 @@ function renderEtape(ex) {
     s.points || 0, s.hint,
   )).join('');
 
-  const data = steps.map((s) => ({ a: String(s.answer ?? ''), p: Number(s.points) || 0, e: s.explanation || '' }));
+  const data = steps.map((s) => ({ a: String(s.answer ?? ''), p: Number(s.points) || 0, e: esc(s.explanation || '') }));
 
   return `${HEAD}
   <h1>${esc(ex.title || 'Problemă cu etape de rezolvare')}</h1>
@@ -1174,7 +1188,7 @@ function renderEtape(ex) {
   <div class="final" id="final"><b>Răspuns final:</b> <span>${esc(ex.final_answer || '')}</span></div>
   ${KATEX}
 <script>
-  var D=${JSON.stringify(data)};
+  var D=${JSON.stringify(data).replace(/</g, '\\u003c')};
   document.getElementById('check').addEventListener('click', function(){
     var got=0, max=0;
     for(var i=0;i<D.length;i++){
@@ -1184,7 +1198,8 @@ function renderEtape(ex) {
       if(ok) got+=D[i].p;
       var fb=document.getElementById('fb'+i);
       fb.className='fb '+(ok?'ok':'bad');
-      fb.innerHTML=(ok?'✓ Corect (+'+D[i].p+' p)':'✗ Greșit (0 p) — răspuns corect: '+D[i].a)+(D[i].e?'<div class="exp"><b>Barem/rezolvare:</b> '+D[i].e+'</div>':'');
+      var ad=String(D[i].a).replace(/[&<>]/g,function(c){return c==='&'?'&amp;':c==='<'?'&lt;':'&gt;';}); // răspunsul escapat DOAR pt. afișare (comparația de mai sus rămâne pe D[i].a brut)
+      fb.innerHTML=(ok?'✓ Corect (+'+D[i].p+' p)':'✗ Greșit (0 p) — răspuns corect: '+ad)+(D[i].e?'<div class="exp"><b>Barem/rezolvare:</b> '+D[i].e+'</div>':'');
     }
     rmath();
     document.getElementById('final').style.display='block';
@@ -1335,6 +1350,21 @@ async function notifyAdmin({ task, run }) {
 // ─── Execuția completă a unui task programat (folosită de cron și „Rulează acum”) ─
 async function runTask({ supa, task, triggerKind = 'cron' }) {
   const startedAt = new Date().toISOString();
+
+  // Revendicare ATOMICĂ la START: mutăm last_run_at la ACUM, condiționat pe
+  // valoarea veche. Dacă o altă rulare (cron vs. „Rulează acum" apăsat aproape
+  // de ora programată) a revendicat deja task-ul, update-ul nu potrivește →
+  // ieșim, ca să NU generăm de două ori (și, cu auto_post, să nu publicăm dublu).
+  let claimQuery = supa.from('agent_tasks').update({ last_run_at: startedAt }).eq('id', task.id);
+  claimQuery = task.last_run_at == null ? claimQuery.is('last_run_at', null) : claimQuery.eq('last_run_at', task.last_run_at);
+  const { data: claimed } = await claimQuery.select('id');
+  if (!claimed || !claimed.length) {
+    return {
+      ok: false, skipped: true, runId: null, usage: null, emailed: false,
+      run: { status: 'skipped', title: 'Sărit — task-ul e deja în curs de rulare', provider: null, content_id: null, error: null },
+    };
+  }
+
   const run = {
     task_id: task.id, trigger_kind: triggerKind, status: 'error',
     title: null, provider: null, content_id: null, error: null, result: null, combined_from: null,
@@ -1403,7 +1433,18 @@ async function runTask({ supa, task, triggerKind = 'cron' }) {
     run.error = String(e?.message || e || 'eroare necunoscută').slice(0, 900);
   }
 
-  const { data: inserted } = await supa.from('agent_task_runs').insert(run).select('id').single();
+  const { data: inserted, error: insErr } = await supa.from('agent_task_runs').insert(run).select('id').single();
+  if (insErr) {
+    console.error('exgen runTask: insert agent_task_runs eșuat:', insErr.message);
+    // Pt. „pending_review" rezultatul trăia DOAR în run.result → e pierdut.
+    // Marcăm eroare ca să NU trimitem emailul „așteaptă aprobarea ta" spre o
+    // coadă goală. Pt. „posted"/„skipped" efectul există deja pe site (doar
+    // istoricul rulării lipsește), deci lăsăm statusul cum e.
+    if (run.status === 'pending_review') {
+      run.status = 'error';
+      run.error = `Salvarea rulării a eșuat (rezultat pierdut): ${insErr.message}`.slice(0, 900);
+    }
+  }
   await supa.from('agent_tasks').update({
     last_run_at: startedAt,
     last_status: run.status,

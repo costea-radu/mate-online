@@ -74,7 +74,7 @@ function renderGrila(ex) {
     t: Array.isArray(q.options) && q.options.length ? 'c' : 'o',
     a: Array.isArray(q.options) && q.options.length ? Number(q.answer) : String(q.answer ?? ''),
     p: Number(q.points) || 0,
-    e: q.explanation || '',
+    e: esc(q.explanation || ''), // escapat: se afișează prin innerHTML (matematica $..$ rămâne)
   }));
 
   return `${HEAD}
@@ -86,7 +86,7 @@ function renderGrila(ex) {
   <div class="res" id="res"></div>
   ${KATEX}
 <script>
-  var D=${JSON.stringify(data)};
+  var D=${JSON.stringify(data).replace(/</g, '\\u003c')};
   document.getElementById('check').addEventListener('click', function(){
     var got=0, max=0;
     for(var i=0;i<D.length;i++){
@@ -117,7 +117,7 @@ function renderEtape(ex) {
     s.points || 0, s.hint,
   )).join('');
 
-  const data = steps.map((s) => ({ a: String(s.answer ?? ''), p: Number(s.points) || 0, e: s.explanation || '' }));
+  const data = steps.map((s) => ({ a: String(s.answer ?? ''), p: Number(s.points) || 0, e: esc(s.explanation || '') }));
 
   return `${HEAD}
   <h1>${esc(ex.title || 'Problemă cu etape de rezolvare')}</h1>
@@ -129,7 +129,7 @@ function renderEtape(ex) {
   <div class="final" id="final"><b>Răspuns final:</b> <span>${esc(ex.final_answer || '')}</span></div>
   ${KATEX}
 <script>
-  var D=${JSON.stringify(data)};
+  var D=${JSON.stringify(data).replace(/</g, '\\u003c')};
   document.getElementById('check').addEventListener('click', function(){
     var got=0, max=0;
     for(var i=0;i<D.length;i++){
@@ -139,7 +139,8 @@ function renderEtape(ex) {
       if(ok) got+=D[i].p;
       var fb=document.getElementById('fb'+i);
       fb.className='fb '+(ok?'ok':'bad');
-      fb.innerHTML=(ok?'✓ Corect (+'+D[i].p+' p)':'✗ Greșit (0 p) — răspuns corect: '+D[i].a)+(D[i].e?'<div class="exp"><b>Barem/rezolvare:</b> '+D[i].e+'</div>':'');
+      var ad=String(D[i].a).replace(/[&<>]/g,function(c){return c==='&'?'&amp;':c==='<'?'&lt;':'&gt;';}); // răspunsul escapat DOAR pt. afișare (comparația rămâne pe D[i].a brut)
+      fb.innerHTML=(ok?'✓ Corect (+'+D[i].p+' p)':'✗ Greșit (0 p) — răspuns corect: '+ad)+(D[i].e?'<div class="exp"><b>Barem/rezolvare:</b> '+D[i].e+'</div>':'');
     }
     rmath();
     document.getElementById('final').style.display='block';

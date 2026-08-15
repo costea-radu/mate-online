@@ -180,15 +180,23 @@ function RezolvareCard({ item, user, isPremium }) {
           canAccess ? (
             <button onClick={async () => {
               setLoading(true);
+              // Deschidem fereastra SINCRON, în stiva gestului utilizatorului —
+              // altfel (după await) browserul blochează popup-ul și w era null.
+              const w = window.open('', '_blank');
               try {
                 const url = await getSecureUrl(item, user);
                 const resp = await fetch(url);
                 const blob = await resp.blob();
                 const blobUrl = URL.createObjectURL(blob);
-                const w = window.open('');
-                w.document.write(`<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${blobUrl}" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>`);
-                setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-              } catch(e) { alert(e.message); }
+                if (w) {
+                  w.document.write(`<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${blobUrl}" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>`);
+                  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+                } else {
+                  // popup blocat → deschidem imaginea în fila curentă
+                  window.location.href = blobUrl;
+                  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+                }
+              } catch(e) { if (w) w.close(); alert(e.message); }
               setLoading(false);
             }} disabled={loading}
               style={{ padding:'8px 16px', background:'var(--navy)', color:'#fff', border:'none', borderRadius:8, fontWeight:600, fontSize:'0.85rem', cursor:'pointer', width:'100%' }}>

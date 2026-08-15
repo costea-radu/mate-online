@@ -466,8 +466,8 @@ function InteractiveTab() {
       setQuestions(qs); setTitle(t);
       // salvează în „Testele și exercițiile mele"
       try { await aiClient.saveLibraryItem({ kind: 'interactive', title: t, category: category || null, topic: topicShort, payload: { questions: qs } }); } catch { /* ignore */ }
-      // păstrăm rezultatul pentru revenire
-      sessionStorage.setItem('pv_last_interactive', JSON.stringify({ questions: qs, title: t }));
+      // păstrăm rezultatul pentru revenire (storage poate lipsi în Safari privat)
+      try { sessionStorage.setItem('pv_last_interactive', JSON.stringify({ questions: qs, title: t })); } catch { /* ignore */ }
       // rezultat PDF: NU deschidem viewerul interactiv — rămân la îndemână
       // butoanele „PDF variantă elev / PDF cu barem" (fereastra de tipărire nu
       // se poate deschide singură după o generare lungă — browserul o blochează)

@@ -66,8 +66,9 @@ function inlineHtml(t = '') {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return esc
     // linkuri interne markdown [Titlu](/cale) → ancoră clicabilă (deschide exercițiul/materialul)
-    .replace(/\[([^\]\n]+)\]\((\/[^)\s]*)\)/g,
-      '<a href="$2" data-internal="1" style="display:inline-block;margin:2px 0;padding:2px 8px;border-radius:6px;background:rgba(232,185,49,.15);border:1px solid var(--gold);color:var(--navy);font-weight:600;text-decoration:none">🧩 $1 →</a>')
+    // escapăm " în URL ca să nu se poată sparge atributul href (injecție de atribut)
+    .replace(/\[([^\]\n]+)\]\((\/[^)\s]*)\)/g, (m, label, href) =>
+      `<a href="${href.replace(/"/g, '&quot;')}" data-internal="1" style="display:inline-block;margin:2px 0;padding:2px 8px;border-radius:6px;background:rgba(232,185,49,.15);border:1px solid var(--gold);color:var(--navy);font-weight:600;text-decoration:none">🧩 ${label} →</a>`)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code style="background:rgba(15,43,68,.08);padding:1px 5px;border-radius:4px;font-size:.92em">$1</code>')
     .replace(/\n/g, '<br/>');

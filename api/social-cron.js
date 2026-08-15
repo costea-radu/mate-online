@@ -47,6 +47,15 @@ module.exports = async function handler(req, res) {
 
       const published = [], failed = [];
       for (const row of due || []) {
+        // Revendicăm rândul ATOMIC înainte de publicare. Dacă un tick anterior
+        // omorât la maxDuration (sau altă rulare) l-a luat deja, .eq('status',
+        // 'approved') nu mai potrivește → sărim, ca să NU publicăm de două ori
+        // (Reels/postări duplicate). Compromis asumat: dacă funcția e omorâtă
+        // FIX în timpul publicării, rândul rămâne „publishing" (readministrabil),
+        // ceea ce e preferabil unui duplicat public.
+        const { data: claimed } = await supa.from('social_posts')
+          .update({ status: 'publishing' }).eq('id', row.id).eq('status', 'approved').select('id');
+        if (!claimed || !claimed.length) continue;
         try {
           const r = await social.publishPost(row);
           await supa.from('social_posts')

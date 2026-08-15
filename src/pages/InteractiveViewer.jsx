@@ -69,7 +69,9 @@ export default function InteractiveViewer() {
 
   // Deschidere directă prin link ?id= (din chat/notificări): aducem materialul.
   useEffect(() => {
-    if (item || !idParam) return;
+    if (!idParam) return;
+    if (item && item.id === idParam) return; // deja încărcat exact acest material
+    setSrcDoc(null); // curăță exercițiul vechi (ex. link intern din tutor către alt ?id=)
     (async () => {
       const { data } = await supabase.from('content').select('*').eq('id', idParam).single();
       if (data) setItem(data);
@@ -295,19 +297,16 @@ export default function InteractiveViewer() {
 
     async function load() {
       try {
-        let url = item.file_url;
-
-        // Premium: obține signed URL de la server
-        if (!item.is_free) {
-          const res = await fetch('/api/get-file-url', {
-            method: 'POST',
-            headers: await authHeaders(),
-            body: JSON.stringify({ userId: user.id, contentId: item.id }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || 'Eroare server');
-          url = data.url;
-        }
+        // Semnăm TOT (gratuit + premium) prin get-file-url — merge și pe bucket
+        // privat, deci nu mai depindem de URL-uri publice brute.
+        const res = await fetch('/api/get-file-url', {
+          method: 'POST',
+          headers: await authHeaders(),
+          body: JSON.stringify({ contentId: item.id }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Eroare server');
+        const url = data.url;
 
         // Fetch cu XMLHttpRequest ca fallback pentru iOS Safari
         const html = await new Promise((resolve, reject) => {
@@ -480,7 +479,7 @@ export default function InteractiveViewer() {
             srcDoc={finalDoc}
             style={{ flex: 1, border: 'none', width: '100%', minHeight: 0, background: '#fff' }}
             title={item?.title}
-            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-top-navigation-by-user-activation"
+            sandbox="allow-scripts allow-forms allow-popups allow-top-navigation-by-user-activation"
           />
         )}
 

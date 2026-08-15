@@ -301,7 +301,19 @@ export default function Profile() {
     if (params.get('session_id') && user) {
       setCheckoutSuccess(true);
       window.history.replaceState({}, '', '/profil');
-      fetchProfile(user.id);
+      // Webhook-ul Stripe scrie subscription_status='active' ASINCRON și adesea
+      // întârzie față de redirect. Reîncărcăm profilul de câteva ori până devine
+      // „active" (sau renunțăm după ~14s), ca utilizatorul care tocmai a plătit
+      // să NU rămână pe „Cont gratuit".
+      let stop = false;
+      (async () => {
+        for (let i = 0; i < 7 && !stop; i++) {
+          const p = await fetchProfile(user.id);
+          if (p?.subscription_status === 'active') break;
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      })();
+      return () => { stop = true; };
     }
   }, [user, fetchProfile]);
 
