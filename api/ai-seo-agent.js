@@ -42,6 +42,7 @@ module.exports = async function handler(req, res) {
     await ai.logUsage(supa, userId, 'ai-seo-agent', {
       in: r.usage?.prompt_tokens || 0,
       out: r.usage?.completion_tokens || 0,
+      model: r.usage?.model || r.provider || null, // altfel costul se loga ca 0
     });
 
     return res.status(200).json({

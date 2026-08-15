@@ -330,6 +330,10 @@ async function coach(req, res, supa) {
 
   let message = fallback;
   try {
+    // Cost bounded: peste limita orară / buget, enforceRateLimit aruncă → prindem
+    // mai jos și rămânem pe mesajul determinist. Coach e cosmetic, deci NU blocăm
+    // elevul cu 429 — dar nici nu permitem apeluri LLM nelimitate per abonat.
+    await ai.enforceRateLimit(supa, userId, profile);
     const { text, usage } = await ai.chat({
       system: `Ești „Profesorul Virtual" de pe ExamenMate — meditatorul personal al unui elev român${bits.firstName ? ` pe nume ${bits.firstName}` : ''}. Scrie-i un mesaj scurt (2–3 fraze, sub 55 de cuvinte), cald și concret, în română, pe baza faptelor de mai jos: apreciezi ce a făcut (concret, nu generic) și anunți natural pasul următor. Notele, scorurile și procentele le redai EXACT cum apar în fapte (cu partea zecimală — „nota 8.33", nu „nota 8"). Fără liste, fără markdown, fără emoji-uri multe (maximum unul).`,
       messages: [{ role: 'user', content: facts.join('\n') }],
@@ -643,7 +647,7 @@ async function assessmentSubmit(req, res, supa) {
   const analysis = await med.classifyMistakes(wrong.map((r) => ({
     statement: r.statement, correct: Array.isArray(r.options) ? r.options[r.answer] : r.answer,
     given: Array.isArray(r.options) ? (r.given != null ? r.options[r.given] : null) : r.given, explanation: r.explanation,
-  })));
+  })), { supa, userId });
   const errorTypes = {};
   analysis.forEach((a) => { errorTypes[a.errorType] = (errorTypes[a.errorType] || 0) + 1; });
   analysis.forEach((a) => { const r = wrong[a.index]; if (r) { r.errorType = a.errorType; r.analysis = a.analysis; } });
@@ -864,7 +868,7 @@ async function submitSet(req, res, supa) {
   const analysis = await med.classifyMistakes(wrong.map((r) => ({
     statement: r.statement, correct: Array.isArray(r.options) ? r.options[r.answer] : r.answer,
     given: Array.isArray(r.options) ? (r.given != null ? r.options[r.given] : null) : r.given, explanation: r.explanation,
-  })));
+  })), { supa, userId });
   const errorTypes = { ...(medProfile?.memory?.errorTypes || {}) };
   const mistakeRows = [];
   analysis.forEach((a) => {
@@ -1185,7 +1189,7 @@ async function homeworkSubmit(req, res, supa) {
   const analysis = await med.classifyMistakes(wrong.map((r) => ({
     statement: r.statement, correct: Array.isArray(r.options) ? r.options[r.answer] : r.answer,
     given: Array.isArray(r.options) ? (r.given != null ? r.options[r.given] : null) : r.given, explanation: r.explanation,
-  })));
+  })), { supa, userId });
   analysis.forEach((a) => { const r = wrong[a.index]; if (r) { r.errorType = a.errorType; r.analysis = a.analysis; } });
   const mistakeRows = wrong.filter((r) => r.analysis != null).map((r) => ({
     user_id: userId, chapter: hw.chapter, topic: r.topic || hw.topic, error_type: r.errorType || 'necunoscut',

@@ -520,7 +520,7 @@ async function meditatiiEffects(supa, userId, { graded, title, score, maxScore, 
     const analysis = await med.classifyMistakes(wrong.map((g) => ({
       statement: g.cerinta || g.eticheta, correct: '',
       given: g.raspuns, explanation: g.explicatie,
-    })));
+    })), { supa, userId, endpoint: 'ai-correct:mistakes' });
     const rows = wrong.map((g, i) => ({
       user_id: userId, chapter: null,
       topic: g.tema || title.slice(0, 60),

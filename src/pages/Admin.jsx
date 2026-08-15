@@ -605,10 +605,24 @@ function ContentList({ refresh }) {
                 <td style={s.td}><span style={s.freeBadge(item.is_free)}>{item.is_free ? 'Gratuit' : 'Premium'}</span></td>
                 <td style={s.td}>
                   {item.file_url ? (
-                    <a href={item.file_url} target="_blank" rel="noopener noreferrer"
-                      style={{ fontSize: '0.78rem', color: '#1565c0', textDecoration: 'underline' }}>
+                    <button
+                      onClick={async () => {
+                        // Deschidem fereastra SINCRON (altfel popup-ul e blocat),
+                        // apoi îi punem URL-ul semnat (merge pe bucket privat).
+                        const w = window.open('', '_blank');
+                        try {
+                          const res = await fetch('/api/get-file-url', {
+                            method: 'POST', headers: await authHeaders(),
+                            body: JSON.stringify({ contentId: item.id }),
+                          });
+                          const data = await res.json();
+                          if (!res.ok || !data.url) throw new Error(data.error || 'Eroare');
+                          if (w) w.location.href = data.url; else window.location.href = data.url;
+                        } catch (e) { if (w) w.close(); alert('Nu s-a putut deschide fișierul: ' + e.message); }
+                      }}
+                      style={{ fontSize: '0.78rem', color: '#1565c0', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
                       {item.content_type === 'interactive' ? '🧩 HTML' : '📄 PDF'}
-                    </a>
+                    </button>
                   ) : (
                     <span style={{ fontSize: '0.78rem', color: '#8e95a3' }}>—</span>
                   )}

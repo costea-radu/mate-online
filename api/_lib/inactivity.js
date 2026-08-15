@@ -175,6 +175,14 @@ function buildAdminSummaryEmail(stats) {
   return { subject, html };
 }
 
+// Distinge o eroare „tabelul/relația nu există" (deploy parțial — benign, tratăm
+// ca „fără date") de o eroare TRANZITORIE (rețea/permisiune/timeout — trebuie să
+// oprească ștergerea contului, ca datele să nu fie pierdute nearhivate).
+function isMissingRelation(err) {
+  const s = String((err && (err.message || err)) || '');
+  return err?.code === '42P01' || /does not exist|schema cache|find the table/i.test(s);
+}
+
 // ── Arhivarea datelor elevului la mentori (înainte de ștergere) ──────────────
 // Construiește snapshotul cu tot ce vedea mentorul în dashboard.
 async function buildSnapshot(supa, userId) {
@@ -185,7 +193,12 @@ async function buildSnapshot(supa, userId) {
   try {
     prog = await allRows((from, to) => supa.from('progress').select('*')
       .eq('user_id', userId).order('completed_at', { ascending: false }).range(from, to));
-  } catch { /* tabelul poate lipsi */ }
+  } catch (e) {
+    // O eroare TRANZITORIE aici (nu „tabel inexistent") ar produce o arhivă GOALĂ
+    // chiar înainte de ștergerea CASCADE ireversibilă. Aruncăm, ca ștergerea să fie
+    // amânată (account-cleanup numără deleteFailed și reîncearcă mâine).
+    if (!isMissingRelation(e)) throw new Error(`buildSnapshot: citirea progresului a eșuat: ${e.message}`);
+  }
 
   // 2) Întrebările puse Profesorului Virtual, per material
   const aiQ = {}; // contentId -> nr. întrebări
@@ -293,12 +306,13 @@ async function buildSnapshot(supa, userId) {
 // Întoarce numărul de arhive create/actualizate. Aruncă doar la erori de scriere.
 async function archiveStudentData(supa, profile, reason = 'inactivity') {
   const userId = profile.id;
-  let mentorIds = [];
-  try {
-    const { data } = await supa.from('mentor_students')
-      .select('mentor_id').eq('student_id', userId);
-    mentorIds = [...new Set((data || []).map((l) => l.mentor_id))];
-  } catch { return 0; } // fără sistemul de mentori → nimic de arhivat
+  const { data: mlinks, error: mErr } = await supa.from('mentor_students')
+    .select('mentor_id').eq('student_id', userId);
+  // Eroare tranzitorie (nu „tabel inexistent") → aruncăm, ca ștergerea contului să
+  // fie amânată în loc să ștergem FĂRĂ a arhiva la mentori. supabase-js NU aruncă
+  // pe erori de citire (întoarce { data:null, error }), deci verificăm explicit.
+  if (mErr && !isMissingRelation(mErr)) throw new Error(`archiveStudentData: citirea mentorilor a eșuat: ${mErr.message}`);
+  const mentorIds = [...new Set(((mErr ? [] : mlinks) || []).map((l) => l.mentor_id))];
   if (!mentorIds.length) return 0;
 
   const snap = await buildSnapshot(supa, userId);

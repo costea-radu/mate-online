@@ -12,8 +12,14 @@ module.exports = async function handler(req, res) {
       .from('content').select('id, file_url, is_free, content_type').eq('id', contentId).single();
     if (contentError || !content) return res.status(404).json({ error: 'Material negăsit' });
 
-    // Fișierele gratuite — URL public direct (fără autentificare).
-    if (content.is_free) return res.status(200).json({ url: content.file_url });
+    // Fișierele gratuite — semnate și ele (fără autentificare). Semnarea merge
+    // și pe bucket public, și pe privat, deci bucket-ul `content-files` poate fi
+    // ținut PRIVAT (altfel premium-ul e descărcabil direct de la file_url-ul
+    // public, care e world-readable din tabela content).
+    if (content.is_free) {
+      const url = await signedUrlFromPublic(supabase, content.file_url, 300);
+      return res.status(200).json({ url });
+    }
 
     // Premium — verifică abonamentul utilizatorului REAL (din token).
     const userId = await authUser(req, supabase);

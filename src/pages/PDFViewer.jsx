@@ -422,17 +422,16 @@ export default function PDFViewer() {
 
     async function load() {
       try {
-        let url = item.file_url;
-        if (!item.is_free) {
-          const res = await fetch('/api/get-file-url', {
-            method: 'POST',
-            headers: await authHeaders(),
-            body: JSON.stringify({ userId: user.id, contentId: item.id }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error);
-          url = data.url;
-        }
+        // Semnăm TOT (gratuit + premium) prin get-file-url — funcționează și pe
+        // bucket privat, deci nu mai depindem de URL-uri publice brute.
+        const res = await fetch('/api/get-file-url', {
+          method: 'POST',
+          headers: await authHeaders(),
+          body: JSON.stringify({ contentId: item.id }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        const url = data.url;
 
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);

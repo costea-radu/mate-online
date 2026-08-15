@@ -230,7 +230,7 @@ async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null,
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
   const call = (messages) => claude.chatClaude({ system, messages, maxTokens, model });
   let baseMessages = [{ role: 'user', content: blocks }];
-  const usage = { prompt_tokens: 0, completion_tokens: 0 };
+  const usage = { prompt_tokens: 0, completion_tokens: 0, model: null };
   let r;
   let pdfSwapped = false;
   let transientLeft = 1;
@@ -258,6 +258,8 @@ async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null,
   const addUsage = () => {
     usage.prompt_tokens += r.usage?.prompt_tokens || 0;
     usage.completion_tokens += r.usage?.completion_tokens || 0;
+    // păstrează modelul real folosit (pt. costul corect în ai.logUsage)
+    usage.model = usage.model || r.usage?.model || r.provider || model || null;
   };
   addUsage();
   let text = String(r.text || '');

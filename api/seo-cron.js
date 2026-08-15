@@ -100,7 +100,7 @@ module.exports = async function handler(req, res) {
         maxIters: 8,
       });
       const uid = await adminUserId(supa);
-      if (uid) await ai.logUsage(supa, uid, 'seo-cron-autorun', { in: r.usage?.prompt_tokens || 0, out: r.usage?.completion_tokens || 0 });
+      if (uid) await ai.logUsage(supa, uid, 'seo-cron-autorun', { in: r.usage?.prompt_tokens || 0, out: r.usage?.completion_tokens || 0, model: r.usage?.model || r.provider || null });
       const emailed = await emailDigest(supa, r.text).catch((e) => { console.warn('seo-cron: email digest eșuat:', e.message); return false; });
       return res.status(200).json({ ok: true, proposals: r.proposals || 0, toolCalls: r.toolCalls || 0, emailed, report: String(r.text || '').slice(0, 4000) });
     }
@@ -116,7 +116,7 @@ module.exports = async function handler(req, res) {
         maxIters: 4,
       });
       const uid = await adminUserId(supa);
-      if (uid) await ai.logUsage(supa, uid, 'seo-cron-monthly', { in: r.usage?.prompt_tokens || 0, out: r.usage?.completion_tokens || 0 });
+      if (uid) await ai.logUsage(supa, uid, 'seo-cron-monthly', { in: r.usage?.prompt_tokens || 0, out: r.usage?.completion_tokens || 0, model: r.usage?.model || r.provider || null });
 
       // 3) emailul către admin, cu raportul întreg (markdown → HTML)
       let emailed = false;

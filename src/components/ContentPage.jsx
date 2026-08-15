@@ -74,7 +74,14 @@ function PreviewModal({ item, onClose }) {
         //     (fișierul complet nu mai părăsește serverul).
         let buf;
         if (item.is_free) {
-          const resp = await fetch(item.file_url);
+          // gratuit: URL semnat prin get-file-url (merge pe bucket privat)
+          const r = await fetch('/api/get-file-url', {
+            method: 'POST', headers: await authHeaders(),
+            body: JSON.stringify({ contentId: item.id }),
+          });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.url) throw new Error();
+          const resp = await fetch(d.url);
           if (!resp.ok) throw new Error();
           buf = await resp.arrayBuffer();
         } else {

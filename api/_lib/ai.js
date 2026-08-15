@@ -858,10 +858,16 @@ async function budgetInfo(supa, userId, profile = null) {
 // blochează NICIODATĂ răspunsul către elev.
 async function logUsage(supa, userId, endpoint, usage = {}) {
   try {
-    const base = { user_id: userId, endpoint, tokens_in: usage.in || 0, tokens_out: usage.out || 0 };
-    const model = usage.model || null;
+    // Normalizează forma usage-ului. Unii provideri (Claude via claude.js/exgen)
+    // întorc { prompt_tokens, completion_tokens, model/provider }, alții { in, out, model }.
+    // Fără normalizare, apelurile Claude se logau cu 0 tokeni și 0 cost (model null)
+    // — exact cele mai scumpe operații (generare exerciții, task-uri programate).
+    const tokIn  = usage.in  != null ? usage.in  : (usage.prompt_tokens     || 0);
+    const tokOut = usage.out != null ? usage.out : (usage.completion_tokens || 0);
+    const model  = usage.model || usage.provider || null;
+    const base = { user_id: userId, endpoint, tokens_in: tokIn, tokens_out: tokOut };
     const { error } = await supa.from('ai_usage')
-      .insert({ ...base, model, cost_micro: costMicroLei(model, usage) });
+      .insert({ ...base, model, cost_micro: costMicroLei(model, { in: tokIn, out: tokOut }) });
     if (error) {
       warnOnce('usage_cols', `ai_usage fără coloanele model/cost_micro? Rulează supabase/ai_limite_cost.sql. Detaliu: ${error.message}`);
       await supa.from('ai_usage').insert(base); // forma veche

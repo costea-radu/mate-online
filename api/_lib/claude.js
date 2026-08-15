@@ -60,6 +60,7 @@ async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens 
   const usage = {
     prompt_tokens: r.data.usage?.input_tokens || 0,
     completion_tokens: r.data.usage?.output_tokens || 0,
+    model: useModel, // necesar pt. costul corect în ai.logUsage (altfel cost 0)
   };
   return { text: r.text, usage, provider: useModel, stopReason: r.stop };
 }
@@ -124,7 +125,7 @@ async function chatClaudeTools({ system, messages = [], tools = [], executeTool,
   }
   const useModel = resolveModel(model);
   const msgs = messages.map((m) => ({ role: m.role, content: m.content }));
-  const usage = { prompt_tokens: 0, completion_tokens: 0 };
+  const usage = { prompt_tokens: 0, completion_tokens: 0, model: useModel };
   const track = (r) => {
     usage.prompt_tokens += r.data.usage?.input_tokens || 0;
     usage.completion_tokens += r.data.usage?.output_tokens || 0;

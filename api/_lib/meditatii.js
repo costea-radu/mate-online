@@ -627,7 +627,7 @@ function normalizeQuestions(parsed) {
 // ─── Corectarea unui set + DETECTAREA GREȘELILOR TIPICE ──────────────────────
 // items: [{statement, options?, correct, given, explanation?}] (doar cele greșite intră la analiză)
 // Întoarce [{index, errorType, analysis}]
-async function classifyMistakes(items) {
+async function classifyMistakes(items, ctx = null) {
   if (!items.length) return [];
   const listing = items.map((it, i) =>
     `#${i + 1}\nENUNȚ: ${it.statement}\nRĂSPUNS CORECT: ${it.correct}\nRĂSPUNSUL ELEVULUI: ${it.given || '(fără răspuns)'}${it.explanation ? `\nREZOLVAREA: ${it.explanation}` : ''}`
@@ -641,10 +641,14 @@ async function classifyMistakes(items) {
 - "necunoscut"→ nu se poate stabili.
 Răspunde STRICT cu JSON: {"analysis":[{"index":1,"errorType":"calcul","analysis":"explicație scurtă și caldă: unde anume a greșit și ce trebuia făcut"}]}`;
   try {
-    const { text } = await ai.chat({
+    const { text, usage } = await ai.chat({
       system, messages: [{ role: 'user', content: listing }],
       temperature: 0.2, maxTokens: 1600, json: true, model: ai.GEN_MODEL,
     });
+    // Loghează costul (altfel apelul acesta LLM era invizibil pt. bugete/rapoarte).
+    if (ctx?.supa && ctx?.userId) {
+      try { await ai.logUsage(ctx.supa, ctx.userId, ctx.endpoint || 'ai-meditatii:mistakes', usage); } catch { /* logarea nu blochează */ }
+    }
     const parsed = JSON.parse(text);
     const arr = Array.isArray(parsed?.analysis) ? parsed.analysis : Array.isArray(parsed) ? parsed : [];
     return arr.map((a) => ({

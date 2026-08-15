@@ -98,17 +98,18 @@ async function dailyReport(supa) {
     ${topHtml ? `<p style="margin:12px 0 4px"><strong>Top utilizatori</strong></p><table style="border-collapse:collapse;font-size:13px">${topHtml}</table>` : ''}
     <p style="margin:12px 0 0;font-size:12px;color:#667">Prag de alarmă zilnic: ${fmtLei(ALERT_DAY_LEI)} (AI_ALERT_DAY_LEI). Detalii pe zile: vederea <code>ai_usage_daily</code> din Supabase.</p>`;
 
-  try {
-    await mailer.sendMail({
-      to: mailer.ADMIN_EMAIL,
-      subject: reportSubject(s),
-      html: mailer.template({ title: 'Raport zilnic — consum AI', bodyHtml, footerNote: 'Raport automat (GHID_LIMITE_AI.md, pasul 4). Oprire: AI_COST_REPORT=0.' }),
-    });
-    return { sent: true, totalLei: s.totalLei, actions: s.totalActions };
-  } catch (e) {
-    console.error('costwatch dailyReport: email eșuat:', e.message);
-    return { sent: false, error: e.message };
+  // mailer.sendMail NU aruncă — pe eșec întoarce { ok:false } — deci verificăm
+  // valoarea de retur (un try/catch ar fi cod mort).
+  const rep = await mailer.sendMail({
+    to: mailer.ADMIN_EMAIL,
+    subject: reportSubject(s),
+    html: mailer.template({ title: 'Raport zilnic — consum AI', bodyHtml, footerNote: 'Raport automat (GHID_LIMITE_AI.md, pasul 4). Oprire: AI_COST_REPORT=0.' }),
+  });
+  if (!rep.ok) {
+    console.error('costwatch dailyReport: email eșuat:', rep.error || rep.skipped);
+    return { sent: false, error: rep.error || rep.skipped };
   }
+  return { sent: true, totalLei: s.totalLei, actions: s.totalActions };
 }
 
 // ─── Alarma de prag (apelată la 10 minute din cronul de ingest) ──────────────
@@ -132,19 +133,21 @@ async function checkThreshold(supa) {
     <p style="margin:6px 0">Costul AI de AZI (de la miezul nopții, ora României) a ajuns la <strong>${fmtLei(s.totalLei)}</strong> — peste pragul de ${fmtLei(ALERT_DAY_LEI)}.</p>
     <ul style="margin:8px 0;padding-left:18px;font-size:13px">${topLines}</ul>
     <p style="margin:10px 0 0;font-size:13px">De verificat: top utilizatori (<code>ai_top_users</code>), un endpoint scăpat de sub control sau un model scump configurat greșit. Oprire de urgență: <code>AI_RATE_PER_HOUR=0</code> în Vercel. Pragul se schimbă din <code>AI_ALERT_DAY_LEI</code>.</p>`;
-  try {
-    await mailer.sendMail({
-      to: mailer.ADMIN_EMAIL,
-      subject: alertSubject(s.totalLei),
-      html: mailer.template({ title: 'Alarmă cost AI', bodyHtml, footerNote: 'Alarmă automată — cel mult una pe zi (GHID_LIMITE_AI.md, pasul 4).' }),
-    });
-    return { ok: false, alerted: true, totalLei: s.totalLei };
-  } catch (e) {
-    // emailul a picat → scoatem dedup-ul ca următoarea rulare să reîncerce
+  // mailer.sendMail NU aruncă — pe eșec întoarce { ok:false }. Verificăm retur:
+  // dacă emailul a picat, ȘTERGEM dedup-ul inserat mai sus, ca următoarea rulare
+  // (peste 10 min) să REÎNCERCE alarma. Altfel, alarma zilei rămâne marcată
+  // „trimisă" deși nimeni nu a fost anunțat — exact în ziua în care costul explodează.
+  const alert = await mailer.sendMail({
+    to: mailer.ADMIN_EMAIL,
+    subject: alertSubject(s.totalLei),
+    html: mailer.template({ title: 'Alarmă cost AI', bodyHtml, footerNote: 'Alarmă automată — cel mult una pe zi (GHID_LIMITE_AI.md, pasul 4).' }),
+  });
+  if (!alert.ok) {
     await supa.from('ai_cost_alerts').delete().eq('day', day).eq('kind', 'day_total');
-    console.error('costwatch checkThreshold: email eșuat:', e.message);
-    return { ok: false, alerted: false, error: e.message };
+    console.error('costwatch checkThreshold: email eșuat:', alert.error || alert.skipped);
+    return { ok: false, alerted: false, error: alert.error || alert.skipped, totalLei: s.totalLei };
   }
+  return { ok: false, alerted: true, totalLei: s.totalLei };
 }
 
 module.exports = { dailyReport, checkThreshold, summarize, fmtLei, bucharestDay, reportSubject, alertSubject, ALERT_DAY_LEI };
