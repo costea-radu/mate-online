@@ -68,33 +68,32 @@ function PreviewModal({ item, onClose }) {
       try {
         await ensurePdfJs();
 
-        // Încearcă URL direct (pentru bucket public / fișiere gratuite)
-        let url = item.file_url;
-        // Pentru fișiere non-free, mergi direct la signed URL fără fetch inițial
-        let resp = item.is_free ? await fetch(url) : { status: 403 };
-
-        if (resp.status === 403 || resp.status === 400 || resp.status === 401) {
-          // Bucket privat — obținem signed URL pentru preview
+        // Sursa octeților pentru pagina 1:
+        //   • fișiere gratuite → fișierul public direct (nu există paywall);
+        //   • fișiere premium → endpoint-ul securizat care întoarce DOAR pagina 1
+        //     (fișierul complet nu mai părăsește serverul).
+        let buf;
+        if (item.is_free) {
+          const resp = await fetch(item.file_url);
+          if (!resp.ok) throw new Error();
+          buf = await resp.arrayBuffer();
+        } else {
           const r = await fetch('/api/get-preview-url', {
             method: 'POST',
             headers: await authHeaders(),
             body: JSON.stringify({ contentId: item.id }),
           });
-          const d = await r.json();
-          console.log('Preview URL response:', r.status, d);
-          if (!r.ok || !d.url) {
+          if (r.status === 401) { setError('login_required'); setLoading(false); return; }
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.pdfBase64) {
             console.error('Preview error:', d);
             setError(true);
             setLoading(false);
             return;
           }
-          url = d.url;
-          resp = await fetch(url);
-          console.log('PDF fetch status:', resp.status);
+          buf = Uint8Array.from(atob(d.pdfBase64), (c) => c.charCodeAt(0));
         }
 
-        if (!resp.ok) throw new Error();
-        const buf = await resp.arrayBuffer();
         const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
         const page = await pdf.getPage(1);
         const scale = window.innerWidth < 600 ? 1.2 : 1.8;

@@ -51,28 +51,28 @@ test('allRows: se oprește la prima pagină incompletă și propagă erorile', a
   await assert.rejects(allRows(async () => ({ data: null, error: { message: 'boom' } })), /boom/);
 });
 
-// ─── isCronRequest: TOATE semnalele legitime de cron sunt acceptate ──────────
-// Bug-ul reparat: se accepta DOAR headerul `x-vercel-cron` (nedocumentat azi la
-// Vercel) → ticurile orare reale primeau 403 și task-urile nu rulau singure.
-test('isCronRequest: acceptă semnalele Vercel actuale și secretele', () => {
+// ─── isCronRequest: DOAR secretul autentifică; headerele sunt spoofabile ─────
+// Fix de securitate: `user-agent` și `x-vercel-cron*` sunt controlate de client
+// la cererile din exterior (Vercel NU le suprascrie), deci NU mai autentifică —
+// altfel oricine putea declanșa cronurile cu `curl -H 'User-Agent: vercel-cron/1.0'`.
+// Singura dovadă de încredere e secretul (Bearer CRON_SECRET / ?secret=).
+test('isCronRequest: doar secretul autentifică, headerele spoofabile sunt respinse', () => {
   const old = { CRON_SECRET: process.env.CRON_SECRET, AI_CRON_SECRET: process.env.AI_CRON_SECRET };
   process.env.CRON_SECRET = 'topsecret123456';
   process.env.AI_CRON_SECRET = 'ai-secret';
   try {
-    // headerul documentat AZI: x-vercel-cron-schedule (expresia cron a invocării)
-    assert.ok(isCronRequest({ headers: { 'x-vercel-cron-schedule': '0 * * * *' }, query: {} }));
-    // headerul istoric x-vercel-cron rămâne acceptat (retrocompatibil)
-    assert.ok(isCronRequest({ headers: { 'x-vercel-cron': '1' }, query: {} }));
-    // user-agent-ul invocărilor de cron
-    assert.ok(isCronRequest({ headers: { 'user-agent': 'vercel-cron/1.0' }, query: {} }));
-    // mecanismul oficial: Authorization: Bearer CRON_SECRET
+    // mecanismul oficial: Authorization: Bearer CRON_SECRET (Vercel îl trimite automat)
     assert.ok(isCronRequest({ headers: { authorization: 'Bearer topsecret123456' }, query: {} }));
     // și AI_CRON_SECRET pe post de bearer (aceeași variabilă ca la ?secret=)
     assert.ok(isCronRequest({ headers: { authorization: 'Bearer ai-secret' }, query: {} }));
     // declanșare manuală cu ?secret= (testare / pinger extern)
     assert.ok(isCronRequest({ headers: {}, query: { secret: 'ai-secret' } }));
     assert.ok(isCronRequest({ headers: {}, query: { secret: 'topsecret123456' } }));
-    // cereri obișnuite: refuzate
+    // SECURITATE: headerele/user-agent controlate de client NU mai deschid nimic
+    assert.ok(!isCronRequest({ headers: { 'x-vercel-cron-schedule': '0 * * * *' }, query: {} }));
+    assert.ok(!isCronRequest({ headers: { 'x-vercel-cron': '1' }, query: {} }));
+    assert.ok(!isCronRequest({ headers: { 'user-agent': 'vercel-cron/1.0' }, query: {} }));
+    // cereri obișnuite / secrete greșite: refuzate
     assert.ok(!isCronRequest({ headers: { 'user-agent': 'Mozilla/5.0' }, query: {} }));
     assert.ok(!isCronRequest({ headers: { authorization: 'Bearer gresit' }, query: { secret: 'gresit' } }));
     assert.ok(!isCronRequest({ headers: {}, query: {} }));
@@ -82,13 +82,14 @@ test('isCronRequest: acceptă semnalele Vercel actuale și secretele', () => {
   }
 });
 
-test('isCronRequest: fără secrete setate, bearerul nu deschide nimic', () => {
+test('isCronRequest: fără secrete setate, NIMIC nu deschide cronul (fail-closed)', () => {
   const old = { CRON_SECRET: process.env.CRON_SECRET, AI_CRON_SECRET: process.env.AI_CRON_SECRET };
   delete process.env.CRON_SECRET; delete process.env.AI_CRON_SECRET;
   try {
     assert.ok(!isCronRequest({ headers: { authorization: 'Bearer ' }, query: {} }));
     assert.ok(!isCronRequest({ headers: {}, query: { secret: '' } }));
-    assert.ok(isCronRequest({ headers: { 'x-vercel-cron-schedule': '0 7 * * *' }, query: {} }));
+    // fără secret configurat, nici măcar headerele Vercel nu contează (fail-closed)
+    assert.ok(!isCronRequest({ headers: { 'x-vercel-cron-schedule': '0 7 * * *' }, query: {} }));
   } finally {
     if (old.CRON_SECRET !== undefined) process.env.CRON_SECRET = old.CRON_SECRET;
     if (old.AI_CRON_SECRET !== undefined) process.env.AI_CRON_SECRET = old.AI_CRON_SECRET;

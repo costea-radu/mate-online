@@ -59,10 +59,19 @@ function admin() {
 //   4. ?secret=AI_CRON_SECRET (declanșare manuală / servicii externe de ping).
 function isCronRequest(req) {
   const h = req.headers || {};
-  if (h['x-vercel-cron'] || h['x-vercel-cron-schedule']) return true;
-  if (/^vercel-cron\//i.test(String(h['user-agent'] || ''))) return true;
-  const bearer = String(h.authorization || h.Authorization || '').replace(/^Bearer\s+/i, '').trim();
+  // SECURITATE: NU ne mai bazăm pe `user-agent` sau pe `x-vercel-cron*`. Acele
+  // headere sunt controlate integral de client la cererile venite din exterior
+  // (Vercel NU le suprascrie/curăță), deci erau spoofabile trivial —
+  // `curl -H 'User-Agent: vercel-cron/1.0' .../api/account-cleanup?action=run`
+  // trecea de verificare fără niciun secret și permitea oricui să declanșeze
+  // cronurile scumpe/distructive (ștergere conturi, generări Opus, agent SEO).
+  // Singura dovadă de încredere e SECRETUL: Vercel îl trimite automat ca
+  // `Authorization: Bearer $CRON_SECRET` dacă variabila CRON_SECRET există în
+  // proiect. ⚠️ OBLIGATORIU: setează CRON_SECRET (sau AI_CRON_SECRET) în Vercel,
+  // altfel TOATE cronurile vor primi 403.
   const secrets = [process.env.CRON_SECRET, process.env.AI_CRON_SECRET].filter(Boolean);
+  if (secrets.length === 0) return false; // niciun secret configurat → nimic nu e „cron"
+  const bearer = String(h.authorization || h.Authorization || '').replace(/^Bearer\s+/i, '').trim();
   if (bearer && secrets.includes(bearer)) return true;
   const qSecret = (req.query && req.query.secret) || null;
   if (qSecret && secrets.includes(qSecret)) return true;
