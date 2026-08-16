@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { aiClient } from '../lib/aiClient';
-import { getInstallPrompt, clearInstallPrompt, onInstallChange, isStandalone, isIOS } from '../lib/installPrompt';
+import { getInstallPrompt, clearInstallPrompt, onInstallChange, isInstalled, isIOS } from '../lib/installPrompt';
 
 const ROLES = [
   { id: 'elev', label: 'Elev' },
@@ -172,7 +172,7 @@ export default function AccountSettings() {
 // ─── Butonul „Instalează aplicația” din Setări cont ──────────────────────────
 function InstallAppRow() {
   const [canInstall, setCanInstall] = useState(!!getInstallPrompt());
-  const [installed, setInstalled] = useState(isStandalone());
+  const [installed, setInstalled] = useState(isInstalled());
   const [iosHelp, setIosHelp] = useState(false);
   const [done, setDone] = useState(false);
   const [unHelp, setUnHelp] = useState(false);
@@ -180,7 +180,7 @@ function InstallAppRow() {
 
   useEffect(() => onInstallChange(() => {
     setCanInstall(!!getInstallPrompt());
-    setInstalled(isStandalone());
+    setInstalled(isInstalled());
   }), []);
 
   async function install() {

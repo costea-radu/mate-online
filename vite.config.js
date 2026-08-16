@@ -27,6 +27,12 @@ export default defineConfig({
           { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
           { src: '/pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
         ],
+        // Se declară pe sine ca aplicație înrudită → navigator.getInstalledRelatedApps()
+        // (Chrome/Edge) poate confirma că PWA-ul e instalat, iar site-ul nu mai
+        // afișează invitația „Instalează aplicația” celor care o au deja.
+        related_applications: [
+          { platform: 'webapp', url: 'https://examenmate.com/manifest.webmanifest' }
+        ],
         shortcuts: [
           { name: 'Evaluarea Națională', url: '/evaluare-nationala', icons: [{ src: '/pwa-192x192.png', sizes: '192x192' }] },
           { name: 'Bacalaureat', url: '/bacalaureat', icons: [{ src: '/pwa-192x192.png', sizes: '192x192' }] },

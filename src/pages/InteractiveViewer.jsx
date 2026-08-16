@@ -20,6 +20,7 @@ export default function InteractiveViewer() {
   const [scoreSaved, setScoreSaved] = useState(false);
   const [savedScore, setSavedScore] = useState(null);
   const [saveError, setSaveError] = useState(null); // eroarea de salvare devine VIZIBILĂ
+  const [iframeKey, setIframeKey] = useState(0); // se incrementează → exercițiul se reîncarcă de la zero
   const startedAtRef = useRef(Date.now());
   const iframeRef = useRef(null);
   const realScoreAtRef = useRef(0);   // când a sosit ultimul MATE_SCORE autentic
@@ -196,6 +197,20 @@ export default function InteractiveViewer() {
       // Acceptăm mesaje de la orice origine (iframe e încărcat din Supabase Storage)
       if (event.source === window || !event.data || typeof event.data !== 'object') return;
       const d = event.data;
+
+      if (d.type === 'MATE_RESET_REQ') {
+        // Butonul „Resetează" al testului nu a funcționat (unele variante de
+        // BAC au funcția de reset defectă): resetăm noi — reîncărcăm exercițiul
+        // de la zero (scor 0, răspunsuri goale), fără ca elevul să iasă din test.
+        realScoreAtRef.current = 0;
+        if (hintTimerRef.current) { clearTimeout(hintTimerRef.current); hintTimerRef.current = null; }
+        startedAtRef.current = Date.now();
+        setScoreSaved(false);
+        setSavedScore(null);
+        setSaveError(null);
+        setIframeKey((k) => k + 1);
+        return;
+      }
 
       if (d.type === 'MATE_SCORE') {
         // Scorul autentic, trimis de codul testului — are întotdeauna prioritate.
@@ -475,6 +490,7 @@ export default function InteractiveViewer() {
       <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: 0 }}>
         {finalDoc !== null && (
           <iframe
+            key={iframeKey}
             ref={iframeRef}
             srcDoc={finalDoc}
             style={{ flex: 1, border: 'none', width: '100%', minHeight: 0, background: '#fff' }}

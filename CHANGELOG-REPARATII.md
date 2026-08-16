@@ -4,6 +4,23 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 16 august 2026 (3) — „Resetează" funcționează și la testele de BAC + invitația „Instalează aplicația" nu mai apare celor care o au deja
+
+Cererea: 1) la testele de BAC butonul „Resetează" nu făcea nimic — trebuia să ieși din test și să-l repornești ca să se golească (la Evaluare Națională mergea); 2) căsuța „Instalează aplicația" apărea și când aplicația era deja instalată.
+
+### 1) 🔁 Butonul „Resetează" — garantat funcțional la TOATE testele interactive
+**Cauza:** testele de BAC sunt fișiere HTML încărcate/generate, salvate în Supabase Storage — fiecare cu propriul cod de resetare. La unele variante funcția e defectă sau blocată de sandbox-ul iframe-ului (fără `allow-modals`, un `confirm(...)` din funcția de reset e ignorat de browser și resetarea se oprește acolo), așa că scorul și răspunsurile rămâneau pe ecran. Șablonul standard EN (`template-standard.html`) are `resetAll()` corect — de asta la EN mergea.
+**Reparația (fără să umblăm la fișierele din baza de date):** plasă de siguranță în puntea deja injectată în fiecare test (`src/lib/tutorBridge.js`): după orice apăsare pe un buton de tip „Resetează" se verifică la 0,6s dacă testul chiar s-a golit (starea șablonului de examen `GRADED`/`ST`, carduri corectate `.opt.ok/.err`, panoul final vizibil, scor nenul în bara „Scor: X/Y pct"). Dacă NU s-a golit → mesaj nou `MATE_RESET_REQ` către pagina-părinte, iar `InteractiveViewer.jsx` reîncarcă exercițiul de la zero (iframe cu `key` nou): scor 0, răspunsuri goale, cronometru repornit, pastilele „Scor salvat"/eroare curățate — identic cu ieșire + repornire, dar într-un singur click. Resetările native care funcționează (EN) nu sunt atinse; un „Resetează" apăsat pe un test neînceput nu face nimic (corect).
+
+### 2) 📲 Invitația de instalare — ține minte că aplicația e instalată
+**Cauza:** vizibilitatea căsuței depindea doar de `beforeinstallprompt` + `display-mode: standalone`. În tab normal de browser, cu aplicația deja instalată, unele browsere (Edge, alt profil etc.) tot emit evenimentul → căsuța reapărea; pe iOS apărea mereu după 3 secunde.
+**Reparația:** `src/lib/installPrompt.js` memorează instalarea în `localStorage` (`em_pwa_installed`): la `appinstalled`, la fiecare pornire în fereastra proprie a aplicației (pe desktop/Android aplicația instalată împarte localStorage cu browserul, deci și tab-urile normale află) și proactiv prin `navigator.getInstalledRelatedApps()` (Chrome/Edge) — pentru asta manifestul se declară pe sine în `related_applications` (vite.config.js). Flagul se șterge singur DOAR când API-ul confirmă că aplicația nu mai e instalată → după dezinstalare invitația reapare. `InstallPrompt.jsx` (căsuța plutitoare) și `AccountSettings.jsx` (rândul din „Setări cont" — arată acum „✅ Aplicația este instalată" și în tab normal, nu doar în fereastra aplicației) folosesc noul `isInstalled()`.
+
+**Verificat:** `vite build` trece; `related_applications` prezent în manifestul generat; teste comportamentale (jsdom) pe plasa de siguranță — 4 scenarii, toate trec: reset defect → se cere reîncărcarea; reset funcțional → nu intervenim; șablonul EN real (`template-standard.html`) → `resetAll` nativ merge și nu intervenim; test neînceput → nimic.
+
+Fișiere: src/lib/tutorBridge.js, src/pages/InteractiveViewer.jsx, src/lib/installPrompt.js, src/components/InstallPrompt.jsx, src/components/AccountSettings.jsx, vite.config.js, acest changelog.
+---
+
 ## 16 august 2026 (2) — Citirea PDF-urilor trece pe „terra" (gpt-5.6) — implicit, nu doar din env
 
 Cererea: „la citirea PDF-urilor să folosească varianta gpt terra, pentru o mai bună citire — e deja folosit terra?" Răspunsul găsit în cod: NU garantat. `PDF_MODEL` cădea pe modelul de chat obișnuit dacă `AI_PDF_CHAT_MODEL` nu era setat în Vercel (terra era doar „exemplul recomandat" din comentariu), iar conversația obișnuită cu Prof. Virtual pe un PDF deschis — exact cazul din captura cu „a³ = b⁴" — folosea ORICUM modelul de chat (`CHAT_MODEL`, implicit gpt-4o-mini), nu modelul de PDF: `PDF_MODEL` se folosea doar pe drumul cu răspuns verificat din barem.

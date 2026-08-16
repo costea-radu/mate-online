@@ -16,6 +16,8 @@
 //
 // Protocol postMessage:
 //  iframe → părinte: MATE_TUTOR_READY | MATE_TUTOR_STATE | MATE_TUTOR_OPEN
+//                    | MATE_RESET_REQ (butonul „Resetează" al testului e
+//                      defect → părintele reîncarcă exercițiul de la zero)
 //  părinte → iframe: MATE_TUTOR_STATE_REQ | MATE_TUTOR_ACTION
 // =====================================================================
 
@@ -399,6 +401,54 @@ const BRIDGE_SCRIPT = String.raw`
       }
     } catch(e){}
   });
+
+  // ── Butonul „Resetează" — GARANTAT funcțional ──────────────────────
+  // La unele teste încărcate (ex. variantele de BAC), funcția proprie de
+  // resetare e defectă sau blocată de sandbox (confirm() e ignorat în
+  // iframe), așa că scorul și răspunsurile rămâneau pe ecran, iar elevul
+  // trebuia să iasă din test și să-l repornească. Nu modificăm fișierele
+  // din baza de date: după orice apăsare pe un buton de tip „Resetează"
+  // verificăm dacă testul chiar s-a golit; dacă NU, cerem paginii-părinte
+  // să reîncarce exercițiul de la zero (identic cu ieșire + repornire,
+  // dar într-un singur click, cu scorul înapoi la 0).
+  function answeredSigns(){
+    var n = 0;
+    // șablonul variantelor de examen (PROBS/ST/GRADED)
+    try { if (typeof GRADED !== 'undefined' && GRADED) n += 1000; } catch(e){}
+    try {
+      if (typeof ST !== 'undefined' && ST) {
+        for (var k in ST) {
+          var st = ST[k];
+          if (!st) continue;
+          if (st.corr) n += 200;
+          if (st.ans) for (var a = 0; a < st.ans.length; a++) if (st.ans[a]) n++;
+        }
+      }
+    } catch(e){}
+    // șablonul standard (carduri-grilă)
+    try { n += document.querySelectorAll('.card[data-checked], .opt.ok, .opt.err, .opt.show-ok, .opt.sel').length; } catch(e){}
+    try { var fin = document.querySelector('.final.show, #final.show'); if (fin && visible(fin)) n += 500; } catch(e){}
+    // scor nenul afișat în bara testului („Scor: 45/90 pct")
+    try {
+      var m = (document.body.innerText || '').match(/Scor\s*[:\s]\s*(\d+(?:[.,]\d+)?)\s*\/\s*\d+(?:[.,]\d+)?\s*(?:pct|puncte|p\b)/i);
+      if (m && parseNum(m[1]) > 0) n += 100;
+    } catch(e){}
+    return n;
+  }
+  document.addEventListener('click', function(ev){
+    try {
+      var b = ev.target && ev.target.closest ? ev.target.closest('button, a, [role="button"]') : null;
+      if (!b) return;
+      var label = ((b.textContent || '') + ' ' + (b.getAttribute('title') || '') + ' ' + (b.getAttribute('onclick') || '')).toLowerCase();
+      if (label.indexOf('reset') === -1) return;   // „Resetează" / „Reset" / onclick="resetAll()"
+      if (b.closest('.draw-toolbar')) return;      // nu instrumentele de desen de pe figuri
+      var before = answeredSigns();
+      if (!before) return;                         // test neînceput — nu e nimic de resetat
+      setTimeout(function(){
+        if (answeredSigns()) post('MATE_RESET_REQ', { reason: 'reset-defect' });
+      }, 600);
+    } catch(e){}
+  }, true);
 
   // ── Ascultă părintele ──────────────────────────────────────────────
   window.addEventListener('message', function(ev){

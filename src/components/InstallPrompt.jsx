@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { getInstallPrompt, clearInstallPrompt, onInstallChange, isStandalone, isIOS } from '../lib/installPrompt';
+import { getInstallPrompt, clearInstallPrompt, onInstallChange, isInstalled, markInstalled, isIOS } from '../lib/installPrompt';
 
 // Buton „Instalează aplicația” (PWA).
 // Android/desktop: folosește evenimentul beforeinstallprompt (instalare cu 1 tap).
 // iOS: Safari nu are prompt nativ → afișăm pași de instalare.
-// Nu apare dacă aplicația e deja instalată sau a fost refuzată recent.
+// Nu apare dacă aplicația e deja instalată (rulează standalone, a fost
+// instalată cândva — flag memorat — sau getInstalledRelatedApps o confirmă)
+// și nici dacă a fost refuzată recent.
 
 const DISMISS_KEY = 'em_install_dismissed_at';
 const DISMISS_DAYS = 14;
@@ -26,20 +28,25 @@ export default function InstallPrompt() {
   }, []);
 
   useEffect(() => {
-    if (isStandalone()) return;
     const dismissedAt = Number(localStorage.getItem(DISMISS_KEY) || 0);
-    if (Date.now() - dismissedAt < DISMISS_DAYS * 864e5) return;
+    const recentlyDismissed = Date.now() - dismissedAt < DISMISS_DAYS * 864e5;
 
     // evenimentul e captat central în lib/installPrompt.js
-    if (getInstallPrompt()) { setDeferred(getInstallPrompt()); setVisible(true); }
-    const off = onInstallChange(() => {
+    const evaluate = () => {
+      // deja instalată (chiar dacă aflăm abia acum, prin getInstalledRelatedApps) → ascundem
+      if (isInstalled()) { setDeferred(null); setVisible(false); return; }
       const d = getInstallPrompt();
       setDeferred(d);
-      if (d) setVisible(true); else setVisible(false);
-    });
+      if (d) setVisible(!recentlyDismissed);
+      else if (!isIOS()) setVisible(false);
+    };
+    evaluate();
+    const off = onInstallChange(evaluate);
 
     let t;
-    if (isIOS()) t = setTimeout(() => setVisible(true), 3000);
+    if (isIOS() && !isInstalled() && !recentlyDismissed) {
+      t = setTimeout(() => { if (!isInstalled()) setVisible(true); }, 3000);
+    }
 
     return () => { off(); clearTimeout(t); };
   }, []);
@@ -56,7 +63,7 @@ export default function InstallPrompt() {
     deferred.prompt();
     const { outcome } = await deferred.userChoice;
     clearInstallPrompt(); setDeferred(null);
-    if (outcome === 'accepted') setVisible(false);
+    if (outcome === 'accepted') { markInstalled(); setVisible(false); }
     else dismiss();
   };
 
