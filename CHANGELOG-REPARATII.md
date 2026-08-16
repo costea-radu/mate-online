@@ -4,6 +4,23 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 16 august 2026 (2) — Citirea PDF-urilor trece pe „terra" (gpt-5.6) — implicit, nu doar din env
+
+Cererea: „la citirea PDF-urilor să folosească varianta gpt terra, pentru o mai bună citire — e deja folosit terra?" Răspunsul găsit în cod: NU garantat. `PDF_MODEL` cădea pe modelul de chat obișnuit dacă `AI_PDF_CHAT_MODEL` nu era setat în Vercel (terra era doar „exemplul recomandat" din comentariu), iar conversația obișnuită cu Prof. Virtual pe un PDF deschis — exact cazul din captura cu „a³ = b⁴" — folosea ORICUM modelul de chat (`CHAT_MODEL`, implicit gpt-4o-mini), nu modelul de PDF: `PDF_MODEL` se folosea doar pe drumul cu răspuns verificat din barem.
+
+### 🧠 Ce s-a schimbat
+1. **`api/_lib/ai.js`:** `PDF_MODEL` are acum implicit `gpt-5.6-terra` — nu mai depinde de env ca să fie un model bun la citit. `AI_PDF_CHAT_MODEL` rămâne suveran dacă e setat (deci dacă în Vercel există deja variabila pe alt model, ea câștigă — de șters sau de pus pe terra).
+2. **`api/ai-chat.js` + `api/ai-chat-stream.js`:** pe un PDF deschis (`context.pdf` — același semnal care alege promptul de agent PDF în `prepareChat`), și răspunsurile FĂRĂ barem folosesc `PDF_MODEL`, nu `CHAT_MODEL`. Până acum terra ar fi citit doar răspunsurile trecute prin barem; întrebările libere despre test („explică-mi ex. 2") mergeau la modelul ieftin.
+3. **Costuri, neschimbate ca mecanism:** `pickModel` coboară în continuare automat pe modelul standard peste bugetul zilnic soft (terra e tratat ca model premium, exact ca până acum la barem), prețurile `gpt-5.6-*` există deja în tabel, iar limitele pe oră/cotele free rămân cele din GHID_LIMITE_AI.
+4. **Documentat:** `.env.ai.example` (variabilele `AI_PDF_CHAT_MODEL`/`AI_GEN_CHAT_MODEL` lipseau din el) + GHID_CORECTARE_PDF.
+
+Împreună cu fix-ul de mai jos (fracțiile extrase corect ca `\frac{a}{3}`), citirea PDF-urilor stă acum pe amândouă picioarele: text extras corect + model care îl citește atent.
+
+**Teste: 170/170 trec** (implicitul nou verificat: `PDF_MODEL` = terra fără env, env-ul câștigă când există). Zero schimbări în frontend.
+
+Fișiere: api/_lib/ai.js, api/ai-chat.js, api/ai-chat-stream.js, .env.ai.example, GHID_CORECTARE_PDF.md, acest changelog.
+---
+
 ## 16 august 2026 — Profesorul Virtual citea fracțiile din PDF ca puteri („a³ = b⁴ = 5")
 
 **Simptomul (raportat la Subiectul I, ex. 2 dintr-o variantă EN):** enunțul „Știind că a/3 = b/4 = 5, rezultatul calculului a + b este egal cu:" era explicat de Prof. Virtual ca „a³ = b⁴ = 5 … expresie cu puteri" — numitorul ajungea la putere și tot raționamentul pornea de la alt exercițiu.

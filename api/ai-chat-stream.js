@@ -76,7 +76,9 @@ module.exports = async function handler(req, res) {
         messages: [...priorMsgs, { role: 'user', content: message }],
         temperature: mode === 'hint' ? 0.3 : 0.5,
         maxTokens: 900,
-        model: ai.pickModel(ai.CHAT_MODEL, lim), // peste bugetul zilnic soft → modelul economic
+        // pe un PDF deschis citește modelul PDF („terra") — și fără barem;
+        // altfel modelul de chat; peste bugetul zilnic soft → unul mai ieftin
+        model: ai.pickModel(context.pdf ? ai.PDF_MODEL : ai.CHAT_MODEL, lim),
         stats,
       })) {
         full += delta;

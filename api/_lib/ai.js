@@ -39,9 +39,11 @@ const { CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic, isC
 const hasEmbeddings = () => !!EMBED_KEY;
 const hasChat = () => !!CHAT_KEY;
 
-// Model separat (opțional) pentru agentul de teste PDF — fidelitatea față de
-// barem cere un model bun; setează AI_PDF_CHAT_MODEL (ex. gpt-5.6-terra) în env.
-const PDF_MODEL = process.env.AI_PDF_CHAT_MODEL || CHAT_MODEL;
+// Modelul agentului de teste PDF — citirea enunțurilor și fidelitatea față de
+// barem cer un model bun, deci IMPLICIT „terra" (flagship-ul gpt-5.6), nu mai
+// depinde de setarea din env. AI_PDF_CHAT_MODEL în env îl poate schimba;
+// peste bugetul zilnic soft, pickModel coboară automat pe modelul standard.
+const PDF_MODEL = process.env.AI_PDF_CHAT_MODEL || 'gpt-5.6-terra';
 // Model separat (opțional) pentru GENERAREA de teste/exerciții și CORECTAREA
 // răspunsurilor — acolo modelul calculează singur (fără barem), deci greșelile
 // de calcul ajung direct „răspuns oficial". Setează AI_GEN_CHAT_MODEL în env.

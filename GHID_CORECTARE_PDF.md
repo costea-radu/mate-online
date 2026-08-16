@@ -96,5 +96,6 @@ Rulează în **Supabase → SQL Editor**: `supabase/corectare_pdf.sql`
 - Punctajul nu apare la profesor → verifică asocierea elevului și rulează
   `supabase/corectare_pdf.sql` (pentru încărcări) / `supabase/pastreaza_rezultate.sql`
   (pentru snapshotul titlurilor).
-- Modelul de corectare se setează cu `AI_PDF_CHAT_MODEL` (cu barem) și
+- Modelul de corectare se setează cu `AI_PDF_CHAT_MODEL` (cu barem — implicit
+  `gpt-5.6-terra`, folosit și de Prof. Virtual pe orice PDF deschis) și
   `AI_GEN_CHAT_MODEL` (fără barem) — aceleași variabile ca până acum.
