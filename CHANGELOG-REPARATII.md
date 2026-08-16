@@ -21,6 +21,23 @@ Cererea: 1) la testele de BAC butonul „Resetează" nu făcea nimic — trebuia
 Fișiere: src/lib/tutorBridge.js, src/pages/InteractiveViewer.jsx, src/lib/installPrompt.js, src/components/InstallPrompt.jsx, src/components/AccountSettings.jsx, vite.config.js, acest changelog.
 ---
 
+## 16 august 2026 (3) — Pre-generarea trece pe terra (cu împrospătarea cache-ului vechi) · prețurile devin robuste la id-uri de model cu prefix de provider
+
+Raportul: „Prof. Virtual face greșeli de corectare la PDF-urile de evaluare națională — pre-generarea se face cu gpt-4o-mini?" Da, era pe 4o-mini (fără `AI_PREGEN_MODEL` setat, cădea pe modelul de chat). Precizare importantă, corectată după clarificarea adminului: platforma NU folosește Vercel AI Gateway, deci id-urile de model din env sunt simple („gpt-5.6-terra"), fără prefix de provider — partea de prețuri de mai jos NU era cauza activă a greșelilor de corectare, ci e o plasă de siguranță pentru viitor. Cauzele reale ale corectării greșite rămân cele reparate azi: extracția fracțiilor (intrarea de mai jos) și fluxurile PDF care nu foloseau modelul PDF (intrarea (2)), plus — dacă `AI_PDF_CHAT_MODEL` nu era setat în Vercel — corectarea rula pe 4o-mini; acum implicitul e terra chiar și fără env.
+
+### 📦 Pre-generarea (explicațiile canonice „explică-mi/dă-mi un indiciu"): pe terra + cache împrospătat
+- `PREGEN_MODEL` implicit era modelul de chat (4o-mini) → acum e modelul de PDF (terra). Explicația canonică se generează O DATĂ și se servește la TOȚI elevii — un răspuns greșit de la un model slab se propaga la toți; costul rămâne unic per material.
+- **Purjare automată:** la fiecare rulare a cronului, intrările din `ai_pregen` generate cu ALT model decât cel curent se șterg și se regenerează în loturile următoare (până atunci cererile merg pe fluxul normal de chat — nimic nu se strică). Fără asta, cache-ul vechi de la 4o-mini s-ar fi servit la nesfârșit, pentru că `ai_pregen_candidates` se uită doar la hash-ul sursei, nu la model. `model` se salvează ca ID-UL CONFIGURAT (nu ce raportează providerul), ca purjarea să compare mere cu mere indiferent de provider.
+- De reținut: pre-generarea NU se servește niciodată pe PDF-uri (`canServe` exclude `context.pdf`) — deci nu ea corecta greșit testele PDF; mutarea pe terra ridică doar calitatea explicațiilor canonice la exercițiile interactive/materialele din site.
+
+### 🛡️ Plasă de siguranță: prețurile recunosc acum și id-uri cu prefix de provider
+Dacă vreodată modelele se setează prin Vercel AI Gateway / OpenRouter (id-uri gen „openai/gpt-4o-mini"), `priceFor()` nu le-ar fi potrivit (potrivirea e pe prefixe de NUME: „gpt-5.6"…) și TOATE apelurile ar fi căzut pe prețul implicit conservator (3/15 USD/1M) — costul lui 4o-mini umflat ~20×, bugetul zilnic soft „consumat" după câteva mesaje, iar `pickModel` ar fi retrogradat pe nesimțite modelele premium (terra) pe modelul de chat. Acum `priceFor()` curăță întâi prefixul de provider, iar implicitele derivate (`PDF_MODEL`, modelul economic) moștenesc prefixul din `AI_CHAT_MODEL` — configurația actuală (fără gateway, id-uri simple) se comportă identic ca înainte, iar o eventuală trecere pe gateway nu mai poate strica nici costurile, nici degradarea peste buget.
+
+Teste noi în `test/gateway-model.test.js` (5): prețuri cu/fără prefix identice, costul 4o-mini cu prefix nu mai e cel implicit, implicitele moștenesc prefixul, degradarea rămâne coerentă, purjarea șterge doar intrările cu model diferit + ordinea purjare→candidați. **Teste: 175/175 trec.** Zero schimbări în frontend.
+
+Fișiere: api/_lib/ai.js, api/_lib/pregen.js, test/gateway-model.test.js (nou), acest changelog.
+---
+
 ## 16 august 2026 (2) — Citirea PDF-urilor trece pe „terra" (gpt-5.6) — implicit, nu doar din env
 
 Cererea: „la citirea PDF-urilor să folosească varianta gpt terra, pentru o mai bună citire — e deja folosit terra?" Răspunsul găsit în cod: NU garantat. `PDF_MODEL` cădea pe modelul de chat obișnuit dacă `AI_PDF_CHAT_MODEL` nu era setat în Vercel (terra era doar „exemplul recomandat" din comentariu), iar conversația obișnuită cu Prof. Virtual pe un PDF deschis — exact cazul din captura cu „a³ = b⁴" — folosea ORICUM modelul de chat (`CHAT_MODEL`, implicit gpt-4o-mini), nu modelul de PDF: `PDF_MODEL` se folosea doar pe drumul cu răspuns verificat din barem.

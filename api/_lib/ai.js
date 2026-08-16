@@ -15,8 +15,12 @@ const { parseExerciseRef, sliceExercise, formatRef, norm } = require('./barem');
 const CHAT_BASE  = process.env.AI_CHAT_BASE_URL  || 'https://api.openai.com/v1';
 const CHAT_KEY   = process.env.AI_CHAT_API_KEY   || process.env.OPENAI_API_KEY || '';
 const CHAT_MODEL = process.env.AI_CHAT_MODEL     || 'gpt-4o-mini';
+// Prin Vercel AI Gateway (sau OpenRouter) modelele poartă prefixul providerului
+// („openai/gpt-4o-mini"). Implicitele modelelor derivate moștenesc prefixul
+// modelului de chat, ca să funcționeze și prin gateway, și direct pe OpenAI.
+const MODEL_PREFIX = CHAT_MODEL.includes('/') ? CHAT_MODEL.slice(0, CHAT_MODEL.lastIndexOf('/') + 1) : '';
 // Model cu vedere (foto-rezolvare). gpt-4o-mini suportă imagini.
-const VISION_MODEL = process.env.AI_VISION_MODEL || (/4o|vision|gpt-5|sonnet|gemini/i.test(CHAT_MODEL) ? CHAT_MODEL : 'gpt-4o-mini');
+const VISION_MODEL = process.env.AI_VISION_MODEL || (/4o|vision|gpt-5|sonnet|gemini/i.test(CHAT_MODEL) ? CHAT_MODEL : MODEL_PREFIX + 'gpt-4o-mini');
 
 const EMBED_BASE  = process.env.AI_EMBED_BASE_URL || 'https://api.openai.com/v1';
 const EMBED_KEY   = process.env.AI_EMBED_API_KEY  || process.env.OPENAI_API_KEY || '';
@@ -41,9 +45,10 @@ const hasChat = () => !!CHAT_KEY;
 
 // Modelul agentului de teste PDF — citirea enunțurilor și fidelitatea față de
 // barem cer un model bun, deci IMPLICIT „terra" (flagship-ul gpt-5.6), nu mai
-// depinde de setarea din env. AI_PDF_CHAT_MODEL în env îl poate schimba;
+// depinde de setarea din env (cu prefixul providerului moștenit de la modelul
+// de chat, pentru AI Gateway). AI_PDF_CHAT_MODEL în env îl poate schimba;
 // peste bugetul zilnic soft, pickModel coboară automat pe modelul standard.
-const PDF_MODEL = process.env.AI_PDF_CHAT_MODEL || 'gpt-5.6-terra';
+const PDF_MODEL = process.env.AI_PDF_CHAT_MODEL || MODEL_PREFIX + 'gpt-5.6-terra';
 // Model separat (opțional) pentru GENERAREA de teste/exerciții și CORECTAREA
 // răspunsurilor — acolo modelul calculează singur (fără barem), deci greșelile
 // de calcul ajung direct „răspuns oficial". Setează AI_GEN_CHAT_MODEL în env.
@@ -100,8 +105,14 @@ const warnedOnce = new Set();
 const warnOnce = (key, msg) => { if (!warnedOnce.has(key)) { warnedOnce.add(key); console.warn(msg); } };
 
 function priceFor(model) {
-  const id = String(model || '').toLowerCase();
+  let id = String(model || '').toLowerCase();
   if (!id) return null;
+  // Prin AI Gateway / OpenRouter modelul poartă prefixul providerului
+  // („openai/gpt-4o-mini"). Fără curățare, niciun preț nu se potrivea și TOATE
+  // apelurile cădeau pe prețul implicit conservator (3/15 USD) — costul lui
+  // gpt-4o-mini era umflat de ~20×, bugetul zilnic soft se „consuma" după
+  // câteva mesaje, iar pickModel retrograda modelele premium (terra) pe chat.
+  id = id.replace(/^[a-z0-9_.-]+\//, '');
   let best = null;
   for (const key of Object.keys(ALL_PRICES)) {
     if (id.startsWith(key) && (!best || key.length > best.length)) best = key;
@@ -126,8 +137,9 @@ const BUDGET_DAY_SOFT_LEI = parseFloat(process.env.AI_BUDGET_DAY_SOFT_LEI || '0.
 const BUDGET_DAY_HARD_LEI = parseFloat(process.env.AI_BUDGET_DAY_HARD_LEI || '2.5');
 const BUDGET_MONTH_LEI    = parseFloat(process.env.AI_BUDGET_MONTH_LEI    || '6');
 // Modelul „economic" pe care coboară CHATUL peste bugetul zilnic soft.
-// (Cererile pe modele premium — PDF/GEN — coboară pe CHAT_MODEL.)
-const ECON_CHAT_MODEL = process.env.AI_ECON_CHAT_MODEL || 'gpt-4o-mini';
+// (Cererile pe modele premium — PDF/GEN — coboară pe CHAT_MODEL.) Prefixul
+// providerului se moștenește de la modelul de chat (AI Gateway).
+const ECON_CHAT_MODEL = process.env.AI_ECON_CHAT_MODEL || MODEL_PREFIX + 'gpt-4o-mini';
 
 // ─── Pachete TOP-UP (buget suplimentar, cumpărat prin Stripe) ────────────────
 // Un pachet adaugă `creditLei` la bugetul lunar, pentru AI_TOPUP_DAYS zile

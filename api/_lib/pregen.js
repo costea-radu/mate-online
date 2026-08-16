@@ -4,10 +4,13 @@
 //
 // Ideea: baza de exerciții e FINITĂ. „Explică-mi exercițiul X" și „dă-mi
 // un indiciu la X" au același răspuns bun pentru toți elevii — îl generăm
-// O DATĂ, offline, pe modelul ieftin, și îl servim apoi dintr-un SELECT
-// (cost 0, latență ~0). Generarea rulează în loturi mici din cronul
-// existent de ingest (/api/ai-ingest?action=process), DUPĂ ce coada de
-// indexare e goală (cunoștințele sunt la zi înainte să explice din ele).
+// O DATĂ, offline, și îl servim apoi dintr-un SELECT (cost 0, latență ~0).
+// Tocmai pentru că se generează O DATĂ și se servește la MULȚI elevi,
+// modelul implicit e cel de PDF („terra") — o explicație canonică greșită
+// de la un model slab s-ar fi propagat la toți; costul rămâne unic/material.
+// Generarea rulează în loturi mici din cronul existent de ingest
+// (/api/ai-ingest?action=process), DUPĂ ce coada de indexare e goală
+// (cunoștințele sunt la zi înainte să explice din ele).
 //
 // Servirea (din ai-chat / ai-chat-stream) e CONSERVATOARE — doar când:
 //   · modul e 'explain' sau 'hint' și există context.contentId;
@@ -21,7 +24,8 @@ const { norm } = require('./barem');
 
 const BATCH = parseInt(process.env.AI_PREGEN_BATCH || '3', 10);
 const DISABLED = process.env.AI_PREGEN_DISABLED === '1';
-const PREGEN_MODEL = process.env.AI_PREGEN_MODEL || ai.CHAT_MODEL;
+// implicit modelul de PDF (terra) — vezi nota din antet; AI_PREGEN_MODEL îl schimbă
+const PREGEN_MODEL = process.env.AI_PREGEN_MODEL || ai.PDF_MODEL;
 const MAX_SOURCE_CHARS = 9000;
 
 const warned = new Set();
@@ -93,9 +97,13 @@ async function generateFor(supa, contentId, kind, src = null) {
     temperature: 0.3, maxTokens: k.maxTokens, model: PREGEN_MODEL,
   });
   if (!String(text || '').trim()) return null;
+  // model = ID-UL CONFIGURAT (nu ce raportează providerul): purjarea din
+  // processBatch compară cu PREGEN_MODEL, iar prin AI Gateway providerul poate
+  // raporta id-ul fără prefix — comparația ar fi eșuat mereu (regenerare la
+  // nesfârșit) sau niciodată.
   const { error } = await supa.from('ai_pregen').upsert({
     content_id: contentId, kind, text: text.trim(),
-    model: usage.model || PREGEN_MODEL, source_hash: s.hash,
+    model: PREGEN_MODEL, source_hash: s.hash,
     updated_at: new Date().toISOString(),
   }, { onConflict: 'content_id,kind' });
   if (error) { warnOnce('upsert', `pregen: upsert eșuat (rulează supabase/ai_pregen.sql?): ${error.message}`); return null; }
@@ -108,6 +116,18 @@ async function generateFor(supa, contentId, kind, src = null) {
 async function processBatch(supa, limit = BATCH) {
   if (DISABLED) return { pregenerated: 0, note: 'AI_PREGEN_DISABLED=1' };
   if (!ai.hasChat()) return { pregenerated: 0, note: 'fără cheie LLM' };
+  // Cache-ul trebuie să corespundă MODELULUI configurat acum: intrările
+  // generate cu alt model (ex. gpt-4o-mini, dinainte de trecerea pe terra)
+  // se șterg aici, devin „lipsă" pentru ai_pregen_candidates și se
+  // regenerează în loturile următoare. Până atunci, cererile canonice merg
+  // pe fluxul normal de chat — nimic nu se strică, doar costă puțin.
+  let purged = 0;
+  try {
+    const del1 = await supa.from('ai_pregen').delete().neq('model', PREGEN_MODEL).select('content_id');
+    const del2 = await supa.from('ai_pregen').delete().is('model', null).select('content_id');
+    purged = (del1.data?.length || 0) + (del2.data?.length || 0);
+    if (purged) console.warn(`pregen: ${purged} intrări generate cu alt model — șterse, se regenerează cu ${PREGEN_MODEL}`);
+  } catch (e) { warnOnce('purge', `pregen: purjarea intrărilor cu model vechi a eșuat: ${e.message}`); }
   let ids = [];
   try {
     const { data, error } = await supa.rpc('ai_pregen_candidates', { p_limit: limit });
@@ -133,7 +153,7 @@ async function processBatch(supa, limit = BATCH) {
       }
     } catch (e) { console.warn(`pregen: ${id}: ${e.message}`); }
   }
-  return { pregenerated: done, candidates: ids.length };
+  return { pregenerated: done, candidates: ids.length, ...(purged ? { purged } : {}) };
 }
 
 // ─── Servire (din chat): intrarea pre-generată + gardul premium ──────────────
