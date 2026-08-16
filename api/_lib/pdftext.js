@@ -88,6 +88,111 @@ function linesFromTextContent(textContent) {
     }
   }
 
+  // 2b) FRACȚII ETAJATE (Word/MathType): „a supra 3" ajunge în text ca item
+  //     „a" cu câțiva pt DEASUPRA liniei de bază și „3" cu câțiva pt SUB ea
+  //     (bara e desenată vectorial — invizibilă la extragere). Pasul de
+  //     exponenți/indici le transforma greșit în „^{a}_{3}", iar AI-ul citea
+  //     „a/3 = b/4 = 5" drept „a³ = b⁴ = 5" — numitorul ajungea la putere și
+  //     profesorul virtual explica alt exercițiu. Aici: perechea numărător
+  //     (deasupra) + numitor (dedesubt), suprapuse pe orizontală și cu rândul
+  //     de bază liber în dreptul lor, devine explicit \frac{...}{...}.
+  const runsOf = (line) => {
+    const sorted = [...line.items].sort((a, b) => a.x - b.x);
+    const runs = [];
+    let run = null;
+    for (const it of sorted) {
+      const xend = it.x + (it.w || 0);
+      if (run && it.x - run.xend < 6.5) { run.items.push(it); run.xend = Math.max(run.xend, xend); }
+      else { run = { items: [it], xmin: it.x, xend }; runs.push(run); }
+    }
+    for (const r of runs) {
+      r.text = '';
+      let last = null;
+      for (const it of r.items) {
+        if (last != null && it.x - last > 1.5 && r.text && !r.text.endsWith(' ')) r.text += ' ';
+        r.text += it.str;
+        last = Math.max(last == null ? -Infinity : last, it.x + (it.w || 0));
+      }
+      r.text = r.text.trim();
+      r.size = Math.max(...r.items.map((it) => it.size || 0));
+    }
+    return runs;
+  };
+  // A = rândul numărătorului, C = al numitorului; între ele stă LINIA DE BAZĂ
+  // a textului (cu „=", virgule etc.) și, uneori, încă o micro-linie (un
+  // indice de pe același rând). Cerem 1–2 rânduri între A și C, toate LIBERE
+  // în dreptul barei — două rânduri obișnuite de text nu au niciodată un al
+  // treilea între ele, deci textul normal nu poate fi confundat cu o fracție.
+  const fracRun = (r) => !r.items.some((it) => it._frac || it._syn) && r.text.length <= 14
+    && r.xend - r.xmin <= 100 && /[0-9A-Za-z]/.test(r.text);
+  for (let i = 0; i < lines.length; i++) {
+    for (let j = i + 2; j <= i + 3 && j < lines.length; j++) {
+      const A = lines[i], C = lines[j];
+      if (!A.items.length || !C.items.length) continue;
+      const between = lines.slice(i + 1, j).filter((l) => l.items.length);
+      if (!between.length) continue;
+      const vGap = A.y - C.y;
+      if (vGap < 3.6 || vGap > 26) continue;
+      const runsA = runsOf(A), runsC = runsOf(C);
+      let consumed = false;
+      for (const rA of runsA) {
+        if (!fracRun(rA)) continue;
+        for (const rC of runsC) {
+          if (!fracRun(rC)) continue;
+          // suprapunere pe orizontală (numărătorul stă peste numitor)
+          const cA = (rA.xmin + rA.xend) / 2, cC = (rC.xmin + rC.xend) / 2;
+          const wMax = Math.max(rA.xend - rA.xmin, rC.xend - rC.xmin);
+          if (Math.abs(cA - cC) > Math.max(6, wMax * 0.6)) continue;
+          if (Math.min(rA.xend, rC.xend) - Math.max(rA.xmin, rC.xmin) < -2) continue;
+          // distanța pe verticală trebuie să fie de fracție, nu de rânduri de tabel
+          if (vGap > 2.2 * Math.max(rA.size, rC.size) + 1) continue;
+          const xmin = Math.min(rA.xmin, rC.xmin) - 1, xmax = Math.max(rA.xend, rC.xend) + 1;
+          // rândul de bază = cel mai apropiat de mijlocul fracției, la 1.5pt+
+          // de fiecare parte (numărătorul și numitorul nu stau PE linia de bază)
+          const midY = (A.y + C.y) / 2;
+          const base = [...between].sort((a, b) => Math.abs(a.y - midY) - Math.abs(b.y - midY))[0];
+          if (A.y - base.y < 1.5 || base.y - C.y < 1.5) continue;
+          if (A.y - base.y > 13 || base.y - C.y > 13) continue; // prea departe de linia de bază
+          // NU e fracție dacă perechea stă lipită de o literă de bază în stânga:
+          // acela e „x" cu indice ȘI exponent (x₁²), nu numărător/numitor.
+          const attached = base.items.some((it) => {
+            const d = xmin + 1 - (it.x + (it.w || 0));
+            return d > -0.5 && d < 1.3 && /[0-9A-Za-zăâîșțĂÂÎȘȚ)\]]$/.test(it.str.trim());
+          });
+          if (attached) continue;
+          // în dreptul barei, rândurile dintre A și C trebuie să fie libere
+          // (sau să conțină doar bara desenată ca text: „—", „_", „─")
+          const inSpan = [], bars = [];
+          for (const l of between) {
+            for (const it of l.items) {
+              if (it.x < xmax && it.x + (it.w || 0) > xmin) {
+                inSpan.push(it);
+                if (/^[\s\-–—_─﹘¯]+$/.test(it.str)) bars.push(it);
+              }
+            }
+          }
+          if (inSpan.length !== bars.length) continue;
+          // ── e fracție: o rescriem ca \frac{num}{den} pe rândul de bază ──
+          rA.items.forEach((it) => { it._frac = true; });
+          rC.items.forEach((it) => { it._frac = true; });
+          bars.forEach((it) => { it._frac = true; });
+          base.items.push({
+            str: '\\frac{' + rA.text + '}{' + rC.text + '}',
+            x: xmin + 1, w: xmax - xmin - 2,
+            y: base.y, size: Math.max(rA.size, rC.size), _syn: true,
+          });
+          consumed = true;
+          break;
+        }
+      }
+      if (consumed) {
+        for (const l of [A, C, ...between]) l.items = l.items.filter((it) => !it._frac);
+      }
+    }
+  }
+  // rândurile golite de fracții dispar
+  for (let i = lines.length - 1; i >= 0; i--) { if (!lines[i].items.length) lines.splice(i, 1); }
+
   // 2) EXPONENȚI și INDICI: o micro-linie măruntă („2", „n"...) aflată cu
   //    2–6pt deasupra unui rând este exponentul lui → „^{2}"; cu 2–6pt sub
   //    rând este indice → „_{1}". Fără pasul acesta, „(x1x2x3x4)^2" și „m^2"

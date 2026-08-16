@@ -4,6 +4,27 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 16 august 2026 — Profesorul Virtual citea fracțiile din PDF ca puteri („a³ = b⁴ = 5")
+
+**Simptomul (raportat la Subiectul I, ex. 2 dintr-o variantă EN):** enunțul „Știind că a/3 = b/4 = 5, rezultatul calculului a + b este egal cu:" era explicat de Prof. Virtual ca „a³ = b⁴ = 5 … expresie cu puteri" — numitorul ajungea la putere și tot raționamentul pornea de la alt exercițiu.
+
+### 🔎 Cauza, găsită cu geometria reală a PDF-urilor făcute în Word
+Fracțiile etajate ajung în stratul de text al PDF-ului ca glife separate: numărătorul cu ~4–7pt DEASUPRA liniei de bază, numitorul cu ~4–7pt SUB ea, iar bara de fracție e desenată vectorial — invizibilă la extragere. Pasul de exponenți/indici din `api/_lib/pdftext.js` (corect pentru „m²", „x₁") vedea numărătorul ca „exponent" și numitorul ca „indice": „a/3 = b/4 = 5" ieșea `_{3}^{a} = ^{b}_{4} = 5`, iar AI-ul reconstruia cel mai plauzibil enunț din acel terci: puteri. Reprodus 1:1 pe PDF-uri sintetice cu metrici Word (corp 11/12), MathType (glife mari, care înainte rămâneau împrăștiate pe rânduri separate: „a b" / „3 4") și fracții „strânse".
+
+### 🔧 Reparația: pas nou 2b în `linesFromTextContent` — fracțiile devin `\frac{num}{den}`
+Înainte de pasul de exponenți/indici, perechile numărător-deasupra + numitor-dedesubt, suprapuse pe orizontală și cu rândul de bază liber în dreptul barei, se rescriu explicit ca `\frac{a}{3}` pe rândul de bază — AI-ul primește acum „Știind că \frac{a}{3} = \frac{b}{4} = 5". Garduri, ca să nu apară fracții false:
+- „x" cu indice ȘI exponent (x₁², Viète) NU e fracție — perechea lipită de litera de bază e lăsată pasului de sup/sub;
+- tabelele compacte NU sunt fracții — distanța pe verticală trebuie să fie de fracție (raportată la corpul glifelor), nu de rânduri de tabel;
+- rândurile obișnuite de text NU se ating — se cere un al treilea rând ÎNTRE numărător și numitor (linia de bază, cu „=" etc.), ceea ce două rânduri normale de text nu au niciodată;
+- acoperă și: numărători compuși („x + 1"), un indice interpus pe rând (cazul MathType), bara desenată ca text („—", consumată), două fracții pe același rând.
+
+Efect în lanț: același extractor e folosit de TOATE pipeline-urile (Prof. Virtual pe PDF-ul deschis, corectarea „📝 Răspunde în chat", potrivirea baremului PE CONȚINUT, generarea de exerciții din surse) — toate citesc acum fracțiile corect. Exponenții, indicii și săgețile de vector existente rămân neatinse.
+
+Teste noi în `test/pdftext.test.js` (9): bug-ul exact (fracția NU mai iese sup/sub), exponenți/indici păstrați, x₁², tabele compacte, rânduri scurte de text, numărător compus + indice interpus, bara-text consumată, cutBarem. **Teste: 170/170 trec.** Zero schimbări în frontend — build neafectat.
+
+Fișiere: api/_lib/pdftext.js, test/pdftext.test.js (nou), acest changelog.
+---
+
 ## 14 august 2026 (5) — Lint-urile Supabase din raportul de azi: recidiva explicată și reparată la sursă
 
 Raportul Advisors (CSV, 14 august): 2 warninguri.
