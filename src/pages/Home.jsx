@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import EinsteinIcon from '../components/EinsteinIcon';
+import AIPoweredBy from '../components/AIPoweredBy';
 
 export default function Home() {
   const categories = [
@@ -87,9 +88,11 @@ export default function Home() {
         <div className="container">
           <div className="section-header">
             <h2 className="section-title">Învață cu Profesorul Virtual (AI)</h2>
-            <p className="section-subtitle">
+            <p className="section-subtitle" style={{ marginBottom: 14 }}>
               Un tutor inteligent pentru elevi și un generator de teste pentru profesori — incluse în platformă.
             </p>
+            {/* Modelele AI folosite pentru utilizatori (src/lib/aiModels.js → AI_STACK) */}
+            <AIPoweredBy variant="chips" showIntern center style={{ marginBottom: 40 }} />
           </div>
           <div className="card-grid" style={{ maxWidth: 1000, margin: '0 auto' }}>
             <div className="card" style={{ borderTop: '4px solid #7c5cbf' }}>

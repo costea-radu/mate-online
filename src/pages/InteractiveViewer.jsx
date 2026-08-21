@@ -9,6 +9,7 @@ import { injectTutorBridge } from '../lib/tutorBridge';
 import { awardBadges } from '../lib/badges';
 import { notaDinScor } from '../lib/nota';
 import EinsteinIcon from '../components/EinsteinIcon';
+import { ReviewToast } from '../components/ReviewWidget';
 
 export default function InteractiveViewer() {
   const { state } = useLocation();
@@ -32,6 +33,8 @@ export default function InteractiveViewer() {
   const [exState, setExState] = useState(null);                     // starea live din exercițiu (bridge)
   const [autoPrompt, setAutoPrompt] = useState(null);                // mesaj trimis automat în chat
   const [newBadges, setNewBadges] = useState([]);                    // insigne proaspăt câștigate (toast)
+  const [reviewOpen, setReviewOpen] = useState(false);               // „Cum ți s-a părut testul?" (după scor salvat)
+  const reviewAskedRef = useRef(new Set());                          // testele pentru care am întrebat deja (în această vizită)
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 800);
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 800);
@@ -280,6 +283,28 @@ export default function InteractiveViewer() {
     const t = setTimeout(() => setNewBadges([]), 7000);
     return () => clearTimeout(t);
   }, [newBadges]);
+
+  // ─── Recenzie după test ─────────────────────────────────────────────────────
+  // La 1,5 s după ce scorul s-a SALVAT (deci există rândul din `progress` pe
+  // care îl cere RLS-ul tabelului `reviews`), întrebăm o singură dată per test
+  // „Cum ți s-a părut?" — card nemodal, stânga-sus (insignele stau dreapta-sus).
+  // Dacă elevul îl închide fără notă, nu mai insistăm în această sesiune.
+  const reviewSkipKey = item?.id ? `em_review_skip_${item.id}` : null;
+  useEffect(() => {
+    if (!scoreSaved || !savedScore || !user || !item?.id) return;
+    if (reviewAskedRef.current.has(item.id)) return;
+    try { if (reviewSkipKey && sessionStorage.getItem(reviewSkipKey)) return; } catch { /* ignore */ }
+    // marcăm „întrebat" abia când cardul chiar apare: dacă scorul se salvează
+    // de două ori în 1,5 s (dublu „Verifică"), cronometrul doar se reia
+    const id = item.id;
+    const t = setTimeout(() => { reviewAskedRef.current.add(id); setReviewOpen(true); }, 1500);
+    return () => clearTimeout(t);
+  }, [scoreSaved, savedScore, user, item?.id, reviewSkipKey]);
+  useEffect(() => { setReviewOpen(false); }, [item?.id]);
+  function closeReview() {
+    setReviewOpen(false);
+    try { if (reviewSkipKey) sessionStorage.setItem(reviewSkipKey, '1'); } catch { /* ignore */ }
+  }
 
   // Contextul viu trimis Profesorului Virtual (starea exercițiului + nivelul)
   const tutorContext = useMemo(() => ({
@@ -565,6 +590,11 @@ export default function InteractiveViewer() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Card: „Cum ți s-a părut testul?" — stele + comentariu (src/components/ReviewWidget.jsx) */}
+      {reviewOpen && item?.id && (
+        <ReviewToast targetType="content" targetId={item.id} title={item.title} onClose={closeReview} />
       )}
     </div>
   );

@@ -2,6 +2,8 @@ import { authHeaders } from '../lib/api';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { AI_STACK } from '../lib/aiModels';
+import AIPoweredBy from '../components/AIPoweredBy';
 
 export default function Pricing() {
   const { user, isPremium } = useAuth();
@@ -93,7 +95,7 @@ export default function Pricing() {
             <ul className="pricing-features">
               <li><span className="pricing-check">✓</span> Toate exercițiile și testele PDF (gratuite + premium)</li>
               <li><span className="pricing-check">✓</span> Exerciții interactive cu feedback</li>
-              <li><span className="pricing-check">✓</span> Inteligența Artificială - Prof. Virtual: învățare cu AI, generare de teste, exerciții</li>
+              <li><span className="pricing-check">✓</span> Inteligența Artificială - Prof. Virtual ({AI_STACK.clienti.furnizor} {AI_STACK.clienti.modele.join(', ')}): învățare cu AI, generare de teste, exerciții</li>
               <li><span className="pricing-check">✓</span> Manuale online</li>
               <li><span className="pricing-check">✓</span> Teste interactive pentru Evaluarea Națională</li>
               <li><span className="pricing-check">✓</span> Teste interactive pentru Bacalaureat</li>
@@ -153,6 +155,10 @@ export default function Pricing() {
               Majoritatea exercițiilor PDF sunt disponibile gratuit, fără abonament.
               Creează un cont pentru acces nelimitat.
             </p>
+            {/* Modelele AI din abonament (src/lib/aiModels.js → AI_STACK) */}
+            <div style={{ marginTop: 14 }}>
+              <AIPoweredBy variant="inline" />
+            </div>
           </div>
         </div>
       </section>

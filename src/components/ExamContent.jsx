@@ -6,12 +6,14 @@ import { useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { ContentCard } from './ContentPage';
+import { fetchReviewStats } from '../lib/reviews';
 
 // ─── Bloc de iteme ────────────────────────────────────────────────────────────
 export function ItemBlock({ category, subcategory, profile, contentType, emptyText, returnTab }) {
   const { user, isPremium } = useAuth();
   const [items, setItems] = useState([]);
   const [progressMap, setProgressMap] = useState({});
+  const [ratingMap, setRatingMap] = useState({});   // content_id → { avg, n } (recenzii)
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -44,6 +46,14 @@ export function ItemBlock({ category, subcategory, profile, contentType, emptyTe
       });
   }, [user, items, contentType]);
 
+  // Media recenziilor (stele) — doar testele interactive primesc note
+  useEffect(() => {
+    if (items.length === 0 || contentType !== 'interactive') return;
+    let alive = true;
+    fetchReviewStats('content', items.map(i => i.id)).then(map => { if (alive) setRatingMap(map); });
+    return () => { alive = false; };
+  }, [items, contentType]);
+
   if (loading) return (
     <div style={{ padding: '10px 0', color: 'var(--text-muted)', fontSize: '0.83rem' }}>
       Se încarcă...
@@ -57,7 +67,7 @@ export function ItemBlock({ category, subcategory, profile, contentType, emptyTe
   return (
     <div>
       {items.map(item => (
-        <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} forceTab={returnTab} />
+        <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} rating={ratingMap[item.id]} forceTab={returnTab} />
       ))}
     </div>
   );

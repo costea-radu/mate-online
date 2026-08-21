@@ -18,6 +18,7 @@ import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, 
 import { extractTutorActions } from '../lib/tutorBridge';
 import { awardBadges } from '../lib/badges';
 import { notaDinScor } from '../lib/nota';
+import AIPoweredBy from './AIPoweredBy';
 
 // ─── Terminologie școlară: „factorizare" → „descompunere în factori" ─────────
 const FACTORIZARE = {
@@ -1014,6 +1015,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           {streaming ? '…' : '➤'}
         </button>
       </div>
+      {/* Modelele AI + „AI-ul poate greși" — o linie minusculă sub câmpul de scris
+          (textele vin din src/lib/aiModels.js → AI_STACK) */}
+      <AIPoweredBy variant="disclaimer" />
     </div>
   );
 }

@@ -16,6 +16,7 @@ import AILimite from '../components/AILimite';
 import { renderQuiz } from '../lib/quizRender';
 import CapitolePicker from '../components/CapitolePicker';
 import { capitoleForCategory } from '../lib/capitole';
+import AIPoweredBy from '../components/AIPoweredBy';
 
 const CATEGORIES = [
   { id: '', label: 'Toate' },
@@ -64,6 +65,8 @@ export default function ProfesorVirtual() {
           Tutorele tău AI care învață din toate exercițiile și explicațiile de pe ExamenMate.
           Cere explicații, indicii, exerciții noi de antrenament și urmărește-ți progresul.
         </p>
+        {/* Modelele AI folosite pentru utilizatori (src/lib/aiModels.js → AI_STACK) */}
+        <AIPoweredBy variant="chips" style={{ marginTop: 10 }} />
       </div>
 
       {/* Tab-uri */}

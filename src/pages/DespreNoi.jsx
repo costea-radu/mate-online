@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import EinsteinIcon from '../components/EinsteinIcon';
+import { AI_STACK } from '../lib/aiModels';
 
 export default function DespreNoi() {
   const values = [
@@ -35,8 +36,12 @@ export default function DespreNoi() {
             <p style={{ color: 'var(--text)', lineHeight: 1.9, fontSize: '0.97rem', marginBottom: 16 }}>
               Am creat ExamenMate pentru a oferi o alternativă: o platformă cu exerciții PDF descărcabile, teste interactive cu feedback instant și manuale digitale — toate organizate pe clase și examene, verificate și actualizate constant.
             </p>
-            <p style={{ color: 'var(--text)', lineHeight: 1.9, fontSize: '0.97rem' }}>
+            <p style={{ color: 'var(--text)', lineHeight: 1.9, fontSize: '0.97rem', marginBottom: 16 }}>
               Astăzi, ExamenMate înseamnă și inteligență artificială folosită cu rost: <strong>Prof. Virtual</strong>, asistentul AI al platformei, explică pas cu pas orice exercițiu și răspunde întrebărilor tale oricând, iar <Link to="/meditatii" style={{ color: 'var(--navy)', fontWeight: 700, textDecoration: 'underline' }}>Meditațiile cu AI</Link> îți oferă pregătire personalizată — plan de lucru, lecții, teme și progres urmărit ședință de ședință, la o fracțiune din costul meditațiilor clasice.
+            </p>
+            {/* Modelele AI — textele vin din src/lib/aiModels.js → AI_STACK */}
+            <p style={{ color: 'var(--text)', lineHeight: 1.9, fontSize: '0.97rem' }}>
+              Folosim cele mai noi modele disponibile: pentru tot ce vezi tu pe site — chat, explicații, corectări, teste generate — <strong>{AI_STACK.clienti.furnizor}</strong> ({AI_STACK.clienti.modele.join(', ')}); pentru uneltele noastre administrative interne, cu care echipa generează și verifică materialele din bibliotecă, modelele <strong>{AI_STACK.intern.modele.join(' și ')}</strong> de la {AI_STACK.intern.furnizor}. Uneltele interne nu primesc datele tale personale — detalii în <Link to="/faq#ai" style={{ color: 'var(--navy)', fontWeight: 700, textDecoration: 'underline' }}>Întrebări frecvente</Link>.
             </p>
           </div>
 

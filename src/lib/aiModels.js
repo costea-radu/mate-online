@@ -16,3 +16,38 @@ export const AI_MODELS = [
 ];
 
 export const DEFAULT_AI_MODEL = AI_MODELS[0].id;
+
+// =====================================================================
+// AI_STACK — ce comunicăm PUBLIC despre modelele folosite.
+// SINGURUL LOC DE ADEVĂR pentru textele de pe site: <AIPoweredBy />
+// (footer, pagina Profesor Virtual, chat, Home, Prețuri, Despre noi) și
+// categoria „Profesorul Virtual (AI)" din FAQ citesc de aici.
+//
+// ATENȚIE: textul de pe site NU citește env-ul serverului. Când schimbi un
+// model în Vercel (AI_CHAT_MODEL, AI_PDF_CHAT_MODEL, AI_GEN_CHAT_MODEL,
+// CLAUDE_MODEL), actualizează și lista de mai jos — altfel site-ul promite
+// altceva decât rulează. Formulările sunt intenționat „folosim modelele…",
+// nu „fiecare răspuns e generat de…": peste bugetul zilnic soft chatul
+// coboară pe modelul economic (api/_lib/ai.js → pickModel).
+// =====================================================================
+export const AI_STACK = {
+  // Pentru CLIENȚI (elevi, părinți, profesori): Profesorul Virtual, Meditațiile,
+  // generatorul de teste, corectarea rezolvărilor — toate pe modele OpenAI.
+  clienti: {
+    furnizor: 'OpenAI',
+    modele: ['GPT-4o mini', 'GPT-5.6 Terra', 'GPT-5.6 Sol'],
+    descriere: 'GPT-4o mini răspunde rapid în chat și explică pas cu pas; GPT-5.6 Terra și GPT-5.6 Sol preiau sarcinile care cer precizie maximă — citirea subiectelor PDF, corectarea după barem, generarea de teste și exerciții.',
+  },
+  // Pentru UNELTE ADMINISTRATIVE INTERNE (doar echipa ExamenMate): agentul
+  // care generează și verifică materialele din biblioteca site-ului, articole,
+  // optimizări SEO, task-uri programate. NU primesc date personale ale
+  // utilizatorilor — exact cum scrie în Politica de Confidențialitate (§7–8).
+  intern: {
+    furnizor: 'Anthropic',
+    modele: ['Claude Opus 5', 'Claude Fable 5'],
+    descriere: 'Folosite doar de echipa ExamenMate, în unelte administrative interne: generarea și verificarea testelor și exercițiilor din biblioteca site-ului, articole și optimizări ale paginilor. Nu primesc întrebările, pozele sau datele personale ale utilizatorilor.',
+  },
+};
+
+// Linie scurtă, gata de afișat: „OpenAI GPT-4o mini · GPT-5.6 Terra · GPT-5.6 Sol"
+export const AI_STACK_SCURT = `${AI_STACK.clienti.furnizor} ${AI_STACK.clienti.modele.join(' · ')}`;

@@ -5,6 +5,8 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { notaDinScor } from '../lib/nota';
+import { fetchReviewStats } from '../lib/reviews';
+import { RatingBadge } from './ReviewWidget';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -230,7 +232,8 @@ function ProgressBadge({ progress }) {
 }
 
 // ─── Card item ────────────────────────────────────────────────────────────────
-export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc, forceTab }) {
+// `rating` = { avg, n, nComentarii } din src/lib/reviews.js (opțional) → „★ 4,6 (23)"
+export function ContentCard({ item, isPremium, user, progress, rating, _overrideSrcDoc, forceTab }) {
   const canAccess = item.is_free || isPremium;
   const navigate = useNavigate();
   const [showPreview, setShowPreview] = useState(false);
@@ -305,6 +308,9 @@ export function ContentCard({ item, isPremium, user, progress, _overrideSrcDoc, 
         {isInteractive && user && progress && (
           <ProgressBadge progress={progress} />
         )}
+
+        {/* Media notelor lăsate de elevi după test (recenzii) */}
+        <RatingBadge stats={rating} />
 
         <span style={{
           padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700,
@@ -454,6 +460,7 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
   const [activeTab, setActiveTab] = useState(initialTab);
   const [items, setItems] = useState([]);
   const [progressMap, setProgressMap] = useState({});
+  const [ratingMap, setRatingMap] = useState({});   // content_id → { avg, n } (recenzii)
   const [loading, setLoading] = useState(true);
   const scrollRestored = useRef(false);
 
@@ -493,6 +500,14 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
         }
       });
   }, [user, items]);
+
+  // Media recenziilor (stele) pentru testele din listă — vizibilă și nelogat
+  useEffect(() => {
+    if (items.length === 0) return;
+    let alive = true;
+    fetchReviewStats('content', items.map(i => i.id)).then(map => { if (alive) setRatingMap(map); });
+    return () => { alive = false; };
+  }, [items]);
 
   // Restaurează poziția după revenirea din PDF/Interactive viewer
   useEffect(() => {
@@ -552,7 +567,7 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
               {filtered.map(item =>
                 item.content_type === 'manual' && item.manual_content
                   ? <ManualViewer key={item.id} item={item} />
-                  : <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} />
+                  : <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} rating={ratingMap[item.id]} />
               )}
             </div>
           )}

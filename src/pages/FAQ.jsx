@@ -1,7 +1,65 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { AI_STACK } from '../lib/aiModels';
+
+// „Pastilă" cu numele unui model (folosită în răspunsurile despre AI)
+function ModelChip({ children, intern }) {
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 9px', borderRadius: 20, fontSize: '0.76rem', fontWeight: 700,
+      margin: '2px 4px 2px 0', whiteSpace: 'nowrap',
+      background: intern ? '#f3e5f5' : 'rgba(232,185,49,.12)',
+      border: `1px solid ${intern ? '#d7b8e8' : 'rgba(232,185,49,.5)'}`,
+      color: intern ? '#5b2c83' : 'var(--navy)',
+    }}>{children}</span>
+  );
+}
 
 const faqs = [
+  // Ancora /faq#ai (linkurile din <AIPoweredBy />, Footer, Despre noi duc aici).
+  // Textele despre modele vin din src/lib/aiModels.js → AI_STACK.
+  {
+    id: 'ai',
+    category: 'Profesorul Virtual (AI)',
+    items: [
+      {
+        q: 'Ce modele de inteligență artificială folosește ExamenMate?',
+        a: (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              <div style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: 4 }}>Pentru tine, pe site — modele {AI_STACK.clienti.furnizor}:</div>
+              <div style={{ marginBottom: 6 }}>{AI_STACK.clienti.modele.map((m) => <ModelChip key={m}>{m}</ModelChip>)}</div>
+              <div>Profesorul Virtual, Meditațiile, generatorul de teste și corectarea rezolvărilor rulează pe aceste modele. {AI_STACK.clienti.descriere}</div>
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: 4 }}>Pentru uneltele noastre administrative interne — modele {AI_STACK.intern.furnizor}:</div>
+              <div style={{ marginBottom: 6 }}>{AI_STACK.intern.modele.map((m) => <ModelChip key={m} intern>{m}</ModelChip>)}</div>
+              <div>{AI_STACK.intern.descriere}</div>
+            </div>
+            <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+              Actualizăm modelele pe măsură ce apar versiuni mai bune — această pagină reflectă mereu configurația curentă.
+            </div>
+          </div>
+        ),
+      },
+      {
+        q: 'Ce se întâmplă cu întrebările, pozele și înregistrările vocale pe care le trimit Profesorului Virtual?',
+        a: (
+          <span>
+            Sunt transmise către {AI_STACK.clienti.furnizor} strict pentru a genera răspunsul; conform politicii pentru dezvoltatori (API), ele <strong>nu sunt folosite la antrenarea modelelor</strong>. Istoricul conversațiilor rămâne în contul tău, îl poți șterge oricând și dispare definitiv la ștergerea contului. Uneltele interne ({AI_STACK.intern.furnizor}) nu primesc aceste date. Nu introduce date personale sensibile în conversații. Detalii în <Link to="/politica-confidentialitate" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica de Confidențialitate</Link>, secțiunea „Profesorul Virtual (AI)”.
+          </span>
+        ),
+      },
+      {
+        q: 'Profesorul Virtual poate greși?',
+        a: 'Da. Conținutul generat de AI are caracter orientativ și poate conține erori de calcul sau de raționament — mai ales în testele generate cu numere modificate. Verifică răspunsurile importante cu manualul sau cu profesorul tău și folosește butoanele 👍/👎 de sub fiecare răspuns: feedbackul ajunge la noi și ne ajută să corectăm. La testele interactive din site poți lăsa, după ce le rezolvi, și o notă cu stele plus un comentariu — așa aflăm repede dacă un test are o problemă.',
+      },
+      {
+        q: 'Pot încerca Profesorul Virtual fără abonament?',
+        a: 'Da. Orice cont are câteva acțiuni gratuite de probă (o întrebare în chat, o generare de exercițiu etc.). Accesul complet la Profesorul Virtual, Meditații și generatorul de teste face parte din abonamentul Premium, în limitele de utilizare corectă pe care le vezi în „Contul meu” → „Consum AI”.',
+      },
+    ],
+  },
   {
     category: 'Cont și Înregistrare',
     items: [
@@ -96,8 +154,9 @@ const faqs = [
   },
 ];
 
-function FAQItem({ q, a }) {
-  const [open, setOpen] = useState(false);
+function FAQItem({ q, a, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  useEffect(() => { if (defaultOpen) setOpen(true); }, [defaultOpen]);
   return (
     <div style={{ borderBottom: '1px solid #f0f4f8' }}>
       <button
@@ -121,6 +180,19 @@ function FAQItem({ q, a }) {
 }
 
 export default function FAQ() {
+  // Ancoră: /faq#ai deschide toate întrebările din categoria respectivă și
+  // derulează la ea (cu o mică întârziere — ScrollToTop din App derulează
+  // mai întâi pagina la început).
+  const { hash } = useLocation();
+  const anchor = (hash || '').replace('#', '');
+  useEffect(() => {
+    if (!anchor) return;
+    const t = setTimeout(() => {
+      document.getElementById(`faq-${anchor}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+    return () => clearTimeout(t);
+  }, [anchor]);
+
   return (
     <>
       <div className="page-header">
@@ -136,13 +208,14 @@ export default function FAQ() {
       <section className="section">
         <div className="container" style={{ maxWidth: 780 }}>
           {faqs.map(section => (
-            <div key={section.category} style={{ background: '#fff', borderRadius: 14, padding: '32px 40px', boxShadow: 'var(--shadow)', marginBottom: 24 }}>
+            <div key={section.category} id={section.id ? `faq-${section.id}` : undefined}
+              style={{ background: '#fff', borderRadius: 14, padding: '32px 40px', boxShadow: 'var(--shadow)', marginBottom: 24, scrollMarginTop: 90 }}>
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.15rem', color: 'var(--navy)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
                 {section.category}
               </h2>
               <div>
                 {section.items.map((item, i) => (
-                  <FAQItem key={i} q={item.q} a={item.a} />
+                  <FAQItem key={i} q={item.q} a={item.a} defaultOpen={!!section.id && section.id === anchor} />
                 ))}
               </div>
             </div>

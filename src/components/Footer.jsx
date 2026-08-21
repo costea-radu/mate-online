@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import AIPoweredBy from './AIPoweredBy';
 
 export default function Footer() {
   return (
@@ -13,6 +14,8 @@ export default function Footer() {
               Platforma ta de matematică pentru exerciții, teste și auxiliare.
               Pregătire completă pentru clasele 5–12, Evaluarea Națională și Bacalaureat.
             </p>
+            {/* Modelele AI (textele vin din src/lib/aiModels.js → AI_STACK) */}
+            <AIPoweredBy variant="footer" />
           </div>
           <div>
             <h4>Clase (5–8)</h4>
