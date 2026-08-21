@@ -5,52 +5,11 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import AIAdminPanel from '../components/AIAdminPanel';
 import ReviewsAdmin from '../components/ReviewsAdmin';
+import { ContentMetaFields, EditContentModal, ReorderPanel } from '../components/ContentAdminTools';
+import { CATEGORIES, CONTENT_TYPES, categoryLabel, subcategoryLabel, profileLabel, hasSubcategories, visibilityWarning } from '../lib/contentMeta';
 
-
-const CATEGORIES = [
-  { value: 'clasa-5',  label: 'Clasa a V-a' },
-  { value: 'clasa-6',  label: 'Clasa a VI-a' },
-  { value: 'clasa-7',  label: 'Clasa a VII-a' },
-  { value: 'clasa-8',  label: 'Clasa a VIII-a' },
-  { value: 'clasa-9',  label: 'Clasa a IX-a' },
-  { value: 'clasa-10', label: 'Clasa a X-a' },
-  { value: 'clasa-11', label: 'Clasa a XI-a' },
-  { value: 'clasa-12', label: 'Clasa a XII-a' },
-  { value: 'evaluare-nationala', label: 'Evaluare Națională' },
-  { value: 'bacalaureat', label: 'Bacalaureat' },
-  { value: 'manuale', label: 'Manuale Online' },
-];
-
-const EN_SUBCATEGORIES = [
-  { value: 'capitole',          label: 'Capitole' },
-  { value: 'exercitii-subiecte',label: 'Exerciții pe Subiecte (Teste antrenament)' },
-  { value: 'variante',          label: 'Variante Date + Modele (Teste antrenament)' },
-  { value: 'simulari',          label: 'Simulări (Teste antrenament)' },
-  { value: 'bareme',            label: 'Bareme (Teste antrenament)' },
-  { value: 'teste-interactive', label: 'Teste Interactive' },
-];
-
-const BAC_SUBCATEGORIES = [
-  { value: 'capitole',          label: 'Capitole' },
-  { value: 'exercitii',         label: 'Exerciții pe Subiecte' },
-  { value: 'variante',          label: 'Variante + Olimpici + Rezerve' },
-  { value: 'teste-antrenament', label: 'Teste de Antrenament' },
-  { value: 'simulari',          label: 'Simulări' },
-  { value: 'bareme',            label: 'Bareme' },
-  { value: 'teste-interactive', label: 'Teste Interactive' },
-];
-
-const BAC_PROFILES = [
-  { value: 'mate-info',       label: 'Mate-Info' },
-  { value: 'stiinte-naturii', label: 'Științele Naturii' },
-  { value: 'tehnologic',      label: 'Tehnologic' },
-];
-
-const CONTENT_TYPES = [
-  { value: 'pdf', label: '📄 PDF' },
-  { value: 'interactive', label: '🧩 Exercițiu Interactiv' },
-  { value: 'manual', label: '📖 Manual Online' },
-];
+// Rubricile (categorii, subcategorii EN/BAC, profiluri, tipuri) stau acum în
+// src/lib/contentMeta.js — partajate cu editarea/ordonarea din ContentAdminTools.
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = {
@@ -200,64 +159,6 @@ function FileUploadZone({ accept, label, hint, file, onFile, icon }) {
   );
 }
 
-// ─── Câmpuri meta partajate (titlu/categorie/subcategorie/profil) ─────────────
-// Folosite atât la Upload PDF, cât și la Upload Interactive (evită duplicarea).
-function ContentMetaFields({ form, setForm, titlePlaceholder }) {
-  const isEN = form.category === 'evaluare-nationala';
-  const isBAC = form.category === 'bacalaureat';
-  return (
-    <>
-      <div style={s.formRow}>
-        <div style={s.formGroup}>
-          <label style={s.label}>Titlu *</label>
-          <input style={s.input} value={form.title}
-            onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
-            placeholder={titlePlaceholder} />
-        </div>
-        <div style={s.formGroup}>
-          <label style={s.label}>Categorie *</label>
-          <select style={s.select} value={form.category}
-            onChange={e => setForm(p => ({ ...p, category: e.target.value, subcategory: '', profile: '' }))}>
-            {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-          </select>
-        </div>
-      </div>
-
-      {isEN && (
-        <div style={s.formGroup}>
-          <label style={s.label}>Subcategorie EN</label>
-          <select style={s.select} value={form.subcategory}
-            onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
-            <option value="">— Selectează —</option>
-            {EN_SUBCATEGORIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
-        </div>
-      )}
-
-      {isBAC && (
-        <div style={s.formRow}>
-          <div style={s.formGroup}>
-            <label style={s.label}>Profil Bacalaureat</label>
-            <select style={s.select} value={form.profile}
-              onChange={e => setForm(p => ({ ...p, profile: e.target.value }))}>
-              <option value="">— Selectează —</option>
-              {BAC_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-            </select>
-          </div>
-          <div style={s.formGroup}>
-            <label style={s.label}>Subcategorie BAC</label>
-            <select style={s.select} value={form.subcategory}
-              onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
-              <option value="">— Selectează —</option>
-              {BAC_SUBCATEGORIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
 // ─── Upload PDF ───────────────────────────────────────────────────────────────
 function UploadPDF({ onSuccess }) {
   const [form, setForm] = useState({ title: '', description: '', category: 'clasa-5', subcategory: '', profile: '', is_free: true });
@@ -321,7 +222,7 @@ function UploadPDF({ onSuccess }) {
       <div style={s.cardTitle}>📄 Adaugă PDF</div>
       {msg && <div style={s.alert(msg.type)}>{msg.text}</div>}
 
-      <ContentMetaFields form={form} setForm={setForm} titlePlaceholder="ex. Fișă de lucru – Fracții" />
+      <ContentMetaFields s={s} form={form} setForm={setForm} titlePlaceholder="ex. Fișă de lucru – Fracții" />
 
       <div style={s.formRow}>
         <div style={s.formGroup}>
@@ -423,7 +324,7 @@ function UploadInteractive({ onSuccess }) {
       </div>
       {msg && <div style={s.alert(msg.type)}>{msg.text}</div>}
 
-      <ContentMetaFields form={form} setForm={setForm} titlePlaceholder="ex. Test – Ecuații de gradul I" />
+      <ContentMetaFields s={s} form={form} setForm={setForm} titlePlaceholder="ex. Test – Ecuații de gradul I" />
 
       <div style={s.formRow}>
         <div style={s.formGroup}>
@@ -477,11 +378,16 @@ function UploadInteractive({ onSuccess }) {
 
 
 // ─── Content List ─────────────────────────────────────────────────────────────
+// Două vederi în același card: „📋 Lista" (filtre + căutare, Editează/Șterge)
+// și „↕ Ordinea de afișare" (drag-and-drop / săgeți / sortări — ContentAdminTools).
 function ContentList({ refresh }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState({ category: '', type: '' });
+  const [filter, setFilter] = useState({ category: '', type: '', q: '' });
   const [deleting, setDeleting] = useState(null);
+  const [view, setView] = useState('list');      // 'list' | 'order'
+  const [editing, setEditing] = useState(null);  // materialul deschis în modalul de editare
+  const [flash, setFlash] = useState(null);      // mesaj după editare
 
   useEffect(() => { load(); }, [refresh]);
 
@@ -549,98 +455,170 @@ function ContentList({ refresh }) {
     setDeleting(null);
   }
 
+  // După „Salvează" în modal: rândul actualizat ia locul celui vechi.
+  function onEdited(row, result) {
+    setItems(list => list.map(x => (x.id === row.id ? { ...x, ...row } : x)));
+    setEditing(null);
+    setFlash(result?.moved
+      ? `✓ „${row.title}" a fost salvat; fișierul a fost mutat din ${result.moved.from} în ${result.moved.to}.`
+      : `✓ „${row.title}" a fost salvat.`);
+  }
+
+  // După „Salvează ordinea": pozițiile noi se reflectă în listă fără reîncărcare.
+  function onReordered(orderMap) {
+    setItems(list => list.map(x => (orderMap[x.id] != null ? { ...x, sort_order: orderMap[x.id] } : x)));
+  }
+
+  const q = filter.q.trim().toLowerCase();
   const filtered = items.filter(i =>
     (!filter.category || i.category === filter.category) &&
-    (!filter.type || i.content_type === filter.type)
+    (!filter.type || i.content_type === filter.type) &&
+    (!q || `${i.title || ''} ${i.description || ''}`.toLowerCase().includes(q))
   );
+
+  const viewBtn = (active) => ({
+    ...s.btnSecondary, padding: '7px 14px', fontSize: '0.82rem',
+    background: active ? 'var(--navy)' : '#f0f4f8', color: active ? '#fff' : 'var(--navy)',
+    borderColor: active ? 'var(--navy)' : '#dde1e8',
+  });
 
   return (
     <div style={s.card}>
-      <div style={s.cardTitle}>📋 Tot Conținutul ({filtered.length})</div>
-
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-        <select style={{ ...s.select, width: 200 }} value={filter.category}
-          onChange={e => setFilter(p => ({ ...p, category: e.target.value }))}>
-          <option value="">Toate categoriile</option>
-          {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-        </select>
-        <select style={{ ...s.select, width: 180 }} value={filter.type}
-          onChange={e => setFilter(p => ({ ...p, type: e.target.value }))}>
-          <option value="">Toate tipurile</option>
-          {CONTENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-        </select>
+      <div style={{ ...s.cardTitle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <span>{view === 'list' ? `📋 Tot Conținutul (${filtered.length})` : '↕ Ordinea de afișare pe site'}</span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button style={viewBtn(view === 'list')} onClick={() => { setFlash(null); setView('list'); }}>📋 Lista</button>
+          <button style={viewBtn(view === 'order')} onClick={() => { setFlash(null); setView('order'); }}>↕ Ordinea de afișare</button>
+        </div>
       </div>
 
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: 40, color: '#8e95a3' }}>Se încarcă...</div>
-      ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 40, color: '#8e95a3' }}>Nu există conținut.</div>
+      {flash && (
+        <div style={{ ...s.alert('success'), display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+          <span>{flash}</span>
+          <button onClick={() => setFlash(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700 }}>✕</button>
+        </div>
+      )}
+
+      {view === 'order' ? (
+        // Panoul rămâne montat și în timpul reîncărcării (după sortarea automată),
+        // ca mesajul și rubrica aleasă să nu se piardă.
+        loading && items.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 40, color: '#8e95a3' }}>Se încarcă...</div>
+        ) : (
+          <ReorderPanel s={s} items={items} initialScope={{ category: filter.category, type: filter.type }}
+            onSaved={onReordered} onReload={load} />
+        )
       ) : (
-        <table style={s.table}>
-          <thead>
-            <tr>
-              <th style={s.th}>Titlu</th>
-              <th style={s.th}>Categorie</th>
-              <th style={s.th}>Tip</th>
-              <th style={s.th}>Acces</th>
-              <th style={s.th}>Fișier</th>
-              <th style={s.th}>Data</th>
-              <th style={s.th}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(item => (
-              <tr key={item.id}>
-                <td style={s.td}>
-                  <div style={{ fontWeight: 600, color: 'var(--navy)' }}>{item.title}</div>
-                  {item.description && (
-                    <div style={{ fontSize: '0.78rem', color: '#8e95a3', marginTop: 2 }}>{item.description}</div>
-                  )}
-                </td>
-                <td style={s.td}>
-                  <span style={{ fontSize: '0.82rem', color: '#5a6170' }}>
-                    {CATEGORIES.find(c => c.value === item.category)?.label || item.category}
-                  </span>
-                </td>
-                <td style={s.td}><span style={s.badge(item.content_type)}>{item.content_type}</span></td>
-                <td style={s.td}><span style={s.freeBadge(item.is_free)}>{item.is_free ? 'Gratuit' : 'Premium'}</span></td>
-                <td style={s.td}>
-                  {item.file_url ? (
-                    <button
-                      onClick={async () => {
-                        // Deschidem fereastra SINCRON (altfel popup-ul e blocat),
-                        // apoi îi punem URL-ul semnat (merge pe bucket privat).
-                        const w = window.open('', '_blank');
-                        try {
-                          const res = await fetch('/api/get-file-url', {
-                            method: 'POST', headers: await authHeaders(),
-                            body: JSON.stringify({ contentId: item.id }),
-                          });
-                          const data = await res.json();
-                          if (!res.ok || !data.url) throw new Error(data.error || 'Eroare');
-                          if (w) w.location.href = data.url; else window.location.href = data.url;
-                        } catch (e) { if (w) w.close(); alert('Nu s-a putut deschide fișierul: ' + e.message); }
-                      }}
-                      style={{ fontSize: '0.78rem', color: '#1565c0', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                      {item.content_type === 'interactive' ? '🧩 HTML' : '📄 PDF'}
-                    </button>
-                  ) : (
-                    <span style={{ fontSize: '0.78rem', color: '#8e95a3' }}>—</span>
-                  )}
-                </td>
-                <td style={{ ...s.td, fontSize: '0.78rem', color: '#8e95a3' }}>
-                  {new Date(item.created_at).toLocaleDateString('ro-RO')}
-                </td>
-                <td style={s.td}>
-                  <button style={s.btnDanger} onClick={() => handleDelete(item)}
-                    disabled={deleting === item.id}>
-                    {deleting === item.id ? '...' : '🗑 Șterge'}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+            <select style={{ ...s.select, width: 200 }} value={filter.category}
+              onChange={e => setFilter(p => ({ ...p, category: e.target.value }))}>
+              <option value="">Toate categoriile</option>
+              {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+            <select style={{ ...s.select, width: 180 }} value={filter.type}
+              onChange={e => setFilter(p => ({ ...p, type: e.target.value }))}>
+              <option value="">Toate tipurile</option>
+              {CONTENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+            <input style={{ ...s.input, width: 260 }} value={filter.q} placeholder="🔍 Caută după titlu / descriere"
+              onChange={e => setFilter(p => ({ ...p, q: e.target.value }))} />
+          </div>
+
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#8e95a3' }}>Se încarcă...</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#8e95a3' }}>Nu există conținut.</div>
+          ) : (
+            <table style={s.table}>
+              <thead>
+                <tr>
+                  <th style={s.th}>Titlu</th>
+                  <th style={s.th}>Categorie</th>
+                  <th style={s.th}>Tip</th>
+                  <th style={s.th}>Acces</th>
+                  <th style={{ ...s.th, textAlign: 'center' }} title="Poziția în rubrică (mic = sus; 0 = primul)">Ordine</th>
+                  <th style={s.th}>Fișier</th>
+                  <th style={s.th}>Data</th>
+                  <th style={s.th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(item => {
+                  const warn = visibilityWarning(item);
+                  return (
+                    <tr key={item.id}>
+                      <td style={s.td}>
+                        <div style={{ fontWeight: 600, color: 'var(--navy)' }}>{item.title}</div>
+                        {item.description && (
+                          <div style={{ fontSize: '0.78rem', color: '#8e95a3', marginTop: 2 }}>{item.description}</div>
+                        )}
+                        {warn && (
+                          <div style={{ fontSize: '0.75rem', color: '#e65100', marginTop: 3, fontWeight: 600 }}>⚠️ {warn}</div>
+                        )}
+                      </td>
+                      <td style={s.td}>
+                        <span style={{ fontSize: '0.82rem', color: '#5a6170' }}>{categoryLabel(item.category)}</span>
+                        {hasSubcategories(item.category) && (item.subcategory || item.profile) && (
+                          <div style={{ fontSize: '0.74rem', color: '#8e95a3', marginTop: 2 }}>
+                            {[item.subcategory ? subcategoryLabel(item.category, item.subcategory) : null,
+                              item.profile ? profileLabel(item.profile) : null].filter(Boolean).join(' · ')}
+                          </div>
+                        )}
+                      </td>
+                      <td style={s.td}><span style={s.badge(item.content_type)}>{item.content_type}</span></td>
+                      <td style={s.td}><span style={s.freeBadge(item.is_free)}>{item.is_free ? 'Gratuit' : 'Premium'}</span></td>
+                      <td style={{ ...s.td, textAlign: 'center', fontSize: '0.82rem', color: '#5a6170', fontWeight: 600 }}>
+                        {item.sort_order == null ? 0 : item.sort_order}
+                      </td>
+                      <td style={s.td}>
+                        {item.file_url ? (
+                          <button
+                            onClick={async () => {
+                              // Deschidem fereastra SINCRON (altfel popup-ul e blocat),
+                              // apoi îi punem URL-ul semnat (merge pe bucket privat).
+                              const w = window.open('', '_blank');
+                              try {
+                                const res = await fetch('/api/get-file-url', {
+                                  method: 'POST', headers: await authHeaders(),
+                                  body: JSON.stringify({ contentId: item.id }),
+                                });
+                                const data = await res.json();
+                                if (!res.ok || !data.url) throw new Error(data.error || 'Eroare');
+                                if (w) w.location.href = data.url; else window.location.href = data.url;
+                              } catch (e) { if (w) w.close(); alert('Nu s-a putut deschide fișierul: ' + e.message); }
+                            }}
+                            style={{ fontSize: '0.78rem', color: '#1565c0', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                            {item.content_type === 'interactive' ? '🧩 HTML' : '📄 PDF'}
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: '0.78rem', color: '#8e95a3' }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ ...s.td, fontSize: '0.78rem', color: '#8e95a3' }}>
+                        {new Date(item.created_at).toLocaleDateString('ro-RO')}
+                      </td>
+                      <td style={{ ...s.td, whiteSpace: 'nowrap' }}>
+                        <button style={{ ...s.btnSecondary, padding: '6px 12px', fontSize: '0.82rem', marginRight: 6 }}
+                          onClick={() => { setFlash(null); setEditing(item); }}>
+                          ✏️ Editează
+                        </button>
+                        <button style={s.btnDanger} onClick={() => handleDelete(item)}
+                          disabled={deleting === item.id}>
+                          {deleting === item.id ? '...' : '🗑 Șterge'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
+
+      {editing && (
+        <EditContentModal s={s} item={editing} onClose={() => setEditing(null)} onSaved={onEdited} />
       )}
     </div>
   );

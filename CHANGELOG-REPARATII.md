@@ -4,6 +4,32 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 21 august 2026 — Admin → Tot Conținutul: „✏️ Editează" pe fiecare material + „↕ Ordinea de afișare" (drag-and-drop, săgeți, sortare automată)
+
+Cererea: 1) buton „Editează" la fiecare fișier din „Tot Conținutul", ca să pot modifica numele, accesul premium/gratuit, categoria, tipul; 2) o opțiune de modificat ordinea de afișare pe site — crescător/descrescător sau mutarea fiecărui fișier în parte, alegând categoria și tipul, cu drag-and-drop „sau o altă metodă mai bună".
+
+### 1) ✏️ Editează (modal pe fiecare rând)
+Titlu, descriere, categorie, subcategorie (EN) / subcategorie + profil (BAC), tip, acces și poziție (ordine). Reguli care previn materiale „rupte":
+- **Tipul poate fi doar unul compatibil cu fișierul:** un PDF rămâne „pdf"; un HTML poate fi „interactiv" sau „manual" (opțiunile incompatibile sunt dezactivate; serverul refuză oricum). Altfel, un PDF trecut pe „interactiv" s-ar fi deschis ca HTML în viewer.
+- **Schimbarea accesului MUTĂ fișierul între bucket-uri** (gratuit = `content-files-free`, public; premium = `content-files`, privat) și actualizează `file_url`. Fără mutare, un material devenit premium ar fi rămas descărcabil direct de la URL-ul public (tabela `content` e world-readable), iar la ștergere fișierul s-ar fi căutat în bucket-ul greșit (orfan). Mutarea e copiere → actualizarea rândului → ștergerea originalului (dacă ceva eșuează pe drum, originalul rămâne neatins).
+- La mutarea dintr-o clasă în EN/BAC poți alege rubrica; la mutarea din EN/BAC într-o clasă, subcategoria/profilul vechi se curăță. Avertisment pe loc când materialul NU ar apărea pe site (EN/BAC fără subcategorie, BAC fără profil, tip „manual" — pe care nicio pagină nu-l afișează).
+- Editarea trece prin `trg_content_ingest` → Profesorul Virtual reindexează materialul (titlul/descrierea fac parte din ce se indexează). Rândul din listă se actualizează pe loc, cu mesaj (inclusiv „fișierul a fost mutat din … în …").
+
+### 2) ↕ Ordinea de afișare (a doua vedere a aceluiași card)
+Cum ordonează site-ul: `sort_order` crescător, la egalitate cel mai nou primul (ContentPage/ExamContent); materialele noi intră cu 0 (deci primele) — explicat în panou.
+- **Sortare automată (se aplică imediat):** pentru tot site-ul sau doar categoria aleasă — „Cele mai noi primele", „Cele mai vechi primele", „A → Z", „Z → A" (alfabetic „natural": Test 2 înainte de Test 10). Renumerotează fiecare categorie separat; înlocuiește scripturile manuale `reset_sort_order.sql` / `reset_sort_order-descending.sql` / `set_sort_order.sql`. Cu confirmare (ordinea manuală se pierde).
+- **Mutare manuală:** alegi rubrica EXACT ca pe site (categorie + tip; la EN + subcategorie; la BAC + subcategorie + profil — mai puțin la „Capitole", care pe site nu filtrează după profil) și vezi lista în ordinea reală. Muți rândurile prin **drag-and-drop** (HTML5, reordonare „live" cât tragi) sau cu **▲ ▼ ⤒ ⤓** (merg și pe ecrane tactile, unde drag-and-drop-ul nativ nu există); „aranjează lista" după dată/alfabetic ca punct de plecare, apoi **💾 Salvează ordinea** → pozițiile 1..N. Bară lipicioasă „modificat, nesalvat" + Renunță; schimbarea rubricii cu modificări nesalvate cere confirmare.
+- Lista „📋 Lista" a primit coloana „Ordine", rubrica (subcategorie · profil) sub categorie, căutare după titlu/descriere și avertismentele de vizibilitate de mai sus.
+
+### 3) Server + bază de date
+- **`api/content-admin.js` (NOU):** `update` / `reorder` / `sort_all`, service role + `requireAdmin` pe tokenul real (ca `rezolvari-admin.js`) — nu depinde de politica RLS de UPDATE din `fix_content_write_admin_only.sql`. Renumerotarea scrie DOAR rândurile al căror `sort_order` chiar se schimbă (update-uri în loturi de 20, paralel). Logica pură (validare, planificare) în **`api/_lib/contentAdmin.js`** (NOU); rubricile partajate de admin în **`src/lib/contentMeta.js`** (NOU); modalul + panoul în **`src/components/ContentAdminTools.jsx`** (NOU — `ContentMetaFields` s-a mutat tot aici, cu stilurile primite ca prop).
+- **`supabase/content_reorder_trigger.sql` (NOU, opțional, recomandat):** `trg_enqueue_content` nu mai pune în coada AI rândurile la care s-a schimbat DOAR ordinea/subcategoria/profilul. Fără el, o reordonare de 200 de materiale = 200 de reindexări inutile + 200 de „candidați" la pre-generare care, având hash-ul sursei neschimbat, ar fi săriți la nesfârșit de cron (ocupând locurile din lot). Pas manual: rulează-l o dată în SQL Editor.
+
+**Verificat:** `vite build` trece; `npm test` 199/199 (19 teste noi: `test/content-admin.test.js` — compatibilitatea tip↔fișier, patch minimal, validările EN/BAC, curățarea rubricilor la mutare, ordinea de pe site, planificarea renumerotării cu id-uri lipsă, sortarea globală pe categorii cu numere „naturale"; `test/content-admin-handler.test.js` — handlerul cu un dublu de Supabase: copiere → rând → ștergerea originalului, curățarea copiei la eșec, 400/404, reorder idempotent, sort_all pe categorii; `test/content-meta.test.js` — rubricile și regulile de vizibilitate ale site-ului); smoke test în Chromium real (Playwright, Supabase + /api mock-uite): lista, avertismentele, căutarea, editarea cu mutare de bucket, ▼ / ⤓ / drag-and-drop nativ, salvarea ordinii (id-urile ajung în ordinea nouă, pozițiile 1..3 afișate), sortarea locală + Renunță, rubrica BAC cu subcategorie + profil, sortarea globală cu confirmare.
+
+Fișiere: api/content-admin.js (nou), api/_lib/contentAdmin.js (nou), src/lib/contentMeta.js (nou), src/components/ContentAdminTools.jsx (nou), src/pages/Admin.jsx, supabase/content_reorder_trigger.sql (nou), supabase/reset_sort_order.sql + reset_sort_order-descending.sql + set_sort_order.sql (notă „nu mai e nevoie"), test/content-admin.test.js + test/content-admin-handler.test.js + test/content-meta.test.js (noi), acest changelog.
+---
+
 ## 16 august 2026 (3) — „Resetează" funcționează și la testele de BAC + invitația „Instalează aplicația" nu mai apare celor care o au deja
 
 Cererea: 1) la testele de BAC butonul „Resetează" nu făcea nimic — trebuia să ieși din test și să-l repornești ca să se golească (la Evaluare Națională mergea); 2) căsuța „Instalează aplicația" apărea și când aplicația era deja instalată.

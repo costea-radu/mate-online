@@ -1,3 +1,5 @@
+-- NOTĂ (21 aug 2026): nu mai e nevoie de acest script — aceeași operație se face
+-- din Admin → 📋 Tot Conținutul → ↕ Ordinea de afișare → „Sortare automată".
 -- =====================================================
 -- Setează ordinea de afișare a fișierelor
 -- Rulează în Supabase → SQL Editor → New Query
