@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import AIAdminPanel from '../components/AIAdminPanel';
+import ReviewsAdmin from '../components/ReviewsAdmin';
 
 
 const CATEGORIES = [
@@ -934,6 +935,7 @@ export default function Admin() {
     { id: 'rezolvari',   label: '📝 Rezolvări' },
     { id: 'list',        label: '📋 Tot Conținutul' },
     { id: 'ai',          label: '🤖 AI Tutor' },
+    { id: 'recenzii',    label: '⭐ Recenzii' },
   ];
 
   function onSuccess() {
@@ -966,6 +968,7 @@ export default function Admin() {
           {tab === 'interactive' && <UploadInteractive onSuccess={onSuccess} />}
           {tab === 'list'        && <ContentList refresh={refreshList} />}
           {tab === 'ai'          && <AIAdminPanel />}
+          {tab === 'recenzii'    && <ReviewsAdmin s={s} />}
         </div>
       </div>
     </div>

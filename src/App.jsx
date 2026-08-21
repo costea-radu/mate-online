@@ -39,6 +39,7 @@ const Meditatii = lazy(() => import('./pages/Meditatii'));
 const AssignmentSolver = lazy(() => import('./pages/AssignmentSolver'));
 const BibliotecaUtilizatorilor = lazy(() => import('./pages/BibliotecaUtilizatorilor'));
 const ExercitiuAIViewer = lazy(() => import('./pages/ExercitiuAIViewer'));
+const Recenzii = lazy(() => import('./pages/Recenzii'));
 
 function ScrollToTop() {
   const location = useLocation();
@@ -127,6 +128,7 @@ export default function App() {
                 <Route path="/meditatii" element={<Meditatii />} />
                 <Route path="/tema" element={<AssignmentSolver />} />
                 <Route path="/biblioteca-utilizatorilor" element={<BibliotecaUtilizatorilor />} />
+                <Route path="/recenzii" element={<Recenzii />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>

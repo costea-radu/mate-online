@@ -15,6 +15,7 @@ import AccountSettings from '../components/AccountSettings';
 import AILimite from '../components/AILimite';
 import { getMyBadges } from '../lib/badges';
 import { notaDinScor } from '../lib/nota';
+import { SiteReviewForm } from '../components/ReviewWidget';
 
 // ─── Rezultatele ELEVULUI: testele și exercițiile rezolvate de el ────────────
 // Din `progress` (teste interactive + teste PDF corectate de Prof. Virtual) și
@@ -647,6 +648,17 @@ export default function Profile() {
                 </div>
               </details>
             )}
+
+            {/* Părerea despre ExamenMate — toate tipurile de cont; apare public
+                după aprobare în Admin → ⭐ Recenzii (src/components/ReviewWidget.jsx) */}
+            <div className="card" style={{ marginBottom: 24 }}>
+              <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 6 }}>⭐ Părerea ta despre ExamenMate</h3>
+              <p style={{ fontSize: '.84rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+                Cum te ajută platforma? Recenzia ta ajunge la noi și, după verificare, pe pagina principală.{' '}
+                <Link to="/recenzii" style={{ color: 'var(--navy)', fontWeight: 600 }}>Vezi toate recenziile →</Link>
+              </p>
+              <SiteReviewForm compact />
+            </div>
 
             {/* Setări cont — toate tipurile de cont */}
             <details className="card" style={{ marginBottom: 24 }}>

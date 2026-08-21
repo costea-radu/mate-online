@@ -32,6 +32,7 @@ const MAIMULTE = [
   { to: '/biblioteca-utilizatorilor',  label: '🏛️ Biblioteca utilizatorilor' },
   { to: '/profesor-virtual',           label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> Profesor Virtual</span> },
   { to: '/despre-noi',                 label: 'Despre noi' },
+  { to: '/recenzii',                   label: '⭐ Recenzii' },
   { to: '/faq',                        label: 'Întrebări frecvente' },
   { to: '/contact',                    label: 'Contact' },
   { to: '/termeni-conditii',           label: 'Termeni și condiții' },
@@ -461,6 +462,9 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profes
           {forumUnread > 0 && (
             <span style={{ color: '#ff6b6b', fontWeight: 700, marginLeft: 4 }}>({forumUnread})</span>
           )}
+        </Link>
+        <Link to="/recenzii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/recenzii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
+          ⭐ Recenzii
         </Link>
 
         {/* Separator */}

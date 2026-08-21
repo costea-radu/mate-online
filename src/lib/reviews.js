@@ -4,8 +4,12 @@
 // (poate nota doar cine a rezolvat testul, o singură notă per test).
 //
 //   fetchReviewStats(targetType, ids)            → { [target_id]: { avg, n, nComentarii } }
+//   fetchSiteStats()                             → { avg, n, nComentarii } pentru recenziile „site" aprobate
 //   fetchMyReview(userId, targetType, targetId)  → recenzia proprie sau null
+//   fetchReviews(targetType, targetId, opts)     → { items, hasMore } (cele mai noi primele)
 //   saveReview({ userId, targetType, targetId, stars, body }) → rândul salvat
+//   deleteReview(id)                             → șterge (propria recenzie sau, ca admin, oricare)
+//   adminListReviews(filtre) / adminSetApproved(id, bool) / adminWorstTargets()
 //   formatAvg(4.567)                             → „4,6" (virgulă, ca în română)
 //
 // Tipuri de țintă (target_type): 'content' (test din site — content.id),
@@ -18,6 +22,10 @@
 import { supabase } from './supabase';
 
 export const REVIEW_TARGETS = ['content', 'public_item', 'site'];
+export const TARGET_LABEL = { content: 'Test din site', public_item: 'Biblioteca utilizatorilor', site: 'Despre ExamenMate' };
+export const ROLE_LABEL = { elev: 'Elev', profesor: 'Profesor', parinte: 'Părinte' };
+
+const COLS = 'id, user_id, author_name, author_role, target_type, target_id, stars, body, approved, created_at, updated_at';
 
 export async function fetchReviewStats(targetType, ids) {
   const list = [...new Set((ids || []).filter(Boolean))];
@@ -36,6 +44,101 @@ export async function fetchReviewStats(targetType, ids) {
     return map;
   } catch {
     return {};
+  }
+}
+
+// Media generală a site-ului (doar recenziile „site" aprobate — vezi view-ul).
+export async function fetchSiteStats() {
+  try {
+    const { data, error } = await supabase
+      .from('reviews_stats')
+      .select('avg_stars, n, n_comentarii')
+      .eq('target_type', 'site')
+      .is('target_id', null)
+      .maybeSingle();
+    if (error || !data) return null;
+    return { avg: Number(data.avg_stars) || 0, n: data.n || 0, nComentarii: data.n_comentarii || 0 };
+  } catch {
+    return null;
+  }
+}
+
+// Lista recenziilor unei ținte, cele mai noi primele. Pentru 'site' doar cele
+// aprobate (RLS-ul oricum le ascunde pe celelalte pentru public).
+//   opts: { limit = 10, offset = 0, onlyWithBody = false, orderByStars = false }
+export async function fetchReviews(targetType, targetId = null, opts = {}) {
+  const { limit = 10, offset = 0, onlyWithBody = false, orderByStars = false } = opts;
+  try {
+    let q = supabase.from('reviews').select(COLS).eq('target_type', targetType);
+    q = targetId ? q.eq('target_id', targetId) : q.is('target_id', null);
+    if (targetType === 'site') q = q.eq('approved', true);
+    if (onlyWithBody) q = q.not('body', 'is', null);
+    if (orderByStars) q = q.order('stars', { ascending: false });
+    q = q.order('created_at', { ascending: false }).range(offset, offset + limit); // +1 → știm dacă mai sunt
+    const { data, error } = await q;
+    if (error || !data) return { items: [], hasMore: false };
+    return { items: data.slice(0, limit), hasMore: data.length > limit };
+  } catch {
+    return { items: [], hasMore: false };
+  }
+}
+
+export async function deleteReview(id) {
+  const { error } = await supabase.from('reviews').delete().eq('id', id);
+  if (error) throw new Error(friendlyError(error));
+}
+
+// ─── Admin (RLS: adminul vede/aprobă/șterge orice recenzie) ──────────────────
+//   filtre: { targetType: ''|'content'|'public_item'|'site', maxStars: 0|2|3,
+//             status: ''|'pending'|'approved', targetId, limit, offset }
+export async function adminListReviews(f = {}) {
+  const { targetType = '', maxStars = 0, status = '', targetId = null, limit = 50, offset = 0 } = f;
+  let q = supabase.from('reviews').select(COLS);
+  // starea (în așteptare / publicată) are sens doar pentru recenziile „site"
+  if (status === 'pending') q = q.eq('target_type', 'site').eq('approved', false);
+  else if (status === 'approved') q = q.eq('target_type', 'site').eq('approved', true);
+  else if (targetType) q = q.eq('target_type', targetType);
+  if (targetId) q = q.eq('target_id', targetId);
+  if (maxStars) q = q.lte('stars', maxStars);
+  q = q.order('created_at', { ascending: false }).range(offset, offset + limit);
+  const { data, error } = await q;
+  if (error) throw new Error(friendlyError(error));
+  return { items: (data || []).slice(0, limit), hasMore: (data || []).length > limit };
+}
+
+export async function adminSetApproved(id, approved) {
+  const { error } = await supabase.from('reviews').update({ approved: !!approved }).eq('id', id);
+  if (error) throw new Error(friendlyError(error));
+}
+
+// Contoare pentru rezumatul din Admin (cereri HEAD cu count exact).
+export async function adminCounts() {
+  try {
+    const [all, pending, site] = await Promise.all([
+      supabase.from('reviews').select('id', { count: 'exact', head: true }),
+      supabase.from('reviews').select('id', { count: 'exact', head: true }).eq('target_type', 'site').eq('approved', false),
+      supabase.from('reviews').select('id', { count: 'exact', head: true }).eq('target_type', 'site').eq('approved', true),
+    ]);
+    return { total: all.count || 0, pending: pending.count || 0, sitePublished: site.count || 0 };
+  } catch {
+    return { total: 0, pending: 0, sitePublished: 0 };
+  }
+}
+
+// Testele cu notele cele mai slabe (coada de corecturi), din view-ul agregat.
+export async function adminWorstTargets(targetType = 'content', limit = 30) {
+  try {
+    const { data, error } = await supabase
+      .from('reviews_stats')
+      .select('target_id, avg_stars, n, n_comentarii')
+      .eq('target_type', targetType)
+      .order('avg_stars', { ascending: true })
+      .order('n', { ascending: false })
+      .limit(limit);
+    if (error || !data) return [];
+    return data.map((r) => ({ targetId: r.target_id, avg: Number(r.avg_stars) || 0, n: r.n || 0, nComentarii: r.n_comentarii || 0 }));
+  } catch {
+    return [];
   }
 }
 

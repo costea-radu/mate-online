@@ -6,15 +6,18 @@
 //   mode 'library' → salvează scorul în „Testele mele”
 //   mode 'public'  → salvează scorul în Biblioteca utilizatorilor
 // =====================================================================
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
 import { notaDinScor } from '../lib/nota';
+import { ReviewToast } from '../components/ReviewWidget';
 
 export default function ExercitiuAIViewer() {
   const navigate = useNavigate();
   const { state } = useLocation();
   const [score, setScore] = useState(null);
+  const [reviewOpen, setReviewOpen] = useState(false); // „Cum ți s-a părut testul?" (Biblioteca utilizatorilor)
+  const reviewAskedRef = useRef(false);
   const html = state?.html || '';
   const title = state?.title || 'Exercițiu interactiv';
 
@@ -24,12 +27,28 @@ export default function ExercitiuAIViewer() {
       const sc = e.data.score, mx = e.data.maxScore;
       if (typeof sc !== 'number' || typeof mx !== 'number' || mx <= 0) return;
       setScore({ sc, mx });
-      if (state?.id && state?.mode === 'public') aiClient.publicRecord({ id: state.id, score: sc, maxScore: mx }).catch(() => {});
+      if (state?.id && state?.mode === 'public') {
+        // Recenzia se cere ABIA după ce scorul e înregistrat pe server: RLS-ul
+        // tabelului `reviews` permite nota doar cui are rând în ai_public_results.
+        aiClient.publicRecord({ id: state.id, score: sc, maxScore: mx })
+          .then(() => {
+            if (reviewAskedRef.current) return;
+            try { if (sessionStorage.getItem(`em_review_skip_${state.id}`)) return; } catch { /* ignore */ }
+            reviewAskedRef.current = true;
+            setTimeout(() => setReviewOpen(true), 1200);
+          })
+          .catch(() => {});
+      }
       if (state?.id && state?.mode === 'library') aiClient.updateLibraryScore(state.id, sc, mx).catch(() => {});
     }
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
   }, [state]);
+
+  function closeReview() {
+    setReviewOpen(false);
+    try { if (state?.id) sessionStorage.setItem(`em_review_skip_${state.id}`, '1'); } catch { /* ignore */ }
+  }
 
   const bar = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -65,6 +84,11 @@ export default function ExercitiuAIViewer() {
         {score ? <span style={chip}>Scor: {score.sc}/{score.mx}{notaDinScor(score.sc, score.mx) ? ` · nota ${notaDinScor(score.sc, score.mx)}` : ''}</span> : <span style={{ minWidth: 90 }} />}
       </div>
       <iframe title={title} sandbox="allow-scripts" srcDoc={html} style={{ flex: 1, width: '100%', border: 'none', background: '#fff' }} />
+
+      {/* Recenzie după test — doar pentru testele din Biblioteca utilizatorilor */}
+      {reviewOpen && state?.id && state?.mode === 'public' && (
+        <ReviewToast targetType="public_item" targetId={state.id} title={title} onClose={closeReview} />
+      )}
     </div>
   );
 }

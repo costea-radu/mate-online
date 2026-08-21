@@ -12,8 +12,11 @@
 --                   public DOAR după aprobare în Admin (approved = true).
 -- O singură recenzie per (utilizator, țintă); utilizatorul și-o poate edita.
 --
--- Folosit de: src/lib/reviews.js, src/components/ReviewWidget.jsx
--- (toast-ul de după test din InteractiveViewer + media din ContentCard).
+-- Folosit de: src/lib/reviews.js, src/components/ReviewWidget.jsx (toast-ul
+-- de după test, media „★ 4,6 (23)" și lista de păreri de pe carduri,
+-- formularul „Părerea ta despre ExamenMate" din Profil, testimonialele de pe
+-- Home), src/pages/Recenzii.jsx (/recenzii) și src/components/ReviewsAdmin.jsx
+-- (panoul Admin → ⭐ Recenzii: aprobare, ștergere, coada de corecturi).
 --
 -- Siguranță:
 --   • RLS: citire publică (mai puțin recenziile „site" neaprobate), scriere
@@ -231,7 +234,14 @@ select
   count(*)::int                                                          as n,
   count(*) filter (where body is not null and btrim(body) <> '')::int    as n_comentarii
 from public.reviews
+-- media site-ului se calculează DOAR din recenziile aprobate (aceeași cifră
+-- pentru vizitatori, utilizatori și admin); notele per test intră toate
+where target_type <> 'site' or approved = true
 group by target_type, target_id;
+
+-- listarea recenziilor „site" aprobate (pagina /recenzii, Home) + cele în așteptare (Admin)
+create index if not exists idx_reviews_site_approved
+  on public.reviews (approved, created_at desc) where target_type = 'site';
 
 grant select on public.reviews_stats to anon, authenticated, service_role;
 

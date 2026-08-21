@@ -12,6 +12,8 @@ import { printExam } from '../lib/examPrint';
 import { MathText } from '../components/AITutor';
 import { renderQuiz } from '../lib/quizRender';
 import SendToStudents from '../components/SendToStudents';
+import { fetchReviewStats } from '../lib/reviews';
+import { RatingBadge, ReviewList } from '../components/ReviewWidget';
 
 const CATS = [
   { id: '', label: 'Toate' },
@@ -31,8 +33,18 @@ export default function BibliotecaUtilizatorilor() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(null); // itemul complet deschis (inline)
+  const [ratingMap, setRatingMap] = useState({}); // id → { avg, n, nComentarii } (recenzii)
+  const [reviewsFor, setReviewsFor] = useState(null); // id-ul testului ale cărui păreri sunt desfăcute
 
   const locked = !isPremium && !isAdmin; // neabonat → acces limitat
+
+  // Media notelor lăsate de elevi după rezolvare (stele pe carduri)
+  useEffect(() => {
+    if (items.length === 0) { setRatingMap({}); return; }
+    let alive = true;
+    fetchReviewStats('public_item', items.map((i) => i.id)).then((m) => { if (alive) setRatingMap(m); });
+    return () => { alive = false; };
+  }, [items]);
 
   async function load() {
     setLoading(true);
@@ -158,8 +170,16 @@ export default function BibliotecaUtilizatorilor() {
                         {it.title}
                         {it.is_free && <span style={{ marginLeft: 8, fontSize: '.68rem', fontWeight: 700, color: '#1e7e34', background: 'rgba(39,174,96,.12)', border: '1px solid rgba(39,174,96,.35)', borderRadius: 6, padding: '1px 6px' }}>GRATUIT</span>}
                       </div>
-                      <div style={{ fontSize: '.76rem', color: 'var(--text-muted)' }}>
-                        {it.creator_role === 'parinte' ? 'Părinte' : 'Prof.'} {it.creator_name || ''} · {new Date(it.created_at).toLocaleDateString('ro-RO')}
+                      <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span>{it.creator_role === 'parinte' ? 'Părinte' : 'Prof.'} {it.creator_name || ''} · {new Date(it.created_at).toLocaleDateString('ro-RO')}</span>
+                        {/* Media notelor elevilor + părerile lor (recenzii) */}
+                        <RatingBadge stats={ratingMap[it.id]} />
+                        {ratingMap[it.id]?.nComentarii > 0 && (
+                          <button onClick={() => setReviewsFor((cur) => (cur === it.id ? null : it.id))}
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--navy)', fontWeight: 600, fontSize: '.76rem', fontFamily: 'var(--font-body)' }}>
+                            💬 {reviewsFor === it.id ? 'Ascunde părerile' : `Părerile (${ratingMap[it.id].nComentarii})`}
+                          </button>
+                        )}
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -184,6 +204,11 @@ export default function BibliotecaUtilizatorilor() {
                       )}
                     </div>
                   </div>
+                  {reviewsFor === it.id && (
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+                      <ReviewList targetType="public_item" targetId={it.id} pageSize={5} onlyWithBody compact emptyText="Încă nu există păreri scrise." />
+                    </div>
+                  )}
                   {isOpen && <Viewer item={open} />}
                 </div>
               );

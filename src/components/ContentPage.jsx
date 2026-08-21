@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { notaDinScor } from '../lib/nota';
 import { fetchReviewStats } from '../lib/reviews';
-import { RatingBadge } from './ReviewWidget';
+import { RatingBadge, ReviewList } from './ReviewWidget';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -237,6 +237,7 @@ export function ContentCard({ item, isPremium, user, progress, rating, _override
   const canAccess = item.is_free || isPremium;
   const navigate = useNavigate();
   const [showPreview, setShowPreview] = useState(false);
+  const [showReviews, setShowReviews] = useState(false); // părerile scrise (recenzii) sub card
 
   const typeConfig = {
     pdf:         { icon: '📄', bg: '#e3f2fd', actionLabel: 'Deschide / Descarcă' },
@@ -309,8 +310,15 @@ export function ContentCard({ item, isPremium, user, progress, rating, _override
           <ProgressBadge progress={progress} />
         )}
 
-        {/* Media notelor lăsate de elevi după test (recenzii) */}
+        {/* Media notelor lăsate de elevi după test (recenzii) + părerile scrise */}
         <RatingBadge stats={rating} />
+        {rating?.nComentarii > 0 && (
+          <button onClick={() => setShowReviews(s => !s)}
+            title="Părerile elevilor care au rezolvat testul"
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--navy)', fontWeight: 600, fontSize: '0.74rem', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap' }}>
+            💬 {showReviews ? 'Ascunde părerile' : `Părerile (${rating.nComentarii})`}
+          </button>
+        )}
 
         <span style={{
           padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700,
@@ -377,6 +385,13 @@ export function ContentCard({ item, isPremium, user, progress, rating, _override
           {showPreview && <PreviewModal item={item} onClose={() => setShowPreview(false)} />}
         </div>
       </div>
+
+      {/* Rând 3 (opțional): părerile scrise ale elevilor care au rezolvat testul */}
+      {showReviews && (
+        <div style={{ borderTop: '1px dashed #eef0f4', paddingTop: 8 }}>
+          <ReviewList targetType="content" targetId={item.id} pageSize={5} onlyWithBody compact emptyText="Încă nu există păreri scrise." />
+        </div>
+      )}
     </div>
   );
 }

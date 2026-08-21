@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import EinsteinIcon from '../components/EinsteinIcon';
 import AIPoweredBy from '../components/AIPoweredBy';
+import { Testimonials } from '../components/ReviewWidget';
 
 export default function Home() {
   const categories = [
@@ -182,6 +183,10 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* Recenzii: „Ce spun elevii, părinții și profesorii" — apare doar când
+          există recenzii aprobate în Admin (src/components/ReviewWidget.jsx) */}
+      <Testimonials limit={6} />
 
       {/* CTA */}
       <section className="section" style={{ background: 'linear-gradient(135deg, var(--navy), var(--navy-light))', textAlign: 'center' }}>

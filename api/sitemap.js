@@ -25,6 +25,7 @@ const STATIC_ROUTES = [
   ['/meditatii', 'weekly', '0.9'],
   ['/tema', 'weekly', '0.7'],
   ['/biblioteca-utilizatorilor', 'weekly', '0.6'],
+  ['/recenzii', 'weekly', '0.6'],
   ['/preturi', 'monthly', '0.8'],
   ['/faq', 'monthly', '0.6'],
   ['/despre-noi', 'monthly', '0.5'],

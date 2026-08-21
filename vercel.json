@@ -60,7 +60,7 @@
       "destination": "/api/page-meta?route=/"
     },
     {
-      "source": "/:page(evaluare-nationala|manuale|rezolvari|discutii|profesor-virtual|meditatii|tema|biblioteca-utilizatorilor|preturi|faq|despre-noi|contact|politica-confidentialitate|termeni-conditii|politica-cookies|politica-retur)",
+      "source": "/:page(evaluare-nationala|manuale|rezolvari|discutii|profesor-virtual|meditatii|tema|biblioteca-utilizatorilor|recenzii|preturi|faq|despre-noi|contact|politica-confidentialitate|termeni-conditii|politica-cookies|politica-retur)",
       "destination": "/api/page-meta?route=/:page"
     },
     {

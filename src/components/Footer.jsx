@@ -59,6 +59,7 @@ export default function Footer() {
               <li><Link to="/despre-noi">Despre Noi</Link></li>
               <li><Link to="/contact">Contact</Link></li>
               <li><Link to="/faq">Întrebări Frecvente</Link></li>
+              <li><Link to="/recenzii">Recenzii</Link></li>
             </ul>
           </div>
           <div>
