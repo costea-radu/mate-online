@@ -44,6 +44,10 @@
     {
       "path": "/api/ai-meditatii?action=cron",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/review-invite?action=run",
+      "schedule": "30 15 * * *"
     }
   ],
   "rewrites": [

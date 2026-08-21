@@ -12,13 +12,74 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { aiClient } from '../lib/aiClient';
+import { apiPost } from '../lib/api';
 import {
-  adminListReviews, adminSetApproved, adminCounts, adminWorstTargets, deleteReview,
+  adminListReviews, adminSetApproved, adminSetReply, adminCounts, adminWorstTargets, deleteReview,
   formatAvg, TARGET_LABEL, ROLE_LABEL,
 } from '../lib/reviews';
-import { StarPicker } from './ReviewWidget';
+import { StarPicker, TeamReply } from './ReviewWidget';
 
 const PAGE = 30;
+
+// ─── Invitațiile la recenzie (emailul automat — api/review-invite.js) ────────
+function InviteBox({ s }) {
+  const [info, setInfo] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [error, setError] = useState(null);
+
+  async function load() {
+    setBusy(true); setError(null);
+    try { setInfo(await apiPost('/api/review-invite', { action: 'preview' })); }
+    catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+  useEffect(() => { load(); }, []);
+
+  async function runNow() {
+    if (!info?.eligible) return;
+    if (!window.confirm(`Trimiți acum invitația la recenzie către ${Math.min(info.eligible, info.batch)} utilizatori eligibili?`)) return;
+    setBusy(true); setError(null); setMsg(null);
+    try {
+      const r = await apiPost('/api/review-invite', { action: 'run' });
+      setMsg(r.skipped ? `Nimic trimis — ${r.skipped}` : `Trimise: ${r.sent} · eșuate: ${r.failed} · eligibili la momentul rulării: ${r.eligible}`);
+      await load();
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div style={s.card}>
+      <h3 style={s.cardTitle}>✉️ Invitații la recenzie — emailul automat</h3>
+      <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 12 }}>
+        Cronul zilnic (18:30) trimite „Ce părere ai despre ExamenMate?" celor care au rezolvat ≥ 3 teste sau sunt abonați de ≥ 7 zile,
+        nu au lăsat încă o recenzie de site și nu s-au dezabonat de la emailuri. Fiecare cont primește invitația o singură dată.
+      </p>
+      {error && <div style={s.alert('error')}>⚠️ {error}</div>}
+      {msg && <div style={s.alert('success')}>✓ {msg}</div>}
+      {info && (
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+          <div><span style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.2rem' }}>{info.eligible}</span> <span style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>eligibili acum</span></div>
+          <div><span style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.2rem' }}>{info.sentTotal}</span> <span style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>invitați până acum</span></div>
+          <div style={{ fontSize: '.8rem', color: info.emailEnabled ? '#2e7d32' : '#c62828' }}>
+            {info.emailEnabled ? '✓ emailul e configurat' : '✗ emailul nu e configurat (EMAIL_USER + EMAIL_APP_PASSWORD în Vercel)'}
+          </div>
+        </div>
+      )}
+      {info?.sample?.length > 0 && (
+        <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+          Primii din listă: {info.sample.map((c) => `${c.email} (${c.tests} teste${c.premium_days != null ? `, Premium ${c.premium_days} z` : ''})`).join(' · ')}
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button style={s.btnSecondary} disabled={busy} onClick={load}>↻ Previzualizare</button>
+        <button style={{ ...s.btnSecondary, background: 'var(--gold)', borderColor: 'var(--gold)', color: 'var(--navy-dark)' }} disabled={busy || !info?.eligible || !info?.emailEnabled} onClick={runNow}>
+          ▶ Trimite lotul acum{info?.batch ? ` (max ${info.batch})` : ''}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function dateRo(d) {
   try { return new Date(d).toLocaleString('ro-RO', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
@@ -34,8 +95,23 @@ export default function ReviewsAdmin({ s }) {
   const [error, setError] = useState(null);
   const [ok, setOk] = useState(null);
   const [titles, setTitles] = useState({}); // `${type}:${id}` → { title, category }
-  const [filters, setFilters] = useState({ targetType: '', maxStars: 0, status: '', targetId: null });
+  const [filters, setFilters] = useState({ targetType: '', maxStars: 0, status: '', targetId: null, onlyUnanswered: false });
   const [refresh, setRefresh] = useState(0);
+  const [replyFor, setReplyFor] = useState(null);   // id-ul recenziei la care se scrie răspunsul
+  const [replyText, setReplyText] = useState('');
+  const [replyBusy, setReplyBusy] = useState(false);
+
+  function openReply(r) { setReplyFor(r.id); setReplyText(r.reply || ''); setError(null); setOk(null); }
+  async function saveReply(r, text) {
+    setReplyBusy(true); setError(null); setOk(null);
+    try {
+      const saved = await adminSetReply(r.id, text);
+      setItems((prev) => prev.map((x) => (x.id === r.id ? { ...x, reply: saved.reply, reply_at: saved.reply_at } : x)));
+      setReplyFor(null); setReplyText('');
+      setOk(saved.reply ? 'Răspunsul a fost salvat — apare sub recenzie.' : 'Răspunsul a fost șters.');
+    } catch (e) { setError(e.message); }
+    finally { setReplyBusy(false); }
+  }
 
   // ─── Titlurile țintelor (teste din site + Biblioteca utilizatorilor) ─────────
   async function resolveTitles(list) {
@@ -114,6 +190,9 @@ export default function ReviewsAdmin({ s }) {
       {error && <div style={s.alert('error')}>⚠️ {error}</div>}
       {ok && <div style={s.alert('success')}>✓ {ok}</div>}
 
+      {/* Emailul automat de invitație la recenzie */}
+      <InviteBox s={s} />
+
       {/* Coada de corecturi */}
       <div style={s.card}>
         <h3 style={s.cardTitle}>🛠 Coada de corecturi — testele cu notele cele mai slabe</h3>
@@ -176,6 +255,10 @@ export default function ReviewsAdmin({ s }) {
             <option value="pending">În așteptare (site)</option>
             <option value="approved">Publicate (site)</option>
           </select>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '.84rem', color: 'var(--navy)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={filters.onlyUnanswered} onChange={(e) => setFilters((f) => ({ ...f, onlyUnanswered: e.target.checked }))} />
+            doar comentarii fără răspuns
+          </label>
           {filters.targetId && (
             <span style={{ ...chip('rgba(232,185,49,.15)', 'var(--navy)'), display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               doar: {titleOf(filters.targetType || 'content', filters.targetId)}
@@ -225,6 +308,36 @@ export default function ReviewsAdmin({ s }) {
                 {r.body
                   ? <p style={{ marginTop: 8, fontSize: '.9rem', color: 'var(--text)', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{r.body}</p>
                   : <div style={{ marginTop: 6, fontSize: '.78rem', color: 'var(--text-muted)' }}>(fără comentariu)</div>}
+
+                {/* Răspunsul echipei: afișare + editor (doar admin; triggerul blochează restul) */}
+                {replyFor === r.id ? (
+                  <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: '#f7f9fc', border: '1px dashed var(--border)' }}>
+                    <div style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 6 }}>Răspunsul echipei ExamenMate (apare public sub recenzie)</div>
+                    <textarea value={replyText} onChange={(e) => setReplyText(e.target.value.slice(0, 1000))} rows={3}
+                      placeholder="Mulțumim pentru părere! …"
+                      style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', fontSize: '.9rem', fontFamily: 'var(--font-body)', resize: 'vertical', lineHeight: 1.5 }} />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <button style={{ ...s.btnSecondary, background: 'var(--gold)', borderColor: 'var(--gold)', color: 'var(--navy-dark)', padding: '6px 14px', fontSize: '.8rem' }}
+                        disabled={replyBusy || !replyText.trim()} onClick={() => saveReply(r, replyText)}>
+                        {replyBusy ? 'Se salvează…' : 'Salvează răspunsul'}
+                      </button>
+                      {r.reply && (
+                        <button style={s.btnDanger} disabled={replyBusy} onClick={() => { if (window.confirm('Ștergi răspunsul echipei?')) saveReply(r, ''); }}>Șterge răspunsul</button>
+                      )}
+                      <button style={{ ...s.btnSecondary, padding: '6px 14px', fontSize: '.8rem' }} disabled={replyBusy} onClick={() => { setReplyFor(null); setReplyText(''); }}>Renunță</button>
+                      <span style={{ fontSize: '.7rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>{replyText.length}/1000</span>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {r.reply && <TeamReply reply={r.reply} at={r.reply_at} compact />}
+                    <div style={{ marginTop: 8 }}>
+                      <button style={linkBtn} onClick={() => openReply(r)}>
+                        {r.reply ? '✎ Modifică răspunsul echipei' : '💬 Răspunde ca echipa ExamenMate'}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ))}
             {hasMore && (

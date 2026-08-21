@@ -1,6 +1,6 @@
 # Ghid — mențiunea modelelor AI și recenziile cu stele
 
-Data: 21 august 2026 (tranșa 1 + tranșa 2)
+Data: 21 august 2026 (tranșa 1 + tranșa 2 + tranșa 3: email automat, JSON-LD, răspunsul echipei)
 
 ## 1. Modelele AI — un singur loc de adevăr
 
@@ -31,6 +31,8 @@ Reguli impuse în baza de date, nu doar în UI:
 
 > Dacă ai rulat deja fișierul în tranșa 1, rulează-l din nou: tranșa 2 a schimbat definiția view-ului (`where … approved`) și a adăugat un index. Re-rularea e sigură.
 
+> **Lint Supabase 0029 (21 august 2026)** — „Signed-In Users Can Execute SECURITY DEFINER Function" pe `reviews_can_rate`. Rezolvat în `supabase/fix_lints_21aug2026.sql` (funcția devine `SECURITY INVOKER`; rămâne executabilă de `authenticated` pentru că o apelează politica RLS de INSERT). `reviews_schema.sql` are deja definiția corectată, ca re-rularea lui să nu readucă warningul. Warningul „Leaked Password Protection Disabled" nu se rezolvă din SQL (doar pe planul Pro, din Dashboard).
+
 ### Cod
 
 | Fișier | Rol |
@@ -49,14 +51,41 @@ Reguli impuse în baza de date, nu doar în UI:
 - **/recenzii** — media generală, formularul (`#formular`), lista recenziilor publicate. Linkuri: Footer → Informații, Navbar → „Mai multe" și meniul de mobil, butoanele din secțiunea de pe Home.
 - **Admin → ⭐ Recenzii** — rezumat (total, în așteptare, publicate, teste cu media ≤ 2,5), **coada de corecturi** (testele cu notele cele mai slabe, cu „Deschide" → `/exercitiu?id=…` și „Vezi recenziile"), lista tuturor recenziilor cu filtre (tip / ≤ 2 stele / stare) și acțiuni: **Aprobă / Retrage** (site), **Șterge** (oricare), **Deschide** testul.
 
-## 3. Pași de punere în funcțiune
+## 3. Tranșa 3 — email automat, JSON-LD, răspunsul echipei
 
-1. Rulează (sau re-rulează) `supabase/reviews_schema.sql` în Supabase → SQL Editor.
-2. Deploy (git push). `vercel.json` are rewrite nou pentru `/recenzii` (page-meta); poți adăuga un rând în `seo_meta` pentru `/recenzii` (title/description) din agentul SEO.
-3. Test: dintr-un cont de elev rezolvă un test interactiv → apare cardul de notă; lasă și o recenzie de site din Profil → în Admin → ⭐ Recenzii apare „în așteptare" → Aprobă → apare pe Home și pe /recenzii.
+### A. Emailul automat „Ce părere ai despre ExamenMate?"
 
-## 4. Idei pentru mai târziu
+| Fișier | Rol |
+|---|---|
+| `supabase/reviews_v2.sql` | `profiles.review_invite_sent_at` (o invitație per cont), `profiles.subscription_started_at` (abonații existenți primesc `now()` → invitația peste 7 zile, nu toți deodată), funcția `review_invite_candidates(p_limit)` (SECURITY DEFINER, executabilă **doar de service_role** — nu apare la lintul 0029). |
+| `api/review-invite.js` | `GET ?action=run` (cron, `Authorization: Bearer CRON_SECRET`) și `POST {action:'preview'|'run'}` (admin). Șablonul folosește `mailer.template` (brandul site-ului), personalizare pe prenume / rol / motiv („Ai rezolvat deja 4 teste…", „Folosești Premium de o săptămână"), buton → `/recenzii#formular`, link de dezabonare (același ca la newsletter: `newsletter_opt_in = false` oprește și invitațiile). |
+| `api/stripe-webhook.js` | La `checkout.session.completed` setează `subscription_started_at` (tolerant: dacă SQL-ul nu e rulat, reia fără coloană — webhookul nu pică). |
+| `vercel.json` | Cron nou: `/api/review-invite?action=run` zilnic la 15:30 UTC (18:30 ora României). Lot: `REVIEW_INVITE_BATCH` (implicit 80) — sub limita SMTP Gmail. |
+| Admin → ⭐ Recenzii → „✉️ Invitații la recenzie" | Câți sunt eligibili acum, câți au fost invitați, dacă emailul e configurat, primii din listă; „Previzualizare" (nu trimite) și „Trimite lotul acum". |
 
-- Email automat „Ce părere ai despre ExamenMate?" după al 3-lea test rezolvat sau la 7 zile după abonare (prin `api/_lib/mailer.js`).
-- JSON-LD `AggregateRating` pe `/recenzii` din `seo_meta.jsonld` (Google nu afișează, de regulă, stele pentru recenziile proprii ale unei organizații — valoarea e de încredere, nu de SEO).
-- Răspunsul echipei la o recenzie (coloană `reply` + afișare sub comentariu).
+Cine primește: are email, nu a fost invitat niciodată, nu s-a dezabonat, **nu a lăsat deja o recenzie de site** și fie a rezolvat **≥ 3 teste interactive** (`progress`), fie e **abonat Premium de ≥ 7 zile**. Marcarea se face doar după trimitere reușită — un eșec se reia a doua zi.
+
+### B. JSON-LD `AggregateRating` + conținut static pe `/recenzii`
+
+`api/page-meta.js` are o ramură pentru `/recenzii`: citește `reviews_stats` + recenziile de site aprobate (service role, cache 60 s) și injectează (1) JSON-LD `Organization` cu `aggregateRating` (ratingValue, reviewCount, bestRating 5) și până la 5 `review` — **nimic dacă nu există recenzii aprobate** (un rating gol ar fi invalid); (2) recenziile ca HTML în `<div id="root">`, deci crawlerele și share-urile le văd fără JavaScript. Title/description au valori implicite bune; un rând în `seo_meta` pentru `/recenzii` le suprascrie (inclusiv `jsonld`, dacă vrei altceva). Reamintire: Google nu afișează, de regulă, stele în rezultate pentru recenziile găzduite de organizația însăși — valoarea e de încredere și pentru agenții AI care citesc structurat, nu rich results garantate. Teste: `test/recenzii.test.js` (`npm test`).
+
+### C. Răspunsul echipei la o recenzie
+
+| Fișier | Rol |
+|---|---|
+| `supabase/reviews_v2.sql` (și `reviews_schema.sql`, ținut sincron) | Coloanele `reviews.reply` (≤ 1000) și `reply_at`; triggerul `reviews_before_write` nu lasă utilizatorii să le scrie (la inserare le golește, la editare le păstrează), iar pentru admin pune/actualizează `reply_at` automat la schimbare. |
+| `src/lib/reviews.js` | `adminSetReply(id, text)` (text gol = șterge răspunsul); filtrul `onlyUnanswered` în `adminListReviews`; citirile cad pe setul de coloane de bază dacă SQL-ul v2 nu e rulat. |
+| `src/components/ReviewWidget.jsx` | `TeamReply` — blocul „Răspunsul echipei ExamenMate · data" sub comentariu, în `ReviewCard` (Home, /recenzii, părerile de sub cardurile de teste, Biblioteca) și în rezumatul propriei recenzii din Profil. |
+| `src/components/ReviewsAdmin.jsx` | Pe fiecare recenzie: „💬 Răspunde ca echipa ExamenMate" → editor → Salvează / Șterge răspunsul; filtrul „doar comentarii fără răspuns". |
+
+## 4. Pași de punere în funcțiune
+
+1. Rulează `supabase/reviews_schema.sql` (dacă nu e la zi) și apoi `supabase/reviews_v2.sql` în Supabase → SQL Editor (ambele idempotente).
+2. Verifică în Vercel că există `CRON_SECRET` (altfel toate cronurile primesc 403 — vezi `api/_lib/http.js`) și `EMAIL_USER` + `EMAIL_APP_PASSWORD` (sau Resend) — altfel invitațiile sunt sărite cu `{ skipped }`, fără să marcheze pe nimeni.
+3. Deploy (git push). `vercel.json` are rewrite pentru `/recenzii` (page-meta) și cronul nou.
+4. Test: dintr-un cont de elev rezolvă un test interactiv → apare cardul de notă; lasă și o recenzie de site din Profil → în Admin → ⭐ Recenzii apare „în așteptare" → Aprobă → apare pe Home și pe /recenzii; răspunde-i din Admin → răspunsul apare sub recenzie și în Profilul utilizatorului. În Admin → „Invitații la recenzie" → Previzualizare arată cine ar primi emailul; pentru un test real, creează un cont de probă care a rezolvat 3 teste.
+
+## 5. Idei pentru mai târziu
+
+- Notificare pe email către utilizator când echipa îi răspunde la recenzie (răspunsul se scrie acum direct din client, prin Supabase — ar fi nevoie de un endpoint sau de un trigger `pg_net`).
+- Un al doilea reminder (o singură dată, după 30 de zile) pentru cei care nu au lăsat recenzia după invitație.

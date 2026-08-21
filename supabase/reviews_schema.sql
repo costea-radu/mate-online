@@ -11,6 +11,9 @@
 --   'site'        → părere generală despre ExamenMate (target_id NULL) — apare
 --                   public DOAR după aprobare în Admin (approved = true).
 -- O singură recenzie per (utilizator, țintă); utilizatorul și-o poate edita.
+-- Echipa poate RĂSPUNDE la o recenzie (reply / reply_at — doar admin; apare
+-- sub comentariu). Invitația automată pe email + coloanele din profiles
+-- sunt în reviews_v2.sql (rulează-l după acest fișier).
 --
 -- Folosit de: src/lib/reviews.js, src/components/ReviewWidget.jsx (toast-ul
 -- de după test, media „★ 4,6 (23)" și lista de păreri de pe carduri,
@@ -26,9 +29,9 @@
 --     rolul autorului (rămân și după ștergerea contului — ON DELETE SET NULL,
 --     același tipar ca în pastreaza_date_publice.sql);
 --   • verificarea „a rezolvat testul" stă în funcția `reviews_can_rate`
---     (SECURITY DEFINER: citește progress / ai_public_results DOAR pentru
---     utilizatorul curent, deci nu poate fi folosită ca să afli ce au
---     rezolvat alții).
+--     (SECURITY INVOKER: citește progress / ai_public_results sub RLS-ul
+--     utilizatorului curent, deci nu poate fi folosită ca să afli ce au
+--     rezolvat alții și nu declanșează lintul 0029).
 -- =====================================================================
 
 -- ─────────────────────────────────────────────────────────────────────
@@ -44,12 +47,18 @@ create table if not exists public.reviews (
   stars        smallint not null check (stars between 1 and 5),
   body         text check (body is null or char_length(body) <= 1000),
   approved     boolean not null default false,         -- contează doar pentru 'site'
+  reply        text check (reply is null or char_length(reply) <= 1000), -- răspunsul echipei (doar admin)
+  reply_at     timestamptz,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now(),
   constraint reviews_target_consistent check ((target_type = 'site') = (target_id is null)),
   -- o singură recenzie per (utilizator, test); pentru 'site' vezi indexul parțial
   constraint reviews_one_per_target unique (user_id, target_type, target_id)
 );
+
+-- instalări din tranșa 1/2 (tabelul exista fără răspunsul echipei) — vezi reviews_v2.sql
+alter table public.reviews add column if not exists reply    text check (reply is null or char_length(reply) <= 1000);
+alter table public.reviews add column if not exists reply_at timestamptz;
 
 -- 'site' are target_id NULL, iar NULL-urile sunt „distincte" în UNIQUE → index parțial
 create unique index if not exists reviews_one_site_per_user
@@ -61,14 +70,23 @@ create index if not exists idx_reviews_user   on public.reviews (user_id);
 -- ─────────────────────────────────────────────────────────────────────
 -- 2) „Poate nota?" — doar cine a rezolvat ținta (sau oricine, pentru 'site')
 -- ─────────────────────────────────────────────────────────────────────
+-- SECURITY INVOKER (nu DEFINER): funcția e apelată din politica de INSERT,
+-- deci TREBUIE să fie executabilă de rolul `authenticated` — iar o funcție
+-- DEFINER executabilă de clienți declanșează lintul Supabase 0029
+-- („Signed-In Users Can Execute SECURITY DEFINER Function", 21 aug 2026).
+-- Nu are nevoie de DEFINER: verifică doar rândurile PROPRII ale
+-- utilizatorului curent din `progress` / `ai_public_results`, pe care
+-- RLS-ul acelor tabele i le arată oricum (progress_select_own, pubres_read).
+-- ATENȚIE: nu o defini din nou cu DEFINER — lintul revine
+-- (vezi fix_lints_21aug2026.sql pentru istoric).
 create or replace function public.reviews_can_rate(p_type text, p_id uuid)
 returns boolean
 language plpgsql
-security definer                -- citește progress / ai_public_results indiferent de RLS…
+security invoker
 set search_path = public
 as $$
 declare
-  uid uuid := auth.uid();       -- …dar NUMAI pentru utilizatorul curent
+  uid uuid := auth.uid();       -- verifică NUMAI utilizatorul curent
   ok  boolean := false;
 begin
   if uid is null then return false; end if;
@@ -90,6 +108,9 @@ begin
   return false;
 end $$;
 
+-- `authenticated` păstrează EXECUTE (politica RLS o apelează în numele lui);
+-- anon nu are ce căuta la ea. Expusă la /rest/v1/rpc e inofensivă: întoarce
+-- un boolean despre propriile rezolvări ale celui care o cheamă.
 revoke execute on function public.reviews_can_rate(text, uuid) from public, anon;
 grant  execute on function public.reviews_can_rate(text, uuid) to authenticated, service_role;
 
@@ -111,7 +132,12 @@ begin
        or exists (select 1 from public.profiles p where p.id = auth.uid() and p.is_admin = true);
 
   if tg_op = 'INSERT' then
-    if not priv then new.approved := false; end if;
+    if not priv then
+      new.approved := false;
+      new.reply    := null;      -- răspunsul echipei îl scrie doar adminul
+      new.reply_at := null;
+    end if;
+    if new.reply is not null and new.reply_at is null then new.reply_at := now(); end if;
 
     if new.user_id is not null then
       -- numele afișabil: nume complet → username → partea locală din email
@@ -143,6 +169,13 @@ begin
       new.target_id   := old.target_id;
       new.author_name := old.author_name;
       new.author_role := old.author_role;
+      new.reply       := old.reply;
+      new.reply_at    := old.reply_at;
+    else
+      -- răspunsul echipei: data se pune/actualizează automat la schimbare
+      if new.reply is distinct from old.reply then
+        new.reply_at := case when new.reply is null then null else now() end;
+      end if;
     end if;
     new.created_at := old.created_at;
     new.updated_at := now();

@@ -243,7 +243,26 @@ export function ReviewCard({ r, compact = false, actions = null }) {
           {r.body}
         </p>
       )}
+      {r.reply && <TeamReply reply={r.reply} at={r.reply_at} compact={compact} />}
       {actions && <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{actions}</div>}
+    </div>
+  );
+}
+
+// ─── Răspunsul echipei (sub comentariu) ──────────────────────────────────────
+export function TeamReply({ reply, at, compact = false }) {
+  if (!reply) return null;
+  return (
+    <div style={{
+      marginTop: 10, padding: compact ? '8px 10px' : '10px 14px', borderRadius: 10,
+      background: 'rgba(232,185,49,.10)', borderLeft: '3px solid var(--gold)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: compact ? '.74rem' : '.78rem', fontWeight: 700, color: 'var(--navy)' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: '50%', background: 'var(--navy)', color: 'var(--gold)', fontSize: '.62rem' }}>EM</span>
+        Răspunsul echipei ExamenMate
+        {at && <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>· {dateRo(at)}</span>}
+      </div>
+      <p style={{ marginTop: 4, fontSize: compact ? '.82rem' : '.88rem', color: 'var(--text)', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{reply}</p>
     </div>
   );
 }
@@ -354,6 +373,7 @@ export function SiteReviewForm({ compact = false, onSaved }) {
           </span>
         </div>
         {existing.body && <p style={{ marginTop: 8, fontSize: '.9rem', color: 'var(--text)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{existing.body}</p>}
+        {existing.reply && <TeamReply reply={existing.reply} at={existing.reply_at} />}
         <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
           <button onClick={() => { setEditing(true); setMsg(null); }} style={ghost}>✎ Modifică</button>
           <button onClick={remove} style={{ ...ghost, color: '#c0392b', borderColor: '#f5c6cb' }}>🗑 Șterge</button>

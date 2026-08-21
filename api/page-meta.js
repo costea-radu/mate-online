@@ -312,6 +312,103 @@ function injectArticleData(html, article) {
 
 const noindex = (html) => html.replace(/<\/head>/i, '    <meta name="robots" content="noindex" />\n  </head>');
 
+// ─── /recenzii — media + recenziile aprobate, servite și fără JavaScript ─────
+// Datele vin din `reviews` / `reviews_stats` (supabase/reviews_schema.sql),
+// cu service role → DOAR recenziile de site aprobate. Cache 60 s.
+// Ce injectăm: (1) JSON-LD Organization + aggregateRating + review[] — util
+// pentru încredere și pentru agenții AI care citesc structurat; Google NU
+// afișează, de regulă, stele pentru recenziile găzduite de organizația
+// însăși (politica „self-serving reviews"), deci nu promitem rich results;
+// (2) conținut HTML în <div id="root"> — crawlerele văd recenziile.
+const _revCache = { data: null, exp: 0 };
+async function reviewsData() {
+  if (_revCache.data && _revCache.exp > Date.now()) return _revCache.data;
+  let out = { stats: null, items: [] };
+  try {
+    const [s, r] = await Promise.all([
+      supa().from('reviews_stats').select('avg_stars, n, n_comentarii').eq('target_type', 'site').is('target_id', null).maybeSingle(),
+      supa().from('reviews').select('id, author_name, author_role, stars, body, reply, reply_at, created_at')
+        .eq('target_type', 'site').eq('approved', true).not('body', 'is', null)
+        .order('stars', { ascending: false }).order('created_at', { ascending: false }).limit(12),
+    ]);
+    const st = s.data;
+    out = {
+      stats: st && st.n > 0 ? { avg: Number(st.avg_stars) || 0, n: st.n || 0 } : null,
+      items: r.data || [],
+    };
+  } catch { /* tabelul poate lipsi înainte de rularea SQL-ului */ }
+  _revCache.data = out; _revCache.exp = Date.now() + 60_000;
+  return out;
+}
+
+const ROLE_LABELS = { elev: 'Elev', profesor: 'Profesor', parinte: 'Părinte' };
+const fmtAvg = (v) => {
+  const one = Math.round((Number(v) || 0) * 10) / 10;
+  return Number.isInteger(one) ? String(one) : one.toFixed(1).replace('.', ',');
+};
+
+// JSON-LD pentru /recenzii. Întoarce null fără recenzii aprobate (nu emitem
+// un AggregateRating gol — ar fi și invalid, și înșelător).
+function reviewsJsonLd({ stats, items }, site = SITE) {
+  if (!stats || !stats.n) return null;
+  const out = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    '@id': `${site}/#organization`,
+    name: 'ExamenMate',
+    url: site,
+    logo: `${site}/pwa-512x512.png`,
+    aggregateRating: {
+      '@type': 'AggregateRating',
+      ratingValue: String(Math.round(stats.avg * 100) / 100),
+      reviewCount: String(stats.n),
+      bestRating: '5',
+      worstRating: '1',
+    },
+  };
+  const reviews = (items || []).slice(0, 5).map((r) => ({
+    '@type': 'Review',
+    author: { '@type': 'Person', name: String(r.author_name || 'Utilizator').slice(0, 80) },
+    datePublished: r.created_at ? String(r.created_at).slice(0, 10) : undefined,
+    reviewBody: String(r.body || '').slice(0, 500),
+    reviewRating: { '@type': 'Rating', ratingValue: String(r.stars), bestRating: '5', worstRating: '1' },
+  }));
+  if (reviews.length) out.review = reviews.map((x) => { Object.keys(x).forEach((k) => x[k] === undefined && delete x[k]); return x; });
+  return out;
+}
+
+// HTML-ul pentru <div id="root"> (React îl înlocuiește la hidratare).
+function reviewsShell({ stats, items }) {
+  const stars = (n) => '★'.repeat(Math.max(0, Math.min(5, n))) + '☆'.repeat(5 - Math.max(0, Math.min(5, n)));
+  const list = (items || []).map((r) => `
+          <article class="card" style="margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+              <strong>${esc(r.author_name || 'Utilizator')}</strong>
+              <span aria-label="${r.stars} din 5 stele" style="color:#e8b931">${stars(Number(r.stars) || 0)}</span>
+            </div>
+            <div style="font-size:.8rem;color:#8e95a3">${esc(ROLE_LABELS[r.author_role] || '')}${r.created_at ? (ROLE_LABELS[r.author_role] ? ' · ' : '') + esc(roDate(r.created_at) || '') : ''}</div>
+            <p>${esc(r.body || '')}</p>${r.reply ? `
+            <p style="border-left:3px solid #e8b931;padding-left:10px;color:#5a6170"><strong>Răspunsul echipei ExamenMate:</strong> ${esc(r.reply)}</p>` : ''}
+          </article>`).join('');
+  return `
+    <div class="page-header">
+      <div class="container">
+        <nav class="breadcrumb"><a href="/">Acasă</a><span>›</span><span>Recenzii</span></nav>
+        <h1>Recenzii</h1>
+        <p>Ce spun elevii, părinții și profesorii despre ExamenMate.</p>
+      </div>
+    </div>
+    <section class="section">
+      <div class="container" style="max-width:820px">
+        <p style="font-size:1.1rem">${stats && stats.n
+          ? `<strong>${esc(fmtAvg(stats.avg))} din 5</strong> · ${stats.n === 1 ? 'o recenzie publicată' : `${stats.n} recenzii publicate`}`
+          : 'Încă nu există recenzii publicate — a ta poate fi prima.'}</p>
+        <p><a class="btn btn-primary" href="/recenzii#formular">Lasă o recenzie</a></p>
+        ${list}
+      </div>
+    </section>`;
+}
+
 // ─── Handler ─────────────────────────────────────────────────────────────────
 const sendHtml = (res, status, html, { cdn = 'public, s-maxage=300, stale-while-revalidate=86400' } = {}) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -373,6 +470,22 @@ module.exports = async function handler(req, res) {
       return sendHtml(res, 200, out);
     }
 
+    // /recenzii → meta + JSON-LD AggregateRating + recenziile în <div id="root">
+    if (route === '/recenzii') {
+      const [html, seoRow, data] = await Promise.all([baseHtml(), metaFor(route), reviewsData()]);
+      const meta = {
+        title: seoRow?.title || 'Recenzii ExamenMate – ce spun elevii, părinții și profesorii',
+        description: seoRow?.description || (data.stats
+          ? `Media ${fmtAvg(data.stats.avg)} din 5 din ${data.stats.n} recenzii verificate. Păreri ale elevilor, părinților și profesorilor despre testele, Profesorul Virtual și meditațiile ExamenMate.`
+          : 'Părerile elevilor, părinților și profesorilor despre ExamenMate — teste interactive, Profesor Virtual și meditații cu AI. Lasă și tu o recenzie.'),
+        og_image: seoRow?.og_image || null,
+        jsonld: seoRow?.jsonld || reviewsJsonLd(data, SITE),
+      };
+      let out = injectMeta(html, { route, meta, site: SITE });
+      out = injectRoot(out, reviewsShell(data));
+      return sendHtml(res, 200, out, { cdn: 'public, s-maxage=60, stale-while-revalidate=3600' });
+    }
+
     const [html, meta] = await Promise.all([baseHtml(), metaFor(route)]);
     const out = injectMeta(html, { route, meta, site: SITE });
     return sendHtml(res, 200, out);
@@ -396,3 +509,5 @@ module.exports.articleJsonLd = articleJsonLd;
 module.exports.injectRoot = injectRoot;
 module.exports.injectArticleData = injectArticleData;
 module.exports.categoryRoute = categoryRoute;
+module.exports.reviewsJsonLd = reviewsJsonLd;
+module.exports.reviewsShell = reviewsShell;

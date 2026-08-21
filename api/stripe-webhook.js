@@ -118,14 +118,22 @@ const handler = async function handler(req, res) {
         }
 
         // ── ABONAMENT NOU (mode: 'subscription', ca înainte) ─────────────
-        const { error } = await supabase
+        // subscription_started_at (supabase/reviews_v2.sql) alimentează invitația
+        // la recenzie „după 7 zile de abonament" (api/review-invite.js). Dacă
+        // coloana lipsește (SQL nerulat), reluăm fără ea — webhookul NU trebuie
+        // să pice (Stripe ar reîncerca la nesfârșit).
+        const baseUpdate = {
+          stripe_customer_id: customerId,
+          subscription_status: 'active',
+          subscription_id: session.subscription,
+        };
+        let { error } = await supabase
           .from('profiles')
-          .update({
-            stripe_customer_id: customerId,
-            subscription_status: 'active',
-            subscription_id: session.subscription,
-          })
+          .update({ ...baseUpdate, subscription_started_at: new Date().toISOString() })
           .eq('id', userId);
+        if (error && /subscription_started_at/i.test(String(error.message || ''))) {
+          ({ error } = await supabase.from('profiles').update(baseUpdate).eq('id', userId));
+        }
 
         if (error) {
           console.error('Supabase update error (checkout.session.completed):', error);
