@@ -14,6 +14,7 @@
 // =====================================================================
 const ai = require('./_lib/ai');
 const med = require('./_lib/meditatii');
+const mathcheck = require('./_lib/mathcheck'); // echivalența matematică a răspunsurilor (Etapa 2)
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -98,7 +99,9 @@ function sanitize(questions) {
   }));
 }
 
-// corectare deterministă (grile pe index; răspuns liber normalizat + echivalență numerică)
+// corectare deterministă (grile pe index; răspuns liber prin ECHIVALENȚĂ
+// MATEMATICĂ — api/_lib/mathcheck.js: „1/2" = „0,5", „x=3" = „3", „2√3" =
+// „2\sqrt{3}", „24 cm²" = „24", mulțimi de soluții în orice ordine)
 function gradeAnswers(questions, answers) {
   const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/,/g, '.').replace(/\s+/g, '');
   const results = (questions || []).map((q, i) => {
@@ -108,7 +111,8 @@ function gradeAnswers(questions, answers) {
       ok = Number(given) === Number(q.answer);
     } else {
       const a = norm(q.answer), g = norm(given);
-      ok = !!g && (g === a || (isFinite(parseFloat(a)) && isFinite(parseFloat(g)) && Math.abs(parseFloat(a) - parseFloat(g)) < 1e-9));
+      const eq = g ? mathcheck.answersEquivalent(given, q.answer) : false;
+      ok = eq === true || (eq == null && !!g && (g === a || (isFinite(parseFloat(a)) && isFinite(parseFloat(g)) && Math.abs(parseFloat(a) - parseFloat(g)) < 1e-9)));
     }
     return {
       index: i, correct: ok,

@@ -1,0 +1,200 @@
+[
+  {
+    "id": "bac-001",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "radicali",
+    "statement": "Calculați $(\\sqrt{3} + 1)(\\sqrt{3} - 1)$.",
+    "answer": "2",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-002",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "progresii",
+    "statement": "Determinați al zecelea termen al progresiei aritmetice $(a_n)$ cu $a_1 = 3$ și rația $r = 4$.",
+    "answer": "39",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-003",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "progresii",
+    "statement": "Calculați suma primilor $20$ de termeni ai progresiei aritmetice $2, 5, 8, \\dots$",
+    "answer": "610",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-004",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "progresii",
+    "statement": "Determinați al cincilea termen al progresiei geometrice $(b_n)$ cu $b_1 = 2$ și rația $q = 3$.",
+    "answer": "162",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-005",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "complexe",
+    "statement": "Calculați modulul numărului complex $z = 3 + 4i$.",
+    "answer": "5",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-006",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "ecuatii exponentiale",
+    "statement": "Rezolvați în $\\mathbb{R}$ ecuația $2^{x+1} = 16$.",
+    "answer": "3",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-007",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "logaritmi",
+    "statement": "Calculați $\\log_2 32 - \\log_3 27$.",
+    "answer": "2",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-008",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "combinatorica",
+    "statement": "Determinați numărul submulțimilor cu două elemente ale unei mulțimi cu $6$ elemente.",
+    "answer": "15",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-009",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "geometrie analitica",
+    "statement": "Calculați distanța dintre punctele $A(1, 2)$ și $B(4, 6)$.",
+    "answer": "5",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-010",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "geometrie analitica",
+    "statement": "Calculați aria triunghiului cu vârfurile $A(0,0)$, $B(4,0)$ și $C(0,3)$.",
+    "answer": "6",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-011",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "matrice",
+    "statement": "Calculați determinantul matricei $A = \\begin{pmatrix} 2 & 3 \\\\ 1 & 4 \\end{pmatrix}$.",
+    "answer": "5",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-012",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "functii",
+    "statement": "Determinați valoarea minimă a funcției $f:\\mathbb{R}\\to\\mathbb{R}$, $f(x) = x^2 - 4x + 7$.",
+    "answer": "3",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-013",
+    "exam": "bacalaureat",
+    "profile": "stiinte-naturii,mate-info",
+    "topic": "limite",
+    "statement": "Calculați $\\lim_{x \\to \\infty} \\frac{3x^2 + 1}{x^2 - 2}$.",
+    "answer": "3",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-014",
+    "exam": "bacalaureat",
+    "profile": "stiinte-naturii,mate-info",
+    "topic": "derivate",
+    "statement": "Fie $f:\\mathbb{R}\\to\\mathbb{R}$, $f(x) = x^3 - 3x$. Calculați $f'(2)$.",
+    "answer": "9",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-015",
+    "exam": "bacalaureat",
+    "profile": "stiinte-naturii,mate-info",
+    "topic": "derivate",
+    "statement": "Fie $f:(1,\\infty)\\to\\mathbb{R}$, $f(x) = \\frac{1}{x-1}$. Determinați $f'(x)$.",
+    "answer": "-1/(x-1)^2",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-016",
+    "exam": "bacalaureat",
+    "profile": "stiinte-naturii,mate-info",
+    "topic": "integrale",
+    "statement": "Calculați $\\int_0^1 3x^2\\, dx$.",
+    "answer": "1",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-017",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "probabilitati",
+    "statement": "Se alege la întâmplare un număr din mulțimea $\\{1, 2, \\dots, 10\\}$. Determinați probabilitatea ca numărul ales să fie divizibil cu $3$.",
+    "answer": "3/10",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-018",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "trigonometrie",
+    "statement": "Calculați $\\sin 30^\\circ + \\cos 60^\\circ$.",
+    "answer": "1",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-019",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "ecuatii",
+    "statement": "Calculați suma soluțiilor ecuației $x^2 - 7x + 10 = 0$.",
+    "answer": "7",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-020",
+    "exam": "bacalaureat",
+    "profile": "mate-info",
+    "topic": "polinoame",
+    "statement": "Determinați restul împărțirii polinomului $f = X^3 - 2X + 1$ la $X - 2$.",
+    "answer": "5",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-021",
+    "exam": "bacalaureat",
+    "profile": "tehnologic",
+    "topic": "matematici financiare",
+    "statement": "O sumă de $2000$ lei este depusă cu dobândă simplă de $5\\%$ pe an. Calculați dobânda obținută după $3$ ani (în lei).",
+    "answer": "300",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "bac-022",
+    "exam": "bacalaureat",
+    "profile": "toate",
+    "topic": "statistica",
+    "statement": "Calculați media aritmetică a numerelor $7$, $11$ și $12$.",
+    "answer": "10",
+    "source": "seed — verificat manual"
+  }
+]

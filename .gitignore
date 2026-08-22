@@ -21,3 +21,7 @@ coverage/
 Thumbs.db
 .idea/
 .vscode/
+
+# rapoartele de evaluare AI (locale; se regenerează cu npm run eval)
+eval/reports/*
+!eval/reports/.gitkeep

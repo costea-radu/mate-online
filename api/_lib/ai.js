@@ -53,6 +53,24 @@ const PDF_MODEL = process.env.AI_PDF_CHAT_MODEL || MODEL_PREFIX + 'gpt-5.6-terra
 // răspunsurilor — acolo modelul calculează singur (fără barem), deci greșelile
 // de calcul ajung direct „răspuns oficial". Setează AI_GEN_CHAT_MODEL în env.
 const GEN_MODEL = process.env.AI_GEN_CHAT_MODEL || CHAT_MODEL;
+// Model separat (opțional) pentru EXPLICAȚIILE pas-cu-pas din chat — modurile
+// „tutor" / „explain" / „hint" (punctul 1.4 din AUDIT_AGENTI_AI.md): acolo
+// modelul calculează, iar 4o-mini greșește cel mai des la probleme cu mai mulți
+// pași. Asistentul general („assistant"/„exams"/„students" — întrebări despre
+// platformă) rămâne pe CHAT_MODEL. Decizia se ia cu `npm run eval -- --models
+// a,b --mode tutor`; apoi setezi AI_TUTOR_MODEL (ex. gpt-5-mini) în env.
+const TUTOR_MODEL = process.env.AI_TUTOR_MODEL || CHAT_MODEL;
+const TUTOR_MODES = new Set(['tutor', 'explain', 'hint']);
+// Efortul de raționament trimis modelelor cu raționament (gpt-5.x, o-series):
+// 'minimal' | 'low' | 'medium' | 'high'. Nesetat → providerul decide (medium).
+// Cu `low`, gpt-5-mini rămâne ieftin și rapid; se poate suprascrie per apel.
+const REASONING_EFFORT = String(process.env.AI_REASONING_EFFORT || '').trim().toLowerCase() || null;
+// Modelul de chat după MOD și context: pe un PDF deschis → modelul PDF (citește
+// enunțurile, urmărește baremul); explicații pas-cu-pas → TUTOR_MODEL; altfel CHAT_MODEL.
+function chatModelFor(mode, context = null) {
+  if (context && context.pdf) return PDF_MODEL;
+  return TUTOR_MODES.has(String(mode || '')) ? TUTOR_MODEL : CHAT_MODEL;
+}
 
 // =====================================================================
 // COSTURI & BUGETE DE CONSUM AI (vezi GHID_LIMITE_AI.md)
@@ -276,7 +294,8 @@ const isNewGenModel = (m) => /\bgpt-5|^o[1-9]\b|\bo[1-9]-/i.test(String(m || '')
 // `schema` (opțional): JSON Schema STRICT → Structured Outputs (decodare
 // constrânsă: JSON garantat valid, enum-urile respectate). Fără schemă, `json`
 // → modul clasic json_object. Vezi chatJson() și helperul S de mai jos.
-function buildBody({ model, temperature, maxTokens, messages, system, json, stream, schema = null, schemaName = 'raspuns' }) {
+const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+function buildBody({ model, temperature, maxTokens, messages, system, json, stream, schema = null, schemaName = 'raspuns', reasoningEffort = REASONING_EFFORT }) {
   const body = { model, messages: system ? [{ role: 'system', content: system }, ...messages] : messages };
   if (isNewGenModel(model)) {
     // Modelele cu raționament „ard" tokeni pe gândirea internă ÎNAINTE de a
@@ -284,6 +303,11 @@ function buildBody({ model, temperature, maxTokens, messages, system, json, stre
     // sau trunchiat (JSON invalid). Le dăm spațiu de raționament: 3× bugetul,
     // minim 3000, plafonat la 16000.
     body.max_completion_tokens = Math.min(Math.max(maxTokens * 3, 3000), 16000);
+    // efortul de raționament (AI_REASONING_EFFORT sau per apel); modelele vechi
+    // nu cunosc parametrul, deci nu-l trimitem acolo; dacă providerul îl
+    // refuză, adaptBodyToError îl scoate și reîncearcă
+    const eff = String(reasoningEffort || '').toLowerCase();
+    if (EFFORTS.has(eff)) body.reasoning_effort = eff;
   } else { body.max_tokens = maxTokens; body.temperature = temperature; }
   if (schema) {
     body.response_format = { type: 'json_schema', json_schema: { name: String(schemaName || 'raspuns').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64), schema, strict: true } };
@@ -306,6 +330,7 @@ function adaptBodyToError(body, errText) {
     body.max_tokens = body.max_completion_tokens; delete body.max_completion_tokens; changed = true;
   }
   if (/temperature/.test(t) && 'temperature' in body) { delete body.temperature; changed = true; }
+  if (/reasoning/i.test(t) && 'reasoning_effort' in body) { delete body.reasoning_effort; changed = true; }
   if (/response_format|json_schema|schema|strict/i.test(t) && body.response_format) {
     // Structured Outputs refuzate (gateway vechi, model fără suport, schemă
     // invalidă) → coborâm pe json_object (comportamentul de până acum); dacă
@@ -317,8 +342,17 @@ function adaptBodyToError(body, errText) {
     changed = true;
   }
   if (/stream_options/.test(t) && body.stream_options) { delete body.stream_options; changed = true; }
+  // atașamente (pagini PDF / imagini) refuzate de provider sau model → retrimitem
+  // DOAR textul (comportamentul de dinainte de Etapa 2)
+  if (/\bfile\b|file_data|image|multimodal|vision|content\[|content must be|invalid content/i.test(t) && hasParts(body.messages)) {
+    body.messages = body.messages.map((m) => (Array.isArray(m.content) ? { ...m, content: textOfContent(m.content) } : m));
+    warnOnce('parts', `Atașamentele (PDF/imagini) au fost refuzate de provider (${t.slice(0, 120)}) — retrimit doar textul.`);
+    changed = true;
+  }
   return changed;
 }
+const hasParts = (msgs) => Array.isArray(msgs) && msgs.some((m) => Array.isArray(m && m.content));
+const textOfContent = (c) => (Array.isArray(c) ? c.filter((p) => p && p.type === 'text').map((p) => p.text).join('\n') : String(c ?? ''));
 async function postLLM(body) {
   const call = () => fetch(`${CHAT_BASE}/chat/completions`, {
     method: 'POST',
@@ -339,9 +373,9 @@ async function postLLM(body) {
 }
 
 // ─── Apel LLM (chat completions, format OpenAI) ──────────────────────────────
-async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900, json = false, model = CHAT_MODEL }) {
+async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900, json = false, model = CHAT_MODEL, reasoningEffort = undefined }) {
   if (!hasChat()) throw new Error('AI_CHAT_API_KEY (sau OPENAI_API_KEY) nu este setat.');
-  const body = buildBody({ model, temperature, maxTokens, messages, system, json });
+  const body = buildBody({ model, temperature, maxTokens, messages, system, json, ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) });
   let r = await postLLM(body);
   let data = await r.json();
   let text = data.choices?.[0]?.message?.content ?? '';
@@ -450,9 +484,9 @@ async function chatJson(opts) {
     throw e;
   }
 }
-async function chatJsonInner({ system, messages = [], schema = null, schemaName = 'raspuns', temperature = 0.3, maxTokens = 1500, model = CHAT_MODEL, restoreLatex = true }, usage) {
+async function chatJsonInner({ system, messages = [], schema = null, schemaName = 'raspuns', temperature = 0.3, maxTokens = 1500, model = CHAT_MODEL, restoreLatex = true, reasoningEffort = undefined }, usage) {
   if (!hasChat()) throw new Error('AI_CHAT_API_KEY (sau OPENAI_API_KEY) nu este setat.');
-  const body = buildBody({ model, temperature, maxTokens, messages, system, json: true, schema, schemaName });
+  const body = buildBody({ model, temperature, maxTokens, messages, system, json: true, schema, schemaName, ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) });
   const once = async () => {
     const r = await postLLM(body);
     const data = await r.json();
@@ -496,10 +530,10 @@ async function chatJsonInner({ system, messages = [], schema = null, schemaName 
 // { model, usage:{in,out,model} } — usage-ul REAL vine în ultimul chunk SSE
 // (stream_options.include_usage); dacă providerul nu-l trimite, rămâne doar
 // `model`, iar apelantul estimează tokenii.
-async function* chatStream({ system, messages = [], temperature = 0.5, maxTokens = 900, model = CHAT_MODEL, stats = null }) {
+async function* chatStream({ system, messages = [], temperature = 0.5, maxTokens = 900, model = CHAT_MODEL, stats = null, reasoningEffort = undefined }) {
   if (!hasChat()) throw new Error('AI_CHAT_API_KEY (sau OPENAI_API_KEY) nu este setat.');
   if (stats) stats.model = model;
-  const body = buildBody({ model, temperature, maxTokens, messages, system, stream: true });
+  const body = buildBody({ model, temperature, maxTokens, messages, system, stream: true, ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) });
   const r = await postLLM(body);
   const reader = r.body.getReader();
   const dec = new TextDecoder();
@@ -1555,11 +1589,16 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
   const priorMsgs = rows.map((m) => ({ role: m.role, content: m.content }));
 
   // 4. System prompt — construit de agentul potrivit.
-  let system, baremItem = null;
+  let system, baremItem = null, attachments = [];
   if (isPdfAgent) {
     const built = await pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs, ctxBlock });
     system = built.system;
     baremItem = built.baremItem;
+    // Etapa 2 (1.1): PAGINA din PDF cu exercițiul întrebat merge la model ca
+    // fișier (text + imagine) — vede radicalii, fracțiile, figurile pierdute
+    // la extracție. Doar pagina/paginile exercițiului, nu tot testul.
+    attachments = await pdfPageAttachments(supa, { context, message, priorMsgs, baremItem });
+    if (attachments.length) system += '\n\n' + PDF_PAGE_NOTE;
   } else {
     system = await interactiveAgentSystem(supa, { userId, mode, context, ctxBlock });
   }
@@ -1574,7 +1613,43 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
           : docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }))),
       ]
     : docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }));
-  return { docs, ctxBlock, primaryMaterial, convId, priorMsgs, system, sources, baremItem, regenerated };
+  return { docs, ctxBlock, primaryMaterial, convId, priorMsgs, system, sources, baremItem, regenerated, attachments };
+}
+
+// ─── Etapa 2 (1.1): pagina PDF a exercițiului, ca atașament pentru model ─────
+const PDF_VISION = process.env.AI_PDF_VISION !== '0'; // implicit PORNIT
+const PDF_PAGE_NOTE = `PAGINA DIN PDF: mesajul elevului are atașată pagina (sau paginile) din test pe care se află exercițiul — ca fișier PDF, cu imaginea paginii. CITEȘTE ENUNȚUL ȘI FIGURILE DE PE PAGINĂ: ele au prioritate față de textul extras automat de mai sus (acolo radicalii, fracțiile etajate, săgețile de vector și figurile se pot pierde). Dacă textul extras și pagina diferă, crezi pagina și nu-i mai ceri elevului confirmări.`;
+// cache mic, pe instanță, pentru paginile extrase (evită re-descărcarea la fiecare mesaj)
+const pageCache = new Map();
+const PAGE_CACHE_MAX = 24;
+async function pdfPageAttachments(supa, { context, message, priorMsgs, baremItem }) {
+  if (!PDF_VISION || !context || !context.pdf || !context.contentId) return [];
+  try {
+    const pdfCtx = require('../ai-pdf-context');   // lazy: evită dependența circulară
+    const pdfpages = require('./pdfpages');
+    const { data: content } = await supa.from('content').select('*').eq('id', context.contentId).maybeSingle();
+    if (!content || !content.file_url) return [];
+    const ctx = await pdfCtx.getPdfContext(supa, content).catch(() => null);
+    const pages = Array.isArray(ctx?.pageTexts) ? ctx.pageTexts : [];
+    if (!pages.length) return [];
+    const ref = refFromConversation(message, priorMsgs);
+    const idx = pdfpages.findPages(pages, { enunt: baremItem?.enunt || null, ref });
+    if (!idx.length) return [];
+    const key = `${content.id}:${content.file_url}:${idx.join(',')}`;
+    let part = pageCache.get(key);
+    if (!part) {
+      const buf = await pdfCtx.downloadContentPdf(supa, content);
+      const sub = await pdfpages.extractPagesPdf(buf, idx);
+      part = pdfpages.filePart(sub, `pagina-${idx.map((i) => i + 1).join('-')}.pdf`);
+      if (!part) return [];
+      if (pageCache.size >= PAGE_CACHE_MAX) pageCache.delete(pageCache.keys().next().value);
+      pageCache.set(key, part);
+    }
+    return [part];
+  } catch (e) {
+    warnOnce('pdfpage:' + (context && context.contentId), `pdfPageAttachments: ${e.message}`);
+    return [];
+  }
 }
 
 // Ultimele `limit` mesaje ale conversației, în ordine cronologică, FĂRĂ cele
@@ -1883,7 +1958,7 @@ async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', m
   const gen = (sys) => chat({ system: sys, messages, temperature: 0.2, maxTokens, model });
   const isEmpty = (t) => !String(t || '').trim() || String(t).trim().length < 20;
   const lastUser = [...messages].reverse().find((m) => m && m.role === 'user');
-  const relaxed = !!(baremItem && baremItem.followUp) || wantsOtherExplanation(lastUser && lastUser.content);
+  const relaxed = !!(baremItem && baremItem.followUp) || wantsOtherExplanation(lastUser && textOfContent(lastUser.content)); // conținutul poate fi listă (text + pagina PDF)
 
   const attempt = async (sys) => {
     const g = await gen(sys);
@@ -1940,6 +2015,7 @@ module.exports = {
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS, PDF_MODEL, GEN_MODEL,
+  TUTOR_MODEL, TUTOR_MODES, REASONING_EFFORT, chatModelFor, isNewGenModel, pdfPageAttachments, refFromConversation,
   // limite de consum (vezi GHID_LIMITE_AI.md)
   pickModel, budgetInfo, costMicroLei, priceFor, dayStartBucharest, ECON_CHAT_MODEL, USD_RON,
   // cote per funcție + pachete top-up (pasul 2); per rol + pool comun

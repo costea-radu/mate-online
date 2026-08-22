@@ -1,0 +1,408 @@
+[
+  {
+    "id": "en-001",
+    "exam": "evaluare-nationala",
+    "subject": "I",
+    "topic": "ordinea operatiilor",
+    "statement": "Rezultatul calculului $12 - 3 \\cdot 2 + 8 : 4$ este:",
+    "options": [
+      "8",
+      "20",
+      "14",
+      "6"
+    ],
+    "answer": "a",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-002",
+    "exam": "evaluare-nationala",
+    "subject": "I",
+    "topic": "procente",
+    "statement": "$25\\%$ din $840$ este:",
+    "options": [
+      "21",
+      "210",
+      "2100",
+      "84"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-003",
+    "exam": "evaluare-nationala",
+    "subject": "I",
+    "topic": "procente",
+    "statement": "Un produs costă $250$ lei. După o reducere de $20\\%$, prețul produsului este:",
+    "options": [
+      "230 lei",
+      "200 lei",
+      "50 lei",
+      "225 lei"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-004",
+    "exam": "evaluare-nationala",
+    "subject": "I",
+    "topic": "ecuatii",
+    "statement": "Soluția ecuației $3x - 7 = 11$ este $x =$",
+    "options": [
+      "4",
+      "6",
+      "18",
+      "-6"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-005",
+    "exam": "evaluare-nationala",
+    "subject": "I",
+    "topic": "numere intregi",
+    "statement": "Dimineața temperatura era de $-7^\\circ C$, iar până la prânz a crescut cu $12^\\circ C$. Temperatura de la prânz este:",
+    "options": [
+      "$-19^\\circ C$",
+      "$19^\\circ C$",
+      "$5^\\circ C$",
+      "$-5^\\circ C$"
+    ],
+    "answer": "c",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-006",
+    "exam": "evaluare-nationala",
+    "subject": "I",
+    "topic": "fractii",
+    "statement": "Rezultatul calculului $\\frac{3}{4} + \\frac{1}{6}$ este:",
+    "options": [
+      "$\\frac{4}{10}$",
+      "$\\frac{11}{12}$",
+      "$\\frac{5}{6}$",
+      "$\\frac{1}{3}$"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-007",
+    "exam": "evaluare-nationala",
+    "subject": "I",
+    "topic": "fractii",
+    "statement": "Dintre numerele $\\frac{3}{5}$; $0,7$; $\\frac{2}{3}$; $0,65$, cel mai mare este:",
+    "options": [
+      "$\\frac{3}{5}$",
+      "$0,7$",
+      "$\\frac{2}{3}$",
+      "$0,65$"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-008",
+    "exam": "evaluare-nationala",
+    "subject": "I",
+    "topic": "radicali",
+    "statement": "Rezultatul calculului $\\sqrt{50} - \\sqrt{18}$ este:",
+    "options": [
+      "$\\sqrt{2}$",
+      "$2\\sqrt{2}$",
+      "$4\\sqrt{2}$",
+      "$8$"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-009",
+    "exam": "evaluare-nationala",
+    "subject": "I",
+    "topic": "radicali",
+    "statement": "Media geometrică a numerelor $4$ și $9$ este:",
+    "options": [
+      "$6,5$",
+      "$6$",
+      "$36$",
+      "$5$"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-010",
+    "exam": "evaluare-nationala",
+    "subject": "I",
+    "topic": "adevarat-fals",
+    "statement": "Numărul $2^{10}$ este mai mic decât $1000$.",
+    "options": [
+      "Adevărat",
+      "Fals"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-011",
+    "exam": "evaluare-nationala",
+    "subject": "I",
+    "topic": "divizibilitate",
+    "statement": "Restul împărțirii numărului $2025$ la $7$ este:",
+    "options": [
+      "1",
+      "2",
+      "3",
+      "4"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-012",
+    "exam": "evaluare-nationala",
+    "subject": "I",
+    "topic": "probabilitati",
+    "statement": "Se aruncă un zar cu fețele numerotate de la 1 la 6. Probabilitatea de a obține un număr prim este:",
+    "options": [
+      "$\\frac{1}{3}$",
+      "$\\frac{1}{2}$",
+      "$\\frac{2}{3}$",
+      "$\\frac{1}{6}$"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-013",
+    "exam": "evaluare-nationala",
+    "subject": "II",
+    "topic": "segmente",
+    "statement": "Punctele $A$, $M$, $B$ sunt coliniare, în această ordine, $M$ este mijlocul segmentului $AB$ și $AM = 7$ cm. Lungimea segmentului $AB$ este:",
+    "options": [
+      "3,5 cm",
+      "7 cm",
+      "14 cm",
+      "21 cm"
+    ],
+    "answer": "c",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-014",
+    "exam": "evaluare-nationala",
+    "subject": "II",
+    "topic": "unghiuri",
+    "statement": "Măsura suplementului unui unghi cu măsura de $35^\\circ$ este:",
+    "options": [
+      "$55^\\circ$",
+      "$145^\\circ$",
+      "$65^\\circ$",
+      "$325^\\circ$"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-015",
+    "exam": "evaluare-nationala",
+    "subject": "II",
+    "topic": "triunghi",
+    "statement": "În triunghiul $ABC$, $m(\\angle A) = 50^\\circ$ și $m(\\angle B) = 60^\\circ$. Măsura unghiului $C$ este:",
+    "options": [
+      "$70^\\circ$",
+      "$110^\\circ$",
+      "$80^\\circ$",
+      "$60^\\circ$"
+    ],
+    "answer": "a",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-016",
+    "exam": "evaluare-nationala",
+    "subject": "II",
+    "topic": "triunghi",
+    "statement": "Un triunghi dreptunghic are catetele de $6$ cm și $8$ cm. Lungimea ipotenuzei este:",
+    "options": [
+      "14 cm",
+      "10 cm",
+      "12 cm",
+      "$\\sqrt{28}$ cm"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-017",
+    "exam": "evaluare-nationala",
+    "subject": "II",
+    "topic": "patrulatere",
+    "statement": "Aria unui dreptunghi cu lungimea de $12$ cm și lățimea de $5$ cm este:",
+    "options": [
+      "$34$ cm$^2$",
+      "$60$ cm$^2$",
+      "$17$ cm$^2$",
+      "$120$ cm$^2$"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-018",
+    "exam": "evaluare-nationala",
+    "subject": "II",
+    "topic": "patrulatere",
+    "statement": "Aria unui romb cu diagonalele de $6$ cm și $8$ cm este:",
+    "options": [
+      "$48$ cm$^2$",
+      "$24$ cm$^2$",
+      "$14$ cm$^2$",
+      "$12$ cm$^2$"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-019",
+    "exam": "evaluare-nationala",
+    "subject": "II",
+    "topic": "cerc",
+    "statement": "Lungimea unui cerc cu raza de $5$ cm este:",
+    "options": [
+      "$5\\pi$ cm",
+      "$25\\pi$ cm",
+      "$10\\pi$ cm",
+      "$20\\pi$ cm"
+    ],
+    "answer": "c",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-020",
+    "exam": "evaluare-nationala",
+    "subject": "II",
+    "topic": "cerc",
+    "statement": "Aria unui disc cu diametrul de $8$ cm este:",
+    "options": [
+      "$64\\pi$ cm$^2$",
+      "$16\\pi$ cm$^2$",
+      "$8\\pi$ cm$^2$",
+      "$4\\pi$ cm$^2$"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-021",
+    "exam": "evaluare-nationala",
+    "subject": "II",
+    "topic": "corpuri",
+    "statement": "Volumul unui cub cu muchia de $4$ cm este:",
+    "options": [
+      "$16$ cm$^3$",
+      "$24$ cm$^3$",
+      "$64$ cm$^3$",
+      "$96$ cm$^3$"
+    ],
+    "answer": "c",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-022",
+    "exam": "evaluare-nationala",
+    "subject": "II",
+    "topic": "corpuri",
+    "statement": "Aria totală a unui cub cu muchia de $3$ cm este:",
+    "options": [
+      "$27$ cm$^2$",
+      "$36$ cm$^2$",
+      "$54$ cm$^2$",
+      "$18$ cm$^2$"
+    ],
+    "answer": "c",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-023",
+    "exam": "evaluare-nationala",
+    "subject": "II",
+    "topic": "corpuri",
+    "statement": "Lungimea diagonalei unui cub cu muchia de $2$ cm este:",
+    "options": [
+      "$2\\sqrt{2}$ cm",
+      "$2\\sqrt{3}$ cm",
+      "$4$ cm",
+      "$6$ cm"
+    ],
+    "answer": "b",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-024",
+    "exam": "evaluare-nationala",
+    "subject": "III",
+    "topic": "ecuatii",
+    "statement": "Suma soluțiilor ecuației $x^2 - 5x + 6 = 0$ este:",
+    "answer": "5",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-025",
+    "exam": "evaluare-nationala",
+    "subject": "III",
+    "topic": "functii",
+    "statement": "Fie $f:\\mathbb{R}\\to\\mathbb{R}$, $f(x) = 2x - 3$. Calculați $f(1) + f(2) + f(3)$.",
+    "answer": "3",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-026",
+    "exam": "evaluare-nationala",
+    "subject": "III",
+    "topic": "geometrie",
+    "statement": "Un triunghi are laturile de $5$ cm, $12$ cm și $13$ cm. Aria triunghiului (în cm$^2$) este:",
+    "answer": "30",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-027",
+    "exam": "evaluare-nationala",
+    "subject": "III",
+    "topic": "geometrie",
+    "statement": "În triunghiul $ABC$, dreptunghic în $A$, $AB = 9$ cm și $AC = 12$ cm. Lungimea înălțimii $AD$, $D \\in BC$, este (în cm):",
+    "answer": "7,2",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-028",
+    "exam": "evaluare-nationala",
+    "subject": "III",
+    "topic": "probleme",
+    "statement": "Într-un rezervor intră $12$ litri de apă pe minut. În $2,5$ ore intră în rezervor (în litri):",
+    "answer": "1800",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-029",
+    "exam": "evaluare-nationala",
+    "subject": "III",
+    "topic": "expresii",
+    "statement": "Fie $E(x) = \\frac{x^2 - 4}{x - 2}$, $x \\neq 2$. Calculați $E(5)$.",
+    "answer": "7",
+    "source": "seed — verificat manual"
+  },
+  {
+    "id": "en-030",
+    "exam": "evaluare-nationala",
+    "subject": "III",
+    "topic": "sisteme",
+    "statement": "Suma a două numere este $30$, iar diferența lor este $6$. Numărul mai mare este:",
+    "answer": "18",
+    "source": "seed — verificat manual"
+  }
+]

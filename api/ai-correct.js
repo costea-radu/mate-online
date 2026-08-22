@@ -20,7 +20,7 @@
 // =====================================================================
 const ai = require('./_lib/ai');
 const med = require('./_lib/meditatii');
-const { pageRenderer } = require('./_lib/pdftext');
+const { pageRenderer, toPdfData } = require('./_lib/pdftext');
 const pdfContext = require('./ai-pdf-context'); // getPdfContext / loadContentForUser (textul + baremul DE PE SERVER)
 
 const MAX_TEXT = 12000;          // textul testului / baremului trimis modelului
@@ -125,7 +125,7 @@ async function pdfText(req, res, supa, userId) {
   let text = '';
   try {
     const pdfParse = require('pdf-parse');
-    const parsed = await pdfParse(Buffer.from(b64, 'base64'), { max: 12, pagerender: pageRenderer });
+    const parsed = await pdfParse(toPdfData(Buffer.from(b64, 'base64')), { max: 12, pagerender: pageRenderer });
     text = String(parsed.text || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
   } catch (e) {
     console.warn('ai-correct pdf_text:', e.message);
@@ -397,7 +397,9 @@ async function grade(req, res, supa, userId, lim, profile) {
   const {
     conversationId = null, context = {}, testText: bodyTestText = '',
     items = [], answers = {}, durationSec = 0, meditatii = false, title: bodyTitle = '', token = null,
+    images = [], // Etapa 2 (1.1): poze cu REZOLVAREA SCRISĂ DE MÂNĂ (data URL), max 3
   } = req.body || {};
+  const photos = (Array.isArray(images) ? images : []).filter((u) => typeof u === 'string' && /^data:image\/(jpeg|png|webp);base64,/.test(u) && u.length <= 2_200_000).slice(0, 3);
 
   // 1) formularul trebuie să fie cel semnat de server (id-uri + puncte + sursă)
   const contentId = context.contentId || null;
@@ -426,7 +428,7 @@ async function grade(req, res, supa, userId, lim, profile) {
     ans[l.id] = raw != null ? String(raw).trim().slice(0, MAX_ANSWER) : '';
   });
   const answeredCount = leaves.filter((l) => ans[l.id]).length;
-  if (!answeredCount) return res.status(400).json({ error: 'Completează măcar un răspuns înainte de corectare.' });
+  if (!answeredCount && !photos.length) return res.status(400).json({ error: 'Completează măcar un răspuns (sau adaugă o poză cu rezolvarea) înainte de corectare.' });
 
   // ── promptul de corectare ──
   const listing = leaves.map((l) =>
@@ -448,7 +450,11 @@ ${hasBarem ? `- BAREMUL este SINGURA sursă a punctajului: pentru fiecare cerin�
 - REDACTARE: în stringurile JSON, comenzile LaTeX se scriu cu backslash DUBLAT ("$\\\\frac{30}{100} \\\\cdot 500 = 150$", "$\\\\sqrt{3x+6}$") — altfel se pierd la parsare. Nu pune ** sau alte marcaje în interiorul formulelor $...$.
 Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"verdict":"corect|partial|gresit|necompletat","explicatie":"...","tema":"..."}],"feedback":"..."} — cu EXACT un element pentru FIECARE cerință primită, cu id-ul ei neschimbat.`;
 
-  const user = `TESTUL${title ? ` „${title}"` : ''}:\n"""${String(testText || '').slice(0, MAX_TEXT)}"""\n\n${hasBarem ? `BAREMUL OFICIAL:\n"""${String(baremText).slice(0, MAX_TEXT)}"""\n\n` : ''}RĂSPUNSURILE ELEVULUI (corectează fiecare cerință):\n${listing}`;
+  const userText = `TESTUL${title ? ` „${title}"` : ''}:\n"""${String(testText || '').slice(0, MAX_TEXT)}"""\n\n${hasBarem ? `BAREMUL OFICIAL:\n"""${String(baremText).slice(0, MAX_TEXT)}"""\n\n` : ''}RĂSPUNSURILE ELEVULUI (corectează fiecare cerință):\n${listing}${photos.length ? `\n\nPOZE CU REZOLVAREA SCRISĂ DE MÂNĂ (${photos.length}): citește pașii și rezultatele din imagini pentru FIECARE cerință; punctezi și ce e scris în poze (metodă, calcule, rezultat), ca un profesor corector. Dacă pentru o cerință există și text tastat, și rezolvare în poză, le iei împreună; textul tastat are prioritate la rezultatul final dacă diferă. O cerință cu rezolvare DOAR în poză NU este „necompletată".` : ''}`;
+  // mesaj multimodal: text + pozele (format OpenAI image_url); fără poze → doar text
+  const user = photos.length
+    ? [{ type: 'text', text: userText }, ...photos.map((u) => ({ type: 'image_url', image_url: { url: u, detail: 'high' } }))]
+    : userText;
 
   const maxTokens = Math.min(7000, 900 + leaves.length * 220);
   const gradeModel = ai.pickModel(hasBarem ? ai.PDF_MODEL : ai.GEN_MODEL, lim); // peste bugetul zilnic → model standard
@@ -477,7 +483,9 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
   parsed.items.forEach((g) => { if (g && g.id != null) byId[String(g.id)] = g; });
   const graded = leaves.map((l) => {
     const g = byId[l.id] || {};
-    const answered = !!ans[l.id];
+    // cu poze, o cerință fără text tastat poate fi rezolvată în imagine —
+    // verdictul modelului rămâne; fără poze, gol = necompletat (ca înainte)
+    const answered = !!ans[l.id] || (photos.length > 0 && VERDICTE.includes(g.verdict) && g.verdict !== 'necompletat');
     let verdict = VERDICTE.includes(g.verdict) ? g.verdict : (answered ? 'gresit' : 'necompletat');
     if (!answered) verdict = 'necompletat';
     let puncte = Math.max(0, Math.min(l.puncte, Number(String(g.puncte ?? 0).replace(',', '.')) || 0));

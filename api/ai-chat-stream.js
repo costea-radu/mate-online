@@ -9,6 +9,7 @@
 // =====================================================================
 const ai = require('./_lib/ai');
 const pregen = require('./_lib/pregen');
+const pdfpages = require('./_lib/pdfpages'); // userContent: text + pagina PDF atașată (Etapa 2)
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -36,9 +37,11 @@ module.exports = async function handler(req, res) {
     // 1-3. RAG + conversație + istoric + system prompt (helper comun cu ai-chat)
     //      regenerate („Regenerează"): răspunsul anterior iese din istoric, iar
     //      întrebarea NU se mai salvează o dată (regenerated=true)
-    const { convId, primaryMaterial, priorMsgs, system, sources, baremItem, regenerated } =
+    const { convId, primaryMaterial, priorMsgs, system, sources, baremItem, regenerated, attachments = [] } =
       await ai.prepareChat(supa, { userId, message, mode, conversationId, context, premium, regenerate: !!regenerate });
     send({ type: 'meta', conversationId: convId, sources, primaryMaterial });
+    // mesajul user trimis modelului: text (+ pagina PDF a exercițiului, Etapa 2)
+    const userContent = pdfpages.userContent(message, attachments);
 
     // 3½. Explicație PRE-GENERATA (pasul 3): la prima cerere CANONICĂ despre
     // un material din site, trimitem răspunsul deja generat, în bucăți —
@@ -65,7 +68,7 @@ module.exports = async function handler(req, res) {
       // răspuns care deviază de la barem.
       const r = await ai.verifiedPdfReply({
         system, baremItem, mode,
-        messages: [...priorMsgs, { role: 'user', content: message }],
+        messages: [...priorMsgs, { role: 'user', content: userContent }],
         model: ai.pickModel(ai.PDF_MODEL, lim), // peste bugetul zilnic soft → modelul standard
       });
       full = r.text;
@@ -75,12 +78,13 @@ module.exports = async function handler(req, res) {
       // STREAMING LLM (comportamentul de până acum)
       for await (const delta of ai.chatStream({
         system,
-        messages: [...priorMsgs, { role: 'user', content: message }],
+        messages: [...priorMsgs, { role: 'user', content: userContent }],
         temperature: mode === 'hint' ? 0.3 : 0.5,
         maxTokens: 900,
         // pe un PDF deschis citește modelul PDF („terra") — și fără barem;
+        // explicații pas-cu-pas (tutor/explain/hint) → AI_TUTOR_MODEL (1.4);
         // altfel modelul de chat; peste bugetul zilnic soft → unul mai ieftin
-        model: ai.pickModel(context.pdf ? ai.PDF_MODEL : ai.CHAT_MODEL, lim),
+        model: ai.pickModel(ai.chatModelFor(mode, context), lim),
         stats,
       })) {
         full += delta;

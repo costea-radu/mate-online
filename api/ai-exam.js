@@ -103,6 +103,134 @@ const EXAMS = {
 
 const JSON_RULE = `IMPORTANT pentru JSON valid: scrie fiecare backslash din comenzile LaTeX de DOUĂ ori (backslash dublu). Exemple corecte în JSON: pentru fracție folosește \\\\frac{...}{...}, pentru radical \\\\sqrt{...}, pentru înmulțire \\\\cdot, pentru unghi \\\\angle. Formulele se pun între $...$.`;
 
+// ═════════════════════════════════════════════════════════════════════════════
+// Etapa 2 (1.3) — validare structurală + verificator independent + regenerare
+// ═════════════════════════════════════════════════════════════════════════════
+const validate = require('./_lib/validate');
+const verify = require('./_lib/verify');
+const med = require('./_lib/meditatii'); // fixLatex
+
+// Conținutul cerut pentru o poziție din EN (din EN_SPEC): „I.3", „III.4"
+function enPositionSpec(subjIdx, number) {
+  const roman = ['I', 'II', 'III'][subjIdx];
+  if (!roman) return '';
+  const re = new RegExp(`^- ${roman}\\.${number}: (.+)$`, 'm');
+  const m = re.exec(EN_SPEC);
+  return m ? m[1] : '';
+}
+
+// Punctajele oficiale EN se pot repara determinist (grile 5p; III: a=2p, b=3p)
+function fixEnPoints(exam) {
+  (exam.subjects || []).forEach((sub, si) => {
+    (sub.items || []).forEach((it) => {
+      if (si < 2) { it.points = 5; delete it.parts; }
+      else if (Array.isArray(it.parts) && it.parts.length === 2) { it.parts[0].points = 2; it.parts[1].points = 3; delete it.points; }
+    });
+    sub.points = 30;
+  });
+}
+
+// Regenerează ȚINTIT un singur item (poziția rămâne, conținutul e nou).
+async function regenItem({ exam, examType, si, ii, reason, model }) {
+  const sub = exam.subjects[si];
+  const old = sub.items[ii];
+  const en = examType === 'evaluare-nationala';
+  const spec = en ? enPositionSpec(si, parseInt(old.number, 10) || ii + 1) : '';
+  const isTF = en && si === 0 && ii === 5;
+  const shape = Array.isArray(old.options)
+    ? `grilă cu ${isTF ? 'EXACT 2 variante ("Adevărat", "Fals")' : 'EXACT 4 variante'}, "answer" = litera variantei corecte (a–d), "points": ${old.points || 5}, "solution": justificare scurtă`
+    : Array.isArray(old.parts)
+      ? `problemă cu subpunctele ${old.parts.map((p) => `${p.label}) (${p.points}p)`).join(', ')} — "parts":[{"label","text","points","solution"}], rezolvări complete`
+      : `item cu rezolvare succintă: "answer" = răspunsul final, "solution" = rezolvarea, "points": ${old.points || 5}`;
+  const system = `${ai.PERSONA}
+
+Sarcină: înlocuiești UN item dintr-un model de test (${exam.title}). Itemul vechi a fost respins (${reason}). Scrie un item NOU, de același tip și la aceeași poziție, rezolvat cu MARE atenție: calculează de două ori, verifică rezultatul prin înlocuire.
+${spec ? `Conținutul cerut pentru această poziție: ${spec}\n` : ''}Forma itemului: ${shape}. Păstrează aceleași chei JSON ca itemul vechi ("number" rămâne "${old.number}"); ${old.figure ? 'păstrează cheia "figure" (același format), potrivită noului enunț' : 'fără cheia "figure"'}.
+${JSON_RULE}
+Răspunde STRICT cu un obiect JSON: {"item": {...}}`;
+  const user = `ITEMUL VECHI (de înlocuit):\n${JSON.stringify(old).slice(0, 3000)}\n\nScrie itemul nou acum.`;
+  const r = await ai.chatJson({ system, messages: [{ role: 'user', content: user }], temperature: 0.6, maxTokens: 1800, model, restoreLatex: false });
+  const item = deepRestore(r.data?.item || r.data);
+  if (!item || typeof item !== 'object' || !String(item.statement || '').trim()) throw new Error('item regenerat invalid');
+  item.number = old.number;
+  if (Array.isArray(old.options) && !Array.isArray(item.options)) throw new Error('itemul regenerat nu mai e grilă');
+  if (Array.isArray(old.parts) && !Array.isArray(item.parts)) throw new Error('itemul regenerat nu mai are subpuncte');
+  return { item, usage: r.usage };
+}
+
+// Orchestrarea: validare → regenerare la erori → verificare → regenerare la
+// dezacord → raport. Nu aruncă niciodată (testul pleacă oricum, cu raportul).
+async function verifyAndRepairExam(exam, { examType, model, supa, userId }) {
+  const report = { validated: false, errors: [], warnings: [], checked: 0, disagreed: 0, regenerated: 0, unsure: [], skipped: 0 };
+  const usage = { in: 0, out: 0, model };
+  const add = (u) => { if (u) { usage.in += u.in || 0; usage.out += u.out || 0; } };
+  const refOf = (si, ii) => `${(exam.subjects[si]?.label || `S${si + 1}`).replace(/^SUBIECTUL\s+/i, '')} · ${exam.subjects[si]?.items?.[ii]?.number || ii + 1}`;
+  try {
+    if (examType === 'evaluare-nationala') fixEnPoints(exam);
+    // 1) validare structurală (repară LaTeX, normalizează literele, scoate figurile nepermise)
+    let v = validate.validateExam(exam, { examType, fixLatex: med.fixLatex });
+    report.validated = true;
+    report.warnings = v.warnings.slice(0, 20);
+    // erorile PER ITEM → regenerare țintită (max 4 itemi)
+    const itemErrors = v.errors.filter((e) => /·/.test(e)).slice(0, 4);
+    for (const err of itemErrors) {
+      const m = /^(.+?) · (\S+):/.exec(err);
+      if (!m) continue;
+      const si = exam.subjects.findIndex((s) => String(s.label || '') === m[1]);
+      if (si < 0) continue;
+      const ii = exam.subjects[si].items.findIndex((it) => String(it.number) === m[2]);
+      if (ii < 0) continue;
+      try {
+        const r = await regenItem({ exam, examType, si, ii, reason: err.replace(/^.*?:\s*/, ''), model });
+        add(r.usage);
+        exam.subjects[si].items[ii] = r.item;
+        report.regenerated++;
+      } catch (e) { report.warnings.push(`${refOf(si, ii)}: regenerarea a eșuat (${e.message})`); }
+    }
+    if (examType === 'evaluare-nationala') fixEnPoints(exam);
+    v = validate.validateExam(exam, { examType, fixLatex: med.fixLatex });
+    report.errors = v.errors.slice(0, 20);
+
+    // 2) verificatorul independent (doar itemii cu răspuns verificabil)
+    if (verify.ENABLED) {
+      const targets = [];
+      exam.subjects.forEach((sub, si) => (sub.items || []).forEach((it, ii) => {
+        const verifiable = Array.isArray(it.options) || (it.answer != null && String(it.answer).trim() && !Array.isArray(it.parts));
+        if (verifiable) targets.push({ id: `${si}:${ii}`, statement: it.statement, options: it.options, answer: it.answer });
+      }));
+      const first = await verify.verifyItems(targets, { model: process.env.AI_VERIFY_MODEL || model });
+      add(first.usage);
+      report.checked = first.checked; report.skipped = first.skipped;
+      const disagreed = first.results.filter((r) => r && r.agree === false);
+      report.disagreed = disagreed.length;
+      for (const d of disagreed.slice(0, 6)) {
+        const [si, ii] = d.id.split(':').map(Number);
+        try {
+          const r = await regenItem({ exam, examType, si, ii, reason: `răspunsul nu s-a confirmat la verificarea independentă (verificatorul a obținut „${d.verifier?.answer || d.verifier?.letter || '?'}")`, model });
+          add(r.usage);
+          exam.subjects[si].items[ii] = r.item;
+          report.regenerated++;
+          // a doua verificare a itemului nou
+          const again = await verify.verifyItem({ id: d.id, statement: r.item.statement, options: r.item.options, answer: r.item.answer }, { model: process.env.AI_VERIFY_MODEL || model });
+          add(again.usage);
+          if (again.agree === false) { exam.subjects[si].items[ii].unsure = true; report.unsure.push(refOf(si, ii)); }
+        } catch (e) {
+          exam.subjects[si].items[ii].unsure = true;
+          report.unsure.push(refOf(si, ii));
+          report.warnings.push(`${refOf(si, ii)}: regenerarea a eșuat (${e.message})`);
+        }
+      }
+      if (examType === 'evaluare-nationala') fixEnPoints(exam);
+      const v2 = validate.validateExam(exam, { examType, fixLatex: med.fixLatex });
+      report.errors = v2.errors.slice(0, 20);
+    }
+  } catch (e) {
+    report.warnings.push(`verificarea nu s-a putut încheia: ${e.message}`);
+  }
+  try { if (usage.in || usage.out) await ai.logUsage(supa, userId, 'ai-exam:verify', usage); } catch { /* nu blocăm */ }
+  return report;
+}
+
 // ── Specificația figurilor geometrice: AI-ul descrie figura ca obiect JSON,
 //    iar clientul o desenează determinist (src/lib/figureRender.js) — figura
 //    apare sub enunț, în dreapta paginii, ca în subiectele oficiale. ─────────
@@ -410,9 +538,23 @@ Sursele provin din subcategorii diferite (marcate în paranteză la fiecare TEST
       console.error('ai-exam: structură goală (subiecte/itemi lipsă)');
       return res.status(502).json({ error: 'Generatorul a returnat un test incomplet. Mai încearcă o dată.' });
     }
-    return res.status(200).json({ exam, combinedFrom });
+
+    // ── Etapa 2 (1.3): VALIDARE STRUCTURALĂ + VERIFICATOR INDEPENDENT ──
+    // 1) validarea deterministă (puncte/subiect, 4 variante, litera răspunsului,
+    //    figuri, LaTeX) — la erori, itemii cu probleme se regenerează țintit;
+    // 2) fiecare item cu răspuns verificabil (grilă / răspuns scurt) e rezolvat
+    //    de un al doilea apel, FĂRĂ cheia generatorului; la dezacord itemul se
+    //    regenerează o dată; dacă nici așa nu se confirmă, rămâne, marcat
+    //    „nesigur" (profesorul vede avertismentul și poate edita/șterge itemul).
+    const genModel = ai.pickModel(ai.GEN_MODEL, lim);
+    const verification = await verifyAndRepairExam(exam, { examType, model: genModel, supa, userId });
+    return res.status(200).json({ exam, combinedFrom, verification });
   } catch (err) {
     console.error('ai-exam error:', err);
     return res.status(err.status || 500).json({ error: err.message || 'Eroare server', code: err.code || null });
   }
 };
+// pentru teste (test/etapa2-*.test.js) — orchestrarea de verificare/reparare
+module.exports.verifyAndRepairExam = verifyAndRepairExam;
+module.exports.fixEnPoints = fixEnPoints;
+module.exports.regenItem = regenItem;

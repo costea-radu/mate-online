@@ -101,7 +101,9 @@ României; „luna" = ultimele 30 de zile rulante (nu se poate „arde" totul pe
 | Sub limita soft | Peste limita soft |
 |---|---|
 | chat → `AI_CHAT_MODEL` | chat → `AI_ECON_CHAT_MODEL` (default `gpt-4o-mini`) |
+| explicații pas-cu-pas (tutor/explain/hint) → `AI_TUTOR_MODEL` (Etapa 2; default = `AI_CHAT_MODEL`) | → `AI_CHAT_MODEL` |
 | corectare/generare → `AI_PDF_CHAT_MODEL` / `AI_GEN_CHAT_MODEL` | → `AI_CHAT_MODEL` (modelul standard) |
+| verificatorul independent al itemilor generați → `AI_VERIFY_MODEL` (Etapa 2; default = modelul de generare) | — (plafonat de `AI_VERIFY_MAX_ITEMS` / `AI_VERIFY_TIME_MS`) |
 
 Folosită în: chat (normal + streaming, inclusiv agentul PDF), corectarea de teste
 (formular + notare), generarea de teste de examen, exercițiile interactive,

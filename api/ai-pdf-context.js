@@ -20,7 +20,7 @@
 // Regula de aur rămâne: mai bine NICIUN barem decât baremul GREȘIT.
 // =====================================================================
 const ai = require('./_lib/ai');
-const { storagePath, pageRenderer } = require('./_lib/pdftext');
+const { storagePath, pageRenderer, toPdfData } = require('./_lib/pdftext');
 const B = require('./_lib/barem');
 
 const MAX_PAGES = parseInt(process.env.AI_PDF_MAX_PAGES || '20', 10);
@@ -31,7 +31,8 @@ const CONTENT_CANDIDATES = parseInt(process.env.AI_BAREM_CONTENT_CANDIDATES || '
 
 // Descarcă un PDF din `content` și îi extrage textul (cu rezervă pe Storage).
 // Răspuns: { text (tăiat la maxChars), full (tot textul), chars, truncated }
-async function contentPdfText(supa, content, maxChars) {
+// Octeții PDF-ului unui material (URL public / semnat, cu rezervă pe Storage)
+async function downloadContentPdf(supa, content) {
   const url = content.is_free ? content.file_url : await ai.signedUrlFromPublic(supa, content.file_url, 300);
   let buf = null;
   try {
@@ -46,17 +47,26 @@ async function contentPdfText(supa, content, maxChars) {
     } catch { /* rămâne null */ }
     if (!buf) throw new Error('Nu am putut descărca fișierul: ' + e.message);
   }
+  return buf;
+}
+
+async function contentPdfText(supa, content, maxChars) {
+  const buf = await downloadContentPdf(supa, content);
   let text = '';
+  const pages = []; // textul FIECĂREI pagini (Etapa 2: paginile exercițiului merg la model)
   try {
     const pdfParse = require('pdf-parse');
     // pageRenderer: rânduri în ordinea vizuală, cu spații corecte — altfel
     // formulele („x*y=5(x-1)(y-1)+1", fracții) ies terci și AI-ul citește greșit
-    const parsed = await pdfParse(buf, { max: MAX_PAGES, pagerender: pageRenderer });
+    const parsed = await pdfParse(toPdfData(buf), {
+      max: MAX_PAGES,
+      pagerender: (pd) => pageRenderer(pd).then((t) => { pages.push(String(t || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()); return t; }),
+    });
     text = String(parsed.text || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
   } catch (e) {
     console.warn('ai-pdf-context pdf-parse:', e.message);
   }
-  return { text: text.slice(0, maxChars), full: text, chars: text.length, truncated: text.length > maxChars };
+  return { text: text.slice(0, maxChars), full: text, chars: text.length, truncated: text.length > maxChars, pages, buf };
 }
 
 // ── DECIZIA test ↔ barem (pură: primește candidații și un cititor de text) ────
@@ -197,6 +207,7 @@ async function computePdfContext(supa, content) {
     barem,
     baremText,
     baremStatus,
+    pageTexts: main.pages || [], // Etapa 2: pentru localizarea paginii exercițiului
   };
 }
 
@@ -208,7 +219,7 @@ async function computePdfContext(supa, content) {
 // asociere „negăsit"/„ambiguu" se reîncearcă după CACHE_RETRY_HOURS (poate
 // apărea baremul între timp). Lipsa tabelei nu blochează nimic (warnOnce).
 const CACHE_RETRY_HOURS = parseInt(process.env.AI_PDF_CACHE_RETRY_HOURS || '24', 10);
-const CACHE_OK = new Set(['ok', 'ok_antet', 'ok_continut', 'inclus', 'este_barem']);
+const CACHE_OK = new Set(['ok', 'ok_antet', 'ok_continut', 'inclus', 'este_barem', 'ok_admin']);
 const warned = new Set();
 const warnOnce = (k, m) => { if (!warned.has(k)) { warned.add(k); console.warn(m); } };
 
@@ -217,6 +228,7 @@ async function readCache(supa, content) {
     const { data, error } = await supa.from('ai_pdf_text').select('*').eq('content_id', content.id).maybeSingle();
     if (error) { warnOnce('ai_pdf_text', `ai_pdf_text indisponibilă (${error.message}) — rulează supabase/ai_pdf_cache.sql; continui fără cache.`); return null; }
     if (!data || data.file_url !== content.file_url) return null; // fișier schimbat → recalcul
+    if (!String(data.text || '').trim()) return null;             // rând doar cu override (fără text încă) → recalcul
     if (!CACHE_OK.has(data.barem_status)) {
       const age = Date.now() - new Date(data.updated_at || 0).getTime();
       if (age > CACHE_RETRY_HOURS * 3600 * 1000) return null; // reîncercăm asocierea
@@ -225,33 +237,85 @@ async function readCache(supa, content) {
       text: data.text || '', chars: data.chars || (data.text || '').length, truncated: !!data.truncated,
       title: content.title || null, fileName: B.fileNameOf(content) || null, category: content.category || null,
       barem: data.barem || null, baremText: data.barem_text || '', baremStatus: data.barem_status || 'negasit',
+      pageTexts: Array.isArray(data.page_texts) ? data.page_texts : [],
+      baremOverride: data.barem_override_id || null,
       cached: true,
     };
   } catch (e) { warnOnce('ai_pdf_text_e', `ai_pdf_text: ${e.message}`); return null; }
 }
 async function writeCache(supa, content, ctx) {
+  const row = {
+    content_id: content.id, file_url: content.file_url,
+    text: ctx.text || '', chars: ctx.chars || 0, truncated: !!ctx.truncated,
+    barem_id: ctx.barem?.id || null, barem: ctx.barem || null, barem_text: ctx.baremText || '',
+    barem_status: ctx.baremStatus || 'negasit', updated_at: new Date().toISOString(),
+  };
   try {
-    const { error } = await supa.from('ai_pdf_text').upsert({
-      content_id: content.id, file_url: content.file_url,
-      text: ctx.text || '', chars: ctx.chars || 0, truncated: !!ctx.truncated,
-      barem_id: ctx.barem?.id || null, barem: ctx.barem || null, barem_text: ctx.baremText || '',
-      barem_status: ctx.baremStatus || 'negasit', updated_at: new Date().toISOString(),
-    }, { onConflict: 'content_id' });
+    // page_texts e coloană din Etapa 2 (supabase/ai_pdf_cache_v2.sql): fără ea, scriem restul
+    let { error } = await supa.from('ai_pdf_text').upsert({ ...row, ...(Array.isArray(ctx.pageTexts) ? { page_texts: ctx.pageTexts } : {}) }, { onConflict: 'content_id' });
+    if (error && /page_texts/.test(error.message || '')) {
+      warnOnce('ai_pdf_text_pages', 'ai_pdf_text fără coloana page_texts — rulează supabase/ai_pdf_cache_v2.sql (paginile PDF către model nu se pot localiza din cache).');
+      ({ error } = await supa.from('ai_pdf_text').upsert(row, { onConflict: 'content_id' }));
+    }
     if (error) warnOnce('ai_pdf_text_w', `ai_pdf_text: scrierea în cache a eșuat (${error.message}) — rulează supabase/ai_pdf_cache.sql.`);
   } catch (e) { warnOnce('ai_pdf_text_we', `ai_pdf_text: ${e.message}`); }
+}
+
+// ── Asocierea CONFIRMATĂ DE ADMIN (Etapa 2, punctul 3.1) ─────────────────────
+// ai_pdf_text.barem_override_id: baremul ales de administrator pentru un test
+// (are prioritate față de potrivirea automată). null = automat.
+async function readOverride(supa, contentId) {
+  try {
+    const { data, error } = await supa.from('ai_pdf_text').select('barem_override_id').eq('content_id', contentId).maybeSingle();
+    if (error || !data) return null;
+    return data.barem_override_id || null;
+  } catch { return null; }
+}
+async function applyOverride(supa, content, ctx, overrideId) {
+  if (!overrideId) return ctx;
+  if (ctx.barem && ctx.barem.id === overrideId && ctx.baremStatus === 'ok_admin') return ctx;
+  const { data: ov } = await supa.from('content').select('*').eq('id', overrideId).maybeSingle();
+  if (!ov || !ov.file_url) { warnOnce(`ov:${overrideId}`, `ai-pdf-context: baremul asociat manual ${overrideId} nu mai există`); return ctx; }
+  let text = '';
+  try { text = (await contentPdfText(supa, ov, BAREM_MAX_CHARS)).text; } catch (e) { warnOnce(`ovr:${overrideId}`, `ai-pdf-context: baremul asociat manual nu a putut fi citit (${e.message})`); return ctx; }
+  const next = {
+    ...ctx,
+    barem: { id: ov.id, title: ov.title || 'Barem', fileName: B.fileNameOf(ov) || null, matchedBy: 'admin', evidence: 'asociat manual de administrator', contentScore: null },
+    baremText: text, baremStatus: 'ok_admin', baremOverride: overrideId,
+  };
+  await writeCache(supa, content, next); // textul baremului intră în cache (nu se re-parsează)
+  return next;
+}
+
+// Admin: setează / șterge asocierea manuală (baremId=null → automat)
+async function setOverride(supa, content, baremId) {
+  const payload = { content_id: content.id, barem_override_id: baremId || null };
+  const { data: existing } = await supa.from('ai_pdf_text').select('content_id').eq('content_id', content.id).maybeSingle();
+  const { error } = existing
+    ? await supa.from('ai_pdf_text').update({ barem_override_id: baremId || null, updated_at: new Date().toISOString() }).eq('content_id', content.id)
+    : await supa.from('ai_pdf_text').insert({ ...payload, file_url: content.file_url, text: '', barem_status: 'negasit' });
+  if (error) { const e = new Error(`Nu am putut salva asocierea (${error.message}) — rulează supabase/ai_pdf_cache_v2.sql.`); e.status = 500; throw e; }
+  if (!baremId) {
+    // revenim la potrivirea automată: recalcul la următoarea deschidere
+    await supa.from('ai_pdf_text').update({ barem_status: 'negasit', barem_id: null, barem: null, barem_text: '', updated_at: new Date(0).toISOString() }).eq('content_id', content.id);
+  }
 }
 
 // Contextul PDF al unui material, din cache sau calculat (și pus în cache).
 // Folosit de handlerul de mai jos ȘI de ai-correct (care NU mai are încredere
 // în textul/baremul trimise din browser, ci le recitește de aici).
 async function getPdfContext(supa, content, { refresh = false } = {}) {
-  if (!refresh) {
-    const hit = await readCache(supa, content);
-    if (hit) return hit;
+  let ctx = null;
+  if (!refresh) ctx = await readCache(supa, content);
+  if (!ctx) {
+    ctx = await computePdfContext(supa, content);
+    await writeCache(supa, content, ctx);
+    ctx = { ...ctx, cached: false };
   }
-  const ctx = await computePdfContext(supa, content);
-  await writeCache(supa, content, ctx);
-  return { ...ctx, cached: false };
+  // asocierea confirmată de admin are prioritate față de cea automată
+  const ov = ctx.baremOverride !== undefined && ctx.cached ? ctx.baremOverride : await readOverride(supa, content.id);
+  if (ov) ctx = await applyOverride(supa, content, ctx, ov);
+  return ctx;
 }
 
 // Materialul + verificarea accesului (gratuit / abonat / admin). Aruncă 404/403.
@@ -275,9 +339,30 @@ module.exports = async function handler(req, res) {
     const userId = await ai.authUser(req, supa);
     const profile = await ai.requireUser(supa, userId);
 
-    const { contentId, refresh = false } = req.body || {};
+    const { contentId, refresh = false, action = null } = req.body || {};
     if (!contentId) return res.status(400).json({ error: 'contentId obligatoriu' });
     const content = await loadContentForUser(supa, contentId, profile);
+
+    // ── acțiuni ADMIN: asocierea manuală test ↔ barem (Etapa 2, 3.1) ──
+    if (action === 'candidates' || action === 'set_barem') {
+      if (!profile.is_admin) return res.status(403).json({ error: 'Doar administratorii pot asocia bareme.' });
+      if (action === 'candidates') {
+        const { data: rows } = await supa.from('content').select('id, title, category, subcategory, file_url')
+          .eq('content_type', 'pdf').eq('category', content.category).neq('id', content.id).order('title', { ascending: true }).limit(400);
+        const list = (rows || []).filter((c) => c.file_url).map((c) => ({ id: c.id, title: c.title, isBarem: B.isBaremRow(c) }))
+          .sort((a, b) => (b.isBarem - a.isBarem) || String(a.title).localeCompare(String(b.title), 'ro'));
+        const current = await getPdfContext(supa, content).catch(() => null);
+        return res.status(200).json({ candidates: list, current: current ? { barem: current.barem, baremStatus: current.baremStatus, override: current.baremOverride || null } : null });
+      }
+      const { baremId = null } = req.body || {};
+      if (baremId) {
+        const { data: b } = await supa.from('content').select('id, content_type, file_url').eq('id', baremId).maybeSingle();
+        if (!b || b.content_type !== 'pdf' || !b.file_url) return res.status(400).json({ error: 'Baremul ales nu este un PDF valid.' });
+      }
+      await setOverride(supa, content, baremId);
+      const ctx = await getPdfContext(supa, content, { refresh: !baremId });
+      return res.status(200).json({ ok: true, barem: ctx.barem, baremStatus: ctx.baremStatus, override: baremId || null });
+    }
 
     let ctx;
     try {
@@ -296,3 +381,6 @@ module.exports.chooseBarem = chooseBarem;
 module.exports.getPdfContext = getPdfContext;
 module.exports.computePdfContext = computePdfContext;
 module.exports.loadContentForUser = loadContentForUser;
+module.exports.contentPdfText = contentPdfText;
+module.exports.downloadContentPdf = downloadContentPdf;
+module.exports.setOverride = setOverride;

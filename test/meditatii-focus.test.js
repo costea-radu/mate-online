@@ -75,12 +75,14 @@ test('nextChapter: capitolele lucrării au prioritate; la final revine la plan',
 });
 
 test('focusInfo: progres, zile rămase și ritmul necesar pentru data limită', () => {
-  const f = med.cleanFocus({ kind: 'lucrare', chapterIds: ['c7-reale', 'c7-ecuatii', 'c7-patrulatere'], deadline: inDays(14) });
+  // 15 zile (nu 14): termenul e o DATĂ (ora 00:00), deci seara „zilele rămase"
+  // cad la 13 și ritmul sărea la 2/săptămână — testul pica după-amiaza/seara
+  const f = med.cleanFocus({ kind: 'lucrare', chapterIds: ['c7-reale', 'c7-ecuatii', 'c7-patrulatere'], deadline: inDays(15) });
   const { plan, focus } = med.applyFocus({ profile: PROF7, plan: PLAN7, focus: f });
   const info = med.focusInfo({ focus }, plan);
   assert.strictEqual(info.total, 3);
   assert.strictEqual(info.done, 1);                    // c7-reale e finalizat
-  assert.ok(info.daysLeft >= 13 && info.daysLeft <= 14);
+  assert.ok(info.daysLeft >= 14 && info.daysLeft <= 15);
   assert.strictEqual(info.perWeek, 1);                 // 2 rămase / 2 săptămâni
   assert.strictEqual(info.overdue, false);
   assert.ok(info.kindLabel.includes('ucrare'));

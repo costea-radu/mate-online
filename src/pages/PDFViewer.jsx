@@ -294,7 +294,7 @@ function PdfCanvasViewer({ data, blobUrl, onFail }) {
 export default function PDFViewer() {
   const { state } = useLocation();
   const navigate = useNavigate();
-  const { user, isPremium, loading: authLoading } = useAuth();
+  const { user, isPremium, isAdmin, loading: authLoading } = useAuth();
   const [blobUrl, setBlobUrl] = useState(null);
   const [pdfData, setPdfData] = useState(null);       // ArrayBuffer — viewerul intern de pe mobil
   const [viewerFailed, setViewerFailed] = useState(false); // pdf.js indisponibil → varianta veche
@@ -314,6 +314,8 @@ export default function PDFViewer() {
   const [pdfFileName, setPdfFileName] = useState(null); // numele original al fișierului testului
   const [barem, setBarem] = useState(null);          // {title, text, fileName} — baremul asociat testului
   const [pdfLoading, setPdfLoading] = useState(false);
+  // Admin (Etapa 2, 3.1): alegerea manuală a baremului pentru acest test
+  const [baremPick, setBaremPick] = useState({ open: false, loading: false, candidates: [], override: null, choice: '', saving: false, msg: null });
   const [narrow, setNarrow] = useState(typeof window !== 'undefined' && window.innerWidth < 800);
   useEffect(() => {
     const onResize = () => setNarrow(window.innerWidth < 800);
@@ -343,23 +345,49 @@ export default function PDFViewer() {
   }
 
   // Textul PDF-ului se aduce o singură dată, când elevul deschide profesorul
-  useEffect(() => {
-    if (!tutorOpen || !item?.id || pdfText !== null || pdfLoading) return;
+  // (și din nou după ce adminul schimbă baremul asociat)
+  function loadPdfContext() {
+    if (!item?.id) return;
     setPdfLoading(true);
     aiClient.pdfContext({ contentId: item.id })
       .then((r) => {
         setPdfText(r?.text || '');
         setPdfFileName(r?.fileName || null);
         // baremul asociat (BAC sau Evaluare Națională) + dovada potrivirii:
-        // metadate (titlu/fișier), antetul PDF-urilor (an + variantă), conținut
-        // sau „inclus" (subiecte + barem în același fișier)
+        // metadate (titlu/fișier), antetul PDF-urilor (an + variantă), conținut,
+        // „inclus" (subiecte + barem în același fișier) sau „admin" (asociat manual)
         setBarem(r?.baremText && r?.barem
           ? { title: r.barem.title || 'Barem', text: r.baremText, fileName: r.barem.fileName || null, matchedBy: r.barem.matchedBy || null, evidence: r.barem.evidence || null }
           : null);
       })
       .catch(() => setPdfText(''))
       .finally(() => setPdfLoading(false));
+  }
+  useEffect(() => {
+    if (!tutorOpen || !item?.id || pdfText !== null || pdfLoading) return;
+    loadPdfContext();
   }, [tutorOpen, item?.id]); // eslint-disable-line
+
+  // Admin: deschide lista de bareme-candidat din aceeași categorie
+  async function openBaremPick() {
+    if (baremPick.open) { setBaremPick((b) => ({ ...b, open: false, msg: null })); return; }
+    setBaremPick((b) => ({ ...b, open: true, loading: true, msg: null }));
+    try {
+      const r = await aiClient.pdfBaremCandidates({ contentId: item.id });
+      const override = r?.current?.override || null;
+      setBaremPick((b) => ({ ...b, loading: false, candidates: r?.candidates || [], override, choice: override || (r?.current?.barem?.id || '') }));
+    } catch (e) { setBaremPick((b) => ({ ...b, loading: false, msg: 'Eroare: ' + e.message })); }
+  }
+  // Admin: salvează asocierea (baremId=null → înapoi la potrivirea automată)
+  async function saveBaremPick(baremId) {
+    setBaremPick((b) => ({ ...b, saving: true, msg: null }));
+    try {
+      await aiClient.pdfSetBarem({ contentId: item.id, baremId });
+      setBaremPick((b) => ({ ...b, saving: false, open: false, override: baremId || null, msg: null }));
+      setPdfText(null); // reîncărcăm textul + baremul (serverul a pus noul barem în cache)
+      loadPdfContext();
+    } catch (e) { setBaremPick((b) => ({ ...b, saving: false, msg: 'Eroare: ' + e.message })); }
+  }
 
   const tutorContext = useMemo(() => ({
     pdf: true,
@@ -501,6 +529,11 @@ export default function PDFViewer() {
     border:`1px solid ${item?.is_free ? 'rgba(39,174,96,0.3)' : 'rgba(232,185,49,0.3)'}`,
     whiteSpace:'nowrap',
   };
+  // butonul mic de admin din rândul cu baremul (⚙ barem)
+  const adminBtn = {
+    background:'#fff', border:'1px solid var(--border)', color:'var(--navy)', borderRadius:6,
+    padding:'2px 8px', cursor:'pointer', fontSize:'.7rem', fontWeight:600, whiteSpace:'nowrap', flexShrink:0,
+  };
 
   // ── Butonul din bară (vizibil și pe desktop, și pe mobil) ────────────────
   const tutorBtn = (
@@ -580,11 +613,44 @@ export default function PDFViewer() {
           'Explicațiile și răspunsurile se dau pe baza acestui barem oficial',
           barem.fileName && barem.matchedBy !== 'inclus' ? `(fișier: ${barem.fileName})` : '',
           barem.evidence ? `— potrivire: ${barem.evidence}` : '',
-          barem.matchedBy ? `[${{ inclus: 'baremul e în același PDF', metadate: 'titlu + numele fișierului', 'metadate+antet': 'titlu/fișier, confirmate de antetul PDF-urilor', 'metadate+continut': 'titlu/fișier, confirmate de conținut', antet: 'antetul PDF-urilor (an + variantă)', 'antet+continut': 'antetul PDF-urilor + conținut', continut: 'conținutul (numerele din enunțuri)' }[barem.matchedBy] || barem.matchedBy}]` : '',
+          barem.matchedBy ? `[${{ inclus: 'baremul e în același PDF', metadate: 'titlu + numele fișierului', 'metadate+antet': 'titlu/fișier, confirmate de antetul PDF-urilor', 'metadate+continut': 'titlu/fișier, confirmate de conținut', antet: 'antetul PDF-urilor (an + variantă)', 'antet+continut': 'antetul PDF-urilor + conținut', continut: 'conținutul (numerele din enunțuri)', admin: 'asociat manual de administrator' }[barem.matchedBy] || barem.matchedBy}]` : '',
         ].filter(Boolean).join(' ')}
-          style={{ padding: '5px 12px', fontSize: '.74rem', fontWeight: 600, color: '#1e7e34', background: '#f0f9f1', borderBottom: '1px solid var(--border)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          📋 Barem asociat: {barem.matchedBy === 'inclus' ? 'inclus în acest PDF' : barem.title}
-          {barem.evidence && barem.matchedBy !== 'inclus' ? <span style={{ fontWeight: 400, color: '#2d7a3a' }}> · {barem.evidence}</span> : null}
+          style={{ padding: '5px 12px', fontSize: '.74rem', fontWeight: 600, color: '#1e7e34', background: '#f0f9f1', borderBottom: '1px solid var(--border)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            📋 Barem asociat: {barem.matchedBy === 'inclus' ? 'inclus în acest PDF' : barem.title}
+            {barem.evidence && barem.matchedBy !== 'inclus' ? <span style={{ fontWeight: 400, color: '#2d7a3a' }}> · {barem.evidence}</span> : null}
+          </span>
+          {isAdmin && <button type="button" onClick={openBaremPick} title="Admin: alege manual baremul acestui test" style={adminBtn}>⚙ barem</button>}
+        </div>
+      )}
+      {/* Admin: testul n-are barem asociat automat → poate fi ales manual */}
+      {!pdfLoading && !barem && isAdmin && pdfText !== null && (
+        <div style={{ padding: '5px 12px', fontSize: '.74rem', fontWeight: 600, color: '#8a6d1a', background: '#fffbea', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ flex: 1 }}>📋 Fără barem asociat (doar adminii văd acest rând)</span>
+          <button type="button" onClick={openBaremPick} title="Admin: alege manual baremul acestui test" style={adminBtn}>⚙ asociază barem</button>
+        </div>
+      )}
+      {/* Admin: lista de bareme-candidat (aceeași categorie) — asocierea se salvează pe server (ai_pdf_text.barem_override_id) */}
+      {isAdmin && baremPick.open && (
+        <div style={{ padding: '8px 12px', fontSize: '.76rem', background: '#f7f9fc', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {baremPick.loading ? <span style={{ color: 'var(--text-muted)' }}>caut baremele din categorie…</span> : (
+            <>
+              <select value={baremPick.choice} onChange={(e) => setBaremPick((b) => ({ ...b, choice: e.target.value }))}
+                style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 7px', fontSize: '.76rem' }}>
+                <option value="">— alege baremul (PDF din aceeași categorie) —</option>
+                {baremPick.candidates.map((c) => <option key={c.id} value={c.id}>{c.isBarem ? '📋 ' : '📄 '}{c.title}</option>)}
+              </select>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button type="button" disabled={baremPick.saving || !baremPick.choice} onClick={() => saveBaremPick(baremPick.choice)} className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '.74rem' }}>
+                  {baremPick.saving ? 'Salvez…' : '✓ Folosește acest barem'}
+                </button>
+                <button type="button" disabled={baremPick.saving || !baremPick.override} onClick={() => saveBaremPick(null)} className="btn btn-outline" style={{ padding: '4px 10px', fontSize: '.74rem' }}
+                  title="Șterge asocierea manuală; serverul potrivește din nou automat">↺ Automat</button>
+                <span style={{ color: 'var(--text-muted)' }}>{baremPick.override ? 'asociere manuală activă' : 'potrivire automată'}</span>
+              </div>
+              {baremPick.msg && <span style={{ color: '#b71c1c' }}>{baremPick.msg}</span>}
+            </>
+          )}
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0 }}>

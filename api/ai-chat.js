@@ -7,6 +7,7 @@
 // =====================================================================
 const ai = require('./_lib/ai');
 const pregen = require('./_lib/pregen');
+const pdfpages = require('./_lib/pdfpages'); // userContent: text + pagina PDF atașată (Etapa 2)
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -25,8 +26,9 @@ module.exports = async function handler(req, res) {
     const premium = ai.isPremium(profile);
 
     // 1-3. RAG + conversație + istoric + system prompt (helper comun cu ai-chat-stream)
-    const { convId, primaryMaterial, priorMsgs, system, sources, baremItem, regenerated } =
+    const { convId, primaryMaterial, priorMsgs, system, sources, baremItem, regenerated, attachments = [] } =
       await ai.prepareChat(supa, { userId, message, mode, conversationId, context, premium, regenerate: !!regenerate });
+    const userContent = pdfpages.userContent(message, attachments); // text (+ pagina PDF, Etapa 2)
 
     // 3½. Explicație PRE-GENERATA (pasul 3): la prima cerere CANONICĂ
     // („explică-mi” / „dă-mi un indiciu”) despre un material din site,
@@ -43,17 +45,18 @@ module.exports = async function handler(req, res) {
       : baremItem
       ? await ai.verifiedPdfReply({
           system, baremItem, mode,
-          messages: [...priorMsgs, { role: 'user', content: message }],
+          messages: [...priorMsgs, { role: 'user', content: userContent }],
           model: ai.pickModel(ai.PDF_MODEL, lim), // peste bugetul zilnic soft → modelul standard
         })
       : await ai.chat({
           system,
-          messages: [...priorMsgs, { role: 'user', content: message }],
+          messages: [...priorMsgs, { role: 'user', content: userContent }],
           temperature: mode === 'hint' ? 0.3 : 0.5,
           maxTokens: 900,
           // pe un PDF deschis citește modelul PDF („terra") — și fără barem;
+          // explicații pas-cu-pas (tutor/explain/hint) → AI_TUTOR_MODEL (1.4);
           // altfel modelul de chat; peste bugetul zilnic soft → unul mai ieftin
-          model: ai.pickModel(context.pdf ? ai.PDF_MODEL : ai.CHAT_MODEL, lim),
+          model: ai.pickModel(ai.chatModelFor(mode, context), lim),
         });
 
     // 5. Salvăm mesajele + actualizăm conversația.

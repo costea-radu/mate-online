@@ -215,6 +215,11 @@ async function stats(supa) {
     pending_queue: pending || 0,
     embeddings_provider: ai.hasEmbeddings() ? ai.EMBED_MODEL : 'inactiv (fallback lexical)',
     chat_model: ai.CHAT_MODEL,
+    // modelele pe moduri (Etapa 2, 1.4) — vizibile în panoul admin AI
+    tutor_model: ai.TUTOR_MODEL,
+    pdf_model: ai.PDF_MODEL,
+    gen_model: ai.GEN_MODEL,
+    reasoning_effort: ai.REASONING_EFFORT || 'implicit',
     ...(await pregen.stats(supa)), // pregen_total + pregen_pending (pasul 3)
   };
 }

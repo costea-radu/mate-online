@@ -263,10 +263,17 @@ function pageRenderer(pageData) {
     .then((tc) => linesFromTextContent(tc));
 }
 
+// Datele pentru pdf-parse: o COPIE Uint8Array. Un Buffer mic (< 4 KB) din
+// Node e o felie dintr-un slab comun de 8 KB; pdf.js (v1.10 din pdf-parse)
+// folosește `.buffer` întreg → „bad XRef entry" pe PDF-uri mici. Copia evită asta.
+function toPdfData(buf) {
+  if (buf instanceof Uint8Array && !Buffer.isBuffer(buf) && buf.byteOffset === 0 && buf.byteLength === buf.buffer.byteLength) return buf;
+  return new Uint8Array(buf);
+}
 async function pdfText(buf, cap = 4500) {
   try {
     const pdfParse = require('pdf-parse');
-    const r = await pdfParse(buf, { max: 12, pagerender: pageRenderer });
+    const r = await pdfParse(toPdfData(buf), { max: 12, pagerender: pageRenderer });
     return cutBarem(String(r.text || '')).replace(/\s+/g, ' ').trim().slice(0, cap);
   } catch (e) { console.warn('pdf-parse:', e.message); return ''; }
 }
@@ -280,4 +287,4 @@ function storagePath(fileUrl) {
 const MODE_KEEP = 'PĂSTREAZĂ DATELE PROBLEMELOR: copiază itemii-sursă EXACT, cu aceleași numere, valori și notații — doar transcrii/convertești formatul, fără nicio modificare de conținut.';
 const MODE_MODIFY = 'MODIFICĂ NUMERELE ȘI NOTAȚIILE față de surse și RECALCULEAZĂ tot (rezultat, variante greșite, barem). VERIFICĂ de două ori fiecare calcul — aici se greșește ușor!';
 const modeLine = (dataMode) => (dataMode === 'keep' ? MODE_KEEP : MODE_MODIFY);
-module.exports = { pdfText, storagePath, modeLine, cutBarem, pageRenderer, linesFromTextContent };
+module.exports = { pdfText, storagePath, modeLine, cutBarem, pageRenderer, linesFromTextContent, toPdfData };

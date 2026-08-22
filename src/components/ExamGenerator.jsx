@@ -49,12 +49,14 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
   const [combining, setCombining] = useState(false);
   const [combineMsg, setCombineMsg] = useState(null);
   const [combineReport, setCombineReport] = useState(null);
+  const [verification, setVerification] = useState(null); // raportul validării + verificatorului independent (Etapa 2)
 
   async function gen() {
-    setLoading(true); setError(null); setUpsell(false); setExam(null); setEditing(false); setPublishMsg(null); setCombineMsg(null); setCombineReport(null);
+    setLoading(true); setError(null); setUpsell(false); setExam(null); setEditing(false); setPublishMsg(null); setCombineMsg(null); setCombineReport(null); setVerification(null);
     try {
       const res = await aiClient.generateExam({ examType, instructions, dataMode, chapters: chapterTitles() });
       setExam(res.exam);
+      setVerification(res.verification || null);
       if (Array.isArray(res.combinedFrom) && res.combinedFrom.length) {
         setCombineMsg('✅ Itemii au fost combinați din: ' + res.combinedFrom.join('; ') + '.');
       }
@@ -192,6 +194,23 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
           </button>
         )}
         {combineMsg && <div style={{ marginTop: 10, fontSize: '.85rem', color: combineMsg.startsWith('✅') ? '#1e7e34' : 'var(--text-muted)' }}>{combineMsg}</div>}
+        {verification && (
+          // Etapa 2: validare structurală + verificator independent (al doilea
+          // model rezolvă fiecare item fără cheie; dezacord → item regenerat).
+          <div style={{ marginTop: 8, fontSize: '.8rem', lineHeight: 1.5, padding: '8px 10px', borderRadius: 8,
+            background: (verification.unsure?.length || verification.errors?.length) ? '#fff4e5' : '#eef7f0',
+            border: `1px solid ${(verification.unsure?.length || verification.errors?.length) ? '#f5d7a8' : '#cde8d4'}`, color: 'var(--text)' }}>
+            {verification.checked > 0
+              ? <span>🔎 Verificare automată: {verification.checked} itemi rezolvați independent de un al doilea model{verification.disagreed ? `, ${verification.disagreed} cu răspuns neconfirmat` : ', toate răspunsurile confirmate'}{verification.regenerated ? ` · ${verification.regenerated} regenerați` : ''}.</span>
+              : <span>🔎 Verificare automată: structura testului validată{verification.skipped ? ' (verificarea răspunsurilor a fost sărită)' : ''}.</span>}
+            {verification.unsure?.length > 0 && (
+              <div style={{ marginTop: 4, color: '#8a5a00', fontWeight: 600 }}>⚠️ Itemi NESIGURI (răspunsul nu s-a confirmat nici după regenerare — verifică-i înainte de a-i folosi): {verification.unsure.join('; ')}</div>
+            )}
+            {verification.errors?.length > 0 && (
+              <div style={{ marginTop: 4, color: '#8a5a00' }}>⚠️ Probleme de structură rămase: {verification.errors.slice(0, 4).join('; ')}{verification.errors.length > 4 ? '…' : ''}</div>
+            )}
+          </div>
+        )}
         {combineReport && (
           <details style={{ marginTop: 6, fontSize: '.78rem', color: 'var(--text-muted)' }}>
             <summary>Vezi de unde vine fiecare exercițiu</summary>
@@ -223,7 +242,7 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
                   {(s.items || []).map((it, ii) => (
                     <div key={ii} style={{ padding: 8, background: '#f7f9fc', borderRadius: 8, marginBottom: 8 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                        <span style={{ fontSize: '.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>Item {it.number}</span>
+                        <span style={{ fontSize: '.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>Item {it.number}{it.unsure && <span title="Răspunsul nu s-a confirmat la verificarea independentă — verifică-l" style={{ marginLeft: 6, color: '#8a5a00', background: '#fff4e5', border: '1px solid #f5d7a8', borderRadius: 10, padding: '1px 7px' }}>⚠ nesigur</span>}</span>
                         <button onClick={() => delItem(si, ii)} style={{ background: 'none', border: '1px solid #f5c6cb', color: '#c0392b', borderRadius: 6, padding: '1px 7px', fontSize: '.72rem', cursor: 'pointer' }}>🗑</button>
                       </div>
                       <label style={{ fontSize: '.74rem', color: 'var(--text-muted)' }}>Enunț

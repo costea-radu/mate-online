@@ -11,6 +11,7 @@
 // Exercițiile sunt EFEMERE: nu se salvează în baza de date.
 // =====================================================================
 const ai = require('./_lib/ai');
+const mathcheck = require('./_lib/mathcheck'); // echivalența matematică (Etapa 2)
 const { S } = ai;
 
 // Tokenul exercițiului (răspuns + rezolvare, semnat HMAC) expiră după 24h —
@@ -149,6 +150,13 @@ async function check(req, res, supa) {
   const data = ai.verifyToken(token);
   if (!data) return res.status(400).json({ error: 'Token invalid sau expirat. Generează din nou exercițiul.' });
 
+  // ARBITRUL DETERMINIST (Etapa 2, 1.3): echivalența matematică dintre răspunsul
+  // elevului și cel de referință se decide în cod, înainte de model —
+  // „1/2" = „0,5", „x=3" = „3". Când e decisă (true/false pe valori numerice),
+  // verdictul modelului NU o poate contrazice; modelul mai dă doar feedbackul.
+  const preEq = mathcheck.answersEquivalent(studentAnswer, data.answer);
+  const numeric = mathcheck.numericVerdict(studentAnswer, data.answer);
+
   // Textul elevului intră în MESAJUL user, între delimitatori și cu lungime
   // limitată — nu în system prompt (unde ar putea „rescrie" instrucțiunile).
   const system = `${ai.PERSONA}
@@ -168,7 +176,7 @@ Răspunde STRICT cu JSON:
   "feedback": "feedback scurt, prietenos; dacă e greșit, arată unde s-a greșit și pasul corect",
   "solution": "rezolvarea corectă pas cu pas (pe scurt)"
 }`;
-  const userMsg = `RĂSPUNSUL ELEVULUI:\n"""${String(studentAnswer || '').slice(0, 600) || '(nu a scris un răspuns final)'}"""\n\nLUCRAREA ELEVULUI:\n"""${String(studentWork || '').slice(0, 2500) || '(fără pași)'}"""\n\nCorectează și răspunde în format JSON.`;
+  const userMsg = `RĂSPUNSUL ELEVULUI:\n"""${String(studentAnswer || '').slice(0, 600) || '(nu a scris un răspuns final)'}"""\n\nLUCRAREA ELEVULUI:\n"""${String(studentWork || '').slice(0, 2500) || '(fără pași)'}"""\n\n${preEq === true ? 'VERIFICARE AUTOMATĂ: răspunsul final al elevului este matematic ECHIVALENT cu cel de referință — verdictul este „corect"; tu verifici doar pașii și dai feedback.' : numeric === false ? 'VERIFICARE AUTOMATĂ: răspunsul final al elevului DIFERĂ numeric de cel de referință — verdictul este „greșit"; explică unde s-a greșit (punctaj parțial pentru metodă corectă).' : ''}\nCorectează și răspunde în format JSON.`;
 
   let parsed, usage;
   try {
@@ -185,6 +193,9 @@ Răspunde STRICT cu JSON:
     throw e;
   }
   await ai.logUsage(supa, userId, 'ai-practice:check', usage);
+  // arbitrul determinist are ultimul cuvânt la „corect/greșit" (vezi mai sus)
+  if (preEq === true) { parsed.correct = true; parsed.score = Math.max(parseInt(parsed.score, 10) || 0, 100); }
+  else if (numeric === false) { parsed.correct = false; parsed.score = Math.min(parseInt(parsed.score, 10) || 0, 60); }
 
   // Actualizăm stăpânirea competenței (medie exponențială).
   try {

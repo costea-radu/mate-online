@@ -25,6 +25,9 @@
 const fs = require('fs');
 const path = require('path');
 const claude = require('./claude');
+// echivalența răspunsurilor în BROWSER (HTML-ul generat): „1/2” = „0,5”, „x=3” = „3”…
+// sursa unică: api/_lib/mathcheck.js → BROWSER_ANS_EQ (oglindită în src/lib/ansEq.js)
+const { BROWSER_ANS_EQ: ANS_EQ_JS } = require('./mathcheck');
 const { modeLine } = require('./pdftext');
 
 function httpErr(status, message) {
@@ -1146,6 +1149,7 @@ const KATEX = `<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/kate
   function rmath(){ if(window.renderMathInElement) renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false}); }
   if(window.renderMathInElement) rmath(); else window.addEventListener('load', rmath);
   function norm(s){return String(s||'').trim().toLowerCase().replace(',','.').replace(/\\s+/g,'');}
+  ${ANS_EQ_JS}
   function showHint(i){var h=document.getElementById('hint'+i);h.style.display=h.style.display==='block'?'none':'block';rmath();}
 <\/script>`;
 
@@ -1191,7 +1195,7 @@ function renderGrila(ex) {
     for(var i=0;i<D.length;i++){
       max+=D[i].p; var ok=false;
       if(D[i].t==='c'){ var s=document.querySelector('input[name="q'+i+'"]:checked'); ok=s&&Number(s.value)===D[i].a; }
-      else { var el=document.querySelector('input[name="q'+i+'"]'); ok=el&&norm(el.value)===norm(D[i].a); }
+      else { var el=document.querySelector('input[name="q'+i+'"]'); ok=el&&ansEq(el.value,D[i].a); }
       if(ok) got+=D[i].p;
       var fb=document.getElementById('fb'+i);
       fb.className='fb '+(ok?'ok':'bad');
@@ -1234,7 +1238,7 @@ function renderEtape(ex) {
     for(var i=0;i<D.length;i++){
       max+=D[i].p;
       var el=document.querySelector('input[name="q'+i+'"]');
-      var ok=el&&norm(el.value)===norm(D[i].a);
+      var ok=el&&ansEq(el.value,D[i].a);
       if(ok) got+=D[i].p;
       var fb=document.getElementById('fb'+i);
       fb.className='fb '+(ok?'ok':'bad');

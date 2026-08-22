@@ -333,6 +333,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // încărcat de elev în chat. Formularul NU pornește automat.
   const [form, setForm] = useState(null);            // { items, hasBarem, total, oficiu, title, src }
   const [formAnswers, setFormAnswers] = useState({});
+  const [formImages, setFormImages] = useState([]);  // poze cu rezolvarea scrisă de mână (data URL), max 3 — Etapa 2
+  const formImgRef = useRef(null);
   const [formLoading, setFormLoading] = useState(false);
   const [grading, setGrading] = useState(false);
   const formStartRef = useRef(null);
@@ -364,7 +366,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       // testul din platformă: serverul recitește textul + baremul după contentId
       const r = await aiClient.correctForm({ testText: src.testText, baremText: src.baremText, title: src.title, category: src.category, contentId: src.contentId });
       setForm({ ...r, src });
-      setFormAnswers({});
+      setFormAnswers({}); setFormImages([]);
       formStartRef.current = Date.now();
     } catch (e) {
       setError(e.message);
@@ -375,7 +377,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   async function submitCorrection() {
     if (!form || grading) return;
     const answered = Object.values(formAnswers).filter((v) => String(v || '').trim()).length;
-    if (!answered) { setError('Completează măcar un răspuns înainte de „Corectează".'); return; }
+    if (!answered && !formImages.length) { setError('Completează măcar un răspuns (sau adaugă o poză cu rezolvarea) înainte de „Corectează".'); return; }
     setGrading(true); setError(null);
     try {
       const durationSec = Math.round((Date.now() - (formStartRef.current || Date.now())) / 1000);
@@ -388,6 +390,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         items: form.items, answers: formAnswers, durationSec,
         meditatii: !!context.meditatii,
         token: form.token || null, // formularul semnat de server
+        images: formImages,        // rezolvarea scrisă de mână (poze) — modelul o citește (Etapa 2)
       });
       if (r.conversationId) setConvId(r.conversationId);
       // corectarea apare în chat: mesajul elevului + verdictul profesorului
@@ -409,7 +412,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         { role: 'assistant', content: r.feedback || 'Am corectat lucrarea ta — vezi punctajul mai jos.', id: r.messageId || undefined, correction: r },
         ...extra,
       ]);
-      setForm(null); setFormAnswers({});
+      setForm(null); setFormAnswers({}); setFormImages([]);
       formStartRef.current = Date.now(); // pregătește o eventuală reîncercare
       // insigne, ca la testele interactive (doar când punctajul s-a salvat)
       if (user && r.saved && r.saved.kind !== 'nesalvat') {
@@ -420,6 +423,19 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       setError(e.message);
       if (e.premium) setUpsell(true);
     } finally { setGrading(false); }
+  }
+
+  // Poze cu rezolvarea scrisă de mână, atașate formularului (max 3, comprimate)
+  async function onPickFormImages(e) {
+    const files = Array.from(e.target.files || []).slice(0, 3 - formImages.length);
+    e.target.value = '';
+    if (!files.length) return;
+    setError(null);
+    try {
+      const urls = [];
+      for (const f of files) urls.push(await fileToCompressedDataUrl(f, { maxDim: 1600, quality: 0.78 }));
+      setFormImages((imgs) => [...imgs, ...urls].slice(0, 3));
+    } catch (err) { setError('Nu am putut citi poza: ' + err.message); }
   }
 
   useEffect(() => {
@@ -1065,6 +1081,21 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                 )}
               </div>
             ))}
+          </div>
+          {/* Pozele cu rezolvarea scrisă de mână (Etapa 2): modelul le citește și punctează pașii din ele */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '6px 12px', borderTop: '1px dashed var(--border)', flexShrink: 0, background: '#fffdf5' }}>
+            <input ref={formImgRef} type="file" accept="image/*" multiple onChange={onPickFormImages} style={{ display: 'none' }} />
+            <button onClick={() => formImgRef.current?.click()} disabled={grading || formImages.length >= 3} style={miniBtn} title="Fotografiază rezolvarea de pe caiet — profesorul o citește și o punctează">
+              📷 Poze cu rezolvarea {formImages.length ? `(${formImages.length}/3)` : ''}
+            </button>
+            {formImages.map((u, k) => (
+              <span key={k} style={{ position: 'relative', display: 'inline-block' }}>
+                <img src={u} alt={`rezolvare ${k + 1}`} style={{ height: 44, width: 44, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
+                <button onClick={() => setFormImages((imgs) => imgs.filter((_, j) => j !== k))} aria-label="Șterge poza"
+                  style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: '50%', border: 'none', background: '#b71c1c', color: '#fff', fontSize: 11, lineHeight: '18px', padding: 0, cursor: 'pointer' }}>✕</button>
+              </span>
+            ))}
+            {!formImages.length && <span style={{ fontSize: '.7rem', color: 'var(--text-muted)' }}>opțional — pașii scriși pe caiet se punctează și ei</span>}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '9px 12px', borderTop: '1px solid var(--border)', flexShrink: 0, background: '#fff' }}>
             <button onClick={submitCorrection} disabled={grading}

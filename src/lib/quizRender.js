@@ -9,6 +9,7 @@
 // Scorul se raportează prin postMessage({type:'MATE_SCORE', score, maxScore}).
 // =====================================================================
 import { autoMath } from './katex';
+import { ANS_EQ_SRC } from './ansEq'; // echivalența răspunsurilor („1/2” = „0,5”, „x=3” = „3”) — Etapa 2
 
 function esc(s = '') {
   return String(autoMath(s || '')).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -71,6 +72,7 @@ export function renderQuiz(title, questions) {
   var ANS = ${JSON.stringify(answers)};
   var EXP = ${JSON.stringify(explanations)};
   function norm(s){return String(s||'').trim().toLowerCase().replace(',','.').replace(/\\s+/g,'');}
+  ${ANS_EQ_SRC}
   function render(){ if(window.renderMathInElement) renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false}); }
   if(window.renderMathInElement) render(); else window.addEventListener('load', render);
   document.getElementById('check').addEventListener('click', function(){
@@ -82,7 +84,7 @@ export function renderQuiz(title, questions) {
         ok = sel && Number(sel.value)===ANS[i].answer;
       } else {
         var el=document.querySelector('input[name="q'+i+'"]');
-        ok = el && norm(el.value)===norm(ANS[i].answer);
+        ok = el && ansEq(el.value, ANS[i].answer);
       }
       if(ok) correct++;
       fb.className='fb '+(ok?'ok':'bad');

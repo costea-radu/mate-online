@@ -214,6 +214,11 @@ export const aiClient = {
 
   // Textul unui PDF deschis — ca Profesorul Virtual să „vadă" exercițiile din el
   pdfContext: ({ contentId }) => post('/api/ai-pdf-context', { contentId }),
+  // Admin (Etapa 2, 3.1): asocierea test ↔ barem confirmată manual.
+  //   candidates → { candidates:[{id,title,isBarem}], current:{barem,baremStatus,override} }
+  //   set_barem  → baremId=null revine la potrivirea automată
+  pdfBaremCandidates: ({ contentId }) => post('/api/ai-pdf-context', { contentId, action: 'candidates' }),
+  pdfSetBarem: ({ contentId, baremId }) => post('/api/ai-pdf-context', { contentId, action: 'set_barem', baremId: baremId || null }),
 
   // Conversații (citite direct din Supabase, protejate de RLS)
   async listConversations(limit = 20) {

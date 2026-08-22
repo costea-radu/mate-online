@@ -77,6 +77,11 @@ export default function AIAdminPanel() {
       {stats && (
         <p style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: 14 }}>
           Embeddings: <strong>{stats.embeddings_provider}</strong> · Model chat: <strong>{stats.chat_model}</strong>
+          {/* modelele pe moduri (Etapa 2, 1.4): AI_TUTOR_MODEL / AI_PDF_CHAT_MODEL / AI_GEN_CHAT_MODEL / AI_REASONING_EFFORT */}
+          {stats.tutor_model && stats.tutor_model !== stats.chat_model ? <> · Explicații (tutor): <strong>{stats.tutor_model}</strong></> : null}
+          {stats.pdf_model ? <> · PDF: <strong>{stats.pdf_model}</strong></> : null}
+          {stats.gen_model && stats.gen_model !== stats.chat_model ? <> · Generare: <strong>{stats.gen_model}</strong></> : null}
+          {stats.reasoning_effort && stats.reasoning_effort !== 'implicit' ? <> · Raționament: <strong>{stats.reasoning_effort}</strong></> : null}
           {stats.pregen_pending == null
             ? <> · Pre-generare: <strong>inactivă</strong> — rulează supabase/ai_pregen.sql</>
             : <> · Pre-generarea rulează automat (cron), câte puține, după ce coada de indexare ajunge la 0 — sau apasă „Procesează coada"</>}

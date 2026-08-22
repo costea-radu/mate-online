@@ -10,6 +10,7 @@
 // Randarea în HTML interactiv se face pe client (src/lib/quizRender.js).
 // =====================================================================
 const ai = require('./_lib/ai');
+const med = require('./_lib/meditatii'); // verifyQuestionSet (validare + verificator independent)
 const { pdfText, storagePath, modeLine, cutBarem } = require('./_lib/pdftext');
 const { S } = ai;
 
@@ -229,11 +230,26 @@ ${topicFull}
       return res.status(502).json({ error: 'Testul a ieșit incomplet. Mai încearcă o dată (sau alege mai puțini itemi).' });
     }
 
+    // ── Etapa 2 (1.3): validare structurală (duplicate, LaTeX, variante) +
+    //    VERIFICATOR INDEPENDENT (al doilea apel rezolvă fiecare întrebare fără
+    //    cheie); întrebările cu răspuns neconfirmat se ELIMINĂ, iar la teste cu
+    //    număr fix de itemi se cer înlocuitori (o singură rundă). ──
+    const checked = await med.verifyQuestionSet(questions, {
+      model: ai.pickModel(ai.GEN_MODEL, lim), supa, userId, endpoint: 'ai-generate-interactive:verify',
+      wantCount: kind === 'test' ? count : null, qtype,
+      regenContext: `Subiect: ${topicShort || chapters.join(', ') || category || 'matematică'}. Dificultate: ${difficulty}.${chapters.length ? ` Capitole: ${chapters.join(' · ')}.` : ''}`,
+    });
+    questions = checked.questions;
+    if (!questions.length) {
+      return res.status(502).json({ error: 'Întrebările generate nu au trecut verificarea automată. Mai încearcă o dată.' });
+    }
+
     return res.status(200).json({
       questions,
       kind,
       title: `${kind === 'test' ? `Test (${questions.length} itemi)` : 'Exercițiu interactiv'} · ${topicShort || chapters[0] || category || 'matematică'}`,
       topic: topicShort || chapters[0] || null,
+      verification: checked.report,
     });
   } catch (err) {
     console.error('ai-generate-interactive error:', err);

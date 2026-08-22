@@ -510,6 +510,24 @@ async function siteTheoryFor(supa, { categories = [], topics = [], chapterTitle 
 async function genQuestions(supa, {
   category = null, chapter = null, topics = [], difficulty = 'mediu',
   count = 10, purpose = 'exersare', styleNote = '', mistake = null, chaptersSpec = null,
+  verify = null, // null → după AI_VERIFY_MEDITATII (implicit: evaluare, simulare, tema)
+} = {}) {
+  const doVerify = verify == null ? VERIFY_PURPOSES.includes(purpose) : !!verify;
+  const raw = await genQuestionsRaw(supa, { category, chapter, topics, difficulty, count, purpose, styleNote, mistake, chaptersSpec });
+  if (!doVerify || !raw.questions.length) return raw;
+  // Etapa 2: validare + verificator independent; întrebările neconfirmate cad,
+  // iar la seturile cu număr fix se cer înlocuitori (o rundă)
+  const checked = await verifyQuestionSet(raw.questions, {
+    model: ai.GEN_MODEL, wantCount: count, qtype: 'mixt',
+    regenContext: `${purpose === 'evaluare' ? 'Test de evaluare inițială' : purpose === 'simulare' ? 'Simulare de examen' : `Set de exerciții la „${chapter || category || 'matematică'}"`}${topics.filter(Boolean).length ? ` (subiecte: ${topics.filter(Boolean).join(', ')})` : ''}, dificultate ${difficulty}.`,
+  });
+  const usage = { in: (raw.usage?.in || 0) + (checked.usage?.in || 0), out: (raw.usage?.out || 0) + (checked.usage?.out || 0), model: raw.usage?.model || raw.provider };
+  return { questions: checked.questions, provider: raw.provider, usage, verification: checked.report };
+}
+
+async function genQuestionsRaw(supa, {
+  category = null, chapter = null, topics = [], difficulty = 'mediu',
+  count = 10, purpose = 'exersare', styleNote = '', mistake = null, chaptersSpec = null,
 }) {
   const topicLine = topics.filter(Boolean).join(', ');
   const q = [chapter, topicLine, category, 'exercițiu matematică'].filter(Boolean).join(' ');
@@ -581,6 +599,76 @@ Reguli:
   });
   const questions = normalizeQuestions(data);
   return { questions, provider: ai.GEN_MODEL, usage };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Etapa 2 (1.3) — VALIDARE + VERIFICATOR INDEPENDENT pentru seturile de
+// întrebări (meditații, generatorul interactiv al profesorului).
+//   1. validateQuestions: duplicate, variante, LaTeX (reparat cu fixLatex);
+//   2. verify.verifyItems: al doilea apel rezolvă fiecare întrebare FĂRĂ cheie;
+//      dezacord → întrebarea se ELIMINĂ (nu publicăm chei neconfirmate);
+//   3. la seturi cu număr fix (wantCount) se cer înlocuitori, o singură rundă,
+//      verificați la fel.
+// Costul verificării se loghează la `endpoint` (dacă avem supa + userId).
+// Purposes verificate implicit în meditații: AI_VERIFY_MEDITATII (listă).
+// ═════════════════════════════════════════════════════════════════════════════
+const VERIFY_PURPOSES = String(process.env.AI_VERIFY_MEDITATII || 'evaluare,simulare,tema').split(',').map((s) => s.trim()).filter(Boolean);
+
+async function regenQuestions({ count, avoid = [], model, qtype = 'mixt', context = '' }) {
+  const system = `${ai.PERSONA}
+
+Sarcină: generezi ${count} întrebări de matematică NOI pentru un set din care câteva au fost eliminate (răspunsul lor nu s-a confirmat la verificare). ${context}
+Reguli: ${qtype === 'grila' ? 'TOATE grilă cu EXACT 4 variante, "answer" = indexul corect (0–3), distribuit aleatoriu.' : qtype === 'redactare' ? 'TOATE cu răspuns liber (fără "options"), "answer" = răspunsul final scurt, "explanation" = redactarea model.' : 'grilă (4 variante, "answer" = index 0–3) sau răspuns liber ("answer" = text).'}
+Fiecare întrebare: rezolvabilă, fără ambiguități, rezolvată cu MARE atenție (verifică rezultatul de două ori). Formulele în LaTeX între $...$; „·" pentru înmulțire.
+NU repeta întrebările de mai jos (alte numere, alt context).
+Răspunde STRICT cu JSON: {"questions":[{"statement","options","answer","explanation","chapter","topic"}]}`;
+  const user = `ÎNTREBĂRI DEJA EXISTENTE (de evitat):\n${avoid.slice(0, 30).map((s, i) => `${i + 1}. ${String(s).slice(0, 200)}`).join('\n') || '—'}\n\nGenerează cele ${count} întrebări noi acum.`;
+  const r = await ai.chatJson({ system, messages: [{ role: 'user', content: user }], temperature: 0.8, maxTokens: Math.min(4000, 800 + count * 350), model, schema: QUESTIONS_SCHEMA, schemaName: 'intrebari_inlocuitoare', restoreLatex: false });
+  return { questions: normalizeQuestions(r.data), usage: r.usage };
+}
+
+async function verifyQuestionSet(questions, { model, supa = null, userId = null, endpoint = 'verify', wantCount = null, qtype = 'mixt', regenContext = '', verify = true, maxItems = null } = {}) {
+  const verifyLib = require('./verify');
+  const validate = require('./validate');
+  const report = { validated: true, errors: [], warnings: [], checked: 0, disagreed: 0, dropped: 0, regenerated: 0, skipped: 0 };
+  const usage = { in: 0, out: 0, model: process.env.AI_VERIFY_MODEL || model };
+  const add = (u) => { if (u) { usage.in += u.in || 0; usage.out += u.out || 0; } };
+  let v = validate.validateQuestions(questions, { fixLatex });
+  let list = v.questions;
+  report.errors = v.errors.slice(0, 20); report.warnings = v.warnings.slice(0, 20);
+  report.dropped += (Array.isArray(questions) ? questions.length : 0) - list.length;
+  try {
+    if (verify && verifyLib.ENABLED && list.length) {
+      const run = async (arr) => {
+        const targets = arr.map((q, i) => ({ id: i, statement: q.statement, options: q.options, answer: q.answer }));
+        const r = await verifyLib.verifyItems(targets, { model: process.env.AI_VERIFY_MODEL || model, ...(maxItems ? { maxItems } : {}) });
+        add(r.usage);
+        report.checked += r.checked; report.skipped += r.skipped;
+        const bad = new Set(r.results.filter((x) => x && x.agree === false).map((x) => x.id));
+        report.disagreed += bad.size;
+        return arr.filter((q, i) => !bad.has(i));
+      };
+      const before = list.length;
+      list = await run(list);
+      report.dropped += before - list.length;
+      // înlocuitori pentru seturile cu număr fix de itemi (o singură rundă)
+      if (wantCount && list.length < wantCount) {
+        const missing = Math.min(wantCount - list.length, 8);
+        try {
+          const g = await regenQuestions({ count: missing, avoid: list.map((q) => q.statement), model, qtype, context: regenContext });
+          add(g.usage);
+          const vv = validate.validateQuestions(g.questions, { fixLatex });
+          const fresh = await run(vv.questions);
+          list = list.concat(fresh.slice(0, missing));
+          report.regenerated += Math.min(fresh.length, missing);
+        } catch (e) { report.warnings.push(`înlocuitorii nu au putut fi generați (${e.message})`); }
+      }
+    }
+  } catch (e) { report.warnings.push(`verificarea nu s-a putut încheia: ${e.message}`); }
+  if (supa && userId && (usage.in || usage.out)) {
+    try { await ai.logUsage(supa, userId, endpoint, usage); } catch { /* nu blocăm */ }
+  }
+  return { questions: list, report, usage };
 }
 
 // Schema STRICTĂ a setului de întrebări (Claude output_config.format / OpenAI
@@ -902,6 +990,7 @@ async function buildMentorReport(supa, studentId) {
 
 module.exports = {
   toUsage, QUESTIONS_SCHEMA, // Etapa 1: costul Opus + schema strictă (teste)
+  verifyQuestionSet, regenQuestions, genQuestionsRaw, VERIFY_PURPOSES, // Etapa 2: validare + verificator independent
   CURRICULUM, EN_RECAP, OPUS_MODEL, REVIEW_STAGES_DAYS,
   curriculumFor, categoryFor, classCategory, examTypeFor,
   buildPlan, planProgress, nextChapter, siteChaptersFor, siteChapterCategoriesFor, mergeSiteChapters,

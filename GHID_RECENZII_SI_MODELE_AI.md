@@ -13,7 +13,7 @@ Unde apare: **Footer** (toate paginile, bloc „Tehnologie AI"), **Home** (pasti
 
 Mesajul este consecvent cu Politica de Confidențialitate (§7–8) și Termenii (§7, §9): OpenAI procesează datele utilizatorilor, Anthropic e folosit doar pentru conținut educațional și unelte interne, fără date personale. Paginile legale nu au fost modificate.
 
-> `AI_STACK` nu citește env-ul din Vercel. Dacă schimbi `AI_CHAT_MODEL`, `AI_PDF_CHAT_MODEL`, `AI_GEN_CHAT_MODEL` sau `CLAUDE_MODEL`, actualizează și `AI_STACK`. Rolurile Terra/Sol din `descriere` sunt formulate generic — ajustează textul dacă vrei să spui exact ce face fiecare.
+> `AI_STACK` nu citește env-ul din Vercel. Dacă schimbi `AI_CHAT_MODEL`, `AI_TUTOR_MODEL`, `AI_PDF_CHAT_MODEL`, `AI_GEN_CHAT_MODEL`, `AI_VERIFY_MODEL` sau `CLAUDE_MODEL`, actualizează și `AI_STACK`. Rolurile Terra/Sol din `descriere` sunt formulate generic — ajustează textul dacă vrei să spui exact ce face fiecare.
 
 ## 2. Recenzii — ce există acum
 

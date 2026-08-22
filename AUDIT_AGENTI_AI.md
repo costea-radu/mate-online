@@ -280,7 +280,11 @@ verificator independent + mathjs) → 1.1 (pagina PDF la model; lucrări scrise 
 (decizi modelul de chat pe baza eval-ului) → 3.1 (cache PDF + asociere barem persistată).
 
 **Etapa 3 — când reatingi zona:** 1.5 (RAG pe conținut real, hibrid) · 5.1–5.5 · 4.4–4.7 · 3.2 (tool calling)
-· 2.5 (politica de confidențialitate).
+· 2.5 (politica de confidențialitate) · ce a rămas din etapele 1–2: recalculul pe server al scorurilor testelor
+HTML (2.1), Structured Outputs pe `ai-exam` (DSL-ul figurilor) și pe `exgen`/`ai-exercise-agent` (1.2).
+
+> **Stare (22 august 2026):** Etapa 1 și Etapa 2 sunt implementate — vezi `CHANGELOG-REPARATII.md`,
+> intrările „22 august 2026 (5)” și „(6)”. Decizia de la 1.4 se ia acum cu `npm run eval` (`eval/README.md`).
 
 ---
 
