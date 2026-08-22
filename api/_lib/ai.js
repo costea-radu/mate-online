@@ -64,9 +64,12 @@ const GEN_MODEL = process.env.AI_GEN_CHAT_MODEL || CHAT_MODEL;
 // =====================================================================
 
 // Prețuri în USD per 1 MILION de tokeni {in, out}, per model. Potrivirea se
-// face pe CEL MAI LUNG prefix (ex. „gpt-5.6-terra" → intrarea „gpt-5.6").
-// Verificate în august 2026. Completezi/suprascrii FĂRĂ cod prin env:
-//   AI_PRICES_JSON='{"gpt-5.6-terra":{"in":5,"out":30}}'
+// face pe CEL MAI LUNG prefix (ex. „gpt-5.6-terra-2026-08-01" → intrarea
+// „gpt-5.6-terra"; o variantă gpt-5.6 fără intrare proprie → „gpt-5.6").
+// Verificate pe 22 august 2026 (developers.openai.com/api/docs/pricing, tarif
+// Standard, context < 270K tokeni — peste, OpenAI dublează prețul de intrare;
+// aplicația nu trimite atât). Completezi/suprascrii FĂRĂ cod prin env:
+//   AI_PRICES_JSON='{"gpt-5.6-terra":{"in":2,"out":12}}'
 const PRICES_USD = {
   'gpt-4o-mini':            { in: 0.15, out: 0.60 },
   'gpt-4o':                 { in: 2.50, out: 10 },
@@ -76,7 +79,14 @@ const PRICES_USD = {
   'gpt-5.4-nano':           { in: 0.20, out: 1.25 },
   'gpt-5.4':                { in: 1.25, out: 10 },
   'gpt-5.5':                { in: 5,    out: 30 },
-  'gpt-5.6':                { in: 5,    out: 30 },   // sol / terra (flagship)
+  // Familia gpt-5.6 (iulie 2026) are TREI mărimi cu prețuri diferite — până
+  // acum toate cădeau pe o singură intrare 5/30 (prețul de lansare al lui sol),
+  // deci terra (modelul PDF/corectare) era contorizat de 2,5× mai scump decât
+  // costă, iar degradarea peste bugetul zilnic soft pornea mult prea devreme.
+  'gpt-5.6-luna':           { in: 0.20, out: 1.20 },
+  'gpt-5.6-terra':          { in: 2,    out: 12 },   // modelul PDF / corectare / pre-generare
+  'gpt-5.6-sol':            { in: 4,    out: 20 },   // flagship (redus de la 5/30 după lansare)
+  'gpt-5.6':                { in: 5,    out: 30 },   // altă variantă gpt-5.6, necunoscută → conservator
   'text-embedding-3-small': { in: 0.02, out: 0 },
   'text-embedding-3-large': { in: 0.13, out: 0 },
   'claude-haiku-4-5':       { in: 1,    out: 5 },

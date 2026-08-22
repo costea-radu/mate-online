@@ -4,6 +4,30 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 22 august 2026 (2) — Prețul lui gpt-5.6-terra era de 2,5× mai mare decât cel real → degradarea peste bugetul zilnic soft pornea mult prea devreme
+
+Cererea: „repară prețul pentru gpt 5.6 terra". Observația de la care a pornit: în tabelul `PRICES_USD` din `api/_lib/ai.js` exista o singură intrare `gpt-5.6` = 5/30 USD/1M, comentată „sol / terra (flagship)". Potrivirea pe cel mai lung prefix trimitea ȘI `gpt-5.6-terra` (modelul PDF / corectare / pre-generare, implicit din 16 august) pe această intrare.
+
+### Prețurile reale (verificate pe 22 august 2026, developers.openai.com/api/docs/pricing, tarif Standard, context < 270K)
+| Model | Intrare | Cache | Ieșire |
+|---|---|---|---|
+| gpt-5.6-luna | 0,20 | 0,02 | 1,20 |
+| **gpt-5.6-terra** | **2** | 0,20 | **12** |
+| gpt-5.6-sol | 4 | 0,40 | 20 (redus de la 5/30, prețul de lansare din 9 iulie) |
+
+Deci fiecare corectare de test pe terra era contorizată cu 2,5× costul real (~0,4–0,9 lei în loc de ~0,15–0,4 lei). Efecte: `pickModel` cobora pe gpt-4o-mini după ~1–2 corectări (limita soft 0,8 lei/zi) în loc de ~2–4, limita hard (2,5 lei/zi) și cea lunară (6 lei) se „consumau" de 2,5× mai repede, iar raportul zilnic de cost și alarma `AI_ALERT_DAY_LEI` exagerau cheltuiala reală. Banii plătiți către OpenAI NU erau afectați (prețul din tabel e doar pentru contorizarea internă).
+
+### Ce s-a schimbat
+1. **`api/_lib/ai.js`:** trei intrări separate `gpt-5.6-luna` / `gpt-5.6-terra` / `gpt-5.6-sol` cu prețurile de mai sus; intrarea de bază `gpt-5.6` rămâne 5/30 doar ca plasă conservatoare pentru o eventuală variantă nouă fără intrare proprie. Exemplul `AI_PRICES_JSON` din comentariu actualizat (2/12). Mecanismul (`priceFor`, prefix de provider, `AI_PRICES_JSON` suveran) e neschimbat — dacă în Vercel există deja `AI_PRICES_JSON` cu „gpt-5.6-terra", acela câștigă.
+2. **`test/limite-cost.test.js`:** testul care cerea explicit `priceFor('gpt-5.6-terra') = priceFor('gpt-5.6-sol')` (consfințea bug-ul) devine: snapshot-ul datat nimerește intrarea modelului, varianta necunoscută cade pe baza `gpt-5.6`; test nou de regresie: luna < terra < sol și terra < baza conservatoare. Raportul terra/4o-mini din test coboară de la 20× la 10× (real ~17×).
+3. **`GHID_LIMITE_AI.md`:** exemplul de potrivire și tabelul de calibrare (corectare ~0,15–0,4 lei; ~6–15 corectări/zi, ~15–40/lună la defaulturi).
+
+De verificat în Vercel: nimic obligatoriu. Opțional, dacă `AI_BUDGET_DAY_SOFT_LEI` fusese mărit ca să compenseze degradarea prematură, poate reveni la 0,8. Istoricul din `ai_usage` rămâne cu costurile vechi (supraestimate) — comparațiile lună-la-lună din raport vor arăta o „scădere" de ~60% pe corectări, care e doar corecția contorului.
+
+**Teste: 216/216 trec** (`npm test`, 221 cu 5 sărite condiționat de env), inclusiv cele 8 din `limite-cost` și cele 5 din `gateway-model`. Verificat încrucișat: testul nou de regresie PICĂ pe `ai.js`-ul vechi (terra = sol), iar vechea aserțiune `terra = sol` pică pe `ai.js`-ul nou — deci bug-ul nu mai poate reveni neobservat. Zero schimbări în frontend; nicio migrare SQL.
+
+---
+
 ## 22 august 2026 — Profesorul Virtual încarcă BAREMUL și la testele de EVALUARE NAȚIONALĂ (ca la BAC): asociere test ↔ barem după titlu, an, numele fișierului, ANTETUL PDF-urilor și conținut; răspunsuri „exact ca în barem" și la grile
 
 Cererea: Profesorul Virtual să încarce baremul și pentru testele de Evaluare Națională, ca la cele de BAC; să dea răspunsuri și explicații pe baza baremului — exact ca în barem; asocierea corectă test ↔ barem pe baza titlului, anului, conținutului. Simptomul: la EN nu apărea niciodată eticheta „📋 Barem asociat" (titlurile din site sunt doar cu anul, ex. „Evaluare Națională 2024" / „Barem EN 2024").

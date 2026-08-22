@@ -113,8 +113,10 @@ lor; sunt acoperite de limitele hard.)
 
 La `ai.logUsage` fiecare acțiune primește `model` + `cost_micro`:
 `tokeni_intrare × preț_in + tokeni_ieșire × preț_out` (USD/1M, tabelul din
-`api/_lib/ai.js`, potrivire pe cel mai lung prefix — „gpt-5.6-terra" nimerește
-intrarea „gpt-5.6"), convertit în lei cu `AI_USD_RON` (default 4,6 — ține-l puțin
+`api/_lib/ai.js`, potrivire pe cel mai lung prefix — „gpt-5.6-terra-2026-08-01"
+nimerește intrarea „gpt-5.6-terra"; cele trei mărimi gpt-5.6 au intrări SEPARATE:
+luna 0,20/1,20, terra 2/12, sol 4/20 USD/1M, iar o variantă gpt-5.6 fără intrare
+proprie cade pe „gpt-5.6" = 5/30, conservator), convertit în lei cu `AI_USD_RON` (default 4,6 — ține-l puțin
 peste cursul real, ca marjă). Whisper (STT) are cost fix estimat per apel.
 **Model necunoscut → preț implicit CONSERVATOR** (3/15 USD) + avertisment în loguri
 — adaugă-l în `AI_PRICES_JSON` ca să fie exact. Streamingul loghează acum usage-ul
@@ -233,10 +235,14 @@ Abonamentul e 50 lei/lună. Defaulturile alocă AI-ului maxim 6 lei/utilizator/l
 | mesaj chat (gpt-4o-mini, cu RAG) | ~0,005 lei |
 | generare exercițiu / verificare | ~0,01–0,02 lei |
 | generare test de examen (GEN premium) | ~0,1–0,3 lei |
-| corectare test (PDF_MODEL flagship, ex. gpt-5.6) | ~0,4–0,9 lei |
+| corectare test (PDF_MODEL = gpt-5.6-terra, 2/12 USD/1M) | ~0,15–0,4 lei |
 
-Deci defaulturile înseamnă, practic: sute de mesaje de chat pe zi SAU ~3 corectări
-premium pe zi, și ~9–15 corectări premium pe lună — un elev normal nu le atinge
+(Până pe 22 august 2026 terra era contorizat la prețul lui sol, 5/30 — o corectare
+„costa" în contor ~0,4–0,9 lei, de 2,5× mai mult decât real; vezi CHANGELOG.)
+
+Deci defaulturile înseamnă, practic: sute de mesaje de chat pe zi SAU ~6–15 corectări
+premium pe zi (cu degradare pe modelul standard după ~2–4, la limita soft de 0,8 lei),
+și ~15–40 corectări premium pe lună — un elev normal nu le atinge
 niciodată; doar utilizarea extremă e limitată. După 2–3 săptămâni de date, uită-te
 în `ai_usage_daily` și ajustează în Vercel → Environment Variables (redeploy).
 

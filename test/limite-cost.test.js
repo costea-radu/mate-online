@@ -19,8 +19,10 @@ const expectedMicro = (model, usage) => {
 };
 
 test('priceFor: potrivire pe cel mai lung prefix', () => {
-  // un sufix de snapshot/variantă nimerește intrarea de bază
-  assert.deepStrictEqual(ai.priceFor('gpt-5.6-terra'), ai.priceFor('gpt-5.6-sol'));
+  // un sufix de snapshot nimerește intrarea modelului (terra are intrarea ei)
+  assert.deepStrictEqual(ai.priceFor('gpt-5.6-terra-2026-08-01'), ai.priceFor('gpt-5.6-terra'));
+  // o variantă gpt-5.6 FĂRĂ intrare proprie cade pe intrarea de bază „gpt-5.6"
+  assert.deepStrictEqual(ai.priceFor('gpt-5.6-varianta-noua'), ai.priceFor('gpt-5.6'));
   // dar un model mai specific NU cade pe prefixul mai scurt
   assert.notDeepStrictEqual(ai.priceFor('gpt-5-nano'), ai.priceFor('gpt-5'));
   // snapshot-urile datate Claude nimeresc modelul de bază
@@ -34,8 +36,22 @@ test('costMicroLei: tokeni × preț × curs, rotunjit la micro-lei', () => {
   assert.strictEqual(ai.costMicroLei('gpt-4o-mini', usage), expectedMicro('gpt-4o-mini', usage));
   const big = { in: 10000, out: 3000 };
   assert.strictEqual(ai.costMicroLei('gpt-5.6-terra', big), expectedMicro('gpt-5.6-terra', big));
-  // modelul flagship trebuie să coste mult mai mult decât mini, la același usage
-  assert.ok(ai.costMicroLei('gpt-5.6-terra', big) > 20 * ai.costMicroLei('gpt-4o-mini', big));
+  // modelul premium trebuie să coste mult mai mult decât mini, la același usage
+  // (terra 2/12 vs 4o-mini 0,15/0,60 USD/1M → ~17× la acest usage)
+  assert.ok(ai.costMicroLei('gpt-5.6-terra', big) > 10 * ai.costMicroLei('gpt-4o-mini', big));
+});
+
+test('priceFor: cele trei mărimi gpt-5.6 au prețuri DIFERITE (terra ≠ sol)', () => {
+  // Regresie: terra cădea pe intrarea comună „gpt-5.6" (5/30 = prețul lui sol)
+  // și era contorizată de 2,5× mai scump decât costă → degradare prematură.
+  const usage = { in: 10000, out: 3000 };
+  const luna = ai.costMicroLei('gpt-5.6-luna', usage);
+  const terra = ai.costMicroLei('gpt-5.6-terra', usage);
+  const sol = ai.costMicroLei('gpt-5.6-sol', usage);
+  assert.ok(luna < terra && terra < sol, `luna ${luna} < terra ${terra} < sol ${sol}`);
+  // terra nu mai moștenește prețul conservator al intrării de bază
+  assert.ok(terra < ai.costMicroLei('gpt-5.6', usage), 'terra sub intrarea de bază gpt-5.6');
+  assert.notDeepStrictEqual(ai.priceFor('gpt-5.6-terra'), ai.priceFor('gpt-5.6-sol'));
 });
 
 test('costMicroLei: fără model → 0 (acțiuni fără LLM)', () => {
