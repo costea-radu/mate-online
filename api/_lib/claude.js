@@ -34,7 +34,10 @@ function resolveModel(requested) {
   return MODELS.some((m) => m.id === id) ? id : MODEL;
 }
 
-async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens = 3000, model = null }) {
+// `schema` (opțional): JSON Schema strict → Structured Outputs Anthropic
+// (`output_config.format`, GA — fără header beta): JSON garantat valid. Dacă
+// API-ul respinge formatul (schemă nesuportată), apiCall reîncearcă fără el.
+async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens = 3000, model = null, schema = null }) {
   if (!KEY) {
     const ai = require('./ai');
     // Fallback-ul (format OpenAI) nu suportă blocuri compuse (ex: PDF) —
@@ -45,6 +48,10 @@ async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens 
         ? m.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n')
         : m.content,
     }));
+    if (schema) {
+      const r = await ai.chatJson({ system, messages: flat, temperature, maxTokens, schema, schemaName: 'claude_fallback', restoreLatex: false });
+      return { text: r.text, usage: r.usage, provider: 'fallback:' + (ai.CHAT_MODEL || 'openai'), data: r.data };
+    }
     const r = await ai.chat({ system, messages: flat, temperature, maxTokens });
     return { text: r.text, usage: r.usage, provider: 'fallback:' + (ai.CHAT_MODEL || 'openai') };
   }
@@ -55,6 +62,7 @@ async function chatClaude({ system, messages = [], temperature = 0.7, maxTokens 
     system,
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
     max_tokens: maxTokens,
+    ...(schema ? { output_config: { format: { type: 'json_schema', schema } } } : {}),
   });
 
   const usage = {
@@ -90,6 +98,15 @@ async function apiCallOnce(body) {
 async function apiCall(body) {
   const maxTokens = body.max_tokens || 3000;
   let r = await apiCallOnce({ ...body, max_tokens: maxTokens, thinking: { type: 'disabled' } });
+  // Structured Outputs respinse (schemă cu elemente nesuportate / model fără
+  // suport) → reîncercăm FĂRĂ output_config; apelantul parsează tolerant
+  // (extractJson), exact ca înainte.
+  if (!r.ok && r.status === 400 && body.output_config && /output_config|json_schema|schema|format/i.test(String(r.data?.error?.message || ''))) {
+    console.warn('claude: output_config.format respins (%s) — reîncerc fără schemă', r.data?.error?.message || r.status);
+    const { output_config, ...rest } = body; // eslint-disable-line no-unused-vars
+    body = rest;
+    r = await apiCallOnce({ ...body, max_tokens: maxTokens, thinking: { type: 'disabled' } });
+  }
   // Reîncercarea fără `thinking` are sens DOAR când chiar parametrul thinking a
   // fost respins — alte erori 400 (ex. „This model does not support assistant
   // message prefill”) trebuie să iasă imediat, ca apelantul să schimbe metoda

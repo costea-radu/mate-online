@@ -21,10 +21,73 @@
 const ai = require('./_lib/ai');
 const med = require('./_lib/meditatii');
 const { pageRenderer } = require('./_lib/pdftext');
+const pdfContext = require('./ai-pdf-context'); // getPdfContext / loadContentForUser (textul + baremul DE PE SERVER)
 
 const MAX_TEXT = 12000;          // textul testului / baremului trimis modelului
 const MAX_LEAVES = 40;           // câte cerințe (subpuncte) acceptăm în formular
 const MAX_ANSWER = 1500;         // lungimea unui răspuns de elev
+const { S } = ai;
+
+// ── FORMULARUL SEMNAT ────────────────────────────────────────────────────────
+// Formularul construit la „Răspunde în chat" se întoarce cu un TOKEN (HMAC,
+// valabil FORM_TTL_SEC) peste: sursa (contentId sau hash-ul textului încărcat),
+// existența baremului și amprenta cerințelor (id-uri + puncte). La „Corectează"
+// serverul verifică tokenul: punctele maxime, baremul și testul nu mai pot fi
+// modificate din browser (înainte, un elev putea trimite items cu puncte
+// umflate și un „barem" propriu și obținea 100% în `progress`, la profesor).
+const FORM_TTL_SEC = parseInt(process.env.AI_CORRECT_FORM_TTL || String(6 * 3600), 10);
+function itemsFingerprint(items) {
+  const canon = (Array.isArray(items) ? items : []).map((it) => [
+    String(it?.id ?? ''), it?.puncte ?? null,
+    (Array.isArray(it?.subpuncte) ? it.subpuncte : []).map((s) => [String(s?.id ?? ''), s?.puncte ?? null]),
+  ]);
+  return ai.sha256(JSON.stringify(canon)).slice(0, 32);
+}
+function signForm({ items, contentId = null, testText = '', hasBarem = false, total = 0, oficiu = 0 }) {
+  return ai.signToken({
+    v: 1, h: itemsFingerprint(items), c: contentId || null,
+    t: contentId ? null : ai.sha256(String(testText || '').slice(0, MAX_TEXT)).slice(0, 32),
+    b: !!hasBarem, tot: total, of: oficiu,
+  }, FORM_TTL_SEC);
+}
+// Verifică tokenul față de ce a trimis clientul; întoarce payload-ul sau null.
+function verifyForm(token, { items, contentId = null, testText = '' }) {
+  const d = ai.verifyToken(token);
+  if (!d || d.v !== 1) return null;
+  if (d.h !== itemsFingerprint(items)) return null;
+  if ((d.c || null) !== (contentId || null)) return null;
+  if (!d.c && d.t !== ai.sha256(String(testText || '').slice(0, MAX_TEXT)).slice(0, 32)) return null;
+  return d;
+}
+
+// Scheme STRICTE (Structured Outputs): formularul și corectarea vin ca JSON
+// garantat valid, cu tipuri fixe — fără „10p" ca text sau verdicte inventate.
+const FORM_SCHEMA = S.obj({
+  titlu: S.str('titlul scurt al testului'),
+  oficiu: S.int('10 la examenele oficiale, altfel 0'),
+  items: S.arr(S.obj({
+    id: S.str('ex. "I.1", "III.2"'),
+    eticheta: S.str('numele scurt al cerinței'),
+    cerinta: S.str('cerința din TEST, pe scurt, LaTeX între $...$'),
+    puncte: S.nullable(S.num('punctajul maxim; null dacă exercițiul are subpuncte')),
+    subpuncte: S.nullable(S.arr(S.obj({
+      id: S.str('ex. "a"'),
+      eticheta: S.str('ex. "a)"'),
+      cerinta: S.str(),
+      puncte: S.nullable(S.num()),
+    }), 'null dacă exercițiul nu are subpuncte')),
+  })),
+});
+const GRADE_SCHEMA = S.obj({
+  items: S.arr(S.obj({
+    id: S.str('id-ul cerinței, neschimbat'),
+    puncte: S.num('punctele acordate (0 … maxim)'),
+    verdict: S.enum(['corect', 'partial', 'gresit', 'necompletat']),
+    explicatie: S.str('1–3 propoziții calde, la persoana a II-a'),
+    tema: S.str('subiectul matematic, 1–3 cuvinte'),
+  })),
+  feedback: S.str('2–4 propoziții despre întreaga lucrare'),
+});
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -40,11 +103,11 @@ module.exports = async function handler(req, res) {
 
     const { action } = req.body || {};
     if (action === 'pdf_text') return await pdfText(req, res, supa, userId);
-    if (action === 'form') return await buildForm(req, res, supa, userId, lim);
+    if (action === 'form') return await buildForm(req, res, supa, userId, lim, profile);
     if (action === 'grade') {
       // cota lunară de corectări (doar notarea propriu-zisă; formularul nu consumă cota)
       await ai.enforceFeatureQuota(supa, userId, profile, 'corectari', lim);
-      return await grade(req, res, supa, userId, lim);
+      return await grade(req, res, supa, userId, lim, profile);
     }
     return res.status(400).json({ error: 'action invalid' });
   } catch (err) {
@@ -233,15 +296,44 @@ function officialStructureNote(category) {
 }
 
 // ─── FORMULARUL: câmpurile de răspuns, construite din barem (sau din test) ───
-async function buildForm(req, res, supa, userId, lim) {
-  const { testText = '', baremText = '', title = '', category = '' } = req.body || {};
-  const test = String(testText || '').slice(0, MAX_TEXT);
-  const barem = String(baremText || '').slice(0, MAX_TEXT);
+// Sursa testului + baremului pentru formular/corectare:
+//   · test din platformă (contentId) → DE PE SERVER (cache ai_pdf_text /
+//     calcul), cu verificarea accesului — textul și baremul din body se ignoră;
+//   · poză / PDF încărcat de elev (fără contentId) → textul din body (al lui),
+//     FĂRĂ barem (nu există unul verificat pentru materialele încărcate).
+async function resolveSource(supa, profile, { contentId, testText, baremText, title, category }) {
+  if (contentId) {
+    const content = await pdfContext.loadContentForUser(supa, contentId, profile); // 404/403
+    const ctx = await pdfContext.getPdfContext(supa, content);
+    return {
+      contentId: content.id,
+      test: String(ctx.text || '').slice(0, MAX_TEXT),
+      barem: String(ctx.baremText || '').slice(0, MAX_TEXT),
+      title: String(title || content.title || '').slice(0, 140),
+      category: content.category || category || '',
+      fromServer: true,
+    };
+  }
+  return {
+    contentId: null,
+    test: String(testText || '').slice(0, MAX_TEXT),
+    barem: '', // materialele încărcate de elev nu au barem verificat
+    title: String(title || '').slice(0, 140),
+    category: String(category || ''),
+    fromServer: false,
+  };
+}
+
+async function buildForm(req, res, supa, userId, lim, profile) {
+  const { testText = '', baremText = '', title = '', category = '', contentId = null } = req.body || {};
+  const src = await resolveSource(supa, profile, { contentId, testText, baremText, title, category });
+  const test = src.test;
+  const barem = src.barem;
   if (test.trim().length < 30 && barem.trim().length < 30) {
     return res.status(400).json({ error: 'Nu am textul testului. Deschide un test PDF sau fotografiază / încarcă exercițiul în chat.' });
   }
   const hasBarem = barem.trim().length > 80;
-  const structura = officialStructureNote(category);
+  const structura = officialStructureNote(src.category);
 
   const system = hasBarem
     ? `Primești un TEST de matematică (bac / Evaluare Națională / fișă) și BAREMUL lui oficial. Construiește STRUCTURA formularului de răspuns al elevului, EXACT pe structura baremului:
@@ -260,49 +352,72 @@ ${structura ? '- ' + structura + '\n' : '- fără barem și fără structură de
 ${FORM_TEXT_RULES}
 Răspunde DOAR cu JSON: {"titlu":"<titlu scurt: despre ce e testul>","oficiu":${structura ? 10 : 0},"items":[{"id":"I.1","eticheta":"Subiectul I, ex. 1","cerinta":"...","puncte":5},{"id":"III.1","eticheta":"Subiectul III, ex. 1","cerinta":"...","subpuncte":[{"id":"a","eticheta":"a)","cerinta":"...","puncte":2},{"id":"b","eticheta":"b)","cerinta":"...","puncte":3}]}]}`;
 
-  const user = `TESTUL${title ? ` „${String(title).slice(0, 120)}"` : ''}${category ? ` (categoria: ${category})` : ''}:\n"""${test || '(textul testului nu e disponibil — folosește baremul)'}"""${hasBarem ? `\n\nBAREMUL OFICIAL:\n"""${barem}"""` : ''}`;
-
-  const { text, usage } = await ai.chat({
-    system, messages: [{ role: 'user', content: user }],
-    temperature: 0, maxTokens: 3500, json: true,
-    model: ai.pickModel(hasBarem ? ai.PDF_MODEL : ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
-  });
-  await ai.logUsage(supa, userId, 'ai-correct:form', usage);
+  const user = `TESTUL${src.title ? ` „${String(src.title).slice(0, 120)}"` : ''}${src.category ? ` (categoria: ${src.category})` : ''}:\n"""${test || '(textul testului nu e disponibil — folosește baremul)'}"""${hasBarem ? `\n\nBAREMUL OFICIAL:\n"""${barem}"""` : ''}`;
 
   let parsed = null;
-  try { parsed = JSON.parse(text); } catch { /* mai jos */ }
+  try {
+    const r = await ai.chatJson({
+      system, messages: [{ role: 'user', content: user }],
+      temperature: 0, maxTokens: 3500,
+      model: ai.pickModel(hasBarem ? ai.PDF_MODEL : ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
+      schema: FORM_SCHEMA, schemaName: 'formular_raspuns',
+      restoreLatex: false, // normalizeItems → cleanMath face deja reparația (inclusiv \r)
+    });
+    parsed = r.data;
+    await ai.logUsage(supa, userId, 'ai-correct:form', r.usage);
+  } catch (e) {
+    if (e.usage) await ai.logUsage(supa, userId, 'ai-correct:form', e.usage);
+    if (e.status !== 502) throw e; // 502 (format invalid) → mesajul de mai jos
+  }
   const items = normalizeItems(parsed?.items, { hasBarem });
   if (!items.length) {
     return res.status(422).json({ error: 'Nu am putut construi formularul din acest material. Încearcă din nou sau fotografiază exercițiul mai clar.' });
   }
   // punctajele OFICIALE: fără barem se forțează; cu barem doar umplu golurile
   // (EN: 5p grile, III a=2p/b=3p; BAC: 5p pe cerință)
-  const official = applyOfficialPoints(items, category, hasBarem);
+  const official = applyOfficialPoints(items, src.category, hasBarem);
   fillMissingPoints(items, hasBarem ? 5 : 10);
   const leaves = leavesOf(items);
   const total = Math.round(leaves.reduce((s, l) => s + (l.puncte || 0), 0) * 100) / 100;
   const oficiu = (official || hasBarem) ? Math.max(0, Math.min(10, parseInt(parsed?.oficiu, 10) || (official ? 10 : 0))) : 0;
+  // tokenul semnat: la „Corectează" serverul verifică amprenta cerințelor
+  // (id-uri + puncte) și sursa — formularul nu poate fi „editat" din browser
+  const token = signForm({ items, contentId: src.contentId, testText: test, hasBarem, total, oficiu });
   return res.status(200).json({
-    items, hasBarem, total, oficiu,
-    title: cleanMath(String(parsed?.titlu || title || 'Exercițiu').slice(0, 140)),
+    items, hasBarem, total, oficiu, token,
+    contentId: src.contentId,
+    title: cleanMath(String(parsed?.titlu || src.title || 'Exercițiu').slice(0, 140)),
   });
 }
 
 // ─── CORECTAREA: test + barem + răspunsuri → punctaj pe subpuncte ────────────
 const VERDICTE = ['corect', 'partial', 'gresit', 'necompletat'];
 
-async function grade(req, res, supa, userId, lim) {
+async function grade(req, res, supa, userId, lim, profile) {
   const {
-    conversationId = null, context = {}, testText = '', baremText = '',
-    items = [], answers = {}, durationSec = 0, meditatii = false, title: bodyTitle = '',
+    conversationId = null, context = {}, testText: bodyTestText = '',
+    items = [], answers = {}, durationSec = 0, meditatii = false, title: bodyTitle = '', token = null,
   } = req.body || {};
 
+  // 1) formularul trebuie să fie cel semnat de server (id-uri + puncte + sursă)
+  const contentId = context.contentId || null;
+  const signed = verifyForm(token, { items, contentId, testText: bodyTestText });
+  if (!signed) {
+    return res.status(400).json({ error: 'Formularul a expirat sau a fost modificat. Apasă din nou „Răspunde în chat" și completează răspunsurile.', code: 'FORM_TOKEN' });
+  }
+  // 2) testul + baremul: DE PE SERVER pentru materialele din platformă
+  //    (cache ai_pdf_text), din body doar pentru poza/PDF-ul propriu al elevului
+  const src = await resolveSource(supa, profile, {
+    contentId, testText: bodyTestText, baremText: '', title: bodyTitle || context.title, category: context.category,
+  });
+  const testText = src.test;
+  const baremText = src.barem;
   const hasBarem = String(baremText || '').trim().length > 80;
   // plasă de siguranță: punctajele oficiale EN/BAC se respectă și la corectare
-  applyOfficialPoints(items, context.category, hasBarem);
+  applyOfficialPoints(items, src.category, hasBarem);
   const leaves = flattenClientItems(items);
   if (!leaves.length) return res.status(400).json({ error: 'Formularul nu are cerințe de corectat.' });
-  const title = String(bodyTitle || context.title || 'Exercițiu').slice(0, 140);
+  const title = String(bodyTitle || context.title || src.title || 'Exercițiu').slice(0, 140);
 
   // răspunsurile elevului, pe cerințe (gol = necompletat)
   const ans = {};
@@ -337,18 +452,22 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
 
   const maxTokens = Math.min(7000, 900 + leaves.length * 220);
   const gradeModel = ai.pickModel(hasBarem ? ai.PDF_MODEL : ai.GEN_MODEL, lim); // peste bugetul zilnic → model standard
-  let parsed = null, usage = { in: 0, out: 0, model: gradeModel };
-  for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
-    const r = await ai.chat({
-      system: attempt ? system + '\n\nATENȚIE: răspunsul anterior nu a fost JSON valid. Răspunde STRICT cu obiectul JSON cerut, fără alt text.' : system,
-      messages: [{ role: 'user', content: user }],
-      temperature: 0.1, maxTokens, json: true,
-      model: gradeModel,
+  let parsed = null;
+  try {
+    // schemă strictă: verdictele din enum, punctele numere; chatJson reîncearcă
+    // singur o dată dacă răspunsul nu e JSON valid
+    const r = await ai.chatJson({
+      system, messages: [{ role: 'user', content: user }],
+      temperature: 0.1, maxTokens, model: gradeModel,
+      schema: GRADE_SCHEMA, schemaName: 'corectare_lucrare',
+      restoreLatex: false, // cleanMath de mai jos face reparația LaTeX
     });
-    usage.in += r.usage.in; usage.out += r.usage.out;
-    try { parsed = JSON.parse(r.text); } catch { parsed = null; }
+    parsed = r.data;
+    await ai.logUsage(supa, userId, 'ai-correct:grade', r.usage);
+  } catch (e) {
+    if (e.usage) await ai.logUsage(supa, userId, 'ai-correct:grade', e.usage);
+    if (e.status !== 502) throw e;
   }
-  await ai.logUsage(supa, userId, 'ai-correct:grade', usage);
   if (!parsed || !Array.isArray(parsed.items)) {
     return res.status(502).json({ error: 'Corectarea nu a reușit (răspuns invalid). Mai încearcă o dată.' });
   }
@@ -384,8 +503,7 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
   // ── salvarea punctajului (ca la testele interactive) ──
   const sessionSeconds = Math.max(0, Math.min(6 * 3600, Math.round(Number(durationSec) || 0)));
   let saved = null, attempts = 1, timeSpent = sessionSeconds;
-  const contentId = context.contentId || null;
-  const category = context.category || null;
+  const category = src.category || context.category || null; // contentId: verificat mai sus (token + acces)
   try {
     if (contentId) {
       // TEST DIN PLATFORMĂ → `progress`, exact ca exercițiile interactive
@@ -571,3 +689,9 @@ async function meditatiiEffects(supa, userId, { graded, title, score, maxScore, 
 
   return mistakeIds;
 }
+
+// exportate pentru teste (test/etapa1-*.test.js)
+module.exports.signForm = signForm;
+module.exports.verifyForm = verifyForm;
+module.exports.itemsFingerprint = itemsFingerprint;
+module.exports.applyOfficialPoints = applyOfficialPoints;

@@ -558,29 +558,57 @@ Reguli:
 
   const userMsg = `Generează obiectul JSON cu ${count} întrebări acum. Fă-le diferite de orice generare anterioară (alte numere, alte contexte). Sesiune #${Math.random().toString(36).slice(2, 8)}.`;
 
-  // 1) Claude Opus 5 (cerința B) — cu extractJson tolerant la LaTeX
+  // 1) Claude Opus 5 (cerința B) — cu schemă strictă (Structured Outputs) și,
+  //    ca plasă de siguranță, extractJson tolerant la LaTeX
   try {
     const r = await claude.chatClaude({
       system, messages: [{ role: 'user', content: userMsg }],
       maxTokens: Math.min(6000, 1200 + count * 350), model: OPUS_MODEL,
+      schema: QUESTIONS_SCHEMA,
     });
-    const parsed = claude.extractJson(r.text);
+    const parsed = r.data || claude.extractJson(r.text);
     const questions = normalizeQuestions(parsed);
-    if (questions.length) return { questions, provider: r.provider || OPUS_MODEL, usage: toUsage(r.usage) };
+    // usage-ul poartă MODELUL: fără el ai.logUsage calcula cost 0 pentru Opus
+    // (cele mai scumpe apeluri din platformă scăpau de bugetele zilnice/lunare)
+    if (questions.length) return { questions, provider: r.provider || OPUS_MODEL, usage: toUsage(r.usage, r.provider || OPUS_MODEL) };
   } catch (e) { console.warn('meditatii genQuestions (opus):', e.message); }
 
   // 2) Fallback: furnizorul existent (modelul de generare „sol")
-  const { text, usage } = await ai.chat({
+  const { data, usage } = await ai.chatJson({
     system, messages: [{ role: 'user', content: userMsg }],
-    temperature: 0.9, maxTokens: 4000, json: true, model: ai.GEN_MODEL,
+    temperature: 0.9, maxTokens: 4000, model: ai.GEN_MODEL,
+    schema: QUESTIONS_SCHEMA, schemaName: 'intrebari_meditatii', restoreLatex: false, // fixLatex face reparația
   });
-  let parsed = null;
-  try { parsed = JSON.parse(text); } catch { parsed = claude.extractJson(text); }
-  const questions = normalizeQuestions(parsed);
+  const questions = normalizeQuestions(data);
   return { questions, provider: ai.GEN_MODEL, usage };
 }
 
-function toUsage(u = {}) { return { in: u.prompt_tokens || 0, out: u.completion_tokens || 0 }; }
+// Schema STRICTĂ a setului de întrebări (Claude output_config.format / OpenAI
+// json_schema): JSON garantat valid; „answer" = index (grilă) sau text.
+const QUESTIONS_SCHEMA = ai.S.obj({
+  questions: ai.S.arr(ai.S.obj({
+    statement: ai.S.str('enunț (formule LaTeX între $...$)'),
+    options: ai.S.nullable(ai.S.arr(ai.S.str(), 'exact 4 variante la grilă; null la răspuns liber')),
+    answer: { anyOf: [{ type: 'integer' }, { type: 'string' }], description: 'indexul variantei corecte (0–3) la grilă; textul/numărul corect la răspuns liber' },
+    explanation: ai.S.str('rezolvarea pas cu pas, scurtă'),
+    chapter: ai.S.nullable(ai.S.str('id-ul capitolului, dacă a fost cerut')),
+    topic: ai.S.nullable(ai.S.str('subiectul fin, ex: ecuatii_gradul_1')),
+  })),
+});
+
+// Normalizează usage-ul (format Anthropic {prompt_tokens, completion_tokens,
+// model} SAU format intern {in, out, model}) la forma citită de ai.logUsage.
+// `model` e OBLIGATORIU pentru cost: fără el priceFor('') → cost 0 → apelul nu
+// intră în bugete. Fallback-ul claude.js (fără ANTHROPIC_API_KEY) întoarce
+// deja {in, out, model} — îl păstrăm ca atare.
+function toUsage(u = {}, model = null) {
+  const src = u || {};
+  return {
+    in:  src.in  != null ? src.in  : (src.prompt_tokens     || 0),
+    out: src.out != null ? src.out : (src.completion_tokens || 0),
+    model: src.model || model || null,
+  };
+}
 
 // ─── Repararea LaTeX-ului corupt de JSON (cauza „sqrt13", „frac32") ──────────
 // Trei stricăciuni posibile după parcursul model → JSON → parse:
@@ -612,16 +640,21 @@ function normalizeQuestions(parsed) {
       || Object.values(list).filter((v) => v && typeof v === 'object' && (v.statement || v.enunt));
   }
   if (!Array.isArray(list)) return [];
-  return list.slice(0, 20).map((q) => ({
-    statement: fixLatex(String(q.statement || q.enunt || '').trim()),
-    options: Array.isArray(q.options) ? q.options.map((o) => fixLatex(String(o))) : undefined,
-    answer: Array.isArray(q.options) ? Number(q.answer) || 0 : fixLatex(String(q.answer ?? '').trim()),
-    explanation: q.explanation ? fixLatex(String(q.explanation)) : '',
-    chapter: q.chapter ? String(q.chapter) : undefined,
-    topic: q.topic ? String(q.topic) : undefined,
-  })).filter((q) => {
+  return list.slice(0, 20).map((q) => {
+    const options = Array.isArray(q.options) && q.options.length ? q.options.map((o) => fixLatex(String(o))) : undefined;
+    return {
+      statement: fixLatex(String(q.statement || q.enunt || '').trim()),
+      options,
+      // la grilă: index valid sau literă a–d → index; altfel null → itemul cade
+      // (înainte `Number("b") || 0` dădea tăcut indexul 0 = cheie greșită)
+      answer: options ? ai.answerIndex(q.answer, options.length) : fixLatex(String(q.answer ?? '').trim()),
+      explanation: q.explanation ? fixLatex(String(q.explanation)) : '',
+      chapter: q.chapter ? String(q.chapter) : undefined,
+      topic: q.topic ? String(q.topic) : undefined,
+    };
+  }).filter((q) => {
     if (q.statement.length < 6) return false;
-    if (q.options) return q.options.length >= 2 && q.answer >= 0 && q.answer < q.options.length;
+    if (q.options) return q.options.length >= 2 && Number.isInteger(q.answer);
     return String(q.answer).length > 0;
   });
 }
@@ -643,15 +676,23 @@ async function classifyMistakes(items, ctx = null) {
 - "necunoscut"→ nu se poate stabili.
 Răspunde STRICT cu JSON: {"analysis":[{"index":1,"errorType":"calcul","analysis":"explicație scurtă și caldă: unde anume a greșit și ce trebuia făcut"}]}`;
   try {
-    const { text, usage } = await ai.chat({
+    // schemă strictă: errorType din enum, index întreg — fără JSON invalid
+    const { data: parsed, usage } = await ai.chatJson({
       system, messages: [{ role: 'user', content: listing }],
-      temperature: 0.2, maxTokens: 1600, json: true, model: ai.GEN_MODEL,
+      temperature: 0.2, maxTokens: 1600, model: ai.GEN_MODEL,
+      schema: ai.S.obj({
+        analysis: ai.S.arr(ai.S.obj({
+          index: ai.S.int('numărul exercițiului din listă (1, 2, ...)'),
+          errorType: ai.S.enum(['calcul', 'formula', 'regula', 'concept', 'neatentie', 'necunoscut']),
+          analysis: ai.S.str('explicație scurtă și caldă: unde anume a greșit și ce trebuia făcut'),
+        })),
+      }),
+      schemaName: 'analiza_greseli', restoreLatex: false,
     });
     // Loghează costul (altfel apelul acesta LLM era invizibil pt. bugete/rapoarte).
     if (ctx?.supa && ctx?.userId) {
       try { await ai.logUsage(ctx.supa, ctx.userId, ctx.endpoint || 'ai-meditatii:mistakes', usage); } catch { /* logarea nu blochează */ }
     }
-    const parsed = JSON.parse(text);
     const arr = Array.isArray(parsed?.analysis) ? parsed.analysis : Array.isArray(parsed) ? parsed : [];
     return arr.map((a) => ({
       index: Math.max(1, parseInt(a.index, 10) || 1) - 1,
@@ -860,6 +901,7 @@ async function buildMentorReport(supa, studentId) {
 }
 
 module.exports = {
+  toUsage, QUESTIONS_SCHEMA, // Etapa 1: costul Opus + schema strictă (teste)
   CURRICULUM, EN_RECAP, OPUS_MODEL, REVIEW_STAGES_DAYS,
   curriculumFor, categoryFor, classCategory, examTypeFor,
   buildPlan, planProgress, nextChapter, siteChaptersFor, siteChapterCategoriesFor, mergeSiteChapters,

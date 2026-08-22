@@ -16,7 +16,7 @@ module.exports = async function handler(req, res) {
   const supa = ai.admin();
   try {
     const userId = await ai.authUser(req, supa);
-    const { message, mode = 'tutor', conversationId, context = {} } = req.body || {};
+    const { message, mode = 'tutor', conversationId, context = {}, regenerate = false } = req.body || {};
     if (!message || !message.trim()) return res.status(400).json({ error: 'message obligatoriu' });
 
     const profile = await ai.requireUser(supa, userId);
@@ -25,8 +25,8 @@ module.exports = async function handler(req, res) {
     const premium = ai.isPremium(profile);
 
     // 1-3. RAG + conversație + istoric + system prompt (helper comun cu ai-chat-stream)
-    const { convId, primaryMaterial, priorMsgs, system, sources, baremItem } =
-      await ai.prepareChat(supa, { userId, message, mode, conversationId, context, premium });
+    const { convId, primaryMaterial, priorMsgs, system, sources, baremItem, regenerated } =
+      await ai.prepareChat(supa, { userId, message, mode, conversationId, context, premium, regenerate: !!regenerate });
 
     // 3½. Explicație PRE-GENERATA (pasul 3): la prima cerere CANONICĂ
     // („explică-mi” / „dă-mi un indiciu”) despre un material din site,
@@ -60,7 +60,8 @@ module.exports = async function handler(req, res) {
     // Răspunsul e deja generat — nu picăm cererea dacă persistarea eșuează,
     // dar o logăm (altfel istoricul dispare fără nicio urmă).
     const { error: msgErr } = await supa.from('ai_messages').insert([
-      { conversation_id: convId, role: 'user', content: message, mode },
+      // la „Regenerează" întrebarea e deja salvată — doar răspunsul nou
+      ...(regenerated ? [] : [{ conversation_id: convId, role: 'user', content: message, mode }]),
       { conversation_id: convId, role: 'assistant', content: text, mode, metadata: { sources, primaryMaterial } },
     ]);
     if (msgErr) console.error('ai-chat: salvare mesaje eșuată:', msgErr);

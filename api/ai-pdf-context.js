@@ -151,6 +151,120 @@ async function chooseBarem({ content, subjectText, candidates, readText, maxRead
   return pack(group[win], matches.length > 1 ? 'antet+continut' : 'continut', 'ok_continut');
 }
 
+// ── CONTEXTUL COMPLET al unui PDF: text + barem (calculat) ───────────────────
+// Răspuns: { text, chars, truncated, title, fileName, category, barem, baremText, baremStatus }
+async function computePdfContext(supa, content) {
+  // 1) Textul testului deschis
+  let main = await contentPdfText(supa, content, MAX_CHARS);
+
+  // 2) BAREMUL corespunzător (strict: an + variantă + profil + tip sesiune,
+  //    confirmat de antetul și de conținutul PDF-urilor). Explicațiile din
+  //    barem sunt sursa de adevăr — dar NUMAI baremul corect.
+  let barem = null, baremText = '', baremStatus = 'negasit';
+  const embedded = B.splitEmbeddedBarem(main.full);
+  if (embedded) {
+    // baremul e în ACELAȘI PDF (ex. simulări județene „subiecte + barem")
+    main = { ...main, text: embedded.test.slice(0, MAX_CHARS), chars: embedded.test.length, truncated: embedded.test.length > MAX_CHARS };
+    baremText = embedded.barem.slice(0, BAREM_MAX_CHARS);
+    barem = { id: content.id, title: `${content.title || 'Test'} (baremul inclus în PDF)`, fileName: B.fileNameOf(content) || null, matchedBy: 'inclus', evidence: 'baremul se află în același fișier', contentScore: null };
+    baremStatus = 'inclus';
+  } else if (B.isBaremRow(content)) {
+    baremStatus = 'este_barem'; // e deschis chiar baremul — nu mai căutăm altul
+  } else if (content.category) {
+    try {
+      const { data: cands } = await supa.from('content')
+        .select('*')
+        .eq('content_type', 'pdf')
+        .eq('category', content.category);
+      const r = await chooseBarem({
+        content, subjectText: main.text, candidates: cands || [],
+        readText: async (c) => (await contentPdfText(supa, c, BAREM_MAX_CHARS)).text,
+      });
+      baremStatus = r.status;
+      if (r.barem) { barem = r.barem; baremText = r.text; }
+    } catch (e) {
+      console.warn('ai-pdf-context barem:', e.message);
+    }
+  }
+
+  return {
+    text: main.text,
+    chars: main.chars,
+    truncated: main.truncated,
+    title: content.title || null,
+    fileName: B.fileNameOf(content) || null, // numele original al fișierului testului
+    category: content.category || null,
+    barem,
+    baremText,
+    baremStatus,
+  };
+}
+
+// ── CACHE (supabase/ai_pdf_cache.sql → tabela ai_pdf_text) ───────────────────
+// Până acum, la FIECARE deschidere a unui PDF (și acum și la fiecare
+// corectare, care recitește testul de pe server) se descărcau și se parsau
+// testul + până la 8 bareme-candidat. Rezultatul se păstrează aici, pe
+// content_id, și e valabil cât timp fișierul (file_url) e același; o
+// asociere „negăsit"/„ambiguu" se reîncearcă după CACHE_RETRY_HOURS (poate
+// apărea baremul între timp). Lipsa tabelei nu blochează nimic (warnOnce).
+const CACHE_RETRY_HOURS = parseInt(process.env.AI_PDF_CACHE_RETRY_HOURS || '24', 10);
+const CACHE_OK = new Set(['ok', 'ok_antet', 'ok_continut', 'inclus', 'este_barem']);
+const warned = new Set();
+const warnOnce = (k, m) => { if (!warned.has(k)) { warned.add(k); console.warn(m); } };
+
+async function readCache(supa, content) {
+  try {
+    const { data, error } = await supa.from('ai_pdf_text').select('*').eq('content_id', content.id).maybeSingle();
+    if (error) { warnOnce('ai_pdf_text', `ai_pdf_text indisponibilă (${error.message}) — rulează supabase/ai_pdf_cache.sql; continui fără cache.`); return null; }
+    if (!data || data.file_url !== content.file_url) return null; // fișier schimbat → recalcul
+    if (!CACHE_OK.has(data.barem_status)) {
+      const age = Date.now() - new Date(data.updated_at || 0).getTime();
+      if (age > CACHE_RETRY_HOURS * 3600 * 1000) return null; // reîncercăm asocierea
+    }
+    return {
+      text: data.text || '', chars: data.chars || (data.text || '').length, truncated: !!data.truncated,
+      title: content.title || null, fileName: B.fileNameOf(content) || null, category: content.category || null,
+      barem: data.barem || null, baremText: data.barem_text || '', baremStatus: data.barem_status || 'negasit',
+      cached: true,
+    };
+  } catch (e) { warnOnce('ai_pdf_text_e', `ai_pdf_text: ${e.message}`); return null; }
+}
+async function writeCache(supa, content, ctx) {
+  try {
+    const { error } = await supa.from('ai_pdf_text').upsert({
+      content_id: content.id, file_url: content.file_url,
+      text: ctx.text || '', chars: ctx.chars || 0, truncated: !!ctx.truncated,
+      barem_id: ctx.barem?.id || null, barem: ctx.barem || null, barem_text: ctx.baremText || '',
+      barem_status: ctx.baremStatus || 'negasit', updated_at: new Date().toISOString(),
+    }, { onConflict: 'content_id' });
+    if (error) warnOnce('ai_pdf_text_w', `ai_pdf_text: scrierea în cache a eșuat (${error.message}) — rulează supabase/ai_pdf_cache.sql.`);
+  } catch (e) { warnOnce('ai_pdf_text_we', `ai_pdf_text: ${e.message}`); }
+}
+
+// Contextul PDF al unui material, din cache sau calculat (și pus în cache).
+// Folosit de handlerul de mai jos ȘI de ai-correct (care NU mai are încredere
+// în textul/baremul trimise din browser, ci le recitește de aici).
+async function getPdfContext(supa, content, { refresh = false } = {}) {
+  if (!refresh) {
+    const hit = await readCache(supa, content);
+    if (hit) return hit;
+  }
+  const ctx = await computePdfContext(supa, content);
+  await writeCache(supa, content, ctx);
+  return { ...ctx, cached: false };
+}
+
+// Materialul + verificarea accesului (gratuit / abonat / admin). Aruncă 404/403.
+async function loadContentForUser(supa, contentId, profile) {
+  // select('*') — tolerează deploy-uri cu/fără coloanele subcategory/profile
+  const { data: content } = await supa.from('content').select('*').eq('id', contentId).single();
+  if (!content || !content.file_url) { const e = new Error('Material negăsit'); e.status = 404; throw e; }
+  if (!content.is_free && !ai.isPremium(profile) && !profile.is_admin) {
+    const e = new Error('Acces interzis. Necesită abonament.'); e.status = 403; throw e;
+  }
+  return content;
+}
+
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -161,66 +275,17 @@ module.exports = async function handler(req, res) {
     const userId = await ai.authUser(req, supa);
     const profile = await ai.requireUser(supa, userId);
 
-    const { contentId } = req.body || {};
+    const { contentId, refresh = false } = req.body || {};
     if (!contentId) return res.status(400).json({ error: 'contentId obligatoriu' });
+    const content = await loadContentForUser(supa, contentId, profile);
 
-    // select('*') — tolerează deploy-uri cu/fără coloanele subcategory/profile
-    const { data: content } = await supa.from('content')
-      .select('*').eq('id', contentId).single();
-    if (!content || !content.file_url) return res.status(404).json({ error: 'Material negăsit' });
-    if (!content.is_free && !ai.isPremium(profile) && !profile.is_admin) {
-      return res.status(403).json({ error: 'Acces interzis. Necesită abonament.' });
-    }
-
-    // 1) Textul testului deschis
-    let main;
+    let ctx;
     try {
-      main = await contentPdfText(supa, content, MAX_CHARS);
+      ctx = await getPdfContext(supa, content, { refresh: !!refresh && !!profile.is_admin });
     } catch (e) {
       return res.status(502).json({ error: e.message });
     }
-
-    // 2) BAREMUL corespunzător (strict: an + variantă + profil + tip sesiune,
-    //    confirmat de antetul și de conținutul PDF-urilor). Explicațiile din
-    //    barem sunt sursa de adevăr — dar NUMAI baremul corect.
-    let barem = null, baremText = '', baremStatus = 'negasit';
-    const embedded = B.splitEmbeddedBarem(main.full);
-    if (embedded) {
-      // baremul e în ACELAȘI PDF (ex. simulări județene „subiecte + barem")
-      main = { ...main, text: embedded.test.slice(0, MAX_CHARS), chars: embedded.test.length, truncated: embedded.test.length > MAX_CHARS };
-      baremText = embedded.barem.slice(0, BAREM_MAX_CHARS);
-      barem = { id: content.id, title: `${content.title || 'Test'} (baremul inclus în PDF)`, fileName: B.fileNameOf(content) || null, matchedBy: 'inclus', evidence: 'baremul se află în același fișier', contentScore: null };
-      baremStatus = 'inclus';
-    } else if (B.isBaremRow(content)) {
-      baremStatus = 'este_barem'; // e deschis chiar baremul — nu mai căutăm altul
-    } else if (content.category) {
-      try {
-        const { data: cands } = await supa.from('content')
-          .select('*')
-          .eq('content_type', 'pdf')
-          .eq('category', content.category);
-        const r = await chooseBarem({
-          content, subjectText: main.text, candidates: cands || [],
-          readText: async (c) => (await contentPdfText(supa, c, BAREM_MAX_CHARS)).text,
-        });
-        baremStatus = r.status;
-        if (r.barem) { barem = r.barem; baremText = r.text; }
-      } catch (e) {
-        console.warn('ai-pdf-context barem:', e.message);
-      }
-    }
-
-    return res.status(200).json({
-      text: main.text,
-      chars: main.chars,
-      truncated: main.truncated,
-      title: content.title || null,
-      fileName: B.fileNameOf(content) || null, // numele original al fișierului testului
-      category: content.category || null,
-      barem,
-      baremText,
-      baremStatus,
-    });
+    return res.status(200).json(ctx);
   } catch (err) {
     console.error('ai-pdf-context error:', err);
     return res.status(err.status || 500).json({ error: err.message || 'Eroare server' });
@@ -228,3 +293,6 @@ module.exports = async function handler(req, res) {
 };
 
 module.exports.chooseBarem = chooseBarem;
+module.exports.getPdfContext = getPdfContext;
+module.exports.computePdfContext = computePdfContext;
+module.exports.loadContentForUser = loadContentForUser;

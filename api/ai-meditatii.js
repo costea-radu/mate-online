@@ -80,6 +80,15 @@ async function saveMemory(supa, userId, memory) {
   await supa.from('ai_meditatii_profile').update({ memory }).eq('user_id', userId);
 }
 
+// Scorul raportat de browser pentru un test interactiv din site: întregi,
+// 0 ≤ scor ≤ maxim, maximul între 1 și 1000 (testele raportează „din 100"
+// sau punctaje brute de zeci de puncte — 5000/5000 nu e un rezultat real).
+function clampScore(score, maxScore) {
+  const mx = Math.min(1000, Math.max(1, parseInt(maxScore, 10) || 100));
+  const sc = Math.min(mx, Math.max(0, parseInt(score, 10) || 0));
+  return { sc, mx };
+}
+
 // întrebările trimise clientului NU conțin răspunsul/explicația
 function sanitize(questions) {
   return (questions || []).map((q) => ({
@@ -169,8 +178,9 @@ async function sessionScore(req, res, supa) {
   if (!sess) return res.status(404).json({ error: 'Sesiunea nu există.' });
   if (!sess.payload?.contentId) return res.status(400).json({ error: 'Doar sesiunile din site se bifează pe această cale.' });
 
-  const sc = Math.max(0, parseInt(score, 10) || 0);
-  const mx = Math.max(1, parseInt(maxScore, 10) || 100);
+  // scorul vine din browser — validat (0 ≤ scor ≤ maxim plauzibil); recalculul
+  // pe server al testelor interactive: Etapa 2 (AUDIT_AGENTI_AI.md, 2.1)
+  const { sc, mx } = clampScore(score, maxScore);
   const best = sess.max_score ? Math.max(sess.score || 0, sc) : sc; // păstrăm cel mai bun scor
   const pct = best / mx;
   await supa.from('ai_meditatii_sessions').update({
@@ -1065,11 +1075,14 @@ async function pickAndAssignHomework(supa, userId, medProfile, { notify = true, 
     hwRow = data ? { ...data, kind: 'content' } : null;
   } else if (chapter) {
     // 2) site epuizat → generăm după modelul din site (Opus 5 / fallback)
-    const { questions } = await med.genQuestions(supa, {
+    const { questions, usage } = await med.genQuestions(supa, {
       category: med.categoryFor(medProfile), chapter: chapter.title,
       topics: chapter.topics || [], difficulty, count: 8,
       purpose: 'tema', styleNote: styleNoteOf(medProfile),
     });
+    // generarea temei (on-demand SAU din cron) se contorizează la elev, ca
+    // orice altă generare — până acum nu se loga deloc (cost invizibil)
+    await ai.logUsage(supa, userId, auto ? 'ai-meditatii:homework:auto' : 'ai-meditatii:homework', usage || {});
     if (questions.length) {
       questions.forEach((q) => { q.chapter = chapter.id; q.topic = q.topic || chapter.title; });
       const { data } = await supa.from('ai_meditatii_homework').insert({
@@ -1227,8 +1240,10 @@ async function homeworkScore(req, res, supa) {
   if (!hw) return res.status(404).json({ error: 'Tema nu există.' });
   if (hw.kind !== 'content') return res.status(400).json({ error: 'Doar temele din site se bifează pe această cale.' });
 
-  const sc = Math.max(0, parseInt(score, 10) || 0);
-  const mx = Math.max(1, parseInt(maxScore, 10) || 100);
+  // scorul vine din browser (testul HTML îl calculează singur) — îl validăm
+  // (0 ≤ scor ≤ maxim, maxim plauzibil); recalculul pe server al testelor
+  // interactive e planificat în Etapa 2 (vezi AUDIT_AGENTI_AI.md, 2.1)
+  const { sc, mx } = clampScore(score, maxScore);
   const best = hw.max_score ? Math.max(hw.score || 0, sc) : sc; // păstrăm cel mai bun scor
   const pct = best / mx;
   // nota cu 10 p din oficiu, 2 zecimale; testele „din 100" îl au deja inclus (med.notaTest)
@@ -1720,3 +1735,6 @@ async function cronScan(supa) {
 
   return out;
 }
+
+// exportat pentru teste
+module.exports.clampScore = clampScore;

@@ -273,7 +273,10 @@ function dayStartBucharest(now = new Date()) {
 // corpul potrivit după numele modelului și, ca plasă de siguranță, reparăm
 // automat la eroarea 400 „unsupported parameter" și reîncercăm o dată.
 const isNewGenModel = (m) => /\bgpt-5|^o[1-9]\b|\bo[1-9]-/i.test(String(m || ''));
-function buildBody({ model, temperature, maxTokens, messages, system, json, stream }) {
+// `schema` (opțional): JSON Schema STRICT → Structured Outputs (decodare
+// constrânsă: JSON garantat valid, enum-urile respectate). Fără schemă, `json`
+// → modul clasic json_object. Vezi chatJson() și helperul S de mai jos.
+function buildBody({ model, temperature, maxTokens, messages, system, json, stream, schema = null, schemaName = 'raspuns' }) {
   const body = { model, messages: system ? [{ role: 'system', content: system }, ...messages] : messages };
   if (isNewGenModel(model)) {
     // Modelele cu raționament „ard" tokeni pe gândirea internă ÎNAINTE de a
@@ -282,7 +285,9 @@ function buildBody({ model, temperature, maxTokens, messages, system, json, stre
     // minim 3000, plafonat la 16000.
     body.max_completion_tokens = Math.min(Math.max(maxTokens * 3, 3000), 16000);
   } else { body.max_tokens = maxTokens; body.temperature = temperature; }
-  if (json) body.response_format = { type: 'json_object' };
+  if (schema) {
+    body.response_format = { type: 'json_schema', json_schema: { name: String(schemaName || 'raspuns').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64), schema, strict: true } };
+  } else if (json) body.response_format = { type: 'json_object' };
   if (stream) {
     body.stream = true;
     // cerem usage-ul real în ultimul chunk (OpenAI o suportă; dacă providerul
@@ -301,7 +306,16 @@ function adaptBodyToError(body, errText) {
     body.max_tokens = body.max_completion_tokens; delete body.max_completion_tokens; changed = true;
   }
   if (/temperature/.test(t) && 'temperature' in body) { delete body.temperature; changed = true; }
-  if (/response_format/.test(t) && body.response_format) { delete body.response_format; changed = true; }
+  if (/response_format|json_schema|schema|strict/i.test(t) && body.response_format) {
+    // Structured Outputs refuzate (gateway vechi, model fără suport, schemă
+    // invalidă) → coborâm pe json_object (comportamentul de până acum); dacă
+    // nici acela nu e acceptat, renunțăm la format de tot.
+    if (body.response_format.type === 'json_schema') {
+      warnOnce(`schema:${body.response_format.json_schema?.name}`, `Structured Outputs refuzate pentru „${body.response_format.json_schema?.name}" (${t.slice(0, 160)}) — cobor pe json_object.`);
+      body.response_format = { type: 'json_object' };
+    } else delete body.response_format;
+    changed = true;
+  }
   if (/stream_options/.test(t) && body.stream_options) { delete body.stream_options; changed = true; }
   return changed;
 }
@@ -350,6 +364,131 @@ async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900,
     usage.out += data.usage?.completion_tokens || 0;
   }
   return { text, usage };
+}
+
+// =====================================================================
+// STRUCTURED OUTPUTS — răspunsuri JSON cu schemă strictă
+// =====================================================================
+// Helper compact pentru scheme STRICTE (regulile OpenAI strict + Claude):
+//   · fiecare obiect: additionalProperties:false + TOATE cheile în required;
+//   · câmp opțional = tip nullable (["string","null"]), nu cheie lipsă;
+//   · fără minItems/maxItems/minimum/pattern/format (nesuportate în strict).
+const S = {
+  obj: (props, description = null) => ({
+    type: 'object', properties: props, required: Object.keys(props), additionalProperties: false,
+    ...(description ? { description } : {}),
+  }),
+  str: (description = null) => ({ type: 'string', ...(description ? { description } : {}) }),
+  int: (description = null) => ({ type: 'integer', ...(description ? { description } : {}) }),
+  num: (description = null) => ({ type: 'number', ...(description ? { description } : {}) }),
+  bool: (description = null) => ({ type: 'boolean', ...(description ? { description } : {}) }),
+  enum: (values, description = null) => ({ type: 'string', enum: values, ...(description ? { description } : {}) }),
+  arr: (items, description = null) => ({ type: 'array', items, ...(description ? { description } : {}) }),
+  // nullable: tip simplu → ["tip","null"]; obiect/array/enum → anyOf cu null
+  nullable: (t) => {
+    if (typeof t.type === 'string' && !t.enum && t.type !== 'object' && t.type !== 'array') return { ...t, type: [t.type, 'null'] };
+    return { anyOf: [t, { type: 'null' }] };
+  },
+};
+
+// ─── Repararea LaTeX-ului corupt de JSON.parse ───────────────────────────────
+// Modelele scriu uneori „\frac" cu UN backslash în stringul JSON; „\f", „\t",
+// „\b" sunt escape-uri JSON valide (form-feed, tab, backspace), deci și cu
+// Structured Outputs (care garantează doar JSON VALID) parse-ul le transformă
+// în caractere de control: „\frac" → „␌rac". Le restaurăm (caracterele de
+// control nu apar legitim în text); „\n"/„\r" sunt rânduri reale — le
+// restaurăm DOAR când sunt urmate de o comandă LaTeX cunoscută (\neq, \nu,
+// \nabla, \notin, \rho, \right, \rightarrow, \rangle, \rceil, \rfloor).
+function restoreLatexControl(s) {
+  if (typeof s !== 'string' || !s) return s;
+  return s
+    .replace(/\f/g, '\\f')       // \frac, \forall, \frown...
+    .replace(/\t/g, '\\t')       // \times, \theta, \tan, \to, \text, \triangle...
+    .replace(/\u0008/g, '\\b')  // \begin, \binom, \beta...
+    .replace(/\n(?=(?:eq|e|u|abla|ot|otin|mid|ewline)\b)/g, '\\n')
+    .replace(/\r(?=(?:ho|ight|ightarrow|angle|ceil|floor|m)\b)/g, '\\r');
+}
+function deepRestoreLatex(obj) {
+  if (Array.isArray(obj)) return obj.map(deepRestoreLatex);
+  if (obj && typeof obj === 'object') { const o = {}; for (const k of Object.keys(obj)) o[k] = deepRestoreLatex(obj[k]); return o; }
+  return restoreLatexControl(obj);
+}
+
+// Indexul variantei corecte la o grilă cu `n` opțiuni: întreg (0..n-1) sau
+// literă („b", „B)") → index; orice altceva → null (itemul se respinge).
+// Înainte, `Number("b") || 0` transforma tăcut litera în indexul 0 → cheie greșită.
+function answerIndex(v, n) {
+  if (Number.isInteger(v)) return v >= 0 && v < n ? v : null;
+  const s = String(v ?? '').trim();
+  if (/^\d+$/.test(s)) { const i = parseInt(s, 10); return i >= 0 && i < n ? i : null; }
+  const m = /^([a-d])\)?$/i.exec(s);
+  if (m) { const i = m[1].toLowerCase().charCodeAt(0) - 97; return i < n ? i : null; }
+  return null;
+}
+
+// Parsare JSON tolerantă: JSON.parse → fără ```json``` → backslash-uri LaTeX
+// dublate → JSON trunchiat închis (claude.extractJson). null dacă nu se poate.
+function parseJsonLoose(text) {
+  const s = String(text || '').trim();
+  if (!s) return null;
+  try { return JSON.parse(s); } catch { /* mai jos */ }
+  try { return require('./claude').extractJson(s); } catch { return null; }
+}
+
+// ─── chatJson: apel LLM cu răspuns JSON (schemă strictă sau json_object) ─────
+// Întoarce { data, text, usage, structured } — `data` e obiectul parsat, cu
+// LaTeX-ul restaurat (deepRestoreLatex). Dacă răspunsul nu se poate parsa,
+// reîncearcă O dată cu un avertisment; dacă tot nu, aruncă eroare 502 (apelantul
+// întoarce mesajul lui „mai încearcă"). `refusal` (Structured Outputs) → 502.
+async function chatJson(opts) {
+  const usage = { in: 0, out: 0, model: opts.model || CHAT_MODEL };
+  try {
+    return await chatJsonInner(opts, usage);
+  } catch (e) {
+    // tokenii consumați până la eroare rămân logabili de apelant (e.usage)
+    if (e && typeof e === 'object' && !e.usage) e.usage = usage;
+    throw e;
+  }
+}
+async function chatJsonInner({ system, messages = [], schema = null, schemaName = 'raspuns', temperature = 0.3, maxTokens = 1500, model = CHAT_MODEL, restoreLatex = true }, usage) {
+  if (!hasChat()) throw new Error('AI_CHAT_API_KEY (sau OPENAI_API_KEY) nu este setat.');
+  const body = buildBody({ model, temperature, maxTokens, messages, system, json: true, schema, schemaName });
+  const once = async () => {
+    const r = await postLLM(body);
+    const data = await r.json();
+    const choice = data.choices?.[0] || {};
+    usage.in += data.usage?.prompt_tokens || 0;
+    usage.out += data.usage?.completion_tokens || 0;
+    if (choice.message?.refusal) {
+      const e = new Error(`Modelul a refuzat cererea: ${String(choice.message.refusal).slice(0, 200)}`);
+      e.status = 502; throw e;
+    }
+    return { text: choice.message?.content ?? '', finish: choice.finish_reason || '' };
+  };
+  let { text, finish } = await once();
+  // răspuns gol/trunchiat la modelele cu raționament → buget maxim, o dată
+  if ((!String(text).trim() || finish === 'length') && isNewGenModel(model) && (body.max_completion_tokens || 0) < 16000) {
+    console.warn(`chatJson: răspuns ${String(text).trim() ? 'trunchiat' : 'gol'} la ${model} (finish=${finish}) — reîncerc cu buget maxim`);
+    body.max_completion_tokens = 16000;
+    ({ text, finish } = await once());
+  }
+  let parsed = parseJsonLoose(text);
+  if (parsed == null) {
+    // o singură reîncercare, cu avertisment explicit
+    body.messages = [...body.messages, { role: 'assistant', content: String(text).slice(0, 4000) },
+      { role: 'user', content: 'Răspunsul anterior NU a fost JSON valid. Răspunde STRICT cu obiectul JSON cerut, fără alt text și fără markdown.' }];
+    ({ text, finish } = await once());
+    parsed = parseJsonLoose(text);
+  }
+  if (parsed == null) {
+    const e = new Error('Modelul a returnat un format invalid. Mai încearcă o dată.');
+    e.status = 502; throw e;
+  }
+  return {
+    data: restoreLatex ? deepRestoreLatex(parsed) : parsed,
+    text, usage,
+    structured: body.response_format?.type === 'json_schema',
+  };
 }
 
 // ─── Apel LLM în STREAMING (async generator de fragmente text) ───────────────
@@ -1241,6 +1380,13 @@ function deterministicBaremItem({ baremText, subjectText }, ref) {
   };
 }
 
+// Schema răspunsului de la extractBaremItem (Structured Outputs)
+const BAREM_ITEM_SCHEMA = S.obj({
+  exercitiu: S.nullable(S.str('referința exercițiului, ex. "II.2.b"; null dacă întrebarea nu e despre un exercițiu anume')),
+  enunt: S.str('enunțul copiat identic din test ("" dacă nu se aplică)'),
+  barem: S.str('fragmentul copiat identic din barem ("" dacă nu se aplică)'),
+});
+
 // ── Extrage din barem rezolvarea EXERCIȚIULUI ÎNTREBAT (focalizare) ──────────
 // Baremul întreg are mii de caractere și modelul „se pierde" în el. Un pas
 // separat, ieftin, identifică exercițiul din întrebare și copiază identic
@@ -1254,8 +1400,12 @@ async function extractBaremItem({ message, priorMsgs = [], subjectText = '', bar
     const prior = priorMsgs.filter((m) => m.role === 'user').slice(-2).map((m) => m.content).join('\n');
     const sys = 'Primești întrebarea unui elev despre un test, textul testului și BAREMUL testului. Identifică exercițiul la care se referă întrebarea (folosește și mesajele anterioare dacă întrebarea e vagă), apoi: (1) extrage din TEST, CUVÂNT CU CUVÂNT, enunțul acelui exercițiu; (2) extrage din BAREM, CUVÂNT CU CUVÂNT, fragmentul care rezolvă EXACT acel exercițiu (toate rândurile lui, cu exponenții și semnele intacte; la grilele cu tabel „Nr. item / Rezultate" copiază litera itemului, ex. „3. c. 5p"). Răspunde DOAR cu JSON: {"exercitiu":"II.2.b","enunt":"<enunțul copiat identic din test>","barem":"<fragmentul copiat identic din barem>"}. Dacă întrebarea nu se referă la un exercițiu anume, răspunde {"exercitiu":null,"enunt":"","barem":""}.';
     const user = `ÎNTREBAREA ELEVULUI: ${String(message).slice(0, 600)}\n\nMESAJELE ANTERIOARE ALE ELEVULUI (context): ${prior || '—'}\n\nTESTUL:\n"""${String(subjectText).slice(0, 9000)}"""\n\nBAREMUL:\n"""${String(baremText).slice(0, 11000)}"""`;
-    const { text } = await chat({ system: sys, messages: [{ role: 'user', content: user }], temperature: 0, maxTokens: 1100, json: true, model: PDF_MODEL });
-    const parsed = JSON.parse(text);
+    // fragmentele se copiază IDENTIC din documente → fără restaurare LaTeX
+    // (verificarea fragmentFromBarem compară numerele cu textul brut)
+    const { data: parsed } = await chatJson({
+      system: sys, messages: [{ role: 'user', content: user }], temperature: 0, maxTokens: 1100, model: PDF_MODEL,
+      schema: BAREM_ITEM_SCHEMA, schemaName: 'barem_item', restoreLatex: false,
+    });
     // exercițiul identificat → tăiere deterministă (structura oficială a documentului)
     const ref = parsed && parsed.exercitiu ? parseExerciseRef(String(parsed.exercitiu)) : null;
     if (ref && ref.ex) {
@@ -1345,7 +1495,11 @@ Motivează-l activ: felicită-l concret la reușite (punctaj maxim, insignă nou
 // DOI AGENȚI: context.pdf → agentul de teste PDF (pdfAgentSystem);
 //             altfel      → agentul interactiv/general (interactiveAgentSystem),
 //             cu EXACT comportamentul de până acum.
-async function prepareChat(supa, { userId, message, mode = 'tutor', conversationId = null, context = {}, premium = false }) {
+// `regenerate` („Regenerează" din chat): răspunsul anterior al asistentului
+// iese din istoricul dat modelului (altfel l-ar repeta), iar dacă ultimul mesaj
+// al elevului este chiar întrebarea retrimisă, handlerul NU o mai salvează o
+// dată (întoarcem `regenerated: true`). Răspunsul vechi rămâne în DB (istoric).
+async function prepareChat(supa, { userId, message, mode = 'tutor', conversationId = null, context = {}, premium = false, regenerate = false }) {
   const isPdfAgent = !!context.pdf;
   const hasBarem = !!(context.pdf && context.baremText);
 
@@ -1382,11 +1536,23 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
     convId = data.id;
   }
 
-  // 3. Istoric recent (ultimele 10 mesaje)
-  const { data: history } = await supa.from('ai_messages')
-    .select('role, content').eq('conversation_id', convId)
-    .order('created_at', { ascending: false }).limit(10);
-  const priorMsgs = (history || []).reverse().map((m) => ({ role: m.role, content: m.content }));
+  // 3. Istoric recent (ultimele 10 mesaje, fără răspunsurile înlocuite)
+  let rows = await loadHistory(supa, convId, 10);
+  let regenerated = false;
+  if (regenerate && conversationId && convId === conversationId) {
+    const cut = dropLastTurn(rows, message);
+    regenerated = cut.regenerated;
+    // răspunsul înlocuit rămâne în DB (cu feedbackul lui), dar marcat
+    // `superseded` — nu mai intră nici în istoricul modelului, nici în chat
+    for (const r of cut.removedAssistant) {
+      if (!r.id) continue;
+      const { error } = await supa.from('ai_messages')
+        .update({ metadata: { ...(r.metadata || {}), superseded: true } }).eq('id', r.id);
+      if (error) console.warn('prepareChat: marcare superseded eșuată:', error.message);
+    }
+    rows = cut.msgs;
+  }
+  const priorMsgs = rows.map((m) => ({ role: m.role, content: m.content }));
 
   // 4. System prompt — construit de agentul potrivit.
   let system, baremItem = null;
@@ -1408,7 +1574,41 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
           : docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }))),
       ]
     : docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }));
-  return { docs, ctxBlock, primaryMaterial, convId, priorMsgs, system, sources, baremItem };
+  return { docs, ctxBlock, primaryMaterial, convId, priorMsgs, system, sources, baremItem, regenerated };
+}
+
+// Ultimele `limit` mesaje ale conversației, în ordine cronologică, FĂRĂ cele
+// marcate `metadata.superseded` (înlocuite prin „Regenerează"). Dacă filtrul
+// JSON nu e acceptat de PostgREST (versiune veche), recădem pe interogarea
+// simplă și filtrăm în memorie — istoricul nu trebuie să dispară niciodată.
+async function loadHistory(supa, convId, limit = 10) {
+  const base = () => supa.from('ai_messages')
+    .select('id, role, content, metadata').eq('conversation_id', convId)
+    .order('created_at', { ascending: false });
+  let { data, error } = await base()
+    .or('metadata->>superseded.is.null,metadata->>superseded.neq.true').limit(limit);
+  if (error) {
+    warnOnce('hist_filter', `loadHistory: filtrul superseded a eșuat (${error.message}) — filtrez în memorie`);
+    ({ data } = await base().limit(limit + 10));
+    data = (data || []).filter((m) => !(m.metadata && m.metadata.superseded === true)).slice(0, limit);
+  }
+  return (data || []).reverse();
+}
+
+// „Regenerează": scoate din istoric ultimul răspuns al asistentului (toate
+// răspunsurile consecutive de la coadă) și, dacă mesajul de dinaintea lor este
+// chiar întrebarea retrimisă, și pe aceasta (regenerated=true → handlerul nu o
+// mai salvează o dată). Funcție pură — testabilă.
+function dropLastTurn(msgs, message) {
+  const out = [...(msgs || [])];
+  const removedAssistant = [];
+  while (out.length && out[out.length - 1].role === 'assistant') removedAssistant.push(out.pop());
+  const same = (a, b) => String(a || '').trim() === String(b || '').trim();
+  if (removedAssistant.length && out.length && out[out.length - 1].role === 'user' && same(out[out.length - 1].content, message)) {
+    out.pop();
+    return { msgs: out, regenerated: true, removedAssistant };
+  }
+  return { msgs: out, regenerated: false, removedAssistant };
 }
 
 // ─── AGENTUL 1: exerciții interactive + chat general (comportament NESCHIMBAT) ─
@@ -1600,8 +1800,10 @@ async function semanticCheck(reply, baremItem) {
   try {
     const sys = 'Ești verificator de fidelitate. Primești REZOLVAREA-MODEL a unui exercițiu și RĂSPUNSUL unui profesor către elev. Răspunsul poate fi doar o îndrumare (primul pas) sau rezolvarea completă — ambele sunt în regulă. ATENȚIE: textul rezolvării-model provine din extracție automată din PDF și poate avea fracții sau expresii sparte pe rânduri ori simboluri pierdute — dacă răspunsul le reconstruiește coerent (ex. „(3+4)/2 = 7/2" acolo unde textul arată cifre împrăștiate), NU e deviere. Verifică: metoda și rezultatele răspunsului sunt cele din rezolvarea-model (atenție la exponenți și semne: m^2-3 NU e totuna cu m-3)? Dacă răspunsul introduce ALTĂ metodă, ALTE valori sau ALTE concluzii decât cele din rezolvare, e deviere. Răspunde DOAR cu JSON: {"ok":true} sau {"ok":false,"motiv":"<pe scurt ce a deviat>"}.';
     const user = `REZOLVAREA-MODEL:\n"""${String(baremItem.barem).slice(0, 3500)}"""\n\nRĂSPUNSUL PROFESORULUI:\n"""${String(reply).slice(0, 3500)}"""`;
-    const { text } = await chat({ system: sys, messages: [{ role: 'user', content: user }], temperature: 0, maxTokens: 200, json: true });
-    const p = JSON.parse(text);
+    const { data: p } = await chatJson({
+      system: sys, messages: [{ role: 'user', content: user }], temperature: 0, maxTokens: 200,
+      schema: S.obj({ ok: S.bool(), motiv: S.nullable(S.str('pe scurt ce a deviat; null dacă ok')) }), schemaName: 'verificare_fidelitate',
+    });
     if (p && p.ok === false) return { ok: false, motiv: String(p.motiv || 'a deviat de la rezolvare').slice(0, 160) };
   } catch (e) { console.warn('pdfReplyCheck:', e.message); }
   return { ok: true };
@@ -1730,6 +1932,8 @@ async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', m
 module.exports = {
   CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic, isCronRequest,
   chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, PERSONA,
+  dropLastTurn, loadHistory, // „Regenerează" (exportate pentru teste)
+  chatJson, S, deepRestoreLatex, restoreLatexControl, parseJsonLoose, buildBody, adaptBodyToError, answerIndex, // Structured Outputs
   extractBaremItem, fragmentFromBarem, verifiedPdfReply, wantsOtherExplanation, isFollowUpQuestion,
   deterministicBaremItem, shortAnswerCheck, fragmentFallback, pdfAgentSystem, // grile / rezultat scurt (EN) — exportate pentru teste
   levelLabel, interactiveCatalog, studentState, meditatiiMemory,

@@ -11,18 +11,20 @@
 // =====================================================================
 const ai = require('./_lib/ai');
 const { pdfText, storagePath, modeLine, cutBarem } = require('./_lib/pdftext');
+const { S } = ai;
 
-// Parsare JSON tolerantă la LaTeX (backslash-uri simple ca \frac devin \\frac).
-function safeParse(text) {
-  let s = (text || '').trim();
-  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence) s = fence[1].trim();
-  const a = s.indexOf('['); const b = s.lastIndexOf(']');
-  if (a !== -1 && b !== -1) s = s.slice(a, b + 1);
-  try { return JSON.parse(s); } catch { /* încearcă reparat */ }
-  try { return JSON.parse(s.replace(/\\(?![\\/"bfnrtu])/g, '\\\\')); } catch { /* nimic */ }
-  return null;
-}
+// Schema STRICTĂ a răspunsului (Structured Outputs): JSON garantat valid,
+// „answer" = index (grilă) sau text (răspuns liber) — nu mai poate fi „b".
+const QUESTIONS_SCHEMA = S.obj({
+  questions: S.arr(S.obj({
+    statement: S.str('enunțul întrebării (formule LaTeX între $...$)'),
+    options: S.nullable(S.arr(S.str(), 'exact 4 variante la grilă; null la răspuns liber')),
+    answer: { anyOf: [{ type: 'integer' }, { type: 'string' }], description: 'indexul variantei corecte (0–3) la grilă; textul răspunsului la răspuns liber' },
+    explanation: S.str('de ce e corect (scurt) / redactarea model'),
+  })),
+});
+
+const { answerIndex } = ai; // index valid (0–3) sau literă a–d → index; altfel null
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -166,15 +168,23 @@ ${topicFull}
     const perItem = qtype === 'redactare' ? 600 : 450;
     const base = qtype === 'redactare' ? 4000 : 3200;
     const maxTokens = maxItems <= 8 ? base : Math.min(12000, base + (maxItems - 8) * perItem);
-    const { text, usage } = await ai.chat({
-      system,
-      messages: [{ role: 'user', content: `Generează obiectul JSON cu ${kind === 'test' ? `TESTUL de ${count} itemi` : 'întrebările'} acum${topicFull ? ', respectând întocmai subiectul și instrucțiunile profesorului' : ''}. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
-      temperature: 0.9, maxTokens, json: true,
-      model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
-    });
+    let data, usage, text;
+    try {
+      ({ data, usage, text } = await ai.chatJson({
+        system,
+        messages: [{ role: 'user', content: `Generează obiectul JSON cu ${kind === 'test' ? `TESTUL de ${count} itemi` : 'întrebările'} acum${topicFull ? ', respectând întocmai subiectul și instrucțiunile profesorului' : ''}. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
+        temperature: 0.9, maxTokens,
+        model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
+        schema: QUESTIONS_SCHEMA, schemaName: 'intrebari_interactive',
+      }));
+    } catch (e) {
+      if (e.usage) await ai.logUsage(supa, userId, 'ai-generate-interactive', e.usage);
+      if (e.status === 502) return res.status(502).json({ error: 'Generatorul nu a produs întrebări valide. Mai încearcă o dată.' });
+      throw e;
+    }
     await ai.logUsage(supa, userId, 'ai-generate-interactive', usage);
 
-    let questions = safeParse(text);
+    let questions = data;
     // modelele în modul JSON întorc un OBIECT — despachetăm orice formă:
     // {"questions":[...]}, {"intrebari":[...]}, sau {"1":{...},"2":{...}}
     if (questions && !Array.isArray(questions) && typeof questions === 'object') {
@@ -188,14 +198,19 @@ ${topicFull}
     // normalizează + VALIDEAZĂ: fără întrebări cu enunț gol, grile fără opțiuni
     // sau răspunsuri lipsă. Altfel clientul primea `questions: []` cu 200 și
     // randa o pagină albă. (plafonul urmează numărul de itemi cerut la teste)
-    questions = questions.slice(0, maxItems).map((q) => ({
-      statement: String(q.statement || '').trim(),
-      options: Array.isArray(q.options) ? q.options.map((o) => String(o)) : undefined,
-      answer: Array.isArray(q.options) ? Number(q.answer) || 0 : String(q.answer ?? '').trim(),
-      explanation: q.explanation ? String(q.explanation) : '',
-    })).filter((q) => {
+    // La grilă, „answer" trebuie să fie un index valid (sau o literă a–d) —
+    // înainte, `Number("b") || 0` transforma tăcut o literă în indexul 0 (cheie greșită).
+    questions = questions.slice(0, maxItems).map((q) => {
+      const options = Array.isArray(q.options) && q.options.length ? q.options.map((o) => String(o)) : undefined;
+      return {
+        statement: String(q.statement || '').trim(),
+        options,
+        answer: options ? answerIndex(q.answer, options.length) : String(q.answer ?? '').trim(),
+        explanation: q.explanation ? String(q.explanation) : '',
+      };
+    }).filter((q) => {
       if (q.statement.length < 6) return false;
-      if (q.options) return q.options.length >= 2 && q.answer >= 0 && q.answer < q.options.length;
+      if (q.options) return q.options.length >= 2 && Number.isInteger(q.answer);
       return String(q.answer).length > 0;
     });
     if (!questions.length) {

@@ -227,6 +227,12 @@ function CorrectionBlock({ r }) {
   );
 }
 
+// Mesajele automate deja trimise (id-urile lor) — la nivel de MODUL, nu de
+// componentă: widgetul plutitor remontează ChatPanel la fiecare deschidere,
+// iar un ref din componentă „uita" că mesajul a fost trimis și îl retrimitea
+// într-o conversație nouă („Nu înțeleg acest exercițiu…" de două ori).
+const consumedAutoPrompts = new Set();
+
 // Props noi pentru integrarea cu exercițiile interactive:
 //  onAction(actiune)        — execută o acțiune AI în exercițiu (fill/choose/tf/add)
 //  initialConversationId    — reia o conversație existentă (chat → exercițiu)
@@ -255,6 +261,19 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // automată la sinteza din browser. Bara de progres e clicabilă (derulare).
   const [voiceState, setVoiceState] = useState({ idx: null, frac: 0, sent: 0, total: 0, paused: false });
   const playerRef = useRef(null);
+
+  // ── Oprește / Regenerează / Reîncearcă ────────────────────────────────────
+  // abortRef: cererea de streaming în curs (butonul „Oprește" o întrerupe);
+  // lastSentRef: ultimul mesaj trimis — pentru „Regenerează" și „Reîncearcă";
+  // uidRef + messagesRef: fiecare mesaj primește un id local (uid), iar
+  // fragmentele streamului se scriu ÎN mesajul lui, nu „în ultimul mesaj" —
+  // altfel un mesaj coach sau o corectare sosite în timpul streamului primeau
+  // textul răspunsului, iar bula reală rămânea blocată pe „streaming".
+  const abortRef = useRef(null);
+  const lastSentRef = useRef(null);
+  const uidRef = useRef(0);
+  const messagesRef = useRef([]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   function stopPlayback() {
     try { playerRef.current?.stop?.(); } catch { /* ignore */ }
@@ -292,8 +311,13 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     else startListen(msgIdx, content);
   }
 
-  // la închiderea panoului, vocea tace
-  useEffect(() => () => { try { playerRef.current?.stop?.(); } catch { /* ignore */ } stopSpeaking(); }, []);
+  // la închiderea panoului, vocea tace și cererea de streaming în curs se
+  // întrerupe (răspunsul complet rămâne salvat pe server — apare în Istoric)
+  useEffect(() => () => {
+    try { playerRef.current?.stop?.(); } catch { /* ignore */ }
+    stopSpeaking();
+    try { abortRef.current?.abort(); } catch { /* ignore */ }
+  }, []);
   const [upsell, setUpsell] = useState(false);
   const dictationRef = useRef(null);
   const recorderRef = useRef(null);
@@ -337,7 +361,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     setFormLoading(true); setError(null);
     try {
       const src = answerSource();
-      const r = await aiClient.correctForm({ testText: src.testText, baremText: src.baremText, title: src.title, category: src.category });
+      // testul din platformă: serverul recitește textul + baremul după contentId
+      const r = await aiClient.correctForm({ testText: src.testText, baremText: src.baremText, title: src.title, category: src.category, contentId: src.contentId });
       setForm({ ...r, src });
       setFormAnswers({});
       formStartRef.current = Date.now();
@@ -357,9 +382,12 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       const r = await aiClient.correctGrade({
         conversationId: convId,
         context: { pdf: !!context.pdf, contentId: form.src.contentId, category: form.src.category, title: form.src.title, meditatii: !!context.meditatii },
-        testText: form.src.testText, baremText: form.src.baremText, title: form.title || form.src.title,
+        // testText contează doar la poza/PDF-ul propriu; la testele din
+        // platformă serverul îl recitește după contentId (baremul la fel)
+        testText: form.src.contentId ? '' : form.src.testText, title: form.title || form.src.title,
         items: form.items, answers: formAnswers, durationSec,
         meditatii: !!context.meditatii,
+        token: form.token || null, // formularul semnat de server
       });
       if (r.conversationId) setConvId(r.conversationId);
       // corectarea apare în chat: mesajul elevului + verdictul profesorului
@@ -408,51 +436,124 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     });
   }, []);
 
+  // modifică EXACT mesajul cu uid-ul dat (nu „ultimul" — vezi abortRef mai sus)
+  const patchMsg = useCallback((uid, patch) => {
+    setMessages((msgs) => {
+      const i = msgs.findIndex((m) => m.uid === uid);
+      if (i === -1) return msgs;
+      const copy = [...msgs];
+      copy[i] = typeof patch === 'function' ? patch(copy[i]) : { ...copy[i], ...patch };
+      return copy;
+    });
+  }, []);
+
   // ultimul mesaj „coach" (trimis automat de platformă) — intră în contextul
   // conversației, ca modelul să continue natural când elevul răspunde „da"/„hai"
   const coachNoteRef = useRef(null);
 
-  async function send(text, { modeOverride = null } = {}) {
+  // curățarea textului final: acțiuni scoase, „.ro" → „.com", terminologie
+  function cleanReply(raw) {
+    const { text: cleanText0, actions } = extractTutorActions(raw);
+    const medActions = extractMeditatiiActions(raw);
+    const text = fixTerminology(preMessage(cleanText0).replace(/https?:\/\/(?:www\.)?examenmate\.ro/gi, 'https://examenmate.com'));
+    return { text, actions, medActions };
+  }
+
+  // send(text, { modeOverride, regenerate })
+  //  regenerate=true → „Regenerează": NU adaugă din nou bula elevului, scoate
+  //  răspunsul anterior și cere altul (serverul nu re-salvează întrebarea).
+  async function send(text, { modeOverride = null, regenerate = false } = {}) {
     const msg = (text ?? input).trim();
     if (!msg || streaming) return;
-    const asstIdx = messages.length + 1; // indexul mesajului de răspuns (pentru redarea vocală auto)
+    const userUid = ++uidRef.current; // id-urile locale ale celor două bule
+    const uid = ++uidRef.current;     // (întrebare, răspuns)
+    lastSentRef.current = { text: msg, modeOverride };
     setError(null); setInput(''); setShowHistory(false);
-    setMessages((m) => [...m, { role: 'user', content: msg }, { role: 'assistant', content: '', streaming: true }]);
+    setMessages((m) => {
+      const base = [...m];
+      if (regenerate) {
+        // scoatem răspunsul anterior (ultimul mesaj al profesorului, dacă nu e „coach")
+        if (base.length && base[base.length - 1].role === 'assistant' && !base[base.length - 1].coach) base.pop();
+      } else {
+        base.push({ role: 'user', content: msg, uid: userUid });
+      }
+      base.push({ role: 'assistant', content: '', streaming: true, uid });
+      return base;
+    });
     setStreaming(true);
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    abortRef.current = controller;
+    let acc = '';
     try {
-      let acc = '';
       const baseCtx = attached ? { ...context, exerciseText: attached } : context;
       const sendCtx = coachNoteRef.current ? { ...baseCtx, coachNote: coachNoteRef.current } : baseCtx;
       await aiClient.chatStream(
-        { message: msg, mode: modeOverride || mode, conversationId: convId, context: sendCtx },
+        { message: msg, mode: modeOverride || mode, conversationId: convId, context: sendCtx, regenerate },
         {
-          onMeta: ({ conversationId, sources, primaryMaterial }) => { setConvId(conversationId); patchLast({ sources, primaryMaterial }); },
-          onDelta: (delta) => { acc += delta; patchLast((m) => ({ ...m, content: m.content + delta })); },
+          signal: controller ? controller.signal : null,
+          onMeta: ({ conversationId, sources, primaryMaterial }) => { setConvId(conversationId); patchMsg(uid, { sources, primaryMaterial }); },
+          onDelta: (delta) => { acc += delta; patchMsg(uid, (m) => ({ ...m, content: m.content + delta })); },
           onDone: ({ messageId }) => {
-            // extrage acțiunile [[ACTIUNE:...]] și curăță textul afișat
-            const { text: cleanText0, actions } = extractTutorActions(acc);
-            // marcajele [[MEDITATII:...]] — profesorul pornește un pas de meditație
-            const medActions = extractMeditatiiActions(acc);
-            // adresa oficială e examenmate.com — corectăm eventualul „.ro" halucinat;
-            // terminologie: „factorizare" → „descompunere în factori" (și pentru voce)
-            const cleanText = fixTerminology(preMessage(cleanText0).replace(/https?:\/\/(?:www\.)?examenmate\.ro/gi, 'https://examenmate.com'));
-            patchLast({ streaming: false, id: messageId, content: cleanText });
+            // extrage acțiunile [[ACTIUNE:...]] / [[MEDITATII:...]] și curăță textul afișat
+            const { text: cleanText, actions, medActions } = cleanReply(acc);
+            patchMsg(uid, { streaming: false, id: messageId, content: cleanText });
             if (onAction && actions.length) actions.slice(0, 2).forEach((a) => { try { onAction(a); } catch { /* noop */ } });
             if (medActions.length) setTimeout(() => dispatchMeditatiiAction(medActions[0], navigate, onNavigate), 600);
-            if (autoRead && cleanText.trim()) startListen(asstIdx, cleanText); // cu bară + evidențiere
+            if (autoRead && cleanText.trim()) {
+              // indexul REAL al bulei (pot fi mesaje coach/corectări inserate între timp)
+              const idx = messagesRef.current.findIndex((mm) => mm.uid === uid);
+              if (idx >= 0) startListen(idx, cleanText); // cu bară + evidențiere
+            }
           },
         }
       );
     } catch (e) {
-      setError(e.message);
-      if (e.premium) { setUpsell(true); patchLast({ content: e.message, isError: true, streaming: false }); }
-      else patchLast({ content: '⚠️ ' + e.message, isError: true, streaming: false });
+      const aborted = (e && e.name === 'AbortError') || (controller && controller.signal.aborted);
+      if (aborted) {
+        // „Oprește": păstrăm ce a apucat să scrie; nu e eroare
+        const { text: partial } = cleanReply(acc);
+        patchMsg(uid, { streaming: false, stopped: true, content: partial.trim() ? partial : '⏹ Răspuns oprit.' });
+      } else if (e.premium) {
+        setUpsell(true);
+        patchMsg(uid, { content: e.message, isError: true, streaming: false, retryable: false });
+      } else {
+        // eroarea se vede ÎN bulă (cu „Reîncearcă") — nu o dublăm în banda de erori
+        patchMsg(uid, { content: '⚠️ ' + (e.message || 'Eroare la generarea răspunsului.'), isError: true, streaming: false, retryable: true });
+      }
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
       setStreaming(false);
     }
   }
 
+  // „Oprește" — întrerupe răspunsul în curs (textul scris până atunci rămâne)
+  function stopGenerating() {
+    try { abortRef.current?.abort(); } catch { /* noop */ }
+  }
+
+  // „Regenerează" — alt răspuns la ultima întrebare (răspunsul vechi dispare din chat)
+  function regenerateLast() {
+    const last = lastSentRef.current;
+    if (!last || streaming) return;
+    send(last.text, { modeOverride: last.modeOverride, regenerate: true });
+  }
+
+  // „Reîncearcă" — după o eroare: scoatem bula de eroare + întrebarea și retrimitem
+  function retryLast() {
+    const last = lastSentRef.current;
+    if (!last || streaming) return;
+    setMessages((m) => {
+      const copy = [...m];
+      if (copy.length && copy[copy.length - 1].isError) copy.pop();
+      if (copy.length && copy[copy.length - 1].role === 'user') copy.pop();
+      return copy;
+    });
+    // trimitem după ce starea s-a curățat (send adaugă din nou întrebarea)
+    setTimeout(() => send(last.text, { modeOverride: last.modeOverride }), 0);
+  }
+
   function newConversation() {
+    stopGenerating(); // o cerere în curs nu mai scrie în conversația nouă
     setMessages([]); setConvId(null); setError(null); setShowHistory(false);
     stopPlayback();
   }
@@ -465,14 +566,16 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     loadConversation(initialConversationId).catch(() => {});
   }, [initialConversationId]); // eslint-disable-line
 
-  // Mesaj trimis automat (butonul „Întreabă profesorul virtual" din exercițiu)
-  const autoRef = useRef(null);
+  // Mesaj trimis automat (butonul „Întreabă profesorul virtual" din exercițiu).
+  // Depinde și de `streaming`: dacă sosește în timpul unui răspuns, îl trimitem
+  // imediat ce răspunsul se termină (înainte se pierdea). Id-urile consumate
+  // sunt la nivel de modul — remontarea widgetului nu retrimite același mesaj.
   useEffect(() => {
-    if (!autoPrompt || !autoPrompt.text || autoPrompt.id === autoRef.current) return;
+    if (!autoPrompt || !autoPrompt.text || !autoPrompt.id || consumedAutoPrompts.has(autoPrompt.id)) return;
     if (streaming) return;
-    autoRef.current = autoPrompt.id;
+    consumedAutoPrompts.add(autoPrompt.id);
     send(autoPrompt.text, { modeOverride: autoPrompt.mode || null });
-  }, [autoPrompt]); // eslint-disable-line
+  }, [autoPrompt, streaming]); // eslint-disable-line
 
   // Mesaj automat al PROFESORULUI (coach de meditații): apare ca mesaj al lui,
   // cu BUTOANE de pași („Recapitulare", „Exerciții"...). Nu se salvează în
@@ -507,10 +610,12 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 
   async function loadConversation(id) {
     setShowHistory(false);
+    stopGenerating(); // un stream în curs nu mai scrie peste conversația încărcată
     stopPlayback();
     const msgs = await aiClient.getMessages(id);
-    setMessages(msgs.map((m) => ({ role: m.role, content: m.content, id: m.id, sources: m.metadata?.sources, primaryMaterial: m.metadata?.primaryMaterial })));
+    setMessages(msgs.map((m) => ({ role: m.role, content: m.content, id: m.id, sources: m.metadata?.sources, primaryMaterial: m.metadata?.primaryMaterial, uid: ++uidRef.current })));
     setConvId(id);
+    lastSentRef.current = null; // „Regenerează" pornește doar după un mesaj trimis de aici
   }
 
   // Lista testelor PDF din baza de date — STRICT pe NIVELUL elevului, luat
@@ -837,7 +942,14 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
               )}
             </div>
 
-            {/* Acțiuni: „Ascultă răspunsul" (play/pauză) + feedback */}
+            {/* Eroare la generare: „Reîncearcă" retrimite aceeași întrebare */}
+            {m.role === 'assistant' && m.isError && m.retryable && i === messages.length - 1 && lastSentRef.current && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 4, paddingLeft: 4 }}>
+                <button onClick={retryLast} disabled={streaming} style={listenBtn} title="Trimite din nou ultima întrebare">↻ Reîncearcă</button>
+              </div>
+            )}
+
+            {/* Acțiuni: „Ascultă răspunsul" (play/pauză) + feedback + „Regenerează" */}
             {m.role === 'assistant' && !m.streaming && !m.isError && (
               <div style={{ display: 'flex', gap: 6, marginTop: 4, paddingLeft: 4, alignItems: 'center', flexWrap: 'wrap' }}>
                 {ttsSupported() && (
@@ -875,6 +987,14 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                     <button onClick={() => sendFeedback(m.id, 1)} title="Răspuns util" style={{ ...fbBtn, opacity: m.feedback === 1 ? 1 : 0.5 }}>👍</button>
                     <button onClick={() => sendFeedback(m.id, -1)} title="Răspuns greșit/neclar" style={{ ...fbBtn, opacity: m.feedback === -1 ? 1 : 0.5 }}>👎</button>
                   </>
+                )}
+                {/* „Regenerează": doar pe ULTIMUL răspuns la un mesaj trimis din acest panou
+                    (și pe răspunsurile oprite cu „Oprește") */}
+                {!m.coach && !m.correction && i === messages.length - 1 && lastSentRef.current && (
+                  <button onClick={regenerateLast} disabled={streaming} title="Cere alt răspuns la aceeași întrebare"
+                    style={{ ...miniBtn, cursor: 'pointer' }}>
+                    ↻ Regenerează
+                  </button>
                 )}
               </div>
             )}
@@ -988,6 +1108,16 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         </div>
       )}
 
+      {/* Erori din afara conversației (poză/PDF necitit, microfon, formular):
+          până acum erau setate dar NU afișate nicăieri — elevul nu afla de ce
+          nu s-a întâmplat nimic. Se închid cu ✕ sau la următoarea acțiune. */}
+      {error && (
+        <div role="alert" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 12px', borderTop: '1px solid #f5c6c2', background: '#fdecea', color: '#b71c1c', fontSize: '.8rem', lineHeight: 1.4, flexShrink: 0 }}>
+          <span style={{ flex: 1 }}>⚠️ {error}</span>
+          <button onClick={() => setError(null)} aria-label="Închide eroarea" style={{ ...miniBtn, color: '#b71c1c', borderColor: '#f5c6c2', padding: '2px 8px' }}>✕</button>
+        </div>
+      )}
+
       {/* Input — rămâne mereu vizibil, chiar și pe panouri mici */}
       <div style={{ display: 'flex', gap: 8, padding: 12, borderTop: '1px solid var(--border)', background: '#fff', flexShrink: 0 }}>
         <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={onPickPhoto} style={{ display: 'none' }} />
@@ -1006,14 +1136,26 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           placeholder="Scrie întrebarea ta..."
           style={{ flex: 1, minWidth: 0, border: '1px solid var(--border)', borderRadius: 10, padding: '9px 12px', fontSize: 16, fontFamily: 'var(--font-body)' }}
         />
-        <button onClick={() => send()} disabled={streaming || !input.trim()}
-          style={{
-            background: 'var(--gold)', color: 'var(--navy)', border: 'none', borderRadius: 10,
-            padding: '0 16px', fontWeight: 700, fontSize: '1.1rem',
-            opacity: streaming || !input.trim() ? 0.5 : 1, cursor: streaming ? 'default' : 'pointer',
-          }}>
-          {streaming ? '…' : '➤'}
-        </button>
+        {streaming ? (
+          // în timpul răspunsului, săgeata devine „Oprește" (întrerupe streamul,
+          // textul scris până atunci rămâne în chat)
+          <button onClick={stopGenerating} title="Oprește răspunsul" aria-label="Oprește răspunsul"
+            style={{
+              background: '#fff', color: '#b71c1c', border: '1px solid #f5c6c2', borderRadius: 10,
+              padding: '0 14px', fontWeight: 800, fontSize: '.85rem', cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+            ■ Oprește
+          </button>
+        ) : (
+          <button onClick={() => send()} disabled={!input.trim()} title="Trimite" aria-label="Trimite întrebarea"
+            style={{
+              background: 'var(--gold)', color: 'var(--navy)', border: 'none', borderRadius: 10,
+              padding: '0 16px', fontWeight: 700, fontSize: '1.1rem',
+              opacity: !input.trim() ? 0.5 : 1, cursor: 'pointer',
+            }}>
+            ➤
+          </button>
+        )}
       </div>
       {/* Modelele AI + „AI-ul poate greși" — o linie minusculă sub câmpul de scris
           (textele vin din src/lib/aiModels.js → AI_STACK) */}

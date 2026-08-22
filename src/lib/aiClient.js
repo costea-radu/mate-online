@@ -39,38 +39,58 @@ export const aiClient = {
 
   // Chat-tutor cu STREAMING. Apelează callback-urile pe măsură ce sosesc datele.
   // onMeta({conversationId, sources}), onDelta(textFragment), onDone({messageId})
-  async chatStream({ message, mode = 'tutor', conversationId = null, context = {} }, { onMeta, onDelta, onDone } = {}) {
+  // `signal` (AbortSignal, opțional): butonul „Oprește" din chat întrerupe
+  //   cererea — fetch/reader aruncă AbortError, pe care chatul îl tratează
+  //   ca „răspuns oprit", nu ca eroare.
+  // `regenerate` (opțional): „Regenerează" — serverul NU mai salvează încă o
+  //   dată mesajul elevului și scoate răspunsul anterior din istoricul dat
+  //   modelului (altfel l-ar repeta).
+  async chatStream({ message, mode = 'tutor', conversationId = null, context = {}, regenerate = false }, { onMeta, onDelta, onDone, signal = null } = {}) {
     const session = await getValidSession();
     const userId = session?.user?.id || null;
     if (!userId) throw new Error('Trebuie să fii autentificat pentru a folosi Profesorul Virtual.');
-    const payload = () => JSON.stringify({ userId, message, mode, conversationId, context });
-    let res = await fetch('/api/ai-chat-stream', { method: 'POST', headers: await authHeaders(), body: payload() });
+    const payload = () => JSON.stringify({ userId, message, mode, conversationId, context, regenerate: !!regenerate });
+    const opts = async () => ({ method: 'POST', headers: await authHeaders(), body: payload(), ...(signal ? { signal } : {}) });
+    let res = await fetch('/api/ai-chat-stream', await opts());
     if (res.status === 401) { // token expirat → reîmprospătează și reîncearcă o dată
       await forceRefresh();
-      res = await fetch('/api/ai-chat-stream', { method: 'POST', headers: await authHeaders(), body: payload() });
+      res = await fetch('/api/ai-chat-stream', await opts());
     }
     if (!res.ok || !res.body) {
       const d = await res.json().catch(() => ({}));
-      throw new Error(d.error || `Eroare server (${res.status})`);
+      const e = new Error(d.error || `Eroare server (${res.status})`);
+      // și pe ruta de streaming, un 402 trebuie să pornească bannerul de abonare
+      if (res.status === 402 || d.code === 'PREMIUM_REQUIRED') e.premium = true;
+      throw e;
     }
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop();
-      for (const line of lines) {
-        const t = line.trim();
-        if (!t) continue;
-        let frame; try { frame = JSON.parse(t); } catch { continue; }
-        if (frame.type === 'meta') onMeta?.(frame);
-        else if (frame.type === 'delta') onDelta?.(frame.text);
-        else if (frame.type === 'done') onDone?.(frame);
-        else if (frame.type === 'error') { const e = new Error(frame.error); if (frame.code === 'PREMIUM_REQUIRED') e.premium = true; throw e; }
+    const handle = (line) => {
+      const t = line.trim();
+      if (!t) return;
+      let frame; try { frame = JSON.parse(t); } catch { return; }
+      if (frame.type === 'meta') onMeta?.(frame);
+      else if (frame.type === 'delta') onDelta?.(frame.text);
+      else if (frame.type === 'done') onDone?.(frame);
+      else if (frame.type === 'error') { const e = new Error(frame.error); if (frame.code === 'PREMIUM_REQUIRED') e.premium = true; e.code = frame.code || null; throw e; }
+    };
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) handle(line);
       }
+      // ultima linie, fără „\n" la final (ex. cadrul „done" trimis chiar înainte
+      // de închiderea fluxului): fără flush, onDone nu se mai apela și mesajul
+      // rămânea blocat în „streaming" (fără KaTeX, fără butoane)
+      buf += dec.decode();
+      if (buf.trim()) handle(buf);
+    } finally {
+      try { await reader.cancel(); } catch { /* fluxul e deja închis */ }
     }
   },
 
@@ -134,8 +154,11 @@ export const aiClient = {
   correctPdfText: ({ fileBase64 }) => post('/api/ai-correct', { action: 'pdf_text', fileBase64 }),
   // Formularul de răspuns: câmpuri pe exerciții și subpuncte a), b), c) — din barem
   // (categoria activează punctajele oficiale: EN 5p/grilă + a)2p/b)3p; BAC 5p)
-  correctForm: ({ testText, baremText = '', title = '', category = null }) =>
-    post('/api/ai-correct', { action: 'form', testText, baremText, title, category }),
+  // Pentru un test din platformă (contentId) serverul recitește SINGUR textul și
+  // baremul (nu mai are încredere în cele din browser); răspunsul include un
+  // `token` semnat care se trimite înapoi la corectare.
+  correctForm: ({ testText, baremText = '', title = '', category = null, contentId = null }) =>
+    post('/api/ai-correct', { action: 'form', testText, baremText, title, category, contentId }),
   // Corectarea: AI-ul primește testul + baremul + răspunsurile și dă punctajul
   correctGrade: (payload) => post('/api/ai-correct', { action: 'grade', ...payload }),
 
@@ -205,7 +228,8 @@ export const aiClient = {
     const { data } = await supabase.from('ai_messages')
       .select('id, role, content, mode, metadata, created_at')
       .eq('conversation_id', conversationId).order('created_at', { ascending: true });
-    return data || [];
+    // răspunsurile înlocuite prin „Regenerează" rămân în DB (marcate), dar nu se mai afișează
+    return (data || []).filter((m) => !(m.metadata && m.metadata.superseded === true));
   },
 
   // Admin: indexare bază de cunoștințe

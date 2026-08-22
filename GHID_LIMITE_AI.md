@@ -107,7 +107,11 @@ Folosită în: chat (normal + streaming, inclusiv agentul PDF), corectarea de te
 (formular + notare), generarea de teste de examen, exercițiile interactive,
 antrenament (generare + verificare), temele de la profesor, lecțiile de la meditații.
 (Sub-apelurile interne din meditații — quiz-ul inițial, remedierea — rămân pe modelul
-lor; sunt acoperite de limitele hard.)
+lor; sunt acoperite de limitele hard. **Corectat pe 22 august 2026 (Etapa 1):** până
+atunci generările cu Claude Opus 5 din meditații se logau cu **cost 0** — `toUsage()`
+pierdea modelul — deci NU intrau de fapt în niciun buget, iar temele generate nu se logau
+deloc. Acum apar în `ai_usage` cu `model` + `cost_micro`, la endpoint-urile
+`ai-meditatii:*` și `ai-meditatii:homework[:auto]`.)
 
 ### Costul per acțiune
 

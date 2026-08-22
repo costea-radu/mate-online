@@ -25,13 +25,8 @@ function deepRestore(obj) {
   if (obj && typeof obj === 'object') { const o = {}; for (const k of Object.keys(obj)) o[k] = deepRestore(obj[k]); return o; }
   return restoreLatex(obj);
 }
-// Parsare tolerantă: dacă JSON.parse eșuează (ex: "\sqrt" — escape invalid),
-// dublăm backslash-urile invalide și reîncercăm.
-function lenientParse(text) {
-  try { return JSON.parse(text); } catch { /* reparăm mai jos */ }
-  const repaired = text.replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
-  return JSON.parse(repaired);
-}
+// (Parsarea tolerantă a JSON-ului — backslash-uri LaTeX dublate, ```json```,
+// JSON trunchiat — se face acum central, în ai.chatJson → parseJsonLoose.)
 
 // ── Structura detaliată pentru Evaluare Națională (după cerințe) ──────────────
 const EN_SPEC = `Structura testului de Evaluare Națională (EXACT așa):
@@ -375,19 +370,29 @@ Pentru FIECARE poziție: COPIAZĂ itemul indicat (enunț, tip, structură, stil)
 Sursele provin din subcategorii diferite (marcate în paranteză la fiecare TEST — ex. „simulari”, „variante”): testul final trebuie să fie un MIX REAL, cu itemi preluați din TOATE subcategoriile prezente, nu doar dintr-una.`;
     }
 
-    const { text, usage } = await ai.chat({
-      system,
-      messages: [{ role: 'user', content: `Generează testul complet acum, în format JSON. Fă-l DIFERIT de variantele anterioare (alte numere, alte enunțuri). Variantă #${Math.random().toString(36).slice(2, 8)}.${instructions.trim() ? `\n\nINSTRUCȚIUNILE PROFESORULUI (respectă-le întocmai, au prioritate): ${String(instructions).slice(0, 4000)}` : ''}` }],
-      // 7500: figurile ("figure") adaugă ~1000 de tokeni peste cei 18 itemi —
-      // cu 5000 răspunsul se trunchia și parse-ul eșua.
-      temperature: 0.7, maxTokens: 7500, json: true,
-      model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
-    });
+    // Notă: testul de examen rămâne pe json_object (nu pe schemă strictă):
+    // cheia „figure" este un DSL liber (chei diferite per tip de figură), iar
+    // modul strict nu acceptă obiecte cu chei libere. chatJson aduce totuși
+    // parsarea tolerantă + reîncercarea automată + restaurarea LaTeX-ului.
+    let parsed, usage;
+    try {
+      const r = await ai.chatJson({
+        system,
+        messages: [{ role: 'user', content: `Generează testul complet acum, în format JSON. Fă-l DIFERIT de variantele anterioare (alte numere, alte enunțuri). Variantă #${Math.random().toString(36).slice(2, 8)}.${instructions.trim() ? `\n\nINSTRUCȚIUNILE PROFESORULUI (respectă-le întocmai, au prioritate): ${String(instructions).slice(0, 4000)}` : ''}` }],
+        // 7500: figurile ("figure") adaugă ~1000 de tokeni peste cei 18 itemi —
+        // cu 5000 răspunsul se trunchia și parse-ul eșua.
+        temperature: 0.7, maxTokens: 7500,
+        model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
+        restoreLatex: false, // deepRestore de mai jos (păstrează \n/\r ca rânduri reale)
+      });
+      usage = r.usage;
+      parsed = deepRestore(r.data);
+    } catch (e) {
+      if (e.usage) await ai.logUsage(supa, userId, 'ai-exam', e.usage);
+      if (e.status === 502) { console.error('exam parse fail:', e.message); return res.status(502).json({ error: 'Generatorul a returnat un format invalid. Mai încearcă o dată.' }); }
+      throw e;
+    }
     await ai.logUsage(supa, userId, 'ai-exam', usage);
-
-    let parsed;
-    try { parsed = deepRestore(lenientParse(text)); }
-    catch (e) { console.error('exam parse fail:', e.message); return res.status(502).json({ error: 'Generatorul a returnat un format invalid. Mai încearcă o dată.' }); }
 
     const exam = {
       examType,

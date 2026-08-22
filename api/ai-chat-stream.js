@@ -25,7 +25,7 @@ module.exports = async function handler(req, res) {
 
   try {
     const userId = await ai.authUser(req, supa);
-    const { message, mode = 'tutor', conversationId, context = {} } = req.body || {};
+    const { message, mode = 'tutor', conversationId, context = {}, regenerate = false } = req.body || {};
     if (!message || !message.trim()) { send({ type: 'error', error: 'message obligatoriu' }); return res.end(); }
 
     const profile = await ai.requireUser(supa, userId);
@@ -34,8 +34,10 @@ module.exports = async function handler(req, res) {
     const premium = ai.isPremium(profile);
 
     // 1-3. RAG + conversație + istoric + system prompt (helper comun cu ai-chat)
-    const { convId, primaryMaterial, priorMsgs, system, sources, baremItem } =
-      await ai.prepareChat(supa, { userId, message, mode, conversationId, context, premium });
+    //      regenerate („Regenerează"): răspunsul anterior iese din istoric, iar
+    //      întrebarea NU se mai salvează o dată (regenerated=true)
+    const { convId, primaryMaterial, priorMsgs, system, sources, baremItem, regenerated } =
+      await ai.prepareChat(supa, { userId, message, mode, conversationId, context, premium, regenerate: !!regenerate });
     send({ type: 'meta', conversationId: convId, sources, primaryMaterial });
 
     // 3½. Explicație PRE-GENERATA (pasul 3): la prima cerere CANONICĂ despre
@@ -88,9 +90,11 @@ module.exports = async function handler(req, res) {
 
     // 5. Salvăm după ce s-a terminat streamul. Textul a ajuns deja la client,
     // deci nu rupem streamul dacă persistarea eșuează — dar o logăm.
-    const { error: uErr } = await supa.from('ai_messages')
-      .insert({ conversation_id: convId, role: 'user', content: message, mode });
-    if (uErr) console.error('ai-chat-stream: salvare mesaj user eșuată:', uErr);
+    if (!regenerated) {
+      const { error: uErr } = await supa.from('ai_messages')
+        .insert({ conversation_id: convId, role: 'user', content: message, mode });
+      if (uErr) console.error('ai-chat-stream: salvare mesaj user eșuată:', uErr);
+    }
     const { data: saved, error: aErr } = await supa.from('ai_messages')
       .insert({ conversation_id: convId, role: 'assistant', content: full, mode, metadata: { sources, primaryMaterial } })
       .select('id').single();
