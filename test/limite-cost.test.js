@@ -41,14 +41,13 @@ test('costMicroLei: tokeni × preț × curs, rotunjit la micro-lei', () => {
   assert.ok(ai.costMicroLei('gpt-5.6-terra', big) > 10 * ai.costMicroLei('gpt-4o-mini', big));
 });
 
-test('priceFor: cele trei mărimi gpt-5.6 au prețuri DIFERITE (terra ≠ sol)', () => {
+test('priceFor: terra și sol au prețuri DIFERITE (terra mai ieftin)', () => {
   // Regresie: terra cădea pe intrarea comună „gpt-5.6" (5/30 = prețul lui sol)
   // și era contorizată de 2,5× mai scump decât costă → degradare prematură.
   const usage = { in: 10000, out: 3000 };
-  const luna = ai.costMicroLei('gpt-5.6-luna', usage);
   const terra = ai.costMicroLei('gpt-5.6-terra', usage);
   const sol = ai.costMicroLei('gpt-5.6-sol', usage);
-  assert.ok(luna < terra && terra < sol, `luna ${luna} < terra ${terra} < sol ${sol}`);
+  assert.ok(terra < sol, `terra ${terra} < sol ${sol}`);
   // terra nu mai moștenește prețul conservator al intrării de bază
   assert.ok(terra < ai.costMicroLei('gpt-5.6', usage), 'terra sub intrarea de bază gpt-5.6');
   assert.notDeepStrictEqual(ai.priceFor('gpt-5.6-terra'), ai.priceFor('gpt-5.6-sol'));

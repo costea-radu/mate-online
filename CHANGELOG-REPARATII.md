@@ -11,15 +11,16 @@ Cererea: „repară prețul pentru gpt 5.6 terra". Observația de la care a porn
 ### Prețurile reale (verificate pe 22 august 2026, developers.openai.com/api/docs/pricing, tarif Standard, context < 270K)
 | Model | Intrare | Cache | Ieșire |
 |---|---|---|---|
-| gpt-5.6-luna | 0,20 | 0,02 | 1,20 |
 | **gpt-5.6-terra** | **2** | 0,20 | **12** |
 | gpt-5.6-sol | 4 | 0,40 | 20 (redus de la 5/30, prețul de lansare din 9 iulie) |
+
+(Platforma folosește doar gpt-4o-mini, terra și sol — a treia mărime a familiei, „luna", nu e în tabel, intenționat.)
 
 Deci fiecare corectare de test pe terra era contorizată cu 2,5× costul real (~0,4–0,9 lei în loc de ~0,15–0,4 lei). Efecte: `pickModel` cobora pe gpt-4o-mini după ~1–2 corectări (limita soft 0,8 lei/zi) în loc de ~2–4, limita hard (2,5 lei/zi) și cea lunară (6 lei) se „consumau" de 2,5× mai repede, iar raportul zilnic de cost și alarma `AI_ALERT_DAY_LEI` exagerau cheltuiala reală. Banii plătiți către OpenAI NU erau afectați (prețul din tabel e doar pentru contorizarea internă).
 
 ### Ce s-a schimbat
-1. **`api/_lib/ai.js`:** trei intrări separate `gpt-5.6-luna` / `gpt-5.6-terra` / `gpt-5.6-sol` cu prețurile de mai sus; intrarea de bază `gpt-5.6` rămâne 5/30 doar ca plasă conservatoare pentru o eventuală variantă nouă fără intrare proprie. Exemplul `AI_PRICES_JSON` din comentariu actualizat (2/12). Mecanismul (`priceFor`, prefix de provider, `AI_PRICES_JSON` suveran) e neschimbat — dacă în Vercel există deja `AI_PRICES_JSON` cu „gpt-5.6-terra", acela câștigă.
-2. **`test/limite-cost.test.js`:** testul care cerea explicit `priceFor('gpt-5.6-terra') = priceFor('gpt-5.6-sol')` (consfințea bug-ul) devine: snapshot-ul datat nimerește intrarea modelului, varianta necunoscută cade pe baza `gpt-5.6`; test nou de regresie: luna < terra < sol și terra < baza conservatoare. Raportul terra/4o-mini din test coboară de la 20× la 10× (real ~17×).
+1. **`api/_lib/ai.js`:** intrări separate `gpt-5.6-terra` / `gpt-5.6-sol` cu prețurile de mai sus; intrarea de bază `gpt-5.6` rămâne 5/30 doar ca plasă conservatoare pentru o eventuală variantă fără intrare proprie. Exemplul `AI_PRICES_JSON` din comentariu actualizat (2/12). Mecanismul (`priceFor`, prefix de provider, `AI_PRICES_JSON` suveran) e neschimbat — dacă în Vercel există deja `AI_PRICES_JSON` cu „gpt-5.6-terra", acela câștigă.
+2. **`test/limite-cost.test.js`:** testul care cerea explicit `priceFor('gpt-5.6-terra') = priceFor('gpt-5.6-sol')` (consfințea bug-ul) devine: snapshot-ul datat nimerește intrarea modelului, varianta necunoscută cade pe baza `gpt-5.6`; test nou de regresie: terra < sol și terra < baza conservatoare. Raportul terra/4o-mini din test coboară de la 20× la 10× (real ~17×).
 3. **`GHID_LIMITE_AI.md`:** exemplul de potrivire și tabelul de calibrare (corectare ~0,15–0,4 lei; ~6–15 corectări/zi, ~15–40/lună la defaulturi).
 
 De verificat în Vercel: nimic obligatoriu. Opțional, dacă `AI_BUDGET_DAY_SOFT_LEI` fusese mărit ca să compenseze degradarea prematură, poate reveni la 0,8. Istoricul din `ai_usage` rămâne cu costurile vechi (supraestimate) — comparațiile lună-la-lună din raport vor arăta o „scădere" de ~60% pe corectări, care e doar corecția contorului.

@@ -114,8 +114,8 @@ lor; sunt acoperite de limitele hard.)
 La `ai.logUsage` fiecare acțiune primește `model` + `cost_micro`:
 `tokeni_intrare × preț_in + tokeni_ieșire × preț_out` (USD/1M, tabelul din
 `api/_lib/ai.js`, potrivire pe cel mai lung prefix — „gpt-5.6-terra-2026-08-01"
-nimerește intrarea „gpt-5.6-terra"; cele trei mărimi gpt-5.6 au intrări SEPARATE:
-luna 0,20/1,20, terra 2/12, sol 4/20 USD/1M, iar o variantă gpt-5.6 fără intrare
+nimerește intrarea „gpt-5.6-terra"; cele două modele gpt-5.6 folosite au intrări
+SEPARATE: terra 2/12, sol 4/20 USD/1M, iar o variantă gpt-5.6 fără intrare
 proprie cade pe „gpt-5.6" = 5/30, conservator), convertit în lei cu `AI_USD_RON` (default 4,6 — ține-l puțin
 peste cursul real, ca marjă). Whisper (STT) are cost fix estimat per apel.
 **Model necunoscut → preț implicit CONSERVATOR** (3/15 USD) + avertisment în loguri

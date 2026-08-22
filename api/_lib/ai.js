@@ -79,14 +79,14 @@ const PRICES_USD = {
   'gpt-5.4-nano':           { in: 0.20, out: 1.25 },
   'gpt-5.4':                { in: 1.25, out: 10 },
   'gpt-5.5':                { in: 5,    out: 30 },
-  // Familia gpt-5.6 (iulie 2026) are TREI mărimi cu prețuri diferite — până
-  // acum toate cădeau pe o singură intrare 5/30 (prețul de lansare al lui sol),
+  // Familia gpt-5.6 (iulie 2026) are mărimi cu prețuri DIFERITE — până acum
+  // toate cădeau pe o singură intrare 5/30 (prețul de lansare al lui sol),
   // deci terra (modelul PDF/corectare) era contorizat de 2,5× mai scump decât
   // costă, iar degradarea peste bugetul zilnic soft pornea mult prea devreme.
-  'gpt-5.6-luna':           { in: 0.20, out: 1.20 },
+  // Platforma folosește doar terra și sol (plus gpt-4o-mini).
   'gpt-5.6-terra':          { in: 2,    out: 12 },   // modelul PDF / corectare / pre-generare
   'gpt-5.6-sol':            { in: 4,    out: 20 },   // flagship (redus de la 5/30 după lansare)
-  'gpt-5.6':                { in: 5,    out: 30 },   // altă variantă gpt-5.6, necunoscută → conservator
+  'gpt-5.6':                { in: 5,    out: 30 },   // altă variantă gpt-5.6, nefolosită → conservator
   'text-embedding-3-small': { in: 0.02, out: 0 },
   'text-embedding-3-large': { in: 0.13, out: 0 },
   'claude-haiku-4-5':       { in: 1,    out: 5 },
