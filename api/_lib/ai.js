@@ -9,7 +9,7 @@
 
 const crypto = require('crypto');
 const http = require('./http'); // CORS, autentificare, admin — partajate
-const { parseExerciseRef, sliceExercise, formatRef, norm } = require('./barem'); // localizare deterministă item
+const { parseExerciseRef, sliceExercise, formatRef, norm, locateBaremItem, shortAnswerOf } = require('./barem'); // localizare deterministă item
 
 // ─── Configurare furnizor (chat + embeddings sunt independente) ──────────────
 const CHAT_BASE  = process.env.AI_CHAT_BASE_URL  || 'https://api.openai.com/v1';
@@ -1063,6 +1063,7 @@ Reguli STRICTE:
 - CUVÂNTUL „barem" NU apare în răspunsurile tale, și nici formulări ca „conform baremului", „baremul spune", „rezolvarea oficială/model indică". Predai metoda ca fiind a ta, ca la tablă. Excepție unică: elevul întreabă EXPLICIT despre barem sau despre punctaje — doar atunci poți vorbi deschis despre el.
 - VERIFICARE FINALĂ OBLIGATORIE: înainte de a încheia răspunsul, compară rezultatul tău final cu cel din rezolvarea-model. Dacă diferă, răspunsul tău e greșit — refă-l înainte să-l trimiți.
 - NU amesteci rezolvări de la alte variante, alte profiluri sau alți ani. Sursa ta este DOAR baza de date a platformei — nu trimite elevul pe alte site-uri.
+- EVALUAREA NAȚIONALĂ — Subiectul I și Subiectul al II-lea sunt GRILE: rezolvarea-model NU are pași acolo, ci DOAR litera corectă a fiecărui item, în tabelul „Nr. item / Rezultate / Punctaj" (5 puncte pe item, se punctează doar rezultatul). La aceste exerciții rezolvi TU pas cu pas, cu calculele tale, și închei OBLIGATORIU cu litera oficială din tabel — niciodată alta; dacă rezolvarea ta duce la altă literă, ai citit greșit enunțul (simboluri pierdute la extracție) — recitește-l și refă calculul. Subiectul al III-lea are rezolvarea pe pași, cu punctaje (a) 2p, b) 3p) — o predai ca mai sus. (Baremele vechi de EN dau la Subiectul I și II doar REZULTATUL — îl predai la fel: rezolvi tu, închei cu rezultatul oficial.)
 - PEDAGOGIE: la PRIMA întrebare despre un exercițiu PREZINȚI CLAR rezolvarea lui din rezolvarea-model: toți pașii, în ordine, numerotați, cu calculele și rezultatul final. Excepție: în modul „indiciu" sau când elevul cere explicit doar un indiciu/un început, dai DOAR primul pas, fără rezultatul final, încheiat cu o întrebare care îl duce mai departe.
 - NELĂMURIRI ULTERIOARE: după ce ai prezentat rezolvarea, RECITEȘTI enunțul exercițiului din TEXTUL TESTULUI și discuți pe marginea lui: lămurești „de unde vine" un număr sau o formulă, explici altfel un pas, dai un exemplu ajutător sau chiar o abordare alternativă CORECTĂ — cu două condiții: să nu contrazici rezultatele rezolvării-model și, când metodele diferă, să spui că metoda prezentată prima este cea oficială.`;
 
@@ -1098,6 +1099,23 @@ const PDF_ITEM_RULES = `AȘA RĂSPUNZI ACUM (obligatoriu):
 - NELĂMURIRI ULTERIOARE („de unde vine...?", „de ce ai făcut așa?", „nu înțeleg pasul..."): răspunzi la obiect, sprijinit pe ENUNȚUL din test, pe TEXTUL TESTULUI și pe rezolvarea de mai sus; aici POȚI adăuga explicații proprii, un exemplu ajutător sau o abordare alternativă CORECTĂ — fără să contrazici rezultatele rezolvării de mai sus; când metodele diferă, spui că metoda prezentată prima este cea oficială.
 - STRICT INTERZIS: să anunți rezultatul fără să fi arătat toți pașii până la el; să schimbi rezultatele intermediare sau finale; să scrii cuvântul „barem" ori formulări ca „conform baremului...", „baremul indică...", „rezolvarea oficială..." (excepție: elevul întreabă explicit de barem sau punctaje).
 - Model CORECT de răspuns complet: „Pasul 1: scriem vectorii de poziție, pentru că... $...$; Pasul 2: egalăm coordonatele... $...$; deci rezultatul este $...$". Model GREȘIT: „Conform baremului, rezultatul este $12$".`;
+
+// ── GRILELE de la Evaluarea Națională (Subiectul I / II) și itemii cu răspuns
+// scurt (baremele vechi): rezolvarea-model dă DOAR litera / rezultatul, fără
+// pași. Profesorul rezolvă singur, dar concluzia este OBLIGATORIU cea oficială.
+const PDF_GRILA_RULES = `EXERCIȚIU DE TIP GRILĂ — rezolvarea-model oficială indică DOAR litera răspunsului corect (se punctează numai rezultatul; nu există pași oficiali). AȘA RĂSPUNZI ACUM (obligatoriu):
+- ÎNCEPI numind exercițiul și reluând pe scurt cerința din enunț, cu variantele lui de răspuns a), b), c), d).
+- REZOLVI exercițiul tu, pas cu pas, cu calculele scrise în LaTeX, ca un profesor la tablă — clar, la nivelul elevului de gimnaziu.
+- ÎNCHEI OBLIGATORIU cu propoziția: „Răspunsul corect este litera X)" — unde X este EXACT litera oficială de mai sus. Rezolvarea ta TREBUIE să conducă la varianta X; dacă obții altceva, ai citit greșit enunțul (extracția pierde radicali, fracții, exponenți, figuri) — recitește-l, refă calculul și spune-i elevului ce simbol s-a pierdut. NU anunța NICIODATĂ altă literă drept răspuns corect și NU spune că răspunsul oficial ar fi greșit.
+- Elevul cere DOAR un indiciu (ori modul e „indiciu")? → doar primul pas, ca îndrumare, FĂRĂ litera răspunsului; închei cu o întrebare care îl duce mai departe.
+- Cuvântul „barem" NU apare în răspuns (excepție: elevul întreabă explicit de barem sau punctaje — atunci spui că exercițiul valorează 5 puncte și se punctează doar rezultatul).`;
+
+const PDF_REZULTAT_RULES = `EXERCIȚIU CU RĂSPUNS SCURT — rezolvarea-model oficială indică DOAR rezultatul (se punctează numai rezultatul; nu există pași oficiali). AȘA RĂSPUNZI ACUM (obligatoriu):
+- ÎNCEPI numind exercițiul și reluând pe scurt cerința din enunț.
+- REZOLVI exercițiul pas cu pas, cu calculele scrise în LaTeX, ca un profesor la tablă.
+- ÎNCHEI OBLIGATORIU cu: „Răspunsul corect este R" — unde R este EXACT rezultatul oficial de mai sus. Dacă obții altceva, ai citit greșit enunțul (simboluri pierdute la extracție) — recitește-l și refă calculul; NU anunța alt rezultat drept corect.
+- Elevul cere DOAR un indiciu (ori modul e „indiciu")? → doar primul pas, fără rezultat; închei cu o întrebare.
+- Cuvântul „barem" NU apare în răspuns (excepție: elevul întreabă explicit de barem sau punctaje).`;
 
 // Reguli pentru NELĂMURIRILE de după prima explicație: sursa principală devine
 // TESTUL (baremul rămâne sprijin) și profesorul are libertate de explicare.
@@ -1185,24 +1203,65 @@ function refFromConversation(message, priorMsgs = []) {
   return acc.ex ? acc : null;
 }
 
+// ── Itemul de barem localizat DETERMINIST pentru o referință („I.3", „III.2.b") ─
+// Întoarce { exercitiu, enunt, barem, kind, litera?, raspuns? } sau null.
+//   kind 'rezolvare' — pași de rezolvare (BAC, EN Subiectul al III-lea);
+//   kind 'grila'     — grilă EN (Subiectul I/II): doar litera oficială;
+//   kind 'rezultat'  — doar rezultatul (baremele vechi de EN).
+function deterministicBaremItem({ baremText, subjectText }, ref) {
+  const loc = locateBaremItem(baremText, ref);
+  if (!loc) return null;
+  const short = loc.kind === 'grila' || loc.kind === 'rezultat';
+  // la grile, literele a)–d) sunt VARIANTE de răspuns, nu subpuncte → enunțul
+  // întreg, cu toate variantele; la fel la itemii cu rezultat
+  const enRef = short ? { ...ref, letter: null } : ref;
+  const enunt = sliceExercise(subjectText || '', enRef, { ignoreLetter: short });
+  return {
+    exercitiu: formatRef(enRef),
+    enunt: enunt ? enunt.slice(0, 1500) : null,
+    barem: loc.text.slice(0, 3500),
+    kind: loc.kind,
+    litera: loc.litera || null,
+    raspuns: loc.raspuns || null,
+  };
+}
+
 // ── Extrage din barem rezolvarea EXERCIȚIULUI ÎNTREBAT (focalizare) ──────────
 // Baremul întreg are mii de caractere și modelul „se pierde" în el. Un pas
 // separat, ieftin, identifică exercițiul din întrebare și copiază identic
 // fragmentul lui de barem; promptul principal primește apoi FIX rezolvarea.
+// Dacă modelul a identificat exercițiul („I.3"), fragmentul se taie totuși
+// DETERMINIST pe structura documentului (inclusiv litera din tabelul de grile
+// al baremelor de EN) — copia modelului e doar rezerva.
 async function extractBaremItem({ message, priorMsgs = [], subjectText = '', baremText = '' }) {
   if (!hasChat() || !baremText) return null;
   try {
     const prior = priorMsgs.filter((m) => m.role === 'user').slice(-2).map((m) => m.content).join('\n');
-    const sys = 'Primești întrebarea unui elev despre un test, textul testului și BAREMUL testului. Identifică exercițiul la care se referă întrebarea (folosește și mesajele anterioare dacă întrebarea e vagă), apoi: (1) extrage din TEST, CUVÂNT CU CUVÂNT, enunțul acelui exercițiu; (2) extrage din BAREM, CUVÂNT CU CUVÂNT, fragmentul care rezolvă EXACT acel exercițiu (toate rândurile lui, cu exponenții și semnele intacte). Răspunde DOAR cu JSON: {"exercitiu":"II.2.b","enunt":"<enunțul copiat identic din test>","barem":"<fragmentul copiat identic din barem>"}. Dacă întrebarea nu se referă la un exercițiu anume, răspunde {"exercitiu":null,"enunt":"","barem":""}.';
+    const sys = 'Primești întrebarea unui elev despre un test, textul testului și BAREMUL testului. Identifică exercițiul la care se referă întrebarea (folosește și mesajele anterioare dacă întrebarea e vagă), apoi: (1) extrage din TEST, CUVÂNT CU CUVÂNT, enunțul acelui exercițiu; (2) extrage din BAREM, CUVÂNT CU CUVÂNT, fragmentul care rezolvă EXACT acel exercițiu (toate rândurile lui, cu exponenții și semnele intacte; la grilele cu tabel „Nr. item / Rezultate" copiază litera itemului, ex. „3. c. 5p"). Răspunde DOAR cu JSON: {"exercitiu":"II.2.b","enunt":"<enunțul copiat identic din test>","barem":"<fragmentul copiat identic din barem>"}. Dacă întrebarea nu se referă la un exercițiu anume, răspunde {"exercitiu":null,"enunt":"","barem":""}.';
     const user = `ÎNTREBAREA ELEVULUI: ${String(message).slice(0, 600)}\n\nMESAJELE ANTERIOARE ALE ELEVULUI (context): ${prior || '—'}\n\nTESTUL:\n"""${String(subjectText).slice(0, 9000)}"""\n\nBAREMUL:\n"""${String(baremText).slice(0, 11000)}"""`;
     const { text } = await chat({ system: sys, messages: [{ role: 'user', content: user }], temperature: 0, maxTokens: 1100, json: true, model: PDF_MODEL });
     const parsed = JSON.parse(text);
+    // exercițiul identificat → tăiere deterministă (structura oficială a documentului)
+    const ref = parsed && parsed.exercitiu ? parseExerciseRef(String(parsed.exercitiu)) : null;
+    if (ref && ref.ex) {
+      const det = deterministicBaremItem({ baremText, subjectText }, ref);
+      if (det) return det;
+    }
     const frag = parsed && parsed.barem ? String(parsed.barem).trim() : '';
+    const en = parsed && parsed.enunt ? String(parsed.enunt).trim() : '';
+    const enOk = en.length > 10 && fragmentFromBarem(en, subjectText); // enunțul doar dacă provine din test
+    // fragment scurt de grilă / rezultat („3. c. 5p") copiat de model — verificat în barem
+    const short = shortAnswerOf(frag);
+    if (short && String(baremText).replace(/\s+/g, ' ').includes(frag.replace(/\s+/g, ' ').slice(0, 12))) {
+      const grila = /^[a-d]$/i.test(short);
+      return {
+        exercitiu: parsed.exercitiu || null, enunt: enOk ? en.slice(0, 1500) : null,
+        barem: grila ? `${parsed.exercitiu || ''} — răspunsul corect: ${short.toLowerCase()}) (5 puncte; se punctează doar rezultatul)` : `${parsed.exercitiu || ''} — rezultatul corect: ${short}`,
+        kind: grila ? 'grila' : 'rezultat', litera: grila ? short.toLowerCase() : null, raspuns: grila ? null : short,
+      };
+    }
     if (frag.length > 20 && fragmentFromBarem(frag, baremText)) {
-      // enunțul e acceptat doar dacă provine într-adevăr din textul testului
-      const en = parsed.enunt ? String(parsed.enunt).trim() : '';
-      const enOk = en.length > 10 && fragmentFromBarem(en, subjectText);
-      return { exercitiu: parsed.exercitiu || null, enunt: enOk ? en.slice(0, 1500) : null, barem: frag.slice(0, 3500) };
+      return { exercitiu: parsed.exercitiu || null, enunt: enOk ? en.slice(0, 1500) : null, barem: frag.slice(0, 3500), kind: 'rezolvare' };
     }
   } catch (e) { console.warn('extractBaremItem:', e.message); }
   return null; // fără fragment sigur → rămâne baremul întreg din prompt
@@ -1393,11 +1452,9 @@ async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs,
   if (context.baremText) {
     const ref = refFromConversation(message, priorMsgs);
     if (ref) {
-      const frag = sliceExercise(context.baremText, ref);
-      if (frag) {
-        const enunt = sliceExercise(context.exerciseText || '', ref);
-        baremItem = { exercitiu: formatRef(ref), enunt: enunt ? enunt.slice(0, 1500) : null, barem: frag.slice(0, 3500) };
-      }
+      // tăiere deterministă: SUBIECTUL → exercițiul → litera; la grilele EN
+      // (Subiectul I/II) → litera oficială din tabelul baremului
+      baremItem = deterministicBaremItem({ baremText: context.baremText, subjectText: context.exerciseText || '' }, ref);
     }
     if (!baremItem) {
       baremItem = await extractBaremItem({ message, priorMsgs, subjectText: context.exerciseText || '', baremText: context.baremText });
@@ -1406,6 +1463,8 @@ async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs,
 
   // Pasul 2a: PROMPT FOCALIZAT — avem rezolvarea exactă a exercițiului întrebat.
   if (baremItem) {
+    if (!baremItem.kind) baremItem.kind = 'rezolvare';
+    const shortKind = baremItem.kind === 'grila' || baremItem.kind === 'rezultat';
     baremItem.allowed = [context.exerciseText, baremItem.enunt, baremItem.barem, message]
       .filter(Boolean).join('\n'); // pentru verificarea anti-deviere (numere permise)
     // PRIMA întrebare despre exercițiu → explicația vine STRICT din barem;
@@ -1414,8 +1473,14 @@ async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs,
     // cerința reconstruită din barem — enunțul extras din test poate pierde
     // radicali/săgeți/bare (sunt desenate, nu caractere), baremul o repetă corect.
     // DOAR la exerciții de tip „Arătați că / Demonstrați" (au forma LHS = rezultat);
-    // la „Determinați..." egalitatea reconstruită ar fi falsă.
-    const claim = /ar[ăa]ta[țt]?i|demonstra/i.test(baremItem.enunt || '') ? claimFromBarem(baremItem.barem) : null;
+    // la „Determinați..." egalitatea reconstruită ar fi falsă; la grile nu există.
+    const claim = !shortKind && /ar[ăa]ta[țt]?i|demonstra/i.test(baremItem.enunt || '') ? claimFromBarem(baremItem.barem) : null;
+    // grilă / rezultat scurt: rezolvarea-model e doar concluzia oficială
+    const modelLabel = baremItem.kind === 'grila'
+      ? `RĂSPUNSUL OFICIAL al exercițiului (document intern — elevul NU îl vede): litera ${baremItem.litera}). Detaliu: """${baremItem.barem}"""`
+      : baremItem.kind === 'rezultat'
+        ? `REZULTATUL OFICIAL al exercițiului (document intern — elevul NU îl vede): ${baremItem.raspuns}. Detaliu: """${baremItem.barem}"""`
+        : null;
     // numele ORIGINALE ale fișierelor — dovada corespondenței test ↔ barem
     const fileLine = (context.fileName || context.baremFileName)
       ? `FIȘIERELE SURSĂ (numele originale, pentru corespondența test ↔ barem):${context.fileName ? ` testul „${context.fileName}"` : ''}${context.fileName && context.baremFileName ? ' ·' : ''}${context.baremFileName ? ` baremul „${context.baremFileName}"` : ''}.`
@@ -1431,7 +1496,9 @@ async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs,
         context.exerciseText
           ? `TEXTUL COMPLET AL TESTULUI (citește-l — de aici răspunzi la nelămuriri):\n"""${String(context.exerciseText).slice(0, 12000)}"""`
           : '',
-        `REZOLVAREA-MODEL a exercițiului (sprijin — metoda și rezultatele ei rămân valabile; document intern, elevul NU îl vede):\n"""${baremItem.barem}"""`,
+        modelLabel
+          ? `${modelLabel}\nConcluzia ta rămâne ÎNTOTDEAUNA cea oficială de mai sus (${baremItem.kind === 'grila' ? `litera ${baremItem.litera})` : baremItem.raspuns}); explicațiile și calculele sunt ale tale.`
+          : `REZOLVAREA-MODEL a exercițiului (sprijin — metoda și rezultatele ei rămân valabile; document intern, elevul NU îl vede):\n"""${baremItem.barem}"""`,
         PDF_FOLLOWUP_RULES,
         PDF_REFORMULATE,
       ].filter(Boolean).join('\n\n');
@@ -1445,11 +1512,11 @@ async function pdfAgentSystem(supa, { userId, mode, context, message, priorMsgs,
       fileLine,
       `EXERCIȚIUL${baremItem.exercitiu ? ` ${baremItem.exercitiu}` : ''} din testul „${context.title || 'PDF'}" — ENUNȚUL (extras din test; poate avea simboluri pierdute):\n"""${baremItem.enunt || '(enunțul nu a putut fi izolat automat — caută-l în TEXTUL COMPLET AL TESTULUI de mai jos și folosește forma expresiilor din rezolvare)'}"""`,
       claim ? `CERINȚA DE DEMONSTRAT, reconstruită din rezolvare (pe ACEASTA o enunți elevului, NU varianta din test dacă diferă): arată că $${claim.lhs} = ${claim.final}$. Rezultatul final al rezolvării tale trebuie să fie EXACT ${claim.final}.` : '',
-      `REZOLVAREA LUI (document intern — elevul NU îl vede; predă-l ca metoda ta):\n"""${baremItem.barem}"""`,
+      modelLabel || `REZOLVAREA LUI (document intern — elevul NU îl vede; predă-l ca metoda ta):\n"""${baremItem.barem}"""`,
       context.exerciseText
         ? `TEXTUL COMPLET AL TESTULUI (context suplimentar — enunțul și rezolvarea de mai sus rămân reperul principal; de aici citești restul testului când elevul are nelămuriri sau întreabă „de unde vine..."):\n"""${String(context.exerciseText).slice(0, 12000)}"""`
         : '',
-      PDF_ITEM_RULES,
+      baremItem.kind === 'grila' ? PDF_GRILA_RULES : baremItem.kind === 'rezultat' ? PDF_REZULTAT_RULES : PDF_ITEM_RULES,
       PDF_REFORMULATE,
     ].filter(Boolean).join('\n\n');
     return { system, baremItem };
@@ -1525,10 +1592,43 @@ async function semanticCheck(reply, baremItem) {
   return { ok: true };
 }
 
+// ── Verificarea la GRILE / răspuns scurt (EN): concluzia trebuie să fie cea
+// oficială. Calculele intermediare ale profesorului sunt ale lui (numerele „noi"
+// sunt firești aici), dar o ALTĂ literă / alt rezultat anunțate drept răspuns
+// corect = deviere BLOCANTĂ. Lipsa concluziei = doar o regenerare.
+const CLAIM_RES = [
+  /r[ăa]spunsul?\s+(?:corect\s+|final\s+|bun\s+)?(?:este|e|va\s+fi|ar\s+fi)\s*:?\s*(?:litera\s*|varianta\s*)?\(?([a-d])\)(?![a-zăâîșț])/gi,
+  /r[ăa]spunsul?\s+(?:corect\s+|final\s+|bun\s+)?(?:este|e|va\s+fi|ar\s+fi)\s*:?\s*(?:litera|varianta)\s+([a-d])(?![a-zăâîșț])/gi,
+  /(?:varianta|litera)\s+corect[ăa]\s+(?:este|e)\s*:?\s*\(?([a-d])\)?(?![a-zăâîșț])/gi,
+];
+function shortAnswerCheck(reply, baremItem, mode) {
+  const r = String(reply || '');
+  if (baremItem.kind === 'grila') {
+    const want = String(baremItem.litera || '').toLowerCase();
+    const claims = CLAIM_RES.flatMap((re) => [...r.matchAll(re)].map((m) => m[1].toLowerCase()));
+    const wrong = claims.filter((l) => l !== want);
+    if (wrong.length) return { hard: `anunță răspunsul ${wrong[0]}) în loc de litera oficială ${want})`, soft: null };
+    if (!claims.length && mode !== 'hint') return { hard: null, soft: `nu a încheiat cu „Răspunsul corect este litera ${want})"` };
+    return { hard: null, soft: null };
+  }
+  // rezultat scurt: trebuie să apară în răspuns (comparăm fără spații/decorațiuni)
+  const flat = (s) => String(s || '').replace(/\\left|\\right|\\,|\$/g, '').replace(/\s+/g, '').toLowerCase();
+  const want = flat(baremItem.raspuns);
+  if (mode !== 'hint' && want && !flat(r).includes(want)) return { hard: null, soft: `nu apare rezultatul oficial (${baremItem.raspuns})` };
+  return { hard: null, soft: null };
+}
+
 // fallback determinist: pașii baremului, prezentați direct (fără punctaje).
 // Textul extras din PDF poate conține „moloz" de la fracțiile sparte pe
 // rânduri (linii doar cu cifre/simboluri) — le eliminăm, nu ajută elevul.
 function fragmentFallback(baremItem, mode) {
+  if (baremItem.kind === 'grila' || baremItem.kind === 'rezultat') {
+    const oficial = baremItem.kind === 'grila' ? `litera ${baremItem.litera})` : baremItem.raspuns;
+    if (mode === 'hint') {
+      return `Uite un indiciu: recitește cu atenție cerința${baremItem.kind === 'grila' ? ' și variantele de răspuns' : ''}, apoi rezolvă pas cu pas pe caiet — spune-mi ce obții și verificăm împreună.\n\nReformulez mai simplu sau mai detaliat?`;
+    }
+    return `Răspunsul corect este ${oficial}.\n\nRezolvă exercițiul pe caiet și verifică dacă obții ${baremItem.kind === 'grila' ? `varianta ${baremItem.litera})` : 'acest rezultat'}; dacă vrei, scrie-mi „explică-mi pașii" și îl rezolvăm împreună, pas cu pas.\n\nReformulez mai simplu sau mai detaliat?`;
+  }
   const clean = String(baremItem.barem)
     .replace(/\b\d+\s*p(?:uncte)?\.?(?=\s|$)/gi, '')
     .split(/\n+/)
@@ -1571,6 +1671,12 @@ async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', m
   const attempt = async (sys) => {
     const g = await gen(sys);
     if (isEmpty(g.text)) return { ...g, hard: 'răspuns gol sau trunchiat', soft: null };
+    // grilă / rezultat scurt (EN): ALTĂ literă / alt rezultat anunțate drept
+    // corecte = deviere și la reformulări (concluzia oficială nu se negociază)
+    if (baremItem && (baremItem.kind === 'grila' || baremItem.kind === 'rezultat')) {
+      const k = shortAnswerCheck(g.text, baremItem, mode);
+      return { ...g, hard: k.hard, soft: relaxed ? null : k.soft };
+    }
     if (relaxed) return { ...g, hard: null, soft: null }; // reformulare cerută explicit
     const n = numericCheck(g.text, baremItem);
     if (!n.ok) return { ...g, hard: n.motiv, soft: null };
@@ -1584,7 +1690,10 @@ async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', m
 
   const motiv = first.hard || first.soft;
   console.warn('verifiedPdfReply: prima încercare —', motiv);
-  const harder = `${system}\n\nATENȚIE: încercarea anterioară a deviat de la rezolvare (${motiv}). Scrie din nou răspunsul STRICT pe pașii, expresiile și rezultatele REZOLVĂRII de mai sus, fără nicio abatere și fără numere din altă parte.`;
+  const shortKind = baremItem && (baremItem.kind === 'grila' || baremItem.kind === 'rezultat');
+  const harder = shortKind
+    ? `${system}\n\nATENȚIE: încercarea anterioară a greșit concluzia (${motiv}). Scrie din nou răspunsul: rezolvarea ta pas cu pas, care conduce la ${baremItem.kind === 'grila' ? `litera ${baremItem.litera})` : `rezultatul ${baremItem.raspuns}`}, și ÎNCHEIE EXACT cu „Răspunsul corect este ${baremItem.kind === 'grila' ? `litera ${baremItem.litera})` : baremItem.raspuns}".`
+    : `${system}\n\nATENȚIE: încercarea anterioară a deviat de la rezolvare (${motiv}). Scrie din nou răspunsul STRICT pe pașii, expresiile și rezultatele REZOLVĂRII de mai sus, fără nicio abatere și fără numere din altă parte.`;
   const second = await attempt(harder);
   usage = { in: usage.in + second.usage.in, out: usage.out + second.usage.out, model };
   if (!second.hard && !second.soft) return { text: second.text, usage, verified: true };
@@ -1607,6 +1716,7 @@ module.exports = {
   CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic, isCronRequest,
   chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, PERSONA,
   extractBaremItem, fragmentFromBarem, verifiedPdfReply, wantsOtherExplanation, isFollowUpQuestion,
+  deterministicBaremItem, shortAnswerCheck, fragmentFallback, pdfAgentSystem, // grile / rezultat scurt (EN) — exportate pentru teste
   levelLabel, interactiveCatalog, studentState, meditatiiMemory,
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,

@@ -350,7 +350,12 @@ export default function PDFViewer() {
       .then((r) => {
         setPdfText(r?.text || '');
         setPdfFileName(r?.fileName || null);
-        setBarem(r?.baremText && r?.barem ? { title: r.barem.title || 'Barem', text: r.baremText, fileName: r.barem.fileName || null } : null);
+        // baremul asociat (BAC sau Evaluare Națională) + dovada potrivirii:
+        // metadate (titlu/fișier), antetul PDF-urilor (an + variantă), conținut
+        // sau „inclus" (subiecte + barem în același fișier)
+        setBarem(r?.baremText && r?.barem
+          ? { title: r.barem.title || 'Barem', text: r.baremText, fileName: r.barem.fileName || null, matchedBy: r.barem.matchedBy || null, evidence: r.barem.evidence || null }
+          : null);
       })
       .catch(() => setPdfText(''))
       .finally(() => setPdfLoading(false));
@@ -571,9 +576,15 @@ export default function PDFViewer() {
         </div>
       )}
       {!pdfLoading && barem && (
-        <div title={`Explicațiile se dau pe baza acestui barem oficial${barem.fileName ? ` (fișier: ${barem.fileName})` : ''}`}
+        <div title={[
+          'Explicațiile și răspunsurile se dau pe baza acestui barem oficial',
+          barem.fileName && barem.matchedBy !== 'inclus' ? `(fișier: ${barem.fileName})` : '',
+          barem.evidence ? `— potrivire: ${barem.evidence}` : '',
+          barem.matchedBy ? `[${{ inclus: 'baremul e în același PDF', metadate: 'titlu + numele fișierului', 'metadate+antet': 'titlu/fișier, confirmate de antetul PDF-urilor', 'metadate+continut': 'titlu/fișier, confirmate de conținut', antet: 'antetul PDF-urilor (an + variantă)', 'antet+continut': 'antetul PDF-urilor + conținut', continut: 'conținutul (numerele din enunțuri)' }[barem.matchedBy] || barem.matchedBy}]` : '',
+        ].filter(Boolean).join(' ')}
           style={{ padding: '5px 12px', fontSize: '.74rem', fontWeight: 600, color: '#1e7e34', background: '#f0f9f1', borderBottom: '1px solid var(--border)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          📋 Barem asociat: {barem.title}
+          📋 Barem asociat: {barem.matchedBy === 'inclus' ? 'inclus în acest PDF' : barem.title}
+          {barem.evidence && barem.matchedBy !== 'inclus' ? <span style={{ fontWeight: 400, color: '#2d7a3a' }}> · {barem.evidence}</span> : null}
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0 }}>

@@ -6,9 +6,17 @@ exact cum corectează testele interactive.
 ## Cum funcționează (pentru elev)
 
 1. Elevul deschide un **test PDF** (variantă de bac / Evaluare Națională / fișă)
-   și apasă „Profesorul virtual" — ca până acum, platforma găsește **baremul
-   corespunzător** (potrivirea strictă an + variantă + profil + sesiune rămâne
-   neschimbată).
+   și apasă „Profesorul virtual" — platforma găsește **baremul corespunzător**,
+   la fel pentru BAC și pentru Evaluare Națională, în trei trepte: (1) titlu +
+   numele original al fișierului (an, variantă, test de antrenament,
+   model/simulare, profil la BAC); (2) **antetul PDF-urilor** („Anul școlar
+   2023 – 2024 · Varianta 7", „Model", „Simulare", „Testul 3") — baremul ales
+   trebuie să spună același lucru ca testul; (3) conținutul (la EN: numerele din
+   Subiectul al III-lea regăsite în barem). Regula: mai bine niciun barem decât
+   unul greșit. Eticheta „📋 Barem asociat" arată și dovada („an 2024 ·
+   varianta 7"); un PDF „subiecte + barem" își folosește baremul inclus.
+   La grilele EN (Subiectul I/II) baremul dă doar litera — profesorul rezolvă
+   pas cu pas și încheie obligatoriu cu litera oficială din tabel.
 2. În chat apare butonul **„📝 Răspunde în chat"** (formularul NU pornește
    automat). La apăsare, se construiește un **formular simplu** din barem:
    câte un câmp pentru **fiecare exercițiu** și pentru **fiecare subpunct
@@ -93,6 +101,13 @@ Rulează în **Supabase → SQL Editor**: `supabase/corectare_pdf.sql`
 
 - „Nu am putut construi formularul" → textul PDF nu e citibil (scanat):
   elevul fotografiază exercițiul cu 📷.
+- Nu apare „📋 Barem asociat" la un test de EN/BAC → în logurile Vercel ale
+  `ai-pdf-context` scrie de ce: „barem respins (antetul spune altceva / scor
+  conținut …)", „potrivirea pe conținut nu a decis (scoruri …)" sau nimic
+  (niciun candidat compatibil: an/variantă/sesiune din titlu ori din numele
+  fișierului diferă). Verifică titlul și fișierul baremului (an, variantă,
+  model/simulare) și că e în aceeași categorie. `AI_BAREM_CONTENT_CANDIDATES`
+  (implicit 8) = câte bareme se citesc când metadatele nu decid.
 - Punctajul nu apare la profesor → verifică asocierea elevului și rulează
   `supabase/corectare_pdf.sql` (pentru încărcări) / `supabase/pastreaza_rezultate.sql`
   (pentru snapshotul titlurilor).
