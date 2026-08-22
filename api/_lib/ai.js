@@ -1013,7 +1013,9 @@ async function meditatiiMemory(supa, userId) {
       const [{ data: mist }, { data: hw }, { data: revs }, { data: acc }] = await Promise.all([
         supa.from('ai_meditatii_mistakes').select('topic, error_type').eq('user_id', userId).eq('remediated', false)
           .order('created_at', { ascending: false }).limit(3),
-        supa.from('ai_meditatii_homework').select('title').eq('user_id', userId).eq('status', 'data').limit(3),
+        // temele NEFĂCUTE + cele finalizate INCOMPLET (se pot relua oricând)
+        supa.from('ai_meditatii_homework').select('title, status, feedback').eq('user_id', userId)
+          .in('status', ['data', 'incompleta', 'rezolvata']).order('assigned_at', { ascending: false }).limit(8),
         supa.from('ai_meditatii_reviews').select('topic, chapter, due_at, stage').eq('user_id', userId)
           .lte('due_at', new Date().toISOString()).lte('stage', 2).limit(3),
         supa.from('profiles').select('full_name').eq('id', userId).single(),
@@ -1021,7 +1023,10 @@ async function meditatiiMemory(supa, userId) {
       const firstName = (acc?.full_name || '').trim().split(/\s+/)[0];
       if (firstName) bits.unshift(`- Numele elevului: ${firstName} — adresează-i-te pe nume.`);
       if (mist && mist.length) bits.push(`- Greșeli recente neremediate la: ${[...new Set(mist.map((m) => String(m.topic || '').replace(/_/g, ' ')).filter(Boolean))].join(', ')} — propune-i „încă 10 de același fel" în rubrica Meditații.`);
-      if (hw && hw.length) bits.push(`- Teme nefăcute: ${hw.map((h) => `„${h.title}"`).join(', ')} — amintește-i prietenos de ele.`);
+      const hwPending = (hw || []).filter((h) => h.status === 'data').slice(0, 3);
+      const hwIncomplete = (hw || []).filter((h) => h.status === 'incompleta' || (h.status === 'rezolvata' && h.feedback?.complete === false)).slice(0, 3);
+      if (hwPending.length) bits.push(`- Teme nefăcute: ${hwPending.map((h) => `„${h.title}"`).join(', ')} — amintește-i prietenos de ele.`);
+      if (hwIncomplete.length) bits.push(`- Teme finalizate INCOMPLET (nu toate problemele rezolvate; le poate relua oricând din rubrica Teme → „Reia tema"): ${hwIncomplete.map((h) => `„${h.title}"${h.feedback?.total ? ` (${h.feedback.answered ?? '?'}/${h.feedback.total} rezolvate)` : ''}`).join(', ')} — încurajează-l să le termine când are timp, fără reproșuri.`);
       if (revs && revs.length) bits.push(`- Recapitulări scadente (să nu uite materia): ${revs.map((r) => String(r.topic || r.chapter || '').replace(/_/g, ' ')).join(', ')} — propune-le TU la începutul discuției.`);
     } catch { /* ignorăm */ }
     return `PROFILUL DE MEDITAȚII AL ELEVULUI (memoria ta pedagogică — folosește-o discret, nu o recita):\n${bits.join('\n')}`;

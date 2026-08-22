@@ -309,14 +309,65 @@ profesorului). Teste: `test/meditatii-focus.test.js`.
    `memory.exam_scope` — fără migrare SQL. Când elevul stăpânește subiectele
    alese, trece mai departe schimbând alegerea (oricând).
 
+## 🏁 Runda 9 — finalizarea temelor (completă / incompletă), reluare oricând, fără blocare
+
+**Instalare:** rulează o dată `supabase/meditatii_teme_finalizare.sql` în Supabase →
+SQL Editor (adaugă statusul `incompleta` pe temele din `ai_meditatii_homework`;
+idempotent — inclus și în `meditatii_schema.sql` pentru instalările noi). Fără
+migrare nimic nu se strică: temele incomplete se salvează ca `rezolvata` +
+`feedback.complete=false`, iar interfața le afișează identic.
+
+**Cum funcționează (elev):**
+1. **„🏁 Finalizează tema”** stă la sfârșitul FIECĂREI teme:
+   - la **setul pregătit de profesor** (în pagina meditațiilor): cu toate
+     problemele rezolvate trimite tema spre corectare (**temă finalizată**); cu
+     probleme nerezolvate cere confirmare și o înregistrează ca **temă
+     incompletă** (N/M probleme rezolvate; nota se dă din cele rezolvate,
+     nerezolvatele contează 0). Problemele nerezolvate apar ca „⏳ Nerezolvată”
+     — fără răspunsul corect și fără să intre în jurnalul greșelilor, ca să
+     rămână de făcut la reluare;
+   - la **tema din site** (exercițiul interactiv deschis din „▶ Rezolvă”):
+     butonul e în bara de sus. Cu scor salvat („Verifică/Corectează”) tema e
+     deja bifată și butonul duce înapoi la Teme; fără scor, tema se
+     înregistrează ca **incompletă** (închisă fără scor). Un scor dat mai
+     târziu o trece automat pe „rezolvată”.
+2. **„💾 Las-o pe mai târziu”** (în locul vechiului „Renunț”): răspunsurile date
+   rămân salvate ca ciornă, tema rămâne de rezolvat și apare cu „▶ Continuă”.
+3. **Reluare oricând** — orice temă are „↺ Reia”: la una incompletă sau cu
+   ciornă răspunsurile revin în formular („↺ Reluare: ai 3/8 răspunsuri
+   salvate”); la una finalizată complet începe o încercare nouă. Ultima
+   încercare contează.
+4. **Nimic nu se blochează:** „➕ Dă-mi o temă acum” și „🏁 Încheie meditația
+   și dă-mi tema” dau temă oricâte teme nefăcute sau incomplete are elevul.
+   (Doar temele automate din cron, pentru elevii inactivi 3+ zile, se opresc
+   la 2 teme nefăcute — ca să nu se adune câte una pe zi.)
+5. **Unde se vede:** rubrica Teme (de rezolvat → incomplete → finalizate, cu
+   etichete „🏁 Temă finalizată” / „◐ Temă incompletă · 3/8 probleme
+   rezolvate”), „Astăzi”, „📋 Raport meditator” (secțiunea „Finalizate
+   incomplet — le poți relua oricând”), „Progresul meu”, coach-ul după temă,
+   memoria pedagogică a chatului, raportul pentru profesori/părinți
+   („Rezultate elevi”: „◐ incompletă · 3/8 rezolvate”; raportul AI al
+   părintelui: „N incomplete — se pot relua oricând”).
+
+Server: `api/ai-meditatii.js` (`homework_submit` cu finalizare completă /
+incompletă + `payload.answers`, `homework_start` cu reluare, `homework_draft`,
+`homework_finalize` pentru temele din site, `pickAndAssignHomework` fără
+blocare la cerere), `api/_lib/meditatii.js` (`homeworkOutcome`,
+`isHomeworkIncomplete`, `isHomeworkFinal`, reconcilierea include temele
+incomplete, raportul mentorilor). Client: `src/pages/Meditatii.jsx`
+(`QuizRunner`, `HomeworkTab`, `RaportTab`, `ProgressMeTab`, `hwState`),
+`src/pages/InteractiveViewer.jsx`. Teste: `test/meditatii-teme.test.js`.
+
 ## 🛠️ Depanare
 
 | Simptom | Cauză / soluție |
 |---|---|
 | „Pregătirea pentru lucrări cere o mică actualizare a bazei de date” | Rulează `supabase/meditatii_focus.sql` (o singură dată). Fără el, restul meditațiilor merge normal — doar pregătirea de lucrare e inactivă. |
+| În loguri: „statusul «incompleta» nu e acceptat încă” | Rulează `supabase/meditatii_teme_finalizare.sql` (o singură dată). Până atunci temele incomplete se salvează în forma de rezervă (`rezolvata` + `feedback.complete=false`) și se afișează la fel. |
+| O temă finalizată incomplet apare ca „nefăcută” | Nu ar trebui: „incompletă” iese din clopoțel, briefing și raport. Dacă apare, tema e încă `data` — elevul a ieșit cu „Las-o pe mai târziu” / „← Înapoi”, nu cu „🏁 Finalizează tema”. |
 | „Meditațiile fac parte din abonament" | Contul nu are abonament activ — comportament intenționat. |
 | Testul inițial nu se generează | Verifică `ANTHROPIC_API_KEY` sau `OPENAI_API_KEY` în Vercel; vezi logurile funcției `ai-meditatii`. |
 | Tabelele lipsesc / erori 500 la `state` | Rulează `supabase/meditatii_schema.sql`. |
-| Temele nu vin automat | Cron-ul rulează zilnic la 17:00 (RO) și dă teme doar elevilor abonați, inactivi de 3+ zile, fără teme restante. |
+| Temele nu vin automat | Cron-ul rulează zilnic la 17:00 (RO) și dă teme doar elevilor abonați, inactivi de 3+ zile, cu mai puțin de 2 teme nefăcute (temele incomplete nu se numără). La cerere („➕ Dă-mi o temă acum”) tema se dă oricând. |
 | Recapitulările nu apar | Apar doar după primul capitol FINALIZAT (≥80% la un set), la 1 zi / 7 / 30. |
 | Tema „din site" nu se bifează | Elevul trebuie să termine exercițiul (scorul se salvează în `progress`); la următoarea deschidere a paginii se bifează automat. |

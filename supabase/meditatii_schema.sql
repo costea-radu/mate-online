@@ -60,8 +60,12 @@ create index if not exists idx_medsess_active on public.ai_meditatii_sessions(us
 -- =====================================================================
 -- 3. TEMELE date de Profesorul Virtual
 --    kind='content'     → material EXISTENT din site (content.id) — prioritar
---    kind='interactive' → set de întrebări generat (payload.questions)
+--    kind='interactive' → set de întrebări generat (payload.questions;
+--                         payload.answers = răspunsurile elevului, pentru reluare)
 --    kind='practice'    → un exercițiu de antrenament generat
+--    status: data = de rezolvat · rezolvata = finalizată complet ·
+--            incompleta = finalizată fără toate problemele (se reia oricând) ·
+--            expirata = rezervat
 -- =====================================================================
 create table if not exists public.ai_meditatii_homework (
   id           uuid primary key default gen_random_uuid(),
@@ -73,16 +77,33 @@ create table if not exists public.ai_meditatii_homework (
   topic        text,
   difficulty   text,
   payload      jsonb not null default '{}'::jsonb,
-  status       text not null default 'data' check (status in ('data','rezolvata','expirata')),
+  status       text not null default 'data' check (status in ('data','rezolvata','incompleta','expirata')),
   score        int,
   max_score    int,
   attempts     int not null default 0,
-  feedback     jsonb not null default '{}'::jsonb,    -- corectarea + explicarea greșelilor
+  feedback     jsonb not null default '{}'::jsonb,    -- corectarea + explicarea greșelilor + {complete, answered, total}
   assigned_at  timestamptz default now(),
   due_at       timestamptz,
   completed_at timestamptz
 );
 create index if not exists idx_medhw_user on public.ai_meditatii_homework(user_id, status, assigned_at desc);
+
+-- instalările mai vechi primesc statusul „incompleta" la re-rulare (idempotent);
+-- vezi și supabase/meditatii_teme_finalizare.sql (doar acest pas, separat)
+do $$
+declare c record;
+begin
+  for c in
+    select conname from pg_constraint
+    where conrelid = 'public.ai_meditatii_homework'::regclass and contype = 'c'
+      and pg_get_constraintdef(oid) ilike '%status%'
+  loop
+    execute format('alter table public.ai_meditatii_homework drop constraint %I', c.conname);
+  end loop;
+  alter table public.ai_meditatii_homework
+    add constraint ai_meditatii_homework_status_check
+    check (status in ('data','rezolvata','incompleta','expirata'));
+end $$;
 
 -- =====================================================================
 -- 4. JURNALUL GREȘELILOR (detectarea greșelilor tipice)

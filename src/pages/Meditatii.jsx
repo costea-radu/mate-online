@@ -65,6 +65,13 @@ const FOCUS_KIND_LABELS = {
 };
 const roDate = (iso) => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('ro-RO', { day: 'numeric', month: 'long' }) : '');
 const niceTopic = (t) => String(t || '').replace(/_/g, ' ').trim();
+// Starea unei teme pentru UI: de rezolvat / FINALIZATĂ / finalizată INCOMPLET
+// („🏁 Finalizează tema" fără toate problemele — status „incompleta" sau, pe
+// instalările fără migrarea SQL, feedback.complete=false). O temă incompletă
+// nu e „nefăcută": nu blochează alte teme și se poate relua oricând.
+const hwState = (h) => (!h || h.status === 'data' ? 'pending'
+  : (h.incomplete || h.status === 'incompleta' || h.feedback?.complete === false) ? 'incomplete' : 'complete');
+const HW_STATE_RANK = { pending: 0, incomplete: 1, complete: 2 };
 const fmtMin = (sec) => {
   const m = Math.round((sec || 0) / 60);
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}min`;
@@ -108,16 +115,33 @@ function lessonHtml(title, text) {
 }
 
 // ─── Rulează un set de întrebări (evaluare/exerciții/temă/recapitulare/simulare)
-function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spre corectare', onSubmit, onClose, onAskTeacher }) {
-  const [answers, setAnswers] = useState(() => questions.map(() => null));
+// homework=true (temă): la sfârșit stă butonul „🏁 Finalizează tema" — închide
+// tema și FĂRĂ toate problemele rezolvate (se înregistrează ca temă completă
+// sau INCOMPLETĂ); „✕ Las-o pe mai târziu" păstrează răspunsurile (ciornă), iar
+// initialAnswers readuce răspunsurile salvate la RELUARE.
+function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spre corectare', onSubmit, onClose, onAskTeacher,
+  homework = false, initialAnswers = null, onSaveDraft = null }) {
+  const [answers, setAnswers] = useState(() => questions.map((_, i) => (initialAnswers && initialAnswers[i] != null ? initialAnswers[i] : null)));
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState(null);
   const startRef = useRef(Date.now());
 
   const answered = answers.filter((a) => a !== null && String(a).trim() !== '').length;
+  const left = questions.length - answered;
+  const allAnswered = left === 0;
 
   async function submit() {
+    // tema se poate finaliza și neterminată (cerință) — dar confirmăm, ca
+    // elevul să știe că se înregistrează ca INCOMPLETĂ și că o poate relua
+    if (homework && !allAnswered) {
+      const ok = window.confirm(
+        `Mai ai ${left} ${left === 1 ? 'problemă nerezolvată' : 'probleme nerezolvate'}.\n\n` +
+        `Finalizezi tema așa cum e? Se înregistrează ca TEMĂ INCOMPLETĂ (${answered}/${questions.length} rezolvate) — o poți relua oricând din rubrica Teme, iar o temă neterminată nu te împiedică să primești altele.`
+      );
+      if (!ok) return;
+    }
     setLoading(true); setError(null);
     try {
       const durationSec = Math.round((Date.now() - startRef.current) / 1000);
@@ -126,6 +150,19 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
+  }
+
+  // „Las-o pe mai târziu": răspunsurile date rămân salvate (ciornă), tema
+  // rămâne de rezolvat și se reia de unde a rămas
+  async function closeForLater() {
+    if (homework && onSaveDraft && answered > 0) {
+      setSavingDraft(true);
+      try { await onSaveDraft(answers); } catch { /* best-effort */ }
+      finally { setSavingDraft(false); }
+      onClose(false, true);
+      return;
+    }
+    onClose(false, false);
   }
 
   return (
@@ -137,7 +174,11 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {!result && <span style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>{answered}/{questions.length} completate</span>}
-          <button className="btn btn-outline btn-sm" onClick={() => onClose(!!result)}>✕ {result ? 'Închide' : 'Renunț'}</button>
+          {result
+            ? <button className="btn btn-outline btn-sm" onClick={() => onClose(true)}>✕ Închide</button>
+            : homework
+              ? <button className="btn btn-outline btn-sm" onClick={closeForLater} disabled={loading || savingDraft} title="Închide fără corectare — răspunsurile date rămân salvate, tema rămâne de rezolvat și o reiei de unde ai rămas">{savingDraft ? '💾 Salvez…' : '✕ Las-o pe mai târziu'}</button>
+              : <button className="btn btn-outline btn-sm" onClick={() => onClose(false)}>✕ Renunț</button>}
         </div>
       </div>
 
@@ -147,6 +188,13 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
             {result.pct >= 90 ? '🎉' : result.pct >= 70 ? '👏' : result.pct >= 50 ? '💪' : '🤝'} Rezultat: {result.score}/{result.maxScore} ({result.pct}%)
             {result.grade != null && <span> · Nota {result.grade}</span>}
           </div>
+          {homework && result.complete != null && (
+            <div style={{ marginBottom: 6 }}>
+              {result.complete
+                ? <span style={chip('rgba(39,174,96,.14)', '#1e7e34')}>🏁 Temă finalizată · toate problemele rezolvate</span>
+                : <span style={chip('rgba(230,126,34,.14)', '#b9590f')}>◐ Temă incompletă · {result.answered}/{result.total} probleme rezolvate</span>}
+            </div>
+          )}
           {result.feedback && <div style={{ fontSize: '.92rem', color: 'var(--text)', marginBottom: 4 }}>{result.feedback}</div>}
           {result.nextStep && <div style={{ fontSize: '.88rem', color: 'var(--text)' }}>👉 {result.nextStep.label}</div>}
           {result.chapterDone && <div style={{ fontSize: '.88rem', color: '#1e7e34', fontWeight: 700, marginTop: 4 }}>🏁 Capitol finalizat! L-am programat pentru recapitulare (după 1 zi, 7 zile și 30 de zile).</div>}
@@ -162,12 +210,12 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
       {questions.map((q, i) => {
         const r = result?.results?.[i];
         return (
-          <div key={i} style={{ ...card, borderColor: r ? (r.correct ? 'rgba(39,174,96,.4)' : 'rgba(231,76,60,.35)') : 'var(--border)' }}>
+          <div key={i} style={{ ...card, borderColor: r ? (r.correct ? 'rgba(39,174,96,.4)' : r.skipped ? 'rgba(230,126,34,.45)' : 'rgba(231,76,60,.35)') : 'var(--border)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
               <div style={{ fontSize: '1rem', color: 'var(--navy)', lineHeight: 1.6, flex: 1 }}>
                 <strong>{i + 1}.</strong> <MathText text={fixLatexClient(q.statement)} />
               </div>
-              {r && <span style={{ fontSize: '1.2rem' }}>{r.correct ? '✅' : '❌'}</span>}
+              {r && <span style={{ fontSize: '1.2rem' }} title={r.skipped ? 'Nerezolvată' : r.correct ? 'Corect' : 'Greșit'}>{r.correct ? '✅' : r.skipped ? '⏳' : '❌'}</span>}
             </div>
 
             {q.options ? (
@@ -194,7 +242,14 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
                 placeholder="Răspunsul tău" style={{ ...inp, width: '100%' }} />
             )}
 
-            {r && !r.correct && (
+            {/* problemă NEREZOLVATĂ la o temă finalizată incomplet: rămâne de
+                făcut la reluare — răspunsul corect nu se dezvăluie */}
+            {r && r.skipped && (
+              <div style={{ marginTop: 10, padding: '8px 12px', background: 'rgba(230,126,34,.07)', borderRadius: 10, fontSize: '.86rem', color: '#b9590f', fontWeight: 600 }}>
+                ⏳ Nerezolvată — te așteaptă când reiei tema (din rubrica Teme, oricând).
+              </div>
+            )}
+            {r && !r.correct && !r.skipped && (
               <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(231,76,60,.06)', borderRadius: 10, fontSize: '.88rem' }}>
                 {r.errorType && <div style={{ fontWeight: 700, color: '#c0392b', marginBottom: 4 }}>{ERROR_LABELS[r.errorType] || ''}</div>}
                 {r.analysis && <div style={{ marginBottom: 6 }}><MathText text={fixLatexClient(r.analysis)} /></div>}
@@ -218,9 +273,31 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
 
       {!result ? (
         <div>
-          <button className="btn btn-primary btn-lg" onClick={submit} disabled={loading || answered === 0}>
-            {loading ? '⏳ Profesorul corectează...' : submitLabel}
-          </button>
+          {homework ? (
+            // SFÂRȘITUL TEMEI: „🏁 Finalizează tema" — merge și cu probleme
+            // nerezolvate (temă incompletă, reluabilă oricând)
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary btn-lg" onClick={submit} disabled={loading || savingDraft}
+                title={allAnswered ? 'Trimit tema spre corectare și notare' : 'Închid tema acum — se înregistrează ca temă incompletă, o pot relua oricând'}>
+                {loading ? '⏳ Profesorul corectează...' : allAnswered ? '🏁 Finalizează tema — trimite spre corectare' : `🏁 Finalizează tema (${answered}/${questions.length} rezolvate)`}
+              </button>
+              <button className="btn btn-outline" onClick={closeForLater} disabled={loading || savingDraft}
+                title="Răspunsurile date rămân salvate; tema rămâne de rezolvat și o reiei de unde ai rămas">
+                {savingDraft ? '💾 Salvez…' : '💾 Las-o pe mai târziu'}
+              </button>
+            </div>
+          ) : (
+            <button className="btn btn-primary btn-lg" onClick={submit} disabled={loading || answered === 0}>
+              {loading ? '⏳ Profesorul corectează...' : submitLabel}
+            </button>
+          )}
+          {homework && !loading && (
+            <div style={{ marginTop: 8, fontSize: '.82rem', color: 'var(--text-muted)' }}>
+              {allAnswered
+                ? 'Ai rezolvat toate problemele — la finalizare o corectez, o notez și îți explic greșelile.'
+                : <>Mai ai <strong>{left}</strong> {left === 1 ? 'problemă nerezolvată' : 'probleme nerezolvate'}. Poți finaliza tema și așa — se înregistrează ca <strong>temă incompletă</strong> și o reiei oricând de unde ai rămas; o temă neterminată nu te împiedică să primești altele.</>}
+            </div>
+          )}
           {loading && <div style={{ marginTop: 8, fontSize: '.82rem', color: 'var(--text-muted)' }}>Corectez și analizez fiecare greșeală (motivul ei) — durează câteva secunde…</div>}
         </div>
       ) : (
@@ -628,10 +705,12 @@ export default function Meditatii() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
+  // „Dă-mi o temă acum": o temă neterminată NU mai blochează primirea alteia
+  // (cerință) — serverul dă temă la orice cerere a elevului
   const askHomework = () => run('homework', async () => {
     const r = await aiClient.meditatii({ action: 'homework_assign' });
     await refresh();
-    if (r.skipped) setActionError(r.skipped === 'are deja teme nefăcute' ? 'Ai deja teme nefăcute — rezolvă-le întâi pe acelea. 😊' : 'Nu am găsit acum un material potrivit — mai încearcă după ce avansezi în plan.');
+    if (r.skipped) setActionError('Nu am găsit acum un material potrivit — mai încearcă după ce avansezi în plan.');
     else setTab('teme');
   });
 
@@ -646,15 +725,28 @@ export default function Meditatii() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
+  // Deschide / RELUĂ o temă (oricând, indiferent de stare): răspunsurile
+  // salvate (ciornă sau finalizare incompletă) revin în formular.
   const openHomework = (hw) => run('homework', async () => {
     const r = await aiClient.meditatii({ action: 'homework_start', id: hw.id });
     if (r.kind === 'content') { navigate(r.url); return; }
+    const resumed = !!(r.resumed && Array.isArray(r.answers));
     setQuiz({
       kind: 'tema', homeworkId: r.homeworkId, questions: r.questions,
-      title: `📚 ${r.title}`, subtitle: 'Tema ta de la Profesorul Virtual. O corectez, o notez și îți explic greșelile.',
+      initialAnswers: resumed ? r.answers : null,
+      title: `📚 ${r.title}`,
+      subtitle: resumed
+        ? `↺ Reluare: ai ${r.answered}/${r.total} răspunsuri salvate — continuă de unde ai rămas. La final o corectez, o notez și îți explic greșelile.`
+        : r.status && r.status !== 'data'
+          ? 'Reiei o temă deja finalizată — încercare nouă, de la zero. O corectez, o notez și îți explic greșelile.'
+          : 'Tema ta de la Profesorul Virtual. O corectez, o notez și îți explic greșelile.',
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
+
+  // „Las-o pe mai târziu": ciorna temei (răspunsurile de până acum)
+  const saveHomeworkDraft = (homeworkId, answers) =>
+    aiClient.meditatii({ action: 'homework_draft', id: homeworkId, answers });
 
   const setStyle = (style) => run('style', async () => {
     await aiClient.meditatii({ action: 'set_style', style });
@@ -689,9 +781,12 @@ export default function Meditatii() {
     }
     r.onRemediate = (mid) => startRemediation(mid);
     // profesorul comentează prin widget: apreciere + pasul următor (gpt-4o-mini)
-    const wrongCount = (r.results || []).filter((x) => !x.correct).length;
+    const wrongCount = (r.results || []).filter((x) => !x.correct && !x.skipped).length;
     if (quiz.kind === 'tema') {
-      coachAfter({ type: 'homework_done', title: (quiz.title || '').replace(/^📚\s*/, ''), grade: r.grade, score: r.score, maxScore: r.maxScore });
+      coachAfter({
+        type: 'homework_done', title: (quiz.title || '').replace(/^📚\s*/, ''), grade: r.grade, score: r.score, maxScore: r.maxScore,
+        complete: r.complete !== false, answered: r.answered, total: r.total,   // temă completă / INCOMPLETĂ
+      });
     } else {
       coachAfter({ type: 'set_done', kind: quiz.kind, topic: quiz.topic || null, score: r.score, maxScore: r.maxScore, chapterDone: !!r.chapterDone, wrongCount });
     }
@@ -774,7 +869,9 @@ export default function Meditatii() {
       {st && premium && quiz && (
         <QuizRunner key={quiz.sessionId || quiz.homeworkId} title={quiz.title} subtitle={quiz.subtitle}
           questions={quiz.questions} onSubmit={submitQuiz} onAskTeacher={askTeacher}
-          onClose={async (finished) => { setQuiz(null); if (finished) await refresh(); }} />
+          homework={quiz.kind === 'tema'} initialAnswers={quiz.initialAnswers || null}
+          onSaveDraft={quiz.kind === 'tema' ? (answers) => saveHomeworkDraft(quiz.homeworkId, answers) : null}
+          onClose={async (finished, drafted) => { setQuiz(null); if (finished || drafted) await refresh(); }} />
       )}
       {st && premium && quiz?.siteExercises?.length > 0 && (
         <div style={{ ...card, background: '#f7f9fc' }}>
@@ -1046,10 +1143,17 @@ function TodayTab({ st, busy, onLesson, onExercises, onReview, onHomeworkTab, on
         </div>
       )}
 
-      {/* Teme în așteptare */}
-      {st.pendingHomework > 0 && (
+      {/* Teme în așteptare (+ cele finalizate incomplet, reluabile oricând) */}
+      {(st.pendingHomework > 0 || st.incompleteHomework > 0) && (
         <div style={{ ...card, background: 'rgba(232,185,49,.08)', borderColor: 'var(--gold)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 700, color: 'var(--navy)' }}>📚 Ai {st.pendingHomework} {st.pendingHomework === 1 ? 'temă nefăcută' : 'teme nefăcute'} de la profesor.</span>
+          <span style={{ fontWeight: 700, color: 'var(--navy)' }}>
+            {st.pendingHomework > 0 && <>📚 Ai {st.pendingHomework} {st.pendingHomework === 1 ? 'temă nefăcută' : 'teme nefăcute'} de la profesor.</>}
+            {st.incompleteHomework > 0 && (
+              <span style={{ display: 'block', fontSize: '.82rem', fontWeight: 600, color: '#b9590f', marginTop: st.pendingHomework > 0 ? 2 : 0 }}>
+                ◐ {st.incompleteHomework === 1 ? 'O temă e finalizată incomplet' : `${st.incompleteHomework} teme sunt finalizate incomplet`} — o poți relua oricând.
+              </span>
+            )}
+          </span>
           <button className="btn btn-primary btn-sm" onClick={onHomeworkTab}>Vezi temele →</button>
         </div>
       )}
@@ -1129,42 +1233,79 @@ function PlanTab({ st, busy, onLesson, onExercises, onReset, onFocusOpen }) {
   );
 }
 
+// Stările unei teme: de rezolvat → FINALIZATĂ (toate problemele) sau
+// INCOMPLETĂ („🏁 Finalizează tema" fără toate problemele). Orice temă se
+// poate RELUA oricând; una neterminată nu blochează primirea altora.
 function HomeworkTab({ st, busy, onOpen, onAsk }) {
-  const hw = st.homework || [];
+  // de rezolvat → incomplete → finalizate (în fiecare grup, cele mai noi primele)
+  const hw = [...(st.homework || [])].sort((a, b) => HW_STATE_RANK[hwState(a)] - HW_STATE_RANK[hwState(b)]);
+  const counts = hw.reduce((acc, h) => { acc[hwState(h)] = (acc[hwState(h)] || 0) + 1; return acc; }, {});
   return (
     <div>
       <div style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <div>
+        <div style={{ flex: 1, minWidth: 260 }}>
           <div style={{ fontWeight: 700, color: 'var(--navy)' }}>Temele tale de la Profesorul Virtual</div>
-          <div style={{ fontSize: '.8rem', color: 'var(--text-muted)' }}>Întâi primești exerciții din site; când le termini, îți generez altele pe nivelul tău. Le corectez, le notez și îți explic greșelile.</div>
+          <div style={{ fontSize: '.8rem', color: 'var(--text-muted)' }}>
+            Întâi primești exerciții din site; când le termini, îți generez altele pe nivelul tău. Le corectez, le notez și îți explic greșelile.
+            Poți <strong>finaliza o temă și fără toate problemele</strong> (se înregistrează ca <em>incompletă</em>), o <strong>reiei oricând</strong>, iar o temă neterminată nu te împiedică să primești altele.
+          </div>
+          {hw.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+              <span style={chip('rgba(232,185,49,.18)', '#8a6d1a')}>📌 De rezolvat: {counts.pending || 0}</span>
+              <span style={chip('rgba(230,126,34,.14)', '#b9590f')}>◐ Incomplete: {counts.incomplete || 0}</span>
+              <span style={chip('rgba(39,174,96,.12)', '#1e7e34')}>🏁 Finalizate: {counts.complete || 0}</span>
+            </div>
+          )}
         </div>
         <button className="btn btn-primary btn-sm" disabled={!!busy} onClick={onAsk}>{busy === 'homework' ? '...' : '➕ Dă-mi o temă acum'}</button>
       </div>
       {hw.length === 0 && <div style={card}><p style={{ color: 'var(--text-muted)', fontSize: '.9rem', margin: 0 }}>Încă nu ai teme. Cere una acum sau așteaptă — profesorul îți dă teme pe măsură ce lucrați împreună.</p></div>}
-      {hw.map((h) => (
-        <div key={h.id} style={{ ...card, padding: '14px 18px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.93rem' }}>
-                {h.kind === 'content' ? '🧩' : '📚'} {h.title}
-              </div>
-              <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: 3 }}>
-                {h.kind === 'content' ? 'Exercițiu interactiv din site' : 'Set pregătit de profesor'} · dată pe {new Date(h.assigned_at).toLocaleDateString('ro-RO')}
-                {h.due_at && h.status === 'data' ? ` · termen ${new Date(h.due_at).toLocaleDateString('ro-RO')}` : ''}
-              </div>
-              {h.status === 'rezolvata' && (
-                <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={chip('rgba(39,174,96,.12)', '#1e7e34')}>✓ Rezolvată · {h.score}/{h.max_score}</span>
-                  {h.feedback?.grade != null && <span style={chip('rgba(232,185,49,.18)', '#8a6d1a')}>Nota {h.feedback.grade}</span>}
+      {hw.map((h) => {
+        const state = hwState(h);
+        const fb = h.feedback || {};
+        const hasScore = h.max_score != null && h.max_score > 0;
+        return (
+          <div key={h.id} style={{ ...card, padding: '14px 18px', ...(state === 'incomplete' ? { borderColor: 'rgba(230,126,34,.45)' } : {}) }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.93rem' }}>
+                  {h.kind === 'content' ? '🧩' : '📚'} {h.title}
                 </div>
-              )}
+                <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: 3 }}>
+                  {h.kind === 'content' ? 'Exercițiu interactiv din site' : 'Set pregătit de profesor'} · dată pe {new Date(h.assigned_at).toLocaleDateString('ro-RO')}
+                  {h.due_at && state === 'pending' ? ` · termen ${new Date(h.due_at).toLocaleDateString('ro-RO')}` : ''}
+                  {state !== 'pending' && h.completed_at ? ` · finalizată pe ${new Date(h.completed_at).toLocaleDateString('ro-RO')}` : ''}
+                </div>
+                {state === 'complete' && (
+                  <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={chip('rgba(39,174,96,.12)', '#1e7e34')}>🏁 Temă finalizată{hasScore ? ` · ${h.score}/${h.max_score}` : ''}</span>
+                    {fb.grade != null && <span style={chip('rgba(232,185,49,.18)', '#8a6d1a')}>Nota {fb.grade}</span>}
+                  </div>
+                )}
+                {state === 'incomplete' && (
+                  <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={chip('rgba(230,126,34,.14)', '#b9590f')}>
+                      ◐ Temă incompletă{fb.total ? ` · ${fb.answered ?? 0}/${fb.total} probleme rezolvate` : h.kind === 'content' ? ' · închisă fără scor' : ''}{hasScore ? ` · ${h.score}/${h.max_score} corecte` : ''}
+                    </span>
+                    {fb.grade != null && <span style={chip('rgba(232,185,49,.18)', '#8a6d1a')}>Nota {fb.grade}</span>}
+                    <span style={{ fontSize: '.76rem', color: 'var(--text-muted)' }}>o poți relua oricând — nu blochează alte teme</span>
+                  </div>
+                )}
+                {state === 'pending' && h.draftAnswered > 0 && (
+                  <div style={{ marginTop: 6 }}>
+                    <span style={chip('rgba(52,152,219,.12)', '#1f6dab')}>💾 Ciornă salvată · {h.draftAnswered} {h.draftAnswered === 1 ? 'răspuns' : 'răspunsuri'}</span>
+                  </div>
+                )}
+              </div>
+              {state === 'pending'
+                ? <button className="btn btn-sm btn-primary" disabled={!!busy} onClick={() => onOpen(h)}>{h.draftAnswered > 0 ? '▶ Continuă' : '▶ Rezolvă'}</button>
+                : state === 'incomplete'
+                  ? <button className="btn btn-sm btn-primary" disabled={!!busy} onClick={() => onOpen(h)} title="Continuă problemele rămase — răspunsurile date sunt păstrate">↺ Reia tema</button>
+                  : <button className="btn btn-sm btn-outline" disabled={!!busy} onClick={() => onOpen(h)} title="Încercare nouă la o temă finalizată">↺ Reia</button>}
             </div>
-            {h.status === 'data'
-              ? <button className="btn btn-sm btn-primary" disabled={!!busy} onClick={() => onOpen(h)}>▶ Rezolvă</button>
-              : h.kind !== 'content' && <button className="btn btn-sm btn-outline" disabled={!!busy} onClick={() => onOpen(h)}>↺ Reia</button>}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -1199,7 +1340,8 @@ function ReviewsTab({ st, busy, onReview }) {
 
 // ─── „Raportul meditatorului" — ce are elevul de lucrat, pe scurt (rolldown) ─
 function RaportTab({ st, busy, onOpenHomework, onRemediation, onStyle }) {
-  const pendingHw = (st.homework || []).filter((h) => h.status === 'data');
+  const pendingHw = (st.homework || []).filter((h) => hwState(h) === 'pending');
+  const incompleteHw = (st.homework || []).filter((h) => hwState(h) === 'incomplete');
   const mistakes = st.openMistakes || [];
   const styles = ['mai simplu, cu cuvinte de zi cu zi', 'vizual, cu desene și scheme', 'prin exemple din viața reală', 'pas cu pas, foarte mărunt'];
   const preferred = st.profile?.memory?.preferredStyle;
@@ -1208,19 +1350,36 @@ function RaportTab({ st, busy, onOpenHomework, onRemediation, onStyle }) {
   return (
     <div>
       {/* Teme nefăcute */}
-      <details style={roll} open={pendingHw.length > 0}>
-        <summary style={sum}>📚 Teme nefăcute {pendingHw.length ? `(${pendingHw.length})` : '— niciuna 🎉'}</summary>
+      <details style={roll} open={pendingHw.length > 0 || incompleteHw.length > 0}>
+        <summary style={sum}>📚 Teme nefăcute {pendingHw.length ? `(${pendingHw.length})` : '— niciuna 🎉'}{incompleteHw.length ? ` · ◐ incomplete (${incompleteHw.length})` : ''}</summary>
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
           {pendingHw.length === 0 && <span style={{ fontSize: '.85rem', color: 'var(--text-muted)' }}>Ești la zi cu temele. Bravo!</span>}
           {pendingHw.map((h) => (
             <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#f7f9fc', borderRadius: 8, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <span style={{ fontSize: '.88rem', fontWeight: 600, color: 'var(--navy)' }}>{h.kind === 'content' ? '🧩' : '📚'} {h.title}</span>
-                <span style={{ display: 'block', fontSize: '.74rem', color: 'var(--text-muted)' }}>{h.due_at ? `termen ${new Date(h.due_at).toLocaleDateString('ro-RO')}` : ''}</span>
+                <span style={{ display: 'block', fontSize: '.74rem', color: 'var(--text-muted)' }}>{h.due_at ? `termen ${new Date(h.due_at).toLocaleDateString('ro-RO')}` : ''}{h.draftAnswered > 0 ? ` · ciornă: ${h.draftAnswered} răspunsuri` : ''}</span>
               </div>
-              <button className="btn btn-sm btn-primary" disabled={!!busy} onClick={() => onOpenHomework(h)}>▶ Rezolvă</button>
+              <button className="btn btn-sm btn-primary" disabled={!!busy} onClick={() => onOpenHomework(h)}>{h.draftAnswered > 0 ? '▶ Continuă' : '▶ Rezolvă'}</button>
             </div>
           ))}
+          {/* finalizate INCOMPLET — nu sunt „nefăcute", dar se pot relua oricând */}
+          {incompleteHw.length > 0 && (
+            <>
+              <div style={{ fontSize: '.8rem', fontWeight: 700, color: '#b9590f', marginTop: 4 }}>◐ Finalizate incomplet — le poți relua oricând (nu blochează alte teme):</div>
+              {incompleteHw.map((h) => (
+                <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'rgba(230,126,34,.06)', borderRadius: 8, flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <span style={{ fontSize: '.88rem', fontWeight: 600, color: 'var(--navy)' }}>{h.kind === 'content' ? '🧩' : '📚'} {h.title}</span>
+                    <span style={{ display: 'block', fontSize: '.74rem', color: 'var(--text-muted)' }}>
+                      {h.feedback?.total ? `${h.feedback.answered ?? 0}/${h.feedback.total} probleme rezolvate` : 'închisă fără scor'}{h.feedback?.grade != null ? ` · nota ${h.feedback.grade}` : ''}
+                    </span>
+                  </div>
+                  <button className="btn btn-sm btn-outline" disabled={!!busy} onClick={() => onOpenHomework(h)}>↺ Reia tema</button>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       </details>
 
@@ -1300,7 +1459,8 @@ function ProgressMeTab({ st }) {
   }, [user?.id]);
   const masteryColor = (m) => (m >= 0.75 ? '#27ae60' : m >= 0.4 ? '#e8b931' : '#e74c3c');
   const p = st.profile || {};
-  const hwDone = (st.homework || []).filter((h) => h.status === 'rezolvata');
+  // temele FINALIZATE — complet sau incomplet (cele incomplete, cu eticheta lor)
+  const hwDone = (st.homework || []).filter((h) => hwState(h) !== 'pending');
   const doneSessions = (st.sessions || []).filter((s) => s.status === 'finalizata' && s.max_score && !s.site && s.kind !== 'evaluare');
   return (
     <div>
@@ -1333,13 +1493,17 @@ function ProgressMeTab({ st }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {hwDone.slice(0, 10).map((h) => {
               const pc = h.max_score ? Math.round((h.score / h.max_score) * 100) : 0;
+              const incomplete = hwState(h) === 'incomplete';
               return (
                 <div key={'hw-' + h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '7px 10px', background: 'rgba(232,185,49,.08)', border: '1px solid rgba(232,185,49,.4)', borderRadius: 8, fontSize: '.85rem', flexWrap: 'wrap' }}>
                   <span style={{ color: 'var(--navy)', fontWeight: 600 }}>📚 Temă · {h.title}
                     <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{h.completed_at ? ` · ${new Date(h.completed_at).toLocaleDateString('ro-RO')}` : ''}</span>
+                    {incomplete && <span style={{ marginLeft: 8, fontSize: '.74rem', fontWeight: 700, color: '#b9590f' }}>◐ incompletă{h.feedback?.total ? ` (${h.feedback.answered ?? 0}/${h.feedback.total} rezolvate)` : ''}</span>}
                   </span>
                   <span style={{ whiteSpace: 'nowrap' }}>
-                    <strong style={{ color: masteryColor(pc / 100) }}>{h.score}/{h.max_score} ({pc}%)</strong>
+                    {h.max_score
+                      ? <strong style={{ color: masteryColor(pc / 100) }}>{h.score}/{h.max_score} ({pc}%)</strong>
+                      : <span style={{ color: 'var(--text-muted)' }}>fără scor</span>}
                     {h.feedback?.grade != null && <span style={{ marginLeft: 8, fontWeight: 700, color: '#8a6d1a' }}>nota {h.feedback.grade}</span>}
                   </span>
                 </div>

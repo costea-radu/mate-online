@@ -226,6 +226,11 @@ module.exports = async function handler(req, res) {
       score: h.score,
       max_score: h.max_score,
       grade: h.feedback?.grade ?? null,
+      // finalizată INCOMPLET (elevul a închis tema fără toate problemele;
+      // o poate relua oricând) — status „incompleta" sau feedback.complete=false
+      incomplete: h.status === 'incompleta' || (h.status === 'rezolvata' && h.feedback?.complete === false),
+      answered: h.feedback?.answered ?? null,
+      total: h.feedback?.total ?? null,
       completed_at: h.completed_at,
       assigned_at: h.assigned_at,
     }));

@@ -69,7 +69,30 @@ export default function InteractiveViewer() {
   const medSesId = searchParams.get('medSesId'); // sesiune „site-first" de la Meditator (exerciții/simulare din site)
   const [hwMarked, setHwMarked] = useState(null); // { grade } — tema bifată
   const [medMarked, setMedMarked] = useState(null); // { pct } — sesiunea de meditații bifată
+  const [hwFinalizing, setHwFinalizing] = useState(false); // „🏁 Finalizează tema" în curs
+  const [hwError, setHwError] = useState(null);
   const [item, setItem] = useState(state?.item || null);
+
+  // „🏁 Finalizează tema" (temă DIN SITE de la Meditator): cu scor salvat tema
+  // e deja bifată → înapoi la meditații; fără scor se înregistrează ca TEMĂ
+  // INCOMPLETĂ (nu mai e „nefăcută", nu blochează alte teme, se reia oricând).
+  async function finalizeHomework() {
+    if (!temaId) return;
+    if (hwMarked) { navigate('/meditatii?tab=teme'); return; }
+    const ok = window.confirm(
+      'Finalizezi tema fără să fi apăsat „Verifică/Corectează"?\n\n' +
+      'Se înregistrează ca TEMĂ INCOMPLETĂ — o poți relua oricând din Meditații → Teme, iar o temă neterminată nu te împiedică să primești altele.'
+    );
+    if (!ok) return;
+    setHwFinalizing(true); setHwError(null);
+    try {
+      const r = await aiClient.meditatii({ action: 'homework_finalize', id: temaId });
+      if (r?.complete) setHwMarked({ grade: r.grade });
+      navigate('/meditatii?tab=teme');
+    } catch (e) {
+      setHwError(e.message || 'Tema nu s-a putut finaliza — mai încearcă.');
+    } finally { setHwFinalizing(false); }
+  }
 
   // Deschidere directă prin link ?id= (din chat/notificări): aducem materialul.
   useEffect(() => {
@@ -465,6 +488,31 @@ export default function InteractiveViewer() {
               fontSize: '0.82rem', fontWeight: 700, animation: 'fadeIn 0.4s ease',
             }}>
               ✓ Temă bifată · nota {hwMarked.grade}
+            </div>
+          )}
+
+          {/* Temă de la Meditator: „🏁 Finalizează tema" — și neterminată
+              (se înregistrează ca incompletă, reluabilă oricând) */}
+          {temaId && (
+            <button
+              onClick={finalizeHomework}
+              disabled={hwFinalizing}
+              title={hwMarked
+                ? 'Tema e bifată cu scorul tău — înapoi la meditații'
+                : 'Închide tema acum, chiar dacă nu ai terminat: se înregistrează ca temă incompletă și o poți relua oricând'}
+              style={{
+                background: hwMarked ? 'rgba(39,174,96,0.22)' : 'rgba(232,185,49,0.15)',
+                border: `1px solid ${hwMarked ? '#27ae60' : 'var(--gold)'}`,
+                color: hwMarked ? '#d9f5e3' : 'var(--gold)', borderRadius: 14, padding: '6px 14px',
+                cursor: hwFinalizing ? 'wait' : 'pointer', fontSize: '0.83rem', fontWeight: 700, whiteSpace: 'nowrap',
+              }}
+            >
+              {hwFinalizing ? '⏳ Finalizez…' : hwMarked ? '🏁 Temă finalizată — înapoi la meditații' : '🏁 Finalizează tema'}
+            </button>
+          )}
+          {hwError && (
+            <div style={{ background: '#c62828', color: '#fff', padding: '4px 14px', borderRadius: 20, fontSize: '0.8rem', fontWeight: 700 }} title={hwError}>
+              ⚠ Tema nu s-a putut finaliza — reîncearcă
             </div>
           )}
 

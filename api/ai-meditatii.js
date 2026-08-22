@@ -42,6 +42,7 @@ module.exports = async function handler(req, res) {
       review_start: reviewStart, simulare, set_style: setStyle,
       mentor_report: mentorReportAction, reset: resetProfile,
       coach, homework_check: homeworkCheck, homework_score: homeworkScore,
+      homework_draft: homeworkDraft, homework_finalize: homeworkFinalize,
       session_score: sessionScore, set_focus: setFocus, set_exam_scope: setExamScope,
     };
     const fn = handlers[action];
@@ -312,7 +313,13 @@ async function coach(req, res, supa) {
     else if (pct != null && pct < 50) facts.push('Scorul e mic — încurajează-l cald, fără reproșuri; propune-i să simplificați și să reia noțiunile de bază.');
     if (event.wrongCount) facts.push(`A greșit ${event.wrongCount} exerciții; îi poți propune remedierea („încă 10 la fel").`);
   } else if (event.type === 'homework_done') {
-    facts.push(`Elevul a terminat tema „${event.title || ''}" cu nota ${event.grade}.`);
+    if (event.complete === false) {
+      // finalizată INCOMPLET (cerință): apreciem ce a lucrat, fără reproșuri,
+      // și îi amintim că poate relua tema oricând — restul o așteaptă
+      facts.push(`Elevul a finalizat INCOMPLET tema „${event.title || ''}": a rezolvat ${event.answered ?? '?'} din ${event.total ?? '?'} probleme, nota ${event.grade}. Apreciază ce a lucrat, fără reproșuri, și amintește-i blând că poate relua tema oricând din rubrica Teme (problemele rămase îl așteaptă acolo).`);
+    } else {
+      facts.push(`Elevul a terminat tema „${event.title || ''}" cu nota ${event.grade}.`);
+    }
   } else if (event.type === 'lesson_done') {
     facts.push(`Elevul tocmai a citit teoria la „${event.chapterTitle || 'capitolul curent'}" — propune-i să treacă la exerciții.`);
   } else if (event.type === 'session_end') {
@@ -461,8 +468,10 @@ async function state(req, res, supa) {
 
   await reconcileContentHomework(supa, userId);
 
-  const [{ data: hw }, { data: reviews }, { data: sessions }, { data: mastery }, { data: mistakes }] = await Promise.all([
-    supa.from('ai_meditatii_homework').select('id, kind, content_id, title, chapter, topic, difficulty, status, score, max_score, attempts, assigned_at, due_at, completed_at, feedback')
+  const [{ data: hwRaw }, { data: reviews }, { data: sessions }, { data: mastery }, { data: mistakes }] = await Promise.all([
+    // `draft` = răspunsurile PROPRII salvate (ciornă / finalizare incompletă) —
+    // doar numărul lor ajunge la client („▶ Continuă (3/8)"), nu întrebările
+    supa.from('ai_meditatii_homework').select('id, kind, content_id, title, chapter, topic, difficulty, status, score, max_score, attempts, assigned_at, due_at, completed_at, feedback, draft:payload->answers')
       .eq('user_id', userId).order('assigned_at', { ascending: false }).limit(30),
     supa.from('ai_meditatii_reviews').select('id, chapter, topic, stage, due_at, done_at')
       .eq('user_id', userId).order('due_at', { ascending: true }).limit(50),
@@ -475,7 +484,14 @@ async function state(req, res, supa) {
 
   const now = Date.now();
   const dueReviews = (reviews || []).filter((r) => r.stage <= 2 && new Date(r.due_at).getTime() <= now);
-  const pendingHw = (hw || []).filter((h) => h.status === 'data');
+  // starea temelor pentru UI: finalizată / INCOMPLETĂ (citește ambele forme —
+  // status „incompleta" sau, fără migrare, feedback.complete=false) + ciorna
+  const hw = (hwRaw || []).map(({ draft, ...h }) => ({
+    ...h,
+    incomplete: med.isHomeworkIncomplete(h),
+    draftAnswered: Array.isArray(draft) ? med.answeredCount(draft) : 0,
+  }));
+  const pendingHw = hw.filter((h) => h.status === 'data');
   const plan = medProfile.plan || {};
   const chapterTitles = {};
   (plan.chapters || []).forEach((c) => { chapterTitles[c.id] = c.title; });
@@ -483,7 +499,9 @@ async function state(req, res, supa) {
   // predicția notei
   const masteryRows = mastery || [];
   const masteryAvg = masteryRows.length ? masteryRows.reduce((s, m) => s + Number(m.mastery), 0) / masteryRows.length : null;
-  const hwDone = (hw || []).filter((h) => h.status === 'rezolvata' && h.max_score);
+  // temele FINALIZATE cu scor (complet sau incomplet — problemele nerezolvate
+  // contează ca 0, exact ca la o temă predată pe jumătate)
+  const hwDone = hw.filter((h) => med.isHomeworkFinal(h) && h.max_score);
   const homeworkAvg = hwDone.length ? hwDone.reduce((s, h) => s + h.score / h.max_score, 0) / hwDone.length : null;
   const sims = (sessions || []).filter((s) => s.kind === 'simulare' && s.status === 'finalizata' && s.max_score);
   const simAvg = sims.length ? sims.reduce((s, x) => s + x.score / x.max_score, 0) / sims.length : null;
@@ -519,8 +537,9 @@ async function state(req, res, supa) {
     examScope: medProfile.memory?.exam_scope || null,
     focusOptions: med.focusPool(medProfile, plan).map(({ id, title, group }) => ({ id, title, group })),
     dueReviews: dueReviews.map((r) => ({ ...r, chapterTitle: chapterTitles[r.chapter] || r.chapter })),
-    homework: hw || [],
+    homework: hw,
     pendingHomework: pendingHw.length,
+    incompleteHomework: hw.filter((h) => h.incomplete).length,
     sessions: sessions || [],
     openMistakes: mistakes || [],
     prediction,
@@ -1008,7 +1027,7 @@ async function remediation(req, res, supa) {
 // ═════════════════════════════════════════════════════════════════════════════
 // TEMELE (funcția 10 — „cea mai importantă"): întâi din site, apoi generate
 // ═════════════════════════════════════════════════════════════════════════════
-async function pickAndAssignHomework(supa, userId, medProfile, { notify = true } = {}) {
+async function pickAndAssignHomework(supa, userId, medProfile, { notify = true, auto = false } = {}) {
   const plan = medProfile.plan || {};
   // tema urmează prioritatea elevului: capitolele lucrării (focus) sau ale
   // subiectelor alese la pregătirea de examen (exam_scope)
@@ -1017,12 +1036,15 @@ async function pickAndAssignHomework(supa, userId, medProfile, { notify = true }
   const difficulty = level === 'incepator' ? 'ușor' : level === 'avansat' ? 'greu' : 'mediu';
   const dueAt = new Date(Date.now() + 3 * 86400000).toISOString();
 
-  // temele „data" existente nu se dublează + NU dăm de două ori același
-  // material ca temă (indiferent de status) — cerința 8
+  // NU dăm de două ori același material ca temă (indiferent de status) — cerința 8
   const { data: allHw } = await supa.from('ai_meditatii_homework')
     .select('id, status, content_id').eq('user_id', userId).limit(200);
   const pending = (allHw || []).filter((h) => h.status === 'data');
-  if (pending.length >= 2) return { skipped: 'are deja teme nefăcute' };
+  // O temă neterminată NU blochează alte teme (cerință): la cererea elevului
+  // („➕ Dă-mi o temă acum", „🏁 Încheie meditația și dă-mi tema") tema se dă
+  // mereu. Doar temele AUTOMATE (cronul, pentru elevii inactivi) se opresc la
+  // 2 teme nefăcute — altfel s-ar aduna câte una pe zi la un elev care nu intră.
+  if (auto && pending.length >= 2) return { skipped: 'are deja teme nefăcute' };
   const alreadyAssigned = (allHw || []).map((h) => h.content_id).filter(Boolean);
 
   // 1) ÎNTÂI: un exercițiu interactiv EXISTENT în site, nefinalizat și NEDAT încă
@@ -1089,7 +1111,7 @@ async function homeworkList(req, res, supa) {
   const { data } = await supa.from('ai_meditatii_homework')
     .select('id, kind, content_id, title, chapter, topic, difficulty, status, score, max_score, attempts, feedback, assigned_at, due_at, completed_at')
     .eq('user_id', userId).order('assigned_at', { ascending: false }).limit(40);
-  return res.status(200).json({ homework: data || [] });
+  return res.status(200).json({ homework: (data || []).map((h) => ({ ...h, incomplete: med.isHomeworkIncomplete(h) })) });
 }
 
 async function homeworkStart(req, res, supa) {
@@ -1104,9 +1126,94 @@ async function homeworkStart(req, res, supa) {
     // scorului (nu mai depinde de reconcilierea prin tabela progress)
     const base = hw.payload?.url || `/exercitiu?id=${hw.content_id}`;
     const url = `${base}${base.includes('?') ? '&' : '?'}temaId=${hw.id}`;
-    return res.status(200).json({ kind: 'content', url, title: hw.title });
+    return res.status(200).json({ kind: 'content', url, title: hw.title, status: hw.status, incomplete: med.isHomeworkIncomplete(hw) });
   }
-  return res.status(200).json({ kind: hw.kind, homeworkId: hw.id, title: hw.title, questions: sanitize(hw.payload?.questions || []) });
+  // RELUARE (cerință: „temele pot fi reluate oricând"): răspunsurile salvate
+  // — ciorna („Las-o pe mai târziu") sau cele de la o finalizare INCOMPLETĂ —
+  // revin în formular, elevul continuă de unde a rămas. O temă finalizată
+  // COMPLET se reia de la zero (încercare nouă).
+  const questions = hw.payload?.questions || [];
+  const completeDone = hw.status === 'rezolvata' && !med.isHomeworkIncomplete(hw);
+  const saved = !completeDone && Array.isArray(hw.payload?.answers) ? hw.payload.answers.slice(0, questions.length) : null;
+  const answered = saved ? med.answeredCount(saved) : 0;
+  return res.status(200).json({
+    kind: hw.kind, homeworkId: hw.id, title: hw.title, questions: sanitize(questions),
+    answers: answered ? saved : null, answered, total: questions.length,
+    status: hw.status, incomplete: med.isHomeworkIncomplete(hw), resumed: answered > 0,
+  });
+}
+
+// răspunsurile elevului, curățate pentru salvare: index (grilă) sau text scurt;
+// gol / spații = fără răspuns (null)
+function cleanAnswers(answers, count) {
+  return (Array.isArray(answers) ? answers : []).slice(0, count).map((a) => {
+    if (a == null) return null;
+    if (typeof a === 'number') return Number.isFinite(a) ? a : null;
+    const s = String(a).slice(0, 300);
+    return s.trim() === '' ? null : s;
+  });
+}
+
+// Scrie finalizarea unei teme. Fără migrarea `supabase/meditatii_teme_finalizare.sql`
+// constrângerea CHECK a coloanei `status` respinge „incompleta" (cod 23514) →
+// cădem pe „rezolvata" + feedback.complete=false (UI-ul citește ambele forme).
+async function saveHomeworkFinal(supa, id, patch) {
+  const { error } = await supa.from('ai_meditatii_homework').update(patch).eq('id', id);
+  if (!error) return patch.status;
+  const checkViolation = error.code === '23514' || /check constraint/i.test(error.message || '');
+  if (patch.status === 'incompleta' && checkViolation) {
+    const { error: e2 } = await supa.from('ai_meditatii_homework').update({ ...patch, status: 'rezolvata' }).eq('id', id);
+    if (e2) throw new Error(e2.message);
+    console.warn('ai_meditatii_homework: statusul „incompleta" nu e acceptat încă — rulează supabase/meditatii_teme_finalizare.sql');
+    return 'rezolvata';
+  }
+  throw new Error(error.message);
+}
+
+// „✕ Las-o pe mai târziu": salvează răspunsurile date PÂNĂ ACUM, fără corectare.
+// Tema rămâne de rezolvat (statusul nu se schimbă); la reluare, răspunsurile
+// revin în formular („▶ Continuă (3/8)").
+async function homeworkDraft(req, res, supa) {
+  const userId = await ai.authUser(req, supa);
+  await ai.requireUser(supa, userId);
+  const { id, answers = [] } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'id obligatoriu' });
+  const { data: hw } = await supa.from('ai_meditatii_homework').select('id, kind, payload').eq('id', id).eq('user_id', userId).single();
+  if (!hw) return res.status(404).json({ error: 'Tema nu există.' });
+  if (hw.kind === 'content') return res.status(400).json({ error: 'Tema din site nu are ciornă — se rezolvă în pagina exercițiului.' });
+  const n = (hw.payload?.questions || []).length;
+  const clean = cleanAnswers(answers, n);
+  const { error } = await supa.from('ai_meditatii_homework')
+    .update({ payload: { ...(hw.payload || {}), answers: clean } }).eq('id', hw.id);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.status(200).json({ ok: true, answered: med.answeredCount(clean), total: n });
+}
+
+// „🏁 Finalizează tema" la o temă DIN SITE (exercițiu interactiv) închisă FĂRĂ
+// scor (elevul nu a apăsat „Corectează" / nu a terminat): se înregistrează ca
+// temă INCOMPLETĂ — nu mai e „nefăcută", nu blochează alte teme și poate fi
+// reluată oricând; un scor ulterior (homework_score / reconciliere) o trece pe
+// „rezolvată". Temele din site CU scor sunt deja rezolvate — nimic de schimbat.
+async function homeworkFinalize(req, res, supa) {
+  const userId = await ai.authUser(req, supa);
+  await ai.requireUser(supa, userId);
+  const { id } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'id obligatoriu' });
+  const { data: hw } = await supa.from('ai_meditatii_homework').select('*').eq('id', id).eq('user_id', userId).single();
+  if (!hw) return res.status(404).json({ error: 'Tema nu există.' });
+  if (hw.kind !== 'content') return res.status(400).json({ error: 'Setul pregătit de profesor se finalizează din pagina temei.' });
+  const solved = (row) => row && row.status === 'rezolvata' && row.max_score;
+  if (solved(hw)) return res.status(200).json({ ok: true, status: 'rezolvata', complete: true, grade: hw.feedback?.grade ?? null });
+  // poate există deja un rezultat în `progress` (scorul s-a salvat, dar bifarea nu)
+  await reconcileContentHomework(supa, userId);
+  const { data: fresh } = await supa.from('ai_meditatii_homework').select('status, max_score, feedback').eq('id', hw.id).single();
+  if (solved(fresh)) return res.status(200).json({ ok: true, status: 'rezolvata', complete: true, grade: fresh.feedback?.grade ?? null });
+  const status = await saveHomeworkFinal(supa, hw.id, {
+    status: 'incompleta', completed_at: new Date().toISOString(),
+    feedback: { ...(hw.feedback || {}), grade: null, complete: false, auto: true, noScore: true },
+  });
+  await med.clearHomeworkNotifications(supa, userId, hw.id); // nu mai e „nefăcută"
+  return res.status(200).json({ ok: true, status, complete: false });
 }
 
 // Bifarea DIRECTĂ a unei teme „din site": viewerul de exerciții trimite
@@ -1126,10 +1233,11 @@ async function homeworkScore(req, res, supa) {
   const pct = best / mx;
   // nota cu 10 p din oficiu, 2 zecimale; testele „din 100" îl au deja inclus (med.notaTest)
   const grade = med.notaTest(best, mx) ?? 1;
+  // un scor din site = temă REZOLVATĂ (și dacă fusese finalizată incomplet)
   await supa.from('ai_meditatii_homework').update({
     status: 'rezolvata', score: best, max_score: mx,
     attempts: (hw.attempts || 0) + 1, completed_at: new Date().toISOString(),
-    feedback: { grade, auto: true },
+    feedback: { grade, auto: true, complete: true },
   }).eq('id', hw.id);
   await med.clearHomeworkNotifications(supa, userId, hw.id);
 
@@ -1171,7 +1279,12 @@ async function homeworkScore(req, res, supa) {
   return res.status(200).json({ ok: true, grade, score: best, maxScore: mx });
 }
 
-// corectează + notează + explică greșelile + propune exerciții suplimentare
+// corectează + notează + explică greșelile + propune exerciții suplimentare.
+// FINALIZAREA (cerință): tema se poate încheia și FĂRĂ toate problemele
+// rezolvate („🏁 Finalizează tema") — se înregistrează „rezolvata" (toate
+// rezolvate) sau „incompleta" (restul rămân NEREZOLVATE: nu li se dezvăluie
+// răspunsul și nu intră în jurnalul greșelilor). Răspunsurile date se păstrează
+// (payload.answers), ca tema să poată fi RELUATĂ oricând de unde a rămas.
 async function homeworkSubmit(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
@@ -1182,10 +1295,19 @@ async function homeworkSubmit(req, res, supa) {
   if (hw.kind === 'content') return res.status(400).json({ error: 'Tema din site se rezolvă în pagina exercițiului — scorul se preia automat.' });
 
   const questions = hw.payload?.questions || [];
-  const graded = gradeAnswers(questions, answers);
+  const given = cleanAnswers(answers, questions.length);
+  const outcome = med.homeworkOutcome(questions, given);
+  const graded = gradeAnswers(questions, given);
+  // problemele fără răspuns = NEREZOLVATE (nu greșeli): rămân de făcut la
+  // reluare, deci nu primesc răspunsul corect / rezolvarea acum
+  graded.results.forEach((r) => {
+    if (r.given == null || String(r.given).trim() === '') {
+      r.skipped = true; r.correct = false; r.answer = null; r.explanation = '';
+    }
+  });
   const medProfile = await getMedProfile(supa, userId);
 
-  const wrong = graded.results.filter((r) => !r.correct);
+  const wrong = graded.results.filter((r) => !r.correct && !r.skipped);
   const analysis = await med.classifyMistakes(wrong.map((r) => ({
     statement: r.statement, correct: Array.isArray(r.options) ? r.options[r.answer] : r.answer,
     given: Array.isArray(r.options) ? (r.given != null ? r.options[r.given] : null) : r.given, explanation: r.explanation,
@@ -1204,32 +1326,40 @@ async function homeworkSubmit(req, res, supa) {
     mistakeIds = (ins || []).map((m) => m.id);
   }
 
-  // nota păstrează partea zecimală (2 zecimale) — nu se rotunjește la întreg
+  // nota păstrează partea zecimală (2 zecimale) — nu se rotunjește la întreg;
+  // la tema incompletă problemele nerezolvate contează 0 (ca o temă predată pe jumătate)
   const grade = Math.max(1, Math.min(10, Math.round((1 + 9 * graded.pct) * 100) / 100));
   const feedback = {
-    grade,
-    message: graded.pct >= 0.9 ? 'Temă excelentă! Felicitări! 🎉'
+    grade, complete: outcome.complete, answered: outcome.answered, total: outcome.total,
+    message: !outcome.complete
+      ? `Temă finalizată incomplet: ai rezolvat ${outcome.answered} din ${outcome.total} probleme. O poți relua oricând din rubrica Teme — restul te așteaptă acolo.`
+      : graded.pct >= 0.9 ? 'Temă excelentă! Felicitări! 🎉'
       : graded.pct >= 0.7 ? 'Temă bună — mai avem de șlefuit câteva detalii.'
       : graded.pct >= 0.5 ? 'Ai lucrat, dar mai exersăm: uită-te la explicațiile de mai jos.'
       : 'Reluăm împreună noțiunile de bază — nu-i nimic, de aici se învață!',
   };
-  await supa.from('ai_meditatii_homework').update({
-    status: 'rezolvata', score: graded.correct, max_score: graded.total,
+  const status = await saveHomeworkFinal(supa, id, {
+    status: outcome.status, score: graded.correct, max_score: graded.total,
     attempts: (hw.attempts || 0) + 1, completed_at: new Date().toISOString(), feedback,
-  }).eq('id', id);
+    payload: { ...(hw.payload || {}), answers: given },   // pentru reluare
+  });
 
-  await bumpMasteryAll(supa, userId, med.categoryFor(medProfile || {}), graded.results, hw.topic || 'general');
+  // stăpânirea se actualizează doar din problemele efectiv rezolvate
+  await bumpMasteryAll(supa, userId, med.categoryFor(medProfile || {}), graded.results.filter((r) => !r.skipped), hw.topic || 'general');
   await med.clearHomeworkNotifications(supa, userId, hw.id); // „temă nefăcută" dispare din clopoțel
   const streak = med.bumpStreak(medProfile || {});
   await supa.from('ai_meditatii_profile').update({
     streak_days: streak.streak_days, last_study_date: streak.last_study_date,
     total_seconds: (medProfile?.total_seconds || 0) + Math.max(0, parseInt(durationSec, 10) || 0),
   }).eq('user_id', userId);
-  await notifyParents(supa, userId, `A rezolvat tema „${hw.title}": ${graded.correct}/${graded.total} — nota ${grade}.`);
+  await notifyParents(supa, userId, outcome.complete
+    ? `A rezolvat tema „${hw.title}": ${graded.correct}/${graded.total} — nota ${grade}.`
+    : `A finalizat incomplet tema „${hw.title}" (${outcome.answered}/${outcome.total} probleme rezolvate): ${graded.correct}/${graded.total} — nota ${grade}. O poate relua oricând.`);
 
   return res.status(200).json({
     score: graded.correct, maxScore: graded.total, pct: Math.round(graded.pct * 100),
     grade, feedback: feedback.message, results: graded.results, mistakeIds,
+    complete: outcome.complete, answered: outcome.answered, total: outcome.total, status,
   });
 }
 
@@ -1583,7 +1713,7 @@ async function cronScan(supa) {
       // doar abonații primesc teme generate automat
       const { data: acc } = await supa.from('profiles').select('subscription_status, is_admin').eq('id', p.user_id).single();
       if (!acc || !(acc.is_admin || acc.subscription_status === 'active')) continue;
-      const r = await pickAndAssignHomework(supa, p.user_id, p, { notify: true });
+      const r = await pickAndAssignHomework(supa, p.user_id, p, { notify: true, auto: true });
       if (r.assigned) out.homeworkAssigned++;
     } catch (e) { console.warn('cron homework:', e.message); }
   }

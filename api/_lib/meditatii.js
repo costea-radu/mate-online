@@ -718,12 +718,48 @@ async function getProfile(supa, userId) {
   return data || null;
 }
 
+// ─── FINALIZAREA TEMELOR (completă / incompletă) ─────────────────────────────
+// Statusurile unei teme:
+//   data       → de rezolvat (apare la „teme nefăcute", clopoțel, briefing)
+//   rezolvata  → FINALIZATĂ: toate problemele rezolvate (sau scor din site)
+//   incompleta → FINALIZATĂ INCOMPLET: elevul a apăsat „Finalizează tema" fără
+//                să termine toate problemele — se înregistrează ca atare, NU
+//                mai e „nefăcută" și poate fi RELUATĂ oricând (răspunsurile
+//                date rămân salvate în payload.answers)
+//   expirata   → rezervat
+// O temă incompletă nu blochează niciodată primirea altor teme.
+// Instalările fără migrarea `supabase/meditatii_teme_finalizare.sql` nu acceptă
+// încă statusul „incompleta" (constrângerea CHECK) — atunci serverul salvează
+// `rezolvata` + feedback.complete=false, iar UI-ul citește ambele forme.
+const HW_FINAL_STATUSES = ['rezolvata', 'incompleta'];
+const isBlankAnswer = (a) => a == null || String(a).trim() === '';
+function answeredCount(answers) {
+  return (Array.isArray(answers) ? answers : []).filter((a) => !isBlankAnswer(a)).length;
+}
+// rezultatul finalizării unui set de întrebări: câte au fost rezolvate, dacă
+// tema e completă și statusul de înregistrat
+function homeworkOutcome(questions, answers) {
+  const total = Array.isArray(questions) ? questions.length : 0;
+  const arr = Array.isArray(answers) ? answers : [];
+  const answered = Math.min(total, arr.slice(0, total).filter((a) => !isBlankAnswer(a)).length);
+  const complete = total > 0 && answered === total;
+  return { answered, total, complete, status: complete ? 'rezolvata' : 'incompleta' };
+}
+// o temă (rând din tabel) e finalizată incomplet? — citește ambele forme
+function isHomeworkIncomplete(h) {
+  if (!h) return false;
+  return h.status === 'incompleta' || (h.status === 'rezolvata' && h.feedback && h.feedback.complete === false);
+}
+const isHomeworkFinal = (h) => !!h && HW_FINAL_STATUSES.includes(h.status);
+
 // Temele „content" (materiale din site) se marchează rezolvate automat pe baza
 // tabelei `progress` (scorul vine din exercițiul interactiv al site-ului).
+// Intră și temele finalizate INCOMPLET (fără scor): dacă elevul le reia și
+// rezolvă exercițiul, rezultatul le trece pe „rezolvată".
 async function reconcileContentHomework(supa, userId) {
   try {
     const { data: hw } = await supa.from('ai_meditatii_homework')
-      .select('id, content_id, assigned_at').eq('user_id', userId).eq('status', 'data').eq('kind', 'content');
+      .select('id, content_id, assigned_at').eq('user_id', userId).in('status', ['data', 'incompleta']).eq('kind', 'content');
     if (!hw || !hw.length) return;
     const ids = hw.map((h) => h.content_id).filter(Boolean);
     if (!ids.length) return;
@@ -765,7 +801,7 @@ async function buildMentorReport(supa, studentId) {
   if (!medProfile) return null;
   await reconcileContentHomework(supa, studentId);
   const [{ data: hw }, { data: sessions }, { data: mistakes }] = await Promise.all([
-    supa.from('ai_meditatii_homework').select('title, status, score, max_score, completed_at, assigned_at')
+    supa.from('ai_meditatii_homework').select('title, status, score, max_score, feedback, completed_at, assigned_at')
       .eq('user_id', studentId).order('assigned_at', { ascending: false }).limit(20),
     supa.from('ai_meditatii_sessions').select('kind, chapter, topic, status, score, max_score, duration_sec, created_at')
       .eq('user_id', studentId).order('created_at', { ascending: false }).limit(30),
@@ -778,8 +814,11 @@ async function buildMentorReport(supa, studentId) {
   (mistakes || []).forEach((m) => { errCount[m.error_type] = (errCount[m.error_type] || 0) + 1; });
   const topErrors = Object.entries(errCount).sort((a, b) => b[1] - a[1]).slice(0, 3)
     .map(([k, v]) => ({ type: k, count: v }));
-  const hwDone = (hw || []).filter((h) => h.status === 'rezolvata');
-  const hwAvg = hwDone.length ? Math.round(hwDone.reduce((s, h) => s + (h.max_score ? h.score / h.max_score : 0), 0) / hwDone.length * 100) : null;
+  // „done" = FINALIZATE (complet sau incomplet); media se face doar din cele cu scor
+  const hwDone = (hw || []).filter((h) => isHomeworkFinal(h));
+  const hwIncomplete = hwDone.filter((h) => isHomeworkIncomplete(h));
+  const hwScored = hwDone.filter((h) => h.max_score);
+  const hwAvg = hwScored.length ? Math.round(hwScored.reduce((s, h) => s + h.score / h.max_score, 0) / hwScored.length * 100) : null;
 
   const weakChapters = (plan.chapters || []).filter((c) => c.mastery != null && c.mastery < 0.5).map((c) => c.title);
   const recommendations = [];
@@ -790,6 +829,7 @@ async function buildMentorReport(supa, studentId) {
   }
   const pendingHw = (hw || []).filter((h) => h.status === 'data').length;
   if (pendingHw) recommendations.push(`Are ${pendingHw} temă/teme nefăcute de la Profesorul Virtual — o încurajare ajută.`);
+  if (hwIncomplete.length) recommendations.push(`${hwIncomplete.length === 1 ? 'O temă a fost finalizată incomplet' : hwIncomplete.length + ' teme au fost finalizate incomplet'} (nu toate problemele rezolvate) — o poate relua oricând din rubrica Teme.`);
   if (!recommendations.length) recommendations.push('Progres constant — continuați ritmul actual de studiu.');
 
   // rezultatele recente, CONCRETE (cerința 6, runda 5): fiecare set lucrat cu
@@ -810,7 +850,7 @@ async function buildMentorReport(supa, studentId) {
     chaptersDone, inProgress,
     streakDays: medProfile.streak_days,
     totalMinutes: Math.round((medProfile.total_seconds || 0) / 60),
-    homework: { total: (hw || []).length, done: hwDone.length, pending: pendingHw, avgPercent: hwAvg },
+    homework: { total: (hw || []).length, done: hwDone.length, incomplete: hwIncomplete.length, pending: pendingHw, avgPercent: hwAvg },
     sessionsCount: (sessions || []).length,
     lastActivity: sessions && sessions[0] ? sessions[0].created_at : null,
     recentResults,
@@ -827,6 +867,8 @@ module.exports = {
   genQuestions, normalizeQuestions, classifyMistakes, fixLatex,
   predictGrade, notaTest, bumpStreak, nextReviewDue,
   getProfile, reconcileContentHomework, buildMentorReport, clearHomeworkNotifications,
+  // finalizarea temelor (completă / incompletă) + reluare
+  HW_FINAL_STATUSES, answeredCount, homeworkOutcome, isHomeworkIncomplete, isHomeworkFinal,
   // pregătirea pentru lucrare/test (focus) — vezi secțiunea de mai sus
   FOCUS_KINDS, cleanFocus, focusPool, applyFocus, focusInfo,
   // pregătirea pe subiectele examenului (doar Subiectul I / II / I+II)

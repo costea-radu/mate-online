@@ -106,7 +106,7 @@ function MeditatiiReport({ m }) {
       <div style={{ fontSize: '.83rem', color: 'var(--text)', lineHeight: 1.6 }}>
         <div><strong>Capitole finalizate ({m.chaptersDone.length}):</strong> {m.chaptersDone.length ? m.chaptersDone.join('; ') : 'încă niciunul'}</div>
         {m.inProgress.length > 0 && <div><strong>În lucru:</strong> {m.inProgress.join('; ')}</div>}
-        <div><strong>Teme:</strong> {m.homework.done}/{m.homework.total} rezolvate{m.homework.avgPercent != null ? ` · medie ${m.homework.avgPercent}%` : ''}{m.homework.pending ? ` · ${m.homework.pending} în așteptare` : ''}</div>
+        <div><strong>Teme:</strong> {m.homework.done}/{m.homework.total} finalizate{m.homework.incomplete ? ` (${m.homework.incomplete} incomplet${m.homework.incomplete === 1 ? 'ă' : 'e'} — se pot relua oricând)` : ''}{m.homework.avgPercent != null ? ` · medie ${m.homework.avgPercent}%` : ''}{m.homework.pending ? ` · ${m.homework.pending} în așteptare` : ''}</div>
         {(m.recentResults || []).length > 0 && (
           <div style={{ marginTop: 6 }}>
             <strong>Rezultate recente (exerciții, recapitulări, simulări):</strong>

@@ -392,7 +392,10 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                 <strong style={{ fontSize: '0.85rem', color: 'var(--navy)' }}>🎓 Meditații cu Prof. Virtual — teme și seturi lucrate</strong>
                 <div style={{ display: 'grid', gap: 5, marginTop: 8 }}>
                   {student.meditatii.slice(0, 12).map((h, i) => {
-                    const solved = h.status === 'rezolvata';
+                    // finalizată INCOMPLET = elevul a închis tema fără toate problemele
+                    // (o poate relua oricând); apare cu eticheta ei și cu scorul, dacă există
+                    const incomplete = !!h.incomplete || h.status === 'incompleta';
+                    const solved = h.status === 'rezolvata' || incomplete;
                     const p = solved && h.max_score ? pct(h.score, h.max_score) : null;
                     const icon = { content: '🧩', interactive: '📚', exercitii: '✍️', remediere: '🩹', recapitulare: '🔁', simulare: '🎯', evaluare: '🧭' }[h.kind] || '📚';
                     return (
@@ -400,8 +403,16 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                         <span style={{ color: 'var(--text)', fontWeight: 500 }}>
                           {icon} {h.title}
                           <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{h.completed_at ? ` · ${fmtDate(h.completed_at)}` : h.assigned_at ? ` · dată pe ${fmtDate(h.assigned_at)}` : ''}</span>
+                          {incomplete && (
+                            <span title="Tema a fost finalizată fără toate problemele rezolvate — elevul o poate relua oricând"
+                              style={{ marginLeft: 8, fontWeight: 700, color: '#b9590f', background: 'rgba(230,126,34,.14)', border: '1px solid rgba(230,126,34,.45)', borderRadius: 12, padding: '1px 8px', fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                              ◐ incompletă{h.total ? ` · ${h.answered ?? 0}/${h.total} rezolvate` : ''}
+                            </span>
+                          )}
                         </span>
-                        {solved ? (
+                        {solved && !h.max_score ? (
+                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', whiteSpace: 'nowrap' }}>închisă fără scor</span>
+                        ) : solved ? (
                           <span style={{ whiteSpace: 'nowrap' }}>
                             <span style={{ fontWeight: 700, color: scoreColor(p) }}>{h.score}/{h.max_score} ({p}%)</span>
                             {/* nota vine de la server dacă există; altfel se calculează aici — niciodată ambele */}
