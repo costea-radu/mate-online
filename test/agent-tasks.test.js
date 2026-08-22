@@ -366,6 +366,51 @@ test('exgen.itemSignals + missingSections: garda „testul chiar are exerciții 
   assert.deepStrictEqual(exgen.missingSections('fără subiecte numerotate', 'orice'), []);
 });
 
+// Regresie (22 aug 2026): task „Test nou BAC științele-naturii interactiv”, model
+// de format bac_2014_v1.html (șablonul variantelor de examen PROBS/ST/GRADED —
+// datele itemilor în array JS cu chei fără ghilimele, inputuri create din JS).
+// Garda nu recunoștea NICIUN tipar → „0 semnale de itemi, față de 0 în
+// șablon/sursă” și respingea un test generat complet (36 KB, end_turn).
+test('exgen.itemSignals: recunoaște șablonul variantelor de examen (PROBS/steps) — nu mai respinge testele bune', () => {
+  const carcasa = (probs) => `<!doctype html><html lang="ro"><head><meta charset="utf-8"><title>BAC 2014 · V1</title>
+<style>body{margin:0} a:hover{color:red} .ok:before{content:"✓"} .list{display:grid;grid-template-columns:1fr;align-items:center}</style>
+</head><body><h1>Bacalaureat 2014 · Varianta 1</h1><p>Fiecare răspuns corect: 5 puncte.</p><div id="list"></div><div id="view"></div><div id="final"></div>
+<script>
+const PROBS = ${probs};
+const ST = {}; let cur = null, redo = null, GRADED = false;
+const GRAND_MAX = PROBS.reduce((s, p) => s + p.max, 0);
+function stats(){ let score = 0; for (const p of PROBS) { const st = ST[p.n]; if (st && st.corr) score += st.score; } return { score }; }
+function open(n){ cur = n; const p = PROBS.find((x) => x.n === n); if (!ST[p.n]) ST[p.n] = { ans: [], corr: false, score: 0 };
+  p.steps.forEach((s) => { if (s.t === 'num') { const inp = document.createElement('input'); inp.inputMode = 'decimal'; view.appendChild(inp); } }); }
+function grade(p){ GRADED = true; const g = stats(); parent.postMessage({ type: 'MATE_SCORE', score: Math.round(g.score / GRAND_MAX * 100), maxScore: 100 }, '*'); }
+</script></body></html>`;
+  const prob = (n, part) => `{ n: ${n}, lbl: '${n}', part: '${part}', lead: 'Se consideră $x = ${n}$.', req: ['Calculați $x^2$.'], max: 5, steps: [
+    { t: 'num', d: 'Cât este $x^2$?', a: ${n * n}, help: 'Ridică la pătrat.' },
+    { t: 'mc', d: 'Alege rezultatul:', o: ['$${n}$', '$${n * n}$', '$${2 * n}$'], ci: 1 },
+    { t: 'tf', d: '$x^2$ este par.', ok: ${n % 2 === 0} },
+  ]}`;
+  const full = carcasa(`[\n${[1, 2, 3].map((n) => prob(n, 'SUBIECTUL I')).join(',\n')},\n${prob(4, 'SUBIECTUL II')},\n${prob(5, 'SUBIECTUL III')}\n]`);
+  const gol = carcasa('[]'); // carcasa întreagă, dar FĂRĂ itemi (cazul „0 pași”)
+  assert.ok(full.length > 600 && gol.length > 600);
+
+  const sFull = exgen.itemSignals(full);
+  const sGol = exgen.itemSignals(gol);
+  assert.ok(sFull >= 12, `testul adevărat are multe semnale (${sFull})`);
+  assert.ok(sGol < 4, `carcasa goală rămâne sub prag (${sGol})`);
+
+  // șablonul real (bac_2014_v1.html) = baseline; rezultatul bun trece, cel gol nu
+  assert.doesNotThrow(() => exgen.assertCompleteHtml({ html: full, baseline: full, what: 'T' }));
+  assert.throws(() => exgen.assertCompleteHtml({ html: gol, baseline: full, what: 'T' }), /NU conține exerciții/);
+  // același șablon cu cheile între ghilimele (JSON) → tot recunoscut
+  const json = full.replace(/\b(n|lbl|part|lead|req|max|steps|t|d|a|help|o|ci|ok)\s*:/g, '"$1":');
+  assert.ok(exgen.itemSignals(json) >= 12, 'chei cu ghilimele');
+  // baseline fără niciun tipar cunoscut → mesajul spune explicit că formatul e necunoscut gardei
+  assert.throws(
+    () => exgen.assertCompleteHtml({ html: '<p>'.repeat(300), baseline: '<html>fără itemi</html>', what: 'T' }),
+    /formatul fișierului-model e necunoscut/,
+  );
+});
+
 test('exgen.visibleSubcategory: postarea automată ajunge într-o rubrică VIZIBILĂ pe site', () => {
   const v = exgen.visibleSubcategory;
   // EN/BAC: subcategoriile doar-PDF și mixurile „a+b” cad pe teste-interactive

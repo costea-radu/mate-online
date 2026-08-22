@@ -4,6 +4,26 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 22 august 2026 (3) — Task-urile cu model de format „varianta de examen” (bac_2014_v1.html) erau respinse mereu: „testul generat NU conține exerciții (0 semnale de itemi, față de 0 în șablon/sursă)”
+
+Simptomul (task „Test nou BAC științele-naturii interactiv”, rubrica BAC Științele Naturii · Variante + Olimpici + Rezerve · PDF, model de format `bac_2014_v1.html`, „Rulează acum” pe 22 august, 14:45): rularea se încheia cu eroare, deși modelul generase documentul COMPLET (`stop=end_turn`, 0 continuări, 36 066 de caractere). Logul Vercel pus alături (`GET /api/social-cron?action=publish`, 200, 330 ms) nu are legătură — e cronul de social media de la 15 minute, care a mers normal; rularea task-ului trece prin `api/agent-tasks.js` → `exgen.runTask`.
+
+### Cauza
+Garda de completitudine din `api/_lib/exgen.js` (`assertCompleteHtml` → `itemSignals`, adăugată pe 5 august contra testelor publicate goale) numără „semnale de itemi” după tiparele formatului standard: `data-correct=`, `data-opt=`, `"answer":`, `type="radio"`, `class="opt"`, `<input type="text|number">`, `contenteditable`. Șablonul variantelor de examen (familia `PROBS/ST/GRADED`, aceeași pe care o citește și `tutorBridge.js` pentru scor și context) nu folosește NICIUNUL: datele itemilor stau într-un array JavaScript cu chei fără ghilimele — `PROBS = [{ n, part, lead, req, max, steps: [{ t:'num', a }, { t:'mc', o:[…], ci }, { t:'tf', ok }] }]` — iar câmpurile de răspuns se creează din JS (`createElement('input')`). Rezultat: 0 semnale în șablon (`ref = 0` → prag 1) și 0 în testul generat (clonă fidelă a șablonului, cu exercițiile noi în același array) → respins la fiecare rulare, cu mesaj înșelător („nu conține exerciții”). Aceeași orbire afecta și modul „pe rând” pe surse HTML din această familie (varianta unui fișier `bac-2014-varianta-N.html`).
+
+### Ce s-a schimbat (`api/_lib/exgen.js`)
+- **`ITEM_SIGNAL_RES`** acoperă acum toate familiile de șabloane de pe site: chei de răspuns/punctaj CU și FĂRĂ ghilimele (`ok:`, `ci:`, `ans:`, `answer:`, `correct:`, `sol:`, `points:`), enunțurile (`statement`/`enunt`/`lead`/`prompt`), variantele (`o:[…]`, `options:[…]`, `choices:[…]`), tipul pasului (`t:'num'|'mc'|'tf'|'calc'…`, `type:"…"`), array-urile NEGOALE de itemi/pași/răspunsuri (`PROBS = [{…`, `steps: [{…`, `questions: [`, `answers = [`), inputuri fără `type` (= text), `<textarea>`, `createElement('input')`, plus `data-ans/key/sol/points=`. Valorile goale din codul de stare (`ans: []`, `answer: null`, `options: []`) nu se numără. Codul comun (CSS/JS reinserat din șablon) dă doar câteva potriviri constante; numărul rămâne dominat de DATELE itemilor, deci carcasa goală (`PROBS = []`) rămâne sub prag — garda contra testelor goale funcționează în continuare (fixture sintetic: șablon întreg 51 de semnale, carcasă goală 2; pragul 51/6 = 8).
+- Pe formatul standard numărul crește (57 → 70: se numără acum și `ok:'c'` din datele itemilor și `data-points`), fără efect asupra deciziei (pragul e relativ la șablon).
+- Când nici în șablon/sursă nu se recunoaște vreun tipar (`ref = 0`), mesajul de eroare spune explicit că formatul fișierului-model e necunoscut gardei (nu că testul ar fi gol) — adminul nu mai reîncearcă la nesfârșit aceeași rulare.
+- `assertCompleteHtml` se exportă (pentru teste).
+
+### Verificare
+`test/agent-tasks.test.js`: test nou de regresie cu un șablon sintetic din familia variantelor de examen (PROBS/steps, CSS cu `a:hover`/`.ok:before`, inputuri create din JS): șablonul întreg ≥ 12 semnale, carcasa goală < 4, `assertCompleteHtml` acceptă rezultatul bun și respinge carcasa goală, aceleași chei între ghilimele (JSON) sunt recunoscute, iar `ref = 0` produce mesajul „formatul fișierului-model e necunoscut”. Testul PICĂ pe `exgen.js`-ul vechi (0 semnale) și trece pe cel nou. `npm test`: 218/218 (cele 2 picate în mediul de verificare cer fonturile/instrumentalul din repo, neafectate). Zero schimbări în frontend; nicio migrare SQL.
+
+De făcut după deploy: „Rulează acum” pe task — fișierul „2012 Varianta 05” nu a fost marcat ca procesat (rularea a eșuat înainte de postare), deci se reia de la el.
+
+---
+
 ## 22 august 2026 (2) — Prețul lui gpt-5.6-terra era de 2,5× mai mare decât cel real → degradarea peste bugetul zilnic soft pornea mult prea devreme
 
 Cererea: „repară prețul pentru gpt 5.6 terra". Observația de la care a pornit: în tabelul `PRICES_USD` din `api/_lib/ai.js` exista o singură intrare `gpt-5.6` = 5/30 USD/1M, comentată „sol / terra (flagship)". Potrivirea pe cel mai lung prefix trimitea ȘI `gpt-5.6-terra` (modelul PDF / corectare / pre-generare, implicit din 16 august) pe această intrare.

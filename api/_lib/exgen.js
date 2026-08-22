@@ -74,11 +74,45 @@ function stripFigures(html) {
 // (…</html> — cutHtml); (3) trebuie să conțină itemi interactivi;
 // (4) secțiunile sursei (Subiectul II/III) trebuie să apară și în rezultat.
 // Altfel: eroare clară pe rulare — nu se publică nimic stricat.
+//
+// „Semnalele de itemi” acoperă TOATE familiile de șabloane de pe site, nu
+// doar formatul standard (data-correct/data-opt/„answer”):
+//  • formatul standard + exercițiile JSON (chei între ghilimele);
+//  • VARIANTELE DE EXAMEN încărcate (ex. bac_2014_v1.html — șablonul
+//    PROBS/ST/GRADED): datele itemilor stau într-un array JS cu chei FĂRĂ
+//    ghilimele — PROBS = [{…, steps:[{t:'num', a:…}, {t:'mc', o:[…], ci:…},
+//    {t:'tf', ok:…}]}] — iar câmpurile de răspuns se creează din JavaScript
+//    (createElement('input')). Până acum garda nu recunoștea NIMIC din ele
+//    (0 semnale în șablon ȘI în rezultat) și respingea teste generate corect:
+//    „testul generat NU conține exerciții (0 semnale de itemi, față de 0)”;
+//  • alte șabloane: inputuri fără type, textarea, array-uri de răspunsuri.
+// Codul comun (CSS/JS, reinserat identic din șablon) dă cel mult câteva
+// potriviri constante; numărul e dominat de DATELE itemilor, deci carcasa
+// goală (PROBS = [], array-uri goale) rămâne sub prag.
 const ITEM_SIGNAL_RES = [
-  /data-correct\s*=/gi, /data-opt\s*=/gi, /data-answer\s*=/gi,
+  // atribute de date pe elemente (formatul standard & altele)
+  /data-(?:correct|opt|answer|ans|key|sol|right|ok|points)\s*=/gi,
   /type=["']radio["']/gi, /class=["']opt[\s"']/gi,
-  /["'](?:ok|answer|raspuns|correct|corect)["']\s*:/gi,
-  /<input\b[^>]*type=["']?(?:text|number)/gi, /contenteditable/gi,
+  // chei de răspuns/punctaj în JSON sau JS — cu ghilimele… (valorile GOALE din
+  // codul de stare — `ans: []`, `answer: null` — nu se numără)
+  /["'](?:ok|answer|raspuns|correct|corect|ans|ci|sol|solutie|points|puncte)["']\s*:(?!\s*(?:\[\s*\]|\{\s*\}|null|undefined|''|""))/gi,
+  // …sau fără (obiecte JS: `ok:'c'`, `ci: 1`, `ans: 4`); „::” exclude CSS-ul
+  /[{,;\s](?:ok|answer|raspuns|correct|corect|ans|ci|sol|solutie|points|puncte)\s*:(?!:)(?!\s*(?:\[\s*\]|\{\s*\}|null|undefined|''|""))/gi,
+  // enunțul itemului/pasului (statement/enunț/lead/prompt/cerință)
+  /[{,;\s]["']?(?:statement|enunt|lead|prompt|question|intrebare|cerinta)["']?\s*:(?!\s*(?:null|undefined|''|""))/gi,
+  // variantele unui item (o:[…], options:[…], choices:[…]) — negoale
+  /[{,;\s]["']?(?:o|opts|options|optiuni|variante|choices)["']?\s*:\s*\[\s*(?!\])/gi,
+  // tipul pasului/itemului: t:'num' | type:"mc" | kind:'tf' …
+  /\b(?:t|type|kind|tip)["']?\s*:\s*["'](?:num|number|numeric|mc|choice|grila|grid|single|multi|multiple|tf|bool|boolean|truefalse|calc|open|text|fill|input|select|expr|frac|fraction|set|interval|order|match|matching|pair)["']/gi,
+  // array-uri NEGOALE de itemi/pași/răspunsuri: PROBS = [{…, steps: [{…
+  /\b(?:steps|pasi|items|itemi|questions|intrebari|exercitii|exercises|probs|probleme|problems|subiecte|answers|raspunsuri|solutions|solutii|tests?|teste|ex|exs|data|db|qs?)["']?\s*[:=]\s*\[\s*(?!\])/gi,
+  // câmpuri de răspuns: input text/number, input fără type (= text), textarea,
+  // inputuri create din JavaScript, zone editabile
+  /<input\b[^>]*type=["']?(?:text|number)/gi,
+  /<input\b(?![^>]*\btype\s*=)/gi,
+  /<textarea\b/gi,
+  /createElement\(\s*["']input["']/gi,
+  /contenteditable/gi,
 ];
 function itemSignals(html) {
   const s = String(html || '');
@@ -112,7 +146,13 @@ function assertCompleteHtml({ html, baseline = '', what = 'generarea' }) {
   const ref = itemSignals(baseline);
   const need = ref >= 12 ? Math.max(4, Math.floor(ref / 6)) : (ref > 0 ? 2 : 1);
   if (got < need) {
-    throw httpErr(502, `${what}: testul generat NU conține exerciții (${got} semnale de itemi, față de ${ref} în șablon/sursă) — nu îl public. Mai încearcă.`);
+    // ref = 0 → garda nu recunoaște NICIUN tipar de item nici în șablon/sursă:
+    // formatul fișierului-model e necunoscut gardei (nu neapărat test gol) —
+    // spunem explicit, ca adminul să nu reîncerce la nesfârșit aceeași rulare.
+    const hint = ref === 0
+      ? ' Atenție: nici în șablon/sursă nu recunosc vreun tipar de itemi — formatul fișierului-model e necunoscut gardei de completitudine; verifică fișierul-model sau semnalează formatul.'
+      : '';
+    throw httpErr(502, `${what}: testul generat NU conține exerciții (${got} semnale de itemi, față de ${ref} în șablon/sursă) — nu îl public. Mai încearcă.${hint}`);
   }
   const miss = missingSections(baseline, html);
   if (miss.length) {
@@ -1486,5 +1526,5 @@ module.exports = {
   storeFormatModel, removeFormatModel, loadFormatModel, fetchExtraContext,
   detectMode, titleMatchScore, fetchPairedContext,
   // pentru teste (test/agent-tasks.test.js)
-  figuresAllowed, stripFigures, itemSignals, missingSections, cutHtml, visibleSubcategory, chatClaudeLong, tplAnnotate, tplRestore,
+  figuresAllowed, stripFigures, itemSignals, missingSections, assertCompleteHtml, cutHtml, visibleSubcategory, chatClaudeLong, tplAnnotate, tplRestore,
 };
