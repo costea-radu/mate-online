@@ -4,6 +4,35 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 23 august 2026 (2) — SECURITATE: funcțiile SECURITY DEFINER puteau fi chemate din browser → conținutul premium se putea extrage cu cheia publică (regresie introdusă de Etapa 3)
+
+Semnalat de linterul Supabase (0028 + 0029), raportat de Radu. **Vina e a mea:** în `ai_rag_v2.sql` și `meditatii_v3.sql` am scris `revoke all on function … from public`, copiind tiparul vechi din `ai_tutor_schema.sql` în loc de cel corect, care exista deja în proiect (`ai_alerte.sql`, `ai_limite_cost.sql`, `ai_pregen.sql`): `revoke … from public, anon, authenticated`.
+
+### Cauza
+În Supabase, proiectul are din construcție `alter default privileges in schema public grant all on functions to anon, authenticated, service_role`. Deci fiecare funcție nouă primește EXECUTE **direct** pe rolurile `anon` și `authenticated` — iar `revoke … from public` nu atinge granturile directe, doar pe cel de pe PUBLIC. Efectul: revoke-ul *părea* că securizează funcția, dar nu făcea nimic.
+
+### Ce se putea face (reprodus pe Postgres 16.13, nu dedus)
+- `POST /rest/v1/rpc/match_ai_knowledge_hybrid` cu `{"allow_premium": true, "match_count": 100}` și cheia publică `anon` (care e în JS-ul site-ului, o vede oricine deschide DevTools) → **întreg conținutul premium**. Gravitatea vine tot din Etapa 3: până atunci `ai_knowledge` ținea doar titluri, acum ține enunțurile reale, rezolvările și cheile de răspuns. În test, un rând marcat `is_free=false` a ieșit integral la un apel `set role anon`.
+- `merge_skill_topic(p_user, …)` primește uuid-ul **oricărui** elev → oricine putea rescrie progresul altcuiva.
+- `ai_ingest_queue_purge()`, `ai_pdf_text_invalidate()`, `ai_pdf_text_on_new_content()` — expuse la fel (impact mic: primele curăță o coadă, ultimele două sunt funcții de trigger care oricum eșuează chemate direct).
+
+### Ce s-a schimbat
+1. **`supabase/fix_grants_v3.sql` (nou)** — reparația pentru baza existentă. Ia din catalog **toate** funcțiile SECURITY DEFINER din `public` (nu doar cele 5 raportate de linter), sare peste cele venite cu o extensie, le revocă de pe `public, anon, authenticated` și le dă doar lui `service_role`. Apoi scoate `anon`/`authenticated` din privilegiile implicite ale schemei, ca `revoke … from public` să funcționeze normal în migrările viitoare. Se încheie cu un **raport**: ce a mai rămas expus (ideal, zero rânduri). Idempotent.
+2. **Fișierele sursă reparate**, ca o instalare curată să nu mai aibă gaura niciodată: `ai_rag_v2.sql`, `meditatii_v3.sql`, `ai_tutor_schema.sql` (acoperă acum și `bump_skill_mastery`, `enqueue_ingest`, `trg_enqueue_content`, `trg_enqueue_rezolvari`) și `ai_pdf_cache_v2.sql` (cele două funcții de trigger).
+
+### Verificare
+- **Reprodus înainte de reparație**, pe Postgres 16.13 cu rolurile și privilegiile implicite exact ca la Supabase: toate cele 11 funcții SECURITY DEFINER erau executabile de `anon`, iar un rând premium a fost extras integral cu `set role anon`.
+- **După reparație**: `permission denied for function match_ai_knowledge_hybrid` și `… merge_skill_topic` pentru `anon`; `service_role` rulează mai departe tot (căutare hibridă, BKT — stăpânire 0,648 după un răspuns corect, `merge_skill_topic`, curățarea cozii).
+- **Triggerele nu se strică:** PostgreSQL verifică EXECUTE pe funcția de trigger la `CREATE TRIGGER`, nu la fiecare declanșare — testat explicit (un INSERT făcut ca `authenticated` declanșează triggerul și pune rândul în coadă, deși rolul nu mai poate chema funcția direct).
+- **De ce e sigur pentru aplicație:** în tot `src/` nu există niciun apel `.rpc(…)`; toate cele 11 funcții sunt chemate din `api/`, cu cheia de serviciu.
+- **Instalare curată** cu fișierele sursă reparate (toate migrările, în ordine): zero funcții expuse, fără a mai rula `fix_grants_v3.sql`.
+- Idempotență: `fix_grants_v3.sql` rulat de două ori, și pe o bază deja curată — același rezultat.
+- `npm test`: 395/397; `vite build` trece.
+
+**De făcut după deploy:** rulează **`supabase/fix_grants_v3.sql`** în Supabase → SQL Editor și verifică raportul de la final (trebuie „0 rows"). Nu depinde de deploy — se poate rula imediat. Separat, din Dashboard → Authentication → Policies: pornește **Leaked Password Protection** (verificarea parolelor la HaveIBeenPwned), semnalată tot de linter — e o bifă, nu ține de cod.
+
+---
+
 ## 23 august 2026 — Etapa 3 din auditul agenților AI (`AUDIT_AGENTI_AI.md`): RAG pe conținut REAL + căutare hibridă, unelte pentru tutore (tool calling), figuri în chat, poza la model, scoruri recalculate pe server, taxonomie de subiecte, nivel recalculat, repetiție pe itemi, text public corectat
 
 Cererea: „implementează etapa 3” (din `AUDIT_AGENTI_AI.md` → §6, Etapa 3: 1.5 · 5.1–5.5 · 4.4–4.7 · 3.2 · 2.5 + restanțele din etapele 1–2: recalculul scorurilor HTML (2.1) și Structured Outputs pe `ai-exam` / `exgen` (1.2)).

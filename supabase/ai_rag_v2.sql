@@ -108,7 +108,10 @@ create or replace function public.match_ai_knowledge_hybrid(
   limit match_count;
 $$;
 
-revoke all on function public.match_ai_knowledge_hybrid(vector, text, int, text, boolean, text, float) from public;
+-- ATENȚIE: în Supabase, `from public` NU e de ajuns — privilegiile implicite ale
+-- proiectului dau EXECUTE DIRECT rolurilor anon/authenticated. Fără ele în listă,
+-- oricine cu cheia publică poate chema funcția cu allow_premium => true.
+revoke all on function public.match_ai_knowledge_hybrid(vector, text, int, text, boolean, text, float) from public, anon, authenticated;
 grant execute on function public.match_ai_knowledge_hybrid(vector, text, int, text, boolean, text, float) to service_role;
 
 -- Triggerul de ingestie pe `content`: la UPDATE doar când se schimbă ceva indexat
@@ -134,5 +137,5 @@ language sql security definer set search_path = public as $$
   with d as (delete from public.ai_ingest_queue where processed_at is not null and processed_at < now() - interval '7 days' returning 1)
   select count(*)::int from d;
 $$;
-revoke all on function public.ai_ingest_queue_purge() from public;
+revoke all on function public.ai_ingest_queue_purge() from public, anon, authenticated;
 grant execute on function public.ai_ingest_queue_purge() to service_role;

@@ -211,11 +211,21 @@ create or replace function public.match_ai_knowledge_lexical(
   limit match_count;
 $$;
 
--- Doar serverul (service_role) poate căuta → conținutul premium nu se scurge către client
-revoke all on function public.match_ai_knowledge(vector, int, text, boolean) from public;
-revoke all on function public.match_ai_knowledge_lexical(text, int, text, boolean) from public;
+-- Doar serverul (service_role) poate căuta → conținutul premium nu se scurge către client.
+-- IMPORTANT: `from public` singur NU e suficient în Supabase — privilegiile implicite
+-- ale proiectului dau EXECUTE DIRECT rolurilor anon/authenticated, iar un revoke de pe
+-- PUBLIC nu atinge granturile directe. Toate rolurile trebuie enumerate.
+-- (vezi supabase/fix_grants_v3.sql, care face curat peste tot dintr-o singură rulare)
+revoke all on function public.match_ai_knowledge(vector, int, text, boolean) from public, anon, authenticated;
+revoke all on function public.match_ai_knowledge_lexical(text, int, text, boolean) from public, anon, authenticated;
+revoke all on function public.bump_skill_mastery(uuid, text, text, boolean) from public, anon, authenticated;
+revoke all on function public.enqueue_ingest(text, uuid, text) from public, anon, authenticated;
+revoke all on function public.trg_enqueue_content() from public, anon, authenticated;
+revoke all on function public.trg_enqueue_rezolvari() from public, anon, authenticated;
 grant execute on function public.match_ai_knowledge(vector, int, text, boolean) to service_role;
 grant execute on function public.match_ai_knowledge_lexical(text, int, text, boolean) to service_role;
+grant execute on function public.bump_skill_mastery(uuid, text, text, boolean) to service_role;
+grant execute on function public.enqueue_ingest(text, uuid, text) to service_role;
 
 -- =====================================================================
 -- 7. ROW LEVEL SECURITY

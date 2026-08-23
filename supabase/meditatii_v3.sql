@@ -110,5 +110,8 @@ begin
   where id = dst.id;
   delete from public.ai_skill_mastery where id = src.id;
 end$$;
-revoke all on function public.merge_skill_topic(uuid, text, text, text) from public;
+-- `from public` singur NU ajunge în Supabase (privilegiile implicite dau EXECUTE
+-- direct pe anon/authenticated) — altfel oricine putea rescrie progresul ORICUI,
+-- funcția primind p_user ca parametru.
+revoke all on function public.merge_skill_topic(uuid, text, text, text) from public, anon, authenticated;
 grant execute on function public.merge_skill_topic(uuid, text, text, text) to service_role;

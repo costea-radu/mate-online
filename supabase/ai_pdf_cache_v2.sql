@@ -39,3 +39,10 @@ begin
   end if;
   return new;
 end$$;
+
+-- Funcțiile de trigger sunt SECURITY DEFINER → nu trebuie să fie chemabile din
+-- browser prin /rest/v1/rpc/. `from public` singur nu ajunge în Supabase:
+-- privilegiile implicite dau EXECUTE direct pe anon/authenticated.
+-- Triggerele NU se strică — EXECUTE se verifică la CREATE TRIGGER, nu la declanșare.
+revoke all on function public.ai_pdf_text_on_new_content() from public, anon, authenticated;
+revoke all on function public.ai_pdf_text_invalidate()     from public, anon, authenticated;
