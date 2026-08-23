@@ -37,6 +37,12 @@ Compararea răspunsurilor e matematică, nu textuală (`api/_lib/mathcheck.js`):
 `x = 3` = `3`, `2\sqrt{3}` = `2√3`, mulțimi în orice ordine. „Nedecis” = forme pe care
 codul nu le poate compara (demonstrații, text) — nu se numără nici corect, nici greșit.
 
+## Ce s-a schimbat în jurul evaluării (Etapa 3)
+
+Din 23 august 2026, `mode=tutor` rulează cu aceleași reguli ca în producție, dar **fără unelte**
+(setul măsoară modelul, nu bucla de tool calling) și **fără RAG**. Dacă vrei să compari efectul
+uneltelor, rulează manual câteva întrebări în chat cu `AI_TOOLS=1` și `AI_TOOLS=0`.
+
 ## Itemi
 
 `eval/items/*.json` — fiecare fișier e o listă de itemi:

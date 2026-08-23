@@ -14,6 +14,9 @@
 // =====================================================================
 const ai = require('./ai');
 const claude = require('./claude');
+// taxonomia (capitole + subiecte) — require LEAZY: taxonomy.js citește CURRICULUM
+// de aici, deci un require direct ar închide un ciclu
+const taxonomy = new Proxy({}, { get: (_, k) => require('./taxonomy')[k] });
 
 // Modelul Claude folosit pentru generarea de exerciții și teste interactive
 // de Evaluare Națională / Bacalaureat, exact după modelul din site (cerință).
@@ -456,7 +459,9 @@ async function siteInteractiveFor(supa, { userId, categories = [], topics = [], 
   const fresh = rows.filter((r) => !done.has(r.id));
   const scored = fresh.map((r) => ({ ...r, _s: scoreOf(r) })).sort((a, b) => b._s - a._s);
   const matched = scored.filter((r) => r._s > 0);
-  const pool = matched.length ? [...matched, ...scored.filter((r) => r._s === 0)] : (minMatch ? [] : scored);
+  // minMatch: DOAR materialele potrivite pe subiect (fără „umplutură" din
+  //   categorie) — altfel tema putea fi orice test nefăcut (Etapa 3, 5.4)
+  const pool = minMatch ? matched : (matched.length ? [...matched, ...scored.filter((r) => r._s === 0)] : scored);
   return pool.slice(0, limit).map(({ _s, ...r }) => r);
 }
 
@@ -508,7 +513,7 @@ async function siteTheoryFor(supa, { categories = [], topics = [], chapterTitle 
 //    ANTHROPIC_API_KEY lipsește sau apelul eșuează.
 // Întoarce { questions:[{statement, options?, answer, explanation, chapter?, topic?}], provider }
 async function genQuestions(supa, {
-  category = null, chapter = null, topics = [], difficulty = 'mediu',
+  category = null, chapter = null, chapterId = null, topics = [], difficulty = 'mediu',
   count = 10, purpose = 'exersare', styleNote = '', mistake = null, chaptersSpec = null,
   verify = null, // null → după AI_VERIFY_MEDITATII (implicit: evaluare, simulare, tema)
 } = {}) {
@@ -526,12 +531,14 @@ async function genQuestions(supa, {
 }
 
 async function genQuestionsRaw(supa, {
-  category = null, chapter = null, topics = [], difficulty = 'mediu',
+  category = null, chapter = null, chapterId = null, topics = [], difficulty = 'mediu',
   count = 10, purpose = 'exersare', styleNote = '', mistake = null, chaptersSpec = null,
 }) {
   const topicLine = topics.filter(Boolean).join(', ');
   const q = [chapter, topicLine, category, 'exercițiu matematică'].filter(Boolean).join(' ');
-  const docs = await ai.retrieve(supa, { query: q, category, allowPremium: true, k: 6, prefer: 'exercise' });
+  // Etapa 3 (1.5): căutare hibridă, filtrată pe CAPITOL când îl știm — exemplele
+  // sunt acum exerciții reale din site, nu titluri
+  const docs = await ai.retrieve(supa, { query: q, category, allowPremium: true, k: 6, prefer: 'exercise', chapterId });
   const examples = ai.contextBlock(docs);
 
   const purposeLines = {
@@ -543,7 +550,7 @@ async function genQuestionsRaw(supa, {
     tema: `TEMĂ: set de ${count} exerciții potrivite nivelului elevului la capitolul „${chapter}"${topicLine ? ` (subiecte: ${topicLine})` : ''}, dificultate ${difficulty}.`,
   };
 
-  const system = `${ai.PERSONA}
+  let system = `${ai.PERSONA}
 
 Sarcină: creezi întrebări de matematică pentru platforma ExamenMate, EXACT după modelul exercițiilor din site (stil, notații, nivel — vezi exemplele).
 
@@ -563,7 +570,7 @@ Răspunde STRICT cu un OBIECT JSON valid (fără alt text), cu forma:
       "answer": 0,
       "explanation": "rezolvarea pas cu pas, scurtă",
       "chapter": "id-ul capitolului (dacă a fost cerut)",
-      "topic": "subiectul fin (ex: ecuatii_gradul_1)"
+      "topic": "subiectul exercițiului — EXACT una dintre etichetele din LISTA DE SUBIECTE de mai jos"
     }
   ]
 }
@@ -575,6 +582,12 @@ Reguli:
 - IMPORTANT pentru JSON valid: în interiorul stringurilor JSON fiecare comandă LaTeX are EXACT un backslash dublat — corect: "$\\\\frac{1}{2}$", "$\\\\sqrt{9}$"; GREȘIT: patru backslash-uri sau niciunul ("frac{1}{2}").`;
 
   const userMsg = `Generează obiectul JSON cu ${count} întrebări acum. Fă-le diferite de orice generare anterioară (alte numere, alte contexte). Sesiune #${Math.random().toString(36).slice(2, 8)}.`;
+  // taxonomia subiectelor pentru acest capitol / această categorie (Etapa 3, 5.1)
+  const topicList = taxonomy.topicsFor({ chapterId, category });
+  const schema = questionsSchema(topicList);
+  // lista intră ȘI în prompt: dacă providerul refuză schema strictă (json_object),
+  // modelul are totuși de unde alege eticheta
+  system += `\n\nLISTA DE SUBIECTE (pentru cheia "topic" — alege EXACT una, copiată identic):\n${topicList.map((t) => `- ${t}`).join('\n')}`;
 
   // 1) Claude Opus 5 (cerința B) — cu schemă strictă (Structured Outputs) și,
   //    ca plasă de siguranță, extractJson tolerant la LaTeX
@@ -582,10 +595,10 @@ Reguli:
     const r = await claude.chatClaude({
       system, messages: [{ role: 'user', content: userMsg }],
       maxTokens: Math.min(6000, 1200 + count * 350), model: OPUS_MODEL,
-      schema: QUESTIONS_SCHEMA,
+      schema,
     });
     const parsed = r.data || claude.extractJson(r.text);
-    const questions = normalizeQuestions(parsed);
+    const questions = normalizeQuestions(parsed, { chapterId, category });
     // usage-ul poartă MODELUL: fără el ai.logUsage calcula cost 0 pentru Opus
     // (cele mai scumpe apeluri din platformă scăpau de bugetele zilnice/lunare)
     if (questions.length) return { questions, provider: r.provider || OPUS_MODEL, usage: toUsage(r.usage, r.provider || OPUS_MODEL) };
@@ -595,9 +608,9 @@ Reguli:
   const { data, usage } = await ai.chatJson({
     system, messages: [{ role: 'user', content: userMsg }],
     temperature: 0.9, maxTokens: 4000, model: ai.GEN_MODEL,
-    schema: QUESTIONS_SCHEMA, schemaName: 'intrebari_meditatii', restoreLatex: false, // fixLatex face reparația
+    schema, schemaName: 'intrebari_meditatii', restoreLatex: false, // fixLatex face reparația
   });
-  const questions = normalizeQuestions(data);
+  const questions = normalizeQuestions(data, { chapterId, category });
   return { questions, provider: ai.GEN_MODEL, usage };
 }
 
@@ -614,7 +627,7 @@ Reguli:
 // ═════════════════════════════════════════════════════════════════════════════
 const VERIFY_PURPOSES = String(process.env.AI_VERIFY_MEDITATII || 'evaluare,simulare,tema').split(',').map((s) => s.trim()).filter(Boolean);
 
-async function regenQuestions({ count, avoid = [], model, qtype = 'mixt', context = '' }) {
+async function regenQuestions({ count, avoid = [], model, qtype = 'mixt', context = '', chapterId = null, category = null }) {
   const system = `${ai.PERSONA}
 
 Sarcină: generezi ${count} întrebări de matematică NOI pentru un set din care câteva au fost eliminate (răspunsul lor nu s-a confirmat la verificare). ${context}
@@ -623,8 +636,8 @@ Fiecare întrebare: rezolvabilă, fără ambiguități, rezolvată cu MARE aten�
 NU repeta întrebările de mai jos (alte numere, alt context).
 Răspunde STRICT cu JSON: {"questions":[{"statement","options","answer","explanation","chapter","topic"}]}`;
   const user = `ÎNTREBĂRI DEJA EXISTENTE (de evitat):\n${avoid.slice(0, 30).map((s, i) => `${i + 1}. ${String(s).slice(0, 200)}`).join('\n') || '—'}\n\nGenerează cele ${count} întrebări noi acum.`;
-  const r = await ai.chatJson({ system, messages: [{ role: 'user', content: user }], temperature: 0.8, maxTokens: Math.min(4000, 800 + count * 350), model, schema: QUESTIONS_SCHEMA, schemaName: 'intrebari_inlocuitoare', restoreLatex: false });
-  return { questions: normalizeQuestions(r.data), usage: r.usage };
+  const r = await ai.chatJson({ system, messages: [{ role: 'user', content: user }], temperature: 0.8, maxTokens: Math.min(4000, 800 + count * 350), model, schema: questionsSchema(taxonomy.topicsFor({ chapterId, category })), schemaName: 'intrebari_inlocuitoare', restoreLatex: false });
+  return { questions: normalizeQuestions(r.data, { chapterId, category }), usage: r.usage };
 }
 
 async function verifyQuestionSet(questions, { model, supa = null, userId = null, endpoint = 'verify', wantCount = null, qtype = 'mixt', regenContext = '', verify = true, maxItems = null } = {}) {
@@ -673,16 +686,27 @@ async function verifyQuestionSet(questions, { model, supa = null, userId = null,
 
 // Schema STRICTĂ a setului de întrebări (Claude output_config.format / OpenAI
 // json_schema): JSON garantat valid; „answer" = index (grilă) sau text.
-const QUESTIONS_SCHEMA = ai.S.obj({
-  questions: ai.S.arr(ai.S.obj({
-    statement: ai.S.str('enunț (formule LaTeX între $...$)'),
-    options: ai.S.nullable(ai.S.arr(ai.S.str(), 'exact 4 variante la grilă; null la răspuns liber')),
-    answer: { anyOf: [{ type: 'integer' }, { type: 'string' }], description: 'indexul variantei corecte (0–3) la grilă; textul/numărul corect la răspuns liber' },
-    explanation: ai.S.str('rezolvarea pas cu pas, scurtă'),
-    chapter: ai.S.nullable(ai.S.str('id-ul capitolului, dacă a fost cerut')),
-    topic: ai.S.nullable(ai.S.str('subiectul fin, ex: ecuatii_gradul_1')),
-  })),
-});
+// Etapa 3 (5.1): „topic" e ales dintr-o LISTĂ FIXĂ (taxonomia din programă) —
+// aceeași competență primește mereu aceeași etichetă în ai_skill_mastery.
+function questionsSchema(topicList = null) {
+  // fără plafon mic: la „evaluare-nationala" lista are ~130 de etichete, iar o
+  // tăiere la 60 lăsa în enum doar capitolele de clasa a V-a/a VI-a — toți itemii
+  // de gimnaziu superior primeau o etichetă greșită
+  const topics = Array.isArray(topicList) && topicList.length ? topicList.slice(0, 240) : null;
+  return ai.S.obj({
+    questions: ai.S.arr(ai.S.obj({
+      statement: ai.S.str('enunț (formule LaTeX între $...$)'),
+      options: ai.S.nullable(ai.S.arr(ai.S.str(), 'exact 4 variante la grilă; null la răspuns liber')),
+      answer: { anyOf: [{ type: 'integer' }, { type: 'string' }], description: 'indexul variantei corecte (0–3) la grilă; textul/numărul corect la răspuns liber' },
+      explanation: ai.S.str('rezolvarea pas cu pas, scurtă'),
+      chapter: ai.S.nullable(ai.S.str('id-ul capitolului, dacă a fost cerut')),
+      topic: topics
+        ? ai.S.nullable(ai.S.enum(topics, 'subiectul exercițiului — EXACT una dintre etichetele din listă'))
+        : ai.S.nullable(ai.S.str('subiectul fin, ex: ecuatii_gradul_1')),
+    })),
+  });
+}
+const QUESTIONS_SCHEMA = questionsSchema();
 
 // Normalizează usage-ul (format Anthropic {prompt_tokens, completion_tokens,
 // model} SAU format intern {in, out, model}) la forma citită de ai.logUsage.
@@ -721,7 +745,7 @@ function fixLatex(s) {
 }
 
 // normalizează + validează lista de întrebări (aceleași reguli ca generatorul existent)
-function normalizeQuestions(parsed) {
+function normalizeQuestions(parsed, { chapterId = null, category = null } = {}) {
   let list = parsed;
   if (list && !Array.isArray(list) && typeof list === 'object') {
     list = Object.values(list).find(Array.isArray)
@@ -738,7 +762,8 @@ function normalizeQuestions(parsed) {
       answer: options ? ai.answerIndex(q.answer, options.length) : fixLatex(String(q.answer ?? '').trim()),
       explanation: q.explanation ? fixLatex(String(q.explanation)) : '',
       chapter: q.chapter ? String(q.chapter) : undefined,
-      topic: q.topic ? String(q.topic) : undefined,
+      // subiectul, adus la eticheta din taxonomie (Etapa 3, 5.1)
+      topic: q.topic ? taxonomy.canonicalTopic(String(q.topic), { chapterId: chapterId || (q.chapter ? String(q.chapter) : null), category }) : undefined,
     };
   }).filter((q) => {
     if (q.statement.length < 6) return false;
@@ -834,7 +859,67 @@ function bumpStreak(profile) {
   return { streak_days: streak, last_study_date: today };
 }
 
-// Etapele repetiției inteligente: după 1 zi → 7 zile → 30 zile
+// ═════════════════════════════════════════════════════════════════════════════
+// Etapa 3 (5.3): REPETIȚIE PE ITEMI — SM-2 simplificat
+// Fiecare exercițiu GREȘIT devine un card (ai_meditatii_item_reviews):
+//   corect  → reps++, interval 1 → 6 → interval·ease (zile), ease +0.1 (max 3.0);
+//   greșit  → reps 0, interval 1 zi, ease −0.2 (min 1.3), lapses++;
+//   3 repetări corecte consecutive → „învățat" (retired), nu mai revine.
+// ═════════════════════════════════════════════════════════════════════════════
+const SM2_RETIRE_REPS = parseInt(process.env.AI_SR_RETIRE_REPS || '3', 10);
+const SM2_MAX_DAYS = parseInt(process.env.AI_SR_MAX_DAYS || '180', 10);
+function sm2Next(card = {}, correct = false, now = Date.now()) {
+  const ease0 = Number(card.ease) > 0 ? Number(card.ease) : 2.5;
+  const reps0 = Math.max(0, parseInt(card.reps, 10) || 0);
+  const int0 = Number(card.interval_days) > 0 ? Number(card.interval_days) : 1;
+  let ease, reps, interval, lapses = Math.max(0, parseInt(card.lapses, 10) || 0);
+  if (correct) {
+    ease = Math.min(3.0, Math.round((ease0 + 0.1) * 100) / 100);
+    reps = reps0 + 1;
+    interval = reps === 1 ? 1 : reps === 2 ? 6 : Math.min(SM2_MAX_DAYS, Math.round(int0 * ease * 10) / 10);
+  } else {
+    ease = Math.max(1.3, Math.round((ease0 - 0.2) * 100) / 100);
+    reps = 0; interval = 1; lapses += 1;
+  }
+  return {
+    ease, reps, interval_days: interval, lapses,
+    due_at: new Date(now + interval * 86400000).toISOString(),
+    last_result: !!correct,
+    retired: correct && reps >= SM2_RETIRE_REPS,
+    updated_at: new Date(now).toISOString(),
+  };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Etapa 3 (5.2): NIVELUL, recalculat după fiecare set (media ultimelor 3)
+// `scores` = procentele (0..1) ale ultimelor seturi, cele mai NOI primele.
+// Media exponențială (α=0.5) → nivel: <0.45 începător, <0.75 mediu, altfel avansat,
+// cu HISTEREZĂ de ±0.05 față de nivelul curent. În plus, schimbarea de nivel
+// trebuie CONFIRMATĂ de cel puțin două dintre ultimele trei seturi — un singur
+// set slab (sau unul foarte bun) nu mută elevul dintr-un nivel în altul.
+// ═════════════════════════════════════════════════════════════════════════════
+const LEVELS = ['incepator', 'mediu', 'avansat'];
+function levelFromScores(scores = [], current = null) {
+  const list = (Array.isArray(scores) ? scores : []).filter((x) => typeof x === 'number' && isFinite(x)).slice(0, 3);
+  if (list.length < 2) return { level: current, ema: list.length ? Math.round(list[0] * 1000) / 1000 : null, changed: false };
+  let ema = list[list.length - 1];
+  for (let i = list.length - 2; i >= 0; i--) ema = ema * 0.5 + list[i] * 0.5;
+  ema = Math.round(ema * 1000) / 1000;
+  const h = 0.05;
+  const lowCut = current === 'incepator' ? 0.45 + h : 0.45 - h;
+  const highCut = current === 'avansat' ? 0.75 - h : 0.75 + h;
+  const rank = (v) => (v < lowCut ? 0 : v < highCut ? 1 : 2);
+  let level = LEVELS[rank(ema)];
+  if (current && level !== current) {
+    // câte seturi susțin noul nivel (aceeași parte a pragului)?
+    const support = list.filter((v) => LEVELS[rank(v)] === level).length;
+    if (support < 2) level = current;
+  }
+  return { level, ema, changed: !!current && level !== current };
+}
+const difficultyForLevel = (level) => (level === 'incepator' ? 'ușor' : level === 'avansat' ? 'greu' : 'mediu');
+
+// Etapele recapitulării pe CAPITOL: după 1 zi → 7 zile → 30 zile
 const REVIEW_STAGES_DAYS = [1, 7, 30];
 function nextReviewDue(stage) {
   const days = REVIEW_STAGES_DAYS[Math.min(stage, REVIEW_STAGES_DAYS.length - 1)];
@@ -989,7 +1074,8 @@ async function buildMentorReport(supa, studentId) {
 }
 
 module.exports = {
-  toUsage, QUESTIONS_SCHEMA, // Etapa 1: costul Opus + schema strictă (teste)
+  toUsage, QUESTIONS_SCHEMA, questionsSchema, // Etapa 1/3: costul Opus + schema strictă (teste)
+  sm2Next, levelFromScores, LEVELS, difficultyForLevel, SM2_RETIRE_REPS, // Etapa 3: repetiție pe itemi (5.3) + nivel recalculat (5.2)
   verifyQuestionSet, regenQuestions, genQuestionsRaw, VERIFY_PURPOSES, // Etapa 2: validare + verificator independent
   CURRICULUM, EN_RECAP, OPUS_MODEL, REVIEW_STAGES_DAYS,
   curriculumFor, categoryFor, classCategory, examTypeFor,

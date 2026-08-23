@@ -31,21 +31,26 @@ export const DEFAULT_AI_MODEL = AI_MODELS[0].id;
 // coboară pe modelul economic (api/_lib/ai.js → pickModel).
 // =====================================================================
 export const AI_STACK = {
-  // Pentru CLIENȚI (elevi, părinți, profesori): Profesorul Virtual, Meditațiile,
-  // generatorul de teste, corectarea rezolvărilor — toate pe modele OpenAI.
+  // Pentru CLIENȚI (elevi, părinți, profesori): Profesorul Virtual (chat,
+  // explicații, citirea subiectelor PDF), corectarea după barem, generatorul
+  // de teste și exercițiile interactive — pe modele OpenAI.
   clienti: {
     furnizor: 'OpenAI',
     modele: ['GPT-4o mini', 'GPT-5.6 Terra', 'GPT-5.6 Sol'],
     descriere: 'GPT-4o mini răspunde rapid în chat și explică pas cu pas; GPT-5.6 Terra și GPT-5.6 Sol preiau sarcinile care cer precizie maximă — citirea subiectelor PDF, corectarea după barem, generarea de teste și exerciții.',
   },
-  // Pentru UNELTE ADMINISTRATIVE INTERNE (doar echipa ExamenMate): agentul
-  // care generează și verifică materialele din biblioteca site-ului, articole,
-  // optimizări SEO, task-uri programate. NU primesc date personale ale
-  // utilizatorilor — exact cum scrie în Politica de Confidențialitate (§7–8).
+  // Anthropic (Claude): (a) uneltele administrative interne ale echipei și
+  // (b) GENERAREA seturilor de exerciții din „Meditații cu Profesorul Virtual"
+  // — corectat pe 23 august 2026 (Etapa 3, punctul 2.5 din auditul agenților):
+  // până atunci textul spunea că modelele Anthropic sunt folosite DOAR intern,
+  // deși generatorul de meditații rulează pe Claude Opus 5, iar la exercițiile
+  // de remediere primește și răspunsul greșit al elevului (fără nume, e-mail
+  // sau alte date de identificare). Ține textul sincron cu codul:
+  // api/_lib/meditatii.js → OPUS_MODEL.
   intern: {
     furnizor: 'Anthropic',
     modele: ['Claude Opus 5', 'Claude Fable 5'],
-    descriere: 'Folosite doar de echipa ExamenMate, în unelte administrative interne: generarea și verificarea testelor și exercițiilor din biblioteca site-ului, articole și optimizări ale paginilor. Nu primesc întrebările, pozele sau datele personale ale utilizatorilor.',
+    descriere: 'Folosite în două locuri: (1) uneltele administrative ale echipei ExamenMate — generarea și verificarea testelor și exercițiilor din biblioteca site-ului, articolele, optimizările paginilor; (2) generarea seturilor de exerciții din „Meditații cu Profesorul Virtual". La exercițiile de remediere, modelul primește și exercițiul greșit împreună cu răspunsul dat de elev, ca să genereze exerciții de același tip. Nu primește numele, e-mailul sau alte date care te identifică, iar datele trimise prin API nu sunt folosite la antrenarea modelelor.',
   },
 };
 

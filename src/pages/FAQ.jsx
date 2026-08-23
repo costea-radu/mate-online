@@ -46,7 +46,7 @@ const faqs = [
         q: 'Ce se întâmplă cu întrebările, pozele și înregistrările vocale pe care le trimit Profesorului Virtual?',
         a: (
           <span>
-            Sunt transmise către {AI_STACK.clienti.furnizor} strict pentru a genera răspunsul; conform politicii pentru dezvoltatori (API), ele <strong>nu sunt folosite la antrenarea modelelor</strong>. Istoricul conversațiilor rămâne în contul tău, îl poți șterge oricând și dispare definitiv la ștergerea contului. Uneltele interne ({AI_STACK.intern.furnizor}) nu primesc aceste date. Nu introduce date personale sensibile în conversații. Detalii în <Link to="/politica-confidentialitate" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica de Confidențialitate</Link>, secțiunea „Profesorul Virtual (AI)”.
+            Sunt transmise către {AI_STACK.clienti.furnizor} strict pentru a genera răspunsul; conform politicii pentru dezvoltatori (API), ele <strong>nu sunt folosite la antrenarea modelelor</strong>. Istoricul conversațiilor rămâne în contul tău, îl poți șterge oricând și dispare definitiv la ștergerea contului. Chatul, pozele și înregistrările vocale NU ajung la {AI_STACK.intern.furnizor}; acolo merge doar generarea exercițiilor din „Meditații" — iar la exercițiile de remediere, exercițiul greșit și răspunsul tău la el, fără nume sau e-mail. Nu introduce date personale sensibile în conversații. Detalii în <Link to="/politica-confidentialitate" style={{ color: 'var(--navy)', fontWeight: 600 }}>Politica de Confidențialitate</Link>, secțiunea „Profesorul Virtual (AI)”.
           </span>
         ),
       },

@@ -664,7 +664,7 @@ async function meditatiiEffects(supa, userId, { graded, title, score, maxScore, 
   await Promise.allSettled(graded.filter((g) => g.answered).map((g) =>
     supa.rpc('bump_skill_mastery', {
       p_user: userId, p_category: category,
-      p_topic: (g.tema || 'general').toLowerCase(), p_correct: g.verdict === 'corect',
+      p_topic: require('./_lib/taxonomy').canonicalTopic(g.tema || 'general', { category }), p_correct: g.verdict === 'corect',
     })
   ));
 

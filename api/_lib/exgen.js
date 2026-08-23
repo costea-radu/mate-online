@@ -29,6 +29,7 @@ const claude = require('./claude');
 // sursa unică: api/_lib/mathcheck.js → BROWSER_ANS_EQ (oglindită în src/lib/ansEq.js)
 const { BROWSER_ANS_EQ: ANS_EQ_JS } = require('./mathcheck');
 const { modeLine } = require('./pdftext');
+const { S } = require('./ai'); // helperul schemelor stricte (Structured Outputs)
 
 function httpErr(status, message) {
   const e = new Error(message);
@@ -263,7 +264,7 @@ async function blocksWithPdfText(blocks) {
 // direct cu metoda prin mesaj de utilizator, fără încă un apel irosit.
 const NO_PREFILL = new Set();
 
-async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null, until = null }) {
+async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null, until = null, schema = null }) {
   const t0 = Date.now();
   // Sub limita funcției Vercel: mai bine o eroare CLARĂ înregistrată decât
   // FUNCTION_INVOCATION_TIMEOUT cu rularea pierdută. Limita e maxDuration=800
@@ -271,14 +272,16 @@ async function chatClaudeLong({ system, blocks, maxTokens = 24000, model = null,
   // schimbi maxDuration, setează env FUNCTION_MAX_SECONDS la aceeași valoare).
   const DEADLINE_MS = Math.max(120, (Number(process.env.FUNCTION_MAX_SECONDS) || 800) - 90) * 1000;
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
-  const call = (messages) => claude.chatClaude({ system, messages, maxTokens, model });
+  // `schema` (Etapa 3): Structured Outputs pe PRIMUL apel (JSON garantat valid);
+  // continuările prin prefill rămân text brut (nu se combină cu output_config).
+  const call = (messages, first = false) => claude.chatClaude({ system, messages, maxTokens, model, ...(schema && first ? { schema } : {}) });
   let baseMessages = [{ role: 'user', content: blocks }];
   const usage = { prompt_tokens: 0, completion_tokens: 0, model: null };
   let r;
   let pdfSwapped = false;
   let transientLeft = 1;
   for (;;) {
-    try { r = await call(baseMessages); break; }
+    try { r = await call(baseMessages, true); break; }
     catch (e) {
       const msg = String(e.message || '');
       if (!pdfSwapped && TOO_LONG_RE.test(msg)) {
@@ -461,6 +464,53 @@ function normalize(ex) {
     if (!out.steps.length || !out.statement) return null;
   }
   return out;
+}
+
+// ─── Schema STRICTĂ a exercițiului JSON (Structured Outputs, Etapa 3) ────────
+// Aceeași formă pentru agentul de exerciții (admin) și pentru task-urile
+// programate. `answer` era polimorf (index la grilă / text la răspuns liber) —
+// în modul strict devin două chei: answer_index (grilă) / answer_text (liber).
+const EXERCISE_SCHEMA = S.obj({
+  title: S.str('titlul exercițiului'),
+  kind: S.enum(['grila', 'etape'], 'grila = itemi (cu sau fără variante); etape = o problemă rezolvată pe pași'),
+  output: S.nullable(S.enum(['interactive', 'pdf'], 'formatul de salvare cerut de admin (implicit interactive)')),
+  statement: S.str('contextul general / enunțul problemei (poate fi gol la grilă)'),
+  questions: S.nullable(S.arr(S.obj({
+    statement: S.str('enunțul itemului (LaTeX între $...$)'),
+    options: S.nullable(S.arr(S.str(), 'exact 4 variante la grilă; null la răspuns liber')),
+    answer_index: S.nullable(S.int('indexul variantei corecte (0–3) la grilă; null la răspuns liber')),
+    answer_text: S.nullable(S.str('răspunsul final (număr/expresie) la răspuns liber; null la grilă')),
+    hint: S.str('indiciu fără răspuns'),
+    explanation: S.str('rezolvarea completă'),
+    points: S.num('baremul itemului'),
+  }), 'itemii (kind=grila); null la kind=etape')),
+  steps: S.nullable(S.arr(S.obj({
+    prompt: S.str('ce se cere la această etapă'),
+    answer: S.str('răspuns scurt (număr/expresie)'),
+    hint: S.str('indiciu fără răspuns'),
+    explanation: S.str('rezolvarea etapei (barem)'),
+    points: S.num('baremul etapei'),
+  }), 'etapele (kind=etape); null la kind=grila')),
+  final_answer: S.nullable(S.str('răspunsul final (kind=etape)')),
+});
+// Răspunsul modelului (cu sau fără schemă) → forma clasică → normalize()
+function parseExercise(r) {
+  let raw = r && r.data && typeof r.data === 'object' ? r.data : null;
+  if (!raw) { try { raw = JSON.parse(String(r?.text || '')); } catch { raw = claude.extractJson(r?.text); } }
+  if (!raw || typeof raw !== 'object') return null;
+  const ex = { ...raw };
+  if (Array.isArray(ex.questions)) {
+    ex.questions = ex.questions.filter(Boolean).map((q) => {
+      const { answer_index, answer_text, ...rest } = q;
+      const opts = Array.isArray(q.options) && q.options.length ? q.options : null;
+      // grilă fără answer_index (modelul a completat answer_text) → NaN, ca
+      // normalize() să ELIMINE itemul; altfel Number(null)=0 însemna „varianta a)"
+      const answer = q.answer !== undefined ? q.answer : (opts ? (answer_index ?? NaN) : (answer_text ?? ''));
+      return { ...rest, ...(opts ? { options: opts } : {}), answer };
+    });
+  }
+  for (const k of Object.keys(ex)) if (ex[k] === null) delete ex[k];
+  return normalize(ex);
 }
 
 // ─── Context suplimentar din ALTE rubrici (ex. baremele testelor) ────────────
@@ -812,8 +862,8 @@ Primești UN SINGUR material-sursă („${src.title}”, din rubrica „${catego
 Rezultatul NU are figuri: enunțurile se scriu SELF-CONTAINED, cu toate datele în text — nicio referire la „figura alăturată/de mai jos”.
 REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA rezultatului (itemi, secțiuni, barem) cu el, iar CONȚINUTUL cu materialul-sursă.' : ''}${ctx.line}
 Răspunde STRICT cu UN obiect JSON valid (fără alt text):
-{ "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] }
-Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ cu backslash dublu — DOAR expresii/simboluri, NICIODATĂ propoziții sau cuvinte românești în $...$ (textul rămâne în afară; gradele: $70^\\circ$). Indiciile („hint”) ghidează fără să dea răspunsul; „explanation” = rezolvarea completă. Verifică-ți calculele.`;
+{ "title": "…", "kind": "grila", "output": null, "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer_index": 0, "answer_text": null, "hint": "…", "explanation": "…", "points": 5 } ], "steps": null, "final_answer": null }
+Itemii cu răspuns liber: "options" null, "answer_index" null, "answer_text" = răspunsul. LaTeX între $...$ cu backslash dublu — DOAR expresii/simboluri, NICIODATĂ propoziții sau cuvinte românești în $...$ (textul rămâne în afară; gradele: $70^\\circ$). Indiciile („hint”) ghidează fără să dea răspunsul; „explanation” = rezolvarea completă. Verifică-ți calculele.`;
     const blocksJ = [];
     if (srcPdf) {
       blocksJ.push({ type: 'text', text: `MATERIALUL-SURSĂ (PDF): ${src.title}` });
@@ -825,8 +875,8 @@ Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ 
     }
     blocksJ.push(...ctx.docBlocks);
     blocksJ.push({ type: 'text', text: `${srcText ? `MATERIALUL-SURSĂ („${src.title}”):\n${srcText}\n\n` : ''}${ctx.textBlock ? ctx.textBlock + '\n\n' : ''}Transformă acum materialul-sursă în test interactiv.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
-    const rJ = await chatClaudeLong({ system: sysSeqJ, blocks: blocksJ, maxTokens: 16000, model: aiModel });
-    const exJ = normalize(claude.extractJson(rJ.text));
+    const rJ = await chatClaudeLong({ system: sysSeqJ, blocks: blocksJ, maxTokens: 16000, model: aiModel, schema: EXERCISE_SCHEMA });
+    const exJ = parseExercise(rJ);
     if (!exJ) {
       console.error('exgen(seq-json): invalid. stopReason=%s continuations=%s', rJ.stopReason, rJ.continuations);
       throw httpErr(502, `Nu am obținut un test valid din „${src.title}”. Mai încearcă.`);
@@ -907,16 +957,16 @@ ${planP}
 Pentru fiecare poziție: COPIAZĂ itemul indicat (enunț, tip, structură). REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)} Păstrează structura și baremul tipic rubricii.${COMPLETE_RULE_JSON}
 Rezultatul NU are figuri: enunțurile se scriu SELF-CONTAINED, cu toate datele în text — nicio referire la „figura alăturată”; itemii-sursă care depind de o figură se înlocuiesc cu alți itemi din același test.${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA testului generat cu el — numărul de itemi, împărțirea pe secțiuni/subiecte, tipul itemilor (grilă/răspuns liber) și proporțiile baremului vin din modelul de format, iar CONȚINUTUL din testele-sursă.' : ''}${ctx.line}
 Răspunde STRICT cu UN obiect JSON valid (fără alt text):
-{ "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] }
-Itemii cu răspuns liber: OMITE "options", "answer" ca text. LaTeX între $...$ cu backslash dublu — DOAR expresii/simboluri, NICIODATĂ propoziții sau cuvinte românești în $...$ (textul rămâne în afară; gradele: $70^\\circ$). Verifică-ți calculele.`;
+{ "title": "…", "kind": "grila", "output": null, "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer_index": 0, "answer_text": null, "hint": "…", "explanation": "…", "points": 5 } ], "steps": null, "final_answer": null }
+Itemii cu răspuns liber: "options" null, "answer_index" null, "answer_text" = răspunsul. LaTeX între $...$ cu backslash dublu — DOAR expresii/simboluri, NICIODATĂ propoziții sau cuvinte românești în $...$ (textul rămâne în afară; gradele: $70^\\circ$). Verifică-ți calculele.`;
     if (wantFormatPdf) {
       blocksA.push({ type: 'text', text: 'MODELUL DE FORMAT (PDF) — structura rezultatului se potrivește cu el:' });
       blocksA.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: String(formatPdf) } });
     }
     blocksA.push(...ctx.docBlocks);
     blocksA.push({ type: 'text', text: `${ctx.textBlock ? ctx.textBlock + '\n\n' : ''}Construiește acum testul nr. ${rows.length + 1}.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
-    const rP = await chatClaudeLong({ system: sysPdf, blocks: blocksA, maxTokens: 12000, model: aiModel });
-    const exP = normalize(claude.extractJson(rP.text));
+    const rP = await chatClaudeLong({ system: sysPdf, blocks: blocksA, maxTokens: 12000, model: aiModel, schema: EXERCISE_SCHEMA });
+    const exP = parseExercise(rP);
     if (!exP || (exP.questions || []).length < 6) {
       console.error('exgen(auto-pdf): invalid/incomplet (%s itemi). stopReason=%s continuations=%s', exP ? (exP.questions || []).length : 0, rP.stopReason, rP.continuations);
       throw httpErr(502, exP
@@ -953,7 +1003,7 @@ Primești ${srcTexts.length} teste din rubrica „${category}${subcategory ? ' /
 ${planE}
 REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}${COMPLETE_RULE_JSON}
 Rezultatul NU are figuri: enunțurile se scriu SELF-CONTAINED, cu toate datele în text — nicio referire la „figura alăturată”; itemii-sursă care depind de o figură se înlocuiesc cu alți itemi din același test.${wantFormatPdf ? '\nPrimești și MODELUL DE FORMAT (PDF): potrivește STRUCTURA subiectului cu el — numărul de itemi, secțiunile, tipul itemilor și proporțiile baremului vin din modelul de format, iar CONȚINUTUL din testele-sursă.' : ''}${ctx.line}
-Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer": 0, "hint": "…", "explanation": "…", "points": 5 } ] } (itemii cu răspuns liber: fără "options", "answer" text; LaTeX cu backslash dublu).`;
+Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "output": null, "statement": "", "questions": [ { "statement": "…", "options": ["A","B","C","D"], "answer_index": 0, "answer_text": null, "hint": "…", "explanation": "…", "points": 5 } ], "steps": null, "final_answer": null } (itemii cu răspuns liber: "options" null, "answer_text" = răspunsul; LaTeX cu backslash dublu).`;
     const blkE = srcTexts.map((x, i) => `=== TESTUL ${String.fromCharCode(65 + i)}: ${x.title} ===\n${x.text}`).join('\n\n');
     const blocksE = [];
     if (wantFormatPdf) {
@@ -962,8 +1012,8 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "st
     }
     blocksE.push(...ctx.docBlocks);
     blocksE.push({ type: 'text', text: `${blkE}${ctx.textBlock}\n\nConstruiește subiectul acum.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNI: ${String(autoInstr).slice(0, 3000)}` : ''} #${Math.random().toString(36).slice(2, 8)}` });
-    const rE = await chatClaudeLong({ system: sysE, blocks: blocksE, maxTokens: 12000, model: aiModel });
-    const exE = normalize(claude.extractJson(rE.text));
+    const rE = await chatClaudeLong({ system: sysE, blocks: blocksE, maxTokens: 12000, model: aiModel, schema: EXERCISE_SCHEMA });
+    const exE = parseExercise(rE);
     if (!exE || (exE.questions || []).length < 6) {
       console.error('exgen(auto-exam): invalid/incomplet (%s itemi). stopReason=%s continuations=%s', exE ? (exE.questions || []).length : 0, rE.stopReason, rE.continuations);
       throw httpErr(502, exE
@@ -1191,11 +1241,11 @@ function renderGrila(ex) {
 <script>
   var D=${JSON.stringify(data).replace(/</g, '\\u003c')};
   document.getElementById('check').addEventListener('click', function(){
-    var got=0, max=0;
+    var got=0, max=0, A=[];
     for(var i=0;i<D.length;i++){
       max+=D[i].p; var ok=false;
-      if(D[i].t==='c'){ var s=document.querySelector('input[name="q'+i+'"]:checked'); ok=s&&Number(s.value)===D[i].a; }
-      else { var el=document.querySelector('input[name="q'+i+'"]'); ok=el&&ansEq(el.value,D[i].a); }
+      if(D[i].t==='c'){ var s=document.querySelector('input[name="q'+i+'"]:checked'); ok=s&&Number(s.value)===D[i].a; A.push(s?Number(s.value):null); }
+      else { var el=document.querySelector('input[name="q'+i+'"]'); ok=el&&ansEq(el.value,D[i].a); A.push(el?String(el.value||''):''); }
       if(ok) got+=D[i].p;
       var fb=document.getElementById('fb'+i);
       fb.className='fb '+(ok?'ok':'bad');
@@ -1204,7 +1254,7 @@ function renderGrila(ex) {
     rmath();
     var pct=max?Math.round(got/max*100):0;
     document.getElementById('res').innerHTML='Punctaj: '+got+' / '+max+' puncte ('+pct+'%)';
-    var MSG={type:'MATE_SCORE',score:pct,maxScore:100};
+    var MSG={type:'MATE_SCORE',score:pct,maxScore:100,answers:A,raw:{got:got,max:max}}; // answers: serverul recalculează scorul (Etapa 3)
     try{ parent.postMessage(MSG,'*'); }catch(e){}
     try{ if(window.opener) window.opener.postMessage(MSG,'*'); }catch(e){}
   });
@@ -1234,11 +1284,11 @@ function renderEtape(ex) {
 <script>
   var D=${JSON.stringify(data).replace(/</g, '\\u003c')};
   document.getElementById('check').addEventListener('click', function(){
-    var got=0, max=0;
+    var got=0, max=0, A=[];
     for(var i=0;i<D.length;i++){
       max+=D[i].p;
       var el=document.querySelector('input[name="q'+i+'"]');
-      var ok=el&&ansEq(el.value,D[i].a);
+      var ok=el&&ansEq(el.value,D[i].a); A.push(el?String(el.value||''):'');
       if(ok) got+=D[i].p;
       var fb=document.getElementById('fb'+i);
       fb.className='fb '+(ok?'ok':'bad');
@@ -1249,7 +1299,7 @@ function renderEtape(ex) {
     document.getElementById('final').style.display='block';
     var pct=max?Math.round(got/max*100):0;
     document.getElementById('res').innerHTML='Punctaj: '+got+' / '+max+' puncte ('+pct+'%)';
-    var MSG={type:'MATE_SCORE',score:pct,maxScore:100};
+    var MSG={type:'MATE_SCORE',score:pct,maxScore:100,answers:A,raw:{got:got,max:max}}; // answers: serverul recalculează scorul (Etapa 3)
     try{ parent.postMessage(MSG,'*'); }catch(e){}
     try{ if(window.opener) window.opener.postMessage(MSG,'*'); }catch(e){}
   });
@@ -1530,5 +1580,6 @@ module.exports = {
   storeFormatModel, removeFormatModel, loadFormatModel, fetchExtraContext,
   detectMode, titleMatchScore, fetchPairedContext,
   // pentru teste (test/agent-tasks.test.js)
-  figuresAllowed, stripFigures, itemSignals, missingSections, assertCompleteHtml, cutHtml, visibleSubcategory, chatClaudeLong, tplAnnotate, tplRestore,
+  figuresAllowed, stripFigures, itemSignals, missingSections, assertCompleteHtml, cutHtml,
+  EXERCISE_SCHEMA, parseExercise, visibleSubcategory, chatClaudeLong, tplAnnotate, tplRestore,
 };

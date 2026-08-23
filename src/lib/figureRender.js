@@ -571,3 +571,24 @@ export function renderFigure(fig) {
     return null; // orice specificație invalidă → fără figură, PDF-ul rămâne intact
   }
 }
+
+/**
+ * Marcajele [[FIGURA:{...}]] dintr-un răspuns al Profesorului Virtual (Etapa 3):
+ * figurile desenate în chat. Întoarce textul FĂRĂ marcaje + figurile (max 2).
+ * (Oglinda lui api/_lib/figures.js → extractFigures.)
+ */
+export function extractFigureMarkers(text = '') {
+  const figures = [];
+  const out = String(text || '').replace(/\[\[FIGURA:\s*(\{[\s\S]*?\})\s*\]\]/g, (m, json) => {
+    try {
+      const f = JSON.parse(json);
+      if (f && typeof f === 'object' && f.type) {
+        const clean = {};
+        for (const k of Object.keys(f)) if (f[k] !== null && f[k] !== undefined) clean[k] = f[k];
+        figures.push(clean);
+      }
+    } catch { /* marcaj invalid → se scoate din text */ }
+    return '';
+  });
+  return { text: out, figures: figures.slice(0, 2) };
+}

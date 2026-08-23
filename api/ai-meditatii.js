@@ -15,6 +15,25 @@
 const ai = require('./_lib/ai');
 const med = require('./_lib/meditatii');
 const mathcheck = require('./_lib/mathcheck'); // echivalența matematică a răspunsurilor (Etapa 2)
+const scoreLib = require('./_lib/score');       // scorul testelor HTML recalculat pe server (Etapa 3)
+const taxonomy = require('./_lib/taxonomy');    // subiectele canonice (Etapa 3, 5.1)
+
+// Scorul unui test din site: recalculat din răspunsuri când materialul are chei
+// (exerciții generate), altfel scorul trimis, plafonat. Întoarce { sc, mx, verified }.
+async function siteScore(supa, contentId, { answers, score, maxScore }) {
+  let content = null;
+  if (contentId) {
+    const { data } = await supa.from('content').select('*').eq('id', contentId).maybeSingle();
+    content = data || null;
+  }
+  const v = await scoreLib.verifiedScore(supa, content, { answers, score, maxScore, loadHtml: (c) => scoreLib.loadContentHtml(supa, c) });
+  // material cu chei, dar fără răspunsuri → nu bifăm nimic „pe încredere"
+  return { sc: v.score, mx: v.maxScore, verified: v.verified, needsAnswers: !!(v.hasKeys && !v.verified) };
+}
+const ANSWERS_REQUIRED = {
+  error: 'Nu am putut verifica răspunsurile. Reîncarcă pagina exercițiului (Ctrl+R) și rezolvă-l din nou — rezultatul se salvează după verificare.',
+  code: 'ANSWERS_REQUIRED',
+};
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -96,6 +115,7 @@ function sanitize(questions) {
     statement: q.statement,
     options: Array.isArray(q.options) ? q.options : undefined,
     answer_type: Array.isArray(q.options) ? 'choice' : 'open',
+    ...(q.repeated ? { repeated: true } : {}), // exercițiu RELUAT (repetiție SM-2)
   }));
 }
 
@@ -127,10 +147,15 @@ function gradeAnswers(questions, answers) {
 
 // stăpânirea pe subiecte, actualizată în PARALEL (bucla secvențială făcea
 // corectarea vizibil de lentă la seturi de 10–12 întrebări)
-async function bumpMasteryAll(supa, userId, category, rows, fallbackTopic = 'general') {
+// Etapa 3 (5.1): subiectul intră în ai_skill_mastery ADUS LA ETICHETA din
+// taxonomie — altfel „ecuatii_gradul_1", „Ecuații de gradul I" și „ecuatii gradul 1"
+// erau trei competențe diferite.
+async function bumpMasteryAll(supa, userId, category, rows, fallbackTopic = 'general', chapterId = null) {
   await Promise.allSettled(rows.map((r) =>
     supa.rpc('bump_skill_mastery', {
-      p_user: userId, p_category: category, p_topic: r.topic || fallbackTopic, p_correct: r.correct,
+      p_user: userId, p_category: category,
+      p_topic: taxonomy.canonicalTopic(r.topic || fallbackTopic, { chapterId, category }),
+      p_correct: r.correct,
     })
   ));
 }
@@ -176,15 +201,16 @@ async function usedContentIds(supa, userId) {
 async function sessionScore(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   await ai.requireUser(supa, userId);
-  const { id, score = 0, maxScore = 0 } = req.body || {};
+  const { id, score = 0, maxScore = 0, answers = null } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id obligatoriu' });
   const { data: sess } = await supa.from('ai_meditatii_sessions').select('*').eq('id', id).eq('user_id', userId).single();
   if (!sess) return res.status(404).json({ error: 'Sesiunea nu există.' });
   if (!sess.payload?.contentId) return res.status(400).json({ error: 'Doar sesiunile din site se bifează pe această cale.' });
 
-  // scorul vine din browser — validat (0 ≤ scor ≤ maxim plauzibil); recalculul
-  // pe server al testelor interactive: Etapa 2 (AUDIT_AGENTI_AI.md, 2.1)
-  const { sc, mx } = clampScore(score, maxScore);
+  // scorul: RECALCULAT pe server din răspunsuri când materialul are chei (Etapa 3);
+  // altfel cel din browser, validat (0 ≤ scor ≤ maxim plauzibil)
+  const { sc, mx, needsAnswers } = await siteScore(supa, sess.payload.contentId, { answers, score, maxScore });
+  if (needsAnswers) return res.status(400).json(ANSWERS_REQUIRED);
   const best = sess.max_score ? Math.max(sess.score || 0, sc) : sc; // păstrăm cel mai bun scor
   const pct = best / mx;
   await supa.from('ai_meditatii_sessions').update({
@@ -195,7 +221,7 @@ async function sessionScore(req, res, supa) {
   try {
     await supa.rpc('bump_skill_mastery', {
       p_user: userId, p_category: med.categoryFor(medProfile || {}),
-      p_topic: nice(sess.topic || sess.payload?.siteTitle || 'general'), p_correct: pct >= 0.6,
+      p_topic: taxonomy.canonicalTopic(nice(sess.topic || sess.payload?.siteTitle || 'general'), { chapterId: sess.chapter || null, category: med.categoryFor(medProfile || {}) }), p_correct: pct >= 0.6,
     });
   } catch { /* ignorăm */ }
 
@@ -498,6 +524,14 @@ async function state(req, res, supa) {
 
   const now = Date.now();
   const dueReviews = (reviews || []).filter((r) => r.stage <= 2 && new Date(r.due_at).getTime() <= now);
+  // Etapa 3 (5.3): câte exerciții greșite sunt SCADENTE la reluare (SM-2)
+  let dueItems = 0;
+  try {
+    const { count } = await supa.from('ai_meditatii_item_reviews')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId).eq('retired', false).lte('due_at', new Date().toISOString());
+    dueItems = count || 0;
+  } catch { dueItems = 0; } // migrarea meditatii_v3.sql nerulată
   // starea temelor pentru UI: finalizată / INCOMPLETĂ (citește ambele forme —
   // status „incompleta" sau, fără migrare, feedback.complete=false) + ciorna
   const hw = (hwRaw || []).map(({ draft, ...h }) => ({
@@ -551,6 +585,7 @@ async function state(req, res, supa) {
     examScope: medProfile.memory?.exam_scope || null,
     focusOptions: med.focusPool(medProfile, plan).map(({ id, title, group }) => ({ id, title, group })),
     dueReviews: dueReviews.map((r) => ({ ...r, chapterTitle: chapterTitles[r.chapter] || r.chapter })),
+    dueItems, // exerciții greșite scadente la reluare (Etapa 3, 5.3)
     homework: hw,
     pendingHomework: pendingHw.length,
     incompleteHomework: hw.filter((h) => h.incomplete).length,
@@ -810,9 +845,12 @@ async function exercises(req, res, supa) {
 
   const level = medProfile.level || 'mediu';
   const reqDiff = String(req.body?.difficulty || '').trim();
+  // Etapa 3 (5.2): dificultatea EFECTIVĂ — ce cere clientul, altfel recomandarea
+  // de după ultimul set (memory.nextDifficulty), altfel nivelul recalculat
+  const nextDiff = medProfile.memory?.nextDifficulty;
   const difficulty = ['ușor', 'mediu', 'greu'].includes(reqDiff)
     ? reqDiff
-    : (level === 'incepator' ? 'ușor' : level === 'avansat' ? 'greu' : 'mediu');
+    : (['ușor', 'mediu', 'greu'].includes(nextDiff) ? nextDiff : med.difficultyForLevel(level));
   const count = Math.min(12, Math.max(5, parseInt(req.body?.count, 10) || 10));
 
   // 1) SITE-FIRST (cerința 1, runda 5): dacă există un exercițiu interactiv în
@@ -851,7 +889,7 @@ async function exercises(req, res, supa) {
 
   // 3) setul generat după modelul din site (Claude Opus 5, fallback existent)
   const { questions, provider, usage } = await med.genQuestions(supa, {
-    category: med.categoryFor(medProfile), chapter: chapter.title,
+    category: med.categoryFor(medProfile), chapter: chapter.title, chapterId: chapter.id,
     topics: chapter.topics || [], difficulty, count,
     purpose: 'exersare', styleNote: styleNoteOf(medProfile),
   });
@@ -874,6 +912,88 @@ async function exercises(req, res, supa) {
     difficulty, questions: sanitize(questions),
     siteExercises: siteItems.map((s) => ({ id: s.id, title: s.title, url: `/exercitiu?id=${s.id}`, is_free: s.is_free })),
   });
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Etapa 3 (5.3): CARDURILE DE REPETIȚIE pe ITEMI (SM-2)
+// Fiecare exercițiu greșit devine un card; recapitulările îl reiau după 1 zi,
+// apoi la intervale tot mai lungi, până la 3 reușite consecutive („învățat").
+// Tabela e opțională: fără supabase/meditatii_v3.sql totul merge ca înainte.
+// ═════════════════════════════════════════════════════════════════════════════
+const SR_TABLE = 'ai_meditatii_item_reviews';
+// „oprit" DOAR când tabela chiar lipsește (migrarea nerulată). O eroare
+// trecătoare (timeout, 5xx) nu trebuie să dezactiveze funcția pentru toată
+// instanța — de aceea latch-ul se pune doar pe semnătura de „relation missing".
+let srOff = false;
+const MISSING_RE = /does not exist|schema cache|PGRST\d*20|42P01|could not find/i;
+function srWarn(e) {
+  const msg = String(e?.message || e || '');
+  if (MISSING_RE.test(msg)) {
+    if (!srOff) console.warn('meditatii: repetiția pe itemi indisponibilă (%s) — rulează supabase/meditatii_v3.sql', msg);
+    srOff = true;
+  } else {
+    console.warn('meditatii: repetiția pe itemi a eșuat de data asta (%s) — reîncerc data viitoare', msg);
+  }
+}
+async function addItemReviews(supa, userId, sess, wrongRows, mistakeIds = []) {
+  if (srOff || !wrongRows.length) return;
+  const rows = wrongRows.slice(0, 12).map((r, i) => ({
+    user_id: userId, mistake_id: mistakeIds[i] || null,
+    chapter: sess.chapter || null, topic: r.topic || sess.topic || null,
+    statement: String(r.statement || '').slice(0, 2000),
+    options: Array.isArray(r.options) ? r.options : null,
+    answer: String(Array.isArray(r.options) ? r.answer : (r.answer ?? '')).slice(0, 500),
+    explanation: r.explanation ? String(r.explanation).slice(0, 2000) : null,
+    due_at: new Date(Date.now() + 86400000).toISOString(),
+  })).filter((r) => r.statement.length > 5);
+  if (!rows.length) return;
+  try {
+    const { error } = await supa.from(SR_TABLE).insert(rows);
+    if (error) throw new Error(error.message);
+  } catch (e) { srWarn(e); }
+}
+// Itemii reluați dintr-o recapitulare (payload.itemIds[i]) → actualizare SM-2
+async function updateItemReviews(supa, userId, sess, results) {
+  const ids = sess.payload?.itemIds;
+  if (srOff || !Array.isArray(ids) || !ids.length) return 0;
+  let n = 0;
+  for (let i = 0; i < ids.length && i < results.length; i++) {
+    const id = ids[i];
+    if (!id) continue;
+    try {
+      const { data: card } = await supa.from(SR_TABLE).select('*').eq('id', id).eq('user_id', userId).maybeSingle();
+      if (!card) continue;
+      const next = med.sm2Next(card, !!results[i]?.correct);
+      await supa.from(SR_TABLE).update(next).eq('id', id);
+      if (next.retired && card.mistake_id) {
+        await supa.from('ai_meditatii_mistakes').update({ remediated: true }).eq('id', card.mistake_id).eq('user_id', userId);
+      }
+      n++;
+    } catch (e) { srWarn(e); break; }
+  }
+  return n;
+}
+// Cardurile scadente (cele mai vechi întâi)
+async function dueItemReviews(supa, userId, { chapter = null, limit = 5 } = {}) {
+  if (srOff) return [];
+  try {
+    let q = supa.from(SR_TABLE).select('*').eq('user_id', userId).eq('retired', false)
+      .lte('due_at', new Date().toISOString()).order('due_at', { ascending: true }).limit(limit);
+    if (chapter) q = q.eq('chapter', chapter);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return data || [];
+  } catch (e) { srWarn(e); return []; }
+}
+// Card → întrebare în formatul setului (grilă cu index sau răspuns liber)
+function itemToQuestion(card) {
+  const options = Array.isArray(card.options) && card.options.length ? card.options : undefined;
+  const answer = options ? (parseInt(card.answer, 10) || 0) : String(card.answer ?? '');
+  return {
+    statement: card.statement, options, answer,
+    explanation: card.explanation || '', chapter: card.chapter || undefined, topic: card.topic || undefined,
+    repeated: true, // exercițiu RELUAT din repetiția inteligentă
+  };
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -904,11 +1024,15 @@ async function submitSet(req, res, supa) {
   })), { supa, userId });
   const errorTypes = { ...(medProfile?.memory?.errorTypes || {}) };
   const mistakeRows = [];
+  const mistakeItems = []; // ACELEAȘI itemi, în ACEEAȘI ordine ca mistakeRows (pentru carduri)
+  const seenWrong = new Set();
   analysis.forEach((a) => {
     const r = wrong[a.index];
-    if (!r) return;
+    if (!r || seenWrong.has(a.index)) return; // un index repetat în analiză nu dublează rândul
+    seenWrong.add(a.index);
     r.errorType = a.errorType; r.analysis = a.analysis;
     errorTypes[a.errorType] = (errorTypes[a.errorType] || 0) + 1;
+    mistakeItems.push(r);
     mistakeRows.push({
       user_id: userId, chapter: sess.chapter, topic: r.topic || sess.topic,
       error_type: a.errorType, statement: r.statement,
@@ -921,10 +1045,21 @@ async function submitSet(req, res, supa) {
   if (mistakeRows.length) {
     const { data: ins } = await supa.from('ai_meditatii_mistakes').insert(mistakeRows).select('id');
     mistakeIds = (ins || []).map((m) => m.id);
+    // Etapa 3 (5.3): fiecare exercițiu greșit devine un CARD DE REPETIȚIE —
+    // recapitulările îl reiau după 1 zi, apoi tot mai rar, până e învățat.
+    // La o RECAPITULARE, itemii care VIN dintr-un card nu primesc încă unul
+    // (cardul lor e doar reprogramat de updateItemReviews) — altfel fiecare
+    // reluare greșită ar dubla cardurile.
+    const fromCard = new Set((sess.payload?.itemIds || []).map((id, i) => (id ? i : -1)).filter((i) => i >= 0));
+    const cards = [], cardMistakeIds = [];
+    mistakeItems.forEach((r, i) => { if (!fromCard.has(r.index)) { cards.push(r); cardMistakeIds.push(mistakeIds[i] || null); } });
+    await addItemReviews(supa, userId, sess, cards, cardMistakeIds);
   }
 
   // stăpânirea pe subiecte (în paralel — corectarea era lentă la 10+ itemi)
-  await bumpMasteryAll(supa, userId, med.categoryFor(medProfile || {}), graded.results, sess.topic || 'general');
+  await bumpMasteryAll(supa, userId, med.categoryFor(medProfile || {}), graded.results, sess.topic || 'general', sess.chapter || null);
+  // itemii reluați din repetiție (recapitulare) → SM-2: corect = interval mai lung
+  const itemsReviewed = await updateItemReviews(supa, userId, sess, graded.results);
 
   // sesiunea + timpul + streak
   await supa.from('ai_meditatii_sessions').update({
@@ -985,6 +1120,28 @@ async function submitSet(req, res, supa) {
     await supa.from('ai_meditatii_mistakes').update({ remediated: true }).eq('id', sess.payload.mistakeId).eq('user_id', userId);
   }
 
+  // ── Etapa 3 (5.2): NIVELUL se recalculează după fiecare set ──
+  // media exponențială a ultimelor 3 seturi de exerciții/teme/remediere;
+  // dificultatea următorului set urmează nivelul (clientul trimite difficulty:null)
+  let levelChange = null;
+  if (['exercitii', 'remediere', 'tema', 'recapitulare'].includes(sess.kind)) {
+    const { data: last } = await supa.from('ai_meditatii_sessions')
+      .select('score, max_score, completed_at').eq('user_id', userId).eq('status', 'finalizata')
+      .in('kind', ['exercitii', 'remediere', 'tema', 'recapitulare'])
+      .not('max_score', 'is', null).order('completed_at', { ascending: false }).limit(3);
+    const scores = (last || []).filter((r) => r.max_score > 0).map((r) => (r.score || 0) / r.max_score);
+    const lv = med.levelFromScores(scores, medProfile?.level || null);
+    const mem = { ...(profPatch.memory || {}) };
+    if (lv.ema != null) mem.levelEma = lv.ema;
+    // dificultatea următorului set: după rezultatul de ACUM (funcția 15)
+    mem.nextDifficulty = graded.pct >= 0.9 ? 'greu' : graded.pct < 0.5 ? 'ușor' : null;
+    profPatch.memory = mem;
+    if (lv.level && lv.level !== (medProfile?.level || null) && scores.length >= 2) {
+      profPatch.level = lv.level;
+      levelChange = { from: medProfile?.level || null, to: lv.level, ema: lv.ema };
+    }
+  }
+
   await supa.from('ai_meditatii_profile').update(profPatch).eq('user_id', userId);
 
   // adaptarea dificultății (funcția 15) — recomandarea pasului următor
@@ -992,6 +1149,12 @@ async function submitSet(req, res, supa) {
   if (graded.pct >= 0.9) nextStep = { kind: 'harder', label: 'Excelent! Următorul set va fi puțin mai dificil.' };
   else if (graded.pct < 0.5) nextStep = { kind: 'easier', label: 'Simplificăm puțin și reluăm noțiunile de bază, pas cu pas.' };
   else nextStep = { kind: 'same', label: 'Bine! Mai exersăm o dată la același nivel ca să fixăm.' };
+  if (levelChange) {
+    nextStep = {
+      kind: levelChange.to === 'avansat' ? 'harder' : levelChange.to === 'incepator' ? 'easier' : nextStep.kind,
+      label: `${nextStep.label} Nivelul tău a trecut pe „${levelChange.to === 'incepator' ? 'începător' : levelChange.to}" — exercițiile se potrivesc de acum acolo.`,
+    };
+  }
 
   // părinții asociați află că s-a lucrat azi (dedup: o dată pe zi)
   const kindLabels = { exercitii: 'exerciții', remediere: 'exerciții de remediere', recapitulare: 'o recapitulare', simulare: 'o simulare de examen', tema: 'o temă' };
@@ -1002,7 +1165,7 @@ async function submitSet(req, res, supa) {
   return res.status(200).json({
     score: graded.correct, maxScore: graded.total, pct: Math.round(graded.pct * 100),
     results: graded.results, mistakeIds, chapterDone, reviewAdvanced, nextStep,
-    streakDays: streak.streak_days,
+    streakDays: streak.streak_days, levelChange, itemsReviewed,
   });
 }
 
@@ -1021,7 +1184,7 @@ async function remediation(req, res, supa) {
 
   const medProfile = await getMedProfile(supa, userId);
   const { questions, provider, usage } = await med.genQuestions(supa, {
-    category: med.categoryFor(medProfile || {}), chapter: mistake.chapter,
+    category: med.categoryFor(medProfile || {}), chapter: mistake.chapter, chapterId: mistake.chapter,
     topics: [mistake.topic].filter(Boolean), difficulty: 'mediu', count: 10,
     purpose: 'remediere', mistake, styleNote: styleNoteOf(medProfile),
   });
@@ -1047,7 +1210,7 @@ async function pickAndAssignHomework(supa, userId, medProfile, { notify = true, 
   // subiectelor alese la pregătirea de examen (exam_scope)
   const chapter = med.nextChapter(plan, planPriority(medProfile)) || (plan.chapters || [])[0] || null;
   const level = medProfile.level || 'mediu';
-  const difficulty = level === 'incepator' ? 'ușor' : level === 'avansat' ? 'greu' : 'mediu';
+  const difficulty = med.difficultyForLevel(level);
   const dueAt = new Date(Date.now() + 3 * 86400000).toISOString();
 
   // NU dăm de două ori același material ca temă (indiferent de status) — cerința 8
@@ -1062,10 +1225,13 @@ async function pickAndAssignHomework(supa, userId, medProfile, { notify = true, 
   const alreadyAssigned = (allHw || []).map((h) => h.content_id).filter(Boolean);
 
   // 1) ÎNTÂI: un exercițiu interactiv EXISTENT în site, nefinalizat și NEDAT încă
+  // Etapa 3 (5.4): tema din site trebuie să se POTRIVEASCĂ pe capitol (minMatch)
+  // — altfel primea orice test nefăcut din categorie, etichetat cu capitolul.
+  // Fără capitol (temă generală) rămâne alegerea liberă, ca înainte.
   const site = await med.siteInteractiveFor(supa, {
     userId, categories: [med.categoryFor(medProfile), med.classCategory(medProfile)],
     topics: chapter ? [chapter.title, ...(chapter.topics || [])] : [], limit: 1,
-    excludeIds: alreadyAssigned,
+    minMatch: !!chapter, excludeIds: alreadyAssigned,
   });
   let hwRow = null;
   if (site.length) {
@@ -1080,7 +1246,7 @@ async function pickAndAssignHomework(supa, userId, medProfile, { notify = true, 
   } else if (chapter) {
     // 2) site epuizat → generăm după modelul din site (Opus 5 / fallback)
     const { questions, usage } = await med.genQuestions(supa, {
-      category: med.categoryFor(medProfile), chapter: chapter.title,
+      category: med.categoryFor(medProfile), chapter: chapter.title, chapterId: chapter.id,
       topics: chapter.topics || [], difficulty, count: 8,
       purpose: 'tema', styleNote: styleNoteOf(medProfile),
     });
@@ -1238,16 +1404,16 @@ async function homeworkFinalize(req, res, supa) {
 async function homeworkScore(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   await ai.requireUser(supa, userId);
-  const { id, score = 0, maxScore = 0 } = req.body || {};
+  const { id, score = 0, maxScore = 0, answers = null } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id obligatoriu' });
   const { data: hw } = await supa.from('ai_meditatii_homework').select('*').eq('id', id).eq('user_id', userId).single();
   if (!hw) return res.status(404).json({ error: 'Tema nu există.' });
   if (hw.kind !== 'content') return res.status(400).json({ error: 'Doar temele din site se bifează pe această cale.' });
 
-  // scorul vine din browser (testul HTML îl calculează singur) — îl validăm
-  // (0 ≤ scor ≤ maxim, maxim plauzibil); recalculul pe server al testelor
-  // interactive e planificat în Etapa 2 (vezi AUDIT_AGENTI_AI.md, 2.1)
-  const { sc, mx } = clampScore(score, maxScore);
+  // scorul: RECALCULAT pe server din răspunsuri când materialul are chei (Etapa 3);
+  // altfel cel din browser, validat (0 ≤ scor ≤ maxim plauzibil)
+  const { sc, mx, needsAnswers } = await siteScore(supa, hw.content_id, { answers, score, maxScore });
+  if (needsAnswers) return res.status(400).json(ANSWERS_REQUIRED);
   const best = hw.max_score ? Math.max(hw.score || 0, sc) : sc; // păstrăm cel mai bun scor
   const pct = best / mx;
   // nota cu 10 p din oficiu, 2 zecimale; testele „din 100" îl au deja inclus (med.notaTest)
@@ -1284,7 +1450,7 @@ async function homeworkScore(req, res, supa) {
   try {
     await supa.rpc('bump_skill_mastery', {
       p_user: userId, p_category: content?.category || 'general',
-      p_topic: (hw.topic || hw.title || 'general').replace(/_/g, ' '), p_correct: pct >= 0.6,
+      p_topic: taxonomy.canonicalTopic((hw.topic || hw.title || 'general').replace(/_/g, ' '), { chapterId: hw.chapter || null, category: content?.category || null }), p_correct: pct >= 0.6,
     });
   } catch { /* ignorăm */ }
   const medProfile = await getMedProfile(supa, userId);
@@ -1398,21 +1564,38 @@ async function reviewStart(req, res, supa) {
   const plan = medProfile?.plan || {};
   const chapter = (plan.chapters || []).find((c) => c.id === rev.chapter) || { title: rev.topic || rev.chapter, topics: [] };
 
-  const { questions, provider, usage } = await med.genQuestions(supa, {
-    category: med.categoryFor(medProfile || {}), chapter: chapter.title,
-    topics: chapter.topics || [], difficulty: 'mediu', count: 5,
-    purpose: 'recapitulare', styleNote: styleNoteOf(medProfile),
-  });
-  await ai.logUsage(supa, userId, 'ai-meditatii:review', usage || {});
+  // Etapa 3 (5.3): recapitularea începe cu EXERCIȚIILE GREȘITE scadente (SM-2) —
+  // se reia exact ce n-a mers — și se completează cu itemi noi până la 5.
+  const due = await dueItemReviews(supa, userId, { chapter: rev.chapter, limit: 3 });
+  const repeated = due.map(itemToQuestion);
+  const itemIds = due.map((c) => c.id);
+  const need = Math.max(0, 5 - repeated.length);
+
+  let fresh = [], provider = null;
+  if (need > 0) {
+    const g = await med.genQuestions(supa, {
+      category: med.categoryFor(medProfile || {}), chapter: chapter.title, chapterId: rev.chapter,
+      topics: chapter.topics || [], difficulty: 'mediu', count: need,
+      purpose: 'recapitulare', styleNote: styleNoteOf(medProfile),
+    });
+    fresh = g.questions; provider = g.provider;
+    await ai.logUsage(supa, userId, 'ai-meditatii:review', g.usage || {});
+  }
+  const questions = [...repeated, ...fresh];
   if (!questions.length) return res.status(502).json({ error: 'Recapitularea nu a putut fi generată. Mai încearcă.' });
-  questions.forEach((q) => { q.chapter = rev.chapter; q.topic = q.topic || chapter.title; });
+  questions.forEach((q) => { q.chapter = q.chapter || rev.chapter; q.topic = q.topic || chapter.title; });
 
   const { data: sess, error } = await supa.from('ai_meditatii_sessions').insert({
     user_id: userId, kind: 'recapitulare', chapter: rev.chapter, topic: chapter.title,
-    status: 'activa', payload: { questions, provider, reviewId },
+    status: 'activa',
+    // itemIds[i] = cardul de repetiție al întrebării i (null pentru itemii noi)
+    payload: { questions, provider, reviewId, itemIds: [...itemIds, ...fresh.map(() => null)] },
   }).select('id').single();
   if (error) return res.status(500).json({ error: error.message });
-  return res.status(200).json({ sessionId: sess.id, chapterTitle: chapter.title, stage: rev.stage, questions: sanitize(questions) });
+  return res.status(200).json({
+    sessionId: sess.id, chapterTitle: chapter.title, stage: rev.stage,
+    repeated: repeated.length, questions: sanitize(questions),
+  });
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

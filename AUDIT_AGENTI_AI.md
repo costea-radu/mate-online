@@ -283,8 +283,15 @@ verificator independent + mathjs) → 1.1 (pagina PDF la model; lucrări scrise 
 · 2.5 (politica de confidențialitate) · ce a rămas din etapele 1–2: recalculul pe server al scorurilor testelor
 HTML (2.1), Structured Outputs pe `ai-exam` (DSL-ul figurilor) și pe `exgen`/`ai-exercise-agent` (1.2).
 
-> **Stare (22 august 2026):** Etapa 1 și Etapa 2 sunt implementate — vezi `CHANGELOG-REPARATII.md`,
-> intrările „22 august 2026 (5)” și „(6)”. Decizia de la 1.4 se ia acum cu `npm run eval` (`eval/README.md`).
+> **Stare (23 august 2026):** Etapele 1, 2 și 3 sunt implementate — vezi `CHANGELOG-REPARATII.md`,
+> intrările „22 august 2026 (5)”, „(6)” și „23 august 2026”. Decizia de la 1.4 se ia cu `npm run eval`
+> (`eval/README.md`). După deploy: rulează `supabase/ai_rag_v2.sql` + `supabase/meditatii_v3.sql`, apoi
+> „🔄 Reindexează tot” și „🏷 Unifică subiectele” din panoul admin.
+>
+> Ce a rămas deliberat pe dinafară: OCR pentru PDF-urile scanate (fragmentele lor rămân metadate),
+> `exgen`/`ai-exercise-agent` pe ramurile HTML (rămân text liber, cu gărzile de completitudine),
+> și interzicerea scrierii scorurilor direct din browser (`supabase/progress_server_only.sql` —
+> opțional, de rulat după ce verifici că salvarea pe server merge).
 
 ---
 

@@ -12,6 +12,7 @@
 // =====================================================================
 const ai = require('./_lib/ai');
 const mathcheck = require('./_lib/mathcheck'); // echivalența matematică (Etapa 2)
+const taxonomy = require('./_lib/taxonomy');   // subiectele canonice (Etapa 3, 5.1)
 const { S } = ai;
 
 // Tokenul exercițiului (răspuns + rezolvare, semnat HMAC) expiră după 24h —
@@ -200,7 +201,8 @@ Răspunde STRICT cu JSON:
   // Actualizăm stăpânirea competenței (medie exponențială).
   try {
     await supa.rpc('bump_skill_mastery', {
-      p_user: userId, p_category: data.category, p_topic: data.topic, p_correct: !!parsed.correct,
+      // subiectul, adus la eticheta din taxonomie — o singură cheie per competență (Etapa 3, 5.1)
+      p_user: userId, p_category: data.category, p_topic: taxonomy.canonicalTopic(data.topic, { category: data.category }), p_correct: !!parsed.correct,
     });
 
     // Detecție stagnare: dacă elevul rămâne slab la subiect după mai multe încercări,

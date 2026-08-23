@@ -24,7 +24,8 @@ export default function InteractiveViewer() {
   const [iframeKey, setIframeKey] = useState(0); // se incrementează → exercițiul se reîncarcă de la zero
   const startedAtRef = useRef(Date.now());
   const iframeRef = useRef(null);
-  const realScoreAtRef = useRef(0);   // când a sosit ultimul MATE_SCORE autentic
+  const realScoreAtRef = useRef(0);
+  const lastAnswersRef = useRef(null); // răspunsurile citite din pagină (bridge)   // când a sosit ultimul MATE_SCORE autentic
   const hintTimerRef = useRef(null);  // hint în așteptare (plasa de siguranță)
 
   // ─── Profesorul Virtual lângă exercițiu ───────────────────────────────────
@@ -119,14 +120,18 @@ export default function InteractiveViewer() {
 
   // ─── Salvare progres primit de la iframe ────────────────────────────────────
   useEffect(() => {
-    async function saveScore(score, maxScore) {
+    async function saveScore(score, maxScore, answers = null) {
       if (typeof score !== 'number' || typeof maxScore !== 'number') return;
       if (!user || !item) return;
+      // răspunsurile elevului (din mesajul testului sau citite din pagină de
+      // bridge): serverul RECALCULEAZĂ scorul din cheile materialului (Etapa 3)
+      const raw = Array.isArray(answers) && answers.length ? answers : lastAnswersRef.current;
+      const ans = Array.isArray(raw) && raw.length ? raw.slice(0, 60) : null;
 
       // TEMĂ de la Meditatorul AI (deschisă cu ?temaId=...): se bifează DIRECT
       // pe server, independent de salvarea în `progress` — drumul sigur.
       if (temaId) {
-        aiClient.meditatii({ action: 'homework_score', id: temaId, score, maxScore })
+        aiClient.meditatii({ action: 'homework_score', id: temaId, score, maxScore, answers: ans })
           .then((r) => { if (r?.ok) setHwMarked({ grade: r.grade }); })
           .catch(() => {});
       }
@@ -135,7 +140,7 @@ export default function InteractiveViewer() {
       // site): rezultatul intră în planul de meditații, predicția notei și
       // rapoartele pentru părinți/profesori.
       if (medSesId) {
-        aiClient.meditatii({ action: 'session_score', id: medSesId, score, maxScore })
+        aiClient.meditatii({ action: 'session_score', id: medSesId, score, maxScore, answers: ans })
           .then((r) => { if (r?.ok) setMedMarked({ pct: r.pct }); })
           .catch(() => {});
       }
@@ -143,6 +148,32 @@ export default function InteractiveViewer() {
       // Timpul petrecut în această sesiune (secunde) + cumulul anterior
       const sessionSeconds = Math.max(0, Math.round((Date.now() - startedAtRef.current) / 1000));
 
+      // 1) Drumul sigur (Etapa 3): serverul verifică răspunsurile (când le are)
+      //    și scrie `progress` cu rolul de serviciu; fără răspunsuri (teste
+      //    încărcate manual) salvează scorul trimis, plafonat
+      {
+        try {
+          const r = await aiClient.scoreSubmit({ contentId: item.id, answers: ans, score, maxScore, durationSec: sessionSeconds });
+          if (r?.ok) {
+            setScoreSaved(true);
+            setSavedScore({ score: r.score, maxScore: r.maxScore, verified: !!r.verified });
+            setSaveError(null);
+            startedAtRef.current = Date.now();
+            aiClient.meditatii({ action: 'homework_check' }).catch(() => {});
+            awardBadges(user.id, { score: r.score, maxScore: r.maxScore, attempts: r.attempts || 1, category: item.category })
+              .then((earned) => { if (earned.length) setNewBadges(earned); })
+              .catch(() => {});
+            return;
+          }
+        } catch (e) {
+          // serverul a respins scorul neverificat (pagină veche în cache):
+          // NU îl salvăm pe drumul vechi — elevul reîncarcă și rezolvă din nou
+          if (/verific/i.test(e?.message || '')) { setSaveError(e.message); return; }
+          console.warn('ai-score indisponibil, salvez direct:', e?.message);
+        }
+      }
+
+      // 2) Drumul vechi — doar dacă serverul nu a răspuns (scriere directă, RLS)
       try {
         // Citește înregistrarea existentă pentru a cumula încercări și timp
         let existing = null;
@@ -242,7 +273,7 @@ export default function InteractiveViewer() {
         // Scorul autentic, trimis de codul testului — are întotdeauna prioritate.
         realScoreAtRef.current = Date.now();
         if (hintTimerRef.current) { clearTimeout(hintTimerRef.current); hintTimerRef.current = null; }
-        saveScore(d.score, d.maxScore);
+        saveScore(d.score, d.maxScore, d.answers);
         return;
       }
 
@@ -274,6 +305,9 @@ export default function InteractiveViewer() {
     function onTutorMsg(event) {
       const d = event.data;
       if (event.source === window || !d || typeof d !== 'object') return;
+      // răspunsurile elevului, citite din pagină de bridge (Etapa 3): serverul
+      // recalculează scorul din ele, chiar dacă testul e un HTML mai vechi
+      if (d.type === 'MATE_ANSWERS' && Array.isArray(d.answers)) { lastAnswersRef.current = d.answers; return; }
       if (d.type === 'MATE_TUTOR_STATE' && d.payload) setExState(d.payload);
       if (d.type === 'MATE_TUTOR_OPEN') {
         if (d.payload) setExState(d.payload);

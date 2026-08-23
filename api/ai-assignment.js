@@ -212,7 +212,8 @@ async function submit(req, res, supa) {
     try {
       const ratio = outScore / outMax;
       await supa.rpc('bump_skill_mastery', {
-        p_user: userId, p_category: a.category || 'general', p_topic: a.topic || 'general', p_correct: ratio >= 0.6,
+        p_user: userId, p_category: a.category || 'general',
+        p_topic: require('./_lib/taxonomy').canonicalTopic(a.topic || 'general', { category: a.category }), p_correct: ratio >= 0.6,
       });
     } catch { /* ignoră */ }
   } else {
@@ -256,7 +257,12 @@ Răspunde STRICT cu JSON: {"correct":true/false,"score":0-100,"feedback":"...","
     solution = parsed.solution || p.solution || null;
 
     // actualizează și stăpânirea competenței elevului
-    try { await supa.rpc('bump_skill_mastery', { p_user: userId, p_category: p.category || 'general', p_topic: p.topic || 'general', p_correct: correct }); } catch { /* ignora */ }
+    try {
+      await supa.rpc('bump_skill_mastery', {
+        p_user: userId, p_category: p.category || 'general',
+        p_topic: require('./_lib/taxonomy').canonicalTopic(p.topic || 'general', { category: p.category }), p_correct: correct,
+      });
+    } catch { /* ignora */ }
   }
 
   // upsert rezultat: păstrăm cel mai bun scor, incrementăm încercările

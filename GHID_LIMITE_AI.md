@@ -105,6 +105,12 @@ României; „luna" = ultimele 30 de zile rulante (nu se poate „arde" totul pe
 | corectare/generare → `AI_PDF_CHAT_MODEL` / `AI_GEN_CHAT_MODEL` | → `AI_CHAT_MODEL` (modelul standard) |
 | verificatorul independent al itemilor generați → `AI_VERIFY_MODEL` (Etapa 2; default = modelul de generare) | — (plafonat de `AI_VERIFY_MAX_ITEMS` / `AI_VERIFY_TIME_MS`) |
 
+**Uneltele tutorelui (Etapa 3, tool calling).** Un răspuns în care modelul cere unelte
+(`calculate`, `check_equivalence`, `get_exercise`, `get_barem_item`) costă 2–3 apeluri în loc
+de unul — tokenii de intrare se repetă, dar răspunsul e mult mai des corect la calcule cu mai
+mulți pași. Numărul de runde e plafonat de `AI_TOOL_ROUNDS` (4), iar `AI_TOOLS=0` le oprește de
+tot. Uneltele folosite se văd în `ai_messages.metadata.tools`.
+
 Folosită în: chat (normal + streaming, inclusiv agentul PDF), corectarea de teste
 (formular + notare), generarea de teste de examen, exercițiile interactive,
 antrenament (generare + verificare), temele de la profesor, lecțiile de la meditații.

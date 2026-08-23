@@ -320,6 +320,34 @@ const BRIDGE_SCRIPT = String.raw`
     document.addEventListener(ev, function(){ userActed = true; }, true);
   });
   function parseNum(s){ return parseFloat(String(s).replace(/\s+/g, '').replace(',', '.')); }
+  // ── RĂSPUNSURILE elevului, pentru VERIFICAREA SCORULUI PE SERVER (Etapa 3) ──
+  // HTML-urile generate mai demult trimit doar procentul (fără răspunsuri).
+  // Le citim noi din pagină — câmpurile lor se numesc q0, q1, … exact ca la
+  // exercițiile generate acum — și le trimitem părintelui, care le pasează
+  // serverului: acesta recalculează punctajul din cheile materialului.
+  function collectAnswers(){
+    try {
+      var out = [], i = 0;
+      for (;;) {
+        var radios = document.querySelectorAll('input[type="radio"][name="q' + i + '"]');
+        var text = document.querySelector('input[type="text"][name="q' + i + '"], input[name="q' + i + '"]:not([type="radio"]), textarea[name="q' + i + '"]');
+        if (!radios.length && !text) break;
+        if (radios.length) {
+          var sel = document.querySelector('input[type="radio"][name="q' + i + '"]:checked');
+          out.push(sel ? Number(sel.value) : null);
+        } else out.push(String(text.value || ''));
+        i++;
+        if (i > 60) break;
+      }
+      return out.length ? out : null;
+    } catch(e){ return null; }
+  }
+  function postAnswers(){
+    var a = collectAnswers();
+    if (!a) return;
+    try { window.parent.postMessage({ type: 'MATE_ANSWERS', answers: a }, '*'); } catch(e){}
+  }
+
   function postScore(score, max, force){
     if (!isFinite(score) || !isFinite(max) || max <= 0 || score < 0 || score > max) return;
     var sig = score + '/' + max, now = Date.now();
@@ -328,7 +356,8 @@ const BRIDGE_SCRIPT = String.raw`
     if (!force && sig === lastSig) return;
     if (sig === lastSig && now - lastSigAt < 4000) return;
     lastSig = sig; lastSigAt = now;
-    try { window.parent.postMessage({ type: 'MATE_SCORE', score: Math.round(score), maxScore: Math.round(max) }, '*'); } catch(e){}
+    postAnswers(); // răspunsurile ajung ÎNAINTE de scor (părintele le trimite serverului)
+    try { window.parent.postMessage({ type: 'MATE_SCORE', score: Math.round(score), maxScore: Math.round(max), answers: collectAnswers() || undefined }, '*'); } catch(e){}
   }
   // 1) șablonul PROBS/stats/GRADED (variantele de examen încărcate)
   function scoreFromStats(){
@@ -385,6 +414,7 @@ const BRIDGE_SCRIPT = String.raw`
       if (!b) return;
       var t = (b.textContent || '').toLowerCase();
       if (/corecteaz|verific[aă]\s*(tot|toate)?$|finalizeaz|corectare/.test(t.replace(/\s+/g, ' ').trim())) {
+        postAnswers(); // și la testele „native": scorul lor nu poartă răspunsurile
         setTimeout(emitScoreHint, 500);
         setTimeout(emitScoreHint, 1500); // testele care redau scorul mai lent
       }

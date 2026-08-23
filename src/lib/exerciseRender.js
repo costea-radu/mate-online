@@ -6,6 +6,7 @@
 // Formatul `exercise` = cel produs de api/ai-exercise-agent.js.
 // =====================================================================
 import { autoMath } from './katex';
+import { ANS_EQ_SRC } from './ansEq'; // echivalența răspunsurilor („1/2” = „0,5”, „x=3” = „3”) — Etapa 2/3
 
 function esc(s = '') {
   return String(autoMath(s || '')).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -42,6 +43,7 @@ const KATEX = `<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/kate
   function rmath(){ if(window.renderMathInElement) renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false}); }
   if(window.renderMathInElement) rmath(); else window.addEventListener('load', rmath);
   function norm(s){return String(s||'').trim().toLowerCase().replace(',','.').replace(/\\s+/g,'');}
+  ${ANS_EQ_SRC}
   function showHint(i){var h=document.getElementById('hint'+i);h.style.display=h.style.display==='block'?'none':'block';rmath();}
 <\/script>`;
 
@@ -88,11 +90,11 @@ function renderGrila(ex) {
 <script>
   var D=${JSON.stringify(data).replace(/</g, '\\u003c')};
   document.getElementById('check').addEventListener('click', function(){
-    var got=0, max=0;
+    var got=0, max=0, A=[];
     for(var i=0;i<D.length;i++){
       max+=D[i].p; var ok=false;
-      if(D[i].t==='c'){ var s=document.querySelector('input[name="q'+i+'"]:checked'); ok=s&&Number(s.value)===D[i].a; }
-      else { var el=document.querySelector('input[name="q'+i+'"]'); ok=el&&norm(el.value)===norm(D[i].a); }
+      if(D[i].t==='c'){ var s=document.querySelector('input[name="q'+i+'"]:checked'); ok=s&&Number(s.value)===D[i].a; A.push(s?Number(s.value):null); }
+      else { var el=document.querySelector('input[name="q'+i+'"]'); ok=el&&ansEq(el.value,D[i].a); A.push(el?String(el.value||''):''); }
       if(ok) got+=D[i].p;
       var fb=document.getElementById('fb'+i);
       fb.className='fb '+(ok?'ok':'bad');
@@ -101,7 +103,7 @@ function renderGrila(ex) {
     rmath();
     var pct=max?Math.round(got/max*100):0;
     document.getElementById('res').innerHTML='Punctaj: '+got+' / '+max+' puncte ('+pct+'%)';
-    var MSG={type:'MATE_SCORE',score:pct,maxScore:100};
+    var MSG={type:'MATE_SCORE',score:pct,maxScore:100,answers:A,raw:{got:got,max:max}};
     try{ parent.postMessage(MSG,'*'); }catch(e){}
     try{ if(window.opener) window.opener.postMessage(MSG,'*'); }catch(e){}
   });
@@ -131,11 +133,11 @@ function renderEtape(ex) {
 <script>
   var D=${JSON.stringify(data).replace(/</g, '\\u003c')};
   document.getElementById('check').addEventListener('click', function(){
-    var got=0, max=0;
+    var got=0, max=0, A=[];
     for(var i=0;i<D.length;i++){
       max+=D[i].p;
       var el=document.querySelector('input[name="q'+i+'"]');
-      var ok=el&&norm(el.value)===norm(D[i].a);
+      var ok=el&&ansEq(el.value,D[i].a); A.push(el?String(el.value||''):'');
       if(ok) got+=D[i].p;
       var fb=document.getElementById('fb'+i);
       fb.className='fb '+(ok?'ok':'bad');
@@ -146,7 +148,7 @@ function renderEtape(ex) {
     document.getElementById('final').style.display='block';
     var pct=max?Math.round(got/max*100):0;
     document.getElementById('res').innerHTML='Punctaj: '+got+' / '+max+' puncte ('+pct+'%)';
-    var MSG={type:'MATE_SCORE',score:pct,maxScore:100};
+    var MSG={type:'MATE_SCORE',score:pct,maxScore:100,answers:A,raw:{got:got,max:max}};
     try{ parent.postMessage(MSG,'*'); }catch(e){}
     try{ if(window.opener) window.opener.postMessage(MSG,'*'); }catch(e){}
   });

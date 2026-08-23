@@ -34,8 +34,8 @@ async function post(path, body) {
 
 export const aiClient = {
   // Chat-tutor (non-streaming, fallback). mode: 'assistant' | 'tutor' | 'explain' | 'hint'
-  chat: ({ message, mode = 'tutor', conversationId = null, context = {} }) =>
-    post('/api/ai-chat', { message, mode, conversationId, context }),
+  chat: ({ message, mode = 'tutor', conversationId = null, context = {}, images = null, imageThumb = null }) =>
+    post('/api/ai-chat', { message, mode, conversationId, context, ...(images ? { images, imageThumb } : {}) }),
 
   // Chat-tutor cu STREAMING. Apelează callback-urile pe măsură ce sosesc datele.
   // onMeta({conversationId, sources}), onDelta(textFragment), onDone({messageId})
@@ -45,11 +45,13 @@ export const aiClient = {
   // `regenerate` (opțional): „Regenerează" — serverul NU mai salvează încă o
   //   dată mesajul elevului și scoate răspunsul anterior din istoricul dat
   //   modelului (altfel l-ar repeta).
-  async chatStream({ message, mode = 'tutor', conversationId = null, context = {}, regenerate = false }, { onMeta, onDelta, onDone, signal = null } = {}) {
+  // `images` (opțional, Etapa 3): pozele elevului (data URL) merg la model ca
+  //   imagini; `imageThumb` = miniatura păstrată în conversație.
+  async chatStream({ message, mode = 'tutor', conversationId = null, context = {}, regenerate = false, images = null, imageThumb = null }, { onMeta, onDelta, onDone, signal = null } = {}) {
     const session = await getValidSession();
     const userId = session?.user?.id || null;
     if (!userId) throw new Error('Trebuie să fii autentificat pentru a folosi Profesorul Virtual.');
-    const payload = () => JSON.stringify({ userId, message, mode, conversationId, context, regenerate: !!regenerate });
+    const payload = () => JSON.stringify({ userId, message, mode, conversationId, context, regenerate: !!regenerate, ...(images ? { images, imageThumb } : {}) });
     const opts = async () => ({ method: 'POST', headers: await authHeaders(), body: payload(), ...(signal ? { signal } : {}) });
     let res = await fetch('/api/ai-chat-stream', await opts());
     if (res.status === 401) { // token expirat → reîmprospătează și reîncearcă o dată
@@ -138,6 +140,9 @@ export const aiClient = {
   // submit_set · remediation · homework_assign/list/start/submit ·
   // review_start · simulare · set_style · mentor_report · reset
   meditatii: (payload) => post('/api/ai-meditatii', payload),
+  // Scorul unui test interactiv, VERIFICAT pe server din răspunsuri (Etapa 3)
+  scoreSubmit: ({ contentId, answers, score, maxScore, durationSec = 0 }) =>
+    post('/api/ai-score', { contentId, answers, score, maxScore, durationSec }),
 
   // Progres + feedback
   progress: () => post('/api/ai-progress', {}),

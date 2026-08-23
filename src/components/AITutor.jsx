@@ -4,7 +4,7 @@
 // - ChatPanel: panou de chat (streaming, istoric, feedback) — reutilizabil
 // - FloatingTutor (export implicit): butonul plutitor de pe tot site-ul
 // =====================================================================
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
 import { supabase } from '../lib/supabase';
@@ -16,6 +16,7 @@ import { ensureKatex, renderMath, autoMath } from '../lib/katex';
 import { fileToCompressedDataUrl } from '../lib/image';
 import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, stopSpeaking, playAnswer, sentencesOf } from '../lib/voice';
 import { extractTutorActions } from '../lib/tutorBridge';
+import { renderFigure, extractFigureMarkers } from '../lib/figureRender'; // figuri desenate în chat (Etapa 3)
 import { awardBadges } from '../lib/badges';
 import { notaDinScor } from '../lib/nota';
 import AIPoweredBy from './AIPoweredBy';
@@ -42,7 +43,10 @@ export function preMessage(text = '') {
     .replace(/\[\[\s*ACTIUNE[^\]]*$/i, '')
     // marcajele de meditații (pornesc pași în rubrica /meditatii) — la fel, invizibile
     .replace(/\[\[\s*MEDITATII[\s\S]*?\]\]/gi, '')
-    .replace(/\[\[\s*MEDITATII[^\]]*$/i, '');
+    .replace(/\[\[\s*MEDITATII[^\]]*$/i, '')
+    // figurile ([[FIGURA:{...}]]) se desenează sub răspuns (extractFigureMarkers) — din text dispar
+    .replace(/\[\[\s*FIGURA[\s\S]*?\]\]/gi, '')
+    .replace(/\[\[\s*FIGURA[^\]]*$/i, '');
   // linkurile absolute către site (inclusiv „.ro" greșit) devin RELATIVE → clicabile intern
   t = t.replace(/https?:\/\/(?:www\.)?examenmate\.(?:ro|com)(\/[^\s)"'<>\]]*)?/gi, (_, p) => p || '/');
   // delimitatorii \[...\] și \(...\) (scriși uneori de model) → $$/$, altfel apar cruzi în chat
@@ -250,6 +254,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [attached, setAttached] = useState(null);        // enunț extras din fotografie (editabil)
+  const [photo, setPhoto] = useState(null);              // { dataUrl, thumb } — poza merge la model CA IMAGINE (Etapa 3, 4.4)
+  const [chipsUid, setChipsUid] = useState(null);        // ultimul răspuns cu „chips" de continuare (Etapa 3, 4.5)
+  const inputRef = useRef(null);
   const [editingAttach, setEditingAttach] = useState(false);
   const [visionLoading, setVisionLoading] = useState(false);
   const fileRef = useRef(null);
@@ -471,8 +478,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   function cleanReply(raw) {
     const { text: cleanText0, actions } = extractTutorActions(raw);
     const medActions = extractMeditatiiActions(raw);
+    const { figures } = extractFigureMarkers(cleanText0); // figurile se desenează sub răspuns
     const text = fixTerminology(preMessage(cleanText0).replace(/https?:\/\/(?:www\.)?examenmate\.ro/gi, 'https://examenmate.com'));
-    return { text, actions, medActions };
+    return { text, actions, medActions, figures };
   }
 
   // send(text, { modeOverride, regenerate })
@@ -491,28 +499,37 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         // scoatem răspunsul anterior (ultimul mesaj al profesorului, dacă nu e „coach")
         if (base.length && base[base.length - 1].role === 'assistant' && !base[base.length - 1].coach) base.pop();
       } else {
-        base.push({ role: 'user', content: msg, uid: userUid });
+        base.push({ role: 'user', content: msg, uid: userUid, ...(photo?.thumb ? { image: photo.thumb } : {}) });
       }
       base.push({ role: 'assistant', content: '', streaming: true, uid });
       return base;
     });
-    setStreaming(true);
+    setStreaming(true); setChipsUid(null);
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     abortRef.current = controller;
     let acc = '';
     try {
-      const baseCtx = attached ? { ...context, exerciseText: attached } : context;
+      // Etapa 3 (4.4): textul pozei/PDF-ului încărcat e context SUPLIMENTAR
+      // (attachedText) — NU mai înlocuiește textul testului/exercițiului deschis;
+      // poza însăși merge la model ca imagine (images), cu miniatura în conversație
+      const baseCtx = attached ? { ...context, attachedText: attached } : context;
       const sendCtx = coachNoteRef.current ? { ...baseCtx, coachNote: coachNoteRef.current } : baseCtx;
+      const sendPhoto = photo; // poza merge O SINGURĂ dată (la mesajul următor)
       await aiClient.chatStream(
-        { message: msg, mode: modeOverride || mode, conversationId: convId, context: sendCtx, regenerate },
+        { message: msg, mode: modeOverride || mode, conversationId: convId, context: sendCtx, regenerate,
+          ...(sendPhoto?.dataUrl ? { images: [sendPhoto.dataUrl], imageThumb: sendPhoto.thumb || null } : {}) },
         {
           signal: controller ? controller.signal : null,
           onMeta: ({ conversationId, sources, primaryMaterial }) => { setConvId(conversationId); patchMsg(uid, { sources, primaryMaterial }); },
           onDelta: (delta) => { acc += delta; patchMsg(uid, (m) => ({ ...m, content: m.content + delta })); },
           onDone: ({ messageId }) => {
+            // poza a ajuns la profesor: nu o mai retrimitem la fiecare mesaj
+            // (transcrierea rămâne în panoul „📎", ca material de discutat)
+            if (sendPhoto) setPhoto(null);
             // extrage acțiunile [[ACTIUNE:...]] / [[MEDITATII:...]] și curăță textul afișat
-            const { text: cleanText, actions, medActions } = cleanReply(acc);
-            patchMsg(uid, { streaming: false, id: messageId, content: cleanText });
+            const { text: cleanText, actions, medActions, figures } = cleanReply(acc);
+            patchMsg(uid, { streaming: false, id: messageId, content: cleanText, figures });
+            if (cleanText.trim()) setChipsUid(uid); // butoanele de continuare sub acest răspuns
             if (onAction && actions.length) actions.slice(0, 2).forEach((a) => { try { onAction(a); } catch { /* noop */ } });
             if (medActions.length) setTimeout(() => dispatchMeditatiiAction(medActions[0], navigate, onNavigate), 600);
             if (autoRead && cleanText.trim()) {
@@ -629,7 +646,11 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     stopGenerating(); // un stream în curs nu mai scrie peste conversația încărcată
     stopPlayback();
     const msgs = await aiClient.getMessages(id);
-    setMessages(msgs.map((m) => ({ role: m.role, content: m.content, id: m.id, sources: m.metadata?.sources, primaryMaterial: m.metadata?.primaryMaterial, uid: ++uidRef.current })));
+    setMessages(msgs.map((m) => {
+      const { text, figures } = m.role === 'assistant' ? extractFigureMarkers(m.content) : { text: m.content, figures: [] };
+      return { role: m.role, content: text, id: m.id, sources: m.metadata?.sources, primaryMaterial: m.metadata?.primaryMaterial, image: m.metadata?.image || null, figures, uid: ++uidRef.current };
+    }));
+    setChipsUid(null);
     setConvId(id);
     lastSentRef.current = null; // „Regenerează" pornește doar după un mesaj trimis de aici
   }
@@ -688,6 +709,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     setVisionLoading(true); setError(null);
     try {
       if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')) {
+        setPhoto(null);
         // PDF încărcat de elev (temă, fișă, variantă) → textul lui devine
         // exercițiul atașat: se poate discuta ȘI corecta („Răspunde în chat")
         if (file.size > 3.5 * 1024 * 1024) throw new Error('PDF-ul e prea mare (max ~3.5 MB). Fotografiază exercițiul în loc.');
@@ -702,9 +724,13 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         setEditingAttach(false); // textul e de obicei lung — îl arătăm doar, se poate edita din buton
       } else {
         const dataUrl = await fileToCompressedDataUrl(file, { maxDim: 1280, quality: 0.7 });
+        // miniatura rămâne în conversație (și în istoric — metadata.image, ≤ 16 KB)
+        let thumb = null;
+        try { thumb = await fileToCompressedDataUrl(file, { maxDim: 160, quality: 0.6 }); if (thumb.length > 16_000) thumb = null; } catch { thumb = null; }
+        setPhoto({ dataUrl, thumb });
         const { problemText } = await aiClient.visionExtract({ imageBase64: dataUrl });
         setAttached(problemText || '');
-        setEditingAttach(true); // arătăm textul ca să-l poată corecta dacă e nevoie
+        setEditingAttach(!!(problemText || '').trim() && (problemText || '').length < 400); // textul scurt se poate corecta pe loc
       }
     } catch (err) {
       setError('Nu am putut citi fișierul: ' + err.message);
@@ -928,7 +954,16 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
               {m.role === 'assistant'
                 ? <MathText text={m.content || (m.streaming ? '▍' : '')} ready={!m.streaming} onInternalLink={openInternal}
                     sentences readPos={voiceState.idx === i ? voiceState.sent : null} />
-                : <div style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div>}
+                : <div style={{ whiteSpace: 'pre-wrap' }}>
+                    {m.image && <img src={m.image} alt="poza trimisă" style={{ display: 'block', maxWidth: 160, maxHeight: 120, borderRadius: 8, marginBottom: m.content ? 6 : 0, border: '1px solid rgba(255,255,255,.35)' }} />}
+                    {m.content}
+                  </div>}
+              {/* Figurile desenate de profesor ([[FIGURA:{...}]] → SVG determinist) — Etapa 3 */}
+              {m.role === 'assistant' && !m.streaming && Array.isArray(m.figures) && m.figures.length > 0 && (
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+                  {m.figures.map((f, k) => { const r = renderFigure(f); return r ? <div key={k} style={{ width: r.w, maxWidth: '100%' }} dangerouslySetInnerHTML={{ __html: r.svg }} /> : null; })}
+                </div>
+              )}
 
               {/* Rezultatul corectării: punctaj total + punctaj pe fiecare subpunct */}
               {m.correction && <CorrectionBlock r={m.correction} />}
@@ -957,6 +992,23 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                 </div>
               )}
             </div>
+
+            {/* Butoanele de continuare (Etapa 3, 4.5): sub ULTIMUL răspuns, doar pentru elevi */}
+            {m.role === 'assistant' && !m.streaming && !m.isError && !m.coach && !isMentor && m.uid === chipsUid && i === messages.length - 1 && !streaming && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 6, paddingLeft: 4, flexWrap: 'wrap' }}>
+                {FOLLOW_UPS.map((c) => (
+                  <button key={c.label} disabled={streaming} title={c.title}
+                    onClick={() => {
+                      setChipsUid(null);
+                      if (c.prefill) { setInput(c.prefill); setTimeout(() => inputRef.current?.focus(), 0); }
+                      else send(c.text, c.mode ? { modeOverride: c.mode } : {});
+                    }}
+                    style={{ ...listenBtn, background: 'rgba(232,185,49,.1)', fontWeight: 600 }}>
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Eroare la generare: „Reîncearcă" retrimite aceeași întrebare */}
             {m.role === 'assistant' && m.isError && m.retryable && i === messages.length - 1 && lastSentRef.current && (
@@ -1117,10 +1169,13 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       {attached !== null && !form && (
         <div style={{ borderTop: '1px solid var(--border)', background: '#fffdf5', padding: '10px 12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <strong style={{ fontSize: '.78rem', color: 'var(--navy)' }}>📎 Exercițiul tău (poză / PDF)</strong>
+            <strong style={{ fontSize: '.78rem', color: 'var(--navy)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              {photo?.thumb && <img src={photo.thumb} alt="" style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />}
+              📎 {photo ? 'Poza ta (merge la profesor ca imagine)' : 'Exercițiul tău (poză / PDF)'}
+            </strong>
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={() => setEditingAttach((s) => !s)} style={miniBtn}>{editingAttach ? '✓ Gata' : '✎ Editează'}</button>
-              <button onClick={() => { setAttached(null); setEditingAttach(false); }} style={miniBtn}>✕ Șterge</button>
+              <button onClick={() => { setAttached(null); setPhoto(null); setEditingAttach(false); }} style={miniBtn}>✕ Șterge</button>
             </div>
           </div>
           {editingAttach
@@ -1130,8 +1185,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
             : <div style={{ fontSize: '.85rem', color: 'var(--text)', maxHeight: 120, overflowY: 'auto' }}>
                 <MathText text={attached.length > 900 ? attached.slice(0, 900) + '…' : attached} />
               </div>}
-          {!editingAttach && attached.trim() && (
-            <button onClick={() => send('Ajută-mă cu acest exercițiu.')} disabled={streaming}
+          {!editingAttach && (attached.trim() || photo) && (
+            <button onClick={() => send(photo ? 'Uită-te la poza mea: explică-mi exercițiul sau verifică-mi rezolvarea.' : 'Ajută-mă cu acest exercițiu.')} disabled={streaming}
               style={{ marginTop: 8, background: 'var(--gold)', color: 'var(--navy)', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: '.82rem', fontWeight: 700, opacity: streaming ? 0.5 : 1 }}>
               {askAiLabel({ isTeacher, isParent })} despre el →
             </button>
@@ -1161,6 +1216,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           {listening ? '⏺️' : '🎤'}
         </button>
         <input
+          ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
@@ -1270,6 +1326,16 @@ export function TutorFab({ onOpen, label = 'Întreabă-mă orice 👇' }) {
   );
 }
 
+// Butoanele de continuare de sub răspuns (Etapa 3, 4.5) — textele trimise
+// se potrivesc cu regulile serverului („mai simplu"/„mai detaliat"/„alt exemplu"
+// relaxează verificarea față de barem; „răspunsul" merge pe modul tutor)
+const FOLLOW_UPS = [
+  { label: '🙂 Mai simplu', text: 'Explică-mi mai simplu, ca pentru un copil, același lucru.', title: 'Aceeași explicație, cu cuvinte mai simple' },
+  { label: '🔍 Mai detaliat', text: 'Explică-mi mai detaliat, cu fiecare pas și fiecare calcul scris.', title: 'Toți pașii, mărunt' },
+  { label: '🔁 Alt exemplu', text: 'Dă-mi un alt exemplu asemănător, rezolvat pas cu pas.', title: 'Un exemplu nou, de același tip' },
+  { label: '🎯 Dă-mi răspunsul', text: 'Dă-mi răspunsul final, cu rezolvarea completă.', mode: 'tutor', title: 'Rezolvarea completă și rezultatul' },
+  { label: '✅ Verifică-mi pașii', prefill: 'Verifică-mi pașii: ', title: 'Scrie cum ai rezolvat tu și profesorul verifică' },
+];
 const miniBtn = { background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px', fontSize: '.76rem', color: 'var(--text-light)', fontWeight: 600 };
 const fbBtn = { background: 'none', border: 'none', fontSize: '.95rem', cursor: 'pointer', padding: '2px 4px' };
 const listenBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid var(--gold)', color: 'var(--navy)', borderRadius: 16, padding: '3px 11px', fontSize: '.75rem', fontWeight: 700, cursor: 'pointer' };
@@ -1303,7 +1369,16 @@ export default function FloatingTutor() {
     window.addEventListener('mate:meditatii-chat', onMedChat);
     return () => window.removeEventListener('mate:meditatii-chat', onMedChat);
   }, []);
-  const chatContext = medChat?.context || (onMeditatii && !isMentorAcc ? { meditatii: true } : undefined);
+  // Etapa 3 (4.7): pe paginile generice widgetul știe UNDE e elevul — pagina +
+  // categoria dedusă din cale (/clasa-7, /evaluare-nationala, /bacalaureat…)
+  const pageContext = useMemo(() => {
+    const m = /^\/(clasa-(?:5|6|7|8|9|10|11|12)|evaluare-nationala|bacalaureat|manuale)(?:\/|$)/.exec(pathname || '');
+    const category = m ? m[1] : null;
+    let pageTitle = null;
+    try { pageTitle = (document.title || '').replace(/\s*[|·–-]\s*ExamenMate.*$/i, '').trim() || null; } catch { pageTitle = null; }
+    return { page: pathname || '/', ...(category ? { category } : {}), ...(pageTitle ? { pageTitle } : {}) };
+  }, [pathname]);
+  const chatContext = medChat?.context || (onMeditatii && !isMentorAcc ? { meditatii: true } : pageContext);
   // „Meditatorul tău": pe /meditatii widgetul e PANOU LATERAL ANDOCAT, mai mare
   // (accentul cade pe conversație — el dă de lucru), iar pagina se strânge lângă el.
   const medMode = onMeditatii && !isMentorAcc;

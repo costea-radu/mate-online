@@ -7,6 +7,8 @@
 // =====================================================================
 const ai = require('./_lib/ai');
 const { pdfText, storagePath, modeLine, cutBarem } = require('./_lib/pdftext');
+// DSL-ul figurilor + schema lui strictă (Etapa 3) — sursă unică: api/_lib/figures.js
+const { FIGURE_SPEC, FIGURE_SCHEMA, cleanFigure } = require('./_lib/figures');
 
 // ── Reparare LaTeX corupt de JSON.parse ──────────────────────────────────────
 // Modelele scriu uneori "\frac" cu un singur backslash în JSON. JSON.parse
@@ -101,6 +103,52 @@ const EXAMS = {
   },
 };
 
+// ── Schema STRICTĂ a testului (Structured Outputs, Etapa 3) ──────────────────
+// Toate cheile sunt prezente; ce nu se aplică unui item este null (stripNulls
+// readuce forma de dinainte: cheile null dispar). Figura = DSL-ul din figures.js.
+const PART_SCHEMA = ai.S.obj({
+  label: ai.S.str('eticheta subpunctului: a, b, c'),
+  text: ai.S.str('cerința subpunctului'),
+  points: ai.S.num('punctajul subpunctului'),
+  solution: ai.S.str('rezolvarea completă a subpunctului'),
+});
+const ITEM_SCHEMA = ai.S.obj({
+  number: ai.S.str('numărul itemului, ex. "1"'),
+  statement: ai.S.str('enunțul, cu formulele LaTeX între $...$'),
+  options: ai.S.nullable(ai.S.arr(ai.S.str(), 'variantele la grilă (4; la I.6 EN: 2 — Adevărat/Fals); null la itemii fără variante')),
+  answer: ai.S.nullable(ai.S.str('litera variantei corecte (a–d) la grilă; răspunsul final la itemii cu răspuns scurt; null la problemele cu subpuncte')),
+  points: ai.S.nullable(ai.S.num('punctajul itemului; null când punctele sunt pe subpuncte')),
+  solution: ai.S.nullable(ai.S.str('rezolvarea / justificarea scurtă; null la problemele cu subpuncte')),
+  parts: ai.S.nullable(ai.S.arr(PART_SCHEMA, 'subpunctele problemei (a, b…); null la itemii simpli')),
+  figure: ai.S.nullable(FIGURE_SCHEMA),
+});
+const EXAM_SCHEMA = ai.S.obj({
+  title: ai.S.str('titlul testului'),
+  durationMin: ai.S.int('durata în minute'),
+  subjects: ai.S.arr(ai.S.obj({
+    label: ai.S.str('SUBIECTUL I / SUBIECTUL al II-lea / SUBIECTUL al III-lea'),
+    points: ai.S.num('punctajul subiectului (30)'),
+    instructions: ai.S.nullable(ai.S.str('instrucțiunile subiectului')),
+    items: ai.S.arr(ITEM_SCHEMA),
+  })),
+});
+// scoate cheile null (forma clasică a testului) și curăță figurile
+function stripNulls(obj) {
+  if (Array.isArray(obj)) return obj.map(stripNulls);
+  if (obj && typeof obj === 'object') {
+    const o = {};
+    for (const k of Object.keys(obj)) { if (obj[k] === null || obj[k] === undefined) continue; o[k] = stripNulls(obj[k]); }
+    return o;
+  }
+  return obj;
+}
+function cleanExamFigures(exam) {
+  (exam.subjects || []).forEach((sub) => (sub.items || []).forEach((it) => {
+    if (it && it.figure != null) { const f = cleanFigure(it.figure); if (f) it.figure = f; else delete it.figure; }
+  }));
+  return exam;
+}
+
 const JSON_RULE = `IMPORTANT pentru JSON valid: scrie fiecare backslash din comenzile LaTeX de DOUĂ ori (backslash dublu). Exemple corecte în JSON: pentru fracție folosește \\\\frac{...}{...}, pentru radical \\\\sqrt{...}, pentru înmulțire \\\\cdot, pentru unghi \\\\angle. Formulele se pun între $...$.`;
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -149,8 +197,11 @@ ${spec ? `Conținutul cerut pentru această poziție: ${spec}\n` : ''}Forma item
 ${JSON_RULE}
 Răspunde STRICT cu un obiect JSON: {"item": {...}}`;
   const user = `ITEMUL VECHI (de înlocuit):\n${JSON.stringify(old).slice(0, 3000)}\n\nScrie itemul nou acum.`;
-  const r = await ai.chatJson({ system, messages: [{ role: 'user', content: user }], temperature: 0.6, maxTokens: 1800, model, restoreLatex: false });
-  const item = deepRestore(r.data?.item || r.data);
+  const r = await ai.chatJson({
+    system, messages: [{ role: 'user', content: user }], temperature: 0.6, maxTokens: 1800, model, restoreLatex: false,
+    schema: ai.S.obj({ item: ITEM_SCHEMA }), schemaName: 'item_test', // Structured Outputs (Etapa 3)
+  });
+  const item = cleanExamFigures({ subjects: [{ items: [deepRestore(stripNulls(r.data?.item || r.data))] }] }).subjects[0].items[0];
   if (!item || typeof item !== 'object' || !String(item.statement || '').trim()) throw new Error('item regenerat invalid');
   item.number = old.number;
   if (Array.isArray(old.options) && !Array.isArray(item.options)) throw new Error('itemul regenerat nu mai e grilă');
@@ -233,29 +284,8 @@ async function verifyAndRepairExam(exam, { examType, model, supa, userId }) {
 
 // ── Specificația figurilor geometrice: AI-ul descrie figura ca obiect JSON,
 //    iar clientul o desenează determinist (src/lib/figureRender.js) — figura
-//    apare sub enunț, în dreapta paginii, ca în subiectele oficiale. ─────────
-const FIGURE_SPEC = `FIGURI GEOMETRICE — cheia "figure" a itemului:
-- OBLIGATORIU la TOȚI itemii Subiectului al II-lea (II.1–II.6) și la problemele III.3, III.4, III.5, III.6.
-- NU pune "figure" la Subiectul I și nici la problemele III.1 și III.2 (sunt de algebră).
-- Figura trebuie să corespundă EXACT enunțului: aceleași litere, același tip de configurație.
-- "type" poate fi: segment, unghi, triunghi, patrat, dreptunghi, paralelogram, romb, trapez, cerc, xOy, cub, paralelipiped, prisma, piramida, con, cilindru, sfera, trunchi-con, trunchi-piramida.
-- Formatele pe tipuri (folosește DOAR cheile de mai jos):
-  · segment: {"type":"segment","labels":["A","B","C","D"]} — punctele de pe dreaptă, în ordine; opțional "pozitii":[0,0.5,0.75,1] (fracții 0..1, câte una pentru fiecare literă).
-  · unghi: {"type":"unghi","varf":"O","raze":["A","M","B"]} — semidreptele care pleacă din vârf, în ordinea rotirii (pentru bisectoare pune litera bisectoarei între laturile unghiului).
-  · triunghi: {"type":"triunghi","variant":"oarecare|isoscel|echilateral|dreptunghic","labels":["A","B","C"]} — labels[0] = vârful de sus, apoi stânga-jos, dreapta-jos; la "dreptunghic" adaugă "unghi_drept":"B" (litera vârfului cu unghiul drept). Opțional "inaltime":{"din":"A","picior":"D"}.
-  · patrat/dreptunghi/paralelogram/romb/trapez: {"type":"...","labels":["A","B","C","D"]} — conturul în ordinea: A=stânga-jos, B=dreapta-jos, C=dreapta-sus, D=stânga-sus. La trapez: "variant":"oarecare|dreptunghic|isoscel" (bazele sunt AB — mare, jos — și DC — mică, sus). Opțional "diagonale":true.
-  · Puncte pe laturi (orice poligon): "puncte":[{"label":"M","pe":"BC","la":0.5}] ("la" = fracția de la primul capăt al laturii). Segmente suplimentare între orice puncte etichetate: "segmente":[["A","M"],["B","D"]] (și "segmente_punctate" pentru linii punctate).
-  · cerc: {"type":"cerc","centru":"O"} + opțional: "inscris":["A","B","C"] (poligon înscris în cerc), "puncte":[{"label":"D","unghi":250}] (alt punct pe cerc; unghiul în grade, 0=dreapta, sens trigonometric), "raza":"A", "diametru":["A","B"], "coarda":["M","N"], "tangenta":{"la":"A"}, "segmente":[["B","D"]].
-  · xOy (grafic de funcție): {"type":"xOy","functie":{"a":2,"b":-4}} pentru f(x)=ax+b + opțional "puncte":[{"label":"A","x":2,"y":0},{"label":"B","x":0,"y":-4}].
-  · cub/paralelipiped: {"type":"cub","labels":["A","B","C","D","A'","B'","C'","D'"]} (baza jos, apoi vârfurile de sus) + opțional "segmente":[["A","C'"]] pentru diagonale.
-  · prisma: {"type":"prisma","variant":"triunghiulara|patrulatera","labels":["A","B","C","A'","B'","C'"]} (6 sau 8 litere).
-  · piramida: {"type":"piramida","variant":"patrulatera|triunghiulara","labels":["V","A","B","C","D"]} — PRIMA literă este vârful. Opțional "inaltime":{"picior":"O"}.
-  · con: {"type":"con","labels":["V","A","B"]} + opțional "inaltime":{"picior":"O"}. cilindru: {"type":"cilindru","inaltime":true}. sfera: {"type":"sfera","centru":"O","raza":"A"}. trunchi-con: {"type":"trunchi-con","inaltime":true}. trunchi-piramida: {"type":"trunchi-piramida","labels":["A","B","C","D","A'","B'","C'","D'"]}.
-- Exemple complete:
-  {"type":"triunghi","variant":"isoscel","labels":["A","B","C"],"puncte":[{"label":"E","pe":"BC","la":0.65}],"segmente":[["A","E"]]}
-  {"type":"cerc","centru":"O","inscris":["A","B","C"],"puncte":[{"label":"D","unghi":268}],"segmente":[["B","D"],["D","C"]]}
-  {"type":"trapez","variant":"dreptunghic","labels":["A","B","C","D"],"puncte":[{"label":"M","pe":"DC","la":0.5}],"segmente":[["A","M"],["B","D"]]}`;
-
+//    apare sub enunț, în dreapta paginii, ca în subiectele oficiale.
+//    DSL-ul + schema strictă stau în api/_lib/figures.js (Etapa 3). ─────────
 const FIDELITY = `Fidelitate față de modele:
 1) STRUCTURA este LEGE — același număr de subiecte și itemi, aceleași punctaje, aceeași ordine a tipurilor de itemi și același stil de formulare ca în subiectele reale ale site-ului; nu adăuga, nu elimina, nu rearanja.
 2) ITEMII SE COPIAZĂ din surse (enunț, tip, structură), conform regimului de lucru cu datele; nu introduce tipuri de itemi care nu apar în surse.
@@ -312,12 +342,12 @@ Răspunde STRICT cu un obiect JSON, fără text în plus:
         { "number": "1", "statement": "enunțul problemei",
           "parts": [ { "label": "a", "text": "cerința a)", "points": 2, "solution": "rezolvare completă a)" },
                      { "label": "b", "text": "cerința b)", "points": 3, "solution": "rezolvare completă b)" } ],
-          "figure": "(DOAR la problemele 3–6, conform specificației figurilor; la 1 și 2 NU pune cheia)" }
+          "figure": null }
       ]
     }
   ]
 }
-La I.6 folosește "options": ["Adevărat", "Fals"]. Respectă conținutul cerut pentru fiecare item (I.1…I.6, II.1…II.6, III.1…III.6).`;
+La I.6 folosește "options": ["Adevărat", "Fals"]. La problemele III.3–III.6 "figure" este obiectul figurii; la III.1–III.2 și la Subiectul I este null. Cheile care nu se aplică unui item (ex. "parts" la grilă, "options" la probleme) sunt null. Respectă conținutul cerut pentru fiecare item (I.1…I.6, II.1…II.6, III.1…III.6).`;
 }
 
 function buildGenericSystem(cfg, examples) {
@@ -498,10 +528,10 @@ Pentru FIECARE poziție: COPIAZĂ itemul indicat (enunț, tip, structură, stil)
 Sursele provin din subcategorii diferite (marcate în paranteză la fiecare TEST — ex. „simulari”, „variante”): testul final trebuie să fie un MIX REAL, cu itemi preluați din TOATE subcategoriile prezente, nu doar dintr-una.`;
     }
 
-    // Notă: testul de examen rămâne pe json_object (nu pe schemă strictă):
-    // cheia „figure" este un DSL liber (chei diferite per tip de figură), iar
-    // modul strict nu acceptă obiecte cu chei libere. chatJson aduce totuși
-    // parsarea tolerantă + reîncercarea automată + restaurarea LaTeX-ului.
+    // Structured Outputs (Etapa 3): schema strictă a testului — DSL-ul figurilor
+    // are acum TOATE cheile posibile (nullable), deci intră în modul strict.
+    // Dacă providerul refuză schema, chatJson coboară singur pe json_object
+    // (parsare tolerantă + reîncercare + restaurarea LaTeX-ului, ca în Etapa 1).
     let parsed, usage;
     try {
       const r = await ai.chatJson({
@@ -512,9 +542,10 @@ Sursele provin din subcategorii diferite (marcate în paranteză la fiecare TEST
         temperature: 0.7, maxTokens: 7500,
         model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
         restoreLatex: false, // deepRestore de mai jos (păstrează \n/\r ca rânduri reale)
+        schema: EXAM_SCHEMA, schemaName: 'test_examen',
       });
       usage = r.usage;
-      parsed = deepRestore(r.data);
+      parsed = deepRestore(stripNulls(r.data));
     } catch (e) {
       if (e.usage) await ai.logUsage(supa, userId, 'ai-exam', e.usage);
       if (e.status === 502) { console.error('exam parse fail:', e.message); return res.status(502).json({ error: 'Generatorul a returnat un format invalid. Mai încearcă o dată.' }); }
@@ -530,6 +561,7 @@ Sursele provin din subcategorii diferite (marcate în paranteză la fiecare TEST
       oficiu: 10,
       subjects: Array.isArray(parsed.subjects) ? parsed.subjects : [],
     };
+    cleanExamFigures(exam);
     // Validare: un „test" fără subiecte sau fără itemi = răspuns trunchiat/gol
     // (modelele cu raționament pot epuiza bugetul) — mai bine eroare cu retry
     // decât un PDF gol.
@@ -558,3 +590,6 @@ Sursele provin din subcategorii diferite (marcate în paranteză la fiecare TEST
 module.exports.verifyAndRepairExam = verifyAndRepairExam;
 module.exports.fixEnPoints = fixEnPoints;
 module.exports.regenItem = regenItem;
+module.exports.EXAM_SCHEMA = EXAM_SCHEMA;
+module.exports.ITEM_SCHEMA = ITEM_SCHEMA;
+module.exports.stripNulls = stripNulls;

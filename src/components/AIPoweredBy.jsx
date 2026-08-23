@@ -7,7 +7,7 @@
 // Variante:
 //   inline     — o linie discretă „Bazat pe OpenAI GPT-4o mini · …" (Prețuri, Despre noi)
 //   chips      — etichetă + „pastile" cu numele modelelor (hero Profesor Virtual, Home)
-//   footer     — două rânduri pe fundal închis: clienți (OpenAI) / unelte interne (Anthropic)
+//   footer     — două rânduri pe fundal închis: clienți (OpenAI) / meditații + unelte interne (Anthropic)
 //   disclaimer — text minuscul sub câmpul de chat: modelele + „AI-ul poate greși"
 //
 // Props: variant, showIntern (menționează și Claude; implicit doar la footer),
@@ -34,7 +34,7 @@ export default function AIPoweredBy({ variant = 'inline', showIntern, center = f
         </div>
         {withIntern && (
           <div>
-            Unelte interne: <strong style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>{intern.furnizor}</strong> — {intern.modele.join(', ')}
+            Meditații + unelte interne: <strong style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>{intern.furnizor}</strong> — {intern.modele.join(', ')}
           </div>
         )}
         <Link to={FAQ_LINK} style={{ color: 'var(--gold)', fontSize: '0.78rem', fontWeight: 600 }}>
@@ -60,7 +60,7 @@ export default function AIPoweredBy({ variant = 'inline', showIntern, center = f
         ))}
         {withIntern && (
           <>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, marginLeft: 4 }}>· unelte interne {intern.furnizor}:</span>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, marginLeft: 4 }}>· meditații + unelte interne {intern.furnizor}:</span>
             {intern.modele.map((m) => (
               <span key={m} style={chip('#f3e5f5', '#d7b8e8', '#5b2c83')}>{m}</span>
             ))}

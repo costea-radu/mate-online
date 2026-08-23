@@ -95,7 +95,7 @@ export default function TermeniConditii() {
 
             <Section title="9. Servicii terțe">
               <p>
-                Platforma utilizează servicii terțe pentru funcționarea sa: Supabase (autentificare, baze de date și stocare — datele de cont se păstrează conform politicii de retenție descrise în Politica de Confidențialitate), Google (autentificare OAuth), Discord (autentificare OAuth), Stripe (procesare plăți, inclusiv Apple Pay și Google Pay), Vercel (găzduire), OpenAI (funcțiile de inteligență artificială — Profesorul Virtual) și Anthropic (generare de conținut educațional și unelte administrative). Utilizarea acestor servicii este guvernată de propriii termeni și condiții ai fiecărui furnizor. ExamenMate nu este responsabilă pentru disponibilitatea sau funcționarea acestor servicii terțe.
+                Platforma utilizează servicii terțe pentru funcționarea sa: Supabase (autentificare, baze de date și stocare — datele de cont se păstrează conform politicii de retenție descrise în Politica de Confidențialitate), Google (autentificare OAuth), Discord (autentificare OAuth), Stripe (procesare plăți, inclusiv Apple Pay și Google Pay), Vercel (găzduire), OpenAI (funcțiile de inteligență artificială — Profesorul Virtual) și Anthropic (generare de conținut educațional, inclusiv exercițiile din „Meditații", și unelte administrative). Utilizarea acestor servicii este guvernată de propriii termeni și condiții ai fiecărui furnizor. ExamenMate nu este responsabilă pentru disponibilitatea sau funcționarea acestor servicii terțe.
               </p>
             </Section>
 

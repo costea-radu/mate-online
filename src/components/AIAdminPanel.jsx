@@ -42,6 +42,10 @@ export default function AIAdminPanel() {
       } else if (action === 'process') {
         const p = await aiClient.ingest('process');
         setLog(JSON.stringify(p, null, 2));
+      } else if (action === 'normalize_topics') {
+        // Etapa 3 (5.1): aceeași competență = o singură etichetă în „stăpânire"
+        const p = await aiClient.ingest('normalize_topics');
+        setLog(`Subiecte unificate: ${p.merged ?? 0} din ${p.toMerge ?? 0} (total ${p.total ?? 0} rânduri).${p.note ? '\n' + p.note : ''}`);
       }
       await refresh();
     } catch (e) { setError(e.message); }
@@ -82,6 +86,10 @@ export default function AIAdminPanel() {
           {stats.pdf_model ? <> · PDF: <strong>{stats.pdf_model}</strong></> : null}
           {stats.gen_model && stats.gen_model !== stats.chat_model ? <> · Generare: <strong>{stats.gen_model}</strong></> : null}
           {stats.reasoning_effort && stats.reasoning_effort !== 'implicit' ? <> · Raționament: <strong>{stats.reasoning_effort}</strong></> : null}
+          {/* Etapa 3 (1.5): câte fragmente au capitolul din programă */}
+          {stats.with_chapter == null
+            ? <> · Capitole în RAG: <strong>inactiv</strong> — rulează supabase/ai_rag_v2.sql</>
+            : <> · Fragmente cu capitol: <strong>{stats.with_chapter}</strong></>}
           {stats.pregen_pending == null
             ? <> · Pre-generare: <strong>inactivă</strong> — rulează supabase/ai_pregen.sql</>
             : <> · Pre-generarea rulează automat (cron), câte puține, după ce coada de indexare ajunge la 0 — sau apasă „Procesează coada"</>}
@@ -94,6 +102,10 @@ export default function AIAdminPanel() {
         </button>
         <button className="btn btn-outline" onClick={() => run('process')} disabled={busy}>
           ⚙️ Procesează coada
+        </button>
+        <button className="btn btn-outline" onClick={() => run('normalize_topics')} disabled={busy}
+          title={'Aduce subiectele din „stăpânirea competențelor” la etichetele din programă (o singură dată, după actualizare)'}>
+          🏷 Unifică subiectele
         </button>
         <button className="btn btn-outline" onClick={refresh} disabled={busy}>↻ Reîmprospătează</button>
       </div>

@@ -76,15 +76,15 @@ export function renderQuiz(title, questions) {
   function render(){ if(window.renderMathInElement) renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false}); }
   if(window.renderMathInElement) render(); else window.addEventListener('load', render);
   document.getElementById('check').addEventListener('click', function(){
-    var correct=0;
+    var correct=0, A=[];
     for(var i=0;i<ANS.length;i++){
       var fb=document.getElementById('fb'+i); var ok=false;
       if(ANS[i].type==='choice'){
         var sel=document.querySelector('input[name="q'+i+'"]:checked');
-        ok = sel && Number(sel.value)===ANS[i].answer;
+        ok = sel && Number(sel.value)===ANS[i].answer; A.push(sel?Number(sel.value):null);
       } else {
         var el=document.querySelector('input[name="q'+i+'"]');
-        ok = el && ansEq(el.value, ANS[i].answer);
+        ok = el && ansEq(el.value, ANS[i].answer); A.push(el?String(el.value||''):'');
       }
       if(ok) correct++;
       fb.className='fb '+(ok?'ok':'bad');
@@ -93,7 +93,7 @@ export function renderQuiz(title, questions) {
     render();
     var total=ANS.length||1; var score=Math.round(correct/total*100);
     document.getElementById('res').textContent='Scor: '+correct+'/'+total+' ('+score+'%)';
-    var MSG={type:'MATE_SCORE',score:score,maxScore:100};
+    var MSG={type:'MATE_SCORE',score:score,maxScore:100,answers:A,raw:{got:correct,max:total}}; // answers: serverul recalculează scorul (Etapa 3)
     try{ parent.postMessage(MSG,'*'); }catch(e){}
     try{ if(window.opener) window.opener.postMessage(MSG,'*'); }catch(e){}
   });

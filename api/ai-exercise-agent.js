@@ -31,14 +31,18 @@ const SCHEMAS = `— GRILĂ:
   "statement": "context general (opțional, poate fi gol)",
   "questions": [
     { "statement": "enunț (LaTeX între $...$)", "options": ["A", "B", "C", "D"],
-      "answer": 0, "hint": "indiciu fără răspuns", "explanation": "rezolvarea completă", "points": 10 }
-  ]
+      "answer_index": 0, "answer_text": null, "hint": "indiciu fără răspuns", "explanation": "rezolvarea completă", "points": 10 }
+  ],
+  "steps": null, "final_answer": null
 }
+(item cu răspuns liber: "options": null, "answer_index": null, "answer_text": "răspunsul")
 — CU ETAPE DE REZOLVARE:
 {
   "title": "titlul exercițiului",
   "kind": "etape",
+  "output": "interactive",
   "statement": "enunțul complet al problemei (LaTeX între $...$)",
+  "questions": null,
   "steps": [
     { "prompt": "ce se cere la această etapă", "answer": "răspuns scurt (număr/expresie)",
       "hint": "indiciu fără răspuns", "explanation": "rezolvarea etapei (barem)", "points": 10 }
@@ -186,7 +190,7 @@ Reguli:
 - Înmulțirea cu „·” ($\\\\cdot$), niciodată × sau litera x.
 - "points" = baremul fiecărui item; păstrează proporțiile baremului din model dacă există.
 - Indiciile ghidează, NU dau răspunsul; "explanation" = rezolvarea completă (baremul afișat după verificare).
-- La grilă: exact 4 variante, "answer" = indexul corect (0–3), distribuit aleatoriu.
+- La grilă: exact 4 variante, "answer_index" = indexul corect (0–3), distribuit aleatoriu.
 - La etape: răspunsuri scurte, verificabile prin comparație de text.
 - Numărul de itemi: ca în model sau conform instrucțiunilor.
 - Generările repetate trebuie să DIFERE (alte valori, alt context).
@@ -214,15 +218,19 @@ Reguli:
     textParts.push(`Generează acum obiectul JSON. Sesiune #${Math.random().toString(36).slice(2, 8)}.`);
     blocks.push({ type: 'text', text: textParts.join('\n\n') });
 
-    const { text, usage, provider, stopReason } = await claude.chatClaude({
+    // Structured Outputs (Etapa 3): schema strictă a exercițiului (exgen.EXERCISE_SCHEMA);
+    // dacă API-ul o respinge, chatClaude reîncearcă fără ea → parsare tolerantă
+    const rr = await claude.chatClaude({
       system,
       messages: [...past, { role: 'user', content: blocks }],
       maxTokens: 8000,
       model: aiModel,
+      schema: exgen.EXERCISE_SCHEMA,
     });
+    const { text, usage, provider, stopReason } = rr;
     await ai.logUsage(supa, userId, 'ai-exercise-agent', usage);
 
-    const exercise = normalize(claude.extractJson(text));
+    const exercise = exgen.parseExercise(rr);
     if (!exercise) {
       console.error('ai-exercise-agent: JSON invalid. stopReason=%s, primele 400 caractere: %s', stopReason, String(text || '').slice(0, 400));
       const explain = stopReason === 'max_tokens'

@@ -295,8 +295,13 @@ const isNewGenModel = (m) => /\bgpt-5|^o[1-9]\b|\bo[1-9]-/i.test(String(m || '')
 // constrânsă: JSON garantat valid, enum-urile respectate). Fără schemă, `json`
 // → modul clasic json_object. Vezi chatJson() și helperul S de mai jos.
 const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
-function buildBody({ model, temperature, maxTokens, messages, system, json, stream, schema = null, schemaName = 'raspuns', reasoningEffort = REASONING_EFFORT }) {
-  const body = { model, messages: system ? [{ role: 'system', content: system }, ...messages] : messages };
+function buildBody({ model, temperature, maxTokens, messages, system, json, stream, schema = null, schemaName = 'raspuns', reasoningEffort = REASONING_EFFORT, tools = null }) {
+  const body = { model, messages: system ? [{ role: 'system', content: system }, ...messages] : [...messages] };
+  // unelte (tool calling, Etapa 3): format OpenAI `tools`; bucla de apeluri e în chat/chatStream
+  if (Array.isArray(tools) && tools.length) {
+    body.tools = tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
+    body.tool_choice = 'auto';
+  }
   if (isNewGenModel(model)) {
     // Modelele cu raționament „ard" tokeni pe gândirea internă ÎNAINTE de a
     // scrie răspunsul; cu bugetul clasic (900–5000) rămân des cu răspuns GOL
@@ -342,6 +347,11 @@ function adaptBodyToError(body, errText) {
     changed = true;
   }
   if (/stream_options/.test(t) && body.stream_options) { delete body.stream_options; changed = true; }
+  if (/\btools?\b|tool_choice|function/i.test(t) && body.tools) {
+    // providerul/modelul nu acceptă unelte → continuăm fără ele (răspunsul rămâne posibil)
+    warnOnce('tools', `Uneltele (tool calling) au fost refuzate de provider (${t.slice(0, 120)}) — continui fără ele.`);
+    delete body.tools; delete body.tool_choice; changed = true;
+  }
   // atașamente (pagini PDF / imagini) refuzate de provider sau model → retrimitem
   // DOAR textul (comportamentul de dinainte de Etapa 2)
   if (/\bfile\b|file_data|image|multimodal|vision|content\[|content must be|invalid content/i.test(t) && hasParts(body.messages)) {
@@ -373,17 +383,30 @@ async function postLLM(body) {
 }
 
 // ─── Apel LLM (chat completions, format OpenAI) ──────────────────────────────
-async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900, json = false, model = CHAT_MODEL, reasoningEffort = undefined }) {
+async function chat({ system, messages = [], temperature = 0.4, maxTokens = 900, json = false, model = CHAT_MODEL, reasoningEffort = undefined, tools = null, stats = null }) {
   if (!hasChat()) throw new Error('AI_CHAT_API_KEY (sau OPENAI_API_KEY) nu este setat.');
-  const body = buildBody({ model, temperature, maxTokens, messages, system, json, ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) });
+  const body = buildBody({ model, temperature, maxTokens, messages, system, json, tools, ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) });
   let r = await postLLM(body);
   let data = await r.json();
-  let text = data.choices?.[0]?.message?.content ?? '';
   const usage = {
     in: data.usage?.prompt_tokens || 0,
     out: data.usage?.completion_tokens || 0,
     model, // pentru calculul costului la logUsage
   };
+  // ── bucla de UNELTE (tool calling): modelul cere funcții → le rulăm → îi
+  //    dăm rezultatele → continuă; cel mult TOOL_ROUNDS runde ──
+  for (let round = 0; round < TOOL_ROUNDS; round++) {
+    const msg = data.choices?.[0]?.message || {};
+    if (!body.tools || !Array.isArray(msg.tool_calls) || !msg.tool_calls.length) break;
+    body.messages.push({ role: 'assistant', content: msg.content ?? null, tool_calls: msg.tool_calls });
+    for (const call of msg.tool_calls) body.messages.push(await runToolCall(tools, call, stats));
+    if (round === TOOL_ROUNDS - 1) { delete body.tools; delete body.tool_choice; } // ultima rundă: răspuns, nu alt apel
+    r = await postLLM(body);
+    data = await r.json();
+    usage.in += data.usage?.prompt_tokens || 0;
+    usage.out += data.usage?.completion_tokens || 0;
+  }
+  let text = data.choices?.[0]?.message?.content ?? '';
   // AUTO-VINDECARE: modelele cu raționament pot epuiza tot bugetul pe gândire
   // și întorc conținut GOL sau TĂIAT la mijloc (finish_reason=length → JSON
   // invalid la generatoare). Reîncercăm O dată cu bugetul maxim.
@@ -530,35 +553,86 @@ async function chatJsonInner({ system, messages = [], schema = null, schemaName 
 // { model, usage:{in,out,model} } — usage-ul REAL vine în ultimul chunk SSE
 // (stream_options.include_usage); dacă providerul nu-l trimite, rămâne doar
 // `model`, iar apelantul estimează tokenii.
-async function* chatStream({ system, messages = [], temperature = 0.5, maxTokens = 900, model = CHAT_MODEL, stats = null, reasoningEffort = undefined }) {
+async function* chatStream({ system, messages = [], temperature = 0.5, maxTokens = 900, model = CHAT_MODEL, stats = null, reasoningEffort = undefined, tools = null }) {
   if (!hasChat()) throw new Error('AI_CHAT_API_KEY (sau OPENAI_API_KEY) nu este setat.');
   if (stats) stats.model = model;
-  const body = buildBody({ model, temperature, maxTokens, messages, system, stream: true, ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) });
-  const r = await postLLM(body);
-  const reader = r.body.getReader();
-  const dec = new TextDecoder();
-  let buf = '';
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    const parts = buf.split('\n\n');
-    buf = parts.pop();
-    for (const part of parts) {
-      const line = part.trim();
-      if (!line.startsWith('data:')) continue;
-      const data = line.slice(5).trim();
-      if (data === '[DONE]') return;
-      try {
-        const json = JSON.parse(data);
-        if (stats && json.usage) {
-          stats.usage = { in: json.usage.prompt_tokens || 0, out: json.usage.completion_tokens || 0, model };
-        }
-        const delta = json.choices?.[0]?.delta?.content;
-        if (delta) yield delta;
-      } catch { /* keepalive/parțial — ignorăm */ }
+  const body = buildBody({ model, temperature, maxTokens, messages, system, stream: true, tools, ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) });
+  const addUsage = (u) => {
+    if (!stats || !u) return;
+    const prev = stats.usage || { in: 0, out: 0, model };
+    stats.usage = { in: prev.in + (u.prompt_tokens || 0), out: prev.out + (u.completion_tokens || 0), model };
+  };
+  // O rundă de stream: yield-uiește textul; întoarce { finish, text, toolCalls }
+  // (apelurile de unelte sosesc pe bucăți: index → {id, name, arguments})
+  async function* oneRound() {
+    const r = await postLLM(body);
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let finish = null, text = '';
+    const calls = [];
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop();
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (data === '[DONE]') { return { finish, text, calls }; }
+        try {
+          const json = JSON.parse(data);
+          if (json.usage) addUsage(json.usage);
+          const choice = json.choices?.[0];
+          if (!choice) continue;
+          if (choice.finish_reason) finish = choice.finish_reason;
+          const delta = choice.delta || {};
+          if (delta.content) { text += delta.content; yield delta.content; }
+          if (Array.isArray(delta.tool_calls)) {
+            for (const tc of delta.tool_calls) {
+              const i = tc.index ?? calls.length;
+              calls[i] = calls[i] || { id: null, name: '', arguments: '' };
+              if (tc.id) calls[i].id = tc.id;
+              if (tc.function?.name) calls[i].name += tc.function.name;
+              if (tc.function?.arguments) calls[i].arguments += tc.function.arguments;
+            }
+          }
+        } catch { /* keepalive/parțial — ignorăm */ }
+      }
     }
+    return { finish, text, calls };
   }
+  for (let round = 0; round <= TOOL_ROUNDS; round++) {
+    const gen = oneRound();
+    let res;
+    while (true) { const n = await gen.next(); if (n.done) { res = n.value; break; } yield n.value; }
+    const calls = (res?.calls || []).filter((c) => c && c.name);
+    if (!body.tools || !calls.length) return;
+    // runda de unelte: mesajul de asistent (cu apelurile) + rezultatele
+    const toolCalls = calls.map((c, i) => ({ id: c.id || `call_${round}_${i}`, type: 'function', function: { name: c.name, arguments: c.arguments || '{}' } }));
+    body.messages.push({ role: 'assistant', content: res.text || null, tool_calls: toolCalls });
+    for (const call of toolCalls) body.messages.push(await runToolCall(tools, call, stats));
+    if (round >= TOOL_ROUNDS - 1) { delete body.tools; delete body.tool_choice; } // ultima rundă: doar răspuns
+  }
+}
+
+// ─── Tool calling (Etapa 3, 3.2): rularea unui apel de unealtă ──────────────
+// Întoarce mesajul `tool` (format OpenAI) cu rezultatul JSON; erorile de
+// rulare se întorc modelului ca { error } — nu pică răspunsul.
+const TOOL_ROUNDS = Math.max(1, parseInt(process.env.AI_TOOL_ROUNDS || '4', 10));
+async function runToolCall(tools, call, stats = null) {
+  const name = call?.function?.name || '';
+  const tool = (tools || []).find((t) => t.name === name);
+  let args = {};
+  try { args = JSON.parse(call?.function?.arguments || '{}'); } catch { args = {}; }
+  let result;
+  try {
+    result = tool ? await tool.run(args || {}) : { error: `unealta „${name}" nu există` };
+  } catch (e) { result = { error: String(e && e.message || e).slice(0, 200) }; }
+  if (stats) (stats.tools = stats.tools || []).push({ name, args, ok: !(result && result.error) });
+  return { role: 'tool', tool_call_id: call.id, content: JSON.stringify(result ?? null).slice(0, 6000) };
 }
 
 // ─── Apel LLM cu VEDERE (foto-rezolvare: citește o imagine) ──────────────────
@@ -656,45 +730,82 @@ async function mentorsOf(supa, studentId) {
   return [...ids];
 }
 
-// ─── Recuperare context (RAG): vectorial, cu fallback lexical ────────────────
-// Boost pe tip de sursă, în funcție de scop:
+// ─── Recuperare context (RAG): CĂUTARE HIBRIDĂ (Etapa 3, 1.5) ───────────────
+// Vectorial + lexical, combinate prin RRF în match_ai_knowledge_hybrid
+// (supabase/ai_rag_v2.sql). Fără migrarea v2 se recade pe cele două funcții
+// vechi (vector, apoi lexical) — comportamentul de dinainte.
+// Boost pe tip de sursă, în funcție de scop (MULTIPLICATIV: scorul RRF are altă
+// scară decât similaritatea cosinus, o adunare l-ar domina):
 //  prefer='solution' (explicații în chat) → barem/rezolvări primele
 //  prefer='exercise' (generare) → exercițiile-model primele
 const SOURCE_BOOST = {
   solution: { solution: 0.20, exercise: 0.05, manual: 0.02 },
   exercise: { exercise: 0.16, solution: 0.08, manual: 0.03 },
 };
+// prag de similaritate pentru candidații DOAR vectoriali (fără potrivire lexicală)
+const RAG_MIN_SIM = parseFloat(process.env.AI_RAG_MIN_SIM || '0.25');
+// Migrarea nerulată → nu mai încercăm hibridul la fiecare cerere. Latch-ul se
+// pune DOAR pe „funcția nu există"; o eroare trecătoare (timeout, 5xx) nu
+// trebuie să coboare căutarea pe varianta veche pentru toată instanța.
+let hybridOff = false;
+const RPC_MISSING_RE = /does not exist|schema cache|PGRST\d*20|42883|could not find/i;
 
-async function retrieve(supa, { query, category = null, allowPremium = false, k = 6, prefer = null }) {
+async function retrieve(supa, { query, category = null, allowPremium = false, k = 6, prefer = null, chapterId = null, minSimilarity = RAG_MIN_SIM }) {
   if (!query || !query.trim()) return [];
   const fetchN = Math.min(k * 3, 24);
+  const q = String(query).slice(0, 2000);
   let docs = [];
-  // 1. Semantic (dacă avem embeddings)
+  let qvec = null;
+  let hybridOk = false; // hibridul a răspuns (chiar și cu 0 rezultate)
   if (hasEmbeddings()) {
+    try { qvec = await embed(q); } catch (e) { console.warn('embed(query) a eșuat:', e.message); }
+  }
+  // 1. HIBRID (vector + lexical, RRF)
+  if (!hybridOff) {
     try {
-      const qvec = await embed(query);
-      if (qvec) {
+      const { data, error } = await supa.rpc('match_ai_knowledge_hybrid', {
+        query_embedding: qvec || null, query_text: q, match_count: fetchN,
+        filter_category: category, allow_premium: allowPremium,
+        filter_chapter: chapterId || null, min_similarity: minSimilarity,
+      });
+      if (error) throw new Error(error.message);
+      docs = data || [];
+      hybridOk = true;
+    } catch (e) {
+      if (RPC_MISSING_RE.test(String(e.message || ''))) {
+        warnOnce('rag_hybrid', `Căutarea hibridă nu e disponibilă (${e.message}) — rulează supabase/ai_rag_v2.sql; folosesc căutarea veche.`);
+        hybridOff = true;
+      } else {
+        console.warn('retrieve: căutarea hibridă a eșuat de data asta (%s) — folosesc căutarea veche', e.message);
+      }
+      docs = [];
+    }
+  }
+  // 2. Fără hibrid (migrare lipsă sau eroare trecătoare): vectorial, apoi lexical.
+  //    Un hibrid care a răspuns cu 0 rezultate NU se reia — chiar nu există nimic.
+  if (!hybridOk) {
+    if (qvec) {
+      try {
         const { data, error } = await supa.rpc('match_ai_knowledge', {
           query_embedding: qvec, match_count: fetchN, filter_category: category, allow_premium: allowPremium,
         });
         if (!error && data) docs = data;
-      }
-    } catch (e) { console.warn('Vector retrieve failed, fallback lexical:', e.message); }
-  }
-  // 2. Lexical (fallback)
-  if (!docs.length) {
-    try {
-      const { data, error } = await supa.rpc('match_ai_knowledge_lexical', {
-        query_text: query, match_count: fetchN, filter_category: category, allow_premium: allowPremium,
-      });
-      if (!error && data) docs = data;
-    } catch (e) { console.warn('Lexical retrieve failed:', e.message); }
+      } catch (e) { console.warn('Vector retrieve failed, fallback lexical:', e.message); }
+    }
+    if (!docs.length) {
+      try {
+        const { data, error } = await supa.rpc('match_ai_knowledge_lexical', {
+          query_text: q, match_count: fetchN, filter_category: category, allow_premium: allowPremium,
+        });
+        if (!error && data) docs = data;
+      } catch (e) { console.warn('Lexical retrieve failed:', e.message); }
+    }
   }
   if (!docs.length) return [];
   // Re-ranking după scop (barem vs exercițiu-model)
   const boost = SOURCE_BOOST[prefer] || {};
   return docs
-    .map((d) => ({ ...d, _score: (d.similarity || 0) + (boost[d.source_type] || 0) }))
+    .map((d) => ({ ...d, _score: (d.score != null ? d.score : (d.similarity || 0)) * (1 + (boost[d.source_type] || 0)) }))
     .sort((a, b) => b._score - a._score)
     .slice(0, k);
 }
@@ -738,7 +849,7 @@ function contextBlock(docs) {
   const labels = { exercise: 'Exercițiu', solution: 'Rezolvare model', manual: 'Manual', theory: 'Teorie', faq: 'Întrebare frecventă' };
   return docs.map((d, i) => {
     const head = `[${i + 1}] (${labels[d.source_type] || d.source_type}${d.topic ? ' · ' + d.topic : ''}${d.category ? ' · ' + d.category : ''})`;
-    return `${head}\n${(d.title ? d.title + ' — ' : '')}${(d.content || '').slice(0, 1200)}`;
+    return `${head}\n${(d.title ? d.title + ' — ' : '')}${(d.content || '').slice(0, 1700)}`;
   }).join('\n\n');
 }
 
@@ -1533,16 +1644,19 @@ Motivează-l activ: felicită-l concret la reușite (punctaj maxim, insignă nou
 // iese din istoricul dat modelului (altfel l-ar repeta), iar dacă ultimul mesaj
 // al elevului este chiar întrebarea retrimisă, handlerul NU o mai salvează o
 // dată (întoarcem `regenerated: true`). Răspunsul vechi rămâne în DB (istoric).
-async function prepareChat(supa, { userId, message, mode = 'tutor', conversationId = null, context = {}, premium = false, regenerate = false }) {
+async function prepareChat(supa, { userId, message, mode = 'tutor', conversationId = null, context = {}, premium = false, regenerate = false, images = null }) {
   const isPdfAgent = !!context.pdf;
   const hasBarem = !!(context.pdf && context.baremText);
+  // Etapa 3 (4.4): pozele elevului merg la model CA IMAGINI (nu doar transcrierea);
+  // transcrierea rămâne în context.attachedText, SEPARAT de textul testului/exercițiului
+  const photos = (Array.isArray(images) ? images : []).filter((u) => typeof u === 'string' && /^data:image\/(jpeg|png|webp);base64,/.test(u) && u.length <= 2_200_000).slice(0, 3);
 
   // 1. RAG (întrebarea + textul exercițiului, dacă există).
   //    Agentul PDF cu rezolvare-model NU primește alte materiale — ar dilua
   //    sursa de adevăr; sursa afișată elevului este chiar baremul asociat.
   let docs = [], ctxBlock = '', primaryMaterial = null;
   if (!hasBarem) {
-    const retrievalQuery = [message, context.exerciseText].filter(Boolean).join('\n');
+    const retrievalQuery = [message, context.attachedText, context.exerciseText].filter(Boolean).join('\n').slice(0, 6000);
     docs = await retrieve(supa, {
       query: retrievalQuery, category: context.category || null,
       allowPremium: premium, k: 6, prefer: 'solution',
@@ -1602,6 +1716,28 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
   } else {
     system = await interactiveAgentSystem(supa, { userId, mode, context, ctxBlock });
   }
+  // Etapa 3 (4.4): exercițiul / lucrarea din poza sau PDF-ul încărcat de elev —
+  // context SUPLIMENTAR (nu înlocuiește testul/exercițiul deschis)
+  if (context.attachedText && String(context.attachedText).trim()) {
+    system += `\n\nMATERIALUL ÎNCĂRCAT DE ELEV (poză / PDF — transcriere automată; enunțul sau lucrarea lui scrisă de mână):\n"""${String(context.attachedText).slice(0, 6000)}"""\nDacă elevul întreabă despre el, răspunde pe baza lui${isPdfAgent ? ' (testul deschis rămâne disponibil pentru context)' : ''}.`;
+  }
+  if (photos.length) {
+    attachments = [...attachments, ...photos.map((u) => ({ type: 'image_url', image_url: { url: u, detail: 'high' } }))];
+    system += `\n\nPOZA ELEVULUI: mesajul are atașată o imagine (exercițiul sau lucrarea lui scrisă de mână). CITEȘTE-O — are prioritate față de transcrierea automată; dacă e o rezolvare scrisă de mână, verific-o pas cu pas și spune-i exact unde a greșit.`;
+  }
+  // Etapa 3 (3.2): UNELTE — calculate / check_equivalence / get_exercise / get_barem_item
+  const tools = require('./tools').tutorTools({
+    subjectText: isPdfAgent ? context.exerciseText : null,
+    exerciseText: !isPdfAgent ? context.exerciseText : null,
+    baremText: isPdfAgent ? context.baremText : null,
+  });
+  if (tools.length) system += '\n\n' + require('./tools').toolsNote(tools);
+  // Etapa 3 (4.6): figuri desenate în chat ([[FIGURA:{...}]] → src/lib/figureRender.js).
+  // Specificația (≈700 tokeni) intră DOAR când conversația e de geometrie / grafice.
+  const mentor = mode === 'exams' || mode === 'students';
+  if (!mentor && FIGURES_IN_CHAT && GEO_RE.test([message, context.attachedText, baremItem && baremItem.enunt, String(context.exerciseText || '').slice(0, 4000)].filter(Boolean).join('\n'))) {
+    system += '\n\n' + require('./figures').FIGURE_SPEC_CHAT;
+  }
 
   // „Materiale folosite": agentul PDF citește TESTUL + BAREMUL — le afișăm pe
   // amândouă (cu numele original al fișierului, ca dovadă a corespondenței).
@@ -1613,8 +1749,10 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
           : docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }))),
       ]
     : docs.map((d) => ({ type: d.source_type, title: d.title, topic: d.topic, category: d.category }));
-  return { docs, ctxBlock, primaryMaterial, convId, priorMsgs, system, sources, baremItem, regenerated, attachments };
+  return { docs, ctxBlock, primaryMaterial, convId, priorMsgs, system, sources, baremItem, regenerated, attachments, tools };
 }
+const FIGURES_IN_CHAT = process.env.AI_CHAT_FIGURES !== '0'; // implicit PORNIT
+const GEO_RE = /triunghi|unghi|\bcerc|p[ăa]trat|dreptunghi|trapez|\bromb|paralelogram|\bcub\b|piramid|prism|\bcon\b|cilindr|sfer[ăa]|grafic|segment|perimetr|\bari[ae]\b|volum|diagonal|[îi]n[ăa]l[țt]im|median|bisectoar|tangent|coard[ăa]|mediatoar|sistem\w* de axe|xoy|\bf\s*\(\s*x\s*\)\s*=/i;
 
 // ─── Etapa 2 (1.1): pagina PDF a exercițiului, ca atașament pentru model ─────
 const PDF_VISION = process.env.AI_PDF_VISION !== '0'; // implicit PORNIT
@@ -1692,6 +1830,12 @@ async function interactiveAgentSystem(supa, { userId, mode, context, ctxBlock })
   const parts = [];
   const lvl = levelLabel(context);
   if (lvl) parts.push(`NIVELUL ELEVULUI: ${lvl}. Adaptează limbajul, notațiile, exemplele și profunzimea explicațiilor la acest nivel.`);
+  // Etapa 3 (4.7): pe paginile generice widgetul spune UNDE e elevul (pagina + categoria)
+  if (context.page && !context.interactive && !context.pdf && !context.meditatii) {
+    const pg = String(context.page).slice(0, 120);
+    const cat = context.category ? ` (categoria „${context.category}")` : '';
+    parts.push(`UNDE SE AFLĂ ELEVUL: pe pagina ${pg}${cat}${context.pageTitle ? ` — „${String(context.pageTitle).slice(0, 120)}"` : ''}. Dacă întreabă „ce e aici" / „ce fac pe pagina asta", explică-i pagina; la întrebări de matematică, adaptează nivelul la categorie.`);
+  }
   if (context.exerciseText) {
     // Limită mare: AI-ul primește TESTUL INTERACTIV complet, ca să recunoască
     // exact exercițiul la care se referă elevul.
@@ -1954,9 +2098,12 @@ const wantsOtherExplanation = (text) => OTHER_EXPLANATION_RE.test(norm(String(te
 //    principală, cu libertate de explicare) și la cererile de REFORMULARE,
 //    verificările de fidelitate se sar (doar răspunsul gol rămâne blocant) —
 //    prima explicație a unui exercițiu rămâne strict verificată față de barem.
-async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', maxTokens = 900, model = PDF_MODEL }) {
-  const gen = (sys) => chat({ system: sys, messages, temperature: 0.2, maxTokens, model });
+async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', maxTokens = 900, model = PDF_MODEL, tools = null, stats = null }) {
+  const gen = (sys) => chat({ system: sys, messages, temperature: 0.2, maxTokens, model, tools, stats });
   const isEmpty = (t) => !String(t || '').trim() || String(t).trim().length < 20;
+  // marcajele de figuri ([[FIGURA:{...}]]) conțin numere (poziții, unghiuri) —
+  // nu sunt „numere din răspuns": le scoatem înaintea verificărilor
+  const noFig = (t) => String(t || '').replace(/\[\[FIGURA:[\s\S]*?\]\]/g, '');
   const lastUser = [...messages].reverse().find((m) => m && m.role === 'user');
   const relaxed = !!(baremItem && baremItem.followUp) || wantsOtherExplanation(lastUser && textOfContent(lastUser.content)); // conținutul poate fi listă (text + pagina PDF)
 
@@ -1966,13 +2113,13 @@ async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', m
     // grilă / rezultat scurt (EN): ALTĂ literă / alt rezultat anunțate drept
     // corecte = deviere și la reformulări (concluzia oficială nu se negociază)
     if (baremItem && (baremItem.kind === 'grila' || baremItem.kind === 'rezultat')) {
-      const k = shortAnswerCheck(g.text, baremItem, mode);
+      const k = shortAnswerCheck(noFig(g.text), baremItem, mode);
       return { ...g, hard: k.hard, soft: relaxed ? null : k.soft };
     }
     if (relaxed) return { ...g, hard: null, soft: null }; // reformulare cerută explicit
-    const n = numericCheck(g.text, baremItem);
+    const n = numericCheck(noFig(g.text), baremItem);
     if (!n.ok) return { ...g, hard: n.motiv, soft: null };
-    const s = await semanticCheck(g.text, baremItem);
+    const s = await semanticCheck(noFig(g.text), baremItem);
     return { ...g, hard: null, soft: s.ok ? null : s.motiv };
   };
 
@@ -2016,6 +2163,7 @@ module.exports = {
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS, PDF_MODEL, GEN_MODEL,
   TUTOR_MODEL, TUTOR_MODES, REASONING_EFFORT, chatModelFor, isNewGenModel, pdfPageAttachments, refFromConversation,
+  runToolCall, TOOL_ROUNDS,
   // limite de consum (vezi GHID_LIMITE_AI.md)
   pickModel, budgetInfo, costMicroLei, priceFor, dayStartBucharest, ECON_CHAT_MODEL, USD_RON,
   // cote per funcție + pachete top-up (pasul 2); per rol + pool comun

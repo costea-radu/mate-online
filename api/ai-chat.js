@@ -17,7 +17,9 @@ module.exports = async function handler(req, res) {
   const supa = ai.admin();
   try {
     const userId = await ai.authUser(req, supa);
-    const { message, mode = 'tutor', conversationId, context = {}, regenerate = false } = req.body || {};
+    const { message, mode = 'tutor', conversationId, context = {}, regenerate = false, images = null, imageThumb = null } = req.body || {};
+    // Etapa 3 (4.4): miniatura pozei rămâne în conversație (metadata.image, ≤ 16 KB)
+    const thumb = typeof imageThumb === 'string' && /^data:image\/(jpeg|png|webp);base64,/.test(imageThumb) && imageThumb.length <= 16_000 ? imageThumb : null;
     if (!message || !message.trim()) return res.status(400).json({ error: 'message obligatoriu' });
 
     const profile = await ai.requireUser(supa, userId);
@@ -26,8 +28,8 @@ module.exports = async function handler(req, res) {
     const premium = ai.isPremium(profile);
 
     // 1-3. RAG + conversație + istoric + system prompt (helper comun cu ai-chat-stream)
-    const { convId, primaryMaterial, priorMsgs, system, sources, baremItem, regenerated, attachments = [] } =
-      await ai.prepareChat(supa, { userId, message, mode, conversationId, context, premium, regenerate: !!regenerate });
+    const { convId, primaryMaterial, priorMsgs, system, sources, baremItem, regenerated, attachments = [], tools = null } =
+      await ai.prepareChat(supa, { userId, message, mode, conversationId, context, premium, regenerate: !!regenerate, images });
     const userContent = pdfpages.userContent(message, attachments); // text (+ pagina PDF, Etapa 2)
 
     // 3½. Explicație PRE-GENERATA (pasul 3): la prima cerere CANONICĂ
@@ -40,6 +42,7 @@ module.exports = async function handler(req, res) {
 
     // 4. Apel LLM (dacă nu am servit din pre-generare).
     //    Cu rezolvare din barem → generare VERIFICATĂ față de barem.
+    const stats = {}; // uneltele folosite (tool calling, Etapa 3) — pentru jurnal
     const { text, usage } = served
       ? { text: served.text, usage: { in: 0, out: 0, model: null } } // fără cost
       : baremItem
@@ -47,12 +50,14 @@ module.exports = async function handler(req, res) {
           system, baremItem, mode,
           messages: [...priorMsgs, { role: 'user', content: userContent }],
           model: ai.pickModel(ai.PDF_MODEL, lim), // peste bugetul zilnic soft → modelul standard
+          tools, stats,
         })
       : await ai.chat({
           system,
           messages: [...priorMsgs, { role: 'user', content: userContent }],
           temperature: mode === 'hint' ? 0.3 : 0.5,
           maxTokens: 900,
+          tools, stats,
           // pe un PDF deschis citește modelul PDF („terra") — și fără barem;
           // explicații pas-cu-pas (tutor/explain/hint) → AI_TUTOR_MODEL (1.4);
           // altfel modelul de chat; peste bugetul zilnic soft → unul mai ieftin
@@ -64,8 +69,8 @@ module.exports = async function handler(req, res) {
     // dar o logăm (altfel istoricul dispare fără nicio urmă).
     const { error: msgErr } = await supa.from('ai_messages').insert([
       // la „Regenerează" întrebarea e deja salvată — doar răspunsul nou
-      ...(regenerated ? [] : [{ conversation_id: convId, role: 'user', content: message, mode }]),
-      { conversation_id: convId, role: 'assistant', content: text, mode, metadata: { sources, primaryMaterial } },
+      ...(regenerated ? [] : [{ conversation_id: convId, role: 'user', content: message, mode, ...(thumb ? { metadata: { image: thumb } } : {}) }]),
+      { conversation_id: convId, role: 'assistant', content: text, mode, metadata: { sources, primaryMaterial, ...(stats.tools ? { tools: stats.tools.map((t) => t.name) } : {}) } },
     ]);
     if (msgErr) console.error('ai-chat: salvare mesaje eșuată:', msgErr);
     const { error: convErr } = await supa.from('ai_conversations')

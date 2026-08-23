@@ -200,6 +200,12 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
           {result.chapterDone && <div style={{ fontSize: '.88rem', color: '#1e7e34', fontWeight: 700, marginTop: 4 }}>🏁 Capitol finalizat! L-am programat pentru recapitulare (după 1 zi, 7 zile și 30 de zile).</div>}
           {result.reviewAdvanced && !result.reviewAdvanced.retry && <div style={{ fontSize: '.88rem', color: '#1e7e34', marginTop: 4 }}>🔁 Recapitulare reușită{result.reviewAdvanced.done ? ' — capitolul e bine fixat!' : ' — următoarea vine mai târziu.'}</div>}
           {result.reviewAdvanced?.retry && <div style={{ fontSize: '.88rem', color: '#8a6d1a', marginTop: 4 }}>🔁 Mai reluăm o dată capitolul — recapitularea revine mâine.</div>}
+          {result.levelChange && (
+            <div style={{ fontSize: '.88rem', color: 'var(--navy)', marginTop: 4, fontWeight: 600 }}>
+              🎚 Nivelul tău: <strong>{result.levelChange.to === 'incepator' ? 'începător' : result.levelChange.to}</strong> (recalculat după ultimele seturi)
+            </div>
+          )}
+          {result.itemsReviewed > 0 && <div style={{ fontSize: '.85rem', color: 'var(--text-muted)', marginTop: 4 }}>🔁 {result.itemsReviewed} {result.itemsReviewed === 1 ? 'exercițiu reluat a intrat' : 'exerciții reluate au intrat'} în repetiția inteligentă.</div>}
           {result.streakDays > 1 && <div style={{ fontSize: '.85rem', color: 'var(--text-muted)', marginTop: 4 }}>🔥 Serie de studiu: {result.streakDays} zile consecutive!</div>}
           {result.levelInfo && <div style={{ fontSize: '.9rem', marginTop: 6 }}>{result.levelInfo}</div>}
         </div>
@@ -214,6 +220,8 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
               <div style={{ fontSize: '1rem', color: 'var(--navy)', lineHeight: 1.6, flex: 1 }}>
                 <strong>{i + 1}.</strong> <MathText text={fixLatexClient(q.statement)} />
+                {/* exercițiu RELUAT din repetiția inteligentă (Etapa 3, 5.3) */}
+                {q.repeated && <span title="Exercițiu la care ai greșit — îl reluăm ca să-l fixezi" style={{ marginLeft: 6, fontSize: '.7rem', fontWeight: 700, color: '#8a6d1a', background: 'rgba(232,185,49,.16)', borderRadius: 12, padding: '2px 8px', whiteSpace: 'nowrap' }}>🔁 reluat</span>}
               </div>
               {r && <span style={{ fontSize: '1.2rem' }} title={r.skipped ? 'Nerezolvată' : r.correct ? 'Corect' : 'Greșit'}>{r.correct ? '✅' : r.skipped ? '⏳' : '❌'}</span>}
             </div>
@@ -1329,6 +1337,7 @@ function ReviewsTab({ st, busy, onReview }) {
             <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.93rem' }}>{r.chapterTitle}</div>
             <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: 3 }}>
               Etapa {r.stage + 1}/3 · {r.stage === 0 ? 'recapitularea de a doua zi' : r.stage === 1 ? 'recapitularea de după o săptămână' : 'recapitularea de după o lună'}
+              {' · începe cu exercițiile la care ai greșit'}
             </div>
           </div>
           <button className="btn btn-sm btn-primary" disabled={!!busy} onClick={() => onReview(r.id, r.chapterTitle)}>{busy === 'review' ? '...' : '▶ Începe (5 întrebări)'}</button>

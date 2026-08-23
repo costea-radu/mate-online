@@ -286,4 +286,33 @@ const BROWSER_ANS_EQ = `function ansEq(a,b){
   return false;
 }`;
 
-module.exports = { answersEquivalent, numericVerdict, normalizeAnswer, latexToExpr, exprEquivalent, BROWSER_ANS_EQ };
+// ─── Evaluare sigură pentru unealta calculate (tool calling, Etapa 3) ─────────
+// Acceptă sintaxă mathjs SAU scriere românească/LaTeX (trece prin latexToExpr
+// când parsarea directă eșuează). Întoarce { result, exact? } sau { error }.
+function evaluateExpr(expression) {
+  const raw = String(expression || '').trim();
+  if (!raw) return { error: 'expresie goală' };
+  if (raw.length > MAX_EXPR) return { error: 'expresie prea lungă' };
+  const candidates = [raw, decimalComma(latexToExpr(raw), false)];
+  let lastErr = null;
+  for (const expr of candidates) {
+    try {
+      const v = math.evaluate(expr);
+      if (v === undefined) continue;
+      if (typeof v === 'function') return { error: 'expresia nu are valoare' };
+      const str = math.format(v, { precision: 12 });
+      let exact = null;
+      if (typeof v === 'number' && Number.isFinite(v) && !Number.isInteger(v)) {
+        try {
+          const f = math.fraction(v); // fraction.js v5: n/d pot fi BigInt
+          const n = Number(f.n), d = Number(f.d), sgn = Number(f.s) < 0 ? '-' : '';
+          if (d > 1 && d <= 10000 && Math.abs(n / d - v) < 1e-9) exact = `${sgn}${n}/${d}`;
+        } catch { /* nu e raționabil */ }
+      }
+      return { result: str, ...(exact ? { exact } : {}) };
+    } catch (e) { lastErr = e; }
+  }
+  return { error: `nu pot evalua: ${String(lastErr && lastErr.message || 'sintaxă').slice(0, 120)}` };
+}
+
+module.exports = { answersEquivalent, numericVerdict, normalizeAnswer, latexToExpr, exprEquivalent, evaluateExpr, BROWSER_ANS_EQ };
