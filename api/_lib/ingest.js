@@ -22,6 +22,32 @@ const CHUNK_MAX = 1500;           // caractere per fragment (exercițiu)
 const PARA_SIZE = 1200, PARA_OVERLAP = 150;
 const MAX_CHUNKS = 80;            // plafon per material
 
+// ── Text pe care Postgres chiar îl poate stoca ───────────────────────────────
+// PostgREST trimite rândurile ca JSON, iar Postgres refuză un octet NUL la
+// conversia în `text`: „unsupported Unicode escape sequence" — și pică TOT lotul,
+// nu doar rândul vinovat. Până la Etapa 3 în ai_knowledge intra o singură linie
+// de metadate (titlu + descriere), curată; de când intră textul REAL extras din
+// PDF-uri, apar NUL-uri, controale de pagină și surogați nepereche (pdf-parse
+// le scoate din fonturi cu encoding ciudat). Le curățăm la sursă, ca și hash-ul
+// să se calculeze pe exact ce se scrie.
+const safeText = (s) => (s == null ? s : String(s)
+  .replace(/[\u000B\u000C]/g, '\n')                            // tab vertical / salt de pagina in PDF -> linie noua
+  .replace(/[\u0000-\u0008\u000E-\u001F\u007F-\u009F]/g, ' ')   // NUL + restul controalelor C0/C1
+  .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '')          // surogat înalt fără pereche
+  .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')         // surogat jos fără pereche
+  .replace(/[ \t]{2,}/g, ' '));
+
+// Curăță toate câmpurile text ale unui rând de fragment (inclusiv title/topic,
+// care vin din tabela `content` și pot avea aceleași surprize).
+const safeRow = (r) => {
+  const out = { ...r };
+  for (const k of ['content', 'title', 'topic', 'chapter_id', 'category', 'source_type']) {
+    if (typeof out[k] === 'string') out[k] = safeText(out[k]);
+  }
+  if (typeof out.content === 'string') out.content = out.content.trim();
+  return out;
+};
+
 const stripHtml = (s) => String(s || '')
   .replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
   .replace(/<br\s*\/?>|<\/p>|<\/div>|<\/li>|<\/h[1-6]>/gi, '\n').replace(/<[^>]+>/g, ' ')
@@ -135,22 +161,22 @@ function chunksForContent(row, { pdfText = null, html = null, isBarem = false } 
   }
 
   const fallbackTopic = metaTopic();
-  return items.slice(0, MAX_CHUNKS).map((it, i) => ({
+  return items.slice(0, MAX_CHUNKS).map((it, i) => safeRow({
     ...base, source_type: it.source_type, source_id: row.id, chunk_index: i,
     content: clip(it.content, CHUNK_MAX + 200), ...tag(it.content, fallbackTopic),
-  }));
+  })).filter((r) => r.content && r.content.length >= 10);
 }
 
 // Rezolvările (tabela `rezolvari`): metadate + descriere (conținutul e video/PDF/imagine)
 function chunksForRezolvare(row) {
   const header = [row.title, row.description].filter(Boolean).join(' — ');
   const c = taxonomy.classify(header, row.category);
-  return [{
+  return [safeRow({
     source_type: 'solution', source_id: row.id, chunk_index: 0,
     category: row.category, topic: c ? c.topic : null, chapter_id: c ? c.chapterId : null,
     title: row.title, content: `Rezolvare (${row.type || 'material'}). Categorie: ${row.category || 'general'}. ${header}`,
     is_free: row.is_free !== false,
-  }];
+  })];
 }
 
-module.exports = { chunksForContent, chunksForRezolvare, splitExercises, splitParagraphs, stripHtml, CHUNK_MAX };
+module.exports = { chunksForContent, chunksForRezolvare, splitExercises, splitParagraphs, stripHtml, safeText, safeRow, CHUNK_MAX };

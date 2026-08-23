@@ -242,3 +242,86 @@ test('retrieve: fără migrarea RAG v2 → revine pe căutarea veche (vector, ap
   await ai.retrieve(supa, { query: 'procente', k: 3 });
   assert.ok(!calls.slice(before).some((c) => c.name === 'match_ai_knowledge_hybrid'));
 });
+
+
+// ─── Regresie: octeții pe care Postgres nu-i poate stoca ─────────────────────
+// „Reindexează tot" pica cu „Upsert ai_knowledge: unsupported Unicode escape
+// sequence": textul REAL extras din PDF-uri (nou în Etapa 3) conține NUL,
+// salturi de pagină și surogați nepereche. PostgREST le trimite ca JSON, iar
+// Postgres refuză \u0000 la conversia în `text` — și pică LOTUL ÎNTREG, nu
+// doar rândul vinovat, deci coada se relua la infinit (re-embedding pe bani).
+const NUL = String.fromCharCode(0);
+const FF = String.fromCharCode(12);
+const BEL = String.fromCharCode(7);
+const LONE_HI = String.fromCharCode(0xd800);
+const LONE_LO = String.fromCharCode(0xdc00);
+
+const hasCtrl = (v) => typeof v === 'string' && [...v].some((ch) => {
+  const c = ch.charCodeAt(0);
+  return c < 32 && c !== 10 && c !== 9 && c !== 13;
+});
+const hasLoneSurrogate = (v) => {
+  if (typeof v !== 'string') return false;
+  for (let i = 0; i < v.length; i++) {
+    const c = v.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) { const n = v.charCodeAt(i + 1); if (!(n >= 0xdc00 && n <= 0xdfff)) return true; i++; }
+    else if (c >= 0xdc00 && c <= 0xdfff) return true;
+  }
+  return false;
+};
+
+test('ingest: textul de PDF cu NUL / controale / surogați nepereche iese CURAT', () => {
+  const pdfText = [
+    'SUBIECTUL I',
+    '1. Rezultatul calculului ' + NUL + '2 + 3' + BEL + ' este:',
+    FF,
+    '2. Media numerelor ' + LONE_HI + '4 și 6' + LONE_LO + ' este:',
+    '3. Un triunghi are laturile de 3, 4 și 5 cm. Aria lui este:',
+  ].join('\n');
+  const chunks = ingest.chunksForContent(
+    { id: 'c1', title: 'EN 2025 ' + NUL + 'Varianta 3', description: 'test',
+      category: 'evaluare-nationala', content_type: 'pdf', is_free: true },
+    { pdfText },
+  );
+  assert.ok(chunks.length >= 2, `doar ${chunks.length} fragmente`);
+  for (const c of chunks) {
+    for (const [k, v] of Object.entries(c)) {
+      assert.ok(!hasCtrl(v), `caracter de control rămas în ${k}`);
+      assert.ok(!hasLoneSurrogate(v), `surogat nepereche rămas în ${k}`);
+    }
+  }
+  // conținutul rămâne lizibil, nu doar curat
+  assert.match(chunks[0].content, /Rezultatul calculului 2 \+ 3/);
+  assert.ok(!chunks[0].title.includes(NUL));
+});
+
+test('ingest: fragmentele curățate supraviețuiesc drumului prin JSON (ca la PostgREST)', () => {
+  const chunks = ingest.chunksForContent(
+    { id: 'c2', title: 'Test' + NUL, description: '', category: 'bacalaureat',
+      content_type: 'pdf', is_free: false },
+    { pdfText: '1. Calculați ' + NUL + 'derivata.\n2. Aflați limita.\n3. Rezolvați ecuația.' },
+  );
+  const json = JSON.stringify(chunks);
+  // \u0000 în JSON = exact ce respinge Postgres („unsupported Unicode escape sequence")
+  assert.ok(!/\\u000[0-8]|\\u000[bcefBCEF]|\\u001[0-9a-fA-F]/.test(json),
+    'JSON-ul încă are secvențe de control pe care Postgres le refuză');
+  assert.deepEqual(JSON.parse(json).length, chunks.length);
+});
+
+test('ingest: safeText păstrează diacriticele, tabul și liniile noi', () => {
+  const t = 'Fracții\tordinare\nși zecimale ' + NUL + 'â îț';
+  const out = ingest.safeText(t);
+  assert.ok(out.includes('Fracții'), 'diacriticele s-au pierdut');
+  assert.ok(out.includes('\t'), 'tabul s-a pierdut');
+  assert.ok(out.includes('\n'), 'linia nouă s-a pierdut');
+  assert.ok(!out.includes(NUL), 'NUL a rămas');
+});
+
+test('ingest: fragmentele goale după curățare sunt aruncate, nu scrise', () => {
+  const chunks = ingest.chunksForContent(
+    { id: 'c3', title: '', description: '', category: 'evaluare-nationala',
+      content_type: 'pdf', is_free: true },
+    { pdfText: NUL + BEL + FF },
+  );
+  for (const c of chunks) assert.ok(c.content.length >= 10, 'fragment gol scris în baza de cunoștințe');
+});

@@ -137,16 +137,35 @@ async function processQueue(supa) {
   if (vectors) { toEmbed.forEach((c, i) => { c.embedding = vectors[i]; }); embedded = toEmbed.length; }
   // fără vectori: scriem textul (și păstrăm vectorul vechi, dacă există — nu trimitem cheia `embedding`)
 
+  let badRows = 0;
   if (toWrite.length) {
-    // rândurile fără coloana chapter_id (migrarea ai_rag_v2.sql nerulată) → reîncercăm fără ea
-    let { error } = await supa.from('ai_knowledge').upsert(toWrite, { onConflict: 'source_type,source_id,chunk_index' });
+    const ON = { onConflict: 'source_type,source_id,chunk_index' };
+    // plasă de siguranță: chiar dacă ingest.safeRow a curățat deja fragmentele,
+    // trecem încă o dată peste TOT ce se scrie — orice octet de control scăpat
+    // face Postgres să respingă LOTUL ÎNTREG cu „unsupported Unicode escape sequence"
+    const rows = toWrite.map((r) => ingest.safeRow(r));
+    let { error } = await supa.from('ai_knowledge').upsert(rows, ON);
     if (error && /chapter_id/.test(error.message || '')) {
       // migrarea supabase/ai_rag_v2.sql nu e rulată → indexăm fără capitol
       console.warn('ai_knowledge fără coloana chapter_id — rulează supabase/ai_rag_v2.sql (indexez fără capitol)');
-      const noChapter = toWrite.map(({ chapter_id: _drop, ...r }) => r); // eslint-disable-line no-unused-vars
-      ({ error } = await supa.from('ai_knowledge').upsert(noChapter, { onConflict: 'source_type,source_id,chunk_index' }));
+      const noChapter = rows.map(({ chapter_id: _drop, ...r }) => r); // eslint-disable-line no-unused-vars
+      ({ error } = await supa.from('ai_knowledge').upsert(noChapter, ON));
     }
-    if (error) throw new Error('Upsert ai_knowledge: ' + error.message);
+    if (error) {
+      // Ultimul resort: scriem rând cu rând. Fără asta, un SINGUR fragment defect
+      // pică tot lotul, joburile nu se marchează procesate, iar cronul reia la
+      // fiecare 10 minute ACELEAȘI materiale — re-embedding la nesfârșit, pe bani.
+      console.warn('Upsert în bloc a eșuat (%s) — scriu rând cu rând, ca lotul să avanseze.', error.message);
+      for (const r of rows) {
+        const { error: e1 } = await supa.from('ai_knowledge').upsert([r], ON);
+        if (!e1) continue;
+        const { chapter_id: _d, ...noCh } = r; // eslint-disable-line no-unused-vars
+        const { error: e2 } = await supa.from('ai_knowledge').upsert([noCh], ON);
+        if (e2) { badRows++; console.warn('  fragment sărit %s#%s: %s', r.source_id, r.chunk_index, e2.message); }
+      }
+      // tot lotul respins → e o problemă reală (schemă, drepturi), nu un fragment defect
+      if (badRows === rows.length) throw new Error('Upsert ai_knowledge: ' + error.message);
+    }
   }
 
   // Marchează joburile ca procesate. Dacă asta eșuează în tăcere, cronul
@@ -163,7 +182,7 @@ async function processQueue(supa) {
   const { count: remaining } = await supa.from('ai_ingest_queue')
     .select('*', { count: 'exact', head: true }).is('processed_at', null);
 
-  return { processed: doneJobs.length, chunks: chunksTotal, embedded, skipped, deleted, remaining: remaining || 0 };
+  return { processed: doneJobs.length, chunks: chunksTotal, embedded, skipped, deleted, ...(badRows ? { badRows } : {}), remaining: remaining || 0 };
 }
 
 // Coada de indexare goală → folosim rularea cronului pentru pre-generare
