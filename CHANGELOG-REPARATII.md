@@ -4,6 +4,51 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 23 august 2026 (3) — Modelele implicite: generarea de teste/exerciții + corectarea trec pe `gpt-5.6-sol`, foto-rezolvarea pe `gpt-5.6-terra`; bugetele ridicate în consecință
+
+Cerut de Radu: sol era deja setat în Vercel (`AI_GEN_CHAT_MODEL`) pentru generarea de teste și exerciții PDF/interactive din contul de profesor, dar **implicitul din cod** rămăsese `gpt-4o-mini` — deci dacă variabila lipsea (alt mediu, preview, o ștergere accidentală), generarea cădea tăcut pe modelul slab. La fel, foto-rezolvarea moștenea modelul de chat.
+
+### Ce s-a schimbat (`api/_lib/ai.js`)
+- `GEN_MODEL` = `AI_GEN_CHAT_MODEL || gpt-5.6-sol` (era `|| CHAT_MODEL`). Afectează generarea de teste (`ai-exam`), exercițiile de antrenament (`ai-practice`), temele (`ai-assignment`), seturile de Meditații (`ai-meditatii`), corectarea **fără** barem (`ai-correct`) și, prin rezervă, verificatorul independent (`verify.js`). Acolo modelul calculează SINGUR, deci o greșeală devine direct cheie de răspuns.
+- `VISION_MODEL` = `AI_VISION_MODEL || gpt-5.6-terra` (era: modelul de chat dacă suportă imagini, altfel `gpt-4o-mini`). Afectează `api/ai-vision.js` — citirea enunțului din poza elevului; scrisul de mână și formulele cer un model bun la vedere, iar o transcriere greșită strică tot ce urmează.
+- Ambele moștenesc prefixul providerului (AI Gateway / OpenRouter) și rămân suprascriptibile din env.
+- Corectarea **cu** barem rămâne pe `PDF_MODEL` (terra), chatul general pe `CHAT_MODEL` (4o-mini), Meditațiile pe `claude-opus-5`, agenții din admin pe modelul Anthropic ales în UI — neschimbate.
+
+### Costul (calculat cu tabelul real de prețuri din cod, USD_RON=4,6)
+| Acțiune | acum | înainte | de câte ori |
+|---|---|---|---|
+| Test de examen (~10k in + 7,5k out) | 0,874 lei | 0,028 lei | ×32 |
+| Set Meditații (înlocuiri) | 0,478 lei | 0,015 lei | ×32 |
+| Corectare fără barem | 0,294 lei | 0,010 lei | ×30 |
+| Exercițiu de antrenament | 0,202 lei | 0,007 lei | ×31 |
+| Foto-rezolvare (terra) | 0,067 lei | 0,004 lei | ×17 |
+
+**Adminii sunt scutiți de bugete** (`isBudgetExempt`: `is_admin` sau `role='admin'`), deci contul de profesor generează la calitate maximă, fără degradare. Conturile de **elev** NU sunt scutite — de aceea bugetele au fost ridicate în aceeași zi (vezi mai jos).
+
+### Bugetele, ridicate ca sol să apuce să conteze
+Sol e model cu **raționament**: `buildBody` îi dă `max_completion_tokens = min(max(maxTokens×3, 3000), 16000)`, deci un test de examen poate ajunge la **1,66 lei**, nu 0,87. Cu limita soft veche de 0,8 lei/zi, degradarea pe `AI_CHAT_MODEL` pornea după PRIMA acțiune — adică elevii n-ar fi văzut niciodată sol.
+
+| Limită | înainte | acum | de câte ori |
+|---|---|---|---|
+| `AI_BUDGET_DAY_SOFT_LEI` (degradare) | 0,8 lei | **2,5 lei** | ×3,1 |
+| `AI_BUDGET_DAY_HARD_LEI` (oprire) | 2,5 lei | **6 lei** | ×2,4 |
+| `AI_BUDGET_MONTH_LEI` (30 zile rulante) | 6 lei | **12 lei** | ×2 |
+
+Reperul ales: o zi „grea" de elev — un test complet + verificarea lui + chat — trebuie să încapă SUB limita soft. Abonamentul e 50 lei/lună (`api/create-checkout.js` → `unit_amount: 5000`), deci plafonul lunar trece de la 12% la **24%** din el; marja pe dimensiunea AI rămâne ~76%. Creșterea e deliberat mult sub cea a costului (×30): degradarea automată rămâne plasa de siguranță.
+
+### `AI_VERIFY_MODEL` — merită setat, acum din două motive
+Nesetat, verificatorul independent cade pe modelul de generare (`verify.js` → `AI_VERIFY_MODEL || ai.GEN_MODEL`), adică **sol verifică ce a scris tot sol**: aceleași puncte oarbe, deci trece peste aceleași greșeli. Și costă: 24 de itemi × sol = **~1,17 lei**, uneori mai mult decât generarea. Pe `gpt-5-mini`: **~0,11 lei** (×10,6 mai ieftin), și e alt model, deci dezacordurile lui chiar înseamnă ceva.
+
+`AI_REASONING_EFFORT` NU e soluția de ieftinire: e **global** (`buildBody`, parametru implicit `REASONING_EFFORT`), deci `low` ar coborî și efortul lui sol la generare.
+
+### Verificare
+- Modelele se rezolvă corect în toate cele patru cazuri: fără env (sol/terra), cu prefix de gateway (`openai/gpt-5.6-sol`, `openai/gpt-5.6-terra`), cu env explicit (env câștigă), și degradare (`pickModel` → `gpt-4o-mini`).
+- `priceFor` recunoaște ambele modele, inclusiv cu prefix de provider — deci bugetele și rapoartele contorizează corect (sol 4/20, terra 2/12 USD/1M).
+- Textul public (`AI_STACK`) menționa deja Terra și Sol; am adăugat „citirea pozelor cu exerciții", ca site-ul să nu promită altceva decât rulează. `.env.ai.example` și `GHID_LIMITE_AI.md` actualizate cu noile implicite și costuri.
+- `npm test`: 395/397; `vite build` trece; toate cele 76 de module din `api/` se încarcă.
+
+---
+
 ## 23 august 2026 (2) — SECURITATE: funcțiile SECURITY DEFINER puteau fi chemate din browser → conținutul premium se putea extrage cu cheia publică (regresie introdusă de Etapa 3)
 
 Semnalat de linterul Supabase (0028 + 0029), raportat de Radu. **Vina e a mea:** în `ai_rag_v2.sql` și `meditatii_v3.sql` am scris `revoke all on function … from public`, copiind tiparul vechi din `ai_tutor_schema.sql` în loc de cel corect, care exista deja în proiect (`ai_alerte.sql`, `ai_limite_cost.sql`, `ai_pregen.sql`): `revoke … from public, anon, authenticated`.

@@ -19,8 +19,12 @@ const CHAT_MODEL = process.env.AI_CHAT_MODEL     || 'gpt-4o-mini';
 // („openai/gpt-4o-mini"). Implicitele modelelor derivate moștenesc prefixul
 // modelului de chat, ca să funcționeze și prin gateway, și direct pe OpenAI.
 const MODEL_PREFIX = CHAT_MODEL.includes('/') ? CHAT_MODEL.slice(0, CHAT_MODEL.lastIndexOf('/') + 1) : '';
-// Model cu vedere (foto-rezolvare). gpt-4o-mini suportă imagini.
-const VISION_MODEL = process.env.AI_VISION_MODEL || (/4o|vision|gpt-5|sonnet|gemini/i.test(CHAT_MODEL) ? CHAT_MODEL : MODEL_PREFIX + 'gpt-4o-mini');
+// Model cu vedere (foto-rezolvare, api/ai-vision.js): citește enunțul din poza
+// elevului. IMPLICIT „terra" (gpt-5.6) — scrisul de mână, formulele și pozele
+// strâmbe cer un model bun la vedere, iar o transcriere greșită strică tot ce
+// urmează. NU mai moștenește modelul de chat. AI_VISION_MODEL îl schimbă;
+// peste bugetul zilnic soft, pickModel coboară automat pe modelul standard.
+const VISION_MODEL = process.env.AI_VISION_MODEL || MODEL_PREFIX + 'gpt-5.6-terra';
 
 const EMBED_BASE  = process.env.AI_EMBED_BASE_URL || 'https://api.openai.com/v1';
 const EMBED_KEY   = process.env.AI_EMBED_API_KEY  || process.env.OPENAI_API_KEY || '';
@@ -49,10 +53,15 @@ const hasChat = () => !!CHAT_KEY;
 // de chat, pentru AI Gateway). AI_PDF_CHAT_MODEL în env îl poate schimba;
 // peste bugetul zilnic soft, pickModel coboară automat pe modelul standard.
 const PDF_MODEL = process.env.AI_PDF_CHAT_MODEL || MODEL_PREFIX + 'gpt-5.6-terra';
-// Model separat (opțional) pentru GENERAREA de teste/exerciții și CORECTAREA
-// răspunsurilor — acolo modelul calculează singur (fără barem), deci greșelile
-// de calcul ajung direct „răspuns oficial". Setează AI_GEN_CHAT_MODEL în env.
-const GEN_MODEL = process.env.AI_GEN_CHAT_MODEL || CHAT_MODEL;
+// Modelul pentru GENERAREA de teste/exerciții și CORECTAREA răspunsurilor —
+// acolo modelul calculează singur (fără barem), deci o greșeală de calcul ajunge
+// direct „răspuns oficial" în cheia unui test dat elevilor. IMPLICIT „sol"
+// (gpt-5.6-sol, flagship-ul), nu modelul de chat: e cel folosit în contul de
+// profesor pentru teste și exerciții PDF/interactive. AI_GEN_CHAT_MODEL îl
+// schimbă; peste bugetul zilnic soft, pickModel coboară automat pe CHAT_MODEL.
+// ATENȚIE la cost: sol e ~27× mai scump la intrare și ~33× la ieșire față de
+// gpt-4o-mini — vezi GHID_LIMITE_AI.md pentru bugete.
+const GEN_MODEL = process.env.AI_GEN_CHAT_MODEL || MODEL_PREFIX + 'gpt-5.6-sol';
 // Model separat (opțional) pentru EXPLICAȚIILE pas-cu-pas din chat — modurile
 // „tutor" / „explain" / „hint" (punctul 1.4 din AUDIT_AGENTI_AI.md): acolo
 // modelul calculează, iar 4o-mini greșește cel mai des la probleme cu mai mulți
@@ -161,9 +170,20 @@ function costMicroLei(model, usage = {}) {
 }
 
 // Bugetele, în LEI (0 = limita respectivă e dezactivată).
-const BUDGET_DAY_SOFT_LEI = parseFloat(process.env.AI_BUDGET_DAY_SOFT_LEI || '0.8');
-const BUDGET_DAY_HARD_LEI = parseFloat(process.env.AI_BUDGET_DAY_HARD_LEI || '2.5');
-const BUDGET_MONTH_LEI    = parseFloat(process.env.AI_BUDGET_MONTH_LEI    || '6');
+// RIDICATE pe 23 august 2026, o dată cu trecerea generării pe gpt-5.6-sol
+// (4/20 USD/1M, ~30× față de gpt-4o-mini) și a foto-rezolvării pe terra.
+// Reperul: o zi „grea" de elev trebuie să încapă SUB limita soft, altfel
+// degradarea pe modelul economic pornește după prima acțiune și sol n-ar
+// mai apuca să conteze. Un test de examen costă 1,0–1,7 lei (sol e model cu
+// raționament: max_completion_tokens ajunge la 16000), plus verificarea.
+//   zi soft: 0,8 → 2,5 lei  (×3,1)   — un test complet + verificare + chat
+//   zi hard: 2,5 → 6 lei    (×2,4)   — oprire la abuz
+//   lună:      6 → 12 lei   (×2)     — 24% dintr-un abonament de 50 lei
+// Abonamentul e 50 lei/lună (api/create-checkout.js), deci marja rămâne ~76%
+// pe dimensiunea AI. Adminii sunt scutiți (isBudgetExempt).
+const BUDGET_DAY_SOFT_LEI = parseFloat(process.env.AI_BUDGET_DAY_SOFT_LEI || '2.5');
+const BUDGET_DAY_HARD_LEI = parseFloat(process.env.AI_BUDGET_DAY_HARD_LEI || '6');
+const BUDGET_MONTH_LEI    = parseFloat(process.env.AI_BUDGET_MONTH_LEI    || '12');
 // Modelul „economic" pe care coboară CHATUL peste bugetul zilnic soft.
 // (Cererile pe modele premium — PDF/GEN — coboară pe CHAT_MODEL.) Prefixul
 // providerului se moștenește de la modelul de chat (AI Gateway).

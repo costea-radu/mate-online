@@ -37,7 +37,7 @@ export const AI_STACK = {
   clienti: {
     furnizor: 'OpenAI',
     modele: ['GPT-4o mini', 'GPT-5.6 Terra', 'GPT-5.6 Sol'],
-    descriere: 'GPT-4o mini răspunde rapid în chat și explică pas cu pas; GPT-5.6 Terra și GPT-5.6 Sol preiau sarcinile care cer precizie maximă — citirea subiectelor PDF, corectarea după barem, generarea de teste și exerciții.',
+    descriere: 'GPT-4o mini răspunde rapid în chat și explică pas cu pas; GPT-5.6 Terra și GPT-5.6 Sol preiau sarcinile care cer precizie maximă — citirea subiectelor PDF, citirea pozelor cu exerciții, corectarea după barem, generarea de teste și exerciții.',
   },
   // Anthropic (Claude): (a) uneltele administrative interne ale echipei și
   // (b) GENERAREA seturilor de exerciții din „Meditații cu Profesorul Virtual"

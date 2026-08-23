@@ -87,9 +87,9 @@ limitele au valori implicite rezonabile. Dacă vrei să le ajustezi, vezi mai jo
 ### Lanțul de limite (în `ai.enforceRateLimit`, apelat de toate endpoint-urile AI)
 
 1. **Rata orară** (`AI_RATE_PER_HOUR`, default 80/oră) — anti-abuz, ca înainte. Eroare 429, `code: 'RATE_HOUR'`.
-2. **Bugetul lunar** (`AI_BUDGET_MONTH_LEI`, default **6 lei / 30 de zile rulante**) — plafonul economic al abonamentului. Eroare 429, `code: 'BUDGET_MONTH'`.
-3. **Bugetul zilnic hard** (`AI_BUDGET_DAY_HARD_LEI`, default **2,5 lei/zi**) — oprește AI-ul până la miezul nopții (ora României). Eroare 429, `code: 'BUDGET_DAY'`.
-4. **Bugetul zilnic soft** (`AI_BUDGET_DAY_SOFT_LEI`, default **0,8 lei/zi**) — NU blochează: marchează cererea „degradată", iar endpoint-urile aleg un model mai ieftin.
+2. **Bugetul lunar** (`AI_BUDGET_MONTH_LEI`, default **12 lei / 30 de zile rulante**) — plafonul economic al abonamentului. Eroare 429, `code: 'BUDGET_MONTH'`.
+3. **Bugetul zilnic hard** (`AI_BUDGET_DAY_HARD_LEI`, default **6 lei/zi**) — oprește AI-ul până la miezul nopții (ora României). Eroare 429, `code: 'BUDGET_DAY'`.
+4. **Bugetul zilnic soft** (`AI_BUDGET_DAY_SOFT_LEI`, default **2,5 lei/zi**) — NU blochează: marchează cererea „degradată", iar endpoint-urile aleg un model mai ieftin.
 
 Adminii sunt scutiți de bugete (rata orară rămâne). „Ziua" = miezul nopții pe ora
 României; „luna" = ultimele 30 de zile rulante (nu se poate „arde" totul pe 1 ale lunii).
@@ -102,8 +102,9 @@ României; „luna" = ultimele 30 de zile rulante (nu se poate „arde" totul pe
 |---|---|
 | chat → `AI_CHAT_MODEL` | chat → `AI_ECON_CHAT_MODEL` (default `gpt-4o-mini`) |
 | explicații pas-cu-pas (tutor/explain/hint) → `AI_TUTOR_MODEL` (Etapa 2; default = `AI_CHAT_MODEL`) | → `AI_CHAT_MODEL` |
-| corectare/generare → `AI_PDF_CHAT_MODEL` / `AI_GEN_CHAT_MODEL` | → `AI_CHAT_MODEL` (modelul standard) |
-| verificatorul independent al itemilor generați → `AI_VERIFY_MODEL` (Etapa 2; default = modelul de generare) | — (plafonat de `AI_VERIFY_MAX_ITEMS` / `AI_VERIFY_TIME_MS`) |
+| corectare/generare → `AI_PDF_CHAT_MODEL` (terra) / `AI_GEN_CHAT_MODEL` (sol) | → `AI_CHAT_MODEL` (modelul standard) |
+| foto-rezolvare → `AI_VISION_MODEL` (terra) | → `AI_CHAT_MODEL` (modelul standard) |
+| verificatorul independent al itemilor generați → `AI_VERIFY_MODEL` (Etapa 2; default = modelul de generare, adică **sol** — merită setat pe altceva, vezi mai jos) | — (plafonat de `AI_VERIFY_MAX_ITEMS` / `AI_VERIFY_TIME_MS`) |
 
 **Uneltele tutorelui (Etapa 3, tool calling).** Un răspuns în care modelul cere unelte
 (`calculate`, `check_equivalence`, `get_exercise`, `get_barem_item`) costă 2–3 apeluri în loc
@@ -239,23 +240,49 @@ COMUN tuturor elevilor. Sistemul îl generează O DATĂ și îl refolosește:
 
 ## 🎛️ Calibrare
 
-Abonamentul e 50 lei/lună. Defaulturile alocă AI-ului maxim 6 lei/utilizator/lună
-(12%), cu netezire zilnică. Repere la prețurile din august 2026:
+Abonamentul e 50 lei/lună. Defaulturile alocă AI-ului maxim 12 lei/utilizator/lună
+(24%), cu netezire zilnică. Repere la prețurile din august 2026:
 
 | Acțiune | Cost aproximativ |
 |---|---|
 | mesaj chat (gpt-4o-mini, cu RAG) | ~0,005 lei |
-| generare exercițiu / verificare | ~0,01–0,02 lei |
-| generare test de examen (GEN premium) | ~0,1–0,3 lei |
+| foto-rezolvare (VISION_MODEL = gpt-5.6-terra, 2/12 USD/1M) | ~0,07 lei |
+| generare exercițiu de antrenament (GEN_MODEL = gpt-5.6-sol, 4/20 USD/1M) | ~0,2 lei |
+| set de Meditații (înlocuiri, GEN_MODEL) | ~0,5 lei |
+| generare test de examen (GEN_MODEL, ~10k in) | **1,0–1,7 lei** |
+| verificarea a 24 de itemi pe sol (`AI_VERIFY_MODEL` nesetat) | ~1,17 lei |
+| aceeași verificare pe `gpt-5-mini` | ~0,11 lei |
 | corectare test (PDF_MODEL = gpt-5.6-terra, 2/12 USD/1M) | ~0,15–0,4 lei |
+
+**Din 23 august 2026, `GEN_MODEL` e implicit `gpt-5.6-sol` și `VISION_MODEL` e `gpt-5.6-terra`**
+(erau amândouă `gpt-4o-mini`). Generarea și corectarea fără barem sunt locurile unde modelul
+calculează SINGUR — o greșeală acolo devine cheie de răspuns într-un test dat elevilor, deci
+merită modelul bun. Costul e însă de ~30× față de 4o-mini. Sol e model cu RAȚIONAMENT,
+deci `max_completion_tokens` urcă la 16000 (`buildBody`) — un test poate ajunge la 1,7 lei,
+nu 0,9. De aceea bugetele au fost ridicate în aceeași zi: **zi soft 0,8 → 2,5 lei**,
+**zi hard 2,5 → 6 lei**, **lună 6 → 12 lei**. Reperul: o zi „grea" de elev (un test complet
++ verificare pe un model ieftin + chat) trebuie să încapă SUB limita soft, altfel degradarea
+pornește după prima acțiune și sol n-ar mai apuca să conteze.
+
+Adminii sunt SCUTIȚI de bugete (`is_admin` sau `role='admin'`), deci contul de profesor
+generează la calitate maximă indiferent de limite.
+
+**Setează `AI_VERIFY_MODEL`.** Nesetat, verificatorul cade pe modelul de generare — deci sol
+verifică ce a scris tot sol: aceleași puncte oarbe, și ~1,17 lei în plus la fiecare set de 24
+de itemi (mai mult decât generarea unora dintre ele). `AI_VERIFY_MODEL=gpt-5-mini` costă ~0,11
+lei pentru aceeași muncă (de 10,6× mai puțin) și e un model diferit, deci dezacordurile lui
+chiar înseamnă ceva. NU seta `AI_REASONING_EFFORT` global ca să-l ieftinești și mai mult:
+parametrul se aplică TUTUROR modelelor cu raționament, deci ar coborî și efortul lui sol la
+generare — exact ce nu vrei.
 
 (Până pe 22 august 2026 terra era contorizat la prețul lui sol, 5/30 — o corectare
 „costa" în contor ~0,4–0,9 lei, de 2,5× mai mult decât real; vezi CHANGELOG.)
 
-Deci defaulturile înseamnă, practic: sute de mesaje de chat pe zi SAU ~6–15 corectări
-premium pe zi (cu degradare pe modelul standard după ~2–4, la limita soft de 0,8 lei),
-și ~15–40 corectări premium pe lună — un elev normal nu le atinge
-niciodată; doar utilizarea extremă e limitată. După 2–3 săptămâni de date, uită-te
+Deci defaulturile înseamnă, practic: sute de mesaje de chat pe zi SAU un test de examen
+complet plus verificare și chat pe zi la calitate sol (degradarea pe modelul standard pornește
+după ~1 test, ~2 seturi de meditații sau ~12 exerciții de antrenament, la limita soft de
+2,5 lei), și ~7–12 astfel de zile pe lună înainte de plafonul lunar — un elev normal nu le
+atinge niciodată; doar utilizarea extremă e limitată. După 2–3 săptămâni de date, uită-te
 în `ai_usage_daily` și ajustează în Vercel → Environment Variables (redeploy).
 
 Dezactivare: setează limita respectivă la `0`. Kill-switch total nu există încă —
