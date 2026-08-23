@@ -154,28 +154,40 @@ async function processQueue(supa) {
     // trecem încă o dată peste TOT ce se scrie — orice octet de control scăpat
     // face Postgres să respingă LOTUL ÎNTREG cu „unsupported Unicode escape sequence"
     const rows = toWrite.map((r) => ingest.safeRow(r));
-    let { error } = await supa.from('ai_knowledge').upsert(rows, ON);
-    if (error && /chapter_id/.test(error.message || '')) {
-      // migrarea supabase/ai_rag_v2.sql nu e rulată → indexăm fără capitol
-      console.warn('ai_knowledge fără coloana chapter_id — rulează supabase/ai_rag_v2.sql (indexez fără capitol)');
-      const noChapter = rows.map(({ chapter_id: _drop, ...r }) => r); // eslint-disable-line no-unused-vars
-      ({ error } = await supa.from('ai_knowledge').upsert(noChapter, ON));
-    }
-    if (error) {
-      // Ultimul resort: scriem rând cu rând. Fără asta, un SINGUR fragment defect
-      // pică tot lotul, joburile nu se marchează procesate, iar cronul reia la
-      // fiecare 10 minute ACELEAȘI materiale — re-embedding la nesfârșit, pe bani.
-      console.warn('Upsert în bloc a eșuat (%s) — scriu rând cu rând, ca lotul să avanseze.', error.message);
-      for (const r of rows) {
-        const { error: e1 } = await supa.from('ai_knowledge').upsert([r], ON);
-        if (!e1) continue;
-        const { chapter_id: _d, ...noCh } = r; // eslint-disable-line no-unused-vars
-        const { error: e2 } = await supa.from('ai_knowledge').upsert([noCh], ON);
-        if (e2) { badRows++; console.warn('  fragment sărit %s#%s: %s', r.source_id, r.chunk_index, e2.message); }
+    // Scriem în FELII MICI, nu tot lotul într-un singur upsert: un rând cu
+    // embedding are ~15–30 KB (1536 de numere trimise ca JSON), deci 200 de
+    // rânduri însemnau O SINGURĂ cerere de câțiva MB. Exact valul ăsta de
+    // scrieri a sufocat instanța mică de Postgres la reindexarea din 23 august
+    // (checkpoint de 328s în loguri, apoi restart în buclă și PGRST002/503 pe
+    // tot site-ul). Feliile mici țin WAL-ul și memoria în limite normale.
+    const SLICE = Math.max(1, parseInt(process.env.AI_INGEST_UPSERT_SLICE || '40', 10));
+    let lastErr = null;
+    for (let i = 0; i < rows.length; i += SLICE) {
+      const part = rows.slice(i, i + SLICE);
+      let { error } = await supa.from('ai_knowledge').upsert(part, ON);
+      if (error && /chapter_id/.test(error.message || '')) {
+        // migrarea supabase/ai_rag_v2.sql nu e rulată → indexăm fără capitol
+        console.warn('ai_knowledge fără coloana chapter_id — rulează supabase/ai_rag_v2.sql (indexez fără capitol)');
+        const noChapter = part.map(({ chapter_id: _drop, ...r }) => r); // eslint-disable-line no-unused-vars
+        ({ error } = await supa.from('ai_knowledge').upsert(noChapter, ON));
       }
-      // tot lotul respins → e o problemă reală (schemă, drepturi), nu un fragment defect
-      if (badRows === rows.length) throw new Error('Upsert ai_knowledge: ' + error.message);
+      if (error) {
+        // Ultimul resort: scriem rând cu rând. Fără asta, un SINGUR fragment defect
+        // pică toată felia, joburile nu se marchează procesate, iar cronul reia
+        // ACELEAȘI materiale — re-embedding la nesfârșit, pe bani.
+        console.warn('Upsert în bloc a eșuat (%s) — scriu rând cu rând, ca lotul să avanseze.', error.message);
+        lastErr = error.message;
+        for (const r of part) {
+          const { error: e1 } = await supa.from('ai_knowledge').upsert([r], ON);
+          if (!e1) continue;
+          const { chapter_id: _d, ...noCh } = r; // eslint-disable-line no-unused-vars
+          const { error: e2 } = await supa.from('ai_knowledge').upsert([noCh], ON);
+          if (e2) { badRows++; console.warn('  fragment sărit %s#%s: %s', r.source_id, r.chunk_index, e2.message); }
+        }
+      }
     }
+    // TOATE rândurile respinse → e o problemă reală (schemă, drepturi), nu un fragment defect
+    if (badRows === rows.length && rows.length) throw new Error('Upsert ai_knowledge: ' + (lastErr || 'toate fragmentele au fost respinse'));
   }
 
   // Marchează joburile ca procesate. Dacă asta eșuează în tăcere, cronul

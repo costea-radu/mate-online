@@ -325,3 +325,22 @@ test('ingest: fragmentele goale după curățare sunt aruncate, nu scrise', () =
   );
   for (const c of chunks) assert.ok(c.content.length >= 10, 'fragment gol scris în baza de cunoștințe');
 });
+
+test('ingest: chunk_index rămâne COMPACT (0,1,2…) și după aruncarea fragmentelor goale', () => {
+  // Un fragment din MIJLOC rămâne gol după curățare (o zonă mare doar cu
+  // octeți de control, cum scot uneori PDF-urile scanate). Înainte, numerotarea
+  // păstra golul (0, 1, 3, …), iar curățenia din ai-ingest.js („șterge
+  // chunk_index >= numărul de fragmente") ștergea la a DOUA procesare ultimul
+  // fragment VIU. Acum indexurile se re-numerotează după filtrare.
+  const bodyText = 'Teorema împărțirii cu rest se aplică numerelor naturale. '.repeat(25)
+    + '\n\n' + BEL.repeat(2600) + '\n\n'
+    + 'Cel mai mare divizor comun se calculează cu algoritmul lui Euclid. '.repeat(25);
+  const chunks = ingest.chunksForContent(
+    { id: 'c4', title: '', description: '', category: 'clasa-5',
+      content_type: 'manual', is_free: true, manual_content: bodyText },
+  );
+  assert.ok(chunks.length >= 2, 'fragmentele valide trebuie păstrate');
+  for (const c of chunks) assert.ok(c.content.trim().length >= 10, 'fragment gol scris în baza de cunoștințe');
+  assert.deepStrictEqual(chunks.map((c) => c.chunk_index), chunks.map((_, i) => i),
+    'chunk_index trebuie să fie consecutiv, fără goluri');
+});

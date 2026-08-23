@@ -7,7 +7,7 @@
   "crons": [
     {
       "path": "/api/ai-ingest?action=process",
-      "schedule": "*/10 * * * *"
+      "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/ai-notify?action=scan",

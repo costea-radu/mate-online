@@ -41,6 +41,10 @@ export default function AIAdminPanel() {
             remaining = p.remaining;
             fails = 0;
             setLog((l) => l + `\n…procesat lot, rămase: ${remaining}${p.badRows ? ` (${p.badRows} fragmente sărite)` : ''}`);
+            // PAUZĂ între loturi: fără ea, invocările veneau spate în spate și
+            // baza de date (instanța mică) nu apuca să-și scrie checkpoint-urile —
+            // pe 23 august asta a dus-o în restart în buclă și site-ul a picat.
+            if (remaining > 0) await new Promise((res) => setTimeout(res, 4000));
           } catch (e) {
             fails++;
             setLog((l) => l + `\n⚠️ lot picat (${e.message}) — reîncerc (${fails}/3)`);
@@ -59,6 +63,8 @@ export default function AIAdminPanel() {
             remaining = p.remaining;
             fails = 0;
             setLog((l) => (l ? l + '\n' : '') + `…procesat lot, rămase: ${remaining}${p.badRows ? ` (${p.badRows} fragmente sărite)` : ''}`);
+            // aceeași pauză ca la reindexare — baza respiră între loturi
+            if (remaining !== 0) await new Promise((res) => setTimeout(res, 4000));
           } catch (e) {
             fails++;
             setLog((l) => (l ? l + '\n' : '') + `⚠️ lot picat (${e.message}) — reîncerc (${fails}/3)`);

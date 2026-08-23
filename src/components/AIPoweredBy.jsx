@@ -7,14 +7,21 @@
 // Variante:
 //   inline     — o linie discretă „Bazat pe OpenAI GPT-4o mini · …" (Prețuri, Despre noi)
 //   chips      — etichetă + „pastile" cu numele modelelor (hero Profesor Virtual, Home)
-//   footer     — două rânduri pe fundal închis: clienți (OpenAI) / meditații + unelte interne (Anthropic)
+//   footer     — două rânduri pe fundal închis: pentru tine (OpenAI + Claude Opus 5) / unelte interne (Anthropic)
 //   disclaimer — text minuscul sub câmpul de chat: modelele + „AI-ul poate greși"
 //
-// Props: variant, showIntern (menționează și Claude; implicit doar la footer),
-//        center (aliniere centrată, pentru Home), style (suprascrieri).
+// Modelele PENTRU CLIENȚI vin de la doi furnizori: OpenAI (chat, explicații
+// pas cu pas, PDF-uri, poze, corectare, generare de teste) și Anthropic —
+// Claude Opus 5, care generează seturile de exerciții din „Meditații". De
+// aceea toate variantele afișează și clienti.modeleAnthropic, cu pastile
+// mov, lângă cele OpenAI. EXCEPȚIE: `disclaimer` (sub caseta de chat) arată
+// doar modelele OpenAI — chatul nu trece prin Anthropic.
+//
+// Props: variant, showIntern (menționează și uneltele interne; implicit doar
+//        la footer), center (aliniere centrată, pentru Home), style.
 // =====================================================================
 import { Link } from 'react-router-dom';
-import { AI_STACK, AI_STACK_SCURT } from '../lib/aiModels';
+import { AI_STACK, AI_STACK_SCURT, AI_STACK_SCURT_TOT } from '../lib/aiModels';
 
 const FAQ_LINK = '/faq#ai';
 
@@ -32,9 +39,12 @@ export default function AIPoweredBy({ variant = 'inline', showIntern, center = f
         <div>
           Pentru utilizatori: <strong style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>{clienti.furnizor}</strong> — {clienti.modele.join(', ')}
         </div>
+        <div>
+          Meditații: <strong style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>{clienti.furnizorAnthropic}</strong> — {clienti.modeleAnthropic.join(', ')}
+        </div>
         {withIntern && (
           <div>
-            Meditații + unelte interne: <strong style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>{intern.furnizor}</strong> — {intern.modele.join(', ')}
+            Unelte interne: <strong style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>{intern.furnizor}</strong> — {intern.modele.join(', ')}
           </div>
         )}
         <Link to={FAQ_LINK} style={{ color: 'var(--gold)', fontSize: '0.78rem', fontWeight: 600 }}>
@@ -56,13 +66,18 @@ export default function AIPoweredBy({ variant = 'inline', showIntern, center = f
       }}>
         <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>⚡ Bazat pe {clienti.furnizor}:</span>
         {clienti.modele.map((m) => (
-          <span key={m} style={chip('rgba(232,185,49,.12)', 'rgba(232,185,49,.5)', 'var(--navy)')}>{m}</span>
+          <span key={`openai-${m}`} style={chip('rgba(232,185,49,.12)', 'rgba(232,185,49,.5)', 'var(--navy)')}>{m}</span>
+        ))}
+        {/* Tot pentru clienți, dar de la Anthropic: exercițiile din „Meditații" */}
+        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, marginLeft: 4 }}>· {clienti.furnizorAnthropic} (Meditații):</span>
+        {clienti.modeleAnthropic.map((m) => (
+          <span key={`clienti-${m}`} style={chip('#f3e5f5', '#d7b8e8', '#5b2c83')}>{m}</span>
         ))}
         {withIntern && (
           <>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, marginLeft: 4 }}>· meditații + unelte interne {intern.furnizor}:</span>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, marginLeft: 4 }}>· unelte interne {intern.furnizor}:</span>
             {intern.modele.map((m) => (
-              <span key={m} style={chip('#f3e5f5', '#d7b8e8', '#5b2c83')}>{m}</span>
+              <span key={`intern-${m}`} style={chip('#f3e5f5', '#d7b8e8', '#5b2c83')}>{m}</span>
             ))}
           </>
         )}
@@ -76,6 +91,8 @@ export default function AIPoweredBy({ variant = 'inline', showIntern, center = f
   if (variant === 'disclaimer') {
     // Sub câmpul de scris din chat: o singură linie, minusculă, ca să nu
     // împingă câmpul în afara ecranului pe panourile compacte (mobil).
+    // Aici stă AI_STACK_SCURT (doar OpenAI), nu AI_STACK_SCURT_TOT:
+    // răspunsurile din chat nu trec prin Anthropic.
     return (
       <div style={{
         fontSize: '0.66rem', color: 'var(--text-muted)', lineHeight: 1.35, padding: '0 12px 6px',
@@ -87,10 +104,11 @@ export default function AIPoweredBy({ variant = 'inline', showIntern, center = f
     );
   }
 
-  // inline (implicit)
+  // inline (implicit) — linia despre platformă, deci include și modelul
+  // Anthropic folosit pentru clienți (Claude Opus 5, la Meditații).
   return (
     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', ...style }}>
-      ⚡ Bazat pe {AI_STACK_SCURT}
+      ⚡ Bazat pe {AI_STACK_SCURT_TOT}
       {withIntern ? ` · unelte interne: ${intern.furnizor} ${intern.modele.join(', ')}` : ''}
       {' '}· <Link to={FAQ_LINK} style={{ color: 'var(--navy)', fontWeight: 600 }}>detalii</Link>
     </span>

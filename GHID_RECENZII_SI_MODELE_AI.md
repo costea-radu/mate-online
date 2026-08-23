@@ -6,12 +6,14 @@ Data: 21 august 2026 (tranșa 1 + tranșa 2 + tranșa 3: email automat, JSON-LD,
 
 | Fișier | Rol |
 |---|---|
-| `src/lib/aiModels.js` → `AI_STACK`, `AI_STACK_SCURT` | **Aici schimbi numele modelelor.** Două grupuri: `clienti` (OpenAI — GPT-4o mini, GPT-5.6 Terra, GPT-5.6 Sol) și `intern` (Anthropic — Claude Opus 5, Claude Fable 5, *doar unelte administrative interne*). |
+| `src/lib/aiModels.js` → `AI_STACK`, `AI_STACK_SCURT`, `AI_STACK_SCURT_TOT` | **Aici schimbi numele modelelor.** Două grupuri: `clienti` — OpenAI (`modele`: GPT-4o mini, GPT-5 mini, GPT-5.6 Terra, GPT-5.6 Sol) **plus** Anthropic (`modeleAnthropic`: Claude Opus 5, pentru seturile de exerciții din „Meditații") — și `intern` (Anthropic — Claude Opus 5, Claude Fable 5, unelte administrative). `AI_STACK_SCURT` = doar OpenAI (disclaimerul din chat, care nu trece prin Anthropic); `AI_STACK_SCURT_TOT` = și Claude Opus 5 (linia despre platformă: Prețuri, Despre noi). |
 | `src/components/AIPoweredBy.jsx` | Componenta care afișează mențiunea. Variante: `inline`, `chips`, `footer`, `disclaimer`. Toate duc la `/faq#ai`. |
 
-Unde apare: **Footer** (toate paginile, bloc „Tehnologie AI"), **Home** (pastile sub titlul secțiunii AI — OpenAI + interne Anthropic), **/profesor-virtual** (hero, modelele OpenAI), **chatul Profesorului Virtual** (sub câmpul de scris: modelele + „AI-ul poate greși"), **/preturi** (lista Premium + o linie sub „Conținut gratuit"), **/despre-noi** (paragraf nou), **/faq#ai** (categorie nouă, prima din pagină, 4 întrebări; linkul deschide automat răspunsurile).
+Unde apare: **Footer** (toate paginile, bloc „Tehnologie AI" — un rând pentru utilizatori/OpenAI, unul pentru Meditații/Claude Opus 5, unul pentru uneltele interne), **Home** (pastile sub titlul secțiunii AI — OpenAI + Claude Opus 5 + interne Anthropic), **/profesor-virtual** (hero, modelele OpenAI + Claude Opus 5), **chatul Profesorului Virtual** (sub câmpul de scris: modelele + „AI-ul poate greși"), **/preturi** (lista Premium + o linie sub „Conținut gratuit"), **/despre-noi** (paragraf nou), **/faq#ai** (categorie nouă, prima din pagină, 4 întrebări; linkul deschide automat răspunsurile).
 
-Mesajul este consecvent cu Politica de Confidențialitate (§7–8) și Termenii (§7, §9): OpenAI procesează datele utilizatorilor, Anthropic e folosit doar pentru conținut educațional și unelte interne, fără date personale. Paginile legale nu au fost modificate.
+Mesajul este consecvent cu Politica de Confidențialitate (§7–8) și Termenii (§7, §9): OpenAI procesează datele utilizatorilor, Anthropic e folosit doar pentru conținut educațional (seturile de exerciții din „Meditații", pe Claude Opus 5) și unelte interne, fără date personale. Paginile legale nu au fost modificate.
+
+> **Actualizat 23 august 2026:** GPT-5 mini (explicații pas cu pas — `AI_TUTOR_MODEL`) a intrat în lista pentru clienți, iar Claude Opus 5 e afișat acum și ca model *pentru clienți* (Meditații), nu doar ca unealtă internă.
 
 > `AI_STACK` nu citește env-ul din Vercel. Dacă schimbi `AI_CHAT_MODEL`, `AI_TUTOR_MODEL`, `AI_PDF_CHAT_MODEL`, `AI_GEN_CHAT_MODEL`, `AI_VERIFY_MODEL` sau `CLAUDE_MODEL`, actualizează și `AI_STACK`. Rolurile Terra/Sol din `descriere` sunt formulate generic — ajustează textul dacă vrei să spui exact ce face fiecare.
 

@@ -161,10 +161,15 @@ function chunksForContent(row, { pdfText = null, html = null, isBarem = false } 
   }
 
   const fallbackTopic = metaTopic();
-  return items.slice(0, MAX_CHUNKS).map((it, i) => safeRow({
-    ...base, source_type: it.source_type, source_id: row.id, chunk_index: i,
+  // ÎNTÂI filtrăm fragmentele rămase goale după curățare, ABIA APOI numerotăm:
+  // altfel indexurile aveau goluri (0, 2, …), iar curățenia din ai-ingest.js
+  // („șterge chunk_index >= numărul de fragmente") ștergea la a doua procesare
+  // un fragment viu — ultimul fragment dispărea din baza de cunoștințe.
+  const rows = items.slice(0, MAX_CHUNKS).map((it) => safeRow({
+    ...base, source_type: it.source_type, source_id: row.id,
     content: clip(it.content, CHUNK_MAX + 200), ...tag(it.content, fallbackTopic),
   })).filter((r) => r.content && r.content.length >= 10);
+  return rows.map((r, i) => ({ ...r, chunk_index: i }));
 }
 
 // Rezolvările (tabela `rezolvari`): metadate + descriere (conținutul e video/PDF/imagine)

@@ -41,7 +41,7 @@ export default function DespreNoi() {
             </p>
             {/* Modelele AI — textele vin din src/lib/aiModels.js → AI_STACK */}
             <p style={{ color: 'var(--text)', lineHeight: 1.9, fontSize: '0.97rem' }}>
-              Folosim cele mai noi modele disponibile: pentru tot ce vezi tu pe site — chat, explicații, corectări, teste generate — <strong>{AI_STACK.clienti.furnizor}</strong> ({AI_STACK.clienti.modele.join(', ')}); pentru uneltele noastre administrative (materialele din bibliotecă, articolele) și pentru generarea seturilor de exerciții din Meditații, modelele <strong>{AI_STACK.intern.modele.join(' și ')}</strong> de la {AI_STACK.intern.furnizor}. Modelele Anthropic nu primesc numele, e-mailul sau alte date care te identifică — detalii în <Link to="/faq#ai" style={{ color: 'var(--navy)', fontWeight: 700, textDecoration: 'underline' }}>Întrebări frecvente</Link>.
+              Folosim cele mai noi modele disponibile: pentru tot ce vezi tu pe site — chat, explicații pas cu pas, corectări, teste generate — <strong>{AI_STACK.clienti.furnizor}</strong> ({AI_STACK.clienti.modele.join(', ')}), iar pentru seturile de exerciții din Meditații <strong>{AI_STACK.clienti.modeleAnthropic.join(' și ')}</strong> de la {AI_STACK.clienti.furnizorAnthropic}; pentru uneltele noastre administrative (materialele din bibliotecă, articolele), modelele <strong>{AI_STACK.intern.modele.join(' și ')}</strong>, tot de la {AI_STACK.intern.furnizor}. Modelele Anthropic nu primesc numele, e-mailul sau alte date care te identifică — detalii în <Link to="/faq#ai" style={{ color: 'var(--navy)', fontWeight: 700, textDecoration: 'underline' }}>Întrebări frecvente</Link>.
             </p>
           </div>
 

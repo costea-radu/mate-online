@@ -27,8 +27,11 @@ const faqs = [
         a: (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
-              <div style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: 4 }}>Pentru tine, pe site — modele {AI_STACK.clienti.furnizor}:</div>
-              <div style={{ marginBottom: 6 }}>{AI_STACK.clienti.modele.map((m) => <ModelChip key={m}>{m}</ModelChip>)}</div>
+              <div style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: 4 }}>Pentru tine, pe site — modele {AI_STACK.clienti.furnizori}:</div>
+              <div style={{ marginBottom: 6 }}>
+                {AI_STACK.clienti.modele.map((m) => <ModelChip key={m}>{m}</ModelChip>)}
+                {AI_STACK.clienti.modeleAnthropic.map((m) => <ModelChip key={m} intern>{m}</ModelChip>)}
+              </div>
               <div>Profesorul Virtual, Meditațiile, generatorul de teste și corectarea rezolvărilor rulează pe aceste modele. {AI_STACK.clienti.descriere}</div>
             </div>
             <div>
