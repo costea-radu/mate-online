@@ -290,3 +290,49 @@ test('cap la cap: HTML-ul generat trimite RĂSPUNSURILE, iar serverul obține ac
   const cheat = score.recompute(score.keysFromHtml(html), [0, 'x']);
   assert.strictEqual(cheat.pct, 0);
 });
+
+
+// ─── Regresie: indexarea nu mai poate ține invocarea până la 504 ─────────────
+// „Reindexează tot" pica cu „Eroare server (504)": loadContentHtml descarcă
+// HTML-ul fiecărui material din storage, iar o singură descărcare blocată
+// ținea toată invocarea până o tăia platforma.
+test('loadContentHtml: o descărcare blocată se abandonează, nu ține invocarea', async () => {
+  process.env.AI_HTML_TIMEOUT_MS = '150';
+  delete require.cache[require.resolve('../api/_lib/score.js')];
+  const s2 = require('../api/_lib/score.js');
+  const supa = {
+    storage: { from: () => ({ download: () => new Promise(() => {}) }) }, // nu se rezolvă NICIODATĂ
+  };
+  const t0 = Date.now();
+  const html = await s2.loadContentHtml(supa, { file_url: 'https://x.co/storage/v1/object/public/materiale/a.html' });
+  const dt = Date.now() - t0;
+  assert.equal(html, '', 'ar fi trebuit să întoarcă text gol');
+  assert.ok(dt < 2000, `a durat ${dt}ms — termenul limită nu s-a aplicat`);
+  delete process.env.AI_HTML_TIMEOUT_MS;
+  delete require.cache[require.resolve('../api/_lib/score.js')];
+});
+
+test('loadContentHtml: o eroare de storage nu aruncă, ci sare peste material', async () => {
+  const supa = { storage: { from: () => ({ download: async () => { throw new Error('bucket lipsă'); } }) } };
+  const html = await score.loadContentHtml(supa, { file_url: 'https://x.co/storage/v1/object/public/materiale/b.html' });
+  assert.equal(html, '');
+});
+
+test('loadContentHtml: fără file_url nu atinge storage-ul', async () => {
+  let atins = false;
+  const supa = { storage: { from: () => { atins = true; return { download: async () => ({ data: null }) }; } } };
+  assert.equal(await score.loadContentHtml(supa, { file_url: null }), '');
+  assert.equal(await score.loadContentHtml(supa, null), '');
+  assert.equal(atins, false, 'a chemat storage-ul degeaba');
+});
+
+test('ai-ingest: lotul e plafonat pe FRAGMENTE, nu doar pe timp', () => {
+  const src = require('node:fs').readFileSync(require.resolve('../api/ai-ingest.js'), 'utf8');
+  assert.match(src, /AI_INGEST_CHUNKS_MAX/, 'lipsește plafonul de fragmente per invocare');
+  assert.match(src, /toEmbed\.length >= CHUNKS_MAX/, 'plafonul nu e verificat în bucla de joburi');
+  // un lot de materiale GRELE trebuie tăiat devreme (embeddings scalează cu fragmentele)
+  const cap = parseInt(/AI_INGEST_CHUNKS_MAX \|\| '(\d+)'/.exec(src)[1], 10);
+  let toEmbed = 0, done = 0;
+  for (let i = 0; i < 20; i++) { if (done && toEmbed >= cap) break; toEmbed += 80; done++; }
+  assert.ok(done <= 5, `lot greu tăiat abia la ${done} materiale (${toEmbed} fragmente)`);
+});

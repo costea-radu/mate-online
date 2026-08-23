@@ -26,7 +26,15 @@ const costwatch = require('./_lib/costwatch');
 const BATCH = parseInt(process.env.AI_INGEST_BATCH || '20', 10);
 // buget de timp per rulare (PDF-urile se citesc din cache, dar prima indexare
 // descarcă și parsează fișierul + baremele-candidat) — restul rămâne în coadă
-const TIME_MS = parseInt(process.env.AI_INGEST_TIME_MS || '60000', 10);
+const TIME_MS = parseInt(process.env.AI_INGEST_TIME_MS || '45000', 10);
+// Plafon de FRAGMENTE per invocare. Timpul singur nu ajunge: costul unei rulări
+// e dat de embeddings, iar acelea scalează cu numărul de fragmente, nu cu al
+// materialelor. Un lot obișnuit face ~12 fragmente per material (240 la 20 de
+// materiale), dar 20 de teste mari pot da 1600 — de 7× mai mult, cu tot atâtea
+// apeluri de embeddings. Atunci invocarea depășește limita platformei și Vercel
+// întoarce 504, exact ce s-a văzut la reindexarea completă. Cu plafonul ăsta,
+// un lot greu se taie la câteva materiale, iar restul rămâne în coadă.
+const CHUNKS_MAX = parseInt(process.env.AI_INGEST_CHUNKS_MAX || '200', 10);
 const ingest = require('./_lib/ingest');   // fragmentele pe EXERCIȚII (Etapa 3, 1.5)
 const B = require('./_lib/barem');         // isBaremRow
 
@@ -81,7 +89,9 @@ async function processQueue(supa) {
   const doneJobs = [];
 
   for (const job of jobs) {
-    if (Date.now() - t0 > TIME_MS && doneJobs.length) break; // restul rămâne în coadă
+    // restul rămâne în coadă: fie s-a terminat timpul, fie s-au strâns destule
+    // fragmente cât să nu riscăm o invocare prea lungă (504 de la platformă)
+    if (doneJobs.length && (Date.now() - t0 > TIME_MS || toEmbed.length >= CHUNKS_MAX)) break;
     try {
       if (job.op === 'delete') {
         await supa.from('ai_knowledge').delete().eq('source_id', job.source_id);

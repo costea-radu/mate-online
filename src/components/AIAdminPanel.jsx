@@ -29,19 +29,45 @@ export default function AIAdminPanel() {
       if (action === 'reindex') {
         const r = await aiClient.ingest('reindex');
         setLog(`Puse în coadă: ${r.enqueued} materiale. Primul lot: ${JSON.stringify(r.firstBatch)}`);
-        // procesăm restul cozii automat, lot cu lot
-        let guard = 0;
+        // Procesăm restul cozii automat, lot cu lot. Un lot picat (504 de la
+        // platformă pe un material greu, o pană de rețea) NU mai oprește toată
+        // reindexarea: coada e idempotentă, deci reîncercăm lotul de 3 ori
+        // înainte să renunțăm — altfel trebuia apăsat butonul din nou manual.
+        let guard = 0, fails = 0;
         let remaining = r.firstBatch?.remaining ?? 0;
-        while (remaining > 0 && guard < 100) {
-          const p = await aiClient.ingest('process');
-          remaining = p.remaining;
-          setLog((l) => l + `\n…procesat lot, rămase: ${remaining}`);
+        while (remaining > 0 && guard < 400) {
+          try {
+            const p = await aiClient.ingest('process');
+            remaining = p.remaining;
+            fails = 0;
+            setLog((l) => l + `\n…procesat lot, rămase: ${remaining}${p.badRows ? ` (${p.badRows} fragmente sărite)` : ''}`);
+          } catch (e) {
+            fails++;
+            setLog((l) => l + `\n⚠️ lot picat (${e.message}) — reîncerc (${fails}/3)`);
+            if (fails >= 3) { setLog((l) => l + '\n⛔ Prea multe loturi picate. Coada a rămas la mijloc — apasă „Procesează coada" ca să continui de unde s-a oprit.'); break; }
+            await new Promise((res) => setTimeout(res, 2000 * fails));
+          }
           guard++;
         }
-        setLog((l) => l + '\n✅ Indexare completă.');
+        if (remaining === 0) setLog((l) => l + '\n✅ Indexare completă.');
       } else if (action === 'process') {
-        const p = await aiClient.ingest('process');
-        setLog(JSON.stringify(p, null, 2));
+        // Golim coada în întregime, cu aceeași toleranță la loturi picate.
+        let guard = 0, fails = 0, remaining = null;
+        do {
+          try {
+            const p = await aiClient.ingest('process');
+            remaining = p.remaining;
+            fails = 0;
+            setLog((l) => (l ? l + '\n' : '') + `…procesat lot, rămase: ${remaining}${p.badRows ? ` (${p.badRows} fragmente sărite)` : ''}`);
+          } catch (e) {
+            fails++;
+            setLog((l) => (l ? l + '\n' : '') + `⚠️ lot picat (${e.message}) — reîncerc (${fails}/3)`);
+            if (fails >= 3) { setLog((l) => l + '\n⛔ Prea multe loturi picate — apasă din nou ca să continui de unde s-a oprit.'); break; }
+            await new Promise((res) => setTimeout(res, 2000 * fails));
+          }
+          guard++;
+        } while (remaining !== 0 && guard < 400);
+        if (remaining === 0) setLog((l) => l + '\n✅ Coada e goală.');
       } else if (action === 'normalize_topics') {
         // Etapa 3 (5.1): aceeași competență = o singură etichetă în „stăpânire"
         const p = await aiClient.ingest('normalize_topics');

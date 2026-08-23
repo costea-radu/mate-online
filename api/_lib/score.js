@@ -144,14 +144,31 @@ function clampScore(score, maxScore) {
 }
 
 // HTML-ul unui material interactiv (din Storage) — pentru cheile din `var D=`
+// Descărcarea HTML-ului unui material din storage. Are TERMEN LIMITĂ: la
+// indexare se cheamă pentru zeci de materiale la rând, iar un singur fișier
+// mare sau o descărcare blocată ținea toată invocarea până când platforma o
+// tăia cu 504. Peste termen întoarcem '' — materialul se indexează din
+// metadate și se reia la următoarea rulare.
+const HTML_TIMEOUT_MS = parseInt(process.env.AI_HTML_TIMEOUT_MS || '8000', 10);
+
 async function loadContentHtml(supa, content) {
   const { storagePath } = require('./pdftext');
   if (!content || !content.file_url) return '';
   const { bucket, filePath } = storagePath(content.file_url);
-  const { data: blob } = await supa.storage.from(bucket).download(filePath);
-  if (!blob) return '';
-  const buf = Buffer.from(await blob.arrayBuffer());
-  return buf.toString('utf8');
+  let timer = null;
+  try {
+    const dl = supa.storage.from(bucket).download(filePath);
+    const guard = new Promise((resolve) => { timer = setTimeout(() => resolve({ data: null, timedOut: true }), HTML_TIMEOUT_MS); });
+    const res = await Promise.race([dl, guard]);
+    if (res && res.timedOut) { console.warn('loadContentHtml: descărcare peste %sms — sar peste %s', HTML_TIMEOUT_MS, filePath); return ''; }
+    const blob = res && res.data;
+    if (!blob) return '';
+    const buf = Buffer.from(await blob.arrayBuffer());
+    return buf.toString('utf8');
+  } catch (e) {
+    console.warn('loadContentHtml: %s — %s', filePath, e.message);
+    return '';
+  } finally { if (timer) clearTimeout(timer); }
 }
 
 module.exports = { keysFromExercise, keysFromHtml, recompute, verifiedScore, clampScore, loadContentHtml };
