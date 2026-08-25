@@ -10,6 +10,7 @@ import RoleChooser from '../components/RoleChooser';
 import EinsteinIcon from '../components/EinsteinIcon';
 import TeacherResults from '../components/TeacherResults';
 import AITeacherReport from '../components/AITeacherReport';
+import GroupAssignment from '../components/GroupAssignment';
 import ParentAIActivity from '../components/ParentAIActivity';
 import AccountSettings from '../components/AccountSettings';
 import AILimite from '../components/AILimite';
@@ -634,6 +635,20 @@ export default function Profile() {
                 displayName={displayName}
                 role={profile?.role}
               />
+            )}
+
+            {/* Temă pe grupă: un link, teste DIFERITE pentru fiecare elev.
+                Aceeași funcție e și în „Asistent AI", după „Testele și
+                exercițiile mele" (src/pages/ProfesorVirtual.jsx). */}
+            {isTeacher && (
+              <details className="card" style={{ marginBottom: 24 }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  👥 Temă pe grupă — fiecare elev primește alt test
+                </summary>
+                <div style={{ marginTop: 16 }}>
+                  <GroupAssignment />
+                </div>
+              </details>
             )}
 
             {/* Raport AI — după „Rezultate elevi", ca rolldown */}

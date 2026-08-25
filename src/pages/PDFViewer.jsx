@@ -304,7 +304,10 @@ export default function PDFViewer() {
 
   const [searchParams] = useSearchParams();
   const idParam = searchParams.get('id');
+  const gtId = searchParams.get('gt');       // TEMĂ PE GRUPĂ (/tema-grupa)
   const [item, setItem] = useState(state?.item || null);
+  // „Grant": material premium trimis gratuit de admin printr-o temă pe grupă.
+  const [grant, setGrant] = useState(state?.grant || null);
 
   // ─── Profesorul Virtual lângă PDF ─────────────────────────────────────────
   const [tutorOpen, setTutorOpen] = useState(!!state?.openTutor);
@@ -409,8 +412,16 @@ export default function PDFViewer() {
     if (item || !idParam) return;
     (async () => {
       const { data } = await supabase.from('content').select('*').eq('id', idParam).single();
-      if (data) setItem(data);
-      else { setError('Materialul nu a fost găsit.'); setLoading(false); }
+      if (data) { setItem(data); return; }
+      // Temă pe grupă cu PDF premium dat gratuit: rândul nu trece de RLS,
+      // deci îl aducem de pe server (cu grant).
+      if (gtId) {
+        try {
+          const r = await aiClient.groupAssignmentPick({ pickId: gtId });
+          if (r?.target?.item) { setItem(r.target.item); setGrant(r.target.grant || null); return; }
+        } catch { /* cade pe mesajul de mai jos */ }
+      }
+      setError('Materialul nu a fost găsit.'); setLoading(false);
     })();
   }, [idParam]); // eslint-disable-line
 
@@ -451,7 +462,7 @@ export default function PDFViewer() {
   useEffect(() => {
     if (authLoading) return;
     if (!item) { if (!idParam) navigate('/'); return; }
-    if (!item.is_free && !isPremium) { navigate('/preturi'); return; }
+    if (!item.is_free && !isPremium && !isAdmin && !grant) { navigate('/preturi'); return; }
 
     let createdUrl = null; // pt. revocarea CORECTĂ a blob-ului în cleanup
     async function load() {
@@ -461,7 +472,7 @@ export default function PDFViewer() {
         const res = await fetch('/api/get-file-url', {
           method: 'POST',
           headers: await authHeaders(),
-          body: JSON.stringify({ contentId: item.id }),
+          body: JSON.stringify({ contentId: item.id, grant }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
@@ -489,7 +500,7 @@ export default function PDFViewer() {
       // revocăm URL-ul CHIAR creat (starea blobUrl e încă null când rulează efectul)
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [authLoading, item, isPremium]);
+  }, [authLoading, item, isPremium, isAdmin, grant]);
 
   if (authLoading || loading) {
     return (

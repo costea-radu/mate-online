@@ -12,6 +12,7 @@ import { printExam, printExercise } from '../lib/examPrint';
 import ExamGenerator from '../components/ExamGenerator';
 import EinsteinIcon from '../components/EinsteinIcon';
 import SendToStudents from '../components/SendToStudents';
+import GroupAssignment from '../components/GroupAssignment';
 import AILimite from '../components/AILimite';
 import { renderQuiz } from '../lib/quizRender';
 import CapitolePicker from '../components/CapitolePicker';
@@ -52,6 +53,7 @@ export default function ProfesorVirtual() {
         { id: 'exam', label: '📄 Generează subiect examen' },
         { id: 'interactive', label: '🧩 Generează exerciții/teste interactive/PDF' },
         { id: 'library', label: '📚 Testele și exercițiile mele' },
+        { id: 'grupa', label: '👥 Temă pe grupă (teste diferite)' },
       ];
 
   return (
@@ -100,6 +102,7 @@ export default function ProfesorVirtual() {
           {tab === 'interactive' && <InteractiveTab />}
           {tab === 'exam' && <ExamGenerator canManage={isTeacher} />}
           {tab === 'library' && <LibraryTab />}
+          {tab === 'grupa' && <GroupTab />}
           {tab === 'progress' && <ProgressTab />}
         </>
       )}
@@ -887,6 +890,31 @@ function LibItem({ it, isTeacher, onRemove }) {
           {msg && <div style={{ marginTop: 8, fontSize: '.82rem', color: msg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{msg}</div>}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── TEMĂ PE GRUPĂ: un link, teste diferite pentru fiecare elev ──────────────
+// Aceeași funcție e montată și în „Contul meu" (src/pages/Profile.jsx).
+function GroupTab() {
+  const { isTeacher, isAdmin } = useAuth();
+  const card = { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 18 };
+  if (!isTeacher && !isAdmin) {
+    return (
+      <div style={card}>
+        <p style={{ color: 'var(--text-muted)', fontSize: '.9rem', margin: 0 }}>
+          Trimiterea temelor pe grupă e disponibilă conturilor de <strong>profesor</strong> (grupele se fac în „Contul meu" → Rezultate elevi).
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div style={card}>
+      <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>👥 Temă pe grupă — fiecare elev primește alt test</h3>
+      <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 16 }}>
+        Trimiți un singur link unei grupe, iar sistemul dă fiecărui elev un test diferit de al colegilor.
+      </p>
+      <GroupAssignment />
     </div>
   );
 }

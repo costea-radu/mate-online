@@ -39,6 +39,7 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 const ProfesorVirtual = lazy(() => import('./pages/ProfesorVirtual'));
 const Meditatii = lazy(() => import('./pages/Meditatii'));
 const AssignmentSolver = lazy(() => import('./pages/AssignmentSolver'));
+const GrupaTema = lazy(() => import('./pages/GrupaTema'));
 const BibliotecaUtilizatorilor = lazy(() => import('./pages/BibliotecaUtilizatorilor'));
 const ExercitiuAIViewer = lazy(() => import('./pages/ExercitiuAIViewer'));
 const Recenzii = lazy(() => import('./pages/Recenzii'));
@@ -142,6 +143,7 @@ export default function App() {
                 <Route path="/profesor-virtual" element={<ProfesorVirtual />} />
                 <Route path="/meditatii" element={<Meditatii />} />
                 <Route path="/tema" element={<AssignmentSolver />} />
+                <Route path="/tema-grupa" element={<GrupaTema />} />
                 <Route path="/biblioteca-utilizatorilor" element={<BibliotecaUtilizatorilor />} />
                 <Route path="/recenzii" element={<Recenzii />} />
                 <Route path="*" element={<NotFound />} />

@@ -196,6 +196,20 @@ export const aiClient = {
   assignmentStudents: () => post('/api/ai-assignment', { action: 'students' }),
   assignmentSend: ({ assignmentId, studentId }) => post('/api/ai-assignment', { action: 'send', assignmentId, studentId }),
 
+  // ── Teme pe GRUPĂ: un singur link, teste DIFERITE per elev ─────────────────
+  //    (api/group-assignment.js + supabase/teme_grupa.sql)
+  groupAssignmentGroups: () => post('/api/group-assignment', { action: 'groups' }),
+  groupAssignmentCatalog: ({ source, category = null, format = 'interactive', q = '' }) =>
+    post('/api/group-assignment', { action: 'catalog', source, category, format, q }),
+  groupAssignmentCreate: (payload) => post('/api/group-assignment', { action: 'create', ...payload }),
+  groupAssignmentsMine: () => post('/api/group-assignment', { action: 'mine' }),
+  groupAssignmentReport: ({ id }) => post('/api/group-assignment', { action: 'report', id }),
+  groupAssignmentDelete: ({ id }) => post('/api/group-assignment', { action: 'delete', id }),
+  groupAssignmentOpen: ({ id }) => post('/api/group-assignment', { action: 'open', id }),
+  groupAssignmentPick: ({ pickId }) => post('/api/group-assignment', { action: 'pick', pickId }),
+  groupAssignmentScore: ({ pickId, score, maxScore }) =>
+    post('/api/group-assignment', { action: 'score', pickId, score, maxScore }),
+
   // Anunțuri admin (listă + ștergere)
   broadcastList: () => post('/api/ai-notify', { action: 'broadcast_list' }),
   broadcastDelete: ({ id }) => post('/api/ai-notify', { action: 'broadcast_delete', id }),

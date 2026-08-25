@@ -87,7 +87,21 @@ build, deci fără redeploy nu apar în site.
 ## PASUL 4 — Marchează conversiile (5 min)
 
 ### În GA4
-**Administrare → Evenimente cheie** → **Creare eveniment cheie**, pentru fiecare:
+
+> ⚠️ **Nu se poate face imediat după instalare.** Un eveniment poate fi marcat drept „cheie"
+> abia după ce GA4 l-a primit măcar o dată — până atunci nu apare în listă. `purchase` e
+> singurul care apare din start, pentru că GA4 îl are predefinit.
+>
+> **Nu folosi butonul „+ Creați un eveniment"** pentru evenimentele de mai jos: acela creează
+> evenimente *derivate*, pe bază de condiții, iar codul le trimite deja direct — ai ajunge cu
+> două evenimente cu același nume și cifre duble.
+>
+> **Ca să apară azi**, parcurge tu fluxul în incognito: Accept la cookie-uri → cont nou
+> (`sign_up`) → `/preturi` → „Începe cu 2 zile gratuite" (`begin_checkout`, poți abandona
+> plata). Verifici în *Rapoarte → În timp real* sau *Administrare → DebugView*.
+
+**Administrare → Afișarea datelor → Evenimente → tabul „Evenimente recente"** → bifează steaua
+de lângă fiecare, după ce a apărut în listă (~24 de ore):
 
 | Eveniment | Ce înseamnă |
 |---|---|
@@ -103,6 +117,22 @@ Evenimentele vin gata denumite standard: `CompleteRegistration`, `InitiateChecko
 `Purchase`, `StartTrial`, `Lead`. La **Măsurare agregată a evenimentelor** →
 **Configurează evenimentele web**, pune `Purchase` pe prima poziție (contează pentru
 utilizatorii de iPhone care refuză urmărirea).
+
+> **Despre evenimentele „Automatically detected" din Test events.** Pe lângă evenimentele
+> trimise de cod (coloana „Setup Method" = **Manual Setup**), o să vezi și `SubscribedButtonClick`
+> sau `Microdata`, marcate **Automatically detected**. Vin din *auto-config*, o funcție a codului
+> de pixel care înregistrează în browser clicuri pe butoane și metadate de pagină.
+>
+> **Nu e o problemă și nu trebuie oprit.** Nu sunt evenimente de conversie — nu se poate
+> optimiza o campanie pe ele — iar Meta le folosește doar ca să livreze reclamele mai bine.
+> Conversia reală rămâne `Purchase`, trimisă după confirmarea de la Stripe.
+>
+> Două lucruri de reținut, ca să nu le confunzi:
+> - Comutatorul *Settings → Event Setup → „Track Events Automatically Without Code"* controlează
+>   **altceva**: detecția pe care Meta o face pe serverul lor. Nu oprește auto-config-ul din browser.
+> - Dacă chiar vrei auto-config oprit, se face din cod, în `src/lib/analytics.js`, înainte de
+>   `fbq('init')`: `fbq('set', 'autoConfig', false, PIXEL_ID);` — dar pierzi un semnal de livrare
+>   fără să câștigi nimic la măsurare.
 
 ---
 

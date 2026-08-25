@@ -67,6 +67,8 @@ export default function ExercitiuAIViewer() {
           .catch(() => {});
       }
       if (state?.id && state?.mode === 'library') aiClient.updateLibraryScore(state.id, sc, mx).catch(() => {});
+      // Temă pe grupă: scorul merge la profesor, pe repartizarea acestui elev.
+      if (state?.gtId) aiClient.groupAssignmentScore({ pickId: state.gtId, score: sc, maxScore: mx }).catch(() => {});
     }
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);

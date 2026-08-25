@@ -67,12 +67,16 @@ export default function InteractiveViewer() {
   const [searchParams] = useSearchParams();
   const idParam = searchParams.get('id');
   const temaId = searchParams.get('temaId'); // deschis ca TEMĂ de la Meditatorul AI
+  const gtId = searchParams.get('gt');       // TEMĂ PE GRUPĂ (/tema-grupa): repartizarea acestui elev
   const medSesId = searchParams.get('medSesId'); // sesiune „site-first" de la Meditator (exerciții/simulare din site)
   const [hwMarked, setHwMarked] = useState(null); // { grade } — tema bifată
   const [medMarked, setMedMarked] = useState(null); // { pct } — sesiunea de meditații bifată
   const [hwFinalizing, setHwFinalizing] = useState(false); // „🏁 Finalizează tema" în curs
   const [hwError, setHwError] = useState(null);
   const [item, setItem] = useState(state?.item || null);
+  // „Grant": deschide un material PREMIUM pentru un elev fără abonament, când
+  // adminul a trimis tema pe grupă cu opțiunea „testele premium gratuit".
+  const [grant, setGrant] = useState(state?.grant || null);
 
   // „🏁 Finalizează tema" (temă DIN SITE de la Meditator): cu scor salvat tema
   // e deja bifată → înapoi la meditații; fără scor se înregistrează ca TEMĂ
@@ -102,8 +106,16 @@ export default function InteractiveViewer() {
     setSrcDoc(null); // curăță exercițiul vechi (ex. link intern din tutor către alt ?id=)
     (async () => {
       const { data } = await supabase.from('content').select('*').eq('id', idParam).single();
-      if (data) setItem(data);
-      else { setError('Materialul nu a fost găsit.'); setLoading(false); }
+      if (data) { setItem(data); return; }
+      // Temă pe grupă cu material premium dat gratuit: RLS nu-i lasă elevului
+      // rândul din `content`, deci îl aducem de pe server (cu grant).
+      if (gtId) {
+        try {
+          const r = await aiClient.groupAssignmentPick({ pickId: gtId });
+          if (r?.target?.item) { setItem(r.target.item); setGrant(r.target.grant || null); return; }
+        } catch { /* cade pe mesajul de mai jos */ }
+      }
+      setError('Materialul nu a fost găsit.'); setLoading(false);
     })();
   }, [idParam]); // eslint-disable-line
 
@@ -135,6 +147,10 @@ export default function InteractiveViewer() {
           .then((r) => { if (r?.ok) setHwMarked({ grade: r.grade }); })
           .catch(() => {});
       }
+
+      // TEMĂ PE GRUPĂ (deschisă cu ?gt=...): rezultatul intră direct în raportul
+      // profesorului, lângă testul repartizat acestui elev.
+      if (gtId) aiClient.groupAssignmentScore({ pickId: gtId, score, maxScore }).catch(() => {});
 
       // Sesiune „site-first" de la Meditator (exerciții/simulare cu test din
       // site): rezultatul intră în planul de meditații, predicția notei și
@@ -383,7 +399,7 @@ export default function InteractiveViewer() {
 
     // adminul are acces la orice material (altfel testarea temelor premium
     // dintr-un cont de admin fără abonament era respinsă tăcut → /preturi)
-    const canAccess = item.is_free || isPremium || isAdmin;
+    const canAccess = item.is_free || isPremium || isAdmin || !!grant;
     if (!canAccess) { navigate('/preturi'); return; }
 
     // srcDoc direct din state (transmis de ContentPage)
@@ -399,7 +415,7 @@ export default function InteractiveViewer() {
         const res = await fetch('/api/get-file-url', {
           method: 'POST',
           headers: await authHeaders(),
-          body: JSON.stringify({ contentId: item.id }),
+          body: JSON.stringify({ contentId: item.id, grant }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Eroare server');
@@ -427,7 +443,7 @@ export default function InteractiveViewer() {
     }
 
     load();
-  }, [item, isPremium, authLoading]);
+  }, [item, isPremium, authLoading, grant]);
 
   if (authLoading || loading) {
     return (

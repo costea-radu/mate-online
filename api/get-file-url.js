@@ -25,7 +25,18 @@ module.exports = async function handler(req, res) {
     const userId = await authUser(req, supabase);
     const { data: profile, error: profileError } = await supabase
       .from('profiles').select('subscription_status, is_admin').eq('id', userId).single();
-    if (profileError || (profile?.subscription_status !== 'active' && !profile?.is_admin)) {
+    const subscribed = !profileError && (profile?.subscription_status === 'active' || profile?.is_admin);
+
+    // „Grant" — temă pe grupă trimisă de ADMIN cu opțiunea „testele premium
+    // gratuit": tokenul e semnat pe server (api/group-assignment.js) și deschide
+    // EXACT acest material, EXACT acestui elev, pentru 12 ore.
+    let granted = false;
+    const { grant } = req.body || {};
+    if (!subscribed && grant) {
+      const g = require('./_lib/ai').verifyToken(grant);
+      granted = !!(g && g.t === 'gt' && g.c === contentId && g.u === userId);
+    }
+    if (!subscribed && !granted) {
       return res.status(403).json({ error: 'Acces interzis. Necesită abonament Premium.' });
     }
 
