@@ -1479,7 +1479,12 @@ async function runAgent({ supa, task = 'chat', input = '', history = [], maxIter
 
   const state = { proposals: [] };
   const executeTool = makeToolExecutor({ supa, state });
-  const r = await claude.chatClaudeTools({ system, messages, tools: TOOLS, executeTool, maxTokens: 3000, maxIters, model });
+  // Bugetul unei runde trebuie să încapă ARGUMENTUL celei mai mari unelte:
+  // publish_article / update_article trimit articolul COMPLET în `content_md`
+  // (țintă 600–1500 de cuvinte ≈ 2.000–5.000 de tokeni). Cu 3.000 de tokeni
+  // răspunsul se tăia exact în apelul uneltei: propunerea nu se mai crea, iar
+  // adminul rămânea cu „Scriu articolul complet." și coada goală.
+  const r = await claude.chatClaudeTools({ system, messages, tools: TOOLS, executeTool, maxTokens: 16000, maxIters, model });
   return { ...r, proposals: state.proposals.length, proposalsList: state.proposals, googleConnected: google.enabled() };
 }
 

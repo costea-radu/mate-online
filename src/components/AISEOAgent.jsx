@@ -83,8 +83,13 @@ export default function AISEOAgent({ box }) {
       // Faza 1: agentul poate trimite PROPUNERI (meta, redenumiri, sitemap) —
       // anunțăm coada de aprobare de mai jos să se reîncarce.
       if (r.proposals > 0) {
-        setPropStatus(`Agentul a trimis ${r.proposals === 1 ? 'o propunere' : r.proposals + ' propuneri'} în coada de aprobare (secțiunea „Coada de aprobare" de mai jos). Nimic nu se aplică fără OK-ul tău.`);
+        setPropStatus(`🔔 Agentul a trimis ${r.proposals === 1 ? 'o propunere' : r.proposals + ' propuneri'} în coada de aprobare (secțiunea „Coada de aprobare" de mai jos). Nimic nu se aplică fără OK-ul tău.`);
         window.dispatchEvent(new CustomEvent('seo-actions-updated'));
+      } else if (r.stopReason === 'max_tokens') {
+        // Eșecul TĂCUT de dinainte: răspunsul se tăia chiar în apelul uneltei
+        // (articolul e cel mai mare argument), deci textul suna a „am scris
+        // articolul", dar în coada de aprobare nu ajungea nimic.
+        setPropStatus('⚠️ Răspunsul agentului s-a oprit la limita de buget, iar ultima acțiune (de obicei articolul) NU a ajuns în coada de aprobare. Cere-i să reia sarcina — eventual cu un articol mai scurt.');
       }
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
@@ -199,7 +204,7 @@ export default function AISEOAgent({ box }) {
 
       {error && <div style={{ marginTop: 12, padding: 12, background: '#fdecea', color: '#b71c1c', borderRadius: 8, fontSize: '.85rem' }}>⚠️ {error}</div>}
       {loading && <div style={{ marginTop: 12, fontSize: '.85rem', color: 'var(--text-muted)' }}>Agentul analizează site-ul (poate folosi uneltele: date GSC, inspecție pagini, statistici DB)…</div>}
-      {propStatus && <div style={{ marginTop: 12, padding: 12, background: '#fff7e0', color: '#8a6d00', borderRadius: 8, fontSize: '.85rem' }}>🔔 {propStatus}</div>}
+      {propStatus && <div style={{ marginTop: 12, padding: 12, background: '#fff7e0', color: '#8a6d00', borderRadius: 8, fontSize: '.85rem' }}>{propStatus}</div>}
       {nlStatus && <div style={{ marginTop: 12, padding: 10, background: '#f0f6ff', color: 'var(--navy)', borderRadius: 8, fontSize: '.85rem' }}>📨 {nlStatus}</div>}
 
       {history.length > 0 && (

@@ -128,6 +128,11 @@ async function apiCall(body) {
   return r;
 }
 
+// Mesaj adăugat când o rundă rămâne tăiată chiar și după reluări cu buget
+// dublat: altfel adminul rămânea cu un preambul care sună a reușită („Scriu
+// articolul complet.") și cu coada de aprobare goală, fără niciun indiciu.
+const TRUNCATED_NOTE = '\n\n⚠️ Răspunsul s-a oprit la limita de buget (max_tokens), așa că ULTIMA acțiune (de obicei trimiterea articolului prin publish_article) nu a mai apucat să plece. Cere reluarea sarcinii — eventual cu un articol mai scurt.';
+
 // ─── Bucla agentică cu UNELTE (tool use) — Faza 1, GHID_AGENT_SEO_ACTIUNI ────
 // Rulează conversația cât timp modelul cere unelte: execută funcția prin
 // `executeTool(name, input)`, adaugă rezultatul în conversație și continuă.
@@ -151,13 +156,27 @@ async function chatClaudeTools({ system, messages = [], tools = [], executeTool,
   let lastText = '';
 
   for (let iter = 0; iter < maxIters; iter++) {
-    const r = await apiCall({ model: useModel, system, messages: msgs, tools, max_tokens: maxTokens });
+    let budget = maxTokens;
+    let r = await apiCall({ model: useModel, system, messages: msgs, tools, max_tokens: budget });
     track(r);
+    // Rundă TĂIATĂ de buget (`stop_reason = max_tokens`): de regulă modelul
+    // scria tocmai ARGUMENTUL unei unelte (ex. articolul întreg din
+    // publish_article, 600–1500 de cuvinte), iar blocul tool_use rămâne
+    // incomplet. Verificarea `stop !== 'tool_use'` de mai jos l-ar arunca
+    // TĂCUT — deci reluăm runda cu buget dublat înainte să renunțăm.
+    // (Reluarea e sigură: încă nu s-a executat nicio unealtă din runda asta.)
+    for (let retry = 0; retry < 2 && r.stop === 'max_tokens'; retry++) {
+      budget = Math.min(budget * 2, 64000);
+      console.warn('claude(tools): rundă tăiată la max_tokens — reiau cu buget %d', budget);
+      r = await apiCall({ model: useModel, system, messages: msgs, tools, max_tokens: budget });
+      track(r);
+    }
     const content = r.data.content || [];
     if (r.text.trim()) lastText = r.text;
     const uses = content.filter((bl) => bl.type === 'tool_use');
     if (r.stop !== 'tool_use' || !uses.length) {
-      return { text: lastText, usage, provider: useModel, toolCalls, stopReason: r.stop };
+      const cut = r.stop === 'max_tokens' ? TRUNCATED_NOTE : '';
+      return { text: (lastText + cut).trim(), usage, provider: useModel, toolCalls, stopReason: r.stop };
     }
 
     // Păstrăm conținutul asistentului EXACT cum a venit (inclusiv blocurile de

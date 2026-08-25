@@ -4,6 +4,30 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 25 august 2026 — Agentul SEO „scria" articole care nu ajungeau NICIODATĂ în coada de aprobare (răspunsul se tăia fix în apelul uneltei)
+
+Raportat de Radu: „unde apar articolele agentului AI? nu le găsesc, nu apar în coada de aprobare". Agentul răspundea documentat și încrezător — „Am tot ce-mi trebuie… Scriu articolul complet." — și se oprea acolo. Coada: „Nicio propunere în așteptare". Meta-urile și redenumirile propuse de același agent ajungeau normal în coadă (33 de intrări în istoric), deci nu era o problemă de permisiuni sau de tabel lipsă.
+
+### Cauza (matematica bugetului)
+1. `runAgent` (api/_lib/seo.js) pornea bucla de unelte cu **`maxTokens: 3000`**.
+2. Argumentul uneltei `publish_article` e **articolul COMPLET** în `content_md` — validarea cere minim 800 de caractere, iar promptul țintește 600–1500 de cuvinte, adică **2.000–5.000 de tokeni doar textul**. Nu avea cum să încapă în 3.000 de tokeni împreună cu preambulul și restul câmpurilor.
+3. Răspunsul se tăia cu `stop_reason = 'max_tokens'` **în mijlocul blocului `tool_use`**, iar bucla din `chatClaudeTools` (api/_lib/claude.js) verifica doar `if (r.stop !== 'tool_use' || !uses.length) return …` — deci **ieșea tăcut**, cu preambulul drept răspuns final. Apelul uneltei trunchiat se arunca; `proposals` rămânea 0.
+4. Plasa de siguranță existentă din `apiCall` (reîncercare cu buget dublu la `max_tokens`) **nu se declanșa**: e condiționată de `!r.text.trim()`, iar aici textul de preambul exista.
+5. Peste tot asta, `AISEOAgent.jsx` afișa notificarea **doar** când `proposals > 0` — deci eșecul era complet invizibil: text care sună a reușită + coadă goală.
+
+De-asta funcționau celelalte propuneri: argumentele lor (`set_page_meta`, `rename_material`) au câteva sute de tokeni.
+
+### Reparația
+1. **`api/_lib/seo.js`** — bugetul buclei de unelte **3.000 → 16.000** de tokeni, cu comentariul care explică de ce (trebuie să încapă ARGUMENTUL celei mai mari unelte, nu doar răspunsul).
+2. **`api/_lib/claude.js`** — `chatClaudeTools` **reia runda cu buget dublat** (max 2 încercări, plafon 64.000) când `stop_reason = 'max_tokens'`, în loc să iasă tăcut. Reluarea e sigură: în runda respectivă nu s-a executat încă nicio unealtă. Dacă rămâne tăiat și după reluări, răspunsul primește un avertisment explicit (`TRUNCATED_NOTE`) că ultima acțiune nu a plecat.
+3. **`api/ai-seo-agent.js`** — întoarce `stopReason` către interfață.
+4. **`src/components/AISEOAgent.jsx`** — când `proposals === 0` și răspunsul a fost tăiat, apare avertismentul „ultima acțiune NU a ajuns în coada de aprobare"; emoji-ul notificării s-a mutat în mesaj (🔔 la reușită, ⚠️ la trunchiere).
+
+### Verificare
+**`test/agent-unelte-buget.test.js`** (nou, 4 teste, `global.fetch` simulat — fără rețea): runda tăiată se reia cu buget dublat și unealta chiar se execută; trunchierea persistentă întoarce `stopReason='max_tokens'` + textul de avertizare, fără nicio unealtă executată; bucla normală nu face apeluri în plus; gardă pe sursă ca bugetul buclei să nu scadă sub 8.000. **410/410 teste trec** (406 înainte), `vite build` trece, `node --check` pe toate fișierele editate.
+
+> Notă de mediu: `npm test` rulat direct pe folderul de pe desktop pică cu `Cannot find module` la 27 de fișiere — `node_modules` din Windows nu se poate rezolva din VM-ul Linux (lipsesc `package.json`-urile pachetelor). Verificarea s-a făcut pe o clonă curată din `origin/main`, cu `npm install` proaspăt.
+
 ## 23 august 2026 (6) — INCIDENT: site-ul nu mai încărca NIMIC din baza de date (503 pe tot API-ul Supabase) — baza, sufocată de indexare, repornea în buclă
 
 Raportat de Radu (~19:30): niciun material nu se mai încărca, pagina de admin „dispăruse". Diagnosticat cu logurile Supabase descărcate din dashboard.

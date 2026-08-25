@@ -51,6 +51,7 @@ module.exports = async function handler(req, res) {
       googleConnected: r.googleConnected,
       toolCalls: r.toolCalls || 0,
       proposals: r.proposals || 0,
+      stopReason: r.stopReason || null, // 'max_tokens' → UI avertizează că ultima acțiune nu a plecat
     });
   } catch (err) {
     console.error('ai-seo-agent error:', err);
