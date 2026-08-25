@@ -4,6 +4,80 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 25 august 2026 (3) — Mesageria, împărțită în două: canalul grupei și colegii de pe tot site-ul; testele opresc mesageria
+
+Cerut de Radu, în trei puncte, peste intrarea precedentă (nimic nu fusese încă rulat în Supabase, deci scripturile s-au rescris, nu s-au adăugat migrări noi).
+
+### 1. Mesageria grupei — DOAR canalul, fără 1-la-1
+Rolldown-ul din „Contul meu" s-a redenumit **„💬 Mesageria grupei"** și primește `scope="group"`: arată exclusiv canalul comun (profesor + elevii grupei + părinții lor). Butonul „Scrie cuiva anume" a dispărut de acolo, împreună cu regula veche care lăsa doi membri ai aceleiași grupe să-și scrie în privat. Sub componentă apare o notă care trimite la colegi pentru discuții 1-la-1.
+
+### 2. Colegi pe tot site-ul (ca la Facebook) + mesagerie proprie
+
+**Legături noi** (`buddies`): cerere → acceptare, **doar între conturi de același fel** — elev cu elev, profesor cu profesor, părinte cu părinte. Verificat pe server, nu doar în interfață.
+
+**„👥 Colegii mei"** în „Contul meu", **sub cartonașul cu numele și tipul contului**: pe desktop o fereastră cu câteva nume vizibile și **derulare** pentru rest; pe **mobil**, același conținut ca **tab cu rolldown** (`useIsMobile`, fără dublarea cererilor către server). Clic pe un coleg → se deschide conversația.
+
+**Confidențialitate**: căutarea cere minimum 3 litere, întoarce **doar numele și rolul** (niciodată e-mailul), rolurile diferite nu se văd deloc între ele, iar cine nu vrea să apară debifează „Pot fi găsit de alți colegi după nume" (`profiles.colegi_discoverable`, comutator chiar în panou).
+
+**Pagina `/mesagerie`** — mesageria de pe tot site-ul: canalele grupelor + discuțiile 1-la-1 cu colegii, cu lista de colegi alături. Se ajunge la ea din **bara de sus → „Mai multe" → 💬 Mesagerie** și, pe **mobil, din meniul burger**.
+
+### 3. Testul pe grupă oprește mesageria
+Coloană nouă `group_assignment_picks.active_until`. Elevul apasă „▶ Începe testul" → `test_start` o pune la *acum + 3 ore*; `api/messages.js` refuză orice trimitere cât timp e activă și testul nu e trimis (HTTP 423, `code: 'TEST_MODE'`) — **și pe canalul grupei, și la colegi**. Conversațiile rămân de citit.
+
+Se deblochează automat când elevul trimite rezultatul (`score` șterge coloana), când apasă **„✓ Am terminat testul"** pe pagina testului, sau după 3 ore (ca un test abandonat să nu blocheze nimic la nesfârșit).
+
+**Mesajul e afișat în trei locuri**: pe pagina testului, înainte și în timpul rezolvării; ca banner deasupra conversațiilor; și ca etichetă **„🔒 Test pe grupă în desfășurare — mesageria e oprită"** în bara vizualizatorului (interactiv, PDF și exercițiu generat), pentru toate cele patru bare — inclusiv cea de mobil a PDF-ului.
+
+### Verificare
+`node --check` pe toate rutele API; toate componentele noi și modificate trec prin esbuild și prin ESLint cu `no-undef` (zero identificatori nedefiniți — restul avertismentelor sunt cele preexistente din `Navbar.jsx` și `aiClient.js`); importurile relative rezolvă toate; paritate client↔server verificată automat pe cele patru rute (`/api/colegi`, `/api/messages`, `/api/group-assignment`, `/api/homework`).
+
+> De rulat înainte de deploy: `supabase/mesagerie.sql` și `supabase/teme_elevi.sql`, apoi `npm run build` local (build-ul complet tot nu se poate rula din VM-ul Linux peste `node_modules` din Windows).
+
+---
+
+## 25 august 2026 (2) — Mesagerie pe grupă, TEME cu exerciții bifate, „Teme nefăcute" la elev și separarea „temă" / „test pe grupă"
+
+Cerut de Radu, în patru puncte. Toate patru sunt în cod; **necesită două scripturi SQL** rulate în Supabase → SQL Editor: `supabase/mesagerie.sql` și `supabase/teme_elevi.sql` (ambele idempotente).
+
+### 1. Mesagerie („messenger") în toate tipurile de cont
+Rolldown nou **„💬 Mesagerie"** în „Contul meu", așezat **imediat sub „Abonament"** — pentru elev, profesor și părinte deopotrivă.
+
+- În ea intră **doar oamenii unei grupe**: profesorul care a făcut grupa, elevii ei și **părinții acelor elevi**. Lângă fiecare nume, rolul în paranteză: **(profesor)** / **(elev)** / **(părinte)**.
+- Două feluri de conversații: **canalul grupei** și **1-la-1**. Regula de 1-la-1 e aplicată pe server, nu doar în interfață: profesorul poate scrie oricui din grupele lui, elevii între ei, părinții între ei, dar **un părinte poate scrie în privat doar propriilor copii** (copiii altora se văd doar în canalul comun).
+- Apartenența **nu se dublează** într-un tabel de membri: se calculează la fiecare cerere din `mentor_groups` + `mentor_students`, deci mutarea unui elev în altă grupă se vede imediat.
+- **Linkurile de temă/test se trimit pe mesagerie**: butonul 🔗 din bara de scriere atașează un card apăsabil care duce la `/tema-elev?id=…` sau `/tema-grupa?id=…`. Serverul acceptă **doar rute interne** ca atașament.
+- Notificare în clopoțel (`✉️`) la primul mesaj dintr-o conversație, **maximum una pe zi per conversație**, cu link către `/profil?mesagerie=1`.
+- Reîmprospătare doar cu tabul vizibil: mesajele la 20 s, lista la 60 s.
+
+Fișiere: `supabase/mesagerie.sql`, `api/messages.js`, `src/components/Mesagerie.jsx`, plus metodele `chat*` din `src/lib/aiClient.js`. Ghid: **`GHID_MESAGERIE.md`**.
+
+### 2. Linkuri cu denumire + TEME date pe grupă sau pe fiecare elev
+
+**a) Denumire și trimitere pe mesagerie la linkurile create de profesor** — atât la testul pe grupă, cât și la temă: câmp de **denumire** (se poate schimba oricând, linkul rămâne valabil — acțiunea `rename`) și buton **„💬 Trimite pe mesageria grupei"**. Aceleași butoane apar și în listele de teme/teste trimise (✎ și 💬).
+
+**b) Butonul „📝 Dă temă"**, în „Grupe / Rezultate elevi": **lângă grupă** (tema merge la toți elevii ei) și **lângă fiecare elev** (merge doar lui). Deschide o fereastră cu **lista de exerciții bifabile** și buton **„🔍 Caută"**, plus filtre pe categorie, format (interactiv / PDF / toate) și sursă (site, testele mele, biblioteca). Toți elevii vizați primesc **același set** — spre deosebire de testul pe grupă, unde fiecare primește altul.
+
+Profesorul are apoi rolldown-ul **„📝 Temele date"**: progresul (rezolvate/total), **raport elev × exercițiu** (✓ rezolvat · 👀 deschis · —), redenumire, copiere link, trimitere pe mesagerie, ștergere. Când un elev termină toate exercițiile, profesorul primește notificare.
+
+Fișiere: `supabase/teme_elevi.sql`, `api/homework.js`, `api/_lib/catalog.js` (catalogul de teste, **extras** din `api/group-assignment.js` și partajat acum de amândouă), `src/components/TemaPicker.jsx`, `src/components/TemeDate.jsx`, `src/pages/TemaElev.jsx`. Ghid: **`GHID_TEME_ELEVI.md`**.
+
+### 3. „📌 Teme nefăcute" în contul elevului
+Rolldown nou, **deasupra lui „📊 Rezultatele mele"**, afișat **doar dacă elevul e asociat cu un profesor** (componenta se ascunde singură altfel). Adună tot ce are de rezolvat, cu etichetă pe fiecare: 📝 **temă**, 🧩 **test pe grupă**, 📄 **temă primită pe link** (`/tema?id=…`). Are și o listă pliată cu temele deja rezolvate, plus semnalarea termenelor depășite.
+
+**De unde vin scorurile, ca să nu se dubleze nimic**: testele *din site* își scriu scorul ca până acum în `progress` — tema le citește de acolo (inclusiv corectările PDF cu Prof. Virtual); testele *generate / din bibliotecă* scriu în `homework_progress` (`ExercitiuAIViewer` primește `hwId`). Exercițiile fără punctaj automat (PDF, subiect tipăribil) au butonul „✓ Am rezolvat".
+
+### 4. „Temă pe grupă" → „TEST pe grupă"
+Redenumit peste tot în interfață (Contul meu, tabul din Asistent AI, textele componentei și mesajele de eroare din API). „Temele pe grupă trimise" → **„📨 Testele pe grupă trimise"**, transformat în **buton cu rolldown**.
+
+Lângă el, un **clasament nou: „🏆 Clasament — doar testele primite"** (acțiunea `leaderboard`), calculat **exclusiv** din testele repartizate prin linkurile de test pe grupă: câte a primit fiecare elev, câte a rezolvat, ce medie are. **Clasamentul general din grupe rămâne neatins** — acolo se numără în continuare tot ce a rezolvat elevul pe platformă.
+
+### Verificare
+`node --check` pe toate rutele API noi și modificate; toate componentele noi și modificate trec prin esbuild (parsare JSX) și prin ESLint cu `no-undef` — zero identificatori nedefiniți; toate importurile relative rezolvă la fișiere existente; paritate client↔server verificată automat pe cele trei rute (`/api/homework`, `/api/messages`, `/api/group-assignment`) — nicio acțiune cerută din `aiClient` fără tratare pe server.
+
+> Notă de mediu: build-ul complet `vite build` **nu** s-a putut rula pe folderul de pe desktop — `node_modules` din Windows nu se rezolvă din VM-ul Linux (aceeași limitare notată la intrarea precedentă). Rulează local `npm run build` înainte de deploy.
+
+---
+
 ## 25 august 2026 — Agentul SEO „scria" articole care nu ajungeau NICIODATĂ în coada de aprobare (răspunsul se tăia fix în apelul uneltei)
 
 Raportat de Radu: „unde apar articolele agentului AI? nu le găsesc, nu apar în coada de aprobare". Agentul răspundea documentat și încrezător — „Am tot ce-mi trebuie… Scriu articolul complet." — și se oprea acolo. Coada: „Nicio propunere în așteptare". Meta-urile și redenumirile propuse de același agent ajungeau normal în coadă (33 de intrări în istoric), deci nu era o problemă de permisiuni sau de tabel lipsă.

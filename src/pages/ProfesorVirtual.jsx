@@ -53,7 +53,7 @@ export default function ProfesorVirtual() {
         { id: 'exam', label: '📄 Generează subiect examen' },
         { id: 'interactive', label: '🧩 Generează exerciții/teste interactive/PDF' },
         { id: 'library', label: '📚 Testele și exercițiile mele' },
-        { id: 'grupa', label: '👥 Temă pe grupă (teste diferite)' },
+        { id: 'grupa', label: '👥 Test pe grupă (teste diferite)' },
       ];
 
   return (
@@ -894,7 +894,7 @@ function LibItem({ it, isTeacher, onRemove }) {
   );
 }
 
-// ─── TEMĂ PE GRUPĂ: un link, teste diferite pentru fiecare elev ──────────────
+// ─── TEST PE GRUPĂ: un link, teste diferite pentru fiecare elev ──────────────
 // Aceeași funcție e montată și în „Contul meu" (src/pages/Profile.jsx).
 function GroupTab() {
   const { isTeacher, isAdmin } = useAuth();
@@ -903,16 +903,16 @@ function GroupTab() {
     return (
       <div style={card}>
         <p style={{ color: 'var(--text-muted)', fontSize: '.9rem', margin: 0 }}>
-          Trimiterea temelor pe grupă e disponibilă conturilor de <strong>profesor</strong> (grupele se fac în „Contul meu" → Rezultate elevi).
+          Trimiterea testelor pe grupă e disponibilă conturilor de <strong>profesor</strong> (grupele se fac în „Contul meu" → Rezultate elevi).
         </p>
       </div>
     );
   }
   return (
     <div style={card}>
-      <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>👥 Temă pe grupă — fiecare elev primește alt test</h3>
+      <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>👥 Test pe grupă — fiecare elev primește alt test</h3>
       <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 16 }}>
-        Trimiți un singur link unei grupe, iar sistemul dă fiecărui elev un test diferit de al colegilor.
+        Trimiți un singur link unei grupe, iar sistemul dă fiecărui elev un test diferit de al colegilor. (Temele cu exerciții bifate se dau din „Contul meu" → butonul „📝 Dă temă".)
       </p>
       <GroupAssignment />
     </div>

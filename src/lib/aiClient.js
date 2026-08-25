@@ -196,7 +196,7 @@ export const aiClient = {
   assignmentStudents: () => post('/api/ai-assignment', { action: 'students' }),
   assignmentSend: ({ assignmentId, studentId }) => post('/api/ai-assignment', { action: 'send', assignmentId, studentId }),
 
-  // ── Teme pe GRUPĂ: un singur link, teste DIFERITE per elev ─────────────────
+  // ── TEST pe GRUPĂ: un singur link, teste DIFERITE per elev ────────────────
   //    (api/group-assignment.js + supabase/teme_grupa.sql)
   groupAssignmentGroups: () => post('/api/group-assignment', { action: 'groups' }),
   groupAssignmentCatalog: ({ source, category = null, format = 'interactive', q = '' }) =>
@@ -204,11 +204,52 @@ export const aiClient = {
   groupAssignmentCreate: (payload) => post('/api/group-assignment', { action: 'create', ...payload }),
   groupAssignmentsMine: () => post('/api/group-assignment', { action: 'mine' }),
   groupAssignmentReport: ({ id }) => post('/api/group-assignment', { action: 'report', id }),
+  groupAssignmentRename: ({ id, title }) => post('/api/group-assignment', { action: 'rename', id, title }),
+  groupAssignmentLeaderboard: ({ groupId = null } = {}) =>
+    post('/api/group-assignment', { action: 'leaderboard', groupId }),
   groupAssignmentDelete: ({ id }) => post('/api/group-assignment', { action: 'delete', id }),
   groupAssignmentOpen: ({ id }) => post('/api/group-assignment', { action: 'open', id }),
   groupAssignmentPick: ({ pickId }) => post('/api/group-assignment', { action: 'pick', pickId }),
   groupAssignmentScore: ({ pickId, score, maxScore }) =>
     post('/api/group-assignment', { action: 'score', pickId, score, maxScore }),
+  // Testul pe grupă oprește mesageria cât timp e în desfășurare
+  groupAssignmentTestStart: ({ pickId }) => post('/api/group-assignment', { action: 'test_start', pickId }),
+  groupAssignmentTestEnd: ({ pickId }) => post('/api/group-assignment', { action: 'test_end', pickId }),
+
+  // ── TEME: exercițiile bifate de profesor, aceleași pentru toți elevii vizați
+  //    — pe grupă sau pe un singur elev (api/homework.js + supabase/teme_elevi.sql)
+  homeworkCatalog: ({ sources = ['site'], category = null, format = null, q = '' } = {}) =>
+    post('/api/homework', { action: 'catalog', sources, category, format, q }),
+  homeworkCreate: (payload) => post('/api/homework', { action: 'create', ...payload }),
+  homeworkMine: () => post('/api/homework', { action: 'mine' }),
+  homeworkReport: ({ id }) => post('/api/homework', { action: 'report', id }),
+  homeworkRename: ({ id, title }) => post('/api/homework', { action: 'rename', id, title }),
+  homeworkDelete: ({ id }) => post('/api/homework', { action: 'delete', id }),
+  homeworkStudentList: () => post('/api/homework', { action: 'student_list' }),
+  homeworkOpen: ({ id }) => post('/api/homework', { action: 'open', id }),
+  homeworkScore: ({ progressId, score = null, maxScore = null, done = true }) =>
+    post('/api/homework', { action: 'score', progressId, score, maxScore, done }),
+
+  // ── MESAGERIE (tip messenger) pe grupele profesorului ─────────────────────
+  //    (api/messages.js + supabase/mesagerie.sql)
+  chatThreads: () => post('/api/messages', { action: 'threads' }),
+  chatMembers: ({ groupId }) => post('/api/messages', { action: 'members', groupId }),
+  chatDirect: ({ otherId }) => post('/api/messages', { action: 'direct', otherId }),
+  chatMessages: ({ threadId, limit = 80 }) => post('/api/messages', { action: 'messages', threadId, limit }),
+  chatSend: ({ threadId, body = '', attachment = null }) =>
+    post('/api/messages', { action: 'send', threadId, body, attachment }),
+  chatRead: ({ threadId }) => post('/api/messages', { action: 'read', threadId }),
+  chatUnread: () => post('/api/messages', { action: 'unread' }),
+  chatAttachables: () => post('/api/messages', { action: 'attachables' }),
+
+  // ── COLEGI (pe tot site-ul): elev cu elev, profesor cu profesor, ──────────
+  //    părinte cu părinte (api/colegi.js)
+  colegiList: () => post('/api/colegi', { action: 'list' }),
+  colegiSearch: ({ q }) => post('/api/colegi', { action: 'search', q }),
+  colegiRequest: ({ otherId }) => post('/api/colegi', { action: 'request', otherId }),
+  colegiRespond: ({ id, accept = true }) => post('/api/colegi', { action: 'respond', id, accept }),
+  colegiRemove: ({ otherId }) => post('/api/colegi', { action: 'remove', otherId }),
+  colegiSetVisible: ({ visible }) => post('/api/colegi', { action: 'set_visible', visible }),
 
   // Anunțuri admin (listă + ștergere)
   broadcastList: () => post('/api/ai-notify', { action: 'broadcast_list' }),

@@ -1,32 +1,44 @@
 // =====================================================================
-// api/group-assignment.js — TEME PE GRUPĂ cu teste DIFERITE per elev
+// api/group-assignment.js — TEST PE GRUPĂ cu teste DIFERITE per elev
 //
-// Profesorul creează o temă pentru o grupă și primește UN SINGUR LINK
+// Profesorul creează un test pe grupă și primește UN SINGUR LINK
 // (/tema-grupa?id=...). Fiecare elev care îl deschide primește ALT test din
 // „bazinul" temei — teste generate de el, din Biblioteca utilizatorilor sau
 // din site („Examene" / „Clase"). Repartizarea rămâne fixă per elev, iar la
-// temele următoare din aceeași grupă elevul primește, pe cât posibil, un test
+// testele următoare din aceeași grupă elevul primește, pe cât posibil, un test
 // pe care nu l-a mai primit (istoric în group_test_history) — până la
 // epuizarea testelor, apoi se reia.
 //
+// (TEMELE cu exerciții bifate, aceleași pentru toți, sunt în api/homework.js.)
+//
 // POST { action, ... }
-//   groups   (profesor): grupele + numărul de elevi
-//   catalog  (profesor): testele disponibile pentru bifat { source, category, format }
-//   create   (profesor): creează tema + bazinul → { id, url }
-//   mine     (profesor): temele mele pe grupă (cu progres)
-//   report   (profesor): { id } → cine ce test a primit și ce scor a luat
-//   delete   (profesor): { id }
-//   open     (elev):     { id } → repartizează/întoarce testul elevului
-//   pick     (elev):     { pickId } → testul repartizat (reîncărcare viewer)
-//   score    (elev):     { pickId, score, maxScore }
+//   groups      (profesor): grupele + numărul de elevi
+//   catalog     (profesor): testele disponibile pentru bifat { source, category, format }
+//   create      (profesor): creează testul + bazinul → { id, url }
+//   mine        (profesor): testele mele pe grupă (cu progres)
+//   report      (profesor): { id } → cine ce test a primit și ce scor a luat
+//   rename      (profesor): { id, title } → denumirea unui link deja trimis
+//   leaderboard (profesor): clasament DOAR cu testele pe grupă primite
+//   delete      (profesor): { id }
+//   open        (elev):     { id } → repartizează/întoarce testul elevului
+//   pick        (elev):     { pickId } → testul repartizat (reîncărcare viewer)
+//   score       (elev):     { pickId, score, maxScore }
+//   test_start  (elev):     { pickId } → oprește mesageria pe durata testului
+//   test_end    (elev):     { pickId } → o repornește
 //
 // Tabele: supabase/teme_grupa.sql
+// Catalogul de teste și „rezolvarea" lor: api/_lib/catalog.js (partajat cu temele).
 // =====================================================================
 const ai = require('./_lib/ai');
+const cat = require('./_lib/catalog');
 
-const SOURCES = ['personal', 'public', 'site'];
-const FORMATS = ['interactive', 'pdf'];
+const SOURCES = cat.SOURCES;
+const FORMATS = cat.FORMATS;
 const MAX_POOL = 60;
+// catalogul de teste și „rezolvarea" unui test către ce vede elevul — partajate
+// cu api/homework.js (api/_lib/catalog.js)
+const publicItem = cat.publicItem;
+const resolveTarget = cat.resolveTarget;
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -41,10 +53,14 @@ module.exports = async function handler(req, res) {
     if (action === 'create') return await create(req, res, supa);
     if (action === 'mine') return await mine(req, res, supa);
     if (action === 'report') return await report(req, res, supa);
+    if (action === 'rename') return await rename(req, res, supa);
+    if (action === 'leaderboard') return await leaderboard(req, res, supa);
     if (action === 'delete') return await remove(req, res, supa);
     if (action === 'open') return await openForStudent(req, res, supa);
     if (action === 'pick') return await pickOne(req, res, supa);
     if (action === 'score') return await score(req, res, supa);
+    if (action === 'test_start') return await testMode(req, res, supa, true);
+    if (action === 'test_end') return await testMode(req, res, supa, false);
     return res.status(400).json({ error: 'action invalid' });
   } catch (err) {
     console.error('group-assignment error:', err);
@@ -57,7 +73,7 @@ async function requireTeacher(req, supa) {
   const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
   if (!(profile.role === 'profesor' || profile.is_admin)) {
-    const e = new Error('Doar conturile de profesor pot trimite teme pe grupă.');
+    const e = new Error('Doar conturile de profesor pot trimite teste pe grupă.');
     e.status = 403; throw e;
   }
   return { userId, profile };
@@ -88,19 +104,6 @@ async function displayName(supa, userId, fallback = 'Profesor') {
   } catch { return fallback; }
 }
 
-// „Testele" din site: fără bareme (cheia de răspunsuri) și fără manuale.
-function siteQuery(supa, { format, category }) {
-  let q = supa.from('content')
-    .select('id, title, category, subcategory, content_type, is_free, sort_order')
-    .eq('content_type', format === 'pdf' ? 'pdf' : 'interactive')
-    .neq('category', 'manuale')
-    .order('sort_order', { ascending: true })
-    .limit(400);
-  if (category) q = q.eq('category', category);
-  return q;
-}
-const notBarem = (r) => r.subcategory !== 'bareme' && !/barem/i.test(r.title || '');
-
 // ─── Grupele profesorului (pentru butonul de alegere a grupei) ───────────────
 async function groups(req, res, supa) {
   const { userId } = await requireTeacher(req, supa);
@@ -125,7 +128,7 @@ async function catalog(req, res, supa) {
   if (!SOURCES.includes(source)) return res.status(400).json({ error: 'sursă invalidă' });
   const fmt = FORMATS.includes(format) ? format : 'interactive';
   const needle = String(q || '').trim().toLowerCase();
-  let items = await catalogList(supa, userId, { source, category, format: fmt });
+  let items = await cat.catalogList(supa, userId, { source, category, format: fmt });
   if (needle) items = items.filter((i) => (i.title || '').toLowerCase().includes(needle));
   return res.status(200).json({ items: items.slice(0, 200) });
 }
@@ -157,7 +160,7 @@ async function create(req, res, supa) {
   // Bazinul de teste
   let pool = [];
   if (pickMode === 'manual' && Array.isArray(items) && items.length) {
-    pool = await resolveChosen(supa, userId, items, fmt);
+    pool = await cat.resolveChosen(supa, userId, items, fmt, MAX_POOL);
   } else {
     pool = await autoPool(supa, userId, { srcs, category, fmt, limit: Math.min(Math.max(parseInt(poolSize, 10) || 10, 1), MAX_POOL) });
   }
@@ -198,7 +201,7 @@ async function create(req, res, supa) {
     for (const sid of studentIds) {
       await ai.createNotification(supa, {
         recipientId: sid, type: 'assignment',
-        title: `Ai o temă nouă de la profesorul ${teacherName}`.trim(),
+        title: `Ai un test nou de la profesorul ${teacherName}`.trim(),
         body: t,
         data: { url: `/tema-grupa?id=${row.id}`, groupAssignmentId: row.id },
         dedupeKey: `gassign:${row.id}:${sid}`, dedupeDays: 30,
@@ -209,48 +212,11 @@ async function create(req, res, supa) {
   return res.status(200).json({ id: row.id, url: `/tema-grupa?id=${row.id}`, title: t, poolSize: pool.length });
 }
 
-// Testele bifate manual — verificate ca profesorul chiar are drept pe ele.
-async function resolveChosen(supa, userId, items, fmt) {
-  const out = [];
-  const bySource = { site: [], personal: [], public: [] };
-  items.slice(0, MAX_POOL).forEach((i) => {
-    if (i && SOURCES.includes(i.source) && i.refId) bySource[i.source].push(i.refId);
-  });
-
-  if (bySource.site.length) {
-    const { data } = await supa.from('content')
-      .select('id, title, category, subcategory, content_type, is_free').in('id', bySource.site);
-    (data || []).forEach((r) => out.push({
-      source: 'site', refId: r.id, kind: r.content_type === 'pdf' ? 'pdf' : 'interactive',
-      title: r.title, category: r.category, isFree: !!r.is_free,
-    }));
-  }
-  if (bySource.personal.length) {
-    const { data } = await supa.from('ai_personal_items')
-      .select('id, kind, title, category, user_id').in('id', bySource.personal).eq('user_id', userId);
-    (data || []).forEach((r) => out.push({
-      source: 'personal', refId: r.id, kind: r.kind, title: r.title || 'Test generat',
-      category: r.category, isFree: true,
-    }));
-  }
-  if (bySource.public.length) {
-    const { data } = await supa.from('ai_public_library')
-      .select('id, kind, title, category, is_free').in('id', bySource.public);
-    (data || []).forEach((r) => out.push({
-      source: 'public', refId: r.id, kind: r.kind, title: r.title, category: r.category, isFree: !!r.is_free,
-    }));
-  }
-  // păstrează ordinea bifelor
-  const order = new Map(items.map((i, idx) => [keyOf(i.source, i.refId), idx]));
-  out.sort((a, b) => (order.get(keyOf(a.source, a.refId)) ?? 99) - (order.get(keyOf(b.source, b.refId)) ?? 99));
-  return out.filter((x) => (fmt === 'pdf' ? x.kind !== 'interactive' : x.kind === 'interactive'));
-}
-
 // Alegerea automată a bazinului din categoria/sursele cerute.
 async function autoPool(supa, userId, { srcs, category, fmt, limit }) {
   const buckets = [];
   for (const s of srcs) {
-    buckets.push(await catalogList(supa, userId, { source: s, category, format: fmt }));
+    buckets.push(await cat.catalogList(supa, userId, { source: s, category, format: fmt }));
   }
   // amestecăm sursele „în evantai", ca bazinul să nu vină doar dintr-una
   const out = [];
@@ -265,39 +231,7 @@ async function autoPool(supa, userId, { srcs, category, fmt, limit }) {
   return out;
 }
 
-// Lista testelor dintr-o singură sursă (folosită și de `catalog`, și de `autoPool`).
-async function catalogList(supa, userId, { source, category, format }) {
-  if (source === 'site') {
-    const { data } = await siteQuery(supa, { format, category });
-    return (data || []).filter(notBarem).map((r) => ({
-      source: 'site', refId: r.id, kind: format, title: r.title,
-      category: r.category, isFree: !!r.is_free, note: r.subcategory || null,
-    }));
-  }
-  const kinds = format === 'pdf' ? ['pdf', 'exam'] : ['interactive'];
-  if (source === 'personal') {
-    // testele generate chiar de profesor (private)
-    let qq = supa.from('ai_personal_items').select('id, kind, title, category, topic')
-      .eq('user_id', userId).in('kind', kinds).order('created_at', { ascending: false }).limit(200);
-    if (category) qq = qq.eq('category', category);
-    const { data } = await qq;
-    return (data || []).map((r) => ({
-      source: 'personal', refId: r.id, kind: r.kind, title: r.title || 'Test generat',
-      category: r.category, isFree: true, note: r.topic || null,
-    }));
-  }
-  // Biblioteca utilizatorilor
-  let qq = supa.from('ai_public_library').select('id, kind, title, category, creator_name, is_free')
-    .in('kind', kinds).order('created_at', { ascending: false }).limit(200);
-  if (category) qq = qq.eq('category', category);
-  const { data } = await qq;
-  return (data || []).map((r) => ({
-    source: 'public', refId: r.id, kind: r.kind, title: r.title,
-    category: r.category, isFree: !!r.is_free, note: r.creator_name || null,
-  }));
-}
-
-// ─── Temele mele pe grupă ────────────────────────────────────────────────────
+// ─── Testele mele pe grupă ───────────────────────────────────────────────────
 async function mine(req, res, supa) {
   const { userId } = await requireTeacher(req, supa);
   const { data: rows } = await supa.from('group_assignments')
@@ -353,8 +287,8 @@ async function report(req, res, supa) {
   const { id } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id obligatoriu' });
   const { data: a } = await supa.from('group_assignments').select('*').eq('id', id).maybeSingle();
-  if (!a) return res.status(404).json({ error: 'Tema nu există.' });
-  if (a.created_by !== userId && !profile.is_admin) return res.status(403).json({ error: 'Nu e tema ta.' });
+  if (!a) return res.status(404).json({ error: 'Testul nu există.' });
+  if (a.created_by !== userId && !profile.is_admin) return res.status(403).json({ error: 'Nu e testul tău.' });
 
   const { data: items } = await supa.from('group_assignment_items')
     .select('id, source, ref_id, kind, title, category, is_free, position')
@@ -414,14 +348,95 @@ async function report(req, res, supa) {
   });
 }
 
+// ─── Denumirea linkului (se poate schimba oricând, linkul rămâne valabil) ────
+async function rename(req, res, supa) {
+  const { userId, profile } = await requireTeacher(req, supa);
+  const { id, title } = req.body || {};
+  const t = String(title || '').trim().slice(0, 120);
+  if (!id || !t) return res.status(400).json({ error: 'id și title obligatorii' });
+  const { data: a } = await supa.from('group_assignments').select('created_by').eq('id', id).maybeSingle();
+  if (!a) return res.status(404).json({ error: 'Testul nu există.' });
+  if (a.created_by !== userId && !profile.is_admin) return res.status(403).json({ error: 'Nu e testul tău.' });
+  const patch = { title: t };
+  const { error } = await supa.from('group_assignments').update({ ...patch, renamed_at: new Date().toISOString() }).eq('id', id);
+  if (error) {
+    // instalări fără coloana `renamed_at` (supabase/teme_elevi.sql nerulat încă)
+    const { error: e2 } = await supa.from('group_assignments').update(patch).eq('id', id);
+    if (e2) return res.status(500).json({ error: e2.message });
+  }
+  return res.status(200).json({ ok: true, title: t });
+}
+
+// ─── Clasament DOAR cu testele pe grupă primite ──────────────────────────────
+// Diferă de clasamentul general din „Grupe / Rezultate elevi", care numără tot
+// ce a rezolvat elevul pe platformă. Aici intră exclusiv testele repartizate
+// prin linkurile de „Test pe grupă" ale acestui profesor.
+async function leaderboard(req, res, supa) {
+  const { userId } = await requireTeacher(req, supa);
+  const { groupId = null } = req.body || {};
+
+  let q = supa.from('group_assignments')
+    .select('id, group_id, group_name, title').eq('created_by', userId);
+  if (groupId) q = q.eq('group_id', groupId);
+  const { data: assigns } = await q;
+  const list = assigns || [];
+  if (!list.length) return res.status(200).json({ rows: [], tests: 0 });
+
+  const ids = list.map((a) => a.id);
+  const { data: picks } = await supa.from('group_assignment_picks')
+    .select('assignment_id, item_id, student_id, score, max_score, completed_at').in('assignment_id', ids);
+  const { data: its } = await supa.from('group_assignment_items')
+    .select('id, source, ref_id, title').in('assignment_id', ids);
+  const itemById = {};
+  (its || []).forEach((i) => { itemById[i.id] = i; });
+
+  const studentIds = [...new Set((picks || []).map((p) => p.student_id))];
+  const siteRefs = [...new Set((its || []).filter((i) => i.source === 'site').map((i) => i.ref_id))];
+  const progMap = {};
+  if (siteRefs.length && studentIds.length) {
+    const { data: prog } = await supa.from('progress')
+      .select('user_id, content_id, score, max_score, completed_at')
+      .in('content_id', siteRefs).in('user_id', studentIds);
+    (prog || []).forEach((p) => { progMap[`${p.user_id}:${p.content_id}`] = p; });
+  }
+
+  const names = {};
+  if (studentIds.length) {
+    const { data: profs } = await supa.from('profiles').select('id, full_name, email').in('id', studentIds);
+    (profs || []).forEach((p) => { names[p.id] = p.full_name || p.email || 'Elev'; });
+  }
+
+  const agg = {};
+  (picks || []).forEach((p) => {
+    const a = (agg[p.student_id] || (agg[p.student_id] = { received: 0, solved: 0, sum: 0, n: 0 }));
+    a.received += 1;
+    const it = itemById[p.item_id];
+    const pr = it && it.source === 'site' ? progMap[`${p.student_id}:${it.ref_id}`] : null;
+    const sc = p.score != null ? p.score : (pr ? pr.score : null);
+    const mx = p.max_score != null ? p.max_score : (pr ? pr.max_score : null);
+    if ((p.completed_at || pr?.completed_at)) {
+      a.solved += 1;
+      if (sc != null && mx) { a.sum += (sc / mx) * 100; a.n += 1; }
+    }
+  });
+
+  const rows = Object.entries(agg).map(([sid, a]) => ({
+    studentId: sid, name: names[sid] || 'Elev',
+    received: a.received, solved: a.solved,
+    avg: a.n ? Math.round(a.sum / a.n) : null,
+  })).sort((x, y) => (y.avg ?? -1) - (x.avg ?? -1) || y.solved - x.solved || x.name.localeCompare(y.name, 'ro'));
+
+  return res.status(200).json({ rows, tests: list.length });
+}
+
 // ─── Ștergere ────────────────────────────────────────────────────────────────
 async function remove(req, res, supa) {
   const { userId, profile } = await requireTeacher(req, supa);
   const { id } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id obligatoriu' });
   const { data: a } = await supa.from('group_assignments').select('created_by').eq('id', id).maybeSingle();
-  if (!a) return res.status(404).json({ error: 'Tema nu există.' });
-  if (a.created_by !== userId && !profile.is_admin) return res.status(403).json({ error: 'Nu poți șterge tema altcuiva.' });
+  if (!a) return res.status(404).json({ error: 'Testul nu există.' });
+  if (a.created_by !== userId && !profile.is_admin) return res.status(403).json({ error: 'Nu poți șterge testul altcuiva.' });
   await supa.from('group_assignments').delete().eq('id', id); // itemii și repartizările cad în cascadă
   return res.status(200).json({ ok: true });
 }
@@ -434,12 +449,12 @@ async function openForStudent(req, res, supa) {
   const profile = await ai.requireUser(supa, userId);
 
   const { data: a } = await supa.from('group_assignments').select('*').eq('id', id).maybeSingle();
-  if (!a) return res.status(404).json({ error: 'Tema nu a fost găsită (poate a fost ștearsă).' });
+  if (!a) return res.status(404).json({ error: 'Testul nu a fost găsit (poate a fost șters).' });
 
   const { data: items } = await supa.from('group_assignment_items')
     .select('id, source, ref_id, kind, title, category, is_free, position')
     .eq('assignment_id', id).order('position', { ascending: true });
-  if (!items || !items.length) return res.status(404).json({ error: 'Tema nu conține niciun test.' });
+  if (!items || !items.length) return res.status(404).json({ error: 'Testul pe grupă nu conține niciun test în bazin.' });
 
   const base = {
     assignmentId: a.id, title: a.title, teacher: a.creator_name, group: a.group_name,
@@ -459,8 +474,8 @@ async function openForStudent(req, res, supa) {
     if (!ok) {
       return res.status(403).json({
         error: a.group_name
-          ? `Această temă e trimisă grupei „${a.group_name}". Cere-i profesorului să te adauge în grupă.`
-          : 'Această temă e pentru elevii asociați profesorului care a trimis-o.',
+          ? `Acest test e trimis grupei „${a.group_name}". Cere-i profesorului să te adauge în grupă.`
+          : 'Acest test e pentru elevii asociați profesorului care a trimis-o.',
         code: 'NOT_IN_GROUP',
       });
     }
@@ -570,59 +585,6 @@ function hashInt(s) {
   return Math.abs(h);
 }
 
-const publicItem = (i) => ({ id: i.id, source: i.source, kind: i.kind, title: i.title, category: i.category, isFree: i.is_free });
-
-// ─── Ce primește elevul, concret (test din site / generat / din bibliotecă) ──
-async function resolveTarget(supa, item, { userId, profile, premiumFree }) {
-  const canPremium = premiumFree || profile.subscription_status === 'active' || profile.is_admin;
-
-  if (item.source === 'site') {
-    const { data: c } = await supa.from('content')
-      .select('id, title, category, subcategory, content_type, is_free, file_url')
-      .eq('id', item.ref_id).maybeSingle();
-    if (!c) return { type: 'missing' };
-    if (!c.is_free && !canPremium) return { type: 'locked', title: c.title };
-    // „Grant": lasă viewerul să deschidă un material premium pentru acest elev
-    // (temă trimisă de admin cu „premium gratis"), fără abonament.
-    const grant = (!c.is_free && premiumFree)
-      ? ai.signToken({ t: 'gt', c: c.id, u: userId }, 12 * 3600) : null;
-    return {
-      type: c.content_type === 'pdf' ? 'site-pdf' : 'site-interactive',
-      contentId: c.id, grant,
-      item: { id: c.id, title: c.title, category: c.category, subcategory: c.subcategory || null, content_type: c.content_type, is_free: c.is_free, file_url: c.file_url },
-    };
-  }
-
-  const table = item.source === 'personal' ? 'ai_personal_items' : 'ai_public_library';
-  const { data: r } = await supa.from(table).select('*').eq('id', item.ref_id).maybeSingle();
-  if (!r) return { type: 'missing' };
-  const isFree = item.source === 'personal' ? true : !!r.is_free;
-  if (!isFree && !canPremium) return { type: 'locked', title: r.title };
-
-  if (r.kind === 'interactive') {
-    return {
-      type: 'quiz', title: r.title,
-      questions: r.payload?.questions || null,
-      html: r.payload?.questions ? null : (r.payload?.html || ''),
-    };
-  }
-  if (r.kind === 'exam') {
-    return { type: 'exam', title: r.title, exam: r.payload?.exam || null };
-  }
-  if (r.kind === 'pdf') {
-    let url = null;
-    const p = r.payload || {};
-    if (p.pdfPath) {
-      try {
-        const { data: signed } = await supa.storage.from(p.bucket || 'personal-pdfs').createSignedUrl(p.pdfPath, 3600);
-        url = signed?.signedUrl || null;
-      } catch (e) { console.warn('group-assignment signedUrl:', e.message); }
-    }
-    return { type: 'pdf-file', title: r.title, url, pdfBase64: url ? null : (p.pdfBase64 || null) };
-  }
-  return { type: 'missing' };
-}
-
 // ─── Reîncărcarea unui viewer (F5): testul repartizat, după pickId ───────────
 async function pickOne(req, res, supa) {
   const userId = await ai.authUser(req, supa);
@@ -632,15 +594,42 @@ async function pickOne(req, res, supa) {
   const { data: p } = await supa.from('group_assignment_picks')
     .select('id, assignment_id, item_id, student_id').eq('id', pickId).maybeSingle();
   if (!p) return res.status(404).json({ error: 'Repartizarea nu există.' });
-  if (p.student_id !== userId) return res.status(403).json({ error: 'Nu e tema ta.' });
+  if (p.student_id !== userId) return res.status(403).json({ error: 'Nu e testul tău.' });
   const { data: a } = await supa.from('group_assignments').select('*').eq('id', p.assignment_id).maybeSingle();
   const { data: item } = await supa.from('group_assignment_items').select('*').eq('id', p.item_id).maybeSingle();
-  if (!a || !item) return res.status(404).json({ error: 'Tema nu mai există.' });
+  if (!a || !item) return res.status(404).json({ error: 'Testul nu mai există.' });
   const target = await resolveTarget(supa, item, { userId, profile, premiumFree: a.premium_free });
   return res.status(200).json({
     assignmentId: a.id, title: a.title, teacher: a.creator_name,
     pickId: p.id, item: publicItem(item), target,
   });
+}
+
+// ─── Testul a început / s-a terminat → mesageria se oprește / repornește ─────
+// „În timpul unui test pe grupă, toate mesageriile sunt oprite automat."
+// Elevul apasă „▶ Începe testul" → `active_until` = acum + 3 ore. Se șterge
+// când trimite rezultatul (`score`) sau când apasă „Am terminat testul";
+// oricum expiră singură, ca un test abandonat să nu blocheze mesageria.
+const TEST_WINDOW_MS = 3 * 3600 * 1000;
+
+async function testMode(req, res, supa, start) {
+  const userId = await ai.authUser(req, supa);
+  const { pickId } = req.body || {};
+  if (!pickId) return res.status(400).json({ error: 'pickId obligatoriu' });
+  const { data: p } = await supa.from('group_assignment_picks')
+    .select('id, student_id').eq('id', pickId).maybeSingle();
+  if (!p) return res.status(404).json({ error: 'Repartizarea nu există.' });
+  if (p.student_id !== userId) return res.status(403).json({ error: 'Nu e testul tău.' });
+
+  const active_until = start ? new Date(Date.now() + TEST_WINDOW_MS).toISOString() : null;
+  const { error } = await supa.from('group_assignment_picks').update({ active_until }).eq('id', p.id);
+  if (error) {
+    // fără coloana `active_until` (supabase/mesagerie.sql nerulat) mergem mai
+    // departe: testul funcționează, doar blocarea mesageriei nu se aplică
+    console.warn('group-assignment testMode:', error.message);
+    return res.status(200).json({ ok: true, testMode: false, note: 'Rulează supabase/mesagerie.sql pentru oprirea mesageriei în timpul testelor.' });
+  }
+  return res.status(200).json({ ok: true, testMode: !!start });
 }
 
 // ─── Rezultatul elevului ─────────────────────────────────────────────────────
@@ -653,12 +642,18 @@ async function score(req, res, supa) {
   const { data: p } = await supa.from('group_assignment_picks')
     .select('id, assignment_id, student_id, score, attempts').eq('id', pickId).maybeSingle();
   if (!p) return res.status(404).json({ error: 'Repartizarea nu există.' });
-  if (p.student_id !== userId) return res.status(403).json({ error: 'Nu e tema ta.' });
+  if (p.student_id !== userId) return res.status(403).json({ error: 'Nu e testul tău.' });
 
-  const { error } = await supa.from('group_assignment_picks').update({
+  const patch = {
     score: Math.max(p.score || 0, s), max_score: m,
     attempts: (p.attempts || 0) + 1, completed_at: new Date().toISOString(),
-  }).eq('id', p.id);
+  };
+  // testul s-a încheiat → mesageria elevului se deblochează
+  let { error } = await supa.from('group_assignment_picks').update({ ...patch, active_until: null }).eq('id', p.id);
+  if (error) {
+    // instalări fără coloana `active_until` (supabase/mesagerie.sql nerulat încă)
+    ({ error } = await supa.from('group_assignment_picks').update(patch).eq('id', p.id));
+  }
   if (error) return res.status(500).json({ error: error.message });
 
   // anunță profesorul
@@ -668,7 +663,7 @@ async function score(req, res, supa) {
     if (a) {
       await ai.createNotification(supa, {
         recipientId: a.created_by, type: 'assignment_done',
-        title: `${me?.full_name || me?.email || 'Un elev'} a rezolvat tema „${a.title}"`,
+        title: `${me?.full_name || me?.email || 'Un elev'} a rezolvat testul „${a.title}"`,
         body: `Scor: ${s}/${m}.`,
         data: { url: '/profil', groupAssignmentId: p.assignment_id, studentId: userId },
         dedupeKey: `gassign_done:${p.id}`, dedupeDays: 1,

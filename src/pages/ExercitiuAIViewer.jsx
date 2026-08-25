@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
+import TestModeBadge from '../components/TestModeBadge';
 import { notaDinScor } from '../lib/nota';
 import { ReviewToast } from '../components/ReviewWidget';
 import { ChatPanel, TutorFab } from '../components/AITutor';
@@ -67,8 +68,10 @@ export default function ExercitiuAIViewer() {
           .catch(() => {});
       }
       if (state?.id && state?.mode === 'library') aiClient.updateLibraryScore(state.id, sc, mx).catch(() => {});
-      // Temă pe grupă: scorul merge la profesor, pe repartizarea acestui elev.
+      // Test pe grupă: scorul merge la profesor, pe repartizarea acestui elev.
       if (state?.gtId) aiClient.groupAssignmentScore({ pickId: state.gtId, score: sc, maxScore: mx }).catch(() => {});
+      // Temă (exerciții bifate de profesor): scorul intră pe exercițiul din temă.
+      if (state?.hwId) aiClient.homeworkScore({ progressId: state.hwId, score: sc, maxScore: mx }).catch(() => {});
     }
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
@@ -135,6 +138,7 @@ export default function ExercitiuAIViewer() {
           style={{ ...closeBtn, background: tutorOpen ? 'var(--gold)' : 'rgba(255,255,255,0.1)', color: tutorOpen ? 'var(--navy)' : '#fff', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <EinsteinIcon size={18} /> {tutorOpen ? 'Închide profesorul' : 'Întreabă profesorul'}
         </button>
+        {(state?.gtId || state?.mode === 'group') && <TestModeBadge compact />}
         {score ? <span style={chip}>Scor: {score.sc}/{score.mx}{notaDinScor(score.sc, score.mx) ? ` · nota ${notaDinScor(score.sc, score.mx)}` : ''}</span> : <span style={{ minWidth: 90 }} />}
       </div>
 

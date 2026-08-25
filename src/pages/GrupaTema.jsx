@@ -7,7 +7,7 @@
 //   • test din site (PDF)        → /pdf-viewer (cu Prof. Virtual alături)
 //   • test generat / din bibliotecă → /exercitiu-ai, PDF sau subiect tipăribil
 // =====================================================================
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
@@ -23,16 +23,30 @@ export default function GrupaTema() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // Cât timp testul e în desfășurare, mesageria elevului e oprită.
+  const [testActiv, setTestActiv] = useState(false);
 
-  useEffect(() => {
-    if (authLoading) return;
-    if (!user) { setLoading(false); return; }
+  const load = useCallback(() => {
     if (!id) { setError('Link invalid.'); setLoading(false); return; }
     aiClient.groupAssignmentOpen({ id })
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [authLoading, user, id]);
+  }, [id]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) { setLoading(false); return; }
+    load();
+  }, [authLoading, user, load]);
+
+  // Întors din vizualizator cu testul deja trimis → mesageria repornește singură.
+  useEffect(() => {
+    if (data?.result && data?.pickId) {
+      aiClient.groupAssignmentTestEnd({ pickId: data.pickId }).catch(() => {});
+      setTestActiv(false);
+    }
+  }, [data]);
 
   const wrap = { maxWidth: 780, margin: '0 auto', padding: '32px 20px 60px' };
   const card = { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 22, marginBottom: 18 };
@@ -61,6 +75,11 @@ export default function GrupaTema() {
   const gtQ = data.pickId ? `&gt=${data.pickId}` : '';
 
   function start() {
+    // „În timpul unui test pe grupă, toate mesageriile sunt oprite automat."
+    if (data.pickId) {
+      setTestActiv(true);
+      aiClient.groupAssignmentTestStart({ pickId: data.pickId }).catch(() => {});
+    }
     if (t.type === 'site-interactive') {
       navigate(`/exercitiu?id=${t.contentId}${gtQ}`, {
         state: { item: t.item, grant: t.grant || null, gtId: data.pickId || null, returnTo: back },
@@ -84,6 +103,13 @@ export default function GrupaTema() {
         window.open(url, '_blank', 'noopener,noreferrer');
       }
     }
+  }
+
+  async function endTest() {
+    if (!data.pickId) return;
+    try { await aiClient.groupAssignmentTestEnd({ pickId: data.pickId }); } catch { /* expiră oricum singură */ }
+    setTestActiv(false);
+    load();
   }
 
   const startable = ['site-interactive', 'site-pdf', 'quiz', 'exam', 'pdf-file'].includes(t.type);
@@ -141,6 +167,34 @@ export default function GrupaTema() {
           <button className="btn btn-primary" onClick={start}>
             {t.type === 'exam' ? '🖨 Deschide subiectul' : t.type === 'pdf-file' ? '📄 Deschide PDF-ul' : '▶ Începe testul'}
           </button>
+        )}
+
+        {/* Mesageria, oprită pe durata testului */}
+        {!data.preview && !data.result && startable && (
+          <div style={{
+            marginTop: 14, display: 'flex', gap: 10, alignItems: 'flex-start',
+            background: testActiv ? 'rgba(198,40,40,.07)' : 'var(--cream)',
+            border: `1px solid ${testActiv ? 'rgba(198,40,40,.35)' : 'var(--border)'}`,
+            borderRadius: 10, padding: '10px 12px',
+          }}>
+            <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>🔒</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '.83rem', fontWeight: 700, color: testActiv ? '#8a3b3b' : 'var(--navy)' }}>
+                {testActiv
+                  ? 'Mesageria e oprită — ai testul în desfășurare'
+                  : 'Cât timp rezolvi testul, mesageria se oprește automat'}
+              </div>
+              <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                Nu poți trimite mesaje nici pe canalul grupei, nici colegilor. Se repornește singură când
+                trimiți rezultatul.
+              </div>
+              {testActiv && (
+                <button className="btn btn-sm btn-outline" style={{ marginTop: 8 }} onClick={endTest}>
+                  ✓ Am terminat testul — repornește mesageria
+                </button>
+              )}
+            </div>
+          </div>
         )}
       </div>
 

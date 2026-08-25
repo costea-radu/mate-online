@@ -26,6 +26,7 @@ const EXAMENE = [
 
 // „Mai multe" — pentru aerisirea barei principale
 const MAIMULTE = [
+  { to: '/mesagerie',                  label: '💬 Mesagerie' },
   { to: '/preturi',                    label: '💳 Abonament' },
   { to: '/manuale',                    label: '📖 Auxiliare' },
   { to: '/rezolvari',                  label: '📝 Blog / Rezolvări / Teorie' },
@@ -463,6 +464,11 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profes
             <span style={{ color: '#ff6b6b', fontWeight: 700, marginLeft: 4 }}>({forumUnread})</span>
           )}
         </Link>
+        {user && (
+          <Link to="/mesagerie" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/mesagerie' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
+            💬 Mesagerie
+          </Link>
+        )}
         <Link to="/recenzii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/recenzii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
           ⭐ Recenzii
         </Link>

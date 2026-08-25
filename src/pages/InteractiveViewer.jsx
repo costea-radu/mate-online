@@ -8,6 +8,7 @@ import { ChatPanel, TutorFab } from '../components/AITutor';
 import { injectTutorBridge } from '../lib/tutorBridge';
 import { awardBadges } from '../lib/badges';
 import { notaDinScor } from '../lib/nota';
+import TestModeBadge from '../components/TestModeBadge';
 import EinsteinIcon from '../components/EinsteinIcon';
 import { ReviewToast } from '../components/ReviewWidget';
 
@@ -491,6 +492,8 @@ export default function InteractiveViewer() {
           >
             ← Înapoi
           </button>
+          {/* Test pe grupă: mesageria e oprită cât timp elevul rezolvă */}
+          {gtId && <TestModeBadge compact />}
           {item?.category === 'manuale' && (
             <button
               onClick={() => navigate('/')}

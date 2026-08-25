@@ -10,7 +10,8 @@ import { aiClient } from '../lib/aiClient';
 
 const ICONS = {
   material: '📄', forum: '💬', forum_reply: '💬', like: '❤️',
-  stagnation: '⚠️', evolution: '📈', decline: '📉', update: '✨', assignment_done: '✅', info: 'ℹ️',
+  stagnation: '⚠️', evolution: '📈', decline: '📉', update: '✨',
+  assignment: '📝', assignment_done: '✅', message: '✉️', info: 'ℹ️',
 };
 
 export default function AINotifications() {

@@ -1,0 +1,381 @@
+// =====================================================================
+// src/components/Mesagerie.jsx — mesageria
+//
+// Două feluri de conversații, cu reguli diferite:
+//   • CANALUL GRUPEI — profesorul grupei, elevii ei și părinții acelor elevi,
+//     cu rolul scris în paranteză. Din grupă NU se deschid discuții 1-la-1.
+//   • COLEGI — discuții 1-la-1 pe tot site-ul, cu cei care ți-au acceptat
+//     cererea de coleg (src/components/ColegiiMei.jsx).
+//
+// `scope`:
+//   'group' → doar canalele de grupă (montat în „Contul meu");
+//   'all'   → canale + colegi (pagina /mesagerie, din bara de sus).
+//
+// În timpul unui TEST PE GRUPĂ mesageria e OPRITĂ: conversațiile se citesc,
+// dar bara de scriere e înlocuită de un mesaj explicativ.
+//
+// Profesorul poate atașa la un mesaj LINKUL unei teme sau al unui test (🔗).
+// =====================================================================
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { aiClient } from '../lib/aiClient';
+import { useAuth } from '../context/AuthContext';
+
+const ROLE_TAG = { profesor: 'profesor', elev: 'elev', parinte: 'părinte' };
+const ROLE_ICON = { profesor: '🧑‍🏫', elev: '🎓', parinte: '👨‍👩‍👧' };
+
+function fmtTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  return sameDay
+    ? d.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString('ro-RO', { day: '2-digit', month: 'short' }) + ' ' +
+      d.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
+}
+
+export default function Mesagerie({ scope = 'all', height = 460 }) {
+  const navigate = useNavigate();
+  const { isTeacher, isAdmin } = useAuth();
+  const onlyGroups = scope === 'group';
+
+  const [data, setData] = useState(null);        // { threads, colegi, total, testMode }
+  const [error, setError] = useState(null);
+  const [active, setActive] = useState(null);    // threadId
+  const [msgs, setMsgs] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [title, setTitle] = useState('');
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [showPeople, setShowPeople] = useState(false);
+  const [attach, setAttach] = useState(null);    // { type, url, title }
+  const [attachList, setAttachList] = useState(null);
+  const [showAttach, setShowAttach] = useState(false);
+  const listRef = useRef(null);
+  const openedRef = useRef(false);
+
+  const loadThreads = useCallback(async () => {
+    try { const r = await aiClient.chatThreads(); setData(r); return r; }
+    catch (e) { setError(e.message); return null; }
+  }, []);
+  useEffect(() => { loadThreads(); }, [loadThreads]);
+
+  const openThread = useCallback(async (threadId) => {
+    setActive(threadId); setMsgs(null); setError(null);
+    try {
+      const r = await aiClient.chatMessages({ threadId });
+      setMsgs(r.messages || []);
+      setMembers(r.members || []);
+      setTitle(r.title || '');
+      setData((d) => (d ? {
+        ...d,
+        testMode: r.testMode, testMessage: r.testMessage, testTitle: r.testTitle,
+        threads: d.threads.map((t) => (t.id === threadId ? { ...t, unread: 0 } : t)),
+      } : d));
+    } catch (e) { setError(e.message); setMsgs([]); }
+  }, []);
+
+  const threads = useMemo(() => {
+    const all = data?.threads || [];
+    return onlyGroups ? all.filter((t) => t.kind === 'group') : all;
+  }, [data, onlyGroups]);
+
+  // prima conversație se deschide singură
+  useEffect(() => {
+    if (openedRef.current || !threads.length) return;
+    openedRef.current = true;
+    openThread((threads.find((t) => t.unread > 0) || threads[0]).id);
+  }, [threads, openThread]);
+
+  // reîmprospătare cât timp tabul e vizibil: mesajele la 20 s, lista la 60 s
+  useEffect(() => {
+    if (!active) return;
+    const tick = async () => {
+      if (document.visibilityState === 'hidden') return;
+      try {
+        const r = await aiClient.chatMessages({ threadId: active });
+        setMsgs(r.messages || []);
+        setData((d) => (d ? { ...d, testMode: r.testMode, testMessage: r.testMessage, testTitle: r.testTitle } : d));
+      } catch { /* rețea — reîncercăm la următorul tic */ }
+    };
+    const t = setInterval(tick, 20000);
+    return () => clearInterval(t);
+  }, [active]);
+
+  useEffect(() => {
+    const t = setInterval(() => { if (document.visibilityState === 'visible') loadThreads(); }, 60000);
+    return () => clearInterval(t);
+  }, [loadThreads]);
+
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [msgs]);
+
+  const testMode = !!data?.testMode;
+
+  async function sendMsg(e) {
+    e?.preventDefault?.();
+    const body = text.trim();
+    if ((!body && !attach) || !active || busy || testMode) return;
+    setBusy(true); setError(null);
+    try {
+      const r = await aiClient.chatSend({ threadId: active, body, attachment: attach });
+      setMsgs((m) => [...(m || []), r.message]);
+      setText(''); setAttach(null);
+      loadThreads();
+    } catch (e2) {
+      setError(e2.message);
+      if (e2.code === 'TEST_MODE') setData((d) => (d ? { ...d, testMode: true, testMessage: e2.message } : d));
+    }
+    finally { setBusy(false); }
+  }
+
+  async function startDirect(otherId) {
+    setBusy(true);
+    try {
+      const r = await aiClient.chatDirect({ otherId });
+      await loadThreads();
+      openThread(r.threadId);
+      setShowPeople(false);
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+
+  async function loadAttachables() {
+    setShowAttach((v) => !v);
+    if (attachList) return;
+    try { const r = await aiClient.chatAttachables(); setAttachList(r.items || []); }
+    catch { setAttachList([]); }
+  }
+
+  const colegi = onlyGroups ? [] : (data?.colegi || []);
+  const activeThread = threads.find((t) => t.id === active) || null;
+  const peopleOfActive = activeThread ? members : [];
+
+  // ── stiluri ───────────────────────────────────────────────────────────────
+  const box = { border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', background: '#fff' };
+  const sideBtn = (on) => ({
+    display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+    padding: '10px 12px', border: 'none', borderBottom: '1px solid var(--border)',
+    background: on ? 'rgba(232,185,49,.14)' : 'transparent', cursor: 'pointer',
+    fontFamily: 'var(--font-body)',
+  });
+  const bubble = (mine) => ({
+    maxWidth: '78%', alignSelf: mine ? 'flex-end' : 'flex-start',
+    background: mine ? 'var(--navy)' : 'var(--cream)', color: mine ? '#fff' : 'var(--text)',
+    borderRadius: mine ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
+    padding: '8px 12px', fontSize: '.86rem', lineHeight: 1.45, wordBreak: 'break-word',
+  });
+
+  if (error && !data) return <div style={{ fontSize: '.85rem', color: '#b71c1c' }}>⚠️ {error}</div>;
+  if (!data) return <div style={{ padding: 20, textAlign: 'center' }}><div className="spinner" /></div>;
+
+  if (!threads.length && !colegi.length) {
+    return (
+      <div>
+        {testMode && <TestBanner text={data.testMessage} title={data.testTitle} />}
+        <div style={{ fontSize: '.87rem', color: 'var(--text-muted)', background: 'var(--cream)', borderRadius: 10, padding: '14px 16px' }}>
+          {onlyGroups ? (
+            isTeacher || isAdmin
+              ? <>Nu ai încă nicio grupă cu elevi. Fă o grupă în „Grupe / Rezultate elevi" și adaugă elevi în ea — apoi aici apare canalul grupei, cu elevii și părinții lor.</>
+              : <>Canalul grupei se deschide după ce profesorul tău te pune într-o grupă. Cere-i linkul de asociere sau codul lui de profesor.</>
+          ) : (
+            <>Nicio conversație încă. Adaugă-ți colegi din „👥 Colegii mei" (Contul meu) ca să puteți discuta 1-la-1.</>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {testMode && <TestBanner text={data.testMessage} title={data.testTitle} />}
+
+      <div className="mesagerie-grid"
+        style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 210px) minmax(0, 1fr)', gap: 12, alignItems: 'stretch' }}>
+        {/* ── Lista de conversații ───────────────────────────────────────── */}
+        <div style={{ ...box, display: 'flex', flexDirection: 'column', maxHeight: height }}>
+          <div style={{ padding: '9px 12px', borderBottom: '1px solid var(--border)', fontSize: '.72rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+            {onlyGroups ? 'Canalul grupei' : 'Conversații'}
+          </div>
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {threads.map((t) => (
+              <button key={t.id} type="button" style={sideBtn(t.id === active)} onClick={() => openThread(t.id)}>
+                <span style={{ fontSize: '1.05rem' }}>{t.kind === 'group' ? '👥' : (ROLE_ICON[t.role] || '💬')}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'block', fontWeight: 700, color: 'var(--navy)', fontSize: '.83rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {t.title}
+                    {t.kind === 'direct' && <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}> ({t.roleLabel})</span>}
+                  </span>
+                  <span style={{ display: 'block', fontSize: '.72rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {t.last ? `${t.last.senderName ? t.last.senderName.split(' ')[0] + ': ' : ''}${t.last.body}` : (t.kind === 'group' ? 'canalul grupei' : 'conversație nouă')}
+                  </span>
+                </span>
+                {t.unread > 0 && (
+                  <span style={{ background: '#e74c3c', color: '#fff', borderRadius: 10, fontSize: '.65rem', fontWeight: 700, padding: '1px 6px' }}>{t.unread}</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* colegii: doar în mesageria de pe tot site-ul */}
+          {!onlyGroups && (
+            <div style={{ borderTop: '1px solid var(--border)' }}>
+              <button type="button" onClick={() => setShowPeople((v) => !v)}
+                style={{ ...sideBtn(false), borderBottom: 'none', fontWeight: 700, color: 'var(--navy)', fontSize: '.8rem' }}>
+                <span>👥</span><span style={{ flex: 1 }}>Scrie unui coleg</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: '.75rem' }}>{showPeople ? '▾' : '▸'}</span>
+              </button>
+              {showPeople && (
+                <div style={{ maxHeight: 170, overflowY: 'auto', borderTop: '1px solid var(--border)' }}>
+                  {colegi.length === 0 ? (
+                    <div style={{ padding: '9px 12px', fontSize: '.76rem', color: 'var(--text-muted)' }}>
+                      Nu ai încă colegi. Îi cauți din „👥 Colegii mei", în Contul meu.
+                    </div>
+                  ) : colegi.map((c) => (
+                    <button key={c.id} type="button" disabled={busy} onClick={() => startDirect(c.id)}
+                      style={{ ...sideBtn(false), fontSize: '.8rem' }}>
+                      <span>{ROLE_ICON[c.role] || '💬'}</span>
+                      <span style={{ flex: 1, minWidth: 0, color: 'var(--navy)' }}>
+                        {c.name} <span style={{ color: 'var(--text-muted)' }}>({c.roleLabel})</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Conversația deschisă ───────────────────────────────────────── */}
+        <div style={{ ...box, display: 'flex', flexDirection: 'column', minHeight: 340, maxHeight: height }}>
+          <div style={{ padding: '9px 13px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <strong style={{ color: 'var(--navy)', fontSize: '.88rem' }}>
+              {activeThread?.kind === 'group' ? '👥 ' : ''}{title || activeThread?.title || 'Conversație'}
+            </strong>
+            {peopleOfActive.length > 0 && (
+              <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>
+                {peopleOfActive.map((m) => `${m.name} (${m.roleLabel || ROLE_TAG[m.role] || m.role})`).join(' · ')}
+              </span>
+            )}
+          </div>
+
+          <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: '12px 13px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {msgs === null && <div style={{ textAlign: 'center', padding: 16 }}><div className="spinner" /></div>}
+            {msgs !== null && msgs.length === 0 && (
+              <div style={{ fontSize: '.83rem', color: 'var(--text-muted)', textAlign: 'center', margin: 'auto' }}>
+                Niciun mesaj încă. Scrie primul. 👋
+              </div>
+            )}
+            {(msgs || []).map((m) => (
+              <div key={m.id} style={{ display: 'flex', flexDirection: 'column', alignItems: m.mine ? 'flex-end' : 'flex-start' }}>
+                {!m.mine && (
+                  <span style={{ fontSize: '.7rem', color: 'var(--text-muted)', marginBottom: 2, paddingLeft: 4 }}>
+                    {m.sender_name} <strong style={{ fontWeight: 600 }}>({m.roleLabel})</strong>
+                  </span>
+                )}
+                <div style={bubble(m.mine)}>
+                  {m.body}
+                  {m.attachment?.url && (
+                    <button type="button" onClick={() => navigate(m.attachment.url)}
+                      style={{
+                        display: 'block', marginTop: m.body ? 8 : 0, width: '100%', textAlign: 'left',
+                        background: m.mine ? 'rgba(255,255,255,.14)' : '#fff', color: m.mine ? '#fff' : 'var(--navy)',
+                        border: `1px solid ${m.mine ? 'rgba(255,255,255,.3)' : 'var(--border)'}`,
+                        borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontSize: '.8rem', fontWeight: 600,
+                        fontFamily: 'var(--font-body)',
+                      }}>
+                      {m.attachment.type === 'test' ? '🧩 Test pe grupă' : '📝 Temă'} · {m.attachment.title}
+                      <span style={{ display: 'block', fontWeight: 500, opacity: .75, fontSize: '.72rem' }}>Deschide →</span>
+                    </button>
+                  )}
+                </div>
+                <span style={{ fontSize: '.66rem', color: 'var(--text-muted)', marginTop: 2 }}>{fmtTime(m.created_at)}</span>
+              </div>
+            ))}
+          </div>
+
+          {error && <div style={{ padding: '6px 13px', fontSize: '.78rem', color: '#b71c1c' }}>⚠️ {error}</div>}
+
+          {attach && !testMode && (
+            <div style={{ padding: '7px 13px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(39,174,96,.07)' }}>
+              <span style={{ fontSize: '.78rem', color: 'var(--navy)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                🔗 {attach.title}
+              </span>
+              <button type="button" onClick={() => setAttach(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontSize: '.9rem' }}>✕</button>
+            </div>
+          )}
+
+          {showAttach && !testMode && (
+            <div style={{ borderTop: '1px solid var(--border)', maxHeight: 150, overflowY: 'auto' }}>
+              {attachList === null && <div style={{ padding: 12, textAlign: 'center' }}><div className="spinner" /></div>}
+              {attachList?.length === 0 && (
+                <div style={{ padding: '10px 13px', fontSize: '.78rem', color: 'var(--text-muted)' }}>
+                  Nu ai încă teme sau teste create. Le faci cu „📝 Dă temă" (lângă grupă / elev) sau cu „Test pe grupă".
+                </div>
+              )}
+              {(attachList || []).map((it) => (
+                <button key={`${it.type}:${it.url}`} type="button"
+                  onClick={() => { setAttach({ type: it.type, url: it.url, title: it.title }); setShowAttach(false); }}
+                  style={{ ...sideBtn(false), fontSize: '.8rem' }}>
+                  <span>{it.type === 'test' ? '🧩' : '📝'}</span>
+                  <span style={{ flex: 1, minWidth: 0, color: 'var(--navy)' }}>
+                    {it.title}{it.note ? <span style={{ color: 'var(--text-muted)' }}> · {it.note}</span> : null}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {testMode ? (
+            <div style={{ padding: '11px 13px', borderTop: '1px solid var(--border)', background: 'rgba(198,40,40,.06)', fontSize: '.8rem', color: '#8a3b3b', fontWeight: 600 }}>
+              🔒 Nu poți scrie acum — ai un test pe grupă în desfășurare.
+            </div>
+          ) : (
+            <form onSubmit={sendMsg} style={{ display: 'flex', gap: 8, padding: '9px 11px', borderTop: '1px solid var(--border)', alignItems: 'center' }}>
+              {(isTeacher || isAdmin) && (
+                <button type="button" onClick={loadAttachables} title="Atașează linkul unei teme sau al unui test"
+                  style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', fontSize: '.95rem', padding: '6px 9px' }}>🔗</button>
+              )}
+              <input value={text} onChange={(e) => setText(e.target.value)} maxLength={2000}
+                placeholder="Scrie un mesaj…" disabled={!active}
+                style={{ flex: 1, minWidth: 0, border: '1px solid var(--border)', borderRadius: 20, padding: '9px 14px', fontSize: '.85rem', fontFamily: 'var(--font-body)' }} />
+              <button className="btn btn-sm btn-primary" type="submit" disabled={busy || !active || (!text.trim() && !attach)}>
+                {busy ? '…' : 'Trimite'}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+
+      <style>{`
+        @media (max-width: 640px) {
+          .mesagerie-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── „Mesageria e oprită în timpul testului" ────────────────────────────────
+export function TestBanner({ text, title }) {
+  return (
+    <div style={{
+      display: 'flex', gap: 10, alignItems: 'flex-start',
+      background: 'rgba(198,40,40,.07)', border: '1px solid rgba(198,40,40,.35)',
+      borderRadius: 12, padding: '11px 14px', marginBottom: 12,
+    }}>
+      <span style={{ fontSize: '1.15rem', lineHeight: 1 }}>🔒</span>
+      <div>
+        <div style={{ fontWeight: 700, color: '#8a3b3b', fontSize: '.87rem' }}>
+          Mesageria e oprită în timpul testului{title ? ` „${title}"` : ''}
+        </div>
+        <div style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
+          {text || 'Trimite testul (sau apasă „Am terminat testul") și revii la conversații.'}
+        </div>
+      </div>
+    </div>
+  );
+}

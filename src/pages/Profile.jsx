@@ -14,6 +14,9 @@ import GroupAssignment from '../components/GroupAssignment';
 import ParentAIActivity from '../components/ParentAIActivity';
 import AccountSettings from '../components/AccountSettings';
 import AILimite from '../components/AILimite';
+import Mesagerie from '../components/Mesagerie';
+import ColegiiMei from '../components/ColegiiMei';
+import TemeNefacute from '../components/TemeNefacute';
 import { getMyBadges } from '../lib/badges';
 import { notaDinScor } from '../lib/nota';
 import { trackPurchase } from '../lib/analytics';
@@ -167,6 +170,18 @@ export default function Profile() {
   // unui pachet AI (Stripe redirecționează către /profil?topup=...).
   const [aiConsumOpen] = useState(() => {
     try { return new URLSearchParams(window.location.search).has('topup'); }
+    catch { return false; }
+  });
+  // Rolldown-ul „💬 Mesagerie" pornește deschis când vii dintr-o notificare de
+  // mesaj nou (/profil?mesagerie=1).
+  const [chatOpen] = useState(() => {
+    try { return new URLSearchParams(window.location.search).has('mesagerie'); }
+    catch { return false; }
+  });
+  // „👥 Colegii mei" pornește deschis când vii dintr-o cerere de coleg
+  // (/profil?colegi=1).
+  const [colegiOpen] = useState(() => {
+    try { return new URLSearchParams(window.location.search).has('colegi'); }
     catch { return false; }
   });
   const onboardingRan = useRef(false);
@@ -538,6 +553,11 @@ export default function Profile() {
                 </div>
               )}
             </div>
+
+            {/* Colegii mei — sub cartonașul cu numele și tipul contului.
+                Pe desktop: fereastră cu câteva nume și derulare pentru rest.
+                Pe mobil: același conținut, ca tab cu rolldown. */}
+            <ColegiiMei defaultOpen={colegiOpen} />
           </div>
 
           {/* Main */}
@@ -579,6 +599,27 @@ export default function Profile() {
                 </div>
               )}
             </div>
+
+            {/* Mesageria GRUPEI — imediat SUB „Abonament", ca rolldown, pentru
+                TOATE tipurile de cont (elev / profesor / părinte). Doar canalul
+                grupei: profesorul, elevii ei și părinții acelor elevi, cu rolul
+                scris în paranteză. Discuțiile 1-la-1 sunt separate, cu colegii
+                de pe tot site-ul → pagina /mesagerie. */}
+            <details className="card" style={{ marginBottom: 24 }} open={chatOpen || undefined}>
+              <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none' }}>
+                💬 Mesageria grupei
+                <span style={{ fontWeight: 500, fontSize: '.82rem', color: 'var(--text-muted)', marginLeft: 8 }}>
+                  — profesor, elevi și părinți
+                </span>
+              </summary>
+              <div style={{ marginTop: 16 }}>
+                <Mesagerie scope="group" />
+                <p style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: 10 }}>
+                  Aici se scrie doar pe canalul grupei. Pentru discuții 1-la-1, adaugă-ți colegi din
+                  „👥 Colegii mei" și deschide <Link to="/mesagerie" style={{ color: 'var(--navy)', fontWeight: 600 }}>💬 Mesageria</Link>.
+                </p>
+              </div>
+            </details>
 
             {/* Consum AI — după Abonament, ca rolldown, pentru TOATE rolurile
                 (elev / profesor / părinte): cote per funcție, buget lunar și
@@ -623,6 +664,11 @@ export default function Profile() {
               </div>
             )}
 
+            {/* Teme nefăcute — DEASUPRA „Rezultatele mele"; apare doar dacă
+                elevul e asociat cu un profesor (componenta se ascunde singură
+                când nu are mentor). */}
+            {!isMentor && <TemeNefacute />}
+
             {/* Rezultatele ELEVULUI: testele și exercițiile rezolvate de el
                 (interactive + PDF corectate de Prof. Virtual) */}
             {!isMentor && <MyResults user={user} />}
@@ -637,13 +683,13 @@ export default function Profile() {
               />
             )}
 
-            {/* Temă pe grupă: un link, teste DIFERITE pentru fiecare elev.
+            {/* Test pe grupă: un link, teste DIFERITE pentru fiecare elev.
                 Aceeași funcție e și în „Asistent AI", după „Testele și
                 exercițiile mele" (src/pages/ProfesorVirtual.jsx). */}
             {isTeacher && (
               <details className="card" style={{ marginBottom: 24 }}>
                 <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  👥 Temă pe grupă — fiecare elev primește alt test
+                  👥 Test pe grupă — fiecare elev primește alt test
                 </summary>
                 <div style={{ marginTop: 16 }}>
                   <GroupAssignment />

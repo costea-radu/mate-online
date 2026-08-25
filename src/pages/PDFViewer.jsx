@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 import { ChatPanel, TutorFab } from '../components/AITutor';
 import EinsteinIcon from '../components/EinsteinIcon';
 import { aiClient } from '../lib/aiClient';
+import TestModeBadge from '../components/TestModeBadge';
 
 function isMobile() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -685,6 +686,7 @@ export default function PDFViewer() {
           <span style={{ color:'#fff', fontWeight:600, fontSize:'0.9rem', flex:1, textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
             📄 {item?.title}
           </span>
+          {gtId && <TestModeBadge compact />}
           {tutorBtn}
           <span style={badge}>{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>
         </div>
@@ -734,6 +736,7 @@ export default function PDFViewer() {
         <span style={{ color:'#fff', fontWeight:600, fontSize:'0.95rem', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
           📄 {item?.title}
         </span>
+        {gtId && <TestModeBadge compact />}
         {tutorBtn}
         <span style={badge}>{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>
       </div>

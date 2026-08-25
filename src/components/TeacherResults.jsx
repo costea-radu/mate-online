@@ -2,6 +2,8 @@ import { authHeaders } from '../lib/api';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import StudentAIMastery from './StudentAIMastery';
 import AITeacherReport from './AITeacherReport';
+import { DaTemaButton } from './TemaPicker';
+import TemeDate from './TemeDate';
 import { notaDinScor } from '../lib/nota';
 
 const PER_PAGE = 10; // elevi pe pagină
@@ -214,7 +216,7 @@ function ProgressChart({ rows }) {
 }
 
 // ─── Rând elev (antet rolldown + detaliu cu Punctaj/Încercări/Timp/Progres) ──
-function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, onMove, onRemove, busy }) {
+function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, onMove, onRemove, busy, onHomework }) {
   const hasRows = student.count > 0;
   const [showProgress, setShowProgress] = useState(false);
   const headerBg = 'transparent';
@@ -250,9 +252,15 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
             : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Niciun rezultat încă</span>}
         </td>
         <td style={{ padding: '11px 14px', textAlign: 'right', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
-          {student.avg !== null
-            ? <span style={{ fontWeight: 700, color: scoreColor(student.avg) }}>media {student.avg}%</span>
-            : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {student.avg !== null
+              ? <span style={{ fontWeight: 700, color: scoreColor(student.avg) }}>media {student.avg}%</span>
+              : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+            {/* „Dă temă" LÂNGĂ ELEV — tema merge doar lui */}
+            {isTeacher && !student.archived && (
+              <DaTemaButton small studentId={student.id} studentName={student.name} onDone={onHomework} />
+            )}
+          </div>
         </td>
       </tr>
 
@@ -489,6 +497,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
   const [selectedGroup, setSelectedGroup] = useState(null); // null = Toți
   const [busy, setBusy] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [temeSeed, setTemeSeed] = useState(0);   // reîncarcă „Temele date" după o temă nouă
   const fetchedFor = useRef(null);
   const autoGroupRan = useRef(false);
   const searchRef = useRef(null);
@@ -726,6 +735,19 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
                   </button>
                 </div>
 
+                {/* „Dă temă" LÂNGĂ GRUPĂ — tema merge la toți elevii ei
+                    (sau la toți elevii mei, când e selectat „Toți"). */}
+                <div style={{ display: 'flex', gap: 10, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <DaTemaButton
+                    groupId={selectedGroup}
+                    groupName={selectedGroupObj?.name || 'toți elevii mei'}
+                    onDone={() => setTemeSeed((n) => n + 1)}
+                  />
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                    exercițiile bifate merg la {selectedGroup === null ? 'toți elevii tăi' : `grupa „${selectedGroupObj?.name}"`}
+                  </span>
+                </div>
+
                 {/* Opțiuni grupă selectată */}
                 {selectedGroupObj && (
                   <div style={{ display: 'flex', gap: 10, marginTop: 10, alignItems: 'center' }}>
@@ -738,6 +760,9 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
                 )}
               </div>
             )}
+
+            {/* Temele date (rolldown) — cu raport, redenumire și ștergere */}
+            {isTeacher && !loading && !error && <TemeDate seed={temeSeed} />}
 
             {/* Clasament (doar profesor) — buton cu rolldown */}
             {isTeacher && !loading && !error && leaderboard.length > 0 && (
@@ -813,6 +838,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
                           onMove={moveStudent}
                           onRemove={removeStudent}
                           busy={busy}
+                          onHomework={() => setTemeSeed((n) => n + 1)}
                         />
                       ))}
                     </tbody>

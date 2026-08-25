@@ -1,7 +1,7 @@
 // =====================================================================
-// src/components/GroupAssignment.jsx — „Temă pe grupă: teste diferite"
+// src/components/GroupAssignment.jsx — „Test pe grupă: teste diferite"
 //
-// Profesorul construiește o temă din butoane pliabile (rolldown):
+// Profesorul construiește un test pe grupă din butoane pliabile (rolldown):
 //   0) grupa de elevi
 //   1) categoria testului (clasa sau examenul)
 //   2) formatul (interactiv sau PDF)
@@ -10,8 +10,16 @@
 //   4) alegerea testelor: automat, prin bifare, sau mixt (propunerea automată
 //      se poate debifa / completa)
 // Rezultatul e UN SINGUR LINK: fiecare elev care îl deschide primește ALT
-// test din bazin, iar la temele următoare primește, pe cât posibil, un test
+// test din bazin, iar la testele următoare primește, pe cât posibil, un test
 // pe care nu l-a mai primit.
+//
+// Lângă linkul creat: câmpul de DENUMIRE și butonul „💬 Trimite pe mesageria
+// grupei". Mai jos: „📨 Testele pe grupă trimise" (rolldown) și, lângă el,
+// „🏆 Clasament — doar testele primite" (clasamentul general, cu tot ce a
+// rezolvat elevul, rămâne în „Grupe / Rezultate elevi").
+//
+// TEMELE cu exerciții bifate sunt altceva: butonul „📝 Dă temă" de lângă grupă
+// și de lângă fiecare elev (src/components/TemaPicker.jsx).
 //
 // Doar pentru ADMIN: comutatorul „testele premium se trimit gratuit".
 // Montat în „Contul meu" (src/pages/Profile.jsx) și în „Asistent AI"
@@ -84,8 +92,15 @@ export default function GroupAssignment({ compact = false }) {
   const [error, setError] = useState(null);
   const [created, setCreated] = useState(null);   // { url, title, poolSize }
   const [copied, setCopied] = useState(false);
-  const [sent, setSent] = useState(null);         // temele trimise
+  const [sent, setSent] = useState(null);         // testele pe grupă trimise
   const [openReport, setOpenReport] = useState(null);
+  const [linkName, setLinkName] = useState('');   // denumirea linkului creat
+  const [renaming, setRenaming] = useState(false);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatSent, setChatSent] = useState(false);
+  const [showSent, setShowSent] = useState(false);       // rolldown „Testele trimise"
+  const [showRank, setShowRank] = useState(false);       // rolldown „Clasament teste primite"
+  const [rank, setRank] = useState(null);
 
   // ── date ──────────────────────────────────────────────────────────────────
   useEffect(() => { aiClient.groupAssignmentGroups().then(setGroups).catch((e) => setError(e.message)); }, []);
@@ -93,6 +108,12 @@ export default function GroupAssignment({ compact = false }) {
     aiClient.groupAssignmentsMine().then((r) => setSent(r.assignments || [])).catch(() => setSent([]));
   }, []);
   useEffect(() => { loadSent(); }, [loadSent]);
+
+  // clasamentul DOAR cu testele pe grupă primite (cel general e în „Grupe / Rezultate elevi")
+  const loadRank = useCallback(() => {
+    aiClient.groupAssignmentLeaderboard().then(setRank).catch(() => setRank({ rows: [], tests: 0 }));
+  }, []);
+  useEffect(() => { loadRank(); }, [loadRank]);
 
   // catalogul se reîncarcă la schimbarea sursei/categoriei/formatului
   const loadCatalog = useCallback(async () => {
@@ -149,7 +170,10 @@ export default function GroupAssignment({ compact = false }) {
         title: title || null, premiumFree: isAdmin ? premiumFree : false,
       });
       setCreated({ ...r, full: `${window.location.origin}${r.url}` });
+      setLinkName(r.title || '');
+      setChatSent(false);
       loadSent();
+      loadRank();
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }
@@ -159,14 +183,55 @@ export default function GroupAssignment({ compact = false }) {
     catch { /* selectare manuală */ }
   }
 
+  // a) denumirea linkului creat de profesor
+  async function saveLinkName() {
+    const t = linkName.trim();
+    if (!t || !created || t === created.title) return;
+    setRenaming(true); setError(null);
+    try {
+      await aiClient.groupAssignmentRename({ id: created.id, title: t });
+      setCreated((c) => ({ ...c, title: t }));
+      loadSent();
+    } catch (e) { setError(e.message); }
+    finally { setRenaming(false); }
+  }
+
+  // b) trimiterea linkului pe canalul grupei din mesagerie
+  async function sendLinkToChat(a) {
+    setChatBusy(true); setError(null);
+    try {
+      const { threads } = await aiClient.chatThreads();
+      const gid = a.groupId || groupId || null;
+      const t = (threads || []).find((x) => x.kind === 'group' && (!gid || x.groupId === gid))
+        || (threads || []).find((x) => x.kind === 'group');
+      if (!t) throw new Error('Nu ai încă o conversație de grupă. Fă o grupă cu elevi în „Grupe / Rezultate elevi".');
+      await aiClient.chatSend({
+        threadId: t.id, body: 'V-am trimis un test pe grupă — fiecare primește alt test:',
+        attachment: { type: 'test', url: a.url, title: a.title || 'Test pe grupă' },
+      });
+      setChatSent(true);
+    } catch (e) { setError(e.message); }
+    finally { setChatBusy(false); }
+  }
+
   function reset() {
     setCreated(null); setChecked([]); setMode('auto'); setTitle(''); setStep(0);
+    setLinkName(''); setChatSent(false);
   }
 
   async function removeSent(id) {
-    if (!window.confirm('Ștergi tema? Linkul nu va mai funcționa, iar repartizările se șterg.')) return;
+    if (!window.confirm('Ștergi testul pe grupă? Linkul nu va mai funcționa, iar repartizările se șterg.')) return;
     try { await aiClient.groupAssignmentDelete({ id }); setSent((s) => (s || []).filter((x) => x.id !== id)); }
     catch (e) { setError(e.message); }
+  }
+
+  async function renameSent(a) {
+    const t = window.prompt('Denumirea testului:', a.title);
+    if (!t || !t.trim() || t.trim() === a.title) return;
+    try {
+      await aiClient.groupAssignmentRename({ id: a.id, title: t.trim() });
+      setSent((s) => (s || []).map((x) => (x.id === a.id ? { ...x, title: t.trim() } : x)));
+    } catch (e) { setError(e.message); }
   }
 
   const catLabel = category ? (CATEGORIES.find((c) => c.value === category)?.label || category) : 'toate categoriile';
@@ -177,23 +242,44 @@ export default function GroupAssignment({ compact = false }) {
     return (
       <div>
         <div style={{ padding: 16, background: 'rgba(39,174,96,.08)', border: '1px solid rgba(39,174,96,.35)', borderRadius: 12 }}>
-          <div style={{ fontWeight: 700, color: '#1e7e34', marginBottom: 4 }}>✅ Tema a fost creată — {created.poolSize} teste în bazin</div>
+          <div style={{ fontWeight: 700, color: '#1e7e34', marginBottom: 4 }}>✅ Testul pe grupă a fost creat — {created.poolSize} teste în bazin</div>
           <p style={{ fontSize: '.83rem', color: 'var(--text-muted)', marginBottom: 10 }}>
             Trimite <strong>acest singur link</strong> {groupName ? <>grupei <strong>{groupName}</strong></> : 'elevilor tăi'}.
             Fiecare elev care îl deschide primește <strong>alt test</strong> decât colegii lui.
             Elevii asociați au primit deja și o notificare în cont.
           </p>
+
+          {/* a) denumirea linkului — se poate schimba oricând, linkul rămâne */}
+          <label style={{ display: 'block', fontSize: '.78rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 4 }}>
+            Denumirea testului
+          </label>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            <input value={linkName} onChange={(e) => setLinkName(e.target.value)} maxLength={120}
+              placeholder="ex. Test recapitulativ — clasa a VIII-a"
+              style={{ ...selStyle, flex: '1 1 240px' }} />
+            <button className="btn btn-sm btn-outline" onClick={saveLinkName}
+              disabled={renaming || !linkName.trim() || linkName.trim() === created.title}>
+              {renaming ? 'Se salvează…' : linkName.trim() === created.title ? '✓ Salvat' : 'Salvează denumirea'}
+            </button>
+          </div>
+
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <input readOnly value={created.full} onFocus={(e) => e.target.select()}
               style={{ flex: '1 1 240px', minWidth: 0, border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.82rem', fontFamily: 'monospace', background: 'var(--cream)' }} />
             <button className="btn btn-sm btn-primary" onClick={copyLink}>{copied ? '✓ Copiat' : 'Copiază linkul'}</button>
-            <a className="btn btn-sm btn-outline" href={`https://wa.me/?text=${encodeURIComponent(`Temă nouă pe ExamenMate: ${created.full}`)}`} target="_blank" rel="noopener noreferrer">WhatsApp</a>
-            <a className="btn btn-sm btn-outline" href={`mailto:?subject=${encodeURIComponent('Temă nouă — ExamenMate')}&body=${encodeURIComponent(`Rezolvă tema de aici: ${created.full}`)}`}>E-mail</a>
+            <a className="btn btn-sm btn-outline" href={`https://wa.me/?text=${encodeURIComponent(`Test nou pe ExamenMate: ${created.full}`)}`} target="_blank" rel="noopener noreferrer">WhatsApp</a>
+            <a className="btn btn-sm btn-outline" href={`mailto:?subject=${encodeURIComponent('Test nou — ExamenMate')}&body=${encodeURIComponent(`Rezolvă testul de aici: ${created.full}`)}`}>E-mail</a>
           </div>
-          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn btn-sm btn-outline" onClick={reset}>➕ Trimite altă temă</button>
+
+          {/* b) trimiterea linkului pe mesageria grupei */}
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button className="btn btn-sm btn-outline" onClick={() => sendLinkToChat(created)} disabled={chatBusy || chatSent}>
+              {chatSent ? '✓ Trimis pe mesagerie' : chatBusy ? 'Se trimite…' : '💬 Trimite pe mesageria grupei'}
+            </button>
+            <button className="btn btn-sm btn-outline" onClick={reset}>➕ Trimite alt test</button>
             <button className="btn btn-sm btn-outline" onClick={() => setOpenReport(created.id)}>📊 Vezi cine ce test a primit</button>
           </div>
+          {error && <div style={{ marginTop: 8, fontSize: '.8rem', color: '#b71c1c' }}>⚠️ {error}</div>}
         </div>
         {openReport && <Report id={openReport} onClose={() => setOpenReport(null)} />}
       </div>
@@ -206,7 +292,7 @@ export default function GroupAssignment({ compact = false }) {
       {!compact && (
         <p style={{ fontSize: '.86rem', color: 'var(--text-muted)', marginBottom: 14 }}>
           Un singur link pentru toată grupa — dar <strong>fiecare elev primește alt test</strong>.
-          La temele următoare din aceeași grupă, fiecare elev primește pe cât posibil un test pe care nu l-a mai
+          La testele următoare din aceeași grupă, fiecare elev primește pe cât posibil un test pe care nu l-a mai
           primit, până se epuizează testele din bazin; apoi se reia.
         </p>
       )}
@@ -222,7 +308,7 @@ export default function GroupAssignment({ compact = false }) {
             </select>
             {(groups.groups || []).length === 0 && (
               <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: 8 }}>
-                Nu ai încă grupe. Le creezi în „Rezultate elevi" → <strong>Grupe</strong>. Până atunci, tema merge la toți elevii asociați.
+                Nu ai încă grupe. Le creezi în „Rezultate elevi" → <strong>Grupe</strong>. Până atunci, testul merge la toți elevii asociați.
               </div>
             )}
             {nStudents === 0 && (
@@ -342,7 +428,7 @@ export default function GroupAssignment({ compact = false }) {
       {/* Titlu + opțiunea de admin */}
       <div style={{ marginTop: 14, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120}
-          placeholder={`Titlul temei (opțional) — ex. „Test recapitulativ ${catLabel}"`}
+          placeholder={`Denumirea testului (opțional) — ex. „Test recapitulativ ${catLabel}"`}
           style={{ ...selStyle, flex: '1 1 260px' }} />
       </div>
 
@@ -359,41 +445,99 @@ export default function GroupAssignment({ compact = false }) {
 
       <div style={{ marginTop: 14, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <button className="btn btn-primary" disabled={busy || (mode === 'manual' && !checked.length)} onClick={submit}>
-          {busy ? 'Se creează…' : '🔗 Creează linkul temei'}
+          {busy ? 'Se creează…' : '🔗 Creează linkul testului'}
         </button>
         <span style={{ fontSize: '.78rem', color: 'var(--text-muted)' }}>
           {groupName || 'Toți elevii mei'} · {catLabel} · {format === 'pdf' ? 'PDF' : 'interactiv'} · {mode === 'auto' ? `${poolSize} teste automat` : `${checked.length} teste bifate`}
         </span>
       </div>
 
-      {/* Temele deja trimise */}
+      {/* Testele deja trimise (rolldown) + clasamentul testelor primite, alături */}
       {sent && sent.length > 0 && (
-        <div style={{ marginTop: 24 }}>
-          <h4 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 8, fontSize: '.98rem' }}>📨 Temele pe grupă trimise</h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {sent.map((a) => (
-              <div key={a.id} style={{ background: '#f7f9fc', borderRadius: 10, padding: '9px 12px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 200px', minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '.87rem' }}>{a.title}</div>
-                  <div style={{ fontSize: '.73rem', color: 'var(--text-muted)' }}>
-                    {a.group_name || 'toți elevii'} · {a.pool_size} teste · {a.format === 'pdf' ? 'PDF' : 'interactiv'} ·
-                    {' '}{new Date(a.created_at).toLocaleDateString('ro-RO')}
-                    {a.premium_free ? ' · ⭐ premium gratuit' : ''}
+        <div style={{ marginTop: 24, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, alignItems: 'start' }}>
+          {/* stânga: testele trimise */}
+          <div style={{ background: '#f7f9fc', borderRadius: 12, overflow: 'hidden' }}>
+            <button type="button" onClick={() => setShowSent((v) => !v)} aria-expanded={showSent}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '12px 14px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-body)', textAlign: 'left' }}>
+              <strong style={{ color: 'var(--navy)', fontSize: '.9rem' }}>
+                📨 Testele pe grupă trimise
+                <span style={{ fontWeight: 500, color: 'var(--text-muted)', marginLeft: 6 }}>({sent.length})</span>
+              </strong>
+              <span style={{ color: 'var(--text-muted)', fontSize: '.8rem' }}>{showSent ? '▾ ascunde' : '▸ vezi'}</span>
+            </button>
+            {showSent && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0 12px 12px' }}>
+                {sent.map((a) => (
+                  <div key={a.id} style={{ background: '#fff', borderRadius: 10, padding: '9px 12px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '.87rem' }}>{a.title}</div>
+                      <div style={{ fontSize: '.73rem', color: 'var(--text-muted)' }}>
+                        {a.group_name || 'toți elevii'} · {a.pool_size} teste · {a.format === 'pdf' ? 'PDF' : 'interactiv'} ·
+                        {' '}{new Date(a.created_at).toLocaleDateString('ro-RO')}
+                        {a.premium_free ? ' · ⭐ premium gratuit' : ''}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                      {a.opened} deschise · {a.solved} rezolvate{a.avgPercent != null ? ` · medie ${a.avgPercent}%` : ''}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button className="btn btn-sm btn-outline" onClick={() => setOpenReport(openReport === a.id ? null : a.id)}>
+                        {openReport === a.id ? '✕ Închide' : '📊 Raport'}
+                      </button>
+                      <button className="btn btn-sm btn-outline" title="Schimbă denumirea" onClick={() => renameSent(a)}>✎</button>
+                      <button className="btn btn-sm btn-outline" title="Copiază linkul" onClick={() => navigator.clipboard?.writeText(`${window.location.origin}${a.url}`)}>🔗</button>
+                      <button className="btn btn-sm btn-outline" title="Trimite pe mesageria grupei" onClick={() => sendLinkToChat(a)}>💬</button>
+                      <button className="btn btn-sm" style={{ color: '#c0392b' }} onClick={() => removeSent(a.id)}>🗑</button>
+                    </div>
+                    {openReport === a.id && <div style={{ flexBasis: '100%' }}><Report id={a.id} /></div>}
                   </div>
-                </div>
-                <div style={{ fontSize: '.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                  {a.opened} deschise · {a.solved} rezolvate{a.avgPercent != null ? ` · medie ${a.avgPercent}%` : ''}
-                </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn btn-sm btn-outline" onClick={() => setOpenReport(openReport === a.id ? null : a.id)}>
-                    {openReport === a.id ? '✕ Închide' : '📊 Raport'}
-                  </button>
-                  <button className="btn btn-sm btn-outline" onClick={() => navigator.clipboard?.writeText(`${window.location.origin}${a.url}`)}>🔗</button>
-                  <button className="btn btn-sm" style={{ color: '#c0392b' }} onClick={() => removeSent(a.id)}>🗑</button>
-                </div>
-                {openReport === a.id && <div style={{ flexBasis: '100%' }}><Report id={a.id} /></div>}
+                ))}
               </div>
-            ))}
+            )}
+          </div>
+
+          {/* dreapta: clasamentul DOAR cu testele primite */}
+          <div style={{ background: 'var(--cream)', borderRadius: 12, overflow: 'hidden' }}>
+            <button type="button" onClick={() => setShowRank((v) => !v)} aria-expanded={showRank}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '12px 14px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-body)', textAlign: 'left' }}>
+              <strong style={{ color: 'var(--navy)', fontSize: '.9rem' }}>
+                🏆 Clasament — doar testele primite
+                {rank?.rows?.length ? <span style={{ fontWeight: 500, color: 'var(--text-muted)', marginLeft: 6 }}>({rank.rows.length})</span> : null}
+              </strong>
+              <span style={{ color: 'var(--text-muted)', fontSize: '.8rem' }}>{showRank ? '▾ ascunde' : '▸ vezi'}</span>
+            </button>
+            {showRank && (
+              <div style={{ padding: '0 14px 14px' }}>
+                <p style={{ fontSize: '.74rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+                  Numai testele repartizate prin linkurile de mai sus. Clasamentul general, cu tot ce a rezolvat
+                  elevul pe platformă, rămâne în „Grupe / Rezultate elevi".
+                </p>
+                {!rank ? (
+                  <div style={{ padding: 10, textAlign: 'center' }}><div className="spinner" /></div>
+                ) : !rank.rows.length ? (
+                  <div style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>
+                    Niciun elev nu a deschis încă un test pe grupă.
+                  </div>
+                ) : (
+                  <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 5 }}>
+                    {rank.rows.slice(0, 20).map((s, i) => (
+                      <li key={s.studentId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: '.84rem' }}>
+                        <span style={{ color: 'var(--text)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span style={{ display: 'inline-block', width: 22, fontWeight: 700 }}>
+                            {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`}
+                          </span>
+                          {s.name}
+                          <span style={{ color: 'var(--text-muted)', fontSize: '.72rem' }}> · {s.solved}/{s.received} rezolvate</span>
+                        </span>
+                        <span style={{ fontWeight: 700, whiteSpace: 'nowrap', color: s.avg == null ? 'var(--text-muted)' : s.avg >= 80 ? '#2e7d32' : s.avg >= 50 ? '#e65100' : '#c62828' }}>
+                          {s.avg != null ? `${s.avg}%` : '—'}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
