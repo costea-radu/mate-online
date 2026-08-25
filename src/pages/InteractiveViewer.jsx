@@ -513,8 +513,10 @@ export default function InteractiveViewer() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {/* Profesorul Virtual lângă exercițiu — deschidere manuală: chat gol, așteaptă întrebarea elevului */}
-          <button
+          {/* Profesorul Virtual lângă exercițiu — deschidere manuală: chat gol,
+              așteaptă întrebarea elevului. În timpul unui TEST PE GRUPĂ (?gt=…)
+              butonul dispare: elevul nu poate cere ajutor la test. */}
+          {!gtId && <button
             onClick={() => { setAutoPrompt(null); setTutorOpen((o) => !o); }}
             title="Te ajută să rezolvi exercițiul, pas cu pas"
             style={{
@@ -532,7 +534,7 @@ export default function InteractiveViewer() {
                 te ajută să rezolvi exercițiul
               </span>
             )}
-          </button>
+          </button>}
 
           {/* Tema de la Meditatorul AI — bifată */}
           {hwMarked && (
@@ -625,7 +627,7 @@ export default function InteractiveViewer() {
           />
         )}
 
-        {tutorOpen && (
+        {tutorOpen && !gtId && (
           <div style={{
             flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', minHeight: 0,
             ...(isMobile
@@ -669,7 +671,7 @@ export default function InteractiveViewer() {
 
       {/* Widget plutitor pe desktop (FloatingTutor global e ascuns pe /exercitiu):
           deschide profesorul LÂNGĂ exercițiu; se poate MUTA (tragi de el) */}
-      {!tutorOpen && !isMobile && (
+      {!tutorOpen && !isMobile && !gtId && (
         <TutorFab onOpen={() => { setAutoPrompt(null); setTutorOpen(true); }} />
       )}
 

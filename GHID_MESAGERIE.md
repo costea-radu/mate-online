@@ -80,13 +80,30 @@ testele lui, iar mesajul pleacă cu un **card apăsabil** care duce direct la
 butoane **„💬 Trimite pe mesageria grupei"** apar și la linkurile proaspăt
 create. Serverul acceptă ca atașament **doar rute interne**.
 
-## 6. Mesageria se oprește în timpul testelor
+## 6. În timpul testelor se opresc mesageria ȘI Profesorul Virtual
 
-Când elevul apasă **„▶ Începe testul"** la un test pe grupă, mesageria lui se
-oprește automat: conversațiile se citesc în continuare, dar bara de scriere e
-înlocuită de mesajul *„🔒 Nu poți scrie acum — ai un test pe grupă în
-desfășurare."* Blocarea e pe **server** (`api/messages.js` verifică
-`group_assignment_picks.active_until`), nu doar în interfață.
+Când elevul apasă **„▶ Începe testul"** la un test pe grupă, i se opresc automat:
+
+| Ce se oprește | Cum arată |
+|---|---|
+| **Mesageria** (canalul grupei + colegii) | conversațiile se citesc, dar bara de scriere e înlocuită de *„🔒 Nu poți scrie acum — ai un test pe grupă în desfășurare."* |
+| **Widgetul Profesorului Virtual** | dispare de pe toate paginile |
+| **„Profesorul virtual" / „Întreabă profesorul"** din vizualizatoare | butonul nu mai apare (interactiv și exercițiu generat) |
+| **Caseta de întrebări din chat** | înlocuită de *„🔒 Profesorul Virtual e oprit în timpul testului"* |
+| **Foto-rezolvarea** (📷) | refuzată, cu același mesaj |
+
+**Ce NU se oprește: corectarea.** La testele **PDF**, butonul „📝 Răspunde în
+chat" e chiar modul în care punctajul ajunge la profesor — așa că formularul de
+răspuns rămâne folosibil. În vizualizatorul de PDF, pe durata testului, butonul
+din bară se numește **„📝 Răspunde la test"**, iar panoul se deschide direct pe
+formular, fără chat. Pe scurt: elevul **nu poate cere ajutor**, dar **își poate
+trimite răspunsurile**.
+
+Blocarea e pe **server**, nu doar în interfață: `api/_lib/testlock.js` verifică
+`group_assignment_picks.active_until` și refuză cu **HTTP 423** cererile către
+`api/messages.js`, `api/ai-chat.js`, `api/ai-chat-stream.js` și
+`api/ai-vision.js`. Deschiderea altui tab nu ajută. `api/ai-correct.js` rămâne
+neatins, tocmai ca să meargă corectarea.
 
 Se repornește când:
 
@@ -95,8 +112,8 @@ Se repornește când:
 - trec **3 ore** de la începere (ca un test abandonat să nu blocheze nimic).
 
 În timpul testului, în bara vizualizatorului (interactiv, PDF sau exercițiu
-generat) apare eticheta **„🔒 Test pe grupă în desfășurare — mesageria e
-oprită"**.
+generat) apare eticheta **„🔒 Test pe grupă în desfășurare — mesageria și
+Profesorul Virtual sunt oprite"**.
 
 ## 7. Notificări
 
@@ -112,13 +129,16 @@ conversații la **60 s**. Tabul ascuns nu cheamă serverul deloc.
 ## Fișiere
 
 **Noi:** `supabase/mesagerie.sql`, `api/messages.js`, `api/colegi.js`,
-`src/components/Mesagerie.jsx`, `src/components/ColegiiMei.jsx`,
-`src/components/TestModeBadge.jsx`, `src/pages/MesageriePage.jsx`.
+`api/_lib/testlock.js`, `src/lib/testMode.js`, `src/components/Mesagerie.jsx`,
+`src/components/ColegiiMei.jsx`, `src/components/TestModeBadge.jsx`,
+`src/pages/MesageriePage.jsx`.
 
 **Modificate:** `src/lib/aiClient.js` (metodele `chat*` și `colegi*`),
 `src/App.jsx` (ruta `/mesagerie`), `src/components/Navbar.jsx` („Mai multe" +
 meniul burger), `src/pages/Profile.jsx` (canalul grupei + „Colegii mei"),
 `src/pages/GrupaTema.jsx` și `api/group-assignment.js` (oprirea mesageriei pe
 durata testului), `src/pages/InteractiveViewer.jsx`, `src/pages/PDFViewer.jsx`,
-`src/pages/ExercitiuAIViewer.jsx` (eticheta din vizualizator),
+`src/pages/ExercitiuAIViewer.jsx` (eticheta + ascunderea Profesorului Virtual),
+`src/components/AITutor.jsx` (widgetul și caseta de întrebări, oprite în test),
+`api/ai-chat.js`, `api/ai-chat-stream.js`, `api/ai-vision.js` (blocarea pe server),
 `src/components/AINotifications.jsx` (iconițele).

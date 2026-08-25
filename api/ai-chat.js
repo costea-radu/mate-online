@@ -6,6 +6,7 @@
 // Răspuns: { reply, conversationId, sources }
 // =====================================================================
 const ai = require('./_lib/ai');
+const testlock = require('./_lib/testlock');
 const pregen = require('./_lib/pregen');
 const pdfpages = require('./_lib/pdfpages'); // userContent: text + pagina PDF atașată (Etapa 2)
 
@@ -23,6 +24,13 @@ module.exports = async function handler(req, res) {
     if (!message || !message.trim()) return res.status(400).json({ error: 'message obligatoriu' });
 
     const profile = await ai.requireUser(supa, userId);
+
+    // În timpul unui TEST PE GRUPĂ, Profesorul Virtual e oprit: elevul nu poate
+    // cere ajutor. Corectarea („Răspunde în chat", api/ai-correct.js) rămâne
+    // pornită — la testele PDF ea duce punctajul la profesor.
+    const testul = await testlock.activeTest(supa, userId);
+    if (testul.locked) return res.status(423).json({ error: testlock.TEST_MSG_CHAT, code: 'TEST_MODE' });
+
     const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete (vezi GHID_LIMITE_AI.md)
     await ai.enforceFreeQuota(supa, profile);
     const premium = ai.isPremium(profile);

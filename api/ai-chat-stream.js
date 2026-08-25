@@ -8,6 +8,7 @@
 //   {"type":"error","error":"..."}
 // =====================================================================
 const ai = require('./_lib/ai');
+const testlock = require('./_lib/testlock');
 const pregen = require('./_lib/pregen');
 const pdfpages = require('./_lib/pdfpages'); // userContent: text + pagina PDF atașată (Etapa 2)
 
@@ -32,6 +33,11 @@ module.exports = async function handler(req, res) {
     if (!message || !message.trim()) { send({ type: 'error', error: 'message obligatoriu' }); return res.end(); }
 
     const profile = await ai.requireUser(supa, userId);
+
+    // Test pe grupă în desfășurare → Profesorul Virtual e oprit (vezi api/_lib/testlock.js)
+    const testul = await testlock.activeTest(supa, userId);
+    if (testul.locked) { send({ type: 'error', error: testlock.TEST_MSG_CHAT, code: 'TEST_MODE' }); return res.end(); }
+
     const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete (vezi GHID_LIMITE_AI.md)
     await ai.enforceFreeQuota(supa, profile);
     const premium = ai.isPremium(profile);

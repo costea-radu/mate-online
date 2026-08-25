@@ -127,6 +127,8 @@ export default function ExercitiuAIViewer() {
     );
   }
 
+  const testActiv = !!(state?.gtId || state?.mode === 'group');
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#1a1a2e' }}>
       <div style={bar}>
@@ -134,18 +136,21 @@ export default function ExercitiuAIViewer() {
         <span style={{ color: '#fff', fontWeight: 600, fontSize: '0.9rem', flex: 1, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           🧩 {title}
         </span>
-        <button onClick={() => setTutorOpen((o) => !o)} title="Întreabă-l pe Profesorul Virtual despre acest exercițiu"
-          style={{ ...closeBtn, background: tutorOpen ? 'var(--gold)' : 'rgba(255,255,255,0.1)', color: tutorOpen ? 'var(--navy)' : '#fff', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <EinsteinIcon size={18} /> {tutorOpen ? 'Închide profesorul' : 'Întreabă profesorul'}
-        </button>
-        {(state?.gtId || state?.mode === 'group') && <TestModeBadge compact />}
+        {/* În timpul unui TEST PE GRUPĂ, „Întreabă profesorul" dispare */}
+        {!testActiv && (
+          <button onClick={() => setTutorOpen((o) => !o)} title="Întreabă-l pe Profesorul Virtual despre acest exercițiu"
+            style={{ ...closeBtn, background: tutorOpen ? 'var(--gold)' : 'rgba(255,255,255,0.1)', color: tutorOpen ? 'var(--navy)' : '#fff', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <EinsteinIcon size={18} /> {tutorOpen ? 'Închide profesorul' : 'Întreabă profesorul'}
+          </button>
+        )}
+        {testActiv && <TestModeBadge compact />}
         {score ? <span style={chip}>Scor: {score.sc}/{score.mx}{notaDinScor(score.sc, score.mx) ? ` · nota ${notaDinScor(score.sc, score.mx)}` : ''}</span> : <span style={{ minWidth: 90 }} />}
       </div>
 
       {/* Exercițiul + Profesorul Virtual, unul lângă altul (ca în InteractiveViewer) */}
       <div style={{ flex: 1, display: 'flex', flexDirection: narrow ? 'column' : 'row', minHeight: 0 }}>
         <iframe ref={iframeRef} title={title} sandbox="allow-scripts" srcDoc={finalDoc || html} style={{ flex: 1, width: '100%', minHeight: 0, border: 'none', background: '#fff' }} />
-        {tutorOpen && (
+        {tutorOpen && !testActiv && (
           <div style={{
             flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', minHeight: 0,
             ...(narrow ? { height: '52%', borderTop: '3px solid var(--gold)' } : { width: 400, maxWidth: '45vw', borderLeft: '3px solid var(--gold)' }),

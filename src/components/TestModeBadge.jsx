@@ -15,7 +15,7 @@ export default function TestModeBadge({ compact = false }) {
 
   if (!open) {
     return (
-      <button type="button" onClick={() => setOpen(true)} title="Mesageria e oprită în timpul testului"
+      <button type="button" onClick={() => setOpen(true)} title="Mesageria și Profesorul Virtual sunt oprite în timpul testului"
         style={{
           border: '1px solid rgba(198,40,40,.35)', background: 'rgba(198,40,40,.08)',
           color: '#8a3b3b', borderRadius: 20, padding: '3px 10px', fontSize: '.72rem',
@@ -34,7 +34,7 @@ export default function TestModeBadge({ compact = false }) {
     }}>
       <span style={{ fontSize: '.95rem', lineHeight: 1 }}>🔒</span>
       <span style={{ fontSize: '.76rem', color: '#8a3b3b', fontWeight: 600, lineHeight: 1.35 }}>
-        Test pe grupă în desfășurare — <strong>mesageria e oprită</strong> până trimiți rezultatul.
+        Test pe grupă în desfășurare — <strong>mesageria și Profesorul Virtual sunt oprite</strong> până trimiți rezultatul.
       </span>
       <button type="button" onClick={() => setOpen(false)} aria-label="Ascunde"
         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8a3b3b', fontSize: '.8rem', lineHeight: 1 }}>✕</button>

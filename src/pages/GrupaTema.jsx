@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
 import { renderQuiz } from '../lib/quizRender';
 import { printExam } from '../lib/examPrint';
+import { startTestMode, endTestMode, isTestMode } from '../lib/testMode';
 
 export default function GrupaTema() {
   const [params] = useSearchParams();
@@ -23,8 +24,8 @@ export default function GrupaTema() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  // Cât timp testul e în desfășurare, mesageria elevului e oprită.
-  const [testActiv, setTestActiv] = useState(false);
+  // Cât timp testul e în desfășurare, se opresc mesageria ȘI Profesorul Virtual.
+  const [testActiv, setTestActiv] = useState(() => isTestMode());
 
   const load = useCallback(() => {
     if (!id) { setError('Link invalid.'); setLoading(false); return; }
@@ -44,6 +45,7 @@ export default function GrupaTema() {
   useEffect(() => {
     if (data?.result && data?.pickId) {
       aiClient.groupAssignmentTestEnd({ pickId: data.pickId }).catch(() => {});
+      endTestMode();
       setTestActiv(false);
     }
   }, [data]);
@@ -78,6 +80,7 @@ export default function GrupaTema() {
     // „În timpul unui test pe grupă, toate mesageriile sunt oprite automat."
     if (data.pickId) {
       setTestActiv(true);
+      startTestMode({ pickId: data.pickId, title: data.title });
       aiClient.groupAssignmentTestStart({ pickId: data.pickId }).catch(() => {});
     }
     if (t.type === 'site-interactive') {
@@ -108,6 +111,7 @@ export default function GrupaTema() {
   async function endTest() {
     if (!data.pickId) return;
     try { await aiClient.groupAssignmentTestEnd({ pickId: data.pickId }); } catch { /* expiră oricum singură */ }
+    endTestMode();
     setTestActiv(false);
     load();
   }
@@ -181,16 +185,17 @@ export default function GrupaTema() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: '.83rem', fontWeight: 700, color: testActiv ? '#8a3b3b' : 'var(--navy)' }}>
                 {testActiv
-                  ? 'Mesageria e oprită — ai testul în desfășurare'
-                  : 'Cât timp rezolvi testul, mesageria se oprește automat'}
+                  ? 'Mesageria și Profesorul Virtual sunt oprite — ai testul în desfășurare'
+                  : 'Cât timp rezolvi testul, mesageria și Profesorul Virtual se opresc automat'}
               </div>
               <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                Nu poți trimite mesaje nici pe canalul grupei, nici colegilor. Se repornește singură când
-                trimiți rezultatul.
+                Nu poți trimite mesaje (nici pe canalul grupei, nici colegilor) și nu îi poți cere ajutor
+                Profesorului Virtual. La testele PDF poți totuși folosi „📝 Răspunde în chat" ca să-ți
+                trimiți răspunsurile spre corectare. Totul repornește când trimiți rezultatul.
               </div>
               {testActiv && (
                 <button className="btn btn-sm btn-outline" style={{ marginTop: 8 }} onClick={endTest}>
-                  ✓ Am terminat testul — repornește mesageria
+                  ✓ Am terminat testul — repornește mesageria și profesorul
                 </button>
               )}
             </div>

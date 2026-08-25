@@ -6,6 +6,7 @@
 // Imaginea NU se salvează — e procesată și uitată (efemer, privat).
 // =====================================================================
 const ai = require('./_lib/ai');
+const testlock = require('./_lib/testlock');
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -17,6 +18,10 @@ module.exports = async function handler(req, res) {
     const userId = await ai.authUser(req, supa);
     const { imageBase64, note } = req.body || {};
     const profile = await ai.requireUser(supa, userId);
+
+    // Test pe grupă în desfășurare → foto-rezolvarea e oprită
+    const testul = await testlock.activeTest(supa, userId);
+    if (testul.locked) return res.status(423).json({ error: testlock.TEST_MSG_CHAT, code: 'TEST_MODE' });
     const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
     await ai.enforceFeatureQuota(supa, userId, profile, 'foto', lim); // cota zilnică de foto-rezolvări
     await ai.enforceFreeQuota(supa, profile);

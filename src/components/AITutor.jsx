@@ -7,6 +7,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
+import { useTestMode } from '../lib/testMode';
 import { supabase } from '../lib/supabase';
 import ExamGenerator from './ExamGenerator';
 import EinsteinIcon from './EinsteinIcon';
@@ -241,8 +242,12 @@ const consumedAutoPrompts = new Set();
 //  onAction(actiune)        — execută o acțiune AI în exercițiu (fill/choose/tf/add)
 //  initialConversationId    — reia o conversație existentă (chat → exercițiu)
 //  autoPrompt {id, text, mode?} — mesaj trimis automat (butonul din exercițiu)
-export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null, onAction = null, initialConversationId = null, autoPrompt = null, coachInject = null }) {
+export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null, onAction = null, initialConversationId = null, autoPrompt = null, coachInject = null, testMode = false }) {
   const { user, isPremium, isTeacher, isParent } = useAuth();
+  // Test pe grupă în desfășurare → nu se pot pune întrebări. Corectarea
+  // („📝 Răspunde în chat") rămâne pornită: la testele PDF ea duce
+  // punctajul la profesor. Blocarea reală e pe server (api/_lib/testlock.js).
+  const testActiv = useTestMode() || testMode;
   const navigate = useNavigate();
   const isMentor = isTeacher || isParent;
   const [mode, setMode] = useState(isMentor ? 'exams' : initialMode);
@@ -489,6 +494,12 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   async function send(text, { modeOverride = null, regenerate = false } = {}) {
     const msg = (text ?? input).trim();
     if (!msg || streaming) return;
+    // Test pe grupă în desfășurare → nicio întrebare nu pleacă (nici din butoanele
+    // de sugestii, nici din voce). Serverul refuză oricum (api/_lib/testlock.js).
+    if (testActiv) {
+      setError('Profesorul Virtual e oprit cât timp ai un test pe grupă în desfășurare.');
+      return;
+    }
     const userUid = ++uidRef.current; // id-urile locale ale celor două bule
     const uid = ++uidRef.current;     // (întrebare, răspuns)
     lastSentRef.current = { text: msg, modeOverride };
@@ -703,6 +714,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   }
 
   async function onPickPhoto(e) {
+    if (testActiv) { setError('Foto-rezolvarea e oprită cât timp ai un test pe grupă în desfășurare.'); return; }
     const file = e.target.files?.[0];
     e.target.value = ''; // permite re-selectarea aceluiași fișier
     if (!file) return;
@@ -1204,7 +1216,22 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         </div>
       )}
 
-      {/* Input — rămâne mereu vizibil, chiar și pe panouri mici */}
+      {/* În timpul unui test pe grupă, caseta de întrebări e înlocuită de o
+          explicație. Formularul de răspuns de mai sus rămâne folosibil. */}
+      {testActiv ? (
+        <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', padding: '11px 12px', borderTop: '1px solid var(--border)', background: 'rgba(198,40,40,.06)', flexShrink: 0 }}>
+          <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>🔒</span>
+          <div>
+            <div style={{ fontSize: '.82rem', fontWeight: 700, color: '#8a3b3b' }}>
+              Profesorul Virtual e oprit în timpul testului
+            </div>
+            <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              Nu poți cere ajutor cât timp rezolvi un test pe grupă. Îți poți însă trimite răspunsurile
+              spre corectare, cu „📝 Răspunde în chat".
+            </div>
+          </div>
+        </div>
+      ) : (
       <div style={{ display: 'flex', gap: 8, padding: 12, borderTop: '1px solid var(--border)', background: '#fff', flexShrink: 0 }}>
         <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={onPickPhoto} style={{ display: 'none' }} />
         <button onClick={() => fileRef.current?.click()} disabled={visionLoading} title="Fotografiază un exercițiu sau încarcă un PDF"
@@ -1244,9 +1271,10 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           </button>
         )}
       </div>
+      )}
       {/* Modelele AI + „AI-ul poate greși" — o linie minusculă sub câmpul de scris
           (textele vin din src/lib/aiModels.js → AI_STACK) */}
-      <AIPoweredBy variant="disclaimer" />
+      {!testActiv && <AIPoweredBy variant="disclaimer" />}
     </div>
   );
 }
@@ -1345,6 +1373,8 @@ export default function FloatingTutor() {
   const [open, setOpen] = useState(false);
   const [widgetTab, setWidgetTab] = useState('chat');
   const { pathname } = useLocation();
+  // Widgetul dispare cu totul cât timp elevul are un test pe grupă în desfășurare.
+  const testActiv = useTestMode();
   const { isTeacher, isParent } = useAuth();
   const isMentorAcc = isTeacher || isParent;
   const onMeditatii = pathname === '/meditatii';
@@ -1428,6 +1458,8 @@ export default function FloatingTutor() {
   }
 
   if (pathname === '/admin') return null;
+  // Test pe grupă în desfășurare → Profesorul Virtual e oprit peste tot
+  if (testActiv) return null;
   if (!pos) return null;
 
   const popupW = Math.min(400, window.innerWidth - 32);

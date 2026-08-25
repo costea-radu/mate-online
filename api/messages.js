@@ -29,9 +29,10 @@
 // Tabele: supabase/mesagerie.sql
 // =====================================================================
 const ai = require('./_lib/ai');
+const testlock = require('./_lib/testlock');
 
 const MAX_BODY = 2000;
-const TEST_MSG = 'Mesageria e oprită cât timp ai un test pe grupă în desfășurare. Trimite testul (sau apasă „Am terminat testul") și revii la conversații.';
+const TEST_MSG = testlock.TEST_MSG_MSG;
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -74,26 +75,8 @@ async function namesOf(supa, ids) {
 }
 const roleOrElev = (r) => (r === 'profesor' || r === 'parinte' ? r : 'elev');
 
-// ─── TESTUL PE GRUPĂ oprește mesageria ───────────────────────────────────────
-// Întoarce { locked, title } — `locked` cât timp elevul are un test început și
-// netrimis, iar termenul de 3 ore nu a expirat.
-async function testLock(supa, userId) {
-  try {
-    const { data } = await supa.from('group_assignment_picks')
-      .select('id, assignment_id, active_until, completed_at')
-      .eq('student_id', userId)
-      .is('completed_at', null)
-      .gt('active_until', new Date().toISOString())
-      .limit(1);
-    if (!data || !data.length) return { locked: false };
-    const { data: a } = await supa.from('group_assignments')
-      .select('title').eq('id', data[0].assignment_id).maybeSingle();
-    return { locked: true, title: a?.title || 'Test pe grupă', message: TEST_MSG };
-  } catch {
-    // coloana `active_until` apare după rularea supabase/mesagerie.sql
-    return { locked: false };
-  }
-}
+// ─── TESTUL PE GRUPĂ oprește mesageria (api/_lib/testlock.js) ────────────────
+const testLock = (supa, userId) => testlock.activeTest(supa, userId);
 
 // Grupele în care intră utilizatorul curent (ca profesor, elev sau părinte).
 async function myGroups(supa, userId) {

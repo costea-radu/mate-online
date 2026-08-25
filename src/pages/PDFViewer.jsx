@@ -548,10 +548,13 @@ export default function PDFViewer() {
   };
 
   // ── Butonul din bară (vizibil și pe desktop, și pe mobil) ────────────────
+  // TEST PE GRUPĂ (?gt=…): Profesorul Virtual e oprit — nu se pot pune întrebări.
+  // Panoul rămâne totuși de deschis pentru „📝 Răspunde în chat": la testele
+  // PDF formularul de răspuns e chiar modul în care punctajul ajunge la profesor.
   const tutorBtn = (
     <button
       onClick={() => setTutorOpen((o) => !o)}
-      title="Întreabă-l despre exercițiile din acest material"
+      title={gtId ? 'Completează răspunsurile la test' : 'Întreabă-l despre exercițiile din acest material'}
       style={{
         background: tutorOpen ? 'var(--gold)' : 'rgba(232,185,49,0.15)',
         border: '1px solid var(--gold)', color: tutorOpen ? 'var(--navy)' : 'var(--gold)',
@@ -560,18 +563,19 @@ export default function PDFViewer() {
       }}
     >
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', fontWeight: 700 }}>
-        <EinsteinIcon size={18} /> {tutorOpen ? 'Închide profesorul' : 'Profesorul virtual'}
+        {gtId ? '📝' : <EinsteinIcon size={18} />}{' '}
+        {tutorOpen ? 'Închide' : gtId ? 'Răspunde la test' : 'Profesorul virtual'}
       </span>
       {!tutorOpen && (
         <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.9 }}>
-          te ajută la exercițiile din PDF
+          {gtId ? 'trimiți răspunsurile spre corectare' : 'te ajută la exercițiile din PDF'}
         </span>
       )}
     </button>
   );
 
   // ── Widgetul plutitor (vizibil în vizualizatorul de PDF; se poate MUTA) ──
-  const tutorWidget = !tutorOpen && <TutorFab onOpen={() => setTutorOpen(true)} />;
+  const tutorWidget = !tutorOpen && !gtId && <TutorFab onOpen={() => setTutorOpen(true)} />;
 
   // ── Panoul de chat, interconectat cu PDF-ul deschis ─────────────────────
   const tutorPanel = tutorOpen && (
@@ -597,7 +601,7 @@ export default function PDFViewer() {
           }} />
         )}
         <div style={{ fontWeight: 700, fontSize: '.9rem', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <EinsteinIcon size={20} /> Profesorul Virtual
+          {gtId ? <>📝 Răspunsurile tale</> : <><EinsteinIcon size={20} /> Profesorul Virtual</>}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           {/* Mărire/micșorare fereastră — doar pe desktop (pe mobil se trage de bară) */}
@@ -666,7 +670,7 @@ export default function PDFViewer() {
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0 }}>
-        <ChatPanel compact context={tutorContext} initialConversationId={tutorConvId} />
+        <ChatPanel compact context={tutorContext} initialConversationId={tutorConvId} testMode={!!gtId} />
       </div>
     </div>
   );
