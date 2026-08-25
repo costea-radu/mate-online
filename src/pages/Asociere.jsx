@@ -2,6 +2,7 @@ import { authHeaders } from '../lib/api';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { trackParentLink } from '../lib/analytics';
 
 export default function Asociere() {
   const [params] = useSearchParams();
@@ -45,6 +46,9 @@ export default function Asociere() {
         try { localStorage.removeItem('pending_teacher_code'); } catch { /* ignore */ }
         setTeacherName(data.mentor_name || data.teacher_name || 'Profesor');
         setMentorRole(data.mentor_role || 'profesor');
+        // Asocierea cu un PĂRINTE deblochează testul inițial gratuit — e pasul
+        // care duce cel mai des la abonare, deci îl măsurăm separat.
+        if ((data.mentor_role || 'profesor') === 'parinte') trackParentLink();
         setStatus('success');
         await fetchProfile(user.id);
       } catch (e) {

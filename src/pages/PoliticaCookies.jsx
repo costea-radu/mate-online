@@ -49,13 +49,19 @@ export default function PoliticaCookies() {
                       { name: '__stripe_mid', scop: 'Prevenirea fraudelor la plată (Stripe / Apple Pay / Google Pay)', durata: '1 an', tip: 'Necesar' },
                       { name: '__stripe_sid', scop: 'Identificarea sesiunii de plată (Stripe)', durata: '30 minute', tip: 'Necesar' },
                       { name: 'discord_*', scop: 'Autentificare OAuth cu Discord', durata: 'Sesiune', tip: 'Necesar' },
+                      { name: '_ga, _ga_*', scop: 'Statistici anonime de utilizare (Google Analytics 4): ce pagini sunt vizitate și ce materiale sunt căutate', durata: '2 ani', tip: 'Analiză' },
+                      { name: '_fbp', scop: 'Măsurarea eficienței anunțurilor (Meta Pixel): ne arată dacă un anunț a dus la o înregistrare sau la o abonare', durata: '3 luni', tip: 'Analiză' },
                     ].map((row, i) => (
                       <tr key={i} style={{ borderBottom: '1px solid #f0f4f8' }}>
                         <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '0.83rem', color: '#1565c0' }}>{row.name}</td>
                         <td style={{ padding: '10px 14px' }}>{row.scop}</td>
                         <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>{row.durata}</td>
                         <td style={{ padding: '10px 14px' }}>
-                          <span style={{ background: '#e8f5e9', color: '#2e7d32', padding: '2px 8px', borderRadius: 12, fontSize: '0.78rem', fontWeight: 700 }}>{row.tip}</span>
+                          <span style={{
+                            background: row.tip === 'Analiză' ? '#fff4e5' : '#e8f5e9',
+                            color: row.tip === 'Analiză' ? '#8a5a00' : '#2e7d32',
+                            padding: '2px 8px', borderRadius: 12, fontSize: '0.78rem', fontWeight: 700,
+                          }}>{row.tip}</span>
                         </td>
                       </tr>
                     ))}
@@ -64,7 +70,11 @@ export default function PoliticaCookies() {
               </div>
 
               <p style={{ marginTop: 16 }}>
-                <strong>Nu folosim</strong> cookie-uri de marketing, tracking sau analiză de la terți (Google Analytics, Facebook Pixel etc.).
+                Cookie-urile de <strong>analiză</strong> (Google Analytics 4 și Meta Pixel) se încarcă
+                <strong> numai după ce apeși „Accept"</strong> în bannerul afișat la prima vizită. Dacă alegi
+                „Doar strict necesare", niciun script de la Google sau Meta nu este încărcat și nicio
+                cerere nu pleacă spre serverele lor. Nu vindem și nu transmitem date personale altor
+                terți în scopuri publicitare.
               </p>
             </Section>
 
@@ -72,11 +82,26 @@ export default function PoliticaCookies() {
               <p>
                 Stripe, procesatorul nostru de plăți (inclusiv Apple Pay și Google Pay), poate plasa propriile cookie-uri tehnice pe dispozitivul tău în momentul efectuării unei plăți. Discord poate plasa cookie-uri de sesiune în momentul autentificării prin contul Discord. Acestea sunt necesare pentru securitatea tranzacției și prevenirea fraudelor. Poți consulta politica de cookie-uri a Stripe la <a href="https://stripe.com/cookies-policy/legal" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>stripe.com</a>.
               </p>
+              <p style={{ marginTop: 12 }}>
+                Cu acordul tău, folosim și <strong>Google Analytics 4</strong> (statistici de utilizare) și
+                <strong> Meta Pixel</strong> (măsurarea eficienței anunțurilor). Ambele pot transfera date
+                în afara Spațiului Economic European, pe baza clauzelor contractuale standard ale
+                furnizorilor. Politicile lor:{' '}
+                <a href="https://policies.google.com/technologies/cookies" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Google</a>
+                {' · '}
+                <a href="https://www.facebook.com/policies/cookies/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Meta</a>.
+              </p>
             </Section>
 
             <Section title="4. Cum poți controla cookie-urile">
               <p>
-                Deoarece folosim exclusiv cookie-uri strict necesare funcționării platformei, acestea nu pot fi dezactivate fără a afecta experiența de utilizare (de exemplu, nu vei putea rămâne autentificat). Poți totuși gestiona cookie-urile direct din setările browserului tău:
+                Cookie-urile de <strong>analiză</strong> le controlezi din bannerul afișat la prima vizită.
+                Ca să îți schimbi ulterior alegerea, șterge datele site-ului din browser — bannerul va
+                apărea din nou la următoarea vizită.
+              </p>
+              <p style={{ marginTop: 12 }}>
+                Cookie-urile <strong>strict necesare</strong> nu pot fi dezactivate fără a afecta experiența
+                de utilizare (de exemplu, nu vei putea rămâne autentificat). Poți totuși gestiona cookie-urile direct din setările browserului tău:
               </p>
               <ul style={{ marginTop: 10, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <li><strong>Google Chrome:</strong> Setări → Confidențialitate și securitate → Cookie-uri</li>

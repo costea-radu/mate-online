@@ -16,6 +16,7 @@ import EinsteinIcon from '../components/EinsteinIcon';
 import ExamGenerator from '../components/ExamGenerator';
 import { openPrintDocument } from '../lib/examPrint';
 import { playAnswer, stopSpeaking, ttsSupported } from '../lib/voice';
+import { trackFreeAssessment } from '../lib/analytics';
 import CapitolePicker from '../components/CapitolePicker';
 import { capitoleForCategory } from '../lib/capitole';
 
@@ -510,6 +511,79 @@ function SetupWizard({ onStart, starting, error }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// RAPORTUL GRATUIT — ce vede un elev NEABONAT după testul inițial.
+// Nivelul, capitolele cu lacune și primii pași din plan: exact diagnosticul pe
+// care un părinte îl caută. Restul planului rămâne în spatele abonamentului.
+// ═════════════════════════════════════════════════════════════════════════════
+function FreeReport({ st }) {
+  const a = st?.profile?.assessment || {};
+  const pct = a.maxScore ? Math.round((a.score / a.maxScore) * 100) : null;
+  const nivel = { incepator: 'începător', mediu: 'mediu', avansat: 'avansat' }[st?.profile?.level] || st?.profile?.level || '—';
+  const gaps = a.gaps || [];
+  const pasi = (st?.plan?.chapters || []).slice(0, 3);
+
+  return (
+    <div style={{ ...card, borderColor: 'var(--gold)', borderWidth: 2 }}>
+      <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.05rem', marginBottom: 4 }}>
+        🧭 Raportul tău de la testul inițial
+      </div>
+      <p style={{ fontSize: '.86rem', color: 'var(--text-muted)', marginBottom: 16 }}>
+        L-am trimis și părintelui cu care ești asociat.
+      </p>
+
+      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', marginBottom: 18 }}>
+        {[
+          ['Scor', a.maxScore ? `${a.score}/${a.maxScore}` : '—'],
+          ['Procent', pct != null ? `${pct}%` : '—'],
+          ['Nivel', nivel],
+          ['Nota estimată', st?.prediction ? st.prediction.grade : '—'],
+        ].map(([label, value]) => (
+          <div key={label} style={{ background: 'var(--navy)', color: '#fff', borderRadius: 'var(--radius)', padding: 14 }}>
+            <div style={{ fontSize: '1.4rem', fontWeight: 800, fontFamily: 'var(--font-display)', color: 'var(--gold)' }}>{value}</div>
+            <div style={{ fontSize: '.75rem', opacity: 0.85 }}>{label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <strong style={{ color: 'var(--navy)', fontSize: '.92rem' }}>
+          {gaps.length ? 'Capitolele care trag nota în jos:' : 'Nu am găsit lacune mari — felicitări!'}
+        </strong>
+        {gaps.length > 0 && (
+          <ul style={{ margin: '8px 0 0', paddingLeft: '1.1em' }}>
+            {gaps.map((g) => (
+              <li key={g.chapter} style={{ fontSize: '.88rem', color: 'var(--text)', marginBottom: 4 }}>
+                {g.title} <span style={{ color: 'var(--text-muted)' }}>({g.correct}/{g.total} corecte)</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {pasi.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <strong style={{ color: 'var(--navy)', fontSize: '.92rem' }}>Planul construit pentru tine începe cu:</strong>
+          <ol style={{ margin: '8px 0 0', paddingLeft: '1.3em' }}>
+            {pasi.map((c) => (
+              <li key={c.id} style={{ fontSize: '.88rem', color: 'var(--text)', marginBottom: 4 }}>{c.title}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      <div style={{ background: '#fff9ec', border: '1px solid var(--gold)', borderRadius: 'var(--radius)', padding: '16px 18px' }}>
+        <p style={{ fontSize: '.9rem', color: 'var(--text)', margin: '0 0 12px', lineHeight: 1.6 }}>
+          Diagnosticul e gata. Cu abonamentul, Profesorul Virtual chiar predă planul:
+          lecții pe capitolele slabe, exerciții cu explicații, teme corectate, recapitulări
+          programate ca să nu uiți materia și simulări de examen. <strong>Primele 2 zile sunt gratuite.</strong>
+        </p>
+        <Link to="/preturi" className="btn btn-primary">Începe planul →</Link>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 export default function Meditatii() {
   const { user, loading, isPremium, isTeacher, isParent } = useAuth();
   const navigate = useNavigate();
@@ -570,6 +644,9 @@ export default function Meditatii() {
   // 2) După evenimente (set terminat, temă notată): apreciere + pasul următor,
   //    scrise de coach (gpt-4o-mini pe server — economie de tokeni).
   async function coachAfter(event) {
+    // Coach-ul e o funcție de abonament: la un test inițial gratuit nu are rost
+    // să cerem serverului un mesaj pe care oricum l-ar refuza cu 402.
+    if (st && !st.premium) return;
     try {
       const c = await aiClient.meditatii({ action: 'coach', event });
       if (c?.message) {
@@ -618,6 +695,7 @@ export default function Meditatii() {
   const startSetup = ({ grade, examTarget, focus = null }) => run('setup', async () => {
     // focus = pregătirea pentru lucrare/test aleasă la înscriere (opțional):
     // testul inițial se dă din capitolele ei, iar planul le pune primele
+    if (st && !st.premium) trackFreeAssessment();
     const r = await aiClient.meditatii({ action: 'setup', grade, examTarget, focus });
     setQuiz({
       kind: 'evaluare', sessionId: r.sessionId, questions: r.questions,
@@ -837,6 +915,13 @@ export default function Meditatii() {
 
   const premium = st ? st.premium : isPremium;
 
+  // ── Testul inițial gratuit (elev asociat cu un părinte) ──────────────────
+  // freeAssessment = mai poate începe testul gratuit
+  // freeReport     = l-a dat deja și îi arătăm raportul, nu formularul
+  const freeAssessment = !!(st && !premium && st.freeAssessment);
+  const freeReport = !!(st && !premium && !st.needsSetup && st.profile?.assessment?.maxScore);
+  const canAssess = premium || freeAssessment;
+
   return (
     <div className="med-page" style={{ maxWidth: 'var(--container)', margin: '0 auto', padding: '32px 20px 60px', transition: 'padding .25s ease' }}>
       {/* pagina se strânge lângă panoul andocat al Meditatorului (doar pe ecrane late) */}
@@ -846,7 +931,25 @@ export default function Meditatii() {
       {stError && <div style={{ ...card, background: '#fdecea', color: '#b71c1c', borderColor: '#f5c6cb' }}>⚠️ {stError}</div>}
       {!st && !stError && <div style={{ padding: 40, textAlign: 'center' }}><div className="spinner" /></div>}
 
-      {st && !premium && (
+      {/* Raportul gratuit — elev neabonat care a dat deja testul inițial */}
+      {st && freeReport && !quiz && <FreeReport st={st} />}
+
+      {/* Testul inițial gratuit e deblocat: îl invităm să înceapă */}
+      {st && freeAssessment && !freeReport && !quiz && (
+        <div style={{ ...card, background: '#eef7f0', borderColor: 'var(--success)' }}>
+          <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.05rem', marginBottom: 8 }}>
+            ✅ Testul inițial e gratuit pentru tine
+          </div>
+          <p style={{ fontSize: '.92rem', color: 'var(--text)', margin: 0 }}>
+            Contul tău e asociat cu al unui părinte, așa că testul inițial și raportul —
+            nivelul, capitolele cu lacune și planul propus — sunt gratuite. Durează ~15 minute
+            și nu e o notă, e o busolă. 🧭
+          </p>
+        </div>
+      )}
+
+      {/* Fără abonament și fără părinte asociat: explicăm ambele căi */}
+      {st && !premium && !freeAssessment && !freeReport && (
         <div style={{ ...card, background: '#fff4e5', borderColor: 'var(--gold)' }}>
           <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.05rem', marginBottom: 8 }}>🔒 Meditațiile fac parte din abonament</div>
           <p style={{ fontSize: '.92rem', color: 'var(--text)', marginBottom: 12 }}>
@@ -854,11 +957,27 @@ export default function Meditatii() {
             săptămânale, <strong>teorie + exerciții</strong> din materialele site-ului, <strong>analiza greșelilor</strong> („de ce ai greșit, nu doar că ai greșit"),
             <strong> teme corectate și notate</strong>, <strong>recapitulări programate</strong> ca să nu uiți materia și <strong>simulări de examen</strong> cu predicția notei.
           </p>
-          <Link to="/preturi" className="btn btn-primary">Abonează-te pentru meditații →</Link>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+            <Link to="/preturi" className="btn btn-primary">Abonează-te pentru meditații →</Link>
+          </div>
+          {!st.parentLinked && (
+            <div style={{ borderTop: '1px dashed var(--border)', paddingTop: 14 }}>
+              <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.94rem', marginBottom: 6 }}>
+                🧭 Vrei să vezi întâi unde stai? Testul inițial e gratuit.
+              </div>
+              <p style={{ fontSize: '.88rem', color: 'var(--text)', marginBottom: 12, lineHeight: 1.6 }}>
+                Dacă îți asociezi contul cu al unui părinte, primești gratuit testul inițial și
+                raportul complet: nivelul, capitolele cu lacune și planul propus. Părintele își
+                face cont gratuit, îți dă codul lui din „Contul meu", iar tu îl introduci la
+                Asociere.
+              </p>
+              <Link to="/asociere" className="btn btn-outline">Asociază contul cu un părinte →</Link>
+            </div>
+          )}
         </div>
       )}
 
-      {st && premium && st.needsSetup && !quiz && (
+      {st && canAssess && st.needsSetup && !quiz && (
         <SetupWizard onStart={startSetup} starting={busy === 'setup'} error={actionError} />
       )}
 
@@ -874,7 +993,7 @@ export default function Meditatii() {
       )}
 
       {/* Un set în lucru (test/exerciții/temă/recapitulare/simulare) */}
-      {st && premium && quiz && (
+      {st && (premium || quiz?.kind === 'evaluare') && quiz && (
         <QuizRunner key={quiz.sessionId || quiz.homeworkId} title={quiz.title} subtitle={quiz.subtitle}
           questions={quiz.questions} onSubmit={submitQuiz} onAskTeacher={askTeacher}
           homework={quiz.kind === 'tema'} initialAnswers={quiz.initialAnswers || null}

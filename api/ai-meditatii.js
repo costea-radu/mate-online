@@ -82,6 +82,66 @@ function requireMeditatii(profile) {
   throw e;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// TESTUL INIȚIAL GRATUIT — pentru elevii asociați cu un PĂRINTE
+//
+// Singura parte din meditații care se dă fără abonament: testul inițial și
+// raportul de diagnostic (nivel, capitole cu lacune, planul propus). Restul
+// (lecții, teme, exerciții, simulări) rămâne pentru abonați.
+//
+// Condiția: elevul are cel puțin o asociere confirmată cu un cont de PĂRINTE
+// (tabela `mentor_students`, mentor_role='parinte' — creată din /asociere).
+// Așa raportul ajunge la un adult, iar costul AI rămâne controlat: un singur
+// test gratuit per elev (MED_FREE_ASSESSMENTS).
+// ═════════════════════════════════════════════════════════════════════════════
+const FREE_ASSESSMENTS = Math.max(0, parseInt(process.env.MED_FREE_ASSESSMENTS || '1', 10));
+
+async function hasParentLink(supa, userId) {
+  const { data, error } = await supa
+    .from('mentor_students')
+    .select('mentor_id')
+    .eq('student_id', userId)
+    .eq('mentor_role', 'parinte')
+    .limit(1);
+  if (error) {
+    console.warn('hasParentLink:', error.message); // tabela lipsește → tratăm ca „fără părinte"
+    return false;
+  }
+  return !!(data && data.length);
+}
+
+// Câte teste inițiale a TERMINAT deja elevul. Sesiunile abandonate (status
+// 'activa') nu se numără — altfel o pagină închisă din greșeală ar consuma
+// singura șansă gratuită.
+async function finishedAssessments(supa, userId) {
+  const { count, error } = await supa
+    .from('ai_meditatii_sessions')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId).eq('kind', 'evaluare').neq('status', 'activa');
+  if (error) { console.warn('finishedAssessments:', error.message); return 0; }
+  return count || 0;
+}
+
+// Poarta pentru testul inițial. `generating` = true doar când chiar generăm
+// întrebări (setup); la corectare (assessment_submit) nu mai numărăm, altfel
+// elevul nu și-ar putea trimite testul pe care tocmai l-a rezolvat.
+async function requireAssessmentAccess(supa, userId, profile, { generating = false } = {}) {
+  if (profile.is_admin || ai.isPremium(profile)) return { free: false };
+
+  if (!FREE_ASSESSMENTS || !(await hasParentLink(supa, userId))) {
+    const e = new Error('Testul inițial este gratuit dacă îți asociezi contul cu al unui părinte. Părintele își face cont gratuit pe ExamenMate, îți dă codul lui, iar tu îl introduci la „Asociere". După asta primești testul, nivelul și planul, fără abonament.');
+    e.status = 402; e.code = 'PARENT_LINK_REQUIRED';
+    throw e;
+  }
+
+  if (generating && (await finishedAssessments(supa, userId)) >= FREE_ASSESSMENTS) {
+    const e = new Error('Ai folosit deja testul inițial gratuit. Rezultatul și planul rămân în contul tău; pentru lecții, teme, recapitulări și simulări e nevoie de abonament.');
+    e.status = 402; e.code = 'PREMIUM_REQUIRED';
+    throw e;
+  }
+  return { free: true };
+}
+
 const getMedProfile = (supa, userId) => med.getProfile(supa, userId);
 
 // PRIORITATEA din plan a unui elev: întâi pregătirea pentru LUCRARE (focus),
@@ -501,9 +561,21 @@ async function state(req, res, supa) {
   const profile = await ai.requireUser(supa, userId);
   const premium = profile.is_admin || ai.isPremium(profile);
 
+  // Testul inițial gratuit: elev neabonat, asociat cu un părinte, care nu l-a
+  // folosit încă. Interfața are nevoie de ambele ca să știe ce să afișeze:
+  // formularul de test, raportul deja obținut, sau invitația la asociere.
+  let parentLinked = false;
+  let freeAssessment = false;
+  if (!premium && FREE_ASSESSMENTS > 0) {
+    parentLinked = await hasParentLink(supa, userId);
+    if (parentLinked) {
+      freeAssessment = (await finishedAssessments(supa, userId)) < FREE_ASSESSMENTS;
+    }
+  }
+
   const medProfile = await getMedProfile(supa, userId);
   if (!medProfile) {
-    return res.status(200).json({ premium, needsSetup: true });
+    return res.status(200).json({ premium, parentLinked, freeAssessment, needsSetup: true });
   }
 
   await reconcileContentHomework(supa, userId);
@@ -572,6 +644,8 @@ async function state(req, res, supa) {
 
   return res.status(200).json({
     premium,
+    parentLinked,
+    freeAssessment,
     briefing,
     profile: {
       grade: medProfile.grade, examTarget: medProfile.exam_target, level: medProfile.level,
@@ -602,7 +676,8 @@ async function state(req, res, supa) {
 async function setup(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
-  requireMeditatii(profile);
+  // Testul inițial: abonat/admin SAU elev asociat cu un părinte (o singură dată).
+  await requireAssessmentAccess(supa, userId, profile, { generating: true });
   await ai.enforceRateLimit(supa, userId);
 
   const grade = Math.min(12, Math.max(5, parseInt(req.body?.grade, 10) || 8));
@@ -667,7 +742,8 @@ async function setup(req, res, supa) {
 async function assessmentSubmit(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
-  requireMeditatii(profile);
+  // Corectarea testului deja început: aceeași poartă, fără numărătoare.
+  await requireAssessmentAccess(supa, userId, profile);
   const { sessionId, answers = [], durationSec = 0 } = req.body || {};
 
   const { data: sess } = await supa.from('ai_meditatii_sessions').select('*').eq('id', sessionId).eq('user_id', userId).single();
@@ -1925,3 +2001,6 @@ async function cronScan(supa) {
 
 // exportat pentru teste
 module.exports.clampScore = clampScore;
+module.exports.hasParentLink = hasParentLink;
+module.exports.finishedAssessments = finishedAssessments;
+module.exports.requireAssessmentAccess = requireAssessmentAccess;

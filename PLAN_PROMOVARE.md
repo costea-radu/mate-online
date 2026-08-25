@@ -1,7 +1,12 @@
 # 📈 Plan de promovare ExamenMate — anul școlar 2026–2027
 
 > Versiunea interactivă (cu calendar și tabele): **https://claude.ai/code/artifact/62032b60-c49c-4599-b68f-d74efe3a522c**
-> Întocmit: 24 august 2026. Buget de lucru: 200–500 lei/lună.
+> Întocmit: 24 august 2026 · actualizat 25 august 2026. Buget de lucru: 200–500 lei/lună.
+
+> ✅ **Trei din cele patru probleme sunt reparate în cod pe 25 august**: măsurarea (GA4 +
+> Meta Pixel), planul anual de 500 lei cu probă de 2 zile, și testul inițial gratuit pentru
+> elevii asociați cu un părinte. Pașii de configurare rămași sunt în
+> `GHID_MASURARE_SI_ABONAMENTE.md`. A rămas de rezolvat problema #1: conținutul.
 
 Produsul e deja peste ce are nevoie o platformă la 50 de abonați: profesor virtual cu
 memorie pedagogică, generator de teste, agent SEO, calendar social automat, invitații la
@@ -13,10 +18,10 @@ recenzii. Blocajul e în altă parte.
 
 | # | Problema | Reparația |
 |---|---|---|
-| 1 | **Google vede 28 de pagini.** Sitemap-ul are doar paginile de clase, cele legale și un articol. `variante-mate.ro`, `profesorjitaruionel.com`, `heiprofu.ro` au sute. Infrastructura există deja (`api/page-meta.js` injectează articolul complet pentru crawlere, `/rezolvari/{slug}`, agent SEO cu cron) — lipsește conținutul. | 2 articole/săptămână, fiecare pe o căutare concretă. ~60 de pagini până în martie. |
-| 2 | **Nu măsori nimic.** Fără GA4, fără Meta Pixel, fără eveniment de conversie la abonare. Algoritmii de reclamă au nevoie de 30–50 de conversii ca să învețe. | GA4 + Meta Pixel în `index.html`, eveniment `Subscribe` din `api/stripe-webhook.js`, Search Console verificat săptămânal. |
-| 3 | **Oferta are o singură ușă:** 50 lei/lună, fără probă, fără plan anual. eduboom ia 78 lei/lună (angajament 12 luni) sau 780 lei/an; o oră de meditații costă 70–120 lei. Prețul e corect, ambalajul nu — în iunie părintele anulează și în septembrie îl cucerești din nou. | Plan anual **450 lei** (9 luni plătite, 3 cadou), **7 zile probă gratuită**, pachet „2 copii" 75 lei. |
-| 4 | **Momentul „aha" e după paywall.** 2 acțiuni AI gratuite nu conving. Testul inițial adaptiv din `/meditatii` e arma reală: dă părintelui un diagnostic („copilul e la 6,4 din 10, iată cele 4 capitole și planul pe 12 săptămâni"). | Testul inițial + raportul devin **gratuite complet**, cu raport pe email. Paywall-ul cade la „începe planul". |
+| 1 | ⚠️ **Google vede 28 de pagini. Neschimbat — asta a rămas.** Sitemap-ul are doar paginile de clase, cele legale și un articol. `variante-mate.ro`, `profesorjitaruionel.com`, `heiprofu.ro` au sute. Infrastructura există deja (`api/page-meta.js` injectează articolul complet pentru crawlere, `/rezolvari/{slug}`, agent SEO cu cron) — lipsește conținutul. | 2 articole/săptămână, fiecare pe o căutare concretă. ~60 de pagini până în martie. |
+| 2 | ~~**Nu măsori nimic.**~~ **✅ Rezolvat 25 aug.** Fără GA4, fără Meta Pixel, fără eveniment de conversie. Algoritmii de reclamă au nevoie de 30–50 de conversii ca să învețe. | GA4 + Meta Pixel instalate, cu banner de consimțământ și evenimentele `sign_up`, `begin_checkout`, `purchase`, `start_trial`, `lead`. Rămâne: cele două ID-uri în Vercel. |
+| 3 | ~~**Oferta are o singură ușă**~~ **✅ Rezolvat 25 aug.** 50 lei/lună, fără probă, fără plan anual. eduboom ia 78 lei/lună (angajament 12 luni) sau 780 lei/an; o oră de meditații costă 70–120 lei. Prețul e corect, ambalajul nu — în iunie părintele anulează și în septembrie îl cucerești din nou. | Plan anual **500 lei** (10 luni plătite, 2 cadou) + **probă de 2 zile**, o singură dată per cont. Rămâne: pachetul „2 copii". |
+| 4 | ~~**Momentul „aha" e după paywall.**~~ **✅ Rezolvat 25 aug.** 2 acțiuni AI gratuite nu conving. Testul inițial adaptiv din `/meditatii` e arma reală: dă părintelui un diagnostic („copilul e la 6,4 din 10, iată cele 4 capitole și planul"). | Testul inițial + raportul sunt **gratuite pentru elevii asociați cu un părinte**. Paywall-ul cade la „începe planul", iar condiția aduce în plus contul părintelui — omul care decide abonarea. |
 
 ---
 
@@ -43,17 +48,19 @@ Cursurile încep **7 septembrie 2026**, se termină **18 iunie 2027** (a VIII-a:
 a XII-a: 4 iunie). Vacanțe: 24 oct–1 nov · 23 dec–10 ian · săptămâna mobilă 15 feb–7 mar ·
 24 apr–4 mai · vara din 19 iunie.
 
-### Faza 0 — 24 august → 6 septembrie · **ACUM, 14 zile**
+### Faza 0 — 24 august → 6 septembrie · **ACUM, 13 zile**
 *Țintă: măsurare pornită + 6 pagini noi + oferta rescrisă*
 
-- Instalează GA4 + Meta Pixel + evenimentul de conversie (o zi).
-- Rescrie oferta: plan anual, `trial_period_days: 7`, pachet 2 copii (o zi).
-- **Publică paginile „test inițial"** — clasele V–VIII, plus IX și XII. În primele două
-  săptămâni de școală e una dintre cele mai căutate expresii din tot anul, iar concurența
-  publică exact asta în fiecare septembrie. Fiecare pagină: subiect + barem + rezolvare pas
-  cu pas + buton către testul interactiv.
-- Deschide testul inițial gratuit, cu raport de diagnostic pe email.
-- Pregătește campania profesorilor: textul, contul demo, pagina `/profesori`.
+- ✅ ~~Instalează GA4 + Meta Pixel + evenimentul de conversie.~~ **Gata 25 aug.** Rămâne să pui
+  `VITE_GA4_ID` și `VITE_META_PIXEL_ID` în Vercel și să faci redeploy.
+- ✅ ~~Rescrie oferta.~~ **Gata 25 aug** — plan anual 500 lei, probă de 2 zile. Rămâne pachetul 2 copii.
+- ✅ ~~Deschide testul inițial gratuit.~~ **Gata 25 aug** — pentru elevii asociați cu un părinte.
+- ⬜ **Publică paginile „test inițial"** — clasele V–VIII, plus IX și XII. **Singura piesă din
+  Faza 0 care mai lipsește, și cea cu termen.** În primele două săptămâni de școală e una
+  dintre cele mai căutate expresii din tot anul, iar concurența publică exact asta în fiecare
+  septembrie. Fiecare pagină: subiect + barem + rezolvare pas cu pas + buton către testul
+  interactiv.
+- ⬜ Pregătește campania profesorilor: textul, contul demo, pagina `/profesori`.
 
 ### Faza 1 — 7 septembrie → 23 octombrie · modulul 1
 *Țintă: 10 profesori activi · 250 conturi de elev · 15 abonați*
@@ -115,12 +122,13 @@ a XII-a: 4 iunie). Vacanțe: 24 oct–1 nov · 23 dec–10 ian · săptămâna m
 
 ## 5. Următoarele 7 zile
 
-- [ ] **Luni (~3 h)** — GA4 + Meta Pixel + eveniment de conversie la abonare
-- [ ] **Marți (~3 h)** — plan anual 450 lei + probă 7 zile în Stripe și pe `/preturi`
-- [ ] **Miercuri–joi (~6 h)** — 3 pagini „test inițial" (VI, VII, VIII): subiect + barem + rezolvare
-- [ ] **Vineri (~4 h)** — testul inițial din `/meditatii` gratuit + raport pe email
-- [ ] **Sâmbătă (~3 h)** — listă cu 40 de profesori, primele 10 mesaje trimise
-- [ ] **Duminică (~30 min)** — Search Console: câte pagini indexate, retrimite sitemap-ul
+- [x] ~~GA4 + Meta Pixel + eveniment de conversie la abonare~~ — **gata 25 aug**
+- [x] ~~plan anual + probă gratuită în Stripe și pe `/preturi`~~ — **gata 25 aug** (500 lei/an, 2 zile)
+- [x] ~~testul inițial din `/meditatii` gratuit~~ — **gata 25 aug** (pentru elevii cu părinte asociat)
+- [ ] **Azi (~40 min)** — `VITE_GA4_ID` + `VITE_META_PIXEL_ID` în Vercel → redeploy → verificare în incognito
+- [ ] **(~6 h)** — 3 pagini „test inițial" (VI, VII, VIII): subiect + barem + rezolvare
+- [ ] **(~3 h)** — listă cu 40 de profesori, primele 10 mesaje trimise
+- [ ] **(~30 min)** — Search Console: câte pagini indexate, retrimite sitemap-ul
 
 ## 6. Săptămâna care se repetă (~10 ore)
 
@@ -171,10 +179,10 @@ Rată realistă de răspuns: 10–20%. Din 40 de mesaje → 4–8 interesați �
 Regula: o pagină = o singură căutare, rezolvare completă vizibilă fără cont, buton final către
 varianta interactivă.
 
-### De ce 450 lei planul anual
+### De ce 500 lei planul anual
 
-Nouă luni plătite, trei cadou — exact durata anului școlar, cu vara inclusă. Părintele
-calculează 37,50 lei/lună față de 50. Tu primești banii în avans și scapi de anularea din
+Zece luni plătite, două cadou — fix cât ține anul școlar, cu vara pe deasupra. Părintele
+calculează 41,67 lei/lună față de 50. Tu primești banii în avans și scapi de anularea din
 iunie. Se vinde cel mai bine **în martie** (după rezultatele simulării) și **în septembrie**.
 
 ### Cele 4 cifre

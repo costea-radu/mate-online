@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import OAuthButtons from '../components/OAuthButtons';
+import { trackSignUp } from '../lib/analytics';
 
 export default function Register() {
   const [fullName, setFullName] = useState('');
@@ -40,6 +41,7 @@ export default function Register() {
         setError('Acest email este deja înregistrat. Încearcă să te autentifici.');
         return;
       }
+      trackSignUp('email');
       setSuccess(true);
     } catch (err) {
       setError(err.message?.includes('already registered')

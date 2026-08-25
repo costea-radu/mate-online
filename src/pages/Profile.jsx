@@ -15,6 +15,7 @@ import AccountSettings from '../components/AccountSettings';
 import AILimite from '../components/AILimite';
 import { getMyBadges } from '../lib/badges';
 import { notaDinScor } from '../lib/nota';
+import { trackPurchase } from '../lib/analytics';
 import { SiteReviewForm } from '../components/ReviewWidget';
 
 // ─── Rezultatele ELEVULUI: testele și exercițiile rezolvate de el ────────────
@@ -301,6 +302,24 @@ export default function Profile() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('session_id') && user) {
       setCheckoutSuccess(true);
+
+      // ── Conversia, măsurată o singură dată ──────────────────────────────
+      // Reîncărcarea paginii de mulțumire nu trebuie să numere a doua oară
+      // aceeași abonare, de aceea ținem minte session_id-ul deja raportat.
+      const sid = params.get('session_id');
+      try {
+        const cheie = `em_purchase_${sid}`;
+        if (!sessionStorage.getItem(cheie)) {
+          sessionStorage.setItem(cheie, '1');
+          trackPurchase({
+            plan: params.get('plan') || 'lunar',
+            valueLei: parseFloat(params.get('val') || '0') || undefined,
+            transactionId: sid,
+            trial: params.get('proba') === '1',
+          });
+        }
+      } catch { /* sessionStorage blocat → raportăm oricum */ }
+
       window.history.replaceState({}, '', '/profil');
       // Webhook-ul Stripe scrie subscription_status='active' ASINCRON și adesea
       // întârzie față de redirect. Reîncărcăm profilul de câteva ori până devine

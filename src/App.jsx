@@ -6,7 +6,9 @@ import Footer from './components/Footer';
 import ErrorBoundary from './components/ErrorBoundary';
 import FloatingTutor from './components/AITutor';
 import InstallPrompt from './components/InstallPrompt';
+import CookieConsent from './components/CookieConsent';
 import { Analytics } from '@vercel/analytics/react';
+import { initAnalytics, trackPageView } from './lib/analytics';
 import Home from './pages/Home';
 
 // ─── Rute încărcate la cerere (code-splitting) — reduc JS-ul inițial ─────────
@@ -48,6 +50,18 @@ function ScrollToTop() {
     if (location.state?.scrollToCardId) return;
     window.scrollTo(0, 0);
   }, [location.pathname, location.state]);
+  return null;
+}
+
+// Site-ul e un SPA: schimbarea rutei nu reîncarcă pagina, deci GA4 și Meta
+// Pixel nu află singure de ea. Trimitem noi câte o vizualizare per rută.
+// (Nimic nu pleacă până când vizitatorul nu acceptă cookie-urile de analiză.)
+function AnalyticsRouteTracker() {
+  const location = useLocation();
+  useEffect(() => { initAnalytics(); }, []);
+  useEffect(() => {
+    trackPageView(location.pathname + location.search);
+  }, [location.pathname, location.search]);
   return null;
 }
 
@@ -94,6 +108,7 @@ export default function App() {
       <ErrorBoundary>
         <AuthProvider>
           <ScrollToTop />
+          <AnalyticsRouteTracker />
           <Layout>
             <ErrorBoundary>
               <Suspense fallback={<PageFallback />}>
@@ -134,6 +149,7 @@ export default function App() {
             </Suspense>
             </ErrorBoundary>
           </Layout>
+          <CookieConsent />
           <Analytics />
         </AuthProvider>
       </ErrorBoundary>
