@@ -121,10 +121,27 @@ La primul mesaj dintr-o conversație, ceilalți primesc notificare în clopoțel
 (`✉️`), **maximum una pe zi per conversație**. Cererile de coleg și acceptările
 vin tot acolo (`🤝`).
 
-## 8. Reîmprospătare
+## 8. Timp real
 
-Cât timp tabul e vizibil: mesajele conversației deschise la **20 s**, lista de
-conversații la **60 s**. Tabul ascuns nu cheamă serverul deloc.
+Mesajele apar **instant**, prin Supabase Realtime: fiecare conversație are un
+canal de tip *broadcast* (`mesagerie:<threadId>`), la care clientul se abonează
+pentru toate conversațiile lui (maximum 24). Cine trimite dă un semnal pe canal;
+ceilalți reîncarcă firul deschis (sau doar lista, pentru bulina de necitite).
+
+Semnalul conține **doar id-ul conversației**, niciun pic de conținut — de aceea
+tabelele rămân închise pentru browser, iar mesajele se citesc în continuare doar
+prin `/api/messages`, cu verificarea apartenenței la grupă. Nu e nevoie de nicio
+politică RLS în plus.
+
+Interogarea periodică rămâne ca plasă de siguranță și se adaptează:
+
+| | canal conectat | fără websocket |
+|---|---|---|
+| firul deschis | 25 s | 8 s |
+| lista de conversații | 45 s | 20 s |
+
+Tabul ascuns nu cheamă serverul deloc, iar revenirea pe fereastră aduce imediat
+ce s-a scris între timp.
 
 ## Fișiere
 

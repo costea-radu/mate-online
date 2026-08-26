@@ -19,10 +19,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
 const ROLE_TAG = { profesor: 'profesor', elev: 'elev', parinte: 'părinte' };
 const ROLE_ICON = { profesor: '🧑‍🏫', elev: '🎓', parinte: '👨‍👩‍👧' };
+
+// ─── TIMP REAL ───────────────────────────────────────────────────────────────
+// Mesajele apar instant, prin Supabase Realtime, pe câte un canal de tip
+// „broadcast" per conversație (`mesagerie:<threadId>`). Cine trimite un mesaj
+// dă un semnal pe canalul conversației; ceilalți îl primesc în milisecunde și
+// reîncarcă firul (sau doar lista, dacă au conversația închisă).
+//
+// De ce broadcast și nu `postgres_changes`: semnalul NU conține mesajul, doar
+// id-ul conversației. Așa nu trebuie deschis tabelul `chat_messages` către
+// browser cu politici RLS de citire — conținutul vine în continuare doar prin
+// /api/messages, care verifică apartenența la grupă / legătura de colegi.
+//
+// Interogarea periodică rămâne ca plasă de siguranță: rară cât timp canalul e
+// conectat, mai deasă dacă websocket-ul nu merge (rețea, proxy, extensii).
+const RT_CANAL = (threadId) => `mesagerie:${threadId}`;
+const RT_EVENIMENT = 'mesaj';
+const MAX_CANALE = 24;                       // câte conversații ascultăm deodată
+const POLL_MESAJE = { rt: 25000, fara: 8000 };
+const POLL_LISTA = { rt: 45000, fara: 20000 };
 
 function fmtTime(iso) {
   if (!iso) return '';
@@ -99,25 +119,82 @@ export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = 
     openThread((threads.find((t) => t.unread > 0) || threads[0]).id);
   }, [threads, openThread]);
 
-  // reîmprospătare cât timp tabul e vizibil: mesajele la 20 s, lista la 60 s
-  useEffect(() => {
-    if (!active) return;
-    const tick = async () => {
-      if (document.visibilityState === 'hidden') return;
-      try {
-        const r = await aiClient.chatMessages({ threadId: active });
-        setMsgs(r.messages || []);
-        setData((d) => (d ? { ...d, testMode: r.testMode, testMessage: r.testMessage, testTitle: r.testTitle } : d));
-      } catch { /* rețea — reîncercăm la următorul tic */ }
-    };
-    const t = setInterval(tick, 20000);
-    return () => clearInterval(t);
-  }, [active]);
+  // ── TIMP REAL ─────────────────────────────────────────────────────────────
+  // Reîncarcă firul deschis fără să depindă de starea din closure (îl chemăm
+  // și din canalul Realtime, și din tic-ul de siguranță).
+  const activeRef = useRef(null);
+  useEffect(() => { activeRef.current = active; }, [active]);
+
+  const refreshActive = useCallback(async () => {
+    const id = activeRef.current;
+    if (!id) return;
+    try {
+      const r = await aiClient.chatMessages({ threadId: id });
+      setMsgs(r.messages || []);
+      setData((d) => (d ? { ...d, testMode: r.testMode, testMessage: r.testMessage, testTitle: r.testTitle } : d));
+    } catch { /* rețea — reîncercăm la următorul semnal sau tic */ }
+  }, []);
+
+  // Câte un canal per conversație. Semnalul spune doar „s-a scris în firul X".
+  const chansRef = useRef({});
+  const debounceRef = useRef(null);
+  const [rtOk, setRtOk] = useState(false);
+  const threadKey = useMemo(() => threads.map((t) => t.id).join(','), [threads]);
 
   useEffect(() => {
-    const t = setInterval(() => { if (document.visibilityState === 'visible') loadThreads(); }, 60000);
+    if (!threadKey) return undefined;
+    const ids = threadKey.split(',').filter(Boolean).slice(0, MAX_CANALE);
+    const canale = ids.map((id) => {
+      const ch = supabase.channel(RT_CANAL(id), { config: { broadcast: { self: false } } });
+      ch.on('broadcast', { event: RT_EVENIMENT }, () => {
+        // câteva mesaje trimise una după alta → o singură reîncărcare
+        clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => {
+          if (activeRef.current === id) refreshActive();  // firul deschis → mesajele
+          else loadThreads();                             // altul → doar bulina de necitite
+        }, 250);
+      });
+      ch.subscribe((status) => {
+        if (status === 'SUBSCRIBED') setRtOk(true);
+        else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setRtOk(false);
+      });
+      chansRef.current[id] = ch;
+      return ch;
+    });
+    return () => {
+      clearTimeout(debounceRef.current);
+      canale.forEach((c) => { try { supabase.removeChannel(c); } catch { /* deja închis */ } });
+      ids.forEach((id) => { delete chansRef.current[id]; });
+    };
+  }, [threadKey, refreshActive, loadThreads]);
+
+  // Plasă de siguranță: rar cât timp canalul e conectat, mai des dacă nu e.
+  useEffect(() => {
+    if (!active) return undefined;
+    const tick = () => { if (document.visibilityState !== 'hidden') refreshActive(); };
+    const t = setInterval(tick, rtOk ? POLL_MESAJE.rt : POLL_MESAJE.fara);
     return () => clearInterval(t);
-  }, [loadThreads]);
+  }, [active, rtOk, refreshActive]);
+
+  useEffect(() => {
+    const t = setInterval(() => { if (document.visibilityState === 'visible') loadThreads(); },
+      rtOk ? POLL_LISTA.rt : POLL_LISTA.fara);
+    return () => clearInterval(t);
+  }, [loadThreads, rtOk]);
+
+  // Revenirea în tab / pe fereastră aduce imediat ce s-a scris între timp.
+  useEffect(() => {
+    const catchUp = () => {
+      if (document.visibilityState === 'hidden') return;
+      refreshActive(); loadThreads();
+    };
+    window.addEventListener('focus', catchUp);
+    document.addEventListener('visibilitychange', catchUp);
+    return () => {
+      window.removeEventListener('focus', catchUp);
+      document.removeEventListener('visibilitychange', catchUp);
+    };
+  }, [refreshActive, loadThreads]);
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -134,6 +211,12 @@ export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = 
       const r = await aiClient.chatSend({ threadId: active, body, attachment: attach });
       setMsgs((m) => [...(m || []), r.message]);
       setText(''); setAttach(null);
+      // semnal în timp real către ceilalți din conversație (fără conținut)
+      try {
+        chansRef.current[active]?.send({
+          type: 'broadcast', event: RT_EVENIMENT, payload: { threadId: active },
+        });
+      } catch { /* fără websocket → ceilalți îl văd la următorul tic */ }
       loadThreads();
     } catch (e2) {
       setError(e2.message);
