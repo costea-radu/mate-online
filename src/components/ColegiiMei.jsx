@@ -36,7 +36,9 @@ export function useIsMobile(breakpoint = 768) {
   return is;
 }
 
-export default function ColegiiMei({ defaultOpen = false }) {
+// `wide` — panoul are loc (conversația din /mesagerie e închisă cu „✕"):
+// numele se văd întregi, lista e mai înaltă, iar căutarea pornește deschisă.
+export default function ColegiiMei({ defaultOpen = false, wide = false }) {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
 
@@ -46,7 +48,10 @@ export default function ColegiiMei({ defaultOpen = false }) {
   const [q, setQ] = useState('');
   const [found, setFound] = useState(null);
   const [searching, setSearching] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
+  const [showSearch, setShowSearch] = useState(wide);
+
+  // panoul lățit deschide singur căutarea (are loc s-o arate)
+  useEffect(() => { if (wide) setShowSearch(true); }, [wide]);
 
   const load = useCallback(async () => {
     try { setData(await aiClient.colegiList()); }
@@ -136,7 +141,7 @@ export default function ColegiiMei({ defaultOpen = false }) {
         </p>
       ) : (
         <div style={{
-          maxHeight: 178, overflowY: 'auto', border: '1px solid var(--border)',
+          maxHeight: wide ? 340 : 178, overflowY: 'auto', border: '1px solid var(--border)',
           borderRadius: 10, background: '#fff', padding: 4, marginBottom: 8,
         }}>
           {colegi.map((c) => (
@@ -146,7 +151,10 @@ export default function ColegiiMei({ defaultOpen = false }) {
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--cream)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
                 <span style={{ fontSize: '1rem' }}>{ROLE_ICON[c.role] || '👤'}</span>
-                <span style={{ flex: 1, minWidth: 0, color: 'var(--navy)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{
+                  flex: 1, minWidth: 0, color: 'var(--navy)', fontWeight: 600,
+                  ...(wide ? {} : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
+                }}>
                   {c.name} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({c.roleLabel})</span>
                 </span>
                 <span style={{ ...small, whiteSpace: 'nowrap' }}>💬</span>
@@ -177,13 +185,23 @@ export default function ColegiiMei({ defaultOpen = false }) {
 
           {searching && <div style={{ padding: 10, textAlign: 'center' }}><div className="spinner" /></div>}
           {found && found.length > 0 && (
-            <div style={{ maxHeight: 150, overflowY: 'auto', marginTop: 6, border: '1px solid var(--border)', borderRadius: 10, background: '#fff', padding: 4 }}>
+            <div style={{ maxHeight: wide ? 300 : 150, overflowY: 'auto', marginTop: 6, border: '1px solid var(--border)', borderRadius: 10, background: '#fff', padding: 4 }}>
               {found.map((p) => (
-                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 7px' }}>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: '.82rem', color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px' }}>
+                  <span style={{
+                    flex: 1, minWidth: 0, fontSize: '.82rem', color: 'var(--navy)',
+                    ...(wide ? {} : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
+                  }}>
                     {ROLE_ICON[p.role] || '👤'} {p.name}
                   </span>
-                  <button className="btn btn-sm btn-outline" disabled={busy === p.id} onClick={() => add(p.id)}>
+                  <button type="button" disabled={busy === p.id} onClick={() => add(p.id)}
+                    title={`Trimite-i cerere de coleg lui ${p.name}`}
+                    style={{
+                      flexShrink: 0, border: '1.5px solid var(--navy)', background: 'transparent',
+                      color: 'var(--navy)', borderRadius: 20, padding: '4px 11px', fontSize: '.76rem',
+                      fontWeight: 700, cursor: busy === p.id ? 'default' : 'pointer', whiteSpace: 'nowrap',
+                      fontFamily: 'var(--font-body)', opacity: busy === p.id ? 0.6 : 1,
+                    }}>
                     {busy === p.id ? '…' : '➕ Cerere'}
                   </button>
                 </div>

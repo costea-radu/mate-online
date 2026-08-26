@@ -35,7 +35,9 @@ function fmtTime(iso) {
       d.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function Mesagerie({ scope = 'all', height = 460 }) {
+// `onOpenChange(deschis)` — pagina care găzduiește mesageria află când
+// conversația e închisă cu „✕", ca să lățească panoul „Colegii mei".
+export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = null }) {
   const navigate = useNavigate();
   const { isTeacher, isAdmin } = useAuth();
   const onlyGroups = scope === 'group';
@@ -60,6 +62,15 @@ export default function Mesagerie({ scope = 'all', height = 460 }) {
     catch (e) { setError(e.message); return null; }
   }, []);
   useEffect(() => { loadThreads(); }, [loadThreads]);
+
+  // starea „conversație deschisă / închisă", raportată paginii
+  useEffect(() => { onOpenChange?.(!!active); }, [active, onOpenChange]);
+
+  // „✕" pe conversația deschisă: rămâne doar lista, iar pagina lățește „Colegii mei"
+  function closeThread() {
+    setActive(null); setMsgs(null); setMembers([]); setTitle('');
+    setText(''); setAttach(null); setShowAttach(false); setError(null);
+  }
 
   const openThread = useCallback(async (threadId) => {
     setActive(threadId); setMsgs(null); setError(null);
@@ -193,11 +204,17 @@ export default function Mesagerie({ scope = 'all', height = 460 }) {
       {testMode && <TestBanner text={data.testMessage} title={data.testTitle} />}
 
       <div className="mesagerie-grid"
-        style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 210px) minmax(0, 1fr)', gap: 12, alignItems: 'stretch' }}>
+        style={{
+          display: 'grid',
+          // conversație închisă („✕") → rămâne doar lista, pe toată lățimea
+          gridTemplateColumns: active ? 'minmax(0, 210px) minmax(0, 1fr)' : 'minmax(0, 1fr)',
+          gap: 12, alignItems: 'stretch',
+        }}>
         {/* ── Lista de conversații ───────────────────────────────────────── */}
         <div style={{ ...box, display: 'flex', flexDirection: 'column', maxHeight: height }}>
-          <div style={{ padding: '9px 12px', borderBottom: '1px solid var(--border)', fontSize: '.72rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-            {onlyGroups ? 'Canalul grupei' : 'Conversații'}
+          <div style={{ padding: '9px 12px', borderBottom: '1px solid var(--border)', fontSize: '.72rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <span>{onlyGroups ? 'Canalul grupei' : 'Conversații'}</span>
+            {!active && <span style={{ fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>alege una ca să o deschizi</span>}
           </div>
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {threads.map((t) => (
@@ -249,16 +266,35 @@ export default function Mesagerie({ scope = 'all', height = 460 }) {
         </div>
 
         {/* ── Conversația deschisă ───────────────────────────────────────── */}
+        {active && (
         <div style={{ ...box, display: 'flex', flexDirection: 'column', minHeight: 340, maxHeight: height }}>
-          <div style={{ padding: '9px 13px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <strong style={{ color: 'var(--navy)', fontSize: '.88rem' }}>
-              {activeThread?.kind === 'group' ? '👥 ' : ''}{title || activeThread?.title || 'Conversație'}
-            </strong>
-            {peopleOfActive.length > 0 && (
-              <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>
-                {peopleOfActive.map((m) => `${m.name} (${m.roleLabel || ROLE_TAG[m.role] || m.role})`).join(' · ')}
-              </span>
-            )}
+          <div style={{ padding: '9px 13px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <strong style={{ color: 'var(--navy)', fontSize: '.88rem' }}>
+                {activeThread?.kind === 'group' ? '👥 ' : ''}{title || activeThread?.title || 'Conversație'}
+                {peopleOfActive.length > 1 && (
+                  <span style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: '.74rem', marginLeft: 6 }}>
+                    {peopleOfActive.length} membri
+                  </span>
+                )}
+              </strong>
+              {/* Numele participanților nu mai umplu jumătate de fereastră:
+                  se văd câteva, restul se derulează. */}
+              {peopleOfActive.length > 0 && (
+                <div style={{
+                  fontSize: '.72rem', color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45,
+                  maxHeight: 34, overflowY: 'auto', paddingRight: 4,
+                }}>
+                  {peopleOfActive.map((m) => `${m.name} (${m.roleLabel || ROLE_TAG[m.role] || m.role})`).join(' · ')}
+                </div>
+              )}
+            </div>
+            <button type="button" onClick={closeThread} title="Închide conversația" aria-label="Închide conversația"
+              style={{
+                flexShrink: 0, background: 'none', border: '1px solid var(--border)', borderRadius: 8,
+                width: 28, height: 28, cursor: 'pointer', color: 'var(--text-muted)',
+                fontSize: '.9rem', lineHeight: 1, fontFamily: 'var(--font-body)',
+              }}>✕</button>
           </div>
 
           <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: '12px 13px', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -348,6 +384,7 @@ export default function Mesagerie({ scope = 'all', height = 460 }) {
             </form>
           )}
         </div>
+        )}
       </div>
 
       <style>{`

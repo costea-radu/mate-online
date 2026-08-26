@@ -1,12 +1,15 @@
 // =====================================================================
-// src/components/TemeNefacute.jsx — „📌 Teme nefăcute" (contul elevului)
+// src/components/TemeNefacute.jsx — tabul „📌 Teme" (contul elevului)
+//
+// (Numele fișierului a rămas cel vechi; tabul se numește acum „Teme" și are
+//  DOUĂ secțiuni: „Teme nefăcute" și „Teme rezolvate".)
 //
 // Apare DOAR dacă elevul e asociat cu un profesor, imediat DEASUPRA
 // rolldown-ului „📊 Rezultatele mele" din „Contul meu".
 //
-// Adună tot ce are elevul de rezolvat:
+// Adună tot ce a primit elevul de rezolvat:
 //   📝 temele date de profesor (exercițiile bifate — api/homework.js);
-//   🧩 testele pe grupă nerezolvate (un link, alt test per elev);
+//   🧩 testele pe grupă (un link, alt test per elev);
 //   📄 temele primite prin link (/tema?id=…).
 // =====================================================================
 import { useCallback, useEffect, useState } from 'react';
@@ -27,7 +30,6 @@ function fmtDate(iso) {
 export default function TemeNefacute() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [showDone, setShowDone] = useState(false);
 
   const load = useCallback(async () => {
     try { setData(await aiClient.homeworkStudentList()); }
@@ -42,17 +44,19 @@ export default function TemeNefacute() {
   const pending = data.pending || [];
   const done = data.done || [];
 
-  const row = (t) => {
+  const row = (t, rezolvata = false) => {
     const k = KIND[t.kind] || KIND.tema;
-    const late = t.dueAt && new Date(t.dueAt) < new Date();
+    const late = !rezolvata && t.dueAt && new Date(t.dueAt) < new Date();
     return (
       <Link key={`${t.kind}:${t.id}`} to={t.url}
         style={{
           display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
-          border: '1px solid var(--border)', borderRadius: 10, background: '#fff',
+          border: '1px solid var(--border)', borderRadius: 10,
+          background: rezolvata ? 'rgba(39,174,96,.05)' : '#fff',
+          borderColor: rezolvata ? 'rgba(39,174,96,.3)' : 'var(--border)',
           textDecoration: 'none',
         }}>
-        <span style={{ fontSize: '1.15rem' }}>{k.icon}</span>
+        <span style={{ fontSize: '1.15rem' }}>{rezolvata ? '✅' : k.icon}</span>
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', fontWeight: 700, color: 'var(--navy)', fontSize: '.88rem' }}>
             {t.title}{' '}
@@ -71,45 +75,65 @@ export default function TemeNefacute() {
             termen depășit
           </span>
         )}
-        <span style={{ color: 'var(--gold-dim, #b8860b)', fontWeight: 700, fontSize: '.8rem', whiteSpace: 'nowrap' }}>Rezolvă →</span>
+        <span style={{ color: rezolvata ? '#2e7d32' : 'var(--gold-dim, #b8860b)', fontWeight: 700, fontSize: '.8rem', whiteSpace: 'nowrap' }}>
+          {rezolvata ? 'Reia →' : 'Rezolvă →'}
+        </span>
       </Link>
     );
   };
 
+  const titluSectiune = (text, n, culoare) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px' }}>
+      <h4 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: 0, fontSize: '.98rem' }}>{text}</h4>
+      <span style={{
+        background: culoare, color: '#fff', borderRadius: 12,
+        fontSize: '.7rem', fontWeight: 700, padding: '1px 8px',
+      }}>{n}</span>
+    </div>
+  );
+
   return (
     <details className="card" style={{ marginBottom: 24 }} open={pending.length > 0}>
       <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none' }}>
-        📌 Teme nefăcute
+        📌 Teme
         {pending.length > 0 && (
           <span style={{ marginLeft: 8, background: '#e74c3c', color: '#fff', borderRadius: 12, fontSize: '.72rem', fontWeight: 700, padding: '2px 9px' }}>
-            {pending.length}
+            {pending.length} de făcut
           </span>
         )}
       </summary>
-      <div style={{ marginTop: 14 }}>
-        {pending.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)', fontSize: '.88rem', margin: 0 }}>
-            🎉 Nu ai nicio temă nefăcută. Bravo!
-          </p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {pending.map(row)}
-          </div>
-        )}
 
-        {done.length > 0 && (
-          <div style={{ marginTop: 14 }}>
-            <button type="button" onClick={() => setShowDone((v) => !v)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--navy)', fontSize: '.82rem', fontWeight: 700, padding: 0, fontFamily: 'var(--font-body)' }}>
-              {showDone ? '▾' : '▸'} Teme rezolvate ({done.length})
-            </button>
-            {showDone && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8, opacity: .75 }}>
-                {done.map(row)}
-              </div>
-            )}
-          </div>
-        )}
+      <div style={{ marginTop: 16 }}>
+        {/* ── Secțiunea 1: nefăcute ─────────────────────────────────────── */}
+        <section style={{ marginBottom: 22 }}>
+          {titluSectiune('📌 Teme nefăcute', pending.length, pending.length ? '#e74c3c' : '#9aa4ae')}
+          {pending.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontSize: '.88rem', margin: 0 }}>
+              🎉 Nu ai nicio temă nefăcută. Bravo!
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {pending.map((t) => row(t, false))}
+            </div>
+          )}
+        </section>
+
+        {/* ── Secțiunea 2: rezolvate ────────────────────────────────────── */}
+        <section style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+          {titluSectiune('✅ Teme rezolvate', done.length, done.length ? '#27ae60' : '#9aa4ae')}
+          {done.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontSize: '.88rem', margin: 0 }}>
+              Încă nicio temă rezolvată. Prima apare aici imediat ce o termini.
+            </p>
+          ) : (
+            <div style={{
+              display: 'flex', flexDirection: 'column', gap: 8,
+              maxHeight: 340, overflowY: 'auto',
+            }}>
+              {done.map((t) => row(t, true))}
+            </div>
+          )}
+        </section>
       </div>
     </details>
   );

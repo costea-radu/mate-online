@@ -5,7 +5,11 @@
 // colegii (elev cu elev, profesor cu profesor, părinte cu părinte).
 // Se ajunge aici din bara de sus → „Mai multe" → 💬 Mesagerie, iar pe mobil
 // din meniul burger.
+//
+// Când conversația e închisă cu „✕", panoul „Colegii mei" se lățește, ca
+// numele și butoanele să încapă întregi.
 // =====================================================================
+import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Mesagerie from '../components/Mesagerie';
@@ -13,6 +17,8 @@ import ColegiiMei from '../components/ColegiiMei';
 
 export default function MesageriePage() {
   const { user, loading } = useAuth();
+  const [chatOpen, setChatOpen] = useState(true);
+  const onOpenChange = useCallback((open) => setChatOpen(open), []);
 
   if (loading) return <div style={{ padding: 60, textAlign: 'center' }}><div className="spinner" /></div>;
 
@@ -38,13 +44,21 @@ export default function MesageriePage() {
         Lângă fiecare nume scrie tipul contului, în paranteză.
       </p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 280px)', gap: 20, alignItems: 'start' }}
-        className="mesagerie-page-grid">
+      {/* Conversație deschisă → mesageria ia partea mare. Închisă cu „✕" →
+          „Colegii mei" se lățește și se vede tot: nume, roluri, butoane. */}
+      <div className="mesagerie-page-grid"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: chatOpen
+            ? 'minmax(0, 1fr) minmax(0, 280px)'
+            : 'minmax(0, 340px) minmax(0, 1fr)',
+          gap: 20, alignItems: 'start',
+        }}>
         <div style={{ minWidth: 0 }}>
-          <Mesagerie scope="all" height={540} />
+          <Mesagerie scope="all" height={540} onOpenChange={onOpenChange} />
         </div>
         <div style={{ minWidth: 0 }}>
-          <ColegiiMei defaultOpen />
+          <ColegiiMei defaultOpen wide={!chatOpen} />
         </div>
       </div>
 
