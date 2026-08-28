@@ -222,6 +222,45 @@ async function processWithPregen(supa) {
   return q;
 }
 
+// ── Pre-generarea la CERERE (butonul „Pre-generează acum" din Admin) ─────────
+// Cronul face `AI_PREGEN_BATCH` materiale la fiecare rulare — la o coadă de
+// sute de materiale asta ține zile. Butonul rulează loturi în buclă cât ține
+// bugetul de timp al invocării, apoi întoarce progresul; panoul apelează din
+// nou până când `pending` ajunge la 0. Bugetul stă mult sub `maxDuration`
+// (vercel.json), ca invocarea să nu fie tăiată de platformă.
+const PREGEN_RUN_MS = parseInt(process.env.AI_PREGEN_RUN_MS || '180000', 10);
+// La recuperare mergem mai lat decât cronul: timpul total e dat de latența
+// modelului, nu de mărimea lotului, deci singurul lucru care scurtează
+// așteptarea e paralelismul. Cronul rămâne pe valoarea lui conservatoare.
+const PREGEN_RUN_CONC = parseInt(process.env.AI_PREGEN_RUN_CONCURRENCY || '6', 10);
+
+async function pregenRun(supa, { maxMs = PREGEN_RUN_MS } = {}) {
+  // plafonat bine sub `maxDuration` din vercel.json: invocarea trebuie să apuce
+  // să întoarcă răspunsul (inclusiv statisticile finale), nu s-o taie platforma
+  const budget = Math.min(Math.max(maxMs || PREGEN_RUN_MS, 10000), 300000);
+  const t0 = Date.now();
+  let pregenerated = 0, revalidated = 0, batches = 0, failed = 0, lastError = null, note = null;
+  do {
+    const r = await pregen.processBatch(supa, undefined, { concurrency: PREGEN_RUN_CONC });
+    batches++;
+    pregenerated += r.pregenerated || 0;
+    revalidated += r.revalidated || 0;
+    if (r.failed) { failed += r.failed; lastError = r.lastError || lastError; }
+    if (r.note) { note = r.note; break; }                 // pre-generarea e oprită (migrare/cheie/DISABLED)
+    if (!r.candidates) break;                             // nu mai are ce genera
+    // lot fără NICIUN progres (nici generat, nici revalidat) → ceva e stricat;
+    // ne oprim cu diagnosticul în răspuns în loc să învârtim bugetul în gol
+    if (!r.pregenerated && !r.revalidated) break;
+  } while (Date.now() - t0 < budget);
+  const s = await pregen.stats(supa);
+  return {
+    pregenerated, revalidated, batches, ms: Date.now() - t0,
+    pending: s.pregen_pending, total: s.pregen_total,
+    ...(failed ? { failed, lastError } : {}),
+    ...(note ? { note } : {}),
+  };
+}
+
 // ── Etapa 3 (5.1): unifică subiectele duplicate din ai_skill_mastery ─────────
 // „ecuatii_gradul_1", „Ecuații de gradul I" și „ecuatii gradul 1" erau trei
 // competențe diferite; le aducem pe toate la eticheta din taxonomie și le
@@ -325,6 +364,8 @@ module.exports = async function handler(req, res) {
     if (!profile.is_admin) return res.status(403).json({ error: 'Doar administratorii pot indexa.' });
 
     if (action === 'process') return res.status(200).json(await processWithPregen(supa));
+    // pasul 3: pre-generarea explicațiilor, la cerere (butonul din Admin)
+    if (action === 'pregen') return res.status(200).json(await pregenRun(supa, { maxMs: parseInt(req.body?.maxMs, 10) || undefined }));
     // Etapa 3 (5.1): unificarea subiectelor din ai_skill_mastery (o singură dată)
     if (action === 'normalize_topics') return res.status(200).json(await normalizeTopics(supa, { dryRun: !!req.body?.dryRun }));
     if (action === 'stats')   return res.status(200).json(await stats(supa));

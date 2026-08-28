@@ -195,7 +195,19 @@ COMUN tuturor elevilor. Sistemul îl generează O DATĂ și îl refolosește:
   (implicit 3) materiale per rulare, explicație + indiciu fiecare, pe modelul
   ieftin (`AI_PREGEN_MODEL`, implicit modelul de chat). Costul e de PLATFORMĂ
   (logat cu `user_id null`, endpoint `ai-pregen:*`) — nu intră în bugetul
-  niciunui elev. La ~2.000 de materiale, generarea completă costă câțiva dolari,
+  niciunui elev. Câte materiale se generează în paralel:
+  `AI_PREGEN_CONCURRENCY` (implicit 3).
+- **Recuperarea unui restanț** (butonul „Pre-generează acum" din Admin, sau
+  `POST /api/ai-ingest {action:'pregen'}`): rulează loturi în buclă cât ține
+  bugetul unei invocări (`AI_PREGEN_RUN_MS`, implicit 180 s), panoul reapelează
+  până când „De pre-generat" ajunge la 0. Se oprește singur după două rulări
+  fără niciun progres și arată eroarea — nu arde bani în gol.
+- **Revalidarea**: un material poate fi raportat candidat pentru că i s-a mutat
+  `ai_knowledge.updated_at` (reindexare, reordonare) deși textul indexat e
+  neschimbat. Lotul scanează `AI_PREGEN_SCAN_MULT`× mai multe materiale decât
+  generează și le mută `updated_at` pe `ai_pregen` — fără asta rămâneau
+  candidați pe veci și blocau complet pre-generarea (vezi tabelul de la
+  „Probleme frecvente"). La ~2.000 de materiale, generarea completă costă câțiva dolari,
   O SINGURĂ DATĂ; materialele editate se regenerează singure (hash pe sursă).
 - **Servirea** (în `ai-chat` + `ai-chat-stream`) e conservatoare — răspunsul
   pre-generat se dă DOAR când: modul e `explain`/`hint` cu `context.contentId`,
@@ -333,7 +345,8 @@ de propriul cod.
 | În loguri: „Alertele de cost inactive — rulează supabase/ai_alerte.sql" | Migrarea 1d nerulată. Totul merge, doar fără raport/alarmă. |
 | Nu primești raportul zilnic | Verifică: SMTP configurat (mailer), `AI_COST_REPORT` nu e 0, a existat activitate AI în 24h, cronul ai-notify rulează (Vercel → Crons). |
 | Vrei să testezi alarma fără să aștepți | Pune temporar `AI_ALERT_DAY_LEI=0.01`, redeploy, apasă „Procesează coada" din Admin → emailul 🚨 vine la prima rulare; apoi pune pragul la loc și șterge rândul din `ai_cost_alerts` dacă vrei să retestezi în aceeași zi. |
-| Pre-generarea nu avansează (`pregen_pending` mare la Stats) | Cronul rulează pregen doar când coada de indexare e goală; verifică `pending_queue`. Sau apasă „Procesează coada" din Admin de câteva ori. |
+| Pre-generarea nu avansează (`pregen_pending` mare la Stats) | Apasă „Pre-generează acum" din Admin: rulează loturi în buclă până la 0 și scrie în log exact ce s-a întâmplat (generate / revalidate / eșuate + ultima eroare). Verifică și `pending_queue` — cronul rulează pregen doar cu coada de indexare goală. |
+| `pregen_total` înghețat, iar `pregen_pending` doar CREȘTE | Materiale „la zi după hash, învechite după timp": o reindexare/reordonare a mutat `ai_knowledge.updated_at` fără să schimbe textul indexat, `ai_pregen_candidates` le raporta la nesfârșit, iar lotul (ordonat după `created_at`, câteva materiale) era consumat integral de ele. Reparat: lotul scanează mai multe materiale decât generează și le **revalidează** (mută `updated_at` pe `ai_pregen`) când sursa e neschimbată. Vezi `test/pregen-blocaj.test.js`. |
 | Un elev primește o explicație „prea generică" | A nimerit servirea canonică. E răspunsul standard al materialului; orice întrebare de continuare intră pe fluxul normal, personalizat. Dacă deranjează, `AI_PREGEN_DISABLED=1`. |
 
 ---

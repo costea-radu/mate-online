@@ -12,6 +12,22 @@ import SEOActionsQueue from './SEOActionsQueue';
 import SEORankTracker from './SEORankTracker';
 import SocialQueue from './SocialQueue';
 
+// Rezumatul pre-generării dintr-un răspuns de la /api/ai-ingest. Până acum
+// rezultatul venea în răspuns dar nu se afișa nicăieri, așa că o pre-generare
+// oprită (lot blocat, cheie lipsă, migrare nerulată) era complet invizibilă —
+// se vedea doar numărul „De pre-generat" care nu mai scădea.
+function pregenLine(r, prefix = '   ↳ pre-generare: ') {
+  if (!r) return '';
+  const p = [];
+  if (r.pregenerated) p.push(`${r.pregenerated} generate`);
+  if (r.revalidated) p.push(`${r.revalidated} deja la zi`);
+  if (r.failed) p.push(`${r.failed} eșuate`);
+  let out = '\n' + prefix + (p.length ? p.join(', ') : 'nimic de făcut');
+  if (r.note) out += ` — ${r.note}`;
+  if (r.lastError) out += `\n   ↳ ultima eroare: ${r.lastError}`;
+  return out;
+}
+
 export default function AIAdminPanel() {
   const [stats, setStats] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -62,7 +78,7 @@ export default function AIAdminPanel() {
             const p = await aiClient.ingest('process');
             remaining = p.remaining;
             fails = 0;
-            setLog((l) => (l ? l + '\n' : '') + `…procesat lot, rămase: ${remaining}${p.badRows ? ` (${p.badRows} fragmente sărite)` : ''}`);
+            setLog((l) => (l ? l + '\n' : '') + `…procesat lot, rămase: ${remaining}${p.badRows ? ` (${p.badRows} fragmente sărite)` : ''}` + pregenLine(p.pregen));
             // aceeași pauză ca la reindexare — baza respiră între loturi
             if (remaining !== 0) await new Promise((res) => setTimeout(res, 4000));
           } catch (e) {
@@ -74,6 +90,36 @@ export default function AIAdminPanel() {
           guard++;
         } while (remaining !== 0 && guard < 400);
         if (remaining === 0) setLog((l) => l + '\n✅ Coada e goală.');
+      } else if (action === 'pregen') {
+        // Golim coada de PRE-GENERARE, invocare cu invocare (fiecare rulare de
+        // pe server are propriul buget de timp). Cronul face oricum asta singur,
+        // câte puțin; butonul e pentru recuperat un restanț mare dintr-o dată.
+        let guard = 0, fails = 0, stall = 0, pending = null;
+        do {
+          try {
+            const p = await aiClient.ingest('pregen');
+            fails = 0;
+            pending = p.pending;
+            setLog((l) => (l ? l + '\n' : '')
+              + `…rulare: ${p.pregenerated} generate${p.revalidated ? `, ${p.revalidated} revalidate` : ''} — rămase: ${pending == null ? '?' : pending}`
+              + (p.failed ? ` (${p.failed} eșuate)` : '')
+              + (p.lastError ? `\n   ↳ ultima eroare: ${p.lastError}` : ''));
+            if (p.note) { setLog((l) => l + `\n⛔ Pre-generarea e oprită: ${p.note}`); break; }
+            // două rulări la rând fără NICIUN progres → ceva e stricat; ne oprim
+            // în loc să învârtim apeluri (și bani) în gol
+            stall = (p.pregenerated || p.revalidated) ? 0 : stall + 1;
+            if (stall >= 2) { setLog((l) => l + '\n⛔ Două rulări fără progres — mă opresc. Vezi eroarea de mai sus.'); break; }
+            await refresh(); // numerele de sus scad live
+            if (pending !== 0) await new Promise((res) => setTimeout(res, 2000));
+          } catch (e) {
+            fails++;
+            setLog((l) => (l ? l + '\n' : '') + `⚠️ rulare picată (${e.message}) — reîncerc (${fails}/3)`);
+            if (fails >= 3) { setLog((l) => l + '\n⛔ Prea multe rulări picate — apasă din nou ca să continui de unde s-a oprit.'); break; }
+            await new Promise((res) => setTimeout(res, 2000 * fails));
+          }
+          guard++;
+        } while (pending !== 0 && guard < 400);
+        if (pending === 0) setLog((l) => l + '\n✅ Toate explicațiile sunt pre-generate.');
       } else if (action === 'normalize_topics') {
         // Etapa 3 (5.1): aceeași competență = o singură etichetă în „stăpânire"
         const p = await aiClient.ingest('normalize_topics');
@@ -124,7 +170,7 @@ export default function AIAdminPanel() {
             : <> · Fragmente cu capitol: <strong>{stats.with_chapter}</strong></>}
           {stats.pregen_pending == null
             ? <> · Pre-generare: <strong>inactivă</strong> — rulează supabase/ai_pregen.sql</>
-            : <> · Pre-generarea rulează automat (cron), câte puține, după ce coada de indexare ajunge la 0 — sau apasă „Procesează coada"</>}
+            : <> · Pre-generarea rulează automat (cron), câte puține, după ce coada de indexare ajunge la 0 — sau apasă „Pre-generează acum" ca s-o termini dintr-o dată</>}
         </p>
       )}
 
@@ -134,6 +180,11 @@ export default function AIAdminPanel() {
         </button>
         <button className="btn btn-outline" onClick={() => run('process')} disabled={busy}>
           ⚙️ Procesează coada
+        </button>
+        <button className="btn btn-outline" onClick={() => run('pregen')}
+          disabled={busy || !stats || !stats.pregen_pending}
+          title={'Generează acum explicațiile și indiciile canonice care lipsesc, lot după lot, până când „De pre-generat" ajunge la 0. Costă o singură dată — apoi se servesc din bază, cu cost 0.'}>
+          🧠 Pre-generează acum{stats && stats.pregen_pending ? ` (${stats.pregen_pending})` : ''}
         </button>
         <button className="btn btn-outline" onClick={() => run('normalize_topics')} disabled={busy}
           title={'Aduce subiectele din „stăpânirea competențelor” la etichetele din programă (o singură dată, după actualizare)'}>

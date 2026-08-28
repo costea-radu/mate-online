@@ -23,6 +23,14 @@ const ai = require('./ai');
 const { norm } = require('./barem');
 
 const BATCH = parseInt(process.env.AI_PREGEN_BATCH || '3', 10);
+// Câte materiale SCANĂM per rulare față de câte generăm (vezi processBatch):
+// generarea costă, revalidarea e o scriere ieftină.
+const SCAN_MULT = parseInt(process.env.AI_PREGEN_SCAN_MULT || '8', 10);
+const SCAN_MAX = parseInt(process.env.AI_PREGEN_SCAN_MAX || '60', 10);
+// Câte materiale generăm ÎN PARALEL. Sequential, un lot de recuperare de sute
+// de materiale ține ore (fiecare apel la model e de ordinul zecilor de
+// secunde). 1 = comportamentul vechi.
+const CONCURRENCY = Math.min(Math.max(parseInt(process.env.AI_PREGEN_CONCURRENCY || '3', 10) || 1, 1), 8);
 const DISABLED = process.env.AI_PREGEN_DISABLED === '1';
 // implicit modelul de PDF (terra) — vezi nota din antet; AI_PREGEN_MODEL îl schimbă
 const PREGEN_MODEL = process.env.AI_PREGEN_MODEL || ai.PDF_MODEL;
@@ -86,6 +94,8 @@ const KINDS = {
   },
 };
 
+const KIND_LIST = Object.keys(KINDS);
+
 async function generateFor(supa, contentId, kind, src = null) {
   const k = KINDS[kind];
   if (!k) return null;
@@ -112,8 +122,29 @@ async function generateFor(supa, contentId, kind, src = null) {
   return { contentId, kind, chars: text.length };
 }
 
+// ─── Revalidarea unui material deja la zi ────────────────────────────────────
+// `ai_pregen_candidates` decide după TIMP (ai_knowledge.updated_at s-a mișcat
+// după ultima generare), dar bucla de mai jos decide după HASH (sursa chiar
+// s-a schimbat?). Când cele două nu sunt de acord — reindexare sau reordonare
+// care bumpează updated_at fără să schimbe textul indexat — materialul e sărit
+// SILENȚIOS și rămâne candidat LA NESFÂRȘIT. Cum funcția întoarce primele
+// `limit` materiale ordonate după created_at, câțiva astfel de „zombi" ocupă
+// tot lotul la fiecare rulare și pre-generarea se oprește complet (numărul
+// „De pre-generat" doar crește). Vezi și nota din content_reorder_trigger.sql.
+// Soluția: când totul e la zi, mutăm updated_at pe rândurile lui — o singură
+// scriere ieftină care îl scoate din lista de candidați.
+async function revalidate(supa, contentId) {
+  const { error } = await supa.from('ai_pregen')
+    .update({ updated_at: new Date().toISOString() }).eq('content_id', contentId);
+  if (error) { warnOnce('revalidate', `pregen: revalidarea a eșuat: ${error.message}`); return false; }
+  return true;
+}
+
 // ─── Procesare în loturi (apelată din cronul de ingest) ──────────────────────
-async function processBatch(supa, limit = BATCH) {
+// `limit` = câte materiale GENERĂM per rulare (partea scumpă). Scanăm mai
+// multe decât atât: revalidarea e o scriere ieftină, iar fără fereastra asta
+// un pumn de zombi din capul listei ar bloca din nou fiecare lot.
+async function processBatch(supa, limit = BATCH, { concurrency = CONCURRENCY } = {}) {
   if (DISABLED) return { pregenerated: 0, note: 'AI_PREGEN_DISABLED=1' };
   if (!ai.hasChat()) return { pregenerated: 0, note: 'fără cheie LLM' };
   // Cache-ul trebuie să corespundă MODELULUI configurat acum: intrările
@@ -128,32 +159,61 @@ async function processBatch(supa, limit = BATCH) {
     purged = (del1.data?.length || 0) + (del2.data?.length || 0);
     if (purged) console.warn(`pregen: ${purged} intrări generate cu alt model — șterse, se regenerează cu ${PREGEN_MODEL}`);
   } catch (e) { warnOnce('purge', `pregen: purjarea intrărilor cu model vechi a eșuat: ${e.message}`); }
+  const scan = Math.min(Math.max(limit * SCAN_MULT, limit), SCAN_MAX);
   let ids = [];
   try {
-    const { data, error } = await supa.rpc('ai_pregen_candidates', { p_limit: limit });
+    const { data, error } = await supa.rpc('ai_pregen_candidates', { p_limit: scan });
     if (error) throw new Error(error.message);
     ids = (data || []).map((r) => r.content_id || r);
   } catch (e) {
     warnOnce('candidates', `Pre-generarea inactivă — rulează supabase/ai_pregen.sql. Detaliu: ${e.message}`);
     return { pregenerated: 0, note: 'migrarea ai_pregen.sql nerulată' };
   }
-  let done = 0;
-  for (const id of ids) {
+  let done = 0, revalidated = 0, generatedItems = 0, failed = 0, lastError = null;
+
+  const one = async (id) => {
     try {
       const src = await sourceFor(supa, id);
-      if (!src) continue;
+      // candidat fără fragmente indexate: nu-l putem genera, dar nici nu-l
+      // lăsăm să ocupe lotul la nesfârșit — îl raportăm o dată și mergem mai departe
+      if (!src) { failed++; lastError = `${id}: fără fragmente indexate`; return; }
       // generăm doar ce lipsește sau e învechit (hash diferit)
       const { data: existing } = await supa.from('ai_pregen')
         .select('kind, source_hash').eq('content_id', id);
       const have = new Map((existing || []).map((r) => [r.kind, r.source_hash]));
-      for (const kind of Object.keys(KINDS)) {
-        if (have.get(kind) === src.hash) continue; // proaspăt → sari
+      const todo = KIND_LIST.filter((kind) => have.get(kind) !== src.hash);
+      // bugetul de GENERARE e consumat: restul listei o parcurgem doar ca să
+      // revalidăm materialele deja la zi (ieftin), fără apeluri la model
+      if (todo.length && generatedItems >= limit) return;
+      if (todo.length) generatedItems++;
+      let ok = true;
+      for (const kind of todo) {
         const r = await generateFor(supa, id, kind, src);
         if (r) done++;
+        else { ok = false; failed++; lastError = `${id}/${kind}: generare fără rezultat`; }
       }
-    } catch (e) { console.warn(`pregen: ${id}: ${e.message}`); }
-  }
-  return { pregenerated: done, candidates: ids.length, ...(purged ? { purged } : {}) };
+      // tot ce trebuia e la zi, dar materialul era candidat după TIMP → îl
+      // scoatem din listă, altfel se întoarce la fiecare rulare (vezi revalidate)
+      if (ok && todo.length < KIND_LIST.length && await revalidate(supa, id)) revalidated++;
+    } catch (e) {
+      failed++; lastError = `${id}: ${e.message}`;
+      console.warn(`pregen: ${id}: ${e.message}`);
+    }
+  };
+
+  // câteva materiale în paralel (AI_PREGEN_CONCURRENCY); `generatedItems` e
+  // citit/incrementat între await-uri, deci lotul poate depăși `limit` cu cel
+  // mult CONCURRENCY-1 materiale — acceptabil, plafonul e de cost, nu strict.
+  const conc = Math.min(Math.max(parseInt(concurrency, 10) || 1, 1), 8);
+  const queue = ids.slice();
+  const worker = async () => { let id; while ((id = queue.shift()) !== undefined) await one(id); };
+  await Promise.all(Array.from({ length: Math.min(conc, ids.length || 1) }, worker));
+  return {
+    pregenerated: done, candidates: ids.length,
+    ...(revalidated ? { revalidated } : {}),
+    ...(purged ? { purged } : {}),
+    ...(failed ? { failed, lastError } : {}),
+  };
 }
 
 // ─── Servire (din chat): intrarea pre-generată + gardul premium ──────────────
@@ -193,4 +253,4 @@ async function stats(supa) {
   } catch { return { pregen_total: 0, pregen_pending: null }; }
 }
 
-module.exports = { canServe, isCanonicalAsk, getServable, processBatch, generateFor, sourceFor, stats, BATCH };
+module.exports = { canServe, isCanonicalAsk, getServable, processBatch, generateFor, sourceFor, revalidate, stats, BATCH, KIND_LIST };
