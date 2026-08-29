@@ -29,15 +29,16 @@ const EXAMENE = [
 
 // „Mai multe" — pentru aerisirea barei principale
 const MAIMULTE = [
-  { to: '/arena',                      label: '⚔️ Arena matematică' },
   { to: '/mesagerie',                  label: '💬 Mesagerie' },
+  { to: '/arena',                      label: '⚔️ Arena matematică' },
   { to: '/preturi',                    label: '💳 Abonament' },
-  { to: '/manuale',                    label: '📖 Auxiliare' },
+  // eticheta se schimbă după rol (aiLabel): „Asistent AI pentru profesori/părinți"
+  { to: '/profesor-virtual',           label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> Profesor Virtual</span> },
   { to: '/rezolvari',                  label: '📝 Blog / Rezolvări / Teorie' },
   { to: '/biblioteca-utilizatorilor',  label: '🏛️ Biblioteca utilizatorilor' },
-  { to: '/profesor-virtual',           label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> Profesor Virtual</span> },
-  { to: '/despre-noi',                 label: 'Despre noi' },
+  { to: '/manuale',                    label: '📖 Auxiliare' },
   { to: '/recenzii',                   label: '⭐ Recenzii' },
+  { to: '/despre-noi',                 label: 'Despre noi' },
   { to: '/faq',                        label: 'Întrebări frecvente' },
   { to: '/contact',                    label: 'Contact' },
   { to: '/termeni-conditii',           label: 'Termeni și condiții' },
