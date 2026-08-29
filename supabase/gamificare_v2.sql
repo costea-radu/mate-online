@@ -109,6 +109,9 @@ create index if not exists idx_standings_user on public.league_standings(user_id
 
 alter table public.league_seasons   enable row level security;
 alter table public.league_standings enable row level security;
+-- Linterul Supabase semnalează „RLS enabled, no policy" (INFO) pentru tabelele
+-- fără politici. Rulează și supabase/gamificare_lints.sql: adaugă politica
+-- explicită doar-pentru-service_role, fără să schimbe comportamentul.
 -- fără politici: liga se citește DOAR prin /api/gamificare (rolul de serviciu),
 -- ca să putem afișa nume prescurtate („Ana M.") în loc de numele complete.
 

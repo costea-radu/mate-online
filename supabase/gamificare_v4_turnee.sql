@@ -62,6 +62,8 @@ create table if not exists public.tournament_places (
   primary key (tournament_id, user_id)
 );
 
+-- (vezi supabase/gamificare_lints.sql pentru politicile explicite service_role,
+--  care închid avertismentele INFO ale linterului Supabase)
 alter table public.tournaments       enable row level security;
 alter table public.tournament_items  enable row level security;
 alter table public.tournament_scores enable row level security;

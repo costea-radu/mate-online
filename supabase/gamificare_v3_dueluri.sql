@@ -50,6 +50,8 @@ alter table public.duels add column if not exists challenger_started_at timestam
 alter table public.duels add column if not exists opponent_started_at   timestamptz;
 
 alter table public.duels enable row level security;
+-- (vezi supabase/gamificare_lints.sql pentru politica explicită service_role,
+--  care închide avertismentul INFO al linterului Supabase)
 -- Fără politici: totul trece prin /api/duel (service_role). Elevul nu trebuie
 -- să vadă scorul adversarului înainte să-l trimită pe al lui — filtrarea aceea
 -- se face în API, nu s-ar putea exprima printr-o politică RLS.
