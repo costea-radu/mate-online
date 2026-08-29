@@ -14,6 +14,8 @@
 const ai = require('./_lib/ai');
 const score = require('./_lib/score');
 const xp = require('./_lib/xp');
+const duel = require('./_lib/duel');
+const turneu = require('./_lib/turneu');
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -24,7 +26,7 @@ module.exports = async function handler(req, res) {
   try {
     const userId = await ai.authUser(req, supa);
     const profile = await ai.requireUser(supa, userId);
-    const { contentId, answers = null, score: sc0 = 0, maxScore: mx0 = 100, durationSec = 0 } = req.body || {};
+    const { contentId, answers = null, score: sc0 = 0, maxScore: mx0 = 100, durationSec = 0, duelId = null } = req.body || {};
     if (!contentId) return res.status(400).json({ error: 'contentId obligatoriu' });
 
     const { data: content } = await supa.from('content').select('*').eq('id', contentId).maybeSingle();
@@ -77,7 +79,26 @@ module.exports = async function handler(req, res) {
       meta: { titlu: content.title || null },
     });
 
-    return res.status(200).json({ ok: true, score: v.score, maxScore: v.maxScore, verified: v.verified, attempts, timeSpent, correct: v.correct ?? null, total: v.total ?? null, xp: gami });
+    // TURNEU DE GRUPĂ (pasul 4): dacă materialul e într-un turneu activ al unei
+    // grupe din care face parte elevul, punctajul intră automat — fără înscriere.
+    let turneuRez = null;
+    if (gami && gami.xpExercitiu > 0) {
+      turneuRez = await turneu.recordScore(supa, userId, content.id, {
+        points: gami.xpExercitiu,
+        pct: v.maxScore > 0 ? Math.round((v.score / v.maxScore) * 100) : 0,
+      });
+    }
+
+    // DUEL (pasul 3): rezultatul intră în duel DOAR pe drumul ăsta, cu scorul
+    // recalculat pe server — browserul nu poate scrie direct un rezultat.
+    let duelRez = null;
+    if (duelId) {
+      duelRez = await duel.recordScore(supa, userId, duelId, {
+        contentId: content.id, score: v.score, maxScore: v.maxScore, verified: !!v.verified,
+      });
+    }
+
+    return res.status(200).json({ ok: true, score: v.score, maxScore: v.maxScore, verified: v.verified, attempts, timeSpent, correct: v.correct ?? null, total: v.total ?? null, xp: gami, duel: duelRez, turneu: turneuRez });
   } catch (err) {
     console.error('ai-score error:', err);
     return res.status(err.status || 500).json({ error: err.message || 'Eroare server', code: err.code || null });

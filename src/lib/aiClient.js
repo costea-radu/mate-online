@@ -141,8 +141,17 @@ export const aiClient = {
   // review_start · simulare · set_style · mentor_report · reset
   meditatii: (payload) => post('/api/ai-meditatii', payload),
   // Scorul unui test interactiv, VERIFICAT pe server din răspunsuri (Etapa 3)
-  scoreSubmit: ({ contentId, answers, score, maxScore, durationSec = 0 }) =>
-    post('/api/ai-score', { contentId, answers, score, maxScore, durationSec }),
+  scoreSubmit: ({ contentId, answers, score, maxScore, durationSec = 0, duelId = null }) =>
+    post('/api/ai-score', { contentId, answers, score, maxScore, durationSec, ...(duelId ? { duelId } : {}) }),
+
+  // Dueluri 1-la-1 (api/duel.js): list · optiuni · create · respond · set_open
+  duel: (payload = {}) => post('/api/duel', { action: 'list', ...payload }),
+
+  // Turnee de grupă (api/turneu.js): list · optiuni · create · close
+  turneu: (payload = {}) => post('/api/turneu', { action: 'list', ...payload }),
+
+  // Harta capitolelor (api/harta.js): state · unlock
+  harta: (payload = {}) => post('/api/harta', { action: 'state', ...payload }),
 
   // Arena matematică — XP, streak, misiunea zilei, liga săptămânală
   // (supabase/gamificare_v2.sql · api/gamificare.js)

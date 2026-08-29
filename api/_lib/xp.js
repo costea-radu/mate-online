@@ -346,6 +346,55 @@ async function award(supa, userId, opts = {}) {
   }
 }
 
+// ─── XP „de eveniment" (duel câștigat, loc în turneu, capitol stăpânit) ─────
+// Nu vine dintr-un exercițiu, deci nu trece prin formulă. Respectă totuși
+// plafonul zilnic al ligii, ca un turneu să nu poată sări peste el.
+async function bonus(supa, userId, { source = 'bonus', refId = null, xp: amount = 0, coins = 0, meta = {}, league = true } = {}) {
+  try {
+    const suma = Math.max(0, Math.round(Number(amount) || 0));
+    const monede = Math.max(0, Math.round(Number(coins) || 0));
+    if (suma <= 0 && monede <= 0) return null;
+
+    const day = dayKey();
+    const stats = await ensureStats(supa, userId);
+
+    let leaguePts = 0;
+    if (league && suma > 0) {
+      const { data: todays } = await supa.from('xp_events')
+        .select('league_pts').eq('user_id', userId).eq('day', day);
+      const used = (todays || []).reduce((s, r) => s + (r.league_pts || 0), 0);
+      leaguePts = Math.max(0, Math.min(suma, LEAGUE_DAILY_CAP - used));
+    }
+
+    await supa.from('xp_events').insert({
+      user_id: userId, day, source, ref_id: refId, xp: suma, league_pts: leaguePts, meta,
+    });
+
+    let totalXp = (stats.total_xp || 0) + suma;
+    const { data: bumped, error } = await supa.rpc('xp_bump', { p_user: userId, p_xp: suma, p_coins: monede });
+    const row = Array.isArray(bumped) ? bumped[0] : bumped;
+    if (!error && row) totalXp = row.total_xp;
+    else await supa.from('user_stats').update({ total_xp: totalXp, coins: (stats.coins || 0) + monede }).eq('user_id', userId);
+
+    if (leaguePts > 0) {
+      const standing = await ensureStanding(supa, userId, stats.league_tier || 1);
+      if (standing) {
+        const { error: e1 } = await supa.rpc('league_add', { p_standing: standing.id, p_points: leaguePts });
+        if (e1) {
+          await supa.from('league_standings')
+            .update({ points: (standing.points || 0) + leaguePts, updated_at: new Date().toISOString() })
+            .eq('id', standing.id);
+        }
+      }
+    }
+
+    return { xp: suma, coins: monede, leaguePts, totalXp, level: levelOf(totalXp) };
+  } catch (e) {
+    console.warn('xp.bonus:', e?.message || e);
+    return null;
+  }
+}
+
 module.exports = {
   // constante
   XP_PER_CORRECT, XP_MAX_PER_TEST, LEAGUE_DAILY_CAP, STREAK_MIN_XP, COHORT_SIZE,
@@ -355,5 +404,5 @@ module.exports = {
   dayKey, addDays, daysBetween, weekStart, difficultyOf, precisionMult, repeatFactor,
   computeXp, levelOf, tierInfo, missionForDay,
   // cu baza de date
-  ensureStats, ensureMission, ensureStanding, award,
+  ensureStats, ensureMission, ensureStanding, award, bonus,
 };

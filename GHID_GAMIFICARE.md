@@ -1,20 +1,38 @@
-# Arena matematică — XP, serie de zile, misiunea zilei, liga săptămânală
+# Arena matematică — XP, ligă, dueluri, turnee, harta capitolelor
 
-Pașii 1-2 din planul de gamificare. Scopul: elevul are un motiv să intre **azi**
+Pașii 1-5 din planul de gamificare. Scopul: elevul are un motiv să intre **azi**
 și un motiv să intre **mâine**, fără ca sistemul să premieze „cine stă mai mult".
+
+Cele trei straturi:
+
+| Strat | Ce rezolvă | Ritm |
+|---|---|---|
+| Harta capitolelor | „ce fac azi?" — direcție și structură | luni–ani |
+| XP · streak · misiunea zilei · liga | „de ce să intru azi?" | zile–săptămâni |
+| Dueluri · turnee | „de ce să-mi pese?" | evenimente |
 
 ---
 
 ## 1. Instalare (o singură dată)
 
-1. **Supabase → SQL Editor → New Query** → rulează `supabase/gamificare_v2.sql`.
-   Scriptul e idempotent (se poate rula de mai multe ori). Creează:
-   `user_stats`, `xp_events`, `daily_missions`, `league_seasons`,
-   `league_standings`, funcția `league_join` și coloana `content.difficulty`.
+1. **Supabase → SQL Editor → New Query** → rulează, în ordine:
 
-2. **Vercel** — cronul e deja înregistrat în `vercel.json`:
-   `/api/gamificare?action=cron-league` la `0 0 * * 1` (luni 03:00 ora României).
-   Cere `CRON_SECRET` setat în proiect (ca toate celelalte cronuri).
+   | Script | Ce creează |
+   |---|---|
+   | `supabase/gamificare_v2.sql` | `user_stats`, `xp_events`, `daily_missions`, `league_seasons`, `league_standings`, funcțiile `league_join` / `xp_bump` / `league_add`, coloana `content.difficulty` |
+   | `supabase/gamificare_v3_dueluri.sql` | `duels` + `user_stats.duels_open` |
+   | `supabase/gamificare_v4_turnee.sql` | `tournaments`, `tournament_items`, `tournament_scores`, `tournament_places` |
+   | `supabase/gamificare_v5_harta.sql` | `chapter_state` + coloana `content.chapter_id` |
+
+   Toate sunt idempotente (se pot rula de mai multe ori).
+
+2. **Vercel** — cronurile sunt deja în `vercel.json`, toate cer `CRON_SECRET`:
+
+   | Cron | Când | Ce face |
+   |---|---|---|
+   | `/api/gamificare?action=cron-league` | luni 03:00 RO | promovări și retrogradări în ligă |
+   | `/api/duel?action=cron` | la 6 ore | închide duelurile depășite (neprezentare) |
+   | `/api/turneu?action=cron` | la 6 ore | închide turneele expirate și dă premiile |
 
 3. Deploy. Nu e nevoie de nicio variabilă nouă de mediu — cele opționale sunt
    mai jos.
@@ -142,13 +160,79 @@ sunt în capul lui `api/_lib/xp.js`.
 
 ---
 
-## 10. Ce NU e acoperit încă
+## 10. Dueluri 1-la-1 (pasul 3)
+
+`api/_lib/duel.js` · `api/duel.js` · `src/components/DueluriPanel.jsx`
+
+**Asincron, nu live:** cei doi primesc același test interactiv și au **48 de ore**,
+fiecare rezolvă când poate. Un duel live ar cere ca amândoi să fie online simultan.
+
+- provoci doar un **coleg acceptat** (`buddies`), maximum **5 provocări pe zi**;
+- o singură provocare neîncheiată între aceiași doi elevi (index unic parțial);
+- „Nu accept provocări acum" oprește invitațiile (`user_stats.duels_open`);
+- **Profesorul Virtual e închis** în timpul duelului — altfel duelul ar măsura
+  cine știe să întrebe tutorele;
+- adversarul îți vede scorul **abia după** ce l-ai trimis pe al tău;
+- câștigă procentul; la egalitate, timpul; altfel remiză.
+
+**Cine câștigă cât:** victorie +40 XP, înfrângere +15 XP (ai rezolvat, ai învățat
+ceva), egalitate +25, neprezentare +20. Peste XP-ul normal al exercițiului.
+
+**Trei porți de siguranță** (fără ele duelul e trivial de fraudat):
+
+1. rezultatul intră doar prin `api/ai-score.js`, cu scorul **recalculat din chei**;
+2. materialul trimis trebuie să fie **exact cel al duelului** (altfel: rezolvi un
+   exercițiu ușor și trimiți scorul în duelul greu);
+3. **timpul se măsoară pe server**, între `?action=start` (deschiderea
+   exercițiului) și trimiterea scorului — durata din browser nu e crezută.
+   Materialele fără cheie de verificare nu intră deloc în duel.
+
+## 11. Turnee de grupă (pasul 4)
+
+`api/_lib/turneu.js` · `api/turneu.js` · `src/components/TurneePanel.jsx`
+
+Profesorul deschide un turneu pe una dintre grupele lui: titlu, mesaj
+(„Cine ia primul 10/10?"), până la 20 de exerciții, până la 30 de zile.
+
+**Elevii nu se înscriu.** Dacă sunt în grupă și rezolvă un exercițiu din set în
+perioada turneului, punctajul intră singur. **Prima rezolvare contează** — altfel
+s-ar reface același exercițiu la nesfârșit.
+
+Punctajul = XP-ul ponderat al exercițiului (corecte × dificultate × precizie),
+deci nu premiază volumul. La final, locurile 1-3 iau **120 / 70 / 40 XP** și
+30 / 20 / 10 monede. „Provocarea profesorului" = un turneu cu un singur exercițiu.
+
+## 12. Harta capitolelor (pasul 5)
+
+`api/harta.js` · `src/pages/Harta.jsx` (ruta `/arena/harta`)
+
+Capitolele programei în ordine, pentru clasele 5-12, Evaluare Națională și
+Bacalaureat. Legătura material → capitol se face prin clasificarea titlului
+(`api/_lib/taxonomy.js`) și se salvează în `content.chapter_id` — administratorul
+o poate corecta manual oricând.
+
+**Deblocare pe stăpânire, nu pe număr:** un capitol e stăpânit la ≥70% la două
+exerciții din el (sau la toate, dacă are mai puține) și cu media ≥70%. Capitolul
+următor se deschide atunci. Fiecare capitol stăpânit aduce **80 XP + 20 monede**,
+o singură dată.
+
+Supape, ca harta să nu blocheze pe nimeni:
+
+- **„Știu deja — sar peste"** deschide capitolul fără XP (un elev de a VIII-a nu
+  trebuie să treacă prin toată materia de a V-a);
+- un capitol în care elevul lucrase deja **rămâne deschis**;
+- un capitol **fără exerciții** nu blochează lanțul.
+
+## 13. Ce NU e acoperit încă
 
 - XP se acordă doar pe drumul exercițiilor interactive (`api/ai-score.js`).
   Corectarea pozelor (`ai-correct`) și temele marcate direct în
   `api/homework.js` nu dau încă XP — se adaugă apelând `xp.award()` și acolo.
-- Dueluri 1-la-1, turnee, echipe, harta capitolelor: pașii 3-5.
-- Magazinul de monede.
+- Turneele pe echipe și turneele publice pe site (elevii nu pot crea turnee).
+- Exercițiile generate cu AI pentru dueluri/turnee (deocamdată doar materiale
+  din site) și magazinul de monede.
+- Test de plasare la „sar peste" — deocamdată e pe încredere.
 
-Teste: `npm test` (vezi `test/gamificare.test.js` — formula, plafoanele, zilele
-în ora României, rotația misiunii, nivelurile).
+Teste: `npm test` — `test/gamificare.test.js` (formula, plafoanele, zilele în ora
+României, rotația misiunii, nivelurile) și `test/arena-dueluri.test.js` (regulile
+duelului, porțile de siguranță, capitolele hărții).

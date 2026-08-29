@@ -37,6 +37,7 @@ export default function InteractiveViewer() {
   const [autoPrompt, setAutoPrompt] = useState(null);                // mesaj trimis automat în chat
   const [newBadges, setNewBadges] = useState([]);                    // insigne proaspăt câștigate (toast)
   const [xpToast, setXpToast] = useState(null);                       // XP / streak / misiune câștigate (Arena)
+  const [duelRez, setDuelRez] = useState(null);                       // rezultatul duelului, după trimiterea scorului
   const [reviewOpen, setReviewOpen] = useState(false);               // „Cum ți s-a părut testul?" (după scor salvat)
   const reviewAskedRef = useRef(new Set());                          // testele pentru care am întrebat deja (în această vizită)
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 800);
@@ -72,6 +73,10 @@ export default function InteractiveViewer() {
   const temaId = searchParams.get('temaId'); // deschis ca TEMĂ de la Meditatorul AI
   const gtId = searchParams.get('gt');       // TEMĂ PE GRUPĂ (/tema-grupa): repartizarea acestui elev
   const medSesId = searchParams.get('medSesId'); // sesiune „site-first" de la Meditator (exerciții/simulare din site)
+  const duelId = searchParams.get('duel');   // DUEL 1-la-1 (/arena): rezultatul intră în duel
+  // În duel, ca și la testul pe grupă, Profesorul Virtual e închis: altfel
+  // duelul ar măsura cine știe să întrebe tutorele, nu cine știe matematică.
+  const faraAjutor = !!gtId || !!duelId;
   const [hwMarked, setHwMarked] = useState(null); // { grade } — tema bifată
   const [medMarked, setMedMarked] = useState(null); // { pct } — sesiunea de meditații bifată
   const [hwFinalizing, setHwFinalizing] = useState(false); // „🏁 Finalizează tema" în curs
@@ -133,6 +138,14 @@ export default function InteractiveViewer() {
     }
   }
 
+  // DUEL: cronometrul pornește pe server la prima deschidere a exercițiului.
+  // (Durata nu se mai trimite din browser — altfel oricine ar câștiga
+  // egalitățile cu „am rezolvat în 1 secundă".)
+  useEffect(() => {
+    if (!duelId || !user) return;
+    aiClient.duel({ action: 'start', id: duelId }).catch(() => {});
+  }, [duelId, user]);
+
   // ─── Salvare progres primit de la iframe ────────────────────────────────────
   useEffect(() => {
     async function saveScore(score, maxScore, answers = null) {
@@ -172,7 +185,7 @@ export default function InteractiveViewer() {
       //    încărcate manual) salvează scorul trimis, plafonat
       {
         try {
-          const r = await aiClient.scoreSubmit({ contentId: item.id, answers: ans, score, maxScore, durationSec: sessionSeconds });
+          const r = await aiClient.scoreSubmit({ contentId: item.id, answers: ans, score, maxScore, durationSec: sessionSeconds, duelId });
           if (r?.ok) {
             setScoreSaved(true);
             setSavedScore({ score: r.score, maxScore: r.maxScore, verified: !!r.verified });
@@ -181,6 +194,7 @@ export default function InteractiveViewer() {
             aiClient.meditatii({ action: 'homework_check' }).catch(() => {});
             // Arena: XP, serie de zile, misiunea zilei, puncte de ligă
             if (r.xp && r.xp.xp > 0) { setXpToast(r.xp); arenaChanged(r.xp); }
+            if (duelId && r.duel) setDuelRez(r.duel);
             awardBadges(user.id, { score: r.score, maxScore: r.maxScore, attempts: r.attempts || 1, category: item.category })
               .then((earned) => { if (earned.length) setNewBadges(earned); })
               .catch(() => {});
@@ -505,6 +519,12 @@ export default function InteractiveViewer() {
           </button>
           {/* Test pe grupă: mesageria e oprită cât timp elevul rezolvă */}
           {gtId && <TestModeBadge compact />}
+          {duelId && (
+            <span style={{
+              background: 'rgba(232,185,49,0.16)', border: '1px solid var(--gold)', color: 'var(--gold)',
+              borderRadius: 12, padding: '3px 10px', fontSize: '0.76rem', fontWeight: 800, whiteSpace: 'nowrap',
+            }} title="Duel: ai o singură încercare, iar Profesorul Virtual e închis">⚔️ DUEL</span>
+          )}
           {item?.category === 'manuale' && (
             <button
               onClick={() => navigate('/')}
@@ -527,7 +547,7 @@ export default function InteractiveViewer() {
           {/* Profesorul Virtual lângă exercițiu — deschidere manuală: chat gol,
               așteaptă întrebarea elevului. În timpul unui TEST PE GRUPĂ (?gt=…)
               butonul dispare: elevul nu poate cere ajutor la test. */}
-          {!gtId && <button
+          {!faraAjutor && <button
             onClick={() => { setAutoPrompt(null); setTutorOpen((o) => !o); }}
             title="Te ajută să rezolvi exercițiul, pas cu pas"
             style={{
@@ -638,7 +658,7 @@ export default function InteractiveViewer() {
           />
         )}
 
-        {tutorOpen && !gtId && (
+        {tutorOpen && !faraAjutor && (
           <div style={{
             flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', minHeight: 0,
             ...(isMobile
@@ -682,7 +702,7 @@ export default function InteractiveViewer() {
 
       {/* Widget plutitor pe desktop (FloatingTutor global e ascuns pe /exercitiu):
           deschide profesorul LÂNGĂ exercițiu; se poate MUTA (tragi de el) */}
-      {!tutorOpen && !isMobile && !gtId && (
+      {!tutorOpen && !isMobile && !faraAjutor && (
         <TutorFab onOpen={() => { setAutoPrompt(null); setTutorOpen(true); }} />
       )}
 
@@ -707,6 +727,30 @@ export default function InteractiveViewer() {
               {xpToast.liga && <div>{xpToast.liga.icon} Liga {xpToast.liga.name}: {xpToast.liga.puncte} puncte</div>}
               {xpToast.plafonAtins && <div>Ai atins plafonul zilnic de puncte de ligă.</div>}
               <Link to="/arena" style={{ color: 'var(--gold-light)', textDecoration: 'underline' }}>Vezi Arena</Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast: cum a mers duelul (după trimiterea scorului) */}
+      {duelRez && (
+        <div style={{ position: 'fixed', top: 150, left: 16, zIndex: 2000, maxWidth: 320 }}>
+          <div style={{
+            background: '#fff', border: '2px solid var(--gold)', borderRadius: 12, padding: '12px 14px',
+            boxShadow: '0 8px 24px rgba(0,0,0,.25)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, color: 'var(--navy)' }}>
+              <span style={{ fontSize: '1.3rem' }}>⚔️</span>
+              {duelRez.gata ? 'Duel încheiat' : duelRez.deja ? 'Ai jucat deja acest duel' : 'Rezultat trimis'}
+              <button onClick={() => setDuelRez(null)}
+                style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#6b7689' }}>✕</button>
+            </div>
+            <div style={{ fontSize: '.8rem', color: '#6b7689', marginTop: 6, lineHeight: 1.5 }}>
+              {duelRez.asteptam && 'Așteptăm și rezultatul adversarului. Îți spunem când termină.'}
+              {duelRez.altMaterial && 'Rezultatul nu intră în duel: nu e exercițiul duelului.'}
+              {duelRez.neverificat && 'Rezultatul nu intră în duel: exercițiul nu are cheie de verificare pe server.'}
+              {duelRez.gata && 'Vezi cine a câștigat în Arenă.'}
+              {' '}<Link to="/arena" style={{ color: 'var(--navy)', fontWeight: 700 }}>Deschide Arena</Link>
             </div>
           </div>
         </div>

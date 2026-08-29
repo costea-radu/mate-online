@@ -11,6 +11,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { arenaState, onArenaChange } from '../lib/arena';
+import DueluriPanel from '../components/DueluriPanel';
+import TurneePanel from '../components/TurneePanel';
 
 const cardStyle = {
   background: 'var(--white)', border: '1px solid var(--border)',
@@ -172,6 +174,12 @@ export default function Arena() {
             </div>
           )}
 
+          {/* ─── Dueluri 1-la-1 ─── */}
+          <DueluriPanel />
+
+          {/* ─── Turnee de grupă ─── */}
+          <TurneePanel />
+
           {/* ─── Liga ─── */}
           <div style={cardStyle}>
             {liga ? (
@@ -243,15 +251,16 @@ export default function Arena() {
             )}
           </div>
 
-          {/* ─── Ce urmează ─── */}
+          {/* ─── Harta + scurtături ─── */}
           <div style={{ ...cardStyle, background: 'var(--cream)' }}>
-            <Eticheta>În curând</Eticheta>
+            <Eticheta>Unde am ajuns</Eticheta>
             <div style={{ fontSize: '0.92rem', color: 'var(--text-light)' }}>
-              ⚔️ Dueluri 1-la-1 cu colegii · 🏆 Turnee de grupă și pe site · 🗺️ Harta capitolelor
+              Harta capitolelor arată ce ai stăpânit și ce urmează. Fiecare capitol stăpânit aduce XP.
             </div>
             <div style={{ marginTop: 14, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <Link to="/evaluare-nationala" className="btn btn-sm btn-primary">Exerciții · Evaluare Națională</Link>
-              <Link to="/bacalaureat" className="btn btn-sm btn-outline">Exerciții · Bacalaureat</Link>
+              <Link to="/arena/harta" className="btn btn-sm btn-primary">🗺️ Harta capitolelor</Link>
+              <Link to="/evaluare-nationala" className="btn btn-sm btn-outline">Evaluare Națională</Link>
+              <Link to="/bacalaureat" className="btn btn-sm btn-outline">Bacalaureat</Link>
               <Link to="/profil" className="btn btn-sm btn-outline">Insignele mele</Link>
             </div>
           </div>

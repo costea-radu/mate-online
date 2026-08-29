@@ -52,6 +52,14 @@
     {
       "path": "/api/gamificare?action=cron-league",
       "schedule": "0 0 * * 1"
+    },
+    {
+      "path": "/api/duel?action=cron",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/turneu?action=cron",
+      "schedule": "20 */6 * * *"
     }
   ],
   "rewrites": [
