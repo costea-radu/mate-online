@@ -38,6 +38,7 @@ const DespreNoi = lazy(() => import('./pages/DespreNoi'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const ProfesorVirtual = lazy(() => import('./pages/ProfesorVirtual'));
 const Meditatii = lazy(() => import('./pages/Meditatii'));
+const Arena = lazy(() => import('./pages/Arena'));
 const AssignmentSolver = lazy(() => import('./pages/AssignmentSolver'));
 const GrupaTema = lazy(() => import('./pages/GrupaTema'));
 const TemaElev = lazy(() => import('./pages/TemaElev'));
@@ -133,6 +134,7 @@ export default function App() {
                 <Route path="/exercitiu-ai" element={<ExercitiuAIViewer />} />
                 <Route path="/pdf-viewer" element={<PDFViewer />} />
                 <Route path="/discutii" element={<DiscussionsPage />} />
+                <Route path="/arena" element={<Arena />} />
                 <Route path="/rezolvari" element={<RezolvariPage />} />
                 <Route path="/rezolvari/:slug" element={<ArticolPage />} />
                 <Route path="/contact" element={<Contact />} />

@@ -144,6 +144,10 @@ export const aiClient = {
   scoreSubmit: ({ contentId, answers, score, maxScore, durationSec = 0 }) =>
     post('/api/ai-score', { contentId, answers, score, maxScore, durationSec }),
 
+  // Arena matematică — XP, streak, misiunea zilei, liga săptămânală
+  // (supabase/gamificare_v2.sql · api/gamificare.js)
+  gamificare: (payload = {}) => post('/api/gamificare', { action: 'state', ...payload }),
+
   // Progres + feedback
   progress: () => post('/api/ai-progress', {}),
   feedback: ({ messageId, value, note = null }) => post('/api/ai-feedback', { messageId, value, note }),

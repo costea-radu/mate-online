@@ -48,6 +48,10 @@
     {
       "path": "/api/review-invite?action=run",
       "schedule": "30 15 * * *"
+    },
+    {
+      "path": "/api/gamificare?action=cron-league",
+      "schedule": "0 0 * * 1"
     }
   ],
   "rewrites": [

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import ArenaIndicator from './ArenaIndicator';
 import { supabase } from '../lib/supabase';
 import AINotifications from './AINotifications';
 import EinsteinIcon from './EinsteinIcon';
@@ -491,6 +492,11 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profes
           )}
         </Link>
         {user && (
+          <Link to="/arena" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/arena' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
+            ⚔️ Arena
+          </Link>
+        )}
+        {user && (
           <Link to="/mesagerie" onClick={onClose} style={{
             ...linkStyle,
             color: location.pathname === '/mesagerie'
@@ -750,6 +756,7 @@ export default function Navbar() {
             )}
             {user ? (
               <>
+                <ArenaIndicator />
                 <Link
                   to="/mesagerie"
                   aria-label={chatUnread > 0 ? `Mesagerie — ${chatUnread} mesaje noi` : 'Mesagerie'}

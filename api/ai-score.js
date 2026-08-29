@@ -13,6 +13,7 @@
 // =====================================================================
 const ai = require('./_lib/ai');
 const score = require('./_lib/score');
+const xp = require('./_lib/xp');
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -50,7 +51,7 @@ module.exports = async function handler(req, res) {
     const sessionSeconds = Math.max(0, Math.min(6 * 3600, Math.round(Number(durationSec) || 0)));
     let existing = null;
     try {
-      const { data } = await supa.from('progress').select('attempts, time_spent').eq('user_id', userId).eq('content_id', content.id).maybeSingle();
+      const { data } = await supa.from('progress').select('attempts, time_spent, score, max_score').eq('user_id', userId).eq('content_id', content.id).maybeSingle();
       existing = data || null;
     } catch { /* prima încercare */ }
     const attempts = (existing?.attempts || 0) + 1;
@@ -62,7 +63,21 @@ module.exports = async function handler(req, res) {
     if (error) ({ error } = await supa.from('progress').upsert(base, { onConflict: 'user_id,content_id' }));
     if (error) return res.status(500).json({ error: `Scorul nu s-a putut salva (${error.message}).` });
 
-    return res.status(200).json({ ok: true, score: v.score, maxScore: v.maxScore, verified: v.verified, attempts, timeSpent, correct: v.correct ?? null, total: v.total ?? null });
+    // GAMIFICARE (supabase/gamificare_v2.sql): XP ponderat, streak, misiunea
+    // zilei și punctele de ligă. Nu aruncă niciodată — dacă tabelele nu sunt
+    // create încă, `award` întoarce null și salvarea scorului rămâne intactă.
+    const prevPct = existing && existing.max_score > 0
+      ? Math.round((existing.score / existing.max_score) * 100)
+      : null;
+    const gami = await xp.award(supa, userId, {
+      source: 'interactive', refId: content.id, content,
+      score: v.score, maxScore: v.maxScore,
+      correct: v.correct ?? null, total: v.total ?? null,
+      attempts, prevPct, verified: !!v.verified,
+      meta: { titlu: content.title || null },
+    });
+
+    return res.status(200).json({ ok: true, score: v.score, maxScore: v.maxScore, verified: v.verified, attempts, timeSpent, correct: v.correct ?? null, total: v.total ?? null, xp: gami });
   } catch (err) {
     console.error('ai-score error:', err);
     return res.status(err.status || 500).json({ error: err.message || 'Eroare server', code: err.code || null });

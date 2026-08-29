@@ -1,12 +1,13 @@
 import { authHeaders } from '../lib/api';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
 import { ChatPanel, TutorFab } from '../components/AITutor';
 import { injectTutorBridge } from '../lib/tutorBridge';
 import { awardBadges } from '../lib/badges';
+import { arenaChanged } from '../lib/arena';
 import { notaDinScor } from '../lib/nota';
 import TestModeBadge from '../components/TestModeBadge';
 import EinsteinIcon from '../components/EinsteinIcon';
@@ -35,6 +36,7 @@ export default function InteractiveViewer() {
   const [exState, setExState] = useState(null);                     // starea live din exercițiu (bridge)
   const [autoPrompt, setAutoPrompt] = useState(null);                // mesaj trimis automat în chat
   const [newBadges, setNewBadges] = useState([]);                    // insigne proaspăt câștigate (toast)
+  const [xpToast, setXpToast] = useState(null);                       // XP / streak / misiune câștigate (Arena)
   const [reviewOpen, setReviewOpen] = useState(false);               // „Cum ți s-a părut testul?" (după scor salvat)
   const reviewAskedRef = useRef(new Set());                          // testele pentru care am întrebat deja (în această vizită)
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 800);
@@ -177,6 +179,8 @@ export default function InteractiveViewer() {
             setSaveError(null);
             startedAtRef.current = Date.now();
             aiClient.meditatii({ action: 'homework_check' }).catch(() => {});
+            // Arena: XP, serie de zile, misiunea zilei, puncte de ligă
+            if (r.xp && r.xp.xp > 0) { setXpToast(r.xp); arenaChanged(r.xp); }
             awardBadges(user.id, { score: r.score, maxScore: r.maxScore, attempts: r.attempts || 1, category: item.category })
               .then((earned) => { if (earned.length) setNewBadges(earned); })
               .catch(() => {});
@@ -357,6 +361,13 @@ export default function InteractiveViewer() {
     const t = setTimeout(() => setNewBadges([]), 7000);
     return () => clearTimeout(t);
   }, [newBadges]);
+
+  // Toastul de XP dispare singur după 8 secunde
+  useEffect(() => {
+    if (!xpToast) return undefined;
+    const t = setTimeout(() => setXpToast(null), 8000);
+    return () => clearTimeout(t);
+  }, [xpToast]);
 
   // ─── Recenzie după test ─────────────────────────────────────────────────────
   // La 1,5 s după ce scorul s-a SALVAT (deci există rândul din `progress` pe
@@ -673,6 +684,32 @@ export default function InteractiveViewer() {
           deschide profesorul LÂNGĂ exercițiu; se poate MUTA (tragi de el) */}
       {!tutorOpen && !isMobile && !gtId && (
         <TutorFab onOpen={() => { setAutoPrompt(null); setTutorOpen(true); }} />
+      )}
+
+      {/* Toast: XP câștigat (Arena — src/pages/Arena.jsx) */}
+      {xpToast && (
+        <div style={{ position: 'fixed', top: 70, left: 16, zIndex: 2000, maxWidth: 320 }}>
+          <div style={{
+            background: 'var(--navy)', color: '#fff', borderRadius: 12, padding: '12px 14px',
+            boxShadow: '0 8px 24px rgba(0,0,0,.28)', border: '1px solid rgba(232,185,49,.5)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '1.4rem' }}>⭐</span>
+              <strong style={{ fontSize: '1rem' }}>+{xpToast.xp} XP</strong>
+              {xpToast.streakUp && <span style={{ marginLeft: 'auto', fontSize: '.85rem' }}>🔥 {xpToast.streak} zile</span>}
+              <button onClick={() => setXpToast(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,.6)', marginLeft: xpToast.streakUp ? 6 : 'auto' }}>✕</button>
+            </div>
+            <div style={{ fontSize: '.78rem', color: 'rgba(255,255,255,.75)', marginTop: 6, lineHeight: 1.5 }}>
+              {xpToast.nivelNou && <div>🎉 Nivel nou: <strong>{xpToast.nivelNou.name}</strong></div>}
+              {xpToast.misiune?.tocmaiFinalizata && <div>🎯 Misiunea zilei — terminată!</div>}
+              {xpToast.misiune && !xpToast.misiune.done && <div>🎯 Misiune: {xpToast.misiune.progress}/{xpToast.misiune.target}</div>}
+              {xpToast.liga && <div>{xpToast.liga.icon} Liga {xpToast.liga.name}: {xpToast.liga.puncte} puncte</div>}
+              {xpToast.plafonAtins && <div>Ai atins plafonul zilnic de puncte de ligă.</div>}
+              <Link to="/arena" style={{ color: 'var(--gold-light)', textDecoration: 'underline' }}>Vezi Arena</Link>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Toast: insigne noi câștigate */}
