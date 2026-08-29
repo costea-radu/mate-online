@@ -1,0 +1,118 @@
+// =====================================================================
+// src/lib/chatUnread.js — BULINA ROȘIE de mesaje noi (ca la Messenger)
+//
+// Un singur „magazin" pentru tot site-ul: oricâte componente cer numărul de
+// mesaje necitite (bara de sus, meniul burger, iconița 💬), serverul e întrebat
+// O SINGURĂ DATĂ, iar răspunsul e împărțit tuturor.
+//
+// Reguli de scalare, ca la indicatorul de forum:
+//   • întrebăm doar cu TABUL VIZIBIL (un tab uitat deschis nu bate serverul);
+//   • revenirea pe fereastră aduce imediat numărul actualizat;
+//   • două cereri nu pleacă niciodată mai aproape de MIN_GAP una de alta.
+//
+// `refreshChatUnread()` — chemat din mesagerie după ce se citește sau se
+// trimite un mesaj, ca bulina să scadă pe loc, fără să aștepte următorul tic.
+//
+// Sursa numărului: POST /api/messages { action: 'unread' } → { count, threads }.
+// =====================================================================
+import { useEffect, useState } from 'react';
+import { aiClient } from './aiClient';
+
+const POLL = 30000;     // cât de des întrebăm serverul, cu tabul vizibil
+const MIN_GAP = 4000;   // nu batem serverul mai des de atât
+
+let state = { count: 0, threads: 0 };
+const subs = new Set();
+let timer = null;
+let lastAt = 0;
+let inFlight = null;
+let logat = false;
+
+function emit() {
+  subs.forEach((fn) => { try { fn(state); } catch { /* componentă demontată */ } });
+}
+
+function setState(next) {
+  if (next.count === state.count && next.threads === state.threads) return;
+  state = next;
+  emit();
+}
+
+async function fetchUnread(force = false) {
+  if (!logat) return undefined;
+  if (!force && Date.now() - lastAt < MIN_GAP) return undefined;
+  if (inFlight) return inFlight;
+  lastAt = Date.now();
+  inFlight = (async () => {
+    try {
+      const r = await aiClient.chatUnread();
+      setState({
+        count: Math.max(0, Number(r?.count) || 0),
+        threads: Math.max(0, Number(r?.threads) || 0),
+      });
+    } catch {
+      // rețea sau sesiune expirată → păstrăm ultima valoare, reîncercăm la tic
+    } finally {
+      inFlight = null;
+    }
+  })();
+  return inFlight;
+}
+
+const onWake = () => { if (document.visibilityState !== 'hidden') fetchUnread(true); };
+
+function start() {
+  if (timer) return;
+  timer = setInterval(() => { if (document.visibilityState !== 'hidden') fetchUnread(); }, POLL);
+  window.addEventListener('focus', onWake);
+  document.addEventListener('visibilitychange', onWake);
+}
+
+function stop() {
+  if (timer) { clearInterval(timer); timer = null; }
+  window.removeEventListener('focus', onWake);
+  document.removeEventListener('visibilitychange', onWake);
+}
+
+/**
+ * Reîmprospătare la cerere (după citirea unui mesaj, la schimbarea paginii…).
+ * `force` sare peste pragul de MIN_GAP; fără el, cererile prea dese se ignoră.
+ */
+export function refreshChatUnread(force = true) {
+  return fetchUnread(force);
+}
+
+/**
+ * Numărul exact, aflat din altă parte (mesageria îl are deja în lista de
+ * conversații). Bulina se potrivește pe loc, fără încă o cerere la server.
+ */
+export function setChatUnread({ count = 0, threads = 0 } = {}) {
+  lastAt = Date.now();
+  setState({ count: Math.max(0, Number(count) || 0), threads: Math.max(0, Number(threads) || 0) });
+}
+
+/** Numărul de mesaje necitite: { count, threads }. `enabled` = utilizator logat. */
+export function useChatUnread(enabled = true) {
+  const [val, setVal] = useState(state);
+
+  useEffect(() => {
+    if (!enabled) {
+      logat = false;
+      lastAt = 0;
+      setState({ count: 0, threads: 0 });
+      setVal({ count: 0, threads: 0 });
+      return undefined;
+    }
+    logat = true;
+    subs.add(setVal);
+    setVal(state);
+    start();
+    fetchUnread(true);
+    return () => {
+      subs.delete(setVal);
+      if (!subs.size) stop();
+    };
+  }, [enabled]);
+
+  return val;
+}

@@ -1,8 +1,8 @@
 // =====================================================================
 // src/pages/MesageriePage.jsx — pagina „/mesagerie"
 //
-// Mesageria de pe tot site-ul: canalele grupelor + discuțiile 1-la-1 cu
-// colegii (elev cu elev, profesor cu profesor, părinte cu părinte).
+// Mesageria de pe tot site-ul: canalele grupelor + discuțiile 1-la-1 cu cei
+// din lista mea (profesori, elevi sau părinți — oricine mi-a acceptat cererea).
 // Se ajunge aici din bara de sus → „Mai multe" → 💬 Mesagerie, iar pe mobil
 // din meniul burger.
 //
@@ -27,7 +27,7 @@ export default function MesageriePage() {
       <div style={{ maxWidth: 620, margin: '0 auto', padding: '40px 20px 60px', textAlign: 'center' }}>
         <div style={{ fontSize: '2.5rem', marginBottom: 10 }}>🔒</div>
         <p style={{ color: 'var(--text-light)', marginBottom: 16 }}>
-          Autentifică-te ca să vezi mesajele de la colegi și de la grupele tale.
+          Autentifică-te ca să vezi mesajele primite și canalele grupelor tale.
         </p>
         <Link to="/autentificare?redirect=%2Fmesagerie" className="btn btn-primary">Autentificare</Link>
       </div>
@@ -40,7 +40,7 @@ export default function MesageriePage() {
         💬 Mesagerie
       </h1>
       <p style={{ fontSize: '.87rem', color: 'var(--text-muted)', marginBottom: 20 }}>
-        Canalul fiecărei grupe (profesor, elevi și părinți) și discuțiile 1-la-1 cu colegii tăi.
+        Canalul fiecărei grupe (profesor, elevi și părinți) și discuțiile 1-la-1 cu oamenii din lista ta.
         Lângă fiecare nume scrie tipul contului, în paranteză.
       </p>
 

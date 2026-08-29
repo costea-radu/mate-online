@@ -242,10 +242,12 @@ export const aiClient = {
   chatUnread: () => post('/api/messages', { action: 'unread' }),
   chatAttachables: () => post('/api/messages', { action: 'attachables' }),
 
-  // ── COLEGI (pe tot site-ul): elev cu elev, profesor cu profesor, ──────────
-  //    părinte cu părinte (api/colegi.js)
+  // ── COLEGI (pe tot site-ul): oricine poate căuta pe oricine, pe CATEGORII ─
+  //    profesor → colegi / elevi / părinți; elev → colegi / profesori /
+  //    părinți; părinte → alți părinți / profesori / elevi (api/colegi.js).
+  //    `role` = categoria în care caut; lipsă → categoria mea.
   colegiList: () => post('/api/colegi', { action: 'list' }),
-  colegiSearch: ({ q }) => post('/api/colegi', { action: 'search', q }),
+  colegiSearch: ({ q, role = null }) => post('/api/colegi', { action: 'search', q, role }),
   colegiRequest: ({ otherId }) => post('/api/colegi', { action: 'request', otherId }),
   colegiRespond: ({ id, accept = true }) => post('/api/colegi', { action: 'respond', id, accept }),
   colegiRemove: ({ otherId }) => post('/api/colegi', { action: 'remove', otherId }),

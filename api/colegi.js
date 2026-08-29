@@ -1,21 +1,26 @@
 // =====================================================================
 // api/colegi.js — COLEGI pe tot site-ul (ca la Facebook)
 //
-// Oricine își poate căuta colegi DE ACELAȘI FEL — elev cu elev, profesor cu
-// profesor, părinte cu părinte — le trimite cerere, iar după acceptare cei doi
-// pot discuta 1-la-1 oricând, indiferent de grupă (api/messages.js).
+// Oricine poate căuta pe ORICINE, pe CATEGORII, în funcție de rolul lui:
 //
-// Confidențialitate:
+//   • profesor → colegi profesori · elevi · părinți
+//   • elev     → colegi elevi     · profesori · părinți
+//   • părinte  → alți părinți     · profesori · elevi
+//
+// Îi trimite cerere, iar după ACCEPTARE cei doi pot discuta 1-la-1 oricând,
+// indiferent de grupă (api/messages.js).
+//
+// Confidențialitate (neschimbată de deschiderea pe roluri):
 //   • căutarea cere minimum 3 caractere și întoarce DOAR numele și rolul
 //     (niciodată e-mailul);
 //   • se caută doar printre cei care au lăsat pornit „Pot fi găsit de colegi"
 //     (`profiles.colegi_discoverable`, comutator în „Colegii mei");
-//   • rolurile diferite nu se văd deloc între ele.
+//   • nimeni nu poate scrie nimănui până când cererea NU e acceptată.
 //
 // POST { action, ... }
-//   list      : colegii mei + cererile primite/trimise + starea comutatorului
-//   search    : { q } → oameni de același fel, negăsiți încă în listă
-//   request   : { otherId } → trimite cererea
+//   list      : colegii mei + cererile primite/trimise + categoriile de căutare
+//   search    : { q, role } → oameni din categoria cerută, negăsiți încă în listă
+//   request   : { otherId } → trimite cererea (orice rol către orice rol)
 //   respond   : { id, accept } → acceptă / refuză o cerere primită
 //   remove    : { otherId } → șterge legătura (sau anulează cererea trimisă)
 //   set_visible: { visible } → pornește/oprește găsirea în căutare
@@ -26,6 +31,25 @@ const ai = require('./_lib/ai');
 
 const ROLES = ['elev', 'profesor', 'parinte'];
 const ROLE_LABEL = { profesor: 'profesor', elev: 'elev', parinte: 'părinte' };
+const ROLE_ICON = { profesor: '🧑‍🏫', elev: '🎓', parinte: '👨‍👩‍👧' };
+
+// Categoriile de căutare, în ordinea în care le vede fiecare. Prima e mereu
+// „colegii" — oamenii cu ACELAȘI tip de cont; după ea vin celelalte două.
+const CAT_ORDER = {
+  profesor: ['profesor', 'elev', 'parinte'],
+  elev:     ['elev', 'profesor', 'parinte'],
+  parinte:  ['parinte', 'profesor', 'elev'],
+};
+const CAT_LABEL = {
+  profesor: { profesor: 'Colegi profesori', elev: 'Elevi',     parinte: 'Părinți' },
+  elev:     { elev: 'Colegi de clasă',      profesor: 'Profesori', parinte: 'Părinți' },
+  parinte:  { parinte: 'Alți părinți',      profesor: 'Profesori', elev: 'Elevi' },
+};
+const categoriesFor = (role) => (CAT_ORDER[role] || CAT_ORDER.elev).map((k) => ({
+  key: k,
+  label: (CAT_LABEL[role] || CAT_LABEL.elev)[k] || ROLE_LABEL[k],
+  icon: ROLE_ICON[k],
+}));
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -90,48 +114,67 @@ async function list(req, res, supa) {
   const outgoing = [];
   links.forEach((l) => {
     const otherId = l.requester_id === userId ? l.addressee_id : l.requester_id;
-    const p = info[otherId] || { id: otherId, name: 'Utilizator', role: l.role };
+    // rolul CELUILALT se ia din profilul lui, nu din `buddies.role` (acolo e
+    // scris rolul celui care a trimis cererea, iar rolurile pot fi diferite)
+    const p = info[otherId] || { id: otherId, name: 'Utilizator', role: null };
     const row = {
       linkId: l.id, id: otherId, name: p.name, role: p.role,
-      roleLabel: ROLE_LABEL[p.role] || p.role, at: l.created_at,
+      roleLabel: ROLE_LABEL[p.role] || '', at: l.created_at,
     };
     if (l.status === 'accepted') colegi.push(row);
     else if (l.addressee_id === userId) incoming.push(row);
     else outgoing.push(row);
   });
-  colegi.sort((a, b) => a.name.localeCompare(b.name, 'ro'));
+
+  // grupate pe categorii (întâi cei ca mine), apoi alfabetic
+  const ordine = CAT_ORDER[role] || CAT_ORDER.elev;
+  const rang = (r) => { const i = ordine.indexOf(r); return i === -1 ? 9 : i; };
+  colegi.sort((a, b) => (rang(a.role) - rang(b.role)) || a.name.localeCompare(b.name, 'ro'));
 
   return res.status(200).json({
     colegi, incoming, outgoing,
     role, roleLabel: ROLE_LABEL[role] || role,
+    categories: categoriesFor(role),
     myName: nameOf(profile),
     discoverable: profile.colegi_discoverable !== false,
   });
 }
 
-// ─── Căutare (doar același fel de cont) ──────────────────────────────────────
+// ─── Căutare pe CATEGORII (orice rol poate căuta orice rol) ─────────────────
+// `role` spune în ce categorie caut: profesori, elevi sau părinți. Lipsă →
+// categoria mea („colegii"), ca înainte.
 async function search(req, res, supa) {
   const { userId, role } = await me(req, supa);
   const q = String(req.body?.q || '').trim();
-  if (q.length < 3) return res.status(200).json({ items: [], hint: 'Scrie cel puțin 3 litere din nume.' });
+  const want = ROLES.includes(req.body?.role) ? req.body.role : role;
+  if (q.length < 3) return res.status(200).json({ items: [], role: want, hint: 'Scrie cel puțin 3 litere din nume.' });
 
   const like = `%${q.replace(/[%_,()]/g, ' ')}%`;
-  const { data } = await supa.from('profiles')
+  const baza = () => supa.from('profiles')
     .select('id, full_name, username, email, role, colegi_discoverable')
-    .eq('role', role)
     .neq('id', userId)
     .or(`full_name.ilike.${like},username.ilike.${like}`)
-    .limit(40);
+    .limit(60);
+
+  const { data: d1 } = await baza().eq('role', want);
+  const gasiti = [...(d1 || [])];
+  // Contul care nu și-a ales încă rolul e tratat peste tot ca „elev", deci
+  // apare și el în categoria „elevi" — a doua interogare, nu un al doilea
+  // filtru `or` pe aceeași cerere (combinarea lor nu e la fel de limpede).
+  if (want === 'elev') {
+    const { data: d2 } = await baza().is('role', null);
+    (d2 || []).forEach((p) => { if (!gasiti.some((x) => x.id === p.id)) gasiti.push(p); });
+  }
 
   // scoatem cei care au oprit găsirea și cei cu care am deja o legătură
   const links = await linksOf(supa, userId);
   const known = new Set(links.map((l) => (l.requester_id === userId ? l.addressee_id : l.requester_id)));
-  const items = (data || [])
+  const items = gasiti
     .filter((p) => p.colegi_discoverable !== false && !known.has(p.id))
     .slice(0, 20)
-    .map((p) => ({ id: p.id, name: nameOf(p), role, roleLabel: ROLE_LABEL[role] || role }));
+    .map((p) => ({ id: p.id, name: nameOf(p), role: want, roleLabel: ROLE_LABEL[want] || want }));
 
-  return res.status(200).json({ items });
+  return res.status(200).json({ items, role: want, roleLabel: ROLE_LABEL[want] || want });
 }
 
 // ─── Cerere de coleg ─────────────────────────────────────────────────────────
@@ -144,9 +187,8 @@ async function request(req, res, supa) {
   const { data: other } = await supa.from('profiles')
     .select('id, full_name, username, email, role, colegi_discoverable').eq('id', otherId).maybeSingle();
   if (!other) return res.status(404).json({ error: 'Contul nu există.' });
-  if ((other.role || 'elev') !== role) {
-    return res.status(400).json({ error: 'Poți fi coleg doar cu cineva care are același tip de cont ca tine.' });
-  }
+  // Rolurile pot fi DIFERITE: un elev poate cere unui profesor sau unui
+  // părinte, și invers. Legătura rămâne valabilă doar dacă e acceptată.
 
   const links = await linksOf(supa, userId);
   const existing = links.find((l) => l.requester_id === otherId || l.addressee_id === otherId);
@@ -154,6 +196,7 @@ async function request(req, res, supa) {
     return res.status(200).json({ ok: true, already: existing.status === 'accepted' ? 'coleg' : 'cerere' });
   }
 
+  // `role` = rolul CELUI CARE CERE (rolul celuilalt se citește din profilul lui)
   const { error } = await supa.from('buddies').insert({
     requester_id: userId, addressee_id: otherId, role, status: 'pending',
   });
@@ -162,7 +205,7 @@ async function request(req, res, supa) {
   try {
     await ai.createNotification(supa, {
       recipientId: otherId, type: 'coleg',
-      title: `${nameOf(profile)} vrea să vă fiți colegi`,
+      title: `${nameOf(profile)} (${ROLE_LABEL[role] || role}) vrea să vă fiți colegi`,
       body: 'Acceptă din „Colegii mei", în Contul meu.',
       data: { url: '/profil?colegi=1' },
       dedupeKey: `coleg_req:${userId}:${otherId}`, dedupeDays: 14,
@@ -174,7 +217,7 @@ async function request(req, res, supa) {
 
 // ─── Răspuns la o cerere primită ─────────────────────────────────────────────
 async function respond(req, res, supa) {
-  const { userId, profile } = await me(req, supa);
+  const { userId, profile, role } = await me(req, supa);
   const { id, accept = true } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id obligatoriu' });
 
@@ -194,7 +237,7 @@ async function respond(req, res, supa) {
   try {
     await ai.createNotification(supa, {
       recipientId: l.requester_id, type: 'coleg',
-      title: `${nameOf(profile)} ți-a acceptat cererea de coleg`,
+      title: `${nameOf(profile)} (${ROLE_LABEL[role] || role}) ți-a acceptat cererea de coleg`,
       body: 'Îi poți scrie oricând din Mesagerie.',
       data: { url: '/mesagerie' },
       dedupeKey: `coleg_ok:${l.id}`, dedupeDays: 14,

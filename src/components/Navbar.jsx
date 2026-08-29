@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import AINotifications from './AINotifications';
 import EinsteinIcon from './EinsteinIcon';
 import { aiAssistantLabel } from '../lib/aiLabel';
+import { useChatUnread, refreshChatUnread } from '../lib/chatUnread';
 
 const CLASE = [
   { to: '/clase/5',  label: 'Clasa a V-a' },
@@ -42,8 +43,30 @@ const MAIMULTE = [
   { to: '/politica-retur',             label: 'Politica de retur' },
 ];
 
+// ─── Bulina roșie de mesaje noi (ca la Messenger) ─────────────────────────────
+// `flotanta` = lipită în colțul unei iconițe; altfel stă în rând, după text.
+function Bulina({ n, flotanta = false, titlu = 'mesaje noi' }) {
+  if (!n) return null;
+  return (
+    <span
+      title={`${n} ${titlu}`}
+      aria-label={`${n} ${titlu}`}
+      style={{
+        background: '#e74c3c', color: '#fff', borderRadius: 10, fontSize: '.65rem',
+        fontWeight: 700, padding: '1px 5px', minWidth: 16, textAlign: 'center',
+        lineHeight: 1.5, display: 'inline-block',
+        ...(flotanta
+          ? { position: 'absolute', top: -3, right: -3, boxShadow: '0 0 0 2px var(--navy)' }
+          : { marginLeft: 6 }),
+      }}
+    >
+      {n > 99 ? '99+' : n}
+    </span>
+  );
+}
+
 // ─── Desktop dropdown ─────────────────────────────────────────────────────────
-function DesktopDropdown({ label, items }) {
+function DesktopDropdown({ label, items, badge = 0 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
   const location = useLocation();
@@ -69,6 +92,7 @@ function DesktopDropdown({ label, items }) {
         }}
       >
         {label}
+        <Bulina n={badge} />
         <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>{open ? '▲' : '▼'}</span>
       </button>
       {open && (
@@ -95,6 +119,7 @@ function DesktopDropdown({ label, items }) {
               onMouseLeave={e => e.currentTarget.style.background = location.pathname.startsWith(item.to) ? 'rgba(232,185,49,0.08)' : 'transparent'}
             >
               {item.label}
+              <Bulina n={item.badge || 0} />
             </Link>
           ))}
         </div>
@@ -346,7 +371,7 @@ function SearchModal({ onClose }) {
 }
 
 // ─── Mobile menu overlay ──────────────────────────────────────────────────────
-function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profesor Virtual', forumUnread = 0, forumHasNew = false, onSignOut }) {
+function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profesor Virtual', forumUnread = 0, forumHasNew = false, chatUnread = 0, onSignOut }) {
   const location = useLocation();
   const [claseOpen, setClaseOpen] = useState(false);
   const [exameneOpen, setExameneOpen] = useState(false);
@@ -465,8 +490,15 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profes
           )}
         </Link>
         {user && (
-          <Link to="/mesagerie" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/mesagerie' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
+          <Link to="/mesagerie" onClick={onClose} style={{
+            ...linkStyle,
+            color: location.pathname === '/mesagerie'
+              ? 'var(--gold)'
+              : (chatUnread > 0 ? 'var(--gold-light, #f5d67b)' : 'rgba(255,255,255,0.88)'),
+            background: (chatUnread > 0 && location.pathname !== '/mesagerie') ? 'rgba(231,76,60,0.10)' : undefined,
+          }}>
             💬 Mesagerie
+            <Bulina n={chatUnread} />
           </Link>
         )}
         <Link to="/recenzii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/recenzii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
@@ -528,6 +560,19 @@ export default function Navbar() {
   // (pe locul lui „Abonament"), iar în bara principală apare „💳 Abonament".
   // Elevii și vizitatorii rămân cu bara de până acum. Meniul de mobil nu se schimbă.
   const meditatiiInMaiMulte = isTeacher || isParent;
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [forumUnread, setForumUnread] = useState(0);   // răspunsuri la postările MELE (badge roșu)
+  const [forumHasNew, setForumHasNew] = useState(false); // s-a postat ceva nou pe forum (indiciu auriu)
+
+  // Mesaje noi din mesagerie → bulina roșie (src/lib/chatUnread.js).
+  const { count: chatUnread } = useChatUnread(!!user);
+  // La schimbarea paginii cerem numărul din nou, dar FĂRĂ să sărim peste pragul
+  // din magazin — navigarea rapidă prin site nu bate serverul.
+  useEffect(() => { if (user) refreshChatUnread(false); }, [user, location.pathname]);
+
   const maiMulte = MAIMULTE.map((it) => {
     if (it.to === '/profesor-virtual') {
       return { ...it, label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> {aiLabel}</span> };
@@ -535,14 +580,9 @@ export default function Navbar() {
     if (meditatiiInMaiMulte && it.to === '/preturi') {
       return { to: '/meditatii', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> Meditații cu AI</span> };
     }
+    if (it.to === '/mesagerie') return { ...it, badge: chatUnread };
     return it;
   });
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [forumUnread, setForumUnread] = useState(0);   // răspunsuri la postările MELE (badge roșu)
-  const [forumHasNew, setForumHasNew] = useState(false); // s-a postat ceva nou pe forum (indiciu auriu)
 
   // Calculează indicatorii de la „Forum": (1) activitate nouă în general și
   // (2) răspunsuri la postările/comentariile utilizatorului. Reîmprospătat periodic.
@@ -646,9 +686,11 @@ export default function Navbar() {
             <button
               className="mobile-toggle"
               onClick={() => setMobileOpen(o => !o)}
-              aria-label="Meniu"
+              aria-label={chatUnread > 0 ? `Meniu — ${chatUnread} mesaje noi` : 'Meniu'}
+              style={{ position: 'relative' }}
             >
               ☰
+              <Bulina n={chatUnread} flotanta />
             </button>
           </div>
 
@@ -681,7 +723,7 @@ export default function Navbar() {
                 )}
               </Link>
             </li>
-            <li><DesktopDropdown label="Mai multe" items={maiMulte} /></li>
+            <li><DesktopDropdown label="Mai multe" items={maiMulte} badge={chatUnread} /></li>
           </ul>
 
           {/* Desktop auth buttons */}
@@ -707,6 +749,19 @@ export default function Navbar() {
             )}
             {user ? (
               <>
+                <Link
+                  to="/mesagerie"
+                  aria-label={chatUnread > 0 ? `Mesagerie — ${chatUnread} mesaje noi` : 'Mesagerie'}
+                  title={chatUnread > 0 ? `${chatUnread} mesaje noi` : 'Mesagerie'}
+                  style={{
+                    position: 'relative', display: 'inline-flex', alignItems: 'center',
+                    fontSize: '1.3rem', lineHeight: 1, textDecoration: 'none',
+                    opacity: location.pathname === '/mesagerie' ? 1 : 0.85,
+                  }}
+                >
+                  💬
+                  <Bulina n={chatUnread} flotanta />
+                </Link>
                 <AINotifications />
                 <Link to="/profil" className="btn btn-sm btn-outline" style={{ borderColor: 'var(--gold)', color: 'var(--gold)' }}>
                   {isPremium ? '⭐ Contul meu' : 'Contul meu'}
@@ -744,6 +799,7 @@ export default function Navbar() {
         aiLabel={aiLabel}
         forumUnread={forumUnread}
         forumHasNew={forumHasNew}
+        chatUnread={chatUnread}
         onSignOut={handleSignOut}
       />
     </>

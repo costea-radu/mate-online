@@ -1,9 +1,12 @@
 // =====================================================================
 // src/components/ColegiiMei.jsx — „👥 Colegii mei" (pe tot site-ul)
 //
-// Ca la Facebook: îți cauți colegi DE ACELAȘI FEL (elev cu elev, profesor cu
-// profesor, părinte cu părinte), le trimiți cerere, iar după acceptare puteți
-// discuta 1-la-1 oricând, din Mesagerie — indiferent de grupă.
+// Ca la Facebook: cauți pe ORICINE, pe CATEGORII, în funcție de rolul tău —
+//   profesor → colegi profesori · elevi · părinți
+//   elev     → colegi de clasă  · profesori · părinți
+//   părinte  → alți părinți     · profesori · elevi
+// îi trimiți cerere, iar după ACCEPTARE puteți discuta 1-la-1 oricând, din
+// Mesagerie — indiferent de grupă.
 //
 // Se montează în „Contul meu", sub cartonașul cu numele și tipul contului:
 //   • pe desktop — o fereastră cu câteva nume vizibile și derulare pentru rest;
@@ -49,24 +52,36 @@ export default function ColegiiMei({ defaultOpen = false, wide = false }) {
   const [found, setFound] = useState(null);
   const [searching, setSearching] = useState(false);
   const [showSearch, setShowSearch] = useState(wide);
+  const [cat, setCat] = useState(null);        // categoria în care caut ('elev' | 'profesor' | 'parinte')
 
   // panoul lățit deschide singur căutarea (are loc s-o arate)
   useEffect(() => { if (wide) setShowSearch(true); }, [wide]);
 
   const load = useCallback(async () => {
-    try { setData(await aiClient.colegiList()); }
-    catch (e) { setError(e.message); setData({ colegi: [], incoming: [], outgoing: [] }); }
+    try {
+      const r = await aiClient.colegiList();
+      setData(r);
+      // prima categorie = oamenii ca mine („colegii"), ca până acum
+      setCat((c) => c || r.categories?.[0]?.key || r.role || null);
+    } catch (e) { setError(e.message); setData({ colegi: [], incoming: [], outgoing: [] }); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  async function doSearch(e) {
+  const doSearch = useCallback(async (e, rol = null) => {
     e?.preventDefault?.();
     const needle = q.trim();
     if (needle.length < 3) { setFound([]); return; }
     setSearching(true); setError(null);
-    try { const r = await aiClient.colegiSearch({ q: needle }); setFound(r.items || []); }
+    try { const r = await aiClient.colegiSearch({ q: needle, role: rol || cat }); setFound(r.items || []); }
     catch (e2) { setError(e2.message); setFound([]); }
     finally { setSearching(false); }
+  }, [q, cat]);
+
+  // Schimbi categoria cu numele deja scris → căutăm din nou, în ea.
+  function alegeCategoria(key) {
+    setCat(key);
+    setFound(null);
+    if (q.trim().length >= 3) doSearch(null, key);
   }
 
   async function add(id) {
@@ -106,6 +121,8 @@ export default function ColegiiMei({ defaultOpen = false, wide = false }) {
   const colegi = data?.colegi || [];
   const incoming = data?.incoming || [];
   const outgoing = data?.outgoing || [];
+  const categorii = data?.categories || [];
+  const catCurenta = categorii.find((c) => c.key === cat) || null;
 
   const rowBtn = {
     display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
@@ -120,12 +137,13 @@ export default function ColegiiMei({ defaultOpen = false, wide = false }) {
       {incoming.length > 0 && (
         <div style={{ marginBottom: 10, background: 'rgba(232,185,49,.12)', border: '1px solid var(--gold)', borderRadius: 10, padding: '8px 10px' }}>
           <div style={{ fontSize: '.75rem', fontWeight: 800, color: 'var(--navy)', marginBottom: 6 }}>
-            Cereri de coleg ({incoming.length})
+            Cereri primite ({incoming.length})
           </div>
           {incoming.map((c) => (
             <div key={c.linkId} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5, flexWrap: 'wrap' }}>
               <span style={{ flex: '1 1 100px', minWidth: 0, fontSize: '.82rem', color: 'var(--navy)' }}>
                 {ROLE_ICON[c.role] || '👤'} {c.name}
+                {c.roleLabel && <span style={{ color: 'var(--text-muted)' }}> ({c.roleLabel})</span>}
               </span>
               <button className="btn btn-sm btn-primary" disabled={busy === c.linkId} onClick={() => respond(c.linkId, true)}>Acceptă</button>
               <button className="btn btn-sm btn-outline" disabled={busy === c.linkId} onClick={() => respond(c.linkId, false)}>Refuză</button>
@@ -137,7 +155,7 @@ export default function ColegiiMei({ defaultOpen = false, wide = false }) {
       {/* lista de colegi: câteva nume vizibile, restul prin derulare */}
       {colegi.length === 0 ? (
         <p style={{ ...small, margin: '2px 0 8px' }}>
-          Încă nu ai colegi. Caută-i după nume — apar doar conturi de același fel ca al tău.
+          Încă nu ai pe nimeni în listă. Caută după nume — poți adăuga profesori, elevi sau părinți.
         </p>
       ) : (
         <div style={{
@@ -169,18 +187,42 @@ export default function ColegiiMei({ defaultOpen = false, wide = false }) {
       {/* căutare */}
       <button type="button" onClick={() => setShowSearch((v) => !v)}
         style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--navy)', fontWeight: 700, fontSize: '.82rem', fontFamily: 'var(--font-body)' }}>
-        {showSearch ? '▾' : '▸'} ➕ Caută colegi
+        {showSearch ? '▾' : '▸'} ➕ Caută pe cineva
       </button>
 
       {showSearch && (
         <div style={{ marginTop: 8 }}>
+          {/* Categoria în care caut: colegi / profesori / elevi / părinți */}
+          {categorii.length > 1 && (
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 7 }}>
+              {categorii.map((c) => {
+                const on = c.key === cat;
+                return (
+                  <button key={c.key} type="button" onClick={() => alegeCategoria(c.key)}
+                    title={`Caută printre ${c.label.toLowerCase()}`}
+                    style={{
+                      border: `1.5px solid ${on ? 'var(--navy)' : 'var(--border)'}`,
+                      background: on ? 'var(--navy)' : 'transparent',
+                      color: on ? '#fff' : 'var(--navy)',
+                      borderRadius: 20, padding: '4px 10px', fontSize: '.73rem', fontWeight: 700,
+                      cursor: 'pointer', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap',
+                    }}>
+                    {c.icon} {c.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           <form onSubmit={doSearch} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Numele colegului…" maxLength={60}
+            <input value={q} onChange={(e) => setQ(e.target.value)} maxLength={60}
+              placeholder={catCurenta ? `Nume din „${catCurenta.label}"…` : 'Numele persoanei…'}
               style={{ flex: '1 1 120px', minWidth: 0, border: '1px solid var(--border)', borderRadius: 8, padding: '7px 9px', fontSize: '.82rem', fontFamily: 'var(--font-body)' }} />
             <button type="submit" className="btn btn-sm" style={{ background: 'var(--gold)', color: 'var(--navy)', fontWeight: 700 }}>🔍</button>
           </form>
           <div style={{ ...small, marginTop: 4 }}>
-            Cel puțin 3 litere. Vezi doar conturi de tipul <strong>{data?.roleLabel || 'tău'}</strong>.
+            Cel puțin 3 litere. Cauți printre <strong>{(catCurenta?.label || data?.roleLabel || '').toLowerCase()}</strong>.
+            Poți scrie abia după ce cererea e acceptată.
           </div>
 
           {searching && <div style={{ padding: 10, textAlign: 'center' }}><div className="spinner" /></div>}
@@ -195,7 +237,7 @@ export default function ColegiiMei({ defaultOpen = false, wide = false }) {
                     {ROLE_ICON[p.role] || '👤'} {p.name}
                   </span>
                   <button type="button" disabled={busy === p.id} onClick={() => add(p.id)}
-                    title={`Trimite-i cerere de coleg lui ${p.name}`}
+                    title={`Trimite-i o cerere lui ${p.name}`}
                     style={{
                       flexShrink: 0, border: '1.5px solid var(--navy)', background: 'transparent',
                       color: 'var(--navy)', borderRadius: 20, padding: '4px 11px', fontSize: '.76rem',
@@ -209,7 +251,9 @@ export default function ColegiiMei({ defaultOpen = false, wide = false }) {
             </div>
           )}
           {found && found.length === 0 && !searching && (
-            <div style={{ ...small, marginTop: 6 }}>Niciun rezultat. Poate și-a oprit găsirea în căutare.</div>
+            <div style={{ ...small, marginTop: 6 }}>
+              Niciun rezultat în „{catCurenta?.label || 'această categorie'}". Încearcă altă categorie sau altă parte din nume — unii își opresc găsirea în căutare.
+            </div>
           )}
 
           {outgoing.length > 0 && (
@@ -220,7 +264,7 @@ export default function ColegiiMei({ defaultOpen = false, wide = false }) {
 
           <label style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 10, fontSize: '.76rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
             <input type="checkbox" checked={data?.discoverable !== false} disabled={busy === 'vis'} onChange={toggleVisible} />
-            Pot fi găsit de alți colegi după nume
+            Pot fi găsit după nume (de profesori, elevi și părinți)
           </label>
         </div>
       )}

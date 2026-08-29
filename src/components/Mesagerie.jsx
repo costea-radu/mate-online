@@ -4,8 +4,8 @@
 // Două feluri de conversații, cu reguli diferite:
 //   • CANALUL GRUPEI — profesorul grupei, elevii ei și părinții acelor elevi,
 //     cu rolul scris în paranteză. Din grupă NU se deschid discuții 1-la-1.
-//   • COLEGI — discuții 1-la-1 pe tot site-ul, cu cei care ți-au acceptat
-//     cererea de coleg (src/components/ColegiiMei.jsx).
+//   • COLEGI — discuții 1-la-1 pe tot site-ul, cu oricine ți-a acceptat cererea:
+//     profesori, elevi sau părinți (src/components/ColegiiMei.jsx).
 //
 // `scope`:
 //   'group' → doar canalele de grupă (montat în „Contul meu");
@@ -21,6 +21,7 @@ import { useNavigate } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { setChatUnread } from '../lib/chatUnread';
 
 const ROLE_TAG = { profesor: 'profesor', elev: 'elev', parinte: 'părinte' };
 const ROLE_ICON = { profesor: '🧑‍🏫', elev: '🎓', parinte: '👨‍👩‍👧' };
@@ -85,6 +86,17 @@ export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = 
 
   // starea „conversație deschisă / închisă", raportată paginii
   useEffect(() => { onOpenChange?.(!!active); }, [active, onOpenChange]);
+
+  // Bulina roșie din bara de sus se ia după lista de aici (o avem deja
+  // încărcată), deci nu mai e nevoie de încă o cerere la server.
+  useEffect(() => {
+    const list = data?.threads;
+    if (!list) return;
+    setChatUnread({
+      count: list.reduce((a, t) => a + (t.unread || 0), 0),
+      threads: list.filter((t) => (t.unread || 0) > 0).length,
+    });
+  }, [data]);
 
   // „✕" pe conversația deschisă: rămâne doar lista, iar pagina lățește „Colegii mei"
   function closeThread() {
@@ -275,7 +287,7 @@ export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = 
               ? <>Nu ai încă nicio grupă cu elevi. Fă o grupă în „Grupe / Rezultate elevi" și adaugă elevi în ea — apoi aici apare canalul grupei, cu elevii și părinții lor.</>
               : <>Canalul grupei se deschide după ce profesorul tău te pune într-o grupă. Cere-i linkul de asociere sau codul lui de profesor.</>
           ) : (
-            <>Nicio conversație încă. Adaugă-ți colegi din „👥 Colegii mei" (Contul meu) ca să puteți discuta 1-la-1.</>
+            <>Nicio conversație încă. Caută-ți oamenii din „👥 Colegii mei" (Contul meu) — profesori, elevi sau părinți — și, după ce cererea e acceptată, puteți discuta 1-la-1.</>
           )}
         </div>
       </div>
@@ -324,14 +336,14 @@ export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = 
             <div style={{ borderTop: '1px solid var(--border)' }}>
               <button type="button" onClick={() => setShowPeople((v) => !v)}
                 style={{ ...sideBtn(false), borderBottom: 'none', fontWeight: 700, color: 'var(--navy)', fontSize: '.8rem' }}>
-                <span>👥</span><span style={{ flex: 1 }}>Scrie unui coleg</span>
+                <span>👥</span><span style={{ flex: 1 }}>Scrie cuiva din listă</span>
                 <span style={{ color: 'var(--text-muted)', fontSize: '.75rem' }}>{showPeople ? '▾' : '▸'}</span>
               </button>
               {showPeople && (
                 <div style={{ maxHeight: 170, overflowY: 'auto', borderTop: '1px solid var(--border)' }}>
                   {colegi.length === 0 ? (
                     <div style={{ padding: '9px 12px', fontSize: '.76rem', color: 'var(--text-muted)' }}>
-                      Nu ai încă colegi. Îi cauți din „👥 Colegii mei", în Contul meu.
+                      Nu ai încă pe nimeni în listă. Îi cauți din „👥 Colegii mei", în Contul meu.
                     </div>
                   ) : colegi.map((c) => (
                     <button key={c.id} type="button" disabled={busy} onClick={() => startDirect(c.id)}

@@ -5,7 +5,7 @@ Două lucruri diferite, care folosesc aceleași mesaje:
 | | Unde | Cine |
 |---|---|---|
 | **Canalul grupei** | Contul meu → rolldown „💬 Mesageria grupei", sub „Abonament" | profesorul grupei + elevii ei + părinții acelor elevi |
-| **Colegi (1-la-1)** | bara de sus → „Mai multe" → **💬 Mesagerie** (`/mesagerie`); pe mobil, din meniul burger | oricine ți-a acceptat cererea de coleg, de pe tot site-ul |
+| **1-la-1** | bara de sus → iconița **💬** (sau „Mai multe" → 💬 Mesagerie, `/mesagerie`); pe mobil, din meniul burger | oricine ți-a acceptat cererea — profesor, elev sau părinte |
 
 Lângă fiecare nume scrie tipul contului în paranteză: **(profesor)**, **(elev)**,
 **(părinte)**.
@@ -43,7 +43,28 @@ Apartenența **nu se dublează** într-un tabel de membri: se calculează la fie
 cerere din `mentor_groups` + `mentor_students`, deci mutarea unui elev în altă
 grupă se vede imediat.
 
-## 3. Colegii — ca la Facebook, pe tot site-ul
+## 3. Bulina roșie de mesaje noi (ca la Messenger)
+
+Când ai mesaje necitite, numărul lor apare cu **roșu**:
+
+| Unde | Cum arată |
+|---|---|
+| bara de sus (desktop) | iconița **💬** de lângă clopoțel, cu bulina în colț |
+| „Mai multe" (desktop) | bulină lângă buton **și** lângă rândul „💬 Mesagerie" |
+| butonul **☰** (mobil) | bulina în colț, deci se vede fără să deschizi meniul |
+| meniul burger (mobil) | bulină pe rândul „💬 Mesagerie", pe fundal roșu-pal |
+
+Peste 99 scrie „99+". Bulina scade **pe loc** când deschizi conversația.
+
+Cum se numără (`src/lib/chatUnread.js`): un singur „magazin" pentru toată
+pagina — oricâte locuri arată bulina, serverul e întrebat **o singură dată**,
+la 30 s și **doar cu tabul vizibil**; revenirea pe fereastră aduce imediat
+numărul actualizat, iar două cereri nu pleacă niciodată la mai puțin de 4 s una
+de alta. Cât timp mesageria e deschisă nu se mai cere nimic în plus: numărul se
+ia din lista de conversații, pe care pagina o are oricum. Sursa:
+`POST /api/messages { action: 'unread' }` → `{ count, threads }`.
+
+## 4. Colegii — ca la Facebook, pe tot site-ul
 
 În **Contul meu**, sub cartonașul cu numele și tipul contului, apare
 **„👥 Colegii mei"**:
@@ -51,28 +72,44 @@ grupă se vede imediat.
 - pe **desktop** — o fereastră cu câteva nume vizibile și **derulare** pentru rest;
 - pe **mobil** — același conținut, ca **tab cu rolldown**.
 
-Reguli:
+**Oricine poate căuta pe oricine**, pe categorii, în funcție de rolul lui:
 
-- colegii se caută **după nume**, minimum 3 litere, și apar **doar conturi de
-  același fel**: elev cu elev, profesor cu profesor, părinte cu părinte;
+| Am cont de… | Categoriile pe care le pot căuta |
+|---|---|
+| **profesor** | Colegi profesori · Elevi · Părinți |
+| **elev** | Colegi de clasă · Profesori · Părinți |
+| **părinte** | Alți părinți · Profesori · Elevi |
+
+Categoriile sunt butoane deasupra căsuței de căutare; prima e mereu cea cu
+oameni ca tine. Schimbi categoria cu numele deja scris → se caută din nou, în
+ea. Lista de colegi e grupată la fel: întâi cei ca tine, apoi ceilalți.
+
+Reguli (neschimbate de deschiderea pe roluri):
+
+- se caută **după nume**, minimum 3 litere;
 - căutarea întoarce **numai numele și rolul** — niciodată e-mailul;
-- cine nu vrea să fie găsit debifează „Pot fi găsit de alți colegi după nume"
+- cine nu vrea să fie găsit debifează „Pot fi găsit după nume"
   (`profiles.colegi_discoverable`);
 - cererea trebuie **acceptată**; abia apoi se poate scrie 1-la-1;
 - ștergerea legăturii oprește scrisul (conversația veche rămâne doar la celălalt
   până se șterge și la el).
 
-Clic pe un coleg din listă → se deschide conversația în `/mesagerie`.
+În `buddies`, coloana `role` păstrează rolul **celui care a trimis cererea** —
+rolul celuilalt se citește din profilul lui, fiindcă acum pot fi diferite. Nu e
+nevoie de nicio modificare în baza de date pentru asta.
 
-## 4. Unde se ajunge la mesagerie
+Clic pe un nume din listă → se deschide conversația în `/mesagerie`.
 
-- **Desktop**: bara de sus → „Mai multe" → **💬 Mesagerie**;
+## 5. Unde se ajunge la mesagerie
+
+- **Desktop**: iconița **💬** din dreapta sus (lângă clopoțel), sau
+  „Mai multe" → **💬 Mesagerie**;
 - **Mobil**: meniul burger (☰) → **💬 Mesagerie**;
 - **Contul meu**: rolldown-ul „💬 Mesageria grupei" (doar canalele de grupă).
 
 Pagina `/mesagerie` are conversațiile în stânga și lista de colegi în dreapta.
 
-## 5. Trimiterea temelor și a testelor pe mesagerie
+## 6. Trimiterea temelor și a testelor pe mesagerie
 
 Profesorul are în bara de scriere butonul **🔗**: alege una dintre temele sau
 testele lui, iar mesajul pleacă cu un **card apăsabil** care duce direct la
@@ -80,7 +117,7 @@ testele lui, iar mesajul pleacă cu un **card apăsabil** care duce direct la
 butoane **„💬 Trimite pe mesageria grupei"** apar și la linkurile proaspăt
 create. Serverul acceptă ca atașament **doar rute interne**.
 
-## 6. În timpul testelor se opresc mesageria ȘI Profesorul Virtual
+## 7. În timpul testelor se opresc mesageria ȘI Profesorul Virtual
 
 Când elevul apasă **„▶ Începe testul"** la un test pe grupă, i se opresc automat:
 
@@ -115,13 +152,13 @@ Se repornește când:
 generat) apare eticheta **„🔒 Test pe grupă în desfășurare — mesageria și
 Profesorul Virtual sunt oprite"**.
 
-## 7. Notificări
+## 8. Notificări
 
 La primul mesaj dintr-o conversație, ceilalți primesc notificare în clopoțel
 (`✉️`), **maximum una pe zi per conversație**. Cererile de coleg și acceptările
 vin tot acolo (`🤝`).
 
-## 8. Timp real
+## 9. Timp real
 
 Mesajele apar **instant**, prin Supabase Realtime: fiecare conversație are un
 canal de tip *broadcast* (`mesagerie:<threadId>`), la care clientul se abonează
@@ -146,9 +183,9 @@ ce s-a scris între timp.
 ## Fișiere
 
 **Noi:** `supabase/mesagerie.sql`, `api/messages.js`, `api/colegi.js`,
-`api/_lib/testlock.js`, `src/lib/testMode.js`, `src/components/Mesagerie.jsx`,
-`src/components/ColegiiMei.jsx`, `src/components/TestModeBadge.jsx`,
-`src/pages/MesageriePage.jsx`.
+`api/_lib/testlock.js`, `src/lib/testMode.js`, `src/lib/chatUnread.js`,
+`src/components/Mesagerie.jsx`, `src/components/ColegiiMei.jsx`,
+`src/components/TestModeBadge.jsx`, `src/pages/MesageriePage.jsx`.
 
 **Modificate:** `src/lib/aiClient.js` (metodele `chat*` și `colegi*`),
 `src/App.jsx` (ruta `/mesagerie`), `src/components/Navbar.jsx` („Mai multe" +

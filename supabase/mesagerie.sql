@@ -8,10 +8,11 @@
 --    nume apare rolul în paranteză: (profesor) / (elev) / (părinte).
 --    NU există discuții 1-la-1 pe baza grupei.
 --
--- 2. COLEGII (pe tot site-ul) — ca la Facebook: oricine își poate căuta
---    colegi DE ACELAȘI FEL (elev cu elev, profesor cu profesor, părinte cu
---    părinte), trimite cerere, iar după acceptare cei doi pot discuta 1-la-1
---    oricând, indiferent de grupă.
+-- 2. COLEGII (pe tot site-ul) — ca la Facebook: oricine poate căuta pe
+--    ORICINE, pe categorii (profesor → colegi/elevi/părinți; elev →
+--    colegi/profesori/părinți; părinte → alți părinți/profesori/elevi),
+--    trimite cerere, iar după ACCEPTARE cei doi pot discuta 1-la-1 oricând,
+--    indiferent de grupă.
 --
 -- 3. În timpul unui TEST PE GRUPĂ, mesageria elevului se oprește automat
 --    (coloana `active_until` de mai jos).
@@ -71,7 +72,9 @@ create table if not exists public.chat_reads (
 );
 
 -- ─── 4. COLEGI (ca la Facebook: cerere → acceptare) ──────────────────────────
--- Doar între conturi de ACELAȘI fel: elev–elev, profesor–profesor, părinte–părinte.
+-- Între ORICE roluri: elev–profesor, elev–părinte, profesor–părinte, elev–elev…
+-- `role` de mai jos = rolul CELUI CARE A TRIMIS cererea (rolul celuilalt se
+-- citește din profilul lui, fiindcă acum pot fi diferite).
 create table if not exists public.buddies (
   id           uuid primary key default gen_random_uuid(),
   requester_id uuid references auth.users(id) on delete cascade not null,

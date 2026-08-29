@@ -8,9 +8,9 @@
 //     Lângă fiecare nume, rolul în paranteză. Din grupă NU se pot deschide
 //     discuții 1-la-1.
 //
-//   • COLEGI ('direct') — discuții 1-la-1 pe tot site-ul, între conturi de
-//     același fel care s-au acceptat ca „colegi" (api/colegi.js). Nu au
-//     legătură cu grupele.
+//   • COLEGI ('direct') — discuții 1-la-1 pe tot site-ul, între oricine s-au
+//     acceptat ca „colegi" (api/colegi.js): elev–profesor, elev–părinte,
+//     profesor–părinte etc. Nu au legătură cu grupele.
 //
 // În timpul unui TEST PE GRUPĂ, mesageria elevului se OPREȘTE automat:
 // `group_assignment_picks.active_until` e în viitor și testul nu e trimis →
@@ -23,7 +23,7 @@
 //   messages   : { threadId, limit } → mesajele (și le marchează citite)
 //   send       : { threadId, body, attachment } → trimite un mesaj
 //   read       : { threadId } → marchează citit
-//   unread     : numărul total de mesaje necitite
+//   unread     : mesajele necitite (bulina roșie din bara de sus)
 //   attachables: (profesor) temele și testele care se pot trimite ca link
 //
 // Tabele: supabase/mesagerie.sql
@@ -138,6 +138,14 @@ async function areBuddies(supa, a, b) {
     .or(`and(requester_id.eq.${a},addressee_id.eq.${b}),and(requester_id.eq.${b},addressee_id.eq.${a})`)
     .limit(1);
   return !!(data && data.length);
+}
+
+// Doar id-urile colegilor acceptați (varianta ieftină, fără nume).
+async function buddyIds(supa, userId) {
+  const { data } = await supa.from('buddies')
+    .select('requester_id, addressee_id').eq('status', 'accepted')
+    .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`);
+  return new Set((data || []).map((l) => (l.requester_id === userId ? l.addressee_id : l.requester_id)));
 }
 
 // Colegii mei acceptați, cu nume și rol.
@@ -420,36 +428,54 @@ function sanitizeAttachment(a) {
   return { type, url: url.slice(0, 300), title: String(a.title || '').trim().slice(0, 140) || 'Temă' };
 }
 
-// ─── Necitite (pentru bulina din bara de sus) ────────────────────────────────
+// ─── Necitite (pentru BULINA ROȘIE din bara de sus) ──────────────────────────
+// Cerere ieftină, chemată periodic din bara de sus (src/lib/chatUnread.js):
+// o interogare pentru canalele de grupă, una pentru discuțiile 1-la-1 și una
+// pentru mesaje. Întoarce ȘI câte conversații au ceva nou, ca la Messenger.
 async function unread(req, res, supa) {
   const userId = await ai.authUser(req, supa);
+
   const { data: reads } = await supa.from('chat_reads')
     .select('thread_id, last_read_at').eq('user_id', userId);
   const readAt = {};
   (reads || []).forEach((r) => { readAt[r.thread_id] = r.last_read_at; });
 
-  const groups = await myGroups(supa, userId);
   const ids = [];
-  for (const g of groups) {
-    const { data: t } = await supa.from('chat_threads')
-      .select('id').eq('kind', 'group').eq('group_id', g.id).maybeSingle();
-    if (t) ids.push(t.id);
+
+  // canalele grupelor mele — o singură interogare, nu una per grupă
+  const groups = await myGroups(supa, userId);
+  const gids = groups.map((g) => g.id).filter(Boolean);
+  if (gids.length) {
+    const { data: gts } = await supa.from('chat_threads')
+      .select('id').eq('kind', 'group').in('group_id', gids);
+    (gts || []).forEach((t) => ids.push(t.id));
   }
+
+  // discuțiile 1-la-1: doar cu cei care îmi sunt ÎNCĂ colegi (ca în listă)
   const { data: dts } = await supa.from('chat_threads')
-    .select('id').eq('kind', 'direct').or(`member_a.eq.${userId},member_b.eq.${userId}`);
-  (dts || []).forEach((t) => ids.push(t.id));
-  if (!ids.length) return res.status(200).json({ count: 0 });
+    .select('id, member_a, member_b').eq('kind', 'direct')
+    .or(`member_a.eq.${userId},member_b.eq.${userId}`).limit(200);
+  if (dts && dts.length) {
+    const buddies = await buddyIds(supa, userId);
+    dts.forEach((t) => {
+      const other = t.member_a === userId ? t.member_b : t.member_a;
+      if (buddies.has(other)) ids.push(t.id);
+    });
+  }
+  if (!ids.length) return res.status(200).json({ count: 0, threads: 0 });
 
   const { data: msgs } = await supa.from('chat_messages')
     .select('thread_id, sender_id, created_at').in('thread_id', ids)
     .order('created_at', { ascending: false }).limit(500);
+
   let count = 0;
+  const noi = new Set();
   (msgs || []).forEach((m) => {
     if (m.sender_id === userId) return;
     const ra = readAt[m.thread_id];
-    if (!ra || new Date(m.created_at) > new Date(ra)) count += 1;
+    if (!ra || new Date(m.created_at) > new Date(ra)) { count += 1; noi.add(m.thread_id); }
   });
-  return res.status(200).json({ count });
+  return res.status(200).json({ count, threads: noi.size });
 }
 
 // ─── Ce poate atașa profesorul: temele și testele lui ────────────────────────
