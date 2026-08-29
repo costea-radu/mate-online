@@ -1,5 +1,5 @@
 // =====================================================================
-// src/components/ColegiiMei.jsx — „👥 Colegii mei" (pe tot site-ul)
+// src/components/ColegiiMei.jsx — „👥 Lista persoane" (pe tot site-ul)
 //
 // Ca la Facebook: cauți pe ORICINE, pe CATEGORII, în funcție de rolul tău —
 //   profesor → colegi profesori · elevi · părinți
@@ -8,15 +8,22 @@
 // îi trimiți cerere, iar după ACCEPTARE puteți discuta 1-la-1 oricând, din
 // Mesagerie — indiferent de grupă.
 //
-// Se montează în „Contul meu", sub cartonașul cu numele și tipul contului:
-//   • pe desktop — o fereastră cu câteva nume vizibile și derulare pentru rest;
-//   • pe mobil   — același conținut, ca tab cu rolldown.
+// Ordinea în panou: cererile primite → „➕ Caută pe cineva" (rolldown auriu) →
+// lista de persoane (câteva nume, restul prin derulare).
+//
+// Clic pe un nume → se deschide conversația cu el: pe /mesagerie direct în
+// fereastra de alături (`onOpenThread`), iar din „Contul meu" prin navigare.
 // =====================================================================
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
 
 const ROLE_ICON = { profesor: '🧑‍🏫', elev: '🎓', parinte: '👨‍👩‍👧' };
+
+// Câte nume se văd deodată; restul vin prin derulare.
+const VIZIBILE = 5;
+const VIZIBILE_LAT = 9;
+const INALTIME_RAND = 38;
 
 // Ecran îngust? (pentru rolldown-ul de mobil)
 export function useIsMobile(breakpoint = 768) {
@@ -40,8 +47,10 @@ export function useIsMobile(breakpoint = 768) {
 }
 
 // `wide` — panoul are loc (conversația din /mesagerie e închisă cu „✕"):
-// numele se văd întregi, lista e mai înaltă, iar căutarea pornește deschisă.
-export default function ColegiiMei({ defaultOpen = false, wide = false }) {
+// numele se văd întregi și lista e mai înaltă.
+// `onOpenThread(threadId)` — pagina care găzduiește panoul deschide singură
+// conversația, fără navigare (pe /mesagerie fereastra e chiar alături).
+export default function ColegiiMei({ defaultOpen = false, wide = false, onOpenThread = null }) {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
 
@@ -51,11 +60,8 @@ export default function ColegiiMei({ defaultOpen = false, wide = false }) {
   const [q, setQ] = useState('');
   const [found, setFound] = useState(null);
   const [searching, setSearching] = useState(false);
-  const [showSearch, setShowSearch] = useState(wide);
+  const [showSearch, setShowSearch] = useState(false);   // rolldown-ul de căutare
   const [cat, setCat] = useState(null);        // categoria în care caut ('elev' | 'profesor' | 'parinte')
-
-  // panoul lățit deschide singur căutarea (are loc s-o arate)
-  useEffect(() => { if (wide) setShowSearch(true); }, [wide]);
 
   const load = useCallback(async () => {
     try {
@@ -111,10 +117,16 @@ export default function ColegiiMei({ defaultOpen = false, wide = false }) {
     finally { setBusy(null); }
   }
 
+  // Clic pe un nume → conversația cu el. Dacă pagina o poate deschide singură
+  // (mesageria e chiar alături), i-o dăm; altfel mergem la /mesagerie cu firul
+  // deja ales, ca să nu mai fie nevoie de un al doilea clic acolo.
   async function openChat(id) {
-    setBusy(id);
-    try { await aiClient.chatDirect({ otherId: id }); navigate('/mesagerie'); }
-    catch (e) { setError(e.message); }
+    setBusy(id); setError(null);
+    try {
+      const r = await aiClient.chatDirect({ otherId: id });
+      if (onOpenThread) onOpenThread(r.threadId);
+      else navigate('/mesagerie', { state: { openThreadId: r.threadId } });
+    } catch (e) { setError(e.message); }
     finally { setBusy(null); }
   }
 
@@ -152,46 +164,25 @@ export default function ColegiiMei({ defaultOpen = false, wide = false }) {
         </div>
       )}
 
-      {/* lista de colegi: câteva nume vizibile, restul prin derulare */}
-      {colegi.length === 0 ? (
-        <p style={{ ...small, margin: '2px 0 8px' }}>
-          Încă nu ai pe nimeni în listă. Caută după nume — poți adăuga profesori, elevi sau părinți.
-        </p>
-      ) : (
-        <div style={{
-          maxHeight: wide ? 340 : 178, overflowY: 'auto', border: '1px solid var(--border)',
-          borderRadius: 10, background: '#fff', padding: 4, marginBottom: 8,
-        }}>
-          {colegi.map((c) => (
-            <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <button type="button" style={rowBtn} disabled={busy === c.id} onClick={() => openChat(c.id)}
-                title={`Scrie-i lui ${c.name}`}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--cream)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
-                <span style={{ fontSize: '1rem' }}>{ROLE_ICON[c.role] || '👤'}</span>
-                <span style={{
-                  flex: 1, minWidth: 0, color: 'var(--navy)', fontWeight: 600,
-                  ...(wide ? {} : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
-                }}>
-                  {c.name} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({c.roleLabel})</span>
-                </span>
-                <span style={{ ...small, whiteSpace: 'nowrap' }}>💬</span>
-              </button>
-              <button type="button" title="Scoate din colegi" disabled={busy === c.id} onClick={() => drop(c.id, c.name)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontSize: '.8rem', padding: '0 4px' }}>✕</button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* căutare */}
+      {/* Căutarea stă PRIMA, ca rolldown auriu — se vede din prima ce se poate face aici. */}
       <button type="button" onClick={() => setShowSearch((v) => !v)}
-        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--navy)', fontWeight: 700, fontSize: '.82rem', fontFamily: 'var(--font-body)' }}>
-        {showSearch ? '▾' : '▸'} ➕ Caută pe cineva
+        aria-expanded={showSearch}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+          background: showSearch ? 'var(--gold)' : 'rgba(232,185,49,.18)',
+          border: '1.5px solid var(--gold)', borderRadius: 10, padding: '9px 12px',
+          cursor: 'pointer', color: 'var(--navy)', fontWeight: 800, fontSize: '.84rem',
+          fontFamily: 'var(--font-body)', marginBottom: showSearch ? 0 : 10,
+        }}>
+        <span style={{ flex: 1 }}>➕ Caută pe cineva</span>
+        <span style={{ fontSize: '.72rem', opacity: .7 }}>{showSearch ? '▲' : '▼'}</span>
       </button>
 
       {showSearch && (
-        <div style={{ marginTop: 8 }}>
+        <div style={{
+          border: '1.5px solid var(--gold)', borderTop: 'none', borderRadius: '0 0 10px 10px',
+          padding: '10px 12px', marginBottom: 10, background: 'rgba(232,185,49,.06)',
+        }}>
           {/* Categoria în care caut: colegi / profesori / elevi / părinți */}
           {categorii.length > 1 && (
             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 7 }}>
@@ -269,6 +260,40 @@ export default function ColegiiMei({ defaultOpen = false, wide = false }) {
         </div>
       )}
 
+      {/* Lista de persoane: câteva nume vizibile, restul prin derulare.
+          Clic pe un nume → conversația cu el. */}
+      {colegi.length === 0 ? (
+        <p style={{ ...small, margin: '2px 0 8px' }}>
+          Încă nu ai pe nimeni în listă. Caută după nume — poți adăuga profesori, elevi sau părinți.
+        </p>
+      ) : (
+        <div style={{
+          maxHeight: (wide ? VIZIBILE_LAT : VIZIBILE) * INALTIME_RAND, overflowY: 'auto',
+          border: '1px solid var(--border)', borderRadius: 10, background: '#fff',
+          padding: 4, marginBottom: 8,
+        }}>
+          {colegi.map((c) => (
+            <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button type="button" style={rowBtn} disabled={busy === c.id} onClick={() => openChat(c.id)}
+                title={`Scrie-i lui ${c.name}`}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--cream)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                <span style={{ fontSize: '1rem' }}>{ROLE_ICON[c.role] || '👤'}</span>
+                <span style={{
+                  flex: 1, minWidth: 0, color: 'var(--navy)', fontWeight: 600,
+                  ...(wide ? {} : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
+                }}>
+                  {c.name} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({c.roleLabel})</span>
+                </span>
+                <span style={{ ...small, whiteSpace: 'nowrap' }}>💬</span>
+              </button>
+              <button type="button" title="Scoate din listă" disabled={busy === c.id} onClick={() => drop(c.id, c.name)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontSize: '.8rem', padding: '0 4px' }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {error && <div style={{ fontSize: '.78rem', color: '#b71c1c', marginTop: 6 }}>⚠️ {error}</div>}
 
       <button type="button" onClick={() => navigate('/mesagerie')}
@@ -279,7 +304,7 @@ export default function ColegiiMei({ defaultOpen = false, wide = false }) {
   );
 
   const titlu = (
-    <>👥 Colegii mei{colegi.length ? ` (${colegi.length})` : ''}
+    <>👥 Lista persoane{colegi.length ? ` (${colegi.length})` : ''}
       {incoming.length > 0 && (
         <span style={{ marginLeft: 6, background: '#e74c3c', color: '#fff', borderRadius: 10, fontSize: '.66rem', fontWeight: 700, padding: '1px 6px' }}>
           {incoming.length}

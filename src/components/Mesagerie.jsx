@@ -26,6 +26,12 @@ import { setChatUnread } from '../lib/chatUnread';
 const ROLE_TAG = { profesor: 'profesor', elev: 'elev', parinte: 'părinte' };
 const ROLE_ICON = { profesor: '🧑‍🏫', elev: '🎓', parinte: '👨‍👩‍👧' };
 
+// Câte conversații / nume se văd deodată; restul vin prin derulare.
+const CONV_VIZIBILE = 5;
+const INALTIME_CONV = 58;
+const PERSOANE_VIZIBILE = 5;
+const INALTIME_PERSOANA = 38;
+
 // ─── TIMP REAL ───────────────────────────────────────────────────────────────
 // Mesajele apar instant, prin Supabase Realtime, pe câte un canal de tip
 // „broadcast" per conversație (`mesagerie:<threadId>`). Cine trimite un mesaj
@@ -57,8 +63,10 @@ function fmtTime(iso) {
 }
 
 // `onOpenChange(deschis)` — pagina care găzduiește mesageria află când
-// conversația e închisă cu „✕", ca să lățească panoul „Colegii mei".
-export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = null }) {
+// conversația e închisă cu „✕", ca să lățească panoul „Lista persoane".
+// `openRequest` — { id, n }: firul cerut din afară (clic pe un nume din listă).
+// `n` crește la fiecare clic, ca aceeași persoană să poată fi redeschisă.
+export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = null, openRequest = null }) {
   const navigate = useNavigate();
   const { isTeacher, isAdmin } = useAuth();
   const onlyGroups = scope === 'group';
@@ -92,13 +100,24 @@ export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = 
   useEffect(() => {
     const list = data?.threads;
     if (!list) return;
+    const cuNoi = list.filter((t) => (t.unread || 0) > 0);
+    const celMaiNou = cuNoi
+      .slice()
+      .sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0))[0];
     setChatUnread({
       count: list.reduce((a, t) => a + (t.unread || 0), 0),
-      threads: list.filter((t) => (t.unread || 0) > 0).length,
+      threads: cuNoi.length,
+      last: celMaiNou?.last ? {
+        threadId: celMaiNou.id,
+        senderName: celMaiNou.last.senderName || 'Cineva',
+        roleLabel: celMaiNou.kind === 'direct' ? (celMaiNou.roleLabel || '') : '',
+        body: celMaiNou.last.body || '',
+        at: celMaiNou.last.at,
+      } : null,
     });
   }, [data]);
 
-  // „✕" pe conversația deschisă: rămâne doar lista, iar pagina lățește „Colegii mei"
+  // „✕" pe conversația deschisă: rămâne doar lista, iar pagina lățește „Lista persoane"
   function closeThread() {
     setActive(null); setMsgs(null); setMembers([]); setTitle('');
     setText(''); setAttach(null); setShowAttach(false); setError(null);
@@ -130,6 +149,15 @@ export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = 
     openedRef.current = true;
     openThread((threads.find((t) => t.unread > 0) || threads[0]).id);
   }, [threads, openThread]);
+
+  // Clic pe un nume din „Lista persoane" → firul cerut se deschide aici, chiar
+  // dacă e o conversație nou-creată (o mai aducem o dată în listă).
+  useEffect(() => {
+    if (!openRequest?.id) return;
+    openedRef.current = true;
+    openThread(openRequest.id);
+    loadThreads();
+  }, [openRequest, openThread, loadThreads]);
 
   // ── TIMP REAL ─────────────────────────────────────────────────────────────
   // Reîncarcă firul deschis fără să depindă de starea din closure (îl chemăm
@@ -287,7 +315,7 @@ export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = 
               ? <>Nu ai încă nicio grupă cu elevi. Fă o grupă în „Grupe / Rezultate elevi" și adaugă elevi în ea — apoi aici apare canalul grupei, cu elevii și părinții lor.</>
               : <>Canalul grupei se deschide după ce profesorul tău te pune într-o grupă. Cere-i linkul de asociere sau codul lui de profesor.</>
           ) : (
-            <>Nicio conversație încă. Caută-ți oamenii din „👥 Colegii mei" (Contul meu) — profesori, elevi sau părinți — și, după ce cererea e acceptată, puteți discuta 1-la-1.</>
+            <>Nicio conversație încă. Caută-ți oamenii din „👥 Lista persoane" (Contul meu) — profesori, elevi sau părinți — și, după ce cererea e acceptată, puteți discuta 1-la-1.</>
           )}
         </div>
       </div>
@@ -305,13 +333,56 @@ export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = 
           gridTemplateColumns: active ? 'minmax(0, 210px) minmax(0, 1fr)' : 'minmax(0, 1fr)',
           gap: 12, alignItems: 'stretch',
         }}>
-        {/* ── Lista de conversații ───────────────────────────────────────── */}
-        <div style={{ ...box, display: 'flex', flexDirection: 'column', maxHeight: height }}>
+        {/* ── Coloana din stânga: întâi „Scrie cuiva", apoi conversațiile ── */}
+        {/* `alignSelf: start` — cartonașul se oprește sub ultima conversație,
+            nu se întinde degeaba cât fereastra de mesaje de alături. */}
+        <div style={{ ...box, display: 'flex', flexDirection: 'column', maxHeight: height, alignSelf: 'start' }}>
           <div style={{ padding: '9px 12px', borderBottom: '1px solid var(--border)', fontSize: '.72rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
             <span>{onlyGroups ? 'Canalul grupei' : 'Conversații'}</span>
             {!active && <span style={{ fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>alege una ca să o deschizi</span>}
           </div>
-          <div style={{ overflowY: 'auto', flex: 1 }}>
+
+          {/* „Scrie cuiva din listă" — primul, cu altă culoare, ca rolldown.
+              Doar în mesageria de pe tot site-ul (canalul grupei n-are 1-la-1). */}
+          {!onlyGroups && (
+            <div style={{ borderBottom: '1px solid var(--border)' }}>
+              <button type="button" onClick={() => setShowPeople((v) => !v)} aria-expanded={showPeople}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+                  background: showPeople ? 'var(--gold)' : 'rgba(232,185,49,.18)',
+                  border: 'none', borderBottom: showPeople ? '1px solid var(--border)' : 'none',
+                  padding: '10px 12px', cursor: 'pointer', color: 'var(--navy)',
+                  fontWeight: 800, fontSize: '.82rem', fontFamily: 'var(--font-body)',
+                }}>
+                <span>✍️</span>
+                <span style={{ flex: 1 }}>Scrie cuiva din listă</span>
+                <span style={{ fontSize: '.7rem', opacity: .7 }}>{showPeople ? '▲' : '▼'}</span>
+              </button>
+              {showPeople && (
+                <div style={{ maxHeight: PERSOANE_VIZIBILE * INALTIME_PERSOANA, overflowY: 'auto' }}>
+                  {colegi.length === 0 ? (
+                    <div style={{ padding: '9px 12px', fontSize: '.76rem', color: 'var(--text-muted)' }}>
+                      Nu ai încă pe nimeni în listă. Îi cauți din „👥 Lista persoane", în dreapta.
+                    </div>
+                  ) : colegi.map((c) => (
+                    <button key={c.id} type="button" disabled={busy} onClick={() => startDirect(c.id)}
+                      style={{ ...sideBtn(false), fontSize: '.8rem' }}>
+                      <span>{ROLE_ICON[c.role] || '💬'}</span>
+                      <span style={{ flex: 1, minWidth: 0, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {c.name} <span style={{ color: 'var(--text-muted)' }}>({c.roleLabel})</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Conversațiile: câteva vizibile, restul prin derulare */}
+          <div style={{
+            overflowY: 'auto', maxHeight: CONV_VIZIBILE * INALTIME_CONV,
+            flex: '0 1 auto', minHeight: 0,
+          }}>
             {threads.map((t) => (
               <button key={t.id} type="button" style={sideBtn(t.id === active)} onClick={() => openThread(t.id)}>
                 <span style={{ fontSize: '1.05rem' }}>{t.kind === 'group' ? '👥' : (ROLE_ICON[t.role] || '💬')}</span>
@@ -330,34 +401,6 @@ export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = 
               </button>
             ))}
           </div>
-
-          {/* colegii: doar în mesageria de pe tot site-ul */}
-          {!onlyGroups && (
-            <div style={{ borderTop: '1px solid var(--border)' }}>
-              <button type="button" onClick={() => setShowPeople((v) => !v)}
-                style={{ ...sideBtn(false), borderBottom: 'none', fontWeight: 700, color: 'var(--navy)', fontSize: '.8rem' }}>
-                <span>👥</span><span style={{ flex: 1 }}>Scrie cuiva din listă</span>
-                <span style={{ color: 'var(--text-muted)', fontSize: '.75rem' }}>{showPeople ? '▾' : '▸'}</span>
-              </button>
-              {showPeople && (
-                <div style={{ maxHeight: 170, overflowY: 'auto', borderTop: '1px solid var(--border)' }}>
-                  {colegi.length === 0 ? (
-                    <div style={{ padding: '9px 12px', fontSize: '.76rem', color: 'var(--text-muted)' }}>
-                      Nu ai încă pe nimeni în listă. Îi cauți din „👥 Colegii mei", în Contul meu.
-                    </div>
-                  ) : colegi.map((c) => (
-                    <button key={c.id} type="button" disabled={busy} onClick={() => startDirect(c.id)}
-                      style={{ ...sideBtn(false), fontSize: '.8rem' }}>
-                      <span>{ROLE_ICON[c.role] || '💬'}</span>
-                      <span style={{ flex: 1, minWidth: 0, color: 'var(--navy)' }}>
-                        {c.name} <span style={{ color: 'var(--text-muted)' }}>({c.roleLabel})</span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
         {/* ── Conversația deschisă ───────────────────────────────────────── */}

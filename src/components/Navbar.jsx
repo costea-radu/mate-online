@@ -6,6 +6,7 @@ import AINotifications from './AINotifications';
 import EinsteinIcon from './EinsteinIcon';
 import { aiAssistantLabel } from '../lib/aiLabel';
 import { useChatUnread, refreshChatUnread } from '../lib/chatUnread';
+import ChatAlerts from './ChatAlerts';
 
 const CLASE = [
   { to: '/clase/5',  label: 'Clasa a V-a' },
@@ -802,6 +803,9 @@ export default function Navbar() {
         chatUnread={chatUnread}
         onSignOut={handleSignOut}
       />
+
+      {/* Sunet + vibrație + bulă pe ecran la mesaj nou */}
+      <ChatAlerts />
     </>
   );
 }

@@ -14,7 +14,7 @@
 //   • căutarea cere minimum 3 caractere și întoarce DOAR numele și rolul
 //     (niciodată e-mailul);
 //   • se caută doar printre cei care au lăsat pornit „Pot fi găsit de colegi"
-//     (`profiles.colegi_discoverable`, comutator în „Colegii mei");
+//     (`profiles.colegi_discoverable`, comutator în „Lista persoane");
 //   • nimeni nu poate scrie nimănui până când cererea NU e acceptată.
 //
 // POST { action, ... }
@@ -206,7 +206,7 @@ async function request(req, res, supa) {
     await ai.createNotification(supa, {
       recipientId: otherId, type: 'coleg',
       title: `${nameOf(profile)} (${ROLE_LABEL[role] || role}) vrea să vă fiți colegi`,
-      body: 'Acceptă din „Colegii mei", în Contul meu.',
+      body: 'Acceptă din „Lista persoane", în Contul meu.',
       data: { url: '/profil?colegi=1' },
       dedupeKey: `coleg_req:${userId}:${otherId}`, dedupeDays: 14,
     });

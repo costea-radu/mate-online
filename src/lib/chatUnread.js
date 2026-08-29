@@ -21,7 +21,10 @@ import { aiClient } from './aiClient';
 const POLL = 30000;     // cât de des întrebăm serverul, cu tabul vizibil
 const MIN_GAP = 4000;   // nu batem serverul mai des de atât
 
-let state = { count: 0, threads: 0 };
+// `loaded` = am primit măcar o dată un număr REAL de la server. Alerta de
+// mesaj nou se uită la el ca să nu sune la prima încărcare, pentru mesaje
+// vechi necitite.
+let state = { count: 0, threads: 0, last: null, loaded: false };
 const subs = new Set();
 let timer = null;
 let lastAt = 0;
@@ -33,7 +36,11 @@ function emit() {
 }
 
 function setState(next) {
-  if (next.count === state.count && next.threads === state.threads) return;
+  const laFel = next.count === state.count
+    && next.threads === state.threads
+    && next.loaded === state.loaded
+    && (next.last?.at || null) === (state.last?.at || null);
+  if (laFel) return;
   state = next;
   emit();
 }
@@ -49,6 +56,8 @@ async function fetchUnread(force = false) {
       setState({
         count: Math.max(0, Number(r?.count) || 0),
         threads: Math.max(0, Number(r?.threads) || 0),
+        last: r?.last || null,
+        loaded: true,
       });
     } catch {
       // rețea sau sesiune expirată → păstrăm ultima valoare, reîncercăm la tic
@@ -86,12 +95,22 @@ export function refreshChatUnread(force = true) {
  * Numărul exact, aflat din altă parte (mesageria îl are deja în lista de
  * conversații). Bulina se potrivește pe loc, fără încă o cerere la server.
  */
-export function setChatUnread({ count = 0, threads = 0 } = {}) {
+export function setChatUnread({ count = 0, threads = 0, last = null } = {}) {
   lastAt = Date.now();
-  setState({ count: Math.max(0, Number(count) || 0), threads: Math.max(0, Number(threads) || 0) });
+  setState({
+    count: Math.max(0, Number(count) || 0),
+    threads: Math.max(0, Number(threads) || 0),
+    last: last || null,
+    loaded: true,
+  });
 }
 
-/** Numărul de mesaje necitite: { count, threads }. `enabled` = utilizator logat. */
+/**
+ * Mesajele necitite: { count, threads, last, loaded } — `last` e cel mai nou
+ * mesaj necitit (expeditor + început de text), folosit de alerta de pe ecran;
+ * `loaded` spune dacă numărul a venit deja de la server măcar o dată.
+ * `enabled` = utilizator logat.
+ */
 export function useChatUnread(enabled = true) {
   const [val, setVal] = useState(state);
 
@@ -99,8 +118,8 @@ export function useChatUnread(enabled = true) {
     if (!enabled) {
       logat = false;
       lastAt = 0;
-      setState({ count: 0, threads: 0 });
-      setVal({ count: 0, threads: 0 });
+      setState({ count: 0, threads: 0, last: null, loaded: false });
+      setVal(state);
       return undefined;
     }
     logat = true;

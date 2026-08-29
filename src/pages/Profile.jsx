@@ -178,7 +178,7 @@ export default function Profile() {
     try { return new URLSearchParams(window.location.search).has('mesagerie'); }
     catch { return false; }
   });
-  // „👥 Colegii mei" pornește deschis când vii dintr-o cerere de coleg
+  // „👥 Lista persoane" pornește deschis când vii dintr-o cerere de coleg
   // (/profil?colegi=1).
   const [colegiOpen] = useState(() => {
     try { return new URLSearchParams(window.location.search).has('colegi'); }
@@ -554,7 +554,7 @@ export default function Profile() {
               )}
             </div>
 
-            {/* Colegii mei — sub cartonașul cu numele și tipul contului.
+            {/* Lista persoane — sub cartonașul cu numele și tipul contului.
                 Pe desktop: fereastră cu câteva nume și derulare pentru rest.
                 Pe mobil: același conținut, ca tab cu rolldown. */}
             <ColegiiMei defaultOpen={colegiOpen} />
@@ -616,7 +616,7 @@ export default function Profile() {
                 <Mesagerie scope="group" />
                 <p style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: 10 }}>
                   Aici se scrie doar pe canalul grupei. Pentru discuții 1-la-1, adaugă-ți colegi din
-                  „👥 Colegii mei" și deschide <Link to="/mesagerie" style={{ color: 'var(--navy)', fontWeight: 600 }}>💬 Mesageria</Link>.
+                  „👥 Lista persoane" și deschide <Link to="/mesagerie" style={{ color: 'var(--navy)', fontWeight: 600 }}>💬 Mesageria</Link>.
                 </p>
               </div>
             </details>

@@ -6,19 +6,32 @@
 // Se ajunge aici din bara de sus → „Mai multe" → 💬 Mesagerie, iar pe mobil
 // din meniul burger.
 //
-// Când conversația e închisă cu „✕", panoul „Colegii mei" se lățește, ca
+// Când conversația e închisă cu „✕", panoul „Lista persoane" se lățește, ca
 // numele și butoanele să încapă întregi.
 // =====================================================================
 import { useCallback, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Mesagerie from '../components/Mesagerie';
 import ColegiiMei from '../components/ColegiiMei';
 
 export default function MesageriePage() {
   const { user, loading } = useAuth();
+  const location = useLocation();
   const [chatOpen, setChatOpen] = useState(true);
   const onOpenChange = useCallback((open) => setChatOpen(open), []);
+
+  // Clic pe un nume din „Lista persoane" → conversația cu el se deschide în
+  // fereastra de alături. `n` crește la fiecare clic, ca să meargă și
+  // redeschiderea aceleiași persoane după ce ai închis conversația cu „✕".
+  // Venind din „Contul meu", firul ales ajunge aici prin starea navigării.
+  const [openRequest, setOpenRequest] = useState(
+    () => (location.state?.openThreadId ? { id: location.state.openThreadId, n: 1 } : null),
+  );
+  const alegePersoana = useCallback((threadId) => {
+    setChatOpen(true);
+    setOpenRequest((c) => ({ id: threadId, n: (c?.n || 0) + 1 }));
+  }, []);
 
   if (loading) return <div style={{ padding: 60, textAlign: 'center' }}><div className="spinner" /></div>;
 
@@ -45,7 +58,7 @@ export default function MesageriePage() {
       </p>
 
       {/* Conversație deschisă → mesageria ia partea mare. Închisă cu „✕" →
-          „Colegii mei" se lățește și se vede tot: nume, roluri, butoane. */}
+          „Lista persoane" se lățește și se vede tot: nume, roluri, butoane. */}
       <div className="mesagerie-page-grid"
         style={{
           display: 'grid',
@@ -55,10 +68,10 @@ export default function MesageriePage() {
           gap: 20, alignItems: 'start',
         }}>
         <div style={{ minWidth: 0 }}>
-          <Mesagerie scope="all" height={540} onOpenChange={onOpenChange} />
+          <Mesagerie scope="all" height={540} onOpenChange={onOpenChange} openRequest={openRequest} />
         </div>
         <div style={{ minWidth: 0 }}>
-          <ColegiiMei defaultOpen wide={!chatOpen} />
+          <ColegiiMei defaultOpen wide={!chatOpen} onOpenThread={alegePersoana} />
         </div>
       </div>
 

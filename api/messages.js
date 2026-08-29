@@ -148,7 +148,7 @@ async function buddyIds(supa, userId) {
   return new Set((data || []).map((l) => (l.requester_id === userId ? l.addressee_id : l.requester_id)));
 }
 
-// Colegii mei acceptați, cu nume și rol.
+// Oamenii din lista mea (cereri acceptate), cu nume și rol.
 async function myBuddies(supa, userId) {
   const { data } = await supa.from('buddies')
     .select('requester_id, addressee_id').eq('status', 'accepted')
@@ -302,7 +302,7 @@ async function direct(req, res, supa) {
   if (otherId === userId) return res.status(400).json({ error: 'Nu îți poți scrie ție.' });
 
   if (!(await areBuddies(supa, userId, otherId))) {
-    return res.status(403).json({ error: 'Poți discuta 1-la-1 doar cu colegii tăi. Trimite-i mai întâi o cerere din „Colegii mei".' });
+    return res.status(403).json({ error: 'Poți discuta 1-la-1 doar cu colegii tăi. Trimite-i mai întâi o cerere din „Lista persoane".' });
   }
   const info = await namesOf(supa, [otherId]);
 
@@ -465,17 +465,32 @@ async function unread(req, res, supa) {
   if (!ids.length) return res.status(200).json({ count: 0, threads: 0 });
 
   const { data: msgs } = await supa.from('chat_messages')
-    .select('thread_id, sender_id, created_at').in('thread_id', ids)
+    .select('thread_id, sender_id, sender_name, sender_role, body, attachment, created_at')
+    .in('thread_id', ids)
     .order('created_at', { ascending: false }).limit(500);
 
   let count = 0;
+  let last = null;              // cel mai nou mesaj necitit (pentru alerta de pe ecran)
   const noi = new Set();
   (msgs || []).forEach((m) => {
     if (m.sender_id === userId) return;
     const ra = readAt[m.thread_id];
-    if (!ra || new Date(m.created_at) > new Date(ra)) { count += 1; noi.add(m.thread_id); }
+    if (!ra || new Date(m.created_at) > new Date(ra)) {
+      count += 1;
+      noi.add(m.thread_id);
+      if (!last) {
+        last = {
+          threadId: m.thread_id,
+          senderName: m.sender_name || 'Cineva',
+          senderRole: m.sender_role || null,
+          roleLabel: ROLE_LABEL[m.sender_role] || '',
+          body: String(m.body || (m.attachment ? `🔗 ${m.attachment.title || 'link'}` : '')).slice(0, 140),
+          at: m.created_at,
+        };
+      }
+    }
   });
-  return res.status(200).json({ count, threads: noi.size });
+  return res.status(200).json({ count, threads: noi.size, last });
 }
 
 // ─── Ce poate atașa profesorul: temele și testele lui ────────────────────────

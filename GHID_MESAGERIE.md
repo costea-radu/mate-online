@@ -1,4 +1,4 @@
-# Mesagerie și colegi
+# Mesagerie și lista de persoane
 
 Două lucruri diferite, care folosesc aceleași mesaje:
 
@@ -22,7 +22,7 @@ Idempotent. Creează:
 
 | Tabel | Rol |
 |---|---|
-| `chat_threads` | conversațiile: canalul unei grupe (`kind='group'`) sau o discuție 1-la-1 între colegi (`kind='direct'`) |
+| `chat_threads` | conversațiile: canalul unei grupe (`kind='group'`) sau o discuție 1-la-1 (`kind='direct'`) |
 | `chat_messages` | mesajele, cu numele și rolul expeditorului salvate ca snapshot |
 | `chat_reads` | ce a citit fiecare (bulina de necitite) |
 | `buddies` | colegii: cerere → acceptare, doar între conturi de același fel |
@@ -62,15 +62,60 @@ la 30 s și **doar cu tabul vizibil**; revenirea pe fereastră aduce imediat
 numărul actualizat, iar două cereri nu pleacă niciodată la mai puțin de 4 s una
 de alta. Cât timp mesageria e deschisă nu se mai cere nimic în plus: numărul se
 ia din lista de conversații, pe care pagina o are oricum. Sursa:
-`POST /api/messages { action: 'unread' }` → `{ count, threads }`.
+`POST /api/messages { action: 'unread' }` → `{ count, threads, last }`.
 
-## 4. Colegii — ca la Facebook, pe tot site-ul
+## 4. Sunet, vibrație și alertă pe ecran
 
-În **Contul meu**, sub cartonașul cu numele și tipul contului, apare
-**„👥 Colegii mei"**:
+Când numărul de necitite **crește**, se întâmplă trei lucruri deodată
+(`src/lib/chatAlert.js` + `src/components/ChatAlerts.jsx`):
 
-- pe **desktop** — o fereastră cu câteva nume vizibile și **derulare** pentru rest;
-- pe **mobil** — același conținut, ca **tab cu rolldown**.
+| | Ce face | Unde merge |
+|---|---|---|
+| **Sunet** | „ding-dong" scurt, două note generate în browser (Web Audio) — niciun fișier de încărcat, merge și fără rețea | peste tot |
+| **Vibrație** | `navigator.vibrate([90, 60, 90])` | Android; iPhone o ignoră, fără eroare |
+| **Alertă pe ecran** | bulă în colțul de sus (pe mobil, bandă pe toată lățimea) cu **cine a scris** și începutul mesajului; clic pe ea → mesageria | peste tot |
+
+Browserele nu lasă niciun sunet să pornească înainte ca omul să fi atins pagina
+măcar o dată — de aceea contextul audio se deblochează singur la prima atingere
+sau apăsare de tastă.
+
+**Nu sună la prima citire**, deci încărcarea unei pagini cu mesaje vechi
+necitite nu declanșează nimic; sună doar când apare ceva nou.
+
+Din bulă se pot **opri sunetul și vibrația** („🔕") — ține de browserul acela
+(`localStorage`), iar bula rămâne. Tot din bulă se poate cere permisiunea de
+**notificări de sistem** („🔔 Alerte și când site-ul e în fundal"): atunci, cu
+tabul în fundal, mesajul apare și în afara paginii. Butonul se arată doar dacă
+browserul acceptă și nu s-a răspuns încă — permisiunea nu se cere niciodată din
+senin.
+
+> **Limita de acum:** alertele merg cât timp site-ul e **deschis** într-un tab
+> (fie și în fundal). Ca să sune pe telefon cu site-ul **închis** de tot e
+> nevoie de *service worker* + *web push* (chei VAPID, un tabel de abonări și
+> trimiterea din server) — nu e pus încă.
+
+Alerta se montează în bara de sus, deci **nu apare în vizualizatoarele pe tot
+ecranul**: în timpul unui test pe grupă nu sare nimic peste exerciții.
+
+## 5. „Lista persoane" — ca la Facebook, pe tot site-ul
+
+În **Contul meu** (sub cartonașul cu numele și tipul contului) și în dreapta
+paginii `/mesagerie` apare **„👥 Lista persoane"**, în ordinea asta:
+
+1. **cererile primite**, dacă sunt;
+2. **„➕ Caută pe cineva"** — rolldown auriu, închis la început;
+3. **lista de persoane** — 5 nume vizibile (9 când panoul e lățit), restul prin
+   derulare.
+
+**Clic pe un nume → se deschide conversația cu el.** Pe `/mesagerie`, direct în
+fereastra de alături; din „Contul meu", printr-un salt la `/mesagerie` cu firul
+deja ales (nu mai e nevoie de al doilea clic).
+
+Pe **mobil** tot panoul e un tab cu rolldown.
+
+La fel e și coloana **„Conversații"** din mesagerie: întâi **„✍️ Scrie cuiva
+din listă"** (rolldown auriu), apoi conversațiile — 5 vizibile, restul prin
+derulare.
 
 **Oricine poate căuta pe oricine**, pe categorii, în funcție de rolul lui:
 
@@ -82,7 +127,7 @@ ia din lista de conversații, pe care pagina o are oricum. Sursa:
 
 Categoriile sunt butoane deasupra căsuței de căutare; prima e mereu cea cu
 oameni ca tine. Schimbi categoria cu numele deja scris → se caută din nou, în
-ea. Lista de colegi e grupată la fel: întâi cei ca tine, apoi ceilalți.
+ea. Lista de persoane e grupată la fel: întâi cei ca tine, apoi ceilalți.
 
 Reguli (neschimbate de deschiderea pe roluri):
 
@@ -100,16 +145,16 @@ nevoie de nicio modificare în baza de date pentru asta.
 
 Clic pe un nume din listă → se deschide conversația în `/mesagerie`.
 
-## 5. Unde se ajunge la mesagerie
+## 6. Unde se ajunge la mesagerie
 
 - **Desktop**: iconița **💬** din dreapta sus (lângă clopoțel), sau
   „Mai multe" → **💬 Mesagerie**;
 - **Mobil**: meniul burger (☰) → **💬 Mesagerie**;
 - **Contul meu**: rolldown-ul „💬 Mesageria grupei" (doar canalele de grupă).
 
-Pagina `/mesagerie` are conversațiile în stânga și lista de colegi în dreapta.
+Pagina `/mesagerie` are conversațiile în stânga și „Lista persoane" în dreapta.
 
-## 6. Trimiterea temelor și a testelor pe mesagerie
+## 7. Trimiterea temelor și a testelor pe mesagerie
 
 Profesorul are în bara de scriere butonul **🔗**: alege una dintre temele sau
 testele lui, iar mesajul pleacă cu un **card apăsabil** care duce direct la
@@ -117,7 +162,7 @@ testele lui, iar mesajul pleacă cu un **card apăsabil** care duce direct la
 butoane **„💬 Trimite pe mesageria grupei"** apar și la linkurile proaspăt
 create. Serverul acceptă ca atașament **doar rute interne**.
 
-## 7. În timpul testelor se opresc mesageria ȘI Profesorul Virtual
+## 8. În timpul testelor se opresc mesageria ȘI Profesorul Virtual
 
 Când elevul apasă **„▶ Începe testul"** la un test pe grupă, i se opresc automat:
 
@@ -152,13 +197,13 @@ Se repornește când:
 generat) apare eticheta **„🔒 Test pe grupă în desfășurare — mesageria și
 Profesorul Virtual sunt oprite"**.
 
-## 8. Notificări
+## 9. Notificări
 
 La primul mesaj dintr-o conversație, ceilalți primesc notificare în clopoțel
 (`✉️`), **maximum una pe zi per conversație**. Cererile de coleg și acceptările
 vin tot acolo (`🤝`).
 
-## 9. Timp real
+## 10. Timp real
 
 Mesajele apar **instant**, prin Supabase Realtime: fiecare conversație are un
 canal de tip *broadcast* (`mesagerie:<threadId>`), la care clientul se abonează
@@ -184,12 +229,13 @@ ce s-a scris între timp.
 
 **Noi:** `supabase/mesagerie.sql`, `api/messages.js`, `api/colegi.js`,
 `api/_lib/testlock.js`, `src/lib/testMode.js`, `src/lib/chatUnread.js`,
-`src/components/Mesagerie.jsx`, `src/components/ColegiiMei.jsx`,
+`src/lib/chatAlert.js`, `src/components/Mesagerie.jsx`,
+`src/components/ColegiiMei.jsx`, `src/components/ChatAlerts.jsx`,
 `src/components/TestModeBadge.jsx`, `src/pages/MesageriePage.jsx`.
 
 **Modificate:** `src/lib/aiClient.js` (metodele `chat*` și `colegi*`),
 `src/App.jsx` (ruta `/mesagerie`), `src/components/Navbar.jsx` („Mai multe" +
-meniul burger), `src/pages/Profile.jsx` (canalul grupei + „Colegii mei"),
+meniul burger), `src/pages/Profile.jsx` (canalul grupei + „Lista persoane"),
 `src/pages/GrupaTema.jsx` și `api/group-assignment.js` (oprirea mesageriei pe
 durata testului), `src/pages/InteractiveViewer.jsx`, `src/pages/PDFViewer.jsx`,
 `src/pages/ExercitiuAIViewer.jsx` (eticheta + ascunderea Profesorului Virtual),
