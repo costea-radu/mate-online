@@ -28,6 +28,9 @@ function shortName(full, fallback = 'Elev') {
 // ─── Starea elevului ────────────────────────────────────────────────────────
 async function state(supa, userId) {
   const day = xp.dayKey();
+  // Migrarea a fost rulată? Fără ea totul întoarce zerouri în tăcere, ceea ce
+  // arată identic cu „elev nou" — panoul de admin din /arena o semnalează.
+  const { error: eTabele } = await supa.from('user_stats').select('user_id').limit(1);
   const stats = await xp.ensureStats(supa, userId);
   const mission = await xp.ensureMission(supa, userId, day);
 
@@ -100,6 +103,7 @@ async function state(supa, userId) {
 
   return {
     ok: true,
+    setup: { tabele: !eTabele, mesaj: eTabele ? eTabele.message : null },
     stats: {
       totalXp: stats.total_xp || 0,
       monede: stats.coins || 0,

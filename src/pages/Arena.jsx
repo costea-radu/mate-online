@@ -30,7 +30,7 @@ function Eticheta({ children, culoare = 'var(--text-muted)' }) {
 }
 
 export default function Arena() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, isAdmin, loading: authLoading } = useAuth();
   const [s, setS] = useState(null);
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -95,6 +95,15 @@ export default function Arena() {
           {err && (
             <div style={{ ...cardStyle, borderColor: 'var(--danger)', color: 'var(--danger)' }}>
               {err}
+            </div>
+          )}
+
+          {isAdmin && s?.setup && !s.setup.tabele && (
+            <div style={{ ...cardStyle, borderColor: 'var(--danger)', background: 'rgba(231,76,60,0.06)' }}>
+              <strong style={{ color: 'var(--danger)' }}>Migrarea nu e rulată.</strong>{' '}
+              Rulează <code>supabase/gamificare_v2.sql</code> în Supabase → SQL Editor.
+              Până atunci Arena arată doar zerouri, iar XP-ul nu se salvează.
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 6 }}>{s.setup.mesaj}</div>
             </div>
           )}
 

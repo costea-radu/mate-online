@@ -29,6 +29,7 @@ const EXAMENE = [
 
 // „Mai multe" — pentru aerisirea barei principale
 const MAIMULTE = [
+  { to: '/arena',                      label: '⚔️ Arena matematică' },
   { to: '/mesagerie',                  label: '💬 Mesagerie' },
   { to: '/preturi',                    label: '💳 Abonament' },
   { to: '/manuale',                    label: '📖 Auxiliare' },
