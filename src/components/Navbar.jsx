@@ -70,7 +70,9 @@ function Bulina({ n, flotanta = false, titlu = 'mesaje noi' }) {
 }
 
 // ─── Desktop dropdown ─────────────────────────────────────────────────────────
-function DesktopDropdown({ label, items, badge = 0 }) {
+// `accent` = intrare principală (Examene, Clase): scoasă în evidență, fiindcă
+// de acolo intră elevii în materialele propriu-zise.
+function DesktopDropdown({ label, items, badge = 0, accent = false }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
   const location = useLocation();
@@ -88,11 +90,14 @@ function DesktopDropdown({ label, items, badge = 0 }) {
       <button
         onClick={() => setOpen(o => !o)}
         style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          color: open ? 'var(--gold)' : 'rgba(255,255,255,0.85)',
+          background: accent ? 'rgba(232,185,49,0.14)' : 'none',
+          border: accent ? '1px solid rgba(232,185,49,0.45)' : 'none',
+          borderRadius: accent ? 999 : 0,
+          cursor: 'pointer',
+          color: accent ? 'var(--gold)' : (open ? 'var(--gold)' : 'rgba(255,255,255,0.85)'),
           fontFamily: 'var(--font-body)', fontSize: '0.92rem',
-          fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4,
-          padding: '4px 0', transition: 'color 0.2s', whiteSpace: 'nowrap',
+          fontWeight: accent ? 700 : 500, display: 'flex', alignItems: 'center', gap: 4,
+          padding: accent ? '5px 14px' : '4px 0', transition: 'color 0.2s, background 0.2s', whiteSpace: 'nowrap',
         }}
       >
         {label}
@@ -705,8 +710,8 @@ export default function Navbar() {
 
           {/* Desktop nav links */}
           <ul className="navbar-links" style={{ alignItems: 'center' }}>
-            <li><DesktopDropdown label="Examene" items={EXAMENE} /></li>
-            <li><DesktopDropdown label="Clase" items={CLASE} /></li>
+            <li><DesktopDropdown label="🎓 Examene" items={EXAMENE} accent /></li>
+            <li><DesktopDropdown label="📚 Clase" items={CLASE} accent /></li>
             <li>
               {meditatiiInMaiMulte ? (
                 <Link to="/preturi" className={location.pathname === '/preturi' ? 'active' : ''}>

@@ -26,7 +26,7 @@ module.exports = async function handler(req, res) {
   try {
     const userId = await ai.authUser(req, supa);
     const profile = await ai.requireUser(supa, userId);
-    const { contentId, answers = null, score: sc0 = 0, maxScore: mx0 = 100, durationSec = 0, duelId = null } = req.body || {};
+    const { contentId, answers = null, score: sc0 = 0, maxScore: mx0 = 100, durationSec = 0, duelId = null, partial = false } = req.body || {};
     if (!contentId) return res.status(400).json({ error: 'contentId obligatoriu' });
 
     const { data: content } = await supa.from('content').select('*').eq('id', contentId).maybeSingle();
@@ -56,6 +56,45 @@ module.exports = async function handler(req, res) {
       const { data } = await supa.from('progress').select('attempts, time_spent, score, max_score').eq('user_id', userId).eq('content_id', content.id).maybeSingle();
       existing = data || null;
     } catch { /* prima încercare */ }
+
+    // ── SALVARE PARȚIALĂ (elevul e la jumătatea exercițiului) ────────────────
+    // Trimisă automat de InteractiveViewer, nu de un buton. Reguli stricte, ca
+    // să nu strice nimic din ce s-a câștigat deja:
+    //   · fără chei verificabile → o ignorăm (n-avem cum să o credem);
+    //   · NU coboară un scor mai bun deja salvat;
+    //   · NU numără o încercare și NU dă XP (altfel s-ar putea „fermenta" XP
+    //     lăsând pagina deschisă);
+    //   · duelul o reține ca rezultat provizoriu, turneul păstrează maximul.
+    if (partial) {
+      if (!v.verified) return res.status(200).json({ ok: false, partial: true, ignorat: 'neverificat' });
+      const vechi = existing && existing.max_score > 0 ? existing.score / existing.max_score : -1;
+      const nou = v.maxScore > 0 ? v.score / v.maxScore : 0;
+      let salvat = false;
+      if (nou > vechi) {
+        const bazaP = {
+          user_id: userId, content_id: content.id, score: v.score, max_score: v.maxScore,
+          completed_at: new Date().toISOString(), attempts: existing?.attempts || 0,
+        };
+        const snapP = { test_title: content.title || null, content_type: content.content_type || null, category: content.category || null };
+        let { error: eP } = await supa.from('progress').upsert({ ...bazaP, ...snapP }, { onConflict: 'user_id,content_id' });
+        if (eP) ({ error: eP } = await supa.from('progress').upsert(bazaP, { onConflict: 'user_id,content_id' }));
+        salvat = !eP;
+      }
+      const puncte = xp.computeXp({
+        score: v.score, maxScore: v.maxScore, correct: v.correct ?? null, total: v.total ?? null,
+        attempts: 1, difficulty: xp.difficultyOf(content), verified: true,
+      }).xp;
+      const dP = duelId
+        ? await duel.recordScore(supa, userId, duelId, { contentId: content.id, score: v.score, maxScore: v.maxScore, verified: true, partial: true })
+        : await duel.recordByContent(supa, userId, content.id, { score: v.score, maxScore: v.maxScore, partial: true });
+      const tP = puncte > 0
+        ? await turneu.recordScore(supa, userId, content.id, { points: puncte, pct: v.maxScore > 0 ? Math.round((v.score / v.maxScore) * 100) : 0 })
+        : null;
+      return res.status(200).json({
+        ok: true, partial: true, salvat, score: v.score, maxScore: v.maxScore,
+        duel: dP, turneu: tP,
+      });
+    }
     const attempts = (existing?.attempts || 0) + 1;
     const timeSpent = (existing?.time_spent || 0) + sessionSeconds;
     const base = { user_id: userId, content_id: content.id, score: v.score, max_score: v.maxScore, completed_at: new Date().toISOString(), attempts };

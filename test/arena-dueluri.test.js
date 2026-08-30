@@ -109,6 +109,32 @@ test('duel: nu poți juca într-un duel în care nu ești parte', async () => {
   assert.strictEqual(r, null);
 });
 
+test('duel: salvarea parțială nu poate înlocui un rezultat final', async () => {
+  const d = { id: 'd6', ...baza, status: 'activ', content_id: 'm1',
+    challenger_score: 9, challenger_max: 10, challenger_partial: false };
+  const r = await duel.recordScore(fakeSupa(d), A, 'd6', {
+    contentId: 'm1', score: 3, maxScore: 10, verified: true, partial: true,
+  });
+  assert.deepStrictEqual(r, { deja: true });
+});
+
+test('duel: un rezultat provizoriu mai slab nu îl coboară pe cel bun', async () => {
+  const d = { id: 'd7', ...baza, status: 'activ', content_id: 'm1',
+    challenger_score: 8, challenger_max: 10, challenger_partial: true };
+  const slab = await duel.recordScore(fakeSupa(d), A, 'd7', {
+    contentId: 'm1', score: 4, maxScore: 10, verified: true, partial: true,
+  });
+  assert.deepStrictEqual(slab, { partial: true, pastrat: true });
+});
+
+test('duel: XP-ul urmează rezultatul, nu doar victoria', () => {
+  const laLimita = duel.xpDuel(duel.XP_INFRANGERE, 85);   // pierdut, dar 85%
+  const cuChiu = duel.xpDuel(duel.XP_VICTORIE, 30);       // câștigat, dar 30%
+  assert.ok(laLimita > duel.XP_INFRANGERE, 'procentul adaugă XP');
+  assert.ok(cuChiu < duel.xpDuel(duel.XP_VICTORIE, 100), 'victoria slabă nu ia maximum');
+  assert.strictEqual(duel.xpDuel(duel.XP_VICTORIE, 0), duel.XP_VICTORIE);
+});
+
 test('harta: capitolele unei categorii sunt în ordinea programei', () => {
   const c7 = harta.capitoleleCategoriei('clasa-7');
   assert.ok(c7.length >= 5);

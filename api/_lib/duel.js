@@ -139,8 +139,16 @@ async function create(supa, userId, { opponentId, contentId }, { isPremium }) {
   if (!opponentId || !contentId) return { error: 'Alege colegul și exercițiul.' };
   if (opponentId === userId) return { error: 'Nu te poți provoca pe tine.' };
 
-  if (!await suntColegi(supa, userId, opponentId)) {
-    return { error: 'Poți provoca doar colegii din lista ta. Trimite-i mai întâi o cerere de coleg.' };
+  // Provocarea nu mai cere să fiți colegi: poți provoca pe ORICINE de pe site,
+  // atâta timp cât persoana e găsibilă („Colegii mei" → poate fi găsit) sau vă
+  // știți deja. Supapele rămân: acceptarea duelurilor, limita zilnică și o
+  // singură provocare deschisă între aceiași doi elevi.
+  const { data: adv } = await supa.from('profiles')
+    .select('id, colegi_discoverable, subscription_status, is_admin')
+    .eq('id', opponentId).maybeSingle();
+  if (!adv) return { error: 'Persoana nu există.' };
+  if (adv.colegi_discoverable === false && !await suntColegi(supa, userId, opponentId)) {
+    return { error: 'Persoana nu poate fi provocată (și-a oprit găsirea în căutare).' };
   }
 
   // adversarul acceptă dueluri?
@@ -163,7 +171,6 @@ async function create(supa, userId, { opponentId, contentId }, { isPremium }) {
     return { error: 'Alege un exercițiu interactiv sau un test PDF.' };
   }
   if (!content.is_free) {
-    const { data: adv } = await supa.from('profiles').select('subscription_status, is_admin').eq('id', opponentId).maybeSingle();
     const advPremium = adv?.is_admin || adv?.subscription_status === 'active';
     if (!isPremium || !advPremium) {
       return { error: 'Exercițiul e premium, iar unul dintre voi nu are abonament. Alege un exercițiu gratuit.' };
@@ -233,7 +240,7 @@ async function start(supa, userId, duelId) {
 }
 
 // ─── Rezultatul (apelat DOAR din api/ai-score.js, cu scorul verificat) ──────
-async function recordScore(supa, userId, duelId, { contentId, score, maxScore, verified = true }) {
+async function recordScore(supa, userId, duelId, { contentId, score, maxScore, verified = true, partial = false }) {
   try {
     const { data: d } = await supa.from('duels').select('*').eq('id', duelId).maybeSingle();
     if (!d || !esteParte(d, userId)) return null;
@@ -248,7 +255,17 @@ async function recordScore(supa, userId, duelId, { contentId, score, maxScore, v
     if (!verified) return { neverificat: true };
 
     const eu = d.challenger_id === userId ? 'challenger' : 'opponent';
-    if (d[`${eu}_score`] != null) return { deja: true }; // o singură încercare per duel
+    // O singură încercare per duel — dar un rezultat PROVIZORIU (salvare
+    // automată la jumătate) poate fi îmbunătățit sau înlocuit de cel final.
+    const areRezultat = d[`${eu}_score`] != null;
+    const eProvizoriu = d[`${eu}_partial`] === true;
+    if (areRezultat && !eProvizoriu) return { deja: true };
+    // un provizoriu nu coboară un provizoriu mai bun
+    if (partial && areRezultat) {
+      const vechi = d[`${eu}_max`] > 0 ? d[`${eu}_score`] / d[`${eu}_max`] : -1;
+      const nou = maxScore > 0 ? score / maxScore : 0;
+      if (nou <= vechi) return { partial: true, pastrat: true };
+    }
 
     // Timpul: măsurat pe server, din momentul deschiderii exercițiului.
     const start = d[`${eu}_started_at`];
@@ -259,15 +276,23 @@ async function recordScore(supa, userId, duelId, { contentId, score, maxScore, v
     // provocatorul poate juca înainte ca adversarul să accepte
     const patch = {
       [`${eu}_score`]: score, [`${eu}_max`]: maxScore, [`${eu}_sec`]: sec,
+      [`${eu}_partial`]: !!partial,
       [`${eu}_at`]: new Date().toISOString(), updated_at: new Date().toISOString(),
     };
-    const { data: dupa } = await supa.from('duels').update(patch).eq('id', duelId).select().maybeSingle();
+    let { data: dupa, error } = await supa.from('duels').update(patch).eq('id', duelId).select().maybeSingle();
+    if (error) { // baza fără coloanele de provizoriu (migrarea v7 nerulată)
+      delete patch[`${eu}_partial`];
+      if (partial) return { partial: true, ignorat: 'migrare' };
+      ({ data: dupa } = await supa.from('duels').update(patch).eq('id', duelId).select().maybeSingle());
+    }
     if (!dupa) return null;
 
-    if (dupa.challenger_score != null && dupa.opponent_score != null) {
-      return await finalize(supa, dupa);
-    }
-    return { asteptam: true };
+    // Duelul se încheie doar când AMBII au trimis un rezultat final. Cele
+    // provizorii așteaptă: poate elevul se întoarce și termină exercițiul.
+    const amandoi = dupa.challenger_score != null && dupa.opponent_score != null;
+    const finale = !dupa.challenger_partial && !dupa.opponent_partial;
+    if (amandoi && finale) return await finalize(supa, dupa);
+    return partial ? { partial: true, salvat: true } : { asteptam: true };
   } catch (e) {
     console.warn('duel.recordScore:', e?.message || e);
     return null;
@@ -294,7 +319,7 @@ function castigator(d, { neprezentare = false } = {}) {
 // Varianta pentru materialele PDF: corectarea AI (api/ai-correct.js) nu
 // primește `duelId`, dar duelul e oricum unic pe (participant, material) cât
 // timp e deschis — deci îl găsim după material.
-async function recordByContent(supa, userId, contentId, { score, maxScore }) {
+async function recordByContent(supa, userId, contentId, { score, maxScore, partial = false }) {
   try {
     if (!contentId) return null;
     const { data } = await supa.from('duels')
@@ -304,7 +329,7 @@ async function recordByContent(supa, userId, contentId, { score, maxScore }) {
       .or(`challenger_id.eq.${userId},opponent_id.eq.${userId}`)
       .limit(1);
     if (!data || !data.length) return null;
-    return await recordScore(supa, userId, data[0].id, { contentId, score, maxScore, verified: true });
+    return await recordScore(supa, userId, data[0].id, { contentId, score, maxScore, verified: true, partial });
   } catch (e) {
     console.warn('duel.recordByContent:', e?.message || e);
     return null;

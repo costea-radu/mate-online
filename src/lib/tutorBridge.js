@@ -18,7 +18,7 @@
 //  iframe → părinte: MATE_TUTOR_READY | MATE_TUTOR_STATE | MATE_TUTOR_OPEN
 //                    | MATE_RESET_REQ (butonul „Resetează" al testului e
 //                      defect → părintele reîncarcă exercițiul de la zero)
-//  părinte → iframe: MATE_TUTOR_STATE_REQ | MATE_TUTOR_ACTION
+//  părinte → iframe: MATE_TUTOR_STATE_REQ | MATE_TUTOR_ACTION | MATE_ANSWERS_REQ
 // =====================================================================
 
 const BRIDGE_SCRIPT = String.raw`
@@ -485,6 +485,9 @@ const BRIDGE_SCRIPT = String.raw`
     var d = ev && ev.data;
     if (!d || typeof d !== 'object') return;
     if (d.type === 'MATE_TUTOR_STATE_REQ') post('MATE_TUTOR_STATE', collect());
+    // salvarea parțială (dueluri/turnee): părintele cere răspunsurile de acum,
+    // fără să fie nevoie ca elevul să apese „Verifică"
+    if (d.type === 'MATE_ANSWERS_REQ') postAnswers();
     if (d.type === 'MATE_TUTOR_ACTION') {
       var ok = doAction(d.action);
       post('MATE_TUTOR_ACK', { ok: ok, action: d.action });

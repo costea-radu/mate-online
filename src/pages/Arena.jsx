@@ -27,8 +27,8 @@ function Bara({ pct, culoare = 'var(--gold)', inaltime = 8 }) {
   );
 }
 
-function Eticheta({ children, culoare = 'var(--text-muted)' }) {
-  return <div style={{ fontSize: '0.72rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: culoare, fontWeight: 700, marginBottom: 6 }}>{children}</div>;
+function Eticheta({ children, culoare = 'var(--text-muted)', className = '' }) {
+  return <div className={className} style={{ fontSize: '0.72rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: culoare, fontWeight: 700, marginBottom: 6 }}>{children}</div>;
 }
 
 export default function Arena() {
@@ -119,23 +119,23 @@ export default function Arena() {
             </div>
           )}
 
-          {/* ─── Rândul de sus: nivel · serie · monede ─── */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
-            <div style={cardStyle}>
-              <Eticheta>Nivel {nivel.level}</Eticheta>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', marginBottom: 10 }}>{nivel.name}</div>
+          {/* ─── Rândul de sus: nivel · serie · azi (compact pe telefon) ─── */}
+          <div className="arena-stats">
+            <div className="arena-card" style={cardStyle}>
+              <Eticheta className="arena-lbl">Nivel {nivel.level}</Eticheta>
+              <div className="arena-val" style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', marginBottom: 10 }}>{nivel.name}</div>
               <Bara pct={nivel.progressPct} />
-              <div style={{ fontSize: '0.82rem', color: 'var(--text-light)', marginTop: 8 }}>
+              <div className="arena-sub" style={{ fontSize: '0.82rem', color: 'var(--text-light)', marginTop: 8 }}>
                 {stats.totalXp} XP{nivel.xpNext ? ` · încă ${nivel.xpNext - stats.totalXp} până la nivelul ${nivel.level + 1}` : ' · nivel maxim'}
               </div>
             </div>
 
-            <div style={cardStyle}>
-              <Eticheta>Serie de zile</Eticheta>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', marginBottom: 10 }}>
+            <div className="arena-card" style={cardStyle}>
+              <Eticheta className="arena-lbl">Serie de zile</Eticheta>
+              <div className="arena-val" style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', marginBottom: 10 }}>
                 🔥 {stats.streak} {stats.streak === 1 ? 'zi' : 'zile'}
               </div>
-              <div style={{ fontSize: '0.82rem', color: 'var(--text-light)' }}>
+              <div className="arena-sub" style={{ fontSize: '0.82rem', color: 'var(--text-light)' }}>
                 {stats.streakAzi ? 'Ziua de azi e bifată. '
                   : azi.xp >= azi.pragStreak
                     ? 'Rezolvă un exercițiu ca să se bifeze ziua de azi. '
@@ -145,11 +145,11 @@ export default function Arena() {
               </div>
             </div>
 
-            <div style={cardStyle}>
-              <Eticheta>Azi</Eticheta>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', marginBottom: 10 }}>{azi.xp} XP</div>
+            <div className="arena-card" style={cardStyle}>
+              <Eticheta className="arena-lbl">Azi</Eticheta>
+              <div className="arena-val" style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', marginBottom: 10 }}>{azi.xp} XP</div>
               <Bara pct={(azi.liga / azi.plafon) * 100} culoare="var(--navy-light)" />
-              <div style={{ fontSize: '0.82rem', color: 'var(--text-light)', marginTop: 8 }}>
+              <div className="arena-sub" style={{ fontSize: '0.82rem', color: 'var(--text-light)', marginTop: 8 }}>
                 {azi.liga}/{azi.plafon} puncte de ligă azi
                 {azi.liga >= azi.plafon && ' — plafon atins, revino mâine 🙂'}
                 {' · 🪙 '}{stats.monede}

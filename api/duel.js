@@ -4,6 +4,7 @@
 // POST /api/duel  { action }
 //   list          → duelurile mele (primite, trimise, active, încheiate)
 //   optiuni       → colegii pe care îi pot provoca + exercițiile disponibile
+//   cauta         → { q } — caută pe ORICINE de pe site (min. 3 litere)
 //   create        → { opponentId, contentId }
 //   respond       → { id, accept: true|false }
 //   set_open      → { open: true|false }  („nu accept provocări acum")
@@ -58,6 +59,24 @@ async function optiuni(supa, userId, profile) {
   };
 }
 
+// Căutarea unui adversar în tot site-ul (nu doar printre colegi). Respectă
+// „Poate fi găsit în căutare" din Colegii mei, ca în api/colegi.js.
+async function cauta(supa, userId, q) {
+  const termen = String(q || '').trim();
+  if (termen.length < 3) return { ok: true, items: [], hint: 'Scrie cel puțin 3 litere din nume.' };
+  const like = `%${termen.replace(/[%_,()]/g, ' ')}%`;
+  const { data } = await supa.from('profiles')
+    .select('id, full_name, role, colegi_discoverable')
+    .neq('id', userId)
+    .ilike('full_name', like)
+    .limit(60);
+  const items = (data || [])
+    .filter((p) => p.colegi_discoverable !== false)
+    .slice(0, 20)
+    .map((p) => ({ id: p.id, nume: String(p.full_name || 'Utilizator').trim(), rol: p.role || null }));
+  return { ok: true, items };
+}
+
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -77,6 +96,7 @@ module.exports = async function handler(req, res) {
 
     if (action === 'list') return res.status(200).json({ ok: true, ...await duel.list(supa, userId) });
     if (action === 'optiuni') return res.status(200).json(await optiuni(supa, userId, profile));
+    if (action === 'cauta') return res.status(200).json(await cauta(supa, userId, req.body?.q));
 
     if (action === 'create') {
       const r = await duel.create(supa, userId, req.body || {}, { isPremium: ai.isPremium(profile) || profile.is_admin });

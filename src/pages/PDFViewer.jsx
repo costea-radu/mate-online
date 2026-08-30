@@ -306,6 +306,11 @@ export default function PDFViewer() {
   const [searchParams] = useSearchParams();
   const idParam = searchParams.get('id');
   const gtId = searchParams.get('gt');       // TEMĂ PE GRUPĂ (/tema-grupa)
+  const duelId = searchParams.get('duel');   // DUEL 1-la-1 (/arena)
+  // În duel, ca la testul pe grupă, Profesorul Virtual nu mai dă ajutor:
+  // panoul rămâne deschis DOAR ca să poți trimite răspunsurile spre corectare
+  // (la PDF-uri acolo se calculează punctajul), dar în „mod test".
+  const modTest = !!gtId || !!duelId;
   const [item, setItem] = useState(state?.item || null);
   // „Grant": material premium trimis gratuit de admin printr-o temă pe grupă.
   const [grant, setGrant] = useState(state?.grant || null);
@@ -554,7 +559,7 @@ export default function PDFViewer() {
   const tutorBtn = (
     <button
       onClick={() => setTutorOpen((o) => !o)}
-      title={gtId ? 'Completează răspunsurile la test' : 'Întreabă-l despre exercițiile din acest material'}
+      title={modTest ? 'Completează răspunsurile la test' : 'Întreabă-l despre exercițiile din acest material'}
       style={{
         background: tutorOpen ? 'var(--gold)' : 'rgba(232,185,49,0.15)',
         border: '1px solid var(--gold)', color: tutorOpen ? 'var(--navy)' : 'var(--gold)',
@@ -563,19 +568,19 @@ export default function PDFViewer() {
       }}
     >
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', fontWeight: 700 }}>
-        {gtId ? '📝' : <EinsteinIcon size={18} />}{' '}
-        {tutorOpen ? 'Închide' : gtId ? 'Răspunde la test' : 'Profesorul virtual'}
+        {modTest ? '📝' : <EinsteinIcon size={18} />}{' '}
+        {tutorOpen ? 'Închide' : modTest ? 'Răspunde la test' : 'Profesorul virtual'}
       </span>
       {!tutorOpen && (
         <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.9 }}>
-          {gtId ? 'trimiți răspunsurile spre corectare' : 'te ajută la exercițiile din PDF'}
+          {modTest ? 'trimiți răspunsurile spre corectare' : 'te ajută la exercițiile din PDF'}
         </span>
       )}
     </button>
   );
 
   // ── Widgetul plutitor (vizibil în vizualizatorul de PDF; se poate MUTA) ──
-  const tutorWidget = !tutorOpen && !gtId && <TutorFab onOpen={() => setTutorOpen(true)} />;
+  const tutorWidget = !tutorOpen && !modTest && <TutorFab onOpen={() => setTutorOpen(true)} />;
 
   // ── Panoul de chat, interconectat cu PDF-ul deschis ─────────────────────
   const tutorPanel = tutorOpen && (
@@ -601,7 +606,7 @@ export default function PDFViewer() {
           }} />
         )}
         <div style={{ fontWeight: 700, fontSize: '.9rem', display: 'flex', alignItems: 'center', gap: 6 }}>
-          {gtId ? <>📝 Răspunsurile tale</> : <><EinsteinIcon size={20} /> Profesorul Virtual</>}
+          {modTest ? <>📝 Răspunsurile tale</> : <><EinsteinIcon size={20} /> Profesorul Virtual</>}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           {/* Mărire/micșorare fereastră — doar pe desktop (pe mobil se trage de bară) */}
@@ -670,7 +675,7 @@ export default function PDFViewer() {
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0 }}>
-        <ChatPanel compact context={tutorContext} initialConversationId={tutorConvId} testMode={!!gtId} />
+        <ChatPanel compact context={tutorContext} initialConversationId={tutorConvId} testMode={modTest} />
       </div>
     </div>
   );
@@ -691,6 +696,12 @@ export default function PDFViewer() {
             📄 {item?.title}
           </span>
           {gtId && <TestModeBadge compact />}
+          {duelId && (
+            <span style={{
+              background: 'rgba(232,185,49,0.16)', border: '1px solid var(--gold)', color: 'var(--gold)',
+              borderRadius: 12, padding: '3px 10px', fontSize: '0.74rem', fontWeight: 800, whiteSpace: 'nowrap',
+            }} title="Duel: Profesorul Virtual nu dă indicii">⚔️ DUEL</span>
+          )}
           {tutorBtn}
           <span style={badge}>{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>
         </div>

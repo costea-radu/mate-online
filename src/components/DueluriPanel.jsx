@@ -33,6 +33,8 @@ export default function DueluriPanel() {
   const [coleg, setColeg] = useState('');
   const [exercitiu, setExercitiu] = useState('');
   const [cauta, setCauta] = useState('');
+  const [cautaColeg, setCautaColeg] = useState('');   // caută pe oricine de pe site
+  const [gasitiColegi, setGasitiColegi] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
@@ -57,6 +59,19 @@ export default function DueluriPanel() {
       clearInterval(t);
     };
   }, [load]);
+
+  // Căutare de persoane în tot site-ul (nu doar printre colegi), cu o mică
+  // pauză după tastare ca să nu batem serverul la fiecare literă.
+  useEffect(() => {
+    const q = cautaColeg.trim();
+    if (q.length < 3) { setGasitiColegi(null); return undefined; }
+    const t = setTimeout(() => {
+      aiClient.duel({ action: 'cauta', q })
+        .then((r) => setGasitiColegi(r.items || []))
+        .catch(() => setGasitiColegi([]));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [cautaColeg]);
 
   async function deschideForm() {
     setFormOpen((v) => !v);
@@ -114,6 +129,8 @@ export default function DueluriPanel() {
   const gasite = (optiuni?.exercitii || []).filter(
     (x) => !q || `${x.titlu} ${x.categorie}`.toLowerCase().includes(q),
   );
+  // lista de persoane: rezultatele căutării dacă s-a căutat, altfel colegii mei
+  const listaPersoane = gasitiColegi !== null ? gasitiColegi : (optiuni?.colegi || []);
 
   return (
     <div style={card}>
@@ -135,18 +152,29 @@ export default function DueluriPanel() {
         <div style={{ ...rand, flexDirection: 'column', alignItems: 'stretch', gap: 10, background: 'var(--cream)' }}>
           {!optiuni ? <span style={{ color: 'var(--text-light)' }}>Se încarcă…</span> : (
             <>
-              {!optiuni.colegi.length ? (
-                <span style={{ color: 'var(--text-light)', fontSize: '0.9rem' }}>
-                  Nu ai încă niciun coleg acceptat. Adaugă unul din „Contul meu" → Colegii mei și apoi îl poți provoca.
-                </span>
-              ) : (
+              {(
                 <>
                   <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>Pe cine provoci?
+                    <input value={cautaColeg} onChange={(e) => setCautaColeg(e.target.value)}
+                      placeholder="caută pe oricine de pe site (min. 3 litere)…"
+                      style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)' }} />
                     <select value={coleg} onChange={(e) => setColeg(e.target.value)}
-                      style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)' }}>
-                      <option value="">— alege un coleg —</option>
-                      {optiuni.colegi.map((c) => <option key={c.id} value={c.id}>{c.nume}{c.rol && c.rol !== 'elev' ? ` (${c.rol})` : ''}</option>)}
+                      size={Math.min(6, Math.max(3, listaPersoane.length + 1))}
+                      style={{ display: 'block', width: '100%', marginTop: 6, padding: '6px', borderRadius: 8, border: '1px solid var(--border)' }}>
+                      {!listaPersoane.length && <option value="">— niciun rezultat —</option>}
+                      {listaPersoane.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nume}{c.rol && c.rol !== 'elev' ? ` (${c.rol})` : ''}
+                        </option>
+                      ))}
                     </select>
+                    <span style={{ fontWeight: 400, fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                      {gasitiColegi
+                        ? `${gasitiColegi.length} ${gasitiColegi.length === 1 ? 'persoană găsită' : 'persoane găsite'}`
+                        : optiuni.colegi.length
+                          ? `${optiuni.colegi.length} colegi în lista ta · scrie un nume pentru a căuta în tot site-ul`
+                          : 'Nu ai colegi în listă — caută pe oricine de pe site după nume.'}
+                    </span>
                   </label>
                   <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>La ce material?
                     <input value={cauta} onChange={(e) => setCauta(e.target.value)}

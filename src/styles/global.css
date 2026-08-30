@@ -1145,3 +1145,24 @@ img { max-width: 100%; display: block; }
   .contact-two { grid-template-columns: 1fr; }
   .contact-row { gap: 16px; }
 }
+
+/* ─── Arena: cardurile de sus (nivel · serie · azi) ────────────────────────
+   Pe desktop stau unul lângă altul, late. Pe telefon deveneau trei blocuri
+   uriașe care împingeau liga și duelurile sub ecran — aici le strângem în
+   trei coloane compacte. */
+.arena-stats {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+@media (max-width: 700px) {
+  .arena-stats { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .arena-stats .arena-card { padding: 10px 8px; border-radius: 12px; }
+  .arena-stats .arena-lbl  { font-size: 0.6rem; letter-spacing: 0.02em; margin-bottom: 4px; }
+  .arena-stats .arena-val  { font-size: 0.95rem; margin-bottom: 6px; line-height: 1.2; }
+  .arena-stats .arena-sub  { font-size: 0.68rem; line-height: 1.35; margin-top: 6px; }
+}
+@media (max-width: 380px) {
+  .arena-stats .arena-val { font-size: 0.85rem; }
+  .arena-stats .arena-sub { font-size: 0.63rem; }
+}

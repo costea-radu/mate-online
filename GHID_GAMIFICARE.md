@@ -24,6 +24,7 @@ Cele trei straturi:
    | `supabase/gamificare_v4_turnee.sql` | `tournaments`, `tournament_items`, `tournament_scores`, `tournament_places` |
    | `supabase/gamificare_v5_harta.sql` | `chapter_state` + coloana `content.chapter_id` |
    | `supabase/gamificare_v6_public.sql` | turnee publice: `tournaments.scope`/`auto`, `tournament_entries` |
+   | `supabase/gamificare_v7_partial.sql` | salvare parțială în dueluri: `duels.*_partial` |
    | `supabase/gamificare_lints.sql` | politici explicite `service_role` (închide avertismentele INFO ale linterului) |
 
    Toate sunt idempotente (se pot rula de mai multe ori).
@@ -173,7 +174,8 @@ fiecare rezolvă când poate. Un duel live ar cere ca amândoi să fie online si
 - o singură provocare neîncheiată între aceiași doi elevi (index unic parțial);
 - „Nu accept provocări acum" oprește invitațiile (`user_stats.duels_open`);
 - **Profesorul Virtual e închis** în timpul duelului — altfel duelul ar măsura
-  cine știe să întrebe tutorele;
+  cine știe să întrebe tutorele. La materialele PDF panoul rămâne deschis (acolo
+  se trimit răspunsurile spre corectare), dar în „mod test", fără indicii;
 - adversarul îți vede scorul **abia după** ce l-ai trimis pe al tău;
 - câștigă procentul; la egalitate, timpul; altfel remiză.
 
@@ -182,6 +184,10 @@ egalitate 25, neprezentare 20) **plus până la 25 XP proporțional cu procentul
 obținut**. Deci contează și cât ai rezolvat, nu doar dacă ai câștigat: cine
 pierde la limită cu 85% ia aproape cât câștigătorul, iar cine câștigă cu 30% nu
 ia maximum. Totul peste XP-ul normal al exercițiului.
+
+**Pe cine poți provoca:** pe oricine de pe site — căutare după nume în panoul de
+dueluri, nu doar printre colegii acceptați. Persoana trebuie doar să fie găsibilă
+(setarea „poate fi găsit în căutare" din Colegii mei) și să accepte provocări.
 
 **Materiale:** exerciții interactive *și* teste PDF. La PDF-uri rezultatul intră
 prin corectarea AI (`api/ai-correct.js`), care găsește singură duelul deschis pe
@@ -203,6 +209,25 @@ adversarul să accepte.
 3. **timpul se măsoară pe server**, între `?action=start` (deschiderea
    exercițiului) și trimiterea scorului — durata din browser nu e crezută.
    Materialele fără cheie de verificare nu intră deloc în duel.
+
+### Salvare parțială
+
+Elevul care închide pagina la jumătate nu mai pierde tot. `InteractiveViewer`
+cere periodic răspunsurile de la bridge (`MATE_ANSWERS_REQ`) și le trimite cu
+`partial: true` — la fiecare minut, la ascunderea tabului și la părăsirea
+paginii, doar dacă s-a schimbat ceva.
+
+Serverul le tratează strict, ca să nu strice nimic câștigat deja:
+
+- fără chei verificabile → se ignoră (n-avem cum să credem un scor netestat);
+- **nu coboară** un scor mai bun deja salvat în `progress`;
+- **nu numără o încercare** și **nu dă XP** (altfel s-ar putea aduna XP lăsând
+  pagina deschisă);
+- în duel se reține ca **rezultat provizoriu** (`duels.*_partial`): duelul se
+  închide doar când amândoi au trimis un rezultat final sau la expirare, când
+  provizoriul devine rezultatul lor;
+- în turneu se păstrează **cel mai bun** punctaj pe material (înainte conta doar
+  prima rezolvare — o salvare parțială ar fi blocat definitiv un scor slab).
 
 ## 11. Turnee de grupă (pasul 4)
 

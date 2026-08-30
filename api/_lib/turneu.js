@@ -87,12 +87,27 @@ async function recordScore(supa, userId, contentId, { points, pct }) {
 
     const intrate = [];
     for (const t of potrivite) {
-      // prima rezolvare contează: al doilea insert cade pe cheia unică
+      // Pe un material contează CEL MAI BUN punctaj al elevului: altfel o
+      // salvare parțială (elevul era la jumătate) i-ar bloca definitiv un
+      // rezultat slab, iar reluarea exercițiului n-ar mai folosi la nimic.
+      // Rândul rămâne unic per (turneu, elev, material), deci nu se poate
+      // aduna la nesfârșit din același exercițiu.
+      const puncte = Math.round(points);
+      const { data: vechi } = await supa.from('tournament_scores')
+        .select('id, points').eq('tournament_id', t.id).eq('user_id', userId).eq('content_id', contentId)
+        .maybeSingle();
+      if (vechi) {
+        if ((vechi.points || 0) >= puncte) continue;
+        const { error } = await supa.from('tournament_scores')
+          .update({ points: puncte, pct: Math.round(pct || 0) }).eq('id', vechi.id);
+        if (!error) intrate.push({ id: t.id, titlu: t.title, puncte });
+        continue;
+      }
       const { error } = await supa.from('tournament_scores').insert({
         tournament_id: t.id, user_id: userId, content_id: contentId,
-        points: Math.round(points), pct: Math.round(pct || 0),
+        points: puncte, pct: Math.round(pct || 0),
       });
-      if (!error) intrate.push({ id: t.id, titlu: t.title, puncte: Math.round(points) });
+      if (!error) intrate.push({ id: t.id, titlu: t.title, puncte });
     }
     return intrate.length ? intrate : null;
   } catch (e) {

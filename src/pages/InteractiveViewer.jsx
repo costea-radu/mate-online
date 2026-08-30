@@ -335,6 +335,46 @@ export default function InteractiveViewer() {
     };
   }, [user, item, temaId, medSesId]);
 
+  // ─── SALVARE PARȚIALĂ ───────────────────────────────────────────────────────
+  // Dacă elevul închide pagina la jumătate (sau îi pică netul), munca lui nu
+  // trebuie să se piardă: cerem periodic răspunsurile de la bridge și le
+  // trimitem cu `partial: true`. Serverul le recalculează din chei, nu coboară
+  // niciodată un scor deja obținut, nu dă XP și nu numără o încercare — doar
+  // păstrează rezultatul curent pentru duel/turneu și în „progres".
+  const partialSigRef = useRef('');
+  useEffect(() => {
+    if (!user || !item?.id) return undefined;
+
+    async function trimiteParțial() {
+      const iframe = iframeRef.current;
+      try { iframe?.contentWindow?.postMessage({ type: 'MATE_ANSWERS_REQ' }, '*'); } catch { /* fără bridge */ }
+      // lăsăm bridge-ul să răspundă înainte să citim
+      await new Promise((r) => setTimeout(r, 250));
+      const ans = lastAnswersRef.current;
+      if (!Array.isArray(ans) || !ans.length) return;
+      if (!ans.some((a) => a !== null && a !== undefined && a !== '')) return; // nimic completat
+      const sig = JSON.stringify(ans);
+      if (sig === partialSigRef.current) return;                              // nimic nou
+      partialSigRef.current = sig;
+      try {
+        await aiClient.scoreSubmit({
+          contentId: item.id, answers: ans, score: 0, maxScore: 0,
+          durationSec: 0, duelId, partial: true,
+        });
+      } catch { /* salvarea parțială e best-effort */ }
+    }
+
+    const t = setInterval(trimiteParțial, 60000);
+    const laPlecare = () => { if (document.visibilityState === 'hidden') trimiteParțial(); };
+    document.addEventListener('visibilitychange', laPlecare);
+    window.addEventListener('pagehide', trimiteParțial);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', laPlecare);
+      window.removeEventListener('pagehide', trimiteParțial);
+    };
+  }, [user, item?.id, duelId]);
+
   // ─── Mesajele bridge-ului (exercițiu → tutor) ───────────────────────────────
   useEffect(() => {
     function onTutorMsg(event) {
