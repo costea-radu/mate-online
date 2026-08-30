@@ -10,18 +10,22 @@ async function uid() {
   return session?.user?.id || null;
 }
 
-async function post(path, body) {
+async function post(path, body, { keepalive = false } = {}) {
   const session = await getValidSession();
   const userId = session?.user?.id || null;
   if (!userId) throw new Error('Trebuie să fii autentificat pentru a folosi Profesorul Virtual.');
+  // `keepalive`: cererea pleacă până la capăt chiar dacă utilizatorul închide
+  // fila în aceeași clipă (salvarea parțială a exercițiului).
+  const extra = keepalive ? { keepalive: true } : {};
   let res = await fetch(path, {
     method: 'POST',
     headers: await authHeaders(),
     body: JSON.stringify({ userId, ...body }),
+    ...extra,
   });
   if (res.status === 401) { // token expirat între timp → reîmprospătează și reîncearcă o dată
     await forceRefresh();
-    res = await fetch(path, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ userId, ...body }) });
+    res = await fetch(path, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ userId, ...body }), ...extra });
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -141,8 +145,10 @@ export const aiClient = {
   // review_start · simulare · set_style · mentor_report · reset
   meditatii: (payload) => post('/api/ai-meditatii', payload),
   // Scorul unui test interactiv, VERIFICAT pe server din răspunsuri (Etapa 3)
-  scoreSubmit: ({ contentId, answers, score, maxScore, durationSec = 0, duelId = null, partial = false }) =>
-    post('/api/ai-score', { contentId, answers, score, maxScore, durationSec, ...(duelId ? { duelId } : {}), ...(partial ? { partial: true } : {}) }),
+  scoreSubmit: ({ contentId, answers, score, maxScore, durationSec = 0, duelId = null, partial = false, keepalive = false }) =>
+    post('/api/ai-score',
+      { contentId, answers, score, maxScore, durationSec, ...(duelId ? { duelId } : {}), ...(partial ? { partial: true } : {}) },
+      { keepalive }),
 
   // Dueluri 1-la-1 (api/duel.js): list · optiuni · create · respond · set_open
   duel: (payload = {}) => post('/api/duel', { action: 'list', ...payload }),

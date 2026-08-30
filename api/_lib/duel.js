@@ -49,6 +49,9 @@ function forUser(d, userId, nume = {}) {
   const luiScor = d[`${el}_score`];
   const terminat = d.status === 'terminat' || d.status === 'expirat';
   const amJucat = meuScor != null;
+  // rezultat PROVIZORIU = salvarea automată de la jumătatea exercițiului.
+  // Elevul poate să se întoarcă și să termine: duelul rămâne deschis.
+  const provizoriu = amJucat && d[`${eu}_partial`] === true && !terminat;
   return {
     id: d.id,
     status: d.status,
@@ -57,6 +60,9 @@ function forUser(d, userId, nume = {}) {
     material: { id: d.content_id, titlu: d.content_title },
     deadline: d.deadline,
     amJucat,
+    provizoriu,
+    // „am terminat" = am trimis un rezultat FINAL (am apăsat „Verifică")
+    amTerminat: amJucat && !provizoriu,
     aJucat: luiScor != null,
     scorulMeu: amJucat ? { scor: meuScor, max: d[`${eu}_max`], pct: Math.round(pct(meuScor, d[`${eu}_max`])), sec: d[`${eu}_sec`] } : null,
     // scorul adversarului se dezvăluie DOAR după ce ai jucat tu sau după final
@@ -282,8 +288,14 @@ async function recordScore(supa, userId, duelId, { contentId, score, maxScore, v
     let { data: dupa, error } = await supa.from('duels').update(patch).eq('id', duelId).select().maybeSingle();
     if (error) { // baza fără coloanele de provizoriu (migrarea v7 nerulată)
       delete patch[`${eu}_partial`];
-      if (partial) return { partial: true, ignorat: 'migrare' };
       ({ data: dupa } = await supa.from('duels').update(patch).eq('id', duelId).select().maybeSingle());
+      // Înainte aruncam salvarea parțială aici — elevul care rezolva pe
+      // jumătate rămânea cu duelul nejucat. Acum o păstrăm oricum: e mult mai
+      // bine decât să piardă tot prin neprezentare.
+      if (partial && dupa) {
+        console.warn('duel: rulează supabase/gamificare_v7_partial.sql — rezultatul provizoriu s-a salvat ca final.');
+        return { partial: true, salvat: true, migrare: true };
+      }
     }
     if (!dupa) return null;
 
@@ -303,9 +315,13 @@ async function recordScore(supa, userId, duelId, { contentId, score, maxScore, v
 //   procent mai mare → victorie; egalitate la procent → timpul mai scurt;
 //   fără timpi comparabili → remiză. Neprezentare: câștigă cine a jucat.
 function castigator(d, { neprezentare = false } = {}) {
-  if (neprezentare) {
-    if (d.challenger_score != null && d.opponent_score == null) return { winner: d.challenger_id, result: 'neprezentare' };
-    if (d.opponent_score != null && d.challenger_score == null) return { winner: d.opponent_id, result: 'neprezentare' };
+  // Dacă AMÂNDOI au trimis ceva (fie și un rezultat provizoriu), duelul se
+  // judecă normal chiar dacă a expirat — înainte ieșea „expirat", fără
+  // câștigător și fără XP, deși amândoi jucaseră.
+  const amandoi = d.challenger_score != null && d.opponent_score != null;
+  if (neprezentare && !amandoi) {
+    if (d.challenger_score != null) return { winner: d.challenger_id, result: 'neprezentare' };
+    if (d.opponent_score != null) return { winner: d.opponent_id, result: 'neprezentare' };
     return { winner: null, result: null };
   }
   const pc = Math.round(pct(d.challenger_score || 0, d.challenger_max || 0));

@@ -38,6 +38,7 @@ export default function InteractiveViewer() {
   const [newBadges, setNewBadges] = useState([]);                    // insigne proaspăt câștigate (toast)
   const [xpToast, setXpToast] = useState(null);                       // XP / streak / misiune câștigate (Arena)
   const [duelRez, setDuelRez] = useState(null);                       // rezultatul duelului, după trimiterea scorului
+  const [partialSalvat, setPartialSalvat] = useState(null);           // salvarea automată de la jumătatea exercițiului
   const [reviewOpen, setReviewOpen] = useState(false);               // „Cum ți s-a părut testul?" (după scor salvat)
   const reviewAskedRef = useRef(new Set());                          // testele pentru care am întrebat deja (în această vizită)
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 800);
@@ -344,12 +345,18 @@ export default function InteractiveViewer() {
   const partialSigRef = useRef('');
   useEffect(() => {
     if (!user || !item?.id) return undefined;
+    let viu = true;
 
-    async function trimiteParțial() {
-      const iframe = iframeRef.current;
-      try { iframe?.contentWindow?.postMessage({ type: 'MATE_ANSWERS_REQ' }, '*'); } catch { /* fără bridge */ }
-      // lăsăm bridge-ul să răspundă înainte să citim
-      await new Promise((r) => setTimeout(r, 250));
+    // Ținem răspunsurile PROASPETE în memorie: le cerem bridge-ului la 10
+    // secunde, fără nicio cerere la server. Așa, când elevul închide fila, avem
+    // deja ce trimite — înainte așteptam 250 ms cât pagina se închidea sub noi
+    // și cererea nu mai apuca să plece (de aici „nu s-a salvat rezolvarea").
+    const cereRaspunsuri = () => {
+      try { iframeRef.current?.contentWindow?.postMessage({ type: 'MATE_ANSWERS_REQ' }, '*'); } catch { /* fără bridge */ }
+    };
+
+    async function trimiteParțial({ imediat = false } = {}) {
+      if (!imediat) { cereRaspunsuri(); await new Promise((r) => setTimeout(r, 250)); }
       const ans = lastAnswersRef.current;
       if (!Array.isArray(ans) || !ans.length) return;
       if (!ans.some((a) => a !== null && a !== undefined && a !== '')) return; // nimic completat
@@ -357,21 +364,30 @@ export default function InteractiveViewer() {
       if (sig === partialSigRef.current) return;                              // nimic nou
       partialSigRef.current = sig;
       try {
-        await aiClient.scoreSubmit({
+        const r = await aiClient.scoreSubmit({
           contentId: item.id, answers: ans, score: 0, maxScore: 0,
           durationSec: 0, duelId, partial: true,
+          keepalive: imediat,   // cererea pleacă până la capăt și dacă se închide fila
         });
+        if (r?.ok && viu) setPartialSalvat({ la: Date.now(), score: r.score, maxScore: r.maxScore });
       } catch { /* salvarea parțială e best-effort */ }
     }
 
-    const t = setInterval(trimiteParțial, 60000);
-    const laPlecare = () => { if (document.visibilityState === 'hidden') trimiteParțial(); };
+    cereRaspunsuri();
+    const tRasp = setInterval(cereRaspunsuri, 10000);
+    // la 25 de secunde, nu la 60: într-un duel, un minut de muncă pierdut doare
+    const t = setInterval(trimiteParțial, 25000);
+    const laPlecare = () => { if (document.visibilityState === 'hidden') trimiteParțial({ imediat: true }); };
+    const laInchidere = () => trimiteParțial({ imediat: true });
     document.addEventListener('visibilitychange', laPlecare);
-    window.addEventListener('pagehide', trimiteParțial);
+    window.addEventListener('pagehide', laInchidere);
     return () => {
+      clearInterval(tRasp);
       clearInterval(t);
       document.removeEventListener('visibilitychange', laPlecare);
-      window.removeEventListener('pagehide', trimiteParțial);
+      window.removeEventListener('pagehide', laInchidere);
+      trimiteParțial({ imediat: true });   // și la ieșirea din exercițiu prin navigare
+      viu = false;
     };
   }, [user, item?.id, duelId]);
 
@@ -564,6 +580,15 @@ export default function InteractiveViewer() {
               background: 'rgba(232,185,49,0.16)', border: '1px solid var(--gold)', color: 'var(--gold)',
               borderRadius: 12, padding: '3px 10px', fontSize: '0.76rem', fontWeight: 800, whiteSpace: 'nowrap',
             }} title="Duel: ai o singură încercare, iar Profesorul Virtual e închis">⚔️ DUEL</span>
+          )}
+          {partialSalvat && !scoreSaved && (
+            <span style={{
+              background: 'rgba(46,204,113,0.14)', border: '1px solid rgba(46,204,113,0.5)',
+              color: '#7ee2a8', borderRadius: 12, padding: '3px 10px', fontSize: '0.72rem',
+              fontWeight: 700, whiteSpace: 'nowrap',
+            }} title="Ce ai rezolvat până acum e salvat. Apasă „Verifică” pentru rezultatul final.">
+              💾 salvat automat
+            </span>
           )}
           {item?.category === 'manuale' && (
             <button

@@ -332,6 +332,14 @@ export default function PDFViewer() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  // DUEL pe un test PDF: cronometrul pornește pe server la deschiderea testului,
+  // exact ca la exercițiile interactive. Fără asta, egalitățile de procent
+  // rămâneau remize, pentru că niciunul dintre timpi nu era măsurat.
+  useEffect(() => {
+    if (!duelId || !user) return;
+    aiClient.duel({ action: 'start', id: duelId }).catch(() => {});
+  }, [duelId, user]);
+
   // Înălțimea panoului pe ecrane înguste (%) — se trage de bara albastră
   const [panelPct, setPanelPct] = useState(52);
   const dragBar = useRef(null);

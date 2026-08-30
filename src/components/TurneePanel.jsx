@@ -3,7 +3,7 @@
 // Elevul vede turneele grupelor lui + clasamentul; profesorul poate deschide
 // unul nou pe grupele lui. API: /api/turneu
 // =====================================================================
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
 
@@ -25,9 +25,16 @@ export default function TurneePanel() {
   const [opt, setOpt] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
   const [f, setF] = useState({ groupId: '', title: '', message: '', zile: 7, contentIds: [], scope: 'grupa' });
+  // Căutarea materialelor are DOUĂ MODURI: teste interactive și PDF-uri.
+  // Rezultatele vin de pe server (tot site-ul), nu dintr-o listă preîncărcată.
+  const [mod, setMod] = useState('interactive');
   const [filtru, setFiltru] = useState('');
+  const [rez, setRez] = useState(null);          // { items, total, q, tip }
+  const [caut, setCaut] = useState(false);
+  const [alese, setAlese] = useState({});        // id → material bifat (rămâne vizibil între căutări)
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const cerereRef = useRef(0);
 
   const load = useCallback(async () => {
     try { setD(await aiClient.turneu({ action: 'list' })); }
@@ -43,11 +50,39 @@ export default function TurneePanel() {
     }
   }
 
-  function bifeaza(id) {
+  // Căutarea materialelor: se face PE SERVER, în tot site-ul. Se reia la
+  // schimbarea modului (interactive / PDF) și după fiecare tastare, cu o mică
+  // pauză ca să nu batem serverul la fiecare literă.
+  useEffect(() => {
+    if (!formOpen || !opt) return undefined;
+    const q = filtru.trim();
+    // lista de start a fiecărui mod vine deja din `optiuni` — fără cerere în plus
+    if (!q && opt.materiale && opt.materiale[mod]) {
+      setRez({ items: opt.materiale[mod], total: (opt.total || {})[mod] || 0, tip: mod, q: '', limita: opt.limitaCautare });
+      setCaut(false);
+      return undefined;
+    }
+    const nr = ++cerereRef.current;
+    setCaut(true);
+    const t = setTimeout(() => {
+      aiClient.turneu({ action: 'materiale', q, tip: mod })
+        .then((r) => { if (nr === cerereRef.current) setRez(r); })
+        .catch(() => { if (nr === cerereRef.current) setRez({ items: [], total: 0, tip: mod, q }); })
+        .finally(() => { if (nr === cerereRef.current) setCaut(false); });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [formOpen, opt, mod, filtru]);
+
+  function bifeaza(x) {
+    const id = typeof x === 'string' ? x : x.id;
     setF((s) => ({
       ...s,
-      contentIds: s.contentIds.includes(id) ? s.contentIds.filter((x) => x !== id) : [...s.contentIds, id],
+      contentIds: s.contentIds.includes(id) ? s.contentIds.filter((y) => y !== id) : [...s.contentIds, id],
     }));
+    setAlese((a) => {
+      if (a[id]) { const { [id]: _sters, ...rest } = a; return rest; }
+      return typeof x === 'string' ? a : { ...a, [id]: x };
+    });
   }
 
   async function inscrieMa(id) {
@@ -65,6 +100,7 @@ export default function TurneePanel() {
       await aiClient.turneu({ action: 'create', ...f, title: f.title || 'Turneu' });
       setFormOpen(false);
       setF({ groupId: '', title: '', message: '', zile: 7, contentIds: [], scope: 'grupa' });
+      setAlese({}); setFiltru(''); setRez(null);
       await load();
     } catch (e) { setErr(e?.message || 'Turneul nu s-a putut crea.'); }
     finally { setBusy(false); }
@@ -87,7 +123,6 @@ export default function TurneePanel() {
       </div>
     ) : null;
   }
-  const filtrate = (opt?.exercitii || []).filter((x) => !filtru || x.titlu.toLowerCase().includes(filtru.toLowerCase()));
 
   return (
     <div style={card}>
@@ -140,21 +175,96 @@ export default function TurneePanel() {
               </label>
 
               <div>
-                <div style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: 4 }}>
-                  Materiale ({f.contentIds.length}/{opt.maxExercitii}) — interactive și PDF
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: 6 }}>
+                  Materiale ({f.contentIds.length}/{opt.maxExercitii})
                 </div>
-                <input value={filtru} onChange={(e) => setFiltru(e.target.value)} placeholder="caută după titlu…" style={input} />
-                <div style={{ maxHeight: 200, overflowY: 'auto', marginTop: 6, border: '1px solid var(--border)', borderRadius: 8, background: '#fff' }}>
-                  {filtrate.map((x) => (
-                    <label key={x.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 10px', fontSize: '0.86rem', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={f.contentIds.includes(x.id)} onChange={() => bifeaza(x.id)} />
-                      <span>{x.tip === 'pdf' ? '📄' : '🧩'} {x.titlu}</span>
-                      <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                        {x.categorie}{x.gratuit ? '' : ' · premium'}
-                      </span>
-                    </label>
+
+                {/* DOUĂ MODURI DE CĂUTARE: teste interactive și PDF-uri */}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                  {[
+                    { id: 'interactive', et: '🧩 Teste interactive' },
+                    { id: 'pdf', et: '📄 PDF-uri' },
+                  ].map((m) => (
+                    <button key={m.id} type="button" onClick={() => { setMod(m.id); setRez(null); }}
+                      style={{
+                        flex: 1, padding: '7px 10px', borderRadius: 999, cursor: 'pointer',
+                        fontSize: '0.82rem', fontWeight: 700,
+                        border: `1px solid ${mod === m.id ? 'var(--gold)' : 'var(--border)'}`,
+                        background: mod === m.id ? 'rgba(232,185,49,0.18)' : '#fff',
+                        color: mod === m.id ? 'var(--navy)' : 'var(--text-light)',
+                      }}>
+                      {m.et}
+                      {opt.total && opt.total[m.id] ? (
+                        <span style={{ fontWeight: 500, opacity: 0.7 }}> · {opt.total[m.id]}</span>
+                      ) : null}
+                    </button>
                   ))}
-                  {!filtrate.length && <div style={{ padding: 10, color: 'var(--text-muted)', fontSize: '0.85rem' }}>Niciun exercițiu găsit.</div>}
+                </div>
+
+                <input value={filtru} onChange={(e) => setFiltru(e.target.value)}
+                  placeholder={mod === 'pdf'
+                    ? 'caută un PDF după titlu sau clasă (ex. 2026, bacalaureat)…'
+                    : 'caută un test interactiv după titlu sau clasă (ex. fracții, clasa-7)…'}
+                  style={input} />
+
+                {/* materialele deja bifate — rămân la vedere și după ce schimbi
+                    modul sau căutarea (poți amesteca interactive cu PDF-uri) */}
+                {!!f.contentIds.length && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                    {f.contentIds.map((id) => {
+                      const x = alese[id];
+                      return (
+                        <button key={id} type="button" onClick={() => bifeaza(id)}
+                          title="scoate din turneu"
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                            border: '1px solid var(--border)', background: 'rgba(232,185,49,0.16)',
+                            borderRadius: 999, padding: '4px 10px', fontSize: '0.78rem', maxWidth: '100%',
+                          }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
+                            {x ? `${x.tip === 'pdf' ? '📄' : '🧩'} ${x.titlu}` : 'material ales'}
+                          </span>
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 700 }}>✕</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div style={{ maxHeight: 230, overflowY: 'auto', marginTop: 8, border: '1px solid var(--border)', borderRadius: 8, background: '#fff' }}>
+                  {(rez?.items || []).map((x) => {
+                    const bifat = f.contentIds.includes(x.id);
+                    const plin = !bifat && f.contentIds.length >= opt.maxExercitii;
+                    return (
+                      <label key={x.id} style={{
+                        display: 'flex', gap: 8, alignItems: 'center', padding: '6px 10px',
+                        fontSize: '0.86rem', cursor: plin ? 'not-allowed' : 'pointer', opacity: plin ? 0.5 : 1,
+                        background: bifat ? 'rgba(232,185,49,0.10)' : 'transparent',
+                      }}>
+                        <input type="checkbox" checked={bifat} disabled={plin} onChange={() => bifeaza(x)} />
+                        <span>{x.tip === 'pdf' ? '📄' : '🧩'} {x.titlu}</span>
+                        <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                          {x.categorie}{x.gratuit ? '' : ' · premium'}
+                        </span>
+                      </label>
+                    );
+                  })}
+                  {caut && !rez && <div style={{ padding: 10, color: 'var(--text-muted)', fontSize: '0.85rem' }}>Se caută…</div>}
+                  {rez && !rez.items.length && (
+                    <div style={{ padding: 10, color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      {filtru.trim()
+                        ? `Niciun rezultat pentru „${filtru.trim()}" în ${mod === 'pdf' ? 'PDF-uri' : 'testele interactive'}. Încearcă alt cuvânt sau schimbă modul de căutare.`
+                        : 'Nu există materiale de acest tip.'}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                  {caut ? 'se caută…' : rez
+                    ? `${rez.items.length} ${rez.items.length === 1 ? 'rezultat' : 'rezultate'}`
+                      + (rez.total ? ` din ${rez.total} ${mod === 'pdf' ? 'PDF-uri' : 'teste interactive'} de pe site` : '')
+                      + (rez.limita && rez.items.length >= rez.limita ? ' · scrie mai multe litere ca să restrângi lista' : '')
+                    : ''}
                 </div>
               </div>
 

@@ -107,6 +107,25 @@ export default function DueluriPanel() {
     finally { setBusy(false); }
   }
 
+  // Ce apare în dreapta unui duel: „Rezolvă acum" cât timp n-ai trimis nimic,
+  // „Continuă duelul" dacă ai doar salvarea automată de la jumătate (rezultat
+  // provizoriu — duelul rămâne deschis), altfel textul cu procentul trimis.
+  function actiune(x, asteptare) {
+    if (x.provizoriu) {
+      return (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}
+            title="Salvare automată. Apasă „Verifică” în exercițiu ca rezultatul să fie final.">
+            💾 salvat {x.scorulMeu.pct}%
+          </span>
+          <button onClick={() => joaca(x)} className="btn btn-sm btn-primary">Continuă duelul</button>
+        </span>
+      );
+    }
+    if (x.amJucat) return <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>{asteptare(x)}</span>;
+    return <button onClick={() => joaca(x)} className="btn btn-sm btn-primary">Rezolvă acum</button>;
+  }
+
   function joaca(d1) {
     arenaChanged();
     const ruta = d1.material.tip === 'pdf' ? '/pdf-viewer' : '/exercitiu';
@@ -227,9 +246,7 @@ export default function DueluriPanel() {
           <span style={{ color: 'var(--text-light)', fontSize: '0.85rem' }}>{x.material.titlu}</span>
           <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{cuCateOre(x.deadline)}</span>
           <span style={{ marginLeft: 'auto' }}>
-            {x.amJucat
-              ? <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>Ai trimis {x.scorulMeu.pct}% · aștepți adversarul</span>
-              : <button onClick={() => joaca(x)} className="btn btn-sm btn-primary">Rezolvă acum</button>}
+            {actiune(x, (y) => `Ai trimis ${y.scorulMeu.pct}% · aștepți adversarul`)}
           </span>
         </div>
       ))}
@@ -241,9 +258,7 @@ export default function DueluriPanel() {
           <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>așteaptă răspuns</span>
             {/* nu trebuie să aștepți acceptul ca să-ți rezolvi partea */}
-            {x.amJucat
-              ? <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>ai trimis {x.scorulMeu.pct}%</span>
-              : <button onClick={() => joaca(x)} className="btn btn-sm btn-primary">Rezolvă acum</button>}
+            {actiune(x, (y) => `ai trimis ${y.scorulMeu.pct}%`)}
           </span>
         </div>
       ))}

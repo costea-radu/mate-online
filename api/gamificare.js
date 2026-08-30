@@ -102,15 +102,20 @@ async function state(supa, userId) {
   // navbar are nevoie de numere, nu de listă, ca să nu mai facă o cerere.
   let dueluri = { provocari: 0, deJucat: 0 };
   try {
-    const { data: dd } = await supa.from('duels')
-      .select('id, status, challenger_id, opponent_id, challenger_score, opponent_score')
+    const campuri = 'id, status, challenger_id, opponent_id, challenger_score, opponent_score';
+    const mele = (sel) => supa.from('duels').select(sel)
       .or(`challenger_id.eq.${userId},opponent_id.eq.${userId}`)
       .in('status', ['invitat', 'activ']);
+    // coloanele de rezultat PROVIZORIU există doar după migrarea v7
+    let { data: dd, error: eDD } = await mele(`${campuri}, challenger_partial, opponent_partial`);
+    if (eDD) ({ data: dd } = await mele(campuri));
     for (const d of dd || []) {
       const eu = d.challenger_id === userId ? 'challenger' : 'opponent';
-      const amJucat = d[`${eu}_score`] != null;
+      // Un rezultat provizoriu (salvarea automată de la jumătatea exercițiului)
+      // NU stinge indicatorul: duelul e gata abia după „Verifică".
+      const amTerminat = d[`${eu}_score`] != null && d[`${eu}_partial`] !== true;
       if (d.status === 'invitat' && eu === 'opponent') dueluri.provocari += 1;
-      else if (!amJucat) dueluri.deJucat += 1;
+      else if (!amTerminat) dueluri.deJucat += 1;
     }
   } catch { /* tabela duels lipsește (migrarea v3 nerulată) */ }
 

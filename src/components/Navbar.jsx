@@ -37,6 +37,7 @@ const MAIMULTE = [
   { to: '/rezolvari',                  label: '📝 Blog / Rezolvări / Teorie' },
   { to: '/biblioteca-utilizatorilor',  label: '🏛️ Biblioteca utilizatorilor' },
   { to: '/manuale',                    label: '📖 Auxiliare' },
+  { to: '/discutii',                   label: '💬 Forum' },
   { to: '/recenzii',                   label: '⭐ Recenzii' },
   { to: '/despre-noi',                 label: 'Despre noi' },
   { to: '/faq',                        label: 'Întrebări frecvente' },
@@ -72,7 +73,7 @@ function Bulina({ n, flotanta = false, titlu = 'mesaje noi' }) {
 // ─── Desktop dropdown ─────────────────────────────────────────────────────────
 // `accent` = intrare principală (Examene, Clase): scoasă în evidență, fiindcă
 // de acolo intră elevii în materialele propriu-zise.
-function DesktopDropdown({ label, items, badge = 0, accent = false }) {
+function DesktopDropdown({ label, items, badge = 0, accent = false, badgeTitlu = 'mesaje noi', punct = false }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
   const location = useLocation();
@@ -101,7 +102,9 @@ function DesktopDropdown({ label, items, badge = 0, accent = false }) {
         }}
       >
         {label}
-        <Bulina n={badge} />
+        {/* activitate nouă pe forum — punctul auriu, ca la linkul de dinainte */}
+        {punct && <span className="forum-dot" title="Activitate nouă pe forum" aria-label="Activitate nouă pe forum" />}
+        <Bulina n={badge} titlu={badgeTitlu} />
         <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>{open ? '▲' : '▼'}</span>
       </button>
       {open && (
@@ -109,7 +112,9 @@ function DesktopDropdown({ label, items, badge = 0, accent = false }) {
           position: 'absolute', top: 'calc(100% + 8px)', left: 0,
           background: 'var(--navy-light)', borderRadius: 10, minWidth: 220,
           boxShadow: '0 8px 32px rgba(0,0,0,0.25)', zIndex: 1000,
-          border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden',
+          border: '1px solid rgba(255,255,255,0.08)', overflowX: 'hidden',
+          // lista lungă („Mai multe") se derulează în loc să iasă din ecran
+          maxHeight: 'min(70vh, 440px)', overflowY: 'auto', overscrollBehavior: 'contain',
         }}>
           {items.map(item => (
             <Link
@@ -587,6 +592,7 @@ export default function Navbar() {
   // din magazin — navigarea rapidă prin site nu bate serverul.
   useEffect(() => { if (user) refreshChatUnread(false); }, [user, location.pathname]);
 
+  // „Mai multe" — construit după rol; Forum stă aici, înainte de Recenzii.
   const maiMulte = MAIMULTE.map((it) => {
     if (it.to === '/profesor-virtual') {
       return { ...it, label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> {aiLabel}</span> };
@@ -595,6 +601,18 @@ export default function Navbar() {
       return { to: '/meditatii', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> Meditații cu AI</span> };
     }
     if (it.to === '/mesagerie') return { ...it, badge: chatUnread };
+    if (it.to === '/discutii') {
+      return {
+        ...it,
+        badge: forumUnread,
+        label: (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            💬 Forum
+            {forumHasNew && <span className="forum-dot" title="Activitate nouă pe forum" aria-label="Activitate nouă pe forum" />}
+          </span>
+        ),
+      };
+    }
     return it;
   });
 
@@ -723,21 +741,17 @@ export default function Navbar() {
                 </Link>
               )}
             </li>
+            {/* Forum a trecut în „Mai multe" (înainte de Recenzii); indicatorii
+                lui se văd pe butonul de mai jos, ca să nu se piardă. */}
             <li>
-              <Link
-                to="/discutii"
-                className={`${location.pathname === '/discutii' ? 'active' : ''}${forumHasNew ? ' forum-has-new' : ''}`.trim()}
-              >
-                💬 Forum
-                {forumHasNew && (
-                  <span className="forum-dot" title="Activitate nouă pe forum" aria-label="Activitate nouă pe forum" />
-                )}
-                {forumUnread > 0 && (
-                  <span style={{ color: '#ff6b6b', fontWeight: 700, marginLeft: 4 }}>({forumUnread})</span>
-                )}
-              </Link>
+              <DesktopDropdown
+                label="Mai multe"
+                items={maiMulte}
+                badge={chatUnread + forumUnread}
+                badgeTitlu="noutăți (mesaje și răspunsuri pe forum)"
+                punct={forumHasNew}
+              />
             </li>
-            <li><DesktopDropdown label="Mai multe" items={maiMulte} badge={chatUnread} /></li>
           </ul>
 
           {/* Desktop auth buttons */}
