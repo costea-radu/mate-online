@@ -196,6 +196,21 @@ vrei cândva gateway-ul, se schimbă doar URL-ul și cheia în acel fișier.
   oră, tic pierdut, funcție întreruptă) e prins automat de ticurile
   următoare, până la 6 ore după ora programată. Vercel → Settings → Cron
   Jobs arată execuțiile. Manual: `/api/agent-cron?action=run&secret=AI_CRON_SECRET`.
+- **„Nu am putut descărca fișierul-sursă «…» din Storage" (reparat 30
+  august):** în modul „pe rând", task-ul lua PRIMUL fișier neprelucrat din
+  rubrică — dacă tocmai acela nu se mai putea citi din Storage (șters din
+  bucket, cale rămasă în urmă după o mutare gratuit↔premium, fișier peste
+  ~3 MB), rularea se oprea pe el la FIECARE tic: progresul rămânea înțepenit
+  (ex. „2/10 fișiere procesate") și task-ul raporta aceeași eroare zi de zi.
+  Acum agentul **sare fișierul ilizibil** și trece la următorul: îl bifează ca
+  procesat (ca să nu mai blocheze coada) și scrie în istoric, pe cardul
+  task-ului (avertisment portocaliu) și în emailul de raport CE fișier a sărit
+  și DE CE — cu mesajul real de la Storage (ex. „Object not found"), nu cu
+  unul generic. Descărcarea încearcă și calea decodificată (numele cu
+  diacritice/spații), și bucket-ul pereche (`content-files` ↔
+  `content-files-free`), și, la final, chiar URL-ul public. **Ce ai de făcut
+  cu fișierul sărit:** reîncarcă-l în rubrică (Admin → Încarcă material) și,
+  dacă vrei ca agentul să reia rubrica de la primul fișier, apasă ↺ pe task.
 - Eroare „nu am obținut un document HTML complet (răspunsul s-a întrerupt)" →
   garda de completitudine a refuzat să publice un test neterminat. Serverul
   continuă singur răspunsurile tăiate (până la 4 reluări), reîncearcă la

@@ -26,6 +26,16 @@ test('parseStoragePath: format signed (/object/sign/)', () => {
   assert.strictEqual(filePath, '2025/bac.pdf');
 });
 
+test('parseStoragePath: calea se DECODIFICĂ (cheia reală din bucket)', () => {
+  // URL-ul public codifică diacriticele și spațiile, dar copy/remove primesc
+  // calea în corpul JSON — cu ea codificată, mutarea gratuit↔premium eșua.
+  const { bucket, filePath, rawFilePath } = parseStoragePath(
+    'https://xyz.supabase.co/storage/v1/object/public/content-files/pdf/clasa-9/1_Fi%C8%99%C4%83%208%20BAC.pdf');
+  assert.strictEqual(bucket, 'content-files');
+  assert.strictEqual(filePath, 'pdf/clasa-9/1_Fișă 8 BAC.pdf');
+  assert.strictEqual(rawFilePath, 'pdf/clasa-9/1_Fi%C8%99%C4%83%208%20BAC.pdf');
+});
+
 test('parseStoragePath: URL fără /object/ aruncă eroare', () => {
   assert.throws(() => parseStoragePath('https://example.com/oops/file.pdf'));
 });

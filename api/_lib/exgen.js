@@ -513,12 +513,68 @@ function parseExercise(r) {
   return normalize(ex);
 }
 
+// ─── Descărcarea unui fișier-sursă din Storage (tolerantă la cale) ──────────
+// `file_url` e URL-ul PUBLIC al fișierului, deci calea din el e procent-codificată
+// („Fișă 8.pdf" → „Fi%C8%99%C4%83%208.pdf"), în timp ce CHEIA reală din bucket e cea
+// DECODIFICATĂ. Trimisă așa cum e la storage.download(), calea codificată dă 404 la
+// materialele cu diacritice/spații în numele fișierului — iar în modul „pe rând"
+// task-ul se bloca pe același fișier la fiecare rulare („Nu am putut descărca
+// fișierul-sursă …"). Încercăm, în ordine: calea decodificată, calea brută din URL,
+// aceleași două în bucket-ul pereche (content-files ↔ content-files-free — mutările
+// gratuit↔premium lasă uneori file_url în urmă) și, la final, chiar URL-ul public.
+// Întoarce { buf } sau { buf: null, reason } cu MOTIVUL real de la Storage, ca să
+// apară în istoricul task-ului în loc de un mesaj generic.
+const SIBLING_BUCKET = { 'content-files': 'content-files-free', 'content-files-free': 'content-files' };
+
+function storageAttempts(fileUrl) {
+  const url = new URL(fileUrl);
+  const parts = url.pathname.split('/');
+  const oi = parts.findIndex((x) => x === 'object');
+  if (oi === -1) throw new Error('URL fără „/object/" — nu pare un fișier din Storage.');
+  const bucket = parts[oi + 2];
+  const rawPath = parts.slice(oi + 3).join('/').split('?')[0];
+  if (!bucket || !rawPath) throw new Error('Nu s-a putut extrage calea din URL.');
+  let decoded = rawPath;
+  try { decoded = decodeURIComponent(rawPath); } catch { /* rămâne cum e */ }
+  const paths = decoded === rawPath ? [rawPath] : [decoded, rawPath];
+  const attempts = [];
+  for (const b of [bucket, SIBLING_BUCKET[bucket]].filter(Boolean)) {
+    for (const p of paths) attempts.push({ bucket: b, path: p });
+  }
+  return { attempts, isPublic: parts[oi + 1] === 'public' };
+}
+
+async function downloadStorage(supa, fileUrl) {
+  const url = String(fileUrl || '').trim();
+  if (!url) return { buf: null, reason: 'materialul nu are fișier atașat' };
+  let plan;
+  try { plan = storageAttempts(url); }
+  catch (e) { return { buf: null, reason: String((e && e.message) || e) }; }
+  let reason = 'fișierul nu mai există în Storage';
+  for (const a of plan.attempts) {
+    try {
+      const { data: blob, error } = await supa.storage.from(a.bucket).download(a.path);
+      if (blob) return { buf: Buffer.from(await blob.arrayBuffer()), bucket: a.bucket, path: a.path };
+      if (error) reason = String(error.message || error);
+    } catch (e) { reason = String((e && e.message) || e); }
+  }
+  // ultima șansă: chiar URL-ul public (cheie „exotică" pe care API-ul o refuză)
+  if (plan.isPublic && /^https?:\/\//i.test(url)) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (r.ok) return { buf: Buffer.from(await r.arrayBuffer()), bucket: null, path: null };
+      reason = `${reason} (URL public: HTTP ${r.status})`;
+    } catch (e) { reason = `${reason} (URL public: ${String((e && e.message) || e)})`; }
+  }
+  return { buf: null, reason };
+}
+
 // ─── Context suplimentar din ALTE rubrici (ex. baremele testelor) ────────────
 // extraRubrics = [{category, subcategory, profile, ctype}, …] (max 3).
 // Din fiecare rubrică ia max 2 materiale la întâmplare: PDF → blocuri native
 // Claude (≤ ~3 MB în total), interactiv/HTML → extras text. Ele NU sunt
 // teste-sursă de combinat — sunt REFERINȚĂ (stilul baremului, punctare etc.).
-async function fetchExtraContext(supa, extraRubrics, parsePath) {
+async function fetchExtraContext(supa, extraRubrics) {
   const docBlocks = [];
   const texts = [];
   const names = [];
@@ -540,10 +596,8 @@ async function fetchExtraContext(supa, extraRubrics, parsePath) {
         if (taken >= 2) break;
         try {
           if (row.content_type === 'pdf') {
-            const { bucket, filePath } = parsePath(row.file_url);
-            const { data: blob } = await supa.storage.from(bucket).download(filePath);
-            if (!blob) continue;
-            const buf = Buffer.from(await blob.arrayBuffer());
+            const { buf } = await downloadStorage(supa, row.file_url);
+            if (!buf) continue;
             if (buf.length > 2 * 1024 * 1024 || pdfBytes + buf.length > 3 * 1024 * 1024) continue;
             pdfBytes += buf.length;
             docBlocks.push({ type: 'text', text: `MATERIAL DE CONTEXT SUPLIMENTAR (referință, NU test-sursă): ${row.title}` });
@@ -551,10 +605,9 @@ async function fetchExtraContext(supa, extraRubrics, parsePath) {
           } else if (row.interactive_data?.exercise) {
             texts.push({ title: row.title, text: JSON.stringify(row.interactive_data.exercise).slice(0, 4000) });
           } else {
-            const { bucket, filePath } = parsePath(row.file_url);
-            const { data: blob } = await supa.storage.from(bucket).download(filePath);
-            if (!blob) continue;
-            const raw = Buffer.from(await blob.arrayBuffer()).toString('utf8');
+            const { buf } = await downloadStorage(supa, row.file_url);
+            if (!buf) continue;
+            const raw = buf.toString('utf8');
             const t = raw.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
             if (t.length < 100) continue;
             texts.push({ title: row.title, text: t.slice(0, 4000) });
@@ -627,7 +680,7 @@ function titleMatchScore(srcTitle, candTitle) {
 // Pentru fiecare titlu-sursă, caută în rubricile suplimentare materialul
 // CORESPONDENT (ex. baremul aceluiași test) și îl atașează: PDF nativ (≤ ~2,5MB
 // fiecare, ≤ ~5MB în total) sau extras text. Returnează și `pairs` (cine cu cine).
-async function fetchPairedContext(supa, extraRubrics, srcTitles, parsePath) {
+async function fetchPairedContext(supa, extraRubrics, srcTitles) {
   const candidates = [];
   for (const r of (Array.isArray(extraRubrics) ? extraRubrics : []).slice(0, 3)) {
     if (!r || !r.category) continue;
@@ -660,10 +713,8 @@ async function fetchPairedContext(supa, extraRubrics, srcTitles, parsePath) {
     used.add(best.id);
     try {
       if (best.content_type === 'pdf') {
-        const { bucket, filePath } = parsePath(best.file_url);
-        const { data: blob } = await supa.storage.from(bucket).download(filePath);
-        if (!blob) continue;
-        const buf = Buffer.from(await blob.arrayBuffer());
+        const { buf } = await downloadStorage(supa, best.file_url);
+        if (!buf) continue;
         if (buf.length > 2.5 * 1024 * 1024 || pdfBytes + buf.length > 5 * 1024 * 1024) continue;
         pdfBytes += buf.length;
         docBlocks.push({ type: 'text', text: `BAREMUL/REZOLVAREA CORESPONDENTĂ pentru „${st}”: ${best.title}` });
@@ -671,10 +722,9 @@ async function fetchPairedContext(supa, extraRubrics, srcTitles, parsePath) {
       } else if (best.interactive_data?.exercise) {
         texts.push({ title: `${best.title} (corespondent pentru „${st}”)`, text: JSON.stringify(best.interactive_data.exercise).slice(0, 5000) });
       } else {
-        const { bucket, filePath } = parsePath(best.file_url);
-        const { data: blob } = await supa.storage.from(bucket).download(filePath);
-        if (!blob) continue;
-        const raw = Buffer.from(await blob.arrayBuffer()).toString('utf8');
+        const { buf } = await downloadStorage(supa, best.file_url);
+        if (!buf) continue;
+        const raw = buf.toString('utf8');
         const txt = raw.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
         if (txt.length < 100) continue;
         texts.push({ title: `${best.title} (corespondent pentru „${st}”)`, text: txt.slice(0, 5000) });
@@ -727,12 +777,6 @@ async function runAuto({ supa, category, subcategory = null, profile = null, cty
   if (!rows || !rows.length) throw httpErr(400, 'Rubrica nu are materiale de tipul ales.');
   if (!mode.sequential && rows.length < 2) throw httpErr(400, 'Rubrica are prea puține materiale (minim 2) pentru combinare.');
 
-  const parsePath = (fileUrl) => {
-    const url = new URL(fileUrl);
-    const parts = url.pathname.split('/');
-    const oi = parts.findIndex((x) => x === 'object');
-    return { bucket: parts[oi + 2], filePath: parts.slice(oi + 3).join('/').split('?')[0] };
-  };
   const shuffled = [...rows].sort(() => Math.random() - 0.5);
 
   // Contextul suplimentar pentru sursele date: la modul „pair" întâi caută
@@ -741,10 +785,10 @@ async function runAuto({ supa, category, subcategory = null, profile = null, cty
   async function ctxFor(srcTitles) {
     if (!hasExtras) return { docBlocks: [], textBlock: '', names: [], line: '' };
     if (mode.pair) {
-      const paired = await fetchPairedContext(supa, extraRubrics, srcTitles, parsePath);
+      const paired = await fetchPairedContext(supa, extraRubrics, srcTitles);
       if (paired.names.length) return paired;
     }
-    const e = await fetchExtraContext(supa, extraRubrics, parsePath);
+    const e = await fetchExtraContext(supa, extraRubrics);
     return { ...e, line: extraLine(e.names) };
   }
 
@@ -753,36 +797,47 @@ async function runAuto({ supa, category, subcategory = null, profile = null, cty
   // Progresul (ce fișiere s-au procesat) vine din task.seq_done (seqDone).
   if (mode.sequential) {
     const doneSet = new Set(Array.isArray(seqDone) ? seqDone : []);
-    const src = rows.find((r) => !doneSet.has(r.id));
+    // Luăm PRIMUL fișier neprelucrat pe care chiar îl putem CITI: dacă un material
+    // nu mai poate fi descărcat (șters din Storage, cheie stricată după o mutare
+    // gratuit↔premium, prea mare), îl SĂRIM și trecem la următorul. Înainte, un
+    // singur fișier ilizibil oprea task-ul la FIECARE rulare, la nesfârșit —
+    // progresul „pe rând" rămânea blocat și rularea se termina zilnic cu eroare.
+    // Fișierele sărite se întorc în `skippedSources`: runTask le bifează ca
+    // procesate și scrie motivul în istoric (se reiau cu ↺ după reîncărcare).
+    const skippedSources = [];
+    let src = null;
+    let srcPdf = null;   // PDF → bloc nativ pentru model
+    let srcHtml = null;  // HTML brut (exercițiu interactiv)
+    let srcText = null;  // JSON-ul exercițiului (interactive_data)
+    for (const cand of rows) {
+      if (doneSet.has(cand.id)) continue;
+      if (cand.content_type === 'pdf') {
+        const { buf, reason } = await downloadStorage(supa, cand.file_url);
+        if (!buf) { skippedSources.push({ id: cand.id, title: cand.title, reason }); continue; }
+        if (buf.length > 3 * 1024 * 1024) { skippedSources.push({ id: cand.id, title: cand.title, reason: 'prea mare (max ~3 MB)' }); continue; }
+        srcPdf = buf.toString('base64');
+      } else if (cand.interactive_data?.exercise) {
+        srcText = JSON.stringify(cand.interactive_data.exercise).slice(0, 20000);
+      } else {
+        const { buf, reason } = await downloadStorage(supa, cand.file_url);
+        if (!buf) { skippedSources.push({ id: cand.id, title: cand.title, reason }); continue; }
+        // plafon mărit: la 160k se tăia uneori chiar array-ul de itemi de la
+        // finalul fișierelor mari — modelul primea carcasa fără exerciții
+        srcHtml = buf.toString('utf8').slice(0, 320000);
+      }
+      src = cand;
+      break;
+    }
     if (!src) {
       return {
         skipped: true,
-        reason: 'Toate fișierele din rubrică au fost deja procesate de acest task. Adaugă materiale noi în rubrică sau resetează progresul (↺) din panoul task-ului.',
+        skippedSources,
+        reason: skippedSources.length
+          ? `Nu am putut citi din Storage ${skippedSources.length} fișier(e) rămase din rubrică: ${skippedSources.map((x) => `„${x.title}” (${x.reason})`).join('; ')}. Reîncarcă-le în rubrică, apoi resetează progresul (↺) din panoul task-ului.`
+          : 'Toate fișierele din rubrică au fost deja procesate de acest task. Adaugă materiale noi în rubrică sau resetează progresul (↺) din panoul task-ului.',
       };
     }
     const ctx = await ctxFor([src.title]);
-
-    // sursa: PDF → bloc nativ; interactiv → JSON-ul exercițiului sau HTML brut
-    let srcPdf = null;
-    let srcHtml = null;
-    let srcText = null;
-    if (src.content_type === 'pdf') {
-      const { bucket, filePath } = parsePath(src.file_url);
-      const { data: blob } = await supa.storage.from(bucket).download(filePath);
-      if (!blob) throw httpErr(502, `Nu am putut descărca fișierul-sursă „${src.title}" din Storage.`);
-      const buf = Buffer.from(await blob.arrayBuffer());
-      if (buf.length > 3 * 1024 * 1024) throw httpErr(400, `Fișierul-sursă „${src.title}" e prea mare (max ~3 MB).`);
-      srcPdf = buf.toString('base64');
-    } else if (src.interactive_data?.exercise) {
-      srcText = JSON.stringify(src.interactive_data.exercise).slice(0, 20000);
-    } else {
-      const { bucket, filePath } = parsePath(src.file_url);
-      const { data: blob } = await supa.storage.from(bucket).download(filePath);
-      if (!blob) throw httpErr(502, `Nu am putut descărca fișierul-sursă „${src.title}" din Storage.`);
-      // plafon mărit: la 160k se tăia uneori chiar array-ul de itemi de la
-      // finalul fișierelor mari — modelul primea carcasa fără exerciții
-      srcHtml = Buffer.from(await blob.arrayBuffer()).toString('utf8').slice(0, 320000);
-    }
 
     // (a) sursă HTML fără model de format → CLONĂM chiar fișierul-sursă:
     // același design și funcționalitate, conținutul ajustat după dataMode.
@@ -817,7 +872,7 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
         console.error('exgen(seq-html): invalid. stopReason=%s continuations=%s', rS.stopReason, rS.continuations);
         throw e;
       }
-      return { html: hS, provider: rS.provider, combinedFrom: [src.title, ...ctx.names], usage: rS.usage, sourceId: src.id, sourceTitle: src.title, template: src.title };
+      return { html: hS, provider: rS.provider, combinedFrom: [src.title, ...ctx.names], usage: rS.usage, sourceId: src.id, sourceTitle: src.title, skippedSources, template: src.title };
     }
 
     // (b) model de format HTML → clonăm MODELUL DE FORMAT, cu exercițiile
@@ -852,7 +907,7 @@ Răspunde DOAR cu documentul HTML complet (<!doctype html> … </html>).`;
         console.error('exgen(seq-format): invalid. stopReason=%s continuations=%s', rF.stopReason, rF.continuations);
         throw e;
       }
-      return { html: hF, provider: rF.provider, combinedFrom: [src.title, ...ctx.names], usage: rF.usage, sourceId: src.id, sourceTitle: src.title, template: 'modelul de format al task-ului' };
+      return { html: hF, provider: rF.provider, combinedFrom: [src.title, ...ctx.names], usage: rF.usage, sourceId: src.id, sourceTitle: src.title, skippedSources, template: 'modelul de format al task-ului' };
     }
 
     // (c) sursă PDF sau exercițiu JSON → test interactiv STRUCTURAT (JSON),
@@ -882,7 +937,7 @@ Itemii cu răspuns liber: "options" null, "answer_index" null, "answer_text" = r
       throw httpErr(502, `Nu am obținut un test valid din „${src.title}”. Mai încearcă.`);
     }
     exJ.title = exJ.title || `${src.title} · interactiv`;
-    return { exercise: exJ, provider: rJ.provider, combinedFrom: [src.title, ...ctx.names], usage: rJ.usage, sourceId: src.id, sourceTitle: src.title };
+    return { exercise: exJ, provider: rJ.provider, combinedFrom: [src.title, ...ctx.names], usage: rJ.usage, sourceId: src.id, sourceTitle: src.title, skippedSources };
   }
 
   // ── Rubrici PDF (exerciții / teste / bareme) ──
@@ -892,10 +947,8 @@ Itemii cu răspuns liber: "options" null, "answer_index" null, "answer_text" = r
     for (const r of shuffled) {
       if (names.length >= 3) break;
       try {
-        const { bucket, filePath } = parsePath(r.file_url);
-        const { data: blob } = await supa.storage.from(bucket).download(filePath);
-        if (!blob) continue;
-        const buf = Buffer.from(await blob.arrayBuffer());
+        const { buf } = await downloadStorage(supa, r.file_url);
+        if (!buf) continue;
         if (buf.length > 2.5 * 1024 * 1024) continue;
         blocksA.push({ type: 'text', text: `TESTUL ${String.fromCharCode(65 + names.length)}: ${r.title}` });
         blocksA.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buf.toString('base64') } });
@@ -986,10 +1039,9 @@ Itemii cu răspuns liber: "options" null, "answer_index" null, "answer_text" = r
       if (srcTexts.length >= 5) break;
       try {
         if (r.interactive_data?.exercise) { srcTexts.push({ title: r.title, text: JSON.stringify(r.interactive_data.exercise).slice(0, 5000) }); continue; }
-        const { bucket, filePath } = parsePath(r.file_url);
-        const { data: blob } = await supa.storage.from(bucket).download(filePath);
-        if (!blob) continue;
-        const raw = Buffer.from(await blob.arrayBuffer()).toString('utf8');
+        const { buf } = await downloadStorage(supa, r.file_url);
+        if (!buf) continue;
+        const raw = buf.toString('utf8');
         const t = raw.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
         if (t.length > 200) srcTexts.push({ title: r.title, text: t.slice(0, 5000) });
       } catch { /* ignorată */ }
@@ -1035,10 +1087,9 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "ou
         if (sources.length < 5) sources.push({ title: r.title, text: JSON.stringify(r.interactive_data.exercise).slice(0, 6000) });
         continue;
       }
-      const { bucket, filePath } = parsePath(r.file_url);
-      const { data: blob } = await supa.storage.from(bucket).download(filePath);
-      if (!blob) continue;
-      const raw = Buffer.from(await blob.arrayBuffer()).toString('utf8');
+      const { buf } = await downloadStorage(supa, r.file_url);
+      if (!buf) continue;
+      const raw = buf.toString('utf8');
       // formatul standard: figuri geometrice + instrumente de desen + scor
       const isStandard = /desen|<canvas|class="fig"/i.test(raw) && /MATE_SCORE/.test(raw);
       if (!templateHtml && isStandard && raw.length < 200000) { templateHtml = raw.slice(0, 120000); templateName = r.title; }
@@ -1464,7 +1515,8 @@ async function runTask({ supa, task, triggerKind = 'cron' }) {
     title: null, provider: null, content_id: null, error: null, result: null, combined_from: null,
   };
   let usage = null;
-  let seqAppend = null; // id-ul fișierului-sursă procesat (modul „pe rând")
+  const seqAppend = []; // id-urile fișierelor-sursă consumate (modul „pe rând")
+  let seqWarn = '';     // fișiere-sursă sărite pentru că nu se pot citi din Storage
   try {
     // modelul de format (dacă task-ul cere rezultat „după modelul de format")
     const { formatHtml, formatPdf } = await loadFormatModel({ supa, task });
@@ -1481,6 +1533,13 @@ async function runTask({ supa, task, triggerKind = 'cron' }) {
       seqDone: Array.isArray(task.seq_done) ? task.seq_done : [],
     });
     usage = g.usage || null;
+    // fișierele-sursă ilizibile se bifează ca procesate (altfel task-ul „pe rând"
+    // s-ar opri pe ele la fiecare rulare) și motivul ajunge în istoric + email
+    const badSrc = Array.isArray(g.skippedSources) ? g.skippedSources : [];
+    if (badSrc.length) {
+      seqAppend.push(...badSrc.map((x) => x.id).filter(Boolean));
+      seqWarn = `Am sărit ${badSrc.length} fișier(e)-sursă care nu au putut fi citite din Storage: ${badSrc.map((x) => `„${x.title}” (${x.reason})`).join('; ')}. Le-am bifat ca procesate ca să nu blocheze task-ul — reîncarcă-le în rubrică și apasă ↺ dacă vrei să fie folosite.`;
+    }
 
     if (g.skipped) {
       // modul „pe rând": nu mai există fișiere neprelucrate în rubrică
@@ -1521,12 +1580,14 @@ async function runTask({ supa, task, triggerKind = 'cron' }) {
       // progresul modului „pe rând": fișierul-sursă e bifat ca procesat
       // (inclusiv la „pending_review" — a fost consumat de generare; resetarea
       // progresului se face cu ↺ din panoul task-ului)
-      if (g.sourceId) seqAppend = g.sourceId;
+      if (g.sourceId) seqAppend.push(g.sourceId);
     }
   } catch (e) {
     run.error = String(e?.message || e || 'eroare necunoscută').slice(0, 900);
   }
 
+  // avertismentul apare în istoric (și în email) chiar dacă rularea a reușit
+  if (seqWarn) run.error = (run.error ? `${run.error} · ⚠️ ${seqWarn}` : `⚠️ ${seqWarn}`).slice(0, 900);
   const { data: inserted, error: insErr } = await supa.from('agent_task_runs').insert(run).select('id').single();
   if (insErr) {
     console.error('exgen runTask: insert agent_task_runs eșuat:', insErr.message);
@@ -1543,7 +1604,7 @@ async function runTask({ supa, task, triggerKind = 'cron' }) {
     last_run_at: startedAt,
     last_status: run.status,
     last_error: run.error,
-    ...(seqAppend ? { seq_done: [...(Array.isArray(task.seq_done) ? task.seq_done : []), seqAppend] } : {}),
+    ...(seqAppend.length ? { seq_done: [...(Array.isArray(task.seq_done) ? task.seq_done : []), ...seqAppend] } : {}),
   }).eq('id', task.id);
   const emailed = await notifyAdmin({ task, run }).catch((e) => { console.warn('exgen: email eșuat:', e.message); return false; });
 
@@ -1578,7 +1639,7 @@ async function postRun({ supa, runId }) {
 module.exports = {
   runAuto, normalize, renderExerciseHtml, postContent, runTask, postRun, notifyAdmin,
   storeFormatModel, removeFormatModel, loadFormatModel, fetchExtraContext,
-  detectMode, titleMatchScore, fetchPairedContext,
+  detectMode, titleMatchScore, fetchPairedContext, downloadStorage,
   // pentru teste (test/agent-tasks.test.js)
   figuresAllowed, stripFigures, itemSignals, missingSections, assertCompleteHtml, cutHtml,
   EXERCISE_SCHEMA, parseExercise, visibleSubcategory, chatClaudeLong, tplAnnotate, tplRestore,

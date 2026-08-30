@@ -234,9 +234,16 @@ function parseStoragePath(fileUrl) {
   const objIdx = parts.findIndex((p) => p === 'object');
   if (objIdx === -1) throw new Error('URL invalid (fără /object/).');
   const bucket = parts[objIdx + 2];
-  const filePath = parts.slice(objIdx + 3).join('/').split('?')[0];
-  if (!bucket || !filePath) throw new Error('Nu s-a putut extrage calea din URL.');
-  return { bucket, filePath };
+  const rawPath = parts.slice(objIdx + 3).join('/').split('?')[0];
+  if (!bucket || !rawPath) throw new Error('Nu s-a putut extrage calea din URL.');
+  // Calea din URL e procent-codificată („Fișă 8.pdf" → „Fi%C8%99%C4%83%208.pdf"),
+  // dar CHEIA din bucket e cea decodificată. Endpointurile care primesc calea
+  // în URL (download, sign) o decodifică singure, însă copy/remove o primesc
+  // în corpul JSON: cu calea codificată, mutarea gratuit↔premium a fișierelor
+  // cu spații/diacritice în nume eșua cu „Object not found".
+  let filePath = rawPath;
+  try { filePath = decodeURIComponent(rawPath); } catch { /* rămâne cum e */ }
+  return { bucket, filePath, rawFilePath: rawPath };
 }
 
 // Signed URL dintr-un URL public Supabase Storage (implementare robustă).

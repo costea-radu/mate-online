@@ -4,6 +4,33 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 30 august 2026 — Task-ul „clasa 9" se oprea zilnic pe ACELAȘI fișier: un material ilizibil din rubrică bloca definitiv modul „pe rând"
+
+Raportat de Radu: task-ul „Exercițiu interactiv nou clasa 9" arăta zi de zi „⚠️ eroare — Nu am putut descărca fișierul-sursă «Fișă 8 – BAC: Vectori» din Storage", cu progresul înțepenit la 2/10 fișiere procesate, în timp ce task-urile de clasa 10 și 11 avansau normal.
+
+### Cauza
+În modul „pe rând" (`api/_lib/exgen.js → runAuto`), agentul lua **primul** fișier neprelucrat din rubrică (`rows.find(r => !doneSet.has(r.id))`) și, dacă descărcarea din Storage nu întorcea nimic, arunca eroare. Fișierul NU intra în `seq_done` — deci la următoarea rulare agentul îl alegea din nou, eșua din nou, și tot așa: **o singură intrare stricată din rubrică oprea task-ul pentru totdeauna**, fără ca celelalte 7 fișiere să mai fie procesate vreodată.
+
+În plus, mesajul de eroare era generat local (`if (!blob) throw …`), cu obiectul `error` de la Supabase **ignorat** — nu se vedea niciodată DE CE a picat descărcarea („Object not found"? bucket greșit? fișier șters?).
+
+### Ce s-a schimbat
+
+**1. Un fișier ilizibil se SARE, nu mai oprește task-ul.** Bucla alege primul fișier neprelucrat pe care chiar îl poate citi; cele nedescărcabile se adună în `skippedSources` (cu motivul lor), iar `runTask` le bifează în `seq_done` — coada avansează. Dacă TOATE fișierele rămase sunt ilizibile, rularea se încheie cu `skipped` (nu „error"), iar motivul le enumeră pe fiecare.
+
+**2. Descărcarea e tolerantă la cale** (`downloadStorage`, nou în exgen.js). `file_url` e URL public, deci calea din el e procent-codificată, în timp ce cheia reală din bucket e cea decodificată. Se încearcă, în ordine: calea decodificată → calea brută → aceleași două în bucket-ul pereche (`content-files` ↔ `content-files-free`, pentru rândurile rămase în urmă după o mutare gratuit↔premium) → chiar URL-ul public. Toate celelalte descărcări din exgen (contextul suplimentar, baremele corespondente, modurile de combinare) folosesc acum același helper.
+
+**3. Motivul REAL ajunge la admin.** `downloadStorage` întoarce mesajul de la Storage, iar rularea îl scrie în istoric, în emailul de raport și pe cardul task-ului — portocaliu când rularea a reușit totuși (fișier sărit), roșu când a eșuat. Înainte, un avertisment de pe o rulare reușită nu se vedea nicăieri.
+
+**4. `parseStoragePath` (api/_lib/http.js) decodifică acum calea.** `download` și `createSignedUrl` primesc calea în URL (serverul o decodifică singur), dar `copy` și `remove` o primesc în corpul JSON: cu calea codificată, **mutarea gratuit↔premium a materialelor cu spații sau diacritice în numele fișierului eșua** cu „Object not found". Se întoarce și `rawFilePath`, pentru cine are nevoie de forma din URL.
+
+### Ce ai de făcut
+Fișierul „Fișă 8 – BAC: Vectori" va fi **sărit** la următoarea rulare (task-ul continuă cu următoarele 7), iar în istoric va scrie exact de ce nu s-a putut citi. Dacă vrei să fie folosit: reîncarcă-l în rubrică (Admin → Încarcă material) și apasă ↺ pe task ca agentul să reia rubrica de la primul fișier.
+
+### Verificare
+`npm test` — teste noi în `test/agent-tasks.test.js` (un fișier ilizibil e sărit și rularea continuă cu următorul; toate ilizibile → `skipped` cu motivele; `downloadStorage` cade pe calea decodificată și pe bucket-ul pereche și raportează motivul real) și în `test/http.test.js` (calea decodificată + `rawFilePath`). 19/19 și 13/13 verde; `AgentScheduledTasks.jsx` compilează curat.
+
+---
+
 ## 26 august 2026 (2) — Mesajele ajung în timp real (Supabase Realtime, canal „broadcast" per conversație)
 
 Raportat de Radu: mesajele apăreau cu câteva secunde întârziere sau abia după refresh. Cauza: mesageria mergea exclusiv pe interogare periodică — firul deschis la 20 s, lista de conversații la 60 s. În cel mai rău caz, un mesaj se vedea după 20 de secunde.

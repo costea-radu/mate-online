@@ -231,11 +231,16 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
     try {
       const r = await aiClient.agentTasks({ action: 'run_now', id: t.id });
       const st = r.run?.status;
+      // rularea poate REUȘI și totuși să aibă un avertisment (ex. un fișier-sursă
+      // ilizibil, sărit ca să nu blocheze coada) — îl arătăm, nu îl înghițim
+      const warn = r.run?.error ? ` ⚠️ ${r.run.error}` : '';
       setMsg(st === 'posted'
-        ? `✅ „${r.run.title}” a fost generat și POSTAT pe site (task „${t.name}”).`
+        ? `✅ „${r.run.title}” a fost generat și POSTAT pe site (task „${t.name}”).${warn}`
         : st === 'pending_review'
-          ? `🕓 „${r.run.title}” a fost generat și așteaptă aprobarea ta (istoricul task-ului „${t.name}”).`
-          : `⚠️ Rularea a eșuat: ${r.run?.error || 'eroare necunoscută'}`);
+          ? `🕓 „${r.run.title}” a fost generat și așteaptă aprobarea ta (istoricul task-ului „${t.name}”).${warn}`
+          : st === 'skipped'
+            ? `ℹ️ ${r.run?.title || 'Nimic nou de generat'}${warn}`
+            : `⚠️ Rularea a eșuat: ${r.run?.error || 'eroare necunoscută'}`);
       load();
       if (openRuns === t.id) loadRuns(t.id);
     } catch (e) { setError(e.message); }
@@ -524,8 +529,10 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
                   {t.seq_done?.length > 0 && <> · pe rând: {t.seq_done.length}{rubricByKey(rubricKeyOf(t))?.n ? `/${rubricByKey(rubricKeyOf(t)).n}` : ''} fișiere procesate</>}
                   {t.last_run_at && <> · ultima: {new Date(t.last_run_at).toLocaleString('ro-RO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} {statusChip(t.last_status)}</>}
                 </div>
-                {t.last_status === 'error' && t.last_error && (
-                  <div style={{ fontSize: '.74rem', color: '#b71c1c', marginTop: 2 }}>⚠️ {t.last_error}</div>
+                {t.last_error && (
+                  /* și când rularea a reușit: „am sărit fișierul X, nu se putea citi"
+                     — portocaliu, ca materialele stricate din rubrică să nu treacă neobservate */
+                  <div style={{ fontSize: '.74rem', color: t.last_status === 'error' ? '#b71c1c' : '#8a6d00', marginTop: 2 }}>⚠️ {t.last_error}</div>
                 )}
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

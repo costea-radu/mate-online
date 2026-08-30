@@ -149,6 +149,92 @@ test('exgen.runAuto „pe rând”: când toate fișierele au fost procesate →
   assert.match(r.reason, /procesate/);
 });
 
+// ─── Fișiere-sursă ilizibile în modul „pe rând" (cauza erorii zilnice de la
+// „Exercițiu interactiv nou clasa 9": un PDF care nu se mai putea descărca din
+// Storage bloca task-ul la FIECARE rulare, pe același fișier) ────────────────
+function fakeSupaStorage(rows, store) {
+  const fakeQ = {
+    select() { return this; }, eq() { return this; }, in() { return this; },
+    order() { return this; },
+    limit: async () => ({ data: rows }),
+  };
+  return {
+    from: () => fakeQ,
+    storage: {
+      from: (bucket) => ({
+        download: async (path) => (store[`${bucket}/${path}`]
+          ? { data: { arrayBuffer: async () => Buffer.from(store[`${bucket}/${path}`]) }, error: null }
+          : { data: null, error: { message: 'Object not found' } }),
+      }),
+    },
+  };
+}
+
+test('exgen.downloadStorage: cade pe calea DECODIFICATĂ și pe bucket-ul pereche', async () => {
+  const store = { 'content-files/pdf/clasa-9/1_Fișă 8.pdf': 'PDF-A', 'content-files-free/pdf/clasa-9/2_test.pdf': 'PDF-B' };
+  const supa = fakeSupaStorage([], store);
+  const base = 'https://xyz.supabase.co/storage/v1/object/public';
+
+  // calea din URL e procent-codificată, cheia reală e cea decodificată
+  const a = await exgen.downloadStorage(supa, `${base}/content-files/pdf/clasa-9/1_Fi%C8%99%C4%83%208.pdf`);
+  assert.strictEqual(a.buf.toString(), 'PDF-A');
+
+  // file_url rămas în urmă după mutarea premium↔gratuit → încearcă și perechea
+  const b = await exgen.downloadStorage(supa, `${base}/content-files/pdf/clasa-9/2_test.pdf`);
+  assert.strictEqual(b.buf.toString(), 'PDF-B');
+  assert.strictEqual(b.bucket, 'content-files-free');
+
+  // fișier inexistent → motivul REAL de la Storage, nu un mesaj generic
+  const c = await exgen.downloadStorage(supa, `${base}/content-files/pdf/clasa-9/3_lipsa.pdf?x=1`);
+  assert.strictEqual(c.buf, null);
+  assert.match(c.reason, /Object not found/);
+});
+
+test('exgen.runAuto „pe rând”: un fișier ilizibil e SĂRIT, nu blochează task-ul', async () => {
+  const base = 'https://xyz.supabase.co/storage/v1/object/sign'; // „sign" → fără fallback pe URL public
+  const rows = [
+    { id: 'a1', title: 'Fișa 7', content_type: 'pdf', file_url: `${base}/content-files/a1.pdf` },
+    { id: 'a2', title: 'Fișă 8 – BAC: Vectori', content_type: 'pdf', file_url: `${base}/content-files/a2.pdf` },
+    { id: 'a3', title: 'Fișa 9', content_type: 'pdf', file_url: `${base}/content-files/a3.pdf` },
+  ];
+  // a1 deja procesat, a2 lipsește din Storage, a3 e bun
+  const supa = fakeSupaStorage(rows, { 'content-files/a3.pdf': '%PDF-1.4 ok' });
+  const args = {
+    supa, category: 'clasa-9', ctype: 'pdf',
+    instructions: 'ia pe rând fișierele rubricii',
+    seqDone: ['a1'],
+  };
+
+  const orig = claude.chatClaude;
+  let seen = null;
+  try {
+    claude.chatClaude = async ({ messages }) => {
+      seen = JSON.stringify(messages);
+      return {
+        text: JSON.stringify({
+          title: 'Test nou', kind: 'grila',
+          questions: Array.from({ length: 8 }, (_, i) => ({ statement: `Item ${i + 1}: cât face 2+2?`, options: ['3', '4', '5', '6'], answer_index: 1, points: 5 })),
+        }),
+        usage: { prompt_tokens: 1, completion_tokens: 1 }, provider: 'stub', stopReason: 'end_turn',
+      };
+    };
+    const r = await exgen.runAuto(args);
+    assert.ok(!r.skipped, 'rularea NU mai eșuează din cauza fișierului stricat');
+    assert.strictEqual(r.sourceId, 'a3', 'a trecut la următorul fișier citibil');
+    assert.strictEqual(r.skippedSources.length, 1);
+    assert.strictEqual(r.skippedSources[0].id, 'a2');
+    assert.match(r.skippedSources[0].reason, /Object not found/);
+    assert.ok(seen && /Fișa 9/.test(seen), 'modelul a primit chiar fișierul citibil');
+  } finally { claude.chatClaude = orig; }
+
+  // dacă TOT ce a rămas e ilizibil → „skipped" cu motivul pe fiecare fișier
+  const goale = fakeSupaStorage(rows, {});
+  const r2 = await exgen.runAuto({ ...args, supa: goale });
+  assert.strictEqual(r2.skipped, true);
+  assert.strictEqual(r2.skippedSources.length, 2);
+  assert.match(r2.reason, /Storage/);
+});
+
 test('agent-cron.isDue: potrivirea programului + garda anti-dublare + fereastra de recuperare', () => {
   // vineri, 31 iulie 2026, 07:00 ora României (vară, UTC+3) = 04:00Z
   const laOra = new Date('2026-07-31T04:00:00Z');
