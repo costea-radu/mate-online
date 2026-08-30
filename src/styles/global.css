@@ -22,6 +22,8 @@
 
   /* — Spacing — */
   --container: 1200px;
+  --sidebar-w: 240px;      /* lățimea meniului lateral din stânga */
+  --navbar-h: 68px;        /* înălțimea barei de sus */
   --radius: 10px;
   --radius-lg: 16px;
 
@@ -237,6 +239,43 @@ img { max-width: 100%; display: block; }
     width: 100%;
     padding: 12px 16px;
   }
+}
+
+/* ======= MENIU LATERAL (stânga) ======= */
+/* Bară fixă, lipită de marginea din stânga, imediat sub navbar.
+   Conținutul paginii (.app-shell) e decalat exact cu lățimea ei — fără
+   spațiu în plus între bară și conținut. Sub 768px bara dispare, iar
+   navigarea rămâne pe drawer-ul ☰ de până acum. */
+.app-sidebar {
+  position: fixed;
+  top: var(--navbar-h);
+  left: 0;
+  bottom: 0;
+  width: var(--sidebar-w);
+  background: var(--navy-dark);
+  border-right: 1px solid rgba(255,255,255,0.06);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 90;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.18) transparent;
+}
+
+.app-sidebar::-webkit-scrollbar { width: 8px; }
+.app-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.16);
+  border-radius: 4px;
+}
+.app-sidebar::-webkit-scrollbar-track { background: transparent; }
+
+.app-shell {
+  padding-left: var(--sidebar-w);
+}
+
+/* Sub 768px: bara laterală dispare, conținutul revine pe toată lățimea. */
+@media (max-width: 768px) {
+  .app-sidebar { display: none; }
+  .app-shell   { padding-left: 0; }
 }
 
 /* ======= HERO ======= */

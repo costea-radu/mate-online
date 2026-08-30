@@ -89,10 +89,14 @@ function Layout({ children }) {
   return (
     <>
       {!fullscreen && <Navbar />}
-      <main style={fullscreen ? {} : { minHeight: 'calc(100vh - 68px - 200px)' }}>
-        {children}
-      </main>
-      {!fullscreen && <Footer />}
+      {/* `app-shell` lasă loc barei laterale fixe din stânga (vezi .app-sidebar
+          în global.css). Sub 768px bara e ascunsă, deci decalajul dispare. */}
+      <div className={fullscreen ? undefined : 'app-shell'}>
+        <main style={fullscreen ? {} : { minHeight: 'calc(100vh - 68px - 200px)' }}>
+          {children}
+        </main>
+        {!fullscreen && <Footer />}
+      </div>
       {!fullscreen && <FloatingTutor />}
       {!fullscreen && <InstallPrompt />}
     </>

@@ -8,6 +8,7 @@ import EinsteinIcon from './EinsteinIcon';
 import { aiAssistantLabel } from '../lib/aiLabel';
 import { useChatUnread, refreshChatUnread } from '../lib/chatUnread';
 import ChatAlerts from './ChatAlerts';
+import Sidebar from './Sidebar';
 
 const CLASE = [
   { to: '/clase/5',  label: 'Clasa a V-a' },
@@ -25,27 +26,6 @@ const EXAMENE = [
   { to: '/bacalaureat/mate-info',   label: 'Bacalaureat Mate-Info' },
   { to: '/bacalaureat/stiinte-naturii', label: 'Bacalaureat Șt. Naturii' },
   { to: '/bacalaureat/tehnologic',  label: 'Bacalaureat Tehnologic' },
-];
-
-// „Mai multe" — pentru aerisirea barei principale
-const MAIMULTE = [
-  { to: '/mesagerie',                  label: '💬 Mesagerie' },
-  { to: '/arena',                      label: '⚔️ Arena matematică' },
-  { to: '/preturi',                    label: '💳 Abonament' },
-  // eticheta se schimbă după rol (aiLabel): „Asistent AI pentru profesori/părinți"
-  { to: '/profesor-virtual',           label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> Profesor Virtual</span> },
-  { to: '/rezolvari',                  label: '📝 Blog / Rezolvări / Teorie' },
-  { to: '/biblioteca-utilizatorilor',  label: '🏛️ Biblioteca utilizatorilor' },
-  { to: '/manuale',                    label: '📖 Auxiliare' },
-  { to: '/discutii',                   label: '💬 Forum' },
-  { to: '/recenzii',                   label: '⭐ Recenzii' },
-  { to: '/despre-noi',                 label: 'Despre noi' },
-  { to: '/faq',                        label: 'Întrebări frecvente' },
-  { to: '/contact',                    label: 'Contact' },
-  { to: '/termeni-conditii',           label: 'Termeni și condiții' },
-  { to: '/politica-confidentialitate', label: 'Confidențialitate' },
-  { to: '/politica-cookies',           label: 'Politica de cookie-uri' },
-  { to: '/politica-retur',             label: 'Politica de retur' },
 ];
 
 // ─── Bulina roșie de mesaje noi (ca la Messenger) ─────────────────────────────
@@ -592,29 +572,6 @@ export default function Navbar() {
   // din magazin — navigarea rapidă prin site nu bate serverul.
   useEffect(() => { if (user) refreshChatUnread(false); }, [user, location.pathname]);
 
-  // „Mai multe" — construit după rol; Forum stă aici, înainte de Recenzii.
-  const maiMulte = MAIMULTE.map((it) => {
-    if (it.to === '/profesor-virtual') {
-      return { ...it, label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> {aiLabel}</span> };
-    }
-    if (meditatiiInMaiMulte && it.to === '/preturi') {
-      return { to: '/meditatii', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={16} /> Meditații cu AI</span> };
-    }
-    if (it.to === '/mesagerie') return { ...it, badge: chatUnread };
-    if (it.to === '/discutii') {
-      return {
-        ...it,
-        badge: forumUnread,
-        label: (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            💬 Forum
-            {forumHasNew && <span className="forum-dot" title="Activitate nouă pe forum" aria-label="Activitate nouă pe forum" />}
-          </span>
-        ),
-      };
-    }
-    return it;
-  });
 
   // Calculează indicatorii de la „Forum": (1) activitate nouă în general și
   // (2) răspunsuri la postările/comentariile utilizatorului. Reîmprospătat periodic.
@@ -741,17 +698,9 @@ export default function Navbar() {
                 </Link>
               )}
             </li>
-            {/* Forum a trecut în „Mai multe" (înainte de Recenzii); indicatorii
-                lui se văd pe butonul de mai jos, ca să nu se piardă. */}
-            <li>
-              <DesktopDropdown
-                label="Mai multe"
-                items={maiMulte}
-                badge={chatUnread + forumUnread}
-                badgeTitlu="noutăți (mesaje și răspunsuri pe forum)"
-                punct={forumHasNew}
-              />
-            </li>
+            {/* „Mai multe" a trecut în meniul lateral din stânga (Sidebar.jsx):
+                acolo stau acum Forum, Mesagerie, Arena, paginile de informații
+                etc., cu tot cu indicatorii lor. */}
           </ul>
 
           {/* Desktop auth buttons */}
@@ -817,6 +766,18 @@ export default function Navbar() {
       {searchOpen && (
         <SearchModal onClose={() => setSearchOpen(false)} />
       )}
+
+      {/* Meniu lateral (desktop) — ascuns sub 768px prin CSS */}
+      <Sidebar
+        user={user}
+        isPremium={isPremium}
+        isAdmin={isAdmin}
+        aiLabel={aiLabel}
+        chatUnread={chatUnread}
+        forumUnread={forumUnread}
+        forumHasNew={forumHasNew}
+        onSignOut={handleSignOut}
+      />
 
       {/* Mobile drawer */}
       <MobileMenu
