@@ -22,6 +22,9 @@ const ai = require('./_lib/ai');
 const med = require('./_lib/meditatii');
 const { pageRenderer, toPdfData } = require('./_lib/pdftext');
 const pdfContext = require('./ai-pdf-context'); // getPdfContext / loadContentForUser (textul + baremul DE PE SERVER)
+const xp = require('./_lib/xp');
+const duel = require('./_lib/duel');
+const turneu = require('./_lib/turneu');
 
 const MAX_TEXT = 12000;          // textul testului / baremului trimis modelului
 const MAX_LEAVES = 40;           // câte cerințe (subpuncte) acceptăm în formular
@@ -520,6 +523,20 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
         contentId, title, category, score, maxScore, sessionSeconds,
       });
       attempts = r.attempts; timeSpent = r.timeSpent; saved = { kind: 'progress' };
+
+      // GAMIFICARE: testele PDF corectate de AI intră în aceleași socoteli ca
+      // exercițiile interactive — XP, misiunea zilei, ligă, dueluri, turnee.
+      // Corectarea o face serverul, deci scorul e la fel de „verificat".
+      try {
+        const gami = await xp.award(supa, userId, {
+          source: 'pdf', refId: contentId, content: { category, difficulty: src?.difficulty },
+          score, maxScore, attempts, meta: { titlu: title || null },
+        });
+        await duel.recordByContent(supa, userId, contentId, { score, maxScore });
+        if (gami && gami.xpExercitiu > 0) {
+          await turneu.recordScore(supa, userId, contentId, { points: gami.xpExercitiu, pct });
+        }
+      } catch (e) { console.warn('ai-correct gamificare:', e.message); }
     } else {
       // POZĂ / PDF ÎNCĂRCAT DE ELEV → `ai_pdf_results`
       const r = await saveUploadResult(supa, userId, {

@@ -14,6 +14,7 @@
 const ai = require('./_lib/ai');
 const http = require('./_lib/http');
 const xp = require('./_lib/xp');
+const duel = require('./_lib/duel');
 
 // „Ana Maria Popescu" → „Ana P." (clasamentul e public în cohortă: arătăm
 // prenumele și inițiala, nu numele complet al copilului)
@@ -97,6 +98,22 @@ async function state(supa, userId) {
     };
   }
 
+  // Duelurile: câte provocări aștept și câte am de jucat — indicatorul din
+  // navbar are nevoie de numere, nu de listă, ca să nu mai facă o cerere.
+  let dueluri = { provocari: 0, deJucat: 0 };
+  try {
+    const { data: dd } = await supa.from('duels')
+      .select('id, status, challenger_id, opponent_id, challenger_score, opponent_score')
+      .or(`challenger_id.eq.${userId},opponent_id.eq.${userId}`)
+      .in('status', ['invitat', 'activ']);
+    for (const d of dd || []) {
+      const eu = d.challenger_id === userId ? 'challenger' : 'opponent';
+      const amJucat = d[`${eu}_score`] != null;
+      if (d.status === 'invitat' && eu === 'opponent') dueluri.provocari += 1;
+      else if (!amJucat) dueluri.deJucat += 1;
+    }
+  } catch { /* tabela duels lipsește (migrarea v3 nerulată) */ }
+
   const { data: recent } = await supa.from('xp_events')
     .select('source, xp, league_pts, created_at, meta')
     .eq('user_id', userId).order('created_at', { ascending: false }).limit(8);
@@ -120,6 +137,7 @@ async function state(supa, userId) {
       done: !!mission.done, reward_xp: mission.reward_xp, reward_coins: mission.reward_coins,
     } : null,
     liga,
+    dueluri,
     saptamanaTrecuta,
     recent: recent || [],
   };

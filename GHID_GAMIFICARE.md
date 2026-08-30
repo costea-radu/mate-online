@@ -23,6 +23,8 @@ Cele trei straturi:
    | `supabase/gamificare_v3_dueluri.sql` | `duels` + `user_stats.duels_open` |
    | `supabase/gamificare_v4_turnee.sql` | `tournaments`, `tournament_items`, `tournament_scores`, `tournament_places` |
    | `supabase/gamificare_v5_harta.sql` | `chapter_state` + coloana `content.chapter_id` |
+   | `supabase/gamificare_v6_public.sql` | turnee publice: `tournaments.scope`/`auto`, `tournament_entries` |
+   | `supabase/gamificare_lints.sql` | politici explicite `service_role` (închide avertismentele INFO ale linterului) |
 
    Toate sunt idempotente (se pot rula de mai multe ori).
 
@@ -175,8 +177,23 @@ fiecare rezolvă când poate. Un duel live ar cere ca amândoi să fie online si
 - adversarul îți vede scorul **abia după** ce l-ai trimis pe al tău;
 - câștigă procentul; la egalitate, timpul; altfel remiză.
 
-**Cine câștigă cât:** victorie +40 XP, înfrângere +15 XP (ai rezolvat, ai învățat
-ceva), egalitate +25, neprezentare +20. Peste XP-ul normal al exercițiului.
+**Cine câștigă cât:** o bază după rezultat (victorie 40, înfrângere 15,
+egalitate 25, neprezentare 20) **plus până la 25 XP proporțional cu procentul
+obținut**. Deci contează și cât ai rezolvat, nu doar dacă ai câștigat: cine
+pierde la limită cu 85% ia aproape cât câștigătorul, iar cine câștigă cu 30% nu
+ia maximum. Totul peste XP-ul normal al exercițiului.
+
+**Materiale:** exerciții interactive *și* teste PDF. La PDF-uri rezultatul intră
+prin corectarea AI (`api/ai-correct.js`), care găsește singură duelul deschis pe
+acel material — nu e nevoie de niciun parametru în cerere. Cronometrul de
+departajare merge doar la cele interactive; la PDF-uri, egalitatea rămâne remiză.
+
+**Notificări:** provocarea, acceptul/refuzul și rezultatul ajung în clopoțelul
+din navbar (`ai_notifications`, tip `duel`), iar indicatorul Arenei arată o
+bulină roșie cu numărul provocărilor la care n-ai răspuns. Panoul de dueluri se
+reîmprospătează singur la revenirea în tab și din minut în minut — nu mai trebuie
+reîncărcată pagina ca să apară „Rezolvă acum". Poți rezolva chiar înainte ca
+adversarul să accepte.
 
 **Trei porți de siguranță** (fără ele duelul e trivial de fraudat):
 
@@ -202,6 +219,19 @@ Punctajul = XP-ul ponderat al exercițiului (corecte × dificultate × precizie)
 deci nu premiază volumul. La final, locurile 1-3 iau **120 / 70 / 40 XP** și
 30 / 20 / 10 monede. „Provocarea profesorului" = un turneu cu un singur exercițiu.
 
+### Turnee publice
+
+Deschise oricui de pe site, dar **cu înscriere** (`tournament_entries`) — altfel
+clasamentul ar fi plin de elevi care nici n-au știut că participă. Punctajul intră
+doar după ce te-ai înscris.
+
+- **Automat:** cronul de la 6 ore se asigură că există mereu un „Turneu al
+  săptămânii" (`ensureWeeklyPublic`): 8 materiale **gratuite**, câte unul din
+  fiecare categorie, 7 zile. Fiind gratuite, pot participa și conturile fără
+  abonament — turneul devine și cârlig de conversie.
+- **Manual:** din contul de **administrator**, aceeași fereastră de creare, cu
+  „Tipul turneului → Public".
+
 ## 12. Harta capitolelor (pasul 5)
 
 `api/harta.js` · `src/pages/Harta.jsx` (ruta `/arena/harta`)
@@ -211,8 +241,11 @@ Bacalaureat. Legătura material → capitol se face prin clasificarea titlului
 (`api/_lib/taxonomy.js`) și se salvează în `content.chapter_id` — administratorul
 o poate corecta manual oricând.
 
+Harta arată **atât exercițiile interactive, cât și testele PDF** — ambele se
+punctează, deci ambele contează la stăpânire.
+
 **Deblocare pe stăpânire, nu pe număr:** un capitol e stăpânit la ≥70% la două
-exerciții din el (sau la toate, dacă are mai puține) și cu media ≥70%. Capitolul
+materiale din el (sau la toate, dacă are mai puține) și cu media ≥70%. Capitolul
 următor se deschide atunci. Fiecare capitol stăpânit aduce **80 XP + 20 monede**,
 o singură dată.
 
@@ -225,10 +258,11 @@ Supape, ca harta să nu blocheze pe nimeni:
 
 ## 13. Ce NU e acoperit încă
 
-- XP se acordă doar pe drumul exercițiilor interactive (`api/ai-score.js`).
-  Corectarea pozelor (`ai-correct`) și temele marcate direct în
+- XP se acordă pe drumul exercițiilor interactive (`api/ai-score.js`) și al
+  corectării PDF (`api/ai-correct.js`). Temele marcate direct în
   `api/homework.js` nu dau încă XP — se adaugă apelând `xp.award()` și acolo.
-- Turneele pe echipe și turneele publice pe site (elevii nu pot crea turnee).
+- Turneele pe echipe. Elevii tot nu pot crea turnee (doar profesorii, pe grupele
+  lor, și adminul, pentru cele publice).
 - Exercițiile generate cu AI pentru dueluri/turnee (deocamdată doar materiale
   din site) și magazinul de monede.
 - Test de plasare la „sar peste" — deocamdată e pe încredere.

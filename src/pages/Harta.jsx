@@ -147,19 +147,20 @@ export default function Harta() {
                   <>
                     <button onClick={() => setDeschis(deschis === c.id ? null : c.id)}
                       style={{ background: 'none', border: 'none', padding: 0, marginTop: 10, cursor: 'pointer', font: 'inherit', color: 'var(--navy)', fontWeight: 700, fontSize: '0.85rem' }}>
-                      {deschis === c.id ? '▾' : '▸'} {c.total} {c.total === 1 ? 'exercițiu' : 'exerciții'}
+                      {deschis === c.id ? '▾' : '▸'} {c.total} {c.total === 1 ? 'material' : 'materiale'}
                     </button>
                     {deschis === c.id && (
                       <div style={{ display: 'grid', gap: 4, marginTop: 8 }}>
                         {c.exercitii.map((x) => (
-                          <button key={x.id} onClick={() => navigate(`/exercitiu?id=${x.id}`)}
+                          <button key={x.id}
+                            onClick={() => navigate(`${x.tip === 'pdf' ? '/pdf-viewer' : '/exercitiu'}?id=${x.id}`)}
                             style={{
                               display: 'flex', gap: 10, alignItems: 'center', textAlign: 'left',
                               padding: '7px 10px', borderRadius: 8, cursor: 'pointer',
                               background: 'var(--cream)', border: '1px solid var(--border)', font: 'inherit', fontSize: '0.86rem',
                             }}>
                             <span>{x.scor == null ? '○' : x.scor >= (d?.prag || 70) ? '✅' : '◔'}</span>
-                            <span>{x.titlu}</span>
+                            <span>{x.tip === 'pdf' ? '📄 ' : ''}{x.titlu}</span>
                             <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
                               {x.scor == null ? (x.gratuit ? 'gratuit' : 'premium') : `${x.scor}%`}
                             </span>

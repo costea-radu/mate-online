@@ -23,6 +23,16 @@ const XP_VICTORIE = 40;
 const XP_INFRANGERE = 15;   // ai rezolvat, ai învățat ceva — nu pleci cu zero
 const XP_EGALITATE = 25;
 const XP_NEPREZENTARE = 20; // adversarul n-a jucat: victorie, dar fără meci
+const XP_PER_PROCENT = 25;  // partea care depinde de CÂT ai rezolvat
+
+// XP-ul din duel = o bază (după rezultat) + o parte proporțională cu procentul
+// obținut. Așa contează și cât ai rezolvat, nu doar dacă ai câștigat: un elev
+// care pierde la limită cu 85% ia aproape cât câștigătorul, iar unul care
+// câștigă cu 30% nu ia maximum.
+function xpDuel(baza, pct) {
+  const p = Math.max(0, Math.min(100, Math.round(pct || 0)));
+  return baza + Math.round((XP_PER_PROCENT * p) / 100);
+}
 
 const ms = (ore) => ore * 3600 * 1000;
 const pct = (s, m) => (m > 0 ? (s / m) * 100 : 0);
@@ -99,7 +109,16 @@ async function list(supa, userId) {
     .limit(40);
   const rows = data || [];
   const nume = await numeleLor(supa, rows.flatMap((d) => [d.challenger_id, d.opponent_id]));
-  const toate = rows.map((d) => forUser(d, userId, nume));
+  const ids = [...new Set(rows.map((d) => d.content_id).filter(Boolean))];
+  const { data: mats } = ids.length
+    ? await supa.from('content').select('id, content_type').in('id', ids)
+    : { data: [] };
+  const tip = Object.fromEntries((mats || []).map((m) => [m.id, m.content_type]));
+  const toate = rows.map((d) => {
+    const v = forUser(d, userId, nume);
+    v.material.tip = tip[d.content_id] || 'interactive';
+    return v;
+  });
 
   const stats = await xp.ensureStats(supa, userId);
   const castigate = toate.filter((d) => d.rezultat === 'castigat').length;
@@ -140,7 +159,9 @@ async function create(supa, userId, { opponentId, contentId }, { isPremium }) {
   // materialul: interactiv și accesibil AMÂNDURORA
   const { data: content } = await supa.from('content')
     .select('id, title, content_type, is_free, category').eq('id', contentId).maybeSingle();
-  if (!content || content.content_type !== 'interactive') return { error: 'Alege un exercițiu interactiv.' };
+  if (!content || !['interactive', 'pdf'].includes(content.content_type)) {
+    return { error: 'Alege un exercițiu interactiv sau un test PDF.' };
+  }
   if (!content.is_free) {
     const { data: adv } = await supa.from('profiles').select('subscription_status, is_admin').eq('id', opponentId).maybeSingle();
     const advPremium = adv?.is_admin || adv?.subscription_status === 'active';
@@ -270,6 +291,26 @@ function castigator(d, { neprezentare = false } = {}) {
   return { winner: null, result: 'egalitate' };
 }
 
+// Varianta pentru materialele PDF: corectarea AI (api/ai-correct.js) nu
+// primește `duelId`, dar duelul e oricum unic pe (participant, material) cât
+// timp e deschis — deci îl găsim după material.
+async function recordByContent(supa, userId, contentId, { score, maxScore }) {
+  try {
+    if (!contentId) return null;
+    const { data } = await supa.from('duels')
+      .select('id')
+      .eq('content_id', contentId)
+      .in('status', ['invitat', 'activ'])
+      .or(`challenger_id.eq.${userId},opponent_id.eq.${userId}`)
+      .limit(1);
+    if (!data || !data.length) return null;
+    return await recordScore(supa, userId, data[0].id, { contentId, score, maxScore, verified: true });
+  } catch (e) {
+    console.warn('duel.recordByContent:', e?.message || e);
+    return null;
+  }
+}
+
 // ─── Închiderea unui duel ───────────────────────────────────────────────────
 async function finalize(supa, d, { neprezentare = false } = {}) {
   const { winner, result } = castigator(d, { neprezentare });
@@ -282,16 +323,24 @@ async function finalize(supa, d, { neprezentare = false } = {}) {
   // XP: câștigătorul ia mai mult, dar și cel care pierde primește ceva —
   // altfel elevul mai slab joacă de două ori și abandonează.
   const perdant = winner ? (winner === d.challenger_id ? d.opponent_id : d.challenger_id) : null;
+  const pctul = (u) => (u === d.challenger_id
+    ? pct(d.challenger_score || 0, d.challenger_max || 0)
+    : pct(d.opponent_score || 0, d.opponent_max || 0));
+  const aJucat = (u) => (u === d.challenger_id ? d.challenger_score : d.opponent_score) != null;
+
   if (neprezentare) {
-    if (winner) await xp.bonus(supa, winner, { source: 'duel', refId: d.id, xp: XP_NEPREZENTARE, coins: 5, meta: { rezultat: 'neprezentare' } });
+    if (winner) {
+      await xp.bonus(supa, winner, { source: 'duel', refId: d.id, xp: xpDuel(XP_NEPREZENTARE, pctul(winner)), coins: 5, meta: { rezultat: 'neprezentare', pct: Math.round(pctul(winner)) } });
+    }
   } else if (winner) {
-    await xp.bonus(supa, winner, { source: 'duel', refId: d.id, xp: XP_VICTORIE, coins: 10, meta: { rezultat: 'victorie' } });
-    if (perdant && (perdant === d.challenger_id ? d.challenger_score : d.opponent_score) != null) {
-      await xp.bonus(supa, perdant, { source: 'duel', refId: d.id, xp: XP_INFRANGERE, coins: 3, meta: { rezultat: 'infrangere' } });
+    await xp.bonus(supa, winner, { source: 'duel', refId: d.id, xp: xpDuel(XP_VICTORIE, pctul(winner)), coins: 10, meta: { rezultat: 'victorie', pct: Math.round(pctul(winner)) } });
+    if (perdant && aJucat(perdant)) {
+      await xp.bonus(supa, perdant, { source: 'duel', refId: d.id, xp: xpDuel(XP_INFRANGERE, pctul(perdant)), coins: 3, meta: { rezultat: 'infrangere', pct: Math.round(pctul(perdant)) } });
     }
   } else {
     for (const u of [d.challenger_id, d.opponent_id]) {
-      await xp.bonus(supa, u, { source: 'duel', refId: d.id, xp: XP_EGALITATE, coins: 5, meta: { rezultat: 'egalitate' } });
+      if (!aJucat(u)) continue;
+      await xp.bonus(supa, u, { source: 'duel', refId: d.id, xp: xpDuel(XP_EGALITATE, pctul(u)), coins: 5, meta: { rezultat: 'egalitate', pct: Math.round(pctul(u)) } });
     }
   }
 
@@ -327,7 +376,7 @@ async function expire(supa) {
 }
 
 module.exports = {
-  ORE_DUEL, MAX_PROVOCARI_PE_ZI, XP_VICTORIE, XP_INFRANGERE, XP_EGALITATE, XP_NEPREZENTARE,
+  ORE_DUEL, MAX_PROVOCARI_PE_ZI, XP_VICTORIE, XP_INFRANGERE, XP_EGALITATE, XP_NEPREZENTARE, xpDuel,
   forUser, esteParte, suntColegi, numeleLor, castigator,
-  list, create, respond, setOpen, start, recordScore, finalize, expire,
+  list, create, respond, setOpen, start, recordScore, recordByContent, finalize, expire,
 };

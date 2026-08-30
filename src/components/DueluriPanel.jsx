@@ -32,6 +32,7 @@ export default function DueluriPanel() {
   const [formOpen, setFormOpen] = useState(false);
   const [coleg, setColeg] = useState('');
   const [exercitiu, setExercitiu] = useState('');
+  const [cauta, setCauta] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
@@ -41,6 +42,21 @@ export default function DueluriPanel() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Adversarul acceptă provocarea pe calculatorul LUI — fără asta, „Rezolvă
+  // acum" apărea abia după ce reîncărcai pagina. Reîmprospătăm la revenirea în
+  // tab și din minut în minut (doar cu tabul vizibil, ca să nu batem serverul).
+  useEffect(() => {
+    const reia = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', reia);
+    window.addEventListener('focus', reia);
+    const t = setInterval(reia, 60000);
+    return () => {
+      document.removeEventListener('visibilitychange', reia);
+      window.removeEventListener('focus', reia);
+      clearInterval(t);
+    };
+  }, [load]);
 
   async function deschideForm() {
     setFormOpen((v) => !v);
@@ -76,9 +92,10 @@ export default function DueluriPanel() {
     finally { setBusy(false); }
   }
 
-  function joaca(duel) {
+  function joaca(d1) {
     arenaChanged();
-    navigate(`/exercitiu?id=${duel.material.id}&duel=${duel.id}`);
+    const ruta = d1.material.tip === 'pdf' ? '/pdf-viewer' : '/exercitiu';
+    navigate(`${ruta}?id=${d1.material.id}&duel=${d1.id}`);
   }
 
   // Dacă încărcarea a eșuat, arătăm eroarea — altfel panoul dispărea din
@@ -93,6 +110,10 @@ export default function DueluriPanel() {
   }
 
   const nimic = !d.primite.length && !d.trimise.length && !d.active.length && !d.incheiate.length;
+  const q = cauta.trim().toLowerCase();
+  const gasite = (optiuni?.exercitii || []).filter(
+    (x) => !q || `${x.titlu} ${x.categorie}`.toLowerCase().includes(q),
+  );
 
   return (
     <div style={card}>
@@ -127,14 +148,23 @@ export default function DueluriPanel() {
                       {optiuni.colegi.map((c) => <option key={c.id} value={c.id}>{c.nume}{c.rol && c.rol !== 'elev' ? ` (${c.rol})` : ''}</option>)}
                     </select>
                   </label>
-                  <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>La ce exercițiu?
+                  <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>La ce material?
+                    <input value={cauta} onChange={(e) => setCauta(e.target.value)}
+                      placeholder="caută după titlu sau clasă (ex. fracții, clasa-7)…"
+                      style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)' }} />
                     <select value={exercitiu} onChange={(e) => setExercitiu(e.target.value)}
-                      style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)' }}>
-                      <option value="">— alege un exercițiu —</option>
-                      {optiuni.exercitii.map((x) => (
-                        <option key={x.id} value={x.id}>{x.titlu} · {x.categorie}{x.gratuit ? '' : ' · premium'}</option>
+                      size={Math.min(8, Math.max(3, gasite.length))}
+                      style={{ display: 'block', width: '100%', marginTop: 6, padding: '6px', borderRadius: 8, border: '1px solid var(--border)' }}>
+                      {gasite.slice(0, 200).map((x) => (
+                        <option key={x.id} value={x.id}>
+                          {x.tip === 'pdf' ? '📄' : '🧩'} {x.titlu} · {x.categorie}{x.gratuit ? '' : ' · premium'}
+                        </option>
                       ))}
                     </select>
+                    <span style={{ fontWeight: 400, fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                      {gasite.length} {gasite.length === 1 ? 'rezultat' : 'rezultate'}
+                      {cauta ? ` pentru „${cauta}"` : ' · exerciții interactive și teste PDF'}
+                    </span>
                   </label>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                     Amândoi primiți același exercițiu și aveți {optiuni.ore} de ore. Câștigă procentul; la egalitate, timpul.
@@ -152,8 +182,10 @@ export default function DueluriPanel() {
 
       {d.primite.map((x) => (
         <div key={x.id} style={{ ...rand, background: 'rgba(232,185,49,0.14)' }}>
-          <strong>{x.adversar.nume} te-a provocat</strong>
-          <span style={{ color: 'var(--text-light)', fontSize: '0.85rem' }}>{x.material.titlu}</span>
+          <strong>⚔️ {x.adversar.nume} te-a provocat</strong>
+          <span style={{ color: 'var(--text-light)', fontSize: '0.85rem' }}>
+            {x.material.tip === 'pdf' ? '📄 ' : ''}{x.material.titlu}
+          </span>
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
             <button onClick={() => raspunde(x.id, true)} disabled={busy} className="btn btn-sm btn-primary">Accept</button>
             <button onClick={() => raspunde(x.id, false)} disabled={busy} className="btn btn-sm btn-outline">Refuz</button>
@@ -175,10 +207,16 @@ export default function DueluriPanel() {
       ))}
 
       {d.trimise.map((x) => (
-        <div key={x.id} style={{ ...rand, opacity: 0.75 }}>
+        <div key={x.id} style={rand}>
           <span>L-ai provocat pe <strong>{x.adversar.nume}</strong></span>
           <span style={{ color: 'var(--text-light)', fontSize: '0.85rem' }}>{x.material.titlu}</span>
-          <span style={{ marginLeft: 'auto', fontSize: '0.82rem', color: 'var(--text-muted)' }}>așteaptă răspuns</span>
+          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>așteaptă răspuns</span>
+            {/* nu trebuie să aștepți acceptul ca să-ți rezolvi partea */}
+            {x.amJucat
+              ? <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>ai trimis {x.scorulMeu.pct}%</span>
+              : <button onClick={() => joaca(x)} className="btn btn-sm btn-primary">Rezolvă acum</button>}
+          </span>
         </div>
       ))}
 

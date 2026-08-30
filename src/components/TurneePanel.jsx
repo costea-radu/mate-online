@@ -24,7 +24,7 @@ export default function TurneePanel() {
   const [d, setD] = useState(null);
   const [opt, setOpt] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [f, setF] = useState({ groupId: '', title: '', message: '', zile: 7, contentIds: [] });
+  const [f, setF] = useState({ groupId: '', title: '', message: '', zile: 7, contentIds: [], scope: 'grupa' });
   const [filtru, setFiltru] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -50,13 +50,21 @@ export default function TurneePanel() {
     }));
   }
 
+  async function inscrieMa(id) {
+    setBusy(true); setErr(null);
+    try { await aiClient.turneu({ action: 'join', id }); await load(); }
+    catch (e) { setErr(e?.message || 'Înscrierea nu a reușit.'); }
+    finally { setBusy(false); }
+  }
+
   async function creeaza() {
-    if (!f.groupId || !f.contentIds.length) { setErr('Alege grupa și cel puțin un exercițiu.'); return; }
+    if (f.scope !== 'public' && !f.groupId) { setErr('Alege grupa.'); return; }
+    if (!f.contentIds.length) { setErr('Alege cel puțin un material.'); return; }
     setBusy(true); setErr(null);
     try {
       await aiClient.turneu({ action: 'create', ...f, title: f.title || 'Turneu' });
       setFormOpen(false);
-      setF({ groupId: '', title: '', message: '', zile: 7, contentIds: [] });
+      setF({ groupId: '', title: '', message: '', zile: 7, contentIds: [], scope: 'grupa' });
       await load();
     } catch (e) { setErr(e?.message || 'Turneul nu s-a putut crea.'); }
     finally { setBusy(false); }
@@ -85,7 +93,7 @@ export default function TurneePanel() {
     <div style={card}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.25rem' }}>🏆 Turnee</div>
-        {d.profesor && (
+        {(d.profesor || d.admin) && (
           <button onClick={deschideForm} className="btn btn-sm btn-primary" style={{ marginLeft: 'auto' }}>
             {formOpen ? 'Renunță' : '➕ Turneu nou'}
           </button>
@@ -96,18 +104,28 @@ export default function TurneePanel() {
 
       {formOpen && opt && (
         <div style={{ background: 'var(--cream)', borderRadius: 10, padding: 14, marginBottom: 14, display: 'grid', gap: 10 }}>
-          {!opt.grupe.length ? (
+          {!opt.grupe.length && !opt.admin ? (
             <span style={{ color: 'var(--text-light)', fontSize: '0.9rem' }}>
               Nu ai nicio grupă. Creează una din „Contul meu" → Rezultate elevi și apoi poți deschide turnee.
             </span>
           ) : (
             <>
-              <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>Grupa
-                <select value={f.groupId} onChange={(e) => setF({ ...f, groupId: e.target.value })} style={input}>
-                  <option value="">— alege grupa —</option>
-                  {opt.grupe.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-                </select>
-              </label>
+              {opt.admin && (
+                <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>Tipul turneului
+                  <select value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value })} style={input}>
+                    <option value="grupa">Pe grupă — participă automat membrii grupei</option>
+                    <option value="public">Public — oricine de pe site, prin înscriere</option>
+                  </select>
+                </label>
+              )}
+              {f.scope !== 'public' && (
+                <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>Grupa
+                  <select value={f.groupId} onChange={(e) => setF({ ...f, groupId: e.target.value })} style={input}>
+                    <option value="">— alege grupa —</option>
+                    {opt.grupe.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                  </select>
+                </label>
+              )}
               <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>Titlu
                 <input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })}
                   placeholder="Turneu – Fracții" style={input} />
@@ -123,14 +141,14 @@ export default function TurneePanel() {
 
               <div>
                 <div style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: 4 }}>
-                  Exerciții ({f.contentIds.length}/{opt.maxExercitii})
+                  Materiale ({f.contentIds.length}/{opt.maxExercitii}) — interactive și PDF
                 </div>
                 <input value={filtru} onChange={(e) => setFiltru(e.target.value)} placeholder="caută după titlu…" style={input} />
                 <div style={{ maxHeight: 200, overflowY: 'auto', marginTop: 6, border: '1px solid var(--border)', borderRadius: 8, background: '#fff' }}>
                   {filtrate.map((x) => (
                     <label key={x.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 10px', fontSize: '0.86rem', cursor: 'pointer' }}>
                       <input type="checkbox" checked={f.contentIds.includes(x.id)} onChange={() => bifeaza(x.id)} />
-                      <span>{x.titlu}</span>
+                      <span>{x.tip === 'pdf' ? '📄' : '🧩'} {x.titlu}</span>
                       <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
                         {x.categorie}{x.gratuit ? '' : ' · premium'}
                       </span>
@@ -156,7 +174,7 @@ export default function TurneePanel() {
         <div style={{ color: 'var(--text-light)', fontSize: '0.9rem' }}>
           {d.profesor
             ? 'Niciun turneu deocamdată. Deschide unul pentru o grupă — durează un minut.'
-            : 'Niciun turneu în grupele tale deocamdată. Profesorul poate deschide unul.'}
+            : 'Niciun turneu deocamdată. Turneul public al săptămânii apare aici automat, iar profesorul poate deschide unul pe grupă.'}
         </div>
       )}
 
@@ -164,18 +182,37 @@ export default function TurneePanel() {
         <div key={t.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, marginBottom: 10 }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8 }}>
             <strong style={{ fontSize: '1.02rem' }}>{t.titlu}</strong>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t.grupa}</span>
+            {t.public
+              ? <span style={{ fontSize: '0.7rem', fontWeight: 800, letterSpacing: '.04em', color: 'var(--navy)', background: 'rgba(232,185,49,0.22)', borderRadius: 999, padding: '2px 8px' }}>PUBLIC</span>
+              : <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t.grupa}</span>}
+            {t.public && (
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                {t.participanti} {t.participanti === 1 ? 'înscris' : 'înscriși'}
+              </span>
+            )}
             <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: t.activ ? 'var(--success)' : 'var(--text-muted)' }}>
               {t.activ ? ramase(t.seIncheie) : 'încheiat'}
             </span>
           </div>
           {t.mesaj && <div style={{ fontSize: '0.88rem', color: 'var(--text-light)', marginTop: 4 }}>„{t.mesaj}"</div>}
 
-          {t.activ && t.exercitii.length > 0 && (
+          {t.activ && t.public && !t.inscris && (
+            <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+              <button onClick={() => inscrieMa(t.id)} disabled={busy} className="btn btn-sm btn-primary">
+                Înscrie-mă
+              </button>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-light)' }}>
+                Punctajul intră în clasament doar după înscriere.
+              </span>
+            </div>
+          )}
+
+          {t.activ && t.exercitii.length > 0 && (!t.public || t.inscris) && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
               {t.exercitii.map((x) => (
-                <Link key={x.id} to={`/exercitiu?id=${x.id}`} className="btn btn-sm btn-outline" style={{ fontSize: '0.78rem' }}>
-                  {x.titlu}
+                <Link key={x.id} to={`${x.tip === 'pdf' ? '/pdf-viewer' : '/exercitiu'}?id=${x.id}`}
+                  className="btn btn-sm btn-outline" style={{ fontSize: '0.78rem' }}>
+                  {x.tip === 'pdf' ? '📄 ' : ''}{x.titlu}
                 </Link>
               ))}
             </div>

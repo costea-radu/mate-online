@@ -18,6 +18,8 @@ const PREMII = [120, 70, 40];        // XP pentru locurile 1-3
 const PREMII_MONEDE = [30, 20, 10];
 const MAX_EXERCITII = 20;
 const MAX_ZILE = 30;
+const AUTO_EXERCITII = 8;     // câte exerciții pune turneul public automat
+const AUTO_ZILE = 7;
 
 // Grupele în care e elevul (mentor_students.group_id, mentor_role='profesor')
 async function grupeleElevului(supa, userId) {
@@ -32,23 +34,55 @@ async function membriiGrupei(supa, groupId) {
   return [...new Set((data || []).map((r) => r.student_id))];
 }
 
+// Cine „participă" la un turneu: la cele de grupă, membrii grupei; la cele
+// publice, doar cei ÎNSCRIȘI (altfel clasamentul ar fi plin de elevi care nici
+// n-au știut că participă).
+async function participanti(supa, t) {
+  if (t.scope === 'public') {
+    const { data } = await supa.from('tournament_entries')
+      .select('user_id').eq('tournament_id', t.id);
+    return [...new Set((data || []).map((r) => r.user_id))];
+  }
+  return t.group_id ? await membriiGrupei(supa, t.group_id) : [];
+}
+
+async function inscrierileMele(supa, userId) {
+  const { data } = await supa.from('tournament_entries')
+    .select('tournament_id').eq('user_id', userId);
+  return [...new Set((data || []).map((r) => r.tournament_id))];
+}
+
+async function join(supa, userId, id) {
+  const { data: t } = await supa.from('tournaments').select('*').eq('id', id).maybeSingle();
+  if (!t) return { error: 'Turneul nu există.' };
+  if (t.scope !== 'public') return { error: 'La turneele de grupă participi automat, nu prin înscriere.' };
+  if (t.status !== 'activ' || t.ends_at < new Date().toISOString()) return { error: 'Turneul s-a încheiat.' };
+  await supa.from('tournament_entries').upsert(
+    { tournament_id: id, user_id: userId }, { onConflict: 'tournament_id,user_id' },
+  );
+  return { ok: true };
+}
+
 // ─── Punctarea automată la salvarea unui scor ───────────────────────────────
 // Apelat din api/ai-score.js. Nu aruncă niciodată.
 async function recordScore(supa, userId, contentId, { points, pct }) {
   try {
     if (!contentId || !(points > 0)) return null;
-    const grupe = await grupeleElevului(supa, userId);
-    if (!grupe.length) return null;
+    const [grupe, inscrieri] = await Promise.all([
+      grupeleElevului(supa, userId),
+      inscrierileMele(supa, userId),
+    ]);
+    if (!grupe.length && !inscrieri.length) return null;
 
     const acum = new Date().toISOString();
     const { data: items } = await supa.from('tournament_items')
-      .select('tournament_id, tournament:tournament_id ( id, title, group_id, status, starts_at, ends_at )')
+      .select('tournament_id, tournament:tournament_id ( id, title, group_id, scope, status, starts_at, ends_at )')
       .eq('content_id', contentId);
 
     const potrivite = (items || [])
       .map((i) => i.tournament)
-      .filter((t) => t && t.status === 'activ' && grupe.includes(t.group_id)
-        && t.starts_at <= acum && t.ends_at >= acum);
+      .filter((t) => t && t.status === 'activ' && t.starts_at <= acum && t.ends_at >= acum
+        && (t.scope === 'public' ? inscrieri.includes(t.id) : grupe.includes(t.group_id)));
     if (!potrivite.length) return null;
 
     const intrate = [];
@@ -71,7 +105,7 @@ async function recordScore(supa, userId, contentId, { points, pct }) {
 async function clasament(supa, t, userId = null) {
   const scores = await http.allRows((from, to) => supa.from('tournament_scores')
     .select('user_id, points, pct').eq('tournament_id', t.id).range(from, to));
-  const membri = t.group_id ? await membriiGrupei(supa, t.group_id) : [];
+  const membri = await participanti(supa, t);
 
   const acc = {};
   for (const m of membri) acc[m] = { user_id: m, puncte: 0, exercitii: 0, medie: 0, sumaPct: 0 };
@@ -106,31 +140,48 @@ async function clasament(supa, t, userId = null) {
 
 // ─── Ce turnee văd eu ───────────────────────────────────────────────────────
 async function list(supa, userId, { isTeacher = false } = {}) {
-  const grupe = await grupeleElevului(supa, userId);
+  const [grupe, inscrieri] = await Promise.all([
+    grupeleElevului(supa, userId),
+    inscrierileMele(supa, userId),
+  ]);
   const acum = new Date().toISOString();
 
-  // descrescător: turneele CURENTE trebuie să fie primele. Cu `ascending`,
-  // după 20 de turnee vechi cel activ nu mai apărea deloc în listă.
-  let q = supa.from('tournaments').select('*').order('ends_at', { ascending: false });
-  if (isTeacher) {
-    // profesorul își vede turneele lui + pe cele ale grupelor din care face parte
-    q = grupe.length ? q.or(`owner_id.eq.${userId},group_id.in.(${grupe.join(',')})`) : q.eq('owner_id', userId);
-  } else {
-    if (!grupe.length) return { turnee: [] };
-    q = q.in('group_id', grupe);
+  // Turneele DE GRUPĂ: descrescător după final, ca cele curente să fie primele.
+  const deGrupa = [];
+  if (grupe.length || isTeacher) {
+    let q = supa.from('tournaments').select('*').eq('scope', 'grupa')
+      .order('ends_at', { ascending: false });
+    if (isTeacher) {
+      // profesorul își vede turneele lui + pe cele ale grupelor din care face parte
+      q = grupe.length ? q.or(`owner_id.eq.${userId},group_id.in.(${grupe.join(',')})`) : q.eq('owner_id', userId);
+    } else {
+      q = q.in('group_id', grupe);
+    }
+    const { data } = await q.limit(20);
+    deGrupa.push(...(data || []));
   }
-  const { data } = await q.limit(20);
+
+  // Turneele PUBLICE active se văd de oricine; înscrierea e separată.
+  const { data: publice } = await supa.from('tournaments')
+    .select('*').eq('scope', 'public').eq('status', 'activ').gte('ends_at', acum)
+    .order('ends_at', { ascending: false }).limit(10);
 
   const turnee = [];
-  for (const t of data || []) {
+  for (const t of [...deGrupa, ...(publice || [])]) {
     const activ = t.status === 'activ' && t.ends_at >= acum;
     const board = await clasament(supa, t, userId);
     const { data: items } = await supa.from('tournament_items')
-      .select('content_id, title, position').eq('tournament_id', t.id).order('position');
+      .select('content_id, title, position, content:content_id ( content_type )')
+      .eq('tournament_id', t.id).order('position');
     turnee.push({
       id: t.id, titlu: t.title, mesaj: t.message, grupa: t.group_name,
+      public: t.scope === 'public',
+      inscris: t.scope === 'public' ? inscrieri.includes(t.id) : true,
+      participanti: board.length,
       organizator: t.owner_name, activ, incepe: t.starts_at, seIncheie: t.ends_at,
-      exercitii: (items || []).map((i) => ({ id: i.content_id, titlu: i.title })),
+      exercitii: (items || []).map((i) => ({
+        id: i.content_id, titlu: i.title, tip: i.content?.content_type || 'interactive',
+      })),
       clasament: board.slice(0, 20).map(({ user_id: _uid, ...r }) => r),
       locMeu: (board.find((b) => b.eu) || {}).loc || null,
       alMeu: t.owner_id === userId,
@@ -140,19 +191,25 @@ async function list(supa, userId, { isTeacher = false } = {}) {
 }
 
 // ─── Crearea (doar profesor/admin, pe grupele lui) ──────────────────────────
-async function create(supa, userId, profile, { groupId, title, message, contentIds, zile }) {
+async function create(supa, userId, profile, { groupId, title, message, contentIds, zile, scope = 'grupa' }) {
   const lista = [...new Set((Array.isArray(contentIds) ? contentIds : []).filter(Boolean))].slice(0, MAX_EXERCITII);
-  if (!groupId) return { error: 'Alege grupa.' };
+  const public_ = scope === 'public';
+  if (public_ && !profile.is_admin) return { error: 'Turneele publice se creează doar din contul de administrator.' };
+  if (!public_ && !groupId) return { error: 'Alege grupa.' };
   if (!lista.length) return { error: 'Alege cel puțin un exercițiu.' };
 
-  const { data: grupa } = await supa.from('mentor_groups').select('id, name, teacher_id').eq('id', groupId).maybeSingle();
-  if (!grupa) return { error: 'Grupa nu există.' };
-  if (grupa.teacher_id !== userId && !profile.is_admin) return { error: 'Poți crea turnee doar pe grupele tale.' };
+  let grupa = null;
+  if (!public_) {
+    const { data } = await supa.from('mentor_groups').select('id, name, teacher_id').eq('id', groupId).maybeSingle();
+    grupa = data;
+    if (!grupa) return { error: 'Grupa nu există.' };
+    if (grupa.teacher_id !== userId && !profile.is_admin) return { error: 'Poți crea turnee doar pe grupele tale.' };
+  }
 
   const nrZile = Math.max(1, Math.min(MAX_ZILE, parseInt(zile, 10) || 7));
   const { data: mat } = await supa.from('content')
-    .select('id, title, content_type').in('id', lista).eq('content_type', 'interactive');
-  if (!mat || !mat.length) return { error: 'Exercițiile alese nu sunt interactive.' };
+    .select('id, title, content_type').in('id', lista).in('content_type', ['interactive', 'pdf']);
+  if (!mat || !mat.length) return { error: 'Materialele alese nu pot fi punctate (doar exerciții interactive sau teste PDF).' };
 
   // requireUser nu întoarce `full_name` — îl citim separat, altfel organizatorul
   // ar rămâne mereu null în clasament.
@@ -161,8 +218,9 @@ async function create(supa, userId, profile, { groupId, title, message, contentI
   const { data: t, error } = await supa.from('tournaments').insert({
     owner_id: userId,
     owner_name: String(eu?.full_name || '').trim() || null,
-    group_id: grupa.id, group_name: grupa.name,
-    title: String(title || 'Turneu').slice(0, 120),
+    scope: public_ ? 'public' : 'grupa',
+    group_id: grupa ? grupa.id : null, group_name: grupa ? grupa.name : null,
+    title: String(title || (public_ ? 'Turneu public' : 'Turneu')).slice(0, 120),
     message: message ? String(message).slice(0, 400) : null,
     ends_at: new Date(Date.now() + nrZile * 86400000).toISOString(),
   }).select().maybeSingle();
@@ -172,14 +230,15 @@ async function create(supa, userId, profile, { groupId, title, message, contentI
     mat.map((c, i) => ({ tournament_id: t.id, content_id: c.id, title: c.title, position: i })),
   );
 
-  // anunțăm elevii din grupă
-  const membri = await membriiGrupei(supa, grupa.id);
+  // anunțăm elevii din grupă (la cele publice nu trimitem nimănui: turneul apare
+  // în Arenă, iar o notificare către tot site-ul ar fi spam)
+  const membri = grupa ? await membriiGrupei(supa, grupa.id) : [];
   for (const m of membri) {
     try {
       await ai.createNotification(supa, {
         recipientId: m, type: 'turneu',
         title: `Turneu nou: ${t.title}`,
-        body: `${grupa.name} · ${mat.length} ${mat.length === 1 ? 'exercițiu' : 'exerciții'} · ${nrZile} ${nrZile === 1 ? 'zi' : 'zile'}`,
+        body: `${grupa ? grupa.name : 'Public'} · ${mat.length} ${mat.length === 1 ? 'exercițiu' : 'exerciții'} · ${nrZile} ${nrZile === 1 ? 'zi' : 'zile'}`,
         data: { tournamentId: t.id, url: '/arena' },
       });
     } catch { /* notificările nu blochează turneul */ }
@@ -237,8 +296,57 @@ async function finalizeExpired(supa) {
   return { ok: true, inchise: raport.length, raport };
 }
 
+// ─── „Turneul săptămânii" — creat automat de cron, deschis oricui ───────────
+// Rulează la fiecare tic: dacă există deja un turneu public automat activ, nu
+// face nimic. Alege exerciții GRATUITE, ca să poată participa și conturile
+// fără abonament (turneul e și cârlig de conversie, nu doar joc).
+async function ensureWeeklyPublic(supa) {
+  const acum = new Date().toISOString();
+  const { data: existent } = await supa.from('tournaments')
+    .select('id').eq('scope', 'public').eq('auto', true).eq('status', 'activ')
+    .gte('ends_at', acum).limit(1);
+  if (existent && existent.length) return { creat: false };
+
+  const { data: mat } = await supa.from('content')
+    .select('id, title, category, content_type')
+    .in('content_type', ['interactive', 'pdf'])
+    .eq('is_free', true)
+    .order('sort_order', { ascending: true })
+    .limit(120);
+  if (!mat || mat.length < 3) return { creat: false, motiv: 'prea puține materiale gratuite' };
+
+  // câte unul din fiecare categorie, pe rând, ca turneul să nu fie tot dintr-o clasă
+  const peCategorie = {};
+  for (const m of mat) (peCategorie[m.category || 'altele'] = peCategorie[m.category || 'altele'] || []).push(m);
+  const alese = [];
+  const chei = Object.keys(peCategorie);
+  for (let i = 0; alese.length < AUTO_EXERCITII && i < 20; i++) {
+    for (const k of chei) {
+      const m = peCategorie[k][i];
+      if (m) alese.push(m);
+      if (alese.length >= AUTO_EXERCITII) break;
+    }
+  }
+  if (!alese.length) return { creat: false };
+
+  const saptamana = new Date().toLocaleDateString('ro-RO', { day: 'numeric', month: 'long' });
+  const { data: t, error } = await supa.from('tournaments').insert({
+    owner_id: null, owner_name: 'ExamenMate', scope: 'public', auto: true,
+    title: `Turneul săptămânii · ${saptamana}`,
+    message: 'Deschis oricui de pe site. Înscrie-te și rezolvă exercițiile din listă.',
+    ends_at: new Date(Date.now() + AUTO_ZILE * 86400000).toISOString(),
+  }).select().maybeSingle();
+  if (error || !t) return { creat: false, motiv: error?.message };
+
+  await supa.from('tournament_items').insert(
+    alese.map((c, i) => ({ tournament_id: t.id, content_id: c.id, title: c.title, position: i })),
+  );
+  return { creat: true, id: t.id, exercitii: alese.length };
+}
+
 module.exports = {
   PREMII, PREMII_MONEDE, MAX_EXERCITII, MAX_ZILE,
-  grupeleElevului, membriiGrupei, clasament,
-  recordScore, list, create, close, finalizeExpired,
+  AUTO_EXERCITII, AUTO_ZILE,
+  grupeleElevului, membriiGrupei, participanti, inscrierileMele, join, clasament,
+  recordScore, list, create, close, finalizeExpired, ensureWeeklyPublic,
 };

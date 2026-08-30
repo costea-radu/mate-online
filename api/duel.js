@@ -41,17 +41,17 @@ async function optiuni(supa, userId, profile) {
 
   const premium = ai.isPremium(profile) || profile.is_admin;
   let q = supa.from('content')
-    .select('id, title, category, is_free')
-    .eq('content_type', 'interactive')
+    .select('id, title, category, is_free, content_type')
+    .in('content_type', ['interactive', 'pdf'])
     .order('sort_order', { ascending: true })
-    .limit(120);
+    .limit(300);
   if (!premium) q = q.eq('is_free', true);
   const { data: mat } = await q;
 
   return {
     ok: true,
     colegi,
-    exercitii: (mat || []).map((c) => ({ id: c.id, titlu: c.title, categorie: c.category, gratuit: !!c.is_free })),
+    exercitii: (mat || []).map((c) => ({ id: c.id, titlu: c.title, categorie: c.category, gratuit: !!c.is_free, tip: c.content_type })),
     premium,
     ore: duel.ORE_DUEL,
     maxPeZi: duel.MAX_PROVOCARI_PE_ZI,

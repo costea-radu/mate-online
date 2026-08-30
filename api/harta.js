@@ -2,7 +2,9 @@
 // api/harta.js — HARTA CAPITOLELOR (pasul 5 din gamificare)
 //
 // POST /api/harta { action }
-//   state   → { categorie, capitole[] } pentru o clasă/examen
+//   state   → { categorie, capitole[] } pentru o clasă/examen (exerciții
+//             interactive ȘI teste PDF — PDF-urile se punctează prin
+//             corectarea AI, api/ai-correct.js, deci contează la stăpânire)
 //             { id, titlu, exercitii[], rezolvate, stapanit, blocat, procent }
 //   unlock  → { chapterId } — „știu deja, sar peste" (deblochează fără XP)
 //
@@ -45,8 +47,8 @@ function capitoleleCategoriei(categorie) {
 // Materialele categoriei, cu capitolul completat (o singură dată) prin clasificare.
 async function materiale(supa, categorie) {
   const { data } = await supa.from('content')
-    .select('id, title, description, category, is_free, chapter_id, sort_order')
-    .eq('content_type', 'interactive')
+    .select('id, title, description, category, is_free, chapter_id, sort_order, content_type')
+    .in('content_type', ['interactive', 'pdf'])
     .eq('category', categorie)
     .order('sort_order', { ascending: true })
     .limit(300);
@@ -122,8 +124,9 @@ async function state(supa, userId, categorie) {
       blocat,
       sarit: !!st?.unlocked,
       procent: ale.length ? Math.min(100, Math.round((bune.length / tinta) * 100)) : 0,
-      exercitii: ale.slice(0, 12).map((m) => ({
+      exercitii: ale.slice(0, 16).map((m) => ({
         id: m.id, titlu: m.title, gratuit: !!m.is_free, scor: scorPe[m.id] ?? null,
+        tip: m.content_type || 'interactive',
       })),
     });
 

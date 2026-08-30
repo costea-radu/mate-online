@@ -12,6 +12,7 @@ const ICONS = {
   material: '📄', forum: '💬', forum_reply: '💬', like: '❤️',
   stagnation: '⚠️', evolution: '📈', decline: '📉', update: '✨',
   assignment: '📝', assignment_done: '✅', message: '✉️', info: 'ℹ️',
+  duel: '⚔️', turneu: '🏆', capitol: '🗺️',
 };
 
 export default function AINotifications() {

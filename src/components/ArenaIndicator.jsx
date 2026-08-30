@@ -26,14 +26,19 @@ export default function ArenaIndicator({ compact = false, onClick = null }) {
   if (!user) return null;
   const xp = s?.stats?.totalXp || 0;
   const streak = s?.stats?.streak || 0;
+  const provocari = s?.dueluri?.provocari || 0;   // provocări la care n-am răspuns
+  const deJucat = s?.dueluri?.deJucat || 0;       // dueluri acceptate, nejucate
 
   return (
     <Link
       to="/arena"
       onClick={onClick || undefined}
-      title={s ? `Arena: nivel ${s.nivel?.level} · ${xp} XP${streak ? ` · serie de ${streak} zile` : ''}` : 'Arena matematică'}
+      title={provocari > 0
+        ? `${provocari} ${provocari === 1 ? 'provocare nouă la duel' : 'provocări noi la duel'}`
+        : s ? `Arena: nivel ${s.nivel?.level} · ${xp} XP${streak ? ` · serie de ${streak} zile` : ''}` : 'Arena matematică'}
       aria-label="Arena matematică"
       style={{
+        position: 'relative',
         display: 'inline-flex', alignItems: 'center', gap: 6,
         padding: compact ? '6px 0' : '4px 10px',
         borderRadius: 999,
@@ -46,6 +51,18 @@ export default function ArenaIndicator({ compact = false, onClick = null }) {
       <span>⚔️</span>
       {streak > 0 && <span title="serie de zile">🔥{streak}</span>}
       {s && <span title="XP total">⭐{xp}</span>}
+      {/* provocare nouă la duel — bulina roșie, ca la mesagerie */}
+      {(provocari > 0 || deJucat > 0) && (
+        <span style={{
+          position: 'absolute', top: -6, right: -6, minWidth: 17, height: 17,
+          borderRadius: 999, background: provocari > 0 ? '#ff4d4f' : 'var(--navy-light, #183d5e)',
+          color: '#fff', fontSize: '0.68rem', fontWeight: 800,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
+          border: '2px solid var(--navy, #0f2b44)',
+        }}>
+          {provocari > 0 ? provocari : deJucat}
+        </span>
+      )}
     </Link>
   );
 }
