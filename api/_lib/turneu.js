@@ -13,6 +13,7 @@
 const xp = require('./xp');
 const ai = require('./ai');
 const http = require('./http');
+const materiale = require('./materiale');
 
 const PREMII = [120, 70, 40];        // XP pentru locurile 1-3
 const PREMII_MONEDE = [30, 20, 10];
@@ -20,6 +21,13 @@ const MAX_EXERCITII = 20;
 const MAX_ZILE = 30;
 const AUTO_EXERCITII = 8;     // câte exerciții pune turneul public automat
 const AUTO_ZILE = 7;
+
+// Baza de date întoarce rândurile în ordinea ei; noi le vrem în ordinea în
+// care le-a bifat organizatorul (asta devine ordinea butoanelor din turneu).
+function ordoneazaCa(rows, ids) {
+  const loc = new Map(ids.map((id, i) => [id, i]));
+  return [...rows].sort((a, b) => (loc.get(a.id) ?? 0) - (loc.get(b.id) ?? 0));
+}
 
 // Grupele în care e elevul (mentor_students.group_id, mentor_role='profesor')
 async function grupeleElevului(supa, userId) {
@@ -194,6 +202,8 @@ async function list(supa, userId, { isTeacher = false } = {}) {
       inscris: t.scope === 'public' ? inscrieri.includes(t.id) : true,
       participanti: board.length,
       organizator: t.owner_name, activ, incepe: t.starts_at, seIncheie: t.ends_at,
+      // durata în zile — de aici pornește formularul de editare
+      zile: Math.max(1, Math.round((new Date(t.ends_at) - new Date(t.starts_at)) / 86400000)),
       exercitii: (items || []).map((i) => ({
         id: i.content_id, titlu: i.title, tip: i.content?.content_type || 'interactive',
       })),
@@ -222,9 +232,10 @@ async function create(supa, userId, profile, { groupId, title, message, contentI
   }
 
   const nrZile = Math.max(1, Math.min(MAX_ZILE, parseInt(zile, 10) || 7));
-  const { data: mat } = await supa.from('content')
-    .select('id, title, content_type').in('id', lista).in('content_type', ['interactive', 'pdf']);
-  if (!mat || !mat.length) return { error: 'Materialele alese nu pot fi punctate (doar exerciții interactive sau teste PDF).' };
+  // `validate` lasă afară baremele: sunt rezolvările testelor, deci într-un
+  // turneu ar da punctaj pe degeaba.
+  const mat = ordoneazaCa(await materiale.validate(supa, lista), lista);
+  if (!mat.length) return { error: 'Materialele alese nu pot fi punctate (doar exerciții interactive sau teste PDF, fără bareme).' };
 
   // requireUser nu întoarce `full_name` — îl citim separat, altfel organizatorul
   // ar rămâne mereu null în clasament.
@@ -268,6 +279,79 @@ async function close(supa, userId, profile, id) {
   if (t.owner_id !== userId && !profile.is_admin) return { error: 'Doar organizatorul poate încheia turneul.' };
   await supa.from('tournaments').update({ status: 'incheiat', ends_at: new Date().toISOString() }).eq('id', id);
   return { ok: true };
+}
+
+
+// ─── Editarea unui turneu (organizatorul lui sau adminul) ──────────────────
+// Se pot schimba titlul, mesajul, durata și SETUL DE EXERCIȚII: lista primită
+// înlocuiește lista veche, deci prin ea se și adaugă, și se scot exerciții.
+// Punctajele deja luate la un exercițiu scos din turneu se șterg odată cu el,
+// altfel ar rămâne în clasament puncte pentru ceva ce nu mai face parte din el.
+async function update(supa, userId, profile, { id, title, message, zile, contentIds }) {
+  const { data: t } = await supa.from('tournaments').select('*').eq('id', id).maybeSingle();
+  if (!t) return { error: 'Turneul nu există.' };
+  if (t.owner_id !== userId && !profile.is_admin) return { error: 'Doar organizatorul sau un administrator poate edita turneul.' };
+
+  const patch = {};
+  if (typeof title === 'string' && title.trim()) patch.title = title.trim().slice(0, 120);
+  if (message !== undefined) patch.message = message ? String(message).slice(0, 400) : null;
+  if (zile !== undefined && zile !== null && `${zile}` !== '') {
+    const nrZile = Math.max(1, Math.min(MAX_ZILE, parseInt(zile, 10) || 7));
+    // durata se numără de la START, ca la creare — nu de la momentul editării
+    const pornit = new Date(t.starts_at || t.created_at || Date.now()).getTime();
+    patch.ends_at = new Date(pornit + nrZile * 86400000).toISOString();
+    // dacă noul final e în viitor, turneul se redeschide
+    if (patch.ends_at > new Date().toISOString() && t.status === 'incheiat' && !t.awarded) patch.status = 'activ';
+  }
+
+  if (Array.isArray(contentIds)) {
+    const lista = [...new Set(contentIds.filter(Boolean))].slice(0, MAX_EXERCITII);
+    if (!lista.length) return { error: 'Turneul trebuie să aibă cel puțin un exercițiu.' };
+    const mat = ordoneazaCa(await materiale.validate(supa, lista), lista);
+    if (!mat.length) return { error: 'Materialele alese nu pot fi punctate (doar exerciții interactive sau teste PDF, fără bareme).' };
+
+    const pastrate = new Set(mat.map((m) => m.id));
+    const { data: vechi } = await supa.from('tournament_items')
+      .select('content_id').eq('tournament_id', t.id);
+    const scoase = (vechi || []).map((v) => v.content_id).filter((cid) => !pastrate.has(cid));
+
+    if (scoase.length) {
+      await supa.from('tournament_items').delete().eq('tournament_id', t.id).in('content_id', scoase);
+      await supa.from('tournament_scores').delete().eq('tournament_id', t.id).in('content_id', scoase);
+    }
+
+    const auRamas = new Set((vechi || []).map((v) => v.content_id).filter((cid) => pastrate.has(cid)));
+    const noi = mat.filter((m) => !auRamas.has(m.id));
+    if (noi.length) {
+      await supa.from('tournament_items').insert(
+        noi.map((c, i) => ({ tournament_id: t.id, content_id: c.id, title: c.title, position: auRamas.size + i })),
+      );
+    }
+    // renumerotăm pozițiile în ordinea aleasă de organizator
+    for (let i = 0; i < mat.length; i++) {
+      await supa.from('tournament_items')
+        .update({ position: i, title: mat[i].title })
+        .eq('tournament_id', t.id).eq('content_id', mat[i].id);
+    }
+  }
+
+  if (Object.keys(patch).length) {
+    const { error } = await supa.from('tournaments').update(patch).eq('id', t.id);
+    if (error) return { error: `Turneul nu s-a putut salva (${error.message}).` };
+  }
+  return { ok: true, id: t.id };
+}
+
+// ─── Ștergerea unui turneu (doar admin) ────────────────────────────────────
+// Rândurile legate (exerciții, punctaje, înscrieri, locuri) cad singure prin
+// `on delete cascade` din supabase/gamificare_v4_turnee.sql.
+async function remove(supa, userId, profile, id) {
+  if (!profile.is_admin) return { error: 'Doar un administrator poate șterge un turneu.' };
+  const { data: t } = await supa.from('tournaments').select('id, title').eq('id', id).maybeSingle();
+  if (!t) return { error: 'Turneul nu există.' };
+  const { error } = await supa.from('tournaments').delete().eq('id', id);
+  if (error) return { error: `Turneul nu s-a putut șterge (${error.message}).` };
+  return { ok: true, sters: t.title };
 }
 
 // ─── Cron: închiderea turneelor expirate + premiile ─────────────────────────
@@ -322,13 +406,9 @@ async function ensureWeeklyPublic(supa) {
     .gte('ends_at', acum).limit(1);
   if (existent && existent.length) return { creat: false };
 
-  const { data: mat } = await supa.from('content')
-    .select('id, title, category, content_type')
-    .in('content_type', ['interactive', 'pdf'])
-    .eq('is_free', true)
-    .order('sort_order', { ascending: true })
-    .limit(120);
-  if (!mat || mat.length < 3) return { creat: false, motiv: 'prea puține materiale gratuite' };
+  const gratuite = await materiale.randuri(supa, { doarGratuite: true });
+  const mat = gratuite.slice(0, 120);
+  if (mat.length < 3) return { creat: false, motiv: 'prea puține materiale gratuite' };
 
   // câte unul din fiecare categorie, pe rând, ca turneul să nu fie tot dintr-o clasă
   const peCategorie = {};
@@ -363,5 +443,5 @@ module.exports = {
   PREMII, PREMII_MONEDE, MAX_EXERCITII, MAX_ZILE,
   AUTO_EXERCITII, AUTO_ZILE,
   grupeleElevului, membriiGrupei, participanti, inscrierileMele, join, clasament,
-  recordScore, list, create, close, finalizeExpired, ensureWeeklyPublic,
+  recordScore, list, create, update, remove, close, finalizeExpired, ensureWeeklyPublic,
 };

@@ -4,6 +4,56 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 31 august 2026 — Meniul (sidebar pliabil + burger pe categorii), Arena pe mobil, baremele scoase din dueluri/turnee, admin peste turneele publice
+
+Șase cereri de la Radu, luate pe rând.
+
+### 1. Meniul de mobil are acum aceleași categorii ca sidebar-ul
+
+Drawer-ul ☰ avea propria listă de linkuri, „la grămadă", scrisă separat de bara laterală de pe desktop — deci cele două se despărțeau la fiecare modificare. Structura s-a mutat într-un singur loc, **`src/lib/meniu.js`**: categoriile (Materiale · Învățare cu AI · Comunitate · Cont · Informații), ordinea, pictogramele și indicatorii se descriu o dată, iar `Sidebar.jsx` și `MobileMenu` (din `Navbar.jsx`) le citesc de acolo. Drawer-ul refolosește și clasele CSS `.sb-*` ale sidebar-ului (prin `.mm-nav`, doar cu ținte mai mari pentru deget), deci arată identic, nu doar „asemănător".
+
+### 2. Bara de sus: fără „Abonament" și fără „Meditații cu AI"
+
+Ambele au ieșit din navbar — stau oricum în meniul lateral și în drawer, la categoriile lor (Cont, respectiv Învățare cu AI). Rămân „🎓 Examene" și „📚 Clase", iar `.navbar-links` a primit `flex: 1` + `justify-content: space-evenly`, deci **se împart uniform** pe spațiul dintre logo și butoanele din dreapta, în loc să stea înghesuite lângă logo.
+
+### 3. Sidebar-ul se pliază la pictograme, cu săgeată și hover
+
+La încărcarea paginii bara e **deschisă** (nu ținem minte starea între vizite — asta a fost cererea). O săgeată rotundă, călare pe marginea din dreapta, o strânge la o bandă de 62px cu **doar pictogramele**; titlurile de categorie devin linii despărțitoare, iar conținutul paginii se lățește odată cu ea (`body.sidebar-pliat .app-shell`). Cât e strânsă, **hover-ul o redeschide temporar**, peste conținut, fără să-l mai împingă.
+
+Două detalii care contau:
+- scroll-ul a coborât de pe `<aside>` pe un `<nav class="sb-scroll">` interior — altfel `overflow-y: auto` tăia săgeata care iese în afara barei;
+- butonul-săgeată face `blur()` după clic: fără asta rămânea „focusat", iar regula `:focus-within` (cea care ține bara desfăcută la navigarea cu tastatura) o ținea deschisă la nesfârșit.
+
+Stilurile intrărilor au trecut din `style={{…}}` în clase CSS (`.sb-item`, `.sb-sub`, `.sb-grup`, `.sb-icon`, `.sb-text`, `.sb-badge`) — stilurile inline bat orice regulă din foaie, deci pliajul n-ar fi avut cum să le schimbe.
+
+### 4. Arena pe telefon: „Nivel", „Serie de zile" și „Azi" sunt carduri late
+
+Erau strânse în trei coloane minuscule. Acum fiecare e un card pe toată lățimea, în stilul cardului „Misiunea zilei". Regulile vechi de micșorare din media query **nu aveau niciun efect** — `arena-val` și `arena-sub` își primeau mărimea din `style={{…}}` inline, care bate foaia de stiluri; mărimile s-au mutat în CSS, unde pot fi într-adevăr schimbate pe mobil.
+
+### 5. Baremele nu mai apar în dueluri și turnee — și apar TOATE materialele
+
+Cauza pentru „văd doar 300 din 1319": `api/duel.js → optiuni` avea `.limit(300)` pe tabela `content`, iar turneele căutau pe server cu `.limit(80)` per interogare. Baremele intrau în listă ca orice PDF — adică se putea deschide un duel pe **rezolvarea** unui test.
+
+Amândouă trec acum prin **`api/_lib/materiale.js`**:
+- citire **paginată** (`http.allRows`) — apar toate materialele de pe site, nu primele 300;
+- **baremele sunt filtrate** cu `barem.isBaremRow`, deci după toate trei semnele: subcategoria `bareme`, cuvântul „barem" în titlu și numele oficial de fișier (`…_bar_05_LRO.pdf`, acolo unde testul are `…_var_05_…`);
+- formularul de **duel** are acum, ca la turnee, două butoane: **🧩 Interactive** și **📄 PDF**, cu numărul materialelor pe fiecare. Lista completă ajunge o dată în pagină, deci căutarea (și fără diacritice: „fractii" → „Fracții") e instantanee, fără cerere la fiecare literă.
+
+Filtrul din pagină e comoditate; **gardul e pe server**: `duel.create` refuză un barem, `turneu.create` și `turneu.update` trec id-urile prin `materiale.validate`, iar „Turneul săptămânii" creat de cron nu mai poate alege bareme.
+
+### 6. Adminul poate edita și șterge turneele publice
+
+`api/turneu.js` are două acțiuni noi:
+- **`update`** (organizatorul turneului sau adminul): titlu, mesaj, durată și **setul de exerciții** — lista trimisă înlocuiește lista veche, deci prin ea se și adaugă, și se scot exerciții. Punctajele luate la un exercițiu scos se șterg odată cu el, altfel ar rămâne în clasament puncte pentru ceva ce nu mai e în turneu. Exercițiile păstrează ordinea în care le-a bifat organizatorul.
+- **`delete`** (doar admin): șterge turneul cu tot ce ține de el (exerciții, punctaje, înscrieri, locuri — prin `on delete cascade`).
+
+În Arenă, sub fiecare turneu pe care îl poate administra, apar „✏️ Editează", „Încheie acum" și (la admin) „🗑 Șterge", cu o confirmare pe loc, în rând — nu un dialog de browser. Formularul de turneu e același, doar precompletat; tipul și grupa nu se mai schimbă după creare.
+
+### Verificare
+`npm test` — 451/451 verde (3 sărite, ca înainte), inclusiv **`test/materiale-fara-bareme.test.js`**, nou: baremele sunt scoase după subcategorie, titlu și nume de fișier; o listă de 1319 rânduri se citește întreagă (nu se oprește la 300); `doarGratuite` filtrează premium-ul; căutarea merge fără diacritice. `vite build` trece. Meniul, pliajul, drawer-ul de mobil și cardurile din Arenă au fost verificate și cu capturi, la 1280px și 390px.
+
+---
+
 ## 30 august 2026 — Task-ul „clasa 9" se oprea zilnic pe ACELAȘI fișier: un material ilizibil din rubrică bloca definitiv modul „pe rând"
 
 Raportat de Radu: task-ul „Exercițiu interactiv nou clasa 9" arăta zi de zi „⚠️ eroare — Nu am putut descărca fișierul-sursă «Fișă 8 – BAC: Vectori» din Storage", cu progresul înțepenit la 2/10 fișiere procesate, în timp ce task-urile de clasa 10 și 11 avansau normal.

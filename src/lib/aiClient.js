@@ -153,7 +153,8 @@ export const aiClient = {
   // Dueluri 1-la-1 (api/duel.js): list · optiuni · create · respond · set_open
   duel: (payload = {}) => post('/api/duel', { action: 'list', ...payload }),
 
-  // Turnee de grupă (api/turneu.js): list · optiuni · create · close
+  // Turnee de grupă (api/turneu.js): list · optiuni · materiale · create ·
+  // update (editare: titlu, mesaj, durată, exerciții) · delete (admin) · close · join
   turneu: (payload = {}) => post('/api/turneu', { action: 'list', ...payload }),
 
   // Harta capitolelor (api/harta.js): state · unlock

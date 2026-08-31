@@ -4,6 +4,9 @@
 // POST /api/duel  { action }
 //   list          → duelurile mele (primite, trimise, active, încheiate)
 //   optiuni       → colegii pe care îi pot provoca + exercițiile disponibile
+//                   (TOATE cele de pe site, fără bareme, pe două liste:
+//                    interactive și pdf)
+//   materiale     → { tip: 'interactive'|'pdf', q? } — doar o listă, reîncărcată
 //   cauta         → { q } — caută pe ORICINE de pe site (min. 3 litere)
 //   create        → { opponentId, contentId }
 //   respond       → { id, accept: true|false }
@@ -18,6 +21,7 @@
 // =====================================================================
 const ai = require('./_lib/ai');
 const duel = require('./_lib/duel');
+const materiale = require('./_lib/materiale');
 
 // Colegii acceptați + exercițiile interactive la care am acces.
 async function optiuni(supa, userId, profile) {
@@ -40,19 +44,19 @@ async function optiuni(supa, userId, profile) {
     })).sort((a, b) => a.nume.localeCompare(b.nume, 'ro'));
   }
 
+  // Materialele: TOATE cele de pe site (nu primele 300, cum era înainte) și
+  // FĂRĂ bareme — vezi api/_lib/materiale.js. Vin despărțite pe cele două
+  // moduri din formular: „🧩 Interactive" și „📄 PDF".
   const premium = ai.isPremium(profile) || profile.is_admin;
-  let q = supa.from('content')
-    .select('id, title, category, is_free, content_type')
-    .in('content_type', ['interactive', 'pdf'])
-    .order('sort_order', { ascending: true })
-    .limit(300);
-  if (!premium) q = q.eq('is_free', true);
-  const { data: mat } = await q;
+  const { materiale: liste, total } = await materiale.liste(supa, { doarGratuite: !premium });
 
   return {
     ok: true,
     colegi,
-    exercitii: (mat || []).map((c) => ({ id: c.id, titlu: c.title, categorie: c.category, gratuit: !!c.is_free, tip: c.content_type })),
+    materiale: liste,
+    total,
+    // compatibilitate: lista plată folosită de versiunea veche a formularului
+    exercitii: [...liste.interactive, ...liste.pdf],
     premium,
     ore: duel.ORE_DUEL,
     maxPeZi: duel.MAX_PROVOCARI_PE_ZI,
@@ -97,6 +101,14 @@ module.exports = async function handler(req, res) {
     if (action === 'list') return res.status(200).json({ ok: true, ...await duel.list(supa, userId) });
     if (action === 'optiuni') return res.status(200).json(await optiuni(supa, userId, profile));
     if (action === 'cauta') return res.status(200).json(await cauta(supa, userId, req.body?.q));
+
+    // lista de materiale pe un singur mod (interactive / pdf), fără bareme
+    if (action === 'materiale') {
+      const premium = ai.isPremium(profile) || profile.is_admin;
+      return res.status(200).json(await materiale.lista(supa, {
+        tip: req.body?.tip, q: req.body?.q, doarGratuite: !premium,
+      }));
+    }
 
     if (action === 'create') {
       const r = await duel.create(supa, userId, req.body || {}, { isPremium: ai.isPremium(profile) || profile.is_admin });

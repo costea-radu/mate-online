@@ -9,24 +9,7 @@ import { aiAssistantLabel } from '../lib/aiLabel';
 import { useChatUnread, refreshChatUnread } from '../lib/chatUnread';
 import ChatAlerts from './ChatAlerts';
 import Sidebar from './Sidebar';
-
-const CLASE = [
-  { to: '/clase/5',  label: 'Clasa a V-a' },
-  { to: '/clase/6',  label: 'Clasa a VI-a' },
-  { to: '/clase/7',  label: 'Clasa a VII-a' },
-  { to: '/clase/8',  label: 'Clasa a VIII-a' },
-  { to: '/clase/9',  label: 'Clasa a IX-a' },
-  { to: '/clase/10', label: 'Clasa a X-a' },
-  { to: '/clase/11', label: 'Clasa a XI-a' },
-  { to: '/clase/12', label: 'Clasa a XII-a' },
-];
-
-const EXAMENE = [
-  { to: '/evaluare-nationala',      label: 'Evaluare Națională' },
-  { to: '/bacalaureat/mate-info',   label: 'Bacalaureat Mate-Info' },
-  { to: '/bacalaureat/stiinte-naturii', label: 'Bacalaureat Șt. Naturii' },
-  { to: '/bacalaureat/tehnologic',  label: 'Bacalaureat Tehnologic' },
-];
+import { CLASE, EXAMENE, sectiuniMeniu, esteActiv } from '../lib/meniu';
 
 // ─── Bulina roșie de mesaje noi (ca la Messenger) ─────────────────────────────
 // `flotanta` = lipită în colțul unei iconițe; altfel stă în rând, după text.
@@ -365,43 +348,80 @@ function SearchModal({ onClose }) {
 }
 
 // ─── Mobile menu overlay ──────────────────────────────────────────────────────
+// Aceleași categorii, în aceeași ordine, ca în bara laterală de pe desktop:
+// structura vine din src/lib/meniu.js, iar stilurile refolosesc clasele
+// `.sb-*` (doar mărite puțin, prin `.mm-nav`, ca să se apese ușor cu degetul).
 function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profesor Virtual', forumUnread = 0, forumHasNew = false, chatUnread = 0, onSignOut }) {
-  const location = useLocation();
-  const [claseOpen, setClaseOpen] = useState(false);
-  const [exameneOpen, setExameneOpen] = useState(false);
+  const { pathname } = useLocation();
+  const [deschise, setDeschise] = useState({});
 
   if (!open) return null;
 
-  const linkStyle = {
-    display: 'block', padding: '13px 24px',
-    color: 'rgba(255,255,255,0.88)', fontSize: '0.97rem', fontWeight: 500,
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-    textDecoration: 'none',
-  };
-  const subLinkStyle = {
-    display: 'block', padding: '10px 24px 10px 40px',
-    color: 'rgba(255,255,255,0.65)', fontSize: '0.87rem',
-    borderBottom: '1px solid rgba(255,255,255,0.04)',
-    textDecoration: 'none',
-  };
-  const sectionBtn = (isOpen) => ({
-    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    width: '100%', padding: '13px 24px',
-    background: 'none', border: 'none', cursor: 'pointer',
-    color: 'rgba(255,255,255,0.88)', fontSize: '0.97rem', fontWeight: 500,
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-    fontFamily: 'var(--font-body)',
-  });
+  const sectiuni = sectiuniMeniu({ user, isAdmin, isPremium, aiLabel, chatUnread, forumUnread, forumHasNew });
+
+  function icon(nume) {
+    return (
+      <span className="sb-icon" aria-hidden="true">
+        {nume === 'einstein' ? <EinsteinIcon size={19} /> : nume}
+      </span>
+    );
+  }
+
+  function randItem(it, i) {
+    if (it.tip === 'iesire') {
+      return (
+        <button key={`iesire-${i}`} type="button" onClick={onSignOut} className="sb-item sb-iesire">
+          {icon(it.icon)}<span className="sb-text">{it.label}</span>
+        </button>
+      );
+    }
+
+    if (it.tip === 'pliabil') {
+      const desfasurat = !!deschise[it.cheie];
+      const activ = (it.prefixe || []).some((p) => pathname.startsWith(p));
+      return (
+        <div key={it.cheie}>
+          <button
+            type="button"
+            className={`sb-item sb-sectiune${activ ? ' activ' : ''}`}
+            onClick={() => setDeschise((d) => ({ ...d, [it.cheie]: !d[it.cheie] }))}
+            aria-expanded={desfasurat}
+          >
+            {icon(it.icon)}
+            <span className="sb-text">{it.label}</span>
+            <span className="sb-text sb-sageata">{desfasurat ? '▲' : '▼'}</span>
+          </button>
+          {desfasurat && it.copii.map((c) => (
+            <Link key={c.to} to={c.to} onClick={onClose}
+              className={`sb-sub${esteActiv(pathname, c.to) ? ' activ' : ''}`}>
+              {c.label}
+            </Link>
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <Link key={it.to} to={it.to} onClick={onClose}
+        className={`sb-item${esteActiv(pathname, it.to) ? ' activ' : ''}${it.accent ? ' sb-accent' : ''}`}>
+        {icon(it.icon)}
+        <span className="sb-text">{it.label}</span>
+        {it.punct && <span className="forum-dot" title="Activitate nouă pe forum" aria-label="Activitate nouă pe forum" />}
+        {it.badge > 0 && (
+          <span className="sb-badge" title={`${it.badge} ${it.badgeTitlu || 'mesaje noi'}`}>
+            {it.badge > 99 ? '99+' : it.badge}
+          </span>
+        )}
+      </Link>
+    );
+  }
 
   return (
     <>
       {/* Overlay backdrop */}
       <div
         onClick={onClose}
-        style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-          zIndex: 998,
-        }}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 998 }}
       />
       {/* Drawer */}
       <div style={{
@@ -425,127 +445,14 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profes
           }}>✕</button>
         </div>
 
-        {/* Examene — expandabil */}
-        <button style={sectionBtn(exameneOpen)} onClick={() => setExameneOpen(o => !o)}>
-          <span>📝 Examene</span>
-          <span style={{ fontSize: '0.7rem', opacity: 0.6 }}>{exameneOpen ? '▲' : '▼'}</span>
-        </button>
-        {exameneOpen && EXAMENE.map(item => (
-          <Link key={item.to} to={item.to} onClick={onClose}
-            style={{ ...subLinkStyle, color: location.pathname.startsWith(item.to) ? 'var(--gold)' : 'rgba(255,255,255,0.65)' }}>
-            {item.label}
-          </Link>
-        ))}
-
-        {/* Clase — expandabil */}
-        <button style={sectionBtn(claseOpen)} onClick={() => setClaseOpen(o => !o)}>
-          <span>📚 Clase</span>
-          <span style={{ fontSize: '0.7rem', opacity: 0.6 }}>{claseOpen ? '▲' : '▼'}</span>
-        </button>
-        {claseOpen && CLASE.map(item => (
-          <Link key={item.to} to={item.to} onClick={onClose}
-            style={{ ...subLinkStyle, color: location.pathname === item.to ? 'var(--gold)' : 'rgba(255,255,255,0.65)' }}>
-            {item.label}
-          </Link>
-        ))}
-
-        {/* Linkuri simple */}
-        <Link to="/manuale" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/manuale' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-          📖 Auxiliare
-        </Link>
-        <Link to="/meditatii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/meditatii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <EinsteinIcon size={20} /> Meditații cu Prof. Virtual
-        </Link>
-        <Link to="/preturi" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/preturi' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-          💳 Abonament
-        </Link>
-        <Link to="/rezolvari" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/rezolvari' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-          📝 Blog / Rezolvări / Teorie
-        </Link>
-        <Link to="/profesor-virtual" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/profesor-virtual' ? 'var(--gold)' : 'rgba(255,255,255,0.88)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <EinsteinIcon size={20} /> {aiLabel}
-        </Link>
-        <Link to="/biblioteca-utilizatorilor" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/biblioteca-utilizatorilor' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-          🏛️ Biblioteca utilizatorilor
-        </Link>
-        <Link to="/discutii" onClick={onClose} style={{
-          ...linkStyle,
-          color: location.pathname === '/discutii'
-            ? 'var(--gold)'
-            : (forumHasNew ? 'var(--gold-light)' : 'rgba(255,255,255,0.88)'),
-          background: (forumHasNew && location.pathname !== '/discutii') ? 'rgba(232,185,49,0.10)' : undefined,
-        }}>
-          💬 Forum
-          {forumHasNew && (
-            <span className="forum-dot" title="Activitate nouă pe forum" aria-label="Activitate nouă pe forum" />
-          )}
-          {forumUnread > 0 && (
-            <span style={{ color: '#ff6b6b', fontWeight: 700, marginLeft: 4 }}>({forumUnread})</span>
-          )}
-        </Link>
-        {user && (
-          <Link to="/arena" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/arena' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-            ⚔️ Arena
-          </Link>
-        )}
-        {user && (
-          <Link to="/mesagerie" onClick={onClose} style={{
-            ...linkStyle,
-            color: location.pathname === '/mesagerie'
-              ? 'var(--gold)'
-              : (chatUnread > 0 ? 'var(--gold-light, #f5d67b)' : 'rgba(255,255,255,0.88)'),
-            background: (chatUnread > 0 && location.pathname !== '/mesagerie') ? 'rgba(231,76,60,0.10)' : undefined,
-          }}>
-            💬 Mesagerie
-            <Bulina n={chatUnread} />
-          </Link>
-        )}
-        <Link to="/recenzii" onClick={onClose} style={{ ...linkStyle, color: location.pathname === '/recenzii' ? 'var(--gold)' : 'rgba(255,255,255,0.88)' }}>
-          ⭐ Recenzii
-        </Link>
-
-        {/* Separator */}
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.12)', margin: '8px 0' }} />
-
-        {/* Admin */}
-        {isAdmin && (
-          <Link to="/admin" onClick={onClose} style={{
-            ...linkStyle,
-            color: 'var(--gold)', fontWeight: 700,
-          }}>
-            ⚙ Admin
-          </Link>
-        )}
-
-        {/* Cont / Auth */}
-        {user ? (
-          <>
-            <Link to="/profil" onClick={onClose} style={{
-              ...linkStyle,
-              color: isPremium ? 'var(--gold)' : 'rgba(255,255,255,0.88)',
-            }}>
-              {isPremium ? '⭐ Contul meu' : '👤 Contul meu'}
-            </Link>
-            <button onClick={onSignOut} style={{
-              ...linkStyle, background: 'none', border: 'none',
-              cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font-body)',
-              color: 'rgba(255,100,100,0.85)',
-            }}>
-              🚪 Ieșire
-            </button>
-          </>
-        ) : (
-          <>
-            <Link to="/autentificare" onClick={onClose} style={linkStyle}>
-              🔑 Autentificare
-            </Link>
-            <Link to="/inregistrare" onClick={onClose} style={{
-              ...linkStyle, color: 'var(--gold)', fontWeight: 700,
-            }}>
-              ✨ Înregistrare
-            </Link>
-          </>
-        )}
+        <nav className="mm-nav" style={{ paddingBottom: 28 }}>
+          {sectiuni.map((s, si) => (
+            <div key={s.titlu || `sect-${si}`}>
+              {s.titlu && <div className="sb-grup"><span className="sb-text">{s.titlu}</span></div>}
+              {s.items.map(randItem)}
+            </div>
+          ))}
+        </nav>
       </div>
     </>
   );
@@ -555,10 +462,6 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profes
 export default function Navbar() {
   const { user, isPremium, isAdmin, isTeacher, isParent, signOut } = useAuth();
   const aiLabel = aiAssistantLabel({ isTeacher, isParent });
-  // Părinți și profesori (desktop): „Meditații cu AI" trece în „Mai multe"
-  // (pe locul lui „Abonament"), iar în bara principală apare „💳 Abonament".
-  // Elevii și vizitatorii rămân cu bara de până acum. Meniul de mobil nu se schimbă.
-  const meditatiiInMaiMulte = isTeacher || isParent;
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -684,23 +587,13 @@ export default function Navbar() {
           </div>
 
           {/* Desktop nav links */}
+          {/* Bara de sus ține doar intrările spre materiale. „Abonament" (la
+              profesori și părinți) și „Meditații cu AI" (la elevi) au fost
+              scoase de aici — ambele stau în meniul lateral / drawer-ul ☰,
+              la categoriile lor. Ce a rămas se împarte uniform pe lățime. */}
           <ul className="navbar-links" style={{ alignItems: 'center' }}>
             <li><DesktopDropdown label="🎓 Examene" items={EXAMENE} accent /></li>
             <li><DesktopDropdown label="📚 Clase" items={CLASE} accent /></li>
-            <li>
-              {meditatiiInMaiMulte ? (
-                <Link to="/preturi" className={location.pathname === '/preturi' ? 'active' : ''}>
-                  💳 Abonament
-                </Link>
-              ) : (
-                <Link to="/meditatii" className={location.pathname === '/meditatii' ? 'active' : ''} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <EinsteinIcon size={18} /> Meditații cu AI
-                </Link>
-              )}
-            </li>
-            {/* „Mai multe" a trecut în meniul lateral din stânga (Sidebar.jsx):
-                acolo stau acum Forum, Mesagerie, Arena, paginile de informații
-                etc., cu tot cu indicatorii lor. */}
           </ul>
 
           {/* Desktop auth buttons */}

@@ -1,9 +1,11 @@
 // =====================================================================
 // src/components/TurneePanel.jsx — turneele de grupă din Arena (pasul 4)
 // Elevul vede turneele grupelor lui + clasamentul; profesorul poate deschide
-// unul nou pe grupele lui. API: /api/turneu
+// unul nou pe grupele lui. ADMINUL poate, în plus, edita orice turneu
+// (inclusiv cele publice) — titlu, mesaj, durată, adăugarea/scoaterea de
+// exerciții — și îl poate șterge. API: /api/turneu
 // =====================================================================
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
 
@@ -13,6 +15,8 @@ const card = {
 };
 const input = { display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)' };
 
+const GOL = { id: null, groupId: '', title: '', message: '', zile: 7, contentIds: [], scope: 'grupa' };
+
 function ramase(pana) {
   const ore = Math.round((new Date(pana) - Date.now()) / 3600000);
   if (ore <= 0) return 's-a încheiat';
@@ -20,21 +24,27 @@ function ramase(pana) {
   return `${Math.round(ore / 24)} zile rămase`;
 }
 
+// „fractii" trebuie să găsească „Fracții": comparăm fără diacritice.
+function faraDiacritice(s) {
+  return String(s || '').toLowerCase()
+    .replace(/[ăâ]/g, 'a').replace(/î/g, 'i').replace(/[șş]/g, 's').replace(/[țţ]/g, 't')
+    .replace(/\s+/g, ' ').trim();
+}
+
 export default function TurneePanel() {
   const [d, setD] = useState(null);
   const [opt, setOpt] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [f, setF] = useState({ groupId: '', title: '', message: '', zile: 7, contentIds: [], scope: 'grupa' });
+  const [f, setF] = useState(GOL);
   // Căutarea materialelor are DOUĂ MODURI: teste interactive și PDF-uri.
-  // Rezultatele vin de pe server (tot site-ul), nu dintr-o listă preîncărcată.
+  // Listele vin ÎNTREGI de pe server (toate materialele site-ului, fără
+  // bareme), deci filtrarea de mai jos e instantanee.
   const [mod, setMod] = useState('interactive');
   const [filtru, setFiltru] = useState('');
-  const [rez, setRez] = useState(null);          // { items, total, q, tip }
-  const [caut, setCaut] = useState(false);
   const [alese, setAlese] = useState({});        // id → material bifat (rămâne vizibil între căutări)
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  const cerereRef = useRef(0);
+  const [deSters, setDeSters] = useState(null);  // id-ul turneului la care s-a cerut confirmarea
 
   const load = useCallback(async () => {
     try { setD(await aiClient.turneu({ action: 'list' })); }
@@ -42,36 +52,38 @@ export default function TurneePanel() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  async function deschideForm() {
-    setFormOpen((v) => !v); setErr(null);
-    if (!opt) {
-      try { setOpt(await aiClient.turneu({ action: 'optiuni' })); }
-      catch (e) { setErr(e?.message || 'Nu am putut încărca grupele.'); }
-    }
+  async function incarcaOptiuni() {
+    if (opt) return opt;
+    try {
+      const o = await aiClient.turneu({ action: 'optiuni' });
+      setOpt(o);
+      return o;
+    } catch (e) { setErr(e?.message || 'Nu am putut încărca grupele.'); return null; }
   }
 
-  // Căutarea materialelor: se face PE SERVER, în tot site-ul. Se reia la
-  // schimbarea modului (interactive / PDF) și după fiecare tastare, cu o mică
-  // pauză ca să nu batem serverul la fiecare literă.
-  useEffect(() => {
-    if (!formOpen || !opt) return undefined;
-    const q = filtru.trim();
-    // lista de start a fiecărui mod vine deja din `optiuni` — fără cerere în plus
-    if (!q && opt.materiale && opt.materiale[mod]) {
-      setRez({ items: opt.materiale[mod], total: (opt.total || {})[mod] || 0, tip: mod, q: '', limita: opt.limitaCautare });
-      setCaut(false);
-      return undefined;
+  // Formularul: gol pentru un turneu nou, precompletat când se editează unul.
+  async function deschideForm(t = null) {
+    setErr(null);
+    if (formOpen && (!t || t.id === f.id)) { setFormOpen(false); setF(GOL); setAlese({}); return; }
+    setFormOpen(true);
+    setFiltru('');
+    if (t) {
+      setF({
+        id: t.id,
+        groupId: '',
+        title: t.titlu || '',
+        message: t.mesaj || '',
+        zile: t.zile || 7,
+        contentIds: (t.exercitii || []).map((x) => x.id),
+        scope: t.public ? 'public' : 'grupa',
+      });
+      setAlese(Object.fromEntries((t.exercitii || []).map((x) => [x.id, x])));
+    } else {
+      setF(GOL);
+      setAlese({});
     }
-    const nr = ++cerereRef.current;
-    setCaut(true);
-    const t = setTimeout(() => {
-      aiClient.turneu({ action: 'materiale', q, tip: mod })
-        .then((r) => { if (nr === cerereRef.current) setRez(r); })
-        .catch(() => { if (nr === cerereRef.current) setRez({ items: [], total: 0, tip: mod, q }); })
-        .finally(() => { if (nr === cerereRef.current) setCaut(false); });
-    }, 300);
-    return () => clearTimeout(t);
-  }, [formOpen, opt, mod, filtru]);
+    await incarcaOptiuni();
+  }
 
   function bifeaza(x) {
     const id = typeof x === 'string' ? x : x.id;
@@ -92,17 +104,23 @@ export default function TurneePanel() {
     finally { setBusy(false); }
   }
 
-  async function creeaza() {
-    if (f.scope !== 'public' && !f.groupId) { setErr('Alege grupa.'); return; }
+  // Același buton salvează și un turneu nou, și modificările la unul existent.
+  async function salveaza() {
+    if (!f.id && f.scope !== 'public' && !f.groupId) { setErr('Alege grupa.'); return; }
     if (!f.contentIds.length) { setErr('Alege cel puțin un material.'); return; }
     setBusy(true); setErr(null);
     try {
-      await aiClient.turneu({ action: 'create', ...f, title: f.title || 'Turneu' });
+      if (f.id) {
+        await aiClient.turneu({
+          action: 'update', id: f.id, title: f.title, message: f.message, zile: f.zile, contentIds: f.contentIds,
+        });
+      } else {
+        await aiClient.turneu({ action: 'create', ...f, title: f.title || 'Turneu' });
+      }
       setFormOpen(false);
-      setF({ groupId: '', title: '', message: '', zile: 7, contentIds: [], scope: 'grupa' });
-      setAlese({}); setFiltru(''); setRez(null);
+      setF(GOL); setAlese({}); setFiltru('');
       await load();
-    } catch (e) { setErr(e?.message || 'Turneul nu s-a putut crea.'); }
+    } catch (e) { setErr(e?.message || 'Turneul nu s-a putut salva.'); }
     finally { setBusy(false); }
   }
 
@@ -110,6 +128,17 @@ export default function TurneePanel() {
     setBusy(true);
     try { await aiClient.turneu({ action: 'close', id }); await load(); }
     catch (e) { setErr(e?.message || 'Nu am putut încheia turneul.'); }
+    finally { setBusy(false); }
+  }
+
+  async function sterge(id) {
+    setBusy(true); setErr(null);
+    try {
+      await aiClient.turneu({ action: 'delete', id });
+      setDeSters(null);
+      if (f.id === id) { setFormOpen(false); setF(GOL); setAlese({}); }
+      await load();
+    } catch (e) { setErr(e?.message || 'Turneul nu s-a putut șterge.'); }
     finally { setBusy(false); }
   }
 
@@ -124,13 +153,17 @@ export default function TurneePanel() {
     ) : null;
   }
 
+  const lista = (opt?.materiale?.[mod]) || [];
+  const q = faraDiacritice(filtru);
+  const gasite = q ? lista.filter((x) => faraDiacritice(`${x.titlu} ${x.categorie}`).includes(q)) : lista;
+
   return (
     <div style={card}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.25rem' }}>🏆 Turnee</div>
         {(d.profesor || d.admin) && (
-          <button onClick={deschideForm} className="btn btn-sm btn-primary" style={{ marginLeft: 'auto' }}>
-            {formOpen ? 'Renunță' : '➕ Turneu nou'}
+          <button onClick={() => deschideForm(null)} className="btn btn-sm btn-primary" style={{ marginLeft: 'auto' }}>
+            {formOpen && !f.id ? 'Renunță' : '➕ Turneu nou'}
           </button>
         )}
       </div>
@@ -139,13 +172,20 @@ export default function TurneePanel() {
 
       {formOpen && opt && (
         <div style={{ background: 'var(--cream)', borderRadius: 10, padding: 14, marginBottom: 14, display: 'grid', gap: 10 }}>
-          {!opt.grupe.length && !opt.admin ? (
+          {!opt.grupe.length && !opt.admin && !f.id ? (
             <span style={{ color: 'var(--text-light)', fontSize: '0.9rem' }}>
               Nu ai nicio grupă. Creează una din „Contul meu" → Rezultate elevi și apoi poți deschide turnee.
             </span>
           ) : (
             <>
-              {opt.admin && (
+              {f.id && (
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--navy)' }}>
+                  ✏️ Editezi „{f.title}"{f.scope === 'public' ? ' · turneu public' : ''}
+                </div>
+              )}
+
+              {/* tipul și grupa se aleg doar la CREARE — nu se mai schimbă după */}
+              {!f.id && opt.admin && (
                 <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>Tipul turneului
                   <select value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value })} style={input}>
                     <option value="grupa">Pe grupă — participă automat membrii grupei</option>
@@ -153,7 +193,7 @@ export default function TurneePanel() {
                   </select>
                 </label>
               )}
-              {f.scope !== 'public' && (
+              {!f.id && f.scope !== 'public' && (
                 <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>Grupa
                   <select value={f.groupId} onChange={(e) => setF({ ...f, groupId: e.target.value })} style={input}>
                     <option value="">— alege grupa —</option>
@@ -172,6 +212,11 @@ export default function TurneePanel() {
               <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>Durata (zile)
                 <input type="number" min="1" max={opt.maxZile} value={f.zile}
                   onChange={(e) => setF({ ...f, zile: e.target.value })} style={{ ...input, maxWidth: 120 }} />
+                {f.id && (
+                  <span style={{ fontWeight: 400, fontSize: '0.76rem', color: 'var(--text-muted)', display: 'block', marginTop: 2 }}>
+                    se numără de la deschiderea turneului
+                  </span>
+                )}
               </label>
 
               <div>
@@ -185,7 +230,7 @@ export default function TurneePanel() {
                     { id: 'interactive', et: '🧩 Teste interactive' },
                     { id: 'pdf', et: '📄 PDF-uri' },
                   ].map((m) => (
-                    <button key={m.id} type="button" onClick={() => { setMod(m.id); setRez(null); }}
+                    <button key={m.id} type="button" onClick={() => { setMod(m.id); setFiltru(''); }}
                       style={{
                         flex: 1, padding: '7px 10px', borderRadius: 999, cursor: 'pointer',
                         fontSize: '0.82rem', fontWeight: 700,
@@ -232,7 +277,7 @@ export default function TurneePanel() {
                 )}
 
                 <div style={{ maxHeight: 230, overflowY: 'auto', marginTop: 8, border: '1px solid var(--border)', borderRadius: 8, background: '#fff' }}>
-                  {(rez?.items || []).map((x) => {
+                  {gasite.slice(0, 400).map((x) => {
                     const bifat = f.contentIds.includes(x.id);
                     const plin = !bifat && f.contentIds.length >= opt.maxExercitii;
                     return (
@@ -242,15 +287,16 @@ export default function TurneePanel() {
                         background: bifat ? 'rgba(232,185,49,0.10)' : 'transparent',
                       }}>
                         <input type="checkbox" checked={bifat} disabled={plin} onChange={() => bifeaza(x)} />
-                        <span>{x.tip === 'pdf' ? '📄' : '🧩'} {x.titlu}</span>
-                        <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {x.tip === 'pdf' ? '📄' : '🧩'} {x.titlu}
+                        </span>
+                        <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.75rem', flexShrink: 0 }}>
                           {x.categorie}{x.gratuit ? '' : ' · premium'}
                         </span>
                       </label>
                     );
                   })}
-                  {caut && !rez && <div style={{ padding: 10, color: 'var(--text-muted)', fontSize: '0.85rem' }}>Se caută…</div>}
-                  {rez && !rez.items.length && (
+                  {!gasite.length && (
                     <div style={{ padding: 10, color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                       {filtru.trim()
                         ? `Niciun rezultat pentru „${filtru.trim()}" în ${mod === 'pdf' ? 'PDF-uri' : 'testele interactive'}. Încearcă alt cuvânt sau schimbă modul de căutare.`
@@ -260,11 +306,9 @@ export default function TurneePanel() {
                 </div>
 
                 <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                  {caut ? 'se caută…' : rez
-                    ? `${rez.items.length} ${rez.items.length === 1 ? 'rezultat' : 'rezultate'}`
-                      + (rez.total ? ` din ${rez.total} ${mod === 'pdf' ? 'PDF-uri' : 'teste interactive'} de pe site` : '')
-                      + (rez.limita && rez.items.length >= rez.limita ? ' · scrie mai multe litere ca să restrângi lista' : '')
-                    : ''}
+                  {gasite.length} {gasite.length === 1 ? 'rezultat' : 'rezultate'}
+                  {lista.length ? ` din ${lista.length} ${mod === 'pdf' ? 'PDF-uri' : 'teste interactive'} de pe site` : ''}
+                  {gasite.length > 400 ? ' · scrie mai multe litere ca să restrângi lista' : ''}
                 </div>
               </div>
 
@@ -272,9 +316,16 @@ export default function TurneePanel() {
                 Elevii nu se înscriu: rezolvă exercițiile normal, iar punctajul intră singur. Prima rezolvare contează.
                 Punctele = corecte × dificultate × precizie. La final, locurile 1-3 primesc {opt.premii.join(' / ')} XP.
               </div>
-              <button onClick={creeaza} disabled={busy} className="btn btn-sm btn-primary" style={{ justifySelf: 'start' }}>
-                Deschide turneul
-              </button>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={salveaza} disabled={busy} className="btn btn-sm btn-primary">
+                  {f.id ? 'Salvează modificările' : 'Deschide turneul'}
+                </button>
+                {f.id && (
+                  <button onClick={() => { setFormOpen(false); setF(GOL); setAlese({}); }} disabled={busy} className="btn btn-sm btn-outline">
+                    Renunță
+                  </button>
+                )}
+              </div>
             </>
           )}
         </div>
@@ -288,70 +339,101 @@ export default function TurneePanel() {
         </div>
       )}
 
-      {d.turnee.map((t) => (
-        <div key={t.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, marginBottom: 10 }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8 }}>
-            <strong style={{ fontSize: '1.02rem' }}>{t.titlu}</strong>
-            {t.public
-              ? <span style={{ fontSize: '0.7rem', fontWeight: 800, letterSpacing: '.04em', color: 'var(--navy)', background: 'rgba(232,185,49,0.22)', borderRadius: 999, padding: '2px 8px' }}>PUBLIC</span>
-              : <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t.grupa}</span>}
-            {t.public && (
-              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                {t.participanti} {t.participanti === 1 ? 'înscris' : 'înscriși'}
-              </span>
-            )}
-            <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: t.activ ? 'var(--success)' : 'var(--text-muted)' }}>
-              {t.activ ? ramase(t.seIncheie) : 'încheiat'}
-            </span>
-          </div>
-          {t.mesaj && <div style={{ fontSize: '0.88rem', color: 'var(--text-light)', marginTop: 4 }}>„{t.mesaj}"</div>}
-
-          {t.activ && t.public && !t.inscris && (
-            <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
-              <button onClick={() => inscrieMa(t.id)} disabled={busy} className="btn btn-sm btn-primary">
-                Înscrie-mă
-              </button>
-              <span style={{ fontSize: '0.82rem', color: 'var(--text-light)' }}>
-                Punctajul intră în clasament doar după înscriere.
+      {d.turnee.map((t) => {
+        // adminul poate lucra pe ORICE turneu (inclusiv cele publice, create de
+        // cron); profesorul, doar pe ale lui
+        const poateEdita = d.admin || t.alMeu;
+        return (
+          <div key={t.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8 }}>
+              <strong style={{ fontSize: '1.02rem' }}>{t.titlu}</strong>
+              {t.public
+                ? <span style={{ fontSize: '0.7rem', fontWeight: 800, letterSpacing: '.04em', color: 'var(--navy)', background: 'rgba(232,185,49,0.22)', borderRadius: 999, padding: '2px 8px' }}>PUBLIC</span>
+                : <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t.grupa}</span>}
+              {t.public && (
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  {t.participanti} {t.participanti === 1 ? 'înscris' : 'înscriși'}
+                </span>
+              )}
+              <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: t.activ ? 'var(--success)' : 'var(--text-muted)' }}>
+                {t.activ ? ramase(t.seIncheie) : 'încheiat'}
               </span>
             </div>
-          )}
+            {t.mesaj && <div style={{ fontSize: '0.88rem', color: 'var(--text-light)', marginTop: 4 }}>„{t.mesaj}"</div>}
 
-          {t.activ && t.exercitii.length > 0 && (!t.public || t.inscris) && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-              {t.exercitii.map((x) => (
-                <Link key={x.id} to={`${x.tip === 'pdf' ? '/pdf-viewer' : '/exercitiu'}?id=${x.id}`}
-                  className="btn btn-sm btn-outline" style={{ fontSize: '0.78rem' }}>
-                  {x.tip === 'pdf' ? '📄 ' : ''}{x.titlu}
-                </Link>
-              ))}
-            </div>
-          )}
-
-          <div style={{ marginTop: 10, display: 'grid', gap: 2 }}>
-            {t.clasament.slice(0, 8).map((r) => (
-              <div key={r.loc} style={{
-                display: 'grid', gridTemplateColumns: '30px 1fr auto auto', gap: 10, alignItems: 'center',
-                padding: '5px 8px', borderRadius: 6,
-                background: r.eu ? 'rgba(232,185,49,0.16)' : 'transparent',
-                fontWeight: r.eu ? 700 : 400, fontSize: '0.88rem',
-              }}>
-                <span style={{ color: 'var(--text-muted)' }}>{r.loc <= 3 ? ['🥇', '🥈', '🥉'][r.loc - 1] : r.loc}</span>
-                <span>{r.nume}</span>
-                <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{r.exercitii} ex · {r.medie}%</span>
-                <span>{r.puncte}</span>
+            {t.activ && t.public && !t.inscris && (
+              <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+                <button onClick={() => inscrieMa(t.id)} disabled={busy} className="btn btn-sm btn-primary">
+                  Înscrie-mă
+                </button>
+                <span style={{ fontSize: '0.82rem', color: 'var(--text-light)' }}>
+                  Punctajul intră în clasament doar după înscriere.
+                </span>
               </div>
-            ))}
-            {!t.clasament.length && <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Încă niciun rezultat.</span>}
-          </div>
+            )}
 
-          {t.alMeu && t.activ && (
-            <button onClick={() => incheie(t.id)} disabled={busy} className="btn btn-sm btn-outline" style={{ marginTop: 10, fontSize: '0.78rem' }}>
-              Încheie acum
-            </button>
-          )}
-        </div>
-      ))}
+            {t.exercitii.length > 0 && (t.activ && (!t.public || t.inscris || poateEdita)) && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                {t.exercitii.map((x) => (
+                  <Link key={x.id} to={`${x.tip === 'pdf' ? '/pdf-viewer' : '/exercitiu'}?id=${x.id}`}
+                    className="btn btn-sm btn-outline" style={{ fontSize: '0.78rem' }}>
+                    {x.tip === 'pdf' ? '📄 ' : ''}{x.titlu}
+                  </Link>
+                ))}
+              </div>
+            )}
+
+            <div style={{ marginTop: 10, display: 'grid', gap: 2 }}>
+              {t.clasament.slice(0, 8).map((r) => (
+                <div key={r.loc} style={{
+                  display: 'grid', gridTemplateColumns: '30px 1fr auto auto', gap: 10, alignItems: 'center',
+                  padding: '5px 8px', borderRadius: 6,
+                  background: r.eu ? 'rgba(232,185,49,0.16)' : 'transparent',
+                  fontWeight: r.eu ? 700 : 400, fontSize: '0.88rem',
+                }}>
+                  <span style={{ color: 'var(--text-muted)' }}>{r.loc <= 3 ? ['🥇', '🥈', '🥉'][r.loc - 1] : r.loc}</span>
+                  <span>{r.nume}</span>
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{r.exercitii} ex · {r.medie}%</span>
+                  <span>{r.puncte}</span>
+                </div>
+              ))}
+              {!t.clasament.length && <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Încă niciun rezultat.</span>}
+            </div>
+
+            {poateEdita && (
+              <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                <button onClick={() => deschideForm(t)} disabled={busy} className="btn btn-sm btn-outline" style={{ fontSize: '0.78rem' }}>
+                  ✏️ Editează
+                </button>
+                {t.activ && (
+                  <button onClick={() => incheie(t.id)} disabled={busy} className="btn btn-sm btn-outline" style={{ fontSize: '0.78rem' }}>
+                    Încheie acum
+                  </button>
+                )}
+                {d.admin && (deSters === t.id ? (
+                  <>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--danger)' }}>
+                      Ștergi turneul cu tot cu clasament?
+                    </span>
+                    <button onClick={() => sterge(t.id)} disabled={busy} className="btn btn-sm"
+                      style={{ fontSize: '0.78rem', background: 'var(--danger)', color: '#fff' }}>
+                      Da, șterge
+                    </button>
+                    <button onClick={() => setDeSters(null)} disabled={busy} className="btn btn-sm btn-outline" style={{ fontSize: '0.78rem' }}>
+                      Nu
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => setDeSters(t.id)} disabled={busy} className="btn btn-sm btn-outline"
+                    style={{ fontSize: '0.78rem', color: 'var(--danger)', borderColor: 'var(--danger)' }}>
+                    🗑 Șterge
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

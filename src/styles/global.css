@@ -23,6 +23,7 @@
   /* — Spacing — */
   --container: 1200px;
   --sidebar-w: 240px;      /* lățimea meniului lateral din stânga */
+  --sidebar-rail: 62px;    /* lățimea lui când e pliat (doar pictogramele) */
   --navbar-h: 68px;        /* înălțimea barei de sus */
   --radius: 10px;
   --radius-lg: 16px;
@@ -158,10 +159,15 @@ img { max-width: 100%; display: block; }
   color: var(--gold);
 }
 
+/* Intrările rămase în bara de sus se împart UNIFORM pe spațiul dintre logo
+   și butoanele din dreapta (înainte stăteau înghesuite lângă logo). */
 .navbar-links {
   display: flex;
   align-items: center;
+  flex: 1;
+  justify-content: space-evenly;
   gap: 8px;
+  margin: 0 18px;
   list-style: none;
 }
 
@@ -220,6 +226,7 @@ img { max-width: 100%; display: block; }
 
 @media (max-width: 768px) {
   .mobile-toggle { display: block; }
+  .navbar-links { flex: 0 1 auto; margin: 0; }
   .navbar-links, .navbar-auth {
     display: none;
     flex-direction: column;
@@ -245,7 +252,11 @@ img { max-width: 100%; display: block; }
 /* Bară fixă, lipită de marginea din stânga, imediat sub navbar.
    Conținutul paginii (.app-shell) e decalat exact cu lățimea ei — fără
    spațiu în plus între bară și conținut. Sub 768px bara dispare, iar
-   navigarea rămâne pe drawer-ul ☰ de până acum. */
+   navigarea rămâne pe drawer-ul ☰ de până acum.
+
+   PLIEREA: bara pornește DESCHISĂ. Săgeata din margine o strânge la o bandă
+   îngustă, cu doar pictogramele (`.pliat`); cât e strânsă, hover-ul o
+   redeschide temporar PESTE conținut, fără să-l mai împingă. */
 .app-sidebar {
   position: fixed;
   top: var(--navbar-h);
@@ -254,29 +265,201 @@ img { max-width: 100%; display: block; }
   width: var(--sidebar-w);
   background: var(--navy-dark);
   border-right: 1px solid rgba(255,255,255,0.06);
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  /* scroll-ul stă pe .sb-scroll ca să nu taie săgeata din margine */
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
   z-index: 90;
+  transition: width 0.18s ease, box-shadow 0.18s ease;
+}
+
+.app-sidebar.pliat { width: var(--sidebar-rail); }
+.app-sidebar.pliat:hover,
+.app-sidebar.pliat:focus-within {
+  width: var(--sidebar-w);
+  box-shadow: 8px 0 28px rgba(0,0,0,0.35);
+}
+
+.sb-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 0 28px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.18) transparent;
 }
-
-.app-sidebar::-webkit-scrollbar { width: 8px; }
-.app-sidebar::-webkit-scrollbar-thumb {
+.sb-scroll::-webkit-scrollbar { width: 8px; }
+.sb-scroll::-webkit-scrollbar-thumb {
   background: rgba(255,255,255,0.16);
   border-radius: 4px;
 }
-.app-sidebar::-webkit-scrollbar-track { background: transparent; }
+.sb-scroll::-webkit-scrollbar-track { background: transparent; }
 
-.app-shell {
-  padding-left: var(--sidebar-w);
+/* ─── Săgeata de pliere, călare pe marginea din dreapta a barei ─── */
+.sb-toggle {
+  position: absolute;
+  top: 12px;
+  right: -13px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: var(--navy-light);
+  color: rgba(255,255,255,0.75);
+  font-size: 0.95rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+  transition: background 0.18s, color 0.18s, transform 0.18s;
 }
+.sb-toggle:hover {
+  background: var(--gold);
+  color: var(--navy);
+  transform: scale(1.08);
+}
+
+/* ─── Intrările de meniu ─── */
+.sb-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 18px;
+  text-align: left;
+  color: rgba(255,255,255,0.62);
+  background: none;
+  border: none;
+  border-left: 3px solid transparent;
+  font-family: var(--font-body);
+  font-size: 0.86rem;
+  font-weight: 400;
+  line-height: 1.35;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s;
+}
+.sb-item:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.9); }
+.sb-item.activ {
+  color: var(--gold);
+  background: rgba(232,185,49,0.10);
+  border-left-color: var(--gold);
+  font-weight: 600;
+}
+.sb-item.sb-accent { color: var(--gold); font-weight: 700; }
+.sb-item.sb-iesire { color: rgba(255,120,120,0.80); }
+.sb-sectiune { justify-content: flex-start; }
+.sb-sageata { margin-left: auto; font-size: 0.62rem; opacity: 0.6; }
+
+.sb-icon {
+  flex: 0 0 20px;
+  width: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  line-height: 1;
+}
+.sb-text { min-width: 0; }
+.sb-badge {
+  background: #e74c3c;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  min-width: 16px;
+  text-align: center;
+  line-height: 1.5;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.sb-sub {
+  display: block;
+  padding: 8px 18px 8px 46px;
+  color: rgba(255,255,255,0.62);
+  font-size: 0.82rem;
+  text-decoration: none;
+  border-left: 3px solid transparent;
+  transition: background 0.18s, color 0.18s;
+}
+.sb-sub:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.9); }
+.sb-sub.activ {
+  color: var(--gold);
+  background: rgba(232,185,49,0.10);
+  border-left-color: var(--gold);
+  font-weight: 600;
+}
+
+.sb-grup {
+  padding: 16px 21px 6px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.30);
+}
+
+/* ─── Starea PLIATĂ (și fără cursor deasupra): doar pictogramele ─── */
+.app-sidebar.pliat:not(:hover):not(:focus-within) .sb-text,
+.app-sidebar.pliat:not(:hover):not(:focus-within) .sb-sub,
+.app-sidebar.pliat:not(:hover):not(:focus-within) .sb-badge,
+.app-sidebar.pliat:not(:hover):not(:focus-within) .forum-dot { display: none; }
+
+.app-sidebar.pliat:not(:hover):not(:focus-within) .sb-item {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 3px;
+  gap: 0;
+}
+/* titlul categoriei devine o linie despărțitoare */
+.app-sidebar.pliat:not(:hover):not(:focus-within) .sb-grup {
+  padding: 0;
+  margin: 10px 14px;
+  height: 1px;
+  background: rgba(255,255,255,0.10);
+}
+
+.app-shell { padding-left: var(--sidebar-w); transition: padding-left 0.18s ease; }
+body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
 
 /* Sub 768px: bara laterală dispare, conținutul revine pe toată lățimea. */
 @media (max-width: 768px) {
   .app-sidebar { display: none; }
-  .app-shell   { padding-left: 0; }
+  .app-shell,
+  body.sidebar-pliat .app-shell { padding-left: 0; }
 }
+
+/* ─── Drawer-ul ☰ de pe telefon ───
+   Refolosește clasele `.sb-*` ale barei laterale (aceleași categorii, aceeași
+   ordine), doar cu ținte de atins mai generoase pentru deget. */
+.mm-nav .sb-item {
+  padding: 12px 22px;
+  font-size: 0.95rem;
+  color: rgba(255,255,255,0.88);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.mm-nav .sb-item .sb-icon { flex-basis: 22px; width: 22px; font-size: 1.05rem; }
+.mm-nav .sb-sub {
+  padding: 10px 22px 10px 52px;
+  font-size: 0.88rem;
+  color: rgba(255,255,255,0.65);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.mm-nav .sb-grup { padding: 16px 22px 6px; }
+.mm-nav .sb-badge { font-size: 0.66rem; }
+/* regulile de mai sus au aceeași specificitate ca `.sb-item.activ`, deci ar
+   fura culoarea paginii curente — le-o dăm înapoi explicit */
+.mm-nav .sb-item.activ,
+.mm-nav .sb-sub.activ { color: var(--gold); font-weight: 600; }
+.mm-nav .sb-item.sb-accent { color: var(--gold); font-weight: 700; }
+.mm-nav .sb-item.sb-iesire { color: rgba(255,120,120,0.85); }
 
 /* ======= HERO ======= */
 .hero {
@@ -1194,14 +1377,22 @@ img { max-width: 100%; display: block; }
   gap: 14px;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
-@media (max-width: 700px) {
-  .arena-stats { grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .arena-stats .arena-card { padding: 10px 8px; border-radius: 12px; }
-  .arena-stats .arena-lbl  { font-size: 0.6rem; letter-spacing: 0.02em; margin-bottom: 4px; }
-  .arena-stats .arena-val  { font-size: 0.95rem; margin-bottom: 6px; line-height: 1.2; }
-  .arena-stats .arena-sub  { font-size: 0.68rem; line-height: 1.35; margin-top: 6px; }
+.arena-stats .arena-val {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  margin-bottom: 10px;
 }
-@media (max-width: 380px) {
-  .arena-stats .arena-val { font-size: 0.85rem; }
-  .arena-stats .arena-sub { font-size: 0.63rem; }
+.arena-stats .arena-sub {
+  font-size: 0.82rem;
+  color: var(--text-light);
+  margin-top: 8px;
+}
+/* Pe telefon nu le mai strângem în trei coloane minuscule: fiecare devine un
+   card LAT, pe toată lățimea, în stilul cardului „Misiunea zilei" — se citesc
+   de la distanță și au loc pentru bara de progres. */
+@media (max-width: 700px) {
+  .arena-stats { grid-template-columns: 1fr; gap: 12px; }
+  .arena-stats .arena-card { padding: 14px 16px; border-radius: var(--radius-lg); }
+  .arena-stats .arena-val  { font-size: 1.3rem; margin-bottom: 10px; line-height: 1.25; }
+  .arena-stats .arena-sub  { font-size: 0.82rem; line-height: 1.5; margin-top: 8px; }
 }

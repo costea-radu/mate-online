@@ -17,6 +17,13 @@ const rand = {
   padding: '10px 12px', borderRadius: 10, background: 'var(--cream)', marginBottom: 8,
 };
 
+// „fractii" trebuie să găsească „Fracții": comparăm fără diacritice.
+function faraDiacritice(s) {
+  return String(s || '').toLowerCase()
+    .replace(/[ăâ]/g, 'a').replace(/î/g, 'i').replace(/[șş]/g, 's').replace(/[țţ]/g, 't')
+    .replace(/\s+/g, ' ').trim();
+}
+
 function cuCateOre(deadline) {
   if (!deadline) return null;
   const ore = Math.round((new Date(deadline) - Date.now()) / 3600000);
@@ -33,6 +40,7 @@ export default function DueluriPanel() {
   const [coleg, setColeg] = useState('');
   const [exercitiu, setExercitiu] = useState('');
   const [cauta, setCauta] = useState('');
+  const [mod, setMod] = useState('interactive');       // 🧩 interactive · 📄 PDF
   const [cautaColeg, setCautaColeg] = useState('');   // caută pe oricine de pe site
   const [gasitiColegi, setGasitiColegi] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -144,10 +152,14 @@ export default function DueluriPanel() {
   }
 
   const nimic = !d.primite.length && !d.trimise.length && !d.active.length && !d.incheiate.length;
-  const q = cauta.trim().toLowerCase();
-  const gasite = (optiuni?.exercitii || []).filter(
-    (x) => !q || `${x.titlu} ${x.categorie}`.toLowerCase().includes(q),
-  );
+  // Lista completă a modului ales (interactive / PDF) vine de pe server, fără
+  // bareme; căutarea se face aici, în pagină, deci e instantanee.
+  const lista = (optiuni?.materiale?.[mod]) || [];
+  const q = faraDiacritice(cauta);
+  const gasite = q ? lista.filter((x) => faraDiacritice(`${x.titlu} ${x.categorie}`).includes(q)) : lista;
+  const alesMaterial = exercitiu
+    ? [...(optiuni?.materiale?.interactive || []), ...(optiuni?.materiale?.pdf || [])].find((x) => x.id === exercitiu)
+    : null;
   // lista de persoane: rezultatele căutării dacă s-a căutat, altfel colegii mei
   const listaPersoane = gasitiColegi !== null ? gasitiColegi : (optiuni?.colegi || []);
 
@@ -195,24 +207,91 @@ export default function DueluriPanel() {
                           : 'Nu ai colegi în listă — caută pe oricine de pe site după nume.'}
                     </span>
                   </label>
-                  <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>La ce material?
-                    <input value={cauta} onChange={(e) => setCauta(e.target.value)}
-                      placeholder="caută după titlu sau clasă (ex. fracții, clasa-7)…"
-                      style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)' }} />
-                    <select value={exercitiu} onChange={(e) => setExercitiu(e.target.value)}
-                      size={Math.min(8, Math.max(3, gasite.length))}
-                      style={{ display: 'block', width: '100%', marginTop: 6, padding: '6px', borderRadius: 8, border: '1px solid var(--border)' }}>
-                      {gasite.slice(0, 200).map((x) => (
-                        <option key={x.id} value={x.id}>
-                          {x.tip === 'pdf' ? '📄' : '🧩'} {x.titlu} · {x.categorie}{x.gratuit ? '' : ' · premium'}
-                        </option>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: 6 }}>La ce material?</div>
+
+                    {/* DOUĂ MODURI: exerciții interactive și teste PDF.
+                        Listele vin întregi de pe server (toate materialele
+                        site-ului, fără bareme), deci filtrarea de mai jos e
+                        instantanee — nicio cerere în plus la tastare. */}
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                      {[
+                        { id: 'interactive', et: '🧩 Interactive' },
+                        { id: 'pdf', et: '📄 PDF' },
+                      ].map((m) => (
+                        <button key={m.id} type="button" onClick={() => { setMod(m.id); setCauta(''); }}
+                          style={{
+                            flex: 1, padding: '7px 10px', borderRadius: 999, cursor: 'pointer',
+                            fontSize: '0.82rem', fontWeight: 700,
+                            border: `1px solid ${mod === m.id ? 'var(--gold)' : 'var(--border)'}`,
+                            background: mod === m.id ? 'rgba(232,185,49,0.18)' : '#fff',
+                            color: mod === m.id ? 'var(--navy)' : 'var(--text-light)',
+                          }}>
+                          {m.et}
+                          {optiuni.total && optiuni.total[m.id] ? (
+                            <span style={{ fontWeight: 500, opacity: 0.7 }}> · {optiuni.total[m.id]}</span>
+                          ) : null}
+                        </button>
                       ))}
-                    </select>
+                    </div>
+
+                    <input value={cauta} onChange={(e) => setCauta(e.target.value)}
+                      placeholder={mod === 'pdf'
+                        ? 'caută un test PDF după titlu sau clasă (ex. 2026, bacalaureat)…'
+                        : 'caută un exercițiu interactiv după titlu sau clasă (ex. fracții, clasa-7)…'}
+                      style={{ display: 'block', width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)' }} />
+
+                    {/* materialul ales rămâne la vedere, chiar dacă schimbi modul */}
+                    {alesMaterial && (
+                      <div style={{ marginTop: 8 }}>
+                        <button type="button" onClick={() => setExercitiu('')} title="renunță la material"
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                            border: '1px solid var(--border)', background: 'rgba(232,185,49,0.16)',
+                            borderRadius: 999, padding: '4px 10px', fontSize: '0.78rem', maxWidth: '100%',
+                          }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
+                            {alesMaterial.tip === 'pdf' ? '📄' : '🧩'} {alesMaterial.titlu}
+                          </span>
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 700 }}>✕</span>
+                        </button>
+                      </div>
+                    )}
+
+                    <div style={{ maxHeight: 220, overflowY: 'auto', marginTop: 8, border: '1px solid var(--border)', borderRadius: 8, background: '#fff' }}>
+                      {gasite.slice(0, 400).map((x) => (
+                        <button key={x.id} type="button" onClick={() => setExercitiu(x.id)}
+                          style={{
+                            display: 'flex', gap: 8, alignItems: 'center', width: '100%', textAlign: 'left',
+                            padding: '6px 10px', fontSize: '0.86rem', cursor: 'pointer',
+                            border: 'none', borderBottom: '1px solid var(--border)',
+                            background: exercitiu === x.id ? 'rgba(232,185,49,0.16)' : 'transparent',
+                            fontWeight: exercitiu === x.id ? 700 : 400,
+                          }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {x.tip === 'pdf' ? '📄' : '🧩'} {x.titlu}
+                          </span>
+                          <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.75rem', flexShrink: 0 }}>
+                            {x.categorie}{x.gratuit ? '' : ' · premium'}
+                          </span>
+                        </button>
+                      ))}
+                      {!gasite.length && (
+                        <div style={{ padding: 10, color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                          {cauta.trim()
+                            ? `Niciun rezultat pentru „${cauta.trim()}" în ${mod === 'pdf' ? 'testele PDF' : 'exercițiile interactive'}. Încearcă alt cuvânt sau schimbă modul.`
+                            : 'Nu există materiale de acest tip.'}
+                        </div>
+                      )}
+                    </div>
+
                     <span style={{ fontWeight: 400, fontSize: '0.76rem', color: 'var(--text-muted)' }}>
                       {gasite.length} {gasite.length === 1 ? 'rezultat' : 'rezultate'}
-                      {cauta ? ` pentru „${cauta}"` : ' · exerciții interactive și teste PDF'}
+                      {lista.length ? ` din ${lista.length} ${mod === 'pdf' ? 'teste PDF' : 'exerciții interactive'} de pe site` : ''}
+                      {gasite.length > 400 ? ' · scrie mai multe litere ca să restrângi lista' : ''}
                     </span>
-                  </label>
+                  </div>
+
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                     Amândoi primiți același exercițiu și aveți {optiuni.ore} de ore. Câștigă procentul; la egalitate, timpul.
                     Profesorul Virtual e închis în timpul duelului. Maximum {optiuni.maxPeZi} provocări pe zi.

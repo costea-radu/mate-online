@@ -123,19 +123,19 @@ export default function Arena() {
           <div className="arena-stats">
             <div className="arena-card" style={cardStyle}>
               <Eticheta className="arena-lbl">Nivel {nivel.level}</Eticheta>
-              <div className="arena-val" style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', marginBottom: 10 }}>{nivel.name}</div>
+              <div className="arena-val">{nivel.name}</div>
               <Bara pct={nivel.progressPct} />
-              <div className="arena-sub" style={{ fontSize: '0.82rem', color: 'var(--text-light)', marginTop: 8 }}>
+              <div className="arena-sub">
                 {stats.totalXp} XP{nivel.xpNext ? ` · încă ${nivel.xpNext - stats.totalXp} până la nivelul ${nivel.level + 1}` : ' · nivel maxim'}
               </div>
             </div>
 
             <div className="arena-card" style={cardStyle}>
               <Eticheta className="arena-lbl">Serie de zile</Eticheta>
-              <div className="arena-val" style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', marginBottom: 10 }}>
+              <div className="arena-val">
                 🔥 {stats.streak} {stats.streak === 1 ? 'zi' : 'zile'}
               </div>
-              <div className="arena-sub" style={{ fontSize: '0.82rem', color: 'var(--text-light)' }}>
+              <div className="arena-sub" style={{ marginTop: 0 }}>
                 {stats.streakAzi ? 'Ziua de azi e bifată. '
                   : azi.xp >= azi.pragStreak
                     ? 'Rezolvă un exercițiu ca să se bifeze ziua de azi. '
@@ -147,9 +147,9 @@ export default function Arena() {
 
             <div className="arena-card" style={cardStyle}>
               <Eticheta className="arena-lbl">Azi</Eticheta>
-              <div className="arena-val" style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', marginBottom: 10 }}>{azi.xp} XP</div>
+              <div className="arena-val">{azi.xp} XP</div>
               <Bara pct={(azi.liga / azi.plafon) * 100} culoare="var(--navy-light)" />
-              <div className="arena-sub" style={{ fontSize: '0.82rem', color: 'var(--text-light)', marginTop: 8 }}>
+              <div className="arena-sub">
                 {azi.liga}/{azi.plafon} puncte de ligă azi
                 {azi.liga >= azi.plafon && ' — plafon atins, revino mâine 🙂'}
                 {' · 🪙 '}{stats.monede}

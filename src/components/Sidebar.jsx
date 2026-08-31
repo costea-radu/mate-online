@@ -1,69 +1,45 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import EinsteinIcon from './EinsteinIcon';
+import { sectiuniMeniu, esteActiv } from '../lib/meniu';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // src/components/Sidebar.jsx — MENIUL LATERAL (stil „Admin")
 //
 // Bară fixă, lipită de marginea din stânga a paginii, imediat sub navbar.
-// Conține TOT ce era în „Mai multe" plus restul intrărilor din navbar
-// (Examene, Clase, Abonament / Meditații, Admin, Cont).
+// Structura (categoriile) vine din src/lib/meniu.js — aceeași folosită de
+// drawer-ul ☰ de pe telefon, ca cele două să nu mai poată să se despartă.
 //
-// Pe mobil (≤768px) bara dispare — acolo rămâne drawer-ul ☰ de până acum.
+// PLIEREA: bara e DESCHISĂ la încărcarea paginii. Săgeata din marginea din
+// dreapta o pliază la o bandă îngustă, cu doar pictogramele; cât e pliată, se
+// redeschide singură la hover (peste conținut, fără să-l mai împingă).
+//
+// Pe mobil (≤768px) bara dispare — acolo rămâne drawer-ul ☰.
 // Indicatorii (bulina de mesaje, punctul auriu de forum) vin ca props din
 // Navbar, ca să nu întrebăm serverul de două ori pentru aceleași numere.
 // ─────────────────────────────────────────────────────────────────────────────
-
-const CLASE = [
-  { to: '/clase/5',  label: 'Clasa a V-a' },
-  { to: '/clase/6',  label: 'Clasa a VI-a' },
-  { to: '/clase/7',  label: 'Clasa a VII-a' },
-  { to: '/clase/8',  label: 'Clasa a VIII-a' },
-  { to: '/clase/9',  label: 'Clasa a IX-a' },
-  { to: '/clase/10', label: 'Clasa a X-a' },
-  { to: '/clase/11', label: 'Clasa a XI-a' },
-  { to: '/clase/12', label: 'Clasa a XII-a' },
-];
-
-const EXAMENE = [
-  { to: '/evaluare-nationala',          label: 'Evaluare Națională' },
-  { to: '/bacalaureat/mate-info',       label: 'Bacalaureat Mate-Info' },
-  { to: '/bacalaureat/stiinte-naturii', label: 'Bacalaureat Șt. Naturii' },
-  { to: '/bacalaureat/tehnologic',      label: 'Bacalaureat Tehnologic' },
-];
-
-const INFORMATII = [
-  { to: '/despre-noi',                 label: 'Despre noi' },
-  { to: '/faq',                        label: 'Întrebări frecvente' },
-  { to: '/contact',                    label: 'Contact' },
-  { to: '/termeni-conditii',           label: 'Termeni și condiții' },
-  { to: '/politica-confidentialitate', label: 'Confidențialitate' },
-  { to: '/politica-cookies',           label: 'Politica de cookie-uri' },
-  { to: '/politica-retur',             label: 'Politica de retur' },
-];
 
 // ─── Bulina roșie (mesaje noi) ───────────────────────────────────────────────
 function Bulina({ n, titlu = 'mesaje noi' }) {
   if (!n) return null;
   return (
     <span
+      className="sb-badge"
       title={`${n} ${titlu}`}
       aria-label={`${n} ${titlu}`}
-      style={{
-        background: '#e74c3c', color: '#fff', borderRadius: 10, fontSize: '.62rem',
-        fontWeight: 700, padding: '1px 5px', minWidth: 16, textAlign: 'center',
-        lineHeight: 1.5, marginLeft: 'auto', flexShrink: 0,
-      }}
     >
       {n > 99 ? '99+' : n}
     </span>
   );
 }
 
-// Pagina curentă: potrivire exactă sau pe prefix de secțiune (/clase/7 etc.).
-function esteActiv(pathname, to) {
-  if (to === '/') return pathname === '/';
-  return pathname === to || pathname.startsWith(`${to}/`);
+// Pictograma unei intrări: emoji sau, pentru AI, sigla lui Einstein.
+function Icon({ nume }) {
+  return (
+    <span className="sb-icon" aria-hidden="true">
+      {nume === 'einstein' ? <EinsteinIcon size={17} /> : nume}
+    </span>
+  );
 }
 
 export default function Sidebar({
@@ -76,178 +52,124 @@ export default function Sidebar({
   forumHasNew = false,
   onSignOut,
 }) {
-  const location = useLocation();
-  const { pathname } = location;
+  const { pathname } = useLocation();
+
+  // Deschisă la fiecare încărcare de pagină (cerut explicit) — nu ținem minte
+  // starea între vizite, doar în timpul navigării prin site.
+  const [pliat, setPliat] = useState(false);
+
+  // Conținutul paginii (.app-shell) se decalează cât e bara de lată: clasa de
+  // pe <body> e semnalul, ca să nu trebuiască să trecem starea prin App.jsx.
+  useEffect(() => {
+    document.body.classList.toggle('sidebar-pliat', pliat);
+    return () => document.body.classList.remove('sidebar-pliat');
+  }, [pliat]);
+
+  const sectiuni = sectiuniMeniu({ user, isAdmin, isPremium, aiLabel, chatUnread, forumUnread, forumHasNew });
 
   // Secțiunile pliabile se deschid singure când ești deja înăuntru.
-  const [exameneOpen, setExameneOpen] = useState(() => EXAMENE.some(i => esteActiv(pathname, i.to)));
-  const [claseOpen, setClaseOpen]     = useState(() => pathname.startsWith('/clase'));
+  const deschisInitial = {};
+  for (const s of sectiuni) {
+    for (const it of s.items) {
+      if (it.tip === 'pliabil') deschisInitial[it.cheie] = (it.prefixe || []).some((p) => pathname.startsWith(p));
+    }
+  }
+  const [deschise, setDeschise] = useState(deschisInitial);
 
   useEffect(() => {
-    if (EXAMENE.some(i => esteActiv(pathname, i.to))) setExameneOpen(true);
-    if (pathname.startsWith('/clase')) setClaseOpen(true);
+    setDeschise((d) => {
+      const nou = { ...d };
+      for (const s of sectiuni) {
+        for (const it of s.items) {
+          if (it.tip === 'pliabil' && (it.prefixe || []).some((p) => pathname.startsWith(p))) nou[it.cheie] = true;
+        }
+      }
+      return nou;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // ─── Stiluri (aceeași gramatică vizuală ca în panoul Admin) ───────────────
-  const itemStyle = (active) => ({
-    display: 'flex', alignItems: 'center', gap: 8,
-    width: '100%', padding: '10px 18px', textAlign: 'left',
-    color: active ? 'var(--gold)' : 'rgba(255,255,255,0.62)',
-    background: active ? 'rgba(232,185,49,0.10)' : 'none',
-    borderLeft: active ? '3px solid var(--gold)' : '3px solid transparent',
-    fontWeight: active ? 600 : 400,
-    fontSize: '0.86rem', lineHeight: 1.35,
-    fontFamily: 'var(--font-body)',
-    border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid',
-    borderLeftColor: active ? 'var(--gold)' : 'transparent',
-    cursor: 'pointer', transition: 'all 0.18s',
-  });
+  function randItem(it, i) {
+    if (it.tip === 'iesire') {
+      return (
+        <button key={`iesire-${i}`} type="button" onClick={onSignOut} className="sb-item sb-iesire">
+          <Icon nume={it.icon} />
+          <span className="sb-text">{it.label}</span>
+        </button>
+      );
+    }
 
-  const subItemStyle = (active) => ({
-    ...itemStyle(active),
-    padding: '8px 18px 8px 38px',
-    fontSize: '0.82rem',
-  });
+    if (it.tip === 'pliabil') {
+      const open = !!deschise[it.cheie];
+      const activ = (it.prefixe || []).some((p) => pathname.startsWith(p));
+      return (
+        <div key={it.cheie}>
+          <button
+            type="button"
+            onClick={() => setDeschise((d) => ({ ...d, [it.cheie]: !d[it.cheie] }))}
+            className={`sb-item sb-sectiune${activ ? ' activ' : ''}`}
+            aria-expanded={open}
+          >
+            <Icon nume={it.icon} />
+            <span className="sb-text">{it.label}</span>
+            <span className="sb-text sb-sageata">{open ? '▲' : '▼'}</span>
+          </button>
+          {open && it.copii.map((c) => (
+            <Link
+              key={c.to}
+              to={c.to}
+              className={`sb-sub${esteActiv(pathname, c.to) ? ' activ' : ''}`}
+            >
+              {c.label}
+            </Link>
+          ))}
+        </div>
+      );
+    }
 
-  const grupTitlu = {
-    padding: '16px 21px 6px', fontSize: '0.66rem', fontWeight: 700,
-    letterSpacing: '0.09em', textTransform: 'uppercase',
-    color: 'rgba(255,255,255,0.30)',
-  };
-
-  const hoverOn  = (e, active) => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; };
-  const hoverOff = (e, active) => { if (!active) e.currentTarget.style.background = 'none'; };
-
-  // Un link de meniu, cu starea „activ" calculată din rută.
-  function Item({ to, children, badge = 0, badgeTitlu, dot = false }) {
-    const active = esteActiv(pathname, to);
+    const activ = esteActiv(pathname, it.to);
     return (
       <Link
-        to={to}
-        style={{ ...itemStyle(active), textDecoration: 'none' }}
-        onMouseEnter={e => hoverOn(e, active)}
-        onMouseLeave={e => hoverOff(e, active)}
+        key={it.to}
+        to={it.to}
+        className={`sb-item${activ ? ' activ' : ''}${it.accent ? ' sb-accent' : ''}`}
+        title={it.label}
       >
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-          {children}
-          {dot && <span className="forum-dot" title="Activitate nouă pe forum" aria-label="Activitate nouă pe forum" />}
-        </span>
-        <Bulina n={badge} titlu={badgeTitlu} />
+        <Icon nume={it.icon} />
+        <span className="sb-text">{it.label}</span>
+        {it.punct && <span className="forum-dot" title="Activitate nouă pe forum" aria-label="Activitate nouă pe forum" />}
+        <Bulina n={it.badge} titlu={it.badgeTitlu} />
       </Link>
     );
   }
 
-  // Cap de secțiune pliabilă (Examene / Clase).
-  function Sectiune({ open, setOpen, children }) {
-    return (
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{ ...itemStyle(false), justifyContent: 'space-between' }}
-        onMouseEnter={e => hoverOn(e, false)}
-        onMouseLeave={e => hoverOff(e, false)}
-      >
-        <span>{children}</span>
-        <span style={{ fontSize: '0.62rem', opacity: 0.6 }}>{open ? '▲' : '▼'}</span>
-      </button>
-    );
-  }
-
   return (
-    <aside className="app-sidebar" aria-label="Meniu principal">
-      <nav style={{ padding: '10px 0 28px' }}>
+    <aside className={`app-sidebar${pliat ? ' pliat' : ''}`} aria-label="Meniu principal">
+      {/* Săgeata din margine: pliază / desface bara */}
+      <button
+        type="button"
+        className="sb-toggle"
+        onClick={(e) => {
+          setPliat((v) => !v);
+          // fără asta butonul rămâne „focusat" după clic, iar regula
+          // `:focus-within` (cea care ține bara deschisă la navigarea cu
+          // tastatura) ar ține-o desfăcută la nesfârșit
+          e.currentTarget.blur();
+        }}
+        title={pliat ? 'Desfă meniul' : 'Pliază meniul'}
+        aria-label={pliat ? 'Desfă meniul' : 'Pliază meniul'}
+        aria-expanded={!pliat}
+      >
+        {pliat ? '›' : '‹'}
+      </button>
 
-        <Item to="/">🏠 Acasă</Item>
-
-        {/* ── Materiale ── */}
-        <div style={grupTitlu}>Materiale</div>
-
-        <Sectiune open={exameneOpen} setOpen={setExameneOpen}>🎓 Examene</Sectiune>
-        {exameneOpen && EXAMENE.map(item => {
-          const active = esteActiv(pathname, item.to);
-          return (
-            <Link key={item.to} to={item.to}
-              style={{ ...subItemStyle(active), textDecoration: 'none' }}
-              onMouseEnter={e => hoverOn(e, active)}
-              onMouseLeave={e => hoverOff(e, active)}>
-              {item.label}
-            </Link>
-          );
-        })}
-
-        <Sectiune open={claseOpen} setOpen={setClaseOpen}>📚 Clase</Sectiune>
-        {claseOpen && CLASE.map(item => {
-          const active = pathname === item.to;
-          return (
-            <Link key={item.to} to={item.to}
-              style={{ ...subItemStyle(active), textDecoration: 'none' }}
-              onMouseEnter={e => hoverOn(e, active)}
-              onMouseLeave={e => hoverOff(e, active)}>
-              {item.label}
-            </Link>
-          );
-        })}
-
-        <Item to="/manuale">📖 Auxiliare</Item>
-        <Item to="/rezolvari">📝 Blog / Rezolvări / Teorie</Item>
-        <Item to="/biblioteca-utilizatorilor">🏛️ Biblioteca utilizatorilor</Item>
-
-        {/* ── Învățare cu AI ── */}
-        <div style={grupTitlu}>Învățare cu AI</div>
-
-        <Item to="/meditatii"><EinsteinIcon size={16} /> Meditații cu AI</Item>
-        <Item to="/profesor-virtual"><EinsteinIcon size={16} /> {aiLabel}</Item>
-
-        {/* ── Comunitate ── */}
-        <div style={grupTitlu}>Comunitate</div>
-
-        <Item to="/mesagerie" badge={chatUnread}>💬 Mesagerie</Item>
-        <Item to="/discutii" badge={forumUnread} badgeTitlu="răspunsuri noi" dot={forumHasNew}>💬 Forum</Item>
-        <Item to="/arena">⚔️ Arena matematică</Item>
-        <Item to="/recenzii">⭐ Recenzii</Item>
-
-        {/* ── Cont ── */}
-        <div style={grupTitlu}>Cont</div>
-
-        <Item to="/preturi">💳 Abonament</Item>
-
-        {isAdmin && (
-          <Link to="/admin"
-            style={{ ...itemStyle(esteActiv(pathname, '/admin')), color: 'var(--gold)', fontWeight: 700, textDecoration: 'none' }}
-            onMouseEnter={e => hoverOn(e, esteActiv(pathname, '/admin'))}
-            onMouseLeave={e => hoverOff(e, esteActiv(pathname, '/admin'))}>
-            ⚙ Admin
-          </Link>
-        )}
-
-        {user ? (
-          <>
-            <Item to="/profil">{isPremium ? '⭐ Contul meu' : '👤 Contul meu'}</Item>
-            <button
-              onClick={onSignOut}
-              style={{ ...itemStyle(false), color: 'rgba(255,120,120,0.80)' }}
-              onMouseEnter={e => hoverOn(e, false)}
-              onMouseLeave={e => hoverOff(e, false)}>
-              🚪 Ieșire
-            </button>
-          </>
-        ) : (
-          <>
-            <Item to="/autentificare">🔑 Autentificare</Item>
-            <Link to="/inregistrare"
-              style={{ ...itemStyle(esteActiv(pathname, '/inregistrare')), color: 'var(--gold)', fontWeight: 700, textDecoration: 'none' }}
-              onMouseEnter={e => hoverOn(e, esteActiv(pathname, '/inregistrare'))}
-              onMouseLeave={e => hoverOff(e, esteActiv(pathname, '/inregistrare'))}>
-              ✨ Înregistrare
-            </Link>
-          </>
-        )}
-
-        {/* ── Informații ── */}
-        <div style={grupTitlu}>Informații</div>
-        {INFORMATII.map(item => (
-          <Item key={item.to} to={item.to}>{item.label}</Item>
+      <nav className="sb-scroll">
+        {sectiuni.map((s, si) => (
+          <div key={s.titlu || `sect-${si}`}>
+            {s.titlu && <div className="sb-grup"><span className="sb-text">{s.titlu}</span></div>}
+            {s.items.map(randItem)}
+          </div>
         ))}
-
       </nav>
     </aside>
   );

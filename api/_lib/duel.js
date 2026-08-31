@@ -14,6 +14,7 @@
 // =====================================================================
 const xp = require('./xp');
 const ai = require('./ai');
+const barem = require('./barem');
 
 const ORE_DUEL = 48;
 const MAX_PROVOCARI_PE_ZI = 5;
@@ -172,9 +173,14 @@ async function create(supa, userId, { opponentId, contentId }, { isPremium }) {
 
   // materialul: interactiv și accesibil AMÂNDURORA
   const { data: content } = await supa.from('content')
-    .select('id, title, content_type, is_free, category').eq('id', contentId).maybeSingle();
+    .select('id, title, content_type, is_free, category, subcategory, file_url').eq('id', contentId).maybeSingle();
   if (!content || !['interactive', 'pdf'].includes(content.content_type)) {
     return { error: 'Alege un exercițiu interactiv sau un test PDF.' };
+  }
+  // Baremul e răspunsul testului — un duel pe el n-are niciun sens. Filtrul
+  // din formular nu le mai arată, dar gardul stă aici, pe server.
+  if (barem.isBaremRow(content)) {
+    return { error: 'Acela e un barem (rezolvarea testului), nu un exercițiu. Alege testul în sine.' };
   }
   if (!content.is_free) {
     const advPremium = adv?.is_admin || adv?.subscription_status === 'active';
