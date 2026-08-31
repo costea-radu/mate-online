@@ -792,28 +792,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     );
   }
 
-  const starters = context.interactive
-    ? ['Dă-mi un indiciu la pasul curent', 'Explică-mi metoda pentru acest exercițiu', 'Verifică-mi pașii de până acum', 'Nu înțeleg unde am greșit']
-    : context.pdf
-    ? ['Explică-mi exercițiul 1', 'De unde încep la subiectul II?', 'Ce formule îmi trebuie aici?', 'Fă-mi un rezumat al cerințelor']
-    : context.exerciseText
-    ? ['Cum încep acest exercițiu?', 'Explică-mi teoria de care am nevoie', 'Verifică-mi gândirea']
-    : ['Explică-mi fracțiile', 'Dă-mi un exemplu cu ecuații', 'Fă-mi un plan de învățare pentru capitolul meu'];
-
-  // Pentru profesor/părinte: butoane care NAVIGHEAZĂ (nu trimit mesaj).
-  // NU se afișează când e deschis un test PDF (acolo întrebările sunt despre
-  // test, nu despre navigarea în site) — se arată sugestiile despre PDF.
-  const showMentorActions = isMentor && !context.pdf;
-  const mentorActions = [
-    { label: 'Unde găsesc subiecte de examen?', to: '/', anchor: 'examene' },
-    { label: 'Unde găsesc statistici despre elevi?', to: '/profil' },
-    { label: 'Generează subiect examen sau exercițiu interactiv', to: '/profesor-virtual' },
-  ];
-  function goTo(to, anchor) {
-    if (onNavigate) onNavigate();
-    navigate(to);
-    if (anchor) setTimeout(() => { document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 350);
-  }
+  // Chatul pornește GOL: fără mesaj de întâmpinare și fără întrebări
+  // pre-completate („starters" / acțiunile de navigare ale mentorului).
+  // Elevul/profesorul scrie singur ce vrea — vezi zona „Mesaje" de mai jos.
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, position: 'relative' }}>
@@ -926,26 +907,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           zona de mesaje împinge câmpul de scris în afara ecranului */}
       {/* overscrollBehavior contain: derularea din chat nu se mai „scurge" în pagină */}
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain', padding: 14, minHeight: compact ? 0 : 320, background: '#f7f9fc' }}>
-        {messages.length === 0 && (
-          <div style={{ color: 'var(--text-muted)', fontSize: '.9rem' }}>
-            <p style={{ marginBottom: 12 }}>{isMentor ? 'Salut! Sunt Asistentul tău. Alege mai jos sau întreabă-mă orice 👇' : 'Salut! Sunt profesorul tău virtual. Întreabă-mă orice despre matematică 👇'}</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {showMentorActions
-                ? mentorActions.map((a) => (
-                    <button key={a.label} onClick={() => goTo(a.to, a.anchor)}
-                      style={{ textAlign: 'left', border: '1px solid var(--border)', background: '#fff', borderRadius: 8, padding: '8px 10px', fontSize: '.85rem', color: 'var(--navy)' }}>
-                      {a.label}
-                    </button>
-                  ))
-                : starters.map((s) => (
-                    <button key={s} onClick={() => send(s)}
-                      style={{ textAlign: 'left', border: '1px solid var(--border)', background: '#fff', borderRadius: 8, padding: '8px 10px', fontSize: '.85rem', color: 'var(--navy)' }}>
-                      {s}
-                    </button>
-                  ))}
-            </div>
-          </div>
-        )}
+        {/* Chat GOL: fără mesaj de întâmpinare și fără butoane cu întrebări
+            pre-completate. Zona rămâne liberă până la primul mesaj scris. */}
 
         {messages.map((m, i) => (
           <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 10 }}>

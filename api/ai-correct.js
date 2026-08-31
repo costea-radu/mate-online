@@ -14,7 +14,10 @@
 //
 // POST { userId, action, ... }
 //   action='pdf_text' { fileBase64 }                → { text, chars, truncated }
-//   action='form'     { testText, baremText?, title? } → { items, hasBarem, total, oficiu, title }
+//   action='form'     { testText, baremText?, title? } → { items, hasBarem, total, oficiu, title, cached }
+//        Formularul se construiește O SINGURĂ DATĂ pentru un material și se
+//        refolosește de toți utilizatorii (supabase/ai_correct_forms.sql):
+//        al doilea elev îl primește instantaneu, fără niciun token de model.
 //   action='grade'    { conversationId?, context?, testText, baremText?,
 //                       items, answers, durationSec?, meditatii? }
 // =====================================================================
@@ -61,6 +64,67 @@ function verifyForm(token, { items, contentId = null, testText = '' }) {
   if ((d.c || null) !== (contentId || null)) return null;
   if (!d.c && d.t !== ai.sha256(String(testText || '').slice(0, MAX_TEXT)).slice(0, 32)) return null;
   return d;
+}
+
+// ── CACHE-UL FORMULARELOR (supabase/ai_correct_forms.sql) ────────────────────
+// Structura formularului („ce cerințe are testul și câte puncte are fiecare")
+// este ACEEAȘI pentru toți elevii care deschid același material. Până acum o
+// reconstruia modelul la fiecare apăsare pe „Răspunde în chat" (~3500 tokeni
+// de ieșire și 10–25 s de așteptare, pentru fiecare elev, de fiecare dată).
+// Acum se construiește o singură dată și se refolosește:
+//   · test din platformă → cheia 'c:<contentId>';
+//   · poză / PDF încărcat de elev → cheia 'u:<amprenta textului>', deci și doi
+//     elevi cu același material primesc același formular, fără a doua generare.
+// Amprenta sursei (test + barem + categorie) invalidează singură intrarea când
+// se schimbă fișierul sau apare baremul. TOKENUL semnat NU se păstrează: el se
+// re-semnează la fiecare servire, ca să plece mereu cu termen proaspăt (altfel
+// al doilea elev ar primi un formular deja expirat).
+// Lipsa tabelei nu blochează nimic — se generează ca înainte (warnOnce).
+const formWarned = new Set();
+const formWarn = (k, m) => { if (!formWarned.has(k)) { formWarned.add(k); console.warn(m); } };
+
+// amprenta sursei: tot ce schimbă structura formularului
+function formSourceHash(src) {
+  return ai.sha256(JSON.stringify({ t: src.test || '', b: src.barem || '', c: src.category || '' })).slice(0, 48);
+}
+function formCacheKey(src, hash) {
+  return src.contentId ? `c:${src.contentId}` : `u:${hash}`;
+}
+
+async function readFormCache(supa, key, hash) {
+  try {
+    const { data, error } = await supa.from('ai_correct_forms').select('*').eq('cache_key', key).maybeSingle();
+    if (error) {
+      formWarn('read', `ai_correct_forms indisponibilă (${error.message}) — rulează supabase/ai_correct_forms.sql; până atunci formularul se generează de fiecare dată.`);
+      return null;
+    }
+    if (!data || data.source_hash !== hash) return null;      // fișier / barem / categorie schimbate → regenerare
+    const items = Array.isArray(data.items) ? data.items : null;
+    if (!items || !items.length) return null;
+    return {
+      items, hasBarem: !!data.has_barem,
+      total: Number(data.total) || 0,
+      oficiu: parseInt(data.oficiu, 10) || 0,
+      title: data.title || '',
+    };
+  } catch (e) { formWarn('read_e', `ai_correct_forms: ${e.message}`); return null; }
+}
+
+async function writeFormCache(supa, key, hash, src, form) {
+  try {
+    const { error } = await supa.from('ai_correct_forms').upsert({
+      cache_key: key, content_id: src.contentId || null, source_hash: hash,
+      title: form.title || '', items: form.items, has_barem: !!form.hasBarem,
+      total: form.total || 0, oficiu: form.oficiu || 0, category: src.category || '',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'cache_key' });
+    if (error) formWarn('write', `ai_correct_forms: scrierea în cache a eșuat (${error.message}) — rulează supabase/ai_correct_forms.sql.`);
+  } catch (e) { formWarn('write_e', `ai_correct_forms: ${e.message}`); }
+}
+
+// contorul de refolosiri (cât s-a economisit) — pur informativ, nu ține răspunsul pe loc
+async function bumpFormHit(supa, key) {
+  try { await supa.rpc('ai_correct_form_hit', { p_key: key }); } catch { /* opțional */ }
 }
 
 // Scheme STRICTE (Structured Outputs): formularul și corectarea vin ca JSON
@@ -336,6 +400,27 @@ async function buildForm(req, res, supa, userId, lim, profile) {
     return res.status(400).json({ error: 'Nu am textul testului. Deschide un test PDF sau fotografiază / încarcă exercițiul în chat.' });
   }
   const hasBarem = barem.trim().length > 80;
+
+  // ── Formularul acestui material a fost deja construit? ────────────────────
+  // Da → îl servim din cache: instantaneu, fără niciun token de model, și
+  // identic pentru toți elevii care rezolvă același test. Tokenul se
+  // re-semnează acum, ca să plece cu termenul de valabilitate întreg.
+  const cacheHash = formSourceHash(src);
+  const cacheKey = formCacheKey(src, cacheHash);
+  const hit = await readFormCache(supa, cacheKey, cacheHash);
+  if (hit) {
+    // pe serverless funcția îngheață după răspuns → așteptăm contorul
+    await bumpFormHit(supa, cacheKey);
+    return res.status(200).json({
+      items: hit.items, hasBarem: hit.hasBarem, total: hit.total, oficiu: hit.oficiu,
+      token: signForm({
+        items: hit.items, contentId: src.contentId, testText: test,
+        hasBarem: hit.hasBarem, total: hit.total, oficiu: hit.oficiu,
+      }),
+      contentId: src.contentId, title: hit.title, cached: true,
+    });
+  }
+
   const structura = officialStructureNote(src.category);
 
   const system = hasBarem
@@ -386,10 +471,14 @@ Răspunde DOAR cu JSON: {"titlu":"<titlu scurt: despre ce e testul>","oficiu":${
   // tokenul semnat: la „Corectează" serverul verifică amprenta cerințelor
   // (id-uri + puncte) și sursa — formularul nu poate fi „editat" din browser
   const token = signForm({ items, contentId: src.contentId, testText: test, hasBarem, total, oficiu });
+  const formTitle = cleanMath(String(parsed?.titlu || src.title || 'Exercițiu').slice(0, 140));
+  // îl păstrăm pentru următorii elevi — AȘTEPTĂM scrierea: pe serverless
+  // funcția îngheață imediat după răspuns, iar un upsert nefinalizat s-ar
+  // pierde (și următorul elev ar plăti din nou generarea)
+  await writeFormCache(supa, cacheKey, cacheHash, src, { items, hasBarem, total, oficiu, title: formTitle });
   return res.status(200).json({
     items, hasBarem, total, oficiu, token,
-    contentId: src.contentId,
-    title: cleanMath(String(parsed?.titlu || src.title || 'Exercițiu').slice(0, 140)),
+    contentId: src.contentId, title: formTitle, cached: false,
   });
 }
 
@@ -720,3 +809,8 @@ module.exports.signForm = signForm;
 module.exports.verifyForm = verifyForm;
 module.exports.itemsFingerprint = itemsFingerprint;
 module.exports.applyOfficialPoints = applyOfficialPoints;
+// cache-ul formularelor (supabase/ai_correct_forms.sql) — exportate pentru teste
+module.exports.formSourceHash = formSourceHash;
+module.exports.formCacheKey = formCacheKey;
+module.exports.readFormCache = readFormCache;
+module.exports.writeFormCache = writeFormCache;

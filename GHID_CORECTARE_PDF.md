@@ -22,6 +22,9 @@ exact cum corectează testele interactive.
    câte un câmp pentru **fiecare exercițiu** și pentru **fiecare subpunct
    a), b), c)** — cu punctele lui, ca în barem. Pentru materialele **fără barem**
    în baza de date, formularul are doar câmpuri de răspuns.
+   Formularul unui material se construiește **o singură dată, pentru toți
+   utilizatorii** (vezi „Formularul se construiește o singură dată" mai jos):
+   primul elev îl așteaptă 10–25 s, următorii îl primesc instantaneu.
 3. Elevul completează ce a rezolvat (poate lăsa goale cerințele nerezolvate) și
    apasă **„✅ Corectează"**.
 4. AI-ul primește: **(1) testul, (2) baremul, (3) răspunsurile elevului** și:
@@ -48,6 +51,39 @@ exact cum corectează testele interactive.
 
 Butoanele vechi de mod („Învață-mă", „Teoria", „Dă-mi un indiciu") au fost
 eliminate din chat — locul lor l-a luat „📝 Răspunde în chat".
+
+## Formularul se construiește o singură dată (cache comun)
+
+Structura formularului — *ce cerințe are testul și câte puncte are fiecare* —
+este aceeași pentru toți elevii care deschid același material. Până acum o
+reconstruia modelul la **fiecare** apăsare pe „📝 Răspunde în chat": ~3500 de
+tokeni de ieșire și 10–25 s de așteptare, pentru fiecare elev, de fiecare dată.
+
+Acum se construiește o singură dată și se păstrează în `ai_correct_forms`:
+
+- **test din platformă** → cheia `c:<content_id>`: toți elevii care rezolvă
+  acel test primesc exact același formular, fără nicio generare nouă;
+- **poză / PDF încărcat de elev** → cheia `u:<amprenta textului>`: doi elevi
+  care încarcă același material (aceeași fișă, aceeași variantă) primesc tot
+  formularul deja construit. Cheia fiind chiar amprenta textului, un elev poate
+  ajunge doar la formularul unui material pe care îl are deja.
+
+**Invalidare automată.** Intrarea reține amprenta sursei (test + barem +
+categorie). Dacă se înlocuiește fișierul, dacă apare între timp baremul sau
+dacă se schimbă categoria, amprenta diferă și formularul se **regenerează**
+(plus un trigger care șterge rândul când se schimbă `content.file_url`).
+
+**Ce NU se păstrează.** Tokenul semnat al formularului: el se re-semnează la
+fiecare servire, ca să plece mereu cu termenul de valabilitate întreg
+(`AI_CORRECT_FORM_TTL`, implicit 6h) — altfel al doilea elev ar primi un
+formular deja expirat. Verificarea de la „Corectează" rămâne neschimbată:
+punctele și baremul tot nu pot fi modificate din browser.
+
+Coloana `hits` arată de câte ori a fost refolosit un formular (cât s-a
+economisit). Corectarea propriu-zisă rămâne, evident, per elev.
+
+> Cache-ul nu consumă cotă: o servire din cache nu scrie în `ai_usage`, deci nu
+> mai taie nici din cele 2 acțiuni gratuite, nici din bugetul zilnic.
 
 ## Salvarea punctajelor (ca la testele interactive)
 
@@ -79,7 +115,9 @@ Rezultatul corectării **alimentează meditatorul**:
 ## Instalare (un singur pas)
 
 Rulează în **Supabase → SQL Editor**: `supabase/corectare_pdf.sql`
-(tabelul `ai_pdf_results` + politicile RLS).
+(tabelul `ai_pdf_results` + politicile RLS) și `supabase/ai_correct_forms.sql`
+(cache-ul formularelor: tabelul `ai_correct_forms`, funcția
+`ai_correct_form_hit` și triggerul de invalidare).
 
 > Fără acest script, corectarea funcționează în continuare pentru testele din
 > platformă (se salvează în `progress`); doar pozele/PDF-urile încărcate de
@@ -88,7 +126,8 @@ Rulează în **Supabase → SQL Editor**: `supabase/corectare_pdf.sql`
 ## Fișiere atinse
 
 - **nou:** `api/ai-correct.js` (formular + corectare + salvare),
-  `supabase/corectare_pdf.sql`, acest ghid
+  `supabase/corectare_pdf.sql`, `supabase/ai_correct_forms.sql`
+  (cache-ul formularelor), `test/formular-cache.test.js`, acest ghid
 - **modificate:** `src/components/AITutor.jsx` (buton „Răspunde în chat",
   formular, rezultatul corectării în chat, 📷 acceptă PDF, fără butoanele de
   mod), `src/lib/aiClient.js`, `src/pages/PDFViewer.jsx` (semnal text citibil),
@@ -108,6 +147,11 @@ Rulează în **Supabase → SQL Editor**: `supabase/corectare_pdf.sql`
   fișierului diferă). Verifică titlul și fișierul baremului (an, variantă,
   model/simulare) și că e în aceeași categorie. `AI_BAREM_CONTENT_CANDIDATES`
   (implicit 8) = câte bareme se citesc când metadatele nu decid.
+- „Se generează formularul la fiecare elev" (în loguri: `ai_correct_forms
+  indisponibilă …`) → nu ai rulat `supabase/ai_correct_forms.sql`. Corectarea
+  merge oricum, doar că fiecare elev plătește generarea. Ca să **forțezi**
+  regenerarea unui formular (l-ai corectat manual, s-a schimbat baremul):
+  `delete from ai_correct_forms where content_id = '<id-ul testului>';`
 - Punctajul nu apare la profesor → verifică asocierea elevului și rulează
   `supabase/corectare_pdf.sql` (pentru încărcări) / `supabase/pastreaza_rezultate.sql`
   (pentru snapshotul titlurilor).

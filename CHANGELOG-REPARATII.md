@@ -4,6 +4,89 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 31 august 2026 — Chatul AI pornește gol, iar formularul unui test PDF se construiește o singură dată pentru toți
+
+Două cereri de la Radu.
+
+### 1. Fără întrebări pre-completate în chat
+
+Chatul Profesorului Virtual se deschidea cu un mesaj de întâmpinare („Salut! Sunt
+profesorul tău virtual…") și cu 3–4 butoane de întrebări gata scrise, alese după
+context: „Explică-mi fracțiile" pe pagina liberă, „Explică-mi exercițiul 1" pe un
+test PDF, „Dă-mi un indiciu la pasul curent" pe un exercițiu interactiv — iar la
+conturile de profesor/părinte, trei butoane de navigare („Unde găsesc subiecte de
+examen?"). Au ieșit toate: **zona de mesaje rămâne complet liberă** până la primul
+mesaj scris de om.
+
+Modificarea e într-un singur loc, `src/components/AITutor.jsx` (`ChatPanel`), deci
+acoperă **toate** intrările în chat: Prof. Virtual, Meditatorul tău (elev pe
+/meditații), Asistentul AI (profesor/părinte), plus panourile din vizualizatorul de
+PDF-uri, din cel de exerciții interactive și din exercițiile generate de AI — toate
+folosesc același `ChatPanel`. Odată cu blocul JSX au dispărut și definițiile rămase
+fără rost (`starters`, `mentorActions`, `showMentorActions`, `goTo`).
+
+Agentul de exerciții și agentul SEO nu aveau așa ceva: la ei chatul se afișează abia
+după primul mesaj, iar butoanele presetate („Audit SEO", „Articole Blog") sunt
+sarcini reale, nu sugestii de conversație — au rămas neatinse.
+
+Restul chatului e neschimbat: butoanele de continuare de sub un răspuns („🙂 Mai
+simplu", „🔁 Alt exemplu") apar tot după ce profesorul a răspuns, iar mesajele
+coach ale meditatorului (bun venit, aprecieri, pasul următor) sunt mesaje reale,
+scrise de model.
+
+### 2. Formularul de răspuns: o generare pentru tot site-ul, nu una per elev
+
+La „📝 Răspunde în chat" pe un test PDF, `api/ai-correct.js` (`action='form'`) punea
+modelul să reconstruiască structura formularului — fiecare exercițiu, fiecare
+subpunct a), b), c) și punctele lui din barem — **de fiecare dată, pentru fiecare
+elev**: ~3500 de tokeni de ieșire și 10–25 s de așteptare. Pentru un test dat,
+rezultatul e însă mereu același.
+
+Acum se construiește o singură dată și se refolosește, prin tabela nouă
+`ai_correct_forms` (`supabase/ai_correct_forms.sql`):
+
+- **test din platformă** → cheia `c:<content_id>`;
+- **poză / PDF încărcat de elev** → cheia `u:<amprenta textului>`, deci și doi elevi
+  care încarcă aceeași fișă primesc formularul deja construit. Cheia fiind chiar
+  amprenta textului, nimeni nu poate ajunge la formularul unui material pe care nu
+  îl are.
+
+Al doilea elev îl primește instantaneu și **fără niciun token de model**. Cum o
+servire din cache nu scrie în `ai_usage`, nu mai taie nici din cele 2 acțiuni
+gratuite, nici din bugetul zilnic.
+
+Trei lucruri au cerut atenție:
+
+- **Tokenul semnat NU se păstrează.** Formularul pleacă semnat (HMAC peste sursă +
+  amprenta cerințelor), cu valabilitate de 6h — dacă am fi salvat și tokenul, al
+  doilea elev ar fi primit unul aproape expirat. Se **re-semnează la fiecare
+  servire**, deci verificarea de la „Corectează" rămâne exact cât era: punctele și
+  baremul tot nu pot fi umflate din browser.
+- **Invalidarea.** Intrarea reține amprenta sursei (test + barem + categorie): se
+  schimbă fișierul, apare baremul între timp sau se schimbă categoria → amprentă
+  nouă → formular regenerat. În plus, un trigger șterge rândul când se schimbă
+  `content.file_url`.
+- **Scrierea se așteaptă.** Pe Vercel funcția îngheață imediat după răspuns, deci un
+  `upsert` pornit fără `await` s-ar fi pierdut — și următorul elev ar fi plătit din
+  nou generarea.
+
+Lipsa tabelei nu strică nimic: se scrie o dată un avertisment în loguri și
+formularul se generează ca înainte.
+
+### Verificare
+`npm test` — 460/462 verde (2 sărite, ca înainte), inclusiv
+**`test/formular-cache.test.js`**, nou (8 teste): cheia unui test din platformă e
+comună tuturor elevilor; același material încărcat de doi elevi dă aceeași cheie;
+baremul apărut între timp / fișierul schimbat / altă categorie dau amprentă nouă;
+scriere → citire servește formularul cu o singură generare; formularul din cache
+trece verificarea tokenului, iar punctele umflate rămân respinse; tabela lipsă sau
+o eroare de DB nu aruncă, doar ratează cache-ul. `vite build` trece.
+
+### Instalare
+Rulează în Supabase → SQL Editor: **`supabase/ai_correct_forms.sql`**.
+
+---
+
 ## 31 august 2026 — Meniul (sidebar pliabil + burger pe categorii), Arena pe mobil, baremele scoase din dueluri/turnee, admin peste turneele publice
 
 Șase cereri de la Radu, luate pe rând.
