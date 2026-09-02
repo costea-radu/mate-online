@@ -1,8 +1,20 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import OAuthButtons from '../components/OAuthButtons';
+import OAuthButtons, { GoogleButton } from '../components/OAuthButtons';
 import { trackSignUp } from '../lib/analytics';
+
+// Adresele Gmail sunt deja verificate de Google, deci intrarea prin butonul
+// Google nu are nevoie de link de confirmare. In plus, Supabase leaga automat
+// identitatea Google de contul existent cu aceeasi adresa, asa ca utilizatorul
+// ajunge pe ACELASI cont, cu progresul intact. Butonul Google e deci o iesire
+// valida din blocajul "nu-mi vine / nu-mi merge linkul de confirmare".
+// https://supabase.com/docs/guides/auth/auth-identity-linking
+const GOOGLE_EMAIL_DOMAINS = ['gmail.com', 'googlemail.com'];
+
+function isGoogleEmail(value) {
+  return GOOGLE_EMAIL_DOMAINS.includes(String(value).trim().toLowerCase().split('@')[1]);
+}
 
 export default function Register() {
   const [fullName, setFullName] = useState('');
@@ -67,13 +79,28 @@ export default function Register() {
   }
 
   if (success) {
+    const poateIntraCuGoogle = isGoogleEmail(email);
     return (
       <div className="auth-page">
         <div className="auth-card" style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '3rem', marginBottom: 16 }}>✉️</div>
           <h2>Verifică-ți emailul</h2>
           <p className="auth-sub">Am trimis un link de confirmare la <strong>{email}</strong>. Apasă pe link pentru a-ți activa contul.</p>
-          <Link to="/autentificare" className="btn btn-primary" style={{ marginTop: 16 }}>Mergi la autentificare</Link>
+
+          {error && <div style={{ background:'#fce4ec', color:'var(--danger)', padding:'12px 16px', borderRadius:'var(--radius)', margin:'16px 0 0', fontSize:'0.88rem' }}>{error}</div>}
+
+          {/* Ieșire din blocaj: dacă adresa e Gmail, contul poate fi deblocat pe loc
+              prin Google, fără să mai aștepte emailul de confirmare. */}
+          {poateIntraCuGoogle && (
+            <div style={{ marginTop: 24, padding: '16px 16px 8px', textAlign: 'left', border: '2px solid var(--gold)', borderRadius: 'var(--radius)', background: 'rgba(232,185,49,0.08)' }}>
+              <p style={{ margin: '0 0 12px', fontSize: '0.88rem', lineHeight: 1.55, color: 'var(--text)' }}>
+                <strong>Nu trebuie să aștepți emailul.</strong> Ai adresă Gmail, așa că poți intra chiar acum cu Google — pe același cont, cu același progres, fără confirmare.
+              </p>
+              <GoogleButton onClick={handleGoogle} loading={googleLoading} label="Intră acum cu Google" />
+            </div>
+          )}
+
+          <Link to="/autentificare" className={poateIntraCuGoogle ? 'btn btn-outline' : 'btn btn-primary'} style={{ marginTop: 16 }}>Mergi la autentificare</Link>
         </div>
       </div>
     );
@@ -134,6 +161,21 @@ export default function Register() {
           <div className="form-group">
             <label htmlFor="email">Email</label>
             <input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="adresa@email.com" required />
+            {/* Prevenție: îi arătăm scurtătura înainte să creeze un cont neconfirmat. */}
+            {isGoogleEmail(email) && (
+              <p style={{ margin: '8px 0 0', fontSize: '0.8rem', lineHeight: 1.5, color: 'var(--text-muted)' }}>
+                Cu o adresă Gmail e mai simplu prin{' '}
+                <button
+                  type="button"
+                  onClick={handleGoogle}
+                  disabled={loading || googleLoading || discordLoading}
+                  style={{ background:'none', border:'none', padding:0, font:'inherit', fontWeight:700, color:'var(--navy)', textDecoration:'underline', cursor:'pointer' }}
+                >
+                  Continuă cu Google
+                </button>{' '}
+                — intri direct, fără să mai confirmi adresa pe email.
+              </p>
+            )}
           </div>
           <div className="form-group">
             <label htmlFor="password">Parolă</label>

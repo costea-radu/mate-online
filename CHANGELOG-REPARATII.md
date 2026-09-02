@@ -82,8 +82,20 @@ scriere → citire servește formularul cu o singură generare; formularul din c
 trece verificarea tokenului, iar punctele umflate rămân respinse; tabela lipsă sau
 o eroare de DB nu aruncă, doar ratează cache-ul. `vite build` trece.
 
+### Corectură la scurt timp după: linterul Supabase (0028/0029)
+Prima versiune a scriptului lăsa funcția de trigger `ai_correct_forms_invalidate()`
+cu EXECUTE pe PUBLIC — grantul implicit al PostgreSQL pe orice funcție nouă. Fiind
+`security definer`, PostgREST o expunea la `/rest/v1/rpc/…`, iar linterul o semnala
+de două ori („Public / Signed-In Users Can Execute SECURITY DEFINER Function").
+S-a adăugat `revoke execute … from public, anon, authenticated`, exact ca la
+`reviews_before_write()` și `discussions_fill_author()`. Triggerul nu are nevoie de
+grant: rulează cu drepturile proprietarului funcției. (`ai_correct_form_hit()` avea
+deja retragerea, de aceea nu a apărut în raport.)
+
 ### Instalare
-Rulează în Supabase → SQL Editor: **`supabase/ai_correct_forms.sql`**.
+Rulează în Supabase → SQL Editor: **`supabase/ai_correct_forms.sql`**. Scriptul e
+idempotent, deci dacă l-ai rulat deja înainte de corectura de mai sus, rulează-l
+din nou — atât.
 
 ---
 

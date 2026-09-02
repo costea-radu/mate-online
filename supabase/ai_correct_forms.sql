@@ -88,3 +88,16 @@ drop trigger if exists trg_ai_correct_forms_invalidate on public.content;
 create trigger trg_ai_correct_forms_invalidate
   after update of file_url on public.content
   for each row execute function public.ai_correct_forms_invalidate();
+
+-- funcție de trigger, nu de API — o scoatem din /rest/v1/rpc (lint 0028/0029).
+-- PostgreSQL dă implicit EXECUTE lui PUBLIC pe orice funcție nouă; triggerul
+-- nu are nevoie de el (rulează cu drepturile proprietarului funcției).
+revoke execute on function public.ai_correct_forms_invalidate() from public, anon, authenticated;
+
+-- Verificare (opțional) — ambele funcții trebuie să iasă cu `false, false`:
+--   select p.oid::regprocedure as functie,
+--          has_function_privilege('anon',          p.oid, 'EXECUTE') as anon,
+--          has_function_privilege('authenticated', p.oid, 'EXECUTE') as autentificat
+--   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--   where n.nspname = 'public'
+--     and p.proname in ('ai_correct_form_hit', 'ai_correct_forms_invalidate');
