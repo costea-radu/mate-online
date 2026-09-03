@@ -1341,8 +1341,9 @@ export default function FloatingTutor() {
   const { isTeacher, isParent } = useAuth();
   const isMentorAcc = isTeacher || isParent;
   const onMeditatii = pathname === '/meditatii';
-  // profesor/părinte → „Asistent AI"; elev pe /meditatii → „Meditatorul tău"; altfel „Prof. Virtual"
-  const widgetLabel = isMentorAcc ? 'Asistent AI' : onMeditatii ? 'Meditatorul tău' : 'Prof. Virtual';
+  // profesor/părinte → „Asistent AI"; elev pe /meditatii → „Conversație" (rezerva
+  // panoului de sub tablă, aceeași conversație); altfel „Prof. Virtual"
+  const widgetLabel = isMentorAcc ? 'Asistent AI' : onMeditatii ? 'Conversație' : 'Prof. Virtual';
 
   // Pagina de meditații trimite contextul + mesajul automat („Nu înțeleg
   // exercițiul...") + mesajele COACH (bun venit, aprecieri, pasul următor)
@@ -1372,18 +1373,9 @@ export default function FloatingTutor() {
     return { page: pathname || '/', ...(category ? { category } : {}), ...(pageTitle ? { pageTitle } : {}) };
   }, [pathname]);
   const chatContext = medChat?.context || (onMeditatii && !isMentorAcc ? { meditatii: true } : pageContext);
-  // „Meditatorul tău": pe /meditatii widgetul e PANOU LATERAL ANDOCAT, mai mare
-  // (accentul cade pe conversație — el dă de lucru), iar pagina se strânge lângă el.
+  // „Conversație": pe /meditatii widgetul e PANOU LATERAL ANDOCAT, mai mare —
+  // rezerva panoului de sub tablă; pagina se strânge lângă el cât e deschis.
   const medMode = onMeditatii && !isMentorAcc;
-  useEffect(() => {
-    const isOpen = medMode && open;
-    window.__medChatOpen = isOpen; // starea globală — pagina o citește și la montare
-    window.dispatchEvent(new CustomEvent('mate:meditatii-chat-state', { detail: { open: isOpen } }));
-    return () => {
-      window.__medChatOpen = false;
-      window.dispatchEvent(new CustomEvent('mate:meditatii-chat-state', { detail: { open: false } }));
-    };
-  }, [open, medMode]);
   // pagina poate cere închiderea widgetului (ex. la reset / formularul de înscriere)
   useEffect(() => {
     function onClose() { setOpen(false); setMedChat(null); }
@@ -1429,21 +1421,16 @@ export default function FloatingTutor() {
   const popupH = Math.min(640, window.innerHeight - 130);
   const bottomHalf = pos.y > window.innerHeight / 2;
   const labelLeft = pos.x < 150; // dacă butonul e lipit de stânga, punem eticheta în dreapta
-  const popupStyle = medMode
-    ? {
-        // panou lateral andocat, mare — pagina de meditații se strânge lângă el
-        position: 'fixed', zIndex: 1000, right: 10, top: 74, bottom: 10,
-        width: 'min(460px, 94vw)',
-        background: '#fff', borderRadius: 16, boxShadow: 'var(--shadow-lg, 0 12px 40px rgba(0,0,0,.25))',
-        display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border)',
-      }
-    : {
-        position: 'fixed', zIndex: 1000, width: popupW, height: popupH,
-        left: Math.max(8, Math.min(pos.x + BTN - popupW, window.innerWidth - popupW - 8)),
-        ...(bottomHalf ? { bottom: window.innerHeight - pos.y + 12 } : { top: pos.y + BTN + 12 }),
-        background: '#fff', borderRadius: 16, boxShadow: 'var(--shadow-lg, 0 12px 40px rgba(0,0,0,.25))',
-        display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border)',
-      };
+  // Pe /meditatii conversația principală stă ÎN PAGINĂ, sub tablă; widgetul e
+  // doar REZERVA, deci rămâne fereastră plutitoare obișnuită (nu mai e panou
+  // andocat, ca să nu strângă pagina și să nu acopere tabla).
+  const popupStyle = {
+    position: 'fixed', zIndex: 1000, width: popupW, height: popupH,
+    left: Math.max(8, Math.min(pos.x + BTN - popupW, window.innerWidth - popupW - 8)),
+    ...(bottomHalf ? { bottom: window.innerHeight - pos.y + 12 } : { top: pos.y + BTN + 12 }),
+    background: '#fff', borderRadius: 16, boxShadow: 'var(--shadow-lg, 0 12px 40px rgba(0,0,0,.25))',
+    display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border)',
+  };
   const tabBtn = (active) => ({
     flex: 1, padding: '8px 6px', fontSize: '.78rem', fontWeight: 700, cursor: 'pointer',
     border: 'none', borderBottom: `2px solid ${active ? 'var(--gold)' : 'transparent'}`,

@@ -55,8 +55,13 @@ export default function Sidebar({
   const { pathname } = useLocation();
 
   // Deschisă la fiecare încărcare de pagină (cerut explicit) — nu ținem minte
-  // starea între vizite, doar în timpul navigării prin site.
-  const [pliat, setPliat] = useState(false);
+  // starea între vizite, doar în timpul navigării prin site. EXCEPȚIE: pe
+  // „Meditații", unde tabla trebuie să ocupe cât mai mult, pornește pliată
+  // (rămâne la un hover distanță, iar elevul o poate desface oricând).
+  const [pliat, setPliat] = useState(() => pathname.startsWith('/meditatii'));
+  useEffect(() => {
+    if (pathname.startsWith('/meditatii')) setPliat(true);
+  }, [pathname]);
 
   // Conținutul paginii (.app-shell) se decalează cât e bara de lată: clasa de
   // pe <body> e semnalul, ca să nu trebuiască să trecem starea prin App.jsx.

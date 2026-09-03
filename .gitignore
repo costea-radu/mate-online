@@ -28,3 +28,6 @@ eval/reports/*
 
 # arhive temporare de verificare
 *.tgz
+
+# fișiere puse deoparte pentru ștergere manuală (nu ajung în repo)
+_to_delete/

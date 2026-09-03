@@ -1035,6 +1035,17 @@ async function buildMentorReport(supa, studentId) {
   const hwAvg = hwScored.length ? Math.round(hwScored.reduce((s, h) => s + h.score / h.max_score, 0) / hwScored.length * 100) : null;
 
   const weakChapters = (plan.chapters || []).filter((c) => c.mastery != null && c.mastery < 0.5).map((c) => c.title);
+  // etapele de lecție la care elevul a apăsat „Nu, mai explică o dată" (tabla)
+  const stageFb = medProfile.memory?.stageFeedback || {};
+  const reExplained = [];
+  let stagesOk = 0;
+  for (const [chapterId, v] of Object.entries(stageFb)) {
+    stagesOk += v.ok || 0;
+    for (const [stage, count] of Object.entries(v.topics || {})) {
+      reExplained.push({ chapterId, chapter: v.title || chapterId, stage, count });
+    }
+  }
+  reExplained.sort((a, b) => b.count - a.count);
   const recommendations = [];
   if (weakChapters.length) recommendations.push(`Consolidare la: ${weakChapters.slice(0, 3).join('; ')}.`);
   if (topErrors[0] && topErrors[0].type !== 'necunoscut') {
@@ -1044,6 +1055,10 @@ async function buildMentorReport(supa, studentId) {
   const pendingHw = (hw || []).filter((h) => h.status === 'data').length;
   if (pendingHw) recommendations.push(`Are ${pendingHw} temă/teme nefăcute de la Profesorul Virtual — o încurajare ajută.`);
   if (hwIncomplete.length) recommendations.push(`${hwIncomplete.length === 1 ? 'O temă a fost finalizată incomplet' : hwIncomplete.length + ' teme au fost finalizate incomplet'} (nu toate problemele rezolvate) — o poate relua oricând din rubrica Teme.`);
+  if (reExplained.length) {
+    const top = reExplained.slice(0, 2).map((r) => `„${r.stage}" (${r.chapter})`).join(' și ');
+    recommendations.push(`A cerut explicația din nou la ${top} — merită reluat împreună, cu creionul pe hârtie.`);
+  }
   if (!recommendations.length) recommendations.push('Progres constant — continuați ritmul actual de studiu.');
 
   // rezultatele recente, CONCRETE (cerința 6, runda 5): fiecare set lucrat cu
@@ -1068,7 +1083,12 @@ async function buildMentorReport(supa, studentId) {
     sessionsCount: (sessions || []).length,
     lastActivity: sessions && sessions[0] ? sessions[0].created_at : null,
     recentResults,
-    difficulties: { topErrors, weakChapters: weakChapters.slice(0, 5), openMistakes: (mistakes || []).filter((m) => !m.remediated).length },
+    difficulties: {
+      topErrors, weakChapters: weakChapters.slice(0, 5),
+      openMistakes: (mistakes || []).filter((m) => !m.remediated).length,
+      reExplained: reExplained.slice(0, 5),   // etape de lecție reluate la cererea elevului
+    },
+    lessonStages: { understood: stagesOk, reExplained: reExplained.reduce((n, r) => n + r.count, 0) },
     recommendations,
   };
 }

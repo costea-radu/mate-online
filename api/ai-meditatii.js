@@ -56,7 +56,8 @@ module.exports = async function handler(req, res) {
     const { action } = req.body || {};
     const handlers = {
       state, setup, assessment_submit: assessmentSubmit,
-      lesson, exercises, submit_set: submitSet, remediation,
+      lesson, lesson_simplify: lessonSimplify, lesson_feedback: lessonFeedback,
+      exercises, submit_set: submitSet, remediation,
       homework_assign: homeworkAssign, homework_list: homeworkList,
       homework_start: homeworkStart, homework_submit: homeworkSubmit,
       review_start: reviewStart, simulare, set_style: setStyle,
@@ -665,6 +666,7 @@ async function state(req, res, supa) {
     incompleteHomework: hw.filter((h) => h.incomplete).length,
     sessions: sessions || [],
     openMistakes: mistakes || [],
+    hardStages: hardStagesOf(medProfile),   // etapele de lecție la care a cerut reexplicare
     prediction,
     examType: med.examTypeFor(medProfile),
   });
@@ -906,6 +908,130 @@ Subiectele capitolului: ${chapter.topics?.join('; ') || chapter.title}.`;
 // ═════════════════════════════════════════════════════════════════════════════
 // EXERCISES — set de exerciții la capitol (site-first + Opus 5) (funcția 5)
 // ═════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════════
+// „NU AM ÎNȚELES" LA TABLĂ — profesorul REIA etapa, scriind-o tot pe tablă
+// (nu în conversație). Primește titlul etapei + textul ei și scrie o
+// explicație NOUĂ, mai simplă, cu alt unghi la fiecare încercare.
+// Tot aici se înregistrează dificultatea: memory.stageFeedback[capitol].
+// ═════════════════════════════════════════════════════════════════════════════
+const SIMPLIFY_ANGLES = [
+  'Ia-o de la zero, cu cuvinte de zi cu zi, ca și cum ai explica unui coleg mai mic. Folosește un exemplu NUMERIC complet, rezolvat pas cu pas, cu numere mici și prietenoase.',
+  'Schimbă complet unghiul: pornește de la o situație concretă din viața de zi cu zi, apoi arată cum se traduce în matematică. Adaugă o „regulă de buzunar" scurtă, ușor de ținut minte, și o capcană frecventă.',
+  'Mergi foarte mărunt: împarte procedeul în pași numerotați de câte o singură operație, arată la fiecare pas CE se face și DE CE, apoi dă un contraexemplu („dacă faci așa, greșești, pentru că…").',
+];
+
+async function lessonSimplify(req, res, supa) {
+  const userId = await ai.authUser(req, supa);
+  const profile = await ai.requireUser(supa, userId);
+  requireMeditatii(profile);
+  const lim = await ai.enforceRateLimit(supa, userId, profile);
+
+  const medProfile = await getMedProfile(supa, userId);
+  if (!medProfile) return res.status(400).json({ error: 'Începe cu testul inițial.' });
+  const plan = medProfile.plan || {};
+  const chapterId = req.body?.chapterId || null;
+  const chapter = (plan.chapters || []).find((c) => c.id === chapterId) || null;
+  const chapterTitle = String(req.body?.chapterTitle || chapter?.title || '').slice(0, 160);
+  const stageTitle = String(req.body?.stageTitle || '').slice(0, 160);
+  const stageText = String(req.body?.stageText || '').slice(0, 4000);
+  if (!stageText) return res.status(400).json({ error: 'Lipsește partea de reexplicat.' });
+  const attempt = Math.min(3, Math.max(1, parseInt(req.body?.attempt, 10) || 1));
+  const angle = SIMPLIFY_ANGLES[Math.min(attempt, SIMPLIFY_ANGLES.length) - 1];
+
+  const styleNote = styleNoteOf(medProfile);
+  const system = `${ai.PERSONA}
+
+Un elev de clasa a ${medProfile.grade}-a ți-a spus „NU AM ÎNȚELES" la o parte din lecția „${chapterTitle}".
+Partea la care s-a blocat se numește „${stageTitle}".
+${styleNote ? `ADAPTARE LA ELEV: ${styleNote}.` : ''}
+
+=== CE I-AI SCRIS PRIMA DATĂ (nu repeta la fel!) ===
+${stageText}
+=== SFÂRȘIT ===
+
+Rescrie ACEEAȘI idee, altfel. ${angle}
+Aceasta este încercarea ${attempt} din 3 — dacă e a doua sau a treia, schimbă vizibil abordarea față de una simplă repetare.
+
+REGULI DE SCRIERE (textul apare pe o TABLĂ, scris de mână):
+- maximum 160 de cuvinte, fraze scurte;
+- începe cu un titlu „## Hai să o luăm altfel" (sau altul potrivit încercării);
+- formulele între $...$ (LaTeX simplu);
+- pași numerotați, nu paragrafe lungi;
+- încheie cu o singură propoziție de verificare a înțelegerii („Deci, pe scurt: …");
+- fără salut, fără „sigur că da", fără să întrebi „ai înțeles?" (întreabă interfața).`;
+
+  const { text, usage } = await ai.chat({
+    system,
+    messages: [{ role: 'user', content: 'Explică-mi din nou partea asta, te rog.' }],
+    temperature: 0.55, maxTokens: 700,
+    model: ai.pickModel(ai.GEN_MODEL, lim),
+  });
+  await ai.logUsage(supa, userId, 'ai-meditatii:lesson_simplify', usage);
+
+  await recordStageFeedback(supa, userId, medProfile, {
+    chapterId, chapterTitle, stageTitle, understood: false, attempt,
+  });
+  await supa.from('ai_meditatii_sessions').insert({
+    user_id: userId, kind: 'reexplicare', chapter: chapterId, topic: `${chapterTitle} · ${stageTitle}`,
+    status: 'finalizata', completed_at: new Date().toISOString(), payload: { stageTitle, attempt },
+  });
+
+  return res.status(200).json({ text, attempt, maxAttempts: SIMPLIFY_ANGLES.length });
+}
+
+// Contorul etapelor: câte au fost înțelese din prima și la care s-a cerut
+// reexplicare. Nu costă niciun token — doar o actualizare în memoria elevului.
+async function recordStageFeedback(supa, userId, medProfile, { chapterId, chapterTitle, stageTitle, understood, attempt = 1 }) {
+  try {
+    const memory = { ...(medProfile.memory || {}) };
+    const all = { ...(memory.stageFeedback || {}) };
+    const key = chapterId || 'general';
+    const cur = { title: chapterTitle || key, ok: 0, hard: 0, topics: {}, ...(all[key] || {}) };
+    if (chapterTitle) cur.title = chapterTitle;
+    if (understood) cur.ok = (cur.ok || 0) + 1;
+    else {
+      cur.hard = (cur.hard || 0) + 1;
+      const t = { ...(cur.topics || {}) };
+      const k = stageTitle || 'etapă';
+      t[k] = Math.max((t[k] || 0), attempt);
+      cur.topics = t;
+    }
+    cur.lastAt = new Date().toISOString();
+    all[key] = cur;
+    memory.stageFeedback = all;
+    await saveMemory(supa, userId, memory);
+    medProfile.memory = memory;
+  } catch { /* contorul e best-effort — nu blocăm lecția */ }
+}
+
+// „Da, continuă" / „Am înțeles tot": doar contorul (fără AI, fără cost).
+async function lessonFeedback(req, res, supa) {
+  const userId = await ai.authUser(req, supa);
+  const profile = await ai.requireUser(supa, userId);
+  requireMeditatii(profile);
+  const medProfile = await getMedProfile(supa, userId);
+  if (!medProfile) return res.status(400).json({ error: 'Începe cu testul inițial.' });
+  await recordStageFeedback(supa, userId, medProfile, {
+    chapterId: req.body?.chapterId || null,
+    chapterTitle: String(req.body?.chapterTitle || '').slice(0, 160),
+    stageTitle: String(req.body?.stageTitle || '').slice(0, 160),
+    understood: req.body?.understood !== false,
+  });
+  return res.status(200).json({ ok: true });
+}
+
+// Etapele la care elevul a cerut reexplicare, cele mai „grele" întâi.
+function hardStagesOf(medProfile) {
+  const all = medProfile?.memory?.stageFeedback || {};
+  const out = [];
+  for (const [chapterId, v] of Object.entries(all)) {
+    for (const [stage, count] of Object.entries(v.topics || {})) {
+      out.push({ chapterId, chapterTitle: v.title || chapterId, stage, count });
+    }
+  }
+  return out.sort((a, b) => b.count - a.count).slice(0, 8);
+}
+
 async function exercises(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);

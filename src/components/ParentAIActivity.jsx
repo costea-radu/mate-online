@@ -128,6 +128,24 @@ function MeditatiiReport({ m }) {
             m.difficulties.topErrors.length ? `tipuri de greșeli: ${m.difficulties.topErrors.map((e) => `${errLabels[e.type] || e.type} (${e.count}×)`).join(', ')}` : null,
           ].filter(Boolean).join(' · ')}</div>
         )}
+        {/* Etapele de lecție pe care le-a cerut reexplicate la tablă — semnalul
+            cel mai direct despre unde s-a blocat, chiar în timpul predării. */}
+        {m.difficulties.reExplained?.length > 0 && (
+          <div style={{ marginTop: 4 }}>
+            <strong>🔁 A cerut explicația din nou la:</strong>
+            {m.difficulties.reExplained.map((r, i) => (
+              <div key={i} style={{ marginTop: 3 }}>
+                • „{r.stage}" · {String(r.chapter || '').replace(/_/g, ' ')}
+                {r.count > 1 ? <span style={{ color: 'var(--text-muted)' }}> ({r.count}×)</span> : null}
+              </div>
+            ))}
+            {m.lessonStages?.understood > 0 && (
+              <div style={{ marginTop: 3, color: 'var(--text-muted)' }}>
+                A înțeles din prima {m.lessonStages.understood} {m.lessonStages.understood === 1 ? 'etapă' : 'etape'} de lecție.
+              </div>
+            )}
+          </div>
+        )}
         <div style={{ marginTop: 6, padding: '7px 10px', background: '#fff', borderRadius: 8 }}>
           <strong>💡 Recomandări pentru perioada următoare:</strong>
           {m.recommendations.map((r, i) => <div key={i} style={{ marginTop: 3 }}>• {r}</div>)}

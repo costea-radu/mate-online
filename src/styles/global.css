@@ -1396,3 +1396,341 @@ body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
   .arena-stats .arena-val  { font-size: 1.3rem; margin-bottom: 10px; line-height: 1.25; }
   .arena-stats .arena-sub  { font-size: 0.82rem; line-height: 1.5; margin-top: 8px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MEDITAȚII — TABLA + MENIUL LATERAL
+   Pagina /meditatii: un meniu lateral îngust (se desface la hover, peste
+   conținut, ca să nu împingă tabla), o TABLĂ ALBĂ care ocupă cea mai mare
+   parte a ecranului și, sub ea, conversația cu profesorul.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.med-shell { display: flex; align-items: flex-start; gap: 16px; }
+.med-stage { flex: 1 1 auto; min-width: 0; }
+
+/* ─── meniul lateral al paginii ─── */
+.med-rail { flex: 0 0 60px; width: 60px; position: relative; z-index: 60; }
+.med-rail-inner {
+  position: sticky; top: calc(var(--navbar-h) + 14px);
+  width: 60px; overflow: hidden;
+  background: #fff; border: 1px solid var(--border); border-radius: 16px;
+  box-shadow: var(--shadow-sm); padding: 8px 7px;
+  transition: width .2s ease, box-shadow .2s ease;
+  max-height: calc(100vh - var(--navbar-h) - 28px); overflow-y: auto; overflow-x: hidden;
+}
+.med-rail:hover .med-rail-inner,
+.med-rail:focus-within .med-rail-inner,
+.med-rail.is-open .med-rail-inner { width: 252px; box-shadow: var(--shadow-lg); }
+.mr-item {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 9px 9px; border-radius: 11px; margin-bottom: 3px;
+  color: var(--text-light); font-size: .87rem; font-weight: 600; text-align: left;
+  background: none; border: none; cursor: pointer; white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.mr-item:hover { background: rgba(15,43,68,.06); color: var(--navy); }
+.mr-item.activ { background: rgba(232,185,49,.16); color: var(--navy); font-weight: 700; }
+.mr-item.activ .mr-ico { background: var(--gold); }
+.mr-item.mr-accent { color: #8e44ad; }
+.mr-ico {
+  flex: 0 0 30px; width: 30px; height: 30px; border-radius: 9px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(15,43,68,.06); font-size: 1rem; line-height: 1;
+}
+.mr-text { flex: 1 1 auto; opacity: 0; transition: opacity .15s ease; overflow: hidden; text-overflow: ellipsis; }
+.med-rail:hover .mr-text, .med-rail:focus-within .mr-text, .med-rail.is-open .mr-text { opacity: 1; }
+.mr-badge {
+  flex: 0 0 auto; min-width: 20px; padding: 1px 6px; border-radius: 10px;
+  background: var(--danger); color: #fff; font-size: .7rem; font-weight: 800; text-align: center;
+}
+.mr-badge.gold { background: var(--gold); color: var(--navy); }
+.mr-grup {
+  font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-muted); padding: 12px 10px 5px; opacity: 0; transition: opacity .15s;
+  white-space: nowrap; overflow: hidden;
+}
+.med-rail:hover .mr-grup, .med-rail:focus-within .mr-grup, .med-rail.is-open .mr-grup { opacity: 1; }
+.mr-sep { height: 1px; background: var(--border); margin: 7px 4px; }
+.mr-foot { padding: 8px 10px 2px; display: none; }
+.med-rail:hover .mr-foot, .med-rail:focus-within .mr-foot, .med-rail.is-open .mr-foot { display: block; }
+.mr-toggle { display: none; }
+
+/* ═══ TABLA ═══════════════════════════════════════════════════════════════ */
+.med-board { margin-bottom: 18px; }
+.bd-frame {
+  position: relative; border-radius: 18px; padding: 13px;
+  background: linear-gradient(160deg, #cfd6de 0%, #aeb8c4 45%, #c7ced7 100%);
+  box-shadow: 0 14px 40px rgba(15,43,68,.18), inset 0 1px 0 rgba(255,255,255,.6);
+}
+.bd-frame::before, .bd-frame::after {
+  content: ''; position: absolute; width: 22px; height: 22px; background: #46505d; border-radius: 6px; z-index: 2;
+  box-shadow: 0 1px 2px rgba(0,0,0,.3);
+}
+.bd-frame::before { left: 5px; top: 5px; }
+.bd-frame::after { right: 5px; top: 5px; }
+.bd-surface {
+  position: relative; background: #fff; border-radius: 10px; min-height: 380px;
+  padding: 20px 22px 26px; box-shadow: inset 0 2px 14px rgba(15,43,68,.07);
+  background-image: radial-gradient(circle at 18% 12%, rgba(15,43,68,.025), transparent 55%);
+}
+.med-board.is-tall .bd-surface { min-height: min(58vh, 520px); }
+.bd-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.bd-head-main { min-width: 0; flex: 1 1 260px; }
+.bd-title {
+  font-family: 'Caveat', var(--font-display), cursive; font-size: 1.85rem; font-weight: 700;
+  color: var(--navy); line-height: 1.15; display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  border-bottom: 2px solid rgba(231,76,60,.55); padding-bottom: 4px; width: fit-content; max-width: 100%;
+}
+.bd-title-ico { font-size: 1.2rem; }
+.bd-sub { font-size: .8rem; color: var(--text-muted); margin-top: 6px; font-weight: 600; }
+.bd-tools { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.bd-tool {
+  background: #fff; border: 1px solid var(--border); border-radius: 9px; padding: 5px 10px;
+  font-size: .76rem; font-weight: 700; color: var(--text-light); cursor: pointer; white-space: nowrap;
+}
+.bd-tool:hover { border-color: var(--gold); color: var(--navy); }
+.bd-speed { display: inline-flex; align-items: center; gap: 5px; font-size: .76rem; color: var(--text-light); }
+.bd-speed select {
+  border: 1px solid var(--border); border-radius: 9px; padding: 4px 7px;
+  font-family: inherit; font-size: .76rem; font-weight: 700; color: var(--navy); background: #fff;
+}
+/* etapele lecției */
+.bd-stagechips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 9px; }
+.bd-stagechip {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 220px;
+  background: #f4f6f9; border: 1px solid var(--border); border-radius: 20px;
+  padding: 3px 11px 3px 4px; font-size: .74rem; font-weight: 700; color: var(--text-muted); cursor: pointer;
+}
+.bd-stagechip-n {
+  width: 19px; height: 19px; border-radius: 50%; background: #dfe4ea; color: #6b7480;
+  display: inline-flex; align-items: center; justify-content: center; font-size: .68rem; flex: 0 0 19px;
+}
+.bd-stagechip-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-stagechip.is-done { color: #1e7e34; border-color: rgba(39,174,96,.4); background: rgba(39,174,96,.07); }
+.bd-stagechip.is-done .bd-stagechip-n { background: rgba(39,174,96,.2); color: #1e7e34; }
+.bd-stagechip.is-now { color: var(--navy); border-color: var(--gold); background: rgba(232,185,49,.13); }
+.bd-stagechip.is-now .bd-stagechip-n { background: var(--gold); color: var(--navy); }
+.bd-body { position: relative; padding-right: clamp(0px, 17%, 220px); }
+.med-board.is-tall .bd-body { max-height: min(56vh, 480px); overflow-y: auto; }
+/* pe ecran lat, panoul „Ai înțeles?" stă PESTE tablă → lăsăm loc sub text,
+   ca ultimele rânduri scrise să nu rămână niciodată ascunse sub el */
+@media (min-width: 901px) { .med-board.is-tall .bd-body { padding-bottom: 140px; } }
+
+/* ─── textul „scris de mână" ─── */
+.bd-text-wrap { position: relative; }
+.bd-text {
+  font-family: 'Patrick Hand', 'Caveat', 'Segoe Print', var(--font-body), cursive;
+  font-size: 1.32rem; line-height: 1.72; color: #16324c; letter-spacing: .1px;
+}
+.bd-text .bd-h3 {
+  font-family: 'Caveat', cursive; font-size: 1.6rem; font-weight: 700; color: #1f5faa;
+  margin: 16px 0 6px; border-bottom: 1.5px dashed rgba(31,95,170,.3); padding-bottom: 2px; width: fit-content;
+}
+.bd-text .bd-h4 { font-family: 'Caveat', cursive; font-size: 1.38rem; font-weight: 700; color: #8e44ad; margin: 13px 0 4px; }
+.bd-text .bd-line { margin: 3px 0; }
+.bd-text .bd-gap { height: 9px; }
+.bd-text .bd-li { position: relative; padding-left: 24px; margin: 4px 0; }
+.bd-text .bd-li::before { content: '•'; position: absolute; left: 7px; color: #e74c3c; font-weight: 700; }
+.bd-text .bd-li.bd-num::before { content: attr(data-n); left: 0; font-size: .95em; }
+.bd-text .bd-formula {
+  display: inline-block; margin: 9px 0; padding: 6px 16px;
+  border: 1.5px solid rgba(231,76,60,.55); border-radius: 8px; background: rgba(231,76,60,.03);
+}
+.bd-text b, .bd-text strong { color: #0f2b44; font-weight: 700; }
+.bd-text .katex { font-size: 1.04em; color: #12395e; }
+.bd-link {
+  display: inline-block; margin: 2px 4px 2px 0; padding: 2px 9px; border-radius: 7px;
+  background: rgba(232,185,49,.16); border: 1px solid var(--gold); color: var(--navy);
+  font-family: var(--font-body); font-size: .78rem; font-weight: 600; text-decoration: none;
+}
+/* cerneala: fiecare caracter apare la rândul lui (întârzierea e pusă din JS) */
+@keyframes bd-ink-in { from { opacity: 0; } to { opacity: 1; } }
+.bd-ink { opacity: 0; animation: bd-ink-in 90ms linear forwards; }
+.bd-ink-done .bd-ink { opacity: 1 !important; animation: none !important; }
+.bd-skip {
+  position: sticky; bottom: 0; float: right; margin-top: 8px;
+  background: rgba(15,43,68,.9); color: #fff; border: none; border-radius: 20px;
+  padding: 5px 13px; font-size: .74rem; font-weight: 700; cursor: pointer;
+}
+/* tabla PĂSTREAZĂ etapele scrise: cele vechi rămân deasupra, mai palide */
+.bd-stage { position: relative; padding-bottom: 6px; }
+.bd-stage + .bd-stage { margin-top: 14px; padding-top: 14px; border-top: 1px dashed rgba(15,43,68,.13); }
+.bd-stage.is-past { opacity: .62; }
+.bd-stage.is-past:hover { opacity: .85; }
+/* reexplicarea („Nu, mai explică o dată") — tot pe tablă, încadrată */
+.bd-again {
+  margin: 12px 0 4px; padding: 10px 14px 4px;
+  border-left: 3px solid #8e44ad; background: rgba(142,68,173,.045); border-radius: 0 10px 10px 0;
+}
+.bd-again-lbl {
+  font-family: var(--font-body); font-size: .72rem; font-weight: 800; letter-spacing: .04em;
+  text-transform: uppercase; color: #8e44ad; margin-bottom: 4px;
+}
+.bd-stagechip-r { font-size: .72rem; line-height: 1; }
+.bd-tool.is-on { background: var(--gold); border-color: var(--gold); color: var(--navy); }
+@keyframes bd-think { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+.bd-thinking {
+  display: inline-flex; align-items: center; gap: 9px; margin-top: 12px;
+  font-family: var(--font-body); font-size: .84rem; font-weight: 600; color: var(--text-light);
+}
+.bd-thinking-dot {
+  width: 10px; height: 10px; border-radius: 50%; background: #8e44ad;
+  animation: bd-think 1.1s ease-in-out infinite;
+}
+.bd-warn {
+  margin-top: 12px; padding: 9px 13px; border-radius: 10px;
+  background: #fff4e5; border: 1px solid var(--gold); color: #8a6d1a;
+  font-family: var(--font-body); font-size: .84rem; font-weight: 600;
+}
+.bd-materials {
+  position: sticky; top: 0; z-index: 3; background: #fff;
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 12px;
+  padding: 2px 0 10px; border-bottom: 1px dashed var(--border);
+}
+.bd-surface.is-work .bd-materials { background: #fbfcfe; }
+.bd-materials-lbl { font-size: .78rem; font-weight: 700; color: var(--text-muted); }
+
+/* ─── tăvița cu markere, sub tablă ─── */
+.bd-tray {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin-top: -6px; padding: 10px 18px; border-radius: 0 0 16px 16px;
+  background: linear-gradient(#b9c2cc, #9ea9b6); box-shadow: 0 6px 16px rgba(15,43,68,.14);
+  width: calc(100% - 36px); margin-left: 18px;
+}
+.bd-markers { display: flex; gap: 8px; align-items: center; }
+.bd-marker { width: 34px; height: 9px; border-radius: 5px; display: block; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.bd-marker.m-dark { background: #2f3640; } .bd-marker.m-blue { background: #1f5faa; } .bd-marker.m-red { background: #e74c3c; }
+.bd-eraser { width: 30px; height: 13px; border-radius: 3px; background: #f4f6f9; border: 1px solid #8892a0; display: block; }
+.bd-tray-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.bd-tray-hint { font-size: .78rem; font-weight: 600; color: #24384f; }
+.bd-surface.is-work { background: #fbfcfe; }
+
+/* ─── PROFESORUL de la tablă ─── */
+.med-prof {
+  position: absolute; right: -6px; bottom: -14px; z-index: 3; pointer-events: none;
+  width: clamp(160px, 21%, 268px); perspective: 1100px;
+}
+.pf-flip { position: relative; transform-style: preserve-3d; transition: transform .6s cubic-bezier(.4,.05,.2,1); }
+.med-prof.is-asking .pf-flip { transform: rotateY(180deg); }
+.pf-face { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.pf-front { position: absolute; inset: 0; transform: rotateY(180deg); }
+.pf-svg { width: 100%; height: auto; display: block; filter: drop-shadow(-6px 4px 10px rgba(15,43,68,.16)); }
+@keyframes pf-write {
+  0%, 100% { transform: rotate(0deg) translate(0, 0); }
+  20% { transform: rotate(-6deg) translate(2px, -6px); }
+  45% { transform: rotate(4deg) translate(-3px, 5px); }
+  70% { transform: rotate(-3deg) translate(4px, -2px); }
+}
+@keyframes pf-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes pf-blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.08); } }
+.med-prof.is-writing .pf-arm { animation: pf-write 1.7s ease-in-out infinite; transform-origin: 72px 172px; transform-box: view-box; }
+.med-prof.is-writing .pf-svg { animation: pf-bob 3.6s ease-in-out infinite; }
+.pf-eyes { animation: pf-blink 5.5s infinite; transform-origin: 110px 110px; transform-box: view-box; }
+.pf-tag {
+  position: absolute; right: 4px; bottom: 10px; z-index: 4;
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(15,43,68,.92); color: #fff; border-radius: 20px; padding: 4px 11px;
+  font-size: .72rem; font-weight: 700; white-space: nowrap; box-shadow: var(--shadow);
+}
+.pf-dot { width: 7px; height: 7px; border-radius: 50%; background: #2ecc71; box-shadow: 0 0 0 3px rgba(46,204,113,.25); }
+
+/* ─── „Ai înțeles?" ─── */
+@keyframes bd-ask-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.bd-ask {
+  position: absolute; left: 26px; bottom: 26px; right: clamp(160px, 21%, 260px); z-index: 4;
+  display: flex; flex-direction: column; gap: 10px; align-items: flex-start;
+  animation: bd-ask-in .35s ease both;
+}
+.bd-bubble {
+  position: relative; background: var(--navy); color: #fff; max-width: 100%;
+  border-radius: 16px 16px 16px 4px; padding: 11px 17px; box-shadow: var(--shadow-lg);
+}
+.bd-bubble::after {
+  content: ''; position: absolute; right: -9px; bottom: 13px;
+  border: 7px solid transparent; border-left-color: var(--navy); border-right: 0;
+}
+.bd-bubble-q { display: block; font-family: 'Caveat', cursive; font-size: 1.5rem; font-weight: 700; line-height: 1.15; }
+.bd-bubble-note { display: block; font-size: .76rem; opacity: .8; margin-top: 3px; }
+.bd-ask-btns { display: flex; gap: 9px; flex-wrap: wrap; }
+.bd-btn {
+  padding: 11px 19px; border-radius: 12px; font-family: var(--font-body);
+  font-size: .92rem; font-weight: 800; cursor: pointer; border: 2px solid transparent;
+  box-shadow: var(--shadow); transition: transform .12s, box-shadow .12s;
+}
+.bd-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+.bd-btn-yes { background: var(--success); color: #fff; }
+.bd-btn-no { background: #fff; color: var(--navy); border-color: var(--gold); }
+
+/* ─── conversația de sub tablă ─── */
+.med-conv { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 18px; }
+.med-conv-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 11px 16px; border-bottom: 1px solid var(--border); background: #f7f9fc;
+}
+.med-conv-title { display: flex; align-items: center; gap: 8px; font-weight: 800; color: var(--navy); font-size: .95rem; }
+.med-conv-body { height: clamp(340px, 48vh, 540px); }
+.med-conv.is-closed .med-conv-body { display: none; }
+
+/* ═══ RESPONSIV ═══════════════════════════════════════════════════════════ */
+@media (max-width: 1100px) {
+  .bd-surface { padding: 18px 18px 22px; }
+  .bd-text { font-size: 1.24rem; }
+}
+@media (max-width: 900px) {
+  .bd-ask { right: 20px; bottom: auto; top: 100%; margin-top: 10px; position: relative; left: 0; padding: 0 4px; }
+  .bd-bubble { border-radius: 16px; }
+  .bd-bubble::after { display: none; }
+  .med-prof { width: 128px; right: -4px; bottom: -8px; }
+  .med-board.is-tall .bd-surface { min-height: 420px; }
+  .bd-body { padding-bottom: 96px; padding-right: 0; }
+}
+@media (max-width: 768px) {
+  /* meniul lateral devine o bandă fixă pe marginea din stânga, care se
+     desface la atingere (pe telefon nu există „hover") */
+  .med-shell { display: block; }
+  .med-stage { padding-left: 46px; }
+  .med-rail {
+    position: fixed; left: 0; top: 50%; transform: translateY(-50%);
+    width: 42px; flex: none; z-index: 1200;
+  }
+  .med-rail-inner {
+    position: static; width: 42px; max-height: 76vh; padding: 7px 5px;
+    border-radius: 0 16px 16px 0; border-left: none; box-shadow: var(--shadow);
+  }
+  .med-rail:hover .med-rail-inner { width: 42px; }
+  .med-rail.is-open .med-rail-inner { width: min(80vw, 290px); box-shadow: var(--shadow-lg); }
+  .med-rail:hover .mr-text, .med-rail:hover .mr-grup { opacity: 0; }
+  .med-rail.is-open .mr-text, .med-rail.is-open .mr-grup { opacity: 1; }
+  .med-rail:hover .mr-foot { display: none; }
+  .med-rail.is-open .mr-foot { display: block; }
+  .mr-toggle {
+    display: flex; align-items: center; justify-content: center; width: 100%;
+    height: 32px; margin-bottom: 5px; border-radius: 9px; background: var(--navy); color: #fff;
+    font-size: .9rem; border: none; cursor: pointer;
+  }
+  .mr-ico { flex-basis: 28px; width: 28px; height: 28px; }
+  .med-rail-backdrop { position: fixed; inset: 0; background: rgba(9,30,48,.35); z-index: 1150; }
+  .bd-frame { padding: 9px; border-radius: 14px; }
+  .bd-frame::before, .bd-frame::after { width: 16px; height: 16px; }
+  .bd-surface { padding: 15px 14px 18px; min-height: 300px; }
+  .med-board.is-tall .bd-surface { min-height: 360px; }
+  .med-board.is-tall .bd-body { max-height: none; overflow: visible; }
+  .bd-text { font-size: 1.18rem; line-height: 1.68; }
+  .bd-text .bd-h3 { font-size: 1.38rem; }
+  .bd-title { font-size: 1.5rem; }
+  .bd-tray { width: calc(100% - 18px); margin-left: 9px; padding: 8px 12px; }
+  .bd-markers { display: none; }
+  .bd-tray-actions { width: 100%; }
+  .bd-tray-actions .btn { flex: 1 1 auto; justify-content: center; }
+  .bd-btn { flex: 1 1 160px; text-align: center; }
+  .med-prof { width: 104px; bottom: -6px; }
+  .pf-tag { font-size: .62rem; padding: 3px 7px; right: 16px; bottom: 4px; }
+  .bd-tool { padding: 4px 8px; font-size: .7rem; }
+  .bd-speed select { padding: 3px 5px; font-size: .7rem; }
+  .bd-head { margin-bottom: 10px; gap: 8px; }
+  .bd-stagechip { max-width: 150px; font-size: .7rem; }
+  .med-conv-body { height: 62vh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bd-ink { opacity: 1 !important; animation: none !important; }
+  .med-prof.is-writing .pf-arm, .med-prof.is-writing .pf-svg, .pf-eyes { animation: none !important; }
+  .pf-flip { transition: none; }
+}
