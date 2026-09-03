@@ -367,7 +367,7 @@ export function BoardText({ text, speed = 'normal', animate = true, voiceFrac = 
 // ask = { question, yes, no, onYes, onNo, note }
 // ═════════════════════════════════════════════════════════════════════════════
 export function Whiteboard({ title = null, subtitle = null, chips = null, toolbar = null, prof = 'idle',
-  profName = 'prof. Virtual', ask = null, tray = null, tall = false, tone = 'board', children }) {
+  profName = 'prof. Virtual', ask = null, tray = null, tall = false, tone = 'board', bodyClass = '', children }) {
   return (
     <div className={`med-board${tall ? ' is-tall' : ''}`}>
       <div className="bd-frame">
@@ -382,8 +382,10 @@ export function Whiteboard({ title = null, subtitle = null, chips = null, toolba
               {toolbar && <div className="bd-tools">{toolbar}</div>}
             </div>
           )}
-          <div className="bd-body">{children}</div>
-          <Professor state={ask ? 'asking' : prof} name={profName} />
+          <div className={`bd-body${bodyClass ? ' ' + bodyClass : ''}`}>{children}</div>
+          {/* când profesorul chiar scrie (răspunsul curge pe tablă) rămâne cu
+            spatele și mișcă markerul, chiar dacă are o propunere pe ecran */}
+        <Professor state={prof === 'writing' ? 'writing' : (ask ? 'asking' : prof)} name={profName} />
         </div>
 
         {ask && (
@@ -402,13 +404,11 @@ export function Whiteboard({ title = null, subtitle = null, chips = null, toolba
         )}
       </div>
 
-      <div className="bd-tray">
-        <div className="bd-markers" aria-hidden="true">
-          <span className="bd-marker m-dark" /><span className="bd-marker m-blue" />
-          <span className="bd-marker m-red" /><span className="bd-eraser" />
+      {tray && (
+        <div className="bd-tray">
+          <div className="bd-tray-actions">{tray}</div>
         </div>
-        <div className="bd-tray-actions">{tray}</div>
-      </div>
+      )}
     </div>
   );
 }

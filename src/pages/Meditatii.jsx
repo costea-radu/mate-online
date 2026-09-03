@@ -13,7 +13,7 @@ import { aiClient } from '../lib/aiClient';
 import { supabase } from '../lib/supabase';
 import { MathText, ChatPanel } from '../components/AITutor';
 import MedRail from '../components/MedRail';
-import { BoardLesson, Whiteboard, BoardText, loadSpeed } from '../components/Whiteboard';
+import { BoardLesson, Whiteboard } from '../components/Whiteboard';
 import EinsteinIcon from '../components/EinsteinIcon';
 import ExamGenerator from '../components/ExamGenerator';
 import { openPrintDocument } from '../lib/examPrint';
@@ -595,7 +595,6 @@ export default function Meditatii() {
   const [actionError, setActionError] = useState(null);
   const runSuggestionRef = useRef(null);       // legătura listener-e → runSuggestion
   // ── conversația de SUB TABLĂ (panoul „Conversație") ──
-  const [convOpen, setConvOpen] = useState(true);
   const [convPrompt, setConvPrompt] = useState(null); // { id, text, mode } — întrebare trimisă automat
   const [convCoach, setConvCoach] = useState(null);   // { id, message, suggestions } — mesajul profesorului
   // la înscriere/reset (fără profil) widgetul vechi se închide — conversația
@@ -615,11 +614,10 @@ export default function Meditatii() {
       : st.profile.examTarget ? 'bacalaureat' : `clasa-${st.profile.grade}`)
     : null;
 
-  // aduce conversația de sub tablă în fața ochilor (și o deschide, dacă e strânsă)
+  // aduce tabla (și câmpul de scris de sub ea) în fața ochilor
   const focusConversation = useCallback(() => {
-    setConvOpen(true);
     setTimeout(() => {
-      try { document.getElementById('med-conversatie')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+      try { document.getElementById('med-tabla')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
       catch { /* ignore */ }
     }, 80);
   }, []);
@@ -664,9 +662,15 @@ export default function Meditatii() {
   // 1) La sosire: mesajul de bun venit (briefingul) + pașii propuși ca butoane.
   const welcomedRef = useRef(false);
   useEffect(() => {
-    if (welcomedRef.current || !st || !st.premium || st.needsSetup || !st.briefing?.message) return;
+    if (welcomedRef.current || !st || !st.premium || st.needsSetup) return;
     welcomedRef.current = true;
-    setConvCoach({ id: 'welcome-' + Date.now(), message: st.briefing.message, suggestions: st.briefing.suggestions || [] });
+    // briefingul + PRIMA propunere, într-un singur mesaj scris pe tablă.
+    // Dacă serverul nu trimite briefing, profesorul intră direct cu propunerea:
+    // tabla nu are voie să rămână goală, fără nimic de făcut.
+    const first = pickProposal([], null, st);
+    if (first) setProposal(first);
+    const message = [st.briefing?.message, first?.say].filter(Boolean).join('\n\n');
+    if (message) setConvCoach({ id: 'welcome-' + Date.now(), message, suggestions: [] });
     // eslint-disable-next-line
   }, [st]);
 
@@ -680,7 +684,6 @@ export default function Meditatii() {
       const c = await aiClient.meditatii({ action: 'coach', event });
       if (c?.message) {
         setConvCoach({ id: 'coach-' + Date.now(), message: c.message, suggestions: c.suggestions || [] });
-        setConvOpen(true);
       }
     } catch { /* coach e opțional — tăcut */ }
   }
@@ -981,6 +984,174 @@ export default function Meditatii() {
     ] },
   ];
 
+  // ── TABLA-CONVERSAȚIE ────────────────────────────────────────────────────
+  // Chatul rămâne o singură componentă (cu tot ce știe: streaming, poze,
+  // corectare după barem, istoric), dar își pune mesajele PE TABLĂ, iar
+  // câmpul de scris SUB ea. Aici doar ținem cele două containere.
+  const [boardEl, setBoardElState] = useState(null);
+  const [composerEl, setComposerElState] = useState(null);
+  const setBoardEl = useCallback((el) => setBoardElState(el), []);
+  const setComposerEl = useCallback((el) => setComposerElState(el), []);
+  const boardSlots = { board: boardEl, composer: composerEl };
+  const [chatBusy, setChatBusy] = useState(false);   // profesorul scrie chiar acum
+  const chatCmd = useRef(null);                      // comenzi către chat (lista de teste PDF)
+
+  // ── PROFESORUL PROPUNE MEREU DOUĂ OPȚIUNI ────────────────────────────────
+  // CE se propune și în ce ordine sunt reguli aici, în pagină: instant și fără
+  // niciun token. Fraza cu care o spune se scrie pe tablă ca mesaj al lui;
+  // aprecierile personalizate rămân în sarcina coach-ului de pe server.
+  const [proposal, setProposal] = useState(null);
+  const [skipped, setSkipped] = useState([]);
+  const runsRef = useRef(0);                         // câte seturi a lucrat în sesiunea asta
+
+  function proposalList(S) {
+    if (!S) return [];
+    const out = [];
+    const nx = S.nextChapter;
+    const mistake = S.openMistakes?.[0];
+    const hw = (S.homework || []).find((h) => h.status === 'data');
+    const rev = S.dueReviews?.[0];
+    if (mistake) out.push({
+      key: 'remediere',
+      say: `Am văzut unde te-ai împiedicat${mistake.topic ? ` — la ${niceTopic(mistake.topic)}` : ''}. Hai să fixăm exact procedeul acela: îți dau 10 exerciții de același fel.`,
+      ask: 'Facem cele 10 exerciții ca acela greșit?',
+      label: '🔁 Da, cele 10 exerciții',
+      run: () => startRemediation(mistake.id),
+    });
+    if (hw) out.push({
+      key: 'tema',
+      say: `Ai o temă de rezolvat: „${hw.title}". O luăm acum? Ți-o corectez, ți-o notez și îți explic fiecare greșeală.`,
+      ask: 'Rezolvăm tema acum?',
+      label: '📚 Da, rezolv tema',
+      run: () => openHomework(hw),
+    });
+    if (rev) out.push({
+      key: 'recapitulare',
+      say: `E vremea unei recapitulări la „${rev.chapterTitle}" — cinci întrebări scurte, ca materia să nu se șteargă.`,
+      ask: 'Facem recapitularea rapidă?',
+      label: '🔁 Da, recapitulăm',
+      run: () => startReview(rev.id, rev.chapterTitle),
+    });
+    if (nx && nx.status === 'de_parcurs') out.push({
+      key: 'lectie',
+      say: `Urmează capitolul „${nx.title}". Îl scriu pe tablă pas cu pas și, la fiecare etapă, te întreb dacă ai înțeles.`,
+      ask: 'Începem teoria la acest capitol?',
+      label: '📖 Da, începem teoria',
+      run: () => openLesson(nx.id),
+    });
+    if (nx) out.push({
+      key: 'exercitii',
+      say: `Hai să exersăm la „${nx.title}". Îți dau un set de exerciții, iar la final îl corectez și îți explic tot.`,
+      ask: 'Facem un set de exerciții?',
+      label: '✍️ Da, exerciții',
+      run: () => startExercises(nx.id),
+    });
+    out.push({
+      key: 'test_site',
+      say: 'Putem lua și un test gata făcut din biblioteca site-ului: îl rezolvi, apoi ți-l corectez după barem, punct cu punct.',
+      ask: 'Îți aduc un test din site?',
+      label: '🧩 Da, test din site',
+      run: () => chatCmd.current?.pdfPicker?.(),
+    });
+    if (!hw) out.push({
+      key: 'tema_noua',
+      say: 'Dacă vrei să lucrezi și singur, îți pregătesc o temă pentru acasă — o rezolvi când ai timp și ți-o corectez data viitoare.',
+      ask: 'Îți dau o temă pentru acasă?',
+      label: '📚 Da, dă-mi o temă',
+      run: askHomework,
+    });
+    out.push({
+      key: 'alt_capitol',
+      say: 'Sau alegem alt capitol din plan, dacă azi ai chef de altceva.',
+      ask: 'Alegem alt capitol?',
+      label: '🗺️ Da, alt capitol',
+      run: () => goTab('plan'),
+    });
+    return out;
+  }
+
+  // prima propunere pe care nu a refuzat-o încă; dacă le-a refuzat pe toate,
+  // profesorul propune încheierea meditației
+  function pickProposal(skip = skipped, preferKey = null, S = stRef.current) {
+    const list = proposalList(S);
+    if (!list.length) return null;
+    if (preferKey) { const pk = list.find((x) => x.key === preferKey); if (pk) return pk; }
+    const p = list.find((x) => !skip.includes(x.key));
+    if (p) return p;
+    return {
+      key: 'incheie',
+      say: 'Am trecut prin tot ce aveam de propus astăzi. Încheiem? Îți dau o temă și data viitoare reluăm de unde am rămas.',
+      ask: 'Încheiem meditația de azi?',
+      label: '🏁 Da, încheiem',
+      run: endSession,
+    };
+  }
+
+  // propune ceva ȘI scrie propunerea pe tablă
+  function sayProposal(p, intro = null) {
+    if (!p) return;
+    setProposal(p);
+    setConvCoach({
+      id: `prop-${p.key}-${Date.now()}`,
+      message: (intro ? `${intro}\n\n` : '') + p.say,
+      suggestions: [],
+    });
+  }
+
+  // „⏭ Trec mai departe" → profesorul propune imediat altceva, nu tace
+  function skipProposal() {
+    const p = proposal;
+    const skip = p ? [...skipped, p.key] : skipped;
+    setSkipped(skip);
+    sayProposal(pickProposal(skip), 'Bine — revenim mai târziu la asta.');
+  }
+
+  // după o activitate terminată: exercițiu → alt exercițiu; după mai multe
+  // seturi → temă. Lecția trece la exerciții, tema și recapitularea la fel.
+  function proposeAfter(kind) {
+    if (kind === 'exercitii' || kind === 'remediere') runsRef.current += 1;
+    const prefer = (kind === 'exercitii' || kind === 'remediere')
+      ? (runsRef.current >= 3 ? 'tema_noua' : 'exercitii')
+      : (kind === 'lectie' || kind === 'tema' || kind === 'recapitulare' || kind === 'simulare') ? 'exercitii'
+        : null;
+    setSkipped([]);
+    // mic răgaz: stRef se actualizează după re-randarea de la refresh()
+    setTimeout(() => sayProposal(pickProposal([], prefer)), 260);
+  }
+
+  // butoanele de sub tablă — aceleași acțiuni, mereu la îndemână
+  const runAction = (fn) => { setProposal(null); fn(); };
+  const mistake0 = st?.openMistakes?.[0];
+  const hw0 = (st?.homework || []).find((h) => h.status === 'data');
+  const nextCh = st?.nextChapter;
+  const actions = !onBoard ? [] : [
+    mistake0 && { id: 'rem', label: '🔁 10 exerciții ca acela greșit', title: 'Zece exerciții de același tip cu cel la care ai greșit', run: () => runAction(() => startRemediation(mistake0.id)) },
+    hw0 && { id: 'hw', label: '📚 Tema', title: hw0.title, run: () => runAction(() => openHomework(hw0)) },
+    nextCh && {
+      id: 'ex', primary: true,
+      label: nextCh.status === 'de_parcurs' ? '✍️ Exerciții' : '✍️ Continuă de unde ai rămas',
+      title: nextCh.title, run: () => runAction(() => startExercises(nextCh.id)),
+    },
+    nextCh && nextCh.status !== 'de_parcurs' && { id: 'teorie', label: '📖 Recitesc teoria', title: nextCh.title, run: () => runAction(() => openLesson(nextCh.id)) },
+    nextCh && nextCh.status === 'de_parcurs' && { id: 'teorie2', label: '📖 Teoria', title: nextCh.title, run: () => runAction(() => openLesson(nextCh.id)) },
+    { id: 'capitol', label: '🗺️ Alege alt capitol', run: () => runAction(() => goTab('plan')) },
+    { id: 'site', label: '🧩 Test din site', title: 'Teste PDF din biblioteca site-ului, corectate după barem', run: () => runAction(() => chatCmd.current?.pdfPicker?.()) },
+    st?.pendingHomework
+      ? { id: 'temele', label: '📚 Vezi temele', run: () => runAction(() => goTab('teme')) }
+      : { id: 'cere', label: '📚 Cere o temă', run: () => runAction(askHomework) },
+    { id: 'end', label: '🏁 Încheie', title: 'Încheie meditația și primește tema', run: () => runAction(endSession) },
+  ].filter(Boolean);
+
+  // panoul cu cele două opțiuni, pe tablă
+  const proposalAsk = (!working && proposal) ? {
+    question: proposal.ask,
+    note: 'Sau alege singur, din butoanele de sub tablă.',
+    yes: proposal.label,
+    no: '⏭ Trec mai departe',
+    onYes: () => { const p = proposal; setProposal(null); p.run(); },
+    onNo: skipProposal,
+  } : null;
+
   return (
     <div className="med-page" style={{ maxWidth: 'var(--container)', margin: '0 auto', padding: '22px 20px 60px' }}>
 
@@ -1054,18 +1225,21 @@ export default function Meditatii() {
         </>
       )}
 
-      {/* ═══ MEDITAȚIA: meniu lateral · TABLĂ · conversație ═══ */}
+      {/* ═══ MEDITAȚIA: meniu lateral · TABLA-CONVERSAȚIE · butoane · scris ═══ */}
       {onBoard && (
         <div className="med-shell">
           <MedRail sections={railSections} footer={<HeroChips profile={st.profile} focus={st.focus} />} />
 
-          <main className="med-stage">
+          <main className="med-stage" id="med-tabla">
             <Hero profile={st.profile} focus={st.focus} />
 
-            {/* ── TABLA ── */}
+            {/* TABLA. Implicit e conversația cu profesorul; lecția și exercițiile
+                o întrerup, iar la final se revine în conversație cu propunerea
+                următoare. Conversația nu dispare niciodată: cât timp tabla e
+                ocupată, ea coboară într-o bandă chiar sub ea. */}
             {lessonView ? (
               <BoardLessonView data={lessonView} busyLabel={busy}
-                onClose={() => setLessonView(null)}
+                onClose={() => { setLessonView(null); proposeAfter('lectie'); }}
                 onExercises={() => startExercises(lessonView.chapter.id)}
                 onEnd={endSession}
                 onExplainAgain={explainOnBoard}
@@ -1073,60 +1247,65 @@ export default function Meditatii() {
                 onChat={chatAboutStage}
                 onInternalLink={(u) => navigate(u)} />
             ) : quiz ? (
-              <Whiteboard tall tone="work" prof="idle"
-                tray={<span className="bd-tray-hint">✍️ Rezolvă în ritmul tău — la final corectez tot și îți explic fiecare greșeală.</span>}>
+              <Whiteboard tall tone="work" prof="idle">
                 <QuizRunner key={quiz.sessionId || quiz.homeworkId} title={quiz.title} subtitle={quiz.subtitle}
                   questions={quiz.questions} onSubmit={submitQuiz} onAskTeacher={askTeacher}
                   homework={quiz.kind === 'tema'} initialAnswers={quiz.initialAnswers || null}
                   onSaveDraft={quiz.kind === 'tema' ? (answers) => saveHomeworkDraft(quiz.homeworkId, answers) : null}
-                  onClose={async (finished, drafted) => { setQuiz(null); if (finished || drafted) await refresh(); }} />
+                  onClose={async (finished, drafted) => {
+                    const kind = quiz.kind; setQuiz(null);
+                    if (finished || drafted) await refresh();
+                    proposeAfter(kind);
+                  }} />
               </Whiteboard>
             ) : (
-              <BoardHome st={st} tab={tab} busy={busy}
-                onLesson={openLesson} onExercises={startExercises} onReview={startReview}
-                onSimulare={() => startSimulare(false, !!st.focus)} onHomeworkTab={() => goTab('teme')} />
+              <Whiteboard tall bodyClass="is-chat"
+                title={<><span className="bd-title-ico">🎓</span> Meditația ta</>}
+                subtitle={st.nextChapter ? `Lucrăm la: ${st.nextChapter.title}` : 'Conversație cu Profesorul Virtual'}
+                prof={chatBusy ? 'writing' : 'idle'}
+                ask={proposalAsk}>
+                <div ref={setBoardEl} className="bdchat-host" />
+              </Whiteboard>
             )}
 
-            {quiz?.siteExercises?.length > 0 && (
-              <div style={{ ...card, background: '#f7f9fc' }}>
-                <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.9rem', marginBottom: 8 }}>🧩 Din materialele site-ului, la același capitol:</div>
-                {quiz.siteExercises.map((s) => (
-                  <Link key={s.id} to={s.url} style={{ display: 'block', padding: '7px 10px', background: '#fff', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 6, fontSize: '.86rem', color: 'var(--navy)', fontWeight: 600 }}>
-                    🧩 {s.title} →
-                  </Link>
+            {/* conversația, cât timp tabla e ocupată de lecție/exerciții */}
+            {working && <div ref={setBoardEl} className="bdchat-host is-mini" />}
+
+            {/* BUTOANELE DE ACȚIUNE — sub tablă, deasupra câmpului de scris */}
+            <div className="bd-under">
+              {actionError && <div className="bd-under-warn">⚠️ {actionError}</div>}
+              <div className="bd-actions">
+                {actions.map((a) => (
+                  <button key={a.id} type="button" className={`bd-act${a.primary ? ' is-primary' : ''}`}
+                    disabled={!!busy} onClick={a.run} title={a.title || a.label}>{a.label}</button>
                 ))}
               </div>
-            )}
+              {/* CÂMPUL DE SCRIS — chiar sub tablă */}
+              <div ref={setComposerEl} className="bd-composer-host" />
+            </div>
 
-            {/* ── CONVERSAȚIA, sub tablă (widgetul rămâne rezervă) ── */}
-            <section id="med-conversatie" className={`med-conv${convOpen ? '' : ' is-closed'}`}>
-              <div className="med-conv-head">
-                <div className="med-conv-title"><EinsteinIcon size={20} /> Conversație cu prof. Virtual</div>
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>Aceeași conversație e și în widgetul plutitor, ca rezervă.</span>
-                  <button type="button" className="btn btn-outline btn-sm" onClick={() => setConvOpen((o) => !o)}>
-                    {convOpen ? '▾ Strânge' : '▸ Deschide'}
-                  </button>
-                </div>
-              </div>
-              <div className="med-conv-body">
-                <ChatPanel compact context={{ meditatii: true, category }}
-                  autoPrompt={convPrompt} coachInject={convCoach} onNavigate={() => {}} />
-              </div>
-            </section>
+            {/* motorul conversației: mesajele merg pe tablă, scrisul dedesubt */}
+            <ChatPanel context={{ meditatii: true, category }}
+              autoPrompt={convPrompt} coachInject={convCoach}
+              boardSlots={boardSlots} cmdRef={chatCmd} onBusy={setChatBusy} />
 
-            {/* ── restul secțiunii alese (liste, rapoarte) — sub conversație ── */}
-            {!working && (
-              <>
-                {actionError && <div style={{ ...card, background: '#fff4e5', color: '#8a6d1a', borderColor: 'var(--gold)' }}>{actionError}</div>}
-                {tab === 'azi' && <TodayTab st={st} busy={busy} onReview={startReview} onHomeworkTab={() => goTab('teme')} onEnd={endSession} onFocusOpen={() => setFocusModal(true)} onFocusTest={() => startSimulare(false, true)} onFocusDate={changeFocusDate} onExamScope={setExamScope} />}
+            {/* secțiunea aleasă din meniul lateral (liste, rapoarte) */}
+            {!working && tab !== 'azi' && (
+              <div className="med-section">
                 {tab === 'plan' && <PlanTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onFocusOpen={() => setFocusModal(true)} onReset={async () => { if (window.confirm('Sigur reluăm totul de la zero? Planul și evaluarea inițială se șterg.')) { await aiClient.meditatii({ action: 'reset' }); await refresh(); } }} />}
                 {tab === 'teme' && <HomeworkTab st={st} busy={busy} onOpen={openHomework} onAsk={askHomework} />}
                 {tab === 'recapitulari' && <ReviewsTab st={st} busy={busy} onReview={startReview} />}
                 {tab === 'simulari' && <SimTab st={st} busy={busy} onSimulare={startSimulare} onFocusTest={() => startSimulare(false, true)} />}
                 {tab === 'raport' && <RaportTab st={st} busy={busy} onOpenHomework={openHomework} onRemediation={startRemediation} onStyle={setStyle} />}
                 {tab === 'progres' && <ProgressMeTab st={st} />}
-              </>
+              </div>
+            )}
+            {!working && tab === 'azi' && (
+              <div className="med-section">
+                <TodayTab st={st} busy={busy} onReview={startReview} onHomeworkTab={() => goTab('teme')} onEnd={endSession}
+                  onFocusOpen={() => setFocusModal(true)} onFocusTest={() => startSimulare(false, true)}
+                  onFocusDate={changeFocusDate} onExamScope={setExamScope} />
+              </div>
             )}
           </main>
         </div>
@@ -1203,66 +1382,6 @@ function BoardLessonView({ data, onClose, onExercises, onEnd, onExplainAgain, on
       onChat={onChat}
       onInternalLink={onInternalLink}
     />
-  );
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// TABLA „ACASĂ" — cât timp nu se predă nimic, profesorul scrie pe tablă ce
-// urmează astăzi (sau ce e secțiunea aleasă din meniul lateral).
-// ═════════════════════════════════════════════════════════════════════════════
-const SECTION_NOTE = {
-  plan: ['🗺️ Planul meu', 'Drumul până la examen: capitolele, în ordinea în care le luăm.\n\n- Verde = terminat · Galben = teoria citită · Alb = de parcurs\n- Lista completă e chiar sub tablă.'],
-  teme: ['📚 Temele mele', 'Temele date de profesor: tu le rezolvi, eu le corectez, le notez și îți explic fiecare greșeală.\n\n- O temă neterminată nu te împiedică să primești alta.'],
-  recapitulari: ['🔁 Recapitulări', 'Revenim la ce ai învățat — după 1 zi, 7 zile și 30 de zile.\n\n- Cinci întrebări scurte, ca materia să nu se șteargă.'],
-  simulari: ['🎯 Simulări de examen', 'Subiecte întregi, construite după modelele din site, cu punctele tale slabe incluse.\n\n- La final: punctajul, nota estimată și ce mai avem de lucrat.'],
-  raport: ['📋 Raportul meditatorului', 'Ce stăpânești, unde greșești des și ce facem mai departe.'],
-  progres: ['📈 Progresul meu', 'Timpul de studiu, capitolele terminate, notele și evoluția ta.'],
-};
-
-function BoardHome({ st, tab, busy, onLesson, onExercises, onReview, onSimulare, onHomeworkTab }) {
-  const next = st.nextChapter;
-  const firstRef = useRef(true);
-  useEffect(() => { firstRef.current = false; }, []);
-
-  if (tab !== 'azi') {
-    const [t, body] = SECTION_NOTE[tab] || ['Meditația ta', ''];
-    return (
-      <Whiteboard title={t} prof="idle"
-        tray={<span className="bd-tray-hint">Detaliile complete sunt sub tablă. ↓</span>}>
-        <BoardText text={body} animate={false} />
-      </Whiteboard>
-    );
-  }
-
-  // „Astăzi": profesorul scrie pasul recomandat, iar butoanele stau în tăviță
-  const salut = st.profile?.streakDays > 1
-    ? `Bine ai revenit! Ești la ${st.profile.streakDays} zile la rând — ține-o tot așa.`
-    : 'Bine ai venit la meditație! Îți explic pas cu pas, chiar aici, pe tablă.';
-  const text = next
-    ? `${salut}\n\n## Astăzi lucrăm la:\n**${next.title}**\n\n- ${next.status === 'de_parcurs' ? 'Începem cu teoria, apoi exersăm.' : next.status === 'teorie' ? 'Teoria e citită — acum exersăm.' : 'Continuăm exercițiile până stăpânești capitolul (80%+).'}${next.mastery != null ? `\n- Stăpânire actuală: ${Math.round(next.mastery * 100)}%.` : ''}${st.dueReviews?.length ? `\n- Avem și ${st.dueReviews.length} ${st.dueReviews.length === 1 ? 'recapitulare' : 'recapitulări'} de făcut.` : ''}${st.pendingHomework ? `\n- Ai ${st.pendingHomework} ${st.pendingHomework === 1 ? 'temă nefăcută' : 'teme nefăcute'}.` : ''}`
-    : `${salut}\n\n## Ai parcurs tot planul!\n\n- Rămânem în formă cu recapitulări și simulări de examen.`;
-
-  return (
-    <Whiteboard tall prof="idle"
-      title={<><span className="bd-title-ico">📅</span> Meditația de astăzi</>}
-      subtitle={next ? 'Pasul recomandat de profesor' : 'Plan terminat — trecem pe recapitulări'}
-      tray={next ? (
-        <>
-          <button type="button" className="btn btn-primary btn-sm" disabled={!!busy}
-            onClick={() => (next.status === 'de_parcurs' ? onLesson(next.id) : onExercises(next.id))}>
-            {busy === 'lesson' || busy === 'exercises' ? '⏳ Se pregătește…' : next.status === 'de_parcurs' ? '📖 Începe cu teoria' : next.status === 'teorie' ? '✍️ Fă exerciții' : '✍️ Continuă de unde ai rămas'}
-          </button>
-          {next.status === 'de_parcurs'
-            ? <button type="button" className="btn btn-outline btn-sm" disabled={!!busy} onClick={() => onExercises(next.id)}>✍️ Știu teoria — fă exerciții</button>
-            : <button type="button" className="btn btn-outline btn-sm" disabled={!!busy} onClick={() => onLesson(next.id)}>📖 Recitesc teoria</button>}
-          {st.dueReviews?.length > 0 && <button type="button" className="btn btn-outline btn-sm" disabled={!!busy} onClick={() => onReview(st.dueReviews[0].id, st.dueReviews[0].chapterTitle)}>🔁 Recapitulare rapidă</button>}
-          {st.pendingHomework > 0 && <button type="button" className="btn btn-outline btn-sm" onClick={onHomeworkTab}>📚 Vezi temele</button>}
-        </>
-      ) : (
-        <button type="button" className="btn btn-primary btn-sm" disabled={!!busy} onClick={onSimulare}>🎯 Dă-mi o simulare</button>
-      )}>
-      <BoardText text={text} animate={firstRef.current} speed={loadSpeed()} />
-    </Whiteboard>
   );
 }
 

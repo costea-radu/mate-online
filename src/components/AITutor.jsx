@@ -5,6 +5,7 @@
 // - FloatingTutor (export implicit): butonul plutitor de pe tot site-ul
 // =====================================================================
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
 import { useTestMode } from '../lib/testMode';
@@ -242,7 +243,12 @@ const consumedAutoPrompts = new Set();
 //  onAction(actiune)        — execută o acțiune AI în exercițiu (fill/choose/tf/add)
 //  initialConversationId    — reia o conversație existentă (chat → exercițiu)
 //  autoPrompt {id, text, mode?} — mesaj trimis automat (butonul din exercițiu)
-export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null, onAction = null, initialConversationId = null, autoPrompt = null, coachInject = null, testMode = false }) {
+export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null, onAction = null,
+  initialConversationId = null, autoPrompt = null, coachInject = null, testMode = false,
+  boardSlots = null, cmdRef = null, onBusy = null }) {
+  // boardSlots = { board, composer } — cele două containere din pagina de
+  // meditații: tabla (mesajele) și zona de sub ea (câmpul de scris).
+  const boardMode = !!boardSlots;
   const { user, isPremium, isTeacher, isParent } = useAuth();
   // Test pe grupă în desfășurare → nu se pot pune întrebări. Corectarea
   // („📝 Răspunde în chat") rămâne pornită: la testele PDF ea duce
@@ -450,9 +456,13 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     } catch (err) { setError('Nu am putut citi poza: ' + err.message); }
   }
 
+  // Derulare la ultimul mesaj. `boardSlots?.board` e în listă pentru că, pe
+  // pagina de meditații, conversația se mută între tablă și banda de sub ea
+  // (când tabla e ocupată de o lecție sau de exerciții): la mutare, containerul
+  // e nou și derularea ar rămâne la primul mesaj.
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, streaming]);
+  }, [messages, streaming, boardSlots?.board]);
 
   const patchLast = useCallback((patch) => {
     setMessages((msgs) => {
@@ -796,12 +806,29 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // pre-completate („starters" / acțiunile de navigare ale mentorului).
   // Elevul/profesorul scrie singur ce vrea — vezi zona „Mesaje" de mai jos.
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, position: 'relative' }}>
+  // Pagina de meditații comandă chatul din bara de butoane de sub tablă
+  // („🧩 Test din site" deschide lista de teste PDF chiar pe tablă) și știe
+  // când profesorul scrie, ca să-l animeze la tablă.
+  useEffect(() => {
+    if (!cmdRef) return;
+    cmdRef.current = {
+      send: (t, opts) => send(t, opts),
+      pdfPicker: () => togglePdfPicker(),
+      answerForm: () => openAnswerForm(),
+      newConversation: () => newConversation(),
+      canAnswer: () => !!canAnswer,
+    };
+    return () => { if (cmdRef) cmdRef.current = null; };
+  });
+  useEffect(() => { onBusy?.(streaming); }, [streaming]); // eslint-disable-line
+
+  const headJsx = (
+    <>
       {/* evidențierea părții citite cu voce din răspuns */}
       <style>{`.pv-said{background:rgba(232,185,49,.16);border-radius:3px}.pv-now{background:rgba(232,185,49,.42);border-radius:3px}`}</style>
       {/* Bară: conversație nouă + istoric */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid var(--border)', gap: 8 }}>
+      <div className={boardMode ? 'bdchat-bar' : undefined}
+        style={boardMode ? undefined : { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid var(--border)', gap: 8 }}>
         <button onClick={newConversation} style={miniBtn}>＋ Conversație nouă</button>
         <div style={{ display: 'flex', gap: 6 }}>
           {ttsSupported() && (
@@ -906,19 +933,22 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       {/* minHeight 0 în modul compact: altfel, pe panouri mici (mobil),
           zona de mesaje împinge câmpul de scris în afara ecranului */}
       {/* overscrollBehavior contain: derularea din chat nu se mai „scurge" în pagină */}
-      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain', padding: 14, minHeight: compact ? 0 : 320, background: '#f7f9fc' }}>
+      <div ref={scrollRef} className={boardMode ? 'bdchat-msgs' : undefined}
+        style={boardMode ? undefined : { flex: 1, overflowY: 'auto', overscrollBehavior: 'contain', padding: 14, minHeight: compact ? 0 : 320, background: '#f7f9fc' }}>
         {/* Chat GOL: fără mesaj de întâmpinare și fără butoane cu întrebări
             pre-completate. Zona rămâne liberă până la primul mesaj scris. */}
 
         {messages.map((m, i) => (
-          <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 10 }}>
-            <div style={{
-              maxWidth: '88%', padding: '9px 13px', borderRadius: 14,
-              background: m.role === 'user' ? 'var(--navy)' : (m.isError ? '#fdecea' : '#fff'),
-              color: m.role === 'user' ? '#fff' : (m.isError ? '#b71c1c' : 'var(--text)'),
-              border: m.role === 'user' ? 'none' : '1px solid var(--border)',
-              fontSize: '.9rem', lineHeight: 1.55,
-            }}>
+          <div key={i} className={boardMode ? `bdmsg-row is-${m.role}` : undefined}
+            style={boardMode ? undefined : { display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 10 }}>
+            <div className={boardMode ? `bdmsg is-${m.role}${m.isError ? ' is-err' : ''}${m.coach ? ' is-coach' : ''}` : undefined}
+              style={boardMode ? undefined : {
+                maxWidth: '88%', padding: '9px 13px', borderRadius: 14,
+                background: m.role === 'user' ? 'var(--navy)' : (m.isError ? '#fdecea' : '#fff'),
+                color: m.role === 'user' ? '#fff' : (m.isError ? '#b71c1c' : 'var(--text)'),
+                border: m.role === 'user' ? 'none' : '1px solid var(--border)',
+                fontSize: '.9rem', lineHeight: 1.55,
+              }}>
               {m.role === 'assistant' && m.primaryMaterial && m.primaryMaterial.url && (
                 <a href={m.primaryMaterial.url}
                   onClick={(e) => { e.preventDefault(); openInternal(m.primaryMaterial.url); }}
@@ -953,7 +983,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
               )}
 
               {/* Butoanele de pași propuși de profesor (mesajele „coach") */}
-              {m.coach && m.suggestions?.length > 0 && (
+              {!boardMode && m.coach && m.suggestions?.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
                   {m.suggestions.map((s, k) => (
                     <button key={k}
@@ -969,7 +999,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
             </div>
 
             {/* Butoanele de continuare (Etapa 3, 4.5): sub ULTIMUL răspuns, doar pentru elevi */}
-            {m.role === 'assistant' && !m.streaming && !m.isError && !m.coach && !isMentor && m.uid === chipsUid && i === messages.length - 1 && !streaming && (
+            {!boardMode && m.role === 'assistant' && !m.streaming && !m.isError && !m.coach && !isMentor && m.uid === chipsUid && i === messages.length - 1 && !streaming && (
               <div style={{ display: 'flex', gap: 6, marginTop: 6, paddingLeft: 4, flexWrap: 'wrap' }}>
                 {FOLLOW_UPS.map((c) => (
                   <button key={c.label} disabled={streaming} title={c.title}
@@ -1044,7 +1074,10 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           </div>
         ))}
       </div>
-
+    </>
+  );
+  const composerJsx = (
+    <>
       {/* FORMULARUL DE RĂSPUNS: câte un câmp pentru fiecare exercițiu și
           subpunct a), b), c) — cu punctele din barem. Butonul „Corectează"
           trimite testul + baremul + răspunsurile la corectare. */}
@@ -1238,6 +1271,28 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       {/* Modelele AI + „AI-ul poate greși" — o linie minusculă sub câmpul de scris
           (textele vin din src/lib/aiModels.js → AI_STACK) */}
       {!testActiv && <AIPoweredBy variant="disclaimer" />}
+    </>
+  );
+
+  // ── MODUL TABLĂ (pagina de meditații) ──────────────────────────────────
+  // Aceeași componentă, același motor: se schimbă DOAR unde își pune
+  // bucățile. Conversația se scrie pe tablă, iar câmpul de scris (cu poza,
+  // microfonul și formularul de răspunsuri) stă sub ea. Portalurile ne
+  // lasă să trimitem cele două părți în containere diferite, fără să rupem
+  // starea chatului în două componente.
+  if (boardSlots) {
+    return (
+      <>
+        {boardSlots.board ? createPortal(<div className="bdchat">{headJsx}</div>, boardSlots.board) : null}
+        {boardSlots.composer ? createPortal(<div className="bdchat-composer">{composerJsx}</div>, boardSlots.composer) : null}
+      </>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, position: 'relative' }}>
+      {headJsx}
+      {composerJsx}
     </div>
   );
 }
@@ -1436,6 +1491,11 @@ export default function FloatingTutor() {
     border: 'none', borderBottom: `2px solid ${active ? 'var(--gold)' : 'transparent'}`,
     background: 'transparent', color: active ? 'var(--navy)' : 'var(--text-muted)',
   });
+
+  // Pe /meditatii conversația ESTE tabla — un al doilea chat plutitor peste ea
+  // ar fi o a doua conversație peste prima, așa că widgetul nu mai apare acolo.
+  // (Profesorii și părinții îl păstrează: ei nu au tablă, ci raportul elevilor.)
+  if (medMode) return null;
 
   return (
     <>
