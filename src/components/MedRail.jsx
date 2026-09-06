@@ -1,13 +1,20 @@
 // =====================================================================
 // src/components/MedRail.jsx — MENIUL LATERAL al paginii „Meditații"
 //
-// Toate elementele paginii stau ÎN STÂNGA TABLEI, într-o bandă îngustă cu
-// pictograme. Pe desktop banda se desface singură la HOVER (peste conținut,
-// fără să împingă tabla). Pe telefon — unde nu există hover — rămâne lipită
-// de marginea din stânga și se desface la atingerea butonului ☰.
+// TOATE comenzile paginii stau ÎN STÂNGA TABLEI, într-o bandă îngustă cu
+// pictograme: acțiunile de pe tablă (exerciții, teorie, temă, test din site),
+// pregătirea pentru lucrare, secțiunile (Astăzi, Plan, Teme…) și rapoartele.
+// Sub tablă nu mai rămâne niciun buton — doar vocea elevului.
+//
+// Pe desktop banda se desface singură la HOVER (peste conținut, fără să
+// împingă tabla). Pe telefon — unde nu există hover — rămâne lipită de
+// marginea din stânga și se desface la atingerea butonului ☰.
 //
 // Structura vine din pagină (secțiuni → intrări), ca meniul să rămână un
 // simplu afișaj: nu știe nimic despre acțiunile pe care le pornește.
+//   sectiune = { titlu?, tone?: 'accent', items: [ … ] }
+//   intrare  = { id, icon, label, title?, badge?, badgeGold?, accent?, active?,
+//                disabled?, onClick }
 // =====================================================================
 import { useState, useEffect } from 'react';
 
@@ -35,6 +42,7 @@ export default function MedRail({ sections = [], footer = null }) {
 
   // pe telefon, alegerea unei intrări închide sertarul
   const pick = () => setOpen(false);
+  const groups = sections.filter((s) => s && (s.items || []).filter(Boolean).length);
 
   return (
     <>
@@ -45,8 +53,13 @@ export default function MedRail({ sections = [], footer = null }) {
             aria-expanded={open} aria-label={open ? 'Închide meniul' : 'Deschide meniul'}>
             {open ? '✕' : '☰'}
           </button>
-          {sections.filter(Boolean).map((s, si) => (
-            <div key={s.titlu || `s${si}`}>
+          {/* pe desktop: un indiciu discret că banda se desface la hover */}
+          <div className="mr-head" aria-hidden="true">
+            <span className="mr-head-ico">☰</span>
+            <span className="mr-text mr-head-txt">Meniul meditației</span>
+          </div>
+          {groups.map((s, si) => (
+            <div key={s.titlu || `s${si}`} className={`mr-grup-box${s.tone === 'accent' ? ' is-accent' : ''}`}>
               {si > 0 && <div className="mr-sep" />}
               {s.titlu && <div className="mr-grup">{s.titlu}</div>}
               {s.items.filter(Boolean).map((it) => <Item key={it.id} it={it} onPick={pick} />)}

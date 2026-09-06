@@ -189,6 +189,17 @@ const BUDGET_MONTH_LEI    = parseFloat(process.env.AI_BUDGET_MONTH_LEI    || '12
 // providerului se moștenește de la modelul de chat (AI Gateway).
 const ECON_CHAT_MODEL = process.env.AI_ECON_CHAT_MODEL || MODEL_PREFIX + 'gpt-4o-mini';
 
+// ─── CREDITE AI — unitatea în care vede elevul bugetul ───────────────────────
+// Intern ținem lei (costul real al apelurilor). În interfață, în Stripe și în
+// e-mailuri afișăm CREDITE: 100 credite = 1 leu de buget. Perechea din front
+// e src/lib/aiCredit.js — dacă schimbi rata, schimb-o în ambele locuri.
+const CREDITS_PER_LEU = parseInt(process.env.AI_CREDITS_PER_LEU || '100', 10) || 100;
+const leiToCredits = (lei) => {
+  const n = Number(lei);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * CREDITS_PER_LEU) : 0;
+};
+const fmtCredits = (lei) => leiToCredits(lei).toLocaleString('ro-RO');
+
 // ─── Pachete TOP-UP (buget suplimentar, cumpărat prin Stripe) ────────────────
 // Un pachet adaugă `creditLei` la bugetul lunar, pentru AI_TOPUP_DAYS zile
 // (implicit 30 — aceeași fereastră ca bugetul rulant). Prețul include marja
@@ -1173,8 +1184,15 @@ async function budgetInfo(supa, userId, profile = null) {
     dayActions: spent.day_actions || 0, monthActions: spent.month_actions || 0,
     limits: { daySoftLei: BUDGET_DAY_SOFT_LEI, dayHardLei: BUDGET_DAY_HARD_LEI, monthLei: BUDGET_MONTH_LEI },
     effectiveMonthLei: +effectiveMonthLei.toFixed(4),
-    topup: { creditLei: +topupLei.toFixed(4), active: topupActive, expiresAt: spent.topup_expires || null, days: TOPUP_DAYS },
-    packs: topupPacks(),
+    topup: {
+      creditLei: +topupLei.toFixed(4), credits: leiToCredits(topupLei),
+      active: topupActive, expiresAt: spent.topup_expires || null, days: TOPUP_DAYS,
+    },
+    // creditele = aceleași cifre, în unitatea pe care o vede elevul
+    creditsPerLeu: CREDITS_PER_LEU,
+    creditsUsed: leiToCredits(monthLei),
+    creditsTotal: leiToCredits(effectiveMonthLei),
+    packs: topupPacks().map((p) => ({ ...p, credits: leiToCredits(p.creditLei) })),
     features,
     degraded: !exempt && !topupActive && BUDGET_DAY_SOFT_LEI > 0 && dayLei >= BUDGET_DAY_SOFT_LEI,
     exempt,
@@ -2188,6 +2206,8 @@ module.exports = {
   pickModel, budgetInfo, costMicroLei, priceFor, dayStartBucharest, ECON_CHAT_MODEL, USD_RON,
   // cote per funcție + pachete top-up (pasul 2); per rol + pool comun
   enforceFeatureQuota, FEATURE_QUOTAS, topupPacks, TOPUP_DAYS, quotasForRole, allocateQuotas,
+  // credite AI (unitatea afișată elevului: 100 credite = 1 leu de buget)
+  CREDITS_PER_LEU, leiToCredits, fmtCredits,
   // folosit de _lib/pregen.js ca tonul explicațiilor pre-generate să fie identic cu chatul (pasul 3)
   MODE_ROLES,
 };

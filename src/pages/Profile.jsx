@@ -600,7 +600,20 @@ export default function Profile() {
               )}
             </div>
 
-            {/* Mesageria GRUPEI — imediat SUB „Abonament", ca rolldown, pentru
+            {/* Consum AI — imediat SUB „Abonament", ca rolldown, pentru TOATE rolurile
+                (elev / profesor / părinte): cote per funcție, buget lunar și
+                pachete suplimentare. Se deschide singur la întoarcerea de la
+                plata unui pachet (?topup=succes / ?topup=anulat). */}
+            <details className="card" style={{ marginBottom: 24 }} open={aiConsumOpen || undefined}>
+              <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none' }}>
+                ⚡ Consum AI
+              </summary>
+              <div style={{ marginTop: 16 }}>
+                <AILimite bare />
+              </div>
+            </details>
+
+            {/* Mesageria GRUPEI — după „⚡ Consum AI", ca rolldown, pentru
                 TOATE tipurile de cont (elev / profesor / părinte). Doar canalul
                 grupei: profesorul, elevii ei și părinții acelor elevi, cu rolul
                 scris în paranteză. Discuțiile 1-la-1 sunt separate, cu colegii
@@ -618,19 +631,6 @@ export default function Profile() {
                   Aici se scrie doar pe canalul grupei. Pentru discuții 1-la-1, adaugă-ți colegi din
                   „👥 Lista persoane" și deschide <Link to="/mesagerie" style={{ color: 'var(--navy)', fontWeight: 600 }}>💬 Mesageria</Link>.
                 </p>
-              </div>
-            </details>
-
-            {/* Consum AI — după Abonament, ca rolldown, pentru TOATE rolurile
-                (elev / profesor / părinte): cote per funcție, buget lunar și
-                pachete suplimentare. Se deschide singur la întoarcerea de la
-                plata unui pachet (?topup=succes / ?topup=anulat). */}
-            <details className="card" style={{ marginBottom: 24 }} open={aiConsumOpen || undefined}>
-              <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none' }}>
-                ⚡ Consum AI
-              </summary>
-              <div style={{ marginTop: 16 }}>
-                <AILimite bare />
               </div>
             </details>
 

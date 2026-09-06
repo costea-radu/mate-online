@@ -71,20 +71,22 @@ function collectInk(node, out) {
   Array.from(node.childNodes).forEach((c) => collectInk(c, out));
 }
 function inkify(root, cps, manual = false) {
-  if (!root) return { total: 0, spans: [] };
+  if (!root) return { total: 0, spans: [], delays: [] };
   const items = [];
   collectInk(root, items);
   const totalChars = items.reduce((n, it) => n + (it.t === 'text' ? it.node.nodeValue.length : 6), 0);
   // texte foarte lungi: dezvăluire pe CUVINTE (mii de <span>-uri ar încetini)
   const byWord = totalChars > 2400;
   const step = 1000 / (cps || 55);
-  const spans = [];
+  const spans = [];    // bucățile de cerneală, în ordinea scrierii
+  const delays = [];   // momentul (ms) la care apare fiecare — ne spune UNDE scrie acum
   let t = 0;
   for (const it of items) {
     if (it.t === 'blob') {
       it.node.classList.add('bd-ink');
-      if (manual) { it.node.style.opacity = '0'; it.node.style.animation = 'none'; spans.push(it.node); }
+      if (manual) { it.node.style.opacity = '0'; it.node.style.animation = 'none'; }
       else it.node.style.animationDelay = Math.round(t) + 'ms';
+      spans.push(it.node); delays.push(t);
       t += step * Math.max(4, Math.min(14, (it.node.textContent || '').length * 0.7));
       continue;
     }
@@ -96,14 +98,41 @@ function inkify(root, cps, manual = false) {
       const el = document.createElement('span');
       el.className = 'bd-ink';
       el.textContent = piece;
-      if (manual) { el.style.opacity = '0'; el.style.animation = 'none'; spans.push(el); }
+      if (manual) { el.style.opacity = '0'; el.style.animation = 'none'; }
       else el.style.animationDelay = Math.round(t) + 'ms';
+      spans.push(el); delays.push(t);
       frag.appendChild(el);
       t += /^\s+$/.test(piece) ? step * 0.45 : step * piece.length;
     }
     it.node.parentNode.replaceChild(frag, it.node);
   }
-  return { total: t, spans };
+  return { total: t, spans, delays };
+}
+
+// ─── UNDE scrie profesorul, chiar acum ──────────────────────────────────────
+// Din bucata de cerneală care tocmai a apărut aflăm punctul de pe tablă la
+// care e markerul: {x, y} ca fracții 0..1 din suprafața tablei. Pagina de
+// meditații mută profesorul după acest punct — corpul se leagănă stânga-dreapta
+// după coloana în care scrie, iar brațul urcă sau coboară după rând.
+function inkPointAt(spans, i, root) {
+  const node = spans[Math.min(Math.max(0, i), spans.length - 1)];
+  const surface = root?.closest?.('.bd-surface') || root?.closest?.('.bd-body') || null;
+  if (!node || !surface || !node.getBoundingClientRect) return null;
+  const r = node.getBoundingClientRect();
+  const s = surface.getBoundingClientRect();
+  if (!s.width || !s.height) return null;
+  if (!r.width && !r.height) return null;
+  const cl = (v) => Math.min(1, Math.max(0, v));
+  return {
+    x: cl((r.left + r.width / 2 - s.left) / s.width),
+    y: cl((r.top + r.height / 2 - s.top) / s.height),
+  };
+}
+// câte bucăți sunt deja scrise, la `elapsed` ms de la începutul blocului
+function inkIndexAt(delays, elapsed) {
+  let lo = 0, hi = delays.length - 1, i = -1;
+  while (lo <= hi) { const mid = (lo + hi) >> 1; if (delays[mid] <= elapsed) { i = mid; lo = mid + 1; } else hi = mid - 1; }
+  return i;
 }
 
 // ─── dezvăluirea condusă de VOCE ────────────────────────────────────────────
@@ -170,46 +199,184 @@ function scrollBlockIntoView(el) {
 // PROFESORUL — desen original (caricatură), în continuarea icon-ului Einstein:
 // păr alb dezordonat + mustață stufoasă. Două ipostaze:
 //   • din SPATE, cu markerul pe tablă (scrie)
-//   • cu FAȚA la elev (când întreabă „Ai înțeles?")
+//   • cu FAȚA la elev (când întreabă „Ai înțeles?" sau când îți propune ceva)
 // Întoarcerea e o rotație 3D reală a celor două fețe (backface-visibility).
+//
+// MIȘCAREA URMEAZĂ SCRISUL. Pagina îi dă poziția de pe tablă la care e
+// markerul (`writePos` = {x, y}, fracții 0..1):
+//   • corpul se leagănă STÂNGA-DREAPTA după coloana în care scrie (--pf-x)
+//     și se apleacă ușor în direcția aceea (--pf-lean);
+//   • brațul urcă sau coboară după rândul pe care scrie (--pf-arm).
+// Fără poziție (ex. când răspunde în conversație) rămâne un legănat lent.
+//
+// Desenul: pulover cu guler, mâneci și manșete elastice (nu linii groase), și
+// MÂINI adevărate — palmă, degete strânse și degetul mare peste marker.
 // ═════════════════════════════════════════════════════════════════════════════
-const SKIN = '#f2d3b3'; const SKIN_D = '#dcb48c';
+const SKIN = '#f2d3b3'; const SKIN_D = '#dcb48c'; const SKIN_L = '#f8e3cd';
 const HAIR = '#eef0f3'; const HAIR_D = '#b9bec6';
-const CLOTH = '#22456f'; const CLOTH_D = '#1a3557';
+const CLOTH = '#22456f'; const CLOTH_D = '#1a3557'; const CLOTH_L = '#2f5a8c';
+const LIP = '#b06a52'; const MOUTH_IN = '#7d3b32';
+
+// ─── puloverul: umeri, trunchi, manșeta de jos (aceeași croială din ambele părți)
+// Trunchiul e mai îngust decât silueta totală, ca brațele să se vadă pe lângă el.
+function Sweater() {
+  return (
+    <g>
+      {/* trunchiul, cu umeri rotunjiți */}
+      <path d="M110 176 C142 176 159 196 162 228 L165 270 L55 270 L58 228 C61 196 78 176 110 176 Z" fill={CLOTH} />
+      {/* lumina pe umărul din dreapta imaginii */}
+      <path d="M110 176 C142 176 159 196 162 228 L163 250 L140 250 L138 228 C136 202 126 186 110 180 Z" fill={CLOTH_L} opacity=".5" />
+      {/* umbra pe partea opusă — puloverul capătă volum */}
+      <path d="M110 176 C78 176 61 196 58 228 L57 250 L80 250 L82 228 C84 202 94 186 110 180 Z" fill={CLOTH_D} opacity=".45" />
+      {/* cutele de sub braț */}
+      <g stroke={CLOTH_D} strokeWidth="1.5" fill="none" opacity=".4" strokeLinecap="round">
+        <path d="M72 214 q9 8 10 22" /><path d="M148 214 q-9 8 -10 22" />
+      </g>
+      {/* manșeta elastică de jos (tricotată) */}
+      <path d="M56 250 L164 250 L165 270 L55 270 Z" fill={CLOTH_D} />
+      <g stroke={CLOTH_L} strokeWidth="1.5" opacity=".45">
+        {[64, 74, 84, 94, 104, 114, 124, 134, 144, 154].map((x) => <line key={x} x1={x} y1="251" x2={x} y2="270" />)}
+      </g>
+    </g>
+  );
+}
+
+// ─── mâna care ține markerul (palmă + patru degete strânse + degetul mare)
+// Desenată în jurul punctului (0,0) și așezată de apelant cu un `transform`.
+function HandWithMarker() {
+  return (
+    <g>
+      {/* markerul, ținut în pumn */}
+      <g transform="rotate(-32)">
+        <rect x="-6" y="-5.5" width="30" height="11" rx="4" fill="#2f3640" />
+        <rect x="-6" y="-5.5" width="30" height="4" rx="2" fill="#4a515c" opacity=".65" />
+        <rect x="22" y="-3.6" width="11" height="7.2" rx="2.2" fill="#8e44ad" />
+        <path d="M33 -3.4 L38.5 0 L33 3.4 Z" fill="#7d3c99" />
+      </g>
+      {/* palma */}
+      <path d="M-12 -8 q10 -7 19 -2 q8 4 7 12 q-1 8 -9 11 q-11 4 -18 -3 q-6 -6 -5 -11 q1 -5 6 -7 Z"
+        fill={SKIN} stroke={SKIN_D} strokeWidth="1.2" strokeLinejoin="round" />
+      {/* degetele strânse peste marker */}
+      <g fill={SKIN} stroke={SKIN_D} strokeWidth="1">
+        <rect x="-3" y="-9.6" width="13" height="6.4" rx="3.2" />
+        <rect x="-4" y="-3.2" width="15" height="6.5" rx="3.2" />
+        <rect x="-4" y="3.2" width="14" height="6.3" rx="3.1" />
+        <rect x="-3" y="9.2" width="12" height="5.8" rx="2.9" />
+      </g>
+      {/* degetul mare, peste degete */}
+      <path d="M-3 -8.5 q10 -3 14 3 q3 5 -2.5 7.5 q-6.5 2 -12 -3.5 Z" fill={SKIN_L} stroke={SKIN_D} strokeWidth="1.2" strokeLinejoin="round" />
+    </g>
+  );
+}
+
+// ─── mâna liberă, lăsată în jos (pumn relaxat, cu degete) ───────────────────
+function HandRest({ flip = false }) {
+  return (
+    <g transform={flip ? 'scale(-1,1)' : undefined}>
+      <path d="M-9 -8 q9 -5 16 0 q6 4 5 11 q-1 7 -8 9 q-10 3 -15 -4 q-4 -6 -3 -10 q1 -4 5 -6 Z"
+        fill={SKIN} stroke={SKIN_D} strokeWidth="1.2" strokeLinejoin="round" />
+      <g fill="none" stroke={SKIN_D} strokeWidth="1.1" strokeLinecap="round" opacity=".75">
+        <path d="M-6 -2 q7 -2 12 1" /><path d="M-6 3 q7 -2 12 1" /><path d="M-5 8 q6 -2 10 1" />
+      </g>
+      {/* degetul mare */}
+      <path d="M-9 -5 q-5 3 -4 8 q1 4 5 3" fill={SKIN_L} stroke={SKIN_D} strokeWidth="1.2" strokeLinejoin="round" />
+    </g>
+  );
+}
+
+// ─── mâneca unui braț lăsat în jos, cu manșetă ─────────────────────────────
+function SleeveDown({ right = false }) {
+  const g = right ? 'translate(220 0) scale(-1 1)' : undefined;
+  return (
+    <g transform={g}>
+      <path d="M76 182 C58 190 47 210 43 236 L61 241 C65 219 72 202 86 194 Z" fill={CLOTH} />
+      <path d="M76 182 C64 187 55 198 49 213 L58 217 C64 204 72 195 84 190 Z" fill={CLOTH_L} opacity=".4" />
+      {/* manșeta */}
+      <path d="M42 234 L62 239 L59 252 L39 247 Z" fill={CLOTH_D} />
+      <g stroke={CLOTH_L} strokeWidth="1.2" opacity=".5">
+        <line x1="45" y1="236" x2="42" y2="248" /><line x1="51" y1="238" x2="48" y2="250" /><line x1="57" y1="239" x2="54" y2="251" />
+      </g>
+    </g>
+  );
+}
+
+// ─── părul alb, dezordonat ─────────────────────────────────────────────────
+// Din SPATE e un inel de bucle în jurul creștetului, ca pata rărită din mijloc
+// să se vadă natural (nu ca un petic lipit deasupra).
+function HairBack() {
+  const curls = [
+    [70, 86, 15], [89, 70, 14], [110, 64, 13], [131, 70, 14], [150, 86, 15],
+    [59, 108, 14], [161, 108, 14], [63, 130, 13], [157, 130, 13],
+    [78, 146, 13], [110, 150, 13], [142, 146, 13],
+  ];
+  return (
+    <g>
+      {/* masa de păr acoperă TOT capul și coboară pe ceafă */}
+      <path d="M64 100 C60 66 90 55 110 60 C130 55 160 66 156 100 C163 124 160 154 136 155 L84 155 C60 154 57 124 64 100 Z"
+        fill={HAIR} stroke={HAIR_D} strokeWidth="1.2" />
+      {/* creștetul rărit — pielea se vede prin mijloc, nu ca un petic lipit */}
+      <ellipse cx="110" cy="92" rx="27" ry="19" fill={SKIN} stroke={SKIN_D} strokeWidth=".8" />
+      <ellipse cx="110" cy="88" rx="16" ry="10" fill={SKIN_L} opacity=".5" />
+      {/* buclele de pe contur, care rup silueta */}
+      <g fill={HAIR} stroke={HAIR_D} strokeWidth="1.2">
+        {curls.map(([cx, cy, r]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r} />)}
+      </g>
+    </g>
+  );
+}
+
+function HairFront() {
+  return (
+    <g fill={HAIR} stroke={HAIR_D} strokeWidth="1.2">
+      <path d="M66 116 C48 116 50 88 68 88 C56 62 92 50 100 68 C110 48 150 54 148 76 C172 70 180 106 160 114 C180 124 168 152 150 146 L72 146 C54 152 48 122 66 116 Z" />
+      <circle cx="62" cy="96" r="14" /><circle cx="54" cy="118" r="12" />
+      <circle cx="160" cy="94" r="14" /><circle cx="168" cy="118" r="12" />
+      <circle cx="84" cy="68" r="12" /><circle cx="140" cy="66" r="12" />
+      <circle cx="58" cy="138" r="11" /><circle cx="164" cy="138" r="11" />
+    </g>
+  );
+}
 
 function ProfBack() {
   return (
     <svg viewBox="0 0 220 270" className="pf-svg" aria-hidden="true" focusable="false">
-      {/* brațul care scrie (se leagănă cât timp scrie) */}
-      <g className="pf-arm">
-        <path d="M70 168 L26 104" stroke={CLOTH} strokeWidth="26" strokeLinecap="round" fill="none" />
-        <path d="M70 168 L26 104" stroke={CLOTH_D} strokeWidth="26" strokeLinecap="round" fill="none" opacity=".25" />
-        <circle cx="24" cy="100" r="12" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
-        {/* markerul */}
-        <g transform="rotate(-38 18 92)">
-          <rect x="2" y="84" width="30" height="11" rx="4" fill="#2f3640" />
-          <rect x="30" y="86" width="9" height="7" rx="2" fill="#8e44ad" />
+      {/* ceafa */}
+      <path d="M92 140 h36 v34 h-36 z" fill={SKIN} />
+      <path d="M92 140 h36 v10 q-18 7 -36 0 z" fill={SKIN_D} opacity=".3" />
+      {/* capul, din spate */}
+      <ellipse cx="110" cy="112" rx="41" ry="44" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
+      {/* urechile, văzute din spate */}
+      <ellipse cx="70" cy="116" rx="7" ry="10.5" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
+      <ellipse cx="150" cy="116" rx="7" ry="10.5" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
+      <HairBack />
+
+      <Sweater />
+      {/* gulerul, văzut din spate */}
+      <path d="M88 174 Q110 190 132 174 L133 166 Q110 180 87 166 Z" fill={CLOTH_D} />
+      <path d="M90 173 Q110 187 130 173" fill="none" stroke={CLOTH_L} strokeWidth="1.6" opacity=".6" />
+
+      {/* brațul liber, pe lângă corp (peste pulover, ca să se vadă mâna) */}
+      <g>
+        <SleeveDown right />
+        <g transform="translate(171 254)"><HandRest flip /></g>
+      </g>
+      {/* BRAȚUL CARE SCRIE — mânecă + manșetă + mână cu marker.
+          .pf-arm-aim = unghiul dat de rândul pe care scrie (variabilă CSS),
+          .pf-arm     = legănatul propriu-zis al scrisului. */}
+      <g className="pf-arm-aim">
+        <g className="pf-arm">
+          <path d="M80 194 C68 176 54 150 42 122 L62 110 C74 136 88 164 98 182 Z" fill={CLOTH} />
+          <path d="M80 194 C68 176 54 150 42 122 L50 117 C62 145 76 170 88 188 Z" fill={CLOTH_D} opacity=".4" />
+          {/* manșeta elastică */}
+          <path d="M39 128 L64 113 L58 103 L33 118 Z" fill={CLOTH_D} />
+          <g stroke={CLOTH_L} strokeWidth="1.2" opacity=".5">
+            <line x1="38" y1="124" x2="60" y2="110" /><line x1="41" y1="128" x2="63" y2="115" />
+          </g>
+          {/* antebrațul descoperit + mâna cu markerul */}
+          <path d="M35 117 L48 109 L39 95 L27 103 Z" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
+          <g transform="translate(30 94)"><HandWithMarker /></g>
         </g>
       </g>
-      {/* trunchi (pulover) */}
-      <path d="M44 270 C44 196 68 172 110 172 C152 172 176 196 176 270 Z" fill={CLOTH} />
-      <path d="M44 270 C44 232 52 208 68 192 L68 270 Z" fill={CLOTH_D} opacity=".45" />
-      {/* gulerul, văzut din spate */}
-      <path d="M86 176 Q110 192 134 176 L134 170 Q110 182 86 170 Z" fill={CLOTH_D} />
-      {/* ceafă */}
-      <path d="M96 148 h28 v22 h-28 z" fill={SKIN} />
-      {/* capul, din spate */}
-      <ellipse cx="110" cy="112" rx="42" ry="45" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
-      {/* păr alb dezordonat, de jur împrejur */}
-      <g fill={HAIR} stroke={HAIR_D} strokeWidth="1.2">
-        <path d="M68 118 C52 118 54 92 70 92 C60 68 92 54 100 70 C110 52 148 58 146 78 C168 72 176 106 158 114 C176 124 166 150 148 144 L74 144 C56 150 52 122 68 118 Z" />
-        <circle cx="64" cy="98" r="13" /><circle cx="56" cy="118" r="11" />
-        <circle cx="158" cy="96" r="13" /><circle cx="166" cy="118" r="11" />
-        <circle cx="84" cy="72" r="11" /><circle cx="140" cy="70" r="11" />
-        <circle cx="110" cy="62" r="9" />
-      </g>
-      {/* creștetul rărit — pata de piele care se vede printre bucle */}
-      <ellipse cx="110" cy="92" rx="20" ry="13" fill={SKIN} opacity=".55" />
     </svg>
   );
 }
@@ -217,52 +384,85 @@ function ProfBack() {
 function ProfFront() {
   return (
     <svg viewBox="0 0 220 270" className="pf-svg" aria-hidden="true" focusable="false">
-      {/* brațul lăsat în jos, cu markerul, când se întoarce spre elev */}
-      <g className="pf-arm-down">
-        <path d="M72 186 L36 230" stroke={CLOTH} strokeWidth="26" strokeLinecap="round" fill="none" />
-        <circle cx="34" cy="232" r="12" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
-        <rect x="18" y="238" width="28" height="10" rx="4" fill="#2f3640" transform="rotate(12 32 243)" />
-      </g>
-      {/* trunchi */}
-      <path d="M44 270 C44 196 68 172 110 172 C152 172 176 196 176 270 Z" fill={CLOTH} />
-      <path d="M86 176 Q110 196 134 176 L138 184 Q110 208 82 184 Z" fill={CLOTH_D} />
-      {/* gât */}
-      <path d="M96 146 h28 v26 h-28 z" fill={SKIN} />
-      <path d="M96 158 q14 10 28 0 v-12 h-28 z" fill={SKIN_D} opacity=".35" />
-      {/* păr alb (planul din spate) */}
-      <g fill={HAIR} stroke={HAIR_D} strokeWidth="1.2">
-        <path d="M66 116 C48 116 50 88 68 88 C56 62 92 50 100 68 C110 48 150 54 148 76 C172 70 180 106 160 114 C180 124 168 152 150 146 L72 146 C54 152 48 122 66 116 Z" />
-        <circle cx="62" cy="96" r="14" /><circle cx="54" cy="118" r="12" />
-        <circle cx="160" cy="94" r="14" /><circle cx="168" cy="118" r="12" />
-        <circle cx="84" cy="68" r="12" /><circle cx="140" cy="66" r="12" />
-      </g>
-      {/* față */}
-      <ellipse cx="110" cy="110" rx="36" ry="39" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
-      <path d="M92 88 Q110 81 128 88" fill="none" stroke={SKIN_D} strokeWidth="1.4" opacity=".6" />
+      {/* gâtul */}
+      <path d="M93 140 h34 v38 h-34 z" fill={SKIN} />
+      <path d="M93 150 q17 13 34 0 v-10 h-34 z" fill={SKIN_D} opacity=".35" />
+      <HairFront />
+      {/* urechile */}
+      <ellipse cx="70" cy="112" rx="7.5" ry="11" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
+      <ellipse cx="150" cy="112" rx="7.5" ry="11" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
+      {/* fața */}
+      <ellipse cx="110" cy="106" rx="38" ry="48" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
+      {/* fruntea brăzdată, obrajii */}
+      <path d="M90 80 Q110 73 130 80" fill="none" stroke={SKIN_D} strokeWidth="1.3" opacity=".5" />
+      <ellipse cx="82" cy="122" rx="9" ry="6" fill="#e8a08a" opacity=".28" />
+      <ellipse cx="138" cy="122" rx="9" ry="6" fill="#e8a08a" opacity=".28" />
       {/* sprâncene stufoase */}
-      <path d="M86 100 Q96 91 106 100" fill="none" stroke="#a9aeb7" strokeWidth="6.5" strokeLinecap="round" />
-      <path d="M114 100 Q124 91 134 100" fill="none" stroke="#a9aeb7" strokeWidth="6.5" strokeLinecap="round" />
-      {/* ochi (clipesc) */}
+      <path d="M84 96 Q95 87 106 95" fill="none" stroke="#a9aeb7" strokeWidth="6.5" strokeLinecap="round" />
+      <path d="M114 95 Q125 87 136 96" fill="none" stroke="#a9aeb7" strokeWidth="6.5" strokeLinecap="round" />
+      {/* ochii (clipesc) */}
       <g className="pf-eyes">
-        <ellipse cx="96" cy="110" rx="5.2" ry="5.6" fill="#fff" stroke={SKIN_D} strokeWidth=".8" />
-        <ellipse cx="124" cy="110" rx="5.2" ry="5.6" fill="#fff" stroke={SKIN_D} strokeWidth=".8" />
-        <circle cx="97" cy="111" r="2.7" fill="#33383f" />
-        <circle cx="125" cy="111" r="2.7" fill="#33383f" />
+        <ellipse cx="96" cy="108" rx="6" ry="6.4" fill="#fff" stroke={SKIN_D} strokeWidth=".9" />
+        <ellipse cx="124" cy="108" rx="6" ry="6.4" fill="#fff" stroke={SKIN_D} strokeWidth=".9" />
+        <circle cx="97" cy="109" r="3" fill="#33383f" />
+        <circle cx="125" cy="109" r="3" fill="#33383f" />
+        <circle cx="95.6" cy="107" r="1.1" fill="#fff" />
+        <circle cx="123.6" cy="107" r="1.1" fill="#fff" />
       </g>
-      {/* nas */}
-      <path d="M110 111 L104 128 Q110 133 117 128" fill="none" stroke="#c79a70" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
-      {/* mustață stufoasă */}
-      <path d="M84 136 Q97 131 110 136 Q123 131 136 136 Q131 150 110 145 Q89 150 84 136 Z" fill="#e4e7ea" stroke="#a9aeb7" strokeWidth="1.6" />
-      {/* gură — zâmbet cald */}
-      <path d="M101 149 Q110 155 119 149" fill="none" stroke="#a86f48" strokeWidth="2.2" strokeLinecap="round" />
+      {/* nasul */}
+      <path d="M110 110 L105 126 Q110 131 116 127" fill="none" stroke="#c79a70" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
+      {/* GURA — buze clare, dinți, interior; se mișcă atunci când vorbește */}
+      <g className="pf-mouth">
+        <path d="M96 146 Q110 142 124 146 Q122 159 110 160 Q98 159 96 146 Z" fill={MOUTH_IN} />
+        <path d="M98 147 Q110 143.5 122 147 L121 151 Q110 148 99 151 Z" fill="#fdfdfd" />
+        <path d="M103 155 Q110 152.5 117 155 Q115 159.5 110 160 Q105 159.5 103 155 Z" fill="#c76a6a" opacity=".85" />
+        <path d="M96 146 Q110 164 124 146" fill="none" stroke={LIP} strokeWidth="2.4" strokeLinecap="round" />
+        <path d="M94.5 145 q3 -3 5 -1" fill="none" stroke={LIP} strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M125.5 145 q-3 -3 -5 -1" fill="none" stroke={LIP} strokeWidth="1.9" strokeLinecap="round" />
+      </g>
+      {/* mustața stufoasă, PESTE buza de sus */}
+      <path d="M82 135 Q96 128 110 137 Q124 128 138 135 Q134 150 110 144 Q86 150 82 135 Z"
+        fill="#e4e7ea" stroke="#a9aeb7" strokeWidth="1.6" strokeLinejoin="round" />
+      <g stroke="#c9ced5" strokeWidth="1" opacity=".8" fill="none">
+        <path d="M93 135 q6 5 14 5" /><path d="M127 135 q-6 5 -14 5" />
+      </g>
+      {/* bărbia */}
+      <path d="M101 162 q9 5 18 0" fill="none" stroke={SKIN_D} strokeWidth="1.2" opacity=".45" />
+
+      <Sweater />
+      {/* gulerul rotund, din față */}
+      <path d="M85 174 Q110 198 135 174 L140 182 Q110 212 80 182 Z" fill={CLOTH_D} />
+      <path d="M88 177 Q110 198 132 177" fill="none" stroke={CLOTH_L} strokeWidth="1.8" opacity=".65" />
+
+      {/* brațele lăsate pe lângă corp (markerul rămâne la tablă) */}
+      <g className="pf-arm-down">
+        <SleeveDown />
+        <g transform="translate(49 256)"><HandRest /></g>
+      </g>
+      <g>
+        <SleeveDown right />
+        <g transform="translate(171 254)"><HandRest flip /></g>
+      </g>
     </svg>
   );
 }
 
 // „state": 'writing' (spate) | 'asking' (față) | 'idle' (spate, nemișcat)
-export function Professor({ state = 'idle', name = 'prof. Virtual' }) {
+// writePos = { x, y } (0..1) — unde e markerul pe tablă; opțional.
+export function Professor({ state = 'idle', name = 'prof. Virtual', writePos = null }) {
+  const writing = state === 'writing';
+  // Corpul urmează coloana în care scrie: stânga tablei → se mută spre stânga
+  // și se apleacă într-acolo. Brațul urmează rândul: sus → ridicat, jos → coborât.
+  const pos = writing && writePos ? writePos : null;
+  const style = pos
+    ? {
+        '--pf-x': (-30 * (1 - pos.x) + 2 * pos.x).toFixed(1),
+        '--pf-lean': (-3.2 * (1 - pos.x) + 1.6 * pos.x).toFixed(2),
+        '--pf-arm': (-15 + 34 * pos.y).toFixed(1),
+      }
+    : undefined;
   return (
-    <div className={`med-prof is-${state}`} aria-hidden="true">
+    <div className={`med-prof is-${state}${writing && !pos ? ' is-sway' : ''}`} style={style} aria-hidden="true">
       <div className="pf-flip">
         <div className="pf-face pf-back"><ProfBack /></div>
         <div className="pf-face pf-front"><ProfFront /></div>
@@ -276,15 +476,39 @@ export function Professor({ state = 'idle', name = 'prof. Virtual' }) {
 // TEXTUL SCRIS PE TABLĂ
 // ═════════════════════════════════════════════════════════════════════════════
 export function BoardText({ text, speed = 'normal', animate = true, voiceFrac = null,
-  onDone = null, onSkip = null, onInternalLink = null, replayKey = 0 }) {
+  onDone = null, onSkip = null, onInternalLink = null, onWritePos = null, replayKey = 0 }) {
   const ref = useRef(null);
   const doneRef = useRef(onDone);
   const skipRef = useRef(onSkip);
   const timerRef = useRef(null);
   const inkRef = useRef(null);           // { spans, shown, target, timer } — modul „voce"
+  const posRef = useRef(null);           // { spans, delays, t0, st } — de unde citim poziția markerului
+  const posTimerRef = useRef(null);
+  const wposRef = useRef(onWritePos);
   const [writing, setWriting] = useState(false);
   const voiceOn = voiceFrac !== null && voiceFrac !== undefined;
   useEffect(() => { doneRef.current = onDone; skipRef.current = onSkip; }, [onDone, onSkip]);
+  useEffect(() => { wposRef.current = onWritePos; }, [onWritePos]);
+
+  // urmărirea markerului: la fiecare ~130ms spunem paginii unde s-a ajuns cu
+  // scrisul, ca profesorul să se miște după zona în care scrie pe tablă
+  const stopPosWatch = useCallback(() => {
+    if (posTimerRef.current) { clearInterval(posTimerRef.current); posTimerRef.current = null; }
+  }, []);
+  const startPosWatch = useCallback(() => {
+    stopPosWatch();
+    if (!wposRef.current) return;
+    posTimerRef.current = setInterval(() => {
+      const P = posRef.current; const cb = wposRef.current;
+      if (!P || !cb || !ref.current) return;
+      const i = P.st
+        ? P.st.shown - 1
+        : inkIndexAt(P.delays, (typeof performance !== 'undefined' ? performance.now() : Date.now()) - P.t0);
+      if (i < 0) return;
+      const pt = inkPointAt(P.spans, i, ref.current);
+      if (pt) cb(pt);
+    }, 130);
+  }, [stopPosWatch]);
 
   useEffect(() => {
     const el = ref.current;
@@ -292,13 +516,15 @@ export function BoardText({ text, speed = 'normal', animate = true, voiceFrac = 
     let dead = false;
     clearTimeout(timerRef.current);
     stopReveal(inkRef.current);
+    stopPosWatch();
     inkRef.current = null;
+    posRef.current = null;
     el.classList.remove('bd-ink-done');
     el.innerHTML = boardHtml(text);
     let cps = SPEEDS[speed] !== undefined ? SPEEDS[speed] : 55;
     // sistemul cere „mișcare redusă" → textul apare dintr-odată (și întrebarea la fel)
     try { if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) cps = 0; } catch { /* ignore */ }
-    const finish = () => { setWriting(false); doneRef.current?.(); };
+    const finish = () => { stopPosWatch(); setWriting(false); doneRef.current?.(); };
     const start = () => {
       if (dead || !ref.current) return;
       // scrisul condus de VOCE: literele apar pe măsură ce profesorul le rostește
@@ -306,13 +532,17 @@ export function BoardText({ text, speed = 'normal', animate = true, voiceFrac = 
         const { spans } = inkify(ref.current, 0, true);
         if (!spans.length) { ref.current.classList.add('bd-ink-done'); finish(); return; }
         inkRef.current = { spans, shown: 0, target: 0, timer: null, onReach: () => { if (!dead) finish(); } };
+        posRef.current = { spans, delays: null, t0: 0, st: inkRef.current };
         setWriting(true);
+        startPosWatch();
         return;
       }
       if (!animate || !cps) { ref.current.classList.add('bd-ink-done'); finish(); return; }
-      const { total } = inkify(ref.current, cps, false);
+      const { total, spans, delays } = inkify(ref.current, cps, false);
       if (!total) { ref.current.classList.add('bd-ink-done'); finish(); return; }
+      posRef.current = { spans, delays, t0: (typeof performance !== 'undefined' ? performance.now() : Date.now()), st: null };
       setWriting(true);
+      startPosWatch();
       timerRef.current = setTimeout(() => { if (!dead) finish(); }, total + 150);
     };
     ensureKatex().then(() => {
@@ -320,7 +550,7 @@ export function BoardText({ text, speed = 'normal', animate = true, voiceFrac = 
       renderMath(ref.current);
       start();
     });
-    return () => { dead = true; clearTimeout(timerRef.current); stopReveal(inkRef.current); };
+    return () => { dead = true; clearTimeout(timerRef.current); stopReveal(inkRef.current); stopPosWatch(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text, speed, animate, voiceOn, replayKey]);
 
@@ -336,12 +566,13 @@ export function BoardText({ text, speed = 'normal', animate = true, voiceFrac = 
 
   const skip = useCallback(() => {
     clearTimeout(timerRef.current);
+    stopPosWatch();
     if (inkRef.current) revealAll(inkRef.current);
     ref.current?.classList.add('bd-ink-done');
     setWriting(false);
     if (skipRef.current) skipRef.current();
     else doneRef.current?.();
-  }, []);
+  }, [stopPosWatch]);
 
   function onClick(e) {
     const a = e.target.closest?.('a[data-internal]');
@@ -367,7 +598,8 @@ export function BoardText({ text, speed = 'normal', animate = true, voiceFrac = 
 // ask = { question, yes, no, onYes, onNo, note }
 // ═════════════════════════════════════════════════════════════════════════════
 export function Whiteboard({ title = null, subtitle = null, chips = null, toolbar = null, prof = 'idle',
-  profName = 'prof. Virtual', ask = null, tray = null, tall = false, tone = 'board', bodyClass = '', children }) {
+  profName = 'prof. Virtual', ask = null, tray = null, tall = false, tone = 'board', bodyClass = '',
+  writePos = null, children }) {
   return (
     <div className={`med-board${tall ? ' is-tall' : ''}`}>
       <div className="bd-frame">
@@ -385,11 +617,13 @@ export function Whiteboard({ title = null, subtitle = null, chips = null, toolba
           <div className={`bd-body${bodyClass ? ' ' + bodyClass : ''}`}>{children}</div>
           {/* când profesorul chiar scrie (răspunsul curge pe tablă) rămâne cu
             spatele și mișcă markerul, chiar dacă are o propunere pe ecran */}
-        <Professor state={prof === 'writing' ? 'writing' : (ask ? 'asking' : prof)} name={profName} />
+        <Professor state={prof === 'writing' ? 'writing' : (ask ? 'asking' : prof)} name={profName} writePos={writePos} />
         </div>
 
+        {/* Ce SPUNE profesorul (întrebarea, propunerea) apare lipit de el, ca o
+            casetă de dialog cu coada spre umărul lui — nu într-un colț al tablei. */}
         {ask && (
-          <div className="bd-ask" role="group" aria-label="Verificare înțelegere">
+          <div className="bd-ask" role="group" aria-label="Ce spune profesorul">
             <div className="bd-bubble">
               <span className="bd-bubble-q">{ask.question || 'Ai înțeles?'}</span>
               {ask.note && <span className="bd-bubble-note">{ask.note}</span>}
@@ -474,6 +708,8 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
   const [vFrac, setVFrac] = useState(0);
   const [paused, setPaused] = useState(false);
   const [warn, setWarn] = useState(null);
+  // unde e markerul pe tablă (0..1) — profesorul se mișcă după el
+  const [wpos, setWpos] = useState(null);
   const ctlRef = useRef(null);
   const activeRef = useRef(null);
   const modeRef = useRef(mode);
@@ -487,7 +723,7 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
   // lecție nouă → tabla se șterge și o luăm de la prima etapă
   useEffect(() => {
     setIdx(0); setMode('write'); setExtras({}); setActiveExtra(-1);
-    setInstantBlock(null); setWarn(null); setReplay((r) => r + 1);
+    setInstantBlock(null); setWarn(null); setWpos(null); setReplay((r) => r + 1);
   }, [text]);
   useEffect(() => () => { try { ctlRef.current?.stop?.(); } catch { /* ignore */ } stopSpeaking(); }, []);
 
@@ -628,6 +864,8 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
     voiceFrac: active(i, k) && voiceMode ? vFrac : null,
     onDone: active(i, k) ? blockDone : null,
     onSkip: active(i, k) ? skipBlock : null,
+    // doar blocul care se scrie ACUM spune unde e markerul
+    onWritePos: active(i, k) ? setWpos : null,
   });
 
   return (
@@ -637,6 +875,7 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
       subtitle={`Etapa ${idx + 1} din ${stages.length} · ${stage.title}`}
       chips={chips}
       prof={mode === 'write' ? 'writing' : 'idle'}
+      writePos={mode === 'write' ? wpos : null}
       ask={ask}
       toolbar={<>
         {!readAloud && <SpeedPicker value={speed} onChange={setSpeed} />}

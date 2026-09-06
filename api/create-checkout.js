@@ -85,8 +85,8 @@ async function topupCheckout(req, res, supabase, userId, profile) {
       price_data: {
         currency: 'ron',
         product_data: {
-          name: `${pack.nume} — +${pack.creditLei} lei buget AI`,
-          description: `Buget suplimentar pentru Profesorul Virtual, valabil ${ai.TOPUP_DAYS} de zile. Se adaugă peste bugetul inclus în abonament.`,
+          name: `${pack.nume} — +${ai.fmtCredits(pack.creditLei)} credite AI`,
+          description: `Credite AI suplimentare pentru Profesorul Virtual, valabile ${ai.TOPUP_DAYS} de zile. Se adaugă peste creditele incluse în abonament și deblochează toate cotele.`,
         },
         unit_amount: Math.round(pack.pretLei * 100),
       },

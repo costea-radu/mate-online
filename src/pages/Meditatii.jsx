@@ -963,27 +963,6 @@ export default function Meditatii() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  // TOATE elementele paginii, ca meniu lateral în stânga tablei
-  const railSections = !onBoard ? [] : [
-    { items: [
-      { id: 'azi', icon: '📅', label: 'Astăzi', active: tab === 'azi' && !working, onClick: () => goTab('azi') },
-      { id: 'plan', icon: '🗺️', label: `Planul meu${st.plan?.progress != null ? ` · ${st.plan.progress}%` : ''}`, active: tab === 'plan', onClick: () => goTab('plan') },
-      { id: 'teme', icon: '📚', label: 'Teme', badge: st.pendingHomework || null, active: tab === 'teme', onClick: () => goTab('teme') },
-      { id: 'recapitulari', icon: '🔁', label: 'Recapitulări', badge: st.dueReviews?.length || null, badgeGold: true, active: tab === 'recapitulari', onClick: () => goTab('recapitulari') },
-      { id: 'simulari', icon: '🎯', label: 'Simulări de examen', active: tab === 'simulari', onClick: () => goTab('simulari') },
-    ] },
-    { titlu: 'Rapoarte', items: [
-      { id: 'raport', icon: '📋', label: 'Raport meditator', badge: st.openMistakes?.length || null, active: tab === 'raport', onClick: () => goTab('raport') },
-      { id: 'progres', icon: '📈', label: 'Progresul meu', active: tab === 'progres', onClick: () => goTab('progres') },
-    ] },
-    { titlu: 'Acțiuni', items: [
-      { id: 'focus', icon: '🎯', accent: true, label: st.focus ? 'Modifică pregătirea pentru lucrare' : 'Pregătire pentru lucrare/test', onClick: () => setFocusModal(true) },
-      st.focus ? { id: 'focustest', icon: '🧩', label: 'Test de verificare (lucrare)', disabled: !!busy, onClick: () => startSimulare(false, true) } : null,
-      { id: 'conv', icon: '💬', label: 'Conversație cu profesorul', onClick: () => { askTeacher(null); } },
-      { id: 'end', icon: '🏁', label: 'Încheie meditația și dă-mi tema', disabled: !!busy, onClick: endSession },
-    ] },
-  ];
-
   // ── TABLA-CONVERSAȚIE ────────────────────────────────────────────────────
   // Chatul rămâne o singură componentă (cu tot ce știe: streaming, poze,
   // corectare după barem, istoric), dar își pune mesajele PE TABLĂ, iar
@@ -1119,28 +1098,67 @@ export default function Meditatii() {
     setTimeout(() => sayProposal(pickProposal([], prefer)), 260);
   }
 
-  // butoanele de sub tablă — aceleași acțiuni, mereu la îndemână
+  // ACȚIUNILE MEDITAȚIEI — nu mai stau sub tablă, ci în meniul din stânga ei
+  // (sub tablă rămâne DOAR câmpul de scris al elevului). Aceleași funcții,
+  // doar că fiecare are acum pictograma lui, ca să se citească în bandă.
   const runAction = (fn) => { setProposal(null); fn(); };
   const mistake0 = st?.openMistakes?.[0];
   const hw0 = (st?.homework || []).find((h) => h.status === 'data');
   const nextCh = st?.nextChapter;
   const actions = !onBoard ? [] : [
-    mistake0 && { id: 'rem', label: '🔁 10 exerciții ca acela greșit', title: 'Zece exerciții de același tip cu cel la care ai greșit', run: () => runAction(() => startRemediation(mistake0.id)) },
-    hw0 && { id: 'hw', label: '📚 Tema', title: hw0.title, run: () => runAction(() => openHomework(hw0)) },
     nextCh && {
-      id: 'ex', primary: true,
-      label: nextCh.status === 'de_parcurs' ? '✍️ Exerciții' : '✍️ Continuă de unde ai rămas',
-      title: nextCh.title, run: () => runAction(() => startExercises(nextCh.id)),
+      id: 'ex', icon: '✍️', accent: true,
+      label: nextCh.status === 'de_parcurs' ? 'Exerciții' : 'Continuă de unde ai rămas',
+      title: nextCh.title, onClick: () => runAction(() => startExercises(nextCh.id)), disabled: !!busy,
     },
-    nextCh && nextCh.status !== 'de_parcurs' && { id: 'teorie', label: '📖 Recitesc teoria', title: nextCh.title, run: () => runAction(() => openLesson(nextCh.id)) },
-    nextCh && nextCh.status === 'de_parcurs' && { id: 'teorie2', label: '📖 Teoria', title: nextCh.title, run: () => runAction(() => openLesson(nextCh.id)) },
-    { id: 'capitol', label: '🗺️ Alege alt capitol', run: () => runAction(() => goTab('plan')) },
-    { id: 'site', label: '🧩 Test din site', title: 'Teste PDF din biblioteca site-ului, corectate după barem', run: () => runAction(() => chatCmd.current?.pdfPicker?.()) },
+    nextCh && {
+      id: 'teorie', icon: '📖',
+      label: nextCh.status === 'de_parcurs' ? 'Teoria pe tablă' : 'Recitesc teoria',
+      title: nextCh.title, onClick: () => runAction(() => openLesson(nextCh.id)), disabled: !!busy,
+    },
+    mistake0 && {
+      id: 'rem', icon: '🔁', label: '10 exerciții ca acela greșit',
+      title: 'Zece exerciții de același tip cu cel la care ai greșit',
+      onClick: () => runAction(() => startRemediation(mistake0.id)), disabled: !!busy,
+    },
+    hw0 && { id: 'hw', icon: '📚', label: 'Rezolv tema acum', title: hw0.title, onClick: () => runAction(() => openHomework(hw0)), disabled: !!busy },
+    { id: 'site', icon: '🧩', label: 'Test din site', title: 'Teste PDF din biblioteca site-ului, corectate după barem', onClick: () => runAction(() => chatCmd.current?.pdfPicker?.()), disabled: !!busy },
+    { id: 'capitol', icon: '🗺️', label: 'Alege alt capitol', onClick: () => runAction(() => goTab('plan')) },
     st?.pendingHomework
-      ? { id: 'temele', label: '📚 Vezi temele', run: () => runAction(() => goTab('teme')) }
-      : { id: 'cere', label: '📚 Cere o temă', run: () => runAction(askHomework) },
-    { id: 'end', label: '🏁 Încheie', title: 'Încheie meditația și primește tema', run: () => runAction(endSession) },
+      ? { id: 'temele', icon: '📚', label: 'Vezi temele', badge: st.pendingHomework || null, onClick: () => runAction(() => goTab('teme')) }
+      : { id: 'cere', icon: '📚', label: 'Cere o temă pentru acasă', onClick: () => runAction(askHomework), disabled: !!busy },
+    { id: 'conv', icon: '💬', label: 'Întreabă-mă orice', title: 'Scrie-mi în câmpul de sub tablă — îți răspund pe tablă', onClick: () => runAction(() => askTeacher(null)) },
   ].filter(Boolean);
+
+  // MENIUL DIN STÂNGA TABLEI — tot ce se poate face în pagină, pe grupe:
+  //   „Acum, pe tablă"  → acțiunile de mai sus (fostele butoane de sub tablă)
+  //   „Pregătire"       → lucrarea/testul de la școală (fostul banner „ai un test…")
+  //   „Secțiuni"        → listele paginii (Astăzi, Plan, Teme, Recapitulări, Simulări)
+  //   „Rapoarte"        → raportul meditatorului și progresul
+  const railSections = !onBoard ? [] : [
+    { titlu: 'Acum, pe tablă', tone: 'accent', items: actions },
+    { titlu: 'Pregătire', items: [
+      { id: 'focus', icon: '🎯', accent: true,
+        label: st.focus ? 'Modifică pregătirea pentru lucrare' : 'Ai un test sau o lucrare în curând?',
+        title: 'Pregătire pentru o lucrare sau un test din anumite capitole, cu dată limită',
+        onClick: () => setFocusModal(true) },
+      st.focus ? { id: 'focustest', icon: '🧩', label: 'Test de verificare (lucrare)', disabled: !!busy, onClick: () => startSimulare(false, true) } : null,
+    ].filter(Boolean) },
+    { titlu: 'Secțiuni', items: [
+      { id: 'azi', icon: '📅', label: 'Astăzi', active: tab === 'azi' && !working, onClick: () => goTab('azi') },
+      { id: 'plan', icon: '🗺️', label: `Planul meu${st.plan?.progress != null ? ` · ${st.plan.progress}%` : ''}`, active: tab === 'plan', onClick: () => goTab('plan') },
+      { id: 'teme', icon: '📚', label: 'Teme', badge: st.pendingHomework || null, active: tab === 'teme', onClick: () => goTab('teme') },
+      { id: 'recapitulari', icon: '🔁', label: 'Recapitulări', badge: st.dueReviews?.length || null, badgeGold: true, active: tab === 'recapitulari', onClick: () => goTab('recapitulari') },
+      { id: 'simulari', icon: '🎯', label: 'Simulări de examen', active: tab === 'simulari', onClick: () => goTab('simulari') },
+    ] },
+    { titlu: 'Rapoarte', items: [
+      { id: 'raport', icon: '📋', label: 'Raport meditator', badge: st.openMistakes?.length || null, active: tab === 'raport', onClick: () => goTab('raport') },
+      { id: 'progres', icon: '📈', label: 'Progresul meu', active: tab === 'progres', onClick: () => goTab('progres') },
+    ] },
+    { titlu: 'Închidere', items: [
+      { id: 'end', icon: '🏁', label: 'Încheie meditația și dă-mi tema', disabled: !!busy, onClick: () => runAction(endSession) },
+    ] },
+  ];
 
   // panoul cu cele două opțiuni, pe tablă
   const proposalAsk = (!working && proposal) ? {
@@ -1271,16 +1289,12 @@ export default function Meditatii() {
             {/* conversația, cât timp tabla e ocupată de lecție/exerciții */}
             {working && <div ref={setBoardEl} className="bdchat-host is-mini" />}
 
-            {/* BUTOANELE DE ACȚIUNE — sub tablă, deasupra câmpului de scris */}
+            {/* SUB TABLĂ rămâne DOAR vocea elevului: firul cu ce a spus el și
+                câmpul de scris, lipite de tablă și evidențiate. Butoanele de
+                acțiune s-au mutat în meniul din stânga tablei. */}
             <div className="bd-under">
               {actionError && <div className="bd-under-warn">⚠️ {actionError}</div>}
-              <div className="bd-actions">
-                {actions.map((a) => (
-                  <button key={a.id} type="button" className={`bd-act${a.primary ? ' is-primary' : ''}`}
-                    disabled={!!busy} onClick={a.run} title={a.title || a.label}>{a.label}</button>
-                ))}
-              </div>
-              {/* CÂMPUL DE SCRIS — chiar sub tablă */}
+              {/* CÂMPUL DE SCRIS — lipit de tablă, evidențiat */}
               <div ref={setComposerEl} className="bd-composer-host" />
             </div>
 
@@ -1440,14 +1454,9 @@ function TodayTab({ st, busy, onReview, onHomeworkTab, onEnd, onFocusOpen, onFoc
             </div>
           </div>
         </div>
-      ) : (
-        <div style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: 'rgba(142,68,173,.04)', borderColor: 'rgba(142,68,173,.25)' }}>
-          <span style={{ fontSize: '.88rem', color: 'var(--text)' }}>
-            🎯 <strong>Ai un test sau o lucrare în curând?</strong> Alege capitolele și data — îți fac planul de recapitulare pentru el.
-          </span>
-          <button className="btn btn-outline btn-sm" disabled={!!busy} onClick={onFocusOpen}>Pregătește-mă pentru lucrare/test</button>
-        </div>
-      )}
+      ) : null /* invitația „Ai un test sau o lucrare în curând?" stă acum în
+                  meniul din stânga tablei, la grupa „Pregătire" — nu o mai
+                  repetăm și aici, sub tablă */}
 
       {/* Pregătirea pe SUBIECTELE examenului: doar Subiectul I / II / I+II —
           planul, simulările și explicațiile meditatorului se adaptează */}

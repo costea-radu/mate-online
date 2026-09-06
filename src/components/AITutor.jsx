@@ -249,6 +249,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // boardSlots = { board, composer } — cele două containere din pagina de
   // meditații: tabla (mesajele) și zona de sub ea (câmpul de scris).
   const boardMode = !!boardSlots;
+  // Pe tablă scrie DOAR profesorul. Ce spune elevul rămâne SUB tablă, lipit de
+  // câmpul de scris, ca un fir de conversație care nu se pierde (`mineRef`).
+  const mineRef = useRef(null);
   const { user, isPremium, isTeacher, isParent } = useAuth();
   // Test pe grupă în desfășurare → nu se pot pune întrebări. Corectarea
   // („📝 Răspunde în chat") rămâne pornită: la testele PDF ea duce
@@ -462,6 +465,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // e nou și derularea ar rămâne la primul mesaj.
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    // firul elevului (sub tablă) își are propria derulare
+    if (mineRef.current) mineRef.current.scrollTop = mineRef.current.scrollHeight;
   }, [messages, streaming, boardSlots?.board]);
 
   const patchLast = useCallback((patch) => {
@@ -939,6 +944,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
             pre-completate. Zona rămâne liberă până la primul mesaj scris. */}
 
         {messages.map((m, i) => (
+          // pe tablă rămâne DOAR ce scrie / spune profesorul; replicile elevului
+          // se mută sub tablă, în firul de lângă câmpul de scris (`mineJsx`)
+          boardMode && m.role === 'user' ? null : (
           <div key={i} className={boardMode ? `bdmsg-row is-${m.role}` : undefined}
             style={boardMode ? undefined : { display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 10 }}>
             <div className={boardMode ? `bdmsg is-${m.role}${m.isError ? ' is-err' : ''}${m.coach ? ' is-coach' : ''}` : undefined}
@@ -1072,10 +1080,36 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
               </div>
             )}
           </div>
+          )
         ))}
       </div>
     </>
   );
+
+  // ── FIRUL ELEVULUI, sub tablă ────────────────────────────────────────────
+  // „Elevul spune chiar sub tablă, în prompt": replicile lui stau lipite de
+  // câmpul de scris, ca discuția să rămână întreagă, dar tabla să rămână a
+  // profesorului. Se derulează singură la ultimul mesaj.
+  const myMessages = boardMode ? messages.filter((m) => m.role === 'user') : [];
+  const mineJsx = boardMode ? (
+    <div className="bdme">
+      <div className="bdme-head">
+        <span className="bdme-lbl">💬 Tu</span>
+        <span className="bdme-hint">Întreabă-mă orice — profesorul îți urmează indicațiile de aici.</span>
+      </div>
+      {myMessages.length > 0 && (
+        <div className="bdme-list" ref={mineRef}>
+          {myMessages.map((m, i) => (
+            <div key={i} className="bdme-msg">
+              {m.image && <img src={m.image} alt="poza trimisă" className="bdme-img" />}
+              {m.content}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  ) : null;
+
   const composerJsx = (
     <>
       {/* FORMULARUL DE RĂSPUNS: câte un câmp pentru fiecare exercițiu și
@@ -1243,7 +1277,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder="Scrie întrebarea ta..."
+          placeholder={boardMode ? 'Întreabă-mă orice…' : 'Scrie întrebarea ta...'}
           style={{ flex: 1, minWidth: 0, border: '1px solid var(--border)', borderRadius: 10, padding: '9px 12px', fontSize: 16, fontFamily: 'var(--font-body)' }}
         />
         {streaming ? (
@@ -1284,7 +1318,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     return (
       <>
         {boardSlots.board ? createPortal(<div className="bdchat">{headJsx}</div>, boardSlots.board) : null}
-        {boardSlots.composer ? createPortal(<div className="bdchat-composer">{composerJsx}</div>, boardSlots.composer) : null}
+        {boardSlots.composer ? createPortal(<div className="bdchat-composer">{mineJsx}{composerJsx}</div>, boardSlots.composer) : null}
       </>
     );
   }

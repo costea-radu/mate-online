@@ -1,6 +1,7 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { createClient } = require('@supabase/supabase-js');
 const mailer = require('./_lib/mailer');
+const ai = require('./_lib/ai'); // fmtCredits — creditele AI, unitatea afișată utilizatorului
 
 async function getRawBody(req) {
   return new Promise((resolve, reject) => {
@@ -111,7 +112,7 @@ const handler = async function handler(req, res) {
             subject: 'Pachet AI suplimentar cumpărat pe ExamenMate',
             lines: [
               `<strong>${mailer.escapeHtml(prof2?.full_name || 'Utilizator')}</strong> (${mailer.escapeHtml(prof2?.email || session.customer_details?.email || '?')})`,
-              `Pachet: <strong>${mailer.escapeHtml(session.metadata.topup_name || session.metadata.topup_pack)}</strong> · Sumă: <strong>${amount2}</strong> · Buget adăugat: <strong>${creditLei} lei</strong> (${days} zile)`,
+              `Pachet: <strong>${mailer.escapeHtml(session.metadata.topup_name || session.metadata.topup_pack)}</strong> · Sumă: <strong>${amount2}</strong> · Credite adăugate: <strong>${ai.fmtCredits(creditLei)} credite AI</strong> (${days} zile)`,
             ],
           });
           break;

@@ -358,6 +358,43 @@ incomplete, raportul mentorilor). Client: `src/pages/Meditatii.jsx`
 (`QuizRunner`, `HomeworkTab`, `RaportTab`, `ProgressMeTab`, `hwState`),
 `src/pages/InteractiveViewer.jsx`. Teste: `test/meditatii-teme.test.js`.
 
+## 🎓 Sala de clasă: tabla, profesorul și vocea elevului
+
+Ecranul de meditație e împărțit pe roluri clare — cine ce spune și unde:
+
+1. **Pe tablă scrie DOAR profesorul.** Mesajele lui (explicații, propuneri,
+   mesajele de coach) rămân pe tablă, scrise de mână. Replicile elevului NU mai
+   apar acolo.
+2. **Elevul vorbește SUB tablă**, în firul lipit de câmpul de scris
+   (`.bdme` din `AITutor.jsx`, portalat în `.bdchat-composer`): ce a scris el
+   rămâne vizibil, deci conversația e întreagă, dar tabla rămâne a profesorului.
+   Zona de scris e lipită de tablă (fără spațiu) și evidențiată cu chenar auriu,
+   cu îndemnul „Întreabă-mă orice…" — de acolo îi dă indicații profesorului.
+3. **Ce SPUNE profesorul apare lângă el**, ca o casetă de dialog cu coada spre
+   umărul lui (`.bd-ask`): întrebarea „Ai înțeles?" și propunerile („Facem cele
+   10 exerciții ca acela greșit?"), cu variantele de răspuns dedesubt. Când
+   vorbește, se întoarce cu fața la elev și i se mișcă gura.
+4. **Toate comenzile stau în meniul din stânga tablei** (`MedRail`): sub tablă
+   NU mai există butoane. Grupele meniului: „Acum, pe tablă" (exerciții,
+   teorie, cele 10 exerciții, tema, test din site, alt capitol, întreabă-mă
+   orice), „Pregătire" (lucrarea/testul de la școală), „Secțiuni" (Astăzi,
+   Plan, Teme, Recapitulări, Simulări), „Rapoarte" și „Închidere". Banda se
+   desface la hover pe desktop, cu ☰ pe telefon.
+5. **Profesorul se mișcă după scris.** `BoardText` raportează, la fiecare
+   ~130 ms, unde a ajuns cerneala pe tablă (`onWritePos` → `{x, y}` ca fracții
+   din suprafață — din progresul vocii sau din întârzierile CSS). De acolo ies
+   trei variabile CSS pe `.med-prof`: `--pf-x` (corpul, stânga-dreapta, după
+   coloana în care scrie), `--pf-lean` (aplecarea) și `--pf-arm` (unghiul
+   brațului, după rândul pe care scrie). Fără poziție (ex. când răspunde în
+   conversație) rămâne un legănat lent (`.is-sway`). Pe ecran îngust și la
+   „mișcare redusă" mișcarea e oprită.
+
+Desenul profesorului (`Whiteboard.jsx`) e original, pe piese refolosite:
+`Sweater` (pulover cu umeri, guler, cute și manșetă tricotată),
+`SleeveDown` (mânecă + manșetă), `HandWithMarker` și `HandRest` (palmă, patru
+degete și degetul mare — nu cerculețe), `HairBack` / `HairFront`. Din față are
+gură adevărată (buze, dinți, limbă) care se mișcă atunci când vorbește.
+
 ## 🛠️ Depanare
 
 | Simptom | Cauză / soluție |
