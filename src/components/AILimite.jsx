@@ -6,6 +6,15 @@
 //   2. COTELE LUNARE — rolldown cu fiecare funcție (corectări, exerciții…),
 //      cu mențiunea explicită că se REPORTEAZĂ și se COMPLETEAZĂ ÎNTRE ELE:
 //      când una se termină, continui CONTINUU din rezerva celorlalte.
+//
+// DOUĂ CONTOARE DIFERITE, nu unul singur — cotele NU se adună în consumul total:
+//   • CREDITELE (bara de sus) numără BANII: costul tuturor acțiunilor AI, de la
+//     un mesaj de chat (~0,005 lei) la o corectare de test (~0,65 lei);
+//   • COTELE numără ACȚIUNILE, doar pe cele 4 funcții scumpe.
+// Te oprești la oricare se termină prima, iar creditele se verifică ÎNAINTEA
+// cotelor (api/_lib/ai.js → enforceRateLimit → enforceBudgets). De aceea, când
+// creditele s-au terminat, cotele rămase se arată BLOCATE: altfel panoul ar
+// spune că mai poți face 13 corectări, când de fapt nu mai trece niciuna.
 //   3. PACHETELE SUPLIMENTARE — ce primești e scris în CREDITE AI, nu în lei
 //      (pachetul de 10 lei = „+400 credite AI"). Conversia: src/lib/aiCredit.js.
 //
@@ -84,6 +93,10 @@ export default function AILimite({ budget: budgetProp = undefined, bare = false 
   const features = (budget.features || []).filter((f) => f.limitMonth || f.limitDay);
   const monthlyFeatures = features.filter((f) => f.window === 'month' || (f.limitMonth && !f.limitDay));
   const nearLimit = monthMax > 0 && monthPct >= 75;
+  // creditele lunii s-au terminat → cotele de mai jos nu mai pot fi folosite
+  const blocat = budget.monthExhausted === true
+    || (budget.monthExhausted === undefined && monthMax > 0 && !budget.exempt
+        && !budget.topup?.active && budget.monthLei >= monthMax);
 
   // creditele: cifrele pe care le vede utilizatorul (100 credite = 1 leu buget)
   const creditsTotal = budget.creditsTotal != null ? budget.creditsTotal : leiToCredits(monthMax);
@@ -147,6 +160,13 @@ export default function AILimite({ budget: budgetProp = undefined, bare = false 
               ⚡ Azi ai folosit AI-ul intens — până la miezul nopții răspunsurile vin de la modelul rapid.
             </div>
           )}
+          {features.length > 0 && (
+            <div style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
+              Creditele măsoară <strong>cât costă</strong> tot ce faci cu AI-ul (inclusiv chatul și vocea), iar cotele de
+              mai jos măsoară <strong>câte acțiuni</strong> de fiecare fel ai făcut. Sunt două socoteli diferite —
+              cotele nu se adună în bara asta — și te oprești la oricare dintre ele se termină prima.
+            </div>
+          )}
         </div>
       )}
 
@@ -164,14 +184,25 @@ export default function AILimite({ budget: budgetProp = undefined, bare = false 
               transform: quotasOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s',
             }}>▶</span>
             <span style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.9rem' }}>Cotele lunare, pe funcții</span>
-            <span style={{ fontSize: '.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>
-              — {features.length} {features.length === 1 ? 'funcție' : 'funcții'} · se completează între ele
+            <span style={{ fontSize: '.72rem', color: blocat ? '#c0392b' : 'var(--text-muted)', fontWeight: blocat ? 700 : 400 }}>
+              — {features.length} {features.length === 1 ? 'funcție' : 'funcții'} ·{' '}
+              {blocat ? 'oprite: creditele lunii s-au terminat' : 'se completează între ele'}
             </span>
           </button>
 
           <div style={{ display: quotasOpen ? 'block' : 'none', padding: '4px 14px 14px', borderTop: '1px solid var(--border)' }}>
             {/* mențiunea explicită: cotele NU se pierd și NU te opresc una câte una */}
-            {monthlyFeatures.length > 0 && (
+            {blocat ? (
+              <div style={{
+                background: 'rgba(198,40,40,.07)', border: '1px solid rgba(198,40,40,.35)', borderRadius: 10,
+                padding: '9px 12px', margin: '12px 0 14px', fontSize: '.8rem', color: '#8a3b3b', lineHeight: 1.55,
+              }}>
+                🔒 <strong>Cotele de mai jos nu mai pot fi folosite acum</strong>, oricâte acțiuni ar arăta că mai sunt:
+                s-au terminat <strong>creditele lunii</strong>, iar ele se verifică înaintea cotelor. Creditele se
+                eliberează treptat, pe măsură ce trec zilele (fereastra de 30 de zile alunecă)
+                {packs.length ? ', sau imediat cu un pachet suplimentar, mai jos' : ''}.
+              </div>
+            ) : monthlyFeatures.length > 0 && (
               <div style={{
                 background: 'rgba(232,185,49,.10)', border: '1px solid rgba(232,185,49,.45)', borderRadius: 10,
                 padding: '9px 12px', margin: '12px 0 14px', fontSize: '.8rem', color: '#7a611a', lineHeight: 1.55,
@@ -194,12 +225,16 @@ export default function AILimite({ budget: budgetProp = undefined, bare = false 
                   ? `${max}/${max} +${borrowedIn} din rezervă · luna aceasta`
                   : `${shown}/${max} luna aceasta`;
                 return (
-                  <div key={f.key}>
+                  <div key={f.key} style={blocat ? { opacity: 0.55 } : undefined}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.85rem', marginBottom: 4, gap: 8 }}>
-                      <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{f.emoji} {f.label}</span>
-                      <span style={{ color: shown >= max ? '#e74c3c' : 'var(--text-muted)', textAlign: 'right' }}>{label}</span>
+                      <span style={{ fontWeight: 600, color: 'var(--navy)' }}>
+                        {blocat ? '🔒 ' : ''}{f.emoji} {f.label}
+                      </span>
+                      <span style={{ color: blocat || shown >= max ? '#e74c3c' : 'var(--text-muted)', textAlign: 'right' }}>
+                        {label}{blocat ? ' · blocat' : ''}
+                      </span>
                     </div>
-                    <Bar value={Math.min(shown, max)} max={max} />
+                    <Bar value={Math.min(shown, max)} max={max} color={blocat ? '#b9a9a9' : undefined} />
                     {(f.borrowedOut || []).length > 0 && (
                       <div style={{ fontSize: '.75rem', color: '#b8860b', marginTop: 3 }}>
                         ↪ {f.borrowedOut.map((b) => `${b.n} completate din rezerva pentru „${b.toLabel || b.to}"`).join(' · ')}

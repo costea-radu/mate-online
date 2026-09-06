@@ -30,6 +30,39 @@ exact partea scumpă. Intern totul se măsoară în micro-lei; în UI poți afi�
 
 ---
 
+## ⚠️ Două contoare, nu unul — cum se leagă creditele de cote
+
+Confuzia e ușor de făcut, așa că merită scris limpede: **cotele pe funcții NU
+se adună în „Consumul AI total"**. Sunt două socoteli diferite, cu unități
+diferite, iar utilizatorul e oprit de **oricare** se termină prima.
+
+| | Ce numără | Unde se vede | Cine o aplică |
+|---|---|---|---|
+| **Creditele** | **BANII** — costul TUTUROR acțiunilor AI (chat, voce, corectări, subiecte…) | bara „Consumul AI total" | `enforceBudgets` → `BUDGET_MONTH` |
+| **Cotele** | **NUMĂRUL de acțiuni**, doar pe cele 4 funcții scumpe | „Cotele lunare, pe funcții" | `enforceFeatureQuota` → `QUOTA_FEATURE` |
+
+**Creditele se verifică ÎNAINTEA cotelor** (`enforceRateLimit` → `enforceBudgets`
+e chemat primul în toate cele patru endpointuri). Deci, când creditele lunii s-au
+terminat, **nicio** acțiune nu mai trece, oricâtă cotă ar mai fi rămasă.
+
+De aici venea un panou care se contrazicea singur: „Creditele lunii s-au
+terminat" sus, iar dedesubt „Corectări de teste 7/20 luna aceasta", adică
+aparent încă 13 disponibile. Cifrele erau amândouă corecte — 65 de acțiuni, sub
+cele 80 cu cotă, dar costând 1.327 din 1.200 de credite, fiindcă un mesaj de chat
+costă ~0,005 lei și o corectare ~0,65 lei.
+
+**Rezolvat** (`budgetInfo` întoarce `monthExhausted`, iar `src/components/AILimite.jsx`
+îl folosește): când creditele s-au terminat, cotele se afișează **blocate** —
+bare stinse, „· blocat" lângă fiecare, iar caseta explicativă devine roșie și
+spune de ce. Sub bara totală apare și o frază care lămurește relația: creditele
+măsoară *cât costă*, cotele măsoară *câte acțiuni*.
+
+Cotele lunare **se reportează între ele** (pool comun, `allocateQuotas`) — asta
+funcționa și înainte și a rămas neatins: ce nu folosești la o funcție rămâne în
+rezerva celorlalte.
+
+---
+
 ## 🚀 Instalare (2 pași, în această ordine)
 
 ### Pasul 1 — Baza de date (ÎNTÂI!)

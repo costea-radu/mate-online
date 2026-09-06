@@ -1194,6 +1194,15 @@ async function budgetInfo(supa, userId, profile = null) {
     creditsTotal: leiToCredits(effectiveMonthLei),
     packs: topupPacks().map((p) => ({ ...p, credits: leiToCredits(p.creditLei) })),
     features,
+    // Creditele lunii s-au terminat → NICIO acțiune AI nu mai trece, oricâtă
+    // cotă pe funcție ar mai fi rămasă: `enforceBudgets` (BUDGET_MONTH) se
+    // verifică ÎNAINTEA cotelor, în `enforceRateLimit`. Interfața are nevoie de
+    // steagul ăsta ca să nu arate cote „disponibile" care de fapt nu pot fi
+    // folosite — cele două contoare măsoară lucruri diferite:
+    //   • CREDITELE = banii: costul TUTUROR acțiunilor AI (chat, voce, corectări…);
+    //   • COTELE    = numărul de acțiuni, doar pe cele 4 funcții scumpe.
+    // Te oprești la oricare dintre ele se termină prima.
+    monthExhausted: !exempt && !topupActive && effectiveMonthLei > 0 && monthLei >= effectiveMonthLei,
     degraded: !exempt && !topupActive && BUDGET_DAY_SOFT_LEI > 0 && dayLei >= BUDGET_DAY_SOFT_LEI,
     exempt,
   };
