@@ -22,7 +22,12 @@ function Item({ it, onPick }) {
   const cls = `mr-item${it.active ? ' activ' : ''}${it.accent ? ' mr-accent' : ''}`;
   return (
     <button type="button" className={cls} title={it.title || it.label} disabled={it.disabled}
-      onClick={() => { it.onClick?.(); onPick?.(); }}>
+      onClick={(e) => {
+        // banda se închide imediat ce ai ales: fără `blur()` ar rămâne desfăcută
+        // prin `:focus-within`, chiar dacă mouse-ul a plecat de pe ea
+        try { e.currentTarget.blur(); } catch { /* ignore */ }
+        it.onClick?.(); onPick?.();
+      }}>
       <span className="mr-ico" aria-hidden="true">{it.icon}</span>
       <span className="mr-text">{it.label}</span>
       {it.badge ? <span className={`mr-badge${it.badgeGold ? ' gold' : ''}`}>{it.badge}</span> : null}
@@ -32,6 +37,10 @@ function Item({ it, onPick }) {
 
 export default function MedRail({ sections = [], footer = null }) {
   const [open, setOpen] = useState(false);
+  // „închisă cu forța", imediat după o alegere: pe desktop mouse-ul rămâne
+  // deasupra benzii, deci `:hover` ar ține-o desfăcută peste conținutul care
+  // tocmai s-a deschis. Blocajul se ridică singur când mouse-ul pleacă.
+  const [held, setHeld] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -40,14 +49,16 @@ export default function MedRail({ sections = [], footer = null }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
-  // pe telefon, alegerea unei intrări închide sertarul
-  const pick = () => setOpen(false);
+  // alegerea unei intrări închide meniul (sertarul de pe telefon și banda de pe desktop)
+  const pick = () => { setOpen(false); setHeld(true); };
   const groups = sections.filter((s) => s && (s.items || []).filter(Boolean).length);
 
   return (
     <>
       {open && <div className="med-rail-backdrop" onClick={() => setOpen(false)} aria-hidden="true" />}
-      <aside className={`med-rail${open ? ' is-open' : ''}`} aria-label="Meniul meditațiilor">
+      <aside className={`med-rail${open ? ' is-open' : ''}${held ? ' is-held' : ''}`}
+        onMouseLeave={() => setHeld(false)} onPointerLeave={() => setHeld(false)}
+        aria-label="Meniul meditațiilor">
         <div className="med-rail-inner">
           <button type="button" className="mr-toggle" onClick={() => setOpen((o) => !o)}
             aria-expanded={open} aria-label={open ? 'Închide meniul' : 'Deschide meniul'}>

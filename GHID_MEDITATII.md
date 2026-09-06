@@ -380,7 +380,19 @@ Ecranul de meditație e împărțit pe roluri clare — cine ce spune și unde:
    orice), „Pregătire" (lucrarea/testul de la școală), „Secțiuni" (Astăzi,
    Plan, Teme, Recapitulări, Simulări), „Rapoarte" și „Închidere". Banda se
    desface la hover pe desktop, cu ☰ pe telefon.
-5. **Profesorul se mișcă după scris.** `BoardText` raportează, la fiecare
+5. **După o alegere din meniu, pagina te duce unde s-a deschis materialul.**
+   Ce se deschide PE tablă (exerciții, teorie, temă, recapitulare, simulare)
+   → pagina urcă la tablă (`scrollToBoard`); ce se deschide SUB ea (Astăzi,
+   Plan, Teme, Recapitulări, Simulări, Rapoarte) → coboară la `.med-section`
+   (`goTab` → `sectionJump` → efect care derulează după randare). Ambele
+   aterizează exact sub bara de sus (`--navbar-h`), nu în capul paginii.
+   Meniul **se închide imediat** ce ai ales: butonul își pierde focusul (altfel
+   `:focus-within` l-ar ține desfăcut) și banda primește `is-held`, care bate
+   `:hover` — altfel, cu mouse-ul rămas pe ea, ar acoperi exact conținutul care
+   tocmai s-a deschis. Blocajul cade singur când mouse-ul pleacă de pe bandă.
+   Banda (`.med-rail`) e `align-self: stretch`, deci rămâne lipicioasă și
+   vizibilă ca fâșie de pictograme și după ce ai coborât la secțiune.
+6. **Profesorul se mișcă după scris.** `BoardText` raportează, la fiecare
    ~130 ms, unde a ajuns cerneala pe tablă (`onWritePos` → `{x, y}` ca fracții
    din suprafață — din progresul vocii sau din întârzierile CSS). De acolo ies
    trei variabile CSS pe `.med-prof`: `--pf-x` (corpul, stânga-dreapta, după

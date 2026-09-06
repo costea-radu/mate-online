@@ -764,10 +764,35 @@ export default function Meditatii() {
     await refresh();
   });
 
+  // ── UNDE ATERIZEAZĂ OCHIUL DUPĂ O ALEGERE DIN MENIU ──────────────────────
+  // Ce alegi din meniul lateral se deschide fie PE tablă (lecție, exerciții,
+  // teme), fie SUB ea (Planul meu, Teme, Rapoarte…). În ambele cazuri pagina
+  // coboară exact la zona care s-a deschis — altfel elevul apasă un buton și
+  // pare că nu s-a întâmplat nimic, fiindcă materialul e sub marginea ecranului.
+  const sectionRef = useRef(null);
+  const [sectionJump, setSectionJump] = useState(0);
+
+  const scrollToEl = useCallback((el, gap = 12) => {
+    if (!el || typeof window === 'undefined') return;
+    const nav = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--navbar-h')) || 64;
+    const top = Math.max(0, window.scrollY + el.getBoundingClientRect().top - nav - gap);
+    try { window.scrollTo({ top, behavior: 'smooth' }); } catch { window.scrollTo(0, top); }
+  }, []);
+  // tabla e deja în pagină → putem coborî la ea imediat
+  const scrollToBoard = useCallback(() => {
+    requestAnimationFrame(() => scrollToEl(document.querySelector('.med-stage .med-board'), 8));
+  }, [scrollToEl]);
+  // secțiunea de sub tablă apare abia după re-randare → o așteptăm o clipă
+  useEffect(() => {
+    if (!sectionJump) return;
+    const t = setTimeout(() => scrollToEl(sectionRef.current, 10), 80);
+    return () => clearTimeout(t);
+  }, [sectionJump, scrollToEl]);
+
   const openLesson = (chapterId) => run('lesson', async () => {
     const r = await aiClient.meditatii({ action: 'lesson', chapterId });
     setLessonView(r); setQuiz(null);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollToBoard();
   });
 
   const startExercises = (chapterId, difficulty = null, forceGenerate = false) => run('exercises', async () => {
@@ -782,7 +807,7 @@ export default function Meditatii() {
       title: `✍️ Exerciții · ${r.chapter.title}`, subtitle: `Dificultate: ${r.difficulty}. Rezolvă în ritmul tău — la final îți explic tot.`,
       siteExercises: r.siteExercises,
     });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollToBoard();
   });
 
   const startRemediation = (mistakeId) => run('remediation', async () => {
@@ -791,7 +816,7 @@ export default function Meditatii() {
       kind: 'remediere', sessionId: r.sessionId, questions: r.questions,
       title: '🔁 Exerciții de remediere (același tip)', subtitle: 'Fixăm exact procedeul la care ai greșit — 10 exerciții de același fel.',
     });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollToBoard();
   });
 
   const startReview = (reviewId, chapterTitle) => run('review', async () => {
@@ -800,7 +825,7 @@ export default function Meditatii() {
       kind: 'recapitulare', sessionId: r.sessionId, questions: r.questions, topic: r.chapterTitle || chapterTitle,
       title: `🔁 Recapitulare · ${r.chapterTitle || chapterTitle}`, subtitle: 'Scurt și la obiect — ca să nu uiți materia.',
     });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollToBoard();
   });
 
   // focusTest=true → TEST DE VERIFICARE doar din capitolele pregătirii pentru
@@ -819,7 +844,7 @@ export default function Meditatii() {
         ? 'Doar din capitolele alese pentru lucrare — să vedem cât de pregătit ești.'
         : 'Construită după modelul subiectelor din site, cu punctele tale slabe incluse.',
     });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollToBoard();
   });
 
   // „Dă-mi o temă acum": o temă neterminată NU mai blochează primirea alteia
@@ -828,7 +853,7 @@ export default function Meditatii() {
     const r = await aiClient.meditatii({ action: 'homework_assign' });
     await refresh();
     if (r.skipped) setActionError('Nu am găsit acum un material potrivit — mai încearcă după ce avansezi în plan.');
-    else setTab('teme');
+    else { setTab('teme'); setSectionJump((n) => n + 1); }
   });
 
   // „Încheie meditația și dă-mi tema" (cerința 3, runda 5): închide lucrul,
@@ -839,7 +864,7 @@ export default function Meditatii() {
     await refresh();
     setTab('teme');
     coachAfter({ type: 'session_end', title: r.assigned?.title || null, skipped: r.skipped || null });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setSectionJump((n) => n + 1);   // temele primite se deschid sub tablă
   });
 
   // Deschide / RELUĂ o temă (oricând, indiferent de stare): răspunsurile
@@ -858,7 +883,7 @@ export default function Meditatii() {
           ? 'Reiei o temă deja finalizată — încercare nouă, de la zero. O corectez, o notez și îți explic greșelile.'
           : 'Tema ta de la Profesorul Virtual. O corectez, o notez și îți explic greșelile.',
     });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollToBoard();
   });
 
   // „Las-o pe mai târziu": ciorna temei (răspunsurile de până acum)
@@ -879,7 +904,7 @@ export default function Meditatii() {
     else if (s.kind === 'remediere') startRemediation(s.mistakeId);
     else if (s.kind === 'tema') openHomework({ id: s.homeworkId });
     else if (s.kind === 'simulare') startSimulare(false, !!s.focus);
-    else if (s.kind === 'plan') { setQuiz(null); setLessonView(null); setTab('plan'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    else if (s.kind === 'plan') goTab('plan');
     else if (s.kind === 'end') endSession();
   }
   runSuggestionRef.current = runSuggestion;
@@ -957,10 +982,11 @@ export default function Meditatii() {
   const onBoard = !!(st && premium && !st.needsSetup);
   const working = !!(lessonView || quiz);   // se predă / se lucrează pe tablă
 
-  // trecerea între secțiuni (din meniul lateral): închide ce era pe tablă
+  // trecerea între secțiuni (din meniul lateral): închide ce era pe tablă și
+  // coboară la secțiunea care se deschide sub ea
   function goTab(id) {
     setTab(id); setQuiz(null); setLessonView(null); setActionError(null);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setSectionJump((n) => n + 1);
   }
 
   // ── TABLA-CONVERSAȚIE ────────────────────────────────────────────────────
@@ -1305,7 +1331,7 @@ export default function Meditatii() {
 
             {/* secțiunea aleasă din meniul lateral (liste, rapoarte) */}
             {!working && tab !== 'azi' && (
-              <div className="med-section">
+              <div className="med-section" ref={sectionRef}>
                 {tab === 'plan' && <PlanTab st={st} busy={busy} onLesson={openLesson} onExercises={startExercises} onFocusOpen={() => setFocusModal(true)} onReset={async () => { if (window.confirm('Sigur reluăm totul de la zero? Planul și evaluarea inițială se șterg.')) { await aiClient.meditatii({ action: 'reset' }); await refresh(); } }} />}
                 {tab === 'teme' && <HomeworkTab st={st} busy={busy} onOpen={openHomework} onAsk={askHomework} />}
                 {tab === 'recapitulari' && <ReviewsTab st={st} busy={busy} onReview={startReview} />}
@@ -1315,7 +1341,7 @@ export default function Meditatii() {
               </div>
             )}
             {!working && tab === 'azi' && (
-              <div className="med-section">
+              <div className="med-section" ref={sectionRef}>
                 <TodayTab st={st} busy={busy} onReview={startReview} onHomeworkTab={() => goTab('teme')} onEnd={endSession}
                   onFocusOpen={() => setFocusModal(true)} onFocusTest={() => startSimulare(false, true)}
                   onFocusDate={changeFocusDate} onExamScope={setExamScope} />

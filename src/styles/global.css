@@ -1407,7 +1407,10 @@ body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
 .med-stage { flex: 1 1 auto; min-width: 0; }
 
 /* ─── meniul lateral al paginii ─── */
-.med-rail { flex: 0 0 60px; width: 60px; position: relative; z-index: 60; }
+/* `align-self: stretch` face coloana benzii la fel de înaltă ca tabla + secțiunea
+   de sub ea; fără ea, banda „lipicioasă" n-are pe unde călători și dispare din
+   ecran de îndată ce cobori la secțiunea deschisă. */
+.med-rail { flex: 0 0 60px; width: 60px; position: relative; z-index: 60; align-self: stretch; }
 .med-rail-inner {
   position: sticky; top: calc(var(--navbar-h) + 14px);
   width: 60px; overflow: hidden;
@@ -1419,6 +1422,12 @@ body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
 .med-rail:hover .med-rail-inner,
 .med-rail:focus-within .med-rail-inner,
 .med-rail.is-open .med-rail-inner { width: 252px; box-shadow: var(--shadow-lg); }
+/* imediat după o alegere banda se strânge, chiar dacă mouse-ul e încă pe ea —
+   altfel ar acoperi exact conținutul care tocmai s-a deschis. Se deblochează
+   singură când mouse-ul pleacă de pe bandă (vezi MedRail.jsx). */
+.med-rail.is-held .med-rail-inner { width: 60px !important; box-shadow: var(--shadow-sm) !important; }
+.med-rail.is-held .mr-text, .med-rail.is-held .mr-grup { opacity: 0 !important; }
+.med-rail.is-held .mr-foot { display: none !important; }
 .mr-item {
   display: flex; align-items: center; gap: 11px; width: 100%;
   padding: 9px 9px; border-radius: 11px; margin-bottom: 3px;
@@ -1749,6 +1758,7 @@ body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
   }
   .med-rail:hover .med-rail-inner { width: 42px; }
   .med-rail.is-open .med-rail-inner { width: min(80vw, 290px); box-shadow: var(--shadow-lg); }
+  .med-rail.is-held .med-rail-inner { width: 42px !important; }
   .med-rail:hover .mr-text, .med-rail:hover .mr-grup { opacity: 0; }
   .med-rail.is-open .mr-text, .med-rail.is-open .mr-grup { opacity: 1; }
   .med-rail:hover .mr-foot { display: none; }
