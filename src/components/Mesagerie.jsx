@@ -66,7 +66,11 @@ function fmtTime(iso) {
 // conversația e închisă cu „✕", ca să lățească panoul „Lista persoane".
 // `openRequest` — { id, n }: firul cerut din afară (clic pe un nume din listă).
 // `n` crește la fiecare clic, ca aceeași persoană să poată fi redeschisă.
-export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = null, openRequest = null }) {
+// `draft` — mesaj gata scris, venit din altă parte a site-ului (de exemplu
+// „💬 Trimite pe mesageria site-ului", de la linkul de invitație a elevilor).
+// Când există un `draft`, nu se deschide singură nicio conversație: alegerea
+// elevului sau a grupei rămâne a profesorului.
+export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = null, openRequest = null, draft = '' }) {
   const navigate = useNavigate();
   const { isTeacher, isAdmin } = useAuth();
   const onlyGroups = scope === 'group';
@@ -77,9 +81,10 @@ export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = 
   const [msgs, setMsgs] = useState(null);
   const [members, setMembers] = useState([]);
   const [title, setTitle] = useState('');
-  const [text, setText] = useState('');
+  const [text, setText] = useState(draft || '');
+  const [draftGata, setDraftGata] = useState(!!draft);
   const [busy, setBusy] = useState(false);
-  const [showPeople, setShowPeople] = useState(false);
+  const [showPeople, setShowPeople] = useState(!!draft);
   const [attach, setAttach] = useState(null);    // { type, url, title }
   const [attachList, setAttachList] = useState(null);
   const [showAttach, setShowAttach] = useState(false);
@@ -143,12 +148,14 @@ export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = 
     return onlyGroups ? all.filter((t) => t.kind === 'group') : all;
   }, [data, onlyGroups]);
 
-  // prima conversație se deschide singură
+  // prima conversație se deschide singură — dar NU când mesajul e deja scris
+  // și profesorul trebuie să aleagă el elevul sau grupa.
   useEffect(() => {
     if (openedRef.current || !threads.length) return;
     openedRef.current = true;
+    if (draft) return;
     openThread((threads.find((t) => t.unread > 0) || threads[0]).id);
-  }, [threads, openThread]);
+  }, [threads, openThread, draft]);
 
   // Clic pe un nume din „Lista persoane" → firul cerut se deschide aici, chiar
   // dacă e o conversație nou-creată (o mai aducem o dată în listă).
@@ -250,7 +257,7 @@ export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = 
     try {
       const r = await aiClient.chatSend({ threadId: active, body, attachment: attach });
       setMsgs((m) => [...(m || []), r.message]);
-      setText(''); setAttach(null);
+      setText(''); setAttach(null); setDraftGata(false);
       // semnal în timp real către ceilalți din conversație (fără conținut)
       try {
         chansRef.current[active]?.send({
@@ -325,6 +332,27 @@ export default function Mesagerie({ scope = 'all', height = 460, onOpenChange = 
   return (
     <div>
       {testMode && <TestBanner text={data.testMessage} title={data.testTitle} />}
+
+      {/* Mesaj venit gata scris din altă parte a site-ului (linkul de invitație).
+          Profesorul alege doar elevul sau grupa din stânga și apasă „Trimite". */}
+      {draftGata && !testMode && (
+        <div style={{
+          display: 'flex', gap: 10, alignItems: 'flex-start',
+          background: 'rgba(232,185,49,.14)', border: '1px solid var(--gold)',
+          borderRadius: 12, padding: '11px 14px', marginBottom: 12,
+        }}>
+          <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>✍️</span>
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '.87rem' }}>
+              Mesajul cu linkul e deja scris
+            </div>
+            <div style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              Alege din stânga <strong>elevul</strong> („✍️ Scrie cuiva din listă") sau <strong>grupa</strong>,
+              apoi apasă „Trimite". Poți schimba textul înainte de trimitere.
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mesagerie-grid"
         style={{

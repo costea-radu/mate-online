@@ -28,6 +28,10 @@ export default function MesageriePage() {
   const [openRequest, setOpenRequest] = useState(
     () => (location.state?.openThreadId ? { id: location.state.openThreadId, n: 1 } : null),
   );
+  // Mesaj gata scris, venit din „Contul meu" → „🔗 Invită elevi" →
+  // „💬 Trimite pe mesageria site-ului". Profesorul alege doar destinatarul.
+  const draft = location.state?.draft || '';
+
   const alegePersoana = useCallback((threadId) => {
     setChatOpen(true);
     setOpenRequest((c) => ({ id: threadId, n: (c?.n || 0) + 1 }));
@@ -68,7 +72,7 @@ export default function MesageriePage() {
           gap: 20, alignItems: 'start',
         }}>
         <div style={{ minWidth: 0 }}>
-          <Mesagerie scope="all" height={540} onOpenChange={onOpenChange} openRequest={openRequest} />
+          <Mesagerie scope="all" height={540} onOpenChange={onOpenChange} openRequest={openRequest} draft={draft} />
         </div>
         <div style={{ minWidth: 0 }}>
           <ColegiiMei defaultOpen wide={!chatOpen} onOpenThread={alegePersoana} />

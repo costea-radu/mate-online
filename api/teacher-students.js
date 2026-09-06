@@ -64,7 +64,7 @@ module.exports = async function handler(req, res) {
 
   const linkList = links || [];
   if (linkList.length === 0) {
-    return res.status(200).json({ role, students: [], results: [], groups, aiUsage: [], archived, meditatii: [] });
+    return res.status(200).json({ role, students: [], results: [], groups, aiUsage: [], archived, meditatii: [], averages: [] });
   }
 
   const studentIds = linkList.map((l) => l.student_id);
@@ -284,5 +284,18 @@ module.exports = async function handler(req, res) {
     // doar materiale reale din platformă (conversațiile fără material nu apar)
     .filter((r) => contentMap[r.content_id]);
 
-  return res.status(200).json({ role, students, results, groups, aiUsage, archived, meditatii });
+  // 9. Mediile ÎNCHEIATE de mentor (butonul „Încheie media" de lângă fiecare
+  //    elev și de lângă grupă). Notele de după ultima medie formează perioada
+  //    curentă, care se încheie cu următorul clic — supabase/medii_si_timp.sql.
+  let averages = [];
+  try {
+    const { data: per } = await supabase
+      .from('mentor_grade_periods')
+      .select('id, scope, student_id, group_id, group_name, period_no, from_at, closed_at, average, grades, students, details')
+      .eq('teacher_id', userId)
+      .order('closed_at', { ascending: true });
+    averages = per || [];
+  } catch { /* tabela lipsește până se rulează supabase/medii_si_timp.sql */ }
+
+  return res.status(200).json({ role, students, results, groups, aiUsage, archived, meditatii, averages });
 };

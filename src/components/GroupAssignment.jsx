@@ -8,7 +8,10 @@
 //   3) numărul de teste + locul de unde vin (generate de el, din Biblioteca
 //      utilizatorilor sau din site — „Examene" și „Clase")
 //   4) alegerea testelor: automat, prin bifare, sau mixt (propunerea automată
-//      se poate debifa / completa)
+//      se poate debifa / completa) — lista arată TOATE testele, fără plafon
+//   5) timpul de lucru: de la 10 minute la 3 ore (ore + minute), sau fără
+//      limită. Cronometrul pornește când elevul apasă „Începe testul" și, la
+//      zero, testul se închide singur.
 // Rezultatul e UN SINGUR LINK: fiecare elev care îl deschide primește ALT
 // test din bazin, iar la testele următoare primește, pe cât posibil, un test
 // pe care nu l-a mai primit.
@@ -29,6 +32,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { aiClient } from '../lib/aiClient';
 import { useAuth } from '../context/AuthContext';
 import { CATEGORIES } from '../lib/contentMeta';
+import { fmtDurata } from '../lib/testMode';
 
 const SOURCES = [
   { id: 'personal', label: '🧩 Testele generate de mine', hint: 'din „Testele și exercițiile mele"' },
@@ -40,6 +44,17 @@ const FORMATS = [
   { id: 'pdf', label: '📄 PDF', hint: 'se deschide în vizualizator, cu Prof. Virtual alături' },
 ];
 const EXAM_CATS = ['evaluare-nationala', 'bacalaureat'];
+
+// Timpul de lucru: de la 10 minute la 3 ore. Butoanele rapide acoperă duratele
+// obișnuite; oricare altă combinație se face din selectoarele de ore și minute.
+const TIMP_MIN = 10;
+const TIMP_MAX = 180;
+const TIMPI = [10, 20, 30, 40, 50, 60, 90, 120, 150, 180];
+
+// câte teste se desenează deodată în lista de bifat (restul, la cerere)
+const PAS_LISTA = 200;
+// câte teste încap într-un bazin (aceeași limită ca pe server, MAX_POOL)
+const MAX_BAZIN = 60;
 
 // ─── Pas pliabil (rolldown) ─────────────────────────────────────────────────
 function Step({ n, title, summary, open, onToggle, children, done }) {
@@ -82,11 +97,15 @@ export default function GroupAssignment({ compact = false }) {
   const [mode, setMode] = useState('auto');       // auto | manual (mixt = manual pornit din propunere)
   const [premiumFree, setPremiumFree] = useState(false);
   const [title, setTitle] = useState('');
+  const [timeLimit, setTimeLimit] = useState(0);  // minute; 0 = fără limită de timp
 
   const [catalog, setCatalog] = useState([]);     // testele bifabile
   const [catLoading, setCatLoading] = useState(false);
   const [q, setQ] = useState('');
   const [checked, setChecked] = useState([]);     // [{source, refId, title, isFree}]
+  // Lista de bifat NU mai are plafon: se încarcă toate testele. Ca pagina să
+  // rămână sprintenă când sunt mii, se desenează în tranșe, cu „arată încă".
+  const [vizibile, setVizibile] = useState(PAS_LISTA);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -144,6 +163,8 @@ export default function GroupAssignment({ compact = false }) {
     return needle ? catalog.filter((i) => (i.title || '').toLowerCase().includes(needle)) : catalog;
   }, [catalog, q]);
 
+  useEffect(() => { setVizibile(PAS_LISTA); }, [q, catalog]);
+
   const isChecked = (i) => checked.some((c) => c.source === i.source && c.refId === i.refId);
   function toggleItem(i) {
     setChecked((c) => (isChecked(i)
@@ -168,6 +189,7 @@ export default function GroupAssignment({ compact = false }) {
         pickMode: mode, sources, poolSize: Number(poolSize) || 10,
         items: mode === 'manual' ? checked.map((c) => ({ source: c.source, refId: c.refId })) : [],
         title: title || null, premiumFree: isAdmin ? premiumFree : false,
+        timeLimitMin: timeLimit || null,
       });
       setCreated({ ...r, full: `${window.location.origin}${r.url}` });
       setLinkName(r.title || '');
@@ -216,7 +238,7 @@ export default function GroupAssignment({ compact = false }) {
 
   function reset() {
     setCreated(null); setChecked([]); setMode('auto'); setTitle(''); setStep(0);
-    setLinkName(''); setChatSent(false);
+    setLinkName(''); setChatSent(false); setTimeLimit(0);
   }
 
   async function removeSent(id) {
@@ -242,11 +264,17 @@ export default function GroupAssignment({ compact = false }) {
     return (
       <div>
         <div style={{ padding: 16, background: 'rgba(39,174,96,.08)', border: '1px solid rgba(39,174,96,.35)', borderRadius: 12 }}>
-          <div style={{ fontWeight: 700, color: '#1e7e34', marginBottom: 4 }}>✅ Testul pe grupă a fost creat — {created.poolSize} teste în bazin</div>
+          <div style={{ fontWeight: 700, color: '#1e7e34', marginBottom: 4 }}>
+            ✅ Testul pe grupă a fost creat — {created.poolSize} teste în bazin
+            {created.timeLimitMin ? ` · ⏳ ${fmtDurata(created.timeLimitMin)} de lucru` : ''}
+          </div>
           <p style={{ fontSize: '.83rem', color: 'var(--text-muted)', marginBottom: 10 }}>
             Trimite <strong>acest singur link</strong> {groupName ? <>grupei <strong>{groupName}</strong></> : 'elevilor tăi'}.
             Fiecare elev care îl deschide primește <strong>alt test</strong> decât colegii lui.
-            Elevii asociați au primit deja și o notificare în cont.
+            {created.timeLimitMin
+              ? <> Are <strong>{fmtDurata(created.timeLimitMin)}</strong> de lucru din momentul în care apasă „Începe testul"; la zero, testul se închide singur.</>
+              : null}
+            {' '}Elevii asociați au primit deja și o notificare în cont.
           </p>
 
           {/* a) denumirea linkului — se poate schimba oricând, linkul rămâne */}
@@ -399,30 +427,117 @@ export default function GroupAssignment({ compact = false }) {
           <>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Caută după titlu…" style={{ ...selStyle, flex: '1 1 180px' }} />
-              <span style={{ fontSize: '.78rem', color: 'var(--text-muted)' }}>{checked.length} bifate / {filtered.length} disponibile</span>
+              <span style={{ fontSize: '.78rem', color: 'var(--text-muted)' }}>
+                {checked.length} bifate / {filtered.length} disponibile
+                {catalog.length !== filtered.length ? ` (din ${catalog.length} încărcate)` : ''}
+              </span>
               {checked.length > 0 && <button type="button" className="btn btn-sm" style={{ color: '#c0392b' }} onClick={() => setChecked([])}>Golește</button>}
             </div>
-            <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+            {checked.length > MAX_BAZIN && (
+              <div style={{ fontSize: '.78rem', color: '#b26a00', marginBottom: 8 }}>
+                ⚠️ Într-un bazin intră cel mult <strong>{MAX_BAZIN}</strong> teste — se iau primele {MAX_BAZIN} bifate.
+                Restul le poți trimite cu un al doilea test pe grupă.
+              </div>
+            )}
+            <div style={{ maxHeight: 340, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
               {catLoading ? (
                 <div style={{ padding: 16, textAlign: 'center' }}><div className="spinner" /></div>
               ) : !filtered.length ? (
                 <div style={{ padding: 14, fontSize: '.83rem', color: 'var(--text-muted)' }}>
                   Nu există teste {format === 'pdf' ? 'PDF' : 'interactive'} pentru criteriile alese. Schimbă categoria, formatul sau sursele de la pasul 3.
                 </div>
-              ) : filtered.map((i) => (
-                <label key={`${i.source}:${i.refId}`}
-                  style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 10px', borderBottom: '1px solid var(--border)', cursor: 'pointer', background: isChecked(i) ? 'rgba(232,185,49,.10)' : '#fff' }}>
-                  <input type="checkbox" checked={isChecked(i)} onChange={() => toggleItem(i)} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: '.83rem', color: 'var(--navy)' }}>{i.title}</span>
-                  <span style={{ fontSize: '.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                    {i.source === 'site' ? '📚 site' : i.source === 'personal' ? '🧩 al meu' : '🏛️ bibliotecă'}
-                    {i.isFree === false ? ' · ⭐' : ''}
-                  </span>
-                </label>
-              ))}
+              ) : (
+                <>
+                  {filtered.slice(0, vizibile).map((i) => (
+                    <label key={`${i.source}:${i.refId}`}
+                      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 10px', borderBottom: '1px solid var(--border)', cursor: 'pointer', background: isChecked(i) ? 'rgba(232,185,49,.10)' : '#fff' }}>
+                      <input type="checkbox" checked={isChecked(i)} onChange={() => toggleItem(i)} />
+                      <span style={{ flex: 1, minWidth: 0, fontSize: '.83rem', color: 'var(--navy)' }}>{i.title}</span>
+                      <span style={{ fontSize: '.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                        {i.source === 'site' ? '📚 site' : i.source === 'personal' ? '🧩 al meu' : '🏛️ bibliotecă'}
+                        {i.isFree === false ? ' · ⭐' : ''}
+                      </span>
+                    </label>
+                  ))}
+                  {filtered.length > vizibile && (
+                    <button type="button" onClick={() => setVizibile((v) => v + PAS_LISTA)}
+                      style={{ width: '100%', padding: '9px 10px', background: 'var(--cream)', border: 'none', borderTop: '1px solid var(--border)', cursor: 'pointer', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: '.8rem', color: 'var(--navy)' }}>
+                      ▾ Arată încă {Math.min(PAS_LISTA, filtered.length - vizibile)} (mai sunt {filtered.length - vizibile})
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+            <div style={{ fontSize: '.74rem', color: 'var(--text-muted)', marginTop: 6 }}>
+              Lista aduce <strong>toate</strong> testele din sursele alese — caută după titlu ca s-o îngustezi.
             </div>
           </>
         )}
+      </Step>
+
+      {/* 5 · Timpul de lucru */}
+      <Step n={5} title="Alege timpul de lucru: ore și minute" open={step === 5} onToggle={() => setStep(step === 5 ? -1 : 5)}
+        done summary={timeLimit ? fmtDurata(timeLimit) : 'fără limită de timp'}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          {TIMPI.map((m) => (
+            <button key={m} type="button" style={chip(timeLimit === m)} onClick={() => setTimeLimit(m)}>
+              {fmtDurata(m)}
+            </button>
+          ))}
+          <button type="button" style={{ ...chip(timeLimit === 0), borderStyle: 'dashed' }} onClick={() => setTimeLimit(0)}>
+            ∞ Fără limită
+          </button>
+        </div>
+
+        {/* orice altă durată, din ore + minute (10 minute … 3 ore) */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: '.8rem', fontWeight: 600, color: 'var(--navy)' }}>Sau alege exact:</span>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '.82rem', color: 'var(--text)' }}>
+            <select
+              value={Math.floor((timeLimit || 0) / 60)}
+              onChange={(e) => {
+                const h = parseInt(e.target.value, 10) || 0;
+                const m = (timeLimit || 0) % 60;
+                setTimeLimit(Math.min(TIMP_MAX, Math.max(TIMP_MIN, h * 60 + m)));
+              }}
+              style={{ ...selStyle, padding: '6px 8px' }}
+            >
+              {[0, 1, 2, 3].map((h) => <option key={h} value={h}>{h}</option>)}
+            </select>
+            ore
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '.82rem', color: 'var(--text)' }}>
+            <select
+              value={(timeLimit || 0) % 60}
+              onChange={(e) => {
+                const m = parseInt(e.target.value, 10) || 0;
+                const h = Math.floor((timeLimit || 0) / 60);
+                setTimeLimit(Math.min(TIMP_MAX, Math.max(TIMP_MIN, h * 60 + m)));
+              }}
+              style={{ ...selStyle, padding: '6px 8px' }}
+            >
+              {[0, 10, 15, 20, 30, 40, 45, 50].map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+            minute
+          </label>
+          {timeLimit > 0 && (
+            <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', background: 'rgba(232,185,49,.18)', border: '1px solid var(--gold)', borderRadius: 20, padding: '3px 10px' }}>
+              ⏳ {fmtDurata(timeLimit)}
+            </span>
+          )}
+        </div>
+
+        <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.5 }}>
+          {timeLimit > 0 ? (
+            <>
+              Cronometrul pornește când elevul apasă <strong>„▶ Începe testul"</strong> și se vede tot timpul, în test.
+              La zero, testul se închide singur, iar ce a apucat să trimită ajunge la tine. Dacă închide pagina și
+              revine, timpul curge mai departe — nu o ia de la capăt.
+            </>
+          ) : (
+            <>Fără limită de timp: elevul lucrează cât are nevoie și apasă singur „am terminat". Se poate alege între {TIMP_MIN} minute și 3 ore.</>
+          )}
+        </div>
       </Step>
 
       {/* Titlu + opțiunea de admin */}
@@ -448,7 +563,7 @@ export default function GroupAssignment({ compact = false }) {
           {busy ? 'Se creează…' : '🔗 Creează linkul testului'}
         </button>
         <span style={{ fontSize: '.78rem', color: 'var(--text-muted)' }}>
-          {groupName || 'Toți elevii mei'} · {catLabel} · {format === 'pdf' ? 'PDF' : 'interactiv'} · {mode === 'auto' ? `${poolSize} teste automat` : `${checked.length} teste bifate`}
+          {groupName || 'Toți elevii mei'} · {catLabel} · {format === 'pdf' ? 'PDF' : 'interactiv'} · {mode === 'auto' ? `${poolSize} teste automat` : `${checked.length} teste bifate`} · {timeLimit ? `⏳ ${fmtDurata(timeLimit)}` : 'fără limită de timp'}
         </span>
       </div>
 
@@ -473,7 +588,8 @@ export default function GroupAssignment({ compact = false }) {
                       <div style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '.87rem' }}>{a.title}</div>
                       <div style={{ fontSize: '.73rem', color: 'var(--text-muted)' }}>
                         {a.group_name || 'toți elevii'} · {a.pool_size} teste · {a.format === 'pdf' ? 'PDF' : 'interactiv'} ·
-                        {' '}{new Date(a.created_at).toLocaleDateString('ro-RO')}
+                        {' '}{a.time_limit_min ? `⏳ ${fmtDurata(a.time_limit_min)} · ` : ''}
+                        {new Date(a.created_at).toLocaleDateString('ro-RO')}
                         {a.premium_free ? ' · ⭐ premium gratuit' : ''}
                       </div>
                     </div>
@@ -560,7 +676,12 @@ function Report({ id, onClose }) {
   return (
     <div style={{ marginTop: 12, background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 10, flexWrap: 'wrap' }}>
-        <strong style={{ color: 'var(--navy)', fontSize: '.88rem' }}>{data.assignment?.title}</strong>
+        <strong style={{ color: 'var(--navy)', fontSize: '.88rem' }}>
+          {data.assignment?.title}
+          {data.assignment?.timeLimitMin
+            ? <span style={{ fontWeight: 600, color: 'var(--text-muted)', marginLeft: 8 }}>⏳ {fmtDurata(data.assignment.timeLimitMin)}</span>
+            : null}
+        </strong>
         {onClose && <button className="btn btn-sm btn-outline" onClick={onClose}>✕ Închide</button>}
       </div>
       {!data.rows?.length ? (
@@ -578,7 +699,9 @@ function Report({ id, onClose }) {
                 <tr key={r.studentId}>
                   <td style={{ ...td, fontWeight: 600, color: 'var(--navy)' }}>{r.name}{r.outsideGroup ? ' *' : ''}</td>
                   <td style={td}>{r.test || <span style={{ color: 'var(--text-muted)' }}>— nu a deschis linkul</span>}</td>
-                  <td style={td}>{r.completedAt ? '✅ rezolvat' : r.openedAt ? '👀 deschis' : '—'}</td>
+                  <td style={td}>
+                    {r.timedOut ? '⏰ timp expirat' : r.completedAt ? '✅ rezolvat' : r.openedAt ? '👀 deschis' : '—'}
+                  </td>
                   <td style={{ ...td, fontWeight: 700, color: color(r.percent) }}>
                     {r.percent != null ? `${r.percent}%` : '—'}
                   </td>

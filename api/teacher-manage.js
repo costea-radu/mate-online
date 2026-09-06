@@ -59,6 +59,11 @@ module.exports = async function handler(req, res) {
   if ((action === 'remove_student' || action === 'delete_archived') && !isMentor) {
     return res.status(403).json({ error: 'Acces interzis.' });
   }
+  // Mediile încheiate — profesorii și părinții (părintele are un singur copil,
+  // deci doar media „pe elev"; media pe grupă rămâne a profesorului).
+  if ((action === 'close_average' || action === 'delete_average') && !isMentor) {
+    return res.status(403).json({ error: 'Acces interzis.' });
+  }
 
   try {
     if (action === 'create_group') {
@@ -144,6 +149,99 @@ module.exports = async function handler(req, res) {
         .select('id');
       if (error) throw error;
       if (!gone || !gone.length) return res.status(404).json({ error: 'Arhiva nu există (sau nu îți aparține).' });
+      return res.status(200).json({ ok: true });
+    }
+
+    // ─── MEDII ÎNCHEIATE ──────────────────────────────────────────────────
+    // „Încheie media": notele elevului (sau ale întregii grupe) de până în acest
+    // moment se închid într-o medie salvată. Notele care vin după intră singure
+    // în perioada următoare, care își primește propriul buton — ca în catalog.
+    //
+    // Mediile se calculează în interfață, din exact notele pe care le vede
+    // profesorul („Grupe / Rezultate elevi"), ca cifra salvată să fie aceeași cu
+    // cea de pe ecran. Serverul verifică apartenența elevului, înlănțuie
+    // perioadele (from_at = closed_at al mediei dinainte) și le numerotează.
+    if (action === 'close_average') {
+      const scope = req.body.scope === 'group' ? 'group' : 'student';
+      const studentId = req.body.studentId || null;
+      const groupId = req.body.groupId || null;
+      const average = Number(req.body.average);
+      const grades = Math.max(0, parseInt(req.body.grades, 10) || 0);
+
+      if (!grades) return res.status(400).json({ error: 'Nu sunt note noi de încheiat.' });
+      if (!Number.isFinite(average) || average < 1 || average > 10) {
+        return res.status(400).json({ error: 'Media trebuie să fie între 1 și 10.' });
+      }
+      if (scope === 'group' && !isTeacher) {
+        return res.status(403).json({ error: 'Doar profesorii pot încheia media unei grupe.' });
+      }
+      if (scope === 'student') {
+        if (!studentId) return res.status(400).json({ error: 'studentId obligatoriu' });
+        const { data: link } = await supabase.from('mentor_students')
+          .select('student_id').eq('mentor_id', userId).eq('student_id', studentId).maybeSingle();
+        if (!link) {
+          // asocierea veche (profiles.teacher_id), de dinaintea grupelor
+          const { data: legacy } = await supabase.from('profiles')
+            .select('id').eq('id', studentId).eq('teacher_id', userId).maybeSingle();
+          if (!legacy) return res.status(403).json({ error: 'Elevul nu este asociat contului tău.' });
+        }
+      }
+      if (scope === 'group' && groupId) {
+        const { data: g } = await supabase.from('mentor_groups')
+          .select('id').eq('id', groupId).eq('teacher_id', userId).maybeSingle();
+        if (!g) return res.status(403).json({ error: 'Grupa nu îți aparține.' });
+      }
+
+      // perioada dinainte → de unde începe cea nouă și ce număr primește
+      let prevQ = supabase.from('mentor_grade_periods')
+        .select('period_no, closed_at')
+        .eq('teacher_id', userId).eq('scope', scope)
+        .order('closed_at', { ascending: false }).limit(1);
+      prevQ = scope === 'student'
+        ? prevQ.eq('student_id', studentId)
+        : (groupId ? prevQ.eq('group_id', groupId) : prevQ.is('group_id', null));
+      const { data: prev, error: prevErr } = await prevQ;
+      if (prevErr) {
+        // cel mai des: tabela încă nu există pe instalarea asta
+        const lipsa = /relation|does not exist|schema cache/i.test(prevErr.message || '');
+        return res.status(500).json({
+          error: lipsa
+            ? 'Mediile au nevoie de tabela `mentor_grade_periods`. Rulează supabase/medii_si_timp.sql în Supabase → SQL Editor.'
+            : prevErr.message,
+        });
+      }
+      const last = (prev || [])[0] || null;
+
+      const row = {
+        teacher_id: userId,
+        scope,
+        student_id: scope === 'student' ? studentId : null,
+        group_id: scope === 'group' ? groupId : null,
+        group_name: scope === 'group' ? String(req.body.groupName || '').slice(0, 60) || null : null,
+        period_no: (last?.period_no || 0) + 1,
+        from_at: last?.closed_at || null,
+        closed_at: new Date().toISOString(),
+        average: Math.round(average * 100) / 100,
+        grades,
+        students: Math.max(0, parseInt(req.body.students, 10) || 0),
+        details: req.body.details && typeof req.body.details === 'object' ? req.body.details : null,
+      };
+      const { data: saved, error } = await supabase
+        .from('mentor_grade_periods').insert(row).select('*').single();
+      if (error) throw error;
+      return res.status(200).json({ ok: true, period: saved });
+    }
+
+    // Ștergerea unei medii încheiate: notele ei se întorc în perioada curentă.
+    if (action === 'delete_average') {
+      const { periodId } = req.body;
+      if (!periodId) return res.status(400).json({ error: 'periodId obligatoriu' });
+      const { data: gone, error } = await supabase
+        .from('mentor_grade_periods').delete()
+        .eq('id', periodId).eq('teacher_id', userId)
+        .select('id');
+      if (error) throw error;
+      if (!gone || !gone.length) return res.status(404).json({ error: 'Media nu există (sau nu îți aparține).' });
       return res.status(200).json({ ok: true });
     }
 

@@ -13,7 +13,8 @@
 //
 // POST { action, ... }
 //   groups      (profesor): grupele + numărul de elevi
-//   catalog     (profesor): testele disponibile pentru bifat { source, category, format }
+//   catalog     (profesor): TOATE testele disponibile pentru bifat, fără plafon
+//                            { source, category, format }
 //   create      (profesor): creează testul + bazinul → { id, url }
 //   mine        (profesor): testele mele pe grupă (cu progres)
 //   report      (profesor): { id } → cine ce test a primit și ce scor a luat
@@ -23,8 +24,15 @@
 //   open        (elev):     { id } → repartizează/întoarce testul elevului
 //   pick        (elev):     { pickId } → testul repartizat (reîncărcare viewer)
 //   score       (elev):     { pickId, score, maxScore }
-//   test_start  (elev):     { pickId } → oprește mesageria pe durata testului
+//   test_start  (elev):     { pickId } → pornește cronometrul și oprește mesageria
 //   test_end    (elev):     { pickId } → o repornește
+//   time_up     (elev):     { pickId } → timpul a expirat: testul se închide singur
+//
+// TIMPUL DE LUCRU: profesorul poate alege, la creare, între 10 minute și 3 ore
+// (`group_assignments.time_limit_min`). Cronometrul pornește când elevul apasă
+// „Începe testul" (`group_assignment_picks.started_at`) și NU se resetează la
+// redeschiderea linkului. La expirare testul se încheie automat și rândul se
+// marchează cu `timed_out` — supabase/medii_si_timp.sql.
 //
 // Tabele: supabase/teme_grupa.sql
 // Catalogul de teste și „rezolvarea" lor: api/_lib/catalog.js (partajat cu temele).
@@ -35,6 +43,15 @@ const cat = require('./_lib/catalog');
 const SOURCES = cat.SOURCES;
 const FORMATS = cat.FORMATS;
 const MAX_POOL = 60;
+// timpul de lucru al unui test pe grupă: de la 10 minute la 3 ore
+const MIN_TIME = 10;
+const MAX_TIME = 180;
+// minutele cerute de profesor → un număr valid, sau null (fără limită de timp)
+function clampMinutes(v) {
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.min(MAX_TIME, Math.max(MIN_TIME, n));
+}
 // catalogul de teste și „rezolvarea" unui test către ce vede elevul — partajate
 // cu api/homework.js (api/_lib/catalog.js)
 const publicItem = cat.publicItem;
@@ -61,6 +78,7 @@ module.exports = async function handler(req, res) {
     if (action === 'score') return await score(req, res, supa);
     if (action === 'test_start') return await testMode(req, res, supa, true);
     if (action === 'test_end') return await testMode(req, res, supa, false);
+    if (action === 'time_up') return await timeUp(req, res, supa);
     return res.status(400).json({ error: 'action invalid' });
   } catch (err) {
     console.error('group-assignment error:', err);
@@ -130,7 +148,9 @@ async function catalog(req, res, supa) {
   const needle = String(q || '').trim().toLowerCase();
   let items = await cat.catalogList(supa, userId, { source, category, format: fmt });
   if (needle) items = items.filter((i) => (i.title || '').toLowerCase().includes(needle));
-  return res.status(200).json({ items: items.slice(0, 200) });
+  // FĂRĂ PLAFON: profesorul trebuie să poată bifa toate testele din site, nu
+  // doar primele câteva sute. Lista se derulează în interfață.
+  return res.status(200).json({ items, total: items.length });
 }
 
 // ─── Creare temă ─────────────────────────────────────────────────────────────
@@ -140,7 +160,9 @@ async function create(req, res, supa) {
     groupId = null, category = null, format = 'interactive',
     pickMode = 'auto', sources = ['site'], poolSize = 10,
     items = [], title = null, premiumFree = false, dueAt = null,
+    timeLimitMin = null,
   } = req.body || {};
+  const timeLimit = clampMinutes(timeLimitMin);   // null = fără limită de timp
 
   const fmt = FORMATS.includes(format) ? format : 'interactive';
   const srcs = (Array.isArray(sources) ? sources : [sources]).filter((s) => SOURCES.includes(s));
@@ -173,7 +195,7 @@ async function create(req, res, supa) {
     || `Temă${groupName ? ` · ${groupName}` : ''}${category ? ` · ${category}` : ''}`;
 
   const teacherName = await displayName(supa, userId);
-  const { data: row, error } = await supa.from('group_assignments').insert({
+  const baseRow = {
     created_by: userId,
     creator_name: teacherName,
     group_id: groupId || null, group_name: groupName,
@@ -181,7 +203,15 @@ async function create(req, res, supa) {
     pick_mode: pickMode === 'manual' ? 'manual' : 'auto',
     sources: srcs, pool_size: pool.length, premium_free: freePremium,
     due_at: dueAt || null,
-  }).select('id').single();
+  };
+  let { data: row, error } = await supa.from('group_assignments')
+    .insert({ ...baseRow, time_limit_min: timeLimit }).select('id').single();
+  if (error && timeLimit != null) {
+    // instalări fără coloana `time_limit_min` (supabase/medii_si_timp.sql
+    // nerulat încă): testul se creează oricum, doar fără limită de timp
+    console.warn('group-assignment time_limit_min:', error.message);
+    ({ data: row, error } = await supa.from('group_assignments').insert(baseRow).select('id').single());
+  }
   if (error) return res.status(500).json({ error: error.message });
 
   const { error: iErr } = await supa.from('group_assignment_items').insert(
@@ -209,7 +239,10 @@ async function create(req, res, supa) {
     }
   } catch (e) { console.warn('group-assignment notify:', e.message); }
 
-  return res.status(200).json({ id: row.id, url: `/tema-grupa?id=${row.id}`, title: t, poolSize: pool.length });
+  return res.status(200).json({
+    id: row.id, url: `/tema-grupa?id=${row.id}`, title: t,
+    poolSize: pool.length, timeLimitMin: timeLimit,
+  });
 }
 
 // Alegerea automată a bazinului din categoria/sursele cerute.
@@ -234,8 +267,9 @@ async function autoPool(supa, userId, { srcs, category, fmt, limit }) {
 // ─── Testele mele pe grupă ───────────────────────────────────────────────────
 async function mine(req, res, supa) {
   const { userId } = await requireTeacher(req, supa);
+  // `select('*')`: instalările fără coloanele noi (time_limit_min) merg la fel
   const { data: rows } = await supa.from('group_assignments')
-    .select('id, title, group_id, group_name, category, format, pick_mode, pool_size, premium_free, created_at')
+    .select('*')
     .eq('created_by', userId).order('created_at', { ascending: false }).limit(30);
   const list = rows || [];
   if (!list.length) return res.status(200).json({ assignments: [] });
@@ -297,7 +331,7 @@ async function report(req, res, supa) {
   (items || []).forEach((i) => { itemById[i.id] = i; });
 
   const { data: picks } = await supa.from('group_assignment_picks')
-    .select('id, item_id, student_id, score, max_score, attempts, assigned_at, opened_at, completed_at')
+    .select('*')
     .eq('assignment_id', id);
 
   const studentIds = await studentsOf(supa, a.created_by, a.group_id);
@@ -332,6 +366,8 @@ async function report(req, res, supa) {
       attempts: Math.max(p.attempts || 0, pr?.attempts || 0),
       score: sc, maxScore: mx,
       percent: sc != null && mx ? Math.round((sc / mx) * 100) : null,
+      startedAt: p.started_at || null,
+      timedOut: !!p.timed_out,   // testul s-a închis pentru că a expirat timpul
     };
   });
 
@@ -342,7 +378,7 @@ async function report(req, res, supa) {
   Object.values(byStudent).forEach((r) => { if (!studentIds.includes(r.studentId)) rows.push({ ...r, outsideGroup: true }); });
 
   return res.status(200).json({
-    assignment: { ...a, url: `/tema-grupa?id=${a.id}` },
+    assignment: { ...a, url: `/tema-grupa?id=${a.id}`, timeLimitMin: a.time_limit_min ?? null },
     items: items || [],
     rows,
   });
@@ -459,6 +495,7 @@ async function openForStudent(req, res, supa) {
   const base = {
     assignmentId: a.id, title: a.title, teacher: a.creator_name, group: a.group_name,
     format: a.format, dueAt: a.due_at, poolSize: items.length,
+    timeLimitMin: a.time_limit_min ?? null,   // minute de lucru (null = fără limită)
   };
 
   // Profesorul-creator (sau adminul) își vede propriul link ca PREVIZUALIZARE,
@@ -481,20 +518,20 @@ async function openForStudent(req, res, supa) {
     }
   }
 
-  // repartizare existentă → aceeași, mereu
+  // repartizare existentă → aceeași, mereu (`*`: și coloanele noi, dacă există)
   let { data: pick } = await supa.from('group_assignment_picks')
-    .select('id, item_id, score, max_score, attempts, completed_at')
+    .select('*')
     .eq('assignment_id', id).eq('student_id', userId).maybeSingle();
 
   if (!pick) {
     const chosen = await chooseItem(supa, a, items, { userId, profile });
     const ins = await supa.from('group_assignment_picks').insert({
       assignment_id: id, item_id: chosen.id, student_id: userId, opened_at: new Date().toISOString(),
-    }).select('id, item_id, score, max_score, attempts, completed_at').single();
+    }).select('*').single();
     if (ins.error) {
       // două deschideri simultane → luăm rândul deja scris
       const { data: again } = await supa.from('group_assignment_picks')
-        .select('id, item_id, score, max_score, attempts, completed_at')
+        .select('*')
         .eq('assignment_id', id).eq('student_id', userId).maybeSingle();
       if (!again) return res.status(500).json({ error: ins.error.message });
       pick = again;
@@ -511,8 +548,16 @@ async function openForStudent(req, res, supa) {
 
   const item = items.find((i) => i.id === pick.item_id) || items[0];
   const target = await resolveTarget(supa, item, { userId, profile, premiumFree: a.premium_free });
+  const limit = clampMinutes(a.time_limit_min);
+  // termenul elevului: pornit la „Începe testul", NU se resetează la redeschidere
+  const deadline = limit && pick.started_at
+    ? new Date(new Date(pick.started_at).getTime() + limit * 60000).toISOString()
+    : null;
   return res.status(200).json({
     ...base, pickId: pick.id, item: publicItem(item), target,
+    startedAt: pick.started_at || null,
+    deadlineAt: deadline,
+    timedOut: !!pick.timed_out,
     result: pick.completed_at ? { score: pick.score, maxScore: pick.max_score, attempts: pick.attempts } : null,
   });
 }
@@ -592,44 +637,136 @@ async function pickOne(req, res, supa) {
   if (!pickId) return res.status(400).json({ error: 'pickId obligatoriu' });
   const profile = await ai.requireUser(supa, userId);
   const { data: p } = await supa.from('group_assignment_picks')
-    .select('id, assignment_id, item_id, student_id').eq('id', pickId).maybeSingle();
+    .select('*').eq('id', pickId).maybeSingle();
   if (!p) return res.status(404).json({ error: 'Repartizarea nu există.' });
   if (p.student_id !== userId) return res.status(403).json({ error: 'Nu e testul tău.' });
   const { data: a } = await supa.from('group_assignments').select('*').eq('id', p.assignment_id).maybeSingle();
   const { data: item } = await supa.from('group_assignment_items').select('*').eq('id', p.item_id).maybeSingle();
   if (!a || !item) return res.status(404).json({ error: 'Testul nu mai există.' });
   const target = await resolveTarget(supa, item, { userId, profile, premiumFree: a.premium_free });
+  const limit = clampMinutes(a.time_limit_min);
+  const deadline = limit && p.started_at
+    ? new Date(new Date(p.started_at).getTime() + limit * 60000).toISOString()
+    : null;
   return res.status(200).json({
     assignmentId: a.id, title: a.title, teacher: a.creator_name,
     pickId: p.id, item: publicItem(item), target,
+    timeLimitMin: limit, startedAt: p.started_at || null, deadlineAt: deadline,
+    timedOut: !!p.timed_out,
   });
 }
 
 // ─── Testul a început / s-a terminat → mesageria se oprește / repornește ─────
 // „În timpul unui test pe grupă, toate mesageriile sunt oprite automat."
-// Elevul apasă „▶ Începe testul" → `active_until` = acum + 3 ore. Se șterge
-// când trimite rezultatul (`score`) sau când apasă „Am terminat testul";
-// oricum expiră singură, ca un test abandonat să nu blocheze mesageria.
+// Elevul apasă „▶ Începe testul" → `active_until` = acum + timpul de lucru ales
+// de profesor (sau + 3 ore, dacă testul e fără limită de timp). Se șterge când
+// trimite rezultatul (`score`), când apasă „Am terminat testul" sau când expiră
+// timpul (`time_up`); oricum expiră singură, ca un test abandonat să nu
+// blocheze mesageria.
+//
+// CRONOMETRUL NU SE RESETEAZĂ: termenul se calculează din `started_at`, pus la
+// prima apăsare pe „Începe testul". Dacă elevul închide pagina și revine, are
+// mai puțin timp — nu de la capăt.
 const TEST_WINDOW_MS = 3 * 3600 * 1000;
+
+// Termenul unui test cu limită de timp: start + minutele alese.
+function deadlineOf(startedAt, limitMin) {
+  if (!limitMin || !startedAt) return null;
+  return new Date(new Date(startedAt).getTime() + limitMin * 60000);
+}
 
 async function testMode(req, res, supa, start) {
   const userId = await ai.authUser(req, supa);
   const { pickId } = req.body || {};
   if (!pickId) return res.status(400).json({ error: 'pickId obligatoriu' });
   const { data: p } = await supa.from('group_assignment_picks')
-    .select('id, student_id').eq('id', pickId).maybeSingle();
+    .select('*').eq('id', pickId).maybeSingle();
   if (!p) return res.status(404).json({ error: 'Repartizarea nu există.' });
   if (p.student_id !== userId) return res.status(403).json({ error: 'Nu e testul tău.' });
 
-  const active_until = start ? new Date(Date.now() + TEST_WINDOW_MS).toISOString() : null;
-  const { error } = await supa.from('group_assignment_picks').update({ active_until }).eq('id', p.id);
+  const { data: a } = await supa.from('group_assignments')
+    .select('*').eq('id', p.assignment_id).maybeSingle();
+  const limit = clampMinutes(a?.time_limit_min);
+
+  let started = p.started_at || null;
+  let active_until = null;
+  let expired = false;
+
+  if (start) {
+    if (limit) {
+      if (!started) started = new Date().toISOString();
+      const dl = deadlineOf(started, limit);
+      if (dl.getTime() <= Date.now()) {
+        expired = true;                       // testul a fost pornit demult
+        active_until = null;
+      } else {
+        active_until = dl.toISOString();
+      }
+    } else {
+      if (!started) started = new Date().toISOString();
+      active_until = new Date(Date.now() + TEST_WINDOW_MS).toISOString();
+    }
+  }
+
+  const patch = { active_until };
+  if (start && started !== p.started_at) patch.started_at = started;
+  let { error } = await supa.from('group_assignment_picks').update(patch).eq('id', p.id);
+  if (error && patch.started_at) {
+    // fără coloana `started_at` (supabase/medii_si_timp.sql nerulat încă)
+    ({ error } = await supa.from('group_assignment_picks').update({ active_until }).eq('id', p.id));
+  }
   if (error) {
     // fără coloana `active_until` (supabase/mesagerie.sql nerulat) mergem mai
     // departe: testul funcționează, doar blocarea mesageriei nu se aplică
     console.warn('group-assignment testMode:', error.message);
     return res.status(200).json({ ok: true, testMode: false, note: 'Rulează supabase/mesagerie.sql pentru oprirea mesageriei în timpul testelor.' });
   }
-  return res.status(200).json({ ok: true, testMode: !!start });
+  return res.status(200).json({
+    ok: true, testMode: !!start && !expired, expired,
+    timeLimitMin: limit, startedAt: started, deadlineAt: active_until,
+  });
+}
+
+// ─── A expirat timpul de lucru → testul se închide singur ───────────────────
+// Îl cheamă cronometrul din interfață (src/components/TestModeBadge.jsx). Ce a
+// apucat elevul să trimită rămâne (testele din site își scriu scorul în
+// `progress` pe măsură ce se rezolvă); rândul se marchează cu `timed_out`, ca
+// profesorul să vadă în raport de ce s-a oprit.
+async function timeUp(req, res, supa) {
+  const userId = await ai.authUser(req, supa);
+  const { pickId } = req.body || {};
+  if (!pickId) return res.status(400).json({ error: 'pickId obligatoriu' });
+  const { data: p } = await supa.from('group_assignment_picks')
+    .select('*').eq('id', pickId).maybeSingle();
+  if (!p) return res.status(404).json({ error: 'Repartizarea nu există.' });
+  if (p.student_id !== userId) return res.status(403).json({ error: 'Nu e testul tău.' });
+
+  const now = new Date().toISOString();
+  const patch = { active_until: null, timed_out: true, completed_at: p.completed_at || now };
+  let { error } = await supa.from('group_assignment_picks').update(patch).eq('id', p.id);
+  if (error) {
+    // fără coloana `timed_out` (supabase/medii_si_timp.sql nerulat încă)
+    ({ error } = await supa.from('group_assignment_picks')
+      .update({ active_until: null, completed_at: p.completed_at || now }).eq('id', p.id));
+  }
+  if (error) return res.status(500).json({ error: error.message });
+
+  // anunță profesorul că elevului i-a expirat timpul
+  try {
+    const { data: a } = await supa.from('group_assignments').select('created_by, title').eq('id', p.assignment_id).maybeSingle();
+    const { data: me } = await supa.from('profiles').select('full_name, email').eq('id', userId).maybeSingle();
+    if (a) {
+      await ai.createNotification(supa, {
+        recipientId: a.created_by, type: 'assignment_done',
+        title: `${me?.full_name || me?.email || 'Un elev'} a rămas fără timp la „${a.title}"`,
+        body: p.score != null ? `Timpul a expirat. Scor până atunci: ${p.score}/${p.max_score || 100}.` : 'Timpul de lucru a expirat.',
+        data: { url: '/profil', groupAssignmentId: p.assignment_id, studentId: userId },
+        dedupeKey: `gassign_timeup:${p.id}`, dedupeDays: 1,
+      });
+    }
+  } catch { /* notificarea nu blochează închiderea testului */ }
+
+  return res.status(200).json({ ok: true, timedOut: true });
 }
 
 // ─── Rezultatul elevului ─────────────────────────────────────────────────────
@@ -640,19 +777,31 @@ async function score(req, res, supa) {
   const s = Math.max(0, parseInt(sc, 10) || 0);
   const m = Math.max(1, parseInt(mx, 10) || 100);
   const { data: p } = await supa.from('group_assignment_picks')
-    .select('id, assignment_id, student_id, score, attempts').eq('id', pickId).maybeSingle();
+    .select('*').eq('id', pickId).maybeSingle();
   if (!p) return res.status(404).json({ error: 'Repartizarea nu există.' });
   if (p.student_id !== userId) return res.status(403).json({ error: 'Nu e testul tău.' });
+
+  // trimis după ce a expirat timpul de lucru? (un minut de îngăduință pentru
+  // secundele dintre apăsarea butonului și ajungerea cererii la server)
+  let peste = false;
+  try {
+    const { data: a } = await supa.from('group_assignments')
+      .select('*').eq('id', p.assignment_id).maybeSingle();
+    const dl = deadlineOf(p.started_at, clampMinutes(a?.time_limit_min));
+    peste = !!dl && Date.now() > dl.getTime() + 60000;
+  } catch { /* fără coloana de timp → nimic de verificat */ }
 
   const patch = {
     score: Math.max(p.score || 0, s), max_score: m,
     attempts: (p.attempts || 0) + 1, completed_at: new Date().toISOString(),
   };
   // testul s-a încheiat → mesageria elevului se deblochează
-  let { error } = await supa.from('group_assignment_picks').update({ ...patch, active_until: null }).eq('id', p.id);
+  let { error } = await supa.from('group_assignment_picks')
+    .update({ ...patch, active_until: null, timed_out: peste }).eq('id', p.id);
   if (error) {
-    // instalări fără coloana `active_until` (supabase/mesagerie.sql nerulat încă)
-    ({ error } = await supa.from('group_assignment_picks').update(patch).eq('id', p.id));
+    // instalări fără coloanele `active_until` / `timed_out`
+    ({ error } = await supa.from('group_assignment_picks').update({ ...patch, active_until: null }).eq('id', p.id));
+    if (error) ({ error } = await supa.from('group_assignment_picks').update(patch).eq('id', p.id));
   }
   if (error) return res.status(500).json({ error: error.message });
 

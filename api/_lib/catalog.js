@@ -12,18 +12,23 @@
 //   • api/homework.js         — TEMĂ pe grupă / pe elev (același set pentru toți).
 // =====================================================================
 const ai = require('./ai');
+const { allRows } = require('./http');
 
 const SOURCES = ['personal', 'public', 'site'];
 const FORMATS = ['interactive', 'pdf'];
 
 // „Testele" din site: fără bareme (cheia de răspunsuri) și fără manuale.
-function siteQuery(supa, { format, category }) {
+//
+// PAGINAT (allRows): profesorul trebuie să poată bifa TOATE testele din site,
+// nu doar primele câteva sute — PostgREST întoarce maximum 1000 de rânduri per
+// cerere, așa că le citim pagină cu pagină.
+function siteQuery(supa, { format, category }, from = 0, to = 999) {
   let q = supa.from('content')
     .select('id, title, category, subcategory, content_type, is_free, sort_order')
     .eq('content_type', format === 'pdf' ? 'pdf' : 'interactive')
     .neq('category', 'manuale')
     .order('sort_order', { ascending: true })
-    .limit(400);
+    .range(from, to);
   if (category) q = q.eq('category', category);
   return q;
 }
@@ -32,7 +37,7 @@ const notBarem = (r) => r.subcategory !== 'bareme' && !/barem/i.test(r.title || 
 // Lista testelor dintr-o singură sursă.
 async function catalogList(supa, userId, { source, category, format }) {
   if (source === 'site') {
-    const { data } = await siteQuery(supa, { format, category });
+    const data = await allRows((from, to) => siteQuery(supa, { format, category }, from, to));
     return (data || []).filter(notBarem).map((r) => ({
       source: 'site', refId: r.id, kind: format, title: r.title,
       category: r.category, isFree: !!r.is_free, note: r.subcategory || null,
@@ -40,21 +45,26 @@ async function catalogList(supa, userId, { source, category, format }) {
   }
   const kinds = format === 'pdf' ? ['pdf', 'exam'] : ['interactive'];
   if (source === 'personal') {
-    // testele generate chiar de profesor (private)
-    let qq = supa.from('ai_personal_items').select('id, kind, title, category, topic')
-      .eq('user_id', userId).in('kind', kinds).order('created_at', { ascending: false }).limit(200);
-    if (category) qq = qq.eq('category', category);
-    const { data } = await qq;
+    // testele generate chiar de profesor (private) — toate, paginat
+    const data = await allRows((from, to) => {
+      let qq = supa.from('ai_personal_items').select('id, kind, title, category, topic')
+        .eq('user_id', userId).in('kind', kinds)
+        .order('created_at', { ascending: false }).range(from, to);
+      if (category) qq = qq.eq('category', category);
+      return qq;
+    });
     return (data || []).map((r) => ({
       source: 'personal', refId: r.id, kind: r.kind, title: r.title || 'Test generat',
       category: r.category, isFree: true, note: r.topic || null,
     }));
   }
-  // Biblioteca utilizatorilor
-  let qq = supa.from('ai_public_library').select('id, kind, title, category, creator_name, is_free')
-    .in('kind', kinds).order('created_at', { ascending: false }).limit(200);
-  if (category) qq = qq.eq('category', category);
-  const { data } = await qq;
+  // Biblioteca utilizatorilor — toate testele publicate, paginat
+  const data = await allRows((from, to) => {
+    let qq = supa.from('ai_public_library').select('id, kind, title, category, creator_name, is_free')
+      .in('kind', kinds).order('created_at', { ascending: false }).range(from, to);
+    if (category) qq = qq.eq('category', category);
+    return qq;
+  });
   return (data || []).map((r) => ({
     source: 'public', refId: r.id, kind: r.kind, title: r.title,
     category: r.category, isFree: !!r.is_free, note: r.creator_name || null,

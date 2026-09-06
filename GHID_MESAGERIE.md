@@ -162,6 +162,20 @@ testele lui, iar mesajul pleacă cu un **card apăsabil** care duce direct la
 butoane **„💬 Trimite pe mesageria grupei"** apar și la linkurile proaspăt
 create. Serverul acceptă ca atașament **doar rute interne**.
 
+### Linkul de invitație, trimis pe mesagerie
+
+În **Contul meu** → **„🔗 Invită elevi"**, lângă e-mail și WhatsApp stă butonul
+**„💬 Trimite pe mesageria site-ului"**. El copiază linkul de asociere și
+deschide `/mesagerie` cu **mesajul deja scris** în bara de trimitere; profesorului
+nu-i mai rămâne decât să aleagă din stânga **elevul** („✍️ Scrie cuiva din listă")
+sau **grupa**, și să apese „Trimite". Textul se poate schimba înainte.
+
+Mesajul călătorește prin starea navigării (`navigate('/mesagerie', { state:
+{ draft } })`) → `src/pages/MesageriePage.jsx` → propietatea `draft` a
+componentei `Mesagerie`. Cât timp există un `draft`, mesageria **nu deschide
+singură** nicio conversație — alegerea destinatarului rămâne a profesorului — și
+arată deasupra o casetă care explică ce e de făcut.
+
 ## 8. În timpul testelor se opresc mesageria ȘI Profesorul Virtual
 
 Când elevul apasă **„▶ Începe testul"** la un test pe grupă, i se opresc automat:
@@ -191,11 +205,13 @@ Se repornește când:
 
 - elevul **trimite rezultatul** testului (automat), sau
 - apasă **„✓ Am terminat testul"** pe pagina testului, sau
+- **expiră timpul de lucru**, când profesorul a pus unul (10 minute – 3 ore), sau
 - trec **3 ore** de la începere (ca un test abandonat să nu blocheze nimic).
 
 În timpul testului, în bara vizualizatorului (interactiv, PDF sau exercițiu
 generat) apare eticheta **„🔒 Test pe grupă în desfășurare — mesageria și
-Profesorul Virtual sunt oprite"**.
+Profesorul Virtual sunt oprite"**, iar la testele cu timp de lucru, alături,
+**cronometrul** cu timpul rămas (`GHID_TEME_PE_GRUPA.md`, pasul 5).
 
 ## 9. Notificări
 

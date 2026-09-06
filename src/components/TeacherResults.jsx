@@ -1,5 +1,6 @@
 import { authHeaders } from '../lib/api';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import StudentAIMastery from './StudentAIMastery';
 import AITeacherReport from './AITeacherReport';
 import { DaTemaButton } from './TemaPicker';
@@ -22,6 +23,140 @@ function fmtTime(sec) {
   if (s === 0) return `${m} min`;
   return `${m} min ${s}s`;
 }
+
+// ─── NOTELE ELEVULUI ȘI MEDIILE ÎNCHEIATE ───────────────────────────────────
+// „Notele" sunt exact cele afișate mai jos: nota fiecărui test sau exercițiu
+// rezolvat, plus notele temelor de la Meditații cu Profesorul Virtual.
+//
+// Butonul „🔒 Încheie media" strânge notele de PÂNĂ ÎN ACEL MOMENT într-o
+// medie salvată (Media 1). Notele care vin după intră singure în perioada
+// următoare, care își primește propriul buton (Media 2) — ca în catalog.
+function gradesOf(student) {
+  const out = [];
+  (student.rows || []).forEach((r) => {
+    const n = notaDinScor(r.score, r.max_score);
+    if (n == null) return;
+    out.push({ nota: Number(n), at: new Date(r.completed_at || 0).getTime(), title: r.test_title });
+  });
+  (student.meditatii || []).forEach((h) => {
+    if (!h.max_score) return;
+    const n = h.grade != null ? h.grade : notaDinScor(h.score, h.max_score);
+    if (n == null) return;
+    out.push({ nota: Number(n), at: new Date(h.completed_at || h.assigned_at || 0).getTime(), title: h.title });
+  });
+  return out.sort((a, b) => a.at - b.at);
+}
+function medieDin(list) {
+  if (!list || !list.length) return null;
+  return Math.round((list.reduce((a, g) => a + g.nota, 0) / list.length) * 100) / 100;
+}
+const fmtMedie = (v) => (v == null ? '—' : Number(v).toFixed(2));
+const closedMs = (p) => new Date(p?.closed_at || 0).getTime();
+// notele de după ultima medie încheiată = perioada curentă
+const dupaUltima = (grades, periods) => {
+  const last = periods && periods.length ? periods[periods.length - 1] : null;
+  const since = last ? closedMs(last) : 0;
+  return since ? grades.filter((g) => g.at > since) : grades;
+};
+function medieColor(v) {
+  if (v == null) return 'var(--text-muted)';
+  return v >= 8 ? '#2e7d32' : v >= 5 ? '#e65100' : '#c62828';
+}
+const notaChip = (v) => ({
+  fontWeight: 800, color: medieColor(v), background: 'rgba(232,185,49,.16)',
+  border: '1px solid rgba(232,185,49,.5)', borderRadius: 12, padding: '2px 9px',
+  fontSize: '.76rem', whiteSpace: 'nowrap',
+});
+
+// ─── Caseta mediilor (aceeași pentru un elev și pentru o grupă) ─────────────
+function MediiBox({ titlu, hint, periods, curente, onClose, onDelete, busy, compact = false }) {
+  const [open, setOpen] = useState(false);
+  const mediaCurenta = medieDin(curente);
+  const n = curente.length;
+
+  return (
+    <div style={{
+      background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+      overflow: 'hidden', marginBottom: compact ? 0 : 14,
+    }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-body)', textAlign: 'left' }}
+      >
+        <strong style={{ fontSize: '.85rem', color: 'var(--navy)' }}>
+          🎓 {titlu}
+          {periods.length > 0 && (
+            <span style={{ fontWeight: 600, color: 'var(--text-muted)', marginLeft: 8 }}>
+              {periods.length} {periods.length === 1 ? 'medie încheiată' : 'medii încheiate'}
+            </span>
+          )}
+        </strong>
+        <span style={{ color: 'var(--text-muted)', fontSize: '.8rem' }}>{open ? '▾ ascunde' : '▸ vezi'}</span>
+      </button>
+
+      {open && (
+        <div style={{ padding: '0 14px 14px' }}>
+          {hint && <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginBottom: 10 }}>{hint}</div>}
+
+          {/* mediile deja încheiate */}
+          {periods.length > 0 && (
+            <div style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+              {periods.map((p) => (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', background: 'var(--cream)', borderRadius: 8, padding: '6px 10px' }}>
+                  <span style={{ fontSize: '.8rem', color: 'var(--text)' }}>
+                    <strong style={{ color: 'var(--navy)' }}>Media {p.period_no}</strong>
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      {' · '}{p.grades} {p.grades === 1 ? 'notă' : 'note'}
+                      {p.scope === 'group' && p.students ? ` · ${p.students} elevi` : ''}
+                      {' · '}încheiată {fmtDate(p.closed_at)}
+                    </span>
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span style={notaChip(p.average)}>{fmtMedie(p.average)}</span>
+                    <button
+                      type="button" onClick={() => onDelete(p)} disabled={busy}
+                      title="Șterge media — notele ei se întorc în perioada curentă"
+                      style={{ background: 'none', border: 'none', cursor: busy ? 'default' : 'pointer', color: 'var(--danger)', fontSize: '.85rem', opacity: busy ? 0.5 : 1 }}
+                    >🗑</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* perioada curentă + butonul de încheiere */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '.8rem', color: 'var(--text)' }}>
+              {n === 0 ? (
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {periods.length ? 'Nicio notă nouă după ultima medie.' : 'Nicio notă încă.'}
+                </span>
+              ) : (
+                <>
+                  <strong style={{ color: 'var(--navy)' }}>{periods.length ? `Media ${periods.length + 1}` : 'Media în curs'}</strong>
+                  <span style={{ color: 'var(--text-muted)' }}> · {n} {n === 1 ? 'notă nouă' : 'note noi'}</span>
+                </>
+              )}
+            </span>
+            {n > 0 && <span style={notaChip(mediaCurenta)}>{fmtMedie(mediaCurenta)}</span>}
+            <button
+              type="button" onClick={onClose} disabled={busy || n === 0}
+              title={n === 0 ? 'Nu sunt note noi de încheiat' : 'Închide media notelor de până acum; notele următoare intră într-o medie nouă'}
+              style={{
+                padding: '6px 14px', borderRadius: 8, fontWeight: 700, fontSize: '.8rem',
+                border: 'none', background: n === 0 ? 'var(--cream-dark)' : 'var(--navy)',
+                color: n === 0 ? 'var(--text-muted)' : '#fff',
+                cursor: busy || n === 0 ? 'default' : 'pointer', opacity: busy ? 0.6 : 1,
+              }}
+            >🔒 Încheie media{n > 0 ? ` (${n} ${n === 1 ? 'notă' : 'note'})` : ''}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const typeLabel = { interactive: 'Test interactiv', manual: 'Manual', pdf: 'PDF' };
 // eticheta din paranteză, lângă titlul fiecărui exercițiu: (interactiv) / (PDF)
 const parenType = (t) => (t === 'interactive' ? 'interactiv' : t === 'pdf' ? 'PDF' : t === 'manual' ? 'manual' : t || '?');
@@ -42,6 +177,7 @@ function fallbackCopy(value, done) {
 
 // ─── Bloc link de invitație (profesor sau părinte) ──────────────────────────
 function InviteBox({ inviteCode, displayName, role }) {
+  const navigate = useNavigate();
   const [copied, setCopied] = useState('');
   const [showMailOpts, setShowMailOpts] = useState(false);
   const isParent = role === 'parinte';
@@ -73,6 +209,14 @@ function InviteBox({ inviteCode, displayName, role }) {
     copy(shareMsg, 'mail');
     window.open(url, '_blank', 'noopener,noreferrer');
     setShowMailOpts(false);
+  }
+
+  // „Trimite pe mesageria site-ului": copiază linkul ȘI deschide mesageria cu
+  // mesajul deja scris în bara de trimitere. Profesorului nu-i mai rămâne
+  // decât să aleagă elevul sau grupa din stânga și să apese „Trimite".
+  function openChat() {
+    copyText(link, () => {});
+    navigate('/mesagerie', { state: { draft: shareMsg, draftHint: 'invitatie' } });
   }
 
   const title = isParent ? '🔗 Asociază-te cu copilul tău' : '🔗 Invită elevi';
@@ -133,6 +277,18 @@ function InviteBox({ inviteCode, displayName, role }) {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M.057 24l1.687-6.163a11.867 11.867 0 0 1-1.587-5.946C.16 5.335 5.495 0 12.05 0a11.817 11.817 0 0 1 8.413 3.488 11.824 11.824 0 0 1 3.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 0 1-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.86 9.86 0 0 0 1.515 5.26l-.999 3.648 3.736-.98a9.875 9.875 0 0 0 .238.173z"/></svg>
               Trimite pe WhatsApp
             </a>
+            {/* Mesageria site-ului: se deschide cu mesajul gata scris, iar
+                profesorul alege doar elevul sau grupa. */}
+            <button type="button" onClick={openChat} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderRadius: 8,
+              fontWeight: 600, fontSize: '0.85rem', background: 'var(--gold)', color: 'var(--navy-dark)',
+              border: 'none', cursor: 'pointer', fontFamily: 'var(--font-body)',
+            }}>💬 Trimite pe mesageria site-ului</button>
+          </div>
+
+          <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: 8 }}>
+            „💬 Trimite pe mesageria site-ului" deschide mesageria cu mesajul deja scris — tu alegi doar
+            elevul sau grupa și apeși „Trimite". Linkul rămâne și copiat, dacă vrei să-l lipești altundeva.
           </div>
 
           {!isMobile && showMailOpts && (
@@ -216,9 +372,12 @@ function ProgressChart({ rows }) {
 }
 
 // ─── Rând elev (antet rolldown + detaliu cu Punctaj/Încercări/Timp/Progres) ──
-function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, onMove, onRemove, busy, onHomework }) {
+function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, onMove, onRemove, busy, onHomework, periods = [], onCloseAvg, onDeleteAvg }) {
   const hasRows = student.count > 0;
   const [showProgress, setShowProgress] = useState(false);
+  const note = useMemo(() => gradesOf(student), [student]);
+  const noteNoi = useMemo(() => dupaUltima(note, periods), [note, periods]);
+  const ultimaMedie = periods.length ? periods[periods.length - 1] : null;
   const headerBg = 'transparent';
   return (
     <>
@@ -256,6 +415,30 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
             {student.avg !== null
               ? <span style={{ fontWeight: 700, color: scoreColor(student.avg) }}>media {student.avg}%</span>
               : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+            {/* ultima medie ÎNCHEIATĂ a elevului (nota 1–10), lângă media în procente */}
+            {ultimaMedie && (
+              <span style={notaChip(ultimaMedie.average)} title={`Media ${ultimaMedie.period_no}, încheiată ${fmtDate(ultimaMedie.closed_at)} · ${ultimaMedie.grades} note`}>
+                media {ultimaMedie.period_no}: {fmtMedie(ultimaMedie.average)}
+              </span>
+            )}
+            {/* „🔒 Încheie media" LÂNGĂ ELEV — notele de până acum se închid într-o medie */}
+            {!student.archived && onCloseAvg && (
+              <button
+                type="button"
+                disabled={busy || noteNoi.length === 0}
+                title={noteNoi.length === 0
+                  ? 'Nu sunt note noi de încheiat pentru acest elev'
+                  : `Încheie media celor ${noteNoi.length} note de până acum (${fmtMedie(medieDin(noteNoi))}). Notele următoare intră într-o medie nouă.`}
+                onClick={(e) => { e.stopPropagation(); onCloseAvg(student, noteNoi); }}
+                style={{
+                  padding: '5px 11px', borderRadius: 8, fontWeight: 700, fontSize: '.76rem',
+                  border: `1.5px solid ${noteNoi.length ? 'var(--navy)' : 'var(--border)'}`,
+                  background: 'transparent', color: noteNoi.length ? 'var(--navy)' : 'var(--text-muted)',
+                  cursor: busy || !noteNoi.length ? 'default' : 'pointer', whiteSpace: 'nowrap',
+                  opacity: busy ? 0.6 : 1,
+                }}
+              >🔒 Încheie media{noteNoi.length ? ` (${noteNoi.length})` : ''}</button>
+            )}
             {/* „Dă temă" LÂNGĂ ELEV — tema merge doar lui */}
             {isTeacher && !student.archived && (
               <DaTemaButton small studentId={student.id} studentName={student.name} onDone={onHomework} />
@@ -302,6 +485,19 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                 {student.archived ? '🗑 Șterge definitiv datele' : '🗑 Ștergere elev'}
               </button>
             </div>
+
+            {/* Mediile elevului: cele încheiate + notele care intră în cea următoare */}
+            {!student.archived && onCloseAvg && (
+              <MediiBox
+                titlu={`Mediile lui ${student.name.split(' ')[0]}`}
+                hint="Fiecare medie strânge notele de până în momentul în care ai apăsat butonul. Notele care vin după intră singure în media următoare."
+                periods={periods}
+                curente={noteNoi}
+                busy={busy}
+                onClose={() => onCloseAvg(student, noteNoi)}
+                onDelete={(pp) => onDeleteAvg(pp)}
+              />
+            )}
 
             {/* Zona Progres — buton cu rolldown + grafic „bursă" */}
             <div style={{ background: '#fff', borderRadius: 'var(--radius)', marginBottom: 14, border: '1px solid var(--border)', overflow: 'hidden' }}>
@@ -487,7 +683,7 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
 export default function TeacherResults({ user, inviteCode, displayName, role = 'profesor' }) {
   const isTeacher = role === 'profesor';
   const isParent = role === 'parinte';
-  const [data, setData] = useState({ students: [], results: [], groups: [], aiUsage: [], archived: [], meditatii: [] });
+  const [data, setData] = useState({ students: [], results: [], groups: [], aiUsage: [], archived: [], meditatii: [], averages: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
@@ -512,7 +708,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Eroare server (${res.status})`);
-      setData({ students: json.students || [], results: json.results || [], groups: json.groups || [], aiUsage: json.aiUsage || [], archived: json.archived || [], meditatii: json.meditatii || [] });
+      setData({ students: json.students || [], results: json.results || [], groups: json.groups || [], aiUsage: json.aiUsage || [], archived: json.archived || [], meditatii: json.meditatii || [], averages: json.averages || [] });
     } catch (e) {
       setError(e.message || 'Nu s-au putut încărca rezultatele.');
     } finally { setLoading(false); }
@@ -667,6 +863,74 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
     }
   }
 
+  // ─── MEDIILE ÎNCHEIATE ────────────────────────────────────────────────────
+  // Mediile vin de la server (`averages`), grupate pe elev și pe grupă. Cifra
+  // salvată e calculată aici, din exact notele afișate mai jos, ca ce vede
+  // profesorul pe ecran și ce se salvează să fie același lucru.
+  const averages = useMemo(() => data.averages || [], [data]);
+  const periodsByStudent = useMemo(() => {
+    const m = {};
+    averages.filter((a) => a.scope === 'student' && a.student_id).forEach((a) => {
+      (m[a.student_id] || (m[a.student_id] = [])).push(a);
+    });
+    Object.values(m).forEach((arr) => arr.sort((a, b) => new Date(a.closed_at) - new Date(b.closed_at)));
+    return m;
+  }, [averages]);
+
+  // mediile grupei selectate (null = „Toți elevii mei")
+  const groupPeriods = useMemo(
+    () => averages
+      .filter((a) => a.scope === 'group' && (a.group_id || null) === (selectedGroup || null))
+      .sort((a, b) => new Date(a.closed_at) - new Date(b.closed_at)),
+    [averages, selectedGroup]
+  );
+
+  // toate notele elevilor din selecția curentă, de după ultima medie a grupei
+  const groupGrades = useMemo(() => {
+    const last = groupPeriods.length ? groupPeriods[groupPeriods.length - 1] : null;
+    const since = last ? new Date(last.closed_at).getTime() : 0;
+    const out = [];
+    inGroup.filter((s) => !s.archived).forEach((s) => {
+      const g = gradesOf(s).filter((x) => (since ? x.at > since : true));
+      if (g.length) out.push({ id: s.id, name: s.name, note: g });
+    });
+    return out;
+  }, [inGroup, groupPeriods]);
+  const groupGradeCount = groupGrades.reduce((a, x) => a + x.note.length, 0);
+  const groupAvg = medieDin(groupGrades.flatMap((x) => x.note));
+
+  async function closeStudentAverage(student, note) {
+    if (!note.length) return;
+    const m = medieDin(note);
+    if (!window.confirm(
+      `Închizi media lui ${student.name}?\n\n${note.length} ${note.length === 1 ? 'notă' : 'note'} · media ${fmtMedie(m)}\n\n`
+      + 'Notele primite după acest moment vor intra automat în media următoare.'
+    )) return;
+    await manage('close_average', {
+      scope: 'student', studentId: student.id, average: m, grades: note.length,
+      details: { note: note.map((g) => ({ nota: g.nota, titlu: g.title, la: g.at ? new Date(g.at).toISOString() : null })) },
+    });
+  }
+
+  async function closeGroupAverage() {
+    if (!groupGradeCount) return;
+    const eticheta = selectedGroup === null ? 'toți elevii tăi' : `grupa „${selectedGroupObj?.name}"`;
+    if (!window.confirm(
+      `Închizi media pentru ${eticheta}?\n\n${groupGradeCount} note de la ${groupGrades.length} elevi · media ${fmtMedie(groupAvg)}\n\n`
+      + 'Notele primite după acest moment vor intra automat în media următoare a grupei.'
+    )) return;
+    await manage('close_average', {
+      scope: 'group', groupId: selectedGroup || null, groupName: selectedGroupObj?.name || null,
+      average: groupAvg, grades: groupGradeCount, students: groupGrades.length,
+      details: { elevi: groupGrades.map((x) => ({ id: x.id, nume: x.name, note: x.note.length, medie: medieDin(x.note) })) },
+    });
+  }
+
+  async function deleteAverage(period) {
+    if (!window.confirm(`Ștergi „Media ${period.period_no}"? Notele ei se întorc în perioada curentă.`)) return;
+    await manage('delete_average', { periodId: period.id });
+  }
+
   const chip = (active) => ({
     padding: '6px 12px', borderRadius: 20, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
     border: `1.5px solid ${active ? 'var(--navy)' : 'var(--border)'}`,
@@ -746,6 +1010,20 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
                   <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                     exercițiile bifate merg la {selectedGroup === null ? 'toți elevii tăi' : `grupa „${selectedGroupObj?.name}"`}
                   </span>
+                </div>
+
+                {/* MEDIA GRUPEI — media notelor tuturor elevilor grupei până acum */}
+                <div style={{ marginTop: 10 }}>
+                  <MediiBox
+                    compact
+                    titlu={`Mediile ${selectedGroup === null ? 'tuturor elevilor' : `grupei „${selectedGroupObj?.name || ''}"`}`}
+                    hint={`Media tuturor notelor luate de elevii ${selectedGroup === null ? 'tăi' : 'grupei'} până în momentul în care apeși butonul. Notele care vin după intră singure în media următoare.`}
+                    periods={groupPeriods}
+                    curente={groupGrades.flatMap((x) => x.note)}
+                    busy={busy}
+                    onClose={closeGroupAverage}
+                    onDelete={deleteAverage}
+                  />
                 </div>
 
                 {/* Opțiuni grupă selectată */}
@@ -839,6 +1117,9 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
                           onRemove={removeStudent}
                           busy={busy}
                           onHomework={() => setTemeSeed((n) => n + 1)}
+                          periods={periodsByStudent[s.id] || []}
+                          onCloseAvg={closeStudentAverage}
+                          onDeleteAvg={deleteAverage}
                         />
                       ))}
                     </tbody>

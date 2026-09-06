@@ -7,13 +7,13 @@
 //   • test din site (PDF)        → /pdf-viewer (cu Prof. Virtual alături)
 //   • test generat / din bibliotecă → /exercitiu-ai, PDF sau subiect tipăribil
 // =====================================================================
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
 import { renderQuiz } from '../lib/quizRender';
 import { printExam } from '../lib/examPrint';
-import { startTestMode, endTestMode, isTestMode } from '../lib/testMode';
+import { startTestMode, endTestMode, isTestMode, useTestCountdown, fmtRamas, fmtDurata } from '../lib/testMode';
 
 export default function GrupaTema() {
   const [params] = useSearchParams();
@@ -26,6 +26,8 @@ export default function GrupaTema() {
   const [error, setError] = useState(null);
   // Cât timp testul e în desfășurare, se opresc mesageria ȘI Profesorul Virtual.
   const [testActiv, setTestActiv] = useState(() => isTestMode());
+  // Timpul rămas, când profesorul a pus o limită (10 minute – 3 ore).
+  const ramas = useTestCountdown();
 
   const load = useCallback(() => {
     if (!id) { setError('Link invalid.'); setLoading(false); return; }
@@ -49,6 +51,17 @@ export default function GrupaTema() {
       setTestActiv(false);
     }
   }, [data]);
+
+  // A expirat timpul cât elevul stătea pe pagina temei → testul se închide și
+  // aici, la fel ca în vizualizator (src/components/TestModeBadge.jsx).
+  const expiratRef = useRef(false);
+  useEffect(() => {
+    if (ramas !== 0 || expiratRef.current || !data?.pickId) return;
+    expiratRef.current = true;
+    aiClient.groupAssignmentTimeUp({ pickId: data.pickId })
+      .catch(() => {})
+      .finally(() => { endTestMode(); setTestActiv(false); load(); });
+  }, [ramas, data, load]);
 
   const wrap = { maxWidth: 780, margin: '0 auto', padding: '32px 20px 60px' };
   const card = { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 22, marginBottom: 18 };
@@ -78,10 +91,18 @@ export default function GrupaTema() {
 
   function start() {
     // „În timpul unui test pe grupă, toate mesageriile sunt oprite automat."
+    // Când testul are timp de lucru, cronometrul pornește de la termenul dat de
+    // server (calculat din prima apăsare pe „Începe testul"), nu de la zero.
     if (data.pickId) {
       setTestActiv(true);
-      startTestMode({ pickId: data.pickId, title: data.title });
-      aiClient.groupAssignmentTestStart({ pickId: data.pickId }).catch(() => {});
+      const termenLocal = data.deadlineAt
+        || (data.timeLimitMin ? new Date(Date.now() + data.timeLimitMin * 60000).toISOString() : null);
+      startTestMode({ pickId: data.pickId, title: data.title, deadline: termenLocal });
+      aiClient.groupAssignmentTestStart({ pickId: data.pickId })
+        .then((r) => {
+          if (r?.deadlineAt) startTestMode({ pickId: data.pickId, title: data.title, deadline: r.deadlineAt });
+        })
+        .catch(() => {});
     }
     if (t.type === 'site-interactive') {
       navigate(`/exercitiu?id=${t.contentId}${gtQ}`, {
@@ -116,7 +137,8 @@ export default function GrupaTema() {
     load();
   }
 
-  const startable = ['site-interactive', 'site-pdf', 'quiz', 'exam', 'pdf-file'].includes(t.type);
+  // după expirarea timpului, testul nu se mai poate deschide
+  const startable = ['site-interactive', 'site-pdf', 'quiz', 'exam', 'pdf-file'].includes(t.type) && !data.timedOut;
 
   return (
     <div style={wrap}>
@@ -145,7 +167,7 @@ export default function GrupaTema() {
           același test, ca să-ți poți îmbunătăți scorul.
         </div>
 
-        {data.result && (
+        {data.result && data.result.score != null && (
           <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 8, background: 'rgba(39,174,96,.1)', color: '#1e7e34', fontWeight: 700, fontSize: '.9rem' }}>
             ✓ Rezultat trimis profesorului: {data.result.score}/{data.result.maxScore}
           </div>
@@ -164,6 +186,40 @@ export default function GrupaTema() {
         {t.type === 'missing' && (
           <div style={{ fontSize: '.88rem', color: '#b71c1c' }}>
             ⚠️ Testul repartizat nu mai există (a fost șters). Anunță-ți profesorul.
+          </div>
+        )}
+
+        {/* Timpul de lucru pus de profesor */}
+        {data.timeLimitMin > 0 && !data.preview && (
+          <div style={{
+            display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 14,
+            background: testActiv && ramas != null ? 'rgba(232,185,49,.16)' : 'var(--cream)',
+            border: `1px solid ${testActiv && ramas != null ? 'var(--gold)' : 'var(--border)'}`,
+            borderRadius: 10, padding: '10px 12px',
+          }}>
+            <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>⏳</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '.85rem', fontWeight: 700, color: 'var(--navy)' }}>
+                {testActiv && ramas != null
+                  ? <>Timp rămas: <span style={{ fontVariantNumeric: 'tabular-nums', color: ramas <= 300000 ? '#c62828' : 'var(--navy)' }}>{fmtRamas(ramas)}</span></>
+                  : <>Ai {fmtDurata(data.timeLimitMin)} de lucru</>}
+              </div>
+              <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                Cronometrul pornește când apeși „Începe testul" și merge mai departe chiar dacă închizi
+                pagina. La zero, testul se închide singur și ajunge la profesor ce ai apucat să trimiți.
+              </div>
+            </div>
+          </div>
+        )}
+        {data.timeLimitMin > 0 && data.preview && (
+          <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: 14 }}>
+            ⏳ Elevii au <strong>{fmtDurata(data.timeLimitMin)}</strong> de lucru, din momentul în care apasă „Începe testul".
+          </div>
+        )}
+
+        {data.timedOut && !data.preview && (
+          <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 8, background: 'rgba(198,40,40,.08)', border: '1px solid rgba(198,40,40,.35)', color: '#8a3b3b', fontWeight: 600, fontSize: '.86rem' }}>
+            ⏰ Timpul de lucru a expirat — testul s-a încheiat.
           </div>
         )}
 

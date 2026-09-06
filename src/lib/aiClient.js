@@ -235,6 +235,8 @@ export const aiClient = {
   // Testul pe grupă oprește mesageria cât timp e în desfășurare
   groupAssignmentTestStart: ({ pickId }) => post('/api/group-assignment', { action: 'test_start', pickId }),
   groupAssignmentTestEnd: ({ pickId }) => post('/api/group-assignment', { action: 'test_end', pickId }),
+  // a expirat timpul de lucru → testul se închide singur
+  groupAssignmentTimeUp: ({ pickId }) => post('/api/group-assignment', { action: 'time_up', pickId }),
 
   // ── TEME: exercițiile bifate de profesor, aceleași pentru toți elevii vizați
   //    — pe grupă sau pe un singur elev (api/homework.js + supabase/teme_elevi.sql)

@@ -33,6 +33,17 @@ RLS e pornit pe toate patru: scrierea trece exclusiv prin
 Denumirea editabilă a linkului folosește coloana `group_assignments.renamed_at`,
 adăugată de `supabase/teme_elevi.sql`.
 
+**Timpul de lucru** (pasul 5) are nevoie și de:
+
+```
+supabase/medii_si_timp.sql
+```
+
+care adaugă `group_assignments.time_limit_min` (minutele alese),
+`group_assignment_picks.started_at` (când a apăsat elevul „Începe testul") și
+`group_assignment_picks.timed_out` (testul s-a închis pentru că a expirat
+timpul). Până e rulat, testele se creează normal — doar fără limită de timp.
+
 ## 2. Unde se găsește funcția
 
 În **două locuri**, aceeași componentă (`src/components/GroupAssignment.jsx`):
@@ -52,7 +63,8 @@ Ambele apar doar pentru conturile de **profesor** (și pentru admin).
 | **1** | **Categoria**: examen (Evaluare Națională / Bacalaureat) sau clasă (V–XII), ori „Toate". |
 | **2** | **Formatul**: 🧩 interactiv sau 📄 PDF. |
 | **3** | **Numărul de teste din bazin** (1–60) și **de unde vin**: testele generate de profesor, Biblioteca utilizatorilor, testele din site („Examene" și „Clase") — se pot bifa mai multe surse deodată. |
-| **4** | **Alegerea testelor**: `🎲 Automat din categorie`, `☑️ Testele bifate de mine`, sau `🔀 Mixt` — bifează automat propunerea, apoi profesorul debifează / adaugă ce vrea. |
+| **4** | **Alegerea testelor**: `🎲 Automat din categorie`, `☑️ Testele bifate de mine`, sau `🔀 Mixt` — bifează automat propunerea, apoi profesorul debifează / adaugă ce vrea. Lista de bifat aduce **toate** testele din sursele alese, fără plafon. |
+| **5** | **Timpul de lucru**: butoane rapide (10, 20, 30, 40, 50 minute, 1 oră, 1 oră și 30 de minute, 2 ore, 2 ore și 30 de minute, 3 ore), selectoare de **ore + minute** pentru orice altă durată, sau `∞ Fără limită`. Minimul e 10 minute, maximul 3 ore. |
 
 La final: **🔗 Creează linkul testului**. Lângă linkul creat apar:
 
@@ -63,6 +75,34 @@ La final: **🔗 Creează linkul testului**. Lângă linkul creat apar:
 - copierea linkului, WhatsApp și e-mail.
 
 Elevii asociați primesc și o notificare în cont.
+
+### Lista de bifat: fără plafon
+
+La pasul 4, catalogul întoarce **toate** testele din sursele alese —
+`api/_lib/catalog.js` citește paginat (`allRows`), iar `api/group-assignment.js`
+nu mai taie lista la 200. Ca pagina să rămână sprintenă când sunt mii de teste,
+lista se desenează în tranșe de 200, cu butonul „▾ Arată încă…"; căutarea după
+titlu filtrează tot ce s-a încărcat.
+
+În **bazin** intră tot cel mult 60 de teste (`MAX_POOL`) — dacă sunt bifate mai
+multe, se ia primele 60 și profesorul e avertizat pe loc.
+
+### Timpul de lucru (pasul 5)
+
+- Cronometrul pornește când elevul apasă **„▶ Începe testul"**, nu când primește
+  linkul: momentul se scrie în `group_assignment_picks.started_at`.
+- Termenul e calculat **pe server** din `started_at + time_limit_min`, deci
+  **nu se resetează** dacă elevul reîncarcă pagina sau redeschide linkul — timpul
+  curge mai departe.
+- Timpul rămas se vede tot testul, în insigna din vizualizator
+  (`src/components/TestModeBadge.jsx`): sub 5 minute devine portocaliu, sub 1
+  minut roșu și clipește.
+- La **zero**: testul se închide singur (`action='time_up'`), elevul vede
+  „⏰ Timpul a expirat", mesageria și Profesorul Virtual repornesc, iar rândul e
+  marcat `timed_out` — în raport apare „⏰ timp expirat" în loc de „✅ rezolvat".
+  Ce a apucat elevul să trimită rămâne la profesor.
+- Fereastra de oprire a mesageriei (`active_until`) urmează acum timpul ales; la
+  testele fără limită rămâne fereastra veche de 3 ore.
 
 ## 4. Cum ajunge testul la elev
 
@@ -127,8 +167,9 @@ Fără token și fără abonament, accesul rămâne blocat ca până acum.
 
 ## Fișiere atinse
 
-**Noi:** `supabase/teme_grupa.sql`, `api/group-assignment.js`,
-`src/components/GroupAssignment.jsx`, `src/pages/GrupaTema.jsx`.
+**Noi:** `supabase/teme_grupa.sql`, `supabase/medii_si_timp.sql`,
+`api/group-assignment.js`, `src/components/GroupAssignment.jsx`,
+`src/pages/GrupaTema.jsx`.
 
 **Modificate:** `src/lib/aiClient.js` (metodele `groupAssignment*`), `src/App.jsx`
 (ruta `/tema-grupa`), `src/pages/Profile.jsx`, `src/pages/ProfesorVirtual.jsx`,
@@ -138,3 +179,8 @@ Fără token și fără abonament, accesul rămâne blocat ca până acum.
 
 **Catalogul de teste** — ce se poate bifa și cum se deschide la elev — e acum
 partajat cu temele, în `api/_lib/catalog.js`.
+
+**Cronometrul** stă în `src/lib/testMode.js` (`startTestMode({ deadline })`,
+`useTestCountdown`, `fmtRamas`, `fmtDurata`) și se afișează din
+`src/components/TestModeBadge.jsx`, care e deja montat în toate
+vizualizatoarele, plus din `src/pages/GrupaTema.jsx`.
