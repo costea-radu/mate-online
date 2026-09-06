@@ -4,6 +4,62 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 6 septembrie 2026 — Avertizarea creditelor AI pe praguri, cu ieșire din fundătură
+
+Pornind de la un cont de TEST de elev care rămăsese fără credite în mijlocul
+unei meditații: profesorul apucase să spună „îți dau 10 exerciții de același
+fel", apoi s-a oprit, iar sub tablă a apărut doar o bandă care explica, fără
+niciun buton. Elevul rămânea în aer.
+
+### Ce s-a adăugat
+
+**1. Avertizare pe patru trepte, chiar în clipa consumului.**
+`src/components/AICreditAlert.jsx`, montată în `ChatPanel` — deci în toate
+locurile unde se consumă credite: Profesorul Virtual, Meditații, vizualizatorul
+de PDF-uri, cel de exerciții interactive.
+
+| Prag | Ce spune |
+|---|---|
+| 50% | „ai folosit jumătate" + cheamă-l când chiar te împotmolești |
+| 75% | „ți-a mai rămas un sfert" + o întrebare bine pusă face cât cinci la întâmplare |
+| 90% | „au mai rămas puține" + materialele și testele din site nu consumă credite |
+| 95% | „ești pe ultimele credite" + ce urmează când se termină |
+| epuizat | ce se oprește, ce NU se pierde, plus butoanele |
+
+Sub 50% nu apare nimic; conturile de admin și cele cu pachet activ nu o văd deloc.
+
+**2. Butoanele din starea blocată.** „⚡ Ia un pachet AI" și „Vezi consumul" duc
+la `/profil?topup=vezi#consum-ai`, care deschide singur rolldown-ul „⚡ Consum
+AI" și derulează până la el. Banda spune și ce se întâmplă mai departe: lecția,
+temele și progresul rămân unde sunt, creditele se eliberează zi de zi
+(fereastră de 30 de zile), iar materialele și testele merg fără credite.
+
+**3. Lecția nu mai rămâne în aer.** Pe tablă (`Whiteboard.jsx`), când „mai
+explică o dată" cade pe lipsă de credite, în loc de mesajul sec apare aceeași
+bandă, cu precizarea că etapele scrise rămân pe tablă și lecția se reia de acolo.
+
+### Cum ajunge starea în interfață — fără cereri în plus
+
+Răspunsurile de chat aduc câmpul `aiBudget` (`api/_lib/ai.js` → `budgetNotice`),
+iar `src/lib/aiClient.js` îl pune în magazinul comun `src/lib/aiCredit.js`
+dintr-un **singur loc**: funcția `post()`, prin care trec toate apelurile AI.
+Pentru acțiunile care nu întorc starea (corectări, subiecte, foto) magazinul
+cere `/api/ai-progress` rar — cel mult o dată la 30 de secunde, la 1,5 secunde
+după acțiune. La un 429 cu `BUDGET_MONTH`, banda trece pe „blocat" instantaneu.
+
+### Verificat
+
+Pragurile sunt scrise în două locuri (server și client), așa că testul le
+compară **la fiecare procent** — 0, 49, 50, 74, 75, 89, 90, 94, 95, 100 — și
+prinde orice nepotrivire. Plus: cifrele contului de test (1.327 din 1.200 de
+credite → blocat, 100%, 0 rămase), faptul că bugetele oprite sau conturile
+scutite nu arată nimic, că fiecare treaptă are și mesaj și recomandare, și că
+starea blocată are butoanele. Build complet al `src/`, 459 teste pass / 0 fail.
+
+**De rulat:** nimic. Totul e în cod.
+
+---
+
 ## 6 septembrie 2026 — Vocea care nu pornea și bulina de mesaje în timp real
 
 Trei cereri de la Radu.

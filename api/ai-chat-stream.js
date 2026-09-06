@@ -4,7 +4,7 @@
 // Răspuns: flux NDJSON (câte un obiect JSON pe linie):
 //   {"type":"meta","conversationId":"...","sources":[...]}
 //   {"type":"delta","text":"..."}            (de mai multe ori)
-//   {"type":"done","messageId":"..."}
+//   {"type":"done","messageId":"...","aiBudget":{pct,step,creditsLeft,…}|null}
 //   {"type":"error","error":"..."}
 // =====================================================================
 const ai = require('./_lib/ai');
@@ -123,7 +123,7 @@ module.exports = async function handler(req, res) {
       servedPregen ? { in: 0, out: 0, model: null }
         : (stats.usage || { in: 0, out: Math.ceil(full.length / 4), model: stats.model }));
 
-    send({ type: 'done', messageId: saved?.id || null });
+    send({ type: 'done', messageId: saved?.id || null, aiBudget: ai.budgetNotice(lim) });
     return res.end();
   } catch (err) {
     console.error('ai-chat-stream error:', err);

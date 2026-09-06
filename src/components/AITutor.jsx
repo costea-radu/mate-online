@@ -12,6 +12,7 @@ import { useTestMode } from '../lib/testMode';
 import { supabase } from '../lib/supabase';
 import ExamGenerator from './ExamGenerator';
 import EinsteinIcon from './EinsteinIcon';
+import AICreditAlert from './AICreditAlert';
 import { useAuth } from '../context/AuthContext';
 import { askAiLabel } from '../lib/aiLabel';
 import { ensureKatex, renderMath, autoMath } from '../lib/katex';
@@ -876,6 +877,10 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           <button onClick={openHistory} style={miniBtn}>🕘 Istoric</button>
         </div>
       </div>
+
+      {/* Cât a mai rămas din creditele AI — avertizare de la 50% în sus, plus
+          starea „s-au terminat", cu butoanele către pachete. */}
+      <div style={{ padding: '8px 12px 0' }}><AICreditAlert compact /></div>
 
       {/* Vocea nu pornește (fără voci în sistem, browser care refuză): o spunem
           o singură dată, aici, ca butonul să nu pară că funcționează degeaba. */}

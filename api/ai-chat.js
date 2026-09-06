@@ -87,9 +87,13 @@ module.exports = async function handler(req, res) {
     // servirea din pre-generare se loghează separat (cost 0) — o vezi în ai_usage_daily
     await ai.logUsage(supa, userId, served ? 'ai-chat:pregen' : 'ai-chat', usage);
 
-    return res.status(200).json({ reply: text, conversationId: convId, sources, primaryMaterial });
+    // `aiBudget`: cât din creditele lunii s-au dus (praguri 50/75/90/95%).
+    // Vine gratis, odată cu răspunsul — interfața avertizează exact în clipa
+    // în care elevul consumă, fără nicio cerere în plus.
+    return res.status(200).json({ reply: text, conversationId: convId, sources, primaryMaterial, aiBudget: ai.budgetNotice(lim) });
   } catch (err) {
     console.error('ai-chat error:', err);
-    return res.status(err.status || 500).json({ error: err.message || 'Eroare server' });
+    // `code` ajunge la client (BUDGET_MONTH → banda „creditele s-au terminat")
+    return res.status(err.status || 500).json({ error: err.message || 'Eroare server', code: err.code || null });
   }
 };

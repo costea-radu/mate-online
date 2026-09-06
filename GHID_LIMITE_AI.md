@@ -63,6 +63,46 @@ rezerva celorlalte.
 
 ---
 
+## 🔔 Avertizarea elevului pe praguri (50 / 75 / 90 / 95%)
+
+Elevul nu trebuie să afle că a rămas fără credite abia când i se oprește
+profesorul în mijlocul lecției. `src/components/AICreditAlert.jsx` arată o bandă
+în panoul de chat (deci în TOATE locurile unde se consumă: Prof. Virtual,
+Meditații, vizualizatorul de PDF-uri, cel de exerciții interactive), cu patru
+trepte tot mai apăsate și cu recomandarea de a folosi AI-ul cumpătat:
+
+| Prag | Ton | Ce spune, pe scurt |
+|---|---|---|
+| **50%** | auriu | „ai folosit jumătate" + cheamă-l când chiar te împotmolești |
+| **75%** | chihlimbar | „ți-a mai rămas un sfert" + o întrebare bine pusă face cât cinci la întâmplare |
+| **90%** | portocaliu | „au mai rămas puține" + materialele și testele din site nu consumă credite |
+| **95%** | roșu | „ești pe ultimele credite" + ce se întâmplă când se termină |
+| **epuizat** | roșu plin | ce se oprește, ce NU se pierde, plus butoanele „⚡ Ia un pachet AI" și „Vezi consumul" |
+
+Sub 50% nu apare nimic, iar conturile scutite (admin) și cele cu pachet activ nu
+văd banda deloc.
+
+**De unde vine starea, fără cereri în plus:** răspunsurile de chat aduc câmpul
+`aiBudget` (`api/_lib/ai.js` → `budgetNotice(lim)`), iar `src/lib/aiClient.js` îl
+pune într-un magazin comun (`src/lib/aiCredit.js`) dintr-un singur loc — funcția
+`post()`, prin care trec toate apelurile AI. Pentru acțiunile care nu întorc
+starea (corectări, subiecte, foto), magazinul cere `/api/ai-progress` **rar**:
+cel mult o dată la 30 de secunde, la 1,5 secunde după acțiune (cât să apuce
+`logUsage` să scrie costul). La un 429 cu `BUDGET_MONTH`, banda trece pe
+„blocat" instantaneu, fără să aștepte nimic.
+
+Pragurile sunt definite în DOUĂ locuri (server și client) și există un test care
+verifică la fiecare procent că dau aceeași treaptă — dacă schimbi unul, testul
+prinde nepotrivirea.
+
+**Ieșirea din fundătură:** butoanele duc la `/profil?topup=vezi#consum-ai`, care
+deschide singur rolldown-ul „⚡ Consum AI" și derulează până la el, ca elevul să
+cadă direct pe pachete. Pe tablă (`Whiteboard.jsx`), dacă „mai explică o dată"
+cade pe lipsă de credite, în locul mesajului sec apare aceeași bandă, cu
+precizarea că etapele scrise rămân pe tablă și lecția se reia de acolo.
+
+---
+
 ## 🚀 Instalare (2 pași, în această ordine)
 
 ### Pasul 1 — Baza de date (ÎNTÂI!)

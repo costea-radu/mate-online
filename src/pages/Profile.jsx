@@ -168,10 +168,22 @@ export default function Profile() {
   const [myMentors, setMyMentors] = useState([]);
   // Rolldown-ul „⚡ Consum AI" pornește deschis la întoarcerea de la plata
   // unui pachet AI (Stripe redirecționează către /profil?topup=...).
+  // „⚡ Consum AI" se deschide singur la întoarcerea de la plată (?topup=succes)
+  // ȘI când vii din banda de avertizare a creditelor (?topup=vezi), ca elevul
+  // să cadă direct pe pachete, nu să le caute.
   const [aiConsumOpen] = useState(() => {
     try { return new URLSearchParams(window.location.search).has('topup'); }
     catch { return false; }
   });
+  // derulăm până la secțiune, ca deschiderea ei să se și vadă
+  useEffect(() => {
+    if (!aiConsumOpen) return undefined;
+    const t = setTimeout(() => {
+      try { document.getElementById('consum-ai')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      catch { /* ignore */ }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [aiConsumOpen]);
   // Rolldown-ul „💬 Mesagerie" pornește deschis când vii dintr-o notificare de
   // mesaj nou (/profil?mesagerie=1).
   const [chatOpen] = useState(() => {
@@ -604,7 +616,7 @@ export default function Profile() {
                 (elev / profesor / părinte): cote per funcție, buget lunar și
                 pachete suplimentare. Se deschide singur la întoarcerea de la
                 plata unui pachet (?topup=succes / ?topup=anulat). */}
-            <details className="card" style={{ marginBottom: 24 }} open={aiConsumOpen || undefined}>
+            <details id="consum-ai" className="card" style={{ marginBottom: 24 }} open={aiConsumOpen || undefined}>
               <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none' }}>
                 ⚡ Consum AI
               </summary>

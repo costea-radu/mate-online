@@ -25,6 +25,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { preMessage } from './AITutor';
 import { ensureKatex, renderMath } from '../lib/katex';
 import { playAnswer, stopSpeaking, ttsSupported, ttsProblem, unlockSpeech } from '../lib/voice';
+import AICreditAlert from './AICreditAlert';
 
 // ─── viteza scrisului (caractere/secundă) — preferință locală ────────────────
 export const SPEEDS = { lent: 26, normal: 55, rapid: 110, instant: 0 };
@@ -709,6 +710,7 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
   const [paused, setPaused] = useState(false);
   const [warn, setWarn] = useState(null);
   const [voiceWarn, setVoiceWarn] = useState(null);   // „nu se aude" — spus pe față
+  const [faraCredite, setFaraCredite] = useState(false); // lecția s-a oprit: credite AI epuizate
   // unde e markerul pe tablă (0..1) — profesorul se mișcă după el
   const [wpos, setWpos] = useState(null);
   const ctlRef = useRef(null);
@@ -855,7 +857,10 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
       setActiveExtra(attempt - 1);
       setMode('write');
     } catch (err) {
-      setWarn(err?.message || 'Nu am reușit să reiau explicația acum. Mai încearcă o dată sau întreabă-mă în conversație.');
+      // creditele AI s-au terminat → nu lăsăm lecția în aer cu un mesaj sec:
+      // arătăm banda cu ce se întâmplă mai departe și butoanele către pachete
+      if (err?.code === 'BUDGET_MONTH') { setFaraCredite(true); setWarn(null); }
+      else setWarn(err?.message || 'Nu am reușit să reiau explicația acum. Mai încearcă o dată sau întreabă-mă în conversație.');
       setMode('ask');
     }
   }
@@ -959,6 +964,14 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
 
       {mode === 'loading' && <div className="bd-thinking"><span className="bd-thinking-dot" /> Profesorul caută altă cale de a-ți explica…</div>}
       {warn && <div className="bd-warn">⚠️ {warn}</div>}
+      {faraCredite && (
+        <div style={{ margin: '10px 0 4px' }}>
+          <AICreditAlert />
+          <div style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginTop: 8 }}>
+            Etapele scrise până acum rămân pe tablă — le poți reciti oricând, iar lecția se reia de aici.
+          </div>
+        </div>
+      )}
       {voiceWarn && (
         <div className="bd-warn">
           🔇 {voiceWarn} Textul rămâne scris pe tablă, îl poți citi în ritmul tău.

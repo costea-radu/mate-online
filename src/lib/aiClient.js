@@ -4,6 +4,12 @@
 // =====================================================================
 import { supabase } from './supabase';
 import { authHeaders, getValidSession, forceRefresh } from './api';
+import { setAIBudget, markAIBudgetBlocked, refreshAIBudgetSoon } from './aiCredit';
+
+// Rutele AI care CONSUMĂ credite (nu și cele de citire: progres, istoric…).
+// După ele, dacă răspunsul nu aduce singur starea creditelor, o cerem noi —
+// rar, o dată la 30 de secunde (src/lib/aiCredit.js).
+const CONSUMA_CREDITE = /^\/api\/ai-(chat|correct|exam|generate-interactive|vision|meditatii|practice|assignment|transcribe)/;
 
 async function uid() {
   const { data: { session } } = await supabase.auth.getSession();
@@ -31,8 +37,16 @@ async function post(path, body, { keepalive = false } = {}) {
   if (!res.ok) {
     const e = new Error(data.error || `Eroare server (${res.status})`);
     if (data.code === 'PREMIUM_REQUIRED' || res.status === 402) e.premium = true;
+    e.code = data.code || null;
+    // creditele lunii s-au terminat → banda de avertizare trece pe „blocat"
+    if (data.code === 'BUDGET_MONTH') markAIBudgetBlocked();
     throw e;
   }
+  // Starea creditelor, dintr-un singur loc pentru toate apelurile AI:
+  // ori vine în răspuns (chat), ori o cerem noi, rar, după o acțiune care
+  // consumă (corectări, subiecte, foto…).
+  if (data && data.aiBudget !== undefined) setAIBudget(data.aiBudget);
+  else if (CONSUMA_CREDITE.test(path)) refreshAIBudgetSoon();
   return data;
 }
 
@@ -78,8 +92,11 @@ export const aiClient = {
       let frame; try { frame = JSON.parse(t); } catch { return; }
       if (frame.type === 'meta') onMeta?.(frame);
       else if (frame.type === 'delta') onDelta?.(frame.text);
-      else if (frame.type === 'done') onDone?.(frame);
-      else if (frame.type === 'error') { const e = new Error(frame.error); if (frame.code === 'PREMIUM_REQUIRED') e.premium = true; e.code = frame.code || null; throw e; }
+      else if (frame.type === 'done') {
+        if (frame.aiBudget !== undefined) setAIBudget(frame.aiBudget);
+        onDone?.(frame);
+      }
+      else if (frame.type === 'error') { const e = new Error(frame.error); if (frame.code === 'PREMIUM_REQUIRED') e.premium = true; e.code = frame.code || null; if (frame.code === 'BUDGET_MONTH') markAIBudgetBlocked(); throw e; }
     };
     try {
       while (true) {

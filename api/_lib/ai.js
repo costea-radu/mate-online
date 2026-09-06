@@ -1067,6 +1067,35 @@ async function enforceBudgets(supa, userId, profile = null) {
   return state;
 }
 
+// ─── Avertizarea pe praguri: 50% / 75% / 90% / 95% din creditele lunii ──────
+// Se atașează la răspunsurile rutelor AI (câmpul `aiBudget`), ca elevul să fie
+// prevenit CHIAR ÎN CLIPA în care consumă — fără nicio cerere în plus. Sub 50%
+// întoarce null: nu speriem pe nimeni degeaba la începutul lunii.
+//
+// `lim` e starea întoarsă de enforceRateLimit / enforceBudgets.
+const CREDIT_STEPS = [95, 90, 75, 50];
+
+function budgetNotice(lim) {
+  if (!lim) return null;
+  const max = lim.effectiveMonthLei || 0;
+  if (!(max > 0)) return null;                 // bugete oprite sau cont scutit
+  const used = lim.monthLei || 0;
+  const pct = Math.max(0, Math.min(100, Math.round((used / max) * 100)));
+  const step = CREDIT_STEPS.find((t) => pct >= t) || 0;
+  if (!step) return null;
+  const total = leiToCredits(max);
+  const spent = leiToCredits(used);
+  return {
+    pct,
+    step,                                       // 50 | 75 | 90 | 95 (100 = epuizat)
+    creditsUsed: spent,
+    creditsTotal: total,
+    creditsLeft: Math.max(0, total - spent),
+    blocked: pct >= 100,
+    topupActive: !!lim.topupActive,
+  };
+}
+
 // Cota inclusă a unei funcții scumpe (corectări / teste / interactive / foto).
 // Se aplică DOAR utilizatorilor fără pachet top-up activ și fără scutire.
 // Cotele LUNARE formează un POOL comun (limita reală = suma lor; depășirea
@@ -2199,6 +2228,7 @@ async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', m
 }
 
 module.exports = {
+  budgetNotice,
   CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic, isCronRequest,
   chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, PERSONA,
   dropLastTurn, loadHistory, // „Regenerează" (exportate pentru teste)
