@@ -24,7 +24,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { preMessage } from './AITutor';
 import { ensureKatex, renderMath } from '../lib/katex';
-import { playAnswer, stopSpeaking, ttsSupported } from '../lib/voice';
+import { playAnswer, stopSpeaking, ttsSupported, ttsProblem, unlockSpeech } from '../lib/voice';
 
 // ─── viteza scrisului (caractere/secundă) — preferință locală ────────────────
 export const SPEEDS = { lent: 26, normal: 55, rapid: 110, instant: 0 };
@@ -708,6 +708,7 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
   const [vFrac, setVFrac] = useState(0);
   const [paused, setPaused] = useState(false);
   const [warn, setWarn] = useState(null);
+  const [voiceWarn, setVoiceWarn] = useState(null);   // „nu se aude" — spus pe față
   // unde e markerul pe tablă (0..1) — profesorul se mișcă după el
   const [wpos, setWpos] = useState(null);
   const ctlRef = useRef(null);
@@ -742,20 +743,33 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
     setPaused(false);
   }
 
+  // Pornește citirea blocului curent. Întoarce `true` dacă a pornit un player.
+  // Dacă nu se poate (fără voci în sistem), textul se arată INTEGRAL — altfel
+  // ar rămâne ascuns, așteptând o voce care nu vine.
+  const startVoice = useCallback(() => {
+    stopVoice();
+    setVoiceWarn(null);
+    if (!blockText || !ttsSupported()) { setVFrac(1); return false; }
+    setVFrac(0);
+    const ctl = playAnswer(blockText, {
+      onProgress: ({ frac }) => setVFrac(frac),
+      onEnd: () => { ctlRef.current = null; setVFrac(1); setPaused(false); },
+      onSilent: (msg) => { ctlRef.current = null; setVFrac(1); setPaused(false); setVoiceWarn(msg); },
+    });
+    if (!ctl) { setVFrac(1); return false; }
+    ctlRef.current = ctl;
+    return true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockText]);
+
   // ── VOCEA CONDUCE SCRISUL: fiecare bloc nou e citit, iar literele apar
   //    exact în ritmul în care profesorul le rostește.
   useEffect(() => {
     stopVoice();
     if (!blockText) return;
     if (!readRef.current || !ttsSupported()) return;
-    setVFrac(0);
-    const ctl = playAnswer(blockText, {
-      onProgress: ({ frac }) => setVFrac(frac),
-      onEnd: () => { ctlRef.current = null; setVFrac(1); setPaused(false); },
-    });
-    if (!ctl) { setVFrac(1); return; }   // fără voce disponibilă → textul apare tot
-    ctlRef.current = ctl;
-    return () => { try { ctl.stop(); } catch { /* ignore */ } };
+    startVoice();
+    return () => { try { ctlRef.current?.stop?.(); } catch { /* ignore */ } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockKey]);
 
@@ -773,10 +787,10 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
   // vreun eveniment. Dacă ~6 secunde nu se rostește nimic, renunțăm la voce și
   // scriem tot textul — lecția nu are voie să rămână blocată pe tablă.
   useEffect(() => {
-    if (!voiceMode || mode !== 'write') return;
+    if (!voiceMode) return;
     let silent = 0;
     const t = setInterval(() => {
-      if (modeRef.current !== 'write' || pausedRef.current) { silent = 0; return; }
+      if (pausedRef.current || !ctlRef.current) { silent = 0; return; }
       let talking = false;
       try { talking = !!(window.speechSynthesis?.speaking || window.speechSynthesis?.pending); } catch { talking = false; }
       if (talking) { silent = 0; return; }
@@ -793,13 +807,32 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
   function blockDone() { if (modeRef.current === 'write') setMode('ask'); }
   function skipBlock() { stopVoice(); setInstantBlock(blockKey); if (modeRef.current === 'write') setMode('ask'); }
 
+  // „🔊 Citește" / „🔇": pornește sau oprește citirea cu voce tare.
+  //
+  // AICI ERA BUBA: repornirea blocului (deci și rostirea) se făcea DOAR dacă
+  // etapa era încă în curs de scriere (`mode === 'write'`). Or, momentul firesc
+  // în care apeși „Citește" e TOCMAI după ce textul e scris, când profesorul
+  // întreabă „Ai înțeles?" — adică `mode === 'ask'`. Atunci nu se chema nimic:
+  // butonul se făcea „❚❚ Pauză", dar nu pornea nicio voce, iar „Pauză" nu avea
+  // ce opri. Acum citirea pornește în orice etapă.
   function setRead(v) {
+    unlockSpeech();                     // sincron, din chiar apăsarea butonului
     saveRead(v); setReadAloud(v);
-    if (!v) { stopVoice(); setInstantBlock(blockKey); if (modeRef.current === 'write') setMode('ask'); }
-    else if (modeRef.current === 'write') { setInstantBlock(null); setReplay((r) => r + 1); }
+    if (!v) {
+      stopVoice(); setVoiceWarn(null); setInstantBlock(blockKey);
+      if (modeRef.current === 'write') setMode('ask');
+      return;
+    }
+    setInstantBlock(null);
+    if (modeRef.current === 'write') setReplay((r) => r + 1);  // rescrie în ritmul vocii
+    else startVoice();                                          // deja scris → doar îl citește
   }
   function togglePause() {
-    const c = ctlRef.current; if (!c) return;
+    unlockSpeech();
+    const c = ctlRef.current;
+    // fără player (rostirea s-a terminat sau n-a pornit) butonul RELUA citirea,
+    // în loc să nu facă nimic — asta se vedea ca „butonul Pauză e mort".
+    if (!c) { setPaused(false); startVoice(); return; }
     if (paused) { c.resume(); setPaused(false); } else { c.pause(); setPaused(true); }
   }
 
@@ -926,6 +959,13 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
 
       {mode === 'loading' && <div className="bd-thinking"><span className="bd-thinking-dot" /> Profesorul caută altă cale de a-ți explica…</div>}
       {warn && <div className="bd-warn">⚠️ {warn}</div>}
+      {voiceWarn && (
+        <div className="bd-warn">
+          🔇 {voiceWarn} Textul rămâne scris pe tablă, îl poți citi în ritmul tău.
+          {' '}<button type="button" className="bd-tool" style={{ marginLeft: 6 }}
+            onClick={() => { setVoiceWarn(null); unlockSpeech(); startVoice(); }}>Încearcă din nou</button>
+        </div>
+      )}
     </Whiteboard>
   );
 }

@@ -16,7 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { askAiLabel } from '../lib/aiLabel';
 import { ensureKatex, renderMath, autoMath } from '../lib/katex';
 import { fileToCompressedDataUrl } from '../lib/image';
-import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, stopSpeaking, playAnswer, sentencesOf } from '../lib/voice';
+import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, stopSpeaking, playAnswer, sentencesOf, unlockSpeech, ttsProblem } from '../lib/voice';
 import { extractTutorActions } from '../lib/tutorBridge';
 import { renderFigure, extractFigureMarkers } from '../lib/figureRender'; // figuri desenate în chat (Etapa 3)
 import { awardBadges } from '../lib/badges';
@@ -281,6 +281,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // Glasul vine de pe server (identic pe desktop și pe telefon), cu revenire
   // automată la sinteza din browser. Bara de progres e clicabilă (derulare).
   const [voiceState, setVoiceState] = useState({ idx: null, frac: 0, sent: 0, total: 0, paused: false });
+  const [voiceErr, setVoiceErr] = useState(null);
   const playerRef = useRef(null);
 
   // ── Oprește / Regenerează / Reîncearcă ────────────────────────────────────
@@ -303,20 +304,37 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     setVoiceState({ idx: null, frac: 0, sent: 0, total: 0, paused: false });
   }
 
+  // `voiceErr` — de ce nu se aude (fără voci în sistem, browser care refuză):
+  // mai bine îi spunem elevului decât să lăsăm un buton care pare că merge.
   function startListen(msgIdx, content) {
     stopPlayback();
+    unlockSpeech();
+    setVoiceErr(null);
     let ctl = null;
     ctl = playAnswer(preMessage(content), {
       onProgress: ({ frac, sent, total }) =>
         setVoiceState((v) => (v.idx === msgIdx ? { ...v, frac, sent, total } : v)),
       onEnd: () => { if (playerRef.current === ctl) stopPlayback(); },
+      onSilent: (msg) => { setVoiceErr(msg); if (playerRef.current === ctl) stopPlayback(); },
     });
-    if (!ctl) return;
+    if (!ctl) { setVoiceErr(ttsProblem() || 'Nu am ce citi din răspunsul acesta.'); return false; }
     playerRef.current = ctl;
     setVoiceState({ idx: msgIdx, frac: 0, sent: 0, total: 0, paused: false });
+    return true;
+  }
+
+  // Ultimul răspuns scris de profesor (pentru butonul „🔊 Voce").
+  function lastAnswer() {
+    const list = messagesRef.current || [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const m = list[i];
+      if (m.role === 'assistant' && !m.streaming && !m.isError && (m.content || '').trim()) return { idx: i, content: m.content };
+    }
+    return null;
   }
 
   function toggleListen(msgIdx, content) {
+    unlockSpeech();
     const ctl = playerRef.current;
     if (ctl && voiceState.idx === msgIdx) {
       if (!ctl.paused) { ctl.pause(); setVoiceState((v) => ({ ...v, paused: true })); }
@@ -836,9 +854,21 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         style={boardMode ? undefined : { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid var(--border)', gap: 8 }}>
         <button onClick={newConversation} style={miniBtn}>＋ Conversație nouă</button>
         <div style={{ display: 'flex', gap: 6 }}>
+          {/* „🔊 Voce" pornește citirea PE LOC a ultimului răspuns și lasă
+              pornită citirea automată a celor următoare. Până acum doar arma
+              răspunsurile viitoare, așa că apăsarea lui părea că nu face nimic. */}
           {ttsSupported() && (
-            <button onClick={() => { const n = !autoRead; setAutoRead(n); if (!n) stopSpeaking(); }}
-              title="Citește răspunsurile cu voce tare"
+            <button onClick={() => {
+              unlockSpeech();
+              const n = !autoRead;
+              setAutoRead(n);
+              if (!n) { stopPlayback(); setVoiceErr(null); return; }
+              const ultim = lastAnswer();
+              if (ultim) startListen(ultim.idx, ultim.content);
+            }}
+              title={autoRead
+                ? 'Oprește citirea cu voce tare'
+                : 'Citește acum ultimul răspuns și, mai departe, pe fiecare următor'}
               style={{ ...miniBtn, ...(autoRead ? { background: 'var(--gold)', color: 'var(--navy)', borderColor: 'var(--gold)' } : {}) }}>
               🔊 {autoRead ? 'Auto' : 'Voce'}
             </button>
@@ -846,6 +876,18 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           <button onClick={openHistory} style={miniBtn}>🕘 Istoric</button>
         </div>
       </div>
+
+      {/* Vocea nu pornește (fără voci în sistem, browser care refuză): o spunem
+          o singură dată, aici, ca butonul să nu pară că funcționează degeaba. */}
+      {voiceErr && (
+        <div style={{ padding: '6px 12px', fontSize: '.76rem', color: '#8a3b3b', background: 'rgba(198,40,40,.06)', borderBottom: '1px solid var(--border)' }}>
+          🔇 {voiceErr}{' '}
+          <button onClick={() => { setVoiceErr(null); const u = lastAnswer(); if (u) startListen(u.idx, u.content); }}
+            style={{ background: 'none', border: 'none', color: 'var(--navy)', textDecoration: 'underline', cursor: 'pointer', fontWeight: 600, fontSize: '.76rem' }}>
+            Încearcă din nou
+          </button>
+        </div>
+      )}
 
       {/* „Alege un test PDF din site" NU mai are bandă separată aici: butonul
           stă în LISTA de butoane a meditatorului (mesajul de întâmpinare,

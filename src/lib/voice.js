@@ -79,32 +79,90 @@ export function ensureVoices() {
   return voicesPromise;
 }
 
-function pickRoVoice() {
-  const voices = window.speechSynthesis.getVoices() || [];
+// Alegerea vocii, în ordinea asta:
+//   1. o voce ROMÂNEASCĂ instalată în sistem (ideal);
+//   2. altă limbă ROMANICĂ — italiană, spaniolă, portugheză, franceză: citesc
+//      româna mult mai inteligibil decât engleza (aceleași vocale curate);
+//   3. vocea implicită a sistemului, orice ar fi ea.
+// Pasul 2–3 contează: pe multe calculatoare cu Windows nu e instalată nicio
+// voce românească, iar până acum lăsam `lang = 'ro-RO'` fără voce — motorul nu
+// avea ce rosti și nu se auzea NIMIC, fără nicio eroare.
+const ROMANCE = /^(it|es|pt|ca|gl|fr)(-|_|$)/i;
+
+export function pickVoice() {
+  const voices = (ttsSupported() && window.speechSynthesis.getVoices()) || [];
+  if (!voices.length) return { voice: null, lang: 'ro-RO', female: false, fallback: 'niciuna' };
+
   const ro = voices.filter((v) => /ro(-|_)?RO/i.test(v.lang) || /romanian|română/i.test(v.name));
-  const male = ro.find((v) => MALE_HINTS.test(v.name));
-  if (male) return { voice: male, female: false };
-  const neutral = ro.find((v) => !FEMALE_HINTS.test(v.name));
-  if (neutral) return { voice: neutral, female: false };
-  return { voice: ro[0] || null, female: !!ro[0] }; // doar voce feminină în sistem
+  if (ro.length) {
+    const male = ro.find((v) => MALE_HINTS.test(v.name));
+    if (male) return { voice: male, lang: male.lang || 'ro-RO', female: false, fallback: null };
+    const neutral = ro.find((v) => !FEMALE_HINTS.test(v.name));
+    const v = neutral || ro[0];
+    return { voice: v, lang: v.lang || 'ro-RO', female: !neutral, fallback: null };
+  }
+
+  const romanic = voices.find((v) => ROMANCE.test(v.lang));
+  if (romanic) return { voice: romanic, lang: romanic.lang, female: FEMALE_HINTS.test(romanic.name), fallback: 'romanica' };
+
+  const def = voices.find((v) => v.default) || voices[0];
+  return { voice: def, lang: def.lang, female: FEMALE_HINTS.test(def.name), fallback: 'implicita' };
+}
+
+// De ce nu se aude (pentru mesajul arătat elevului). null = totul e în regulă.
+export function ttsProblem() {
+  if (!ttsSupported()) return 'Browserul acesta nu știe să citească cu voce tare.';
+  const voices = window.speechSynthesis.getVoices() || [];
+  if (!voices.length) return 'Nu e instalată nicio voce în sistem, așa că nu am ce folosi ca să citesc.';
+  return null;
 }
 
 // Profil „narator de documentar": ton grav, ritm calm și așezat.
 const NARRATOR = { rate: 0.95, pitch: 0.7 };
 const FEMALE_DEEPEN = 0.3; // dacă sistemul are doar voce feminină, o coborâm mult
 
-export function speak(text, { lang = 'ro-RO', onEnd, rate, pitch } = {}) {
+// De ce NU punem „pastila" periodică `pause(); resume()` de prin forumuri:
+// se dă ca leac pentru bugul Chrome care taie rostirile de peste ~15 secunde.
+// Măsurat aici (Chrome, Windows): o rostire de 21 de secunde ajunge întreagă
+// la capăt, iar noi oricum citim PROPOZIȚIE cu propoziție (câteva secunde
+// fiecare), deci pragul nu poate fi atins. Un pause/resume la mijlocul vorbirii
+// ar aduce doar sughițuri, fără să rezolve nimic.
+
+// Se cheamă din chiar apăsarea butonului (sincron), înainte de orice await:
+// deblochează sinteza pe browserele care cer un gest al utilizatorului și
+// scoate motorul dintr-o eventuală stare „pauză" rămasă agățată — o cauză
+// clasică de „nu se mai aude nimic, orice aș apăsa".
+export function unlockSpeech() {
+  if (!ttsSupported()) return;
+  try { window.speechSynthesis.resume(); } catch { /* ignore */ }
+  ensureVoices();
+}
+
+export function speak(text, { lang, onEnd, rate, pitch } = {}) {
   if (!ttsSupported()) { onEnd?.(); return; }
-  window.speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(speakableText(text));
-  u.lang = lang;
-  const { voice, female } = pickRoVoice();
-  if (voice) u.voice = voice;
-  u.rate = rate ?? NARRATOR.rate;
-  u.pitch = pitch ?? (female ? FEMALE_DEEPEN : NARRATOR.pitch);
-  u.onend = () => onEnd?.();
-  u.onerror = () => onEnd?.();
-  window.speechSynthesis.speak(u);
+  const synth = window.speechSynthesis;
+  const say = () => {
+    const spoken = speakableText(text);
+    if (!spoken) { onEnd?.(); return; }
+    const u = new SpeechSynthesisUtterance(spoken);
+    const { voice, lang: vlang, female } = pickVoice();
+    if (voice) u.voice = voice;
+    // limba trebuie să fie a VOCII alese, nu 'ro-RO' pe o voce care nu există:
+    // altfel motorul primește o limbă fără voce și tace.
+    u.lang = lang || vlang || 'ro-RO';
+    u.rate = rate ?? NARRATOR.rate;
+    u.pitch = pitch ?? (female ? FEMALE_DEEPEN : NARRATOR.pitch);
+    const done = () => { onEnd?.(); };
+    u.onend = done;
+    u.onerror = done;
+    try { synth.resume(); } catch { /* ignore */ }
+    synth.speak(u);
+  };
+  // `cancel()` urmat IMEDIAT de `speak()` blochează coada în Chrome: rostirea
+  // nouă nu mai pornește niciodată. Anulăm doar dacă chiar vorbește ceva și
+  // lăsăm o clipă între ele.
+  if (synth.speaking || synth.pending) { synth.cancel(); setTimeout(say, 60); }
+  else say();
 }
 export function stopSpeaking() { if (ttsSupported()) window.speechSynthesis.cancel(); }
 export function pauseSpeaking() { if (ttsSupported()) { try { window.speechSynthesis.pause(); } catch { /* ignore */ } } }
@@ -151,7 +209,7 @@ export function sentencesOf(text = '') {
 // invalidează redările anterioare (altfel vocile se suprapun la apăsări dese).
 let PLAY_TOKEN = 0;
 
-export function playAnswer(text, { onProgress, onEnd } = {}) {
+export function playAnswer(text, { onProgress, onEnd, onSilent } = {}) {
   const sents = sentencesOf(text).map((s) => s.text).filter((t) => t.trim());
   if (!sents.length) { onEnd?.(); return null; }
 
@@ -169,7 +227,24 @@ export function playAnswer(text, { onProgress, onEnd } = {}) {
     speak(sents[st.i], { onEnd: () => { if (mine() && !st.paused && st.gen === g) { st.i++; step(); } } });
   };
   // pe mobil lista de voci se încarcă asincron — o așteptăm o singură dată
-  ensureVoices().then(() => { if (mine()) step(); });
+  ensureVoices().then(() => {
+    if (!mine()) return;
+    if (!(window.speechSynthesis.getVoices() || []).length) {
+      // nicio voce în sistem: spunem pe față, nu lăsăm interfața să pretindă
+      st.dead = true;
+      onSilent?.(ttsProblem() || 'Nu am găsit nicio voce de folosit.');
+      onEnd?.();
+      return;
+    }
+    step();
+    // dacă în 4 secunde nu s-a auzit nimic, rostirea nu a pornit
+    setTimeout(() => {
+      if (!mine() || st.paused) return;
+      let talking = false;
+      try { talking = !!(window.speechSynthesis.speaking || window.speechSynthesis.pending); } catch { /* ignore */ }
+      if (!talking && st.i === 0) onSilent?.('Vocea nu pornește în acest browser.');
+    }, 4000);
+  });
 
   return {
     get paused() { return st.paused; },

@@ -17,9 +17,50 @@
 // =====================================================================
 import { useEffect, useState } from 'react';
 import { aiClient } from './aiClient';
+import { supabase } from './supabase';
 
 const POLL = 30000;     // cât de des întrebăm serverul, cu tabul vizibil
 const MIN_GAP = 4000;   // nu batem serverul mai des de atât
+
+// ─── TIMP REAL ───────────────────────────────────────────────────────────────
+// Interogarea din 30 în 30 de secunde e doar plasa de siguranță. Bulina roșie
+// apare PE LOC pentru că ascultăm exact canalele pe care mesageria dă semnalul
+// când cineva trimite un mesaj (`mesagerie:<threadId>`, broadcast fără
+// conținut — src/components/Mesagerie.jsx). Nimic nou de deschis către browser:
+// numărul tot de la /api/messages vine, doar că îl cerem în clipa potrivită.
+const RT_CANAL = (threadId) => `mesagerie:${threadId}`;
+const RT_EVENIMENT = 'mesaj';
+const MAX_CANALE = 24;
+let canale = [];
+let cheieCanale = '';
+let rtDebounce = null;
+
+// mai multe mesaje trimise unul după altul → o singură întrebare la server
+function cereDupaSemnal() {
+  clearTimeout(rtDebounce);
+  rtDebounce = setTimeout(() => { fetchUnread(true); }, 300);
+}
+
+function ascultaFirele(ids) {
+  const cheie = (ids || []).slice(0, MAX_CANALE).join(',');
+  if (cheie === cheieCanale) return;          // aceleași fire → nu refacem nimic
+  inchideCanale();
+  cheieCanale = cheie;
+  if (!cheie || !logat) return;
+  canale = cheie.split(',').filter(Boolean).map((id) => {
+    const ch = supabase.channel(RT_CANAL(id), { config: { broadcast: { self: false } } });
+    ch.on('broadcast', { event: RT_EVENIMENT }, cereDupaSemnal);
+    ch.subscribe();
+    return ch;
+  });
+}
+
+function inchideCanale() {
+  clearTimeout(rtDebounce);
+  canale.forEach((c) => { try { supabase.removeChannel(c); } catch { /* deja închis */ } });
+  canale = [];
+  cheieCanale = '';
+}
 
 // `loaded` = am primit măcar o dată un număr REAL de la server. Alerta de
 // mesaj nou se uită la el ca să nu sune la prima încărcare, pentru mesaje
@@ -59,6 +100,7 @@ async function fetchUnread(force = false) {
         last: r?.last || null,
         loaded: true,
       });
+      if (Array.isArray(r?.threadIds)) ascultaFirele(r.threadIds);
     } catch {
       // rețea sau sesiune expirată → păstrăm ultima valoare, reîncercăm la tic
     } finally {
@@ -81,6 +123,7 @@ function stop() {
   if (timer) { clearInterval(timer); timer = null; }
   window.removeEventListener('focus', onWake);
   document.removeEventListener('visibilitychange', onWake);
+  inchideCanale();
 }
 
 /**
@@ -118,6 +161,7 @@ export function useChatUnread(enabled = true) {
     if (!enabled) {
       logat = false;
       lastAt = 0;
+      inchideCanale();
       setState({ count: 0, threads: 0, last: null, loaded: false });
       setVal(state);
       return undefined;

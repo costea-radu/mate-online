@@ -462,7 +462,7 @@ async function unread(req, res, supa) {
       if (buddies.has(other)) ids.push(t.id);
     });
   }
-  if (!ids.length) return res.status(200).json({ count: 0, threads: 0 });
+  if (!ids.length) return res.status(200).json({ count: 0, threads: 0, threadIds: [] });
 
   const { data: msgs } = await supa.from('chat_messages')
     .select('thread_id, sender_id, sender_name, sender_role, body, attachment, created_at')
@@ -490,7 +490,10 @@ async function unread(req, res, supa) {
       }
     }
   });
-  return res.status(200).json({ count, threads: noi.size, last });
+  // `threadIds`: conversațiile mele. Bara de sus se abonează la ele în timp
+  // real (aceleași canale ca mesageria), ca bulina roșie să apară pe loc când
+  // scrie cineva — nu abia la următoarea interogare.
+  return res.status(200).json({ count, threads: noi.size, last, threadIds: ids.slice(0, 40) });
 }
 
 // ─── Ce poate atașa profesorul: temele și testele lui ────────────────────────

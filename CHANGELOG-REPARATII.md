@@ -4,6 +4,149 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 6 septembrie 2026 — Vocea care nu pornea și bulina de mesaje în timp real
+
+Trei cereri de la Radu.
+
+### 1. „🔊 Citește" de pe tablă nu citea nimic, iar „❚❚ Pauză" era mort
+
+Bug real, găsit în `src/components/Whiteboard.jsx`. Repornirea blocului — deci
+și rostirea — se făcea **doar dacă etapa era încă în curs de scriere**:
+
+```js
+else if (modeRef.current === 'write') { setInstantBlock(null); setReplay((r) => r + 1); }
+```
+
+Or momentul firesc în care apeși „Citește" e **tocmai după** ce textul e scris,
+când profesorul întreabă „Ai înțeles?" — adică `mode === 'ask'`. Atunci nu se
+chema absolut nimic: butonul devenea „❚❚ Pauză" (starea se schimba), dar nu
+pornea niciun player. Iar `togglePause()` începea cu `if (!c) return;`, deci
+„Pauză" nu avea ce opri — de aici și al doilea simptom.
+
+Reparat: citirea pornește în orice etapă (`startVoice()`, scos separat), iar
+„Pauză" **reia** citirea când nu există player, în loc să nu facă nimic.
+
+**Verificat în Chrome, pe calculatorul lui Radu** (prin panoul de browser), pe
+site-ul live:
+
+| Măsurătoare | Rezultat |
+|---|---|
+| Voci în sistem | 1 — „Microsoft Andrei - Romanian (Romania)" `[ro-RO]` |
+| `speak()` fără gest al utilizatorului | pornește (`onstart`), deci nu e blocaj de autoplay |
+| Rostire de 21 de secunde | ajunge întreagă la capăt (`END@21s`) |
+| Lanțul de propoziții, ca în `playAnswer` | 4 din 4 rostite, în ordine, până la capăt |
+
+Deci vocea în sine era sănătoasă — problema era strict în logica butonului.
+
+### 2. `src/lib/voice.js` — voce mai greu de stricat
+
+Măsurătorile de mai sus au arătat că partea de browser era în regulă la Radu,
+dar codul avea trei capcane pentru **alți** utilizatori:
+
+- **fără voce românească instalată** (cazul obișnuit pe Windows), `pickRoVoice`
+  întorcea `null`, iar `u.lang` rămânea `'ro-RO'` — motorul primea o limbă fără
+  voce și tăcea, fără nicio eroare. Acum `pickVoice()` are un lanț de rezerve:
+  română → altă limbă **romanică** (italiană, spaniolă, portugheză, franceză —
+  citesc româna mult mai inteligibil decât engleza) → vocea implicită, iar
+  `u.lang` urmează **vocea aleasă**, nu o limbă inexistentă;
+- **`cancel()` urmat imediat de `speak()`** blochează coada în Chrome. Acum
+  anulăm doar dacă chiar vorbește ceva și lăsăm 60 ms între ele;
+- **tăcerea nu mai e mută**: dacă nu există nicio voce sau rostirea nu pornește
+  în 4 secunde, `playAnswer` anunță prin `onSilent`, iar interfața scrie de ce
+  nu se aude, cu un buton „Încearcă din nou" — în loc să lase butonul să pară
+  că funcționează.
+
+Nu am pus „pastila" periodică `pause(); resume()` care circulă pe forumuri ca
+leac pentru bugul Chrome de la ~15 secunde: măsurat aici, o rostire de 21 de
+secunde trece întreagă, iar noi oricum citim propoziție cu propoziție. Ar fi
+adus doar sughițuri.
+
+### 3. Butonul „🔊 Voce" din chat citea abia răspunsul următor
+
+`src/components/AITutor.jsx`: butonul doar arma citirea automată a răspunsurilor
+**viitoare**, așa că apăsarea lui pe un răspuns deja primit nu făcea nimic
+vizibil. Acum pornește pe loc citirea **ultimului răspuns** și lasă mai departe
+citirea automată pentru cele următoare.
+
+### 4. Bulina roșie de mesaje noi, în timp real
+
+Bulina exista deja lângă 💬 din bara de sus (și pe butonul ☰ pe telefon), dar se
+actualiza doar la interogarea din 30 în 30 de secunde. Acum apare **pe loc**:
+`api/messages.js` (`action: 'unread'`) întoarce și `threadIds`, iar
+`src/lib/chatUnread.js` se abonează la exact aceleași canale de timp real pe
+care le folosește mesageria (`mesagerie:<threadId>`, broadcast fără conținut).
+Când cineva trimite un mesaj, bara de sus cere numărul actualizat după 300 ms.
+Interogarea periodică rămâne ca plasă de siguranță, iar tabelul de mesaje NU se
+deschide către browser — numărul vine tot de la `/api/messages`.
+
+**De rulat:** nimic. Toate modificările sunt în cod.
+
+---
+
+## 6 septembrie 2026 — Advisors: funcția de trigger scoasă din API
+
+Raportul Advisors din 6 septembrie are **3 warninguri**, toate `WARN`, niciunul
+`ERROR`. Două se repară din SQL, al treilea nu ține de noi.
+
+### 1 + 2. `public.ai_correct_forms_invalidate()` chemabilă din browser (linturile 0028 și 0029)
+
+Aceeași funcție, raportată de două ori — o dată pentru `anon`, o dată pentru
+`authenticated`. E funcția de **trigger** din `supabase/ai_correct_forms.sql`:
+șterge formularul de corectare al unui material când i se schimbă fișierul
+(`content.file_url`). Nu e o funcție de API și nu are ce căuta în
+`/rest/v1/rpc` — dar PostgreSQL dă implicit `EXECUTE` lui `PUBLIC` pe orice
+funcție nouă, iar Supabase îl mai dă o dată, direct, rolurilor `anon` și
+`authenticated` (capcana din `fix_grants_v3.sql`).
+
+`ai_correct_forms.sql` are deja linia de revoke la final, dar funcția ajunsese
+în bază înainte ca ea să existe acolo. Ca să nu mai depindem de ordinea
+rulărilor, **`supabase/fix_lints_6sep2026.sql`** face trei lucruri: închide
+funcția din raport, **mătură apoi toate** funcțiile `SECURITY DEFINER` din
+schema `public` (aceeași buclă ca `fix_grants_v3.sql`, deci prinde și ce ar mai
+adăuga o migrare viitoare) și scoate granturile implicite pe `anon` /
+`authenticated`. `public.reviews_can_rate` primește înapoi dreptul pentru
+`authenticated` — e chemată dintr-o politică RLS, care rulează cu drepturile
+celui care scrie.
+
+**Verificat pe PostgreSQL 16.13** (aceeași versiune majoră ca Supabase), pe o
+bază unde am reprodus întâi warningul cu rolurile și privilegiile implicite ale
+Supabase:
+
+| Verificare | Rezultat |
+|---|---|
+| Înainte de script | `anon = true`, `authenticated = true` — exact ce raportează Advisors |
+| După script | `anon = false`, `authenticated = false`; drepturi rămase: `{postgres, service_role}` |
+| `anon` cheamă funcția prin RPC | `permission denied` |
+| **Triggerul după revoke** | **merge mai departe** — update pe `content.file_url` ca `service_role` șterge în continuare rândul din `ai_correct_forms`, chiar și cu `EXECUTE` scos inclusiv pentru `service_role` |
+| `reviews_can_rate` pentru `authenticated` | rămâne `true` (recenziile nu se strică) |
+| Rulat de trei ori la rând | exit 0, fără erori |
+
+Motivul pentru care triggerul nu se strică: PostgreSQL verifică `EXECUTE` pe
+funcția de trigger la `CREATE TRIGGER`, nu la fiecare declanșare.
+
+Un lucru de reținut, ca să nu ne bazăm pe ce nu e: o funcție adăugată de o
+migrare viitoare **tot** va primi `EXECUTE` prin `PUBLIC` — implicitul din
+PostgreSQL însuși, care nu poate fi scos cu `ALTER DEFAULT PRIVILEGES` (măsurat:
+`{=X/postgres, postgres=X/postgres, service_role=X/postgres}`). Ce dispare sunt
+granturile directe pe `anon` și `authenticated`. Deci regula rămâne: după orice
+migrare care adaugă funcții, ori pui în ea `revoke all on function ... from
+public`, ori rulezi din nou fișierul și te uiți la raportul de la final (ideal:
+„0 rows").
+
+### 3. `auth_leaked_password_protection` — nu se poate repara pe planul Free
+
+Verificarea parolelor la HaveIBeenPwned e disponibilă **doar pe planul Pro sau
+mai sus** („Leaked password protection is available on the Pro Plan and above",
+documentația Supabase). Pe Free comutatorul nu poate fi activat, deci warningul
+rămâne afișat orice am face — nu e o scăpare din cod. La trecerea pe Pro:
+Authentication → Sign In / Up → Password Protection → „Prevent use of leaked
+passwords", un click.
+
+**De rulat:** `supabase/fix_lints_6sep2026.sql` în Supabase → SQL Editor, apoi
+Advisors → „Rerun linter". Trebuie să rămână doar warningul cu parolele.
+
+---
+
 ## 31 august 2026 — Chatul AI pornește gol, iar formularul unui test PDF se construiește o singură dată pentru toți
 
 Două cereri de la Radu.
