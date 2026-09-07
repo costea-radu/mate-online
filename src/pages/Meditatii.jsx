@@ -935,6 +935,33 @@ export default function Meditatii() {
     return r;
   }
 
+  // ATENȚIE: toate hook-urile trebuie declarate AICI, ÎNAINTE de return-urile
+  // timpurii de mai jos (loading / !user / profesor-părinte). La reîncărcarea
+  // paginii (F5) AuthContext pornește cu loading=true → prima randare iese
+  // devreme; dacă hook-uri suplimentare stăteau sub acele return-uri, a doua
+  // randare rula mai multe hook-uri decât prima și React arunca eroare
+  // („Rendered more hooks than during the previous render").
+  // ── TABLA-CONVERSAȚIE ────────────────────────────────────────────────────
+  // Chatul rămâne o singură componentă (cu tot ce știe: streaming, poze,
+  // corectare după barem, istoric), dar își pune mesajele PE TABLĂ, iar
+  // câmpul de scris SUB ea. Aici doar ținem cele două containere.
+  const [boardEl, setBoardElState] = useState(null);
+  const [composerEl, setComposerElState] = useState(null);
+  const setBoardEl = useCallback((el) => setBoardElState(el), []);
+  const setComposerEl = useCallback((el) => setComposerElState(el), []);
+  const boardSlots = { board: boardEl, composer: composerEl };
+  const [chatBusy, setChatBusy] = useState(false);   // profesorul scrie chiar acum
+  const [chatSpeaking, setChatSpeaking] = useState(false); // …și chiar acum îl și AUZI
+  const chatCmd = useRef(null);                      // comenzi către chat (lista de teste PDF)
+
+  // ── PROFESORUL PROPUNE MEREU DOUĂ OPȚIUNI ────────────────────────────────
+  // CE se propune și în ce ordine sunt reguli aici, în pagină: instant și fără
+  // niciun token. Fraza cu care o spune se scrie pe tablă ca mesaj al lui;
+  // aprecierile personalizate rămân în sarcina coach-ului de pe server.
+  const [proposal, setProposal] = useState(null);
+  const [skipped, setSkipped] = useState([]);
+  const runsRef = useRef(0);                         // câte seturi a lucrat în sesiunea asta
+
   // ── stările speciale ──
   if (loading) return <div style={{ padding: 60, textAlign: 'center' }}><div className="spinner" /></div>;
 
@@ -988,27 +1015,6 @@ export default function Meditatii() {
     setTab(id); setQuiz(null); setLessonView(null); setActionError(null);
     setSectionJump((n) => n + 1);
   }
-
-  // ── TABLA-CONVERSAȚIE ────────────────────────────────────────────────────
-  // Chatul rămâne o singură componentă (cu tot ce știe: streaming, poze,
-  // corectare după barem, istoric), dar își pune mesajele PE TABLĂ, iar
-  // câmpul de scris SUB ea. Aici doar ținem cele două containere.
-  const [boardEl, setBoardElState] = useState(null);
-  const [composerEl, setComposerElState] = useState(null);
-  const setBoardEl = useCallback((el) => setBoardElState(el), []);
-  const setComposerEl = useCallback((el) => setComposerElState(el), []);
-  const boardSlots = { board: boardEl, composer: composerEl };
-  const [chatBusy, setChatBusy] = useState(false);   // profesorul scrie chiar acum
-  const [chatSpeaking, setChatSpeaking] = useState(false); // …și chiar acum îl și AUZI
-  const chatCmd = useRef(null);                      // comenzi către chat (lista de teste PDF)
-
-  // ── PROFESORUL PROPUNE MEREU DOUĂ OPȚIUNI ────────────────────────────────
-  // CE se propune și în ce ordine sunt reguli aici, în pagină: instant și fără
-  // niciun token. Fraza cu care o spune se scrie pe tablă ca mesaj al lui;
-  // aprecierile personalizate rămân în sarcina coach-ului de pe server.
-  const [proposal, setProposal] = useState(null);
-  const [skipped, setSkipped] = useState([]);
-  const runsRef = useRef(0);                         // câte seturi a lucrat în sesiunea asta
 
   function proposalList(S) {
     if (!S) return [];

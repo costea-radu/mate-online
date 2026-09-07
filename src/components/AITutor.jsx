@@ -816,16 +816,6 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     }
   }
 
-  if (!user) {
-    return (
-      <div style={{ padding: 24, textAlign: 'center' }}>
-        <div style={{ fontSize: '2.4rem', marginBottom: 8 }}>🎓</div>
-        <p style={{ color: 'var(--text-light)', marginBottom: 16 }}>Autentifică-te ca să discuți cu Profesorul Virtual.</p>
-        <Link to="/autentificare" className="btn btn-primary">Autentificare</Link>
-      </div>
-    );
-  }
-
   // Chatul pornește GOL: fără mesaj de întâmpinare și fără întrebări
   // pre-completate („starters" / acțiunile de navigare ale mentorului).
   // Elevul/profesorul scrie singur ce vrea — vezi zona „Mesaje" de mai jos.
@@ -851,6 +841,18 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   useEffect(() => {
     onSpeaking?.(voiceState.idx !== null && !voiceState.paused);
   }, [voiceState.idx, voiceState.paused]); // eslint-disable-line
+
+  // Ecranul „autentifică-te" stă DUPĂ hook-urile de mai sus: un return
+  // înaintea lor ar schimba numărul de hook-uri între randări (eroare React).
+  if (!user) {
+    return (
+      <div style={{ padding: 24, textAlign: 'center' }}>
+        <div style={{ fontSize: '2.4rem', marginBottom: 8 }}>🎓</div>
+        <p style={{ color: 'var(--text-light)', marginBottom: 16 }}>Autentifică-te ca să discuți cu Profesorul Virtual.</p>
+        <Link to="/autentificare" className="btn btn-primary">Autentificare</Link>
+      </div>
+    );
+  }
 
   const headJsx = (
     <>
