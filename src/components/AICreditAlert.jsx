@@ -20,7 +20,7 @@
 // =====================================================================
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAIBudget, subscribeAIBudget, reimprospateaza } from '../lib/aiCredit';
+import { getAIBudget, subscribeAIBudget, reimprospateaza, frazaResetare } from '../lib/aiCredit';
 
 const nrRo = (n) => Number(n || 0).toLocaleString('ro-RO');
 
@@ -44,12 +44,13 @@ const TREPTE = {
   95: {
     bg: 'rgba(198,40,40,.09)', border: 'rgba(198,40,40,.45)', text: '#8a3b3b', icon: '🔴',
     titlu: (b) => `Ești pe ultimele credite AI: ${nrRo(b.creditsLeft)} din ${nrRo(b.creditsTotal)}.`,
-    sfat: 'Mai ai loc de câteva întrebări. Când se termină, Profesorul Virtual se oprește până se eliberează credite — restul platformei merge normal.',
+    sfat: 'Mai ai loc de câteva întrebări. Când se termină, Profesorul Virtual se oprește până la resetarea creditelor — restul platformei merge normal.',
   },
 };
 
 export default function AICreditAlert({ compact = false, style }) {
   const [b, setB] = useState(getAIBudget);
+  const [, tic] = useState(0);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -58,10 +59,20 @@ export default function AICreditAlert({ compact = false, style }) {
     return off;
   }, []);
 
+  // Numărătoarea până la resetare se recalculează din data absolută, din minut
+  // în minut: o pagină lăsată deschisă nu are voie să arate un „mai ai 2 ore"
+  // înghețat de acum trei ore.
+  useEffect(() => {
+    const t = setInterval(() => tic((n) => n + 1), 60000);
+    return () => clearInterval(t);
+  }, []);
+
   if (!b || (!b.blocked && !b.step)) return null;
   if (b.topupActive && !b.blocked) return null;   // are pachet activ → nu-l batem la cap
 
   const spreConsum = () => navigate('/profil?topup=vezi#consum-ai');
+  // „Creditele se resetează peste 3 zile și 4 ore (pe 1 octombrie 2026…)"
+  const resetare = frazaResetare(b);
 
   // ── EPUIZAT: mesajul care spune ce se întâmplă mai departe + butoane ──────
   if (b.blocked) {
@@ -77,11 +88,18 @@ export default function AICreditAlert({ compact = false, style }) {
               Creditele AI ale lunii s-au terminat
             </div>
             <div style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.55 }}>
-              Profesorul Virtual se oprește până se eliberează credite. <strong>Nu pierzi nimic</strong>: lecția, temele
-              și progresul rămân unde sunt și reluăm de unde am rămas. Creditele se eliberează treptat, zi de zi
-              (fereastra de 30 de zile alunecă), sau imediat cu un pachet suplimentar.
+              Profesorul Virtual se oprește până la resetare. <strong>Nu pierzi nimic</strong>: lecția, temele
+              și progresul rămân unde sunt și reluăm de unde am rămas.
               {' '}Materialele, testele și rezolvările din site merg mai departe, fără credite.
             </div>
+            {resetare && (
+              <div style={{
+                marginTop: 8, background: 'rgba(46,204,113,.12)', border: '1px solid rgba(46,204,113,.4)',
+                borderRadius: 8, padding: '7px 10px', fontSize: '.82rem', color: '#1e7e34', fontWeight: 700,
+              }}>
+                ⏳ {resetare} Atunci primești din nou toate creditele lunii — sau poți continua chiar acum, cu un pachet.
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
               <button type="button" onClick={spreConsum} style={{
                 padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
@@ -115,6 +133,7 @@ export default function AICreditAlert({ compact = false, style }) {
           </div>
           <div style={{ fontSize: compact ? '.76rem' : '.79rem', color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.55 }}>
             {t.sfat}
+            {resetare && b.step >= 90 && <> <strong style={{ color: t.text }}>{resetare}</strong></>}
           </div>
           {/* bara: cât s-a dus din creditele lunii */}
           <div style={{ height: 5, background: 'rgba(15,43,68,.12)', borderRadius: 99, overflow: 'hidden', marginTop: 7 }}>

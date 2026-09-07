@@ -1679,7 +1679,11 @@ body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
 .med-prof.is-writing .pf-arm { animation: pf-write 1.6s ease-in-out infinite; transform-origin: 78px 196px; transform-box: view-box; }
 .med-prof.is-writing .pf-svg { animation: pf-bob 3.6s ease-in-out infinite; }
 .pf-eyes { animation: pf-blink 5.5s infinite; transform-origin: 110px 110px; transform-box: view-box; }
-.med-prof.is-asking .pf-mouth { animation: pf-talk 1.5s ease-in-out infinite; transform-origin: 110px 148px; transform-box: view-box; }
+/* GURA se mișcă DOAR cât timp profesorul chiar spune ceva — explicația de pe
+   tablă, citită cu voce tare, sau exercițiul pe care îl dictează. Când stă cu
+   fața la elev și așteaptă un răspuns („Ai înțeles?"), gura e NEMIȘCATĂ:
+   altfel vorbea în gol, la nesfârșit, cât timp elevul se gândea. */
+.med-prof.is-speaking .pf-mouth { animation: pf-talk 1.5s ease-in-out infinite; transform-origin: 110px 148px; transform-box: view-box; }
 .pf-tag {
   position: absolute; right: 4px; bottom: 10px; z-index: 4;
   display: inline-flex; align-items: center; gap: 6px;
@@ -1803,7 +1807,7 @@ body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
 @media (prefers-reduced-motion: reduce) {
   .bd-ink { opacity: 1 !important; animation: none !important; }
   .med-prof.is-writing .pf-arm, .med-prof.is-writing .pf-svg, .pf-eyes,
-  .med-prof.is-asking .pf-mouth, .med-prof.is-sway { animation: none !important; }
+  .med-prof.is-speaking .pf-mouth, .med-prof.is-sway { animation: none !important; }
   .med-prof, .pf-arm-aim { transition: none; }
   .pf-flip { transition: none; }
 }

@@ -57,7 +57,7 @@ module.exports = async function handler(req, res) {
 
     const recommendations = [...weakTopics, ...nextExercises];
 
-    // 4. Consumul AI (azi / ultimele 30 de zile) + limitele — pentru afișare
+    // 4. Consumul AI (azi / ciclul curent) + limitele — pentru afișare
     //    în UI („mesaje azi: N", bare de progres etc.). null dacă migrarea
     //    supabase/ai_limite_cost.sql nu a fost rulată încă.
     const budget = await ai.budgetInfo(supa, userId, profile);

@@ -184,6 +184,19 @@ function costMicroLei(model, usage = {}) {
 const BUDGET_DAY_SOFT_LEI = parseFloat(process.env.AI_BUDGET_DAY_SOFT_LEI || '2.5');
 const BUDGET_DAY_HARD_LEI = parseFloat(process.env.AI_BUDGET_DAY_HARD_LEI || '6');
 const BUDGET_MONTH_LEI    = parseFloat(process.env.AI_BUDGET_MONTH_LEI    || '12');
+
+// ─── CICLUL CREDITELOR — interval FIX, nu fereastră alunecătoare ─────────────
+// ÎNAINTE: bugetul „lunar" se măsura pe ULTIMELE 30 DE ZILE RULANTE. Creditele
+// nu se resetau niciodată; se eliberau firimitură cu firimitură, fiecare la 30
+// de zile după acțiunea care le consumase. Elevul rămas fără credite nu avea
+// cum să afle CÂND își recapătă bugetul — depindea de fiecare cerere în parte,
+// iar răspunsul cinstit ar fi fost „nu se știe".
+// ACUM: ciclul e FIX și previzibil — de la ziua `AI_BUDGET_CYCLE_DAY`
+// (implicit 1) a lunii, ora 00:00 a României, până la aceeași zi a lunii
+// următoare. La graniță consumul pleacă de la zero, dintr-o dată, iar data
+// exactă a resetării se poate spune DINAINTE (vezi `cycleInfo`), deci
+// interfața îi arată elevului cât mai are exact de așteptat.
+const BUDGET_CYCLE_DAY = Math.min(28, Math.max(1, parseInt(process.env.AI_BUDGET_CYCLE_DAY || '1', 10) || 1));
 // Modelul „economic" pe care coboară CHATUL peste bugetul zilnic soft.
 // (Cererile pe modele premium — PDF/GEN — coboară pe CHAT_MODEL.) Prefixul
 // providerului se moștenește de la modelul de chat (AI Gateway).
@@ -225,7 +238,7 @@ function topupPacks() {
 
 // ─── Cote per funcție, PER ROL, cu POOL comun (vizibile în UI) ───────────────
 // Registrul funcțiilor cu cotă: endpointul numărat din ai_usage + etichete.
-// window: 'month' = fereastră de 30 de zile; 'day' = ziua curentă (ora RO).
+// window: 'month' = ciclul fix de credite (cycleInfo); 'day' = ziua curentă (ora RO).
 const FEATURE_QUOTAS = {
   corectari:   { endpoint: 'ai-correct:grade',        label: 'Corectări de teste',            emoji: '📝', window: 'month' },
   teste:       { endpoint: 'ai-exam',                 label: 'Subiecte de examen generate',   emoji: '📄', window: 'month' },
@@ -315,6 +328,87 @@ function dayStartBucharest(now = new Date()) {
   const msSinceMidnight = (((+parts.hour % 24) * 3600) + (+parts.minute * 60) + (+parts.second)) * 1000;
   return new Date(now.getTime() - msSinceMidnight).toISOString();
 }
+
+// ─── CICLUL FIX AL CREDITELOR (lunar, ora României) ──────────────────────────
+const TZ_RO = 'Europe/Bucharest';
+
+// Părțile ceasului local (România) pentru un instant dat.
+function roParts(d) {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: TZ_RO, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(d).map((x) => [x.type, x.value])
+  );
+  return { y: +p.year, m: +p.month, d: +p.day, hh: +p.hour % 24, mm: +p.minute, ss: +p.second };
+}
+
+// Decalajul României față de UTC la momentul `d` (ms). Vara +3h, iarna +2h.
+function roOffsetMs(d) {
+  const p = roParts(d);
+  return Date.UTC(p.y, p.m - 1, p.d, p.hh, p.mm, p.ss) - Math.floor(d.getTime() / 1000) * 1000;
+}
+
+// Instantul (UTC) al orei locale Y-M-D 00:00:00 din România. Două treceri:
+// prima ghicește decalajul, a doua îl corectează dacă ghicitul a căzut de
+// cealaltă parte a schimbării de oră (ultima duminică din martie/octombrie).
+function roMidnight(y, m, d) {
+  const naive = Date.UTC(y, m - 1, d, 0, 0, 0);
+  let off = roOffsetMs(new Date(naive));
+  off = roOffsetMs(new Date(naive - off));
+  return new Date(naive - off);
+}
+
+// „3 zile și 4 ore" — cât mai are exact de așteptat, în cuvinte românești.
+// Pluralul cu „de": 1 zi · 2–19 zile · 20+ DE zile (regula lui `n % 100`).
+function bucata(n, unu, multe) {
+  if (n === 1) return `${n} ${unu}`;
+  const r = n % 100;
+  return (r === 0 || r >= 20) ? `${n} de ${multe}` : `${n} ${multe}`;
+}
+function fmtRamas(ms) {
+  const total = Math.max(0, Math.floor(ms / 60000));           // minute
+  const zile = Math.floor(total / 1440);
+  const ore = Math.floor((total % 1440) / 60);
+  const min = total % 60;
+  if (zile > 0) return ore > 0 ? `${bucata(zile, 'zi', 'zile')} și ${bucata(ore, 'oră', 'ore')}` : bucata(zile, 'zi', 'zile');
+  if (ore > 0) return min > 0 ? `${bucata(ore, 'oră', 'ore')} și ${bucata(min, 'minut', 'minute')}` : bucata(ore, 'oră', 'ore');
+  return total < 1 ? 'mai puțin de un minut' : bucata(min, 'minut', 'minute');
+}
+
+// Ciclul curent de credite: când a început, când se resetează și cât mai e.
+// Datele sunt ABSOLUTE (ISO) — interfața recalculează singură cât a mai rămas,
+// ca numărătoarea să rămână exactă chiar dacă pagina stă deschisă ore întregi.
+function cycleInfo(now = new Date()) {
+  const p = roParts(now);
+  let y = p.y, m = p.m;
+  if (p.d < BUDGET_CYCLE_DAY) { m -= 1; if (m === 0) { m = 12; y -= 1; } }
+  const start = roMidnight(y, m, BUDGET_CYCLE_DAY);
+  let ny = y, nm = m + 1; if (nm === 13) { nm = 1; ny += 1; }
+  const end = roMidnight(ny, nm, BUDGET_CYCLE_DAY);
+  const msLeft = Math.max(0, end.getTime() - now.getTime());
+  let resetLabel = '';
+  try {
+    resetLabel = new Intl.DateTimeFormat('ro-RO', {
+      timeZone: TZ_RO, day: 'numeric', month: 'long', year: 'numeric',
+    }).format(end);
+  } catch { resetLabel = end.toISOString().slice(0, 10); }
+  return {
+    anchorDay: BUDGET_CYCLE_DAY,
+    startsAt: start.toISOString(),
+    resetsAt: end.toISOString(),
+    days: Math.round((end.getTime() - start.getTime()) / 86400000),
+    msLeft,
+    daysLeft: Math.floor(msLeft / 86400000),
+    hoursLeft: Math.floor((msLeft % 86400000) / 3600000),
+    resetIn: fmtRamas(msLeft),                    // „3 zile și 4 ore"
+    resetLabel,                                   // „1 octombrie 2026"
+  };
+}
+
+// Începutul ciclului curent, ca ISO — înlocuiește vechiul „acum minus 30 de zile".
+const cycleStart = (now = new Date()) => cycleInfo(now).startsAt;
 
 // ─── Compatibilitate parametri între generațiile de modele ───────────────────
 // Modelele noi OpenAI (gpt-5.x, o1/o3/o4...) REFUZĂ `max_tokens` (cer
@@ -984,7 +1078,7 @@ async function enforceFreeQuota(supa, profile) {
 
 // Limitele de consum, în ordinea severității:
 //   1. rata orară (anti-abuz, ca înainte)
-//   2. bugetul lunar hard (30 de zile rulante) → blocare
+//   2. bugetul pe ciclu, hard (ciclu FIX, vezi cycleInfo) → blocare până la resetare
 //   3. bugetul zilnic hard → blocare până a doua zi
 //   4. bugetul zilnic soft → NU blochează: întoarce { degraded:true }, iar
 //      endpoint-urile aleg un model mai ieftin prin ai.pickModel(...)
@@ -1001,14 +1095,14 @@ async function enforceRateLimit(supa, userId, profile = null) {
   return enforceBudgets(supa, userId, profile);
 }
 
-// Sumele consumate (azi / ultimele 30 de zile) + creditul top-up activ.
+// Sumele consumate (azi / ciclul curent de credite) + creditul top-up activ.
 // Încearcă `ai_spent2` (cu top-up; migrarea ai_topup.sql), apoi `ai_spent`
 // (fără top-up; migrarea ai_limite_cost.sql). Nimic rulat → null (nu blocăm).
 async function budgetSpent(supa, userId) {
   const args = {
     p_user: userId,
     p_day_start: dayStartBucharest(),
-    p_month_start: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString(),
+    p_month_start: cycleStart(),   // ciclu FIX, nu „ultimele 30 de zile"
   };
   for (const fn of ['ai_spent2', 'ai_spent']) {
     try {
@@ -1039,6 +1133,7 @@ async function enforceBudgets(supa, userId, profile = null) {
     degraded: false, dayLei: 0, monthLei: 0, topupLei: 0, topupActive: false, topupExpires: null,
     effectiveMonthLei: BUDGET_MONTH_LEI,
     limits: { daySoftLei: BUDGET_DAY_SOFT_LEI, dayHardLei: BUDGET_DAY_HARD_LEI, monthLei: BUDGET_MONTH_LEI },
+    cycle: cycleInfo(),          // când se resetează creditele (interval fix)
   };
   if (!budgetsEnabled() || isBudgetExempt(profile)) return state;
   const spent = await budgetSpent(supa, userId);
@@ -1055,8 +1150,9 @@ async function enforceBudgets(supa, userId, profile = null) {
   state.topupActive = state.topupLei > 0 && (state.effectiveMonthLei === 0 || state.monthLei < state.effectiveMonthLei);
   if (state.effectiveMonthLei > 0 && state.monthLei >= state.effectiveMonthLei) {
     const packs = topupPacks();
-    const e = new Error('Ai folosit bugetul de AI inclus în abonament pe această lună. Se eliberează treptat, pe măsură ce trec zilele (fereastră de 30 de zile).' +
-      (packs.length ? ' Poți continua imediat cu un pachet AI suplimentar, din Contul meu → „⚡ Consum AI".' : ' Restul platformei funcționează normal.'));
+    const c = state.cycle;
+    const e = new Error(`Ai folosit toate creditele AI incluse în abonament pe ciclul acesta. Se resetează COMPLET peste ${c.resetIn} (pe ${c.resetLabel}, la ora 00:00).` +
+      (packs.length ? ' Dacă nu vrei să aștepți, poți continua imediat cu un pachet AI suplimentar, din Contul meu → „⚡ Consum AI".' : ' Restul platformei funcționează normal.'));
     e.status = 429; e.code = 'BUDGET_MONTH'; throw e;
   }
   if (BUDGET_DAY_HARD_LEI > 0 && state.dayLei >= BUDGET_DAY_HARD_LEI && !state.topupActive) {
@@ -1085,6 +1181,7 @@ function budgetNotice(lim) {
   if (!step) return null;
   const total = leiToCredits(max);
   const spent = leiToCredits(used);
+  const c = lim.cycle || cycleInfo();
   return {
     pct,
     step,                                       // 50 | 75 | 90 | 95 (100 = epuizat)
@@ -1093,6 +1190,8 @@ function budgetNotice(lim) {
     creditsLeft: Math.max(0, total - spent),
     blocked: pct >= 100,
     topupActive: !!lim.topupActive,
+    // când se resetează creditele — banda din chat spune exact cât mai are de așteptat
+    resetsAt: c.resetsAt, resetIn: c.resetIn, resetLabel: c.resetLabel,
   };
 }
 
@@ -1108,7 +1207,7 @@ async function enforceFeatureQuota(supa, userId, profile, featureKey, lim = null
   if (lim && lim.topupActive) return; // pachet plătit → cotele incluse nu limitează
   const quotas = quotasForRole(profile && profile.role);
   const packs = topupPacks();
-  const hint = packs.length ? ' Poți continua imediat cu un pachet AI suplimentar, din Contul meu → „⚡ Consum AI".' : ' Cota se eliberează pe măsură ce trec zilele.';
+  const hint = packs.length ? ' Poți continua imediat cu un pachet AI suplimentar, din Contul meu → „⚡ Consum AI".' : ` Cotele se resetează peste ${cycleInfo().resetIn}.`;
 
   // ── Fereastra ZILNICĂ (foto) — cotă proprie, fără pool ──
   if (q.window === 'day') {
@@ -1128,7 +1227,7 @@ async function enforceFeatureQuota(supa, userId, profile, featureKey, lim = null
   const activeKeys = Object.keys(FEATURE_QUOTAS)
     .filter((k) => FEATURE_QUOTAS[k].window === 'month' && quotas[k] > 0);
   if (!activeKeys.includes(featureKey)) return; // cota funcției e dezactivată pt. rol
-  const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+  const since = cycleStart();   // aceeași fereastră fixă ca la credite
   const endpoints = activeKeys.map((k) => FEATURE_QUOTAS[k].endpoint);
   const { data, error } = await supa.from('ai_usage').select('endpoint')
     .eq('user_id', userId).in('endpoint', endpoints).gte('created_at', since).limit(5000);
@@ -1137,7 +1236,7 @@ async function enforceFeatureQuota(supa, userId, profile, featureKey, lim = null
   const totalLimit = activeKeys.reduce((s, k) => s + quotas[k], 0);
   if (totalUsed >= totalLimit) {
     const labels = activeKeys.map((k) => FEATURE_QUOTAS[k].label.toLowerCase()).join(' + ');
-    const e = new Error(`Ai folosit toate acțiunile incluse luna aceasta (${labels} — cotele se completează între ele).${hint}`);
+    const e = new Error(`Ai folosit toate acțiunile incluse în ciclul acesta (${labels} — cotele se completează între ele). Se resetează peste ${cycleInfo().resetIn} (pe ${cycleInfo().resetLabel}).${hint}`);
     e.status = 429; e.code = 'QUOTA_FEATURE'; e.feature = featureKey; throw e;
   }
   // Sub totalul pool-ului → permis. Dacă propria cotă e depășită, diferența se
@@ -1167,7 +1266,7 @@ async function budgetInfo(supa, userId, profile = null) {
 
   // Consumul pe funcțiile cu cotă (o singură interogare pentru toate),
   // cu limitele ROLULUI și alocarea „transferurilor" din pool-ul lunar.
-  const monthStart = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+  const monthStart = cycleStart();   // ciclul FIX curent (vezi cycleInfo)
   const dayStart = dayStartBucharest();
   const quotas = quotasForRole(profile && profile.role);
   const endpoints = Object.values(FEATURE_QUOTAS).map((q) => q.endpoint);
@@ -1209,6 +1308,7 @@ async function budgetInfo(supa, userId, profile = null) {
   } catch { /* doar afișare — nu blocăm */ }
 
   return {
+    cycle: cycleInfo(),   // startsAt / resetsAt / resetIn / resetLabel — „cât mai am de așteptat"
     dayLei: +dayLei.toFixed(4), monthLei: +monthLei.toFixed(4),
     dayActions: spent.day_actions || 0, monthActions: spent.month_actions || 0,
     limits: { daySoftLei: BUDGET_DAY_SOFT_LEI, dayHardLei: BUDGET_DAY_HARD_LEI, monthLei: BUDGET_MONTH_LEI },
@@ -2243,6 +2343,8 @@ module.exports = {
   runToolCall, TOOL_ROUNDS,
   // limite de consum (vezi GHID_LIMITE_AI.md)
   pickModel, budgetInfo, costMicroLei, priceFor, dayStartBucharest, ECON_CHAT_MODEL, USD_RON,
+  // ciclul FIX al creditelor (resetare la interval stabilit, nu la 30 de zile de la consum)
+  cycleInfo, cycleStart, fmtRamas, BUDGET_CYCLE_DAY,
   // cote per funcție + pachete top-up (pasul 2); per rol + pool comun
   enforceFeatureQuota, FEATURE_QUOTAS, topupPacks, TOPUP_DAYS, quotasForRole, allocateQuotas,
   // credite AI (unitatea afișată elevului: 100 credite = 1 leu de buget)

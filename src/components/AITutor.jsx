@@ -246,7 +246,7 @@ const consumedAutoPrompts = new Set();
 //  autoPrompt {id, text, mode?} — mesaj trimis automat (butonul din exercițiu)
 export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null, onAction = null,
   initialConversationId = null, autoPrompt = null, coachInject = null, testMode = false,
-  boardSlots = null, cmdRef = null, onBusy = null }) {
+  boardSlots = null, cmdRef = null, onBusy = null, onSpeaking = null }) {
   // boardSlots = { board, composer } — cele două containere din pagina de
   // meditații: tabla (mesajele) și zona de sub ea (câmpul de scris).
   const boardMode = !!boardSlots;
@@ -845,6 +845,12 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     return () => { if (cmdRef) cmdRef.current = null; };
   });
   useEffect(() => { onBusy?.(streaming); }, [streaming]); // eslint-disable-line
+  // Cât timp răspunsul e CITIT cu voce tare, profesorul de la tablă chiar
+  // vorbește — pagina care ține tabla își mișcă gura profesorului doar atunci
+  // (vezi Meditatii.jsx → <Whiteboard speaking>).
+  useEffect(() => {
+    onSpeaking?.(voiceState.idx !== null && !voiceState.paused);
+  }, [voiceState.idx, voiceState.paused]); // eslint-disable-line
 
   const headJsx = (
     <>

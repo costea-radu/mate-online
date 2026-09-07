@@ -999,6 +999,7 @@ export default function Meditatii() {
   const setComposerEl = useCallback((el) => setComposerElState(el), []);
   const boardSlots = { board: boardEl, composer: composerEl };
   const [chatBusy, setChatBusy] = useState(false);   // profesorul scrie chiar acum
+  const [chatSpeaking, setChatSpeaking] = useState(false); // …și chiar acum îl și AUZI
   const chatCmd = useRef(null);                      // comenzi către chat (lista de teste PDF)
 
   // ── PROFESORUL PROPUNE MEREU DOUĂ OPȚIUNI ────────────────────────────────
@@ -1307,6 +1308,7 @@ export default function Meditatii() {
                 title={<><span className="bd-title-ico">🎓</span> Meditația ta</>}
                 subtitle={st.nextChapter ? `Lucrăm la: ${st.nextChapter.title}` : 'Conversație cu Profesorul Virtual'}
                 prof={chatBusy ? 'writing' : 'idle'}
+                speaking={chatSpeaking}
                 ask={proposalAsk}>
                 <div ref={setBoardEl} className="bdchat-host" />
               </Whiteboard>
@@ -1327,7 +1329,8 @@ export default function Meditatii() {
             {/* motorul conversației: mesajele merg pe tablă, scrisul dedesubt */}
             <ChatPanel context={{ meditatii: true, category }}
               autoPrompt={convPrompt} coachInject={convCoach}
-              boardSlots={boardSlots} cmdRef={chatCmd} onBusy={setChatBusy} />
+              boardSlots={boardSlots} cmdRef={chatCmd} onBusy={setChatBusy}
+              onSpeaking={setChatSpeaking} />
 
             {/* secțiunea aleasă din meniul lateral (liste, rapoarte) */}
             {!working && tab !== 'azi' && (

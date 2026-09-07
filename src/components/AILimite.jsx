@@ -30,7 +30,7 @@
 // =====================================================================
 import { useEffect, useState } from 'react';
 import { aiClient } from '../lib/aiClient';
-import { fmtCredits, leiToCredits } from '../lib/aiCredit';
+import { fmtCredits, leiToCredits, timpPanaLa, dataResetarii } from '../lib/aiCredit';
 
 const card = { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 18 };
 
@@ -50,6 +50,7 @@ export default function AILimite({ budget: budgetProp = undefined, bare = false 
   const [buying, setBuying] = useState(null);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [, tic] = useState(0);   // reîmprospătează „mai ai de așteptat", din minut în minut
   // cotele lunare stau pliate: privirea cade întâi pe consumul TOTAL
   const [quotasOpen, setQuotasOpen] = useState(() => {
     try { return localStorage.getItem('ai_quotas_open') === '1'; } catch { return false; }
@@ -69,6 +70,13 @@ export default function AILimite({ budget: budgetProp = undefined, bare = false 
       .catch(() => setBudget(null))
       .finally(() => setLoading(false));
   }, [selfLoad, budgetProp]);
+
+  // Numărătoarea până la resetare o recalculăm din data absolută trimisă de
+  // server, nu o afișăm înghețată: panoul poate sta deschis ore întregi.
+  useEffect(() => {
+    const t = setInterval(() => tic((n) => n + 1), 60000);
+    return () => clearInterval(t);
+  }, []);
 
   // feedback după întoarcerea de la Stripe (?topup=succes / ?topup=anulat)
   useEffect(() => {
@@ -104,6 +112,13 @@ export default function AILimite({ budget: budgetProp = undefined, bare = false 
   const creditsLeft = Math.max(0, creditsTotal - creditsUsed);
   const nrRo = (n) => Number(n || 0).toLocaleString('ro-RO');
 
+  // ─── CÂND SE RESETEAZĂ CREDITELE ────────────────────────────────────────
+  // Interval FIX (ziua 1 a lunii, ora 00:00 a României), nu fereastră
+  // alunecătoare: de aceea putem spune data exactă și cât mai e până la ea.
+  const resetsAt = budget.cycle?.resetsAt || null;
+  const panaLa = timpPanaLa(resetsAt);
+  const ziResetare = dataResetarii(resetsAt);
+
   async function buy(packId) {
     setBuying(packId); setError(null);
     try {
@@ -120,8 +135,8 @@ export default function AILimite({ budget: budgetProp = undefined, bare = false 
     <div style={bare ? undefined : card}>
       {!bare && <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>⚡ Consumul tău AI</h3>}
       <p style={{ color: 'var(--text-muted)', fontSize: '.82rem', marginBottom: 14 }}>
-        Abonamentul include un pachet generos de <strong>credite AI</strong> pentru Profesorul Virtual, reîmprospătate continuu
-        (fereastră de 30 de zile).
+        Abonamentul include un pachet generos de <strong>credite AI</strong> pentru Profesorul Virtual.
+        {ziResetare ? ` Se resetează în întregime pe ${ziResetare}, la ora 00:00, și apoi în fiecare lună la aceeași dată.` : ''}
         {budget.exempt ? ' (Cont de administrator — fără limite.)' : ''}
       </p>
 
@@ -149,6 +164,26 @@ export default function AILimite({ budget: budgetProp = undefined, bare = false 
               {creditsLeft > 0 ? `Îți mai rămân ${nrRo(creditsLeft)} credite` : 'Creditele lunii s-au terminat'}
             </span>
           </div>
+          {panaLa && (
+            <div style={{
+              marginTop: 8, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap',
+              background: blocat ? 'rgba(46,204,113,.12)' : 'rgba(15,43,68,.05)',
+              border: `1px solid ${blocat ? 'rgba(46,204,113,.4)' : 'var(--border)'}`,
+              borderRadius: 9, padding: '7px 10px', fontSize: '.82rem',
+              color: blocat ? '#1e7e34' : 'var(--text)',
+            }}>
+              <span aria-hidden="true">⏳</span>
+              <span>
+                {blocat ? 'Creditele se resetează complet peste ' : 'Se resetează complet peste '}
+                <strong>{panaLa}</strong>
+                {ziResetare ? <> — pe <strong>{ziResetare}</strong>, la ora 00:00</> : null}.
+                {' '}
+                <span style={{ color: 'var(--text-muted)' }}>
+                  Atunci contorul pleacă de la zero, indiferent cât ai consumat până acum.
+                </span>
+              </span>
+            </div>
+          )}
           {budget.topup?.creditLei > 0 && (
             <div style={{ fontSize: '.78rem', color: '#27ae60', marginTop: 6, fontWeight: 600 }}>
               ✓ Pachet suplimentar activ: +{fmtCredits(budget.topup.creditLei)} credite AI
@@ -198,8 +233,8 @@ export default function AILimite({ budget: budgetProp = undefined, bare = false 
                 padding: '9px 12px', margin: '12px 0 14px', fontSize: '.8rem', color: '#8a3b3b', lineHeight: 1.55,
               }}>
                 🔒 <strong>Cotele de mai jos nu mai pot fi folosite acum</strong>, oricâte acțiuni ar arăta că mai sunt:
-                s-au terminat <strong>creditele lunii</strong>, iar ele se verifică înaintea cotelor. Creditele se
-                eliberează treptat, pe măsură ce trec zilele (fereastra de 30 de zile alunecă)
+                s-au terminat <strong>creditele lunii</strong>, iar ele se verifică înaintea cotelor. Totul se
+                resetează {panaLa ? <>peste <strong>{panaLa}</strong>{ziResetare ? `, pe ${ziResetare}` : ''}</> : 'la începutul ciclului următor'}
                 {packs.length ? ', sau imediat cu un pachet suplimentar, mai jos' : ''}.
               </div>
             ) : monthlyFeatures.length > 0 && (
@@ -243,6 +278,11 @@ export default function AILimite({ budget: budgetProp = undefined, bare = false 
                     {isDay && (
                       <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: 3 }}>
                         Cotă zilnică — se resetează la miezul nopții (nu se reportează).
+                      </div>
+                    )}
+                    {!isDay && panaLa && (
+                      <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: 3 }}>
+                        Se resetează odată cu creditele, peste {panaLa}.
                       </div>
                     )}
                   </div>

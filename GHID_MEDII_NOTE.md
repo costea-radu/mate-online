@@ -56,22 +56,40 @@ Deschizând rândul elevului, rolldown-ul **„🎓 Mediile lui …"** arată:
 
 - toate mediile încheiate — numărul, câte note, data încheierii, media și 🗑
   pentru ștergere (notele ei se întorc în perioada curentă);
+- **MEDIA GENERALĂ** — media mediilor încheiate, ca „media anuală" din catalog.
+  Se calculează din MEDII, nu din toate notele la un loc: altfel o perioadă cu
+  30 de note ar cântări cât 30 de perioade cu câte una. Se vede în două locuri:
+  pe capul rolldown-ului (deci și cu caseta închisă) și ca rând auriu sub lista
+  mediilor. Notele de după ultima medie NU intră încă în ea — intră în clipa în
+  care le închizi într-o medie.
 - **perioada curentă**: câte note noi sunt și ce medie ar ieși acum.
 
 Butonul e stins când nu sunt note noi de încheiat.
 
-## 4. Media grupei
+## 4. Mediile fiecărui elev al grupei — dintr-un singur buton
 
-Sub butonul „📝 Dă temă" al grupei, rolldown-ul **„🎓 Mediile grupei …"** face
-același lucru pentru **toate notele tuturor elevilor** din selecția curentă:
+Sub butonul „📝 Dă temă" al grupei stă rolldown-ul
+**„🎓 Calculează mediile fiecărui elev …"**. Butonul lui **NU mai face media
+grupei**: face **media personală a FIECĂRUI elev** din selecție, cu notele lui
+de până în acel moment — adică exact ce ar ieși dacă profesorul ar deschide
+rândul fiecărui elev și ar apăsa „🔒 Încheie media" la fiecare, dar dintr-o
+singură apăsare. Asta cere de fapt catalogul: la sfârșit de perioadă ai nevoie
+de 25 de medii de elev, nu de o cifră pe clasă.
 
-- cu o grupă selectată → notele elevilor acelei grupe;
-- cu „Toți" selectat → notele tuturor elevilor asociați (se salvează cu
-  `group_id = null`).
+- cu o grupă selectată → elevii acelei grupe;
+- cu „Toți" selectat → toți elevii asociați.
 
-Media grupei e media **tuturor notelor** luate până în acel moment (nu media
-mediilor); în `details` se salvează și media fiecărui elev, ca să rămână urma.
-Elevii cu **cont șters** nu intră în media grupei.
+Fiecare elev își păstrează **propriul șir de medii**: perioada lui pornește de
+la ULTIMA LUI medie, nu de la o graniță comună a grupei, iar numerotarea
+(Media 1, Media 2, …) e a lui. Rolldown-ul arată, ÎNAINTE de apăsare, ce va
+ieși pentru fiecare — numele, câte note intră, ce număr primește media și
+cifra —, iar elevii **fără note noi sunt săriți** (apar stinși, cu „nicio notă
+nouă"). Elevii cu **cont șters** nu intră deloc. Confirmarea listează primii 8
+elevi și numărul celorlalți, ca profesorul să vadă ce semnează.
+
+Mediile de **grupă** încheiate ÎNAINTE de această schimbare rămân vizibile în
+partea de jos a aceluiași rolldown, ca istoric, și se pot șterge — dar nu se
+mai creează altele noi.
 
 ## 5. API
 
@@ -80,6 +98,7 @@ Elevii cu **cont șters** nu intră în media grupei.
 | Acțiune | Corp | Ce face |
 |---|---|---|
 | `close_average` | `{ scope, studentId?, groupId?, groupName?, average, grades, students?, details? }` | Închide media; serverul pune `period_no` și `from_at` din media dinainte |
+| `close_averages` | `{ items: [{ studentId, average, grades, details? }] }` (max 200) | Închide media PERSONALĂ a mai multor elevi deodată. O interogare pentru asocieri, una pentru ultimele medii, apoi un singur `insert` — nu N cereri. Elevii neasociați, fără note noi sau cu medie invalidă sunt săriți și raportați în `skipped`; restul se salvează |
 | `delete_average` | `{ periodId }` | Șterge o medie încheiată (notele ei revin în perioada curentă) |
 
 Mediile deja încheiate vin odată cu dashboardul, în răspunsul lui
@@ -94,6 +113,6 @@ Media pe grupă e doar pentru conturile de profesor.
 **Noi:** `supabase/medii_si_timp.sql`, `GHID_MEDII_NOTE.md`.
 
 **Modificate:** `api/teacher-manage.js` (acțiunile `close_average` /
-`delete_average`), `api/teacher-students.js` (câmpul `averages`),
-`src/components/TeacherResults.jsx` (butoanele, caseta `MediiBox` și calculul
-notelor).
+`close_averages` / `delete_average`), `api/teacher-students.js` (câmpul
+`averages`), `src/components/TeacherResults.jsx` (butoanele, casetele
+`MediiBox` / `MediiPeElevBox`, media generală și calculul notelor).

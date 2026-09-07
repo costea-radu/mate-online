@@ -146,9 +146,10 @@ async function runCleanup(supa, { dry = false } = {}) {
 
   // ── 3½) IGIENĂ DB: ai_usage mai vechi de 90 de zile (best-effort) ──────────
   // Jurnalul de consum AI crește cu fiecare acțiune și NU mai e citit de nimeni
-  // după 30 de zile (bugetele lunare: ai_spent/ai_spent2 pe 30 zile; rapoartele:
-  // 24h). Îl tundem la 90 de zile ca baza de date să nu crească nelimitat —
-  // exact genul de „grăsime" care împinge inutil spre un plan Supabase mai mare.
+  // după un ciclu de credite (bugetele: ai_spent/ai_spent2 pe ciclul curent, cel
+  // mult 31 de zile; rapoartele: 24h). Îl tundem la 90 de zile ca baza de date
+  // să nu crească nelimitat — exact genul de „grăsime" care împinge inutil
+  // spre un plan Supabase mai mare.
   // Loturi de 1000 (max 20/rulare): fiecare comandă rămâne mică și rapidă;
   // ce nu se termină azi se termină la rulările următoare. Erorile nu blochează.
   if (!dry) {

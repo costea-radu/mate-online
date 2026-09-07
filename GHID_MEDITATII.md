@@ -372,8 +372,18 @@ Ecranul de meditație e împărțit pe roluri clare — cine ce spune și unde:
    cu îndemnul „Întreabă-mă orice…" — de acolo îi dă indicații profesorului.
 3. **Ce SPUNE profesorul apare lângă el**, ca o casetă de dialog cu coada spre
    umărul lui (`.bd-ask`): întrebarea „Ai înțeles?" și propunerile („Facem cele
-   10 exerciții ca acela greșit?"), cu variantele de răspuns dedesubt. Când
-   vorbește, se întoarce cu fața la elev și i se mișcă gura.
+   10 exerciții ca acela greșit?"), cu variantele de răspuns dedesubt. Când are
+   ceva de spus, se întoarce cu fața la elev.
+   **GURA i se mișcă DOAR cât timp chiar rostește ceva** — explicația citită cu
+   voce tare de pe tablă, sau răspunsul din conversație citit cu „🔊 Voce".
+   Cât stă cu fața la elev și așteaptă un răspuns, gura e NEMIȘCATĂ: până acum
+   se mișca tot timpul cât era pe ecran o casetă de dialog, deci profesorul
+   părea că vorbește în gol, minute în șir, cât se gândea elevul.
+   Mecanismul: `<Whiteboard speaking>` → `<Professor speaking>` → clasa
+   `.med-prof.is-speaking .pf-mouth` (înainte: `.is-asking`, adică simpla
+   prezență a casetei de dialog). Steagul vine din starea REALĂ a vocii:
+   `BoardLesson` îl ridică din playerul lui (`playAnswer` — coborât la pauză
+   și la final), iar conversația prin `ChatPanel → onSpeaking` (`Meditatii.jsx`).
 4. **Toate comenzile stau în meniul din stânga tablei** (`MedRail`): sub tablă
    NU mai există butoane. Grupele meniului: „Acum, pe tablă" (exerciții,
    teorie, cele 10 exerciții, tema, test din site, alt capitol, întreabă-mă

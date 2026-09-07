@@ -61,7 +61,7 @@ module.exports = async function handler(req, res) {
   }
   // Mediile încheiate — profesorii și părinții (părintele are un singur copil,
   // deci doar media „pe elev"; media pe grupă rămâne a profesorului).
-  if ((action === 'close_average' || action === 'delete_average') && !isMentor) {
+  if ((action === 'close_average' || action === 'close_averages' || action === 'delete_average') && !isMentor) {
     return res.status(403).json({ error: 'Acces interzis.' });
   }
 
@@ -161,6 +161,74 @@ module.exports = async function handler(req, res) {
     // profesorul („Grupe / Rezultate elevi"), ca cifra salvată să fie aceeași cu
     // cea de pe ecran. Serverul verifică apartenența elevului, înlănțuie
     // perioadele (from_at = closed_at al mediei dinainte) și le numerotează.
+    // ── MEDIA FIECĂRUI ELEV, DINTR-UN SINGUR BUTON ────────────────────────
+    // Profesorul nu mai deschide rândul fiecărui elev ca să-i încheie media:
+    // apasă o dată, iar serverul închide media PERSONALĂ a fiecărui elev din
+    // listă, cu notele lui de până în acel moment. Nu e media grupei — sunt
+    // N medii de elev, fiecare cu propria numerotare și propriul interval.
+    if (action === 'close_averages') {
+      const items = Array.isArray(req.body.items) ? req.body.items.slice(0, 200) : [];
+      if (!items.length) return res.status(400).json({ error: 'Nu sunt elevi cu note noi de încheiat.' });
+
+      // o singură interogare pentru toate asocierile (nu una pe elev)
+      const ids = [...new Set(items.map((it) => it && it.studentId).filter(Boolean))];
+      if (!ids.length) return res.status(400).json({ error: 'studentId obligatoriu la fiecare elev.' });
+      const { data: links } = await supabase.from('mentor_students')
+        .select('student_id').eq('mentor_id', userId).in('student_id', ids);
+      const asociati = new Set((links || []).map((l) => l.student_id));
+      if (asociati.size < ids.length) { // asocierea veche (profiles.teacher_id)
+        const { data: legacy } = await supabase.from('profiles')
+          .select('id').eq('teacher_id', userId).in('id', ids.filter((i) => !asociati.has(i)));
+        (legacy || []).forEach((r) => asociati.add(r.id));
+      }
+
+      // ultima medie a fiecărui elev → numărul și începutul perioadei noi
+      const { data: prevAll, error: prevErr } = await supabase.from('mentor_grade_periods')
+        .select('student_id, period_no, closed_at')
+        .eq('teacher_id', userId).eq('scope', 'student').in('student_id', [...asociati])
+        .order('closed_at', { ascending: true });
+      if (prevErr) {
+        const lipsa = /relation|does not exist|schema cache/i.test(prevErr.message || '');
+        return res.status(500).json({
+          error: lipsa
+            ? 'Mediile au nevoie de tabela `mentor_grade_periods`. Rulează supabase/medii_si_timp.sql în Supabase → SQL Editor.'
+            : prevErr.message,
+        });
+      }
+      const ultima = {};
+      (prevAll || []).forEach((r) => { ultima[r.student_id] = r; });   // ordonat crescător → rămâne ultima
+
+      const acum = new Date().toISOString();
+      const randuri = [];
+      const sarite = [];
+      for (const it of items) {
+        const sid = it && it.studentId;
+        const average = Number(it && it.average);
+        const grades = Math.max(0, parseInt(it && it.grades, 10) || 0);
+        if (!sid || !asociati.has(sid)) { sarite.push({ studentId: sid || null, motiv: 'neasociat' }); continue; }
+        if (!grades) { sarite.push({ studentId: sid, motiv: 'fără note noi' }); continue; }
+        if (!Number.isFinite(average) || average < 1 || average > 10) { sarite.push({ studentId: sid, motiv: 'medie invalidă' }); continue; }
+        const last = ultima[sid] || null;
+        randuri.push({
+          teacher_id: userId, scope: 'student', student_id: sid, group_id: null, group_name: null,
+          period_no: (last?.period_no || 0) + 1,
+          from_at: last?.closed_at || null,
+          closed_at: acum,
+          average: Math.round(average * 100) / 100,
+          grades,
+          students: 1,
+          details: it.details && typeof it.details === 'object' ? it.details : null,
+        });
+      }
+      if (!randuri.length) {
+        return res.status(400).json({ error: 'Niciun elev cu note noi de încheiat.', skipped: sarite });
+      }
+      const { data: saved, error } = await supabase
+        .from('mentor_grade_periods').insert(randuri).select('*');
+      if (error) throw error;
+      return res.status(200).json({ ok: true, periods: saved || [], closed: (saved || []).length, skipped: sarite });
+    }
+
     if (action === 'close_average') {
       const scope = req.body.scope === 'group' ? 'group' : 'student';
       const studentId = req.body.studentId || null;

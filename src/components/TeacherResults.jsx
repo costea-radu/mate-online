@@ -51,6 +51,14 @@ function medieDin(list) {
   return Math.round((list.reduce((a, g) => a + g.nota, 0) / list.length) * 100) / 100;
 }
 const fmtMedie = (v) => (v == null ? '—' : Number(v).toFixed(2));
+// MEDIA GENERALĂ a unui elev = media mediilor lui ÎNCHEIATE (ca „media anuală"
+// din catalog: se face din medii, nu din toate notele la un loc, altfel o
+// perioadă cu multe note ar cântări mai mult decât una cu puține).
+function mediaMediilor(periods) {
+  const v = (periods || []).map((p) => Number(p.average)).filter((n) => Number.isFinite(n));
+  if (!v.length) return null;
+  return Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 100) / 100;
+}
 const closedMs = (p) => new Date(p?.closed_at || 0).getTime();
 // notele de după ultima medie încheiată = perioada curentă
 const dupaUltima = (grades, periods) => {
@@ -69,10 +77,12 @@ const notaChip = (v) => ({
 });
 
 // ─── Caseta mediilor (aceeași pentru un elev și pentru o grupă) ─────────────
-function MediiBox({ titlu, hint, periods, curente, onClose, onDelete, busy, compact = false }) {
+function MediiBox({ titlu, hint, periods, curente, onClose, onDelete, busy, compact = false, showTotal = false }) {
   const [open, setOpen] = useState(false);
   const mediaCurenta = medieDin(curente);
   const n = curente.length;
+  // media generală = media mediilor încheiate (vezi `mediaMediilor`)
+  const generala = showTotal ? mediaMediilor(periods) : null;
 
   return (
     <div style={{
@@ -92,7 +102,15 @@ function MediiBox({ titlu, hint, periods, curente, onClose, onDelete, busy, comp
             </span>
           )}
         </strong>
-        <span style={{ color: 'var(--text-muted)', fontSize: '.8rem' }}>{open ? '▾ ascunde' : '▸ vezi'}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          {/* media generală se vede și cu caseta închisă — e cifra căutată întâi */}
+          {generala != null && (
+            <span style={notaChip(generala)} title={`Media generală: media celor ${periods.length} medii încheiate`}>
+              media generală: {fmtMedie(generala)}
+            </span>
+          )}
+          <span style={{ color: 'var(--text-muted)', fontSize: '.8rem' }}>{open ? '▾ ascunde' : '▸ vezi'}</span>
+        </span>
       </button>
 
       {open && (
@@ -122,6 +140,23 @@ function MediiBox({ titlu, hint, periods, curente, onClose, onDelete, busy, comp
                   </span>
                 </div>
               ))}
+              {/* MEDIA GENERALĂ — media mediilor de mai sus, ca în catalog */}
+              {generala != null && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap',
+                  background: 'rgba(232,185,49,.13)', border: '1px solid rgba(232,185,49,.5)',
+                  borderRadius: 8, padding: '7px 10px', marginTop: 2,
+                }}>
+                  <span style={{ fontSize: '.8rem', color: 'var(--text)' }}>
+                    <strong style={{ color: 'var(--navy)' }}>Media generală</strong>
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      {' · '}media celor {periods.length} {periods.length === 1 ? 'medie încheiată' : 'medii încheiate'}
+                      {n > 0 ? ' (notele de după ultima medie nu intră încă)' : ''}
+                    </span>
+                  </span>
+                  <span style={{ ...notaChip(generala), fontSize: '.85rem' }}>{fmtMedie(generala)}</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -151,6 +186,138 @@ function MediiBox({ titlu, hint, periods, curente, onClose, onDelete, busy, comp
               }}
             >🔒 Încheie media{n > 0 ? ` (${n} ${n === 1 ? 'notă' : 'note'})` : ''}</button>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── „CALCULEAZĂ MEDIILE FIECĂRUI ELEV" ─────────────────────────────────────
+// Butonul NU mai face media grupei (o cifră pe toate notele la un loc), ci
+// media PERSONALĂ a fiecărui elev din selecție, cu notele lui de până în acel
+// moment. Adică exact ce ar face profesorul deschizând rândul fiecărui elev și
+// apăsând „Încheie media" — dar dintr-un singur clic.
+//
+// `elevi` = [{ id, name, note[], medie, urmatoarea, ultima }] pentru TOȚI elevii
+// din selecție (și cei fără note noi, ca profesorul să vadă cine rămâne pe dinafară).
+// `vechi` = mediile de GRUPĂ încheiate înainte de schimbare — se pot doar citi
+// și șterge, ca istoricul să nu dispară.
+function MediiPeElevBox({ titlu, hint, elevi, vechi = [], onCloseAll, onDeleteOld, busy }) {
+  const [open, setOpen] = useState(false);
+  const cuNote = elevi.filter((e) => e.note.length > 0);
+  const faraNote = elevi.length - cuNote.length;
+  const totalNote = cuNote.reduce((a, e) => a + e.note.length, 0);
+
+  return (
+    <div style={{
+      background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden',
+    }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-body)', textAlign: 'left' }}
+      >
+        <strong style={{ fontSize: '.85rem', color: 'var(--navy)' }}>
+          🎓 {titlu}
+          <span style={{ fontWeight: 600, color: 'var(--text-muted)', marginLeft: 8 }}>
+            {cuNote.length
+              ? `${cuNote.length} ${cuNote.length === 1 ? 'elev are' : 'elevi au'} note noi`
+              : 'niciun elev cu note noi'}
+          </span>
+        </strong>
+        <span style={{ color: 'var(--text-muted)', fontSize: '.8rem' }}>{open ? '▾ ascunde' : '▸ vezi'}</span>
+      </button>
+
+      {open && (
+        <div style={{ padding: '0 14px 14px' }}>
+          {hint && <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginBottom: 10 }}>{hint}</div>}
+
+          {/* CE SE VA ÎNCHEIA, elev cu elev — profesorul vede cifrele înainte de a apăsa */}
+          {elevi.length === 0 ? (
+            <div style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 10 }}>
+              Nu e niciun elev activ în această selecție.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+              {elevi.map((e) => (
+                <div key={e.id} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap',
+                  background: e.note.length ? 'var(--cream)' : 'transparent',
+                  border: e.note.length ? 'none' : '1px dashed var(--border)',
+                  borderRadius: 8, padding: '6px 10px', opacity: e.note.length ? 1 : 0.65,
+                }}>
+                  <span style={{ fontSize: '.8rem', color: 'var(--text)' }}>
+                    <strong style={{ color: 'var(--navy)' }}>{e.name}</strong>
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      {e.note.length
+                        ? ` · Media ${e.urmatoarea} din ${e.note.length} ${e.note.length === 1 ? 'notă' : 'note'}`
+                        : ' · nicio notă nouă'}
+                      {e.ultima ? ` · ultima: media ${e.ultima.period_no} (${fmtMedie(e.ultima.average)})` : ''}
+                    </span>
+                  </span>
+                  {e.note.length
+                    ? <span style={notaChip(e.medie)}>{fmtMedie(e.medie)}</span>
+                    : <span style={{ fontSize: '.76rem', color: 'var(--text-muted)' }}>—</span>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* BUTONUL: o apăsare = o medie pentru fiecare elev */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <button
+              type="button" onClick={onCloseAll} disabled={busy || cuNote.length === 0}
+              title={cuNote.length === 0
+                ? 'Niciun elev nu are note noi de încheiat'
+                : `Încheie media fiecăruia dintre cei ${cuNote.length} elevi, cu notele lui de până acum`}
+              style={{
+                padding: '7px 15px', borderRadius: 8, fontWeight: 700, fontSize: '.8rem',
+                border: 'none', background: cuNote.length === 0 ? 'var(--cream-dark)' : 'var(--navy)',
+                color: cuNote.length === 0 ? 'var(--text-muted)' : '#fff',
+                cursor: busy || cuNote.length === 0 ? 'default' : 'pointer', opacity: busy ? 0.6 : 1,
+              }}
+            >
+              🔒 Calculează mediile
+              {cuNote.length ? ` (${cuNote.length} ${cuNote.length === 1 ? 'elev' : 'elevi'} · ${totalNote} ${totalNote === 1 ? 'notă' : 'note'})` : ''}
+            </button>
+            {faraNote > 0 && (
+              <span style={{ fontSize: '.76rem', color: 'var(--text-muted)' }}>
+                {faraNote} {faraNote === 1 ? 'elev nu are note noi și e sărit' : 'elevi nu au note noi și sunt săriți'}.
+              </span>
+            )}
+          </div>
+
+          {/* Istoricul mediilor de GRUPĂ, dinaintea schimbării */}
+          {vechi.length > 0 && (
+            <div style={{ marginTop: 14, borderTop: '1px dashed var(--border)', paddingTop: 10 }}>
+              <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginBottom: 6 }}>
+                Medii <strong>pe grupă</strong> încheiate înainte (o singură cifră pe toate notele la un loc).
+                Rămân aici ca istoric — butonul de sus calculează acum media fiecărui elev în parte.
+              </div>
+              <div style={{ display: 'grid', gap: 6 }}>
+                {vechi.map((p) => (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', background: 'var(--cream)', borderRadius: 8, padding: '6px 10px' }}>
+                    <span style={{ fontSize: '.8rem', color: 'var(--text)' }}>
+                      <strong style={{ color: 'var(--navy)' }}>Media {p.period_no}</strong>
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        {' · '}{p.grades} {p.grades === 1 ? 'notă' : 'note'}
+                        {p.students ? ` · ${p.students} elevi` : ''}
+                        {' · '}încheiată {fmtDate(p.closed_at)}
+                      </span>
+                    </span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <span style={notaChip(p.average)}>{fmtMedie(p.average)}</span>
+                      <button
+                        type="button" onClick={() => onDeleteOld(p)} disabled={busy}
+                        title="Șterge media de grupă"
+                        style={{ background: 'none', border: 'none', cursor: busy ? 'default' : 'pointer', color: 'var(--danger)', fontSize: '.85rem', opacity: busy ? 0.5 : 1 }}
+                      >🗑</button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -489,8 +656,9 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
             {/* Mediile elevului: cele încheiate + notele care intră în cea următoare */}
             {!student.archived && onCloseAvg && (
               <MediiBox
+                showTotal
                 titlu={`Mediile lui ${student.name.split(' ')[0]}`}
-                hint="Fiecare medie strânge notele de până în momentul în care ai apăsat butonul. Notele care vin după intră singure în media următoare."
+                hint="Fiecare medie strânge notele de până în momentul în care ai apăsat butonul. Notele care vin după intră singure în media următoare. Media generală e media mediilor încheiate."
                 periods={periods}
                 curente={noteNoi}
                 busy={busy}
@@ -885,19 +1053,27 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
     [averages, selectedGroup]
   );
 
-  // toate notele elevilor din selecția curentă, de după ultima medie a grupei
-  const groupGrades = useMemo(() => {
-    const last = groupPeriods.length ? groupPeriods[groupPeriods.length - 1] : null;
-    const since = last ? new Date(last.closed_at).getTime() : 0;
+  // ── MEDIA FIECĂRUI ELEV AL GRUPEI, DINTR-UN SINGUR BUTON ────────────────
+  // Nu mai calculăm „media grupei" (o singură cifră pe toate notele la un loc),
+  // ci pregătim media PERSONALĂ a fiecărui elev din selecție: notele lui de
+  // după ULTIMA LUI medie (nu după ultima medie a grupei — fiecare elev are
+  // propriul șir de medii, exact ca în catalog).
+  const perStudent = useMemo(() => {
     const out = [];
     inGroup.filter((s) => !s.archived).forEach((s) => {
-      const g = gradesOf(s).filter((x) => (since ? x.at > since : true));
-      if (g.length) out.push({ id: s.id, name: s.name, note: g });
+      const proprii = periodsByStudent[s.id] || [];
+      const note = dupaUltima(gradesOf(s), proprii);
+      out.push({
+        id: s.id, name: s.name, student: s, note,
+        medie: medieDin(note),
+        urmatoarea: proprii.length + 1,           // ce număr va primi media nouă
+        ultima: proprii.length ? proprii[proprii.length - 1] : null,
+      });
     });
-    return out;
-  }, [inGroup, groupPeriods]);
-  const groupGradeCount = groupGrades.reduce((a, x) => a + x.note.length, 0);
-  const groupAvg = medieDin(groupGrades.flatMap((x) => x.note));
+    return out.sort((a, b) => (b.note.length - a.note.length) || a.name.localeCompare(b.name, 'ro'));
+  }, [inGroup, periodsByStudent]);
+  const deIncheiat = useMemo(() => perStudent.filter((x) => x.note.length > 0), [perStudent]);
+  const deIncheiatNote = deIncheiat.reduce((a, x) => a + x.note.length, 0);
 
   async function closeStudentAverage(student, note) {
     if (!note.length) return;
@@ -912,18 +1088,42 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
     });
   }
 
-  async function closeGroupAverage() {
-    if (!groupGradeCount) return;
-    const eticheta = selectedGroup === null ? 'toți elevii tăi' : `grupa „${selectedGroupObj?.name}"`;
+  // Un singur clic → media PERSONALĂ a fiecărui elev din selecție, cu notele
+  // lui de până acum. Îi scutește pe profesor de a deschide rândul fiecărui
+  // elev; rezultatul e identic cu apăsarea „Încheie media" la fiecare în parte.
+  async function closeEachStudentAverage() {
+    if (!deIncheiat.length) return;
+    const unde = selectedGroup === null ? 'toți elevii tăi' : `grupa „${selectedGroupObj?.name}"`;
+    const listaScurta = deIncheiat.slice(0, 8)
+      .map((x) => `· ${x.name}: ${x.note.length} ${x.note.length === 1 ? 'notă' : 'note'} → ${fmtMedie(x.medie)}`)
+      .join('\n');
+    const rest = deIncheiat.length > 8 ? `\n… și încă ${deIncheiat.length - 8} elevi` : '';
     if (!window.confirm(
-      `Închizi media pentru ${eticheta}?\n\n${groupGradeCount} note de la ${groupGrades.length} elevi · media ${fmtMedie(groupAvg)}\n\n`
-      + 'Notele primite după acest moment vor intra automat în media următoare a grupei.'
+      `Calculezi media fiecărui elev din ${unde}?\n\n`
+      + `Se încheie ${deIncheiat.length} ${deIncheiat.length === 1 ? 'medie' : 'medii'} (câte una pentru fiecare elev), `
+      + `din ${deIncheiatNote} note în total:\n\n${listaScurta}${rest}\n\n`
+      + 'Notele primite după acest moment intră în media următoare a fiecărui elev.'
     )) return;
-    await manage('close_average', {
-      scope: 'group', groupId: selectedGroup || null, groupName: selectedGroupObj?.name || null,
-      average: groupAvg, grades: groupGradeCount, students: groupGrades.length,
-      details: { elevi: groupGrades.map((x) => ({ id: x.id, nume: x.name, note: x.note.length, medie: medieDin(x.note) })) },
+    const r = await manage('close_averages', {
+      items: deIncheiat.map((x) => ({
+        studentId: x.id,
+        average: x.medie,
+        grades: x.note.length,
+        details: {
+          nume: x.name,
+          note: x.note.map((g) => ({ nota: g.nota, titlu: g.title, la: g.at ? new Date(g.at).toISOString() : null })),
+        },
+      })),
     });
+    // spunem pe față câte s-au încheiat: la 25 de elevi, o listă reîncărcată
+    // tăcut nu-i confirmă profesorului că s-a întâmplat ce a cerut.
+    if (r && r.ok) {
+      const k = r.closed || 0;
+      const sarite = (r.skipped || []).length;
+      alert(`Gata: ${k} ${k === 1 ? 'medie încheiată' : 'medii încheiate'}, câte una pentru fiecare elev.`
+        + (sarite ? ` ${sarite} ${sarite === 1 ? 'elev a fost sărit' : 'elevi au fost săriți'} (fără note noi).` : '')
+        + '\nLe vezi în rândul fiecărui elev, la „🎓 Mediile lui …".');
+    }
   }
 
   async function deleteAverage(period) {
@@ -1012,17 +1212,16 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
                   </span>
                 </div>
 
-                {/* MEDIA GRUPEI — media notelor tuturor elevilor grupei până acum */}
+                {/* MEDIA FIECĂRUI ELEV — un buton, N medii personale */}
                 <div style={{ marginTop: 10 }}>
-                  <MediiBox
-                    compact
-                    titlu={`Mediile ${selectedGroup === null ? 'tuturor elevilor' : `grupei „${selectedGroupObj?.name || ''}"`}`}
-                    hint={`Media tuturor notelor luate de elevii ${selectedGroup === null ? 'tăi' : 'grupei'} până în momentul în care apeși butonul. Notele care vin după intră singure în media următoare.`}
-                    periods={groupPeriods}
-                    curente={groupGrades.flatMap((x) => x.note)}
+                  <MediiPeElevBox
+                    titlu={`Calculează mediile fiecărui elev ${selectedGroup === null ? 'al tău' : `al grupei „${selectedGroupObj?.name || ''}"`}`}
+                    hint={`Un singur buton, câte o medie pentru FIECARE elev: notele lui de până în momentul în care apeși, strânse în media lui următoare. Nu e media grupei — sunt mediile personale ale elevilor, aceleași pe care le-ai încheia deschizând rândul fiecăruia. Notele care vin după intră singure în media următoare a elevului.`}
+                    elevi={perStudent}
+                    vechi={groupPeriods}
                     busy={busy}
-                    onClose={closeGroupAverage}
-                    onDelete={deleteAverage}
+                    onCloseAll={closeEachStudentAverage}
+                    onDeleteOld={deleteAverage}
                   />
                 </div>
 

@@ -30,6 +30,60 @@ exact partea scumpă. Intern totul se măsoară în micro-lei; în UI poți afi�
 
 ---
 
+## 🔄 CÂND se resetează creditele — interval FIX, nu fereastră alunecătoare
+
+Până în septembrie 2026, bugetul „lunar" se măsura pe **ultimele 30 de zile
+RULANTE**. Suna corect, dar avea un defect pe care elevul îl simțea direct:
+**creditele nu se resetau niciodată**. Se eliberau firimitură cu firimitură,
+fiecare la 30 de zile după acțiunea care o consumase, deci la întrebarea
+„când îmi revin creditele?" răspunsul cinstit era „depinde de fiecare cerere
+în parte" — adică, practic, „nu se știe". Un elev care își consuma bugetul
+într-o săptămână intra într-o picurare de trei săptămâni, fără niciun reper.
+
+**Acum ciclul e FIX și același pentru toți:** de la ziua `AI_BUDGET_CYCLE_DAY`
+(implicit **1**) a lunii, ora **00:00 a României**, până la aceeași zi a lunii
+următoare. La graniță, consumul pleacă de la ZERO dintr-o dată — indiferent
+cât s-a consumat înainte —, iar data resetării se poate spune DINAINTE.
+
+Sursa unică: `cycleInfo()` din `api/_lib/ai.js`. Întoarce `startsAt`,
+`resetsAt` (date absolute, ISO), `msLeft`, `daysLeft`, `resetIn`
+(„23 de zile și 12 ore", cu pluralul românesc corect: 1 zi · 2–19 zile ·
+20+ DE zile) și `resetLabel` („1 octombrie 2026"). `startsAt` e ce se trimite
+ca `p_month_start` la `ai_spent` / `ai_spent2` — **funcțiile SQL nu s-au
+schimbat**, doar fereastra pe care o primesc. Aceeași graniță o folosesc și
+**cotele lunare pe funcții**, ca totul să se reseteze deodată.
+
+Trecerile de la ora de vară la cea de iarnă sunt tratate explicit (calculul se
+face în două treceri peste decalajul real al zilei respective), ca granița să
+cadă la miezul nopții și în martie/octombrie, nu la 23:00 sau 01:00. Testele:
+`test/credite-ciclu.test.js`.
+
+**Elevul vede cât mai are EXACT de așteptat**, în trei locuri:
+
+| Unde | Ce scrie |
+|---|---|
+| Mesajul de oprire (429 `BUDGET_MONTH`) | „Se resetează COMPLET peste 3 zile și 4 ore (pe 1 octombrie 2026, la ora 00:00)." |
+| Banda din chat (`AICreditAlert`) | aceeași frază, ca dungă verde sub explicație — la epuizare și de la pragul de 90% în sus |
+| Contul meu → „⚡ Consum AI" (`AILimite`) | un rând sub bara totală, plus data pe fraza de introducere și pe fiecare cotă lunară |
+
+Numărătoarea **se recalculează în interfață** din data absolută `resetsAt`
+(`src/lib/aiCredit.js` → `timpPanaLa`, `dataResetarii`, `frazaResetare`),
+reîmprospătată din minut în minut: o pagină lăsată deschisă câteva ore nu are
+voie să arate un „mai ai 2 ore" înghețat de acum trei ore.
+
+**Reglaj:** `AI_BUDGET_CYCLE_DAY` (1–28) mută ziua resetării — de exemplu 15,
+dacă vrei ca ciclul AI să cadă la mijlocul lunii. Peste 28 nu se poate: nu
+toate lunile au 29, 30 sau 31 de zile, iar o ancoră care „sare" ar strica
+exact previzibilitatea pentru care s-a făcut schimbarea.
+
+> **La prima rulare după deploy**, fereastra se mută de la „ultimele 30 de
+> zile" la „de la 1 ale lunii": pentru utilizatorii activi, consumul afișat
+> scade (se numără mai puține zile), deci unii primesc credite înapoi. Nimeni
+> nu pierde nimic, iar `ai_usage` rămâne neatins — se schimbă doar intervalul
+> pe care se face suma.
+
+---
+
 ## ⚠️ Două contoare, nu unul — cum se leagă creditele de cote
 
 Confuzia e ușor de făcut, așa că merită scris limpede: **cotele pe funcții NU
@@ -160,12 +214,15 @@ limitele au valori implicite rezonabile. Dacă vrei să le ajustezi, vezi mai jo
 ### Lanțul de limite (în `ai.enforceRateLimit`, apelat de toate endpoint-urile AI)
 
 1. **Rata orară** (`AI_RATE_PER_HOUR`, default 80/oră) — anti-abuz, ca înainte. Eroare 429, `code: 'RATE_HOUR'`.
-2. **Bugetul lunar** (`AI_BUDGET_MONTH_LEI`, default **12 lei / 30 de zile rulante**) — plafonul economic al abonamentului. Eroare 429, `code: 'BUDGET_MONTH'`.
+2. **Bugetul pe ciclu** (`AI_BUDGET_MONTH_LEI`, default **12 lei / ciclu**) — plafonul economic al abonamentului. Ciclul e FIX (vezi mai sus): de la ziua 1 a lunii, ora 00:00 a României, până la ziua 1 a lunii următoare. Eroare 429, `code: 'BUDGET_MONTH'`, cu data exactă a resetării în mesaj.
 3. **Bugetul zilnic hard** (`AI_BUDGET_DAY_HARD_LEI`, default **6 lei/zi**) — oprește AI-ul până la miezul nopții (ora României). Eroare 429, `code: 'BUDGET_DAY'`.
 4. **Bugetul zilnic soft** (`AI_BUDGET_DAY_SOFT_LEI`, default **2,5 lei/zi**) — NU blochează: marchează cererea „degradată", iar endpoint-urile aleg un model mai ieftin.
 
 Adminii sunt scutiți de bugete (rata orară rămâne). „Ziua" = miezul nopții pe ora
-României; „luna" = ultimele 30 de zile rulante (nu se poate „arde" totul pe 1 ale lunii).
+României; „luna" = **ciclul fix** care începe la ziua 1, ora 00:00 a României
+(`cycleInfo`). Nu se poate „arde" tot bugetul în ziua resetării: limita zilnică
+HARD (6 lei) rămâne deasupra, deci un ciclu nu poate fi golit în mai puțin de
+două zile.
 
 ### Degradarea (limita soft)
 
@@ -211,7 +268,8 @@ REAL (`stream_options.include_usage`), nu estimarea `lungime/4` de dinainte.
 ### Cotele per funcție, PER ROL, cu pool comun (pasul 2, extins)
 
 Peste bugetele în bani, funcțiile scumpe au cote **vizibile**, numărate din
-`ai_usage` (fereastră de 30 de zile, respectiv ziua curentă la foto).
+`ai_usage` (**același ciclu fix** ca la credite — deci se resetează în aceeași
+clipă cu ele —, respectiv ziua curentă la foto).
 Limitele diferă după rolul contului:
 
 | Funcție (endpoint numărat) | Elev / Părinte | Profesor |
@@ -408,6 +466,8 @@ de propriul cod.
 | În loguri: „ai_usage fără coloanele model/cost_micro" | Același lucru — migrarea nerulată; se loghează în forma veche. |
 | În loguri: „model necunoscut «X» — aplic prețul implicit" | Adaugă modelul în `AI_PRICES_JSON` cu prețul lui real. Până atunci se supraestimează (3/15 USD/1M). |
 | Un elev se plânge că „AI-ul răspunde mai simplu" azi | A trecut de limita zilnică soft → modelul economic. Se resetează la miezul nopții (sau imediat, cu un pachet). |
+| „Când îmi revin creditele?" | La începutul ciclului următor — ziua `AI_BUDGET_CYCLE_DAY` (implicit 1) a lunii, ora 00:00. Cifra exactă („peste 3 zile și 4 ore") o scrie chiar interfața, în bandă și în „⚡ Consum AI". |
+| Consumul afișat a scăzut brusc după deploy | Normal, o singură dată: fereastra s-a mutat de la „ultimele 30 de zile rulante" la ciclul fix de la 1 ale lunii. Se numără mai puține zile, deci utilizatorii activi primesc credite înapoi. |
 | Eroare 429 cu `BUDGET_DAY` / `BUDGET_MONTH` prea des | Mărește `AI_BUDGET_DAY_HARD_LEI` / `AI_BUDGET_MONTH_LEI` în Vercel (redeploy) — sau verifică în top 10 dacă nu e abuz real. |
 | Eroare 429 cu `QUOTA_FEATURE` prea des | Mărește cota funcției respective (`AI_QUOTA_*`) — sau lasă pachetele să facă upsell-ul. |
 | „Pachetele AI nu sunt încă activate" la cumpărare | Tabela `ai_topups` lipsește → rulează `supabase/ai_topup.sql`. Protecția refuză plata ca să nu încaseze bani necreditabili. |

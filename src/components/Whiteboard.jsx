@@ -450,7 +450,11 @@ function ProfFront() {
 
 // „state": 'writing' (spate) | 'asking' (față) | 'idle' (spate, nemișcat)
 // writePos = { x, y } (0..1) — unde e markerul pe tablă; opțional.
-export function Professor({ state = 'idle', name = 'prof. Virtual', writePos = null }) {
+// `speaking` = profesorul SPUNE ceva chiar acum (citește explicația cu voce
+// tare, dictează exercițiul). Doar atunci i se mișcă gura — starea „asking"
+// înseamnă doar că s-a întors cu fața și așteaptă răspunsul, iar o gură care
+// se mișcă în tăcere, minute în șir, îl face să pară că vorbește în gol.
+export function Professor({ state = 'idle', name = 'prof. Virtual', writePos = null, speaking = false }) {
   const writing = state === 'writing';
   // Corpul urmează coloana în care scrie: stânga tablei → se mută spre stânga
   // și se apleacă într-acolo. Brațul urmează rândul: sus → ridicat, jos → coborât.
@@ -463,7 +467,7 @@ export function Professor({ state = 'idle', name = 'prof. Virtual', writePos = n
       }
     : undefined;
   return (
-    <div className={`med-prof is-${state}${writing && !pos ? ' is-sway' : ''}`} style={style} aria-hidden="true">
+    <div className={`med-prof is-${state}${writing && !pos ? ' is-sway' : ''}${speaking ? ' is-speaking' : ''}`} style={style} aria-hidden="true">
       <div className="pf-flip">
         <div className="pf-face pf-back"><ProfBack /></div>
         <div className="pf-face pf-front"><ProfFront /></div>
@@ -600,7 +604,7 @@ export function BoardText({ text, speed = 'normal', animate = true, voiceFrac = 
 // ═════════════════════════════════════════════════════════════════════════════
 export function Whiteboard({ title = null, subtitle = null, chips = null, toolbar = null, prof = 'idle',
   profName = 'prof. Virtual', ask = null, tray = null, tall = false, tone = 'board', bodyClass = '',
-  writePos = null, children }) {
+  writePos = null, speaking = false, children }) {
   return (
     <div className={`med-board${tall ? ' is-tall' : ''}`}>
       <div className="bd-frame">
@@ -618,7 +622,8 @@ export function Whiteboard({ title = null, subtitle = null, chips = null, toolba
           <div className={`bd-body${bodyClass ? ' ' + bodyClass : ''}`}>{children}</div>
           {/* când profesorul chiar scrie (răspunsul curge pe tablă) rămâne cu
             spatele și mișcă markerul, chiar dacă are o propunere pe ecran */}
-        <Professor state={prof === 'writing' ? 'writing' : (ask ? 'asking' : prof)} name={profName} writePos={writePos} />
+        <Professor state={prof === 'writing' ? 'writing' : (ask ? 'asking' : prof)} name={profName}
+          writePos={writePos} speaking={speaking} />
         </div>
 
         {/* Ce SPUNE profesorul (întrebarea, propunerea) apare lipit de el, ca o
@@ -708,6 +713,10 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
   const [readAloud, setReadAloud] = useState(loadRead);
   const [vFrac, setVFrac] = useState(0);
   const [paused, setPaused] = useState(false);
+  // `vorbeste` = chiar acum se aude o rostire (explicația de pe tablă sau
+  // exercițiul citit). Doar atunci i se mișcă gura profesorului — cât timp
+  // stă cu fața la elev și așteaptă „Ai înțeles?", gura rămâne nemișcată.
+  const [vorbeste, setVorbeste] = useState(false);
   const [warn, setWarn] = useState(null);
   const [voiceWarn, setVoiceWarn] = useState(null);   // „nu se aude" — spus pe față
   const [faraCredite, setFaraCredite] = useState(false); // lecția s-a oprit: credite AI epuizate
@@ -743,6 +752,7 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
     try { ctlRef.current?.stop?.(); } catch { /* ignore */ }
     ctlRef.current = null;
     setPaused(false);
+    setVorbeste(false);
   }
 
   // Pornește citirea blocului curent. Întoarce `true` dacă a pornit un player.
@@ -754,12 +764,13 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
     if (!blockText || !ttsSupported()) { setVFrac(1); return false; }
     setVFrac(0);
     const ctl = playAnswer(blockText, {
-      onProgress: ({ frac }) => setVFrac(frac),
-      onEnd: () => { ctlRef.current = null; setVFrac(1); setPaused(false); },
-      onSilent: (msg) => { ctlRef.current = null; setVFrac(1); setPaused(false); setVoiceWarn(msg); },
+      onProgress: ({ frac }) => { setVFrac(frac); setVorbeste(true); },
+      onEnd: () => { ctlRef.current = null; setVFrac(1); setPaused(false); setVorbeste(false); },
+      onSilent: (msg) => { ctlRef.current = null; setVFrac(1); setPaused(false); setVorbeste(false); setVoiceWarn(msg); },
     });
     if (!ctl) { setVFrac(1); return false; }
     ctlRef.current = ctl;
+    setVorbeste(true);
     return true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockText]);
@@ -797,7 +808,7 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
       try { talking = !!(window.speechSynthesis?.speaking || window.speechSynthesis?.pending); } catch { talking = false; }
       if (talking) { silent = 0; return; }
       silent += 1;
-      if (silent >= 3) { clearInterval(t); stopVoice(); setVFrac(1); }
+      if (silent >= 3) { clearInterval(t); stopVoice(); setVFrac(1); setVorbeste(false); }
     }, 2000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -835,7 +846,8 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
     // fără player (rostirea s-a terminat sau n-a pornit) butonul RELUA citirea,
     // în loc să nu facă nimic — asta se vedea ca „butonul Pauză e mort".
     if (!c) { setPaused(false); startVoice(); return; }
-    if (paused) { c.resume(); setPaused(false); } else { c.pause(); setPaused(true); }
+    if (paused) { c.resume(); setPaused(false); setVorbeste(true); }
+    else { c.pause(); setPaused(true); setVorbeste(false); }
   }
 
   function yes() {
@@ -914,6 +926,7 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
       chips={chips}
       prof={mode === 'write' ? 'writing' : 'idle'}
       writePos={mode === 'write' ? wpos : null}
+      speaking={vorbeste && !paused}
       ask={ask}
       toolbar={<>
         {!readAloud && <SpeedPicker value={speed} onChange={setSpeed} />}
