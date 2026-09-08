@@ -124,7 +124,7 @@ export function printExam(exam, { withSolutions = false } = {}) {
     <h1 class="exam-title">${esc(exam.title || 'Model de test')}</h1>
     <div class="exam-sub">Model de pregătire · generat de Profesorul Virtual</div>
     <div class="rules">
-      Toate subiectele sunt obligatorii. Se acordă ${exam.oficiu ?? 10} puncte din oficiu.<br/>
+      Toate subiectele sunt obligatorii.${exam.oficiu === 0 ? '' : ` Se acordă ${exam.oficiu ?? 10} puncte din oficiu.`}<br/>
       Timp de lucru: ${exam.durationMin || 120} de minute · Total: ${exam.totalPoints || 100} de puncte
       ${withSolutions ? ' · <strong>BAREM DE CORECTARE</strong>' : ''}
     </div>`;

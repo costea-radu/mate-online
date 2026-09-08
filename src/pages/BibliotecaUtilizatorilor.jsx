@@ -97,7 +97,7 @@ export default function BibliotecaUtilizatorilor() {
       }
       else if (item.kind === 'interactive' && (item.payload?.questions || item.payload?.html)) {
         // pagină nouă cu buton „Închide”, exact ca la PDF-uri
-        const doc = item.payload.questions ? renderQuiz(item.title, item.payload.questions) : item.payload.html;
+        const doc = item.payload.questions ? renderQuiz(item.title, item.payload.questions, item.payload.meta || {}) : item.payload.html;
         navigate('/exercitiu-ai', { state: { html: doc, title: item.title, mode: user ? 'public' : null, id: item.id } });
       }
       else setOpen(item);
@@ -116,7 +116,7 @@ export default function BibliotecaUtilizatorilor() {
     return (
       <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--border)' }}>
         {item.kind === 'interactive' && (item.payload?.questions || item.payload?.html) && (
-          <iframe title="exercițiu" sandbox="allow-scripts" srcDoc={item.payload.questions ? renderQuiz(item.title, item.payload.questions) : item.payload.html} style={{ width: '100%', height: 560, border: '1px solid var(--border)', borderRadius: 10 }} />
+          <iframe title="exercițiu" sandbox="allow-scripts" srcDoc={item.payload.questions ? renderQuiz(item.title, item.payload.questions, item.payload.meta || {}) : item.payload.html} style={{ width: '100%', height: 560, border: '1px solid var(--border)', borderRadius: 10 }} />
         )}
         {item.kind === 'practice' && (
           <div>

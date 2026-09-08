@@ -5,8 +5,17 @@
 // interactiv sau exportat PDF (variantă elev / cu barem — examPrint).
 // Body: { userId, category?, topic?, difficulty?, dataMode?, chapters?,
 //         kind?: 'exercitiu' (implicit, ~5 întrebări) | 'test',
-//         count?: numărul de itemi ai TESTULUI (4–24, ales de profesor) }
-// Răspuns: { questions:[{statement, options?, answer, explanation?}], kind, title, topic }
+//         count?: numărul de itemi ai TESTULUI (4–24, ales de profesor),
+//         durationMin?: timpul de lucru în minute (apare pe test și
+//                       calibrează dificultatea/lungimea itemilor),
+//         oficiu?: punctele din oficiu (0–20),
+//         sourceText?: MATERIALUL ÎNCĂRCAT de profesor — text extras dintr-o
+//                      poză (tablă / fișă de lucru), dintr-un PDF sau dintr-un
+//                      fișier Word. Când există, itemii se compun DIN EL
+//                      (exercițiile sau teoria din material), nu din baza de
+//                      date — cazul „test de 10 minute făcut direct în clasă”. }
+// Răspuns: { questions:[{statement, options?, answer, explanation?}], kind, title,
+//            topic, durationMin, oficiu }
 // Randarea în HTML interactiv se face pe client (src/lib/quizRender.js).
 // =====================================================================
 const ai = require('./_lib/ai');
@@ -47,6 +56,15 @@ module.exports = async function handler(req, res) {
     const maxItems = kind === 'test' ? count : 8;
     // tipul itemilor: mixt (implicit) / doar grilă / doar cu redactarea răspunsului
     const qtype = ['grila', 'redactare'].includes(req.body?.qtype) ? req.body.qtype : 'mixt';
+    // timpul de lucru (5–180 min) și punctele din oficiu (0–20) alese de profesor
+    const durNum = parseInt(req.body?.durationMin, 10);
+    const durationMin = Number.isFinite(durNum) ? Math.min(180, Math.max(5, durNum)) : null;
+    const ofNum = parseInt(req.body?.oficiu, 10);
+    const oficiu = Number.isFinite(ofNum) ? Math.min(20, Math.max(0, ofNum)) : null;
+    // MATERIALUL ÎNCĂRCAT (poză de la tablă / fișă, PDF sau Word): sursa
+    // PRIORITARĂ a itemilor — testul se compune din exercițiile sau din teoria
+    // lui, nu din baza de date.
+    const sourceText = String(req.body?.sourceText || '').trim().slice(0, 14000);
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) ai.requirePremium(profile);
     const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
@@ -67,7 +85,9 @@ module.exports = async function handler(req, res) {
     //    (teste de antrenament, variante date, simulări) — strict aceeași categorie ──
     let srcBlock = '';
     let plan = '';
-    if (category) {
+    // Cu material încărcat de profesor, sursele din baza de date NU se mai
+    // citesc: itemii trebuie să vină din fișa/tabla lui, nu din alte teste.
+    if (category && !sourceText) {
       try {
         const { data: rowsAll } = await supa.from('content')
           .select('title, file_url, interactive_data, content_type, subcategory')
@@ -123,6 +143,22 @@ module.exports = async function handler(req, res) {
     const taskLine = kind === 'test'
       ? `Sarcină: creează un TEST de matematică cu EXACT ${count} itemi (întrebări numerotate), în stilul exemplelor din baza de date, de la mai simplu la mai complex — ca o lucrare de verificare. Scrie TOȚI cei ${count} itemi, fără să te oprești mai devreme.`
       : 'Sarcină: creează un set de întrebări de matematică pentru un exercițiu interactiv, în stilul exemplelor din baza de date. Implicit 5 întrebări; dacă profesorul cere alt număr în instrucțiunile lui, respectă-l (minim 3, maxim 8).';
+
+    // MATERIALUL PROFESORULUI (poza tablei / fișa de lucru / PDF / Word):
+    // sursa obligatorie a conținutului. Poate fi teorie (lecția predată azi) —
+    // atunci se COMPUN exerciții pe acea teorie — sau exerciții — atunci se
+    // urmează tipul lor.
+    const materialBlock = sourceText
+      ? `\n=== MATERIALUL ÎNCĂRCAT DE PROFESOR (poza tablei / fișa de lucru / PDF / Word) ===\n${sourceText}\n=== SFÂRȘIT MATERIAL ===\nREGULĂ ABSOLUTĂ: conținutul ${kind === 'test' ? 'testului' : 'exercițiului'} vine EXCLUSIV din materialul de mai sus.\n- Dacă materialul conține EXERCIȚII: pornește de la ele — același tip, aceeași structură și dificultate.\n- Dacă materialul conține TEORIE (o lecție predată la clasă): compune exerciții de aplicare DIRECTĂ a noțiunilor, formulelor și metodelor din el, în ordinea în care apar.\n- NU introduce noțiuni care nu apar în material și nu presupune capitole nepredate.\n- Textul poate veni dintr-o fotografie sau dintr-un PDF și poate avea greșeli de recunoaștere (caractere lipsă, formule stricate): reconstituie sensul matematic corect, iar ce e clar ilizibil ignoră, fără să inventezi.\n`
+      : '';
+
+    // Timpul de lucru calibrează numărul de pași și mărimea calculelor.
+    const timeLine = durationMin
+      ? `\nTIMP DE LUCRU: ${durationMin} de minute pentru ${kind === 'test' ? `cei ${count} itemi` : 'tot exercițiul'}. Calibrează itemii ca un elev de nivel mediu să îi termine în acest timp: ${durationMin <= 15 ? 'test scurt de verificare la clasă — itemi cu 1–2 pași de calcul, enunțuri scurte, fără probleme lungi cu text' : durationMin <= 30 ? 'itemi de dificultate obișnuită, 2–3 pași de rezolvare' : 'poți include și itemi mai ample, cu mai mulți pași'}.`
+      : '';
+    const oficiuLine = oficiu != null
+      ? `\nPUNCTAJ: se acordă ${oficiu} puncte din oficiu, iar itemii împart restul până la 100 de puncte — nu scrie punctajele în enunțuri.`
+      : '';
     const system = `${ai.PERSONA}
 
 ${taskLine}
@@ -130,7 +166,7 @@ ${taskLine}
 === EXEMPLE DIN BAZA DE DATE (temă/stil) ===
 ${examples}
 === SFÂRȘIT ===
-${srcBlock ? `\n=== SUBIECTE REALE DIN CATEGORIE (sursa itemilor — antrenament/variante/simulări) ===\n${srcBlock}\n=== SFÂRȘIT SURSE ===\nPLAN (tras la sorți — respectă-l): fiecare întrebare vine din sursa indicată:\n${plan}\n` : ''}
+${srcBlock ? `\n=== SUBIECTE REALE DIN CATEGORIE (sursa itemilor — antrenament/variante/simulări) ===\n${srcBlock}\n=== SFÂRȘIT SURSE ===\nPLAN (tras la sorți — respectă-l): fiecare întrebare vine din sursa indicată:\n${plan}\n` : ''}${materialBlock}${timeLine}${oficiuLine}
 REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}
 
 Răspunde STRICT cu un OBIECT JSON valid (fără text în plus, fără markdown), cu EXACT această formă — cheia "questions" conține obiectele-întrebare:
@@ -151,11 +187,11 @@ ${qtype === 'grila'
       ? `- TOATE întrebările sunt CU REDACTAREA RĂSPUNSULUI (fără variante): OMITE complet "options"; "answer" = răspunsul final, scurt, ca text (ex: "12", "x=3", "aria = 24 cm²"); "explanation" = REDACTAREA MODEL a rezolvării, pas cu pas, cum ar scrie-o elevul pe foaie (ea apare la barem). NU face nicio întrebare grilă.`
       : `- Majoritatea întrebărilor cu "options" (grilă, exact 4 variante) și "answer" = INDEXUL variantei corecte (0,1,2,3). DISTRIBUIE răspunsul corect aleatoriu între cele 4 poziții (nu mereu 0).
 - Poți face și întrebări cu răspuns liber: OMITE "options" și pune "answer" ca text (ex: "12" sau "x=3").`}
-- Respectă cât mai fidel exercițiile-model (tip, stil, dificultate), schimbând doar minim datele.
+- ${sourceText ? 'Exemplele din baza de date sunt DOAR reper de stil și de formulare — conținutul matematic vine din materialul încărcat de profesor.' : 'Respectă cât mai fidel exercițiile-model (tip, stil, dificultate), schimbând doar minim datele.'}
 - Subiect: ${topicShort || 'potrivit categoriei'}${category ? ' · categoria ' + category : ''}. Dificultate: ${difficulty}.
 - Folosește „·" (\\cdot în LaTeX) pentru înmulțire, NICIODATĂ × sau litera x.
 - Variază: la cereri repetate pentru același model, generează exerciții DIFERITE (alte valori, alt context).${chapters.length ? `
-- CAPITOLELE CERUTE DE PROFESOR (restricție OBLIGATORIE de conținut): ${chapters.join(' · ')}. TOATE întrebările provin EXCLUSIV din aceste capitole — dacă o sursă sau planul indică un exercițiu din alt capitol, alege/compune în loc unul din capitolele cerute, în același stil.` : ''}
+- CAPITOLELE CERUTE DE PROFESOR (restricție OBLIGATORIE de conținut): ${chapters.join(' · ')}.${sourceText ? ' Ele restrâng suplimentar materialul încărcat: alege din el doar ce ține de aceste capitole.' : ''} TOATE întrebările provin EXCLUSIV din aceste capitole — dacă o sursă sau planul indică un exercițiu din alt capitol, alege/compune în loc unul din capitolele cerute, în același stil.` : ''}
 - IMPORTANT JSON valid: scrie fiecare backslash din LaTeX de DOUĂ ori. Ex: pentru fracție "$\\\\frac{1}{2}$", radical "$\\\\sqrt{9}$".${topicFull ? `
 
 SUBIECT + INSTRUCȚIUNI DE LA PROFESOR — au PRIORITATE față de regulile de stil și de plan de mai sus (temă, tipuri de întrebări, număr de întrebări, dificultate, restricții asupra numerelor, contexte etc.); respectă-le întocmai, păstrând DOAR formatul JSON cerut:
@@ -173,7 +209,7 @@ ${topicFull}
     try {
       ({ data, usage, text } = await ai.chatJson({
         system,
-        messages: [{ role: 'user', content: `Generează obiectul JSON cu ${kind === 'test' ? `TESTUL de ${count} itemi` : 'întrebările'} acum${topicFull ? ', respectând întocmai subiectul și instrucțiunile profesorului' : ''}. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
+        messages: [{ role: 'user', content: `Generează obiectul JSON cu ${kind === 'test' ? `TESTUL de ${count} itemi${durationMin ? ` (${durationMin} min)` : ''}` : 'întrebările'} acum${sourceText ? ', STRICT pe materialul încărcat de profesor' : ''}${topicFull ? ', respectând întocmai subiectul și instrucțiunile profesorului' : ''}. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
         temperature: 0.9, maxTokens,
         model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
         schema: QUESTIONS_SCHEMA, schemaName: 'intrebari_interactive',
@@ -244,11 +280,15 @@ ${topicFull}
       return res.status(502).json({ error: 'Întrebările generate nu au trecut verificarea automată. Mai încearcă o dată.' });
     }
 
+    const subject = topicShort || chapters[0] || (sourceText ? 'material încărcat' : null) || category || 'matematică';
     return res.status(200).json({
       questions,
       kind,
-      title: `${kind === 'test' ? `Test (${questions.length} itemi)` : 'Exercițiu interactiv'} · ${topicShort || chapters[0] || category || 'matematică'}`,
+      title: `${kind === 'test' ? `Test (${questions.length} itemi${durationMin ? `, ${durationMin} min` : ''})` : 'Exercițiu interactiv'} · ${subject}`,
       topic: topicShort || chapters[0] || null,
+      durationMin,
+      oficiu,
+      fromSource: !!sourceText,
       verification: checked.report,
     });
   } catch (err) {

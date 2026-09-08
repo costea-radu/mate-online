@@ -92,7 +92,7 @@ export default function AssignmentSolver() {
               ✓ Rezultat trimis profesorului: {savedScore.score}/{savedScore.maxScore}
             </div>
           )}
-          <iframe title="tema" sandbox="allow-scripts" srcDoc={task.questions ? renderQuiz(task.title, task.questions) : task.html} style={{ width: '100%', height: 560, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
+          <iframe title="tema" sandbox="allow-scripts" srcDoc={task.questions ? renderQuiz(task.title, task.questions, task.meta || {}) : task.html} style={{ width: '100%', height: 560, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
         </div>
       ) : (
         <div style={card}>

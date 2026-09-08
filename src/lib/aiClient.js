@@ -133,8 +133,12 @@ export const aiClient = {
   // Generator de exerciții/teste interactive (HTML) — admin sau abonat.
   // kind: 'exercitiu' (implicit) | 'test' + count = numărul de itemi ai testului (4–24)
   // qtype: 'mixt' (implicit) | 'grila' (toate cu 4 variante) | 'redactare' (toate cu răspuns liber)
-  generateInteractive: ({ category = null, topic = '', difficulty = 'mediu', dataMode = 'modify', chapters = [], kind = 'exercitiu', count = null, qtype = 'mixt' }) =>
-    post('/api/ai-generate-interactive', { category, topic, difficulty, dataMode, chapters, kind, count, qtype }),
+  // durationMin/oficiu: timpul de lucru și punctele din oficiu (apar pe test și
+  //   ghidează AI-ul la numărul/dificultatea itemilor)
+  // sourceText: materialul încărcat de profesor (poză / PDF / Word) — când
+  //   există, itemii se compun DIN EL, nu din baza de date
+  generateInteractive: ({ category = null, topic = '', difficulty = 'mediu', dataMode = 'modify', chapters = [], kind = 'exercitiu', count = null, qtype = 'mixt', durationMin = null, oficiu = null, sourceText = '' }) =>
+    post('/api/ai-generate-interactive', { category, topic, difficulty, dataMode, chapters, kind, count, qtype, durationMin, oficiu, sourceText }),
 
   // Agenți Claude (admin): generator exerciții + SEO/marketing
   exerciseAgent: (payload) => post('/api/ai-exercise-agent', payload),
@@ -194,6 +198,8 @@ export const aiClient = {
   // ── Corectarea cu punctaj a testelor / exercițiilor PDF („Răspunde în chat") ──
   // Textul unui PDF încărcat de elev direct în chat (temă, fișă, variantă)
   correctPdfText: ({ fileBase64 }) => post('/api/ai-correct', { action: 'pdf_text', fileBase64 }),
+  // Textul unui fișier WORD (.docx) încărcat — fișa de lucru a profesorului
+  correctDocxText: ({ fileBase64 }) => post('/api/ai-correct', { action: 'docx_text', fileBase64 }),
   // Formularul de răspuns: câmpuri pe exerciții și subpuncte a), b), c) — din barem
   // (categoria activează punctajele oficiale: EN 5p/grilă + a)2p/b)3p; BAC 5p)
   // Pentru un test din platformă (contentId) serverul recitește SINGUR textul și
@@ -219,8 +225,10 @@ export const aiClient = {
   activityDetail: ({ studentId }) => post('/api/ai-activity', { action: 'detail', studentId }),
 
   // Teme profesor → elev
-  assignmentCreateInteractive: ({ html = null, questions = null, title = null, category = null, topic = null }) =>
-    post('/api/ai-assignment', { action: 'create', kind: 'interactive', html, questions, title, category, topic }),
+  // meta: { durationMin, oficiu } — elevul primește testul cu același
+  // cronometru și cu aceleași puncte din oficiu ca la generare
+  assignmentCreateInteractive: ({ html = null, questions = null, title = null, category = null, topic = null, meta = null }) =>
+    post('/api/ai-assignment', { action: 'create', kind: 'interactive', html, questions, title, category, topic, meta }),
   assignmentCreatePractice: ({ token, title = null }) =>
     post('/api/ai-assignment', { action: 'create', kind: 'practice', token, title }),
   assignmentGet: ({ id }) => post('/api/ai-assignment', { action: 'get', id }),

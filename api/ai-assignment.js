@@ -78,9 +78,16 @@ async function create(req, res, supa) {
   let t = title;
 
   if (kind === 'interactive') {
-    const { html, questions } = req.body || {};
+    const { html, questions, meta } = req.body || {};
+    // meta = timpul de lucru și punctele din oficiu alese de profesor la
+    // generare — elevul primește testul cu același cronometru și punctaj
+    const dm = parseInt(meta?.durationMin, 10);
+    const of = parseInt(meta?.oficiu, 10);
+    const cleanMeta = {};
+    if (Number.isFinite(dm) && dm > 0) cleanMeta.durationMin = Math.min(180, dm);
+    if (Number.isFinite(of) && of >= 0) cleanMeta.oficiu = Math.min(20, of);
     if (Array.isArray(questions) && questions.length) {
-      payload = { questions };
+      payload = Object.keys(cleanMeta).length ? { questions, meta: cleanMeta } : { questions };
     } else if (html && /<html|<!doctype/i.test(html)) {
       payload = { html };
     } else {
@@ -184,7 +191,7 @@ async function getOne(req, res, supa) {
   if (!a) return res.status(404).json({ error: 'Tema nu a fost găsită.' });
 
   const base = { id: a.id, kind: a.kind, title: a.title, creator: a.creator_name, creatorRole: a.creator_role || 'profesor', topic: a.topic, category: a.category };
-  if (a.kind === 'interactive') return res.status(200).json({ ...base, questions: a.payload?.questions || null, html: a.payload?.html || '' });
+  if (a.kind === 'interactive') return res.status(200).json({ ...base, questions: a.payload?.questions || null, html: a.payload?.html || '', meta: a.payload?.meta || null });
   // practice: fără answer/solution
   return res.status(200).json({
     ...base,

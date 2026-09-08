@@ -2,7 +2,7 @@
 // src/pages/ProfesorVirtual.jsx — pagina dedicată a tutorelui AI
 // Tab-uri: Întreabă profesorul · Antrenament · Progresul meu
 // =====================================================================
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ChatPanel, MathText } from '../components/AITutor';
 import { aiClient } from '../lib/aiClient';
@@ -16,6 +16,7 @@ import GroupAssignment from '../components/GroupAssignment';
 import AILimite from '../components/AILimite';
 import { renderQuiz } from '../lib/quizRender';
 import CapitolePicker from '../components/CapitolePicker';
+import { fileToCompressedDataUrl } from '../lib/image';
 import { capitoleForCategory } from '../lib/capitole';
 import AIPoweredBy from '../components/AIPoweredBy';
 
@@ -409,6 +410,19 @@ function InteractiveTab() {
   const [itemKind, setItemKind] = useState('exercitiu'); // 'exercitiu' | 'test'
   const [itemCount, setItemCount] = useState(10);        // itemii testului (4–24)
   const [qtype, setQtype] = useState('mixt');            // itemii: 'mixt' | 'grila' | 'redactare'
+  // timpul de lucru și punctele din oficiu — apar pe test (cronometru la
+  // varianta interactivă, antet la PDF) și calibrează generarea
+  const [durationMin, setDurationMin] = useState(30);
+  const [oficiu, setOficiu] = useState(10);
+  // MATERIALUL profesorului: poză de la tablă / fișă de lucru / PDF / Word.
+  // sources: [{ id, kind:'foto'|'pdf'|'word', name, text, thumb? }]
+  const [sources, setSources] = useState([]);
+  const [srcBusy, setSrcBusy] = useState(null);   // eticheta acțiunii în curs
+  const [srcError, setSrcError] = useState(null);
+  const [srcOpen, setSrcOpen] = useState(null);   // id-ul sursei cu textul deschis
+  const camRef = useRef(null);
+  const imgRef = useRef(null);
+  const docRef = useRef(null);
   const [chapterExtra, setChapterExtra] = useState('');  // alt capitol, scris liber (lipsă din listă)
   const chapterOptions = capitoleForCategory(category);
   // la schimbarea categoriei păstrăm doar capitolele care există și în noua listă
@@ -436,7 +450,10 @@ function InteractiveTab() {
   // metadate (bibliotecă, teme, publicare) folosim doar prima linie, scurtă.
   const topicShort = (topic || '').split(/\r?\n/)[0].replace(/\s+/g, ' ').trim().slice(0, 120) || null;
 
-  const html = questions ? renderQuiz(title, questions) : '';
+  // timpul de lucru / punctele din oficiu care însoțesc testul (cronometru în
+  // varianta interactivă, antet la PDF, aceleași la tema trimisă elevilor)
+  const quizMeta = () => ({ durationMin, oficiu });
+  const html = questions ? renderQuiz(title, questions, quizMeta()) : '';
 
   // Revenire din pagina exercițiului: restaurăm ultimul exercițiu generat
   useEffect(() => {
@@ -444,7 +461,11 @@ function InteractiveTab() {
       const raw = sessionStorage.getItem('pv_last_interactive');
       if (raw) {
         const p = JSON.parse(raw);
-        if (p.questions?.length) { setQuestions(p.questions); setTitle(p.title || 'Exercițiu interactiv'); }
+        if (p.questions?.length) {
+          setQuestions(p.questions); setTitle(p.title || 'Exercițiu interactiv');
+          if (p.meta?.durationMin) setDurationMin(p.meta.durationMin);
+          if (p.meta?.oficiu != null) setOficiu(p.meta.oficiu);
+        }
       }
     } catch { /* ignore */ }
     // eslint-disable-next-line
@@ -460,25 +481,84 @@ function InteractiveTab() {
     return () => window.removeEventListener('message', onMsg);
   }, []);
 
+  // ── MATERIALUL PROFESORULUI (poză / PDF / Word) ────────────────────────
+  // Textul extras din fiecare fișier devine sursa de conținut a testului:
+  // poza tablei sau a fișei de lucru → api/ai-vision; PDF → api/ai-correct
+  // (pdf_text); Word (.docx) → api/ai-correct (docx_text).
+  const sourceText = () => sources
+    .map((sc) => `--- ${sc.name} ---\n${sc.text}`)
+    .join('\n\n').slice(0, 14000);
+
+  async function addSource(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ''; // permite re-selectarea aceluiași fișier
+    if (!files.length) return;
+    setSrcError(null);
+    for (const file of files) {
+      const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+      const isWord = /\.docx?$/i.test(file.name || '') || /wordprocessingml|msword/.test(file.type || '');
+      setSrcBusy(isPdf ? 'Citesc PDF-ul…' : isWord ? 'Citesc fișierul Word…' : 'Citesc poza…');
+      try {
+        let text = '', thumb = null, sKind = 'foto';
+        if (isPdf || isWord) {
+          if (file.size > 3.5 * 1024 * 1024) throw new Error(`„${file.name}" e prea mare (max ~3,5 MB).`);
+          const fileBase64 = await new Promise((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onload = () => resolve(String(fr.result));
+            fr.onerror = () => reject(new Error('Fișierul nu a putut fi citit.'));
+            fr.readAsDataURL(file);
+          });
+          sKind = isPdf ? 'pdf' : 'word';
+          const r = isPdf ? await aiClient.correctPdfText({ fileBase64 }) : await aiClient.correctDocxText({ fileBase64 });
+          text = r.text || '';
+        } else {
+          const dataUrl = await fileToCompressedDataUrl(file, { maxDim: 1600, quality: 0.78 });
+          try { thumb = await fileToCompressedDataUrl(file, { maxDim: 120, quality: 0.6 }); } catch { thumb = null; }
+          const r = await aiClient.visionExtract({
+            imageBase64: dataUrl,
+            note: 'Transcrie TOT ce se vede în imagine (exerciții și/sau teorie predată: definiții, formule, exemple rezolvate), cu formulele în LaTeX. Nu rezolva nimic.',
+          });
+          text = r.problemText || '';
+        }
+        if (!text.trim() || /^Nu am putut citi/i.test(text.trim())) {
+          throw new Error(`Nu am găsit text în „${file.name}". Fotografiază mai de aproape sau încarcă alt fișier.`);
+        }
+        setSources((list) => [...list, {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          kind: sKind, name: file.name || (sKind === 'foto' ? 'Poză' : 'Fișier'), text: text.trim(), thumb,
+        }]);
+      } catch (err) {
+        setSrcError(err.message);
+        if (err.premium) setUpsell(true);
+        break;
+      } finally { setSrcBusy(null); }
+    }
+  }
+  function patchSource(id, text) { setSources((l) => l.map((sc) => (sc.id === id ? { ...sc, text } : sc))); }
+  function delSource(id) { setSources((l) => l.filter((sc) => sc.id !== id)); setSrcOpen((o) => (o === id ? null : o)); }
+
   async function gen() {
     setLoading(true); setError(null); setUpsell(false); setQuestions(null); setSavedScore(null); setEditing(false); setPublishMsg(null);
     try {
       const res = await aiClient.generateInteractive({
         category: category || null, topic, difficulty, dataMode, chapters: chapterTitles(),
         kind: itemKind, count: itemKind === 'test' ? itemCount : null, qtype,
+        durationMin, oficiu, sourceText: sourceText(),
       });
       const qs = res.questions || [];
       const t = res.title || (itemKind === 'test' ? 'Test' : 'Exercițiu interactiv');
       setQuestions(qs); setTitle(t);
-      // salvează în „Testele și exercițiile mele"
-      try { await aiClient.saveLibraryItem({ kind: 'interactive', title: t, category: category || null, topic: topicShort, payload: { questions: qs } }); } catch { /* ignore */ }
+      const meta = quizMeta();
+      // salvează în „Testele și exercițiile mele" (cu timpul și oficiul, ca la
+      // redeschidere testul să pornească la fel)
+      try { await aiClient.saveLibraryItem({ kind: 'interactive', title: t, category: category || null, topic: topicShort, payload: { questions: qs, meta } }); } catch { /* ignore */ }
       // păstrăm rezultatul pentru revenire (storage poate lipsi în Safari privat)
-      try { sessionStorage.setItem('pv_last_interactive', JSON.stringify({ questions: qs, title: t })); } catch { /* ignore */ }
+      try { sessionStorage.setItem('pv_last_interactive', JSON.stringify({ questions: qs, title: t, meta })); } catch { /* ignore */ }
       // rezultat PDF: NU deschidem viewerul interactiv — rămân la îndemână
       // butoanele „PDF variantă elev / PDF cu barem" (fereastra de tipărire nu
       // se poate deschide singură după o generare lungă — browserul o blochează)
       if (output === 'pdf') return;
-      navigate('/exercitiu-ai', { state: { html: renderQuiz(t, qs), title: t } });
+      navigate('/exercitiu-ai', { state: { html: renderQuiz(t, qs, meta), title: t } });
     } catch (e) { setError(e.message); if (e.premium) setUpsell(true); }
     finally { setLoading(false); }
   }
@@ -487,18 +567,23 @@ function InteractiveTab() {
   // examen" (examPrint.printExam): document tipăribil, variantă elev / cu barem
   function exportPdf(withSolutions) {
     if (!questions || !questions.length) return;
+    // punctajul se împarte egal între itemi, din cele 100 − oficiu puncte
+    // (ultimul item preia diferența, ca totalul să fie exact 100)
+    const pool = Math.max(1, 100 - oficiu);
+    const per = Math.max(1, Math.floor(pool / questions.length));
     const exItems = questions.map((qq, i) => {
       const hasOpts = Array.isArray(qq.options) && qq.options.length;
       return {
         number: String(i + 1), statement: qq.statement, options: hasOpts ? qq.options : undefined,
         answer: hasOpts ? String.fromCharCode(97 + (Number(qq.answer) || 0)) : String(qq.answer ?? ''),
-        solution: qq.explanation || '', points: null,
+        solution: qq.explanation || '',
+        points: i === questions.length - 1 ? pool - per * (questions.length - 1) : per,
       };
     });
     const isTest = itemKind === 'test' || /^Test/.test(title || '');
     printExam({
-      title, durationMin: isTest ? Math.max(30, exItems.length * 4) : 30, totalPoints: null, oficiu: null,
-      subjects: [{ label: isTest ? 'Test' : 'Exerciții', points: null, items: exItems }],
+      title, durationMin, totalPoints: 100, oficiu,
+      subjects: [{ label: isTest ? 'Test' : 'Exerciții', points: 100 - oficiu, items: exItems }],
     }, { withSolutions });
   }
 
@@ -544,6 +629,27 @@ function InteractiveTab() {
                 </label>
               )}
             </div>
+            {/* Timpul de lucru și punctele din oficiu — apar pe test
+                (cronometru la interactiv, antet la PDF) și calibrează AI-ul */}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+              <label style={{ fontSize: '.82rem', color: 'var(--text-light)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                ⏱ Timp:
+                <select value={durationMin} onChange={(e) => setDurationMin(Number(e.target.value))} style={{ ...inp, padding: '7px 9px' }}>
+                  {[5, 10, 15, 20, 25, 30, 40, 45, 50, 60, 90, 120, 150, 180].map((n) => (
+                    <option key={n} value={n}>{n} min</option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ fontSize: '.82rem', color: 'var(--text-light)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                🎁 Puncte din oficiu:
+                <select value={oficiu} onChange={(e) => setOficiu(Number(e.target.value))} style={{ ...inp, padding: '7px 9px' }}>
+                  {[0, 5, 10, 15, 20].map((n) => <option key={n} value={n}>{n === 0 ? 'fără' : `${n} p`}</option>)}
+                </select>
+              </label>
+            </div>
+            <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: 4, maxWidth: 330 }}>
+              Timpul calibrează dificultatea și pornește cronometrul pe varianta interactivă; ambele apar în antetul PDF-ului. Punctajul: {oficiu ? `${oficiu} p din oficiu + ${100 - oficiu} p pe itemi` : '100 p împărțiți pe itemi'}.
+            </div>
           </div>
           <div>
             <div style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 6 }}>Rezultatul</div>
@@ -578,6 +684,63 @@ function InteractiveTab() {
             </select>
           </label>
         </div>
+        {/* MATERIALUL PROFESORULUI — înaintea capitolelor: poză de la tablă /
+            fișă de lucru / PDF / Word. Când există, testul se compune DIN EL
+            (exercițiile sau teoria din material), nu din baza de date. */}
+        <div style={{ border: '2px dashed var(--gold)', borderRadius: 12, padding: 14, marginBottom: 12, background: 'rgba(232,185,49,.06)' }}>
+          <div style={{ fontSize: '.85rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 4 }}>
+            📷 Conținutul testului dintr-o poză sau dintr-un fișier (opțional)
+          </div>
+          <p style={{ fontSize: '.78rem', color: 'var(--text-light)', margin: '0 0 10px', lineHeight: 1.5 }}>
+            Fă poză la ce ai predat — tabla, pagina din manual sau fișa de lucru — ori încarcă fișa
+            (PDF sau Word), iar AI-ul compune testul din exercițiile sau din teoria de acolo.
+            <strong> Așa poți da un test de 10 minute creat pe loc, în clasă, exact pe lecția de azi.</strong>
+            <br />Fără nimic încărcat aici, conținutul vine din capitolele alese mai jos.
+          </p>
+          <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={addSource} />
+          <input ref={imgRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={addSource} />
+          <input ref={docRef} type="file" accept=".pdf,.docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple style={{ display: 'none' }} onChange={addSource} />
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn btn-primary btn-sm" onClick={() => camRef.current?.click()} disabled={!!srcBusy}>📷 Fă poză</button>
+            <button className="btn btn-outline btn-sm" onClick={() => imgRef.current?.click()} disabled={!!srcBusy}>🖼 Încarcă poză</button>
+            <button className="btn btn-outline btn-sm" onClick={() => docRef.current?.click()} disabled={!!srcBusy}>📄 Încarcă PDF / Word</button>
+            {srcBusy && <span style={{ fontSize: '.8rem', color: 'var(--text-muted)', alignSelf: 'center' }}>{srcBusy}</span>}
+          </div>
+          {srcError && <div style={{ marginTop: 8, fontSize: '.8rem', color: '#b71c1c' }}>⚠️ {srcError}</div>}
+          {sources.length > 0 && (
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {sources.map((sc) => (
+                <div key={sc.id} style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {sc.thumb
+                      ? <img src={sc.thumb} alt="" style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 6 }} />
+                      : <span style={{ fontSize: '1.1rem' }}>{sc.kind === 'pdf' ? '📄' : '📝'}</span>}
+                    <span style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--navy)', flex: 1, minWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sc.name}</span>
+                    <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>{sc.text.length} caractere</span>
+                    <button className="btn btn-sm btn-outline" onClick={() => setSrcOpen((o) => (o === sc.id ? null : sc.id))}>
+                      {srcOpen === sc.id ? '▲ Ascunde' : '👁 Vezi / corectează'}
+                    </button>
+                    <button onClick={() => delSource(sc.id)} title="Scoate materialul"
+                      style={{ background: 'none', border: '1px solid #f5c6cb', color: '#c0392b', borderRadius: 6, padding: '2px 8px', fontSize: '.75rem', cursor: 'pointer' }}>✕</button>
+                  </div>
+                  {srcOpen === sc.id && (
+                    <>
+                      <textarea value={sc.text} onChange={(e) => patchSource(sc.id, e.target.value)} rows={8}
+                        style={{ ...inp, width: '100%', marginTop: 8, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box', fontSize: '.82rem' }} />
+                      <div style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>
+                        Textul citit din material — corectează aici ce s-a citit greșit (formule, cifre) înainte de generare.
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+              <div style={{ fontSize: '.75rem', color: '#1e7e34', fontWeight: 600 }}>
+                ✅ {sources.length === 1 ? 'Materialul încărcat va fi' : `Cele ${sources.length} materiale încărcate vor fi`} sursa {itemKind === 'test' ? 'testului' : 'exercițiului'}. Capitolele de mai jos rămân opționale — restrâng suplimentar ce se ia din material.
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Capitolele programei (rolldown cu selecție multiplă) + câmpul liber
             „alt capitol” (ca la pregătirea pentru lucrare a elevului):
             întrebările vin DOAR din capitolele alese/scrise. */}
@@ -606,13 +769,18 @@ function InteractiveTab() {
             <span><strong>Modifică numerele și notațiile</strong> (verifică problemele — poate greși!)</span>
           </label>
         </div>
-        <button className="btn btn-primary" onClick={gen} disabled={loading}>
+        <button className="btn btn-primary" onClick={gen} disabled={loading || !!srcBusy}>
           {loading
             ? `Se generează... (${itemKind === 'test' && itemCount > 10 ? '~30–60s' : '~20s'})`
             : itemKind === 'test'
-              ? `✨ Generează testul (${itemCount} itemi, ${output === 'pdf' ? 'PDF' : 'interactiv'})`
+              ? `✨ Generează testul (${itemCount} itemi, ${durationMin} min, ${output === 'pdf' ? 'PDF' : 'interactiv'})`
               : `✨ Generează exercițiul (${output === 'pdf' ? 'PDF' : 'interactiv'})`}
         </button>
+        {sources.length > 0 && (
+          <div style={{ fontSize: '.76rem', color: 'var(--text-light)', marginTop: 6 }}>
+            📷 Conținutul vine din materialul încărcat ({sources.map((sc) => sc.name).join(', ')}).
+          </div>
+        )}
       </div>
 
       {error && <div style={{ ...card, background: '#fdecea', color: '#b71c1c', borderColor: '#f5c6cb' }}>⚠️ {error}</div>}
@@ -689,10 +857,10 @@ function InteractiveTab() {
             <button className="btn btn-outline btn-sm" onClick={() => exportPdf(false)}>📄 Export PDF</button>
             <button className="btn btn-outline btn-sm" onClick={() => exportPdf(true)}>📝 Cu răspunsuri</button>
             {(isTeacher || isParent) && (
-              <SendToStudents create={() => aiClient.assignmentCreateInteractive({ questions, title, category: category || null, topic: topicShort })} />
+              <SendToStudents create={() => aiClient.assignmentCreateInteractive({ questions, title, category: category || null, topic: topicShort, meta: quizMeta() })} />
             )}
             {isTeacher && <button className="btn btn-outline btn-sm" onClick={() => setEditing((e) => !e)}>{editing ? '✓ Gata editarea' : '✏️ Editează (text)'}</button>}
-            {isTeacher && <button className="btn btn-outline btn-sm" onClick={async () => { setPublishMsg(null); try { const r = await aiClient.publicPublish({ kind: 'interactive', title, category: category || null, topic: topicShort, payload: { questions } }); setPublishMsg('✅ Publicat ca „' + (r?.title || title) + '".'); } catch (e) { setPublishMsg('Eroare: ' + e.message); } }}>🏛️ Publică</button>}
+            {isTeacher && <button className="btn btn-outline btn-sm" onClick={async () => { setPublishMsg(null); try { const r = await aiClient.publicPublish({ kind: 'interactive', title, category: category || null, topic: topicShort, payload: { questions, meta: quizMeta() } }); setPublishMsg('✅ Publicat ca „' + (r?.title || title) + '".'); } catch (e) { setPublishMsg('Eroare: ' + e.message); } }}>🏛️ Publică</button>}
             <button className="btn btn-outline btn-sm" onClick={gen} disabled={loading}>🔄 Altul</button>
           </div>
           {publishMsg && <div style={{ marginTop: 8, fontSize: '.82rem', color: publishMsg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{publishMsg}</div>}
@@ -834,10 +1002,10 @@ function LibItem({ it, isTeacher, onRemove }) {
           {full.kind === 'interactive' && !editing && (full.payload?.questions || full.payload?.html) && (
             <>
               <button className="btn btn-outline btn-sm" style={{ marginBottom: 8 }} onClick={() => {
-                const doc = full.payload.questions ? renderQuiz(full.title, qs || full.payload.questions) : full.payload.html;
+                const doc = full.payload.questions ? renderQuiz(full.title, qs || full.payload.questions, full.payload.meta || {}) : full.payload.html;
                 navigate('/exercitiu-ai', { state: { html: doc, title: full.title, mode: 'library', id: full.id } });
               }}>🗗 Deschide în pagină nouă</button>
-              <iframe title="reluare" sandbox="allow-scripts" srcDoc={full.payload.questions ? renderQuiz(full.title, qs || full.payload.questions) : full.payload.html} style={{ width: '100%', height: 500, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
+              <iframe title="reluare" sandbox="allow-scripts" srcDoc={full.payload.questions ? renderQuiz(full.title, qs || full.payload.questions, full.payload.meta || {}) : full.payload.html} style={{ width: '100%', height: 500, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
             </>
           )}
 
@@ -884,7 +1052,7 @@ function LibItem({ it, isTeacher, onRemove }) {
                 }}>💾 Salvează modificările</button>
               )}
               <SendToStudents label="📤 Trimite elevilor" create={() => aiClient.assignmentCreateInteractive({ questions: qs, title: full.title, category: full.category || null, topic: full.topic || null })} />
-              <button className="btn btn-sm btn-outline" onClick={async () => { setMsg(null); try { const r = await aiClient.publicPublish({ kind: 'interactive', title: full.title, category: full.category || null, topic: full.topic || null, payload: { questions: qs } }); setMsg('✅ Publicat ca „' + (r?.title || full.title) + '".'); } catch (e) { setMsg('Eroare: ' + e.message); } }}>🏛️ Publică</button>
+              <button className="btn btn-sm btn-outline" onClick={async () => { setMsg(null); try { const r = await aiClient.publicPublish({ kind: 'interactive', title: full.title, category: full.category || null, topic: full.topic || null, payload: { questions: qs, meta: full.payload?.meta || {} } }); setMsg('✅ Publicat ca „' + (r?.title || full.title) + '".'); } catch (e) { setMsg('Eroare: ' + e.message); } }}>🏛️ Publică</button>
             </div>
           )}
           {msg && <div style={{ marginTop: 8, fontSize: '.82rem', color: msg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{msg}</div>}

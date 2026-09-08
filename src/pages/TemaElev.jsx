@@ -76,7 +76,7 @@ export default function TemaElev() {
     } else if (t.type === 'site-pdf') {
       navigate(`/pdf-viewer?id=${t.contentId}`, { state: { item: t.item, grant: t.grant || null, returnTo: back } });
     } else if (t.type === 'quiz') {
-      const doc = t.questions ? renderQuiz(t.title || it.title, t.questions) : (t.html || '');
+      const doc = t.questions ? renderQuiz(t.title || it.title, t.questions, t.meta || {}) : (t.html || '');
       navigate('/exercitiu-ai', { state: { html: doc, title: t.title || it.title, mode: 'homework', hwId: it.progressId || null } });
     } else if (t.type === 'exam' && t.exam) {
       printExam(t.exam, { withSolutions: false });

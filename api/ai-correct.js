@@ -14,6 +14,9 @@
 //
 // POST { userId, action, ... }
 //   action='pdf_text' { fileBase64 }                → { text, chars, truncated }
+//   action='docx_text' { fileBase64 }               → { text, chars, truncated }
+//        (fișa de lucru în Word, încărcată de profesor la „Generează
+//         exerciții/teste” — sursa de conținut a testului)
 //   action='form'     { testText, baremText?, title? } → { items, hasBarem, total, oficiu, title, cached }
 //        Formularul se construiește O SINGURĂ DATĂ pentru un material și se
 //        refolosește de toți utilizatorii (supabase/ai_correct_forms.sql):
@@ -24,6 +27,7 @@
 const ai = require('./_lib/ai');
 const med = require('./_lib/meditatii');
 const { pageRenderer, toPdfData } = require('./_lib/pdftext');
+const { docxText } = require('./_lib/docxtext'); // textul dintr-un .docx (fișa de lucru Word)
 const pdfContext = require('./ai-pdf-context'); // getPdfContext / loadContentForUser (textul + baremul DE PE SERVER)
 const xp = require('./_lib/xp');
 const duel = require('./_lib/duel');
@@ -170,6 +174,7 @@ module.exports = async function handler(req, res) {
 
     const { action } = req.body || {};
     if (action === 'pdf_text') return await pdfText(req, res, supa, userId);
+    if (action === 'docx_text') return await docxTextAction(req, res, supa, userId);
     if (action === 'form') return await buildForm(req, res, supa, userId, lim, profile);
     if (action === 'grade') {
       // cota lunară de corectări (doar notarea propriu-zisă; formularul nu consumă cota)
@@ -203,6 +208,28 @@ async function pdfText(req, res, supa, userId) {
   }
   await ai.logUsage(supa, userId, 'ai-correct:pdf_text', {});
   return res.status(200).json({ text: text.slice(0, 20000), chars: text.length, truncated: text.length > 20000 });
+}
+
+// ─── Textul unui fișier WORD (.docx) încărcat ───────────────────────────────
+// Profesorul încarcă fișa de lucru în Word la „Generează exerciții/teste”;
+// textul ei devine sursa de conținut a testului. Fără model AI (deci fără
+// tokeni): un .docx e o arhivă ZIP, textul se citește direct (_lib/docxtext).
+async function docxTextAction(req, res, supa, userId) {
+  const { fileBase64 } = req.body || {};
+  if (!fileBase64) return res.status(400).json({ error: 'fileBase64 obligatoriu' });
+  const b64 = String(fileBase64).replace(/^data:[^;]+;base64,/, '');
+  if (b64.length > 5_000_000) return res.status(413).json({ error: 'Fișierul Word e prea mare (max ~3.5 MB).' });
+  let text = '';
+  try {
+    text = docxText(Buffer.from(b64, 'base64'), 20000);
+  } catch (e) {
+    return res.status(422).json({ error: e.message || 'Nu am putut citi fișierul Word.' });
+  }
+  if (text.length < 20) {
+    return res.status(422).json({ error: 'Documentul Word pare gol sau conține doar imagini. Fotografiază fișa cu butonul 📷.' });
+  }
+  await ai.logUsage(supa, userId, 'ai-correct:docx_text', {});
+  return res.status(200).json({ text, chars: text.length, truncated: text.length >= 20000 });
 }
 
 // ─── Repararea LaTeX-ului corupt de JSON (poza cu „rac{30}{100}") ────────────
