@@ -23,6 +23,7 @@ import { useEffect, useState } from 'react';
 import { aiClient } from '../lib/aiClient';
 import InteractiveGenForm, { useInteractiveGen } from './InteractiveGenForm';
 import { makeVariants, numeVarianta } from '../lib/testVariante';
+import { invatăDinReal, crediteDinCost, fmtEstimare } from '../lib/aiCost';
 import { MathText } from './AITutor';
 
 const LITERE = 'abcdefghij';
@@ -37,6 +38,7 @@ export default function VariantGenerator({
   const [busy, setBusy] = useState(null);      // eticheta pasului în curs
   const [err, setErr] = useState(null);
   const [rezultat, setRezultat] = useState(null); // { titlu, variante:[{...}] }
+  const [cost, setCost] = useState(null);         // costul REAL, întors de server
   const [vizibila, setVizibila] = useState(null); // varianta deschisă la „vezi"
 
   const g = useInteractiveGen({ kind: 'test', count: 10, qtype: 'grila', category, output: 'interactive' });
@@ -49,10 +51,14 @@ export default function VariantGenerator({
   const nVariante = Math.max(1, Math.min(60, parseInt(poolSize, 10) || 1));
 
   async function genereaza() {
-    setErr(null); setRezultat(null); setVizibila(null);
+    setErr(null); setRezultat(null); setVizibila(null); setCost(null);
     try {
       setBusy(`Se generează testul… (${g.itemCount > 10 ? '~30–60s' : '~20s'})`);
       const res = await aiClient.generateInteractive(g.payload({ kind: 'test', count: g.itemCount }));
+      // costul real al generării (variantele nu mai costă nimic — amestecul
+      // se face aici, în browser) + calibrarea estimării de sub buton
+      setCost(crediteDinCost(res.cost));
+      invatăDinReal(res.cost, { kind: 'test', count: g.itemCount, qtype: g.qtype });
       const qs = res.questions || [];
       if (!qs.length) throw new Error('Generatorul nu a întors nicio întrebare. Încearcă din nou sau schimbă capitolele.');
       const titlu = res.title || `Test · ${g.itemCount} itemi`;
@@ -95,7 +101,8 @@ export default function VariantGenerator({
 
       {/* ACELAȘI formular ca la „🧩 Generează exerciții/teste interactive/PDF" */}
       <InteractiveGenForm g={g} showOutput={false}
-        cardStyle={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 0 }}>
+        cardStyle={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 0 }}
+        costExtra={<span>— <strong>atât, pentru toate cele {nVariante} variante</strong>: AI-ul e chemat o singură dată, iar amestecul se face în pagină, fără cost</span>}>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <button className="btn btn-primary" onClick={genereaza} disabled={!!busy || !!g.srcBusy}>
             {busy || `✨ Generează testul în ${nVariante} ${nVariante === 1 ? 'variantă' : 'variante'} (${g.itemCount} itemi)`}
@@ -123,6 +130,7 @@ export default function VariantGenerator({
         <div style={{ marginTop: 12, background: 'rgba(39,174,96,.08)', border: '1px solid rgba(39,174,96,.35)', borderRadius: 10, padding: 12 }}>
           <div style={{ fontWeight: 700, color: '#1e7e34', fontSize: '.86rem', marginBottom: 6 }}>
             ✅ {rezultat.variante.length} variante gata — „{rezultat.titlu}" · {rezultat.itemi} itemi
+            {cost ? <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}> · au costat {fmtEstimare(cost)} în total</span> : null}
           </div>
           <p style={{ fontSize: '.77rem', color: 'var(--text-muted)', margin: '0 0 8px' }}>
             Sunt deja bifate în bazinul testului pe grupă. Apasă „🔗 Creează linkul testului" mai jos.

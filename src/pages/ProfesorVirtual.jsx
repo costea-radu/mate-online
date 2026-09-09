@@ -17,6 +17,7 @@ import AILimite from '../components/AILimite';
 import { renderQuiz } from '../lib/quizRender';
 import AIPoweredBy from '../components/AIPoweredBy';
 import InteractiveGenForm, { useInteractiveGen } from '../components/InteractiveGenForm';
+import { invatăDinReal, crediteDinCost, fmtEstimare } from '../lib/aiCost';
 
 const CATEGORIES = [
   { id: '', label: 'Toate' },
@@ -416,6 +417,7 @@ function InteractiveTab() {
   const [editing, setEditing] = useState(false);
   const [publishMsg, setPublishMsg] = useState(null);
   const [savedScore, setSavedScore] = useState(null);
+  const [cost, setCost] = useState(null);   // costul REAL al ultimei generări
   const navigate = useNavigate();
 
   const html = questions ? renderQuiz(title, questions, quizMeta()) : '';
@@ -447,9 +449,13 @@ function InteractiveTab() {
   }, []);
 
   async function gen() {
-    setLoading(true); setError(null); setUpsell(false); setQuestions(null); setSavedScore(null); setEditing(false); setPublishMsg(null);
+    setLoading(true); setError(null); setUpsell(false); setQuestions(null); setSavedScore(null); setEditing(false); setPublishMsg(null); setCost(null);
     try {
       const res = await aiClient.generateInteractive(payload());
+      // costul real întors de server: îl arătăm și cu el calibrăm estimarea
+      // de sub buton (src/lib/aiCost.js)
+      setCost(crediteDinCost(res.cost));
+      invatăDinReal(res.cost, { kind: itemKind, count: itemCount, qtype });
       const qs = res.questions || [];
       const t = res.title || (itemKind === 'test' ? 'Test' : 'Exercițiu interactiv');
       setQuestions(qs); setTitle(t);
@@ -533,7 +539,10 @@ function InteractiveTab() {
       {questions && (
         <div style={card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-            <strong style={{ color: 'var(--navy)' }}>{title}</strong>
+            <strong style={{ color: 'var(--navy)' }}>
+              {title}
+              {cost ? <span style={{ fontWeight: 500, fontSize: '.8rem', color: 'var(--text-muted)' }}> · a costat {fmtEstimare(cost)}</span> : null}
+            </strong>
             {savedScore && <span style={{ fontSize: '.85rem', color: '#1e7e34', fontWeight: 700 }}>Scor test: {savedScore.score}/{savedScore.maxScore}</span>}
           </div>
 

@@ -280,6 +280,16 @@ ${topicFull}
       return res.status(502).json({ error: 'Întrebările generate nu au trecut verificarea automată. Mai încearcă o dată.' });
     }
 
+    // ── COSTUL REAL al acestei generări ─────────────────────────────────────
+    // Generarea + verificatorul independent, în CREDITE (100 credite = 1 leu),
+    // exact ca în „⚡ Consum AI". Interfața îl arată după generare și își
+    // calibrează cu el estimarea de sub buton (src/lib/aiCost.js) — altfel
+    // estimarea ar rămâne o cifră scrisă în cod, care nu urmează realitatea
+    // (alt model în Vercel, verificator pornit sau oprit, material încărcat).
+    const costMicro = ai.costMicroLei(usage.model, usage)
+      + ai.costMicroLei(checked.usage?.model, checked.usage || {});
+    const costLei = costMicro / 1e6;
+
     const subject = topicShort || chapters[0] || (sourceText ? 'material încărcat' : null) || category || 'matematică';
     return res.status(200).json({
       questions,
@@ -290,6 +300,14 @@ ${topicFull}
       oficiu,
       fromSource: !!sourceText,
       verification: checked.report,
+      cost: {
+        credits: ai.leiToCredits(costLei),
+        lei: Math.round(costLei * 1000) / 1000,
+        model: usage.model || null,
+        // verificatorul independent a rulat? (AI_VERIFY_GEN=0 îl oprește)
+        verified: !!(checked.usage && (checked.usage.in || checked.usage.out)),
+        items: questions.length,
+      },
     });
   } catch (err) {
     console.error('ai-generate-interactive error:', err);

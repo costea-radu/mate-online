@@ -496,3 +496,45 @@ Singura piesă care rămâne MANUALĂ (și merită cele 5 minute): plafoanele ha
 dashboardurile furnizorilor (OpenAI → Billing → Limits; Anthropic → Plans &
 Billing) — apărarea de ultimă instanță, care funcționează și când site-ul însuși
 are un bug.
+
+## Cât costă, scris sub buton („⚡ costă ~50 de credite")
+
+Profesorul nu are de unde să știe, înainte să apese, dacă generarea îi ia 3% sau
+30% din creditele lunii. De aceea, sub butonul de generare din
+*„🧩 Generează exerciții/teste interactive/PDF"* și din *„👥 Test pe grupă →
+⚡ Generează acum testele"* stă estimarea, în credite.
+
+**Formula** (`src/lib/aiCost.js`) — costul are o parte fixă și una pe item:
+
+```
+credite ≈ 18 (contextul trimis) + 3,2 × numărul de itemi   [× 1,35 la „cu redactarea răspunsului"]
+```
+
+Nu e ghicită: e calibrată pe consumul REAL din `ai_usage` (media măsurată pe
+9 septembrie 2026: **~40 de credite pe generare**, pe `gpt-5.6-sol`). Recalibrarea
+se face cu:
+
+```sql
+select endpoint, model, count(*) as apeluri,
+       round(avg(cost_micro)/10000.0) as credite_mediu
+from public.ai_usage
+where endpoint like 'ai-generate-interactive%'
+  and created_at > now() - interval '90 days'
+group by endpoint, model;
+```
+
+**Și se învață singură.** `api/ai-generate-interactive.js` întoarce în răspuns
+costul REAL al apelului (generare + verificator, în credite), interfața îl arată
+după generare („a costat 38 de credite") și mută cu el un factor de calibrare
+ținut în browser (mediere exponențială, plafonat între 0,35× și 3× din formulă).
+Așa cifra urmează realitatea contului — alt model pus în Vercel, verificator
+pornit sau oprit, material încărcat — fără să umble nimeni prin cod.
+
+> **La testul pe grupă**, lângă estimare scrie explicit: *„atât, pentru toate
+> cele N variante"*. Variantele nu costă nimic în plus — AI-ul e chemat o
+> singură dată, iar amestecul ordinii și al literelor se face în browser
+> (`src/lib/testVariante.js`).
+
+Conturile de admin sunt scutite de bugete (`isBudgetExempt`), iar sub estimare
+le scrie asta, ca cifra să nu deruteze.
+

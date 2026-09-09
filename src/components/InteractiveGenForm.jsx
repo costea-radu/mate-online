@@ -19,6 +19,8 @@ import { aiClient } from '../lib/aiClient';
 import CapitolePicker from './CapitolePicker';
 import { fileToCompressedDataUrl } from '../lib/image';
 import { capitoleForCategory } from '../lib/capitole';
+import { estimeazaCredite, fmtEstimare } from '../lib/aiCost';
+import { useAuth } from '../context/AuthContext';
 
 export const GEN_CATEGORIES = [
   { id: '', label: 'Toate' },
@@ -151,7 +153,8 @@ export function useInteractiveGen(init = {}) {
 // ─── Formularul propriu-zis ────────────────────────────────────────────────
 // showOutput=false ascunde alegerea „Interactiv / PDF" (la testul pe grupă
 // formatul e ales deja, la pasul 2). `children` = butonul de generare.
-export default function InteractiveGenForm({ g, showOutput = true, cardStyle = null, children }) {
+export default function InteractiveGenForm({ g, showOutput = true, cardStyle = null, costExtra = null, children }) {
+  const { isAdmin } = useAuth();
   const {
     category, pickCategory, topic, setTopic, chapters, setChapters,
     difficulty, setDifficulty, output, setOutput, itemKind, setItemKind,
@@ -333,6 +336,20 @@ export default function InteractiveGenForm({ g, showOutput = true, cardStyle = n
         </label>
       </div>
       {children}
+
+      {/* CÂT COSTĂ — estimarea, chiar sub buton, ca profesorul să știe înainte
+          să apese. Cifra se calibrează singură după fiecare generare, din
+          costul real întors de server (src/lib/aiCost.js). */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap', marginTop: 8, fontSize: '.78rem', color: 'var(--text-muted)' }}>
+        <span
+          title={'Estimare, nu preț fix: costul depinde de câți itemi ceri și de cât text scrie AI-ul. Cifra se ajustează singură după fiecare generare, din consumul real al contului tău. Îl vezi oricând în „Contul meu" → „⚡ Consum AI".'}
+          style={{ fontWeight: 700, color: 'var(--navy)', background: 'rgba(232,185,49,.18)', border: '1px solid var(--gold)', borderRadius: 20, padding: '2px 9px', cursor: 'help' }}>
+          ⚡ costă ~{fmtEstimare(estimeazaCredite({ kind: itemKind, count: itemCount, qtype }))}
+        </span>
+        {costExtra}
+        {isAdmin && <span>— contul tău de admin nu consumă din credite</span>}
+      </div>
+
       {sources.length > 0 && (
         <div style={{ fontSize: '.76rem', color: 'var(--text-light)', marginTop: 6 }}>
           📷 Conținutul vine din materialul încărcat ({sources.map((sc) => sc.name).join(', ')}).
