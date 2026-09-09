@@ -62,8 +62,8 @@ Ambele apar doar pentru conturile de **profesor** (și pentru admin).
 | **0** | **Grupa** de elevi (sau „toți elevii mei"). Grupele se fac în „Contul meu" → Rezultate elevi. |
 | **1** | **Categoria**: examen (Evaluare Națională / Bacalaureat) sau clasă (V–XII), ori „Toate". |
 | **2** | **Formatul**: 🧩 interactiv sau 📄 PDF. |
-| **3** | **Numărul de teste din bazin** (1–60) și **de unde vin**: testele generate de profesor, Biblioteca utilizatorilor, testele din site („Examene" și „Clase") — se pot bifa mai multe surse deodată. |
-| **4** | **Alegerea testelor**: `🎲 Automat din categorie`, `☑️ Testele bifate de mine`, sau `🔀 Mixt` — bifează automat propunerea, apoi profesorul debifează / adaugă ce vrea. Lista de bifat aduce **toate** testele din sursele alese, fără plafon. |
+| **3** | **Numărul de teste din bazin** (1–60) și **de unde vin**: testele generate de profesor, Biblioteca utilizatorilor, testele din site („Examene" și „Clase") — se pot bifa mai multe surse deodată — sau **`⚡ Generează acum testele`**, care face testele pe loc, în atâtea variante câte s-au cerut (vezi mai jos). |
+| **4** | **Alegerea testelor**: `🎲 Automat din categorie`, `☑️ Testele bifate de mine`, sau `🔀 Mixt` — bifează automat propunerea, apoi profesorul debifează / adaugă ce vrea (butonul apăsat rămâne aprins). Lista de bifat aduce **toate** testele din sursele alese, fără plafon. Când testele sunt generate acum, pasul 4 arată doar din ce variante e făcut bazinul. |
 | **5** | **Timpul de lucru**: butoane rapide (10, 20, 30, 40, 50 minute, 1 oră, 1 oră și 30 de minute, 2 ore, 2 ore și 30 de minute, 3 ore), selectoare de **ore + minute** pentru orice altă durată, sau `∞ Fără limită`. Minimul e 10 minute, maximul 3 ore. |
 
 La final: **🔗 Creează linkul testului**. Lângă linkul creat apar:
@@ -86,6 +86,41 @@ titlu filtrează tot ce s-a încărcat.
 
 În **bazin** intră tot cel mult 60 de teste (`MAX_POOL`) — dacă sunt bifate mai
 multe, se ia primele 60 și profesorul e avertizat pe loc.
+
+### ⚡ Generează acum testele — un test în mai multe variante
+
+A patra sursă de la pasul 3 nu caută teste gata făcute, ci **le face pe loc**.
+La bifare se deschide, chiar acolo în pagină, formularul din
+*„🧩 Generează exerciții/teste interactive/PDF"* — **același component**
+(`src/components/InteractiveGenForm.jsx`), deci aceleași alegeri: exercițiu sau
+test, numărul de itemi, timpul și punctele din oficiu, tipul itemilor (mixt /
+doar grilă / cu redactare), categoria, dificultatea, **materialul de la tablă**
+(poză, PDF sau Word), capitolele și instrucțiunile pentru AI.
+
+Din **o singură generare** ies atâtea **variante** câte teste s-au cerut în bazin:
+
+| | Ce se schimbă de la o variantă la alta |
+|---|---|
+| **Problemele** | sunt aceleași la toți elevii — nimeni nu ia un test mai greu |
+| **Ordinea lor** | diferă: problema de la punctul 1 la un elev e la punctul 4 la altul |
+| **Litera corectă** | diferă la grilă: o problemă cu răspunsul `a)` are la varianta următoare răspunsul `b)`, apoi `c)`, apoi `d)` (rotație, `src/lib/testVariante.js`) |
+
+Detalii care contează:
+
+- variantele de răspuns se amestecă între ele, dar **textul răspunsului corect
+  rămâne același** — se schimbă doar litera;
+- variantele de tipul „toate cele de mai sus" / „niciuna" rămân **ultimele**;
+- dacă explicația trimitea la o literă („varianta b"), litera e **rescrisă** după
+  amestec;
+- itemii **cu redactarea răspunsului** nu au litere, deci acolo diferă doar
+  ordinea problemelor — interfața avertizează;
+- fiecare variantă se salvează în **„Testele și exercițiile mele"** ca
+  `Titlu · Varianta k` (`ai_personal_items`, `kind='interactive'`) și intră
+  automat, bifată, în bazin — de acolo se poate și retipări sau retrimite;
+- formatul se fixează pe **interactiv** (scorul fiecărui elev intră singur în
+  raport); PDF-ul se scoate oricând din bibliotecă;
+- butoanele „▸ Varianta 1…N" de sub generator arată pe loc cum arată fiecare
+  variantă — ordinea problemelor și litera corectă, marcată cu ✓.
 
 ### Timpul de lucru (pasul 5)
 
@@ -169,7 +204,10 @@ Fără token și fără abonament, accesul rămâne blocat ca până acum.
 
 **Noi:** `supabase/teme_grupa.sql`, `supabase/medii_si_timp.sql`,
 `api/group-assignment.js`, `src/components/GroupAssignment.jsx`,
-`src/pages/GrupaTema.jsx`.
+`src/pages/GrupaTema.jsx`, `src/components/VariantGenerator.jsx` (generarea pe
+loc, în variante), `src/lib/testVariante.js` (amestecul ordinii și al literelor),
+`src/components/InteractiveGenForm.jsx` (formularul generatorului, folosit și în
+„Generează exerciții/teste interactive/PDF", și aici).
 
 **Modificate:** `src/lib/aiClient.js` (metodele `groupAssignment*`), `src/App.jsx`
 (ruta `/tema-grupa`), `src/pages/Profile.jsx`, `src/pages/ProfesorVirtual.jsx`,
