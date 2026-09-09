@@ -10,6 +10,12 @@ import { trackSignUp } from '../lib/analytics';
 // ajunge pe ACELASI cont, cu progresul intact. Butonul Google e deci o iesire
 // valida din blocajul "nu-mi vine / nu-mi merge linkul de confirmare".
 // https://supabase.com/docs/guides/auth/auth-identity-linking
+//
+// ATENTIE: e doar o SCURTATURA pentru Gmail, nu o conditie de inregistrare.
+// Inregistrarea merge cu ORICE adresa (yahoo.com, icloud.com, outlook.com,
+// domeniu propriu etc.) — nu exista nicio lista de domenii permise nicaieri.
+// Pentru cine NU are Gmail, iesirea din acelasi blocaj e butonul de
+// retrimitere a emailului de confirmare, de mai jos.
 const GOOGLE_EMAIL_DOMAINS = ['gmail.com', 'googlemail.com'];
 
 function isGoogleEmail(value) {
@@ -27,7 +33,10 @@ export default function Register() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [discordLoading, setDiscordLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const { signUp, signInWithGoogle, signInWithDiscord } = useAuth();
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendDone, setResendDone] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const { signUp, signInWithGoogle, signInWithDiscord, resendConfirmation } = useAuth();
 
   // Dacă utilizatorul apasă „Back" din pagina Google/Discord, browserul
   // restaurează pagina din bfcache cu starea veche („Se redirecționează...").
@@ -43,6 +52,15 @@ export default function Register() {
     window.addEventListener('pageshow', reset);
     return () => window.removeEventListener('pageshow', reset);
   }, []);
+
+  // Supabase acceptă o singură retrimitere pe minut per adresă. Ținem butonul
+  // dezactivat cu o numărătoare inversă, ca utilizatorul să vadă cât mai are
+  // de așteptat în loc să primească o eroare la al doilea clic.
+  useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -60,6 +78,26 @@ export default function Register() {
         ? 'Acest email este deja înregistrat.'
         : err.message || 'A apărut o eroare. Încearcă din nou.');
     } finally { setLoading(false); }
+  }
+
+  // Retrimite linkul de confirmare — pentru ORICE adresă de email.
+  async function handleResend() {
+    setError(''); setResendDone(false); setResendLoading(true);
+    try {
+      await resendConfirmation(email);
+      setResendDone(true);
+      setCooldown(60);
+    } catch (err) {
+      const msg = err?.message || '';
+      if (/rate limit|after \d+ seconds|security purposes|too many/i.test(msg)) {
+        setError('Poți cere un email nou o dată pe minut. Așteaptă puțin și reîncearcă.');
+        setCooldown(60);
+      } else if (/already confirmed|already been confirmed/i.test(msg)) {
+        setError('Contul este deja confirmat — poți intra direct din pagina de autentificare.');
+      } else {
+        setError('Nu am putut retrimite emailul. Verifică adresa și încearcă din nou.');
+      }
+    } finally { setResendLoading(false); }
   }
 
   function rememberAccountType() {
@@ -87,12 +125,41 @@ export default function Register() {
           <h2>Verifică-ți emailul</h2>
           <p className="auth-sub">Am trimis un link de confirmare la <strong>{email}</strong>. Apasă pe link pentru a-ți activa contul.</p>
 
+          {/* Yahoo, iCloud și Outlook filtrează des emailurile automate. De cele
+              mai multe ori linkul a ajuns, dar nu în Inbox. */}
+          <p style={{ margin: '12px 0 0', fontSize: '0.82rem', lineHeight: 1.55, color: 'var(--text-muted)' }}>
+            Nu-l găsești? Caută și în <strong>Spam</strong> / <strong>Nedorite</strong> / <strong>Junk</strong> — la Yahoo, iCloud și Outlook ajunge des acolo. Poți căuta direct după „ExamenMate”.
+          </p>
+
           {error && <div style={{ background:'#fce4ec', color:'var(--danger)', padding:'12px 16px', borderRadius:'var(--radius)', margin:'16px 0 0', fontSize:'0.88rem' }}>{error}</div>}
 
-          {/* Ieșire din blocaj: dacă adresa e Gmail, contul poate fi deblocat pe loc
-              prin Google, fără să mai aștepte emailul de confirmare. */}
+          {resendDone && !error && (
+            <div style={{ background:'rgba(46,160,67,0.08)', border:'1px solid rgba(46,160,67,0.35)', color:'#1a7f37', padding:'12px 16px', borderRadius:'var(--radius)', margin:'16px 0 0', fontSize:'0.88rem', lineHeight:1.55 }}>
+              ✅ Am retrimis linkul la <strong>{email}</strong>. Dacă nu apare în câteva minute, verifică folderul Spam.
+            </div>
+          )}
+
+          {/* Retrimitere — merge pentru ORICE adresă (yahoo, icloud, outlook,
+              domeniu propriu). Pentru cine nu are Gmail, ăsta e drumul de
+              ieșire din „nu mi-a venit emailul”. */}
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resendLoading || cooldown > 0}
+            className="btn btn-outline"
+            style={{ width: '100%', marginTop: 16, opacity: (resendLoading || cooldown > 0) ? 0.6 : 1 }}
+          >
+            {resendLoading
+              ? 'Se trimite...'
+              : cooldown > 0
+                ? `Poți retrimite în ${cooldown}s`
+                : 'Retrimite emailul de confirmare'}
+          </button>
+
+          {/* Ieșire suplimentară, doar pentru Gmail: contul poate fi deblocat pe
+              loc prin Google, fără să mai aștepte emailul de confirmare. */}
           {poateIntraCuGoogle && (
-            <div style={{ marginTop: 24, padding: '16px 16px 8px', textAlign: 'left', border: '2px solid var(--gold)', borderRadius: 'var(--radius)', background: 'rgba(232,185,49,0.08)' }}>
+            <div style={{ marginTop: 20, padding: '16px 16px 8px', textAlign: 'left', border: '2px solid var(--gold)', borderRadius: 'var(--radius)', background: 'rgba(232,185,49,0.08)' }}>
               <p style={{ margin: '0 0 12px', fontSize: '0.88rem', lineHeight: 1.55, color: 'var(--text)' }}>
                 <strong>Nu trebuie să aștepți emailul.</strong> Ai adresă Gmail, așa că poți intra chiar acum cu Google — pe același cont, cu același progres, fără confirmare.
               </p>
@@ -100,7 +167,7 @@ export default function Register() {
             </div>
           )}
 
-          <Link to="/autentificare" className={poateIntraCuGoogle ? 'btn btn-outline' : 'btn btn-primary'} style={{ marginTop: 16 }}>Mergi la autentificare</Link>
+          <Link to="/autentificare" className="btn btn-primary" style={{ marginTop: 12 }}>Mergi la autentificare</Link>
         </div>
       </div>
     );

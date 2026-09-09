@@ -165,6 +165,17 @@ export function AuthProvider({ children }) {
     return data;
   }
 
+  // Retrimite emailul de confirmare pentru un cont creat, dar neconfirmat.
+  // Funcționează pentru ORICE furnizor de email (Yahoo, iCloud, Outlook,
+  // domeniu propriu) — e singura ieșire din blocaj pentru cine nu are Gmail
+  // și deci nu poate intra prin butonul Google.
+  // Nu trimitem `emailRedirectTo`: linkul folosește Site URL-ul din
+  // Supabase → Authentication → URL Configuration, la fel ca la înregistrare.
+  async function resendConfirmation(email) {
+    const { error } = await supabase.auth.resend({ type: 'signup', email });
+    if (error) throw error;
+  }
+
   // „Am uitat parola": Supabase trimite emailul de resetare (prin SMTP-ul
   // configurat — admin.examenmate@gmail.com), cu link către /resetare-parola.
   // URL-ul trebuie să fie în Supabase → Authentication → URL Configuration → Redirect URLs.
@@ -208,7 +219,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       user, profile, loading, isPremium, isAdmin, isTeacher, isStudent, isParent, isMentor,
-      signUp, signIn, signInWithGoogle, signInWithDiscord, signOut, fetchProfile, resetPassword
+      signUp, signIn, signInWithGoogle, signInWithDiscord, signOut, fetchProfile, resetPassword, resendConfirmation
     }}>
       {children}
     </AuthContext.Provider>

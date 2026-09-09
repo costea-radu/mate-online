@@ -13,7 +13,15 @@ export default function Login() {
   const [discordLoading, setDiscordLoading] = useState(false);
   const [mode, setMode] = useState('login'); // 'login' | 'forgot'
   const [resetSent, setResetSent] = useState(false);
-  const { signIn, signInWithGoogle, signInWithDiscord, resetPassword } = useAuth();
+  // Cont creat, dar neconfirmat — Supabase refuză autentificarea cu
+  // „Email not confirmed”. Fără tratare separată, utilizatorul vedea doar
+  // „A apărut o eroare” și rămânea blocat (mai ales cei fără Gmail, care nu
+  // au scurtătura Google). Îi arătăm cauza reală + retrimiterea linkului.
+  const [needsConfirm, setNeedsConfirm] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendDone, setResendDone] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const { signIn, signInWithGoogle, signInWithDiscord, resetPassword, resendConfirmation } = useAuth();
   const navigate = useNavigate();
 
   // Dacă utilizatorul apasă „Back" din pagina Google/Discord, browserul
@@ -31,16 +39,57 @@ export default function Login() {
     return () => window.removeEventListener('pageshow', reset);
   }, []);
 
+  useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    setNeedsConfirm(false);
+    setResendDone(false);
     setLoading(true);
     try {
       await signIn(email, password);
       navigate('/profil');
     } catch (err) {
-      setError(err.message?.includes('Invalid login') ? 'Email sau parolă incorectă.' : 'A apărut o eroare. Încearcă din nou.');
+      const msg = err?.message || '';
+      const code = err?.code || '';
+      if (/email not confirmed/i.test(msg) || code === 'email_not_confirmed') {
+        setNeedsConfirm(true);
+        setError('Contul există, dar adresa nu e confirmată încă. Deschide linkul din emailul de confirmare — sau cere unul nou mai jos.');
+      } else if (/invalid login/i.test(msg)) {
+        setError('Email sau parolă incorectă.');
+      } else if (/rate limit|too many/i.test(msg)) {
+        setError('Prea multe încercări. Așteaptă un minut și reîncearcă.');
+      } else {
+        setError('A apărut o eroare. Încearcă din nou.');
+      }
     } finally { setLoading(false); }
+  }
+
+  // Retrimite linkul de confirmare — pentru ORICE adresă de email
+  // (yahoo.com, icloud.com, outlook.com, domeniu propriu etc.).
+  async function handleResendConfirm() {
+    setError(''); setResendDone(false); setResendLoading(true);
+    try {
+      await resendConfirmation(email);
+      setResendDone(true);
+      setCooldown(60);
+    } catch (err) {
+      const msg = err?.message || '';
+      if (/rate limit|after \d+ seconds|security purposes|too many/i.test(msg)) {
+        setError('Poți cere un email nou o dată pe minut. Așteaptă puțin și reîncearcă.');
+        setCooldown(60);
+      } else if (/already confirmed|already been confirmed/i.test(msg)) {
+        setNeedsConfirm(false);
+        setError('Adresa e deja confirmată. Încearcă din nou autentificarea.');
+      } else {
+        setError('Nu am putut retrimite emailul. Verifică adresa și încearcă din nou.');
+      }
+    } finally { setResendLoading(false); }
   }
 
   // „Am uitat parola": trimite pe email linkul de resetare (Supabase Auth).
@@ -64,6 +113,8 @@ export default function Login() {
     setMode(next);
     setError('');
     setResetSent(false);
+    setNeedsConfirm(false);
+    setResendDone(false);
   }
 
   async function handleGoogle() {
@@ -124,6 +175,34 @@ export default function Login() {
         <p className="auth-sub">Autentifică-te pentru a accesa contul tău.</p>
 
         {error && <div style={{ background:'#fce4ec', color:'var(--danger)', padding:'12px 16px', borderRadius:'var(--radius)', marginBottom:20, fontSize:'0.88rem' }}>{error}</div>}
+
+        {/* Cont neconfirmat — cauza reală + retrimiterea linkului. Disponibil
+            pentru ORICE furnizor de email, nu doar Gmail. */}
+        {needsConfirm && (
+          <div style={{ border:'2px solid var(--gold)', background:'rgba(232,185,49,0.08)', borderRadius:'var(--radius)', padding:'14px 16px', marginBottom:20 }}>
+            <p style={{ margin:'0 0 10px', fontSize:'0.84rem', lineHeight:1.55, color:'var(--text-muted)' }}>
+              Caută emailul și în <strong>Spam</strong> / <strong>Nedorite</strong> / <strong>Junk</strong> — la Yahoo, iCloud și Outlook ajunge des acolo.
+            </p>
+            {resendDone && (
+              <div style={{ background:'rgba(46,160,67,0.10)', border:'1px solid rgba(46,160,67,0.35)', color:'#1a7f37', padding:'10px 12px', borderRadius:'var(--radius)', marginBottom:10, fontSize:'0.85rem', lineHeight:1.5 }}>
+                ✅ Am retrimis linkul la <strong>{email}</strong>.
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={handleResendConfirm}
+              disabled={resendLoading || cooldown > 0}
+              className="btn btn-outline"
+              style={{ width:'100%', opacity: (resendLoading || cooldown > 0) ? 0.6 : 1 }}
+            >
+              {resendLoading
+                ? 'Se trimite...'
+                : cooldown > 0
+                  ? `Poți retrimite în ${cooldown}s`
+                  : 'Retrimite emailul de confirmare'}
+            </button>
+          </div>
+        )}
 
         <OAuthButtons onGoogle={handleGoogle} onDiscord={handleDiscord} googleLoading={googleLoading} discordLoading={discordLoading} busy={loading} />
 
