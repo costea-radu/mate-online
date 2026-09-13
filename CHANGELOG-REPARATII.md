@@ -169,6 +169,41 @@ cm", etichetă cu `<tspan>`, triunghi 3-4-5 scalat la 6-8-10, unghi 60° → 35�
 capcanele „12 cm"/„1 cm" și coordonate care conțin aceleași cifre ca valorile din
 enunț.
 
+### Spațiu de desenare la Subiectul III
+
+Problemele Subiectului III (rezolvare redactată) vin din rubrică fără desen, iar
+după trecerea la banca de itemi nu mai moștenesc nici figurile șablonului. Acum
+primesc un **spațiu de desenare cu figura de bază a problemei, nenotată** — un
+triunghi, un trapez, un paralelipiped, un con — pe care elevul o notează singur cu
+instrumentele de desen.
+
+- Desenele **nu vin de la model**: forma se recunoaște din enunț după cuvinte-cheie
+  (`detectShape`, cu corpurile geometrice înaintea figurilor plane și „triunghi"
+  înaintea lui „dreptunghi", ca „triunghi dreptunghic" și „paralelipiped
+  dreptunghic" să nu cadă pe dreptunghi) și se ia din biblioteca `SHAPES` — 21 de
+  forme desenate o dată, în stilul figurilor site-ului, cu muchiile ascunse punctate
+  la corpuri: triunghi (oarecare / dreptunghic / isoscel / echilateral), pătrat,
+  dreptunghi, paralelogram, romb, trapez, cerc, dreaptă cu puncte, sistem xOy, cub,
+  paralelipiped, prismă, piramidă, con, cilindru, sferă, trunchi de con, trunchi de
+  piramidă.
+- Problemele de **algebră rămân curate**: dacă enunțul nu descrie nicio figură,
+  poziția primește `null` și nu se injectează nimic (aceeași convenție ca în
+  `figures.js`, unde III.1 și III.2 au `figure: null`).
+- Injectarea se face cu un `<script>` scurt pus **exact înaintea blocului cu
+  instrumentele de desen** al șablonului: acela rulează pe toate elementele `.fig`,
+  deci creionul, segmentul, textul, culorile, undo, ștergerea și radiera se leagă
+  singure de spațiile noi, fără cod duplicat. În acel moment itemii scriși din
+  JavaScript (array-urile de exerciții) există deja în pagină, deci merge și pentru
+  ei, nu doar pentru card-urile statice.
+- Scriptul sare peste itemii care au deja figură, ignoră SVG-urile MathJax când
+  verifică asta, indexează formele pe poziția itemului în subiect și e învelit în
+  try/catch — dacă ceva nu merge, testul rămâne întreg.
+
+Verificat într-un browser real, pe un test generat: problemele 1–2 (ecuație,
+fracție) fără spațiu de desenare; 3–6 (triunghi dreptunghic, trapez, paralelipiped,
+con) cu figura corectă, cu `.draw-layer` și bara de unelte atașate, fără nicio
+eroare JavaScript în pagină.
+
 Verificat: exercițiul k vine de pe poziția k în toate rulările, din 6 teste
 diferite; redenumirea merge fără declarație, cu declarație completă și cu
 declarație parțială; fără schimbare de notație sau cu alt număr de puncte desenul

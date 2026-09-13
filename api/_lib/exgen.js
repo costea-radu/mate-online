@@ -1085,6 +1085,198 @@ function figRestore(html, figs) {
   return out.replace(/<!--\s*FIG:[\s\S]{0,300}?-->/g, '');
 }
 
+// =====================================================================
+// SPAȚIUL DE DESENARE al Subiectului III
+// =====================================================================
+// Problemele Subiectului III (rezolvare redactată) vin, în rubrică, fără desen:
+// elevul trebuie să-și facă singur figura. Le dăm un spațiu de desenare cu
+// FIGURA DE BAZĂ din datele problemei — un triunghi, un dreptunghi, un
+// paralelipiped… — desenată NENOTATĂ (fără litere și fără valori), ca notațiile
+// să le pună elevul, cu instrumentele de desen ale șablonului.
+//
+// Desenele NU vin de la model: forma se recunoaște din enunț (cuvinte-cheie) și
+// se ia din biblioteca de mai jos, deci ies mereu curate și în același stil.
+// Se injectează ca `<div class="fig">`, elementul pe care șablonul își leagă
+// singur creionul/segmentul/radiera (vezi querySelectorAll('.fig') din șablon).
+
+const SH_STROKE = 'fill="none" stroke="#0f2b44" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"';
+// muchiile ascunse ale corpurilor geometrice: linie punctată, mai deschisă
+const SH_HID = 'fill="none" stroke="#7b8794" stroke-width="1.6" stroke-dasharray="6 4"';
+const sh = (w, h, solid, hidden = '') => `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><g ${SH_HID}>${hidden}</g><g ${SH_STROKE}>${solid}</g></svg>`;
+// jumătățile unei elipse (bazele corpurilor rotunde): jos = vizibilă, sus = ascunsă
+const elBot = (cx, cy, rx, ry) => `M${cx - rx},${cy} A${rx},${ry} 0 0 0 ${cx + rx},${cy}`;
+const elTop = (cx, cy, rx, ry) => `M${cx - rx},${cy} A${rx},${ry} 0 0 1 ${cx + rx},${cy}`;
+const elFull = (cx, cy, rx, ry) => `${elBot(cx, cy, rx, ry)} ${elTop(cx, cy, rx, ry)}`;
+const dot = (x, y) => `<circle cx="${x}" cy="${y}" r="3.5" fill="#0f2b44" stroke="none"/>`;
+
+// Corp cu două fețe paralele (cub, paralelipiped): fața din față, fața din spate
+// deplasată cu (dx,-dy); muchiile care se întâlnesc în vârful din spate-jos-stânga
+// sunt ascunse.
+function shBox(x, y, w, h, dx, dy) {
+  const X = x + dx;
+  const Y = y - dy;
+  const solid = [
+    `<path d="M${x},${y} h${w} v${h} h${-w} Z"/>`,                   // fața din față
+    `<path d="M${X},${Y} h${w} v${h}"/>`,                            // spate: sus + dreapta
+    `<path d="M${x},${y} L${X},${Y}"/>`,                             // muchii de legătură
+    `<path d="M${x + w},${y} L${X + w},${Y}"/>`,
+    `<path d="M${x + w},${y + h} L${X + w},${Y + h}"/>`,
+  ].join('');
+  const hidden = [
+    `<path d="M${X},${Y + h} h${w}"/>`,                              // spate-jos
+    `<path d="M${X},${Y} v${h}"/>`,                                  // spate-stânga
+    `<path d="M${x},${y + h} L${X},${Y + h}"/>`,                     // legătura ascunsă
+  ].join('');
+  return sh(420, 270, solid, hidden);
+}
+
+const SHAPES = {
+  // vârful clar descentrat, ca să nu semene cu cel isoscel
+  triunghi: () => sh(400, 240, '<path d="M95,195 L315,195 L155,50 Z"/>'),
+  'triunghi-dreptunghic': () => sh(400, 240, '<path d="M115,195 L300,195 L115,55 Z"/><path d="M115,178 L132,178 L132,195" stroke-width="1.5"/>'),
+  'triunghi-isoscel': () => sh(400, 240, '<path d="M115,195 L305,195 L210,48 Z"/>'),
+  'triunghi-echilateral': () => sh(400, 240, '<path d="M115,195 L295,195 L205,39 Z"/>'),
+  patrat: () => sh(400, 240, '<path d="M135,42 h156 v156 h-156 Z"/>'),
+  dreptunghi: () => sh(400, 240, '<path d="M95,62 h220 v132 h-220 Z"/>'),
+  paralelogram: () => sh(400, 240, '<path d="M100,192 L270,192 L315,58 L145,58 Z"/>'),
+  romb: () => sh(400, 240, '<path d="M205,40 L310,120 L205,200 L100,120 Z"/>'),
+  trapez: () => sh(400, 240, '<path d="M90,192 L320,192 L262,58 L150,58 Z"/>'),
+  cerc: () => sh(400, 240, `<circle cx="200" cy="120" r="84"/>${dot(200, 120)}`),
+  dreapta: () => sh(400, 150, `<path d="M45,75 L355,75"/>${dot(85, 75)}${dot(160, 75)}${dot(240, 75)}${dot(320, 75)}`),
+  xOy: () => sh(400, 260, [
+    '<path d="M40,200 L360,200"/><path d="M352,193 L360,200 L352,207"/>',
+    '<path d="M110,240 L110,25"/><path d="M103,33 L110,25 L117,33"/>',
+    [1, 2, 3, 4, 5, 6].map((k) => `<path d="M${110 + k * 38},196 v8" stroke-width="1.4"/>`).join(''),
+    [1, 2, 3, 4].map((k) => `<path d="M106,${200 - k * 38} h8" stroke-width="1.4"/>`).join(''),
+  ].join('')),
+  cub: () => shBox(115, 100, 140, 140, 56, 46),
+  paralelipiped: () => shBox(100, 118, 176, 112, 62, 52),
+  prisma: () => sh(420, 270, [
+    '<path d="M115,90 L295,90 L205,56 Z"/>',            // fața de sus, întreagă
+    '<path d="M115,230 L295,230"/>',                     // muchia din față a bazei
+    '<path d="M115,90 L115,230"/><path d="M295,90 L295,230"/>',
+  ].join(''), '<path d="M115,230 L205,196 L295,230"/><path d="M205,56 L205,196"/>'),
+  piramida: () => sh(420, 270, [
+    '<path d="M225,42 L105,225 M225,42 L275,225 M225,42 L335,180"/>',
+    '<path d="M105,225 L275,225 L335,180"/>',
+  ].join(''), '<path d="M335,180 L165,180 L105,225"/><path d="M225,42 L165,180"/>'),
+  con: () => sh(420, 270, `<path d="M210,45 L115,215 M210,45 L305,215"/><path d="${elBot(210, 215, 95, 28)}"/>`, `<path d="${elTop(210, 215, 95, 28)}"/>`),
+  cilindru: () => sh(420, 270, `<path d="${elFull(210, 72, 85, 25)}"/><path d="M125,72 L125,212 M295,72 L295,212"/><path d="${elBot(210, 212, 85, 25)}"/>`, `<path d="${elTop(210, 212, 85, 25)}"/>`),
+  sfera: () => sh(420, 270, `<circle cx="210" cy="135" r="95"/><path d="${elBot(210, 135, 95, 28)}"/>${dot(210, 135)}`, `<path d="${elTop(210, 135, 95, 28)}"/>`),
+  'trunchi-con': () => sh(420, 270, `<path d="${elFull(210, 68, 52, 16)}"/><path d="M115,218 L158,68 M305,218 L262,68"/><path d="${elBot(210, 218, 95, 27)}"/>`, `<path d="${elTop(210, 218, 95, 27)}"/>`),
+  'trunchi-piramida': () => sh(420, 270, [
+    '<path d="M155,70 L265,70 L300,45 L190,45 Z"/>',
+    '<path d="M105,225 L285,225 L340,185"/>',
+    '<path d="M155,70 L105,225 M265,70 L285,225 M300,45 L340,185"/>',
+  ].join(''), '<path d="M340,185 L160,185 L105,225"/><path d="M190,45 L160,185"/>'),
+};
+
+// Forma de bază, recunoscută din enunț. Ordinea contează: corpurile geometrice
+// înaintea figurilor plane (un „paralelipiped dreptunghic" nu e un dreptunghi),
+// iar „triunghi" înaintea lui „dreptunghi" („triunghi dreptunghic").
+const SHAPE_RULES = [
+  [/paralelipiped/, 'paralelipiped'],
+  [/trunchi de (con|cilindru)|trunchi-con/, 'trunchi-con'],
+  [/trunchi de piramid|trunchi-piramid/, 'trunchi-piramida'],
+  [/\bcub(ul|uri|ului|ic)?\b/, 'cub'],
+  [/prism/, 'prisma'],
+  [/piramid/, 'piramida'],
+  [/cilindr/, 'cilindru'],
+  [/\bcon(ul|ului|uri)?\b|conic/, 'con'],
+  [/sfer|glob/, 'sfera'],
+  [/triunghi/, 'triunghi'],
+  [/trapez/, 'trapez'],
+  [/paralelogram/, 'paralelogram'],
+  [/\bromb/, 'romb'],
+  [/patrat/, 'patrat'],
+  [/dreptunghi/, 'dreptunghi'],
+  [/cerc|disc\b|circumferin|diametr|\braza\b/, 'cerc'],
+  [/grafic|sistem de axe|axe de coordonate|reprezentarea grafica|f\s*\(\s*x\s*\)/, 'xOy'],
+  [/coliniar|semidreapt|\bdreapta\b|segmentul/, 'dreapta'],
+];
+
+function detectShape(statement) {
+  const t = deDia(statement).replace(/\s+/g, ' ');
+  if (!t) return null;
+  for (const [re, name] of SHAPE_RULES) {
+    if (!re.test(t)) continue;
+    if (name !== 'triunghi') return name;
+    if (/echilateral/.test(t)) return 'triunghi-echilateral';
+    if (/isoscel/.test(t)) return 'triunghi-isoscel';
+    if (/dreptunghic|unghiul drept|ipotenuz|catet/.test(t)) return 'triunghi-dreptunghic';
+    return 'triunghi';
+  }
+  return null; // problemă de algebră → fără spațiu de desenare
+}
+
+// Desenele de bază pentru itemii unui subiect, pe poziții (null unde enunțul nu
+// descrie nicio figură — problemele de algebră rămân curate).
+function baseShapesFor(items) {
+  return (items || []).map((it) => {
+    if (it.hasFig) return null; // itemul are deja desenul lui
+    const name = detectShape(itemStatements(it.text)[0] || it.text || '');
+    return name && SHAPES[name] ? SHAPES[name]() : null;
+  });
+}
+
+// Scriptul care pune spațiile de desenare în itemii subiectului, la randare.
+// Se inserează ÎNAINTE de blocul cu instrumentele de desen al șablonului, ca
+// acestea să se lege singure și de figurile noi; itemii scriși din JavaScript
+// (array-urile de exerciții) există deja în pagină în acel moment.
+function drawSpaceScript(sec, shapes) {
+  return `<script>
+/* spațiile de desenare ale Subiectului ${sec} — figura de bază, nenotată */
+(function(){
+  try {
+    var SH = ${JSON.stringify(shapes)};
+    var secRe = /subiectul\\s*(${sec === 'III' ? 'iii|3' : sec === 'II' ? 'ii|2' : 'i|1'})\\b/i;
+    var titles = [].slice.call(document.querySelectorAll('.sec-title, h2, h3'));
+    var t = null, next = null;
+    for (var i = 0; i < titles.length; i++) {
+      if (t === null && secRe.test(titles[i].textContent || '')) { t = titles[i]; continue; }
+      if (t !== null) { next = titles[i]; break; }
+    }
+    if (!t) return;
+    function between(el) {
+      var after = t.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING;
+      var before = !next || (next.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING);
+      return after && before;
+    }
+    function hasFig(c) {
+      if (c.querySelector('.fig')) return true;
+      var s = c.querySelectorAll('svg');
+      for (var j = 0; j < s.length; j++) if (!s[j].closest('mjx-container, .MathJax, mjx-math')) return true;
+      return false;
+    }
+    var cards = [].slice.call(document.querySelectorAll('.card, .item, .problema')).filter(between);
+    cards.forEach(function(c, k) {
+      if (!SH[k] || hasFig(c)) return;
+      var host = c.querySelector('.qbody') || c.querySelector('.qtxt') || c;
+      var d = document.createElement('div');
+      d.className = 'fig';
+      d.innerHTML = SH[k];
+      if (host === c) host.appendChild(d); else host.appendChild(d);
+    });
+  } catch (e) { /* spațiul de desenare e un plus: dacă nu merge, testul rămâne întreg */ }
+})();
+</script>
+`;
+}
+
+function injectDrawSpaces(html, sec, shapes) {
+  if (!Array.isArray(shapes) || !shapes.some(Boolean)) return String(html || '');
+  const s = String(html || '');
+  const block = drawSpaceScript(sec, shapes);
+  // exact înaintea scriptului care leagă instrumentele de desen
+  const anchor = s.search(/querySelectorAll\(\s*['"]\.fig['"]\s*\)/);
+  if (anchor !== -1) {
+    const k = s.lastIndexOf('<script', anchor);
+    if (k !== -1) return s.slice(0, k) + block + s.slice(k);
+  }
+  const b = s.lastIndexOf('</body>');
+  return b === -1 ? s + block : s.slice(0, b) + block + s.slice(b);
+}
+
 // Sparge un test în ITEMI, grupați pe subiect.
 function splitTestItems(html, figs) {
   const s = String(html || '');
@@ -1780,6 +1972,12 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
     // din șablon pe poziții — altfel un item de geometrie luat din alt test ar
     // primi desenul altui exercițiu.
     htmlOut = figRestore(htmlOut, pool.figs);
+    // Subiectul III (probleme cu rezolvare redactată) vine fără desene: îi dăm
+    // un spațiu de desenare cu figura de bază a problemei, nenotată.
+    if (allowFig && drawn.III && drawn.III.length) {
+      const shapes = baseShapesFor(drawn.III);
+      if (shapes.some(Boolean)) htmlOut = injectDrawSpaces(htmlOut, 'III', shapes);
+    }
   } else if (htmlOut && allowFig) {
     // Combinarea clasică (fără bancă): itemii cu figură rămân ai șablonului, deci
     // restaurăm figurile EXACT din șablon.
