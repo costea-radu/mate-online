@@ -641,22 +641,48 @@ Răspunde STRICT cu JSON: {"questions":[{"statement","options","answer","explana
 }
 
 async function verifyQuestionSet(questions, { model, supa = null, userId = null, endpoint = 'verify', wantCount = null, qtype = 'mixt', regenContext = '', verify = true, maxItems = null } = {}) {
-  const verifyLib = require('./verify');
+  // Verificatorul e un STRAT ÎN PLUS, nu o condiție a generării: dacă modulul
+  // lui nu se încarcă (o dependință lipsă, de pildă), testul pleacă mai
+  // departe, cu raportul spunând de ce n-a fost verificat — nu cade generarea.
+  let verifyLib = null, loadError = null;
+  try { verifyLib = require('./verify'); }
+  catch (e) { loadError = e.message; console.warn(`verifyQuestionSet: verificatorul nu s-a încărcat (${e.message})`); }
   const validate = require('./validate');
-  const report = { validated: true, errors: [], warnings: [], checked: 0, disagreed: 0, dropped: 0, regenerated: 0, skipped: 0 };
+  // `ran` spune dacă verificatorul a lucrat cu adevărat, iar `notRun` DE CE nu:
+  // fără ele, un verificator oprit din env și unul care crapă la fiecare item
+  // arătau identic — adică nu se vedea nimic.
+  const report = {
+    validated: true, errors: [], warnings: [], checked: 0, disagreed: 0, dropped: 0, regenerated: 0, skipped: 0,
+    ran: false, failed: 0, notRun: null, model: process.env.AI_VERIFY_MODEL || model || null,
+  };
   const usage = { in: 0, out: 0, model: process.env.AI_VERIFY_MODEL || model };
   const add = (u) => { if (u) { usage.in += u.in || 0; usage.out += u.out || 0; } };
   let v = validate.validateQuestions(questions, { fixLatex });
   let list = v.questions;
   report.errors = v.errors.slice(0, 20); report.warnings = v.warnings.slice(0, 20);
   report.dropped += (Array.isArray(questions) ? questions.length : 0) - list.length;
+  // de ce NU rulează verificatorul (când e cazul) — se vede în răspuns și în loguri
+  if (!verify) report.notRun = 'dezactivat pentru acest apel';
+  else if (loadError) report.notRun = `modulul verificatorului nu s-a încărcat: ${loadError}`;
+  else if (!verifyLib.ENABLED) report.notRun = 'oprit din AI_VERIFY_GEN=0';
+  else if (!list.length) report.notRun = 'nicio întrebare validă de verificat';
+  if (report.notRun) console.warn(`verifyQuestionSet(${endpoint}): verificatorul NU a rulat — ${report.notRun}`);
+
   try {
-    if (verify && verifyLib.ENABLED && list.length) {
+    if (verify && verifyLib && verifyLib.ENABLED && list.length) {
       const run = async (arr) => {
         const targets = arr.map((q, i) => ({ id: i, statement: q.statement, options: q.options, answer: q.answer }));
         const r = await verifyLib.verifyItems(targets, { model: process.env.AI_VERIFY_MODEL || model, ...(maxItems ? { maxItems } : {}) });
         add(r.usage);
         report.checked += r.checked; report.skipped += r.skipped;
+        // itemii la care APELUL a eșuat (model greșit, cheie, timeout): până
+        // acum intrau la „checked" ca și cum ar fi fost verificați, deși nimeni
+        // nu-i verificase — de aici tăcerea.
+        const gresite = r.results.filter((x) => x && x.error);
+        if (gresite.length) {
+          report.failed += gresite.length;
+          if (!report.verifyError) report.verifyError = gresite[0].error;
+        }
         const bad = new Set(r.results.filter((x) => x && x.agree === false).map((x) => x.id));
         report.disagreed += bad.size;
         return arr.filter((q, i) => !bad.has(i));
@@ -664,6 +690,7 @@ async function verifyQuestionSet(questions, { model, supa = null, userId = null,
       const before = list.length;
       list = await run(list);
       report.dropped += before - list.length;
+      report.ran = report.checked > report.failed;
       // înlocuitori pentru seturile cu număr fix de itemi (o singură rundă)
       if (wantCount && list.length < wantCount) {
         const missing = Math.min(wantCount - list.length, 8);
@@ -677,7 +704,18 @@ async function verifyQuestionSet(questions, { model, supa = null, userId = null,
         } catch (e) { report.warnings.push(`înlocuitorii nu au putut fi generați (${e.message})`); }
       }
     }
-  } catch (e) { report.warnings.push(`verificarea nu s-a putut încheia: ${e.message}`); }
+  } catch (e) {
+    report.warnings.push(`verificarea nu s-a putut încheia: ${e.message}`);
+    report.notRun = report.notRun || `verificarea a eșuat: ${e.message}`;
+    console.warn(`verifyQuestionSet(${endpoint}): ${e.message}`);
+  }
+  // A „rulat", dar fără să consume tokeni? Atunci toate apelurile au căzut
+  // înainte să ajungă la model — cazul care nu lăsa NICIO urmă în ai_usage.
+  if (report.checked && !usage.in && !usage.out) {
+    report.ran = false;
+    report.notRun = report.notRun || `toate cele ${report.checked} apeluri de verificare au eșuat${report.verifyError ? `: ${report.verifyError}` : ''}`;
+    console.warn(`verifyQuestionSet(${endpoint}): 0 tokeni consumați — ${report.notRun} (model: ${report.model})`);
+  }
   if (supa && userId && (usage.in || usage.out)) {
     try { await ai.logUsage(supa, userId, endpoint, usage); } catch { /* nu blocăm */ }
   }

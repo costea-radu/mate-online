@@ -18,6 +18,7 @@ import { renderQuiz } from '../lib/quizRender';
 import AIPoweredBy from '../components/AIPoweredBy';
 import InteractiveGenForm, { useInteractiveGen } from '../components/InteractiveGenForm';
 import { invatăDinReal, crediteDinCost, fmtEstimare } from '../lib/aiCost';
+import VerificationNote from '../components/VerificationNote';
 
 const CATEGORIES = [
   { id: '', label: 'Toate' },
@@ -418,6 +419,7 @@ function InteractiveTab() {
   const [publishMsg, setPublishMsg] = useState(null);
   const [savedScore, setSavedScore] = useState(null);
   const [cost, setCost] = useState(null);   // costul REAL al ultimei generări
+  const [verif, setVerif] = useState(null); // raportul verificatorului independent
   const navigate = useNavigate();
 
   const html = questions ? renderQuiz(title, questions, quizMeta()) : '';
@@ -449,12 +451,13 @@ function InteractiveTab() {
   }, []);
 
   async function gen() {
-    setLoading(true); setError(null); setUpsell(false); setQuestions(null); setSavedScore(null); setEditing(false); setPublishMsg(null); setCost(null);
+    setLoading(true); setError(null); setUpsell(false); setQuestions(null); setSavedScore(null); setEditing(false); setPublishMsg(null); setCost(null); setVerif(null);
     try {
       const res = await aiClient.generateInteractive(payload());
       // costul real întors de server: îl arătăm și cu el calibrăm estimarea
       // de sub buton (src/lib/aiCost.js)
       setCost(crediteDinCost(res.cost));
+      setVerif(res.verification || null);
       invatăDinReal(res.cost, { kind: itemKind, count: itemCount, qtype });
       const qs = res.questions || [];
       const t = res.title || (itemKind === 'test' ? 'Test' : 'Exercițiu interactiv');
@@ -545,6 +548,7 @@ function InteractiveTab() {
             </strong>
             {savedScore && <span style={{ fontSize: '.85rem', color: '#1e7e34', fontWeight: 700 }}>Scor test: {savedScore.score}/{savedScore.maxScore}</span>}
           </div>
+          <VerificationNote report={verif} style={{ marginTop: 0, marginBottom: 10 }} />
 
           {!editing && output === 'pdf' && (
             <div style={{ border: '2px dashed var(--gold)', borderRadius: 12, padding: 22, textAlign: 'center', background: 'rgba(232,185,49,.05)' }}>

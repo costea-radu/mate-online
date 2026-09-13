@@ -741,6 +741,351 @@ async function fetchPairedContext(supa, extraRubrics, srcTitles) {
   return { docBlocks, textBlock, names: pairs, line, pairs };
 }
 
+// =====================================================================
+// BANCA DE ITEMI — combinarea reală a testelor unei rubrici
+// =====================================================================
+// De ce există: combinarea trimitea modelului 5 teste ÎNTREGI (text tăiat la
+// 6000 de caractere) plus un PLAN de doar 8 poziții, în care itemii-sursă erau
+// ceruți mereu dintre primii 5 ai testului. La un test de Evaluare Națională cu
+// 3 subiecte × 6 itemi asta însemna:
+//   • din 32 de teste ale rubricii ajungeau la model doar 5, iar din fiecare
+//     doar începutul (Subiectul III al surselor era tăiat de limita de text);
+//   • planul acoperea 8 din 18 poziții — pentru restul modelul urma regula
+//     „același număr de itemi și aceeași structură ca șablonul" și COPIA itemii
+//     șablonului;
+//   • la Evaluare Națională regula figurilor („itemii cu figură rămân cei ai
+//     șablonului") îngheța în plus TOT Subiectul II (geometrie).
+// Efectul vizibil: se schimbau doar cele ~6 exerciții ale Subiectului I (
+// array-ul EX1 din șablon), restul testului ieșea identic de la o rulare la alta.
+//
+// Acum serverul SPARGE fiecare test al rubricii în ITEMI, grupați pe subiecte,
+// trage la sorți exact câți itemi cere șablonul din FIECARE subiect, din teste
+// DIFERITE, și trimite modelului DOAR acei itemi. Figura fiecărui item
+// călătorește cu el (marcaj <!--FIG:k-->, reinserat pe server după generare),
+// deci enunțul și desenul rămân consistente chiar dacă itemul vine din alt test.
+
+// Amestecare uniformă (Fisher–Yates). `sort(() => Math.random() - 0.5)` NU e o
+// permutare uniformă — elementele rămân aproape de pozițiile inițiale, deci
+// rulările succesive porneau de la aproape aceleași teste-sursă.
+function shuffle(arr) {
+  const a = [...(arr || [])];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+const romanSec = (d) => (d === '1' ? 'I' : d === '2' ? 'II' : d === '3' ? 'III' : String(d).toUpperCase());
+
+// Titlurile de secțiune („Subiectul I/II/III") cu poziția lor în document.
+// Se caută întâi marcajele EXPLICITE de secțiune (formatul standard:
+// <div class="sec-title">Subiectul II …), ca să nu numărăm și mențiunile din
+// antetul paginii („Subiectul I &amp; Subiectul II · 12 exerciții”), care ar
+// atribui greșit primele card-uri.
+function sectionMarks(html) {
+  const s = String(html || '');
+  const out = [];
+  let m;
+  const re1 = /<(?:div|h[1-6]|p|section)[^>]*class=["'][^"']*\b(?:sec-title|sect-title|sec|section|subiect|subject)\b[^"']*["'][^>]*>\s*(?:<[^>]+>\s*)*subiectul\s*(?:al\s*)?(i{1,3}|[123])/gi;
+  while ((m = re1.exec(s))) out.push({ sec: romanSec(m[1]), at: m.index });
+  if (out.length) return out;
+  const re2 = /<h[1-6][^>]*>[\s\S]{0,80}?subiectul\s*(?:al\s*)?(i{1,3}|[123])/gi;
+  while ((m = re2.exec(s))) out.push({ sec: romanSec(m[1]), at: m.index });
+  return out;
+}
+
+// Blocurile <div class="card"> … </div> ECHILIBRATE (itemii formatului
+// standard). Clasa se verifică pe listă de token-uri, nu cu regex — altfel
+// „card-hdr” ar trece drept „card”.
+function extractCards(html) {
+  const s = String(html || '');
+  const out = [];
+  const open = /<div\b([^>]*)>/gi;
+  let m;
+  while ((m = open.exec(s))) {
+    const cls = (m[1].match(/class\s*=\s*["']([^"']*)["']/i) || [, ''])[1];
+    if (!String(cls).split(/\s+/).includes('card')) continue;
+    const start = m.index;
+    const tag = /<div\b[^>]*>|<\/div\s*>/gi;
+    tag.lastIndex = start;
+    let depth = 0;
+    let end = -1;
+    let t;
+    while ((t = tag.exec(s))) {
+      if (t[0][1] === '/') { depth--; if (depth <= 0) { end = t.index + t[0].length; break; } } else depth++;
+      if (t.index - start > 60000) break; // plasă de siguranță
+    }
+    if (end === -1) break;
+    out.push({ html: s.slice(start, end), at: start });
+    open.lastIndex = end;
+  }
+  return out;
+}
+
+// Sfârșitul unui array/obiect JS, cu ghilimelele respectate: array-urile de
+// itemi conțin HTML în template literals (tabele), deci au acolade și
+// apostrofuri înăuntru.
+function scanBalanced(s, from, open, close) {
+  let depth = 0;
+  let q = null;
+  for (let i = from; i < s.length; i++) {
+    const c = s[i];
+    if (q) {
+      if (c === '\\') { i++; continue; }
+      if (c === q) q = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { q = c; continue; }
+    if (c === open) depth++;
+    else if (c === close) { depth--; if (depth === 0) return i; }
+  }
+  return -1;
+}
+
+// Array-urile de itemi din <script> (ex. `var EX1 = [{q:…, ok:…}, …]`):
+// întoarce numele array-ului și textul fiecărui obiect-item.
+function extractArrayItems(html) {
+  const s = String(html || '');
+  const out = [];
+  const re = /\b(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*\[/g;
+  let m;
+  while ((m = re.exec(s))) {
+    const open = s.indexOf('[', m.index);
+    if (open === -1) continue;
+    const end = scanBalanced(s, open, '[', ']');
+    if (end === -1) continue;
+    const body = s.slice(open + 1, end);
+    const objs = [];
+    let i = 0;
+    while (i < body.length) {
+      const b = body.indexOf('{', i);
+      if (b === -1) break;
+      const e = scanBalanced(body, b, '{', '}');
+      if (e === -1) break;
+      objs.push(body.slice(b, e + 1));
+      i = e + 1;
+    }
+    // e chiar un array de ITEMI? (obiectele au enunț ȘI cheie de răspuns)
+    const items = objs.filter((o) => /[{,\s]["']?(?:q|enunt|statement|prompt|lead|intrebare)["']?\s*:/.test(o)
+      && /[{,\s]["']?(?:ok|ans|answer|ci|correct|corect|raspuns|a)["']?\s*:/.test(o));
+    if (items.length < 2) continue;
+    out.push({ name: m[1], at: m.index, items });
+    re.lastIndex = end;
+  }
+  return out;
+}
+
+// Scoate desenele (SVG / <canvas>) dintr-un fragment de item și le înlocuiește
+// cu marcaje <!--FIG:k-->; `figs` colectează originalele, ca serverul să le
+// reinsereze după generare.
+// Se scot TOATE desenele din item (chiar și cele mici — restaurarea e oricum
+// identică la octet), dar `hasFig` — eticheta „ARE FIGURĂ” din plan și filtrul
+// rubricilor fără figuri — se aprinde doar la o figură adevărată (peste ~300 de
+// caractere); o pictogramă decorativă din enunț nu trebuie să blocheze itemul.
+function pullFigures(fragment, figs) {
+  let hasFig = false;
+  const text = String(fragment || '').replace(/<svg[\s\S]*?<\/svg>|<canvas\b[\s\S]*?<\/canvas>/gi, (m) => {
+    const k = figs.length;
+    figs.push(m);
+    if (m.length > 300 || /^<canvas/i.test(m)) hasFig = true;
+    return `<!--FIG:${k}-->`;
+  });
+  return { text, hasFig };
+}
+
+// Reinserează figurile la marcaje, după generare. Modelul poate cere
+// REDENUMIREA punctelor: <!--FIG:4 A>M,B>N--> → în SVG etichetele-text „A”/„B”
+// devin „M”/„N”, iar geometria (liniile, proporțiile) rămâne neatinsă.
+function figRestore(html, figs) {
+  let out = String(html || '');
+  out = out.replace(/<!--\s*FIG:(\d+)([\s\S]{0,200}?)-->/g, (m, num, extra) => {
+    const svg = (figs || [])[Number(num)];
+    if (svg === undefined) return '';
+    const map = new Map();
+    String(extra || '').split(/[,;]+/).forEach((p) => {
+      const mm = p.trim().match(/^([A-Za-z][A-Za-z0-9'’]{0,2})\s*(?:->|=>|>|=|→)\s*([A-Za-z][A-Za-z0-9'’]{0,2})$/);
+      if (mm) map.set(mm[1], mm[2]);
+    });
+    if (!map.size) return svg;
+    return svg.replace(/(<text\b[^>]*>)([\s\S]*?)(<\/text\s*>)/gi, (t, o, body, c) => {
+      const k = body.trim();
+      return map.has(k) ? `${o}${map.get(k)}${c}` : t;
+    });
+  });
+  // marcaje rămase (numere inexistente / inventate de model) — le curățăm
+  return out.replace(/<!--\s*FIG:[\s\S]{0,200}?-->/g, '');
+}
+
+// Sparge un test în ITEMI, grupați pe subiect.
+function splitTestItems(html, figs) {
+  const s = String(html || '');
+  const marks = sectionMarks(s);
+  const order = [];
+  marks.forEach((k) => { if (!order.includes(k.sec)) order.push(k.sec); });
+  const secOf = (pos) => {
+    let v = order[0] || 'I';
+    for (const k of marks) { if (k.at <= pos) v = k.sec; else break; }
+    return v;
+  };
+  const buckets = {};
+  const push = (sec, rec) => { (buckets[sec] = buckets[sec] || []).push(rec); };
+
+  for (const c of extractCards(s)) {
+    const f = pullFigures(c.html, figs);
+    push(secOf(c.at), { form: 'card', text: f.text, hasFig: f.hasFig });
+  }
+  // Array-urile de itemi stau în <script>, la FINALUL fișierului — după toate
+  // titlurile de secțiune — deci subiectul lor NU se poate lua din poziție: îl
+  // luăm din cifra din nume (EX1 → primul subiect, EX2 → al doilea…).
+  for (const a of extractArrayItems(s)) {
+    const d = (a.name.match(/(\d+)\s*$/) || [])[1];
+    const sec = (d && order[Number(d) - 1]) || secOf(a.at);
+    a.items.forEach((o) => {
+      const f = pullFigures(o, figs);
+      push(sec, { form: 'obj', array: a.name, text: f.text, hasFig: f.hasFig });
+    });
+  }
+  return { order, buckets };
+}
+
+// Rulează `fn` pe listă cu paralelism limitat (descărcările din Storage ale
+// celor ~24 de teste ar dura prea mult una după alta).
+async function mapLimit(list, limit, fn) {
+  const arr = [...(list || [])];
+  const out = [];
+  let i = 0;
+  const workers = Array.from({ length: Math.min(limit, arr.length) }, async () => {
+    for (;;) {
+      const k = i++;
+      if (k >= arr.length) return;
+      try { out.push(await fn(arr[k])); } catch { /* element ignorat */ }
+    }
+  });
+  await Promise.all(workers);
+  return out.filter(Boolean);
+}
+
+// Banca de itemi a rubricii: fiecare test devine o listă de itemi pe subiecte.
+// `excludeId` = testul folosit ca ȘABLON (itemii lui nu intră în bancă, ca
+// rezultatul să nu semene cu el).
+async function buildItemPool({ supa, rows, maxSources = 24, excludeId = null, allowFig = true, bodyCache = null }) {
+  const figs = [];
+  const picked = shuffle(rows).filter((r) => r.id !== excludeId).slice(0, maxSources);
+  const perSource = await mapLimit(picked, 6, async (r) => {
+    if (r.interactive_data?.exercise) {
+      const qs = Array.isArray(r.interactive_data.exercise.questions) ? r.interactive_data.exercise.questions : [];
+      if (qs.length < 2) return null;
+      return { title: r.title, order: ['I'], buckets: { I: qs.map((q) => ({ form: 'json', text: JSON.stringify(q).slice(0, 2000), hasFig: false })) } };
+    }
+    // fișierele deja citite la alegerea șablonului nu se mai descarcă a doua oară
+    let raw = bodyCache ? bodyCache.get(r.id) : null;
+    if (raw == null) {
+      const { buf } = await downloadStorage(supa, r.file_url);
+      if (!buf) return null;
+      raw = buf.toString('utf8');
+      if (bodyCache) bodyCache.set(r.id, raw);
+    }
+    const sp = splitTestItems(raw, figs);
+    const total = Object.values(sp.buckets).reduce((n, a) => n + a.length, 0);
+    if (total < 2) return null;
+    if (!allowFig) {
+      // rubricile non-EN se generează fără desene: itemii cu figură ar rămâne
+      // fără ea (stripFigures) și enunțul ar trimite la un desen inexistent
+      Object.keys(sp.buckets).forEach((k) => { sp.buckets[k] = sp.buckets[k].filter((it) => !it.hasFig); });
+    }
+    return { title: r.title, order: sp.order, buckets: sp.buckets };
+  });
+  return { figs, perSource };
+}
+
+// Trage la sorți `need` itemi din subiectul `sec`, ROTIND între testele-sursă:
+// itemii consecutivi vin din teste diferite, deci un test combinat chiar
+// adună exerciții din multe teste ale rubricii, nu din două-trei.
+function drawItems(perSource, sec, need) {
+  const pools = shuffle(perSource
+    .map((s) => ({ title: s.title, items: shuffle(s.buckets[sec] || []) }))
+    .filter((s) => s.items.length));
+  const out = [];
+  let guard = 0;
+  while (out.length < need && pools.length && guard++ < need * 40 + 40) {
+    for (const p of pools) {
+      if (out.length >= need) break;
+      const it = p.items.pop();
+      if (it) out.push({ ...it, src: p.title });
+    }
+    for (let k = pools.length - 1; k >= 0; k--) if (!pools[k].items.length) pools.splice(k, 1);
+  }
+  return out;
+}
+
+// Amprenta itemilor unui test: enunțurile, normalizate (din markup — .qtxt —
+// și din array-urile JS — q:'…').
+function itemStatements(html) {
+  const s = String(html || '');
+  const out = [];
+  let m;
+  const re1 = /<div[^>]*class=["'][^"']*\bqtxt\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi;
+  while ((m = re1.exec(s))) out.push(m[1]);
+  const re2 = /[{,\s]["']?(?:q|statement|enunt|lead)["']?\s*:\s*(['"`])([\s\S]*?)\1/g;
+  while ((m = re2.exec(s))) out.push(m[2]);
+  return out
+    .map((t) => String(t).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter((t) => t.length >= 25);
+}
+
+// ─── GARDA ANTI-„ACELAȘI TEST" ───────────────────────────────────────────────
+// Cu banca de itemi, TOȚI itemii rezultatului vin din ALTE teste ale rubricii,
+// cu numere și notații schimbate — deci un enunț identic caracter cu caracter
+// cu unul din șablon înseamnă că modelul a copiat itemul șablonului. Cazul cel
+// mai perfid: blocul <script> cu array-ul itemilor lăsat ca marcaj gol
+// <script data-tpl="N"></script>, pe care serverul îl reinserează cu itemii
+// VECHI — testul părea generat, dar era copia celui existent.
+// `bankText` = itemii trimiși modelului: un enunț care vine din BANCĂ e
+// legitim chiar dacă e identic cu unul din șablon (rubrica are teste asemănătoare
+// și modelul poate să nu fi schimbat numerele) — se numără doar enunțurile care
+// există DOAR în șablon.
+function assertRenewedItems({ html, template, bankText = '', what = 'Testul generat' }) {
+  const bankSt = new Set(itemStatements(bankText));
+  const tplSt = itemStatements(template).filter((t) => !bankSt.has(t));
+  if (tplSt.length < 4) return; // prea puține enunțuri recunoscute — nu judecăm
+  const outSt = new Set(itemStatements(html));
+  const kept = tplSt.filter((t) => outSt.has(t));
+  const limit = Math.max(2, Math.floor(tplSt.length / 3));
+  if (kept.length > limit) {
+    throw httpErr(502, `${what}: ${kept.length} din ${tplSt.length} exerciții au rămas IDENTICE cu cele ale șablonului („${kept[0].slice(0, 70)}…”) — ar fi o copie a testului existent, așa că nu îl public. Mai încearcă.`);
+  }
+}
+
+// Cheile grilei, așa cum apar în rezultat: data-correct="c" (markup) și ok:'c'
+// (array-urile JS).
+function answerKeys(html) {
+  const s = String(html || '');
+  const out = [];
+  let m;
+  const re1 = /data-correct\s*=\s*["']([a-d])["']/gi;
+  while ((m = re1.exec(s))) out.push(m[1].toLowerCase());
+  const re2 = /[{,\s]["']?ok["']?\s*:\s*["']([a-d])["']/gi;
+  while ((m = re2.exec(s))) out.push(m[1].toLowerCase());
+  return out;
+}
+
+// Cererea adminului: răspunsul corect nu trebuie să cadă mereu la a). Dacă TOATE
+// cheile testului sunt pe aceeași literă, modelul a ignorat regula — eroare, ca
+// rularea să se reia, în loc să publicăm un test în care se ghicește din prima.
+function assertAnswerSpread({ html, what = 'Testul generat' }) {
+  const keys = answerKeys(html);
+  if (keys.length < 6) return;
+  const uniq = [...new Set(keys)];
+  if (uniq.length === 1) {
+    throw httpErr(502, `${what}: la toți cei ${keys.length} itemi de grilă răspunsul corect e la „${uniq[0]})” — trebuie distribuit între a), b), c) și d). Nu îl public; mai încearcă.`);
+  }
+}
+
+// Eticheta rubricii pentru titlul testului generat
+const CAT_LABELS = { 'evaluare-nationala': 'Evaluare Națională', bacalaureat: 'Bacalaureat' };
+const catLabel = (c) => CAT_LABELS[String(c || '')] || String(c || '').replace(/[-_]+/g, ' ').trim();
+
 // ─── AUTOMATIZAREA pe rubrică (mutată din ai-exercise-agent.js, acțiunea
 // „auto") — combină teste existente din rubrică într-un test NOU.
 // Rubrici INTERACTIVE → FORMATUL STANDARD (HTML cu figuri + desen), sau
@@ -777,7 +1122,7 @@ async function runAuto({ supa, category, subcategory = null, profile = null, cty
   if (!rows || !rows.length) throw httpErr(400, 'Rubrica nu are materiale de tipul ales.');
   if (!mode.sequential && rows.length < 2) throw httpErr(400, 'Rubrica are prea puține materiale (minim 2) pentru combinare.');
 
-  const shuffled = [...rows].sort(() => Math.random() - 0.5);
+  const shuffled = shuffle(rows); // permutare uniformă (vezi shuffle)
 
   // Contextul suplimentar pentru sursele date: la modul „pair" întâi caută
   // BAREMELE CORESPONDENTE (după titlu); dacă nu găsește nimic — sau modul e
@@ -1080,21 +1425,31 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "ou
   // result_kind='format' cu HTML, MODELUL DE FORMAT încărcat de admin ──
   let templateHtml = wantFormatHtml ? String(formatHtml).slice(0, 180000) : null;
   let templateName = wantFormatHtml ? 'modelul de format al task-ului' : null;
+  let templateId = null; // testul folosit ca șablon — itemii lui NU intră în bancă
   const sources = [];
+  // Sursele-text (calea de rezervă) rămân plafonate, dar mai generos: la 5
+  // teste × 6000 de caractere, Subiectul III al fiecărei surse era tăiat.
+  const MAX_SRC = 14;
+  const SRC_CHARS = 9000;
+  const bodyCache = new Map(); // fișierele citite aici se refolosesc la banca de itemi
   for (const r of shuffled) {
+    // avem șablonul ȘI destule surse-text → nu mai descărcăm restul rubricii
+    // (banca de itemi își ia singură ce-i mai trebuie, din cache)
+    if (templateHtml && sources.length >= MAX_SRC) break;
     try {
       if (r.interactive_data?.exercise) {
-        if (sources.length < 5) sources.push({ title: r.title, text: JSON.stringify(r.interactive_data.exercise).slice(0, 6000) });
+        if (sources.length < MAX_SRC) sources.push({ title: r.title, text: JSON.stringify(r.interactive_data.exercise).slice(0, SRC_CHARS) });
         continue;
       }
       const { buf } = await downloadStorage(supa, r.file_url);
       if (!buf) continue;
       const raw = buf.toString('utf8');
+      bodyCache.set(r.id, raw);
       // formatul standard: figuri geometrice + instrumente de desen + scor
       const isStandard = /desen|<canvas|class="fig"/i.test(raw) && /MATE_SCORE/.test(raw);
-      if (!templateHtml && isStandard && raw.length < 200000) { templateHtml = raw.slice(0, 120000); templateName = r.title; }
+      if (!templateHtml && isStandard && raw.length < 200000) { templateHtml = raw.slice(0, 120000); templateName = r.title; templateId = r.id; }
       const textOnly = raw.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-      if (textOnly.length > 200 && sources.length < 5) sources.push({ title: r.title, text: textOnly.slice(0, 6000) });
+      if (textOnly.length > 200 && sources.length < MAX_SRC) sources.push({ title: r.title, text: textOnly.slice(0, SRC_CHARS) });
     } catch { /* sursă ignorată */ }
   }
   if (!templateHtml) {
@@ -1107,35 +1462,121 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "ou
   if (!templateHtml) throw httpErr(500, 'Nu am găsit șablonul formatului standard.');
   const ctx = await ctxFor(sources.map((x) => x.title)); // bareme corespondente sau referințe
 
-  const lettersI = sources.map((_, i) => String.fromCharCode(65 + i)).sort(() => Math.random() - 0.5);
-  const planI = Array.from({ length: 8 }, (_, i) => `- Itemul ${i + 1}${allowFig ? ' (DOAR dacă nu are figură)' : ''} ← TESTUL ${lettersI[i % lettersI.length]}, itemul nr. ${1 + Math.floor(Math.random() * 5)} din el (sau alt item al aceluiași test), cu numere/notații noi.`).join('\n');
+  // ── BANCA DE ITEMI: itemii testului nou se trag la sorți pe SERVER, din
+  //    TOATE testele rubricii, subiect cu subiect (vezi buildItemPool) ──
+  const tplFigs = [];
+  const tplSplit = splitTestItems(templateHtml, tplFigs);
+  const needBySec = {};
+  tplSplit.order.forEach((sec) => { needBySec[sec] = (tplSplit.buckets[sec] || []).length; });
+  const tplItems = Object.values(needBySec).reduce((a, b) => a + b, 0);
+
+  let pool = null;      // { figs, perSource }
+  let drawn = null;     // { I: [item], II: [...], III: [...] }
+  let poolSources = []; // titlurile testelor din care au ieșit itemii
+  if (tplSplit.order.length && tplItems >= 4 && rows.length >= 2) {
+    try {
+      pool = await buildItemPool({ supa, rows, maxSources: 24, excludeId: templateId, allowFig, bodyCache });
+      drawn = {};
+      let full = true;
+      for (const sec of tplSplit.order) {
+        drawn[sec] = drawItems(pool.perSource, sec, needBySec[sec]);
+        if (drawn[sec].length < needBySec[sec]) full = false;
+      }
+      if (!full) { drawn = null; pool = null; } // cădere pe combinarea clasică
+      else {
+        const seen = new Set();
+        Object.values(drawn).flat().forEach((it) => seen.add(it.src));
+        poolSources = [...seen];
+      }
+    } catch (e) {
+      console.warn('exgen(auto-html): banca de itemi a eșuat (%s) — trec pe combinarea clasică', String(e?.message || e));
+      drawn = null; pool = null;
+    }
+  }
+  const usePool = !!drawn;
+
+  // Planul: cu banca de itemi = lista EXACTĂ de itemi pe subiecte (toți itemii
+  // testului, nu doar 8 poziții). Fără bancă = planul clasic pe teste-sursă,
+  // dar acum acoperind TOȚI itemii șablonului și fără să ceară mereu itemii 1–5.
+  const itemBlocks = [];
+  let planI;
+  if (usePool) {
+    const lines = [];
+    for (const sec of tplSplit.order) {
+      lines.push(`SUBIECTUL ${sec} — ${drawn[sec].length} itemi, EXACT în ordinea asta:`);
+      drawn[sec].forEach((it, i) => {
+        const id = `${sec}.${i + 1}`;
+        lines.push(`  ${i + 1}. ITEM ${id} — din „${it.src}”${it.hasFig ? ' · ARE FIGURĂ' : ''}`);
+        const form = it.form === 'obj'
+          ? `obiect JS pentru array-ul ${it.array}`
+          : it.form === 'card' ? 'bloc HTML <div class="card">' : 'item JSON';
+        itemBlocks.push(`=== ITEM ${id} · din „${it.src}” · Subiectul ${sec} · ${form} ===\n${it.text}`);
+      });
+    }
+    planI = lines.join('\n');
+  } else {
+    const lettersI = shuffle(sources.map((_, i) => String.fromCharCode(65 + i)));
+    const nPos = Math.min(24, Math.max(8, tplItems || 12));
+    planI = Array.from({ length: nPos }, (_, i) => `- Itemul ${i + 1}${allowFig ? ' (DOAR dacă nu are figură)' : ''} ← TESTUL ${lettersI[i % lettersI.length]}, un item ales aleatoriu din ORICE subiect al lui (Subiectul I, II sau III — nu doar de la început), cu numere/notații noi.`).join('\n');
+  }
   const tplIntro = wantFormatHtml
     ? 'Primești un ȘABLON HTML — MODELUL DE FORMAT ales de admin (clonează-i EXACT designul, stilul CSS și funcționalitatea JavaScript)'
     : `Primești un ȘABLON HTML în FORMATUL STANDARD al site-ului (test interactiv ${allowFig ? 'cu figuri geometrice SVG și instrumente de desen' : 'cu instrumente de desen, FĂRĂ figuri'})`;
-  const figRules = allowFig
-    ? `- FIGURILE/DESENELE (SVG, canvas) NU SE MODIFICĂ DELOC — rămân EXACT cele din șablon, cu aceleași etichete și valori (oricum vor fi restaurate programatic din șablon, deci orice modificare a lor e inutilă și greșită);
-- itemii CU figură rămân cei ai șablonului: enunț, valori și notații consistente cu figura, cel mult mici reformulări care NU contrazic figura; combini din celelalte teste DOAR itemii FĂRĂ figură;`
-    : `${NO_FIG_RULE.slice(1)} Itemii care în șablon aveau figură se ÎNLOCUIESC cu itemi fără figură, combinați din testele-sursă (enunț complet, cu toate datele în text);`;
-  const sysAuto = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
-${tplIntro} și ${sources.length} teste existente din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
-Sarcina: construiește URMĂTORUL test al rubricii (nr. ${rows.length + 1}), ÎN ACELAȘI FIȘIER-FORMAT ca șablonul.
+  // Regulile pentru figuri. Cu banca de itemi, figura CĂLĂTOREȘTE cu itemul:
+  // în textul itemului desenul e înlocuit cu marcajul <!--FIG:k-->, iar
+  // serverul reinserează SVG-ul original al itemului după generare. Așa
+  // Subiectul II (geometrie) se schimbă la fiecare rulare, iar enunțul și
+  // desenul rămân consistente, pentru că vin din același test-sursă.
+  const figRules = !allowFig
+    ? `${NO_FIG_RULE.slice(1)} Itemii care aveau figură se ÎNLOCUIESC cu itemi fără figură (enunț complet, cu toate datele în text);`
+    : usePool
+      ? `- FIGURILE vin CU ITEMUL: în itemii marcați „ARE FIGURĂ” desenul e deja înlocuit cu marcajul <!--FIG:k-->. PĂSTREAZĂ marcajul EXACT așa, la locul lui (ex. <div class="fig"><!--FIG:7--></div>) — NU scrii SVG, NU desenezi, NU descrii figura: serverul reinserează desenul original al itemului;
+- la itemii CU FIGURĂ, VALORILE NUMERICE rămân cele din item (altfel desenul ar contrazice enunțul); ai voie însă să REDENUMEȘTI PUNCTELE, declarând schimbarea în marcaj: <!--FIG:7 A>M,B>N,C>P--> — serverul redenumește atunci și etichetele din desen. Literele noi se folosesc consecvent în enunț, variante și rezolvare;
+- la itemii FĂRĂ figură schimbi liber și numerele și notațiile;`
+      : `- FIGURILE/DESENELE (SVG, canvas) NU SE MODIFICĂ DELOC — rămân EXACT cele din șablon, cu aceleași etichete și valori (oricum vor fi restaurate programatic din șablon, deci orice modificare a lor e inutilă și greșită);
+- itemii CU figură rămân cei ai șablonului: enunț, valori și notații consistente cu figura, cel mult mici reformulări care NU contrazic figura; combini din celelalte teste DOAR itemii FĂRĂ figură;`;
 
-PLAN DE COMBINARE — tras la sorți pe server; respectă-l întocmai, ca generările succesive să fie DIFERITE${allowFig ? ' (excepție: itemii cu figură, care rămân ai șablonului)' : ''}:
+  // Titlul: adminul cere numărul testului + numele rubricii, nu lista
+  // subiectelor („Subiectul I & Subiectul II" din antetul șablonului).
+  const testNo = rows.length + 1;
+  const titleRule = `\n- TITLUL: în <title> și în titlul din antetul paginii scrie „Test ${testNo}${catLabel(category) ? ` · ${catLabel(category)}` : ''}”. În subtitlu NU enumeri subiectele („Subiectul I & Subiectul II” se ȘTERGE): scrie numărul de exerciții, punctajul total și, dacă șablonul îl are, timpul de lucru.`;
+
+  const poolRules = usePool
+    ? `
+BANCA DE ITEMI (OBLIGATORIE): serverul a tras deja la sorți, din ${poolSources.length} teste DIFERITE ale rubricii, TOȚI cei ${Object.values(drawn).reduce((a, b) => a + b.length, 0)} itemi ai testului nou. Îi primești mai jos, fiecare cu id-ul lui.
+- FOLOSEȘTE EXACT acești itemi, în ordinea din plan, la subiectele indicate: nu păstra itemii șablonului, nu inventa alții, nu schimba ordinea, nu sări niciunul, nu adăuga în plus;
+- ȘABLONUL e doar CARCASA (design, CSS, JavaScript, instrumente de desen, bara de scor, structura pe subiecte): TOT conținutul itemilor vine din bancă;
+- SCHIMBĂ NUMERELE ȘI NOTAȚIILE fiecărui item — aceeași cerință, alte valori și alte litere — apoi RECALCULEAZĂ răspunsul corect și REscrie rezolvarea/baremul ca să corespundă noilor valori;
+- RĂSPUNSUL CORECT la grilă se distribuie între a), b), c) și d) (nu toate la a)), cu EXACT un răspuns corect pe item: reașază variantele, nu doar eticheta, și pune cheia (data-correct / "ok") pe litera care ajunge să conțină răspunsul;
+- itemii „obiect JS pentru array-ul EX1” intră în array-ul cu acel nume din script (rescris COMPLET, cu noii itemi); itemii „bloc HTML <div class=\\"card\\">” intră ca atare în secțiunea lor, renumerotați (.nr) de la 1;`
+    : '';
+
+  const sysAuto = `Ești agentul de creare de exerciții al platformei ExamenMate (matematică, românește).
+${tplIntro} și ${usePool ? `o BANCĂ DE ITEMI trasă la sorți din ${poolSources.length} teste` : `${sources.length} teste`} existente din rubrica „${category}${subcategory ? ' / ' + subcategory : ''}”.
+Sarcina: construiește URMĂTORUL test al rubricii (nr. ${testNo}), ÎN ACELAȘI FIȘIER-FORMAT ca șablonul.
+${poolRules}
+PLAN${usePool ? ' — itemii testului, pe subiecte (tras la sorți pe server, respectă-l întocmai)' : ' DE COMBINARE — tras la sorți pe server; respectă-l întocmai, ca generările succesive să fie DIFERITE'}:
 ${planI}
 
 Reguli:
 - COPIAZĂ ÎNTOCMAI tot ce nu ține de conținutul itemilor: CSS-ul complet, TOT JavaScript-ul, instrumentele de desen, structura pe subiecte, bara de scor — NIMIC eliminat sau simplificat;
-- pentru pozițiile din plan: COPIAZĂ itemul indicat; REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)};
+- ${usePool ? 'pentru fiecare poziție din plan: PORNEȘTE de la itemul indicat din bancă' : 'pentru pozițiile din plan: COPIAZĂ itemul indicat'}; REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)};
 - același număr de itemi și aceeași structură (subiecte, punctaje) ca șablonul;
 ${figRules}
-- păstrează raportarea scorului (MATE_SCORE) exact ca în șablon; dacă șablonul NU o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*').${TPL_RULE}${COMPLETE_RULE_HTML}${MATH_RULE}${ctx.line}
+- păstrează raportarea scorului (MATE_SCORE) exact ca în șablon; dacă șablonul NU o are, ADAUG-O: parent.postMessage({type:'MATE_SCORE', score: <procent 0-100>, maxScore: 100}, '*').${titleRule}${TPL_RULE}${COMPLETE_RULE_HTML}${MATH_RULE}${ctx.line}
 Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), fără explicații, fără markdown.`;
 
-  const srcBlock = sources.map((x, i) => `=== TESTUL ${String.fromCharCode(65 + i)}: ${x.title} ===\n${x.text}`).join('\n\n');
+  const srcBlock = usePool
+    ? `=== BANCA DE ITEMI (folosește-i pe TOȚI, în ordinea din plan) ===\n${itemBlocks.join('\n\n')}\n=== SFÂRȘIT BANCA DE ITEMI ===`
+    : sources.map((x, i) => `=== TESTUL ${String.fromCharCode(65 + i)}: ${x.title} ===\n${x.text}`).join('\n\n');
   const tplIA = tplAnnotate(templateHtml);
   const blocksI = [];
   blocksI.push(...ctx.docBlocks);
-  blocksI.push({ type: 'text', text: `ȘABLONUL (${wantFormatHtml ? 'modelul de format' : 'formatul standard'}, cu blocurile <style>/<script> numerotate <!--TPL:N-->):\n${tplIA.annotated}\n\n${srcBlock}${ctx.textBlock}\n\nConstruiește ACUM testul nr. ${rows.length + 1} — doar documentul HTML. REAMINTIRE FINALĂ (economie de tokeni): blocurile <style>/<script> pe care NU le modifici = DOAR marcajele goale <style data-tpl=\"N\"></style> / <script data-tpl=\"N\"></script> — nu le rescrie; blocul cu DATELE itemilor se scrie complet.${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? ', dar desenele tot NU se modifică' : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
+  const figNote = usePool && allowFig ? ' Marcajele <!--FIG:k--> se copiază EXACT, nu se înlocuiesc cu SVG.' : '';
+  const poolNote = usePool
+    ? ` REAMINTIRE: toți itemii vin din BANCA DE ITEMI, în ordinea din plan — niciun item al șablonului nu rămâne în rezultat.${figNote}`
+    : '';
+  blocksI.push({ type: 'text', text: `ȘABLONUL (${wantFormatHtml ? 'modelul de format' : 'formatul standard'}, cu blocurile <style>/<script> numerotate <!--TPL:N-->):\n${tplIA.annotated}\n\n${srcBlock}${ctx.textBlock}\n\nConstruiește ACUM testul nr. ${testNo} — doar documentul HTML. REAMINTIRE FINALĂ (economie de tokeni): blocurile <style>/<script> pe care NU le modifici = DOAR marcajele goale <style data-tpl=\"N\"></style> / <script data-tpl=\"N\"></script> — nu le rescrie; blocul cu DATELE itemilor se scrie complet.${poolNote}${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? (usePool ? ', dar marcajele de figură se păstrează' : ', dar desenele tot NU se modifică') : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
   const rA = await chatClaudeLong({
     system: sysAuto,
     blocks: blocksI,
@@ -1147,8 +1588,14 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
   let htmlOut = cutHtml(rA.text);
   if (htmlOut) htmlOut = tplRestore(htmlOut, tplIA.blocks);
 
-  if (htmlOut && allowFig) {
-    // Garanție (doar EN): restaurăm figurile EXACT din șablon
+  if (htmlOut && usePool) {
+    // Figurile se reinserează din ITEMUL din care au venit (marcaje FIG), nu
+    // din șablon pe poziții — altfel un item de geometrie luat din alt test ar
+    // primi desenul altui exercițiu.
+    htmlOut = figRestore(htmlOut, pool.figs);
+  } else if (htmlOut && allowFig) {
+    // Combinarea clasică (fără bancă): itemii cu figură rămân ai șablonului, deci
+    // restaurăm figurile EXACT din șablon.
     const tplSvgs = templateHtml.match(/<svg[\s\S]*?<\/svg>/gi) || [];
     if (tplSvgs.length) {
       let svgIdx = 0;
@@ -1163,12 +1610,26 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
   }
   try {
     assertCompleteHtml({ html: htmlOut, baseline: templateHtml, what: 'Testul generat pe rubrică' });
+    // cu banca de itemi știm că NICIUN item al șablonului nu are ce căuta în
+    // rezultat — dacă modelul le-a copiat, rularea eșuează în loc să publice
+    // încă o dată același test
+    if (usePool) {
+      assertRenewedItems({ html: htmlOut, template: templateHtml, bankText: itemBlocks.join('\n'), what: 'Testul generat pe rubrică' });
+      assertAnswerSpread({ html: htmlOut, what: 'Testul generat pe rubrică' });
+    }
   } catch (e) {
     e.message += ` [stop=${rA.stopReason || '?'}, continuări=${rA.continuations || 0}${rA.viaUserMode ? ', fără prefill' : ''}${rA.strictRetry ? ', re-cerere strictă' : ''}, lungime=${rA.textLength ?? '?'}]`;
     console.error('exgen(auto-html): invalid. stopReason=%s continuations=%s', rA.stopReason, rA.continuations);
     throw e;
   }
-  return { html: htmlOut, provider: rA.provider, combinedFrom: sources.map((x) => x.title), template: templateName, usage: rA.usage };
+  return {
+    html: htmlOut,
+    provider: rA.provider,
+    // istoricul task-ului arată din câte teste s-a compus efectiv rezultatul
+    combinedFrom: usePool ? poolSources : sources.map((x) => x.title),
+    template: templateName,
+    usage: rA.usage,
+  };
 }
 
 // =====================================================================

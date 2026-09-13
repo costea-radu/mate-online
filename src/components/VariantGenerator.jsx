@@ -25,6 +25,7 @@ import InteractiveGenForm, { useInteractiveGen } from './InteractiveGenForm';
 import { makeVariants, numeVarianta } from '../lib/testVariante';
 import { invatăDinReal, crediteDinCost, fmtEstimare } from '../lib/aiCost';
 import { MathText } from './AITutor';
+import VerificationNote from './VerificationNote';
 
 const LITERE = 'abcdefghij';
 
@@ -76,7 +77,7 @@ export default function VariantGenerator({
         });
         salvate.push({ source: 'personal', refId: id, title, isFree: true, questions: v.questions });
       }
-      setRezultat({ titlu, variante: salvate, itemi: qs.length });
+      setRezultat({ titlu, variante: salvate, itemi: qs.length, verificare: res.verification || null });
       onDone?.(salvate);
     } catch (e) {
       setErr(e.message); onError?.(e);
@@ -135,6 +136,9 @@ export default function VariantGenerator({
           <p style={{ fontSize: '.77rem', color: 'var(--text-muted)', margin: '0 0 8px' }}>
             Sunt deja bifate în bazinul testului pe grupă. Apasă „🔗 Creează linkul testului" mai jos.
           </p>
+          {/* verificarea privește testul din care s-au făcut variantele — deci
+              toate variantele deodată (aceleași probleme, altă ordine) */}
+          <VerificationNote report={rezultat.verificare} style={{ marginTop: 0, marginBottom: 8 }} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {rezultat.variante.map((v, i) => (
               <button key={v.refId || i} type="button" onClick={() => setVizibila(vizibila === i ? null : i)}

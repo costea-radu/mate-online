@@ -16,7 +16,28 @@
 // de AI_VERIFY_MAX_ITEMS și de un buget de timp (AI_VERIFY_TIME_MS).
 // =====================================================================
 const ai = require('./ai');
-const mathcheck = require('./mathcheck');
+// mathcheck cere `mathjs`. Dacă pachetul lipsește sau e instalat pe jumătate,
+// un `require` simplu ar arunca la ÎNCĂRCAREA modulului — și, cum apelantul
+// (meditatii.js → verifyQuestionSet) cere modulul acesta necondiționat,
+// generarea întreagă ar cădea cu 500 din cauza unei dependințe folosite doar
+// la itemii cu răspuns liber. Îl cerem apărat: fără el, grilele (majoritatea)
+// se verifică mai departe pe literă, iar răspunsurile libere se compară ca text.
+let mathcheck = null;
+let MATHCHECK_ERROR = null;
+try {
+  mathcheck = require('./mathcheck');
+} catch (e) {
+  MATHCHECK_ERROR = e.message;
+  console.warn(`verify: mathcheck indisponibil (${e.message}) — răspunsurile libere se compară ca text. Rulează „npm install".`);
+}
+// comparație de rezervă, când mathjs lipsește: text normalizat
+const echivalent = (a, b) => {
+  if (mathcheck) return mathcheck.answersEquivalent(a, b);
+  const n = (x) => String(x ?? '').replace(/\s+/g, '').replace(',', '.').toLowerCase();
+  const A = n(a), B = n(b);
+  if (!A || !B) return null;
+  return A === B ? true : null;   // diferit ca text ≠ sigur greșit → nu pedepsim
+};
 
 const VERIFY_MODEL = process.env.AI_VERIFY_MODEL || ai.GEN_MODEL;
 const MAX_ITEMS = parseInt(process.env.AI_VERIFY_MAX_ITEMS || '24', 10);
@@ -89,7 +110,7 @@ async function verifyItem(it, { model = VERIFY_MODEL } = {}) {
       const claimed = it.answer != null && String(it.answer).trim() ? String(it.answer) : (it.solutionAnswer || null);
       if (!claimed || /demonstra/i.test(String(data.final_answer || ''))) res.agree = null;
       else {
-        const eq = mathcheck.answersEquivalent(data.final_answer, claimed);
+        const eq = echivalent(data.final_answer, claimed);
         res.agree = eq === true ? true : eq === false && data.confidence !== 'low' ? false : null;
       }
     }
@@ -121,4 +142,4 @@ async function verifyItems(items, { model = VERIFY_MODEL, maxItems = MAX_ITEMS, 
   return { results, usage, checked: results.filter((r) => r && !r.skipped).length, skipped };
 }
 
-module.exports = { verifyItem, verifyItems, claimedLetter, itemPrompt, ENABLED, VERIFY_MODEL, MAX_ITEMS };
+module.exports = { verifyItem, verifyItems, claimedLetter, itemPrompt, ENABLED, VERIFY_MODEL, MAX_ITEMS, MATHCHECK_ERROR };

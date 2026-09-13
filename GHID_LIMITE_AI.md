@@ -538,3 +538,46 @@ pornit sau oprit, material încărcat — fără să umble nimeni prin cod.
 Conturile de admin sunt scutite de bugete (`isBudgetExempt`), iar sub estimare
 le scrie asta, ca cifra să nu deruteze.
 
+## Verificatorul chiar rulează? (cum se vede)
+
+Verificatorul independent (`api/_lib/verify.js`) putea să nu ruleze **fără să
+lase nicio urmă**: testul ieșea la fel de frumos, doar că nimeni nu-i mai
+controlase cheile. Trei cauze arătau identic — oprit din `AI_VERIFY_GEN=0`,
+apelurile căzute (model greșit, cheie, timeout) sau modulul care nu se încarcă
+(o dependință lipsă). Acum fiecare se vede:
+
+| Unde | Ce arată |
+|---|---|
+| **În pagină**, sub testul generat | „🔎 Verificat: N itemi rezolvați încă o dată, independent (model) — toate răspunsurile confirmate" sau „⚠️ Testul NU a fost verificat … Motivul: …" (`src/components/VerificationNote.jsx`) |
+| **În răspunsul API** | `verification.ran` (a lucrat sau nu), `verification.notRun` (de ce nu), `verification.failed` (apeluri căzute), `verification.model` |
+| **În logurile Vercel** | `verifyQuestionSet(<endpoint>): verificatorul NU a rulat — <motiv>` |
+| **În `ai_usage`** | rândul `…:verify`. **Lipsa lui = verificatorul nu a consumat nimic**, deci nu a rulat |
+
+Două lucruri s-au înăsprit în cod:
+
+- **apelurile eșuate nu mai trec drept „verificate".** `report.checked` număra și
+  itemii la care apelul crăpase — de aici tăcerea. Acum sunt numărați separat
+  (`failed`), iar „a rulat, dar cu 0 tokeni consumați" e tratat explicit drept
+  eșec;
+- **verificatorul nu mai poate dărâma generarea.** `mathcheck` (deci `mathjs`)
+  se încarcă apărat, iar `verifyQuestionSet` cere modulul într-un `try`: fără
+  `mathjs`, grilele se verifică mai departe pe literă, răspunsurile libere se
+  compară ca text, iar testul pleacă cu avertisment — înainte, o dependință
+  lipsă însemna 500 pe toată generarea.
+
+Dacă generările au reușit sau au căzut chiar după logarea consumului:
+
+```sql
+select u.created_at as generare,
+       round(u.cost_micro/10000.0) as credite,
+       (select count(*) from public.ai_personal_items p
+         where p.user_id = u.user_id
+           and p.created_at between u.created_at and u.created_at + interval '3 minutes') as ajuns_in_biblioteca
+from public.ai_usage u
+where u.endpoint = 'ai-generate-interactive'
+  and u.created_at > now() - interval '90 days'
+order by u.created_at desc;
+```
+
+`ajuns_in_biblioteca = 1` → generarea a reușit (deci verificatorul a fost sărit
+sau a eșuat tăcut); `0` → generarea a căzut DUPĂ logarea consumului.

@@ -4,6 +4,102 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 13 septembrie 2026 — Combinarea testelor pe rubrică: se schimbau doar primele 6 exerciții
+
+Task-ul agentului care „combină exercițiile din testele 1–32 din rubrică" scotea,
+rulare după rulare, aproape același test: se schimbau cele ~6 exerciții ale
+Subiectului I, iar Subiectele II și III ieșeau identice cu ale unui test existent.
+Cauzele, toate în `api/_lib/exgen.js` (combinarea rubricilor interactive):
+
+1. **Ajungeau la model doar 5 teste din 32**, fiecare tăiat la 6000 de caractere
+   de text — adică, la un test de 18 itemi, cam până la jumătatea Subiectului II.
+   Subiectul III al surselor nu ajungea niciodată la model.
+2. **Planul de combinare avea doar 8 poziții**, la un test cu 18 itemi. Pentru
+   pozițiile 9–18 modelul nu primea nicio instrucțiune, iar regula „același număr
+   de itemi și aceeași structură ca șablonul" îl trimitea direct la itemii
+   șablonului, pe care îi copia.
+3. **Planul cerea mereu itemii 1–5** ai testului-sursă (`1 + random*5`), deci
+   itemii de la Subiectele II și III ale surselor nu erau ceruți niciodată.
+4. **La Evaluare Națională, itemii cu figură erau explicit înghețați** („itemii cu
+   figură rămân cei ai șablonului"), pentru că figurile se restaurau din șablon pe
+   poziții. Cum tot Subiectul II e geometrie cu desen, tot subiectul rămânea al
+   șablonului.
+5. **Șablonul era unul din testele rubricii**, deci itemii necombinați erau copia
+   lui caracter cu caracter.
+6. **Amestecarea surselor era `sort(() => Math.random() - 0.5)`**, care nu e o
+   permutare uniformă: rulările succesive porneau de la aproape aceleași teste.
+
+### Ce s-a schimbat
+
+**1. Banca de itemi (construită pe server).** Fiecare test al rubricii e spart în
+itemi, grupați pe Subiectul I/II/III: card-urile `<div class="card">` se extrag cu
+scanare echilibrată de `<div>`, iar array-urile de itemi din `<script>`
+(`var EX1 = [...]`) cu un scanner care respectă ghilimelele și template literals.
+Subiectul unui array se ia din cifra din nume (`EX1` → primul subiect), pentru că
+scripturile stau la finalul fișierului, după toate titlurile de secțiune.
+
+Serverul trage apoi la sorți exact câți itemi cere șablonul din FIECARE subiect,
+**rotind între testele-sursă** — 6 itemi la Subiectul I vin din 6 teste diferite —
+și trimite modelului DOAR acei itemi, nu testele întregi. Sarcina modelului devine
+„schimbă numerele și notațiile și asamblează", nu „caută printre 5 teste".
+
+Efect secundar bun: promptul e mai mic (bancă de ~9k caractere în loc de 5 × 6000
+de caractere de text brut) și niciun SVG nu mai pleacă spre model.
+
+**2. Figura călătorește cu itemul.** În textul itemului desenul e înlocuit cu
+marcajul `<!--FIG:k-->` (aceeași idee ca `<!--TPL:N-->` pentru blocurile
+`<style>`/`<script>`), iar serverul reinserează după generare SVG-ul original **al
+itemului**, nu pe cel al șablonului de pe aceeași poziție. Așa Subiectul II se
+schimbă la fiecare rulare, iar enunțul și desenul rămân consistente, fiindcă vin
+din același test-sursă.
+
+Modelul poate cere redenumirea punctelor direct în marcaj —
+`<!--FIG:7 A>M,B>N,C>P-->` — și serverul redenumește etichetele `<text>` din SVG,
+fără să atingă liniile sau proporțiile. La itemii cu figură valorile numerice
+rămân cele ale sursei (altfel desenul ar contrazice enunțul); la cei fără figură
+se schimbă și numerele.
+
+**3. Trei gărzi noi, ca să nu se mai publice tacit un test-copie.**
+
+| Garda | Ce prinde |
+|---|---|
+| `assertRenewedItems` | enunțuri rămase identice cu ale șablonului (peste o treime) — exact bugul raportat, inclusiv cazul în care modelul lasă blocul `<script>` cu itemii ca marcaj gol `data-tpl` și serverul reinserează itemii VECHI |
+| `assertAnswerSpread` | toate cheile grilei pe aceeași literă (cererea „răspunsul corect să nu fie doar la a)") |
+| `assertCompleteHtml` | (exista deja) document trunchiat, test fără itemi, secțiuni lipsă |
+
+Enunțurile care vin din bancă nu se numără la prima gardă: rubrica are teste
+asemănătoare, deci un enunț identic cu al șablonului e legitim dacă e chiar itemul
+tras la sorți.
+
+**4. Titlul.** Regulă explicită în prompt: în `<title>` și în antet se scrie
+„Test N · Evaluare Națională”, iar subtitlul NU mai enumeră subiectele
+(„Subiectul I & Subiectul II” din șablon) — scrie numărul de exerciții, punctajul
+și timpul. Titlul din `<title>` e și cel cu care rularea se salvează în istoric și
+pe site.
+
+**5. Calea de rezervă, tot reparată.** Când itemii nu pot fi extrași (rubrică cu
+teste în alt format, fără titluri de secțiune identificabile), se folosește
+combinarea clasică — dar acum cu 14 teste-sursă în loc de 5, 9000 de caractere
+fiecare în loc de 6000, plan care acoperă TOȚI itemii șablonului în loc de 8, și
+fără restricția „itemul nr. 1–5”. Amestecarea e Fisher–Yates.
+
+**6. Fișierele rubricii se descarcă o singură dată** (cache partajat între
+alegerea șablonului și banca de itemi) și în paralel, câte 6 — la 32 de teste,
+26 de descărcări în loc de până la 56.
+
+### Verificat
+
+Cu 32 de teste sintetice în rubrică, fiecare cu itemii marcați cu numărul testului:
+banca scoate 12 itemi din 9–12 teste diferite, 0 marcaje `TPL`/`FIG` rămase în
+rezultat, cele 6 figuri restaurate sunt cele ale itemilor (nu ale șablonului),
+redenumirea punctelor funcționează, iar instrumentele de desen și `MATE_SCORE` sunt
+neatinse. Gărzile: testul-copie integral e prins (10/10 enunțuri identice), cazul
+raportat „doar Subiectul I schimbat" e prins (7/11), iar un test cu toți itemii
+schimbați trece. Celelalte moduri nu regresează: `exam` (JSON), `format` cu HTML,
+rubrici PDF → JSON și → interactiv, modul „pe rând".
+
+---
+
 ## 6 septembrie 2026 — Avertizarea creditelor AI pe praguri, cu ieșire din fundătură
 
 Pornind de la un cont de TEST de elev care rămăsese fără credite în mijlocul
