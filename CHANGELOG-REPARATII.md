@@ -98,6 +98,48 @@ raportat „doar Subiectul I schimbat" e prins (7/11), iar un test cu toți item
 schimbați trece. Celelalte moduri nu regresează: `exam` (JSON), `format` cu HTML,
 rubrici PDF → JSON și → interactiv, modul „pe rând".
 
+### Corecții după prima rulare
+
+**Exercițiile se amestecaseră între poziții.** La Subiectul II exercițiul 3 puteau
+apărea tipurile 1, 2 sau 4–6, pentru că tragerea la sorți lua orice item al
+subiectului. La Evaluare Națională însă **poziția fixează tipul** — exercițiul 3 de
+la Subiectul II e același tip de problemă în toate testele. `drawItemsByPosition`
+trage acum, pentru fiecare poziție, dintre exercițiile de pe ACEEAȘI poziție ale
+testelor-sursă: exercițiul 3 al testului nou ← dintre exercițiile 3 de la Subiectul
+II. Sursele se rotesc la fel ca înainte, deci cele 6 exerciții ale unui subiect vin
+tot din 6 teste diferite. Dacă un test-sursă are mai puține exerciții la subiectul
+respectiv, se ia cea mai apropiată poziție existentă. Planul trimis modelului scrie
+explicit proveniența („exercițiul 3 ← exercițiul 3 de la Subiectul II din «Test
+7»"), iar o regulă nouă îi interzice să mute itemii între poziții.
+
+**Notațiile de pe desen urmează notațiile din enunț.** Până acum desenul se
+redenumea doar dacă modelul declara corespondența în marcaj, iar când uita, enunțul
+avea M,N,P,Q și desenul rămânea cu A,B,C,D. Acum:
+
+- fiecare figură ține minte **enunțul original** al itemului din care a venit
+  (`pullFigures` → `figs[k].statement`);
+- la reinserare, `labelMapFromStatements` compară literele-punct ale enunțului
+  original cu cele ale enunțului nou scris de model, în ordinea apariției, și deduce
+  corespondența: „A,B,C,D coliniare" → „M,N,P,Q coliniare" dă A→M, B→N, C→P, D→Q;
+- „literă-punct" = majusculă care nu face parte dintr-un cuvânt (nu e urmată de
+  literă mică, deci „Fie" și „Lungimea" nu intră) — și se păstrează doar literele
+  care apar chiar pe desen (`svgLabels`);
+- declarația explicită a modelului (`<!--FIG:7 A>M,B>N-->`) se **combină** cu ce s-a
+  dedus și are ultimul cuvânt, deci o declarație parțială nu mai anulează restul;
+- redenumirea e simultană (merg și interschimbările A↔B) și atinge **numai**
+  etichetele `<text>`: liniile, coordonatele, proporțiile și numerele scrise pe
+  desen rămân neatinse;
+- dacă numărul de puncte nu se potrivește, nu se ghicește nimic — desenul rămâne
+  cum era.
+
+Promptul cere de acum declarația în marcaj de fiecare dată când se schimbă o
+notație la un item cu figură, iar deducerea automată e plasa de siguranță.
+
+Verificat: exercițiul k vine de pe poziția k în toate rulările, din 6 teste
+diferite; redenumirea merge fără declarație, cu declarație completă și cu
+declarație parțială; fără schimbare de notație sau cu alt număr de puncte desenul
+rămâne neatins; geometria și „3 cm" de pe figură nu se ating niciodată.
+
 ---
 
 ## 6 septembrie 2026 — Avertizarea creditelor AI pe praguri, cu ieșire din fundătură

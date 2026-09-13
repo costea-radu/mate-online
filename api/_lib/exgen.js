@@ -885,33 +885,112 @@ function extractArrayItems(html) {
 // caractere); o pictogramă decorativă din enunț nu trebuie să blocheze itemul.
 function pullFigures(fragment, figs) {
   let hasFig = false;
+  const idx = [];
   const text = String(fragment || '').replace(/<svg[\s\S]*?<\/svg>|<canvas\b[\s\S]*?<\/canvas>/gi, (m) => {
     const k = figs.length;
-    figs.push(m);
+    figs.push({ svg: m, statement: '' });
+    idx.push(k);
     if (m.length > 300 || /^<canvas/i.test(m)) hasFig = true;
     return `<!--FIG:${k}-->`;
   });
+  // enunțul ORIGINAL al itemului se ține lângă figură: la reinserare, literele
+  // punctelor din desen se aliniază la literele din enunțul NOU (vezi figRestore)
+  if (idx.length) {
+    const st = itemStatements(text)[0] || '';
+    idx.forEach((k) => { figs[k].statement = st; });
+  }
   return { text, hasFig };
 }
 
-// Reinserează figurile la marcaje, după generare. Modelul poate cere
-// REDENUMIREA punctelor: <!--FIG:4 A>M,B>N--> → în SVG etichetele-text „A”/„B”
-// devin „M”/„N”, iar geometria (liniile, proporțiile) rămâne neatinsă.
+// ─── ETICHETELE PUNCTELOR ────────────────────────────────────────────────────
+// „Punct” = literă mare care NU face parte dintr-un cuvânt: nu e urmată de o
+// literă mică (deci „Fie”, „Lungimea” nu intră) și nu e precedată de una. O
+// literă mare poate fi precedată de altă literă mare, ca să prindem „ABCD”
+// întreg, nu doar „A”. Ordinea = ordinea primei apariții în enunț.
+const RO_LOW = 'a-zăâîșțáéíóúàèçöü';
+const RO_UP = 'A-ZĂÂÎȘȚ';
+const POINT_RE = new RegExp(`(?<![${RO_LOW}])([${RO_UP}])(?![${RO_LOW}])`, 'g');
+function pointLabels(text) {
+  const s = String(text || '').replace(/<[^>]+>/g, ' ');
+  const out = [];
+  let m;
+  POINT_RE.lastIndex = 0;
+  while ((m = POINT_RE.exec(s))) if (!out.includes(m[1])) out.push(m[1]);
+  return out;
+}
+
+// Etichetele-text chiar din desen (literele scrise pe figură)
+function svgLabels(svg) {
+  const out = new Set();
+  const re = /<text\b[^>]*>([\s\S]*?)<\/text\s*>/gi;
+  let m;
+  while ((m = re.exec(String(svg || '')))) {
+    const t = m[1].replace(/<[^>]+>/g, '').trim();
+    if (/^[A-ZĂÂÎȘȚ]['’]?[0-9]?$/.test(t)) out.add(t);
+  }
+  return out;
+}
+
+// Redenumirea punctelor din desen, dedusă din schimbarea notațiilor în enunț:
+// literele-punct ale enunțului ORIGINAL (păstrate doar cele care apar chiar pe
+// desen) se pun în corespondență, în ordinea apariției, cu literele-punct ale
+// enunțului NOU. „A,B,C,D coliniare” → „M,N,P,Q coliniare” dă A→M, B→N, C→P, D→Q.
+// Dacă numărul de puncte nu se potrivește, nu ghicim: desenul rămâne neatins.
+function labelMapFromStatements(oldSt, newSt, svg) {
+  const onFig = svgLabels(svg);
+  if (!onFig.size) return null;
+  const oldL = pointLabels(oldSt).filter((x) => onFig.has(x));
+  if (!oldL.length) return null;
+  const newL = pointLabels(newSt);
+  if (newL.length !== oldL.length) return null;
+  const map = new Map();
+  oldL.forEach((o, i) => { if (newL[i] && newL[i] !== o) map.set(o, newL[i]); });
+  return map.size ? map : null;
+}
+
+// Aplică o redenumire pe etichetele desenului. Înlocuirea e SIMULTANĂ (fiecare
+// etichetă se caută o dată în hartă), deci și interschimbările A↔B merg;
+// liniile, coordonatele și proporțiile nu se ating niciodată.
+function renameSvgLabels(svg, map) {
+  return String(svg).replace(/(<text\b[^>]*>)([\s\S]*?)(<\/text\s*>)/gi, (t, o, body, c) => {
+    const k = body.replace(/<[^>]+>/g, '').trim();
+    return map.has(k) ? `${o}${map.get(k)}${c}` : t;
+  });
+}
+
+// Reinserează figurile la marcaje, după generare.
+// Notațiile din desen urmează notațiile din enunț, în două feluri:
+//  1. modelul o cere explicit în marcaj: <!--FIG:4 A>M,B>N-->;
+//  2. altfel serverul deduce singur corespondența, comparând literele-punct ale
+//     enunțului original cu cele ale enunțului nou scris de model.
+// Geometria desenului rămâne în ambele cazuri neatinsă.
 function figRestore(html, figs) {
   let out = String(html || '');
-  out = out.replace(/<!--\s*FIG:(\d+)([\s\S]{0,200}?)-->/g, (m, num, extra) => {
-    const svg = (figs || [])[Number(num)];
-    if (svg === undefined) return '';
-    const map = new Map();
+  out = out.replace(/<!--\s*FIG:(\d+)([\s\S]{0,200}?)-->/g, (m, num, extra, offset, whole) => {
+    const rec = (figs || [])[Number(num)];
+    if (!rec) return '';
+    const svg = typeof rec === 'string' ? rec : rec.svg;
+    // 1) redenumirea declarată de model
+    const declared = new Map();
     String(extra || '').split(/[,;]+/).forEach((p) => {
-      const mm = p.trim().match(/^([A-Za-z][A-Za-z0-9'’]{0,2})\s*(?:->|=>|>|=|→)\s*([A-Za-z][A-Za-z0-9'’]{0,2})$/);
-      if (mm) map.set(mm[1], mm[2]);
+      const mm = p.trim().match(/^([A-Za-zĂÂÎȘȚ]['’]?[0-9]?)\s*(?:->|=>|>|=|→)\s*([A-Za-zĂÂÎȘȚ]['’]?[0-9]?)$/);
+      if (mm && mm[1] !== mm[2]) declared.set(mm[1], mm[2]);
     });
-    if (!map.size) return svg;
-    return svg.replace(/(<text\b[^>]*>)([\s\S]*?)(<\/text\s*>)/gi, (t, o, body, c) => {
-      const k = body.trim();
-      return map.has(k) ? `${o}${map.get(k)}${c}` : t;
-    });
+    // 2) dedusă din enunțul nou de dinaintea marcajului
+    const oldSt = typeof rec === 'string' ? '' : rec.statement;
+    let derived = null;
+    if (oldSt) {
+      const before = whole.slice(Math.max(0, offset - 1500), offset);
+      const found = itemStatements(before);
+      const newSt = found.length ? found[found.length - 1] : before.replace(/<[^>]+>/g, ' ').slice(-240);
+      derived = labelMapFromStatements(oldSt, newSt, svg);
+    }
+    // cele două se COMPLETEAZĂ: pornim de la ce am dedus și lăsăm declarația
+    // modelului să aibă ultimul cuvânt (o declarație parțială nu mai anulează
+    // redenumirile pe care le-a făcut în enunț fără să le declare)
+    const map = new Map(derived || []);
+    declared.forEach((v, k) => map.set(k, v));
+    return map.size ? renameSvgLabels(svg, map) : svg;
   });
   // marcaje rămase (numere inexistente / inventate de model) — le curățăm
   return out.replace(/<!--\s*FIG:[\s\S]{0,200}?-->/g, '');
@@ -999,22 +1078,36 @@ async function buildItemPool({ supa, rows, maxSources = 24, excludeId = null, al
   return { figs, perSource };
 }
 
-// Trage la sorți `need` itemi din subiectul `sec`, ROTIND între testele-sursă:
-// itemii consecutivi vin din teste diferite, deci un test combinat chiar
-// adună exerciții din multe teste ale rubricii, nu din două-trei.
-function drawItems(perSource, sec, need) {
-  const pools = shuffle(perSource
-    .map((s) => ({ title: s.title, items: shuffle(s.buckets[sec] || []) }))
+// Trage la sorți itemii unui subiect, POZIȚIE CU POZIȚIE: la Evaluare Națională
+// poziția fixează TIPUL exercițiului (exercițiul 3 de la Subiectul II e mereu
+// același tip de problemă în toate testele), deci exercițiul 3 al testului nou
+// se ia dintre exercițiile 3 de la Subiectul II ale testelor-sursă — nu dintre
+// toate exercițiile subiectului, cum se întâmpla înainte (de acolo veneau
+// „tipurile amestecate”).
+// Sursele se rotesc: fiecare poziție preferă un test care n-a mai fost folosit,
+// deci cele 6 exerciții ale unui subiect vin din 6 teste diferite.
+function drawItemsByPosition(perSource, sec, need) {
+  const lists = shuffle(perSource
+    .map((s) => ({ title: s.title, items: s.buckets[sec] || [] }))
     .filter((s) => s.items.length));
+  const maxLen = lists.reduce((n, s) => Math.max(n, s.items.length), 0);
+  const used = new Map(); // titlu → de câte ori a fost folosit testul
   const out = [];
-  let guard = 0;
-  while (out.length < need && pools.length && guard++ < need * 40 + 40) {
-    for (const p of pools) {
-      if (out.length >= need) break;
-      const it = p.items.pop();
-      if (it) out.push({ ...it, src: p.title });
+  for (let p = 0; p < need; p++) {
+    // sursele care au un exercițiu EXACT pe poziția p a subiectului
+    let idx = p;
+    let cand = lists.filter((s) => s.items[idx]);
+    if (!cand.length && maxLen) {
+      // niciun test-sursă nu are atâtea exerciții la subiectul ăsta → cea mai
+      // apropiată poziție existentă (mai bine tipul vecin decât un item lipsă)
+      idx = Math.min(p, maxLen - 1);
+      cand = lists.filter((s) => s.items[idx]);
     }
-    for (let k = pools.length - 1; k >= 0; k--) if (!pools[k].items.length) pools.splice(k, 1);
+    if (!cand.length) break;
+    const min = cand.reduce((n, s) => Math.min(n, used.get(s.title) || 0), Infinity);
+    const pick = shuffle(cand.filter((s) => (used.get(s.title) || 0) === min))[0];
+    used.set(pick.title, (used.get(pick.title) || 0) + 1);
+    out.push({ ...pick.items[idx], src: pick.title, pos: idx + 1 });
   }
   return out;
 }
@@ -1479,7 +1572,7 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "ou
       drawn = {};
       let full = true;
       for (const sec of tplSplit.order) {
-        drawn[sec] = drawItems(pool.perSource, sec, needBySec[sec]);
+        drawn[sec] = drawItemsByPosition(pool.perSource, sec, needBySec[sec]);
         if (drawn[sec].length < needBySec[sec]) full = false;
       }
       if (!full) { drawn = null; pool = null; } // cădere pe combinarea clasică
@@ -1506,11 +1599,12 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "ou
       lines.push(`SUBIECTUL ${sec} — ${drawn[sec].length} itemi, EXACT în ordinea asta:`);
       drawn[sec].forEach((it, i) => {
         const id = `${sec}.${i + 1}`;
-        lines.push(`  ${i + 1}. ITEM ${id} — din „${it.src}”${it.hasFig ? ' · ARE FIGURĂ' : ''}`);
+        const from = `exercițiul ${it.pos || i + 1} de la Subiectul ${sec} din „${it.src}”`;
+        lines.push(`  exercițiul ${i + 1} ← ITEM ${id} = ${from}${it.hasFig ? ' · ARE FIGURĂ' : ''}`);
         const form = it.form === 'obj'
           ? `obiect JS pentru array-ul ${it.array}`
           : it.form === 'card' ? 'bloc HTML <div class="card">' : 'item JSON';
-        itemBlocks.push(`=== ITEM ${id} · din „${it.src}” · Subiectul ${sec} · ${form} ===\n${it.text}`);
+        itemBlocks.push(`=== ITEM ${id} · ${from} · pe poziția ${i + 1} a Subiectului ${sec} · ${form} ===\n${it.text}`);
       });
     }
     planI = lines.join('\n');
@@ -1531,7 +1625,9 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "ou
     ? `${NO_FIG_RULE.slice(1)} Itemii care aveau figură se ÎNLOCUIESC cu itemi fără figură (enunț complet, cu toate datele în text);`
     : usePool
       ? `- FIGURILE vin CU ITEMUL: în itemii marcați „ARE FIGURĂ” desenul e deja înlocuit cu marcajul <!--FIG:k-->. PĂSTREAZĂ marcajul EXACT așa, la locul lui (ex. <div class="fig"><!--FIG:7--></div>) — NU scrii SVG, NU desenezi, NU descrii figura: serverul reinserează desenul original al itemului;
-- la itemii CU FIGURĂ, VALORILE NUMERICE rămân cele din item (altfel desenul ar contrazice enunțul); ai voie însă să REDENUMEȘTI PUNCTELE, declarând schimbarea în marcaj: <!--FIG:7 A>M,B>N,C>P--> — serverul redenumește atunci și etichetele din desen. Literele noi se folosesc consecvent în enunț, variante și rezolvare;
+- NOTAȚIILE DE PE DESEN SE SCHIMBĂ ODATĂ CU ENUNȚUL: redenumește liniștit punctele (A,B,C,D → M,N,P,Q) și DECLARĂ corespondența în marcaj — <!--FIG:7 A>M,B>N,C>P,D>Q--> — iar serverul rescrie etichetele din desen. Declarația e OBLIGATORIE de fiecare dată când schimbi o notație la un item cu figură (fără ea serverul încearcă să deducă singur corespondența din enunț și poate rata, iar desenul ar rămâne cu literele vechi). Folosește EXACT ATÂTEA puncte câte are itemul original și în aceeași ordine de apariție în enunț;
+- literele noi se folosesc consecvent în enunț, variante, rezolvare și barem;
+- la itemii CU FIGURĂ, VALORILE NUMERICE rămân cele din item (desenul păstrează proporțiile, deci alte numere l-ar contrazice): la ele schimbi DOAR notațiile;
 - la itemii FĂRĂ figură schimbi liber și numerele și notațiile;`
       : `- FIGURILE/DESENELE (SVG, canvas) NU SE MODIFICĂ DELOC — rămân EXACT cele din șablon, cu aceleași etichete și valori (oricum vor fi restaurate programatic din șablon, deci orice modificare a lor e inutilă și greșită);
 - itemii CU figură rămân cei ai șablonului: enunț, valori și notații consistente cu figura, cel mult mici reformulări care NU contrazic figura; combini din celelalte teste DOAR itemii FĂRĂ figură;`;
@@ -1545,6 +1641,7 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "ou
     ? `
 BANCA DE ITEMI (OBLIGATORIE): serverul a tras deja la sorți, din ${poolSources.length} teste DIFERITE ale rubricii, TOȚI cei ${Object.values(drawn).reduce((a, b) => a + b.length, 0)} itemi ai testului nou. Îi primești mai jos, fiecare cu id-ul lui.
 - FOLOSEȘTE EXACT acești itemi, în ordinea din plan, la subiectele indicate: nu păstra itemii șablonului, nu inventa alții, nu schimba ordinea, nu sări niciunul, nu adăuga în plus;
+- POZIȚIA FIXEAZĂ TIPUL: fiecare item a fost tras la sorți dintre exercițiile de pe ACEEAȘI poziție ale testelor rubricii (exercițiul 3 de la Subiectul II ← dintre exercițiile 3 de la Subiectul II). Păstrează itemul pe poziția lui din plan: nu-l muta pe altă poziție, nu-l rescrie ca alt tip de exercițiu și nu amesteca tipurile între poziții — la Subiectul ${tplSplit.order[0] || 'I'} exercițiul 1 trebuie să ceară același lucru ca exercițiile 1 din rubrică, exercițiul 2 ca exercițiile 2 și așa mai departe;
 - ȘABLONUL e doar CARCASA (design, CSS, JavaScript, instrumente de desen, bara de scor, structura pe subiecte): TOT conținutul itemilor vine din bancă;
 - SCHIMBĂ NUMERELE ȘI NOTAȚIILE fiecărui item — aceeași cerință, alte valori și alte litere — apoi RECALCULEAZĂ răspunsul corect și REscrie rezolvarea/baremul ca să corespundă noilor valori;
 - RĂSPUNSUL CORECT la grilă se distribuie între a), b), c) și d) (nu toate la a)), cu EXACT un răspuns corect pe item: reașază variantele, nu doar eticheta, și pune cheia (data-correct / "ok") pe litera care ajunge să conțină răspunsul;
@@ -1574,7 +1671,7 @@ Răspunde DOAR cu documentul HTML complet (de la <!doctype html> la </html>), f�
   blocksI.push(...ctx.docBlocks);
   const figNote = usePool && allowFig ? ' Marcajele <!--FIG:k--> se copiază EXACT, nu se înlocuiesc cu SVG.' : '';
   const poolNote = usePool
-    ? ` REAMINTIRE: toți itemii vin din BANCA DE ITEMI, în ordinea din plan — niciun item al șablonului nu rămâne în rezultat.${figNote}`
+    ? ` REAMINTIRE: toți itemii vin din BANCA DE ITEMI, fiecare pe poziția lui din plan (poziția fixează tipul exercițiului) — niciun item al șablonului nu rămâne în rezultat.${figNote}`
     : '';
   blocksI.push({ type: 'text', text: `ȘABLONUL (${wantFormatHtml ? 'modelul de format' : 'formatul standard'}, cu blocurile <style>/<script> numerotate <!--TPL:N-->):\n${tplIA.annotated}\n\n${srcBlock}${ctx.textBlock}\n\nConstruiește ACUM testul nr. ${testNo} — doar documentul HTML. REAMINTIRE FINALĂ (economie de tokeni): blocurile <style>/<script> pe care NU le modifici = DOAR marcajele goale <style data-tpl=\"N\"></style> / <script data-tpl=\"N\"></script> — nu le rescrie; blocul cu DATELE itemilor se scrie complet.${poolNote}${String(autoInstr || '').trim() ? ` INSTRUCȚIUNILE ADMINULUI (prioritare${allowFig ? (usePool ? ', dar marcajele de figură se păstrează' : ', dar desenele tot NU se modifică') : ', dar tot FĂRĂ figuri'}): ${String(autoInstr).slice(0, 3000)}` : ''} Sesiune #${Math.random().toString(36).slice(2, 8)}.` });
   const rA = await chatClaudeLong({
