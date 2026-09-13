@@ -16,6 +16,8 @@
 //
 // Protocol postMessage:
 //  iframe → părinte: MATE_TUTOR_READY | MATE_TUTOR_STATE | MATE_TUTOR_OPEN
+//                    | MATE_WORKSPACE_OPEN (butonul „✍️ Spațiu de lucru" —
+//                      părintele deschide caietul digital peste exercițiu)
 //                    | MATE_RESET_REQ (butonul „Resetează" al testului e
 //                      defect → părintele reîncarcă exercițiul de la zero)
 //  părinte → iframe: MATE_TUTOR_STATE_REQ | MATE_TUTOR_ACTION | MATE_ANSWERS_REQ
@@ -223,12 +225,32 @@ const BRIDGE_SCRIPT = String.raw`
     b.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); focusCard = card || null; post('MATE_TUTOR_OPEN', collect()); });
     return b;
   }
+  // ── „✍️ Spațiu de lucru" — caietul digital (SpatiuDeLucru.jsx) ────
+  // Butonul trăiește în iframe, dar caietul se deschide în pagina-părinte:
+  // acolo sunt sesiunea, creditele AI și recunoașterea scrisului de mână.
+  var WORK_CSS = 'display:inline-flex;align-items:center;gap:6px;background:#eef4fb;border:1.5px solid #7fa6cf;color:#1a4d80;border-radius:8px;padding:6px 12px;font-family:inherit;font-weight:700;font-size:.78rem;cursor:pointer;';
+  function makeWorkBtn(card){
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('data-mt-work', '1');
+    b.innerHTML = '<span style="font-size:.95rem;line-height:1">\u270D\uFE0F</span><span>Spațiu de lucru</span>';
+    b.style.cssText = WORK_CSS;
+    b.title = 'Scrie rezolvarea cu degetul sau cu creionul — se transformă singură în text frumos';
+    b.addEventListener('click', function(ev){
+      ev.preventDefault(); ev.stopPropagation();
+      focusCard = card || null;
+      post('MATE_WORKSPACE_OPEN', collect());
+    });
+    return b;
+  }
+
   function ensureStepHelpers(){
     // pe cardul activ al pasului curent (dacă nu există deja butonul de indicii rescris)
     document.querySelectorAll('.acard').forEach(function(card){
       if (card.querySelector('[data-mt-step]') || card.querySelector('[data-mt-done]')) return;
       var host = card.querySelector('.acts') || card;
       host.appendChild(makeHelpBtn());
+      host.appendChild(makeWorkBtn(card));
     });
     // exercițiile-grilă (Subiectul I & II): butonul „Ajutor" pe FIECARE card,
     // exact ca la pașii de la Subiectul al III-lea.
@@ -237,19 +259,27 @@ const BRIDGE_SCRIPT = String.raw`
       if (card.querySelector('[data-mt-step]') || card.querySelector('[data-mt-done]')) return;
       var row = document.createElement('div');
       row.setAttribute('data-mt-row', '1');
-      row.style.cssText = 'padding:0 18px 14px;';
+      row.style.cssText = 'padding:0 18px 14px;display:flex;gap:8px;flex-wrap:wrap;';
       row.appendChild(makeHelpBtn(card));
+      row.appendChild(makeWorkBtn(card));
       card.appendChild(row);
     });
     // exerciții pe alt șablon (fără .acard / fără buton de indicii): pastilă fixă jos-stânga
     var structured = document.querySelector('.acard') || document.querySelector('[data-mt-done]') || document.querySelector('.card [data-mt-step]');
     var pill = document.getElementById('mtHelpPill');
-    if (structured) { if (pill) pill.remove(); return; }
+    var wpill = document.getElementById('mtWorkPill');
+    if (structured) { if (pill) pill.remove(); if (wpill) wpill.remove(); return; }
     if (!pill && document.body) {
       pill = makeHelpBtn();
       pill.id = 'mtHelpPill';
       pill.style.cssText = BTN_CSS + 'position:fixed;left:14px;bottom:14px;z-index:99999;box-shadow:0 4px 14px rgba(0,0,0,.18);';
       document.body.appendChild(pill);
+    }
+    if (!wpill && document.body) {
+      wpill = makeWorkBtn();
+      wpill.id = 'mtWorkPill';
+      wpill.style.cssText = WORK_CSS + 'position:fixed;left:14px;bottom:56px;z-index:99999;box-shadow:0 4px 14px rgba(0,0,0,.18);';
+      document.body.appendChild(wpill);
     }
   }
 

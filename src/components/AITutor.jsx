@@ -17,6 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { askAiLabel } from '../lib/aiLabel';
 import { ensureKatex, renderMath, autoMath } from '../lib/katex';
 import { fileToCompressedDataUrl } from '../lib/image';
+import SpatiuDeLucru from './SpatiuDeLucru';
 import { speechRecognitionSupported, startDictation, recordAudio, blobToBase64, ttsSupported, stopSpeaking, playAnswer, sentencesOf, unlockSpeech, ttsProblem } from '../lib/voice';
 import { extractTutorActions } from '../lib/tutorBridge';
 import { renderFigure, extractFigureMarkers } from '../lib/figureRender'; // figuri desenate în chat (Etapa 3)
@@ -378,6 +379,12 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   const [formLoading, setFormLoading] = useState(false);
   const [grading, setGrading] = useState(false);
   const formStartRef = useRef(null);
+
+  // ── „✍️ Spațiu de lucru" — caietul digital (SpatiuDeLucru.jsx) ────────────
+  // Se deschide din două locuri: bara de scris (textul recunoscut ajunge în
+  // câmpul de întrebare) și fiecare cerință a formularului de răspuns (textul
+  // ajunge în câmpul acelei cerințe). `work` spune unde se întoarce rezultatul.
+  const [work, setWork] = useState(null);   // null | { target: 'input' | <id cerință>, eticheta }
 
   // textul testului „citibil" din PDF-ul deschis (nu mesajul de avertizare)
   const pdfTextOk = !!(context.pdf && context.pdfReadable !== false && (context.exerciseText || '').trim().length > 80);
@@ -1218,6 +1225,13 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                         rows={2} placeholder="Răspunsul / rezolvarea ta…"
                         style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 9px', fontSize: 16, fontFamily: 'var(--font-body)', resize: 'vertical', background: '#fbfcfe' }}
                       />
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
+                        <button onClick={() => setWork({ target: s.id, eticheta: `${it.eticheta} ${s.eticheta}`, cerinta: s.cerinta || it.cerinta || '' })}
+                          style={{ ...miniBtn, fontSize: '.72rem', padding: '3px 8px', borderColor: '#7fa6cf', color: '#1a4d80' }}
+                          title="Scrie rezolvarea de mână — se transformă în text și intră aici">
+                          ✍️ Spațiu de lucru
+                        </button>
+                      </div>
                     </div>
                   ))
                 ) : (
@@ -1227,6 +1241,15 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                     rows={2} placeholder="Răspunsul / rezolvarea ta…"
                     style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 9px', fontSize: 16, fontFamily: 'var(--font-body)', resize: 'vertical', background: '#fbfcfe' }}
                   />
+                )}
+                {!it.subpuncte?.length && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
+                    <button onClick={() => setWork({ target: it.id, eticheta: it.eticheta, cerinta: it.cerinta || '' })}
+                      style={{ ...miniBtn, fontSize: '.72rem', padding: '3px 8px', borderColor: '#7fa6cf', color: '#1a4d80' }}
+                      title="Scrie rezolvarea de mână — se transformă în text și intră aici">
+                      ✍️ Spațiu de lucru
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
@@ -1327,6 +1350,11 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           style={{ background: listening ? 'var(--gold)' : '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '0 12px', fontSize: '1.1rem', cursor: 'pointer' }}>
           {listening ? '⏺️' : '🎤'}
         </button>
+        {/* ✍️ Caietul digital: scrii cu degetul, iese text frumos în câmpul de mai jos */}
+        <button onClick={() => setWork({ target: 'input' })} title="Scrie de mână — se transformă în text frumos"
+          style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '0 12px', fontSize: '1.1rem', cursor: 'pointer' }}>
+          ✍️
+        </button>
         <input
           ref={inputRef}
           value={input}
@@ -1360,6 +1388,34 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       {/* Modelele AI + „AI-ul poate greși" — o linie minusculă sub câmpul de scris
           (textele vin din src/lib/aiModels.js → AI_STACK) */}
       {!testActiv && <AIPoweredBy variant="disclaimer" />}
+
+      {/* ✍️ Caietul digital. Textul recunoscut se întoarce ori în câmpul de
+          întrebare (deschis din bara de scris), ori în cerința din formularul
+          de răspuns de unde a fost deschis. */}
+      <SpatiuDeLucru
+        open={!!work}
+        onClose={() => setWork(null)}
+        title={work && work.eticheta
+          ? `${work.eticheta} · ${form ? (form.title || form.src.title) : ''}`
+          : (context.title || 'Scrie rezolvarea')}
+        hint={work && work.cerinta
+          ? String(work.cerinta)
+          : String(attached || context.exerciseText || '').slice(0, 700)}
+        storageKey={work ? `chat:${form?.src?.contentId || context.contentId || 'liber'}:${work.target}` : null}
+        insertLabel={work && work.target === 'input' ? '✓ Pune în întrebare' : '✓ Pune în răspuns'}
+        onInsert={(text) => {
+          if (!work) return;
+          if (work.target === 'input') {
+            setInput((v) => (v ? v + ' ' : '') + text.replace(/\n+/g, ' ').trim());
+            setTimeout(() => inputRef.current?.focus(), 30);
+          } else {
+            setFormAnswers((a) => ({ ...a, [work.target]: [a[work.target], text].filter(Boolean).join('\n') }));
+          }
+        }}
+        onCorect={testActiv || (work && work.target !== 'input') ? null : (text) => {
+          send(`Am scris rezolvarea de mână în spațiul de lucru. Verific-o pas cu pas, spune-mi unde greșesc și ce lipsește:\n\n${text}`);
+        }}
+      />
     </>
   );
 

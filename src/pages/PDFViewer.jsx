@@ -7,6 +7,7 @@ import { ChatPanel, TutorFab } from '../components/AITutor';
 import EinsteinIcon from '../components/EinsteinIcon';
 import { aiClient } from '../lib/aiClient';
 import TestModeBadge from '../components/TestModeBadge';
+import SpatiuDeLucru from '../components/SpatiuDeLucru';
 
 function isMobile() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -317,6 +318,8 @@ export default function PDFViewer() {
 
   // ─── Profesorul Virtual lângă PDF ─────────────────────────────────────────
   const [tutorOpen, setTutorOpen] = useState(!!state?.openTutor);
+  const [workOpen, setWorkOpen] = useState(false);        // ✍️ caietul digital
+  const [autoPrompt, setAutoPrompt] = useState(null);     // mesaj trimis singur în chat
   const [tutorWide, setTutorWide] = useState(false); // fereastră mărită (doar pe desktop)
   const tutorConvId = state?.tutorConvId || null;
   const [pdfText, setPdfText] = useState(null);      // textul extras din PDF
@@ -587,6 +590,41 @@ export default function PDFViewer() {
     </button>
   );
 
+  // ── „✍️ Spațiu de lucru": caietul digital peste PDF ─────────────────────
+  // Elevul scrie rezolvarea de mână pe ecran, iar rândurile devin text frumos.
+  // Rămâne pornit și în modul TEST: e ciorna lui, nu ajutor de la AI.
+  const workBtn = (
+    <button
+      onClick={() => setWorkOpen(true)}
+      title="Scrie rezolvarea cu degetul sau cu creionul — se transformă singură în text frumos"
+      style={{
+        background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.3)',
+        color: '#fff', borderRadius: 14, padding: '4px 12px', cursor: 'pointer', flexShrink: 0,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1.25,
+      }}
+    >
+      <span style={{ fontSize: '0.82rem', fontWeight: 700, whiteSpace: 'nowrap' }}>✍️ Spațiu de lucru</span>
+      <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.8, whiteSpace: 'nowrap' }}>scrii de mână, se face text</span>
+    </button>
+  );
+
+  const workSheet = (
+    <SpatiuDeLucru
+      open={workOpen}
+      onClose={() => setWorkOpen(false)}
+      title={item?.title || ''}
+      hint={(pdfText || '').slice(0, 700)}
+      storageKey={`pdf:${item?.id || 'material'}`}
+      onCorect={modTest ? null : (text) => {
+        setTutorOpen(true);
+        setAutoPrompt({
+          id: Date.now(),
+          text: `Am scris rezolvarea în spațiul de lucru. Verific-o pas cu pas, spune-mi unde greșesc și ce lipsește — nu-mi da direct răspunsul dacă mai pot corecta singur:\n\n${text}`,
+        });
+      }}
+    />
+  );
+
   // ── Widgetul plutitor (vizibil în vizualizatorul de PDF; se poate MUTA) ──
   const tutorWidget = !tutorOpen && !modTest && <TutorFab onOpen={() => setTutorOpen(true)} />;
 
@@ -683,7 +721,7 @@ export default function PDFViewer() {
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0 }}>
-        <ChatPanel compact context={tutorContext} initialConversationId={tutorConvId} testMode={modTest} />
+        <ChatPanel compact context={tutorContext} initialConversationId={tutorConvId} testMode={modTest} autoPrompt={autoPrompt} />
       </div>
     </div>
   );
@@ -710,6 +748,7 @@ export default function PDFViewer() {
               borderRadius: 12, padding: '3px 10px', fontSize: '0.74rem', fontWeight: 800, whiteSpace: 'nowrap',
             }} title="Duel: Profesorul Virtual nu dă indicii">⚔️ DUEL</span>
           )}
+          {workBtn}
           {tutorBtn}
           <span style={badge}>{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>
         </div>
@@ -745,6 +784,7 @@ export default function PDFViewer() {
           {tutorPanel}
         </div>
         {tutorWidget}
+        {workSheet}
       </div>
     );
   }
@@ -760,6 +800,7 @@ export default function PDFViewer() {
           📄 {item?.title}
         </span>
         {gtId && <TestModeBadge compact />}
+        {workBtn}
         {tutorBtn}
         <span style={badge}>{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>
       </div>
@@ -776,6 +817,7 @@ export default function PDFViewer() {
       </div>
 
       {tutorWidget}
+      {workSheet}
     </div>
   );
 }

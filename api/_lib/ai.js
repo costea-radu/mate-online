@@ -761,20 +761,24 @@ async function runToolCall(tools, call, stats = null) {
 }
 
 // ─── Apel LLM cu VEDERE (foto-rezolvare: citește o imagine) ──────────────────
-async function chatVision({ system, text, imageDataUrl, maxTokens = 800, temperature = 0.1 }) {
+// `model` (opțional): suprascrie modelul de vedere pentru un apel anume —
+// recunoașterea scrisului de mână (api/ai-handwriting.js) merge pe un model
+// mai ieftin, fiindcă e o transcriere de un rând, nu o citire de pagină.
+async function chatVision({ system, text, imageDataUrl, maxTokens = 800, temperature = 0.1, model = null }) {
   if (!hasChat()) throw new Error('AI_CHAT_API_KEY (sau OPENAI_API_KEY) nu este setat.');
+  const useModel = model || VISION_MODEL;
   const messages = [
     { role: 'user', content: [
       { type: 'text', text: text || 'Transcrie exercițiul din imagine.' },
       { type: 'image_url', image_url: { url: imageDataUrl } },
     ] },
   ];
-  const body = buildBody({ model: VISION_MODEL, temperature, maxTokens, messages, system });
+  const body = buildBody({ model: useModel, temperature, maxTokens, messages, system });
   const r = await postLLM(body);
   const data = await r.json();
   return {
     text: data.choices?.[0]?.message?.content ?? '',
-    usage: { in: data.usage?.prompt_tokens || 0, out: data.usage?.completion_tokens || 0, model: VISION_MODEL },
+    usage: { in: data.usage?.prompt_tokens || 0, out: data.usage?.completion_tokens || 0, model: useModel },
   };
 }
 

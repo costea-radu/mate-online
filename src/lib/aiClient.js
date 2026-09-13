@@ -9,7 +9,7 @@ import { setAIBudget, markAIBudgetBlocked, refreshAIBudgetSoon } from './aiCredi
 // Rutele AI care CONSUMĂ credite (nu și cele de citire: progres, istoric…).
 // După ele, dacă răspunsul nu aduce singur starea creditelor, o cerem noi —
 // rar, o dată la 30 de secunde (src/lib/aiCredit.js).
-const CONSUMA_CREDITE = /^\/api\/ai-(chat|correct|exam|generate-interactive|vision|meditatii|practice|assignment|transcribe)/;
+const CONSUMA_CREDITE = /^\/api\/ai-(chat|correct|exam|generate-interactive|vision|meditatii|practice|assignment|transcribe|handwriting)/;
 
 async function uid() {
   const { data: { session } } = await supabase.auth.getSession();
@@ -194,6 +194,11 @@ export const aiClient = {
 
   // Foto-rezolvare: transcrie exercițiul dintr-o imagine (data URL)
   visionExtract: ({ imageBase64, note = '' }) => post('/api/ai-vision', { imageBase64, note }),
+
+  // „Spațiul de lucru": rândurile scrise de mână → LaTeX (vezi SpatiuDeLucru.jsx).
+  // `imageBase64` = un PNG cu 1…8 rânduri stivuite și numerotate; `count` = câte.
+  handwriting: ({ imageBase64, count = 1, hint = '' }) =>
+    post('/api/ai-handwriting', { imageBase64, count, hint }),
 
   // ── Corectarea cu punctaj a testelor / exercițiilor PDF („Răspunde în chat") ──
   // Textul unui PDF încărcat de elev direct în chat (temă, fișă, variantă)

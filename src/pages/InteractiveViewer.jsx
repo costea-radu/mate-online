@@ -12,6 +12,7 @@ import { notaDinScor } from '../lib/nota';
 import TestModeBadge from '../components/TestModeBadge';
 import EinsteinIcon from '../components/EinsteinIcon';
 import { ReviewToast } from '../components/ReviewWidget';
+import SpatiuDeLucru from '../components/SpatiuDeLucru';
 
 export default function InteractiveViewer() {
   const { state } = useLocation();
@@ -35,6 +36,7 @@ export default function InteractiveViewer() {
   const tutorConvId = state?.tutorConvId || null;                    // conversația continuă
   const [exState, setExState] = useState(null);                     // starea live din exercițiu (bridge)
   const [autoPrompt, setAutoPrompt] = useState(null);                // mesaj trimis automat în chat
+  const [workOpen, setWorkOpen] = useState(false);                  // caietul digital („✍️ Spațiu de lucru")
   const [newBadges, setNewBadges] = useState([]);                    // insigne proaspăt câștigate (toast)
   const [xpToast, setXpToast] = useState(null);                       // XP / streak / misiune câștigate (Arena)
   const [duelRez, setDuelRez] = useState(null);                       // rezultatul duelului, după trimiterea scorului
@@ -400,6 +402,13 @@ export default function InteractiveViewer() {
       // recalculează scorul din ele, chiar dacă testul e un HTML mai vechi
       if (d.type === 'MATE_ANSWERS' && Array.isArray(d.answers)) { lastAnswersRef.current = d.answers; return; }
       if (d.type === 'MATE_TUTOR_STATE' && d.payload) setExState(d.payload);
+      // „✍️ Spațiu de lucru" apăsat în exercițiu → caietul se deschide AICI,
+      // în pagina-părinte (iframe-ul n-are sesiune, credite, nici KaTeX).
+      if (d.type === 'MATE_WORKSPACE_OPEN') {
+        if (d.payload) setExState(d.payload);
+        setWorkOpen(true);
+        return;
+      }
       if (d.type === 'MATE_TUTOR_OPEN') {
         if (d.payload) setExState(d.payload);
         setTutorOpen(true);
@@ -609,6 +618,26 @@ export default function InteractiveViewer() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Caietul digital: elevul scrie rezolvarea de mână, peste exercițiu.
+              Rămâne pornit și în timpul testului pe grupă — e foaia lui de ciornă,
+              nu ajutor de la AI. */}
+          <button
+            onClick={() => setWorkOpen(true)}
+            title="Scrie rezolvarea cu degetul sau cu creionul — se transformă singură în text frumos"
+            style={{
+              background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.3)',
+              color: '#fff', borderRadius: 14, padding: '4px 14px', cursor: 'pointer',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1.25,
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.83rem', fontWeight: 700 }}>
+              ✍️ Spațiu de lucru
+            </span>
+            <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.8 }}>
+              scrii de mână, se face text
+            </span>
+          </button>
+
           {/* Profesorul Virtual lângă exercițiu — deschidere manuală: chat gol,
               așteaptă întrebarea elevului. În timpul unui TEST PE GRUPĂ (?gt=…)
               butonul dispare: elevul nu poate cere ajutor la test. */}
@@ -770,6 +799,26 @@ export default function InteractiveViewer() {
       {!tutorOpen && !isMobile && !faraAjutor && (
         <TutorFab onOpen={() => { setAutoPrompt(null); setTutorOpen(true); }} />
       )}
+
+      {/* ✍️ Caietul digital, peste exercițiu. „Pune în răspuns" scrie textul
+          recunoscut chiar în câmpul pasului curent (prin bridge), iar
+          „Cere corectarea" îl duce la Profesorul Virtual. */}
+      <SpatiuDeLucru
+        open={workOpen}
+        onClose={() => setWorkOpen(false)}
+        title={item?.title || exState?.title || ''}
+        hint={exState?.text || ''}
+        storageKey={`ex:${item?.id || 'exercitiu'}`}
+        onInsert={(text) => sendTutorAction({ kind: 'fill', value: text.replace(/\$/g, '').replace(/\n+/g, ' ').trim() })}
+        insertLabel="✓ Pune în răspuns"
+        onCorect={faraAjutor ? null : (text) => {
+          setTutorOpen(true);
+          setAutoPrompt({
+            id: Date.now(),
+            text: `Am scris rezolvarea în spațiul de lucru. Verific-o pas cu pas, spune-mi unde greșesc și ce lipsește — nu-mi da direct răspunsul dacă mai pot corecta singur:\n\n${text}`,
+          });
+        }}
+      />
 
       {/* Toast: XP câștigat (Arena — src/pages/Arena.jsx) */}
       {xpToast && (
