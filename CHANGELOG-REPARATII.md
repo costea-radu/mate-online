@@ -135,6 +135,40 @@ avea M,N,P,Q și desenul rămânea cu A,B,C,D. Acum:
 Promptul cere de acum declarația în marcaj de fiecare dată când se schimbă o
 notație la un item cu figură, iar deducerea automată e plasa de siguranță.
 
+**Și valorile de pe desen urmează enunțul.** Regula de până acum spunea că la itemii
+cu figură numerele NU se schimbă, pentru că desenul păstrează proporțiile. Cererea
+adminului: dacă se schimbă o lungime în enunț și lungimea aceea e trecută pe desen,
+să se schimbe și pe desen. Mecanismul e simetric cu cel al literelor:
+
+- `numberMapFromStatements` compară numerele enunțului original cu cele ale
+  enunțului nou, în ordinea apariției, și reține doar valorile care apar chiar pe
+  figură (`svgNumbers`, citite DOAR din `<text>`);
+- marcajul acceptă acum și valori, cu „;" ca separator (virgula e zecimală în
+  română): `<!--FIG:7 A>M; B>N; 3 cm>5 cm-->`; separarea cu virgule rămâne acceptată
+  pentru perechile de litere, din compatibilitate;
+- `rewriteSvgText` înlocuiește literele și numerele într-o singură trecere peste
+  conținutul elementelor `<text>`. Numerele se potrivesc cu graniță de cifră, deci
+  „12" nu devine „52" când 1→5, iar „4" din „4,5" rămâne pe loc. Coordonatele
+  (`x1`, `cy`, `viewBox`, `path d`, `dx`/`dy` din `<tspan>`) nu se ating niciodată;
+- promptul cere acum explicit ca desenul să rămână CORECT: valorile se schimbă doar
+  în fel care nu contrazice figura — cel mai sigur înmulțind toate lungimile cu
+  același factor (3,4,5 cm → 6,8,10 cm), păstrând unghiul drept, paralelismul și
+  mijlocul de segment; o valoare care nu poate fi schimbată fără să strice figura
+  rămâne cum e.
+
+Corectat și un defect al alinierii literelor: lista de puncte a enunțului vechi era
+filtrată la literele de pe desen ÎNAINTE de punerea în corespondență, așa că un
+enunț cu ABCD desenat doar prin A și B nu se mai alinia (2 vs. 4 litere) și desenul
+rămânea cu notațiile vechi. Acum corespondența se face pe listele întregi și abia
+apoi se păstrează literele care apar pe figură.
+
+Verificat, cu geometria neatinsă în toate cazurile: litere+lungime schimbate fără
+declarație, doar lungimea schimbată, declarație completă, declarație parțială
+completată cu deducerea, zecimale (3 → 4,5), etichetă mixtă „AB = 3 cm" → „MN = 7
+cm", etichetă cu `<tspan>`, triunghi 3-4-5 scalat la 6-8-10, unghi 60° → 35°, plus
+capcanele „12 cm"/„1 cm" și coordonate care conțin aceleași cifre ca valorile din
+enunț.
+
 Verificat: exercițiul k vine de pe poziția k în toate rulările, din 6 teste
 diferite; redenumirea merge fără declarație, cu declarație completă și cu
 declarație parțială; fără schimbare de notație sau cu alt număr de puncte desenul

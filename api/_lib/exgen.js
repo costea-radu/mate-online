@@ -931,6 +931,43 @@ function svgLabels(svg) {
   return out;
 }
 
+// ─── NUMERELE SCRISE PE DESEN ────────────────────────────────────────────────
+// Lungimile, unghiurile și celelalte valori trecute pe figură („3 cm", „60°").
+// Se citesc DOAR din <text>: coordonatele (x1, cy, viewBox…) nu se ating
+// niciodată, altfel desenul s-ar deforma.
+function numberTokens(text) {
+  const s = String(text || '').replace(/<[^>]+>/g, ' ');
+  const out = [];
+  const re = /\d+(?:[.,]\d+)?/g;
+  let m;
+  while ((m = re.exec(s))) out.push(m[0]);
+  return out;
+}
+
+function svgNumbers(svg) {
+  const out = new Set();
+  const re = /<text\b[^>]*>([\s\S]*?)<\/text\s*>/gi;
+  let m;
+  while ((m = re.exec(String(svg || '')))) numberTokens(m[1]).forEach((n) => out.add(n));
+  return out;
+}
+
+// Corespondența numerelor, dedusă din schimbarea enunțului: numerele enunțului
+// ORIGINAL, în ordinea apariției, se pun în corespondență cu cele ale enunțului
+// NOU („BC=3cm" → „NP=5cm" dă 3→5). Se rețin doar cele care apar CHIAR pe desen.
+// Dacă modelul a schimbat CÂTE numere sunt în enunț, nu ghicim — desenul rămâne
+// cu valorile lui.
+function numberMapFromStatements(oldSt, newSt, svg) {
+  const oldN = numberTokens(oldSt);
+  const newN = numberTokens(newSt);
+  if (!oldN.length || oldN.length !== newN.length) return null;
+  const onFig = svgNumbers(svg);
+  if (!onFig.size) return null;
+  const map = new Map();
+  oldN.forEach((o, i) => { if (newN[i] && newN[i] !== o && onFig.has(o)) map.set(o, newN[i]); });
+  return map.size ? map : null;
+}
+
 // Redenumirea punctelor din desen, dedusă din schimbarea notațiilor în enunț:
 // literele-punct ale enunțului ORIGINAL (păstrate doar cele care apar chiar pe
 // desen) se pun în corespondență, în ordinea apariției, cu literele-punct ale
@@ -939,61 +976,113 @@ function svgLabels(svg) {
 function labelMapFromStatements(oldSt, newSt, svg) {
   const onFig = svgLabels(svg);
   if (!onFig.size) return null;
-  const oldL = pointLabels(oldSt).filter((x) => onFig.has(x));
-  if (!oldL.length) return null;
+  // Punerea în corespondență se face pe listele ÎNTREGI de puncte ale celor două
+  // enunțuri (altfel pozițiile nu s-ar mai potrivi), și abia apoi se păstrează
+  // doar literele care apar chiar pe desen: un enunț cu ABCD desenat doar prin
+  // A și B trebuie să dea tot A→M, B→N.
+  const oldL = pointLabels(oldSt);
   const newL = pointLabels(newSt);
-  if (newL.length !== oldL.length) return null;
+  if (!oldL.length || newL.length !== oldL.length) return null;
   const map = new Map();
-  oldL.forEach((o, i) => { if (newL[i] && newL[i] !== o) map.set(o, newL[i]); });
+  oldL.forEach((o, i) => { if (newL[i] && newL[i] !== o && onFig.has(o)) map.set(o, newL[i]); });
   return map.size ? map : null;
 }
 
-// Aplică o redenumire pe etichetele desenului. Înlocuirea e SIMULTANĂ (fiecare
-// etichetă se caută o dată în hartă), deci și interschimbările A↔B merg;
-// liniile, coordonatele și proporțiile nu se ating niciodată.
-function renameSvgLabels(svg, map) {
+const reEsc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Rescrie etichetele desenului: literele punctelor ȘI numerele trecute pe figură
+// (lungimi, unghiuri). Se atinge NUMAI conținutul elementelor <text> — liniile,
+// coordonatele, viewBox-ul și proporțiile rămân intacte.
+// Înlocuirea e SIMULTANĂ (o singură trecere, fiecare potrivire căutată în hartă),
+// deci și interschimbările A↔B sau 3↔5 ies corect.
+function rewriteSvgText(svg, letterMap = null, numMap = null) {
+  const lKeys = letterMap && letterMap.size
+    ? [...letterMap.keys()].sort((a, b) => b.length - a.length) : null;
+  const nKeys = numMap && numMap.size
+    ? [...numMap.keys()].sort((a, b) => b.length - a.length) : null;
+  // literă-punct: nelipită de litere mici (ca să nu atingem cuvinte)
+  const lRe = lKeys ? new RegExp(`(?<![${RO_LOW}])(${lKeys.map(reEsc).join('|')})(?![${RO_LOW}])`, 'g') : null;
+  // număr întreg: nelipit de alte cifre, virgule sau puncte, ca „4” din „4,5” sau
+  // „1” din „12” să rămână în pace
+  const nRe = nKeys ? new RegExp(`(?<![\\d.,])(${nKeys.map(reEsc).join('|')})(?![\\d.,])`, 'g') : null;
+  if (!lRe && !nRe) return String(svg);
   return String(svg).replace(/(<text\b[^>]*>)([\s\S]*?)(<\/text\s*>)/gi, (t, o, body, c) => {
-    const k = body.replace(/<[^>]+>/g, '').trim();
-    return map.has(k) ? `${o}${map.get(k)}${c}` : t;
+    const plain = body.replace(/<[^>]+>/g, '').trim();
+    // eticheta e exact un nume de punct → o înlocuim întreagă
+    if (letterMap && letterMap.has(plain)) return `${o}${letterMap.get(plain)}${c}`;
+    let nb = body;
+    if (lRe) nb = nb.replace(lRe, (mm) => letterMap.get(mm) ?? mm);
+    if (nRe) nb = nb.replace(nRe, (mm) => numMap.get(mm) ?? mm);
+    return nb === body ? t : `${o}${nb}${c}`;
   });
 }
 
+// Corespondențele declarate de model în marcaj: <!--FIG:4 A>M; B>N; 3 cm>5 cm-->
+// Separatorul e „;”, pentru că numerele românești folosesc virgula la zecimale
+// („4,5 cm”); dacă modelul a separat totuși cu virgule, le acceptăm la a doua
+// încercare. Perechile de litere merg în harta punctelor, cele cu cifre în harta
+// numerelor.
+function parseDeclaredFig(extra) {
+  const letters = new Map();
+  const nums = new Map();
+  const raw = String(extra || '').trim();
+  if (!raw) return { letters, nums };
+  let chunks = raw.split(';');
+  if (chunks.length === 1 && (raw.match(/[>=→]/g) || []).length > 1) chunks = raw.split(',');
+  for (const p of chunks) {
+    const mm = p.trim().match(/^(.{1,16}?)\s*(?:->|=>|→|>|=)\s*(.{1,16}?)$/);
+    if (!mm) continue;
+    const a = mm[1].trim();
+    const b = mm[2].trim();
+    if (!a || !b || a === b) continue;
+    if (/^[A-Za-zĂÂÎȘȚăâîșț]['’]?[0-9]?$/.test(a)) letters.set(a, b);
+    else {
+      // „3 cm>5 cm”: comparăm numerele, nu textul cu unitate
+      const na = numberTokens(a);
+      const nb = numberTokens(b);
+      if (na.length === 1 && nb.length === 1 && na[0] !== nb[0]) nums.set(na[0], nb[0]);
+    }
+  }
+  return { letters, nums };
+}
+
 // Reinserează figurile la marcaje, după generare.
-// Notațiile din desen urmează notațiile din enunț, în două feluri:
-//  1. modelul o cere explicit în marcaj: <!--FIG:4 A>M,B>N-->;
-//  2. altfel serverul deduce singur corespondența, comparând literele-punct ale
-//     enunțului original cu cele ale enunțului nou scris de model.
-// Geometria desenului rămâne în ambele cazuri neatinsă.
+// Notațiile ȘI valorile de pe desen urmează enunțul, în două feluri:
+//  1. modelul le declară în marcaj: <!--FIG:4 A>M; B>N; 3 cm>5 cm-->;
+//  2. altfel serverul deduce singur corespondențele, comparând enunțul original al
+//     itemului cu enunțul nou — literele-punct pentru notații, numerele pentru
+//     lungimi/unghiuri.
+// Geometria desenului (linii, coordonate, proporții) rămâne în ambele cazuri
+// neatinsă: se rescrie doar textul etichetelor.
 function figRestore(html, figs) {
   let out = String(html || '');
-  out = out.replace(/<!--\s*FIG:(\d+)([\s\S]{0,200}?)-->/g, (m, num, extra, offset, whole) => {
+  out = out.replace(/<!--\s*FIG:(\d+)([\s\S]{0,300}?)-->/g, (m, num, extra, offset, whole) => {
     const rec = (figs || [])[Number(num)];
     if (!rec) return '';
     const svg = typeof rec === 'string' ? rec : rec.svg;
-    // 1) redenumirea declarată de model
-    const declared = new Map();
-    String(extra || '').split(/[,;]+/).forEach((p) => {
-      const mm = p.trim().match(/^([A-Za-zĂÂÎȘȚ]['’]?[0-9]?)\s*(?:->|=>|>|=|→)\s*([A-Za-zĂÂÎȘȚ]['’]?[0-9]?)$/);
-      if (mm && mm[1] !== mm[2]) declared.set(mm[1], mm[2]);
-    });
-    // 2) dedusă din enunțul nou de dinaintea marcajului
+    const declared = parseDeclaredFig(extra);
+    // ce se poate deduce din enunțul nou, scris chiar înaintea marcajului
     const oldSt = typeof rec === 'string' ? '' : rec.statement;
-    let derived = null;
+    let dLetters = null;
+    let dNums = null;
     if (oldSt) {
       const before = whole.slice(Math.max(0, offset - 1500), offset);
       const found = itemStatements(before);
       const newSt = found.length ? found[found.length - 1] : before.replace(/<[^>]+>/g, ' ').slice(-240);
-      derived = labelMapFromStatements(oldSt, newSt, svg);
+      dLetters = labelMapFromStatements(oldSt, newSt, svg);
+      dNums = numberMapFromStatements(oldSt, newSt, svg);
     }
-    // cele două se COMPLETEAZĂ: pornim de la ce am dedus și lăsăm declarația
-    // modelului să aibă ultimul cuvânt (o declarație parțială nu mai anulează
-    // redenumirile pe care le-a făcut în enunț fără să le declare)
-    const map = new Map(derived || []);
-    declared.forEach((v, k) => map.set(k, v));
-    return map.size ? renameSvgLabels(svg, map) : svg;
+    // declarația modelului COMPLETEAZĂ ce s-a dedus și are ultimul cuvânt, deci o
+    // declarație parțială nu anulează restul schimbărilor din enunț
+    const letterMap = new Map(dLetters || []);
+    declared.letters.forEach((v, k) => letterMap.set(k, v));
+    const numMap = new Map(dNums || []);
+    declared.nums.forEach((v, k) => numMap.set(k, v));
+    if (!letterMap.size && !numMap.size) return svg;
+    return rewriteSvgText(svg, letterMap, numMap);
   });
   // marcaje rămase (numere inexistente / inventate de model) — le curățăm
-  return out.replace(/<!--\s*FIG:[\s\S]{0,200}?-->/g, '');
+  return out.replace(/<!--\s*FIG:[\s\S]{0,300}?-->/g, '');
 }
 
 // Sparge un test în ITEMI, grupați pe subiect.
@@ -1625,9 +1714,10 @@ Răspunde STRICT cu UN obiect JSON valid: { "title": "…", "kind": "grila", "ou
     ? `${NO_FIG_RULE.slice(1)} Itemii care aveau figură se ÎNLOCUIESC cu itemi fără figură (enunț complet, cu toate datele în text);`
     : usePool
       ? `- FIGURILE vin CU ITEMUL: în itemii marcați „ARE FIGURĂ” desenul e deja înlocuit cu marcajul <!--FIG:k-->. PĂSTREAZĂ marcajul EXACT așa, la locul lui (ex. <div class="fig"><!--FIG:7--></div>) — NU scrii SVG, NU desenezi, NU descrii figura: serverul reinserează desenul original al itemului;
-- NOTAȚIILE DE PE DESEN SE SCHIMBĂ ODATĂ CU ENUNȚUL: redenumește liniștit punctele (A,B,C,D → M,N,P,Q) și DECLARĂ corespondența în marcaj — <!--FIG:7 A>M,B>N,C>P,D>Q--> — iar serverul rescrie etichetele din desen. Declarația e OBLIGATORIE de fiecare dată când schimbi o notație la un item cu figură (fără ea serverul încearcă să deducă singur corespondența din enunț și poate rata, iar desenul ar rămâne cu literele vechi). Folosește EXACT ATÂTEA puncte câte are itemul original și în aceeași ordine de apariție în enunț;
-- literele noi se folosesc consecvent în enunț, variante, rezolvare și barem;
-- la itemii CU FIGURĂ, VALORILE NUMERICE rămân cele din item (desenul păstrează proporțiile, deci alte numere l-ar contrazice): la ele schimbi DOAR notațiile;
+- ETICHETELE DESENULUI URMEAZĂ ENUNȚUL — și literele, și valorile. Redenumește punctele (A,B,C,D → M,N,P,Q) și, dacă schimbi o lungime sau un unghi care e TRECUT PE DESEN, schimbă și valoarea. DECLARĂ toate corespondențele în marcaj, separate cu punct și virgulă: <!--FIG:7 A>M; B>N; C>P; D>Q; 3 cm>5 cm-->. Serverul rescrie atunci etichetele figurii (doar textul lor — liniile și proporțiile nu se ating). Declarația e OBLIGATORIE la orice schimbare de notație sau de valoare la un item cu figură: fără ea serverul încearcă să deducă singur corespondențele din enunț și poate rata, iar desenul ar rămâne cu literele și numerele vechi;
+- ca deducerea automată să meargă și când uiți declarația: folosește EXACT ATÂTEA puncte și EXACT ATÂTEA numere câte are itemul original, în aceeași ordine de apariție în enunț;
+- literele și valorile noi se folosesc consecvent în enunț, variante, rezolvare și barem;
+- DESENUL TREBUIE SĂ RĂMÂNĂ CORECT: figura păstrează forma și proporțiile originale, deci schimbă valorile numai în fel care nu contrazice desenul — cel mai sigur e să înmulțești TOATE lungimile cu același factor (3, 4, 5 cm → 6, 8, 10 cm), păstrând unghiul drept, paralelismul, mijlocul de segment și celelalte relații din figură. Dacă o valoare nu poate fi schimbată fără să strice figura (ex. un unghi dintr-o configurație fixă), lasă-o exact cum e și schimbă doar notațiile;
 - la itemii FĂRĂ figură schimbi liber și numerele și notațiile;`
       : `- FIGURILE/DESENELE (SVG, canvas) NU SE MODIFICĂ DELOC — rămân EXACT cele din șablon, cu aceleași etichete și valori (oricum vor fi restaurate programatic din șablon, deci orice modificare a lor e inutilă și greșită);
 - itemii CU figură rămân cei ai șablonului: enunț, valori și notații consistente cu figura, cel mult mici reformulări care NU contrazic figura; combini din celelalte teste DOAR itemii FĂRĂ figură;`;
