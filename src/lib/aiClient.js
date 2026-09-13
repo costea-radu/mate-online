@@ -195,10 +195,11 @@ export const aiClient = {
   // Foto-rezolvare: transcrie exercițiul dintr-o imagine (data URL)
   visionExtract: ({ imageBase64, note = '' }) => post('/api/ai-vision', { imageBase64, note }),
 
-  // „Spațiul de lucru": rândurile scrise de mână → LaTeX (vezi SpatiuDeLucru.jsx).
-  // `imageBase64` = un PNG cu 1…8 rânduri stivuite și numerotate; `count` = câte.
-  handwriting: ({ imageBase64, count = 1, hint = '' }) =>
-    post('/api/ai-handwriting', { imageBase64, count, hint }),
+  // „Spațiul de lucru": liniile scrise de mână → LaTeX (vezi SpatiuDeLucru.jsx).
+  // `imageBase64` = un PNG cu 1…8 linii stivuite și numerotate; `count` = câte;
+  // `prev` = liniile deja recunoscute de deasupra (firul calculului).
+  handwriting: ({ imageBase64, count = 1, hint = '', prev = '' }) =>
+    post('/api/ai-handwriting', { imageBase64, count, hint, prev }),
 
   // ── Corectarea cu punctaj a testelor / exercițiilor PDF („Răspunde în chat") ──
   // Textul unui PDF încărcat de elev direct în chat (temă, fișă, variantă)
