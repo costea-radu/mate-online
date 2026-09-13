@@ -57,24 +57,96 @@ export function renderMath(el) {
 // ─────────────────────────────────────────────────────────────────────
 const CMDS = 'cdot|times|div|pm|mp|angle|pi|alpha|beta|gamma|delta|theta|lambda|mu|omega|leq|geq|le|ge|neq|approx|equiv|infty|circ|Delta|Omega|deg|notin|in|subseteq|subset|supset|cup|cap|Rightarrow|rightarrow|leftarrow|to|forall|exists';
 
+// Aplică `fn` DOAR pe bucățile din afara zonelor deja împachetate în $…$.
+// Fără asta, pașii de mai jos re-împachetează ce s-a încadrat deja și rup formula.
+function outsideMath(s, fn) {
+  return s.split(/(\$[^$]*\$)/g).map((seg, i) => (i % 2 === 1 ? seg : fn(seg))).join('');
+}
+
+// Indexul de DUPĂ acolada care închide grupul început la `i` (sau -1).
+function matchBrace(s, i) {
+  if (s[i] !== '{') return -1;
+  let d = 0;
+  for (let k = i; k < s.length; k++) {
+    if (s[k] === '\\') { k++; continue; }              // caracter evadat — sărit
+    if (s[k] === '{') d++;
+    else if (s[k] === '}') { d--; if (d === 0) return k + 1; }
+  }
+  return -1;
+}
+
+// Comenzile cu argumente în acolade și câte argumente iau.
+const BRACE_CMDS = [
+  ['dfrac', 2], ['tfrac', 2], ['frac', 2], ['binom', 2],
+  ['sqrt', 1], ['overline', 1], ['underline', 1], ['overrightarrow', 1], ['vec', 1], ['widehat', 1],
+];
+
+// Încadrează în $…$ fiecare comandă cu argumente, cu tot cu acoladele ei,
+// oricât de imbricate. Scanare, nu regex: acoladele echilibrate nu se pot
+// exprima ca expresie regulată.
+function wrapBraceCmds(s) {
+  let out = '', i = 0;
+  while (i < s.length) {
+    let end = -1;
+    if (s[i] === '\\') {
+      for (const [name, nArgs] of BRACE_CMDS) {
+        if (!s.startsWith('\\' + name, i)) continue;
+        const after = s[i + 1 + name.length];
+        if (after && /[a-zA-Z]/.test(after)) continue;    // \fraction ≠ \frac
+        let j = i + 1 + name.length;
+        while (s[j] === ' ') j++;
+        if (name === 'sqrt' && s[j] === '[') {            // ordinul radicalului
+          const k = s.indexOf(']', j);
+          if (k < 0) continue;
+          j = k + 1;
+          while (s[j] === ' ') j++;
+        }
+        let ok = true;
+        for (let a = 0; a < nArgs; a++) {
+          while (s[j] === ' ') j++;
+          const e = matchBrace(s, j);
+          if (e < 0) { ok = false; break; }
+          j = e;
+        }
+        if (ok) { end = j; break; }
+      }
+    }
+    if (end > i) { out += '$' + s.slice(i, end) + '$'; i = end; }
+    else { out += s[i]; i++; }
+  }
+  return out;
+}
+
 function wrapBare(s) {
   if (!s) return s;
   // grade scrise stricat în text: „70^∘" / „70^{∘}" (caret literal) → „70°"
   s = s.replace(/(\d)\s*\^\s*(?:\{\s*[∘°]\s*\}|[∘°])/g, '$1°');
-  // \frac{..}{..}
-  s = s.replace(/\\frac\s*\{[^{}]*\}\s*\{[^{}]*\}/g, (m) => '$' + m + '$');
-  // \sqrt[..]{..} sau \sqrt{..}
-  s = s.replace(/\\sqrt\s*(\[[^\]]*\])?\s*\{[^{}]*\}/g, (m) => '$' + m + '$');
+  // \frac{..}{..}, \sqrt[..]{..} și rudele lor — cu acolade ECHILIBRATE, oricât
+  // de adânc. Cu regex nu se putea: „\frac{-b\pm\sqrt{b^{2}-4ac}}{2a}" are trei
+  // niveluri, rămânea neîncadrat, iar pasul de puteri de mai jos îl rupea.
+  s = wrapBraceCmds(s);
+  // Operatori mari, ÎMPREUNĂ cu limitele lor: \int_{0}^{1}, \sum_{i=1}^{n},
+  // \lim_{x \to 0}. Altfel pasul de puteri lua doar „t_{0}" din „\int_{0}"
+  // și ieșea „$\in t_{0}$^{1}" — exact notațiile pe care le dă recunoașterea
+  // scrisului de mână (api/ai-handwriting.js).
+  s = outsideMath(s, (seg) => seg.replace(
+    /\\(?:iint|oint|int|sum|prod|limsup|liminf|lim)(?:\s*[_^]\s*(?:\{(?:[^{}]|\{[^{}]*\})*\}|\\[a-zA-Z]+|[A-Za-z0-9]+))*/g,
+    (m) => '$' + m + '$',
+  ));
   // puteri / indici: x^2, a_1, x^{10}, a_{n}, 4(10)^3, (x+1)^2, [a]_n, 70^\circ
   // Baza cu paranteze e prinsă ÎNTREAGĂ (cu tot cu coeficient), altfel „$"
   // ar cădea în mijlocul expresiei: 4(10)^3 devenea 4(10$)^3$ (roșu, nerandat).
   // Exponentul poate fi și o COMANDĂ (\circ): altfel „70^\circ" rămânea
   // „70^" + „∘" — caretul apărea literal în enunț (eroarea de redactare).
-  s = s.replace(/((?:\d+[A-Za-z]?)?\([^()]*\)|\[[^\][]*\]|\d+(?:[.,]\d+)?|[A-Za-z0-9])(\^|_)(\{[^{}]*\}|\\[a-zA-Z]+|[A-Za-z0-9]+)/g, (m) => '$' + m + '$');
+  // Se aplică DOAR în afara zonelor deja împachetate mai sus: altfel „40^2" din
+  // interiorul unui \sqrt{…} tocmai încadrat se re-împacheta și rupea formula —
+  // „\sqrt{40^2 + 30^2}" ieșea „$\sqrt{$40^2$ + $30^2$}$", roșu, nerandat.
+  const powRe = /((?:\d+[A-Za-z]?)?\([^()]*\)|\[[^\][]*\]|\d+(?:[.,]\d+)?|[A-Za-z0-9])(\^|_)(\{[^{}]*\}|\\[a-zA-Z]+|[A-Za-z0-9]+)/g;
+  s = outsideMath(s, (seg) => seg.replace(powRe, (m) => '$' + m + '$'));
   // comenzile rămase se încadrează DOAR în afara zonelor deja împachetate mai
   // sus (altfel \circ din „$70^\circ$" se re-împacheta și strica expresia)
   const cmdRe = new RegExp('\\\\(' + CMDS + ')\\b', 'g');
-  s = s.split(/(\$[^$]*\$)/g).map((seg, i) => (i % 2 === 1 ? seg : seg.replace(cmdRe, (m) => '$' + m + '$'))).join('');
+  s = outsideMath(s, (seg) => seg.replace(cmdRe, (m) => '$' + m + '$'));
   // colapsează încadrările alăturate ($$ apărut din tokeni lipiți) → un spațiu
   s = s.replace(/\$\s*\$/g, ' ');
   return s;

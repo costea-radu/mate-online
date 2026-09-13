@@ -614,6 +614,9 @@ export default function PDFViewer() {
       onClose={() => setWorkOpen(false)}
       title={item?.title || ''}
       hint={(pdfText || '').slice(0, 700)}
+      /* textul PDF-ului — elevul îl vede oricum alături, dar în caiet îl are
+         sub ochi fără să mai comute între ferestre */
+      enunt={pdfText || ''}
       storageKey={`pdf:${item?.id || 'material'}`}
       onCorect={modTest ? null : (text) => {
         setTutorOpen(true);

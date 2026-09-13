@@ -28,7 +28,11 @@
 // Props:
 //   open, onClose
 //   title        — ce scrie în antet (exercițiul la care lucrează)
-//   hint         — enunțul, trimis modelului ca să aleagă notația potrivită
+//   hint         — enunțul, trimis MODELULUI ca să aleagă notația potrivită.
+//                  Poate conține răspunsurile corecte (așa vine din bridge) —
+//                  NU se afișează niciodată.
+//   enunt        — enunțul CURAT, de arătat elevului în panoul de sus. Lipsește
+//                  → panoul nu apare. Vezi collectEnunt() din tutorBridge.js.
 //   storageKey   — cheia de salvare locală (ciorna supraviețuiește reîncărcării)
 //   onInsert     — (text) => void : „✓ Pune în răspuns" (opțional)
 //   insertLabel  — eticheta acelui buton
@@ -36,7 +40,7 @@
 // =====================================================================
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { aiClient } from '../lib/aiClient';
-import { ensureKatex, renderMath } from '../lib/katex';
+import { ensureKatex, renderMath, autoMath } from '../lib/katex';
 
 const ROW_H = 80;            // distanța dintre liniile desenate pe foaie (px CSS)
 const START_ROWS = 9;
@@ -47,6 +51,12 @@ const PEN_W = 2.4;
 const ERASER_R = 15;
 const GUTTER = 44;
 const COLORS = ['#12263a', '#c62828', '#1565c0', '#2e7d32'];
+
+// Fereastra: mărimea aleasă de elev se ține minte de la o deschidere la alta
+const WIN_KEY = 'sdl:fereastra';
+const MIN_W = 320, MIN_H = 300;
+const NARROW = 720;           // sub atât, lățimea e fixă (telefon)
+const ENUNT_MIN = 46, ENUNT_MAX_FRAC = 0.55;
 
 // Pragurile grupării pe linii (vezi sameLine mai jos)
 const OVERLAP_MIN = 0.22;    // cât din înălțimea mai mică trebuie să se suprapună
@@ -137,6 +147,41 @@ function toPlain(latex) {
   return isSimpleArithmetic(t) ? plainOf(t) : `$${t}$`;
 }
 
+// ── Enunțul arătat elevului ────────────────────────────────
+// Plasă de siguranță: chiar dacă într-o zi cineva pune din greșeală textul
+// „bogat" (cel pentru model) în `enunt`, marcajele cu răspunsul corect și cu
+// indicația oficială se taie AICI, înainte să ajungă pe ecran.
+const SECRET_RE = /\s*\|?\s*\[răspuns corect[^\]]*\]/gi;
+const HINT_RE = /\s*\|\s*Indicația oficială:[^\n]*/gi;
+const ANS_RE = /\s*\|\s*Răspunsul elevului:[^|\n]*/gi;
+function cleanEnunt(raw) {
+  let t = String(raw || '').trim();
+  if (!t) return '';
+  t = t.replace(SECRET_RE, '').replace(HINT_RE, '').replace(ANS_RE, '');
+  t = t.replace(/← ALES DE ELEV/g, '');
+  t = t.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return t;
+}
+
+function TextEnunt({ text }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.textContent = autoMath(text);
+    ensureKatex().then(() => { if (ref.current) renderMath(ref.current); });
+  }, [text]);
+  return (
+    <div ref={ref} style={{
+      whiteSpace: 'pre-wrap', fontSize: '.84rem', lineHeight: 1.6, color: '#2b3d50',
+      fontFamily: 'Georgia, "Times New Roman", serif',
+      // o formulă lungă nu se rupe în mijloc, dar nici nu taie textul: rândul
+      // se întoarce unde poate, iar ce rămâne lat se derulează lateral
+      overflowWrap: 'break-word',
+    }} />
+  );
+}
+
 // ── O linie randată cu KaTeX ─────────────────────────────────────────────
 function LinieRandata({ latex, onEdit }) {
   const ref = useRef(null);
@@ -160,7 +205,7 @@ function LinieRandata({ latex, onEdit }) {
 }
 
 export default function SpatiuDeLucru({
-  open = false, onClose, title = '', hint = '', storageKey = null,
+  open = false, onClose, title = '', hint = '', enunt = null, storageKey = null,
   onInsert = null, insertLabel = '✓ Pune în răspuns', onCorect = null,
 }) {
   const scrollRef = useRef(null);
@@ -217,7 +262,7 @@ export default function SpatiuDeLucru({
     const wa = a.x1 - a.x0, wb = b.x1 - b.x0;
     const ov = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
     const hGap = Math.max(a.x0 - b.x1, b.x0 - a.x1);       // negativ = se suprapun lateral
-    const narrow = Math.min(wa, wb) <= SMALL_W || Math.min(ha, hb) <= SMALL_H;
+    const mic = Math.min(wa, wb) <= SMALL_W || Math.min(ha, hb) <= SMALL_H;
     if (ov > 0) {
       if (hGap > NEAR_X) return false;
       if (ov / Math.max(Math.min(ha, hb), 10) >= OVERLAP_MIN) return true;
@@ -225,7 +270,7 @@ export default function SpatiuDeLucru({
       // alături, o virgulă care urcă un pixel) trebuie să fie și LIPIT de el.
       // Fără condiția asta, o bară de fracție și o virgulă aflate la 200 px una
       // de alta se uneau doar fiindcă se încalecau cu un pixel pe verticală.
-      return narrow && hGap <= TIGHT_X;
+      return mic && hGap <= TIGHT_X;
     }
     if (-ov > STACK_GAP) return false;                      // prea jos: e alt rând
     const hOv = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
@@ -302,6 +347,98 @@ export default function SpatiuDeLucru({
     const alive = new Set(lines.map((L) => L.id));
     for (const id of Array.from(dirtyRef.current)) if (!alive.has(id)) dirtyRef.current.delete(id);
   }, []);
+
+  // ── Fereastra: mărime, maximizare, mânere de tras ────────────────
+  // Elevul o face cât îi trebuie: pe desktop trage de colț sau de margini, pe
+  // telefon de bara de jos. Mărimea se ține minte (localStorage).
+  const dialogRef = useRef(null);
+  const [vp, setVp] = useState(() => ({
+    w: typeof window === 'undefined' ? 1200 : window.innerWidth,
+    h: typeof window === 'undefined' ? 800 : window.innerHeight,
+  }));
+  const [win, setWin] = useState(() => {
+    try { const o2 = JSON.parse(localStorage.getItem(WIN_KEY) || 'null'); if (o2 && o2.w && o2.h) return o2; } catch { /* implicit */ }
+    return null;
+  });
+  const [maxi, setMaxi] = useState(false);
+  const resizeRef = useRef(null);
+  // Ultima mărime trasă, ținută într-un ref: la sfârșitul tragerii, starea din
+  // closure poate fi încă cea veche (React n-a apucat să redeseneze dacă ultima
+  // mișcare și ridicarea degetului cad în același cadru) — și se salva mai nimic.
+  const lastSizeRef = useRef(null);
+
+  useEffect(() => {
+    const onR = () => setVp({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', onR);
+    window.addEventListener('orientationchange', onR);
+    return () => { window.removeEventListener('resize', onR); window.removeEventListener('orientationchange', onR); };
+  }, []);
+
+  const narrow = vp.w < NARROW;
+  const maxW = Math.max(MIN_W, vp.w - (narrow ? 8 : 24));
+  const maxH = Math.max(MIN_H, vp.h - (narrow ? 8 : 24));
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const winW = maxi ? maxW : narrow ? maxW : clamp(win ? win.w : Math.min(1100, maxW), MIN_W, maxW);
+  const winH = maxi ? maxH : clamp(win ? win.h : Math.round(vp.h * 0.94), MIN_H, maxH);
+
+  function startResize(dir, e) {
+    if (maxi) return;
+    e.preventDefault(); e.stopPropagation();
+    const r = dialogRef.current.getBoundingClientRect();
+    resizeRef.current = { dir, x: e.clientX, y: e.clientY, w: r.width, h: r.height };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* merge și fără */ }
+  }
+  function moveResize(e) {
+    const r = resizeRef.current;
+    if (!r) return;
+    e.preventDefault();
+    // fereastra e centrată: cât tragi într-o parte, atât crește și în cealaltă
+    let w = r.w, h = r.h;
+    if (r.dir.indexOf('e') >= 0) w = clamp(r.w + (e.clientX - r.x) * 2, MIN_W, maxW);
+    if (r.dir.indexOf('s') >= 0) h = clamp(r.h + (e.clientY - r.y) * 2, MIN_H, maxH);
+    lastSizeRef.current = { w: Math.round(w), h: Math.round(h) };
+    setWin(lastSizeRef.current);
+  }
+  function endResize(e) {
+    if (!resizeRef.current) return;
+    resizeRef.current = null;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* deja eliberat */ }
+    const last = lastSizeRef.current;
+    if (last) { try { localStorage.setItem(WIN_KEY, JSON.stringify(last)); } catch { /* fără loc */ } }
+  }
+
+  // ── Panoul cu enunțul ───────────────────────────────────
+  const enuntText = useMemo(() => cleanEnunt(enunt), [enunt]);
+  const [enuntOpen, setEnuntOpen] = useState(() => {
+    try { return localStorage.getItem('sdl:enunt') !== '0'; } catch { return true; }
+  });
+  const [enuntH, setEnuntH] = useState(() => {
+    try { const v = parseInt(localStorage.getItem('sdl:enuntH') || '0', 10); return v > 0 ? v : 132; } catch { return 132; }
+  });
+  const enuntRef = useRef(null);
+  const lastEnuntHRef = useRef(null);
+  function toggleEnunt() {
+    setEnuntOpen((v) => { try { localStorage.setItem('sdl:enunt', v ? '0' : '1'); } catch { /* nimic */ } return !v; });
+  }
+  function startEnuntResize(e) {
+    e.preventDefault(); e.stopPropagation();
+    enuntRef.current = { y: e.clientY, h: enuntH };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* merge și fără */ }
+  }
+  function moveEnuntResize(e) {
+    const r = enuntRef.current;
+    if (!r) return;
+    e.preventDefault();
+    lastEnuntHRef.current = clamp(r.h + (e.clientY - r.y), ENUNT_MIN, Math.round(winH * ENUNT_MAX_FRAC));
+    setEnuntH(lastEnuntHRef.current);
+  }
+  function endEnuntResize(e) {
+    if (!enuntRef.current) return;
+    enuntRef.current = null;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* deja eliberat */ }
+    const last = lastEnuntHRef.current;
+    if (last) { try { localStorage.setItem('sdl:enuntH', String(last)); } catch { /* fără loc */ } }
+  }
 
   // ── Desenarea cernelii ────────────────────────────────────────────────
   const repaint = useCallback(() => {
@@ -649,18 +786,22 @@ export default function SpatiuDeLucru({
       onPointerDown={(e) => { if (e.target === e.currentTarget) onClose && onClose(); }}
       style={{
         position: 'fixed', inset: 0, zIndex: 100000, background: 'rgba(10,22,36,.55)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2vh 2vw',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
       }}
     >
-      <div style={{
-        background: '#fff', borderRadius: 14, width: 'min(1100px, 100%)', height: 'min(94vh, 100%)',
+      <div ref={dialogRef} style={{
+        background: '#fff', borderRadius: narrow ? 10 : 14, width: winW, height: winH,
         display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 18px 60px rgba(0,0,0,.35)',
+        position: 'relative',
       }}>
 
-        <div style={{
-          background: 'var(--navy, #0f2b44)', color: '#fff', padding: '9px 14px',
-          display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
-        }}>
+        <div
+          onDoubleClick={() => setMaxi((v) => !v)}
+          title="Dublu-clic ca să mărești sau să micșorezi fereastra"
+          style={{
+            background: 'var(--navy, #0f2b44)', color: '#fff', padding: '9px 14px',
+            display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, cursor: 'default',
+          }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: '.95rem' }}>✍️ Spațiu de lucru</div>
             {title && (
@@ -669,6 +810,12 @@ export default function SpatiuDeLucru({
               </div>
             )}
           </div>
+          <button onClick={() => setMaxi((v) => !v)} aria-label={maxi ? 'Micșorează fereastra' : 'Mărește fereastra pe tot ecranul'}
+            title={maxi ? 'Micșorează fereastra' : 'Pe tot ecranul'}
+            style={{
+              background: 'rgba(255,255,255,.14)', border: 'none', color: '#fff', borderRadius: 8,
+              padding: '5px 10px', fontSize: '.9rem', fontWeight: 700, cursor: 'pointer', lineHeight: 1,
+            }}>{maxi ? '⤵' : '⛶'}</button>
           <button onClick={onClose} aria-label="Închide spațiul de lucru" style={{
             background: 'rgba(255,255,255,.14)', border: 'none', color: '#fff', borderRadius: 8,
             padding: '5px 11px', fontSize: '.85rem', fontWeight: 700, cursor: 'pointer',
@@ -707,6 +854,45 @@ export default function SpatiuDeLucru({
             </button>
           )}
         </div>
+
+        {/* ── Enunțul exercițiului ── */}
+        {enuntText && (
+          <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', borderBottom: '1px solid #dde4ec', background: '#fbfdff' }}>
+            <button
+              onClick={toggleEnunt}
+              aria-expanded={enuntOpen}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left',
+                background: '#eef4fb', border: 'none', borderBottom: enuntOpen ? '1px solid #dde4ec' : 'none',
+                padding: '5px 12px', cursor: 'pointer', color: '#1a4d80', fontWeight: 700, fontSize: '.78rem',
+              }}>
+              <span style={{ transform: enuntOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s', display: 'inline-block' }}>▸</span>
+              📄 Enunțul exercițiului
+              <span style={{ marginLeft: 'auto', fontWeight: 600, opacity: .7 }}>{enuntOpen ? 'ascunde' : 'arată'}</span>
+            </button>
+            {enuntOpen && (
+              <>
+                <div style={{
+                  height: Math.min(enuntH, Math.round(winH * ENUNT_MAX_FRAC)),
+                  overflowY: 'auto', overflowX: 'auto', overscrollBehavior: 'contain', padding: '8px 12px',
+                }}>
+                  <TextEnunt text={enuntText} />
+                </div>
+                {/* mânerul de tras: cât de mult din fereastră ocupă enunțul */}
+                <div
+                  onPointerDown={startEnuntResize} onPointerMove={moveEnuntResize}
+                  onPointerUp={endEnuntResize} onPointerCancel={endEnuntResize}
+                  title="Trage ca să vezi mai mult sau mai puțin din enunț"
+                  style={{
+                    height: 11, cursor: 'ns-resize', touchAction: 'none', background: '#eef4fb',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  }}>
+                  <span style={{ width: 46, height: 3, borderRadius: 3, background: '#b9c9dc' }} />
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* ── Foaia ── */}
         <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', background: '#fdfdf8' }}>
@@ -805,6 +991,41 @@ export default function SpatiuDeLucru({
             {asteapta.length ? ` · ${asteapta.length} în așteptare` : ''}
           </span>
         </div>
+        {/* ── Mânerele de redimensionare a ferestrei ── */}
+        {/* Pe telefon rămâne doar înălțimea (lățimea e cât ecranul, oricum). */}
+        {!maxi && (
+          <>
+            {!narrow && (
+              <div
+                onPointerDown={(e) => startResize('e', e)} onPointerMove={moveResize}
+                onPointerUp={endResize} onPointerCancel={endResize}
+                title="Trage ca să lățești fereastra"
+                style={{ position: 'absolute', top: 44, right: 0, width: 10, bottom: 26, cursor: 'ew-resize', touchAction: 'none' }} />
+            )}
+            <div
+              onPointerDown={(e) => startResize('s', e)} onPointerMove={moveResize}
+              onPointerUp={endResize} onPointerCancel={endResize}
+              title="Trage ca să înalți fereastra"
+              style={{
+                position: 'absolute', left: 26, right: 26, bottom: 0, height: narrow ? 16 : 10,
+                cursor: 'ns-resize', touchAction: 'none',
+                display: 'flex', alignItems: 'flex-end', justifyContent: 'center', paddingBottom: 3,
+              }}>
+              <span style={{ width: 54, height: 4, borderRadius: 4, background: '#c4cfdb' }} />
+            </div>
+            {!narrow && (
+              <div
+                onPointerDown={(e) => startResize('se', e)} onPointerMove={moveResize}
+                onPointerUp={endResize} onPointerCancel={endResize}
+                title="Trage ca să redimensionezi fereastra"
+                style={{
+                  position: 'absolute', right: 0, bottom: 0, width: 22, height: 22,
+                  cursor: 'nwse-resize', touchAction: 'none',
+                  backgroundImage: 'linear-gradient(135deg, transparent 48%, #b9c9dc 48%, #b9c9dc 56%, transparent 56%, transparent 70%, #b9c9dc 70%, #b9c9dc 78%, transparent 78%)',
+                }} />
+            )}
+          </>
+        )}
       </div>
 
       <style>{'@keyframes sdl-spin{to{transform:rotate(360deg)}}'}</style>

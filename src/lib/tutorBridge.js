@@ -183,12 +183,78 @@ const BRIDGE_SCRIPT = String.raw`
     return lines.join('\n');
   }
 
+  // ── ENUNȚUL, pentru OCHII ELEVULUI ──────────────────────────────
+  // ATENȚIE: collect() de mai jos conține răspunsurile corecte și indicațiile
+  // oficiale, marcate „dezvăluie DOAR dacă elevul îl cere" — ele merg la MODEL,
+  // niciodată pe ecran. Ce urmează e varianta curată, afșată în „Spațiul de
+  // lucru": enunț, cerințe și variante de răspuns, atât.
+  function cardEnunt(card){
+    if (!card || !document.body || !document.body.contains(card) || !visible(card)) return null;
+    var lines = [];
+    var lbl = cardLabel(card); if (lbl) lines.push(lbl.charAt(0).toUpperCase() + lbl.slice(1) + ':');
+    var q = txt(card.querySelector('.qtxt')) || txt(card.querySelector('.card-hdr'));
+    if (q) lines.push(q);
+    var tb = card.querySelector('table'); if (tb) lines.push(txt(tb));
+    var opts = [];
+    card.querySelectorAll('.opt').forEach(function(oo){
+      var l = txt(oo.querySelector('.olbl')) || '?', t = txt(oo.querySelector('.otxt'));
+      opts.push(l + ') ' + t);
+    });
+    if (opts.length) lines.push(opts.join('   '));
+    return lines.join('\n') || null;
+  }
+
+  function collectEnunt(){
+    try {
+      var out = [];
+      var fx = cardEnunt(focusCard);
+      if (fx) out.push(fx);
+      if (typeof PROBS !== 'undefined' && PROBS && PROBS.length) {
+        var curN = (typeof cur !== 'undefined') ? cur : null;
+        var p = null;
+        if (curN != null) for (var j = 0; j < PROBS.length; j++) if (PROBS[j].n === curN) { p = PROBS[j]; break; }
+        if (p) {
+          var L = ['Exercițiul ' + (p.lbl || p.n) + ': ' + plain(p.lead)];
+          if (p.req) for (var r = 0; r < p.req.length; r++) L.push(plain(p.req[r]));
+          // cerințele pașilor — FĂRĂ răspunsul corect și fără indicația oficială
+          if (p.steps) for (var si = 0; si < p.steps.length; si++) {
+            var step = p.steps[si];
+            var row = 'Pasul ' + (si + 1) + ': ' + plain(step.d);
+            if (step.t === 'mc' && step.o) {
+              var o2 = [];
+              for (var oi = 0; oi < step.o.length; oi++) o2.push(String.fromCharCode(65 + oi) + ') ' + plain(step.o[oi]));
+              row += '   ' + o2.join('   ');
+            }
+            L.push(row);
+          }
+          out.push(L.join('\n'));
+        }
+        var all = allProblemsText();
+        if (all) out.push(all);
+      }
+      if (!out.length) {
+        var sel = ['#stmt', '.statement', '.question', '.enunt', '.a-title'];
+        for (var i = 0; i < sel.length; i++) {
+          var el = document.querySelector(sel[i]);
+          if (el) { var t = txt(el); if (t && out.join(' ').indexOf(t.slice(0, 60)) === -1) out.push(t); }
+        }
+      }
+      var res = out.join('\n\n').slice(0, 6000);
+      return res || null;
+    } catch (e) { return null; }
+  }
+
   function collect(){
     var rich = collectRich();
     var base = rich || collectDom();
     var fx = cardInfo(focusCard);
     var text = fx ? fx + '\n\n' + base : base;
-    return { text: String(text || '').slice(0, MAXLEN), rich: !!rich, title: document.title || '', focus: fx ? cardLabel(focusCard) : null };
+    return {
+      text: String(text || '').slice(0, MAXLEN), rich: !!rich, title: document.title || '',
+      focus: fx ? cardLabel(focusCard) : null,
+      // enunțul curat, de afișat elevului (vezi collectEnunt — fără răspunsuri)
+      enunt: collectEnunt(),
+    };
   }
 
   // ── Butonul de indicații → „Întreabă profesorul virtual" ──────────

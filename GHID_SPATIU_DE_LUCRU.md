@@ -24,6 +24,31 @@ cerneala și linia se recunoaște iar, întreagă. Nimic nu se pierde.
 
 ---
 
+## Fereastra și enunțul
+
+**Mărimea** o alege elevul și rămâne așa și data viitoare (`localStorage`,
+cheia `sdl:fereastra`):
+
+| Unde | Cum |
+|---|---|
+| Desktop | trage de colțul din dreapta-jos, de marginea dreaptă sau de cea de jos |
+| Telefon | trage de bara de jos (lățimea rămâne cât ecranul) |
+| Oriunde | butonul `⛶` din antet, sau dublu-clic pe antet — pe tot ecranul și înapoi |
+
+**Enunțul exercițiului** stă într-un panou pliabil, deasupra foii, randat cu
+KaTeX. Se pliază din antetul lui, iar înălțimea se trage de mânerul de sub el
+(până la 55% din fereastră). Și pliatul, și înălțimea se țin minte.
+
+> **Atenție la ce se afișează.** `payload.text` din bridge (cel care merge la
+> model) conține **răspunsurile corecte** și indicațiile oficiale, marcate
+> „dezvăluie DOAR dacă elevul îl cere". Panoul NU-l folosește: primește
+> `payload.enunt`, construit de `collectEnunt()` din enunț, cerințe și variante,
+> fără nimic din ce ar da răspunsul. În plus, componenta mai taie o dată
+> marcajele (`cleanEnunt`), ca plasă de siguranță — dacă adăugi alt loc de unde
+> se deschide caietul, **nu** trece `hint` și în `enunt`.
+
+---
+
 ## Cum funcționează, pe scurt
 
 ```
@@ -101,7 +126,9 @@ citește corectarea. Liniile ies în ordinea de sus în jos a foii, indiferent
 | `api/_lib/ai.js` | `chatVision` acceptă acum `model` (o linie — restul neatins) |
 | `src/components/SpatiuDeLucru.jsx` | caietul: desen, grupare pe linii, recunoaștere, KaTeX (**nou**) |
 | `src/lib/aiClient.js` | `aiClient.handwriting({ imageBase64, count, hint, prev })` |
-| `src/lib/tutorBridge.js` | butonul din iframe + mesajul `MATE_WORKSPACE_OPEN` |
+| `src/lib/tutorBridge.js` | butonul din iframe, mesajul `MATE_WORKSPACE_OPEN` și `collectEnunt()` (enunțul fără răspunsuri) |
+| `src/lib/katex.js` | `autoMath` — acolade echilibrate la `\frac`/`\sqrt`, operatori mari cu limitele lor |
+| `test/katex-automath.test.js` | regresii pentru `autoMath` (**nou**) |
 | `src/pages/InteractiveViewer.jsx` | ascultă `MATE_WORKSPACE_OPEN`, deschide caietul |
 | `src/pages/PDFViewer.jsx` | butonul + caietul peste PDF |
 | `src/components/AITutor.jsx` | butonul din bara de scris + pe fiecare cerință |
@@ -128,9 +155,11 @@ Butonul trăiește în exercițiu (iframe), dar caietul se deschide în
 pagina-părinte — acolo sunt sesiunea, creditele AI și KaTeX.
 
 ```
-iframe → părinte :  MATE_WORKSPACE_OPEN  { text, title, focus }
+iframe → părinte :  MATE_WORKSPACE_OPEN  { text, enunt, title, focus }
 părinte → iframe :  MATE_TUTOR_ACTION    { kind: 'fill', value: '<textul recunoscut>' }
 ```
+
+`text` → la model (conține răspunsurile corecte) · `enunt` → pe ecran (nu le conține).
 
 `fill` e acțiunea care exista deja pentru Profesorul Virtual — caietul o
 refolosește, nu adaugă una nouă.
@@ -145,6 +174,7 @@ refolosește, nu adaugă una nouă.
   Pentru figuri există creionul de pe figura exercițiului.
 - **Nu ține minte pe server**: ciorna se salvează doar local, în browserul
   elevului (`localStorage`, cheia `sdl2:…`). Se șterge cu „✕ Șterge tot".
+- **Nu mută fereastra** — doar o redimensionează. Stă centrată.
 
 ---
 

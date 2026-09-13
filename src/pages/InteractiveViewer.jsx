@@ -808,6 +808,9 @@ export default function InteractiveViewer() {
         onClose={() => setWorkOpen(false)}
         title={item?.title || exState?.title || ''}
         hint={exState?.text || ''}
+        /* enunțul CURAT, fără răspunsurile corecte (collectEnunt din tutorBridge):
+           `exState.text` le conține, pentru model — pe ecran n-au ce căuta */
+        enunt={exState?.enunt || ''}
         storageKey={`ex:${item?.id || 'exercitiu'}`}
         onInsert={(text) => sendTutorAction({ kind: 'fill', value: text.replace(/\$/g, '').replace(/\n+/g, ' ').trim() })}
         insertLabel="✓ Pune în răspuns"

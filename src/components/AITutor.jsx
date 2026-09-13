@@ -1401,6 +1401,11 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         hint={work && work.cerinta
           ? String(work.cerinta)
           : String(attached || context.exerciseText || '').slice(0, 700)}
+        /* enunțul arătat în caiet: cerința de la care s-a deschis, iar din bara
+           de scris — exercițiul din poză / PDF-ul deschis */
+        enunt={work && work.cerinta
+          ? [work.eticheta, String(work.cerinta)].filter(Boolean).join('\n')
+          : String(attached || context.exerciseText || '')}
         storageKey={work ? `chat:${form?.src?.contentId || context.contentId || 'liber'}:${work.target}` : null}
         insertLabel={work && work.target === 'input' ? '✓ Pune în întrebare' : '✓ Pune în răspuns'}
         onInsert={(text) => {
