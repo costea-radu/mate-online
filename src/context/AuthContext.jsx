@@ -209,8 +209,14 @@ export function AuthProvider({ children }) {
     fetchedForSession.current = null;
   }
 
-  const isPremium = profile?.subscription_status === 'active';
   const isAdmin = profile?.is_admin === true;
+  // Abonament Stripe REAL — doar pentru ecranele de facturare (Prețuri,
+  // „Contul meu" → Abonament, Setări cont).
+  const isSubscribed = profile?.subscription_status === 'active';
+  // ACCES premium: abonații + adminul. Adminul folosește toate funcțiile fără
+  // abonament (nu-și plătește propria platformă prin Stripe). Toate porțile din
+  // interfață citesc isPremium, deci se deschid automat și pentru admin.
+  const isPremium = isSubscribed || isAdmin;
   const isTeacher = profile?.role === 'profesor';
   const isStudent = profile?.role === 'elev';
   const isParent = profile?.role === 'parinte';
@@ -218,7 +224,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      user, profile, loading, isPremium, isAdmin, isTeacher, isStudent, isParent, isMentor,
+      user, profile, loading, isPremium, isSubscribed, isAdmin, isTeacher, isStudent, isParent, isMentor,
       signUp, signIn, signInWithGoogle, signInWithDiscord, signOut, fetchProfile, resetPassword, resendConfirmation
     }}>
       {children}

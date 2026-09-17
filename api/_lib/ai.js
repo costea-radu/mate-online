@@ -1060,7 +1060,11 @@ async function requireUser(supa, userId) {
   if (error || !data) { const e = new Error('Utilizator negăsit'); e.status = 401; throw e; }
   return data;
 }
-const isPremium = (p) => p?.subscription_status === 'active';
+// ACCES premium = abonament Stripe activ SAU cont de administrator. Adminul
+// folosește toate funcțiile fără abonament (nu-și plătește propria platformă
+// prin Stripe). Toate porțile AI trec pe aici: requirePremium,
+// enforceFreeQuota, materialele premium din RAG și răspunsurile pre-generate.
+const isPremium = (p) => p?.subscription_status === 'active' || p?.is_admin === true;
 
 // Eroare „ai nevoie de abonament" (folosită pentru gating).
 function premiumError(msg) {

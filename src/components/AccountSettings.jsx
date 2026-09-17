@@ -21,7 +21,7 @@ function Note({ ok, children }) {
 }
 
 export default function AccountSettings() {
-  const { user, profile, fetchProfile, signOut, isPremium } = useAuth();
+  const { user, profile, fetchProfile, signOut, isSubscribed, isAdmin } = useAuth();
   const inp = { width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', fontSize: '.92rem', marginTop: 4, marginBottom: 10 };
   const sub = { fontWeight: 700, color: 'var(--navy)', fontSize: '.95rem', margin: '18px 0 8px' };
   const label = { fontSize: '.8rem', color: 'var(--text-light)' };
@@ -137,9 +137,13 @@ export default function AccountSettings() {
       {/* ABONAMENT */}
       <div style={sub}>💳 Abonament</div>
       <div style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 8 }}>
-        Status: <strong style={{ color: isPremium ? '#1e7e34' : 'var(--text-muted)' }}>{isPremium ? 'Activ (Premium)' : 'Fără abonament'}</strong>
+        Status: <strong style={{ color: isSubscribed || isAdmin ? '#1e7e34' : 'var(--text-muted)' }}>
+          {isSubscribed ? 'Activ (Premium)' : isAdmin ? 'Administrator — acces complet, fără abonament' : 'Fără abonament'}
+        </strong>
       </div>
-      <Link to="/preturi" className="btn btn-outline btn-sm">Gestionează abonamentul</Link>
+      {(isSubscribed || !isAdmin) && (
+        <Link to="/preturi" className="btn btn-outline btn-sm">Gestionează abonamentul</Link>
+      )}
 
       {/* TIP CONT */}
       <div style={sub}>🔁 Tipul contului</div>

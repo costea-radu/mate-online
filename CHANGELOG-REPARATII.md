@@ -4,6 +4,56 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 17 septembrie 2026 — Adminul are acces la tot, fără abonament
+
+Contul de admin avea nevoie de un abonament Stripe ca să folosească site-ul ca
+un elev — adică platforma se plătea pe ea însăși (comision + taxe, pentru bani
+plimbați degeaba). Unele porți verificau deja `is_admin`
+(`get-file-url`, `rezolvare-url`, `ai-public`, `group-assignment`, `catalog`,
+meditațiile, duelurile), dar **poarta comună a funcțiilor AI nu**: după anularea
+abonamentului, adminul ar fi căzut pe „2 acțiuni gratuite" și pe materialele
+gratuite din RAG.
+
+### Ce s-a schimbat
+
+**1. O singură poartă pe server.** `api/_lib/ai.js`:
+`isPremium = subscription_status === 'active' || is_admin === true`. Prin ea trec
+`requirePremium`, `enforceFreeQuota`, materialele premium din RAG și răspunsurile
+pre-generate — deci toate endpoint-urile AI (chat, antrenament, dezvăluirea
+exercițiului, teme, examene, corectări, foto, voce, scris de mână).
+
+**2. O singură poartă în interfață.** `src/context/AuthContext.jsx` întoarce
+acum două lucruri diferite: `isPremium` = ACCES (abonat **sau** admin), citit de
+toate gardurile din UI, și `isSubscribed` = abonament Stripe REAL, citit doar de
+ecranele de facturare. Nimic altceva din interfață nu s-a atins.
+
+**3. Ecranele de facturare spun adevărul.** Pe `/preturi`, în „Contul meu" și în
+„Setări cont", adminul fără abonament vede „🛡️ Administrator — acces complet,
+fără abonament", nu „⭐ Premium" și nici butoanele de plată. Cât timp mai are un
+abonament activ, vede și „Gestionează abonamentul" (de acolo îl anulează), cu
+mențiunea că accesul rămâne neschimbat după anulare.
+
+**4. Adminul nu mai poate porni o plată.** `api/create-checkout.js` răspunde
+400 `ADMIN_NO_CHECKOUT` pentru orice cont cu `is_admin` — nici abonament, nici
+pachete AI (adminul e oricum scutit de bugete, `isBudgetExempt`). Plasă de
+siguranță împotriva unei plăți din greșeală către propria platformă.
+
+Nu s-a atins nimic în baza de date: politicile RLS nu verifică abonamentul
+(metadatele conținutului sunt publice, fișierele merg prin URL-uri semnate de
+endpoint-uri care știu deja de admin). Webhookul Stripe rămâne la fel: la
+anulare pune `subscription_status='inactive'`, iar accesul adminului nu depinde
+de el.
+
+Neschimbate, pentru toți: limita orară anti-abuz (`AI_RATE_PER_HOUR`) și cota
+zilnică de recunoaștere a scrisului (`AI_QUOTA_SCRIS_ZI`) — nu sunt porți de
+abonament.
+
+Teste noi: `test/admin-fara-abonament.test.js` (8 teste — poarta AI + blocajul
+de checkout; pică pe codul vechi, trec pe cel nou). `npm test`: 487 trec, 0 pică
+(cu `node_modules` reinstalat curat). `vite build`: OK.
+
+---
+
 ## 13 septembrie 2026 — Combinarea testelor pe rubrică: se schimbau doar primele 6 exerciții
 
 Task-ul agentului care „combină exercițiile din testele 1–32 din rubrică" scotea,

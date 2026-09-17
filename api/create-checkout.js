@@ -108,10 +108,17 @@ module.exports = async function handler(req, res) {
 
     // Email + status abonament din profilul REAL (nu din body).
     const { data: profile, error: profileError } = await supabase
-      .from('profiles').select('subscription_status, email').eq('id', userId).single();
+      .from('profiles').select('subscription_status, email, is_admin').eq('id', userId).single();
     if (profileError) {
       console.error('Supabase profile error:', profileError);
       return res.status(500).json({ error: 'Eroare la citirea profilului' });
+    }
+
+    // Adminul are acces complet fără abonament și nu are limite AI, deci nu
+    // plătește nimic prin Stripe — nici abonament, nici pachete. Blocajul evită
+    // o plată făcută din greșeală către propria platformă (comisioane, taxe).
+    if (profile?.is_admin) {
+      return res.status(400).json({ error: 'Contul de administrator are deja acces complet, fără abonament. Nu e nevoie de nicio plată.', code: 'ADMIN_NO_CHECKOUT' });
     }
 
     // Pachet AI suplimentar (top-up) — flux separat, mode: 'payment'.

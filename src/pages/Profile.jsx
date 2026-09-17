@@ -155,7 +155,7 @@ function MyResults({ user }) {
 }
 
 export default function Profile() {
-  const { user, profile, isPremium, isTeacher, isParent, isMentor, signOut, loading, fetchProfile } = useAuth();
+  const { user, profile, isPremium, isSubscribed, isAdmin, isTeacher, isParent, isMentor, signOut, loading, fetchProfile } = useAuth();
   const navigate = useNavigate();
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -548,7 +548,7 @@ export default function Profile() {
                 </div>
               )}
               <div className={`subscription-badge ${isPremium ? 'premium' : 'free'}`} style={{ marginTop: 12 }}>
-                {isPremium ? '⭐ Premium' : 'Cont gratuit'}
+                {isSubscribed ? '⭐ Premium' : isAdmin ? '🛡️ Administrator' : 'Cont gratuit'}
               </div>
               {myMentors.length > 0 && (
                 <div style={{
@@ -589,16 +589,29 @@ export default function Profile() {
                     alignItems: 'center',
                     gap: 12
                   }}>
-                    <span style={{ fontSize: '1.3rem' }}>⭐</span>
+                    <span style={{ fontSize: '1.3rem' }}>{isSubscribed ? '⭐' : '🛡️'}</span>
                     <div>
-                      <strong>Abonament Premium activ</strong>
+                      <strong>{isSubscribed ? 'Abonament Premium activ' : 'Cont de administrator'}</strong>
                       <br />
-                      <span style={{ fontSize: '0.85rem', opacity: 0.8 }}>Ai acces complet la toate materialele</span>
+                      <span style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+                        {isSubscribed
+                          ? 'Ai acces complet la toate materialele'
+                          : 'Ai acces complet la toate funcțiile, fără abonament'}
+                      </span>
                     </div>
                   </div>
-                  <button className="btn btn-outline btn-sm" onClick={handleManageSubscription}>
-                    Gestionează abonamentul
-                  </button>
+                  {/* Adminul nu are nevoie de abonament: dacă mai are unul activ,
+                      îl anulează din portalul Stripe, iar accesul rămâne. */}
+                  {isAdmin && isSubscribed && (
+                    <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 12, lineHeight: 1.5 }}>
+                      Ca administrator ai acces la tot și fără abonament. Îl poți anula de aici — accesul tău rămâne neschimbat.
+                    </p>
+                  )}
+                  {isSubscribed && (
+                    <button className="btn btn-outline btn-sm" onClick={handleManageSubscription}>
+                      Gestionează abonamentul
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div>

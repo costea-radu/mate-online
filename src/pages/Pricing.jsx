@@ -31,7 +31,7 @@ const PLANS = [
 const TRIAL_ZILE = 2;
 
 export default function Pricing() {
-  const { user, isPremium } = useAuth();
+  const { user, isPremium, isSubscribed, isAdmin } = useAuth();
   const [loading, setLoading] = useState(false);
   const [plan, setPlan] = useState('anual');
   const navigate = useNavigate();
@@ -119,17 +119,27 @@ export default function Pricing() {
           {isPremium ? (
             <div className="pricing-card">
               <span className="badge badge-premium" style={{ fontSize: '0.85rem', padding: '6px 20px' }}>
-                ⭐ Premium
+                {isSubscribed ? '⭐ Premium' : '🛡️ Administrator'}
               </span>
               <div style={{
                 background: '#e8f5e9', color: '#2e7d32', padding: '12px 20px',
                 borderRadius: 'var(--radius)', margin: '24px 0 16px', fontWeight: 600,
               }}>
-                ✓ Ești abonat Premium
+                {isSubscribed ? '✓ Ești abonat Premium' : '✓ Ai acces complet ca administrator, fără abonament'}
               </div>
-              <button className="btn btn-outline" style={{ width: '100%' }} onClick={handleManage} disabled={loading}>
-                {loading ? 'Se încarcă...' : 'Gestionează abonamentul'}
-              </button>
+              {/* Adminul nu are nevoie de abonament: dacă mai are unul activ,
+                  îl poate anula de aici, iar accesul rămâne neschimbat. */}
+              {isAdmin && isSubscribed && (
+                <p style={{ fontSize: '.85rem', color: 'var(--text-light)', lineHeight: 1.5, marginBottom: 16 }}>
+                  Contul de administrator are acces la toate funcțiile și fără abonament.
+                  Îl poți anula din „Gestionează abonamentul" — accesul tău rămâne neschimbat.
+                </p>
+              )}
+              {isSubscribed && (
+                <button className="btn btn-outline" style={{ width: '100%' }} onClick={handleManage} disabled={loading}>
+                  {loading ? 'Se încarcă...' : 'Gestionează abonamentul'}
+                </button>
+              )}
             </div>
           ) : (
             <>
