@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ExamenMate</string>
+    <string name="default_url">https://examenmate.com/</string>
+
+    <string name="asset_statements">[{ \"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": { \"namespace\": \"web\", \"site\": \"https://examenmate.com\" }}]</string>
+
+    <string name="shortcut_short_1">Ev. Națională</string>
+    <string name="shortcut_long_1">Evaluarea Națională</string>
+    <string name="shortcut_short_2">Bacalaureat</string>
+    <string name="shortcut_long_2">Bacalaureat</string>
+    <string name="shortcut_short_3">Profesor AI</string>
+    <string name="shortcut_long_3">Profesor Virtual</string>
+</resources>

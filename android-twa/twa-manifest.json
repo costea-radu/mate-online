@@ -1,0 +1,49 @@
+{
+  "packageId": "com.examenmate.app",
+  "host": "examenmate.com",
+  "name": "ExamenMate – Matematică pentru Succes",
+  "launcherName": "ExamenMate",
+  "display": "standalone",
+  "themeColor": "#1A3A5C",
+  "navigationColor": "#1A3A5C",
+  "backgroundColor": "#1A3A5C",
+  "startUrl": "/",
+  "iconUrl": "https://examenmate.com/pwa-512x512.png",
+  "maskableIconUrl": "https://examenmate.com/pwa-maskable-512.png",
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [
+    {
+      "name": "Evaluarea Națională",
+      "short_name": "Ev. Națională",
+      "url": "/evaluare-nationala",
+      "chosenIconUrl": "https://examenmate.com/pwa-192x192.png"
+    },
+    {
+      "name": "Bacalaureat",
+      "short_name": "Bacalaureat",
+      "url": "/bacalaureat",
+      "chosenIconUrl": "https://examenmate.com/pwa-192x192.png"
+    },
+    {
+      "name": "Profesor Virtual",
+      "short_name": "Profesor AI",
+      "url": "/profesor-virtual",
+      "chosenIconUrl": "https://examenmate.com/pwa-192x192.png"
+    }
+  ],
+  "signingKey": {
+    "path": "./keystore/examenmate-upload.jks",
+    "alias": "examenmate"
+  },
+  "enableNotifications": true,
+  "fallbackType": "customtabs",
+  "webManifestUrl": "https://examenmate.com/manifest.webmanifest",
+  "fullScopeUrl": "https://examenmate.com/",
+  "minSdkVersion": 21,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "additionalTrustedOrigins": [
+    "https://www.examenmate.com"
+  ]
+}

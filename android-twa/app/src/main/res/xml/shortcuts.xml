@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="evaluare-nationala"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_short_1"
+        android:shortcutLongLabel="@string/shortcut_long_1">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="com.examenmate.app"
+            android:targetClass="com.examenmate.app.LauncherActivity"
+            android:data="https://examenmate.com/evaluare-nationala" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="bacalaureat"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_short_2"
+        android:shortcutLongLabel="@string/shortcut_long_2">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="com.examenmate.app"
+            android:targetClass="com.examenmate.app.LauncherActivity"
+            android:data="https://examenmate.com/bacalaureat" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="profesor-virtual"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_short_3"
+        android:shortcutLongLabel="@string/shortcut_long_3">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="com.examenmate.app"
+            android:targetClass="com.examenmate.app.LauncherActivity"
+            android:data="https://examenmate.com/profesor-virtual" />
+    </shortcut>
+</shortcuts>

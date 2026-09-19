@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.examenmate.app",
+      "sha256_cert_fingerprints": [
+        "AD:75:34:7B:8A:7F:66:36:2D:C8:53:94:41:A2:2E:EA:61:E4:6C:8D:91:F9:97:F4:34:66:53:2C:8A:43:47:1D"
+      ]
+    }
+  }
+]
