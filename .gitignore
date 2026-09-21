@@ -31,3 +31,10 @@ eval/reports/*
 
 # fișiere puse deoparte pentru ștergere manuală (nu ajung în repo)
 _to_delete/
+
+# Pachete Android si chei de semnare - nu ajung in git
+play-assets/*.aab
+play-assets/*.apk
+*.keystore
+*.jks
+keystore.properties
