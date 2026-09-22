@@ -69,6 +69,7 @@ export default function Footer() {
               <li><Link to="/politica-confidentialitate">Politica de Confidențialitate</Link></li>
               <li><Link to="/politica-cookies">Politica de Cookie-uri</Link></li>
               <li><Link to="/politica-retur">Politica de Retur</Link></li>
+              <li><Link to="/stergere-cont">Ștergerea contului</Link></li>
             </ul>
           </div>
         </div>

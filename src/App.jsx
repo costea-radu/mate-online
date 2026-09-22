@@ -33,6 +33,7 @@ const PoliticaConfidentialitate = lazy(() => import('./pages/PoliticaConfidentia
 const TermeniConditii = lazy(() => import('./pages/TermeniConditii'));
 const PoliticaCookies = lazy(() => import('./pages/PoliticaCookies'));
 const PoliticaRetur = lazy(() => import('./pages/PoliticaRetur'));
+const StergereCont = lazy(() => import('./pages/StergereCont'));
 const FAQ = lazy(() => import('./pages/FAQ'));
 const DespreNoi = lazy(() => import('./pages/DespreNoi'));
 const NotFound = lazy(() => import('./pages/NotFound'));
@@ -148,6 +149,7 @@ export default function App() {
                 <Route path="/termeni-conditii" element={<TermeniConditii />} />
                 <Route path="/politica-cookies" element={<PoliticaCookies />} />
                 <Route path="/politica-retur" element={<PoliticaRetur />} />
+                <Route path="/stergere-cont" element={<StergereCont />} />
                 <Route path="/faq" element={<FAQ />} />
                 <Route path="/despre-noi" element={<DespreNoi />} />
                 <Route path="/profesor-virtual" element={<ProfesorVirtual />} />
