@@ -19,7 +19,7 @@ export default function Home() {
     { icon: '📄', title: 'Exerciții PDF', desc: 'Descarcă fișe de lucru și teste în format PDF. Jumătate din materiale sunt gratuite.' },
     { icon: '🧩', title: 'Exerciții Interactive', desc: 'Rezolvă exerciții direct pe platformă cu feedback instant și explicații pas cu pas.' },
     { icon: '📖', title: 'Auxiliare Online', desc: 'Acces la auxiliare și manuale digitale complete, disponibile oricând și de oriunde.' },
-    { icon: <EinsteinIcon size={30} />, title: 'Meditații live cu Profesorul Virtual', desc: 'Ca pe Zoom: zilnic la 15, 17 și 19, profesorul explică la tablă un subiect de EN sau BAC pe baremul oficial. Întrebi în chat, răspunzi la grile — sau 1-la-1, oricând.' },
+    { icon: <EinsteinIcon size={30} />, title: 'Meditații live cu Profesorul Virtual', desc: 'Zilnic, la aceeași oră, profesorul rezolvă la tablă câte un subiect în 4 săli: EN, BAC Mate-Info, BAC Științele Naturii și BAC Tehnologic — pe baremul oficial. Întrebi în chat, răspunzi la grile — sau 1-la-1, oricând.' },
     { icon: '🤖', title: 'Profesor Virtual (AI)', desc: 'Tutor AI disponibil non-stop: explică pas cu pas, generează teste interactive și fișe PDF și îți corectează rezolvările.' },
     { icon: '🧑‍🏫', title: 'Generator de teste (profesori)', desc: 'Profesorii creează teste interactive sau PDF, inclusiv după modele oficiale, le trimit elevilor și văd rezultatele automat.' },
   ];
@@ -100,8 +100,9 @@ export default function Home() {
               <div className="card-icon"><EinsteinIcon size={34} /></div>
               <h3>Meditații live cu Profesorul Virtual</h3>
               <p>
-                O meditație online ca pe Zoom: te conectezi la ora fixă (<strong>15, 17 sau 19</strong>), iar profesorul
-                explică la tablă un subiect de Evaluare Națională sau de Bacalaureat <strong>strict pe baremul oficial</strong>.
+                O meditație online la ora fixă: în fiecare zi, profesorul rezolvă la tablă câte un subiect în 4 săli —
+                <strong> Evaluarea Națională, BAC Mate-Info, BAC Științele Naturii și BAC Tehnologic</strong> —
+                <strong> strict pe baremul oficial</strong>.
                 Întrebi în chat, răspunzi la grile și vezi cum au răspuns colegii — sau alegi o ședință
                 <strong> 1-la-1</strong>, oricând. În „Planul meu" ai în continuare testul inițial, planul de învățare,
                 temele corectate și simulările.

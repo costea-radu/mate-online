@@ -1,9 +1,10 @@
 // =====================================================================
 // src/components/LiveAdmin.jsx — ADMIN: Meditațiile live
 //
-// Programul unei zile (ședințele de grup de la 15, 17, 19): ce subiect se
-// predă (doar subiecte CU BAREM), starea lecției (scriptul + vocea), cine e în
-// sală; pregătirea/regenerarea lecțiilor, anularea unei ședințe, o notă.
+// Programul unei zile: la aceeași oră, câte o sală pe examen (EN, BAC Mate-Info,
+// BAC Științele Naturii, BAC Tehnologic) — ce subiect se predă în fiecare (doar
+// subiecte CU BAREM, ale examenului sălii), starea lecției (scriptul + vocea), cine
+// e în sală; pregătirea/regenerarea lecțiilor, anularea unei ședințe, o notă.
 // Lecțiile recente: durata, costul (text + voce), erorile, scriptul complet.
 // =====================================================================
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -44,6 +45,7 @@ export default function LiveAdmin() {
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const slotLabel = useMemo(() => Object.fromEntries((data?.slots || []).map((s) => [s.id, s.label])), [data]);
+  const subjectsFor = (s) => (s.exam === 'bac' ? (data?.subjects?.bac || []).filter((x) => !s.profile || x.profile === s.profile) : (data?.subjects?.en || []));
   const teacherName = useMemo(() => Object.fromEntries((data?.teachers || []).map((t) => [t.id, t.name])), [data]);
 
   async function run(key, fn, okText) {
@@ -80,6 +82,17 @@ export default function LiveAdmin() {
 
       <div style={box}>
         <h3 style={{ color: 'var(--navy)', marginBottom: 10 }}>Ședințele zilei</h3>
+        {data?.rooms?.length > 0 && (
+          <div style={{ color: '#6b7280', fontSize: '.84rem', marginBottom: 10 }}>
+            Subiecte cu barem, pe săli:{' '}
+            {data.rooms.map((r, i) => (
+              <span key={r.id} style={{ color: r.subjects ? '#374151' : '#b3261e', fontWeight: r.subjects ? 400 : 700 }}>
+                {i ? ' · ' : ''}{r.label} {r.subjects}{r.subjects ? '' : ' ⚠'}
+              </span>
+            ))}
+            {data.rooms.some((r) => !r.subjects) && <span> — sala fără subiecte așteaptă; cronul citește baremele întâi pentru ea (sau încarcă subiecte cu barem pentru acel profil).</span>}
+          </div>
+        )}
         {!data && !err && <div className="spinner" />}
         {data && (
           <div style={{ overflowX: 'auto' }}>
@@ -87,18 +100,18 @@ export default function LiveAdmin() {
               <thead><tr><th style={th}>Ora</th><th style={th}>Examen</th><th style={th}>Subiectul (cu barem)</th><th style={th}>Lecția</th><th style={th}>Sala</th><th style={th}>Acțiuni</th></tr></thead>
               <tbody>
                 {data.sessions.map((s) => {
-                  const list = (s.exam === 'bac' ? data.subjects.bac : data.subjects.en) || [];
+                  const list = subjectsFor(s);
                   const inList = s.subject && list.some((x) => x.id === s.subject.id);
                   return (
                     <tr key={s.id} style={{ opacity: s.status === 'anulata' ? 0.55 : 1 }}>
-                      <td style={td}><b>{slotLabel[s.slot] || s.slot}</b><div style={{ color: '#6b7280', fontSize: '.78rem' }}>{teacherName[s.teacher] || s.teacher}</div></td>
+                      <td style={td}><b>{s.label || slotLabel[s.slot] || s.slot}</b><div style={{ color: '#6b7280', fontSize: '.78rem' }}>{s.room ? `Sala ${s.room.n} · ` : ''}{teacherName[s.teacher] || s.teacher}</div></td>
                       <td style={td}>{s.examLabel}</td>
                       <td style={{ ...td, minWidth: 260 }}>
                         <select value={s.subject?.id || ''} disabled={busy === `subj-${s.id}`} style={{ width: '100%', padding: 6, borderRadius: 8, border: '1px solid #d0d7e2' }}
                           onChange={(e) => run(`subj-${s.id}`, () => liveApi.adminSetSubject(s.id, { subjectId: e.target.value || null }), 'Subiectul a fost schimbat.')}>
                           <option value="">— alege automat —</option>
                           {s.subject && !inList && <option value={s.subject.id}>{s.subject.title}</option>}
-                          {list.map((x) => <option key={x.id} value={x.id}>{x.title}{x.profile ? ` · ${x.profile}` : ''}</option>)}
+                          {list.map((x) => <option key={x.id} value={x.id}>{x.title}</option>)}
                         </select>
                         <input type="text" defaultValue={s.note || ''} placeholder="Notă (opțional, doar pentru admin)" style={{ width: '100%', marginTop: 6, padding: 6, borderRadius: 8, border: '1px solid #e3e8ef', fontSize: '.8rem' }}
                           onBlur={(e) => { if ((e.target.value || '') !== (s.note || '')) run(`note-${s.id}`, () => liveApi.adminSetSubject(s.id, { note: e.target.value })); }} />
@@ -127,7 +140,8 @@ export default function LiveAdmin() {
               </tbody>
             </table>
             <p style={{ color: '#6b7280', fontSize: '.8rem', marginTop: 10 }}>
-              Programul și subiectele se completează singure (cron, la 15 minute). O lecție NOUĂ se scrie abia când intră primul elev în sala de
+              Programul și subiectele se completează singure (cron, la 15 minute): în fiecare zi, câte o ședință în fiecare sală, la aceeași oră
+              (LIVE_INTERVALE, implicit 17-19; LIVE_SALI). O lecție NOUĂ se scrie abia când intră primul elev în sala de
               așteptare sau cumpără bilet (fără elevi, fără cost; LIVE_PREGATIRE_AUTO=1 le pregătește pe toate din timp). La ora de început, cu cel
               puțin 2 elevi pornește ședința comună; cu unul singur, ședința devine 1-la-1. Sunt propuse doar subiectele care au barem găsit.
             </p>

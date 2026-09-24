@@ -406,6 +406,8 @@
 .lvl-slot.is-live { border-color: rgba(234,67,53,.55); box-shadow: 0 0 0 3px rgba(234,67,53,.08); }
 .lvl-slot.is-past { opacity: .55; }
 .lvl-slot-time { font-weight: 800; color: var(--navy); font-variant-numeric: tabular-nums; }
+.lvl-slot-room { display: inline-block; margin-top: 3px; font-size: .74rem; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; color: #5f6368; background: #eef1f5; border-radius: 6px; padding: 1px 7px; }
+.lvl-rooms { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 14px; }
 .lvl-slot-state { font-size: .74rem; font-weight: 700; margin-top: 3px; }
 .lvl-slot-state.is-live { color: #d93025; display: inline-flex; align-items: center; gap: 5px; }
 .lvl-slot-exam { display: inline-block; font-size: .7rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 2px 8px; border-radius: 10px; background: rgba(31,109,171,.1); color: #1f6dab; }

@@ -1,10 +1,11 @@
 // =====================================================================
 // src/pages/MeditatiiLive.jsx — LOBBY-ul meditațiilor live (/meditatii)
 //
-// Alegi profesorul, vezi ședințele de azi și de mâine (15–17, 17–19, 19–21),
-// cu subiectul fiecăreia (EN sau BAC, explicat pe barem), câți colegi sunt
-// deja înăuntru și prețul (10 lei sau inclus în abonament), apoi apeși
-// „Conectează-te". Ședințele 1-la-1 pornesc oricând (60 de minute; 20 lei sau
+// Ședințele de azi și de mâine: în fiecare zi, la aceeași oră (implicit 17–19),
+// câte o sală pentru fiecare examen — Evaluarea Națională, BAC Mate-Info,
+// BAC Științele Naturii, BAC Tehnologic — cu subiectul fiecăreia (explicat pe
+// barem), câți colegi sunt deja înăuntru și prețul (10 lei sau inclus în
+// abonament); elevul își alege sala (filtrul se ține minte) și apasă „Conectează-te". Ședințele 1-la-1 pornesc oricând (60 de minute; 20 lei sau
 // 8 pe lună incluse în abonament). Planul personal de până acum (plan, teme,
 // recapitulări, rapoarte) a rămas neatins, în tabul „Planul meu".
 // =====================================================================
@@ -17,11 +18,20 @@ import { loadRig, initials, teacherColor } from '../lib/live/profesori';
 import '../styles/live.css';
 
 const BAC_PROFILES = [
-  { id: 'mate-info', label: 'BAC M_mate-info' },
-  { id: 'stiinte-naturii', label: 'BAC M_șt-nat' },
-  { id: 'tehnologic', label: 'BAC M_tehnologic' },
-  { id: 'pedagogic', label: 'BAC M_pedagogic' },
+  { id: 'mate-info', label: 'BAC Mate-Info' },
+  { id: 'stiinte-naturii', label: 'BAC Științele Naturii' },
+  { id: 'tehnologic', label: 'BAC Tehnologic' },
 ];
+// sălile implicite (până vine programul de la server)
+const DEFAULT_ROOMS = [
+  { id: 'en', n: 1, label: 'Evaluarea Națională', short: 'EN' },
+  { id: 'mi', n: 2, label: 'BAC Mate-Info', short: 'BAC Mate-Info' },
+  { id: 'sn', n: 3, label: 'BAC Științele Naturii', short: 'BAC Șt. Naturii' },
+  { id: 'teh', n: 4, label: 'BAC Tehnologic', short: 'BAC Tehnologic' },
+];
+const ROOM_KEY = 'live:sala';
+const readRoom = () => { try { return localStorage.getItem(ROOM_KEY) || 'toate'; } catch { return 'toate'; } };
+const joinRo = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} și ${xs[xs.length - 1]}` : xs[0] || '');
 
 const hm = (iso) => new Date(iso).toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
 function relIn(ms) {
@@ -62,6 +72,8 @@ export default function MeditatiiLive() {
   const [subjects, setSubjects] = useState(null);
   const [subjectId, setSubjectId] = useState(null);
   const [subjErr, setSubjErr] = useState(null);
+  const [roomFilter, setRoomFilter] = useState(readRoom);          // 'toate' | id-ul sălii (se ține minte)
+  const pickRoom = (id) => { setRoomFilter(id); try { localStorage.setItem(ROOM_KEY, id); } catch { /* fără stocare */ } };
 
   // linkurile vechi către planul personal (?tab=teme etc.) → „Planul meu"
   useEffect(() => {
@@ -147,7 +159,12 @@ export default function MeditatiiLive() {
   }
 
   const priv = me.private;
-  const sessionsOf = (day) => day.sessions.filter((s) => s.teacher === teacherId);
+  const rooms = data?.rooms?.length ? data.rooms : DEFAULT_ROOMS;
+  const timesLabel = (data?.intervals || []).map((i) => i.label).join(' și ') || '17:00–19:00';
+  const starts = (data?.intervals?.length ? data.intervals : [{ label: '17:00–19:00' }]).map((i) => i.label.split('–')[0]);
+  const whenText = starts.length === 1 ? `de la ora ${starts[0]}` : `la orele ${joinRo(starts)}`;
+  const roomOn = rooms.some((r) => r.id === roomFilter) ? roomFilter : 'toate';
+  const sessionsOf = (day) => day.sessions.filter((s) => s.teacher === teacherId && (roomOn === 'toate' || s.room?.id === roomOn));
 
   return (
     <div className="lvl">
@@ -170,11 +187,11 @@ export default function MeditatiiLive() {
 
       <section className="lvl-hero">
         <div>
-          <h1>Meditații live, ca pe Zoom — cu profesorul virtual</h1>
-          <p>În fiecare zi, la ore fixe, profesorul explică un subiect de Evaluare Națională sau de Bacalaureat <b>strict pe baremul oficial</b>: întâi încercați singuri, apoi rezolvarea pas cu pas, apoi încă o dată, pe înțelesul tuturor. Întrebi în chat, răspunzi la grile, vezi cum au răspuns colegii. Sau pornești o ședință 1-la-1, oricând.</p>
+          <h1>Meditații live — cu profesorul virtual</h1>
+          <p>În fiecare zi, {whenText}, profesorul rezolvă câte un subiect în {rooms.length === 1 ? 'sala' : `${rooms.length} săli`}: {joinRo(rooms.map((r) => r.label))} — <b>strict pe baremul oficial</b>: întâi încercați singuri, apoi rezolvarea pas cu pas, apoi încă o dată, pe înțelesul tuturor. Întrebi în chat, răspunzi la grile, vezi cum au răspuns colegii. Sau pornești o ședință 1-la-1, oricând.</p>
           <div className="lvl-hero-chips">
             {liveNow > 0 && <span className="lvl-chip is-live"><span className="lv-dot-live" /> {liveNow} {liveNow === 1 ? 'ședință' : 'ședințe'} live acum</span>}
-            <span className="lvl-chip">📅 zilnic {(data?.slots || []).map((s) => s.label.replace(/:00/g, '')).join(' · ') || '15–17 · 17–19 · 19–21'}</span>
+            <span className="lvl-chip">📅 zilnic {timesLabel} · {rooms.length} {rooms.length === 1 ? 'sală' : 'săli'}</span>
             <span className="lvl-chip">📏 doar pe barem</span>
             <span className="lvl-chip">💳 {data?.prices?.grup ?? 10} lei / ședință · inclus în abonament</span>
           </div>
@@ -208,14 +225,22 @@ export default function MeditatiiLive() {
                 <span>
                   <span className="lvl-tname">{t.name} <span className="lv-tag-ai">Profesor virtual · AI</span></span>
                   <span className="lvl-tbio" style={{ display: 'block' }}>{t.bio}</span>
-                  <span className="lvl-ttoday" style={{ display: 'block' }}>Azi: {today.map((s) => `${s.label.split('–')[0]} ${s.exam === 'en' ? 'EN' : 'BAC'}`).join(' · ') || '—'}</span>
+                  <span className="lvl-ttoday" style={{ display: 'block' }}>Azi, {timesLabel}: {[...new Set(today.map((s) => s.room?.short || s.examLabel))].join(' · ') || '—'}</span>
                 </span>
               </button>
             );
           })}
         </div>
 
-        <h2 className="lvl-section-title">2. Alege ședința și apasă „Conectează-te"</h2>
+        <h2 className="lvl-section-title">2. Alege sala examenului tău și apasă „Conectează-te"</h2>
+        {rooms.length > 1 && (
+          <div className="lvl-rooms" role="group" aria-label="Sala">
+            <button type="button" className={`lvl-pill${roomOn === 'toate' ? ' is-on' : ''}`} onClick={() => pickRoom('toate')}>Toate sălile</button>
+            {rooms.map((r) => (
+              <button type="button" key={r.id} className={`lvl-pill${roomOn === r.id ? ' is-on' : ''}`} onClick={() => pickRoom(r.id)}>{r.label}</button>
+            ))}
+          </div>
+        )}
         <div className="lvl-days">
           {data.days.map((d) => (
             <div key={d.day} className="lvl-day">
@@ -228,6 +253,7 @@ export default function MeditatiiLive() {
                   <div key={s.id} className={`lvl-slot${s.phase === 'live' ? ' is-live' : ''}${s.phase === 'incheiata' || s.phase === 'anulata' ? ' is-past' : ''}`}>
                     <div>
                       <div className="lvl-slot-time">{s.label}</div>
+                      {s.room && rooms.length > 1 && <div className="lvl-slot-room">Sala {s.room.n}</div>}
                       <div className={`lvl-slot-state${s.phase === 'live' ? ' is-live' : ''}`}>
                         {s.phase === 'live' && <><span className="lv-dot-live" /> LIVE · {s.present} {s.present === 1 ? 'elev' : 'elevi'}</>}
                         {s.phase === 'sala_asteptare' && `Sala e deschisă · ${relIn(startsIn)}`}
@@ -325,7 +351,7 @@ export default function MeditatiiLive() {
 
         <h2 className="lvl-section-title">Cum decurge o ședință</h2>
         <div className="lvl-how">
-          <div><b>1. Te conectezi</b>Alegi ora și apeși „Conectează-te" — ca la Zoom sau Meet. Poți intra pe tot ecranul.</div>
+          <div><b>1. Te conectezi</b>Alegi sala examenului tău și apeși „Conectează-te". Poți intra pe tot ecranul.</div>
           <div><b>2. Încerci singur</b>La fiecare exercițiu profesorul îți dă timp să rezolvi: răspunzi la grilă sau scrii rezultatul, apoi vezi cum au răspuns colegii.</div>
           <div><b>3. Explicația pe barem</b>Profesorul scrie pe tablă pașii oficiali și spune câte puncte valorează fiecare. Apoi încă o dată, altfel: intuitiv sau cu greșelile care costă puncte.</div>
           <div><b>4. Întrebi oricând</b>În chat sau cu microfonul (vocea ta devine text). Profesorul răspunde pe loc, iar la „Întrebări" răspunde cu voce, pentru toată clasa.</div>

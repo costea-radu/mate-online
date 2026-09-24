@@ -1,4 +1,4 @@
-# 🎥 Ghid: Meditații live cu profesorul virtual (ca pe Zoom)
+# 🎥 Ghid: Meditații live — cu profesorul virtual
 
 „Meditații cu AI" devine o **meditație online adevărată**: elevul alege ședința, apasă
 **„Conectează-te"** și intră într-o sală de tip Zoom/Meet, unde **Prof. Radu** — un
@@ -7,7 +7,7 @@ Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 
 | Ce vede elevul | Cum funcționează |
 |---|---|
-| **Programul zilnic**: 15–17, 17–19, 19–21 (EN și BAC alternează) | `api/live.js` + cron la 15 minute: creează ședințele, alege subiecte **complete, cu barem**; lecția se scrie abia când vine primul elev (bilet sau sala de așteptare) |
+| **Programul zilnic**: la aceeași oră (implicit 17:00–19:00), **4 săli** — câte un subiect rezolvat în fiecare: **Evaluarea Națională, BAC Mate-Info, BAC Științele Naturii, BAC Tehnologic** | `api/live.js` + cron la 15 minute: creează cele 4 ședințe, alege pentru fiecare sală un subiect **complet, cu barem, al examenului ei** (niciodată de alt profil); lecția se scrie abia când vine primul elev (bilet sau sala de așteptare) |
 | **Ședința comună pornește doar cu cel puțin 2 elevi** | la ora de început: ≥ 2 elevi în sală → lecția comună; **un singur elev → ședința devine 1-la-1 pentru el, fără cost în plus**; dacă lecția comună se termină înainte de sfârșitul orei → „Continuă 1-la-1” |
 | **„Conectează-te"** → pregătirea (camera/microfonul tău, ca la Meet) → sala | `/meditatii` (lobby) → `/meditatii/sala/:id` (sala, pe tot ecranul) |
 | **Profesorul viu, în clasă**: vorbește, respiră, își mută greutatea, întoarce capul spre tablă, gesticulează, zâmbește, dă din cap | o singură fotografie, animată în browser (WebGL), fără niciun serviciu plătit — vezi „Profesorul animat" |
@@ -81,7 +81,8 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 
 | Variabilă | Implicit | Ce face |
 |---|---|---|
-| `LIVE_INTERVALE` | `15-17,17-19,19-21` | intervalele zilnice (ora României) |
+| `LIVE_INTERVALE` | `17-19` | ora ședințelor (ora României); ex. `18-20` pentru ora 18:00; mai multe: `17-19,19-21` (în fiecare interval, toate sălile) |
+| `LIVE_SALI` | `en,mate-info,stiinte-naturii,tehnologic` | sălile (câte o ședință pe zi în fiecare); se pot scoate, ex. `en,mate-info` |
 | `LIVE_PRICE_GRUP_LEI` / `LIVE_PRICE_PRIVAT_LEI` | `10` / `20` | prețurile fără abonament |
 | `LIVE_PRIVAT_INCLUSE` | `8` | ședințe 1-la-1 incluse pe lună în abonament |
 | `LIVE_PRIVAT_MINUTE` | `60` | durata unei ședințe 1-la-1 |
@@ -150,6 +151,9 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
   **Lecțiile se refolosesc** (același subiect, aceeași voce) — costul e o dată pe subiect.
 - **Textul lecției** (modelul care scrie explicațiile pe barem): ~1,5–5 lei pe subiect nou, o
   singură dată (apoi se refolosește). Se plătește doar când vine cineva (vezi `LIVE_PREGATIRE_AUTO`).
+  Cu 4 săli: cel mult 4 lecții noi pe zi (doar în sălile în care intră elevi) — ~6–20 lei/zi în
+  cel mai rău caz; costul scade singur, pentru că o sală refolosește lecțiile gata după ce și-a
+  parcurs subiectele (se repetă după `LIVE_REFOLOSIRE_ZILE`, implicit 21 de zile).
   Costul exact al fiecărei lecții apare în Admin → Meditații live.
 - **Răspunsurile în chat** (întrebări către profesor): bani mărunți, limitate (`LIVE_INTREBARI_MAX`).
 - Animația profesorului: **0 lei** (rulează în browserul elevului).
@@ -179,6 +183,7 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | Vocea generată nu apare | lipsește cheia TTS sau a expirat; lecția merge cu vocea browserului — vezi Admin → eroarea lecției, apoi „Generează vocea" |
 | „Ședința s-a încheiat" mult înainte de sfârșitul orei | subiectul era scurt (o fișă, nu un subiect complet); acum ședințele de grup aleg subiecte complete, iar elevul poate „Continuă 1-la-1" până la sfârșitul orei |
 | Un singur elev la ora de grup | normal: ședința devine 1-la-1 pentru el (fără cost în plus); `LIVE_MINIM_GRUP` schimbă pragul |
+| O sală (ex. BAC Tehnologic) scrie „Subiectul se anunță în curând" | nu există încă niciun subiect al acelui examen cu barem citit; sala nu primește subiecte de alt profil. Cronul citește întâi baremele pentru ea (Admin → „Subiecte cu barem, pe săli" arată câte are fiecare), sau încarcă subiecte + bareme pentru acel profil |
 | Profesorul apare static (fotografie) | browserul nu are WebGL (rar) — restul sălii merge normal |
 | Chatul nu apare în timp real | Supabase Realtime: canalele private trebuie permise; oricum, mesajele se reîncarcă la câteva secunde |
 | Elevul nu poate intra la ora de grup | sala se deschide cu 15 minute înainte; după încheiere nu se mai poate intra |

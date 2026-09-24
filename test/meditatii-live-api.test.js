@@ -27,6 +27,7 @@ const C = {
   enNoBarem: 'aaaaaaaa-0000-4000-8000-000000000004',
   bac1: 'bbbbbbbb-0000-4000-8000-000000000001',
   bac2: 'bbbbbbbb-0000-4000-8000-000000000002',
+  bacPed: 'bbbbbbbb-0000-4000-8000-000000000003',
 };
 const BAREM_TEXT = 'BAREM DE EVALUARE ȘI DE NOTARE. SUBIECTUL I. Rezultate: 1. b 2. c 3. a. Se punctează orice modalitate corectă de rezolvare.';
 const content = (id, title, category, extra = {}) => ({ id, title, category, subcategory: null, profile: null, content_type: 'pdf', file_url: `https://x/${id}.pdf`, is_free: true, created_at: '2026-01-01T00:00:00Z', ...extra });
@@ -47,8 +48,9 @@ function seed() {
       content('aaaaaaaa-0000-4000-8000-0000000000b1', 'Barem EN 2024 Varianta 7', 'evaluare-nationala', { subcategory: 'bareme' }),
       content(C.bac1, 'BAC 2024 M1 Mate-Info Varianta 3', 'bacalaureat', { profile: 'mate-info' }),
       content(C.bac2, 'BAC 2023 M2 Științe ale naturii Varianta 5', 'bacalaureat', { profile: 'stiinte-naturii' }),
+      content(C.bacPed, 'BAC 2024 M_pedagogic Varianta 2', 'bacalaureat', { profile: 'pedagogic' }),
     ],
-    ai_pdf_text: [pdfRow(C.en1), pdfRow(C.en2), pdfRow(C.en3, 'ok_antet'), pdfRow(C.enNoBarem, 'lipsa'), pdfRow(C.bac1), pdfRow(C.bac2)],
+    ai_pdf_text: [pdfRow(C.en1), pdfRow(C.en2), pdfRow(C.en3, 'ok_antet'), pdfRow(C.enNoBarem, 'lipsa'), pdfRow(C.bac1), pdfRow(C.bac2), pdfRow(C.bacPed)],
   };
 }
 
@@ -97,17 +99,30 @@ async function call(action, body = {}, user = null) {
 const now = Date.now();
 const iso = (ms) => new Date(ms).toISOString();
 
-test('lobby: programul de azi și de mâine, un singur profesor, prețurile și drepturile', async () => {
+test('lobby: azi și mâine, câte o ședință în fiecare sală (EN, BAC Mate-Info, Șt. Naturii, Tehnologic), la aceeași oră', async () => {
   fake = createFakeSupabase(seed());
   const anon = await call('program');
   assert.strictEqual(anon.statusCode, 200, JSON.stringify(anon.body));
   const p = anon.body;
   assert.deepStrictEqual(p.teachers.map((t) => t.id), ['radu']);
+  assert.deepStrictEqual(p.rooms.map((r) => r.label), ['Evaluarea Națională', 'BAC Mate-Info', 'BAC Științele Naturii', 'BAC Tehnologic']);
+  assert.deepStrictEqual(p.intervals.map((i) => i.label), ['17:00–19:00']);
   assert.strictEqual(p.days.length, 2);
   for (const d of p.days) {
-    assert.strictEqual(d.sessions.length, 3, 'trei ședințe pe zi (15, 17, 19)');
+    assert.strictEqual(d.sessions.length, 4, 'patru săli pe zi');
     assert.ok(d.sessions.every((s) => s.teacher === 'radu' && s.access.ok === false && s.access.price === 10));
+    assert.strictEqual(new Set(d.sessions.map((s) => s.starts_at)).size, 1, 'toate la aceeași oră');
+    assert.deepStrictEqual(d.sessions.map((s) => s.room.n).sort(), [1, 2, 3, 4]);
   }
+  // fiecare sală primește DOAR subiecte ale examenului ei (fără pedagogic, fără alt profil);
+  // mâine (azi, după 19:00, ședințele s-au încheiat și nu mai primesc subiect)
+  const t0 = Object.fromEntries(p.days[1].sessions.map((s) => [s.room.id, s]));
+  assert.ok([C.en1, C.en2, C.en3].includes(t0.en.subject.id));
+  assert.strictEqual(t0.mi.subject.id, C.bac1);
+  assert.strictEqual(t0.sn.subject.id, C.bac2);
+  assert.strictEqual(t0.teh.subject, null, 'niciun subiect de tehnologic cu barem → sala așteaptă, nu primește alt profil');
+  assert.strictEqual(t0.teh.examLabel, 'BAC Tehnologic');
+  assert.ok(!p.days.flatMap((d) => d.sessions).some((s) => s.subject?.id === C.bacPed), 'fără BAC pedagogic');
   assert.deepStrictEqual(p.prices, { grup: 10, privat: 20, privatMin: 60, privatIncluse: 8 });
   assert.strictEqual(p.me.loggedIn, false);
   // subiectele atribuite: doar cu barem, fără bareme ca subiecte, fără repetare în aceeași zi
@@ -127,14 +142,14 @@ test('lobby: programul de azi și de mâine, un singur profesor, prețurile și 
   assert.strictEqual(free.me.private.price, 20);
   assert.strictEqual(free.me.name, 'Ioana P.');
   // al doilea apel nu dublează ședințele
-  assert.strictEqual(fake.db.tables.live_sessions.filter((s) => s.kind === 'grup').length, 6);
+  assert.strictEqual(fake.db.tables.live_sessions.filter((s) => s.kind === 'grup').length, 8);
 });
 
 // o ședință de grup (implicit: a început acum 10 minute), cu lecția gata
 function liveGroupSession({ startsInMin = -10 } = {}) {
   const today = L.dayKey(new Date());
   const t0 = Date.now() + startsInMin * 60000;
-  const s = { id: 'cccccccc-0000-4000-8000-000000000001', kind: 'grup', day: today, slot: '15', teacher: 'radu', exam: 'en', profile: null, subject_id: C.en1, starts_at: iso(t0), ends_at: iso(t0 + 120 * 60000), status: 'programata', state: {}, created_at: iso(now - 86400000), updated_at: iso(now - 86400000) };
+  const s = { id: 'cccccccc-0000-4000-8000-000000000001', kind: 'grup', day: today, slot: '17-en', teacher: 'radu', exam: 'en', profile: null, subject_id: C.en1, starts_at: iso(t0), ends_at: iso(t0 + 120 * 60000), status: 'programata', state: {}, created_at: iso(now - 86400000), updated_at: iso(now - 86400000) };
   const script = lessonScript();
   const lesson = { id: 'dddddddd-0000-4000-8000-000000000001', subject_id: C.en1, teacher: 'radu', version: 1, status: 'gata', title: script.title, exam: 'en', profile: null, script, progress: { audio: {}, noVoice: true, total: LL.segmentsInOrder(script).length, done: 0 }, cost_micro: 0, created_at: iso(now - 3600000), updated_at: iso(now - 3600000) };
   return { s, lesson };
@@ -355,10 +370,20 @@ test('admin + cron: programul zilei, pregătirea lecției fără voce configurat
   fake = createFakeSupabase(seed());
   const denied = await call('admin_overview', {}, U.free);
   assert.strictEqual(denied.statusCode, 403);
-  const ov = await call('admin_overview', {}, U.admin);
+  // mâine: ședințele de azi s-ar putea să se fi încheiat deja (după 19:00), fără subiect
+  const ov = await call('admin_overview', { day: L.addDays(L.dayKey(new Date()), 1) }, U.admin);
   assert.strictEqual(ov.statusCode, 200, JSON.stringify(ov.body));
-  assert.strictEqual(ov.body.sessions.length, 3);
-  assert.ok(ov.body.subjects.en.length === 3 && ov.body.subjects.bac.length === 2);
+  assert.strictEqual(ov.body.sessions.length, 4);
+  assert.ok(ov.body.subjects.en.length === 3 && ov.body.subjects.bac.length === 2, 'fără pedagogic');
+  assert.deepStrictEqual(ov.body.rooms.map((r) => `${r.id}:${r.subjects}`), ['en:3', 'mi:1', 'sn:1', 'teh:0']);
+  // nota nu șterge subiectul; un subiect de alt examen nu intră în sală
+  const enRoom = ov.body.sessions.find((x) => x.room.id === 'en');
+  const note = await call('admin_set_subject', { sessionId: enRoom.id, note: 'test' }, U.admin);
+  assert.strictEqual(note.body.session.subject_id, enRoom.subject.id);
+  assert.strictEqual(note.body.session.admin_note, 'test');
+  const wrong = await call('admin_set_subject', { sessionId: enRoom.id, subjectId: C.bac1 }, U.admin);
+  assert.strictEqual(wrong.statusCode, 400);
+  assert.match(wrong.body.error, /Evaluarea Națională/);
   assert.strictEqual(ov.body.tts, null);
   // pregătirea unei lecții (scriptul „scris de model" + fără voce → gata, cu vocea browserului)
   const sess = ov.body.sessions.find((x) => x.subject);
@@ -380,8 +405,9 @@ test('admin + cron: programul zilei, pregătirea lecției fără voce configurat
     const res = fakeRes();
     await handler({ method: 'GET', headers: {}, query: { action: 'cron' }, body: {} }, res);
     assert.strictEqual(res.statusCode, 200, JSON.stringify(res.body));
-    assert.strictEqual(res.body.sessions, 6);
+    assert.strictEqual(res.body.sessions, 8);
     assert.deepStrictEqual(res.body.errors, []);
+    assert.deepStrictEqual(res.body.emptyRooms, ['teh'], 'cronul știe ce sală n-are subiecte (citește întâi baremele ei)');
   } finally { ai.isCronRequest = origCron; }
   // fără secret → refuzat
   const res2 = fakeRes();

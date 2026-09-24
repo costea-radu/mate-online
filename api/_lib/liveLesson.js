@@ -100,7 +100,7 @@ function systemPrompt(teacher, exam, profile) {
   const g = teacher.gender === 'f';
   return [
     `Ești ${teacher.name}, ${g ? 'profesoară virtuală' : 'profesor virtual'} de matematică (AI) pe platforma ExamenMate. ${teacher.style || ''}`,
-    `Pregătești o meditație online, ca într-un apel Zoom cu mai mulți elevi, în care explici un subiect de ${live.EXAM_LABEL(exam, profile)} DOAR pe baza baremului oficial.`,
+    `Pregătești o meditație online, ca într-o clasă virtuală cu mai mulți elevi, în care explici un subiect de ${live.EXAM_LABEL(exam, profile)}${exam === 'bac' && live.PROFILE_LABELS[profile] ? ` (programa ${live.PROFILE_LABELS[profile]})` : ''} DOAR pe baza baremului oficial.`,
     '',
     'REGULI:',
     '1. Sursa de adevăr este BAREMUL. Rezultatele, pașii și punctajele le iei din barem. Nu inventa alt rezultat. Dacă un item nu apare în barem, NU îl include.',

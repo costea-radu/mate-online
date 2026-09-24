@@ -2,8 +2,9 @@
 // api/_lib/live.js — MEDITAȚII LIVE: logica pură (fără rețea, fără DB)
 //
 // Sala de tip Zoom/Meet cu profesorul virtual:
-//   · ședințe de GRUP zilnice, la ore fixe (implicit 15–17, 17–19, 19–21),
-//     la care intră oricâți elevi — 10 lei ședința sau incluse în abonament;
+//   · ședințe de GRUP zilnice, la aceeași oră (implicit 17–19), câte una în
+//     fiecare sală: Evaluarea Națională, BAC Mate-Info, BAC Științele Naturii,
+//     BAC Tehnologic — oricâți elevi, 10 lei ședința sau incluse în abonament;
 //   · ședințe 1-la-1 pornite ORICÂND, de 60 de minute — 20 lei sau incluse
 //     în abonament (8 pe lună; peste, 20 lei);
 //   · profesorul explică DOAR subiecte de EN/BAC cu barem asociat
@@ -118,25 +119,65 @@ function monthStart(now = new Date()) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 3. PROGRAMUL — intervalele zilnice (LIVE_INTERVALE="15-17,17-19,19-21")
+// 3. PROGRAMUL — în fiecare zi, la aceeași oră, câte o ședință în fiecare SALĂ:
+//    o sală = un examen (EN, BAC Mate-Info, BAC Științele Naturii, BAC Tehnologic).
+//    LIVE_INTERVALE="17-19"  (ora României; mai multe intervale: "17-19,19-21")
+//    LIVE_SALI="en,mate-info,stiinte-naturii,tehnologic"  (implicit toate patru)
+// Id-ul unei ședințe în zi = intervalul + sala: „17-en", „17-mi", „17-sn", „17-teh"
+// (unic pe zi și profesor — vezi live_sessions_slot_uq).
 // ═════════════════════════════════════════════════════════════════════════════
-function slots() {
-  const raw = String(process.env.LIVE_INTERVALE || '15-17,17-19,19-21');
+function intervals() {
+  const raw = String(process.env.LIVE_INTERVALE || '17-19');
   const out = [];
   for (const part of raw.split(',')) {
     const m = /^\s*(\d{1,2})(?::(\d{2}))?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*$/.exec(part);
     if (!m) continue;
     const sh = +m[1], sm = +(m[2] || 0), eh = +m[3], em = +(m[4] || 0);
-    if (sh > 23 || eh > 24 || eh * 60 + em <= sh * 60 + sm) continue;
-    out.push({ id: String(sh), start: [sh, sm], end: [eh, em],
-      label: `${pad2(sh)}:${pad2(sm)}–${pad2(eh)}:${pad2(em)}` });
+    if (sh > 23 || sm > 59 || em > 59 || eh > 24 || eh * 60 + em <= sh * 60 + sm) continue;
+    const id = sm ? `${sh}${pad2(sm)}` : String(sh);
+    if (out.some((x) => x.id === id)) continue;
+    out.push({ id, start: [sh, sm], end: [eh, em], label: `${pad2(sh)}:${pad2(sm)}–${pad2(eh)}:${pad2(em)}` });
   }
-  return out.length ? out : [
-    { id: '15', start: [15, 0], end: [17, 0], label: '15:00–17:00' },
-    { id: '17', start: [17, 0], end: [19, 0], label: '17:00–19:00' },
-    { id: '19', start: [19, 0], end: [21, 0], label: '19:00–21:00' },
-  ];
+  return out.length ? out : [{ id: '17', start: [17, 0], end: [19, 0], label: '17:00–19:00' }];
 }
+
+// Sălile posibile (profilurile de BAC ca în restul site-ului: src/lib/contentMeta.js)
+const ROOMS = [
+  { id: 'en', exam: 'en', profile: null, label: 'Evaluarea Națională', short: 'EN', keys: ['en', 'evaluare', 'evaluare-nationala', 'evaluarea-nationala'] },
+  { id: 'mi', exam: 'bac', profile: 'mate-info', label: 'BAC Mate-Info', short: 'BAC Mate-Info', keys: ['mi', 'mate-info', 'bac-mate-info', 'm1'] },
+  { id: 'sn', exam: 'bac', profile: 'stiinte-naturii', label: 'BAC Științele Naturii', short: 'BAC Șt. Naturii', keys: ['sn', 'stiinte', 'stiinte-naturii', 'bac-stiinte', 'bac-stiinte-naturii'] },
+  { id: 'teh', exam: 'bac', profile: 'tehnologic', label: 'BAC Tehnologic', short: 'BAC Tehnologic', keys: ['teh', 'tehnologic', 'bac-tehnologic'] },
+];
+const DEFAULT_ROOMS = 'en,mate-info,stiinte-naturii,tehnologic';
+
+function parseRooms(raw) {
+  const out = [];
+  for (const part of String(raw || '').split(',')) {
+    const k = foldRo(part).trim().replace(/[\s_]+/g, '-');
+    const r = ROOMS.find((x) => x.keys.includes(k));
+    if (r && !out.includes(r)) out.push(r);
+  }
+  return out;
+}
+function rooms() {
+  let list = parseRooms(process.env.LIVE_SALI || DEFAULT_ROOMS);
+  if (!list.length) list = parseRooms(DEFAULT_ROOMS);
+  return list.map((r, i) => ({ id: r.id, n: i + 1, exam: r.exam, profile: r.profile, label: r.label, short: r.short }));
+}
+const roomById = (id) => rooms().find((r) => r.id === id) || null;
+
+// Ședințele de grup ale unei zile: fiecare interval × fiecare sală
+function slots() {
+  const out = [];
+  for (const iv of intervals()) {
+    for (const r of rooms()) {
+      out.push({ id: `${iv.id}-${r.id}`, interval: iv.id, room: r.id, roomN: r.n, roomLabel: r.label, roomShort: r.short,
+        exam: r.exam, profile: r.profile, start: iv.start, end: iv.end, label: iv.label });
+    }
+  }
+  return out;
+}
+const slotById = (id) => slots().find((s) => s.id === String(id)) || null;
 
 function slotTimes(key, slot) {
   const p = parseDayKey(key);
@@ -146,37 +187,24 @@ function slotTimes(key, slot) {
   };
 }
 
-// Profilurile de BAC prin care se rotește sala de BAC (mate-info apare mai des:
-// e profilul cu cei mai mulți candidați la matematica M1).
-const BAC_ROTATION = ['mate-info', 'stiinte-naturii', 'mate-info', 'tehnologic'];
+// Numele programelor oficiale de BAC (pentru modelul care scrie lecția)
 const PROFILE_LABELS = {
-  'mate-info': 'M_mate-info', 'stiinte-naturii': 'M_șt-nat', tehnologic: 'M_tehnologic', pedagogic: 'M_pedagogic',
+  'mate-info': 'M_mate-info', 'stiinte-naturii': 'M_șt-nat', tehnologic: 'M_tehnologic',
 };
 
-// Ce predă un profesor într-un interval. Cu doi profesori: la fiecare
-// interval unul face Evaluarea Națională și celălalt Bacalaureatul, iar
-// rolurile se schimbă de la o zi la alta și de la un interval la altul —
-// așa elevul găsește ORICÂND ambele examene. Cu un singur profesor,
-// examenul alternează. Adminul poate schimba subiectul oricărei ședințe.
-function examFor(key, slotId, teacherId, teacherIds = teachers().map((t) => t.id)) {
-  const n = dayNumber(key);
-  const si = Math.max(0, slots().findIndex((s) => s.id === String(slotId)));
-  const ti = Math.max(0, teacherIds.indexOf(teacherId));
-  let en;
-  if (teacherIds.length >= 2) en = ((n + si) % 2 === 0) === (ti % 2 === 0);
-  else en = (n + si) % 2 === 0;
-  if (en) return { exam: 'en', profile: null };
-  return { exam: 'bac', profile: BAC_ROTATION[(n + si + ti) % BAC_ROTATION.length] };
+// Ce se predă într-o ședință: examenul sălii (același în fiecare zi)
+function examFor(key, slotId) {
+  const s = slotById(slotId);
+  return s ? { exam: s.exam, profile: s.profile } : { exam: 'en', profile: null };
 }
 
 // Ședințele de grup ale unei zile (fără DB) — ce ar trebui să existe.
 function plannedSessions(key, teacherList = teachers()) {
-  const ids = teacherList.map((t) => t.id);
   const out = [];
   for (const s of slots()) {
     const times = slotTimes(key, s);
     for (const t of teacherList) {
-      out.push({ kind: 'grup', day: key, slot: s.id, teacher: t.id, ...examFor(key, s.id, t.id, ids), starts_at: times.startsAt, ends_at: times.endsAt });
+      out.push({ kind: 'grup', day: key, slot: s.id, teacher: t.id, exam: s.exam, profile: s.profile, starts_at: times.startsAt, ends_at: times.endsAt });
     }
   }
   return out;
@@ -662,7 +690,12 @@ const pcmDuration = (byteLength, sampleRate = 24000) => byteLength / 2 / sampleR
 // ═════════════════════════════════════════════════════════════════════════════
 // 10. ALTELE
 // ═════════════════════════════════════════════════════════════════════════════
-const EXAM_LABEL = (exam, profile) => (exam === 'en' ? 'Evaluarea Națională' : `Bacalaureat${profile && PROFILE_LABELS[profile] ? ' · ' + PROFILE_LABELS[profile] : ''}`);
+// „Evaluarea Națională", „BAC Mate-Info", „BAC Științele Naturii", „BAC Tehnologic"
+const EXAM_LABEL = (exam, profile) => {
+  if (exam === 'en') return 'Evaluarea Națională';
+  const r = ROOMS.find((x) => x.exam === 'bac' && x.profile === profile);
+  return r ? r.label : 'Bacalaureat';
+};
 
 // Id stabil pentru segmente/sondaje (scurt, fără caractere speciale)
 const shortId = (s) => crypto.createHash('sha1').update(String(s)).digest('base64url').slice(0, 10);
@@ -670,8 +703,8 @@ const shortId = (s) => crypto.createHash('sha1').update(String(s)).digest('base6
 module.exports = {
   TZ, TEACHER_DEFAULTS, teachers, teacherById, publicTeacher,
   roParts, roTime, dayKey, addDays, dayNumber, monthStart, parseDayKey,
-  slots, slotTimes, examFor, plannedSessions, phaseOf, canJoinPhase, JOIN_EARLY_MIN, isFullSubject,
-  BAREM_OK, hasBarem, subjectExam, pickSubject, BAC_ROTATION, PROFILE_LABELS, EXAM_LABEL,
+  intervals, rooms, roomById, slots, slotById, slotTimes, examFor, plannedSessions, phaseOf, canJoinPhase, JOIN_EARLY_MIN, isFullSubject,
+  BAREM_OK, hasBarem, subjectExam, pickSubject, PROFILE_LABELS, EXAM_LABEL,
   groupAccess, privateAccess, PRICE_GROUP_LEI, PRICE_PRIVATE_LEI, PRIVATE_INCLUDED, PRIVATE_MINUTES,
   displayName, moderate, isQuestion, foldRo,
   checkPollAnswer, pollResults, publicPoll,

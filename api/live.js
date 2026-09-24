@@ -92,6 +92,9 @@ async function loadLesson(supa, lessonId, { fresh = false } = {}) {
 // SUBIECTELE CU BAREM
 // ═════════════════════════════════════════════════════════════════════════════
 const eligibleCache = new Map(); // `${exam}|${profile}` → { at, list }
+// profilurile de BAC care nu fac parte din meditațiile live
+const LIVE_OFF_PROFILES = new Set(['pedagogic']);
+
 async function eligibleSubjects(supa, { exam, profile = null, fresh = false }) {
   const key = `${exam}|${profile || ''}`;
   const c = eligibleCache.get(key);
@@ -103,6 +106,7 @@ async function eligibleSubjects(supa, { exam, profile = null, fresh = false }) {
   dbCheck(error, 'materialele');
   const subjects = (rows || []).filter((r) => r.file_url && !B.isBaremRow(r))
     .map((r) => ({ ...r, ...L.subjectExam(r, B) }))
+    .filter((r) => r.exam !== 'bac' || !LIVE_OFF_PROFILES.has(r.profile))
     .filter((r) => !profile || r.exam !== 'bac' || r.profile === profile);
   const ok = new Map();
   for (let i = 0; i < subjects.length; i += 150) {
@@ -154,18 +158,16 @@ async function assignSubjects(supa, sessions, now = new Date()) {
       usage.set(s.teacher, m);
       ready.set(s.teacher, await readyLessons(supa, s.teacher));
     }
-    // examenul ședinței; dacă nu există subiecte cu barem pentru profil → orice profil, apoi celălalt examen
-    let pool = await eligibleSubjects(supa, { exam: s.exam, profile: s.profile });
-    let exam = s.exam, profile = s.profile;
-    if (!pool.length && s.exam === 'bac') { pool = await eligibleSubjects(supa, { exam: 'bac' }); profile = null; }
-    if (!pool.length) { exam = s.exam === 'en' ? 'bac' : 'en'; pool = await eligibleSubjects(supa, { exam }); profile = null; }
+    // examenul SĂLII, strict: în sala „BAC Tehnologic" intră doar subiecte de tehnologic
+    // cu barem. Fără niciunul, sala așteaptă (cronul citește baremele, întâi pentru ea).
+    const pool = await eligibleSubjects(supa, { exam: s.exam, profile: s.profile });
     if (!pool.length) continue;
     const u = usage.get(s.teacher), rd = ready.get(s.teacher);
     const cands = pool.map((p) => ({ id: p.id, ready: rd.has(p.id), lastUsed: u.get(p.id) || null, profile: p.profile, full: L.isFullSubject(p.title) }));
     const pick = L.pickSubject(cands, { seed: `${s.day}|${s.slot}|${s.teacher}`, now, exclude: [...usedToday], preferFull: true });
     if (!pick) continue;
     usedToday.add(pick.id);
-    const patch = { subject_id: pick.id, exam, profile: exam === 'bac' ? (pick.profile || profile) : null };
+    const patch = { subject_id: pick.id, profile: s.exam === 'bac' ? (s.profile || pick.profile || null) : null };
     const { data: upd } = await supa.from('live_sessions').update(patch).eq('id', s.id).is('subject_id', null).select('*').maybeSingle();
     if (upd) Object.assign(s, upd);
   }
@@ -226,6 +228,8 @@ async function privateAccessFor(supa, profile) {
 // ═════════════════════════════════════════════════════════════════════════════
 // ACȚIUNEA `program` — lobby-ul
 // ═════════════════════════════════════════════════════════════════════════════
+const roomOf = (slot) => (slot ? { id: slot.room, n: slot.roomN, label: slot.roomLabel, short: slot.roomShort } : null);
+
 async function program(req, res, supa) {
   const { userId, profile } = await who(req, supa, { required: false });
   const now = new Date();
@@ -240,9 +244,9 @@ async function program(req, res, supa) {
   ]);
   const tickets = userId ? await myTickets(supa, userId) : [];
   const grupTickets = new Set(tickets.filter((t) => t.kind === 'grup' && t.session_id).map((t) => t.session_id));
-  const slotLabel = Object.fromEntries(L.slots().map((s) => [s.id, s.label]));
+  const slotInfo = Object.fromEntries(L.slots().map((s) => [s.id, s]));
   const view = (s) => ({
-    id: s.id, teacher: s.teacher, slot: s.slot, label: slotLabel[s.slot] || s.slot,
+    id: s.id, teacher: s.teacher, slot: s.slot, label: slotInfo[s.slot]?.label || s.slot, room: roomOf(slotInfo[s.slot]),
     exam: s.exam, profile: s.profile, examLabel: L.EXAM_LABEL(s.exam, s.profile),
     subject: s.subject_id ? { id: s.subject_id, title: titles[s.subject_id] || 'Subiect de examen' } : null,
     starts_at: s.starts_at, ends_at: s.ends_at, phase: L.phaseOf(s, now), present: present[s.id] || 0,
@@ -262,7 +266,9 @@ async function program(req, res, supa) {
   return res.status(200).json({
     now: now.toISOString(), tz: L.TZ,
     teachers: L.teachers().map(L.publicTeacher),
-    slots: L.slots().map((s) => ({ id: s.id, label: s.label })),
+    slots: L.slots().map((s) => ({ id: s.id, label: s.label, room: s.room })),
+    intervals: L.intervals().map((i) => ({ id: i.id, label: i.label })),
+    rooms: L.rooms(),
     prices: { grup: L.PRICE_GROUP_LEI(), privat: L.PRICE_PRIVATE_LEI(), privatMin: L.PRIVATE_MINUTES(), privatIncluse: L.PRIVATE_INCLUDED() },
     joinEarlyMin: L.JOIN_EARLY_MIN(),
     days: days.map((d, i) => ({ day: d, label: i === 0 ? 'Azi' : 'Mâine', sessions: all.filter((s) => s.day === d).map(view) })),
@@ -685,7 +691,7 @@ async function teacherAnswer(supa, { session, lesson, question, author, itemInde
   const script = lesson?.script || {};
   const list = (script.items || []).map((it, i) => `${i + 1}. ${it.ref} — ${String(it.statement).slice(0, 90)}`).join('\n');
   const system = [
-    `Ești ${teacher.name}, ${teacher.gender === 'f' ? 'profesoară virtuală' : 'profesor virtual'} de matematică (AI) pe ExamenMate, într-o meditație ${privat ? '1-la-1' : 'de grup, ca pe Zoom'}. ${teacher.style || ''}`,
+    `Ești ${teacher.name}, ${teacher.gender === 'f' ? 'profesoară virtuală' : 'profesor virtual'} de matematică (AI) pe ExamenMate, într-o meditație online ${privat ? '1-la-1' : 'de grup'}. ${teacher.style || ''}`,
     `Subiectul ședinței: „${script.title || 'subiect de examen'}" (${L.EXAM_LABEL(script.exam, script.profile)}). Explicăm DOAR pe baza baremului.`,
     itemContext(script, itemIndex),
     list ? `Itemii ședinței:\n${list}` : '',
@@ -997,10 +1003,13 @@ async function adminOverview(req, res, supa) {
   for (const p of parts || []) total[p.session_id] = (total[p.session_id] || 0) + 1;
   const [en, bac] = await Promise.all([eligibleSubjects(supa, { exam: 'en', fresh: !!req.body?.fresh }), eligibleSubjects(supa, { exam: 'bac', fresh: !!req.body?.fresh })]);
   const { data: lessonRows } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, title, duration_sec, error, cost_micro, updated_at, noVoice:progress->noVoice').order('updated_at', { ascending: false }).limit(60);
+  const slotInfo = Object.fromEntries(L.slots().map((s) => [s.id, s]));
   return res.status(200).json({
-    day, teachers: L.teachers().map(L.publicTeacher), slots: L.slots(),
+    day, teachers: L.teachers().map(L.publicTeacher), slots: L.slots(), intervals: L.intervals(),
+    rooms: L.rooms().map((r) => ({ ...r, subjects: (r.exam === 'en' ? en : bac.filter((x) => x.profile === r.profile)).length })),
     sessions: sessions.map((s) => ({
-      id: s.id, slot: s.slot, teacher: s.teacher, exam: s.exam, profile: s.profile, examLabel: L.EXAM_LABEL(s.exam, s.profile),
+      id: s.id, slot: s.slot, label: slotInfo[s.slot]?.label || s.slot, room: roomOf(slotInfo[s.slot]),
+      teacher: s.teacher, exam: s.exam, profile: s.profile, examLabel: L.EXAM_LABEL(s.exam, s.profile),
       subject: s.subject_id ? { id: s.subject_id, title: titles[s.subject_id] || '?' } : null,
       lesson: s.subject_id ? (lessons[`${s.subject_id}|${s.teacher}`] || 'nou') : null,
       phase: L.phaseOf(s), status: s.status, present: present[s.id] || 0, participants: total[s.id] || 0, note: s.admin_note || null,
@@ -1014,17 +1023,26 @@ async function adminOverview(req, res, supa) {
 async function adminSetSubject(req, res, supa) {
   await requireAdminUser(req, supa);
   const session = await loadSession(supa, req.body?.sessionId);
-  const subjectId = req.body?.subjectId || null;
-  let patch = { subject_id: subjectId, state: {}, lesson_id: null };
-  if (subjectId) {
-    const { data: content } = await supa.from('content').select('id, title, category, subcategory, profile, file_url').eq('id', subjectId).maybeSingle();
-    const se = content && L.subjectExam(content, B);
-    if (!se) throw fail(400, 'Subiect invalid.');
-    patch = { ...patch, exam: se.exam, profile: se.profile || null };
+  let patch = {};
+  // doar când se cere schimbarea subiectului (nota sau anularea nu îl ating)
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'subjectId')) {
+    const subjectId = req.body.subjectId || null;
+    patch = { subject_id: subjectId, state: {}, lesson_id: null };
+    if (subjectId) {
+      const { data: content } = await supa.from('content').select('id, title, category, subcategory, profile, file_url').eq('id', subjectId).maybeSingle();
+      const se = content && L.subjectExam(content, B);
+      if (!se) throw fail(400, 'Subiect invalid.');
+      const room = session.kind === 'grup' ? L.slotById(session.slot) : null;
+      if (room && (se.exam !== room.exam || (room.profile && se.profile !== room.profile))) {
+        throw fail(400, `Subiectul nu e pentru sala „${room.roomLabel}".`);
+      }
+      patch = { ...patch, exam: room ? room.exam : se.exam, profile: room ? room.profile : (se.profile || null) };
+    }
   }
   if (req.body?.note !== undefined) patch.admin_note = String(req.body.note || '').slice(0, 300) || null;
   if (req.body?.cancel === true) patch.status = 'anulata';
   if (req.body?.cancel === false) patch.status = 'programata';
+  if (!Object.keys(patch).length) return res.status(200).json({ ok: true, session });
   const { data, error } = await supa.from('live_sessions').update(patch).eq('id', session.id).select('*').maybeSingle();
   dbCheck(error, 'ședința');
   broadcast(session.id, 'session', { changed: true }).catch(() => {});
@@ -1106,17 +1124,34 @@ async function cron(supa) {
     } catch (e) { report.errors.push(`${s.id}: ${e.message}`); }
   }
 
-  // asocierea subiect ↔ barem pentru materialele EN/BAC încă necitite (câteva pe rulare)
+  // asocierea subiect ↔ barem pentru materialele EN/BAC încă necitite (câteva pe rulare);
+  // întâi cele pentru sălile care nu au încă niciun subiect cu barem (ex. BAC Tehnologic)
   try {
     if (Date.now() - t0 < budget - 90000) {
-      const { data: rows } = await supa.from('content').select('*').in('category', ['evaluare-nationala', 'bacalaureat']).eq('content_type', 'pdf').order('created_at', { ascending: false }).limit(400);
+      const { data: rows } = await supa.from('content').select('id, title, category, subcategory, profile, file_url, created_at')
+        .in('category', ['evaluare-nationala', 'bacalaureat']).eq('content_type', 'pdf').order('created_at', { ascending: false }).limit(3000);
       const subj = (rows || []).filter((r) => r.file_url && !B.isBaremRow(r));
-      const { data: cached } = subj.length ? await supa.from('ai_pdf_text').select('content_id').in('content_id', subj.slice(0, 400).map((r) => r.id)) : { data: [] };
-      const have = new Set((cached || []).map((c) => c.content_id));
-      const todo = subj.filter((r) => !have.has(r.id)).slice(0, parseInt(process.env.LIVE_CRON_BAREME || '4', 10));
-      for (const c of todo) {
-        if (Date.now() - t0 > budget - 60000) break;
-        try { await pdfContext().getPdfContext(supa, c); report.warmed++; } catch (e) { report.errors.push(`barem ${c.id}: ${e.message}`); }
+      const have = new Set();
+      for (let i = 0; i < subj.length; i += 200) {
+        const { data: cached } = await supa.from('ai_pdf_text').select('content_id').in('content_id', subj.slice(i, i + 200).map((r) => r.id));
+        for (const c of cached || []) have.add(c.content_id);
+      }
+      const empty = [];
+      for (const r of L.rooms()) if (!(await eligibleSubjects(supa, { exam: r.exam, profile: r.profile })).length) empty.push(r);
+      report.emptyRooms = empty.map((r) => r.id);
+      const forEmpty = (row) => { const se = L.subjectExam(row, B); return !!se && empty.some((r) => r.exam === se.exam && (!r.profile || r.profile === se.profile)); };
+      const todo = subj.filter((r) => !have.has(r.id))
+        .sort((a, b) => Number(forEmpty(b)) - Number(forEmpty(a)))
+        .slice(0, parseInt(process.env.LIVE_CRON_BAREME || '4', 10));
+      if (todo.length) {
+        const { data: full } = await supa.from('content').select('*').in('id', todo.map((r) => r.id));
+        const byId = new Map((full || []).map((r) => [r.id, r]));
+        for (const t of todo) {
+          if (Date.now() - t0 > budget - 60000) break;
+          const c = byId.get(t.id);
+          if (!c) continue;
+          try { await pdfContext().getPdfContext(supa, c); report.warmed++; } catch (e) { report.errors.push(`barem ${c.id}: ${e.message}`); }
+        }
       }
       if (report.warmed) eligibleCache.clear();
     }

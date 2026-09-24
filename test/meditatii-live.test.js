@@ -23,43 +23,44 @@ test('dayKey: ziua se schimbă la miezul nopții României, nu la UTC', () => {
   assert.strictEqual(L.addDays('2026-03-01', -1), '2026-02-28');
 });
 
-test('intervalele implicite: 15–17, 17–19, 19–21; se pot schimba din env', () => {
+test('programul implicit: zilnic 17–19, patru săli la aceeași oră (EN, BAC Mate-Info, Șt. Naturii, Tehnologic)', () => {
+  assert.deepStrictEqual(L.intervals().map((x) => x.label), ['17:00–19:00']);
   const s = L.slots();
-  assert.deepStrictEqual(s.map((x) => x.id), ['15', '17', '19']);
-  assert.strictEqual(s[1].label, '17:00–19:00');
-  const t = L.slotTimes('2026-09-23', s[2]);
-  assert.strictEqual(t.startsAt, '2026-09-23T16:00:00.000Z');
-  assert.strictEqual(t.endsAt, '2026-09-23T18:00:00.000Z');
-  process.env.LIVE_INTERVALE = '16-18, 18:30-20:30, prost';
+  assert.deepStrictEqual(s.map((x) => x.id), ['17-en', '17-mi', '17-sn', '17-teh']);
+  assert.deepStrictEqual(s.map((x) => x.roomLabel), ['Evaluarea Națională', 'BAC Mate-Info', 'BAC Științele Naturii', 'BAC Tehnologic']);
+  assert.deepStrictEqual(s.map((x) => `${x.exam}/${x.profile}`), ['en/null', 'bac/mate-info', 'bac/stiinte-naturii', 'bac/tehnologic']);
+  assert.ok(!L.rooms().some((r) => r.profile === 'pedagogic'), 'fără BAC pedagogic');
+  const t = L.slotTimes('2026-09-23', s[3]);
+  assert.strictEqual(t.startsAt, '2026-09-23T14:00:00.000Z');          // 17:00 în România (vara)
+  assert.strictEqual(t.endsAt, '2026-09-23T16:00:00.000Z');
+  assert.strictEqual(L.EXAM_LABEL('bac', 'tehnologic'), 'BAC Tehnologic');
+  assert.strictEqual(L.EXAM_LABEL('en', null), 'Evaluarea Națională');
+  // ora și sălile se schimbă din env, fără cod
+  process.env.LIVE_INTERVALE = '18-20, 18:30-20:30, prost';
+  process.env.LIVE_SALI = 'bac-tehnologic, EN, pedagogic';
   try {
-    const c = L.slots();
-    assert.deepStrictEqual(c.map((x) => x.label), ['16:00–18:00', '18:30–20:30']);
-  } finally { delete process.env.LIVE_INTERVALE; }
+    assert.deepStrictEqual(L.intervals().map((x) => x.label), ['18:00–20:00', '18:30–20:30']);
+    assert.deepStrictEqual(L.rooms().map((r) => r.id), ['teh', 'en']);
+    assert.deepStrictEqual(L.slots().map((x) => x.id), ['18-teh', '18-en', '1830-teh', '1830-en']);
+    process.env.LIVE_SALI = 'nimic-valid';
+    assert.deepStrictEqual(L.rooms().map((r) => r.id), ['en', 'mi', 'sn', 'teh'], 'o valoare greșită → sălile implicite');
+  } finally { delete process.env.LIVE_INTERVALE; delete process.env.LIVE_SALI; }
 });
 
-test('programul: implicit UN profesor (EN și BAC alternează); cu doi, la fiecare interval unul face EN și celălalt BAC', () => {
+test('programul: un profesor, câte o ședință pe zi în fiecare sală, cu examenul sălii în fiecare zi', () => {
   assert.deepStrictEqual(L.teachers().map((t) => t.id), ['radu']);
-  assert.strictEqual(L.plannedSessions('2026-09-23').length, 3);
-  const ids = ['radu', 'ana'];
-  for (const day of ['2026-09-23', '2026-09-24', '2026-09-25']) {
-    for (const slot of ['15', '17', '19']) {
-      const a = L.examFor(day, slot, 'radu', ids);
-      const b = L.examFor(day, slot, 'ana', ids);
-      assert.notStrictEqual(a.exam, b.exam, `${day} ${slot}: amândoi ${a.exam}`);
-      const bac = a.exam === 'bac' ? a : b;
-      assert.ok(L.BAC_ROTATION.includes(bac.profile));
-    }
+  const plan = L.plannedSessions('2026-09-23');
+  assert.strictEqual(plan.length, 4);
+  assert.ok(plan.every((p) => p.kind === 'grup' && p.teacher === 'radu' && p.starts_at === plan[0].starts_at), 'toate la aceeași oră');
+  assert.deepStrictEqual(plan.map((p) => p.profile), [null, 'mate-info', 'stiinte-naturii', 'tehnologic']);
+  for (const day of ['2026-09-23', '2026-09-24']) {
+    assert.deepStrictEqual(L.examFor(day, '17-teh'), { exam: 'bac', profile: 'tehnologic' });
+    assert.deepStrictEqual(L.examFor(day, '17-en'), { exam: 'en', profile: null });
   }
-  const d1 = L.examFor('2026-09-23', '15', 'radu', ids).exam;
-  const d2 = L.examFor('2026-09-24', '15', 'radu', ids).exam;
-  assert.notStrictEqual(d1, d2, 'același profesor, același interval, zile consecutive → examen diferit');
-  // un singur profesor: examenul alternează
-  const solo = ['15', '17', '19'].map((s) => L.examFor('2026-09-23', s, 'radu', ['radu']).exam);
-  assert.ok(solo.includes('en') && solo.includes('bac'));
-  // ședințele planificate: 3 intervale × 2 profesori
-  const plan = L.plannedSessions('2026-09-23', [{ id: 'radu' }, { id: 'ana' }]);
-  assert.strictEqual(plan.length, 6);
-  assert.ok(plan.every((p) => p.kind === 'grup' && p.starts_at < p.ends_at));
+  // cu doi profesori: fiecare are sălile lui (4 × 2)
+  const two = L.plannedSessions('2026-09-23', [{ id: 'radu' }, { id: 'ana' }]);
+  assert.strictEqual(two.length, 8);
+  assert.strictEqual(new Set(two.map((p) => `${p.slot}|${p.teacher}`)).size, 8, 'unic pe zi + sală + profesor');
 });
 
 test('fazele: viitoare → sala de așteptare (15 min înainte) → live → încheiată', () => {
