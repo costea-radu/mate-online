@@ -130,17 +130,105 @@ test('lobby: programul de azi și de mâine, un singur profesor, prețurile și 
   assert.strictEqual(fake.db.tables.live_sessions.filter((s) => s.kind === 'grup').length, 6);
 });
 
-// o ședință de grup care a început acum 10 minute, cu lecția gata
-function liveGroupSession() {
+// o ședință de grup (implicit: a început acum 10 minute), cu lecția gata
+function liveGroupSession({ startsInMin = -10 } = {}) {
   const today = L.dayKey(new Date());
-  const s = { id: 'cccccccc-0000-4000-8000-000000000001', kind: 'grup', day: today, slot: '15', teacher: 'radu', exam: 'en', profile: null, subject_id: C.en1, starts_at: iso(now - 10 * 60000), ends_at: iso(now + 110 * 60000), status: 'programata', state: {}, created_at: iso(now - 86400000), updated_at: iso(now - 86400000) };
+  const t0 = Date.now() + startsInMin * 60000;
+  const s = { id: 'cccccccc-0000-4000-8000-000000000001', kind: 'grup', day: today, slot: '15', teacher: 'radu', exam: 'en', profile: null, subject_id: C.en1, starts_at: iso(t0), ends_at: iso(t0 + 120 * 60000), status: 'programata', state: {}, created_at: iso(now - 86400000), updated_at: iso(now - 86400000) };
   const script = lessonScript();
   const lesson = { id: 'dddddddd-0000-4000-8000-000000000001', subject_id: C.en1, teacher: 'radu', version: 1, status: 'gata', title: script.title, exam: 'en', profile: null, script, progress: { audio: {}, noVoice: true, total: LL.segmentsInOrder(script).length, done: 0 }, cost_micro: 0, created_at: iso(now - 3600000), updated_at: iso(now - 3600000) };
   return { s, lesson };
 }
 
+const TICKET = (sessionId) => ({ id: 'eeeeeeee-0000-4000-8000-000000000001', user_id: U.free, kind: 'grup', session_id: sessionId, status: 'platit', created_at: iso(now) });
+
+// doi elevi intră în sala de așteptare; vine ora de început → pornește ședința COMUNĂ
+async function groupStartedWithTwo() {
+  const { s, lesson } = liveGroupSession({ startsInMin: 5 });
+  fake = createFakeSupabase({ ...seed(), live_sessions: [s], live_lessons: [lesson], live_tickets: [TICKET(s.id)] });
+  await call('join', { sessionId: s.id }, U.free);
+  await call('join', { sessionId: s.id }, U.prem);
+  fake.db.tables.live_sessions[0].starts_at = iso(Date.now() - 1000);        // a sosit ora de început
+  const r = await call('timeline', { sessionId: s.id }, U.prem);
+  return { s, lesson, r };
+}
+
+test('sala de așteptare: nu pornește nimic înainte de ora de început; cu 2 elevi → ședința comună', async () => {
+  const { s, lesson } = liveGroupSession({ startsInMin: 5 });
+  fake = createFakeSupabase({ ...seed(), live_sessions: [s], live_lessons: [lesson], live_tickets: [TICKET(s.id)] });
+  const a = await call('join', { sessionId: s.id }, U.free);
+  assert.strictEqual(a.statusCode, 200, JSON.stringify(a.body));
+  assert.strictEqual(a.body.session.startedAt, null, 'înainte de oră: sala de așteptare');
+  assert.strictEqual(a.body.session.mode, null);
+  assert.ok(a.body.timeline, 'lecția se vede deja (numărătoarea)');
+  const b = await call('join', { sessionId: s.id }, U.prem);
+  assert.strictEqual(b.body.session.startedAt, null);
+  const g = await groupStartedWithTwo();
+  assert.ok(g.r.body.startedAt, 'ceasul comun a pornit');
+  assert.strictEqual(g.r.body.mode, null);
+  assert.ok(!g.r.body.timeline.scenes.some((x) => x.type === 'intrebare_intelegere'), 'cronologia de grup');
+  const st = fake.db.tables.live_sessions[0];
+  assert.strictEqual(st.status, 'activa');
+  assert.ok(st.state.tl && Object.keys(st.state.tl.polls).length >= 2);
+  // al doilea elev vede același ceas
+  const other = await call('timeline', { sessionId: s.id }, U.free);
+  assert.strictEqual(other.body.startedAt, g.r.body.startedAt);
+});
+
+test('un singur elev la ora de început → ședința devine 1-la-1 (fără cost în plus); cine vine apoi are și el 1-la-1', async () => {
+  const { s, lesson } = liveGroupSession({ startsInMin: -1 });
+  fake = createFakeSupabase({ ...seed(), live_sessions: [s], live_lessons: [lesson] });
+  const r = await call('join', { sessionId: s.id }, U.prem);
+  assert.strictEqual(r.statusCode, 200, JSON.stringify(r.body));
+  assert.strictEqual(r.body.session.mode, 'individual');
+  assert.strictEqual(r.body.session.modeWhy, 'singur', 'sala îi spune de ce e 1-la-1');
+  assert.strictEqual(r.body.session.startedAt, null);
+  assert.ok(r.body.timeline.scenes.some((x) => x.type === 'intrebare_intelegere'), 'cronologia 1-la-1 („Ai înțeles?")');
+  assert.strictEqual(fake.db.tables.live_sessions[0].state.mode, 'individual');
+  // întrebările: fără fereastră de timp, răspunsul corect vine imediat (ca la 1-la-1)
+  const pollId = r.body.timeline.scenes.find((x) => x.type === 'sondaj').poll.id;
+  const pa = await call('poll_answer', { sessionId: s.id, pollId, answer: 'a' }, U.prem);
+  assert.strictEqual(pa.statusCode, 200, JSON.stringify(pa.body));
+  assert.strictEqual(pa.body.correct, false);
+  assert.strictEqual(pa.body.answer, 'b');
+  // chatul: profesorul răspunde la orice, doar elevului care a întrebat
+  const c = await call('chat', { sessionId: s.id, text: 'nu am înțeles pasul doi' }, U.prem);
+  assert.strictEqual(c.statusCode, 200, JSON.stringify(c.body));
+  assert.ok(c.body.answer && c.body.answer.role === 'profesor');
+  assert.strictEqual(c.body.answer.private, true);
+  assert.ok(c.body.answer.say, 'textul de rostit (fără LaTeX)');
+  // al doilea elev intră mai târziu: tot 1-la-1, și NU vede conversația primului
+  fake.db.tables.live_tickets = [TICKET(s.id)];
+  const r2 = await call('join', { sessionId: s.id }, U.free);
+  assert.strictEqual(r2.body.session.mode, 'individual');
+  assert.strictEqual(r2.body.messages.length, 0);
+  const mine = await call('messages', { sessionId: s.id }, U.prem);
+  assert.strictEqual(mine.body.messages.length, 2, 'întrebarea lui + răspunsul profesorului');
+});
+
+test('ședința comună s-a terminat, dar ora nu: cine intră târziu primește lecția 1-la-1', async () => {
+  const { s, lesson } = liveGroupSession({ startsInMin: -60 });
+  s.state = { startedAt: iso(Date.now() - 55 * 60000), tl: { stamp: 'x', duration: 1800, polls: {}, qna: [], keys: {} }, lessonId: lesson.id };
+  s.status = 'activa';
+  fake = createFakeSupabase({ ...seed(), live_sessions: [s], live_lessons: [lesson] });
+  const r = await call('join', { sessionId: s.id }, U.prem);
+  assert.strictEqual(r.statusCode, 200);
+  assert.strictEqual(r.body.session.mode, 'individual');
+  assert.ok(r.body.timeline.scenes.some((x) => x.type === 'intrebare_intelegere'));
+  // cine era deja în sală apasă „Continuă 1-la-1" (cere cronologia din nou)
+  const t = await call('timeline', { sessionId: s.id }, U.prem);
+  assert.strictEqual(t.statusCode, 200, JSON.stringify(t.body));
+  assert.strictEqual(t.body.mode, 'individual');
+  assert.strictEqual(t.body.modeWhy, 'dupa');
+  assert.ok(t.body.timeline.scenes.some((x) => x.type === 'intrebare_intelegere'));
+  // chatul devine privat: profesorul îi răspunde doar lui
+  const c = await call('chat', { sessionId: s.id, text: 'Cum se rezolvă ultimul exercițiu?' }, U.prem);
+  assert.strictEqual(c.statusCode, 200, JSON.stringify(c.body));
+  assert.strictEqual(c.body.answer.private, true);
+});
+
 test('intrarea în sală: fără abonament → plata; cu bilet → cronologia, ceasul comun pornește', async () => {
-  const { s, lesson } = liveGroupSession();
+  const { s, lesson } = liveGroupSession({ startsInMin: 5 });
   fake = createFakeSupabase({ ...seed(), live_sessions: [s], live_lessons: [lesson] });
   const r1 = await call('join', { sessionId: s.id }, U.free);
   assert.strictEqual(r1.statusCode, 402);
@@ -148,22 +236,18 @@ test('intrarea în sală: fără abonament → plata; cu bilet → cronologia, c
   assert.strictEqual(r1.body.price, 10);
   assert.strictEqual(r1.body.teacher.name, 'Prof. Radu');
   // biletul (cum îl scrie webhook-ul Stripe)
-  fake.db.tables.live_tickets = [{ id: 'eeeeeeee-0000-4000-8000-000000000001', user_id: U.free, kind: 'grup', session_id: s.id, status: 'platit', created_at: iso(now) }];
+  fake.db.tables.live_tickets = [TICKET(s.id)];
   const r2 = await call('join', { sessionId: s.id }, U.free);
   assert.strictEqual(r2.statusCode, 200, JSON.stringify(r2.body));
   assert.strictEqual(r2.body.access, 'bilet');
   assert.ok(r2.body.timeline && r2.body.timeline.scenes.length > 3, 'cronologia lecției');
-  assert.ok(r2.body.session.startedAt, 'ceasul comun a pornit');
   assert.strictEqual(r2.body.noVoice, true);
+  assert.strictEqual(r2.body.timeline.noVoice, true, 'playerul știe că vorbește vocea browserului');
   assert.strictEqual(r2.body.channel, `live:${s.id}`);
-  const stored = fake.db.tables.live_sessions[0];
-  assert.strictEqual(stored.status, 'activa');
-  assert.ok(stored.state.tl && Object.keys(stored.state.tl.polls).length >= 2, 'ferestrele întrebărilor, pe server');
-  // abonatul intră fără bilet; al doilea participant vede ACELAȘI ceas
+  // abonatul intră fără bilet
   const r3 = await call('join', { sessionId: s.id }, U.prem);
   assert.strictEqual(r3.statusCode, 200);
   assert.strictEqual(r3.body.access, 'abonament');
-  assert.strictEqual(r3.body.session.startedAt, r2.body.session.startedAt);
   assert.strictEqual(fake.db.tables.live_participants.length, 2);
   // prezența
   const hb = await call('heartbeat', { sessionId: s.id, seconds: 60 }, U.free);
@@ -171,9 +255,8 @@ test('intrarea în sală: fără abonament → plata; cu bilet → cronologia, c
 });
 
 test('chatul: moderare, ritmul mesajelor, profesorul răspunde doar la întrebări', async () => {
-  const { s, lesson } = liveGroupSession();
-  fake = createFakeSupabase({ ...seed(), live_sessions: [s], live_lessons: [lesson] });
-  await call('join', { sessionId: s.id }, U.prem);
+  const { s } = await groupStartedWithTwo();
+  const chatCalls0 = calls.chat;
   const m1 = await call('chat', { sessionId: s.id, text: 'Bună seara! scrieți-mi pe www.exemplu.ro' }, U.prem);
   assert.strictEqual(m1.statusCode, 200, JSON.stringify(m1.body));
   assert.ok(m1.body.message.text.includes('[link ascuns]'));
@@ -187,8 +270,9 @@ test('chatul: moderare, ritmul mesajelor, profesorul răspunde doar la întrebă
   assert.strictEqual(q.body.answer.role, 'profesor');
   assert.strictEqual(q.body.answer.author, 'Prof. Radu');
   assert.strictEqual(q.body.answer.replyTo, q.body.message.id);
-  assert.strictEqual(calls.chat, 1);
-  // cine nu are acces nu poate scrie
+  assert.strictEqual(calls.chat - chatCalls0, 1, 'un singur apel la model (doar pentru întrebare)');
+  // cine nu are acces nu poate scrie (biletul e al altei ședințe)
+  fake.db.tables.live_tickets = [];
   const other = await call('chat', { sessionId: s.id, text: 'salut' }, U.free);
   assert.strictEqual(other.statusCode, 402);
   // mesajele (plasa de siguranță): mesajul lui + răspunsul profesorului
@@ -198,9 +282,7 @@ test('chatul: moderare, ritmul mesajelor, profesorul răspunde doar la întrebă
 });
 
 test('întrebările: doar în fereastra lor de timp; corectitudinea după barem; rezultatele clasei', async () => {
-  const { s, lesson } = liveGroupSession();
-  fake = createFakeSupabase({ ...seed(), live_sessions: [s], live_lessons: [lesson] });
-  await call('join', { sessionId: s.id }, U.prem);
+  const { s } = await groupStartedWithTwo();
   const st = fake.db.tables.live_sessions[0].state;
   const [pollId, win] = Object.entries(st.tl.polls)[0];
   // prea devreme (lecția abia a început)
@@ -305,6 +387,73 @@ test('admin + cron: programul zilei, pregătirea lecției fără voce configurat
   const res2 = fakeRes();
   await handler({ method: 'GET', headers: {}, query: { action: 'cron' }, body: {} }, res2);
   assert.strictEqual(res2.statusCode, 405);
+});
+
+async function runCron() {
+  const origCron = ai.isCronRequest;
+  ai.isCronRequest = () => true;
+  try {
+    const res = fakeRes();
+    await handler({ method: 'GET', headers: {}, query: { action: 'cron' }, body: {} }, res);
+    assert.strictEqual(res.statusCode, 200, JSON.stringify(res.body));
+    return res.body;
+  } finally { ai.isCronRequest = origCron; }
+}
+
+test('cronul economic: fără elevi nu se scrie nicio lecție; cu un bilet → doar lecția aceea', async () => {
+  fake = createFakeSupabase(seed());
+  const prevOre = process.env.LIVE_PREGATIRE_ORE;
+  process.env.LIVE_PREGATIRE_ORE = '48';                  // toate ședințele următoare intră în orizont
+  try {
+    const script0 = calls.script;
+    const r1 = await runCron();
+    assert.deepStrictEqual(r1.prepared, [], 'nimeni nu vine → nicio lecție scrisă (niciun cost)');
+    assert.ok(r1.skipped >= 3, `sărite: ${r1.skipped}`);
+    assert.strictEqual(calls.script, script0);
+    // un elev cumpără bilet la o ședință de mâine → lecția ei se scrie la următoarea rulare
+    const target = fake.db.tables.live_sessions.find((x) => x.subject_id && Date.parse(x.starts_at) > Date.now() && x.day !== L.dayKey(new Date()));
+    fake.db.tables.live_tickets = [TICKET(target.id)];
+    const r2 = await runCron();
+    assert.strictEqual(r2.prepared.length, 1, JSON.stringify(r2.prepared));
+    assert.strictEqual(r2.prepared[0].session, target.id);
+    assert.strictEqual(r2.prepared[0].status, 'gata');
+    assert.strictEqual(calls.script, script0 + 1);
+    // a treia rulare: nimic de făcut (lecția e gata, refolosită)
+    const r3 = await runCron();
+    assert.deepStrictEqual(r3.prepared, []);
+    assert.strictEqual(calls.script, script0 + 1);
+  } finally {
+    if (prevOre === undefined) delete process.env.LIVE_PREGATIRE_ORE; else process.env.LIVE_PREGATIRE_ORE = prevOre;
+  }
+});
+
+test('vocea generată: dacă eșuează → vocea browserului (ședința nu se blochează); cu cheia bună → „Generează vocea"', async () => {
+  const tts = require('../api/_lib/tts');
+  const origVoice = tts.voiceSegment;
+  process.env.AZURE_SPEECH_KEY = 'cheie-test'; process.env.AZURE_SPEECH_REGION = 'westeurope';
+  try {
+    fake = createFakeSupabase(seed());
+    tts.voiceSegment = async () => { throw new Error('401 Unauthorized'); };
+    const bad = await call('admin_prepare', { subjectId: C.en1, teacher: 'radu' }, U.admin);
+    assert.strictEqual(bad.statusCode, 200, JSON.stringify(bad.body));
+    assert.strictEqual(bad.body.lesson.status, 'gata');
+    assert.strictEqual(bad.body.lesson.noVoice, true, 'merge cu vocea browserului');
+    const row = () => fake.db.tables.live_lessons.find((l) => l.subject_id === C.en1);
+    assert.match(row().error || '', /vocea generată a eșuat/);
+    // cheia e reparată → adminul apasă „Generează vocea"
+    let n = 0;
+    tts.voiceSegment = async ({ }, { path }) => { n++; return { url: `https://x/${path}.mp3`, dur: 2.5, lip: [], cost: 10 }; };
+    const good = await call('admin_prepare', { subjectId: C.en1, teacher: 'radu', revoice: true }, U.admin);
+    assert.strictEqual(good.statusCode, 200, JSON.stringify(good.body));
+    assert.strictEqual(good.body.lesson.status, 'gata');
+    assert.strictEqual(good.body.lesson.noVoice, false);
+    assert.strictEqual(Object.keys(row().progress.audio).length, row().progress.total);
+    assert.strictEqual(n, row().progress.total);
+    assert.strictEqual(row().error, null);
+  } finally {
+    tts.voiceSegment = origVoice;
+    delete process.env.AZURE_SPEECH_KEY; delete process.env.AZURE_SPEECH_REGION;
+  }
 });
 
 test('fără tabele (SQL nerulat) → mesaj clar pentru admin, nu o eroare obscură', async () => {

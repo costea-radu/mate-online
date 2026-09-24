@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { liveApi } from '../lib/live/api';
 
-const LESSON_LABEL = { nou: 'nepregătită', script: 'scriptul e gata, urmează vocea', audio: 'vocea se generează…', gata: '✓ gata', eroare: '⚠ eroare' };
+const LESSON_LABEL = { nou: 'nepregătită (se scrie când intră primul elev)', script: 'scriptul e gata, urmează vocea', audio: 'vocea se generează…', gata: '✓ gata', gata_fara_voce: '✓ gata · vocea browserului', eroare: '⚠ eroare' };
 const PHASE_LABEL = { viitoare: 'urmează', sala_asteptare: 'sala e deschisă', live: '🔴 LIVE', incheiata: 'încheiată', anulata: 'anulată' };
 
 const box = { background: '#fff', borderRadius: 12, padding: '20px 24px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', marginBottom: 20 };
@@ -106,7 +106,12 @@ export default function LiveAdmin() {
                       <td style={td}>{s.subject ? (LESSON_LABEL[s.lesson] || s.lesson) : '—'}</td>
                       <td style={td}>{PHASE_LABEL[s.phase] || s.phase}<div style={{ color: '#6b7280', fontSize: '.78rem' }}>{s.present} acum · {s.participants} în total</div></td>
                       <td style={{ ...td, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {s.subject && s.lesson !== 'gata' && (
+                        {s.subject && s.lesson === 'gata_fara_voce' && data.tts && (
+                          <button type="button" style={btnMain} disabled={!!busy} onClick={() => run(`voce-${s.id}`, () => liveApi.adminPrepare({ subjectId: s.subject.id, teacher: s.teacher, revoice: true }), 'Vocea se generează (reapasă dacă nu e gata).')}>
+                            {busy === `voce-${s.id}` ? 'Se generează…' : 'Generează vocea'}
+                          </button>
+                        )}
+                        {s.subject && s.lesson !== 'gata' && s.lesson !== 'gata_fara_voce' && (
                           <button type="button" style={btnMain} disabled={!!busy} onClick={() => run(`prep-${s.id}`, () => liveApi.adminPrepare({ subjectId: s.subject.id, teacher: s.teacher }), 'Pregătirea a înaintat (reapasă dacă nu e gata).')}>
                             {busy === `prep-${s.id}` ? 'Se pregătește…' : 'Pregătește lecția'}
                           </button>
@@ -122,8 +127,9 @@ export default function LiveAdmin() {
               </tbody>
             </table>
             <p style={{ color: '#6b7280', fontSize: '.8rem', marginTop: 10 }}>
-              Programul și subiectele se completează singure (cron, la 15 minute), iar lecțiile se pregătesc automat cu până la 4 ore înainte.
-              Aici poți alege alt subiect, poți pregăti o lecție din timp sau poți anula o ședință. Sunt propuse doar subiectele care au barem găsit.
+              Programul și subiectele se completează singure (cron, la 15 minute). O lecție NOUĂ se scrie abia când intră primul elev în sala de
+              așteptare sau cumpără bilet (fără elevi, fără cost; LIVE_PREGATIRE_AUTO=1 le pregătește pe toate din timp). La ora de început, cu cel
+              puțin 2 elevi pornește ședința comună; cu unul singur, ședința devine 1-la-1. Sunt propuse doar subiectele care au barem găsit.
             </p>
           </div>
         )}
@@ -139,7 +145,7 @@ export default function LiveAdmin() {
                 {data.lessons.map((l) => (
                   <tr key={l.id}>
                     <td style={td}><b>{l.title || '(fără titlu încă)'}</b><div style={{ color: '#6b7280', fontSize: '.78rem' }}>{teacherName[l.teacher] || l.teacher} · v{l.version}</div>{l.error && <div style={{ color: '#b3261e', fontSize: '.78rem' }}>{l.error}</div>}</td>
-                    <td style={td}>{LESSON_LABEL[l.status] || l.status}</td>
+                    <td style={td}>{l.status === 'gata' && l.noVoice ? LESSON_LABEL.gata_fara_voce : (LESSON_LABEL[l.status] || l.status)}</td>
                     <td style={td}>{l.duration_sec ? `${Math.round(l.duration_sec / 60)} min` : '—'}</td>
                     <td style={td}>{l.cost_lei ? `${l.cost_lei} lei` : '—'}</td>
                     <td style={td}>{new Date(l.updated_at).toLocaleString('ro-RO')}</td>

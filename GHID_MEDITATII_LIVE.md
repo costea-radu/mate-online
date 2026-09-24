@@ -7,7 +7,8 @@ Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 
 | Ce vede elevul | Cum funcționează |
 |---|---|
-| **Programul zilnic**: 15–17, 17–19, 19–21 (EN și BAC alternează) | `api/live.js` + cron la 15 minute: creează ședințele, alege subiecte **cu barem**, pregătește lecțiile cu până la 4 ore înainte |
+| **Programul zilnic**: 15–17, 17–19, 19–21 (EN și BAC alternează) | `api/live.js` + cron la 15 minute: creează ședințele, alege subiecte **complete, cu barem**; lecția se scrie abia când vine primul elev (bilet sau sala de așteptare) |
+| **Ședința comună pornește doar cu cel puțin 2 elevi** | la ora de început: ≥ 2 elevi în sală → lecția comună; **un singur elev → ședința devine 1-la-1 pentru el, fără cost în plus**; dacă lecția comună se termină înainte de sfârșitul orei → „Continuă 1-la-1” |
 | **„Conectează-te"** → pregătirea (camera/microfonul tău, ca la Meet) → sala | `/meditatii` (lobby) → `/meditatii/sala/:id` (sala, pe tot ecranul) |
 | **Profesorul viu, în clasă**: vorbește, respiră, își mută greutatea, întoarce capul spre tablă, gesticulează, zâmbește, dă din cap | o singură fotografie, animată în browser (WebGL), fără niciun serviciu plătit — vezi „Profesorul animat" |
 | **Tabla albă** (scrie pas cu pas, în ritmul vocii) + **tabla digitală** (proiecția: enunțul, rezultatele, videoclipuri) | scrisul și proiecția stau în perspectivă pe tabla din fotografie; profesorul trece prin fața lor |
@@ -34,16 +35,31 @@ lecțiilor) și regulile pentru canalele Realtime private (`live:<id>`).
 În Supabase → **Realtime → Settings**, verifică să fie permise canalele private
 („Allow public access" poate rămâne cum e — sala folosește canale private).
 
-### 1.2 Vocea profesorului (obligatoriu pentru o experiență reală)
-În Vercel → Settings → Environment Variables, UNA dintre variante:
+### 1.2 Vocea profesorului (opțională — merge și gratuit)
+**Fără nicio cheie, profesorul vorbește cu vocea browserului — gratuit.** Sala alege singură
+cea mai bună voce românească de pe dispozitivul elevului:
+
+| Unde | Vocea |
+|---|---|
+| **Microsoft Edge** (Windows/Mac) | „Emil Online (Natural)" — voce neurală, de bărbat, cea mai naturală |
+| Chrome/Firefox pe Windows | „Microsoft Andrei" (dacă Windows are vocea română: Setări → Oră și limbă → Vorbire) |
+| Android / iPhone / Mac | vocea românească a sistemului (poate fi o voce de femeie) |
+
+Dacă dispozitivul nu are nicio voce românească, sala îi spune elevului ce să facă (Edge sau
+vocea Windows), iar lecția merge cu subtitrări. Gura profesorului se mișcă după vocea browserului.
+
+Pentru aceeași voce, naturală, la toți elevii (generată o dată pe lecție, pe server), în
+Vercel → Settings → Environment Variables, UNA dintre variante:
 
 | Variantă | Variabile | Observații |
 |---|---|---|
-| **Azure (recomandat)** | `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` (ex. `westeurope`) | vocea **ro-RO-EmilNeural** — română nativă, bărbat; cea mai naturală |
+| **Azure (recomandat)** | `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` (ex. `westeurope`) | vocea **ro-RO-EmilNeural** — română nativă, bărbat; nivelul gratuit (F0) acoperă câteva lecții pe lună |
 | OpenAI | `OPENAI_API_KEY` (sau `LIVE_TTS_API_KEY`) | vocea `ash`; expresivă, dar cu accent în română |
 
-Fără cheie TTS, lecțiile merg cu vocea browserului (mult mai robotică) — doar pentru teste.
-Opțional: `LIVE_TTS=azure|openai` (forțează), `LIVE_TTS_AZURE_RATE` (ex. `-5%`, mai rar),
+După ce pui cheia: lecțiile gata „cu vocea browserului" primesc vocea generată automat (cronul,
+înainte de ședință) sau imediat din Admin → **„Generează vocea"**. Dacă vocea generată eșuează
+(cheie greșită, cotă depășită), lecția merge mai departe cu vocea browserului — nu se blochează.
+Opțional: `LIVE_TTS=azure|openai|fara` (forțează), `LIVE_TTS_AZURE_RATE` (ex. `-5%`, mai rar),
 `LIVE_PROF_RADU_VOCE_AZURE` / `LIVE_PROF_RADU_VOCE_OPENAI` (altă voce).
 
 ### 1.3 Cronul
@@ -51,11 +67,13 @@ Opțional: `LIVE_TTS=azure|openai` (forțează), `LIVE_TTS_AZURE_RATE` (ex. `-5%
 site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalte cronuri).
 
 ### 1.4 Deploy și verificare
-1. Deploy.
+1. Deploy (ordinea față de SQL nu contează; după un deploy nou, o reîncărcare a paginii aduce
+   versiunea nouă — aplicația e PWA și poate servi o dată versiunea veche din cache).
 2. Deschide **`/meditatii/demo`** (ședință de grup demonstrativă) și **`/meditatii/demo-1la1`**
    — merg fără cont și fără bază de date.
 3. În **Admin → 🎥 Meditații live**: programul zilei, subiectele, starea lecțiilor.
-   Apasă **„Pregătește lecția"** la prima ședință (sau așteaptă cronul).
+   Apasă **„Pregătește lecția"** dacă vrei o lecție scrisă din timp (altfel se scrie singură
+   când intră primul elev — durează 1–3 minute, cât stă elevul în sala de așteptare).
 
 ---
 
@@ -70,7 +88,9 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 | `LIVE_INTRARE_DEVREME_MIN` | `15` | cu cât timp înainte se deschide sala de așteptare |
 | `LIVE_SONDAJ_GRILA_SEC` / `_COMPLETARE_SEC` / `_VERIFICARE_SEC` | `45` / `60` / `35` | timpul de răspuns la întrebări |
 | `LIVE_PAUZA_SEC`, `LIVE_INTREBARI_SEC` | `300`, `180` | pauza din mijloc, sesiunile de întrebări |
-| `LIVE_PREGATIRE_ORE` | `4` | cu câte ore înainte se pregătesc lecțiile |
+| `LIVE_MINIM_GRUP` | `2` | câți elevi trebuie să fie în sală la ora de început ca să pornească ședința comună (mai puțini → 1-la-1) |
+| `LIVE_PREGATIRE_AUTO` | oprit | `1` = lecțiile se scriu din timp pentru toate ședințele (cost și când nu vine nimeni); implicit, doar când apare primul elev |
+| `LIVE_PREGATIRE_ORE` | `4` | orizontul cronului: ședințele din următoarele ore pentru care pregătește lecții (cu elevi) / generează vocea |
 | `LIVE_REFOLOSIRE_ZILE` | `21` | după câte zile se poate repeta un subiect |
 | `LIVE_GEN_MODEL`, `LIVE_CHAT_MODEL` | modelele site-ului | modelul care scrie lecția / răspunde în chat |
 | `LIVE_PROF_RADU_NUME`, `LIVE_PROF_RADU_BIO` | `Prof. Radu` | numele și prezentarea profesorului |
@@ -120,15 +140,18 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 
 ---
 
-## 4. Costuri (orientativ)
+## 4. Costuri (orientativ, septembrie 2026 — verifică prețurile furnizorilor)
 
-- **Vocea**: o lecție de 2 ore are ~50–70 de minute de vorbire (~50.000–60.000 de caractere).
-  Azure Neural ≈ 16 $ / 1 milion de caractere → ~0,8–1 $ pe lecție; OpenAI gpt-4o-mini-tts e
-  în același ordin de mărime (verifică prețurile actuale ale furnizorului).
+- **Vocea browserului** (fără chei): **0 lei**.
+- **Vocea generată** (opțional): o lecție de 2 ore are ~50.000–60.000 de caractere rostite.
+  Azure Neural ≈ 16 $ / 1 milion de caractere → ~0,8–1 $ (≈ 4–4,5 lei) pe lecție; nivelul
+  gratuit Azure F0 (500.000 de caractere/lună) acoperă ~8 lecții noi pe lună.
+  OpenAI gpt-4o-mini-tts ≈ 0,015 $/minut → ~0,8–1 $ pe lecție.
   **Lecțiile se refolosesc** (același subiect, aceeași voce) — costul e o dată pe subiect.
-- **Textul lecției** (modelul care scrie explicațiile pe barem): de ordinul centimelor–zecilor
-  de cenți pe subiect. Costul exact al fiecărei lecții apare în Admin → Meditații live.
-- **Răspunsurile în chat** (întrebări către profesor): mici, limitate (`LIVE_INTREBARI_MAX`).
+- **Textul lecției** (modelul care scrie explicațiile pe barem): ~1,5–5 lei pe subiect nou, o
+  singură dată (apoi se refolosește). Se plătește doar când vine cineva (vezi `LIVE_PREGATIRE_AUTO`).
+  Costul exact al fiecărei lecții apare în Admin → Meditații live.
+- **Răspunsurile în chat** (întrebări către profesor): bani mărunți, limitate (`LIVE_INTREBARI_MAX`).
 - Animația profesorului: **0 lei** (rulează în browserul elevului).
 
 ---
@@ -152,7 +175,10 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | Simptom | Cauză / soluție |
 |---|---|
 | „Profesorul nu are încă un subiect cu barem" | nu există subiecte EN/BAC cu barem citit; cronul citește câteva bareme la fiecare rulare (`LIVE_CRON_BAREME`), sau alege manual subiectul din Admin |
-| Lecția rămâne „vocea se generează…" | lipsește cheia TTS sau a expirat; vezi Admin → coloana „Vocea" și eroarea lecției |
+| Profesorul nu vorbește (doar subtitrări) | dispozitivul nu are o voce românească → Edge (voce naturală, gratuită) sau vocea română în Windows; verifică și volumul/tab-ul fără sonor |
+| Vocea generată nu apare | lipsește cheia TTS sau a expirat; lecția merge cu vocea browserului — vezi Admin → eroarea lecției, apoi „Generează vocea" |
+| „Ședința s-a încheiat" mult înainte de sfârșitul orei | subiectul era scurt (o fișă, nu un subiect complet); acum ședințele de grup aleg subiecte complete, iar elevul poate „Continuă 1-la-1" până la sfârșitul orei |
+| Un singur elev la ora de grup | normal: ședința devine 1-la-1 pentru el (fără cost în plus); `LIVE_MINIM_GRUP` schimbă pragul |
 | Profesorul apare static (fotografie) | browserul nu are WebGL (rar) — restul sălii merge normal |
 | Chatul nu apare în timp real | Supabase Realtime: canalele private trebuie permise; oricum, mesajele se reîncarcă la câteva secunde |
 | Elevul nu poate intra la ora de grup | sala se deschide cu 15 minute înainte; după încheiere nu se mai poate intra |

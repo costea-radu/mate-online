@@ -106,6 +106,9 @@ export default function LiveRoom({ demo = null }) {
   const [heard, setHeard] = useState('');
   const [ended, setEnded] = useState(false);
   const [privEnds, setPrivEnds] = useState(null);
+  const [mode, setMode] = useState(null);             // 'individual' = ședința de grup ținută 1-la-1
+  const [modeWhy, setModeWhy] = useState(null);       // 'singur' (un singur elev la început) | 'dupa' (după lecția comună)
+  const [voiceHint, setVoiceHint] = useState(null);
 
   const roomRef = useRef(null);
   const engineRef = useRef(null);
@@ -114,7 +117,11 @@ export default function LiveRoom({ demo = null }) {
   const selfVideoRef = useRef(null);
   const seenReact = useRef(new Map());
   const joinedAtRef = useRef(Date.now());
-  const privat = info?.session?.kind === 'privat';
+  const fromItemsRef = useRef(false);                // „Continuă 1-la-1" după lecția comună: direct la itemi
+  const modeRef = useRef(null);                      // modul curent, citit în callback-uri (fără efecte în setState)
+  // 1-la-1: ședința privată SAU cea de grup la care elevul a rămas singur la început
+  const individual = info?.session?.kind === 'grup' && mode === 'individual';
+  const privat = info?.session?.kind === 'privat' || individual;
   const teacher = info?.teacher;
 
   if (!engineRef.current && typeof window !== 'undefined') engineRef.current = new AudioEngine();
@@ -137,6 +144,9 @@ export default function LiveRoom({ demo = null }) {
       setLesson(r.lesson || null);
       if (r.timeline) setTimeline(r.timeline);
       setStartedAt(r.session?.startedAt || null);
+      modeRef.current = r.session?.mode || null;
+      setMode(r.session?.mode || null);
+      setModeWhy(r.session?.modeWhy || null);
     } catch (e) {
       if (e.code === 'LIVE_PAYMENT' && e.data?.session) { setInfo(e.data); setPayInfo({ price: e.data.price }); return; }
       if (e.status === 401) { setFatal('Intră în cont ca să participi la meditație.'); return; }
@@ -168,7 +178,7 @@ export default function LiveRoom({ demo = null }) {
         if (r.lesson?.playable || r.lesson?.status === 'gata') {
           const t = await liveApi.timeline(sessionId);
           if (!alive) return;
-          if (t.timeline) { setTimeline(t.timeline); setStartedAt(t.startedAt || null); return; }
+          if (t.timeline) { modeRef.current = t.mode || null; setMode(t.mode || null); setModeWhy(t.modeWhy || null); setTimeline(t.timeline); setStartedAt(t.startedAt || null); return; }
         }
       } catch (e) {
         if (!alive) return;
@@ -181,13 +191,29 @@ export default function LiveRoom({ demo = null }) {
   }, [demo, info?.session, timeline, payInfo, privat, sessionId]);
 
   // grup: ceasul comun pornește când începe ora (serverul fixează startedAt)
+  const applyTimeline = useCallback((r) => {
+    if (r.mode === 'individual') {
+      if (modeRef.current !== 'individual') {
+        modeRef.current = 'individual';
+        const who = teacher?.name || 'profesorul';
+        flash(r.modeWhy === 'dupa'
+          ? `Continuăm 1-la-1: ${who} e doar al tău până la sfârșitul orei, fără cost în plus.`
+          : `Ești singurul elev la această oră — ${who} îți ține ședința 1-la-1, fără cost în plus.`);
+      }
+      setMode('individual');
+      setModeWhy(r.modeWhy || null);
+      if (r.timeline) setTimeline(r.timeline);
+      return;
+    }
+    if (r.startedAt) { setStartedAt(r.startedAt); if (r.timeline) setTimeline(r.timeline); }
+  }, [flash, teacher?.name]);
   useEffect(() => {
     if (demo || privat || !timeline || startedAt || !joined) return undefined;
     const t = setInterval(async () => {
-      try { const r = await liveApi.timeline(sessionId); if (r.startedAt) { setStartedAt(r.startedAt); if (r.timeline) setTimeline(r.timeline); } } catch { /* reîncercăm */ }
-    }, 10000);
+      try { applyTimeline(await liveApi.timeline(sessionId)); } catch { /* reîncercăm */ }
+    }, 5000);
     return () => clearInterval(t);
-  }, [demo, privat, timeline, startedAt, joined, sessionId]);
+  }, [demo, privat, timeline, startedAt, joined, sessionId, applyTimeline]);
 
   // ─── 3. intrarea propriu-zisă ──────────────────────────────────────────────
   function onJoin() {
@@ -214,8 +240,12 @@ export default function LiveRoom({ demo = null }) {
   // ─── 4. playerul ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (!joined || !timeline) return undefined;
+    // s-a schimbat modul (grup → 1-la-1): playerul vechi se oprește
+    if (playerRef.current && (privat ? !(playerRef.current instanceof PrivatePlayer) : !(playerRef.current instanceof GroupPlayer))) {
+      playerRef.current.stop(); playerRef.current = null;
+    }
     if (!privat) {
-      if (!playerRef.current) playerRef.current = new GroupPlayer({ engine, onState: setPs });
+      if (!playerRef.current) playerRef.current = new GroupPlayer({ engine, onState: setPs, startsAt: info?.session?.starts_at || null });
       playerRef.current.setTimeline(timeline, startedAt);
       playerRef.current.start();
       return undefined;
@@ -223,7 +253,7 @@ export default function LiveRoom({ demo = null }) {
     if (!playerRef.current) {
       const p = new PrivatePlayer({
         engine, onState: setPs,
-        onSceneChange: (index) => { if (!demo) liveApi.privateState(sessionId, { scene: index }).catch(() => {}); },
+        onSceneChange: (index) => { if (!demo && !individual) liveApi.privateState(sessionId, { scene: index }).catch(() => {}); },
         onNeedAudio: async () => {
           if (demo) return;
           try { const t = await liveApi.timeline(sessionId); if (t.timeline) { p.setTimeline(t.timeline); setTimeline(t.timeline); } } catch { /* reîncercăm */ }
@@ -233,8 +263,15 @@ export default function LiveRoom({ demo = null }) {
       p.setTimeline(timeline);
       const resumeScene = info?.session?.state?.scene;
       if (resumeScene) p.resumeAt(resumeScene);
+      else if (fromItemsRef.current) {
+        // lecția comună tocmai s-a terminat: fără „Bună ziua" din nou — de la primul item
+        fromItemsRef.current = false;
+        const first = timeline.scenes.findIndex((x) => x.item != null);
+        if (first > 0) p.resumeAt(first);
+      }
       (async () => {
-        if (!demo) {
+        if (individual) setPrivEnds(Date.parse(info.session.ends_at));    // ședința de grup: până la sfârșitul orei
+        else if (!demo) {
           try { const b = await liveApi.privateBegin(sessionId); setPrivEnds(b.ends_at ? Date.parse(b.ends_at) : null); }
           catch (e) { flash(e.message); if (e.code === 'LIVE_PAYMENT') { setJoined(false); setPayInfo({ price: e.data?.price || 20 }); return; } }
         } else setPrivEnds(clock.now() + 60 * 60000);
@@ -248,6 +285,19 @@ export default function LiveRoom({ demo = null }) {
   }, [joined, timeline, startedAt, privat]);
 
   useEffect(() => () => { playerRef.current?.stop(); engine?.close(); }, [engine]);
+
+  // lecția vorbește cu vocea browserului: dacă browserul n-are o voce românească, spunem de ce tace
+  useEffect(() => {
+    if (!joined || !timeline?.noVoice) return undefined;
+    const t = setTimeout(() => {
+      const v = engine.voiceStatus();
+      if (v.status === 'ok') return;
+      setVoiceHint(v.status === 'fara'
+        ? 'Browserul acesta nu poate citi cu voce tare — urmărește subtitrările. Pentru voce, deschide sala în Chrome sau Microsoft Edge.'
+        : 'Browserul tău nu are o voce în limba română, așa că profesorul vorbește prin subtitrări. Pentru voce: deschide sala în Microsoft Edge (voce naturală, gratuită) sau adaugă vocea română în Windows (Setări → Oră și limbă → Vorbire).');
+    }, 1800);
+    return () => clearTimeout(t);
+  }, [joined, timeline?.noVoice, engine]);
 
   // răspunsurile rostite ale profesorului (grup: în „Întrebări")
   useEffect(() => { if (!privat && playerRef.current instanceof GroupPlayer) playerRef.current.setAnswers(messages); }, [messages, privat, ps?.phase]);
@@ -268,12 +318,12 @@ export default function LiveRoom({ demo = null }) {
       onPresence: (list) => { setPeople(list); },
       onChat: (msg) => addMessages([msg]),
       onPoll: ({ pollId, results: r }) => setResults((p) => ({ ...p, [pollId]: r })),
-      onSession: async () => { try { const t = await liveApi.timeline(sessionId); if (t.timeline) setTimeline(t.timeline); setStartedAt(t.startedAt || null); } catch { /* ignore */ } },
+      onSession: async () => { try { applyTimeline(await liveApi.timeline(sessionId)); } catch { /* ignore */ } },
       onStatus: setRtStatus,
     });
     chanRef.current = ch;
     return () => { ch.leave(); chanRef.current = null; };
-  }, [joined, demo, info?.me, sessionId, addMessages]);
+  }, [joined, demo, info?.me, sessionId, addMessages, applyTimeline]);
 
   // demo: câțiva colegi „de probă", ca să se vadă cum arată sala
   useEffect(() => {
@@ -428,6 +478,27 @@ export default function LiveRoom({ demo = null }) {
     if (!demo) liveApi.leave(sessionId, { seconds: secs, end }).catch(() => {});
     navigate('/meditatii', { replace: true });
   }
+  // lecția comună s-a terminat înainte de sfârșitul orei → elevul continuă 1-la-1
+  // (fără cost în plus): reia orice item, întreabă orice, până la ora de final
+  const [continuing, setContinuing] = useState(false);
+  async function continuePersonal() {
+    if (continuing) return;
+    setContinuing(true);
+    try {
+      for (let i = 0; i < 4; i++) {
+        const r = await liveApi.timeline(sessionId);
+        if (r.mode === 'individual' && r.timeline) {
+          fromItemsRef.current = true;
+          setEnded(false);
+          applyTimeline(r);
+          return;
+        }
+        await new Promise((ok) => setTimeout(ok, 2500));          // serverul confirmă sfârșitul lecției comune
+      }
+      flash('Nu se poate continua acum — încearcă din nou în câteva secunde.');
+    } catch (e) { flash(e.message); }
+    finally { setContinuing(false); }
+  }
   function toggleFs() { if (fsElement()) exitFs(); else enterFs(roomRef.current); }
 
   // sfârșitul ședinței (grup: cronologia s-a terminat; 1-la-1: au trecut cele 60 de minute)
@@ -435,6 +506,8 @@ export default function LiveRoom({ demo = null }) {
   const [, force] = useState(0);
   useEffect(() => { const t = setInterval(() => force((n) => n + 1), 1000); return () => clearInterval(t); }, []);
   const privLeft = privEnds ? Math.max(0, (privEnds - clock.now()) / 1000) : null;
+  const endsAtMs = info?.session?.ends_at ? Date.parse(info.session.ends_at) : null;
+  const canContinue = ended && !privat && !demo && info?.session?.kind === 'grup' && !!endsAtMs && clock.now() < endsAtMs - 3 * 60000;
   useEffect(() => { if (privat && privLeft === 0 && joined) { playerRef.current?.stop(); setEnded(true); } }, [privat, privLeft, joined]);
 
   // ─── randare ───────────────────────────────────────────────────────────────
@@ -461,7 +534,7 @@ export default function LiveRoom({ demo = null }) {
   if (!joined) {
     return (
       <div className="lv-room is-pre" ref={roomRef}>
-        <PreJoin info={info} teacher={teacher} rigThumb={rig?.thumb || null} present={present || 0}
+        <PreJoin info={info} teacher={teacher} rigThumb={rig?.thumb || null} present={present || 0} personal={individual ? (modeWhy || 'singur') : null}
           access={payInfo ? 'plata' : info.access} price={payInfo?.price} onJoin={onJoin} onPay={onPay} paying={paying}
           waitingText={waitingText} camOn={camOn} setCamOn={setCamOn} micOn={micOn} setMicOn={setMicOn} fullscreen={wantFs} setFullscreen={setWantFs} />
       </div>
@@ -544,8 +617,8 @@ export default function LiveRoom({ demo = null }) {
                 <div className="lv-wait-title">{teacher?.name} își pregătește lecția</div>
                 <div className="lv-wait-sub">{waitingText}</div>
               </> : <>
-                <div className="lv-wait-title">Ședința începe în {fmtClock(ps?.startsIn || 0)}</div>
-                <div className="lv-wait-sub">Ești în sala de așteptare. Până atunci poți scrie în chat.</div>
+                <div className="lv-wait-title">{(ps?.startsIn || 0) > 0 ? `Ședința începe în ${fmtClock(ps.startsIn)}` : 'Ședința începe…'}</div>
+                <div className="lv-wait-sub">Ești în sala de așteptare. Dacă la ora de început ești singurul elev, {teacher?.name || 'profesorul'} îți ține ședința 1-la-1.</div>
               </>}
             </div>
           )}
@@ -568,6 +641,12 @@ export default function LiveRoom({ demo = null }) {
               onAsk={() => { setPanel('chat'); setPrefill({ id: Date.now(), text: '' }); }} />
           )}
           {privat && ps?.status === 'incarca' && <div className="lv-toast">Profesorul își aranjează notițele… (vocea se pregătește)</div>}
+          {voiceHint && (
+            <div className="lv-voice-hint" role="status">
+              <span>🔈 {voiceHint}</span>
+              <button type="button" onClick={() => setVoiceHint(null)} aria-label="Închide">✕</button>
+            </div>
+          )}
 
           <div className="lv-floaters" aria-hidden="true">
             {floaters.map((f) => <div key={f.id} className="lv-floater" style={{ left: `${f.x}%` }}><span>{f.e}</span><small>{f.name}</small></div>)}
@@ -576,11 +655,22 @@ export default function LiveRoom({ demo = null }) {
           {ended && (
             <div className="lv-ended">
               <div className="lv-ended-card">
-                <h2>Ședința s-a încheiat 👏</h2>
+                <h2>{canContinue ? 'Lecția comună s-a încheiat 👏' : 'Ședința s-a încheiat 👏'}</h2>
                 <p>{summaryLine(myAnswers)}</p>
+                {canContinue && (
+                  <p className="lv-ended-more">
+                    Ora nu s-a terminat: până la {hhmm(endsAtMs)} poți continua <b>1-la-1</b> cu {teacher?.name || 'profesorul'},
+                    fără cost în plus — reia orice item (⏮ ⏭), cere „Explică altfel" sau întreabă-l orice în chat.
+                  </p>
+                )}
                 <div className="lv-pre-actions">
-                  <button type="button" className="lv-btn-primary" onClick={() => leave(true)}>Înapoi la program</button>
-                  {!privat && <Link className="lv-btn-soft" to="/meditatii?unu=1">Ședință 1-la-1 pe același subiect</Link>}
+                  {canContinue && (
+                    <button type="button" className="lv-btn-primary" onClick={continuePersonal} disabled={continuing}>
+                      {continuing ? 'Se pregătește…' : 'Continuă 1-la-1'}
+                    </button>
+                  )}
+                  <button type="button" className={canContinue ? 'lv-btn-soft' : 'lv-btn-primary'} onClick={() => leave(true)}>Înapoi la program</button>
+                  {!privat && !canContinue && <Link className="lv-btn-soft" to="/meditatii?unu=1">Ședință 1-la-1 pe același subiect</Link>}
                 </div>
               </div>
             </div>
@@ -686,6 +776,12 @@ function summaryLine(answers) {
   if (!list.length) return 'Mulțumim că ai fost cu noi! Refă mâine exercițiile la care ai ezitat.';
   const ok = list.filter((a) => a.correct).length;
   return `Ai răspuns corect la ${ok} din ${list.length} întrebări ale profesorului. ${ok === list.length ? 'Excelent!' : 'Refă mâine exercițiile la care ai greșit — așa se fixează.'}`;
+}
+
+// ora României (programul ședințelor e în ora României)
+function hhmm(ms) {
+  try { return new Date(ms).toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Bucharest' }); }
+  catch { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
 }
 
 function demoAnswerKey(pollId) {

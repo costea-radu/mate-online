@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { initials, teacherColor } from '../../lib/live/profesori';
 
-export default function PreJoin({ info, teacher, rigThumb = null, present = 0, access, price = null, onJoin, onPay, paying = false, error = null, waitingText = null, camOn, setCamOn, micOn, setMicOn, fullscreen, setFullscreen }) {
+export default function PreJoin({ info, teacher, rigThumb = null, present = 0, personal = null, access, price = null, onJoin, onPay, paying = false, error = null, waitingText = null, camOn, setCamOn, micOn, setMicOn, fullscreen, setFullscreen }) {
   const videoRef = useRef(null);
   const [camErr, setCamErr] = useState(null);
 
@@ -64,6 +64,8 @@ export default function PreJoin({ info, teacher, rigThumb = null, present = 0, a
         </div>
         <div className="lv-pre-status">
           {s?.kind === 'privat' ? <>🎓 Ședință 1-la-1 — doar tu și profesorul, 60 de minute.</>
+            : personal === 'singur' ? <span>🎓 Ești singurul elev la această oră: {teacher?.name || 'profesorul'} îți ține ședința <b>1-la-1</b>, fără cost în plus.</span>
+            : personal === 'dupa' ? <span>🎓 Lecția comună s-a încheiat; până la sfârșitul orei, {teacher?.name || 'profesorul'} îți ține ședința <b>1-la-1</b>, fără cost în plus.</span>
             : liveNow ? <><span className="lv-dot-live" /> {present > 0 ? `${present} ${present === 1 ? 'elev e' : 'elevi sunt'} deja în ședință` : 'Ședința e în desfășurare'}</>
             : starts ? <>⏰ Începe la {starts.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' })} — sala de așteptare e deschisă{present ? ` (${present} ${present === 1 ? 'coleg' : 'colegi'} așteaptă)` : ''}</> : null}
         </div>

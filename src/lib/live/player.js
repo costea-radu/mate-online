@@ -16,6 +16,13 @@ import { clock } from './clock';
 import { sceneAt, segmentAt, boardState, itemHead, qnaSchedule, qnaWindows } from './timeline';
 
 const LOOKAHEAD = 9;   // secunde: vocea următoare se descarcă și se programează din timp
+
+// cât durează o frază rostită de vocea browserului (fără fișier audio) — aceeași
+// estimare ca pe server (api/_lib/live.js → segDuration), cu o marjă pentru pornire
+export const estimateSpeechSec = (text) => {
+  const words = String(text || '').split(/\s+/).filter(Boolean).length;
+  return Math.max(1.5, words / 2.4 + 0.5);
+};
 const TICK_MS = 120;
 
 function captionOf(scene, offset) {
@@ -25,9 +32,10 @@ function captionOf(scene, offset) {
 
 // ═════════════════════════════════════════════════════════════════════════════
 export class GroupPlayer {
-  constructor({ engine, onState }) {
+  constructor({ engine, onState, startsAt = null }) {
     this.engine = engine;
     this.onState = onState;
+    this.startsAt = startsAt ? Date.parse(startsAt) : null;   // numărătoarea din sala de așteptare
     this.tl = null;
     this.startedAt = null;
     this.answers = [];       // răspunsurile rostite ale profesorului (întrebări din chat)
@@ -44,7 +52,9 @@ export class GroupPlayer {
 
   // mesajele profesorului cu voce: [{ id, sec, dur, audio, lip, text }]
   setAnswers(list) {
-    this.answers = (list || []).filter((m) => m.role === 'profesor' && m.audio && m.dur > 0 && !m.private);
+    // cu voce generată (fișier) sau, fără chei TTS, rostite de vocea browserului
+    this.answers = (list || []).filter((m) => m.role === 'profesor' && !m.private && m.text)
+      .map((m) => (m.audio && m.dur > 0 ? m : { ...m, audio: null, dur: estimateSpeechSec(m.text) }));
     this._replan();
   }
 
@@ -60,14 +70,19 @@ export class GroupPlayer {
     this.timer = setInterval(() => this.tick(), TICK_MS);
     this.tick();
   }
-  stop() { clearInterval(this.timer); this.timer = null; this.engine.stopAll(); }
+  stop() { clearInterval(this.timer); this.timer = null; this.engine.stopAll(null, { hard: true }); }
 
   position() { return this.startedAt ? (clock.now() - this.startedAt) / 1000 : null; }
 
   tick() {
     const tl = this.tl;
     const pos = this.position();
-    if (!tl || pos == null) { this.onState({ phase: 'asteptare', pos: null }); return; }
+    if (!tl || pos == null) {
+      // ceasul comun nu a pornit încă: numărăm până la ora de început (serverul hotărăște atunci)
+      const startsIn = this.startsAt ? Math.max(0, (this.startsAt - clock.now()) / 1000) : null;
+      this.onState({ phase: 'asteptare', pos: null, startsIn });
+      return;
+    }
     if (pos < 0) {
       this.engine.stopAll();
       this.onState({ phase: 'asteptare', pos, startsIn: -pos, duration: tl.duration });
@@ -165,7 +180,7 @@ export class PrivatePlayer {
     if (!this.timer) this.timer = setInterval(() => this.tick(), TICK_MS);
     this.tick();
   }
-  stop() { clearInterval(this.timer); this.timer = null; this.engine.stopAll(); this.status = 'oprit'; }
+  stop() { clearInterval(this.timer); this.timer = null; this.engine.stopAll(null, { hard: true }); this.status = 'oprit'; }
 
   offset() {
     if (this.pausedAt != null) return this.pausedAt;
@@ -176,7 +191,7 @@ export class PrivatePlayer {
     if (this.status !== 'ruleaza' && this.status !== 'incarca') return;
     this.pausedAt = this.offset();
     this.status = 'pauza';
-    this.engine.stopAll();
+    this.engine.stopAll(null, { hard: true });
     this.tick();
   }
   resume() {
@@ -191,8 +206,8 @@ export class PrivatePlayer {
     this.tick();
   }
 
-  _enter(index) {
-    this.engine.stopAll();
+  _enter(index, { hard = true } = {}) {
+    this.engine.stopAll(null, { hard });
     this.inserted = null;
     this.index = Math.max(0, Math.min(this.tl.scenes.length - 1, index));
     this.sceneStart = clock.now() + 250;
@@ -207,7 +222,7 @@ export class PrivatePlayer {
     if (!this.tl) return;
     if (this.inserted) return this._leaveInserted();
     if (this.index >= this.tl.scenes.length - 1) { this.status = 'final'; this.engine.stopAll(); this.tick(); return; }
-    this._enter(this.index + 1);
+    this._enter(this.index + 1, { hard: false });
   }
 
   // salt la începutul altui item (Cuprins) sau la itemul anterior / următor
@@ -248,7 +263,7 @@ export class PrivatePlayer {
     const k = this.altUsed[this.index] || 0;
     const alt = sc.alts[k % sc.alts.length];
     this.altUsed[this.index] = k + 1;
-    this.engine.stopAll();
+    this.engine.stopAll(null, { hard: true });
     this.inserted = {
       kind: 'alt',
       scene: { type: 'explicatie', item: sc.item, ref: sc.ref, section: sc.section, title: sc.title, mode: alt.mode, label: alt.label, segs: alt.segs, dur: alt.dur, t0: 0 },
@@ -265,12 +280,12 @@ export class PrivatePlayer {
   playAnswer(msg) {
     if (!msg) return;
     const cur = this.inserted && this.inserted.kind === 'raspuns' ? this.inserted.back : { index: this.index, offset: this.offset(), inserted: this.inserted };
-    const dur = msg.dur || Math.max(2, String(msg.text || '').split(/\s+/).length / 2.6);
-    this.engine.stopAll();
+    const dur = msg.dur || estimateSpeechSec(msg.say || msg.text);
+    this.engine.stopAll(null, { hard: true });
     this.inserted = {
       kind: 'raspuns',
       scene: { type: 'raspuns', item: this.scene?.item ?? null, t0: 0, dur: dur + 0.6, answerBoard: msg.board || [],
-        segs: [{ id: `ans${msg.id}`, t: 0, dur, audio: msg.audio || null, lip: msg.lip || null, say: msg.text, caption: msg.text, board: [] }] },
+        segs: [{ id: `ans${msg.id}`, t: 0, dur, audio: msg.audio || null, lip: msg.lip || null, say: msg.say || msg.text, caption: msg.text, board: [] }] },
       back: cur,
     };
     this.sceneStart = clock.now() + 150;

@@ -220,9 +220,13 @@ function subjectExam(content, B) {
 //   2. subiecte noi (niciodată predate de acest profesor);
 //   3. cel mai demult folosit.
 // `candidates` = [{ id, title, ready: bool, lastUsed: ISO|null }]
-function pickSubject(candidates, { seed = '', now = new Date(), reuseDays = envInt('LIVE_REFOLOSIRE_ZILE', 21), exclude = [] } = {}) {
-  const list = (candidates || []).filter((c) => c && c.id && !exclude.includes(c.id));
+// `preferFull`: dacă există subiecte COMPLETE (variante, modele, simulări), se
+// aleg doar dintre ele — o ședință de grup de 2 ore pe o fișă de 6 exerciții s-ar
+// termina după 40 de minute.
+function pickSubject(candidates, { seed = '', now = new Date(), reuseDays = envInt('LIVE_REFOLOSIRE_ZILE', 21), exclude = [], preferFull = false } = {}) {
+  let list = (candidates || []).filter((c) => c && c.id && !exclude.includes(c.id));
   if (!list.length) return null;
+  if (preferFull && list.some((c) => c.full)) list = list.filter((c) => c.full);
   const h = (id) => crypto.createHash('sha1').update(String(seed) + ':' + id).digest().readUInt32BE(0);
   const cutoff = now.getTime() - reuseDays * 86400000;
   const fresh = (c) => !c.lastUsed || new Date(c.lastUsed).getTime() < cutoff;
@@ -232,6 +236,16 @@ function pickSubject(candidates, { seed = '', now = new Date(), reuseDays = envI
   const never = list.filter((c) => !c.lastUsed).sort(byHash);
   if (never.length) return never[0];
   return list.slice().sort((a, b) => new Date(a.lastUsed).getTime() - new Date(b.lastUsed).getTime() || byHash(a, b))[0];
+}
+
+// Subiect COMPLET de examen (variantă / model / simulare, cu toate subiectele),
+// nu o fișă tematică („Subiectul I, ex. 5: radicali"), după titlu.
+function isFullSubject(title) {
+  const t = foldRo(title).replace(/[–—]/g, '-');
+  if (/\bsubiectul\s+(i{1,3}|al\s+(ii|iii|doilea|treilea)(-lea)?)\b\s*[,.:-]?\s*(ex|exercitiul|item(ul)?|problema)\b/.test(t)) return false;
+  if (/\b(ex|exercitiul|problema|itemul)\s*\.?\s*\d/.test(t)) return false;
+  if (/\b(varianta|variante|model(ul)?|simulare|simularea|antrenament|sesiunea|rezerva|speciala|examen(ul)?)\b/.test(t)) return true;
+  return /\b(19|20)\d{2}\b/.test(t);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -370,8 +384,10 @@ const BREAK_SEC = () => envInt('LIVE_PAUZA_SEC', 300);
 function segDuration(seg, audio) {
   const a = audio && audio[seg.id];
   if (a && a.dur > 0) return a.dur;
+  // fără fișier audio vorbește vocea browserului: ~2,4 cuvinte pe secundă + o marjă
+  // pentru pornire (aceeași estimare ca în src/lib/live/player.js)
   const words = String(seg.say || '').split(/\s+/).filter(Boolean).length;
-  return Math.max(1.2, words / 2.6);
+  return Math.max(1.5, words / 2.4 + 0.5);
 }
 
 // Construiește scenele unui set de segmente, cu offseturi relative la scenă.
@@ -654,7 +670,7 @@ const shortId = (s) => crypto.createHash('sha1').update(String(s)).digest('base6
 module.exports = {
   TZ, TEACHER_DEFAULTS, teachers, teacherById, publicTeacher,
   roParts, roTime, dayKey, addDays, dayNumber, monthStart, parseDayKey,
-  slots, slotTimes, examFor, plannedSessions, phaseOf, canJoinPhase, JOIN_EARLY_MIN,
+  slots, slotTimes, examFor, plannedSessions, phaseOf, canJoinPhase, JOIN_EARLY_MIN, isFullSubject,
   BAREM_OK, hasBarem, subjectExam, pickSubject, BAC_ROTATION, PROFILE_LABELS, EXAM_LABEL,
   groupAccess, privateAccess, PRICE_GROUP_LEI, PRICE_PRIVATE_LEI, PRIVATE_INCLUDED, PRIVATE_MINUTES,
   displayName, moderate, isQuestion, foldRo,
