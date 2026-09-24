@@ -1471,7 +1471,7 @@ async function pickAndAssignHomework(supa, userId, medProfile, { notify = true, 
       recipientId: userId, type: 'meditatii_homework',
       title: '📚 Ai o temă nouă de la Profesorul Virtual',
       body: hwRow.title,
-      data: { url: '/meditatii?tab=teme' },
+      data: { url: '/meditatii/plan?tab=teme' },
       dedupeKey: `med_hw:${hwRow.id}`, dedupeDays: 30,
     });
   }
@@ -2083,7 +2083,7 @@ async function cronScan(supa) {
       recipientId: uid, type: 'meditatii_review',
       title: `🔁 ${list.length === 1 ? 'O recapitulare te așteaptă' : list.length + ' recapitulări te așteaptă'}`,
       body: `Ca să nu uiți materia: ${list.slice(0, 2).map((r) => r.topic || r.chapter).join(', ')}${list.length > 2 ? '…' : ''}`,
-      data: { url: '/meditatii?tab=recapitulari' },
+      data: { url: '/meditatii/plan?tab=recapitulari' },
       dedupeKey: `med_rev:${uid}`, dedupeDays: 1,
     });
     if (ok) out.reviewsNotified++;
@@ -2102,7 +2102,7 @@ async function cronScan(supa) {
     const ok = await ai.createNotification(supa, {
       recipientId: h.user_id, type: 'meditatii_homework',
       title: '⏰ Ai o temă nefăcută de la Profesorul Virtual',
-      body: h.title, data: { url: '/meditatii?tab=teme' },
+      body: h.title, data: { url: '/meditatii/plan?tab=teme' },
       dedupeKey: `med_hw_late:${h.id}`, dedupeDays: 2,
     });
     if (ok) out.homeworkReminded++;

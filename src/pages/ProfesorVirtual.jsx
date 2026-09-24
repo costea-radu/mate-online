@@ -75,7 +75,7 @@ export default function ProfesorVirtual() {
       {/* Tab-uri */}
       <div style={{ display: 'flex', gap: 8, borderBottom: '2px solid var(--border)', marginBottom: 24, flexWrap: 'wrap' }}>
         {TABS.map((t) => (
-          <button key={t.id} onClick={() => (t.id === 'meditatii' ? navigate('/meditatii') : setTab(t.id))}
+          <button key={t.id} onClick={() => (t.id === 'meditatii' ? navigate('/meditatii/plan') : setTab(t.id))}
             style={{
               background: 'none', border: 'none', padding: '10px 4px', marginBottom: -2,
               borderBottom: '3px solid', borderColor: tab === t.id ? 'var(--gold)' : 'transparent',

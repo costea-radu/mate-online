@@ -39,6 +39,8 @@ const DespreNoi = lazy(() => import('./pages/DespreNoi'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const ProfesorVirtual = lazy(() => import('./pages/ProfesorVirtual'));
 const Meditatii = lazy(() => import('./pages/Meditatii'));
+const MeditatiiLive = lazy(() => import('./pages/MeditatiiLive'));
+const LiveRoom = lazy(() => import('./pages/LiveRoom'));
 const Arena = lazy(() => import('./pages/Arena'));
 const Harta = lazy(() => import('./pages/Harta'));
 const AssignmentSolver = lazy(() => import('./pages/AssignmentSolver'));
@@ -73,7 +75,9 @@ function AnalyticsRouteTracker() {
 
 function Layout({ children }) {
   const { pathname } = useLocation();
-  const fullscreen = pathname === '/admin' || pathname === '/exercitiu' || pathname === '/pdf-viewer' || pathname === '/exercitiu-ai';
+  // sala live (ca un apel Zoom) ocupă tot ecranul, fără bara de sus și fără widget
+  const liveRoom = pathname.startsWith('/meditatii/sala/') || pathname.startsWith('/meditatii/demo');
+  const fullscreen = pathname === '/admin' || pathname === '/exercitiu' || pathname === '/pdf-viewer' || pathname === '/exercitiu-ai' || liveRoom;
 
   // Viewerele ocupă exact înălțimea ferestrei (100vh) și au scroll intern.
   // Blocăm scroll-ul documentului cât timp sunt deschise — altfel apare uneori
@@ -153,7 +157,11 @@ export default function App() {
                 <Route path="/faq" element={<FAQ />} />
                 <Route path="/despre-noi" element={<DespreNoi />} />
                 <Route path="/profesor-virtual" element={<ProfesorVirtual />} />
-                <Route path="/meditatii" element={<Meditatii />} />
+                <Route path="/meditatii" element={<MeditatiiLive />} />
+                <Route path="/meditatii/plan" element={<Meditatii />} />
+                <Route path="/meditatii/sala/:id" element={<LiveRoom />} />
+                <Route path="/meditatii/demo" element={<LiveRoom demo="grup" />} />
+                <Route path="/meditatii/demo-1la1" element={<LiveRoom demo="privat" />} />
                 <Route path="/tema" element={<AssignmentSolver />} />
                 <Route path="/tema-grupa" element={<GrupaTema />} />
                 <Route path="/tema-elev" element={<TemaElev />} />

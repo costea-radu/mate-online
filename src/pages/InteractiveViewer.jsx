@@ -94,7 +94,7 @@ export default function InteractiveViewer() {
   // INCOMPLETĂ (nu mai e „nefăcută", nu blochează alte teme, se reia oricând).
   async function finalizeHomework() {
     if (!temaId) return;
-    if (hwMarked) { navigate('/meditatii?tab=teme'); return; }
+    if (hwMarked) { navigate('/meditatii/plan?tab=teme'); return; }
     const ok = window.confirm(
       'Finalizezi tema fără să fi apăsat „Verifică/Corectează"?\n\n' +
       'Se înregistrează ca TEMĂ INCOMPLETĂ — o poți relua oricând din Meditații → Teme, iar o temă neterminată nu te împiedică să primești altele.'
@@ -104,7 +104,7 @@ export default function InteractiveViewer() {
     try {
       const r = await aiClient.meditatii({ action: 'homework_finalize', id: temaId });
       if (r?.complete) setHwMarked({ grade: r.grade });
-      navigate('/meditatii?tab=teme');
+      navigate('/meditatii/plan?tab=teme');
     } catch (e) {
       setHwError(e.message || 'Tema nu s-a putut finaliza — mai încearcă.');
     } finally { setHwFinalizing(false); }

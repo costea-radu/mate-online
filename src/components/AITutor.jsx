@@ -153,12 +153,12 @@ export function extractMeditatiiActions(text = '') {
 }
 export function dispatchMeditatiiAction(action, navigate, onNavigate = null) {
   if (!action) return;
-  if (window.location.pathname === '/meditatii') {
+  if (window.location.pathname === '/meditatii/plan') {
     window.dispatchEvent(new CustomEvent('mate:meditatii-action', { detail: action }));
   } else {
     try { sessionStorage.setItem('med_pending_action', JSON.stringify(action)); } catch { /* ignore */ }
     if (onNavigate) onNavigate();
-    navigate('/meditatii');
+    navigate('/meditatii/plan');
   }
 }
 
@@ -1545,7 +1545,7 @@ export default function FloatingTutor() {
   const testActiv = useTestMode();
   const { isTeacher, isParent } = useAuth();
   const isMentorAcc = isTeacher || isParent;
-  const onMeditatii = pathname === '/meditatii';
+  const onMeditatii = pathname === '/meditatii/plan'; // planul personal (sala live e pe /meditatii)
   // profesor/părinte → „Asistent AI"; elev pe /meditatii → „Conversație" (rezerva
   // panoului de sub tablă, aceeași conversație); altfel „Prof. Virtual"
   const widgetLabel = isMentorAcc ? 'Asistent AI' : onMeditatii ? 'Conversație' : 'Prof. Virtual';
@@ -1732,7 +1732,7 @@ export default function FloatingTutor() {
                   <li>Recapitulări după 1 zi · 7 zile · 30 de zile</li>
                   <li>Simulări de examen + nota estimată</li>
                 </ul>
-                <Link to="/meditatii" onClick={() => setOpen(false)} className="btn btn-primary" style={{ width: '100%', textAlign: 'center' }}>
+                <Link to="/meditatii/plan" onClick={() => setOpen(false)} className="btn btn-primary" style={{ width: '100%', textAlign: 'center' }}>
                   Deschide meditațiile →
                 </Link>
               </div>

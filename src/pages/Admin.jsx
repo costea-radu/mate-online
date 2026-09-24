@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import AIAdminPanel from '../components/AIAdminPanel';
 import ReviewsAdmin from '../components/ReviewsAdmin';
+import LiveAdmin from '../components/LiveAdmin';
 import { ContentMetaFields, EditContentModal, ReorderPanel } from '../components/ContentAdminTools';
 import { CATEGORIES, CONTENT_TYPES, categoryLabel, subcategoryLabel, profileLabel, hasSubcategories, visibilityWarning } from '../lib/contentMeta';
 
@@ -882,7 +883,8 @@ function AdminRezolvari({ user, s }) {
 export default function Admin() {
   const { user, isAdmin, loading } = useAuth();
   const navigate = useNavigate();
-  const [tab, setTab] = useState('dashboard');
+  // fila se poate alege din adresă (ex. /admin?tab=live, din lobby-ul meditațiilor live)
+  const [tab, setTab] = useState(() => (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tab')) || 'dashboard');
 
   // Comutare tab cerută de agentul Claude („Trimite la Adaugă PDF/Interactiv”)
   useEffect(() => {
@@ -914,6 +916,7 @@ export default function Admin() {
     { id: 'list',        label: '📋 Tot Conținutul' },
     { id: 'ai',          label: '🤖 AI Tutor' },
     { id: 'recenzii',    label: '⭐ Recenzii' },
+    { id: 'live',        label: '🎥 Meditații live' },
   ];
 
   function onSuccess() {
@@ -947,6 +950,7 @@ export default function Admin() {
           {tab === 'list'        && <ContentList refresh={refreshList} />}
           {tab === 'ai'          && <AIAdminPanel />}
           {tab === 'recenzii'    && <ReviewsAdmin s={s} />}
+          {tab === 'live'        && <LiveAdmin />}
         </div>
       </div>
     </div>

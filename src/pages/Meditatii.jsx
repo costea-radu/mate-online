@@ -1206,6 +1206,12 @@ export default function Meditatii() {
   return (
     <div className="med-page" style={{ maxWidth: 'var(--container)', margin: '0 auto', padding: '22px 20px 60px' }}>
 
+      {/* tabul spre sala live (pagina principală a meditațiilor) */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
+        <Link to="/meditatii" style={{ padding: '10px 14px', fontWeight: 700, fontSize: '.92rem', color: 'var(--text-light)', borderBottom: '3px solid transparent', marginBottom: -1 }}>🎥 Meditații live</Link>
+        <span style={{ padding: '10px 14px', fontWeight: 700, fontSize: '.92rem', color: 'var(--navy)', borderBottom: '3px solid var(--gold)', marginBottom: -1 }}>📚 Planul meu</span>
+      </div>
+
       {stError && <div style={{ ...card, background: '#fdecea', color: '#b71c1c', borderColor: '#f5c6cb' }}>⚠️ {stError}</div>}
       {!st && !stError && <div style={{ padding: 40, textAlign: 'center' }}><div className="spinner" /></div>}
 

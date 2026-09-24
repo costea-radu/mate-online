@@ -213,7 +213,9 @@ export default function Pricing() {
                 <ul className="pricing-features" style={{ marginTop: 22 }}>
                   <li><span className="pricing-check">✓</span> Toate exercițiile și testele PDF (gratuite + premium)</li>
                   <li><span className="pricing-check">✓</span> Exerciții interactive cu feedback</li>
-                  <li><span className="pricing-check">✓</span> Meditații cu Profesorul Virtual: test inițial, plan personalizat, lecții, teme corectate și simulări</li>
+                  <li><span className="pricing-check">✓</span> Meditații live cu Profesorul Virtual, ca pe Zoom: zilnic la 15, 17 și 19, pe baremul oficial (fără abonament: 10 lei ședința)</li>
+                  <li><span className="pricing-check">✓</span> 8 meditații 1-la-1 pe lună, oricând (apoi 20 lei ședința)</li>
+                  <li><span className="pricing-check">✓</span> Planul meu: test inițial, plan personalizat, teme corectate și simulări</li>
                   <li><span className="pricing-check">✓</span> Inteligența Artificială - Prof. Virtual ({AI_STACK.clienti.furnizor} {AI_STACK.clienti.modele.join(', ')}): învățare cu AI, generare de teste, exerciții</li>
                   <li><span className="pricing-check">✓</span> Manuale online</li>
                   <li><span className="pricing-check">✓</span> Teste interactive pentru Evaluarea Națională</li>

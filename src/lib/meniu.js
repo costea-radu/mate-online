@@ -76,7 +76,7 @@ export function sectiuniMeniu({
     {
       titlu: 'Învățare cu AI',
       items: [
-        { tip: 'link', to: '/meditatii',        icon: 'einstein', label: 'Meditații cu AI' },
+        { tip: 'link', to: '/meditatii',        icon: 'einstein', label: 'Meditații live' },
         { tip: 'link', to: '/profesor-virtual', icon: 'einstein', label: aiLabel },
       ],
     },

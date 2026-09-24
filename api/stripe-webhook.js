@@ -69,6 +69,47 @@ const handler = async function handler(req, res) {
           return res.status(400).send('Missing supabase_user_id in metadata');
         }
 
+        // ── BILET LA MEDITAȚIILE LIVE (mode: 'payment') ──────────────────
+        // grup (o ședință anume, 10 lei) sau 1-la-1 (se folosește oricând, 20 lei).
+        // Idempotent pe stripe_session_id; NU atinge abonamentul.
+        if (session.metadata?.live_kind) {
+          const kind = session.metadata.live_kind === 'privat' ? 'privat' : 'grup';
+          const liveSessionId = kind === 'grup' ? (session.metadata.live_session_id || null) : null;
+          const { error: lErr } = await supabase.from('live_tickets').upsert({
+            user_id: userId,
+            kind,
+            session_id: liveSessionId,
+            price_bani: session.amount_total != null ? session.amount_total : null,
+            stripe_session_id: session.id,
+            status: 'platit',
+          }, { onConflict: 'stripe_session_id', ignoreDuplicates: true });
+          if (lErr) {
+            // BANI ÎNCASAȚI fără bilet → 500, ca Stripe să REÎNCERCE + alertă
+            console.error('live: biletul nu s-a putut crea:', lErr);
+            await alertAdmin({
+              emoji: '🚨',
+              subject: 'Bilet la meditația live plătit dar NECREDITAT — verifică urgent',
+              lines: [
+                `Utilizator: <code>${mailer.escapeHtml(String(userId))}</code>, tip: ${mailer.escapeHtml(kind)}, ședința: <code>${mailer.escapeHtml(String(liveSessionId || '—'))}</code>.`,
+                `Eroare: <code>${mailer.escapeHtml(String(lErr.message || lErr))}</code>`,
+                'Stripe va reîncerca automat webhookul. Dacă eroarea persistă, rulează supabase/meditatii_live.sql.',
+              ],
+            });
+            return res.status(500).send('Live ticket failed');
+          }
+          const { data: prof3 } = await supabase.from('profiles').select('full_name, email').eq('id', userId).single();
+          const amount3 = session.amount_total != null ? `${(session.amount_total / 100).toFixed(2)} ${String(session.currency || '').toUpperCase()}` : '—';
+          await alertAdmin({
+            emoji: '🎥',
+            subject: `Bilet la meditația live (${kind === 'grup' ? 'grup' : '1-la-1'}) cumpărat pe ExamenMate`,
+            lines: [
+              `<strong>${mailer.escapeHtml(prof3?.full_name || 'Utilizator')}</strong> (${mailer.escapeHtml(prof3?.email || session.customer_details?.email || '?')})`,
+              `Tip: <strong>${kind === 'grup' ? 'ședință de grup' : 'ședință 1-la-1'}</strong> · Sumă: <strong>${amount3}</strong>`,
+            ],
+          });
+          break;
+        }
+
         // ── PACHET AI SUPLIMENTAR (top-up, mode: 'payment') ──────────────
         // NU atinge abonamentul. Creditează bugetul AI în `ai_topups`,
         // idempotent pe stripe_session_id (Stripe poate retrimite evenimentul).

@@ -60,6 +60,10 @@
     {
       "path": "/api/turneu?action=cron",
       "schedule": "20 */6 * * *"
+    },
+    {
+      "path": "/api/live?action=cron",
+      "schedule": "*/15 * * * *"
     }
   ],
   "rewrites": [

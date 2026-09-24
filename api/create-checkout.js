@@ -2,6 +2,8 @@
 //   · fără `type` în body  → abonament nou (mode: subscription, ca înainte)
 //   · type='topup'         → PACHET AI suplimentar (mode: payment, o singură
 //     plată; doar pentru abonați; creditat de stripe-webhook în `ai_topups`)
+//   · type='live'          → BILET la meditațiile live: grup 10 lei / 1-la-1
+//     20 lei (mode: payment; creditat de stripe-webhook în `live_tickets`)
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { admin, handledMethod, authUser } = require('./_lib/http');
 const ai = require('./_lib/ai'); // pachetele top-up (topupPacks, TOPUP_DAYS)
@@ -100,6 +102,74 @@ async function topupCheckout(req, res, supabase, userId, profile) {
   return res.status(200).json({ url: session.url });
 }
 
+// ─── Bilet la MEDITAȚIILE LIVE (mode: 'payment', o singură plată) ─────────────
+//   kind='grup'   → o ședință de grup anume (10 lei; abonații intră gratuit)
+//   kind='privat' → o ședință 1-la-1 de 60 de minute, folosită oricând (20 lei;
+//                   abonații au 8 incluse pe lună, biletul e pentru restul)
+// Creditarea o face stripe-webhook.js în `live_tickets`, EXACT din metadata.
+async function liveCheckout(req, res, supabase, userId, profile) {
+  const L = require('./_lib/live');
+  const kind = req.body?.kind === 'privat' ? 'privat' : 'grup';
+
+  const { error: tblErr } = await supabase.from('live_tickets').select('id').limit(1);
+  if (tblErr) {
+    console.error('create-checkout live: tabela live_tickets lipsește?', tblErr.message);
+    return res.status(503).json({ error: 'Meditațiile live nu sunt încă activate. (Admin: rulează supabase/meditatii_live.sql.)' });
+  }
+
+  let sessionRow = null;
+  if (kind === 'grup') {
+    const sid = String(req.body?.sessionId || '');
+    const { data } = await supabase.from('live_sessions')
+      .select('id, kind, teacher, slot, day, starts_at, ends_at, status, exam, profile').eq('id', sid).maybeSingle();
+    if (!data || data.kind !== 'grup') return res.status(404).json({ error: 'Ședința nu există.' });
+    const ph = L.phaseOf(data);
+    if (ph === 'incheiata' || ph === 'anulata') return res.status(409).json({ error: 'Ședința s-a încheiat — alege alta din program.' });
+    if (profile?.subscription_status === 'active') {
+      return res.status(400).json({ error: 'Ședințele de grup sunt incluse în abonamentul tău — intră direct, fără plată.', code: 'INCLUDED' });
+    }
+    const { data: has } = await supabase.from('live_tickets').select('id').eq('user_id', userId).eq('kind', 'grup')
+      .eq('session_id', data.id).eq('status', 'platit').limit(1);
+    if (has && has.length) return res.status(400).json({ error: 'Ai deja bilet la această ședință.', code: 'HAS_TICKET' });
+    sessionRow = data;
+  }
+
+  const price = kind === 'grup' ? L.PRICE_GROUP_LEI() : L.PRICE_PRIVATE_LEI();
+  const teacher = L.teacherById(sessionRow?.teacher || req.body?.teacher) || L.teachers()[0];
+  const slot = sessionRow ? L.slots().find((s) => s.id === sessionRow.slot) : null;
+  let when = '';
+  if (sessionRow) {
+    try { when = new Intl.DateTimeFormat('ro-RO', { timeZone: L.TZ, weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(sessionRow.starts_at)); }
+    catch { when = sessionRow.day || ''; }
+  }
+  const name = kind === 'grup'
+    ? `Meditație live de grup — ${teacher.name}, ${when}, ${slot?.label || ''}`.replace(/,\s*$/, '')
+    : `Meditație 1-la-1 (${L.PRIVATE_MINUTES()} de minute) — ${teacher.name}`;
+  const description = kind === 'grup'
+    ? `${L.EXAM_LABEL(sessionRow.exam, sessionRow.profile)} — subiect explicat pe barem, cu profesorul virtual (AI), în sala live ExamenMate.`
+    : 'O ședință privată cu profesorul virtual (AI), pornită oricând, pe subiectul de examen ales (explicat pe barem).';
+  // întoarcerea: doar în rubrica de meditații (nu acceptăm URL-uri din afară)
+  const back = /^\/meditatii(\/[\w/-]*)?$/.test(String(req.body?.returnTo || '')) ? req.body.returnTo : '/meditatii';
+  const base = siteUrl();
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    customer_email: profile?.email || undefined,
+    metadata: {
+      supabase_user_id: userId,
+      live_kind: kind,
+      live_session_id: sessionRow?.id || '',
+      live_price_lei: String(price),
+    },
+    line_items: [{
+      price_data: { currency: 'ron', product_data: { name, description }, unit_amount: Math.round(price * 100) },
+      quantity: 1,
+    }],
+    success_url: `${base}${back}?plata=ok&tip=${kind}${sessionRow ? `&sesiune=${sessionRow.id}` : ''}`,
+    cancel_url: `${base}${back}?plata=anulat`,
+  });
+  return res.status(200).json({ url: session.url });
+}
+
 module.exports = async function handler(req, res) {
   if (handledMethod(req, res)) return;
   const supabase = admin();
@@ -123,6 +193,8 @@ module.exports = async function handler(req, res) {
 
     // Pachet AI suplimentar (top-up) — flux separat, mode: 'payment'.
     if (req.body?.type === 'topup') return await topupCheckout(req, res, supabase, userId, profile);
+    // Bilet la meditațiile live (grup 10 lei / 1-la-1 20 lei) — mode: 'payment'.
+    if (req.body?.type === 'live') return await liveCheckout(req, res, supabase, userId, profile);
 
     if (profile?.subscription_status === 'active') {
       return res.status(400).json({ error: 'Ai deja un abonament activ.' });
