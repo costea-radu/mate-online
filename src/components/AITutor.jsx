@@ -51,6 +51,18 @@ export function preMessage(text = '') {
     // figurile ([[FIGURA:{...}]]) se desenează sub răspuns (extractFigureMarkers) — din text dispar
     .replace(/\[\[\s*FIGURA[\s\S]*?\]\]/gi, '')
     .replace(/\[\[\s*FIGURA[^\]]*$/i, '');
+  // tabla din „Planul meu": ce se SPUNE (subtitrare + voce) și întrebările
+  // grilă / de completat (carduri pe tablă) nu se scriu ca text. Aceleași
+  // reguli ca src/lib/tabla.js (care citește marcajele), aici doar le ascundem —
+  // widgetul de pe tot site-ul nu încarcă tabla.
+  if (t.includes('[[')) {
+    t = t.replace(/\[\[\s*SPUNE\s*:[\s\S]*?\]\]/gi, '')
+      .replace(/\[\[\s*(?:GRILA|COMPLETARE)\s*:[\s\S]*?\}\s*\]\]/gi, '')
+      .replace(/\[\[\s*(?:GRILA|COMPLETARE)\s*:[\s\S]*?\]\]/gi, '')          // JSON fără acolada de final
+      // început de marcaj, încă neterminat (streaming): „[[GRI", „[[SPUNE: Hai…"
+      .replace(/\[\[\s*(?:S|SP|SPU|SPUN|SPUNE|G|GR|GRI|GRIL|GRILA|C|CO|COM|COMP|COMPL|COMPLE|COMPLET|COMPLETA|COMPLETAR|COMPLETARE)?(?:\s*:(?:(?!\]\])[\s\S])*)?$/i, '')
+      .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/^\s+/, '');
+  }
   // linkurile absolute către site (inclusiv „.ro" greșit) devin RELATIVE → clicabile intern
   t = t.replace(/https?:\/\/(?:www\.)?examenmate\.(?:ro|com)(\/[^\s)"'<>\]]*)?/gi, (_, p) => p || '/');
   // delimitatorii \[...\] și \(...\) (scriși uneori de model) → $$/$, altfel apar cruzi în chat
@@ -247,10 +259,19 @@ const consumedAutoPrompts = new Set();
 //  autoPrompt {id, text, mode?} — mesaj trimis automat (butonul din exercițiu)
 export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null, onAction = null,
   initialConversationId = null, autoPrompt = null, coachInject = null, testMode = false,
-  boardSlots = null, cmdRef = null, onBusy = null, onSpeaking = null }) {
+  boardSlots = null, cmdRef = null, onBusy = null, onSpeaking = null, speaker = null, boardFooter = null, teacherName = 'Prof. Tudor',
+  board = null }) {
   // boardSlots = { board, composer } — cele două containere din pagina de
   // meditații: tabla (mesajele) și zona de sub ea (câmpul de scris).
+  // speaker = glasul lui Prof. Tudor (src/lib/live/vorbire.js): pe tablă,
+  // răspunsurile se citesc singure (subtitrare + voce), ce e în [[SPUNE:…]]
+  // doar se spune, iar întrebările [[GRILA]] / [[COMPLETARE]] devin carduri.
+  // boardFooter = variantele discuției (propunerea profesorului), la capătul tablei.
+  // board = { Question, Choice, split, plan } — piesele tablei, date de pagină
+  // (BoardQuestion, ChoiceCard, splitBoard, speechPlan): widgetul de pe tot
+  // site-ul nu le încarcă.
   const boardMode = !!boardSlots;
+  const Kit = board || {};
   // Pe tablă scrie DOAR profesorul. Ce spune elevul rămâne SUB tablă, lipit de
   // câmpul de scris, ca un fir de conversație care nu se pierde (`mineRef`).
   const mineRef = useRef(null);
@@ -356,9 +377,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // întrerupe (răspunsul complet rămâne salvat pe server — apare în Istoric)
   useEffect(() => () => {
     try { playerRef.current?.stop?.(); } catch { /* ignore */ }
-    stopSpeaking();
+    if (speaker) { speaker.stop('chat'); speaker.stop('chat-q'); } else stopSpeaking();
     try { abortRef.current?.abort(); } catch { /* ignore */ }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [upsell, setUpsell] = useState(false);
   const dictationRef = useRef(null);
   const recorderRef = useRef(null);
@@ -461,6 +482,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       ]);
       setForm(null); setFormAnswers({}); setFormImages([]);
       formStartRef.current = Date.now(); // pregătește o eventuală reîncercare
+      // pe tablă: Prof. Tudor spune rezultatul (punctajul rămâne scris pe tablă)
+      if (boardMode && speaker) speaker.say(`${r.feedback || 'Am corectat lucrarea ta — punctajul e pe tablă.'}${context.meditatii ? ' Cum mergem mai departe?' : ''}`, { key: 'chat' });
       // insigne, ca la testele interactive (doar când punctajul s-a salvat)
       if (user && r.saved && r.saved.kind !== 'nesalvat') {
         awardBadges(user.id, { score: r.score, maxScore: r.maxScore, attempts: r.attempts || 1, category: form.src.category })
@@ -493,7 +516,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     // firul elevului (sub tablă) își are propria derulare
     if (mineRef.current) mineRef.current.scrollTop = mineRef.current.scrollHeight;
-  }, [messages, streaming, boardSlots?.board]);
+  }, [messages, streaming, boardSlots?.board, boardFooter?.key ?? (boardFooter ? 1 : 0)]);
 
   const patchLast = useCallback((patch) => {
     setMessages((msgs) => {
@@ -526,7 +549,21 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     const medActions = extractMeditatiiActions(raw);
     const { figures } = extractFigureMarkers(cleanText0); // figurile se desenează sub răspuns
     const text = fixTerminology(preMessage(cleanText0).replace(/https?:\/\/(?:www\.)?examenmate\.ro/gi, 'https://examenmate.com'));
-    return { text, actions, medActions, figures };
+    // pe tablă: textul cu marcajele SPUNE / GRILA / COMPLETARE păstrate (vocea le folosește)
+    const board = cleanText0.replace(/\[\[\s*(?:MEDITATII|FIGURA)[\s\S]*?\]\]/gi, '').trim();
+    return { text, actions, medActions, figures, board };
+  }
+
+  // un răspuns doar „vorbit" (numai [[SPUNE]]): pe tablă nu rămâne nimic de scris
+  const talkOnly = (m) => m.role === 'assistant' && !m.streaming && !m.isError && !m.correction && !preMessage(m.content || '').trim();
+  const questionsOf = (m) => (Kit.split ? Kit.split(m.raw ?? m.content).questions : []);
+  const talkOnlyNoQ = (m) => talkOnly(m) && !questionsOf(m).length
+    && !(Array.isArray(m.figures) && m.figures.length);
+
+  // Prof. Tudor citește un răspuns de pe tablă: ce SPUNE + ce SCRIE (întrebarea o citește cardul ei)
+  function readOnBoard(src) {
+    if (!speaker || !src || !Kit.plan) return;
+    speaker.say(Kit.plan(src), { key: 'chat' });
   }
 
   // send(text, { modeOverride, regenerate })
@@ -541,6 +578,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       setError('Profesorul Virtual e oprit cât timp ai un test pe grupă în desfășurare.');
       return;
     }
+    if (boardMode && speaker) ['chat', 'chat-q', 'coach', 'propunere', 'repeta'].forEach((k) => speaker.stop(k));
     const userUid = ++uidRef.current; // id-urile locale ale celor două bule
     const uid = ++uidRef.current;     // (întrebare, răspuns)
     lastSentRef.current = { text: msg, modeOverride };
@@ -579,12 +617,14 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
             // (transcrierea rămâne în panoul „📎", ca material de discutat)
             if (sendPhoto) setPhoto(null);
             // extrage acțiunile [[ACTIUNE:...]] / [[MEDITATII:...]] și curăță textul afișat
-            const { text: cleanText, actions, medActions, figures } = cleanReply(acc);
-            patchMsg(uid, { streaming: false, id: messageId, content: cleanText, figures });
+            const { text: cleanText, actions, medActions, figures, board } = cleanReply(acc);
+            patchMsg(uid, { streaming: false, id: messageId, content: cleanText, figures, raw: board });
             if (cleanText.trim()) setChipsUid(uid); // butoanele de continuare sub acest răspuns
             if (onAction && actions.length) actions.slice(0, 2).forEach((a) => { try { onAction(a); } catch { /* noop */ } });
             if (medActions.length) setTimeout(() => dispatchMeditatiiAction(medActions[0], navigate, onNavigate), 600);
-            if (autoRead && cleanText.trim()) {
+            // pe tablă: Prof. Tudor spune și explică ce a scris (subtitrare + voce)
+            if (boardMode && speaker) readOnBoard(board);
+            else if (autoRead && cleanText.trim()) {
               // indexul REAL al bulei (pot fi mesaje coach/corectări inserate între timp)
               const idx = messagesRef.current.findIndex((mm) => mm.uid === uid);
               if (idx >= 0) startListen(idx, cleanText); // cu bară + evidențiere
@@ -596,8 +636,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       const aborted = (e && e.name === 'AbortError') || (controller && controller.signal.aborted);
       if (aborted) {
         // „Oprește": păstrăm ce a apucat să scrie; nu e eroare
-        const { text: partial } = cleanReply(acc);
-        patchMsg(uid, { streaming: false, stopped: true, content: partial.trim() ? partial : '⏹ Răspuns oprit.' });
+        const { text: partial, board: partialBoard } = cleanReply(acc);
+        patchMsg(uid, { streaming: false, stopped: true, content: partial.trim() ? partial : '⏹ Răspuns oprit.', raw: partialBoard });
       } else if (e.premium) {
         setUpsell(true);
         patchMsg(uid, { content: e.message, isError: true, streaming: false, retryable: false });
@@ -700,7 +740,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     const msgs = await aiClient.getMessages(id);
     setMessages(msgs.map((m) => {
       const { text, figures } = m.role === 'assistant' ? extractFigureMarkers(m.content) : { text: m.content, figures: [] };
-      return { role: m.role, content: text, id: m.id, sources: m.metadata?.sources, primaryMaterial: m.metadata?.primaryMaterial, image: m.metadata?.image || null, figures, uid: ++uidRef.current };
+      return { role: m.role, content: text, id: m.id, sources: m.metadata?.sources, primaryMaterial: m.metadata?.primaryMaterial, image: m.metadata?.image || null, figures, uid: ++uidRef.current, history: true };
     }));
     setChipsUid(null);
     setConvId(id);
@@ -873,7 +913,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           {/* „🔊 Voce" pornește citirea PE LOC a ultimului răspuns și lasă
               pornită citirea automată a celor următoare. Până acum doar arma
               răspunsurile viitoare, așa că apăsarea lui părea că nu face nimic. */}
-          {ttsSupported() && (
+          {ttsSupported() && !(boardMode && speaker) && (
             <button onClick={() => {
               unlockSpeech();
               const n = !autoRead;
@@ -1006,9 +1046,23 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
             pre-completate. Zona rămâne liberă până la primul mesaj scris. */}
 
         {messages.map((m, i) => (
-          // pe tablă rămâne DOAR ce scrie / spune profesorul; replicile elevului
-          // se mută sub tablă, în firul de lângă câmpul de scris (`mineJsx`)
-          boardMode && m.role === 'user' ? null : (
+          // pe tablă rămâne DOAR ce scrie profesorul; replicile elevului se mută
+          // sub tablă, în firul de lângă câmpul de scris (`mineJsx`), iar ce
+          // SPUNE (mesajele „coach") se aude și apare în subtitrare
+          boardMode && (m.role === 'user' || (m.coach && !m.suggestions?.length) || talkOnlyNoQ(m)) ? null
+          : boardMode && m.coach && Kit.Choice ? (
+            // propunerile lui (ex. după corectare) — variantele discuției, pe tablă
+            <div key={i} className="bd-q">
+              <Kit.Choice kicker={`🙋 ${teacherName} întreabă`} question={m.content}
+                options={m.suggestions.map((sg) => ({
+                  label: sg.label,
+                  onPick: () => (sg.kind === 'chat' ? send(sg.text)
+                    : sg.kind === 'pdf_site' ? togglePdfPicker()
+                    : dispatchMeditatiiAction(sg, navigate, onNavigate)),
+                }))}
+                onFree={(t) => send(t)} />
+            </div>
+          ) : (
           <div key={i} className={boardMode ? `bdmsg-row is-${m.role}` : undefined}
             style={boardMode ? undefined : { display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 10 }}>
             <div className={boardMode ? `bdmsg is-${m.role}${m.isError ? ' is-err' : ''}${m.coach ? ' is-coach' : ''}` : undefined}
@@ -1027,8 +1081,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                 </a>
               )}
               {m.role === 'assistant'
-                ? <MathText text={m.content || (m.streaming ? '▍' : '')} ready={!m.streaming} onInternalLink={openInternal}
-                    sentences readPos={voiceState.idx === i ? voiceState.sent : null} />
+                ? (boardMode && talkOnly(m) ? null
+                  : <MathText text={m.content || (m.streaming ? '▍' : '')} ready={!m.streaming} onInternalLink={openInternal}
+                      sentences={!boardMode} readPos={!boardMode && voiceState.idx === i ? voiceState.sent : null} />)
                 : <div style={{ whiteSpace: 'pre-wrap' }}>
                     {m.image && <img src={m.image} alt="poza trimisă" style={{ display: 'block', maxWidth: 160, maxHeight: 120, borderRadius: 8, marginBottom: m.content ? 6 : 0, border: '1px solid rgba(255,255,255,.35)' }} />}
                     {m.content}
@@ -1042,6 +1097,25 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 
               {/* Rezultatul corectării: punctaj total + punctaj pe fiecare subpunct */}
               {m.correction && <CorrectionBlock r={m.correction} />}
+
+              {/* Întrebarea pusă DIRECT PE TABLĂ (grilă / completare), ca la meditațiile live */}
+              {boardMode && Kit.Question && m.role === 'assistant' && !m.streaming && (() => {
+                const q = questionsOf(m)[0];
+                if (!q) return null;
+                const a = m.qa || null;
+                const answerLine = (x) => (q.type === 'grila' ? `${x})` : x);
+                return (
+                  <Kit.Question q={q} id={`q${m.uid ?? i}`} answered={a} speaker={speaker} speakKey="chat-q"
+                    autoSpeak={!m.history} teacherName={teacherName}
+                    onAnswer={(res) => patchMsg(m.uid, { qa: res })}
+                    nextLabel="Continuăm →"
+                    onNext={() => send(`Am răspuns ${answerLine(a.answer)} la întrebarea de pe tablă — ${a.correct ? 'corect' : `greșit (corect era ${answerLine(q.answer)})`}. Continuăm.`)}
+                    extra={a && !a.correct
+                      ? <button type="button" className="lv-btn-soft" disabled={streaming}
+                          onClick={() => send(`Am răspuns ${answerLine(a.answer)} la întrebarea de pe tablă, dar corect era ${answerLine(q.answer)}. Explică-mi altfel, pas cu pas, unde am greșit.`)}>🤔 Explică-mi altfel</button>
+                      : null} />
+                );
+              })()}
 
               {m.sources && m.sources.length > 0 && !m.streaming && (
                 <details style={{ marginTop: 8 }}>
@@ -1093,9 +1167,15 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
             )}
 
             {/* Acțiuni: „Ascultă răspunsul" (play/pauză) + feedback + „Regenerează" */}
-            {m.role === 'assistant' && !m.streaming && !m.isError && (
+            {m.role === 'assistant' && !m.streaming && !m.isError && !(boardMode && talkOnly(m)) && (
               <div style={{ display: 'flex', gap: 6, marginTop: 4, paddingLeft: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-                {ttsSupported() && (
+                {/* pe tablă: Prof. Tudor explică din nou, cu voce și subtitrare */}
+                {boardMode && speaker && (
+                  <button title={`${teacherName} îți explică din nou ce a scris`} onClick={() => { speaker.unlock(); readOnBoard(m.raw ?? m.content); }} style={listenBtn}>
+                    ▶ Ascultă din nou
+                  </button>
+                )}
+                {!(boardMode && speaker) && ttsSupported() && (
                   <button
                     title={voiceState.idx === i && !voiceState.paused ? 'Pune pauză' : 'Ascultă explicația cu voce tare'}
                     onClick={() => toggleListen(i, m.content)}
@@ -1111,7 +1191,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                   </button>
                 )}
                 {/* Bara de derulare a răspunsului vocal (click = salt) */}
-                {voiceState.idx === i && voiceState.total > 1 && (
+                {!(boardMode && speaker) && voiceState.idx === i && voiceState.total > 1 && (
                   <div
                     title="Derulează răspunsul vocal"
                     onClick={(e) => {
@@ -1144,6 +1224,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           </div>
           )
         ))}
+        {boardMode && boardFooter}
       </div>
     </>
   );

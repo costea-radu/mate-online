@@ -1522,11 +1522,6 @@ body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
   font-size: .76rem; font-weight: 700; color: var(--text-light); cursor: pointer; white-space: nowrap;
 }
 .bd-tool:hover { border-color: var(--gold); color: var(--navy); }
-.bd-speed { display: inline-flex; align-items: center; gap: 5px; font-size: .76rem; color: var(--text-light); }
-.bd-speed select {
-  border: 1px solid var(--border); border-radius: 9px; padding: 4px 7px;
-  font-family: inherit; font-size: .76rem; font-weight: 700; color: var(--navy); background: #fff;
-}
 /* etapele lecției */
 .bd-stagechips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 9px; }
 .bd-stagechip {
@@ -1543,11 +1538,13 @@ body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
 .bd-stagechip.is-done .bd-stagechip-n { background: rgba(39,174,96,.2); color: #1e7e34; }
 .bd-stagechip.is-now { color: var(--navy); border-color: var(--gold); background: rgba(232,185,49,.13); }
 .bd-stagechip.is-now .bd-stagechip-n { background: var(--gold); color: var(--navy); }
-.bd-body { position: relative; padding-right: clamp(0px, 17%, 220px); }
+.bd-body { position: relative; padding-right: calc(var(--bd-cam-w, 220px) + 8px); }
 .med-board.is-tall .bd-body { max-height: min(56vh, 480px); overflow-y: auto; }
-/* pe ecran lat, panoul „Ai înțeles?" stă PESTE tablă → lăsăm loc sub text,
-   ca ultimele rânduri scrise să nu rămână niciodată ascunse sub el */
-@media (min-width: 901px) { .med-board.is-tall .bd-body { padding-bottom: 140px; } }
+/* jos pe tablă stă subtitrarea → lăsăm loc sub text, ca ultimele rânduri
+   scrise să nu rămână niciodată ascunse sub ea */
+.med-board.is-tall .bd-body { padding-bottom: 64px; }
+.med-board.is-tall .bd-body.is-chat { padding-bottom: 0; }
+.bd-body.is-chat .bdchat-msgs { padding-bottom: 70px; }
 
 /* ─── textul „scris de mână" ─── */
 .bd-text-wrap { position: relative; }
@@ -1634,92 +1631,99 @@ body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
 .bd-tray-hint { font-size: .78rem; font-weight: 600; color: #24384f; }
 .bd-surface.is-work { background: #fbfcfe; }
 
-/* ─── PROFESORUL de la tablă ───────────────────────────────────────────────
-   Se MIȘCĂ DUPĂ SCRIS. Pagina îi dă poziția markerului pe tablă, iar de acolo
-   ies trei variabile CSS, puse inline pe .med-prof:
-     --pf-x     corpul, stânga-dreapta (% din propria lățime) după COLOANA scrisă
-     --pf-lean  aplecarea în direcția aceea (grade)
-     --pf-arm   unghiul brațului (grade) după RÂNDUL pe care scrie
-   Fără poziție (ex. când răspunde în conversație) → legănat lent (.is-sway). */
-.med-prof {
-  position: absolute; right: -6px; bottom: -14px; z-index: 3; pointer-events: none;
-  width: clamp(160px, 21%, 268px); perspective: 1100px;
-  transform: translateX(calc(var(--pf-x, 0) * 1%)) rotate(calc(var(--pf-lean, 0) * 1deg));
-  transform-origin: 50% 100%;
-  transition: transform .65s cubic-bezier(.33,.1,.25,1);
+/* ─── PROF. TUDOR la colțul tablei (ca într-un apel video) ────────────────
+   Același profesor ca în meditațiile live: fotografia din clasă, animată în
+   WebGL (live/ProfCamera.jsx). Pe cameră: 🔊 sunetul, CC subtitrările, ↺ repetă.
+   Coloana din dreapta tablei e a lui (.bd-body lasă loc), ca scrisul să nu
+   treacă niciodată pe sub cameră. */
+.bd-surface { --bd-cam-w: clamp(188px, 23%, 292px); }
+.bd-cam {
+  --lv-blue: #8ab4f8; --lv-text: #e8eaed;
+  position: absolute; right: 12px; bottom: 12px; z-index: 5;
+  width: var(--bd-cam-w); aspect-ratio: 4 / 3.3; color: #e8eaed;
 }
-.pf-flip { position: relative; transform-style: preserve-3d; transition: transform .6s cubic-bezier(.4,.05,.2,1); }
-.med-prof.is-asking .pf-flip { transform: rotateY(180deg); }
-.pf-face { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
-.pf-front { position: absolute; inset: 0; transform: rotateY(180deg); }
-.pf-svg { width: 100%; height: auto; display: block; filter: drop-shadow(-6px 4px 10px rgba(15,43,68,.16)); }
-@keyframes pf-write {
-  0%, 100% { transform: rotate(0deg) translate(0, 0); }
-  20% { transform: rotate(-5deg) translate(2px, -5px); }
-  45% { transform: rotate(3.5deg) translate(-3px, 4px); }
-  70% { transform: rotate(-2.5deg) translate(3px, -2px); }
+.bd-cam .lv-cam { border-radius: 14px; box-shadow: 0 10px 26px rgba(15,43,68,.28), 0 0 0 3px #fff; }
+.bd-cam .lv-cam.is-speaking::after { border-radius: 14px; }
+.bd-cam .lv-cam-label { left: 7px; bottom: 7px; font-size: .76rem; gap: 1px; padding: 3px 8px 4px 7px; color: #fff; flex-direction: column; align-items: flex-start; }
+.bd-cam .lv-cam-mic { display: none; }
+.bd-cam .lv-tag-ai { font-size: .58rem; padding: 1px 5px; }
+.bd-cam-ctl { position: absolute; top: 7px; right: 7px; display: flex; gap: 5px; z-index: 6; }
+.bd-cam-btn {
+  min-width: 30px; height: 26px; padding: 0 6px; border-radius: 8px; border: none; cursor: pointer;
+  background: rgba(32,33,36,.72); color: #fff; font-size: .78rem; font-weight: 800; line-height: 26px;
+  font-family: var(--font-body); backdrop-filter: blur(2px);
 }
-@keyframes pf-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-@keyframes pf-blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.08); } }
-/* vorbește: gura se deschide și se închide */
-@keyframes pf-talk { 0%, 100% { transform: scaleY(.72); } 35% { transform: scaleY(1.12); } 65% { transform: scaleY(.85); } }
-/* scrie, dar nu știm unde (conversație): legănat lent stânga-dreapta */
-@keyframes pf-sway {
-  0%, 100% { transform: translateX(0) rotate(0deg); }
-  30% { transform: translateX(-16%) rotate(-2.4deg); }
-  62% { transform: translateX(-5%) rotate(1.2deg); }
+.bd-cam-btn:hover { background: rgba(32,33,36,.9); }
+.bd-cam-btn.is-off { background: rgba(197,34,31,.88); }
+.bd-cam-btn.is-on { background: rgba(26,115,232,.92); }
+.bd-cam-tap {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 7;
+  background: #1a73e8; color: #fff; border: none; border-radius: 22px; padding: 8px 14px; cursor: pointer;
+  font-family: var(--font-body); font-weight: 800; font-size: .8rem; white-space: nowrap; box-shadow: 0 6px 18px rgba(0,0,0,.35);
+  animation: bd-tap 1.6s ease-in-out infinite;
 }
-.med-prof.is-sway { animation: pf-sway 8s ease-in-out infinite; }
-/* brațul: unghiul „de țintire" (rândul scris) × legănatul scrisului */
-.pf-arm-aim {
-  transform: rotate(calc(var(--pf-arm, 0) * 1deg));
-  transform-origin: 78px 196px; transform-box: view-box;
-  transition: transform .6s cubic-bezier(.33,.1,.25,1);
+@keyframes bd-tap { 0%, 100% { box-shadow: 0 6px 18px rgba(0,0,0,.35), 0 0 0 0 rgba(26,115,232,.55); } 50% { box-shadow: 0 6px 18px rgba(0,0,0,.35), 0 0 0 9px rgba(26,115,232,0); } }
+.bd-cam-hint {
+  position: absolute; right: 0; bottom: calc(100% + 8px); width: min(330px, 80vw); z-index: 8;
+  display: flex; gap: 8px; align-items: flex-start; background: #202124; color: #e8eaed;
+  border-radius: 10px; padding: 9px 11px; font-family: var(--font-body); font-size: .76rem; line-height: 1.45;
+  box-shadow: 0 10px 26px rgba(0,0,0,.3);
 }
-.med-prof.is-writing .pf-arm { animation: pf-write 1.6s ease-in-out infinite; transform-origin: 78px 196px; transform-box: view-box; }
-.med-prof.is-writing .pf-svg { animation: pf-bob 3.6s ease-in-out infinite; }
-.pf-eyes { animation: pf-blink 5.5s infinite; transform-origin: 110px 110px; transform-box: view-box; }
-/* GURA se mișcă DOAR cât timp profesorul chiar spune ceva — explicația de pe
-   tablă, citită cu voce tare, sau exercițiul pe care îl dictează. Când stă cu
-   fața la elev și așteaptă un răspuns („Ai înțeles?"), gura e NEMIȘCATĂ:
-   altfel vorbea în gol, la nesfârșit, cât timp elevul se gândea. */
-.med-prof.is-speaking .pf-mouth { animation: pf-talk 1.5s ease-in-out infinite; transform-origin: 110px 148px; transform-box: view-box; }
-.pf-tag {
-  position: absolute; right: 4px; bottom: 10px; z-index: 4;
-  display: inline-flex; align-items: center; gap: 6px;
-  background: rgba(15,43,68,.92); color: #fff; border-radius: 20px; padding: 4px 11px;
-  font-size: .72rem; font-weight: 700; white-space: nowrap; box-shadow: var(--shadow);
-}
-.pf-dot { width: 7px; height: 7px; border-radius: 50%; background: #2ecc71; box-shadow: 0 0 0 3px rgba(46,204,113,.25); }
+.bd-cam-hint button { background: none; border: none; color: #9aa0a6; cursor: pointer; font-size: .85rem; padding: 0 2px; }
 
-/* ─── „Ai înțeles?" ─── */
-@keyframes bd-ask-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-/* Replicile profesorului stau LIPITE DE EL, în dreapta tablei, cu coada spre
-   umărul lui: întrebarea + variantele de răspuns, ca un dialog adevărat. */
-.bd-ask {
-  position: absolute; right: clamp(146px, 19.5%, 246px); bottom: 30px; left: 26px; z-index: 4;
-  display: flex; flex-direction: column; gap: 9px; align-items: flex-end;
-  animation: bd-ask-in .35s ease both;
+/* ─── SUBTITRAREA: ce SPUNE profesorul (ca în sala live), jos pe tablă ─── */
+.bd-cc {
+  position: absolute; left: 18px; right: calc(var(--bd-cam-w) + 30px); bottom: 16px; z-index: 6;
+  text-align: center; pointer-events: none; animation: bd-cc-in .18s ease both;
 }
-.bd-bubble {
-  position: relative; background: var(--navy); color: #fff; max-width: min(100%, 430px);
-  border-radius: 16px 16px 4px 16px; padding: 11px 17px; box-shadow: var(--shadow-lg);
+@keyframes bd-cc-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.bd-cc > span {
+  display: inline; background: rgba(0,0,0,.78); color: #fff; font-family: var(--font-body);
+  font-size: 1.02rem; line-height: 1.62; padding: 3px 10px; border-radius: 4px;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
 }
-.bd-bubble::after {
-  content: ''; position: absolute; right: -9px; bottom: 13px;
-  border: 7px solid transparent; border-left-color: var(--navy); border-right: 0;
+.bd-cc .katex { color: #fff; font-size: 1em; background: none; }
+.bd-cc b { color: #fff; }
+
+/* ─── DISCUȚIA și ÎNTREBĂRILE, direct pe tablă (ca la meditațiile live) ───
+   Aceleași carduri ca în sala live (.lv-poll), dar așezate PE TABLĂ, în
+   șirul scrisului, nu plutind peste ea. */
+.bd-q { margin: 14px 0 8px; max-width: 620px; font-family: var(--font-body); }
+.bd-q .lv-poll {
+  position: relative; inset: auto !important; width: auto; z-index: 1;
+  box-shadow: 0 6px 22px rgba(15,43,68,.14); border: 1px solid #dfe5ee; font-size: .95rem;
 }
-.bd-bubble-q { display: block; font-family: 'Caveat', cursive; font-size: 1.5rem; font-weight: 700; line-height: 1.15; }
-.bd-bubble-note { display: block; font-size: .76rem; opacity: .8; margin-top: 3px; }
-.bd-ask-btns { display: flex; gap: 9px; flex-wrap: wrap; justify-content: flex-end; }
-.bd-btn {
-  padding: 11px 19px; border-radius: 12px; font-family: var(--font-body);
-  font-size: .92rem; font-weight: 800; cursor: pointer; border: 2px solid transparent;
-  box-shadow: var(--shadow); transition: transform .12s, box-shadow .12s;
+.bd-q .lv-poll-q { font-size: 1.02rem; color: #16324c; }
+.bd-q .lv-poll-q .katex, .bd-q .lv-poll-opt .katex { color: #12395e; }
+.bd-q .lv-poll-opt { color: #202124; font-family: var(--font-body); cursor: pointer; }
+.bd-q .lv-poll-opt.is-primary { border-color: #1a73e8; background: #f1f6fe; font-weight: 700; }
+.bd-q .lv-poll-opts.is-one { grid-template-columns: 1fr; }
+.bd-q .lv-poll-verdict.has-more { flex-direction: column; align-items: stretch; gap: 8px; }
+.bd-q .lv-poll-explain { font-weight: 400; color: #3c4043; font-size: .92rem; line-height: 1.55; }
+.bd-q .lv-poll-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.bd-q .lv-choice-free { margin-top: 10px; }
+.bd-q .lv-choice-free input { font-size: 16px; }
+.bd-q .bd-wait { display: flex; align-items: center; gap: 10px; font-weight: 600; color: #3c4043; }
+/* exercițiile de pe tablă: variantele ca la grila din sala live */
+.bd-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.bd-opts.is-long { grid-template-columns: 1fr; }
+.bd-opts .lv-poll-opt { cursor: pointer; font-family: var(--font-body); color: #202124; min-height: 44px; }
+.bd-opts .lv-poll-opt:disabled { cursor: default; }
+.bd-opt-t { flex: 1; min-width: 0; }
+.bd-opt-t p { margin: 0; }
+.bd-opt-t .katex { color: #12395e; }
+.bd-fill {
+  width: 100%; border: 1.5px solid #dadce0; border-radius: 10px; padding: 10px 12px;
+  font-size: 16px; font-family: var(--font-body); background: #fff;
 }
-.bd-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-lg); }
-.bd-btn-yes { background: var(--success); color: #fff; }
-.bd-btn-no { background: #fff; color: var(--navy); border-color: var(--gold); }
+.bd-fill:focus { outline: none; border-color: #1a73e8; box-shadow: 0 0 0 3px rgba(26,115,232,.12); }
+@media (max-width: 560px) { .bd-opts { grid-template-columns: 1fr; } }
+
+/* întrebarea deja rezolvată rămâne pe tablă, pe un rând */
+.bd-qdone { margin: 6px 0 4px; padding-left: 10px; border-left: 3px solid rgba(26,115,232,.35); }
+.bd-qdone .bd-text { font-size: 1.08rem; color: #3b5470; }
+.bd-qdone.is-good { border-left-color: rgba(39,174,96,.55); }
+.bd-qdone.is-bad { border-left-color: rgba(231,76,60,.5); }
 
 /* ─── conversația de sub tablă ─── */
 .med-conv { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 18px; }
@@ -1737,15 +1741,30 @@ body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
   .bd-text { font-size: 1.24rem; }
 }
 @media (max-width: 900px) {
-  .bd-ask { right: 20px; bottom: auto; top: 100%; margin-top: 10px; position: relative; left: 0; padding: 0 4px; align-items: stretch; }
-  .bd-bubble { border-radius: 16px; max-width: 100%; }
-  .bd-ask-btns { justify-content: stretch; }
-  /* pe ecran îngust profesorul nu se mai plimbă: ar acoperi textul */
-  .med-prof { transform: none !important; animation: none !important; }
-  .bd-bubble::after { display: none; }
-  .med-prof { width: 128px; right: -4px; bottom: -8px; }
+  /* ecran îngust: scrisul ia toată lățimea; camera stă jos, în dreapta, iar
+     subtitrarea deasupra ei, pe toată lățimea tablei */
+  .bd-surface { --bd-cam-w: clamp(124px, 33vw, 168px); }
   .med-board.is-tall .bd-surface { min-height: 420px; }
-  .bd-body { padding-bottom: 96px; padding-right: 0; }
+  .bd-body, .med-board.is-tall .bd-body { padding-right: 0; padding-bottom: calc(var(--bd-cam-w) * .825 + 22px); }
+  .med-board.is-tall .bd-body.is-chat { padding-bottom: 0; }
+  .bd-body.is-chat .bdchat-msgs { padding-bottom: calc(var(--bd-cam-w) * .825 + 26px); }
+  .bd-cam { right: 8px; bottom: 8px; }
+  .bd-cc { left: 8px; right: 8px; bottom: calc(var(--bd-cam-w) * .825 + 16px); }
+  .bd-cc > span { font-size: .92rem; line-height: 1.55; }
+  /* pe camera mică rămân: fața lui și eticheta „Profesor virtual · AI";
+     butoanele (sunet, subtitrări) urcă deasupra ferestrei */
+  .bd-cam .lv-cam-label { left: 4px; right: 4px; bottom: 4px; padding: 2px 5px; justify-content: center; }
+  .bd-cam .lv-cam-name { display: none; }
+  .bd-cam .lv-tag-ai { font-size: .5rem; padding: 0 2px; background: none; letter-spacing: 0; white-space: normal; text-align: center; line-height: 1.25; }
+  .bd-cam-ctl { top: auto; bottom: calc(100% + 5px); right: 0; gap: 4px; }
+  .bd-cam-btn { min-width: 28px; height: 24px; line-height: 24px; font-size: .7rem; padding: 0 5px; border-radius: 7px; background: rgba(32,33,36,.82); }
+  .bd-cam-tap { font-size: .68rem; padding: 6px 9px; white-space: normal; text-align: center; width: 88%; }
+  .bd-cc { bottom: calc(var(--bd-cam-w) * .825 + 40px); }
+  .bd-body, .med-board.is-tall .bd-body { padding-bottom: calc(var(--bd-cam-w) * .825 + 40px); }
+  .bd-body.is-chat .bdchat-msgs { padding-bottom: calc(var(--bd-cam-w) * .825 + 44px); }
+  .bd-q { max-width: none; }
+  .bd-q .lv-choice .lv-poll-opts { grid-template-columns: 1fr; }
+  .bd-cam-hint { position: fixed; left: 10px; right: 10px; top: calc(var(--navbar-h, 64px) + 8px); bottom: auto; width: auto; z-index: 1300; }
 }
 @media (max-width: 768px) {
   /* meniul lateral devine o bandă fixă pe marginea din stânga, care se
@@ -1785,11 +1804,7 @@ body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
   .bd-tray { width: calc(100% - 18px); margin-left: 9px; padding: 8px 12px; }
   .bd-tray-actions { width: 100%; }
   .bd-tray-actions .btn { flex: 1 1 auto; justify-content: center; }
-  .bd-btn { flex: 1 1 160px; text-align: center; }
-  .med-prof { width: 104px; bottom: -6px; }
-  .pf-tag { font-size: .62rem; padding: 3px 7px; right: 16px; bottom: 4px; }
   .bd-tool { padding: 4px 8px; font-size: .7rem; }
-  .bd-speed select { padding: 3px 5px; font-size: .7rem; }
   .bd-head { margin-bottom: 10px; gap: 8px; }
   .bd-stagechip { max-width: 150px; font-size: .7rem; }
   .med-conv-body { height: 62vh; }
@@ -1806,15 +1821,13 @@ body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
 }
 @media (prefers-reduced-motion: reduce) {
   .bd-ink { opacity: 1 !important; animation: none !important; }
-  .med-prof.is-writing .pf-arm, .med-prof.is-writing .pf-svg, .pf-eyes,
-  .med-prof.is-speaking .pf-mouth, .med-prof.is-sway { animation: none !important; }
-  .med-prof, .pf-arm-aim { transition: none; }
-  .pf-flip { transition: none; }
+  .bd-cam-tap, .bd-cc { animation: none; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    TABLA CA ZONĂ DE CONVERSAȚIE
-   Meditația se poartă pe tablă: profesorul scrie ce spune, elevul răspunde din
+   Meditația se poartă pe tablă: profesorul scrie matematica (ce spune se aude
+   și apare ca subtitrare), elevul răspunde din
    câmpul de sub tablă. Chatul e aceeași componentă ca peste tot pe site — își
    trimite doar mesajele pe tablă (.bdchat) și scrisul dedesubt (.bdchat-composer).
    ═══════════════════════════════════════════════════════════════════════════ */

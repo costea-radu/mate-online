@@ -66,7 +66,7 @@ function useLessonCues(portraitRef, ready, state, board) {
   }, [portraitRef, ready, state, board]);
 }
 
-export default function PortraitScene({ rig, engine, board = null, screen = null, state = null, overlays = true, zoom = 1, thinking = false, chatCount = 0 }) {
+export default function PortraitScene({ rig, engine, board = null, screen = null, state = null, overlays = true, zoom = 1, thinking = false, chatCount = 0, onPortrait = null }) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const portraitRef = useRef(null);
@@ -101,6 +101,13 @@ export default function PortraitScene({ rig, engine, board = null, screen = null
   }, [rig, engine]);
 
   useLessonCues(portraitRef, ready, state, board);
+  // pagina care îl regizează (Planul meu) primește animația când e gata
+  const onPortraitRef = useRef(onPortrait);
+  useEffect(() => { onPortraitRef.current = onPortrait; }, [onPortrait]);
+  useEffect(() => {
+    onPortraitRef.current?.(ready ? portraitRef.current : null);
+    return () => { if (ready) onPortraitRef.current?.(null); };
+  }, [ready]);
   // răspunsul la o întrebare e în lucru → profesorul „se gândește" (privirea în sus, într-o parte)
   useEffect(() => { if (ready && thinking) portraitRef.current?.cue('gandeste', { dur: 1.8 }); }, [ready, thinking]);
   // un mesaj nou în chat → uneori aruncă o privire spre laptopul de pe pupitru

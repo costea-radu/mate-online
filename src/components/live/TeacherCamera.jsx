@@ -8,6 +8,9 @@
 // Fără portret: ca într-un Zoom cu camera oprită — inițialele profesorului,
 // cu inelul care pulsează în ritmul vocii.
 // Eticheta „Profesor virtual · AI" rămâne mereu vizibilă.
+// Folosită și în „Planul meu" (variant="tile", la colțul tablei): `zoom`
+// apropie camera de profesor, `onPortrait` dă acces la animație (priviri,
+// „se gândește", „ascultă") pentru pagina care îl regizează.
 // =====================================================================
 import { lazy, Suspense, useEffect, useRef } from 'react';
 import { initials, teacherColor } from '../../lib/live/profesori';
@@ -32,7 +35,7 @@ function useVoiceLevel(engine, ref) {
   }, [engine, ref]);
 }
 
-export default function TeacherCamera({ teacher, rig = null, engine, variant = 'big', board = null, screen = null, state = null, showBoards = true, label = true, thinking = false, chatCount = 0 }) {
+export default function TeacherCamera({ teacher, rig = null, engine, variant = 'big', board = null, screen = null, state = null, showBoards = true, label = true, thinking = false, chatCount = 0, zoom = null, onPortrait = null }) {
   const ref = useRef(null);
   useVoiceLevel(engine, ref);
   const color = teacherColor(teacher);
@@ -41,7 +44,8 @@ export default function TeacherCamera({ teacher, rig = null, engine, variant = '
       {rig ? (
         <Suspense fallback={<div className="lv-cam-loading" />}>
           <PortraitScene rig={rig} engine={engine} board={board} screen={screen} overlays={showBoards}
-            state={state || screen?.state || null} zoom={variant === 'pip' ? 2.6 : 1} thinking={thinking} chatCount={chatCount} />
+            state={state || screen?.state || null} zoom={zoom || (variant === 'pip' ? 2.6 : 1)} thinking={thinking} chatCount={chatCount}
+            onPortrait={onPortrait} />
         </Suspense>
       ) : (
         <div className="lv-cam-off">

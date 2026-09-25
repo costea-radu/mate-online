@@ -1,40 +1,36 @@
 // =====================================================================
 // src/components/Whiteboard.jsx — TABLA din „Meditații cu Profesorul Virtual"
+// („Planul meu", /meditatii/plan)
 //
-// Tabla albă ocupă cea mai mare parte a ecranului, iar explicațiile NU mai
-// apar dintr-odată: profesorul (desen ORIGINAL, în stilul icon-ului Einstein)
-// stă cu SPATELE și le SCRIE, literă cu literă. La finalul fiecărei etape se
-// ÎNTOARCE CU FAȚA și întreabă „Ai înțeles?", cu două răspunsuri:
-//   ✅ „Da, continuă"           → trece la etapa următoare
-//   🤔 „Nu, mai explică o dată" → cere explicația din nou, mai simplu
+// PE TABLĂ stă DOAR matematică: teoria pe etape, exercițiile, explicațiile și
+// calculele. Ce SPUNE profesorul — salutul, propunerile, „Ai înțeles?",
+// verdictele — NU se mai scrie pe tablă: se AUDE (vocea browserului, ca în
+// sala live) și apare ca SUBTITRARE, jos pe tablă.
 //
-// Tabla PĂSTREAZĂ tot ce s-a scris: etapele parcurse rămân deasupra, mai
-// palide, exact ca pe o tablă adevărată — se poate reveni la oricare.
+// Profesorul e Prof. Tudor din meditațiile live: camera lui stă la colțul
+// tablei (live/ProfCamera.jsx) — se uită spre tablă când scrie, ascultă când
+// aștepți un răspuns, iar gura urmează vocea.
 //
-// „Nu, mai explică o dată" NU mai trimite în conversație: profesorul cere
-// serverului (lesson_simplify) o explicație nouă, cu alt unghi, și o SCRIE tot
-// pe tablă, sub etapă. După 3 reluări trece discuția în conversație.
+// Discuția se poartă tot PE TABLĂ, ca la meditațiile live: întrebări GRILĂ
+// sau cu răspuns de COMPLETAT (BoardQuestion) și variantele unei discuții
+// (ChoiceCard: a, b, c… sau „scrie-mi altceva").
 //
-// VOCEA CONDUCE SCRISUL: cu „🔊 Citește" pornit, profesorul rostește textul, iar
-// literele apar exact în ritmul vocii (progresul pe propoziții din playAnswer).
-// Fără voce, scrisul e cronometrat în CSS — fiecare caracter primește propria
-// întârziere, deci KaTeX randează o SINGURĂ DATĂ pe bloc: formulele nu clipesc.
-// Preferințele (viteză, citire cu voce) se țin minte în localStorage.
+// VOCEA CONDUCE SCRISUL: literele apar în ritmul în care Prof. Tudor rostește
+// propozițiile (src/lib/tabla.js → speechPlan). Fără sunet sau fără voce
+// românească, subtitrările și scrisul merg în același ritm, „în gând", iar
+// „⏭ Sari peste scriere" arată etapa întreagă, imediat. KaTeX randează o
+// SINGURĂ DATĂ pe bloc: formulele nu clipesc.
 // =====================================================================
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { preMessage } from './AITutor';
 import { ensureKatex, renderMath } from '../lib/katex';
-import { playAnswer, stopSpeaking, ttsSupported, ttsProblem, unlockSpeech } from '../lib/voice';
+import { prof } from '../lib/live/vorbire';
+import { splitBoard, speechPlan } from '../lib/tabla';
+import { ProfCamera, ProfCaptions, useProf, TUDOR } from './live/ProfCamera';
+import { ChoiceCard } from './live/PollCard';
+import BoardQuestion from './BoardQuestion';
 import AICreditAlert from './AICreditAlert';
-
-// ─── viteza scrisului (caractere/secundă) — preferință locală ────────────────
-export const SPEEDS = { lent: 26, normal: 55, rapid: 110, instant: 0 };
-const SPEED_KEY = 'med_board_speed';
-export function loadSpeed() {
-  try { const v = localStorage.getItem(SPEED_KEY); return v && SPEEDS[v] !== undefined ? v : 'normal'; }
-  catch { return 'normal'; }
-}
-export function saveSpeed(v) { try { localStorage.setItem(SPEED_KEY, v); } catch { /* ignore */ } }
+import '../styles/live.css';
 
 // ─── markdown-lite → HTML „de tablă" ────────────────────────────────────────
 const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -110,32 +106,6 @@ function inkify(root, cps, manual = false) {
   return { total: t, spans, delays };
 }
 
-// ─── UNDE scrie profesorul, chiar acum ──────────────────────────────────────
-// Din bucata de cerneală care tocmai a apărut aflăm punctul de pe tablă la
-// care e markerul: {x, y} ca fracții 0..1 din suprafața tablei. Pagina de
-// meditații mută profesorul după acest punct — corpul se leagănă stânga-dreapta
-// după coloana în care scrie, iar brațul urcă sau coboară după rând.
-function inkPointAt(spans, i, root) {
-  const node = spans[Math.min(Math.max(0, i), spans.length - 1)];
-  const surface = root?.closest?.('.bd-surface') || root?.closest?.('.bd-body') || null;
-  if (!node || !surface || !node.getBoundingClientRect) return null;
-  const r = node.getBoundingClientRect();
-  const s = surface.getBoundingClientRect();
-  if (!s.width || !s.height) return null;
-  if (!r.width && !r.height) return null;
-  const cl = (v) => Math.min(1, Math.max(0, v));
-  return {
-    x: cl((r.left + r.width / 2 - s.left) / s.width),
-    y: cl((r.top + r.height / 2 - s.top) / s.height),
-  };
-}
-// câte bucăți sunt deja scrise, la `elapsed` ms de la începutul blocului
-function inkIndexAt(delays, elapsed) {
-  let lo = 0, hi = delays.length - 1, i = -1;
-  while (lo <= hi) { const mid = (lo + hi) >> 1; if (delays[mid] <= elapsed) { i = mid; lo = mid + 1; } else hi = mid - 1; }
-  return i;
-}
-
 // ─── dezvăluirea condusă de VOCE ────────────────────────────────────────────
 // Vocea anunță începutul fiecărei propoziții (onProgress → frac). Textul se
 // scrie apoi treptat, într-un ritm calculat cât să acopere exact propoziția
@@ -196,340 +166,56 @@ function scrollBlockIntoView(el) {
   if (r.top < 70 || r.top > vh - 90) { try { el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch { /* ignore */ } }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// PROFESORUL — desen original (caricatură), în continuarea icon-ului Einstein:
-// păr alb dezordonat + mustață stufoasă. Două ipostaze:
-//   • din SPATE, cu markerul pe tablă (scrie)
-//   • cu FAȚA la elev (când întreabă „Ai înțeles?" sau când îți propune ceva)
-// Întoarcerea e o rotație 3D reală a celor două fețe (backface-visibility).
-//
-// MIȘCAREA URMEAZĂ SCRISUL. Pagina îi dă poziția de pe tablă la care e
-// markerul (`writePos` = {x, y}, fracții 0..1):
-//   • corpul se leagănă STÂNGA-DREAPTA după coloana în care scrie (--pf-x)
-//     și se apleacă ușor în direcția aceea (--pf-lean);
-//   • brațul urcă sau coboară după rândul pe care scrie (--pf-arm).
-// Fără poziție (ex. când răspunde în conversație) rămâne un legănat lent.
-//
-// Desenul: pulover cu guler, mâneci și manșete elastice (nu linii groase), și
-// MÂINI adevărate — palmă, degete strânse și degetul mare peste marker.
-// ═════════════════════════════════════════════════════════════════════════════
-const SKIN = '#f2d3b3'; const SKIN_D = '#dcb48c'; const SKIN_L = '#f8e3cd';
-const HAIR = '#eef0f3'; const HAIR_D = '#b9bec6';
-const CLOTH = '#22456f'; const CLOTH_D = '#1a3557'; const CLOTH_L = '#2f5a8c';
-const LIP = '#b06a52'; const MOUTH_IN = '#7d3b32';
-
-// ─── puloverul: umeri, trunchi, manșeta de jos (aceeași croială din ambele părți)
-// Trunchiul e mai îngust decât silueta totală, ca brațele să se vadă pe lângă el.
-function Sweater() {
-  return (
-    <g>
-      {/* trunchiul, cu umeri rotunjiți */}
-      <path d="M110 176 C142 176 159 196 162 228 L165 270 L55 270 L58 228 C61 196 78 176 110 176 Z" fill={CLOTH} />
-      {/* lumina pe umărul din dreapta imaginii */}
-      <path d="M110 176 C142 176 159 196 162 228 L163 250 L140 250 L138 228 C136 202 126 186 110 180 Z" fill={CLOTH_L} opacity=".5" />
-      {/* umbra pe partea opusă — puloverul capătă volum */}
-      <path d="M110 176 C78 176 61 196 58 228 L57 250 L80 250 L82 228 C84 202 94 186 110 180 Z" fill={CLOTH_D} opacity=".45" />
-      {/* cutele de sub braț */}
-      <g stroke={CLOTH_D} strokeWidth="1.5" fill="none" opacity=".4" strokeLinecap="round">
-        <path d="M72 214 q9 8 10 22" /><path d="M148 214 q-9 8 -10 22" />
-      </g>
-      {/* manșeta elastică de jos (tricotată) */}
-      <path d="M56 250 L164 250 L165 270 L55 270 Z" fill={CLOTH_D} />
-      <g stroke={CLOTH_L} strokeWidth="1.5" opacity=".45">
-        {[64, 74, 84, 94, 104, 114, 124, 134, 144, 154].map((x) => <line key={x} x1={x} y1="251" x2={x} y2="270" />)}
-      </g>
-    </g>
-  );
-}
-
-// ─── mâna care ține markerul (palmă + patru degete strânse + degetul mare)
-// Desenată în jurul punctului (0,0) și așezată de apelant cu un `transform`.
-function HandWithMarker() {
-  return (
-    <g>
-      {/* markerul, ținut în pumn */}
-      <g transform="rotate(-32)">
-        <rect x="-6" y="-5.5" width="30" height="11" rx="4" fill="#2f3640" />
-        <rect x="-6" y="-5.5" width="30" height="4" rx="2" fill="#4a515c" opacity=".65" />
-        <rect x="22" y="-3.6" width="11" height="7.2" rx="2.2" fill="#8e44ad" />
-        <path d="M33 -3.4 L38.5 0 L33 3.4 Z" fill="#7d3c99" />
-      </g>
-      {/* palma */}
-      <path d="M-12 -8 q10 -7 19 -2 q8 4 7 12 q-1 8 -9 11 q-11 4 -18 -3 q-6 -6 -5 -11 q1 -5 6 -7 Z"
-        fill={SKIN} stroke={SKIN_D} strokeWidth="1.2" strokeLinejoin="round" />
-      {/* degetele strânse peste marker */}
-      <g fill={SKIN} stroke={SKIN_D} strokeWidth="1">
-        <rect x="-3" y="-9.6" width="13" height="6.4" rx="3.2" />
-        <rect x="-4" y="-3.2" width="15" height="6.5" rx="3.2" />
-        <rect x="-4" y="3.2" width="14" height="6.3" rx="3.1" />
-        <rect x="-3" y="9.2" width="12" height="5.8" rx="2.9" />
-      </g>
-      {/* degetul mare, peste degete */}
-      <path d="M-3 -8.5 q10 -3 14 3 q3 5 -2.5 7.5 q-6.5 2 -12 -3.5 Z" fill={SKIN_L} stroke={SKIN_D} strokeWidth="1.2" strokeLinejoin="round" />
-    </g>
-  );
-}
-
-// ─── mâna liberă, lăsată în jos (pumn relaxat, cu degete) ───────────────────
-function HandRest({ flip = false }) {
-  return (
-    <g transform={flip ? 'scale(-1,1)' : undefined}>
-      <path d="M-9 -8 q9 -5 16 0 q6 4 5 11 q-1 7 -8 9 q-10 3 -15 -4 q-4 -6 -3 -10 q1 -4 5 -6 Z"
-        fill={SKIN} stroke={SKIN_D} strokeWidth="1.2" strokeLinejoin="round" />
-      <g fill="none" stroke={SKIN_D} strokeWidth="1.1" strokeLinecap="round" opacity=".75">
-        <path d="M-6 -2 q7 -2 12 1" /><path d="M-6 3 q7 -2 12 1" /><path d="M-5 8 q6 -2 10 1" />
-      </g>
-      {/* degetul mare */}
-      <path d="M-9 -5 q-5 3 -4 8 q1 4 5 3" fill={SKIN_L} stroke={SKIN_D} strokeWidth="1.2" strokeLinejoin="round" />
-    </g>
-  );
-}
-
-// ─── mâneca unui braț lăsat în jos, cu manșetă ─────────────────────────────
-function SleeveDown({ right = false }) {
-  const g = right ? 'translate(220 0) scale(-1 1)' : undefined;
-  return (
-    <g transform={g}>
-      <path d="M76 182 C58 190 47 210 43 236 L61 241 C65 219 72 202 86 194 Z" fill={CLOTH} />
-      <path d="M76 182 C64 187 55 198 49 213 L58 217 C64 204 72 195 84 190 Z" fill={CLOTH_L} opacity=".4" />
-      {/* manșeta */}
-      <path d="M42 234 L62 239 L59 252 L39 247 Z" fill={CLOTH_D} />
-      <g stroke={CLOTH_L} strokeWidth="1.2" opacity=".5">
-        <line x1="45" y1="236" x2="42" y2="248" /><line x1="51" y1="238" x2="48" y2="250" /><line x1="57" y1="239" x2="54" y2="251" />
-      </g>
-    </g>
-  );
-}
-
-// ─── părul alb, dezordonat ─────────────────────────────────────────────────
-// Din SPATE e un inel de bucle în jurul creștetului, ca pata rărită din mijloc
-// să se vadă natural (nu ca un petic lipit deasupra).
-function HairBack() {
-  const curls = [
-    [70, 86, 15], [89, 70, 14], [110, 64, 13], [131, 70, 14], [150, 86, 15],
-    [59, 108, 14], [161, 108, 14], [63, 130, 13], [157, 130, 13],
-    [78, 146, 13], [110, 150, 13], [142, 146, 13],
-  ];
-  return (
-    <g>
-      {/* masa de păr acoperă TOT capul și coboară pe ceafă */}
-      <path d="M64 100 C60 66 90 55 110 60 C130 55 160 66 156 100 C163 124 160 154 136 155 L84 155 C60 154 57 124 64 100 Z"
-        fill={HAIR} stroke={HAIR_D} strokeWidth="1.2" />
-      {/* creștetul rărit — pielea se vede prin mijloc, nu ca un petic lipit */}
-      <ellipse cx="110" cy="92" rx="27" ry="19" fill={SKIN} stroke={SKIN_D} strokeWidth=".8" />
-      <ellipse cx="110" cy="88" rx="16" ry="10" fill={SKIN_L} opacity=".5" />
-      {/* buclele de pe contur, care rup silueta */}
-      <g fill={HAIR} stroke={HAIR_D} strokeWidth="1.2">
-        {curls.map(([cx, cy, r]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r} />)}
-      </g>
-    </g>
-  );
-}
-
-function HairFront() {
-  return (
-    <g fill={HAIR} stroke={HAIR_D} strokeWidth="1.2">
-      <path d="M66 116 C48 116 50 88 68 88 C56 62 92 50 100 68 C110 48 150 54 148 76 C172 70 180 106 160 114 C180 124 168 152 150 146 L72 146 C54 152 48 122 66 116 Z" />
-      <circle cx="62" cy="96" r="14" /><circle cx="54" cy="118" r="12" />
-      <circle cx="160" cy="94" r="14" /><circle cx="168" cy="118" r="12" />
-      <circle cx="84" cy="68" r="12" /><circle cx="140" cy="66" r="12" />
-      <circle cx="58" cy="138" r="11" /><circle cx="164" cy="138" r="11" />
-    </g>
-  );
-}
-
-function ProfBack() {
-  return (
-    <svg viewBox="0 0 220 270" className="pf-svg" aria-hidden="true" focusable="false">
-      {/* ceafa */}
-      <path d="M92 140 h36 v34 h-36 z" fill={SKIN} />
-      <path d="M92 140 h36 v10 q-18 7 -36 0 z" fill={SKIN_D} opacity=".3" />
-      {/* capul, din spate */}
-      <ellipse cx="110" cy="112" rx="41" ry="44" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
-      {/* urechile, văzute din spate */}
-      <ellipse cx="70" cy="116" rx="7" ry="10.5" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
-      <ellipse cx="150" cy="116" rx="7" ry="10.5" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
-      <HairBack />
-
-      <Sweater />
-      {/* gulerul, văzut din spate */}
-      <path d="M88 174 Q110 190 132 174 L133 166 Q110 180 87 166 Z" fill={CLOTH_D} />
-      <path d="M90 173 Q110 187 130 173" fill="none" stroke={CLOTH_L} strokeWidth="1.6" opacity=".6" />
-
-      {/* brațul liber, pe lângă corp (peste pulover, ca să se vadă mâna) */}
-      <g>
-        <SleeveDown right />
-        <g transform="translate(171 254)"><HandRest flip /></g>
-      </g>
-      {/* BRAȚUL CARE SCRIE — mânecă + manșetă + mână cu marker.
-          .pf-arm-aim = unghiul dat de rândul pe care scrie (variabilă CSS),
-          .pf-arm     = legănatul propriu-zis al scrisului. */}
-      <g className="pf-arm-aim">
-        <g className="pf-arm">
-          <path d="M80 194 C68 176 54 150 42 122 L62 110 C74 136 88 164 98 182 Z" fill={CLOTH} />
-          <path d="M80 194 C68 176 54 150 42 122 L50 117 C62 145 76 170 88 188 Z" fill={CLOTH_D} opacity=".4" />
-          {/* manșeta elastică */}
-          <path d="M39 128 L64 113 L58 103 L33 118 Z" fill={CLOTH_D} />
-          <g stroke={CLOTH_L} strokeWidth="1.2" opacity=".5">
-            <line x1="38" y1="124" x2="60" y2="110" /><line x1="41" y1="128" x2="63" y2="115" />
-          </g>
-          {/* antebrațul descoperit + mâna cu markerul */}
-          <path d="M35 117 L48 109 L39 95 L27 103 Z" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
-          <g transform="translate(30 94)"><HandWithMarker /></g>
-        </g>
-      </g>
-    </svg>
-  );
-}
-
-function ProfFront() {
-  return (
-    <svg viewBox="0 0 220 270" className="pf-svg" aria-hidden="true" focusable="false">
-      {/* gâtul */}
-      <path d="M93 140 h34 v38 h-34 z" fill={SKIN} />
-      <path d="M93 150 q17 13 34 0 v-10 h-34 z" fill={SKIN_D} opacity=".35" />
-      <HairFront />
-      {/* urechile */}
-      <ellipse cx="70" cy="112" rx="7.5" ry="11" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
-      <ellipse cx="150" cy="112" rx="7.5" ry="11" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
-      {/* fața */}
-      <ellipse cx="110" cy="106" rx="38" ry="48" fill={SKIN} stroke={SKIN_D} strokeWidth="1" />
-      {/* fruntea brăzdată, obrajii */}
-      <path d="M90 80 Q110 73 130 80" fill="none" stroke={SKIN_D} strokeWidth="1.3" opacity=".5" />
-      <ellipse cx="82" cy="122" rx="9" ry="6" fill="#e8a08a" opacity=".28" />
-      <ellipse cx="138" cy="122" rx="9" ry="6" fill="#e8a08a" opacity=".28" />
-      {/* sprâncene stufoase */}
-      <path d="M84 96 Q95 87 106 95" fill="none" stroke="#a9aeb7" strokeWidth="6.5" strokeLinecap="round" />
-      <path d="M114 95 Q125 87 136 96" fill="none" stroke="#a9aeb7" strokeWidth="6.5" strokeLinecap="round" />
-      {/* ochii (clipesc) */}
-      <g className="pf-eyes">
-        <ellipse cx="96" cy="108" rx="6" ry="6.4" fill="#fff" stroke={SKIN_D} strokeWidth=".9" />
-        <ellipse cx="124" cy="108" rx="6" ry="6.4" fill="#fff" stroke={SKIN_D} strokeWidth=".9" />
-        <circle cx="97" cy="109" r="3" fill="#33383f" />
-        <circle cx="125" cy="109" r="3" fill="#33383f" />
-        <circle cx="95.6" cy="107" r="1.1" fill="#fff" />
-        <circle cx="123.6" cy="107" r="1.1" fill="#fff" />
-      </g>
-      {/* nasul */}
-      <path d="M110 110 L105 126 Q110 131 116 127" fill="none" stroke="#c79a70" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
-      {/* GURA — buze clare, dinți, interior; se mișcă atunci când vorbește */}
-      <g className="pf-mouth">
-        <path d="M96 146 Q110 142 124 146 Q122 159 110 160 Q98 159 96 146 Z" fill={MOUTH_IN} />
-        <path d="M98 147 Q110 143.5 122 147 L121 151 Q110 148 99 151 Z" fill="#fdfdfd" />
-        <path d="M103 155 Q110 152.5 117 155 Q115 159.5 110 160 Q105 159.5 103 155 Z" fill="#c76a6a" opacity=".85" />
-        <path d="M96 146 Q110 164 124 146" fill="none" stroke={LIP} strokeWidth="2.4" strokeLinecap="round" />
-        <path d="M94.5 145 q3 -3 5 -1" fill="none" stroke={LIP} strokeWidth="1.9" strokeLinecap="round" />
-        <path d="M125.5 145 q-3 -3 -5 -1" fill="none" stroke={LIP} strokeWidth="1.9" strokeLinecap="round" />
-      </g>
-      {/* mustața stufoasă, PESTE buza de sus */}
-      <path d="M82 135 Q96 128 110 137 Q124 128 138 135 Q134 150 110 144 Q86 150 82 135 Z"
-        fill="#e4e7ea" stroke="#a9aeb7" strokeWidth="1.6" strokeLinejoin="round" />
-      <g stroke="#c9ced5" strokeWidth="1" opacity=".8" fill="none">
-        <path d="M93 135 q6 5 14 5" /><path d="M127 135 q-6 5 -14 5" />
-      </g>
-      {/* bărbia */}
-      <path d="M101 162 q9 5 18 0" fill="none" stroke={SKIN_D} strokeWidth="1.2" opacity=".45" />
-
-      <Sweater />
-      {/* gulerul rotund, din față */}
-      <path d="M85 174 Q110 198 135 174 L140 182 Q110 212 80 182 Z" fill={CLOTH_D} />
-      <path d="M88 177 Q110 198 132 177" fill="none" stroke={CLOTH_L} strokeWidth="1.8" opacity=".65" />
-
-      {/* brațele lăsate pe lângă corp (markerul rămâne la tablă) */}
-      <g className="pf-arm-down">
-        <SleeveDown />
-        <g transform="translate(49 256)"><HandRest /></g>
-      </g>
-      <g>
-        <SleeveDown right />
-        <g transform="translate(171 254)"><HandRest flip /></g>
-      </g>
-    </svg>
-  );
-}
-
-// „state": 'writing' (spate) | 'asking' (față) | 'idle' (spate, nemișcat)
-// writePos = { x, y } (0..1) — unde e markerul pe tablă; opțional.
-// `speaking` = profesorul SPUNE ceva chiar acum (citește explicația cu voce
-// tare, dictează exercițiul). Doar atunci i se mișcă gura — starea „asking"
-// înseamnă doar că s-a întors cu fața și așteaptă răspunsul, iar o gură care
-// se mișcă în tăcere, minute în șir, îl face să pară că vorbește în gol.
-export function Professor({ state = 'idle', name = 'prof. Virtual', writePos = null, speaking = false }) {
-  const writing = state === 'writing';
-  // Corpul urmează coloana în care scrie: stânga tablei → se mută spre stânga
-  // și se apleacă într-acolo. Brațul urmează rândul: sus → ridicat, jos → coborât.
-  const pos = writing && writePos ? writePos : null;
-  const style = pos
-    ? {
-        '--pf-x': (-30 * (1 - pos.x) + 2 * pos.x).toFixed(1),
-        '--pf-lean': (-3.2 * (1 - pos.x) + 1.6 * pos.x).toFixed(2),
-        '--pf-arm': (-15 + 34 * pos.y).toFixed(1),
-      }
-    : undefined;
-  return (
-    <div className={`med-prof is-${state}${writing && !pos ? ' is-sway' : ''}${speaking ? ' is-speaking' : ''}`} style={style} aria-hidden="true">
-      <div className="pf-flip">
-        <div className="pf-face pf-back"><ProfBack /></div>
-        <div className="pf-face pf-front"><ProfFront /></div>
-      </div>
-      <div className="pf-tag"><span className="pf-dot" /> {name}</div>
-    </div>
-  );
+// Aduce la vedere PARTEA DE JOS a unui element (cardul cu verdictul), cu loc
+// dedesubt pentru subtitrare: întâi în zona derulabilă a tablei, altfel pagina.
+export function scrollBottomIntoView(el, pad = 76) {
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  let p = el.parentElement;
+  while (p && p !== document.body) {
+    const oy = getComputedStyle(p).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight + 4) {
+      const box = p.getBoundingClientRect();
+      const delta = r.bottom - (box.bottom - pad);
+      if (delta > 4) { try { p.scrollBy({ top: delta, behavior: 'smooth' }); } catch { p.scrollTop += delta; } }
+      return;
+    }
+    p = p.parentElement;
+  }
+  const vh = window.innerHeight || 0;
+  const delta = r.bottom - (vh - pad);
+  if (delta > 4) { try { window.scrollBy({ top: delta, behavior: 'smooth' }); } catch { window.scrollTo(0, window.scrollY + delta); } }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
 // TEXTUL SCRIS PE TABLĂ
+//   voiceFrac (0..1) — cât din bloc a „rostit" profesorul: scrisul îl urmează.
+//   Fără voiceFrac, scrisul e cronometrat în CSS (cps caractere pe secundă).
 // ═════════════════════════════════════════════════════════════════════════════
-export function BoardText({ text, speed = 'normal', animate = true, voiceFrac = null,
-  onDone = null, onSkip = null, onInternalLink = null, onWritePos = null, replayKey = 0 }) {
+export function BoardText({ text, animate = true, voiceFrac = null, cps = 55,
+  onDone = null, onSkip = null, onInternalLink = null, replayKey = 0 }) {
   const ref = useRef(null);
   const doneRef = useRef(onDone);
   const skipRef = useRef(onSkip);
   const timerRef = useRef(null);
   const inkRef = useRef(null);           // { spans, shown, target, timer } — modul „voce"
-  const posRef = useRef(null);           // { spans, delays, t0, st } — de unde citim poziția markerului
-  const posTimerRef = useRef(null);
-  const wposRef = useRef(onWritePos);
   const [writing, setWriting] = useState(false);
   const voiceOn = voiceFrac !== null && voiceFrac !== undefined;
   useEffect(() => { doneRef.current = onDone; skipRef.current = onSkip; }, [onDone, onSkip]);
-  useEffect(() => { wposRef.current = onWritePos; }, [onWritePos]);
-
-  // urmărirea markerului: la fiecare ~130ms spunem paginii unde s-a ajuns cu
-  // scrisul, ca profesorul să se miște după zona în care scrie pe tablă
-  const stopPosWatch = useCallback(() => {
-    if (posTimerRef.current) { clearInterval(posTimerRef.current); posTimerRef.current = null; }
-  }, []);
-  const startPosWatch = useCallback(() => {
-    stopPosWatch();
-    if (!wposRef.current) return;
-    posTimerRef.current = setInterval(() => {
-      const P = posRef.current; const cb = wposRef.current;
-      if (!P || !cb || !ref.current) return;
-      const i = P.st
-        ? P.st.shown - 1
-        : inkIndexAt(P.delays, (typeof performance !== 'undefined' ? performance.now() : Date.now()) - P.t0);
-      if (i < 0) return;
-      const pt = inkPointAt(P.spans, i, ref.current);
-      if (pt) cb(pt);
-    }, 130);
-  }, [stopPosWatch]);
 
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el) return undefined;
     let dead = false;
     clearTimeout(timerRef.current);
     stopReveal(inkRef.current);
-    stopPosWatch();
     inkRef.current = null;
-    posRef.current = null;
     el.classList.remove('bd-ink-done');
     el.innerHTML = boardHtml(text);
-    let cps = SPEEDS[speed] !== undefined ? SPEEDS[speed] : 55;
-    // sistemul cere „mișcare redusă" → textul apare dintr-odată (și întrebarea la fel)
-    try { if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) cps = 0; } catch { /* ignore */ }
-    const finish = () => { stopPosWatch(); setWriting(false); doneRef.current?.(); };
+    let speed = cps;
+    // sistemul cere „mișcare redusă" → textul apare dintr-odată
+    try { if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) speed = 0; } catch { /* ignore */ }
+    const finish = () => { setWriting(false); doneRef.current?.(); };
     const start = () => {
       if (dead || !ref.current) return;
       // scrisul condus de VOCE: literele apar pe măsură ce profesorul le rostește
@@ -537,17 +223,13 @@ export function BoardText({ text, speed = 'normal', animate = true, voiceFrac = 
         const { spans } = inkify(ref.current, 0, true);
         if (!spans.length) { ref.current.classList.add('bd-ink-done'); finish(); return; }
         inkRef.current = { spans, shown: 0, target: 0, timer: null, onReach: () => { if (!dead) finish(); } };
-        posRef.current = { spans, delays: null, t0: 0, st: inkRef.current };
         setWriting(true);
-        startPosWatch();
         return;
       }
-      if (!animate || !cps) { ref.current.classList.add('bd-ink-done'); finish(); return; }
-      const { total, spans, delays } = inkify(ref.current, cps, false);
+      if (!animate || !speed) { ref.current.classList.add('bd-ink-done'); finish(); return; }
+      const { total } = inkify(ref.current, speed, false);
       if (!total) { ref.current.classList.add('bd-ink-done'); finish(); return; }
-      posRef.current = { spans, delays, t0: (typeof performance !== 'undefined' ? performance.now() : Date.now()), st: null };
       setWriting(true);
-      startPosWatch();
       timerRef.current = setTimeout(() => { if (!dead) finish(); }, total + 150);
     };
     ensureKatex().then(() => {
@@ -555,9 +237,9 @@ export function BoardText({ text, speed = 'normal', animate = true, voiceFrac = 
       renderMath(ref.current);
       start();
     });
-    return () => { dead = true; clearTimeout(timerRef.current); stopReveal(inkRef.current); stopPosWatch(); };
+    return () => { dead = true; clearTimeout(timerRef.current); stopReveal(inkRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text, speed, animate, voiceOn, replayKey]);
+  }, [text, animate, voiceOn, replayKey]);
 
   // progresul vocii → cât s-a scris pe tablă
   useEffect(() => {
@@ -571,13 +253,12 @@ export function BoardText({ text, speed = 'normal', animate = true, voiceFrac = 
 
   const skip = useCallback(() => {
     clearTimeout(timerRef.current);
-    stopPosWatch();
     if (inkRef.current) revealAll(inkRef.current);
     ref.current?.classList.add('bd-ink-done');
     setWriting(false);
     if (skipRef.current) skipRef.current();
     else doneRef.current?.();
-  }, [stopPosWatch]);
+  }, []);
 
   function onClick(e) {
     const a = e.target.closest?.('a[data-internal]');
@@ -599,12 +280,11 @@ export function BoardText({ text, speed = 'normal', animate = true, voiceFrac = 
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// RAMA TABLEI — tabla + profesorul + tăvița cu markere
-// ask = { question, yes, no, onYes, onNo, note }
+// RAMA TABLEI — tabla + Prof. Tudor (camera din colț) + subtitrarea
+//   mood: 'writing' | 'thinking' | 'listening' | 'idle' — îl regizează pe profesor
 // ═════════════════════════════════════════════════════════════════════════════
-export function Whiteboard({ title = null, subtitle = null, chips = null, toolbar = null, prof = 'idle',
-  profName = 'prof. Virtual', ask = null, tray = null, tall = false, tone = 'board', bodyClass = '',
-  writePos = null, speaking = false, children }) {
+export function Whiteboard({ title = null, subtitle = null, chips = null, toolbar = null, mood = 'idle',
+  tray = null, tall = false, tone = 'board', bodyClass = '', children }) {
   return (
     <div className={`med-board${tall ? ' is-tall' : ''}`}>
       <div className="bd-frame">
@@ -620,28 +300,10 @@ export function Whiteboard({ title = null, subtitle = null, chips = null, toolba
             </div>
           )}
           <div className={`bd-body${bodyClass ? ' ' + bodyClass : ''}`}>{children}</div>
-          {/* când profesorul chiar scrie (răspunsul curge pe tablă) rămâne cu
-            spatele și mișcă markerul, chiar dacă are o propunere pe ecran */}
-        <Professor state={prof === 'writing' ? 'writing' : (ask ? 'asking' : prof)} name={profName}
-          writePos={writePos} speaking={speaking} />
+          {/* ce SPUNE profesorul: subtitrare, nu scris pe tablă */}
+          <ProfCaptions />
+          <ProfCamera mood={mood} />
         </div>
-
-        {/* Ce SPUNE profesorul (întrebarea, propunerea) apare lipit de el, ca o
-            casetă de dialog cu coada spre umărul lui — nu într-un colț al tablei. */}
-        {ask && (
-          <div className="bd-ask" role="group" aria-label="Ce spune profesorul">
-            <div className="bd-bubble">
-              <span className="bd-bubble-q">{ask.question || 'Ai înțeles?'}</span>
-              {ask.note && <span className="bd-bubble-note">{ask.note}</span>}
-            </div>
-            {(ask.yes || ask.no) && (
-              <div className="bd-ask-btns">
-                {ask.yes && <button type="button" className="bd-btn bd-btn-yes" onClick={ask.onYes}>{ask.yes}</button>}
-                {ask.no && <button type="button" className="bd-btn bd-btn-no" onClick={ask.onNo}>{ask.no}</button>}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {tray && (
@@ -654,7 +316,9 @@ export function Whiteboard({ title = null, subtitle = null, chips = null, toolba
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// LECȚIA PE ETAPE — profesorul scrie o etapă, se întoarce, întreabă, continuă
+// LECȚIA PE ETAPE — Prof. Tudor scrie o etapă (și o explică cu voce), apoi te
+// verifică printr-o întrebare grilă / de completat, direct pe tablă, sau te
+// întreabă „Ai înțeles?"; la „Nu", o reia altfel, tot pe tablă.
 // ═════════════════════════════════════════════════════════════════════════════
 // Lecția vine structurată pe „## …" (Pe scurt, Noțiunile esențiale, Formulele,
 // Exemplu rezolvat, Schema capitolului) → fiecare titlu devine o ETAPĂ.
@@ -674,223 +338,187 @@ export function splitStages(text) {
     const m = /^\s*##\s*(.+)$/m.exec(p);
     const title = m ? m[1].trim() : `Partea ${out.length + 1}`;
     const body = (m ? p.replace(/^\s*##\s*.+\n?/, '') : p).trim();
-    // etapele prea scurte se lipesc de precedenta (altfel „Ai înțeles?" devine sâcâitor)
-    if (out.length && body.length < 60) { out[out.length - 1].body += `\n\n### ${title}\n${body}`; continue; }
+    // etapele prea scurte se lipesc de precedenta (altfel întrebările devin sâcâitoare)
+    if (out.length && splitBoard(body).board.length < 60) { out[out.length - 1].body += `\n\n### ${title}\n${body}`; continue; }
     out.push({ title, body });
   }
   return out.filter((s) => s.body);
 }
 
-export function SpeedPicker({ value, onChange }) {
-  return (
-    <label className="bd-speed" title="Cât de repede scrie profesorul pe tablă">
-      <span aria-hidden="true">✍️</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} aria-label="Viteza scrisului">
-        <option value="lent">lent</option>
-        <option value="normal">normal</option>
-        <option value="rapid">rapid</option>
-        <option value="instant">fără animație</option>
-      </select>
-    </label>
-  );
+// Un bloc de tablă: ce se scrie, ce se spune și întrebarea de verificare
+function blockOf(raw) {
+  const { board, questions } = splitBoard(raw);
+  return { raw, board, question: questions[0] || null };
 }
 
-const READ_KEY = 'med_board_read';
-const loadRead = () => { try { return localStorage.getItem(READ_KEY) === '1'; } catch { return false; } };
-const saveRead = (v) => { try { localStorage.setItem(READ_KEY, v ? '1' : '0'); } catch { /* ignore */ } };
+// Răspunsul dat, pe scurt, pentru tablă („b) $x = 6$" / „4")
+function givenLabel(q, a) {
+  if (!q || !a) return '';
+  if (q.type === 'grila') { const i = 'abcde'.indexOf(a.answer); return `${a.answer}) ${q.options?.[i] ?? ''}`; }
+  return a.answer;
+}
+
+// Întrebarea la care elevul a răspuns rămâne pe tablă, pe un rând
+function QuestionDone({ q, a }) {
+  if (!q || !a) return null;
+  return (
+    <div className={`bd-qdone ${a.correct ? 'is-good' : 'is-bad'}`}>
+      <BoardText text={`✎ ${q.q}  →  ${givenLabel(q, a)} ${a.correct ? '✓' : `✗ (corect: ${givenLabel(q, { answer: q.answer })})`}`} animate={false} />
+    </div>
+  );
+}
 
 export function BoardLesson({ chapterId = null, title, text, materials = [], onExplainAgain, onUnderstood,
   onFinish, onClose, onEnd, onPrint, onChat, onInternalLink,
   finishLabel = '✍️ Am înțeles — trecem la exerciții', busy = false }) {
-  const stages = useMemo(() => splitStages(text), [text]);
+  const stages = useMemo(() => splitStages(text).map((s) => ({ ...s, ...blockOf(`## ${s.title}\n${s.body}`) })), [text]);
   const [idx, setIdx] = useState(0);
-  const [mode, setMode] = useState('write');     // write | ask | loading | chat
+  const [mode, setMode] = useState('write');     // write | check | ask | loading | chat
   const [replay, setReplay] = useState(0);
-  const [extras, setExtras] = useState({});      // { [etapă]: [reexplicări scrise pe tablă] }
+  const [extras, setExtras] = useState({});      // { [etapă]: [blocuri reexplicate] }
   const [activeExtra, setActiveExtra] = useState(-1);
   const [instantBlock, setInstantBlock] = useState(null);
-  const [speed, setSpeed] = useState(loadSpeed);
-  const [readAloud, setReadAloud] = useState(loadRead);
   const [vFrac, setVFrac] = useState(0);
-  const [paused, setPaused] = useState(false);
-  // `vorbeste` = chiar acum se aude o rostire (explicația de pe tablă sau
-  // exercițiul citit). Doar atunci i se mișcă gura profesorului — cât timp
-  // stă cu fața la elev și așteaptă „Ai înțeles?", gura rămâne nemișcată.
-  const [vorbeste, setVorbeste] = useState(false);
+  const [answers, setAnswers] = useState({});    // { 'etapă:reluare': { answer, correct } }
   const [warn, setWarn] = useState(null);
-  const [voiceWarn, setVoiceWarn] = useState(null);   // „nu se aude" — spus pe față
   const [faraCredite, setFaraCredite] = useState(false); // lecția s-a oprit: credite AI epuizate
-  // unde e markerul pe tablă (0..1) — profesorul se mișcă după el
-  const [wpos, setWpos] = useState(null);
-  const ctlRef = useRef(null);
+  const pst = useProf();
   const activeRef = useRef(null);
+  const cardRef = useRef(null);
   const modeRef = useRef(mode);
-  const readRef = useRef(readAloud);
-  const pausedRef = useRef(false);
-
+  const liveRef = useRef({});                    // valorile curente, pentru callback-urile vocii
   useEffect(() => { modeRef.current = mode; }, [mode]);
-  useEffect(() => { readRef.current = readAloud; }, [readAloud]);
-  useEffect(() => { pausedRef.current = paused; }, [paused]);
-  useEffect(() => { saveSpeed(speed); }, [speed]);
+
   // lecție nouă → tabla se șterge și o luăm de la prima etapă
   useEffect(() => {
     setIdx(0); setMode('write'); setExtras({}); setActiveExtra(-1);
-    setInstantBlock(null); setWarn(null); setWpos(null); setReplay((r) => r + 1);
+    setInstantBlock(null); setWarn(null); setAnswers({}); setReplay((r) => r + 1);
   }, [text]);
-  useEffect(() => () => { try { ctlRef.current?.stop?.(); } catch { /* ignore */ } stopSpeaking(); }, []);
+  // la ieșirea de pe tablă, profesorul tace
+  useEffect(() => () => { prof.stop('lectie'); prof.stop('lectie-ask'); }, []);
 
   const stage = stages[idx] || null;
   const last = idx === stages.length - 1;
+  const block = activeExtra === -1 ? stage : ((extras[idx] || [])[activeExtra] || null);
   const blockKey = `${idx}:${activeExtra}:${replay}`;
+  const qKey = `${idx}:${activeExtra}`;
   const instant = instantBlock === blockKey;
-  const voiceMode = readAloud && ttsSupported() && !instant;
   const attemptsUsed = (extras[idx] || []).length;
-  const stageSource = (i) => `## ${stages[i].title}\n${stages[i].body}`;
-  const blockText = activeExtra === -1 ? (stage ? stageSource(idx) : '') : (extras[idx] || [])[activeExtra] || '';
+  liveRef.current = { blockKey, block, qKey, answers };
 
-  function stopVoice() {
-    try { ctlRef.current?.stop?.(); } catch { /* ignore */ }
-    ctlRef.current = null;
-    setPaused(false);
-    setVorbeste(false);
-  }
+  // tot blocul e scris și spus → întrebarea de verificare (dacă are) sau „Ai înțeles?"
+  const afterBlock = useCallback((key) => {
+    const L = liveRef.current;
+    if (key !== L.blockKey || modeRef.current !== 'write') return;
+    setVFrac(1);
+    const next = L.block?.question && !L.answers[L.qKey] ? 'check' : 'ask';
+    modeRef.current = next;
+    setMode(next);
+  }, []);
 
-  // Pornește citirea blocului curent. Întoarce `true` dacă a pornit un player.
-  // Dacă nu se poate (fără voci în sistem), textul se arată INTEGRAL — altfel
-  // ar rămâne ascuns, așteptând o voce care nu vine.
-  const startVoice = useCallback(() => {
-    stopVoice();
-    setVoiceWarn(null);
-    if (!blockText || !ttsSupported()) { setVFrac(1); return false; }
-    setVFrac(0);
-    const ctl = playAnswer(blockText, {
-      onProgress: ({ frac }) => { setVFrac(frac); setVorbeste(true); },
-      onEnd: () => { ctlRef.current = null; setVFrac(1); setPaused(false); setVorbeste(false); },
-      onSilent: (msg) => { ctlRef.current = null; setVFrac(1); setPaused(false); setVorbeste(false); setVoiceWarn(msg); },
-    });
-    if (!ctl) { setVFrac(1); return false; }
-    ctlRef.current = ctl;
-    setVorbeste(true);
-    return true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blockText]);
-
-  // ── VOCEA CONDUCE SCRISUL: fiecare bloc nou e citit, iar literele apar
-  //    exact în ritmul în care profesorul le rostește.
+  // ── VOCEA CONDUCE SCRISUL: fiecare bloc nou e rostit propoziție cu
+  //    propoziție, iar literele apar în ritmul vocii (sau al subtitrărilor).
   useEffect(() => {
-    stopVoice();
-    if (!blockText) return;
-    if (!readRef.current || !ttsSupported()) return;
-    startVoice();
-    return () => { try { ctlRef.current?.stop?.(); } catch { /* ignore */ } };
+    if (!block || instant || modeRef.current !== 'write') return undefined;
+    setVFrac(0);
+    const key = blockKey;
+    let done = false;
+    const ctl = prof.say(speechPlan(block.raw), {
+      key: 'lectie',
+      onProgress: ({ item }) => setVFrac(item.board ? item.boardEnd : item.boardStart),
+      onEnd: () => { if (done) return; done = true; setVFrac(1); setTimeout(() => afterBlock(key), 450); },
+      // întrerupt (ex. răspunsul la o întrebare din conversație): tot textul, apoi mai departe
+      onStop: () => { if (done) return; done = true; setVFrac(1); afterBlock(key); },
+    });
+    return () => { done = true; ctl.stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockKey]);
 
-  // tabla PĂSTREAZĂ tot ce s-a scris → aducem în dreptul ochilor blocul curent.
-  // A doua încercare, după randarea formulelor (KaTeX vine asincron, iar
-  // înălțimea blocului — deci și cât se poate derula — abia atunci e reală.
+  // ce spune profesorul când s-a terminat etapa (fără să scrie pe tablă)
+  useEffect(() => {
+    const queue = prof.isBusy() && !prof.isBusy('lectie');
+    if (mode === 'ask') {
+      const q = activeExtra >= 0 ? 'Acum e mai clar?' : last ? 'Am terminat lecția. Ai înțeles tot?' : 'Ai înțeles?';
+      prof.say(q, { key: 'lectie-ask', queue });
+    } else if (mode === 'loading') prof.say('Stai o clipă, caut o explicație mai simplă.', { key: 'lectie-ask' });
+    else if (mode === 'chat') prof.say('Hai să o luăm împreună, în scris. Scrie-mi exact ce nu îți iese.', { key: 'lectie-ask' });
+    // cardul cu întrebarea / variantele — în dreptul ochilor
+    if (mode !== 'write') {
+      const t = setTimeout(() => scrollBlockIntoView(cardRef.current), 120);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, blockKey]);
+
+  // după răspuns, cardul crește (verdictul, explicația, butoanele): îl aducem
+  // întreg la vedere, deasupra subtitrării
+  useEffect(() => {
+    if (mode !== 'check') return undefined;
+    const t = setTimeout(() => scrollBottomIntoView(cardRef.current), 160);
+    return () => clearTimeout(t);
+  }, [answers, mode]);
+
+  // tabla PĂSTREAZĂ tot ce s-a scris → aducem în dreptul ochilor blocul curent
+  // (a doua încercare după KaTeX, când înălțimea blocului e cea reală)
   useEffect(() => {
     const t1 = setTimeout(() => scrollBlockIntoView(activeRef.current), 150);
     const t2 = setTimeout(() => scrollBlockIntoView(activeRef.current), 700);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [blockKey]);
 
-  // PLASĂ DE SIGURANȚĂ pentru voce: „speechSynthesis" există în orice browser,
-  // dar pe sistemele fără voci instalate nu se aude nimic și nici nu vine
-  // vreun eveniment. Dacă ~6 secunde nu se rostește nimic, renunțăm la voce și
-  // scriem tot textul — lecția nu are voie să rămână blocată pe tablă.
-  useEffect(() => {
-    if (!voiceMode) return;
-    let silent = 0;
-    const t = setInterval(() => {
-      if (pausedRef.current || !ctlRef.current) { silent = 0; return; }
-      let talking = false;
-      try { talking = !!(window.speechSynthesis?.speaking || window.speechSynthesis?.pending); } catch { talking = false; }
-      if (talking) { silent = 0; return; }
-      silent += 1;
-      if (silent >= 3) { clearInterval(t); stopVoice(); setVFrac(1); setVorbeste(false); }
-    }, 2000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blockKey, voiceMode, mode]);
-
   if (!stages.length) return null;
 
-  function goStage(i) { stopVoice(); setIdx(i); setActiveExtra(-1); setMode('write'); setWarn(null); setReplay((r) => r + 1); }
-  function blockDone() { if (modeRef.current === 'write') setMode('ask'); }
-  function skipBlock() { stopVoice(); setInstantBlock(blockKey); if (modeRef.current === 'write') setMode('ask'); }
-
-  // „🔊 Citește" / „🔇": pornește sau oprește citirea cu voce tare.
-  //
-  // AICI ERA BUBA: repornirea blocului (deci și rostirea) se făcea DOAR dacă
-  // etapa era încă în curs de scriere (`mode === 'write'`). Or, momentul firesc
-  // în care apeși „Citește" e TOCMAI după ce textul e scris, când profesorul
-  // întreabă „Ai înțeles?" — adică `mode === 'ask'`. Atunci nu se chema nimic:
-  // butonul se făcea „❚❚ Pauză", dar nu pornea nicio voce, iar „Pauză" nu avea
-  // ce opri. Acum citirea pornește în orice etapă.
-  function setRead(v) {
-    unlockSpeech();                     // sincron, din chiar apăsarea butonului
-    saveRead(v); setReadAloud(v);
-    if (!v) {
-      stopVoice(); setVoiceWarn(null); setInstantBlock(blockKey);
-      if (modeRef.current === 'write') setMode('ask');
-      return;
-    }
-    setInstantBlock(null);
-    if (modeRef.current === 'write') setReplay((r) => r + 1);  // rescrie în ritmul vocii
-    else startVoice();                                          // deja scris → doar îl citește
+  function goStage(i) {
+    prof.stop('lectie-ask');
+    modeRef.current = 'write';
+    setIdx(i); setActiveExtra(-1); setMode('write'); setWarn(null); setReplay((r) => r + 1);
   }
-  function togglePause() {
-    unlockSpeech();
-    const c = ctlRef.current;
-    // fără player (rostirea s-a terminat sau n-a pornit) butonul RELUA citirea,
-    // în loc să nu facă nimic — asta se vedea ca „butonul Pauză e mort".
-    if (!c) { setPaused(false); startVoice(); return; }
-    if (paused) { c.resume(); setPaused(false); setVorbeste(true); }
-    else { c.pause(); setPaused(true); setVorbeste(false); }
+  function skipBlock() {
+    setInstantBlock(blockKey);
+    prof.stop('lectie');
+    afterBlock(blockKey);
   }
-
-  function yes() {
-    stopVoice();
-    onUnderstood?.({ chapterId, stageTitle: stage.title, attempts: attemptsUsed });
-    if (last) { onFinish?.(); return; }
+  function goNext() {
+    if (last) { prof.stop('lectie-ask'); onFinish?.(); return; }
     goStage(idx + 1);
+  }
+  // „✅ Da, continuă" (sau „Mai departe" după întrebare) — contorul etapelor, fără AI
+  function yes() {
+    if (!answers[qKey]) onUnderstood?.({ chapterId, stageTitle: stage.title, attempts: attemptsUsed, understood: true });
+    goNext();
+  }
+  // răspunsul la întrebarea de verificare
+  function onAnswer(res) {
+    setAnswers((a) => ({ ...a, [qKey]: res }));
+    if (res.correct) onUnderstood?.({ chapterId, stageTitle: stage.title, attempts: attemptsUsed, understood: true });
+  }
+  function nextAfterCheck() {
+    const a = answers[qKey];
+    if (a && !a.correct) onUnderstood?.({ chapterId, stageTitle: stage.title, attempts: attemptsUsed, understood: false });
+    goNext();
   }
   // „Nu, mai explică o dată" — profesorul REIA etapa și o SCRIE tot pe tablă
   async function no() {
     const attempt = attemptsUsed + 1;
-    if (attempt > 3) { onChat?.(stage.title); setMode('chat'); return; }
-    stopVoice(); setWarn(null); setMode('loading');
+    if (attempt > 3) { modeRef.current = 'chat'; setMode('chat'); onChat?.(stage.title, null, true); return; }
+    setWarn(null); modeRef.current = 'loading'; setMode('loading');
     try {
-      const t = await onExplainAgain?.({ chapterId, stageTitle: stage.title, stageText: stage.body, attempt });
+      const t = await onExplainAgain?.({ chapterId, stageTitle: stage.title, stageText: stage.board, attempt });
       if (!t) throw new Error('Nu am primit explicația.');
-      setExtras((e) => ({ ...e, [idx]: [...(e[idx] || []), t] }));
+      setExtras((e) => ({ ...e, [idx]: [...(e[idx] || []), blockOf(t)] }));
       setInstantBlock(null);
       setActiveExtra(attempt - 1);
+      modeRef.current = 'write';
       setMode('write');
     } catch (err) {
-      // creditele AI s-au terminat → nu lăsăm lecția în aer cu un mesaj sec:
-      // arătăm banda cu ce se întâmplă mai departe și butoanele către pachete
+      // creditele AI s-au terminat → nu lăsăm lecția în aer cu un mesaj sec
       if (err?.code === 'BUDGET_MONTH') { setFaraCredite(true); setWarn(null); }
       else setWarn(err?.message || 'Nu am reușit să reiau explicația acum. Mai încearcă o dată sau întreabă-mă în conversație.');
+      modeRef.current = 'ask';
       setMode('ask');
     }
   }
-
-  const ask = mode === 'ask'
-    ? {
-        question: activeExtra >= 0 ? 'Acum e mai clar?' : last ? 'Am terminat lecția. Ai înțeles tot?' : 'Ai înțeles?',
-        note: `Etapa ${idx + 1} din ${stages.length} · ${stage.title}${attemptsUsed ? ` · reluată de ${attemptsUsed}×` : ''}`,
-        yes: last && activeExtra < 0 ? '✅ Da, am înțeles' : '✅ Da, continuă',
-        no: attemptsUsed >= 3 ? '💬 Tot nu — hai să vorbim' : attemptsUsed ? '🤔 Tot nu — explică altfel' : '🤔 Nu, mai explică o dată',
-        onYes: yes, onNo: no,
-      }
-    : mode === 'loading'
-      ? { question: 'Stai o clipă…', note: 'Caut o explicație mai simplă și ți-o scriu pe tablă.', yes: null, no: null }
-      : mode === 'chat'
-        ? { question: 'Hai să o luăm împreună, în scris.', note: 'Ți-am deschis conversația de sub tablă — scrie-mi acolo exact ce nu îți iese.',
-            yes: '✅ Continuăm lecția', no: null, onYes: () => setMode('ask') }
-        : null;
 
   const chips = (
     <div className="bd-stagechips" role="tablist" aria-label="Etapele lecției">
@@ -909,14 +537,31 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
 
   const active = (i, k) => i === idx && activeExtra === k;
   const blockProps = (i, k) => ({
-    speed, onInternalLink,
-    animate: active(i, k) && !instant,
-    voiceFrac: active(i, k) && voiceMode ? vFrac : null,
-    onDone: active(i, k) ? blockDone : null,
+    onInternalLink,
+    animate: active(i, k) && !instant && mode === 'write',
+    voiceFrac: active(i, k) && !instant ? vFrac : null,
     onSkip: active(i, k) ? skipBlock : null,
-    // doar blocul care se scrie ACUM spune unde e markerul
-    onWritePos: active(i, k) ? setWpos : null,
   });
+  // după textul blocului: întrebarea lui (activă) sau rezultatul (dacă a răspuns)
+  const afterText = (i, k, b) => {
+    const key = `${i}:${k}`;
+    if (active(i, k) && mode === 'check' && b?.question) {
+      const a = answers[key] || null;
+      return (
+        <div ref={cardRef}>
+          <BoardQuestion q={b.question} id={key} answered={a} onAnswer={onAnswer}
+            speaker={prof} speakKey="lectie-ask"
+            nextLabel={last ? '✍️ Trecem la exerciții →' : 'Mai departe →'}
+            onNext={nextAfterCheck}
+            extra={a && !a.correct && attemptsUsed < 3
+              ? <button type="button" className="lv-btn-soft" onClick={no}>🔁 Explică-mi altfel</button> : null} />
+        </div>
+      );
+    }
+    return answers[key] ? <QuestionDone q={b?.question} a={answers[key]} /> : null;
+  };
+
+  const askQ = activeExtra >= 0 ? 'Acum e mai clar?' : last ? 'Am terminat lecția. Ai înțeles tot?' : 'Ai înțeles?';
 
   return (
     <Whiteboard
@@ -924,28 +569,17 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
       title={<><span className="bd-title-ico">📖</span> {title}</>}
       subtitle={`Etapa ${idx + 1} din ${stages.length} · ${stage.title}`}
       chips={chips}
-      prof={mode === 'write' ? 'writing' : 'idle'}
-      writePos={mode === 'write' ? wpos : null}
-      speaking={vorbeste && !paused}
-      ask={ask}
+      mood={mode === 'write' ? 'writing' : mode === 'loading' ? 'thinking' : 'listening'}
       toolbar={<>
-        {!readAloud && <SpeedPicker value={speed} onChange={setSpeed} />}
-        {ttsSupported() && (readAloud ? (
-          <>
-            <button type="button" className="bd-tool is-on" onClick={togglePause}
-              title="Profesorul citește exact ce scrie">{paused ? '▶ Continuă' : '❚❚ Pauză'}</button>
-            <button type="button" className="bd-tool" onClick={() => setRead(false)} title="Oprește citirea cu voce">🔇</button>
-          </>
-        ) : (
-          <button type="button" className="bd-tool" onClick={() => setRead(true)}
-            title="Profesorul citește cu voce tare, iar textul apare în ritmul vocii">🔊 Citește</button>
-        ))}
+        {pst.key === 'lectie' && (pst.paused
+          ? <button type="button" className="bd-tool is-on" onClick={() => prof.resume()} title="Prof. Tudor continuă de unde a rămas">▶ Continuă</button>
+          : <button type="button" className="bd-tool" onClick={() => prof.pause()} title="Prof. Tudor se oprește">❚❚ Pauză</button>)}
         {onPrint && <button type="button" className="bd-tool" onClick={onPrint} title="Salvează lecția ca PDF">📄 PDF</button>}
-        {onClose && <button type="button" className="bd-tool" onClick={() => { stopVoice(); onClose(); }}>✕ Închide</button>}
+        {onClose && <button type="button" className="bd-tool" onClick={() => { prof.stop(); onClose(); }}>✕ Închide</button>}
       </>}
       tray={<>
-        <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => { stopVoice(); onFinish?.(); }}>{finishLabel}</button>
-        {onEnd && <button type="button" className="btn btn-outline btn-sm" disabled={busy} onClick={() => { stopVoice(); onEnd(); }}>🏁 Încheie meditația și dă-mi tema</button>}
+        <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => { prof.stop(); onFinish?.(); }}>{finishLabel}</button>
+        {onEnd && <button type="button" className="btn btn-outline btn-sm" disabled={busy} onClick={() => { prof.stop(); onEnd(); }}>🏁 Încheie meditația și dă-mi tema</button>}
       </>}
     >
       {materials?.length > 0 && (
@@ -964,18 +598,44 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
       {stages.slice(0, idx + 1).map((s, i) => (
         <div key={i} className={`bd-stage${i < idx ? ' is-past' : ''}`}>
           <div ref={active(i, -1) ? activeRef : null}>
-            <BoardText key={`b${i}-${replay}`} text={stageSource(i)} {...blockProps(i, -1)} />
+            <BoardText key={`b${i}-${replay}`} text={s.board} {...blockProps(i, -1)} />
           </div>
-          {(extras[i] || []).map((t, k) => (
+          {afterText(i, -1, s)}
+          {(extras[i] || []).map((b, k) => (
             <div key={`x${k}`} className="bd-again" ref={active(i, k) ? activeRef : null}>
               <div className="bd-again-lbl">🔁 Reluăm altfel{(extras[i] || []).length > 1 ? ` · încercarea ${k + 1}` : ''}</div>
-              <BoardText key={`bx${i}-${k}-${replay}`} text={t} {...blockProps(i, k)} />
+              <BoardText key={`bx${i}-${k}-${replay}`} text={b.board} {...blockProps(i, k)} />
+              {afterText(i, k, b)}
             </div>
           ))}
         </div>
       ))}
 
-      {mode === 'loading' && <div className="bd-thinking"><span className="bd-thinking-dot" /> Profesorul caută altă cale de a-ți explica…</div>}
+      {/* DISCUȚIA, pe tablă: „Ai înțeles?" cu variantele de răspuns */}
+      {mode === 'ask' && (
+        <div className="bd-q" ref={cardRef}>
+          <ChoiceCard kicker={`🙋 ${TUDOR.name} întreabă`} question={askQ}
+            note={`Etapa ${idx + 1} din ${stages.length} · ${stage.title}${attemptsUsed ? ` · reluată de ${attemptsUsed}×` : ''}`}
+            options={[
+              { label: last && activeExtra < 0 ? '✅ Da, am înțeles' : '✅ Da, continuă', primary: true, onPick: yes },
+              { label: attemptsUsed >= 3 ? '💬 Tot nu — hai să vorbim' : attemptsUsed ? '🤔 Tot nu — explică altfel' : '🤔 Nu, mai explică o dată', onPick: no },
+              { label: '✋ Am o întrebare', onPick: () => onChat?.(stage.title, null) },
+            ]}
+            onFree={(t) => onChat?.(stage.title, t)} freePlaceholder="Sau scrie-mi ce nu e clar…" />
+        </div>
+      )}
+      {mode === 'loading' && (
+        <div className="bd-q" ref={cardRef}>
+          <div className="lv-poll is-private bd-wait"><span className="bd-thinking-dot" /> {TUDOR.name} caută altă cale de a-ți explica…</div>
+        </div>
+      )}
+      {mode === 'chat' && (
+        <div className="bd-q" ref={cardRef}>
+          <ChoiceCard kicker="💬 Hai să o luăm împreună"
+            options={[{ label: '✅ Continuăm lecția', primary: true, onPick: () => setMode('ask') }]}
+            onFree={(t) => onChat?.(stage.title, t)} freePlaceholder="Scrie-mi exact ce nu îți iese…" />
+        </div>
+      )}
       {warn && <div className="bd-warn">⚠️ {warn}</div>}
       {faraCredite && (
         <div style={{ margin: '10px 0 4px' }}>
@@ -983,13 +643,6 @@ export function BoardLesson({ chapterId = null, title, text, materials = [], onE
           <div style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginTop: 8 }}>
             Etapele scrise până acum rămân pe tablă — le poți reciti oricând, iar lecția se reia de aici.
           </div>
-        </div>
-      )}
-      {voiceWarn && (
-        <div className="bd-warn">
-          🔇 {voiceWarn} Textul rămâne scris pe tablă, îl poți citi în ritmul tău.
-          {' '}<button type="button" className="bd-tool" style={{ marginLeft: 6 }}
-            onClick={() => { setVoiceWarn(null); unlockSpeech(); startVoice(); }}>Încearcă din nou</button>
         </div>
       )}
     </Whiteboard>

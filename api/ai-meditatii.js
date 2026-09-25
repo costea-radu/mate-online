@@ -17,6 +17,16 @@ const med = require('./_lib/meditatii');
 const mathcheck = require('./_lib/mathcheck'); // echivalența matematică a răspunsurilor (Etapa 2)
 const scoreLib = require('./_lib/score');       // scorul testelor HTML recalculat pe server (Etapa 3)
 const taxonomy = require('./_lib/taxonomy');    // subiectele canonice (Etapa 3, 5.1)
+const live = require('./_lib/live');            // Prof. Tudor — profesorul de la tablă (ca în sala live)
+
+// ─── TABLA CU PROF. TUDOR („Planul meu") ─────────────────────────────────────
+// Ce scrie modelul apare PE TABLĂ; ce SPUNE profesorul (fără să scrie) se aude
+// și apare ca subtitrare; întrebările de verificare stau direct pe tablă, grilă
+// sau de completat. Marcajele le citește src/lib/tabla.js (clientul).
+const BOARD_QUESTION_FORMAT = `[[GRILA:{"q":"enunțul, cu formule între $...$","o":["$...$","$...$","$...$","$...$"],"a":"b","e":"explicația pe scurt, 1–2 fraze"}]]
+[[COMPLETARE:{"q":"enunț care cere un rezultat scurt","a":"rezultatul (ex. 4, -3/2, 2\\\\sqrt{3})","e":"explicația pe scurt, 1–2 fraze"}]]
+Reguli pentru întrebare: JSON valid pe UN singur rând, cu backslash-urile din LaTeX DUBLATE (\\\\frac, \\\\sqrt, \\\\cdot — scrii două backslash-uri); la grilă 4 variante, UNA singură corectă, litera ei în "a" (a, b, c sau d — variază poziția), iar variantele greșite sunt greșelile tipice ale elevilor; la completare răspunsul e UN număr sau o expresie scurtă; întrebarea verifică exact ce ai scris mai sus, la nivelul elevului.`;
+const teacherName = () => (live.teacherById('radu') || live.TEACHER_DEFAULTS.radu).name;
 
 // Scorul unui test din site: recalculat din răspunsuri când materialul are chei
 // (exerciții generate), altfel scorul trimis, plafonat. Întoarce { sc, mx, verified }.
@@ -669,6 +679,7 @@ async function state(req, res, supa) {
     hardStages: hardStagesOf(medProfile),   // etapele de lecție la care a cerut reexplicare
     prediction,
     examType: med.examTypeFor(medProfile),
+    teacher: live.publicTeacher(live.teacherById('radu') || live.TEACHER_DEFAULTS.radu),
   });
 }
 
@@ -882,12 +893,19 @@ Structura OBLIGATORIE a lecției (formule LaTeX între $...$):
 (un exemplu complet, pas cu pas, cu justificarea fiecărui pas)
 ## Schema capitolului
 (o schemă/hartă a noțiunilor: noțiune → subnoțiuni, ca listă indentată)
-Subiectele capitolului: ${chapter.topics?.join('; ') || chapter.title}.`;
+Subiectele capitolului: ${chapter.topics?.join('; ') || chapter.title}.
+
+LECȚIA SE ȚINE LA TABLĂ, cu ${teacherName()}: tot ce scrii (în afara marcajelor de mai jos) apare PE TABLĂ, iar el îl citește cu voce tare.
+- Pe tablă scrii DOAR matematică: definiții, formule, pași, exemple, calcule — fraze scurte, ca la tablă. Fără salut, fără „dragă elevule", fără întrebări către elev în text.
+- Ce îi SPUI elevului fără să scrii pe tablă (o frază de legătură la începutul unei etape, o încurajare) pui pe un rând separat, imediat sub titlul etapei: [[SPUNE: …]] — cel mult o frază scurtă pe etapă, fără formule.
+- La sfârșitul etapelor „Noțiunile esențiale", „Formulele de ținut minte" și „Exemplu rezolvat" pui câte O ÎNTREBARE DE VERIFICARE, direct pe tablă, pe un rând separat, în UNUL dintre formatele:
+${BOARD_QUESTION_FORMAT}
+  Alternează: cel puțin o grilă și cel puțin o completare în lecție.`;
 
   const { text, usage } = await ai.chat({
     system,
     messages: [{ role: 'user', content: 'Scrie lecția acum, caldă și clară, potrivită nivelului meu.' }],
-    temperature: 0.4, maxTokens: 2200,
+    temperature: 0.4, maxTokens: 3000,
     model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
   });
   await ai.logUsage(supa, userId, 'ai-meditatii:lesson', usage);
@@ -952,18 +970,21 @@ ${stageText}
 Rescrie ACEEAȘI idee, altfel. ${angle}
 Aceasta este încercarea ${attempt} din 3 — dacă e a doua sau a treia, schimbă vizibil abordarea față de una simplă repetare.
 
-REGULI DE SCRIERE (textul apare pe o TABLĂ, scris de mână):
+REGULI DE SCRIERE (textul apare pe o TABLĂ, scris de mână, iar ${teacherName()} îl citește cu voce tare):
 - maximum 160 de cuvinte, fraze scurte;
 - începe cu un titlu „## Hai să o luăm altfel" (sau altul potrivit încercării);
 - formulele între $...$ (LaTeX simplu);
 - pași numerotați, nu paragrafe lungi;
 - încheie cu o singură propoziție de verificare a înțelegerii („Deci, pe scurt: …");
-- fără salut, fără „sigur că da", fără să întrebi „ai înțeles?" (întreabă interfața).`;
+- fără salut, fără „sigur că da", fără să întrebi „ai înțeles?" (întreabă interfața);
+- dacă vrei să-i spui ceva fără să scrii pe tablă, o frază scurtă pe rând separat: [[SPUNE: …]];
+- la final, pe rând separat, O întrebare de verificare NOUĂ (alta decât în lecție), direct pe tablă:
+${BOARD_QUESTION_FORMAT}`;
 
   const { text, usage } = await ai.chat({
     system,
     messages: [{ role: 'user', content: 'Explică-mi din nou partea asta, te rog.' }],
-    temperature: 0.55, maxTokens: 700,
+    temperature: 0.55, maxTokens: 950,
     model: ai.pickModel(ai.GEN_MODEL, lim),
   });
   await ai.logUsage(supa, userId, 'ai-meditatii:lesson_simplify', usage);

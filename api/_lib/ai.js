@@ -1436,6 +1436,23 @@ Reguli pentru marcaje: id-urile capitolelor sunt în PROFILUL elevului de mai jo
 - MOTIVARE: felicită-l concret pentru progres (serie de zile, capitole terminate), stabilește obiective mici și realiste.
 - Rămâi cald, răbdător și încurajator — ești meditatorul lui de încredere, disponibil oricând.`;
 
+// ─── Meditația LA TABLĂ („Planul meu", context.tabla) ────────────────────────
+// Ce scrie modelul apare PE TABLĂ; ce SPUNE profesorul fără să scrie se aude și
+// apare ca subtitrare; întrebările de verificare stau direct pe tablă (grilă /
+// completare). Marcajele le citește clientul: src/lib/tabla.js.
+function meditatiiBoardRules() {
+  let name = 'Prof. Tudor';
+  try { const live = require('./live'); name = (live.teacherById('radu') || live.TEACHER_DEFAULTS.radu).name || name; } catch { /* numele implicit */ }
+  return `MEDITAȚIA SE ȚINE LA TABLĂ, cu ${name} — tu ești ${name} (profesor virtual): ce scrii în răspuns apare PE TABLĂ și îl citești cu voce tare, iar ce SPUI fără să scrii apare ca subtitrare.
+- Pe tablă scrii DOAR matematică: calculele, formulele, pașii rezolvării, explicațiile matematice — fraze scurte, ca la tablă, formulele între $...$.
+- Ce îi spui elevului fără să scrii pe tablă — salutul, încurajarea, legătura cu ce urmează, propunerea, o întrebare deschisă — pui pe un rând separat în [[SPUNE: …]] (1–2 fraze scurte, fără formule). Un răspuns fără matematică (doar conversație) = numai [[SPUNE: …]].
+- Când vrei să verifici dacă a înțeles, NU pune întrebarea în text: pune-o DIRECT PE TABLĂ, pe un rând separat, la finalul răspunsului (cel mult una pe mesaj), într-unul din formatele:
+[[GRILA:{"q":"enunț cu $...$","o":["...","...","...","..."],"a":"b","e":"explicația pe scurt"}]]
+[[COMPLETARE:{"q":"enunț care cere un rezultat scurt","a":"rezultatul","e":"explicația pe scurt"}]]
+  JSON valid pe un singur rând, backslash-urile din LaTeX DUBLATE (\\\\frac, \\\\sqrt); la grilă 4 variante, una singură corectă (litera ei în "a"); la completare rezultatul e un număr sau o expresie scurtă. Elevul răspunde pe tablă și vede imediat verdictul și explicația „e"; răspunsul lui îți vine în mesajul următor — atunci nu repeta explicația, mergi mai departe.
+- Marcajele [[MEDITATII:…]] rămân ca mai sus (la final, pe rând separat).`;
+}
+
 // Profilul de meditații al elevului (memoria pedagogică) — injectat în chat.
 async function meditatiiMemory(supa, userId) {
   try {
@@ -2033,6 +2050,7 @@ async function interactiveAgentSystem(supa, { userId, mode, context, ctxBlock })
   // Meditații cu Profesorul Virtual: profesor socratic + memoria pedagogică
   if (context.meditatii && !mentor) {
     parts.push(MEDITATII_RULES);
+    if (context.tabla) parts.push(meditatiiBoardRules());      // pagina „Planul meu": tabla cu Prof. Tudor
     const medMem = await meditatiiMemory(supa, userId);
     if (medMem) parts.push(medMem);
     // mesajul automat afișat de platformă (coach) — modelul continuă natural de la el
@@ -2343,7 +2361,7 @@ module.exports = {
   chatJson, S, deepRestoreLatex, restoreLatexControl, parseJsonLoose, buildBody, adaptBodyToError, answerIndex, // Structured Outputs
   extractBaremItem, fragmentFromBarem, verifiedPdfReply, wantsOtherExplanation, isFollowUpQuestion,
   deterministicBaremItem, shortAnswerCheck, fragmentFallback, pdfAgentSystem, // grile / rezultat scurt (EN) — exportate pentru teste
-  levelLabel, interactiveCatalog, studentState, meditatiiMemory,
+  levelLabel, interactiveCatalog, studentState, meditatiiMemory, meditatiiBoardRules,
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS, PDF_MODEL, GEN_MODEL,

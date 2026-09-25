@@ -14,7 +14,12 @@ import { supabase } from '../lib/supabase';
 import { MathText, ChatPanel } from '../components/AITutor';
 import MedRail from '../components/MedRail';
 import { BoardLesson, Whiteboard } from '../components/Whiteboard';
-import EinsteinIcon from '../components/EinsteinIcon';
+import { ChoiceCard } from '../components/live/PollCard';
+import { TudorAvatar, TUDOR } from '../components/live/ProfCamera';
+import { prof } from '../lib/live/vorbire';
+import { printTextOf, splitBoard, speechPlan } from '../lib/tabla';
+import BoardQuestion from '../components/BoardQuestion';
+import '../styles/live.css';
 import ExamGenerator from '../components/ExamGenerator';
 import { openPrintDocument } from '../lib/examPrint';
 import { trackFreeAssessment } from '../lib/analytics';
@@ -23,8 +28,13 @@ import { capitoleForCategory } from '../lib/capitole';
 
 // Conversația meditațiilor stă ACUM SUB TABLĂ, în pagină (panoul
 // „Conversație"): acolo ajung mesajele automate („Nu înțeleg…", „mai explică o
-// dată") și mesajele COACH (bun venit, aprecieri, pasul următor). Widgetul
-// plutitor rămâne ca REZERVĂ — aceeași conversație, la un clic distanță.
+// dată"). Widgetul plutitor rămâne ca REZERVĂ — aceeași conversație.
+//
+// PROF. TUDOR LA TABLĂ: profesorul e cel din meditațiile live (camera din colțul
+// tablei). Ce SPUNE — bun venit, aprecieri, propuneri, „Ai înțeles?" — se aude
+// (vocea browserului) și apare ca subtitrare; pe tablă rămâne doar matematica.
+// Discuția se poartă pe tablă, ca la meditațiile live: variantele a, b, c…
+// (ChoiceCard) sau „scrie-mi altceva", plus întrebări grilă / de completat.
 
 // Plasă de siguranță pe client pentru LaTeX-ul corupt din seturile mai vechi
 // (backslash dublu → „rând nou" + comanda ca text: „frac32", „sqrt13").
@@ -101,10 +111,37 @@ function resolveAction(a, st) {
   return out;
 }
 
+// piesele tablei pentru conversație (ChatPanel le primește de aici, ca widgetul
+// de pe tot site-ul să nu le încarce)
+const BOARD_KIT = { Question: BoardQuestion, Choice: ChoiceCard, split: splitBoard, plan: speechPlan };
+
+// ─── Ce SPUNE Prof. Tudor la exerciții (subtitrare + voce, nu scris pe tablă) ─
+function quizIntro(q) {
+  const n = q.questions?.length || 0;
+  const cate = n === 1 ? 'un exercițiu' : `${n} exerciții`;
+  const la = q.topic ? ` la „${q.topic}”` : '';
+  if (q.kind === 'tema') return `Hai să rezolvăm tema: ai ${cate}. Lucrează în ritmul tău, iar la final o corectez, o notez și îți explic fiecare greșeală.`;
+  if (q.kind === 'recapitulare') return `Facem o recapitulare scurtă${la}: ${cate}, ca materia să nu se șteargă.`;
+  if (q.kind === 'remediere') return `Fixăm procedeul la care ai greșit: ${cate} de același fel. La final îți explic tot.`;
+  if (q.kind === 'simulare') return `Am pregătit ${cate}. Lucrează ca la examen, iar la final le corectez pe toate.`;
+  return `Am pregătit ${cate}${la}. Rezolvă-le în ritmul tău, iar la final le corectez și îți explic tot.`;
+}
+// Scorul și aprecierea le spune imediat după coach-ul de pe server (le are și
+// el) — aici doar anunțul, ca să nu repete aceleași cifre de două ori.
+function resultSpeech(r) {
+  if (!r || r.maxScore == null) return '';
+  const wrong = (r.results || []).filter((x) => !x.correct && !x.skipped).length;
+  return `Gata, am corectat.${wrong ? ' Pe tablă îți arăt unde ai greșit și de ce.' : ' Toate sunt corecte!'}`;
+}
+// „📖 Da, începem teoria" → „📖 Începem teoria" (ca variantă alternativă, pe tablă)
+function altLabel(label) {
+  return String(label || '').replace(/^(\S+)\s+Da,\s*(\S)/u, (m, ico, c) => `${ico} ${c.toUpperCase()}`);
+}
+
 // lecția (markdown simplu) → HTML pentru documentul tipăribil
 function lessonHtml(title, text) {
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const body = esc(text)
+  const body = esc(printTextOf(text))
     .replace(/^## (.+)$/gm, '<h2 style="font-size:17px;color:#0f2b44;border-bottom:1px solid #ddd;padding-bottom:4px;margin:20px 0 8px">$1</h2>')
     .replace(/^### (.+)$/gm, '<h3 style="font-size:15px;color:#0f2b44;margin:14px 0 6px">$1</h3>')
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
@@ -126,6 +163,7 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
   const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState(null);
   const startRef = useRef(Date.now());
+  const rootRef = useRef(null);
 
   const answered = answers.filter((a) => a !== null && String(a).trim() !== '').length;
   const left = questions.length - answered;
@@ -146,6 +184,8 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
       const durationSec = Math.round((Date.now() - startRef.current) / 1000);
       const r = await onSubmit(answers, durationSec);
       setResult(r);
+      // rezultatul e sus: tabla (care are derulare proprie) urcă la el, apoi pagina
+      try { rootRef.current?.closest('.bd-body')?.scrollTo({ top: 0, behavior: 'smooth' }); } catch { /* ignore */ }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
@@ -165,7 +205,7 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
   }
 
   return (
-    <div>
+    <div ref={rootRef}>
       <div style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.05rem' }}>{title}</div>
@@ -225,28 +265,28 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
               {r && <span style={{ fontSize: '1.2rem' }} title={r.skipped ? 'Nerezolvată' : r.correct ? 'Corect' : 'Greșit'}>{r.correct ? '✅' : r.skipped ? '⏳' : '❌'}</span>}
             </div>
 
+            {/* grilă (a–d) sau răspuns de completat — ca întrebările din meditațiile live */}
             {q.options ? (
-              <div>
+              <div className={`bd-opts${q.options.some((o) => String(o).replace(/\$[^$]*\$/g, 'xx').length > 42) ? ' is-long' : ''}`}
+                role="radiogroup" aria-label={`Variantele exercițiului ${i + 1}`}>
                 {q.options.map((o, oi) => {
                   const chosen = answers[i] === oi;
                   const isCorrect = r && Number(r.answer) === oi;
+                  const wrong = chosen && r && !r.correct;
                   return (
-                    <label key={oi} style={{
-                      display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 6, cursor: result ? 'default' : 'pointer',
-                      border: `1px solid ${isCorrect ? 'rgba(39,174,96,.5)' : chosen && r && !r.correct ? 'rgba(231,76,60,.45)' : 'var(--border)'}`,
-                      background: isCorrect ? 'rgba(39,174,96,.08)' : chosen ? 'rgba(232,185,49,.12)' : '#fff',
-                    }}>
-                      <input type="radio" disabled={!!result} checked={chosen} onChange={() => setAnswers((a) => a.map((v, k) => (k === i ? oi : v)))} />
-                      <strong style={{ color: 'var(--navy)' }}>{String.fromCharCode(65 + oi)})</strong>
-                      <span style={{ flex: 1 }}><MathText text={fixLatexClient(o)} /></span>
-                    </label>
+                    <button key={oi} type="button" role="radio" aria-checked={chosen} disabled={!!result}
+                      className={`lv-poll-opt${chosen ? ' is-chosen' : ''}${isCorrect ? ' is-good' : ''}${wrong ? ' is-bad' : ''}`}
+                      onClick={() => setAnswers((a) => a.map((v, k) => (k === i ? oi : v)))}>
+                      <span className="lv-poll-k">{'abcdefgh'[oi]})</span>
+                      <span className="bd-opt-t"><MathText text={fixLatexClient(o)} /></span>
+                    </button>
                   );
                 })}
               </div>
             ) : (
-              <input value={answers[i] ?? ''} disabled={!!result}
+              <input className="bd-fill" value={answers[i] ?? ''} disabled={!!result}
                 onChange={(e) => setAnswers((a) => a.map((v, k) => (k === i ? e.target.value : v)))}
-                placeholder="Răspunsul tău" style={{ ...inp, width: '100%' }} />
+                placeholder="Scrie rezultatul (ex. 12, 1/2, 2√3)" autoComplete="off" />
             )}
 
             {/* problemă NEREZOLVATĂ la o temă finalizată incomplet: rămâne de
@@ -271,7 +311,7 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
             )}
             {onAskTeacher && !result && (
               <button onClick={() => onAskTeacher(q, i)} style={{ marginTop: 10, background: 'none', border: '1px dashed var(--gold)', color: 'var(--gold-dim)', borderRadius: 8, padding: '5px 11px', fontSize: '.8rem', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <EinsteinIcon size={16} /> Nu înțeleg — întreabă profesorul
+                <TudorAvatar size={18} /> Nu înțeleg — întreabă profesorul
               </button>
             )}
           </div>
@@ -329,6 +369,15 @@ const BUSY_MSGS = {
   simulare: 'Construiesc simularea, cu punctele tale slabe incluse… (~40s)',
   homework: 'Pregătesc tema…',
   style: 'Țin minte preferința ta…',
+};
+// …și ce SPUNE Prof. Tudor cât lucrează (subtitrare + voce)
+const BUSY_SAY = {
+  lesson: 'Bine! Îmi adun materialele și îți pregătesc lecția. Durează puțin.',
+  exercises: 'Îți pregătesc exercițiile. Durează puțin.',
+  remediation: 'Îți pregătesc zece exerciții de același fel, ca să fixăm procedeul.',
+  review: 'Pregătesc recapitularea: câteva întrebări scurte.',
+  simulare: 'Construiesc simularea, cu punctele tale slabe incluse. Durează puțin.',
+  homework: 'Îți pregătesc tema.',
 };
 function BusyOverlay({ label }) {
   return (
@@ -604,8 +653,12 @@ export default function Meditatii() {
   }, [st?.needsSetup]);
 
   const refresh = useCallback(async () => {
-    try { setSt(await aiClient.meditatii({ action: 'state' })); setStError(null); }
-    catch (e) { setStError(e.message); }
+    try {
+      const s = await aiClient.meditatii({ action: 'state' });
+      // numele profesorului de la tablă vine de pe server (LIVE_PROF_RADU_NUME, ca în sala live)
+      if (s?.teacher?.name) TUDOR.name = s.teacher.name;
+      setSt(s); setStError(null);
+    } catch (e) { setStError(e.message); }
   }, []);
   useEffect(() => { if (user) refresh(); }, [user, refresh]);
 
@@ -641,20 +694,34 @@ export default function Meditatii() {
     return r?.text || '';
   }
 
-  // „✅ Da, continuă" → doar contorul etapelor înțelese (fără AI, fără cost)
-  function noteStage({ chapterId, stageTitle }) {
+  // „✅ Da, continuă" / întrebarea de verificare → doar contorul etapelor
+  // (fără AI, fără cost): înțeleasă, sau nu (a greșit și a mers mai departe)
+  function noteStage({ chapterId, stageTitle, understood = true }) {
     aiClient.meditatii({
       action: 'lesson_feedback', chapterId,
-      chapterTitle: lessonView?.chapter?.title || '', stageTitle, understood: true,
+      chapterTitle: lessonView?.chapter?.title || '', stageTitle, understood,
     }).catch(() => { /* contorul e opțional — nu deranjăm elevul */ });
   }
 
-  // după 3 reluări pe tablă: trecem discuția în conversația de sub tablă
-  function chatAboutStage(stageTitle) {
-    setConvPrompt({
-      id: Date.now(), mode: 'tutor',
-      text: `Tot nu înțeleg partea „${stageTitle}" din lecția despre „${lessonView?.chapter?.title || ''}". Ia-o cu mine pas cu pas și pune-mi întrebări, ca să vezi exact unde mă blochez.`,
-    });
+  // o întrebare despre o etapă a lecției → conversația de sub tablă
+  //   text  = ce a scris elevul pe tablă („sau scrie-mi ce nu e clar…")
+  //   stuck = după 3 reluări: discuția trece în conversație, pas cu pas
+  function chatAboutStage(stageTitle, text = null, stuck = false) {
+    const chapter = lessonView?.chapter?.title || '';
+    if (text) {
+      setConvPrompt({ id: Date.now(), mode: 'tutor', text: `La partea „${stageTitle}" din lecția despre „${chapter}": ${text}` });
+    } else if (stuck) {
+      setConvPrompt({
+        id: Date.now(), mode: 'tutor',
+        text: `Tot nu înțeleg partea „${stageTitle}" din lecția despre „${chapter}". Ia-o cu mine pas cu pas și pune-mi întrebări, ca să vezi exact unde mă blochez.`,
+      });
+    } else {
+      // „✋ Am o întrebare": profesorul se oprește și ascultă
+      prof.say('Te ascult. Scrie-mi întrebarea aici, sub tablă.', { key: 'propunere' });
+      setTimeout(() => {
+        try { document.querySelector('.bdchat-composer input:not([type="file"])')?.focus({ preventScroll: true }); } catch { /* ignore */ }
+      }, 60);
+    }
     focusConversation();
   }
 
@@ -670,7 +737,12 @@ export default function Meditatii() {
     const first = pickProposal([], null, st);
     if (first) setProposal(first);
     const message = [st.briefing?.message, first?.say].filter(Boolean).join('\n\n');
-    if (message) setConvCoach({ id: 'welcome-' + Date.now(), message, suggestions: [] });
+    if (message) {
+      // conversația îl primește ca context (modelul continuă natural de la el)…
+      setConvCoach({ id: 'welcome-' + Date.now(), message, suggestions: [] });
+      // …iar elevul îl AUDE, cu subtitrare — pe tablă nu se scrie
+      prof.say([message, first?.ask].filter(Boolean).join(' '), { key: 'propunere' });
+    }
     // eslint-disable-next-line
   }, [st]);
 
@@ -683,7 +755,10 @@ export default function Meditatii() {
     try {
       const c = await aiClient.meditatii({ action: 'coach', event });
       if (c?.message) {
-        setConvCoach({ id: 'coach-' + Date.now(), message: c.message, suggestions: c.suggestions || [] });
+        // variantele de răspuns le pune pagina, pe tablă (propunerea curentă) —
+        // mesajul merge în conversație doar ca context pentru model
+        setConvCoach({ id: 'coach-' + Date.now(), message: c.message, suggestions: [] });
+        prof.say(c.message, { key: 'coach', queue: prof.isBusy() });
       }
     } catch { /* coach e opțional — tăcut */ }
   }
@@ -717,6 +792,8 @@ export default function Meditatii() {
 
   async function run(label, fn) {
     setBusy(label); setActionError(null);
+    // cât pregătește ceva (20–60 s), profesorul spune ce face — nu tace în gol
+    if (BUSY_SAY[label] && stRef.current?.premium && !stRef.current?.needsSetup) prof.say(BUSY_SAY[label], { key: 'busy' });
     try { await fn(); }
     catch (e) { setActionError(e.message); }
     finally { setBusy(null); }
@@ -922,6 +999,8 @@ export default function Meditatii() {
       r = await aiClient.meditatii({ action: 'submit_set', sessionId: quiz.sessionId, answers, durationSec });
     }
     r.onRemediate = (mid) => startRemediation(mid);
+    // Prof. Tudor spune rezultatul (pe tablă rămân corecturile și explicațiile)
+    if (quiz.kind !== 'evaluare') prof.say(resultSpeech(r), { key: 'quiz' });
     // profesorul comentează prin widget: apreciere + pasul următor (gpt-4o-mini)
     const wrongCount = (r.results || []).filter((x) => !x.correct && !x.skipped).length;
     if (quiz.kind === 'tema') {
@@ -951,16 +1030,26 @@ export default function Meditatii() {
   const setComposerEl = useCallback((el) => setComposerElState(el), []);
   const boardSlots = { board: boardEl, composer: composerEl };
   const [chatBusy, setChatBusy] = useState(false);   // profesorul scrie chiar acum
-  const [chatSpeaking, setChatSpeaking] = useState(false); // …și chiar acum îl și AUZI
   const chatCmd = useRef(null);                      // comenzi către chat (lista de teste PDF)
 
-  // ── PROFESORUL PROPUNE MEREU DOUĂ OPȚIUNI ────────────────────────────────
+  // ── PROFESORUL PROPUNE, ELEVUL ALEGE ─────────────────────────────────────
   // CE se propune și în ce ordine sunt reguli aici, în pagină: instant și fără
-  // niciun token. Fraza cu care o spune se scrie pe tablă ca mesaj al lui;
-  // aprecierile personalizate rămân în sarcina coach-ului de pe server.
+  // niciun token. Fraza cu care o spune se AUDE (subtitrare + voce); pe tablă
+  // apar doar variantele de răspuns (a, b, c… sau „scrie-mi altceva").
+  // Aprecierile personalizate rămân în sarcina coach-ului de pe server.
   const [proposal, setProposal] = useState(null);
   const [skipped, setSkipped] = useState([]);
   const runsRef = useRef(0);                         // câte seturi a lucrat în sesiunea asta
+
+  // Prof. Tudor tace când elevul pleacă din pagină
+  useEffect(() => () => prof.stop(), []);
+  // exercițiile, pe tablă: profesorul le anunță (subtitrare + voce)
+  const quizId = quiz ? (quiz.sessionId || quiz.homeworkId || quiz.title) : null;
+  useEffect(() => {
+    if (!quiz || quiz.kind === 'evaluare') return;
+    prof.say(quizIntro(quiz), { key: 'quiz' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quizId]);
 
   // ── stările speciale ──
   if (loading) return <div style={{ padding: 60, textAlign: 'center' }}><div className="spinner" /></div>;
@@ -1099,21 +1188,19 @@ export default function Meditatii() {
     };
   }
 
-  // propune ceva ȘI scrie propunerea pe tablă
+  // propune ceva: o SPUNE (subtitrare + voce), iar pe tablă apar variantele
   function sayProposal(p, intro = null) {
     if (!p) return;
     setProposal(p);
-    setConvCoach({
-      id: `prop-${p.key}-${Date.now()}`,
-      message: (intro ? `${intro}\n\n` : '') + p.say,
-      suggestions: [],
-    });
+    const message = (intro ? `${intro}\n\n` : '') + p.say;
+    setConvCoach({ id: `prop-${p.key}-${Date.now()}`, message, suggestions: [] });   // context pentru conversație
+    prof.say([intro, p.say, p.ask].filter(Boolean).join(' '), { key: 'propunere', queue: prof.isBusy('coach') });
   }
 
-  // „⏭ Trec mai departe" → profesorul propune imediat altceva, nu tace
-  function skipProposal() {
+  // „⏭ Altceva" → profesorul propune imediat altceva (nu ce era deja pe tablă)
+  function skipProposal(shown = []) {
     const p = proposal;
-    const skip = p ? [...skipped, p.key] : skipped;
+    const skip = [...skipped, ...(p ? [p.key] : []), ...shown];
     setSkipped(skip);
     sayProposal(pickProposal(skip), 'Bine — revenim mai târziu la asta.');
   }
@@ -1134,7 +1221,7 @@ export default function Meditatii() {
   // ACȚIUNILE MEDITAȚIEI — nu mai stau sub tablă, ci în meniul din stânga ei
   // (sub tablă rămâne DOAR câmpul de scris al elevului). Aceleași funcții,
   // doar că fiecare are acum pictograma lui, ca să se citească în bandă.
-  const runAction = (fn) => { setProposal(null); fn(); };
+  const runAction = (fn) => { setProposal(null); prof.stop('propunere'); prof.stop('coach'); fn(); };
   const mistake0 = st?.openMistakes?.[0];
   const hw0 = (st?.homework || []).find((h) => h.status === 'data');
   const nextCh = st?.nextChapter;
@@ -1193,15 +1280,25 @@ export default function Meditatii() {
     ] },
   ];
 
-  // panoul cu cele două opțiuni, pe tablă
-  const proposalAsk = (!working && proposal) ? {
-    question: proposal.ask,
-    note: 'Sau alege singur, din butoanele de sub tablă.',
-    yes: proposal.label,
-    no: '⏭ Trec mai departe',
-    onYes: () => { const p = proposal; setProposal(null); p.run(); },
-    onNo: skipProposal,
-  } : null;
+  // VARIANTELE DISCUȚIEI, pe tablă (ca o grilă): propunerea lui, încă două
+  // alternative din aceeași listă și „altceva" — sau elevul îi scrie direct.
+  const proposalCard = (!working && proposal) ? (() => {
+    const alts = proposalList(st).filter((x) => x.key !== proposal.key && !skipped.includes(x.key)).slice(0, 2);
+    const choose = (p) => { setProposal(null); prof.stop('propunere'); p.run(); };
+    return (
+      <div className="bd-q" key={`prop-${proposal.key}`}>
+        <ChoiceCard kicker={`🙋 ${TUDOR.name} întreabă`} question={proposal.ask}
+          options={[
+            { label: proposal.label, primary: true, onPick: () => choose(proposal) },
+            ...alts.map((a) => ({ label: altLabel(a.label), onPick: () => choose(a) })),
+            { label: '⏭ Altceva', onPick: () => skipProposal(alts.map((a) => a.key)) },
+          ]}
+          onFree={(t) => { setProposal(null); chatCmd.current?.send?.(t); }}
+          freePlaceholder="Sau spune-mi tu ce facem…"
+          note="Poți alege oricând și din meniul din stânga tablei." />
+      </div>
+    );
+  })() : null;
 
   return (
     <div className="med-page" style={{ maxWidth: 'var(--container)', margin: '0 auto', padding: '22px 20px 60px' }}>
@@ -1304,7 +1401,7 @@ export default function Meditatii() {
                 onChat={chatAboutStage}
                 onInternalLink={(u) => navigate(u)} />
             ) : quiz ? (
-              <Whiteboard tall tone="work" prof="idle">
+              <Whiteboard tall tone="work" mood={busy ? 'thinking' : 'listening'}>
                 <QuizRunner key={quiz.sessionId || quiz.homeworkId} title={quiz.title} subtitle={quiz.subtitle}
                   questions={quiz.questions} onSubmit={submitQuiz} onAskTeacher={askTeacher}
                   homework={quiz.kind === 'tema'} initialAnswers={quiz.initialAnswers || null}
@@ -1318,10 +1415,8 @@ export default function Meditatii() {
             ) : (
               <Whiteboard tall bodyClass="is-chat"
                 title={<><span className="bd-title-ico">🎓</span> Meditația ta</>}
-                subtitle={st.nextChapter ? `Lucrăm la: ${st.nextChapter.title}` : 'Conversație cu Profesorul Virtual'}
-                prof={chatBusy ? 'writing' : 'idle'}
-                speaking={chatSpeaking}
-                ask={proposalAsk}>
+                subtitle={st.nextChapter ? `Lucrăm la: ${st.nextChapter.title}` : `Conversație cu ${TUDOR.name}`}
+                mood={busy ? 'thinking' : chatBusy ? 'writing' : proposal ? 'listening' : 'idle'}>
                 <div ref={setBoardEl} className="bdchat-host" />
               </Whiteboard>
             )}
@@ -1339,10 +1434,12 @@ export default function Meditatii() {
             </div>
 
             {/* motorul conversației: mesajele merg pe tablă, scrisul dedesubt */}
-            <ChatPanel context={{ meditatii: true, category }}
+            <ChatPanel context={{ meditatii: true, tabla: true, category }}
               autoPrompt={convPrompt} coachInject={convCoach}
-              boardSlots={boardSlots} cmdRef={chatCmd} onBusy={setChatBusy}
-              onSpeaking={setChatSpeaking} />
+              boardSlots={boardSlots} cmdRef={chatCmd}
+              // elevul i-a scris ceva → discuția merge pe firul lui (propunerea de pe tablă dispare)
+              onBusy={(b) => { setChatBusy(b); if (b) setProposal(null); }}
+              speaker={prof} boardFooter={proposalCard} teacherName={TUDOR.name} board={BOARD_KIT} />
 
             {/* secțiunea aleasă din meniul lateral (liste, rapoarte) */}
             {!working && tab !== 'azi' && (
@@ -1381,7 +1478,7 @@ function Hero({ profile, focus, full = false }) {
   return (
     <div style={{ marginBottom: full ? 22 : 12 }}>
       <h1 style={{ fontFamily: 'var(--font-display)', fontSize: full ? 'clamp(1.7rem,4vw,2.4rem)' : 'clamp(1.25rem,2.6vw,1.6rem)', color: 'var(--navy)', marginBottom: full ? 6 : 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <EinsteinIcon size={full ? 46 : 32} /> Meditații cu Profesorul Virtual
+        <TudorAvatar size={full ? 46 : 34} /> Meditații cu Profesorul Virtual
       </h1>
       {full && (
         <p style={{ color: 'var(--text-light)', maxWidth: 680, marginBottom: profile ? 10 : 0 }}>

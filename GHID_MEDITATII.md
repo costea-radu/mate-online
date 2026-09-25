@@ -358,39 +358,56 @@ incomplete, raportul mentorilor). Client: `src/pages/Meditatii.jsx`
 (`QuizRunner`, `HomeworkTab`, `RaportTab`, `ProgressMeTab`, `hwState`),
 `src/pages/InteractiveViewer.jsx`. Teste: `test/meditatii-teme.test.js`.
 
-## 🎓 Sala de clasă: tabla, profesorul și vocea elevului
+## 🎓 Sala de clasă: Prof. Tudor la tablă (voce, subtitrări, întrebări pe tablă)
 
-Ecranul de meditație e împărțit pe roluri clare — cine ce spune și unde:
+Din runda 10, „Planul meu" (`/meditatii/plan`) arată ca meditațiile live:
 
-1. **Pe tablă scrie DOAR profesorul.** Mesajele lui (explicații, propuneri,
-   mesajele de coach) rămân pe tablă, scrise de mână. Replicile elevului NU mai
-   apar acolo.
-2. **Elevul vorbește SUB tablă**, în firul lipit de câmpul de scris
-   (`.bdme` din `AITutor.jsx`, portalat în `.bdchat-composer`): ce a scris el
-   rămâne vizibil, deci conversația e întreagă, dar tabla rămâne a profesorului.
-   Zona de scris e lipită de tablă (fără spațiu) și evidențiată cu chenar auriu,
-   cu îndemnul „Întreabă-mă orice…" — de acolo îi dă indicații profesorului.
-3. **Ce SPUNE profesorul apare lângă el**, ca o casetă de dialog cu coada spre
-   umărul lui (`.bd-ask`): întrebarea „Ai înțeles?" și propunerile („Facem cele
-   10 exerciții ca acela greșit?"), cu variantele de răspuns dedesubt. Când are
-   ceva de spus, se întoarce cu fața la elev.
-   **GURA i se mișcă DOAR cât timp chiar rostește ceva** — explicația citită cu
-   voce tare de pe tablă, sau răspunsul din conversație citit cu „🔊 Voce".
-   Cât stă cu fața la elev și așteaptă un răspuns, gura e NEMIȘCATĂ: până acum
-   se mișca tot timpul cât era pe ecran o casetă de dialog, deci profesorul
-   părea că vorbește în gol, minute în șir, cât se gândea elevul.
-   Mecanismul: `<Whiteboard speaking>` → `<Professor speaking>` → clasa
-   `.med-prof.is-speaking .pf-mouth` (înainte: `.is-asking`, adică simpla
-   prezență a casetei de dialog). Steagul vine din starea REALĂ a vocii:
-   `BoardLesson` îl ridică din playerul lui (`playAnswer` — coborât la pauză
-   și la final), iar conversația prin `ChatPanel → onSpeaking` (`Meditatii.jsx`).
-4. **Toate comenzile stau în meniul din stânga tablei** (`MedRail`): sub tablă
+1. **Profesorul e Prof. Tudor din meditațiile live**, nu un desen. Camera lui
+   stă în colțul din dreapta-jos al tablei, ca într-un apel video — aceeași
+   fotografie din clasă, animată în WebGL (respiră, clipește, gura urmează
+   vocea). Pagina îl regizează: când scrie se uită spre tablă, când pregătește
+   ceva „se gândește", când așteaptă răspunsul elevului ascultă și dă din cap.
+   Eticheta „Profesor virtual · AI" rămâne mereu vizibilă.
+   (`src/components/live/ProfCamera.jsx`, peste `TeacherCamera`/`PortraitScene`.)
+2. **Ce SPUNE nu se mai scrie pe tablă.** Bun venit, propunerile, „Ai înțeles?",
+   aprecierile coach-ului, verdictele — toate se AUD (vocea browserului, gratuită,
+   aceeași alegere ca în sala live: Edge „Emil Online (Natural)", Windows „Andrei")
+   și apar ca **subtitrare**, jos pe tablă. Pe cameră: 🔊/🔇 sunetul, **CC**
+   subtitrările (se țin minte), **↺** repetă ultima replică.
+   (`src/lib/live/vorbire.js` — un singur „glas" pentru toată pagina.)
+3. **Pe tablă rămâne doar matematica:** teoria pe etape, exercițiile, calculele,
+   explicațiile. Modelul își desparte singur replica: ce spune fără să scrie stă
+   în `[[SPUNE: …]]` (se aude + subtitrare), restul se scrie pe tablă și îl
+   citește cu voce — literele apar în ritmul vocii. Fără sunet sau fără voce
+   românească, subtitrările și scrisul merg în același ritm, „în gând"; „⏭ Sari
+   peste scriere" arată etapa întreagă.
+4. **Discuția se poartă pe tablă, ca la meditațiile live:**
+   - **variantele discuției** — propunerea profesorului apare ca o grilă:
+     a) propunerea lui, b)–c) alte două variante, d) „⏭ Altceva", plus câmpul
+     „Sau spune-mi tu ce facem…" (trimite în conversație). La lecție: „Ai
+     înțeles?" cu a) Da, continuă · b) Nu, mai explică o dată · c) Am o
+     întrebare + „Sau scrie-mi ce nu e clar…";
+   - **întrebări de verificare, grilă sau cu răspuns de completat**, direct pe
+     tablă: după etapele lecției (Noțiunile esențiale, Formulele, Exemplul
+     rezolvat), după o reexplicare și oricând în conversație, când vrea să vadă
+     dacă ai înțeles (`[[GRILA:{…}]]` / `[[COMPLETARE:{…}]]`). Verdictul vine pe
+     loc (✅ Corect / ❌ Răspunsul corect: …), cu explicația pe scurt, citită cu
+     voce. La completare se acceptă răspunsurile echivalente: „1/2" = „0,5",
+     „x = 4" = „4", „2√3" = „2\sqrt{3}". Întrebările rezolvate rămân pe tablă,
+     pe un rând (✎ … → răspunsul tău ✓/✗).
+   - **exercițiile** (seturi, teme, recapitulări, simulări) au variantele ca la
+     grila din sala live (a–d); profesorul le anunță, iar după corectare spune
+     rezultatul, apoi aprecierea și pasul următor.
+5. **Elevul vorbește SUB tablă** (neschimbat): firul replicilor lui + câmpul de
+   scris. Când îi scrie ceva, profesorul tace și ascultă, iar propunerea de pe
+   tablă dispare (discuția merge pe firul elevului).
+6. **Toate comenzile stau în meniul din stânga tablei** (`MedRail`): sub tablă
    NU mai există butoane. Grupele meniului: „Acum, pe tablă" (exerciții,
    teorie, cele 10 exerciții, tema, test din site, alt capitol, întreabă-mă
    orice), „Pregătire" (lucrarea/testul de la școală), „Secțiuni" (Astăzi,
    Plan, Teme, Recapitulări, Simulări), „Rapoarte" și „Închidere". Banda se
    desface la hover pe desktop, cu ☰ pe telefon.
-5. **După o alegere din meniu, pagina te duce unde s-a deschis materialul.**
+7. **După o alegere din meniu, pagina te duce unde s-a deschis materialul.**
    Ce se deschide PE tablă (exerciții, teorie, temă, recapitulare, simulare)
    → pagina urcă la tablă (`scrollToBoard`); ce se deschide SUB ea (Astăzi,
    Plan, Teme, Recapitulări, Simulări, Rapoarte) → coboară la `.med-section`
@@ -402,20 +419,42 @@ Ecranul de meditație e împărțit pe roluri clare — cine ce spune și unde:
    tocmai s-a deschis. Blocajul cade singur când mouse-ul pleacă de pe bandă.
    Banda (`.med-rail`) e `align-self: stretch`, deci rămâne lipicioasă și
    vizibilă ca fâșie de pictograme și după ce ai coborât la secțiune.
-6. **Profesorul se mișcă după scris.** `BoardText` raportează, la fiecare
-   ~130 ms, unde a ajuns cerneala pe tablă (`onWritePos` → `{x, y}` ca fracții
-   din suprafață — din progresul vocii sau din întârzierile CSS). De acolo ies
-   trei variabile CSS pe `.med-prof`: `--pf-x` (corpul, stânga-dreapta, după
-   coloana în care scrie), `--pf-lean` (aplecarea) și `--pf-arm` (unghiul
-   brațului, după rândul pe care scrie). Fără poziție (ex. când răspunde în
-   conversație) rămâne un legănat lent (`.is-sway`). Pe ecran îngust și la
-   „mișcare redusă" mișcarea e oprită.
 
-Desenul profesorului (`Whiteboard.jsx`) e original, pe piese refolosite:
-`Sweater` (pulover cu umeri, guler, cute și manșetă tricotată),
-`SleeveDown` (mânecă + manșetă), `HandWithMarker` și `HandRest` (palmă, patru
-degete și degetul mare — nu cerculețe), `HairBack` / `HairFront`. Din față are
-gură adevărată (buze, dinți, limbă) care se mișcă atunci când vorbește.
+**Prima rostire:** Chrome și iOS cer un clic pe pagină înainte ca un site să
+vorbească. De obicei elevul ajunge din altă pagină a site-ului (clicul există deja).
+Dacă intră direct pe adresă, primul clic oriunde pornește vocea; până atunci,
+pe cameră apare „🔊 Pornește sunetul", iar subtitrările merg oricum.
+
+**Marcajele** (le citește `src/lib/tabla.js`; testate în `test/tabla-prof-tudor.test.js`):
+
+| Marcaj | Unde apare |
+|---|---|
+| `[[SPUNE: Hai să vedem întâi ideea.]]` | doar vorbit: subtitrare + voce |
+| `[[GRILA:{"q":"…","o":["…","…","…","…"],"a":"b","e":"…"}]]` | întrebare grilă pe tablă |
+| `[[COMPLETARE:{"q":"…","a":"4","e":"…"}]]` | întrebare cu răspuns de completat pe tablă |
+
+Le cer: lecția (`lesson`) și reexplicarea (`lesson_simplify`) din
+`api/ai-meditatii.js`, iar în conversație regulile `meditatiiBoardRules()` din
+`api/_lib/ai.js` (doar cu `context.tabla`, adică din „Planul meu" — widgetul de
+pe restul site-ului nu se schimbă). LaTeX-ul scris greșit cu un singur backslash
+în JSON („\frac" ar deveni „form-feed + rac") e reparat la citire. Lecțiile
+vechi (fără marcaje) merg în continuare: fără întrebare, profesorul întreabă
+„Ai înțeles?". Numele profesorului vine din `LIVE_PROF_RADU_NUME` (ca în sala
+live); starea (`action: state`) îl trimite în `teacher`.
+
+**Instalare:** nimic în plus — fără migrare SQL, fără variabile noi, fără cost
+nou (vocea e a browserului; întrebările vin în același răspuns al modelului).
+
+**Fișiere (runda 10):** noi — `src/lib/tabla.js` (marcajele, planul de vorbire,
+verificarea răspunsurilor), `src/lib/live/vorbire.js` (glasul profesorului),
+`src/components/live/ProfCamera.jsx` (camera + subtitrarea),
+`src/components/BoardQuestion.jsx` (întrebarea de pe tablă),
+`test/tabla-prof-tudor.test.js`; modificate — `src/components/Whiteboard.jsx`
+(profesorul desenat a fost scos), `src/pages/Meditatii.jsx`,
+`src/components/AITutor.jsx` (modul tablă), `src/components/live/PollCard.jsx`
+(explicația după verdict + `ChoiceCard`), `src/components/live/TeacherCamera.jsx`
+și `PortraitScene.jsx` (apropierea camerei, regia din pagină),
+`src/styles/global.css`, `api/ai-meditatii.js`, `api/_lib/ai.js`.
 
 ## 🛠️ Depanare
 
@@ -424,6 +463,10 @@ gură adevărată (buze, dinți, limbă) care se mișcă atunci când vorbește.
 | „Pregătirea pentru lucrări cere o mică actualizare a bazei de date” | Rulează `supabase/meditatii_focus.sql` (o singură dată). Fără el, restul meditațiilor merge normal — doar pregătirea de lucrare e inactivă. |
 | În loguri: „statusul «incompleta» nu e acceptat încă” | Rulează `supabase/meditatii_teme_finalizare.sql` (o singură dată). Până atunci temele incomplete se salvează în forma de rezervă (`rezolvata` + `feedback.complete=false`) și se afișează la fel. |
 | O temă finalizată incomplet apare ca „nefăcută” | Nu ar trebui: „incompletă” iese din clopoțel, briefing și raport. Dacă apare, tema e încă `data` — elevul a ieșit cu „Las-o pe mai târziu” / „← Înapoi”, nu cu „🏁 Finalizează tema”. |
+| Prof. Tudor nu vorbește, dar subtitrările curg | Browserul nu are o voce românească (Chrome pe Windows) — pe cameră apare explicația. Soluție: Microsoft Edge („Emil Online (Natural)", gratuită) sau vocea română în Windows (Setări → Oră și limbă → Vorbire). Verifică și 🔊 de pe cameră. |
+| Pe cameră stă „🔊 Pornește sunetul" | Browserul a blocat vocea până la primul clic pe pagină — un clic oriunde (sau pe buton) o pornește. |
+| Camera arată doar fotografia (profesorul nu se mișcă) | Browserul nu are WebGL — restul (voce, subtitrări, tablă) merge normal. |
+| La o etapă apare „Ai înțeles?" în loc de întrebare | Lecția a fost scrisă fără întrebarea de verificare (lecție veche sau modelul a sărit-o) — comportament normal, de rezervă. |
 | „Meditațiile fac parte din abonament" | Contul nu are abonament activ — comportament intenționat. |
 | Testul inițial nu se generează | Verifică `ANTHROPIC_API_KEY` sau `OPENAI_API_KEY` în Vercel; vezi logurile funcției `ai-meditatii`. |
 | Tabelele lipsesc / erori 500 la `state` | Rulează `supabase/meditatii_schema.sql`. |
