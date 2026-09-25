@@ -59,11 +59,81 @@ function callPlan(exam, sections) {
   return plan;
 }
 
+// ─── Paginile PDF (subiect + barem), atașate la fiecare apel ──────────────────
+// Textul extras din PDF pierde des formulele: radicalii, liniile de fracție,
+// exponenții, integralele, determinanții, matricele („2 2 6 2 3 2" în loc de
+// √2·(2√6 − 2√3)). Modelul primește și PAGINILE (content part „file": text +
+// imaginea paginii) — doar cele ale secțiunii din apel, ca să rămână ieftin.
+// LIVE_PDF_PAGINI=0 → doar textul, ca înainte.
+const PDF_PAGES_ON = () => !/^(0|nu|false|no|off)$/i.test(String(process.env.LIVE_PDF_PAGINI || '1').trim());
+const SECTION_MAX_PAGES = 3;
+
+// paginile fiecărei secțiuni: de la pagina pe care apare „SUBIECTUL S" până la
+// cea pe care începe următorul (inclusiv — secțiunea se poate termina acolo)
+function sectionPages(pageTexts) {
+  const n = (pageTexts || []).length;
+  const first = {};
+  (pageTexts || []).forEach((t, i) => { for (const sc of B.subjectSections(t)) if (first[sc.sub] == null) first[sc.sub] = i; });
+  const order = ['I', 'II', 'III'];
+  const out = {};
+  order.forEach((S, k) => {
+    if (first[S] == null) return;
+    const next = order.slice(k + 1).map((x) => first[x]).find((v) => v != null && v >= first[S]);
+    const end = next == null ? n - 1 : next;
+    const pages = [];
+    for (let p = first[S]; p <= end && pages.length < SECTION_MAX_PAGES; p++) pages.push(p);
+    out[S] = pages;
+  });
+  return out;
+}
+
+// { I: [part…], II: […], III: […] } — paginile subiectului și ale baremului, pe secțiuni
+async function pdfAttachments({ supa, content, ctx, pdfCtx, log = () => {} }) {
+  const out = { I: [], II: [], III: [] };
+  if (!PDF_PAGES_ON() || !supa || !pdfCtx || !content?.file_url) return out;
+  const pdfpages = require('./pdfpages');
+  const add = async (buf, pageTexts, label) => {
+    const secs = sectionPages(pageTexts);
+    const all = [...Array(Math.min(Math.max(1, pageTexts.length), 4)).keys()];
+    for (const S of ['I', 'II', 'III']) {
+      const sub = await pdfpages.extractPagesPdf(buf, secs[S] || all).catch(() => null);
+      const part = sub && pdfpages.filePart(sub, `${label}-subiectul-${S}.pdf`);
+      if (part) out[S].push(part);
+    }
+  };
+  try {
+    const buf = await pdfCtx.downloadContentPdf(supa, content);
+    const pages = Array.isArray(ctx?.pageTexts) && ctx.pageTexts.length ? ctx.pageTexts : await pdfpages.pageTexts(buf);
+    await add(buf, pages, 'subiect');
+  } catch (e) { log(`live: paginile subiectului ${content.id}: ${e.message}`); }
+  try {
+    const bid = ctx?.barem?.id;
+    if (bid && bid !== content.id) {
+      const { data: bc } = await supa.from('content').select('*').eq('id', bid).maybeSingle();
+      if (bc?.file_url) {
+        const bbuf = await pdfCtx.downloadContentPdf(supa, bc);
+        await add(bbuf, await pdfpages.pageTexts(bbuf), 'barem');
+      }
+    }
+  } catch (e) { log(`live: paginile baremului: ${e.message}`); }
+  return out;
+}
+
+// Enunțuri stricate de extragerea textului („[formula nu e lizibilă…]") — itemul nu se predă
+const UNREADABLE = /(nu\s+(sunt|este|e)\s+(lizibil|vizibil)|ilizibil|\[\s*formula|nu\s+se\s+(poate|pot)\s+citi|textul?\s+extras\s+din\s+pdf|din\s+textul\s+extras)/;
+const unreadable = (...texts) => UNREADABLE.test(live.foldRo(texts.filter(Boolean).join(' ')));
+// lecțiile scrise înainte: itemii cu enunțul stricat nu mai apar în sală
+function dropUnreadable(script) {
+  if (!script || !Array.isArray(script.items)) return script;
+  const ok = script.items.filter((it) => !unreadable(it.statement, ...(it.options || [])));
+  return ok.length === script.items.length || ok.length < 1 ? script : { ...script, items: ok };
+}
+
 // ─── Schema răspunsului AI (Structured Outputs, strictă) ─────────────────────
 const S = ai.S;
 const SEG = S.obj({
   say: S.str('ce ROSTEȘTE profesorul: text de citit cu voce tare, fără LaTeX și fără simboluri, maximum 40 de cuvinte'),
-  board: S.arr(S.str('un rând scris pe tablă: formule în LaTeX între $...$'), '0–2 rânduri scrise pe tablă în timpul segmentului'),
+  board: S.arr(S.str('un rând scris pe tablă: un pas al rezolvării, formulele în LaTeX între $...$'), '0–4 rânduri scrise pe tablă în timpul segmentului (câte un pas pe rând)'),
 });
 const SEGS = (d) => S.arr(SEG, d);
 const POLL = S.obj({
@@ -78,6 +148,7 @@ const ITEM = S.obj({
   title: S.str('titlul scurt: „Subiectul I, exercițiul 3"'),
   kind: S.enum(['grila', 'rezultat', 'rezolvare']),
   statement: S.str('enunțul complet, curățat (LaTeX între $...$)'),
+  statementTry: S.nullable(S.str('DOAR la „Arătați că / Demonstrați că / Verificați că…" cu rezultat care se calculează: enunțul cu cerința reformulată ca întrebare de calcul, FĂRĂ rezultat („Calculați E(x)."); altfel null')),
   options: S.nullable(S.arr(S.str(), 'variantele a–d, dacă itemul e grilă')),
   answer: S.str('răspunsul final din barem (litera la grilă)'),
   points: S.int('punctajul itemului din barem'),
@@ -86,7 +157,7 @@ const ITEM = S.obj({
   tryPoll: S.nullable(POLL),
   afterTry: SEGS('0–1 segment scurt de trecere spre răspuns („Să vedem răspunsul corect.")'),
   modes: S.obj({
-    barem: SEGS('3–9 segmente: rezolvarea oficială pas cu pas, cu punctajul pașilor'),
+    barem: SEGS('3–12 segmente: rezolvarea oficială pas cu pas, cu punctajul pașilor; pe tablă rămâne TOATĂ rezolvarea'),
     intuitiv: SEGS('2–5 segmente: ideea pe înțelesul tuturor'),
     greseli: SEGS('2–4 segmente: greșelile care costă puncte'),
     alta_metoda: S.nullable(SEGS('2–6 segmente: altă metodă corectă, cu același rezultat')),
@@ -103,22 +174,26 @@ function systemPrompt(teacher, exam, profile) {
     `Pregătești o meditație online, ca într-o clasă virtuală cu mai mulți elevi, în care explici un subiect de ${live.EXAM_LABEL(exam, profile)}${exam === 'bac' && live.PROFILE_LABELS[profile] ? ` (programa ${live.PROFILE_LABELS[profile]})` : ''} DOAR pe baza baremului oficial.`,
     '',
     'REGULI:',
+    '0. FORMULELE: dacă ai paginile PDF atașate (subiectul și baremul), citește formulele DIN PAGINI — textul extras le pierde des (radicali, linii de fracție, exponenți, integrale, determinanți, matrice, vectori, limite, figuri). Transcrie-le exact, în LaTeX între $...$: $\\sqrt{2}$, $\\sqrt[3]{x}$, $\\frac{a}{b}$, $x^{2}$, $a_{n}$, $\\int_{0}^{1} f(x)\\,dx$, $\\lim_{x \\to 2} f(x)$, $\\begin{vmatrix} 1 & 2 \\\\ 3 & 4 \\end{vmatrix}$ (determinant), $\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}$ (matrice), $\\overrightarrow{AB}$, $\\vec{v}$, $\\log_{2} x$, $\\widehat{ABC}$, $\\mathbb{R}$. Nu scrie NICIODATĂ un enunț cu „[formula nu e lizibilă]" sau „…": dacă un item chiar nu se poate citi nici din pagină, nu îl include.',
     '1. Sursa de adevăr este BAREMUL. Rezultatele, pașii și punctajele le iei din barem. Nu inventa alt rezultat. Dacă un item nu apare în barem, NU îl include.',
     '2. Enunțul îl iei din textul subiectului; corectezi doar greșelile de extragere din PDF (spații, indici, fracții, radicali). Formulele în LaTeX între $...$.',
     '3. Fiecare item se explică în mai multe moduri: „barem" (rezolvarea oficială, pas cu pas, spunând câte puncte se acordă: „pentru acest calcul se acordă 2 puncte"), „intuitiv" (ideea pentru un elev care nu a înțeles: o imagine, o comparație, o verificare rapidă, fără calcule lungi), „greseli" (greșelile tipice și cum se pierd puncte) și „alta_metoda" (o altă rezolvare corectă, cu ACELAȘI rezultat — baremul punctează orice metodă corectă; null dacă nu există una firească).',
     '4. „say" se ROSTEȘTE: scrie exact cum se citește cu voce tare în română — fără LaTeX, fără simboluri: „x la pătrat", „radical din 3", „a supra b", „egal", „ori", „unghiul A B C", „segmentul A B". Numere zecimale cu virgulă („doi virgulă cinci"). Propoziții scurte, cel mult 40 de cuvinte pe segment. Vorbești la persoana a doua plural („încercați", „observați"), ca într-o clasă; nu comenta procente sau cine a răspuns.',
-    '5. „board" = ce scrii pe tablă cât timp spui segmentul: 0–2 rânduri scurte; formulele în LaTeX între $...$ (ex. „$\\Delta = b^2 - 4ac = 16$"). Pe tablă rămân pașii rezolvării, ca pe o tablă adevărată.',
-    '6. „tryPoll": la itemii-grilă (variante a–d) întrebarea e chiar itemul, cu variantele lui și LITERA corectă din barem (type „grila"); la itemii cu un rezultat scurt, type „completare", cu rezultatul din barem. La itemii cu rezolvare lungă: null.',
+    '5. „board" = ce scrii pe tablă cât timp spui segmentul: 0–4 rânduri scurte, câte un pas pe rând; formulele în LaTeX între $...$ (ex. „$\\Delta = b^2 - 4ac = 16$"). Pe tablă rămân pașii rezolvării, ca pe o tablă adevărată. Pe tablă scrii matematică, nu fraze: cel mult câteva cuvinte de legătură („deci", „așadar", „din (1) și (2)").',
+    '5b. REZOLVĂRILE COMPLETE: la itemii cu rezolvare (Subiectele II și III, probleme, demonstrații, calcule în mai mulți pași), în modul „barem" tabla trebuie să ajungă să conțină TOATĂ rezolvarea care ia punctajul maxim, ca în barem: formula sau proprietatea folosită, fiecare transformare pe rândul ei (fără pași săriți; lanțurile de egalități continuă pe rândul următor cu „$= \\ldots$"), rezultatul, cu punctajul pasului la sfârșitul rândului („(2p)"). La itemii-grilă și la cei cu rezultat scurt, baremul dă doar răspunsul: pe tablă scrii totuși CALCULUL care duce la el (2–5 rânduri: formula, înlocuirea, calculul, rezultatul), apoi varianta corectă; nu copia pe tablă tabelul de punctaj („Alt răspuns — 0p").',
+    '5c. Cerințele „Arătați că…", „Demonstrați că…", „Verificați că…" au rezultatul scris chiar în enunț. (1) Dacă rezultatul e o valoare sau o expresie care se CALCULEAZĂ (ex. „Arătați că $E(x) = 4x$", „Arătați că $a = 2$", „Verificați că $f(1) = 3$"), elevii nu trebuie să-l vadă înainte să încerce: în „statementTry" scrii enunțul cu cerința reformulată ca întrebare de calcul, FĂRĂ rezultat („Calculați $E(x)$.", „Determinați numărul $a$.", „Calculați $f(1)$."), restul enunțului rămânând la fel; „tryPoll" = type „completare", cu aceeași întrebare de calcul și rezultatul ca răspuns; în „intro" citești cerința reformulată (fără rezultat). (2) Altfel (ex. „Arătați că triunghiul $ABC$ este dreptunghic"): „statementTry" = null și „tryPoll" = null. (3) În ambele cazuri, în modul „barem" scrii pe tablă ETAPELE INTERMEDIARE din barem, fiecare pe rândul ei (nu doar rezultatul, nu porni de la rezultat), iar la final spui că ați obținut exact ce cerea subiectul („Deci $E(x) = 4x$, exact ce trebuia arătat.").',
+    '6. „tryPoll": la itemii-grilă (variante a–d) întrebarea e chiar itemul, cu variantele lui și LITERA corectă din barem (type „grila"); la itemii cu un rezultat scurt, type „completare", cu rezultatul din barem. La itemii cu rezolvare lungă: null (excepție: „Arătați că…" cu rezultat calculabil, vezi 5c). „statementTry" = null la toți ceilalți itemi.',
     '7. „check": la itemii fără tryPoll — o întrebare scurtă despre un pas-cheie din barem (grilă cu 4 variante sau completare cu un număr). La itemii cu tryPoll: null.',
     '8. „intro": anunți itemul („Trecem la Subiectul al doilea, exercițiul 4.") și citești enunțul. „afterTry"/„afterCheck": o trecere scurtă („Să vedem răspunsul corect.").',
     '9. Ton: cald, sigur, încurajator; fără glume forțate; fără emoji; fără linkuri.',
   ].join('\n');
 }
 
-function userPrompt({ exam, section, from, to, subjectSection, baremSection, title }) {
+function userPrompt({ exam, section, from, to, subjectSection, baremSection, title, pages = false }) {
   const bacSub = exam === 'bac' && section !== 'I';
   return [
     `Subiectul: „${title}".`,
+    pages ? `Ai atașate PAGINILE PDF ale subiectului${pages === 'barem' ? ' și ale baremului' : ''} pentru Subiectul ${section}: formulele le citești din pagini (regula 0); textul de mai jos ajută doar la ordinea itemilor.` : '',
     `Explică itemii ${from}–${to} din SUBIECTUL ${section} (în ordinea din subiect).`,
     bacSub ? `La acest subiect fiecare problemă are cerințele a), b), c): fiecare literă e un item separat. Itemii 1–3 = problema 1 (a, b, c), itemii 4–6 = problema 2 (a, b, c). Ref: „${section}.1.a", „${section}.1.b", …` : '',
     '',
@@ -139,7 +214,7 @@ function cleanSegs(arr, { min = 0, max = 10 } = {}) {
   for (const s of Array.isArray(arr) ? arr : []) {
     const say = String(s?.say || '').replace(/\s+/g, ' ').trim().slice(0, 420);
     if (!say) continue;
-    const board = (Array.isArray(s.board) ? s.board : []).map((b) => cleanStr(b, 200)).filter(Boolean).slice(0, 3);
+    const board = (Array.isArray(s.board) ? s.board : []).map((b) => cleanStr(b, 200)).filter(Boolean).slice(0, 4);
     out.push({ say, board });
     if (out.length >= max) break;
   }
@@ -172,6 +247,17 @@ function parseRef(ref) {
 }
 const refKey = (r) => (r ? `${r.subject}.${r.ex}${r.letter ? '.' + r.letter : ''}` : '');
 
+// „Arătați că / Demonstrați că / Verificați că…" — rezultatul e scris în enunț
+const SHOW_THAT = (t) => /\b(aratati|demonstrati|verificati|justificati)\s+ca\b/.test(live.foldRo(t));
+const normEq = (x) => live.foldRo(String(x || '')).replace(/\$|\\[,;!]|\s+/g, '');
+// textul „scapă" rezultatul? („= 4x" sau rezultatul lung, întreg)
+function leaksAnswer(text, ans) {
+  const a = normEq(ans);
+  if (!a) return false;
+  const t = normEq(text);
+  return t.includes('=' + a) || (a.length >= 4 && t.includes(a));
+}
+
 // Aplică verificările deterministe pe itemii unei secțiuni. `grile` = răspunsurile
 // oficiale din tabelul baremului (EN), `baremText` = tot baremul.
 function normalizeItems(rawItems, { section, exam, grile = {}, baremText = '', log = () => {} }) {
@@ -183,6 +269,7 @@ function normalizeItems(rawItems, { section, exam, grile = {}, baremText = '', l
       ref: refKey(r), section, title: String(it.title || `Subiectul ${section}, exercițiul ${r.ex}${r.letter ? ` ${r.letter})` : ''}`).slice(0, 80),
       kind: ['grila', 'rezultat', 'rezolvare'].includes(it.kind) ? it.kind : 'rezolvare',
       statement: cleanStr(it.statement, 2500),
+      statementTry: cleanStr(it.statementTry || '', 2500) || null,
       options: Array.isArray(it.options) && it.options.length === 4 ? it.options.map((o) => cleanStr(o, 200).replace(/^\s*[a-d]\s*[).]\s*/i, '')) : null,
       answer: cleanStr(it.answer, 200),
       points: Number.isFinite(it.points) ? Math.max(0, Math.min(30, it.points)) : 5,
@@ -191,7 +278,7 @@ function normalizeItems(rawItems, { section, exam, grile = {}, baremText = '', l
       tryPoll: cleanPoll(it.tryPoll),
       afterTry: cleanSegs(it.afterTry, { max: 2 }),
       modes: {
-        barem: cleanSegs(it.modes?.barem, { min: 1, max: 12 }),
+        barem: cleanSegs(it.modes?.barem, { min: 1, max: 14 }),
         intuitiv: cleanSegs(it.modes?.intuitiv, { max: 6 }),
         greseli: cleanSegs(it.modes?.greseli, { max: 5 }),
         alta_metoda: it.modes?.alta_metoda ? cleanSegs(it.modes.alta_metoda, { max: 7 }) : [],
@@ -200,6 +287,7 @@ function normalizeItems(rawItems, { section, exam, grile = {}, baremText = '', l
       afterCheck: cleanSegs(it.afterCheck, { max: 2 }),
     };
     if (!item.statement || !item.modes.barem.length) { log(`live: item ${item.ref} fără enunț sau fără explicație pe barem — omis`); continue; }
+    if (unreadable(item.statement, ...(item.options || []))) { log(`live: item ${item.ref} — enunțul nu s-a putut citi (formule pierdute) — omis`); continue; }
 
     // GRILELE de EN: litera oficială din tabelul baremului are ultimul cuvânt
     const official = grile[section] && !r.letter ? grile[section][r.ex] : null;
@@ -228,9 +316,23 @@ function normalizeItems(rawItems, { section, exam, grile = {}, baremText = '', l
       const loc = B.locateBaremItem(baremText, { subject: section, ex: r.ex, letter: r.letter });
       if (loc && loc.kind === 'rezultat' && loc.raspuns) item.tryPoll.answer = loc.raspuns;
     }
+    // „Arătați că…": rezultatul e în enunț → elevii încearcă pe cerința reformulată
+    // („Calculați…", fără rezultat). Fără o reformulare curată, sondajul ar da
+    // răspunsul: nu se pune (explicația pe barem rămâne, cu etapele intermediare).
+    const showThat = SHOW_THAT(item.statement);
+    if (showThat) {
+      const ans = item.tryPoll && item.tryPoll.type === 'completare' ? item.tryPoll.answer : '';
+      const ok = item.statementTry && item.tryPoll && !SHOW_THAT(item.statementTry) && !SHOW_THAT(item.tryPoll.question)
+        && !leaksAnswer(item.statementTry, ans) && !leaksAnswer(item.tryPoll.question, ans);
+      if (!ok) {
+        if (item.statementTry || item.tryPoll) log(`live: ${item.ref} — „Arătați că…" fără reformulare curată → fără sondaj înainte`);
+        item.statementTry = null;
+        item.tryPoll = null;
+      }
+    } else item.statementTry = null;
     // un singur sondaj înainte (tryPoll) SAU o verificare după (check)
     if (item.tryPoll && item.check) item.check = null;
-    if (!item.tryPoll && !item.check) {
+    if (!item.tryPoll && !item.check && !showThat) {
       // item fără întrebare → o verificare simplă cu rezultatul final (dacă e scurt)
       const ans = String(item.answer || '').replace(/^\$|\$$/g, '').trim();
       if (ans && ans.length <= 24 && /\d/.test(ans)) {
@@ -291,6 +393,18 @@ function assignIds(script) {
   return script;
 }
 
+// Profesorul și-a schimbat numele (ex. „Prof. Radu" → „Prof. Tudor"): lecțiile deja
+// scrise îl rostesc pe cel nou. Doar textul se schimbă — id-urile segmentelor și
+// ale întrebărilor rămân (cronologia ședințelor în curs nu se strică).
+function renameTeacher(script, teacher) {
+  if (!script || !teacher?.name || !script.teacherName || script.teacherName === teacher.name) return script;
+  const old = new RegExp(String(script.teacherName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+  const copy = JSON.parse(JSON.stringify(script));
+  for (const s of segmentsInOrder(copy)) s.say = s.say.replace(old, teacher.name);
+  copy.teacherName = teacher.name;
+  return copy;
+}
+
 // Toate segmentele, în ORDINEA în care se aud (pentru vocea generată întâi
 // la început — 1-la-1 poate porni înainte să fie gata tot)
 function segmentsInOrder(script) {
@@ -306,7 +420,7 @@ function segmentsInOrder(script) {
 }
 
 // ─── 1. Scriptul ─────────────────────────────────────────────────────────────
-async function generateScript({ ctx, content, teacher, exam, profile, log = console.warn }) {
+async function generateScript({ ctx, content, teacher, exam, profile, log = console.warn, attachments = null }) {
   const subjectText = String(ctx.text || '');
   const baremText = String(ctx.baremText || '');
   if (!live.hasBarem({ barem_status: ctx.baremStatus, barem_text: baremText })) {
@@ -324,16 +438,20 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
   const usage = { in: 0, out: 0, model: GEN_MODEL() };
   const title = content.title || 'Subiect';
 
+  const pdfpages = require('./pdfpages');
   const results = await Promise.all(plan.map(async (p) => {
     try {
+      const parts = (attachments && attachments[p.section]) || [];
+      const text = userPrompt({
+        exam, section: p.section, from: p.from, to: p.to, title,
+        subjectSection: whole ? subjectText : sections.subject[p.section],
+        baremSection: whole ? baremText : sections.barem[p.section],
+        pages: parts.length ? (parts.some((x) => /^barem-/.test(x?.file?.filename || '')) ? 'barem' : 'subiect') : false,
+      });
       const r = await ai.chatJson({
         system: systemPrompt(teacher, exam, profile),
-        messages: [{ role: 'user', content: userPrompt({
-          exam, section: p.section, from: p.from, to: p.to, title,
-          subjectSection: whole ? subjectText : sections.subject[p.section],
-          baremSection: whole ? baremText : sections.barem[p.section],
-        }) }],
-        schema: SCHEMA, schemaName: 'lectie_live', model: GEN_MODEL(), maxTokens: 14000, temperature: 0.4,
+        messages: [{ role: 'user', content: pdfpages.userContent(text, parts) }],
+        schema: SCHEMA, schemaName: 'lectie_live', model: GEN_MODEL(), maxTokens: 16000, temperature: 0.4,
       });
       usage.in += r.usage?.in || 0; usage.out += r.usage?.out || 0;
       return normalizeItems(r.data?.items, { section: p.section, exam, grile, baremText, log });
@@ -349,8 +467,10 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
     const e = new Error(`Lecția nu s-a putut pregăti (${items.length} itemi explicați). Subiectul poate fi scanat sau baremul greu de citit.`);
     e.code = 'SCRIPT_FAIL'; e.usage = usage; throw e;
   }
+  // v2 = scrisă cu paginile PDF (formulele citite din pagini); v1 = doar din textul extras
+  const withPages = Object.values(attachments || {}).some((a) => Array.isArray(a) && a.length);
   const script = {
-    v: 1, title, exam, profile: profile || null, teacher: teacher.id, teacherName: teacher.name,
+    v: withPages ? 2 : 1, title, exam, profile: profile || null, teacher: teacher.id, teacherName: teacher.name,
     subjectId: content.id, baremId: ctx.barem?.id || null, baremTitle: ctx.barem?.title || null,
     ...templates(teacher, { title, exam, profile }),
     items,
@@ -413,6 +533,6 @@ function playableHead(script, audio) {
 }
 
 module.exports = {
-  generateScript, adaptScript, voiceScript, playableHead, segmentsInOrder, templates, assignIds,
+  generateScript, adaptScript, renameTeacher, dropUnreadable, pdfAttachments, sectionPages, voiceScript, playableHead, segmentsInOrder, templates, assignIds,
   normalizeItems, sectionMap, callPlan, parseRef, refKey, SCHEMA, systemPrompt, userPrompt, GEN_MODEL,
 };

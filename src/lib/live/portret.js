@@ -204,6 +204,8 @@ export function buildGeometry(rig) {
     feet, shY, hipY,
     headW, jawW, lipUpW, cornerL, cornerR, browW, liftW, depth, eyeIdx, eyeGap, eyeLidF,
     limbs, region,
+    // ține ceva cu amândouă mâinile (ex. markerul la piept): mâinile se mișcă împreună
+    handsTogether: !!rig.handsTogether,
     cavity: { up: LIP_UP_IN, lo: LIP_LO_IN },
   };
 }
@@ -626,7 +628,8 @@ export function createAnimator(g, seed = Math.random() * 1000) {
     // gesturi „de arătat": spre tablă (stânga imaginii) ridică mâna cu markerul,
     // spre proiecție (dreapta) ridică cealaltă mână
     const point = t < st.lookUntil ? (st.look === 'tabla' ? 1 : st.look === 'ecran' ? 2 : 0) : 0;
-    st.armR.target = armIdle * noise(t * 0.9, seed + 11) + relax + (point === 1 ? -0.1 : 0);
+    const together = g.handsTogether;
+    st.armR.target = armIdle * noise(t * 0.9, seed + 11) + relax + (point === 1 ? -0.1 : 0) + (together && point === 2 ? -0.08 : 0);
     st.armL.target = armIdle * 0.7 * noise(t * 0.8, seed + 12) + relax * 0.6 + (point === 2 ? -0.12 : 0);
     st.handR.target = 0.05 * noise(t * 1.1, seed + 13);
     st.handL.target = 0.04 * noise(t * 0.95, seed + 14);
@@ -639,8 +642,12 @@ export function createAnimator(g, seed = Math.random() * 1000) {
       htx: (0.25 * noise(t * 0.35, seed + 4) + yawL * 2.2) * E * 0.25,
       hty: 0.2 * noise(t * 0.42, seed + 5) * E * 0.15,
       breathe, lean, btx: st.lean * E * 30, bty: 0,
-      armR: clamp(st.armR.step(dt), -0.25, 0.3), armL: clamp(st.armL.step(dt), -0.2, 0.25),
-      handR: clamp(st.handR.step(dt), -0.25, 0.25), handL: clamp(st.handL.step(dt), -0.2, 0.2),
+      ...(() => {
+        const aR = clamp(st.armR.step(dt), -0.25, 0.3), aL = clamp(st.armL.step(dt), -0.2, 0.25);
+        const hR = clamp(st.handR.step(dt), -0.25, 0.25), hL = clamp(st.handL.step(dt), -0.2, 0.2);
+        // amândouă mâinile pe marker: aceeași mișcare (bătăile ritmului, gesturile „de arătat")
+        return { armR: aR, armL: together ? aR : aL, handR: hR, handL: together ? hR : hL };
+      })(),
     };
   }
 

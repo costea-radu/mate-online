@@ -30,7 +30,9 @@ const JOIN_EARLY_MIN = () => Math.max(0, envInt('LIVE_INTRARE_DEVREME_MIN', 15))
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. PROFESORUL VIRTUAL
-// Un singur profesor (bărbat), cu portretul animat din public/live/radu/.
+// Un singur profesor (bărbat): „Prof. Tudor", cu portretul animat din
+// public/live/radu/ (id-ul intern a rămas „radu": ședințele și lecțiile din baza
+// de date îl folosesc; numele afișat și rostit e „Prof. Tudor").
 // Numele, prezentarea și vocea se pot schimba din env (LIVE_PROF_RADU_NUME,
 // ..._BIO, ..._VOCE_OPENAI, ..._VOCE_AZURE). Mecanismul acceptă și alți profesori
 // (LIVE_PROFESORI="radu,altul" + public/live/altul/), dar implicit e unul singur.
@@ -38,7 +40,7 @@ const JOIN_EARLY_MIN = () => Math.max(0, envInt('LIVE_INTRARE_DEVREME_MIN', 15))
 // ═════════════════════════════════════════════════════════════════════════════
 const TEACHER_DEFAULTS = {
   radu: {
-    id: 'radu', name: 'Prof. Radu', gender: 'm', color: '#1f6dab',
+    id: 'radu', name: 'Prof. Tudor', gender: 'm', color: '#1f6dab',
     bio: 'Profesor de matematică. Explică pe barem, pas cu pas, cu calm și cu multe verificări.',
     voice: { openai: 'ash', azure: 'ro-RO-EmilNeural' },
     style: 'Vorbești calm, cald și clar, ca un profesor de liceu cu experiență care își cunoaște elevii. Folosești exemple scurte și verifici des dacă s-a înțeles.',
@@ -483,7 +485,8 @@ function buildTimeline(script, audio = {}, opts = {}) {
     lastSection = it.section;
     const common = { item: i, ref: it.ref, section: it.section, title: it.title };
     // 1) enunțul (pe tabla digitală) + ce spune profesorul la început
-    const head = segScene('item', it.intro, { ...common, statement: it.statement, options: it.options || null, points: it.points || null, minDur: 2 });
+    // statementTry: „Arătați că…" reformulat ca „Calculați…" (fără rezultat), cât încearcă elevii
+    const head = segScene('item', it.intro, { ...common, statement: it.statement, statementTry: (it.tryPoll && it.statementTry) || null, options: it.options || null, points: it.points || null, minDur: 2 });
     if (head) push(head);
     // 2) „încercați singuri" (grilă sau rezultat) — sondajul ÎNAINTE de explicație
     if (it.tryPoll) {

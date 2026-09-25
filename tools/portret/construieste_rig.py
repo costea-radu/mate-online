@@ -39,6 +39,8 @@
 #     "camera": [x, y, lățime, înălțime],           încadrarea implicită (ca o cameră
 #                                                   îndreptată spre tablă); lipsă = toată poza
 #     "extra_mana": { "R": [[x,y],...], "L": [...] } ce ține în mână (ex. markerul)
+#     "maini_impreuna": true                        (opțional) ține ceva cu AMÂNDOUĂ mâinile
+#                                                   (ex. markerul la piept): mâinile se mișcă împreună
 #   }
 # Colțurile: stânga-sus, dreapta-sus, dreapta-jos, stânga-jos.
 # Recomandat pentru poză: față spre cameră, mâinile la vedere, fundal simplu
@@ -676,6 +678,7 @@ def main():
         'screenMode': cfg.get('ecran_mod') or 'ecran',
         'screenFloat': cfg.get('plutitor'),
         'camera': cfg.get('camera'),
+        'handsTogether': bool(cfg.get('maini_impreuna')),
     }
     # colțurile tablelor: fracții 0–1 (ca înainte)
     for k in ('board', 'screen'):

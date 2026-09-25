@@ -1,15 +1,15 @@
 // =====================================================================
-// src/lib/katex.js — încărcare KaTeX la cerere (din CDN) + randare formule
+// src/lib/katex.js — încărcare KaTeX la cerere + randare formule
+// KaTeX vine ÎNTÂI din aplicație (pachetul npm, încărcat doar când e nevoie):
+// radicalii, fracțiile, puterile, integralele, determinanții, matricele,
+// vectorii și limitele se văd și în rețelele (școli) care blochează CDN-urile.
+// Rezervă: CDN-ul jsDelivr, ca înainte.
 // =====================================================================
 let loadingPromise = null;
 const KATEX_VER = '0.16.11';
 
-export function ensureKatex() {
-  if (typeof window === 'undefined') return Promise.resolve();
-  if (window.renderMathInElement) return Promise.resolve();
-  if (loadingPromise) return loadingPromise;
-
-  loadingPromise = new Promise((resolve) => {
+function loadFromCdn() {
+  return new Promise((resolve) => {
     // CSS
     if (!document.getElementById('katex-css')) {
       const css = document.createElement('link');
@@ -31,6 +31,27 @@ export function ensureKatex() {
     s1.onerror = () => resolve();
     document.head.appendChild(s1);
   });
+}
+
+export function ensureKatex() {
+  if (typeof window === 'undefined') return Promise.resolve();
+  if (window.renderMathInElement) return Promise.resolve();
+  if (loadingPromise) return loadingPromise;
+  loadingPromise = (async () => {
+    try {
+      const [katexMod, autoMod] = await Promise.all([
+        import('katex'),
+        import('katex/contrib/auto-render'),
+        import('katex/dist/katex.min.css'),
+      ]);
+      if (!window.katex) window.katex = katexMod.default || katexMod;
+      window.renderMathInElement = autoMod.default || autoMod;
+      return;
+    } catch (e) {
+      console.warn('KaTeX din aplicație nu s-a încărcat — încerc CDN-ul:', e && e.message);
+    }
+    await loadFromCdn();
+  })();
   return loadingPromise;
 }
 

@@ -87,6 +87,7 @@ ai.logUsage = async () => {};
 ai.chatJson = async () => { calls.chat++; return { data: { say: 'Pentru că înmulțirea se face înaintea adunării.', text: 'Pentru că înmulțirea se face înaintea adunării: $3\\cdot 4=12$.', board: [] }, usage: { model: 'test', input_tokens: 10, output_tokens: 10 } }; };
 LL.generateScript = async () => { calls.script++; return { script: lessonScript(), usage: { model: 'test', input_tokens: 100, output_tokens: 100 } }; };
 pdf.getPdfContext = async () => ({ text: 'SUBIECTUL I', baremText: BAREM_TEXT, baremStatus: 'ok' });
+pdf.downloadContentPdf = async () => { throw new Error('fără rețea în teste'); };   // paginile PDF: sărite
 delete process.env.AZURE_SPEECH_KEY; delete process.env.OPENAI_API_KEY; delete process.env.LIVE_TTS_API_KEY;
 delete process.env.SUPABASE_URL; delete process.env.VITE_SUPABASE_URL;
 
@@ -249,7 +250,7 @@ test('intrarea în sală: fără abonament → plata; cu bilet → cronologia, c
   assert.strictEqual(r1.statusCode, 402);
   assert.strictEqual(r1.body.code, 'LIVE_PAYMENT');
   assert.strictEqual(r1.body.price, 10);
-  assert.strictEqual(r1.body.teacher.name, 'Prof. Radu');
+  assert.strictEqual(r1.body.teacher.name, 'Prof. Tudor');
   // biletul (cum îl scrie webhook-ul Stripe)
   fake.db.tables.live_tickets = [TICKET(s.id)];
   const r2 = await call('join', { sessionId: s.id }, U.free);
@@ -283,7 +284,7 @@ test('chatul: moderare, ritmul mesajelor, profesorul răspunde doar la întrebă
   const q = await call('chat', { sessionId: s.id, text: 'De ce se face întâi înmulțirea?' }, U.prem);
   assert.strictEqual(q.statusCode, 200, JSON.stringify(q.body));
   assert.strictEqual(q.body.answer.role, 'profesor');
-  assert.strictEqual(q.body.answer.author, 'Prof. Radu');
+  assert.strictEqual(q.body.answer.author, 'Prof. Tudor');
   assert.strictEqual(q.body.answer.replyTo, q.body.message.id);
   assert.strictEqual(calls.chat - chatCalls0, 1, 'un singur apel la model (doar pentru întrebare)');
   // cine nu are acces nu poate scrie (biletul e al altei ședințe)

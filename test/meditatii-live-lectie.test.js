@@ -125,7 +125,7 @@ test('scriptul: segmentele fixe, id-uri stabile, ordinea vocii, adaptarea la alt
   const ana = { id: 'ana', name: 'Prof. Ana', gender: 'f', color: '#b0417a', bio: '', voice: { openai: 'coral', azure: 'ro-RO-AlinaNeural' }, style: 'Vorbești energic.' };
   const items = LL.normalizeItems([rawItem('I.1')], { section: 'I', exam: 'en', grile: { I: { 1: 'b' } }, baremText: BAREM });
   const script = LL.assignIds({ title: 'EN 2024 Varianta 7', exam: 'en', teacher: 'radu', teacherName: radu.name, ...LL.templates(radu, { title: 'EN 2024 Varianta 7', exam: 'en' }), items });
-  assert.ok(script.intro[0].say.includes('Prof. Radu'));
+  assert.ok(script.intro[0].say.includes('Prof. Tudor'));
   assert.ok(script.intro[0].say.includes('profesorul vostru virtual'));
   const ids = LL.segmentsInOrder(script).map((s) => s.id);
   assert.strictEqual(new Set(ids).size, ids.length, 'id-uri unice');
@@ -176,4 +176,116 @@ test('vocea: PCM → WAV valid; PCM → MP3 (când ffmpeg există)', async () =>
   }
   // cost: 1 minut OpenAI ≈ 0,015 $ · 4,6 = ~0,069 lei = 69.000 micro-lei
   assert.strictEqual(tts.costMicroLei({ provider: 'openai', dur: 60 }), 69000);
+});
+
+test('redenumirea profesorului: lecțiile deja scrise rostesc numele nou, id-urile rămân', () => {
+  const tudor = live.teacherById('radu');
+  assert.strictEqual(tudor.name, 'Prof. Tudor');
+  const vechi = { ...tudor, name: 'Prof. Radu' };
+  const items = LL.normalizeItems([rawItem('I.1')], { section: 'I', exam: 'en', grile: { I: { 1: 'b' } }, baremText: BAREM });
+  const script = LL.assignIds({ title: 'EN 2024 Varianta 7', exam: 'en', teacher: 'radu', teacherName: vechi.name, ...LL.templates(vechi, { title: 'EN 2024 Varianta 7', exam: 'en' }), items });
+  assert.ok(script.intro[0].say.includes('Prof. Radu'));
+  const r = LL.renameTeacher(script, tudor);
+  assert.ok(r.intro[0].say.includes('Prof. Tudor') && !r.intro[0].say.includes('Radu'));
+  assert.strictEqual(r.teacherName, 'Prof. Tudor');
+  assert.deepStrictEqual(LL.segmentsInOrder(r).map((s) => s.id), LL.segmentsInOrder(script).map((s) => s.id), 'id-urile nu se schimbă');
+  assert.ok(script.intro[0].say.includes('Prof. Radu'), 'originalul rămâne neatins');
+  assert.strictEqual(LL.renameTeacher(r, tudor), r, 'același nume → nimic de făcut');
+});
+
+test('rezolvările complete pe tablă: până la 4 rânduri pe segment, regula pentru „Arătați că…"', () => {
+  const it = rawItem('II.4');
+  it.kind = 'rezolvare';
+  it.modes.barem = [{ say: 'Pornim de la definiție.', board: ['$E(x) = (x+1)^2 - (x-1)^2$', '$= x^2 + 2x + 1 - (x^2 - 2x + 1)$', '$= 4x$', '$\\Rightarrow E(x) = 4x$ (ceea ce trebuia demonstrat)', 'un al cincilea rând'] }];
+  const [item] = LL.normalizeItems([it], { section: 'II', exam: 'en', baremText: BAREM });
+  assert.strictEqual(item.modes.barem[0].board.length, 4, 'patru pași pe tablă într-un segment');
+  const sp = LL.systemPrompt(live.teacherById('radu'), 'bac', 'tehnologic');
+  assert.match(sp, /Arătați că/);
+  assert.match(sp, /TOATĂ rezolvarea/);
+  assert.match(sp, /BAC Tehnologic \(programa M_tehnologic\)/);
+});
+
+test('„Arătați că…": elevii încearcă pe „Calculați…" (fără rezultat); dacă reformularea scapă rezultatul → fără sondaj', () => {
+  const mk = (over) => ({ ...rawItem('II.4'), kind: 'rezolvare', statement: 'Se consideră $E(x) = (x+1)^2 - (x-1)^2$. Arătați că $E(x) = 4x$, pentru orice număr real $x$.', ...over });
+  // 1) reformulare curată → sondaj de completare pe „Calculați E(x)", enunțul original rămâne
+  const good = mk({ statementTry: 'Se consideră $E(x) = (x+1)^2 - (x-1)^2$. Calculați $E(x)$, pentru orice număr real $x$.', tryPoll: { type: 'completare', question: 'Calculați $E(x)$.', options: null, answer: '4x', explain: 'Diferență de pătrate.' } });
+  const [a] = LL.normalizeItems([good], { section: 'II', exam: 'en', baremText: BAREM });
+  assert.ok(a.statementTry && !/Arătați/.test(a.statementTry));
+  assert.strictEqual(a.tryPoll.type, 'completare');
+  assert.strictEqual(a.tryPoll.answer, '4x');
+  assert.match(a.statement, /Arătați că/);
+  // cronologia: scena enunțului poartă cerința reformulată
+  const tl = live.buildTimeline(LL.assignIds({ title: 'T', exam: 'en', teacher: 'radu', teacherName: 'Prof. Tudor', intro: [], qna: [], breakSay: [], outro: [], items: [a] }), {}, { mode: 'privat' });
+  const head = tl.scenes.find((x) => x.type === 'item');
+  assert.ok(head.statementTry && head.statement !== head.statementTry);
+  // 2) reformularea „scapă" rezultatul → fără reformulare și fără sondaj
+  const leak = mk({ statementTry: 'Calculați $E(x) = 4x$.', tryPoll: { type: 'completare', question: 'Calculați $E(x)$.', options: null, answer: '4x', explain: '' } });
+  const [b] = LL.normalizeItems([leak], { section: 'II', exam: 'en', baremText: BAREM });
+  assert.strictEqual(b.statementTry, null);
+  assert.strictEqual(b.tryPoll, null);
+  assert.strictEqual(b.check, null, 'fără „Care e rezultatul final?" — rezultatul e în enunț');
+  // 3) „Arătați că" fără reformulare (demonstrație) → fără sondaj înainte
+  const proof = mk({ statement: 'Arătați că triunghiul $ABC$ este dreptunghic.', statementTry: null, tryPoll: { type: 'completare', question: 'Arătați că triunghiul ABC este dreptunghic', options: null, answer: 'da', explain: '' } });
+  const [c] = LL.normalizeItems([proof], { section: 'II', exam: 'en', baremText: BAREM });
+  assert.strictEqual(c.tryPoll, null);
+  // 4) un item obișnuit nu primește statementTry
+  const [d] = LL.normalizeItems([{ ...rawItem('I.2'), statementTry: 'ceva' }], { section: 'I', exam: 'en', grile: { I: { 2: 'b' } }, baremText: BAREM });
+  assert.strictEqual(d.statementTry, null);
+});
+
+test('formulele: paginile PDF ale secțiunii merg la model; enunțurile stricate („[formula nu e lizibilă]") nu se predau', async () => {
+  const { PDFDocument, StandardFonts } = require('pdf-lib');
+  // un PDF de 3 pagini: I pe p.1, II începe pe p.2, III pe p.3
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (const lines of [['SUBIECTUL I (30 de puncte)', '1. Rezultatul calculului'], ['5. ceva', 'SUBIECTUL al II-lea (30 de puncte)', '1. Figura'], ['SUBIECTUL al III-lea (30 de puncte)', '1. Se considera']]) {
+    const pg = doc.addPage([400, 400]);
+    lines.forEach((l, i) => pg.drawText(l, { x: 20, y: 360 - i * 30, size: 12, font }));
+  }
+  const buf = Buffer.from(await doc.save());
+  const pdfpages = require('../api/_lib/pdfpages');
+  const texts = await pdfpages.pageTexts(buf);
+  assert.strictEqual(texts.length, 3);
+  assert.deepStrictEqual(LL.sectionPages(texts), { I: [0, 1], II: [1, 2], III: [2] });
+  // atașamentele pe secțiuni (subiectul; fără barem separat)
+  const fakeSupa = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }) };
+  const att = await LL.pdfAttachments({ supa: fakeSupa, content: { id: 'c1', file_url: 'https://x/c1.pdf' }, ctx: { pageTexts: texts }, pdfCtx: { downloadContentPdf: async () => buf } });
+  for (const S of ['I', 'II', 'III']) {
+    assert.strictEqual(att[S].length, 1, `secțiunea ${S}`);
+    assert.strictEqual(att[S][0].type, 'file');
+    assert.match(att[S][0].file.file_data, /^data:application\/pdf;base64,/);
+  }
+  const pagesOf = async (part) => (await PDFDocument.load(Buffer.from(part.file.file_data.split(',')[1], 'base64'))).getPageCount();
+  assert.strictEqual(await pagesOf(att.I[0]), 2);
+  assert.strictEqual(await pagesOf(att.III[0]), 1);
+  // LIVE_PDF_PAGINI=0 → doar textul
+  process.env.LIVE_PDF_PAGINI = '0';
+  try {
+    const none = await LL.pdfAttachments({ supa: fakeSupa, content: { id: 'c1', file_url: 'x' }, ctx: {}, pdfCtx: { downloadContentPdf: async () => buf } });
+    assert.deepStrictEqual(none, { I: [], II: [], III: [] });
+  } finally { delete process.env.LIVE_PDF_PAGINI; }
+
+  // modelul primește paginile secțiunii în mesaj (text + fișier)
+  const ai = require('../api/_lib/ai');
+  const orig = ai.chatJson;
+  const seen = [];
+  ai.chatJson = async ({ messages }) => {
+    seen.push(messages[0].content);
+    const sec = /SUBIECTUL (I{1,3})\b/.exec(typeof messages[0].content === 'string' ? messages[0].content : messages[0].content[0].text)[1];
+    const items = sec === 'I' ? [rawItem('I.1'), rawItem('I.2'), rawItem('I.4'), { ...rawItem('I.3'), statement: 'Rezultatul calculului „2 2 6 2 3 2” este egal cu: [formula și variantele de răspuns nu sunt lizibile în textul extras din PDF]' }] : [];
+    return { data: { items }, usage: { in: 10, out: 10 } };
+  };
+  try {
+    const r = await LL.generateScript({ ctx: { text: SUBJECT, baremText: BAREM, baremStatus: 'ok' }, content: { id: 'c1', title: 'EN 2024 Varianta 7' }, teacher: live.teacherById('radu'), exam: 'en', profile: null, log: () => {}, attachments: att });
+    assert.ok(seen.length >= 3);
+    assert.ok(seen.every((c) => Array.isArray(c) && c[0].type === 'text' && c[1].type === 'file'), 'text + paginile PDF');
+    assert.match(seen[0][0].text, /PAGINILE PDF/);
+    const refs = r.script.items.map((it) => it.ref);
+    assert.deepStrictEqual(refs, ['I.1', 'I.2', 'I.4'], 'itemul cu formula pierdută (I.3) nu se predă');
+    assert.strictEqual(r.script.v, 2, 'lecție scrisă cu paginile PDF');
+  } finally { ai.chatJson = orig; }
+
+  // lecțiile scrise înainte: itemul stricat dispare din sală, restul rămâne
+  const old = { items: [{ ref: 'I.1', statement: 'Calculați $\\sqrt{2}$.' }, { ref: 'I.2', statement: 'Rezultatul: [formula nu e lizibilă]' }] };
+  assert.deepStrictEqual(LL.dropUnreadable(old).items.map((i) => i.ref), ['I.1']);
 });

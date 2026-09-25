@@ -159,7 +159,10 @@ export default function LiveAdmin() {
                 {data.lessons.map((l) => (
                   <tr key={l.id}>
                     <td style={td}><b>{l.title || '(fără titlu încă)'}</b><div style={{ color: '#6b7280', fontSize: '.78rem' }}>{teacherName[l.teacher] || l.teacher} · v{l.version}</div>{l.error && <div style={{ color: '#b3261e', fontSize: '.78rem' }}>{l.error}</div>}</td>
-                    <td style={td}>{l.status === 'gata' && l.noVoice ? LESSON_LABEL.gata_fara_voce : (LESSON_LABEL[l.status] || l.status)}</td>
+                    <td style={td}>
+                      {l.status === 'gata' && l.noVoice ? LESSON_LABEL.gata_fara_voce : (LESSON_LABEL[l.status] || l.status)}
+                      {l.status === 'gata' && Number(l.sv || 1) < 2 && <div style={{ color: '#b3261e', fontSize: '.76rem' }}>scrisă fără paginile PDF — formulele (radicali, fracții…) pot lipsi; apasă „Regenerează"</div>}
+                    </td>
                     <td style={td}>{l.duration_sec ? `${Math.round(l.duration_sec / 60)} min` : '—'}</td>
                     <td style={td}>{l.cost_lei ? `${l.cost_lei} lei` : '—'}</td>
                     <td style={td}>{new Date(l.updated_at).toLocaleString('ro-RO')}</td>

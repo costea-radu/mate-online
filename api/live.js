@@ -83,6 +83,8 @@ async function loadLesson(supa, lessonId, { fresh = false } = {}) {
   if (!fresh && c && Date.now() - c.at < LESSON_TTL) return c.row;
   const { data, error } = await supa.from('live_lessons').select('*').eq('id', lessonId).maybeSingle();
   dbCheck(error, 'lecția');
+  // numele profesorului din lecțiile scrise înainte de o redenumire (ex. „Prof. Radu" → „Prof. Tudor")
+  if (data?.script) data.script = LL.dropUnreadable(LL.renameTeacher(data.script, L.teacherById(data.teacher)));
   if (data) lessonCache.set(lessonId, { at: Date.now(), row: data });
   if (lessonCache.size > 40) lessonCache.delete(lessonCache.keys().next().value);
   return data || null;
@@ -350,7 +352,9 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
         if (!content) throw fail(404, 'Subiectul nu mai există.');
         const ctx = await pdfContext().getPdfContext(supa, content);
         const se = L.subjectExam(content, B) || { exam: 'en', profile: null };
-        const r = await LL.generateScript({ ctx, content, teacher, exam: se.exam, profile: se.profile, log });
+        // paginile PDF (subiect + barem): modelul vede formulele pierdute la extragerea textului
+        const attachments = await LL.pdfAttachments({ supa, content, ctx, pdfCtx: pdfContext(), log });
+        const r = await LL.generateScript({ ctx, content, teacher, exam: se.exam, profile: se.profile, log, attachments });
         script = r.script;
         costMicro = ai.costMicroLei(r.usage.model, r.usage);
         await ai.logUsage(supa, null, 'live-lectie', r.usage);
@@ -667,7 +671,7 @@ const CHAT_MODEL = () => process.env.LIVE_CHAT_MODEL || ai.TUTOR_MODEL || ai.CHA
 const ANSWER_SCHEMA = ai.S.obj({
   say: ai.S.str('ce ROSTEȘTE profesorul: fără LaTeX, fără simboluri; propoziții scurte'),
   text: ai.S.str('același răspuns, pentru chat: formulele în LaTeX între $...$'),
-  board: ai.S.arr(ai.S.str('un rând pe tablă (LaTeX între $...$)'), '0–3 rânduri de scris pe tablă (doar la 1-la-1)'),
+  board: ai.S.arr(ai.S.str('un rând pe tablă: un pas (LaTeX între $...$)'), '0–6 rânduri de scris pe tablă (doar la 1-la-1): pașii de calcul, câte unul pe rând'),
 });
 
 function itemContext(script, index) {
@@ -685,9 +689,8 @@ function itemContext(script, index) {
   ].filter(Boolean).join('\n');
 }
 
-async function teacherAnswer(supa, { session, lesson, question, author, itemIndex, history = [], userId }) {
+async function teacherAnswer(supa, { session, lesson, question, author, itemIndex, history = [], userId, privat = session.kind === 'privat' }) {
   const teacher = L.teacherById(session.teacher) || L.teachers()[0];
-  const privat = session.kind === 'privat';
   const script = lesson?.script || {};
   const list = (script.items || []).map((it, i) => `${i + 1}. ${it.ref} — ${String(it.statement).slice(0, 90)}`).join('\n');
   const system = [
@@ -702,11 +705,12 @@ async function teacherAnswer(supa, { session, lesson, question, author, itemInde
     '· Dacă întrebarea nu ține de matematica din ședință, spui politicos că acum lucrăm subiectul și, dacă e nevoie, recomanzi o ședință 1-la-1.',
     '· Fără date personale, fără linkuri, fără emoji. Nu repeta întrebarea.',
     '· „say" se rostește: fără LaTeX și fără simboluri („x la pătrat", „radical din 3", „a supra b").',
+    privat ? '· „board": dacă elevul cere un calcul sau un pas („nu înțeleg cum ați ajuns la…", „arătați că…"), scrii pe tablă pașii, câte unul pe rând, fără pași săriți; altfel lista rămâne goală.' : '',
   ].filter(Boolean).join('\n');
   const messages = [...history.slice(-6), { role: 'user', content: `${author} întreabă: ${question}` }];
   let data, usage;
   try {
-    const r = await ai.chatJson({ system, messages, schema: ANSWER_SCHEMA, schemaName: 'raspuns_live', model: CHAT_MODEL(), maxTokens: 900, temperature: 0.4 });
+    const r = await ai.chatJson({ system, messages, schema: ANSWER_SCHEMA, schemaName: 'raspuns_live', model: CHAT_MODEL(), maxTokens: 1200, temperature: 0.4 });
     data = r.data; usage = r.usage;
   } catch (e) {
     await ai.logUsage(supa, userId, 'live-chat', e.usage || {});
@@ -715,7 +719,7 @@ async function teacherAnswer(supa, { session, lesson, question, author, itemInde
   await ai.logUsage(supa, userId, 'live-chat', usage);
   const text = String(data?.text || data?.say || '').trim().slice(0, 1500);
   const say = String(data?.say || text).trim().slice(0, 900);
-  const board = Array.isArray(data?.board) ? data.board.map((b) => String(b).slice(0, 200)).filter(Boolean).slice(0, 3) : [];
+  const board = Array.isArray(data?.board) ? data.board.map((b) => String(b).slice(0, 200)).filter(Boolean).slice(0, 6) : [];
   return { text, say, board: privat ? board : [], teacher };
 }
 
@@ -776,7 +780,7 @@ async function chat(req, res, supa) {
         history = rows.slice(0, 8).reverse().slice(0, -1).map((m) => ({ role: m.role === 'profesor' ? 'assistant' : 'user', content: m.text }));
       }
       const itemIndex = Number.isInteger(req.body?.item) ? req.body.item : null;
-      const a = await teacherAnswer(supa, { session, lesson, question: text, author, itemIndex, history, userId });
+      const a = await teacherAnswer(supa, { session, lesson, question: text, author, itemIndex, history, userId, privat });
       const { data: tmsg, error: e2 } = await supa.from('live_messages')
         .insert({ session_id: session.id, user_id: null, author: a.teacher.name, role: 'profesor', to_teacher: toTeacher, text: a.text, reply_to: msg.id })
         .select('*').maybeSingle();
@@ -1002,7 +1006,7 @@ async function adminOverview(req, res, supa) {
   const total = {};
   for (const p of parts || []) total[p.session_id] = (total[p.session_id] || 0) + 1;
   const [en, bac] = await Promise.all([eligibleSubjects(supa, { exam: 'en', fresh: !!req.body?.fresh }), eligibleSubjects(supa, { exam: 'bac', fresh: !!req.body?.fresh })]);
-  const { data: lessonRows } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, title, duration_sec, error, cost_micro, updated_at, noVoice:progress->noVoice').order('updated_at', { ascending: false }).limit(60);
+  const { data: lessonRows } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, title, duration_sec, error, cost_micro, updated_at, noVoice:progress->noVoice, sv:script->v').order('updated_at', { ascending: false }).limit(60);
   const slotInfo = Object.fromEntries(L.slots().map((s) => [s.id, s]));
   return res.status(200).json({
     day, teachers: L.teachers().map(L.publicTeacher), slots: L.slots(), intervals: L.intervals(),

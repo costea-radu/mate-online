@@ -3,7 +3,8 @@
 //
 // Tabla albă: ce SCRIE profesorul, rând cu rând, în ritmul vocii (fiecare
 // rând se „desenează" de la stânga la dreapta cât timp profesorul spune fraza).
-// La trecerea la alt item, tabla se șterge (ca la o tablă adevărată).
+// Când rezolvarea e lungă, scrisul se face mai mic (ca să rămână TOȚI pașii la
+// vedere); abia apoi tabla „urcă". La alt item, tabla se șterge.
 //
 // Tabla digitală: ce ARATĂ profesorul — enunțul itemului (cu variantele),
 // rezultatele întrebărilor, videoclipuri de matematică, pauza cu cronometrul,
@@ -44,15 +45,37 @@ function InkLine({ text, frac }) {
 
 const MODE_ICON = { barem: '📏', intuitiv: '💡', greseli: '⚠️', alta_metoda: '🔀', raspuns: '💬' };
 
+// cât de mic poate deveni scrisul pe tabla plină (față de mărimea obișnuită)
+const FIT_MIN = 0.7;
+
 // Tabla albă propriu-zisă
 export function WhiteboardInk({ board, compact = false }) {
   const scrollRef = useRef(null);
+  const innerRef = useRef(null);
+  const [fit, setFit] = useState(1);
+  const fitRef = useRef(1);
   const count = board ? board.blocks.reduce((n, b) => n + b.lines.length, 0) : 0;
-  // tabla „urcă" singură când se umple (ca un profesor care scrie mai jos)
+  // alt item → tabla curată, scrisul la mărimea obișnuită
+  useEffect(() => { fitRef.current = 1; setFit(1); }, [board?.item]);
+  // tabla se umple → scrisul se micșorează (până la FIT_MIN), ca toată rezolvarea să rămână la vedere
+  useEffect(() => {
+    const el = scrollRef.current, inner = innerRef.current;
+    if (!el || !inner || typeof ResizeObserver === 'undefined') return undefined;
+    const check = () => {
+      if (el.scrollHeight <= el.clientHeight + 2 || fitRef.current <= FIT_MIN) return;
+      const next = Math.max(FIT_MIN, Math.round(fitRef.current * 0.93 * 100) / 100);
+      if (next < fitRef.current) { fitRef.current = next; setFit(next); }
+    };
+    const ro = new ResizeObserver(check);
+    ro.observe(inner);
+    check();
+    return () => ro.disconnect();
+  }, [board?.item, board == null]);
+  // tabla „urcă" singură când s-a umplut de tot (ca un profesor care scrie mai jos)
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [count, board?.item]);
+  }, [count, board?.item, fit]);
   const [wipe, setWipe] = useState(false);
   const lastItem = useRef(null);
   useEffect(() => {
@@ -69,13 +92,15 @@ export function WhiteboardInk({ board, compact = false }) {
   if (!board) return <div className={`lv-wb-ink${compact ? ' is-compact' : ''}`} />;
   return (
     <div className={`lv-wb-ink${compact ? ' is-compact' : ''}${wipe ? ' is-wiping' : ''}`} ref={scrollRef}>
-      <div className="lv-wb-title">{board.title}</div>
-      {board.blocks.map((b, bi) => (
-        <div key={b.key} className={`lv-wb-block mode-${b.mode}`}>
-          {bi > 0 && b.lines.length > 0 && <div className="lv-wb-sep"><span>{MODE_ICON[b.mode] || '✎'} {b.label}</span></div>}
-          {b.lines.map((l) => <InkLine key={l.key} text={l.text} frac={l.frac} />)}
-        </div>
-      ))}
+      <div ref={innerRef} className="lv-wb-fit" style={fit < 1 ? { fontSize: `${fit}em` } : undefined}>
+        <div className="lv-wb-title">{board.title}</div>
+        {board.blocks.map((b, bi) => (
+          <div key={b.key} className={`lv-wb-block mode-${b.mode}`}>
+            {bi > 0 && b.lines.length > 0 && <div className="lv-wb-sep"><span>{MODE_ICON[b.mode] || '✎'} {b.label}</span></div>}
+            {b.lines.map((l) => <InkLine key={l.key} text={l.text} frac={l.frac} />)}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -189,12 +214,15 @@ export function DigitalScreen({ state, results, myAnswers, title, examLabel, tea
       </div>
     );
   }
-  // enunțul itemului curent
+  // enunțul itemului curent. La „Arătați că…", cât încearcă elevii se vede cerința
+  // reformulată („Calculați…", fără rezultat); de la explicație încolo, cea din subiect.
   if (head) {
+    const trying = !!head.statementTry && (sc?.type === 'item' || sc?.type === 'sondaj');
+    const original = !!head.statementTry && !trying;
     return (
       <div className="lv-screen">
-        <div className="lv-screen-kicker">{head.title}{head.points ? ` · ${head.points} puncte` : ''}</div>
-        <MathHtml className="lv-screen-statement" text={head.statement} />
+        <div className="lv-screen-kicker">{head.title}{head.points ? ` · ${head.points} puncte` : ''}{original ? ' · cerința din subiect' : ''}</div>
+        <MathHtml className="lv-screen-statement" text={trying ? head.statementTry : head.statement} />
         {head.options && (
           <div className="lv-screen-opts">
             {head.options.map((o, i) => (

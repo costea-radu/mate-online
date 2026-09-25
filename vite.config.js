@@ -42,7 +42,7 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         // scena profesorului din meditațiile live se încarcă doar în sală, nu la toată lumea
-        globIgnores: ['live/**'],
+        globIgnores: ['live/**', 'assets/KaTeX_*', 'assets/katex-*'],   // KaTeX (cod + fonturi): la cerere, nu în precache
         // SPA: orice navigare necunoscută primește index.html…
         navigateFallback: '/index.html',
         // …dar NU rutele serverless (/api/*) și NU fișierele de verificare

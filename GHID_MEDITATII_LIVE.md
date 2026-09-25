@@ -1,7 +1,7 @@
 # 🎥 Ghid: Meditații live — cu profesorul virtual
 
 „Meditații cu AI" devine o **meditație online adevărată**: elevul alege ședința, apasă
-**„Conectează-te"** și intră într-o sală de tip Zoom/Meet, unde **Prof. Radu** — un
+**„Conectează-te"** și intră într-o sală de tip Zoom/Meet, unde **Prof. Tudor** — un
 profesor virtual care arată ca un om real, în clasă, la tablă — explică un subiect de
 Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 
@@ -21,6 +21,21 @@ Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 a fost găsit și citit (cache-ul `ai_pdf_text`), iar explicația „pe barem" e obligatorie
 la fiecare item; celelalte moduri („pe înțelesul tuturor", „greșeli care costă puncte",
 „altă metodă") pornesc tot de la barem.
+
+**Formulele se citesc din paginile PDF:** textul extras dintr-un PDF pierde des radicalii,
+liniile de fracție, exponenții, integralele, determinanții, matricele. De aceea, la scrierea
+lecției, modelul primește și **paginile PDF** ale subiectului și ale baremului (doar cele ale
+secțiunii la care lucrează) și transcrie formulele în LaTeX; în sală ele se văd corect
+(KaTeX, încărcat din aplicație). Un item al cărui enunț tot nu se poate citi nu se predă.
+Lecțiile scrise înainte de această schimbare apar în Admin cu nota „scrisă fără paginile
+PDF" — apasă **„Regenerează"** la ele.
+
+**Pe tablă, toată rezolvarea:** la itemii cu rezolvare, profesorul scrie toți pașii din barem
+(câte unul pe rând, cu punctajul); la grile, calculul care duce la răspuns. Scrisul se face
+mai mic când pașii sunt mulți, ca să rămână toți la vedere. La **„Arătați că…"** (rezultatul e
+în enunț), elevii încearcă întâi pe cerința reformulată **„Calculați…", fără rezultat** (cu
+răspuns de completat), apoi profesorul scrie pe tablă etapele intermediare din barem, iar pe
+proiecție reapare cerința din subiect.
 
 ---
 
@@ -90,18 +105,21 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 | `LIVE_SONDAJ_GRILA_SEC` / `_COMPLETARE_SEC` / `_VERIFICARE_SEC` | `45` / `60` / `35` | timpul de răspuns la întrebări |
 | `LIVE_PAUZA_SEC`, `LIVE_INTREBARI_SEC` | `300`, `180` | pauza din mijloc, sesiunile de întrebări |
 | `LIVE_MINIM_GRUP` | `2` | câți elevi trebuie să fie în sală la ora de început ca să pornească ședința comună (mai puțini → 1-la-1) |
+| `LIVE_PDF_PAGINI` | pornit | `0` = lecția se scrie doar din textul extras (fără paginile PDF; formulele pot lipsi) |
 | `LIVE_PREGATIRE_AUTO` | oprit | `1` = lecțiile se scriu din timp pentru toate ședințele (cost și când nu vine nimeni); implicit, doar când apare primul elev |
 | `LIVE_PREGATIRE_ORE` | `4` | orizontul cronului: ședințele din următoarele ore pentru care pregătește lecții (cu elevi) / generează vocea |
 | `LIVE_REFOLOSIRE_ZILE` | `21` | după câte zile se poate repeta un subiect |
 | `LIVE_GEN_MODEL`, `LIVE_CHAT_MODEL` | modelele site-ului | modelul care scrie lecția / răspunde în chat |
-| `LIVE_PROF_RADU_NUME`, `LIVE_PROF_RADU_BIO` | `Prof. Radu` | numele și prezentarea profesorului |
+| `LIVE_PROF_RADU_NUME`, `LIVE_PROF_RADU_BIO` | `Prof. Tudor` | numele și prezentarea profesorului (id-ul intern a rămas `radu`) |
 
 ---
 
 ## 3. Profesorul animat (scena)
 
 Scena e construită **o singură dată**, offline, dintr-o fotografie a clasei cu profesorul
-(`tools/portret/scene/clasa-radu.jpg`, generată cu AI). Rezultatul stă în
+(acum `tools/portret/scene/clasa-tudor.jpg`, generată cu AI; cea veche, `clasa-radu.jpg`, a
+rămas ca rezervă). Încadrarea e strânsă pe tablă și profesor (pereții și băncile tăiate); pe
+ecranele late (ex. cu chatul deschis) tabla și proiecția rămân întregi. Rezultatul stă în
 `public/live/radu/` și e servit ca fișiere statice:
 
 | Fișier | Ce e |
@@ -128,12 +146,13 @@ Cerințe: profesorul **din față**, până la brâu, cu mâinile la vedere, în
 
 ```bash
 pip install mediapipe==0.10.14 opencv-contrib-python-headless numpy triangle pillow pymatting scikit-image scipy
-python tools/portret/construieste_rig.py --scena tools/portret/scene/clasa-radu.json --out public/live/radu --viz /tmp/control
+python tools/portret/construieste_rig.py --scena tools/portret/scene/clasa-tudor.json --out public/live/radu --viz /tmp/control
 ```
 Fișierul scenei (`tools/portret/scene/*.json`) are coordonatele (în pixelii fotografiei):
 zona de scris a tablei (`tabla`), proiecția (`ecran`, `ecran_mod: "proiectie"`), ce stă
 în fața profesorului (`prim_plan`: poligoane), încadrarea camerei (`camera`) și, opțional,
-ce ține în mână (`extra_mana`, ex. markerul). `--viz` salvează imagini de control
+ce ține în mână (`extra_mana`, ex. markerul) și `maini_impreuna: true` când ține ceva cu
+amândouă mâinile (mâinile se mișcă atunci împreună). `--viz` salvează imagini de control
 (fundalul completat, atlasul, plasa). Totul rulează local — nimic nu pleacă pe internet.
 
 **Transparență:** pe ecran rămâne mereu eticheta **„Profesor virtual · AI"**, iar în
@@ -178,6 +197,7 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 
 | Simptom | Cauză / soluție |
 |---|---|
+| Enunț fără radical / fracție („2 2 6 2 3 2") sau „[formula nu e lizibilă]" | lecție scrisă înainte de citirea paginilor PDF → Admin → „Lecțiile recente" → **Regenerează** |
 | „Profesorul nu are încă un subiect cu barem" | nu există subiecte EN/BAC cu barem citit; cronul citește câteva bareme la fiecare rulare (`LIVE_CRON_BAREME`), sau alege manual subiectul din Admin |
 | Profesorul nu vorbește (doar subtitrări) | dispozitivul nu are o voce românească → Edge (voce naturală, gratuită) sau vocea română în Windows; verifică și volumul/tab-ul fără sonor |
 | Vocea generată nu apare | lipsește cheia TTS sau a expirat; lecția merge cu vocea browserului — vezi Admin → eroarea lecției, apoi „Generează vocea" |

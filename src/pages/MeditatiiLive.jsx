@@ -200,7 +200,7 @@ export default function MeditatiiLive() {
           <div className="lvl-mock-stage">
             <div className="lvl-mock-wb"><b style={{ color: '#1f5faa' }}>Subiectul I, ex. 3</b><br />{'Δ = b² − 4ac = 16'}<br />{'x₁,₂ = (−b ± √Δ) / 2a'}<br />{'⇒ x₁ = 3, x₂ = −1 (2p)'}</div>
             <div className="lvl-mock-dg"><span style={{ color: '#e8b931', fontWeight: 800 }}>ENUNȚ · 5 PUNCTE</span><br />Soluțiile ecuației x² − 2x − 3 = 0 sunt…</div>
-            <div className="lvl-mock-pip">{rigs[data?.teachers?.[0]?.id]?.thumb ? <img src={rigs[data.teachers[0].id].thumb} alt="" /> : <span>PR</span>}</div>
+            <div className="lvl-mock-pip">{rigs[data?.teachers?.[0]?.id]?.thumb ? <img src={rigs[data.teachers[0].id].thumb} alt="" /> : <span>{initials(data?.teachers?.[0]?.name || 'Prof. Tudor')}</span>}</div>
           </div>
           <div className="lvl-mock-bar"><i /><i /><i /><i /><i className="r" /></div>
         </div>

@@ -116,13 +116,21 @@ export default function PortraitScene({ rig, engine, board = null, screen = null
   // apropie de profesor: centrul cadrului = pieptul lui (sub bărbie), ca la o cameră web
   const W = rig.width || 1600, H = rig.height || 900;
   const cam = Array.isArray(rig.camera) ? { x: rig.camera[0], y: rig.camera[1], w: rig.camera[2], h: rig.camera[3] } : { x: 0, y: 0, w: W, h: H };
-  const sc = Math.max(size.w / cam.w, size.h / cam.h, size.w / W, size.h / H) * zoom;
+  // tabla + proiecția (în pixelii fotografiei): pe un ecran lat (ex. cu chatul deschis)
+  // rămân ÎNTREGI la vedere — se arată mai mult din clasă pe verticală, nu se taie enunțul
+  const quadXs = [...(rig.board || []), ...(rig.screen || [])].map((q) => q[0] * W);
+  const keep = quadXs.length ? { x0: Math.min(...quadXs) - 10, x1: Math.max(...quadXs) + 10 } : null;
+  let sc = Math.max(size.w / cam.w, size.h / cam.h, size.w / W, size.h / H);
+  if (keep && size.h > 0 && size.w / size.h >= 1.2) sc = Math.max(size.w / W, size.h / H, Math.min(sc, size.w / (keep.x1 - keep.x0)));
+  sc *= zoom;
   const dw = W * sc, dh = H * sc;
   let cx = cam.x + cam.w / 2, cy = cam.y + cam.h / 2;
   if (rig.pts) {
     const nx = rig.pts[2], ny = rig.pts[3];                                    // reperul 1 = vârful nasului
     const faceH = rig.pts[2 * 152 + 1] - rig.pts[2 * 10 + 1];
+    const visW = size.w / sc;
     if (zoom > 1) { cx = nx; cy = ny + faceH * 1.1; }
+    else if (keep && visW >= keep.x1 - keep.x0 - 1 && visW < cam.w) cx = (keep.x0 + keep.x1) / 2;   // tabla și proiecția, amândouă
     else if (size.w / size.h < cam.w / cam.h) cx = nx;                         // ecran îngust (telefon): profesorul în mijloc
   }
   const ox = Math.min(0, Math.max(size.w - dw, size.w / 2 - cx * sc));

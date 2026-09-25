@@ -59,7 +59,7 @@ function demoInfo(privat) {
       starts_at: now.toISOString(), ends_at: new Date(now.getTime() + 3600000).toISOString(),
       subject: { id: 'demo', title: 'Demonstrație — doi itemi pe barem' }, startedAt: null,
     },
-    teacher: { id: 'radu', name: 'Prof. Radu', gender: 'm', color: '#1f6dab', bio: '' },
+    teacher: { id: 'radu', name: 'Prof. Tudor', gender: 'm', color: '#1f6dab', bio: '' },
     me: { id: 'eu', name: 'Tu (demo)' }, access: 'abonament', messages: [], myAnswers: {},
     timeline: privat ? demoData.privat : demoData.grup, lesson: { status: 'gata', playable: true },
     now: now.toISOString(), noVoice: true,
@@ -755,7 +755,7 @@ export default function LiveRoom({ demo = null }) {
       </footer>
 
       <SpatiuDeLucru open={notebook} onClose={() => setNotebook(false)} title="Caietul meu"
-        enunt={ps?.head?.statement || null} storageKey={`live:${sessionId}`} />
+        enunt={(ps?.head?.statementTry && ['item', 'sondaj'].includes(ps?.scene?.type) ? ps.head.statementTry : ps?.head?.statement) || null} storageKey={`live:${sessionId}`} />
     </div>
   );
 }
