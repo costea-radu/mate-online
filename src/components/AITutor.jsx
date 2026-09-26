@@ -4,7 +4,7 @@
 // - ChatPanel: panou de chat (streaming, istoric, feedback) — reutilizabil
 // - FloatingTutor (export implicit): butonul plutitor de pe tot site-ul
 // =====================================================================
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
@@ -174,13 +174,9 @@ export function dispatchMeditatiiAction(action, navigate, onNavigate = null) {
   }
 }
 
-// ─── „Alege un test PDF din site" (chatul de meditații) — etichete listă ─────
-const PDF_SUBCAT_RO = {
-  simulari: '🎯 Simulări', variante: '📋 Variante date + modele', 'teste-antrenament': '🏋 Teste de antrenament',
-  'exercitii-subiecte': '📝 Exerciții pe subiecte', exercitii: '📝 Exerciții pe subiecte', capitole: '📚 Capitole',
-};
-const PDF_PROFILE_RO = { 'mate-info': 'Mate-Info', 'stiinte-naturii': 'Șt. Naturii', tehnologic: 'Tehnologic' };
-const pickTag = (bg, color) => ({ fontSize: '.66rem', fontWeight: 700, background: bg, color, borderRadius: 12, padding: '2px 8px', whiteSpace: 'nowrap' });
+// ─── „🧩 Test din site" (chatul de meditații): lista stă în SitePicker.jsx,
+// încărcată LENEȘ la prima deschidere — chatul e în pachetul principal.
+const SitePicker = lazy(() => import('./SitePicker'));
 
 // ─── Rezultatul corectării unui test/exercițiu PDF — afișat în chat ──────────
 // Punctajul total + nota + punctajul PE FIECARE subpunct a), b), c) (ca în barem).
@@ -384,11 +380,13 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   const dictationRef = useRef(null);
   const recorderRef = useRef(null);
 
-  // ── „ALEGE UN TEST PDF DIN SITE" (chatul de meditații): elevul alege un
-  //    test din baza de date → se deschide în vizualizator cu ACEEAȘI
-  //    conversație alături, unde „Răspunde în chat" îl corectează după barem.
-  const [pdfPick, setPdfPick] = useState(null);      // null | { loading, rows, error }
-  const [pdfPickFilter, setPdfPickFilter] = useState('');
+  // ── „🧩 TEST DIN SITE" (chatul de meditații): elevul alege un test din baza
+  //    de date a site-ului, pe nivelul lui:
+  //      🧩 interactiv → se deschide în viewer, se corectează singur, iar la
+  //         meditații scorul intră în plan (sesiune „din site", medSesId);
+  //      📄 PDF → se deschide în vizualizator cu ACEEAȘI conversație alături,
+  //         unde „Răspunde în chat" îl corectează după barem.
+  const [sitePick, setSitePick] = useState(null);    // null | { tab: 'interactive' | 'pdf' | null }
 
   // ── FORMULARUL DE RĂSPUNS („Răspunde în chat" → „Corectează") ─────────────
   // Sursa: testul PDF deschis (cu baremul lui, dacă există) SAU poza / PDF-ul
@@ -747,45 +745,23 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     lastSentRef.current = null; // „Regenerează" pornește doar după un mesaj trimis de aici
   }
 
-  // Lista testelor PDF din baza de date — STRICT pe NIVELUL elevului, luat
-  // din profilul lui de meditații (EN / BAC cu profilul lui / clasa lui), nu
-  // toate nivelurile. Contextul e doar rezervă, dacă profilul nu poate fi citit.
-  async function togglePdfPicker() {
-    if (pdfPick) { setPdfPick(null); setPdfPickFilter(''); return; }
-    setPdfPick({ loading: true, rows: [] });
-    try {
-      let cat = null, prof = null, label = '';
-      try {
-        const stt = await aiClient.meditatii({ action: 'state' });
-        const p = stt?.profile;
-        if (p?.examTarget === 'evaluare-nationala') { cat = 'evaluare-nationala'; label = 'Evaluarea Națională'; }
-        else if (p?.examTarget === 'bac-mate-info') { cat = 'bacalaureat'; prof = 'mate-info'; label = 'BAC Mate-Info'; }
-        else if (p?.examTarget === 'bac-stiinte') { cat = 'bacalaureat'; prof = 'stiinte-naturii'; label = 'BAC Științele Naturii'; }
-        else if (p?.examTarget === 'bac-tehnologic') { cat = 'bacalaureat'; prof = 'tehnologic'; label = 'BAC Tehnologic'; }
-        else if (p?.grade) { cat = `clasa-${p.grade}`; label = `clasa a ${p.grade}-a`; }
-      } catch { /* profilul nu a putut fi citit — cădem pe contextul paginii */ }
-      if (!cat && context.category) {
-        cat = context.category;
-        label = cat === 'evaluare-nationala' ? 'Evaluarea Națională' : cat === 'bacalaureat' ? 'Bacalaureat'
-          : cat.startsWith('clasa-') ? `clasa a ${cat.replace('clasa-', '')}-a` : cat;
-      }
-      if (!cat) throw new Error('Nu îți cunosc încă nivelul — alege întâi clasa și examenul în rubrica Meditații.');
-      let q = supabase.from('content')
-        .select('id, title, subcategory, profile, is_free, category')
-        .eq('content_type', 'pdf').eq('category', cat)
-        .order('sort_order', { ascending: true }).order('created_at', { ascending: false })
-        .limit(400);
-      if (prof) q = q.eq('profile', prof);
-      const { data, error } = await q;
-      if (error) throw new Error(error.message);
-      // baremele nu se dau ca „test de rezolvat" — le aduce viewerul, lângă test
-      const rows = (data || []).filter((r) => (r.subcategory || '') !== 'bareme');
-      setPdfPick({ loading: false, rows, label, error: rows.length ? null : `Nu am găsit încă teste PDF pentru ${label || 'nivelul tău'}.` });
-    } catch (e) { setPdfPick({ loading: false, rows: [], error: e.message }); }
+  // „🧩 Teste din site" (SitePicker.jsx): interactive + PDF, STRICT pe nivelul
+  // elevului. `tab` alege fila cu care se deschide lista.
+  function closeSitePicker() { setSitePick(null); }
+  function toggleSitePicker(tab = null) {
+    setSitePick((cur) => (cur ? null : { tab: tab || null }));
   }
   function openPickedPdf(id) {
-    setPdfPick(null); setPdfPickFilter('');
+    closeSitePicker();
     openInternal(`/pdf-viewer?id=${id}`); // păstrează conversația (openTutor + tutorConvId)
+  }
+  // Testul interactiv ales (url-ul vine cu ?medSesId=… la meditații — vezi
+  // SitePicker): se deschide pe tot ecranul; profesorul e la un clic distanță,
+  // în ACEEAȘI conversație (tutorConvId).
+  function openPickedInteractive(url) {
+    closeSitePicker();
+    if (onNavigate) onNavigate();
+    navigate(url, { state: { tutorConvId: convId } });
   }
 
   async function sendFeedback(messageId, value) {
@@ -867,14 +843,16 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // pre-completate („starters" / acțiunile de navigare ale mentorului).
   // Elevul/profesorul scrie singur ce vrea — vezi zona „Mesaje" de mai jos.
 
-  // Pagina de meditații comandă chatul din bara de butoane de sub tablă
-  // („🧩 Test din site" deschide lista de teste PDF chiar pe tablă) și știe
-  // când profesorul scrie, ca să-l animeze la tablă.
+  // Pagina de meditații comandă chatul din meniul de lângă tablă („🧩 Test din
+  // site" deschide lista de teste — interactive și PDF — chiar pe tablă) și
+  // știe când profesorul scrie, ca să-l animeze la tablă.
   useEffect(() => {
     if (!cmdRef) return;
     cmdRef.current = {
       send: (t, opts) => send(t, opts),
-      pdfPicker: () => togglePdfPicker(),
+      // deschide lista (dacă e deja deschisă, doar trece pe fila cerută)
+      sitePicker: (tab) => setSitePick((cur) => (cur && !tab ? cur : { tab: tab || null })),
+      pdfPicker: () => setSitePick({ tab: 'pdf' }),     // numele vechi: direct fila PDF
       answerForm: () => openAnswerForm(),
       newConversation: () => newConversation(),
       canAnswer: () => !!canAnswer,
@@ -949,10 +927,10 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         </div>
       )}
 
-      {/* „Alege un test PDF din site" NU mai are bandă separată aici: butonul
-          stă în LISTA de butoane a meditatorului (mesajul de întâmpinare,
-          ultimul — după „🧩 Test din site"), cu kind 'pdf_site'; el deschide
-          lista de teste PDF (filtrată pe nivelul elevului) chiar în chat. */}
+      {/* „Alege tu un test din site" NU are bandă separată aici: butonul stă
+          în LISTA de butoane a meditatorului (mesajul de întâmpinare, ultimul),
+          cu kind 'pdf_site' (numele istoric); el deschide lista de teste —
+          🧩 interactive și 📄 PDF, filtrate pe nivelul elevului — chiar în chat. */}
 
       {/* „Răspunde în chat" (doar pentru elevi, când există un test PDF deschis
           sau o poză / un PDF încărcat): deschide formularul de răspunsuri.
@@ -999,41 +977,17 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         </div>
       )}
 
-      {/* Lista testelor PDF din site (overlay) — „Alege un test PDF din site" */}
-      {pdfPick && (
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: '#fff', zIndex: 6, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
-            <strong style={{ color: 'var(--navy)', fontSize: '.9rem' }}>
-              📄 Teste PDF din site{pdfPick.label ? ` · ${pdfPick.label}` : ''}
-            </strong>
-            <button onClick={() => { setPdfPick(null); setPdfPickFilter(''); }} style={miniBtn}>✕ Închide</button>
+      {/* „🧩 Teste din site" (overlay): două file — 🧩 interactive și 📄 PDF —
+          filtrate pe nivelul elevului, cu căutare după titlu (SitePicker.jsx) */}
+      {sitePick && (
+        <Suspense fallback={(
+          <div className="site-pick" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: '#fff', zIndex: 6, padding: 14, color: 'var(--text-muted)', fontSize: '.85rem' }}>
+            Caut testele din baza de date…
           </div>
-          <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
-            <input value={pdfPickFilter} onChange={(e) => setPdfPickFilter(e.target.value)} placeholder="Caută după titlu…"
-              style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 10px', fontSize: 16, fontFamily: 'var(--font-body)', boxSizing: 'border-box' }} />
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain', padding: 12 }}>
-            {pdfPick.loading && <p style={{ color: 'var(--text-muted)', fontSize: '.85rem' }}>Caut testele PDF din baza de date…</p>}
-            {pdfPick.error && <p style={{ color: '#8a6d1a', fontSize: '.85rem' }}>{pdfPick.error}</p>}
-            {!pdfPick.loading && (pdfPick.rows || [])
-              .filter((r) => !pdfPickFilter.trim() || (r.title || '').toLowerCase().includes(pdfPickFilter.trim().toLowerCase()))
-              .map((r) => (
-                <button key={r.id} onClick={() => openPickedPdf(r.id)}
-                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: '1px solid var(--border)', background: '#f7f9fc', borderRadius: 8, padding: '9px 11px', marginBottom: 6, fontSize: '.85rem', color: 'var(--navy)', fontWeight: 600, cursor: 'pointer' }}>
-                  <span style={{ flex: 1 }}>📄 {r.title}</span>
-                  <span style={{ display: 'inline-flex', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    {r.subcategory && PDF_SUBCAT_RO[r.subcategory] && (
-                      <span style={pickTag('rgba(15,43,68,.08)', 'var(--navy)')}>{PDF_SUBCAT_RO[r.subcategory]}</span>
-                    )}
-                    {r.profile && PDF_PROFILE_RO[r.profile] && (
-                      <span style={pickTag('rgba(232,185,49,.18)', '#8a6d1a')}>{PDF_PROFILE_RO[r.profile]}</span>
-                    )}
-                    <span style={pickTag(r.is_free ? '#e8f5e9' : '#fff3e0', r.is_free ? '#2e7d32' : '#e65100')}>{r.is_free ? 'Gratuit' : 'Premium'}</span>
-                  </span>
-                </button>
-              ))}
-          </div>
-        </div>
+        )}>
+          <SitePicker context={context} tab={sitePick.tab} onClose={closeSitePicker}
+            onOpenPdf={openPickedPdf} onOpenInteractive={openPickedInteractive} />
+        </Suspense>
       )}
 
       {/* Mesaje */}
@@ -1057,7 +1011,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                 options={m.suggestions.map((sg) => ({
                   label: sg.label,
                   onPick: () => (sg.kind === 'chat' ? send(sg.text)
-                    : sg.kind === 'pdf_site' ? togglePdfPicker()
+                    : sg.kind === 'pdf_site' ? toggleSitePicker()
                     : dispatchMeditatiiAction(sg, navigate, onNavigate)),
                 }))}
                 onFree={(t) => send(t)} />
@@ -1132,7 +1086,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                   {m.suggestions.map((s, k) => (
                     <button key={k}
                       onClick={() => (s.kind === 'chat' ? send(s.text)
-                        : s.kind === 'pdf_site' ? togglePdfPicker() // lista testelor PDF, chiar în chat
+                        : s.kind === 'pdf_site' ? toggleSitePicker() // lista testelor din site (interactive + PDF), chiar în chat
                         : dispatchMeditatiiAction(s, navigate, onNavigate))}
                       style={{ textAlign: 'left', border: '1px solid var(--gold)', background: 'rgba(232,185,49,.12)', borderRadius: 8, padding: '8px 10px', fontSize: '.85rem', color: 'var(--navy)', fontWeight: 600, cursor: 'pointer' }}>
                       {s.label}
@@ -1309,7 +1263,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
                         <button onClick={() => setWork({ target: s.id, eticheta: `${it.eticheta} ${s.eticheta}`, cerinta: s.cerinta || it.cerinta || '' })}
                           style={{ ...miniBtn, fontSize: '.72rem', padding: '3px 8px', borderColor: '#7fa6cf', color: '#1a4d80' }}
-                          title="Scrie rezolvarea de mână — se transformă în text și intră aici">
+                          title="Scrie rezolvarea de mână — o transformi în text și intră aici">
                           ✍️ Spațiu de lucru
                         </button>
                       </div>
@@ -1327,7 +1281,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
                     <button onClick={() => setWork({ target: it.id, eticheta: it.eticheta, cerinta: it.cerinta || '' })}
                       style={{ ...miniBtn, fontSize: '.72rem', padding: '3px 8px', borderColor: '#7fa6cf', color: '#1a4d80' }}
-                      title="Scrie rezolvarea de mână — se transformă în text și intră aici">
+                      title="Scrie rezolvarea de mână — o transformi în text și intră aici">
                       ✍️ Spațiu de lucru
                     </button>
                   </div>
@@ -1432,7 +1386,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           {listening ? '⏺️' : '🎤'}
         </button>
         {/* ✍️ Caietul digital: scrii cu degetul, iese text frumos în câmpul de mai jos */}
-        <button onClick={() => setWork({ target: 'input' })} title="Scrie de mână — se transformă în text frumos"
+        <button onClick={() => setWork({ target: 'input' })} title="Scrie de mână — apoi o transformi în text frumos"
           style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '0 12px', fontSize: '1.1rem', cursor: 'pointer' }}>
           ✍️
         </button>

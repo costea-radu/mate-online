@@ -1,10 +1,13 @@
 // =====================================================================
 // src/components/SpatiuDeLucru.jsx — caietul digital al elevului
 //
-// Elevul scrie cu degetul sau cu creionul pe o foaie cu linii. La ~1,3 s după
-// ce ridică mâna, LINIA scrisă se trimite la recunoaștere (api/ai-handwriting)
-// și cerneala e înlocuită, pe loc, de textul frumos randat cu KaTeX — radicali,
-// fracții, integrale, sume, limite, grade, tot.
+// Elevul scrie cu degetul sau cu creionul pe o foaie cu linii. Scrisul rămâne
+// scris de mână cât timp vrea el: NIMIC nu se transformă singur. Abia când
+// apasă „✨ Transformă în text", liniile scrise pleacă la recunoaștere
+// (api/ai-handwriting) și cerneala e înlocuită de textul frumos randat cu
+// KaTeX — radicali, fracții, integrale, sume, limite, grade, tot.
+// „🎓 Cere corectarea", „✓ Pune în răspuns" și „📋 Copiază" transformă întâi
+// ce a rămas netransformat (tot la apăsarea lor), apoi folosesc textul.
 //
 // GRUPAREA PE LINII (partea delicată): liniile NU sunt benzi fixe pe ecran.
 // Nimeni nu scrie exact între două linii de caiet — un „4" iese deasupra, o
@@ -17,7 +20,8 @@
 // două linii le UNEȘTE. Liniile de pe foaie rămân doar un ajutor vizual.
 //
 // Dacă scrie din nou peste o linie deja transformată, textul dispare și revine
-// cerneala: linia se recunoaște iar, întreagă. Nimic nu se pierde.
+// cerneala: linia se recunoaște iar, întreagă, la următoarea apăsare a
+// butonului. Nimic nu se pierde.
 //
 // Se deschide din butonul „✍️ Spațiu de lucru", din patru locuri:
 //   · exercițiile interactive (iframe → MATE_WORKSPACE_OPEN → InteractiveViewer)
@@ -45,7 +49,6 @@ import { ensureKatex, renderMath, autoMath } from '../lib/katex';
 const ROW_H = 80;            // distanța dintre liniile desenate pe foaie (px CSS)
 const START_ROWS = 9;
 const MAX_ROWS = 60;
-const AUTO_DELAY = 1300;     // pauza după care linia se transformă singură (ms)
 const MAX_BATCH = 4;         // câte linii intră într-o singură cerere
 const PEN_W = 2.4;
 const ERASER_R = 15;
@@ -81,6 +84,10 @@ function unionBox(strokes) {
   }
   return { x0, y0, x1, y1 };
 }
+
+// O pată izolată (un punct rătăcit) nu e o linie de citit: nu pleacă la model
+// și nu apare nici la „în așteptare".
+const isSpeck = (L) => !((L.box.x1 - L.box.x0) > 14 || (L.box.y1 - L.box.y0) > 14 || L.strokes.length > 1);
 
 // Amprenta unei linii: id-urile traseelor din ea. Se schimbă exact când linia
 // s-a modificat — traseu nou, radieră, unire cu altă linie, rupere în două.
@@ -214,18 +221,21 @@ export default function SpatiuDeLucru({
   const strokesRef = useRef([]);              // [{ id, line, color, pts }]
   const drawingRef = useRef(null);
   const penSeenRef = useRef(false);
-  const timerRef = useRef(null);
-  const dirtyRef = useRef(new Set());         // id-uri de LINII de recunoscut
   const seqRef = useRef(1);
   const lineSeqRef = useRef(1);
   const busyRef = useRef(false);
-  const flushRef = useRef(null);
 
   const [tool, setTool] = useState('pen');
   const [color, setColor] = useState(COLORS[0]);
   const [rows, setRows] = useState(START_ROWS);
-  const [meta, setMeta] = useState({});       // { [lineId]: { status, latex } }
-  const [auto, setAuto] = useState(true);
+  // { [lineId]: { status, latex, sig } } — status: 'idle' (scrisă, netransformată),
+  // 'busy' (se citește), 'done' (e text), 'fail' (n-a putut fi citită; se
+  // reîncearcă la „✨ Transformă în text" sau după ce elevul o rescrie)
+  const [meta, setMeta] = useState({});
+  const [working, setWorking] = useState(false);   // transformarea e pe drum
+  const [then, setThen] = useState(null);          // acțiunea care așteaptă textul: 'corect' | 'insert' | 'copy'
+  const [copied, setCopied] = useState(false);
+  const [pending, setPending] = useState(null);    // butonul apăsat cât se transformă ('corect' | 'insert' | 'copy')
   const [width, setWidth] = useState(900);
   const [err, setErr] = useState(null);
   const [tick, setTick] = useState(0);
@@ -328,8 +338,9 @@ export default function SpatiuDeLucru({
   }, []);
 
   // După regrupare: liniile a căror compunere s-a schimbat își pierd textul și
-  // intră la rând pentru o nouă citire. „sig" e amprenta traseelor din linie —
-  // acoperă deodată adăugarea, radiera, unirea și ruperea liniilor.
+  // redevin cerneală, până la următoarea apăsare a butonului „✨ Transformă în
+  // text". „sig" e amprenta traseelor din linie — acoperă deodată adăugarea,
+  // radiera, unirea și ruperea liniilor.
   const reconcile = useCallback((lines) => {
     setMeta((m) => {
       const n = {};
@@ -339,13 +350,10 @@ export default function SpatiuDeLucru({
         if (old && old.sig === L.sig) { n[L.id] = old; continue; }
         if (old) changed = true;
         n[L.id] = { status: 'idle', latex: null, sig: L.sig };
-        dirtyRef.current.add(L.id);
       }
       for (const k of Object.keys(m)) if (!(k in n)) changed = true;
       return changed || Object.keys(n).length !== Object.keys(m).length ? n : m;
     });
-    const alive = new Set(lines.map((L) => L.id));
-    for (const id of Array.from(dirtyRef.current)) if (!alive.has(id)) dirtyRef.current.delete(id);
   }, []);
 
   // ── Fereastra: mărime, maximizare, mânere de tras ────────────────
@@ -489,7 +497,10 @@ export default function SpatiuDeLucru({
         strokesRef.current = o.strokes.filter((s) => s && Array.isArray(s.pts) && s.pts.length);
         seqRef.current = strokesRef.current.reduce((m, s) => Math.max(m, s.id || 0), 0) + 1;
         lineSeqRef.current = strokesRef.current.reduce((m, s) => Math.max(m, s.line || 0), 0) + 1;
-        setMeta(o.meta || {});
+        // o linie salvată „în citire" (fereastra s-a închis între timp) redevine cerneală
+        const m0 = {};
+        for (const [k, v] of Object.entries(o.meta || {})) m0[k] = v && v.status === 'busy' ? { ...v, status: 'idle', latex: null } : v;
+        setMeta(m0);
         setRows(Math.min(MAX_ROWS, Math.max(START_ROWS, (o.rows | 0) || START_ROWS)));
         // regrupăm ciorna: pragurile se pot schimba între versiuni, iar liniile
         // salvate trebuie să cadă la fel ca acum
@@ -566,23 +577,23 @@ export default function SpatiuDeLucru({
     return { dataUrl: cv.toDataURL('image/png'), used };
   }
 
-  // ── Recunoașterea ─────────────────────────────────────────────────────
+  // ── Recunoașterea — DOAR la apăsarea unui buton ─────────────────────────
   const metaRef = useRef(meta);
   useEffect(() => { metaRef.current = meta; }, [meta]);
 
-  const recognize = useCallback(async (ids) => {
-    if (busyRef.current) return;
+  // Un lot: până la MAX_BATCH linii, într-o singură imagine și o singură cerere.
+  // Întoarce id-urile citite (sau încercate), [] dacă n-a avut ce citi, null la eroare.
+  const recognizeOnce = useCallback(async (ids) => {
     const all = linesOf();
     const byId = new Map(all.map((L) => [L.id, L]));
     const list = ids
       .map((id) => byId.get(id)).filter(Boolean)
-      // pete izolate (un punct rătăcit): nu are rost să plece la model
-      .filter((L) => (L.box.x1 - L.box.x0) > 14 || (L.box.y1 - L.box.y0) > 14 || L.strokes.length > 1)
+      .filter((L) => !isSpeck(L))                  // pete izolate: nu au ce căuta la model
       .sort((a, b) => a.box.y0 - b.box.y0)
       .slice(0, MAX_BATCH);
-    if (!list.length) return;
+    if (!list.length) return [];
     const packed = composite(list);
-    if (!packed) return;
+    if (!packed) return [];
     const sigById = new Map(list.map((L) => [L.id, L.sig]));
 
     // context: ce scrie pe liniile de DEASUPRA primei linii din lot — modelul
@@ -592,8 +603,6 @@ export default function SpatiuDeLucru({
       .filter((L) => L.box.y1 <= first.box.y0 && metaRef.current[L.id] && metaRef.current[L.id].latex)
       .slice(-3).map((L) => normalizeLatex(metaRef.current[L.id].latex)).join('\n');
 
-    busyRef.current = true;
-    setErr(null);
     setMeta((m) => {
       const n = { ...m };
       for (const id of packed.used) n[id] = { ...(n[id] || {}), status: 'busy', sig: sigById.get(id) };
@@ -603,20 +612,21 @@ export default function SpatiuDeLucru({
       const { lines } = await aiClient.handwriting({
         imageBase64: packed.dataUrl, count: packed.used.length, hint, prev,
       });
+      const got = {};
+      (lines || []).forEach((l) => { const id = packed.used[l.i - 1]; if (id != null && l.latex) got[id] = l.latex; });
       setMeta((m) => {
         const n = { ...m };
-        (lines || []).forEach((l) => {
-          const id = packed.used[l.i - 1];
-          if (id == null) return;
+        for (const id of packed.used) {
           const sig = sigById.get(id);
-          // între timp elevul poate să fi scris mai departe pe linia asta — atunci
-          // răspunsul e depășit și linia se citește din nou, întreagă
-          if (n[id] && n[id].sig !== sig) { dirtyRef.current.add(id); return; }
-          n[id] = l.latex ? { status: 'done', latex: l.latex, sig } : { status: 'idle', latex: null, sig };
-        });
-        for (const id of packed.used) if (n[id] && n[id].status === 'busy') n[id] = { status: 'idle', latex: null, sig: sigById.get(id) };
+          // între timp elevul a scris mai departe pe linia asta (sau a șters-o):
+          // răspunsul e depășit — linia rămâne cerneală, pentru apăsarea următoare
+          if (!n[id] || n[id].sig !== sig) continue;
+          n[id] = got[id] ? { status: 'done', latex: got[id], sig } : { status: 'fail', latex: null, sig };
+        }
+        metaRef.current = n;          // lotul următor vede deja textul (contextul „prev")
         return n;
       });
+      return packed.used;
     } catch (e) {
       setErr(e.message || 'Nu am putut citi scrisul.');
       setMeta((m) => {
@@ -624,26 +634,31 @@ export default function SpatiuDeLucru({
         for (const id of packed.used) if (n[id] && n[id].status === 'busy') n[id] = { status: 'idle', latex: null, sig: sigById.get(id) };
         return n;
       });
-    } finally {
-      busyRef.current = false;
-      ids.filter((id) => !packed.used.includes(id)).forEach((id) => dirtyRef.current.add(id));
-      if (dirtyRef.current.size) setTimeout(() => { if (flushRef.current) flushRef.current(); }, 90);
+      return null;
     }
   }, [hint, linesOf]);
 
-  const flush = useCallback(() => {
-    const list = Array.from(dirtyRef.current);
-    dirtyRef.current.clear();
-    if (list.length) recognize(list);
-  }, [recognize]);
-  useEffect(() => { flushRef.current = flush; }, [flush]);
-
-  const scheduleFlush = useCallback((delay = AUTO_DELAY) => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => { timerRef.current = null; flush(); }, delay);
-  }, [flush]);
-
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+  // Transformă liniile date, lot după lot. Liniile scrise ÎN TIMPUL transformării
+  // nu intră — ele așteaptă următoarea apăsare. true = totul a mers (fără eroare).
+  const transform = useCallback(async (ids) => {
+    if (busyRef.current || !ids.length) return !busyRef.current;
+    busyRef.current = true;
+    setWorking(true); setErr(null);
+    let ok = true;
+    try {
+      let rest = [...ids];
+      while (rest.length) {
+        const used = await recognizeOnce(rest);
+        if (used === null) { ok = false; break; }   // eroarea e deja afișată
+        if (!used.length) break;                     // nimic de citit (pete, linii dispărute)
+        rest = rest.filter((id) => !used.includes(id));
+      }
+    } finally {
+      busyRef.current = false;
+      setWorking(false);
+    }
+    return ok;
+  }, [recognizeOnce]);
 
   // ── Scrisul ───────────────────────────────────────────────────────────
   function pointOf(e) {
@@ -658,7 +673,6 @@ export default function SpatiuDeLucru({
     if (!e.isPrimary) return;
     e.preventDefault();
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* merge și fără capture */ }
-    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
     const [x, y] = pointOf(e);
     if (tool === 'eraser') { drawingRef.current = { eraser: true }; erase(x, y); return; }
     drawingRef.current = { id: seqRef.current++, line: 0, color, pts: [[x, y]] };
@@ -679,7 +693,8 @@ export default function SpatiuDeLucru({
   }
 
   // Gruparea se reface ABIA la ridicarea mâinii: acum se știe cât de sus și cât
-  // de jos a ajuns traseul, deci și cu ce se leagă.
+  // de jos a ajuns traseul, deci și cu ce se leagă. Transformarea în text NU
+  // mai pornește singură de aici — doar la „✨ Transformă în text".
   function onUp() {
     const d = drawingRef.current;
     drawingRef.current = null;
@@ -689,7 +704,6 @@ export default function SpatiuDeLucru({
     growIfNeeded(strokeBox(d).y1);
     saveDraft();
     repaintSoon();
-    if (auto) scheduleFlush();
   }
 
   function erase(x, y) {
@@ -733,7 +747,6 @@ export default function SpatiuDeLucru({
 
   function clearAll() {
     strokesRef.current = [];
-    dirtyRef.current.clear();
     setMeta({}); setRows(START_ROWS); setErr(null);
     repaintSoon();
     if (LSK) { try { localStorage.removeItem(LSK); } catch { /* nimic de curățat */ } }
@@ -748,15 +761,74 @@ export default function SpatiuDeLucru({
     [lines, meta],
   );
 
+  const statusOf = (L) => (meta[L.id] && meta[L.id].status) || 'idle';
   const nDone = lines.filter((L) => meta[L.id] && meta[L.id].latex).length;
-  const nBusy = lines.filter((L) => meta[L.id] && meta[L.id].status === 'busy').length;
-  const asteapta = lines.filter((L) => !(meta[L.id] && (meta[L.id].latex || meta[L.id].status === 'busy')));
+  const nBusy = lines.filter((L) => statusOf(L) === 'busy').length;
+  // scrise, netransformate încă (petele izolate nu se numără)
+  const asteapta = lines.filter((L) => statusOf(L) === 'idle' && !isSpeck(L));
+  // încercate, dar necitite — rămân cerneală până le rescrie sau reîncearcă
+  const necitite = lines.filter((L) => statusOf(L) === 'fail');
+  const deTransformat = [...asteapta, ...necitite];
+  const areScris = nDone > 0 || deTransformat.length > 0;
 
+  // „✨ Transformă în text": tot ce e scris și netransformat (plus reîncercarea
+  // liniilor pe care nu le-a putut citi data trecută)
   function transformaTot() {
-    asteapta.forEach((L) => dirtyRef.current.add(L.id));
-    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
-    flush();
+    if (working) return;
+    transform(deTransformat.map((L) => L.id));
   }
+
+  // Butoanele de jos: întâi transformă ce a rămas netransformat (la apăsarea
+  // lor, nu singur), apoi folosesc textul — după ce se randează, ca să-l
+  // ia pe cel nou (efectul de mai jos).
+  function act(kind) {
+    if (working) return;
+    setCopied(false);
+    if (asteapta.length) {
+      setPending(kind);
+      transform(asteapta.map((L) => L.id)).then((ok) => { setPending(null); if (ok) setThen(kind); });
+      return;
+    }
+    finish(kind);
+  }
+  // o linie n-a putut fi citită → NU o lăsăm deoparte pe ascuns: o arătăm
+  // (marcată cu „?") și spunem o dată; a doua apăsare folosește ce s-a citit
+  const warnedRef = useRef('');
+  function finish(kind) {
+    const failKey = necitite.map((L) => L.sig).join('|');
+    if (necitite.length && kind !== 'copy' && textOut && warnedRef.current !== failKey) {
+      warnedRef.current = failKey;
+      setErr(`${necitite.length === 1 ? 'O linie n-am putut-o citi — a rămas scrisă de mână, marcată cu „?"' : `${necitite.length} linii n-am putut să le citesc — au rămas scrise de mână, marcate cu „?"`}. Rescrie mai clar și apasă „✨ Transformă în text" — sau apasă din nou și folosesc doar textul citit.`);
+      return;
+    }
+    runAct(kind, textOut, necitite.length);
+  }
+  function runAct(kind, text, nFail) {
+    if (!text) {
+      setErr(nFail
+        ? 'Nu am putut citi ce ai scris — scrie puțin mai mare și mai rar, apoi apasă din nou „✨ Transformă în text".'
+        : 'Scrie întâi rezolvarea pe foaie.');
+      return;
+    }
+    if (kind === 'copy') {
+      const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1800); };
+      try {
+        Promise.resolve(navigator.clipboard.writeText(text)).then(done, () => setErr('Textul e gata — apasă din nou „📋 Copiază" ca să-l copiez.'));
+      } catch { setErr('Nu am putut copia textul în acest browser.'); }
+      return;
+    }
+    if (kind === 'corect' && onCorect) onCorect(text);
+    else if (kind === 'insert' && onInsert) onInsert(text);
+    else return;
+    onClose && onClose();
+  }
+  useEffect(() => {
+    if (!then) return;
+    const kind = then;
+    setThen(null);
+    if (!open) return;                 // fereastra s-a închis între timp: nu mai trimitem nimic
+    finish(kind);
+  }, [then]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!open) return;
@@ -841,18 +913,24 @@ export default function SpatiuDeLucru({
           <span style={{ width: 1, height: 20, background: '#cfd8e3', margin: '0 3px' }} />
           <button style={toolBtn(false)} onClick={undo} title="Anulează ultimul tras">↩ Înapoi</button>
           <button style={toolBtn(false)} onClick={clearAll} title="Foaie nouă">✕ Șterge tot</button>
-          <span style={{ width: 1, height: 20, background: '#cfd8e3', margin: '0 3px' }} />
-          <button style={toolBtn(auto)} onClick={() => setAuto((a) => !a)}
-            title={auto ? 'Linia se transformă singură, la ~1 secundă după ce ridici mâna' : 'Transformarea automată e oprită — apeși tu butonul'}>
-            ✨ Automat: {auto ? 'pornit' : 'oprit'}
+          {/* Scrisul NU se mai transformă singur: elevul apasă butonul când
+              vrea (după ce a terminat un rând, sau toată rezolvarea) */}
+          <button
+            onClick={transformaTot}
+            disabled={working || !deTransformat.length}
+            aria-busy={working || undefined}
+            title={deTransformat.length
+              ? 'Transformă în text tot ce ai scris (scrisul de mână devine text cu formule)'
+              : 'Scrie ceva pe foaie, apoi apasă aici ca să-l transformi în text'}
+            style={{
+              ...toolBtn(!!deTransformat.length && !working), marginLeft: 'auto',
+              padding: '7px 13px', fontWeight: 800,
+              ...(deTransformat.length && !working ? { boxShadow: '0 2px 8px rgba(232,185,49,.45)' } : {}),
+              ...(!deTransformat.length && !working ? { opacity: 0.6, cursor: 'default' } : {}),
+              ...(working ? { background: '#fff8e1', border: '1px solid #e8b931', color: '#8a6d00', cursor: 'progress' } : {}),
+            }}>
+            {working ? '⏳ Transform în text…' : `✨ Transformă în text${deTransformat.length ? ` (${deTransformat.length})` : ''}`}
           </button>
-          {(!auto || asteapta.length > 0) && (
-            <button style={{ ...toolBtn(false), background: '#fff8e1', borderColor: '#e8b931', color: '#8a6d00' }}
-              onClick={transformaTot} disabled={!asteapta.length}
-              title="Transformă acum tot ce ai scris">
-              ✨ Transformă {asteapta.length ? `(${asteapta.length})` : ''}
-            </button>
-          )}
         </div>
 
         {/* ── Enunțul exercițiului ── */}
@@ -911,11 +989,13 @@ export default function SpatiuDeLucru({
               const cy = (L.box.y0 + L.box.y1) / 2;
               const left = Math.max(GUTTER + 8, L.box.x0);
               if (m.status === 'busy') {
+                // lângă cerneală (nu peste ea), ca elevul să-și vadă scrisul cât se citește
                 return (
                   <div key={'b' + L.id} style={{
-                    position: 'absolute', left, top: cy, transform: 'translateY(-50%)',
+                    position: 'absolute', left: Math.max(GUTTER + 8, Math.min(L.box.x1 + 14, width - 190)), top: cy, transform: 'translateY(-50%)',
                     display: 'flex', alignItems: 'center', gap: 8, color: '#8a6d00',
                     fontSize: '.78rem', fontWeight: 700, pointerEvents: 'none',
+                    background: 'rgba(255,248,225,.94)', borderRadius: 12, padding: '3px 9px',
                   }}>
                     <span style={{
                       width: 13, height: 13, borderRadius: '50%', border: '2px solid #e8b931',
@@ -923,6 +1003,17 @@ export default function SpatiuDeLucru({
                     }} />
                     se transformă în text…
                   </div>
+                );
+              }
+              if (m.status === 'fail') {
+                // încercată, dar necitită: rămâne cerneală, cu un „?" în margine
+                return (
+                  <div key={'f' + L.id} aria-hidden title="N-am putut citi linia — rescrie-o mai clar" style={{
+                    position: 'absolute', left: Math.max(4, GUTTER - 30), top: cy, transform: 'translateY(-50%)',
+                    width: 22, height: 22, borderRadius: '50%', background: '#fdecea', border: '1px solid #f1a9a0',
+                    color: '#b3261e', fontWeight: 800, fontSize: '.8rem', display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', pointerEvents: 'none', fontFamily: 'var(--font-body, sans-serif)',
+                  }}>?</div>
                 );
               }
               if (!m.latex) return null;
@@ -933,7 +1024,7 @@ export default function SpatiuDeLucru({
                 }}>
                   <LinieRandata
                     latex={m.latex}
-                    onEdit={() => setMeta((mm) => ({ ...mm, [L.id]: { status: 'idle', latex: null } }))}
+                    onEdit={() => setMeta((mm) => ({ ...mm, [L.id]: { status: 'idle', latex: null, sig: L.sig } }))}
                   />
                 </div>
               );
@@ -967,28 +1058,38 @@ export default function SpatiuDeLucru({
           display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
           padding: '9px 12px', borderTop: '1px solid #dde4ec', background: '#fff', flexShrink: 0,
         }}>
+          {/* Fiecare buton transformă întâi ce a rămas scris de mână (la apăsare,
+              nu singur), apoi folosește textul */}
           {onCorect && (
-            <button style={actBtn} disabled={!nDone}
-              onClick={() => { onCorect(textOut); onClose && onClose(); }}
+            <button style={{ ...actBtn, ...(!areScris || working ? { opacity: 0.6, cursor: working ? 'progress' : 'default' } : {}) }}
+              disabled={!areScris || working}
+              onClick={() => act('corect')}
               title="Profesorul virtual îți citește rezolvarea și îți spune unde greșești">
-              🎓 Cere corectarea
+              {pending === 'corect' ? '⏳ Transform și trimit…' : '🎓 Cere corectarea'}
             </button>
           )}
           {onInsert && (
-            <button style={nDone ? { ...ghostBtn, borderColor: '#e8b931', color: '#8a6d00' } : ghostBtn} disabled={!nDone}
-              onClick={() => { onInsert(textOut); onClose && onClose(); }}>
-              {insertLabel}
+            <button style={{ ...(areScris ? { ...ghostBtn, border: '1px solid #e8b931', color: '#8a6d00' } : ghostBtn), ...(!areScris || working ? { opacity: 0.6, cursor: working ? 'progress' : 'default' } : {}) }}
+              disabled={!areScris || working}
+              onClick={() => act('insert')}>
+              {pending === 'insert' ? '⏳ Transform…' : insertLabel}
             </button>
           )}
-          <button style={ghostBtn} disabled={!nDone}
-            onClick={() => { try { navigator.clipboard.writeText(textOut); } catch { /* fără clipboard */ } }}
-            title="Copiază textul transformat">📋 Copiază</button>
+          <button style={{ ...ghostBtn, ...(!areScris || working ? { opacity: 0.6, cursor: working ? 'progress' : 'default' } : {}) }}
+            disabled={!areScris || working}
+            onClick={() => act('copy')}
+            title="Copiază textul transformat">{pending === 'copy' ? '⏳ Transform…' : copied ? '✓ Copiat' : '📋 Copiază'}</button>
 
           <span style={{ flex: 1 }} />
           <span style={{ fontSize: '.74rem', color: '#6b7c8f' }}>
-            {nDone ? `${nDone} ${nDone === 1 ? 'linie transformată' : 'linii transformate'}` : 'scrie pe foaie — linia se transformă singură'}
-            {nBusy ? ' · se citește…' : ''}
-            {asteapta.length ? ` · ${asteapta.length} în așteptare` : ''}
+            {!areScris && !nBusy
+              ? 'Scrie pe foaie, apoi apasă „✨ Transformă în text".'
+              : [
+                nDone ? `${nDone} ${nDone === 1 ? 'linie transformată' : 'linii transformate'}` : null,
+                nBusy ? 'se citește…' : null,
+                asteapta.length ? `${asteapta.length} ${asteapta.length === 1 ? 'linie netransformată' : 'linii netransformate'}` : null,
+                necitite.length ? `${necitite.length} ${necitite.length === 1 ? 'necitită' : 'necitite'} (?)` : null,
+              ].filter(Boolean).join(' · ')}
           </span>
         </div>
         {/* ── Mânerele de redimensionare a ferestrei ── */}

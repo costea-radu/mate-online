@@ -75,6 +75,7 @@ module.exports = async function handler(req, res) {
       coach, homework_check: homeworkCheck, homework_score: homeworkScore,
       homework_draft: homeworkDraft, homework_finalize: homeworkFinalize,
       session_score: sessionScore, set_focus: setFocus, set_exam_scope: setExamScope,
+      site_test: siteTest,
     };
     const fn = handlers[action];
     if (!fn) return res.status(400).json({ error: 'action invalid' });
@@ -325,6 +326,61 @@ async function sessionScore(req, res, supa) {
   return res.status(200).json({ ok: true, chapterDone, pct: Math.round(pct * 100) });
 }
 
+// ─── „🧩 Test din site" ales de elev din listă (tabla din „Planul meu") ──────
+// Un TEST INTERACTIV din site, ales chiar de elev, se înregistrează ca sesiune
+// „din site" (payload.contentId). Viewerul îl deschide cu ?medSesId=…, iar
+// scorul trimis la „Corectează" (session_score) intră în plan, „Progresul
+// meu", predicția notei și raportul pentru părinți/profesori — ca la testele
+// alese de profesor. Fără AI și fără credite: e doar o înregistrare.
+//   · „Teste interactive" de la EN/BAC = simulare de examen (cu examenul lor);
+//   · exercițiile pe subiecte / capitole și testele de la clase = set de exerciții.
+const BAC_EXAM_OF_PROFILE = { 'mate-info': 'bac-mate-info', 'stiinte-naturii': 'bac-stiinte', tehnologic: 'bac-tehnologic' };
+function siteTestKind(content, medProfile) {
+  const c = content || {};
+  const examTest = c.subcategory === 'teste-interactive' && (c.category === 'evaluare-nationala' || c.category === 'bacalaureat');
+  if (!examTest) {
+    return { kind: 'exercitii', topic: String(c.title || 'Test din site').replace(/\s+/g, ' ').trim().slice(0, 120), examType: null };
+  }
+  const examType = c.category === 'evaluare-nationala' ? 'evaluare-nationala'
+    : (BAC_EXAM_OF_PROFILE[c.profile] || med.examTypeFor(medProfile || {}));
+  return { kind: 'simulare', topic: examType, examType };
+}
+
+async function siteTest(req, res, supa) {
+  const userId = await ai.authUser(req, supa);
+  const profile = await ai.requireUser(supa, userId);
+  requireMeditatii(profile);
+  const contentId = String(req.body?.contentId || '').trim();
+  if (!contentId) return res.status(400).json({ error: 'contentId obligatoriu' });
+
+  const { data: chosen } = await supa.from('content')
+    .select('id, title, is_free, content_type, category, subcategory, profile')
+    .eq('id', contentId).eq('content_type', 'interactive').maybeSingle();
+  if (!chosen) return res.status(404).json({ error: 'Testul ales nu mai există în baza de date a site-ului.' });
+  const medProfile = await getMedProfile(supa, userId);
+  if (!medProfile) return res.status(400).json({ error: 'Începe cu testul inițial.' });
+
+  const { kind, topic, examType } = siteTestKind(chosen, medProfile);
+  // același test redeschis înainte să-l termine → aceeași sesiune (fără dubluri
+  // în „Progresul meu"); un test deja corectat, redeschis → încercare nouă
+  const { data: open } = await supa.from('ai_meditatii_sessions')
+    .select('id').eq('user_id', userId).eq('status', 'activa').eq('payload->>contentId', chosen.id)
+    .order('created_at', { ascending: false }).limit(1);
+  let sessionId = (open && open[0] && open[0].id) || null;
+  if (!sessionId) {
+    const { data: sess, error } = await supa.from('ai_meditatii_sessions').insert({
+      user_id: userId, kind, topic, status: 'activa',
+      payload: { contentId: chosen.id, siteTitle: chosen.title, site: true, picked: true, ...(examType ? { examType } : {}) },
+    }).select('id').single();
+    if (error || !sess) return res.status(500).json({ error: (error && error.message) || 'Testul nu a putut fi înregistrat.' });
+    sessionId = sess.id;
+  }
+  return res.status(200).json({
+    sessionId, kind,
+    siteTest: { id: chosen.id, title: chosen.title, url: `/exercitiu?id=${chosen.id}&medSesId=${sessionId}`, is_free: chosen.is_free },
+  });
+}
+
 // memoria pedagogică: linia de adaptare trimisă generatoarelor
 function styleNoteOf(profile) {
   const m = profile?.memory || {};
@@ -557,9 +613,10 @@ function buildBriefing({ firstName, medProfile, plan, dueReviews, pendingHw, ope
   if (medProfile.exam_target && next) {
     suggestions.push({ kind: 'simulare', label: `🧩 Test din site · ${EXAM_RO[med.examTypeFor(medProfile)] || 'examen'}` });
   }
-  // ultimul buton din listă: alegerea unui TEST PDF din site — lista (filtrată
-  // pe nivelul elevului) se deschide chiar în chat; kind gestionat de ChatPanel.
-  suggestions.push({ kind: 'pdf_site', label: '📄 Alege un test PDF din site' });
+  // ultimul buton din listă: elevul ALEGE singur un test din site — interactiv
+  // (corectat pe loc) sau PDF (corectat după barem); lista, filtrată pe nivelul
+  // lui, se deschide chiar în chat. kind-ul (istoric „pdf_site") îl tratează ChatPanel.
+  suggestions.push({ kind: 'pdf_site', label: '📚 Alege tu un test din site (interactiv sau PDF)' });
 
   return { message: `${hello} ${bits.join(' ')}`.trim(), suggestions };
 }
@@ -2151,3 +2208,4 @@ module.exports.clampScore = clampScore;
 module.exports.hasParentLink = hasParentLink;
 module.exports.finishedAssessments = finishedAssessments;
 module.exports.requireAssessmentAccess = requireAssessmentAccess;
+module.exports.siteTestKind = siteTestKind;

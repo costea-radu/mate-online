@@ -1841,6 +1841,19 @@ body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
   padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px dashed var(--border); flex-shrink: 0;
 }
 .bdchat-msgs { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 2px 0; }
+/* „🧩 Teste din site", deschisă pe tablă: lista lasă coloana camerei lui
+   Prof. Tudor liberă și loc jos pentru subtitrare */
+.bd-body .site-pick {
+  right: calc(var(--bd-cam-w, 220px) + 8px) !important; z-index: 4 !important; /* sub cameră și subtitrare */
+  border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  box-shadow: 0 8px 26px rgba(15,43,68,.12);
+}
+.bd-body .site-pick-list { padding-bottom: 70px !important; }
+@media (max-width: 900px) {
+  /* ecran îngust: lista ia toată lățimea, iar ultimele rânduri urcă peste cameră */
+  .bd-body .site-pick { right: 0 !important; }
+  .bd-body .site-pick-list { padding-bottom: calc(var(--bd-cam-w) * .825 + 44px) !important; }
+}
 
 /* mesajele, scrise de mână pe tablă */
 .bdmsg-row { display: flex; flex-direction: column; margin-bottom: 13px; }

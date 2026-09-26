@@ -301,7 +301,7 @@ const BRIDGE_SCRIPT = String.raw`
     b.setAttribute('data-mt-work', '1');
     b.innerHTML = '<span style="font-size:.95rem;line-height:1">\u270D\uFE0F</span><span>Spațiu de lucru</span>';
     b.style.cssText = WORK_CSS;
-    b.title = 'Scrie rezolvarea cu degetul sau cu creionul — se transformă singură în text frumos';
+    b.title = 'Scrie rezolvarea cu degetul sau cu creionul — apoi o transformi în text frumos, cu un buton';
     b.addEventListener('click', function(ev){
       ev.preventDefault(); ev.stopPropagation();
       focusCard = card || null;

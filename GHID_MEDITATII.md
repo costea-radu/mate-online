@@ -456,6 +456,43 @@ verificarea răspunsurilor), `src/lib/live/vorbire.js` (glasul profesorului),
 și `PortraitScene.jsx` (apropierea camerei, regia din pagină),
 `src/styles/global.css`, `api/ai-meditatii.js`, `api/_lib/ai.js`.
 
+## 🧩 Runda 11 — „Test din site": și testele INTERACTIVE, nu doar PDF-urile
+
+„🧩 Test din site" (meniul din stânga tablei, sau propunerea lui Prof. Tudor
+„Îți arăt testele din site?") deschide pe tablă lista testelor din baza de date,
+**pe nivelul elevului** (EN / BAC cu profilul lui / clasa lui), în două file:
+
+| Fila | Ce conține | Ce se întâmplă la alegere |
+|---|---|---|
+| **🧩 Interactive** (se deschide prima) | aceleași rubrici ca pe paginile site-ului: întâi „Teste interactive", apoi „Exerciții pe subiecte", apoi „Capitole"; la clase, toate exercițiile interactive ale clasei. La BAC, „Capitole" e comună tuturor profilurilor, restul se filtrează după profil. Materialele puse într-o rubrică doar-PDF (care nu apar pe site) nu apar nici aici. Lângă testele deja rezolvate: scorul lui (`✓ 80% · nota 8.20`) | testul se deschide pe tot ecranul (`/exercitiu`) și se corectează singur; profesorul e la un clic, în **aceeași conversație**. Testul ales se înregistrează ca **sesiune din site** (`action: 'site_test'` → `?medSesId=…`), deci scorul intră în plan, „Progresul meu", predicția notei și raportul pentru părinți/profesori |
+| **📄 PDF** | ca până acum: variante, simulări, teste de antrenament… (fără bareme) | se deschide în vizualizator, cu conversația alături — „📝 Răspunde în chat" îl corectează după barem |
+
+- Căutarea după titlu merge și **fără diacritice** („judeteana" găsește
+  „Județeană"); dacă într-o filă nu e nimic, lista arată câte sunt în cealaltă.
+- Prof. Tudor spune pe scurt cum merge (voce + subtitrare) când se deschide
+  lista; pe tablă, lista lasă liberă coloana camerei lui.
+- **Ce fel de sesiune:** un „Test interactiv" de la EN/BAC se înregistrează ca
+  **simulare** (cu examenul lui — la BAC după profilul testului), celelalte
+  (exerciții pe subiecte, capitole, testele de la clase) ca **set de
+  exerciții**. Același test redeschis înainte de corectare folosește aceeași
+  sesiune (fără dubluri); un test corectat, redeschis, e o încercare nouă.
+  Testele alese astfel nu mai sunt date apoi ca temă / „site-first" (nu se dau
+  de două ori).
+- Butonul din mesajul de bun venit al serverului se numește acum
+  „📚 Alege tu un test din site (interactiv sau PDF)" (kind-ul rămâne `pdf_site`).
+
+**Instalare:** nimic în plus — fără migrare SQL, fără variabile noi, fără cost
+AI (alegerea și înregistrarea testului nu folosesc modelul). Lista se încarcă
+**leneș** (`SitePicker.jsx`, ~9 KB) doar la prima deschidere — pachetul
+principal al site-ului nu crește.
+
+**Fișiere (runda 11):** noi — `src/components/SitePicker.jsx` (lista),
+`src/lib/siteTests.js` (nivelul, ordinea, căutarea fără diacritice),
+`test/teste-din-site.test.js`; modificate — `src/components/AITutor.jsx`
+(lista se încarcă leneș, comanda `sitePicker`), `src/pages/Meditatii.jsx`
+(„🧩 Test din site" + vocea), `api/ai-meditatii.js` (`site_test`),
+`src/styles/global.css` (lista pe tablă, lângă cameră).
+
 ## 🛠️ Depanare
 
 | Simptom | Cauză / soluție |
@@ -473,3 +510,5 @@ verificarea răspunsurilor), `src/lib/live/vorbire.js` (glasul profesorului),
 | Temele nu vin automat | Cron-ul rulează zilnic la 17:00 (RO) și dă teme doar elevilor abonați, inactivi de 3+ zile, cu mai puțin de 2 teme nefăcute (temele incomplete nu se numără). La cerere („➕ Dă-mi o temă acum”) tema se dă oricând. |
 | Recapitulările nu apar | Apar doar după primul capitol FINALIZAT (≥80% la un set), la 1 zi / 7 / 30. |
 | Tema „din site" nu se bifează | Elevul trebuie să termine exercițiul (scorul se salvează în `progress`); la următoarea deschidere a paginii se bifează automat. |
+| „🧩 Test din site" nu arată teste interactive | Nivelul elevului nu are încă materiale interactive vizibile pe site (EN/BAC: rubricile „Teste interactive", „Exerciții pe subiecte", „Capitole"; la BAC și profilul potrivit). Un material pus într-o rubrică doar-PDF nu apare nici pe site, nici aici — Admin → Tot Conținutul arată avertismentul. |
+| Testul interactiv ales nu apare în „Progresul meu" | Scorul intră la „Corectează" (viewerul trimite `session_score` cu `medSesId`). Dacă înregistrarea sesiunii a eșuat, testul s-a deschis oricum, fără `medSesId` — scorul e doar în `progress`. |

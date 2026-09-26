@@ -1030,7 +1030,7 @@ export default function Meditatii() {
   const setComposerEl = useCallback((el) => setComposerElState(el), []);
   const boardSlots = { board: boardEl, composer: composerEl };
   const [chatBusy, setChatBusy] = useState(false);   // profesorul scrie chiar acum
-  const chatCmd = useRef(null);                      // comenzi către chat (lista de teste PDF)
+  const chatCmd = useRef(null);                      // comenzi către chat (lista „Teste din site")
 
   // ── PROFESORUL PROPUNE, ELEVUL ALEGE ─────────────────────────────────────
   // CE se propune și în ce ordine sunt reguli aici, în pagină: instant și fără
@@ -1149,10 +1149,10 @@ export default function Meditatii() {
     });
     out.push({
       key: 'test_site',
-      say: 'Putem lua și un test gata făcut din biblioteca site-ului: îl rezolvi, apoi ți-l corectez după barem, punct cu punct.',
-      ask: 'Îți aduc un test din site?',
+      say: 'Putem lua și un test gata făcut din biblioteca site-ului: unul interactiv, care se corectează pe loc, sau unul PDF, pe care ți-l corectez după barem, punct cu punct.',
+      ask: 'Îți arăt testele din site?',
       label: '🧩 Da, test din site',
-      run: () => chatCmd.current?.pdfPicker?.(),
+      run: () => openSiteTests('Bine! Alege testul care îți place din listă.'),
     });
     if (!hw) out.push({
       key: 'tema_noua',
@@ -1218,6 +1218,13 @@ export default function Meditatii() {
     setTimeout(() => sayProposal(pickProposal([], prefer)), 260);
   }
 
+  // „🧩 Test din site": lista (🧩 interactive + 📄 PDF, pe nivelul elevului) se
+  // deschide chiar pe tablă, iar Prof. Tudor spune pe scurt cum merge
+  function openSiteTests(line = 'Alege un test din listă: pe cele interactive le rezolvi pe ecran și se corectează pe loc, pe cele PDF le rezolvi pe foaie și ți le corectez eu, după barem.') {
+    chatCmd.current?.sitePicker?.();
+    prof.say(line, { key: 'coach' });
+  }
+
   // ACȚIUNILE MEDITAȚIEI — nu mai stau sub tablă, ci în meniul din stânga ei
   // (sub tablă rămâne DOAR câmpul de scris al elevului). Aceleași funcții,
   // doar că fiecare are acum pictograma lui, ca să se citească în bandă.
@@ -1242,7 +1249,7 @@ export default function Meditatii() {
       onClick: () => runAction(() => startRemediation(mistake0.id)), disabled: !!busy,
     },
     hw0 && { id: 'hw', icon: '📚', label: 'Rezolv tema acum', title: hw0.title, onClick: () => runAction(() => openHomework(hw0)), disabled: !!busy },
-    { id: 'site', icon: '🧩', label: 'Test din site', title: 'Teste PDF din biblioteca site-ului, corectate după barem', onClick: () => runAction(() => chatCmd.current?.pdfPicker?.()), disabled: !!busy },
+    { id: 'site', icon: '🧩', label: 'Test din site', title: 'Teste din biblioteca site-ului: interactive (corectate pe loc) sau PDF (corectate după barem)', onClick: () => runAction(() => openSiteTests()), disabled: !!busy },
     { id: 'capitol', icon: '🗺️', label: 'Alege alt capitol', onClick: () => runAction(() => goTab('plan')) },
     st?.pendingHomework
       ? { id: 'temele', icon: '📚', label: 'Vezi temele', badge: st.pendingHomework || null, onClick: () => runAction(() => goTab('teme')) }
@@ -1605,7 +1612,7 @@ function TodayTab({ st, busy, onReview, onHomeworkTab, onEnd, onFocusOpen, onFoc
             planul, simulările și explicațiile meditatorului se adaptează; când ești gata, treci mai departe (schimbi alegerea de aici oricând).
           </span>
           <select value={st.examScope || ''} disabled={!!busy} onChange={(e) => onExamScope(e.target.value)}
-            style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '8px 11px', fontSize: '.86rem', fontFamily: 'inherit', color: 'var(--navy)', fontWeight: 600 }}>
+            style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '8px 11px', fontSize: '.86rem', fontFamily: 'inherit', color: 'var(--navy)', fontWeight: 600, maxWidth: '100%' }}>
             <option value="">Tot examenul (toate subiectele)</option>
             <option value="s1">{isEN ? 'Doar Subiectul I (grilă · algebră)' : 'Doar Subiectul I (itemi scurți)'}</option>
             <option value="s2">{isEN ? 'Doar Subiectul al II-lea (grilă · geometrie)' : 'Doar Subiectul al II-lea (algebră)'}</option>

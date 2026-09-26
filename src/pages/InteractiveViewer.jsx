@@ -623,7 +623,7 @@ export default function InteractiveViewer() {
               nu ajutor de la AI. */}
           <button
             onClick={() => setWorkOpen(true)}
-            title="Scrie rezolvarea cu degetul sau cu creionul — se transformă singură în text frumos"
+            title="Scrie rezolvarea cu degetul sau cu creionul — apoi o transformi în text frumos, cu un buton"
             style={{
               background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.3)',
               color: '#fff', borderRadius: 14, padding: '4px 14px', cursor: 'pointer',

@@ -1,12 +1,19 @@
 # Ghid: „✍️ Spațiu de lucru" — caietul digital
 
 Elevul scrie rezolvarea cu **degetul sau cu creionul**, pe o foaie cu linii.
-La ~1,3 secunde după ce ridică mâna, **linia** scrisă se transformă singură în
+Scrisul rămâne **scris de mână** cât timp vrea el — **nimic nu se transformă
+singur**. Abia când apasă **„✨ Transformă în text"**, liniile scrise devin
 text frumos, randat cu KaTeX, chiar în locul cernelii: fracții, radicali,
 integrale, sume, limite, unghiuri, grade — tot ce se scrie la matematică.
 
 Dacă scrie din nou peste o linie deja transformată, textul dispare, revine
-cerneala și linia se recunoaște iar, întreagă. Nimic nu se pierde.
+cerneala și linia se recunoaște iar, întreagă, la următoarea apăsare a
+butonului. Nimic nu se pierde.
+
+> **Schimbare (runda 11):** până acum fiecare linie pleca singură la
+> recunoaștere la ~1,3 s după ce elevul ridica mâna (cu un comutator
+> „✨ Automat: pornit/oprit"). Acum transformarea se face **doar la apăsarea
+> unui buton** — comutatorul a dispărut.
 
 ---
 
@@ -21,6 +28,26 @@ cerneala și linia se recunoaște iar, întreagă. Nimic nu se pierde.
 
 În **testul pe grupă** caietul rămâne deschis (e ciorna elevului), dar
 `🎓 Cere corectarea` dispare — ajutorul de la AI rămâne blocat, ca până acum.
+
+---
+
+## Butoanele
+
+| Buton | Ce face |
+|---|---|
+| `✨ Transformă în text (n)` — în bara de unelte, în dreapta | transformă tot ce e scris și netransformat (**n** = câte linii). Reîncearcă și liniile pe care nu le-a putut citi data trecută. E inactiv cât nu e nimic de transformat; cât lucrează scrie `⏳ Transform în text…` |
+| `🎓 Cere corectarea` · `✓ Pune în răspuns` · `📋 Copiază` — jos | transformă **întâi** ce a rămas netransformat (tot la apăsare, nu singur), apoi folosesc textul. Cât se transformă, butonul apăsat scrie `⏳ Transform…` |
+
+**Linie necitită.** Dacă modelul nu poate citi o linie, ea rămâne cerneală,
+cu un **„?"** roșu în margine, iar în subsol apare „1 necitită (?)". La
+`🎓 Cere corectarea` / `✓ Pune în răspuns`, elevul e avertizat **o dată**
+(„O linie n-am putut-o citi…") — ca să nu trimită rezolvarea pe jumătate fără
+să știe. Poate rescrie linia și apăsa `✨ Transformă în text`, sau apasă din
+nou butonul și se folosește doar textul citit.
+
+În subsol se vede mereu starea foii: „2 linii transformate · 1 linie
+netransformată · 1 necitită (?)"; pe foaia goală: „Scrie pe foaie, apoi apasă
+„✨ Transformă în text"".
 
 ---
 
@@ -53,9 +80,9 @@ KaTeX. Se pliază din antetul lui, iar înălțimea se trage de mânerul de sub 
 
 ```
 degetul/creionul → trasee pe canvas → grupate în LINII (geometric, vezi mai jos)
-   ↓ pauză de 1,3 s
-liniile stabile → rasterizate alb-negru → stivuite într-O SINGURĂ imagine,
-numerotate 1., 2., 3. și despărțite de o bară
+   ↓ elevul apasă „✨ Transformă în text" (sau un buton de jos)
+liniile netransformate → rasterizate alb-negru → stivuite într-O SINGURĂ
+imagine, numerotate 1., 2., 3. și despărțite de o bară (câte 4 pe cerere)
    ↓
 POST /api/ai-handwriting  { imageBase64, count, hint, prev }
    ↓ ai.chatVision (model de vedere) → JSON
@@ -65,9 +92,13 @@ KaTeX randează linia peste cerneală (\displaystyle — mărimea de pe caiet)
 ```
 
 **De ce o singură imagine pentru mai multe linii:** limita de cereri AI e pe
-oră (`AI_RATE_PER_HOUR`, implicit 80). Dacă elevul scrie repede, liniile care
-s-au „liniștit" între timp pleacă împreună — o cerere în loc de patru. Maximum
-4 linii pe cerere; ce nu încape rămâne la coadă și pleacă imediat după.
+oră (`AI_RATE_PER_HOUR`, implicit 80). La apăsarea butonului, liniile scrise
+pleacă împreună — o cerere în loc de patru. Maximum 4 linii pe cerere; ce nu
+încape pleacă în cererea următoare, tot din aceeași apăsare (lot după lot, în
+ordinea de sus în jos, fiecare lot cu textul liniilor de deasupra drept
+context). Liniile scrise **în timpul** transformării nu intră — așteaptă
+următoarea apăsare. Cu transformarea doar la buton se fac și **mai puține
+cereri** decât înainte: nu mai pleacă la model fiecare rând abia terminat.
 
 ---
 
@@ -124,7 +155,8 @@ citește corectarea. Liniile ies în ordinea de sus în jos a foii, indiferent
 |---|---|
 | `api/ai-handwriting.js` | endpointul de recunoaștere (**nou**) |
 | `api/_lib/ai.js` | `chatVision` acceptă acum `model` (o linie — restul neatins) |
-| `src/components/SpatiuDeLucru.jsx` | caietul: desen, grupare pe linii, recunoaștere, KaTeX (**nou**) |
+| `src/components/SpatiuDeLucru.jsx` | caietul: desen, grupare pe linii, recunoaștere **la buton**, KaTeX |
+| `test/spatiu-de-lucru.test.js` | regresii: fără transformare automată, recunoașterea pornește doar din butoane (runda 11) |
 | `src/lib/aiClient.js` | `aiClient.handwriting({ imageBase64, count, hint, prev })` |
 | `src/lib/tutorBridge.js` | butonul din iframe, mesajul `MATE_WORKSPACE_OPEN` și `collectEnunt()` (enunțul fără răspunsuri) |
 | `src/lib/katex.js` | `autoMath` — acolade echilibrate la `\frac`/`\sqrt`, operatori mari cu limitele lor |
@@ -182,9 +214,11 @@ refolosește, nu adaugă una nouă.
 
 | Situație | Comportament |
 |---|---|
-| Linie indescifrabilă | rămâne cerneală, fără eroare — elevul o rescrie |
-| Pată sau punct rătăcit, singur pe foaie | nu pleacă deloc la model — se ignoră |
-| Elevul scrie mai departe cât e cererea pe drum | răspunsul depășit se aruncă, linia se citește din nou, întreagă |
+| Elevul scrie și nu apasă nimic | nimic nu pleacă la model — scrisul rămâne cerneală (și se salvează în ciornă) |
+| Linie indescifrabilă | rămâne cerneală, cu „?" în margine; se reîncearcă la `✨ Transformă în text` sau după ce elevul o rescrie |
+| Pată sau punct rătăcit, singur pe foaie | nu pleacă deloc la model și nu se numără „în așteptare" — se ignoră |
+| Elevul scrie mai departe cât e cererea pe drum | răspunsul depășit se aruncă; linia rămâne cerneală până la următoarea apăsare, apoi se citește întreagă |
+| Fereastra se închide cât se transformă | nu se mai trimite / pune nimic; textul citit rămâne în ciornă. O linie rămasă „în citire" în ciornă redevine cerneală la redeschidere |
 | Cotă zilnică atinsă | mesaj în bara roșie; **scrisul merge mai departe**, doar transformarea se oprește |
 | Fără rețea / eroare server | linia revine la cerneală, mesajul apare jos |
 | Elevul folosește stylus | prima atingere de stylus pornește respingerea palmei: atingerile cu degetul sunt ignorate din acel moment |
