@@ -151,7 +151,8 @@ function ScreenVideo({ video, offset }) {
 }
 
 // Tabla digitală
-export function DigitalScreen({ state, results, myAnswers, title, examLabel, teacherName, covered }) {
+// `note` (opțional): rândul de jos al ecranului de titlu (ex. progresul, la Pregătirea de examen)
+export function DigitalScreen({ state, results, myAnswers, title, examLabel, teacherName, covered, note = null }) {
   const sc = state?.scene;
   const head = state?.head;
   if (!state || state.phase === 'asteptare') {
@@ -160,7 +161,7 @@ export function DigitalScreen({ state, results, myAnswers, title, examLabel, tea
         <div className="lv-screen-kicker">{examLabel}</div>
         <div className="lv-screen-big">{title}</div>
         {state?.startsIn != null && <div className="lv-screen-count">Începem în <b>{fmtClock(state.startsIn)}</b></div>}
-        <div className="lv-screen-note">Explicat pe baremul oficial · {teacherName}</div>
+        <div className="lv-screen-note">{note || `Explicat pe baremul oficial · ${teacherName}`}</div>
       </div>
     );
   }

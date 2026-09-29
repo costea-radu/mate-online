@@ -5,16 +5,22 @@
 //   1. „Ești gata să intri?" — previzualizarea camerei proprii, microfonul,
 //      numele, cine predă, câți colegi sunt înăuntru, plata/abonamentul și
 //      „Intră pe tot ecranul";
-//   2. sala: camera profesorului (clasa cu tabla albă, catedra și tabla
-//      digitală) sau vizualizarea „Tablă" (ca un ecran partajat), banda cu
-//      participanții, chatul, lista de participanți, subtitrările, reacțiile,
-//      mâna ridicată, caietul (Spațiul de lucru), ecranul complet, „Părăsește";
+//   2. sala: camera profesorului — clasa, cu profesorul în fața tablei albe; ce
+//      scrie el apare pe tablă, în spatele lui, iar exercițiul e proiectat în
+//      dreapta tablei. Pe telefon (nu încap citibil deodată) butonul
+//      „✎ Explicația / 📝 Exercițiul" (sau o glisare) mută camera între ele;
+//      banda cu participanții, chatul, lista de participanți, subtitrările,
+//      reacțiile, mâna ridicată, caietul (Spațiul de lucru), ecranul complet
+//      (pe telefon: sus, în dreapta), „Părăsește";
 //   3. întrebările profesorului (grilă / de completat) și „Ai înțeles?" (1-la-1).
 //
 // Grup: lecția merge pe ceasul comun (GroupPlayer) — toți aud și văd același
-// lucru. 1-la-1: lecția așteaptă elevul (PrivatePlayer).
+// lucru. 1-la-1: lecția așteaptă elevul (PrivatePlayer); dacă a pornit înainte
+// să fie gata toată vocea generată, restul se generează în fundal, începând cu
+// itemul la care e elevul, iar ce nu e gata la timp se rostește cu vocea
+// browserului — lecția nu se mai oprește niciodată în „vocea se pregătește".
 // =====================================================================
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { liveApi, buyTicket } from '../lib/live/api';
@@ -24,9 +30,12 @@ import { GroupPlayer, PrivatePlayer } from '../lib/live/player';
 import { joinLiveChannel } from '../lib/live/realtime';
 import { loadRig, initials } from '../lib/live/profesori';
 import { fmtClock } from '../lib/live/timeline';
+import { enterFs, exitFs, toggleFs as toggleFullscreen, fsSupported, useIsFullscreen } from '../lib/live/fullscreen';
 import TeacherCamera from '../components/live/TeacherCamera';
+import ScenePan, { useSceneFocus, useMedia, LANDSCAPE_SHORT } from '../components/live/ScenePan';
+import { sceneInset } from '../lib/live/framing';
 import PreJoin from '../components/live/PreJoin';
-import { WhiteboardInk, DigitalScreen, MathHtml } from '../components/live/Board';
+import { WhiteboardInk, DigitalScreen } from '../components/live/Board';
 import { PollCard, UnderstandCard } from '../components/live/PollCard';
 import { LiveChat, Participants, colorOf } from '../components/live/LiveChat';
 import SpatiuDeLucru from '../components/SpatiuDeLucru';
@@ -35,18 +44,6 @@ import demoData from '../lib/live/demo.json';
 import '../styles/live.css';
 
 const REACTIONS = ['👍', '👏', '❤️', '😂', '😮', '🎉'];
-
-// ─── ecran complet (Fullscreen API, cu prefixul Safari) ───────────────────────
-const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
-function enterFs(el) {
-  const f = el && (el.requestFullscreen || el.webkitRequestFullscreen);
-  if (!f) return false;
-  try { const p = f.call(el, { navigationUI: 'hide' }); if (p && p.catch) p.catch(() => {}); return true; } catch { return false; }
-}
-function exitFs() {
-  const f = document.exitFullscreen || document.webkitExitFullscreen;
-  if (f && fsElement()) { try { const p = f.call(document); if (p && p.catch) p.catch(() => {}); } catch { /* ignore */ } }
-}
 
 // ─── demonstrația (fără server) ───────────────────────────────────────────────
 function demoInfo(privat) {
@@ -80,7 +77,8 @@ export default function LiveRoom({ demo = null }) {
   const [camOn, setCamOn] = useState(false);
   const [micOn, setMicOn] = useState(false);
   const [wantFs, setWantFs] = useState(() => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const isFullscreen = useIsFullscreen();
+  const canFs = fsSupported();
   const [timeline, setTimeline] = useState(null);
   const [startedAt, setStartedAt] = useState(null);
   const [lesson, setLesson] = useState(null);
@@ -89,7 +87,8 @@ export default function LiveRoom({ demo = null }) {
   const [present, setPresent] = useState(0);
   const [ps, setPs] = useState(null);                // starea playerului
   const [panel, setPanel] = useState(() => (typeof window !== 'undefined' && window.innerWidth >= 1100 ? 'chat' : null));
-  const [view, setView] = useState(null);            // 'camera' | 'tabla'
+  const [narrow, setNarrow] = useState(false);       // telefon: camera se mută între tablă și exercițiu
+  const [moreOpen, setMoreOpen] = useState(false);   // telefon: „⋯ Mai mult" (caiet, subtitrări, reacții, cameră)
   const [results, setResults] = useState({});
   const [myAnswers, setMyAnswers] = useState({});
   const [verdicts, setVerdicts] = useState({});
@@ -157,13 +156,10 @@ export default function LiveRoom({ demo = null }) {
   useEffect(() => { if (demo || (!authLoading && user)) load(); else if (!authLoading && !user) setFatal('Intră în cont ca să participi la meditație.'); }, [demo, authLoading, user, load]);
   const [rigLoaded, setRigLoaded] = useState(false);
   useEffect(() => { if (info?.session?.teacher) loadRig(info.session.teacher).then((r) => { setRig(r); setRigLoaded(true); }); }, [info?.session?.teacher]);
-  // vizualizarea implicită: camera (cu portret, pe ecran lat) sau tabla (ca un ecran partajat)
-  useEffect(() => {
-    if (view || !rigLoaded) return;
-    const wide = window.innerWidth >= 900 && window.innerHeight >= 500;
-    setView(rig && wide ? 'camera' : 'tabla');
-  }, [rig, rigLoaded, view]);
-  const [screenOpen, setScreenOpen] = useState(null);   // null = automat (după scenă)
+  // O singură vizualizare: CLASA, cu profesorul în fața tablei (scrisul pe tabla din
+  // spatele lui, exercițiul proiectat în dreapta ei). Fără portret (rig.json lipsă)
+  // rămâne, ca rezervă, tabla desenată separat (ca un ecran partajat).
+  const view = rig ? 'camera' : rigLoaded ? 'tabla' : 'camera';
 
   // ─── 2. pregătirea lecției (dacă nu e gata), cât timp elevul așteaptă ──────
   useEffect(() => {
@@ -230,13 +226,6 @@ export default function LiveRoom({ demo = null }) {
     catch (e) { flash(e.message); setPaying(false); }
   }
 
-  useEffect(() => {
-    const onFs = () => setIsFullscreen(!!fsElement());
-    document.addEventListener('fullscreenchange', onFs);
-    document.addEventListener('webkitfullscreenchange', onFs);
-    return () => { document.removeEventListener('fullscreenchange', onFs); document.removeEventListener('webkitfullscreenchange', onFs); };
-  }, []);
-
   // ─── 4. playerul ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (!joined || !timeline) return undefined;
@@ -251,12 +240,15 @@ export default function LiveRoom({ demo = null }) {
       return undefined;
     }
     if (!playerRef.current) {
+      let asking = false;   // o singură cerere pe drum (playerul reîntreabă la ~1,5 s cât așteaptă vocea)
       const p = new PrivatePlayer({
         engine, onState: setPs,
         onSceneChange: (index) => { if (!demo && !individual) liveApi.privateState(sessionId, { scene: index }).catch(() => {}); },
         onNeedAudio: async () => {
-          if (demo) return;
+          if (demo || asking) return;
+          asking = true;
           try { const t = await liveApi.timeline(sessionId); if (t.timeline) { p.setTimeline(t.timeline); setTimeline(t.timeline); } } catch { /* reîncercăm */ }
+          finally { asking = false; }
         },
       });
       playerRef.current = p;
@@ -286,17 +278,47 @@ export default function LiveRoom({ demo = null }) {
 
   useEffect(() => () => { playerRef.current?.stop(); engine?.close(); }, [engine]);
 
+  // 1-la-1 pornit cu vocea generată doar pentru început (intro + primii itemi):
+  // restul vocii se generează ÎN FUNDAL cât elevul lucrează, întâi de la itemul la
+  // care a ajuns (dacă a sărit înainte cu ⏭), apoi restul. Fără asta, lecția se
+  // oprea la primul segment fără voce („Profesorul își aranjează notițele…").
+  const hasTimeline = !!timeline;
+  const tlNoVoice = !!timeline?.noVoice;
+  const lessonReady = lesson?.status === 'gata';
+  useEffect(() => {
+    if (demo || !privat || !joined || !hasTimeline || tlNoVoice || lessonReady) return undefined;
+    let alive = true, timer = null;
+    const step = async () => {
+      try {
+        const sc = playerRef.current?.scene;
+        const r = await liveApi.prepare(sessionId, { budgetMs: 45000, fromRef: sc?.ref || null });
+        if (!alive) return;
+        if (r?.lesson) setLesson((l) => ({ ...(l || {}), ...r.lesson }));
+        const t = await liveApi.timeline(sessionId);
+        if (!alive) return;
+        if (t.timeline) { playerRef.current?.setTimeline(t.timeline); setTimeline(t.timeline); }
+        if (t.lesson?.status === 'gata' || t.noVoice) { setLesson((l) => ({ ...(l || {}), ...(t.lesson || {}), status: 'gata' })); return; }
+      } catch { /* reîncercăm */ }
+      if (alive) timer = setTimeout(step, 4000);
+    };
+    timer = setTimeout(step, 1200);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [demo, privat, joined, hasTimeline, tlNoVoice, lessonReady, sessionId]);
+
   // lecția vorbește cu vocea browserului: dacă browserul n-are o voce românească, spunem de ce tace
   useEffect(() => {
     if (!joined || !timeline?.noVoice) return undefined;
+    let hide = null;
     const t = setTimeout(() => {
       const v = engine.voiceStatus();
       if (v.status === 'ok') return;
       setVoiceHint(v.status === 'fara'
         ? 'Browserul acesta nu poate citi cu voce tare — urmărește subtitrările. Pentru voce, deschide sala în Chrome sau Microsoft Edge.'
         : 'Browserul tău nu are o voce în limba română, așa că profesorul vorbește prin subtitrări. Pentru voce: deschide sala în Microsoft Edge (voce naturală, gratuită) sau adaugă vocea română în Windows (Setări → Oră și limbă → Vorbire).');
+      // se închide și singur: pe telefon acoperea exercițiul proiectat
+      hide = setTimeout(() => setVoiceHint(null), 15000);
     }, 1800);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(t); clearTimeout(hide); };
   }, [joined, timeline?.noVoice, engine]);
 
   // răspunsurile rostite ale profesorului (grup: în „Întrebări")
@@ -434,6 +456,9 @@ export default function LiveRoom({ demo = null }) {
   // ─── 8. întrebările profesorului ───────────────────────────────────────────
   const scene = ps?.scene;
   const pollScene = scene?.type === 'sondaj' ? scene : null;
+  // pe telefon: unde se uită camera (tabla cu explicația / exercițiul proiectat)
+  const cam = useSceneFocus(ps);
+  const landscapeShort = useMedia(LANDSCAPE_SHORT);
   async function answerPoll(answer) {
     const poll = pollScene?.poll;
     if (!poll) return;
@@ -499,7 +524,7 @@ export default function LiveRoom({ demo = null }) {
     } catch (e) { flash(e.message); }
     finally { setContinuing(false); }
   }
-  function toggleFs() { if (fsElement()) exitFs(); else enterFs(roomRef.current); }
+  const toggleFs = () => toggleFullscreen(roomRef.current);
 
   // sfârșitul ședinței (grup: cronologia s-a terminat; 1-la-1: au trecut cele 60 de minute)
   useEffect(() => { if (ps?.phase === 'final') setEnded(true); }, [ps?.phase]);
@@ -550,6 +575,14 @@ export default function LiveRoom({ demo = null }) {
   const understand = privat && scene?.type === 'intrebare_intelegere' && ps?.status === 'asteapta' && !ps?.inserted;
   const others = people.filter((p) => p.id !== info.me?.id);
   const handsUp = others.filter((p) => p.hand).length;
+  // pe telefon, camera lasă loc butonului de sus și cardului cu întrebarea
+  const camInset = narrow ? sceneInset({ landscape: landscapeShort, card: !!(pollScene?.poll || understand) }) : null;
+
+  const fsButton = (cls) => (canFs ? (
+    <button type="button" className={cls} onClick={toggleFs} title={isFullscreen ? 'Ieși din ecranul complet' : 'Ecran complet'} aria-label={isFullscreen ? 'Ieși din ecranul complet' : 'Ecran complet'}>
+      <span className="lv-ctl-ico">{isFullscreen ? '🗗' : '⛶'}</span><span className="lv-ctl-t">{isFullscreen ? 'Ieși' : 'Ecran complet'}</span>
+    </button>
+  ) : null);
 
   return (
     <div className={`lv-room view-${view}${panel ? ' has-panel' : ''}${isFullscreen ? ' is-fs' : ''}`} ref={roomRef}>
@@ -564,27 +597,22 @@ export default function LiveRoom({ demo = null }) {
           {!privat && ps?.phase === 'live' && <span className="lv-live-pill"><span className="lv-dot-live" /> LIVE</span>}
           <span className="lv-timer" title={privat ? 'Timp rămas' : 'Durata ședinței'}>{privat ? `⏳ ${fmtClock(privLeft ?? 3600)}` : `⏱ ${fmtClock(elapsed)}`}</span>
           <span className="lv-count" title="Participanți">👥 {privat ? 2 : Math.max(present, people.length) + 1}</span>
-          <button type="button" className="lv-top-btn" onClick={() => setView(view === 'camera' ? 'tabla' : 'camera')} title="Schimbă vizualizarea">
-            {view === 'camera' ? '🧑‍🏫 Camera' : '📋 Tabla'}
-          </button>
+          {/* pe telefon, ecranul complet stă aici (bara de jos nu are loc pentru el) */}
+          {fsButton('lv-top-fs')}
         </div>
       </header>
 
       <div className="lv-body">
         {/* ── scena ── */}
-        <main className="lv-stage">
-          {view === 'camera' && rig ? (
+        <main className={`lv-stage${narrow && view === 'camera' ? ' has-pan' : ''}${pollScene?.poll || understand ? ' has-card' : ''}`}>
+          {view === 'camera' ? (
             <>
-              <TeacherCamera teacher={teacher} rig={rig} engine={engine} variant="big" board={board} screen={screenProps}
-                thinking={pendingAnswer} chatCount={messages.length} />
-              {(screenOpen ?? (!!rig.screenFloat || ps?.scene?.type === 'video')) ? (
-                <div className={`lv-float-screen is-${rig.screenFloat === 'dreapta' ? 'right' : 'left'}`} aria-label="Tabla digitală">
-                  <div className="lv-float-head"><span>🖥️ Tabla digitală</span><button type="button" onClick={() => setScreenOpen(false)} aria-label="Ascunde">—</button></div>
-                  <div className="lv-digital-frame"><DigitalScreen {...screenProps} /></div>
-                </div>
-              ) : (
-                <button type="button" className={`lv-float-show is-${rig.screenFloat === 'dreapta' ? 'right' : 'left'}`} onClick={() => setScreenOpen(true)}>🖥️ Tabla digitală</button>
+              {rig && (
+                <TeacherCamera teacher={teacher} rig={rig} engine={engine} variant="big" board={board} screen={screenProps}
+                  thinking={pendingAnswer} chatCount={messages.length}
+                  focus={cam.focus} inset={camInset} onLayout={(l) => setNarrow(!!l.narrow)} onSwipe={cam.set} />
               )}
+              {narrow && rig && <ScenePan focus={cam.focus} onChange={cam.set} />}
             </>
           ) : (
             <div className="lv-share">
@@ -732,7 +760,7 @@ export default function LiveRoom({ demo = null }) {
               : <button type="button" className="lv-ctl" onClick={() => playerRef.current?.pause()} title="Profesorul se oprește"><span className="lv-ctl-ico">⏸</span><span className="lv-ctl-t">Pauză</span></button>}
             <button type="button" className="lv-ctl" onClick={() => playerRef.current?.nextItem()} title="Itemul următor"><span className="lv-ctl-ico">⏭</span><span className="lv-ctl-t">Înainte</span></button>
           </>)}
-          <div className="lv-react-wrap">
+          <div className="lv-react-wrap lv-ctl-opt">
             <button type="button" className="lv-ctl" onClick={() => setReactOpen(!reactOpen)}><span className="lv-ctl-ico">😀</span><span className="lv-ctl-t">Reacții</span></button>
             {reactOpen && <div className="lv-react-pop">{REACTIONS.map((e) => <button key={e} type="button" onClick={() => react(e)}>{e}</button>)}</div>}
           </div>
@@ -745,12 +773,28 @@ export default function LiveRoom({ demo = null }) {
               <span className="lv-ctl-ico">👥</span><span className="lv-ctl-t">Participanți</span>
             </button>
           )}
-          <button type="button" className="lv-ctl" onClick={() => setNotebook(true)} title="Caietul tău digital"><span className="lv-ctl-ico">✍️</span><span className="lv-ctl-t">Caiet</span></button>
-          <button type="button" className={`lv-ctl${cc ? ' is-on' : ''}`} onClick={() => setCc(!cc)} title="Subtitrări"><span className="lv-ctl-ico">CC</span><span className="lv-ctl-t">Subtitrări</span></button>
-          <button type="button" className="lv-ctl" onClick={toggleFs} title="Ecran complet"><span className="lv-ctl-ico">{isFullscreen ? '🗗' : '⛶'}</span><span className="lv-ctl-t">{isFullscreen ? 'Ieși' : 'Ecran complet'}</span></button>
+          <button type="button" className="lv-ctl lv-ctl-opt" onClick={() => setNotebook(true)} title="Caietul tău digital"><span className="lv-ctl-ico">✍️</span><span className="lv-ctl-t">Caiet</span></button>
+          <button type="button" className={`lv-ctl lv-ctl-opt${cc ? ' is-on' : ''}`} onClick={() => setCc(!cc)} title="Subtitrări"><span className="lv-ctl-ico">CC</span><span className="lv-ctl-t">Subtitrări</span></button>
+          {fsButton('lv-ctl lv-ctl-fs')}
+          {/* telefon: ce nu încape în bară stă în „⋯" */}
+          <div className="lv-more-wrap">
+            <button type="button" className={`lv-ctl lv-ctl-more${moreOpen ? ' is-on' : ''}`} onClick={() => setMoreOpen(!moreOpen)} aria-expanded={moreOpen} aria-label="Mai mult">
+              <span className="lv-ctl-ico">⋯</span><span className="lv-ctl-t">Mai mult</span>
+            </button>
+            {moreOpen && (
+              <div className="lv-more-pop" role="menu" onClick={() => setMoreOpen(false)}>
+                <button type="button" role="menuitem" onClick={() => setNotebook(true)}>✍️ Caietul meu</button>
+                <button type="button" role="menuitem" onClick={() => setCc(!cc)}>{cc ? '🅲 Ascunde subtitrările' : '🅲 Arată subtitrările'}</button>
+                <button type="button" role="menuitem" onClick={() => setCamOn(!camOn)}>{camOn ? '🚫 Oprește camera mea' : '📷 Pornește camera mea'}</button>
+                <div className="lv-more-react" onClick={(e) => e.stopPropagation()}>
+                  {REACTIONS.map((e) => <button key={e} type="button" onClick={() => { react(e); setMoreOpen(false); }} aria-label={`Reacție ${e}`}>{e}</button>)}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
         <div className="lv-bar-group">
-          <button type="button" className="lv-leave" onClick={() => leave(false)}>Părăsește</button>
+          <button type="button" className="lv-leave" onClick={() => leave(false)} aria-label="Părăsește"><span className="lv-leave-long">Părăsește</span><span className="lv-leave-short">Ieși</span></button>
         </div>
       </footer>
 

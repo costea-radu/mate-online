@@ -35,7 +35,8 @@ function useVoiceLevel(engine, ref) {
   }, [engine, ref]);
 }
 
-export default function TeacherCamera({ teacher, rig = null, engine, variant = 'big', board = null, screen = null, state = null, showBoards = true, label = true, thinking = false, chatCount = 0, zoom = null, onPortrait = null }) {
+export default function TeacherCamera({ teacher, rig = null, engine, variant = 'big', board = null, screen = null, state = null, showBoards = true, label = true, thinking = false, chatCount = 0, zoom = null, onPortrait = null,
+  focus = null, inset = null, onLayout = null, onSwipe = null }) {
   const ref = useRef(null);
   useVoiceLevel(engine, ref);
   const color = teacherColor(teacher);
@@ -45,7 +46,7 @@ export default function TeacherCamera({ teacher, rig = null, engine, variant = '
         <Suspense fallback={<div className="lv-cam-loading" />}>
           <PortraitScene rig={rig} engine={engine} board={board} screen={screen} overlays={showBoards}
             state={state || screen?.state || null} zoom={zoom || (variant === 'pip' ? 2.6 : 1)} thinking={thinking} chatCount={chatCount}
-            onPortrait={onPortrait} />
+            onPortrait={onPortrait} focus={focus} inset={inset} onLayout={onLayout} onSwipe={onSwipe} />
         </Suspense>
       ) : (
         <div className="lv-cam-off">

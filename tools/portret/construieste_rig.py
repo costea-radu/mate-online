@@ -31,6 +31,9 @@
 #   {
 #     "foto": "clasa.jpg",                          (relativ la fișierul JSON)
 #     "tabla": [[x,y],[x,y],[x,y],[x,y]],           zona de scris a tablei albe
+#     "tabla_rama": [[x,y],...4],                   (opțional) rama ÎNTREGII table albe:
+#                                                   pe telefon se desenează conturul și
+#                                                   culoarea ei (în poză rama abia se vede)
 #     "ecran": [[x,y],...4],                        tabla digitală (proiecția)
 #     "ecran_mod": "proiectie" | "ecran",
 #     "plutitor": null | "stanga" | "dreapta",      panou mare cu tabla digitală
@@ -674,6 +677,7 @@ def main():
             'elbows': [P(kp['el_R']), P(kp['el_L'])], 'wrists': [P(kp['wr_R']), P(kp['wr_L'])],
         },
         'board': cfg.get('tabla'), 'boardAspect': quad_aspect(cfg.get('tabla')),
+        'boardFrame': cfg.get('tabla_rama'), 'boardFrameAspect': quad_aspect(cfg.get('tabla_rama')),
         'screen': cfg.get('ecran'), 'screenAspect': quad_aspect(cfg.get('ecran')),
         'screenMode': cfg.get('ecran_mod') or 'ecran',
         'screenFloat': cfg.get('plutitor'),
@@ -681,7 +685,7 @@ def main():
         'handsTogether': bool(cfg.get('maini_impreuna')),
     }
     # colțurile tablelor: fracții 0–1 (ca înainte)
-    for k in ('board', 'screen'):
+    for k in ('board', 'screen', 'boardFrame'):
         if rig[k]:
             rig[k] = [[round(x / W, 5), round(y / H, 5)] for x, y in rig[k]]
     with open(os.path.join(a.out, 'rig.json'), 'w') as f:

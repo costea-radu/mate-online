@@ -34,7 +34,9 @@ export const liveApi = {
     return call({ action: 'program' }, { auth: !!session });
   },
   join: (sessionId) => call({ action: 'join', sessionId }),
-  prepare: (sessionId, budgetMs) => call({ action: 'prepare', sessionId, ...(budgetMs ? { budgetMs } : {}) }),
+  // opts: un număr (bugetul în ms, ca înainte) sau { budgetMs, fromRef } — fromRef = itemul la
+  // care e elevul (1-la-1 pornit): vocea care lipsește se generează întâi de acolo
+  prepare: (sessionId, opts = null) => call({ action: 'prepare', sessionId, ...(typeof opts === 'number' ? { budgetMs: opts } : (opts || {})) }),
   timeline: (sessionId) => call({ action: 'timeline', sessionId }),
   heartbeat: (sessionId, seconds) => call({ action: 'heartbeat', sessionId, seconds }),
   chat: (sessionId, text, { toTeacher = false, item = null } = {}) => call({ action: 'chat', sessionId, text, toTeacher, item }),
@@ -46,6 +48,15 @@ export const liveApi = {
   privateBegin: (sessionId) => call({ action: 'private_begin', sessionId }),
   privateState: (sessionId, player) => call({ action: 'private_state', sessionId, player }),
   leave: (sessionId, { seconds = 0, end = false } = {}) => call({ action: 'leave', sessionId, seconds, end }, { keepalive: true }),
+  // Pregătirea de examen („Planul meu", ca o meditație live) — api/live.js → prep_*
+  prepState: () => call({ action: 'prep_state' }),
+  prepExercise: (pos, { skip = null } = {}) => call({ action: 'prep_exercise', pos, ...(skip ? { skip } : {}) }),
+  prepPrefetch: (pos, current = null) => call({ action: 'prep_prefetch', pos, current }),
+  prepAnswer: (rowId, pollId, answer) => call({ action: 'prep_answer', rowId, pollId, answer }),
+  prepDone: (rowId, sid, seconds = 0) => call({ action: 'prep_done', rowId, sid, seconds }),
+  prepTest: (pos) => call({ action: 'prep_test', pos }),
+  prepTestFinish: (rowId, seconds = 0) => call({ action: 'prep_test_finish', rowId, seconds }),
+  prepChat: ({ text, sid = null, ref = null, pos = null, history = [] }) => call({ action: 'prep_chat', text, sid, ref, pos, history }),
   // admin
   adminOverview: (day, fresh = false) => call({ action: 'admin_overview', day, fresh }),
   adminSetSubject: (sessionId, patch) => call({ action: 'admin_set_subject', sessionId, ...patch }),

@@ -1112,6 +1112,20 @@ export default function Meditatii() {
     const mistake = S.openMistakes?.[0];
     const hw = (S.homework || []).find((h) => h.status === 'data');
     const rev = S.dueReviews?.[0];
+    // 🎓 PREGĂTIREA DE EXAMEN (elevii cu EN/BAC): prima propunere — în clasă, ca la
+    // o meditație live, exercițiu cu exercițiu, în ordinea din examen
+    const ep = S.examPrep;
+    if (ep?.current) out.push({
+      key: 'pregatire',
+      say: !ep.started
+        ? `Pentru ${ep.label} îți propun pregătirea de examen, în clasă, ca la o meditație live: luăm exercițiile în ordinea din examen, începând cu ${ep.current.spoken || ep.current.label}. Rezolvăm cel puțin ${ep.perPosition || 10} exerciții din subiectele oficiale, explicate pe barem, apoi un test scurt îmi arată dacă trecem mai departe.`
+        : ep.allDone
+          ? `La pregătirea de examen ai trecut testele la toate exercițiile. Hai în clasă la o recapitulare: ${ep.current.spoken || ep.current.label}.`
+          : `Continuăm pregătirea de examen, în clasă: suntem la ${ep.current.spoken || ep.current.label}${ep.current.mastered ? '' : `, cu ${ep.current.done} din ${ep.current.nextTestAt} exerciții până la test`}.`,
+      ask: ep.started ? 'Continuăm pregătirea de examen?' : 'Începem pregătirea de examen?',
+      label: ep.started ? '🎓 Da, continuăm în clasă' : '🎓 Da, intrăm în clasă',
+      run: () => navigate('/meditatii/pregatire'),
+    });
     if (mistake) out.push({
       key: 'remediere',
       say: `Am văzut unde te-ai împiedicat${mistake.topic ? ` — la ${niceTopic(mistake.topic)}` : ''}. Hai să fixăm exact procedeul acela: îți dau 10 exerciții de același fel.`,
@@ -1265,6 +1279,10 @@ export default function Meditatii() {
   const railSections = !onBoard ? [] : [
     { titlu: 'Acum, pe tablă', tone: 'accent', items: actions },
     { titlu: 'Pregătire', items: [
+      st.examPrep?.current ? { id: 'examen', icon: '🎓', accent: true,
+        label: `Pregătire de examen · ${st.examPrep.current.short}`,
+        title: 'În clasă, ca la o meditație live: exercițiile din examen, în ordine, explicate pe barem',
+        onClick: () => runAction(() => navigate('/meditatii/pregatire')) } : null,
       { id: 'focus', icon: '🎯', accent: true,
         label: st.focus ? 'Modifică pregătirea pentru lucrare' : 'Ai un test sau o lucrare în curând?',
         title: 'Pregătire pentru o lucrare sau un test din anumite capitole, cu dată limită',
@@ -1394,6 +1412,12 @@ export default function Meditatii() {
           <main className="med-stage" id="med-tabla">
             <Hero profile={st.profile} focus={st.focus} />
 
+            {/* 🎓 PREGĂTIRE DE EXAMEN — intrarea în clasă (sala /meditatii/pregatire) */}
+            {!working && st.examPrep?.current && (
+              <ExamPrepCard info={st.examPrep} teacherName={TUDOR.name}
+                onEnter={() => { setProposal(null); prof.stop(); navigate('/meditatii/pregatire'); }} />
+            )}
+
             {/* TABLA. Implicit e conversația cu profesorul; lecția și exercițiile
                 o întrerup, iar la final se revine în conversație cu propunerea
                 următoare. Conversația nu dispare niciodată: cât timp tabla e
@@ -1515,6 +1539,57 @@ function HeroChips({ profile, focus }) {
       {profile.streakDays > 0 && <span style={chip('rgba(231,76,60,.1)', '#c0392b')}>🔥 {profile.streakDays} {profile.streakDays === 1 ? 'zi' : 'zile'} la rând</span>}
       {profile.totalSeconds > 60 && <span style={chip('rgba(39,174,96,.1)', '#1e7e34')}>⏱ {fmtMin(profile.totalSeconds)} de studiu</span>}
     </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 🎓 PREGĂTIRE DE EXAMEN — intrarea din „Planul meu" în clasă (/meditatii/pregatire):
+// aceeași fotografie și același profesor ca la meditațiile live, iar profesorul
+// propune ordinea exercițiilor din examen (S. I ex. 1 → ex. 2 → … → S. II → S. III).
+// Aici: unde a rămas elevul și benzile pozițiilor, colorate după progres.
+// ═════════════════════════════════════════════════════════════════════════════
+const PREP_SUB_LABEL = { I: 'Subiectul I', II: 'Subiectul al II-lea', III: 'Subiectul al III-lea' };
+function ExamPrepCard({ info, teacherName, onEnter }) {
+  const c = info.current;
+  const groups = ['I', 'II', 'III']
+    .map((s) => ({ s, items: (info.list || []).filter((p) => p.sub === s) }))
+    .filter((g) => g.items.length);
+  const title = !info.started ? `Începem cu ${c.label}`
+    : info.allDone ? `Recapitulare: ${c.label}`
+      : `Continuăm: ${c.label}`;
+  const sub = !info.started
+    ? `${teacherName} te ia exercițiu cu exercițiu, în ordinea din examen: cel puțin ${info.perPosition || 10} exerciții din subiectele oficiale, explicate pe barem, apoi un test de verificare.`
+    : info.allDone
+      ? `Ai trecut testele la toate exercițiile din examen (${info.exercises} exerciții lucrate). ${teacherName} îți propune recapitulări.`
+      : c.mastered
+        ? `Test trecut aici · ${info.mastered} din ${info.positions} exerciții din examen stăpânite · ${info.exercises} exerciții lucrate.`
+        : `${c.done} din ${c.nextTestAt} exerciții până la testul de verificare · ${info.mastered} din ${info.positions} stăpânite.`;
+  const pipTitle = (p) => `${p.label}${p.status === 'stapanit' ? ' · stăpânit ✓' : p.done ? ` · ${p.done} ${p.done === 1 ? 'exercițiu' : 'exerciții'}` : ''}`;
+  return (
+    <section className="pe-entry" aria-label="Pregătire de examen">
+      <button type="button" className="pe-entry-photo" onClick={onEnter} title="Intră în clasă">
+        <img src="/live/radu/scena.jpg" alt={`${teacherName}, la tablă`} loading="lazy" />
+        <span className="pe-entry-pill"><i /> 1-la-1 · în clasă</span>
+      </button>
+      <div className="pe-entry-head">
+        <div className="pe-entry-kicker">🎓 Pregătire de examen <span>· {info.label}</span></div>
+        <div className="pe-entry-title">{title}</div>
+      </div>
+      <div className="pe-entry-sub">{sub}</div>
+      <div className="pe-entry-map" aria-label="Exercițiile din examen">
+        {groups.map((g) => (
+          <span key={g.s} className="pe-entry-grp" title={PREP_SUB_LABEL[g.s]}>
+            <b>S. {g.s}</b>
+            {g.items.map((p) => (
+              <i key={p.pos} className={`is-${p.status}${p.pos === c.pos ? ' is-cur' : ''}`} title={pipTitle(p)} />
+            ))}
+          </span>
+        ))}
+      </div>
+      <button type="button" className="pe-entry-go" onClick={onEnter}>
+        ▶ {info.started ? 'Continuă în clasă' : 'Intră în clasă'}
+      </button>
+    </section>
   );
 }
 
@@ -2031,9 +2106,11 @@ function ProgressMeTab({ st }) {
             {doneSessions.slice(0, 10).map((s) => {
                 const pc = Math.round((s.score / s.max_score) * 100);
                 const icons = { exercitii: '✍️ Exerciții', remediere: '🩹 Remediere', recapitulare: '🔁 Recapitulare', simulare: '🎯 Simulare', tema: '📚 Temă' };
+                // pregătirea de examen (sala /meditatii/pregatire): topicul spune deja ce e
+                const prepRow = String(s.chapter || '').startsWith('pregatire:');
                 return (
                   <div key={'ss-' + s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '7px 10px', background: '#f7f9fc', borderRadius: 8, fontSize: '.85rem', flexWrap: 'wrap' }}>
-                    <span style={{ color: 'var(--navy)', fontWeight: 600 }}>{icons[s.kind] || '✍️ Set'}{s.topic ? ` · ${EXAM_LABELS[s.topic] || niceTopic(s.topic)}` : ''}
+                    <span style={{ color: 'var(--navy)', fontWeight: 600 }}>{prepRow ? `🎓 ${s.topic || 'Pregătire de examen'}` : <>{icons[s.kind] || '✍️ Set'}{s.topic ? ` · ${EXAM_LABELS[s.topic] || niceTopic(s.topic)}` : ''}</>}
                       <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{s.completed_at ? ` · ${new Date(s.completed_at).toLocaleDateString('ro-RO')}` : ''}</span>
                     </span>
                     <strong style={{ color: masteryColor(pc / 100), whiteSpace: 'nowrap' }}>{s.score}/{s.max_score} ({pc}%)</strong>

@@ -16,6 +16,11 @@ import { clock } from './clock';
 import { sceneAt, segmentAt, boardState, itemHead, qnaSchedule, qnaWindows } from './timeline';
 
 const LOOKAHEAD = 9;   // secunde: vocea următoare se descarcă și se programează din timp
+// 1-la-1 pornit înainte să fie gata toată vocea generată: la un segment încă fără
+// voce, profesorul „își aranjează notițele" cel mult atât, reîntrebând serverul;
+// apoi vorbește cu vocea browserului — lecția nu se blochează niciodată.
+export const VOICE_WAIT_MS = 4500;
+const VOICE_ASK_MS = 1500;
 
 // cât durează o frază rostită de vocea browserului (fără fișier audio) — aceeași
 // estimare ca pe server (api/_lib/live.js → segDuration), cu o marjă pentru pornire
@@ -151,6 +156,9 @@ export class PrivatePlayer {
     this.timer = null;
     this.answered = {};           // pollId → { answer, correct }
     this.altUsed = {};            // index scenă → câte moduri s-au folosit
+    this.voiceFallback = false;   // vocea generată a întârziat → segmentele fără fișier le rostește browserul
+    this.waitSince = 0;           // de când așteaptă vocea (status „incarca")
+    this.lastAsk = 0;
   }
 
   setTimeline(tl) {
@@ -324,10 +332,12 @@ export class PrivatePlayer {
     let sc = this.scene;
     if (this.status === 'ruleaza' && sc && !sc.wait) {
       const off = this.offset();
-      // vocea încă se generează pentru segmentul următor → așteptăm (1-la-1 poate porni devreme)
+      // vocea încă se generează pentru segmentul următor → așteptăm puțin (1-la-1 poate
+      // porni devreme); după VOICE_WAIT_MS vorbește vocea browserului (vezi mai jos)
       const { seg } = segmentAt(sc, Math.max(0, off));
-      if (seg && !seg.audio && !tl.noVoice && !this.inserted) {
+      if (seg && !seg.audio && !tl.noVoice && !this.voiceFallback && !this.inserted) {
         this.pausedAt = seg.t; this.status = 'incarca'; this.engine.stopAll();
+        this.waitSince = clock.now(); this.lastAsk = this.waitSince;
         this.onNeedAudio?.();
       } else if (off >= sc.dur) {
         this.next();
@@ -344,6 +354,14 @@ export class PrivatePlayer {
     } else if (this.status === 'incarca') {
       const { seg } = segmentAt(sc, this.pausedAt || 0);
       if (!seg || seg.audio) { this.status = 'pauza'; this.resume(); return; }
+      const now = clock.now();
+      if (now - this.waitSince >= VOICE_WAIT_MS) {
+        // vocea generată întârzie (ex. elevul a sărit înainte cu ⏭): profesorul
+        // continuă cu vocea browserului; ce se generează între timp se aude generat
+        this.voiceFallback = true;
+        this.status = 'pauza'; this.resume(); return;
+      }
+      if (now - this.lastAsk >= VOICE_ASK_MS) { this.lastAsk = now; this.onNeedAudio?.(); }
     }
     sc = this.scene;
     const off = this.status === 'ruleaza' ? this.offset() : (this.pausedAt ?? 0);

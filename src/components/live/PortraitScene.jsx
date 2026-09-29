@@ -14,14 +14,20 @@
 // nou, spre proiecție la un enunț/video/rezultate, ascultă (zâmbind, dând din
 // cap) cât elevii răspund, zâmbește la „bravo", ridică sprâncenele la întrebări.
 // Până se încarcă animația (sau dacă WebGL lipsește) se vede fotografia întreagă.
+//
+// PE TELEFON (src/lib/live/framing.js): tabla și proiecția nu încap citibil
+// deodată, așa că „camera" se mută lin între explicația de pe tablă și exercițiul
+// proiectat (`focus`), iar elevul o poate muta și el (butonul sălii sau o
+// glisare stânga/dreapta). Tabla primește atunci și rama ei (conturul și
+// culoarea unei table), care în poză abia se vede la o scară atât de mică.
 // =====================================================================
 import { useEffect, useRef, useState } from 'react';
 import { quadMatrix, scaleQuad } from '../../lib/live/homography';
 import { actorRegion, createPortrait } from '../../lib/live/portret';
+import { frameScene, BOARD_W, SCREEN_W } from '../../lib/live/framing';
 import { WhiteboardInk, DigitalScreen } from './Board';
 
-const BOARD_W = 1000;   // dimensiunea „logică" a tablei (px), înainte de perspectivă
-const SCREEN_W = 960;
+const FRAME_W = 1000;   // rama tablei, în pixeli „logici"
 
 const PRAISE = /\b(bravo|foarte bine|excelent|perfect|felicit\w*|super)\b/i;
 const GREET = /\b(bun[aă] ziua|bun[aă] seara|bine a[tț]i venit|salut\w*)\b/i;
@@ -66,7 +72,8 @@ function useLessonCues(portraitRef, ready, state, board) {
   }, [portraitRef, ready, state, board]);
 }
 
-export default function PortraitScene({ rig, engine, board = null, screen = null, state = null, overlays = true, zoom = 1, thinking = false, chatCount = 0, onPortrait = null }) {
+export default function PortraitScene({ rig, engine, board = null, screen = null, state = null, overlays = true, zoom = 1, thinking = false, chatCount = 0, onPortrait = null,
+  focus = null, inset = null, onLayout = null, onSwipe = null }) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const portraitRef = useRef(null);
@@ -118,41 +125,59 @@ export default function PortraitScene({ rig, engine, board = null, screen = null
     lastChat.current = chatCount;
   }, [ready, chatCount]);
 
-  // încadrarea: „camera" din rig (tabla + profesorul, ca o cameră îndreptată spre
-  // catedră) acoperă containerul; cu zoom > 1 (fereastra mică, PiP) camera se
-  // apropie de profesor: centrul cadrului = pieptul lui (sub bărbie), ca la o cameră web
-  const W = rig.width || 1600, H = rig.height || 900;
-  const cam = Array.isArray(rig.camera) ? { x: rig.camera[0], y: rig.camera[1], w: rig.camera[2], h: rig.camera[3] } : { x: 0, y: 0, w: W, h: H };
-  // tabla + proiecția (în pixelii fotografiei): pe un ecran lat (ex. cu chatul deschis)
-  // rămân ÎNTREGI la vedere — se arată mai mult din clasă pe verticală, nu se taie enunțul
-  const quadXs = [...(rig.board || []), ...(rig.screen || [])].map((q) => q[0] * W);
-  const keep = quadXs.length ? { x0: Math.min(...quadXs) - 10, x1: Math.max(...quadXs) + 10 } : null;
-  let sc = Math.max(size.w / cam.w, size.h / cam.h, size.w / W, size.h / H);
-  if (keep && size.h > 0 && size.w / size.h >= 1.2) sc = Math.max(size.w / W, size.h / H, Math.min(sc, size.w / (keep.x1 - keep.x0)));
-  sc *= zoom;
-  const dw = W * sc, dh = H * sc;
-  let cx = cam.x + cam.w / 2, cy = cam.y + cam.h / 2;
-  if (rig.pts) {
-    const nx = rig.pts[2], ny = rig.pts[3];                                    // reperul 1 = vârful nasului
-    const faceH = rig.pts[2 * 152 + 1] - rig.pts[2 * 10 + 1];
-    const visW = size.w / sc;
-    if (zoom > 1) { cx = nx; cy = ny + faceH * 1.1; }
-    else if (keep && visW >= keep.x1 - keep.x0 - 1 && visW < cam.w) cx = (keep.x0 + keep.x1) / 2;   // tabla și proiecția, amândouă
-    else if (size.w / size.h < cam.w / cam.h) cx = nx;                         // ecran îngust (telefon): profesorul în mijloc
-  }
-  const ox = Math.min(0, Math.max(size.w - dw, size.w / 2 - cx * sc));
-  const oy = Math.min(0, Math.max(size.h - dh, size.h / 2 - cy * sc));
+  // încadrarea (src/lib/live/framing.js): „camera" din rig (tabla + profesorul, ca o
+  // cameră îndreptată spre catedră) acoperă containerul; pe un ecran lat tabla și
+  // proiecția rămân întregi; cu zoom > 1 (fereastra mică, PiP) camera se apropie de
+  // profesor; pe telefon se oprește pe tabla (explicația) sau pe proiecție (exercițiul)
+  const f = frameScene(rig, size, { zoom, focus, inset });
+  const { sc, ox, oy, dw, dh } = f;
+  const narrow = size.w > 0 && f.narrow;
   const sx = sc, sy = sc;
   const R = rig.atlas ? actorRegion(rig) : null;
   const boardH = rig.board ? Math.round(BOARD_W * (rig.boardAspect ? 1 / rig.boardAspect : 0.56)) : 0;
   const screenH = rig.screen ? Math.round(SCREEN_W * (rig.screenAspect ? 1 / rig.screenAspect : 0.5625)) : 0;
+  const frameH = rig.boardFrame ? Math.round(FRAME_W * (rig.boardFrameAspect ? 1 / rig.boardFrameAspect : 0.35)) : 0;
   const proj = rig.screenMode === 'proiectie';
 
+  // sala află dacă ecranul e „îngust" (atunci arată butonul explicație ↔ exercițiu)
+  const onLayoutRef = useRef(onLayout);
+  useEffect(() => { onLayoutRef.current = onLayout; }, [onLayout]);
+  useEffect(() => { onLayoutRef.current?.({ narrow }); }, [narrow]);
+  // camera se mută lin doar când își schimbă ținta (nu la redimensionarea ferestrei)
+  // (ținta = zona + ce acoperă sala peste scenă: cardul cu întrebarea, butonul camerei)
+  const [panning, setPanning] = useState(false);
+  const target = `${f.focus || ''}|${inset ? [inset.top, inset.right, inset.bottom, inset.left].join(',') : ''}`;
+  const lastTarget = useRef(target);
+  useEffect(() => {
+    if (lastTarget.current === target) return undefined;
+    lastTarget.current = target;
+    setPanning(true);
+    const t = setTimeout(() => setPanning(false), 750);
+    return () => clearTimeout(t);
+  }, [target]);
+  // glisarea stânga/dreapta mută camera (pe telefon)
+  const touch = useRef(null);
+  const onTouchStart = (e) => { const t = e.touches?.[0]; touch.current = t ? { x: t.clientX, y: t.clientY, at: Date.now() } : null; };
+  const onTouchEnd = (e) => {
+    const s = touch.current; touch.current = null;
+    const t = e.changedTouches?.[0];
+    if (!s || !t || !narrow || !onSwipe) return;
+    const dx = t.clientX - s.x, dy = t.clientY - s.y;
+    if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.4 && Date.now() - s.at < 900) onSwipe(dx < 0 ? 'ecran' : 'tabla');
+  };
+
   return (
-    <div className={`lv-scene${ready ? ' is-ready' : ''}`} ref={wrapRef}>
+    <div className={`lv-scene${ready ? ' is-ready' : ''}${narrow ? ' is-narrow' : ''}${panning ? ' is-panning' : ''}`} ref={wrapRef}
+      onTouchStart={onSwipe ? onTouchStart : undefined} onTouchEnd={onSwipe ? onTouchEnd : undefined}>
       <div className="lv-scene-inner" style={{ left: ox, top: oy, width: dw, height: dh }}>
         {rig.plate && <img className="lv-scene-plate" src={rig.plate} alt="" draggable={false} />}
         <img className="lv-scene-photo" src={rig.photo} alt="" draggable={false} />
+        {/* rama tablei (conturul și culoarea ei) — pe telefon, unde rama din poză abia se vede */}
+        {narrow && rig.boardFrame && dw > 0 && (
+          <div className="lv-scene-rama" aria-hidden="true" style={{ width: FRAME_W, height: frameH, transform: quadMatrix(FRAME_W, frameH, scaleQuad(rig.boardFrame, dw, dh)) }}>
+            <div className="lv-scene-rama-tray" />
+          </div>
+        )}
         {overlays && rig.board && board && dw > 0 && (
           <div className="lv-scene-board" style={{ width: BOARD_W, height: boardH, transform: quadMatrix(BOARD_W, boardH, scaleQuad(rig.board, dw, dh)) }}>
             <WhiteboardInk board={board} />

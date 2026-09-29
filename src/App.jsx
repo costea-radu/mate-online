@@ -41,6 +41,7 @@ const ProfesorVirtual = lazy(() => import('./pages/ProfesorVirtual'));
 const Meditatii = lazy(() => import('./pages/Meditatii'));
 const MeditatiiLive = lazy(() => import('./pages/MeditatiiLive'));
 const LiveRoom = lazy(() => import('./pages/LiveRoom'));
+const PregatireExamen = lazy(() => import('./pages/PregatireExamen'));
 const Arena = lazy(() => import('./pages/Arena'));
 const Harta = lazy(() => import('./pages/Harta'));
 const AssignmentSolver = lazy(() => import('./pages/AssignmentSolver'));
@@ -75,8 +76,9 @@ function AnalyticsRouteTracker() {
 
 function Layout({ children }) {
   const { pathname } = useLocation();
-  // sala live (ca un apel Zoom) ocupă tot ecranul, fără bara de sus și fără widget
-  const liveRoom = pathname.startsWith('/meditatii/sala/') || pathname.startsWith('/meditatii/demo');
+  // sala live (ca un apel Zoom) ocupă tot ecranul, fără bara de sus și fără widget —
+  // la fel „Pregătirea de examen" din Planul meu (aceeași clasă, cu Prof. Tudor)
+  const liveRoom = pathname.startsWith('/meditatii/sala/') || pathname.startsWith('/meditatii/demo') || pathname.startsWith('/meditatii/pregatire');
   const fullscreen = pathname === '/admin' || pathname === '/exercitiu' || pathname === '/pdf-viewer' || pathname === '/exercitiu-ai' || liveRoom;
 
   // Viewerele ocupă exact înălțimea ferestrei (100vh) și au scroll intern.
@@ -159,6 +161,7 @@ export default function App() {
                 <Route path="/profesor-virtual" element={<ProfesorVirtual />} />
                 <Route path="/meditatii" element={<MeditatiiLive />} />
                 <Route path="/meditatii/plan" element={<Meditatii />} />
+                <Route path="/meditatii/pregatire" element={<PregatireExamen />} />
                 <Route path="/meditatii/sala/:id" element={<LiveRoom />} />
                 <Route path="/meditatii/demo" element={<LiveRoom demo="grup" />} />
                 <Route path="/meditatii/demo-1la1" element={<LiveRoom demo="privat" />} />

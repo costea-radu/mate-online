@@ -407,16 +407,34 @@ function renameTeacher(script, teacher) {
 
 // Toate segmentele, în ORDINEA în care se aud (pentru vocea generată întâi
 // la început — 1-la-1 poate porni înainte să fie gata tot)
+function itemSegments(it) {
+  const out = [];
+  const add = (arr) => (arr || []).forEach((s) => out.push(s));
+  add(it.intro); add(it.afterTry); add(it.modes?.barem); add(it.afterCheck);
+  for (const m of live.ALT_MODES) add(it.modes?.[m]);
+  return out;
+}
 function segmentsInOrder(script) {
   const out = [];
   const add = (arr) => (arr || []).forEach((s) => out.push(s));
   add(script.intro);
-  for (const it of script.items || []) {
-    add(it.intro); add(it.afterTry); add(it.modes?.barem); add(it.afterCheck);
-    for (const m of live.ALT_MODES) add(it.modes?.[m]);
-  }
+  for (const it of script.items || []) add(itemSegments(it));
   add(script.qna); add(script.breakSay); add(script.outro);
   return out;
+}
+
+// Ordinea în care se generează vocea: de obicei, de la începutul lecției. La 1-la-1,
+// dacă elevul a sărit înainte (⏭), întâi itemul la care a ajuns și cei de după el,
+// apoi restul — ca vocea să-l ajungă din urmă cât mai repede.
+function voiceOrder(script, fromRef = null) {
+  const all = segmentsInOrder(script);
+  const items = script?.items || [];
+  const k = fromRef ? items.findIndex((it) => it.ref === fromRef) : -1;
+  if (k <= 0) return all;
+  const first = [];
+  for (let i = k; i < items.length; i++) first.push(...itemSegments(items[i]));
+  const seen = new Set(first.map((s) => s.id));
+  return [...first, ...all.filter((s) => !seen.has(s.id))];
 }
 
 // ─── 1. Scriptul ─────────────────────────────────────────────────────────────
@@ -493,9 +511,9 @@ function adaptScript(script, teacher) {
 }
 
 // ─── 2. Vocea (pe bucăți, cu buget de timp) ──────────────────────────────────
-async function voiceScript(supa, { lessonId, script, teacher, audio = {}, budgetMs = 240000, log = console.warn, onProgress = null, every = 15 }) {
+async function voiceScript(supa, { lessonId, script, teacher, audio = {}, budgetMs = 240000, log = console.warn, onProgress = null, every = 15, fromRef = null }) {
   const t0 = Date.now();
-  const todo = segmentsInOrder(script).filter((s) => !audio[s.id]);
+  const todo = voiceOrder(script, fromRef).filter((s) => !audio[s.id]);
   let cost = 0, failed = 0, sinceSave = 0;
   const queue = todo.slice();
   const worker = async () => {
@@ -533,6 +551,6 @@ function playableHead(script, audio) {
 }
 
 module.exports = {
-  generateScript, adaptScript, renameTeacher, dropUnreadable, pdfAttachments, sectionPages, voiceScript, playableHead, segmentsInOrder, templates, assignIds,
+  generateScript, adaptScript, renameTeacher, dropUnreadable, pdfAttachments, sectionPages, voiceScript, playableHead, segmentsInOrder, voiceOrder, itemSegments, templates, assignIds,
   normalizeItems, sectionMap, callPlan, parseRef, refKey, SCHEMA, systemPrompt, userPrompt, GEN_MODEL,
 };

@@ -11,10 +11,11 @@ Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 | **Ședința comună pornește doar cu cel puțin 2 elevi** | la ora de început: ≥ 2 elevi în sală → lecția comună; **un singur elev → ședința devine 1-la-1 pentru el, fără cost în plus**; dacă lecția comună se termină înainte de sfârșitul orei → „Continuă 1-la-1” |
 | **„Conectează-te"** → pregătirea (camera/microfonul tău, ca la Meet) → sala | `/meditatii` (lobby) → `/meditatii/sala/:id` (sala, pe tot ecranul) |
 | **Profesorul viu, în clasă**: vorbește, respiră, își mută greutatea, întoarce capul spre tablă, gesticulează, zâmbește, dă din cap | o singură fotografie, animată în browser (WebGL), fără niciun serviciu plătit — vezi „Profesorul animat" |
-| **Tabla albă** (scrie pas cu pas, în ritmul vocii) + **tabla digitală** (proiecția: enunțul, rezultatele, videoclipuri) | scrisul și proiecția stau în perspectivă pe tabla din fotografie; profesorul trece prin fața lor |
+| **Tabla albă** din spatele profesorului (scrie pas cu pas, în ritmul vocii) + **proiecția** din dreapta ei (enunțul, rezultatele, videoclipuri) | scrisul și proiecția stau în perspectivă pe tabla din fotografie; profesorul trece prin fața lor. Fără panou separat „Tabla digitală”. **Pe telefon** (tabla și proiecția nu încap citibil deodată) camera se oprește pe una dintre ele: butonul **„✎ Explicația / 📝 Exercițiul”** sau o glisare stânga/dreapta o mută, iar tabla primește culoarea și rama ei |
 | **Întrebări grilă și cu răspuns de completat**, cu rezultatele clasei (ca Zoom Polls) | sondajele vin din barem; răspunsul corect e verificat pe server |
-| **Chat**, mâna ridicată, reacții, participanți, subtitrări, „Caiet", ecran complet | Supabase Realtime (canal privat pe ședință) |
+| **Chat**, mâna ridicată, reacții, participanți, subtitrări, „Caiet", ecran complet (pe telefon: sus, în dreapta — se vede și ținut vertical; ce nu încape în bară stă în „⋯ Mai mult") | Supabase Realtime (canal privat pe ședință) |
 | **1-la-1, oricând** (60 min): se oprește la întrebări, „Ai înțeles?", „Explică altfel", răspunde cu voce | 8/lună incluse în abonament, apoi 20 lei |
+| **🎓 Pregătire de examen** (din „Planul meu"): aceeași clasă, dar profesorul propune ordinea — S. I ex. 1 → ex. 2 → … → S. II → S. III, câte cel puțin 10 exerciții pe poziție, apoi un test | `/meditatii/pregatire`; exercițiile vin din lecțiile de aici — vezi secțiunea 3 |
 | **Plata**: 10 lei ședința de grup fără abonament; inclusă în abonament | Stripe (plată unică), bilet în `live_tickets` |
 
 **Fără barem, profesorul nu explică nimic:** sunt propuse doar subiectele al căror barem
@@ -77,6 +78,12 @@ După ce pui cheia: lecțiile gata „cu vocea browserului" primesc vocea genera
 Opțional: `LIVE_TTS=azure|openai|fara` (forțează), `LIVE_TTS_AZURE_RATE` (ex. `-5%`, mai rar),
 `LIVE_PROF_RADU_VOCE_AZURE` / `LIVE_PROF_RADU_VOCE_OPENAI` (altă voce).
 
+**1-la-1 pornit înainte să fie gata toată vocea generată:** restul vocii se generează în fundal,
+cât elevul lucrează — întâi de la itemul la care a ajuns (dacă a sărit înainte cu **⏭ Înainte**),
+apoi restul. Ce nu e gata la timp (după ~4,5 secunde de „Profesorul își aranjează notițele…")
+se rostește cu vocea browserului, iar ce se generează între timp se aude generat — lecția nu
+se mai oprește.
+
 ### 1.3 Cronul
 `vercel.json` conține deja `/api/live?action=cron` la 15 minute. Ca toate cronurile
 site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalte cronuri).
@@ -114,7 +121,34 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 
 ---
 
-## 3. Profesorul animat (scena)
+## 3. 🎓 Pregătire de examen (din „Planul meu")
+
+Elevii abonați care și-au ales examenul (EN sau un profil de BAC) au în „Planul meu" cardul
+**🎓 Pregătire de examen** → **`/meditatii/pregatire`**: o meditație 1-la-1 în aceeași clasă
+(fotografia, Prof. Tudor animat, scrisul pe tablă, proiecția, subtitrări, chat, caiet, ecran
+complet), în care **profesorul propune desfășurarea**:
+
+1. **Poziție cu poziție, în ordinea din examen:** Subiectul I ex. 1, ex. 2, … ex. 6, apoi
+   Subiectul al II-lea și al III-lea (EN: câte 6; BAC: problemele II.1, II.2, III.1, III.2).
+2. **Pe fiecare poziție, doar exercițiile de pe ea**, din subiectele oficiale ale examenului
+   elevului (la BAC, doar ale profilului lui), fiecare din alt subiect, explicate pe barem —
+   aceiași itemi ca în lecțiile de aici (încearcă singur → rezultat → rezolvarea pe tablă →
+   „Ai înțeles?" → verificare), cu vocea browserului.
+3. **După cel puțin 10 exerciții, un test de verificare** (fără ajutor, exerciții noi):
+   trecut (≥ 80%) → propune poziția următoare; netrecut → propune încă 5 exerciții (și
+   explicația greșelilor), apoi testul din nou. Elevul poate oricând continua, cere testul,
+   alege altă poziție sau trece mai departe.
+
+Exercițiile vin din **lecțiile pe barem de aici** (`live_lessons`, profesorul `radu`). Când un
+elev a lucrat toate lecțiile gata, se scrie lecția unui subiect nou (doar textul, 1–3 minute,
+o singură dată — apoi o folosesc toți elevii și ședințele live). Plafon: `PREP_GENERARI_ZI`
+(implicit 12 lecții noi pe elev pe zi). Progresul: `ai_meditatii_sessions` (fără SQL nou).
+Setările (`PREP_EXERCITII`, `PREP_TEST_EXERCITII`, `PREP_TEST_PROBLEME`, `PREP_PRAG`,
+`PREP_IN_PLUS`, `PREP_GENERARI_ZI`) sunt descrise în `GHID_MEDITATII.md` → Runda 12.
+
+---
+
+## 4. Profesorul animat (scena)
 
 Scena e construită **o singură dată**, offline, dintr-o fotografie a clasei cu profesorul
 (acum `tools/portret/scene/clasa-tudor.jpg`, generată cu AI; cea veche, `clasa-radu.jpg`, a
@@ -151,8 +185,10 @@ python tools/portret/construieste_rig.py --scena tools/portret/scene/clasa-tudor
 Fișierul scenei (`tools/portret/scene/*.json`) are coordonatele (în pixelii fotografiei):
 zona de scris a tablei (`tabla`), proiecția (`ecran`, `ecran_mod: "proiectie"`), ce stă
 în fața profesorului (`prim_plan`: poligoane), încadrarea camerei (`camera`) și, opțional,
-ce ține în mână (`extra_mana`, ex. markerul) și `maini_impreuna: true` când ține ceva cu
-amândouă mâinile (mâinile se mișcă atunci împreună). `--viz` salvează imagini de control
+ce ține în mână (`extra_mana`, ex. markerul), `maini_impreuna: true` când ține ceva cu
+amândouă mâinile (mâinile se mișcă atunci împreună) și `tabla_rama` — colțurile ramei
+tablei, pe care telefonul le desenează peste poză (conturul și culoarea tablei; în
+`rig.json` devin `boardFrame`). `--viz` salvează imagini de control
 (fundalul completat, atlasul, plasa). Totul rulează local — nimic nu pleacă pe internet.
 
 **Transparență:** pe ecran rămâne mereu eticheta **„Profesor virtual · AI"**, iar în
@@ -160,7 +196,7 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 
 ---
 
-## 4. Costuri (orientativ, septembrie 2026 — verifică prețurile furnizorilor)
+## 5. Costuri (orientativ, septembrie 2026 — verifică prețurile furnizorilor)
 
 - **Vocea browserului** (fără chei): **0 lei**.
 - **Vocea generată** (opțional): o lecție de 2 ore are ~50.000–60.000 de caractere rostite.
@@ -175,11 +211,14 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
   parcurs subiectele (se repetă după `LIVE_REFOLOSIRE_ZILE`, implicit 21 de zile).
   Costul exact al fiecărei lecții apare în Admin → Meditații live.
 - **Răspunsurile în chat** (întrebări către profesor): bani mărunți, limitate (`LIVE_INTREBARI_MAX`).
+- **Pregătirea de examen**: vocea browserului (0 lei); folosește lecțiile de aici, iar o lecție
+  nouă (~1,5–5 lei) se scrie doar când un elev le-a lucrat pe toate cele gata — o singură dată pe
+  subiect (plafon `PREP_GENERARI_ZI` pe elev, pe zi).
 - Animația profesorului: **0 lei** (rulează în browserul elevului).
 
 ---
 
-## 5. Confidențialitate și siguranță
+## 6. Confidențialitate și siguranță
 
 - **Camera și microfonul elevului nu ajung la profesor sau la colegi**: camera e doar o oglindă
   locală, iar microfonul doar dictează întrebarea în chat (recunoașterea vorbirii a browserului —
@@ -193,7 +232,7 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 
 ---
 
-## 6. Probleme frecvente
+## 7. Probleme frecvente
 
 | Simptom | Cauză / soluție |
 |---|---|
@@ -205,5 +244,7 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | Un singur elev la ora de grup | normal: ședința devine 1-la-1 pentru el (fără cost în plus); `LIVE_MINIM_GRUP` schimbă pragul |
 | O sală (ex. BAC Tehnologic) scrie „Subiectul se anunță în curând" | nu există încă niciun subiect al acelui examen cu barem citit; sala nu primește subiecte de alt profil. Cronul citește întâi baremele pentru ea (Admin → „Subiecte cu barem, pe săli" arată câte are fiecare), sau încarcă subiecte + bareme pentru acel profil |
 | Profesorul apare static (fotografie) | browserul nu are WebGL (rar) — restul sălii merge normal |
+| 1-la-1: după „⏭ Înainte" lecția rămânea la „Profesorul își aranjează notițele… (vocea se pregătește)" | reparat: vocea care lipsește se generează în fundal, de la itemul la care e elevul; după ~4,5 s profesorul continuă cu vocea browserului |
+| Pe telefon nu se vede tot (tabla și exercițiul) | normal: camera arată pe rând explicația de pe tablă și exercițiul proiectat — butonul „✎ Explicația / 📝 Exercițiul" (sau o glisare) le schimbă; la întrebări, camera trece singură la exercițiu |
 | Chatul nu apare în timp real | Supabase Realtime: canalele private trebuie permise; oricum, mesajele se reîncarcă la câteva secunde |
 | Elevul nu poate intra la ora de grup | sala se deschide cu 15 minute înainte; după încheiere nu se mai poate intra |

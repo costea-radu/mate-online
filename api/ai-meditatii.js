@@ -18,6 +18,7 @@ const mathcheck = require('./_lib/mathcheck'); // echivalența matematică a ră
 const scoreLib = require('./_lib/score');       // scorul testelor HTML recalculat pe server (Etapa 3)
 const taxonomy = require('./_lib/taxonomy');    // subiectele canonice (Etapa 3, 5.1)
 const live = require('./_lib/live');            // Prof. Tudor — profesorul de la tablă (ca în sala live)
+const prep = require('./_lib/pregatire');       // „Pregătire de examen" (exercițiu cu exercițiu, ca la meditația live)
 
 // ─── TABLA CU PROF. TUDOR („Planul meu") ─────────────────────────────────────
 // Ce scrie modelul apare PE TABLĂ; ce SPUNE profesorul (fără să scrie) se aude
@@ -703,6 +704,8 @@ async function state(req, res, supa) {
     const { data: acc } = await supa.from('profiles').select('full_name').eq('id', userId).single();
     firstName = (acc?.full_name || '').trim().split(/\s+/)[0] || null;
   } catch { /* fără nume */ }
+  // „Pregătire de examen" (sala /meditatii/pregatire): unde a rămas elevul
+  const examPrep = premium ? await examPrepSummary(supa, userId, medProfile) : null;
   // pregătirea pentru lucrare/test (focus) + lista de capitole a formularului
   const focus = med.focusInfo(medProfile, plan);
   const briefing = buildBriefing({
@@ -737,7 +740,34 @@ async function state(req, res, supa) {
     prediction,
     examType: med.examTypeFor(medProfile),
     teacher: live.publicTeacher(live.teacherById('radu') || live.TEACHER_DEFAULTS.radu),
+    examPrep,
   });
+}
+
+// Rezumatul „Pregătirii de examen" pentru Planul meu: poziția propusă acum și progresul
+// (rândurile ei din ai_meditatii_sessions, chapter „pregatire:<examen>"). Fără examen → null.
+async function examPrepSummary(supa, userId, medProfile) {
+  const E = prep.examOf(medProfile?.exam_target);
+  if (!E) return null;
+  try {
+    const { data } = await supa.from('ai_meditatii_sessions').select('id, status, created_at, completed_at, prep:payload->prep')
+      .eq('user_id', userId).eq('chapter', prep.chapterOf(E.target)).order('created_at', { ascending: false }).limit(500);
+    const prog = prep.progressFrom(data || [], E.exam);
+    const { pos, allDone } = prep.currentPosition(E.exam, prog);
+    const g = prog.byPos[pos.pos];
+    const all = Object.values(prog.byPos);
+    return {
+      target: E.target, label: E.label, perPosition: prep.settings().target,
+      current: { pos: pos.pos, label: pos.label, short: pos.short, spoken: pos.spoken, done: g.done, nextTestAt: g.nextTestAt, mastered: g.mastered },
+      // pozițiile din examen, în ordine (S. I ex. 1 … S. III) — pentru benzile de progres
+      list: prep.publicProgress(E.exam, prog).map((p) => ({ pos: p.pos, sub: p.sub, ex: p.ex, label: p.label, status: p.status, done: p.done })),
+      mastered: all.filter((x) => x.mastered).length, positions: all.length,
+      exercises: all.reduce((n, x) => n + x.done, 0), started: all.some((x) => x.done || x.tests), allDone,
+    };
+  } catch (e) {
+    console.warn('pregătirea de examen (rezumat):', e.message);
+    return null;
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

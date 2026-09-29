@@ -14,7 +14,10 @@ const DEFAULTS = {
   live_messages: () => ({ role: 'elev', to_teacher: false, hidden: false, created_at: new Date().toISOString() }),
   live_poll_answers: () => ({ created_at: new Date().toISOString() }),
   live_tickets: () => ({ status: 'platit', created_at: new Date().toISOString() }),
+  // „Planul meu" (Pregătirea de examen): ca în Postgres, created_at = now()
+  ai_meditatii_sessions: () => ({ status: 'activa', payload: {}, duration_sec: 0, created_at: new Date(Date.now() + (++stamp)).toISOString() }),
 };
+let stamp = 0;   // rânduri create în aceeași milisecundă: ordinea rămâne cea a inserării
 const SERIAL = new Set(['live_messages']);
 const NO_ID = new Set(['live_participants', 'live_poll_answers']);
 
@@ -72,7 +75,7 @@ class Query {
   constructor(db, table) {
     this.db = db; this.table = table;
     this.op = 'select'; this.cols = '*'; this.filters = []; this.orders = []; this.lim = null;
-    this.single = null; this.countMode = null; this.head = false; this.payload = null; this.opts = {}; this.returning = false;
+    this.one = null; this.countMode = null; this.head = false; this.payload = null; this.opts = {}; this.returning = false;
   }
   select(cols = '*', opts = {}) {
     if (this.op === 'select') { this.cols = cols; this.countMode = opts.count || null; this.head = !!opts.head; }
@@ -101,8 +104,9 @@ class Query {
   }
   order(col, { ascending = true } = {}) { this.orders.push({ col, asc: ascending }); return this; }
   limit(n) { this.lim = n; return this; }
-  maybeSingle() { this.single = 'maybe'; return this; }
-  single() { this.single = 'one'; return this; }
+  maybeSingle() { this.one = 'maybe'; return this; }
+  // (câmpul intern nu se poate numi „single": ar ascunde metoda single())
+  single() { this.one = 'one'; return this; }
   then(res, rej) { return Promise.resolve().then(() => this._run()).then(res, rej); }
 
   _rows() { return this.db.tables[this.table] || (this.db.tables[this.table] = []); }
@@ -114,11 +118,11 @@ class Query {
   }
   _out(rows) {
     let out = rows.map((r) => project(r, this.cols));
-    if (this.single === 'maybe') {
+    if (this.one === 'maybe') {
       if (out.length > 1) return { data: null, error: { message: 'JSON object requested, multiple (or no) rows returned' } };
       return { data: out[0] || null, error: null };
     }
-    if (this.single === 'one') {
+    if (this.one === 'one') {
       if (out.length !== 1) return { data: null, error: { message: 'JSON object requested, multiple (or no) rows returned' } };
       return { data: out[0], error: null };
     }

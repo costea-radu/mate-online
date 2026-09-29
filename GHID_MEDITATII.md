@@ -493,6 +493,59 @@ principal al site-ului nu crește.
 („🧩 Test din site" + vocea), `api/ai-meditatii.js` (`site_test`),
 `src/styles/global.css` (lista pe tablă, lângă cameră).
 
+## 🎓 Runda 12 — PREGĂTIRE DE EXAMEN (ca o meditație live)
+
+Pentru elevii care și-au ales examenul (Evaluarea Națională sau un profil de BAC),
+„Planul meu" are acum **Pregătirea de examen**: o meditație 1-la-1 în **aceeași clasă
+ca la meditațiile live** (aceeași fotografie, Prof. Tudor animat, scrisul pe tabla din
+spatele lui, exercițiul proiectat, subtitrări, chat, caiet, ecran complet) — doar că
+aici **profesorul propune desfășurarea**, exercițiu cu exercițiu, în ordinea din examen:
+
+| Etapă | Ce se întâmplă |
+|---|---|
+| **Ordinea** | Subiectul I ex. 1 → ex. 2 → … → ex. 6 → Subiectul al II-lea → Subiectul al III-lea (EN: câte 6 la fiecare subiect; BAC: S. I ex. 1–6, apoi problemele II.1, II.2, III.1, III.2) |
+| **Pe o poziție** (ex. S. I ex. 1) | **doar** exercițiile de pe acea poziție, din subiectele oficiale ale examenului elevului (EN sau BAC-ul **profilului lui**), fiecare din alt subiect, explicate **pe baremul lor**: încearcă singur → rezultatul → rezolvarea scrisă pe tablă → „Ai înțeles?" (cu „explică altfel") → verificare |
+| **După cel puțin 10** | profesorul propune un **test de verificare** (5 exerciții noi la itemii simpli, 3 la problemele cu a), b), c)), fără ajutor și fără să spună nimic până la final |
+| **Testul trecut** (≥ 80%) | propune **poziția următoare** (sau să mai rămână, dacă elevul vrea) |
+| **Testul netrecut** | propune să mai rămână: **încă 5 exerciții**, cu explicația greșelilor pe barem, apoi testul din nou (sau trece totuși mai departe, dacă alege elevul) |
+| **Oricând** | elevul poate continua oricât, cere testul, alege altă poziție (🗺️ Plan) sau pune întrebări (chat / mâna sus / microfon) |
+
+**Unde se vede în „Planul meu":** cardul **🎓 Pregătire de examen** de deasupra tablei (o
+fereastră spre clasă, poziția la care a rămas, benzile S. I / S. II / S. III colorate după
+progres, butonul **„▶ Intră în clasă"**), prima propunere a lui Prof. Tudor pe tablă
+(„Începem / Continuăm pregătirea de examen?") și intrarea 🎓 din meniul din stânga tablei.
+Sala e la **`/meditatii/pregatire`** (pe tot ecranul, ca sala live). Lecțiile, temele,
+recapitulările, testele din site și rapoartele rămân pe tablă, ca până acum.
+
+**De unde vin exercițiile:** din lecțiile pe barem ale meditațiilor live (aceleași subiecte
+oficiale, cu barem citit). Dacă elevul a lucrat toate lecțiile gata, profesorul scrie lecția
+unui subiect nou (1–3 minute, doar prima dată; apoi o folosesc toți elevii și sălile live).
+Următorul exercițiu se pregătește din timp, cât elevul îl rezolvă pe cel curent.
+
+**Progresul** stă în `ai_meditatii_sessions` (chapter `pregatire:<examen>`, `payload.prep`) —
+apare și în „Progresul meu" (🎓), în briefingul profesorului și în rapoartele pentru
+părinți/profesori.
+
+**Setări (opționale, Vercel):**
+
+| Variabilă | Implicit | Ce face |
+|---|---|---|
+| `PREP_EXERCITII` | `10` | câte exerciții pe o poziție înainte de testul de verificare |
+| `PREP_TEST_EXERCITII` / `PREP_TEST_PROBLEME` | `5` / `3` | mărimea testului: la itemii simpli / la problemele cu a), b), c) |
+| `PREP_PRAG` | `80` | pragul de trecere a testului (%) |
+| `PREP_IN_PLUS` | `5` | câte exerciții în plus după un test netrecut |
+| `PREP_GENERARI_ZI` | `12` | câte lecții noi poate declanșa un elev într-o zi (plafon de cost) |
+
+**Instalare și cost:** fără migrare SQL. Vocea e a browserului (**0 lei**). Singurul cost e
+scrierea lecțiilor pentru subiectele încă nefolosite (~1,5–5 lei pe subiect, **o singură
+dată**, apoi se refolosesc peste tot); întrebările din chat intră în limitele AI obișnuite.
+
+**Fișiere (runda 12):** noi — `api/_lib/pregatire.js` (pozițiile, progresul, propunerile
+profesorului, testul), `src/pages/PregatireExamen.jsx` (sala), `test/pregatire-examen.test.js`;
+modificate — `api/live.js` (acțiunile `prep_*`), `api/ai-meditatii.js` (`examPrep` în `state`),
+`src/pages/Meditatii.jsx` (cardul, propunerea, meniul), `src/lib/live/api.js`, `src/App.jsx`
+(ruta), `src/styles/live.css`.
+
 ## 🛠️ Depanare
 
 | Simptom | Cauză / soluție |
@@ -512,3 +565,6 @@ principal al site-ului nu crește.
 | Tema „din site" nu se bifează | Elevul trebuie să termine exercițiul (scorul se salvează în `progress`); la următoarea deschidere a paginii se bifează automat. |
 | „🧩 Test din site" nu arată teste interactive | Nivelul elevului nu are încă materiale interactive vizibile pe site (EN/BAC: rubricile „Teste interactive", „Exerciții pe subiecte", „Capitole"; la BAC și profilul potrivit). Un material pus într-o rubrică doar-PDF nu apare nici pe site, nici aici — Admin → Tot Conținutul arată avertismentul. |
 | Testul interactiv ales nu apare în „Progresul meu" | Scorul intră la „Corectează" (viewerul trimite `session_score` cu `medSesId`). Dacă înregistrarea sesiunii a eșuat, testul s-a deschis oricum, fără `medSesId` — scorul e doar în `progress`. |
+| Nu apare cardul „🎓 Pregătire de examen" | Apare doar elevilor abonați care și-au ales examenul (EN / BAC) la înscriere. Elevii fără examen (ex. clasa a VI-a) nu îl au. |
+| În sala de pregătire: „Profesorul citește un subiect oficial nou…" | Nu mai era nicio lecție gata cu exercițiul acelei poziții — se scrie una (1–3 minute, o singură dată). Lecțiile scrise pentru ședințele live (inclusiv cele din Admin → Meditații live → „Pregătește lecția") se folosesc și aici, așa că așteptarea apare tot mai rar. |
+| „Am lucrat toate exercițiile de acest tip pe care le am acum" | S-au terminat subiectele cu barem ale examenului (sau plafonul zilnic `PREP_GENERARI_ZI`). Profesorul propune testul / poziția următoare; a doua zi se pot scrie lecții noi. |

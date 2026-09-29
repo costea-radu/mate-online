@@ -311,7 +311,10 @@ const lessonView = (l) => l && ({ id: l.id, status: l.status, title: l.title, er
 // revoice: o lecție gata „cu vocea browserului" (făcută înainte de cheile TTS)
 // primește acum vocea generată. Dacă vocea eșuează, lecția rămâne jucabilă cu
 // vocea browserului — o ședință nu se blochează niciodată din cauza vocii.
-async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.warn, revoice = false } = {}) {
+// fromRef: 1-la-1 în curs — vocea se generează întâi de la itemul la care e elevul.
+// scriptOnly: doar textul lecției (Pregătirea de examen vorbește cu vocea browserului);
+//   fără voce configurată, lecția devine imediat „gata" (vocea browserului), ca la live.
+async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.warn, revoice = false, fromRef = null, scriptOnly = false } = {}) {
   const t0 = Date.now();
   const nowIso = new Date().toISOString();
   const until = new Date(Date.now() + budgetMs + 90 * 1000).toISOString();
@@ -367,14 +370,17 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
       });
     }
     // ── 2. vocea ──
-    if (row.status === 'script' || row.status === 'audio' || (row.status === 'eroare' && row.script)) {
+    // (doar textul: cu voce configurată, lecția rămâne „script" — vocea se face când o
+    //  cere o ședință live; fără voce configurată → gata, cu vocea browserului)
+    if (scriptOnly && row.script && ['script', 'eroare'].includes(row.status) && !tts.provider()) await browserVoice(null);
+    if (!scriptOnly && (row.status === 'script' || row.status === 'audio' || (row.status === 'eroare' && row.script))) {
       const audio = { ...(row.progress?.audio || {}) };
       const doneBefore = Object.keys(audio).length;
       const left = Math.max(5000, budgetMs - (Date.now() - t0) - 4000);
       let r;
       try {
         r = await LL.voiceScript(supa, {
-          lessonId: row.id, script: row.script, teacher, audio, budgetMs: left, log,
+          lessonId: row.id, script: row.script, teacher, audio, budgetMs: left, log, fromRef,
           onProgress: async (a) => { await save({ status: 'audio', progress: { ...row.progress, audio: a, done: Object.keys(a).length } }); },
         });
       } catch (e) {
@@ -626,7 +632,9 @@ async function prepare(req, res, supa) {
   if (!session.subject_id) throw fail(409, 'Ședința nu are încă un subiect cu barem.');
   const lesson = await lessonFor(supa, session.subject_id, session.teacher);
   if (lesson.status === 'gata') return res.status(200).json({ lesson: { ...lessonView(lesson), playable: true } });
-  const r = await prepareLesson(supa, lesson.id, { budgetMs: Math.min(240000, Math.max(20000, Number(req.body?.budgetMs) || 55000)) });
+  // 1-la-1 deja pornit: vocea continuă în fundal, întâi de la itemul la care e elevul
+  const fromRef = typeof req.body?.fromRef === 'string' ? req.body.fromRef.slice(0, 20) : null;
+  const r = await prepareLesson(supa, lesson.id, { budgetMs: Math.min(240000, Math.max(20000, Number(req.body?.budgetMs) || 55000)), fromRef });
   return res.status(200).json({ lesson: r });
 }
 
@@ -689,34 +697,41 @@ function itemContext(script, index) {
   ].filter(Boolean).join('\n');
 }
 
-async function teacherAnswer(supa, { session, lesson, question, author, itemIndex, history = [], userId, privat = session.kind === 'privat' }) {
+// „Elev A42F" (cont fără nume) nu e un prenume: profesorul nu i se adresează așa
+const realFirstName = (author) => {
+  const a = String(author || '').trim();
+  return !a || /^elev(ul)?\b/i.test(a) ? null : a.split(/\s+/)[0];
+};
+
+async function teacherAnswer(supa, { session, lesson, question, author, itemIndex, history = [], userId, privat = session.kind === 'privat', context = null, usageKey = 'live-chat' }) {
   const teacher = L.teacherById(session.teacher) || L.teachers()[0];
   const script = lesson?.script || {};
   const list = (script.items || []).map((it, i) => `${i + 1}. ${it.ref} — ${String(it.statement).slice(0, 90)}`).join('\n');
+  const first = realFirstName(author);
   const system = [
     `Ești ${teacher.name}, ${teacher.gender === 'f' ? 'profesoară virtuală' : 'profesor virtual'} de matematică (AI) pe ExamenMate, într-o meditație online ${privat ? '1-la-1' : 'de grup'}. ${teacher.style || ''}`,
-    `Subiectul ședinței: „${script.title || 'subiect de examen'}" (${L.EXAM_LABEL(script.exam, script.profile)}). Explicăm DOAR pe baza baremului.`,
+    context || `Subiectul ședinței: „${script.title || 'subiect de examen'}" (${L.EXAM_LABEL(script.exam, script.profile)}). Explicăm DOAR pe baza baremului.`,
     itemContext(script, itemIndex),
-    list ? `Itemii ședinței:\n${list}` : '',
+    list && !context ? `Itemii ședinței:\n${list}` : '',
     '',
     'CUM RĂSPUNZI:',
-    `· Scurt și clar: ${privat ? 'cel mult 6 propoziții' : 'cel mult 4 propoziții'}. Te adresezi elevului pe prenume (${author}).`,
+    `· Scurt și clar: ${privat ? 'cel mult 6 propoziții' : 'cel mult 4 propoziții'}. ${first ? `Te adresezi elevului pe prenume (${first}).` : 'Nu îi știi prenumele: nu i te adresa cu un nume (nici „Elev…").'}`,
     '· Rezultatele și pașii din barem sunt sursa de adevăr. Nu inventa alt rezultat.',
     '· Dacă întrebarea nu ține de matematica din ședință, spui politicos că acum lucrăm subiectul și, dacă e nevoie, recomanzi o ședință 1-la-1.',
     '· Fără date personale, fără linkuri, fără emoji. Nu repeta întrebarea.',
     '· „say" se rostește: fără LaTeX și fără simboluri („x la pătrat", „radical din 3", „a supra b").',
     privat ? '· „board": dacă elevul cere un calcul sau un pas („nu înțeleg cum ați ajuns la…", „arătați că…"), scrii pe tablă pașii, câte unul pe rând, fără pași săriți; altfel lista rămâne goală.' : '',
   ].filter(Boolean).join('\n');
-  const messages = [...history.slice(-6), { role: 'user', content: `${author} întreabă: ${question}` }];
+  const messages = [...history.slice(-6), { role: 'user', content: `${first || 'Elevul'} întreabă: ${question}` }];
   let data, usage;
   try {
     const r = await ai.chatJson({ system, messages, schema: ANSWER_SCHEMA, schemaName: 'raspuns_live', model: CHAT_MODEL(), maxTokens: 1200, temperature: 0.4 });
     data = r.data; usage = r.usage;
   } catch (e) {
-    await ai.logUsage(supa, userId, 'live-chat', e.usage || {});
+    await ai.logUsage(supa, userId, usageKey, e.usage || {});
     throw fail(502, 'Profesorul nu a putut răspunde acum. Mai încearcă o dată.');
   }
-  await ai.logUsage(supa, userId, 'live-chat', usage);
+  await ai.logUsage(supa, userId, usageKey, usage);
   const text = String(data?.text || data?.say || '').trim().slice(0, 1500);
   const say = String(data?.say || text).trim().slice(0, 900);
   const board = Array.isArray(data?.board) ? data.board.map((b) => String(b).slice(0, 200)).filter(Boolean).slice(0, 6) : [];
@@ -1170,12 +1185,402 @@ async function cron(supa) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// PREGĂTIRE DE EXAMEN („Planul meu", ca o meditație live) — logica în
+// api/_lib/pregatire.js. Exercițiile de pe fiecare poziție vin din lecțiile pe
+// barem ale meditațiilor live (aceleași subiecte oficiale, același profesor);
+// o lecție lipsă se scrie o singură dată (doar textul — vocea e a browserului)
+// și se refolosește la toți elevii și la ședințele live. Progresul stă în
+// ai_meditatii_sessions (chapter „pregatire:<examen>", payload.prep).
+// ═════════════════════════════════════════════════════════════════════════════
+const P = require('./_lib/pregatire');
+const PREP_TEACHER = () => (L.teacherById('radu') ? 'radu' : L.teachers()[0].id);
+const PREP_ROWS = 'id, status, score, max_score, duration_sec, created_at, completed_at, prep:payload->prep';
+const PREP_GEN_MAX = () => Math.max(0, parseInt(process.env.PREP_GENERARI_ZI || '12', 10) || 0);  // lecții noi scrise pentru un elev, pe zi
+const scriptReady = (l) => !!l && ['script', 'audio', 'gata'].includes(l.status);
+const cap1 = (s) => (s ? s.charAt(0).toLocaleUpperCase('ro') + s.slice(1).toLocaleLowerCase('ro') : s);
+
+async function prepWho(req, supa) {
+  const { userId, profile } = await who(req, supa);
+  if (!ai.isPremium(profile)) throw fail(402, 'Pregătirea de examen face parte din abonament (meditațiile cu Profesorul Virtual).', 'PREMIUM_REQUIRED');
+  const { data: med, error } = await supa.from('ai_meditatii_profile').select('user_id, grade, exam_target').eq('user_id', userId).maybeSingle();
+  if (error && !isMissingTable(error)) throw fail(500, `profilul de meditații: ${error.message}`);
+  const E = P.examOf(med?.exam_target);
+  if (!E) throw fail(409, 'Alege întâi examenul (Evaluarea Națională sau profilul de BAC) în „Planul meu".', 'PREP_NO_EXAM');
+  const first = String(profile.full_name || '').trim().split(/\s+/)[0].replace(/[^\p{L}'-]/gu, '');
+  return { userId, profile, E, name: first ? cap1(first).slice(0, 20) : null };
+}
+
+async function prepRows(supa, userId, target) {
+  const { data, error } = await supa.from('ai_meditatii_sessions').select(PREP_ROWS)
+    .eq('user_id', userId).eq('chapter', P.chapterOf(target)).order('created_at', { ascending: false }).limit(500);
+  if (error) throw fail(500, `progresul: ${error.message}`);
+  return data || [];
+}
+
+async function prepRow(supa, userId, rowId) {
+  if (!rowId) throw fail(400, 'Lipsește exercițiul.');
+  const { data, error } = await supa.from('ai_meditatii_sessions').select('id, user_id, status, score, max_score, duration_sec, payload, created_at')
+    .eq('id', String(rowId)).eq('user_id', userId).maybeSingle();
+  if (error) throw fail(500, error.message);
+  if (!data || !data.payload?.prep) throw fail(404, 'Exercițiul nu mai există. Reîncarcă pagina.');
+  return data;
+}
+
+// lecțiile noi scrise azi pentru acest elev (plafonul PREP_GENERARI_ZI)
+function gensToday(rows) {
+  const since = L.dayKey();
+  return (rows || []).reduce((n, r) => n + (r.prep?.gen || []).filter((t) => L.dayKey(new Date(t)) === since).length, 0);
+}
+
+// Subiectele cu barem ale examenului elevului + lecția lor (dacă a fost scrisă)
+async function prepPool(supa, E) {
+  const subjects = await eligibleSubjects(supa, { exam: E.exam, profile: E.profile });
+  const teacher = PREP_TEACHER();
+  const lessons = new Map();
+  const ids = subjects.map((s) => s.id);
+  for (let i = 0; i < ids.length; i += 150) {
+    const { data } = await supa.from('live_lessons').select(LIGHT).eq('teacher', teacher).in('subject_id', ids.slice(i, i + 150)).order('version', { ascending: false });
+    for (const r of data || []) if (!lessons.has(r.subject_id)) lessons.set(r.subject_id, r);
+  }
+  return subjects.map((s) => ({ ...s, full: L.isFullSubject(s.title), lesson: lessons.get(s.id) || null }));
+}
+
+// Lecția (doar textul) unui subiect: gata → o întoarce; altfel o scrie acum (1–3
+// minute); dacă altcineva o scrie chiar acum, o așteaptă (nu se plătește de două ori)
+async function prepEnsureScript(supa, subjectId, { waitMs = 170000 } = {}) {
+  const teacher = PREP_TEACHER();
+  let l = await lessonFor(supa, subjectId, teacher);
+  if (scriptReady(l)) return l;
+  if (l.status === 'eroare' && !l.title) return null;
+  const r = await prepareLesson(supa, l.id, { scriptOnly: true, budgetMs: 20000 });
+  if (r?.busy) {
+    const t0 = Date.now();
+    while (Date.now() - t0 < waitMs) {
+      await new Promise((ok) => setTimeout(ok, 3000));
+      l = await lessonFor(supa, subjectId, teacher, { create: false });
+      if (scriptReady(l)) return l;
+      if (!l || l.status === 'eroare') return null;
+    }
+    return null;
+  }
+  l = await lessonFor(supa, subjectId, teacher, { create: false });
+  return scriptReady(l) ? l : null;
+}
+
+// Următorul exercițiu de pe poziție, dintr-un subiect nelucrat: întâi din lecțiile
+// deja scrise; dacă nu mai e niciunul (și plafonul zilei permite), scrie lecția unui subiect nou.
+async function prepPick(supa, E, { pos, exclude = new Set(), seed, generate = true, needPolls = false }) {
+  const pool = await prepPool(supa, E);
+  const ordered = P.orderSubjects(pool.filter((s) => !exclude.has(s.id)), seed);
+  const usable = (items) => items.length && (!needPolls || items.some((it) => it.tryPoll || it.check));
+  for (const s of ordered.filter((x) => scriptReady(x.lesson))) {
+    const lesson = await loadLesson(supa, s.lesson.id);
+    const items = P.itemsAt(lesson?.script, pos);
+    if (usable(items)) return { sid: s.id, title: s.title, lesson, items };
+  }
+  if (!generate) return null;
+  for (const s of ordered.filter((x) => !x.lesson || x.lesson.status === 'nou').slice(0, 3)) {
+    const l = await prepEnsureScript(supa, s.id);
+    if (!l) continue;
+    const lesson = await loadLesson(supa, l.id, { fresh: true });
+    const items = P.itemsAt(lesson?.script, pos);
+    if (usable(items)) return { sid: s.id, title: s.title, lesson, items, generated: true };
+  }
+  return null;
+}
+
+// exercițiul unui subiect anume (reluarea unui exercițiu început)
+async function prepExerciseOf(supa, sid, pos) {
+  const light = await lessonFor(supa, sid, PREP_TEACHER(), { create: false });
+  if (!scriptReady(light)) return null;
+  const lesson = await loadLesson(supa, light.id);
+  const items = P.itemsAt(lesson?.script, pos);
+  if (!items.length) return null;
+  const { data: c } = await supa.from('content').select('id, title').eq('id', sid).maybeSingle();
+  return { sid, title: c?.title || lesson.title || 'Subiect', lesson, items };
+}
+
+// blocul de lucru deschis pe poziție (ultimele 8 ore) — acolo se adaugă exercițiile
+const openBlock = (rows, pos) => (rows || []).find((r) => r.prep?.mode === 'antrenament' && r.prep.pos === pos
+  && Date.now() - new Date(r.created_at).getTime() < 8 * 3600 * 1000) || null;
+
+async function prepState(req, res, supa) {
+  const { userId, E, name } = await prepWho(req, supa);
+  const rows = await prepRows(supa, userId, E.target);
+  const prog = P.progressFrom(rows, E.exam);
+  const proposal = P.proposeWelcome({ exam: E.exam, target: E.target, prog, name });
+  return res.status(200).json({
+    exam: { target: E.target, exam: E.exam, profile: E.profile, label: E.label },
+    positions: P.publicProgress(E.exam, prog), current: proposal.pos, proposal,
+    settings: P.settings(), teacher: L.publicTeacher(L.teacherById(PREP_TEACHER())), me: { name },
+    now: new Date().toISOString(),
+  });
+}
+
+async function prepExercise(req, res, supa) {
+  const { userId, E } = await prepWho(req, supa);
+  const pos = P.positionOf(E.exam, String(req.body?.pos || ''));
+  if (!pos) throw fail(400, 'Exercițiu necunoscut.');
+  const rows = await prepRows(supa, userId, E.target);
+  const prog = P.progressFrom(rows, E.exam);
+  const st = prog.byPos[pos.pos];
+  const block = openBlock(rows, pos.pos);
+  // un exercițiu început și neterminat (pagină închisă, reîncărcată) se reia
+  const pending = (block?.prep?.ex || []).find((e) => !e.done && !st.used.includes(e.sid)) || null;
+  const exclude = new Set(st.used);
+  const skip = typeof req.body?.skip === 'string' ? req.body.skip : null;   // „alt exercițiu" (nu pe acesta)
+  if (skip) exclude.add(skip);
+  let pick = pending && pending.sid !== skip ? await prepExerciseOf(supa, pending.sid, pos.pos) : null;
+  let genRow = null;
+  if (!pick) {
+    pick = await prepPick(supa, E, { pos: pos.pos, exclude, seed: `${userId}|${pos.pos}`, generate: gensToday(rows) < PREP_GEN_MAX() });
+    if (pick?.generated) genRow = new Date().toISOString();
+  }
+  if (!pick) {
+    return res.status(200).json({ exhausted: true, proposal: P.proposeExhausted({ exam: E.exam, pos: pos.pos, prog }), positions: P.publicProgress(E.exam, prog) });
+  }
+  const now = new Date().toISOString();
+  const entry = { sid: pick.sid, title: pick.title, refs: pick.items.map((it) => it.ref), polls: {}, done: false, at: now };
+  let rowId;
+  if (block) {
+    const cur = await prepRow(supa, userId, block.id);
+    const prep = cur.payload.prep;
+    const ex = (prep.ex || []).filter((e) => e.done || e.sid === entry.sid);
+    const old = ex.find((e) => !e.done && e.sid === entry.sid);
+    if (old) old.at = now; else ex.push(entry);
+    const gen = genRow ? [...(prep.gen || []), genRow] : (prep.gen || []);
+    const { error } = await supa.from('ai_meditatii_sessions').update({ payload: { ...cur.payload, prep: { ...prep, ex, gen } } }).eq('id', cur.id);
+    if (error) throw fail(500, error.message);
+    rowId = cur.id;
+  } else {
+    const prep = { v: 1, mode: 'antrenament', pos: pos.pos, exam: E.exam, profile: E.profile, ex: [entry], gen: genRow ? [genRow] : [] };
+    const { data, error } = await supa.from('ai_meditatii_sessions').insert({
+      user_id: userId, kind: 'exercitii', chapter: P.chapterOf(E.target), topic: `Pregătire de examen · ${pos.label}`,
+      difficulty: E.label, status: 'activa', payload: { prep },
+    }).select('id').maybeSingle();
+    if (error) throw fail(500, error.message);
+    rowId = data.id;
+  }
+  const n = st.done + 1;
+  return res.status(200).json({
+    rowId,
+    exercise: { sid: pick.sid, title: pick.title, pos: pos.pos, label: pos.label, short: pos.short, n, target: st.nextTestAt, refs: entry.refs, mastered: st.mastered },
+    timeline: P.exerciseTimeline({ items: pick.items, sid: pick.sid, n, title: pick.title }),
+    generated: !!pick.generated,
+  });
+}
+
+// Cât lucrează elevul la un exercițiu, următorul se pregătește din timp (o lecție
+// nouă se scrie în 1–3 minute): la „Următorul exercițiu" e deja gata.
+async function prepPrefetch(req, res, supa) {
+  const { userId, E } = await prepWho(req, supa);
+  const pos = P.positionOf(E.exam, String(req.body?.pos || ''));
+  if (!pos) throw fail(400, 'Exercițiu necunoscut.');
+  const rows = await prepRows(supa, userId, E.target);
+  const st = P.progressFrom(rows, E.exam).byPos[pos.pos];
+  const exclude = new Set(st.used);
+  if (typeof req.body?.current === 'string') exclude.add(req.body.current);
+  const ready = await prepPick(supa, E, { pos: pos.pos, exclude, seed: `${userId}|${pos.pos}`, generate: false });
+  if (ready) return res.status(200).json({ ready: true });
+  if (gensToday(rows) >= PREP_GEN_MAX()) return res.status(200).json({ ready: false, capped: true });
+  const pick = await prepPick(supa, E, { pos: pos.pos, exclude, seed: `${userId}|${pos.pos}`, generate: true });
+  if (pick?.generated) {
+    const block = openBlock(rows, pos.pos);
+    if (block) {
+      const cur = await prepRow(supa, userId, block.id);
+      const prep = cur.payload.prep;
+      await supa.from('ai_meditatii_sessions').update({ payload: { ...cur.payload, prep: { ...prep, gen: [...(prep.gen || []), new Date().toISOString()] } } }).eq('id', cur.id);
+    }
+  }
+  return res.status(200).json({ ready: !!pick, generated: !!pick?.generated });
+}
+
+async function prepAnswer(req, res, supa) {
+  const { userId } = await prepWho(req, supa);
+  const row = await prepRow(supa, userId, req.body?.rowId);
+  const pollId = String(req.body?.pollId || '').slice(0, 90);
+  const answer = String(req.body?.answer ?? '').trim().slice(0, 80);
+  if (!pollId || !answer) throw fail(400, 'Răspuns gol.');
+  const prep = row.payload.prep;
+  const isTest = prep.mode === 'test';
+  if (isTest && prep.finished) throw fail(409, 'Testul s-a încheiat.');
+  const { ns, id } = P.splitNs(pollId);
+  const sid = (isTest ? (prep.items || []) : (prep.ex || [])).map((e) => e.sid).find((s) => P.nsOf(s) === ns);
+  if (!sid) throw fail(404, 'Întrebare necunoscută.');
+  const light = await lessonFor(supa, sid, PREP_TEACHER(), { create: false });
+  const lesson = light ? await loadLesson(supa, light.id) : null;
+  const key = pollKeys(lesson?.script)[id];
+  if (!key) throw fail(404, 'Întrebare necunoscută.');
+  const correct = !!L.checkPollAnswer(key, answer, mathcheck.answersEquivalent);
+  if (isTest) {
+    prep.answers = { ...(prep.answers || {}), [pollId]: { answer, correct } };
+  } else {
+    const e = [...(prep.ex || [])].reverse().find((x) => x.sid === sid);
+    if (e) e.polls = { ...(e.polls || {}), [pollId]: { answer, correct } };
+  }
+  const { error } = await supa.from('ai_meditatii_sessions').update({ payload: { ...row.payload, prep } }).eq('id', row.id);
+  if (error) throw fail(500, error.message);
+  // la test nu se spune nimic până la final
+  if (isTest) return res.status(200).json({ ok: true, answered: Object.keys(prep.answers).length });
+  const poll = (lesson.script.items || []).flatMap((it) => [it.tryPoll, it.check]).find((p) => p && p.id === id);
+  return res.status(200).json({ ok: true, correct, answer: key.answer, explain: poll?.explain || null });
+}
+
+async function prepDone(req, res, supa) {
+  const { userId, E } = await prepWho(req, supa);
+  const row = await prepRow(supa, userId, req.body?.rowId);
+  const prep = row.payload.prep;
+  if (prep.mode !== 'antrenament') throw fail(400, 'Nu e un exercițiu de antrenament.');
+  const sid = String(req.body?.sid || '');
+  const e = [...(prep.ex || [])].reverse().find((x) => x.sid === sid);
+  if (!e) throw fail(404, 'Exercițiul nu mai există.');
+  const secs = Math.max(0, Math.min(3600, parseInt(req.body?.seconds || 0, 10) || 0));
+  const now = new Date().toISOString();
+  if (!e.done) { e.done = true; e.secs = secs; e.doneAt = now; }
+  const polls = Object.values(e.polls || {});
+  const result = { correct: polls.filter((x) => x.correct).length, total: polls.length };
+  const doneEx = (prep.ex || []).filter((x) => x.done);
+  const all = doneEx.flatMap((x) => Object.values(x.polls || {}));
+  const pos = P.positionOf(E.exam, prep.pos);
+  const { error } = await supa.from('ai_meditatii_sessions').update({
+    payload: { ...row.payload, prep }, status: 'finalizata', completed_at: now,
+    score: all.filter((x) => x.correct).length, max_score: all.length, duration_sec: (row.duration_sec || 0) + secs,
+    topic: `Pregătire de examen · ${pos ? pos.label : prep.pos} (${doneEx.length} ${doneEx.length === 1 ? 'exercițiu' : 'exerciții'})`,
+  }).eq('id', row.id);
+  if (error) throw fail(500, error.message);
+  const prog = P.progressFrom(await prepRows(supa, userId, E.target), E.exam);
+  return res.status(200).json({
+    result, positions: P.publicProgress(E.exam, prog),
+    proposal: P.proposeAfterExercise({ exam: E.exam, pos: prep.pos, prog, result }),
+  });
+}
+
+async function prepTest(req, res, supa) {
+  const { userId, E } = await prepWho(req, supa);
+  const pos = P.positionOf(E.exam, String(req.body?.pos || ''));
+  if (!pos) throw fail(400, 'Exercițiu necunoscut.');
+  const rows = await prepRows(supa, userId, E.target);
+  const st = P.progressFrom(rows, E.exam).byPos[pos.pos];
+  const N = P.testSize(pos);
+  const seed = `${userId}|${pos.pos}|test${st.tests}`;
+  const picked = [];
+  const taken = new Set();
+  const take = (p) => { if (p && !taken.has(p.sid)) { taken.add(p.sid); picked.push(p); } };
+  // întâi exerciții NOI (nelucrate nici la antrenament, nici la testele trecute)
+  const used = new Set(st.used);
+  let gens = gensToday(rows);
+  const genAt = [];
+  while (picked.length < N) {
+    const p = await prepPick(supa, E, { pos: pos.pos, exclude: new Set([...used, ...taken]), seed, generate: gens < PREP_GEN_MAX() && genAt.length < 2, needPolls: true });
+    if (!p) break;
+    if (p.generated) { gens++; genAt.push(new Date().toISOString()); }
+    take(p);
+  }
+  // prea puține noi → completăm cu cele lucrate (întâi cele de demult)
+  if (picked.length < N) {
+    const pool = await prepPool(supa, E);
+    for (const s of P.orderSubjects(pool.filter((x) => used.has(x.id) && scriptReady(x.lesson)), seed)) {
+      if (picked.length >= N) break;
+      const lesson = await loadLesson(supa, s.lesson.id);
+      const items = P.itemsAt(lesson?.script, pos.pos);
+      if (items.some((it) => it.tryPoll || it.check)) take({ sid: s.id, title: s.title, items });
+    }
+  }
+  if (!picked.length) throw fail(409, 'Nu am încă exerciții cu întrebări pentru un test la această poziție. Mai lucrează câteva exerciții și încearcă din nou.', 'PREP_NO_TEST');
+  const items = picked.map((p) => ({
+    sid: p.sid, title: p.title, refs: p.items.map((it) => it.ref),
+    polls: P.pollsOf(P.namespaced(p.items.filter((it) => it.tryPoll || it.check), p.sid)).map((q) => q.id),
+  }));
+  const prep = { v: 1, mode: 'test', pos: pos.pos, exam: E.exam, profile: E.profile, doneBefore: st.done, items, answers: {}, gen: genAt };
+  const { data, error } = await supa.from('ai_meditatii_sessions').insert({
+    user_id: userId, kind: 'exercitii', chapter: P.chapterOf(E.target), topic: `Test de verificare · ${pos.label}`,
+    difficulty: E.label, status: 'activa', payload: { prep },
+  }).select('id').maybeSingle();
+  if (error) throw fail(500, error.message);
+  const nQ = items.reduce((k, it) => k + it.polls.length, 0);
+  const words = picked.length === 1 ? 'un exercițiu' : `${picked.length} exerciții`;
+  return res.status(200).json({
+    rowId: data.id,
+    test: { pos: pos.pos, label: pos.label, short: pos.short, exercises: picked.length, questions: nQ },
+    timeline: P.testTimeline(picked, { introSay: `Testul de verificare la ${pos.spoken}: ${words}, fără ajutor. Rezolvă pe foaie și alege răspunsul. Nu îți spun nimic până la final.` }),
+  });
+}
+
+async function prepTestFinish(req, res, supa) {
+  const { userId, E } = await prepWho(req, supa);
+  const row = await prepRow(supa, userId, req.body?.rowId);
+  const prep = row.payload.prep;
+  if (prep.mode !== 'test') throw fail(400, 'Nu e un test.');
+  const secs = Math.max(0, Math.min(7200, parseInt(req.body?.seconds || 0, 10) || 0));
+  const g = P.gradeTest(prep);
+  if (!prep.finished) {
+    prep.finished = true;
+    prep.result = { correct: g.correct, total: g.total, passed: g.passed };
+    const { error } = await supa.from('ai_meditatii_sessions').update({
+      payload: { ...row.payload, prep }, status: 'finalizata', completed_at: new Date().toISOString(),
+      score: g.correct, max_score: g.total, duration_sec: (row.duration_sec || 0) + secs,
+    }).eq('id', row.id);
+    if (error) throw fail(500, error.message);
+  }
+  const prog = P.progressFrom(await prepRows(supa, userId, E.target), E.exam);
+  const result = { correct: g.correct, total: g.total, passed: g.passed, pct: g.total ? Math.round((100 * g.correct) / g.total) : 0 };
+  // explicațiile exercițiilor greșite (pe barem), dacă elevul le cere
+  const wrong = [];
+  for (const sid of g.wrongSids) {
+    const ex = await prepExerciseOf(supa, sid, prep.pos);
+    if (ex) wrong.push(ex);
+  }
+  const review = wrong.length ? P.reviewTimeline(wrong, { introSay: wrong.length === 1 ? 'Hai să vedem pe barem exercițiul la care ai greșit.' : 'Hai să vedem pe barem exercițiile la care ai greșit.' }) : null;
+  return res.status(200).json({
+    result, review, positions: P.publicProgress(E.exam, prog),
+    proposal: P.proposeAfterTest({ exam: E.exam, pos: prep.pos, result, prog }),
+  });
+}
+
+// Întrebare către profesor în timpul pregătirii (răspuns cu voce + pe tablă)
+async function prepChat(req, res, supa) {
+  const { userId, profile, E, name } = await prepWho(req, supa);
+  await ai.enforceRateLimit(supa, userId, profile);
+  const { text, flagged } = L.moderate(req.body?.text || '');
+  if (!text) throw fail(400, 'Mesajul e gol.');
+  const teacher = L.teacherById(PREP_TEACHER()) || L.teachers()[0];
+  const sys = (t) => ({ id: -Date.now(), author: 'ExamenMate', role: 'sistem', text: t, at: new Date().toISOString() });
+  if (flagged) return res.status(200).json({ answer: sys('Hai să rămânem la matematică — întreabă-mă despre exercițiul de pe tablă.') });
+  const sid = typeof req.body?.sid === 'string' ? req.body.sid : null;
+  const ref = typeof req.body?.ref === 'string' ? req.body.ref.slice(0, 20) : null;
+  let lesson = null, itemIndex = null, title = null;
+  if (sid && ref) {
+    const ex = await prepExerciseOf(supa, sid, ref.split('.').slice(0, 2).join('.'));
+    const it = ex?.items.find((x) => x.ref === ref) || ex?.items[0] || null;
+    if (it) { lesson = { script: { title: ex.title, exam: E.exam, profile: E.profile, items: [it] } }; itemIndex = 0; title = ex.title; }
+  }
+  const pos = P.positionOf(E.exam, String(req.body?.pos || ''));
+  const history = (Array.isArray(req.body?.history) ? req.body.history : []).slice(-6)
+    .map((m) => ({ role: m && m.role === 'profesor' ? 'assistant' : 'user', content: String(m?.text || '').slice(0, 800) }))
+    .filter((m) => m.content);
+  const context = [
+    `Pregătire de examen 1-la-1 pentru ${E.label}${pos ? `, la ${pos.label}` : ''}: elevul lucrează, pe rând, exercițiile de pe această poziție din subiectele oficiale, explicate DOAR pe baza baremului.`,
+    title ? `Exercițiul de acum e din „${title}".` : '',
+  ].filter(Boolean).join(' ');
+  const a = await teacherAnswer(supa, {
+    session: { teacher: teacher.id, kind: 'privat' }, lesson, question: text, author: name || 'Elevul', itemIndex,
+    history, userId, privat: true, context, usageKey: 'pregatire-chat',
+  });
+  return res.status(200).json({
+    answer: { id: Date.now(), author: a.teacher.name, role: 'profesor', text: a.text, say: a.say, board: a.board, at: new Date().toISOString() },
+  });
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 const ACTIONS = {
   program, join, prepare, timeline, heartbeat, chat, messages,
   poll_answer: pollAnswer, poll_results: pollResultsAction,
   private_subjects: privateSubjects, private_start: privateStart, private_begin: privateBegin, private_state: privateState,
   leave,
   admin_overview: adminOverview, admin_set_subject: adminSetSubject, admin_prepare: adminPrepare, admin_lesson: adminLesson,
+  // Pregătirea de examen („Planul meu")
+  prep_state: prepState, prep_exercise: prepExercise, prep_prefetch: prepPrefetch, prep_answer: prepAnswer,
+  prep_done: prepDone, prep_test: prepTest, prep_test_finish: prepTestFinish, prep_chat: prepChat,
 };
 
 module.exports = async function handler(req, res) {
@@ -1201,4 +1606,5 @@ module.exports = async function handler(req, res) {
 };
 
 // pentru teste
-module.exports._internals = { computeTimeline, compactState, pollKeys, itemContext, ensureGroupClock, prepareLesson, cron, broadcast, msgView };
+module.exports._internals = { computeTimeline, compactState, pollKeys, itemContext, ensureGroupClock, prepareLesson, cron, broadcast, msgView,
+  resetCaches: () => { eligibleCache.clear(); lessonCache.clear(); } };
