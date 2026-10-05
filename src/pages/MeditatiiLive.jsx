@@ -196,7 +196,7 @@ export default function MeditatiiLive() {
       <section className="lvl-hero">
         <div>
           <h1>Meditații live — cu profesorul virtual</h1>
-          <p>În fiecare zi, {whenText}, profesorul rezolvă câte un subiect în {rooms.length === 1 ? 'sala' : `${rooms.length} săli`}: {joinRo(rooms.map((r) => r.label))} — <b>strict pe baremul oficial</b>: întâi încercați singuri, apoi rezolvarea pas cu pas, apoi încă o dată, pe înțelesul tuturor. Întrebi în chat, răspunzi la grile, vezi cum au răspuns colegii. Sau pornești o ședință 1-la-1, oricând.</p>
+          <p>În fiecare zi, {whenText}, profesorul rezolvă câte un subiect în {rooms.length === 1 ? 'sala' : `${rooms.length} săli`}: {joinRo(rooms.map((r) => r.label))} — <b>strict pe baremul oficial</b>: întâi încercați singuri, apoi rezolvarea pas cu pas — la Subiectele II și III răspundeți voi, pe ecran, la fiecare pas din barem — apoi încă o dată, pe înțelesul tuturor. Întrebi în chat, răspunzi la grile, vezi cum au răspuns colegii. Sau pornești o ședință 1-la-1, oricând.</p>
           <div className="lvl-hero-cta">
             <Link to="/meditatii/demo" className="lvl-demo-btn">
               <span className="lvl-demo-play" aria-hidden="true">▶</span>
@@ -381,7 +381,7 @@ export default function MeditatiiLive() {
         <div className="lvl-how">
           <div><b>1. Te conectezi</b>Alegi sala examenului tău și apeși „Conectează-te". Poți intra pe tot ecranul.</div>
           <div><b>2. Încerci singur</b>La fiecare exercițiu profesorul îți dă timp să rezolvi: răspunzi la grilă sau scrii rezultatul, apoi vezi cum au răspuns colegii.</div>
-          <div><b>3. Explicația pe barem</b>Profesorul scrie pe tablă pașii oficiali și spune câte puncte valorează fiecare. Apoi încă o dată, altfel: intuitiv sau cu greșelile care costă puncte.</div>
+          <div><b>3. Explicația pe barem</b>Profesorul scrie pe tablă pașii oficiali și spune câte puncte valorează fiecare. La problemele de la Subiectele II și III se oprește <b>la fiecare pas</b>: calculezi tu rezultatul intermediar și îl scrii pe ecran, apoi el îl scrie pe tablă. Apoi încă o dată, altfel: intuitiv sau cu greșelile care costă puncte.</div>
           <div><b>4. Întrebi oricând</b>În chat sau cu microfonul (vocea ta devine text). Profesorul răspunde pe loc, iar la „Întrebări" răspunde cu voce, pentru toată clasa.</div>
           <div><b>5. Alegi tu exercițiile (1-la-1)</b>Sari la orice exercițiu, nu neapărat la rând (📋 Exerciții). Dacă nu termini în {data.prices.privatMin} de minute, ședința se prelungește până termini, fără cost în plus.</div>
         </div>

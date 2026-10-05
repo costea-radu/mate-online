@@ -13,6 +13,7 @@ Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 | **Profesorul viu, în clasă**: vorbește, respiră, își mută greutatea, întoarce capul spre tablă, gesticulează, zâmbește, dă din cap | o singură fotografie, animată în browser (WebGL), fără niciun serviciu plătit — vezi „Profesorul animat" |
 | **Tabla albă** din spatele profesorului (scrie pas cu pas, în ritmul vocii) + **proiecția** din dreapta ei (enunțul, rezultatele, videoclipuri) | scrisul și proiecția stau în perspectivă pe tabla din fotografie; profesorul trece prin fața lor. Fără panou separat „Tabla digitală”. **Pe telefon** (tabla și proiecția nu încap citibil deodată) camera se oprește pe una dintre ele: butonul **„✎ Explicația / 📝 Exercițiul”** sau o glisare stânga/dreapta o mută, iar tabla primește culoarea și rama ei |
 | **Întrebări grilă și cu răspuns de completat**, cu rezultatele clasei (ca Zoom Polls) | sondajele vin din barem; răspunsul corect e verificat pe server |
+| **Întrebări pe pași** la problemele grele (Subiectele II și III): explicația se oprește înaintea rezultatelor intermediare din barem — elevul calculează pasul și răspunde pe ecran (cu „💡 Indiciu"; la 1-la-1 și „🤷 Nu știu — arată-mi"), apoi profesorul îl scrie pe tablă; **cel puțin o întrebare la fiecare subpunct** | `it.steps` în lecție (scrise odată cu lecția, verificate determinist); lecțiile vechi le primesc o singură dată, la prima folosire — vezi secțiunea 3c |
 | **Chat**, mâna ridicată, reacții, participanți, subtitrări, „Caiet", ecran complet (pe telefon: sus, în dreapta — se vede și ținut vertical; ce nu încape în bară stă în „⋯ Mai mult") | Supabase Realtime (canal privat pe ședință) |
 | **1-la-1, oricând** (60 min, **prelungite până termini exercițiile**): elevul **alege exercițiile** (📋 — ex. S. I ex. 5, S. II ex. 2 b), S. III ex. 1 c), nu neapărat la rând); se oprește la întrebări, „Ai înțeles?", „Explică altfel", răspunde cu voce | 8/lună incluse în abonament, apoi 20 lei; prelungirea e fără cost în plus — vezi secțiunea 3b |
 | **🎓 Pregătire de examen** (din „Planul meu"): aceeași clasă, dar profesorul propune ordinea — S. I ex. 1 → ex. 2 → … → S. II → S. III, câte cel puțin 10 exerciții pe poziție, apoi un test; elevul poate alege **orice exercițiu** (la BAC și doar un subpunct a/b/c), fără limită de timp | `/meditatii/pregatire` (`?pos=II.2.b` = începe direct acolo); exercițiile vin din lecțiile de aici — vezi secțiunea 3 |
@@ -37,6 +38,10 @@ mai mic când pașii sunt mulți, ca să rămână toți la vedere. La **„Ară
 în enunț), elevii încearcă întâi pe cerința reformulată **„Calculați…", fără rezultat** (cu
 răspuns de completat), apoi profesorul scrie pe tablă etapele intermediare din barem, iar pe
 proiecție reapare cerința din subiect.
+
+**Interactiv la fiecare pas:** la problemele de la Subiectele II și III, profesorul nu doar scrie
+pașii — se oprește înaintea fiecărui rezultat intermediar din barem și îi pune pe elevi să-l
+calculeze (cel puțin o dată la fiecare subpunct a), b), c)). Detalii în secțiunea 3c.
 
 ---
 
@@ -115,6 +120,8 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 | `LIVE_PRELUNGIRE_MAX` | `120` | cât se poate prelungi cel mult, peste ora de sfârșit (plafon de siguranță, ex. un tab uitat deschis); `0` = fără prelungire |
 | `LIVE_INTRARE_DEVREME_MIN` | `15` | cu cât timp înainte se deschide sala de așteptare |
 | `LIVE_SONDAJ_GRILA_SEC` / `_COMPLETARE_SEC` / `_VERIFICARE_SEC` | `45` / `60` / `35` | timpul de răspuns la întrebări |
+| `LIVE_SONDAJ_PAS_SEC` | `40` | timpul de răspuns la o întrebare pe pas (grup; la 1-la-1 profesorul așteaptă cât e nevoie) |
+| `LIVE_INTREBARI_PASI` | pornit | `0` = fără întrebările pe pași (Subiectele II și III) — explicația pe barem curge ca înainte |
 | `LIVE_PAUZA_SEC`, `LIVE_INTREBARI_SEC` | `300`, `180` | pauza din mijloc, sesiunile de întrebări |
 | `LIVE_MINIM_GRUP` | `2` | câți elevi trebuie să fie în sală la ora de început ca să pornească ședința comună (mai puțini → 1-la-1) |
 | `LIVE_PDF_PAGINI` | pornit | `0` = lecția se scrie doar din textul extras (fără paginile PDF; formulele pot lipsi) |
@@ -189,6 +196,58 @@ exercițiu.
 
 ---
 
+## 3c. Întrebările pe pași (Subiectele II și III, octombrie 2026)
+
+La problemele cu rezolvare (BAC: II.1.a … III.2.c; EN: problemele de la Subiectul al III-lea, cu
+a) și b)), explicația pe barem **se oprește înaintea rezultatelor intermediare**:
+
+1. profesorul explică până la pasul următor, apoi întreabă („Înainte să scriu, încercați voi: cât
+   este delta?") — pe ecran apare cardul **„📝 Prof. Tudor întreabă · pasul 2 din 3 · b)"**;
+2. elevul calculează și răspunde: **de completat** (un număr sau o expresie — „16", „2x+3", „1/2";
+   se verifică matematic, deci „x²+2x+1" = „x^2 + 2x + 1") sau **grilă** cu 4 variante (rezultatul și
+   greșelile tipice). **„💡 Indiciu"** arată formula/proprietatea, fără rezultat. La 1-la-1,
+   **„🤷 Nu știu — arată-mi"** dă răspunsul corect (se numără ca greșit);
+3. grup: după timpul de răspuns (`LIVE_SONDAJ_PAS_SEC`, implicit 40 s), pe proiecție apar
+   **rezultatele clasei** și răspunsul corect; 1-la-1: verdictul vine pe loc, cu explicația, apoi
+   „Mai departe: pasul pe tablă →";
+4. profesorul scrie pasul pe tablă și continuă — tabla rămâne o singură rezolvare (bucățile de
+   explicație dintre întrebări nu se despart), iar pe telefon camera stă pe tablă la aceste întrebări.
+
+**Cel puțin o întrebare la fiecare subpunct** (de preferat la primul pas al lui, înainte să înceapă
+explicația), plus câte una la rezultatele intermediare importante — cel mult 4 pe item. Verificarea de
+la sfârșit („check") rămâne, ca înainte.
+
+**Cum se scriu:** odată cu lecția — modelul pune întrebarea (`ask`) la segmentul din explicația pe
+barem care scrie rezultatul. Apoi, **determinist**: întrebarea cade dacă rezultatul e deja pe tablă,
+dacă întrebarea îl conține sau dacă e chiar rezultatul dat în enunț („Arătați că $E(x) = 1$");
+grila trebuie să aibă 4 variante și o literă. Subpunctele rămase fără întrebare primesc încă un apel
+scurt (doar pentru ele, cu explicația pe segmente numerotate), iar ce rămâne tot fără — **fără AI**,
+din rândurile scrise pe tablă („Ce se obține la acest pas? $\Delta = b^2 - 4ac = \;?$").
+
+**Lecțiile scrise înainte** (fără întrebări pe pași) le primesc **o singură dată**, la prima folosire —
+doar întrebările; explicațiile, id-urile lor și vocea rămân:
+- **1-la-1**: la intrare, dacă ședința n-a pornit — sala arată „Prof. Tudor pregătește întrebările
+  pentru pașii din barem… cam un minut", apoi pornește;
+- **ședința de grup**: în sala de așteptare (cu mai mult de 3 minute înainte de început) sau din cron,
+  înainte de ședințele cu elevi (bilet / sala de așteptare);
+- **Pregătirea de examen**: exercițiul următor (S. II/III) se completează cât elevul lucrează;
+- **Admin → Lecțiile recente → „➕ Întrebări pe pași"** (sau „↻" ca să le scrii din nou).
+Niciodată cât o ședință de grup cu aceeași lecție e în curs sau începe în câteva minute (toți elevii
+ei trebuie să aibă aceeași cronologie). În Admin, „Scriptul" arată întrebările fiecărui item (înaintea
+cărei fraze, răspunsul, „din barem" când sunt făcute fără AI).
+
+**În 2 ore (grup):** dacă lecția nu încape, întâi cade al doilea mod de explicare, apoi rămâne
+**o singură întrebare pe pas la fiecare subpunct** (și fără verificarea de la sfârșit acolo) — abia
+apoi se scurtează întrebările din chat și, la nevoie, se predau mai puțini itemi.
+
+**Pregătirea de examen:** exercițiile au aceleași întrebări pe pași; la **test**, din fiecare subpunct
+intră prima întrebare (pusă înainte de explicație, deci se înțelege fără tablă), iar recapitularea
+greșelilor doar explică.
+
+`LIVE_INTREBARI_PASI=0` oprește totul (lecțiile curg ca înainte, fără să se piardă ce s-a scris).
+
+---
+
 ## 4. Profesorul animat (scena)
 
 Scena e construită **o singură dată**, offline, dintr-o fotografie a clasei cu profesorul
@@ -252,6 +311,9 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
   parcurs subiectele (se repetă după `LIVE_REFOLOSIRE_ZILE`, implicit 21 de zile).
   Costul exact al fiecărei lecții apare în Admin → Meditații live.
 - **Răspunsurile în chat** (întrebări către profesor): bani mărunți, limitate (`LIVE_INTREBARI_MAX`).
+- **Întrebările pe pași**: la o lecție nouă, aproape nimic în plus (se scriu odată cu ea; uneori un
+  apel scurt pentru subpunctele rămase fără întrebare). La o lecție scrisă înainte: ~0,5–1 leu, **o
+  singură dată** pe lecție, la prima folosire. Fără model AI configurat — 0 lei (din rândurile de pe tablă).
 - **Pregătirea de examen**: vocea browserului (0 lei); folosește lecțiile de aici, iar o lecție
   nouă (~1,5–5 lei) se scrie doar când un elev le-a lucrat pe toate cele gata — o singură dată pe
   subiect (plafon `PREP_GENERARI_ZI` pe elev, pe zi).
@@ -291,3 +353,6 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | Elevul nu poate intra la ora de grup | sala se deschide cu 15 minute înainte; după încheiere nu se mai poate intra |
 | 1-la-1 s-a oprit la 60 de minute | versiune veche a paginii (PWA din cache) → reîncarcă; acum ședința se prelungește singură (cronometrul arată „+mm:ss prelungire"), până la plafonul `LIVE_PRELUNGIRE_MAX` |
 | După un exercițiu ales, profesorul nu trece singur mai departe | normal: la alegerea elevului întreabă ce urmează; „⏩ Continuă în ordine" revine la lecția care curge singură |
+| La 1-la-1, înainte de lecție: „pregătește întrebările pentru pașii din barem" | normal, o singură dată pe subiect (lecție scrisă înainte de întrebările pe pași), cam un minut |
+| O problemă de la S. II/III fără întrebări pe pași | lecție veche folosită cât rula o ședință de grup cu ea (atunci nu se schimbă) → Admin → „➕ Întrebări pe pași"; sau nicio întrebare n-a trecut verificările (Admin → „Scriptul" → „↻ Întrebări pe pași") |
+| Ședința de grup e prea lungă cu toate întrebările | normal: rămâne câte o întrebare la fiecare subpunct; `LIVE_SONDAJ_PAS_SEC` (ex. 30) scurtează timpul de răspuns |

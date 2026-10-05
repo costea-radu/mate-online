@@ -131,10 +131,10 @@ function dropUnreadable(script) {
 
 // ─── Schema răspunsului AI (Structured Outputs, strictă) ─────────────────────
 const S = ai.S;
-const SEG = S.obj({
-  say: S.str('ce ROSTEȘTE profesorul: text de citit cu voce tare, fără LaTeX și fără simboluri, maximum 40 de cuvinte'),
-  board: S.arr(S.str('un rând scris pe tablă: un pas al rezolvării, formulele în LaTeX între $...$'), '0–4 rânduri scrise pe tablă în timpul segmentului (câte un pas pe rând)'),
-});
+const SAY_DESC = 'ce ROSTEȘTE profesorul: text de citit cu voce tare, fără LaTeX și fără simboluri, maximum 40 de cuvinte';
+const BOARD_DESC = '0–4 rânduri scrise pe tablă în timpul segmentului (câte un pas pe rând)';
+const BOARD_LINE = S.str('un rând scris pe tablă: un pas al rezolvării, formulele în LaTeX între $...$');
+const SEG = S.obj({ say: S.str(SAY_DESC), board: S.arr(BOARD_LINE, BOARD_DESC) });
 const SEGS = (d) => S.arr(SEG, d);
 const POLL = S.obj({
   type: S.enum(['grila', 'completare']),
@@ -142,6 +142,24 @@ const POLL = S.obj({
   options: S.nullable(S.arr(S.str(), 'exact 4 variante (a, b, c, d) la grilă; null la completare')),
   answer: S.str('grilă: litera corectă (a/b/c/d); completare: rezultatul din barem'),
   explain: S.str('o propoziție: de ce acesta e răspunsul corect'),
+});
+// ÎNTREBAREA PE PAS: pusă înaintea segmentului în care profesorul scrie pe tablă un
+// rezultat intermediar din barem — elevii îl calculează ei, răspund pe ecran, apoi
+// profesorul scrie pasul (regula 6b din prompt)
+const ASK_PROPS = {
+  type: S.enum(['grila', 'completare']),
+  question: S.str('întrebarea despre REZULTATUL INTERMEDIAR pe care profesorul îl scrie pe tablă în acest segment; se înțelege și fără tablă (conține expresia sau datele necesare); NU conține rezultatul; LaTeX între $...$'),
+  options: S.nullable(S.arr(S.str(), 'exact 4 variante la grilă: rezultatul corect și greșelile tipice; null la completare')),
+  answer: S.str('grilă: litera corectă (a/b/c/d); completare: rezultatul intermediar din barem — un singur număr sau o expresie scurtă, în LaTeX fără $ („16", „2x+3", „\\frac{1}{2}", „\\{1, 3\\}")'),
+  hint: S.str('un indiciu scurt (formula sau proprietatea de folosit), FĂRĂ rezultat'),
+  explain: S.str('o propoziție: de unde vine rezultatul (pasul din barem)'),
+  say: S.str('ce spune profesorul cu voce tare când pune întrebarea: fără simboluri și fără rezultat, cel mult 25 de cuvinte („Înainte să scriu, încercați voi: cât este delta? Scrieți rezultatul pe ecran.")'),
+};
+const ASK = S.obj(ASK_PROPS);
+const SEG_BAREM = S.obj({
+  say: S.str(SAY_DESC),
+  board: S.arr(BOARD_LINE, BOARD_DESC),
+  ask: S.nullable(ASK),
 });
 const ITEM = S.obj({
   ref: S.str('referința: „I.3", „II.5", „III.2" sau, la BAC II/III, „II.1.a"'),
@@ -157,7 +175,7 @@ const ITEM = S.obj({
   tryPoll: S.nullable(POLL),
   afterTry: SEGS('0–1 segment scurt de trecere spre răspuns („Să vedem răspunsul corect.")'),
   modes: S.obj({
-    barem: SEGS('3–12 segmente: rezolvarea oficială pas cu pas, cu punctajul pașilor; pe tablă rămâne TOATĂ rezolvarea'),
+    barem: S.arr(SEG_BAREM, '3–12 segmente: rezolvarea oficială pas cu pas, cu punctajul pașilor; pe tablă rămâne TOATĂ rezolvarea; „ask" = întrebarea pe pas pusă ÎNAINTEA segmentului (regula 6b), altfel null'),
     intuitiv: SEGS('2–5 segmente: ideea pe înțelesul tuturor'),
     greseli: SEGS('2–4 segmente: greșelile care costă puncte'),
     alta_metoda: S.nullable(SEGS('2–6 segmente: altă metodă corectă, cu același rezultat')),
@@ -166,6 +184,18 @@ const ITEM = S.obj({
   afterCheck: SEGS('0–1 segment scurt după verificare'),
 });
 const SCHEMA = S.obj({ items: S.arr(ITEM) });
+
+// Regulile întrebărilor pe pași (aceleași la scrierea lecției și la completarea
+// lecțiilor scrise înainte — addStepQuestions)
+const STEP_RULES = [
+  'Elevii lucrează EI pașii rezolvării: înaintea fiecărui rezultat intermediar important din barem (un pas care primește puncte: o valoare calculată, o expresie obținută, o ecuație sau o relație, o mulțime de soluții, un determinant, o derivată, o limită, o arie…), profesorul îi întreabă, ei răspund pe ecran, apoi el scrie pasul pe tablă și îl explică.',
+  'CEL PUȚIN o întrebare la FIECARE subpunct (a, b, c) al itemului — de preferat la primul pas al subpunctului, înainte să înceapă explicația lui — și câte una la fiecare rezultat intermediar important (în total 2–4 la un item cu mai mulți pași, 1 la un item cu un singur pas).',
+  '(1) Rezultatul întrebat NU apare pe tablă și NU e rostit înainte de întrebare: abia în segmentul de după întrebare se scrie pe tablă.',
+  '(2) Întrebarea se înțelege singură, fără tablă: conține expresia sau datele de care e nevoie („Cât este $\\Delta$ pentru ecuația $x^2 - 4x + 3 = 0$?", „Ce obțineți pentru $f\'(x)$, dacă $f(x) = x^3 - 3x$?", „Cât este $\\det(A(1))$?") și nu conține rezultatul.',
+  '(3) „completare" când răspunsul e un singur număr sau o expresie scurtă (scris în LaTeX fără $: „16", „2x+3", „\\frac{1}{2}", „\\{1, 3\\}"); altfel „grila", cu 4 variante plauzibile — rezultatul corect și greșelile tipice — și litera corectă (a/b/c/d), corecta nu mereu pe aceeași poziție.',
+  '(4) „say" = ce spune profesorul cu voce tare când pune întrebarea (fără simboluri, fără rezultat): „Înainte să scriu, încercați voi: cât este delta? Scrieți rezultatul pe ecran."; „hint" = un indiciu scurt (formula, proprietatea), fără rezultat; „explain" = de unde vine rezultatul.',
+  '(5) Nu întreba ce scrie deja în enunț: la „Arătați că…" întrebi etapele intermediare, nu rezultatul final din enunț.',
+];
 
 function systemPrompt(teacher, exam, profile) {
   const g = teacher.gender === 'f';
@@ -180,10 +210,11 @@ function systemPrompt(teacher, exam, profile) {
     '3. Fiecare item se explică în mai multe moduri: „barem" (rezolvarea oficială, pas cu pas, spunând câte puncte se acordă: „pentru acest calcul se acordă 2 puncte"), „intuitiv" (ideea pentru un elev care nu a înțeles: o imagine, o comparație, o verificare rapidă, fără calcule lungi), „greseli" (greșelile tipice și cum se pierd puncte) și „alta_metoda" (o altă rezolvare corectă, cu ACELAȘI rezultat — baremul punctează orice metodă corectă; null dacă nu există una firească).',
     '4. „say" se ROSTEȘTE: scrie exact cum se citește cu voce tare în română — fără LaTeX, fără simboluri: „x la pătrat", „radical din 3", „a supra b", „egal", „ori", „unghiul A B C", „segmentul A B". Numere zecimale cu virgulă („doi virgulă cinci"). Propoziții scurte, cel mult 40 de cuvinte pe segment. Vorbești la persoana a doua plural („încercați", „observați"), ca într-o clasă; nu comenta procente sau cine a răspuns.',
     '5. „board" = ce scrii pe tablă cât timp spui segmentul: 0–4 rânduri scurte, câte un pas pe rând; formulele în LaTeX între $...$ (ex. „$\\Delta = b^2 - 4ac = 16$"). Pe tablă rămân pașii rezolvării, ca pe o tablă adevărată. Pe tablă scrii matematică, nu fraze: cel mult câteva cuvinte de legătură („deci", „așadar", „din (1) și (2)").',
-    '5b. REZOLVĂRILE COMPLETE: la itemii cu rezolvare (Subiectele II și III, probleme, demonstrații, calcule în mai mulți pași), în modul „barem" tabla trebuie să ajungă să conțină TOATĂ rezolvarea care ia punctajul maxim, ca în barem: formula sau proprietatea folosită, fiecare transformare pe rândul ei (fără pași săriți; lanțurile de egalități continuă pe rândul următor cu „$= \\ldots$"), rezultatul, cu punctajul pasului la sfârșitul rândului („(2p)"). La itemii-grilă și la cei cu rezultat scurt, baremul dă doar răspunsul: pe tablă scrii totuși CALCULUL care duce la el (2–5 rânduri: formula, înlocuirea, calculul, rezultatul), apoi varianta corectă; nu copia pe tablă tabelul de punctaj („Alt răspuns — 0p").',
+    '5b. REZOLVĂRILE COMPLETE: la itemii cu rezolvare (Subiectele II și III, probleme, demonstrații, calcule în mai mulți pași), în modul „barem" tabla trebuie să ajungă să conțină TOATĂ rezolvarea care ia punctajul maxim, ca în barem: formula sau proprietatea folosită, fiecare transformare pe rândul ei (fără pași săriți; lanțurile de egalități continuă pe rândul următor cu „$= \\ldots$"), rezultatul, cu punctajul pasului la sfârșitul rândului („(2p)"). La itemii-grilă și la cei cu rezultat scurt, baremul dă doar răspunsul: pe tablă scrii totuși CALCULUL care duce la el (2–5 rânduri: formula, înlocuirea, calculul, rezultatul), apoi varianta corectă; nu copia pe tablă tabelul de punctaj („Alt răspuns — 0p"). La itemii cu subpuncte a), b), c) în același enunț (ex. problemele de la Subiectul al III-lea, la EN), primul rând de pe tablă al fiecărui subpunct începe cu litera lui („a) …", „b) …"), iar în „say" spui „La punctul b, …".',
     '5c. Cerințele „Arătați că…", „Demonstrați că…", „Verificați că…" au rezultatul scris chiar în enunț. (1) Dacă rezultatul e o valoare sau o expresie care se CALCULEAZĂ (ex. „Arătați că $E(x) = 4x$", „Arătați că $a = 2$", „Verificați că $f(1) = 3$"), elevii nu trebuie să-l vadă înainte să încerce: în „statementTry" scrii enunțul cu cerința reformulată ca întrebare de calcul, FĂRĂ rezultat („Calculați $E(x)$.", „Determinați numărul $a$.", „Calculați $f(1)$."), restul enunțului rămânând la fel; „tryPoll" = type „completare", cu aceeași întrebare de calcul și rezultatul ca răspuns; în „intro" citești cerința reformulată (fără rezultat). (2) Altfel (ex. „Arătați că triunghiul $ABC$ este dreptunghic"): „statementTry" = null și „tryPoll" = null. (3) În ambele cazuri, în modul „barem" scrii pe tablă ETAPELE INTERMEDIARE din barem, fiecare pe rândul ei (nu doar rezultatul, nu porni de la rezultat), iar la final spui că ați obținut exact ce cerea subiectul („Deci $E(x) = 4x$, exact ce trebuia arătat.").',
     '6. „tryPoll": la itemii-grilă (variante a–d) întrebarea e chiar itemul, cu variantele lui și LITERA corectă din barem (type „grila"); la itemii cu un rezultat scurt, type „completare", cu rezultatul din barem. La itemii cu rezolvare lungă: null (excepție: „Arătați că…" cu rezultat calculabil, vezi 5c). „statementTry" = null la toți ceilalți itemi.',
-    '7. „check": la itemii fără tryPoll — o întrebare scurtă despre un pas-cheie din barem (grilă cu 4 variante sau completare cu un număr). La itemii cu tryPoll: null.',
+    '6b. ÎNTREBĂRILE PE PAȘI („ask" în segmentele modului „barem") — DOAR la Subiectele II și III, la itemii cu rezolvare (nu la grile, nu la Subiectul I). „ask" = întrebarea pe care profesorul o pune ÎNAINTEA segmentului în care scrie pe tablă rezultatul intermediar întrebat; la celelalte segmente „ask" = null. ' + STEP_RULES.join(' '),
+    '7. „check": la itemii fără tryPoll — o întrebare scurtă de VERIFICARE, la sfârșit (rezultatul final sau un pas-cheie din barem), diferită de întrebările pe pași (grilă cu 4 variante sau completare cu un număr). La itemii cu tryPoll: null.',
     '8. „intro": anunți itemul („Trecem la Subiectul al doilea, exercițiul 4.") și citești enunțul. „afterTry"/„afterCheck": o trecere scurtă („Să vedem răspunsul corect.").',
     '9. Ton: cald, sigur, încurajator; fără glume forțate; fără emoji; fără linkuri.',
   ].join('\n');
@@ -196,6 +227,7 @@ function userPrompt({ exam, section, from, to, subjectSection, baremSection, tit
     pages ? `Ai atașate PAGINILE PDF ale subiectului${pages === 'barem' ? ' și ale baremului' : ''} pentru Subiectul ${section}: formulele le citești din pagini (regula 0); textul de mai jos ajută doar la ordinea itemilor.` : '',
     `Explică itemii ${from}–${to} din SUBIECTUL ${section} (în ordinea din subiect).`,
     bacSub ? `La acest subiect fiecare problemă are cerințele a), b), c): fiecare literă e un item separat. Itemii 1–3 = problema 1 (a, b, c), itemii 4–6 = problema 2 (a, b, c). Ref: „${section}.1.a", „${section}.1.b", …` : '',
+    section !== 'I' && live.STEPS_ON() ? 'Nu uita întrebările pe pași („ask", regula 6b) la itemii cu rezolvare: cel puțin una la fiecare subpunct, înaintea rezultatelor intermediare din barem.' : '',
     '',
     `=== TEXTUL SUBIECTULUI ${section} (extras din PDF) ===`,
     subjectSection.slice(0, 9000),
@@ -258,6 +290,258 @@ function leaksAnswer(text, ans) {
   return t.includes('=' + a) || (a.length >= 4 && t.includes(a));
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ÎNTREBĂRILE PE PAȘI — Subiectele II și III, itemii cu rezolvare
+//
+// Profesorul se oprește înaintea rezultatelor intermediare din barem și îi pune pe
+// elevi să le calculeze (răspund pe ecran), apoi scrie pasul pe tablă. Cel puțin o
+// întrebare la FIECARE subpunct: la BAC itemul e un subpunct (II.1.a); la EN,
+// problemele de la Subiectul al III-lea au a), b) în același item.
+// Un pas = { at, part, type, question, options, answer, explain, hint, ask:[seg], src }
+//   at  = indexul segmentului din modes.barem ÎNAINTEA căruia se pune întrebarea
+//         (segmentul care scrie rezultatul pe tablă; = numărul de segmente → la sfârșit)
+//   src = 'ai' (scrisă de model) | 'barem' (din rândurile scrise pe tablă, fără AI)
+// Verificările sunt deterministe: rezultatul nu e deja pe tablă, întrebarea nu îl
+// conține, grila are 4 variante și o literă, cel mult o întrebare înaintea unui
+// segment, cel mult MAX_STEPS pe item (întâi câte una pe subpunct).
+// ═════════════════════════════════════════════════════════════════════════════
+const PASI_V = 1;            // versiunea întrebărilor pe pași dintr-un script (script.pasi)
+const MAX_STEPS = 4;
+const ASK_SAY = [
+  'Înainte să scriu rezultatul, încercați voi: ce se obține la acest pas? Scrieți pe ecran.',
+  'Calculați voi pasul acesta și scrieți rezultatul pe ecran. Apoi verificăm împreună.',
+  'Hai să vedem dacă vă iese: scrieți pe ecran rezultatul acestui pas.',
+];
+
+// itemii care primesc întrebări pe pași: Subiectele II și III, cu rezolvare (nu grilele)
+const stepEligible = (it) => !!it && live.STEPS_ON() && (it.section === 'II' || it.section === 'III')
+  && it.kind !== 'grila' && !(Array.isArray(it.options) && it.options.length) && Array.isArray(it.modes?.barem) && it.modes.barem.length > 0;
+
+// Subpunctele unui item: la BAC itemul e chiar subpunctul (o singură parte, null);
+// la EN, „a) … b) …" din enunț → ['a', 'b']
+// (Doar când explicația pe barem arată și ea unde începe fiecare subpunct — altfel
+// întrebările n-ar putea fi puse pe subpuncte, iar itemul se tratează ca unul singur.)
+function itemParts(it) {
+  const r = parseRef(it?.ref);
+  if (!r || r.letter) return [null];
+  const letters = [];
+  for (const m of String(it.statement || '').matchAll(/(?:^|\n|[.:;!?]\s+)\(?([a-d])\)\s*(?=\S)/g)) {
+    const l = m[1].toLowerCase();
+    if (!letters.includes(l)) letters.push(l);
+  }
+  if (letters.length < 2 || letters[0] !== 'a') return [null];
+  const seen = new Set(markedParts(it.modes?.barem || [], letters));
+  return seen.size >= 2 ? letters : [null];
+}
+
+// Subpunctul marcat la începutul unui segment: primul rând de pe tablă („b) …") sau
+// începutul frazei („La punctul b, …"); null dacă segmentul nu începe un subpunct
+function partMark(s, parts) {
+  const first = String((s.board || [])[0] || '').replace(/^\s*\$?\s*/, '');
+  const m = /^\(?([a-d])\)/i.exec(first)
+    || /^\s*(?:(?:acum|apoi|trecem)\s+)?(?:la\s+)?(?:punctul|subpunctul|cerin[țt]a)\s+([a-d])\b/i.exec(String(s.say || ''))
+    || /^\s*\(?([a-d])\)/i.exec(String(s.say || ''));
+  const l = m ? m[1].toLowerCase() : null;
+  return l && parts.includes(l) ? l : null;
+}
+function markedParts(segs, parts) {
+  let cur = parts[0];
+  return (segs || []).map((s) => (cur = partMark(s, parts) || cur));
+}
+// Subpunctul fiecărui segment din explicația pe barem
+function segmentParts(segs, parts) {
+  if (!parts || parts.length < 2) return (segs || []).map(() => (parts && parts[0]) || null);
+  return markedParts(segs, parts);
+}
+const partAt = (segParts, at) => (segParts.length ? segParts[Math.max(0, Math.min(segParts.length - 1, at))] : null) ?? null;
+
+// Rezultatul e deja scris în text (pe tablă / în întrebare)? Doar ca valoare
+// „întreagă" — după „=" (sau singur) și urmată de un capăt (nu „= 3x" pentru „3")
+const POINTS_RE = /\(\s*\d+\s*p(?:uncte)?\s*\)|[—–]\s*\d+\s*p\b|\b\d+\s*p\b/gi;
+const stripPoints = (s) => String(s || '').replace(POINTS_RE, ' ');
+const eqNorm = (s) => live.foldRo(stripPoints(s))
+  .replace(/\\[dt]frac/g, '\\frac')
+  .replace(/\$|\\[,;!:]|\\left(?![a-z])|\\right(?![a-z])|\\displaystyle|\s+/g, '')
+  .replace(/[{}]/g, '');
+const AFTER_OK = /^(?:$|[;)\]|?!]|[.,](?!\d)|\\(?:rightarrow|implies|iff|leftrightarrow|quad|qquad|text|land|lor))/;
+const BEFORE_OK = (t, i) => i === 0 || /[=:]/.test(t[i - 1]) || /\\(?:rightarrow|implies|iff)$/.test(t.slice(0, i));
+function revealsAnswer(text, ans) {
+  const a = eqNorm(ans);
+  const t = eqNorm(text);
+  if (!a || !t) return false;
+  for (let i = t.indexOf(a); i >= 0; i = t.indexOf(a, i + 1)) {
+    if (BEFORE_OK(t, i) && AFTER_OK.test(t.slice(i + a.length))) return true;
+  }
+  return false;
+}
+
+// textul valorii corecte (la grilă, varianta corectă)
+const correctText = (p) => (p.type === 'grila' ? (p.options || [])['abcd'.indexOf(p.answer)] || '' : p.answer);
+
+// Rezultatele date chiar în enunț („Arătați că $E(x) = 1$…"): formulele de după
+// „arătați / demonstrați / verificați că", până la sfârșitul propoziției
+function shownResults(statement) {
+  const out = [];
+  for (const m of String(statement || '').matchAll(/(?:arăta[țt]i|aratati|demonstra[țt]i|verifica[țt]i|justifica[țt]i)\s+c[ăa](?=\s)([^\n]*?)(?:\.\s|\.$|\n|$)/gi)) {
+    for (const c of m[1].matchAll(/\$([^$]+)\$/g)) out.push(c[1]);
+  }
+  return out;
+}
+
+// Un pas propus (de model sau din barem) → pasul curat, sau null
+function cleanStep(raw, { at, segs, segParts, statement = '', log = () => {}, ref = '' }) {
+  const poll = cleanPoll(raw);
+  if (!poll) return null;
+  const val = correctText(poll);
+  if (!val) return null;
+  if (revealsAnswer(poll.question, val)) { log(`live: ${ref} — întrebarea pe pas își conține răspunsul („${poll.question.slice(0, 60)}") — omisă`); return null; }
+  if (shownResults(statement).some((c) => revealsAnswer(c, val))) { log(`live: ${ref} — întrebarea pe pas cere rezultatul dat în enunț („${String(val).slice(0, 30)}") — omisă`); return null; }
+  // rezultatul e deja pe tablă (scris înainte, la același subpunct) → nu mai e o întrebare
+  const part = partAt(segParts, at);
+  const before = segs.slice(0, at).filter((_, j) => (segParts[j] ?? null) === part).flatMap((s) => s.board || []);
+  if (before.some((l) => revealsAnswer(l, val))) { log(`live: ${ref} — rezultatul întrebării pe pas („${String(val).slice(0, 30)}") e deja pe tablă — omisă`); return null; }
+  let say = String(raw.say || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  // rostirea nu spune rezultatul (cifrele lui, când e un număr)
+  if (/^-?\d+(?:[.,]\d+)?$/.test(String(val).trim()) && new RegExp(`(^|[^\\d.,])${String(val).trim().replace(/[.,]/g, '[.,]')}($|[^\\d.,])`).test(say)) say = '';
+  if (!say) say = ASK_SAY[at % ASK_SAY.length];
+  let hint = cleanStr(raw.hint || '', 240) || null;
+  if (hint && revealsAnswer(hint, val)) hint = null;
+  return { at, part, ...poll, hint, ask: [{ say, board: [] }], src: raw.src === 'barem' ? 'barem' : 'ai' };
+}
+
+// Adaugă pașii propuși la item: curățați, fără dubluri, cel mult unul înaintea unui
+// segment, cel mult MAX_STEPS (întâi primul de la fiecare subpunct), în ordine
+function addSteps(it, raws, { log = () => {}, src = 'ai' } = {}) {
+  if (!stepEligible(it)) { it.steps = []; return 0; }
+  const segs = it.modes.barem;
+  const parts = itemParts(it);
+  const segParts = segmentParts(segs, parts);
+  const have = Array.isArray(it.steps) ? it.steps.slice() : [];
+  const key = (s) => eqNorm(s.question);
+  const tryVal = it.tryPoll ? eqNorm(correctText(it.tryPoll)) : null;
+  let added = 0;
+  for (const raw of Array.isArray(raws) ? raws : []) {
+    if (!raw || !Number.isFinite(Number(raw.at))) continue;
+    const at = Math.max(0, Math.min(segs.length, Math.round(Number(raw.at))));
+    const st = cleanStep({ ...raw, src }, { at, segs, segParts, statement: it.statement, log, ref: it.ref });
+    if (!st) continue;
+    if (have.some((h) => h.at === st.at || key(h) === key(st))) continue;
+    if (tryVal && eqNorm(correctText(st)) === tryVal) continue;          // aceeași întrebare ca încercarea de la început
+    have.push(st);
+    added++;
+  }
+  // cel mult MAX_STEPS: întâi primul pas al fiecărui subpunct, apoi restul, în ordine
+  have.sort((a, b) => a.at - b.at);
+  const firsts = parts.map((p) => have.find((s) => (s.part ?? null) === p)).filter(Boolean);
+  const keep = new Set(firsts.slice(0, MAX_STEPS));
+  for (const s of have) { if (keep.size >= MAX_STEPS) break; keep.add(s); }
+  it.steps = have.filter((s) => keep.has(s));
+  return added;
+}
+
+// Subpunctele fără nicio întrebare înainte (încercarea de la început contează doar
+// la itemii cu un singur subpunct)
+function missingParts(it) {
+  if (!stepEligible(it)) return [];
+  const parts = itemParts(it);
+  const steps = Array.isArray(it.steps) ? it.steps : [];
+  if (parts.length === 1) return steps.length || it.tryPoll ? [] : [parts[0]];
+  const have = new Set(steps.map((s) => s.part ?? null));
+  return parts.filter((p) => !have.has(p));
+}
+
+// „$\Delta = b^2 - 4ac = 16$ (2p)" → { lhs: '\Delta = b^2 - 4ac', rhs: '16' }: ultima
+// egalitate simplă de pe un rând de tablă. strict = un rezultat (număr / expresie
+// redusă); altfel și o expresie încă necalculată („E(2) = (2+1)^2 - 2 \cdot 4"):
+// răspunsul elevului se verifică matematic, deci „1" e corect și acolo.
+const SKIP_EQ = /\\(?:Rightarrow|Leftrightarrow|rightarrow|implies|iff|in|notin|subset|subseteq|cup|cap|le|ge|leq|geq|neq|ne|lt|gt|approx|equiv|text|mathrm|quad|qquad|forall|exists|ldots|dots|cdots|begin|end|lim|int|sum)\b|[<>≤≥≠;]|\.\.\.|,/;
+const RHS_CMDS = new Set(['frac', 'sqrt', 'pi']);
+const RHS_CMDS_LOOSE = new Set(['frac', 'sqrt', 'pi', 'cdot']);
+function splitTopEq(m) {
+  const out = [];
+  let depth = 0, cur = '';
+  for (const ch of m) {
+    if (ch === '{' || ch === '(' || ch === '[') depth++;
+    if (ch === '}' || ch === ')' || ch === ']') depth = Math.max(0, depth - 1);
+    if (ch === '=' && depth === 0) { out.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  out.push(cur);
+  return out.map((x) => x.trim());
+}
+function lastEquality(line, { strict = true } = {}) {
+  const maths = [...stripPoints(line).matchAll(/\$([^$]+)\$/g)].map((m) => m[1]);
+  for (let k = maths.length - 1; k >= 0; k--) {
+    const m = maths[k].trim();
+    if (SKIP_EQ.test(m)) continue;
+    const parts = splitTopEq(m);
+    if (parts.length < 2 || !parts[0]) continue;                       // „= …" (rând de continuare) → nu
+    const rhs = parts[parts.length - 1];
+    const lhs = parts.slice(0, -1).join(' = ');
+    const flat = rhs.replace(/\s+/g, '');
+    const ok = strict
+      ? flat.length <= 16 && /^[0-9a-zA-Z+\-/^{}\\.]+$/.test(flat)
+      : flat.length <= 28 && /^[0-9a-zA-Z+\-*/^(){}\\.]+$/.test(flat);
+    if (!flat || !ok || !/\d/.test(flat)) continue;
+    const cmds = strict ? RHS_CMDS : RHS_CMDS_LOOSE;
+    if ([...flat.matchAll(/\\([a-zA-Z]+)/g)].some((c) => !cmds.has(c[1]))) continue;
+    if (eqNorm(lhs) === eqNorm(rhs) || lhs.replace(/\s+/g, '').length < 2) continue;
+    return { lhs, rhs };
+  }
+  return null;
+}
+
+// Fără AI: la subpunctele rămase fără întrebare, profesorul întreabă rezultatul unui
+// pas pe care oricum îl scrie pe tablă („Ce se obține? $\Delta = b^2 - 4ac = ?$").
+// Întâi rezultatele propriu-zise, apoi înlocuirile încă necalculate; primul care
+// trece verificările (nu e deja pe tablă, nu e dat în enunț) rămâne.
+function addBaremSteps(it, miss, { log = () => {} } = {}) {
+  if (!stepEligible(it) || !miss || !miss.length) return 0;
+  const segs = it.modes.barem;
+  const segParts = segmentParts(segs, itemParts(it));
+  const statementMath = [...String(it.statement || '').matchAll(/\$([^$]+)\$/g)].map((m) => m[1]);
+  let added = 0;
+  for (const p of miss) {
+    let done = false;
+    for (const strict of [true, false]) {
+      for (let k = 0; k < segs.length && !done; k++) {
+        if ((segParts[k] ?? null) !== (p ?? null)) continue;
+        if ((it.steps || []).some((s) => s.at === k)) continue;
+        for (const line of segs[k].board || []) {
+          const eq = lastEquality(line, { strict });
+          if (!eq) continue;
+          // o expresie care e chiar în enunț (ex. definiția lui E(x)) nu e o întrebare
+          if (statementMath.some((c) => revealsAnswer(c, eq.rhs))) continue;
+          const raw = {
+            at: k, type: 'completare', options: null, answer: eq.rhs, hint: '',
+            question: `Ce se obține la acest pas? $${eq.lhs} = \\;?$`,
+            explain: `Pasul din barem: ${stripPoints(line).replace(/\s+/g, ' ').trim()}`,
+            say: ASK_SAY[(k + added) % ASK_SAY.length],
+          };
+          if (addSteps(it, [raw], { log, src: 'barem' })) { added++; done = true; break; }
+        }
+      }
+      if (done) break;
+    }
+  }
+  if (added) log(`live: ${it.ref} — ${added} întrebări pe pași luate din rândurile de pe tablă (fără AI)`);
+  return added;
+}
+
+// Pașii scriși de model în explicația pe barem („ask" la segmente) → pașii itemului
+function cleanBaremSegs(arr, { min = 1, max = 14 } = {}) {
+  const segs = [], asks = [];
+  for (const s of Array.isArray(arr) ? arr : []) {
+    const say = String(s?.say || '').replace(/\s+/g, ' ').trim().slice(0, 420);
+    if (!say) continue;
+    const board = (Array.isArray(s.board) ? s.board : []).map((b) => cleanStr(b, 200)).filter(Boolean).slice(0, 4);
+    if (s.ask && typeof s.ask === 'object') asks.push({ ...s.ask, at: segs.length });
+    segs.push({ say, board });
+    if (segs.length >= max) break;
+  }
+  return segs.length >= min ? { segs, asks } : { segs: [], asks: [] };
+}
+
 // Aplică verificările deterministe pe itemii unei secțiuni. `grile` = răspunsurile
 // oficiale din tabelul baremului (EN), `baremText` = tot baremul.
 function normalizeItems(rawItems, { section, exam, grile = {}, baremText = '', log = () => {} }) {
@@ -265,6 +549,7 @@ function normalizeItems(rawItems, { section, exam, grile = {}, baremText = '', l
   for (const it of Array.isArray(rawItems) ? rawItems : []) {
     const r = parseRef(it?.ref);
     if (!r || r.subject !== section) continue;
+    const bar = cleanBaremSegs(it.modes?.barem, { min: 1, max: 14 });
     const item = {
       ref: refKey(r), section, title: String(it.title || `Subiectul ${section}, exercițiul ${r.ex}${r.letter ? ` ${r.letter})` : ''}`).slice(0, 80),
       kind: ['grila', 'rezultat', 'rezolvare'].includes(it.kind) ? it.kind : 'rezolvare',
@@ -278,7 +563,7 @@ function normalizeItems(rawItems, { section, exam, grile = {}, baremText = '', l
       tryPoll: cleanPoll(it.tryPoll),
       afterTry: cleanSegs(it.afterTry, { max: 2 }),
       modes: {
-        barem: cleanSegs(it.modes?.barem, { min: 1, max: 14 }),
+        barem: bar.segs,
         intuitiv: cleanSegs(it.modes?.intuitiv, { max: 6 }),
         greseli: cleanSegs(it.modes?.greseli, { max: 5 }),
         alta_metoda: it.modes?.alta_metoda ? cleanSegs(it.modes.alta_metoda, { max: 7 }) : [],
@@ -332,11 +617,14 @@ function normalizeItems(rawItems, { section, exam, grile = {}, baremText = '', l
     } else item.statementTry = null;
     // un singur sondaj înainte (tryPoll) SAU o verificare după (check)
     if (item.tryPoll && item.check) item.check = null;
-    if (!item.tryPoll && !item.check && !showThat) {
+    // întrebările pe pași (Subiectele II și III): cele scrise de model în explicația pe barem
+    item.steps = [];
+    if (stepEligible(item)) addSteps(item, bar.asks, { log });
+    if (!item.tryPoll && !item.check && !showThat && !item.steps.length) {
       // item fără întrebare → o verificare simplă cu rezultatul final (dacă e scurt)
       const ans = String(item.answer || '').replace(/^\$|\$$/g, '').trim();
       if (ans && ans.length <= 24 && /\d/.test(ans)) {
-        item.check = { type: 'completare', question: 'Care este rezultatul final la acest item?', options: null, answer: ans, explain: '' };
+        item.check = { type: 'completare', question: 'Care este rezultatul final la acest item?', options: null, answer: ans, explain: '', auto: true };
       }
     }
     if (!item.afterTry.length && item.tryPoll) item.afterTry = [{ say: 'Să vedem răspunsul corect.', board: [] }];
@@ -366,7 +654,7 @@ function templates(teacher, { title, exam, profile }) {
     intro: [
       seg(`Bine ați venit la meditație! Sunt ${who}.`),
       seg(`Astăzi rezolvăm împreună un subiect de ${exam === 'en' ? 'Evaluare Națională' : 'Bacalaureat'}: ${spokenTitle(title)}. Lucrăm strict după baremul oficial, ca să vedeți exact cum se dau punctele.`),
-      seg('La fiecare exercițiu vă las întâi să încercați singuri, apoi vă explic pe barem și încă o dată, pe înțelesul tuturor.'),
+      seg('La fiecare exercițiu vă las întâi să încercați singuri, apoi vă explic pe barem și încă o dată, pe înțelesul tuturor. La problemele grele vă întreb la fiecare pas din barem: răspundeți pe ecran.'),
       seg('Pregătiți o foaie și un pix. Dacă ceva nu e clar, scrieți-mi oricând în chat: vă răspund imediat.'),
     ],
     qna: [seg('Acum e momentul pentru întrebări. Scrieți în chat ce nu a fost clar și vă răspund pe rând.')],
@@ -380,8 +668,19 @@ function templates(teacher, { title, exam, profile }) {
 }
 
 // id stabil pentru fiecare segment (același text → aceeași voce, refolosită)
+const tagSegs = (prefix, segs) => (segs || []).forEach((s, i) => { s.id = `${prefix}${i}-${live.shortId(prefix + '|' + i + '|' + s.say)}`; });
+// id-urile întrebărilor pe pași și ale frazelor cu care sunt puse: după conținut (nu
+// după poziție) — un pas neschimbat își păstrează id-ul (și vocea) la completări
+function assignStepIds(it, k) {
+  const p = it.ref.replace(/\./g, '');
+  for (const st of Array.isArray(it.steps) ? it.steps : []) {
+    const h = live.shortId(`${it.ref}|pas|${st.question}`);
+    st.id = `p${k}s-${h}`;
+    tagSegs(`${p}q${h.slice(0, 5)}`, st.ask);
+  }
+}
 function assignIds(script) {
-  const tag = (prefix, segs) => (segs || []).forEach((s, i) => { s.id = `${prefix}${i}-${live.shortId(prefix + '|' + i + '|' + s.say)}`; });
+  const tag = tagSegs;
   tag('in', script.intro); tag('qa', script.qna); tag('pz', script.breakSay); tag('fi', script.outro);
   script.items.forEach((it, k) => {
     const p = it.ref.replace(/\./g, '');
@@ -389,6 +688,7 @@ function assignIds(script) {
     for (const m of Object.keys(it.modes)) tag(`${p}${m.slice(0, 2)}`, it.modes[m]);
     if (it.tryPoll) it.tryPoll.id = `p${k}t-${live.shortId(it.ref + 'try')}`;
     if (it.check) it.check.id = `p${k}c-${live.shortId(it.ref + 'check')}`;
+    assignStepIds(it, k);
   });
   return script;
 }
@@ -410,7 +710,9 @@ function renameTeacher(script, teacher) {
 function itemSegments(it) {
   const out = [];
   const add = (arr) => (arr || []).forEach((s) => out.push(s));
-  add(it.intro); add(it.afterTry); add(it.modes?.barem); add(it.afterCheck);
+  add(it.intro); add(it.afterTry); add(it.modes?.barem);
+  for (const st of Array.isArray(it.steps) ? it.steps : []) add(st.ask);   // frazele întrebărilor pe pași
+  add(it.afterCheck);
   for (const m of live.ALT_MODES) add(it.modes?.[m]);
   return out;
 }
@@ -485,15 +787,121 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
     const e = new Error(`Lecția nu s-a putut pregăti (${items.length} itemi explicați). Subiectul poate fi scanat sau baremul greu de citit.`);
     e.code = 'SCRIPT_FAIL'; e.usage = usage; throw e;
   }
+  // întrebările pe pași: subpunctele rămase fără nicio întrebare → un apel scurt doar
+  // pentru ele, apoi (fără AI) rezultatele pașilor scriși pe tablă
+  const steps = live.STEPS_ON() ? await fillMissingSteps(items, { teacher, exam, profile, title, log, usage }) : null;
   // v2 = scrisă cu paginile PDF (formulele citite din pagini); v1 = doar din textul extras
   const withPages = Object.values(attachments || {}).some((a) => Array.isArray(a) && a.length);
   const script = {
-    v: withPages ? 2 : 1, title, exam, profile: profile || null, teacher: teacher.id, teacherName: teacher.name,
+    v: withPages ? 2 : 1, ...(steps ? { pasi: PASI_V } : {}), title, exam, profile: profile || null, teacher: teacher.id, teacherName: teacher.name,
     subjectId: content.id, baremId: ctx.barem?.id || null, baremTitle: ctx.barem?.title || null,
     ...templates(teacher, { title, exam, profile }),
     items,
   };
-  return { script: assignIds(script), usage };
+  return { script: assignIds(script), usage, steps };
+}
+
+// ─── 1b. Întrebările pe pași care lipsesc ────────────────────────────────────
+// Un apel scurt pe secțiune, doar pentru itemii cu subpuncte fără întrebare: modelul
+// primește explicația pe barem pe segmente numerotate și spune înaintea cărui segment
+// pune fiecare întrebare. Ce rămâne tot fără întrebare → rezultatele pașilor de pe tablă.
+const STEP_FIX_SCHEMA = S.obj({
+  items: S.arr(S.obj({
+    ref: S.str('referința itemului, exact ca în listă („II.1.a", „III.2")'),
+    steps: S.arr(S.obj({
+      before: S.int('numărul segmentului [k] ÎNAINTEA căruia pui întrebarea: segmentul în care se scrie pe tablă, prima dată, rezultatul întrebat (N+1 = după ultimul segment)'),
+      ...ASK_PROPS,
+    }), '1–4 întrebări; cel puțin una la fiecare subpunct marcat „LIPSĂ"'),
+  })),
+});
+
+function stepsSystemPrompt(teacher, exam, profile) {
+  const g = teacher.gender === 'f';
+  return [
+    `Ești ${teacher.name}, ${g ? 'profesoară virtuală' : 'profesor virtual'} de matematică (AI) pe platforma ExamenMate. Ții o meditație online pe un subiect de ${live.EXAM_LABEL(exam, profile)}${exam === 'bac' && live.PROFILE_LABELS[profile] ? ` (programa ${live.PROFILE_LABELS[profile]})` : ''}, explicat DOAR pe baza baremului oficial.`,
+    'Explicația pe barem a fiecărui item e gata, pe segmente (ce spui și ce scrii pe tablă). Acum adaugi ÎNTREBĂRILE PE PAȘI: elevii răspund pe ecran la rezultatele intermediare din barem, înainte să le scrii tu.',
+    '',
+    'REGULI:',
+    ...STEP_RULES,
+    '(6) „before" = numărul segmentului [k] ÎNAINTEA căruia pui întrebarea: segmentul în care se scrie pe tablă, PRIMA DATĂ, rezultatul întrebat. Pentru o întrebare de la sfârșitul explicației, „before" = N+1 (N = numărul de segmente ale itemului).',
+    '(7) Rezultatele le iei DOAR din barem și din explicația dată — nu inventa alt rezultat. Formulele în LaTeX între $...$; „say" fără LaTeX, cum se citește cu voce tare.',
+    '(8) Nu repeta întrebările deja puse (sunt trecute la fiecare item). Ton cald, încurajator; fără emoji.',
+  ].join('\n');
+}
+
+function stepsUserPrompt({ title, items }) {
+  const out = [`Subiectul: „${spokenTitle(title)}".`, 'Scrie întrebările pe pași pentru itemii de mai jos (doar pentru ei).', ''];
+  for (const it of items) {
+    const parts = itemParts(it);
+    const miss = new Set(missingParts(it).map((p) => p ?? '-'));
+    const segs = it.modes.barem;
+    out.push(`=== ITEMUL ${it.ref} — ${it.title} (${segs.length} segmente) ===`);
+    out.push(`Enunț: ${it.statement}`);
+    if (it.barem) out.push(`Barem: ${it.barem}`);
+    out.push(parts.length > 1
+      ? `Subpuncte: ${parts.map((p) => `${p})${miss.has(p) ? ' — LIPSĂ' : ''}`).join(', ')}`
+      : `Un singur subpunct${miss.size ? ' — LIPSĂ (cel puțin o întrebare)' : ''}.`);
+    out.push('Explicația pe barem:');
+    segs.forEach((s, i) => out.push(`[${i + 1}] spune: „${s.say}"${s.board?.length ? ` · tabla: ${s.board.join(' | ')}` : ''}`));
+    const had = Array.isArray(it.steps) ? it.steps : [];
+    if (had.length) out.push(`Întrebări deja puse: ${had.map((s) => `înainte de [${s.at + 1}]: „${s.question}"`).join('; ')}`);
+    out.push('');
+  }
+  return out.join('\n');
+}
+
+// Completează întrebările pe pași ale itemilor (în loc). Nu aruncă: dacă modelul nu
+// răspunde, rămân pașii din barem. { asked, ai, aiFailed, fromBarem, missing:[ref] }
+async function fillMissingSteps(items, { teacher, exam, profile, title, log = console.warn, usage = null, useAi = true } = {}) {
+  const need = (items || []).filter((it) => missingParts(it).length);
+  const report = { asked: need.length, ai: 0, aiFailed: 0, fromBarem: 0, missing: [] };
+  if (need.length && useAi) {
+    const bySec = {};
+    for (const it of need) (bySec[it.section] = bySec[it.section] || []).push(it);
+    await Promise.all(Object.values(bySec).map(async (list) => {
+      try {
+        const r = await ai.chatJson({
+          system: stepsSystemPrompt(teacher, exam, profile),
+          messages: [{ role: 'user', content: stepsUserPrompt({ title, items: list }) }],
+          schema: STEP_FIX_SCHEMA, schemaName: 'intrebari_pe_pasi', model: GEN_MODEL(), maxTokens: 12000, temperature: 0.3,
+        });
+        if (usage) { usage.in += r.usage?.in || 0; usage.out += r.usage?.out || 0; }
+        for (const ri of r.data?.items || []) {
+          const it = list.find((x) => x.ref === refKey(parseRef(ri?.ref)));
+          if (!it) continue;
+          report.ai += addSteps(it, (Array.isArray(ri.steps) ? ri.steps : []).map((s) => ({ ...s, at: Number(s?.before) - 1 })), { log });
+        }
+      } catch (e) {
+        report.aiFailed++;
+        if (usage && e.usage) { usage.in += e.usage.in || 0; usage.out += e.usage.out || 0; }
+        log(`live: întrebările pe pași (${list.map((x) => x.ref).join(', ')}) nu s-au putut scrie: ${e.message}`);
+      }
+    }));
+  }
+  for (const it of items || []) {
+    const miss = missingParts(it);
+    if (miss.length) report.fromBarem += addBaremSteps(it, miss, { log });
+    // verificarea generică („Care este rezultatul final?") nu mai e nevoie lângă pași
+    if (it.steps?.length && it.check?.auto) { it.check = null; it.afterCheck = []; }
+    if (missingParts(it).length) report.missing.push(it.ref);
+  }
+  return report;
+}
+
+// Lecțiile scrise înainte de întrebările pe pași (fără script.pasi) se completează o
+// singură dată — doar întrebările: explicațiile, id-urile lor și vocea rămân.
+const needsSteps = (script) => !!script && live.STEPS_ON() && Number(script.pasi || 0) < PASI_V
+  && Array.isArray(script.items) && script.items.length > 0;
+
+async function addStepQuestions({ script, teacher, log = console.warn, force = false, useAi = true }) {
+  const copy = JSON.parse(JSON.stringify(script));
+  const usage = { in: 0, out: 0, model: GEN_MODEL() };
+  const items = copy.items || [];
+  if (force) for (const it of items) if (stepEligible(it)) it.steps = [];
+  const report = await fillMissingSteps(items, { teacher, exam: copy.exam, profile: copy.profile, title: copy.title, log, usage, useAi });
+  items.forEach((it, k) => assignStepIds(it, k));
+  copy.pasi = PASI_V;
+  return { script: copy, usage, report };
 }
 
 // Scriptul altui profesor, pentru același subiect → doar segmentele fixe se
@@ -546,6 +954,7 @@ function playableHead(script, audio) {
     (it.intro || []).forEach((s) => need.push(s));
     (it.afterTry || []).forEach((s) => need.push(s));
     (it.modes?.barem || []).forEach((s) => need.push(s));
+    for (const st of live.stepsFor(it)) (st.ask || []).forEach((s) => need.push(s));
   }
   return need.length > 0 && need.every((s) => audio[s.id]);
 }
@@ -553,4 +962,7 @@ function playableHead(script, audio) {
 module.exports = {
   generateScript, adaptScript, renameTeacher, dropUnreadable, pdfAttachments, sectionPages, voiceScript, playableHead, segmentsInOrder, voiceOrder, itemSegments, templates, assignIds,
   normalizeItems, sectionMap, callPlan, parseRef, refKey, SCHEMA, systemPrompt, userPrompt, GEN_MODEL,
+  // întrebările pe pași
+  PASI_V, STEP_FIX_SCHEMA, stepEligible, itemParts, segmentParts, missingParts, addSteps, addBaremSteps, lastEquality, revealsAnswer,
+  fillMissingSteps, needsSteps, addStepQuestions, stepsSystemPrompt, stepsUserPrompt,
 };

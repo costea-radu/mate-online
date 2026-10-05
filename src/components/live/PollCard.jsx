@@ -7,6 +7,11 @@
 //   · la 1-la-1: fără cronometru, verdictul vine imediat, apoi „Mai departe".
 // Plus cardul „Ai înțeles?" de după explicație (doar 1-la-1).
 //
+// ÎNTREBĂRILE PE PAȘI (Subiectele II și III): profesorul se oprește înaintea unui
+// rezultat intermediar din barem — cardul spune la ce pas e („pasul 2 din 3 · b)"),
+// are „💡 Indiciu" (formula / proprietatea, fără rezultat) și, la 1-la-1,
+// „🤷 Nu știu — arată-mi" (răspunsul corect, apoi profesorul explică pasul).
+//
 // Aceleași carduri stau și PE TABLA din „Planul meu" (Prof. Tudor): acolo
 // PollCard primește și explicația de după răspuns (`explain`), răspunsul
 // corect scris întreg (`answerLabel`) și butoane în plus (`extra`), iar
@@ -15,16 +20,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { MathHtml, Countdown } from './Board';
 
+// Eticheta unei întrebări pe pas: „📝 Prof. Tudor întreabă · pasul 2 din 3 · b)"
+export function pollKicker(scene, teacherName) {
+  const st = scene?.step;
+  if (!st) return null;
+  return `📝 ${teacherName || 'Profesorul'} întreabă · pasul ${st.n} din ${st.of}${st.part ? ` · ${st.part})` : ''}`;
+}
+
 export function PollCard({ poll, teacherName, total = 0, left = 0, mine = null, answeredCount = 0, onSubmit, privat = false, verdict = null, onNext,
-  kicker = null, explain = null, answerLabel = null, extra = null, nextLabel = 'Mai departe →', className = '', autoFocus = true }) {
+  kicker = null, explain = null, answerLabel = null, extra = null, nextLabel = 'Mai departe →', className = '', autoFocus = true,
+  skip = false, skipLabel = '🤷 Nu știu — arată-mi', step = false }) {
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [hintOpen, setHintOpen] = useState(false);
   const inputRef = useRef(null);
-  useEffect(() => { setValue(''); setErr(null); }, [poll?.id]);
+  useEffect(() => { setValue(''); setErr(null); setHintOpen(false); }, [poll?.id]);
   useEffect(() => { if (autoFocus && poll?.type === 'completare' && !mine) setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 120); }, [poll?.id, poll?.type, mine, autoFocus]);
   if (!poll) return null;
   const closed = !privat && left <= 0;
+  const gaveUp = mine?.answer === '?';                 // „Nu știu" (1-la-1)
+  const answered = privat && !!verdict;
 
   async function send(ans) {
     const a = String(ans ?? '').trim();
@@ -42,6 +58,9 @@ export function PollCard({ poll, teacherName, total = 0, left = 0, mine = null, 
         {!privat && <Countdown total={total} left={left} />}
       </div>
       <MathHtml className="lv-poll-q" text={poll.question} />
+      {poll.hint && !answered && (hintOpen
+        ? <div className="lv-poll-hint" role="note"><span aria-hidden="true">💡</span> <MathHtml tag="span" text={poll.hint} /></div>
+        : <button type="button" className="lv-poll-hint-btn" onClick={() => setHintOpen(true)}>💡 Indiciu</button>)}
       {poll.type === 'grila' ? (
         <div className="lv-poll-opts">
           {(poll.options || []).map((o, i) => {
@@ -61,9 +80,14 @@ export function PollCard({ poll, teacherName, total = 0, left = 0, mine = null, 
       ) : (
         <form className="lv-poll-fill" onSubmit={(e) => { e.preventDefault(); send(value); }}>
           <input ref={inputRef} value={value} onChange={(e) => setValue(e.target.value)} disabled={busy || closed || (privat && !!verdict)}
-            placeholder={mine ? `Ai răspuns: ${mine.answer} — poți schimba` : 'Scrie rezultatul (ex. 12, 1/2, 2√3)'} inputMode="text" autoComplete="off" />
+            placeholder={mine && !gaveUp ? `Ai răspuns: ${mine.answer} — poți schimba` : step ? 'Rezultatul (ex. 9, 2x+3, 1/2)' : 'Scrie rezultatul (ex. 12, 1/2, 2√3)'} inputMode="text" autoComplete="off" />
           <button type="submit" className="lv-btn-primary" disabled={busy || closed || !value.trim() || (privat && !!verdict)}>Trimite</button>
         </form>
+      )}
+      {skip && privat && !verdict && (
+        <div className="lv-poll-skip-row">
+          <button type="button" className="lv-poll-skip" disabled={busy} onClick={() => send('?')}>{skipLabel}</button>
+        </div>
       )}
       {err && <div className="lv-poll-err">{err}</div>}
       {!privat && (
@@ -73,8 +97,8 @@ export function PollCard({ poll, teacherName, total = 0, left = 0, mine = null, 
         </div>
       )}
       {privat && verdict && (
-        <div className={`lv-poll-verdict ${verdict.correct ? 'is-good' : 'is-bad'}${explain || extra ? ' has-more' : ''}`}>
-          <span>{verdict.correct ? '✅ Corect! Bravo.' : <>❌ Nu chiar. Răspunsul corect: <MathHtml tag="b" text={answerLabel || (poll.type === 'grila' ? `${verdict.answer})` : `$${String(verdict.answer).replace(/\$/g, '')}$`)} /></>}</span>
+        <div className={`lv-poll-verdict ${verdict.correct ? 'is-good' : gaveUp ? 'is-shown' : 'is-bad'}${explain || extra ? ' has-more' : ''}`}>
+          <span>{verdict.correct ? '✅ Corect! Bravo.' : <>{gaveUp ? '💡 Răspunsul corect' : '❌ Nu chiar. Răspunsul corect'}: <MathHtml tag="b" text={answerLabel || (poll.type === 'grila' ? `${verdict.answer})` : `$${String(verdict.answer).replace(/\$/g, '')}$`)} /></>}</span>
           {explain && <MathHtml className="lv-poll-explain" text={explain} />}
           <span className="lv-poll-actions">
             {extra}

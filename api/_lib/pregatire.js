@@ -118,7 +118,14 @@ function itemsAt(script, pos) {
     .sort((a, b) => String(a.r.letter || '').localeCompare(String(b.r.letter || '')))
     .map((x) => x.it);
 }
-const pollsOf = (items) => items.flatMap((it) => [it.tryPoll, it.check].filter((p) => p && p.id));
+// toate întrebările exercițiului (încercarea, pașii din barem, verificarea)
+const pollsOf = (items) => items.flatMap((it) => L.itemPolls(it));
+const hasPolls = (it) => L.itemPolls(it).length > 0;
+// La TEST: încercarea, verificarea și PRIMA întrebare pe pas a fiecărui subpunct (se
+// pune înainte de explicație, deci se înțelege fără tablă) — aceeași alegere ca în
+// testTimeline, ca notarea să numere exact întrebările din test
+const TEST_STEPS = { stepsPerPart: 1 };
+const testPollsOf = (items, sid) => namespaced(items.filter(hasPolls), sid).flatMap((it) => L.itemPolls(it, TEST_STEPS));
 
 // id-uri unice în sală (același item „I.1" există în fiecare subiect): prefix din
 // amprenta subiectului (nu din începutul id-ului — acela se poate repeta)
@@ -134,6 +141,7 @@ function namespaced(items, sid) {
     intro: seg(it.intro), afterTry: seg(it.afterTry), afterCheck: seg(it.afterCheck),
     modes: Object.fromEntries(Object.entries(it.modes || {}).map(([k, v]) => [k, Array.isArray(v) ? seg(v) : v])),
     tryPoll: poll(it.tryPoll), check: poll(it.check),
+    steps: (Array.isArray(it.steps) ? it.steps : []).map((st) => ({ ...poll(st), ask: seg(st.ask) })),
   }));
 }
 
@@ -155,9 +163,9 @@ function exerciseTimeline({ items, sid, n, title }) {
 // fără răspunsurile corecte (rezultatul îl spune profesorul la final)
 function testTimeline(exercises, { introSay }) {
   const items = [];
-  for (const e of exercises) items.push(...namespaced(e.items.filter((it) => it.tryPoll || it.check), e.sid));
+  for (const e of exercises) items.push(...namespaced(e.items.filter(hasPolls), e.sid));
   const script = { intro: [segOf(`ptest-${crypto.randomBytes(3).toString('hex')}`, introSay)], items, qna: [], breakSay: [], outro: [] };
-  const tl = L.buildTimeline(script, {}, { mode: 'privat' });
+  const tl = L.buildTimeline(script, {}, { mode: 'privat', ...TEST_STEPS });
   // la test nu se explică nimic: doar enunțul (proiectat) și întrebarea (fără barem, fără răspuns)
   const keep = tl.scenes.filter((s) => s.type === 'intro' || s.type === 'item' || s.type === 'sondaj');
   let t = 0;
@@ -170,7 +178,8 @@ function reviewTimeline(exercises, { introSay }) {
   const items = [];
   for (const e of exercises) items.push(...namespaced(e.items, e.sid));
   const script = { intro: [segOf(`prev-${crypto.randomBytes(3).toString('hex')}`, introSay)], items, qna: [], breakSay: [], outro: [] };
-  const tl = L.buildTimeline(script, {}, { mode: 'privat' });
+  // recapitularea explică doar (fără întrebări — nici cele de pe pași, nici frazele lor)
+  const tl = L.buildTimeline(script, {}, { mode: 'privat', steps: false });
   const keep = tl.scenes.filter((s) => !['sondaj', 'rezultate'].includes(s.type));
   let t = 0;
   for (const s of keep) { s.t0 = Math.round(t * 1000) / 1000; t += s.dur; }
@@ -426,7 +435,7 @@ function publicProgress(exam, prog) {
 }
 
 module.exports = {
-  settings, TARGETS, examOf, chapterOf, positions, subPositions, allPositions, positionOf, nextPosition, itemsAt, pollsOf,
+  settings, TARGETS, examOf, chapterOf, positions, subPositions, allPositions, positionOf, nextPosition, itemsAt, pollsOf, hasPolls, testPollsOf,
   nsOf, splitNs, namespaced, exerciseTimeline, testTimeline, reviewTimeline, spokenTitle,
   progressFrom, currentPosition, testSize, proposeWelcome, proposeAfterExercise, proposeAfterTest, proposeExhausted,
   orderSubjects, gradeTest, publicProgress,

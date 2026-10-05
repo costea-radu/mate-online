@@ -162,6 +162,8 @@ export default function LiveAdmin() {
                     <td style={td}>
                       {l.status === 'gata' && l.noVoice ? LESSON_LABEL.gata_fara_voce : (LESSON_LABEL[l.status] || l.status)}
                       {l.status === 'gata' && Number(l.sv || 1) < 2 && <div style={{ color: '#b3261e', fontSize: '.76rem' }}>scrisă fără paginile PDF — formulele (radicali, fracții…) pot lipsi; apasă „Regenerează"</div>}
+                      {l.status === 'gata' && !Number(l.pasi) && <div style={{ color: '#8a5a00', fontSize: '.76rem' }}>fără întrebări pe pași (S. II–III) — se completează singure la prima folosire, sau apasă „➕ Întrebări pe pași"</div>}
+                      {Number(l.pasi) > 0 && l.pasiInfo && <div style={{ color: '#6b7280', fontSize: '.76rem' }}>întrebări pe pași: {l.pasiInfo.ai || 0} scrise de AI, {l.pasiInfo.fromBarem || 0} din barem{l.pasiInfo.missing?.length ? ` · fără: ${l.pasiInfo.missing.join(', ')}` : ''}</div>}
                     </td>
                     <td style={td}>{l.duration_sec ? `${Math.round(l.duration_sec / 60)} min` : '—'}</td>
                     <td style={td}>{l.cost_lei ? `${l.cost_lei} lei` : '—'}</td>
@@ -171,6 +173,13 @@ export default function LiveAdmin() {
                       <button type="button" style={btn} disabled={!!busy} onClick={() => { if (window.confirm('Regenerezi lecția (script + voce nouă)? Costă din nou.')) run(`re-${l.id}`, () => liveApi.adminPrepare({ subjectId: l.subject_id, teacher: l.teacher, regenerate: true }), 'Regenerarea a pornit.'); }}>
                         {busy === `re-${l.id}` ? '…' : 'Regenerează'}
                       </button>
+                      {l.status === 'gata' && (
+                        <button type="button" style={btn} disabled={!!busy}
+                          title="Întrebările pe pașii din barem (Subiectele II și III): elevii răspund pe ecran înaintea fiecărui rezultat intermediar. Doar întrebările se scriu (≈ 0,5–1 leu); explicațiile și vocea rămân."
+                          onClick={() => { const again = Number(l.pasi) > 0; if (!again || window.confirm('Scrii din nou întrebările pe pași (le înlocuiește pe cele de acum)?')) run(`ps-${l.id}`, () => liveApi.adminPrepare({ lessonId: l.id, steps: true, force: again }), 'Întrebările pe pași sunt gata.'); }}>
+                          {busy === `ps-${l.id}` ? '…' : Number(l.pasi) > 0 ? '↻ Întrebări pe pași' : '➕ Întrebări pe pași'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -191,7 +200,20 @@ export default function LiveAdmin() {
             {script.script && (script.script.items || []).map((it) => (
               <div key={it.ref} style={{ borderTop: '1px solid #eef1f5', padding: '10px 0' }}>
                 <b>{it.title}</b> {it.points ? `· ${it.points}p` : ''} {it.tryPoll ? `· sondaj (${it.tryPoll.type}, răspuns: ${it.tryPoll.answer})` : ''}
+                {it.steps?.length ? ` · ${it.steps.length} ${it.steps.length === 1 ? 'întrebare pe pas' : 'întrebări pe pași'}` : ''}
                 <div style={{ color: '#374151', fontSize: '.86rem', margin: '4px 0' }}>{it.statement}</div>
+                {it.steps?.length > 0 && (
+                  <details style={{ fontSize: '.84rem', margin: '4px 0' }}>
+                    <summary>întrebări pe pași · {it.steps.length}</summary>
+                    <ol style={{ paddingLeft: 20 }}>{it.steps.map((st) => (
+                      <li key={st.id || st.question}>
+                        {st.part ? <b>{st.part}) </b> : null}înainte de fraza {st.at + 1}: {st.question}
+                        <span style={{ color: '#188038' }}> → {st.type === 'grila' ? `${st.answer}) ${(st.options || [])['abcd'.indexOf(st.answer)] || ''}` : st.answer}</span>
+                        {st.src === 'barem' ? <span style={{ color: '#6b7280' }}> (din barem)</span> : null}
+                      </li>
+                    ))}</ol>
+                  </details>
+                )}
                 {Object.entries(it.modes || {}).map(([m, segs]) => (
                   <details key={m} style={{ fontSize: '.84rem', margin: '4px 0' }}>
                     <summary>{m} · {segs.length} fraze</summary>

@@ -12,7 +12,10 @@
 //      banda cu participanții, chatul, lista de participanți, subtitrările,
 //      reacțiile, mâna ridicată, caietul (Spațiul de lucru), ecranul complet
 //      (pe telefon: sus, în dreapta), „Părăsește";
-//   3. întrebările profesorului (grilă / de completat) și „Ai înțeles?" (1-la-1);
+//   3. întrebările profesorului (grilă / de completat) și „Ai înțeles?" (1-la-1) —
+//      la Subiectele II și III și pe PAȘII din barem: explicația se oprește înaintea
+//      rezultatelor intermediare, elevul răspunde pe ecran (cu „💡 Indiciu" și, la
+//      1-la-1, „🤷 Nu știu — arată-mi"), apoi profesorul scrie pasul pe tablă;
 //   4. „📋 Exerciții" (1-la-1): elevul alege ORICE exercițiu, nu neapărat la rând
 //      (ex. S. I ex. 5, S. II ex. 2 b), S. III ex. 1 c)) — și la intrare („Cu ce
 //      începi?") — iar după fiecare exercițiu ales, profesorul întreabă ce urmează;
@@ -42,13 +45,14 @@ import ScenePan, { useSceneFocus, useMedia, LANDSCAPE_SHORT } from '../component
 import { sceneInset } from '../lib/live/framing';
 import PreJoin from '../components/live/PreJoin';
 import { WhiteboardInk, DigitalScreen } from '../components/live/Board';
-import { PollCard, UnderstandCard, ChoiceCard } from '../components/live/PollCard';
+import { PollCard, UnderstandCard, ChoiceCard, pollKicker } from '../components/live/PollCard';
 import ItemPicker from '../components/live/ItemPicker';
 import { itemsFromTimeline, defaultRefs, sceneIndexForRef, itemStatus, refLabel } from '../lib/live/items';
 import { LiveChat, Participants, colorOf } from '../components/live/LiveChat';
 import SpatiuDeLucru from '../components/SpatiuDeLucru';
 import { startDictation, speechRecognitionSupported } from '../lib/voice';
 import demoData from '../lib/live/demo.json';
+import { DEMO_SCRIPT } from '../lib/live/demoScript';
 import '../styles/live.css';
 
 const REACTIONS = ['👍', '👏', '❤️', '😂', '😮', '🎉'];
@@ -100,6 +104,7 @@ export default function LiveRoom({ demo = null }) {
   const [results, setResults] = useState({});
   const [myAnswers, setMyAnswers] = useState({});
   const [verdicts, setVerdicts] = useState({});
+  const [explains, setExplains] = useState({});      // 1-la-1: de unde vine răspunsul corect
   const [hand, setHand] = useState(false);
   const [cc, setCc] = useState(true);
   const [rig, setRig] = useState(null);
@@ -493,18 +498,24 @@ export default function LiveRoom({ demo = null }) {
     const poll = pollScene?.poll;
     if (!poll) return;
     if (demo) {
-      const key = demoAnswerKey(poll.id);
-      const correct = poll.type === 'grila' ? answer === key : answer.replace(/\s/g, '') === key;
+      const key = demoKey(poll.id);
+      const correct = answer !== '?' && (poll.type === 'grila' ? answer === key.answer : demoSame(answer, key.answer));
       setMyAnswers((m) => ({ ...m, [poll.id]: { answer, correct } }));
       const fake = { total: 6, correct: 4, correctPct: 67, pct: poll.type === 'grila' ? { a: 17, b: 67, c: 16 } : {}, byOption: {} };
       setResults((r) => ({ ...r, [poll.id]: fake }));
-      if (privat) setVerdicts((v) => ({ ...v, [poll.id]: { correct, answer: key } }));
+      if (privat) {
+        setVerdicts((v) => ({ ...v, [poll.id]: { correct, answer: key.answer } }));
+        if (key.explain) setExplains((x) => ({ ...x, [poll.id]: key.explain }));
+      }
       return;
     }
     const r = await liveApi.pollAnswer(sessionId, poll.id, answer);
     setMyAnswers((m) => ({ ...m, [poll.id]: { answer, correct: r.correct } }));
     if (r.results) setResults((x) => ({ ...x, [poll.id]: r.results }));
-    if (privat) setVerdicts((v) => ({ ...v, [poll.id]: { correct: r.correct, answer: r.answer } }));
+    if (privat) {
+      setVerdicts((v) => ({ ...v, [poll.id]: { correct: r.correct, answer: r.answer } }));
+      if (r.explain) setExplains((x) => ({ ...x, [poll.id]: r.explain }));
+    }
   }
   // la „Rezultate", aducem cifrele finale (dacă nu au venit în timp real)
   useEffect(() => {
@@ -744,9 +755,12 @@ export default function LiveRoom({ demo = null }) {
 
           {pollScene && pollScene.poll && (
             <PollCard poll={pollScene.poll} teacherName={teacher?.name} privat={privat}
+              kicker={pollKicker(pollScene, teacher?.name)} step={!!pollScene.step} skip={privat}
               total={pollScene.dur} left={ps?.remaining || 0} mine={myAnswers[pollScene.poll.id]}
               answeredCount={results[pollScene.poll.id]?.total || 0}
               verdict={verdicts[pollScene.poll.id] || null}
+              explain={privat ? explains[pollScene.poll.id] || null : null}
+              nextLabel={pollScene.step ? 'Mai departe: pasul pe tablă →' : 'Mai departe →'}
               onSubmit={answerPoll}
               onNext={() => playerRef.current?.pollDone(pollScene.poll.id, verdicts[pollScene.poll.id])} />
           )}
@@ -924,6 +938,7 @@ export default function LiveRoom({ demo = null }) {
 function lessonWaitText(lesson, teacher) {
   if (!lesson) return 'Pregătesc sala…';
   if (lesson.error && lesson.status === 'eroare') return `Lecția nu s-a putut pregăti: ${lesson.error}`;
+  if (lesson.phase === 'pasi') return `${teacher?.name || 'Profesorul'} pregătește întrebările pentru pașii din barem (Subiectele II și III), ca să lucrezi tu fiecare pas — o singură dată pe subiect, cam un minut.`;
   if (lesson.status === 'nou') return `${teacher?.name || 'Profesorul'} citește subiectul și baremul oficial și își scrie explicațiile… (1–3 minute)`;
   if (lesson.status === 'script' || lesson.status === 'audio') {
     const pct = lesson.total ? Math.round((100 * (lesson.done || 0)) / lesson.total) : 0;
@@ -945,7 +960,14 @@ function hhmm(ms) {
   catch { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
 }
 
-function demoAnswerKey(pollId) {
-  return pollId === 'd-p1' ? 'b' : '1';
+// demonstrația verifică răspunsurile în browser, cu cheile din scriptul ei
+function demoKey(pollId) {
+  for (const it of DEMO_SCRIPT.items) {
+    for (const p of [it.tryPoll, ...(it.steps || []), it.check]) if (p && p.id === pollId) return { answer: p.answer, explain: p.explain || null };
+  }
+  return { answer: '', explain: null };
 }
+// „x² + 2x + 1" = „x^2+2x+1" (demonstrația: fără serverul care verifică matematic)
+const demoNorm = (s) => String(s || '').toLowerCase().replace(/\$/g, '').replace(/²/g, '^2').replace(/³/g, '^3').replace(/\\cdot|·|\*/g, '').replace(/,/g, '.').replace(/\s+/g, '');
+const demoSame = (a, b) => demoNorm(a) === demoNorm(b);
 

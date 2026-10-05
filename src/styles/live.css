@@ -216,6 +216,14 @@
 .lv-poll-verdict { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: space-between; font-weight: 600; }
 .lv-poll-verdict.is-good { color: #188038; }
 .lv-poll-verdict.is-bad { color: #c5221f; }
+.lv-poll-verdict.is-shown { color: #1a4f8b; }
+/* întrebările pe pași: indiciul (formula, fără rezultat) și „Nu știu — arată-mi" (1-la-1) */
+.lv-poll-hint-btn { display: inline-flex; align-items: center; gap: 4px; margin: -2px 0 9px; padding: 4px 10px; border: 1px dashed #c6dafc; border-radius: 14px; background: #f8fbff; color: #1a73e8; font-size: .8rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+.lv-poll-hint-btn:hover { background: #e8f0fe; border-style: solid; }
+.lv-poll-hint { margin: -2px 0 10px; padding: 7px 10px; border-radius: 10px; background: #fef7e0; color: #5f4b00; font-size: .88rem; line-height: 1.45; }
+.lv-poll-skip-row { display: flex; justify-content: flex-end; margin-top: 8px; }
+.lv-poll-skip { border: none; background: none; color: #5f6368; font-size: .82rem; font-weight: 600; cursor: pointer; padding: 4px 2px; font-family: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.lv-poll-skip:hover:not(:disabled) { color: #1a73e8; }
 .lv-check-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .lv-ring { width: 38px; height: 38px; flex: none; }
 .lv-ring-bg { fill: none; stroke: #e8eaed; stroke-width: 3.5; }

@@ -209,7 +209,7 @@ export function DigitalScreen({ state, results, myAnswers, title, examLabel, tea
   if (sc?.type === 'rezultate' && sc.poll) {
     return (
       <div className="lv-screen">
-        <div className="lv-screen-kicker">📊 Rezultatele — {sc.title}</div>
+        <div className="lv-screen-kicker">📊 Rezultatele — {sc.title}{sc.step ? ` · pasul ${sc.step.n} din ${sc.step.of}${sc.step.part ? ` · ${sc.step.part})` : ''}` : ''}</div>
         <MathHtml className="lv-screen-q" text={sc.poll.question} />
         <PollBars poll={sc.poll} results={results[sc.poll.id]} mine={myAnswers[sc.poll.id]?.answer} />
       </div>

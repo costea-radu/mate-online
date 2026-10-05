@@ -32,7 +32,7 @@ import { enterFs, exitFs, toggleFs as toggleFullscreen, fsSupported, useIsFullsc
 import TeacherCamera from '../components/live/TeacherCamera';
 import ScenePan, { useSceneFocus, useMedia, LANDSCAPE_SHORT } from '../components/live/ScenePan';
 import { WhiteboardInk, DigitalScreen } from '../components/live/Board';
-import { PollCard, UnderstandCard, ChoiceCard } from '../components/live/PollCard';
+import { PollCard, UnderstandCard, ChoiceCard, pollKicker } from '../components/live/PollCard';
 import { LiveChat } from '../components/live/LiveChat';
 import SpatiuDeLucru from '../components/SpatiuDeLucru';
 import PrepPicker from '../components/live/PrepPicker';
@@ -561,7 +561,9 @@ export default function PregatireExamen() {
 
           {pollScene && pollScene.poll && (
             <PollCard poll={pollScene.poll} teacherName={teacher.name} privat
-              kicker={inTest ? `🧪 Test · întrebarea ${testQ?.n || 1} din ${testQ?.of || 1}` : null}
+              kicker={inTest ? `🧪 Test · întrebarea ${testQ?.n || 1} din ${testQ?.of || 1}` : pollKicker(pollScene, teacher.name)}
+              step={!!pollScene.step} skip skipLabel={inTest ? '🤷 Nu știu — trec mai departe' : '🤷 Nu știu — arată-mi'}
+              nextLabel={pollScene.step && !inTest ? 'Mai departe: pasul pe tablă →' : 'Mai departe →'}
               mine={myAnswers[pollScene.poll.id]}
               verdict={inTest ? null : verdicts[pollScene.poll.id] || null}
               explain={inTest ? null : explains[pollScene.poll.id] || null}

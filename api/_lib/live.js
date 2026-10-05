@@ -444,14 +444,49 @@ function pollResults(poll, answers) {
 //
 // Tipuri de scene: intro · item (enunțul) · sondaj · rezultate · explicatie ·
 // verificare · intrebari (profesorul răspunde la chat) · pauza · final.
+//
+// ÎNTREBĂRILE PE PAȘI (Subiectele II și III, itemii cu rezolvare): explicația pe
+// barem se oprește înaintea fiecărui rezultat intermediar din barem — profesorul
+// întreabă („Cât este Δ?"), elevii răspund pe ecran, apoi el scrie pasul pe tablă.
+// it.steps = [{ id, at, part, type, question, options, answer, explain, hint,
+// ask: [seg] }]: întrebarea se pune ÎNAINTEA segmentului `at` din modes.barem
+// (`at` = numărul de segmente → la sfârșitul explicației); `part` = subpunctul
+// (a/b/c) la problemele de EN cu subpuncte, null la BAC (itemul e un subpunct).
 // ═════════════════════════════════════════════════════════════════════════════
 const GAP = 0.45;              // pauza naturală dintre două segmente de vorbire (s)
 const POLL_GRILA_SEC = () => envInt('LIVE_SONDAJ_GRILA_SEC', 45);
 const POLL_COMPLETARE_SEC = () => envInt('LIVE_SONDAJ_COMPLETARE_SEC', 60);
 const POLL_VERIFICARE_SEC = () => envInt('LIVE_SONDAJ_VERIFICARE_SEC', 35);
+const POLL_STEP_SEC = () => envInt('LIVE_SONDAJ_PAS_SEC', 40);
 const RESULTS_SEC = 7;
+const STEP_RESULTS_SEC = 5;
 const QNA_SEC = () => envInt('LIVE_INTREBARI_SEC', 180);
 const BREAK_SEC = () => envInt('LIVE_PAUZA_SEC', 300);
+// LIVE_INTREBARI_PASI=0 → fără întrebările pe pași (lecția curge ca înainte)
+const STEPS_ON = () => !/^(0|nu|false|no|off)$/i.test(String(process.env.LIVE_INTREBARI_PASI || '1').trim());
+
+// Întrebările pe pași ale unui item, în ordinea din explicație. opts.steps === false
+// → niciuna; opts.stepsPerPart = n → primele n pe fiecare subpunct (încadrarea în
+// timp a ședinței de grup păstrează măcar una la fiecare subpunct).
+function stepsFor(it, opts = {}) {
+  if (!it || opts.steps === false || !STEPS_ON()) return [];
+  const all = (Array.isArray(it.steps) ? it.steps : [])
+    .filter((s) => s && s.id && s.question && Number.isFinite(s.at))
+    .slice().sort((a, b) => a.at - b.at);
+  const per = Number(opts.stepsPerPart) || 0;
+  if (!per) return all;
+  const seen = new Map();
+  return all.filter((s) => {
+    const k = s.part || '';
+    const n = seen.get(k) || 0;
+    if (n >= per) return false;
+    seen.set(k, n + 1);
+    return true;
+  });
+}
+// Toate întrebările unui item, în ordinea în care se pun: încercarea dinainte,
+// întrebările pe pași, verificarea de la sfârșit
+const itemPolls = (it, opts = {}) => (it ? [it.tryPoll, ...stepsFor(it, opts), it.check].filter((p) => p && p.id) : []);
 
 // durata unui segment de vorbire: din audio (măsurată) sau estimată din text
 // (~2,6 cuvinte/s în română, vorbire de profesor), ca rezervă fără voce
@@ -492,9 +527,13 @@ const MODE_LABELS = {
 // `script` (vezi _lib/liveLesson.js): { title, intro:[seg], outro:[seg],
 //   items: [{ ref, section, title, statement, options, kind, answer, points,
 //             intro:[seg], tryPoll, afterTry:[seg], modes:{barem:[seg], ...},
-//             check, video }] , qna:[seg], breakSay:[seg] }
+//             steps:[întrebare pe pas], check, video }] , qna:[seg], breakSay:[seg] }
 // `audio` = { [segId]: { url, dur, lip } }
 // opts.mode = 'grup' | 'privat'; opts.targetSec = durata-țintă (grup)
+// opts.steps = false → fără întrebările pe pași; opts.stepsPerPart = n → cel mult n
+//   pe subpunct; opts.leanCheck → fără verificarea de la sfârșit la itemii care au
+//   întrebări pe pași (încadrarea în timp a ședinței de grup); opts.stepSec = timpul
+//   de răspuns la o întrebare pe pas (grup)
 function buildTimeline(script, audio = {}, opts = {}) {
   const mode = opts.mode || 'grup';
   const scenes = [];
@@ -539,9 +578,30 @@ function buildTimeline(script, audio = {}, opts = {}) {
       const res = segScene('rezultate', it.afterTry, { ...common, poll: publicPoll(it.tryPoll, true), minDur: RESULTS_SEC });
       if (res) push(res);
     }
-    // 3) explicația pe barem (obligatorie)
-    const main = segScene('explicatie', it.modes?.barem, { ...common, mode: 'barem', label: MODE_LABELS.barem });
-    if (main) push(main);
+    // 3) explicația pe barem (obligatorie), oprită la fiecare întrebare pe pas: profesorul
+    //    explică până la rezultatul intermediar, întreabă (segmentele `ask`), elevii
+    //    răspund pe ecran (grup: rezultatele clasei), apoi el scrie pasul pe tablă.
+    //    Bucățile de după prima continuă aceeași tablă (`cont`).
+    const steps = stepsFor(it, opts);
+    const baremSegs = Array.isArray(it.modes?.barem) ? it.modes.barem : [];
+    let cursor = 0, parts = 0;
+    const baremPart = (segments) => {
+      const sc = segScene('explicatie', segments, { ...common, mode: 'barem', label: MODE_LABELS.barem, ...(parts ? { cont: true } : {}) });
+      if (sc) { push(sc); parts++; }
+    };
+    steps.forEach((st, j) => {
+      const at = Math.max(cursor, Math.min(baremSegs.length, Math.round(st.at)));
+      baremPart([...baremSegs.slice(cursor, at), ...(Array.isArray(st.ask) ? st.ask : [])]);
+      const step = { n: j + 1, of: steps.length, part: st.part || null };
+      push({ type: 'sondaj', ...common, poll: publicPoll(st), dur: mode === 'privat' ? 0 : (opts.stepSec ?? POLL_STEP_SEC()), wait: mode === 'privat', step });
+      // la 1-la-1 verdictul apare pe loc, pe cardul întrebării; în grup — rezultatele clasei
+      if (mode !== 'privat') {
+        const res = segScene('rezultate', [], { ...common, poll: publicPoll(st, true), minDur: STEP_RESULTS_SEC, step });
+        if (res) push(res);
+      }
+      cursor = at;
+    });
+    baremPart(baremSegs.slice(cursor));
     // 4) al doilea mod (grup: unul singur, alternativ; 1-la-1: la cerere)
     if (mode === 'grup' && !dropAlt.has(i)) {
       const avail = ALT_MODES.filter((m) => Array.isArray(it.modes?.[m]) && it.modes[m].length);
@@ -560,7 +620,7 @@ function buildTimeline(script, audio = {}, opts = {}) {
       push({ type: 'intrebare_intelegere', ...common, dur: 0, wait: true, modes: alts.map((a) => a.mode), alts });
     }
     // 5) verificarea (pentru itemii cu rezolvare, fără sondaj la început)
-    if (it.check) {
+    if (it.check && !(opts.leanCheck && steps.length)) {
       push({ type: 'sondaj', ...common, poll: publicPoll(it.check), dur: mode === 'privat' ? 0 : POLL_VERIFICARE_SEC(), wait: mode === 'privat', verificare: true });
       const res = segScene('rezultate', it.afterCheck || [], { ...common, poll: publicPoll(it.check, true), minDur: RESULTS_SEC });
       if (res) push(res);
@@ -584,23 +644,31 @@ function buildTimeline(script, audio = {}, opts = {}) {
 function publicPoll(poll, reveal = false) {
   if (!poll) return null;
   const p = { id: poll.id, type: poll.type, question: poll.question, options: poll.options || null, unit: poll.unit || null };
+  // indiciul (formula, proprietatea) nu dă răspunsul — elevul îl poate cere oricând
+  if (poll.hint) p.hint = poll.hint;
   if (reveal) { p.answer = poll.answer; p.explain = poll.explain || null; }
   return p;
 }
 
 // Încadrarea ședinței de grup în intervalul orar (implicit 2 ore − 5 minute).
-// Pe rând: fără al doilea mod la itemii scurți (grilele), apoi la toți, apoi
-// întrebări mai scurte, apoi mai puțini itemi (restul rămân „temă", cu baremul).
+// Pe rând: fără al doilea mod la itemii scurți (grilele), apoi la toți, apoi o
+// singură întrebare pe pas la fiecare subpunct (și fără verificarea de la sfârșit
+// acolo unde sunt întrebări pe pași), apoi întrebări mai scurte, apoi mai puțini
+// itemi (restul rămân „temă", cu baremul). Întrebările elevilor trec înaintea
+// explicațiilor suplimentare: lecția rămâne interactivă la fiecare subpunct.
 // Dacă lecția e mai scurtă, sesiunile de întrebări cresc până la țintă.
 function fitTimeline(script, audio, targetSec) {
   const items = script.items || [];
   const shortIdx = items.map((it, i) => (it.tryPoll ? i : -1)).filter((i) => i >= 0);
   const allIdx = items.map((_, i) => i);
+  const hasSteps = items.some((it) => stepsFor(it).length > 0);
+  const lean = hasSteps ? { stepsPerPart: 1, leanCheck: true } : {};
   const attempts = [
     {},
     { dropAlt: shortIdx },
     { dropAlt: allIdx },
-    { dropAlt: allIdx, qnaSec: 90, breakSec: 180 },
+    ...(hasSteps ? [{ dropAlt: allIdx, stepsPerPart: 1 }, { dropAlt: allIdx, ...lean }] : []),
+    { dropAlt: allIdx, ...lean, qnaSec: 90, breakSec: 180 },
   ];
   let best = null;
   for (const a of attempts) {
@@ -757,5 +825,6 @@ module.exports = {
   displayName, moderate, isQuestion, foldRo,
   checkPollAnswer, pollResults, publicPoll,
   buildTimeline, fitTimeline, sceneAt, qnaSchedule, packSegments, segDuration, MODE_LABELS, ALT_MODES, GAP,
+  STEPS_ON, stepsFor, itemPolls, POLL_STEP_SEC,
   lipFromPcm, lipAt, pcmDuration, LIP_FPS, shortId,
 };

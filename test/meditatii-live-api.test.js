@@ -71,7 +71,8 @@ function lessonScript() {
   const radu = L.teacherById('radu');
   const BAREM = 'SUBIECTUL I (30 de puncte)\nNr. item 1. 2.\nRezultate b. b.\nPunctaj 5p 5p\n';
   const items = LL.normalizeItems([rawItem('I.1'), rawItem('I.2')], { section: 'I', exam: 'en', grile: { I: { 1: 'b', 2: 'b' } }, baremText: BAREM });
-  return LL.assignIds({ title: 'EN 2024 Varianta 7', exam: 'en', teacher: 'radu', teacherName: radu.name, ...LL.templates(radu, { title: 'EN 2024 Varianta 7', exam: 'en' }), items });
+  // ca o lecție scrisă acum (generateScript pune „pasi": întrebările pe pași sunt deja în ea)
+  return LL.assignIds({ title: 'EN 2024 Varianta 7', exam: 'en', pasi: LL.PASI_V, teacher: 'radu', teacherName: radu.name, ...LL.templates(radu, { title: 'EN 2024 Varianta 7', exam: 'en' }), items });
 }
 
 // ─── înlocuirile (fără rețea) ─────────────────────────────────────────────────
@@ -589,4 +590,147 @@ test('prelungirea, grup: lecția comună rămâne la ora ei; cine continuă 1-la
   assert.ok(Math.abs(Date.parse(after.body.ends_at) - (Date.now() + 10 * 60000)) < 5000);
   assert.strictEqual(g().ends_at, after.body.ends_at);
   assert.strictEqual(g().status, 'activa');
+});
+
+// ─── ÎNTREBĂRILE PE PAȘI pentru lecțiile scrise înainte de ele ────────────────
+// O problemă de EN (Subiectul al III-lea, a) și b)), într-o lecție veche: fără
+// „pasi" în script și fără întrebări pe pași la itemi.
+function oldLessonRow({ id = 'dddddddd-0000-4000-8000-0000000000f1' } = {}) {
+  handler._internals.resetCaches();                             // aceeași lecție în mai multe teste
+  const radu = L.teacherById('radu');
+  const s3 = {
+    ref: 'III.1', title: 'Subiectul al III-lea, problema 1', kind: 'rezolvare', options: null, answer: '1', points: 5, barem: 'a) 2p b) 3p',
+    statement: 'Se consideră expresia $E(x) = (x+1)^2 - x(x+2)$.\na) Calculați $E(2)$.\nb) Arătați că $E(x) = 1$ pentru orice număr real $x$.',
+    intro: [seg('Problema 1.')], tryPoll: null, afterTry: [],
+    modes: {
+      barem: [
+        seg('La punctul a înlocuim x cu doi.', ['a) $E(2) = (2+1)^2 - 2 \\cdot (2+2)$']),
+        seg('Deci E de doi este nouă minus opt, adică unu.', ['$E(2) = 9 - 8 = 1$ (2p)']),
+        seg('La punctul b desfacem pătratul.', ['b) $(x+1)^2 = x^2 + 2x + 1$ (2p)']),
+        seg('Apoi x ori x plus doi și reducem.', ['$x(x+2) = x^2 + 2x$', '$E(x) = 1$ (1p)']),
+      ],
+      intuitiv: [seg('Verificați cu un număr.')], greseli: [], alta_metoda: null,
+    },
+    check: null, afterCheck: [],
+  };
+  const items = [
+    ...LL.normalizeItems([rawItem('I.1')], { section: 'I', exam: 'en', grile: { I: { 1: 'b' } }, baremText: '' }),
+    ...LL.normalizeItems([s3], { section: 'III', exam: 'en', baremText: '' }),
+  ];
+  const script = LL.assignIds({ title: 'EN 2024 Varianta 7', exam: 'en', teacher: 'radu', teacherName: radu.name, ...LL.templates(radu, { title: 'EN 2024 Varianta 7', exam: 'en' }), items });
+  delete script.pasi;
+  for (const it of script.items) delete it.steps;               // ca o lecție scrisă înainte
+  return { id, subject_id: C.en1, teacher: 'radu', version: 1, status: 'gata', title: script.title, exam: 'en', profile: null, script,
+    progress: { audio: {}, noVoice: true, total: LL.segmentsInOrder(script).length, done: 0 }, cost_micro: 0, created_at: iso(now - 3600000), updated_at: iso(now - 3600000) };
+}
+const stepAsk = (before, question, answer) => ({ before, type: 'completare', question, options: null, answer, hint: 'Formula.', explain: `Din barem: ${answer}.`, say: 'Încercați voi și scrieți pe ecran.' });
+function mockStepModel(steps) {
+  const orig = ai.chatJson;
+  const seen = [];
+  ai.chatJson = async (o) => {
+    if (o.schemaName === 'intrebari_pe_pasi') { seen.push(o); return { data: { items: [{ ref: 'III.1', steps }] }, usage: { in: 40, out: 20, model: 'test' } }; }
+    return orig(o);
+  };
+  return { seen, restore: () => { ai.chatJson = orig; } };
+}
+
+test('întrebări pe pași, lecție scrisă înainte: la 1-la-1 se completează o singură dată (sala așteaptă), apoi merg cu „Nu știu" și verificarea matematică', async () => {
+  const lesson = oldLessonRow();
+  fake = createFakeSupabase({ ...seed(), live_lessons: [lesson] });
+  const m = mockStepModel([stepAsk(2, 'Cât este $(2+1)^2$?', '9'), stepAsk(3, 'Desfaceți pătratul: $(x+1)^2 = \;?$', 'x^2+2x+1')]);
+  try {
+    const st = await call('private_start', { teacher: 'radu', subjectId: C.en1 }, U.prem);
+    const sessionId = st.body.sessionId;
+    const j = await call('join', { sessionId }, U.prem);
+    assert.strictEqual(j.statusCode, 200, JSON.stringify(j.body));
+    assert.strictEqual(j.body.timeline, null, 'întâi se completează întrebările');
+    assert.deepStrictEqual([j.body.lesson.status, j.body.lesson.phase, j.body.lesson.playable], ['script', 'pasi', false]);
+    // sala cere „pregătirea" → întrebările se scriu acum (un apel scurt, doar pentru S. III)
+    const p = await call('prepare', { sessionId }, U.prem);
+    assert.strictEqual(p.statusCode, 200, JSON.stringify(p.body));
+    assert.deepStrictEqual([p.body.lesson.status, p.body.lesson.playable], ['gata', true]);
+    assert.strictEqual(m.seen.length, 1);
+    assert.match(m.seen[0].messages[0].content, /ITEMUL III\.1/);
+    assert.doesNotMatch(m.seen[0].messages[0].content, /ITEMUL I\.1/, 'grilele de la Subiectul I nu primesc întrebări pe pași');
+    const row = fake.db.tables.live_lessons[0];
+    assert.strictEqual(row.script.pasi, LL.PASI_V);
+    assert.strictEqual(row.status, 'gata');
+    assert.strictEqual(row.progress.noVoice, true, 'vocea browserului rămâne');
+    assert.strictEqual(row.progress.pasi.ai, 2);
+    assert.strictEqual(row.locked_until, null);
+    // a doua intrare: cronologia vine direct, cu explicația oprită la fiecare pas
+    const j2 = await call('join', { sessionId }, U.prem);
+    const steps = j2.body.timeline.scenes.filter((x) => x.type === 'sondaj' && x.step);
+    assert.deepStrictEqual(steps.map((x) => [x.step.n, x.step.part]), [[1, 'a'], [2, 'b']]);
+    assert.strictEqual(steps[0].poll.answer, undefined);
+    // „Nu știu — arată-mi": greșit, cu răspunsul și explicația
+    const dunno = await call('poll_answer', { sessionId, pollId: steps[0].poll.id, answer: '?' }, U.prem);
+    assert.strictEqual(dunno.statusCode, 200, JSON.stringify(dunno.body));
+    assert.deepStrictEqual([dunno.body.correct, dunno.body.answer, dunno.body.explain], [false, '9', 'Din barem: 9.']);
+    // răspunsul scris altfel, dar echivalent matematic
+    const ok = await call('poll_answer', { sessionId, pollId: steps[1].poll.id, answer: 'x² + 2x + 1' }, U.prem);
+    assert.strictEqual(ok.body.correct, true);
+    // nu se mai completează a doua oară
+    await call('prepare', { sessionId }, U.prem);
+    assert.strictEqual(m.seen.length, 1);
+  } finally { m.restore(); }
+});
+
+test('întrebări pe pași: NU se completează cât o ședință de grup cu aceeași lecție e în curs; Admin le cere după ea', async () => {
+  const { s } = liveGroupSession({ startsInMin: -10 });       // ședința de grup a început acum 10 minute
+  const lesson = oldLessonRow();
+  fake = createFakeSupabase({ ...seed(), live_sessions: [s], live_lessons: [lesson] });
+  const st = await call('private_start', { teacher: 'radu', subjectId: C.en1 }, U.prem);
+  const j = await call('join', { sessionId: st.body.sessionId }, U.prem);
+  assert.ok(j.body.timeline, '1-la-1 pornește pe lecția de acum');
+  assert.ok(!j.body.timeline.scenes.some((x) => x.step), 'fără întrebări pe pași (încă)');
+  assert.strictEqual(fake.db.tables.live_lessons[0].script.pasi, undefined, 'lecția comună nu se schimbă sub elevii ei');
+  const busy = await call('admin_prepare', { lessonId: lesson.id, steps: true }, U.admin);
+  assert.strictEqual(busy.statusCode, 409);
+  // ședința de grup s-a încheiat → Admin: „➕ Întrebări pe pași" (fără model: pașii din barem)
+  const g = fake.db.tables.live_sessions.find((x) => x.id === s.id);
+  g.status = 'incheiata'; g.ends_at = iso(Date.now() - 60000);
+  const adm = await call('admin_prepare', { lessonId: lesson.id, steps: true }, U.admin);
+  assert.strictEqual(adm.statusCode, 200, JSON.stringify(adm.body));
+  const row = fake.db.tables.live_lessons[0];
+  assert.strictEqual(row.script.pasi, LL.PASI_V);
+  assert.deepStrictEqual(row.script.items.find((it) => it.ref === 'III.1').steps.map((x) => [x.part, x.src]), [['a', 'barem'], ['b', 'barem']]);
+  // lista din Admin arată starea
+  const ov = await call('admin_overview', {}, U.admin);
+  const l = ov.body.lessons.find((x) => x.id === lesson.id);
+  assert.strictEqual(Number(l.pasi), LL.PASI_V);
+  assert.strictEqual(l.pasiInfo.fromBarem, 2);
+});
+
+test('întrebări pe pași: sala de așteaptare a ședinței de grup (peste 10 minute) le completează înainte de început; cronul, la ședințele cu elevi', async () => {
+  const { s } = liveGroupSession({ startsInMin: 10 });
+  const lesson = oldLessonRow();
+  fake = createFakeSupabase({ ...seed(), live_sessions: [s], live_lessons: [lesson], live_tickets: [TICKET(s.id)] });
+  const m = mockStepModel([stepAsk(1, 'Cât este $E(2)$, adică $(2+1)^2 - 2 \\cdot 4$?', '1'), stepAsk(3, 'Cât este $(x+1)^2$ desfăcut?', 'x^2+2x+1')]);
+  try {
+    const j = await call('join', { sessionId: s.id }, U.free);
+    assert.strictEqual(j.body.timeline, null);
+    assert.strictEqual(j.body.lesson.phase, 'pasi');
+    const p = await call('prepare', { sessionId: s.id }, U.free);
+    assert.deepStrictEqual([p.body.lesson.status, p.body.lesson.playable], ['gata', true]);
+    const t = await call('timeline', { sessionId: s.id }, U.free);
+    const steps = t.body.timeline.scenes.filter((x) => x.step);
+    assert.ok(steps.some((x) => x.type === 'sondaj') && steps.some((x) => x.type === 'rezultate'), 'în grup: întrebarea, apoi rezultatele clasei');
+    // „E(2) = 1" ar fi dat de enunțul de la b) (E(x) = 1) → a) primește altă întrebare (din barem)
+    const iii = fake.db.tables.live_lessons[0].script.items.find((it) => it.ref === 'III.1');
+    assert.deepStrictEqual(iii.steps.map((x) => x.part), ['a', 'b']);
+  } finally { m.restore(); }
+  // cronul: o lecție veche la o ședință cu bilet, peste mai mult de 10 minute → completată înainte
+  const g2 = liveGroupSession({ startsInMin: 60 });
+  fake = createFakeSupabase({ ...seed(), live_sessions: [g2.s], live_lessons: [oldLessonRow()], live_tickets: [TICKET(g2.s.id)] });
+  const prevOre = process.env.LIVE_PREGATIRE_ORE;
+  process.env.LIVE_PREGATIRE_ORE = '48';
+  try {
+    const r = await runCron();
+    const mine = r.prepared.find((x) => x.session === g2.s.id);
+    assert.ok(mine && mine.steps === true, JSON.stringify(r.prepared));
+    assert.strictEqual(fake.db.tables.live_lessons[0].script.pasi, LL.PASI_V);
+  } finally {
+    if (prevOre === undefined) delete process.env.LIVE_PREGATIRE_ORE; else process.env.LIVE_PREGATIRE_ORE = prevOre;
+  }
 });

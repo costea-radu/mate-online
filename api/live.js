@@ -288,7 +288,7 @@ async function program(req, res, supa) {
 // ═════════════════════════════════════════════════════════════════════════════
 // LECȚIA: găsire / creare / pregătire (cu lacăt)
 // ═════════════════════════════════════════════════════════════════════════════
-const LIGHT = 'id, subject_id, teacher, version, status, title, exam, profile, duration_sec, error, locked_until, updated_at, total:progress->total, done:progress->done, noVoice:progress->noVoice';
+const LIGHT = 'id, subject_id, teacher, version, status, title, exam, profile, duration_sec, error, locked_until, updated_at, total:progress->total, done:progress->done, noVoice:progress->noVoice, phase:progress->>phase, pasi:script->pasi';
 
 async function lessonFor(supa, subjectId, teacherId, { create = true } = {}) {
   const { data, error } = await supa.from('live_lessons').select(LIGHT)
@@ -307,7 +307,28 @@ async function lessonFor(supa, subjectId, teacherId, { create = true } = {}) {
   return ins;
 }
 
-const lessonView = (l) => l && ({ id: l.id, status: l.status, title: l.title, error: l.status === 'eroare' ? l.error : null, total: Number(l.total) || 0, done: Number(l.done) || 0 });
+const lessonView = (l) => l && ({ id: l.id, status: l.status, title: l.title, error: l.status === 'eroare' ? l.error : null, total: Number(l.total) || 0, done: Number(l.done) || 0, phase: l.phase || null });
+
+// ─── ÎNTREBĂRILE PE PAȘI pentru lecțiile scrise înainte de ele ───────────────
+// O lecție „gata" fără script.pasi primește întrebările pe pași (Subiectele II și
+// III) o singură dată — doar întrebările; explicațiile și vocea rămân. NICIODATĂ cât
+// o ședință de grup cu aceeași lecție e în curs sau pornește în câteva minute: toți
+// elevii ei trebuie să aibă aceeași cronologie.
+const lessonLacksSteps = (l) => !!l && l.status === 'gata' && L.STEPS_ON() && Number(l.pasi || 0) < LL.PASI_V;
+async function groupBusy(supa, subjectId, teacher, now = new Date()) {
+  if (!subjectId) return false;
+  const { data } = await supa.from('live_sessions').select('id')
+    .eq('kind', 'grup').eq('subject_id', subjectId).eq('teacher', teacher).in('status', ['programata', 'activa'])
+    .lte('starts_at', new Date(now.getTime() + 5 * 60000).toISOString()).gt('ends_at', now.toISOString()).limit(1);
+  return !!(data && data.length);
+}
+// Se completează acum, la intrarea în sală? 1-la-1 nepornit, sau sala de așteptare a
+// unei ședințe de grup care începe peste mai mult de 3 minute (cât durează completarea)
+async function stepsUpgradeFor(supa, session, light, now = new Date()) {
+  if (!session || !lessonLacksSteps(light) || session.state?.startedAt || session.state?.mode) return false;
+  if (session.kind === 'grup' && new Date(session.starts_at).getTime() - now.getTime() < 3 * 60000) return false;
+  return !(await groupBusy(supa, session.subject_id, session.teacher, now));
+}
 
 // Pregătește lecția cât permite bugetul: scriptul (o dată), apoi vocea.
 // revoice: o lecție gata „cu vocea browserului" (făcută înainte de cheile TTS)
@@ -316,7 +337,9 @@ const lessonView = (l) => l && ({ id: l.id, status: l.status, title: l.title, er
 // fromRef: 1-la-1 în curs — vocea se generează întâi de la itemul la care e elevul.
 // scriptOnly: doar textul lecției (Pregătirea de examen vorbește cu vocea browserului);
 //   fără voce configurată, lecția devine imediat „gata" (vocea browserului), ca la live.
-async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.warn, revoice = false, fromRef = null, scriptOnly = false } = {}) {
+// steps: o lecție scrisă înainte de întrebările pe pași le primește acum (forceSteps:
+//   le scrie din nou, de la zero — din Admin).
+async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.warn, revoice = false, fromRef = null, scriptOnly = false, steps = false, forceSteps = false } = {}) {
   const t0 = Date.now();
   const nowIso = new Date().toISOString();
   const until = new Date(Date.now() + budgetMs + 90 * 1000).toISOString();
@@ -370,6 +393,33 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
         progress: { audio: {}, total, done: 0, phase: 'voce' }, error: null,
         cost_micro: (row.cost_micro || 0) + costMicro,
       });
+    }
+    // ── 1b. întrebările pe pași (lecțiile scrise înainte de ele) ──
+    if ((steps || forceSteps) && row.script && (forceSteps || LL.needsSteps(row.script)) && ['gata', 'script', 'audio'].includes(row.status)) {
+      const was = row.status;
+      const audio = row.progress?.audio || {};
+      const voiced = !row.progress?.noVoice && Object.keys(audio).length > 0;
+      // cât se scriu întrebările, o ședință de grup nu pornește pe lecția veche (așteaptă „gata")
+      if (was === 'gata') await save({ status: 'script', progress: { ...row.progress, phase: 'pasi' } });
+      try {
+        const r = await LL.addStepQuestions({ script: row.script, teacher, log, force: !!forceSteps });
+        const costMicro = r.usage.in || r.usage.out ? ai.costMicroLei(r.usage.model, r.usage) : 0;
+        if (costMicro) await ai.logUsage(supa, null, 'live-pasi', r.usage);
+        // vocea generată: frazele noi (întrebările) se înregistrează mai jos, în același apel
+        const next = voiced && tts.provider() ? 'audio' : (was === 'gata' ? 'gata' : was);
+        const all = LL.segmentsInOrder(r.script);
+        await save({
+          script: r.script, status: next, error: null,
+          progress: { ...row.progress, total: all.length, done: all.filter((x) => audio[x.id]).length, phase: next === 'gata' ? 'gata' : 'voce', pasi: { at: new Date().toISOString(), ...r.report } },
+          cost_micro: (row.cost_micro || 0) + costMicro,
+          ...(next === 'gata' ? { duration_sec: L.buildTimeline(r.script, row.progress?.noVoice ? {} : audio, { mode: 'grup' }).duration } : {}),
+        });
+        log(`live: lecția ${row.id} — întrebări pe pași: ${r.report.ai} scrise de model, ${r.report.fromBarem} din barem${r.report.missing.length ? `, fără întrebare: ${r.report.missing.join(', ')}` : ''}`);
+      } catch (e) {
+        // lecția rămâne cum era (fără să mai reîncerce la fiecare intrare); Admin poate cere din nou
+        log(`live: întrebările pe pași pentru lecția ${row.id} au eșuat: ${e.message}`);
+        await save({ status: was, script: { ...row.script, pasi: LL.PASI_V, pasiErr: String(e.message || e).slice(0, 200) }, progress: { ...row.progress, phase: was === 'gata' ? 'gata' : row.progress?.phase } });
+      }
     }
     // ── 2. vocea ──
     // (doar textul: cu voce configurată, lecția rămâne „script" — vocea se face când o
@@ -450,13 +500,15 @@ const playableFor = (session, lesson) => lesson.status === 'gata' || (session.ki
 const TL_VERSION = 2;
 const tlStamp = (lesson) => `${lesson.updated_at}|v${TL_VERSION}`;
 
+// răspunsurile corecte ale tuturor întrebărilor (încercarea, pașii, verificarea)
 function pollKeys(script) {
   const out = {};
   for (const it of script?.items || []) {
-    for (const p of [it.tryPoll, it.check]) if (p && p.id) out[p.id] = { type: p.type, answer: p.answer, accept: p.accept || null };
+    for (const p of L.itemPolls(it)) out[p.id] = { type: p.type, answer: p.answer, accept: p.accept || null };
   }
   return out;
 }
+const pollOf = (script, id) => (script?.items || []).flatMap((it) => L.itemPolls(it)).find((p) => p.id === id) || null;
 
 function compactState(tl, lesson) {
   const polls = {}, qna = [];
@@ -598,6 +650,9 @@ async function join(req, res, supa) {
   }
   await registerParticipant(supa, session, profile, access.via);
   let lessonLight = await lessonFor(supa, session.subject_id, session.teacher);
+  // lecție scrisă înainte de întrebările pe pași: întâi se completează (o singură dată pe
+  // subiect, ~1 minut) — sala așteaptă „pregătirea", ca la o lecție nouă (vezi prepare)
+  const stepsFirst = await stepsUpgradeFor(supa, session, lessonLight, now);
   let s = session;
   let lesson = null;
   if (lessonLight.status === 'gata' || (session.kind === 'privat' && ['script', 'audio'].includes(lessonLight.status))) {
@@ -615,9 +670,10 @@ async function join(req, res, supa) {
   };
   if (lesson && (lesson.status === 'gata' || session.kind === 'privat')) {
     const tl = computeTimeline(s, lesson, { individual: personal });
-    const playable = playableFor(session, lesson);
+    const playable = playableFor(session, lesson) && !stepsFirst;
     out.timeline = playable ? tl : null;
     out.lesson.playable = playable;
+    if (stepsFirst) out.lesson = { ...out.lesson, status: 'script', phase: 'pasi' };
     out.noVoice = !!lesson.progress?.noVoice;
     out.baremTitle = lesson.script?.baremTitle || null;
   }
@@ -635,7 +691,14 @@ async function prepare(req, res, supa) {
   if (!access.ok) throw fail(402, 'Nu ai acces la această ședință.', 'LIVE_PAYMENT');
   if (!session.subject_id) throw fail(409, 'Ședința nu are încă un subiect cu barem.');
   const lesson = await lessonFor(supa, session.subject_id, session.teacher);
-  if (lesson.status === 'gata') return res.status(200).json({ lesson: { ...lessonView(lesson), playable: true } });
+  if (lesson.status === 'gata') {
+    // întrebările pe pași lipsesc (lecție scrisă înainte de ele) și se pot completa acum
+    if (await stepsUpgradeFor(supa, session, lesson)) {
+      const r = await prepareLesson(supa, lesson.id, { steps: true, budgetMs: Math.min(240000, Math.max(30000, Number(req.body?.budgetMs) || 90000)) });
+      return res.status(200).json({ lesson: r });
+    }
+    return res.status(200).json({ lesson: { ...lessonView(lesson), playable: true } });
+  }
   // 1-la-1 deja pornit: vocea continuă în fundal, întâi de la itemul la care e elevul
   const fromRef = typeof req.body?.fromRef === 'string' ? req.body.fromRef.slice(0, 20) : null;
   const r = await prepareLesson(supa, lesson.id, { budgetMs: Math.min(240000, Math.max(20000, Number(req.body?.budgetMs) || 55000)), fromRef });
@@ -728,6 +791,9 @@ function itemContext(script, index) {
     `Răspunsul din barem: ${it.answer}`,
     `Baremul itemului: ${it.barem}`,
     `Ce am explicat deja: ${main.slice(0, 1500)}`,
+    Array.isArray(it.steps) && it.steps.length
+      ? `Întrebările pe pași puse elevilor (răspunsurile din barem): ${it.steps.map((s) => `${s.question} → ${s.type === 'grila' ? `${s.answer}) ${(s.options || [])['abcd'.indexOf(s.answer)] || ''}` : s.answer}`).join('; ').slice(0, 900)}`
+      : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -895,7 +961,8 @@ async function pollAnswer(req, res, supa) {
     key = pollKeys(lesson?.script)[pollId] || null;
   }
   if (!key) throw fail(404, 'Întrebare necunoscută.');
-  const correct = L.checkPollAnswer(key, answer, mathcheck.answersEquivalent);
+  // „Nu știu" (1-la-1): elevul cere răspunsul — se înregistrează ca greșit
+  const correct = answer === '?' ? false : L.checkPollAnswer(key, answer, mathcheck.answersEquivalent);
   const { error } = await supa.from('live_poll_answers').upsert({ session_id: session.id, poll_id: pollId, user_id: userId, answer, correct: !!correct }, { onConflict: 'session_id,poll_id,user_id' });
   dbCheck(error, 'răspunsurile');
   const results = await pollAggregate(supa, session, pollId, key);
@@ -907,8 +974,15 @@ async function pollAnswer(req, res, supa) {
       broadcast(session.id, 'poll', { pollId, results }).catch(() => {});
     }
   }
-  // în grup, corectitudinea se arată la „rezultate"; la 1-la-1 imediat
-  return res.status(200).json({ ok: true, correct: !!correct, answer: (session.kind === 'privat' || individual) ? key.answer : undefined, results });
+  // în grup, corectitudinea se arată la „rezultate"; la 1-la-1 imediat (cu explicația)
+  const now1 = session.kind === 'privat' || individual;
+  let explain;
+  if (now1) {
+    const light = await lessonFor(supa, session.subject_id, session.teacher, { create: false }).catch(() => null);
+    const lesson = light ? await loadLesson(supa, light.id).catch(() => null) : null;
+    explain = pollOf(lesson?.script, pollId)?.explain || null;
+  }
+  return res.status(200).json({ ok: true, correct: !!correct, answer: now1 ? key.answer : undefined, explain, results });
 }
 
 async function pollResultsAction(req, res, supa) {
@@ -1055,7 +1129,7 @@ async function adminOverview(req, res, supa) {
   const total = {};
   for (const p of parts || []) total[p.session_id] = (total[p.session_id] || 0) + 1;
   const [en, bac] = await Promise.all([eligibleSubjects(supa, { exam: 'en', fresh: !!req.body?.fresh }), eligibleSubjects(supa, { exam: 'bac', fresh: !!req.body?.fresh })]);
-  const { data: lessonRows } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, title, duration_sec, error, cost_micro, updated_at, noVoice:progress->noVoice, sv:script->v').order('updated_at', { ascending: false }).limit(60);
+  const { data: lessonRows } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, title, duration_sec, error, cost_micro, updated_at, noVoice:progress->noVoice, sv:script->v, pasi:script->pasi, pasiInfo:progress->pasi').order('updated_at', { ascending: false }).limit(60);
   const slotInfo = Object.fromEntries(L.slots().map((s) => [s.id, s]));
   return res.status(200).json({
     day, teachers: L.teachers().map(L.publicTeacher), slots: L.slots(), intervals: L.intervals(),
@@ -1118,7 +1192,16 @@ async function adminPrepare(req, res, supa) {
       lessonId = (await lessonFor(supa, subjectId, teacher.id)).id;
     }
   }
-  const r = await prepareLesson(supa, lessonId, { revoice: !!req.body?.revoice, budgetMs: Math.min(600000, Math.max(30000, Number(req.body?.budgetMs) || 240000)) });
+  // întrebările pe pași: doar când nicio ședință de grup cu lecția aceasta nu e în curs
+  let steps = !!req.body?.steps;
+  if (steps) {
+    const { data: lrow } = await supa.from('live_lessons').select('subject_id, teacher').eq('id', lessonId).maybeSingle();
+    if (lrow && await groupBusy(supa, lrow.subject_id, lrow.teacher)) throw fail(409, 'O ședință de grup cu această lecție e în curs sau începe imediat — completează întrebările pe pași după ea.');
+  }
+  const r = await prepareLesson(supa, lessonId, {
+    revoice: !!req.body?.revoice, steps, forceSteps: steps && !!req.body?.force,
+    budgetMs: Math.min(600000, Math.max(30000, Number(req.body?.budgetMs) || 240000)),
+  });
   return res.status(200).json({ lesson: r });
 }
 
@@ -1162,18 +1245,21 @@ async function cron(supa) {
     try {
       const l = await lessonFor(supa, s.subject_id, s.teacher);
       const startsIn = new Date(s.starts_at).getTime() - now.getTime();
+      const busy = liveNow.has(`${s.subject_id}|${s.teacher}`);
       // vocea generată pentru o lecție făcută fără chei TTS — doar înainte de ședință
-      const revoice = l.status === 'gata' && l.noVoice === true && !!tts.provider() && startsIn > 45 * 60000 && !liveNow.has(`${s.subject_id}|${s.teacher}`);
-      if (l.status === 'gata' && !revoice) continue;
-      if (!auto && !revoice && (l.status === 'nou' || (l.status === 'eroare' && !l.title))) {
+      const revoice = l.status === 'gata' && l.noVoice === true && !!tts.provider() && startsIn > 45 * 60000 && !busy;
+      // întrebările pe pași pentru o lecție scrisă înainte de ele — tot doar înainte de ședință
+      const steps = lessonLacksSteps(l) && startsIn > 10 * 60000 && !busy;
+      if (l.status === 'gata' && !revoice && !steps) continue;
+      if (!auto && !revoice && (steps || l.status === 'nou' || (l.status === 'eroare' && !l.title))) {
         const [{ count: people }, { count: tickets }] = await Promise.all([
           supa.from('live_participants').select('*', { count: 'exact', head: true }).eq('session_id', s.id),
           supa.from('live_tickets').select('*', { count: 'exact', head: true }).eq('session_id', s.id).eq('status', 'platit'),
         ]);
         if (!(people || 0) && !(tickets || 0)) { report.skipped++; continue; }
       }
-      const r = await prepareLesson(supa, l.id, { revoice, budgetMs: Math.max(30000, budget - (Date.now() - t0) - 60000) });
-      report.prepared.push({ session: s.id, lesson: l.id, status: r.status, done: r.done, total: r.total, revoice });
+      const r = await prepareLesson(supa, l.id, { revoice, steps, budgetMs: Math.max(30000, budget - (Date.now() - t0) - 60000) });
+      report.prepared.push({ session: s.id, lesson: l.id, status: r.status, done: r.done, total: r.total, revoice, steps });
     } catch (e) { report.errors.push(`${s.id}: ${e.message}`); }
   }
 
@@ -1306,7 +1392,7 @@ async function prepEnsureScript(supa, subjectId, { waitMs = 170000 } = {}) {
 async function prepPick(supa, E, { pos, exclude = new Set(), seed, generate = true, needPolls = false }) {
   const pool = await prepPool(supa, E);
   const ordered = P.orderSubjects(pool.filter((s) => !exclude.has(s.id)), seed);
-  const usable = (items) => items.length && (!needPolls || items.some((it) => it.tryPoll || it.check));
+  const usable = (items) => items.length && (!needPolls || items.some((it) => P.hasPolls(it)));
   for (const s of ordered.filter((x) => scriptReady(x.lesson))) {
     const lesson = await loadLesson(supa, s.lesson.id);
     const items = P.itemsAt(lesson?.script, pos);
@@ -1415,7 +1501,16 @@ async function prepPrefetch(req, res, supa) {
   const exclude = new Set(st.used);
   if (typeof req.body?.current === 'string') exclude.add(req.body.current);
   const ready = await prepPick(supa, E, { pos: pos.pos, exclude, seed: `${userId}|${pos.pos}`, generate: false });
-  if (ready) return res.status(200).json({ ready: true });
+  if (ready) {
+    // exercițiul următor (Subiectele II și III), dintr-o lecție scrisă înainte de întrebările
+    // pe pași: le completează acum, cât elevul lucrează (o singură dată pe subiect)
+    const light = ready.lesson;
+    if (/^II/.test(pos.pos) && light && lessonLacksSteps({ status: light.status, pasi: light.script?.pasi })
+      && !(await groupBusy(supa, light.subject_id, light.teacher))) {
+      await prepareLesson(supa, light.id, { steps: true, scriptOnly: true, budgetMs: 90000 }).catch(() => {});
+    }
+    return res.status(200).json({ ready: true });
+  }
   if (gensToday(rows) >= PREP_GEN_MAX()) return res.status(200).json({ ready: false, capped: true });
   const pick = await prepPick(supa, E, { pos: pos.pos, exclude, seed: `${userId}|${pos.pos}`, generate: true });
   if (pick?.generated) {
@@ -1445,7 +1540,7 @@ async function prepAnswer(req, res, supa) {
   const lesson = light ? await loadLesson(supa, light.id) : null;
   const key = pollKeys(lesson?.script)[id];
   if (!key) throw fail(404, 'Întrebare necunoscută.');
-  const correct = !!L.checkPollAnswer(key, answer, mathcheck.answersEquivalent);
+  const correct = answer === '?' ? false : !!L.checkPollAnswer(key, answer, mathcheck.answersEquivalent);
   if (isTest) {
     prep.answers = { ...(prep.answers || {}), [pollId]: { answer, correct } };
   } else {
@@ -1456,7 +1551,7 @@ async function prepAnswer(req, res, supa) {
   if (error) throw fail(500, error.message);
   // la test nu se spune nimic până la final
   if (isTest) return res.status(200).json({ ok: true, answered: Object.keys(prep.answers).length });
-  const poll = (lesson.script.items || []).flatMap((it) => [it.tryPoll, it.check]).find((p) => p && p.id === id);
+  const poll = pollOf(lesson.script, id);
   return res.status(200).json({ ok: true, correct, answer: key.answer, explain: poll?.explain || null });
 }
 
@@ -1517,13 +1612,13 @@ async function prepTest(req, res, supa) {
       if (picked.length >= N) break;
       const lesson = await loadLesson(supa, s.lesson.id);
       const items = P.itemsAt(lesson?.script, pos.pos);
-      if (items.some((it) => it.tryPoll || it.check)) take({ sid: s.id, title: s.title, items });
+      if (items.some((it) => P.hasPolls(it))) take({ sid: s.id, title: s.title, items });
     }
   }
   if (!picked.length) throw fail(409, 'Nu am încă exerciții cu întrebări pentru un test la această poziție. Mai lucrează câteva exerciții și încearcă din nou.', 'PREP_NO_TEST');
   const items = picked.map((p) => ({
     sid: p.sid, title: p.title, refs: p.items.map((it) => it.ref),
-    polls: P.pollsOf(P.namespaced(p.items.filter((it) => it.tryPoll || it.check), p.sid)).map((q) => q.id),
+    polls: P.testPollsOf(p.items, p.sid).map((q) => q.id),
   }));
   const prep = { v: 1, mode: 'test', pos: pos.pos, exam: E.exam, profile: E.profile, doneBefore: st.done, items, answers: {}, gen: genAt };
   const { data, error } = await supa.from('ai_meditatii_sessions').insert({

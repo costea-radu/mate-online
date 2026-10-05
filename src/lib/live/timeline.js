@@ -59,7 +59,9 @@ export function qnaWindows(timeline) {
 
 // Tabla pentru itemul curent: toate rândurile scrise până acum în scenele
 // „explicatie" ale itemului (pe barem, apoi celelalte moduri), plus cât din
-// rândul curent e scris (0..1) — scrisul merge în ritmul vocii.
+// rândul curent e scris (0..1) — scrisul merge în ritmul vocii. Explicația pe
+// barem oprită de întrebările pe pași vine în mai multe scene: cele marcate
+// `cont` continuă aceeași rezolvare (același bloc, fără separator).
 export function boardState(timeline, index, offset) {
   const sc = (timeline && timeline.scenes) || [];
   const cur = sc[index];
@@ -81,7 +83,9 @@ export function boardState(timeline, index, offset) {
         if (f > 0) lines.push({ key: `${g.id}-${j}`, text, frac: f });
       });
     }
-    blocks.push({ key: `b${i}`, mode: s.mode, label: s.label, lines });
+    const last = blocks[blocks.length - 1];
+    if (s.cont && last && last.mode === s.mode) last.lines.push(...lines);
+    else blocks.push({ key: `b${i}`, mode: s.mode, label: s.label, lines });
   }
   return { item, ref: cur.ref, title: cur.title, blocks };
 }

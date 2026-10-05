@@ -137,10 +137,12 @@ export function sceneInset({ landscape = false, card = false } = {}) {
 
 // Pe telefon, unde se uită camera în fiecare moment al lecției (dacă elevul nu
 // a ales el): exercițiul cât e citit / încercat / corectat, tabla cât se explică.
+// La întrebările pe pași, tabla: pașii de până acum sunt chiar acolo.
 export function autoFocus(state) {
   const sc = state?.scene;
   if (!sc || state?.phase === 'asteptare' || state?.phase === 'final') return 'profesor';
   if (state.inserted === 'raspuns') return sc.answerBoard?.length ? 'tabla' : 'profesor';
+  if (sc.step && (sc.type === 'sondaj' || sc.type === 'rezultate')) return 'tabla';
   switch (sc.type) {
     case 'item': case 'sondaj': case 'rezultate': case 'video': return 'ecran';
     case 'explicatie': case 'intrebare_intelegere': return 'tabla';
