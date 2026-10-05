@@ -12,7 +12,13 @@
 //      banda cu participanții, chatul, lista de participanți, subtitrările,
 //      reacțiile, mâna ridicată, caietul (Spațiul de lucru), ecranul complet
 //      (pe telefon: sus, în dreapta), „Părăsește";
-//   3. întrebările profesorului (grilă / de completat) și „Ai înțeles?" (1-la-1).
+//   3. întrebările profesorului (grilă / de completat) și „Ai înțeles?" (1-la-1);
+//   4. „📋 Exerciții" (1-la-1): elevul alege ORICE exercițiu, nu neapărat la rând
+//      (ex. S. I ex. 5, S. II ex. 2 b), S. III ex. 1 c)) — și la intrare („Cu ce
+//      începi?") — iar după fiecare exercițiu ales, profesorul întreabă ce urmează;
+//   5. prelungirea: la 1-la-1, după cele 60 de minute (la grupul ținut 1-la-1, după
+//      ora de final) ședința NU se oprește cât elevul lucrează — se prelungește până
+//      termină exercițiile (api/live.js → extend), fără cost în plus.
 //
 // Grup: lecția merge pe ceasul comun (GroupPlayer) — toți aud și văd același
 // lucru. 1-la-1: lecția așteaptă elevul (PrivatePlayer); dacă a pornit înainte
@@ -20,7 +26,7 @@
 // itemul la care e elevul, iar ce nu e gata la timp se rostește cu vocea
 // browserului — lecția nu se mai oprește niciodată în „vocea se pregătește".
 // =====================================================================
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { liveApi, buyTicket } from '../lib/live/api';
@@ -36,7 +42,9 @@ import ScenePan, { useSceneFocus, useMedia, LANDSCAPE_SHORT } from '../component
 import { sceneInset } from '../lib/live/framing';
 import PreJoin from '../components/live/PreJoin';
 import { WhiteboardInk, DigitalScreen } from '../components/live/Board';
-import { PollCard, UnderstandCard } from '../components/live/PollCard';
+import { PollCard, UnderstandCard, ChoiceCard } from '../components/live/PollCard';
+import ItemPicker from '../components/live/ItemPicker';
+import { itemsFromTimeline, defaultRefs, sceneIndexForRef, itemStatus, refLabel } from '../lib/live/items';
 import { LiveChat, Participants, colorOf } from '../components/live/LiveChat';
 import SpatiuDeLucru from '../components/SpatiuDeLucru';
 import { startDictation, speechRecognitionSupported } from '../lib/voice';
@@ -108,6 +116,14 @@ export default function LiveRoom({ demo = null }) {
   const [mode, setMode] = useState(null);             // 'individual' = ședința de grup ținută 1-la-1
   const [modeWhy, setModeWhy] = useState(null);       // 'singur' (un singur elev la început) | 'dupa' (după lecția comună)
   const [voiceHint, setVoiceHint] = useState(null);
+  // „📋 Exerciții": exercițiul cu care începe elevul (ales la intrare sau din lobby: ?ex=II.2.b)
+  const [startRef, setStartRef] = useState(() => {
+    try { const v = new URLSearchParams(window.location.search).get('ex'); return v && /^I{1,3}\.\d(\.[a-d])?$/i.test(v) ? v.toUpperCase().replace(/\.([A-D])$/, (m, l) => `.${l.toLowerCase()}`) : null; } catch { return null; }
+  });
+  const [visited, setVisited] = useState(() => new Set());
+  // prelungirea: sfârșitul de acum (server), sfârșitul inițial (60 min / ora), plafonul atins
+  const [ext, setExt] = useState({ ends: null, base: null, capped: false, cap: null });
+  const [continueOk, setContinueOk] = useState(false);
 
   const roomRef = useRef(null);
   const engineRef = useRef(null);
@@ -254,7 +270,13 @@ export default function LiveRoom({ demo = null }) {
       playerRef.current = p;
       p.setTimeline(timeline);
       const resumeScene = info?.session?.state?.scene;
-      if (resumeScene) p.resumeAt(resumeScene);
+      const start = startRef ? sceneIndexForRef(timeline, startRef) : null;
+      if (start && start.index >= 0) {
+        // elevul a ales cu ce începe: de acolo, iar după exercițiu profesorul întreabă ce urmează
+        p.resumeAt(start.index);
+        p.setPickMode(true);
+        if (!start.exact) flash(`${refLabel(startRef)} nu e în lecția acestui subiect — încep cu ${refLabel(start.ref)}.`);
+      } else if (resumeScene) p.resumeAt(resumeScene);
       else if (fromItemsRef.current) {
         // lecția comună tocmai s-a terminat: fără „Bună ziua" din nou — de la primul item
         fromItemsRef.current = false;
@@ -277,6 +299,13 @@ export default function LiveRoom({ demo = null }) {
   }, [joined, timeline, startedAt, privat]);
 
   useEffect(() => () => { playerRef.current?.stop(); engine?.close(); }, [engine]);
+
+  // exercițiile prin care a trecut elevul (pentru „📋 Exerciții")
+  const curItem = ps?.scene?.item ?? null;
+  useEffect(() => {
+    if (curItem == null) return;
+    setVisited((v) => (v.has(curItem) ? v : new Set([...v, curItem])));
+  }, [curItem]);
 
   // 1-la-1 pornit cu vocea generată doar pentru început (intro + primii itemi):
   // restul vocii se generează ÎN FUNDAL cât elevul lucrează, întâi de la itemul la
@@ -455,7 +484,8 @@ export default function LiveRoom({ demo = null }) {
 
   // ─── 8. întrebările profesorului ───────────────────────────────────────────
   const scene = ps?.scene;
-  const pollScene = scene?.type === 'sondaj' ? scene : null;
+  const choosing = privat && ps?.status === 'alege';           // exercițiul ales s-a terminat: ce urmează?
+  const pollScene = scene?.type === 'sondaj' && !choosing ? scene : null;
   // pe telefon: unde se uită camera (tabla cu explicația / exercițiul proiectat)
   const cam = useSceneFocus(ps);
   const landscapeShort = useMedia(LANDSCAPE_SHORT);
@@ -526,14 +556,69 @@ export default function LiveRoom({ demo = null }) {
   }
   const toggleFs = () => toggleFullscreen(roomRef.current);
 
-  // sfârșitul ședinței (grup: cronologia s-a terminat; 1-la-1: au trecut cele 60 de minute)
+  // sfârșitul ședinței: când lecția s-a terminat (grup: cronologia comună; 1-la-1: ultimul
+  // exercițiu sau „Încheie"). La 1-la-1, cele 60 de minute NU mai opresc elevul care încă
+  // lucrează: ședința se prelungește până termină exercițiile (plafon: LIVE_PRELUNGIRE_MAX).
   useEffect(() => { if (ps?.phase === 'final') setEnded(true); }, [ps?.phase]);
   const [, force] = useState(0);
   useEffect(() => { const t = setInterval(() => force((n) => n + 1), 1000); return () => clearInterval(t); }, []);
-  const privLeft = privEnds ? Math.max(0, (privEnds - clock.now()) / 1000) : null;
+  const baseEnd = ext.base || privEnds;                       // sfârșitul inițial (60 min / ora)
+  const privLeft = baseEnd ? Math.max(0, (baseEnd - clock.now()) / 1000) : null;
+  const overtime = privat && !!baseEnd && clock.now() >= baseEnd;
   const endsAtMs = info?.session?.ends_at ? Date.parse(info.session.ends_at) : null;
-  const canContinue = ended && !privat && !demo && info?.session?.kind === 'grup' && !!endsAtMs && clock.now() < endsAtMs - 3 * 60000;
-  useEffect(() => { if (privat && privLeft === 0 && joined) { playerRef.current?.stop(); setEnded(true); } }, [privat, privLeft, joined]);
+  const canContinue = ended && !privat && !demo && info?.session?.kind === 'grup' && (continueOk || (!!endsAtMs && clock.now() < endsAtMs - 3 * 60000));
+
+  // cererea de prelungire: la fiecare minut cât elevul lucrează 1-la-1 (serverul mută
+  // sfârșitul doar când mai sunt sub 5 minute), plus o dată la sfârșitul lecției comune
+  const extendNow = useCallback(async () => {
+    if (demo) return null;
+    try {
+      const r = await liveApi.extend(sessionId);
+      setExt({ ends: r.ends_at ? Date.parse(r.ends_at) : null, base: r.base_end ? Date.parse(r.base_end) : null, cap: r.cap ? Date.parse(r.cap) : null, capped: r.ok === false && r.reason === 'plafon' });
+      return r;
+    } catch { return null; }
+  }, [demo, sessionId]);
+  useEffect(() => {
+    if (!joined || demo || !privat || ended || !hasTimeline) return undefined;
+    extendNow();
+    const t = setInterval(extendNow, 60000);
+    return () => clearInterval(t);
+  }, [joined, demo, privat, ended, hasTimeline, extendNow]);
+  // a trecut ora / cele 60 de minute: o singură dată, profesorul spune că mergem mai departe
+  const overNotified = useRef(false);
+  useEffect(() => {
+    if (!overtime || overNotified.current || ended) return;
+    overNotified.current = true;
+    flash(info?.session?.kind === 'privat'
+      ? 'Au trecut cele 60 de minute — continuăm până termini exercițiile, fără cost în plus.'
+      : 'Ora s-a terminat — continuăm 1-la-1 până termini exercițiile, fără cost în plus.');
+  }, [overtime, ended, flash, info?.session?.kind]);
+  // plafonul prelungirii atins (ex. tab uitat deschis): abia atunci se încheie ședința
+  useEffect(() => {
+    if (privat && joined && !ended && ext.capped && ext.ends && clock.now() >= ext.ends) { playerRef.current?.stop(); setEnded(true); }
+  });
+  // lecția comună s-a terminat: cerem prelungirea, ca elevul să poată continua 1-la-1 și după oră
+  useEffect(() => {
+    if (!ended || privat || demo || info?.session?.kind !== 'grup') return undefined;
+    const t = setTimeout(async () => {
+      const r = await extendNow();
+      if (r && r.ok && r.ends_at && Date.parse(r.ends_at) - clock.now() > 60000) setContinueOk(true);
+    }, 6000);
+    return () => clearTimeout(t);
+  }, [ended, privat, demo, info?.session?.kind, extendNow]);
+
+  // „📋 Exerciții": itemii lecției (sau structura examenului, cât lecția încă se pregătește)
+  const lessonItems = useMemo(() => itemsFromTimeline(timeline), [timeline]);
+  const pickItems = lessonItems.length ? lessonItems : defaultRefs(info?.session?.exam);
+  const statusByItem = useMemo(() => itemStatus(timeline, myAnswers, visited), [timeline, myAnswers, visited]);
+  function pickItem(it) {
+    const p = playerRef.current;
+    if (!privat || !(p instanceof PrivatePlayer) || it.item == null) return;
+    p.setPickMode(true);
+    p.gotoItem(it.item);
+    if (typeof window !== 'undefined' && window.innerWidth < 1100) setPanel(null);   // pe telefon, panoul acoperă scena
+    flash(`Lucrăm la ${refLabel(it.ref)}.`);
+  }
 
   // ─── randare ───────────────────────────────────────────────────────────────
   if (fatal) {
@@ -561,7 +646,8 @@ export default function LiveRoom({ demo = null }) {
       <div className="lv-room is-pre" ref={roomRef}>
         <PreJoin info={info} teacher={teacher} rigThumb={rig?.thumb || null} present={present || 0} personal={individual ? (modeWhy || 'singur') : null}
           access={payInfo ? 'plata' : info.access} price={payInfo?.price} onJoin={onJoin} onPay={onPay} paying={paying}
-          waitingText={waitingText} camOn={camOn} setCamOn={setCamOn} micOn={micOn} setMicOn={setMicOn} fullscreen={wantFs} setFullscreen={setWantFs} />
+          waitingText={waitingText} camOn={camOn} setCamOn={setCamOn} micOn={micOn} setMicOn={setMicOn} fullscreen={wantFs} setFullscreen={setWantFs}
+          pickItems={privat ? pickItems : null} startRef={startRef} setStartRef={setStartRef} privMinutes={info.privMinutes || 60} />
       </div>
     );
   }
@@ -595,7 +681,9 @@ export default function LiveRoom({ demo = null }) {
         </div>
         <div className="lv-top-right">
           {!privat && ps?.phase === 'live' && <span className="lv-live-pill"><span className="lv-dot-live" /> LIVE</span>}
-          <span className="lv-timer" title={privat ? 'Timp rămas' : 'Durata ședinței'}>{privat ? `⏳ ${fmtClock(privLeft ?? 3600)}` : `⏱ ${fmtClock(elapsed)}`}</span>
+          {privat && overtime
+            ? <span className="lv-timer is-over" title="Ședința s-a prelungit: continuăm până termini exercițiile, fără cost în plus">⏱ +{fmtClock((clock.now() - baseEnd) / 1000)} prelungire</span>
+            : <span className="lv-timer" title={privat ? 'Timp rămas (apoi se prelungește până termini exercițiile)' : 'Durata ședinței'}>{privat ? `⏳ ${fmtClock(privLeft ?? 3600)}` : `⏱ ${fmtClock(elapsed)}`}</span>}
           <span className="lv-count" title="Participanți">👥 {privat ? 2 : Math.max(present, people.length) + 1}</span>
           {/* pe telefon, ecranul complet stă aici (bara de jos nu are loc pentru el) */}
           {fsButton('lv-top-fs')}
@@ -662,24 +750,37 @@ export default function LiveRoom({ demo = null }) {
               onSubmit={answerPoll}
               onNext={() => playerRef.current?.pollDone(pollScene.poll.id, verdicts[pollScene.poll.id])} />
           )}
+          {choosing && (
+            <ChoiceCard kicker={`🙋 ${teacher?.name || 'Profesorul'} întreabă`} question="Gata și acest exercițiu. Ce lucrăm acum?"
+              options={[
+                ...(ps?.nextHead ? [{ id: 'next', label: `▶ Mai departe: ${refLabel(ps.nextHead.ref)}`, primary: true, onPick: () => playerRef.current?.continueNext() }] : []),
+                { id: 'pick', label: '📋 Aleg alt exercițiu', primary: !ps?.nextHead, onPick: () => setPanel('items') },
+                { id: 'order', label: '⏩ Continuă în ordine, fără să mă mai întrebi', onPick: () => { playerRef.current?.setPickMode(false); playerRef.current?.continueNext(); } },
+                { id: 'end', label: '🏁 Ajunge pentru azi', onPick: () => leave(true) },
+              ]}
+              note={overtime ? '⏱ Ședința e prelungită cât lucrezi — fără cost în plus.' : null} />
+          )}
           {understand && (
             <UnderstandCard teacherName={teacher?.name} altLeft={ps?.altLeft || 0}
               onYes={() => playerRef.current?.understood()}
               onAgain={() => playerRef.current?.explainAgain()}
               onAsk={() => { setPanel('chat'); setPrefill({ id: Date.now(), text: '' }); }} />
           )}
-          {privat && ps?.status === 'incarca' && <div className="lv-toast">Profesorul își aranjează notițele… (vocea se pregătește)</div>}
-          {voiceHint && (
-            <div className="lv-voice-hint" role="status">
-              <span>🔈 {voiceHint}</span>
-              <button type="button" onClick={() => setVoiceHint(null)} aria-label="Închide">✕</button>
-            </div>
-          )}
+          {/* mesajele de sus, unul sub altul (nu se mai acoperă): îndemnul despre voce, „vocea se pregătește", mesajul scurt */}
+          <div className="lv-notes">
+            {voiceHint && (
+              <div className="lv-voice-hint" role="status">
+                <span>🔈 {voiceHint}</span>
+                <button type="button" onClick={() => setVoiceHint(null)} aria-label="Închide">✕</button>
+              </div>
+            )}
+            {privat && ps?.status === 'incarca' && <div className="lv-toast">Profesorul își aranjează notițele… (vocea se pregătește)</div>}
+            {toast && <div className="lv-toast">{toast}</div>}
+          </div>
 
           <div className="lv-floaters" aria-hidden="true">
             {floaters.map((f) => <div key={f.id} className="lv-floater" style={{ left: `${f.x}%` }}><span>{f.e}</span><small>{f.name}</small></div>)}
           </div>
-          {toast && <div className="lv-toast">{toast}</div>}
           {ended && (
             <div className="lv-ended">
               <div className="lv-ended-card">
@@ -687,8 +788,8 @@ export default function LiveRoom({ demo = null }) {
                 <p>{summaryLine(myAnswers)}</p>
                 {canContinue && (
                   <p className="lv-ended-more">
-                    Ora nu s-a terminat: până la {hhmm(endsAtMs)} poți continua <b>1-la-1</b> cu {teacher?.name || 'profesorul'},
-                    fără cost în plus — reia orice item (⏮ ⏭), cere „Explică altfel" sau întreabă-l orice în chat.
+                    Poți continua <b>1-la-1</b> cu {teacher?.name || 'profesorul'}, fără cost în plus, <b>până termini exercițiile</b>
+                    {endsAtMs && clock.now() < endsAtMs ? ` (chiar dacă trece de ${hhmm(endsAtMs)})` : ''} — alegi orice exercițiu (📋 Exerciții), ceri „Explică altfel" sau îl întrebi orice în chat.
                   </p>
                 )}
                 <div className="lv-pre-actions">
@@ -710,12 +811,23 @@ export default function LiveRoom({ demo = null }) {
           <aside className="lv-side">
             <div className="lv-side-tabs">
               <button type="button" className={panel === 'chat' ? 'is-on' : ''} onClick={() => setPanel('chat')}>💬 Chat</button>
+              <button type="button" className={panel === 'items' ? 'is-on' : ''} onClick={() => setPanel('items')}>📋 Exerciții</button>
               {!privat && <button type="button" className={panel === 'people' ? 'is-on' : ''} onClick={() => setPanel('people')}>👥 Participanți{handsUp ? ` · ✋${handsUp}` : ''}</button>}
               <button type="button" className="lv-side-x" onClick={() => setPanel(null)} aria-label="Închide">✕</button>
             </div>
             {panel === 'chat'
               ? <LiveChat messages={messages} meId={info.me?.id} teacher={teacher} privat={privat} onSend={sendChat} pendingAnswer={pendingAnswer} prefill={prefill} disabled={ended} />
-              : <Participants teacher={teacher} speaking={speakingNow} people={people.length ? people : [{ id: info.me?.id, name: info.me?.name, hand, cam: camOn, mic: micOn }]} meId={info.me?.id} />}
+              : panel === 'items' ? (
+                <div className="lv-ip-panel">
+                  <div className="lv-ip-intro">
+                    {privat
+                      ? <>Alege <b>orice exercițiu</b>, nu neapărat la rând — {teacher?.name || 'profesorul'} îl ia cu tine pe barem, apoi te întreabă ce urmează.</>
+                      : <>În ședința comună, {teacher?.name || 'profesorul'} merge în ordine pentru toată clasa. Ca să alegi tu exercițiile, intră la o ședință <b>1-la-1</b>{canContinue ? ' (sau „Continuă 1-la-1")' : ''}.</>}
+                  </div>
+                  <ItemPicker items={lessonItems} current={curItem} status={statusByItem} onPick={pickItem} disabled={!privat || ended || !lessonItems.length} />
+                </div>
+              )
+                : <Participants teacher={teacher} speaking={speakingNow} people={people.length ? people : [{ id: info.me?.id, name: info.me?.name, hand, cam: camOn, mic: micOn }]} meId={info.me?.id} />}
           </aside>
         )}
       </div>
@@ -759,12 +871,15 @@ export default function LiveRoom({ demo = null }) {
               ? <button type="button" className="lv-ctl is-accent" onClick={() => playerRef.current?.resume()}><span className="lv-ctl-ico">▶</span><span className="lv-ctl-t">Continuă</span></button>
               : <button type="button" className="lv-ctl" onClick={() => playerRef.current?.pause()} title="Profesorul se oprește"><span className="lv-ctl-ico">⏸</span><span className="lv-ctl-t">Pauză</span></button>}
             <button type="button" className="lv-ctl" onClick={() => playerRef.current?.nextItem()} title="Itemul următor"><span className="lv-ctl-ico">⏭</span><span className="lv-ctl-t">Înainte</span></button>
+            <button type="button" className={`lv-ctl lv-ctl-items${panel === 'items' ? ' is-on' : ''}`} onClick={() => setPanel(panel === 'items' ? null : 'items')} title="Alege orice exercițiu, nu neapărat la rând">
+              <span className="lv-ctl-ico">📋</span><span className="lv-ctl-t">Exerciții</span>
+            </button>
           </>)}
           <div className="lv-react-wrap lv-ctl-opt">
             <button type="button" className="lv-ctl" onClick={() => setReactOpen(!reactOpen)}><span className="lv-ctl-ico">😀</span><span className="lv-ctl-t">Reacții</span></button>
             {reactOpen && <div className="lv-react-pop">{REACTIONS.map((e) => <button key={e} type="button" onClick={() => react(e)}>{e}</button>)}</div>}
           </div>
-          <button type="button" className={`lv-ctl${hand ? ' is-accent' : ''}`} onClick={toggleHand}><span className="lv-ctl-ico">✋</span><span className="lv-ctl-t">{hand ? 'Coboară' : 'Mâna sus'}</span></button>
+          <button type="button" className={`lv-ctl${hand ? ' is-accent' : ''}${privat ? ' lv-ctl-hand' : ''}`} onClick={toggleHand}><span className="lv-ctl-ico">✋</span><span className="lv-ctl-t">{hand ? 'Coboară' : 'Mâna sus'}</span></button>
           <button type="button" className={`lv-ctl${panel === 'chat' ? ' is-on' : ''}`} onClick={() => setPanel(panel === 'chat' ? null : 'chat')}>
             <span className="lv-ctl-ico">💬</span><span className="lv-ctl-t">Chat</span>
           </button>
@@ -783,6 +898,8 @@ export default function LiveRoom({ demo = null }) {
             </button>
             {moreOpen && (
               <div className="lv-more-pop" role="menu" onClick={() => setMoreOpen(false)}>
+                {privat && <button type="button" role="menuitem" onClick={toggleHand}>{hand ? '✋ Coboară mâna' : '✋ Mâna sus (pauză + întrebare)'}</button>}
+                {!privat && <button type="button" role="menuitem" onClick={() => setPanel('items')}>📋 Exercițiile subiectului</button>}
                 <button type="button" role="menuitem" onClick={() => setNotebook(true)}>✍️ Caietul meu</button>
                 <button type="button" role="menuitem" onClick={() => setCc(!cc)}>{cc ? '🅲 Ascunde subtitrările' : '🅲 Arată subtitrările'}</button>
                 <button type="button" role="menuitem" onClick={() => setCamOn(!camOn)}>{camOn ? '🚫 Oprește camera mea' : '📷 Pornește camera mea'}</button>

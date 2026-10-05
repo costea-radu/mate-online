@@ -1,5 +1,7 @@
-Fonturile din acest director sunt folosite DOAR de generatorul de carduri
-social media (api/social-image.js) — randare server-side cu satori.
+Fonturile din acest director sunt folosite de generatorul de carduri social
+media (api/social-image.js — randare server-side cu satori) și de agentul de
+verificare a materialelor (api/_lib/verificare.js — corectura pe loc a PDF-urilor
+și pagina de ERATĂ).
 
 • DMSans-Regular.ttf / DMSans-Bold.ttf
     DM Sans — Copyright 2014-2025 Indian Type Foundry, Jonny Pinhorn,
@@ -19,6 +21,14 @@ social media (api/social-image.js) — randare server-side cu satori.
     licență permisivă Bitstream Vera / DejaVu
     https://dejavu-fonts.github.io/License.html
     (folosit ca fallback pentru simbolurile matematice: π √ Δ ∑ ≈ ∞)
+
+• LiberationSerif-Regular.ttf / LiberationSans-Regular.ttf
+    Liberation Fonts 2.1 — Digitized data copyright (c) 2010 Google Corporation
+    with Reserved Font Arimo, Tinos and Cousine; Copyright (c) 2012 Red Hat, Inc.
+    with Reserved Font Name Liberation. Licență: SIL Open Font License 1.1 (OFL)
+    https://github.com/liberationfonts/liberation-fonts
+    (aceleași lățimi ale literelor ca Times New Roman / Arial: textul rescris
+    pe loc într-un PDF corectat ocupă exact locul celui vechi)
 
 Licența OFL permite folosirea, embedding-ul și redistribuirea fonturilor
 împreună cu software-ul, inclusiv comercial; fonturile nu pot fi vândute

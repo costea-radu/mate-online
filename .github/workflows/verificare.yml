@@ -1,0 +1,40 @@
+# =====================================================================
+# Verificarea automată a codului (GitHub Actions) — rulează la fiecare
+# pull request (inclusiv cele create de agentul de debug din Admin) și la
+# fiecare push pe main: instalează dependențele, rulează testele
+# (npm test) și build-ul site-ului (npm run build).
+# Rezultatul apare în Admin → 🐞 Agent debug, lângă pull request; un PR cu
+# testele picate nu se poate publica din Admin.
+# =====================================================================
+name: Verificare
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verificare-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  teste-si-build:
+    name: Teste + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Dependențele
+        run: npm ci --no-audit --no-fund
+      - name: Testele (node --test)
+        run: npm test
+      - name: Build-ul site-ului (vite build)
+        run: npm run build

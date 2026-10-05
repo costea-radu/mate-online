@@ -6,8 +6,11 @@
 // BAC Științele Naturii, BAC Tehnologic — cu subiectul fiecăreia (explicat pe
 // barem), câți colegi sunt deja înăuntru și prețul (10 lei sau inclus în
 // abonament); elevul își alege sala (filtrul se ține minte) și apasă „Conectează-te". Ședințele 1-la-1 pornesc oricând (60 de minute; 20 lei sau
-// 8 pe lună incluse în abonament). Planul personal de până acum (plan, teme,
-// recapitulări, rapoarte) a rămas neatins, în tabul „Planul meu".
+// 8 pe lună incluse în abonament), prelungite automat până elevul termină
+// exercițiile; elevul poate alege cu ce exercițiu începe (📋, nu neapărat la rând).
+// Demonstrația (grup / 1-la-1, fără cont) e chiar sus, în prezentare.
+// Planul personal de până acum (plan, teme, recapitulări, rapoarte) a rămas
+// neatins, în tabul „Planul meu".
 // =====================================================================
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -15,6 +18,8 @@ import { useAuth } from '../context/AuthContext';
 import { liveApi, buyTicket } from '../lib/live/api';
 import { clock } from '../lib/live/clock';
 import { loadRig, initials, teacherColor } from '../lib/live/profesori';
+import ItemPicker from '../components/live/ItemPicker';
+import { defaultRefs, refLabel } from '../lib/live/items';
 import '../styles/live.css';
 
 const BAC_PROFILES = [
@@ -72,6 +77,7 @@ export default function MeditatiiLive() {
   const [subjects, setSubjects] = useState(null);
   const [subjectId, setSubjectId] = useState(null);
   const [subjErr, setSubjErr] = useState(null);
+  const [startRef, setStartRef] = useState(null);      // 1-la-1: exercițiul cu care începe (null = de la început)
   const [roomFilter, setRoomFilter] = useState(readRoom);          // 'toate' | id-ul sălii (se ține minte)
   const pickRoom = (id) => { setRoomFilter(id); try { localStorage.setItem(ROOM_KEY, id); } catch { /* fără stocare */ } };
 
@@ -141,12 +147,14 @@ export default function MeditatiiLive() {
     return () => { alive = false; };
   }, [pickOpen, me.loggedIn, teacherId, exam, profile]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => { setStartRef(null); }, [exam]);
+
   async function startPrivate() {
     if (!subjectId) return;
     setBusy('private');
     try {
       const r = await liveApi.privateStart(teacherId, subjectId);
-      navigate(`/meditatii/sala/${r.sessionId}`);
+      navigate(`/meditatii/sala/${r.sessionId}${startRef ? `?ex=${encodeURIComponent(startRef)}` : ''}`);
     } catch (e) {
       if (e.code === 'LIVE_PAYMENT') {
         setBusy(null);
@@ -189,6 +197,16 @@ export default function MeditatiiLive() {
         <div>
           <h1>Meditații live — cu profesorul virtual</h1>
           <p>În fiecare zi, {whenText}, profesorul rezolvă câte un subiect în {rooms.length === 1 ? 'sala' : `${rooms.length} săli`}: {joinRo(rooms.map((r) => r.label))} — <b>strict pe baremul oficial</b>: întâi încercați singuri, apoi rezolvarea pas cu pas, apoi încă o dată, pe înțelesul tuturor. Întrebi în chat, răspunzi la grile, vezi cum au răspuns colegii. Sau pornești o ședință 1-la-1, oricând.</p>
+          <div className="lvl-hero-cta">
+            <Link to="/meditatii/demo" className="lvl-demo-btn">
+              <span className="lvl-demo-play" aria-hidden="true">▶</span>
+              <span><b>Vezi demo-ul</b><small>o meditație de grup · 2 minute · fără cont</small></span>
+            </Link>
+            <Link to="/meditatii/demo-1la1" className="lvl-demo-btn is-soft">
+              <span className="lvl-demo-play" aria-hidden="true">▶</span>
+              <span><b>Demo 1-la-1</b><small>doar tu și profesorul</small></span>
+            </Link>
+          </div>
           <div className="lvl-hero-chips">
             {liveNow > 0 && <span className="lvl-chip is-live"><span className="lv-dot-live" /> {liveNow} {liveNow === 1 ? 'ședință' : 'ședințe'} live acum</span>}
             <span className="lvl-chip">📅 zilnic {timesLabel} · {rooms.length} {rooms.length === 1 ? 'sală' : 'săli'}</span>
@@ -196,14 +214,15 @@ export default function MeditatiiLive() {
             <span className="lvl-chip">💳 {data?.prices?.grup ?? 10} lei / ședință · inclus în abonament</span>
           </div>
         </div>
-        <div className="lvl-hero-mock" aria-hidden="true">
+        <Link to="/meditatii/demo" className="lvl-hero-mock" title="Vezi demo-ul sălii">
+          <span className="lvl-mock-play" aria-hidden="true">▶ Demo</span>
           <div className="lvl-mock-stage">
             <div className="lvl-mock-wb"><b style={{ color: '#1f5faa' }}>Subiectul I, ex. 3</b><br />{'Δ = b² − 4ac = 16'}<br />{'x₁,₂ = (−b ± √Δ) / 2a'}<br />{'⇒ x₁ = 3, x₂ = −1 (2p)'}</div>
             <div className="lvl-mock-dg"><span style={{ color: '#e8b931', fontWeight: 800 }}>ENUNȚ · 5 PUNCTE</span><br />Soluțiile ecuației x² − 2x − 3 = 0 sunt…</div>
             <div className="lvl-mock-pip">{rigs[data?.teachers?.[0]?.id]?.thumb ? <img src={rigs[data.teachers[0].id].thumb} alt="" /> : <span>{initials(data?.teachers?.[0]?.name || 'Prof. Tudor')}</span>}</div>
           </div>
           <div className="lvl-mock-bar"><i /><i /><i /><i /><i className="r" /></div>
-        </div>
+        </Link>
       </section>
 
       {err && <div className="lvl-banner is-err"><span>{err}</span></div>}
@@ -290,8 +309,8 @@ export default function MeditatiiLive() {
         <h2 className="lvl-section-title">Sau: meditație 1-la-1, oricând</h2>
         <div className="lvl-private">
           <div>
-            <h3>🎓 Doar tu și {teacher?.name || 'profesorul'} — {data.prices.privatMin} de minute</h3>
-            <p>Alegi subiectul (cu barem), iar profesorul îl ia cu tine pas cu pas: se oprește la fiecare întrebare, îți explică altfel dacă nu ai înțeles și îți răspunde cu voce la orice întrebare. Poți pune pauză, poți sări la exercițiul care te interesează.</p>
+            <h3>🎓 Doar tu și {teacher?.name || 'profesorul'} — {data.prices.privatMin} de minute, prelungite până termini</h3>
+            <p>Alegi subiectul (cu barem) și <b>exercițiile pe care vrei să le lucrezi</b>, nu neapărat la rând — ex. Subiectul I ex. 5, Subiectul al II-lea ex. 2 b), Subiectul al III-lea ex. 1 c). Profesorul le ia cu tine pas cu pas: se oprește la fiecare întrebare, îți explică altfel dacă nu ai înțeles și îți răspunde cu voce. Dacă nu termini în {data.prices.privatMin} de minute, ședința <b>se prelungește automat până termini exercițiile</b>, fără cost în plus.</p>
             {me.loggedIn && priv && (
               priv.via === 'admin' ? <span className="lvl-quota">✓ Cont de administrator — nelimitat</span>
                 : priv.included > 0 ? <span className={`lvl-quota${priv.includedLeft ? '' : ' is-paid'}`}>{priv.includedLeft ? `✓ ${priv.includedLeft} din ${priv.included} incluse luna aceasta` : `Ai folosit cele ${priv.included} incluse luna aceasta · ${data.prices.privat} lei ședința`}</span>
@@ -326,11 +345,20 @@ export default function MeditatiiLive() {
                 ))}
               </div>
             )}
+            {subjects && subjects.length > 0 && (
+              <div className="lvl-startpick">
+                <div className="lvl-startpick-title">📋 Cu ce exercițiu începi? <b>{startRef ? refLabel(startRef) : 'De la început, în ordine'}</b></div>
+                <ItemPicker items={defaultRefs(exam)} compact selectedRef={startRef} allowAll onAll={() => setStartRef(null)} onPick={(it) => setStartRef(it.ref)}
+                  note="Alegi orice exercițiu, nu neapărat la rând. După el, profesorul te întreabă ce urmează; în sală poți sări oricând la altul (📋 Exerciții)." />
+              </div>
+            )}
             <div className="lv-pre-actions" style={{ marginTop: 12 }}>
               <button type="button" className="lv-btn-primary lv-btn-lg" disabled={!subjectId || busy === 'private'} onClick={startPrivate}>
                 {busy === 'private' ? 'Pornesc…' : priv?.ok ? 'Începe acum' : `Începe · ${data.prices.privat} lei`}
               </button>
-              <span style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>Cele {data.prices.privatMin} de minute pornesc abia când intri în sală.</span>
+              <span style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>
+                Cele {data.prices.privatMin} de minute pornesc abia când intri în sală. Dacă nu termini exercițiile în {data.prices.privatMin} de minute, ședința se prelungește până le termini — fără cost în plus.
+              </span>
             </div>
           </div>
         )}
@@ -355,6 +383,7 @@ export default function MeditatiiLive() {
           <div><b>2. Încerci singur</b>La fiecare exercițiu profesorul îți dă timp să rezolvi: răspunzi la grilă sau scrii rezultatul, apoi vezi cum au răspuns colegii.</div>
           <div><b>3. Explicația pe barem</b>Profesorul scrie pe tablă pașii oficiali și spune câte puncte valorează fiecare. Apoi încă o dată, altfel: intuitiv sau cu greșelile care costă puncte.</div>
           <div><b>4. Întrebi oricând</b>În chat sau cu microfonul (vocea ta devine text). Profesorul răspunde pe loc, iar la „Întrebări" răspunde cu voce, pentru toată clasa.</div>
+          <div><b>5. Alegi tu exercițiile (1-la-1)</b>Sari la orice exercițiu, nu neapărat la rând (📋 Exerciții). Dacă nu termini în {data.prices.privatMin} de minute, ședința se prelungește până termini, fără cost în plus.</div>
         </div>
         <p className="lvl-note">
           Profesorul este <b>virtual (inteligență artificială)</b>: vocea și imaginea sunt generate, lucru semnalat pe ecran în fiecare ședință.

@@ -12,11 +12,15 @@
 //     rezultatul → rezolvarea pe barem, scrisă pe tablă → „Ai înțeles?" → verificare);
 //   · după cel puțin 10 exerciții, un TEST DE VERIFICARE (fără ajutor), apoi profesorul
 //     propune: mai departe (promovat) sau încă 5 exerciții și testul din nou;
-//   · elevul poate continua oricât, cere testul oricând sau alege altă poziție (🗺️).
+//   · elevul poate continua oricât, cere testul oricând sau alege altă poziție (🗺️);
+//   · ALEGEREA ELEVULUI: poate începe cu ORICE exercițiu, nu neapărat la rând — la
+//     intrare („Cu ce începi?"), în „🗺️ Plan" sau din „Planul meu" (/meditatii/pregatire?pos=II.2.b);
+//     la BAC, problemele de la Subiectele II și III se pot exersa și pe subpuncte (a, b, c);
+//   · fără limită de timp: lucrează cât vrea (peste 60 de minute, continuăm până termină).
 // Serverul: api/live.js (prep_*) + api/_lib/pregatire.js. Progresul: „Planul meu".
 // =====================================================================
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { liveApi } from '../lib/live/api';
 import { clock } from '../lib/live/clock';
@@ -31,6 +35,7 @@ import { WhiteboardInk, DigitalScreen } from '../components/live/Board';
 import { PollCard, UnderstandCard, ChoiceCard } from '../components/live/PollCard';
 import { LiveChat } from '../components/live/LiveChat';
 import SpatiuDeLucru from '../components/SpatiuDeLucru';
+import PrepPicker from '../components/live/PrepPicker';
 import { startDictation, speechRecognitionSupported } from '../lib/voice';
 import '../styles/live.css';
 
@@ -44,6 +49,8 @@ let sayN = 0;
 export default function PregatireExamen() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const wantPos = searchParams.get('pos');            // din „Planul meu": exercițiul ales de elev
 
   const [st, setSt] = useState(null);                 // răspunsul prep_state
   const [fatal, setFatal] = useState(null);           // { text, code }
@@ -64,6 +71,7 @@ export default function PregatireExamen() {
   const [showResult, setShowResult] = useState(false); // proiecția arată rezultatul testului
   const [positions, setPositions] = useState([]);
   const [curPos, setCurPos] = useState(null);
+  const [pick, setPick] = useState(null);             // exercițiul ales la intrare (null = cum propune profesorul)
 
   const [ps, setPs] = useState(null);                 // starea playerului
   const [myAnswers, setMyAnswers] = useState({});
@@ -98,6 +106,8 @@ export default function PregatireExamen() {
   const exam = st?.exam;
   const posInfo = (pos) => positions.find((p) => p.pos === pos) || null;
   const cur = posInfo(curPos);
+  const mainPositions = positions.filter((p) => !p.parent);   // subpunctele (a, b, c) au `parent`
+  const spokenOf = (p) => (p ? p.spoken || p.label : 'exercițiul ales');
 
   const flash = useCallback((t) => { setToast(t); setTimeout(() => setToast((x) => (x === t ? null : x)), 3800); }, []);
 
@@ -106,11 +116,12 @@ export default function PregatireExamen() {
     try {
       const r = await liveApi.prepState();
       setSt(r); setPositions(r.positions || []); setProposal(r.proposal || null); setCurPos(r.current || null);
+      if (wantPos && (r.positions || []).some((p) => p.pos === wantPos)) setPick(wantPos);
     } catch (e) {
       if (e.status === 401) setFatal({ text: 'Intră în cont ca să începi pregătirea de examen.', code: 'LOGIN' });
       else setFatal({ text: e.message || 'Nu am putut porni pregătirea.', code: e.code || null });
     }
-  }, []);
+  }, [wantPos]);
   useEffect(() => {
     if (authLoading) return;
     if (!user) { setFatal({ text: 'Intră în cont ca să începi pregătirea de examen.', code: 'LOGIN' }); return; }
@@ -160,7 +171,11 @@ export default function PregatireExamen() {
     engine.unlock();
     if (wantFs && roomRef.current) enterFs(roomRef.current);
     setJoined(true);
-    setTimeout(() => propose(proposal), 350);
+    // elevul a ales exercițiul (nu neapărat la rând): începem direct cu el
+    const chosen = pick ? posInfo(pick) : null;
+    const name = st?.me?.name ? `, ${st.me.name}` : '';
+    if (chosen) setTimeout(() => startExercise(chosen.pos, { lead: `Bună${name}! Începem cu ${spokenOf(chosen)}, cum ai ales.` }), 350);
+    else setTimeout(() => propose(proposal), 350);
   }
   // fără voce românească în browser: spunem de ce tace (ca în sala live)
   useEffect(() => {
@@ -253,10 +268,10 @@ export default function PregatireExamen() {
     if (!o) return;
     switch (o.key) {
       case 'next': case 'stay': startExercise(o.pos || curPos); break;
-      case 'advance': startExercise(o.pos, { lead: `Bine! Trecem la ${posInfo(o.pos)?.label || 'exercițiul următor'}.` }); break;
+      case 'advance': startExercise(o.pos, { lead: `Bine! Trecem la ${posInfo(o.pos) ? spokenOf(posInfo(o.pos)) : 'exercițiul următor'}.` }); break;
       case 'test': startTest(o.pos || curPos); break;
       case 'review': playReview(); break;
-      case 'choose': setPanel('plan'); say('Alege din listă exercițiul la care vrei să lucrăm.'); break;
+      case 'choose': setPanel('plan'); say('Alege din listă exercițiul la care vrei să lucrăm, în orice ordine.'); break;
       case 'end': endSession(); break;
       default: break;
     }
@@ -389,7 +404,8 @@ export default function PregatireExamen() {
 
   if (!joined) {
     const done = positions.reduce((n, p) => n + (p.done || 0), 0);
-    const mastered = positions.filter((p) => p.mastered).length;
+    const mastered = mainPositions.filter((p) => p.mastered).length;
+    const chosen = pick ? posInfo(pick) : null;
     return (
       <div className="lv-room is-pre" ref={roomRef}>
         <div className="pe-lobby">
@@ -410,14 +426,29 @@ export default function PregatireExamen() {
                 <span>{cur.mastered ? '✓ testul trecut' : `${cur.done} din ${cur.nextTestAt} exerciții`}</span>
               </div>
             )}
-            {(done > 0 || mastered > 0) && <div className="pe-lobby-stats">{done} exerciții lucrate · {mastered} din {positions.length} poziții stăpânite</div>}
+            {(done > 0 || mastered > 0) && <div className="pe-lobby-stats">{done} exerciții lucrate · {mastered} din {mainPositions.length} poziții stăpânite</div>}
+            {/* elevul alege ORICE exercițiu, nu neapărat la rând */}
+            <div className="pe-lobby-pick">
+              <div className="pe-lobby-pick-t">
+                📋 <b>Cu ce începi?</b> Alege orice exercițiu, nu neapărat la rând
+                {exam?.exam !== 'en' ? ' — la Subiectele II și III, și doar un subpunct: a), b) sau c)' : ''}.
+              </div>
+              <PrepPicker positions={positions} current={curPos} selected={pick} compact
+                onPick={(p) => setPick(p.pos === pick ? null : p.pos)}
+                defaultLabel={cur ? `Cum propune ${teacher.name}: ${cur.label}` : `Cum propune ${teacher.name}`}
+                onDefault={() => setPick(null)} />
+            </div>
+            <div className="pe-lobby-free">
+              ⏱ <b>Fără limită de timp:</b> lucrezi cât vrei. Dacă depășești 60 de minute, continuăm până termini exercițiile —
+              progresul se salvează după fiecare exercițiu.
+            </div>
             {canFs && (
               <label className="lv-pre-check">
                 <input type="checkbox" checked={wantFs} onChange={(e) => setWantFs(e.target.checked)} /> Intră pe tot ecranul
               </label>
             )}
             <div className="lv-pre-actions">
-              <button type="button" className="lv-btn-primary lv-btn-lg" onClick={onJoin}>Intră la meditație</button>
+              <button type="button" className="lv-btn-primary lv-btn-lg" onClick={onJoin}>{chosen ? `Intră · începem cu ${chosen.short}` : 'Intră la meditație'}</button>
               <Link to="/meditatii/plan" className="lv-btn-soft">Înapoi la Planul meu</Link>
             </div>
             <p className="lv-pre-ai">ⓘ Profesorul este <b>virtual (AI)</b>: vocea și imaginea sunt generate. Explică numai pe <b>baremul oficial</b> al fiecărui subiect.</p>
@@ -519,7 +550,7 @@ export default function PregatireExamen() {
             <div className="lv-ended">
               <div className="lv-ended-card">
                 <h2>Pe azi am terminat 👏</h2>
-                <p>{positions.reduce((n, p) => n + (p.done || 0), 0)} exerciții lucrate · {positions.filter((p) => p.mastered).length} din {positions.length} poziții stăpânite. Progresul e salvat în Planul meu.</p>
+                <p>{positions.reduce((n, p) => n + (p.done || 0), 0)} exerciții lucrate · {mainPositions.filter((p) => p.mastered).length} din {mainPositions.length} poziții stăpânite. Progresul e salvat în Planul meu.</p>
                 <div className="lv-pre-actions" style={{ justifyContent: 'center' }}>
                   <button type="button" className="lv-btn-primary" onClick={leave}>Înapoi la Planul meu</button>
                   <button type="button" className="lv-btn-soft" onClick={() => propose(proposal || st.proposal, 'Bine, mai lucrăm!')}>Mai lucrez puțin</button>
@@ -543,13 +574,15 @@ export default function PregatireExamen() {
               onAgain={() => playerRef.current?.explainAgain()}
               onAsk={() => { setPanel('chat'); setPrefill({ id: Date.now(), text: '' }); }} />
           )}
-          {voiceHint && (
-            <div className="lv-voice-hint" role="status">
-              <span>🔈 {voiceHint}</span>
-              <button type="button" onClick={() => setVoiceHint(null)} aria-label="Închide">✕</button>
-            </div>
-          )}
-          {toast && <div className="lv-toast">{toast}</div>}
+          <div className="lv-notes">
+            {voiceHint && (
+              <div className="lv-voice-hint" role="status">
+                <span>🔈 {voiceHint}</span>
+                <button type="button" onClick={() => setVoiceHint(null)} aria-label="Închide">✕</button>
+              </div>
+            )}
+            {toast && <div className="lv-toast">{toast}</div>}
+          </div>
         </main>
 
         {panel && (
@@ -564,27 +597,44 @@ export default function PregatireExamen() {
             ) : (
               <div className="pe-plan">
                 <div className="pe-plan-head">
-                  {exam?.label}: exercițiu cu exercițiu, în ordinea din examen. Alege orice poziție — {teacher.name} te ia de acolo.
+                  {exam?.label}: {teacher.name} propune ordinea din examen, dar poți alege <b>orice exercițiu, nu neapărat la rând</b>
+                  {mainPositions.length < positions.length ? ' — la problemele cu a), b), c), și doar un subpunct' : ''}. Te ia de acolo.
                 </div>
                 {['I', 'II', 'III'].map((sub) => {
-                  const list = positions.filter((p) => p.sub === sub);
+                  const list = mainPositions.filter((p) => p.sub === sub);
                   if (!list.length) return null;
+                  const go = (p) => { setPanel(null); playerRef.current?.stop(); startExercise(p.pos, { lead: `Bine, lucrăm la ${spokenOf(p)}.` }); };
                   return (
                     <div key={sub} className="pe-plan-group">
                       <div className="pe-plan-sub">{sub === 'I' ? 'Subiectul I' : sub === 'II' ? 'Subiectul al II-lea' : 'Subiectul al III-lea'}</div>
                       {list.map((p) => {
                         const b = STATUS_BADGE[p.status] || STATUS_BADGE.nou;
                         const on = p.pos === curPos;
+                        const subs = positions.filter((x) => x.parent === p.pos);
                         return (
-                          <button key={p.pos} type="button" className={`pe-plan-row${on ? ' is-on' : ''}`} disabled={phase === 'pregateste'}
-                            onClick={() => { setPanel(null); playerRef.current?.stop(); startExercise(p.pos, { lead: `Bine, lucrăm la ${p.label}.` }); }}>
-                            <span className="pe-plan-name">Exercițiul {p.ex}{p.multi ? ' (a, b…)' : ''}</span>
-                            <span className="pe-plan-meta">
-                              {p.mastered ? '' : `${p.done}/${p.nextTestAt}`}
-                              {p.lastTest ? ` · test ${p.lastTest.correct}/${p.lastTest.total}` : ''}
-                            </span>
-                            <span className={`pe-badge ${b.cls}`}>{b.label}</span>
-                          </button>
+                          <div key={p.pos}>
+                            <button type="button" className={`pe-plan-row${on ? ' is-on' : ''}`} disabled={phase === 'pregateste'} onClick={() => go(p)}>
+                              <span className="pe-plan-name">Exercițiul {p.ex}{subs.length ? ' (a, b, c)' : p.multi ? ' (a, b…)' : ''}</span>
+                              <span className="pe-plan-meta">
+                                {p.mastered ? '' : `${p.done}/${p.nextTestAt}`}
+                                {p.lastTest ? ` · test ${p.lastTest.correct}/${p.lastTest.total}` : ''}
+                              </span>
+                              <span className={`pe-badge ${b.cls}`}>{b.label}</span>
+                            </button>
+                            {subs.length > 0 && (
+                              <div className="pe-plan-subs">
+                                <span>doar subpunctul:</span>
+                                {subs.map((sp) => (
+                                  <button key={sp.pos} type="button" disabled={phase === 'pregateste'}
+                                    className={`pp-chip${sp.mastered ? ' is-ok' : sp.status === 'in_lucru' ? ' is-work' : ''}${sp.pos === curPos ? ' is-on' : ''}`}
+                                    title={`${sp.label}${sp.mastered ? ' · testul trecut ✓' : sp.done ? ` · ${sp.done} ${sp.done === 1 ? 'exercițiu lucrat' : 'exerciții lucrate'}` : ''}`}
+                                    onClick={() => go(sp)}>
+                                    {sp.letter}){sp.mastered ? <i aria-hidden="true">✓</i> : null}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         );
                       })}
                     </div>

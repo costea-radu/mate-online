@@ -227,6 +227,50 @@ function phaseOf(session, now = new Date()) {
 }
 const canJoinPhase = (ph) => ph === 'live' || ph === 'sala_asteptare';
 
+// ─── PRELUNGIREA: elevul care nu a terminat exercițiile nu e oprit la 60 de minute ───
+// La 1-la-1 (și la ședința de grup ținută 1-la-1), cât elevul e în sală și lecția nu
+// s-a terminat, sfârșitul ședinței (ends_at) se mută înainte cu câte
+// LIVE_PRELUNGIRE_PAS minute (implicit 10), fără cost în plus — până termină. Plafon:
+// LIVE_PRELUNGIRE_MAX minute (implicit 120) după sfârșitul inițial (un tab uitat
+// deschis nu ține sala deschisă la nesfârșit). Sfârșitul inițial se CALCULEAZĂ
+// (1-la-1: pornirea + 60 de minute; grup: ora de final a intervalului), nu se
+// păstrează în stare — altfel o scriere concurentă a stării l-ar putea pierde.
+const EXT_STEP_MIN = () => Math.max(3, envInt('LIVE_PRELUNGIRE_PAS', 10));
+const EXT_MAX_MIN = () => Math.max(0, envInt('LIVE_PRELUNGIRE_MAX', 120));
+
+function baseEndOf(session) {
+  if (!session) return null;
+  const st = session.state || {};
+  if (session.kind === 'privat') {
+    return st.startedAt ? new Date(Date.parse(st.startedAt) + PRIVATE_MINUTES() * 60000).toISOString() : session.ends_at;
+  }
+  const slot = session.slot ? slotById(session.slot) : null;
+  if (slot && session.day && parseDayKey(session.day)) return slotTimes(session.day, slot).endsAt;
+  return st.baseEndsAt || session.ends_at;
+}
+
+// Ce se poate face acum: { ok, changed, next, base, cap, reason }
+//   individual = ședința de grup e ținută 1-la-1 pentru elev (sau lecția comună s-a terminat)
+function extensionPlan(session, { now = new Date(), individual = false } = {}) {
+  if (!session || session.status === 'anulata') return { ok: false, reason: 'anulata' };
+  const st = session.state || {};
+  if (session.kind === 'privat') {
+    if (!st.startedAt) return { ok: false, reason: 'nepornita' };
+    if (session.status === 'incheiata') return { ok: false, reason: 'incheiata' };
+  } else if (!individual) return { ok: false, reason: 'lectie_comuna' };
+  const t = now.getTime();
+  const ends = Date.parse(session.ends_at);
+  const base = Date.parse(baseEndOf(session)) || ends;
+  const cap = base + EXT_MAX_MIN() * 60000;
+  const step = EXT_STEP_MIN() * 60000;
+  const out = { base, cap, next: ends };
+  if (ends - t > step / 2) return { ...out, ok: true, changed: false };          // mai e destul timp
+  if (t > ends + 3 * 60000) return { ...out, ok: false, reason: 'expirata' };     // sala s-a închis demult
+  if (t >= cap) return { ...out, ok: false, reason: 'plafon' };
+  const next = Math.min(cap, Math.max(ends, t + step));
+  return { ...out, ok: true, changed: next !== ends, next };
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 4. SUBIECTELE — doar cele cu BAREM asociat
 // ═════════════════════════════════════════════════════════════════════════════
@@ -709,6 +753,7 @@ module.exports = {
   intervals, rooms, roomById, slots, slotById, slotTimes, examFor, plannedSessions, phaseOf, canJoinPhase, JOIN_EARLY_MIN, isFullSubject,
   BAREM_OK, hasBarem, subjectExam, pickSubject, PROFILE_LABELS, EXAM_LABEL,
   groupAccess, privateAccess, PRICE_GROUP_LEI, PRICE_PRIVATE_LEI, PRIVATE_INCLUDED, PRIVATE_MINUTES,
+  EXT_STEP_MIN, EXT_MAX_MIN, baseEndOf, extensionPlan,
   displayName, moderate, isQuestion, foldRo,
   checkPollAnswer, pollResults, publicPoll,
   buildTimeline, fitTimeline, sceneAt, qnaSchedule, packSegments, segDuration, MODE_LABELS, ALT_MODES, GAP,

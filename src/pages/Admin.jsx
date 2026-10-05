@@ -6,6 +6,8 @@ import { supabase } from '../lib/supabase';
 import AIAdminPanel from '../components/AIAdminPanel';
 import ReviewsAdmin from '../components/ReviewsAdmin';
 import LiveAdmin from '../components/LiveAdmin';
+import AdminVerificare from '../components/AdminVerificare';
+import AdminDebug from '../components/AdminDebug';
 import { ContentMetaFields, EditContentModal, ReorderPanel } from '../components/ContentAdminTools';
 import { CATEGORIES, CONTENT_TYPES, categoryLabel, subcategoryLabel, profileLabel, hasSubcategories, visibilityWarning } from '../lib/contentMeta';
 
@@ -917,6 +919,8 @@ export default function Admin() {
     { id: 'ai',          label: '🤖 AI Tutor' },
     { id: 'recenzii',    label: '⭐ Recenzii' },
     { id: 'live',        label: '🎥 Meditații live' },
+    { id: 'verificare',  label: '🔎 Verificare materiale' },
+    { id: 'debug',       label: '🐞 Agent debug' },
   ];
 
   function onSuccess() {
@@ -951,6 +955,8 @@ export default function Admin() {
           {tab === 'ai'          && <AIAdminPanel />}
           {tab === 'recenzii'    && <ReviewsAdmin s={s} />}
           {tab === 'live'        && <LiveAdmin />}
+          {tab === 'verificare'  && <AdminVerificare s={s} />}
+          {tab === 'debug'       && <AdminDebug s={s} />}
         </div>
       </div>
     </div>

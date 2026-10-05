@@ -546,6 +546,33 @@ modificate — `api/live.js` (acțiunile `prep_*`), `api/ai-meditatii.js` (`exam
 `src/pages/Meditatii.jsx` (cardul, propunerea, meniul), `src/lib/live/api.js`, `src/App.jsx`
 (ruta), `src/styles/live.css`.
 
+## 📋 Runda 13 — elevul alege exercițiul (nu neapărat la rând) + demo-ul la vedere
+
+- **Orice exercițiu, nu neapărat la rând.** Profesorul propune în continuare ordinea din examen,
+  dar elevul poate alege oricând altceva: Subiectul I ex. 5, Subiectul al II-lea ex. 2 b),
+  Subiectul al III-lea ex. 1 c)…
+  - în **„Planul meu"**, pe cardul 🎓: **„📋 Aleg eu exercițiul"** → grila exercițiilor, colorată
+    după progres (verde = test trecut, galben = în lucru) → un clic duce direct în clasă, la el
+    (`/meditatii/pregatire?pos=II.2.b`);
+  - la **intrarea în clasă**: „📋 Cu ce începi?" — propunerea profesorului e preselectată; butonul
+    devine „Intră · începem cu S. II · ex. 2 b)", iar profesorul confirmă cu voce;
+  - în clasă, **🗺️ Plan**: sub fiecare problemă cu a), b), c), butoanele „doar subpunctul: a) b) c)".
+- **Subpunctele (BAC):** problemele de la Subiectele II și III se pot exersa și pe subpuncte, din
+  toate subiectele oficiale ale profilului — cu progresul și testul lor (5 exerciții, ca la itemii
+  simpli). Benzile de pe card și „X din 10 poziții stăpânite" numără tot pozițiile întregi; după un
+  subpunct, profesorul propune subpunctul următor, apoi problema următoare. La EN, problemele de la
+  Subiectul III rămân întregi (așa sunt itemii lecțiilor).
+- **Fără limită de timp:** intrarea în clasă spune că pregătirea nu are limită — peste 60 de minute
+  se continuă până termină elevul exercițiile; progresul se salvează după fiecare exercițiu.
+- **Demo-ul la vedere:** „▶ Vezi demo-ul · meditație 1-la-1, 2 minute" chiar sus, în rândul cu
+  filele „Meditații live / Planul meu" (pe telefon, pe toată lățimea, deasupra lor), plus „▶ Vezi
+  întâi demo-ul (fără cont)" în cardul pentru cei fără abonament. În „Meditații live", butoanele demo
+  sunt acum în capul paginii (vezi `GHID_MEDITATII_LIVE.md` → 3b, unde e și prelungirea 1-la-1).
+- Fără SQL, fără variabile noi. Fișiere: `api/_lib/pregatire.js` (subpunctele: `subPositions`,
+  `nextPosition`, `itemsAt`), `api/ai-meditatii.js` (`examPrep.subs`), `src/components/live/PrepPicker.jsx`
+  (nou), `src/pages/PregatireExamen.jsx`, `src/pages/Meditatii.jsx`, `src/styles/live.css`,
+  `test/pregatire-examen.test.js`.
+
 ## 🛠️ Depanare
 
 | Simptom | Cauză / soluție |

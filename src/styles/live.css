@@ -627,3 +627,111 @@
   .pe-entry-grp i { width: 12px; }
   .pe-entry-go { margin-top: 11px; padding: 11px 12px; }
 }
+
+/* ───────────── „📋 Exerciții": elevul alege orice exercițiu (ItemPicker.jsx) ─────────────
+   În panoul lateral al sălii (alb) și la intrare („Cu ce exercițiu începi?") */
+.lv-ip-panel { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 14px; }
+.lv-ip-intro { font-size: .82rem; color: #5f6368; line-height: 1.45; margin-bottom: 10px; }
+.lv-ip-sec { margin-bottom: 12px; }
+.lv-ip-head { font-size: .72rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: #1f5faa; margin: 4px 2px 6px; }
+.lv-ip-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.lv-ip-ex { display: inline-flex; align-items: center; gap: 4px; background: #f8f9fa; border: 1px solid #eceff1; border-radius: 12px; padding: 3px 4px 3px 8px; }
+.lv-ip-ex b { font-size: .74rem; color: #3c4043; margin-right: 2px; white-space: nowrap; }
+.lv-ip-chip { position: relative; min-width: 40px; height: 36px; padding: 0 10px; border-radius: 10px; border: 1px solid #dadce0; background: #fff; color: #202124 !important; font-weight: 700; font-size: .9rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 3px; }
+.lv-ip-chip:hover:not(:disabled) { border-color: #1a73e8; background: #f8fbff; }
+.lv-ip-chip:disabled { cursor: default; opacity: .75; }
+.lv-ip-chip.is-on { border-color: #1a73e8; background: #e8f0fe; color: #0b57d0 !important; box-shadow: 0 0 0 2px rgba(26,115,232,.18); }
+.lv-ip-chip i { font-style: normal; font-size: .72rem; font-weight: 800; }
+.lv-ip-chip.is-corect i { color: #188038; }
+.lv-ip-chip.is-gresit i { color: #d93025; }
+.lv-ip-chip.is-vazut i { color: #9aa0a6; }
+.lv-ip-chip.is-wide { width: 100%; justify-content: flex-start; padding: 0 12px; font-weight: 600; }
+.lv-ip-note { font-size: .78rem; color: #5f6368; line-height: 1.45; margin-top: 4px; }
+.lv-ip-empty { font-size: .85rem; color: #5f6368; padding: 8px 2px; }
+.lv-ip.is-compact .lv-ip-chip { height: 32px; min-width: 36px; font-size: .84rem; }
+.lv-ip.is-compact .lv-ip-sec { margin-bottom: 8px; }
+
+/* intrarea în sală: prelungirea + alegerea exercițiului de început */
+.lv-pre-note { background: #e8f0fe; color: #174ea6; border-radius: 10px; padding: 9px 12px; font-size: .86rem; line-height: 1.45; margin: 4px 0 10px; }
+.lv-pre-pick { border: 1px solid #e3e8ef; border-radius: 12px; margin-bottom: 12px; background: #fff; }
+.lv-pre-pick-toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; font-size: .9rem; color: #3c4043 !important; text-align: left; cursor: pointer; background: none; border: 0; }
+.lv-pre-pick-toggle b { color: #0b57d0; }
+.lv-pre-pick .lv-ip { padding: 0 12px 12px; }
+
+/* cronometrul, după cele 60 de minute: ședința prelungită */
+.lv-timer.is-over { background: rgba(232,185,49,.16); color: #fdd663; border-radius: 12px; padding: 2px 9px; font-weight: 700; opacity: 1; }
+@media (max-width: 560px) {
+  .lv-timer.is-over { font-size: .72rem; padding: 2px 7px; }
+  /* 1-la-1 pe telefon: „Mâna sus" (pauză + întrebare) trece în „⋯", ca „📋 Exerciții" să încapă în bară */
+  .lv-bar .lv-ctl-hand { display: none; }
+}
+
+/* lobby: DEMO-ul, chiar sus (cererea: „butonul demo să apară la început mai evident") */
+.lvl-hero-cta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.lvl-demo-btn { display: inline-flex; align-items: center; gap: 10px; background: var(--gold, #e8b931); color: #0f2b44 !important; border-radius: 14px; padding: 10px 18px 10px 12px; text-decoration: none; box-shadow: 0 6px 18px rgba(232,185,49,.35); transition: transform .15s, filter .15s; }
+.lvl-demo-btn:hover { transform: translateY(-1px); filter: brightness(1.05); }
+.lvl-demo-btn b { display: block; font-size: 1.02rem; line-height: 1.2; }
+.lvl-demo-btn small { display: block; font-size: .74rem; font-weight: 600; opacity: .78; }
+.lvl-demo-play { width: 34px; height: 34px; border-radius: 50%; background: #0f2b44; color: var(--gold, #e8b931); display: inline-flex; align-items: center; justify-content: center; font-size: .9rem; padding-left: 2px; flex: none; }
+.lvl-demo-btn.is-soft { background: rgba(255,255,255,.1); color: #fff !important; box-shadow: none; border: 1px solid rgba(255,255,255,.35); }
+.lvl-demo-btn.is-soft .lvl-demo-play { background: rgba(255,255,255,.16); color: #fff; }
+a.lvl-hero-mock { display: block; position: relative; color: inherit; text-decoration: none; cursor: pointer; transition: transform .2s; }
+a.lvl-hero-mock:hover { transform: scale(1.015); }
+.lvl-mock-play { position: absolute; z-index: 3; left: 50%; top: 42%; transform: translate(-50%, -50%); background: rgba(15,43,68,.88); color: #fff; border: 2px solid var(--gold, #e8b931); border-radius: 22px; padding: 7px 16px; font-weight: 800; font-size: .9rem; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+@media (max-width: 760px) {
+  .lvl-hero-cta { flex-direction: column; }
+  .lvl-demo-btn { width: 100%; }
+}
+
+/* lobby, 1-la-1: „Cu ce exercițiu începi?" */
+.lvl-startpick { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 12px; }
+.lvl-startpick-title { font-size: .9rem; color: var(--text); margin-bottom: 8px; }
+.lvl-startpick-title b { color: #0b57d0; }
+
+/* 🎓 Pregătire de examen: alegerea exercițiului (PrepPicker.jsx) — la intrare, în „🗺️ Plan", în „Planul meu" */
+.pp-sec { margin-bottom: 10px; }
+.pp-head { font-size: .72rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: #1f5faa; margin: 2px 2px 6px; text-align: left; }
+.pp-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pp-ex { display: inline-flex; align-items: center; gap: 4px; background: #f8f9fa; border: 1px solid #eceff1; border-radius: 12px; padding: 3px; }
+.pp-chip { min-width: 38px; height: 34px; padding: 0 9px; border-radius: 10px; border: 1px solid #dadce0; background: #fff; color: #202124 !important; font-weight: 700; font-size: .86rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 3px; white-space: nowrap; }
+.pp-chip:hover:not(:disabled) { border-color: #1a73e8; background: #f8fbff; }
+.pp-chip:disabled { opacity: .6; cursor: default; }
+.pp-chip.is-work { border-color: #f2c94c; background: #fffaeb; }
+.pp-chip.is-ok { border-color: #81c995; background: #f0faf3; }
+.pp-chip.is-ok i { color: #188038; font-style: normal; font-size: .72rem; }
+.pp-chip.is-on { border-color: #1a73e8 !important; background: #e8f0fe !important; color: #0b57d0 !important; box-shadow: 0 0 0 2px rgba(26,115,232,.2); }
+.pp-chip.is-wide { width: 100%; justify-content: flex-start; padding: 6px 12px; font-weight: 600; margin-bottom: 10px; white-space: normal; height: auto; min-height: 34px; text-align: left; line-height: 1.3; }
+.pp.is-compact .pp-chip { height: 30px; min-width: 34px; font-size: .8rem; }
+.pp.is-dark .pp-head { color: var(--gold, #e8b931); }
+.pp.is-dark .pp-ex { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); }
+.pe-lobby-pick { text-align: left; border: 1px solid #e3e8ef; border-radius: 14px; padding: 12px; margin: 4px 0 12px; }
+.pe-lobby-pick-t { font-size: .88rem; color: #3c4043; margin-bottom: 8px; }
+.pe-lobby-pick-t b { color: #0b57d0; }
+.pe-lobby-free { font-size: .84rem; color: #174ea6; background: #e8f0fe; border-radius: 10px; padding: 8px 12px; margin: 0 0 12px; text-align: left; line-height: 1.45; }
+.pe-plan-subs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: -2px 0 8px 10px; font-size: .74rem; color: #5f6368; }
+.pe-entry-pick { grid-column: 1 / -1; margin-top: 12px; background: rgba(255,255,255,.96); border-radius: 12px; padding: 12px; }
+.pe-entry-more { background: none; border: 0; color: #fdd663; font-weight: 700; font-size: .82rem; cursor: pointer; padding: 6px 0 0; text-align: left; }
+@media (max-width: 900px) { .pe-entry-pick { grid-column: 1 / -1; } }
+.pe-plan-subs .pp-chip { height: 28px; min-width: 34px; font-size: .78rem; padding: 0 8px; }
+.pe-plan-head b { color: #202124; }
+
+/* „Planul meu": DEMO-ul, chiar sus, în rândul cu taburile (pe telefon: deasupra lor, pe toată lățimea) */
+.med-demo-tab { margin-left: auto; align-self: center; margin-bottom: 6px; display: inline-flex; align-items: center; gap: 8px; background: var(--gold, #e8b931); color: #0f2b44 !important; border-radius: 999px; padding: 4px 14px 4px 4px; font-size: .86rem; text-decoration: none; white-space: nowrap; box-shadow: 0 4px 12px rgba(232,185,49,.35); transition: transform .15s, filter .15s; }
+.med-demo-tab:hover { transform: translateY(-1px); filter: brightness(1.05); }
+.med-demo-tab b { font-weight: 800; }
+.med-demo-tab small { font-size: .76rem; font-weight: 600; opacity: .8; }
+.med-demo-tab .lvl-demo-play { width: 28px; height: 28px; font-size: .74rem; }
+@media (max-width: 640px) {
+  .med-tabs { flex-wrap: wrap; }
+  .med-demo-tab { order: -1; width: 100%; justify-content: center; margin: 0 0 10px; padding: 6px 14px 6px 6px; font-size: .92rem; }
+}
+.pe-entry-pick .pe-lobby-pick-t { color: #3c4043; }
+/* mesajele de sus (îndemnul despre voce, mesajul scurt — ex. „Au trecut cele 60 de minute…"), unul sub altul */
+.lv-notes { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 12; width: min(640px, calc(100% - 24px)); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+.lv-notes:empty { display: none; }
+.lv-notes > * { pointer-events: auto; }
+.lv-notes > .lv-toast, .lv-notes > .lv-voice-hint { position: static; transform: none; max-width: 100%; }
+.lv-stage.has-pan .lv-notes { top: 58px; }
+@media (max-width: 560px) { .lv-stage.has-pan .lv-notes { top: 52px; } }
+/* intrarea în pregătire: cardul crește cu alegerea exercițiului — sala derulează (fără capul tăiat sus, pe telefon) */
+.lv-room.is-pre > .pe-lobby { flex-shrink: 0; }

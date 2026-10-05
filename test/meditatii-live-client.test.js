@@ -192,3 +192,133 @@ test('vocea pe server: întâi itemul la care a sărit elevul, apoi restul (făr
   assert.deepStrictEqual(LL.voiceOrder(script, 'II.1').map((s) => s.id), ['b1', 'b2', 'b3', 'c1', 'c2', 'in', 'a1', 'a2', 'qa', 'fi']);
   assert.deepStrictEqual(LL.voiceOrder(script, 'X.9').map((s) => s.id), LL.voiceOrder(script).map((s) => s.id));
 });
+
+// ─── „📋 Exerciții": elevul alege ce exercițiu lucrează, nu neapărat la rând ───
+const itemsLib = () => import('../src/lib/live/items.js');
+
+test('📋 exercițiile: referințe, etichete, structura examenului (EN / BAC), grupate pe subiecte și pe subpuncte', async () => {
+  const I = await itemsLib();
+  assert.deepStrictEqual(I.parseRef('II.2.b'), { section: 'II', ex: 2, letter: 'b' });
+  assert.deepStrictEqual(I.parseRef('III.1'), { section: 'III', ex: 1, letter: null });
+  assert.deepStrictEqual(I.parseRef('I.5'), { section: 'I', ex: 5, letter: null });
+  assert.strictEqual(I.parseRef('Subiect'), null);
+  assert.strictEqual(I.refLabel('II.2.b'), 'S. II · ex. 2 b)');
+  assert.strictEqual(I.refLabel('III.1.c', { long: true }), 'Subiectul al III-lea, exercițiul 1 c)');
+  assert.strictEqual(I.refLabel('I.5', { long: true }), 'Subiectul I, exercițiul 5');
+  // înainte să fie gata lecția: structura obișnuită a examenului
+  const bac = I.defaultRefs('bac');
+  assert.strictEqual(bac.length, 6 + 2 * 3 + 2 * 3);
+  assert.ok(bac.some((x) => x.ref === 'II.2.b') && bac.some((x) => x.ref === 'III.1.c'));
+  const en = I.defaultRefs('en');
+  assert.strictEqual(en.length, 18);
+  assert.ok(en.every((x) => !I.parseRef(x.ref).letter), 'la EN, exercițiile sunt întregi');
+  const g = I.groupItems(bac);
+  assert.deepStrictEqual(g.map((s) => s.label), ['Subiectul I', 'Subiectul al II-lea', 'Subiectul al III-lea']);
+  assert.deepStrictEqual(g[0].groups.map((x) => x.ex), [1, 2, 3, 4, 5, 6]);
+  assert.deepStrictEqual(g[1].groups.map((x) => [x.ex, x.items.map((i) => i.letter).join('')]), [[1, 'abc'], [2, 'abc']]);
+  // ordinea din lecție nu contează: grupele ies în ordinea din examen
+  const shuffled = I.groupItems([{ ref: 'III.1.b' }, { ref: 'I.2' }, { ref: 'III.1.a' }, { ref: 'II.4' }]);
+  assert.deepStrictEqual(shuffled.map((s) => s.section), ['I', 'II', 'III']);
+  assert.deepStrictEqual(shuffled[2].groups[0].items.map((i) => i.ref), ['III.1.a', 'III.1.b']);
+});
+
+test('📋 exercițiul ales: scena lui de început (exact, problemă ↔ subpunct, lipsă → următorul din lecție); starea fiecăruia', async () => {
+  const I = await itemsLib();
+  const tl = { scenes: [
+    { type: 'intro' },
+    { type: 'item', item: 0, ref: 'I.5', title: 'Subiectul I, exercițiul 5' }, { type: 'sondaj', item: 0, poll: { id: 'p0' } },
+    { type: 'item', item: 1, ref: 'II.2.a' }, { type: 'sondaj', item: 1, poll: { id: 'p1' } },
+    { type: 'item', item: 2, ref: 'II.2.b' },
+    { type: 'item', item: 3, ref: 'III.1' }, { type: 'sondaj', item: 3, poll: { id: 'p3' } },
+  ] };
+  assert.deepStrictEqual(I.sceneIndexForRef(tl, 'II.2.b'), { index: 5, exact: true, ref: 'II.2.b' });
+  assert.deepStrictEqual(I.sceneIndexForRef(tl, 'II.2'), { index: 3, exact: true, ref: 'II.2.a' }, 'problema întreagă → primul subpunct');
+  assert.deepStrictEqual(I.sceneIndexForRef(tl, 'III.1.c'), { index: 6, exact: true, ref: 'III.1' }, 'subpunct ales, lecția are problema întreagă');
+  assert.deepStrictEqual(I.sceneIndexForRef(tl, 'I.6'), { index: 3, exact: false, ref: 'II.2.a' }, 'lipsește → următorul din lecție');
+  assert.deepStrictEqual(I.sceneIndexForRef(tl, 'III.6'), { index: -1, exact: false });
+  assert.deepStrictEqual(I.sceneIndexForRef(tl, null), { index: -1, exact: false });
+  assert.deepStrictEqual(I.itemsFromTimeline(tl).map((x) => x.ref), ['I.5', 'II.2.a', 'II.2.b', 'III.1']);
+  const st = I.itemStatus(tl, { p0: { correct: true }, p1: { correct: false }, p3: { correct: true } }, new Set([2, 3]));
+  assert.deepStrictEqual(st, { 0: 'corect', 1: 'gresit', 3: 'corect', 2: 'vazut' });
+});
+
+function pickTimeline() {
+  const seg = (id, t) => ({ id, t, dur: 1.5, say: `fraza ${id}`, caption: `fraza ${id}`, board: [], audio: null, lip: null });
+  return {
+    duration: 12, noVoice: true,
+    scenes: [
+      { type: 'intro', t0: 0, dur: 2, segs: [seg('in', 0)] },
+      { type: 'item', item: 0, ref: 'I.5', t0: 2, dur: 2, segs: [seg('a', 0)], statement: 'A' },
+      { type: 'explicatie', item: 0, ref: 'I.5', t0: 4, dur: 2, segs: [seg('a2', 0)] },
+      { type: 'item', item: 1, ref: 'III.1.c', t0: 6, dur: 2, segs: [seg('b', 0)], statement: 'B' },
+      { type: 'final', t0: 8, dur: 2, segs: [seg('fi', 0)] },
+    ],
+  };
+}
+
+test('player 1-la-1, „📋 aleg eu": la sfârșitul fiecărui exercițiu profesorul se oprește și întreabă ce urmează', async () => {
+  const { PrivatePlayer } = await player();
+  const realNow = Date.now;
+  let now = 9_000_000;
+  Date.now = () => now;
+  try {
+    const engine = fakeEngine();
+    let last = null;
+    const p = new PrivatePlayer({ engine, onState: (s) => { last = s; } });
+    p.setTimeline(pickTimeline());
+    p.setPickMode(true);
+    p.start(); clearInterval(p.timer); p.timer = null;
+    p.gotoItem(0);                                   // elevul a ales S. I ex. 5
+    const run = (sec) => { for (let k = 0; k < sec * 4; k++) { now += 250; p.tick(); } };
+    run(2.5);
+    assert.strictEqual(p.status, 'ruleaza', 'în mijlocul exercițiului (enunț → explicație) merge singur');
+    assert.strictEqual(p.scene.type, 'explicatie');
+    run(2.5);
+    assert.strictEqual(p.status, 'alege', 'exercițiul s-a terminat → întrebăm ce urmează');
+    assert.strictEqual(last.nextHead.ref, 'III.1.c', '„Mai departe: S. III ex. 1 c)"');
+    assert.strictEqual(last.caption, null);
+    assert.strictEqual(last.pickMode, true);
+    run(60);
+    assert.strictEqual(p.status, 'alege', 'nu trece singur la următorul, oricât ar aștepta');
+    // „Mai departe" → exercițiul următor din lecție
+    p.continueNext();
+    assert.strictEqual(p.scene.ref, 'III.1.c');
+    run(2.5);
+    assert.strictEqual(p.status, 'alege');
+    assert.strictEqual(last.nextHead, null, 'după ultimul exercițiu nu mai urmează altul');
+    // „Alt exercițiu" → înapoi la S. I ex. 5 (oricare, nu neapărat la rând)
+    p.gotoItem(0);
+    assert.strictEqual(p.status, 'ruleaza');
+    assert.strictEqual(p.scene.ref, 'I.5');
+    assert.strictEqual(p.pendingNext, null);
+    // fără „aleg eu": lecția curge singură, ca înainte
+    p.setPickMode(false);
+    run(4.5);
+    assert.strictEqual(p.scene.ref, 'III.1.c');
+    assert.notStrictEqual(p.status, 'alege');
+    run(6);
+    assert.strictEqual(p.status, 'final');
+  } finally { Date.now = realNow; }
+});
+
+test('player 1-la-1, „📋 aleg eu": „Mai departe" după ultimul exercițiu încheie lecția (fraza de final)', async () => {
+  const { PrivatePlayer } = await player();
+  const realNow = Date.now;
+  let now = 12_000_000;
+  Date.now = () => now;
+  try {
+    const p = new PrivatePlayer({ engine: fakeEngine(), onState: () => {} });
+    p.setTimeline(pickTimeline());
+    p.setPickMode(true);
+    p.start(); clearInterval(p.timer); p.timer = null;
+    p.gotoItem(1);
+    for (let k = 0; k < 12; k++) { now += 250; p.tick(); }
+    assert.strictEqual(p.status, 'alege');
+    p.continueNext();
+    assert.strictEqual(p.scene.type, 'final', 'încheierea profesorului');
+    for (let k = 0; k < 12; k++) { now += 250; p.tick(); }
+    assert.strictEqual(p.status, 'final');
+    p.continueNext();                                // fără efect după final
+    assert.strictEqual(p.status, 'final');
+  } finally { Date.now = realNow; }
+});

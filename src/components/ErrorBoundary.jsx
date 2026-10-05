@@ -1,6 +1,7 @@
 // src/components/ErrorBoundary.jsx — prinde erorile de randare (fără ecran alb)
 import { Component } from 'react';
 import { Link } from 'react-router-dom';
+import { reportError } from '../lib/errorReport';
 
 export default class ErrorBoundary extends Component {
   constructor(props) {
@@ -12,6 +13,8 @@ export default class ErrorBoundary extends Component {
   }
   componentDidCatch(error, info) {
     console.error('ErrorBoundary a prins o eroare:', error, info);
+    // pagina albă e cea mai gravă eroare: o vede și agentul de debug din Admin
+    reportError(error, info?.componentStack ? `React:${String(info.componentStack).slice(0, 1200)}` : null);
   }
   render() {
     if (this.state.hasError) {

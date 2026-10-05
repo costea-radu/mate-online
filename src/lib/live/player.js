@@ -159,6 +159,24 @@ export class PrivatePlayer {
     this.voiceFallback = false;   // vocea generată a întârziat → segmentele fără fișier le rostește browserul
     this.waitSince = 0;           // de când așteaptă vocea (status „incarca")
     this.lastAsk = 0;
+    this.pickMode = false;        // elevul își alege exercițiile (📋): după fiecare, profesorul întreabă ce urmează
+    this.pendingNext = null;      // scena la care ar continua (status „alege")
+  }
+
+  // „📋 Exerciții": elevul alege ce lucrează — la sfârșitul fiecărui exercițiu,
+  // profesorul se oprește și întreabă: mai departe / alt exercițiu / gata
+  setPickMode(on) { this.pickMode = !!on; }
+  continueNext() {
+    if (this.status !== 'alege' || this.pendingNext == null) return;
+    const i = this.pendingNext;
+    this.pendingNext = null;
+    if (i >= this.tl.scenes.length) { this.status = 'final'; this.engine.stopAll(); this.tick(); return; }
+    this._enter(i, { hard: false });
+  }
+  // exercițiul de după cel curent (pentru „Mai departe: …")
+  get nextHead() {
+    if (!this.tl || this.pendingNext == null) return null;
+    return this.tl.scenes.slice(this.pendingNext).find((s) => s.type === 'item' && s.item != null) || null;
   }
 
   setTimeline(tl) {
@@ -217,6 +235,7 @@ export class PrivatePlayer {
   _enter(index, { hard = true } = {}) {
     this.engine.stopAll(null, { hard });
     this.inserted = null;
+    this.pendingNext = null;
     this.index = Math.max(0, Math.min(this.tl.scenes.length - 1, index));
     this.sceneStart = clock.now() + 250;
     this.pausedAt = null;
@@ -229,6 +248,16 @@ export class PrivatePlayer {
   next() {
     if (!this.tl) return;
     if (this.inserted) return this._leaveInserted();
+    const cur = this.tl.scenes[this.index];
+    const nxt = this.tl.scenes[this.index + 1];
+    // la alegere: exercițiul s-a terminat → întrebăm ce urmează (nu trecem singuri la următorul)
+    if (this.pickMode && cur && cur.item != null && (!nxt || nxt.item !== cur.item)) {
+      this.engine.stopAll();
+      this.pendingNext = this.index + 1;
+      this.status = 'alege';
+      this.tick();
+      return;
+    }
     if (this.index >= this.tl.scenes.length - 1) { this.status = 'final'; this.engine.stopAll(); this.tick(); return; }
     this._enter(this.index + 1, { hard: false });
   }
@@ -382,7 +411,8 @@ export class PrivatePlayer {
     this.onState({
       phase: this.status === 'final' ? 'final' : 'live', status: this.status,
       index: this.index, scene: sc, offset: off, seg: seg || null,
-      caption: captionOf(sc, off), board, head, inserted: this.inserted?.kind || null,
+      caption: this.status === 'alege' ? null : captionOf(sc, off), board, head, inserted: this.inserted?.kind || null,
+      nextHead: this.status === 'alege' ? this.nextHead : null, pickMode: this.pickMode,
       answered: this.answered, altLeft: sc?.alts ? sc.alts.length - ((this.altUsed[this.index] || 0) % (sc.alts.length || 1)) : 0,
     });
   }

@@ -41,6 +41,61 @@ test('itemsAt: doar itemii de pe poziție (III.1 = a, b, în ordine)', () => {
   assert.deepStrictEqual(P.itemsAt(null, 'I.1'), []);
 });
 
+// ─── alegerea elevului: subpunctele (BAC) ─────────────────────────────────────
+test('subpunctele (BAC): S. II ex. 2 b), S. III ex. 1 c)… se pot alege direct; la EN nu există', () => {
+  const subs = P.subPositions('bac');
+  assert.strictEqual(subs.length, 12);
+  assert.deepStrictEqual(subs.slice(0, 4).map((p) => p.pos), ['II.1.a', 'II.1.b', 'II.1.c', 'II.2.a']);
+  assert.deepStrictEqual(P.subPositions('en'), []);
+  const b = P.positionOf('bac', 'II.2.b');
+  assert.deepStrictEqual({ parent: b.parent, letter: b.letter, multi: b.multi, label: b.label, short: b.short, spoken: b.spoken },
+    { parent: 'II.2', letter: 'b', multi: false, label: 'Subiectul al II-lea, exercițiul 2 b)', short: 'S. II · ex. 2 b)', spoken: 'Subiectul al doilea, exercițiul 2, punctul b' });
+  assert.strictEqual(P.positionOf('en', 'III.1.b'), null, 'la EN problemele se lucrează întregi');
+  assert.strictEqual(P.positionOf('bac', 'II.4.a'), null);
+  // după un subpunct: următorul subpunct, apoi poziția de după problemă
+  assert.strictEqual(P.nextPosition('bac', 'II.1.a').pos, 'II.1.b');
+  assert.strictEqual(P.nextPosition('bac', 'II.1.c').pos, 'II.2');
+  assert.strictEqual(P.nextPosition('bac', 'II.2.c').pos, 'III.1');
+  assert.strictEqual(P.nextPosition('bac', 'III.2.c'), null);
+  // un subpunct e un singur item: testul are câte exerciții are la itemii simpli
+  assert.strictEqual(P.testSize(b), P.settings().testSingle);
+  // itemii: doar subpunctul cerut
+  const script = { items: [{ ref: 'III.1.a', statement: 'a' }, { ref: 'III.1.b', statement: 'b' }, { ref: 'III.1.c', statement: 'c' }, { ref: 'III.2.b', statement: 'x' }] };
+  assert.deepStrictEqual(P.itemsAt(script, 'III.1.c').map((i) => i.ref), ['III.1.c']);
+  assert.deepStrictEqual(P.itemsAt(script, 'III.1').map((i) => i.ref), ['III.1.a', 'III.1.b', 'III.1.c']);
+});
+
+test('subpunctele: progres separat de problema întreagă; profesorul propune apoi subpunctul următor', () => {
+  const at = (m) => `2026-09-2${m}T10:00:00Z`;
+  const rows = [
+    { id: 1, status: 'finalizata', created_at: at(1), prep: { mode: 'antrenament', pos: 'III.1.c', ex: [{ sid: 'a', done: true, polls: { x: { correct: true } } }, { sid: 'b', done: true, polls: {} }] } },
+    { id: 2, status: 'finalizata', created_at: at(2), prep: { mode: 'antrenament', pos: 'II.2', ex: [{ sid: 'c', done: true, polls: {} }] } },
+    { id: 3, status: 'finalizata', created_at: at(3), completed_at: at(3), prep: { mode: 'test', pos: 'II.1.a', items: [{ sid: 'd', polls: ['q'] }], result: { correct: 3, total: 3, passed: true } } },
+  ];
+  const prog = P.progressFrom(rows, 'bac');
+  assert.strictEqual(prog.byPos['III.1.c'].done, 2);
+  assert.strictEqual(prog.byPos['III.1'].done, 0, 'problema întreagă are progresul ei');
+  assert.strictEqual(prog.byPos['II.1.a'].mastered, true);
+  assert.strictEqual(prog.byPos['II.1'].mastered, false);
+  const pub = P.publicProgress('bac', prog);
+  assert.strictEqual(pub.length, 22);
+  const c = pub.find((p) => p.pos === 'III.1.c');
+  assert.deepStrictEqual({ parent: c.parent, letter: c.letter, done: c.done, status: c.status }, { parent: 'III.1', letter: 'c', done: 2, status: 'in_lucru' });
+  // după testul trecut la II.1 a) → „Trecem la Subiectul al doilea, exercițiul 1, punctul b?"
+  const after = P.proposeAfterTest({ exam: 'bac', pos: 'II.1.a', result: { correct: 3, total: 3, passed: true }, prog });
+  assert.strictEqual(after.options[0].key, 'advance');
+  assert.strictEqual(after.options[0].pos, 'II.1.b');
+  assert.match(after.say, /Trecem la Subiectul al doilea, exercițiul 1, punctul b\?/);
+  // la reintrare: ultima poziție lucrată (testul trecut) → prima netrecută, în ordinea din examen
+  const cur = P.currentPosition('bac', prog);
+  assert.strictEqual(cur.pos.pos, 'I.1');
+  // ultima lucrată e un subpunct netrecut → profesorul propune să continue acolo
+  const prog2 = P.progressFrom(rows.slice(0, 1), 'bac');
+  const w = P.proposeWelcome({ exam: 'bac', target: 'bac-tehnologic', prog: prog2 });
+  assert.strictEqual(w.pos, 'III.1.c');
+  assert.match(w.say, /Subiectul al treilea, exercițiul 1, punctul c: ai lucrat 2 din 10/);
+});
+
 // ─── date de test ─────────────────────────────────────────────────────────────
 const U = {
   prem: '22222222-2222-4222-8222-222222222222',
@@ -331,12 +386,43 @@ test('BAC: doar subiectele profilului elevului (tehnologic)', async () => {
   fake = fresh({ subjects: 2, ready: 2, bacSubjects: 2 });
   calls.script = 0;
   const st = await call('prep_state', {}, U.bac);
-  assert.strictEqual(st.body.positions.length, 10);
+  assert.strictEqual(st.body.positions.filter((p) => !p.parent).length, 10, 'pozițiile întregi, în ordinea din examen');
+  assert.strictEqual(st.body.positions.filter((p) => p.parent).length, 12, 'plus subpunctele II.1 a) … III.2 c), la alegerea elevului');
   assert.strictEqual(st.body.exam.label, 'BAC Tehnologic');
   const r = await call('prep_exercise', { pos: 'I.1' }, U.bac);
   assert.strictEqual(r.statusCode, 200, JSON.stringify(r.body));
   assert.match(r.body.exercise.title, /M_tehnologic/);
   assert.strictEqual(calls.script, 1);
+});
+
+test('BAC: elevul alege doar un subpunct (S. III ex. 1 b) — nu neapărat la rând), cu progresul lui', async () => {
+  fake = fresh({ subjects: 2, ready: 2, bacSubjects: 2 });
+  const st = await call('prep_state', {}, U.bac);
+  const sub = st.body.positions.find((p) => p.pos === 'III.1.b');
+  assert.deepStrictEqual({ parent: sub.parent, letter: sub.letter, short: sub.short }, { parent: 'III.1', letter: 'b', short: 'S. III · ex. 1 b)' });
+  assert.strictEqual(sub.spoken, 'Subiectul al treilea, exercițiul 1, punctul b');
+  const r = await call('prep_exercise', { pos: 'III.1.b' }, U.bac);
+  assert.strictEqual(r.statusCode, 200, JSON.stringify(r.body));
+  assert.deepStrictEqual(r.body.exercise.refs, ['III.1.b'], 'doar subpunctul ales, nu toată problema');
+  assert.strictEqual(r.body.exercise.label, 'Subiectul al III-lea, exercițiul 1 b)');
+  assert.ok(r.body.timeline.scenes.filter((s) => s.type === 'item').every((s) => s.ref === 'III.1.b'));
+  for (const poll of pollsIn(r.body.timeline)) {
+    const sp = keyOf(r.body.exercise.sid).items.flatMap((it) => [it.tryPoll, it.check]).find((p) => p && p.id === P.splitNs(poll.id).id);
+    const a = await call('prep_answer', { rowId: r.body.rowId, pollId: poll.id, answer: sp.answer }, U.bac);
+    assert.strictEqual(a.body.correct, true);
+  }
+  const d = await call('prep_done', { rowId: r.body.rowId, sid: r.body.exercise.sid, seconds: 60 }, U.bac);
+  assert.strictEqual(d.statusCode, 200, JSON.stringify(d.body));
+  assert.strictEqual(d.body.positions.find((p) => p.pos === 'III.1.b').done, 1);
+  assert.strictEqual(d.body.positions.find((p) => p.pos === 'III.1').done, 0);
+  assert.strictEqual(d.body.proposal.options[0].key, 'next');
+  assert.strictEqual(d.body.proposal.options[0].pos, 'III.1.b');
+  assert.match(fake.db.tables.ai_meditatii_sessions[0].topic, /Subiectul al III-lea, exercițiul 1 b\)/);
+  // la reintrare: profesorul continuă de la subpunctul ales
+  const again = await call('prep_state', {}, U.bac);
+  assert.strictEqual(again.body.current, 'III.1.b');
+  // o poziție inexistentă (la EN nu există subpuncte) → refuz clar
+  assert.strictEqual((await call('prep_exercise', { pos: 'III.1.b' })).statusCode, 400);
 });
 
 test('întrebare către profesor: răspuns cu voce și pe tablă, pe exercițiul de acum', async () => {
@@ -399,6 +485,13 @@ test('Planul meu: starea arată unde a rămas elevul la pregătirea de examen (f
   assert.strictEqual(s.examPrep.list.find((p) => p.pos === 'I.1').status, 'nou');
   // rândurile pregătirii apar în „Progresul meu" cu titlul lor (nu cu id-ul capitolului)
   assert.ok(s.sessions.some((r) => r.chapter === 'pregatire:evaluare-nationala' && /Pregătire de examen · Subiectul I, exercițiul 2/.test(r.topic)));
+  assert.deepStrictEqual(s.examPrep.subs, [], 'la EN nu există subpuncte de ales');
+  // BAC: benzile = cele 10 poziții întregi; subpunctele (12) se pot alege direct
+  const b = await state(U.bac);
+  assert.strictEqual(b.examPrep.list.length, 10);
+  assert.strictEqual(b.examPrep.subs.length, 12);
+  assert.deepStrictEqual(b.examPrep.subs.find((x) => x.pos === 'II.2.b'), { pos: 'II.2.b', sub: 'II', ex: 2, parent: 'II.2', letter: 'b', label: 'Subiectul al II-lea, exercițiul 2 b)', short: 'S. II · ex. 2 b)', status: 'nou', done: 0, mastered: false });
+  assert.strictEqual(b.examPrep.positions, 10, '„X din 10 stăpânite" — doar pozițiile întregi');
   // fără examen ales (clasa a VI-a) → fără pregătire de examen
   assert.strictEqual((await state(U.noexam)).examPrep, null);
   // fără abonament → nimic (sala cere abonament)

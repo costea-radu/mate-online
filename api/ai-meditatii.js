@@ -755,13 +755,18 @@ async function examPrepSummary(supa, userId, medProfile) {
     const prog = prep.progressFrom(data || [], E.exam);
     const { pos, allDone } = prep.currentPosition(E.exam, prog);
     const g = prog.byPos[pos.pos];
+    const pub = prep.publicProgress(E.exam, prog);
+    const main = new Set(prep.positions(E.exam).map((p) => p.pos));
     const all = Object.values(prog.byPos);
+    const whole = all.filter((x) => main.has(x.pos));          // „X din Y stăpânite" = pozițiile întregi
     return {
       target: E.target, label: E.label, perPosition: prep.settings().target,
       current: { pos: pos.pos, label: pos.label, short: pos.short, spoken: pos.spoken, done: g.done, nextTestAt: g.nextTestAt, mastered: g.mastered },
       // pozițiile din examen, în ordine (S. I ex. 1 … S. III) — pentru benzile de progres
-      list: prep.publicProgress(E.exam, prog).map((p) => ({ pos: p.pos, sub: p.sub, ex: p.ex, label: p.label, status: p.status, done: p.done })),
-      mastered: all.filter((x) => x.mastered).length, positions: all.length,
+      list: pub.filter((p) => !p.parent).map((p) => ({ pos: p.pos, sub: p.sub, ex: p.ex, label: p.label, short: p.short, multi: p.multi, status: p.status, done: p.done, mastered: p.mastered })),
+      // subpunctele (BAC: II.1 a)…III.2 c)) — elevul poate alege direct oricare
+      subs: pub.filter((p) => p.parent).map((p) => ({ pos: p.pos, sub: p.sub, ex: p.ex, parent: p.parent, letter: p.letter, label: p.label, short: p.short, status: p.status, done: p.done, mastered: p.mastered })),
+      mastered: whole.filter((x) => x.mastered).length, positions: whole.length,
       exercises: all.reduce((n, x) => n + x.done, 0), started: all.some((x) => x.done || x.tests), allDone,
     };
   } catch (e) {

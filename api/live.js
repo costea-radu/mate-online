@@ -15,6 +15,8 @@
 //   private_start  — pornește o ședință 1-la-1 (8/lună incluse în abonament, apoi 20 lei)
 //   private_begin  — pornește ceasul celor 60 de minute (după ce lecția e gata)
 //   private_state  — unde a rămas elevul (reluare după o deconectare)
+//   extend         — prelungirea: elevul care nu a terminat exercițiile nu e oprit
+//                    la 60 de minute (1-la-1) / la sfârșitul orei (grup ținut 1-la-1)
 //   leave          — ieșirea din sală (1-la-1: „Încheie ședința")
 //   admin_*        — programul pe zile, subiectul unei ședințe, pregătirea lecțiilor
 // GET ?action=cron — ședințele de azi/mâine, subiectele, lecțiile pentru următoarele
@@ -432,7 +434,8 @@ function computeTimeline(session, lesson, { individual = false } = {}) {
   let tl;
   if (session.kind === 'grup' && !individual) {
     const start = new Date(session.state?.startedAt || session.starts_at).getTime();
-    const target = Math.max(1800, (new Date(session.ends_at).getTime() - start) / 1000 - 120);
+    // sfârșitul INIȚIAL al orei (prelungirile pentru elevii care continuă 1-la-1 nu lungesc lecția comună)
+    const target = Math.max(1800, (new Date(L.baseEndOf(session) || session.ends_at).getTime() - start) / 1000 - 120);
     tl = L.fitTimeline(lesson.script, audio, target);
   } else tl = L.buildTimeline(lesson.script, audio, { mode: 'privat' });
   // fără voce generată (nicio cheie TTS): playerul nu așteaptă sunetul, vorbește browserul
@@ -582,6 +585,7 @@ async function join(req, res, supa) {
     session: { id: session.id, kind: session.kind, teacher: session.teacher, slot: session.slot, exam: session.exam, profile: session.profile,
       examLabel: L.EXAM_LABEL(session.exam, session.profile), starts_at: session.starts_at, ends_at: session.ends_at, phase },
     teacher, now: now.toISOString(), me: { id: userId, name: L.displayName(profile.full_name, userId), admin: !!profile.is_admin, premium: premiumOf(profile) },
+    privMinutes: L.PRIVATE_MINUTES(), extendMaxMin: L.EXT_MAX_MIN(),
   };
   if (!access.ok) {
     return res.status(402).json({ ...base, error: access.private ? 'Aceasta este ședința 1-la-1 a altui elev.' : `Ședința costă ${access.price} lei (sau e inclusă în abonament).`, code: 'LIVE_PAYMENT', price: access.price });
@@ -656,6 +660,36 @@ async function timeline(req, res, supa) {
     startsAt: s.starts_at, endsAt: s.ends_at,
     now: new Date().toISOString(), noVoice: !!lesson.progress?.noVoice,
   });
+}
+
+// Prelungirea (vezi L.extensionPlan): browserul o cere cât elevul lucrează la 1-la-1
+// și imediat după sfârșitul lecției comune (ca „Continuă 1-la-1" să rămână posibil).
+const commonLessonOver = (session, now = new Date()) => {
+  const st = session?.state || {};
+  return !!(st.startedAt && st.tl?.duration && (now.getTime() - new Date(st.startedAt).getTime()) / 1000 >= st.tl.duration);
+};
+async function extend(req, res, supa) {
+  const { userId, profile } = await who(req, supa);
+  const session = await loadSession(supa, req.body?.sessionId);
+  const access = await accessToSession(supa, session, profile);
+  if (!access.ok) throw fail(402, 'Nu ai acces la această ședință.', 'LIVE_PAYMENT');
+  const now = new Date();
+  const individual = session.kind === 'grup' && (session.state?.mode === 'individual' || commonLessonOver(session, now));
+  const plan = L.extensionPlan(session, { now, individual });
+  const view = (ends, extra = {}) => ({
+    ends_at: new Date(ends).toISOString(), base_end: plan.base ? new Date(plan.base).toISOString() : null, cap: plan.cap ? new Date(plan.cap).toISOString() : null,
+    extended: !!plan.base && ends > plan.base, now: now.toISOString(), ...extra,
+  });
+  if (!plan.ok) return res.status(200).json(view(Date.parse(session.ends_at), { ok: false, reason: plan.reason }));
+  if (!plan.changed) return res.status(200).json(view(plan.next, { ok: true }));
+  const nextIso = new Date(plan.next).toISOString();
+  const patch = { ends_at: nextIso, ...(session.status === 'incheiata' ? {} : { status: 'activa' }) };
+  const { data } = await supa.from('live_sessions').update(patch).eq('id', session.id).eq('ends_at', session.ends_at).select('ends_at').maybeSingle();
+  if (!data) {   // altcineva a prelungit-o chiar acum
+    const cur = await loadSession(supa, session.id);
+    return res.status(200).json(view(Date.parse(cur.ends_at), { ok: true }));
+  }
+  return res.status(200).json(view(plan.next, { ok: true, changed: true }));
 }
 
 async function heartbeat(req, res, supa) {
@@ -1576,6 +1610,7 @@ const ACTIONS = {
   program, join, prepare, timeline, heartbeat, chat, messages,
   poll_answer: pollAnswer, poll_results: pollResultsAction,
   private_subjects: privateSubjects, private_start: privateStart, private_begin: privateBegin, private_state: privateState,
+  extend,
   leave,
   admin_overview: adminOverview, admin_set_subject: adminSetSubject, admin_prepare: adminPrepare, admin_lesson: adminLesson,
   // Pregătirea de examen („Planul meu")

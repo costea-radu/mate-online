@@ -122,6 +122,11 @@ const PRICES_USD = {
   'claude-opus-4-8':        { in: 5,    out: 25 },
   'claude-opus-5':          { in: 5,    out: 25 },
   'claude-fable-5':         { in: 10,   out: 50 },
+  // generația 5.x (platform.claude.com/docs/en/about-claude/pricing, oct. 2026).
+  // Cheia mai lungă câștigă la potrivire: „claude-opus-5-5" NU mai cade pe Opus 5.
+  'claude-opus-5-5':        { in: 4,    out: 20 },
+  'claude-sonnet-5-5':      { in: 2,    out: 10 },
+  'claude-fable-5-1':       { in: 10,   out: 50 },
   'whisper':                { perCall: 0.003 },      // STT e pe minut → estimare per apel (~20-30s)
 };
 let PRICES_EXTRA = {};

@@ -15,6 +15,7 @@ import { MathText, ChatPanel } from '../components/AITutor';
 import MedRail from '../components/MedRail';
 import { BoardLesson, Whiteboard } from '../components/Whiteboard';
 import { ChoiceCard } from '../components/live/PollCard';
+import PrepPicker from '../components/live/PrepPicker';
 import { TudorAvatar, TUDOR } from '../components/live/ProfCamera';
 import { prof } from '../lib/live/vorbire';
 import { printTextOf, splitBoard, speechPlan } from '../lib/tabla';
@@ -1328,10 +1329,14 @@ export default function Meditatii() {
   return (
     <div className="med-page" style={{ maxWidth: 'var(--container)', margin: '0 auto', padding: '22px 20px 60px' }}>
 
-      {/* tabul spre sala live (pagina principală a meditațiilor) */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
+      {/* tabul spre sala live (pagina principală a meditațiilor) + DEMO-ul, chiar sus, la vedere */}
+      <div className="med-tabs" style={{ display: 'flex', gap: 6, marginBottom: 16, borderBottom: '1px solid var(--border)', alignItems: 'flex-end' }}>
         <Link to="/meditatii" style={{ padding: '10px 14px', fontWeight: 700, fontSize: '.92rem', color: 'var(--text-light)', borderBottom: '3px solid transparent', marginBottom: -1 }}>🎥 Meditații live</Link>
         <span style={{ padding: '10px 14px', fontWeight: 700, fontSize: '.92rem', color: 'var(--navy)', borderBottom: '3px solid var(--gold)', marginBottom: -1 }}>📚 Planul meu</span>
+        <Link to="/meditatii/demo-1la1" className="med-demo-tab" title="Cum arată o meditație 1-la-1 cu profesorul virtual — 2 minute, fără cont">
+          <span className="lvl-demo-play" aria-hidden="true">▶</span>
+          <span><b>Vezi demo-ul</b><small> · meditație 1-la-1, 2 minute</small></span>
+        </Link>
       </div>
 
       {stError && <div style={{ ...card, background: '#fdecea', color: '#b71c1c', borderColor: '#f5c6cb' }}>⚠️ {stError}</div>}
@@ -1373,6 +1378,7 @@ export default function Meditatii() {
               </p>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
                 <Link to="/preturi" className="btn btn-primary">Abonează-te pentru meditații →</Link>
+                <Link to="/meditatii/demo-1la1" className="btn btn-outline">▶ Vezi întâi demo-ul (fără cont)</Link>
               </div>
               {!st.parentLinked && (
                 <div style={{ borderTop: '1px dashed var(--border)', paddingTop: 14 }}>
@@ -1415,7 +1421,8 @@ export default function Meditatii() {
             {/* 🎓 PREGĂTIRE DE EXAMEN — intrarea în clasă (sala /meditatii/pregatire) */}
             {!working && st.examPrep?.current && (
               <ExamPrepCard info={st.examPrep} teacherName={TUDOR.name}
-                onEnter={() => { setProposal(null); prof.stop(); navigate('/meditatii/pregatire'); }} />
+                onEnter={() => { setProposal(null); prof.stop(); navigate('/meditatii/pregatire'); }}
+                onPick={(pos) => { setProposal(null); prof.stop(); navigate(`/meditatii/pregatire?pos=${encodeURIComponent(pos)}`); }} />
             )}
 
             {/* TABLA. Implicit e conversația cu profesorul; lecția și exercițiile
@@ -1546,10 +1553,13 @@ function HeroChips({ profile, focus }) {
 // 🎓 PREGĂTIRE DE EXAMEN — intrarea din „Planul meu" în clasă (/meditatii/pregatire):
 // aceeași fotografie și același profesor ca la meditațiile live, iar profesorul
 // propune ordinea exercițiilor din examen (S. I ex. 1 → ex. 2 → … → S. II → S. III).
-// Aici: unde a rămas elevul și benzile pozițiilor, colorate după progres.
+// Aici: unde a rămas elevul și benzile pozițiilor, colorate după progres — și
+// „📋 Aleg eu exercițiul": ORICE exercițiu, nu neapărat la rând (la BAC, și doar
+// un subpunct: S. II ex. 2 b), S. III ex. 1 c)…) → /meditatii/pregatire?pos=…
 // ═════════════════════════════════════════════════════════════════════════════
 const PREP_SUB_LABEL = { I: 'Subiectul I', II: 'Subiectul al II-lea', III: 'Subiectul al III-lea' };
-function ExamPrepCard({ info, teacherName, onEnter }) {
+function ExamPrepCard({ info, teacherName, onEnter, onPick }) {
+  const [picking, setPicking] = useState(false);
   const c = info.current;
   const groups = ['I', 'II', 'III']
     .map((s) => ({ s, items: (info.list || []).filter((p) => p.sub === s) }))
@@ -1581,14 +1591,27 @@ function ExamPrepCard({ info, teacherName, onEnter }) {
           <span key={g.s} className="pe-entry-grp" title={PREP_SUB_LABEL[g.s]}>
             <b>S. {g.s}</b>
             {g.items.map((p) => (
-              <i key={p.pos} className={`is-${p.status}${p.pos === c.pos ? ' is-cur' : ''}`} title={pipTitle(p)} />
+              <i key={p.pos} className={`is-${p.status}${p.pos === c.pos || (c.pos.startsWith(`${p.pos}.`)) ? ' is-cur' : ''}`} title={pipTitle(p)} />
             ))}
           </span>
         ))}
+        {onPick && (
+          <button type="button" className="pe-entry-more" onClick={() => setPicking((x) => !x)} aria-expanded={picking}>
+            {picking ? '✕ Închide lista' : '📋 Aleg eu exercițiul'}
+          </button>
+        )}
       </div>
       <button type="button" className="pe-entry-go" onClick={onEnter}>
         ▶ {info.started ? 'Continuă în clasă' : 'Intră în clasă'}
       </button>
+      {picking && onPick && (
+        <div className="pe-entry-pick">
+          <div className="pe-lobby-pick-t">
+            📋 <b>Alege orice exercițiu</b>, nu neapărat la rând{(info.subs || []).length ? ' — la Subiectele II și III, și doar un subpunct: a), b) sau c)' : ''}. {teacherName} te ia direct de acolo.
+          </div>
+          <PrepPicker positions={[...(info.list || []), ...(info.subs || [])]} current={c.pos} compact onPick={(p) => onPick(p.pos)} />
+        </div>
+      )}
     </section>
   );
 }

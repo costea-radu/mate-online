@@ -7,8 +7,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { initials, teacherColor } from '../../lib/live/profesori';
+import ItemPicker from './ItemPicker';
+import { refLabel } from '../../lib/live/items';
 
-export default function PreJoin({ info, teacher, rigThumb = null, present = 0, personal = null, access, price = null, onJoin, onPay, paying = false, error = null, waitingText = null, camOn, setCamOn, micOn, setMicOn, fullscreen, setFullscreen }) {
+export default function PreJoin({ info, teacher, rigThumb = null, present = 0, personal = null, access, price = null, onJoin, onPay, paying = false, error = null, waitingText = null, camOn, setCamOn, micOn, setMicOn, fullscreen, setFullscreen,
+  pickItems = null, startRef = null, setStartRef = null, privMinutes = 60 }) {
+  const [pickOpen, setPickOpen] = useState(!!startRef);
   const videoRef = useRef(null);
   const [camErr, setCamErr] = useState(null);
 
@@ -63,13 +67,37 @@ export default function PreJoin({ info, teacher, rigThumb = null, present = 0, p
           </div>
         </div>
         <div className="lv-pre-status">
-          {s?.kind === 'privat' ? <>🎓 Ședință 1-la-1 — doar tu și profesorul, 60 de minute.</>
+          {s?.kind === 'privat' ? <>🎓 Ședință 1-la-1 — doar tu și profesorul, {privMinutes} de minute.</>
             : personal === 'singur' ? <span>🎓 Ești singurul elev la această oră: {teacher?.name || 'profesorul'} îți ține ședința <b>1-la-1</b>, fără cost în plus.</span>
-            : personal === 'dupa' ? <span>🎓 Lecția comună s-a încheiat; până la sfârșitul orei, {teacher?.name || 'profesorul'} îți ține ședința <b>1-la-1</b>, fără cost în plus.</span>
+            : personal === 'dupa' ? <span>🎓 Lecția comună s-a încheiat: {teacher?.name || 'profesorul'} îți ține ședința <b>1-la-1</b>, fără cost în plus.</span>
             : liveNow ? <><span className="lv-dot-live" /> {present > 0 ? `${present} ${present === 1 ? 'elev e' : 'elevi sunt'} deja în ședință` : 'Ședința e în desfășurare'}</>
             : starts ? <>⏰ Începe la {starts.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' })} — sala de așteptare e deschisă{present ? ` (${present} ${present === 1 ? 'coleg' : 'colegi'} așteaptă)` : ''}</> : null}
         </div>
+        {(s?.kind === 'privat' || personal) && (
+          <div className="lv-pre-note">
+            ⏱ {s?.kind === 'privat'
+              ? <>Dacă nu termini exercițiile în {privMinutes} de minute, ședința <b>se prelungește automat până le termini</b> — fără cost în plus.</>
+              : <>Dacă nu termini exercițiile până la sfârșitul orei, ședința <b>se prelungește până le termini</b> — fără cost în plus.</>}
+            {' '}Poți alege cu ce exercițiu începi și poți sări oricând la altul (📋 Exerciții).
+          </div>
+        )}
+        {s?.kind === 'grup' && !personal && (
+          <div className="lv-pre-note">⏱ După lecția comună poți continua <b>1-la-1</b>, fără cost în plus, până termini exercițiile.</div>
+        )}
         {waitingText && <div className="lv-pre-wait">{waitingText}</div>}
+        {pickItems && setStartRef && (
+          <div className="lv-pre-pick">
+            <button type="button" className="lv-pre-pick-toggle" onClick={() => setPickOpen(!pickOpen)} aria-expanded={pickOpen}>
+              <span>📋 Cu ce exercițiu începi? <b>{startRef ? refLabel(startRef) : 'De la început, în ordine'}</b></span>
+              <span aria-hidden="true">{pickOpen ? '▴' : '▾'}</span>
+            </button>
+            {pickOpen && (
+              <ItemPicker items={pickItems} compact selectedRef={startRef} allowAll onAll={() => setStartRef(null)}
+                onPick={(it) => setStartRef(it.ref)}
+                note="Alegi orice exercițiu, nu neapărat la rând (ex. Subiectul I ex. 5, Subiectul al II-lea ex. 2 b)). După el, profesorul te întreabă ce urmează." />
+            )}
+          </div>
+        )}
         <div className="lv-pre-me">Numele tău în ședință: <b>{info?.me?.name}</b></div>
 
         {needPay ? (

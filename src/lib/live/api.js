@@ -47,6 +47,8 @@ export const liveApi = {
   privateStart: (teacher, subjectId) => call({ action: 'private_start', teacher, subjectId }),
   privateBegin: (sessionId) => call({ action: 'private_begin', sessionId }),
   privateState: (sessionId, player) => call({ action: 'private_state', sessionId, player }),
+  // prelungirea: elevul care încă lucrează nu e oprit la 60 de minute / la sfârșitul orei
+  extend: (sessionId) => call({ action: 'extend', sessionId }),
   leave: (sessionId, { seconds = 0, end = false } = {}) => call({ action: 'leave', sessionId, seconds, end }, { keepalive: true }),
   // Pregătirea de examen („Planul meu", ca o meditație live) — api/live.js → prep_*
   prepState: () => call({ action: 'prep_state' }),

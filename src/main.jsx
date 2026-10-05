@@ -2,6 +2,10 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './styles/global.css';
+import { installErrorReporting } from './lib/errorReport';
+
+// erorile JavaScript reale ale vizitatorilor → agentul de debug din Admin (fără date personale)
+installErrorReporting();
 
 // După un redeploy, un tab vechi (mai ales pe mobil, la redeschidere) poate cere
 // un chunk JS cu hash vechi care nu mai există (404) → pagină albă. Reîncărcăm

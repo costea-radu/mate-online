@@ -491,3 +491,102 @@ test('fără tabele (SQL nerulat) → mesaj clar pentru admin, nu o eroare obscu
   assert.match(r.body.error, /meditatii_live\.sql/);
   assert.strictEqual(r.body.code, 'LIVE_SETUP');
 });
+
+// ─── PRELUNGIREA: meditația trece de 60 de minute → continuă până termină elevul ──
+test('prelungirea (pur): câte 10 minute, doar când mai sunt sub 5; plafon +120; nepornită / încheiată / anulată → nu', () => {
+  const t = Date.parse('2026-10-05T15:00:00Z');
+  const now = new Date(t);
+  const at = (min) => new Date(t + min * 60000).toISOString();
+  const priv = (startedMin, endsMin, extra = {}) => ({ kind: 'privat', status: 'activa', state: { startedAt: at(startedMin) }, ends_at: at(endsMin), ...extra });
+  assert.strictEqual(L.baseEndOf(priv(-58, 2)), at(2), '1-la-1: 60 de minute de la pornire');
+  let p = L.extensionPlan(priv(-30, 30), { now });
+  assert.deepStrictEqual([p.ok, p.changed], [true, false], 'mai e timp: nimic de făcut');
+  p = L.extensionPlan(priv(-58, 2), { now });
+  assert.deepStrictEqual([p.ok, p.changed, p.next], [true, true, t + 10 * 60000], 'mai sunt 2 minute → +10 minute de acum');
+  assert.strictEqual(p.cap, Date.parse(at(2)) + 120 * 60000);
+  // aproape de plafon: doar până la plafon; după plafon: gata
+  p = L.extensionPlan(priv(-178, 1), { now });
+  assert.deepStrictEqual([p.ok, p.next], [true, Date.parse(at(2))], 'plafonul: 60 + 120 de minute');
+  p = L.extensionPlan(priv(-181, -1), { now });
+  assert.deepStrictEqual([p.ok, p.reason], [false, 'plafon']);
+  // sala s-a închis demult (elevul a plecat) → nu se mai redeschide
+  assert.strictEqual(L.extensionPlan(priv(-70, -5), { now }).reason, 'expirata');
+  assert.strictEqual(L.extensionPlan({ ...priv(-10, 50), state: {} }, { now }).reason, 'nepornita');
+  assert.strictEqual(L.extensionPlan(priv(-58, 2, { status: 'incheiata' }), { now }).reason, 'incheiata');
+  assert.strictEqual(L.extensionPlan(priv(-58, 2, { status: 'anulata' }), { now }).reason, 'anulata');
+  // grup: lecția comună nu se prelungește; după ea (sau ținută 1-la-1) — da
+  const grp = { kind: 'grup', status: 'activa', slot: null, state: { startedAt: at(-58), baseEndsAt: at(2) }, ends_at: at(2) };
+  assert.strictEqual(L.extensionPlan(grp, { now }).reason, 'lectie_comuna');
+  assert.deepStrictEqual([L.extensionPlan(grp, { now, individual: true }).ok, L.extensionPlan(grp, { now, individual: true }).changed], [true, true]);
+  // configurabil: LIVE_PRELUNGIRE_PAS / LIVE_PRELUNGIRE_MAX
+  process.env.LIVE_PRELUNGIRE_PAS = '15';
+  process.env.LIVE_PRELUNGIRE_MAX = '0';
+  try {
+    assert.strictEqual(L.extensionPlan(priv(-58, 2), { now }).next, Date.parse(at(2)), 'fără prelungire (MAX=0): rămâne ora de sfârșit');
+    process.env.LIVE_PRELUNGIRE_MAX = '30';
+    assert.strictEqual(L.extensionPlan(priv(-59, 1), { now }).next, t + 15 * 60000);
+  } finally { delete process.env.LIVE_PRELUNGIRE_PAS; delete process.env.LIVE_PRELUNGIRE_MAX; }
+});
+
+test('prelungirea, 1-la-1: sala spune înainte de intrare cât durează; după 60 de minute se prelungește cât lucrează elevul', async () => {
+  const { lesson } = liveGroupSession();
+  fake = createFakeSupabase({ ...seed(), live_lessons: [lesson] });
+  const st = await call('private_start', { teacher: 'radu', subjectId: C.en1 }, U.prem);
+  const sessionId = st.body.sessionId;
+  const join = await call('join', { sessionId }, U.prem);
+  assert.strictEqual(join.statusCode, 200, JSON.stringify(join.body));
+  assert.strictEqual(join.body.privMinutes, 60, 'ecranul de intrare: „60 de minute"');
+  assert.strictEqual(join.body.extendMaxMin, 120, '… „și se prelungește până termini exercițiile"');
+  // nepornită → nimic de prelungit
+  assert.strictEqual((await call('extend', { sessionId }, U.prem)).body.reason, 'nepornita');
+  await call('private_begin', { sessionId }, U.prem);
+  const row = () => fake.db.tables.live_sessions.find((x) => x.id === sessionId);
+  const early = await call('extend', { sessionId }, U.prem);
+  assert.strictEqual(early.statusCode, 200, JSON.stringify(early.body));
+  assert.deepStrictEqual([early.body.ok, !!early.body.changed, early.body.extended], [true, false, false]);
+  // au trecut 58 de minute: mai sunt 2 → +10 minute de acum, salvat în ședință
+  const started = Date.now() - 58 * 60000;
+  row().state = { ...row().state, startedAt: iso(started) };
+  row().ends_at = iso(started + 60 * 60000);
+  const ext = await call('extend', { sessionId }, U.prem);
+  assert.strictEqual(ext.body.changed, true, JSON.stringify(ext.body));
+  assert.ok(Math.abs(Date.parse(ext.body.ends_at) - (Date.now() + 10 * 60000)) < 5000);
+  assert.strictEqual(ext.body.extended, true);
+  assert.strictEqual(ext.body.base_end, iso(started + 60 * 60000));
+  assert.strictEqual(row().ends_at, ext.body.ends_at);
+  // a doua cerere imediat (alt tab): nu mai adaugă
+  const twice = await call('extend', { sessionId }, U.prem);
+  assert.strictEqual(twice.body.ends_at, ext.body.ends_at);
+  assert.ok(!twice.body.changed);
+  // altcineva nu poate prelungi ședința lui
+  assert.strictEqual((await call('extend', { sessionId }, U.free)).statusCode, 402);
+  // plafonul (60 + 120 de minute): după el, ședința se încheie normal
+  const old = Date.now() - 181 * 60000;
+  row().state = { ...row().state, startedAt: iso(old) };
+  row().ends_at = iso(old + 180 * 60000);
+  const capped = await call('extend', { sessionId }, U.prem);
+  assert.deepStrictEqual([capped.body.ok, capped.body.reason], [false, 'plafon']);
+  // încheiată de elev → nu se mai prelungește
+  row().ends_at = iso(Date.now() + 60000);
+  row().state = { ...row().state, startedAt: iso(Date.now() - 59 * 60000) };
+  await call('leave', { sessionId, seconds: 30, end: true }, U.prem);
+  assert.strictEqual((await call('extend', { sessionId }, U.prem)).body.reason, 'incheiata');
+});
+
+test('prelungirea, grup: lecția comună rămâne la ora ei; cine continuă 1-la-1 după ea primește timp', async () => {
+  const { s } = await groupStartedWithTwo();
+  const g = () => fake.db.tables.live_sessions[0];
+  // ora de sfârșit „de bază" (fără slotul real al zilei — testul nu depinde de ora la care rulează)
+  g().slot = null;
+  g().state = { ...g().state, baseEndsAt: iso(Date.now() + 2 * 60000) };
+  g().ends_at = iso(Date.now() + 2 * 60000);
+  const during = await call('extend', { sessionId: s.id }, U.prem);
+  assert.deepStrictEqual([during.body.ok, during.body.reason], [false, 'lectie_comuna'], 'în timpul lecției comune: nu');
+  // lecția comună s-a terminat; elevul apasă „Continuă 1-la-1"
+  g().state = { ...g().state, startedAt: iso(Date.now() - (g().state.tl.duration + 60) * 1000) };
+  const after = await call('extend', { sessionId: s.id }, U.prem);
+  assert.strictEqual(after.body.changed, true, JSON.stringify(after.body));
+  assert.ok(Math.abs(Date.parse(after.body.ends_at) - (Date.now() + 10 * 60000)) < 5000);
+  assert.strictEqual(g().ends_at, after.body.ends_at);
+  assert.strictEqual(g().status, 'activa');
+});

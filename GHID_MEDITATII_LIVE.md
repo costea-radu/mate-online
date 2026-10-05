@@ -14,8 +14,8 @@ Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 | **Tabla albă** din spatele profesorului (scrie pas cu pas, în ritmul vocii) + **proiecția** din dreapta ei (enunțul, rezultatele, videoclipuri) | scrisul și proiecția stau în perspectivă pe tabla din fotografie; profesorul trece prin fața lor. Fără panou separat „Tabla digitală”. **Pe telefon** (tabla și proiecția nu încap citibil deodată) camera se oprește pe una dintre ele: butonul **„✎ Explicația / 📝 Exercițiul”** sau o glisare stânga/dreapta o mută, iar tabla primește culoarea și rama ei |
 | **Întrebări grilă și cu răspuns de completat**, cu rezultatele clasei (ca Zoom Polls) | sondajele vin din barem; răspunsul corect e verificat pe server |
 | **Chat**, mâna ridicată, reacții, participanți, subtitrări, „Caiet", ecran complet (pe telefon: sus, în dreapta — se vede și ținut vertical; ce nu încape în bară stă în „⋯ Mai mult") | Supabase Realtime (canal privat pe ședință) |
-| **1-la-1, oricând** (60 min): se oprește la întrebări, „Ai înțeles?", „Explică altfel", răspunde cu voce | 8/lună incluse în abonament, apoi 20 lei |
-| **🎓 Pregătire de examen** (din „Planul meu"): aceeași clasă, dar profesorul propune ordinea — S. I ex. 1 → ex. 2 → … → S. II → S. III, câte cel puțin 10 exerciții pe poziție, apoi un test | `/meditatii/pregatire`; exercițiile vin din lecțiile de aici — vezi secțiunea 3 |
+| **1-la-1, oricând** (60 min, **prelungite până termini exercițiile**): elevul **alege exercițiile** (📋 — ex. S. I ex. 5, S. II ex. 2 b), S. III ex. 1 c), nu neapărat la rând); se oprește la întrebări, „Ai înțeles?", „Explică altfel", răspunde cu voce | 8/lună incluse în abonament, apoi 20 lei; prelungirea e fără cost în plus — vezi secțiunea 3b |
+| **🎓 Pregătire de examen** (din „Planul meu"): aceeași clasă, dar profesorul propune ordinea — S. I ex. 1 → ex. 2 → … → S. II → S. III, câte cel puțin 10 exerciții pe poziție, apoi un test; elevul poate alege **orice exercițiu** (la BAC și doar un subpunct a/b/c), fără limită de timp | `/meditatii/pregatire` (`?pos=II.2.b` = începe direct acolo); exercițiile vin din lecțiile de aici — vezi secțiunea 3 |
 | **Plata**: 10 lei ședința de grup fără abonament; inclusă în abonament | Stripe (plată unică), bilet în `live_tickets` |
 
 **Fără barem, profesorul nu explică nimic:** sunt propuse doar subiectele al căror barem
@@ -92,7 +92,10 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 1. Deploy (ordinea față de SQL nu contează; după un deploy nou, o reîncărcare a paginii aduce
    versiunea nouă — aplicația e PWA și poate servi o dată versiunea veche din cache).
 2. Deschide **`/meditatii/demo`** (ședință de grup demonstrativă) și **`/meditatii/demo-1la1`**
-   — merg fără cont și fără bază de date.
+   — merg fără cont și fără bază de date. Elevii le găsesc **chiar sus**: în lobby, butoanele
+   aurii **„▶ Vezi demo-ul"** și **„▶ Demo 1-la-1"** (plus imaginea sălii, care e și ea un link spre
+   demo); în „Planul meu", **„▶ Vezi demo-ul"** în rândul cu filele (pe telefon, deasupra lor) și
+   în cardul pentru cei fără abonament.
 3. În **Admin → 🎥 Meditații live**: programul zilei, subiectele, starea lecțiilor.
    Apasă **„Pregătește lecția"** dacă vrei o lecție scrisă din timp (altfel se scrie singură
    când intră primul elev — durează 1–3 minute, cât stă elevul în sala de așteptare).
@@ -107,7 +110,9 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 | `LIVE_SALI` | `en,mate-info,stiinte-naturii,tehnologic` | sălile (câte o ședință pe zi în fiecare); se pot scoate, ex. `en,mate-info` |
 | `LIVE_PRICE_GRUP_LEI` / `LIVE_PRICE_PRIVAT_LEI` | `10` / `20` | prețurile fără abonament |
 | `LIVE_PRIVAT_INCLUSE` | `8` | ședințe 1-la-1 incluse pe lună în abonament |
-| `LIVE_PRIVAT_MINUTE` | `60` | durata unei ședințe 1-la-1 |
+| `LIVE_PRIVAT_MINUTE` | `60` | durata unei ședințe 1-la-1 (apoi se prelungește cât elevul lucrează — vezi mai jos) |
+| `LIVE_PRELUNGIRE_PAS` | `10` | cu câte minute se prelungește o dată (cererea vine din sală când mai sunt sub 5 minute) |
+| `LIVE_PRELUNGIRE_MAX` | `120` | cât se poate prelungi cel mult, peste ora de sfârșit (plafon de siguranță, ex. un tab uitat deschis); `0` = fără prelungire |
 | `LIVE_INTRARE_DEVREME_MIN` | `15` | cu cât timp înainte se deschide sala de așteptare |
 | `LIVE_SONDAJ_GRILA_SEC` / `_COMPLETARE_SEC` / `_VERIFICARE_SEC` | `45` / `60` / `35` | timpul de răspuns la întrebări |
 | `LIVE_PAUZA_SEC`, `LIVE_INTREBARI_SEC` | `300`, `180` | pauza din mijloc, sesiunile de întrebări |
@@ -145,6 +150,42 @@ o singură dată — apoi o folosesc toți elevii și ședințele live). Plafon:
 (implicit 12 lecții noi pe elev pe zi). Progresul: `ai_meditatii_sessions` (fără SQL nou).
 Setările (`PREP_EXERCITII`, `PREP_TEST_EXERCITII`, `PREP_TEST_PROBLEME`, `PREP_PRAG`,
 `PREP_IN_PLUS`, `PREP_GENERARI_ZI`) sunt descrise în `GHID_MEDITATII.md` → Runda 12.
+
+**Alegerea elevului (octombrie 2026):** profesorul propune ordinea, dar elevul poate începe cu
+**orice exercițiu, nu neapărat la rând** — la intrare („📋 Cu ce începi?", cu propunerea
+profesorului preselectată), în sală (🗺️ Plan) sau direct din cardul din „Planul meu" („📋 Aleg eu
+exercițiul" → `/meditatii/pregatire?pos=…`). La **BAC**, problemele de la Subiectele II și III se pot
+exersa și pe **subpuncte**: doar „S. II ex. 2 b)" sau doar „S. III ex. 1 c)" — din toate subiectele
+oficiale ale profilului, cu progresul și testul lor (un subpunct e un singur item, deci testul are 5
+exerciții); după el, profesorul propune subpunctul următor, apoi problema următoare. La EN,
+problemele de la Subiectul III se lucrează întregi (așa sunt itemii lecțiilor). Pregătirea **nu are
+limită de timp** (scrie și la intrare): elevul lucrează cât vrea, progresul se salvează după fiecare
+exercițiu.
+
+---
+
+## 3b. Alegerea exercițiilor și prelungirea (1-la-1, octombrie 2026)
+
+- **„📋 Exerciții"** (în sală, la 1-la-1 și la ședința de grup ținută 1-la-1): lista exercițiilor
+  lecției, pe subiecte — **orice exercițiu, nu neapărat la rând**: S. I ex. 5, S. II ex. 2 b),
+  S. III ex. 1 c)… Bifele arată ce a rezolvat corect (✓), ce are de revăzut (✗) și ce a văzut (•).
+  După exercițiul ales, profesorul **se oprește și întreabă ce urmează**: „▶ Mai departe: …",
+  „📋 Aleg alt exercițiu", „⏩ Continuă în ordine, fără să mă mai întrebi" sau „🏁 Ajunge pentru azi".
+- **Alegerea se poate face și înainte de conectare**: în lobby, la 1-la-1 („📋 Cu ce exercițiu
+  începi?", după ce alegi subiectul) și pe ecranul de intrare în sală. Linkul sălii primește
+  `?ex=II.2.b`. Dacă lecția acelui subiect nu are exact exercițiul ales (ex. „III.1 c)" la EN, unde
+  problema e întreagă), profesorul începe cu cel mai apropiat și spune asta.
+- **Peste 60 de minute, ședința se prelungește până termină elevul exercițiile** — fără cost în plus.
+  Se spune **înainte de conectare** (în lobby, pe cardul 1-la-1 și lângă „Începe acum", și pe ecranul
+  de intrare în sală). În sală, cronometrul devine **„⏱ +mm:ss prelungire"**, iar profesorul anunță o
+  dată: „Au trecut cele 60 de minute — continuăm până termini exercițiile". Tehnic: cât sala e
+  deschisă, ea cere la fiecare minut acțiunea `extend` din `api/live.js`; serverul mută sfârșitul
+  ședinței cu `LIVE_PRELUNGIRE_PAS` (10) minute doar când mai sunt sub 5 minute, până la plafonul
+  `LIVE_PRELUNGIRE_MAX` (120 de minute peste ora inițială). Ședința se încheie când elevul termină
+  lecția, alege „🏁 Ajunge pentru azi" sau „Părăsește" (sala închisă nu se mai prelungește).
+- **Ședința de grup**: lecția comună rămâne la ora ei (nu se prelungește pentru toți); cine
+  continuă **1-la-1** după ea (sau e singur în sală) primește același tratament — până termină
+  exercițiile, chiar dacă trece de ora de sfârșit.
 
 ---
 
@@ -248,3 +289,5 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | Pe telefon nu se vede tot (tabla și exercițiul) | normal: camera arată pe rând explicația de pe tablă și exercițiul proiectat — butonul „✎ Explicația / 📝 Exercițiul" (sau o glisare) le schimbă; la întrebări, camera trece singură la exercițiu |
 | Chatul nu apare în timp real | Supabase Realtime: canalele private trebuie permise; oricum, mesajele se reîncarcă la câteva secunde |
 | Elevul nu poate intra la ora de grup | sala se deschide cu 15 minute înainte; după încheiere nu se mai poate intra |
+| 1-la-1 s-a oprit la 60 de minute | versiune veche a paginii (PWA din cache) → reîncarcă; acum ședința se prelungește singură (cronometrul arată „+mm:ss prelungire"), până la plafonul `LIVE_PRELUNGIRE_MAX` |
+| După un exercițiu ales, profesorul nu trece singur mai departe | normal: la alegerea elevului întreabă ce urmează; „⏩ Continuă în ordine" revine la lecția care curge singură |

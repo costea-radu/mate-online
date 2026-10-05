@@ -104,6 +104,7 @@ class Query {
   }
   order(col, { ascending = true } = {}) { this.orders.push({ col, asc: ascending }); return this; }
   limit(n) { this.lim = n; return this; }
+  range(from, to) { this.rng = [from, to]; return this; }
   maybeSingle() { this.one = 'maybe'; return this; }
   // (câmpul intern nu se poate numi „single": ar ascunde metoda single())
   single() { this.one = 'one'; return this; }
@@ -136,6 +137,7 @@ class Query {
       let rows = this._match();
       for (const o of [...this.orders].reverse()) rows = [...rows].sort((a, b) => (o.asc ? 1 : -1) * cmp(getPath(a, o.col), getPath(b, o.col)));
       const count = rows.length;
+      if (this.rng) rows = rows.slice(this.rng[0], this.rng[1] + 1);
       if (this.lim != null) rows = rows.slice(0, this.lim);
       if (this.head) return { data: null, error: null, count };
       const r = this._out(rows);
@@ -173,13 +175,32 @@ class Query {
 }
 
 function createFakeSupabase(seed = {}) {
-  const db = { tables: JSON.parse(JSON.stringify(seed)), serial: 0, log: [], failTables: new Set(), uploads: [] };
+  const db = { tables: JSON.parse(JSON.stringify(seed)), serial: 0, log: [], failTables: new Set(), uploads: [], files: new Map(), removed: [], rpcs: [] };
   return {
     db,
     from: (table) => new Query(db, table),
+    // funcțiile SQL: doar le notăm (testele care au nevoie își pun propria implementare în db.rpcImpl)
+    rpc: async (name, args) => {
+      db.rpcs.push({ name, args });
+      if (db.rpcImpl && db.rpcImpl[name]) return db.rpcImpl[name](args, db);
+      return { data: null, error: null };
+    },
     storage: {
       from: (bucket) => ({
-        upload: async (path, body) => { db.uploads.push({ bucket, path, size: body?.length || 0 }); return { data: { path }, error: null }; },
+        upload: async (path, body, opts = {}) => {
+          const key = `${bucket}/${path}`;
+          if (db.files.has(key) && !opts.upsert && db.strictUpload) return { data: null, error: { message: 'The resource already exists' } };
+          db.uploads.push({ bucket, path, size: body?.length || 0 });
+          db.files.set(key, Buffer.isBuffer(body) ? body : Buffer.from(body == null ? '' : (typeof body === 'string' ? body : body)));
+          return { data: { path }, error: null };
+        },
+        download: async (path) => {
+          const buf = db.files.get(`${bucket}/${path}`);
+          if (!buf) return { data: null, error: { message: 'Object not found' } };
+          return { data: { arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) }, error: null };
+        },
+        remove: async (paths) => { for (const p of paths || []) { db.removed.push(`${bucket}/${p}`); db.files.delete(`${bucket}/${p}`); } return { data: null, error: null }; },
+        createSignedUrl: async (path, ttl) => ({ data: { signedUrl: `https://fake.supabase/storage/v1/object/sign/${bucket}/${path}?token=t&ttl=${ttl}` }, error: null }),
         getPublicUrl: (path) => ({ data: { publicUrl: `https://fake.supabase/storage/v1/object/public/${bucket}/${path}` } }),
       }),
     },

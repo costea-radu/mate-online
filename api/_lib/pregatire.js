@@ -69,17 +69,52 @@ function positions(exam) {
     spoken: `${SUB_SPOKEN[p.sub]}, exercițiul ${p.ex}`,
   }));
 }
-const positionOf = (exam, pos) => positions(exam).find((p) => p.pos === pos) || null;
-const nextPosition = (exam, pos) => { const ps = positions(exam); const i = ps.findIndex((p) => p.pos === pos); return i >= 0 && i < ps.length - 1 ? ps[i + 1] : null; };
+// ─── Subpunctele (alegerea elevului): „Subiectul al II-lea, exercițiul 2 b)" ──
+// La BAC, problemele de la Subiectele II și III au cerințele a), b), c) — fiecare e
+// un item separat în lecțiile pe barem („II.2.b"). Elevul poate exersa DOAR un
+// subpunct (ex. doar III.1.c, din toate subiectele oficiale). Ordinea propusă de
+// profesor rămâne cea a pozițiilor întregi; subpunctele sunt doar la alegere.
+// (La EN, problemele de la Subiectul III sunt itemi întregi, cu a) și b) împreună.)
+const LETTERS = ['a', 'b', 'c'];
+function subPositions(exam) {
+  if (exam === 'en') return [];
+  const out = [];
+  for (const p of positions(exam).filter((x) => x.multi)) {
+    for (const l of LETTERS) {
+      out.push({
+        pos: `${p.pos}.${l}`, sub: p.sub, ex: p.ex, letter: l, parent: p.pos, multi: false, index: p.index,
+        label: `${SUB_LABEL[p.sub]}, exercițiul ${p.ex} ${l})`,
+        short: `${SUB_SHORT[p.sub]} · ex. ${p.ex} ${l})`,
+        spoken: `${SUB_SPOKEN[p.sub]}, exercițiul ${p.ex}, punctul ${l}`,
+      });
+    }
+  }
+  return out;
+}
+const allPositions = (exam) => [...positions(exam), ...subPositions(exam)];
+const positionOf = (exam, pos) => allPositions(exam).find((p) => p.pos === pos) || null;
+// după un subpunct: următorul subpunct al aceleiași probleme, apoi poziția de după problemă
+function nextPosition(exam, pos) {
+  const ps = positions(exam);
+  const sp = subPositions(exam).find((p) => p.pos === pos);
+  if (sp) {
+    const k = LETTERS.indexOf(sp.letter);
+    if (k < LETTERS.length - 1) return positionOf(exam, `${sp.parent}.${LETTERS[k + 1]}`);
+    pos = sp.parent;
+  }
+  const i = ps.findIndex((p) => p.pos === pos);
+  return i >= 0 && i < ps.length - 1 ? ps[i + 1] : null;
+}
 
 // ─── Exercițiul de pe o poziție, dintr-un subiect (lecția lui pe barem) ───────
-// „I.3" → itemul I.3; „III.1" → III.1 (sau III.1.a, III.1.b, … în ordine)
+// „I.3" → itemul I.3; „III.1" → III.1 (sau III.1.a, III.1.b, … în ordine);
+// „III.1.c" → doar subpunctul c) al problemei
 function itemsAt(script, pos) {
-  const [sub, exS] = String(pos || '').split('.');
+  const [sub, exS, letter] = String(pos || '').split('.');
   const ex = parseInt(exS, 10);
   return (script?.items || [])
     .map((it) => ({ it, r: LL.parseRef(it.ref) }))
-    .filter((x) => x.r && x.r.subject === sub && x.r.ex === ex && String(x.it.statement || '').trim())
+    .filter((x) => x.r && x.r.subject === sub && x.r.ex === ex && (!letter || x.r.letter === letter) && String(x.it.statement || '').trim())
     .sort((a, b) => String(a.r.letter || '').localeCompare(String(b.r.letter || '')))
     .map((x) => x.it);
 }
@@ -146,7 +181,7 @@ function reviewTimeline(exercises, { introSay }) {
 // rows: [{ id, status, score, max_score, created_at, prep: { pos, mode, ex[], items[], answers{}, … } }]
 function progressFrom(rows, exam) {
   const S = settings();
-  const byPos = new Map(positions(exam).map((p) => [p.pos, {
+  const byPos = new Map(allPositions(exam).map((p) => [p.pos, {
     pos: p.pos, done: 0, correct: 0, total: 0, used: new Set(), tests: [], lastAt: null,
   }]));
   const sorted = (rows || []).filter((r) => r && r.prep && byPos.has(r.prep.pos))
@@ -194,7 +229,7 @@ function progressFrom(rows, exam) {
 function currentPosition(exam, prog) {
   const ps = positions(exam);
   const last = prog.lastPos ? prog.byPos[prog.lastPos] : null;
-  if (last && !last.mastered) return { pos: positionOf(exam, prog.lastPos), allDone: false };
+  if (last && !last.mastered && positionOf(exam, prog.lastPos)) return { pos: positionOf(exam, prog.lastPos), allDone: false };
   const open = ps.find((p) => !prog.byPos[p.pos]?.mastered);
   if (open) return { pos: open, allDone: false };
   const weakest = ps.slice().sort((a, b) => {
@@ -377,12 +412,12 @@ function gradeTest(prep) {
   return { correct, total, passed: total > 0 && correct / total >= S.pass - 1e-9, wrongSids };
 }
 
-// Rezumatul progresului pentru interfață (lista pozițiilor)
+// Rezumatul progresului pentru interfață (lista pozițiilor; subpunctele au `parent`)
 function publicProgress(exam, prog) {
-  return positions(exam).map((p) => {
+  return allPositions(exam).map((p) => {
     const g = prog.byPos[p.pos];
     return {
-      pos: p.pos, label: p.label, short: p.short, sub: p.sub, ex: p.ex, multi: p.multi,
+      pos: p.pos, label: p.label, short: p.short, spoken: p.spoken, sub: p.sub, ex: p.ex, multi: p.multi, letter: p.letter || null, parent: p.parent || null,
       done: g.done, nextTestAt: g.nextTestAt, correct: g.correct, total: g.total,
       status: g.status, mastered: g.mastered, tests: g.tests,
       lastTest: g.lastTest ? { correct: g.lastTest.correct, total: g.lastTest.total, passed: g.lastTest.passed, at: g.lastTest.at } : null,
@@ -391,7 +426,7 @@ function publicProgress(exam, prog) {
 }
 
 module.exports = {
-  settings, TARGETS, examOf, chapterOf, positions, positionOf, nextPosition, itemsAt, pollsOf,
+  settings, TARGETS, examOf, chapterOf, positions, subPositions, allPositions, positionOf, nextPosition, itemsAt, pollsOf,
   nsOf, splitNs, namespaced, exerciseTimeline, testTimeline, reviewTimeline, spokenTitle,
   progressFrom, currentPosition, testSize, proposeWelcome, proposeAfterExercise, proposeAfterTest, proposeExhausted,
   orderSubjects, gradeTest, publicProgress,

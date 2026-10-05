@@ -257,10 +257,81 @@ function linesFromTextContent(textContent) {
   }).filter(Boolean).join('\n');
 }
 
+// ── Corecturile făcute de agentul de verificare (Admin → Verificare materiale) ──
+// Agentul corectează un PDF PE LOC: acoperă textul greșit cu alb și scrie textul
+// corect peste el. Vizual e perfect, dar în stratul de text rămân AMÂNDOUĂ
+// („egal cu 20.egal cu 14."), iar AI-ul site-ului (profesorul virtual, lecțiile
+// live) citește textul. De aceea agentul lasă pe pagină o adnotare ASCUNSĂ
+// („ExamenMate-corecturi", JSON: [{ y, x0, w, find, replace }]); aici, la citire,
+// scoatem textul vechi și textul suprapus și punem o singură dată textul corect.
+const CORR_TITLE = 'ExamenMate-corecturi';
+const FOLD_CH = { 'ş': 'ș', 'Ş': 'Ș', 'ţ': 'ț', 'Ţ': 'Ț', '−': '-', '–': '-', '—': '-', '⋅': '·', ' ': ' ' };
+function corrFold(s) {
+  const out = [], map = [];
+  const t = String(s || '').normalize('NFC');
+  for (let i = 0; i < t.length; i++) {
+    let c = FOLD_CH[t[i]] ?? t[i];
+    if (/\s/.test(c)) { if (out.length && out[out.length - 1] === ' ') continue; c = ' '; }
+    out.push(c); map.push(i);
+  }
+  return { text: out.join(''), map };
+}
+function correctionsOf(annots) {
+  const a = (annots || []).find((x) => x && x.title === CORR_TITLE && typeof x.contents === 'string');
+  if (!a) return [];
+  try { const list = JSON.parse(a.contents); return Array.isArray(list) ? list : []; } catch { return []; }
+}
+function applyCorrections(textContent, annots) {
+  const list = correctionsOf(annots);
+  if (!list.length || !textContent || !Array.isArray(textContent.items)) return textContent;
+  let items = textContent.items.map((it) => ({ ...it }));
+  for (const c of list) {
+    if (!c || typeof c.find !== 'string' || typeof c.replace !== 'string') continue;
+    const yOf = (it) => (it.transform || [1, 0, 0, 1, 0, 0])[5];
+    const xOf = (it) => (it.transform || [1, 0, 0, 1, 0, 0])[4];
+    const onLine = (it) => Math.abs(yOf(it) - c.y) < 1.2;
+    // 1) textul scris de agent peste cel vechi (îl punem înapoi o singură dată, mai jos):
+    //    pentru fiecare bucată desenată, ULTIMUL item identic de la acea poziție
+    //    (agentul desenează după conținutul original al paginii)
+    const runs = Array.isArray(c.runs) && c.runs.length ? c.runs : [{ x: c.x0, t: c.replace }];
+    for (const r of runs) {
+      const want = corrFold(r.t).text.trim();
+      let k = -1;
+      items.forEach((it, i) => { if (onLine(it) && Math.abs(xOf(it) - r.x) < 0.8 && corrFold(it.str).text.trim() === want) k = i; });
+      if (k >= 0) items.splice(k, 1);
+    }
+    // 2) textul vechi, pe rândul lui: îl înlocuim în itemii care îl conțin
+    const line = items.filter(onLine).sort((p, q) => xOf(p) - xOf(q));
+    let text = '';
+    const owner = [];
+    for (const it of line) { for (let k = 0; k < it.str.length; k++) { text += it.str[k]; owner.push([it, k]); } }
+    const f = corrFold(text);
+    const target = corrFold(c.find).text.trim();
+    const at = target ? f.text.indexOf(target) : -1;
+    if (at < 0) continue;
+    const from = f.map[at], to = f.map[at + target.length - 1];
+    const cut = new Map();                       // item → [primul, ultimul] caracter de scos
+    for (let i = from; i <= to; i++) {
+      const [it, k] = owner[i];
+      const r = cut.get(it) || [k, k];
+      cut.set(it, [Math.min(r[0], k), Math.max(r[1], k)]);
+    }
+    let first = true;
+    for (const it of line) {
+      const r = cut.get(it);
+      if (!r) continue;
+      it.str = it.str.slice(0, r[0]) + (first ? c.replace : '') + it.str.slice(r[1] + 1);
+      first = false;
+    }
+  }
+  return { ...textContent, items };
+}
+
 // pagerender pentru pdf-parse (folosește asamblarea de mai sus)
 function pageRenderer(pageData) {
-  return pageData.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false })
-    .then((tc) => linesFromTextContent(tc));
+  const textP = pageData.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false });
+  const annP = typeof pageData.getAnnotations === 'function' ? pageData.getAnnotations().catch(() => []) : Promise.resolve([]);
+  return Promise.all([textP, annP]).then(([tc, annots]) => linesFromTextContent(applyCorrections(tc, annots)));
 }
 
 // Datele pentru pdf-parse: o COPIE Uint8Array. Un Buffer mic (< 4 KB) din
@@ -287,4 +358,4 @@ function storagePath(fileUrl) {
 const MODE_KEEP = 'PĂSTREAZĂ DATELE PROBLEMELOR: copiază itemii-sursă EXACT, cu aceleași numere, valori și notații — doar transcrii/convertești formatul, fără nicio modificare de conținut.';
 const MODE_MODIFY = 'MODIFICĂ NUMERELE ȘI NOTAȚIILE față de surse și RECALCULEAZĂ tot (rezultat, variante greșite, barem). VERIFICĂ de două ori fiecare calcul — aici se greșește ușor!';
 const modeLine = (dataMode) => (dataMode === 'keep' ? MODE_KEEP : MODE_MODIFY);
-module.exports = { pdfText, storagePath, modeLine, cutBarem, pageRenderer, linesFromTextContent, toPdfData };
+module.exports = { pdfText, storagePath, modeLine, cutBarem, pageRenderer, linesFromTextContent, toPdfData, applyCorrections, correctionsOf, CORR_TITLE };

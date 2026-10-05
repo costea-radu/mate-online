@@ -7,6 +7,10 @@
 // nu e nevoie de chei separate; modelul se trimite per cerere.
 // =====================================================================
 export const AI_MODELS = [
+  // generația curentă (oct. 2026): Opus 5.5 e mai ieftin decât Opus 5 (4/20 $ față de 5/25 $ pe milion de tokeni)
+  { id: 'claude-opus-5-5',   label: 'Opus 5.5',   hint: 'generația curentă Opus (4/20 $ pe milion de tokeni, mai ieftin decât Opus 5) — recomandat pentru verificarea matematicii și pentru cod' },
+  { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', hint: 'generația curentă Sonnet (2/10 $) — rapid și ieftin, bun pentru o primă trecere pe multe materiale' },
+  { id: 'claude-fable-5-1',  label: 'Fable 5.1',  hint: 'cel mai capabil model public (10/50 $) — pentru cazurile cele mai grele' },
   { id: 'claude-sonnet-5',   label: 'Sonnet 5',   hint: 'rapid și echilibrat — recomandat pentru sarcinile de zi cu zi' },
   { id: 'claude-opus-5',     label: 'Opus 5',     hint: 'foarte capabil — ideal pentru teste complexe și analize (mai lent și mai scump)' },
   { id: 'claude-fable-5',    label: 'Fable 5',    hint: 'cel mai nou și mai capabil model Anthropic (iunie 2026) — cel mai scump' },
@@ -15,7 +19,10 @@ export const AI_MODELS = [
   { id: 'claude-opus-4-8',   label: 'Opus 4.8',   hint: 'generația anterioară Opus' },
 ];
 
-export const DEFAULT_AI_MODEL = AI_MODELS[0].id;
+// Implicitul agenților EXISTENȚI (SEO, generator, task-uri) rămâne Sonnet 5 —
+// nu le schimbăm costul pe tăcute. Agenții de verificare și de debug pornesc pe Opus 5.5.
+export const DEFAULT_AI_MODEL = 'claude-sonnet-5';
+export const CHECK_AI_MODEL = 'claude-opus-5-5';
 
 // =====================================================================
 // AI_STACK — ce comunicăm PUBLIC despre modelele folosite.
