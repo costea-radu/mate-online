@@ -64,6 +64,8 @@ export const liveApi = {
   adminSetSubject: (sessionId, patch) => call({ action: 'admin_set_subject', sessionId, ...patch }),
   adminPrepare: (args) => call({ action: 'admin_prepare', ...args }),
   adminLesson: (lessonId) => call({ action: 'admin_lesson', lessonId }),
+  // meditațiile gratuite: lista completă a subiectelor alese (înlocuiește lista de acum)
+  adminSetFree: (subjectIds) => call({ action: 'admin_set_free', subjectIds }),
 };
 
 // Plata unui bilet (Stripe Checkout) — întoarce URL-ul paginii de plată

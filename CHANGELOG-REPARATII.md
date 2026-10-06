@@ -4,6 +4,40 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 6 octombrie 2026 — Tot Conținutul: „🔁 Înlocuiește" fișierul (data și poziția rămân) + „📥 Materialele noi apar: primele / ultimele" · Meditații live: 🎁 două meditații gratuite
+
+Cererea: 1) la „Tot conținutul", să pot înlocui fișiere cu altele, păstrând data încărcării inițiale pe site și, astfel, ordinea de afișare; 2) la „Ordinea de afișare", la teste interactive am dat „cele mai vechi primele", dar fișierele noi generate apar tot primele — o opțiune ca și cele noi să apară la sfârșit; 3) două dintre meditațiile pregenerate să fie gratuite, menționat la Meditații live, cu un buton în Admin ca să aleg care.
+
+### 1) 🔁 Înlocuiește fișierul (Admin → 📋 Tot Conținutul → Lista, și din „✏️ Editează")
+- Butonul **„🔁 Înlocuiește"** pe fiecare material cu fișier: alegi noul PDF / HTML (același fel ca tipul materialului — un PDF nu poate înlocui un test interactiv), vezi ce rămâne la fel și apeși „🔁 Înlocuiește fișierul".
+- **Același rând din baza de date** → rămân data adăugării (`created_at`), poziția (`sort_order`), titlul, rubrica, accesul, **rezultatele elevilor, recenziile și temele date**. Se schimbă doar `file_url`: fișierul nou se încarcă într-o cale NOUĂ (fără copii vechi în cache-ul CDN), iar triggerele existente reindexează materialul pentru Profesorul Virtual, invalidează textul PDF din cache și formularul de corectare.
+- **Testele interactive generate de platformă:** cheile lor (`interactive_data.exercise`) descriau fișierul vechi → la înlocuire se scot, iar punctajul se calculează din noul HTML (`var D=` / `var ANS =`, ca la testele mai vechi). Proveniența (agentul, task-ul) rămâne.
+- **Fișierul vechi** se șterge din Storage abia după ce rândul arată spre cel nou — și doar dacă e un fișier de materiale (`content-files` / `content-files-free`) pe care nu-l mai folosește alt material. Update condiționat (`file_url` neschimbat între timp → altfel 409, fără suprascrieri oarbe); la eșec, fișierul abia încărcat se șterge. Numele fișierului nou e curățat (fără diacritice / caractere refuzate de Storage).
+- Dacă materialul e un subiect cu **lecție de meditație live**, mesajul spune că lecția a fost scrisă pe fișierul vechi („Regenerează" în Admin → Meditații live).
+
+### 2) 📥 Materialele noi apar: ⤒ primele / ⤓ ultimele (Admin → Tot Conținutul → ↕ Ordinea de afișare)
+- **Cauza:** orice material nou intră cu `sort_order = 0` → pe site apare PRIMUL (ordinea e `sort_order` crescător), oricum ar fi fost sortată rubrica — inclusiv testele postate de agentul Claude.
+- **Acum:** alegerea „📥 Materialele noi apar" — pe **tot site-ul** sau pe **categorie** (în cutia „⚡ Sortare automată") și pe **rubrică** (banda galbenă de deasupra listei, la mutarea manuală; „ca pe tot site-ul / ⤒ primele / ⤓ ultimele"). Cu „⤓ ultimele", materialul nou primește poziția de după ultimul din rubrica lui → apare la sfârșit. Prioritatea: rubrica → categoria → site.
+- Se aplică la **orice** inserare (Adaugă PDF / Interactiv din Admin, testele generate de agent): triggerul SQL `content_new_position` (BEFORE INSERT) citește setarea din `app_settings`; rubrica se calculează exact ca pe site (clase: categorie + tip; EN: + subcategorie; BAC: + profil, mai puțin la „Capitole").
+- **Cele deja apărute primele** (adăugate după ultima ordonare, rămase pe poziția 0): „⤓ Mută-le acum la sfârșit" — în ordinea în care au fost adăugate.
+- După „📅 Cele mai vechi primele" (sortarea automată sau aranjarea + „💾 Salvează ordinea" la o rubrică), panoul spune că materialele noi ar apărea totuși primele și oferă **„⤓ Și materialele noi la sfârșit"** — un clic.
+- Fără SQL-ul nou: totul merge ca înainte (noile apar primele), iar panoul spune ce trebuie rulat.
+
+### 3) 🎁 Meditații gratuite (Meditații live)
+- **Două lecții pregătite** (una de EN, una de BAC — alese automat dintre lecțiile gata, cele mai potrivite pentru o primă încercare; alegerea se salvează) se fac **1-la-1, fără abonament și fără plată**, de oricine are cont; nu consumă ședințele incluse sau biletele. Ședința de grup cu un subiect gratuit e și ea gratuită.
+- **Lobby-ul** (`/meditatii`): mențiunea din prezentare + eticheta „🎁 2 meditații gratuite", secțiunea „Încearcă gratuit" cu „▶ Începe gratuit", „🎁 gratuit" în lista 1-la-1 (primele), „🎁 Gratuit" la ședințele de grup, „🎁 Meditația ta gratuită" în sală.
+- **Admin → 🎥 Meditații live:** cutia „🎁 Meditațiile gratuite" (scoate / alege o lecție gata → „🎁 Fă-o gratuită") și butonul „🎁 Fă-o gratuită / 🎁 Gratuită ✓" la fiecare lecție din „Lecțiile recente".
+- **Plasa anti-abuz** (chatul cu profesorul e o funcție AI): cel mult `LIVE_GRATUIT_LUNA` (4) meditații gratuite pornite pe lună de un elev; în ele, profesorul răspunde la `LIVE_GRATUIT_INTREBARI` (10) întrebări în chat. Detalii: `GHID_MEDITATII_LIVE.md` → secțiunea 3d.
+
+### Pas manual
+Supabase → SQL Editor → rulează **`supabase/setari_ordine_gratuite.sql`** (o dată; idempotent): tabela `app_settings` (doar serverul o citește), funcția `content_rubric_key` și triggerul `content_new_position`.
+
+**Verificat:** `vite build` trece; `npm test` 648/648 (22 de teste noi: `test/continut-inlocuire-ordine.test.js` — numele fișierelor, validarea înlocuirii, cheile testelor interactive, cheia rubricii identică pe server / în browser, prioritatea setării, „mută la sfârșit", handlerul: înlocuirea PDF / interactiv, refuzurile, fișierul vechi folosit de alt material sau din alt bucket, setarea cu / fără SQL; `test/meditatii-gratuite.test.js` — accesul gratuit, alegerea automată stabilă, fără SQL, 1-la-1 gratuit fără să consume ședințele incluse, plafonul lunar, ședința de grup, plafonul de întrebări din chat, schimbarea din Admin și ședința nepornită scoasă dintre cele gratuite). Triggerul SQL verificat pe un Postgres real (PGlite): rubricile EN / BAC / clase, prioritatea, poziția dată explicit, inserarea din browser ca adminul (vede și materialele premium), tabela închisă pentru browser. Capturi în Chromium (Playwright, cu `/api/live` și `/api/content-admin` reale pe un Supabase în memorie): înlocuirea cap-coadă (data și poziția neschimbate, fișierul vechi șters), „⤓ ultimele" + „Mută-le acum la sfârșit", propunerea după „Cele mai vechi primele", cutia din Admin, lobby-ul pe desktop și telefon, pornirea unei meditații gratuite de către un elev fără abonament.
+
+Fișiere: api/content-admin.js, api/_lib/contentAdmin.js, api/_lib/settings.js (nou), api/live.js, api/_lib/live.js, src/components/ContentAdminTools.jsx, src/pages/Admin.jsx, src/lib/contentMeta.js, src/components/LiveAdmin.jsx, src/pages/MeditatiiLive.jsx, src/components/live/PreJoin.jsx, src/lib/live/api.js, src/styles/live.css, supabase/setari_ordine_gratuite.sql (nou), test/continut-inlocuire-ordine.test.js + test/meditatii-gratuite.test.js (noi), test/meditatii-live-api.test.js, test/tools/fakeSupabase.js, GHID_MEDITATII_LIVE.md, acest changelog.
+
+---
+
 ## 17 septembrie 2026 — Adminul are acces la tot, fără abonament
 
 Contul de admin avea nevoie de un abonament Stripe ca să folosească site-ul ca

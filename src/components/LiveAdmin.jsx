@@ -6,6 +6,8 @@
 // subiecte CU BAREM, ale examenului sălii), starea lecției (scriptul + vocea), cine
 // e în sală; pregătirea/regenerarea lecțiilor, anularea unei ședințe, o notă.
 // Lecțiile recente: durata, costul (text + voce), erorile, scriptul complet.
+// 🎁 Meditațiile gratuite: ce lecții pregătite se pot face 1-la-1 fără plată
+// (implicit 2, alese automat — una de EN, una de BAC); butoanele le schimbă.
 // =====================================================================
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -17,8 +19,10 @@ const PHASE_LABEL = { viitoare: 'urmează', sala_asteptare: 'sala e deschisă', 
 const box = { background: '#fff', borderRadius: 12, padding: '20px 24px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', marginBottom: 20 };
 const btn = { padding: '6px 12px', borderRadius: 8, border: '1px solid #d0d7e2', background: '#f6f8fb', fontSize: '.82rem', cursor: 'pointer', whiteSpace: 'nowrap' };
 const btnMain = { ...btn, background: 'var(--navy)', color: '#fff', borderColor: 'var(--navy)' };
+const btnFree = { ...btn, background: '#fff6d6', borderColor: '#e8b931', color: '#6b4e00', fontWeight: 700 };
 const th = { textAlign: 'left', fontSize: '.74rem', textTransform: 'uppercase', letterSpacing: '.04em', color: '#6b7280', padding: '6px 8px', borderBottom: '2px solid #eef1f5' };
 const td = { padding: '10px 8px', borderBottom: '1px solid #eef1f5', verticalAlign: 'top', fontSize: '.88rem' };
+const examChip = (exam) => ({ display: 'inline-block', padding: '2px 9px', borderRadius: 999, fontSize: '.72rem', fontWeight: 700, whiteSpace: 'nowrap', background: exam === 'bac' ? '#efe7fb' : '#e3f0fb', color: exam === 'bac' ? '#5b2a99' : '#1f5faa' });
 
 function addDays(key, n) {
   const d = new Date(`${key}T12:00:00Z`);
@@ -57,6 +61,16 @@ export default function LiveAdmin() {
 
   const go = (n) => { const d = addDays(day, n); setDay(d); setData(null); load(d); };
 
+  // ─── meditațiile gratuite ──
+  const [addPick, setAddPick] = useState('');
+  const free = data?.free || null;
+  const freeIds = (free?.lessons || []).map((l) => l.subjectId);
+  const canEditFree = !!free?.setup && !busy;
+  function toggleFree(subjectId, on) {
+    const next = on ? [...freeIds.filter((x) => x !== subjectId), subjectId] : freeIds.filter((x) => x !== subjectId);
+    run('free', () => liveApi.adminSetFree(next), on ? 'Lecția e acum gratuită — apare în lobby cu „Începe gratuit".' : 'Lecția nu mai e gratuită.');
+  }
+
   return (
     <div>
       <div style={box}>
@@ -79,6 +93,63 @@ export default function LiveAdmin() {
         {err && <div style={{ marginTop: 12, color: '#b3261e', fontSize: '.88rem' }}>⚠ {err}</div>}
         {msg && <div style={{ marginTop: 12, color: '#137333', fontSize: '.88rem' }}>✓ {msg}</div>}
       </div>
+
+      {free && (
+        <div style={{ ...box, background: '#fffdf6', border: '1px solid #f1e2ac' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+            <h3 style={{ color: 'var(--navy)' }}>🎁 Meditațiile gratuite ({free.lessons.length})</h3>
+            {free.auto && free.lessons.length > 0 && <span style={{ fontSize: '.78rem', color: '#8a6d1a' }}>alese automat (una de EN, una de BAC) — le poți schimba oricând</span>}
+          </div>
+          <p style={{ color: '#5f6673', fontSize: '.84rem', margin: '6px 0 12px', lineHeight: 1.55 }}>
+            Oricine are cont le poate face <b>1-la-1, fără abonament și fără plată</b> (nu consumă nici ședințele incluse, nici biletele).
+            Apar la vedere în lobby-ul „Meditații live", cu „▶ Începe gratuit"; ședința de grup din ziua în care o sală predă una dintre ele
+            e și ea gratuită. Plasă anti-abuz: cel mult <b>{free.monthly}</b> ședințe gratuite pe lună de elev, iar în ele profesorul
+            răspunde la <b>{free.answers}</b> întrebări în chat (LIVE_GRATUIT_LUNA, LIVE_GRATUIT_INTREBARI).
+          </p>
+          {!free.setup && (
+            <div style={{ background: '#fff3e0', color: '#8a4b00', borderRadius: 8, padding: '8px 12px', fontSize: '.84rem', marginBottom: 12 }}>
+              ⚠ Ca să le poți schimba, rulează o dată <code>supabase/setari_ordine_gratuite.sql</code> în Supabase → SQL Editor.
+              Până atunci sunt gratuite cele alese automat.
+            </div>
+          )}
+          {free.lessons.length === 0 ? (
+            <div style={{ color: '#6b7280', fontSize: '.86rem' }}>Nicio meditație gratuită acum{free.ready.length ? ' — alege mai jos.' : ' (nu există încă lecții gata; primele două se aleg singure când apar).'}</div>
+          ) : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {free.lessons.map((l) => (
+                <div key={l.subjectId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', border: '1px solid #eee2b8', borderRadius: 10, background: '#fff', flexWrap: 'wrap' }}>
+                  <span style={examChip(l.exam)}>{l.examLabel}</span>
+                  <b style={{ flex: 1, minWidth: 200, color: 'var(--navy)' }}>{l.title}</b>
+                  <span style={{ fontSize: '.78rem', color: l.missing ? '#b3261e' : l.ready ? '#137333' : '#8a5a00' }}>
+                    {l.missing ? '⚠ subiectul nu mai există' : l.ready ? '✓ lecția e gata' : 'lecția se scrie la prima folosire (1–3 min)'}
+                  </span>
+                  <button type="button" style={btn} disabled={!canEditFree} onClick={() => toggleFree(l.subjectId, false)}>
+                    {busy === 'free' ? '…' : '✕ Scoate'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {free.ready.some((r) => !r.free) && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <select value={addPick} onChange={(e) => setAddPick(e.target.value)} disabled={!canEditFree}
+                style={{ flex: 1, minWidth: 260, padding: 7, borderRadius: 8, border: '1px solid #d0d7e2', fontSize: '.86rem' }}>
+                <option value="">＋ Alege o lecție gata, ca să devină gratuită…</option>
+                {[['en', 'Evaluarea Națională'], ['bac', 'Bacalaureat']].map(([ex, label]) => {
+                  const opts = free.ready.filter((r) => r.exam === ex && !r.free);
+                  return opts.length ? (
+                    <optgroup key={ex} label={label}>
+                      {opts.map((r) => <option key={r.subjectId} value={r.subjectId}>{ex === 'bac' ? `${r.examLabel.replace(/^BAC\s*/, '')} · ` : ''}{r.title}</option>)}
+                    </optgroup>
+                  ) : null;
+                })}
+              </select>
+              <button type="button" style={btnMain} disabled={!addPick || !canEditFree || freeIds.length >= free.max}
+                onClick={() => { toggleFree(addPick, true); setAddPick(''); }}>🎁 Fă-o gratuită</button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={box}>
         <h3 style={{ color: 'var(--navy)', marginBottom: 10 }}>Ședințele zilei</h3>
@@ -158,7 +229,11 @@ export default function LiveAdmin() {
               <tbody>
                 {data.lessons.map((l) => (
                   <tr key={l.id}>
-                    <td style={td}><b>{l.title || '(fără titlu încă)'}</b><div style={{ color: '#6b7280', fontSize: '.78rem' }}>{teacherName[l.teacher] || l.teacher} · v{l.version}</div>{l.error && <div style={{ color: '#b3261e', fontSize: '.78rem' }}>{l.error}</div>}</td>
+                    <td style={td}>
+                      <b>{l.title || '(fără titlu încă)'}</b>
+                      {l.free && <span style={{ marginLeft: 6, fontSize: '.72rem', fontWeight: 700, color: '#6b4e00', background: '#fff6d6', border: '1px solid #e8b931', borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>🎁 gratuită</span>}
+                      <div style={{ color: '#6b7280', fontSize: '.78rem' }}>{teacherName[l.teacher] || l.teacher} · v{l.version}</div>{l.error && <div style={{ color: '#b3261e', fontSize: '.78rem' }}>{l.error}</div>}
+                    </td>
                     <td style={td}>
                       {l.status === 'gata' && l.noVoice ? LESSON_LABEL.gata_fara_voce : (LESSON_LABEL[l.status] || l.status)}
                       {l.status === 'gata' && Number(l.sv || 1) < 2 && <div style={{ color: '#b3261e', fontSize: '.76rem' }}>scrisă fără paginile PDF — formulele (radicali, fracții…) pot lipsi; apasă „Regenerează"</div>}
@@ -168,7 +243,14 @@ export default function LiveAdmin() {
                     <td style={td}>{l.duration_sec ? `${Math.round(l.duration_sec / 60)} min` : '—'}</td>
                     <td style={td}>{l.cost_lei ? `${l.cost_lei} lei` : '—'}</td>
                     <td style={td}>{new Date(l.updated_at).toLocaleString('ro-RO')}</td>
-                    <td style={{ ...td, display: 'flex', gap: 6 }}>
+                    <td style={{ ...td, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {(l.status === 'gata' || l.free) && free && (
+                        <button type="button" style={l.free ? btnFree : btn} disabled={!canEditFree || (!l.free && freeIds.length >= free.max)}
+                          title={l.free ? 'Meditație gratuită (1-la-1 fără plată) — apasă ca să nu mai fie gratuită' : 'Fă din această lecție o meditație gratuită (1-la-1 fără plată, la vedere în lobby)'}
+                          onClick={() => toggleFree(l.subject_id, !l.free)}>
+                          {l.free ? '🎁 Gratuită ✓' : '🎁 Fă-o gratuită'}
+                        </button>
+                      )}
                       <button type="button" style={btn} onClick={async () => { try { setScript((await liveApi.adminLesson(l.id)).lesson); } catch (e) { setErr(e.message); } }}>Scriptul</button>
                       <button type="button" style={btn} disabled={!!busy} onClick={() => { if (window.confirm('Regenerezi lecția (script + voce nouă)? Costă din nou.')) run(`re-${l.id}`, () => liveApi.adminPrepare({ subjectId: l.subject_id, teacher: l.teacher, regenerate: true }), 'Regenerarea a pornit.'); }}>
                         {busy === `re-${l.id}` ? '…' : 'Regenerează'}

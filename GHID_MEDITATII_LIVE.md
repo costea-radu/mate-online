@@ -18,6 +18,7 @@ Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 | **1-la-1, oricând** (60 min, **prelungite până termini exercițiile**): elevul **alege exercițiile** (📋 — ex. S. I ex. 5, S. II ex. 2 b), S. III ex. 1 c), nu neapărat la rând); se oprește la întrebări, „Ai înțeles?", „Explică altfel", răspunde cu voce | 8/lună incluse în abonament, apoi 20 lei; prelungirea e fără cost în plus — vezi secțiunea 3b |
 | **🎓 Pregătire de examen** (din „Planul meu"): aceeași clasă, dar profesorul propune ordinea — S. I ex. 1 → ex. 2 → … → S. II → S. III, câte cel puțin 10 exerciții pe poziție, apoi un test; elevul poate alege **orice exercițiu** (la BAC și doar un subpunct a/b/c), fără limită de timp | `/meditatii/pregatire` (`?pos=II.2.b` = începe direct acolo); exercițiile vin din lecțiile de aici — vezi secțiunea 3 |
 | **Plata**: 10 lei ședința de grup fără abonament; inclusă în abonament | Stripe (plată unică), bilet în `live_tickets` |
+| **🎁 Meditații gratuite** (implicit **două**: una de EN, una de BAC): lecții pregătite pe care oricine are cont le face **1-la-1, fără abonament și fără plată** — la vedere în lobby, chiar sub prezentare, cu „▶ Începe gratuit" | alese automat până le alegi tu din **Admin → 🎥 Meditații live → „🎁 Meditațiile gratuite"** (sau „🎁 Fă-o gratuită" la o lecție) — vezi secțiunea 3d |
 
 **Fără barem, profesorul nu explică nimic:** sunt propuse doar subiectele al căror barem
 a fost găsit și citit (cache-ul `ai_pdf_text`), iar explicația „pe barem" e obligatorie
@@ -55,6 +56,11 @@ lecțiilor) și regulile pentru canalele Realtime private (`live:<id>`).
 
 În Supabase → **Realtime → Settings**, verifică să fie permise canalele private
 („Allow public access" poate rămâne cum e — sala folosește canale private).
+
+Pentru **meditațiile gratuite** alese de tine (secțiunea 3d), rulează o dată și
+`supabase/setari_ordine_gratuite.sql` (tabela `app_settings` — setările alese din Admin;
+același script face și opțiunea „📥 Materialele noi apar: ultimele" din Tot Conținutul).
+Fără el merge tot: sunt gratuite cele două lecții alese automat, doar că nu le poți schimba.
 
 ### 1.2 Vocea profesorului (opțională — merge și gratuit)
 **Fără nicio cheie, profesorul vorbește cu vocea browserului — gratuit.** Sala alege singură
@@ -115,6 +121,8 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 | `LIVE_SALI` | `en,mate-info,stiinte-naturii,tehnologic` | sălile (câte o ședință pe zi în fiecare); se pot scoate, ex. `en,mate-info` |
 | `LIVE_PRICE_GRUP_LEI` / `LIVE_PRICE_PRIVAT_LEI` | `10` / `20` | prețurile fără abonament |
 | `LIVE_PRIVAT_INCLUSE` | `8` | ședințe 1-la-1 incluse pe lună în abonament |
+| `LIVE_GRATUIT_LUNA` | `4` | câte meditații gratuite (1-la-1) poate porni un elev pe lună — plasă anti-abuz; peste, plătește ca de obicei |
+| `LIVE_GRATUIT_INTREBARI` | `10` | la câte întrebări din chat răspunde profesorul într-o meditație gratuită (lecția merge oricum până la capăt) |
 | `LIVE_PRIVAT_MINUTE` | `60` | durata unei ședințe 1-la-1 (apoi se prelungește cât elevul lucrează — vezi mai jos) |
 | `LIVE_PRELUNGIRE_PAS` | `10` | cu câte minute se prelungește o dată (cererea vine din sală când mai sunt sub 5 minute) |
 | `LIVE_PRELUNGIRE_MAX` | `120` | cât se poate prelungi cel mult, peste ora de sfârșit (plafon de siguranță, ex. un tab uitat deschis); `0` = fără prelungire |
@@ -248,6 +256,39 @@ greșelilor doar explică.
 
 ---
 
+## 3d. 🎁 Meditațiile gratuite (octombrie 2026)
+
+Cererea: „pune două din meditațiile pregenerate gratuite; menționează asta la meditații live;
+fă un buton la admin să pot modifica care să fie gratuite".
+
+- **Ce înseamnă „gratuită":** o lecție pregătită (pe barem, cu scriptul gata) pe care **oricine are
+  cont** o poate face **1-la-1, fără abonament și fără plată** — nu consumă nici ședințele 1-la-1
+  incluse în abonament, nici biletele. Ședința de grup din ziua în care o sală predă una dintre
+  ele e și ea gratuită (eticheta „🎁 meditație gratuită" în program). Fără cont: „Intră în cont și începe".
+- **Care sunt:** până le alegi tu, **două alese automat** dintre lecțiile gata — una de Evaluare
+  Națională și una de Bacalaureat (Mate-Info întâi), cele mai potrivite pentru o primă încercare:
+  subiect complet (variantă / model / simulare), cu întrebări pe pași, scrisă cu paginile PDF.
+  Alegerea se salvează o dată (rămâne aceeași până o schimbi).
+- **În lobby** (`/meditatii`): în prezentare, „🎁 Două meditații 1-la-1 gratuite, fără abonament —
+  încearcă-le!" și eticheta „🎁 2 meditații gratuite"; chiar sub prezentare, secțiunea **„Încearcă
+  gratuit"** cu cele două lecții și butonul **„▶ Începe gratuit"**; în lista 1-la-1 („Alege subiectul")
+  sunt primele, cu „🎁 gratuit", iar butonul devine „🎁 Începe gratuit". În sală: „🎁 Meditația ta gratuită".
+- **În Admin → 🎥 Meditații live:** cutia **„🎁 Meditațiile gratuite"** — lista de acum („✕ Scoate"),
+  „＋ Alege o lecție gata…" + **„🎁 Fă-o gratuită"**; în „Lecțiile recente", la fiecare lecție gata,
+  butonul **„🎁 Fă-o gratuită" / „🎁 Gratuită ✓"** (un clic o scoate). Oricâte (cel mult 12); o listă
+  goală = nicio meditație gratuită.
+- **Plasa anti-abuz** (chatul cu profesorul e o funcție AI): cel mult `LIVE_GRATUIT_LUNA` (4)
+  meditații gratuite pornite pe lună de un elev — se numără doar cele pornite —, iar în ele
+  profesorul răspunde la cel mult `LIVE_GRATUIT_INTREBARI` (10) întrebări în chat; lecția (explicațiile,
+  grilele, întrebările pe pași) merge oricum până la capăt. O lecție scoasă dintre cele gratuite:
+  ședința deja **pornită** rămâne gratuită; una doar deschisă, nepornită, cere plata obișnuită.
+- **Tehnic:** `app_settings` (cheia `live_free_lessons`, `supabase/setari_ordine_gratuite.sql`),
+  `api/live.js` (`freeLessons`, `admin_set_free`; accesul `gratuit` în `live_sessions.access`),
+  `api/_lib/live.js` (`freeAccess`, `groupAccess`, `pickFreeLessons`). Teste:
+  `test/meditatii-gratuite.test.js`.
+
+---
+
 ## 4. Profesorul animat (scena)
 
 Scena e construită **o singură dată**, offline, dintr-o fotografie a clasei cu profesorul
@@ -356,3 +397,6 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | La 1-la-1, înainte de lecție: „pregătește întrebările pentru pașii din barem" | normal, o singură dată pe subiect (lecție scrisă înainte de întrebările pe pași), cam un minut |
 | O problemă de la S. II/III fără întrebări pe pași | lecție veche folosită cât rula o ședință de grup cu ea (atunci nu se schimbă) → Admin → „➕ Întrebări pe pași"; sau nicio întrebare n-a trecut verificările (Admin → „Scriptul" → „↻ Întrebări pe pași") |
 | Ședința de grup e prea lungă cu toate întrebările | normal: rămâne câte o întrebare la fiecare subpunct; `LIVE_SONDAJ_PAS_SEC` (ex. 30) scurtează timpul de răspuns |
+| Admin → „🎁 Meditațiile gratuite": „rulează supabase/setari_ordine_gratuite.sql" | scriptul setărilor nu e rulat; până atunci sunt gratuite cele două alese automat (nu se pot schimba) |
+| În lobby nu apare secțiunea „Încearcă gratuit" | nu există încă nicio lecție gata (primele două se aleg singure când apar) sau ai golit lista din Admin |
+| Elevul vede „Ai făcut deja cele 4 meditații gratuite din luna aceasta" | plafonul lunar (`LIVE_GRATUIT_LUNA`); de luna viitoare le poate face din nou |

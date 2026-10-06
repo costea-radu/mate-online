@@ -200,6 +200,19 @@ function createFakeSupabase(seed = {}) {
           return { data: { arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) }, error: null };
         },
         remove: async (paths) => { for (const p of paths || []) { db.removed.push(`${bucket}/${p}`); db.files.delete(`${bucket}/${p}`); } return { data: null, error: null }; },
+        // fișierele dintr-un „folder" (doar primul nivel), filtrate după nume (search)
+        list: async (dir = '', opts = {}) => {
+          const prefix = `${bucket}/${dir ? `${String(dir).replace(/\/+$/, '')}/` : ''}`;
+          const out = [];
+          for (const key of db.files.keys()) {
+            if (!key.startsWith(prefix)) continue;
+            const name = key.slice(prefix.length);
+            if (!name || name.includes('/')) continue;
+            if (opts.search && !name.includes(opts.search)) continue;
+            out.push({ name, id: key, metadata: { size: db.files.get(key).length } });
+          }
+          return { data: out.slice(0, opts.limit || 100), error: null };
+        },
         createSignedUrl: async (path, ttl) => ({ data: { signedUrl: `https://fake.supabase/storage/v1/object/sign/${bucket}/${path}?token=t&ttl=${ttl}` }, error: null }),
         getPublicUrl: (path) => ({ data: { publicUrl: `https://fake.supabase/storage/v1/object/public/${bucket}/${path}` } }),
       }),

@@ -7,6 +7,8 @@
 //     BAC Tehnologic — oricâți elevi, 10 lei ședința sau incluse în abonament;
 //   · ședințe 1-la-1 pornite ORICÂND, de 60 de minute — 20 lei sau incluse
 //     în abonament (8 pe lună; peste, 20 lei);
+//   · câteva meditații GRATUITE (implicit 2 lecții pregătite, alese din Admin):
+//     1-la-1 fără plată și fără abonament, pentru oricine are cont;
 //   · profesorul explică DOAR subiecte de EN/BAC cu barem asociat
 //     („fără barem nu explică nimic"), în mai multe moduri, pe baza lui.
 //
@@ -328,10 +330,12 @@ function isFullSubject(title) {
 const isAdminP = (p) => p?.is_admin === true;
 const isSubscribedP = (p) => p?.subscription_status === 'active';
 
-// Ședință de GRUP: admin / abonament → gratuit; altfel bilet de 10 lei.
-function groupAccess({ profile, ticket = null }) {
+// Ședință de GRUP: admin / abonament → gratuit; subiectul e una dintre
+// meditațiile gratuite → gratuit pentru oricine are cont; altfel bilet de 10 lei.
+function groupAccess({ profile, ticket = null, free = false }) {
   if (isAdminP(profile)) return { ok: true, via: 'admin', price: 0 };
   if (isSubscribedP(profile)) return { ok: true, via: 'abonament', price: 0 };
+  if (free) return profile ? { ok: true, via: 'gratuit', price: 0, free: true } : { ok: false, via: null, price: 0, free: true };
   if (ticket && ticket.status !== 'rambursat') return { ok: true, via: 'bilet', price: 0 };
   return { ok: false, via: null, price: PRICE_GROUP_LEI() };
 }
@@ -346,6 +350,69 @@ function privateAccess({ profile, includedUsed = 0, unusedTickets = 0 }) {
   if (left > 0) return { ok: true, via: 'inclus', price: 0, included, includedLeft: left };
   if (unusedTickets > 0) return { ok: true, via: 'bilet', price: 0, included: sub ? included : 0, includedLeft: 0 };
   return { ok: false, via: null, price: PRICE_PRIVATE_LEI(), included: sub ? included : 0, includedLeft: 0 };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 5b. MEDITAȚIILE GRATUITE (Admin → 🎥 Meditații live → „🎁 Meditațiile gratuite")
+// Câteva lecții pregătite (implicit 2: una de EN și una de BAC, alese automat
+// până le alege adminul) se pot face 1-la-1 FĂRĂ plată și fără abonament, de
+// oricine are cont; ședința de grup din ziua în care o sală predă una dintre
+// ele e și ea gratuită. Ședința gratuită nu consumă nici ședințele incluse în
+// abonament, nici biletele. Plasă anti-abuz (chatul cu profesorul e o funcție AI):
+// cel mult LIVE_GRATUIT_LUNA ședințe gratuite pornite pe lună de un elev, iar în
+// ele profesorul răspunde la cel mult LIVE_GRATUIT_INTREBARI întrebări în chat.
+// ═════════════════════════════════════════════════════════════════════════════
+const FREE_DEFAULT_COUNT = 2;
+const FREE_MAX = 12;
+const FREE_MONTHLY = () => Math.max(0, envInt('LIVE_GRATUIT_LUNA', 4));
+const FREE_ANSWERS = () => Math.max(0, envInt('LIVE_GRATUIT_INTREBARI', 10));
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Ședință 1-la-1 pe o lecție gratuită: oricine are cont, cât mai are ședințe
+// gratuite luna aceasta (freeUsed = câte a pornit deja).
+function freeAccess({ profile, free = false, freeUsed = 0 }) {
+  if (!profile || !free) return { ok: false, via: null };
+  const max = FREE_MONTHLY();
+  const left = Math.max(0, max - (Number(freeUsed) || 0));
+  if (left <= 0) return { ok: false, via: null, free: true, freeLeft: 0, freeMonthly: max };
+  return { ok: true, via: 'gratuit', price: 0, free: true, freeLeft: left, freeMonthly: max };
+}
+
+// Lista de id-uri (subiectele lecțiilor gratuite), curățată: UUID-uri unice, cel mult FREE_MAX
+function normalizeFreeIds(list) {
+  const out = [];
+  for (const x of Array.isArray(list) ? list : []) {
+    const id = String(x || '').trim().toLowerCase();
+    if (UUID_RE.test(id) && !out.includes(id)) out.push(id);
+    if (out.length >= FREE_MAX) break;
+  }
+  return out;
+}
+
+// Alegerea automată (până alege adminul): lecțiile GATA cele mai potrivite pentru
+// o primă încercare — una de Evaluare Națională și una de Bacalaureat (Mate-Info
+// întâi), apoi restul. Calitatea: subiect complet (variantă / model / simulare),
+// cu întrebări pe pași, scrisă cu paginile PDF, cu voce generată.
+// `lessons` = rânduri live_lessons { subject_id, status, version, title, exam, profile, pasi, sv, noVoice }
+const BAC_PROFILE_RANK = { 'mate-info': 0, 'stiinte-naturii': 1, tehnologic: 2 };
+function pickFreeLessons(lessons, { count = FREE_DEFAULT_COUNT } = {}) {
+  const best = new Map();   // cea mai nouă versiune, pe subiect
+  for (const l of lessons || []) {
+    if (!l || !l.subject_id || l.status !== 'gata') continue;
+    const cur = best.get(l.subject_id);
+    if (!cur || Number(l.version || 1) > Number(cur.version || 1)) best.set(l.subject_id, l);
+  }
+  const score = (l) => (isFullSubject(l.title) ? 8 : 0) + (Number(l.pasi) > 0 ? 4 : 0) + (Number(l.sv || 1) >= 2 ? 2 : 0) + (l.noVoice === true ? 0 : 1);
+  const rank = (l) => (BAC_PROFILE_RANK[l.profile] ?? 9);
+  const all = [...best.values()].sort((a, b) => score(b) - score(a) || rank(a) - rank(b)
+    || String(b.title || '').localeCompare(String(a.title || ''), 'ro', { numeric: true })
+    || String(a.subject_id).localeCompare(String(b.subject_id)));
+  const out = [];
+  const add = (l) => { if (l && out.length < count && !out.includes(l)) out.push(l); };
+  add(all.find((l) => l.exam === 'en'));
+  add(all.find((l) => l.exam === 'bac'));
+  for (const l of all) add(l);
+  return out;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -821,6 +888,7 @@ module.exports = {
   intervals, rooms, roomById, slots, slotById, slotTimes, examFor, plannedSessions, phaseOf, canJoinPhase, JOIN_EARLY_MIN, isFullSubject,
   BAREM_OK, hasBarem, subjectExam, pickSubject, PROFILE_LABELS, EXAM_LABEL,
   groupAccess, privateAccess, PRICE_GROUP_LEI, PRICE_PRIVATE_LEI, PRIVATE_INCLUDED, PRIVATE_MINUTES,
+  FREE_DEFAULT_COUNT, FREE_MAX, FREE_MONTHLY, FREE_ANSWERS, freeAccess, normalizeFreeIds, pickFreeLessons,
   EXT_STEP_MIN, EXT_MAX_MIN, baseEndOf, extensionPlan,
   displayName, moderate, isQuestion, foldRo,
   checkPollAnswer, pollResults, publicPoll,

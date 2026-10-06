@@ -126,6 +126,54 @@ export function matchesGroup(item, scope) {
   return true;
 }
 
+// Cheia rubricii unui material (sau a unui scope { category, subcategory, profile, type })
+// — oglinda lui rubricKey din api/_lib/contentAdmin.js și a funcției SQL
+// public.content_rubric_key (supabase/setari_ordine_gratuite.sql).
+export function rubricKey(x) {
+  const r = x || {};
+  const cat = String(r.category || '');
+  const sub = hasSubcategories(cat) ? String(r.subcategory || '') : '';
+  const prof = needsProfile(cat, sub) ? String(r.profile || '') : '';
+  return `${cat}|${sub}|${prof}|${String(r.content_type || r.type || '')}`;
+}
+
+// Unde apare un material NOU (setarea din „📥 Materialele noi apar"):
+// rubrica → categoria → tot site-ul → 'start'. Întoarce și de unde vine regula.
+export function newPositionInfo(cfg, x) {
+  const c = cfg || {};
+  const key = rubricKey(x);
+  if (c.rubrics && c.rubrics[key]) return { value: c.rubrics[key], from: 'rubric' };
+  const cat = String((x && x.category) || '');
+  if (c.categories && c.categories[cat]) return { value: c.categories[cat], from: 'category' };
+  return { value: c.site === 'end' ? 'end' : 'start', from: 'site' };
+}
+
+// ─── Înlocuirea fișierului („🔁 Înlocuiește") ────────────────────────────────
+// Ce fișier poate înlocui fișierul unui material: același fel (PDF ↔ PDF,
+// HTML ↔ HTML), ca tipul materialului să rămână valabil.
+export function replaceKind(item) {
+  if (item?.content_type === 'pdf') return { accept: '.pdf', exts: ['pdf'], mime: 'application/pdf', label: 'PDF', icon: '📄' };
+  return { accept: '.html,.htm', exts: ['html', 'htm'], mime: 'text/html', label: 'fișier HTML', icon: '🧩' };
+}
+
+// Numele fișierului pentru o cheie de Storage (fără diacritice și fără
+// caracterele refuzate de Storage), cu extensia păstrată — ca pe server.
+export function safeFileName(name) {
+  const raw = String(name || '').split(/[\\/]/).pop() || '';
+  const m = raw.match(/^(.*?)(\.[A-Za-z0-9]{1,8})?$/);
+  const ext = ((m && m[2]) || '').toLowerCase();
+  const base = String((m && m[1]) || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Za-z0-9._ -]+/g, '_').replace(/\s+/g, '_').replace(/_+/g, '_')
+    .replace(/^[_.-]+|[_.-]+$/g, '').slice(0, 80);
+  return (base || 'fisier') + ext;
+}
+
+// Calea fișierului nou în Storage (ca la „Adaugă PDF / Interactiv")
+export function replacementPath(item, fileName, now = Date.now()) {
+  const folder = item?.content_type === 'pdf' ? 'pdf' : 'interactive';
+  return `${folder}/${item?.category}/${now}_${safeFileName(fileName)}`;
+}
+
 // Tipurile de conținut pe care le AFIȘEAZĂ o rubrică pe site (oglinda paginilor):
 //   • clase: tab-urile „Interactive" + „PDF" (ClassPage.jsx);
 //   • Auxiliare Online: un singur tab, cel interactiv (Manuale.jsx);

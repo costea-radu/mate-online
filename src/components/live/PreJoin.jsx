@@ -114,7 +114,8 @@ export default function PreJoin({ info, teacher, rigThumb = null, present = 0, p
               {access === 'abonament' && '✓ Inclus în abonamentul tău'}
               {access === 'bilet' && '✓ Ai bilet la această ședință'}
               {access === 'admin' && '✓ Cont de administrator'}
-              {access === 'proprietar' && '✓ Ședința ta 1-la-1'}
+              {access === 'gratuit' && '🎁 Meditație gratuită — intri fără abonament'}
+              {access === 'proprietar' && (s?.free ? '🎁 Meditația ta gratuită, 1-la-1 — fără plată' : '✓ Ședința ta 1-la-1')}
             </div>
             <label className="lv-pre-check">
               <input type="checkbox" checked={fullscreen} onChange={(e) => setFullscreen(e.target.checked)} /> Intră pe tot ecranul

@@ -1,12 +1,15 @@
 // =====================================================================
 // api/_lib/contentAdmin.js — logica PURĂ (fără rețea) pentru Admin →
-// „Tot Conținutul": editarea metadatelor unui material și ordinea de afișare.
-// Folosită de api/content-admin.js; testată în test/content-admin.test.js.
+// „Tot Conținutul": editarea metadatelor unui material, ordinea de afișare,
+// înlocuirea fișierului (păstrând data și poziția) și unde apar materialele noi.
+// Folosită de api/content-admin.js; testată în test/content-admin.test.js și
+// test/continut-inlocuire-ordine.test.js.
 //
 // Cum se ordonează materialele pe site (ContentPage.jsx / ExamContent.jsx):
 //     .order('sort_order', asc).order('created_at', desc)
 // deci sort_order MIC = apare PRIMUL, iar la egalitate câștigă cel mai nou.
-// Materialele noi se inserează cu sort_order = 0 → apar primele până sunt mutate.
+// Materialele noi se inserează cu sort_order = 0 → apar primele până sunt mutate
+// (sau la sfârșitul rubricii, dacă adminul a ales „⤓ ultimele" — vezi mai jos).
 // =====================================================================
 
 const CATEGORIES = [
@@ -186,8 +189,162 @@ function planSortAll(rows, { by = 'created_at', dir = 'desc' } = {}) {
   return { updates, total: (rows || []).length };
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ÎNLOCUIREA FIȘIERULUI unui material („🔁 Înlocuiește" din Tot Conținutul)
+// Rândul din `content` rămâne ACELAȘI (id, created_at, sort_order, titlu,
+// rubrică, acces) → ordinea de pe site, rezultatele elevilor, recenziile și
+// temele date rămân neatinse; se schimbă doar `file_url`. Fișierul nou se
+// încarcă într-o cale NOUĂ (URL nou → fără copii vechi în cache-ul CDN, iar
+// triggerele din baza de date reindexează materialul și invalidează textul PDF).
+// ═════════════════════════════════════════════════════════════════════════════
+const FILE_FOLDERS = ['pdf', 'interactive', 'manual'];
+const CONTENT_BUCKETS = ['content-files', 'content-files-free'];
+
+// Folderul din Storage în care Admin pune fișierele unui tip (ca la „Adaugă PDF / Interactiv")
+function folderFor(contentType) { return contentType === 'pdf' ? 'pdf' : 'interactive'; }
+
+// Numele fișierului pentru o cheie de Storage: fără diacritice și fără
+// caracterele pe care Storage le refuză („Invalid key"), cu extensia păstrată.
+function safeFileName(name) {
+  const raw = String(name || '').split(/[\\/]/).pop() || '';
+  const m = raw.match(/^(.*?)(\.[A-Za-z0-9]{1,8})?$/);
+  const ext = ((m && m[2]) || '').toLowerCase();
+  const base = String((m && m[1]) || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Za-z0-9._ -]+/g, '_').replace(/\s+/g, '_').replace(/_+/g, '_')
+    .replace(/^[_.-]+|[_.-]+$/g, '').slice(0, 80);
+  return (base || 'fisier') + ext;
+}
+
+// Calea în Storage a fișierului nou (oglinda din src/lib/contentMeta.js).
+function replacementPath(row, fileName, now = Date.now()) {
+  return `${folderFor(row && row.content_type)}/${row && row.category}/${now}_${safeFileName(fileName)}`;
+}
+
+// Verifică fișierul nou (PUR): calea, folderul, extensia potrivită tipului.
+// Întoarce { ok, error } sau { ok: true, bucket, ext }.
+function checkReplacement(row, path) {
+  if (!row) return { ok: false, error: 'Material negăsit.' };
+  const p = String(path || '');
+  // eslint-disable-next-line no-control-regex
+  if (!p || p.length > 600 || p.includes('..') || p.startsWith('/') || /[\u0000-\u001f]/.test(p)) {
+    return { ok: false, error: 'Calea fișierului nou e invalidă.' };
+  }
+  if (!FILE_FOLDERS.includes(p.split('/')[0])) {
+    return { ok: false, error: 'Fișierul nou trebuie să fie în folderul materialelor (pdf/ sau interactive/).' };
+  }
+  const ext = fileExtension(p);
+  const want = row.content_type === 'pdf' ? 'un PDF (.pdf)' : 'o pagină HTML (.html)';
+  if (!ext) return { ok: false, error: `Fișierul nou nu are extensie — trebuie să fie ${want}.` };
+  if (!allowedContentTypes({ file_url: p }).includes(row.content_type)) {
+    return { ok: false, error: `Materialul e de tip „${row.content_type}": fișierul nou trebuie să fie ${want}, nu .${ext}.` };
+  }
+  return { ok: true, bucket: bucketFor(!!row.is_free), ext };
+}
+
+// Testele interactive generate de platformă își țin cheile în
+// interactive_data.exercise — care descrie fișierul VECHI. La înlocuire îl
+// scoatem, iar punctajul se calculează din noul HTML (score.keysFromHtml).
+// Întoarce null când nu e nimic de schimbat.
+function interactiveDataAfterReplace(data, nowIso = new Date().toISOString()) {
+  if (!data || typeof data !== 'object' || Array.isArray(data) || !data.exercise) return null;
+  const { exercise, ...rest } = data; // eslint-disable-line no-unused-vars
+  return { ...rest, file_replaced_at: nowIso };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// UNDE APAR MATERIALELE NOI („📥" din Ordinea de afișare)
+// Implicit, un material nou primește sort_order = 0 → apare PRIMUL în rubrică.
+// Setarea (tabela app_settings, cheia 'content_new_position') poate cere
+// „la sfârșit" pe tot site-ul, pe o categorie sau pe o rubrică; triggerul SQL
+// public.content_new_position (supabase/setari_ordine_gratuite.sql) dă atunci
+// materialului nou sort_order = max(rubrică) + 1 — la orice inserare: Adaugă
+// PDF / Interactiv din Admin și testele postate de agentul Claude.
+// Prioritatea: rubrica → categoria → tot site-ul → „start".
+// ═════════════════════════════════════════════════════════════════════════════
+const NEW_POSITION_KEY = 'content_new_position';
+const NEW_POSITIONS = ['start', 'end'];
+
+// Cheia rubricii (lista de pe site) a unui material — oglinda lui matchesGroup
+// din src/lib/contentMeta.js și a funcției SQL public.content_rubric_key.
+function rubricKey(row) {
+  const r = row || {};
+  const cat = String(r.category || '');
+  const sub = SUBCATEGORIES[cat] ? String(r.subcategory || '') : '';
+  const prof = cat === 'bacalaureat' && sub && sub !== 'capitole' ? String(r.profile || '') : '';
+  return `${cat}|${sub}|${prof}|${String(r.content_type || r.type || '')}`;
+}
+const RUBRIC_KEY_RE = /^[a-z0-9-]+\|[a-z0-9-]*\|[a-z0-9-]*\|(pdf|interactive|manual)$/;
+
+// Setarea, curățată: { site, categories: {cat: poz}, rubrics: {cheie: poz} }
+function normalizeNewPosition(v) {
+  const src = v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  const out = { site: NEW_POSITIONS.includes(src.site) ? src.site : 'start', categories: {}, rubrics: {} };
+  for (const [k, pos] of Object.entries(src.categories || {})) {
+    if (CATEGORIES.includes(k) && NEW_POSITIONS.includes(pos)) out.categories[k] = pos;
+  }
+  for (const [k, pos] of Object.entries(src.rubrics || {})) {
+    if (RUBRIC_KEY_RE.test(k) && CATEGORIES.includes(k.split('|')[0]) && NEW_POSITIONS.includes(pos)) out.rubrics[k] = pos;
+  }
+  return out;
+}
+
+// Unde apare un material nou (aceeași regulă ca triggerul SQL)
+function newPositionFor(cfg, row) {
+  const c = normalizeNewPosition(cfg);
+  return c.rubrics[rubricKey(row)] || c.categories[String((row && row.category) || '')] || c.site || 'start';
+}
+
+// Schimbă setarea: scope 'site' | 'category' | 'rubric'; value 'start' | 'end'
+// sau null (= „ca la nivelul de deasupra": scoate excepția). Întoarce setarea nouă.
+function applyNewPosition(cfg, { scope, category = null, rubric = null, value = null } = {}) {
+  const c = normalizeNewPosition(cfg);
+  if (value !== null && !NEW_POSITIONS.includes(value)) throw new Error('Poziție necunoscută (start / end).');
+  if (scope === 'site') {
+    c.site = value || 'start';
+  } else if (scope === 'category') {
+    if (!CATEGORIES.includes(String(category || ''))) throw new Error('Categorie necunoscută.');
+    if (value) c.categories[category] = value; else delete c.categories[category];
+  } else if (scope === 'rubric') {
+    const key = typeof rubric === 'string' ? rubric : rubricKey(rubric || {});
+    if (!RUBRIC_KEY_RE.test(key) || !CATEGORIES.includes(key.split('|')[0])) throw new Error('Rubrică necunoscută.');
+    if (value) c.rubrics[key] = value; else delete c.rubrics[key];
+  } else {
+    throw new Error('Nivel necunoscut (site / category / rubric).');
+  }
+  return c;
+}
+
+// „Mută la sfârșit materialele noi": în fiecare rubrică din `rows` care are deja
+// o ordine stabilită (cel puțin un sort_order > 0), materialele rămase pe
+// poziția 0 (= adăugate după ultima ordonare, deci apar acum PRIMELE) trec la
+// sfârșit, în ordinea în care au fost adăugate. Rubricile cu toate pozițiile 0
+// (ordonate doar după dată) rămân neatinse. Întoarce DOAR rândurile care se schimbă.
+function planMoveNewToEnd(rows) {
+  const groups = new Map();
+  for (const r of rows || []) {
+    const k = rubricKey(r);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  }
+  const updates = [];
+  let rubrics = 0;
+  for (const list of groups.values()) {
+    const pos = (r) => (r.sort_order == null ? 0 : Number(r.sort_order));
+    const max = list.reduce((m, r) => Math.max(m, pos(r)), 0);
+    if (max <= 0) continue;
+    const fresh = list.filter((r) => pos(r) <= 0)
+      .sort((a, b) => (Date.parse(a.created_at || 0) || 0) - (Date.parse(b.created_at || 0) || 0) || String(a.id).localeCompare(String(b.id)));
+    if (!fresh.length) continue;
+    rubrics += 1;
+    fresh.forEach((r, i) => updates.push({ id: String(r.id), sort_order: max + i + 1 }));
+  }
+  return { updates, rubrics };
+}
+
 module.exports = {
   CATEGORIES, CONTENT_TYPES, SUBCATEGORIES, BAC_PROFILES,
   bucketFor, fileExtension, allowedContentTypes, sanitizeUpdate,
   siteOrder, planReorder, planSortAll,
+  FILE_FOLDERS, CONTENT_BUCKETS, folderFor, safeFileName, replacementPath, checkReplacement, interactiveDataAfterReplace,
+  NEW_POSITION_KEY, NEW_POSITIONS, rubricKey, normalizeNewPosition, newPositionFor, applyNewPosition, planMoveNewToEnd,
 };

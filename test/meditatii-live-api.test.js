@@ -51,6 +51,9 @@ function seed() {
       content(C.bacPed, 'BAC 2024 M_pedagogic Varianta 2', 'bacalaureat', { profile: 'pedagogic' }),
     ],
     ai_pdf_text: [pdfRow(C.en1), pdfRow(C.en2), pdfRow(C.en3, 'ok_antet'), pdfRow(C.enNoBarem, 'lipsa'), pdfRow(C.bac1), pdfRow(C.bac2), pdfRow(C.bacPed)],
+    // fără meditații gratuite aici (altfel lecțiile gata ar deveni gratuite prin alegerea
+    // automată) — ele au testele lor, în test/meditatii-gratuite.test.js
+    app_settings: [{ key: 'live_free_lessons', value: { subjects: [] } }],
   };
 }
 
@@ -92,6 +95,9 @@ pdf.downloadContentPdf = async () => { throw new Error('fără rețea în teste'
 delete process.env.AZURE_SPEECH_KEY; delete process.env.OPENAI_API_KEY; delete process.env.LIVE_TTS_API_KEY;
 delete process.env.SUPABASE_URL; delete process.env.VITE_SUPABASE_URL;
 
+// lista meditațiilor gratuite e ținută un minut în memorie: fiecare test o citește din nou
+test.beforeEach(() => handler._internals.resetFree());
+
 async function call(action, body = {}, user = null) {
   const res = fakeRes();
   await handler({ method: 'POST', headers: user ? { 'x-user': user } : {}, query: {}, body: { action, ...body } }, res);
@@ -125,7 +131,8 @@ test('lobby: azi și mâine, câte o ședință în fiecare sală (EN, BAC Mate-
   assert.strictEqual(t0.teh.subject, null, 'niciun subiect de tehnologic cu barem → sala așteaptă, nu primește alt profil');
   assert.strictEqual(t0.teh.examLabel, 'BAC Tehnologic');
   assert.ok(!p.days.flatMap((d) => d.sessions).some((s) => s.subject?.id === C.bacPed), 'fără BAC pedagogic');
-  assert.deepStrictEqual(p.prices, { grup: 10, privat: 20, privatMin: 60, privatIncluse: 8 });
+  assert.deepStrictEqual(p.prices, { grup: 10, privat: 20, privatMin: 60, privatIncluse: 8, gratuiteLuna: 4 });
+  assert.deepStrictEqual(p.freeLessons, [], 'nicio lecție gata încă → nicio meditație gratuită');
   assert.strictEqual(p.me.loggedIn, false);
   // subiectele atribuite: doar cu barem, fără bareme ca subiecte, fără repetare în aceeași zi
   const todays = p.days[0].sessions.filter((s) => s.subject);

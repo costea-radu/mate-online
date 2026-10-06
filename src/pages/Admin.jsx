@@ -8,7 +8,7 @@ import ReviewsAdmin from '../components/ReviewsAdmin';
 import LiveAdmin from '../components/LiveAdmin';
 import AdminVerificare from '../components/AdminVerificare';
 import AdminDebug from '../components/AdminDebug';
-import { ContentMetaFields, EditContentModal, ReorderPanel } from '../components/ContentAdminTools';
+import { ContentMetaFields, EditContentModal, ReplaceFileModal, ReorderPanel } from '../components/ContentAdminTools';
 import { CATEGORIES, CONTENT_TYPES, categoryLabel, subcategoryLabel, profileLabel, hasSubcategories, visibilityWarning } from '../lib/contentMeta';
 
 // Rubricile (categorii, subcategorii EN/BAC, profiluri, tipuri) stau acum în
@@ -381,8 +381,9 @@ function UploadInteractive({ onSuccess }) {
 
 
 // ─── Content List ─────────────────────────────────────────────────────────────
-// Două vederi în același card: „📋 Lista" (filtre + căutare, Editează/Șterge)
-// și „↕ Ordinea de afișare" (drag-and-drop / săgeți / sortări — ContentAdminTools).
+// Două vederi în același card: „📋 Lista" (filtre + căutare, Editează /
+// 🔁 Înlocuiește fișierul / Șterge) și „↕ Ordinea de afișare" (drag-and-drop /
+// săgeți / sortări / unde apar materialele noi — ContentAdminTools).
 function ContentList({ refresh }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -390,7 +391,8 @@ function ContentList({ refresh }) {
   const [deleting, setDeleting] = useState(null);
   const [view, setView] = useState('list');      // 'list' | 'order'
   const [editing, setEditing] = useState(null);  // materialul deschis în modalul de editare
-  const [flash, setFlash] = useState(null);      // mesaj după editare
+  const [replacing, setReplacing] = useState(null); // materialul al cărui fișier se înlocuiește
+  const [flash, setFlash] = useState(null);      // mesaj după editare / înlocuire
 
   useEffect(() => { load(); }, [refresh]);
 
@@ -466,6 +468,21 @@ function ContentList({ refresh }) {
       ? `✓ „${row.title}" a fost salvat; fișierul a fost mutat din ${result.moved.from} în ${result.moved.to}.`
       : `✓ „${row.title}" a fost salvat.`);
   }
+
+  // După „🔁 Înlocuiește": același rând (data și poziția neschimbate), fișier nou.
+  function onReplaced(row, result) {
+    setItems(list => list.map(x => (x.id === row.id ? { ...x, ...row } : x)));
+    setReplacing(null);
+    const r = result?.replaced || {};
+    const what = r.from && r.to ? ` (${r.from} → ${r.to})` : '';
+    const live = result?.liveLessons > 0
+      ? ' Atenție: subiectul are o lecție de meditație live scrisă pe fișierul vechi — Admin → 🎥 Meditații live → „Regenerează" la ea.'
+      : '';
+    setFlash(`✓ Fișierul lui „${row.title}" a fost înlocuit${what}. Data adăugării și poziția în listă au rămas aceleași.${live}`);
+  }
+
+  // Materialele care au un fișier de înlocuit (PDF sau HTML)
+  const canReplace = (item) => item.content_type === 'pdf' || item.content_type === 'interactive' || !!item.file_url;
 
   // După „Salvează ordinea": pozițiile noi se reflectă în listă fără reîncărcare.
   function onReordered(orderMap) {
@@ -606,6 +623,13 @@ function ContentList({ refresh }) {
                           onClick={() => { setFlash(null); setEditing(item); }}>
                           ✏️ Editează
                         </button>
+                        {canReplace(item) && (
+                          <button style={{ ...s.btnSecondary, padding: '6px 12px', fontSize: '0.82rem', marginRight: 6 }}
+                            title="Alt fișier pentru același material — data adăugării și poziția în listă rămân"
+                            onClick={() => { setFlash(null); setReplacing(item); }}>
+                            🔁 Înlocuiește
+                          </button>
+                        )}
                         <button style={s.btnDanger} onClick={() => handleDelete(item)}
                           disabled={deleting === item.id}>
                           {deleting === item.id ? '...' : '🗑 Șterge'}
@@ -621,7 +645,11 @@ function ContentList({ refresh }) {
       )}
 
       {editing && (
-        <EditContentModal s={s} item={editing} onClose={() => setEditing(null)} onSaved={onEdited} />
+        <EditContentModal s={s} item={editing} onClose={() => setEditing(null)} onSaved={onEdited}
+          onReplace={canReplace(editing) ? () => { const it = editing; setEditing(null); setReplacing(it); } : null} />
+      )}
+      {replacing && (
+        <ReplaceFileModal s={s} item={replacing} onClose={() => setReplacing(null)} onReplaced={onReplaced} />
       )}
     </div>
   );

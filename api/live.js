@@ -18,7 +18,13 @@
 //   extend         — prelungirea: elevul care nu a terminat exercițiile nu e oprit
 //                    la 60 de minute (1-la-1) / la sfârșitul orei (grup ținut 1-la-1)
 //   leave          — ieșirea din sală (1-la-1: „Încheie ședința")
-//   admin_*        — programul pe zile, subiectul unei ședințe, pregătirea lecțiilor
+//   admin_*        — programul pe zile, subiectul unei ședințe, pregătirea lecțiilor,
+//                    meditațiile gratuite (admin_set_free)
+//
+// MEDITAȚIILE GRATUITE: câteva lecții pregătite (implicit 2, una de EN și una de
+// BAC; adminul le schimbă) se fac 1-la-1 fără plată și fără abonament, de oricine
+// are cont (cel mult LIVE_GRATUIT_LUNA pe lună); ședința de grup cu un astfel de
+// subiect e și ea gratuită. Vezi „MEDITAȚIILE GRATUITE" mai jos și L.freeAccess.
 // GET ?action=cron — ședințele de azi/mâine, subiectele, lecțiile pentru următoarele
 //   ore, asocierea subiect ↔ barem pentru materialele noi (Bearer CRON_SECRET)
 //
@@ -230,6 +236,65 @@ async function privateAccessFor(supa, profile) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// MEDITAȚIILE GRATUITE — lecțiile alese din Admin (app_settings, cheia
+// 'live_free_lessons'). Până alege adminul: două lecții gata, alese automat
+// (una de EN, una de BAC — L.pickFreeLessons), salvate o singură dată ca să
+// rămână aceleași. Fără tabela de setări (SQL-ul nerulat): tot alegerea
+// automată, calculată la cerere. Reguli: L.freeAccess / L.groupAccess.
+// ═════════════════════════════════════════════════════════════════════════════
+const SET = require('./_lib/settings');
+const FREE_KEY = 'live_free_lessons';
+const FREE_TTL = 60 * 1000;
+const FREE_LIGHT = 'subject_id, teacher, version, status, title, exam, profile, updated_at, noVoice:progress->noVoice, sv:script->v, pasi:script->pasi';
+let freeCache = null;
+
+async function freeLessons(supa, { fresh = false } = {}) {
+  if (!fresh && freeCache && Date.now() - freeCache.at < FREE_TTL) return freeCache;
+  let st = { setup: false, value: null };
+  try { st = await SET.readSetting(supa, FREE_KEY); }
+  catch (e) { console.warn('live: setarea meditațiilor gratuite:', e.message); }
+  let ids = st.value && Array.isArray(st.value.subjects) ? L.normalizeFreeIds(st.value.subjects) : null;
+  let auto = !!(st.value && st.value.auto);
+  if (!ids) {
+    auto = true;
+    const { data } = await supa.from('live_lessons').select(FREE_LIGHT).eq('status', 'gata').limit(2000);
+    ids = L.pickFreeLessons(data || []).map((l) => String(l.subject_id).toLowerCase());
+    if (st.setup && ids.length >= L.FREE_DEFAULT_COUNT) {
+      await SET.insertSettingIfMissing(supa, FREE_KEY, { subjects: ids, auto: true, at: new Date().toISOString() });
+    }
+  }
+  freeCache = { at: Date.now(), ids, set: new Set(ids), auto, setup: st.setup };
+  return freeCache;
+}
+async function isFreeSubject(supa, subjectId) {
+  if (!subjectId) return false;
+  return (await freeLessons(supa)).set.has(String(subjectId).toLowerCase());
+}
+// Ședințele 1-la-1 GRATUITE pornite de elev luna aceasta (cele nepornite nu se numără)
+async function freeUsedThisMonth(supa, userId) {
+  const { count } = await supa.from('live_sessions').select('*', { count: 'exact', head: true })
+    .eq('owner_id', userId).eq('kind', 'privat').eq('access', 'gratuit').gte('created_at', L.monthStart())
+    .not('state->>startedAt', 'is', null);
+  return count || 0;
+}
+
+// Lecțiile gratuite, pentru lobby: titlul, examenul, dacă lecția e gata
+async function freeLessonsView(supa, teacherId) {
+  const f = await freeLessons(supa);
+  if (!f.ids.length) return [];
+  const { data: rows } = await supa.from('content').select('id, title, category, subcategory, profile, file_url').in('id', f.ids);
+  const byId = new Map((rows || []).map((r) => [String(r.id).toLowerCase(), r]));
+  const status = await lessonStatusFor(supa, f.ids.map((id) => ({ subject_id: id, teacher: teacherId })));
+  return f.ids.map((id) => {
+    const c = byId.get(id);
+    const se = c && L.subjectExam(c, B);
+    if (!se) return null;                       // subiect șters între timp
+    const lesson = status[`${c.id}|${teacherId}`] || 'nou';
+    return { subjectId: c.id, title: c.title, exam: se.exam, profile: se.profile || null, examLabel: L.EXAM_LABEL(se.exam, se.profile), lesson, ready: lesson === 'gata' };
+  }).filter(Boolean);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // ACȚIUNEA `program` — lobby-ul
 // ═════════════════════════════════════════════════════════════════════════════
 const roomOf = (slot) => (slot ? { id: slot.room, n: slot.roomN, label: slot.roomLabel, short: slot.roomShort } : null);
@@ -249,13 +314,16 @@ async function program(req, res, supa) {
   const tickets = userId ? await myTickets(supa, userId) : [];
   const grupTickets = new Set(tickets.filter((t) => t.kind === 'grup' && t.session_id).map((t) => t.session_id));
   const slotInfo = Object.fromEntries(L.slots().map((s) => [s.id, s]));
+  const free = await freeLessons(supa);
+  const freeOf = (s) => !!s.subject_id && free.set.has(String(s.subject_id).toLowerCase());
   const view = (s) => ({
     id: s.id, teacher: s.teacher, slot: s.slot, label: slotInfo[s.slot]?.label || s.slot, room: roomOf(slotInfo[s.slot]),
     exam: s.exam, profile: s.profile, examLabel: L.EXAM_LABEL(s.exam, s.profile),
     subject: s.subject_id ? { id: s.subject_id, title: titles[s.subject_id] || 'Subiect de examen' } : null,
     starts_at: s.starts_at, ends_at: s.ends_at, phase: L.phaseOf(s, now), present: present[s.id] || 0,
     lesson: s.subject_id ? (lessons[`${s.subject_id}|${s.teacher}`] || 'nou') : null,
-    access: userId ? L.groupAccess({ profile, ticket: grupTickets.has(s.id) ? { status: 'platit' } : null }) : { ok: false, via: null, price: L.PRICE_GROUP_LEI() },
+    free: freeOf(s),
+    access: L.groupAccess({ profile: userId ? profile : null, ticket: grupTickets.has(s.id) ? { status: 'platit' } : null, free: freeOf(s) }),
   });
   let mine = [];
   if (userId) {
@@ -267,19 +335,23 @@ async function program(req, res, supa) {
       created_at: s.created_at, started: !!s.state?.startedAt, phase: L.phaseOf(s, now), status: s.status,
     }));
   }
+  const freeUsed = userId ? await freeUsedThisMonth(supa, userId) : 0;
   return res.status(200).json({
     now: now.toISOString(), tz: L.TZ,
     teachers: L.teachers().map(L.publicTeacher),
     slots: L.slots().map((s) => ({ id: s.id, label: s.label, room: s.room })),
     intervals: L.intervals().map((i) => ({ id: i.id, label: i.label })),
     rooms: L.rooms(),
-    prices: { grup: L.PRICE_GROUP_LEI(), privat: L.PRICE_PRIVATE_LEI(), privatMin: L.PRIVATE_MINUTES(), privatIncluse: L.PRIVATE_INCLUDED() },
+    prices: { grup: L.PRICE_GROUP_LEI(), privat: L.PRICE_PRIVATE_LEI(), privatMin: L.PRIVATE_MINUTES(), privatIncluse: L.PRIVATE_INCLUDED(), gratuiteLuna: L.FREE_MONTHLY() },
     joinEarlyMin: L.JOIN_EARLY_MIN(),
+    // meditațiile gratuite (1-la-1 fără plată, pentru oricine are cont)
+    freeLessons: await freeLessonsView(supa, L.teachers()[0].id),
     days: days.map((d, i) => ({ day: d, label: i === 0 ? 'Azi' : 'Mâine', sessions: all.filter((s) => s.day === d).map(view) })),
     me: userId ? {
       loggedIn: true, premium: premiumOf(profile), admin: !!profile?.is_admin,
       name: L.displayName(profile?.full_name, userId),
       private: await privateAccessFor(supa, profile),
+      free: { monthly: L.FREE_MONTHLY(), used: freeUsed, left: Math.max(0, L.FREE_MONTHLY() - freeUsed) },
       privateSessions: mine,
     } : { loggedIn: false },
   });
@@ -590,11 +662,12 @@ async function accessToSession(supa, session, profile) {
     return { ok: false, via: null, price: null, private: true };
   }
   let ticket = null;
-  if (!premiumOf(profile)) {
+  const free = await isFreeSubject(supa, session.subject_id);   // subiectul e o meditație gratuită
+  if (!premiumOf(profile) && !free) {
     const { data } = await supa.from('live_tickets').select('id, status').eq('user_id', profile.id).eq('kind', 'grup').eq('session_id', session.id).eq('status', 'platit').limit(1);
     ticket = data && data[0] ? data[0] : null;
   }
-  return L.groupAccess({ profile, ticket });
+  return L.groupAccess({ profile, ticket, free });
 }
 
 async function registerParticipant(supa, session, profile, via) {
@@ -635,7 +708,9 @@ async function join(req, res, supa) {
   const access = await accessToSession(supa, session, profile);
   const base = {
     session: { id: session.id, kind: session.kind, teacher: session.teacher, slot: session.slot, exam: session.exam, profile: session.profile,
-      examLabel: L.EXAM_LABEL(session.exam, session.profile), starts_at: session.starts_at, ends_at: session.ends_at, phase },
+      examLabel: L.EXAM_LABEL(session.exam, session.profile), starts_at: session.starts_at, ends_at: session.ends_at, phase,
+      // meditație gratuită (1-la-1 pornită gratuit / ședința de grup cu un subiect gratuit)
+      free: session.kind === 'privat' ? session.access === 'gratuit' : access.via === 'gratuit' },
     teacher, now: now.toISOString(), me: { id: userId, name: L.displayName(profile.full_name, userId), admin: !!profile.is_admin, premium: premiumOf(profile) },
     privMinutes: L.PRIVATE_MINUTES(), extendMaxMin: L.EXT_MAX_MIN(),
   };
@@ -870,16 +945,30 @@ async function chat(req, res, supa) {
   let answer = null;
   if (wantsAnswer && !flagged) {
     let allowed = true;
-    if (!privat) {
-      // câte răspunsuri a primit deja elevul în această ședință (plafon în grup)
-      const { data: myQ } = await supa.from('live_messages').select('id').eq('session_id', session.id).eq('user_id', userId).limit(200);
-      const ids = (myQ || []).map((m) => m.id);
+    let note = 'Ai pus deja multe întrebări în ședința de grup. Le poți lua pe rând într-o ședință 1-la-1, pe îndelete.';
+    // meditația gratuită (1-la-1 pornită gratuit sau ședința de grup cu subiect gratuit, fără
+    // abonament): profesorul răspunde la cel mult LIVE_GRATUIT_INTREBARI întrebări în chat
+    const freeChat = (session.kind === 'privat' && session.access === 'gratuit') || access.via === 'gratuit';
+    if (freeChat || !privat) {
+      // câte răspunsuri a primit deja elevul în această ședință
       let n = 0;
-      if (ids.length) {
-        const { count } = await supa.from('live_messages').select('*', { count: 'exact', head: true }).eq('session_id', session.id).eq('role', 'profesor').in('reply_to', ids);
+      if (session.kind === 'privat') {
+        const { count } = await supa.from('live_messages').select('*', { count: 'exact', head: true }).eq('session_id', session.id).eq('role', 'profesor');
         n = count || 0;
+      } else {
+        const { data: myQ } = await supa.from('live_messages').select('id').eq('session_id', session.id).eq('user_id', userId).limit(200);
+        const ids = (myQ || []).map((m) => m.id);
+        if (ids.length) {
+          const { count } = await supa.from('live_messages').select('*', { count: 'exact', head: true }).eq('session_id', session.id).eq('role', 'profesor').in('reply_to', ids);
+          n = count || 0;
+        }
       }
-      allowed = n < MAX_ANSWERS_GROUP();
+      const capFree = freeChat ? L.FREE_ANSWERS() : Infinity;
+      const capGroup = privat ? Infinity : MAX_ANSWERS_GROUP();
+      allowed = n < Math.min(capFree, capGroup);
+      if (!allowed && n >= capFree) {
+        note = `În meditațiile gratuite, profesorul răspunde la cel mult ${capFree} întrebări în chat — lecția merge mai departe ca până acum. Cu abonamentul ExamenMate îl întrebi cât vrei.`;
+      }
     }
     if (allowed) {
       const light = session.subject_id ? await lessonFor(supa, session.subject_id, session.teacher, { create: false }) : null;
@@ -913,7 +1002,6 @@ async function chat(req, res, supa) {
       answer = { ...msgView(tmsg, session), board: a.board, say: a.say };   // say = textul de rostit (fără LaTeX)
       if (!toTeacher && !privat) broadcast(session.id, 'chat', { msg: answer }).catch(() => {});
     } else {
-      const note = 'Ai pus deja multe întrebări în ședința de grup. Le poți lua pe rând într-o ședință 1-la-1, pe îndelete.';
       answer = { id: -Date.now(), author: 'ExamenMate', role: 'sistem', private: true, text: note, at: new Date().toISOString() };
     }
   }
@@ -1008,11 +1096,14 @@ async function privateSubjects(req, res, supa) {
   const anyReady = new Set();
   const { data: others } = await supa.from('live_lessons').select('subject_id').eq('status', 'gata').limit(3000);
   for (const r of others || []) anyReady.add(r.subject_id);
+  const free = await freeLessons(supa);
   return res.status(200).json({
     exam, teacher: teacherId,
-    subjects: list.map((s) => ({ ...s, ready: ready.has(s.id), scriptReady: anyReady.has(s.id) }))
-      .sort((a, b) => (b.ready - a.ready) || String(b.title).localeCompare(String(a.title), 'ro', { numeric: true })),
+    // întâi meditațiile gratuite, apoi lecțiile gata de pornire
+    subjects: list.map((s) => ({ ...s, ready: ready.has(s.id), scriptReady: anyReady.has(s.id), free: free.set.has(String(s.id).toLowerCase()) }))
+      .sort((a, b) => (b.free - a.free) || (b.ready - a.ready) || String(b.title).localeCompare(String(a.title), 'ro', { numeric: true })),
     access: await privateAccessFor(supa, profile),
+    freeAccess: L.freeAccess({ profile, free: true, freeUsed: await freeUsedThisMonth(supa, profile.id) }),
   });
 }
 
@@ -1033,9 +1124,17 @@ async function privateStart(req, res, supa) {
     .eq('teacher', teacher.id).eq('subject_id', content.id).neq('status', 'incheiata').gt('ends_at', new Date().toISOString()).limit(1);
   if (open && open[0]) return res.status(200).json({ sessionId: open[0].id, resumed: true });
 
-  const access = await privateAccessFor(supa, profile);
+  // meditație gratuită: fără plată și fără să consume ședințele incluse / biletele
+  let access = null;
+  let freeNote = '';
+  if (!profile.is_admin && await isFreeSubject(supa, content.id)) {
+    const fa = L.freeAccess({ profile, free: true, freeUsed: await freeUsedThisMonth(supa, userId) });
+    if (fa.ok) access = fa;
+    else freeNote = `Ai făcut deja cele ${fa.freeMonthly} meditații gratuite din luna aceasta. `;
+  }
+  if (!access) access = await privateAccessFor(supa, profile);
   if (!access.ok) {
-    return res.status(402).json({ error: `Ședința 1-la-1 costă ${access.price} lei${access.included ? ` (ai folosit cele ${access.included} incluse luna aceasta)` : ' (sau e inclusă în abonament: 8 pe lună)'}.`, code: 'LIVE_PAYMENT', price: access.price, access });
+    return res.status(402).json({ error: `${freeNote}Ședința 1-la-1 costă ${access.price} lei${access.included ? ` (ai folosit cele ${access.included} incluse luna aceasta)` : ' (sau e inclusă în abonament: 8 pe lună)'}.`, code: 'LIVE_PAYMENT', price: access.price, access });
   }
   // cel mult 3 ședințe 1-la-1 nepornite pe zi (fiecare subiect nou costă o pregătire)
   const { count: pending } = await supa.from('live_sessions').select('*', { count: 'exact', head: true })
@@ -1065,9 +1164,20 @@ async function privateBegin(req, res, supa) {
   if (session.kind !== 'privat' || session.owner_id !== userId) throw fail(403, 'Nu e ședința ta.');
   if (session.state?.startedAt) return res.status(200).json({ startedAt: session.state.startedAt, ends_at: session.ends_at });
   let via = session.access;
-  if (via !== 'admin') {
+  const wasFree = via === 'gratuit';
+  if (wasFree) {
+    // tot gratuită? (adminul o poate scoate dintre cele gratuite; plafonul lunar)
+    const f = await freeLessons(supa, { fresh: true });
+    const fa = L.freeAccess({ profile, free: f.set.has(String(session.subject_id || '').toLowerCase()), freeUsed: await freeUsedThisMonth(supa, userId) });
+    if (!fa.ok) via = null;   // → drumul obișnuit: ședință inclusă / bilet / plată
+  }
+  if (via !== 'admin' && via !== 'gratuit') {
     const acc = await privateAccessFor(supa, profile);
-    if (!acc.ok) throw fail(402, `Ședința 1-la-1 costă ${acc.price} lei — ai folosit ședințele incluse luna aceasta.`, 'LIVE_PAYMENT');
+    if (!acc.ok) {
+      throw fail(402, wasFree
+        ? `Meditația nu mai e gratuită (sau ai făcut deja meditațiile gratuite din luna aceasta) — ședința 1-la-1 costă ${acc.price} lei.`
+        : `Ședința 1-la-1 costă ${acc.price} lei — ai folosit ședințele incluse luna aceasta.`, 'LIVE_PAYMENT');
+    }
     via = acc.via;
     if (via === 'bilet') {
       const { data: t } = await supa.from('live_tickets').select('id').eq('user_id', userId).eq('kind', 'privat').eq('status', 'platit').is('session_id', null).order('created_at').limit(1);
@@ -1130,6 +1240,8 @@ async function adminOverview(req, res, supa) {
   for (const p of parts || []) total[p.session_id] = (total[p.session_id] || 0) + 1;
   const [en, bac] = await Promise.all([eligibleSubjects(supa, { exam: 'en', fresh: !!req.body?.fresh }), eligibleSubjects(supa, { exam: 'bac', fresh: !!req.body?.fresh })]);
   const { data: lessonRows } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, title, duration_sec, error, cost_micro, updated_at, noVoice:progress->noVoice, sv:script->v, pasi:script->pasi, pasiInfo:progress->pasi').order('updated_at', { ascending: false }).limit(60);
+  const free = await freeAdminView(supa, { fresh: !!req.body?.fresh });
+  const freeSet = new Set(free.lessons.map((l) => String(l.subjectId).toLowerCase()));
   const slotInfo = Object.fromEntries(L.slots().map((s) => [s.id, s]));
   return res.status(200).json({
     day, teachers: L.teachers().map(L.publicTeacher), slots: L.slots(), intervals: L.intervals(),
@@ -1142,9 +1254,61 @@ async function adminOverview(req, res, supa) {
       phase: L.phaseOf(s), status: s.status, present: present[s.id] || 0, participants: total[s.id] || 0, note: s.admin_note || null,
     })),
     subjects: { en, bac },
-    lessons: (lessonRows || []).map((l) => ({ ...l, cost_lei: Math.round((l.cost_micro || 0) / 1e4) / 100 })),
+    lessons: (lessonRows || []).map((l) => ({ ...l, cost_lei: Math.round((l.cost_micro || 0) / 1e4) / 100, free: freeSet.has(String(l.subject_id).toLowerCase()) })),
+    free,
     tts: tts.provider(),
   });
+}
+
+// ─── Meditațiile gratuite (Admin → „🎁 Meditațiile gratuite") ────────────────
+// lista de acum + toate lecțiile gata (una pe subiect), din care adminul alege
+async function freeAdminView(supa, { fresh = false } = {}) {
+  const f = await freeLessons(supa, { fresh });
+  const { data: readyRows } = await supa.from('live_lessons').select(FREE_LIGHT).eq('status', 'gata').order('updated_at', { ascending: false }).limit(2000);
+  const ready = new Map();
+  for (const l of readyRows || []) if (!ready.has(String(l.subject_id).toLowerCase())) ready.set(String(l.subject_id).toLowerCase(), l);
+  const ids = [...new Set([...f.ids, ...ready.keys()])];
+  const rows = [];
+  for (let i = 0; i < ids.length; i += 150) {
+    const { data } = await supa.from('content').select('id, title, category, subcategory, profile, file_url').in('id', ids.slice(i, i + 150));
+    rows.push(...(data || []));
+  }
+  const byId = new Map(rows.map((r) => [String(r.id).toLowerCase(), r]));
+  const describe = (id) => {
+    const c = byId.get(id);
+    const l = ready.get(id);
+    const se = c ? L.subjectExam(c, B) : (l ? { exam: l.exam, profile: l.profile } : null);
+    return {
+      subjectId: c ? c.id : (l ? l.subject_id : id), title: (c && c.title) || (l && l.title) || 'Subiect șters',
+      exam: se?.exam || null, profile: se?.profile || null, examLabel: se ? L.EXAM_LABEL(se.exam, se.profile) : '—',
+      ready: !!l, missing: !c,
+    };
+  };
+  const byExam = (a, b) => (a.exam === b.exam ? 0 : a.exam === 'en' ? -1 : 1) || String(a.examLabel).localeCompare(String(b.examLabel), 'ro')
+    || String(b.title).localeCompare(String(a.title), 'ro', { numeric: true });
+  return {
+    setup: f.setup, auto: f.auto, max: L.FREE_MAX, defaultCount: L.FREE_DEFAULT_COUNT,
+    monthly: L.FREE_MONTHLY(), answers: L.FREE_ANSWERS(),
+    lessons: f.ids.map(describe),
+    ready: [...ready.keys()].map(describe).filter((x) => !x.missing && x.exam).sort(byExam)
+      .map((x) => ({ ...x, free: f.set.has(String(x.subjectId).toLowerCase()) })),
+  };
+}
+
+async function adminSetFree(req, res, supa) {
+  const { userId } = await requireAdminUser(req, supa);
+  const raw = Array.isArray(req.body?.subjectIds) ? req.body.subjectIds : null;
+  if (!raw) throw fail(400, 'subjectIds (listă) obligatoriu.');
+  if (raw.length > L.FREE_MAX) throw fail(400, `Cel mult ${L.FREE_MAX} meditații gratuite deodată.`);
+  const ids = L.normalizeFreeIds(raw);
+  if (ids.length) {
+    const { data: rows } = await supa.from('content').select('id, title, category, subcategory, profile, file_url').in('id', ids);
+    const ok = new Set((rows || []).filter((r) => L.subjectExam(r, B) && !B.isBaremRow(r)).map((r) => String(r.id).toLowerCase()));
+    if (ids.some((id) => !ok.has(id))) throw fail(400, 'Unele lecții nu (mai) sunt subiecte de Evaluare Națională / Bacalaureat. Reîncarcă pagina.');
+  }
+  await SET.writeSetting(supa, FREE_KEY, { subjects: ids, auto: false, at: new Date().toISOString(), by: userId }, userId);
+  freeCache = null;
+  return res.status(200).json({ ok: true, free: await freeAdminView(supa, { fresh: true }) });
 }
 
 async function adminSetSubject(req, res, supa) {
@@ -1708,6 +1872,7 @@ const ACTIONS = {
   extend,
   leave,
   admin_overview: adminOverview, admin_set_subject: adminSetSubject, admin_prepare: adminPrepare, admin_lesson: adminLesson,
+  admin_set_free: adminSetFree,
   // Pregătirea de examen („Planul meu")
   prep_state: prepState, prep_exercise: prepExercise, prep_prefetch: prepPrefetch, prep_answer: prepAnswer,
   prep_done: prepDone, prep_test: prepTest, prep_test_finish: prepTestFinish, prep_chat: prepChat,
@@ -1737,4 +1902,5 @@ module.exports = async function handler(req, res) {
 
 // pentru teste
 module.exports._internals = { computeTimeline, compactState, pollKeys, itemContext, ensureGroupClock, prepareLesson, cron, broadcast, msgView,
-  resetCaches: () => { eligibleCache.clear(); lessonCache.clear(); } };
+  resetCaches: () => { eligibleCache.clear(); lessonCache.clear(); freeCache = null; },
+  resetFree: () => { freeCache = null; } };
