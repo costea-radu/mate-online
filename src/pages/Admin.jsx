@@ -10,39 +10,27 @@ import AdminVerificare from '../components/AdminVerificare';
 import AdminDebug from '../components/AdminDebug';
 import { ContentMetaFields, EditContentModal, ReplaceFileModal, ReorderPanel } from '../components/ContentAdminTools';
 import { CATEGORIES, CONTENT_TYPES, categoryLabel, subcategoryLabel, profileLabel, hasSubcategories, visibilityWarning } from '../lib/contentMeta';
+import '../styles/admin.css';
 
 // Rubricile (categorii, subcategorii EN/BAC, profiluri, tipuri) stau acum în
 // src/lib/contentMeta.js — partajate cu editarea/ordonarea din ContentAdminTools.
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
+// Antetul, meniul lateral și coloana conținutului stau în src/styles/admin.css
+// (clasele `adm-*`): pe telefon meniul devine un sertar ☰, pe desktop se
+// pliază la pictograme. Câteva valori de aici citesc variabile pe care CSS-ul
+// le micșorează pe telefon (--adm-card-pad, --adm-cols, --adm-stats); fără ele
+// rămân valorile de desktop.
 const s = {
-  page: { minHeight: '100vh', background: '#f0f4f8', fontFamily: 'var(--font-body)' },
-  header: {
-    background: 'var(--navy)', color: '#fff', padding: '20px 32px',
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    boxShadow: '0 2px 12px rgba(0,0,0,0.2)',
-  },
-  headerTitle: { fontFamily: 'var(--font-display)', fontSize: '1.4rem', color: 'var(--gold)' },
-  headerSub: { fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', marginTop: 2 },
-  body: { display: 'flex', minHeight: 'calc(100vh - 64px)' },
-  sidebar: { width: 220, background: 'var(--navy-dark)', padding: '24px 0', flexShrink: 0 },
-  sidebarBtn: (active) => ({
-    display: 'block', width: '100%', padding: '12px 24px', textAlign: 'left',
-    color: active ? 'var(--gold)' : 'rgba(255,255,255,0.6)',
-    background: active ? 'rgba(232,185,49,0.1)' : 'none',
-    borderLeft: active ? '3px solid var(--gold)' : '3px solid transparent',
-    fontWeight: active ? 600 : 400, fontSize: '0.9rem', cursor: 'pointer', transition: 'all 0.2s',
-  }),
-  main: { flex: 1, padding: '32px', overflowY: 'auto' },
   card: {
-    background: '#fff', borderRadius: 12, padding: '28px 32px',
+    background: '#fff', borderRadius: 12, padding: 'var(--adm-card-pad, 28px 32px)',
     boxShadow: '0 1px 4px rgba(0,0,0,0.08)', marginBottom: 24,
   },
   cardTitle: {
     fontFamily: 'var(--font-display)', fontSize: '1.2rem', color: 'var(--navy)',
     marginBottom: 20, paddingBottom: 12, borderBottom: '2px solid #f0f4f8',
   },
-  formRow: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 },
+  formRow: { display: 'grid', gridTemplateColumns: 'var(--adm-cols, 1fr 1fr)', gap: 16, marginBottom: 16 },
   formGroup: { marginBottom: 16 },
   label: {
     display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#5a6170',
@@ -550,6 +538,7 @@ function ContentList({ refresh }) {
           ) : filtered.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 40, color: '#8e95a3' }}>Nu există conținut.</div>
           ) : (
+            <div style={{ overflowX: 'auto' }}>
             <table style={s.table}>
               <thead>
                 <tr>
@@ -568,7 +557,7 @@ function ContentList({ refresh }) {
                   const warn = visibilityWarning(item);
                   return (
                     <tr key={item.id}>
-                      <td style={s.td}>
+                      <td style={{ ...s.td, minWidth: 'var(--adm-title-min, 0)' }}>
                         <div style={{ fontWeight: 600, color: 'var(--navy)' }}>{item.title}</div>
                         {item.description && (
                           <div style={{ fontSize: '0.78rem', color: '#8e95a3', marginTop: 2 }}>{item.description}</div>
@@ -640,6 +629,7 @@ function ContentList({ refresh }) {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </>
       )}
@@ -691,7 +681,7 @@ function Dashboard() {
 
   return (
     <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'var(--adm-stats, repeat(3, 1fr))', gap: 16, marginBottom: 24 }}>
         {statItems.map(st => (
           <div key={st.label} style={s.statCard}>
             <div style={{ ...s.statNum, color: st.color }}>{st.num}</div>
@@ -794,7 +784,7 @@ function AdminRezolvari({ user, s }) {
         <div style={s.cardTitle}>📝 Adaugă Rezolvare</div>
         {msg && <div style={s.alert(msg.type)}>{msg.text}</div>}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'var(--adm-cols, 1fr 1fr)', gap: 16 }}>
           <div style={s.formGroup}>
             <label style={s.label}>Titlu *</label>
             <input style={s.input} value={form.title} onChange={e => setForm(p => ({...p, title: e.target.value}))} placeholder="ex: Rezolvare Fracții – Set 1" />
@@ -815,7 +805,7 @@ function AdminRezolvari({ user, s }) {
         {/* Tip conținut */}
         <div style={s.formGroup}>
           <label style={s.label}>Tip conținut</label>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {[{v:'video',l:'▶ Video (YouTube/TikTok)'},{v:'image',l:'🖼 Imagine'},{v:'pdf',l:'📄 PDF'}].map(t => (
               <button key={t.v} type="button" onClick={() => setForm(p => ({...p, type: t.v, file_url: '', video_url: ''}))}
                 style={{ ...s.btnSecondary, flex:1, background: form.type === t.v ? 'var(--navy)' : '#f0f4f8', color: form.type === t.v ? '#fff' : 'var(--navy)' }}>
@@ -850,7 +840,7 @@ function AdminRezolvari({ user, s }) {
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'var(--adm-cols, 1fr 1fr)', gap: 16 }}>
           <div style={s.formGroup}>
             <label style={s.label}>Ordine afișare</label>
             <input type="number" style={s.input} value={form.sort_order}
@@ -877,6 +867,7 @@ function AdminRezolvari({ user, s }) {
         {items.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '30px 0', color: '#8e95a3' }}>Nicio rezolvare adăugată.</div>
         ) : (
+          <div style={{ overflowX: 'auto' }}>
           <table style={s.table}>
             <thead><tr>
               <th style={s.th}>Titlu</th>
@@ -889,7 +880,7 @@ function AdminRezolvari({ user, s }) {
             <tbody>
               {items.map(item => (
                 <tr key={item.id}>
-                  <td style={s.td}><div style={{ fontWeight:600, color:'var(--navy)', fontSize:'0.88rem' }}>{item.title}</div>
+                  <td style={{ ...s.td, minWidth: 'var(--adm-title-min, 0)' }}><div style={{ fontWeight:600, color:'var(--navy)', fontSize:'0.88rem' }}>{item.title}</div>
                     {item.description && <div style={{ fontSize:'0.75rem', color:'#8e95a3' }}>{item.description}</div>}
                   </td>
                   <td style={s.td}><span style={s.badge(item.type)}>{item.type}</span></td>
@@ -903,6 +894,7 @@ function AdminRezolvari({ user, s }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>
@@ -910,19 +902,69 @@ function AdminRezolvari({ user, s }) {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
+// Filele panoului (pictograma separat: pe desktop, meniul pliat le arată doar pe ea)
+const TABS = [
+  { id: 'dashboard',   icon: '📊', label: 'Dashboard' },
+  { id: 'pdf',         icon: '📄', label: 'Adaugă PDF' },
+  { id: 'interactive', icon: '🧩', label: 'Exerciții Interactive' },
+  { id: 'rezolvari',   icon: '📝', label: 'Rezolvări' },
+  { id: 'list',        icon: '📋', label: 'Tot Conținutul' },
+  { id: 'ai',          icon: '🤖', label: 'AI Tutor' },
+  { id: 'recenzii',    icon: '⭐', label: 'Recenzii' },
+  { id: 'live',        icon: '🎥', label: 'Meditații live' },
+  { id: 'verificare',  icon: '🔎', label: 'Verificare materiale' },
+  { id: 'debug',       icon: '🐞', label: 'Agent debug' },
+];
+
+// Meniul pliat (desktop) se ține minte între vizite
+const PLIAT_KEY = 'admin_meniu_pliat';
+const readPliat = () => { try { return localStorage.getItem(PLIAT_KEY) === '1'; } catch { return false; } };
+// lățimea sub care meniul devine sertarul ☰ (aceeași ca în admin.css)
+const PHONE_MQ = '(max-width: 900px)';
+
 export default function Admin() {
   const { user, isAdmin, loading } = useAuth();
   const navigate = useNavigate();
   // fila se poate alege din adresă (ex. /admin?tab=live, din lobby-ul meditațiilor live)
   const [tab, setTab] = useState(() => (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tab')) || 'dashboard');
+  // telefon: sertarul ☰ deschis · desktop: meniul pliat la pictograme (se desface la hover)
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [pliat, setPliat] = useState(readPliat);
+  const navRef = useRef(null);
+  const burgerRef = useRef(null);
+  const closeRef = useRef(null);
 
   // Comutare tab cerută de agentul Claude („Trimite la Adaugă PDF/Interactiv”)
   useEffect(() => {
-    const go = (e) => { if (e.detail) setTab(e.detail); };
+    const go = (e) => { if (e.detail) { setTab(e.detail); setMenuOpen(false); } };
     window.addEventListener('admin:goto-tab', go);
     return () => window.removeEventListener('admin:goto-tab', go);
   }, []);
   const [refreshList, setRefreshList] = useState(0);
+
+  useEffect(() => { try { localStorage.setItem(PLIAT_KEY, pliat ? '1' : '0'); } catch { /* fără stocare */ } }, [pliat]);
+
+  // Sertarul ☰: Esc îl închide, pagina din spate nu se derulează cât e deschis,
+  // iar dacă ecranul se lărgește (telefonul întors, fereastra mărită) se închide singur.
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setMenuOpen(false); };
+    const mq = window.matchMedia ? window.matchMedia(PHONE_MQ) : null;
+    const onMq = (e) => { if (!e.matches) setMenuOpen(false); };
+    document.addEventListener('keydown', onKey);
+    if (mq) { if (mq.addEventListener) mq.addEventListener('change', onMq); else if (mq.addListener) mq.addListener(onMq); }
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusT = setTimeout(() => closeRef.current?.focus({ preventScroll: true }), 40);
+    return () => {
+      clearTimeout(focusT);
+      document.removeEventListener('keydown', onKey);
+      if (mq) { if (mq.removeEventListener) mq.removeEventListener('change', onMq); else if (mq.removeListener) mq.removeListener(onMq); }
+      document.body.style.overflow = prevOverflow;
+      // focusul rămas în sertarul închis se întoarce la ☰ (tastatură / cititor de ecran)
+      if (navRef.current && navRef.current.contains(document.activeElement)) burgerRef.current?.focus({ preventScroll: true });
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     if (!loading && (!user || !isAdmin)) navigate('/');
@@ -938,18 +980,14 @@ export default function Admin() {
 
   if (!user || !isAdmin) return null;
 
-  const tabs = [
-    { id: 'dashboard',   label: '📊 Dashboard' },
-    { id: 'pdf',         label: '📄 Adaugă PDF' },
-    { id: 'interactive', label: '🧩 Exerciții Interactive' },
-    { id: 'rezolvari',   label: '📝 Rezolvări' },
-    { id: 'list',        label: '📋 Tot Conținutul' },
-    { id: 'ai',          label: '🤖 AI Tutor' },
-    { id: 'recenzii',    label: '⭐ Recenzii' },
-    { id: 'live',        label: '🎥 Meditații live' },
-    { id: 'verificare',  label: '🔎 Verificare materiale' },
-    { id: 'debug',       label: '🐞 Agent debug' },
-  ];
+  const current = TABS.find((t) => t.id === tab) || TABS[0];
+
+  function goTab(id) {
+    setTab(id);
+    setMenuOpen(false);
+    // fila nouă începe de sus (altfel rămânea la derularea listei lungi de dinainte)
+    try { window.scrollTo({ top: 0 }); } catch { /* ignore */ }
+  }
 
   function onSuccess() {
     setRefreshList(r => r + 1);
@@ -957,24 +995,58 @@ export default function Admin() {
   }
 
   return (
-    <div style={s.page}>
-      <div style={s.header}>
-        <div>
-          <div style={s.headerTitle}>⚙ Panou Admin — ExamenMate (Mate-Online)</div>
-          <div style={s.headerSub}>{user.email}</div>
+    <div className="adm">
+      <header className="adm-header">
+        <button ref={burgerRef} type="button" className="adm-burger" onClick={() => setMenuOpen(true)}
+          aria-label="Deschide meniul" aria-expanded={menuOpen} aria-controls="adm-meniu">☰</button>
+        <div className="adm-head-text">
+          <div className="adm-title">
+            <span className="adm-title-full">⚙ Panou Admin — ExamenMate (Mate-Online)</span>
+            <span className="adm-title-short">⚙ Panou Admin</span>
+          </div>
+          <div className="adm-sub">{user.email}</div>
+          {/* telefon: fila deschisă acum (meniul e ascuns în ☰) */}
+          <div className="adm-current">{current.icon} {current.label}</div>
         </div>
-        <button style={s.btnSecondary} onClick={() => navigate('/')}>← Înapoi pe site</button>
-      </div>
+        <button type="button" className="adm-back" onClick={() => navigate('/')} aria-label="Înapoi pe site">
+          ← <span className="adm-back-full">Înapoi pe site</span><span className="adm-back-short">Site</span>
+        </button>
+      </header>
 
-      <div style={s.body}>
-        <div style={s.sidebar}>
-          {tabs.map(t => (
-            <button key={t.id} style={s.sidebarBtn(tab === t.id)} onClick={() => setTab(t.id)}>
-              {t.label}
+      <div className="adm-body">
+        {menuOpen && <div className="adm-backdrop" onClick={() => setMenuOpen(false)} aria-hidden="true" />}
+        <nav id="adm-meniu" ref={navRef} aria-label="Meniul panoului Admin"
+          className={`adm-side${pliat ? ' pliat' : ''}${menuOpen ? ' open' : ''}`}>
+          <div className="adm-side-in">
+            {/* desktop: săgeata de pe margine pliază meniul la pictograme */}
+            <button type="button" className="adm-toggle" onClick={() => setPliat((p) => !p)}
+              title={pliat ? 'Desfă meniul' : 'Pliază meniul'} aria-label={pliat ? 'Desfă meniul' : 'Pliază meniul'} aria-expanded={!pliat}>
+              {pliat ? '›' : '‹'}
             </button>
-          ))}
-        </div>
-        <div style={s.main}>
+            {/* telefon: capul sertarului */}
+            <div className="adm-drawer-head">
+              <div>
+                <div className="adm-drawer-title">⚙ Panou Admin</div>
+                <div className="adm-drawer-mail">{user.email}</div>
+              </div>
+              <button ref={closeRef} type="button" className="adm-close" onClick={() => setMenuOpen(false)} aria-label="Închide meniul">✕</button>
+            </div>
+            <div className="adm-nav">
+              {TABS.map((t) => (
+                <button key={t.id} type="button" className={`adm-item${tab === t.id ? ' activ' : ''}`}
+                  onClick={() => goTab(t.id)} aria-current={tab === t.id ? 'page' : undefined}
+                  aria-label={t.label} title={pliat ? t.label : undefined}>
+                  <span className="adm-icon" aria-hidden="true">{t.icon}</span>
+                  <span className="adm-text">{t.label}</span>
+                </button>
+              ))}
+            </div>
+            <div className="adm-drawer-foot">
+              <button type="button" className="adm-back adm-back-wide" onClick={() => navigate('/')}>← Înapoi pe site</button>
+            </div>
+          </div>
+        </nav>
+        <main className="adm-main">
           {tab === 'dashboard'   && <Dashboard />}
           {tab === 'rezolvari'   && <AdminRezolvari user={user} s={s} />}
           {tab === 'pdf'         && <UploadPDF onSuccess={onSuccess} />}
@@ -985,7 +1057,7 @@ export default function Admin() {
           {tab === 'live'        && <LiveAdmin />}
           {tab === 'verificare'  && <AdminVerificare s={s} />}
           {tab === 'debug'       && <AdminDebug s={s} />}
-        </div>
+        </main>
       </div>
     </div>
   );

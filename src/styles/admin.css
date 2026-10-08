@@ -1,0 +1,360 @@
+/* =====================================================================
+   src/styles/admin.css — Panoul Admin (/admin): antetul, meniul, conținutul
+
+   DESKTOP (peste 900px): meniul stă în stânga și rămâne la vedere când
+   derulezi. Săgeata de pe marginea lui îl PLIAZĂ la o bandă îngustă, doar cu
+   pictogramele; cât e pliat, hover-ul (sau Tab cu tastatura) îl desface
+   temporar PESTE conținut, fără să-l împingă — ca bara laterală a site-ului.
+   Alegerea se ține minte (localStorage „admin_meniu_pliat").
+
+   TELEFON / TABLETĂ ÎN PICIOARE (până la 900px): meniul se ascunde, iar
+   „☰" din antet îl deschide ca un sertar din stânga, peste pagină. Se închide
+   la alegerea unei file, la ✕, la atingerea fundalului întunecat sau cu Esc.
+   Antetul rămâne sus când derulezi, cu numele filei deschise sub titlu.
+   Conținutul primește margini mai mici, iar formularele trec pe o coloană
+   (variabilele --adm-* citite de stilurile din Admin.jsx).
+   ===================================================================== */
+
+.adm {
+  --adm-side-w: 232px;     /* meniul desfăcut */
+  --adm-rail: 62px;        /* meniul pliat (doar pictogramele) */
+  min-height: 100vh;
+  background: #f0f4f8;
+  font-family: var(--font-body);
+}
+
+/* ─── Antetul ─── */
+.adm-header {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 32px;
+  background: var(--navy);
+  color: #fff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+}
+.adm-head-text { flex: 1; min-width: 0; }
+.adm-title {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  line-height: 1.25;
+  color: var(--gold);
+}
+.adm-title-short,
+.adm-current,
+.adm-back-short { display: none; }
+.adm-sub {
+  margin-top: 2px;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adm-back {
+  flex-shrink: 0;
+  padding: 8px 18px;
+  border: 1.5px solid #dde1e8;
+  border-radius: 8px;
+  background: #f0f4f8;
+  color: var(--navy);
+  font-family: inherit;
+  font-size: 0.87rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s;
+}
+.adm-back:hover { background: #fff; }
+
+.adm-burger {
+  display: none;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.adm-burger:active { background: rgba(255, 255, 255, 0.16); }
+
+/* ─── Corpul: meniul + conținutul ─── */
+.adm-body {
+  display: flex;
+  align-items: stretch;
+  min-height: calc(100vh - 76px);
+}
+
+.adm-side {
+  position: relative;
+  z-index: 20;
+  flex: 0 0 var(--adm-side-w);
+  width: var(--adm-side-w);
+  background: var(--navy-dark);
+  transition: flex-basis 0.18s ease, width 0.18s ease;
+}
+/* panoul care rămâne sus la derulare (și care se lățește peste conținut la hover) */
+.adm-side-in {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  width: var(--adm-side-w);
+  max-height: 100vh;
+  background: var(--navy-dark);
+  transition: width 0.18s ease, box-shadow 0.18s ease;
+}
+/* derularea stă pe .adm-nav, ca să nu taie săgeata de pe margine */
+.adm-nav {
+  flex: 1;
+  min-height: 0;
+  padding: 24px 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.adm-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 20px;
+  border: none;
+  border-left: 3px solid transparent;
+  background: none;
+  color: rgba(255, 255, 255, 0.62);
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.3;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s;
+}
+.adm-item:hover { background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.92); }
+.adm-item.activ {
+  border-left-color: var(--gold);
+  background: rgba(232, 185, 49, 0.1);
+  color: var(--gold);
+  font-weight: 600;
+}
+.adm-item:focus-visible,
+.adm-burger:focus-visible,
+.adm-toggle:focus-visible,
+.adm-close:focus-visible,
+.adm-back:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+.adm-icon {
+  flex: 0 0 22px;
+  width: 22px;
+  font-size: 1rem;
+  line-height: 1;
+  text-align: center;
+}
+.adm-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* săgeata de pliere (desktop), călare pe marginea din dreapta a meniului */
+.adm-toggle {
+  position: absolute;
+  top: 14px;
+  right: -13px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  background: var(--navy-light);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  transition: background 0.18s, color 0.18s, transform 0.18s;
+}
+.adm-toggle:hover { background: var(--gold); color: var(--navy); transform: scale(1.08); }
+
+/* părțile de sertar apar doar pe telefon */
+.adm-drawer-head,
+.adm-drawer-foot,
+.adm-backdrop { display: none; }
+
+.adm-main {
+  flex: 1;
+  min-width: 0;          /* coloana se poate îngusta (tabelele derulează în cardul lor) */
+  padding: 32px;
+}
+
+/* ─── Desktop: meniul pliat la pictograme, desfăcut temporar la hover ─── */
+@media (min-width: 901px) {
+  .adm-side.pliat { flex-basis: var(--adm-rail); width: var(--adm-rail); }
+  .adm-side.pliat .adm-side-in { width: var(--adm-rail); }
+  /* pliat: doar pictogramele */
+  .adm-side.pliat .adm-text { display: none; }
+  .adm-side.pliat .adm-item {
+    justify-content: center;
+    gap: 0;
+    padding-left: 0;
+    padding-right: 3px;
+  }
+  /* desfăcut temporar, peste conținut: cât e cursorul deasupra… */
+  .adm-side.pliat:hover .adm-side-in {
+    width: var(--adm-side-w);
+    box-shadow: 8px 0 28px rgba(0, 0, 0, 0.35);
+  }
+  .adm-side.pliat:hover .adm-text { display: block; }
+  .adm-side.pliat:hover .adm-item { justify-content: flex-start; gap: 10px; padding-left: 20px; padding-right: 20px; }
+  /* …sau cât umbli cu Tab prin el. Doar focusul de tastatură (:focus-visible):
+     după un clic cu mausul, meniul se strânge la loc când pleacă cursorul.
+     Reguli separate — un browser fără :has() le ignoră doar pe acestea. */
+  .adm-side.pliat:has(:focus-visible) .adm-side-in {
+    width: var(--adm-side-w);
+    box-shadow: 8px 0 28px rgba(0, 0, 0, 0.35);
+  }
+  .adm-side.pliat:has(:focus-visible) .adm-text { display: block; }
+  .adm-side.pliat:has(:focus-visible) .adm-item { justify-content: flex-start; gap: 10px; padding-left: 20px; padding-right: 20px; }
+}
+
+/* ─── Telefon și tabletă în picioare: sertarul ☰ ─── */
+@media (max-width: 900px) {
+  .adm {
+    --adm-card-pad: 18px 16px;
+    --adm-stats: repeat(2, minmax(0, 1fr));
+    --adm-title-min: 190px;      /* coloana „Titlu" din tabele (care derulează în lateral) */
+  }
+
+  .adm-header {
+    position: sticky;
+    top: 0;
+    z-index: 900;
+    gap: 10px;
+    padding: 10px 12px;
+    padding-top: max(10px, env(safe-area-inset-top));
+  }
+  .adm-burger { display: inline-flex; }
+  .adm-title { font-size: 1.08rem; }
+  .adm-title-full,
+  .adm-sub,
+  .adm-back-full { display: none; }
+  .adm-title-short,
+  .adm-back-short { display: inline; }
+  .adm-current {
+    display: block;
+    margin-top: 1px;
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.78);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .adm-back { padding: 8px 12px; font-size: 0.82rem; }
+
+  .adm-body { display: block; min-height: 0; }
+
+  .adm-side {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1001;
+    flex: none;
+    width: min(300px, 86vw);
+    box-shadow: 6px 0 28px rgba(0, 0, 0, 0.35);
+    transform: translateX(-104%);
+    visibility: hidden;                     /* închis: nici Tab, nici cititorul de ecran nu intră în el */
+    transition: transform 0.22s ease, visibility 0s linear 0.22s;
+  }
+  .adm-side.open {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.22s ease, visibility 0s;
+  }
+  .adm-side-in {
+    position: static;
+    width: auto;
+    height: 100%;
+    max-height: none;
+  }
+  .adm-toggle { display: none; }
+
+  .adm-drawer-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 16px 16px 14px 20px;
+    padding-top: max(16px, env(safe-area-inset-top));
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .adm-drawer-title { font-family: var(--font-display); font-size: 1.12rem; color: var(--gold); }
+  .adm-drawer-mail { margin-top: 3px; font-size: 0.76rem; color: rgba(255, 255, 255, 0.5); word-break: break-all; }
+  .adm-close {
+    flex-shrink: 0;
+    padding: 4px 8px;
+    border: none;
+    background: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 1.3rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .adm-nav { padding: 6px 0; }
+  .adm-item {
+    padding: 14px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.88);
+    font-size: 1rem;
+    white-space: normal;
+  }
+  .adm-item.activ { color: var(--gold); }
+
+  .adm-drawer-foot {
+    display: block;
+    padding: 14px 16px;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .adm-back-wide { width: 100%; padding: 11px 14px; font-size: 0.9rem; }
+
+  .adm-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(5, 15, 28, 0.55);
+    animation: adm-fade 0.2s ease;
+  }
+
+  .adm-main { padding: 14px; }
+  /* câmpurile cu lățime fixă (filtrele) și cele „flex: 1" de lângă un buton nu ies din card */
+  .adm-main input,
+  .adm-main select,
+  .adm-main textarea { max-width: 100%; min-width: 0; }
+}
+
+/* telefon: formularele cu 2–3 coloane trec pe una singură */
+@media (max-width: 600px) {
+  .adm { --adm-cols: minmax(0, 1fr); }
+}
+
+@keyframes adm-fade { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .adm-side,
+  .adm-side-in,
+  .adm-backdrop { transition: none !important; animation: none !important; }
+}

@@ -528,6 +528,10 @@
 .lv-voice-hint { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 8; display: flex; gap: 10px; align-items: flex-start; max-width: min(640px, calc(100% - 24px)); background: rgba(32,33,36,.94); color: #e8eaed; border: 1px solid rgba(138,180,248,.35); border-radius: 12px; padding: 10px 12px; font-size: .84rem; line-height: 1.45; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
 .lv-voice-hint button { flex: none; width: 24px; height: 24px; border-radius: 6px; color: #aab4c3; }
 .lv-voice-hint button:hover { background: rgba(255,255,255,.08); }
+.lv-voice-hint.is-sound { align-items: center; }
+/* sunetul oprit de browser (iPhone după un apel / ecran blocat): butonul care îl repornește */
+.lv-voice-hint button.lv-sound-on { width: auto; height: auto; padding: 5px 12px; border-radius: 8px; background: #8ab4f8; color: #202124; font-weight: 700; white-space: nowrap; }
+.lv-voice-hint button.lv-sound-on:hover { background: #aecbfa; }
 @media (max-width: 560px) { .lv-voice-hint { font-size: .76rem; padding: 8px 10px; line-height: 1.4; } }
 
 /* ───────────── PREGĂTIRE DE EXAMEN (Planul meu, ca o meditație live) ─────────────

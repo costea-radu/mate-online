@@ -121,6 +121,7 @@ export default function LiveRoom({ demo = null }) {
   const [mode, setMode] = useState(null);             // 'individual' = ședința de grup ținută 1-la-1
   const [modeWhy, setModeWhy] = useState(null);       // 'singur' (un singur elev la început) | 'dupa' (după lecția comună)
   const [voiceHint, setVoiceHint] = useState(null);
+  const [soundBlocked, setSoundBlocked] = useState(false);   // contextul audio oprit de browser
   // „📋 Exerciții": exercițiul cu care începe elevul (ales la intrare sau din lobby: ?ex=II.2.b)
   const [startRef, setStartRef] = useState(() => {
     try { const v = new URLSearchParams(window.location.search).get('ex'); return v && /^I{1,3}\.\d(\.[a-d])?$/i.test(v) ? v.toUpperCase().replace(/\.([A-D])$/, (m, l) => `.${l.toLowerCase()}`) : null; } catch { return null; }
@@ -355,6 +356,15 @@ export default function LiveRoom({ demo = null }) {
     return () => { clearTimeout(t); clearTimeout(hide); };
   }, [joined, timeline?.noVoice, engine]);
 
+  // vocea generată (Web Audio) oprită de browser — ex. pe iPhone după un apel, după
+  // ecranul blocat sau dacă „Participă acum" n-a putut porni sunetul: un buton
+  // „🔊 Pornește sunetul" (orice atingere pe pagină îl reia, de fapt — vezi audio.js)
+  useEffect(() => {
+    if (!joined || !hasTimeline || tlNoVoice) { setSoundBlocked(false); return undefined; }
+    const t = setInterval(() => setSoundBlocked(engine.audioBlocked()), 1500);
+    return () => clearInterval(t);
+  }, [joined, hasTimeline, tlNoVoice, engine]);
+
   // răspunsurile rostite ale profesorului (grup: în „Întrebări")
   useEffect(() => { if (!privat && playerRef.current instanceof GroupPlayer) playerRef.current.setAnswers(messages); }, [messages, privat, ps?.phase]);
 
@@ -446,6 +456,7 @@ export default function LiveRoom({ demo = null }) {
     if (!speechRecognitionSupported()) { flash('Browserul acesta nu recunoaște vorbirea — scrie întrebarea în chat.'); setMicOn(false); return undefined; }
     let alive = true, rec = null;
     chanRef.current?.update({ mic: true });
+    engine.setRecording(true);          // Safari: sesiunea audio „play-and-record" cât ascultă microfonul
     const listen = () => {
       if (!alive) return;
       rec = startDictation({
@@ -458,7 +469,7 @@ export default function LiveRoom({ demo = null }) {
       });
     };
     listen();
-    return () => { alive = false; rec?.stop(); chanRef.current?.update({ mic: false }); };
+    return () => { alive = false; rec?.stop(); chanRef.current?.update({ mic: false }); engine.setRecording(false); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joined, micOn]);
 
@@ -786,6 +797,12 @@ export default function LiveRoom({ demo = null }) {
               <div className="lv-voice-hint" role="status">
                 <span>🔈 {voiceHint}</span>
                 <button type="button" onClick={() => setVoiceHint(null)} aria-label="Închide">✕</button>
+              </div>
+            )}
+            {soundBlocked && (
+              <div className="lv-voice-hint is-sound" role="status">
+                <span>🔇 Browserul a oprit sunetul sălii.</span>
+                <button type="button" className="lv-sound-on" onClick={() => { engine.unlock(); setSoundBlocked(false); }}>🔊 Pornește sunetul</button>
               </div>
             )}
             {privat && ps?.status === 'incarca' && <div className="lv-toast">Profesorul își aranjează notițele… (vocea se pregătește)</div>}

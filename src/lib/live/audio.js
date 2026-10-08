@@ -17,11 +17,63 @@
 // apăsarea „Participă acum" (altfel prima frază întârzie secunde bune), iar
 // frazele merg la COADĂ: una nu o mai taie pe cealaltă. Gura se mișcă doar cât
 // se aude cu adevărat (evenimentele start/end ale vocii).
+//
+// iPHONE / iPAD: iOS tratează Web Audio ca sunet „ambiental" — cu telefonul pe
+// Silențios (comutatorul de pe lateral sau butonul Action) îl taie complet, deși
+// <audio>, video-urile și vocea sistemului se aud. De aceea lecțiile cu voce
+// generată (MP3 prin Web Audio) tăceau pe iPhone, iar demo-ul (vocea browserului,
+// „Ioana") se auzea. Acum, la „Participă acum":
+//   · cerem sesiunea audio „playback" (navigator.audioSession, iOS 16.4+) — ca la
+//     un video: se aude și pe Silențios (muzica din alte aplicații se oprește);
+//   · pe iOS mai vechi pornim în buclă un <audio> cu liniște, care face același lucru;
+//   · după o întrerupere (ecran blocat, apel, Siri, alt tab, microfonul) contextul
+//     audio se reia când pagina revine în față și la primul gest (atingere, tastă).
+// La ieșirea din sală (close) sesiunea revine la „auto" (restul site-ului — ex.
+// sunetul de mesaj nou — ascultă iar de butonul Silențios).
 // =====================================================================
 import { clock } from './clock';
 import { lipAt, syntheticLip } from './lip';
 
 const MAX_CACHE = 36;
+
+// iPhone / iPad (iPadOS se prezintă ca Mac, dar are ecran tactil)
+const isIOS = () => typeof navigator !== 'undefined'
+  && (/iP(hone|ad|od)/.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+
+// Sesiunea audio a paginii (Audio Session API — doar Safari, 16.4+). Întoarce
+// true dacă browserul o are (atunci nu mai e nevoie de bucla <audio>).
+function setAudioSession(type) {
+  try {
+    const as = typeof navigator !== 'undefined' ? navigator.audioSession : null;
+    if (!as || typeof as.type !== 'string') return false;
+    if (as.type !== type) as.type = type;
+    return true;
+  } catch { return false; }
+}
+function sessionType() {
+  try { const as = typeof navigator !== 'undefined' ? navigator.audioSession : null; return as && typeof as.type === 'string' ? as.type : null; } catch { return null; }
+}
+
+// 0,2 s de liniște (WAV 8 biți, mono) la rata contextului audio — o rată diferită
+// ar putea face iOS să schimbe rata plăcii de sunet și vocea s-ar auzi stricat.
+function silentWav(rate) {
+  const sr = Math.round(rate) || 44100;
+  const n = Math.max(64, Math.round(sr * 0.2));
+  const buf = new ArrayBuffer(44 + n);
+  const v = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVE');
+  str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  str(36, 'data'); v.setUint32(40, n, true);
+  new Uint8Array(buf, 44).fill(128);                 // 8 biți: 128 = liniște
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return `data:audio/wav;base64,${btoa(bin)}`;
+}
+
+const WAKE_EVENTS = ['pointerup', 'touchend', 'keydown', 'focus', 'pageshow'];
 
 const RO = /^ro([-_]|$)/i;
 function voiceScore(v) {
@@ -91,6 +143,9 @@ export class AudioEngine {
     this.failedDecode = false;
     // vocea browserului: coada frazelor, fraza care se aude acum, vocea aleasă
     this.tts = { queue: [], current: null, voice: null, warmed: false };
+    this.silentEl = null;        // iOS fără Audio Session API: <audio> cu liniște, în buclă
+    this.recording = false;      // microfonul (dictarea) e pornit
+    this._wake = null;           // ascultătorii care reiau sunetul după o întrerupere
     if (hasTTS()) {
       this._pickVoice();
       try { window.speechSynthesis.addEventListener('voiceschanged', () => this._pickVoice()); } catch { /* ignore */ }
@@ -111,17 +166,21 @@ export class AudioEngine {
 
   // Trebuie chemată DIN apăsarea unui buton (gest al utilizatorului)
   unlock() {
+    // iPhone: sesiunea „playback" ÎNAINTE de primul sunet — altfel Silențios taie vocea
+    const session = this.recording ? setAudioSession('play-and-record') : setAudioSession('playback');
     try {
       if (!this.ctx) {
         const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return false;
+        if (!AC) { this._warmTTS(); return false; }
         this.ctx = new AC({ latencyHint: 'interactive' });
         this._buildChain();
       }
-      if (this.ctx.state === 'suspended') this.ctx.resume();
+      this._resumeCtx();
       const b = this.ctx.createBuffer(1, 1, 22050);
       const s = this.ctx.createBufferSource();
       s.buffer = b; s.connect(this.ctx.destination); s.start(0);
+      if (!session && isIOS()) this._silentLoop();      // iOS < 16.4
+      this._watch();
       this._warmTTS();
       return true;
     } catch { this._warmTTS(); return false; }
@@ -139,6 +198,91 @@ export class AudioEngine {
       if (v) u.voice = v;
       window.speechSynthesis.speak(u);
     } catch { /* ignore */ }
+  }
+
+  // Contextul audio oprit („suspended", iar pe iOS și „interrupted") → îl pornim.
+  _resumeCtx() {
+    const c = this.ctx;
+    if (!c || c.state === 'running' || c.state === 'closed') return;
+    try { const p = c.resume(); if (p && typeof p.catch === 'function') p.catch(() => {}); } catch { /* ignore */ }
+  }
+
+  // true = există context audio, dar browserul îl ține oprit (sala arată „atinge
+  // ecranul ca să pornească sunetul"; primul gest îl reia — vezi _watch)
+  audioBlocked() {
+    const c = this.ctx;
+    return !!c && c.state !== 'running' && c.state !== 'closed';
+  }
+
+  // iOS < 16.4 (fără navigator.audioSession): un <audio> cu liniște, în buclă, mută
+  // pagina pe canalul „media" — Web Audio se aude atunci și pe Silențios.
+  _silentLoop() {
+    try {
+      if (!this.silentEl) {
+        const el = document.createElement('audio');
+        el.setAttribute('x-webkit-airplay', 'deny');      // să nu apară la AirPlay
+        el.setAttribute('playsinline', '');
+        try { el.disableRemotePlayback = true; } catch { /* ignore */ }
+        el.preload = 'auto';
+        el.loop = true;
+        el.src = silentWav((this.ctx && this.ctx.sampleRate) || 44100);
+        this.silentEl = el;
+      }
+      const p = this.silentEl.play();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch { /* ignore */ }
+  }
+
+  // După o întrerupere (ecran blocat, apel, Siri, alt tab, microfonul pornit),
+  // iOS lasă contextul audio oprit și nu-l mai pornește singur: îl reluăm când
+  // pagina revine în față și la primul gest. Bucla mută stă pe pauză cât pagina e
+  // ascunsă (fără comenzi de redare pe ecranul blocat).
+  _watch() {
+    if (this._wake || typeof window === 'undefined') return;
+    this._wake = () => {
+      if (!this.ctx) return;
+      // „playback" din nou (un alt tab / o altă aplicație o poate schimba) — dar nu
+      // peste microfonul care ascultă acum („play-and-record", vezi setRecording / voice.js)
+      const cur = sessionType();
+      if (this.recording) setAudioSession('play-and-record');
+      else if (cur && cur !== 'playback' && cur !== 'play-and-record') setAudioSession('playback');
+      this._resumeCtx();
+      if (this.silentEl && this.silentEl.paused && !document.hidden) {
+        try { const p = this.silentEl.play(); if (p && typeof p.catch === 'function') p.catch(() => {}); } catch { /* ignore */ }
+      }
+    };
+    this._onVis = () => {
+      if (document.hidden) { try { this.silentEl?.pause(); } catch { /* ignore */ } }
+      else this._wake();
+    };
+    WAKE_EVENTS.forEach((ev) => window.addEventListener(ev, this._wake, true));
+    document.addEventListener('visibilitychange', this._onVis);
+    try {
+      this.ctx.onstatechange = () => {
+        if (this.ctx && this.ctx.state !== 'running' && this.ctx.state !== 'closed' && !document.hidden) this._resumeCtx();
+      };
+    } catch { /* ignore */ }
+  }
+
+  _unwatch() {
+    if (this._wake && typeof window !== 'undefined') {
+      WAKE_EVENTS.forEach((ev) => window.removeEventListener(ev, this._wake, true));
+      document.removeEventListener('visibilitychange', this._onVis);
+    }
+    this._wake = null; this._onVis = null;
+    if (this.silentEl) {
+      try { this.silentEl.pause(); this.silentEl.removeAttribute('src'); this.silentEl.load(); } catch { /* ignore */ }
+      this.silentEl = null;
+    }
+  }
+
+  // Microfonul elevului (dictarea întrebării): pe Safari, cât ascultă, sesiunea
+  // trebuie să fie „play-and-record"; după, revine la „playback" și reluăm sunetul.
+  setRecording(on) {
+    this.recording = !!on;
+    if (!this.ctx) return;                         // încă n-a intrat în sală: unlock() alege
+    setAudioSession(on ? 'play-and-record' : 'playback');
+    if (!on) this._resumeCtx();
   }
 
   _buildChain() {
@@ -199,6 +343,7 @@ export class AudioEngine {
     if (this.active.has(id)) return this.active.get(id);
     const buffer = await this.load(url);
     if (this.active.has(id)) return this.active.get(id);
+    if (buffer) this._resumeCtx();                          // oprit între timp (iOS): încercăm să-l pornim
     const delay = (atServerMs - clock.now()) / 1000;
     const offset = Math.max(0, -delay);
     if (dur && offset >= dur - 0.05) return null;          // s-a terminat deja
@@ -336,8 +481,12 @@ export class AudioEngine {
 
   close() {
     this.stopAll(null, { hard: true });
+    this._unwatch();
     try { this.ctx?.close(); } catch { /* ignore */ }
     this.ctx = null;
     this.cache.clear();
+    // în afara sălii, sunetele site-ului ascultă iar de butonul Silențios
+    if (this.recording) this.recording = false;
+    setAudioSession('auto');
   }
 }

@@ -357,6 +357,7 @@ export default function PregatireExamen() {
     if (!joined || !micOn) { setHeard(''); return undefined; }
     if (!speechRecognitionSupported()) { flash('Browserul acesta nu recunoaște vorbirea — scrie întrebarea în chat.'); setMicOn(false); return undefined; }
     let alive = true, rec = null;
+    engine.setRecording(true);          // Safari: sesiunea audio „play-and-record" cât ascultă microfonul
     const listen = () => {
       if (!alive) return;
       rec = startDictation({
@@ -366,7 +367,7 @@ export default function PregatireExamen() {
       });
     };
     listen();
-    return () => { alive = false; rec?.stop(); };
+    return () => { alive = false; rec?.stop(); engine.setRecording(false); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joined, micOn]);
 

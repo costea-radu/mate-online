@@ -4,6 +4,26 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 8 octombrie 2026 — Admin pe telefon: meniul ☰ (pe desktop, pliat cu hover) · Meditații live: sunetul pe iPhone
+
+Cererea: 1) în Admin, meniul lateral cu hover sau hamburger — pe mobil nu se vede (meniul ocupa jumătate din ecran, conținutul rămânea într-o coloană îngustă); 2) la meditațiile live nu se aude sunetul pe iPhone, la demo se aude o voce de femeie.
+
+### 1) Admin: ☰ pe telefon, meniu pliabil pe desktop (`src/pages/Admin.jsx`, `src/styles/admin.css` nou)
+- **Până la 900px** (telefon, tabletă în picioare): meniul se ascunde; **„☰"** din antet îl deschide ca un sertar din stânga (cu adresa contului și „← Înapoi pe site" jos). Se închide la alegerea unei file, la ✕, la atingerea fundalului sau cu Esc; pagina din spate nu se derulează cât e deschis; dacă ecranul se lărgește (telefonul întors), se închide singur. Antetul rămâne sus la derulare, scurtat („⚙ Panou Admin" + fila deschisă, „← Site").
+- **Desktop**: meniul rămâne la vedere când derulezi; săgeata de pe margine îl **pliază la pictograme**, iar cât e pliat **se desface la hover** peste conținut (ca bara laterală a site-ului) — și la Tab cu tastatura; alegerea se ține minte (`localStorage` „admin_meniu_pliat").
+- **Conținutul pe telefon**: margini mai mici (14px, cardurile 18/16px), statisticile pe 2 coloane, formularele cu 2–3 coloane pe una singură (sub 600px — variabilele `--adm-*` citite de stilurile din Admin.jsx, AdminDebug, ContentAdminTools), tabelele derulează în lateral în cardul lor (coloana „Titlu" de cel puțin 190px), câmpurile nu ies din card, bara de date din Meditații live și rândul „Tip conținut" din Rezolvări se rup pe două rânduri. Verificat: nicio derulare laterală a paginii la 320 / 360 / 390 / 430 / 600 / 768 / 900px, pe toate cele 10 file.
+
+### 2) Meditații live: sunetul pe iPhone (`src/lib/live/audio.js`)
+- **Cauza:** lecțiile au vocea generată pe server (MP3, redată prin Web Audio). iOS tratează Web Audio ca sunet „ambiental" → cu telefonul pe **Silențios** (comutatorul de pe lateral / butonul Action) îl taie complet. Demo-ul vorbește cu vocea browserului („Ioana", de femeie — singura voce românească de la Apple), pe care Silențios n-o oprește → „la demo se aude o voce de femeie".
+- **Acum**, la „Participă acum": sesiunea audio **„playback"** (`navigator.audioSession`, iOS 16.4+) — ca la un video, se aude și pe Silențios; pe iOS mai vechi, un `<audio>` cu liniște în buclă (WAV la rata contextului audio, `x-webkit-airplay="deny"`, pe pauză cât pagina e ascunsă). După o întrerupere (apel, Siri, ecran blocat, alt tab) contextul audio se reia la revenirea paginii și la prima atingere; dacă tot e oprit, sus apare **„🔊 Pornește sunetul"** (`LiveRoom.jsx`). Microfonul (dictarea din sală, din chat și din Pregătirea de examen) trece sesiunea pe „play-and-record" cât ascultă (`engine.setRecording`, `voice.js`). La ieșirea din sală sesiunea revine la „auto" (sunetele restului site-ului ascultă iar de Silențios).
+- **Vocea browserului (Planul meu)**: se „trezește" la sfârșitul atingerii (`pointerup` / `touchend`) — pe iPhone, `pointerdown` nu contează ca gest și prima frază putea tăcea (`vorbire.js`).
+
+**Verificat:** `vite build` trece; `npm test` 659/659 (11 teste noi: `test/sunet-iphone.test.js` — sesiunea „playback" pe iOS 16.4+, bucla mută pe iOS vechi și iPad, nimic pe desktop/Android, reluarea după întrerupere, pauza buclei cu pagina ascunsă, microfonul, dictarea din chat, ieșirea din sală). Capturi Chromium (Playwright): Admin pe telefon (sertarul închis/deschis, Esc, fundalul, fila aleasă, derularea cu antetul sus, tabelele), tabletă și desktop (pliat, hover, păstrat după reîncărcare); sala live demo pe iPhone simulat (sesiunea „playback" la intrare, „auto" la ieșire) și butonul „🔊 Pornește sunetul" cu contextul audio blocat.
+
+Fișiere: src/pages/Admin.jsx, src/styles/admin.css (nou), src/components/AdminDebug.jsx, src/components/ContentAdminTools.jsx, src/components/LiveAdmin.jsx, src/lib/live/audio.js, src/lib/live/vorbire.js, src/lib/voice.js, src/pages/LiveRoom.jsx, src/pages/PregatireExamen.jsx, src/styles/live.css, test/sunet-iphone.test.js (nou), GHID_MEDITATII_LIVE.md, acest changelog.
+
+---
+
 ## 6 octombrie 2026 — Tot Conținutul: „🔁 Înlocuiește" fișierul (data și poziția rămân) + „📥 Materialele noi apar: primele / ultimele" · Meditații live: 🎁 două meditații gratuite
 
 Cererea: 1) la „Tot conținutul", să pot înlocui fișiere cu altele, păstrând data încărcării inițiale pe site și, astfel, ordinea de afișare; 2) la „Ordinea de afișare", la teste interactive am dat „cele mai vechi primele", dar fișierele noi generate apar tot primele — o opțiune ca și cele noi să apară la sfârșit; 3) două dintre meditațiile pregenerate să fie gratuite, menționat la Meditații live, cu un buton în Admin ca să aleg care.

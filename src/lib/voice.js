@@ -8,6 +8,20 @@
 const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
 export const speechRecognitionSupported = () => !!SR;
 
+// Safari (Audio Session API): în sala live pagina cere sesiunea „playback" (vocea
+// profesorului se aude și pe Silențios — vezi live/audio.js). Cât ascultă dictarea,
+// microfonul are nevoie de „play-and-record"; după, înapoi la „playback".
+// Doar dacă sesiunea era „playback" (în afara sălii rămâne „auto", neatinsă).
+function micSession(on) {
+  try {
+    const as = typeof navigator !== 'undefined' ? navigator.audioSession : null;
+    if (!as || typeof as.type !== 'string') return false;
+    if (on && as.type === 'playback') { as.type = 'play-and-record'; return true; }
+    if (!on && as.type === 'play-and-record') as.type = 'playback';
+  } catch { /* ignore */ }
+  return false;
+}
+
 // Pornește dictarea. onResult(text, isFinal). Întoarce { stop }.
 export function startDictation({ lang = 'ro-RO', onResult, onError, onEnd } = {}) {
   if (!SR) { onError?.(new Error('Recunoașterea vocală nu e suportată de acest browser.')); return { stop() {} }; }
@@ -23,9 +37,10 @@ export function startDictation({ lang = 'ro-RO', onResult, onError, onEnd } = {}
     }
     onResult?.(final || interim, !!final);
   };
+  const switched = micSession(true);
   rec.onerror = (e) => onError?.(new Error(e.error || 'Eroare la dictare'));
-  rec.onend = () => onEnd?.();
-  try { rec.start(); } catch (e) { onError?.(e); }
+  rec.onend = () => { if (switched) micSession(false); onEnd?.(); };
+  try { rec.start(); } catch (e) { if (switched) micSession(false); onError?.(e); }
   return { stop() { try { rec.stop(); } catch { /* ignore */ } } };
 }
 

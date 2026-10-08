@@ -69,11 +69,12 @@ class Speaker {
     if (hasTTS()) {
       this._pick();
       try { window.speechSynthesis.addEventListener('voiceschanged', () => this._pick()); } catch { /* ignore */ }
-      // primul gest pe pagină „trezește" vocea (Chrome/iOS cer un gest)
+      // primul gest pe pagină „trezește" vocea (Chrome/iOS cer un gest). Pe iPhone
+      // contează ca gest doar SFÂRȘITUL atingerii (touchend / pointerup) — pe
+      // pointerdown, rostirea de încălzire era ignorată și prima frază tăcea.
       const onGesture = () => { if (!this.warmed || this.state.needsTap) this.unlock(); };
       try {
-        window.addEventListener('pointerdown', onGesture, true);
-        window.addEventListener('keydown', onGesture, true);
+        ['pointerup', 'touchend', 'keydown'].forEach((ev) => window.addEventListener(ev, onGesture, true));
       } catch { /* ignore */ }
     }
   }

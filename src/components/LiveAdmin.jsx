@@ -82,7 +82,7 @@ export default function LiveAdmin() {
               {data && !data.tts && <span style={{ color: '#b3261e' }}> — fără cheie TTS (OPENAI_API_KEY sau AZURE_SPEECH_KEY), lecțiile folosesc vocea browserului</span>}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <button type="button" style={btn} onClick={() => go(-1)} disabled={!day}>←</button>
             <input type="date" value={day || ''} onChange={(e) => { setDay(e.target.value); setData(null); load(e.target.value); }} style={{ ...btn, background: '#fff' }} />
             <button type="button" style={btn} onClick={() => go(1)} disabled={!day}>→</button>

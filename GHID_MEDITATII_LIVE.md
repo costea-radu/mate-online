@@ -70,7 +70,7 @@ cea mai bună voce românească de pe dispozitivul elevului:
 |---|---|
 | **Microsoft Edge** (Windows/Mac) | „Emil Online (Natural)" — voce neurală, de bărbat, cea mai naturală |
 | Chrome/Firefox pe Windows | „Microsoft Andrei" (dacă Windows are vocea română: Setări → Oră și limbă → Vorbire) |
-| Android / iPhone / Mac | vocea românească a sistemului (poate fi o voce de femeie) |
+| Android / iPhone / Mac | vocea românească a sistemului — pe iPhone, iPad și Mac e „Ioana", **voce de femeie** (Apple nu are o voce românească de bărbat), pe Android de obicei tot de femeie |
 
 Dacă dispozitivul nu are nicio voce românească, sala îi spune elevului ce să facă (Edge sau
 vocea Windows), iar lecția merge cu subtitrări. Gura profesorului se mișcă după vocea browserului.
@@ -94,6 +94,24 @@ cât elevul lucrează — întâi de la itemul la care a ajuns (dacă a sărit �
 apoi restul. Ce nu e gata la timp (după ~4,5 secunde de „Profesorul își aranjează notițele…")
 se rostește cu vocea browserului, iar ce se generează între timp se aude generat — lecția nu
 se mai oprește.
+
+**Vocea de bărbat pe toate dispozitivele = vocea generată.** Pe iPhone vocea browserului e
+mereu de femeie, deci Prof. Tudor are voce de bărbat acolo doar când lecția are vocea generată
+(Azure „Emil" sau OpenAI „ash"). Ce vorbește încă cu vocea browserului: demo-urile
+(`/meditatii/demo`, `/meditatii/demo-1la1`), Pregătirea de examen și cele câteva fraze de rezervă
+din 1-la-1 (când vocea generată nu e gata la timp). În Admin → 🎥 Meditații live, sus, „Vocea:" arată
+furnizorul folosit (`openai`, `azure` sau „lipsă").
+
+**iPhone / iPad — sunetul (8 octombrie 2026):** iOS tratează Web Audio (prin care se aude
+vocea generată) ca sunet „ambiental": cu telefonul pe **Silențios** (comutatorul de pe lateral
+sau butonul Action) îl tăia complet, deși demo-ul (vocea browserului) se auzea. Acum, la
+„Participă acum", sala cere sesiunea audio **„playback"** (Audio Session API, iOS 16.4+) — se
+aude ca un video, și pe Silențios (muzica din alte aplicații se oprește cât e elevul în sală);
+pe iOS mai vechi pornește în buclă un `<audio>` cu liniște, care face același lucru. După o
+întrerupere (apel, ecran blocat, alt tab, microfonul) sunetul se reia la prima atingere, iar dacă
+browserul tot îl ține oprit, sus apare **„🔊 Pornește sunetul"**. Microfonul (dictarea) trece pe
+„play-and-record" cât ascultă. La ieșirea din sală sesiunea revine la „auto". Cod:
+`src/lib/live/audio.js`; teste: `test/sunet-iphone.test.js`.
 
 ### 1.3 Cronul
 `vercel.json` conține deja `/api/live?action=cron` la 15 minute. Ca toate cronurile
@@ -339,12 +357,17 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 
 ## 5. Costuri (orientativ, septembrie 2026 — verifică prețurile furnizorilor)
 
-- **Vocea browserului** (fără chei): **0 lei**.
+- **Vocea browserului** (fără chei): **0 lei** (pe iPhone, voce de femeie — vezi 1.2).
 - **Vocea generată** (opțional): o lecție de 2 ore are ~50.000–60.000 de caractere rostite.
   Azure Neural ≈ 16 $ / 1 milion de caractere → ~0,8–1 $ (≈ 4–4,5 lei) pe lecție; nivelul
   gratuit Azure F0 (500.000 de caractere/lună) acoperă ~8 lecții noi pe lună.
   OpenAI gpt-4o-mini-tts ≈ 0,015 $/minut → ~0,8–1 $ pe lecție.
   **Lecțiile se refolosesc** (același subiect, aceeași voce) — costul e o dată pe subiect.
+  Verificat 8 oct. 2026: Azure Neural ~15–16 $ / 1M caractere (F0: 0,5M caractere/lună gratuit);
+  OpenAI gpt-4o-mini-tts ~0,015 $/minut; Google Chirp 3 HD 30 $ / 1M caractere, primul 1M/lună
+  gratuit, cu 16 voci românești de bărbat (nelegat încă în cod). Demo-urile (grup + 1-la-1)
+  au ~3.500 de caractere → sub 0,10 $ o singură dată; un răspuns rostit de ~500 de caractere
+  ≈ 0,01 $.
 - **Textul lecției** (modelul care scrie explicațiile pe barem): ~1,5–5 lei pe subiect nou, o
   singură dată (apoi se refolosește). Se plătește doar când vine cineva (vezi `LIVE_PREGATIRE_AUTO`).
   Cu 4 săli: cel mult 4 lecții noi pe zi (doar în sălile în care intră elevi) — ~6–20 lei/zi în
@@ -383,6 +406,8 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | Enunț fără radical / fracție („2 2 6 2 3 2") sau „[formula nu e lizibilă]" | lecție scrisă înainte de citirea paginilor PDF → Admin → „Lecțiile recente" → **Regenerează** |
 | „Profesorul nu are încă un subiect cu barem" | nu există subiecte EN/BAC cu barem citit; cronul citește câteva bareme la fiecare rulare (`LIVE_CRON_BAREME`), sau alege manual subiectul din Admin |
 | Profesorul nu vorbește (doar subtitrări) | dispozitivul nu are o voce românească → Edge (voce naturală, gratuită) sau vocea română în Windows; verifică și volumul/tab-ul fără sonor |
+| Pe iPhone nu se aude nimic în sală, deși la demo se aude o voce (de femeie) | reparat 8 oct.: vocea generată (Web Audio) era tăiată de modul **Silențios**; acum sala cere sesiunea audio „playback" la „Participă acum". Versiune veche în cache (PWA) → închide și redeschide pagina. Dacă apare „🔊 Pornește sunetul", apasă-l (după un apel / ecran blocat) |
+| Pe iPhone profesorul are voce de femeie | e vocea browserului („Ioana" — singura voce românească de la Apple); apare unde lecția n-are vocea generată: demo-urile, Pregătirea de examen, frazele de rezervă din 1-la-1. Vocea de bărbat peste tot = vocea generată (Azure „Emil" / OpenAI „ash") |
 | Vocea generată nu apare | lipsește cheia TTS sau a expirat; lecția merge cu vocea browserului — vezi Admin → eroarea lecției, apoi „Generează vocea" |
 | „Ședința s-a încheiat" mult înainte de sfârșitul orei | subiectul era scurt (o fișă, nu un subiect complet); acum ședințele de grup aleg subiecte complete, iar elevul poate „Continuă 1-la-1" până la sfârșitul orei |
 | Un singur elev la ora de grup | normal: ședința devine 1-la-1 pentru el (fără cost în plus); `LIVE_MINIM_GRUP` schimbă pragul |

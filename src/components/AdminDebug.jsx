@@ -170,7 +170,7 @@ export default function AdminDebug({ s }) {
         {st && <SetupRow st={st} onErrors={loadErrors} />}
         {st && (!st.token || st.ciWorkflow === false || !st.setup) && <SetupHelp st={st} />}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.4fr)', gap: 14, marginTop: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'var(--adm-cols, minmax(0, 1fr) minmax(0, 1.4fr))', gap: 14, marginTop: 14 }}>
           <div>
             <label style={s.label}>Ce să verifice</label>
             <select style={s.select} value={scope} onChange={(e) => setScope(e.target.value)} disabled={driving}>
@@ -295,6 +295,7 @@ export default function AdminDebug({ s }) {
       {runs.length > 0 && (
         <div style={s.card}>
           <div style={s.cardTitle}>📜 Rulările anterioare</div>
+          <div style={{ overflowX: 'auto' }}>
           <table style={s.table}>
             <thead><tr><th style={s.th}>Data</th><th style={s.th}>Zona</th><th style={s.th}>Stare</th><th style={s.th}>Probleme</th><th style={s.th}>Corecturi</th><th style={s.th}>PR</th><th style={s.th}>Cost</th></tr></thead>
             <tbody>
@@ -311,6 +312,7 @@ export default function AdminDebug({ s }) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -321,6 +323,7 @@ export default function AdminDebug({ s }) {
             <button type="button" style={smallBtn} onClick={() => setErrorsOpen(false)}>✕</button>
           </div>
           {!clientErrors ? <div style={{ color: '#8e95a3' }}>Se încarcă…</div> : clientErrors.length === 0 ? <div style={{ color: '#137333' }}>Nicio eroare raportată. 🎉</div> : (
+            <div style={{ overflowX: 'auto' }}>
             <table style={s.table}>
               <thead><tr><th style={s.th}>De câte ori</th><th style={s.th}>Eroarea</th><th style={s.th}>Pagina</th><th style={s.th}>Ultima dată</th></tr></thead>
               <tbody>
@@ -334,6 +337,7 @@ export default function AdminDebug({ s }) {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
           <p style={{ fontSize: '.78rem', color: '#8e95a3', marginTop: 8 }}>Le folosește automat agentul (zona „Erorile reale din site"). Se șterg singure după 60 de zile.</p>
         </div>

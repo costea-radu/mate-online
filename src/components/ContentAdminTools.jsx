@@ -147,7 +147,7 @@ export function EditContentModal({ s, item, onClose, onSaved, onReplace = null }
             onChange={e => setForm(p => ({ ...p, description: e.target.value }))} />
         ))}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'var(--adm-cols, 1fr 1fr 1fr)', gap: 16 }}>
           {field('Tip', (
             <select style={s.select} value={form.content_type}
               onChange={e => setForm(p => ({ ...p, content_type: e.target.value }))}>
