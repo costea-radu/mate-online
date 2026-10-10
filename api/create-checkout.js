@@ -104,8 +104,9 @@ async function topupCheckout(req, res, supabase, userId, profile) {
 
 // ─── Bilet la MEDITAȚIILE LIVE (mode: 'payment', o singură plată) ─────────────
 //   kind='grup'   → o ședință de grup anume (10 lei; abonații intră gratuit)
-//   kind='privat' → o ședință 1-la-1 de 60 de minute, folosită oricând (20 lei;
-//                   abonații au 8 incluse pe lună, biletul e pentru restul)
+//   kind='privat' → o ședință 1-la-1 de 60 de minute, folosită oricând — live sau
+//                   la Pregătirea de examen (20 lei; abonații au 8 incluse pe lună,
+//                   comune pentru amândouă; biletul e pentru restul)
 // Creditarea o face stripe-webhook.js în `live_tickets`, EXACT din metadata.
 async function liveCheckout(req, res, supabase, userId, profile) {
   const L = require('./_lib/live');
@@ -147,7 +148,7 @@ async function liveCheckout(req, res, supabase, userId, profile) {
     : `Meditație 1-la-1 (${L.PRIVATE_MINUTES()} de minute) — ${teacher.name}`;
   const description = kind === 'grup'
     ? `${L.EXAM_LABEL(sessionRow.exam, sessionRow.profile)} — subiect explicat pe barem, cu profesorul virtual (AI), în sala live ExamenMate.`
-    : 'O ședință privată cu profesorul virtual (AI), pornită oricând, pe subiectul de examen ales (explicat pe barem).';
+    : 'O ședință privată cu profesorul virtual (AI), pornită oricând: un subiect de examen ales sau Pregătirea de examen din „Planul meu" (explicate pe barem).';
   // întoarcerea: doar în rubrica de meditații (nu acceptăm URL-uri din afară)
   const back = /^\/meditatii(\/[\w/-]*)?$/.test(String(req.body?.returnTo || '')) ? req.body.returnTo : '/meditatii';
   const base = siteUrl();

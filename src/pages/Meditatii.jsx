@@ -1370,7 +1370,7 @@ export default function Meditatii() {
           {/* Fără abonament și fără părinte asociat: explicăm ambele căi */}
           {!premium && !freeAssessment && !freeReport && (
             <div style={{ ...card, background: '#fff4e5', borderColor: 'var(--gold)' }}>
-              <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.05rem', marginBottom: 8 }}>🔒 Meditațiile fac parte din abonament</div>
+              <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.05rem', marginBottom: 8 }}>🔒 Planul personal face parte din abonament</div>
               <p style={{ fontSize: '.92rem', color: 'var(--text)', marginBottom: 12 }}>
                 Un meditator personal, disponibil oricând: <strong>test inițial</strong> care îți găsește lacunele, <strong>plan de învățare</strong> cu obiective
                 săptămânale, <strong>teorie explicată pe tablă</strong>, exerciții din materialele site-ului, <strong>analiza greșelilor</strong> („de ce ai greșit, nu doar că ai greșit"),
@@ -1399,6 +1399,13 @@ export default function Meditatii() {
 
           {canAssess && st.needsSetup && !quiz && (
             <SetupWizard onStart={startSetup} starting={busy === 'setup'} error={actionError} />
+          )}
+
+          {/* 🎓 Pregătirea de examen: o ședință 1-la-1 — și fără abonament (20 lei), ca la meditațiile live */}
+          {st.examPrep && !quiz && (
+            <ExamPrepCard info={st.examPrep} teacherName={TUDOR.name}
+              onEnter={() => navigate('/meditatii/pregatire')}
+              onPick={st.examPrep.current ? (pos) => navigate(`/meditatii/pregatire?pos=${encodeURIComponent(pos)}`) : null} />
           )}
 
           {/* testul inițial gratuit rulează pe toată lățimea, fără tablă */}
@@ -1556,18 +1563,37 @@ function HeroChips({ profile, focus }) {
 // Aici: unde a rămas elevul și benzile pozițiilor, colorate după progres — și
 // „📋 Aleg eu exercițiul": ORICE exercițiu, nu neapărat la rând (la BAC, și doar
 // un subpunct: S. II ex. 2 b), S. III ex. 1 c)…) → /meditatii/pregatire?pos=…
+// PREȚUL — ca la meditațiile live 1-la-1: 20 lei ședința sau 8 pe lună incluse în
+// abonament (aceleași 8, comune). Cardul se vede și fără abonament; fără examen
+// ales (info.current lipsește), doar oferta — examenul se alege în clasă.
 // ═════════════════════════════════════════════════════════════════════════════
 const PREP_SUB_LABEL = { I: 'Subiectul I', II: 'Subiectul al II-lea', III: 'Subiectul al III-lea' };
+// rândul cu prețul (aceleași formulări ca în lobby-ul meditațiilor live)
+function prepPriceLine(info) {
+  const a = info.access;
+  const p = info.price || { lei: 20, minute: 60, incluse: 8 };
+  const base = `1-la-1 · ${p.minute} de minute, prelungite până termini`;
+  if (info.session) return { ok: true, text: '⏱ Ședința ta 1-la-1 e în desfășurare — intri fără cost în plus' };
+  if (a?.via === 'admin') return { ok: true, text: '✓ Cont de administrator — nelimitat' };
+  if (a?.via === 'inclus') return { ok: true, text: `${base} · ✓ ${a.includedLeft} din ${a.included} incluse luna aceasta` };
+  if (a?.via === 'bilet') return { ok: true, text: `${base} · 🎟 ${a.unusedTickets} ${a.unusedTickets === 1 ? 'bilet' : 'bilete'} 1-la-1` };
+  if (a?.included) return { ok: false, text: `Ai folosit cele ${a.included} incluse luna aceasta · ${p.lei} lei ședința` };
+  return { ok: false, text: `${base} · ${p.lei} lei ședința · sau ${p.incluse} pe lună incluse în abonament` };
+}
 function ExamPrepCard({ info, teacherName, onEnter, onPick }) {
   const [picking, setPicking] = useState(false);
   const c = info.current;
+  const price = prepPriceLine(info);
   const groups = ['I', 'II', 'III']
     .map((s) => ({ s, items: (info.list || []).filter((p) => p.sub === s) }))
     .filter((g) => g.items.length);
-  const title = !info.started ? `Începem cu ${c.label}`
-    : info.allDone ? `Recapitulare: ${c.label}`
-      : `Continuăm: ${c.label}`;
-  const sub = !info.started
+  const title = !c ? 'Exercițiu cu exercițiu, ca la examen'
+    : !info.started ? `Începem cu ${c.label}`
+      : info.allDone ? `Recapitulare: ${c.label}`
+        : `Continuăm: ${c.label}`;
+  const sub = !c
+    ? `${teacherName} te ia exercițiu cu exercițiu, în ordinea din examen — Evaluarea Națională sau BAC, pe profilul tău — din subiectele oficiale, explicate pe barem. Examenul îl alegi în clasă.`
+    : !info.started
     ? `${teacherName} te ia exercițiu cu exercițiu, în ordinea din examen: cel puțin ${info.perPosition || 10} exerciții din subiectele oficiale, explicate pe barem, apoi un test de verificare.`
     : info.allDone
       ? `Ai trecut testele la toate exercițiile din examen (${info.exercises} exerciții lucrate). ${teacherName} îți propune recapitulări.`
@@ -1582,11 +1608,14 @@ function ExamPrepCard({ info, teacherName, onEnter, onPick }) {
         <span className="pe-entry-pill"><i /> 1-la-1 · în clasă</span>
       </button>
       <div className="pe-entry-head">
-        <div className="pe-entry-kicker">🎓 Pregătire de examen <span>· {info.label}</span></div>
+        <div className="pe-entry-kicker">🎓 Pregătire de examen {info.label && <span>· {info.label}</span>}</div>
         <div className="pe-entry-title">{title}</div>
       </div>
-      <div className="pe-entry-sub">{sub}</div>
-      <div className="pe-entry-map" aria-label="Exercițiile din examen">
+      <div className="pe-entry-sub">
+        {sub}
+        <span className={`pe-entry-price${price.ok ? ' is-ok' : ''}`}>{price.text}</span>
+      </div>
+      {c && <div className="pe-entry-map" aria-label="Exercițiile din examen">
         {groups.map((g) => (
           <span key={g.s} className="pe-entry-grp" title={PREP_SUB_LABEL[g.s]}>
             <b>S. {g.s}</b>
@@ -1600,11 +1629,11 @@ function ExamPrepCard({ info, teacherName, onEnter, onPick }) {
             {picking ? '✕ Închide lista' : '📋 Aleg eu exercițiul'}
           </button>
         )}
-      </div>
+      </div>}
       <button type="button" className="pe-entry-go" onClick={onEnter}>
         ▶ {info.started ? 'Continuă în clasă' : 'Intră în clasă'}
       </button>
-      {picking && onPick && (
+      {picking && onPick && c && (
         <div className="pe-entry-pick">
           <div className="pe-lobby-pick-t">
             📋 <b>Alege orice exercițiu</b>, nu neapărat la rând{(info.subs || []).length ? ' — la Subiectele II și III, și doar un subpunct: a), b) sau c)' : ''}. {teacherName} te ia direct de acolo.

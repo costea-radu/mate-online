@@ -8,6 +8,7 @@
 // abonament); elevul își alege sala (filtrul se ține minte) și apasă „Conectează-te". Ședințele 1-la-1 pornesc oricând (60 de minute; 20 lei sau
 // 8 pe lună incluse în abonament), prelungite automat până elevul termină
 // exercițiile; elevul poate alege cu ce exercițiu începe (📋, nu neapărat la rând).
+// „💳 Prețuri" (în prezentare) deschide lista tuturor prețurilor, cu și fără abonament.
 // 🎁 Meditațiile gratuite (implicit 2 lecții pregătite, alese din Admin): 1-la-1
 // fără plată și fără abonament — chiar sub prezentare, cu „▶ Începe gratuit".
 // Demonstrația (grup / 1-la-1, fără cont) e chiar sus, în prezentare.
@@ -21,6 +22,7 @@ import { liveApi, buyTicket } from '../lib/live/api';
 import { clock } from '../lib/live/clock';
 import { loadRig, initials, teacherColor } from '../lib/live/profesori';
 import ItemPicker from '../components/live/ItemPicker';
+import PriceList from '../components/live/PriceList';
 import { defaultRefs, refLabel } from '../lib/live/items';
 import '../styles/live.css';
 
@@ -81,6 +83,8 @@ export default function MeditatiiLive() {
   const [subjErr, setSubjErr] = useState(null);
   const [startRef, setStartRef] = useState(null);      // 1-la-1: exercițiul cu care începe (null = de la început)
   const [roomFilter, setRoomFilter] = useState(readRoom);          // 'toate' | id-ul sălii (se ține minte)
+  const [pricesOpen, setPricesOpen] = useState(false);           // „💳 Prețuri": lista prețurilor
+  const closePrices = useCallback(() => setPricesOpen(false), []);
   const pickRoom = (id) => { setRoomFilter(id); try { localStorage.setItem(ROOM_KEY, id); } catch { /* fără stocare */ } };
 
   // linkurile vechi către planul personal (?tab=teme etc.) → „Planul meu"
@@ -225,7 +229,7 @@ export default function MeditatiiLive() {
             {freeN > 0 && <a href="#gratuit" className="lvl-chip is-free">🎁 {freeN} {freeN === 1 ? 'meditație gratuită' : 'meditații gratuite'}</a>}
             <span className="lvl-chip">📅 zilnic {timesLabel} · {rooms.length} {rooms.length === 1 ? 'sală' : 'săli'}</span>
             <span className="lvl-chip">📏 doar pe barem</span>
-            <span className="lvl-chip">💳 {data?.prices?.grup ?? 10} lei / ședință · inclus în abonament</span>
+            <button type="button" className="lvl-chip is-btn" onClick={() => setPricesOpen(true)} aria-haspopup="dialog">💳 Prețuri</button>
           </div>
         </div>
         <Link to="/meditatii/demo" className="lvl-hero-mock" title="Vezi demo-ul sălii">
@@ -238,6 +242,11 @@ export default function MeditatiiLive() {
           <div className="lvl-mock-bar"><i /><i /><i /><i /><i className="r" /></div>
         </Link>
       </section>
+
+      {pricesOpen && (
+        <PriceList prices={data?.prices} timesLabel={timesLabel} roomsCount={rooms.length} freeCount={freeN}
+          me={data ? me : null} onClose={closePrices} />
+      )}
 
       {data && freeN > 0 && (
         <section id="gratuit" className="lvl-free" aria-label="Meditații gratuite">
@@ -365,7 +374,7 @@ export default function MeditatiiLive() {
             {me.loggedIn && priv && (
               priv.via === 'admin' ? <span className="lvl-quota">✓ Cont de administrator — nelimitat</span>
                 : priv.included > 0 ? <span className={`lvl-quota${priv.includedLeft ? '' : ' is-paid'}`}>{priv.includedLeft ? `✓ ${priv.includedLeft} din ${priv.included} incluse luna aceasta` : `Ai folosit cele ${priv.included} incluse luna aceasta · ${data.prices.privat} lei ședința`}</span>
-                  : <span className="lvl-quota is-paid">{data.prices.privat} lei ședința · sau 8 pe lună incluse în abonament</span>
+                  : <span className="lvl-quota is-paid">{data.prices.privat} lei ședința · sau {data.prices.privatIncluse} pe lună incluse în abonament</span>
             )}
             {priv?.unusedTickets > 0 && <span className="lvl-quota" style={{ marginLeft: 8 }}>🎟 {priv.unusedTickets} {priv.unusedTickets === 1 ? 'bilet' : 'bilete'} 1-la-1</span>}
             {freeN > 0 && <a href="#gratuit" className="lvl-quota is-free" style={{ marginLeft: 8 }}>🎁 {freeN === 1 ? 'o meditație e gratuită' : `${freeN} meditații sunt gratuite`}</a>}

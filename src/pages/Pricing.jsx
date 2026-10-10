@@ -5,28 +5,8 @@ import { useAuth } from '../context/AuthContext';
 import { AI_STACK } from '../lib/aiModels';
 import AIPoweredBy from '../components/AIPoweredBy';
 import { trackBeginCheckout } from '../lib/analytics';
-
-// Planurile afișate. Prețurile REALE se stabilesc pe server
-// (api/create-checkout.js — PRICE_MONTHLY_LEI / PRICE_ANNUAL_LEI);
-// aici sunt doar pentru afișare, ca să nu depindă pagina de un apel în plus.
-const PLANS = [
-  {
-    id: 'lunar',
-    eticheta: 'Lunar',
-    pret: 50,
-    perioada: 'pe lună',
-    subtitlu: 'Plătești lună de lună. Renunți când vrei.',
-  },
-  {
-    id: 'anual',
-    eticheta: 'Anual',
-    pret: 500,
-    perioada: 'pe an',
-    subtitlu: 'Plătești 10 luni, primești 12. Adică 41,67 lei pe lună.',
-    economie: '2 luni cadou',
-    recomandat: true,
-  },
-];
+// Planurile afișate (doar pentru afișare — prețurile reale sunt pe server)
+import { PLANS } from '../lib/plans';
 
 const TRIAL_ZILE = 2;
 
@@ -214,7 +194,7 @@ export default function Pricing() {
                   <li><span className="pricing-check">✓</span> Toate exercițiile și testele PDF (gratuite + premium)</li>
                   <li><span className="pricing-check">✓</span> Exerciții interactive cu feedback</li>
                   <li><span className="pricing-check">✓</span> Meditații live cu Profesorul Virtual: zilnic, câte un subiect în 4 săli (EN, BAC Mate-Info, BAC Științele Naturii, BAC Tehnologic), pe baremul oficial (fără abonament: 10 lei ședința)</li>
-                  <li><span className="pricing-check">✓</span> 8 meditații 1-la-1 pe lună, oricând (apoi 20 lei ședința)</li>
+                  <li><span className="pricing-check">✓</span> 8 meditații 1-la-1 pe lună, oricând — live sau Pregătire de examen (apoi 20 lei ședința)</li>
                   <li><span className="pricing-check">✓</span> Planul meu: test inițial, plan personalizat, teme corectate și simulări</li>
                   <li><span className="pricing-check">✓</span> Inteligența Artificială - Prof. Virtual ({AI_STACK.clienti.furnizor} {AI_STACK.clienti.modele.join(', ')}): învățare cu AI, generare de teste, exerciții</li>
                   <li><span className="pricing-check">✓</span> Manuale online</li>

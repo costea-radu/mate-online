@@ -3,6 +3,9 @@
 // (doar de pe poziția cerută, din subiectele examenului elevului, fără repetare),
 // testul de verificare (fără răspunsuri trimise în browser) și acțiunile HTTP
 // prep_* din api/live.js, pe un Supabase în memorie (test/tools/fakeSupabase.js).
+// Prețul: o ședință 1-la-1, ca la meditațiile live — din cele 8 incluse pe lună
+// (COMUNE cu 1-la-1 live) sau cu biletul de 20 lei; vezi „ședința 1-la-1" mai jos.
+const crypto = require('node:crypto');
 const test = require('node:test');
 const assert = require('node:assert');
 const { createFakeSupabase, fakeRes } = require('./tools/fakeSupabase');
@@ -133,7 +136,18 @@ function scriptFor(title) {
   return LL.assignIds({ title, exam: 'en', teacher: 'radu', teacherName: radu.name, ...LL.templates(radu, { title, exam: 'en' }), items: [...itemsI, ...itemsIII] });
 }
 const cid = (k) => `aaaaaaaa-0000-4000-8000-${String(k).padStart(12, '0')}`;
-function seed({ subjects = 14, ready = 14, bacSubjects = 2 } = {}) {
+// o ședință de pregătire (1-la-1) pornită la `at`, din cele incluse în abonament (sau cu bilet)
+function prepSessionRow(user, target, { at = Date.now(), access = 'inclus', minutes = 60 } = {}) {
+  const E = P.examOf(target);
+  return {
+    id: crypto.randomUUID(), kind: 'privat', teacher: 'radu', exam: E.exam, profile: E.profile, subject_id: null, lesson_id: null,
+    owner_id: user, access, status: 'activa', starts_at: new Date(at).toISOString(), ends_at: new Date(at + minutes * 60000).toISOString(),
+    state: { prep: target, startedAt: new Date(at).toISOString() }, created_at: new Date(at).toISOString(),
+  };
+}
+// `sessions`: elevii abonați au deja o ședință de pregătire în curs (testele exercițiilor
+// lucrează în ea); pornirea, plata și prelungirea au testele lor („ședința 1-la-1")
+function seed({ subjects = 14, ready = 14, bacSubjects = 2, sessions = true } = {}) {
   const content = [], ai_pdf_text = [], live_lessons = [];
   for (let k = 1; k <= subjects; k++) {
     content.push({ id: cid(k), title: `EN ${2010 + k} Varianta ${k}`, category: 'evaluare-nationala', subcategory: null, profile: null, content_type: 'pdf', file_url: `https://x/${k}.pdf`, is_free: true, created_at: '2026-01-01T00:00:00Z' });
@@ -159,6 +173,8 @@ function seed({ subjects = 14, ready = 14, bacSubjects = 2 } = {}) {
       { user_id: U.bac, grade: 12, exam_target: 'bac-tehnologic' },
     ],
     content, ai_pdf_text, live_lessons, ai_meditatii_sessions: [],
+    live_sessions: sessions ? [prepSessionRow(U.prem, 'evaluare-nationala'), prepSessionRow(U.bac, 'bac-tehnologic')] : [],
+    live_tickets: [],
   };
 }
 
@@ -204,12 +220,25 @@ async function solveExercise(pos, { right = true } = {}) {
   return { ex, done: d };
 }
 
-test('acces: doar cu abonament și cu examenul ales în „Planul meu"', async () => {
+test('acces: cu cont; fără abonament vede clasa și prețul (20 lei), dar lucrul cere o ședință; fără examen → îl alege', async () => {
   fake = fresh();
   assert.strictEqual((await call('prep_state', {}, null)).statusCode, 401);
   const free = await call('prep_state', {}, U.free);
-  assert.strictEqual(free.statusCode, 402);
-  assert.strictEqual(free.body.code, 'PREMIUM_REQUIRED');
+  assert.strictEqual(free.statusCode, 200, JSON.stringify(free.body));
+  assert.strictEqual(free.body.session, null);
+  assert.strictEqual(free.body.access.ok, false);
+  assert.strictEqual(free.body.access.price, 20);
+  assert.deepStrictEqual(free.body.prices, { privat: 20, privatMin: 60, privatIncluse: 8 });
+  assert.strictEqual(free.body.me.premium, false);
+  const ex = await call('prep_exercise', { pos: 'I.1' }, U.free);
+  assert.strictEqual(ex.statusCode, 402);
+  assert.strictEqual(ex.body.code, 'PREP_SESSION');
+  assert.match(ex.body.error, /costă 20 lei \(sau e inclusă în abonament: 8 pe lună\)/);
+  const begin = await call('prep_begin', {}, U.free);
+  assert.strictEqual(begin.statusCode, 402);
+  assert.strictEqual(begin.body.code, 'LIVE_PAYMENT');
+  assert.strictEqual(begin.body.price, 20);
+  assert.strictEqual(fake.db.tables.live_sessions.filter((x) => x.owner_id === U.free).length, 0, 'nicio ședință fără plată');
   const noexam = await call('prep_state', {}, U.noexam);
   assert.strictEqual(noexam.statusCode, 409);
   assert.strictEqual(noexam.body.code, 'PREP_NO_EXAM');
@@ -457,7 +486,7 @@ test('progresul (pur): ultima poziție lucrată are prioritate; cu toate trecute
 });
 
 // ─── „Planul meu" (api/ai-meditatii.js → state): intrarea în pregătirea de examen ──
-test('Planul meu: starea arată unde a rămas elevul la pregătirea de examen (fără examen / fără abonament → nimic)', async () => {
+test('Planul meu: starea arată unde a rămas elevul la pregătirea de examen și prețul ședinței 1-la-1 (și fără abonament / fără examen)', async () => {
   const medHandler = require('../api/ai-meditatii');
   const state = async (user) => {
     const res = fakeRes();
@@ -492,8 +521,147 @@ test('Planul meu: starea arată unde a rămas elevul la pregătirea de examen (f
   assert.strictEqual(b.examPrep.subs.length, 12);
   assert.deepStrictEqual(b.examPrep.subs.find((x) => x.pos === 'II.2.b'), { pos: 'II.2.b', sub: 'II', ex: 2, parent: 'II.2', letter: 'b', label: 'Subiectul al II-lea, exercițiul 2 b)', short: 'S. II · ex. 2 b)', status: 'nou', done: 0, mastered: false });
   assert.strictEqual(b.examPrep.positions, 10, '„X din 10 stăpânite" — doar pozițiile întregi');
-  // fără examen ales (clasa a VI-a) → fără pregătire de examen
-  assert.strictEqual((await state(U.noexam)).examPrep, null);
-  // fără abonament → nimic (sala cere abonament)
-  assert.ok(!(await state(U.free)).examPrep);
+  // prețul ședinței 1-la-1 (ca la meditațiile live); ședința în curs se numără din cele 8
+  assert.deepStrictEqual(s.examPrep.price, { lei: 20, minute: 60, incluse: 8 });
+  assert.strictEqual(s.examPrep.access.via, 'inclus');
+  assert.strictEqual(s.examPrep.access.includedLeft, 7);
+  assert.ok(s.examPrep.session && s.examPrep.session.via === 'inclus');
+  // fără examen ales (clasa a VI-a): doar oferta — examenul se alege în clasă
+  const ne = (await state(U.noexam)).examPrep;
+  assert.strictEqual(ne.target, null);
+  assert.strictEqual(ne.access.includedLeft, 8);
+  // fără abonament: intrarea se vede, cu progresul și prețul (bilet de 20 lei)
+  const fr = (await state(U.free)).examPrep;
+  assert.strictEqual(fr.label, 'Evaluarea Națională');
+  assert.strictEqual(fr.access.ok, false);
+  assert.strictEqual(fr.access.price, 20);
+  assert.strictEqual(fr.session, null);
+});
+
+// ─── ședința 1-la-1: pornirea, cele 8 incluse (comune cu 1-la-1 live), biletul, prelungirea ──
+test('ședința 1-la-1: abonatul pornește una din cele 8 incluse — comune cu 1-la-1 live; a doua apăsare o continuă', async () => {
+  fake = fresh({ sessions: false });
+  let st = await call('prep_state');
+  assert.strictEqual(st.body.session, null);
+  assert.strictEqual(st.body.access.via, 'inclus');
+  assert.strictEqual(st.body.access.includedLeft, 8);
+  assert.strictEqual((await call('prep_exercise', { pos: 'I.1' })).body.code, 'PREP_SESSION', 'fără ședință nu începe lucrul');
+  const b = await call('prep_begin');
+  assert.strictEqual(b.statusCode, 200, JSON.stringify(b.body));
+  assert.strictEqual(b.body.session.via, 'inclus');
+  assert.ok(Date.parse(b.body.session.endsAt) - Date.now() > 59 * 60000, '60 de minute');
+  const row = fake.db.tables.live_sessions.find((x) => x.owner_id === U.prem);
+  assert.strictEqual(row.kind, 'privat');
+  assert.strictEqual(row.subject_id, null);
+  assert.strictEqual(row.state.prep, 'evaluare-nationala');
+  const again = await call('prep_begin');
+  assert.strictEqual(again.body.resumed, true);
+  assert.strictEqual(fake.db.tables.live_sessions.length, 1, 'nu se consumă de două ori');
+  st = await call('prep_state');
+  assert.strictEqual(st.body.access.includedLeft, 7);
+  assert.ok(st.body.session);
+  assert.strictEqual((await call('prep_exercise', { pos: 'I.1' })).statusCode, 200);
+  // același contor în lobby-ul meditațiilor live; ședința de pregătire nu e o sală live
+  const prog = await call('program');
+  assert.strictEqual(prog.body.me.private.includedLeft, 7);
+  assert.strictEqual(prog.body.me.privateSessions.length, 0);
+  assert.strictEqual((await call('join', { sessionId: row.id })).statusCode, 404);
+});
+
+test('ședința 1-la-1: două apăsări simultane → o singură ședință consumată', async () => {
+  fake = fresh({ sessions: false });
+  const [a, b] = await Promise.all([call('prep_begin'), call('prep_begin')]);
+  assert.strictEqual(a.statusCode, 200, JSON.stringify(a.body));
+  assert.strictEqual(b.statusCode, 200, JSON.stringify(b.body));
+  assert.strictEqual(a.body.session.startedAt, b.body.session.startedAt, 'aceeași ședință');
+  const rows = fake.db.tables.live_sessions;
+  assert.strictEqual(rows.filter((x) => x.status === 'activa').length, 1);
+  assert.ok(rows.filter((x) => x.status !== 'activa').every((x) => x.status === 'anulata' && x.access === 'anulat'), 'cea de-a doua: anulată, fără să consume');
+  assert.strictEqual((await call('prep_state')).body.access.includedLeft, 7);
+});
+
+test('ședința 1-la-1: după cele 8 incluse (live + pregătire) → 20 lei; biletul se consumă la pornire', async () => {
+  fake = fresh({ sessions: false });
+  const month = Date.now() - 3600 * 1000;
+  for (let k = 0; k < 8; k++) {
+    // ședințe 1-la-1 live și de pregătire, la un loc
+    const r = prepSessionRow(U.prem, 'evaluare-nationala', { at: month - k * 1000 });
+    if (k % 2) { delete r.state.prep; r.subject_id = cid(1); }
+    r.status = 'incheiata';
+    fake.db.tables.live_sessions.push(r);
+  }
+  const no = await call('prep_begin');
+  assert.strictEqual(no.statusCode, 402);
+  assert.strictEqual(no.body.code, 'LIVE_PAYMENT');
+  assert.match(no.body.error, /20 lei \(ai folosit cele 8 incluse luna aceasta\)/);
+  fake.db.tables.live_tickets.push({ id: crypto.randomUUID(), user_id: U.prem, kind: 'privat', session_id: null, status: 'platit', created_at: new Date().toISOString() });
+  assert.strictEqual((await call('prep_state')).body.access.via, 'bilet');
+  const b = await call('prep_begin');
+  assert.strictEqual(b.statusCode, 200, JSON.stringify(b.body));
+  assert.strictEqual(b.body.via, 'bilet');
+  const t = fake.db.tables.live_tickets[0];
+  assert.strictEqual(t.status, 'folosit');
+  assert.ok(fake.db.tables.live_sessions.some((x) => x.id === t.session_id && x.state.prep), 'biletul e legat de ședința de pregătire');
+});
+
+test('ședința 1-la-1 fără abonament: cu biletul de 20 lei; după sfârșit, exercițiul început se termină, dar nu începe altul', async () => {
+  fake = fresh({ sessions: false });
+  fake.db.tables.live_tickets.push({ id: crypto.randomUUID(), user_id: U.free, kind: 'privat', session_id: null, status: 'platit', created_at: new Date().toISOString() });
+  const b = await call('prep_begin', {}, U.free);
+  assert.strictEqual(b.statusCode, 200, JSON.stringify(b.body));
+  assert.strictEqual(b.body.via, 'bilet');
+  const ex = await call('prep_exercise', { pos: 'I.1' }, U.free);
+  assert.strictEqual(ex.statusCode, 200, JSON.stringify(ex.body));
+  // ceasul s-a oprit demult (fără prelungire: elevul nu mai era în clasă)
+  const row = fake.db.tables.live_sessions.find((x) => x.owner_id === U.free);
+  row.ends_at = new Date(Date.now() - 10 * 60000).toISOString();
+  const poll = pollsIn(ex.body.timeline)[0];
+  const sp = keyOf(ex.body.exercise.sid).items.flatMap((it) => [it.tryPoll, it.check]).find((x) => x && x.id === P.splitNs(poll.id).id);
+  assert.strictEqual((await call('prep_answer', { rowId: ex.body.rowId, pollId: poll.id, answer: sp.answer }, U.free)).statusCode, 200);
+  assert.strictEqual((await call('prep_done', { rowId: ex.body.rowId, sid: ex.body.exercise.sid, seconds: 60 }, U.free)).statusCode, 200);
+  const next = await call('prep_exercise', { pos: 'I.1' }, U.free);
+  assert.strictEqual(next.statusCode, 402);
+  assert.strictEqual(next.body.code, 'PREP_SESSION');
+  assert.strictEqual((await call('prep_chat', { text: 'De ce?' }, U.free)).statusCode, 402);
+  assert.strictEqual((await call('prep_state', {}, U.free)).body.session, null);
+});
+
+test('ședința 1-la-1: cât elevul e în clasă se prelungește (câte 10 minute), până la plafon', async () => {
+  fake = fresh({ sessions: false });
+  // pornită acum 57 de minute: mai sunt 3 → „sunt în clasă" o prelungește
+  const s = prepSessionRow(U.prem, 'evaluare-nationala', { at: Date.now() - 57 * 60000 });
+  fake.db.tables.live_sessions.push(s);
+  const r = await call('prep_session');
+  assert.strictEqual(r.statusCode, 200, JSON.stringify(r.body));
+  assert.ok(Date.parse(r.body.session.endsAt) - Date.now() > 9 * 60000, 'încă ~10 minute');
+  assert.strictEqual(r.body.session.extended, true);
+  // peste plafon (60 + 120 de minute): ședința s-a încheiat, lucrul nou cere alta
+  s.state.startedAt = new Date(Date.now() - 181 * 60000).toISOString();
+  s.ends_at = new Date(Date.now() - 60000).toISOString();
+  assert.strictEqual((await call('prep_session')).body.session, null);
+  assert.strictEqual((await call('prep_exercise', { pos: 'I.1' })).body.code, 'PREP_SESSION');
+  // adminul nu are nevoie de ședință
+  fake.db.tables.profiles.push({ id: '66666666-6666-4666-8666-666666666666', full_name: 'Admin', subscription_status: null, role: 'admin', is_admin: true });
+  fake.db.tables.ai_meditatii_profile.push({ user_id: '66666666-6666-4666-8666-666666666666', grade: 8, exam_target: 'evaluare-nationala' });
+  assert.strictEqual((await call('prep_exercise', { pos: 'I.1' }, '66666666-6666-4666-8666-666666666666')).statusCode, 200);
+});
+
+test('fără examen în „Planul meu": elevul îl alege în clasă, iar ședința îl ține minte', async () => {
+  fake = fresh({ subjects: 2, ready: 2, bacSubjects: 2, sessions: false });
+  const st = await call('prep_state', { examTarget: 'bac-tehnologic' }, U.noexam);
+  assert.strictEqual(st.statusCode, 200, JSON.stringify(st.body));
+  assert.strictEqual(st.body.exam.label, 'BAC Tehnologic');
+  assert.strictEqual(st.body.exam.fromPlan, false);
+  assert.strictEqual((await call('prep_state', { examTarget: 'nu-exista' }, U.noexam)).body.code, 'PREP_NO_EXAM');
+  const b = await call('prep_begin', { examTarget: 'bac-tehnologic' }, U.noexam);
+  assert.strictEqual(b.statusCode, 200, JSON.stringify(b.body));
+  // de acum, fără examTarget: examenul ultimei ședințe
+  const again = await call('prep_state', {}, U.noexam);
+  assert.strictEqual(again.body.exam.label, 'BAC Tehnologic');
+  const r = await call('prep_exercise', { pos: 'I.1' }, U.noexam);
+  assert.strictEqual(r.statusCode, 200, JSON.stringify(r.body));
+  assert.match(r.body.exercise.title, /M_tehnologic/);
+  // examenul din „Planul meu" are întâietate
+  assert.strictEqual((await call('prep_state', { examTarget: 'bac-tehnologic' })).body.exam.fromPlan, true);
+  assert.strictEqual((await call('prep_state', { examTarget: 'bac-tehnologic' })).body.exam.label, 'Evaluarea Națională');
 });

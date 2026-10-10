@@ -19,6 +19,7 @@ const scoreLib = require('./_lib/score');       // scorul testelor HTML recalcul
 const taxonomy = require('./_lib/taxonomy');    // subiectele canonice (Etapa 3, 5.1)
 const live = require('./_lib/live');            // Prof. Tudor — profesorul de la tablă (ca în sala live)
 const prep = require('./_lib/pregatire');       // „Pregătire de examen" (exercițiu cu exercițiu, ca la meditația live)
+const LA = require('./_lib/liveAccess');        // …o ședință 1-la-1: 8 incluse (comune cu live), apoi bilet de 20 lei
 
 // ─── TABLA CU PROF. TUDOR („Planul meu") ─────────────────────────────────────
 // Ce scrie modelul apare PE TABLĂ; ce SPUNE profesorul (fără să scrie) se aude
@@ -643,8 +644,11 @@ async function state(req, res, supa) {
   }
 
   const medProfile = await getMedProfile(supa, userId);
+  // „Pregătire de examen" (sala /meditatii/pregatire): o ședință 1-la-1 — se poate
+  // lua și fără abonament (bilet), deci intrarea se vede la toți, cu prețul ei
+  const examPrep = await examPrepSummary(supa, userId, medProfile, profile);
   if (!medProfile) {
-    return res.status(200).json({ premium, parentLinked, freeAssessment, needsSetup: true });
+    return res.status(200).json({ premium, parentLinked, freeAssessment, needsSetup: true, examPrep });
   }
 
   await reconcileContentHomework(supa, userId);
@@ -704,8 +708,6 @@ async function state(req, res, supa) {
     const { data: acc } = await supa.from('profiles').select('full_name').eq('id', userId).single();
     firstName = (acc?.full_name || '').trim().split(/\s+/)[0] || null;
   } catch { /* fără nume */ }
-  // „Pregătire de examen" (sala /meditatii/pregatire): unde a rămas elevul
-  const examPrep = premium ? await examPrepSummary(supa, userId, medProfile) : null;
   // pregătirea pentru lucrare/test (focus) + lista de capitole a formularului
   const focus = med.focusInfo(medProfile, plan);
   const briefing = buildBriefing({
@@ -745,10 +747,26 @@ async function state(req, res, supa) {
 }
 
 // Rezumatul „Pregătirii de examen" pentru Planul meu: poziția propusă acum și progresul
-// (rândurile ei din ai_meditatii_sessions, chapter „pregatire:<examen>"). Fără examen → null.
-async function examPrepSummary(supa, userId, medProfile) {
-  const E = prep.examOf(medProfile?.exam_target);
-  if (!E) return null;
+// (rândurile ei din ai_meditatii_sessions, chapter „pregatire:<examen>") + ședința
+// 1-la-1: prețul, cele incluse rămase luna aceasta (comune cu 1-la-1 live), biletele,
+// ședința în curs. Examenul: din „Planul meu" sau al ultimei ședințe de pregătire;
+// fără examen → doar oferta (target: null; examenul se alege în clasă).
+async function examPrepSummary(supa, userId, medProfile, profile) {
+  const admin = !!profile?.is_admin;
+  let offer = { price: { lei: live.PRICE_PRIVATE_LEI(), minute: live.PRIVATE_MINUTES(), incluse: live.PRIVATE_INCLUDED() }, access: null, session: null };
+  let E = prep.examOf(medProfile?.exam_target);
+  try {
+    const [access, recent, last] = await Promise.all([
+      admin ? { ok: true, via: 'admin', price: 0 } : LA.privateAccessFor(supa, profile),
+      admin ? null : LA.recentPrepSession(supa, userId),
+      E ? null : LA.lastPrepTarget(supa, userId),
+    ]);
+    offer = { ...offer, access, session: LA.prepSessionView(recent && live.extensionPlan(recent).ok ? recent : null) };
+    if (!E) E = prep.examOf(last);
+  } catch (e) {
+    console.warn('pregătirea de examen (ședința 1-la-1):', e.message);
+  }
+  if (!E) return { target: null, ...offer };
   try {
     const { data } = await supa.from('ai_meditatii_sessions').select('id, status, created_at, completed_at, prep:payload->prep')
       .eq('user_id', userId).eq('chapter', prep.chapterOf(E.target)).order('created_at', { ascending: false }).limit(500);
@@ -768,10 +786,11 @@ async function examPrepSummary(supa, userId, medProfile) {
       subs: pub.filter((p) => p.parent).map((p) => ({ pos: p.pos, sub: p.sub, ex: p.ex, parent: p.parent, letter: p.letter, label: p.label, short: p.short, status: p.status, done: p.done, mastered: p.mastered })),
       mastered: whole.filter((x) => x.mastered).length, positions: whole.length,
       exercises: all.reduce((n, x) => n + x.done, 0), started: all.some((x) => x.done || x.tests), allDone,
+      ...offer,
     };
   } catch (e) {
     console.warn('pregătirea de examen (rezumat):', e.message);
-    return null;
+    return { target: null, ...offer };
   }
 }
 

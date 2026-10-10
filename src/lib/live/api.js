@@ -27,6 +27,12 @@ async function call(body, { auth = true, keepalive = false } = {}) {
   return data;
 }
 
+// Pregătirea de examen: examenul ales în clasă de un elev fără examen în „Planul meu"
+// (PregatireExamen → setPrepExam); merge cu fiecare cerere prep_*. Cel din plan are întâietate.
+let prepExam = null;
+export const setPrepExam = (target) => { prepExam = target || null; };
+const prep = (body) => call(prepExam ? { ...body, examTarget: prepExam } : body);
+
 export const liveApi = {
   // programul se vede și fără cont (fără drepturile personale)
   async program() {
@@ -51,14 +57,17 @@ export const liveApi = {
   extend: (sessionId) => call({ action: 'extend', sessionId }),
   leave: (sessionId, { seconds = 0, end = false } = {}) => call({ action: 'leave', sessionId, seconds, end }, { keepalive: true }),
   // Pregătirea de examen („Planul meu", ca o meditație live) — api/live.js → prep_*
-  prepState: () => call({ action: 'prep_state' }),
-  prepExercise: (pos, { skip = null } = {}) => call({ action: 'prep_exercise', pos, ...(skip ? { skip } : {}) }),
-  prepPrefetch: (pos, current = null) => call({ action: 'prep_prefetch', pos, current }),
-  prepAnswer: (rowId, pollId, answer) => call({ action: 'prep_answer', rowId, pollId, answer }),
-  prepDone: (rowId, sid, seconds = 0) => call({ action: 'prep_done', rowId, sid, seconds }),
-  prepTest: (pos) => call({ action: 'prep_test', pos }),
-  prepTestFinish: (rowId, seconds = 0) => call({ action: 'prep_test_finish', rowId, seconds }),
-  prepChat: ({ text, sid = null, ref = null, pos = null, history = [] }) => call({ action: 'prep_chat', text, sid, ref, pos, history }),
+  // O ședință 1-la-1: prepBegin o pornește (inclusă / bilet), prepSession o prelungește.
+  prepState: () => prep({ action: 'prep_state' }),
+  prepBegin: () => prep({ action: 'prep_begin' }),
+  prepSession: () => call({ action: 'prep_session' }),
+  prepExercise: (pos, { skip = null } = {}) => prep({ action: 'prep_exercise', pos, ...(skip ? { skip } : {}) }),
+  prepPrefetch: (pos, current = null) => prep({ action: 'prep_prefetch', pos, current }),
+  prepAnswer: (rowId, pollId, answer) => prep({ action: 'prep_answer', rowId, pollId, answer }),
+  prepDone: (rowId, sid, seconds = 0) => prep({ action: 'prep_done', rowId, sid, seconds }),
+  prepTest: (pos) => prep({ action: 'prep_test', pos }),
+  prepTestFinish: (rowId, seconds = 0) => prep({ action: 'prep_test_finish', rowId, seconds }),
+  prepChat: ({ text, sid = null, ref = null, pos = null, history = [] }) => prep({ action: 'prep_chat', text, sid, ref, pos, history }),
   // admin
   adminOverview: (day, fresh = false) => call({ action: 'admin_overview', day, fresh }),
   adminSetSubject: (sessionId, patch) => call({ action: 'admin_set_subject', sessionId, ...patch }),

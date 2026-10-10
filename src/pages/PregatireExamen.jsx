@@ -16,13 +16,16 @@
 //   · ALEGEREA ELEVULUI: poate începe cu ORICE exercițiu, nu neapărat la rând — la
 //     intrare („Cu ce începi?"), în „🗺️ Plan" sau din „Planul meu" (/meditatii/pregatire?pos=II.2.b);
 //     la BAC, problemele de la Subiectele II și III se pot exersa și pe subpuncte (a, b, c);
-//   · fără limită de timp: lucrează cât vrea (peste 60 de minute, continuăm până termină).
+//   · o ȘEDINȚĂ 1-LA-1, ca la meditațiile live: 60 de minute, prelungite cât elevul e în
+//     clasă — din cele 8 incluse pe lună în abonament (comune cu 1-la-1 live) sau cu un
+//     bilet de 20 lei; după ce se încheie, lucrul nou cere o ședință nouă;
+//   · fără examen ales în „Planul meu", elevul îl alege aici (se ține minte).
 // Serverul: api/live.js (prep_*) + api/_lib/pregatire.js. Progresul: „Planul meu".
 // =====================================================================
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { liveApi } from '../lib/live/api';
+import { liveApi, buyTicket, setPrepExam } from '../lib/live/api';
 import { clock } from '../lib/live/clock';
 import { AudioEngine } from '../lib/live/audio';
 import { PrivatePlayer, estimateSpeechSec } from '../lib/live/player';
@@ -45,11 +48,20 @@ const STATUS_BADGE = {
   nou: { label: 'De început', cls: '' },
 };
 let sayN = 0;
+// examenele (elevii fără examen în „Planul meu" îl aleg aici; se ține minte în browser)
+const EXAMS = [
+  { target: 'evaluare-nationala', label: 'Evaluarea Națională' },
+  { target: 'bac-mate-info', label: 'BAC Mate-Info' },
+  { target: 'bac-stiinte', label: 'BAC Științele Naturii' },
+  { target: 'bac-tehnologic', label: 'BAC Tehnologic' },
+];
+const EXAM_KEY = 'prep:examen';
+const minutesLeft = (s) => (s ? Math.max(0, Math.ceil((Date.parse(s.endsAt) - clock.now()) / 60000)) : 0);
 
 export default function PregatireExamen() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const wantPos = searchParams.get('pos');            // din „Planul meu": exercițiul ales de elev
 
   const [st, setSt] = useState(null);                 // răspunsul prep_state
@@ -90,6 +102,12 @@ export default function PregatireExamen() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [toast, setToast] = useState(null);
   const [voiceHint, setVoiceHint] = useState(null);
+  // ședința 1-la-1 (ca la meditațiile live): în curs, pornirea, plata, sfârșitul
+  const [session, setSession] = useState(null);       // { endsAt, via, extended } — null = niciuna în curs
+  const [needExam, setNeedExam] = useState(false);    // fără examen în „Planul meu" → îl alege aici
+  const [starting, setStarting] = useState(false);    // pornirea ședinței / drumul spre plată
+  const [gate, setGate] = useState(false);            // în clasă: ședința s-a încheiat → „Începe alta"
+  const [notice, setNotice] = useState(null);         // în fața clasei: { kind: ok|info|err, text }
 
   const roomRef = useRef(null);
   const engineRef = useRef(null);
@@ -111,22 +129,61 @@ export default function PregatireExamen() {
 
   const flash = useCallback((t) => { setToast(t); setTimeout(() => setToast((x) => (x === t ? null : x)), 3800); }, []);
 
-  // ─── 1. starea (examenul elevului, pozițiile, propunerea de început) ────────
+  // ─── 1. starea (examenul elevului, pozițiile, propunerea de început, ședința) ─
   const load = useCallback(async () => {
     try {
       const r = await liveApi.prepState();
       setSt(r); setPositions(r.positions || []); setProposal(r.proposal || null); setCurPos(r.current || null);
+      setSession(r.session || null); setNeedExam(false);
       if (wantPos && (r.positions || []).some((p) => p.pos === wantPos)) setPick(wantPos);
+      return r;
     } catch (e) {
       if (e.status === 401) setFatal({ text: 'Intră în cont ca să începi pregătirea de examen.', code: 'LOGIN' });
+      else if (e.code === 'PREP_NO_EXAM') setNeedExam(true);
       else setFatal({ text: e.message || 'Nu am putut porni pregătirea.', code: e.code || null });
+      return null;
     }
   }, [wantPos]);
   useEffect(() => {
     if (authLoading) return;
     if (!user) { setFatal({ text: 'Intră în cont ca să începi pregătirea de examen.', code: 'LOGIN' }); return; }
+    try { const t = localStorage.getItem(EXAM_KEY); if (t) setPrepExam(t); } catch { /* fără stocare */ }
     load();
   }, [authLoading, user, load]);
+  // doar dreptul la ședință (în clasă, fără să schimbe exercițiul de acum)
+  const refreshAccess = useCallback(async () => {
+    try {
+      const r = await liveApi.prepState();
+      setSt((cur) => (cur ? { ...cur, access: r.access, session: r.session } : r));
+      setSession(r.session || null);
+    } catch { /* rămâne ce știm */ }
+  }, []);
+
+  // întoarcerea de la plată (biletul 1-la-1) — webhookul Stripe poate întârzia câteva secunde
+  useEffect(() => {
+    const plata = searchParams.get('plata');
+    if (!plata || authLoading || !user) return undefined;
+    setSearchParams((cur) => { const q = new URLSearchParams(cur); q.delete('plata'); q.delete('tip'); return q; }, { replace: true });
+    if (plata !== 'ok') { setNotice({ kind: 'info', text: 'Plata a fost anulată. Nu s-a încasat nimic.' }); return undefined; }
+    setNotice({ kind: 'ok', text: 'Plata a reușit! Biletul apare în câteva secunde…' });
+    let n = 0;
+    const t = setInterval(async () => {
+      n++;
+      const r = await load();
+      if (r?.access?.ok || r?.session || n > 8) {
+        clearInterval(t);
+        if (r?.access?.ok || r?.session) setNotice({ kind: 'ok', text: 'Biletul e în contul tău ✓ — apasă „Începe ședința".' });
+      }
+    }, 2500);
+    return () => clearInterval(t);
+  }, [authLoading, user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function chooseExam(target) {
+    setPrepExam(target);
+    try { localStorage.setItem(EXAM_KEY, target); } catch { /* fără stocare */ }
+    setSt(null); setNeedExam(false); setPick(null);
+    load();
+  }
   useEffect(() => { loadRig('radu').then((r) => { setRig(r); setRigLoaded(true); }); }, []);
   useEffect(() => () => { playerRef.current?.stop(); engine?.close(); clearTimeout(speechTimer.current); }, [engine]);
 
@@ -166,10 +223,50 @@ export default function PregatireExamen() {
     say([lead, p.say].filter(Boolean).join(' '));
   }
 
-  // ─── 3. intrarea (gestul elevului deblochează sunetul) ──────────────────────
-  function onJoin() {
+  // ─── 3. ședința 1-la-1 și intrarea (gestul elevului deblochează sunetul) ────
+  const admin = !!st?.me?.admin;
+  const access = st?.access || null;
+  const prices = st?.prices || { privat: 20, privatMin: 60, privatIncluse: 8 };
+  // pornește ședința (una în curs se continuă, fără cost); false = nu s-a putut
+  async function ensureSession() {
+    if (admin || session) return true;
+    setStarting(true);
+    try {
+      const r = await liveApi.prepBegin();
+      setSession(r.session || null);
+      return true;
+    } catch (e) {
+      if (joined) flash(e.message); else setNotice({ kind: 'err', text: e.message });
+      if (e.code === 'LIVE_PAYMENT') refreshAccess();     // ex. cele incluse s-au terminat între timp
+      return false;
+    } finally { setStarting(false); }
+  }
+  // biletul 1-la-1 (același ca la meditațiile live): Stripe, apoi înapoi aici
+  async function pay() {
+    setStarting(true);
+    try { window.location.href = await buyTicket({ kind: 'privat', teacher: teacher.id, returnTo: '/meditatii/pregatire' }); }
+    catch (e) {
+      if (joined) flash(e.message); else setNotice({ kind: 'err', text: e.message });
+      setStarting(false);
+    }
+  }
+  // lucrul nou a fost refuzat: ședința s-a încheiat → cardul „Începe o ședință nouă"
+  function sessionOver() {
+    playerRef.current?.stop();
+    stopSpeech();
+    setSession(null); setPhase('propune'); setGate(true);
+    refreshAccess();
+  }
+  async function restartSession() {
+    if (!(await ensureSession())) return;
+    setGate(false);
+    propose(proposal || st?.proposal, 'Bine, continuăm!');
+  }
+
+  async function onJoin() {
     engine.unlock();
     if (wantFs && roomRef.current) enterFs(roomRef.current);
+    if (!(await ensureSession())) { exitFs(); return; }
     setJoined(true);
     // elevul a ales exercițiul (nu neapărat la rând): începem direct cu el
     const chosen = pick ? posInfo(pick) : null;
@@ -177,6 +274,13 @@ export default function PregatireExamen() {
     if (chosen) setTimeout(() => startExercise(chosen.pos, { lead: `Bună${name}! Începem cu ${spokenOf(chosen)}, cum ai ales.` }), 350);
     else setTimeout(() => propose(proposal), 350);
   }
+  // „sunt în clasă" (o dată pe minut): ședința se prelungește cât elevul lucrează
+  useEffect(() => {
+    if (!joined || admin) return undefined;
+    const t = setInterval(() => { liveApi.prepSession().then((r) => setSession(r.session || null)).catch(() => {}); }, 60000);
+    return () => clearInterval(t);
+  }, [joined, admin]);
+
   // fără voce românească în browser: spunem de ce tace (ca în sala live)
   useEffect(() => {
     if (!joined) return undefined;
@@ -233,6 +337,7 @@ export default function PregatireExamen() {
       // următorul exercițiu se pregătește din timp (o lecție nouă se scrie în 1–3 minute)
       liveApi.prepPrefetch(pos, r.exercise.sid).catch(() => {});
     } catch (e) {
+      if (e.code === 'PREP_SESSION') { sessionOver(); return; }
       flash(e.message);
       setPhase('propune');
     }
@@ -247,6 +352,7 @@ export default function PregatireExamen() {
       setPhase('test');
       play(r.timeline);
     } catch (e) {
+      if (e.code === 'PREP_SESSION') { sessionOver(); return; }
       flash(e.message);
       setPhase('propune');
     }
@@ -349,6 +455,7 @@ export default function PregatireExamen() {
       }
     } catch (e) {
       addMsg({ id: Date.now() + 1, author: 'ExamenMate', role: 'sistem', text: e.message, at: new Date().toISOString() });
+      if (e.code === 'PREP_SESSION') sessionOver();
     } finally { setPendingAnswer(false); }
   }
 
@@ -401,20 +508,48 @@ export default function PregatireExamen() {
       </div>
     );
   }
+  // fără examen în „Planul meu": elevul îl alege aici
+  if (needExam) {
+    return (
+      <div className="lv-room is-pre" ref={roomRef}>
+        <div className="pe-lobby">
+          <div className="pe-lobby-card">
+            <div className="pe-lobby-kicker">🎓 Pregătire de examen</div>
+            <h1>Pentru ce examen te pregătești?</h1>
+            <p className="pe-lobby-sub">
+              {teacher.name} te ia exercițiu cu exercițiu, în ordinea din examen, cu subiectele oficiale ale examenului
+              tău, explicate pe barem.
+            </p>
+            <div className="pe-exam-pick" role="group" aria-label="Examenul">
+              {EXAMS.map((x) => (
+                <button key={x.target} type="button" className="pe-exam-btn" onClick={() => chooseExam(x.target)}>{x.label}</button>
+              ))}
+            </div>
+            <div className="lv-pre-actions"><Link to="/meditatii/plan" className="lv-btn-soft">Înapoi la Planul meu</Link></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (!st) return <div className="lv-fatal"><div className="spinner" /></div>;
 
   if (!joined) {
     const done = positions.reduce((n, p) => n + (p.done || 0), 0);
     const mastered = mainPositions.filter((p) => p.mastered).length;
     const chosen = pick ? posInfo(pick) : null;
+    const enterLabel = chosen ? `începem cu ${chosen.short}` : null;
     return (
       <div className="lv-room is-pre" ref={roomRef}>
         <div className="pe-lobby">
           <div className="pe-lobby-card">
+            {notice && <div className={`pe-lobby-notice is-${notice.kind}`} role="status">{notice.text}</div>}
             <div className="pe-lobby-photo">
               {rig?.thumb ? <img src={rig.thumb} alt="" /> : <span style={{ background: teacherColor(teacher) }}>{initials(teacher.name)}</span>}
             </div>
-            <div className="pe-lobby-kicker">🎓 Pregătire de examen · {exam?.label}</div>
+            <div className="pe-lobby-kicker">
+              🎓 Pregătire de examen · {exam?.label}
+              {exam && !exam.fromPlan && <button type="button" className="pe-lobby-change" onClick={() => setNeedExam(true)}>schimbă</button>}
+            </div>
             <h1>{teacher.name} te așteaptă în clasă</h1>
             <p className="pe-lobby-sub">
               Ca la o meditație live: exercițiu cu exercițiu, în ordinea din examen — pe fiecare poziție, doar exerciții
@@ -439,9 +574,15 @@ export default function PregatireExamen() {
                 defaultLabel={cur ? `Cum propune ${teacher.name}: ${cur.label}` : `Cum propune ${teacher.name}`}
                 onDefault={() => setPick(null)} />
             </div>
-            <div className="pe-lobby-free">
-              ⏱ <b>Fără limită de timp:</b> lucrezi cât vrei. Dacă depășești 60 de minute, continuăm până termini exercițiile —
-              progresul se salvează după fiecare exercițiu.
+            {/* ședința 1-la-1: ca la meditațiile live — 60 de minute, prelungite cât lucrezi */}
+            <div className={`pe-lobby-free${!admin && !session && !access?.ok ? ' is-pay' : ''}`}>
+              {admin ? <>⚙ <b>Cont de administrator</b> — fără limită de ședințe.</>
+                : session ? <>⏱ <b>Ședința ta e în desfășurare</b> — mai ai {minutesLeft(session)} {minutesLeft(session) === 1 ? 'minut' : 'de minute'}, prelungite cât lucrezi. Intri fără cost în plus.</>
+                  : access?.via === 'inclus' ? <>🎓 <b>Ședință 1-la-1 de {prices.privatMin} de minute</b>, prelungite până termini exercițiile — fără cost în plus. Din abonament: îți mai rămân <b>{access.includedLeft} din {access.included}</b> ședințe incluse luna aceasta (comune cu meditațiile 1-la-1 live).</>
+                    : access?.via === 'bilet' ? <>🎟 <b>Ai {access.unusedTickets} {access.unusedTickets === 1 ? 'bilet 1-la-1' : 'bilete 1-la-1'}.</b> Ședința: {prices.privatMin} de minute, prelungite până termini exercițiile; pornirea folosește un bilet.</>
+                      : <>💳 <b>Ședința 1-la-1 costă {access?.price ?? prices.privat} lei</b> — {prices.privatMin} de minute, prelungite până termini exercițiile.
+                        {access?.included ? ` Ai folosit cele ${access.included} incluse luna aceasta.` : <> Sau <Link to="/preturi">{prices.privatIncluse} pe lună incluse în abonament</Link>.</>}</>}
+              {' '}Progresul se salvează după fiecare exercițiu.
             </div>
             {canFs && (
               <label className="lv-pre-check">
@@ -449,7 +590,13 @@ export default function PregatireExamen() {
               </label>
             )}
             <div className="lv-pre-actions">
-              <button type="button" className="lv-btn-primary lv-btn-lg" onClick={onJoin}>{chosen ? `Intră · începem cu ${chosen.short}` : 'Intră la meditație'}</button>
+              {admin || session
+                ? <button type="button" className="lv-btn-primary lv-btn-lg" disabled={starting} onClick={onJoin}>{enterLabel ? `Intră · ${enterLabel}` : 'Intră la meditație'}</button>
+                : access?.ok
+                  ? <button type="button" className="lv-btn-primary lv-btn-lg" disabled={starting} onClick={onJoin}>
+                    {starting ? 'Pornesc…' : `▶ Începe ședința${access.via === 'bilet' ? ' · cu biletul' : ''}${enterLabel ? ` · ${enterLabel}` : ''}`}
+                  </button>
+                  : <button type="button" className="lv-btn-primary lv-btn-lg" disabled={starting} onClick={pay}>{starting ? 'Te duc la plată…' : `Plătește ${access?.price ?? prices.privat} lei`}</button>}
               <Link to="/meditatii/plan" className="lv-btn-soft">Înapoi la Planul meu</Link>
             </div>
             <p className="lv-pre-ai">ⓘ Profesorul este <b>virtual (AI)</b>: vocea și imaginea sunt generate. Explică numai pe <b>baremul oficial</b> al fiecărui subiect.</p>
@@ -488,6 +635,12 @@ export default function PregatireExamen() {
   ) : null);
   const playing = ['exercitiu', 'test', 'recap'].includes(phase);
   const leave = () => { playerRef.current?.stop(); exitFs(); navigate('/meditatii/plan'); };
+  // ședința s-a încheiat: ce urmează (inclusă / bilet / plată)
+  const over = `Cele ${prices.privatMin} de minute (și prelungirea) s-au terminat — progresul e salvat.`;
+  const gateText = !access ? over
+    : access.via === 'inclus' ? `${over} Poți începe o ședință nouă: îți mai rămân ${access.includedLeft} din ${access.included} incluse luna aceasta.`
+      : access.via === 'bilet' ? `${over} Poți începe o ședință nouă cu biletul tău 1-la-1.`
+        : `${over} O ședință nouă costă ${access.price} lei${access.included ? ` (ai folosit cele ${access.included} incluse luna aceasta)` : ` — sau ${prices.privatIncluse} pe lună incluse în abonament`}.`;
 
   return (
     <div className={`lv-room view-${view}${panel ? ' has-panel' : ''}${isFullscreen ? ' is-fs' : ''}`} ref={roomRef}>
@@ -499,6 +652,11 @@ export default function PregatireExamen() {
         </div>
         <div className="lv-top-right">
           {cur && <span className="pe-top-pos" title={cur.label}>{cur.short}{cur.mastered ? ' ✓' : ` · ${Math.min(cur.done, cur.nextTestAt)}/${cur.nextTestAt}`}</span>}
+          {!admin && session && (
+            <span className="pe-top-time" title="Ședința 1-la-1 — se prelungește cât lucrezi">
+              ⏱ {minutesLeft(session)} min{session.extended ? ' · prelungită' : ''}
+            </span>
+          )}
           {fsButton('lv-top-fs')}
         </div>
       </header>
@@ -555,6 +713,20 @@ export default function PregatireExamen() {
                 <div className="lv-pre-actions" style={{ justifyContent: 'center' }}>
                   <button type="button" className="lv-btn-primary" onClick={leave}>Înapoi la Planul meu</button>
                   <button type="button" className="lv-btn-soft" onClick={() => propose(proposal || st.proposal, 'Bine, mai lucrăm!')}>Mai lucrez puțin</button>
+                </div>
+              </div>
+            </div>
+          )}
+          {gate && (
+            <div className="lv-ended" role="dialog" aria-modal="true" aria-labelledby="pe-gate-t">
+              <div className="lv-ended-card">
+                <h2 id="pe-gate-t">⏱ Ședința s-a încheiat</h2>
+                <p>{gateText}</p>
+                <div className="lv-pre-actions" style={{ justifyContent: 'center' }}>
+                  {access?.ok
+                    ? <button type="button" className="lv-btn-primary" disabled={starting} onClick={restartSession}>{starting ? 'Pornesc…' : `▶ Începe o ședință nouă${access.via === 'bilet' ? ' · cu biletul' : ''}`}</button>
+                    : <button type="button" className="lv-btn-primary" disabled={starting} onClick={pay}>{starting ? 'Te duc la plată…' : `Plătește ${access?.price ?? prices.privat} lei`}</button>}
+                  <button type="button" className="lv-btn-soft" onClick={leave}>Înapoi la Planul meu</button>
                 </div>
               </div>
             </div>

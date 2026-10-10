@@ -16,8 +16,8 @@ Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 | **Întrebări pe pași** la problemele grele (Subiectele II și III): explicația se oprește înaintea rezultatelor intermediare din barem — elevul calculează pasul și răspunde pe ecran (cu „💡 Indiciu"; la 1-la-1 și „🤷 Nu știu — arată-mi"), apoi profesorul îl scrie pe tablă; **cel puțin o întrebare la fiecare subpunct** | `it.steps` în lecție (scrise odată cu lecția, verificate determinist); lecțiile vechi le primesc o singură dată, la prima folosire — vezi secțiunea 3c |
 | **Chat**, mâna ridicată, reacții, participanți, subtitrări, „Caiet", ecran complet (pe telefon: sus, în dreapta — se vede și ținut vertical; ce nu încape în bară stă în „⋯ Mai mult") | Supabase Realtime (canal privat pe ședință) |
 | **1-la-1, oricând** (60 min, **prelungite până termini exercițiile**): elevul **alege exercițiile** (📋 — ex. S. I ex. 5, S. II ex. 2 b), S. III ex. 1 c), nu neapărat la rând); se oprește la întrebări, „Ai înțeles?", „Explică altfel", răspunde cu voce | 8/lună incluse în abonament, apoi 20 lei; prelungirea e fără cost în plus — vezi secțiunea 3b |
-| **🎓 Pregătire de examen** (din „Planul meu"): aceeași clasă, dar profesorul propune ordinea — S. I ex. 1 → ex. 2 → … → S. II → S. III, câte cel puțin 10 exerciții pe poziție, apoi un test; elevul poate alege **orice exercițiu** (la BAC și doar un subpunct a/b/c), fără limită de timp | `/meditatii/pregatire` (`?pos=II.2.b` = începe direct acolo); exercițiile vin din lecțiile de aici — vezi secțiunea 3 |
-| **Plata**: 10 lei ședința de grup fără abonament; inclusă în abonament | Stripe (plată unică), bilet în `live_tickets` |
+| **🎓 Pregătire de examen** (din „Planul meu"): aceeași clasă, dar profesorul propune ordinea — S. I ex. 1 → ex. 2 → … → S. II → S. III, câte cel puțin 10 exerciții pe poziție, apoi un test; elevul poate alege **orice exercițiu** (la BAC și doar un subpunct a/b/c). **Prețul: ca la 1-la-1** — o ședință de 60 min, prelungite cât lucrează | din **aceleași 8/lună incluse** în abonament (comune cu 1-la-1 live), apoi 20 lei; fără abonament, biletul de 20 lei — `/meditatii/pregatire` (`?pos=II.2.b` = începe direct acolo); vezi secțiunea 3 |
+| **Plata**: 10 lei ședința de grup fără abonament; inclusă în abonament. În lobby, **„💳 Prețuri"** deschide lista tuturor prețurilor, cu și fără abonament | Stripe (plată unică), bilet în `live_tickets`; lista: `src/components/live/PriceList.jsx` |
 | **🎁 Meditații gratuite** (implicit **două**: una de EN, una de BAC): lecții pregătite pe care oricine are cont le face **1-la-1, fără abonament și fără plată** — la vedere în lobby, chiar sub prezentare, cu „▶ Începe gratuit" | alese automat până le alegi tu din **Admin → 🎥 Meditații live → „🎁 Meditațiile gratuite"** (sau „🎁 Fă-o gratuită" la o lecție) — vezi secțiunea 3d |
 
 **Fără barem, profesorul nu explică nimic:** sunt propuse doar subiectele al căror barem
@@ -138,7 +138,7 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 | `LIVE_INTERVALE` | `17-19` | ora ședințelor (ora României); ex. `18-20` pentru ora 18:00; mai multe: `17-19,19-21` (în fiecare interval, toate sălile) |
 | `LIVE_SALI` | `en,mate-info,stiinte-naturii,tehnologic` | sălile (câte o ședință pe zi în fiecare); se pot scoate, ex. `en,mate-info` |
 | `LIVE_PRICE_GRUP_LEI` / `LIVE_PRICE_PRIVAT_LEI` | `10` / `20` | prețurile fără abonament |
-| `LIVE_PRIVAT_INCLUSE` | `8` | ședințe 1-la-1 incluse pe lună în abonament |
+| `LIVE_PRIVAT_INCLUSE` | `8` | ședințe 1-la-1 incluse pe lună în abonament — **comune** pentru 1-la-1 live și Pregătirea de examen |
 | `LIVE_GRATUIT_LUNA` | `4` | câte meditații gratuite (1-la-1) poate porni un elev pe lună — plasă anti-abuz; peste, plătește ca de obicei |
 | `LIVE_GRATUIT_INTREBARI` | `10` | la câte întrebări din chat răspunde profesorul într-o meditație gratuită (lecția merge oricum până la capăt) |
 | `LIVE_PRIVAT_MINUTE` | `60` | durata unei ședințe 1-la-1 (apoi se prelungește cât elevul lucrează — vezi mai jos) |
@@ -161,8 +161,8 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 
 ## 3. 🎓 Pregătire de examen (din „Planul meu")
 
-Elevii abonați care și-au ales examenul (EN sau un profil de BAC) au în „Planul meu" cardul
-**🎓 Pregătire de examen** → **`/meditatii/pregatire`**: o meditație 1-la-1 în aceeași clasă
+În „Planul meu", cardul **🎓 Pregătire de examen** → **`/meditatii/pregatire`** (îl văd toți elevii
+cu cont, cu sau fără abonament): o meditație 1-la-1 în aceeași clasă
 (fotografia, Prof. Tudor animat, scrisul pe tablă, proiecția, subtitrări, chat, caiet, ecran
 complet), în care **profesorul propune desfășurarea**:
 
@@ -191,9 +191,29 @@ exercițiul" → `/meditatii/pregatire?pos=…`). La **BAC**, problemele de la S
 exersa și pe **subpuncte**: doar „S. II ex. 2 b)" sau doar „S. III ex. 1 c)" — din toate subiectele
 oficiale ale profilului, cu progresul și testul lor (un subpunct e un singur item, deci testul are 5
 exerciții); după el, profesorul propune subpunctul următor, apoi problema următoare. La EN,
-problemele de la Subiectul III se lucrează întregi (așa sunt itemii lecțiilor). Pregătirea **nu are
-limită de timp** (scrie și la intrare): elevul lucrează cât vrea, progresul se salvează după fiecare
-exercițiu.
+problemele de la Subiectul III se lucrează întregi (așa sunt itemii lecțiilor). Progresul se
+salvează după fiecare exercițiu.
+
+**Prețul (octombrie 2026): o ședință 1-la-1, exact ca la meditațiile live.**
+
+| | Fără abonament | Cu abonament |
+|---|---|---|
+| Ședința de Pregătire de examen (60 min, prelungite cât lucrează) | **20 lei** (biletul 1-la-1) | din **cele 8 pe lună incluse** — aceleași 8 ca la 1-la-1 live; apoi 20 lei |
+
+- **Pornirea:** la intrare, butonul spune ce se folosește („▶ Începe ședința" — din cele incluse,
+  „· cu biletul", sau „Plătește 20 lei"). Ședința se consumă abia la apăsare; o ședință în curs se
+  continuă fără cost (și după ce elevul iese și revine în cele 60 de minute).
+- **Ceasul:** 60 de minute (`LIVE_PRIVAT_MINUTE`), prelungite cât elevul e în clasă, ca la 1-la-1
+  live (`LIVE_PRELUNGIRE_PAS` / `LIVE_PRELUNGIRE_MAX`). Sus, în clasă: „⏱ 42 min".
+- **După sfârșit:** exercițiul început se termină (răspunsuri, „gata"), dar unul nou, testul sau o
+  întrebare către profesor cer o ședință nouă — apare cardul „⏱ Ședința s-a încheiat", cu butonul
+  potrivit (inclusă / bilet / plată).
+- **Biletul** e același ca la 1-la-1 live (`live_tickets`, `kind = 'privat'`): merge în oricare.
+- **Fără examen în „Planul meu"** (ex. elev fără abonament): îl alege în clasă (EN / BAC Mate-Info /
+  Științele Naturii / Tehnologic); se ține minte (în browser și în ședință). Cel din plan are întâietate.
+- **Tehnic:** ședința e un rând `live_sessions` (`kind = 'privat'`, `subject_id` null,
+  `state.prep` = examenul) — de aceea contorul celor 8 le numără la un loc (`api/_lib/liveAccess.js`);
+  nu apare în „Ședințele mele 1-la-1" din lobby. Fără SQL nou.
 
 ---
 

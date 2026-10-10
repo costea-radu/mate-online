@@ -20,6 +20,10 @@
 //   leave          — ieșirea din sală (1-la-1: „Încheie ședința")
 //   admin_*        — programul pe zile, subiectul unei ședințe, pregătirea lecțiilor,
 //                    meditațiile gratuite (admin_set_free)
+//   prep_*         — Pregătirea de examen („Planul meu"): tot o ședință 1-la-1, cu
+//                    aceleași reguli — prep_begin o pornește (din cele 8 incluse, COMUNE
+//                    cu 1-la-1 live, sau cu biletul de 20 lei), prep_session o prelungește
+//                    cât elevul e în clasă; vezi „PREGĂTIRE DE EXAMEN" mai jos
 //
 // MEDITAȚIILE GRATUITE: câteva lecții pregătite (implicit 2, una de EN și una de
 // BAC; adminul le schimbă) se fac 1-la-1 fără plată și fără abonament, de oricine
@@ -35,6 +39,7 @@
 const ai = require('./_lib/ai');
 const B = require('./_lib/barem');
 const L = require('./_lib/live');
+const LA = require('./_lib/liveAccess');   // dreptul la 1-la-1: incluse (comune live + pregătire) / bilet
 const LL = require('./_lib/liveLesson');
 const tts = require('./_lib/tts');
 const mathcheck = require('./_lib/mathcheck');
@@ -220,19 +225,18 @@ async function myTickets(supa, userId) {
   const { data } = await supa.from('live_tickets').select('id, kind, session_id, status, created_at').eq('user_id', userId).in('status', ['platit']).limit(200);
   return data || [];
 }
-// Se numără doar ședințele 1-la-1 PORNITE (ceasul de 60 de minute a început):
-// dacă lecția nu s-a putut pregăti, elevul nu pierde nimic din abonament.
-async function includedUsedThisMonth(supa, userId) {
-  const { count } = await supa.from('live_sessions').select('*', { count: 'exact', head: true })
-    .eq('owner_id', userId).eq('kind', 'privat').eq('access', 'inclus').gte('created_at', L.monthStart())
-    .not('state->>startedAt', 'is', null);
-  return count || 0;
-}
-async function privateAccessFor(supa, profile) {
-  if (!profile) return { ok: false, via: null, price: L.PRICE_PRIVATE_LEI(), included: 0, includedLeft: 0, unusedTickets: 0 };
-  const [used, tickets] = await Promise.all([includedUsedThisMonth(supa, profile.id), myTickets(supa, profile.id)]);
-  const unused = tickets.filter((t) => t.kind === 'privat' && !t.session_id).length;
-  return { ...L.privateAccess({ profile, includedUsed: used, unusedTickets: unused }), unusedTickets: unused, includedUsed: used };
+// Ședințele 1-la-1 incluse se numără la un loc cu cele din Pregătirea de examen
+// (api/_lib/liveAccess.js); doar cele PORNITE: o lecție nepregătită nu costă nimic.
+const privateAccessFor = (supa, profile) => LA.privateAccessFor(supa, profile);
+
+// Consumă cel mai vechi bilet 1-la-1 neconsumat pentru ședința dată:
+// 'ok' | 'niciunul' | 'folosit' (consumat chiar acum de altă cerere)
+async function useTicket(supa, userId, sessionId) {
+  const { data: t } = await supa.from('live_tickets').select('id').eq('user_id', userId).eq('kind', 'privat').eq('status', 'platit').is('session_id', null).order('created_at').limit(1);
+  if (!t || !t[0]) return 'niciunul';
+  const { data: used } = await supa.from('live_tickets').update({ status: 'folosit', session_id: sessionId, used_at: new Date().toISOString() })
+    .eq('id', t[0].id).eq('status', 'platit').select('id').maybeSingle();
+  return used ? 'ok' : 'folosit';
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -327,8 +331,9 @@ async function program(req, res, supa) {
   });
   let mine = [];
   if (userId) {
+    // (fără ședințele Pregătirii de examen: se țin în clasa ei, nu într-o sală live)
     const { data } = await supa.from('live_sessions').select('id, teacher, subject_id, starts_at, ends_at, status, state, created_at')
-      .eq('owner_id', userId).eq('kind', 'privat').order('created_at', { ascending: false }).limit(6);
+      .eq('owner_id', userId).eq('kind', 'privat').is('state->>prep', null).order('created_at', { ascending: false }).limit(6);
     const t2 = await subjectTitles(supa, (data || []).map((s) => s.subject_id));
     mine = (data || []).map((s) => ({
       id: s.id, teacher: s.teacher, subject: { id: s.subject_id, title: t2[s.subject_id] || 'Subiect' },
@@ -651,7 +656,8 @@ async function loadSession(supa, sessionId) {
   if (!sessionId || !/^[0-9a-f-]{36}$/i.test(String(sessionId))) throw fail(400, 'Ședință invalidă.');
   const { data, error } = await supa.from('live_sessions').select('*').eq('id', sessionId).maybeSingle();
   dbCheck(error, 'ședința');
-  if (!data) throw fail(404, 'Ședința nu există.');
+  // o ședință a Pregătirii de examen nu e o sală live (nu are subiect și lecție)
+  if (!data || data.state?.prep) throw fail(404, 'Ședința nu există.');
   return data;
 }
 
@@ -1134,7 +1140,7 @@ async function privateStart(req, res, supa) {
   }
   if (!access) access = await privateAccessFor(supa, profile);
   if (!access.ok) {
-    return res.status(402).json({ error: `${freeNote}Ședința 1-la-1 costă ${access.price} lei${access.included ? ` (ai folosit cele ${access.included} incluse luna aceasta)` : ' (sau e inclusă în abonament: 8 pe lună)'}.`, code: 'LIVE_PAYMENT', price: access.price, access });
+    return res.status(402).json({ error: `${freeNote}Ședința 1-la-1 costă ${access.price} lei${access.included ? ` (ai folosit cele ${access.included} incluse luna aceasta)` : ` (sau e inclusă în abonament: ${L.PRIVATE_INCLUDED()} pe lună)`}.`, code: 'LIVE_PAYMENT', price: access.price, access });
   }
   // cel mult 3 ședințe 1-la-1 nepornite pe zi (fiecare subiect nou costă o pregătire)
   const { count: pending } = await supa.from('live_sessions').select('*', { count: 'exact', head: true })
@@ -1180,11 +1186,9 @@ async function privateBegin(req, res, supa) {
     }
     via = acc.via;
     if (via === 'bilet') {
-      const { data: t } = await supa.from('live_tickets').select('id').eq('user_id', userId).eq('kind', 'privat').eq('status', 'platit').is('session_id', null).order('created_at').limit(1);
-      if (!t || !t[0]) throw fail(402, 'Nu mai ai niciun bilet 1-la-1 neconsumat.', 'LIVE_PAYMENT');
-      const { data: used } = await supa.from('live_tickets').update({ status: 'folosit', session_id: session.id, used_at: new Date().toISOString() })
-        .eq('id', t[0].id).eq('status', 'platit').select('id').maybeSingle();
-      if (!used) throw fail(409, 'Biletul a fost folosit între timp. Reîncearcă.');
+      const used = await useTicket(supa, userId, session.id);
+      if (used === 'niciunul') throw fail(402, 'Nu mai ai niciun bilet 1-la-1 neconsumat.', 'LIVE_PAYMENT');
+      if (used === 'folosit') throw fail(409, 'Biletul a fost folosit între timp. Reîncearcă.');
     }
   }
   const now = new Date();
@@ -1475,6 +1479,14 @@ async function cron(supa) {
 // o lecție lipsă se scrie o singură dată (doar textul — vocea e a browserului)
 // și se refolosește la toți elevii și la ședințele live. Progresul stă în
 // ai_meditatii_sessions (chapter „pregatire:<examen>", payload.prep).
+//
+// PREȚUL: ca o ședință 1-la-1 live. prep_begin pornește o ședință (un rând
+// live_sessions: kind 'privat', fără subiect, state.prep = examenul) — din cele
+// 8 incluse pe lună în abonament (COMUNE cu 1-la-1 live) sau cu un bilet de 20 lei;
+// 60 de minute, prelungite cât elevul e în clasă (L.extensionPlan, ca la 1-la-1 live).
+// Lucrul NOU (exercițiu, test, întrebare către profesor) cere ședința în curs;
+// răspunsurile și încheierea unui exercițiu deja început merg oricând.
+// Examenul: cel din „Planul meu"; elevii fără el îl aleg în clasă (examTarget).
 // ═════════════════════════════════════════════════════════════════════════════
 const P = require('./_lib/pregatire');
 const PREP_TEACHER = () => (L.teacherById('radu') ? 'radu' : L.teachers()[0].id);
@@ -1485,13 +1497,87 @@ const cap1 = (s) => (s ? s.charAt(0).toLocaleUpperCase('ro') + s.slice(1).toLoca
 
 async function prepWho(req, supa) {
   const { userId, profile } = await who(req, supa);
-  if (!ai.isPremium(profile)) throw fail(402, 'Pregătirea de examen face parte din abonament (meditațiile cu Profesorul Virtual).', 'PREMIUM_REQUIRED');
   const { data: med, error } = await supa.from('ai_meditatii_profile').select('user_id, grade, exam_target').eq('user_id', userId).maybeSingle();
   if (error && !isMissingTable(error)) throw fail(500, `profilul de meditații: ${error.message}`);
-  const E = P.examOf(med?.exam_target);
-  if (!E) throw fail(409, 'Alege întâi examenul (Evaluarea Națională sau profilul de BAC) în „Planul meu".', 'PREP_NO_EXAM');
+  // examenul din „Planul meu"; fără el, cel ales în clasă sau al ultimei ședințe de pregătire
+  let E = P.examOf(med?.exam_target);
+  const fromPlan = !!E;
+  if (!E) E = P.examOf(String(req.body?.examTarget || '')) || P.examOf(await LA.lastPrepTarget(supa, userId));
+  if (!E) throw fail(409, 'Alege examenul pentru care te pregătești: Evaluarea Națională sau profilul tău de BAC.', 'PREP_NO_EXAM');
   const first = String(profile.full_name || '').trim().split(/\s+/)[0].replace(/[^\p{L}'-]/gu, '');
-  return { userId, profile, E, name: first ? cap1(first).slice(0, 20) : null };
+  return { userId, profile, E, fromPlan, name: first ? cap1(first).slice(0, 20) : null };
+}
+
+// ─── Ședința de pregătire (1-la-1): ceasul, prelungirea, pornirea ────────────
+// Ședința în curs a elevului (sau null). `extend`: elevul e în clasă → în ultimele
+// minute ceasul se mută înainte cu câte LIVE_PRELUNGIRE_PAS minute, până la plafon.
+async function prepSessionLive(supa, userId, { extend = false, now = new Date() } = {}) {
+  const s = await LA.recentPrepSession(supa, userId, now);
+  if (!s) return null;
+  const plan = L.extensionPlan(s, { now });
+  if (!plan.ok) return null;                                   // ceasul s-a oprit (sau plafonul)
+  if (!plan.changed || !extend) return s;
+  const { data } = await supa.from('live_sessions').update({ ends_at: new Date(plan.next).toISOString(), status: 'activa' })
+    .eq('id', s.id).eq('ends_at', s.ends_at).select('*').maybeSingle();
+  if (data) return data;
+  const { data: cur } = await supa.from('live_sessions').select('*').eq('id', s.id).maybeSingle();   // prelungită chiar acum de altă cerere
+  return cur || s;
+}
+
+const prepPayText = (acc) => (acc.ok
+  ? 'Nu ai o ședință de pregătire în curs. Pornește una din clasă.'
+  : `Ședința 1-la-1 de pregătire costă ${acc.price} lei${acc.included ? ` (ai folosit cele ${acc.included} incluse luna aceasta)` : ` (sau e inclusă în abonament: ${L.PRIVATE_INCLUDED()} pe lună)`}.`);
+
+// Poarta lucrului NOU (exercițiu, test, întrebare): o ședință în curs (adminul: oricând)
+async function prepGate(supa, { userId, profile }) {
+  if (profile.is_admin) return null;
+  const s = await prepSessionLive(supa, userId, { extend: true });
+  if (s) return s;
+  throw fail(402, prepPayText(await LA.privateAccessFor(supa, profile)), 'PREP_SESSION');
+}
+
+// Pornește ședința: una în curs se continuă (nu se plătește de două ori); altfel una
+// din cele incluse luna aceasta sau biletul 1-la-1 — ca la private_begin.
+async function prepBegin(req, res, supa) {
+  const { userId, profile, E } = await prepWho(req, supa);
+  const now = new Date();
+  if (profile.is_admin) return res.status(200).json({ session: null, via: 'admin', now: now.toISOString() });
+  const open = await prepSessionLive(supa, userId, { extend: true, now });
+  if (open) return res.status(200).json({ session: LA.prepSessionView(open), resumed: true, now: now.toISOString() });
+  const acc = await LA.privateAccessFor(supa, profile);
+  if (!acc.ok) return res.status(402).json({ error: prepPayText(acc), code: 'LIVE_PAYMENT', price: acc.price, access: acc });
+  const { data: s, error } = await supa.from('live_sessions').insert({
+    kind: 'privat', teacher: PREP_TEACHER(), exam: E.exam, profile: E.profile || null, subject_id: null, lesson_id: null,
+    starts_at: now.toISOString(), ends_at: new Date(now.getTime() + L.PRIVATE_MINUTES() * 60000).toISOString(),
+    owner_id: userId, access: acc.via, status: 'activa', state: { prep: E.target, startedAt: now.toISOString() },
+  }).select('*').maybeSingle();
+  dbCheck(error, 'ședința');
+  const cancel = () => supa.from('live_sessions').update({ status: 'anulata', access: 'anulat' }).eq('id', s.id);
+  // două apăsări aproape simultane: rămâne prima ședință, a doua se anulează (nu consumă nimic)
+  const { data: first } = await supa.from('live_sessions').select('*')
+    .eq('owner_id', userId).eq('kind', 'privat').not('state->>prep', 'is', null).in('status', ['programata', 'activa'])
+    .gt('ends_at', now.toISOString()).order('created_at').order('id').limit(1);
+  if (first && first[0] && first[0].id !== s.id) {
+    await cancel();
+    return res.status(200).json({ session: LA.prepSessionView(first[0]), resumed: true, now: now.toISOString() });
+  }
+  if (acc.via === 'bilet') {
+    const used = await useTicket(supa, userId, s.id);
+    if (used !== 'ok') {
+      await cancel();
+      throw fail(used === 'niciunul' ? 402 : 409, used === 'niciunul' ? 'Nu mai ai niciun bilet 1-la-1 neconsumat.' : 'Biletul a fost folosit între timp. Reîncearcă.', 'LIVE_PAYMENT');
+    }
+  }
+  return res.status(200).json({ session: LA.prepSessionView(s), via: acc.via, now: now.toISOString() });
+}
+
+// „Sunt în clasă" (o dată pe minut, din browser): starea ședinței + prelungirea
+async function prepSession(req, res, supa) {
+  const { userId, profile } = await who(req, supa);
+  const now = new Date();
+  if (profile.is_admin) return res.status(200).json({ session: null, admin: true, now: now.toISOString() });
+  const s = await prepSessionLive(supa, userId, { extend: true, now });
+  return res.status(200).json({ session: LA.prepSessionView(s), now: now.toISOString() });
 }
 
 async function prepRows(supa, userId, target) {
@@ -1589,20 +1675,30 @@ const openBlock = (rows, pos) => (rows || []).find((r) => r.prep?.mode === 'antr
   && Date.now() - new Date(r.created_at).getTime() < 8 * 3600 * 1000) || null;
 
 async function prepState(req, res, supa) {
-  const { userId, E, name } = await prepWho(req, supa);
-  const rows = await prepRows(supa, userId, E.target);
+  const { userId, profile, E, fromPlan, name } = await prepWho(req, supa);
+  const [rows, session, access] = await Promise.all([
+    prepRows(supa, userId, E.target),
+    profile.is_admin ? null : prepSessionLive(supa, userId),
+    profile.is_admin ? { ok: true, via: 'admin', price: 0 } : LA.privateAccessFor(supa, profile),
+  ]);
   const prog = P.progressFrom(rows, E.exam);
   const proposal = P.proposeWelcome({ exam: E.exam, target: E.target, prog, name });
   return res.status(200).json({
-    exam: { target: E.target, exam: E.exam, profile: E.profile, label: E.label },
+    exam: { target: E.target, exam: E.exam, profile: E.profile, label: E.label, fromPlan },
     positions: P.publicProgress(E.exam, prog), current: proposal.pos, proposal,
-    settings: P.settings(), teacher: L.publicTeacher(L.teacherById(PREP_TEACHER())), me: { name },
+    settings: P.settings(), teacher: L.publicTeacher(L.teacherById(PREP_TEACHER())),
+    me: { name, premium: premiumOf(profile), admin: !!profile.is_admin },
+    // ședința 1-la-1: în curs (sau null) + dreptul la una nouă — ca la meditațiile live
+    session: LA.prepSessionView(session), access,
+    prices: { privat: L.PRICE_PRIVATE_LEI(), privatMin: L.PRIVATE_MINUTES(), privatIncluse: L.PRIVATE_INCLUDED() },
     now: new Date().toISOString(),
   });
 }
 
 async function prepExercise(req, res, supa) {
-  const { userId, E } = await prepWho(req, supa);
+  const ctx = await prepWho(req, supa);
+  const { userId, E } = ctx;
+  await prepGate(supa, ctx);
   const pos = P.positionOf(E.exam, String(req.body?.pos || ''));
   if (!pos) throw fail(400, 'Exercițiu necunoscut.');
   const rows = await prepRows(supa, userId, E.target);
@@ -1657,7 +1753,9 @@ async function prepExercise(req, res, supa) {
 // Cât lucrează elevul la un exercițiu, următorul se pregătește din timp (o lecție
 // nouă se scrie în 1–3 minute): la „Următorul exercițiu" e deja gata.
 async function prepPrefetch(req, res, supa) {
-  const { userId, E } = await prepWho(req, supa);
+  const ctx = await prepWho(req, supa);
+  const { userId, E } = ctx;
+  await prepGate(supa, ctx);
   const pos = P.positionOf(E.exam, String(req.body?.pos || ''));
   if (!pos) throw fail(400, 'Exercițiu necunoscut.');
   const rows = await prepRows(supa, userId, E.target);
@@ -1749,7 +1847,9 @@ async function prepDone(req, res, supa) {
 }
 
 async function prepTest(req, res, supa) {
-  const { userId, E } = await prepWho(req, supa);
+  const ctx = await prepWho(req, supa);
+  const { userId, E } = ctx;
+  await prepGate(supa, ctx);
   const pos = P.positionOf(E.exam, String(req.body?.pos || ''));
   if (!pos) throw fail(400, 'Exercițiu necunoscut.');
   const rows = await prepRows(supa, userId, E.target);
@@ -1832,7 +1932,9 @@ async function prepTestFinish(req, res, supa) {
 
 // Întrebare către profesor în timpul pregătirii (răspuns cu voce + pe tablă)
 async function prepChat(req, res, supa) {
-  const { userId, profile, E, name } = await prepWho(req, supa);
+  const ctx = await prepWho(req, supa);
+  const { userId, profile, E, name } = ctx;
+  await prepGate(supa, ctx);
   await ai.enforceRateLimit(supa, userId, profile);
   const { text, flagged } = L.moderate(req.body?.text || '');
   if (!text) throw fail(400, 'Mesajul e gol.');
@@ -1873,8 +1975,9 @@ const ACTIONS = {
   leave,
   admin_overview: adminOverview, admin_set_subject: adminSetSubject, admin_prepare: adminPrepare, admin_lesson: adminLesson,
   admin_set_free: adminSetFree,
-  // Pregătirea de examen („Planul meu")
-  prep_state: prepState, prep_exercise: prepExercise, prep_prefetch: prepPrefetch, prep_answer: prepAnswer,
+  // Pregătirea de examen („Planul meu") — o ședință 1-la-1: prep_begin / prep_session
+  prep_state: prepState, prep_begin: prepBegin, prep_session: prepSession,
+  prep_exercise: prepExercise, prep_prefetch: prepPrefetch, prep_answer: prepAnswer,
   prep_done: prepDone, prep_test: prepTest, prep_test_finish: prepTestFinish, prep_chat: prepChat,
 };
 
