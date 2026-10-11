@@ -19,6 +19,7 @@ Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 | **🎓 Pregătire de examen** (din „Planul meu"): aceeași clasă, dar profesorul propune ordinea — S. I ex. 1 → ex. 2 → … → S. II → S. III, câte cel puțin 10 exerciții pe poziție, apoi un test; elevul poate alege **orice exercițiu** (la BAC și doar un subpunct a/b/c). **Prețul: ca la 1-la-1** — o ședință de 60 min, prelungite cât lucrează | din **aceleași 8/lună incluse** în abonament (comune cu 1-la-1 live), apoi 20 lei; fără abonament, biletul de 20 lei — `/meditatii/pregatire` (`?pos=II.2.b` = începe direct acolo); vezi secțiunea 3 |
 | **Plata**: 10 lei ședința de grup fără abonament; inclusă în abonament. În lobby, **„💳 Prețuri"** deschide lista tuturor prețurilor, cu și fără abonament | Stripe (plată unică), bilet în `live_tickets`; lista: `src/components/live/PriceList.jsx` |
 | **🎁 Meditații gratuite** (implicit **două**: una de EN, una de BAC): lecții pregătite pe care oricine are cont le face **1-la-1, fără abonament și fără plată** — la vedere în lobby, chiar sub prezentare, cu „▶ Începe gratuit" | alese automat până le alegi tu din **Admin → 🎥 Meditații live → „🎁 Meditațiile gratuite"** (sau „🎁 Fă-o gratuită" la o lecție) — vezi secțiunea 3d |
+| **Lecția, scrisă o singură dată pe subiect** (explicația pe barem + explicațiile de rezervă + întrebările), apoi refolosită peste tot | **Admin → 🎥 Meditații live → „✍️ Cine scrie lecțiile"**: GPT-5.6 Terra (implicit) sau **Claude Opus 5.5** (mai bun la matematică, ~1,7× costul), cu Terra ca rezervă — vezi secțiunea 3e |
 
 **Fără barem, profesorul nu explică nimic:** sunt propuse doar subiectele al căror barem
 a fost găsit și citit (cache-ul `ai_pdf_text`), iar explicația „pe barem" e obligatorie
@@ -160,7 +161,8 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 | `LIVE_PREGATIRE_AUTO` | oprit | `1` = lecțiile se scriu din timp pentru toate ședințele (cost și când nu vine nimeni); implicit, doar când apare primul elev |
 | `LIVE_PREGATIRE_ORE` | `4` | orizontul cronului: ședințele din următoarele ore pentru care pregătește lecții (cu elevi) / generează vocea |
 | `LIVE_REFOLOSIRE_ZILE` | `21` | după câte zile se poate repeta un subiect |
-| `LIVE_GEN_MODEL`, `LIVE_CHAT_MODEL` | modelul de PDF („terra") / modelul de chat | modelul care scrie lecția pe barem (din paginile PDF) / răspunde în chat |
+| `LIVE_GEN_MODEL`, `LIVE_CHAT_MODEL` | modelul de PDF („terra") / modelul de chat | modelul care scrie lecția pe barem (din paginile PDF) / răspunde în chat. Alegerea din Admin („✍️ Cine scrie lecțiile", vezi 3e) are întâietate; `LIVE_GEN_MODEL=claude-opus-5-5` = Claude Opus 5.5 implicit, cu Terra ca rezervă |
+| `LIVE_CLAUDE_PAUZA_MS` | `15000` | când Claude răspunde „prea multe cereri" (429) la scrierea unei lecții: pauza înainte de singura reîncercare (apoi bucata o scrie Terra) |
 | `LIVE_PROF_RADU_NUME`, `LIVE_PROF_RADU_BIO` | `Prof. Tudor` | numele și prezentarea profesorului (id-ul intern a rămas `radu`) |
 
 ---
@@ -333,6 +335,49 @@ fă un buton la admin să pot modifica care să fie gratuite".
 
 ---
 
+## 3e. ✍️ Cine scrie lecțiile: GPT-5.6 Terra sau Claude Opus 5.5 (octombrie 2026)
+
+Cererea: „Păstrează explicațiile de rezervă. Adaugă opțiunea Opus 5.5" — pentru scrierea lecțiilor
+live (o lecție se scrie o singură dată pe subiect și se refolosește).
+
+- **Unde:** Admin → 🎥 Meditații live → cutia **„✍️ Cine scrie lecțiile"**: **GPT-5.6 Terra**
+  (implicit, mai ieftin) sau **Claude Opus 5.5** (mai bun la matematică). Alegerea se salvează în
+  `app_settings` (cheia `live_gen_model`) și contează pentru lecțiile scrise **de acum înainte** —
+  ședințele de grup, 1-la-1 și Pregătirea de examen folosesc aceleași lecții. Pentru o lecție
+  existentă: „Regenerează" în „Lecțiile recente" (versiune nouă, costă din nou).
+- **Ce scrie modelul ales:** tot scriptul — enunțul curat, întrebarea „încercați singuri", explicația
+  pe barem cu punctajul pașilor, **explicațiile de rezervă** („Explică altfel": pe înțelesul tuturor,
+  greșeli care costă puncte, altă metodă — rămân, neschimbate), verificarea și întrebările pe pași.
+  Aceleași reguli și aceeași schemă strictă (Structured Outputs), aceleași pagini PDF ale subiectului
+  și baremului (la Claude, ca documente PDF), aceleași verificări deterministe după (literele grilelor
+  de EN din tabelul baremului, enunțurile ilizibile scoase).
+- **Rezerva (Terra), pe bucăți:** lecția se scrie în 6 bucăți (câte 3 itemi), în paralel. O bucată
+  pe care Claude nu o scrie — lipsește `ANTHROPIC_API_KEY`, eroare, „prea multe cereri" (429: o pauză
+  de `LIVE_CLAUDE_PAUZA_MS`, implicit 15 s, și o reîncercare; la plafonul lunar de cheltuieli
+  Anthropic, direct rezerva), răspuns tăiat la limita de tokeni sau niciun item valid — o scrie
+  **GPT-5.6 Terra**, așa că lecția nu rămâne nescrisă. În „Lecțiile recente" apare cine a scris-o:
+  „scrisă de Claude Opus 5.5" sau, cu rezerva folosită, „Claude Opus 5.5 (5 bucăți) + GPT-5.6 Terra
+  (1 bucată)". Limitele Anthropic pentru Opus 5.5 (chiar la nivelul Start: 1.000 de cereri, 2 milioane
+  de tokeni de intrare și 400.000 de ieșire pe minut) încap lejer cele 6 bucăți deodată.
+- **Costul:** Claude Opus 5.5 costă 4 $ / 20 $ pe milionul de tokeni (intrare / ieșire), Terra
+  2 $ / 12 $ → o lecție cu Claude iese cam de **1,7 ori** mai scumpă (~2,5–8,5 lei în loc de
+  ~1,5–5 lei), **o singură dată pe subiect**. Costul se socotește pe fiecare model (bucățile scrise
+  de rezervă, la prețul lui Terra): în coloana „Cost" din Admin și în `ai_usage` (rândurile
+  `live-lectie` / `live-pasi`, câte unul pe model). Și tokenii unei încercări eșuate se notează.
+- **Timpul:** Claude scrie mai încet decât Terra (~2–5 minute pe lecție, în loc de 1–3). Lacătul
+  lecției ține cât poate dura funcția (14 minute), ca două cereri să nu scrie aceeași lecție de două
+  ori; cronul nu mai începe o lecție nouă cu Claude după primele 7 minute ale rulării (o scrie rularea
+  următoare sau sala de așteptare); Pregătirea de examen așteaptă până la 5 minute o lecție pe care o
+  scrie chiar atunci altă cerere (în loc să scrie alt subiect).
+- **Fără Admin:** `LIVE_GEN_MODEL=claude-opus-5-5` în Vercel face din Claude implicitul (cu aceeași
+  rezervă). `ANTHROPIC_API_KEY` e aceeași cheie folosită deja de exercițiile din „Meditații" și de agenți.
+- **Tehnic:** `api/_lib/liveLesson.js` (`writeJson`: Claude prin `api/_lib/claude.js`, cu paginile
+  ca documente PDF, altfel `ai.chatJson`; `usageParts`: tokenii pe model; `WRITERS`, `writerChoice`),
+  `api/live.js` (`lessonWriter`, `admin_set_writer`, `logWriteUsage`), `src/components/LiveAdmin.jsx`.
+  Teste: `test/lectii-live-opus.test.js`.
+
+---
+
 ## 4. Profesorul animat (scena)
 
 Scena e construită **o singură dată**, offline, dintr-o fotografie a clasei cu profesorul
@@ -402,7 +447,8 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
   Cu 4 săli: cel mult 4 lecții noi pe zi (doar în sălile în care intră elevi) — ~6–20 lei/zi în
   cel mai rău caz; costul scade singur, pentru că o sală refolosește lecțiile gata după ce și-a
   parcurs subiectele (se repetă după `LIVE_REFOLOSIRE_ZILE`, implicit 21 de zile).
-  Costul exact al fiecărei lecții apare în Admin → Meditații live.
+  Costul exact al fiecărei lecții apare în Admin → Meditații live. Cu **Claude Opus 5.5** (Admin →
+  „✍️ Cine scrie lecțiile", vezi 3e): cam 1,7× (~2,5–8,5 lei pe subiect nou), tot o singură dată.
 - **Răspunsurile în chat** (întrebări către profesor): bani mărunți, limitate (`LIVE_INTREBARI_MAX`).
 - **Întrebările pe pași**: la o lecție nouă, aproape nimic în plus (se scriu odată cu ea; uneori un
   apel scurt pentru subpunctele rămase fără întrebare). La o lecție scrisă înainte: ~0,5–1 leu, **o

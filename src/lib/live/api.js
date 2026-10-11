@@ -81,6 +81,8 @@ export const liveApi = {
   adminLesson: (lessonId) => call({ action: 'admin_lesson', lessonId }),
   // meditațiile gratuite: lista completă a subiectelor alese (înlocuiește lista de acum)
   adminSetFree: (subjectIds) => call({ action: 'admin_set_free', subjectIds }),
+  // cine scrie lecțiile noi: null = implicitul (GPT-5.6 Terra), 'claude-opus-5-5' = Claude Opus 5.5
+  adminSetWriter: (model) => call({ action: 'admin_set_writer', model }),
 };
 
 // Plata unui bilet (Stripe Checkout) — întoarce URL-ul paginii de plată

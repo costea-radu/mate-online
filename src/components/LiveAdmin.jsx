@@ -8,6 +8,8 @@
 // Lecțiile recente: durata, costul (text + voce), erorile, scriptul complet.
 // 🎁 Meditațiile gratuite: ce lecții pregătite se pot face 1-la-1 fără plată
 // (implicit 2, alese automat — una de EN, una de BAC); butoanele le schimbă.
+// ✍️ Cine scrie lecțiile: GPT-5.6 Terra (implicit) sau Claude Opus 5.5 (cu Terra
+// ca rezervă) — doar pentru lecțiile scrise de acum înainte.
 // =====================================================================
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -23,6 +25,16 @@ const btnFree = { ...btn, background: '#fff6d6', borderColor: '#e8b931', color: 
 const th = { textAlign: 'left', fontSize: '.74rem', textTransform: 'uppercase', letterSpacing: '.04em', color: '#6b7280', padding: '6px 8px', borderBottom: '2px solid #eef1f5' };
 const td = { padding: '10px 8px', borderBottom: '1px solid #eef1f5', verticalAlign: 'top', fontSize: '.88rem' };
 const examChip = (exam) => ({ display: 'inline-block', padding: '2px 9px', borderRadius: 999, fontSize: '.72rem', fontWeight: 700, whiteSpace: 'nowrap', background: exam === 'bac' ? '#efe7fb' : '#e3f0fb', color: exam === 'bac' ? '#5b2a99' : '#1f5faa' });
+
+// modelele care scriu lecțiile (api/_lib/liveLesson.js → GEN_MODEL / WRITERS)
+const MODEL_LABEL = { 'gpt-5.6-terra': 'GPT-5.6 Terra', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'claude-opus-5-5': 'Claude Opus 5.5' };
+const modelLabel = (id) => MODEL_LABEL[id] || id || '—';
+// „Claude Opus 5.5" sau, cu rezerva folosită, „Claude Opus 5.5 (5 bucăți) + GPT-5.6 Terra (1 bucată)"
+function writerText(w) {
+  const parts = Object.entries(w?.parts || {});
+  if (parts.length < 2) return modelLabel(parts[0]?.[0] || w?.model);
+  return parts.map(([m, n]) => `${modelLabel(m)} (${n} ${n === 1 ? 'bucată' : 'bucăți'})`).join(' + ');
+}
 
 function addDays(key, n) {
   const d = new Date(`${key}T12:00:00Z`);
@@ -71,6 +83,14 @@ export default function LiveAdmin() {
     run('free', () => liveApi.adminSetFree(next), on ? 'Lecția e acum gratuită — apare în lobby cu „Începe gratuit".' : 'Lecția nu mai e gratuită.');
   }
 
+  // ─── cine scrie lecțiile ──
+  const writer = data?.writer || null;
+  const writerNow = writer ? (writer.model || writer.default) : null;
+  const writerOptions = writer ? [
+    { id: null, label: modelLabel(writer.default), note: 'implicit, mai ieftin' },
+    ...(writer.choices || []).filter((c) => c.id !== writer.default).map((c) => ({ ...c, note: 'mai bun la matematică, ≈ 1,7× costul' })),
+  ] : [];
+
   return (
     <div>
       <div style={box}>
@@ -93,6 +113,40 @@ export default function LiveAdmin() {
         {err && <div style={{ marginTop: 12, color: '#b3261e', fontSize: '.88rem' }}>⚠ {err}</div>}
         {msg && <div style={{ marginTop: 12, color: '#137333', fontSize: '.88rem' }}>✓ {msg}</div>}
       </div>
+
+      {writer && (
+        <div style={box}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+            <h3 style={{ color: 'var(--navy)' }}>✍️ Cine scrie lecțiile</h3>
+            <span style={{ fontSize: '.78rem', color: '#6b7280' }}>acum: <b>{modelLabel(writerNow)}</b></span>
+          </div>
+          <p style={{ color: '#6b7280', fontSize: '.84rem', margin: '6px 0 10px' }}>
+            O lecție se scrie o singură dată pe subiect — explicația pe barem, întrebările, explicațiile de rezervă („Explică altfel") —
+            și se refolosește la toate ședințele și în Pregătirea de examen. Alegerea contează pentru lecțiile scrise de acum înainte;
+            pentru una existentă, apasă „Regenerează" în „Lecțiile recente".
+          </p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {writerOptions.map((c) => {
+              const on = (c.id || writer.default) === writerNow;
+              return (
+                <button key={c.id || 'implicit'} type="button" style={{ ...(on ? btnMain : btn), whiteSpace: 'normal', textAlign: 'left' }} disabled={on || !writer.setup || !!busy}
+                  onClick={() => run('writer', () => liveApi.adminSetWriter(c.id), `Lecțiile noi le scrie ${c.label}.`)}>
+                  {on ? '✓ ' : ''}{c.label}<span style={{ opacity: 0.75 }}> · {c.note}</span>
+                </button>
+              );
+            })}
+          </div>
+          {/^claude-/.test(writerNow || '') && !writer.claudeKey && (
+            <div style={{ marginTop: 10, color: '#b3261e', fontSize: '.84rem' }}>⚠ ANTHROPIC_API_KEY lipsește în Vercel — până o adaugi, lecțiile le scrie tot {modelLabel(writer.fallback)}.</div>
+          )}
+          <p style={{ color: '#6b7280', fontSize: '.8rem', marginTop: 10 }}>
+            Claude Opus 5.5 (Anthropic) costă 4 $ / 20 $ pe milionul de tokeni (intrare / ieșire), față de 2 $ / 12 $ la Terra: o lecție
+            iese cam de 1,7 ori mai scumpă, o singură dată pe subiect (costul real apare în „Lecțiile recente"). Rezerva: dacă Claude nu
+            răspunde la o bucată din lecție (eroare, limită, răspuns tăiat), bucata aceea o scrie {modelLabel(writer.fallback)} — lecția nu rămâne nescrisă.
+          </p>
+          {!writer.setup && <div style={{ color: '#8a5a00', fontSize: '.82rem' }}>Alegerea se poate salva după ce rulezi o dată supabase/setari_ordine_gratuite.sql în Supabase → SQL Editor.</div>}
+        </div>
+      )}
 
       {free && (
         <div style={{ ...box, background: '#fffdf6', border: '1px solid #f1e2ac' }}>
@@ -232,7 +286,7 @@ export default function LiveAdmin() {
                     <td style={td}>
                       <b>{l.title || '(fără titlu încă)'}</b>
                       {l.free && <span style={{ marginLeft: 6, fontSize: '.72rem', fontWeight: 700, color: '#6b4e00', background: '#fff6d6', border: '1px solid #e8b931', borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>🎁 gratuită</span>}
-                      <div style={{ color: '#6b7280', fontSize: '.78rem' }}>{teacherName[l.teacher] || l.teacher} · v{l.version}</div>{l.error && <div style={{ color: '#b3261e', fontSize: '.78rem' }}>{l.error}</div>}
+                      <div style={{ color: '#6b7280', fontSize: '.78rem' }}>{teacherName[l.teacher] || l.teacher} · v{l.version}{l.writer?.model ? ` · scrisă de ${writerText(l.writer)}` : ''}</div>{l.error && <div style={{ color: '#b3261e', fontSize: '.78rem' }}>{l.error}</div>}
                     </td>
                     <td style={td}>
                       {l.status === 'gata' && l.noVoice ? LESSON_LABEL.gata_fara_voce : (LESSON_LABEL[l.status] || l.status)}

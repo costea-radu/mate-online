@@ -410,6 +410,31 @@ async function stepsUpgradeFor(supa, session, light, now = new Date()) {
   return !(await groupBusy(supa, session.subject_id, session.teacher, now));
 }
 
+// ─── Cine scrie lecțiile (Admin → Meditații live → „✍️ Cine scrie lecțiile") ──
+// app_settings, cheia 'live_gen_model': { model: null } = implicitul (LIVE_GEN_MODEL
+// sau GPT-5.6 Terra); { model: 'claude-opus-5-5' } = Claude Opus 5.5 prin API-ul
+// Anthropic, cu modelul de PDF ca rezervă (liveLesson.writeJson). Se citește doar când
+// chiar se scrie ceva (o dată pe subiect) — fără cache, ca alegerea să conteze imediat.
+const WRITER_KEY = 'live_gen_model';
+async function lessonWriter(supa) {
+  try { return LL.writerChoice((await SET.readSetting(supa, WRITER_KEY)).value?.model); }
+  catch (e) { console.warn('live: modelul lecțiilor:', e.message); return null; }
+}
+// scrisul cu Claude durează minute: lacătul ține cât poate trăi funcția (800 s), ca o
+// cerere paralelă să nu scrie aceeași lecție a doua oară (finally îl eliberează)
+const WRITE_LOCK_MS = 14 * 60 * 1000;
+const holdLock = (supa, id) => supa.from('live_lessons').update({ locked_until: new Date(Date.now() + WRITE_LOCK_MS).toISOString() }).eq('id', id);
+// costul scrisului, pe modele (o bucată scrisă de rezervă, la prețul ei) + ai_usage
+async function logWriteUsage(supa, endpoint, usage) {
+  let micro = 0;
+  for (const u of LL.usageParts(usage)) {
+    if (!u || !(u.in || u.out || u.prompt_tokens || u.completion_tokens)) continue;
+    micro += ai.costMicroLei(u.model, u);
+    await ai.logUsage(supa, null, endpoint, u);
+  }
+  return micro;
+}
+
 // Pregătește lecția cât permite bugetul: scriptul (o dată), apoi vocea.
 // revoice: o lecție gata „cu vocea browserului" (făcută înainte de cheile TTS)
 // primește acum vocea generată. Dacă vocea eșuează, lecția rămâne jucabilă cu
@@ -462,10 +487,13 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
         const se = L.subjectExam(content, B) || { exam: 'en', profile: null };
         // paginile PDF (subiect + barem): modelul vede formulele pierdute la extragerea textului
         const attachments = await LL.pdfAttachments({ supa, content, ctx, pdfCtx: pdfContext(), log });
-        const r = await LL.generateScript({ ctx, content, teacher, exam: se.exam, profile: se.profile, log, attachments });
+        const model = await lessonWriter(supa);
+        await holdLock(supa, row.id);
+        let r;
+        try { r = await LL.generateScript({ ctx, content, teacher, exam: se.exam, profile: se.profile, log, attachments, model }); }
+        catch (e) { await logWriteUsage(supa, 'live-lectie', e.usage); throw e; }   // și o încercare eșuată costă
         script = r.script;
-        costMicro = ai.costMicroLei(r.usage.model, r.usage);
-        await ai.logUsage(supa, null, 'live-lectie', r.usage);
+        costMicro = await logWriteUsage(supa, 'live-lectie', r.usage);
       }
       const total = LL.segmentsInOrder(script).length;
       await save({
@@ -482,9 +510,10 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
       // cât se scriu întrebările, o ședință de grup nu pornește pe lecția veche (așteaptă „gata")
       if (was === 'gata') await save({ status: 'script', progress: { ...row.progress, phase: 'pasi' } });
       try {
-        const r = await LL.addStepQuestions({ script: row.script, teacher, log, force: !!forceSteps });
-        const costMicro = r.usage.in || r.usage.out ? ai.costMicroLei(r.usage.model, r.usage) : 0;
-        if (costMicro) await ai.logUsage(supa, null, 'live-pasi', r.usage);
+        const model = await lessonWriter(supa);
+        await holdLock(supa, row.id);
+        const r = await LL.addStepQuestions({ script: row.script, teacher, log, force: !!forceSteps, model });
+        const costMicro = await logWriteUsage(supa, 'live-pasi', r.usage);
         // vocea generată: frazele noi (întrebările) se înregistrează mai jos, în același apel
         const next = voiced && tts.provider() ? 'audio' : (was === 'gata' ? 'gata' : was);
         const all = LL.segmentsInOrder(r.script);
@@ -1246,8 +1275,8 @@ async function adminOverview(req, res, supa) {
   const total = {};
   for (const p of parts || []) total[p.session_id] = (total[p.session_id] || 0) + 1;
   const [en, bac] = await Promise.all([eligibleSubjects(supa, { exam: 'en', fresh: !!req.body?.fresh }), eligibleSubjects(supa, { exam: 'bac', fresh: !!req.body?.fresh })]);
-  const { data: lessonRows } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, title, duration_sec, error, cost_micro, updated_at, noVoice:progress->noVoice, sv:script->v, pasi:script->pasi, pasiInfo:progress->pasi').order('updated_at', { ascending: false }).limit(60);
-  const free = await freeAdminView(supa, { fresh: !!req.body?.fresh });
+  const { data: lessonRows } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, title, duration_sec, error, cost_micro, updated_at, noVoice:progress->noVoice, sv:script->v, pasi:script->pasi, pasiInfo:progress->pasi, writer:script->writer').order('updated_at', { ascending: false }).limit(60);
+  const [free, writer] = await Promise.all([freeAdminView(supa, { fresh: !!req.body?.fresh }), writerAdminView(supa)]);
   const freeSet = new Set(free.lessons.map((l) => String(l.subjectId).toLowerCase()));
   const slotInfo = Object.fromEntries(L.slots().map((s) => [s.id, s]));
   return res.status(200).json({
@@ -1263,6 +1292,7 @@ async function adminOverview(req, res, supa) {
     subjects: { en, bac },
     lessons: (lessonRows || []).map((l) => ({ ...l, cost_lei: Math.round((l.cost_micro || 0) / 1e4) / 100, free: freeSet.has(String(l.subject_id).toLowerCase()) })),
     free,
+    writer,
     tts: tts.provider(),
   });
 }
@@ -1316,6 +1346,26 @@ async function adminSetFree(req, res, supa) {
   await SET.writeSetting(supa, FREE_KEY, { subjects: ids, auto: false, at: new Date().toISOString(), by: userId }, userId);
   freeCache = null;
   return res.status(200).json({ ok: true, free: await freeAdminView(supa, { fresh: true }) });
+}
+
+// ─── Cine scrie lecțiile (Admin → „✍️ Cine scrie lecțiile") ───────────────────
+async function writerAdminView(supa) {
+  let st = { setup: false, value: null };
+  try { st = await SET.readSetting(supa, WRITER_KEY); }
+  catch (e) { console.warn('live: modelul lecțiilor:', e.message); }
+  return {
+    setup: st.setup, model: LL.writerChoice(st.value?.model), default: LL.GEN_MODEL(), fallback: LL.FALLBACK_MODEL(),
+    choices: LL.WRITERS, claudeKey: !!require('./_lib/claude').HAS_KEY,
+  };
+}
+
+async function adminSetWriter(req, res, supa) {
+  const { userId } = await requireAdminUser(req, supa);
+  const raw = req.body?.model || null;
+  const model = raw ? LL.writerChoice(raw) : null;
+  if (raw && !model) throw fail(400, 'Model necunoscut pentru lecțiile live.');
+  await SET.writeSetting(supa, WRITER_KEY, { model, at: new Date().toISOString(), by: userId }, userId);
+  return res.status(200).json({ ok: true, writer: await writerAdminView(supa) });
 }
 
 async function adminSetSubject(req, res, supa) {
@@ -1411,6 +1461,10 @@ async function cron(supa) {
     .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
   const liveNow = new Set(sessions.filter((s) => L.phaseOf(s, now) === 'live').map((s) => `${s.subject_id}|${s.teacher}`));
   report.skipped = 0;
+  // o lecție NOUĂ scrisă de Claude durează câteva minute: cronul o începe doar cât mai e
+  // timp până la limita funcției (800 s); altfel o scrie rularea următoare sau sala de așteptare
+  report.deferred = 0;
+  const writeBy = LL.isClaude((await lessonWriter(supa)) || LL.GEN_MODEL()) ? 7 * 60000 : Infinity;
   for (const s of soon) {
     if (Date.now() - t0 > budget - 60000) break;
     try {
@@ -1422,6 +1476,7 @@ async function cron(supa) {
       // întrebările pe pași pentru o lecție scrisă înainte de ele — tot doar înainte de ședință
       const steps = lessonLacksSteps(l) && startsIn > 10 * 60000 && !busy;
       if (l.status === 'gata' && !revoice && !steps) continue;
+      if ((l.status === 'nou' || (l.status === 'eroare' && !l.title)) && Date.now() - t0 > writeBy) { report.deferred++; continue; }
       if (!auto && !revoice && (steps || l.status === 'nou' || (l.status === 'eroare' && !l.title))) {
         const [{ count: people }, { count: tickets }] = await Promise.all([
           supa.from('live_participants').select('*', { count: 'exact', head: true }).eq('session_id', s.id),
@@ -1621,8 +1676,9 @@ async function prepPool(supa, E) {
 }
 
 // Lecția (doar textul) unui subiect: gata → o întoarce; altfel o scrie acum (1–3
-// minute); dacă altcineva o scrie chiar acum, o așteaptă (nu se plătește de două ori)
-async function prepEnsureScript(supa, subjectId, { waitMs = 170000 } = {}) {
+// minute; cu Claude Opus 5.5, 2–5); dacă altcineva o scrie chiar acum, o așteaptă
+// (nu se plătește de două ori)
+async function prepEnsureScript(supa, subjectId, { waitMs = 300000 } = {}) {
   const teacher = PREP_TEACHER();
   let l = await lessonFor(supa, subjectId, teacher);
   if (scriptReady(l)) return l;
@@ -1654,7 +1710,10 @@ async function prepPick(supa, E, { pos, exclude = new Set(), seed, generate = tr
     if (usable(items)) return { sid: s.id, title: s.title, lesson, items };
   }
   if (!generate) return null;
+  // cel mult 3 subiecte noi, și doar cât mai e timp până la limita funcției (800 s)
+  const t0 = Date.now();
   for (const s of ordered.filter((x) => !x.lesson || x.lesson.status === 'nou').slice(0, 3)) {
+    if (Date.now() - t0 > 7 * 60000) break;
     const l = await prepEnsureScript(supa, s.id);
     if (!l) continue;
     const lesson = await loadLesson(supa, l.id, { fresh: true });
@@ -2030,7 +2089,7 @@ const ACTIONS = {
   leave,
   voce,
   admin_overview: adminOverview, admin_set_subject: adminSetSubject, admin_prepare: adminPrepare, admin_lesson: adminLesson,
-  admin_set_free: adminSetFree,
+  admin_set_free: adminSetFree, admin_set_writer: adminSetWriter,
   // Pregătirea de examen („Planul meu") — o ședință 1-la-1: prep_begin / prep_session
   prep_state: prepState, prep_begin: prepBegin, prep_session: prepSession,
   prep_exercise: prepExercise, prep_prefetch: prepPrefetch, prep_answer: prepAnswer,

@@ -101,7 +101,9 @@ async function apiCallOnce(body) {
   });
   const data = await res.json().catch(() => ({}));
   const text = (data.content || []).filter((bl) => typeof bl.text === 'string').map((bl) => bl.text).join('');
-  return { ok: res.ok, status: res.status, data, text, stop: data.stop_reason || null };
+  // 429: câte secunde cere API-ul să așteptăm (lipsește la plafonul lunar de cheltuieli)
+  const retryAfter = Number(res.headers?.get?.('retry-after')) || null;
+  return { ok: res.ok, status: res.status, data, text, stop: data.stop_reason || null, retryAfter };
 }
 
 // Modelele Claude recente „gândesc” înainte să răspundă, iar gândirea
@@ -137,6 +139,7 @@ async function apiCall(body) {
   if (!r.ok) {
     const msg = r.data?.error?.message || `Claude API ${r.status}`;
     const err = new Error(msg); err.status = r.status === 429 ? 429 : 502;
+    if (r.retryAfter) err.retryAfter = r.retryAfter;
     throw err;
   }
   return r;

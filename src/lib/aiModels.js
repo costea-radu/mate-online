@@ -59,7 +59,7 @@ export const AI_STACK = {
     furnizorAnthropic: 'Anthropic',
     modeleAnthropic: ['Claude Opus 5.5'],
     furnizori: 'OpenAI și Anthropic',
-    descriere: 'GPT-4o mini răspunde rapid în chat; GPT-5 mini preia explicațiile pas cu pas — rezolvările comentate, indiciile și „explică-mi din nou"; GPT-5.6 Terra și GPT-5.6 Sol preiau sarcinile care cer precizie maximă — citirea subiectelor PDF, citirea pozelor cu exerciții, corectarea după barem, generarea de teste și exerciții. Claude Opus 5.5, de la Anthropic, generează seturile de exerciții din „Meditații cu Profesorul Virtual".',
+    descriere: 'GPT-4o mini răspunde rapid în chat; GPT-5 mini preia explicațiile pas cu pas — rezolvările comentate, indiciile și „explică-mi din nou"; GPT-5.6 Terra și GPT-5.6 Sol preiau sarcinile care cer precizie maximă — citirea subiectelor PDF, citirea pozelor cu exerciții, corectarea după barem, generarea de teste și exerciții. Claude Opus 5.5, de la Anthropic, generează seturile de exerciții din „Meditații cu Profesorul Virtual" și poate scrie lecțiile meditațiilor live (explicațiile pe baremul oficial).',
   },
   // Anthropic (Claude): (a) uneltele administrative interne ale echipei și
   // (b) GENERAREA seturilor de exerciții din „Meditații cu Profesorul Virtual"
@@ -68,11 +68,13 @@ export const AI_STACK = {
   // deși generatorul de meditații rulează pe Claude (acum Opus 5.5), iar la exercițiile
   // de remediere primește și răspunsul greșit al elevului (fără nume, e-mail
   // sau alte date de identificare). Ține textul sincron cu codul:
-  // api/_lib/meditatii.js → OPUS_MODEL.
+  // api/_lib/meditatii.js → OPUS_MODEL. Din octombrie 2026, Claude Opus 5.5 poate scrie și
+  // lecțiile meditațiilor live (Admin → Meditații live → „Cine scrie lecțiile"; doar
+  // subiectele și baremele oficiale ajung la model) — api/_lib/liveLesson.js → WRITERS.
   intern: {
     furnizor: 'Anthropic',
     modele: ['Claude Opus 5.5', 'Claude Fable 5'],
-    descriere: 'Folosite în două locuri: (1) uneltele administrative ale echipei ExamenMate — generarea și verificarea testelor și exercițiilor din biblioteca site-ului, articolele, optimizările paginilor; (2) generarea seturilor de exerciții din „Meditații cu Profesorul Virtual" — aceasta este o funcție pentru tine, nu una internă, și rulează pe Claude Opus 5.5. La exercițiile de remediere, modelul primește și exercițiul greșit împreună cu răspunsul dat de elev, ca să genereze exerciții de același tip. Nu primește numele, e-mailul sau alte date care te identifică, iar datele trimise prin API nu sunt folosite la antrenarea modelelor.',
+    descriere: 'Folosite în două locuri: (1) uneltele administrative ale echipei ExamenMate — generarea și verificarea testelor și exercițiilor din biblioteca site-ului, articolele, optimizările paginilor; (2) generarea seturilor de exerciții din „Meditații cu Profesorul Virtual" — aceasta este o funcție pentru tine, nu una internă, și rulează pe Claude Opus 5.5 (tot el poate scrie și lecțiile meditațiilor live, din subiectele și baremele oficiale, fără date despre elevi). La exercițiile de remediere, modelul primește și exercițiul greșit împreună cu răspunsul dat de elev, ca să genereze exerciții de același tip. Nu primește numele, e-mailul sau alte date care te identifică, iar datele trimise prin API nu sunt folosite la antrenarea modelelor.',
   },
 };
 

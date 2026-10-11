@@ -20,13 +20,30 @@
 // =====================================================================
 const ai = require('./ai');
 const B = require('./barem');
+const claude = require('./claude');
 const live = require('./live');
 const tts = require('./tts');
 
 // lecția pe barem se scrie o singură dată pe subiect, din paginile PDF ale subiectului
 // și baremului → implicit modelul de PDF („terra", mai ieftin decât „sol");
-// LIVE_GEN_MODEL îl schimbă
+// LIVE_GEN_MODEL îl schimbă. Din Admin → Meditații live („✍️ Cine scrie lecțiile") se
+// poate alege Claude Opus 5.5 (API-ul Anthropic, ANTHROPIC_API_KEY): mai bun la
+// matematică, ~1,7× costul lui Terra — plătit tot o singură dată pe subiect.
+// REZERVA: o bucată pe care Claude nu o scrie (fără cheie, eroare, limită, răspuns
+// tăiat, niciun item valid) o scrie modelul de PDF — lecția nu rămâne nescrisă.
 const GEN_MODEL = () => process.env.LIVE_GEN_MODEL || ai.PDF_MODEL;
+const FALLBACK_MODEL = () => ai.PDF_MODEL;
+// doar ID-urile Anthropic („claude-…") merg pe API-ul Anthropic; „anthropic/claude-…"
+// (un furnizor compatibil OpenAI, prin AI_CHAT_BASE_URL) rămâne pe ai.chatJson
+const isClaude = (m) => /^claude-/i.test(String(m || '').trim());
+// alegerile din Admin (null = implicitul de mai sus)
+const WRITERS = [{ id: 'claude-opus-5-5', label: 'Claude Opus 5.5' }];
+const writerChoice = (m) => {
+  const id = claude.currentModel(m);
+  return WRITERS.some((w) => w.id === id) ? id : null;
+};
+// pauza dinaintea reîncercării când Claude e ocupat (429 pe minut / supraîncărcat)
+const CLAUDE_PAUSE_MS = () => Math.max(0, parseInt(process.env.LIVE_CLAUDE_PAUZA_MS || '15000', 10) || 0);
 const CHUNK = () => Math.max(1, parseInt(process.env.LIVE_ITEMI_PE_APEL || '3', 10));
 const TTS_PARALLEL = () => Math.max(1, parseInt(process.env.LIVE_TTS_PARALEL || '6', 10));
 
@@ -742,8 +759,97 @@ function voiceOrder(script, fromRef = null) {
   return [...first, ...all.filter((s) => !seen.has(s.id))];
 }
 
+// ─── Apelul AI (Terra sau Claude), cu tokenii pe model ───────────────────────
+// Tokenii se adună și PE MODEL (usage.byModel): o bucată scrisă de rezervă se plătește
+// la prețul modelului ei (live.js → usageParts → costul lecției și ai_usage).
+function addUsage(usage, model, tin = 0, tout = 0) {
+  if (!usage || (!tin && !tout)) return;
+  usage.in += tin; usage.out += tout;
+  const by = usage.byModel || (usage.byModel = {});
+  const m = by[model] || (by[model] = { in: 0, out: 0 });
+  m.in += tin; m.out += tout;
+}
+// [{ in, out, model }] — câte o intrare pe model; fără byModel, usage-ul întreg
+function usageParts(usage) {
+  const by = usage && usage.byModel;
+  if (!by || !Object.keys(by).length) return usage ? [usage] : [];
+  return Object.entries(by).map(([model, u]) => ({ in: u.in, out: u.out, model }));
+}
+
+// Paginile PDF pentru API-ul Anthropic: părțile „file" (formatul OpenAI, base64)
+// devin blocuri „document", puse ÎNAINTEA textului (cum recomandă Anthropic)
+const PDF_DATA_URL = 'data:application/pdf;base64,';
+function anthropicContent(text, parts = []) {
+  const docs = [];
+  for (const p of parts || []) {
+    const url = p && p.type === 'file' ? String(p.file?.file_data || '') : '';
+    if (url.startsWith(PDF_DATA_URL)) {
+      docs.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: url.slice(PDF_DATA_URL.length) }, title: p.file.filename || 'pagini.pdf' });
+    }
+  }
+  return docs.length ? [...docs, { type: 'text', text }] : text;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Formatul și în instrucțiuni: dacă API-ul ar respinge schema (claude.js reîncearcă
+// atunci fără ea), modelul tot știe ce JSON să scrie (~2.500 de tokeni de intrare în plus)
+const formatNote = (schema) => `\n\nFORMATUL RĂSPUNSULUI: un singur obiect JSON, exact după schema de mai jos (fără alt text, fără markdown):\n${JSON.stringify(schema)}`;
+
+async function claudeJson({ model, system, text, parts, schema, maxTokens, usage }) {
+  let r;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      r = await claude.chatClaude({ system: system + formatNote(schema), messages: [{ role: 'user', content: anthropicContent(text, parts) }], schema, maxTokens, model });
+      break;
+    } catch (e) {
+      // limita pe minut / supraîncărcare: o pauză și o singură reîncercare (plafonul
+      // lunar de cheltuieli nu trece cu o pauză → direct rezerva)
+      const busy = e.status === 429 ? !/usage limits|spend/i.test(String(e.message)) : /overloaded/i.test(String(e.message));
+      if (attempt === 0 && busy) { await sleep(e.retryAfter ? Math.min(60000, e.retryAfter * 1000) : CLAUDE_PAUSE_MS()); continue; }
+      throw e;
+    }
+  }
+  addUsage(usage, r.usage?.model || model, r.usage?.prompt_tokens || 0, r.usage?.completion_tokens || 0);
+  if (r.stopReason === 'max_tokens') throw new Error(`răspunsul s-a oprit la limita de ${maxTokens} tokeni`);
+  if (r.stopReason === 'refusal') throw new Error('modelul a refuzat cererea');
+  const data = claude.extractJson(r.text);
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('răspunsul nu e JSON valid');
+  return ai.deepRestoreLatex(data);
+}
+
+async function openaiJson({ model, system, text, parts = [], schema, schemaName, maxTokens, temperature, usage }) {
+  const pdfpages = require('./pdfpages');
+  try {
+    const r = await ai.chatJson({ system, messages: [{ role: 'user', content: pdfpages.userContent(text, parts) }], schema, schemaName, model, maxTokens, temperature });
+    addUsage(usage, model, r.usage?.in || 0, r.usage?.out || 0);
+    return r.data;
+  } catch (e) {
+    // tokenii consumați până la eroare se numără aici (o singură dată)
+    if (e && e.usage) { addUsage(usage, model, e.usage.in || 0, e.usage.out || 0); e.usage = null; }
+    throw e;
+  }
+}
+
+// Un apel cu răspuns JSON pe schemă, cu modelul cerut: Claude (API-ul Anthropic,
+// Structured Outputs, paginile ca documente) sau un model OpenAI (ai.chatJson, paginile
+// ca părți „file"). Claude care nu răspunde → aceeași cerere, cu rezerva.
+// → { data, model } (modelul care a scris efectiv)
+async function writeJson(opts) {
+  const { model, log = () => {}, what = 'lecția' } = opts;
+  if (isClaude(model)) {
+    if (claude.HAS_KEY) {
+      try { return { data: await claudeJson(opts), model }; }
+      catch (e) { log(`live: ${what} — ${model} a eșuat (${e.message}); scrie ${FALLBACK_MODEL()}`); }
+    } else log(`live: ${what} — ANTHROPIC_API_KEY lipsește; scrie ${FALLBACK_MODEL()}`);
+    return { data: await openaiJson({ ...opts, model: FALLBACK_MODEL() }), model: FALLBACK_MODEL(), fallback: true };
+  }
+  return { data: await openaiJson(opts), model };
+}
+
 // ─── 1. Scriptul ─────────────────────────────────────────────────────────────
-async function generateScript({ ctx, content, teacher, exam, profile, log = console.warn, attachments = null }) {
+// model: cine scrie (Admin → Meditații live; null = GEN_MODEL)
+async function generateScript({ ctx, content, teacher, exam, profile, log = console.warn, attachments = null, model = null }) {
   const subjectText = String(ctx.text || '');
   const baremText = String(ctx.baremText || '');
   if (!live.hasBarem({ barem_status: ctx.baremStatus, barem_text: baremText })) {
@@ -758,10 +864,11 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
     plan = [{ section: 'I', from: 1, to: 6 }, { section: 'II', from: 1, to: 6 }, { section: 'III', from: 1, to: 6 }];
   }
   const grile = exam === 'en' ? B.grilaAnswers(baremText) : {};
-  const usage = { in: 0, out: 0, model: GEN_MODEL() };
+  const genModel = model || GEN_MODEL();
+  const usage = { in: 0, out: 0, model: genModel, byModel: {} };
+  const wrote = {};   // câte bucăți (apeluri) a scris fiecare model → script.writer
   const title = content.title || 'Subiect';
 
-  const pdfpages = require('./pdfpages');
   const results = await Promise.all(plan.map(async (p) => {
     try {
       const parts = (attachments && attachments[p.section]) || [];
@@ -771,15 +878,19 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
         baremSection: whole ? baremText : sections.barem[p.section],
         pages: parts.length ? (parts.some((x) => /^barem-/.test(x?.file?.filename || '')) ? 'barem' : 'subiect') : false,
       });
-      const r = await ai.chatJson({
-        system: systemPrompt(teacher, exam, profile),
-        messages: [{ role: 'user', content: pdfpages.userContent(text, parts) }],
-        schema: SCHEMA, schemaName: 'lectie_live', model: GEN_MODEL(), maxTokens: 16000, temperature: 0.4,
-      });
-      usage.in += r.usage?.in || 0; usage.out += r.usage?.out || 0;
-      return normalizeItems(r.data?.items, { section: p.section, exam, grile, baremText, log });
+      const what = `Subiectul ${p.section}, itemii ${p.from}–${p.to}`;
+      const req = { system: systemPrompt(teacher, exam, profile), text, parts, schema: SCHEMA, schemaName: 'lectie_live', maxTokens: 16000, temperature: 0.4, usage, log, what };
+      let r = await writeJson({ ...req, model: genModel });
+      let items = normalizeItems(r.data?.items, { section: p.section, exam, grile, baremText, log });
+      // Claude a răspuns, dar niciun item nu a trecut de verificări → aceeași bucată, cu rezerva
+      if (!items.length && isClaude(r.model)) {
+        log(`live: ${what} — niciun item valid de la ${r.model}; scrie ${FALLBACK_MODEL()}`);
+        r = await writeJson({ ...req, model: FALLBACK_MODEL() });
+        items = normalizeItems(r.data?.items, { section: p.section, exam, grile, baremText, log });
+      }
+      if (items.length) wrote[r.model] = (wrote[r.model] || 0) + 1;
+      return items;
     } catch (e) {
-      if (e.usage) { usage.in += e.usage.in || 0; usage.out += e.usage.out || 0; }
       log(`live: generarea ${p.section} ${p.from}–${p.to} a eșuat: ${e.message}`);
       return [];
     }
@@ -792,11 +903,13 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
   }
   // întrebările pe pași: subpunctele rămase fără nicio întrebare → un apel scurt doar
   // pentru ele, apoi (fără AI) rezultatele pașilor scriși pe tablă
-  const steps = live.STEPS_ON() ? await fillMissingSteps(items, { teacher, exam, profile, title, log, usage }) : null;
+  const steps = live.STEPS_ON() ? await fillMissingSteps(items, { teacher, exam, profile, title, log, usage, model: genModel }) : null;
   // v2 = scrisă cu paginile PDF (formulele citite din pagini); v1 = doar din textul extras
   const withPages = Object.values(attachments || {}).some((a) => Array.isArray(a) && a.length);
   const script = {
     v: withPages ? 2 : 1, ...(steps ? { pasi: PASI_V } : {}), title, exam, profile: profile || null, teacher: teacher.id, teacherName: teacher.name,
+    // cine a scris-o (Admin → „Lecțiile recente"): modelul ales + bucățile scrise de fiecare
+    writer: { model: genModel, parts: wrote },
     subjectId: content.id, baremId: ctx.barem?.id || null, baremTitle: ctx.barem?.title || null,
     ...templates(teacher, { title, exam, profile }),
     items,
@@ -855,20 +968,19 @@ function stepsUserPrompt({ title, items }) {
 
 // Completează întrebările pe pași ale itemilor (în loc). Nu aruncă: dacă modelul nu
 // răspunde, rămân pașii din barem. { asked, ai, aiFailed, fromBarem, missing:[ref] }
-async function fillMissingSteps(items, { teacher, exam, profile, title, log = console.warn, usage = null, useAi = true } = {}) {
+async function fillMissingSteps(items, { teacher, exam, profile, title, log = console.warn, usage = null, useAi = true, model = null } = {}) {
   const need = (items || []).filter((it) => missingParts(it).length);
   const report = { asked: need.length, ai: 0, aiFailed: 0, fromBarem: 0, missing: [] };
   if (need.length && useAi) {
     const bySec = {};
     for (const it of need) (bySec[it.section] = bySec[it.section] || []).push(it);
     await Promise.all(Object.values(bySec).map(async (list) => {
+      const refs = list.map((x) => x.ref).join(', ');
       try {
-        const r = await ai.chatJson({
-          system: stepsSystemPrompt(teacher, exam, profile),
-          messages: [{ role: 'user', content: stepsUserPrompt({ title, items: list }) }],
-          schema: STEP_FIX_SCHEMA, schemaName: 'intrebari_pe_pasi', model: GEN_MODEL(), maxTokens: 12000, temperature: 0.3,
+        const r = await writeJson({
+          model: model || GEN_MODEL(), system: stepsSystemPrompt(teacher, exam, profile), text: stepsUserPrompt({ title, items: list }),
+          schema: STEP_FIX_SCHEMA, schemaName: 'intrebari_pe_pasi', maxTokens: 12000, temperature: 0.3, usage, log, what: `întrebările pe pași (${refs})`,
         });
-        if (usage) { usage.in += r.usage?.in || 0; usage.out += r.usage?.out || 0; }
         for (const ri of r.data?.items || []) {
           const it = list.find((x) => x.ref === refKey(parseRef(ri?.ref)));
           if (!it) continue;
@@ -876,8 +988,7 @@ async function fillMissingSteps(items, { teacher, exam, profile, title, log = co
         }
       } catch (e) {
         report.aiFailed++;
-        if (usage && e.usage) { usage.in += e.usage.in || 0; usage.out += e.usage.out || 0; }
-        log(`live: întrebările pe pași (${list.map((x) => x.ref).join(', ')}) nu s-au putut scrie: ${e.message}`);
+        log(`live: întrebările pe pași (${refs}) nu s-au putut scrie: ${e.message}`);
       }
     }));
   }
@@ -896,12 +1007,12 @@ async function fillMissingSteps(items, { teacher, exam, profile, title, log = co
 const needsSteps = (script) => !!script && live.STEPS_ON() && Number(script.pasi || 0) < PASI_V
   && Array.isArray(script.items) && script.items.length > 0;
 
-async function addStepQuestions({ script, teacher, log = console.warn, force = false, useAi = true }) {
+async function addStepQuestions({ script, teacher, log = console.warn, force = false, useAi = true, model = null }) {
   const copy = JSON.parse(JSON.stringify(script));
-  const usage = { in: 0, out: 0, model: GEN_MODEL() };
+  const usage = { in: 0, out: 0, model: model || GEN_MODEL(), byModel: {} };
   const items = copy.items || [];
   if (force) for (const it of items) if (stepEligible(it)) it.steps = [];
-  const report = await fillMissingSteps(items, { teacher, exam: copy.exam, profile: copy.profile, title: copy.title, log, usage, useAi });
+  const report = await fillMissingSteps(items, { teacher, exam: copy.exam, profile: copy.profile, title: copy.title, log, usage, useAi, model });
   items.forEach((it, k) => assignStepIds(it, k));
   copy.pasi = PASI_V;
   return { script: copy, usage, report };
@@ -965,6 +1076,8 @@ function playableHead(script, audio) {
 module.exports = {
   generateScript, adaptScript, renameTeacher, dropUnreadable, pdfAttachments, sectionPages, voiceScript, playableHead, segmentsInOrder, voiceOrder, itemSegments, templates, assignIds,
   normalizeItems, sectionMap, callPlan, parseRef, refKey, SCHEMA, systemPrompt, userPrompt, GEN_MODEL,
+  // cine scrie (Terra / Claude Opus 5.5, cu rezerva) și costul pe model
+  FALLBACK_MODEL, WRITERS, writerChoice, isClaude, writeJson, anthropicContent, usageParts,
   // întrebările pe pași
   PASI_V, STEP_FIX_SCHEMA, stepEligible, itemParts, segmentParts, missingParts, addSteps, addBaremSteps, lastEquality, revealsAnswer,
   fillMissingSteps, needsSteps, addStepQuestions, stepsSystemPrompt, stepsUserPrompt,
