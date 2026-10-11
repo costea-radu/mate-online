@@ -160,7 +160,7 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 | `LIVE_PREGATIRE_AUTO` | oprit | `1` = lecțiile se scriu din timp pentru toate ședințele (cost și când nu vine nimeni); implicit, doar când apare primul elev |
 | `LIVE_PREGATIRE_ORE` | `4` | orizontul cronului: ședințele din următoarele ore pentru care pregătește lecții (cu elevi) / generează vocea |
 | `LIVE_REFOLOSIRE_ZILE` | `21` | după câte zile se poate repeta un subiect |
-| `LIVE_GEN_MODEL`, `LIVE_CHAT_MODEL` | modelele site-ului | modelul care scrie lecția / răspunde în chat |
+| `LIVE_GEN_MODEL`, `LIVE_CHAT_MODEL` | modelul de PDF („terra") / modelul de chat | modelul care scrie lecția pe barem (din paginile PDF) / răspunde în chat |
 | `LIVE_PROF_RADU_NUME`, `LIVE_PROF_RADU_BIO` | `Prof. Tudor` | numele și prezentarea profesorului (id-ul intern a rămas `radu`) |
 
 ---
@@ -186,7 +186,7 @@ complet), în care **profesorul propune desfășurarea**:
 Exercițiile vin din **lecțiile pe barem de aici** (`live_lessons`, profesorul `radu`). Când un
 elev a lucrat toate lecțiile gata, se scrie lecția unui subiect nou (doar textul, 1–3 minute,
 o singură dată — apoi o folosesc toți elevii și ședințele live). Plafon: `PREP_GENERARI_ZI`
-(implicit 12 lecții noi pe elev pe zi). Progresul: `ai_meditatii_sessions` (fără SQL nou).
+(implicit 3 lecții noi pe elev pe zi). Progresul: `ai_meditatii_sessions` (fără SQL nou).
 Setările (`PREP_EXERCITII`, `PREP_TEST_EXERCITII`, `PREP_TEST_PROBLEME`, `PREP_PRAG`,
 `PREP_IN_PLUS`, `PREP_GENERARI_ZI`) sunt descrise în `GHID_MEDITATII.md` → Runda 12.
 

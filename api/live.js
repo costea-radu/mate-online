@@ -1494,7 +1494,9 @@ async function cron(supa) {
 const P = require('./_lib/pregatire');
 const PREP_TEACHER = () => (L.teacherById('radu') ? 'radu' : L.teachers()[0].id);
 const PREP_ROWS = 'id, status, score, max_score, duration_sec, created_at, completed_at, prep:payload->prep';
-const PREP_GEN_MAX = () => Math.max(0, parseInt(process.env.PREP_GENERARI_ZI || '12', 10) || 0);  // lecții noi scrise pentru un elev, pe zi
+// lecții noi scrise pentru un elev, pe zi (implicit 3: lecțiile se scriu o dată și
+// rămân pentru toți — a doua zi se pot scrie altele; PREP_GENERARI_ZI le schimbă)
+const PREP_GEN_MAX = () => Math.max(0, parseInt(process.env.PREP_GENERARI_ZI || '3', 10) || 0);
 const scriptReady = (l) => !!l && ['script', 'audio', 'gata'].includes(l.status);
 const cap1 = (s) => (s ? s.charAt(0).toLocaleUpperCase('ro') + s.slice(1).toLocaleLowerCase('ro') : s);
 

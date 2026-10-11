@@ -353,6 +353,39 @@ COMUN tuturor elevilor. Sistemul îl generează O DATĂ și îl refolosește:
   50% nu justifică infrastructura de fișiere JSONL + polling de 24h. Dacă baza
   crește la zeci de mii de materiale, reconsiderăm.
 
+### Economiile din „Planul meu" și meditațiile live (fără model, unde se poate)
+
+Patru măsuri, toate fără SQL nou, fiecare cu un comutator în Vercel:
+
+- **Lecțiile de teorie se refolosesc** (`api/_lib/lectii.js`). Teoria unui capitol e
+  aceeași pentru elevii cu aceeași clasă (sau același examen), același nivel și același
+  stil de explicație ales: se scrie O DATĂ și se păstrează în `app_settings` (cheile
+  `lectie:…`); următorii elevi o primesc gata — cost 0, fără așteptare, și chiar cu
+  creditele lunii epuizate. Greșeala frecventă a elevului (calcule, formule, neatenție…)
+  se adaugă în cod, ca o frază spusă de Prof. Tudor. La fel reexplicările „Nu am înțeles"
+  ale lecțiilor din bibliotecă (cheile `reexplicare:…`). În bibliotecă intră doar o lecție
+  completă, scrisă de modelul de generare (nu de cel de rezervă).
+  `PLAN_LECTII_REFOLOSITE=0` oprește biblioteca; `PLAN_LECTII_VERSIUNE=2` le regenerează
+  pe toate. În jurnal: `ai-meditatii:lesson-lib` (cost 0).
+- **Simulările de examen vin din subiectele oficiale** (`api/_lib/simulariOficiale.js`).
+  După testele interactive din site, simularea se compune din itemii subiectelor oficiale
+  deja puși pe barem în lecțiile meditațiilor live (EN: S. I + S. II, 12 grile; BAC: S. I +
+  câte un subpunct din S. II și S. III), dintr-un subiect pe care elevul nu l-a mai avut,
+  corectată pe barem. Fiecare exercițiu are legătura spre PDF-ul subiectului (figura e
+  acolo). Generarea rămâne doar după epuizare. În jurnal: `ai-meditatii:simulare-oficiala`.
+- **Exercițiile de tip standard se fac în cod** (`api/_lib/generatoare.js`): 140 de tipuri
+  (calcule, ecuații, sisteme, procente, fracții, radicali, Pitagora, arii și volume, funcții,
+  progresii, logaritmi, combinatorică, matrice, derivate, integrale…) pe 44 de capitole din
+  programa 5–12. Numerele se aleg la întâmplare, rezultatul e CALCULAT, rezolvarea e pas cu
+  pas. Se folosesc la seturile de exerciții, teme, recapitulări, „încă 10 de același fel"
+  (dacă exercițiul greșit e recunoscut ca tip) și la testul inițial (capitolele acoperite;
+  restul îl scrie modelul). Limitele AI se verifică doar când chiar e nevoie de model.
+  `PLAN_GENERATOARE_COD=0` le oprește. În jurnal: `…:cod` (cost 0).
+- **Plafoane și modele mai ieftine**: `PREP_GENERARI_ZI` implicit **3** (era 12) lecții
+  noi pe elev pe zi la Pregătirea de examen; analiza greșelilor pe modelul de chat
+  (`AI_MISTAKES_MODEL`, implicit modelul de chat, era „sol"); lecțiile pe barem ale
+  meditațiilor live pe modelul de PDF (`LIVE_GEN_MODEL`, implicit „terra", era „sol").
+
 ### Alertele de cost (pasul 4) — ochii pe sistem, fără să te uiți tu
 
 - **Raportul zilnic** (`_lib/costwatch.js` → `dailyReport`): vine pe emailul de

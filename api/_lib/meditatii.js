@@ -14,6 +14,7 @@
 // =====================================================================
 const ai = require('./ai');
 const claude = require('./claude');
+const generatoare = require('./generatoare'); // exercițiile de tip standard, făcute în cod (fără model)
 // taxonomia (capitole + subiecte) — require LEAZY: taxonomy.js citește CURRICULUM
 // de aici, deci un require direct ar închide un ciclu
 const taxonomy = new Proxy({}, { get: (_, k) => require('./taxonomy')[k] });
@@ -512,11 +513,61 @@ async function siteTheoryFor(supa, { categories = [], topics = [], chapterTitle 
 //  · fallback automat pe furnizorul existent (ai.chat cu GEN_MODEL) dacă
 //    ANTHROPIC_API_KEY lipsește sau apelul eșuează.
 // Întoarce { questions:[{statement, options?, answer, explanation, chapter?, topic?}], provider }
-async function genQuestions(supa, {
+//
+// ÎNTÂI GENERATOARELE ÎN COD (api/_lib/generatoare.js): la capitolele cu tipuri
+// standard, setul se face în cod — cost 0, rezultat calculat, fără verificator.
+// La testul inițial, doar capitolele fără generatoare ajung la model.
+// `beforeAI` (opțional) rulează chiar înainte de primul apel la model (limitele
+// AI ale elevului): un set făcut în cod nu consumă nimic.
+async function genQuestions(supa, opts = {}) {
+  const { chapterId = null, difficulty = 'mediu', count = 10, purpose = 'exersare', mistake = null, chaptersSpec = null } = opts;
+  const specs = purpose === 'evaluare' ? specLines(chaptersSpec) : [];
+  const coded = generatoare.forRequest({ purpose, chapterId, mistake, difficulty, count, chapterIds: specs.length ? specs.map((s) => s.id) : null });
+  if (coded && !coded.rest && coded.questions.length >= count) {
+    return { questions: coded.questions.slice(0, count).map(({ gen, slot, ...q }) => q), provider: 'cod', usage: {} };
+  }
+  if (coded && coded.rest && coded.questions.length) {
+    // testul inițial: modelul scrie doar întrebările capitolelor fără generatoare
+    const ids = new Set(coded.rest.chapterIds);
+    let rest;
+    try {
+      rest = await genQuestionsAI(supa, {
+        ...opts, count: coded.rest.count,
+        chaptersSpec: specs.filter((s) => ids.has(s.id)).map((s) => s.line).join('\n'),
+        topics: coded.rest.chapterIds.flatMap((id) => (chapterById(id)?.topics || []).slice(0, 2)),
+      });
+    } catch (e) {
+      // fără model (limite, eroare): testul pleacă doar cu întrebările din cod, dacă sunt destule
+      if (coded.questions.length < Math.ceil(count / 2)) throw e;
+      console.warn('genQuestions (evaluare): doar întrebările din cod —', e.message);
+      rest = { questions: [], provider: 'cod', usage: {} };
+    }
+    const slots = new Array(count).fill(null);
+    for (const q of coded.questions) slots[q.slot] = q;
+    const fromAI = [...rest.questions];
+    for (const i of coded.rest.slots) if (fromAI.length) slots[i] = fromAI.shift();
+    const questions = slots.filter(Boolean).map(({ gen, slot, ...q }) => q);
+    return { questions, provider: `${rest.provider}+cod`, usage: rest.usage, verification: rest.verification };
+  }
+  return genQuestionsAI(supa, opts);
+}
+
+// „- c7-ecuatii: Ecuații…" → [{ id, line }] (lista de capitole a testului inițial)
+function specLines(spec) {
+  return String(spec || '').split('\n').map((line) => ({ line, id: (/^\s*-\s*([\w-]+)\s*:/.exec(line) || [])[1] })).filter((x) => x.id);
+}
+function chapterById(id) {
+  for (const list of [...Object.values(CURRICULUM), EN_RECAP]) { const c = list.find((x) => x.id === id); if (c) return c; }
+  return null;
+}
+
+async function genQuestionsAI(supa, {
   category = null, chapter = null, chapterId = null, topics = [], difficulty = 'mediu',
   count = 10, purpose = 'exersare', styleNote = '', mistake = null, chaptersSpec = null,
   verify = null, // null → după AI_VERIFY_MEDITATII (implicit: evaluare, simulare, tema)
+  beforeAI = null,
 } = {}) {
+  if (beforeAI) await beforeAI();
   const doVerify = verify == null ? VERIFY_PURPOSES.includes(purpose) : !!verify;
   const raw = await genQuestionsRaw(supa, { category, chapter, topics, difficulty, count, purpose, styleNote, mistake, chaptersSpec });
   if (!doVerify || !raw.questions.length) return raw;
@@ -813,6 +864,7 @@ function normalizeQuestions(parsed, { chapterId = null, category = null } = {}) 
 // ─── Corectarea unui set + DETECTAREA GREȘELILOR TIPICE ──────────────────────
 // items: [{statement, options?, correct, given, explanation?}] (doar cele greșite intră la analiză)
 // Întoarce [{index, errorType, analysis}]
+const MISTAKES_MODEL = () => process.env.AI_MISTAKES_MODEL || ai.CHAT_MODEL;
 async function classifyMistakes(items, ctx = null) {
   if (!items.length) return [];
   const listing = items.map((it, i) =>
@@ -827,10 +879,12 @@ async function classifyMistakes(items, ctx = null) {
 - "necunoscut"→ nu se poate stabili.
 Răspunde STRICT cu JSON: {"analysis":[{"index":1,"errorType":"calcul","analysis":"explicație scurtă și caldă: unde anume a greșit și ce trebuia făcut"}]}`;
   try {
-    // schemă strictă: errorType din enum, index întreg — fără JSON invalid
+    // schemă strictă: errorType din enum, index întreg — fără JSON invalid.
+    // Modelul de chat (ieftin) ajunge: alege o categorie și scrie o frază; rezolvarea
+    // corectă îi vine gata în listă. AI_MISTAKES_MODEL îl schimbă.
     const { data: parsed, usage } = await ai.chatJson({
       system, messages: [{ role: 'user', content: listing }],
-      temperature: 0.2, maxTokens: 1600, model: ai.GEN_MODEL,
+      temperature: 0.2, maxTokens: 1600, model: MISTAKES_MODEL(),
       schema: ai.S.obj({
         analysis: ai.S.arr(ai.S.obj({
           index: ai.S.int('numărul exercițiului din listă (1, 2, ...)'),

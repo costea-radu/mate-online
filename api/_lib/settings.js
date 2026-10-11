@@ -3,7 +3,9 @@
 // cheie → valoare (public.app_settings, supabase/setari_ordine_gratuite.sql):
 //   • 'content_new_position' — unde apar materialele noi (primele / la sfârșit),
 //     pe tot site-ul, pe categorie sau pe rubrică (citită și de triggerul SQL);
-//   • 'live_free_lessons'    — meditațiile live gratuite (lecțiile alese).
+//   • 'live_free_lessons'    — meditațiile live gratuite (lecțiile alese);
+//   • 'lectie:…' / 'reexplicare:…' — biblioteca de lecții din „Planul meu"
+//     (api/_lib/lectii.js): teoria generată o dată și refolosită.
 // Doar serverul citește și scrie (service role). Dacă scriptul SQL nu a fost
 // rulat încă, citirea întoarce { setup: false } (nimic nu se strică), iar
 // scrierea dă un mesaj clar despre ce trebuie rulat.

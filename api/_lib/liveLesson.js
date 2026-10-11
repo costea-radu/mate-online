@@ -23,7 +23,10 @@ const B = require('./barem');
 const live = require('./live');
 const tts = require('./tts');
 
-const GEN_MODEL = () => process.env.LIVE_GEN_MODEL || ai.GEN_MODEL;
+// lecția pe barem se scrie o singură dată pe subiect, din paginile PDF ale subiectului
+// și baremului → implicit modelul de PDF („terra", mai ieftin decât „sol");
+// LIVE_GEN_MODEL îl schimbă
+const GEN_MODEL = () => process.env.LIVE_GEN_MODEL || ai.PDF_MODEL;
 const CHUNK = () => Math.max(1, parseInt(process.env.LIVE_ITEMI_PE_APEL || '3', 10));
 const TTS_PARALLEL = () => Math.max(1, parseInt(process.env.LIVE_TTS_PARALEL || '6', 10));
 

@@ -151,6 +151,12 @@ function lessonHtml(title, text) {
   return `<h1 class="exam-title">${esc(title)}</h1><div class="exam-sub">Lecție pregătită de Profesorul Virtual · ExamenMate</div><div class="rules">Meditații cu Profesorul Virtual</div>${body}`;
 }
 
+// „II.1.b" → „S. II · ex. 1 b)" (poziția unui item din subiectul oficial)
+function sourceRef(ref) {
+  const m = /^(I{1,3})\.(\d)(?:\.([a-d]))?$/.exec(String(ref || ''));
+  return m ? `S. ${m[1]} · ex. ${m[2]}${m[3] ? ` ${m[3]})` : ''}` : String(ref || '');
+}
+
 // ─── Rulează un set de întrebări (evaluare/exerciții/temă/recapitulare/simulare)
 // homework=true (temă): la sfârșit stă butonul „🏁 Finalizează tema" — închide
 // tema și FĂRĂ toate problemele rezolvate (se înregistrează ca temă completă
@@ -262,6 +268,14 @@ function QuizRunner({ title, subtitle, questions, submitLabel = '✓ Trimite spr
                 <strong>{i + 1}.</strong> <MathText text={fixLatexClient(q.statement)} />
                 {/* exercițiu RELUAT din repetiția inteligentă (Etapa 3, 5.3) */}
                 {q.repeated && <span title="Exercițiu la care ai greșit — îl reluăm ca să-l fixezi" style={{ marginLeft: 6, fontSize: '.7rem', fontWeight: 700, color: '#8a6d1a', background: 'rgba(232,185,49,.16)', borderRadius: 12, padding: '2px 8px', whiteSpace: 'nowrap' }}>🔁 reluat</span>}
+                {/* item dintr-un subiect oficial: subiectul se deschide alături (figura e acolo) */}
+                {q.source && (
+                  <div style={{ marginTop: 4, fontSize: '.78rem' }}>
+                    <a href={q.source.url} target="_blank" rel="noopener noreferrer" style={{ color: q.source.figure ? '#8a6d1a' : 'var(--text-muted)', fontWeight: q.source.figure ? 700 : 500 }}>
+                      {q.source.figure ? '📐 Figura e în subiectul oficial — deschide-l' : `📄 ${q.source.title}`} · {sourceRef(q.source.ref)} ↗
+                    </a>
+                  </div>
+                )}
               </div>
               {r && <span style={{ fontSize: '1.2rem' }} title={r.skipped ? 'Nerezolvată' : r.correct ? 'Corect' : 'Greșit'}>{r.correct ? '✅' : r.skipped ? '⏳' : '❌'}</span>}
             </div>
@@ -367,7 +381,7 @@ const BUSY_MSGS = {
   exercises: 'Generez exercițiile după modelul din site… (~30s)',
   remediation: 'Pregătesc cele 10 exerciții de același fel… (~30s)',
   review: 'Pregătesc recapitularea — 5 întrebări scurte… (~20s)',
-  simulare: 'Construiesc simularea, cu punctele tale slabe incluse… (~40s)',
+  simulare: 'Pregătesc testul — caut întâi în testele din site și în subiectele oficiale…',
   homework: 'Pregătesc tema…',
   style: 'Țin minte preferința ta…',
 };
@@ -377,7 +391,7 @@ const BUSY_SAY = {
   exercises: 'Îți pregătesc exercițiile. Durează puțin.',
   remediation: 'Îți pregătesc zece exerciții de același fel, ca să fixăm procedeul.',
   review: 'Pregătesc recapitularea: câteva întrebări scurte.',
-  simulare: 'Construiesc simularea, cu punctele tale slabe incluse. Durează puțin.',
+  simulare: 'Îți pregătesc testul.',
   homework: 'Îți pregătesc tema.',
 };
 function BusyOverlay({ label }) {
@@ -914,13 +928,18 @@ export default function Meditatii() {
     // nefolosit încă → se deschide acela; abia după epuizare se generează unul.
     if (r.siteTest) { navigate(r.siteTest.url); return; }
     const isLucrare = r.focusTest || r.examType === 'lucrare';
+    // simularea compusă din subiectele oficiale (răspunsurile sunt cele din barem)
+    const oficial = r.source?.kind === 'oficial';
+    const titles = r.source?.titles || [];
     setQuiz({
       kind: 'simulare', sessionId: r.sessionId, questions: r.questions,
       topic: isLucrare ? 'Lucrare de verificare' : (EXAM_LABELS[r.examType] || r.examType),
       title: isLucrare ? '🧩 Test de verificare · capitolele lucrării' : `🎯 Simulare interactivă · ${EXAM_LABELS[r.examType] || r.examType}`,
       subtitle: isLucrare
         ? 'Doar din capitolele alese pentru lucrare — să vedem cât de pregătit ești.'
-        : 'Construită după modelul subiectelor din site, cu punctele tale slabe incluse.',
+        : oficial
+          ? `Din subiectele oficiale (${titles.slice(0, 2).join(', ')}${titles.length > 2 ? ` și încă ${titles.length - 2}` : ''}), corectată pe barem.`
+          : 'Construită după modelul subiectelor din site, cu punctele tale slabe incluse.',
     });
     scrollToBoard();
   });
@@ -2262,7 +2281,8 @@ function SimTab({ st, busy, onSimulare, onFocusTest }) {
         <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.05rem', marginBottom: 4 }}>🎯 Simulare interactivă · {examLabel}</div>
         <p style={{ fontSize: '.86rem', color: 'var(--text-light)', marginBottom: 12 }}>
           <strong>Alege un test din baza de date a site-ului</strong> — se deschide pagina cu testele pentru <strong>{levelLabel}</strong> —
-          sau cere-mi să îți <strong>generez unul nou</strong> în stilul subiectelor oficiale, cu <strong>punctele tale slabe incluse</strong>.
+          sau cere-mi o <strong>simulare nouă</strong>: o compun din <strong>subiectele oficiale</strong> pe care nu le-ai lucrat încă,
+          corectată pe barem; când le termini, o scriu eu în stilul lor, cu <strong>punctele tale slabe incluse</strong>.
           Rezultatul se înregistrează și îl văd și părinții/profesorii tăi.
         </p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -2270,7 +2290,7 @@ function SimTab({ st, busy, onSimulare, onFocusTest }) {
             📚 Alege din baza de date a site-ului
           </button>
           <button className="btn btn-outline" disabled={!!busy} onClick={() => onSimulare(true)}>
-            {busy === 'simulare' ? 'Generez simularea...' : '✨ Generează nou'}
+            {busy === 'simulare' ? 'Pregătesc simularea...' : '✨ Simulare nouă'}
           </button>
         </div>
 

@@ -20,6 +20,8 @@ const taxonomy = require('./_lib/taxonomy');    // subiectele canonice (Etapa 3,
 const live = require('./_lib/live');            // Prof. Tudor — profesorul de la tablă (ca în sala live)
 const prep = require('./_lib/pregatire');       // „Pregătire de examen" (exercițiu cu exercițiu, ca la meditația live)
 const LA = require('./_lib/liveAccess');        // …o ședință 1-la-1: 8 incluse (comune cu live), apoi bilet de 20 lei
+const lectii = require('./_lib/lectii');        // biblioteca de lecții: teoria generată o dată, refolosită
+const simOficiale = require('./_lib/simulariOficiale'); // simulările din subiectele oficiale (fără model)
 
 // ─── TABLA CU PROF. TUDOR („Planul meu") ─────────────────────────────────────
 // Ce scrie modelul apare PE TABLĂ; ce SPUNE profesorul (fără să scrie) se aude
@@ -29,6 +31,11 @@ const BOARD_QUESTION_FORMAT = `[[GRILA:{"q":"enunțul, cu formule între $...$",
 [[COMPLETARE:{"q":"enunț care cere un rezultat scurt","a":"rezultatul (ex. 4, -3/2, 2\\\\sqrt{3})","e":"explicația pe scurt, 1–2 fraze"}]]
 Reguli pentru întrebare: JSON valid pe UN singur rând, cu backslash-urile din LaTeX DUBLATE (\\\\frac, \\\\sqrt, \\\\cdot — scrii două backslash-uri); la grilă 4 variante, UNA singură corectă, litera ei în "a" (a, b, c sau d — variază poziția), iar variantele greșite sunt greșelile tipice ale elevilor; la completare răspunsul e UN număr sau o expresie scurtă; întrebarea verifică exact ce ai scris mai sus, la nivelul elevului.`;
 const teacherName = () => (live.teacherById('radu') || live.TEACHER_DEFAULTS.radu).name;
+// limitele AI ale elevului, verificate DOAR înainte de un apel la model (seturile
+// făcute în cod — api/_lib/generatoare.js — nu consumă nimic)
+const limitsFor = (supa, userId) => () => ai.enforceRateLimit(supa, userId);
+// în statistici, seturile făcute în cod apar separat (cost 0)
+const usageTag = (endpoint, provider) => (provider === 'cod' ? `${endpoint}:cod` : endpoint);
 
 // Scorul unui test din site: recalculat din răspunsuri când materialul are chei
 // (exerciții generate), altfel scorul trimis, plafonat. Întoarce { sc, mx, verified }.
@@ -190,6 +197,8 @@ function sanitize(questions) {
     options: Array.isArray(q.options) ? q.options : undefined,
     answer_type: Array.isArray(q.options) ? 'choice' : 'open',
     ...(q.repeated ? { repeated: true } : {}), // exercițiu RELUAT (repetiție SM-2)
+    // item dintr-un subiect oficial: de unde e (și unde e figura, dacă o are)
+    ...(q.official?.sid ? { source: { title: q.official.title, ref: q.official.ref, url: `/pdf-viewer?id=${q.official.sid}`, figure: !!q.official.figure } } : {}),
   }));
 }
 
@@ -802,7 +811,6 @@ async function setup(req, res, supa) {
   const profile = await ai.requireUser(supa, userId);
   // Testul inițial: abonat/admin SAU elev asociat cu un părinte (o singură dată).
   await requireAssessmentAccess(supa, userId, profile, { generating: true });
-  await ai.enforceRateLimit(supa, userId);
 
   const grade = Math.min(12, Math.max(5, parseInt(req.body?.grade, 10) || 8));
   const rawTarget = String(req.body?.examTarget || '').trim();
@@ -842,8 +850,9 @@ async function setup(req, res, supa) {
     category, purpose: 'evaluare', count: 12, chaptersSpec,
     topics: assessChapters.slice(0, 6).flatMap((c) => (c.topics || [c.title]).slice(0, 2)),
     styleNote: focus?.custom ? `elevul se pregătește pentru: ${focus.custom.slice(0, 200)}` : null,
+    beforeAI: limitsFor(supa, userId),
   });
-  await ai.logUsage(supa, userId, 'ai-meditatii:setup', usage || {});
+  await ai.logUsage(supa, userId, usageTag('ai-meditatii:setup', provider), usage || {});
   if (!questions.length) return res.status(502).json({ error: 'Testul inițial nu a putut fi generat. Mai încearcă o dată.' });
 
   // fiecare întrebare trebuie să aparțină unui capitol valid (altfel prima potrivire)
@@ -949,13 +958,15 @@ async function assessmentSubmit(req, res, supa) {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // LESSON — teoria capitolului: ÎNTÂI materialele din site, apoi lecția AI
-// (modelul de generare existent — „sol”), cu formule și schemă (funcția 14)
+// (modelul de generare existent — „sol”), cu formule și schemă (funcția 14).
+// Lecția vine din BIBLIOTECĂ dacă a mai fost scrisă pentru aceeași clasă/examen,
+// același nivel și același stil (api/_lib/lectii.js) — altfel se generează o
+// dată și intră în bibliotecă.
 // ═════════════════════════════════════════════════════════════════════════════
 async function lesson(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
   requireMeditatii(profile);
-  const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
 
   const medProfile = await getMedProfile(supa, userId);
   if (!medProfile) return res.status(400).json({ error: 'Începe cu testul inițial.' });
@@ -977,16 +988,44 @@ async function lesson(req, res, supa) {
     });
   }
 
-  // lecția: stil din materialele din site (RAG), generată cu modelul existent
+  // 1. BIBLIOTECA DE LECȚII (api/_lib/lectii.js): aceeași teorie pentru aceeași
+  //    clasă/examen × nivel × stil — generată o dată, servită apoi fără cost
+  const variant = lectii.variantOf(medProfile, chapter, teacherName());
+  let text = await lectii.get(supa, variant.key);
+  const fromLibrary = !!text;
+  if (fromLibrary) await ai.logUsage(supa, userId, 'ai-meditatii:lesson-lib', {}); // cost 0 (statistici)
+  else text = await generateLesson(supa, { userId, profile, medProfile, chapter, variant });
+
+  // capitolul trece în starea „teorie" (dacă era neînceput)
+  if (chapter.status === 'de_parcurs') chapter.status = 'teorie';
+  const memory = { ...(medProfile.memory || {}), lastChapter: chapter.id };
+  await savePlan(supa, userId, plan);
+  await saveMemory(supa, userId, memory);
+  await supa.from('ai_meditatii_sessions').insert({
+    user_id: userId, kind: 'lectie', chapter: chapter.id, topic: chapter.title,
+    status: 'finalizata', completed_at: new Date().toISOString(), payload: { materials, ...(fromLibrary ? { library: true } : {}) },
+  });
+
+  // greșeala lui cea mai frecventă → o frază spusă de Prof. Tudor (în cod, fără model)
+  const personal = lectii.personalize(text, medProfile);
+  return res.status(200).json({ chapter: { id: chapter.id, title: chapter.title }, lesson: personal, materials });
+}
+
+// Lecția nouă (nu e încă în bibliotecă): stil din materialele din site (RAG),
+// generată cu modelul existent, apoi păstrată pentru elevii următori.
+async function generateLesson(supa, { userId, profile, medProfile, chapter, variant }) {
+  const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
   const docs = await ai.retrieve(supa, {
     query: `${chapter.title} ${chapter.topics?.join(' ') || ''} teorie explicație`,
     category: med.categoryFor(medProfile), allowPremium: true, k: 6, prefer: 'solution',
   });
   const ctx = ai.contextBlock(docs);
-  const styleNote = styleNoteOf(medProfile);
+  // adaptarea din prompt e doar ce intră în cheia bibliotecii (nivel + stil);
+  // greșelile elevului se adaugă la servire (lectii.personalize)
+  const styleNote = variant.styleNote;
   const system = `${ai.PERSONA}
 
-Sarcină: predă TEORIA capitolului „${chapter.title}" pentru un elev de ${medProfile.grade <= 8 ? `clasa a ${medProfile.grade}-a` : `clasa a ${medProfile.grade}-a (liceu)`}${medProfile.exam_target ? `, care se pregătește pentru ${medProfile.exam_target === 'evaluare-nationala' ? 'Evaluarea Națională' : 'Bacalaureat'}` : ''}.
+Sarcină: predă TEORIA capitolului „${chapter.title}" pentru ${variant.audience.text}.
 ${styleNote ? `ADAPTARE LA ELEV: ${styleNote}.` : ''}
 
 === MATERIALE DIN SITE (folosește stilul și notațiile lor) ===
@@ -1013,25 +1052,18 @@ LECȚIA SE ȚINE LA TABLĂ, cu ${teacherName()}: tot ce scrii (în afara marcaje
 ${BOARD_QUESTION_FORMAT}
   Alternează: cel puțin o grilă și cel puțin o completare în lecție.`;
 
+  const model = ai.pickModel(ai.GEN_MODEL, lim); // peste bugetul zilnic → model standard
   const { text, usage } = await ai.chat({
     system,
     messages: [{ role: 'user', content: 'Scrie lecția acum, caldă și clară, potrivită nivelului meu.' }],
-    temperature: 0.4, maxTokens: 3000,
-    model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
+    temperature: 0.4, maxTokens: 3000, model,
   });
   await ai.logUsage(supa, userId, 'ai-meditatii:lesson', usage);
-
-  // capitolul trece în starea „teorie" (dacă era neînceput)
-  if (chapter.status === 'de_parcurs') chapter.status = 'teorie';
-  const memory = { ...(medProfile.memory || {}), lastChapter: chapter.id };
-  await savePlan(supa, userId, plan);
-  await saveMemory(supa, userId, memory);
-  await supa.from('ai_meditatii_sessions').insert({
-    user_id: userId, kind: 'lectie', chapter: chapter.id, topic: chapter.title,
-    status: 'finalizata', completed_at: new Date().toISOString(), payload: { materials },
-  });
-
-  return res.status(200).json({ chapter: { id: chapter.id, title: chapter.title }, lesson: text, materials });
+  // în bibliotecă: doar o lecție completă, scrisă de modelul de generare
+  if (model === ai.GEN_MODEL && lectii.isComplete(text)) {
+    await lectii.save(supa, variant.key, { text, chapter: chapter.id, model });
+  }
+  return text;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1053,7 +1085,6 @@ async function lessonSimplify(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
   requireMeditatii(profile);
-  const lim = await ai.enforceRateLimit(supa, userId, profile);
 
   const medProfile = await getMedProfile(supa, userId);
   if (!medProfile) return res.status(400).json({ error: 'Începe cu testul inițial.' });
@@ -1067,10 +1098,14 @@ async function lessonSimplify(req, res, supa) {
   const attempt = Math.min(3, Math.max(1, parseInt(req.body?.attempt, 10) || 1));
   const angle = SIMPLIFY_ANGLES[Math.min(attempt, SIMPLIFY_ANGLES.length) - 1];
 
-  const styleNote = styleNoteOf(medProfile);
+  // ca la lecție: în prompt doar ce au în comun elevii cu aceeași lecție din
+  // bibliotecă (clasă/examen, nivel, stil) — reexplicarea se poate refolosi
+  const variant = lectii.variantOf(medProfile, chapter || { id: chapterId, title: chapterTitle }, teacherName());
+  const styleNote = variant.styleNote;
+  const who = variant.audience.text.charAt(0).toUpperCase() + variant.audience.text.slice(1);
   const system = `${ai.PERSONA}
 
-Un elev de clasa a ${medProfile.grade}-a ți-a spus „NU AM ÎNȚELES" la o parte din lecția „${chapterTitle}".
+${who} ți-a spus „NU AM ÎNȚELES" la o parte din lecția „${chapterTitle}".
 Partea la care s-a blocat se numește „${stageTitle}".
 ${styleNote ? `ADAPTARE LA ELEV: ${styleNote}.` : ''}
 
@@ -1092,13 +1127,25 @@ REGULI DE SCRIERE (textul apare pe o TABLĂ, scris de mână, iar ${teacherName(
 - la final, pe rând separat, O întrebare de verificare NOUĂ (alta decât în lecție), direct pe tablă:
 ${BOARD_QUESTION_FORMAT}`;
 
-  const { text, usage } = await ai.chat({
-    system,
-    messages: [{ role: 'user', content: 'Explică-mi din nou partea asta, te rog.' }],
-    temperature: 0.55, maxTokens: 950,
-    model: ai.pickModel(ai.GEN_MODEL, lim),
-  });
-  await ai.logUsage(supa, userId, 'ai-meditatii:lesson_simplify', usage);
+  // aceeași etapă, aceeași încercare, același prompt → reexplicarea din bibliotecă
+  const key = lectii.simplifyKey(system, attempt);
+  let text = await lectii.get(supa, key);
+  if (text) await ai.logUsage(supa, userId, 'ai-meditatii:lesson_simplify-lib', {}); // cost 0
+  else {
+    const lim = await ai.enforceRateLimit(supa, userId, profile);
+    const model = ai.pickModel(ai.GEN_MODEL, lim);
+    const out = await ai.chat({
+      system,
+      messages: [{ role: 'user', content: 'Explică-mi din nou partea asta, te rog.' }],
+      temperature: 0.55, maxTokens: 950, model,
+    });
+    text = out.text;
+    await ai.logUsage(supa, userId, 'ai-meditatii:lesson_simplify', out.usage);
+    // se păstrează doar pentru lecțiile din bibliotecă (etapa are același text la toți)
+    if (model === ai.GEN_MODEL && chapter && lectii.isGoodSimplify(text) && await lectii.get(supa, variant.key)) {
+      await lectii.save(supa, key, { text, chapter: chapter.id, model });
+    }
+  }
 
   await recordStageFeedback(supa, userId, medProfile, {
     chapterId, chapterTitle, stageTitle, understood: false, attempt,
@@ -1168,7 +1215,6 @@ async function exercises(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
   requireMeditatii(profile);
-  await ai.enforceRateLimit(supa, userId);
 
   const medProfile = await getMedProfile(supa, userId);
   if (!medProfile) return res.status(400).json({ error: 'Începe cu testul inițial.' });
@@ -1225,9 +1271,9 @@ async function exercises(req, res, supa) {
   const { questions, provider, usage } = await med.genQuestions(supa, {
     category: med.categoryFor(medProfile), chapter: chapter.title, chapterId: chapter.id,
     topics: chapter.topics || [], difficulty, count,
-    purpose: 'exersare', styleNote: styleNoteOf(medProfile),
+    purpose: 'exersare', styleNote: styleNoteOf(medProfile), beforeAI: limitsFor(supa, userId),
   });
-  await ai.logUsage(supa, userId, 'ai-meditatii:exercises', usage || {});
+  await ai.logUsage(supa, userId, usageTag('ai-meditatii:exercises', provider), usage || {});
   if (!questions.length) return res.status(502).json({ error: 'Exercițiile nu au putut fi generate. Mai încearcă o dată.' });
   questions.forEach((q) => { q.chapter = chapter.id; q.topic = q.topic || chapter.title; });
 
@@ -1510,7 +1556,6 @@ async function remediation(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
   requireMeditatii(profile);
-  await ai.enforceRateLimit(supa, userId);
   const { mistakeId } = req.body || {};
 
   const { data: mistake } = await supa.from('ai_meditatii_mistakes').select('*').eq('id', mistakeId).eq('user_id', userId).single();
@@ -1520,9 +1565,9 @@ async function remediation(req, res, supa) {
   const { questions, provider, usage } = await med.genQuestions(supa, {
     category: med.categoryFor(medProfile || {}), chapter: mistake.chapter, chapterId: mistake.chapter,
     topics: [mistake.topic].filter(Boolean), difficulty: 'mediu', count: 10,
-    purpose: 'remediere', mistake, styleNote: styleNoteOf(medProfile),
+    purpose: 'remediere', mistake, styleNote: styleNoteOf(medProfile), beforeAI: limitsFor(supa, userId),
   });
-  await ai.logUsage(supa, userId, 'ai-meditatii:remediation', usage || {});
+  await ai.logUsage(supa, userId, usageTag('ai-meditatii:remediation', provider), usage || {});
   if (!questions.length) return res.status(502).json({ error: 'Exercițiile de remediere nu au putut fi generate. Mai încearcă.' });
   questions.forEach((q) => { q.chapter = mistake.chapter; q.topic = q.topic || mistake.topic; });
 
@@ -1538,7 +1583,7 @@ async function remediation(req, res, supa) {
 // ═════════════════════════════════════════════════════════════════════════════
 // TEMELE (funcția 10 — „cea mai importantă"): întâi din site, apoi generate
 // ═════════════════════════════════════════════════════════════════════════════
-async function pickAndAssignHomework(supa, userId, medProfile, { notify = true, auto = false } = {}) {
+async function pickAndAssignHomework(supa, userId, medProfile, { notify = true, auto = false, beforeAI = null } = {}) {
   const plan = medProfile.plan || {};
   // tema urmează prioritatea elevului: capitolele lucrării (focus) sau ale
   // subiectelor alese la pregătirea de examen (exam_scope)
@@ -1579,14 +1624,14 @@ async function pickAndAssignHomework(supa, userId, medProfile, { notify = true, 
     hwRow = data ? { ...data, kind: 'content' } : null;
   } else if (chapter) {
     // 2) site epuizat → generăm după modelul din site (Opus 5 / fallback)
-    const { questions, usage } = await med.genQuestions(supa, {
+    const { questions, usage, provider } = await med.genQuestions(supa, {
       category: med.categoryFor(medProfile), chapter: chapter.title, chapterId: chapter.id,
       topics: chapter.topics || [], difficulty, count: 8,
-      purpose: 'tema', styleNote: styleNoteOf(medProfile),
+      purpose: 'tema', styleNote: styleNoteOf(medProfile), beforeAI,
     });
     // generarea temei (on-demand SAU din cron) se contorizează la elev, ca
     // orice altă generare — până acum nu se loga deloc (cost invizibil)
-    await ai.logUsage(supa, userId, auto ? 'ai-meditatii:homework:auto' : 'ai-meditatii:homework', usage || {});
+    await ai.logUsage(supa, userId, usageTag(auto ? 'ai-meditatii:homework:auto' : 'ai-meditatii:homework', provider), usage || {});
     if (questions.length) {
       questions.forEach((q) => { q.chapter = chapter.id; q.topic = q.topic || chapter.title; });
       const { data } = await supa.from('ai_meditatii_homework').insert({
@@ -1614,10 +1659,9 @@ async function homeworkAssign(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
   requireMeditatii(profile);
-  await ai.enforceRateLimit(supa, userId);
   const medProfile = await getMedProfile(supa, userId);
   if (!medProfile) return res.status(400).json({ error: 'Începe cu testul inițial.' });
-  const out = await pickAndAssignHomework(supa, userId, medProfile, { notify: false });
+  const out = await pickAndAssignHomework(supa, userId, medProfile, { notify: false, beforeAI: limitsFor(supa, userId) });
   return res.status(200).json(out);
 }
 
@@ -1889,7 +1933,6 @@ async function reviewStart(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
   requireMeditatii(profile);
-  await ai.enforceRateLimit(supa, userId);
   const { reviewId } = req.body || {};
   const { data: rev } = await supa.from('ai_meditatii_reviews').select('*').eq('id', reviewId).eq('user_id', userId).single();
   if (!rev) return res.status(404).json({ error: 'Recapitularea nu există.' });
@@ -1910,10 +1953,10 @@ async function reviewStart(req, res, supa) {
     const g = await med.genQuestions(supa, {
       category: med.categoryFor(medProfile || {}), chapter: chapter.title, chapterId: rev.chapter,
       topics: chapter.topics || [], difficulty: 'mediu', count: need,
-      purpose: 'recapitulare', styleNote: styleNoteOf(medProfile),
+      purpose: 'recapitulare', styleNote: styleNoteOf(medProfile), beforeAI: limitsFor(supa, userId),
     });
     fresh = g.questions; provider = g.provider;
-    await ai.logUsage(supa, userId, 'ai-meditatii:review', g.usage || {});
+    await ai.logUsage(supa, userId, usageTag('ai-meditatii:review', g.provider), g.usage || {});
   }
   const questions = [...repeated, ...fresh];
   if (!questions.length) return res.status(502).json({ error: 'Recapitularea nu a putut fi generată. Mai încearcă.' });
@@ -1940,7 +1983,8 @@ async function simulare(req, res, supa) {
   const userId = await ai.authUser(req, supa);
   const profile = await ai.requireUser(supa, userId);
   requireMeditatii(profile);
-  await ai.enforceRateLimit(supa, userId);
+  // (limitele AI se verifică doar înainte de generare: testele din site și
+  //  simulările din subiectele oficiale nu costă nimic)
 
   const medProfile = await getMedProfile(supa, userId);
   if (!medProfile) return res.status(400).json({ error: 'Începe cu testul inițial.' });
@@ -1973,6 +2017,7 @@ async function simulare(req, res, supa) {
         }
       }
     }
+    await ai.enforceRateLimit(supa, userId);
     // punctele slabe DIN capitolele lucrării intră obligatoriu în test
     const { data: weakF } = await supa.from('ai_skill_mastery')
       .select('topic, mastery').eq('user_id', userId).lt('mastery', 0.6)
@@ -2024,8 +2069,10 @@ async function simulare(req, res, supa) {
   }
 
   // SITE-FIRST (cerința 1, runda 5): întâi TESTELE din site din categoria
-  // examenului, care nu s-au dat ca temă și nu au fost înregistrate.
-  // Generăm după modelul din site DOAR după epuizare (sau forceGenerate).
+  // examenului, care nu s-au dat ca temă și nu au fost înregistrate; apoi o
+  // simulare din SUBIECTELE OFICIALE (mai jos). Generăm după modelul din site
+  // DOAR după epuizarea lor. „✨ Simulare nouă" (forceGenerate) sare doar peste
+  // testele din site.
   if (!req.body?.forceGenerate) {
     const used = await usedContentIds(supa, userId);
     const site = await med.siteInteractiveFor(supa, {
@@ -2046,15 +2093,36 @@ async function simulare(req, res, supa) {
     }
   }
 
+  // pregătirea pe SUBIECTELE alese (doar Subiectul I / II / I+II): simularea
+  // conține DOAR itemii subiectelor alese (nota de conținut din examScopeNote)
+  const scope = medProfile.memory?.exam_scope || null;
+
+  // SUBIECTELE OFICIALE (api/_lib/simulariOficiale.js): pozițiile examenului,
+  // din itemii puși pe barem în lecțiile meditațiilor live — fără model, cost 0.
+  // Generarea de mai jos rămâne pentru când itemii oficiali nelucrați s-au terminat.
+  let official = null;
+  try { official = await simOficiale.build(supa, { userId, examType, scope }); }
+  catch (e) { console.warn('simulare din subiectele oficiale:', e.message); }
+  if (official) {
+    const { data: sess, error } = await supa.from('ai_meditatii_sessions').insert({
+      user_id: userId, kind: 'simulare', topic: examType, status: 'activa',
+      payload: { questions: official.questions, provider: 'oficial', examType, official: official.official },
+    }).select('id').single();
+    if (error) return res.status(500).json({ error: error.message });
+    await ai.logUsage(supa, userId, 'ai-meditatii:simulare-oficiala', {}); // cost 0 (statistici)
+    return res.status(200).json({
+      sessionId: sess.id, examType, questions: sanitize(official.questions),
+      source: { kind: 'oficial', titles: official.titles },
+    });
+  }
+
+  await ai.enforceRateLimit(supa, userId);
   // punctele slabe intră în test (teste personalizate după punctele slabe)
   const { data: weak } = await supa.from('ai_skill_mastery')
     .select('topic, mastery').eq('user_id', userId).lt('mastery', 0.6)
     .order('mastery', { ascending: true }).limit(4);
   const weakLine = (weak || []).map((w) => w.topic).filter(Boolean).join(', ');
 
-  // pregătirea pe SUBIECTELE alese (doar Subiectul I / II / I+II): simularea
-  // conține DOAR itemii subiectelor alese (nota de conținut din examScopeNote)
-  const scope = medProfile.memory?.exam_scope || null;
   const scopeNote = scope ? med.examScopeNote(medProfile.exam_target, scope) : null;
   const structura = scopeNote
     ? `TOATE întrebările acoperă ${scopeNote} — nu include itemi din alte subiecte ale examenului`

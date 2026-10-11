@@ -534,7 +534,7 @@ părinți/profesori.
 | `PREP_TEST_EXERCITII` / `PREP_TEST_PROBLEME` | `5` / `3` | mărimea testului: la itemii simpli / la problemele cu a), b), c) |
 | `PREP_PRAG` | `80` | pragul de trecere a testului (%) |
 | `PREP_IN_PLUS` | `5` | câte exerciții în plus după un test netrecut |
-| `PREP_GENERARI_ZI` | `12` | câte lecții noi poate declanșa un elev într-o zi (plafon de cost) |
+| `PREP_GENERARI_ZI` | `3` | câte lecții noi poate declanșa un elev într-o zi (plafon de cost; lecțiile rămân apoi pentru toți) |
 
 **Instalare și cost:** fără migrare SQL. Vocea e a browserului (**0 lei**). Singurul cost e
 scrierea lecțiilor pentru subiectele încă nefolosite (~1,5–5 lei pe subiect, **o singură
