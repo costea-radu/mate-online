@@ -32,7 +32,7 @@ function importLive(names, main) {
   return import(pathToFileURL(path.join(dir, `${main}.mjs`)).href);
 }
 let audioP = null;
-const audio = () => (audioP || (audioP = importLive(['audio', 'clock', 'lip'], 'audio')));
+const audio = () => (audioP || (audioP = importLive(['audio', 'clock', 'lip', 'voceServer'], 'audio')));
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1';
 const WINDOWS = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36';
@@ -215,7 +215,11 @@ test('o atingere nu strică dictarea din chat (sesiunea „play-and-record" pus�
 // voice.js citește SpeechRecognition la import → o copie proaspătă, după ce „browserul" e gata
 async function freshVoice() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'voice-'));
-  fs.copyFileSync(path.join(__dirname, '..', 'src', 'lib', 'voice.js'), path.join(dir, 'voice.mjs'));
+  // voice.js → ./live/voceServer (vocea de bărbat de pe server), ca în Vite, fără extensie
+  fs.mkdirSync(path.join(dir, 'live'));
+  fs.copyFileSync(path.join(__dirname, '..', 'src', 'lib', 'live', 'voceServer.js'), path.join(dir, 'live', 'voceServer.mjs'));
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'lib', 'voice.js'), 'utf8').replace("from './live/voceServer.js'", "from './live/voceServer.mjs'");
+  fs.writeFileSync(path.join(dir, 'voice.mjs'), src);
   return import(pathToFileURL(path.join(dir, 'voice.mjs')).href);
 }
 function fakeRecognition() {

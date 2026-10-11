@@ -20,6 +20,8 @@
 //   leave          — ieșirea din sală (1-la-1: „Încheie ședința")
 //   admin_*        — programul pe zile, subiectul unei ședințe, pregătirea lecțiilor,
 //                    meditațiile gratuite (admin_set_free)
+//   voce           — vocea de bărbat pentru frazele lui Prof. Tudor, pe dispozitivele fără
+//                    una (iPhone, Android): generată o dată pe frază, apoi din cache
 //   prep_*         — Pregătirea de examen („Planul meu"): tot o ședință 1-la-1, cu
 //                    aceleași reguli — prep_begin o pornește (din cele 8 incluse, COMUNE
 //                    cu 1-la-1 live, sau cu biletul de 20 lei), prep_session o prelungește
@@ -36,6 +38,7 @@
 // 20 lei 1-la-1) trec prin api/create-checkout.js → api/stripe-webhook.js.
 // Tabelele: supabase/meditatii_live.sql. Ghid: GHID_MEDITATII_LIVE.md.
 // =====================================================================
+const crypto = require('node:crypto');
 const ai = require('./_lib/ai');
 const B = require('./_lib/barem');
 const L = require('./_lib/live');
@@ -1967,12 +1970,63 @@ async function prepChat(req, res, supa) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// VOCEA DE BĂRBAT pentru frazele lui Prof. Tudor (Planul meu, widgetul, Pregătirea de
+// examen, demo-urile): pe dispozitivele fără o voce românească de bărbat — iPhone, iPad,
+// Mac (Apple are doar „Ioana"), Android (de obicei o voce de femeie) — browserul cere aici
+// vocea generată (Azure „Emil" / OpenAI „ash"). Fiecare frază se generează O SINGURĂ DATĂ
+// și rămâne în Storage (cheia = furnizorul + vocea + textul), deci frazele comune (lecțiile,
+// demo-urile, ghidul site-ului) nu se plătesc de două ori. O frază nouă se generează doar
+// pentru un elev logat, cât are credite AI (costul intră în ele); fără cont — doar din cache.
+// Fără voce configurată (AZURE_SPEECH_KEY / OPENAI_API_KEY) → provider: null, iar browserul
+// rămâne la vocea lui.
+// POST { texts: [...] } (cel mult 4, câte 600 de caractere) → { provider, voices: [{ url } | null] }
+// ═════════════════════════════════════════════════════════════════════════════
+const VOCE_MAX_TEXTS = 4;
+const VOCE_MAX_CHARS = 600;
+async function voce(req, res, supa) {
+  const { userId, profile } = await who(req, supa, { required: false });
+  const texts = (Array.isArray(req.body?.texts) ? req.body.texts : [req.body?.text])
+    .map((t) => String(t || '').trim()).filter(Boolean).slice(0, VOCE_MAX_TEXTS);
+  const provider = tts.provider();
+  if (!provider) return res.status(200).json({ provider: null, voices: texts.map(() => null) });
+  const teacher = L.teacherById(PREP_TEACHER()) || L.teachers()[0];
+  const voiceName = provider === 'azure' ? (teacher.voice?.azure || 'ro-RO-EmilNeural') : (teacher.voice?.openai || 'ash');
+  const bucket = supa.storage.from(tts.BUCKET);
+  let budgetOk = null;                                       // verificat o dată, la prima frază nouă
+  const one = async (text) => {
+    // ce nu trece de moderarea chatului (cuvinte urâte, linkuri, contacte) nu primește vocea profesorului
+    if (L.moderate(text, { max: VOCE_MAX_CHARS }).flagged) return null;
+    const say = tts.speakable(text).slice(0, VOCE_MAX_CHARS).trim();
+    if (!say) return null;
+    const key = crypto.createHash('sha1').update(`${provider}|${voiceName}|${say}`).digest('hex');
+    const dir = `voce/${key.slice(0, 2)}`;
+    const { data: found } = await bucket.list(dir, { search: key, limit: 2 });
+    const hit = (found || []).find((f) => f && f.name && f.name.startsWith(key));
+    if (hit) return { url: bucket.getPublicUrl(`${dir}/${hit.name}`).data.publicUrl };
+    if (!userId || !profile) return null;                    // fără cont: doar din cache
+    if (budgetOk === null) {
+      try { await ai.enforceBudgets(supa, userId, profile); budgetOk = true; } catch { budgetOk = false; }
+    }
+    if (!budgetOk) return null;                              // fără credite: rămâne vocea browserului
+    const v = await tts.voiceSegment(supa, { text: say, teacher, path: `${dir}/${key}` });
+    if (!v) return null;
+    const { error } = await supa.from('ai_usage')
+      .insert({ user_id: userId, endpoint: 'voce', tokens_in: say.length, tokens_out: 0, model: `tts-${v.provider}`, cost_micro: v.cost });
+    if (error) console.warn('voce: costul nu s-a putut nota:', error.message);
+    return { url: v.url };
+  };
+  const voices = await Promise.all(texts.map((t) => one(t).catch((e) => { console.warn('voce:', e.message); return null; })));
+  return res.status(200).json({ provider, voices });
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 const ACTIONS = {
   program, join, prepare, timeline, heartbeat, chat, messages,
   poll_answer: pollAnswer, poll_results: pollResultsAction,
   private_subjects: privateSubjects, private_start: privateStart, private_begin: privateBegin, private_state: privateState,
   extend,
   leave,
+  voce,
   admin_overview: adminOverview, admin_set_subject: adminSetSubject, admin_prepare: adminPrepare, admin_lesson: adminLesson,
   admin_set_free: adminSetFree,
   // Pregătirea de examen („Planul meu") — o ședință 1-la-1: prep_begin / prep_session

@@ -1022,7 +1022,16 @@ const STUDENT_TIP = `RECOMANDARE ACTIVĂ (pentru elevi): când elevul cere ajuto
 - Clasa lui (a 5-a … a 12-a): /clase/5 … /clase/12
 - Teste publicate de profesori: /biblioteca-utilizatorilor
 - Exerciții interactive generate pe loc, pe subiectul dorit: /profesor-virtual (tabul „Generează interactiv")
-Fă recomandarea natural, într-o singură frază sau două la finalul răspunsului, legată de subiectul cerut — nu transforma răspunsul în reclamă și nu o repeta la fiecare mesaj din aceeași conversație.`;
+- Meditații live cu Prof. Tudor (zilnic, de grup; sau 1-la-1 oricând): /meditatii
+- Pregătire de examen, exercițiu cu exercițiu (EN / BAC): /meditatii/pregatire — direct la un exercițiu: /meditatii/pregatire?pos=I.1 (Subiectul I, ex. 1), ?pos=II.2 etc.
+- Planul meu (test inițial, plan personalizat, teme): /meditatii/plan
+Fă recomandarea natural, într-o singură frază sau două la finalul răspunsului, legată de subiectul cerut — nu transforma răspunsul în reclamă și nu o repeta la fiecare mesaj din aceeași conversație.
+Dacă întrebarea NU e despre matematică și nici despre site, spune-i politicos, într-o frază, că ajuți la matematică și arată-i pe scurt ce găsește pe site (cu linkurile de mai sus).`;
+// Structura OFICIALĂ a examenelor (sursa unică: api/_lib/siteGuide.js) — ca modelul
+// să nu mute temele între subiecte (ex. polinoamele sunt la BAC S. II ex. 2, nu la S. I).
+// Încărcată leneș: siteGuide → pregatire → liveLesson → ai (ciclu la încărcare).
+let examStructureText = null;
+const examStructure = () => (examStructureText || (examStructureText = require('./siteGuide').EXAM_STRUCTURE_PROMPT));
 
 // Persona pentru PROFESORI și PĂRINȚI (public adult, ton colegial).
 const MENTOR_PERSONA = `Ești „Asistentul AI" de pe ExamenMate, pentru PROFESORI și PĂRINȚI. Ești un coleg calm, clar și practic.
@@ -1054,7 +1063,7 @@ const MODE_ROLES = {
 function systemFor(mode, ctxBlock, extra = '') {
   const mentor = mode === 'exams' || mode === 'students';
   const persona = mentor ? MENTOR_PERSONA : PERSONA;
-  const staticPrefix = `${persona}\n\n${mentor ? SITE_MAP : STUDENT_TIP}\n\n${MODE_ROLES[mode] || MODE_ROLES.tutor}`;
+  const staticPrefix = `${persona}\n\n${mentor ? SITE_MAP : STUDENT_TIP}\n\n${examStructure()}\n\n${MODE_ROLES[mode] || MODE_ROLES.tutor}`;
   return `${staticPrefix}\n\n=== MATERIALE DIN BAZA DE DATE (context RAG) ===\n${ctxBlock}\n=== SFÂRȘIT CONTEXT ===\n${extra}`.trim();
 }
 
@@ -1083,7 +1092,7 @@ function requirePremium(profile) {
 // Utilizatorii fără abonament au voie la un număr limitat de acțiuni AI (default 1).
 async function enforceFreeQuota(supa, profile) {
   if (isPremium(profile)) return;
-  const { count } = await supa.from('ai_usage').select('*', { count: 'exact', head: true }).eq('user_id', profile.id);
+  const { count } = await supa.from('ai_usage').select('*', { count: 'exact', head: true }).eq('user_id', profile.id).neq('endpoint', 'voce');
   if ((count || 0) >= FREE_ACTIONS) {
     throw premiumError(`Ai folosit cele ${FREE_ACTIONS} acțiuni gratuite cu Profesorul Virtual. Abonează-te pentru acces nelimitat (explicații, exerciții, foto-rezolvare, voce și teste de examen).`);
   }
@@ -1099,8 +1108,10 @@ async function enforceFreeQuota(supa, profile) {
 // de bugete (rata orară rămâne). Întoarce starea limitelor.
 async function enforceRateLimit(supa, userId, profile = null) {
   const since = new Date(Date.now() - 3600 * 1000).toISOString();
+  // „voce" = frazele rostite de Prof. Tudor cu vocea generată (api/live.js → voce):
+  // nu sunt cereri AI — nu intră în limita orară (costul lor intră în credite)
   const { count } = await supa.from('ai_usage').select('*', { count: 'exact', head: true })
-    .eq('user_id', userId).gte('created_at', since);
+    .eq('user_id', userId).neq('endpoint', 'voce').gte('created_at', since);
   if ((count || 0) >= RATE_PER_HOUR) {
     const e = new Error(`Ai atins limita de ${RATE_PER_HOUR} cereri AI pe oră. Încearcă din nou mai târziu.`);
     e.status = 429; e.code = 'RATE_HOUR'; throw e;
@@ -1850,6 +1861,29 @@ Motivează-l activ: felicită-l concret la reușite (punctaj maxim, insignă nou
 // iese din istoricul dat modelului (altfel l-ar repeta), iar dacă ultimul mesaj
 // al elevului este chiar întrebarea retrimisă, handlerul NU o mai salvează o
 // dată (întoarcem `regenerated: true`). Răspunsul vechi rămâne în DB (istoric).
+// Conversația elevului: o reluăm (dacă e a lui) sau o creăm. Folosită de prepareChat
+// și de ghidul site-ului (api/_lib/siteGuide.js — răspunsuri fără model).
+async function openConversation(supa, { userId, conversationId = null, message = '', context = {} }) {
+  let convId = conversationId || null;
+  if (convId) {
+    const { data } = await supa.from('ai_conversations').select('id, user_id').eq('id', convId).maybeSingle();
+    if (!data || data.user_id !== userId) convId = null;
+  }
+  if (!convId) {
+    // Dacă inserarea eșuează, convId rămâne undefined și TOATE scrierile
+    // ulterioare (mesaje, update conversație) eșuează în lanț, tăcut. Oprim aici.
+    const { data, error } = await supa.from('ai_conversations')
+      .insert({ user_id: userId, title: String(message || '').slice(0, 60), context }).select('id').single();
+    if (error || !data?.id) {
+      console.error('ai: creare conversație eșuată:', error);
+      const e = new Error('Nu s-a putut porni conversația. Încearcă din nou.');
+      e.status = 500; throw e;
+    }
+    convId = data.id;
+  }
+  return convId;
+}
+
 async function prepareChat(supa, { userId, message, mode = 'tutor', conversationId = null, context = {}, premium = false, regenerate = false, images = null }) {
   const isPdfAgent = !!context.pdf;
   const hasBarem = !!(context.pdf && context.baremText);
@@ -1872,23 +1906,7 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
   }
 
   // 2. Conversație: o reluăm (dacă e a userului) sau o creăm.
-  let convId = conversationId || null;
-  if (convId) {
-    const { data } = await supa.from('ai_conversations').select('id, user_id').eq('id', convId).maybeSingle();
-    if (!data || data.user_id !== userId) convId = null;
-  }
-  if (!convId) {
-    // Dacă inserarea eșuează, convId rămâne undefined și TOATE scrierile
-    // ulterioare (mesaje, update conversație) eșuează în lanț, tăcut. Oprim aici.
-    const { data, error } = await supa.from('ai_conversations')
-      .insert({ user_id: userId, title: message.slice(0, 60), context }).select('id').single();
-    if (error || !data?.id) {
-      console.error('ai: creare conversație eșuată:', error);
-      const e = new Error('Nu s-a putut porni conversația. Încearcă din nou.');
-      e.status = 500; throw e;
-    }
-    convId = data.id;
-  }
+  const convId = await openConversation(supa, { userId, conversationId, message, context });
 
   // 3. Istoric recent (ultimele 10 mesaje, fără răspunsurile înlocuite)
   let rows = await loadHistory(supa, convId, 10);
@@ -2361,14 +2379,14 @@ async function verifiedPdfReply({ system, messages, baremItem, mode = 'tutor', m
 module.exports = {
   budgetNotice,
   CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic, isCronRequest,
-  chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, PERSONA,
+  chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, openConversation, PERSONA,
   dropLastTurn, loadHistory, // „Regenerează" (exportate pentru teste)
   chatJson, S, deepRestoreLatex, restoreLatexControl, parseJsonLoose, buildBody, adaptBodyToError, answerIndex, // Structured Outputs
   extractBaremItem, fragmentFromBarem, verifiedPdfReply, wantsOtherExplanation, isFollowUpQuestion,
   deterministicBaremItem, shortAnswerCheck, fragmentFallback, pdfAgentSystem, // grile / rezultat scurt (EN) — exportate pentru teste
   levelLabel, interactiveCatalog, studentState, meditatiiMemory, meditatiiBoardRules,
   createNotification, teachersOf, mentorsOf,
-  requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, logUsage, signToken, verifyToken, sha256,
+  requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, enforceBudgets, logUsage, signToken, verifyToken, sha256,
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS, PDF_MODEL, GEN_MODEL,
   TUTOR_MODEL, TUTOR_MODES, REASONING_EFFORT, chatModelFor, isNewGenModel, pdfPageAttachments, refFromConversation,
   runToolCall, TOOL_ROUNDS,

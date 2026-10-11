@@ -11,6 +11,10 @@
 //     (Chrome cere un clic pe pagină înainte de prima rostire) lecția NU se
 //     oprește: subtitrările curg în ritmul vorbirii, iar gura se mișcă;
 //   · o replică nouă o întrerupe pe cea veche (`queue: true` = o pune la coadă).
+//   · VOCE DE BĂRBAT peste tot: unde browserul n-are o voce românească de bărbat
+//     (iPhone, iPad, Mac — doar „Ioana"; Android — de obicei de femeie), frazele
+//     vin cu vocea generată pe server (voceServer.js — o dată pe frază, apoi din
+//     cache); dacă n-a venit la timp, fraza o rostește browserul.
 // Preferințele (sunet, subtitrări) se țin minte în localStorage.
 //
 // Folosire:  prof.say(plan, { onProgress, onEnd, onStop, key, queue })
@@ -18,6 +22,7 @@
 //   (vezi src/lib/tabla.js → speechPlan / talkPlan)
 // =====================================================================
 import { pickRomanianVoice } from './audio';
+import { wantsServerVoice, serverVoiceOff, serverVoiceUrl, prefetchVoices, playServerVoice, stopServerVoice, unlockServerVoice } from './voceServer';
 import { syntheticLip } from './lip';
 import { talkPlan } from '../tabla';
 
@@ -95,6 +100,7 @@ class Speaker {
     return this.voice;
   }
   voiceStatus() {
+    if (wantsServerVoice(this.voice) && !serverVoiceOff()) return 'ok';   // vocea de bărbat de pe server
     if (!hasTTS()) return 'fara';
     if (this.broken) return 'nu-porneste';
     if (this.voice || pickRomanianVoice()) return 'ok';
@@ -104,6 +110,10 @@ class Speaker {
   }
   _canSpeak() {
     return this.state.sound && hasTTS() && !this.broken && !this.state.needsTap && !!(this.voice || this._pick());
+  }
+  // vocea de bărbat de pe server: browserul n-are una (iPhone, Android…)
+  _serverMode() {
+    return this.state.sound && !this.state.needsTap && wantsServerVoice(this.voice || this._pick());
   }
 
   // ── preferințe ────────────────────────────────────────────────────────────
@@ -117,7 +127,11 @@ class Speaker {
 
   // Din gestul elevului (clic / tastă): deblochează vocea browserului
   unlock() {
-    if (!hasTTS()) return;
+    unlockServerVoice();                     // <audio>-ul vocii de pe server (iPhone: doar dintr-un gest)
+    if (!hasTTS()) {
+      if (this.state.needsTap) { this._emit({ needsTap: false }); this._restartSentence(); }
+      return;
+    }
     try { window.speechSynthesis.resume(); } catch { /* ignore */ }
     if (!this.warmed) {
       this.warmed = true;
@@ -193,6 +207,7 @@ class Speaker {
 
   // ── interne ───────────────────────────────────────────────────────────────
   _cancelTTS() {
+    stopServerVoice();
     if (!hasTTS()) return;
     try {
       const s = window.speechSynthesis;
@@ -259,8 +274,41 @@ class Speaker {
       job.i += 1;
       this._step(job);
     };
-    if (this._canSpeak() && !job.silent) this._utter(job, it, g, next);
+    if (!job.silent && this._serverMode()) this._playServer(job, it, g, next);
+    else if (this._canSpeak() && !job.silent) this._utter(job, it, g, next);
     else job.timer = setTimeout(next, estimateMs(it.spoken));
+  }
+
+  // Fraza cu vocea de bărbat de pe server. Următoarele două se cer din timp; dacă
+  // vocea nu vine în câteva secunde (sau nu pornește), o rostește browserul.
+  _playServer(job, it, g, next) {
+    prefetchVoices(job.items.slice(job.i + 1, job.i + 3).map((x) => x.spoken));
+    let settled = false;
+    const browser = () => {
+      if (g !== this.gen || settled) return;
+      settled = true;
+      clearTimeout(job.watch);
+      if (this._canSpeak()) this._utter(job, it, g, next);
+      else job.timer = setTimeout(next, estimateMs(it.spoken));
+    };
+    job.watch = setTimeout(browser, 7000);
+    serverVoiceUrl(it.spoken).then((url) => {
+      if (g !== this.gen || settled) return;
+      if (!url) { browser(); return; }
+      settled = true;
+      clearTimeout(job.watch);
+      playServerVoice(url, {
+        onStart: () => { if (g === this.gen) { this.t0 = now(); this.everStarted = true; this.failures = 0; } },
+        onEnd: () => { if (g === this.gen) next(); },
+        onError: (e) => {
+          if (g !== this.gen) return;
+          // iPhone fără gest pe pagină: „🔊 Pornește sunetul" (după atingere, fraza se reia)
+          if (e && e.name === 'NotAllowedError') { this._blocked(job, g, next); return; }
+          if (this._canSpeak()) this._utter(job, it, g, next);
+          else job.timer = setTimeout(next, estimateMs(it.spoken));
+        },
+      });
+    });
   }
 
   _utter(job, it, g, next) {

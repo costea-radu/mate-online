@@ -68,6 +68,12 @@ export const liveApi = {
   prepTest: (pos) => prep({ action: 'prep_test', pos }),
   prepTestFinish: (rowId, seconds = 0) => prep({ action: 'prep_test_finish', rowId, seconds }),
   prepChat: ({ text, sid = null, ref = null, pos = null, history = [] }) => prep({ action: 'prep_chat', text, sid, ref, pos, history }),
+  // vocea de bărbat a lui Prof. Tudor (generată pe server, o dată pe frază) — vezi voceServer.js;
+  // fără cont, doar frazele deja generate
+  async voce(texts) {
+    const session = await getValidSession().catch(() => null);
+    return call({ action: 'voce', texts }, { auth: !!session });
+  },
   // admin
   adminOverview: (day, fresh = false) => call({ action: 'admin_overview', day, fresh }),
   adminSetSubject: (sessionId, patch) => call({ action: 'admin_set_subject', sessionId, ...patch }),

@@ -96,11 +96,17 @@ se rostește cu vocea browserului, iar ce se generează între timp se aude gene
 se mai oprește.
 
 **Vocea de bărbat pe toate dispozitivele = vocea generată.** Pe iPhone vocea browserului e
-mereu de femeie, deci Prof. Tudor are voce de bărbat acolo doar când lecția are vocea generată
-(Azure „Emil" sau OpenAI „ash"). Ce vorbește încă cu vocea browserului: demo-urile
-(`/meditatii/demo`, `/meditatii/demo-1la1`), Pregătirea de examen și cele câteva fraze de rezervă
-din 1-la-1 (când vocea generată nu e gata la timp). În Admin → 🎥 Meditații live, sus, „Vocea:" arată
-furnizorul folosit (`openai`, `azure` sau „lipsă").
+mereu de femeie („Ioana"), pe Android de obicei tot. **De acum (octombrie 2026), pe aceste
+dispozitive Prof. Tudor vorbește PESTE TOT cu vocea de bărbat de pe server** — în „Planul meu"
+(tabla), în Pregătirea de examen, în demo-uri, în frazele de rezervă din sală și la „🔊 Voce" din
+widget: browserul cere fiecare frază la `api/live.js → voce`, care o generează **o singură dată**
+(Azure „Emil" sau OpenAI „ash") și o păstrează în Storage (`live-media/voce/…`), deci frazele comune
+(lecțiile, demo-urile, ghidul site-ului) nu se plătesc de două ori. Unde browserul are deja voce de
+bărbat (Edge „Emil", Windows „Andrei"), rămâne ea — gratuită. O frază nouă se generează doar pentru
+un elev logat, cât are credite AI (costul ei intră în credite, ca rând `voce` în `ai_usage`, dar nu
+în limita orară de cereri AI); fără cont — doar frazele deja generate. **Fără cheie de voce în
+Vercel totul rămâne ca înainte** (vocea browserului). În Admin → 🎥 Meditații live, sus, „Vocea:"
+arată furnizorul folosit (`openai`, `azure` sau „lipsă").
 
 **iPhone / iPad — sunetul (8 octombrie 2026):** iOS tratează Web Audio (prin care se aude
 vocea generată) ca sunet „ambiental": cu telefonul pe **Silențios** (comutatorul de pe lateral
@@ -378,6 +384,9 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 ## 5. Costuri (orientativ, septembrie 2026 — verifică prețurile furnizorilor)
 
 - **Vocea browserului** (fără chei): **0 lei** (pe iPhone, voce de femeie — vezi 1.2).
+- **Vocea de bărbat pe iPhone / Android** (frazele din Planul meu, Pregătire, demo-uri, widget):
+  ~16 $ / 1M caractere la Azure (o frază ≈ 100 de caractere ≈ 0,7 bani), o singură dată pe frază —
+  frazele comune se refolosesc la toți elevii. Costul intră în creditele AI ale elevului.
 - **Vocea generată** (opțional): o lecție de 2 ore are ~50.000–60.000 de caractere rostite.
   Azure Neural ≈ 16 $ / 1 milion de caractere → ~0,8–1 $ (≈ 4–4,5 lei) pe lecție; nivelul
   gratuit Azure F0 (500.000 de caractere/lună) acoperă ~8 lecții noi pe lună.
@@ -427,7 +436,7 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | „Profesorul nu are încă un subiect cu barem" | nu există subiecte EN/BAC cu barem citit; cronul citește câteva bareme la fiecare rulare (`LIVE_CRON_BAREME`), sau alege manual subiectul din Admin |
 | Profesorul nu vorbește (doar subtitrări) | dispozitivul nu are o voce românească → Edge (voce naturală, gratuită) sau vocea română în Windows; verifică și volumul/tab-ul fără sonor |
 | Pe iPhone nu se aude nimic în sală, deși la demo se aude o voce (de femeie) | reparat 8 oct.: vocea generată (Web Audio) era tăiată de modul **Silențios**; acum sala cere sesiunea audio „playback" la „Participă acum". Versiune veche în cache (PWA) → închide și redeschide pagina. Dacă apare „🔊 Pornește sunetul", apasă-l (după un apel / ecran blocat) |
-| Pe iPhone profesorul are voce de femeie | e vocea browserului („Ioana" — singura voce românească de la Apple); apare unde lecția n-are vocea generată: demo-urile, Pregătirea de examen, frazele de rezervă din 1-la-1. Vocea de bărbat peste tot = vocea generată (Azure „Emil" / OpenAI „ash") |
+| Pe iPhone profesorul are voce de femeie | e vocea browserului („Ioana" — singura voce românească de la Apple). Cu o cheie de voce în Vercel (`AZURE_SPEECH_KEY` + `AZURE_SPEECH_REGION`, sau `OPENAI_API_KEY`), Prof. Tudor vorbește peste tot cu vocea de bărbat de pe server (vezi 1.2). Fără cheie, sau dacă vocea nu vine în câteva secunde, fraza o rostește browserul |
 | Vocea generată nu apare | lipsește cheia TTS sau a expirat; lecția merge cu vocea browserului — vezi Admin → eroarea lecției, apoi „Generează vocea" |
 | „Ședința s-a încheiat" mult înainte de sfârșitul orei | subiectul era scurt (o fișă, nu un subiect complet); acum ședințele de grup aleg subiecte complete, iar elevul poate „Continuă 1-la-1" până la sfârșitul orei |
 | Un singur elev la ora de grup | normal: ședința devine 1-la-1 pentru el (fără cost în plus); `LIVE_MINIM_GRUP` schimbă pragul |

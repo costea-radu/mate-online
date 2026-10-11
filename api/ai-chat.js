@@ -9,6 +9,7 @@ const ai = require('./_lib/ai');
 const testlock = require('./_lib/testlock');
 const pregen = require('./_lib/pregen');
 const pdfpages = require('./_lib/pdfpages'); // userContent: text + pagina PDF atașată (Etapa 2)
+const siteGuide = require('./_lib/siteGuide'); // întrebările care nu-s de matematică → ghidul site-ului (fără model)
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -31,6 +32,20 @@ module.exports = async function handler(req, res) {
     const testul = await testlock.activeTest(supa, userId);
     if (testul.locked) return res.status(423).json({ error: testlock.TEST_MSG_CHAT, code: 'TEST_MODE' });
 
+    // 0. GHIDUL SITE-ULUI (fără model, cost 0) — vezi api/ai-chat-stream.js și api/_lib/siteGuide.js
+    const ghid = siteGuide.route({ message, mode, context, conversationId, images, regenerate: !!regenerate });
+    if (ghid) {
+      const reply = siteGuide.answer(ghid);
+      const convId = await ai.openConversation(supa, { userId, conversationId, message, context });
+      const { error: gErr } = await supa.from('ai_messages').insert([
+        { conversation_id: convId, role: 'user', content: message, mode },
+        { conversation_id: convId, role: 'assistant', content: reply, mode, metadata: { sources: [], ghid: ghid.kind } },
+      ]);
+      if (gErr) console.error('ai-chat (ghid): salvare mesaje eșuată:', gErr);
+      await supa.from('ai_conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
+      return res.status(200).json({ reply, conversationId: convId, sources: [], primaryMaterial: null, aiBudget: null });
+    }
+
     const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete (vezi GHID_LIMITE_AI.md)
     await ai.enforceFreeQuota(supa, profile);
     const premium = ai.isPremium(profile);
@@ -51,7 +66,7 @@ module.exports = async function handler(req, res) {
     // 4. Apel LLM (dacă nu am servit din pre-generare).
     //    Cu rezolvare din barem → generare VERIFICATĂ față de barem.
     const stats = {}; // uneltele folosite (tool calling, Etapa 3) — pentru jurnal
-    const { text, usage } = served
+    const { text: reply, usage } = served
       ? { text: served.text, usage: { in: 0, out: 0, model: null } } // fără cost
       : baremItem
       ? await ai.verifiedPdfReply({
@@ -71,6 +86,9 @@ module.exports = async function handler(req, res) {
           // altfel modelul de chat; peste bugetul zilnic soft → unul mai ieftin
           model: ai.pickModel(ai.chatModelFor(mode, context), lim),
         });
+    // sub o explicație de matematică (în widgetul general): unde exersează pe site
+    const text = served || baremItem ? reply
+      : reply + siteGuide.footer({ message, context, mode, priorCount: priorMsgs.length, reply });
 
     // 5. Salvăm mesajele + actualizăm conversația.
     // Răspunsul e deja generat — nu picăm cererea dacă persistarea eșuează,

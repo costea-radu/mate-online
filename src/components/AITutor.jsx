@@ -720,7 +720,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     if (href.startsWith('/exercitiu') || href.startsWith('/pdf-viewer')) {
       navigate(href, { state: { openTutor: true, tutorConvId: convId } });
     } else if (/^\/(evaluare-nationala|bacalaureat|clase)/.test(href)) {
-      navigate(href, { state: { returnTab: 'interactive' } });
+      navigate(href, { state: { returnTab: /[?&]tab=pdf\b/.test(href) ? 'pdf' : 'interactive' } });
     } else {
       navigate(href);
     }

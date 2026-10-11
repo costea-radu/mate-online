@@ -75,7 +75,9 @@ test('enforceFreeQuota: adminul nu consumă „încercările gratuite" (nici nu 
 });
 
 test('enforceFreeQuota: contul gratuit e oprit după încercările gratuite', async () => {
-  const supa = { from: () => ({ select: () => ({ eq: () => Promise.resolve({ count: 999 }) }) }) };
+  // interogare înlănțuită (select → eq → neq „voce"), care se rezolvă cu numărul de acțiuni
+  const q = { select: () => q, eq: () => q, neq: () => q, then: (ok) => ok({ count: 999 }) };
+  const supa = { from: () => q };
   await assert.rejects(() => ai.enforceFreeQuota(supa, gratuit), (e) => e.status === 402 && e.code === 'PREMIUM_REQUIRED');
 });
 

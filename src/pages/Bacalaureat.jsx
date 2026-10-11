@@ -45,7 +45,10 @@ export default function Bacalaureat() {
   const returnTab = location.state?.returnTab;
   const scrollCardId = location.state?.scrollToCardId;
   const targetSub = location.state?.returnSubcategory;
-  const [mainTab, setMainTab] = useState(returnTab || 'interactive');
+  // ?tab=pdf (din linkurile Profesorului Virtual) deschide direct tabul PDF
+  const tabParam = new URLSearchParams(location.search).get('tab') === 'pdf' ? 'pdf' : null;
+  const [mainTab, setMainTab] = useState(returnTab || tabParam || 'interactive');
+  useEffect(() => { if (tabParam) setMainTab(tabParam); }, [tabParam]);
   const scrollRestored = useRef(false);
   const capitoleOpen = !!scrollCardId && targetSub === 'capitole';
 

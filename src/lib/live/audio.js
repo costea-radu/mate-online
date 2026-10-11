@@ -17,6 +17,10 @@
 // apăsarea „Participă acum" (altfel prima frază întârzie secunde bune), iar
 // frazele merg la COADĂ: una nu o mai taie pe cealaltă. Gura se mișcă doar cât
 // se aude cu adevărat (evenimentele start/end ale vocii).
+// Unde browserul n-are o voce românească de bărbat (iPhone/iPad/Mac — „Ioana";
+// Android), frazele fără fișier vin cu VOCEA DE BĂRBAT de pe server (voceServer.js:
+// o dată pe frază, apoi din cache), cerută din timp și redată tot la coadă, prin
+// lanțul audio al sălii; dacă nu vine la timp, fraza o rostește browserul.
 //
 // iPHONE / iPAD: iOS tratează Web Audio ca sunet „ambiental" — cu telefonul pe
 // Silențios (comutatorul de pe lateral sau butonul Action) îl taie complet, deși
@@ -33,6 +37,7 @@
 // =====================================================================
 import { clock } from './clock';
 import { lipAt, syntheticLip } from './lip';
+import { wantsServerVoice, serverVoiceUrl } from './voceServer';
 
 const MAX_CACHE = 36;
 
@@ -153,6 +158,8 @@ export class AudioEngine {
   }
 
   _pickVoice() { this.tts.voice = pickRomanianVoice(); return this.tts.voice; }
+  // vocea de bărbat de pe server: browserul n-are una (iPhone, Android…)
+  _serverVoice() { return wantsServerVoice(this.tts.voice || this._pickVoice()); }
 
   // Pentru interfață: „ok" (vorbește), „fara-ro" (nicio voce românească), „fara" (fără voce deloc)
   voiceStatus() {
@@ -369,8 +376,9 @@ export class AudioEngine {
       if (delay > 0) entry.timer = setTimeout(go, delay * 1000); else go();
       el.onended = () => { if (this.active.get(id) === entry) this.active.delete(id); onEnd?.(); };
     } else {
-      // fără fișier: vocea browserului, la coadă (vezi _say)
+      // fără fișier: vocea browserului (sau cea de bărbat de pe server), la coadă (vezi _say)
       entry = { synthetic: true, id, startServer: atServerMs, dur, text, endAtServer: atServerMs + (dur || 3) * 1000, started: null, ended: false };
+      if (text && this._serverVoice()) serverVoiceUrl(speakable(text));      // cerută din timp
       const sayNow = () => this._say(entry);
       if (delay > 0) entry.timer = setTimeout(sayNow, delay * 1000); else sayNow();
       entry.cleanup = setTimeout(() => { if (this.active.get(id) === entry) this.active.delete(id); onEnd?.(); }, Math.max(0, (entry.endAtServer - clock.now())));
@@ -384,7 +392,7 @@ export class AudioEngine {
   _say(entry) {
     const T = this.tts;
     const v = hasTTS() ? (T.voice || this._pickVoice()) : null;
-    if (!v || !entry.text) { entry.silent = true; return; }       // fără voce românească: doar subtitrarea
+    if (!entry.text || (!v && !this._serverVoice())) { entry.silent = true; return; }   // fără voce: doar subtitrarea
     T.queue = T.queue.filter((e) => !e.dropped);
     while (T.queue.length >= 1) T.queue.shift().dropped = true;   // frazele rămase în urmă se sar
     T.queue.push(entry);
@@ -396,9 +404,54 @@ export class AudioEngine {
 
   _pump() {
     const T = this.tts;
-    if (T.current || !T.queue.length || !hasTTS()) return;
+    if (T.current || !T.queue.length) return;
+    const server = this._serverVoice();
+    if (!server && !hasTTS()) return;
     const entry = T.queue.shift();
     if (entry.dropped) { this._pump(); return; }
+    if (server) this._speakServer(entry);
+    else this._speakBrowser(entry);
+  }
+
+  // Fraza cu vocea de bărbat de pe server, prin lanțul audio al sălii. Nu vine în
+  // câteva secunde (sau nu se poate reda) → o rostește browserul (sau doar subtitrarea).
+  _speakServer(entry) {
+    const T = this.tts;
+    T.current = entry;
+    const fallback = () => {
+      if (T.current !== entry || entry.ended) return;
+      clearTimeout(entry.watch);
+      T.current = null;
+      if (entry.dropped) { this._pump(); return; }
+      if (hasTTS() && (T.voice || this._pickVoice())) this._speakBrowser(entry);
+      else { entry.silent = true; this._pump(); }
+    };
+    entry.watch = setTimeout(fallback, 6000);
+    serverVoiceUrl(speakable(entry.text))
+      .then((url) => (url ? this.load(url) : null))
+      .then((buf) => {
+        if (T.current !== entry || entry.ended) return;
+        if (entry.dropped) { clearTimeout(entry.watch); T.current = null; this._pump(); return; }
+        if (!buf || !this.ctx || !this.input) { fallback(); return; }
+        clearTimeout(entry.watch);
+        this._resumeCtx();
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(this.input);
+        src.onended = () => {
+          entry.ended = true;
+          if (T.current === entry) T.current = null;
+          this._pump();
+        };
+        entry.node = src;
+        src.start();
+        entry.started = performance.now();
+      })
+      .catch(fallback);
+  }
+
+  _speakBrowser(entry) {
+    const T = this.tts;
     const v = T.voice || this._pickVoice();
     if (!v) { entry.silent = true; return; }
     try {
@@ -423,7 +476,11 @@ export class AudioEngine {
   _silence(clearQueue = true) {
     const T = this.tts;
     if (clearQueue) { T.queue.forEach((e) => { e.dropped = true; }); T.queue = []; }
-    if (T.current) { T.current.ended = true; clearTimeout(T.current.watch); T.current = null; }
+    if (T.current) {
+      T.current.ended = true; clearTimeout(T.current.watch);
+      try { T.current.node?.stop(); } catch { /* ignore */ }     // vocea de pe server
+      T.current = null;
+    }
     try { if (hasTTS()) window.speechSynthesis.cancel(); } catch { /* ignore */ }
     // (Chrome: speak() imediat după cancel() se pierde uneori — lăsăm o clipă)
     if (!clearQueue) setTimeout(() => this._pump(), 150);

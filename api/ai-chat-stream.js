@@ -11,6 +11,7 @@ const ai = require('./_lib/ai');
 const testlock = require('./_lib/testlock');
 const pregen = require('./_lib/pregen');
 const pdfpages = require('./_lib/pdfpages'); // userContent: text + pagina PDF atașată (Etapa 2)
+const siteGuide = require('./_lib/siteGuide'); // întrebările care nu-s de matematică → ghidul site-ului (fără model)
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -37,6 +38,26 @@ module.exports = async function handler(req, res) {
     // Test pe grupă în desfășurare → Profesorul Virtual e oprit (vezi api/_lib/testlock.js)
     const testul = await testlock.activeTest(supa, userId);
     if (testul.locked) { send({ type: 'error', error: testlock.TEST_MSG_CHAT, code: 'TEST_MODE' }); return res.end(); }
+
+    // 0. GHIDUL SITE-ULUI (fără model, cost 0): ce nu e o problemă de matematică —
+    // „ajută-mă la subiectul 1 bac", „vreau meditații", „cât costă", „bună" — primește
+    // un răspuns fix: structura OFICIALĂ a examenului + unde îl lucrează pe site
+    // (Pregătire de examen, meditații live, teste interactive, PDF cu barem).
+    // Nu consumă acțiuni AI (merge și după cele gratuite).
+    const ghid = siteGuide.route({ message, mode, context, conversationId, images, regenerate: !!regenerate });
+    if (ghid) {
+      const reply = siteGuide.answer(ghid);
+      const convId = await ai.openConversation(supa, { userId, conversationId, message, context });
+      send({ type: 'meta', conversationId: convId, sources: [], primaryMaterial: null });
+      for (const chunk of reply.match(/[\s\S]{1,160}/g) || []) send({ type: 'delta', text: chunk });
+      const { error: gErr } = await supa.from('ai_messages').insert({ conversation_id: convId, role: 'user', content: message, mode });
+      if (gErr) console.error('ai-chat-stream (ghid): salvare mesaj user eșuată:', gErr);
+      const { data: gSaved } = await supa.from('ai_messages')
+        .insert({ conversation_id: convId, role: 'assistant', content: reply, mode, metadata: { sources: [], ghid: ghid.kind } }).select('id').single();
+      await supa.from('ai_conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
+      send({ type: 'done', messageId: gSaved?.id || null, aiBudget: null });
+      return res.end();
+    }
 
     const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete (vezi GHID_LIMITE_AI.md)
     await ai.enforceFreeQuota(supa, profile);
@@ -99,6 +120,13 @@ module.exports = async function handler(req, res) {
         full += delta;
         send({ type: 'delta', text: delta });
       }
+    }
+
+    // 4½. Sub o explicație de matematică (în widgetul general): unde exersează pe
+    // site — teste interactive, Pregătire de examen, meditații live
+    if (!servedPregen && !baremItem) {
+      const more = siteGuide.footer({ message, context, mode, priorCount: priorMsgs.length, reply: full });
+      if (more) { full += more; send({ type: 'delta', text: more }); }
     }
 
     // 5. Salvăm după ce s-a terminat streamul. Textul a ajuns deja la client,

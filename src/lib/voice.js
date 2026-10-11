@@ -1,8 +1,12 @@
 // =====================================================================
 // src/lib/voice.js — voce: dictare (STT) + citire cu voce tare (TTS)
 //   STT principal: Web Speech API (gratuit, în browser). Fallback: înregistrare → /api/ai-transcribe.
-//   TTS: speechSynthesis (gratuit, în browser), voce română dacă există.
+//   TTS: speechSynthesis (gratuit, în browser), voce română dacă există. Unde
+//   browserul n-are o voce românească de bărbat (iPhone/iPad/Mac — „Ioana";
+//   Android), răspunsurile se citesc cu vocea de bărbat a lui Prof. Tudor de pe
+//   server (live/voceServer.js — o dată pe frază, apoi din cache).
 // =====================================================================
+import { wantsServerVoice, serverVoiceUrl, playServerVoice, stopServerVoice, unlockServerVoice } from './live/voceServer.js';
 
 // ─── STT: recunoaștere vocală în browser ─────────────────────────────────────
 const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
@@ -148,6 +152,7 @@ const FEMALE_DEEPEN = 0.3; // dacă sistemul are doar voce feminină, o coborâm
 // scoate motorul dintr-o eventuală stare „pauză" rămasă agățată — o cauză
 // clasică de „nu se mai aude nimic, orice aș apăsa".
 export function unlockSpeech() {
+  unlockServerVoice();                   // <audio>-ul vocii de pe server (iPhone: doar dintr-un gest)
   if (!ttsSupported()) return;
   try { window.speechSynthesis.resume(); } catch { /* ignore */ }
   ensureVoices();
@@ -179,7 +184,7 @@ export function speak(text, { lang, onEnd, rate, pitch } = {}) {
   if (synth.speaking || synth.pending) { synth.cancel(); setTimeout(say, 60); }
   else say();
 }
-export function stopSpeaking() { if (ttsSupported()) window.speechSynthesis.cancel(); }
+export function stopSpeaking() { stopServerVoice(); if (ttsSupported()) window.speechSynthesis.cancel(); }
 export function pauseSpeaking() { if (ttsSupported()) { try { window.speechSynthesis.pause(); } catch { /* ignore */ } } }
 export function resumeSpeaking() { if (ttsSupported()) { try { window.speechSynthesis.resume(); } catch { /* ignore */ } } }
 
@@ -229,7 +234,7 @@ export function playAnswer(text, { onProgress, onEnd, onSilent } = {}) {
   if (!sents.length) { onEnd?.(); return null; }
 
   const token = ++PLAY_TOKEN;
-  const st = { i: 0, gen: 0, paused: false, dead: false };
+  const st = { i: 0, gen: 0, paused: false, dead: false, server: false };
   const mine = () => token === PLAY_TOKEN && !st.dead;
   stopSpeaking(); // taie orice se aude acum
 
@@ -239,12 +244,25 @@ export function playAnswer(text, { onProgress, onEnd, onSilent } = {}) {
     if (st.i >= sents.length) { st.dead = true; onEnd?.(); return; }
     onProgress?.({ frac: (st.i + 1) / sents.length, sent: st.i, total: sents.length });
     const g = ++st.gen;
-    speak(sents[st.i], { onEnd: () => { if (mine() && !st.paused && st.gen === g) { st.i++; step(); } } });
+    const advance = () => { if (mine() && !st.paused && st.gen === g) { st.i++; step(); } };
+    const text = sents[st.i];
+    if (!st.server) { speak(text, { onEnd: advance }); return; }
+    // vocea de bărbat de pe server: fraza următoare se cere din timp; dacă nu vine,
+    // o citește browserul
+    if (sents[st.i + 1]) serverVoiceUrl(speakableText(sents[st.i + 1]));
+    serverVoiceUrl(speakableText(text)).then((url) => {
+      if (!mine() || st.paused || st.gen !== g) return;
+      const browser = () => { if (mine() && !st.paused && st.gen === g) speak(text, { onEnd: advance }); };
+      if (!url) { browser(); return; }
+      playServerVoice(url, { onEnd: advance, onError: browser });
+    });
   };
   // pe mobil lista de voci se încarcă asincron — o așteptăm o singură dată
   ensureVoices().then(() => {
     if (!mine()) return;
-    if (!(window.speechSynthesis.getVoices() || []).length) {
+    st.server = wantsServerVoice(pickVoice().voice);
+    if (st.server) { step(); return; }
+    if (!ttsSupported() || !(window.speechSynthesis.getVoices() || []).length) {
       // nicio voce în sistem: spunem pe față, nu lăsăm interfața să pretindă
       st.dead = true;
       onSilent?.(ttsProblem() || 'Nu am găsit nicio voce de folosit.');
