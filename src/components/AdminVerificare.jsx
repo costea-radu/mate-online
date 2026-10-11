@@ -298,7 +298,7 @@ function SevCounts({ l }) {
 }
 
 function ModelRow({ models, value, onChange, disabled }) {
-  const main = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-1', 'claude-opus-5', 'claude-sonnet-5'];
+  const main = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-1', 'claude-sonnet-5'];
   const list = (models || []).filter((m) => main.includes(m.id)).sort((a, b) => main.indexOf(a.id) - main.indexOf(b.id));
   const cur = (models || []).find((m) => m.id === value);
   return (
@@ -316,7 +316,7 @@ function ModelRow({ models, value, onChange, disabled }) {
         {cur?.note}{cur?.price ? ` · ${cur.price.in}/${cur.price.out} $ pe milion de tokeni (intrare/ieșire)` : ''}
       </p>
       <p style={{ fontSize: '.76rem', color: '#1a56c4', marginBottom: 10 }}>
-        ★ Recomandat: <b>Opus 5.5</b> — generația nouă, mai ieftin decât Opus 5 și mai sigur la calcule decât Sonnet. Pentru sute de materiale: întâi <b>Sonnet 5.5</b> (jumătate din preț), apoi <b>„A doua opinie"</b> cu Opus 5.5 doar la cele cu probleme.
+        ★ Recomandat: <b>Opus 5.5</b> — generația nouă, mai sigur la calcule decât Sonnet. Pentru sute de materiale: întâi <b>Sonnet 5.5</b> (jumătate din preț), apoi <b>„A doua opinie"</b> cu Opus 5.5 doar la cele cu probleme.
       </p>
     </>
   );

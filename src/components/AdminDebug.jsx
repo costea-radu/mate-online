@@ -186,7 +186,7 @@ export default function AdminDebug({ s }) {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '6px 0 4px' }}>
           <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)' }}>🧠 Model:</span>
-          {(st?.models || []).filter((m) => ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-1', 'claude-opus-5'].includes(m.id)).map((m) => (
+          {(st?.models || []).filter((m) => ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-1'].includes(m.id)).map((m) => (
             <button key={m.id} type="button" disabled={driving} title={m.note} onClick={() => setModel(m.id)}
               style={{ border: model === m.id ? '2px solid var(--navy)' : '1px solid var(--border)', background: model === m.id ? 'var(--navy)' : '#fff', color: model === m.id ? '#fff' : 'var(--navy)', borderRadius: 20, padding: '4px 12px', fontSize: '.78rem', fontWeight: 600, cursor: 'pointer' }}>
               {m.label}{m.id === 'claude-opus-5-5' ? ' ★' : ''}
@@ -199,7 +199,7 @@ export default function AdminDebug({ s }) {
           ))}
         </div>
         <p style={{ fontSize: '.76rem', color: '#1a56c4', margin: '2px 0 12px' }}>
-          ★ <b>Opus 5.5</b> e alegerea potrivită aici: e făcut pentru sesiuni lungi de citit și reparat cod (și e mai ieftin decât Opus 5). {cur?.price ? `${cur.price.in}/${cur.price.out} $ pe milion de tokeni; ` : ''}o rulare obișnuită costă câțiva lei (cache-ul de prompt ieftinește pașii repetați).
+          ★ <b>Opus 5.5</b> e alegerea potrivită aici: e făcut pentru sesiuni lungi de citit și reparat cod. {cur?.price ? `${cur.price.in}/${cur.price.out} $ pe milion de tokeni; ` : ''}o rulare obișnuită costă câțiva lei (cache-ul de prompt ieftinește pașii repetați).
         </p>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>

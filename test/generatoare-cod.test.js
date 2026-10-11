@@ -15,12 +15,12 @@ const G = require('../api/_lib/generatoare');
 const math = create(all);
 const calls = { claude: 0, chatJson: 0, before: 0, lastCount: null, lastSpec: null };
 ai.retrieve = async () => [];
-claude.chatClaude = async ({ system }) => {
+claude.chatClaude = async ({ system, model }) => {
   calls.claude++;
   const n = Number((/(\d+) (?:întrebări|exerciții|itemi)/.exec(system) || [])[1]) || 3;
   calls.lastCount = n;
   calls.lastSpec = system;
-  return { data: { questions: Array.from({ length: n }, (_, i) => ({ statement: `Întrebare de la model ${i + 1}`, options: ['1', '2', '3', '4'], answer: 1, explanation: 'e', chapter: 'c9-vectori' })) }, provider: 'claude-opus-5', usage: {} };
+  return { data: { questions: Array.from({ length: n }, (_, i) => ({ statement: `Întrebare de la model ${i + 1}`, options: ['1', '2', '3', '4'], answer: 1, explanation: 'e', chapter: 'c9-vectori' })) }, provider: model, usage: {} };
 };
 ai.chatJson = async () => { calls.chatJson++; return { data: { questions: [] }, usage: {} }; };
 const reset = () => Object.assign(calls, { claude: 0, chatJson: 0, before: 0, lastCount: null, lastSpec: null });
@@ -124,7 +124,7 @@ test('setul la un capitol acoperit se face în cod: fără model, fără limite 
 test('capitol fără generatoare (sau simulare) → modelul, cu limitele AI verificate întâi', async () => {
   reset();
   const r = await med.genQuestions(null, { purpose: 'exersare', chapterId: 'c9-vectori', chapter: 'Vectori în plan', count: 4, beforeAI });
-  assert.strictEqual(r.provider, 'claude-opus-5');
+  assert.strictEqual(r.provider, 'claude-opus-5-5');
   assert.strictEqual(calls.before, 1);
   assert.strictEqual(calls.claude, 1);
   reset();
@@ -146,7 +146,7 @@ test('remedierea: același tip ca exercițiul greșit, 10 exerciții; tip necuno
   assert.ok(r.questions.every((q) => /Rezolvați sistemul/.test(q.statement)), 'toate sisteme');
   assert.strictEqual(calls.before, 0);
   const other = await med.genQuestions(null, { purpose: 'remediere', chapterId: 'c7-ecuatii', mistake: { statement: 'Un tren pleacă la ora 8 cu viteza de 60 km/h...', chapter: 'c7-ecuatii' }, count: 10, beforeAI });
-  assert.strictEqual(other.provider, 'claude-opus-5');
+  assert.strictEqual(other.provider, 'claude-opus-5-5');
   assert.strictEqual(calls.before, 1);
 });
 
@@ -154,7 +154,7 @@ test('testul inițial: capitolele acoperite din cod, restul de la model, în ord
   reset();
   const spec = ['- c7-ecuatii: Ecuații', '- c9-vectori: Vectori în plan', '- c7-metrice: Relații metrice', '- c9-logica-multimi: Logică'].join('\n');
   const r = await med.genQuestions(null, { purpose: 'evaluare', chaptersSpec: spec, count: 12, beforeAI });
-  assert.strictEqual(r.provider, 'claude-opus-5+cod');
+  assert.strictEqual(r.provider, 'claude-opus-5-5+cod');
   assert.strictEqual(r.questions.length, 12);
   assert.strictEqual(calls.lastCount, 6, 'modelul scrie doar cele 6 locuri ale capitolelor fără generatoare');
   assert.match(calls.lastSpec, /c9-vectori/);
@@ -179,7 +179,7 @@ test('PLAN_GENERATOARE_COD=0 → totul la model, ca înainte', async () => {
   process.env.PLAN_GENERATOARE_COD = '0';
   try {
     const r = await med.genQuestions(null, { purpose: 'exersare', chapterId: 'c7-ecuatii', count: 4, beforeAI });
-    assert.strictEqual(r.provider, 'claude-opus-5');
+    assert.strictEqual(r.provider, 'claude-opus-5-5');
     assert.strictEqual(calls.before, 1);
   } finally { delete process.env.PLAN_GENERATOARE_COD; }
 });

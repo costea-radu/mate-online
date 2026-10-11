@@ -8,7 +8,7 @@
 //  · constructorul PLANULUI personalizat de învățare;
 //  · selecția „ÎNTÂI MATERIALELE DIN SITE" (exerciții interactive
 //    nefinalizate, teste PDF, teorie/lecții din Rezolvări și Auxiliare);
-//  · generarea de întrebări DUPĂ MODELUL DIN SITE cu Claude Opus 5
+//  · generarea de întrebări DUPĂ MODELUL DIN SITE cu Claude Opus 5.5
 //    (interactive de EN/BAC), cu fallback pe furnizorul existent;
 //  · clasificarea greșelilor tipice + predicția notei.
 // =====================================================================
@@ -21,7 +21,7 @@ const taxonomy = new Proxy({}, { get: (_, k) => require('./taxonomy')[k] });
 
 // Modelul Claude folosit pentru generarea de exerciții și teste interactive
 // de Evaluare Națională / Bacalaureat, exact după modelul din site (cerință).
-const OPUS_MODEL = 'claude-opus-5';
+const OPUS_MODEL = 'claude-opus-5-5';   // Opus 5.5 (a înlocuit Opus 5: mai nou, 4/20 $ față de 5/25 $)
 
 // ─── PROGRAMA (capitole ordonate, cu subiectele fine) ────────────────────────
 // id-urile sunt stabile (intră în plan, teme, recapitulări).
@@ -509,7 +509,7 @@ async function siteTheoryFor(supa, { categories = [], topics = [], chapterTitle 
 
 // ─── GENERAREA DE ÎNTREBĂRI după modelul din site ────────────────────────────
 // Folosită DOAR după/pe lângă materialele din site (cerința B):
-//  · Claude Opus 5 pentru seturile interactive (EN/BAC, după modelul din site);
+//  · Claude Opus 5.5 pentru seturile interactive (EN/BAC, după modelul din site);
 //  · fallback automat pe furnizorul existent (ai.chat cu GEN_MODEL) dacă
 //    ANTHROPIC_API_KEY lipsește sau apelul eșuează.
 // Întoarce { questions:[{statement, options?, answer, explanation, chapter?, topic?}], provider }
@@ -640,7 +640,7 @@ Reguli:
   // modelul are totuși de unde alege eticheta
   system += `\n\nLISTA DE SUBIECTE (pentru cheia "topic" — alege EXACT una, copiată identic):\n${topicList.map((t) => `- ${t}`).join('\n')}`;
 
-  // 1) Claude Opus 5 (cerința B) — cu schemă strictă (Structured Outputs) și,
+  // 1) Claude Opus 5.5 (cerința B) — cu schemă strictă (Structured Outputs) și,
   //    ca plasă de siguranță, extractJson tolerant la LaTeX
   try {
     const r = await claude.chatClaude({

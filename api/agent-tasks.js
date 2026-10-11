@@ -70,8 +70,9 @@ function cleanTask(input = {}, partial = false) {
   if (!partial || has('data_mode')) put('data_mode', input.data_mode === 'keep' ? 'keep' : 'modify');
   if (!partial || has('instructions')) put('instructions', input.instructions ? String(input.instructions).slice(0, 3000) : null);
   if (!partial || has('ai_model')) {
-    // doar ID-uri din lista permisă (claude.MODELS); altceva → null (implicitul)
-    const m = String(input.ai_model || '').trim();
+    // doar ID-uri din lista permisă (claude.MODELS); un model înlocuit (ex.
+    // Opus 5) se salvează ca succesorul lui; altceva → null (implicitul)
+    const m = claude.currentModel(input.ai_model);
     put('ai_model', claude.MODELS.some((x) => x.id === m) ? m : null);
   }
   if (!partial || has('auto_post')) put('auto_post', !!input.auto_post);

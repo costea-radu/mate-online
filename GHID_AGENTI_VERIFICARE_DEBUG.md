@@ -20,7 +20,8 @@ setată implicit în ambele file:
 | 🔎 Verificare materiale | **Opus 5.5**, atenția „Atent" | Pentru sute de materiale: întâi **Sonnet 5.5** (jumătate din preț: 2 $ / 10 $), apoi **„🧑‍⚖️ A doua opinie"** cu Opus 5.5 doar la materialele cu probleme — confirmă sau respinge fiecare problemă |
 | 🐞 Agent debug | **Opus 5.5**, atenția „Atent" | „Foarte atent" pentru un bug greu; **Fable 5.1** (10 $ / 50 $) doar dacă Opus 5.5 nu găsește cauza |
 
-Opus 5 și Sonnet 5 au rămas în listă (merg în continuare), dar nu mai au niciun avantaj.
+Opus 5 a ieșit din listă: e înlocuit peste tot cu Opus 5.5 (o alegere veche de Opus 5 rulează automat pe
+Opus 5.5). Sonnet 5 a rămas în listă (merge în continuare), dar nu mai are niciun avantaj.
 Prețurile și modelele: <https://platform.claude.com/docs/en/about-claude/models/overview> și
 <https://platform.claude.com/docs/en/about-claude/pricing> (verificate în octombrie 2026).
 

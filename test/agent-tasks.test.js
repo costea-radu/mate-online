@@ -50,7 +50,11 @@ test('exgen.renderExerciseHtml produce HTML interactiv complet (scor + KaTeX + a
 });
 
 test('claude.resolveModel: modelele noi permise, necunoscutele cad pe implicit', () => {
-  assert.strictEqual(claude.resolveModel('claude-opus-5'), 'claude-opus-5');
+  assert.strictEqual(claude.resolveModel('claude-opus-5-5'), 'claude-opus-5-5');
+  // Opus 5 a fost înlocuit peste tot cu Opus 5.5: alegerile vechi merg pe succesor
+  assert.strictEqual(claude.resolveModel('claude-opus-5'), 'claude-opus-5-5');
+  assert.strictEqual(claude.currentModel(' claude-opus-5 '), 'claude-opus-5-5');
+  assert.ok(!claude.MODELS.some((m) => m.id === 'claude-opus-5'), 'Opus 5 nu mai e în listă');
   assert.strictEqual(claude.resolveModel('claude-fable-5'), 'claude-fable-5');
   assert.strictEqual(claude.resolveModel('claude-haiku-4-5'), 'claude-haiku-4-5');
   assert.strictEqual(claude.resolveModel('model-inventat'), claude.MODEL);

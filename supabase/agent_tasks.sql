@@ -41,7 +41,7 @@ create table if not exists agent_tasks (
                 check (result_kind in ('auto','interactive','exam','format')),
   data_mode     text not null default 'modify' check (data_mode in ('keep','modify')),
   instructions  text,                                -- instrucțiuni opționale pentru agent
-  ai_model      text,                                -- ID Claude (ex. 'claude-opus-5'); null = implicitul serverului
+  ai_model      text,                                -- ID Claude (ex. 'claude-opus-5-5'); null = implicitul serverului
 
   -- MODELUL DE FORMAT (la result_kind='format'): fișier HTML/PDF încărcat de
   -- admin, păstrat în Storage — {bucket, path, name, kind:'html'|'pdf'}.

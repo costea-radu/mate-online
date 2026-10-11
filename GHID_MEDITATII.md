@@ -23,7 +23,7 @@ Verifică în **Table Editor** că au apărut: `ai_meditatii_profile`,
 | Variabilă | Rol |
 |---|---|
 | `OPENAI_API_KEY` (o ai deja) | chatul tutorelui + generarea de lecții/analize |
-| `ANTHROPIC_API_KEY` (o ai deja pentru agenți) | **Claude Opus 5** — generarea de exerciții și teste interactive de EN/BAC, după modelul din site |
+| `ANTHROPIC_API_KEY` (o ai deja pentru agenți) | **Claude Opus 5.5** — generarea de exerciții și teste interactive de EN/BAC, după modelul din site (a înlocuit Opus 5) |
 
 > Fără `ANTHROPIC_API_KEY`, meditațiile funcționează în continuare — generarea
 > cade automat pe furnizorul existent (`AI_GEN_CHAT_MODEL` / modelul de chat).
@@ -42,7 +42,7 @@ restante și dă teme noi elevilor inactivi de 3+ zile.
 | Explicațiile din chat, în timpul exercițiilor („Întreabă profesorul") | modelul de chat existent (`AI_CHAT_MODEL` — „terra"), **ca până acum** |
 | Generarea de lecții (teorie) + analiza greșelilor + corectări | modelul de generare existent (`AI_GEN_CHAT_MODEL` — „sol"), **ca până acum** |
 | Subiecte de examen **PDF** (tabul Simulări → „Subiect PDF") | generatorul existent `/api/ai-exam` (`sol`), **neschimbat** |
-| Exerciții și teste **interactive** de EN/BAC (test inițial, seturi, remedieri, simulări interactive) | **Claude Opus 5** (`api/_lib/claude.js`), după modelul exercițiilor din site (RAG), cu fallback automat |
+| Exerciții și teste **interactive** de EN/BAC (test inițial, seturi, remedieri, simulări interactive) | **Claude Opus 5.5** (`api/_lib/claude.js`), după modelul exercițiilor din site (RAG), cu fallback automat; tipurile standard se fac în cod (`api/_lib/generatoare.js`) |
 
 **Materialele din site au prioritate peste tot** (teme, exersare, teorie):
 - temele dau ÎNTÂI exerciții interactive EXISTENTE, nefinalizate de elev
@@ -74,7 +74,7 @@ restante și dă teme noi elevilor inactivi de 3+ zile.
    recapitulare după **1 zi → 7 zile → 30 de zile** (notificări la clopoțel).
 8. **Teme**: butonul „Dă-mi o temă acum" + teme automate de la cron; corectate,
    **notate 1–10**, cu explicarea greșelilor.
-9. **Simulări de examen**: interactivă (Opus 5, cu punctele slabe incluse) sau
+9. **Simulări de examen**: interactivă (din subiectele oficiale; după epuizare, Opus 5.5 cu punctele slabe incluse) sau
    subiect PDF oficial (generatorul existent).
 10. **Predicția notei**: estimare 1–10 din stăpânire + teme + simulări, cu
     capitolele de consolidat pentru țintă.
@@ -151,7 +151,7 @@ părinții nu au meditații proprii — văd raportul elevilor în profil.
    revine automat cu aprecierea și pasul următor. Aceste mesaje „coach" sunt
    scrise cu **gpt-4o-mini** (economie de tokeni; opțional `AI_COACH_MODEL` în
    Vercel), cu fallback determinist fără cost. Generarea de exerciții rămâne
-   neschimbată: sol / terra / **Claude Opus 5**.
+   neschimbată: sol / terra / **Claude Opus 5.5**.
 2. **Profesorul pornește pași direct din conversație**: când elevul acceptă
    („da", „hai"), modelul emite un marcaj invizibil
    `[[MEDITATII:{"kind":"exercitii","chapterId":"..."}]]` — platforma pornește
@@ -226,7 +226,7 @@ la epuizare — iar TOT ce lucrează elevul se înregistrează și se vede.**
 1. **Exercițiile din plan sunt „site-first"**: la „✍️ Exerciții", dacă există un
    test interactiv în site potrivit capitolului (nefăcut, nedat ca temă), se
    deschide ACELA (`?medSesId=` în URL) — fără nicio generare. Abia când s-au
-   epuizat se generează un set nou (Opus 5, după modelul din site).
+   epuizat se generează un set nou (în cod sau cu Opus 5.5, după modelul din site).
 2. **Simulările sunt „site-first"**: întâi testele din categoria examenului
    (EN/BAC) neînregistrate și nedate ca temă; după epuizare se generează.
 3. **`session_score`** (acțiune nouă): viewerul de exerciții trimite scorul

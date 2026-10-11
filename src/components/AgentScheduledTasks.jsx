@@ -13,7 +13,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { aiClient } from '../lib/aiClient';
 import { renderExercise } from '../lib/exerciseRender';
-import { DEFAULT_AI_MODEL } from '../lib/aiModels';
+import { DEFAULT_AI_MODEL, currentAiModel } from '../lib/aiModels';
 import AIModelPicker from './AIModelPicker';
 import Rolldown from './Rolldown';
 
@@ -158,7 +158,7 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
       name: t.name, rubricKey: rubricKeyOf(t), schedule_kind: t.schedule_kind,
       run_hour: t.run_hour, run_weekday: t.run_weekday, run_monthday: t.run_monthday,
       result_kind: t.result_kind, data_mode: t.data_mode, instructions: t.instructions || '',
-      ai_model: t.ai_model || DEFAULT_AI_MODEL, auto_post: !!t.auto_post, is_free: !!t.is_free,
+      ai_model: currentAiModel(t.ai_model) || DEFAULT_AI_MODEL, auto_post: !!t.auto_post, is_free: !!t.is_free,
       post_type: t.post_type || 'test', notify: t.notify !== false,
       extraKeys: (t.extra_rubrics || []).map(rubricKeyOf),
       formatFile: null,
@@ -520,7 +520,7 @@ export default function AgentScheduledTasks({ rubrics = [], box = {} }) {
                 <div style={{ fontSize: '.9rem', fontWeight: 700, color: 'var(--navy)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   {t.enabled ? '🟢' : '⏸'} {t.name}
                   {t.auto_post ? <span style={chip('#e8f5e9', '#1e7e34')}>postare automată</span> : <span style={chip('#fff4e5', '#8a6d00')}>cu aprobare</span>}
-                  {t.ai_model && <span style={chip('#eef2fb', 'var(--navy)')}>{t.ai_model.replace('claude-', '')}</span>}
+                  {t.ai_model && <span style={chip('#eef2fb', 'var(--navy)')}>{currentAiModel(t.ai_model).replace('claude-', '')}</span>}
                   {t.extra_rubrics?.length > 0 && <span style={chip('#e8f0fe', '#1a4b8c')} title={t.extra_rubrics.map((r) => `${r.category}${r.subcategory ? ' / ' + r.subcategory : ''} (${r.ctype})`).join(' · ')}>📚 +{t.extra_rubrics.length} context</span>}
                   {t.result_kind === 'format' && t.format_model && <span style={chip('#f3e5f5', '#4a148c')} title={t.format_model.name}>🗂 {t.format_model.name}</span>}
                 </div>

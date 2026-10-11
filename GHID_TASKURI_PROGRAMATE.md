@@ -2,7 +2,7 @@
 
 Două funcții noi în **Admin → Agent Claude — Generator de exerciții**:
 
-1. **🧠 Selector de model AI** (ca la agentul SEO): Sonnet 5 (implicit), Opus 5,
+1. **🧠 Selector de model AI** (ca la agentul SEO): Sonnet 5 (implicit), Opus 5.5 (a înlocuit Opus 5),
    **Fable 5** (cel mai nou și mai capabil model Anthropic, iunie 2026),
    Haiku 4.5 (rapid/ieftin) + generațiile anterioare (Sonnet 4.6, Opus 4.8).
    Alegerea se aplică generărilor următoare (inclusiv automatizării pe rubrică).
@@ -25,7 +25,7 @@ Două funcții noi în **Admin → Agent Claude — Generator de exerciții**:
    automat la deploy.
 3. **Chei API: NU e nevoie de nimic nou.** `ANTHROPIC_API_KEY` deja setată în
    Vercel acoperă TOATE modelele Claude — modelul e doar un parametru al
-   cererii (`model: 'claude-opus-5'` etc.). Vezi și secțiunea „Întrebări" de
+   cererii (`model: 'claude-opus-5-5'` etc.). Vezi și secțiunea „Întrebări" de
    mai jos despre Vercel AI Gateway.
 
 Emailurile de după rulări folosesc mailerul existent (`GMAIL_USER` /
@@ -144,12 +144,13 @@ schimbă nimic (paginile claselor nu filtrează după subcategorie).
 
 ## Întrebări (chei API / AI Gateway)
 
-**E nevoie de chei noi în Vercel pentru Opus 5 / Fable 5 / alte modele?**
+**E nevoie de chei noi în Vercel pentru Opus 5.5 / Fable 5 / alte modele?**
 Nu. O singură `ANTHROPIC_API_KEY` (cea deja salvată) acoperă toate modelele
 Claude; modelul se transmite per cerere. Serverul validează ID-ul în
 `api/_lib/claude.js → MODELS` (un ID necunoscut cade pe `CLAUDE_MODEL` /
-Sonnet 5). Singura condiție: creditul contului Anthropic — Opus 5 (~5$/25$ per
-1M tokeni) și Fable 5 (~10$/50$) sunt mai scumpe decât Sonnet 5 (~2-3$/15$).
+Sonnet 5). Singura condiție: creditul contului Anthropic — Opus 5.5 (~4$/20$ per
+1M tokeni) și Fable 5 (~10$/50$) sunt mai scumpe decât Sonnet 5 (~2$/10$). Task-urile
+salvate cu Opus 5 rulează automat pe Opus 5.5.
 
 **E mai bine prin Vercel AI Gateway?**
 Nu e necesar. Gateway-ul devine util dacă vrei: modele de la MAI MULȚI

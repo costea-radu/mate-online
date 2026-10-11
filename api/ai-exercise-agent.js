@@ -10,7 +10,7 @@
 //                (JSON) când se cere o variantă nouă / asemănătoare.
 //   - modelPdf = PDF-ul model, base64 (necesită ANTHROPIC_API_KEY).
 //   - aiModel  = ID-ul Claude ales din selectorul de model al adminului
-//                (ex. 'claude-opus-5'); lista permisă e în api/_lib/claude.js
+//                (ex. 'claude-opus-5-5'); lista permisă e în api/_lib/claude.js
 //                (MODELS) — un ID necunoscut cade pe modelul implicit.
 // Răspuns: { exercise, provider }
 //

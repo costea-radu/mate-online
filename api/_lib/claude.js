@@ -8,18 +8,25 @@
 // (ai.chat), ca agenții să funcționeze și fără cheie.
 // =====================================================================
 const KEY = process.env.ANTHROPIC_API_KEY || '';
-const MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-5';
+
+// Modelele ÎNLOCUITE pe tot site-ul: o alegere veche (task programat salvat,
+// CLAUDE_MODEL din Vercel, un selector dintr-o pagină încă deschisă) merge pe
+// succesorul ei. Opus 5 → Opus 5.5 (mai nou și mai ieftin: 4/20 $ față de 5/25 $).
+const REPLACED = { 'claude-opus-5': 'claude-opus-5-5' };
+const currentModel = (id) => REPLACED[String(id || '').trim()] || String(id || '').trim();
+const MODEL = currentModel(process.env.CLAUDE_MODEL) || 'claude-sonnet-5';
 
 // Modelele dintre care adminul poate alege în agenți (selectorul din admin).
 // ATENȚIE: lista e oglindită în src/lib/aiModels.js (folosită de selectoarele
 // din AISEOAgent, AIExerciseAgent și task-urile programate) — ține-le sincron.
 // ID-urile sunt cele oficiale Anthropic (verificate pe platform.claude.com,
-// 5 octombrie 2026): generația CURENTĂ e Opus 5.5 (4/20 $ pe milion de tokeni —
-// mai ieftin decât Opus 5, la 5/25 $), Sonnet 5.5 (2/10 $) și Fable 5.1
-// (10/50 $); Sonnet 5 / Opus 5 / Fable 5 rămân active (retragere nu mai devreme
-// de iunie–iulie 2027); Haiku 4.5 e cel mai rapid/ieftin; 4.6/4.8 sunt
-// snapshot-urile anterioare. Implicitul serverului (CLAUDE_MODEL) a rămas
-// Sonnet 5, ca agenții existenți să nu-și schimbe costul fără să vrei.
+// 5 octombrie 2026): generația CURENTĂ e Opus 5.5 (4/20 $ pe milion de tokeni),
+// Sonnet 5.5 (2/10 $) și Fable 5.1 (10/50 $); Sonnet 5 / Fable 5 rămân active
+// (retragere nu mai devreme de iunie–iulie 2027); Opus 5 a ieșit din listă —
+// înlocuit peste tot cu Opus 5.5 (vezi REPLACED). Haiku 4.5 e cel mai
+// rapid/ieftin; 4.6/4.8 sunt snapshot-urile anterioare. Implicitul serverului
+// (CLAUDE_MODEL) a rămas Sonnet 5, ca agenții existenți să nu-și schimbe
+// costul fără să vrei.
 // TOATE funcționează cu ACEEAȘI cheie ANTHROPIC_API_KEY — nu e nevoie de
 // chei separate per model; modelul se alege per cerere în câmpul `model`.
 const MODELS = [
@@ -27,17 +34,17 @@ const MODELS = [
   { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', note: 'generația curentă Sonnet — rapid, jumătate din prețul lui Opus 5.5' },
   { id: 'claude-fable-5-1',  label: 'Fable 5.1',  note: 'cel mai capabil model public — cel mai scump (2,5× Opus 5.5)' },
   { id: 'claude-sonnet-5',   label: 'Sonnet 5',   note: 'rapid și echilibrat — implicit' },
-  { id: 'claude-opus-5',     label: 'Opus 5',     note: 'foarte capabil — mai lent și mai scump' },
   { id: 'claude-fable-5',    label: 'Fable 5',    note: 'cel mai nou și mai capabil model (iunie 2026) — cel mai scump' },
   { id: 'claude-haiku-4-5',  label: 'Haiku 4.5',  note: 'cel mai rapid și mai ieftin — pentru sarcini simple' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', note: 'generația anterioară Sonnet' },
   { id: 'claude-opus-4-8',   label: 'Opus 4.8',   note: 'generația anterioară Opus' },
 ];
 
-// Modelul efectiv al unei rulări: cel cerut de admin (doar dacă e în lista de
-// mai sus — nu trimitem string-uri arbitrare către API), altfel implicitul.
+// Modelul efectiv al unei rulări: cel cerut de admin (adus la succesorul lui,
+// dacă a fost înlocuit; doar dacă e în lista de mai sus — nu trimitem
+// string-uri arbitrare către API), altfel implicitul.
 function resolveModel(requested) {
-  const id = String(requested || '').trim();
+  const id = currentModel(requested);
   return MODELS.some((m) => m.id === id) ? id : MODEL;
 }
 
@@ -505,7 +512,7 @@ async function chatAdvanced({ system, messages, model = null, maxTokens = 32000,
 }
 
 module.exports = {
-  chatClaude, chatClaudeTools, extractJson, MODEL, MODELS, resolveModel, HAS_KEY: !!KEY,
+  chatClaude, chatClaudeTools, extractJson, MODEL, MODELS, resolveModel, currentModel, REPLACED, HAS_KEY: !!KEY,
   // apelurile avansate (agenții de verificare și de debug)
   callAdvanced, chatAdvanced, buildAdvancedBody, readSse, textOf, supportsAdaptive, EFFORTS,
   costUsd, effectiveInput, cacheReadMult, addUsage,

@@ -7,12 +7,12 @@
 // Variante:
 //   inline     — o linie discretă „Bazat pe OpenAI GPT-4o mini · …" (Prețuri, Despre noi)
 //   chips      — etichetă + „pastile" cu numele modelelor (hero Profesor Virtual, Home)
-//   footer     — două rânduri pe fundal închis: pentru tine (OpenAI + Claude Opus 5) / unelte interne (Anthropic)
+//   footer     — două rânduri pe fundal închis: pentru tine (OpenAI + Claude Opus 5.5) / unelte interne (Anthropic)
 //   disclaimer — text minuscul sub câmpul de chat: modelele + „AI-ul poate greși"
 //
 // Modelele PENTRU CLIENȚI vin de la doi furnizori: OpenAI (chat, explicații
 // pas cu pas, PDF-uri, poze, corectare, generare de teste) și Anthropic —
-// Claude Opus 5, care generează seturile de exerciții din „Meditații". De
+// Claude Opus 5.5, care generează seturile de exerciții din „Meditații". De
 // aceea toate variantele afișează și clienti.modeleAnthropic, cu pastile
 // mov, lângă cele OpenAI. EXCEPȚIE: `disclaimer` (sub caseta de chat) arată
 // doar modelele OpenAI — chatul nu trece prin Anthropic.
@@ -105,7 +105,7 @@ export default function AIPoweredBy({ variant = 'inline', showIntern, center = f
   }
 
   // inline (implicit) — linia despre platformă, deci include și modelul
-  // Anthropic folosit pentru clienți (Claude Opus 5, la Meditații).
+  // Anthropic folosit pentru clienți (Claude Opus 5.5, la Meditații).
   return (
     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', ...style }}>
       ⚡ Bazat pe {AI_STACK_SCURT_TOT}

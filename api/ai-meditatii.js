@@ -7,7 +7,7 @@
 //
 // MATERIALELE DIN SITE AU PRIORITATE (cerința B): temele și exersarea
 // folosesc întâi exercițiile interactive/PDF existente; generarea (Claude
-// Opus 5, după modelul din site) intervine doar în completare/epuizare.
+// Opus 5.5, după modelul din site) intervine doar în completare/epuizare.
 //
 // POST { userId, action, ... } — acces DOAR abonați (fără probă gratuită).
 // GET  ?action=cron (header x-vercel-cron sau ?secret=) — scanarea zilnică.
@@ -406,7 +406,7 @@ function styleNoteOf(profile) {
 // ═════════════════════════════════════════════════════════════════════════════
 // COACH — mesajele automate ale profesorului prin widget (cerința: comunicarea
 // cu elevul prin widget, cu gpt-4o-mini pentru economie de tokeni; generarea
-// de exerciții rămâne pe modelele stabilite: sol / terra / Opus 5).
+// de exerciții rămâne pe modelele stabilite: sol / terra / Opus 5.5).
 // event: { type: 'set_done'|'homework_done'|'lesson_done', ... }
 // Răspuns: { message, suggestions[] } — widgetul le afișează ca butoane.
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1067,7 +1067,7 @@ ${BOARD_QUESTION_FORMAT}
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// EXERCISES — set de exerciții la capitol (site-first + Opus 5) (funcția 5)
+// EXERCISES — set de exerciții la capitol (site-first + Opus 5.5) (funcția 5)
 // ═════════════════════════════════════════════════════════════════════════════
 // ═════════════════════════════════════════════════════════════════════════════
 // „NU AM ÎNȚELES" LA TABLĂ — profesorul REIA etapa, scriind-o tot pe tablă
@@ -1267,7 +1267,7 @@ async function exercises(req, res, supa) {
     topics: [chapter.title, ...(chapter.topics || [])], limit: 3,
   });
 
-  // 3) setul generat după modelul din site (Claude Opus 5, fallback existent)
+  // 3) setul generat după modelul din site (Claude Opus 5.5, fallback existent)
   const { questions, provider, usage } = await med.genQuestions(supa, {
     category: med.categoryFor(medProfile), chapter: chapter.title, chapterId: chapter.id,
     topics: chapter.topics || [], difficulty, count,
@@ -1623,7 +1623,7 @@ async function pickAndAssignHomework(supa, userId, medProfile, { notify = true, 
     }).select('id, title').single();
     hwRow = data ? { ...data, kind: 'content' } : null;
   } else if (chapter) {
-    // 2) site epuizat → generăm după modelul din site (Opus 5 / fallback)
+    // 2) site epuizat → generăm după modelul din site (Opus 5.5 / fallback)
     const { questions, usage, provider } = await med.genQuestions(supa, {
       category: med.categoryFor(medProfile), chapter: chapter.title, chapterId: chapter.id,
       topics: chapter.topics || [], difficulty, count: 8,
@@ -1976,7 +1976,7 @@ async function reviewStart(req, res, supa) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// SIMULARE DE EXAMEN interactivă (funcția 7) — Claude Opus 5, model din site
+// SIMULARE DE EXAMEN interactivă (funcția 7) — Claude Opus 5.5, model din site
 // (varianta PDF folosește generatorul existent /api/ai-exam, ca până acum)
 // ═════════════════════════════════════════════════════════════════════════════
 async function simulare(req, res, supa) {

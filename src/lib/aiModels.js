@@ -7,12 +7,12 @@
 // nu e nevoie de chei separate; modelul se trimite per cerere.
 // =====================================================================
 export const AI_MODELS = [
-  // generația curentă (oct. 2026): Opus 5.5 e mai ieftin decât Opus 5 (4/20 $ față de 5/25 $ pe milion de tokeni)
-  { id: 'claude-opus-5-5',   label: 'Opus 5.5',   hint: 'generația curentă Opus (4/20 $ pe milion de tokeni, mai ieftin decât Opus 5) — recomandat pentru verificarea matematicii și pentru cod' },
+  // generația curentă (oct. 2026). Opus 5 a ieșit din listă: e înlocuit peste tot cu Opus 5.5
+  // (mai nou și mai ieftin — 4/20 $ față de 5/25 $ pe milion de tokeni)
+  { id: 'claude-opus-5-5',   label: 'Opus 5.5',   hint: 'generația curentă Opus (4/20 $ pe milion de tokeni) — recomandat pentru verificarea matematicii și pentru cod' },
   { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', hint: 'generația curentă Sonnet (2/10 $) — rapid și ieftin, bun pentru o primă trecere pe multe materiale' },
   { id: 'claude-fable-5-1',  label: 'Fable 5.1',  hint: 'cel mai capabil model public (10/50 $) — pentru cazurile cele mai grele' },
   { id: 'claude-sonnet-5',   label: 'Sonnet 5',   hint: 'rapid și echilibrat — recomandat pentru sarcinile de zi cu zi' },
-  { id: 'claude-opus-5',     label: 'Opus 5',     hint: 'foarte capabil — ideal pentru teste complexe și analize (mai lent și mai scump)' },
   { id: 'claude-fable-5',    label: 'Fable 5',    hint: 'cel mai nou și mai capabil model Anthropic (iunie 2026) — cel mai scump' },
   { id: 'claude-haiku-4-5',  label: 'Haiku 4.5',  hint: 'cel mai rapid și mai ieftin — pentru sarcini simple (atenție la calcule)' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', hint: 'generația anterioară Sonnet' },
@@ -23,6 +23,12 @@ export const AI_MODELS = [
 // nu le schimbăm costul pe tăcute. Agenții de verificare și de debug pornesc pe Opus 5.5.
 export const DEFAULT_AI_MODEL = 'claude-sonnet-5';
 export const CHECK_AI_MODEL = 'claude-opus-5-5';
+
+// Modelele înlocuite (oglinda lui api/_lib/claude.js → REPLACED): o alegere
+// veche salvată (ex. la un task programat) se arată și se salvează ca
+// succesorul ei — serverul o rulează oricum pe succesor.
+export const REPLACED_AI_MODELS = { 'claude-opus-5': 'claude-opus-5-5' };
+export const currentAiModel = (id) => REPLACED_AI_MODELS[id] || id;
 
 // =====================================================================
 // AI_STACK — ce comunicăm PUBLIC despre modelele folosite.
@@ -41,7 +47,7 @@ export const AI_STACK = {
   // Pentru CLIENȚI (elevi, părinți, profesori): Profesorul Virtual (chat,
   // explicații pas cu pas, citirea subiectelor PDF), corectarea după barem,
   // generatorul de teste și exercițiile interactive — pe modele OpenAI —
-  // PLUS generarea seturilor de exerciții din „Meditații", pe Claude Opus 5
+  // PLUS generarea seturilor de exerciții din „Meditații", pe Claude Opus 5.5
   // (Anthropic). De aceea blocul „pentru tine" are DOUĂ liste de modele:
   //   modele          → OpenAI (chatul, pozele și vocea merg doar aici)
   //   modeleAnthropic → Claude, tot pentru clienți (doar Meditații)
@@ -51,27 +57,27 @@ export const AI_STACK = {
     furnizor: 'OpenAI',
     modele: ['GPT-4o mini', 'GPT-5 mini', 'GPT-5.6 Terra', 'GPT-5.6 Sol'],
     furnizorAnthropic: 'Anthropic',
-    modeleAnthropic: ['Claude Opus 5'],
+    modeleAnthropic: ['Claude Opus 5.5'],
     furnizori: 'OpenAI și Anthropic',
-    descriere: 'GPT-4o mini răspunde rapid în chat; GPT-5 mini preia explicațiile pas cu pas — rezolvările comentate, indiciile și „explică-mi din nou"; GPT-5.6 Terra și GPT-5.6 Sol preiau sarcinile care cer precizie maximă — citirea subiectelor PDF, citirea pozelor cu exerciții, corectarea după barem, generarea de teste și exerciții. Claude Opus 5, de la Anthropic, generează seturile de exerciții din „Meditații cu Profesorul Virtual".',
+    descriere: 'GPT-4o mini răspunde rapid în chat; GPT-5 mini preia explicațiile pas cu pas — rezolvările comentate, indiciile și „explică-mi din nou"; GPT-5.6 Terra și GPT-5.6 Sol preiau sarcinile care cer precizie maximă — citirea subiectelor PDF, citirea pozelor cu exerciții, corectarea după barem, generarea de teste și exerciții. Claude Opus 5.5, de la Anthropic, generează seturile de exerciții din „Meditații cu Profesorul Virtual".',
   },
   // Anthropic (Claude): (a) uneltele administrative interne ale echipei și
   // (b) GENERAREA seturilor de exerciții din „Meditații cu Profesorul Virtual"
   // — corectat pe 23 august 2026 (Etapa 3, punctul 2.5 din auditul agenților):
   // până atunci textul spunea că modelele Anthropic sunt folosite DOAR intern,
-  // deși generatorul de meditații rulează pe Claude Opus 5, iar la exercițiile
+  // deși generatorul de meditații rulează pe Claude (acum Opus 5.5), iar la exercițiile
   // de remediere primește și răspunsul greșit al elevului (fără nume, e-mail
   // sau alte date de identificare). Ține textul sincron cu codul:
   // api/_lib/meditatii.js → OPUS_MODEL.
   intern: {
     furnizor: 'Anthropic',
-    modele: ['Claude Opus 5', 'Claude Fable 5'],
-    descriere: 'Folosite în două locuri: (1) uneltele administrative ale echipei ExamenMate — generarea și verificarea testelor și exercițiilor din biblioteca site-ului, articolele, optimizările paginilor; (2) generarea seturilor de exerciții din „Meditații cu Profesorul Virtual" — aceasta este o funcție pentru tine, nu una internă, și rulează pe Claude Opus 5. La exercițiile de remediere, modelul primește și exercițiul greșit împreună cu răspunsul dat de elev, ca să genereze exerciții de același tip. Nu primește numele, e-mailul sau alte date care te identifică, iar datele trimise prin API nu sunt folosite la antrenarea modelelor.',
+    modele: ['Claude Opus 5.5', 'Claude Fable 5'],
+    descriere: 'Folosite în două locuri: (1) uneltele administrative ale echipei ExamenMate — generarea și verificarea testelor și exercițiilor din biblioteca site-ului, articolele, optimizările paginilor; (2) generarea seturilor de exerciții din „Meditații cu Profesorul Virtual" — aceasta este o funcție pentru tine, nu una internă, și rulează pe Claude Opus 5.5. La exercițiile de remediere, modelul primește și exercițiul greșit împreună cu răspunsul dat de elev, ca să genereze exerciții de același tip. Nu primește numele, e-mailul sau alte date care te identifică, iar datele trimise prin API nu sunt folosite la antrenarea modelelor.',
   },
 };
 
 // Toate modelele care lucrează PENTRU CLIENȚI, într-o singură listă
-// („GPT-4o mini", „GPT-5 mini", …, „Claude Opus 5").
+// („GPT-4o mini", „GPT-5 mini", …, „Claude Opus 5.5").
 export const AI_STACK_CLIENTI_MODELE = [
   ...AI_STACK.clienti.modele,
   ...AI_STACK.clienti.modeleAnthropic,
@@ -84,5 +90,5 @@ export const AI_STACK_SCURT = `${AI_STACK.clienti.furnizor} ${AI_STACK.clienti.m
 
 // Linie scurtă pentru PLATFORMĂ (Prețuri, Despre noi): include și modelul
 // Anthropic folosit pentru clienți.
-// „OpenAI GPT-4o mini · … · GPT-5.6 Sol · Anthropic Claude Opus 5"
+// „OpenAI GPT-4o mini · … · GPT-5.6 Sol · Anthropic Claude Opus 5.5"
 export const AI_STACK_SCURT_TOT = `${AI_STACK_SCURT} · ${AI_STACK.clienti.furnizorAnthropic} ${AI_STACK.clienti.modeleAnthropic.join(' · ')}`;

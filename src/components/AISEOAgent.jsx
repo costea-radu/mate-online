@@ -2,7 +2,7 @@
 // src/components/AISEOAgent.jsx — Agentul Claude de SEO & marketing (admin)
 // Sarcini presetate (audit, meta, blog, social, cuvinte cheie, performanță
 // Google cu date reale) + chat liber, cu context real din site.
-// Selector de model AI (Sonnet/Opus, inclusiv Opus 5) — alegerea se trimite
+// Selector de model AI (Sonnet/Opus, inclusiv Opus 5.5) — alegerea se trimite
 // la server per cerere; la „Articole Blog", „Postări social media" și
 // „YouTube" adminul poate da TEMA/cererea lui („subiect ales de mine")
 // sau lasă agentul să aleagă din date.

@@ -17,7 +17,7 @@
 //
 // Body: { userId, task, input?, history?, model? }
 //   task:  'audit'|'meta'|'blog'|'social'|'keywords'|'performance'|'chat'
-//   model: opțional — ID Claude din selectorul adminului (ex. 'claude-opus-5');
+//   model: opțional — ID Claude din selectorul adminului (ex. 'claude-opus-5-5');
 //          lista permisă e în api/_lib/claude.js (MODELS).
 // =====================================================================
 const ai = require('./_lib/ai');
