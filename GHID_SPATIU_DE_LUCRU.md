@@ -23,8 +23,11 @@ butonului. Nimic nu se pierde.
 |---|---|---|
 | **Exerciții interactive** (iframe) | „✍️ Spațiu de lucru" în bara de sus **și** pe fiecare pas / grilă (injectat de `tutorBridge.js`) | `✓ Pune în răspuns` scrie în câmpul pasului curent · `🎓 Cere corectarea` deschide Profesorul Virtual |
 | **Vizualizator PDF** | „✍️ Spațiu de lucru" în bara de sus | `🎓 Cere corectarea` · `📋 Copiază` |
-| **Widgetul plutitor** (Prof. Virtual) | butonul `✍️` din bara de scris, lângă 📷 și 🎤 | `✓ Pune în întrebare` · `🎓 Cere corectarea` |
-| **Formularul „📝 Răspunde în chat"** | „✍️ Spațiu de lucru" sub fiecare cerință | `✓ Pune în răspuns` completează exact acea cerință |
+| **Tabla din „Planul meu"** (conversația cu Prof. Tudor) | butonul `✍️` din bara de scris, lângă 📷 și 🎤 | `✓ Pune în întrebare` · `🎓 Cere corectarea` |
+| **Formularul „📝 Răspunde în chat"** (tot la tabla din „Planul meu") | „✍️ Spațiu de lucru" sub fiecare cerință | `✓ Pune în răspuns` completează exact acea cerință |
+
+Din **widgetul plutitor** (Prof. Virtual) caietul a fost scos: acolo nu mai apar nici
+butonul `✍️` din bara de scris, nici „✍️ Spațiu de lucru" din formularul de răspuns.
 
 În **testul pe grupă** caietul rămâne deschis (e ciorna elevului), dar
 `🎓 Cere corectarea` dispare — ajutorul de la AI rămâne blocat, ca până acum.
@@ -163,7 +166,7 @@ citește corectarea. Liniile ies în ordinea de sus în jos a foii, indiferent
 | `test/katex-automath.test.js` | regresii pentru `autoMath` (**nou**) |
 | `src/pages/InteractiveViewer.jsx` | ascultă `MATE_WORKSPACE_OPEN`, deschide caietul |
 | `src/pages/PDFViewer.jsx` | butonul + caietul peste PDF |
-| `src/components/AITutor.jsx` | butonul din bara de scris + pe fiecare cerință |
+| `src/components/AITutor.jsx` | butonul din bara de scris + pe fiecare cerință — doar în modul tablă („Planul meu"), nu în widgetul plutitor |
 
 ---
 

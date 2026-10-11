@@ -404,6 +404,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // câmpul de întrebare) și fiecare cerință a formularului de răspuns (textul
   // ajunge în câmpul acelei cerințe). `work` spune unde se întoarce rezultatul.
   const [work, setWork] = useState(null);   // null | { target: 'input' | <id cerință>, eticheta }
+  // Caietul rămâne doar la tabla din „Planul meu"; din widgetul plutitor a fost scos
+  // (paginile cu exerciții — PDF, interactive, sala live — au caietul lor)
+  const workOn = boardMode;
 
   // textul testului „citibil" din PDF-ul deschis (nu mesajul de avertizare)
   const pdfTextOk = !!(context.pdf && context.pdfReadable !== false && (context.exerciseText || '').trim().length > 80);
@@ -1260,13 +1263,15 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                         rows={2} placeholder="Răspunsul / rezolvarea ta…"
                         style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 9px', fontSize: 16, fontFamily: 'var(--font-body)', resize: 'vertical', background: '#fbfcfe' }}
                       />
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
-                        <button onClick={() => setWork({ target: s.id, eticheta: `${it.eticheta} ${s.eticheta}`, cerinta: s.cerinta || it.cerinta || '' })}
-                          style={{ ...miniBtn, fontSize: '.72rem', padding: '3px 8px', borderColor: '#7fa6cf', color: '#1a4d80' }}
-                          title="Scrie rezolvarea de mână — o transformi în text și intră aici">
-                          ✍️ Spațiu de lucru
-                        </button>
-                      </div>
+                      {workOn && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
+                          <button onClick={() => setWork({ target: s.id, eticheta: `${it.eticheta} ${s.eticheta}`, cerinta: s.cerinta || it.cerinta || '' })}
+                            style={{ ...miniBtn, fontSize: '.72rem', padding: '3px 8px', borderColor: '#7fa6cf', color: '#1a4d80' }}
+                            title="Scrie rezolvarea de mână — o transformi în text și intră aici">
+                            ✍️ Spațiu de lucru
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))
                 ) : (
@@ -1277,7 +1282,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                     style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 9px', fontSize: 16, fontFamily: 'var(--font-body)', resize: 'vertical', background: '#fbfcfe' }}
                   />
                 )}
-                {!it.subpuncte?.length && (
+                {workOn && !it.subpuncte?.length && (
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
                     <button onClick={() => setWork({ target: it.id, eticheta: it.eticheta, cerinta: it.cerinta || '' })}
                       style={{ ...miniBtn, fontSize: '.72rem', padding: '3px 8px', borderColor: '#7fa6cf', color: '#1a4d80' }}
@@ -1385,11 +1390,13 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           style={{ background: listening ? 'var(--gold)' : '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '0 12px', fontSize: '1.1rem', cursor: 'pointer' }}>
           {listening ? '⏺️' : '🎤'}
         </button>
-        {/* ✍️ Caietul digital: scrii cu degetul, iese text frumos în câmpul de mai jos */}
-        <button onClick={() => setWork({ target: 'input' })} title="Scrie de mână — apoi o transformi în text frumos"
-          style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '0 12px', fontSize: '1.1rem', cursor: 'pointer' }}>
-          ✍️
-        </button>
+        {/* ✍️ Caietul digital (doar la tabla din „Planul meu"): scrii cu degetul, iese text frumos în câmpul de mai jos */}
+        {workOn && (
+          <button onClick={() => setWork({ target: 'input' })} title="Scrie de mână — apoi o transformi în text frumos"
+            style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '0 12px', fontSize: '1.1rem', cursor: 'pointer' }}>
+            ✍️
+          </button>
+        )}
         <input
           ref={inputRef}
           value={input}
@@ -1424,10 +1431,10 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           (textele vin din src/lib/aiModels.js → AI_STACK) */}
       {!testActiv && <AIPoweredBy variant="disclaimer" />}
 
-      {/* ✍️ Caietul digital. Textul recunoscut se întoarce ori în câmpul de
-          întrebare (deschis din bara de scris), ori în cerința din formularul
-          de răspuns de unde a fost deschis. */}
-      <SpatiuDeLucru
+      {/* ✍️ Caietul digital (doar la tabla din „Planul meu"). Textul recunoscut se
+          întoarce ori în câmpul de întrebare (deschis din bara de scris), ori în
+          cerința din formularul de răspuns de unde a fost deschis. */}
+      {workOn && <SpatiuDeLucru
         open={!!work}
         onClose={() => setWork(null)}
         title={work && work.eticheta
@@ -1455,7 +1462,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         onCorect={testActiv || (work && work.target !== 'input') ? null : (text) => {
           send(`Am scris rezolvarea de mână în spațiul de lucru. Verific-o pas cu pas, spune-mi unde greșesc și ce lipsește:\n\n${text}`);
         }}
-      />
+      />}
     </>
   );
 
