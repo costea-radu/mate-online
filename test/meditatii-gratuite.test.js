@@ -1,8 +1,9 @@
-// Teste pentru MEDITAȚIILE GRATUITE (meditații live cu profesorul virtual):
-// câteva lecții pregătite (implicit 2 — una de EN, una de BAC, alese automat până
-// le alege adminul) se fac 1-la-1 fără plată și fără abonament, de oricine are cont;
-// ședința de grup cu un astfel de subiect e și ea gratuită; plafonul lunar și cel al
-// întrebărilor din chat; adminul schimbă lista (Admin → 🎥 Meditații live → 🎁).
+// Teste pentru MEDITAȚIILE GRATUITE (meditații live cu profesorul virtual): CÂTE UNA PE
+// FIECARE EXAMEN (EN, BAC Mate-Info, BAC Științele Naturii, BAC Tehnologic — cererea lui
+// Radu din 11 oct. 2026; până atunci, două: una de EN, una de BAC), alese automat până le
+// alege adminul; se fac 1-la-1 fără plată și fără abonament, de oricine are cont; ședința
+// de grup cu un astfel de subiect e și ea gratuită; plafonul lunar și cel al întrebărilor
+// din chat; adminul schimbă meditația fiecărui examen (Admin → 🎥 Meditații live → 🎁).
 // Pe un Supabase în memorie (test/tools/fakeSupabase.js), fără rețea.
 const test = require('node:test');
 const assert = require('node:assert');
@@ -26,6 +27,9 @@ const C = {
   baremEn: 'aaaaaaaa-0000-4000-8000-0000000000b1',
   bac1: 'bbbbbbbb-0000-4000-8000-000000000001',
   bac2: 'bbbbbbbb-0000-4000-8000-000000000002',
+  teh1: 'bbbbbbbb-0000-4000-8000-000000000003',
+  teh2: 'bbbbbbbb-0000-4000-8000-000000000004',
+  enNoBarem: 'aaaaaaaa-0000-4000-8000-000000000006',
   cls: 'cccccccc-0000-4000-8000-000000000009',
 };
 const BAREM_TEXT = 'BAREM DE EVALUARE ȘI DE NOTARE. SUBIECTUL I. Rezultate: 1. b 2. c 3. a. Se punctează orice modalitate corectă de rezolvare.';
@@ -76,9 +80,13 @@ function seed(extra = {}) {
       content(C.baremEn, 'Barem EN 2024 Varianta 7', 'evaluare-nationala', { subcategory: 'bareme' }),
       content(C.bac1, 'BAC 2024 M1 Mate-Info Varianta 3', 'bacalaureat', { profile: 'mate-info', subcategory: 'variante' }),
       content(C.bac2, 'BAC 2023 M2 Științe ale naturii Varianta 5', 'bacalaureat', { profile: 'stiinte-naturii', subcategory: 'variante' }),
+      // BAC Tehnologic: subiecte cu barem, dar nicio lecție gata încă
+      content(C.teh1, 'BAC 2021 Tehnologic Model', 'bacalaureat', { profile: 'tehnologic', subcategory: 'simulari' }),
+      content(C.teh2, 'BAC 2022 Tehnologic Varianta 4', 'bacalaureat', { profile: 'tehnologic', subcategory: 'variante' }),
+      content(C.enNoBarem, 'EN 2021 Varianta 9', 'evaluare-nationala', { subcategory: 'variante' }),
       content(C.cls, 'Fracții', 'clasa-5'),
     ],
-    ai_pdf_text: [pdfRow(C.en1), pdfRow(C.en2), pdfRow(C.en3), pdfRow(C.enFisa), pdfRow(C.bac1), pdfRow(C.bac2)],
+    ai_pdf_text: [pdfRow(C.en1), pdfRow(C.en2), pdfRow(C.en3), pdfRow(C.enFisa), pdfRow(C.bac1), pdfRow(C.bac2), pdfRow(C.teh1), pdfRow(C.teh2)],
     live_lessons: [
       lesson(C.en1, { title: 'EN 2024 Varianta 7' }),
       lesson(C.en3, { title: 'EN 2022 Model', noVoice: true, steps: false }),
@@ -143,54 +151,121 @@ test('normalizeFreeIds: UUID-uri unice, litere mici, cel mult 12', () => {
   assert.deepStrictEqual(L.normalizeFreeIds('nu-e-listă'), []);
 });
 
-test('pickFreeLessons: o lecție de EN și una de BAC, cele mai potrivite pentru o primă încercare', () => {
+test('pickFreeLessons: câte o lecție pe examen (EN, Mate-Info, Șt. Naturii, Tehnologic), cea mai potrivită pentru o primă încercare', () => {
   const rows = seed().live_lessons.map((l) => ({ ...l, pasi: l.script.pasi, sv: l.script.v, noVoice: l.progress.noVoice }));
   const pick = L.pickFreeLessons(rows).map((l) => l.subject_id);
   // EN: varianta completă cu întrebări pe pași și voce (nu fișa „Subiectul I, ex. 5", nu modelul fără pași/voce);
-  // BAC: Mate-Info înaintea Științelor naturii, la calitate egală
-  assert.deepStrictEqual(pick, [C.en1, C.bac1]);
-  // fără BAC → două de EN; doar lecțiile gata; ultima versiune
-  const enOnly = rows.filter((l) => l.exam === 'en');
-  assert.deepStrictEqual(L.pickFreeLessons(enOnly).map((l) => l.subject_id), [C.en1, C.en3]);
+  // BAC: câte una pe profil, în ordinea examenelor; Tehnologic n-are nicio lecție gata → lipsește
+  assert.deepStrictEqual(pick, [C.en1, C.bac1, C.bac2]);
+  assert.deepStrictEqual(L.pickFreeLessons(rows, { types: ['stiinte-naturii'] }).map((l) => l.subject_id), [C.bac2]);
+  // doar lecțiile gata; ultima versiune; la calitate egală, ordinea listelor (variantele întâi, anul cel mai nou)
   assert.deepStrictEqual(L.pickFreeLessons([{ ...rows[0], status: 'script' }]), []);
-  assert.strictEqual(L.pickFreeLessons(rows, { count: 3 }).length, 3);
+  const twoEn = [{ ...rows[0], subject_id: 'x1', title: 'EN 2023 model' }, { ...rows[0], subject_id: 'x2', title: 'EN 2022 Varianta 1' }];
+  assert.deepStrictEqual(L.pickFreeLessons(twoEn).map((l) => l.subject_id), ['x2']);
+  assert.deepStrictEqual(L.FREE_TYPE_IDS, ['en', 'mate-info', 'stiinte-naturii', 'tehnologic']);
+  assert.strictEqual(L.freeTypeOf({ exam: 'bac', profile: 'pedagogic' }), null);
+});
+
+test('pickFreeSubject (examen fără nicio lecție gata): cel mai bun subiect cu barem — complet, nu o fișă; varianta înaintea modelului', () => {
+  const subs = [
+    { id: 'm', title: '2025 - Model', subcategory: 'simulari' },
+    { id: 'f', title: 'SUBIECTUL I, Ex. 1', subcategory: 'exercitii' },
+    { id: 'v', title: '2022 Varianta 04', subcategory: 'variante' },
+  ];
+  assert.strictEqual(L.pickFreeSubject(subs).id, 'v');
+  assert.strictEqual(L.pickFreeSubject([subs[1]]), null);
+  assert.strictEqual(L.pickFreeSubject([]), null);
+});
+
+test('freeSlotsFrom: formatul nou (câte una pe examen), formatul vechi (o listă) și lista golită de admin', () => {
+  // nou: un examen lipsă = automat; null = adminul a scos-o
+  const v2 = L.freeSlotsFrom({ v: 2, slots: { en: C.en1.toUpperCase(), 'mate-info': null, tehnologic: 'nu-e-uuid' }, auto: ['en', 'mate-info'] });
+  assert.deepStrictEqual(v2.slots, { en: C.en1, 'mate-info': null });
+  assert.deepStrictEqual([...v2.auto], ['en']);
+  // vechi: prima lecție a fiecărui examen; restul examenelor rămân automate
+  const typeOf = (id) => ({ [C.en1]: 'en', [C.en2]: 'en', [C.bac1]: 'mate-info' }[id] || null);
+  const old = L.freeSlotsFrom({ subjects: [C.bac1, C.en1, C.en2, C.cls], auto: false }, typeOf);
+  assert.deepStrictEqual(old.slots, { 'mate-info': C.bac1, en: C.en1 });
+  assert.strictEqual(old.auto.size, 0);
+  assert.deepStrictEqual([...L.freeSlotsFrom({ subjects: [C.en1], auto: true }, typeOf).auto], ['en']);
+  // lista golită de admin: nicio meditație gratuită, la niciun examen (nu revine alegerea automată)
+  assert.deepStrictEqual(L.freeSlotsFrom({ subjects: [] }).slots, { en: null, 'mate-info': null, 'stiinte-naturii': null, tehnologic: null });
+  assert.deepStrictEqual(L.freeSlotsFrom(null).slots, {});
+  // de salvat: în ordinea examenelor, cu lista `subjects` și pentru versiunile vechi ale serverului
+  const val = L.freeValue({ tehnologic: C.teh2, en: C.en1, 'mate-info': null }, new Set(['tehnologic', 'mate-info']));
+  assert.deepStrictEqual(val, { v: 2, slots: { en: C.en1, 'mate-info': null, tehnologic: C.teh2 }, auto: ['tehnologic'], subjects: [C.en1, C.teh2] });
 });
 
 // ═════════════════════════════ handlerul ═════════════════════════════
-test('alegerea automată: două lecții gata (EN + BAC), salvate o dată; lobby-ul le arată la vedere', async () => {
+test('alegerea automată: câte una pe examen (lecțiile gata; Tehnologic, fără niciuna gata → varianta cu barem), salvată o dată; lobby-ul le arată', async () => {
   fake = createFakeSupabase(seed());
   const p = await call('program');
   assert.strictEqual(p.statusCode, 200, JSON.stringify(p.body));
-  assert.deepStrictEqual(p.body.freeLessons.map((f) => [f.subjectId, f.examLabel, f.ready]), [[C.en1, 'Evaluarea Națională', true], [C.bac1, 'BAC Mate-Info', true]]);
+  assert.deepStrictEqual(p.body.freeLessons.map((f) => [f.subjectId, f.examLabel, f.type, f.ready]), [
+    [C.en1, 'Evaluarea Națională', 'en', true], [C.bac1, 'BAC Mate-Info', 'mate-info', true],
+    [C.bac2, 'BAC Științele Naturii', 'stiinte-naturii', true], [C.teh2, 'BAC Tehnologic', 'tehnologic', false],
+  ]);
   assert.strictEqual(p.body.prices.gratuiteLuna, 4);
   const saved = fake.db.tables.app_settings.find((r) => r.key === 'live_free_lessons');
-  assert.deepStrictEqual(saved.value.subjects, [C.en1, C.bac1]);
-  assert.strictEqual(saved.value.auto, true);
+  assert.deepStrictEqual(saved.value.slots, { en: C.en1, 'mate-info': C.bac1, 'stiinte-naturii': C.bac2, tehnologic: C.teh2 });
+  assert.deepStrictEqual(saved.value.auto, ['en', 'mate-info', 'stiinte-naturii', 'tehnologic']);
+  assert.deepStrictEqual(saved.value.subjects, [C.en1, C.bac1, C.bac2, C.teh2]);
   // o lecție nouă, „mai bună", nu schimbă alegerea (rămâne stabilă până o schimbă adminul)
   fake.db.tables.live_lessons.push(lesson(C.en2, { title: 'EN 2023 Varianta 2', updated: '2026-10-01T00:00:00Z' }));
   handler._internals.resetFree();
   const again = await call('program', {}, U.free);
-  assert.deepStrictEqual(again.body.freeLessons.map((f) => f.subjectId), [C.en1, C.bac1]);
+  assert.deepStrictEqual(again.body.freeLessons.map((f) => f.subjectId), [C.en1, C.bac1, C.bac2, C.teh2]);
   assert.deepStrictEqual(again.body.me.free, { monthly: 4, used: 0, left: 4 });
   // ședințele de grup cu un subiect gratuit: „Gratuit" (fără cont: intră în cont)
-  const anonSessions = p.body.days.flatMap((d) => d.sessions);
-  for (const s of anonSessions) {
-    const isFree = !!s.subject && [C.en1, C.bac1].includes(s.subject.id);
+  const freeIds = [C.en1, C.bac1, C.bac2, C.teh2];
+  for (const s of p.body.days.flatMap((d) => d.sessions)) {
+    const isFree = !!s.subject && freeIds.includes(s.subject.id);
     assert.strictEqual(s.free, isFree);
     assert.strictEqual(s.access.price, isFree ? 0 : 10);
   }
+  // 1-la-1 pe meditația gratuită de Tehnologic (lecția se scrie la prima folosire): gratuit
+  const st = await call('private_start', { teacher: 'radu', subjectId: C.teh2 }, U.free);
+  assert.strictEqual(st.statusCode, 200, JSON.stringify(st.body));
+  assert.strictEqual(st.body.via, 'gratuit');
+});
+
+test('formatul vechi (o listă, alese de admin): rămâne prima lecție a fiecărui examen, restul examenelor se completează automat, o singură dată', async () => {
+  fake = createFakeSupabase(seed({ app_settings: [{ key: 'live_free_lessons', value: { subjects: [C.bac1, C.en3, C.en1], auto: false }, updated_at: '2026-10-06T10:00:00.000Z' }] }));
+  const p = await call('program');
+  assert.deepStrictEqual(p.body.freeLessons.map((f) => f.subjectId), [C.en3, C.bac1, C.bac2, C.teh2], 'EN: prima din listă (en3), nu și en1');
+  const saved = fake.db.tables.app_settings.find((r) => r.key === 'live_free_lessons');
+  assert.strictEqual(saved.value.v, 2);
+  assert.deepStrictEqual(saved.value.slots, { en: C.en3, 'mate-info': C.bac1, 'stiinte-naturii': C.bac2, tehnologic: C.teh2 });
+  assert.deepStrictEqual(saved.value.auto, ['stiinte-naturii', 'tehnologic'], 'alese de admin: EN și Mate-Info');
+  const ov = await call('admin_overview', {}, U.admin);
+  assert.deepStrictEqual(ov.body.free.slots.map((x) => [x.type, x.lesson?.subjectId, x.auto]), [
+    ['en', C.en3, false], ['mate-info', C.bac1, false], ['stiinte-naturii', C.bac2, true], ['tehnologic', C.teh2, true],
+  ]);
+  // lista golită de admin (formatul vechi) → nicio meditație gratuită
+  fake = createFakeSupabase(seed({ app_settings: [{ key: 'live_free_lessons', value: { subjects: [], auto: false } }] }));
+  handler._internals.resetCaches();
+  assert.deepStrictEqual((await call('program')).body.freeLessons, []);
+});
+
+test('alegerea automată nu suprascrie o alegere făcută între timp din Admin (scrie doar peste rândul citit)', async () => {
+  const S = require('../api/_lib/settings');
+  fake = createFakeSupabase({ app_settings: [{ key: 'k', value: { a: 1 }, updated_at: '2026-10-11T10:00:00.000Z' }] });
+  assert.strictEqual(await S.updateSettingIf(fake, 'k', { a: 2 }, '2026-10-11T09:00:00.000Z'), false);
+  assert.deepStrictEqual(fake.db.tables.app_settings[0].value, { a: 1 });
+  assert.strictEqual(await S.updateSettingIf(fake, 'k', { a: 3 }, '2026-10-11T10:00:00.000Z'), true);
+  assert.deepStrictEqual(fake.db.tables.app_settings[0].value, { a: 3 });
 });
 
 test('fără SQL-ul setărilor: tot cele alese automat (calculate la cerere); adminul primește mesajul de instalare', async () => {
   fake = createFakeSupabase(seed());
   fake.db.failTables.add('app_settings');
   const p = await call('program');
-  assert.deepStrictEqual(p.body.freeLessons.map((f) => f.subjectId), [C.en1, C.bac1]);
+  assert.deepStrictEqual(p.body.freeLessons.map((f) => f.subjectId), [C.en1, C.bac1, C.bac2, C.teh2]);
   const ov = await call('admin_overview', {}, U.admin);
   assert.strictEqual(ov.statusCode, 200, JSON.stringify(ov.body));
   assert.strictEqual(ov.body.free.setup, false);
   assert.strictEqual(ov.body.free.auto, true);
-  const set = await call('admin_set_free', { subjectIds: [C.en2] }, U.admin);
+  const set = await call('admin_set_free', { type: 'en', subjectId: C.en2 }, U.admin);
   assert.strictEqual(set.statusCode, 503);
   assert.match(set.body.error, /setari_ordine_gratuite\.sql/);
   // elevul tot poate porni gratuit
@@ -204,7 +279,7 @@ test('1-la-1 gratuit: fără abonament și fără plată; nu consumă ședințel
   fake = createFakeSupabase(seed({ ...FREE_SET([C.en1, C.bac1]), live_lessons: [...seed().live_lessons, lesson(C.en2, { title: 'EN 2023 Varianta 2' })] }));
   const subj = await call('private_subjects', { exam: 'en' }, U.free);
   assert.strictEqual(subj.statusCode, 200);
-  assert.strictEqual(subj.body.subjects[0].id, C.en1, 'meditația gratuită e prima în listă');
+  assert.strictEqual(subj.body.subjects[0].id, C.en1, 'varianta cea mai nouă e prima în listă (și e meditația gratuită)');
   assert.strictEqual(subj.body.subjects[0].free, true);
   assert.ok(subj.body.subjects.filter((s) => s.id !== C.en1).every((s) => !s.free));
   assert.strictEqual(subj.body.freeAccess.ok, true);
@@ -290,7 +365,7 @@ test('chatul într-o meditație gratuită: profesorul răspunde la cel mult LIVE
   assert.strictEqual(p2.body.answer.role, 'profesor');
 });
 
-test('adminul alege meditațiile gratuite; una scoasă dintre ele → ședința nepornită revine la plata obișnuită', async () => {
+test('adminul alege meditația gratuită a fiecărui examen; una scoasă → ședința nepornită revine la plata obișnuită', async () => {
   fake = createFakeSupabase(seed({ live_lessons: [...seed().live_lessons, lesson(C.en2, { title: 'EN 2023 Varianta 2' })] }));
   // elevul pornește (nu începe încă) meditația gratuită aleasă automat
   const st = await call('private_start', { teacher: 'radu', subjectId: C.en1 }, U.free);
@@ -301,30 +376,43 @@ test('adminul alege meditațiile gratuite; una scoasă dintre ele → ședința 
   const f = ov.body.free;
   assert.strictEqual(f.setup, true);
   assert.strictEqual(f.auto, true);
-  assert.deepStrictEqual(f.lessons.map((l) => l.subjectId), [C.en1, C.bac1]);
-  assert.deepStrictEqual({ monthly: f.monthly, answers: f.answers, max: f.max }, { monthly: 4, answers: 10, max: 12 });
-  assert.ok(f.ready.some((r) => r.subjectId === C.en2 && r.free === false), 'lista din care alege: lecțiile gata');
-  assert.ok(f.ready.every((r) => r.exam), 'doar subiecte de EN/BAC');
+  assert.deepStrictEqual({ monthly: f.monthly, answers: f.answers, max: f.max }, { monthly: 4, answers: 10, max: 4 });
+  assert.deepStrictEqual(f.slots.map((x) => [x.type, x.label, x.lesson?.subjectId, x.auto]), [
+    ['en', 'Evaluarea Națională', C.en1, true], ['mate-info', 'BAC Mate-Info', C.bac1, true],
+    ['stiinte-naturii', 'BAC Științele Naturii', C.bac2, true], ['tehnologic', 'BAC Tehnologic', C.teh2, true],
+  ]);
+  assert.deepStrictEqual(f.lessons.map((l) => l.subjectId), [C.en1, C.bac1, C.bac2, C.teh2]);
+  const enSlot = f.slots[0];
+  assert.deepStrictEqual(enSlot.options.map((o) => [o.subjectId, o.kind, o.ready]), [[C.en1, 'varianta', true], [C.en2, 'varianta', true], [C.en3, 'model', true]],
+    'subiectele cu barem ale examenului, în ordinea listelor, fără fișe și fără cele fără barem');
+  assert.deepStrictEqual(f.slots[3].options.map((o) => [o.subjectId, o.ready]), [[C.teh2, false], [C.teh1, false]]);
   assert.strictEqual(ov.body.lessons.find((l) => l.subject_id === C.en1).free, true);
   assert.strictEqual(ov.body.lessons.find((l) => l.subject_id === C.en2).free, false);
 
-  // doar adminul; doar subiecte de EN/BAC (nu bareme, nu clase); cel mult 12
-  assert.strictEqual((await call('admin_set_free', { subjectIds: [C.en2] }, U.free)).statusCode, 403);
-  assert.strictEqual((await call('admin_set_free', { subjectIds: [C.baremEn] }, U.admin)).statusCode, 400);
-  assert.strictEqual((await call('admin_set_free', { subjectIds: [C.cls] }, U.admin)).statusCode, 400);
-  const many = Array.from({ length: 13 }, (_, i) => `aaaaaaaa-0000-4000-8000-${String(i + 100).padStart(12, '0')}`);
-  assert.strictEqual((await call('admin_set_free', { subjectIds: many }, U.admin)).statusCode, 400);
+  // doar adminul; doar subiecte ale examenului ales, cu barem (nu bareme, nu clase)
+  assert.strictEqual((await call('admin_set_free', { type: 'en', subjectId: C.en2 }, U.free)).statusCode, 403);
+  assert.strictEqual((await call('admin_set_free', { type: 'en', subjectId: C.baremEn }, U.admin)).statusCode, 400);
+  assert.strictEqual((await call('admin_set_free', { type: 'en', subjectId: C.cls }, U.admin)).statusCode, 400);
+  const wrong = await call('admin_set_free', { type: 'mate-info', subjectId: C.en2 }, U.admin);
+  assert.strictEqual(wrong.statusCode, 400);
+  assert.match(wrong.body.error, /nu e de BAC Mate-Info/);
+  const noBarem = await call('admin_set_free', { type: 'en', subjectId: C.enNoBarem }, U.admin);
+  assert.strictEqual(noBarem.statusCode, 400);
+  assert.match(noBarem.body.error, /nu are barem/);
+  assert.strictEqual((await call('admin_set_free', { type: 'pedagogic', subjectId: C.en2 }, U.admin)).statusCode, 400);
   assert.strictEqual((await call('admin_set_free', {}, U.admin)).statusCode, 400);
 
-  const set = await call('admin_set_free', { subjectIds: [C.bac1, C.en2] }, U.admin);
+  // EN: alta în locul celei de acum (tot una singură)
+  const set = await call('admin_set_free', { type: 'en', subjectId: C.en2 }, U.admin);
   assert.strictEqual(set.statusCode, 200, JSON.stringify(set.body));
-  assert.deepStrictEqual(set.body.free.lessons.map((l) => l.subjectId), [C.bac1, C.en2]);
-  assert.strictEqual(set.body.free.auto, false);
+  assert.deepStrictEqual(set.body.free.lessons.map((l) => l.subjectId), [C.en2, C.bac1, C.bac2, C.teh2]);
+  assert.strictEqual(set.body.free.slots[0].auto, false);
   const stored = fake.db.tables.app_settings.find((r) => r.key === 'live_free_lessons');
-  assert.deepStrictEqual(stored.value.subjects, [C.bac1, C.en2]);
+  assert.strictEqual(stored.value.slots.en, C.en2);
+  assert.ok(!stored.value.auto.includes('en'));
   assert.strictEqual(stored.updated_by, U.admin);
   const p = await call('program', {}, U.free);
-  assert.deepStrictEqual(p.body.freeLessons.map((x) => x.subjectId), [C.bac1, C.en2]);
+  assert.deepStrictEqual(p.body.freeLessons.map((x) => x.subjectId), [C.en2, C.bac1, C.bac2, C.teh2]);
 
   // ședința nepornită pe en1 (nu mai e gratuită) → plata obișnuită
   const begin = await call('private_begin', { sessionId: st.body.sessionId }, U.free);
@@ -332,9 +420,34 @@ test('adminul alege meditațiile gratuite; una scoasă dintre ele → ședința 
   assert.match(begin.body.error, /nu mai e gratuită/);
   const prem = await call('private_start', { teacher: 'radu', subjectId: C.en1 }, U.prem);
   assert.strictEqual(prem.body.via, 'inclus');
+
+  // Științele Naturii: fără meditație gratuită — rămâne așa (alegerea automată nu revine)
+  const none = await call('admin_set_free', { type: 'stiinte-naturii', subjectId: null }, U.admin);
+  assert.strictEqual(none.statusCode, 200, JSON.stringify(none.body));
+  assert.strictEqual(none.body.free.slots[2].none, true);
+  handler._internals.resetFree();
+  assert.deepStrictEqual((await call('program')).body.freeLessons.map((x) => x.subjectId), [C.en2, C.bac1, C.teh2]);
+  // … și înapoi la alegerea automată
+  const auto = await call('admin_set_free', { type: 'stiinte-naturii', auto: true }, U.admin);
+  assert.deepStrictEqual([auto.body.free.slots[2].lesson?.subjectId, auto.body.free.slots[2].auto], [C.bac2, true]);
+
+  // butonul „🎁" din „Lecțiile recente": devine meditația examenului ei (o înlocuiește), apoi scoasă
+  const on = await call('admin_set_free', { subjectId: C.en3, on: true }, U.admin);
+  assert.deepStrictEqual(on.body.free.lessons.map((l) => l.subjectId), [C.en3, C.bac1, C.bac2, C.teh2]);
+  const offOther = await call('admin_set_free', { subjectId: C.en2, on: false }, U.admin);
+  assert.deepStrictEqual(offOther.body.free.lessons.map((l) => l.subjectId), [C.en3, C.bac1, C.bac2, C.teh2], 'en2 nu mai era gratuită: nimic de scos');
+  const off = await call('admin_set_free', { subjectId: C.en3, on: false }, U.admin);
+  assert.deepStrictEqual(off.body.free.lessons.map((l) => l.subjectId), [C.bac1, C.bac2, C.teh2]);
+
+  // formatul vechi (o listă, de la o pagină de Admin rămasă deschisă): ultima a fiecărui examen; restul → niciuna
+  const many = Array.from({ length: 13 }, (_, i) => `aaaaaaaa-0000-4000-8000-${String(i + 100).padStart(12, '0')}`);
+  assert.strictEqual((await call('admin_set_free', { subjectIds: many }, U.admin)).statusCode, 400);
+  const legacy = await call('admin_set_free', { subjectIds: [C.en1, C.bac1, C.en2] }, U.admin);
+  assert.strictEqual(legacy.statusCode, 200, JSON.stringify(legacy.body));
+  assert.deepStrictEqual(legacy.body.free.lessons.map((l) => l.subjectId), [C.en2, C.bac1]);
   // lista goală = nicio meditație gratuită (fără să revină alegerea automată)
-  const none = await call('admin_set_free', { subjectIds: [] }, U.admin);
-  assert.deepStrictEqual(none.body.free.lessons, []);
+  const empty = await call('admin_set_free', { subjectIds: [] }, U.admin);
+  assert.deepStrictEqual(empty.body.free.lessons, []);
   handler._internals.resetFree();
   assert.deepStrictEqual((await call('program')).body.freeLessons, []);
 });

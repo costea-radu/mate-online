@@ -783,6 +783,19 @@ a.lvl-hero-mock:hover { transform: scale(1.015); }
 .lvl-quota.is-free { background: rgba(232,185,49,.18); color: #7a5b00; text-decoration: none; }
 .lvl-subject.is-free { background: #fffbea; }
 .lvl-subject.is-free.is-on { background: #fff3c4; }
+/* „Alege subiectul" pe feluri (11 oct. 2026): variante date → modele → teste de antrenament →
+   simulări → „Pe exerciții" (Subiectul I, ex. 1…); meditația gratuită separat, deasupra */
+.lvl-picker .lvl-subjects { max-height: 420px; }
+.lvl-subj-head { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 6px 12px; background: #f4f6f9; border-bottom: 1px solid var(--border); font-size: .72rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--navy); }
+.lvl-subj-head span { font-weight: 700; letter-spacing: 0; color: var(--text-muted); text-transform: none; }
+.lvl-subj-group.is-free .lvl-subj-head { background: #fff3c4; color: #6b4e00; }
+.lvl-subj-group.is-pos .lvl-subj-head { background: #e8f0fe; color: #0b57d0; }
+.lvl-subject.is-pos.is-on { background: #e8f0fe; }
+.lvl-ready.is-pos { color: #0b57d0; }
+.lvl-pos-note { font-size: .84rem; color: var(--text-light); line-height: 1.5; margin: 0; max-width: 820px; }
+.lvl-free-card.is-mine { border-color: var(--gold, #e8b931); box-shadow: 0 0 0 1px var(--gold, #e8b931) inset; }
+/* câte una pe examen (patru): încap pe un rând pe ecranele late */
+.lvl-free .lvl-free-list { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
 @media (max-width: 560px) {
   .lvl-free { padding: 16px 14px; }
   .lvl-free-card .lv-btn-primary { width: 100%; justify-content: center; text-align: center; }

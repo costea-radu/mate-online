@@ -13,7 +13,7 @@ import { PLANS } from '../../lib/plans';
 
 const plural = (n, one, many) => (n === 1 ? one : many);
 
-export default function PriceList({ prices, timesLabel, roomsCount, freeCount = 0, me = null, onClose }) {
+export default function PriceList({ prices, timesLabel, roomsCount, freeCount = 0, freeScope = '', me = null, onClose }) {
   const closeRef = useRef(null);
   useEffect(() => {
     const back = document.activeElement;            // la închidere, focusul revine pe „💳 Prețuri"
@@ -36,7 +36,8 @@ export default function PriceList({ prices, timesLabel, roomsCount, freeCount = 
       fara: `${privat} lei / ședință`, cu: `${incluse} pe lună incluse, apoi ${privat} lei` },
     { id: 'pregatire', title: '📚 Pregătire de examen', desc: 'din „Planul meu" — 1-la-1 în clasă, exercițiu cu exercițiu',
       fara: `${privat} lei / ședință`, cu: `din aceleași ${incluse} incluse, apoi ${privat} lei` },
-    ...(freeCount > 0 ? [{ id: 'gratuit', title: '🎁 Meditații gratuite', desc: `${freeCount} ${plural(freeCount, 'lecție 1-la-1 aleasă', 'lecții 1-la-1 alese')}`,
+    // câte una pe examen (freeScope: „pentru fiecare examen" / „la Evaluarea Națională și …")
+    ...(freeCount > 0 ? [{ id: 'gratuit', title: '🎁 Meditații gratuite', desc: `${plural(freeCount, 'o lecție 1-la-1', 'câte o lecție 1-la-1')}${freeScope ? ` ${freeScope}` : ''}`,
       fara: `gratuit, cu cont (cel mult ${gratuite} pe lună)`, cu: `gratuit — nu consumă cele ${incluse} incluse` }] : []),
   ];
 

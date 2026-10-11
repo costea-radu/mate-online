@@ -28,10 +28,13 @@ async function call(body, { auth = true, keepalive = false } = {}) {
 }
 
 // Pregătirea de examen: examenul ales în clasă de un elev fără examen în „Planul meu"
-// (PregatireExamen → setPrepExam); merge cu fiecare cerere prep_*. Cel din plan are întâietate.
+// (PregatireExamen → setPrepExam); merge cu fiecare cerere prep_*. Cel din plan are întâietate —
+// mai puțin când elevul vine din Meditații live („Alege subiectul" → „Subiectul I, ex. 1" la
+// un anumit examen): `force` → examenul listei alese acolo (examForce).
 let prepExam = null;
-export const setPrepExam = (target) => { prepExam = target || null; };
-const prep = (body) => call(prepExam ? { ...body, examTarget: prepExam } : body);
+let prepForce = false;
+export const setPrepExam = (target, { force = false } = {}) => { prepExam = target || null; prepForce = !!(force && prepExam); };
+const prep = (body) => call(prepExam ? { ...body, examTarget: prepExam, ...(prepForce ? { examForce: true } : {}) } : body);
 
 export const liveApi = {
   // programul se vede și fără cont (fără drepturile personale)
@@ -79,8 +82,9 @@ export const liveApi = {
   adminSetSubject: (sessionId, patch) => call({ action: 'admin_set_subject', sessionId, ...patch }),
   adminPrepare: (args) => call({ action: 'admin_prepare', ...args }),
   adminLesson: (lessonId) => call({ action: 'admin_lesson', lessonId }),
-  // meditațiile gratuite: lista completă a subiectelor alese (înlocuiește lista de acum)
-  adminSetFree: (subjectIds) => call({ action: 'admin_set_free', subjectIds }),
+  // meditațiile gratuite — câte una pe examen: { type, subjectId } (null = niciuna), { type, auto: true }
+  // (alegerea automată) sau { subjectId, on } (butonul „🎁" din „Lecțiile recente")
+  adminSetFree: (args) => call({ action: 'admin_set_free', ...(Array.isArray(args) ? { subjectIds: args } : args) }),
   // cine scrie lecțiile noi: null = implicitul (GPT-5.6 Terra), 'claude-opus-5-5' = Claude Opus 5.5
   adminSetWriter: (model) => call({ action: 'admin_set_writer', model }),
 };

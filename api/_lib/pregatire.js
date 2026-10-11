@@ -45,6 +45,8 @@ const TARGETS = {
   'bac-tehnologic': { exam: 'bac', profile: 'tehnologic', label: 'BAC Tehnologic', spoken: 'bacalaureat, profilul tehnologic' },
 };
 const examOf = (target) => (TARGETS[target] ? { target, ...TARGETS[target] } : null);
+// examenul unei săli / al unei liste de subiecte ({ exam, profile }) → ținta („bac-stiinte")
+const targetFor = (exam, profile = null) => Object.keys(TARGETS).find((k) => TARGETS[k].exam === exam && (exam === 'en' || TARGETS[k].profile === profile)) || null;
 const chapterOf = (target) => `pregatire:${target}`;
 
 // ─── Pozițiile din examen ─────────────────────────────────────────────────────
@@ -435,7 +437,7 @@ function publicProgress(exam, prog) {
 }
 
 module.exports = {
-  settings, TARGETS, examOf, chapterOf, positions, subPositions, allPositions, positionOf, nextPosition, itemsAt, pollsOf, hasPolls, testPollsOf,
+  settings, TARGETS, examOf, targetFor, chapterOf, positions, subPositions, allPositions, positionOf, nextPosition, itemsAt, pollsOf, hasPolls, testPollsOf,
   nsOf, splitNs, namespaced, exerciseTimeline, testTimeline, reviewTimeline, spokenTitle,
   progressFrom, currentPosition, testSize, proposeWelcome, proposeAfterExercise, proposeAfterTest, proposeExhausted,
   orderSubjects, gradeTest, publicProgress,

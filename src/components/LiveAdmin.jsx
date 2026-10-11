@@ -6,8 +6,11 @@
 // subiecte CU BAREM, ale examenului sălii), starea lecției (scriptul + vocea), cine
 // e în sală; pregătirea/regenerarea lecțiilor, anularea unei ședințe, o notă.
 // Lecțiile recente: durata, costul (text + voce), erorile, scriptul complet.
-// 🎁 Meditațiile gratuite: ce lecții pregătite se pot face 1-la-1 fără plată
-// (implicit 2, alese automat — una de EN, una de BAC); butoanele le schimbă.
+// 🎁 Meditațiile gratuite: CÂTE UNA PE EXAMEN (EN, BAC Mate-Info, BAC Științele
+// Naturii, BAC Tehnologic) — lecția pe care oricine are cont o face 1-la-1 fără plată;
+// alese automat până le alegi tu, pe fiecare rând (sau cu „🎁" din „Lecțiile recente").
+// Subiectele din liste (și din „Ședințele zilei") sunt în ordinea de pe site: variante
+// date → modele → teste de antrenament → simulări.
 // ✍️ Cine scrie lecțiile: GPT-5.6 Terra (implicit) sau Claude Opus 5.5 (cu Terra
 // ca rezervă) — doar pentru lecțiile scrise de acum înainte.
 // =====================================================================
@@ -27,6 +30,17 @@ const td = { padding: '10px 8px', borderBottom: '1px solid #eef1f5', verticalAli
 const examChip = (exam) => ({ display: 'inline-block', padding: '2px 9px', borderRadius: 999, fontSize: '.72rem', fontWeight: 700, whiteSpace: 'nowrap', background: exam === 'bac' ? '#efe7fb' : '#e3f0fb', color: exam === 'bac' ? '#5b2a99' : '#1f5faa' });
 
 // modelele care scriu lecțiile (api/_lib/liveLesson.js → GEN_MODEL / WRITERS)
+// felurile de subiecte, în ordinea listelor (oglinda lui L.SUBJECT_KINDS, api/_lib/live.js)
+const KIND_GROUPS = [
+  { id: 'varianta', label: 'Variante date', short: 'Variantă' },
+  { id: 'model', label: 'Modele', short: 'Model' },
+  { id: 'test', label: 'Teste de antrenament', short: 'Test' },
+  { id: 'simulare', label: 'Simulări', short: 'Simulare' },
+  { id: 'alt', label: 'Alte subiecte', short: 'Subiect' },
+  { id: 'fisa', label: 'Fișe pe exerciții', short: 'Fișă' },
+];
+const kindShort = (k) => KIND_GROUPS.find((x) => x.id === k)?.short || 'Subiect';
+
 const MODEL_LABEL = { 'gpt-5.6-terra': 'GPT-5.6 Terra', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'claude-opus-5-5': 'Claude Opus 5.5' };
 const modelLabel = (id) => MODEL_LABEL[id] || id || '—';
 // „Claude Opus 5.5" sau, cu rezerva folosită, „Claude Opus 5.5 (5 bucăți) + GPT-5.6 Terra (1 bucată)"
@@ -62,6 +76,8 @@ export default function LiveAdmin() {
 
   const slotLabel = useMemo(() => Object.fromEntries((data?.slots || []).map((s) => [s.id, s.label])), [data]);
   const subjectsFor = (s) => (s.exam === 'bac' ? (data?.subjects?.bac || []).filter((x) => !s.profile || x.profile === s.profile) : (data?.subjects?.en || []));
+  // aceeași ordine ca pe site, pe feluri (optgroup-uri): variante date, modele, teste, simulări…
+  const kindsOf = (list) => KIND_GROUPS.map((k) => ({ ...k, items: list.filter((x) => (x.kind || 'alt') === k.id) })).filter((g) => g.items.length);
   const teacherName = useMemo(() => Object.fromEntries((data?.teachers || []).map((t) => [t.id, t.name])), [data]);
 
   async function run(key, fn, okText) {
@@ -73,14 +89,19 @@ export default function LiveAdmin() {
 
   const go = (n) => { const d = addDays(day, n); setDay(d); setData(null); load(d); };
 
-  // ─── meditațiile gratuite ──
-  const [addPick, setAddPick] = useState('');
+  // ─── meditațiile gratuite: câte una pe examen ──
   const free = data?.free || null;
-  const freeIds = (free?.lessons || []).map((l) => l.subjectId);
   const canEditFree = !!free?.setup && !busy;
+  // butonul „🎁" din „Lecțiile recente": devine meditația gratuită a examenului ei (o înlocuiește pe cea de acum)
   function toggleFree(subjectId, on) {
-    const next = on ? [...freeIds.filter((x) => x !== subjectId), subjectId] : freeIds.filter((x) => x !== subjectId);
-    run('free', () => liveApi.adminSetFree(next), on ? 'Lecția e acum gratuită — apare în lobby cu „Începe gratuit".' : 'Lecția nu mai e gratuită.');
+    run('free', () => liveApi.adminSetFree({ subjectId, on }), on ? 'Lecția e acum meditația gratuită a examenului ei — apare în lobby cu „Începe gratuit".' : 'Lecția nu mai e gratuită.');
+  }
+  function setFreeSlot(slot, value) {
+    if (!value) return;
+    const label = slot.label;
+    if (value === 'auto') run('free', () => liveApi.adminSetFree({ type: slot.type, auto: true }), `${label}: meditația gratuită se alege automat.`);
+    else if (value === 'none') run('free', () => liveApi.adminSetFree({ type: slot.type, subjectId: null }), `${label}: fără meditație gratuită.`);
+    else run('free', () => liveApi.adminSetFree({ type: slot.type, subjectId: value }), `${label}: meditația gratuită a fost schimbată — apare în lobby cu „Începe gratuit".`);
   }
 
   // ─── cine scrie lecțiile ──
@@ -151,12 +172,12 @@ export default function LiveAdmin() {
       {free && (
         <div style={{ ...box, background: '#fffdf6', border: '1px solid #f1e2ac' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-            <h3 style={{ color: 'var(--navy)' }}>🎁 Meditațiile gratuite ({free.lessons.length})</h3>
-            {free.auto && free.lessons.length > 0 && <span style={{ fontSize: '.78rem', color: '#8a6d1a' }}>alese automat (una de EN, una de BAC) — le poți schimba oricând</span>}
+            <h3 style={{ color: 'var(--navy)' }}>🎁 Meditațiile gratuite — câte una pe examen ({free.lessons.length} din {free.max})</h3>
+            {free.auto && <span style={{ fontSize: '.78rem', color: '#8a6d1a' }}>„aleasă automat" = până o alegi tu; o poți schimba oricând</span>}
           </div>
           <p style={{ color: '#5f6673', fontSize: '.84rem', margin: '6px 0 12px', lineHeight: 1.55 }}>
-            Oricine are cont le poate face <b>1-la-1, fără abonament și fără plată</b> (nu consumă nici ședințele incluse, nici biletele).
-            Apar la vedere în lobby-ul „Meditații live", cu „▶ Începe gratuit"; ședința de grup din ziua în care o sală predă una dintre ele
+            Pentru fiecare examen, o lecție pe care oricine are cont o face <b>1-la-1, fără abonament și fără plată</b> (nu consumă nici ședințele incluse, nici biletele).
+            Apar la vedere în lobby-ul „Meditații live", cu „▶ Începe gratuit" (prima e cea a sălii alese de elev); ședința de grup din ziua în care o sală predă una dintre ele
             e și ea gratuită. Plasă anti-abuz: cel mult <b>{free.monthly}</b> ședințe gratuite pe lună de elev, iar în ele profesorul
             răspunde la <b>{free.answers}</b> întrebări în chat (LIVE_GRATUIT_LUNA, LIVE_GRATUIT_INTREBARI).
           </p>
@@ -166,42 +187,53 @@ export default function LiveAdmin() {
               Până atunci sunt gratuite cele alese automat.
             </div>
           )}
-          {free.lessons.length === 0 ? (
-            <div style={{ color: '#6b7280', fontSize: '.86rem' }}>Nicio meditație gratuită acum{free.ready.length ? ' — alege mai jos.' : ' (nu există încă lecții gata; primele două se aleg singure când apar).'}</div>
-          ) : (
-            <div style={{ display: 'grid', gap: 8 }}>
-              {free.lessons.map((l) => (
-                <div key={l.subjectId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', border: '1px solid #eee2b8', borderRadius: 10, background: '#fff', flexWrap: 'wrap' }}>
-                  <span style={examChip(l.exam)}>{l.examLabel}</span>
-                  <b style={{ flex: 1, minWidth: 200, color: 'var(--navy)' }}>{l.title}</b>
-                  <span style={{ fontSize: '.78rem', color: l.missing ? '#b3261e' : l.ready ? '#137333' : '#8a5a00' }}>
-                    {l.missing ? '⚠ subiectul nu mai există' : l.ready ? '✓ lecția e gata' : 'lecția se scrie la prima folosire (1–3 min)'}
-                  </span>
-                  <button type="button" style={btn} disabled={!canEditFree} onClick={() => toggleFree(l.subjectId, false)}>
-                    {busy === 'free' ? '…' : '✕ Scoate'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {free.ready.some((r) => !r.free) && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-              <select value={addPick} onChange={(e) => setAddPick(e.target.value)} disabled={!canEditFree}
-                style={{ flex: 1, minWidth: 260, padding: 7, borderRadius: 8, border: '1px solid #d0d7e2', fontSize: '.86rem' }}>
-                <option value="">＋ Alege o lecție gata, ca să devină gratuită…</option>
-                {[['en', 'Evaluarea Națională'], ['bac', 'Bacalaureat']].map(([ex, label]) => {
-                  const opts = free.ready.filter((r) => r.exam === ex && !r.free);
-                  return opts.length ? (
-                    <optgroup key={ex} label={label}>
-                      {opts.map((r) => <option key={r.subjectId} value={r.subjectId}>{ex === 'bac' ? `${r.examLabel.replace(/^BAC\s*/, '')} · ` : ''}{r.title}</option>)}
+          <div style={{ display: 'grid', gap: 8 }}>
+            {(free.slots || []).map((sl) => {
+              const l = sl.lesson;
+              const ready = sl.options.filter((o) => o.ready && o.subjectId !== l?.subjectId);
+              const later = sl.options.filter((o) => !o.ready && o.subjectId !== l?.subjectId);
+              return (
+                <div key={sl.type} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', border: '1px solid #eee2b8', borderRadius: 10, background: '#fff', flexWrap: 'wrap' }}>
+                  <span style={{ ...examChip(sl.exam), minWidth: 128, textAlign: 'center' }}>{sl.label}</span>
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    {l
+                      ? <b style={{ color: 'var(--navy)' }}>{l.kind ? <span style={{ color: '#8a6d1a', fontWeight: 700 }}>{kindShort(l.kind)} · </span> : null}{l.title}</b>
+                      : <span style={{ color: '#6b7280' }}>{sl.none ? '— fără meditație gratuită —' : 'niciun subiect cu barem încă'}</span>}
+                    <div style={{ fontSize: '.76rem', color: l?.missing || l?.noBarem ? '#b3261e' : l?.ready ? '#137333' : '#8a5a00' }}>
+                      {l ? (l.missing ? '⚠ subiectul nu mai există — alege altul'
+                        : l.noBarem ? '⚠ subiectul nu mai are barem găsit — alege altul'
+                          : l.ready ? '✓ lecția e gata' : 'lecția se scrie la prima folosire (1–3 min, o singură dată)') : ''}
+                      {l && sl.auto ? <span style={{ color: '#8a6d1a' }}> · aleasă automat</span> : null}
+                    </div>
+                  </div>
+                  {l && !l.ready && !l.missing && !l.noBarem && (
+                    <button type="button" style={btnMain} disabled={!!busy} title="Scrie lecția acum (textul + vocea), ca primul elev să nu aștepte"
+                      onClick={() => run(`fprep-${sl.type}`, () => liveApi.adminPrepare({ subjectId: l.subjectId, teacher: data?.teachers?.[0]?.id || 'radu' }), 'Pregătirea a înaintat (reapasă dacă nu e gata).')}>
+                      {busy === `fprep-${sl.type}` ? 'Se pregătește…' : 'Pregătește acum'}
+                    </button>
+                  )}
+                  <select value="" onChange={(e) => setFreeSlot(sl, e.target.value)} disabled={!canEditFree} aria-label={`Meditația gratuită: ${sl.label}`}
+                    style={{ flex: '0 1 300px', minWidth: 200, padding: 7, borderRadius: 8, border: '1px solid #d0d7e2', fontSize: '.84rem' }}>
+                    <option value="">{l ? '↻ Schimbă…' : '＋ Alege…'}</option>
+                    {ready.length > 0 && (
+                      <optgroup label="✓ Lecții gata — pornesc imediat">
+                        {ready.map((o) => <option key={o.subjectId} value={o.subjectId}>{kindShort(o.kind)} · {o.title}</option>)}
+                      </optgroup>
+                    )}
+                    {later.length > 0 && (
+                      <optgroup label="Se scriu la prima folosire (1–3 min, o dată)">
+                        {later.map((o) => <option key={o.subjectId} value={o.subjectId}>{kindShort(o.kind)} · {o.title}</option>)}
+                      </optgroup>
+                    )}
+                    <optgroup label="Altfel">
+                      {!sl.auto && <option value="auto">🤖 Alege automat (cea mai potrivită lecție gata)</option>}
+                      {l && <option value="none">✕ Fără meditație gratuită la acest examen</option>}
                     </optgroup>
-                  ) : null;
-                })}
-              </select>
-              <button type="button" style={btnMain} disabled={!addPick || !canEditFree || freeIds.length >= free.max}
-                onClick={() => { toggleFree(addPick, true); setAddPick(''); }}>🎁 Fă-o gratuită</button>
-            </div>
-          )}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -236,7 +268,11 @@ export default function LiveAdmin() {
                           onChange={(e) => run(`subj-${s.id}`, () => liveApi.adminSetSubject(s.id, { subjectId: e.target.value || null }), 'Subiectul a fost schimbat.')}>
                           <option value="">— alege automat —</option>
                           {s.subject && !inList && <option value={s.subject.id}>{s.subject.title}</option>}
-                          {list.map((x) => <option key={x.id} value={x.id}>{x.title}</option>)}
+                          {kindsOf(list).map((g) => (
+                            <optgroup key={g.id} label={g.label}>
+                              {g.items.map((x) => <option key={x.id} value={x.id}>{x.title}</option>)}
+                            </optgroup>
+                          ))}
                         </select>
                         <input type="text" defaultValue={s.note || ''} placeholder="Notă (opțional, doar pentru admin)" style={{ width: '100%', marginTop: 6, padding: 6, borderRadius: 8, border: '1px solid #e3e8ef', fontSize: '.8rem' }}
                           onBlur={(e) => { if ((e.target.value || '') !== (s.note || '')) run(`note-${s.id}`, () => liveApi.adminSetSubject(s.id, { note: e.target.value })); }} />
@@ -299,8 +335,8 @@ export default function LiveAdmin() {
                     <td style={td}>{new Date(l.updated_at).toLocaleString('ro-RO')}</td>
                     <td style={{ ...td, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {(l.status === 'gata' || l.free) && free && (
-                        <button type="button" style={l.free ? btnFree : btn} disabled={!canEditFree || (!l.free && freeIds.length >= free.max)}
-                          title={l.free ? 'Meditație gratuită (1-la-1 fără plată) — apasă ca să nu mai fie gratuită' : 'Fă din această lecție o meditație gratuită (1-la-1 fără plată, la vedere în lobby)'}
+                        <button type="button" style={l.free ? btnFree : btn} disabled={!canEditFree}
+                          title={l.free ? 'Meditația gratuită a examenului ei (1-la-1 fără plată) — apasă ca să nu mai fie gratuită' : 'Fă din această lecție meditația gratuită a examenului ei (1-la-1 fără plată, la vedere în lobby) — o înlocuiește pe cea de acum'}
                           onClick={() => toggleFree(l.subject_id, !l.free)}>
                           {l.free ? '🎁 Gratuită ✓' : '🎁 Fă-o gratuită'}
                         </button>

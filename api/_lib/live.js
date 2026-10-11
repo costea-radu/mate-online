@@ -7,8 +7,8 @@
 //     BAC Tehnologic — oricâți elevi, 10 lei ședința sau incluse în abonament;
 //   · ședințe 1-la-1 pornite ORICÂND, de 60 de minute — 20 lei sau incluse
 //     în abonament (8 pe lună; peste, 20 lei);
-//   · câteva meditații GRATUITE (implicit 2 lecții pregătite, alese din Admin):
-//     1-la-1 fără plată și fără abonament, pentru oricine are cont;
+//   · meditații GRATUITE — câte una pe fiecare examen (EN și fiecare profil de BAC,
+//     alese din Admin sau automat): 1-la-1 fără plată și fără abonament, cu cont;
 //   · profesorul explică DOAR subiecte de EN/BAC cu barem asociat
 //     („fără barem nu explică nimic"), în mai multe moduri, pe baza lui.
 //
@@ -316,12 +316,74 @@ function pickSubject(candidates, { seed = '', now = new Date(), reuseDays = envI
 
 // Subiect COMPLET de examen (variantă / model / simulare, cu toate subiectele),
 // nu o fișă tematică („Subiectul I, ex. 5: radicali"), după titlu.
+const FISA_RES = [
+  /\bsubiectul\s+(i{1,3}|al\s+(ii|iii|doilea|treilea)(-lea)?)\b\s*[,.:-]?\s*(ex|exercitiul|item(ul)?|problema)\b/,
+  /\b(ex|exercitiul|problema|itemul)\s*\.?\s*\d/,
+];
 function isFullSubject(title) {
   const t = foldRo(title).replace(/[–—]/g, '-');
-  if (/\bsubiectul\s+(i{1,3}|al\s+(ii|iii|doilea|treilea)(-lea)?)\b\s*[,.:-]?\s*(ex|exercitiul|item(ul)?|problema)\b/.test(t)) return false;
-  if (/\b(ex|exercitiul|problema|itemul)\s*\.?\s*\d/.test(t)) return false;
+  if (FISA_RES.some((re) => re.test(t))) return false;
   if (/\b(varianta|variante|model(ul)?|simulare|simularea|antrenament|sesiunea|rezerva|speciala|examen(ul)?)\b/.test(t)) return true;
   return /\b(19|20)\d{2}\b/.test(t);
+}
+
+// ─── Felul subiectului și ORDINEA listelor („Alege subiectul" la 1-la-1, Admin) ──
+// Cererea lui Radu (11 oct. 2026): întâi variantele date, apoi modelele, testele de
+// antrenament, simulările — iar „Subiectul I, ex. 1"… la sfârșit. Felul vine din rubrica
+// materialului (subcategory) și din titlu: la EN „Variante Date + Modele" e o singură
+// rubrică, iar la BAC modelele stau în rubrica „Simulări". În fiecare fel: cel mai nou
+// an întâi; în același an, varianta oficială înaintea celei de rezervă / sesiunii
+// speciale, simularea națională înaintea celor județene; apoi după titlu (02 < 10).
+const SUBJECT_KINDS = [
+  { id: 'varianta', label: 'Variante date', short: 'Variantă' },
+  { id: 'model', label: 'Modele', short: 'Model' },
+  { id: 'test', label: 'Teste de antrenament', short: 'Test' },
+  { id: 'simulare', label: 'Simulări', short: 'Simulare' },
+  { id: 'alt', label: 'Alte subiecte', short: 'Subiect' },
+  { id: 'fisa', label: 'Fișe pe exerciții', short: 'Fișă' },   // „Subiectul I - Exercițiul 1" (rubrica Exerciții pe Subiecte)
+];
+const KIND_RANK = Object.fromEntries(SUBJECT_KINDS.map((k, i) => [k.id, i]));
+function subjectKind(row) {
+  const title = String((row && row.title) || '');
+  const sub = String((row && row.subcategory) || '');
+  const t = foldRo(title).replace(/[–—]/g, '-');
+  if (sub === 'exercitii' || sub === 'exercitii-subiecte' || FISA_RES.some((re) => re.test(t))) return 'fisa';
+  if (/\bmodel/.test(t)) return 'model';
+  if (sub === 'teste-antrenament' || /\btest(ul)?\s*(de\s+antrenament\s*)?\d/.test(t) || /\bantrenament\b/.test(t)) return 'test';
+  if (sub === 'simulari' || /\bsimul/.test(t)) return 'simulare';
+  if (sub === 'variante' || /\bvariant|\brezerv|\bspecial|\bolimpi|\bsesiun/.test(t)) return 'varianta';
+  return 'alt';
+}
+// anul examenului din titlu („2023-2024" → 2024); fără an → 0 (la sfârșitul felului)
+const yearOfTitle = (title) => {
+  const ys = String(title || '').match(/\b(?:19|20)\d{2}\b/g);
+  return ys ? Math.max(...ys.map(Number)) : 0;
+};
+function kindSubRank(kind, t) {
+  if (kind === 'varianta') return /\bolimpi/.test(t) ? 3 : /\bspecial/.test(t) ? 2 : /\brezerv/.test(t) ? 1 : 0;
+  if (kind === 'simulare') return /clasa a xi\b|\bclasa a xi-a/.test(t) ? 2 : /\boficial|\bnational/.test(t) ? 0 : 1;
+  if (kind === 'model') return /\bmodel(ul)?\s*\d/.test(t) ? 1 : 0;
+  return 0;
+}
+// „Subiectul II, Ex. 1" → 201 (ordinea din examen)
+function fisaRank(title) {
+  const t = foldRo(title);
+  const s = /\bsubiectul\s+(al\s+)?(iii|ii|i|treilea|doilea|\d)\b/.exec(t);
+  const e = /\b(?:ex|exercitiul|problema|itemul)\s*\.?\s*(\d+)/.exec(t);
+  const sec = s ? ({ i: 1, ii: 2, iii: 3, doilea: 2, treilea: 3 }[s[2]] || parseInt(s[2], 10) || 9) : 9;
+  return sec * 100 + (e ? parseInt(e[1], 10) : 99);
+}
+function subjectOrder(a, b) {
+  const ka = a.kind || subjectKind(a);
+  const kb = b.kind || subjectKind(b);
+  if (ka !== kb) return (KIND_RANK[ka] ?? 9) - (KIND_RANK[kb] ?? 9);
+  const byTitle = String(a.title || '').localeCompare(String(b.title || ''), 'ro', { numeric: true, sensitivity: 'base' })
+    || String(a.id || '').localeCompare(String(b.id || ''));
+  if (ka === 'fisa') return fisaRank(a.title) - fisaRank(b.title) || byTitle;
+  const ya = yearOfTitle(a.title);
+  const yb = yearOfTitle(b.title);
+  if (ya !== yb) return yb - ya;
+  return kindSubRank(ka, foldRo(a.title)) - kindSubRank(kb, foldRo(b.title)) || byTitle;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -354,16 +416,35 @@ function privateAccess({ profile, includedUsed = 0, unusedTickets = 0 }) {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 5b. MEDITAȚIILE GRATUITE (Admin → 🎥 Meditații live → „🎁 Meditațiile gratuite")
-// Câteva lecții pregătite (implicit 2: una de EN și una de BAC, alese automat
-// până le alege adminul) se pot face 1-la-1 FĂRĂ plată și fără abonament, de
-// oricine are cont; ședința de grup din ziua în care o sală predă una dintre
+// CÂTE UNA PE FIECARE EXAMEN (cererea lui Radu, 11 oct. 2026): Evaluarea Națională,
+// BAC Mate-Info, BAC Științele Naturii, BAC Tehnologic — o lecție pregătită pe care
+// oricine are cont o face 1-la-1 FĂRĂ plată și fără abonament (până la 6 oct.: două,
+// una de EN și una de BAC). Până o alege adminul, fiecare examen primește automat
+// cea mai potrivită lecție gata (fără niciuna gata: cel mai bun subiect cu barem,
+// scris la prima folosire). Ședința de grup din ziua în care o sală predă una dintre
 // ele e și ea gratuită. Ședința gratuită nu consumă nici ședințele incluse în
 // abonament, nici biletele. Plasă anti-abuz (chatul cu profesorul e o funcție AI):
 // cel mult LIVE_GRATUIT_LUNA ședințe gratuite pornite pe lună de un elev, iar în
 // ele profesorul răspunde la cel mult LIVE_GRATUIT_INTREBARI întrebări în chat.
 // ═════════════════════════════════════════════════════════════════════════════
-const FREE_DEFAULT_COUNT = 2;
-const FREE_MAX = 12;
+const FREE_TYPES = [
+  { id: 'en', exam: 'en', profile: null },
+  { id: 'mate-info', exam: 'bac', profile: 'mate-info' },
+  { id: 'stiinte-naturii', exam: 'bac', profile: 'stiinte-naturii' },
+  { id: 'tehnologic', exam: 'bac', profile: 'tehnologic' },
+].map((t) => {
+  const r = ROOMS.find((x) => x.exam === t.exam && x.profile === t.profile);
+  return { ...t, label: r.label, short: r.short };
+});
+const FREE_TYPE_IDS = FREE_TYPES.map((t) => t.id);
+// examenul unei lecții / al unui subiect ({ exam, profile }) → 'en' | profilul de BAC | null
+function freeTypeOf(x) {
+  if (!x) return null;
+  if (x.exam === 'en') return 'en';
+  return x.exam === 'bac' && FREE_TYPE_IDS.includes(x.profile) ? x.profile : null;
+}
+const FREE_DEFAULT_COUNT = FREE_TYPES.length;   // câte una pe examen
+const FREE_MAX = 12;                            // plafonul listei din formatul vechi (citire)
 const FREE_MONTHLY = () => Math.max(0, envInt('LIVE_GRATUIT_LUNA', 4));
 const FREE_ANSWERS = () => Math.max(0, envInt('LIVE_GRATUIT_INTREBARI', 10));
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -389,13 +470,13 @@ function normalizeFreeIds(list) {
   return out;
 }
 
-// Alegerea automată (până alege adminul): lecțiile GATA cele mai potrivite pentru
-// o primă încercare — una de Evaluare Națională și una de Bacalaureat (Mate-Info
-// întâi), apoi restul. Calitatea: subiect complet (variantă / model / simulare),
-// cu întrebări pe pași, scrisă cu paginile PDF, cu voce generată.
+// Alegerea automată (pentru examenele pe care adminul nu le-a ales): pe fiecare
+// examen, lecția GATA cea mai potrivită pentru o primă încercare. Calitatea: subiect
+// complet (variantă / model / simulare, nu o fișă), cu întrebări pe pași, scrisă cu
+// paginile PDF, cu voce generată; la egalitate, ordinea listelor (variantele întâi,
+// cel mai nou an întâi). → câte o lecție pe examen, în ordinea FREE_TYPES.
 // `lessons` = rânduri live_lessons { subject_id, status, version, title, exam, profile, pasi, sv, noVoice }
-const BAC_PROFILE_RANK = { 'mate-info': 0, 'stiinte-naturii': 1, tehnologic: 2 };
-function pickFreeLessons(lessons, { count = FREE_DEFAULT_COUNT } = {}) {
+function pickFreeLessons(lessons, { types = FREE_TYPE_IDS } = {}) {
   const best = new Map();   // cea mai nouă versiune, pe subiect
   for (const l of lessons || []) {
     if (!l || !l.subject_id || l.status !== 'gata') continue;
@@ -403,16 +484,64 @@ function pickFreeLessons(lessons, { count = FREE_DEFAULT_COUNT } = {}) {
     if (!cur || Number(l.version || 1) > Number(cur.version || 1)) best.set(l.subject_id, l);
   }
   const score = (l) => (isFullSubject(l.title) ? 8 : 0) + (Number(l.pasi) > 0 ? 4 : 0) + (Number(l.sv || 1) >= 2 ? 2 : 0) + (l.noVoice === true ? 0 : 1);
-  const rank = (l) => (BAC_PROFILE_RANK[l.profile] ?? 9);
-  const all = [...best.values()].sort((a, b) => score(b) - score(a) || rank(a) - rank(b)
-    || String(b.title || '').localeCompare(String(a.title || ''), 'ro', { numeric: true })
-    || String(a.subject_id).localeCompare(String(b.subject_id)));
+  const all = [...best.values()].sort((a, b) => score(b) - score(a)
+    || subjectOrder({ id: a.subject_id, title: a.title }, { id: b.subject_id, title: b.title }));
   const out = [];
-  const add = (l) => { if (l && out.length < count && !out.includes(l)) out.push(l); };
-  add(all.find((l) => l.exam === 'en'));
-  add(all.find((l) => l.exam === 'bac'));
-  for (const l of all) add(l);
+  for (const t of FREE_TYPE_IDS) {
+    if (!types.includes(t)) continue;
+    const l = all.find((x) => freeTypeOf(x) === t);
+    if (l) out.push(l);
+  }
   return out;
+}
+// Un examen fără nicio lecție gata: cel mai bun subiect cu barem (complet, nu o fișă;
+// ordinea listelor → cea mai nouă variantă dată). Lecția lui se scrie la prima folosire.
+// `subjects` = [{ id, title, subcategory?, kind? }] (subiectele cu barem ale examenului)
+function pickFreeSubject(subjects) {
+  return (subjects || [])
+    .filter((s) => s && s.id && (s.kind || subjectKind(s)) !== 'fisa' && isFullSubject(s.title))
+    .sort(subjectOrder)[0] || null;
+}
+
+// Setarea salvată (app_settings 'live_free_lessons') → { slots, auto }:
+//   slots = { en: id | null, 'mate-info': …, … } — un examen LIPSĂ din slots = automat;
+//           null = adminul a scos-o (fără meditație gratuită la acel examen);
+//   auto  = Set(examenele alese automat), ca Admin să poată spune „aleasă automat".
+// Formatul de până acum ({ subjects: [ids], auto }) → prima lecție a fiecărui examen
+// (`typeOf(id)` dă examenul unui id); examenele neacoperite rămân automate.
+function freeSlotsFrom(value, typeOf = () => null) {
+  const slots = {};
+  const auto = new Set();
+  if (value && value.slots && typeof value.slots === 'object' && !Array.isArray(value.slots)) {
+    for (const t of FREE_TYPE_IDS) {
+      if (!Object.prototype.hasOwnProperty.call(value.slots, t)) continue;
+      const v = value.slots[t];
+      if (v === null) { slots[t] = null; continue; }
+      const id = String(v || '').trim().toLowerCase();
+      if (UUID_RE.test(id)) slots[t] = id;
+    }
+    for (const t of Array.isArray(value.auto) ? value.auto : []) if (slots[t]) auto.add(t);
+    return { slots, auto };
+  }
+  if (value && Array.isArray(value.subjects)) {
+    const ids = normalizeFreeIds(value.subjects);
+    // lista golită de admin („nicio meditație gratuită") rămâne așa, la toate examenele
+    if (!ids.length && !value.auto) { for (const t of FREE_TYPE_IDS) slots[t] = null; return { slots, auto }; }
+    for (const id of ids) {
+      const t = typeOf(id);
+      if (t && FREE_TYPE_IDS.includes(t) && !(t in slots)) slots[t] = id;
+    }
+    if (value.auto) for (const t of Object.keys(slots)) auto.add(t);
+  }
+  return { slots, auto };
+}
+// lecțiile gratuite, în ordinea examenelor (EN, Mate-Info, Șt. Naturii, Tehnologic)
+const freeIdsOf = (slots) => FREE_TYPE_IDS.map((t) => (slots || {})[t]).filter(Boolean);
+// valoarea de salvat: `subjects` (lista) rămâne și pentru versiunile vechi ale serverului
+function freeValue(slots, auto) {
+  const s = {};
+  for (const t of FREE_TYPE_IDS) if (slots && t in slots) s[t] = slots[t] || null;
+  return { v: 2, slots: s, auto: FREE_TYPE_IDS.filter((t) => auto && auto.has(t) && s[t]), subjects: freeIdsOf(s) };
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -886,9 +1015,11 @@ module.exports = {
   TZ, TEACHER_DEFAULTS, teachers, teacherById, publicTeacher,
   roParts, roTime, dayKey, addDays, dayNumber, monthStart, parseDayKey,
   intervals, rooms, roomById, slots, slotById, slotTimes, examFor, plannedSessions, phaseOf, canJoinPhase, JOIN_EARLY_MIN, isFullSubject,
+  SUBJECT_KINDS, subjectKind, subjectOrder, yearOfTitle,
   BAREM_OK, hasBarem, subjectExam, pickSubject, PROFILE_LABELS, EXAM_LABEL,
   groupAccess, privateAccess, PRICE_GROUP_LEI, PRICE_PRIVATE_LEI, PRIVATE_INCLUDED, PRIVATE_MINUTES,
-  FREE_DEFAULT_COUNT, FREE_MAX, FREE_MONTHLY, FREE_ANSWERS, freeAccess, normalizeFreeIds, pickFreeLessons,
+  FREE_TYPES, FREE_TYPE_IDS, freeTypeOf, FREE_DEFAULT_COUNT, FREE_MAX, FREE_MONTHLY, FREE_ANSWERS, freeAccess, normalizeFreeIds,
+  pickFreeLessons, pickFreeSubject, freeSlotsFrom, freeIdsOf, freeValue,
   EXT_STEP_MIN, EXT_MAX_MIN, baseEndOf, extensionPlan,
   displayName, moderate, isQuestion, foldRo,
   checkPollAnswer, pollResults, publicPoll,

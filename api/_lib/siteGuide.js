@@ -205,7 +205,7 @@ function answer(r) {
           'Abonamentul (lunar sau anual): [Prețuri](/preturi)',
           `Meditație live de grup: ${L.PRICE_GROUP_LEI()} lei — inclusă în abonament`,
           `Meditație 1-la-1 sau Pregătire de examen: ${L.PRICE_PRIVATE_LEI()} lei ședința — ${L.PRIVATE_INCLUDED()} pe lună incluse în abonament`,
-          'Câteva meditații 1-la-1 sunt gratuite, fără abonament: [Meditații live](/meditatii)',
+          'Câte o meditație 1-la-1 gratuită pentru fiecare examen (EN și fiecare profil de BAC), fără abonament: [Meditații live](/meditatii)',
         ]),
       ].join('\n\n');
     case 'cont':

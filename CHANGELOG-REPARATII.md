@@ -4,6 +4,27 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 11 octombrie 2026 — Meditații live: ordinea listei „Alege subiectul" + „Subiectul I, ex. 1"… · câte o meditație gratuită pe fiecare examen
+
+Cererea: 1) la „Meditații 1-la-1" → „Alege subiectul": întâi variantele PDF date, apoi modelele, testele de antrenament, simulările; la Evaluare Națională testele, variantele și modelele primele, apoi la sfârșit „subiect 1 ex 1", „subiect 1 ex 2" etc. — la sfârșit și la BAC; 2) doar o meditație gratuită pe fiecare tip: EN, BAC Mate-Info, BAC Tehnologic, BAC Științele Naturii, 1-la-1; 3) (întrebare) diferența dintre Sol și Terra la scrierea lecțiilor — răspunsul în `GHID_MEDITATII_LIVE.md` → 3e.
+
+### 1) „Alege subiectul" pe grupuri, în ordinea cerută (`api/_lib/live.js`, `api/live.js`, `src/pages/MeditatiiLive.jsx`)
+- **Variante date → Modele → Teste de antrenament → Simulări** (→ alte subiecte), fiecare grup cu antetul lui (rămâne sus la derulare) și numărul de subiecte; în grup, cel mai nou an întâi, în același an oficiala înaintea rezervei / sesiunii speciale, simularea națională înaintea celor județene, apoi după număr (02 înaintea lui 10). Felul vine din rubrică + titlu (`L.subjectKind`): la EN modelele sunt în rubrica „Variante Date + Modele", la BAC în „Simulări". Până acum lista era doar după titlu, descrescător (gratuitele și lecțiile gata întâi).
+- **La sfârșit, „Pe exerciții": „Subiectul I, exercițiul 1"…** (EN: 18 poziții; BAC: S. I ex. 1–6, S. II ex. 1–2, S. III ex. 1–2) — exercițiul acelei poziții din **toate subiectele oficiale** ale examenului, pe rând, fiecare pe baremul lui = Pregătirea de examen pe acea poziție (după 10, un test scurt), aceeași ședință 1-la-1. „Începe" → `/meditatii/pregatire?pos=…&examen=…&din=live`: examenul listei alese în lobby are întâietate față de cel din „Planul meu" (`examForce`, și după plata biletului — ținut în sesiunea browserului), „Înapoi" duce la Meditații live.
+- Fișele din rubricile „Exerciții pe Subiecte" („Subiectul I - Exercițiul 1", „SUBIECTUL I, Ex. 1") nu mai apar în listă: sunt culegeri fără barem propriu, deci profesorul nu le poate explica pe barem; „Pe exerciții" ia aceleași exerciții din subiectele cu barem.
+- Meditația gratuită a examenului stă deasupra listei, separat („🎁 Meditația gratuită") și e aleasă implicit. Aceeași ordine în Admin („Ședințele zilei": lista subiectului fiecărei săli, pe grupuri).
+
+### 2) 🎁 Câte o meditație gratuită pe fiecare examen (`api/live.js`, `api/_lib/live.js`, `api/_lib/settings.js`, `src/components/LiveAdmin.jsx`)
+- **Câte una pe examen**: Evaluarea Națională, BAC Mate-Info, BAC Științele Naturii, BAC Tehnologic (înainte: implicit două, una de EN și una de BAC, oricâte la alegere, cel mult 12). Automat, până le alegi: lecția gata cea mai potrivită a fiecărui examen; un examen fără nicio lecție gata primește cea mai nouă variantă cu barem (lecția se scrie la primul elev, o dată). Cele alese până acum rămân (prima a fiecărui examen), restul se completează automat; alegerea se salvează o dată, doar peste rândul citit (nu suprascrie o schimbare făcută chiar atunci din Admin). Setarea: `app_settings.live_free_lessons` = `{ v: 2, slots, auto, subjects }` — fără SQL nou.
+- **Admin → 🎁 Meditațiile gratuite**: un rând pe examen — lecția de acum, „↻ Schimbă…" (lecțiile gata, apoi subiectele cu barem scrise la prima folosire, în ordinea listelor), „✕ Fără meditație gratuită la acest examen", „🤖 Alege automat", „Pregătește acum" la o lecție negata. În „Lecțiile recente", „🎁 Fă-o gratuită" o face meditația examenului ei (o înlocuiește pe cea de acum).
+- **Lobby**: „🎁 Câte o meditație 1-la-1 gratuită pentru fiecare examen, fără abonament — încearc-o!"; „Încearcă gratuit" cu cele patru (pe un rând pe desktop; prima, încadrată cu auriu, cea a sălii alese de elev); „💳 Prețuri": „câte o lecție 1-la-1 pentru fiecare examen". Prof. Virtual (ghidul site-ului) spune la fel.
+
+**Verificat:** `npm test` 722/722 (noi: `test/alege-subiectul.test.js` — felul și ordinea pe titlurile reale ale site-ului, lista 1-la-1 la EN și BAC, pozițiile, Admin; `test/meditatii-gratuite.test.js` rescris pentru câte una pe examen — alegerea automată, formatul vechi, scoaterea / alegerea automată / butonul din „Lecțiile recente", scrierea condiționată; `test/pregatire-examen.test.js` — examenul ales în lobby); `vite build` trece. Capturi Chromium (Playwright) cu răspunsurile reale ale serverului pe cele ~500 de titluri EN/BAC de pe site: lista la EN, Mate-Info și Tehnologic (desktop + telefon 390px, fără derulare laterală), pozițiile, trecerea la Pregătire (`?pos=II.2&examen=bac-mate-info&din=live`, cererile cu `examForce`), „Încearcă gratuit", cutia din Admin.
+
+Fișiere: api/live.js, api/_lib/live.js, api/_lib/pregatire.js, api/_lib/settings.js, api/_lib/siteGuide.js, src/pages/MeditatiiLive.jsx, src/pages/PregatireExamen.jsx, src/components/LiveAdmin.jsx, src/components/live/PriceList.jsx, src/lib/live/api.js, src/styles/live.css, test/alege-subiectul.test.js (nou), test/meditatii-gratuite.test.js, test/pregatire-examen.test.js, GHID_MEDITATII_LIVE.md, acest changelog.
+
+---
+
 ## 8 octombrie 2026 — Admin pe telefon: meniul ☰ (pe desktop, pliat cu hover) · Meditații live: sunetul pe iPhone
 
 Cererea: 1) în Admin, meniul lateral cu hover sau hamburger — pe mobil nu se vede (meniul ocupa jumătate din ecran, conținutul rămânea într-o coloană îngustă); 2) la meditațiile live nu se aude sunetul pe iPhone, la demo se aude o voce de femeie.

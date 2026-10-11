@@ -3,7 +3,7 @@
 // cheie → valoare (public.app_settings, supabase/setari_ordine_gratuite.sql):
 //   • 'content_new_position' — unde apar materialele noi (primele / la sfârșit),
 //     pe tot site-ul, pe categorie sau pe rubrică (citită și de triggerul SQL);
-//   • 'live_free_lessons'    — meditațiile live gratuite (lecțiile alese);
+//   • 'live_free_lessons'    — meditațiile live gratuite (câte una pe examen);
 //   • 'lectie:…' / 'reexplicare:…' — biblioteca de lecții din „Planul meu"
 //     (api/_lib/lectii.js): teoria generată o dată și refolosită.
 // Doar serverul citește și scrie (service role). Dacă scriptul SQL nu a fost
@@ -50,4 +50,14 @@ async function insertSettingIfMissing(supa, key, value) {
   return !error;
 }
 
-module.exports = { TABLE, SETUP_HINT, isMissingTable, readSetting, writeSetting, insertSettingIfMissing };
+// Scrie valoarea DOAR dacă rândul n-a fost schimbat între timp (updated_at-ul citit) —
+// o alegere automată nu suprascrie o alegere făcută chiar atunci din Admin.
+// Întoarce true dacă a scris.
+async function updateSettingIf(supa, key, value, prevUpdatedAt) {
+  let q = supa.from(TABLE).update({ value, updated_at: new Date().toISOString() }).eq('key', key);
+  q = prevUpdatedAt ? q.eq('updated_at', prevUpdatedAt) : q.is('updated_at', null);
+  const { data, error } = await q.select('key');
+  return !error && Array.isArray(data) && data.length > 0;
+}
+
+module.exports = { TABLE, SETUP_HINT, isMissingTable, readSetting, writeSetting, insertSettingIfMissing, updateSettingIf };

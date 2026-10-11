@@ -132,9 +132,11 @@ async function eligibleSubjects(supa, { exam, profile = null, fresh = false }) {
     const { data: pdf } = await supa.from('ai_pdf_text').select('content_id, barem_status, barem_title:barem->>title').in('content_id', ids);
     for (const p of pdf || []) if (L.BAREM_OK.has(p.barem_status)) ok.set(p.content_id, p);
   }
+  // ordinea listelor (1-la-1 „Alege subiectul", Admin): variante date → modele → teste de
+  // antrenament → simulări → alte subiecte → fișele pe exerciții (L.subjectOrder)
   const list = subjects.filter((s) => ok.has(s.id))
-    .map((s) => ({ id: s.id, title: s.title, exam: s.exam, profile: s.profile || null, baremTitle: ok.get(s.id)?.barem_title || null, created_at: s.created_at }))
-    .sort((a, b) => String(b.title).localeCompare(String(a.title), 'ro', { numeric: true }));
+    .map((s) => ({ id: s.id, title: s.title, exam: s.exam, profile: s.profile || null, subcategory: s.subcategory || null, kind: L.subjectKind(s), baremTitle: ok.get(s.id)?.barem_title || null, created_at: s.created_at }))
+    .sort(L.subjectOrder);
   eligibleCache.set(key, { at: Date.now(), list });
   return list;
 }
@@ -243,34 +245,77 @@ async function useTicket(supa, userId, sessionId) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// MEDITAȚIILE GRATUITE — lecțiile alese din Admin (app_settings, cheia
-// 'live_free_lessons'). Până alege adminul: două lecții gata, alese automat
-// (una de EN, una de BAC — L.pickFreeLessons), salvate o singură dată ca să
-// rămână aceleași. Fără tabela de setări (SQL-ul nerulat): tot alegerea
-// automată, calculată la cerere. Reguli: L.freeAccess / L.groupAccess.
+// MEDITAȚIILE GRATUITE — CÂTE UNA PE FIECARE EXAMEN (EN, BAC Mate-Info, BAC Științele
+// Naturii, BAC Tehnologic), alese din Admin (app_settings, cheia 'live_free_lessons':
+// { v: 2, slots: { en: id|null, … }, auto: [...] }). Un examen fără alegere primește
+// automat cea mai potrivită lecție gata (L.pickFreeLessons) — fără niciuna gata, cel
+// mai bun subiect cu barem (L.pickFreeSubject; lecția se scrie la prima folosire) —,
+// salvată o singură dată ca să rămână aceeași. Formatul vechi (o listă de oricâte) se
+// citește ca „prima lecție a fiecărui examen". Fără tabela de setări (SQL-ul nerulat):
+// tot alegerea automată, calculată la cerere. Reguli: L.freeAccess / L.groupAccess.
 // ═════════════════════════════════════════════════════════════════════════════
 const SET = require('./_lib/settings');
 const FREE_KEY = 'live_free_lessons';
 const FREE_TTL = 60 * 1000;
 const FREE_LIGHT = 'subject_id, teacher, version, status, title, exam, profile, updated_at, noVoice:progress->noVoice, sv:script->v, pasi:script->pasi';
 let freeCache = null;
+const freeTypeById = (t) => L.FREE_TYPES.find((x) => x.id === t) || null;
+
+// subiectele cu barem ale unui examen al meditațiilor gratuite
+const freeEligible = (supa, t) => eligibleSubjects(supa, { exam: freeTypeById(t).exam, profile: freeTypeById(t).profile });
+
+// alegerea automată pentru examenele `types`: { tip: id }
+async function autoFreePicks(supa, types) {
+  const out = {};
+  const eligible = {};
+  for (const t of types) eligible[t] = await freeEligible(supa, t);
+  const okIds = new Set(types.flatMap((t) => eligible[t].filter((s) => s.kind !== 'fisa').map((s) => String(s.id).toLowerCase())));
+  const { data } = await supa.from('live_lessons').select(FREE_LIGHT).eq('status', 'gata').limit(2000);
+  // doar lecțiile unor subiecte care încă există și au barem (nu o fișă pe exerciții)
+  const ready = (data || []).filter((l) => okIds.has(String(l.subject_id).toLowerCase()));
+  for (const l of L.pickFreeLessons(ready, { types })) out[L.freeTypeOf(l)] = String(l.subject_id).toLowerCase();
+  for (const t of types) {
+    if (out[t]) continue;
+    const s = L.pickFreeSubject(eligible[t]);
+    if (s) out[t] = String(s.id).toLowerCase();
+  }
+  return out;
+}
+
+// salvează alegerea automată O SINGURĂ DATĂ — fără să suprascrie o alegere făcută chiar
+// atunci din Admin (scrie doar dacă rândul e cel citit)
+async function saveFreeAuto(supa, st, slots, auto) {
+  const value = { ...L.freeValue(slots, auto), at: new Date().toISOString() };
+  try {
+    if (!st.value) await SET.insertSettingIfMissing(supa, FREE_KEY, value);
+    else await SET.updateSettingIf(supa, FREE_KEY, value, st.updatedAt);
+  } catch (e) { console.warn('live: alegerea automată a meditațiilor gratuite nu s-a salvat:', e.message); }
+}
 
 async function freeLessons(supa, { fresh = false } = {}) {
   if (!fresh && freeCache && Date.now() - freeCache.at < FREE_TTL) return freeCache;
-  let st = { setup: false, value: null };
+  let st = { setup: false, value: null, updatedAt: null };
   try { st = await SET.readSetting(supa, FREE_KEY); }
   catch (e) { console.warn('live: setarea meditațiilor gratuite:', e.message); }
-  let ids = st.value && Array.isArray(st.value.subjects) ? L.normalizeFreeIds(st.value.subjects) : null;
-  let auto = !!(st.value && st.value.auto);
-  if (!ids) {
-    auto = true;
-    const { data } = await supa.from('live_lessons').select(FREE_LIGHT).eq('status', 'gata').limit(2000);
-    ids = L.pickFreeLessons(data || []).map((l) => String(l.subject_id).toLowerCase());
-    if (st.setup && ids.length >= L.FREE_DEFAULT_COUNT) {
-      await SET.insertSettingIfMissing(supa, FREE_KEY, { subjects: ids, auto: true, at: new Date().toISOString() });
-    }
+  // formatul vechi (o listă): examenul fiecărui subiect, din `content`
+  let typeOf = () => null;
+  if (st.value && !st.value.slots && Array.isArray(st.value.subjects) && st.value.subjects.length) {
+    const ids = L.normalizeFreeIds(st.value.subjects);
+    const { data } = await supa.from('content').select('id, title, category, subcategory, profile, file_url').in('id', ids);
+    const types = new Map((data || []).filter((r) => !B.isBaremRow(r)).map((r) => [String(r.id).toLowerCase(), L.freeTypeOf(L.subjectExam(r, B))]));
+    typeOf = (id) => types.get(id) || null;
   }
-  freeCache = { at: Date.now(), ids, set: new Set(ids), auto, setup: st.setup };
+  const { slots, auto } = L.freeSlotsFrom(st.value, typeOf);
+  const missing = L.FREE_TYPE_IDS.filter((t) => !(t in slots));
+  if (missing.length) {
+    const picked = await autoFreePicks(supa, missing);
+    for (const [t, id] of Object.entries(picked)) { slots[t] = id; auto.add(t); }
+    if (st.setup && (Object.keys(picked).length || (st.value && !st.value.slots))) await saveFreeAuto(supa, st, slots, auto);
+  } else if (st.setup && st.value && !st.value.slots) {
+    await saveFreeAuto(supa, st, slots, auto);   // formatul vechi → cel nou, o dată
+  }
+  const ids = L.freeIdsOf(slots);
+  freeCache = { at: Date.now(), ids, set: new Set(ids), slots, auto, setup: st.setup };
   return freeCache;
 }
 async function isFreeSubject(supa, subjectId) {
@@ -297,7 +342,7 @@ async function freeLessonsView(supa, teacherId) {
     const se = c && L.subjectExam(c, B);
     if (!se) return null;                       // subiect șters între timp
     const lesson = status[`${c.id}|${teacherId}`] || 'nou';
-    return { subjectId: c.id, title: c.title, exam: se.exam, profile: se.profile || null, examLabel: L.EXAM_LABEL(se.exam, se.profile), lesson, ready: lesson === 'gata' };
+    return { subjectId: c.id, title: c.title, exam: se.exam, profile: se.profile || null, type: L.freeTypeOf(se), examLabel: L.EXAM_LABEL(se.exam, se.profile), lesson, ready: lesson === 'gata' };
   }).filter(Boolean);
 }
 
@@ -1135,11 +1180,18 @@ async function privateSubjects(req, res, supa) {
   const { data: others } = await supa.from('live_lessons').select('subject_id').eq('status', 'gata').limit(3000);
   for (const r of others || []) anyReady.add(r.subject_id);
   const free = await freeLessons(supa);
+  // „Subiectul I, ex. 1"… la sfârșitul listei: exercițiile de pe o poziție, din subiectele
+  // oficiale, pe barem — Pregătirea de examen pe acea poziție (o ședință 1-la-1, același
+  // preț). Fișele „Subiectul I - Exercițiul 1" (fără barem propriu) nu mai apar separat.
+  const target = P.targetFor(exam, exam === 'bac' ? profileFilter : null);
   return res.status(200).json({
     exam, teacher: teacherId,
-    // întâi meditațiile gratuite, apoi lecțiile gata de pornire
-    subjects: list.map((s) => ({ ...s, ready: ready.has(s.id), scriptReady: anyReady.has(s.id), free: free.set.has(String(s.id).toLowerCase()) }))
-      .sort((a, b) => (b.free - a.free) || (b.ready - a.ready) || String(b.title).localeCompare(String(a.title), 'ro', { numeric: true })),
+    // ordinea cerută: variante date → modele → teste de antrenament → simulări → alte subiecte
+    // (eligibleSubjects le dă deja în această ordine — L.subjectOrder; gratuita e marcată, nu mutată)
+    subjects: list.filter((s) => s.kind !== 'fisa')
+      .map((s) => ({ ...s, ready: ready.has(s.id), scriptReady: anyReady.has(s.id), free: free.set.has(String(s.id).toLowerCase()) })),
+    kinds: L.SUBJECT_KINDS.filter((k) => k.id !== 'fisa'),
+    prep: target ? { target, exercises: P.settings().target, positions: P.positions(P.examOf(target).exam).map((p) => ({ pos: p.pos, label: p.label, short: p.short })) } : null,
     access: await privateAccessFor(supa, profile),
     freeAccess: L.freeAccess({ profile, free: true, freeUsed: await freeUsedThisMonth(supa, profile.id) }),
   });
@@ -1276,7 +1328,7 @@ async function adminOverview(req, res, supa) {
   for (const p of parts || []) total[p.session_id] = (total[p.session_id] || 0) + 1;
   const [en, bac] = await Promise.all([eligibleSubjects(supa, { exam: 'en', fresh: !!req.body?.fresh }), eligibleSubjects(supa, { exam: 'bac', fresh: !!req.body?.fresh })]);
   const { data: lessonRows } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, title, duration_sec, error, cost_micro, updated_at, noVoice:progress->noVoice, sv:script->v, pasi:script->pasi, pasiInfo:progress->pasi, writer:script->writer').order('updated_at', { ascending: false }).limit(60);
-  const [free, writer] = await Promise.all([freeAdminView(supa, { fresh: !!req.body?.fresh }), writerAdminView(supa)]);
+  const [free, writer] = await Promise.all([freeAdminView(supa, { fresh: !!req.body?.fresh, en, bac }), writerAdminView(supa)]);
   const freeSet = new Set(free.lessons.map((l) => String(l.subjectId).toLowerCase()));
   const slotInfo = Object.fromEntries(L.slots().map((s) => [s.id, s]));
   return res.status(200).json({
@@ -1298,52 +1350,111 @@ async function adminOverview(req, res, supa) {
 }
 
 // ─── Meditațiile gratuite (Admin → „🎁 Meditațiile gratuite") ────────────────
-// lista de acum + toate lecțiile gata (una pe subiect), din care adminul alege
-async function freeAdminView(supa, { fresh = false } = {}) {
+// Câte un rând pe examen: lecția de acum (sau niciuna) + din ce se poate alege — toate
+// subiectele cu barem ale examenului, în ordinea listelor (variante, modele, teste,
+// simulări), cu „gata" la cele care au deja lecția (celelalte se scriu la prima folosire).
+async function freeAdminView(supa, { fresh = false, en = null, bac = null } = {}) {
   const f = await freeLessons(supa, { fresh });
-  const { data: readyRows } = await supa.from('live_lessons').select(FREE_LIGHT).eq('status', 'gata').order('updated_at', { ascending: false }).limit(2000);
-  const ready = new Map();
-  for (const l of readyRows || []) if (!ready.has(String(l.subject_id).toLowerCase())) ready.set(String(l.subject_id).toLowerCase(), l);
-  const ids = [...new Set([...f.ids, ...ready.keys()])];
-  const rows = [];
-  for (let i = 0; i < ids.length; i += 150) {
-    const { data } = await supa.from('content').select('id, title, category, subcategory, profile, file_url').in('id', ids.slice(i, i + 150));
-    rows.push(...(data || []));
+  const [enList, bacList] = await Promise.all([
+    en || eligibleSubjects(supa, { exam: 'en', fresh }),
+    bac || eligibleSubjects(supa, { exam: 'bac', fresh }),
+  ]);
+  const { data: readyRows } = await supa.from('live_lessons').select('subject_id').eq('status', 'gata').limit(3000);
+  const ready = new Set((readyRows || []).map((l) => String(l.subject_id).toLowerCase()));
+  const listed = new Map([...enList, ...bacList].map((s) => [String(s.id).toLowerCase(), s]));
+  // o lecție gratuită care nu (mai) e în liste (subiect șters / fără barem): din `content`
+  const extra = new Map();
+  const outside = f.ids.filter((id) => !listed.has(id));
+  if (outside.length) {
+    const { data } = await supa.from('content').select('id, title').in('id', outside);
+    for (const r of data || []) extra.set(String(r.id).toLowerCase(), r);
   }
-  const byId = new Map(rows.map((r) => [String(r.id).toLowerCase(), r]));
-  const describe = (id) => {
-    const c = byId.get(id);
-    const l = ready.get(id);
-    const se = c ? L.subjectExam(c, B) : (l ? { exam: l.exam, profile: l.profile } : null);
+  const describe = (id, t) => {
+    const s = listed.get(id) || extra.get(id) || null;
     return {
-      subjectId: c ? c.id : (l ? l.subject_id : id), title: (c && c.title) || (l && l.title) || 'Subiect șters',
-      exam: se?.exam || null, profile: se?.profile || null, examLabel: se ? L.EXAM_LABEL(se.exam, se.profile) : '—',
-      ready: !!l, missing: !c,
+      subjectId: s ? s.id : id, title: (s && s.title) || 'Subiect șters', exam: t.exam, profile: t.profile, examLabel: t.label,
+      kind: s ? (s.kind || L.subjectKind(s)) : null, ready: ready.has(id), missing: !s, noBarem: !!s && !listed.has(id),
     };
   };
-  const byExam = (a, b) => (a.exam === b.exam ? 0 : a.exam === 'en' ? -1 : 1) || String(a.examLabel).localeCompare(String(b.examLabel), 'ro')
-    || String(b.title).localeCompare(String(a.title), 'ro', { numeric: true });
+  const slots = L.FREE_TYPES.map((t) => {
+    const id = f.slots[t.id];
+    const options = (t.exam === 'en' ? enList : bacList.filter((s) => s.profile === t.profile))
+      .filter((s) => s.kind !== 'fisa')
+      .map((s) => ({ subjectId: s.id, title: s.title, kind: s.kind, ready: ready.has(String(s.id).toLowerCase()) }));
+    return {
+      type: t.id, label: t.label, short: t.short, exam: t.exam, profile: t.profile,
+      lesson: id ? describe(id, t) : null,
+      auto: !!id && f.auto.has(t.id),
+      none: id === null,                 // adminul a scos-o: fără meditație gratuită la acest examen
+      options,
+    };
+  });
   return {
-    setup: f.setup, auto: f.auto, max: L.FREE_MAX, defaultCount: L.FREE_DEFAULT_COUNT,
+    setup: f.setup, auto: f.auto.size > 0, max: L.FREE_TYPES.length, defaultCount: L.FREE_DEFAULT_COUNT,
     monthly: L.FREE_MONTHLY(), answers: L.FREE_ANSWERS(),
-    lessons: f.ids.map(describe),
-    ready: [...ready.keys()].map(describe).filter((x) => !x.missing && x.exam).sort(byExam)
-      .map((x) => ({ ...x, free: f.set.has(String(x.subjectId).toLowerCase()) })),
+    kinds: L.SUBJECT_KINDS,
+    slots,
+    lessons: slots.filter((s) => s.lesson).map((s) => s.lesson),
   };
 }
 
+// Schimbarea, CÂTE UNA PE EXAMEN:
+//   { type, subjectId }      → meditația gratuită a examenului `type` (o înlocuiește pe cea de acum)
+//   { type, subjectId: null } → fără meditație gratuită la acel examen
+//   { type, auto: true }     → înapoi la alegerea automată
+//   { subjectId, on }        → butonul „🎁" din „Lecțiile recente" (examenul îl dă subiectul)
+//   { subjectIds: [...] }    → formatul vechi (o listă): ultima a fiecărui examen câștigă
 async function adminSetFree(req, res, supa) {
   const { userId } = await requireAdminUser(req, supa);
-  const raw = Array.isArray(req.body?.subjectIds) ? req.body.subjectIds : null;
-  if (!raw) throw fail(400, 'subjectIds (listă) obligatoriu.');
-  if (raw.length > L.FREE_MAX) throw fail(400, `Cel mult ${L.FREE_MAX} meditații gratuite deodată.`);
-  const ids = L.normalizeFreeIds(raw);
-  if (ids.length) {
-    const { data: rows } = await supa.from('content').select('id, title, category, subcategory, profile, file_url').in('id', ids);
-    const ok = new Set((rows || []).filter((r) => L.subjectExam(r, B) && !B.isBaremRow(r)).map((r) => String(r.id).toLowerCase()));
-    if (ids.some((id) => !ok.has(id))) throw fail(400, 'Unele lecții nu (mai) sunt subiecte de Evaluare Națională / Bacalaureat. Reîncarcă pagina.');
+  const body = req.body || {};
+  const uuid = (x) => { const id = String(x || '').trim().toLowerCase(); return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id) ? id : null; };
+  const typeOfSubject = async (id) => {
+    const { data: c } = await supa.from('content').select('id, title, category, subcategory, profile, file_url').eq('id', id).maybeSingle();
+    const t = c && !B.isBaremRow(c) ? L.freeTypeOf(L.subjectExam(c, B)) : null;
+    if (!t) throw fail(400, 'Alege un subiect de Evaluare Națională sau de Bacalaureat (Mate-Info, Științele Naturii, Tehnologic). Reîncarcă pagina.');
+    return t;
+  };
+  // fără barem, profesorul nu explică nimic: subiect cu barem găsit sau cu lecția deja gata
+  const ensureTeachable = async (id) => {
+    const { data: p } = await supa.from('ai_pdf_text').select('barem_status').eq('content_id', id).maybeSingle();
+    if (p && L.BAREM_OK.has(p.barem_status)) return;
+    const { data: l } = await supa.from('live_lessons').select('id').eq('subject_id', id).eq('status', 'gata').limit(1);
+    if (l && l.length) return;
+    throw fail(400, 'Subiectul nu are barem găsit — profesorul nu îl poate explica. Alege altul.');
+  };
+  let slots, auto;
+  if (typeof body.type === 'string' || (body.subjectId && typeof body.on === 'boolean') || Array.isArray(body.subjectIds)) {
+    if (Array.isArray(body.subjectIds) && body.subjectIds.length > L.FREE_MAX) throw fail(400, `Cel mult ${L.FREE_MAX} meditații gratuite deodată.`);
+    const cur = await freeLessons(supa, { fresh: true });
+    slots = { ...cur.slots };
+    auto = new Set(cur.auto);
+  } else throw fail(400, 'type + subjectId obligatoriu.');
+
+  if (typeof body.type === 'string') {
+    const t = body.type;
+    if (!L.FREE_TYPE_IDS.includes(t)) throw fail(400, 'Examen necunoscut.');
+    if (body.auto === true) {
+      delete slots[t];                       // se alege din nou automat (și se salvează o dată)
+    } else if (body.subjectId) {
+      const id = uuid(body.subjectId);
+      if (!id) throw fail(400, 'Subiect necunoscut.');
+      if (await typeOfSubject(id) !== t) throw fail(400, `Subiectul nu e de ${freeTypeById(t).label}.`);
+      await ensureTeachable(id);
+      slots[t] = id;
+    } else slots[t] = null;
+    auto.delete(t);
+  } else if (Array.isArray(body.subjectIds)) {
+    const next = {};
+    for (const id of L.normalizeFreeIds(body.subjectIds)) next[await typeOfSubject(id)] = id;
+    for (const t of L.FREE_TYPE_IDS) { slots[t] = next[t] || null; auto.delete(t); }
+  } else {
+    const id = uuid(body.subjectId);
+    if (!id) throw fail(400, 'Subiect necunoscut.');
+    const t = await typeOfSubject(id);
+    if (body.on) { await ensureTeachable(id); slots[t] = id; auto.delete(t); }
+    else if (slots[t] === id) { slots[t] = null; auto.delete(t); }
   }
-  await SET.writeSetting(supa, FREE_KEY, { subjects: ids, auto: false, at: new Date().toISOString(), by: userId }, userId);
+  await SET.writeSetting(supa, FREE_KEY, { ...L.freeValue(slots, auto), at: new Date().toISOString(), by: userId }, userId);
   freeCache = null;
   return res.status(200).json({ ok: true, free: await freeAdminView(supa, { fresh: true }) });
 }
@@ -1544,7 +1655,8 @@ async function cron(supa) {
 // 60 de minute, prelungite cât elevul e în clasă (L.extensionPlan, ca la 1-la-1 live).
 // Lucrul NOU (exercițiu, test, întrebare către profesor) cere ședința în curs;
 // răspunsurile și încheierea unui exercițiu deja început merg oricând.
-// Examenul: cel din „Planul meu"; elevii fără el îl aleg în clasă (examTarget).
+// Examenul: cel din „Planul meu"; elevii fără el îl aleg în clasă (examTarget); venit din
+// Meditații live („Alege subiectul" → „Subiectul I, ex. 1"), cel al listei alese (examForce).
 // ═════════════════════════════════════════════════════════════════════════════
 const P = require('./_lib/pregatire');
 const PREP_TEACHER = () => (L.teacherById('radu') ? 'radu' : L.teachers()[0].id);
@@ -1559,9 +1671,13 @@ async function prepWho(req, supa) {
   const { userId, profile } = await who(req, supa);
   const { data: med, error } = await supa.from('ai_meditatii_profile').select('user_id, grade, exam_target').eq('user_id', userId).maybeSingle();
   if (error && !isMissingTable(error)) throw fail(500, `profilul de meditații: ${error.message}`);
-  // examenul din „Planul meu"; fără el, cel ales în clasă sau al ultimei ședințe de pregătire
-  let E = P.examOf(med?.exam_target);
-  const fromPlan = !!E;
+  // examenul din „Planul meu"; fără el, cel ales în clasă sau al ultimei ședințe de pregătire.
+  // Venit din Meditații live („Alege subiectul" → „Subiectul I, ex. 1" la BAC Tehnologic):
+  // examenul ales acolo (examForce) are întâietate, ca exercițiile să fie ale listei alese.
+  const planE = P.examOf(med?.exam_target);
+  const forced = req.body?.examForce === true ? P.examOf(String(req.body?.examTarget || '')) : null;
+  let E = forced || planE;
+  const fromPlan = !!E && !!planE && E.target === planE.target;
   if (!E) E = P.examOf(String(req.body?.examTarget || '')) || P.examOf(await LA.lastPrepTarget(supa, userId));
   if (!E) throw fail(409, 'Alege examenul pentru care te pregătești: Evaluarea Națională sau profilul tău de BAC.', 'PREP_NO_EXAM');
   const first = String(profile.full_name || '').trim().split(/\s+/)[0].replace(/[^\p{L}'-]/gu, '');

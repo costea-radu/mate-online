@@ -8,9 +8,13 @@
 // abonament); elevul își alege sala (filtrul se ține minte) și apasă „Conectează-te". Ședințele 1-la-1 pornesc oricând (60 de minute; 20 lei sau
 // 8 pe lună incluse în abonament), prelungite automat până elevul termină
 // exercițiile; elevul poate alege cu ce exercițiu începe (📋, nu neapărat la rând).
+// „Alege subiectul" (1-la-1): variante date → modele → teste de antrenament → simulări,
+// apoi, la sfârșit, „Subiectul I, ex. 1"… — exercițiile de pe o poziție, din subiectele
+// oficiale, pe barem (Pregătirea de examen pe acea poziție, același preț 1-la-1).
 // „💳 Prețuri" (în prezentare) deschide lista tuturor prețurilor, cu și fără abonament.
-// 🎁 Meditațiile gratuite (implicit 2 lecții pregătite, alese din Admin): 1-la-1
-// fără plată și fără abonament — chiar sub prezentare, cu „▶ Începe gratuit".
+// 🎁 Meditațiile gratuite — câte una pe fiecare examen (EN și fiecare profil de BAC,
+// alese din Admin): 1-la-1 fără plată și fără abonament — chiar sub prezentare, cu
+// „▶ Începe gratuit" (prima, cea a sălii alese).
 // Demonstrația (grup / 1-la-1, fără cont) e chiar sus, în prezentare.
 // Planul personal de până acum (plan, teme, recapitulări, rapoarte) a rămas
 // neatins, în tabul „Planul meu".
@@ -38,6 +42,16 @@ const DEFAULT_ROOMS = [
   { id: 'sn', n: 3, label: 'BAC Științele Naturii', short: 'BAC Șt. Naturii' },
   { id: 'teh', n: 4, label: 'BAC Tehnologic', short: 'BAC Tehnologic' },
 ];
+// felurile de subiecte, în ordinea listei „Alege subiectul" (oglinda lui L.SUBJECT_KINDS)
+const KINDS = [
+  { id: 'varianta', label: 'Variante date' },
+  { id: 'model', label: 'Modele' },
+  { id: 'test', label: 'Teste de antrenament' },
+  { id: 'simulare', label: 'Simulări' },
+  { id: 'alt', label: 'Alte subiecte' },
+];
+const POS_PREFIX = 'pos:';   // „pos:I.1" = exercițiile de pe o poziție (Pregătirea de examen)
+const FREE_EXAMS = 4;        // meditațiile gratuite: câte una pe examen (EN + cele 3 profiluri de BAC)
 const ROOM_KEY = 'live:sala';
 const readRoom = () => { try { return localStorage.getItem(ROOM_KEY) || 'toate'; } catch { return 'toate'; } };
 const joinRo = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} și ${xs[xs.length - 1]}` : xs[0] || '');
@@ -79,7 +93,9 @@ export default function MeditatiiLive() {
   const [exam, setExam] = useState('en');
   const [profile, setProfile] = useState('mate-info');
   const [subjects, setSubjects] = useState(null);
-  const [subjectId, setSubjectId] = useState(null);
+  const [kinds, setKinds] = useState(KINDS);
+  const [prepInfo, setPrepInfo] = useState(null);      // { target, positions } — „Subiectul I, ex. 1"… la sfârșit
+  const [subjectId, setSubjectId] = useState(null);     // id-ul subiectului sau „pos:I.1"
   const [subjErr, setSubjErr] = useState(null);
   const [startRef, setStartRef] = useState(null);      // 1-la-1: exercițiul cu care începe (null = de la început)
   const [roomFilter, setRoomFilter] = useState(readRoom);          // 'toate' | id-ul sălii (se ține minte)
@@ -146,9 +162,17 @@ export default function MeditatiiLive() {
   useEffect(() => {
     if (!pickOpen || !me.loggedIn || !teacherId) return;
     let alive = true;
-    setSubjects(null); setSubjErr(null);
+    setSubjects(null); setSubjErr(null); setPrepInfo(null);
     liveApi.privateSubjects(exam, teacherId, exam === 'bac' ? profile : null)
-      .then((r) => { if (alive) { setSubjects(r.subjects || []); if (!r.subjects?.some((s) => s.id === subjectId)) setSubjectId(r.subjects?.[0]?.id || null); } })
+      .then((r) => {
+        if (!alive) return;
+        const list = r.subjects || [];
+        setSubjects(list);
+        if (r.kinds?.length) setKinds(r.kinds);
+        setPrepInfo(r.prep?.positions?.length ? r.prep : null);
+        // selecția implicită (și la schimbarea examenului): meditația gratuită (sus, 🎁), altfel primul subiect
+        if (!list.some((s) => s.id === subjectId)) setSubjectId((list.find((s) => s.free) || list[0])?.id || null);
+      })
       .catch((e) => alive && setSubjErr(e.message));
     return () => { alive = false; };
   }, [pickOpen, me.loggedIn, teacherId, exam, profile]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -158,6 +182,13 @@ export default function MeditatiiLive() {
   async function startPrivate(sid = subjectId, ref = startRef, busyKey = 'private') {
     if (!sid) return;
     if (!me.loggedIn) { navigate('/autentificare'); return; }
+    // „Subiectul I, ex. 1"…: exercițiile de pe poziție, din subiectele oficiale — clasa
+    // Pregătirii de examen, pe examenul listei alese aici (ședința 1-la-1 pornește acolo)
+    if (sid.startsWith(POS_PREFIX)) {
+      if (!prepInfo) return;
+      navigate(`/meditatii/pregatire?pos=${encodeURIComponent(sid.slice(POS_PREFIX.length))}&examen=${encodeURIComponent(prepInfo.target)}&din=live`);
+      return;
+    }
     setBusy(busyKey);
     try {
       const r = await liveApi.privateStart(teacherId || data?.teachers?.[0]?.id, sid);
@@ -174,21 +205,37 @@ export default function MeditatiiLive() {
   }
 
   const priv = me.private;
-  // 🎁 meditațiile gratuite (1-la-1 fără plată, pentru oricine are cont)
-  const freeList = data?.freeLessons || [];
-  const freeN = freeList.length;
-  const freeLeft = me.free ? me.free.left : null;            // null = nelogat
-  const freeWord = freeN === 1 ? 'o meditație 1-la-1 gratuită' : freeN === 2 ? 'două meditații 1-la-1 gratuite' : `${freeN} meditații 1-la-1 gratuite`;
-  const selectedFree = !!subjects?.find((x) => x.id === subjectId)?.free;
-  const startLabel = busy === 'private' ? 'Pornesc…'
-    : selectedFree && priv?.via !== 'admin' && freeLeft !== 0 ? '🎁 Începe gratuit'
-      : priv?.ok ? 'Începe acum' : `Începe · ${data?.prices?.privat ?? 20} lei`;
   const rooms = data?.rooms?.length ? data.rooms : DEFAULT_ROOMS;
   const timesLabel = (data?.intervals || []).map((i) => i.label).join(' și ') || '17:00–19:00';
   const starts = (data?.intervals?.length ? data.intervals : [{ label: '17:00–19:00' }]).map((i) => i.label.split('–')[0]);
   const whenText = starts.length === 1 ? `de la ora ${starts[0]}` : `la orele ${joinRo(starts)}`;
   const roomOn = rooms.some((r) => r.id === roomFilter) ? roomFilter : 'toate';
   const sessionsOf = (day) => day.sessions.filter((s) => s.teacher === teacherId && (roomOn === 'toate' || s.room?.id === roomOn));
+  // 🎁 meditațiile gratuite — câte una pe fiecare examen (1-la-1 fără plată, pentru oricine are
+  // cont); cea a sălii alese mai jos (filtrul ținut minte) e prima
+  const roomSel = rooms.find((r) => r.id === roomOn) || null;
+  const ofRoom = (f) => !!roomSel?.exam && roomSel.exam === f.exam && (f.exam === 'en' || roomSel.profile === f.profile);
+  const freeList = (data?.freeLessons || []).slice().sort((a, b) => Number(ofRoom(b)) - Number(ofRoom(a)));
+  const freeN = freeList.length;
+  const freeLeft = me.free ? me.free.left : null;            // null = nelogat
+  const freeScope = freeN >= FREE_EXAMS ? 'pentru fiecare examen' : freeN > 0 ? `la ${joinRo(freeList.map((f) => f.examLabel))}` : '';
+  const freeWord = `${freeN > 1 ? 'câte o' : 'o'} meditație 1-la-1 gratuită ${freeScope}`;
+  // „Alege subiectul": subiectul ales sau o poziție („pos:I.1" → exercițiile de pe ea)
+  const selPos = subjectId?.startsWith(POS_PREFIX) ? (prepInfo?.positions || []).find((x) => POS_PREFIX + x.pos === subjectId) || null : null;
+  const selectedFree = !selPos && !!subjects?.find((x) => x.id === subjectId)?.free;
+  const startLabel = busy === 'private' ? 'Pornesc…'
+    : selectedFree && priv?.via !== 'admin' && freeLeft !== 0 ? '🎁 Începe gratuit'
+      : priv?.ok ? 'Începe acum' : `Începe · ${data?.prices?.privat ?? 20} lei`;
+  // lista pe feluri, în ordinea cerută; meditația gratuită stă deasupra, separat (🎁)
+  const freeSubject = subjects?.find((x) => x.free) || null;
+  const subjectGroups = kinds.map((k) => ({ ...k, items: (subjects || []).filter((x) => (x.kind || 'alt') === k.id && x !== freeSubject) }))
+    .filter((g) => g.items.length);
+  const renderSubject = (x) => (
+    <button type="button" key={x.id} role="option" aria-selected={x.id === subjectId} className={`lvl-subject${x.id === subjectId ? ' is-on' : ''}${x.free ? ' is-free' : ''}`} onClick={() => setSubjectId(x.id)}>
+      <span>{x.free && <span className="lvl-free-tag">🎁 gratuit</span>}{x.title}</span>
+      {x.ready ? <span className="lvl-ready">✓ gata de pornire</span> : x.scriptReady ? <span className="lvl-ready" style={{ color: '#8a6d1a' }}>~1 min pregătire</span> : <span className="lvl-ready" style={{ color: '#80868b' }}>2–4 min pregătire</span>}
+    </button>
+  );
 
   return (
     <div className="lvl">
@@ -213,7 +260,7 @@ export default function MeditatiiLive() {
         <div>
           <h1>Meditații live — cu profesorul virtual</h1>
           <p>În fiecare zi, {whenText}, profesorul rezolvă câte un subiect în {rooms.length === 1 ? 'sala' : `${rooms.length} săli`}: {joinRo(rooms.map((r) => r.label))} — <b>strict pe baremul oficial</b>: întâi încercați singuri, apoi rezolvarea pas cu pas — la Subiectele II și III răspundeți voi, pe ecran, la fiecare pas din barem — apoi încă o dată, pe înțelesul tuturor. Întrebi în chat, răspunzi la grile, vezi cum au răspuns colegii. Sau pornești o ședință 1-la-1, oricând.
-            {freeN > 0 && <> <a href="#gratuit" className="lvl-free-link">🎁 {freeWord.charAt(0).toUpperCase() + freeWord.slice(1)}, fără abonament — încearcă-le!</a></>}</p>
+            {freeN > 0 && <> <a href="#gratuit" className="lvl-free-link">🎁 {freeWord.charAt(0).toUpperCase() + freeWord.slice(1)}, fără abonament — încearc-o!</a></>}</p>
           <div className="lvl-hero-cta">
             <Link to="/meditatii/demo" className="lvl-demo-btn">
               <span className="lvl-demo-play" aria-hidden="true">▶</span>
@@ -226,7 +273,7 @@ export default function MeditatiiLive() {
           </div>
           <div className="lvl-hero-chips">
             {liveNow > 0 && <span className="lvl-chip is-live"><span className="lv-dot-live" /> {liveNow} {liveNow === 1 ? 'ședință' : 'ședințe'} live acum</span>}
-            {freeN > 0 && <a href="#gratuit" className="lvl-chip is-free">🎁 {freeN} {freeN === 1 ? 'meditație gratuită' : 'meditații gratuite'}</a>}
+            {freeN > 0 && <a href="#gratuit" className="lvl-chip is-free">🎁 {freeN > 1 ? 'câte o meditație gratuită pe examen' : 'o meditație gratuită'}</a>}
             <span className="lvl-chip">📅 zilnic {timesLabel} · {rooms.length} {rooms.length === 1 ? 'sală' : 'săli'}</span>
             <span className="lvl-chip">📏 doar pe barem</span>
             <button type="button" className="lvl-chip is-btn" onClick={() => setPricesOpen(true)} aria-haspopup="dialog">💳 Prețuri</button>
@@ -244,7 +291,7 @@ export default function MeditatiiLive() {
       </section>
 
       {pricesOpen && (
-        <PriceList prices={data?.prices} timesLabel={timesLabel} roomsCount={rooms.length} freeCount={freeN}
+        <PriceList prices={data?.prices} timesLabel={timesLabel} roomsCount={rooms.length} freeCount={freeN} freeScope={freeScope}
           me={data ? me : null} onClose={closePrices} />
       )}
 
@@ -263,7 +310,7 @@ export default function MeditatiiLive() {
               const key = `free-${f.subjectId}`;
               const label = freeLeft === 0 ? (priv?.ok ? 'Începe' : `Începe · ${data.prices.privat} lei`) : '▶ Începe gratuit';
               return (
-                <div key={f.subjectId} className="lvl-free-card">
+                <div key={f.subjectId} className={`lvl-free-card${ofRoom(f) ? ' is-mine' : ''}`}>
                   <span className={`lvl-slot-exam${f.exam === 'bac' ? ' is-bac' : ''}`}>{f.examLabel}</span>
                   <div className="lvl-free-title">{f.title}</div>
                   <div className="lvl-free-meta">
@@ -370,14 +417,14 @@ export default function MeditatiiLive() {
         <div className="lvl-private">
           <div>
             <h3>🎓 Doar tu și {teacher?.name || 'profesorul'} — {data.prices.privatMin} de minute, prelungite până termini</h3>
-            <p>Alegi subiectul (cu barem) și <b>exercițiile pe care vrei să le lucrezi</b>, nu neapărat la rând — ex. Subiectul I ex. 5, Subiectul al II-lea ex. 2 b), Subiectul al III-lea ex. 1 c). Profesorul le ia cu tine pas cu pas: se oprește la fiecare întrebare, îți explică altfel dacă nu ai înțeles și îți răspunde cu voce. Dacă nu termini în {data.prices.privatMin} de minute, ședința <b>se prelungește automat până termini exercițiile</b>, fără cost în plus.</p>
+            <p>Alegi subiectul (cu barem) — variantele date, modelele, testele de antrenament, simulările — și <b>exercițiile pe care vrei să le lucrezi</b>, nu neapărat la rând — ex. Subiectul I ex. 5, Subiectul al II-lea ex. 2 b), Subiectul al III-lea ex. 1 c). Sau, la sfârșitul listei, <b>un singur exercițiu din toate subiectele oficiale</b> (ex. Subiectul I, ex. 1). Profesorul le ia cu tine pas cu pas: se oprește la fiecare întrebare, îți explică altfel dacă nu ai înțeles și îți răspunde cu voce. Dacă nu termini în {data.prices.privatMin} de minute, ședința <b>se prelungește automat până termini exercițiile</b>, fără cost în plus.</p>
             {me.loggedIn && priv && (
               priv.via === 'admin' ? <span className="lvl-quota">✓ Cont de administrator — nelimitat</span>
                 : priv.included > 0 ? <span className={`lvl-quota${priv.includedLeft ? '' : ' is-paid'}`}>{priv.includedLeft ? `✓ ${priv.includedLeft} din ${priv.included} incluse luna aceasta` : `Ai folosit cele ${priv.included} incluse luna aceasta · ${data.prices.privat} lei ședința`}</span>
                   : <span className="lvl-quota is-paid">{data.prices.privat} lei ședința · sau {data.prices.privatIncluse} pe lună incluse în abonament</span>
             )}
             {priv?.unusedTickets > 0 && <span className="lvl-quota" style={{ marginLeft: 8 }}>🎟 {priv.unusedTickets} {priv.unusedTickets === 1 ? 'bilet' : 'bilete'} 1-la-1</span>}
-            {freeN > 0 && <a href="#gratuit" className="lvl-quota is-free" style={{ marginLeft: 8 }}>🎁 {freeN === 1 ? 'o meditație e gratuită' : `${freeN} meditații sunt gratuite`}</a>}
+            {freeN > 0 && <a href="#gratuit" className="lvl-quota is-free" style={{ marginLeft: 8 }}>🎁 {freeN > 1 ? 'câte una gratuită pe examen' : 'o meditație e gratuită'}</a>}
           </div>
           <div>
             {!me.loggedIn
@@ -397,20 +444,49 @@ export default function MeditatiiLive() {
             {!subjects && !subjErr && <div className="lvl-empty">Caut subiectele cu barem…</div>}
             {subjects && subjects.length === 0 && <div className="lvl-empty">Nu am încă subiecte cu barem asociat pentru această alegere. (Profesorul explică doar subiectele cu barem.)</div>}
             {subjects && subjects.length > 0 && (
-              <div className="lvl-subjects">
-                {subjects.map((s) => (
-                  <button type="button" key={s.id} className={`lvl-subject${s.id === subjectId ? ' is-on' : ''}${s.free ? ' is-free' : ''}`} onClick={() => setSubjectId(s.id)}>
-                    <span>{s.free && <span className="lvl-free-tag">🎁 gratuit</span>}{s.title}</span>
-                    {s.ready ? <span className="lvl-ready">✓ gata de pornire</span> : s.scriptReady ? <span className="lvl-ready" style={{ color: '#8a6d1a' }}>~1 min pregătire</span> : <span className="lvl-ready" style={{ color: '#80868b' }}>2–4 min pregătire</span>}
-                  </button>
+              <div className="lvl-subjects" role="listbox" aria-label="Subiectul">
+                {freeSubject && (
+                  <div className="lvl-subj-group is-free" role="group" aria-label="Meditația gratuită">
+                    <div className="lvl-subj-head">🎁 Meditația gratuită{freeLeft === 0 && priv?.via !== 'admin' ? ' (ai folosit-o luna aceasta)' : ''}</div>
+                    {renderSubject(freeSubject)}
+                  </div>
+                )}
+                {subjectGroups.map((g) => (
+                  <div key={g.id} className="lvl-subj-group" role="group" aria-label={g.label}>
+                    <div className="lvl-subj-head">{g.label}<span>{g.items.length}</span></div>
+                    {g.items.map(renderSubject)}
+                  </div>
                 ))}
+                {prepInfo && (
+                  <div className="lvl-subj-group is-pos" role="group" aria-label="Pe exerciții">
+                    <div className="lvl-subj-head">Pe exerciții — din toate subiectele oficiale<span>{prepInfo.positions.length}</span></div>
+                    {prepInfo.positions.map((p) => {
+                      const id = POS_PREFIX + p.pos;
+                      return (
+                        <button type="button" key={id} role="option" aria-selected={id === subjectId} className={`lvl-subject is-pos${id === subjectId ? ' is-on' : ''}`} onClick={() => setSubjectId(id)}>
+                          <span>{p.label}</span>
+                          <span className="lvl-ready is-pos">exerciții pe barem</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
-            {subjects && subjects.length > 0 && (
+            {subjects && subjects.length > 0 && !selPos && (
               <div className="lvl-startpick">
                 <div className="lvl-startpick-title">📋 Cu ce exercițiu începi? <b>{startRef ? refLabel(startRef) : 'De la început, în ordine'}</b></div>
                 <ItemPicker items={defaultRefs(exam)} compact selectedRef={startRef} allowAll onAll={() => setStartRef(null)} onPick={(it) => setStartRef(it.ref)}
                   note="Alegi orice exercițiu, nu neapărat la rând. După el, profesorul te întreabă ce urmează; în sală poți sări oricând la altul (📋 Exerciții)." />
+              </div>
+            )}
+            {selPos && (
+              <div className="lvl-startpick">
+                <div className="lvl-startpick-title">🎓 <b>{selPos.label}</b> — exercițiu după exercițiu, din subiectele oficiale</div>
+                <p className="lvl-pos-note">
+                  {teacher?.name || 'Profesorul'} îți dă, pe rând, exercițiul de pe această poziție din {exam === 'en' ? 'variantele, modelele și simulările oficiale (Evaluarea Națională)' : `variantele, modelele, testele de antrenament și simulările oficiale (${BAC_PROFILES.find((x) => x.id === profile)?.label})`}, fiecare explicat pe barem: încerci singur, apoi rezolvarea pas cu pas pe tablă.
+                  După {prepInfo?.exercises || 10} exerciții, un test scurt — apoi alegi: mai exersezi sau treci la altă poziție. Aceeași ședință 1-la-1 ({data.prices.privatMin} de minute, prelungite până termini).
+                </p>
               </div>
             )}
             <div className="lv-pre-actions" style={{ marginTop: 12 }}>

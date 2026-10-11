@@ -15,10 +15,10 @@ Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 | **Întrebări grilă și cu răspuns de completat**, cu rezultatele clasei (ca Zoom Polls) | sondajele vin din barem; răspunsul corect e verificat pe server |
 | **Întrebări pe pași** la problemele grele (Subiectele II și III): explicația se oprește înaintea rezultatelor intermediare din barem — elevul calculează pasul și răspunde pe ecran (cu „💡 Indiciu"; la 1-la-1 și „🤷 Nu știu — arată-mi"), apoi profesorul îl scrie pe tablă; **cel puțin o întrebare la fiecare subpunct** | `it.steps` în lecție (scrise odată cu lecția, verificate determinist); lecțiile vechi le primesc o singură dată, la prima folosire — vezi secțiunea 3c |
 | **Chat**, mâna ridicată, reacții, participanți, subtitrări, „Caiet", ecran complet (pe telefon: sus, în dreapta — se vede și ținut vertical; ce nu încape în bară stă în „⋯ Mai mult") | Supabase Realtime (canal privat pe ședință) |
-| **1-la-1, oricând** (60 min, **prelungite până termini exercițiile**): elevul **alege exercițiile** (📋 — ex. S. I ex. 5, S. II ex. 2 b), S. III ex. 1 c), nu neapărat la rând); se oprește la întrebări, „Ai înțeles?", „Explică altfel", răspunde cu voce | 8/lună incluse în abonament, apoi 20 lei; prelungirea e fără cost în plus — vezi secțiunea 3b |
+| **1-la-1, oricând** (60 min, **prelungite până termini exercițiile**): elevul **alege subiectul** — lista „Alege subiectul" are, în ordine, **variantele date, modelele, testele de antrenament, simulările**, iar la sfârșit **„Subiectul I, ex. 1", „Subiectul I, ex. 2"…** (un singur exercițiu, din toate subiectele oficiale) — și **exercițiile** (📋 — ex. S. I ex. 5, S. II ex. 2 b), S. III ex. 1 c), nu neapărat la rând); se oprește la întrebări, „Ai înțeles?", „Explică altfel", răspunde cu voce | 8/lună incluse în abonament, apoi 20 lei; prelungirea e fără cost în plus — vezi secțiunile 3b și 3f |
 | **🎓 Pregătire de examen** (din „Planul meu"): aceeași clasă, dar profesorul propune ordinea — S. I ex. 1 → ex. 2 → … → S. II → S. III, câte cel puțin 10 exerciții pe poziție, apoi un test; elevul poate alege **orice exercițiu** (la BAC și doar un subpunct a/b/c). **Prețul: ca la 1-la-1** — o ședință de 60 min, prelungite cât lucrează | din **aceleași 8/lună incluse** în abonament (comune cu 1-la-1 live), apoi 20 lei; fără abonament, biletul de 20 lei — `/meditatii/pregatire` (`?pos=II.2.b` = începe direct acolo); vezi secțiunea 3 |
 | **Plata**: 10 lei ședința de grup fără abonament; inclusă în abonament. În lobby, **„💳 Prețuri"** deschide lista tuturor prețurilor, cu și fără abonament | Stripe (plată unică), bilet în `live_tickets`; lista: `src/components/live/PriceList.jsx` |
-| **🎁 Meditații gratuite** (implicit **două**: una de EN, una de BAC): lecții pregătite pe care oricine are cont le face **1-la-1, fără abonament și fără plată** — la vedere în lobby, chiar sub prezentare, cu „▶ Începe gratuit" | alese automat până le alegi tu din **Admin → 🎥 Meditații live → „🎁 Meditațiile gratuite"** (sau „🎁 Fă-o gratuită" la o lecție) — vezi secțiunea 3d |
+| **🎁 Meditații gratuite** — **câte una pe fiecare examen** (Evaluarea Națională, BAC Mate-Info, BAC Științele Naturii, BAC Tehnologic): o lecție pe care oricine are cont o face **1-la-1, fără abonament și fără plată** — la vedere în lobby, chiar sub prezentare, cu „▶ Începe gratuit" (prima e cea a sălii alese) | alese automat până le alegi tu din **Admin → 🎥 Meditații live → „🎁 Meditațiile gratuite"** (câte un rând pe examen; sau „🎁 Fă-o gratuită" la o lecție) — vezi secțiunea 3d |
 | **Lecția, scrisă o singură dată pe subiect** (explicația pe barem + explicațiile de rezervă + întrebările), apoi refolosită peste tot | **Admin → 🎥 Meditații live → „✍️ Cine scrie lecțiile"**: GPT-5.6 Terra (implicit) sau **Claude Opus 5.5** (mai bun la matematică, ~1,7× costul), cu Terra ca rezervă — vezi secțiunea 3e |
 
 **Fără barem, profesorul nu explică nimic:** sunt propuse doar subiectele al căror barem
@@ -302,36 +302,52 @@ greșelilor doar explică.
 
 ---
 
-## 3d. 🎁 Meditațiile gratuite (octombrie 2026)
+## 3d. 🎁 Meditațiile gratuite — câte una pe fiecare examen (octombrie 2026)
 
-Cererea: „pune două din meditațiile pregenerate gratuite; menționează asta la meditații live;
-fă un buton la admin să pot modifica care să fie gratuite".
+Cererea (6 oct.): „pune două din meditațiile pregenerate gratuite; menționează asta la meditații live;
+fă un buton la admin să pot modifica care să fie gratuite". Schimbată pe **11 oct.**: „pune doar o
+meditație gratuită pe fiecare tip: Evaluare Națională, BAC Mate-Info, BAC Tehnologic, BAC Științele
+Naturii — o meditație 1-la-1".
 
-- **Ce înseamnă „gratuită":** o lecție pregătită (pe barem, cu scriptul gata) pe care **oricine are
-  cont** o poate face **1-la-1, fără abonament și fără plată** — nu consumă nici ședințele 1-la-1
-  incluse în abonament, nici biletele. Ședința de grup din ziua în care o sală predă una dintre
-  ele e și ea gratuită (eticheta „🎁 meditație gratuită" în program). Fără cont: „Intră în cont și începe".
-- **Care sunt:** până le alegi tu, **două alese automat** dintre lecțiile gata — una de Evaluare
-  Națională și una de Bacalaureat (Mate-Info întâi), cele mai potrivite pentru o primă încercare:
-  subiect complet (variantă / model / simulare), cu întrebări pe pași, scrisă cu paginile PDF.
-  Alegerea se salvează o dată (rămâne aceeași până o schimbi).
-- **În lobby** (`/meditatii`): în prezentare, „🎁 Două meditații 1-la-1 gratuite, fără abonament —
-  încearcă-le!" și eticheta „🎁 2 meditații gratuite"; chiar sub prezentare, secțiunea **„Încearcă
-  gratuit"** cu cele două lecții și butonul **„▶ Începe gratuit"**; în lista 1-la-1 („Alege subiectul")
-  sunt primele, cu „🎁 gratuit", iar butonul devine „🎁 Începe gratuit". În sală: „🎁 Meditația ta gratuită".
-- **În Admin → 🎥 Meditații live:** cutia **„🎁 Meditațiile gratuite"** — lista de acum („✕ Scoate"),
-  „＋ Alege o lecție gata…" + **„🎁 Fă-o gratuită"**; în „Lecțiile recente", la fiecare lecție gata,
-  butonul **„🎁 Fă-o gratuită" / „🎁 Gratuită ✓"** (un clic o scoate). Oricâte (cel mult 12); o listă
-  goală = nicio meditație gratuită.
+- **Ce înseamnă „gratuită":** o lecție (subiect cu barem) pe care **oricine are cont** o poate face
+  **1-la-1, fără abonament și fără plată** — nu consumă nici ședințele 1-la-1 incluse în abonament,
+  nici biletele. Ședința de grup din ziua în care o sală predă una dintre ele e și ea gratuită
+  (eticheta „🎁 meditație gratuită" în program). Fără cont: „Intră în cont și începe".
+- **Câte sunt: câte UNA pe examen** — Evaluarea Națională, BAC Mate-Info, BAC Științele Naturii,
+  BAC Tehnologic (cel mult patru). Până o alegi tu, fiecare examen primește **automat** lecția gata
+  cea mai potrivită pentru o primă încercare (subiect complet — variantă / model / simulare —, cu
+  întrebări pe pași, scrisă cu paginile PDF, cu voce; la egalitate, varianta cea mai nouă). Un examen
+  fără nicio lecție gata (ex. BAC Tehnologic) primește cea mai nouă **variantă dată cu barem** — lecția
+  ei se scrie la prima folosire (2–4 minute, o singură dată; din Admin o poți pregăti dinainte).
+  Alegerea se salvează o dată (rămâne aceeași până o schimbi). Cele alese până acum (formatul vechi,
+  o listă) rămân: prima lecție a fiecărui examen; examenele fără ea se completează automat.
+- **În lobby** (`/meditatii`): în prezentare, „🎁 Câte o meditație 1-la-1 gratuită pentru fiecare
+  examen, fără abonament — încearc-o!" și eticheta „🎁 câte o meditație gratuită pe examen"; chiar sub
+  prezentare, secțiunea **„Încearcă gratuit"** cu cele patru lecții (prima și încadrată cu auriu: cea a
+  sălii alese de elev mai jos) și butonul **„▶ Începe gratuit"**; în lista 1-la-1 („Alege subiectul")
+  stă **deasupra listei, separat** („🎁 Meditația gratuită"), iar butonul devine „🎁 Începe gratuit".
+  În sală: „🎁 Meditația ta gratuită". În „💳 Prețuri": „câte o lecție 1-la-1 pentru fiecare examen".
+- **În Admin → 🎥 Meditații live:** cutia **„🎁 Meditațiile gratuite — câte una pe examen"**: un rând pe
+  examen, cu lecția de acum („✓ lecția e gata" / „se scrie la prima folosire", „aleasă automat") și
+  lista **„↻ Schimbă…"** — întâi „✓ Lecții gata — pornesc imediat", apoi subiectele cu barem care „se
+  scriu la prima folosire", în ordinea de pe site (variante, modele, teste, simulări); tot acolo „✕ Fără
+  meditație gratuită la acest examen" și „🤖 Alege automat". La o lecție care nu e gata: **„Pregătește
+  acum"** (o scrie dinainte, ca primul elev să nu aștepte). În „Lecțiile recente", butonul **„🎁 Fă-o
+  gratuită"** face din lecție meditația gratuită a examenului ei (o înlocuiește pe cea de acum);
+  „🎁 Gratuită ✓" o scoate.
 - **Plasa anti-abuz** (chatul cu profesorul e o funcție AI): cel mult `LIVE_GRATUIT_LUNA` (4)
   meditații gratuite pornite pe lună de un elev — se numără doar cele pornite —, iar în ele
   profesorul răspunde la cel mult `LIVE_GRATUIT_INTREBARI` (10) întrebări în chat; lecția (explicațiile,
   grilele, întrebările pe pași) merge oricum până la capăt. O lecție scoasă dintre cele gratuite:
   ședința deja **pornită** rămâne gratuită; una doar deschisă, nepornită, cere plata obișnuită.
-- **Tehnic:** `app_settings` (cheia `live_free_lessons`, `supabase/setari_ordine_gratuite.sql`),
-  `api/live.js` (`freeLessons`, `admin_set_free`; accesul `gratuit` în `live_sessions.access`),
-  `api/_lib/live.js` (`freeAccess`, `groupAccess`, `pickFreeLessons`). Teste:
-  `test/meditatii-gratuite.test.js`.
+- **Tehnic:** `app_settings` (cheia `live_free_lessons` = `{ v: 2, slots: { en, mate-info,
+  stiinte-naturii, tehnologic }, auto: [...], subjects: [...] }`; un examen lipsă din `slots` = automat,
+  `null` = fără; `supabase/setari_ordine_gratuite.sql`, fără SQL nou), `api/live.js` (`freeLessons`,
+  `autoFreePicks`, `admin_set_free` — `{ type, subjectId }`, `{ type, auto }`, `{ subjectId, on }`;
+  accesul `gratuit` în `live_sessions.access`), `api/_lib/live.js` (`FREE_TYPES`, `freeSlotsFrom`,
+  `pickFreeLessons`, `pickFreeSubject`, `freeAccess`, `groupAccess`). Alegerea automată se salvează
+  doar peste rândul citit (`settings.updateSettingIf`), ca să nu suprascrie o alegere făcută chiar
+  atunci din Admin. Teste: `test/meditatii-gratuite.test.js`.
 
 ---
 
@@ -364,6 +380,16 @@ live (o lecție se scrie o singură dată pe subiect și se refolosește).
   ~1,5–5 lei), **o singură dată pe subiect**. Costul se socotește pe fiecare model (bucățile scrise
   de rezervă, la prețul lui Terra): în coloana „Cost" din Admin și în `ai_usage` (rândurile
   `live-lectie` / `live-pasi`, câte unul pe model). Și tokenii unei încercări eșuate se notează.
+- **Sol sau Terra?** (întrebarea lui Radu, 11 oct.) Până pe 11 oct. lecțiile le scria implicit **GPT-5.6
+  Sol** (modelul de generare); de atunci, **GPT-5.6 Terra** (economii — `GHID_LIMITE_AI.md`). Sunt din
+  aceeași familie OpenAI: Sol e cel mai puternic (scoruri mai mari la raționament), Terra mai ieftin și
+  mai rapid la scris — 2 $ / 12 $ față de 4 $ / 20 $, deci o lecție cu Sol ar costa cam 1,7× (cât una
+  cu Claude Opus 5.5). La lecțiile live, pașii și rezultatele vin din **baremul oficial**, iar
+  verificările deterministe prind rezultatele greșite, așa că diferența contează mai puțin decât la
+  generarea de exerciții fără barem (unde a rămas Sol); se poate simți la citirea formulelor din
+  paginile PDF și la explicațiile de rezervă. Pentru calitate maximă: butonul Claude Opus 5.5 (același
+  preț ca Sol); `LIVE_GEN_MODEL=gpt-5.6-sol` în Vercel readuce Sol ca implicit. Lecțiile deja scrise
+  rămân cum sunt (cele de dinainte, cu Sol) până la „Regenerează".
 - **Timpul:** Claude scrie mai încet decât Terra (~2–5 minute pe lecție, în loc de 1–3). Lacătul
   lecției ține cât poate dura funcția (14 minute), ca două cereri să nu scrie aceeași lecție de două
   ori; cronul nu mai începe o lecție nouă cu Claude după primele 7 minute ale rulării (o scrie rularea
@@ -375,6 +401,44 @@ live (o lecție se scrie o singură dată pe subiect și se refolosește).
   ca documente PDF, altfel `ai.chatJson`; `usageParts`: tokenii pe model; `WRITERS`, `writerChoice`),
   `api/live.js` (`lessonWriter`, `admin_set_writer`, `logWriteUsage`), `src/components/LiveAdmin.jsx`.
   Teste: `test/lectii-live-opus.test.js`.
+
+---
+
+## 3f. „Alege subiectul" (1-la-1): ordinea listei și „Subiectul I, ex. 1"… (11 octombrie 2026)
+
+Cererea: „la «Meditații 1-la-1», la «Alege subiectul», pune lista cu toate variantele PDF date, apoi
+modele, apoi teste de antrenament, apoi simulări. La Evaluare Națională, testele, variantele și modelele
+primele în listă, apoi la sfârșit «subiect 1 ex 1», «subiect 1 ex 2» etc.; adaugă la sfârșit și la BAC
+«subiect 1 ex 1», «subiect 1 ex 2» etc."
+
+- **Ordinea** (în lobby, la fiecare examen — EN, BAC Mate-Info, Științele Naturii, Tehnologic):
+  **Variante date** (oficiale, de rezervă, sesiunea specială, olimpici) → **Modele** → **Teste de
+  antrenament** → **Simulări** (naționale, apoi județene; „Clasa a XI-a" după) → alte subiecte → **„Pe
+  exerciții"**. În fiecare grup: cel mai nou an întâi; în același an, după număr (Varianta 02 înaintea
+  lui 10). Grupurile au antet (rămâne sus când derulezi) și numărul de subiecte. Meditația gratuită a
+  examenului stă deasupra, separat (🎁). La EN nu există teste de antrenament separate („model 1…15"
+  din 2021 sunt la Modele).
+- **Felul** vine din rubrica materialului + titlu (`L.subjectKind`): la EN, „Variante Date + Modele"
+  e o singură rubrică (titlul cu „model" → Modele); la BAC, modelele stau în rubrica „Simulări" (tot
+  după titlu → Modele). Aceeași ordine și în Admin („Ședințele zilei" — lista subiectului fiecărei săli,
+  pe grupuri — și „🎁 Meditațiile gratuite").
+- **„Pe exerciții" — „Subiectul I, exercițiul 1"…** (EN: S. I–III × 6 = 18; BAC: S. I ex. 1–6, S. II
+  ex. 1–2, S. III ex. 1–2 = 10): un singur exercițiu, **din toate subiectele oficiale ale examenului**
+  (variante, modele, teste, simulări), pe rând, fiecare explicat **pe baremul lui** — exact Pregătirea
+  de examen pe acea poziție (secțiunea 3): după 10 exerciții, un test scurt. „Începe" duce în clasa
+  Pregătirii (`/meditatii/pregatire?pos=I.1&examen=bac-mate-info&din=live`), pe examenul listei alese în
+  lobby (are întâietate față de cel din „Planul meu" și rămâne și după plata biletului), iar „Înapoi"
+  duce la Meditații live. Prețul: o ședință 1-la-1, ca oricare (inclusă / bilet de 20 lei).
+- **De ce nu fișele „Subiectul I - Exercițiul 1" / „SUBIECTUL I, Ex. 1"** (rubricile „Exerciții pe
+  Subiecte"): sunt culegeri de 30 de exerciții din variante, **fără barem** propriu — profesorul nu le
+  poate explica pe barem. Exercițiile lor sunt aceleași (din variantele oficiale), iar „Pe exerciții"
+  le ia direct din subiectele cu barem. De aceea fișele nu mai apar în lista 1-la-1.
+- **Tehnic:** `api/_lib/live.js` (`SUBJECT_KINDS`, `subjectKind`, `subjectOrder`), `api/live.js`
+  (`eligibleSubjects` ordonează și dă `kind`; `private_subjects` întoarce și `kinds` și `prep: { target,
+  positions }`; `prepWho`: `examForce`), `api/_lib/pregatire.js` (`targetFor`),
+  `src/pages/MeditatiiLive.jsx`, `src/pages/PregatireExamen.jsx`, `src/lib/live/api.js`
+  (`setPrepExam(target, { force })`). Teste: `test/alege-subiectul.test.js`,
+  `test/pregatire-examen.test.js` (examenul ales în lobby).
 
 ---
 
@@ -497,6 +561,8 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | La 1-la-1, înainte de lecție: „pregătește întrebările pentru pașii din barem" | normal, o singură dată pe subiect (lecție scrisă înainte de întrebările pe pași), cam un minut |
 | O problemă de la S. II/III fără întrebări pe pași | lecție veche folosită cât rula o ședință de grup cu ea (atunci nu se schimbă) → Admin → „➕ Întrebări pe pași"; sau nicio întrebare n-a trecut verificările (Admin → „Scriptul" → „↻ Întrebări pe pași") |
 | Ședința de grup e prea lungă cu toate întrebările | normal: rămâne câte o întrebare la fiecare subpunct; `LIVE_SONDAJ_PAS_SEC` (ex. 30) scurtează timpul de răspuns |
-| Admin → „🎁 Meditațiile gratuite": „rulează supabase/setari_ordine_gratuite.sql" | scriptul setărilor nu e rulat; până atunci sunt gratuite cele două alese automat (nu se pot schimba) |
-| În lobby nu apare secțiunea „Încearcă gratuit" | nu există încă nicio lecție gata (primele două se aleg singure când apar) sau ai golit lista din Admin |
+| Admin → „🎁 Meditațiile gratuite": „rulează supabase/setari_ordine_gratuite.sql" | scriptul setărilor nu e rulat; până atunci sunt gratuite cele alese automat, câte una pe examen (nu se pot schimba) |
+| În lobby nu apare secțiunea „Încearcă gratuit" (sau lipsește un examen) | examenul nu are niciun subiect cu barem încă, sau ai ales „✕ Fără meditație gratuită" la el în Admin („🤖 Alege automat" o pune la loc) |
+| Meditația gratuită a unui examen „se pregătește când pornești (2–4 minute)" | e aleasă automat dintre subiectele cu barem (examenul nu avea nicio lecție gata); lecția se scrie la primul elev, o singură dată — sau Admin → „🎁 Meditațiile gratuite" → „Pregătește acum" |
+| În „Alege subiectul" nu mai apar fișele „Subiectul I - Exercițiul 1" | normal (11 oct.): n-au barem propriu; la sfârșitul listei, „Pe exerciții" → „Subiectul I, exercițiul 1"… ia aceleași exerciții din subiectele oficiale, pe barem |
 | Elevul vede „Ai făcut deja cele 4 meditații gratuite din luna aceasta" | plafonul lunar (`LIVE_GRATUIT_LUNA`); de luna viitoare le poate face din nou |

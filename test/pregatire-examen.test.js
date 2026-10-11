@@ -665,3 +665,23 @@ test('fără examen în „Planul meu": elevul îl alege în clasă, iar ședin�
   assert.strictEqual((await call('prep_state', { examTarget: 'bac-tehnologic' })).body.exam.fromPlan, true);
   assert.strictEqual((await call('prep_state', { examTarget: 'bac-tehnologic' })).body.exam.label, 'Evaluarea Națională');
 });
+
+test('din Meditații live („Alege subiectul" → „Subiectul I, ex. 1" la BAC Tehnologic): examenul ales acolo are întâietate față de „Planul meu"', async () => {
+  fake = fresh({ subjects: 2, ready: 2, bacSubjects: 2 });
+  // U.prem are în „Planul meu" Evaluarea Națională (și o ședință de pregătire în curs)
+  const st = await call('prep_state', { examTarget: 'bac-tehnologic', examForce: true });
+  assert.strictEqual(st.statusCode, 200, JSON.stringify(st.body));
+  assert.strictEqual(st.body.exam.label, 'BAC Tehnologic');
+  assert.strictEqual(st.body.exam.fromPlan, false, '„schimbă" rămâne la vedere');
+  assert.strictEqual(st.body.positions.length, 22, 'pozițiile de BAC (10 + subpunctele)');
+  const r = await call('prep_exercise', { pos: 'I.1', examTarget: 'bac-tehnologic', examForce: true });
+  assert.strictEqual(r.statusCode, 200, JSON.stringify(r.body));
+  assert.match(r.body.exercise.title, /M_tehnologic/);
+  // progresul stă la examenul lui (nu se amestecă cu cel din plan)
+  const row = fake.db.tables.ai_meditatii_sessions.find((x) => x.id === r.body.rowId);
+  assert.strictEqual(row.chapter, P.chapterOf('bac-tehnologic'));
+  // același examen ca în plan → „din plan"; fără examForce → tot planul; o țintă necunoscută → planul
+  assert.strictEqual((await call('prep_state', { examTarget: 'evaluare-nationala', examForce: true })).body.exam.fromPlan, true);
+  assert.strictEqual((await call('prep_state', { examTarget: 'bac-tehnologic' })).body.exam.label, 'Evaluarea Națională');
+  assert.strictEqual((await call('prep_state', { examTarget: 'nu-exista', examForce: true })).body.exam.label, 'Evaluarea Națională');
+});

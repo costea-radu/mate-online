@@ -19,7 +19,10 @@
 //   · o ȘEDINȚĂ 1-LA-1, ca la meditațiile live: 60 de minute, prelungite cât elevul e în
 //     clasă — din cele 8 incluse pe lună în abonament (comune cu 1-la-1 live) sau cu un
 //     bilet de 20 lei; după ce se încheie, lucrul nou cere o ședință nouă;
-//   · fără examen ales în „Planul meu", elevul îl alege aici (se ține minte).
+//   · fără examen ales în „Planul meu", elevul îl alege aici (se ține minte);
+//   · din Meditații live („Alege subiectul" → la sfârșitul listei „Subiectul I, ex. 1"…):
+//     ?pos=I.1&examen=bac-tehnologic&din=live — examenul listei de acolo are întâietate
+//     (și după plata biletului), iar „Înapoi" duce la Meditații live.
 // Serverul: api/live.js (prep_*) + api/_lib/pregatire.js. Progresul: „Planul meu".
 // =====================================================================
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -56,13 +59,27 @@ const EXAMS = [
   { target: 'bac-tehnologic', label: 'BAC Tehnologic' },
 ];
 const EXAM_KEY = 'prep:examen';
+const ENTRY_KEY = 'prep:intrare';   // venit din Meditații live: examenul + poziția, peste drumul spre plată
+const isTarget = (t) => EXAMS.some((x) => x.target === t);
+// intrarea în pagină: din URL; la întoarcerea de la plată (Stripe nu păstrează parametrii), din sesiune
+function readEntry(params) {
+  const url = { examen: isTarget(params.get('examen')) ? params.get('examen') : null, din: params.get('din') === 'live' ? 'live' : null, pos: params.get('pos') || null };
+  try {
+    if (url.examen || url.din) { sessionStorage.setItem(ENTRY_KEY, JSON.stringify(url)); return url; }
+    if (params.get('plata')) { const s = JSON.parse(sessionStorage.getItem(ENTRY_KEY) || 'null'); if (s && typeof s === 'object') return { examen: isTarget(s.examen) ? s.examen : null, din: s.din === 'live' ? 'live' : null, pos: url.pos || s.pos || null }; }
+    sessionStorage.removeItem(ENTRY_KEY);
+  } catch { /* fără stocare */ }
+  return url;
+}
 const minutesLeft = (s) => (s ? Math.max(0, Math.ceil((Date.parse(s.endsAt) - clock.now()) / 60000)) : 0);
 
 export default function PregatireExamen() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const wantPos = searchParams.get('pos');            // din „Planul meu": exercițiul ales de elev
+  const [entry] = useState(() => readEntry(searchParams));   // { examen, din, pos } — vezi readEntry
+  const wantPos = searchParams.get('pos') || entry.pos;      // din „Planul meu" / Meditații live: exercițiul ales
+  const back = entry.din === 'live' ? { to: '/meditatii', label: 'Înapoi la Meditații live' } : { to: '/meditatii/plan', label: 'Înapoi la Planul meu' };
 
   const [st, setSt] = useState(null);                 // răspunsul prep_state
   const [fatal, setFatal] = useState(null);           // { text, code }
@@ -147,7 +164,15 @@ export default function PregatireExamen() {
   useEffect(() => {
     if (authLoading) return;
     if (!user) { setFatal({ text: 'Intră în cont ca să începi pregătirea de examen.', code: 'LOGIN' }); return; }
-    try { const t = localStorage.getItem(EXAM_KEY); if (t) setPrepExam(t); } catch { /* fără stocare */ }
+    if (entry.examen) {
+      // din Meditații live: examenul listei alese acolo (are întâietate față de „Planul meu")
+      setPrepExam(entry.examen, { force: true });
+      try { localStorage.setItem(EXAM_KEY, entry.examen); } catch { /* fără stocare */ }
+    } else {
+      let t = null;
+      try { t = localStorage.getItem(EXAM_KEY); } catch { /* fără stocare */ }
+      setPrepExam(t);
+    }
     load();
   }, [authLoading, user, load]);
   // doar dreptul la ședință (în clasă, fără să schimbe exercițiul de acum)
@@ -179,7 +204,7 @@ export default function PregatireExamen() {
   }, [authLoading, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function chooseExam(target) {
-    setPrepExam(target);
+    setPrepExam(target, { force: !!entry.examen });
     try { localStorage.setItem(EXAM_KEY, target); } catch { /* fără stocare */ }
     setSt(null); setNeedExam(false); setPick(null);
     load();
@@ -502,7 +527,7 @@ export default function PregatireExamen() {
           <div className="lv-pre-actions">
             {fatal.code === 'LOGIN' && <Link className="lv-btn-primary" to="/autentificare">Intră în cont</Link>}
             {fatal.code === 'PREMIUM_REQUIRED' && <Link className="lv-btn-primary" to="/preturi">Vezi abonamentul</Link>}
-            <Link className="lv-btn-soft" to="/meditatii/plan">Înapoi la Planul meu</Link>
+            <Link className="lv-btn-soft" to={back.to}>{back.label}</Link>
           </div>
         </div>
       </div>
@@ -525,7 +550,7 @@ export default function PregatireExamen() {
                 <button key={x.target} type="button" className="pe-exam-btn" onClick={() => chooseExam(x.target)}>{x.label}</button>
               ))}
             </div>
-            <div className="lv-pre-actions"><Link to="/meditatii/plan" className="lv-btn-soft">Înapoi la Planul meu</Link></div>
+            <div className="lv-pre-actions"><Link to={back.to} className="lv-btn-soft">{back.label}</Link></div>
           </div>
         </div>
       </div>
@@ -597,7 +622,7 @@ export default function PregatireExamen() {
                     {starting ? 'Pornesc…' : `▶ Începe ședința${access.via === 'bilet' ? ' · cu biletul' : ''}${enterLabel ? ` · ${enterLabel}` : ''}`}
                   </button>
                   : <button type="button" className="lv-btn-primary lv-btn-lg" disabled={starting} onClick={pay}>{starting ? 'Te duc la plată…' : `Plătește ${access?.price ?? prices.privat} lei`}</button>}
-              <Link to="/meditatii/plan" className="lv-btn-soft">Înapoi la Planul meu</Link>
+              <Link to={back.to} className="lv-btn-soft">{back.label}</Link>
             </div>
             <p className="lv-pre-ai">ⓘ Profesorul este <b>virtual (AI)</b>: vocea și imaginea sunt generate. Explică numai pe <b>baremul oficial</b> al fiecărui subiect.</p>
           </div>
@@ -634,7 +659,7 @@ export default function PregatireExamen() {
     </button>
   ) : null);
   const playing = ['exercitiu', 'test', 'recap'].includes(phase);
-  const leave = () => { playerRef.current?.stop(); exitFs(); navigate('/meditatii/plan'); };
+  const leave = () => { playerRef.current?.stop(); exitFs(); navigate(back.to); };
   // ședința s-a încheiat: ce urmează (inclusă / bilet / plată)
   const over = `Cele ${prices.privatMin} de minute (și prelungirea) s-au terminat — progresul e salvat.`;
   const gateText = !access ? over
@@ -711,7 +736,7 @@ export default function PregatireExamen() {
                 <h2>Pe azi am terminat 👏</h2>
                 <p>{positions.reduce((n, p) => n + (p.done || 0), 0)} exerciții lucrate · {mainPositions.filter((p) => p.mastered).length} din {mainPositions.length} poziții stăpânite. Progresul e salvat în Planul meu.</p>
                 <div className="lv-pre-actions" style={{ justifyContent: 'center' }}>
-                  <button type="button" className="lv-btn-primary" onClick={leave}>Înapoi la Planul meu</button>
+                  <button type="button" className="lv-btn-primary" onClick={leave}>{back.label}</button>
                   <button type="button" className="lv-btn-soft" onClick={() => propose(proposal || st.proposal, 'Bine, mai lucrăm!')}>Mai lucrez puțin</button>
                 </div>
               </div>
@@ -726,7 +751,7 @@ export default function PregatireExamen() {
                   {access?.ok
                     ? <button type="button" className="lv-btn-primary" disabled={starting} onClick={restartSession}>{starting ? 'Pornesc…' : `▶ Începe o ședință nouă${access.via === 'bilet' ? ' · cu biletul' : ''}`}</button>
                     : <button type="button" className="lv-btn-primary" disabled={starting} onClick={pay}>{starting ? 'Te duc la plată…' : `Plătește ${access?.price ?? prices.privat} lei`}</button>}
-                  <button type="button" className="lv-btn-soft" onClick={leave}>Înapoi la Planul meu</button>
+                  <button type="button" className="lv-btn-soft" onClick={leave}>{back.label}</button>
                 </div>
               </div>
             </div>
