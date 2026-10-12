@@ -393,7 +393,8 @@ Din runda 10, „Planul meu" (`/meditatii/plan`) arată ca meditațiile live:
      dacă ai înțeles (`[[GRILA:{…}]]` / `[[COMPLETARE:{…}]]`). Verdictul vine pe
      loc (✅ Corect / ❌ Răspunsul corect: …), cu explicația pe scurt, citită cu
      voce. La completare se acceptă răspunsurile echivalente: „1/2" = „0,5",
-     „x = 4" = „4", „2√3" = „2\sqrt{3}". Întrebările rezolvate rămân pe tablă,
+     „x = 4" = „4", „2√3" = „2\sqrt{3}", iar la semn „−" = „minus" = „negativ"
+     = „< 0" = „f'(x) < 0" (la fel „+", „pozitiv"). Întrebările rezolvate rămân pe tablă,
      pe un rând (✎ … → răspunsul tău ✓/✗).
    - **exercițiile** (seturi, teme, recapitulări, simulări) au variantele ca la
      grila din sala live (a–d); profesorul le anunță, iar după corectare spune

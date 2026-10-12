@@ -18,6 +18,7 @@
 // =====================================================================
 import { sentencesOf } from './voice.js';
 import { ansEq } from './ansEq.js';
+import { signEquivalent } from './semn.js';
 
 const TAGS = ['SPUNE', 'GRILA', 'COMPLETARE'];
 const MARK_RE = /\[\[\s*(SPUNE|GRILA|COMPLETARE)\s*:\s*([\s\S]*?)\s*\]\]/gi;
@@ -276,13 +277,15 @@ const plain = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀
   .replace(/\$/g, '').replace(/\s+/g, '').replace(/[.;]+$/, '');
 
 // Răspunsul elevului e corect? (grilă: litera; completare: echivalență
-// matematică — „1/2" = „0,5", „x=3" = „3", „2√3" = „2\sqrt{3}")
+// matematică — „1/2" = „0,5", „x=3" = „3", „2√3" = „2\sqrt{3}"; la semn:
+// „−" = „minus" = „negativ" = „< 0" = „f'(x) < 0", la fel „+" — ./semn.js)
 export function checkAnswer(q, given) {
   if (!q) return false;
   const g = String(given ?? '').trim();
   if (!g) return false;
   if (q.type === 'grila') return g[0].toLowerCase() === q.answer;
   try { if (ansEq(g, q.answer)) return true; } catch { /* comparăm ca text */ }
+  if (signEquivalent(g, q.answer) === true) return true;
   return plain(g) === plain(q.answer);
 }
 

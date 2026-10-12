@@ -258,7 +258,9 @@ a) și b)), explicația pe barem **se oprește înaintea rezultatelor intermedia
 1. profesorul explică până la pasul următor, apoi întreabă („Înainte să scriu, încercați voi: cât
    este delta?") — pe ecran apare cardul **„📝 Prof. Tudor întreabă · pasul 2 din 3 · b)"**;
 2. elevul calculează și răspunde: **de completat** (un număr sau o expresie — „16", „2x+3", „1/2";
-   se verifică matematic, deci „x²+2x+1" = „x^2 + 2x + 1") sau **grilă** cu 4 variante (rezultatul și
+   se verifică matematic, deci „x²+2x+1" = „x^2 + 2x + 1"; la întrebările despre semn — „f'(x) < 0" —
+   se primește și „−", „minus", „negativ(ă)", „< 0", „mai mic decât 0", la fel „+", „plus",
+   „pozitiv(ă)", „> 0": `api/_lib/semn.js`) sau **grilă** cu 4 variante (rezultatul și
    greșelile tipice). **„💡 Indiciu"** arată formula/proprietatea, fără rezultat. La 1-la-1,
    **„🤷 Nu știu — arată-mi"** dă răspunsul corect (se numără ca greșit);
 3. grup: după timpul de răspuns (`LIVE_SONDAJ_PAS_SEC`, implicit 40 s), pe proiecție apar

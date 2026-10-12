@@ -4,6 +4,29 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 12 octombrie 2026 — Prof. Tudor primește „−", „minus", „negativ" (și „+", „pozitiv") la întrebările despre semn
+
+Cererea: „fă ca prof virtual să accepte și răspuns «-» sau «minus», «negativ» etc. pentru f(x)<0. la fel pentru «+»" — la „Care este semnul derivatei $f'(x) = \frac{x-1}{x}$ pentru $x \in (0, 1)$?" (întrebare pe pași), „−" ieșea „❌ Nu chiar. Răspunsul corect: f'(x) < 0".
+
+### Ce se primește (`api/_lib/semn.js`, nou; oglinda din browser `src/lib/semn.js`, cu același cod)
+- Când răspunsul din barem e o afirmație despre semn („f'(x) < 0", „Δ > 0", „x − 1 < 0", „negativ", „−", și cu intervalul: „f'(x) < 0 pe (0, 1)", „…, ∀x ∈ (0, 1)"), elevul poate scrie:
+  - **negativ:** „−" („–", „(−)", „− − −"), „minus", „negativ / negativă", „strict negativă", „e negativă", „semnul −", „are semnul minus", „derivata e negativă", „f'(x) e negativă", „< 0", „f′(x) < 0" (și cu ’ de pe telefon), „0 > f'(x)", „f'(x) = −", „mai mic decât 0", „sub 0"; cu intervalul („negativă pe (0, 1)") sau cu o concluzie după („−, deci f e descrescătoare");
+  - **pozitiv:** la fel — „+", „plus", „pozitiv(ă)", „> 0", „mai mare decât 0";
+  - la „≥ 0" se primește și „+" / „pozitiv" (semnul din tabel), la „≤ 0" și „−"; invers nu („≤ 0" la „< 0" rămâne greșit).
+- **Nu** se primesc: semnul opus, alt obiect („f(x) < 0" sau „x − 1 < 0" la „f'(x) < 0"), numerele („−2", „−∞", „minus 1"), mai multe semne („+ și −"), negația („nu e negativ", „≠ 0"). Dacă baremul are o concluzie („f'(x) < 0 ⇒ f descrescătoare"), întrebarea e despre monotonie → verificarea rămâne ca înainte. Literele mari, diacriticele și LaTeX-ul („\lt", „\leq", „^{\prime}", „\Delta") nu contează.
+
+### Unde (toate verificările lui Prof. Tudor la răspunsurile de completat)
+- **Meditații live (1-la-1 și grup) + 🎓 Pregătirea de examen** — `checkPollAnswer` (`api/_lib/live.js`), pe server (`poll_answer`, `prep_answer`, inclusiv testul de verificare).
+- **„Planul meu" — întrebările de pe tablă** (`[[COMPLETARE:…]]`) — `checkAnswer` (`src/lib/tabla.js`), în browser.
+- **„Planul meu" — exercițiile corectate pe server** (seturi, teme, recapitulări) — `gradeAnswers` (`api/ai-meditatii.js`, exportat și pentru teste).
+- Testele interactive din site (`ansEq` din HTML-ul exercițiilor) au rămas neschimbate.
+
+### Teste
+- `test/semn-raspunsuri.test.js` (nou: peste 100 de scrieri primite / respinse, oglinda din browser identică, checkPollAnswer, tabla, gradeAnswers) + în `test/meditatii-live-api.test.js` un test cap-coadă: 1-la-1, `poll_answer` cu „−", „minus", „Negativ", „<0" → corect; „+", „pozitiv", „−1" → greșit.
+- `npm test` 732/732 (copie curată, `npm ci`), `vite build` trece; pachetul principal neschimbat (303,79 kB), „Planul meu" (Meditatii) +5,8 kB. Fără SQL, fără variabile noi.
+
+---
+
 ## 11 octombrie 2026 — Meditații live: ordinea listei „Alege subiectul" + „Subiectul I, ex. 1"… · câte o meditație gratuită pe fiecare examen
 
 Cererea: 1) la „Meditații 1-la-1" → „Alege subiectul": întâi variantele PDF date, apoi modelele, testele de antrenament, simulările; la Evaluare Națională testele, variantele și modelele primele, apoi la sfârșit „subiect 1 ex 1", „subiect 1 ex 2" etc. — la sfârșit și la BAC; 2) doar o meditație gratuită pe fiecare tip: EN, BAC Mate-Info, BAC Tehnologic, BAC Științele Naturii, 1-la-1; 3) (întrebare) diferența dintre Sol și Terra la scrierea lecțiilor — răspunsul în `GHID_MEDITATII_LIVE.md` → 3e.

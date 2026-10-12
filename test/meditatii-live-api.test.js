@@ -230,6 +230,23 @@ test('un singur elev la ora de început → ședința devine 1-la-1 (fără cost
   assert.strictEqual(mine.body.messages.length, 2, 'întrebarea lui + răspunsul profesorului');
 });
 
+test('1-la-1, întrebarea despre semn: „−", „minus", „negativ", „< 0" sunt primite pentru „f\'(x) < 0" (poll_answer)', async () => {
+  handler._internals.resetCaches();   // aceeași lecție (același id) e ținută în memorie de la testul de dinainte
+  const { s, lesson } = liveGroupSession({ startsInMin: -1 });
+  Object.assign(lesson.script.items[0].tryPoll, { type: 'completare', options: null, question: 'Care este semnul derivatei $f\'(x) = \\frac{x-1}{x}$ pentru $x \\in (0, 1)$?', answer: "f'(x) < 0", explain: 'Pentru $0 < x < 1$, $x - 1 < 0$ și $x > 0$.' });
+  fake = createFakeSupabase({ ...seed(), live_sessions: [s], live_lessons: [lesson] });
+  const r = await call('join', { sessionId: s.id }, U.prem);
+  assert.strictEqual(r.statusCode, 200, JSON.stringify(r.body));
+  const poll = r.body.timeline.scenes.find((x) => x.type === 'sondaj').poll;
+  assert.strictEqual(poll.type, 'completare');
+  for (const [answer, correct] of [['-', true], ['−', true], ['minus', true], ['Negativ', true], ['<0', true], ["f'(x)<0", true], ['+', false], ['pozitiv', false], ['-1', false]]) {
+    const pa = await call('poll_answer', { sessionId: s.id, pollId: poll.id, answer }, U.prem);
+    assert.strictEqual(pa.statusCode, 200, JSON.stringify(pa.body));
+    assert.strictEqual(pa.body.correct, correct, `„${answer}"`);
+    assert.strictEqual(pa.body.answer, "f'(x) < 0");
+  }
+});
+
 test('ședința comună s-a terminat, dar ora nu: cine intră târziu primește lecția 1-la-1', async () => {
   const { s, lesson } = liveGroupSession({ startsInMin: -60 });
   s.state = { startedAt: iso(Date.now() - 55 * 60000), tl: { stamp: 'x', duration: 1800, polls: {}, qna: [], keys: {} }, lessonId: lesson.id };

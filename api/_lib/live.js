@@ -18,6 +18,7 @@
 // toți participanții) și „mișcarea gurii" calculată din vocea generată.
 // =====================================================================
 const crypto = require('node:crypto');
+const { signEquivalent } = require('./semn');   // „−", „minus", „negativ" = „f'(x) < 0" (întrebările despre semn)
 
 const TZ = 'Europe/Bucharest';
 const envInt = (k, d) => { const v = parseInt(process.env[k] || '', 10); return Number.isFinite(v) ? v : d; };
@@ -593,6 +594,9 @@ function isQuestion(text) {
 // ═════════════════════════════════════════════════════════════════════════════
 // poll = { id, type: 'grila'|'completare', options?: [..], answer: 'b' | '24' }
 // `equiv(a, b)` = echivalența matematică (mathcheck.answersEquivalent)
+// La întrebările despre SEMN („Care este semnul lui f'(x) pe (0, 1)?" → „f'(x) < 0")
+// sunt primite și „−", „minus", „negativ(ă)", „< 0", „mai mic decât 0", „derivata e
+// negativă" (la fel „+", „plus", „pozitiv(ă)", „> 0") — api/_lib/semn.js.
 function checkPollAnswer(poll, answer, equiv = null) {
   if (!poll) return null;
   const a = String(answer ?? '').trim();
@@ -609,6 +613,7 @@ function checkPollAnswer(poll, answer, equiv = null) {
       try { if (equiv(a, e)) return true; } catch { /* mai jos */ }
     }
     if (foldRo(a).replace(/\s+/g, '') === foldRo(e).replace(/\s+/g, '')) return true;
+    if (signEquivalent(a, e) === true) return true;
   }
   return false;
 }
