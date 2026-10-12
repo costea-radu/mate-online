@@ -369,11 +369,12 @@ live (o lecție se scrie o singură dată pe subiect și se refolosește).
   Aceleași reguli și aceeași schemă strictă (Structured Outputs), aceleași pagini PDF ale subiectului
   și baremului (la Claude, ca documente PDF), aceleași verificări deterministe după (literele grilelor
   de EN din tabelul baremului, enunțurile ilizibile scoase).
-- **Rezerva (Terra), pe bucăți:** lecția se scrie în 6 bucăți (câte 3 itemi), în paralel. O bucată
-  pe care Claude nu o scrie — lipsește `ANTHROPIC_API_KEY`, eroare, „prea multe cereri" (429: o pauză
-  de `LIVE_CLAUDE_PAUZA_MS`, implicit 15 s, și o reîncercare; la plafonul lunar de cheltuieli
-  Anthropic, direct rezerva), răspuns tăiat la limita de tokeni sau niciun item valid — o scrie
-  **GPT-5.6 Terra**, așa că lecția nu rămâne nescrisă. În „Lecțiile recente" apare cine a scris-o:
+- **Rezerva (Terra), pe bucăți:** lecția se scrie pe bucăți, în paralel — Terra câte 3 itemi; Claude
+  câte 3 la Subiectul I și **câte 2 la Subiectele II–III** (din 12 oct.: cu 3 itemi lungi, un răspuns
+  depășea uneori limita de 16.000 de tokeni). O bucată pe care Claude nu o scrie — lipsește
+  `ANTHROPIC_API_KEY`, eroare, „prea multe cereri" (429: o pauză de `LIVE_CLAUDE_PAUZA_MS`, implicit
+  15 s, și o reîncercare; la plafonul lunar de cheltuieli Anthropic, direct rezerva), răspuns tăiat
+  fără niciun item întreg — o scrie **GPT-5.6 Terra**, așa că lecția nu rămâne nescrisă. În „Lecțiile recente" apare cine a scris-o:
   „scrisă de Claude Opus 5.5" sau, cu rezerva folosită, „Claude Opus 5.5 (5 bucăți) + GPT-5.6 Terra
   (1 bucată)". Limitele Anthropic pentru Opus 5.5 (chiar la nivelul Start: 1.000 de cereri, 2 milioane
   de tokeni de intrare și 400.000 de ieșire pe minut) încap lejer cele 6 bucăți deodată.
@@ -397,12 +398,39 @@ live (o lecție se scrie o singură dată pe subiect și se refolosește).
   ori; cronul nu mai începe o lecție nouă cu Claude după primele 7 minute ale rulării (o scrie rularea
   următoare sau sala de așteptare); Pregătirea de examen așteaptă până la 5 minute o lecție pe care o
   scrie chiar atunci altă cerere (în loc să scrie alt subiect).
+- **🧩 Itemii lipsă (12 oct.):** „Opus 5.5 nu a generat tot subiectul de BAC — lipsesc subpunctele b) și
+  c) de la Subiectul III, ex. 1". Acum, după prima trecere, lecția se compară cu **structura subiectului**
+  (exercițiile „1."…„6." din text și, la BAC II–III, cerințele „a)", „b)", „c)" ale fiecărei probleme;
+  structura oficială când textul nu se citește sigur): fiecare item care lipsește — răspuns tăiat, item
+  omis de model sau respins la verificări — se scrie **separat, câte unul** (cu paginile secțiunii; Claude,
+  apoi Terra). Un răspuns tăiat la limita de tokeni își păstrează itemii întregi (doar cel scris pe
+  jumătate se aruncă). Ce lipsește tot rămâne în `script.missing`. **Lecțiile deja scrise:** Admin →
+  „Lecțiile recente" → „Scriptul" arată ce pare să lipsească (față de structura oficială) și butonul
+  **„🧩 Completează itemii lipsă"** — verifică pe textul subiectului și scrie DOAR itemii care lipsesc
+  (cu modelul ales; ~0,7 lei pe item cu Opus 5.5), apoi vocea lor; explicațiile, id-urile și vocea
+  celorlalți rămân (ieftin, față de „Regenerează"). Lecțiile scrise de acum au rândul „lipsesc itemii: …"
+  direct în listă.
+- **Jurnalul scrierii:** Admin → „Scriptul" → „Jurnalul scrierii": ce s-a întâmplat la scriere (rezerva,
+  răspunsurile tăiate, itemii omiși sau completați) — `script.writer.notes`.
+- **Formulele stricate (12 oct.):** modelele greșesc uneori LaTeX-ul citit din PDF — ex. paranteza înaltă din
+  „2(1 − 1/6)" scrisă ca matrice, „2\begin{pmatrix}1-\frac{1}{6}\right)", pe care KaTeX nu o poate afișa
+  (apărea textul brut, cu roșu). `api/_lib/texRepair.js` repară mediile fără pereche, `\left`/`\right`
+  dezechilibrate și acoladele — la scrierea lecției (fiecare formulă, verificată cu KaTeX) și în browser,
+  la afișare (`src/lib/katex.js` → `renderMath`, deci și lecțiile deja scrise); ce nu se poate repara apare
+  ca text simplu („8/3 − 2(1 − 1/6)"), nu cu roșu.
+- **Vocea „se generează…" (12 oct.):** un apel lucrează pe server cel mult ~4 minute (textul, apoi vocea);
+  ce nu încape rămânea „vocea se generează…" până intra primul elev. Acum, în Admin, pregătirea
+  (Regenerează, Pregătește, vocea, întrebările pe pași, itemii lipsă) **continuă singură până la „gata"**
+  cât pagina e deschisă (cu progresul: „vocea, 140/512 fraze"), iar lecțiile rămase la jumătate au
+  butonul **„▶ Continuă"**.
 - **Fără Admin:** `LIVE_GEN_MODEL=claude-opus-5-5` în Vercel face din Claude implicitul (cu aceeași
   rezervă). `ANTHROPIC_API_KEY` e aceeași cheie folosită deja de exercițiile din „Meditații" și de agenți.
 - **Tehnic:** `api/_lib/liveLesson.js` (`writeJson`: Claude prin `api/_lib/claude.js`, cu paginile
   ca documente PDF, altfel `ai.chatJson`; `usageParts`: tokenii pe model; `WRITERS`, `writerChoice`),
   `api/live.js` (`lessonWriter`, `admin_set_writer`, `logWriteUsage`), `src/components/LiveAdmin.jsx`.
-  Teste: `test/lectii-live-opus.test.js`.
+  Itemii lipsă: `expectedRefs`, `fillItems`, `completeScript`, `wholeItems` (liveLesson.js), `fill` în
+  `admin_prepare` (live.js). Formulele: `api/_lib/texRepair.js` + oglinda `src/lib/texRepair.js`.
+  Teste: `test/lectii-live-opus.test.js`, `test/formule-reparate.test.js`.
 
 ---
 
@@ -545,6 +573,9 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | Simptom | Cauză / soluție |
 |---|---|
 | Enunț fără radical / fracție („2 2 6 2 3 2") sau „[formula nu e lizibilă]" | lecție scrisă înainte de citirea paginilor PDF → Admin → „Lecțiile recente" → **Regenerează** |
+| Lipsesc subpuncte (ex. la S. III ex. 1 doar „a)") | Admin → „Lecțiile recente" → „Scriptul" → **„🧩 Completează itemii lipsă"** (doar itemii care lipsesc; restul rămâne) — vezi 3e |
+| O formulă apare ca text simplu („8/3-2(1-1/6)") | modelul a scris un LaTeX pe care nici reparatorul nu l-a putut îndrepta; se citește, dar fără fracții etajate → „Regenerează" lecția, dacă formula e importantă |
+| „vocea se generează…" rămâne în Admin | normal când pagina s-a închis înainte de sfârșit: vocea continuă la primul elev care intră; sau „▶ Continuă" (continuă singur până la „gata") |
 | „Profesorul nu are încă un subiect cu barem" | nu există subiecte EN/BAC cu barem citit; cronul citește câteva bareme la fiecare rulare (`LIVE_CRON_BAREME`), sau alege manual subiectul din Admin |
 | Profesorul nu vorbește (doar subtitrări) | dispozitivul nu are o voce românească → Edge (voce naturală, gratuită) sau vocea română în Windows; verifică și volumul/tab-ul fără sonor |
 | Pe iPhone nu se aude nimic în sală, deși la demo se aude o voce (de femeie) | reparat 8 oct.: vocea generată (Web Audio) era tăiată de modul **Silențios**; acum sala cere sesiunea audio „playback" la „Participă acum". Versiune veche în cache (PWA) → închide și redeschide pagina. Dacă apare „🔊 Pornește sunetul", apasă-l (după un apel / ecran blocat) |

@@ -4,6 +4,30 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 12 octombrie 2026 — Lecțiile live: itemii lipsă (Opus 5.5), formulele stricate, vocea „se generează…" · erorile din agentul de debug
+
+Cererea: 1) „Opus 5.5 nu a generat tot subiectul de BAC, lipsesc subpunctele b) și c) de la subiectul 3 ex 1; cu Terra apare «vocea se generează» și erorile de afișare de tip \frac…; păstrez Opus 5.5 și repari faptul că a trunchiat" ; 2) erorile găsite de agentul de debug din Admin — „repară ce se poate".
+
+### 1) Itemii lipsă (`api/_lib/liveLesson.js`, `api/live.js`, `src/components/LiveAdmin.jsx`)
+- **Cauza probabilă:** costul lecției Opus (12,46 lei cu vocea) arată ~11.000 de tokeni scriși pe bucata de 3 itemi — la Subiectul III (rezolvări lungi) aproape de limita de 16.000 a unui răspuns. Iar după scriere nimic nu verifica dacă lecția are toți itemii subiectului.
+- **Acum:** Claude primește **câte 2 itemi** pe apel la Subiectele II–III (3 la Subiectul I; Terra rămâne la 3); un răspuns **tăiat** își păstrează itemii întregi (doar cel scris pe jumătate se aruncă); după prima trecere, lecția se compară cu **structura subiectului** (exercițiile „1."…„6." din text, la BAC cerințele „a)", „b)", „c)") și **fiecare item lipsă se scrie separat, câte unul** (Claude, apoi Terra). Ce lipsește tot rămâne în `script.missing`.
+- **Lecțiile deja scrise:** Admin → „Lecțiile recente" → „Scriptul" → **„🧩 Completează itemii lipsă"** — verifică pe textul subiectului și scrie DOAR itemii care lipsesc (~0,7 lei pe item cu Opus 5.5), apoi vocea lor; explicațiile, id-urile și vocea celorlalți rămân. „Jurnalul scrierii" (în „Scriptul") arată ce s-a întâmplat la scriere.
+
+### 2) Formulele stricate (`api/_lib/texRepair.js` nou + oglinda `src/lib/texRepair.js`, `src/lib/katex.js`)
+- Ex. „2\begin{pmatrix}1-\frac{1}{6}\right)" (paranteza înaltă din PDF citită de model ca matrice) → KaTeX nu o putea afișa, apărea textul brut, cu roșu. Se repară mediile fără pereche, `\left`/`\right` dezechilibrate și acoladele → „\frac{8}{3}-2\left(1-\frac{1}{6}\right)". La scrierea lecției (verificat cu KaTeX pe server) și la afișare (`renderMath` → `preProcess`), deci și lecțiile deja scrise se văd corect; ce nu se poate repara apare ca text simplu, nu cu roșu.
+
+### 3) Vocea „se generează…" (`src/components/LiveAdmin.jsx`)
+- Un apel lucrează pe server cel mult ~4 minute; ce nu încăpea rămânea „se generează…" până intra primul elev. Acum pregătirea din Admin (Regenerează, Pregătește, vocea, întrebările pe pași, itemii lipsă) continuă singură până la „gata" cât pagina e deschisă, cu progresul („vocea, 140/512 fraze"); butonul „▶ Continuă" la lecțiile rămase la jumătate. O cerere găsită ocupată (alt elev pregătea lecția) se repetă, nu se pierde.
+
+### 4) Erorile din agentul de debug (`src/lib/chunkReload.js` nou, `src/main.jsx`, `src/lib/errorReport.js`, `vite.config.js`, `vercel.json`, `api/client-error.js`)
+- **„'text/html' is not a valid JavaScript MIME type" (8×), „Unable to preload CSS for /assets/live-….css" (1×):** tab-uri deschise de dinaintea unui deploy cer fișiere JS/CSS care nu mai există, iar Vercel le răspundea cu `index.html` (și cu antetul „immutable" de un an al `/assets/`). Acum fișierele lipsă din `/assets/` primesc 404, pagina se reîncarcă o singură dată și eroarea nu se mai raportează (nici serverul nu le mai păstrează, pentru versiunile vechi încă deschise).
+- **„Failed to register a ServiceWorker … An unknown error occurred when fetching the script" (13× + 48×):** unele browsere (aplicații cu browser intern, rețea căzută, blocante de conținut) nu pot descărca `/sw.js`; scriptul generat de plugin lăsa eroarea neprinsă. Acum înregistrarea e în `src/main.jsx`, cu eroarea prinsă și o reîncercare după 30 s (`injectRegister: false`); site-ul merge și fără service worker.
+- **„Rejected" (2×):** nu vine din codul site-ului (nici din pachetul construit) — probabil un script extern (Google Analytics, Facebook Pixel) sau o extensie. Reporterul trimite acum și tipul motivului („motivul respingerii: …") și ignoră erorile din extensii, ca următoarea apariție să arate sursa.
+
+**Verificat:** `npm test` 745/745 (noi: `test/formule-reparate.test.js`, `test/erori-client.test.js`; `test/lectii-live-opus.test.js` extins — structura subiectului, bucățile, răspunsurile tăiate, itemii omiși pe BAC, completarea lecțiilor scrise, butonul din Admin); `vite build` trece (fără `registerSW.js`, cu manifestul și `sw.js`). Capturi Chromium: formula din sală afișată corect, „Lecțiile recente" și „Scriptul" (telefon 390 px). Fără SQL nou, fără variabile noi.
+
+---
+
 ## 12 octombrie 2026 — Prof. Tudor primește „−", „minus", „negativ" (și „+", „pozitiv") la întrebările despre semn
 
 Cererea: „fă ca prof virtual să accepte și răspuns «-» sau «minus», «negativ» etc. pentru f(x)<0. la fel pentru «+»" — la „Care este semnul derivatei $f'(x) = \frac{x-1}{x}$ pentru $x \in (0, 1)$?" (întrebare pe pași), „−" ieșea „❌ Nu chiar. Răspunsul corect: f'(x) < 0".

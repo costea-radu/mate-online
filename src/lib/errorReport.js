@@ -7,7 +7,15 @@
 // mesajul, stiva, calea paginii (fără parametri) și versiunea aplicației.
 // O eroare se trimite o singură dată pe pagină; cel mult 8 pe încărcare.
 // Nu rulează în dezvoltare (npm run dev) și nici pe localhost.
+// NU se trimit (nu sunt erori ale site-ului): fișierele unei versiuni vechi după un
+// deploy (pagina se reîncarcă singură — lib/chunkReload.js), eșecul înregistrării
+// service worker-ului în unele browsere (prins în main.jsx), erorile din extensiile
+// browserului. O promisiune respinsă fără Error („Rejected") vine cu tipul motivului.
 // =====================================================================
+import { CHUNK_ERROR, reloadForNewVersion } from './chunkReload';
+
+const BENIGN = /Failed to register a ServiceWorker|ServiceWorker script evaluation failed|An unknown error occurred when fetching the script/i;
+const EXTENSION = /(?:chrome|moz|safari(?:-web)?)-extension:\/\//i;
 const sent = new Set();
 let count = 0;
 const RELEASE = String(import.meta.env.VITE_VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null;
@@ -17,13 +25,27 @@ function enabled() {
   return !/^(localhost|127\.|192\.168\.|10\.)/.test(window.location.hostname);
 }
 
+// motivul unei promisiuni respinse fără Error (ex. șirul „Rejected"): tipul lui, ca agentul
+// de debug să vadă de unde vine
+function reasonInfo(err) {
+  if (err instanceof Error || err == null) return '';
+  let shape = '';
+  try { shape = typeof err === 'object' ? JSON.stringify(err).slice(0, 300) : ''; } catch { /* circular */ }
+  const ctor = err && err.constructor && err.constructor.name ? ` / ${err.constructor.name}` : '';
+  return `motivul respingerii: ${typeof err}${ctor}${shape ? ` ${shape}` : ''}`;
+}
+
 export function reportError(err, extra = null) {
   try {
-    if (!enabled() || count >= 8) return;
+    if (!enabled() || count >= 8 || window.__mateReloading) return;
     const e = err instanceof Error ? err : { message: typeof err === 'string' ? err : (err && err.message) || String(err), stack: err && err.stack };
     const message = String(e.message || '').slice(0, 500);
     if (!message) return;
-    const stack = [String(e.stack || ''), extra ? String(extra) : ''].filter(Boolean).join('\n').slice(0, 4000);
+    // o versiune nouă a site-ului: pagina se reîncarcă (eroarea rămâne doar dacă s-a reîncărcat deja)
+    if (CHUNK_ERROR.test(message) && reloadForNewVersion()) return;
+    if (BENIGN.test(message)) return;
+    const stack = [String(e.stack || ''), extra ? String(extra) : '', reasonInfo(err)].filter(Boolean).join('\n').slice(0, 4000);
+    if (EXTENSION.test(stack)) return;
     const key = `${message}|${stack.split('\n').slice(0, 2).join('|')}`;
     if (sent.has(key)) return;
     sent.add(key);

@@ -9,6 +9,9 @@ export default defineConfig({
       // 'autoUpdate' = la fiecare deploy pe Vercel, aplicația instalată se
       // actualizează singură la următoarea deschidere. O singură acțiune: git push.
       registerType: 'autoUpdate',
+      // înregistrarea o face src/main.jsx (cu eroarea prinsă — scriptul generat de
+      // plugin lăsa eșecurile din unele browsere ca erori neprinse în agentul de debug)
+      injectRegister: false,
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         id: '/',

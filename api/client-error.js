@@ -11,8 +11,10 @@
 const crypto = require('node:crypto');
 const ai = require('./_lib/ai');
 
-// (zgomot: extensii, rețea căzută, tab-uri vechi după un deploy — acelea se reîncarcă singure, vezi src/main.jsx)
-const IGNORE = /dynamically imported module|Importing a module script failed|ResizeObserver loop|^Script error\.?$|Non-Error promise rejection|chrome-extension:|moz-extension:|safari-(web-)?extension:|^Failed to fetch$|^Load failed$|NetworkError when attempting|^The (user|operation) (aborted|was aborted)|AbortError|^cancel(l)?ed$|webkit-masked-url/i;
+// (zgomot: extensii, rețea căzută, tab-uri vechi după un deploy — acelea se reîncarcă singure, vezi
+// src/lib/chunkReload.js —, service worker-ul pe care unele browsere nu-l pot descărca, prins în
+// src/main.jsx; versiunile vechi ale site-ului, încă deschise, le mai trimit o vreme)
+const IGNORE = /dynamically imported module|Importing a module script failed|'text\/html' is not a valid JavaScript MIME type|Expected a JavaScript(?:-or-Wasm)? module script|Unable to preload CSS|Failed to register a ServiceWorker|ServiceWorker script evaluation failed|An unknown error occurred when fetching the script|ResizeObserver loop|^Script error\.?$|Non-Error promise rejection|chrome-extension:|moz-extension:|safari-(web-)?extension:|^Failed to fetch$|^Load failed$|NetworkError when attempting|^The (user|operation) (aborted|was aborted)|AbortError|^cancel(l)?ed$|webkit-masked-url/i;
 const hits = new Map();                  // ip → [momentele cererilor] (în memoria instanței)
 const LIMIT = 30, WINDOW = 10 * 60 * 1000;
 
@@ -66,3 +68,4 @@ module.exports = async function handler(req, res) {
 };
 module.exports.fingerprint = fingerprint;
 module.exports.clean = clean;
+module.exports.IGNORE = IGNORE;

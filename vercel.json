@@ -104,7 +104,7 @@
       "destination": "/api/page-meta?route=/rezolvari/:slug"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!assets/).*)",
       "destination": "/index.html"
     }
   ],

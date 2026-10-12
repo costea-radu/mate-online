@@ -489,7 +489,7 @@ async function logWriteUsage(supa, endpoint, usage) {
 //   fără voce configurată, lecția devine imediat „gata" (vocea browserului), ca la live.
 // steps: o lecție scrisă înainte de întrebările pe pași le primește acum (forceSteps:
 //   le scrie din nou, de la zero — din Admin).
-async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.warn, revoice = false, fromRef = null, scriptOnly = false, steps = false, forceSteps = false } = {}) {
+async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.warn, revoice = false, fromRef = null, scriptOnly = false, steps = false, forceSteps = false, fill = false } = {}) {
   const t0 = Date.now();
   const nowIso = new Date().toISOString();
   const until = new Date(Date.now() + budgetMs + 90 * 1000).toISOString();
@@ -573,6 +573,37 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
         // lecția rămâne cum era (fără să mai reîncerce la fiecare intrare); Admin poate cere din nou
         log(`live: întrebările pe pași pentru lecția ${row.id} au eșuat: ${e.message}`);
         await save({ status: was, script: { ...row.script, pasi: LL.PASI_V, pasiErr: String(e.message || e).slice(0, 200) }, progress: { ...row.progress, phase: was === 'gata' ? 'gata' : row.progress?.phase } });
+      }
+    }
+    // ── 1c. itemii lipsă (o lecție scrisă cu itemi omiși — ex. Subiectul III, 1 b) și c)) ──
+    // doar din Admin („🧩 Completează itemii lipsă"): se scriu doar itemii care lipsesc față
+    // de structura subiectului; ceilalți (explicații, id-uri, voce) rămân
+    if (fill && row.script && ['gata', 'script', 'audio'].includes(row.status)) {
+      const was = row.status;
+      const audio = row.progress?.audio || {};
+      const voiced = !row.progress?.noVoice && Object.keys(audio).length > 0;
+      if (was === 'gata') await save({ status: 'script', progress: { ...row.progress, phase: 'itemi' } });
+      try {
+        const { data: content } = await supa.from('content').select('*').eq('id', row.subject_id).maybeSingle();
+        if (!content) throw fail(404, 'Subiectul nu mai există.');
+        const ctx = await pdfContext().getPdfContext(supa, content);
+        const attachments = await LL.pdfAttachments({ supa, content, ctx, pdfCtx: pdfContext(), log });
+        const model = await lessonWriter(supa);
+        await holdLock(supa, row.id);
+        const r = await LL.completeScript({ script: row.script, ctx, teacher, attachments, model, log });
+        const costMicro = await logWriteUsage(supa, 'live-lectie', r.usage);
+        const next = r.report.added.length && voiced && tts.provider() ? 'audio' : (was === 'gata' ? 'gata' : was);
+        const all = LL.segmentsInOrder(r.script);
+        await save({
+          script: r.script, status: next, error: null,
+          progress: { ...row.progress, total: all.length, done: all.filter((x) => audio[x.id]).length, phase: next === 'gata' ? 'gata' : 'voce', itemi: { at: new Date().toISOString(), ...r.report } },
+          cost_micro: (row.cost_micro || 0) + costMicro,
+          ...(next === 'gata' ? { duration_sec: L.buildTimeline(r.script, row.progress?.noVoice ? {} : audio, { mode: 'grup' }).duration } : {}),
+        });
+        log(`live: lecția ${row.id} — itemi lipsă: ${r.report.asked.join(', ') || 'niciunul'}; scriși acum: ${r.report.added.join(', ') || 'niciunul'}`);
+      } catch (e) {
+        log(`live: completarea itemilor pentru lecția ${row.id} a eșuat: ${e.message}`);
+        await save({ status: was, progress: { ...row.progress, phase: was === 'gata' ? 'gata' : row.progress?.phase, itemi: { at: new Date().toISOString(), error: String(e.message || e).slice(0, 200) } } });
       }
     }
     // ── 2. vocea ──
@@ -1327,7 +1358,7 @@ async function adminOverview(req, res, supa) {
   const total = {};
   for (const p of parts || []) total[p.session_id] = (total[p.session_id] || 0) + 1;
   const [en, bac] = await Promise.all([eligibleSubjects(supa, { exam: 'en', fresh: !!req.body?.fresh }), eligibleSubjects(supa, { exam: 'bac', fresh: !!req.body?.fresh })]);
-  const { data: lessonRows } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, title, duration_sec, error, cost_micro, updated_at, noVoice:progress->noVoice, sv:script->v, pasi:script->pasi, pasiInfo:progress->pasi, writer:script->writer').order('updated_at', { ascending: false }).limit(60);
+  const { data: lessonRows } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, title, duration_sec, error, cost_micro, updated_at, noVoice:progress->noVoice, sv:script->v, pasi:script->pasi, pasiInfo:progress->pasi, writer:script->writer, missing:script->missing, itemi:progress->itemi, total:progress->total, done:progress->done').order('updated_at', { ascending: false }).limit(60);
   const [free, writer] = await Promise.all([freeAdminView(supa, { fresh: !!req.body?.fresh, en, bac }), writerAdminView(supa)]);
   const freeSet = new Set(free.lessons.map((l) => String(l.subjectId).toLowerCase()));
   const slotInfo = Object.fromEntries(L.slots().map((s) => [s.id, s]));
@@ -1524,14 +1555,15 @@ async function adminPrepare(req, res, supa) {
       lessonId = (await lessonFor(supa, subjectId, teacher.id)).id;
     }
   }
-  // întrebările pe pași: doar când nicio ședință de grup cu lecția aceasta nu e în curs
-  let steps = !!req.body?.steps;
-  if (steps) {
+  // întrebările pe pași / itemii lipsă: doar când nicio ședință de grup cu lecția aceasta nu e în curs
+  const steps = !!req.body?.steps;
+  const fill = !!req.body?.fill;
+  if (steps || fill) {
     const { data: lrow } = await supa.from('live_lessons').select('subject_id, teacher').eq('id', lessonId).maybeSingle();
-    if (lrow && await groupBusy(supa, lrow.subject_id, lrow.teacher)) throw fail(409, 'O ședință de grup cu această lecție e în curs sau începe imediat — completează întrebările pe pași după ea.');
+    if (lrow && await groupBusy(supa, lrow.subject_id, lrow.teacher)) throw fail(409, `O ședință de grup cu această lecție e în curs sau începe imediat — ${fill ? 'completează itemii' : 'completează întrebările pe pași'} după ea.`);
   }
   const r = await prepareLesson(supa, lessonId, {
-    revoice: !!req.body?.revoice, steps, forceSteps: steps && !!req.body?.force,
+    revoice: !!req.body?.revoice, steps, forceSteps: steps && !!req.body?.force, fill,
     budgetMs: Math.min(600000, Math.max(30000, Number(req.body?.budgetMs) || 240000)),
   });
   return res.status(200).json({ lesson: r });
@@ -1543,7 +1575,13 @@ async function adminLesson(req, res, supa) {
   if (!lesson) throw fail(404, 'Lecția nu există.');
   const tl = lesson.script ? L.buildTimeline(lesson.script, lesson.progress?.audio || {}, { mode: 'grup' }) : null;
   return res.status(200).json({
-    lesson: { ...lessonView({ ...lesson, total: lesson.progress?.total, done: lesson.progress?.done }), script: lesson.script, duration: tl?.duration || null, cost_lei: Math.round((lesson.cost_micro || 0) / 1e4) / 100 },
+    lesson: {
+      ...lessonView({ ...lesson, total: lesson.progress?.total, done: lesson.progress?.done }), script: lesson.script, duration: tl?.duration || null, cost_lei: Math.round((lesson.cost_micro || 0) / 1e4) / 100,
+      // itemii care lipsesc: verificați pe subiect (lecțiile noi) sau ce PARE să lipsească
+      // față de structura oficială (lecțiile scrise înainte — butonul verifică pe subiect)
+      missing: lesson.script ? (Array.isArray(lesson.script.missing) ? lesson.script.missing : LL.missingGuess(lesson.script)) : [],
+      missingChecked: !!(lesson.script && Array.isArray(lesson.script.missing)),
+    },
   });
 }
 

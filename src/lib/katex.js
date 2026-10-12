@@ -5,6 +5,8 @@
 // vectorii și limitele se văd și în rețelele (școli) care blochează CDN-urile.
 // Rezervă: CDN-ul jsDelivr, ca înainte.
 // =====================================================================
+import { repairTex, texAsText } from './texRepair.js';
+
 let loadingPromise = null;
 const KATEX_VER = '0.16.11';
 
@@ -55,6 +57,25 @@ export function ensureKatex() {
   return loadingPromise;
 }
 
+// Formulele STRICATE (ex. „2\\begin{pmatrix}1-\\frac{1}{6}\\right)" scris de model) se
+// repară înainte de afișare; ce nu se poate repara apare ca text simplu, nu ca LaTeX
+// brut, cu roșu (texRepair.js). Rezultatul se ține minte pe formulă.
+const safeCache = new Map();
+function texParses(t) {
+  try { window.katex.renderToString(t, { throwOnError: true, strict: 'ignore' }); return true; } catch { return false; }
+}
+export function safeTex(tex) {
+  if (typeof window === 'undefined' || !window.katex || typeof window.katex.renderToString !== 'function') return tex;
+  let out = safeCache.get(tex);
+  if (out === undefined) {
+    const fixed = repairTex(tex, texParses);
+    out = fixed != null ? fixed : texAsText(tex);
+    if (safeCache.size > 3000) safeCache.clear();
+    safeCache.set(tex, out);
+  }
+  return out;
+}
+
 export function renderMath(el) {
   if (!el || typeof window === 'undefined' || !window.renderMathInElement) return;
   try {
@@ -66,6 +87,8 @@ export function renderMath(el) {
         { left: '\\(', right: '\\)', display: false },
       ],
       throwOnError: false,
+      strict: 'ignore',
+      preProcess: safeTex,
       ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
     });
   } catch { /* ignorăm erorile de randare */ }

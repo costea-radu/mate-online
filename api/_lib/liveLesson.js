@@ -49,6 +49,8 @@ const TTS_PARALLEL = () => Math.max(1, parseInt(process.env.LIVE_TTS_PARALEL || 
 
 let fixLatex = (s) => s;
 try { fixLatex = require('./meditatii').fixLatex || fixLatex; } catch { /* rămâne identitatea */ }
+// formulele pe care KaTeX nu le poate afișa (ex. „\\begin{pmatrix}…\\right)") — reparate la scriere
+const { fixMathText } = require('./texRepair');
 
 // ─── Secțiunile subiectului și ale baremului ─────────────────────────────────
 // Unele PDF-uri repetă „SUBIECTUL I" (antet de pagină, tabelul de punctaj):
@@ -68,15 +70,70 @@ function expectedCounts(exam) {
 }
 
 // Planul apelurilor AI: [{ section, from, to }] — câte CHUNK itemi pe apel
-function callPlan(exam, sections) {
+// (size(sec): câți itemi pe apel în secțiunea respectivă — vezi chunkSize)
+function callPlan(exam, sections, size = () => CHUNK()) {
   const counts = expectedCounts(exam);
   const plan = [];
   for (const sec of ['I', 'II', 'III']) {
     if (!sections.subject[sec] || !sections.barem[sec]) continue; // fără barem pe secțiune → nu se explică
     const n = counts[sec];
-    for (let a = 1; a <= n; a += CHUNK()) plan.push({ section: sec, from: a, to: Math.min(n, a + CHUNK() - 1) });
+    const k = Math.max(1, size(sec));
+    for (let a = 1; a <= n; a += k) plan.push({ section: sec, from: a, to: Math.min(n, a + k - 1) });
   }
   return plan;
+}
+
+// Câți itemi pe apel: Claude scrie mai pe larg decât Terra — la Subiectele II și III
+// (rezolvări în mai mulți pași) 3 itemi depășeau uneori limita de 16.000 de tokeni a
+// unui răspuns, deci câte 2; la Subiectul I (grile, rezultate scurte) tot 3.
+// LIVE_ITEMI_PE_APEL, dacă e setat, are întâietate (pentru toate modelele).
+const chunkSize = (model, sec) => (process.env.LIVE_ITEMI_PE_APEL || !isClaude(model) || sec === 'I' ? CHUNK() : 2);
+
+// Itemii pe care trebuie să-i aibă lecția, din textul SUBIECTULUI: exercițiile „1."…
+// „6." și, la BAC (Subiectele II–III), cerințele „a)", „b)"… ale fiecărei probleme —
+// doar pe secțiunile cu barem. Când textul nu se citește sigur: structura oficială
+// (6 itemi; la BAC II–III, 2 probleme × a, b, c).
+const LETTER_AT = (l) => new RegExp(`(?:^|\\n|\\s)${l}\\s*\\)`);
+function expectedRefs(exam, sections) {
+  const out = [];
+  for (const S of ['I', 'II', 'III']) {
+    const sub = sections.subject[S];
+    if (!sub || !sections.barem[S]) continue;
+    const ex = (n) => B.sliceExercise(sub, { subject: S, ex: n }, { minLen: 4 });
+    if (exam === 'bac' && S !== 'I') {
+      for (const p of [1, 2]) {
+        const txt = ex(p) || '';
+        let letters = [];
+        for (const l of ['a', 'b', 'c', 'd']) { if (!LETTER_AT(l).test(txt)) break; letters.push(l); }
+        if (letters.length < 3) letters = ['a', 'b', 'c'];   // literele nu se văd sigur în text
+        for (const l of letters) out.push(`${S}.${p}.${l}`);
+      }
+    } else {
+      const found = [1, 2, 3, 4, 5, 6].filter((n) => !!ex(n));
+      for (const n of (found.length >= 4 ? found : [1, 2, 3, 4, 5, 6])) out.push(`${S}.${n}`);
+    }
+  }
+  return out;
+}
+// e deja în lecție? („III.1.b" e acoperit și de un item „III.1" care le ia pe toate,
+// „III.1" și de „III.1.a"… — un model care a numerotat altfel nu dublează itemul)
+const covered = (ref, have) => have.has(ref) || [...have].some((h) => h.startsWith(`${ref}.`) || ref.startsWith(`${h}.`));
+const missingOf = (expected, items) => {
+  const have = new Set((items || []).map((it) => it.ref));
+  return expected.filter((ref) => !covered(ref, have));
+};
+// Fără textul subiectului (lecțiile deja scrise, în Admin): structura oficială, pe
+// secțiunile care au măcar un item — ce PARE să lipsească (verificat apoi pe subiect)
+function missingGuess(script) {
+  const items = (script && script.items) || [];
+  const secs = new Set(items.map((it) => it.section || (parseRef(it.ref) || {}).subject).filter(Boolean));
+  const expected = [];
+  for (const S of ['I', 'II', 'III']) {
+    if (!secs.has(S)) continue;
+    if (script.exam === 'bac' && S !== 'I') { for (const p of [1, 2]) for (const l of ['a', 'b', 'c']) expected.push(`${S}.${p}.${l}`); }
+    else for (let n = 1; n <= 6; n++) expected.push(`${S}.${n}`);
+  }
+  return missingOf(expected, items);
 }
 
 // ─── Paginile PDF (subiect + barem), atașate la fiecare apel ──────────────────
@@ -240,12 +297,19 @@ function systemPrompt(teacher, exam, profile) {
   ].join('\n');
 }
 
-function userPrompt({ exam, section, from, to, subjectSection, baremSection, title, pages = false }) {
+// refs (opțional): DOAR acești itemi (completarea itemilor care lipsesc din lecție)
+function userPrompt({ exam, section, from, to, subjectSection, baremSection, title, pages = false, refs = null }) {
   const bacSub = exam === 'bac' && section !== 'I';
+  const only = Array.isArray(refs) && refs.length ? refs.map((ref) => {
+    const r = parseRef(ref);
+    return r && r.letter ? `${ref} (problema ${r.ex}, cerința ${r.letter})` : ref;
+  }) : null;
   return [
     `Subiectul: „${title}".`,
     pages ? `Ai atașate PAGINILE PDF ale subiectului${pages === 'barem' ? ' și ale baremului' : ''} pentru Subiectul ${section}: formulele le citești din pagini (regula 0); textul de mai jos ajută doar la ordinea itemilor.` : '',
-    `Explică itemii ${from}–${to} din SUBIECTUL ${section} (în ordinea din subiect).`,
+    only
+      ? `Explică DOAR ${only.length === 1 ? 'itemul' : 'itemii'} ${only.join(', ')} din SUBIECTUL ${section} — ceilalți itemi sunt deja explicați. Dacă ${only.length === 1 ? 'itemul nu apare' : 'un item nu apare'} în subiect sau în barem, nu îl include („items": []).`
+      : `Explică itemii ${from}–${to} din SUBIECTUL ${section} (în ordinea din subiect).`,
     bacSub ? `La acest subiect fiecare problemă are cerințele a), b), c): fiecare literă e un item separat. Itemii 1–3 = problema 1 (a, b, c), itemii 4–6 = problema 2 (a, b, c). Ref: „${section}.1.a", „${section}.1.b", …` : '',
     section !== 'I' && live.STEPS_ON() ? 'Nu uita întrebările pe pași („ask", regula 6b) la itemii cu rezolvare: cel puțin una la fiecare subpunct, înaintea rezultatelor intermediare din barem.' : '',
     '',
@@ -259,7 +323,7 @@ function userPrompt({ exam, section, from, to, subjectSection, baremSection, tit
 
 // ─── Normalizarea și verificarea deterministă a itemilor ─────────────────────
 const LETTERS = ['a', 'b', 'c', 'd'];
-const cleanStr = (s, max = 4000) => fixLatex(String(s ?? '').replace(/\u0000/g, '').trim()).slice(0, max);
+const cleanStr = (s, max = 4000) => fixMathText(fixLatex(String(s ?? '').replace(/\u0000/g, '').trim())).slice(0, max);
 
 function cleanSegs(arr, { min = 0, max = 10 } = {}) {
   const out = [];
@@ -699,17 +763,19 @@ function assignStepIds(it, k) {
     tagSegs(`${p}q${h.slice(0, 5)}`, st.ask);
   }
 }
+// id-urile unui item (frazele: după item și conținut; întrebările: și după poziția k)
+function assignItemIds(it, k) {
+  const p = it.ref.replace(/\./g, '');
+  tagSegs(`${p}i`, it.intro); tagSegs(`${p}t`, it.afterTry); tagSegs(`${p}k`, it.afterCheck);
+  for (const m of Object.keys(it.modes)) tagSegs(`${p}${m.slice(0, 2)}`, it.modes[m]);
+  if (it.tryPoll) it.tryPoll.id = `p${k}t-${live.shortId(it.ref + 'try')}`;
+  if (it.check) it.check.id = `p${k}c-${live.shortId(it.ref + 'check')}`;
+  assignStepIds(it, k);
+}
 function assignIds(script) {
   const tag = tagSegs;
   tag('in', script.intro); tag('qa', script.qna); tag('pz', script.breakSay); tag('fi', script.outro);
-  script.items.forEach((it, k) => {
-    const p = it.ref.replace(/\./g, '');
-    tag(`${p}i`, it.intro); tag(`${p}t`, it.afterTry); tag(`${p}k`, it.afterCheck);
-    for (const m of Object.keys(it.modes)) tag(`${p}${m.slice(0, 2)}`, it.modes[m]);
-    if (it.tryPoll) it.tryPoll.id = `p${k}t-${live.shortId(it.ref + 'try')}`;
-    if (it.check) it.check.id = `p${k}c-${live.shortId(it.ref + 'check')}`;
-    assignStepIds(it, k);
-  });
+  script.items.forEach((it, k) => assignItemIds(it, k));
   return script;
 }
 
@@ -792,11 +858,37 @@ function anthropicContent(text, parts = []) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Elementele ÎNTREGI ale listei "items" dintr-un JSON tăiat: doar cele care se închid
+// (un obiect scris pe jumătate nu intră, oricât de „reparabil" ar părea)
+function wholeItems(text) {
+  const s = String(text || '');
+  const k = s.search(/"items"\s*:\s*\[/);
+  if (k === -1) return [];
+  const out = [];
+  let depth = 0, start = -1, inStr = false, esc = false;
+  for (let i = s.indexOf('[', k) + 1; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') { inStr = true; continue; }
+    if (c === '{' || c === '[') { if (!depth) start = i; depth++; continue; }
+    if (c !== '}' && c !== ']') continue;
+    if (!depth) break;                                    // sfârșitul listei
+    if (--depth === 0 && start >= 0) {
+      const one = s.slice(start, i + 1);
+      try { out.push(JSON.parse(one)); } catch {
+        try { out.push(JSON.parse(one.replace(/\\(?![\\/"bfnrtu])/g, '\\\\'))); } catch { /* sărit */ }
+      }
+      start = -1;
+    }
+  }
+  return out;
+}
+
 // Formatul și în instrucțiuni: dacă API-ul ar respinge schema (claude.js reîncearcă
 // atunci fără ea), modelul tot știe ce JSON să scrie (~2.500 de tokeni de intrare în plus)
 const formatNote = (schema) => `\n\nFORMATUL RĂSPUNSULUI: un singur obiect JSON, exact după schema de mai jos (fără alt text, fără markdown):\n${JSON.stringify(schema)}`;
 
-async function claudeJson({ model, system, text, parts, schema, maxTokens, usage }) {
+async function claudeJson({ model, system, text, parts, schema, maxTokens, usage, log = () => {}, what = 'lecția' }) {
   let r;
   for (let attempt = 0; ; attempt++) {
     try {
@@ -811,9 +903,16 @@ async function claudeJson({ model, system, text, parts, schema, maxTokens, usage
     }
   }
   addUsage(usage, r.usage?.model || model, r.usage?.prompt_tokens || 0, r.usage?.completion_tokens || 0);
-  if (r.stopReason === 'max_tokens') throw new Error(`răspunsul s-a oprit la limita de ${maxTokens} tokeni`);
   if (r.stopReason === 'refusal') throw new Error('modelul a refuzat cererea');
   const data = claude.extractJson(r.text);
+  if (r.stopReason === 'max_tokens') {
+    // răspuns TĂIAT la limita de tokeni: itemii întregi de dinaintea tăieturii rămân
+    // (cel scris pe jumătate, nu); cei care lipsesc se scriu apoi separat (fillItems)
+    const kept = wholeItems(r.text);
+    if (!kept.length) throw new Error(`răspunsul s-a oprit la limita de ${maxTokens} tokeni`);
+    log(`live: ${what} — răspuns tăiat la ${maxTokens} tokeni: păstrez ${kept.length} ${kept.length === 1 ? 'item întreg' : 'itemi întregi'}, restul se scriu separat`);
+    return ai.deepRestoreLatex({ items: kept });
+  }
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('răspunsul nu e JSON valid');
   return ai.deepRestoreLatex(data);
 }
@@ -848,6 +947,55 @@ async function writeJson(opts) {
 }
 
 // ─── 1. Scriptul ─────────────────────────────────────────────────────────────
+// Jurnalul scrierii: tot ce se loghează merge în log; în script.writer.notes rămân doar
+// evenimentele care contează (eșecuri, rezerva, răspunsuri tăiate, itemi omiși sau lipsă),
+// nu corecturile de rutină (litera grilei din barem, întrebările pe pași respinse)
+const NOTE_KEEP = /eșua|tăiat|lips|omis\b|niciun item|scrie |ANTHROPIC_API_KEY|refuz|completare/i;
+const NOTE_SKIP = /întrebarea pe pas|întrebării pe pas|întrebare pe pas/i;
+const noteTo = (notes, log) => (m) => {
+  const line = String(m).replace(/^live:\s*/, '').slice(0, 300);
+  if (notes.length < 40 && NOTE_KEEP.test(line) && !NOTE_SKIP.test(line)) notes.push(line);
+  log(m);
+};
+// paginile atașate unui apel: ale subiectului, sau ale subiectului și baremului
+const pagesKind = (parts) => (parts.length ? (parts.some((x) => /^barem-/.test(x?.file?.filename || '')) ? 'barem' : 'subiect') : false);
+const dedupeItems = (list) => {
+  const seen = new Set();
+  return list.filter((it) => (seen.has(it.ref) ? false : (seen.add(it.ref), true))).sort(refOrder);
+};
+
+// Itemii care LIPSESC după prima trecere (răspuns tăiat, itemi omiși de model sau
+// respinși la verificări — ex. „Subiectul III, 1 b) și c)"): câte un apel pe item,
+// cu paginile secțiunii — un răspuns scurt, fără risc de tăiere; aceeași rezervă
+// (Claude → Terra). Cel mult FILL_MAX itemi (mai mulți = altă problemă, nu omisiuni).
+const FILL_MAX = 12;
+async function fillItems({ refs, sections, attachments, teacher, exam, profile, title, grile, baremText, model, usage, wrote, log }) {
+  const got = await Promise.all(refs.slice(0, FILL_MAX).map(async (ref) => {
+    const S = (parseRef(ref) || {}).subject;
+    if (!S || !sections.subject[S] || !sections.barem[S]) return [];
+    const parts = (attachments && attachments[S]) || [];
+    const text = userPrompt({ exam, section: S, from: 1, to: 6, title, refs: [ref], subjectSection: sections.subject[S], baremSection: sections.barem[S], pages: pagesKind(parts) });
+    const what = `itemul ${ref} (scris separat)`;
+    const req = { system: systemPrompt(teacher, exam, profile), text, parts, schema: SCHEMA, schemaName: 'lectie_live', maxTokens: 16000, temperature: 0.4, usage, log, what };
+    const mine = (r) => normalizeItems(r.data?.items, { section: S, exam, grile, baremText, log }).filter((it) => it.ref === ref);
+    try {
+      let r = await writeJson({ ...req, model });
+      let items = mine(r);
+      if (!items.length && isClaude(r.model)) {
+        log(`live: ${what} — niciun item valid de la ${r.model}; scrie ${FALLBACK_MODEL()}`);
+        r = await writeJson({ ...req, model: FALLBACK_MODEL() });
+        items = mine(r);
+      }
+      if (items.length) wrote[r.model] = (wrote[r.model] || 0) + 1;
+      return items;
+    } catch (e) {
+      log(`live: ${what} a eșuat: ${e.message}`);
+      return [];
+    }
+  }));
+  return got.flat();
+}
+
 // model: cine scrie (Admin → Meditații live; null = GEN_MODEL)
 async function generateScript({ ctx, content, teacher, exam, profile, log = console.warn, attachments = null, model = null }) {
   const subjectText = String(ctx.text || '');
@@ -855,8 +1003,11 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
   if (!live.hasBarem({ barem_status: ctx.baremStatus, barem_text: baremText })) {
     const e = new Error('Subiectul nu are barem asociat sigur — profesorul nu îl explică.'); e.code = 'NO_BAREM'; throw e;
   }
+  const genModel = model || GEN_MODEL();
   const sections = { subject: sectionMap(subjectText), barem: sectionMap(baremText) };
-  let plan = callPlan(exam, sections);
+  // bucățile după modelul care scrie EFECTIV (fără cheie Anthropic scrie rezerva)
+  const planModel = isClaude(genModel) && !claude.HAS_KEY ? FALLBACK_MODEL() : genModel;
+  let plan = callPlan(exam, sections, (sec) => chunkSize(planModel, sec));
   // subiect fără titlurile „SUBIECTUL I/II/III" recunoscute → un singur apel pe tot
   let whole = false;
   if (!plan.length) {
@@ -864,10 +1015,13 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
     plan = [{ section: 'I', from: 1, to: 6 }, { section: 'II', from: 1, to: 6 }, { section: 'III', from: 1, to: 6 }];
   }
   const grile = exam === 'en' ? B.grilaAnswers(baremText) : {};
-  const genModel = model || GEN_MODEL();
   const usage = { in: 0, out: 0, model: genModel, byModel: {} };
-  const wrote = {};   // câte bucăți (apeluri) a scris fiecare model → script.writer
+  const wrote = {};   // câte apeluri (cu itemi buni) a scris fiecare model → script.writer
   const title = content.title || 'Subiect';
+  // jurnalul scrierii (rezerva, răspunsurile tăiate, itemii respinși sau lipsă) — rămâne în
+  // script.writer.notes, ca să se vadă în Admin → „Scriptul" ce s-a întâmplat
+  const notes = [];
+  const note = noteTo(notes, log);
 
   const results = await Promise.all(plan.map(async (p) => {
     try {
@@ -876,45 +1030,92 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
         exam, section: p.section, from: p.from, to: p.to, title,
         subjectSection: whole ? subjectText : sections.subject[p.section],
         baremSection: whole ? baremText : sections.barem[p.section],
-        pages: parts.length ? (parts.some((x) => /^barem-/.test(x?.file?.filename || '')) ? 'barem' : 'subiect') : false,
+        pages: pagesKind(parts),
       });
       const what = `Subiectul ${p.section}, itemii ${p.from}–${p.to}`;
-      const req = { system: systemPrompt(teacher, exam, profile), text, parts, schema: SCHEMA, schemaName: 'lectie_live', maxTokens: 16000, temperature: 0.4, usage, log, what };
+      const req = { system: systemPrompt(teacher, exam, profile), text, parts, schema: SCHEMA, schemaName: 'lectie_live', maxTokens: 16000, temperature: 0.4, usage, log: note, what };
       let r = await writeJson({ ...req, model: genModel });
-      let items = normalizeItems(r.data?.items, { section: p.section, exam, grile, baremText, log });
-      // Claude a răspuns, dar niciun item nu a trecut de verificări → aceeași bucată, cu rezerva
-      if (!items.length && isClaude(r.model)) {
-        log(`live: ${what} — niciun item valid de la ${r.model}; scrie ${FALLBACK_MODEL()}`);
+      let items = normalizeItems(r.data?.items, { section: p.section, exam, grile, baremText, log: note });
+      // fără structura subiectului (whole) nu se pot completa itemi după: Claude fără
+      // niciun item valid → aceeași bucată, cu rezerva
+      if (whole && !items.length && isClaude(r.model)) {
+        note(`live: ${what} — niciun item valid de la ${r.model}; scrie ${FALLBACK_MODEL()}`);
         r = await writeJson({ ...req, model: FALLBACK_MODEL() });
-        items = normalizeItems(r.data?.items, { section: p.section, exam, grile, baremText, log });
+        items = normalizeItems(r.data?.items, { section: p.section, exam, grile, baremText, log: note });
       }
       if (items.length) wrote[r.model] = (wrote[r.model] || 0) + 1;
       return items;
     } catch (e) {
-      log(`live: generarea ${p.section} ${p.from}–${p.to} a eșuat: ${e.message}`);
+      note(`live: generarea ${p.section} ${p.from}–${p.to} a eșuat: ${e.message}`);
       return [];
     }
   }));
-  const seen = new Set();
-  const items = results.flat().filter((it) => (seen.has(it.ref) ? false : (seen.add(it.ref), true))).sort(refOrder);
+  let items = dedupeItems(results.flat());
+  // itemii care lipsesc față de structura subiectului → scriși separat, câte unul
+  const expected = whole ? [] : expectedRefs(exam, sections);
+  let missing = missingOf(expected, items);
+  if (missing.length) {
+    note(`live: lipsesc după prima trecere: ${missing.join(', ')} — se scriu separat`);
+    const more = await fillItems({ refs: missing, sections, attachments, teacher, exam, profile, title, grile, baremText, model: genModel, usage, wrote, log: note });
+    items = dedupeItems([...items, ...more]);
+    missing = missingOf(expected, items);
+    if (missing.length) note(`live: tot lipsesc: ${missing.join(', ')}`);
+  }
   if (items.length < 3) {
     const e = new Error(`Lecția nu s-a putut pregăti (${items.length} itemi explicați). Subiectul poate fi scanat sau baremul greu de citit.`);
     e.code = 'SCRIPT_FAIL'; e.usage = usage; throw e;
   }
   // întrebările pe pași: subpunctele rămase fără nicio întrebare → un apel scurt doar
   // pentru ele, apoi (fără AI) rezultatele pașilor scriși pe tablă
-  const steps = live.STEPS_ON() ? await fillMissingSteps(items, { teacher, exam, profile, title, log, usage, model: genModel }) : null;
+  const steps = live.STEPS_ON() ? await fillMissingSteps(items, { teacher, exam, profile, title, log: note, usage, model: genModel }) : null;
   // v2 = scrisă cu paginile PDF (formulele citite din pagini); v1 = doar din textul extras
   const withPages = Object.values(attachments || {}).some((a) => Array.isArray(a) && a.length);
   const script = {
     v: withPages ? 2 : 1, ...(steps ? { pasi: PASI_V } : {}), title, exam, profile: profile || null, teacher: teacher.id, teacherName: teacher.name,
-    // cine a scris-o (Admin → „Lecțiile recente"): modelul ales + bucățile scrise de fiecare
-    writer: { model: genModel, parts: wrote },
+    // cine a scris-o (Admin → „Lecțiile recente"): modelul ales + bucățile scrise de fiecare + jurnalul
+    writer: { model: genModel, parts: wrote, notes },
+    // itemii pe care subiectul îi are, dar lecția nu (Admin → „🧩 Completează itemii lipsă")
+    missing,
     subjectId: content.id, baremId: ctx.barem?.id || null, baremTitle: ctx.barem?.title || null,
     ...templates(teacher, { title, exam, profile }),
     items,
   };
   return { script: assignIds(script), usage, steps };
+}
+
+// Lecțiile DEJA SCRISE cărora le lipsesc itemi: se scriu doar aceia (cu paginile PDF),
+// apoi întrebările lor pe pași; explicațiile, id-urile frazelor și vocea celorlalți
+// itemi rămân (id-urile frazelor țin de itemul lor, nu de poziție).
+// → { script, usage, report: { asked:[ref], added:[ref], missing:[ref] } }
+async function completeScript({ script, ctx, teacher, attachments = null, model = null, log = console.warn }) {
+  const copy = JSON.parse(JSON.stringify(script));
+  const exam = copy.exam, profile = copy.profile || null;
+  const genModel = model || GEN_MODEL();
+  const usage = { in: 0, out: 0, model: genModel, byModel: {} };
+  const baremText = String(ctx.baremText || '');
+  const sections = { subject: sectionMap(String(ctx.text || '')), barem: sectionMap(baremText) };
+  const expected = expectedRefs(exam, sections);
+  const asked = missingOf(expected, copy.items);
+  const report = { asked, added: [], missing: asked };
+  if (asked.length) {
+    const wrote = {};
+    const notes = [];
+    const note = noteTo(notes, log);
+    note(`live: completare — lipsesc ${asked.join(', ')}`);
+    const more = await fillItems({ refs: asked, sections, attachments, teacher, exam, profile, title: copy.title, grile: exam === 'en' ? B.grilaAnswers(baremText) : {}, baremText, model: genModel, usage, wrote, log: note });
+    if (more.length && live.STEPS_ON()) await fillMissingSteps(more, { teacher, exam, profile, title: copy.title, log: note, usage, model: genModel });
+    copy.items = dedupeItems([...(copy.items || []), ...more]);
+    report.added = more.map((it) => it.ref);
+    report.missing = missingOf(expected, copy.items);
+    const parts = { ...(copy.writer?.parts || {}) };
+    for (const [m, n] of Object.entries(wrote)) parts[m] = (parts[m] || 0) + n;
+    copy.writer = { ...(copy.writer || { model: genModel }), parts, notes: [...(copy.writer?.notes || []), ...notes].slice(-40) };
+  }
+  copy.missing = report.missing;
+  // doar itemii noi primesc id-uri; ceilalți le păstrează pe ale lor (vocea, răspunsurile)
+  const fresh = new Set(report.added);
+  (copy.items || []).forEach((it, k) => { if (fresh.has(it.ref)) assignItemIds(it, k); });
+  return { script: copy, usage, report };
 }
 
 // ─── 1b. Întrebările pe pași care lipsesc ────────────────────────────────────
@@ -1078,6 +1279,8 @@ module.exports = {
   normalizeItems, sectionMap, callPlan, parseRef, refKey, SCHEMA, systemPrompt, userPrompt, GEN_MODEL,
   // cine scrie (Terra / Claude Opus 5.5, cu rezerva) și costul pe model
   FALLBACK_MODEL, WRITERS, writerChoice, isClaude, writeJson, anthropicContent, usageParts,
+  // itemii lipsă (structura subiectului, completarea lor)
+  expectedRefs, missingOf, missingGuess, chunkSize, completeScript,
   // întrebările pe pași
   PASI_V, STEP_FIX_SCHEMA, stepEligible, itemParts, segmentParts, missingParts, addSteps, addBaremSteps, lastEquality, revealsAnswer,
   fillMissingSteps, needsSteps, addStepQuestions, stepsSystemPrompt, stepsUserPrompt,

@@ -13,8 +13,11 @@
 // date → modele → teste de antrenament → simulări.
 // ✍️ Cine scrie lecțiile: GPT-5.6 Terra (implicit) sau Claude Opus 5.5 (cu Terra
 // ca rezervă) — doar pentru lecțiile scrise de acum înainte.
+// Pregătirea (Regenerează, Pregătește, vocea, întrebările pe pași, itemii lipsă)
+// continuă singură până la „gata", cât pagina e deschisă — cu progresul vocii.
+// 🧩 Itemii lipsă (ex. Subiectul III, 1 b) și c)): se scriu doar ei, ceilalți rămân.
 // =====================================================================
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { liveApi } from '../lib/live/api';
 
@@ -84,6 +87,34 @@ export default function LiveAdmin() {
     setBusy(key); setMsg(''); setErr('');
     try { await fn(); if (okText) setMsg(okText); await load(); }
     catch (e) { setErr(e.message); }
+    finally { setBusy(''); }
+  }
+
+  // Pregătirea unei lecții, CONTINUATĂ până la „gata": un apel lucrează pe server cel
+  // mult ~4 minute (scriptul, apoi vocea), apoi pagina cere încă unul — cât e deschisă.
+  // Închisă mai devreme: vocea continuă la primul elev care intră (sau „▶ Continuă").
+  const leaving = useRef(false);
+  useEffect(() => () => { leaving.current = true; }, []);
+  async function prepareLoop(key, args, what) {
+    setBusy(key); setMsg(''); setErr('');
+    try {
+      let req = args;
+      let r = await liveApi.adminPrepare(req);
+      for (let round = 0; round < 15 && r?.lesson && (r.lesson.busy || !['gata', 'eroare'].includes(r.lesson.status)) && !leaving.current; round++) {
+        const l = r.lesson;
+        // cererea a rulat (sau a creat deja versiunea nouă): de acum, doar continuarea;
+        // lecția ocupată de altă cerere → aceeași cerere (ex. itemii lipsă), puțin mai târziu
+        if (!l.busy || args.regenerate) req = { lessonId: l.id };
+        setMsg(`${what}: ${l.busy ? 'lecția e ocupată de altă pregătire, aștept' : l.status === 'nou' ? 'se scrie textul lecției' : `vocea, ${l.done || 0}/${l.total || '?'} fraze`}… (lasă pagina deschisă — continuă singur)`);
+        load();
+        if (l.busy) await new Promise((ok) => setTimeout(ok, 8000));
+        r = await liveApi.adminPrepare(req);
+      }
+      const st = r?.lesson?.status;
+      if (st === 'eroare') setErr(`${what}: ${r.lesson.error || 'lecția nu s-a putut pregăti.'}`);
+      else setMsg(st === 'gata' ? `${what}: gata.` : `${what}: a înaintat — continuă la primul elev care intră sau cu „▶ Continuă".`);
+      await load();
+    } catch (e) { setErr(e.message); }
     finally { setBusy(''); }
   }
 
@@ -208,7 +239,7 @@ export default function LiveAdmin() {
                   </div>
                   {l && !l.ready && !l.missing && !l.noBarem && (
                     <button type="button" style={btnMain} disabled={!!busy} title="Scrie lecția acum (textul + vocea), ca primul elev să nu aștepte"
-                      onClick={() => run(`fprep-${sl.type}`, () => liveApi.adminPrepare({ subjectId: l.subjectId, teacher: data?.teachers?.[0]?.id || 'radu' }), 'Pregătirea a înaintat (reapasă dacă nu e gata).')}>
+                      onClick={() => prepareLoop(`fprep-${sl.type}`, { subjectId: l.subjectId, teacher: data?.teachers?.[0]?.id || 'radu' }, 'Pregătirea lecției')}>
                       {busy === `fprep-${sl.type}` ? 'Se pregătește…' : 'Pregătește acum'}
                     </button>
                   )}
@@ -281,12 +312,12 @@ export default function LiveAdmin() {
                       <td style={td}>{PHASE_LABEL[s.phase] || s.phase}<div style={{ color: '#6b7280', fontSize: '.78rem' }}>{s.present} acum · {s.participants} în total</div></td>
                       <td style={{ ...td, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         {s.subject && s.lesson === 'gata_fara_voce' && data.tts && (
-                          <button type="button" style={btnMain} disabled={!!busy} onClick={() => run(`voce-${s.id}`, () => liveApi.adminPrepare({ subjectId: s.subject.id, teacher: s.teacher, revoice: true }), 'Vocea se generează (reapasă dacă nu e gata).')}>
+                          <button type="button" style={btnMain} disabled={!!busy} onClick={() => prepareLoop(`voce-${s.id}`, { subjectId: s.subject.id, teacher: s.teacher, revoice: true }, 'Vocea')}>
                             {busy === `voce-${s.id}` ? 'Se generează…' : 'Generează vocea'}
                           </button>
                         )}
                         {s.subject && s.lesson !== 'gata' && s.lesson !== 'gata_fara_voce' && (
-                          <button type="button" style={btnMain} disabled={!!busy} onClick={() => run(`prep-${s.id}`, () => liveApi.adminPrepare({ subjectId: s.subject.id, teacher: s.teacher }), 'Pregătirea a înaintat (reapasă dacă nu e gata).')}>
+                          <button type="button" style={btnMain} disabled={!!busy} onClick={() => prepareLoop(`prep-${s.id}`, { subjectId: s.subject.id, teacher: s.teacher }, 'Pregătirea lecției')}>
                             {busy === `prep-${s.id}` ? 'Se pregătește…' : 'Pregătește lecția'}
                           </button>
                         )}
@@ -329,6 +360,10 @@ export default function LiveAdmin() {
                       {l.status === 'gata' && Number(l.sv || 1) < 2 && <div style={{ color: '#b3261e', fontSize: '.76rem' }}>scrisă fără paginile PDF — formulele (radicali, fracții…) pot lipsi; apasă „Regenerează"</div>}
                       {l.status === 'gata' && !Number(l.pasi) && <div style={{ color: '#8a5a00', fontSize: '.76rem' }}>fără întrebări pe pași (S. II–III) — se completează singure la prima folosire, sau apasă „➕ Întrebări pe pași"</div>}
                       {Number(l.pasi) > 0 && l.pasiInfo && <div style={{ color: '#6b7280', fontSize: '.76rem' }}>întrebări pe pași: {l.pasiInfo.ai || 0} scrise de AI, {l.pasiInfo.fromBarem || 0} din barem{l.pasiInfo.missing?.length ? ` · fără: ${l.pasiInfo.missing.join(', ')}` : ''}</div>}
+                      {(l.status === 'script' || l.status === 'audio') && Number(l.total) > 0 && <div style={{ color: '#6b7280', fontSize: '.76rem' }}>vocea: {Number(l.done) || 0}/{l.total} fraze — continuă la primul elev care intră, sau apasă „▶ Continuă"</div>}
+                      {l.missing?.length > 0 && <div style={{ color: '#b3261e', fontSize: '.76rem' }}>lipsesc itemii: {l.missing.join(', ')} — apasă „🧩 Completează itemii lipsă"</div>}
+                      {l.itemi?.added?.length > 0 && <div style={{ color: '#6b7280', fontSize: '.76rem' }}>itemi completați: {l.itemi.added.join(', ')}</div>}
+                      {l.itemi?.error && <div style={{ color: '#b3261e', fontSize: '.76rem' }}>completarea itemilor a eșuat: {l.itemi.error}</div>}
                     </td>
                     <td style={td}>{l.duration_sec ? `${Math.round(l.duration_sec / 60)} min` : '—'}</td>
                     <td style={td}>{l.cost_lei ? `${l.cost_lei} lei` : '—'}</td>
@@ -342,14 +377,26 @@ export default function LiveAdmin() {
                         </button>
                       )}
                       <button type="button" style={btn} onClick={async () => { try { setScript((await liveApi.adminLesson(l.id)).lesson); } catch (e) { setErr(e.message); } }}>Scriptul</button>
-                      <button type="button" style={btn} disabled={!!busy} onClick={() => { if (window.confirm('Regenerezi lecția (script + voce nouă)? Costă din nou.')) run(`re-${l.id}`, () => liveApi.adminPrepare({ subjectId: l.subject_id, teacher: l.teacher, regenerate: true }), 'Regenerarea a pornit.'); }}>
+                      <button type="button" style={btn} disabled={!!busy} onClick={() => { if (window.confirm('Regenerezi lecția (script + voce nouă)? Costă din nou.')) prepareLoop(`re-${l.id}`, { subjectId: l.subject_id, teacher: l.teacher, regenerate: true }, 'Regenerarea'); }}>
                         {busy === `re-${l.id}` ? '…' : 'Regenerează'}
                       </button>
                       {l.status === 'gata' && (
                         <button type="button" style={btn} disabled={!!busy}
                           title="Întrebările pe pașii din barem (Subiectele II și III): elevii răspund pe ecran înaintea fiecărui rezultat intermediar. Doar întrebările se scriu (≈ 0,5–1 leu); explicațiile și vocea rămân."
-                          onClick={() => { const again = Number(l.pasi) > 0; if (!again || window.confirm('Scrii din nou întrebările pe pași (le înlocuiește pe cele de acum)?')) run(`ps-${l.id}`, () => liveApi.adminPrepare({ lessonId: l.id, steps: true, force: again }), 'Întrebările pe pași sunt gata.'); }}>
+                          onClick={() => { const again = Number(l.pasi) > 0; if (!again || window.confirm('Scrii din nou întrebările pe pași (le înlocuiește pe cele de acum)?')) prepareLoop(`ps-${l.id}`, { lessonId: l.id, steps: true, force: again }, 'Întrebările pe pași'); }}>
                           {busy === `ps-${l.id}` ? '…' : Number(l.pasi) > 0 ? '↻ Întrebări pe pași' : '➕ Întrebări pe pași'}
+                        </button>
+                      )}
+                      {(l.status === 'script' || l.status === 'audio') && (
+                        <button type="button" style={btnMain} disabled={!!busy} title={'Continuă vocea lecției până la „gata" (cât pagina e deschisă)'}
+                          onClick={() => prepareLoop(`cont-${l.id}`, { lessonId: l.id }, 'Vocea')}>
+                          {busy === `cont-${l.id}` ? '…' : '▶ Continuă'}
+                        </button>
+                      )}
+                      {l.missing?.length > 0 && ['gata', 'script', 'audio'].includes(l.status) && (
+                        <button type="button" style={btnMain} disabled={!!busy} title="Scrie doar itemii care lipsesc (cu modelul ales mai sus); explicațiile și vocea celorlalți rămân"
+                          onClick={() => prepareLoop(`fill-${l.id}`, { lessonId: l.id, fill: true }, 'Itemii lipsă')}>
+                          {busy === `fill-${l.id}` ? '…' : '🧩 Completează itemii lipsă'}
                         </button>
                       )}
                     </td>
@@ -369,6 +416,27 @@ export default function LiveAdmin() {
               <button type="button" style={btn} onClick={() => setScript(null)}>Închide</button>
             </div>
             {!script.script && <p>Scriptul nu e gata încă.</p>}
+            {script.script && (
+              <div style={{ fontSize: '.84rem', color: '#374151', marginBottom: 8 }}>
+                {(script.script.items || []).length} itemi{script.script.writer?.model ? ` · scrisă de ${writerText(script.script.writer)}` : ''}
+                {script.missing?.length > 0 ? (
+                  <div style={{ marginTop: 6, color: '#b3261e' }}>
+                    {script.missingChecked ? 'Lipsesc itemii' : 'Par să lipsească (față de structura oficială)'}: <b>{script.missing.join(', ')}</b>{' '}
+                    <button type="button" style={btnMain} disabled={!!busy}
+                      onClick={() => { const id = script.id; setScript(null); prepareLoop(`fill-${id}`, { lessonId: id, fill: true }, 'Itemii lipsă'); }}>
+                      🧩 Completează itemii lipsă
+                    </button>
+                    {!script.missingChecked && <div style={{ color: '#6b7280', fontSize: '.78rem', marginTop: 4 }}>Butonul verifică întâi pe textul subiectului; dacă subiectul chiar nu are acei itemi, nu scrie nimic.</div>}
+                  </div>
+                ) : <span style={{ color: '#188038' }}> · toți itemii subiectului sunt în lecție</span>}
+                {script.script.writer?.notes?.length > 0 && (
+                  <details style={{ marginTop: 6 }}>
+                    <summary>Jurnalul scrierii ({script.script.writer.notes.length})</summary>
+                    <ul style={{ paddingLeft: 18, color: '#6b7280' }}>{script.script.writer.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
+                  </details>
+                )}
+              </div>
+            )}
             {script.script && (script.script.items || []).map((it) => (
               <div key={it.ref} style={{ borderTop: '1px solid #eef1f5', padding: '10px 0' }}>
                 <b>{it.title}</b> {it.points ? `· ${it.points}p` : ''} {it.tryPoll ? `· sondaj (${it.tryPoll.type}, răspuns: ${it.tryPoll.answer})` : ''}
