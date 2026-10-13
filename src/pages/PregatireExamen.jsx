@@ -898,7 +898,7 @@ export default function PregatireExamen() {
       </footer>
 
       <SpatiuDeLucru open={notebook} onClose={() => setNotebook(false)} title="Caietul meu"
-        enunt={(ps?.head?.statementTry && ['item', 'sondaj'].includes(ps?.scene?.type) ? ps.head.statementTry : ps?.head?.statement) || null}
+        enunt={(ps?.head?.statementTry && ['item', 'sondaj'].includes(ps?.scene?.type) ? ps.head.statementTry : ps?.head?.statement) || null} figura={ps?.head?.figure?.url || null}
         storageKey={`pregatire:${curPos || 'x'}`} />
     </div>
   );

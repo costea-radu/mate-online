@@ -770,7 +770,8 @@ function buildTimeline(script, audio = {}, opts = {}) {
     const common = { item: i, ref: it.ref, section: it.section, title: it.title };
     // 1) enunțul (pe tabla digitală) + ce spune profesorul la început
     // statementTry: „Arătați că…" reformulat ca „Calculați…" (fără rezultat), cât încearcă elevii
-    const head = segScene('item', it.intro, { ...common, statement: it.statement, statementTry: (it.tryPoll && it.statementTry) || null, options: it.options || null, points: it.points || null, minDur: 2 });
+    // figure: desenul problemei, decupat din PDF (api/_lib/figuri.js) — { url, w, h }
+    const head = segScene('item', it.intro, { ...common, statement: it.statement, statementTry: (it.tryPoll && it.statementTry) || null, options: it.options || null, points: it.points || null, ...(it.figure?.url ? { figure: it.figure } : {}), minDur: 2 });
     if (head) push(head);
     // 2) „încercați singuri" (grilă sau rezultat) — sondajul ÎNAINTE de explicație
     if (it.tryPoll) {

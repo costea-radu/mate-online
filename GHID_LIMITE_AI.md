@@ -385,8 +385,8 @@ Patru măsuri, toate fără SQL nou, fiecare cu un comutator în Vercel:
   noi pe elev pe zi la Pregătirea de examen; analiza greșelilor pe modelul de chat
   (`AI_MISTAKES_MODEL`, implicit modelul de chat, era „sol"); lecțiile pe barem ale
   meditațiilor live pe modelul de PDF (`LIVE_GEN_MODEL`, implicit „terra", era „sol").
-  Din Admin → Meditații live („✍️ Cine scrie lecțiile") se poate alege Claude Opus 5.5 (~1,7×
-  costul lui Terra, o singură dată pe subiect; Terra rămâne rezerva) — `GHID_MEDITATII_LIVE.md` → 3e.
+  Din 13 oct. lecțiile live le scrie doar Claude Opus 5.5 (~1,7× costul lui Terra, o singură
+  dată pe subiect; fără rezervă — `LIVE_REZERVA_MODEL` o pune la loc) — `GHID_MEDITATII_LIVE.md` → 3e.
 
 ### Alertele de cost (pasul 4) — ochii pe sistem, fără să te uiți tu
 

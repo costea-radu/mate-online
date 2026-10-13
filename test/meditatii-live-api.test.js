@@ -5,6 +5,9 @@
 // (fereastra de timp, corectitudinea), 1-la-1 (incluse în abonament, bilet),
 // adminul și cronul (pregătirea lecției fără voce configurată → vocea browserului).
 // Fără rețea: autentificarea, modelul AI și cititorul de PDF sunt înlocuite.
+// lecțiile le scrie Claude Opus 5.5 (implicit, din 13 oct.); testele de aici verifică
+// logica scrierii prin ai.chatJson (înlocuit) → modelul de PDF, ca înainte
+process.env.LIVE_GEN_MODEL = 'gpt-5.6-terra';
 const test = require('node:test');
 const assert = require('node:assert');
 const { createFakeSupabase, fakeRes } = require('./tools/fakeSupabase');

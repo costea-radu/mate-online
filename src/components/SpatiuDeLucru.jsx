@@ -37,6 +37,8 @@
 //                  NU se afișează niciodată.
 //   enunt        — enunțul CURAT, de arătat elevului în panoul de sus. Lipsește
 //                  → panoul nu apare. Vezi collectEnunt() din tutorBridge.js.
+//   figura       — URL-ul desenului problemei (meditațiile live: decupat din PDF),
+//                  arătat sub enunț (opțional)
 //   storageKey   — cheia de salvare locală (ciorna supraviețuiește reîncărcării)
 //   onInsert     — (text) => void : „✓ Pune în răspuns" (opțional)
 //   insertLabel  — eticheta acelui buton
@@ -212,7 +214,7 @@ function LinieRandata({ latex, onEdit }) {
 }
 
 export default function SpatiuDeLucru({
-  open = false, onClose, title = '', hint = '', enunt = null, storageKey = null,
+  open = false, onClose, title = '', hint = '', enunt = null, figura = null, storageKey = null,
   onInsert = null, insertLabel = '✓ Pune în răspuns', onCorect = null,
 }) {
   const scrollRef = useRef(null);
@@ -955,6 +957,7 @@ export default function SpatiuDeLucru({
                   overflowY: 'auto', overflowX: 'auto', overscrollBehavior: 'contain', padding: '8px 12px',
                 }}>
                   <TextEnunt text={enuntText} />
+                  {figura && <img src={figura} alt="Desenul din subiect" style={{ display: 'block', maxWidth: '100%', maxHeight: 240, margin: '8px auto 0' }} />}
                 </div>
                 {/* mânerul de tras: cât de mult din fereastră ocupă enunțul */}
                 <div

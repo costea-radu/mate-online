@@ -12,6 +12,9 @@
 //   · browserul: tabla continuă după întrebare (un singur bloc), camera pe tablă;
 //   · Pregătirea de examen: pașii în exerciții, la test prima întrebare pe subpunct,
 //     recapitularea fără întrebări.
+// lecțiile le scrie Claude Opus 5.5 (implicit, din 13 oct.); testele de aici verifică
+// logica scrierii prin ai.chatJson (înlocuit) → modelul de PDF, ca înainte
+process.env.LIVE_GEN_MODEL = 'gpt-5.6-terra';
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');

@@ -99,3 +99,38 @@ test('în sală (katex.js → renderMath): fiecare formulă trece prin safeTex �
     if (hadWindow) global.window = prev; else delete global.window;
   }
 });
+
+test('backslash-urile pierdute în JSON (pozele din 12 oct.): caracterele de control și „\\u001b" redevin comenzi LaTeX', () => {
+  // „Se consideră funcția f: (-4,+∞) → ℝ" — așa ajunsese în lecția scrisă de Terra
+  const bad = 'f: (-4,+\u0001infty)\\to\\u001bmathbb{R}';
+  assert.strictEqual(parses(bad), false);
+  assert.strictEqual(T.repairTex(bad, parses), 'f: (-4,+\\infty)\\to\\mathbb{R}');
+  assert.strictEqual(T.repairTex('a\\in(0,+\u0001infty)', parses), 'a\\in(0,+\\infty)');
+  // „\to" cu TAB, „\frac" cu FF, „\beta" cu BS, „\vec" cu VT, „\right" cu CR — și KaTeX le-ar fi „afișat" greșit, fără eroare
+  assert.strictEqual(T.repairTex('f:A\to B', parses), 'f:A\\to B');
+  assert.strictEqual(T.repairTex('\frac{1}{2}+\beta+\vec{v}+\\left(x\right)', parses), '\\frac{1}{2}+\\beta+\\vec{v}+\\left(x\\right)');
+  // ℝ citit „0" din textul extras: „f: 0 → 0" e mereu f: ℝ → ℝ (dar „x → 0" sau „g:(0,1) → 0" rămân)
+  assert.strictEqual(T.repairTex('f:0\\to0,f(x)=7x+5', parses), 'f:\\mathbb{R}\\to\\mathbb{R},f(x)=7x+5');
+  assert.strictEqual(T.repairTex('\\lim_{x \\to 0} f(x)', parses), '\\lim_{x \\to 0} f(x)');
+  assert.strictEqual(T.repairTex('g:(0,1)\\to 0', parses), 'g:(0,1)\\to 0');
+  // rezerva ca text nu mai poate conține caractere de control (KaTeX o respingea, cu roșu)
+  const fb = T.texAsText('\\necunoscut{a}\u0001\u001b+1');
+  assert.strictEqual(parses(fb), true, fb);
+});
+
+test('rândurile noi din formule (la scriere și la afișare) nu mai rup perechile de $', async () => {
+  const t = 'Se consideră funcția $f:\n0\\to\n0,f(x)=7x+5$. Determinați numărul real $m$ pentru care $f(m)=26$.';
+  assert.strictEqual(T.fixMathText(t), 'Se consideră funcția $f: \\mathbb{R}\\to \\mathbb{R},f(x)=7x+5$. Determinați numărul real $m$ pentru care $f(m)=26$.');
+  // în afara formulelor, caracterele de control dispar (rândul nou rămâne)
+  assert.strictEqual(T.fixMathText('Rândul unu\u0001\nrândul doi'), 'Rândul unu \nrândul doi');
+  // în sală (Board.jsx → MathHtml): același lucru la afișarea lecțiilor deja scrise
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'live', 'Board.jsx'), 'utf8');
+  assert.match(src, /const flatMath = \(s\) => String\(s \?\? ''\)\.replace\(\/\\\$\\\$\[\\s\\S\]\*\?\\\$\\\$\|\\\$\[\^\$\]\*\\\$\/g, \(m\) => m\.replace\(\/\\n\/g, ' '\)\);/);
+  assert.match(src, /esc\(flatMath\(s\)\)/);
+});
+
+test('brokenMath: găsește formula pe care KaTeX nu o poate afișa nici după reparare', () => {
+  assert.strictEqual(T.brokenMath('Calculați $\\frac{8}{3}-2\\begin{pmatrix}1-\\frac{1}{6}\\right)$.'), null, 'se repară → nu e stricată');
+  assert.strictEqual(T.brokenMath('Avem $x^2$ și $\\comandanecunoscuta{x}$.'), '\\comandanecunoscuta{x}');
+  assert.strictEqual(T.brokenMath('fără formule'), null);
+});

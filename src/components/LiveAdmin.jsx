@@ -11,8 +11,9 @@
 // alese automat până le alegi tu, pe fiecare rând (sau cu „🎁" din „Lecțiile recente").
 // Subiectele din liste (și din „Ședințele zilei") sunt în ordinea de pe site: variante
 // date → modele → teste de antrenament → simulări.
-// ✍️ Cine scrie lecțiile: GPT-5.6 Terra (implicit) sau Claude Opus 5.5 (cu Terra
-// ca rezervă) — doar pentru lecțiile scrise de acum înainte.
+// ✍️ Lecțiile le scrie doar Claude Opus 5.5 (din 13 oct.; cutia doar arată modelul și
+// avertizează dacă lipsește ANTHROPIC_API_KEY).
+// 🖼 Desenele din PDF (Scriptul → „Refă desenele") și 🗑 versiunile vechi (după „Regenerează").
 // Pregătirea (Regenerează, Pregătește, vocea, întrebările pe pași, itemii lipsă)
 // continuă singură până la „gata", cât pagina e deschisă — cu progresul vocii.
 // 🧩 Itemii lipsă (ex. Subiectul III, 1 b) și c)): se scriu doar ei, ceilalți rămân.
@@ -120,6 +121,27 @@ export default function LiveAdmin() {
 
   const go = (n) => { const d = addDays(day, n); setDay(d); setData(null); load(d); };
 
+  // ─── versiunile vechi (înlocuite prin „Regenerează"): rândul + vocea și desenele din Storage ──
+  async function deleteOld(lessonId = null) {
+    const n = lessonId ? 1 : (data?.oldVersions?.count || 0);
+    if (!n || !window.confirm(lessonId
+      ? 'Ștergi această versiune veche a lecției, cu vocea și desenele ei? Sălile folosesc deja versiunea nouă.'
+      : `Ștergi ${n === 1 ? 'o versiune veche' : `${n} versiuni vechi`} ale lecțiilor, cu vocea și desenele lor? Sălile folosesc deja versiunile noi.`)) return;
+    setBusy(lessonId ? `del-${lessonId}` : 'del-old'); setMsg(''); setErr('');
+    try {
+      let deleted = 0, files = 0, r;
+      do {
+        r = await liveApi.adminDeleteOld(lessonId ? { lessonId } : {});
+        deleted += r.deleted; files += r.files;
+        if (r.left > 0) setMsg(`Se șterg versiunile vechi: ${deleted} până acum…`);
+      } while (!lessonId && r.left > 0 && r.deleted > 0 && !leaving.current);
+      if (r.errors?.length) setErr(`Nu s-au putut șterge toate: ${r.errors.slice(0, 3).join('; ')}`);
+      setMsg(`Am șters ${deleted === 1 ? 'o versiune veche' : `${deleted} versiuni vechi`} (${files} fișiere din Storage).`);
+      await load();
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(''); }
+  }
+
   // ─── meditațiile gratuite: câte una pe examen ──
   const free = data?.free || null;
   const canEditFree = !!free?.setup && !busy;
@@ -135,13 +157,8 @@ export default function LiveAdmin() {
     else run('free', () => liveApi.adminSetFree({ type: slot.type, subjectId: value }), `${label}: meditația gratuită a fost schimbată — apare în lobby cu „Începe gratuit".`);
   }
 
-  // ─── cine scrie lecțiile ──
+  // ─── cine scrie lecțiile (doar informativ: Claude Opus 5.5) ──
   const writer = data?.writer || null;
-  const writerNow = writer ? (writer.model || writer.default) : null;
-  const writerOptions = writer ? [
-    { id: null, label: modelLabel(writer.default), note: 'implicit, mai ieftin' },
-    ...(writer.choices || []).filter((c) => c.id !== writer.default).map((c) => ({ ...c, note: 'mai bun la matematică, ≈ 1,7× costul' })),
-  ] : [];
 
   return (
     <div>
@@ -168,35 +185,17 @@ export default function LiveAdmin() {
 
       {writer && (
         <div style={box}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-            <h3 style={{ color: 'var(--navy)' }}>✍️ Cine scrie lecțiile</h3>
-            <span style={{ fontSize: '.78rem', color: '#6b7280' }}>acum: <b>{modelLabel(writerNow)}</b></span>
-          </div>
-          <p style={{ color: '#6b7280', fontSize: '.84rem', margin: '6px 0 10px' }}>
-            O lecție se scrie o singură dată pe subiect — explicația pe barem, întrebările, explicațiile de rezervă („Explică altfel") —
-            și se refolosește la toate ședințele și în Pregătirea de examen. Alegerea contează pentru lecțiile scrise de acum înainte;
-            pentru una existentă, apasă „Regenerează" în „Lecțiile recente".
+          <h3 style={{ color: 'var(--navy)' }}>✍️ Lecțiile le scrie {modelLabel(writer.model)}</h3>
+          <p style={{ color: '#6b7280', fontSize: '.84rem', margin: '6px 0 0' }}>
+            O lecție se scrie o singură dată pe subiect — explicația pe barem, întrebările, explicațiile de rezervă („Explică altfel"),
+            desenele din PDF — și se refolosește la toate ședințele și în Pregătirea de examen. Un apel care cade se reîncearcă; itemii
+            care tot lipsesc apar în „Lecțiile recente" („🧩 Completează itemii lipsă"). Lecțiile scrise înainte (de GPT-5.6 Terra
+            sau Sol) se rescriu cu „Regenerează"; versiunile vechi se șterg cu „🗑 Șterge versiunile vechi".
+            {writer.fallback ? <> Rezervă (LIVE_REZERVA_MODEL): {modelLabel(writer.fallback)}.</> : null}
           </p>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {writerOptions.map((c) => {
-              const on = (c.id || writer.default) === writerNow;
-              return (
-                <button key={c.id || 'implicit'} type="button" style={{ ...(on ? btnMain : btn), whiteSpace: 'normal', textAlign: 'left' }} disabled={on || !writer.setup || !!busy}
-                  onClick={() => run('writer', () => liveApi.adminSetWriter(c.id), `Lecțiile noi le scrie ${c.label}.`)}>
-                  {on ? '✓ ' : ''}{c.label}<span style={{ opacity: 0.75 }}> · {c.note}</span>
-                </button>
-              );
-            })}
-          </div>
-          {/^claude-/.test(writerNow || '') && !writer.claudeKey && (
-            <div style={{ marginTop: 10, color: '#b3261e', fontSize: '.84rem' }}>⚠ ANTHROPIC_API_KEY lipsește în Vercel — până o adaugi, lecțiile le scrie tot {modelLabel(writer.fallback)}.</div>
+          {/^claude-/.test(writer.model || '') && !writer.claudeKey && (
+            <div style={{ marginTop: 10, color: '#b3261e', fontSize: '.84rem' }}>⚠ ANTHROPIC_API_KEY lipsește în Vercel — fără ea nu se poate scrie nicio lecție nouă.</div>
           )}
-          <p style={{ color: '#6b7280', fontSize: '.8rem', marginTop: 10 }}>
-            Claude Opus 5.5 (Anthropic) costă 4 $ / 20 $ pe milionul de tokeni (intrare / ieșire), față de 2 $ / 12 $ la Terra: o lecție
-            iese cam de 1,7 ori mai scumpă, o singură dată pe subiect (costul real apare în „Lecțiile recente"). Rezerva: dacă Claude nu
-            răspunde la o bucată din lecție (eroare, limită, răspuns tăiat), bucata aceea o scrie {modelLabel(writer.fallback)} — lecția nu rămâne nescrisă.
-          </p>
-          {!writer.setup && <div style={{ color: '#8a5a00', fontSize: '.82rem' }}>Alegerea se poate salva după ce rulezi o dată supabase/setari_ordine_gratuite.sql în Supabase → SQL Editor.</div>}
         </div>
       )}
 
@@ -343,7 +342,16 @@ export default function LiveAdmin() {
 
       {data?.lessons?.length > 0 && (
         <div style={box}>
-          <h3 style={{ color: 'var(--navy)', marginBottom: 10 }}>Lecțiile recente</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+            <h3 style={{ color: 'var(--navy)' }}>Lecțiile recente</h3>
+            {data.oldVersions?.count > 0 && (
+              <button type="button" style={btn} disabled={!!busy}
+                title={'Versiunile înlocuite prin „Regenerează" nu mai sunt folosite nicăieri (sălile, Pregătirea de examen și simulările iau versiunea nouă): se șterg, cu vocea și desenele lor din Storage. Cât versiunea nouă nu e gata, cea veche rămâne.'}
+                onClick={() => deleteOld()}>
+                {busy === 'del-old' ? '…' : `🗑 Șterge versiunile vechi (${data.oldVersions.count})`}
+              </button>
+            )}
+          </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr><th style={th}>Lecția</th><th style={th}>Starea</th><th style={th}>Durata</th><th style={th}>Cost</th><th style={th}>Actualizată</th><th style={th} /></tr></thead>
@@ -354,6 +362,7 @@ export default function LiveAdmin() {
                       <b>{l.title || '(fără titlu încă)'}</b>
                       {l.free && <span style={{ marginLeft: 6, fontSize: '.72rem', fontWeight: 700, color: '#6b4e00', background: '#fff6d6', border: '1px solid #e8b931', borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>🎁 gratuită</span>}
                       <div style={{ color: '#6b7280', fontSize: '.78rem' }}>{teacherName[l.teacher] || l.teacher} · v{l.version}{l.writer?.model ? ` · scrisă de ${writerText(l.writer)}` : ''}</div>{l.error && <div style={{ color: '#b3261e', fontSize: '.78rem' }}>{l.error}</div>}
+                      {l.superseded && <div style={{ color: '#8a5a00', fontSize: '.76rem' }}>versiune veche — înlocuită de v{l.superseded.by}{l.superseded.deletable ? '' : ', care încă nu e gata (până atunci rămâne aceasta)'}</div>}
                     </td>
                     <td style={td}>
                       {l.status === 'gata' && l.noVoice ? LESSON_LABEL.gata_fara_voce : (LESSON_LABEL[l.status] || l.status)}
@@ -377,6 +386,12 @@ export default function LiveAdmin() {
                         </button>
                       )}
                       <button type="button" style={btn} onClick={async () => { try { setScript((await liveApi.adminLesson(l.id)).lesson); } catch (e) { setErr(e.message); } }}>Scriptul</button>
+                      {l.superseded?.deletable && (
+                        <button type="button" style={btn} disabled={!!busy} title="Șterge această versiune veche, cu vocea și desenele ei din Storage" onClick={() => deleteOld(l.id)}>
+                          {busy === `del-${l.id}` ? '…' : '🗑 Șterge'}
+                        </button>
+                      )}
+                      {!l.superseded && (<>
                       <button type="button" style={btn} disabled={!!busy} onClick={() => { if (window.confirm('Regenerezi lecția (script + voce nouă)? Costă din nou.')) prepareLoop(`re-${l.id}`, { subjectId: l.subject_id, teacher: l.teacher, regenerate: true }, 'Regenerarea'); }}>
                         {busy === `re-${l.id}` ? '…' : 'Regenerează'}
                       </button>
@@ -399,6 +414,7 @@ export default function LiveAdmin() {
                           {busy === `fill-${l.id}` ? '…' : '🧩 Completează itemii lipsă'}
                         </button>
                       )}
+                      </>)}
                     </td>
                   </tr>
                 ))}
@@ -435,6 +451,23 @@ export default function LiveAdmin() {
                     <ul style={{ paddingLeft: 18, color: '#6b7280' }}>{script.script.writer.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
                   </details>
                 )}
+                {/* desenele din PDF (problemele „În figura alăturată…"), decupate o singură dată pe lecție */}
+                <div style={{ marginTop: 6 }}>
+                  🖼 Desenele din PDF:{' '}
+                  {script.script.figErr ? <span style={{ color: '#b3261e' }}>nu s-au putut lua — {script.script.figErr}</span>
+                    : script.script.figInfo ? (script.script.figInfo.found.length || script.script.figInfo.missing.length
+                      ? <>{script.script.figInfo.found.length > 0 && <span style={{ color: '#188038' }}>{script.script.figInfo.found.join(', ')}</span>}
+                        {script.script.figInfo.missing.length > 0 && <span style={{ color: '#8a5a00' }}>{script.script.figInfo.found.length ? ' · ' : ''}negăsite: {script.script.figInfo.missing.join(', ')}</span>}</>
+                      : <span style={{ color: '#6b7280' }}>subiectul nu are probleme cu figură</span>)
+                    : script.script.figv ? <span style={{ color: '#6b7280' }}>subiectul nu are probleme cu figură</span>
+                    : <span style={{ color: '#6b7280' }}>încă nu — se adaugă singure la prima folosire</span>}{' '}
+                  {['gata', 'script', 'audio'].includes(script.status) && (
+                    <button type="button" style={btn} disabled={!!busy} title="Decupează din nou desenele din PDF-ul subiectului (gratuit, câteva secunde); explicațiile și vocea rămân"
+                      onClick={() => { const id = script.id; setScript(null); prepareLoop(`fig-${id}`, { lessonId: id, figures: true }, 'Desenele din PDF'); }}>
+                      {busy === `fig-${script.id}` ? '…' : '🖼 Refă desenele'}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
             {script.script && (script.script.items || []).map((it) => (
@@ -442,6 +475,7 @@ export default function LiveAdmin() {
                 <b>{it.title}</b> {it.points ? `· ${it.points}p` : ''} {it.tryPoll ? `· sondaj (${it.tryPoll.type}, răspuns: ${it.tryPoll.answer})` : ''}
                 {it.steps?.length ? ` · ${it.steps.length} ${it.steps.length === 1 ? 'întrebare pe pas' : 'întrebări pe pași'}` : ''}
                 <div style={{ color: '#374151', fontSize: '.86rem', margin: '4px 0' }}>{it.statement}</div>
+                {it.figure?.url && <img src={it.figure.url} alt={`Desenul ${it.ref}`} style={{ display: 'block', maxHeight: 140, maxWidth: '60%', margin: '4px 0', border: '1px solid #eef1f5', borderRadius: 6 }} />}
                 {it.steps?.length > 0 && (
                   <details style={{ fontSize: '.84rem', margin: '4px 0' }}>
                     <summary>întrebări pe pași · {it.steps.length}</summary>

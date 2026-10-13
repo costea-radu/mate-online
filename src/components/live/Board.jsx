@@ -15,8 +15,11 @@ import { ensureKatex, renderMath } from '../../lib/katex';
 import { fmtClock } from '../../lib/live/timeline';
 
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// un rând nou ÎN formulă ($…$) se face spațiu: ca <br/> rupea formula în două, iar
+// perechile de $ se amestecau („Determinaținumărulrealm" ieșea ca formulă)
+const flatMath = (s) => String(s ?? '').replace(/\$\$[\s\S]*?\$\$|\$[^$]*\$/g, (m) => m.replace(/\n/g, ' '));
 function mdLite(s) {
-  return esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br/>');
+  return esc(flatMath(s)).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br/>');
 }
 
 // Un fragment de text cu formule ($...$), randat o singură dată cu KaTeX
@@ -219,10 +222,42 @@ export function DigitalScreen({ state, results, myAnswers, title, examLabel, tea
   // reformulată („Calculați…", fără rezultat); de la explicație încolo, cea din subiect.
   if (head) {
     const trying = !!head.statementTry && (sc?.type === 'item' || sc?.type === 'sondaj');
-    const original = !!head.statementTry && !trying;
-    return (
-      <div className="lv-screen">
+    return <ScreenItem head={head} trying={trying} original={!!head.statementTry && !trying} />;
+  }
+  return <div className="lv-screen lv-screen-title"><div className="lv-screen-big">{title}</div></div>;
+}
+
+// Enunțul proiectat, cu desenul problemei (figura geometrică, graficul — decupat din PDF-ul
+// subiectului) în dreapta. Dacă nu încape (enunț lung, desen, variante), scrisul se
+// micșorează (până la FIT_MIN), ca la tabla albă — în proiecție nu se poate derula.
+function ScreenItem({ head, trying, original }) {
+  const boxRef = useRef(null);
+  const innerRef = useRef(null);
+  const [fit, setFit] = useState(1);
+  const fitRef = useRef(1);
+  const key = `${head.item}|${trying ? 'try' : 'sub'}`;
+  useEffect(() => { fitRef.current = 1; setFit(1); }, [key]);
+  useEffect(() => {
+    const el = boxRef.current, inner = innerRef.current;
+    if (!el || !inner || typeof ResizeObserver === 'undefined') return undefined;
+    const check = () => {
+      // în scena cu profesorul, ecranul crește cu textul și îl taie proiecția (părintele)
+      const room = Math.min(el.clientHeight, el.parentElement?.clientHeight || Infinity);
+      if (el.scrollHeight <= room + 2 || fitRef.current <= FIT_MIN) return;
+      const next = Math.max(FIT_MIN, Math.round(fitRef.current * 0.93 * 100) / 100);
+      if (next < fitRef.current) { fitRef.current = next; setFit(next); }
+    };
+    const ro = new ResizeObserver(check);
+    ro.observe(inner);
+    check();
+    return () => ro.disconnect();
+  }, [key]);
+  const fig = head.figure?.url ? head.figure : null;
+  return (
+    <div className="lv-screen" ref={boxRef}>
+      <div ref={innerRef} style={fit < 1 ? { fontSize: `${fit}em` } : undefined}>
         <div className="lv-screen-kicker">{head.title}{head.points ? ` · ${head.points} puncte` : ''}{original ? ' · cerința din subiect' : ''}</div>
+        {fig && <img className="lv-screen-fig" src={fig.url} width={fig.w || undefined} height={fig.h || undefined} alt="Desenul din subiect" decoding="async" />}
         <MathHtml className="lv-screen-statement" text={trying ? head.statementTry : head.statement} />
         {head.options && (
           <div className="lv-screen-opts">
@@ -232,9 +267,8 @@ export function DigitalScreen({ state, results, myAnswers, title, examLabel, tea
           </div>
         )}
       </div>
-    );
-  }
-  return <div className="lv-screen lv-screen-title"><div className="lv-screen-big">{title}</div></div>;
+    </div>
+  );
 }
 
 // Numărătoarea inversă a întrebării (inelul din colț)

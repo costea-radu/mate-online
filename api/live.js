@@ -44,6 +44,7 @@ const B = require('./_lib/barem');
 const L = require('./_lib/live');
 const LA = require('./_lib/liveAccess');   // dreptul la 1-la-1: incluse (comune live + pregătire) / bilet
 const LL = require('./_lib/liveLesson');
+const FIG = require('./_lib/figuri');      // desenul din PDF la problemele cu figură
 const tts = require('./_lib/tts');
 const mathcheck = require('./_lib/mathcheck');
 
@@ -413,7 +414,7 @@ async function program(req, res, supa) {
 // ═════════════════════════════════════════════════════════════════════════════
 // LECȚIA: găsire / creare / pregătire (cu lacăt)
 // ═════════════════════════════════════════════════════════════════════════════
-const LIGHT = 'id, subject_id, teacher, version, status, title, exam, profile, duration_sec, error, locked_until, updated_at, total:progress->total, done:progress->done, noVoice:progress->noVoice, phase:progress->>phase, pasi:script->pasi';
+const LIGHT = 'id, subject_id, teacher, version, status, title, exam, profile, duration_sec, error, locked_until, updated_at, total:progress->total, done:progress->done, noVoice:progress->noVoice, phase:progress->>phase, pasi:script->pasi, figv:script->figv';
 
 async function lessonFor(supa, subjectId, teacherId, { create = true } = {}) {
   const { data, error } = await supa.from('live_lessons').select(LIGHT)
@@ -433,6 +434,13 @@ async function lessonFor(supa, subjectId, teacherId, { create = true } = {}) {
 }
 
 const lessonView = (l) => l && ({ id: l.id, status: l.status, title: l.title, error: l.status === 'eroare' ? l.error : null, total: Number(l.total) || 0, done: Number(l.done) || 0, phase: l.phase || null });
+
+// ─── DESENELE din PDF (api/_lib/figuri.js) pentru lecțiile scrise înainte de ele ──
+// o singură dată pe lecție (câteva secunde): doar it.figure + script.figv — cronologia
+// rămâne aceeași, deci se pot adăuga și cât ține o ședință. `l` = rândul ușor (LIGHT) sau întreg.
+const lacksFigures = (l) => !!l && FIG.ON() && ['gata', 'script', 'audio'].includes(l.status)
+  && Number((l.figv !== undefined ? l.figv : l.script?.figv) || 0) < FIG.FIG_V;
+const addFigures = (supa, lessonId) => prepareLesson(supa, lessonId, { scriptOnly: true, budgetMs: 20000 }).catch(() => null);
 
 // ─── ÎNTREBĂRILE PE PAȘI pentru lecțiile scrise înainte de ele ───────────────
 // O lecție „gata" fără script.pasi primește întrebările pe pași (Subiectele II și
@@ -455,16 +463,8 @@ async function stepsUpgradeFor(supa, session, light, now = new Date()) {
   return !(await groupBusy(supa, session.subject_id, session.teacher, now));
 }
 
-// ─── Cine scrie lecțiile (Admin → Meditații live → „✍️ Cine scrie lecțiile") ──
-// app_settings, cheia 'live_gen_model': { model: null } = implicitul (LIVE_GEN_MODEL
-// sau GPT-5.6 Terra); { model: 'claude-opus-5-5' } = Claude Opus 5.5 prin API-ul
-// Anthropic, cu modelul de PDF ca rezervă (liveLesson.writeJson). Se citește doar când
-// chiar se scrie ceva (o dată pe subiect) — fără cache, ca alegerea să conteze imediat.
-const WRITER_KEY = 'live_gen_model';
-async function lessonWriter(supa) {
-  try { return LL.writerChoice((await SET.readSetting(supa, WRITER_KEY)).value?.model); }
-  catch (e) { console.warn('live: modelul lecțiilor:', e.message); return null; }
-}
+// ─── Cine scrie lecțiile: DOAR Claude Opus 5.5 (liveLesson.GEN_MODEL; din 13 oct. nu
+// mai e o alegere în Admin — LIVE_GEN_MODEL / LIVE_REZERVA_MODEL doar la nevoie) ──
 // scrisul cu Claude durează minute: lacătul ține cât poate trăi funcția (800 s), ca o
 // cerere paralelă să nu scrie aceeași lecție a doua oară (finally îl eliberează)
 const WRITE_LOCK_MS = 14 * 60 * 1000;
@@ -489,7 +489,8 @@ async function logWriteUsage(supa, endpoint, usage) {
 //   fără voce configurată, lecția devine imediat „gata" (vocea browserului), ca la live.
 // steps: o lecție scrisă înainte de întrebările pe pași le primește acum (forceSteps:
 //   le scrie din nou, de la zero — din Admin).
-async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.warn, revoice = false, fromRef = null, scriptOnly = false, steps = false, forceSteps = false, fill = false } = {}) {
+// figures: desenele din PDF, o singură dată pe lecție (forceFigures: din nou — din Admin).
+async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.warn, revoice = false, fromRef = null, scriptOnly = false, steps = false, forceSteps = false, fill = false, figures = true, forceFigures = false } = {}) {
   const t0 = Date.now();
   const nowIso = new Date().toISOString();
   const until = new Date(Date.now() + budgetMs + 90 * 1000).toISOString();
@@ -524,7 +525,8 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
         .order('updated_at', { ascending: false }).limit(1);
       let script = null, costMicro = 0;
       if (other && other[0]?.script) {
-        script = LL.adaptScript(other[0].script, teacher);
+        // desenele se extrag din nou: fișierele sunt ale fiecărei lecții
+        script = FIG.stripFigures(LL.adaptScript(other[0].script, teacher));
       } else {
         const { data: content } = await supa.from('content').select('*').eq('id', row.subject_id).maybeSingle();
         if (!content) throw fail(404, 'Subiectul nu mai există.');
@@ -532,10 +534,9 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
         const se = L.subjectExam(content, B) || { exam: 'en', profile: null };
         // paginile PDF (subiect + barem): modelul vede formulele pierdute la extragerea textului
         const attachments = await LL.pdfAttachments({ supa, content, ctx, pdfCtx: pdfContext(), log });
-        const model = await lessonWriter(supa);
         await holdLock(supa, row.id);
         let r;
-        try { r = await LL.generateScript({ ctx, content, teacher, exam: se.exam, profile: se.profile, log, attachments, model }); }
+        try { r = await LL.generateScript({ ctx, content, teacher, exam: se.exam, profile: se.profile, log, attachments }); }
         catch (e) { await logWriteUsage(supa, 'live-lectie', e.usage); throw e; }   // și o încercare eșuată costă
         script = r.script;
         costMicro = await logWriteUsage(supa, 'live-lectie', r.usage);
@@ -555,9 +556,8 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
       // cât se scriu întrebările, o ședință de grup nu pornește pe lecția veche (așteaptă „gata")
       if (was === 'gata') await save({ status: 'script', progress: { ...row.progress, phase: 'pasi' } });
       try {
-        const model = await lessonWriter(supa);
         await holdLock(supa, row.id);
-        const r = await LL.addStepQuestions({ script: row.script, teacher, log, force: !!forceSteps, model });
+        const r = await LL.addStepQuestions({ script: row.script, teacher, log, force: !!forceSteps });
         const costMicro = await logWriteUsage(supa, 'live-pasi', r.usage);
         // vocea generată: frazele noi (întrebările) se înregistrează mai jos, în același apel
         const next = voiced && tts.provider() ? 'audio' : (was === 'gata' ? 'gata' : was);
@@ -588,9 +588,8 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
         if (!content) throw fail(404, 'Subiectul nu mai există.');
         const ctx = await pdfContext().getPdfContext(supa, content);
         const attachments = await LL.pdfAttachments({ supa, content, ctx, pdfCtx: pdfContext(), log });
-        const model = await lessonWriter(supa);
         await holdLock(supa, row.id);
-        const r = await LL.completeScript({ script: row.script, ctx, teacher, attachments, model, log });
+        const r = await LL.completeScript({ script: row.script, ctx, teacher, attachments, log });
         const costMicro = await logWriteUsage(supa, 'live-lectie', r.usage);
         const next = r.report.added.length && voiced && tts.provider() ? 'audio' : (was === 'gata' ? 'gata' : was);
         const all = LL.segmentsInOrder(r.script);
@@ -604,6 +603,20 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
       } catch (e) {
         log(`live: completarea itemilor pentru lecția ${row.id} a eșuat: ${e.message}`);
         await save({ status: was, progress: { ...row.progress, phase: was === 'gata' ? 'gata' : row.progress?.phase, itemi: { at: new Date().toISOString(), error: String(e.message || e).slice(0, 200) } } });
+      }
+    }
+    // ── 1d. desenele din PDF (problemele „În figura alăturată…"): o singură dată pe lecție ──
+    if (figures && FIG.ON() && row.script && ['gata', 'script', 'audio'].includes(row.status) && (forceFigures || FIG.needsFigures(row.script))) {
+      try {
+        // cel mult 25 s (se poate întâmpla la intrarea în sală): un PDF care nu vine nu ține elevul pe loc
+        const r = await Promise.race([
+          FIG.figuresFor({ supa, row, pdfCtx: pdfContext(), log }),
+          new Promise((_, no) => { setTimeout(() => no(new Error('PDF-ul nu a venit în 25 s')), 25000).unref?.(); }),
+        ]);
+        await save({ script: r.script });
+      } catch (e) {
+        log(`live: desenele lecției ${row.id}: ${e.message}`);
+        await save({ script: { ...row.script, figv: FIG.FIG_V, figErr: String(e.message || e).slice(0, 200) } });   // desenele de dinainte rămân
       }
     }
     // ── 2. vocea ──
@@ -842,6 +855,8 @@ async function join(req, res, supa) {
   // lecție scrisă înainte de întrebările pe pași: întâi se completează (o singură dată pe
   // subiect, ~1 minut) — sala așteaptă „pregătirea", ca la o lecție nouă (vezi prepare)
   const stepsFirst = await stepsUpgradeFor(supa, session, lessonLight, now);
+  // desenele din PDF lipsesc (lecție scrisă înainte de ele): se adaugă acum, o singură dată
+  if (!stepsFirst && lacksFigures(lessonLight) && (lessonLight.status === 'gata' || session.kind === 'privat')) await addFigures(supa, lessonLight.id);
   let s = session;
   let lesson = null;
   if (lessonLight.status === 'gata' || (session.kind === 'privat' && ['script', 'audio'].includes(lessonLight.status))) {
@@ -886,6 +901,7 @@ async function prepare(req, res, supa) {
       const r = await prepareLesson(supa, lesson.id, { steps: true, budgetMs: Math.min(240000, Math.max(30000, Number(req.body?.budgetMs) || 90000)) });
       return res.status(200).json({ lesson: r });
     }
+    if (lacksFigures(lesson)) await addFigures(supa, lesson.id);
     return res.status(200).json({ lesson: { ...lessonView(lesson), playable: true } });
   }
   // 1-la-1 deja pornit: vocea continuă în fundal, întâi de la itemul la care e elevul
@@ -1359,8 +1375,12 @@ async function adminOverview(req, res, supa) {
   for (const p of parts || []) total[p.session_id] = (total[p.session_id] || 0) + 1;
   const [en, bac] = await Promise.all([eligibleSubjects(supa, { exam: 'en', fresh: !!req.body?.fresh }), eligibleSubjects(supa, { exam: 'bac', fresh: !!req.body?.fresh })]);
   const { data: lessonRows } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, title, duration_sec, error, cost_micro, updated_at, noVoice:progress->noVoice, sv:script->v, pasi:script->pasi, pasiInfo:progress->pasi, writer:script->writer, missing:script->missing, itemi:progress->itemi, total:progress->total, done:progress->done').order('updated_at', { ascending: false }).limit(60);
-  const [free, writer] = await Promise.all([freeAdminView(supa, { fresh: !!req.body?.fresh, en, bac }), writerAdminView(supa)]);
+  const free = await freeAdminView(supa, { fresh: !!req.body?.fresh, en, bac });
+  const writer = writerAdminView();
   const freeSet = new Set(free.lessons.map((l) => String(l.subjectId).toLowerCase()));
+  // versiunile vechi (înlocuite prin „Regenerează"): marcate în listă + câte se pot șterge
+  const versions = await oldVersions(supa);
+  const superseded = new Map([...versions.old.map((r) => [r.id, { by: r.newest, deletable: true }]), ...versions.waiting.map((r) => [r.id, { by: r.newest, deletable: false }])]);
   const slotInfo = Object.fromEntries(L.slots().map((s) => [s.id, s]));
   return res.status(200).json({
     day, teachers: L.teachers().map(L.publicTeacher), slots: L.slots(), intervals: L.intervals(),
@@ -1373,7 +1393,8 @@ async function adminOverview(req, res, supa) {
       phase: L.phaseOf(s), status: s.status, present: present[s.id] || 0, participants: total[s.id] || 0, note: s.admin_note || null,
     })),
     subjects: { en, bac },
-    lessons: (lessonRows || []).map((l) => ({ ...l, cost_lei: Math.round((l.cost_micro || 0) / 1e4) / 100, free: freeSet.has(String(l.subject_id).toLowerCase()) })),
+    lessons: (lessonRows || []).map((l) => ({ ...l, cost_lei: Math.round((l.cost_micro || 0) / 1e4) / 100, free: freeSet.has(String(l.subject_id).toLowerCase()), superseded: superseded.get(l.id) || null })),
+    oldVersions: { count: versions.old.length, waiting: versions.waiting.length },
     free,
     writer,
     tts: tts.provider(),
@@ -1490,24 +1511,9 @@ async function adminSetFree(req, res, supa) {
   return res.status(200).json({ ok: true, free: await freeAdminView(supa, { fresh: true }) });
 }
 
-// ─── Cine scrie lecțiile (Admin → „✍️ Cine scrie lecțiile") ───────────────────
-async function writerAdminView(supa) {
-  let st = { setup: false, value: null };
-  try { st = await SET.readSetting(supa, WRITER_KEY); }
-  catch (e) { console.warn('live: modelul lecțiilor:', e.message); }
-  return {
-    setup: st.setup, model: LL.writerChoice(st.value?.model), default: LL.GEN_MODEL(), fallback: LL.FALLBACK_MODEL(),
-    choices: LL.WRITERS, claudeKey: !!require('./_lib/claude').HAS_KEY,
-  };
-}
-
-async function adminSetWriter(req, res, supa) {
-  const { userId } = await requireAdminUser(req, supa);
-  const raw = req.body?.model || null;
-  const model = raw ? LL.writerChoice(raw) : null;
-  if (raw && !model) throw fail(400, 'Model necunoscut pentru lecțiile live.');
-  await SET.writeSetting(supa, WRITER_KEY, { model, at: new Date().toISOString(), by: userId }, userId);
-  return res.status(200).json({ ok: true, writer: await writerAdminView(supa) });
+// ─── Cine scrie lecțiile (Admin → „✍️ Lecțiile le scrie Claude Opus 5.5") ─────
+function writerAdminView() {
+  return { model: LL.GEN_MODEL(), fallback: LL.FALLBACK_MODEL(), claudeKey: !!require('./_lib/claude').HAS_KEY };
 }
 
 async function adminSetSubject(req, res, supa) {
@@ -1564,6 +1570,7 @@ async function adminPrepare(req, res, supa) {
   }
   const r = await prepareLesson(supa, lessonId, {
     revoice: !!req.body?.revoice, steps, forceSteps: steps && !!req.body?.force, fill,
+    forceFigures: !!req.body?.figures,              // „🖼 Refă desenele" (Admin → Script)
     budgetMs: Math.min(600000, Math.max(30000, Number(req.body?.budgetMs) || 240000)),
   });
   return res.status(200).json({ lesson: r });
@@ -1583,6 +1590,72 @@ async function adminLesson(req, res, supa) {
       missingChecked: !!(lesson.script && Array.isArray(lesson.script.missing)),
     },
   });
+}
+
+// ─── Versiunile vechi ale lecțiilor (înlocuite prin „Regenerează") ────────────
+// Sălile, Pregătirea de examen și simulările folosesc mereu cea mai nouă versiune a lecției
+// (lessonFor); cele vechi doar ocupă loc — rândul și fișierele lor din Storage (vocea,
+// desenele: live-media/lessons/<id>/). „Veche" = același subiect, același profesor, cu o
+// versiune mai nouă care e bună de folosit (are scriptul); cât cea nouă se scrie sau a eșuat,
+// cea veche rămâne (e singura bună) — `waiting`.
+async function oldVersions(supa) {
+  const { data, error } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, locked_until')
+    .order('version', { ascending: false }).limit(5000);
+  dbCheck(error, 'lecțiile');
+  const latest = new Map();
+  const old = [], waiting = [];
+  for (const r of data || []) {
+    const k = `${r.subject_id}|${r.teacher}`;
+    const top = latest.get(k);
+    if (!top) { latest.set(k, r); continue; }
+    (['gata', 'script', 'audio'].includes(top.status) ? old : waiting).push({ ...r, newest: top.version });
+  }
+  return { old, waiting };
+}
+
+// fișierele unei lecții din Storage (vocea frazelor, desenele), în tranșe de câte 1000
+async function removeLessonFiles(supa, lessonId) {
+  const bucket = supa.storage.from(tts.BUCKET);
+  const dir = `lessons/${lessonId}`;
+  let removed = 0;
+  for (let round = 0; round < 50; round++) {
+    const { data, error } = await bucket.list(dir, { limit: 1000 });
+    if (error) throw new Error(error.message);
+    const paths = (data || []).filter((f) => f && f.name && f.id !== null).map((f) => `${dir}/${f.name}`);
+    if (!paths.length) break;
+    const { error: e2 } = await bucket.remove(paths);
+    if (e2) throw new Error(e2.message);
+    removed += paths.length;
+    if (paths.length < 1000) break;
+  }
+  return removed;
+}
+
+// Admin → „🗑 Șterge versiunile vechi" (toate, câte 40 pe cerere — interfața repetă cât
+// `left` > 0) sau „🗑" pe rândul unei versiuni vechi (lessonId). dry: doar numărul.
+async function adminDeleteOld(req, res, supa) {
+  await requireAdminUser(req, supa);
+  const { old, waiting } = await oldVersions(supa);
+  const nowIso = new Date().toISOString();
+  let todo = old.filter((r) => !r.locked_until || r.locked_until < nowIso);     // nimic în lucru
+  if (req.body?.lessonId) {
+    todo = todo.filter((r) => r.id === req.body.lessonId);
+    if (!todo.length) throw fail(409, 'Lecția nu e o versiune veche (sau versiunea nouă nu e încă gata).');
+  }
+  if (req.body?.dry) return res.status(200).json({ count: todo.length, waiting: waiting.length });
+  const done = [], errors = [];
+  let files = 0;
+  for (const r of todo.slice(0, 40)) {
+    try { files += await removeLessonFiles(supa, r.id); done.push(r.id); }
+    catch (e) { errors.push(`v${r.version} (${r.id}): ${e.message}`); }      // fișierele rămase → rândul rămâne
+  }
+  if (done.length) {
+    const { error } = await supa.from('live_lessons').delete().in('id', done);
+    dbCheck(error, 'lecțiile');
+    for (const id of done) lessonCache.delete(id);
+  }
+  console.warn(`live: versiuni vechi șterse: ${done.length} (${files} fișiere)${errors.length ? `; erori: ${errors.join('; ')}` : ''}`);
+  return res.status(200).json({ deleted: done.length, files, left: todo.length - done.length, waiting: waiting.length, errors });
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1613,7 +1686,7 @@ async function cron(supa) {
   // o lecție NOUĂ scrisă de Claude durează câteva minute: cronul o începe doar cât mai e
   // timp până la limita funcției (800 s); altfel o scrie rularea următoare sau sala de așteptare
   report.deferred = 0;
-  const writeBy = LL.isClaude((await lessonWriter(supa)) || LL.GEN_MODEL()) ? 7 * 60000 : Infinity;
+  const writeBy = LL.isClaude(LL.GEN_MODEL()) ? 7 * 60000 : Infinity;
   for (const s of soon) {
     if (Date.now() - t0 > budget - 60000) break;
     try {
@@ -1624,7 +1697,7 @@ async function cron(supa) {
       const revoice = l.status === 'gata' && l.noVoice === true && !!tts.provider() && startsIn > 45 * 60000 && !busy;
       // întrebările pe pași pentru o lecție scrisă înainte de ele — tot doar înainte de ședință
       const steps = lessonLacksSteps(l) && startsIn > 10 * 60000 && !busy;
-      if (l.status === 'gata' && !revoice && !steps) continue;
+      if (l.status === 'gata' && !revoice && !steps && !lacksFigures(l)) continue;
       if ((l.status === 'nou' || (l.status === 'eroare' && !l.title)) && Date.now() - t0 > writeBy) { report.deferred++; continue; }
       if (!auto && !revoice && (steps || l.status === 'nou' || (l.status === 'eroare' && !l.title))) {
         const [{ count: people }, { count: tickets }] = await Promise.all([
@@ -1937,6 +2010,13 @@ async function prepExercise(req, res, supa) {
   if (!pick) {
     return res.status(200).json({ exhausted: true, proposal: P.proposeExhausted({ exam: E.exam, pos: pos.pos, prog }), positions: P.publicProgress(E.exam, prog) });
   }
+  // desenul din PDF (problemă cu figură, lecție scrisă înainte de desene): o singură dată pe lecție
+  if (lacksFigures(pick.lesson) && FIG.figureKeys(pick.items).length) {
+    await addFigures(supa, pick.lesson.id);
+    const fresh = await loadLesson(supa, pick.lesson.id, { fresh: true });
+    const items = P.itemsAt(fresh?.script, pos.pos);
+    if (items.length) pick = { ...pick, lesson: fresh, items };
+  }
   const now = new Date().toISOString();
   const entry = { sid: pick.sid, title: pick.title, refs: pick.items.map((it) => it.ref), polls: {}, done: false, at: now };
   let rowId;
@@ -1988,6 +2068,8 @@ async function prepPrefetch(req, res, supa) {
     if (/^II/.test(pos.pos) && light && lessonLacksSteps({ status: light.status, pasi: light.script?.pasi })
       && !(await groupBusy(supa, light.subject_id, light.teacher))) {
       await prepareLesson(supa, light.id, { steps: true, scriptOnly: true, budgetMs: 90000 }).catch(() => {});
+    } else if (lacksFigures(light) && FIG.figureKeys(ready.items).length) {
+      await addFigures(supa, light.id);                 // desenul din PDF, cât elevul lucrează
     }
     return res.status(200).json({ ready: true });
   }
@@ -2243,7 +2325,7 @@ const ACTIONS = {
   leave,
   voce,
   admin_overview: adminOverview, admin_set_subject: adminSetSubject, admin_prepare: adminPrepare, admin_lesson: adminLesson,
-  admin_set_free: adminSetFree, admin_set_writer: adminSetWriter,
+  admin_set_free: adminSetFree, admin_delete_old: adminDeleteOld,
   // Pregătirea de examen („Planul meu") — o ședință 1-la-1: prep_begin / prep_session
   prep_state: prepState, prep_begin: prepBegin, prep_session: prepSession,
   prep_exercise: prepExercise, prep_prefetch: prepPrefetch, prep_answer: prepAnswer,

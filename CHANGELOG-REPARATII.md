@@ -4,6 +4,31 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 13 octombrie 2026 — Lecțiile live: doar Claude Opus 5.5, formulele stricate (runda 2), desenul din PDF, ștergerea versiunilor vechi
+
+Cererea (cu 5 poze): „Testul generat cu GPT Terra are erorile din poze. Am dat regenerare cu Opus 5.5 selectat dar s-a regenerat la fel. Pune doar Opus 5.5 la generare meditații video. În poza fără erori roșii cu problema de geometrie clasa a opta, pune și desenul din PDF, dacă poți. Pune buton de ștergere a variantelor vechi regenerate în alte variante noi."
+
+### 1) Doar Claude Opus 5.5 scrie lecțiile (`api/_lib/liveLesson.js`, `api/live.js`, `src/components/LiveAdmin.jsx`, `src/lib/live/api.js`, `src/lib/aiModels.js`)
+- Alegerea Terra / Opus din Admin a dispărut (și `admin_set_writer`); cutia „✍️ Lecțiile le scrie Claude Opus 5.5" doar arată modelul și avertizează când lipsește `ANTHROPIC_API_KEY`.
+- **Fără rezerva pe ascuns:** înainte, o bucată la care Claude nu răspundea (429, supraîncărcare, plafon) o scria Terra fără să se vadă. Acum un apel căzut se reîncearcă tot cu Claude (cel mult 3 încercări, pauze de 15 s, apoi dublu); itemii care tot lipsesc se scriu separat, câte unul, tot cu Claude. Fără cheie → eroare clară („ANTHROPIC_API_KEY lipsește în Vercel…"), nu o lecție scrisă de alt model. `LIVE_REZERVA_MODEL` (opțional) pune la loc o rezervă.
+
+### 2) Formulele stricate, runda 2 (`api/_lib/texRepair.js` + oglinda `src/lib/texRepair.js`, `src/components/live/Board.jsx`, `api/_lib/liveLesson.js`)
+- **Cauza pozelor** (`\text{f: (-4,+⊠infty)→u001bmathbbR}`, `\text{a∈(0,+⊠infty)}`, „$f: 0\to 0,f(x)=7x+5.Determinaținumărul…$"): în JSON-ul modelului se pierde câte un backslash din LaTeX — „\t" din „\to" devine TAB, „\f" din „\frac" salt de pagină, „\b"/„\v"/„\r" alte caractere de control, iar „\u001b" ajunge scris ca text. KaTeX nu le putea afișa, iar rezerva „ca text" păstra caracterele de control → roșu. ℝ din textul extras din PDF apărea ca „0" („f: 0 → 0"), iar o formulă ruptă pe două rânduri despărțea perechile de `$` (textul de după se lipea de formulă).
+- **Acum:** caracterele de control și „\u00XX" redevin comenzile LaTeX (`\to`, `\frac`, `\infty`, `\mathbb`…), „f: 0 → 0" → „f: ℝ → ℝ" (dar „x → 0" rămâne), rândurile noi din formule se unesc (`flatMath` în tablă), rezerva ca text nu mai are caractere de control — **la afișare** (deci și la lecțiile deja scrise, fără Regenerează) și **la scriere** (`fixMathText`; un item cu o formulă care tot nu se poate afișa se rescrie o dată). Instrucțiunile cer modelului backslash-ul dublat în JSON și ℝ luat din pagină.
+- **De ce „Regenerează" cu Opus dăduse la fel:** și în răspunsul lui Claude se poate pierde câte un backslash, iar afișarea nu repara caracterele de control; în plus, bucățile la care Claude nu răspundea le scria pe ascuns Terra.
+
+### 3) Desenul din PDF lângă enunț (`api/_lib/figuri.js` nou, `api/live.js`, `api/_lib/live.js`, `src/components/live/Board.jsx`, `src/styles/live.css`, `src/components/SpatiuDeLucru.jsx`, `src/pages/LiveRoom.jsx`, `src/pages/PregatireExamen.jsx`, `src/components/LiveAdmin.jsx`; pachetul npm `mupdf`)
+- La problemele „În figura alăturată…" („desenul", „schița", „tabelul alăturat"), desenul apare pe tabla digitală, în dreapta enunțului (și în „Caietul meu", sub enunț). Figurile oficiale sunt desenate cu linii, deci se **decupează din pagina PDF** cu MuPDF (WebAssembly, pe server): zona exercițiului din subiectul lui, liniile desenului (fără liniile de fracție, barele radicalilor, ramele, separatoarele și tabelul variantelor) + etichetele lor, randate de 3× pe alb → PNG în Storage (`live-media/lessons/<id>/fig-III6.png`). Toți itemii problemei (a, b, c) primesc același desen.
+- Enunțul proiectat care nu încape (enunț lung + desen + variante) își micșorează scrisul (până la 70%), ca tabla albă — în proiecție nu se poate derula.
+- O singură dată pe lecție (câteva secunde, 0 lei): lecțiile noi imediat după scriere; cele scrise înainte la prima folosire (intrarea în sală, cronul, Pregătirea de examen), cel mult 25 s. Cronologia nu se schimbă (merge și cât ține o ședință). Admin → „Scriptul": ce desene s-au găsit / nu, miniaturile, „🖼 Refă desenele". Un desen negăsit sau un PDF care nu vine nu oprește lecția. `LIVE_DESENE=0` le oprește.
+
+### 4) „🗑 Șterge versiunile vechi" (`api/live.js` → `admin_delete_old`, `src/components/LiveAdmin.jsx`)
+- „Lecțiile recente" marchează versiunile înlocuite prin „Regenerează" („versiune veche — înlocuită de v3"); butonul de sus le șterge pe toate (câte 40 pe cerere, repetă singur), „🗑 Șterge" pe rând — una. Se șterge rândul și fișierele lui din Storage (vocea, desenele). Cât versiunea nouă nu e gata (se scrie / a eșuat), cea veche rămâne; la fel una în lucru. Sălile, Pregătirea de examen și simulările foloseau oricum doar cea mai nouă versiune.
+
+**Verificat:** `npm test` 762/762 (noi: `test/desene-pdf.test.js` — un subiect de EN construit cu pdf-lib: chenar, fracții, separator, triunghi, dreptunghi, paralelipiped pe pagina 2, axa numerelor, tabelul variantelor, o figură-imagine, integrarea cu sala și Admin; `test/versiuni-vechi.test.js`; extinse: `test/formule-reparate.test.js`, `test/lectii-live-opus.test.js`); `vite build` trece; capturi Chromium ale sălii demo cu un desen (desktop și telefon 390 px: enunțul, desenul și toate variantele încap). Fără SQL nou. Variabile noi, opționale: `LIVE_REZERVA_MODEL`, `LIVE_DESENE`. Neverificat aici (fără rețea): un apel real la Claude și un PDF oficial real — decuparea e verificată pe PDF-uri construite ca subiectele de EN.
+
+---
+
 ## 12 octombrie 2026 — Lecțiile live: itemii lipsă (Opus 5.5), formulele stricate, vocea „se generează…" · erorile din agentul de debug
 
 Cererea: 1) „Opus 5.5 nu a generat tot subiectul de BAC, lipsesc subpunctele b) și c) de la subiectul 3 ex 1; cu Terra apare «vocea se generează» și erorile de afișare de tip \frac…; păstrez Opus 5.5 și repari faptul că a trunchiat" ; 2) erorile găsite de agentul de debug din Admin — „repară ce se poate".

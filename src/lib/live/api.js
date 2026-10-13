@@ -85,8 +85,9 @@ export const liveApi = {
   // meditațiile gratuite — câte una pe examen: { type, subjectId } (null = niciuna), { type, auto: true }
   // (alegerea automată) sau { subjectId, on } (butonul „🎁" din „Lecțiile recente")
   adminSetFree: (args) => call({ action: 'admin_set_free', ...(Array.isArray(args) ? { subjectIds: args } : args) }),
-  // cine scrie lecțiile noi: null = implicitul (GPT-5.6 Terra), 'claude-opus-5-5' = Claude Opus 5.5
-  adminSetWriter: (model) => call({ action: 'admin_set_writer', model }),
+  // versiunile vechi ale lecțiilor (înlocuite prin „Regenerează"): {} = toate (câte 40 pe cerere),
+  // { lessonId } = una; { dry: true } = doar numărul
+  adminDeleteOld: (args = {}) => call({ action: 'admin_delete_old', ...args }),
 };
 
 // Plata unui bilet (Stripe Checkout) — întoarce URL-ul paginii de plată

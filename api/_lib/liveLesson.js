@@ -25,32 +25,28 @@ const live = require('./live');
 const tts = require('./tts');
 
 // lecția pe barem se scrie o singură dată pe subiect, din paginile PDF ale subiectului
-// și baremului → implicit modelul de PDF („terra", mai ieftin decât „sol");
-// LIVE_GEN_MODEL îl schimbă. Din Admin → Meditații live („✍️ Cine scrie lecțiile") se
-// poate alege Claude Opus 5.5 (API-ul Anthropic, ANTHROPIC_API_KEY): mai bun la
-// matematică, ~1,7× costul lui Terra — plătit tot o singură dată pe subiect.
-// REZERVA: o bucată pe care Claude nu o scrie (fără cheie, eroare, limită, răspuns
-// tăiat, niciun item valid) o scrie modelul de PDF — lecția nu rămâne nescrisă.
-const GEN_MODEL = () => process.env.LIVE_GEN_MODEL || ai.PDF_MODEL;
-const FALLBACK_MODEL = () => ai.PDF_MODEL;
+// și baremului → DOAR Claude Opus 5.5 (API-ul Anthropic, ANTHROPIC_API_KEY): cerința
+// din 13 oct. — lecțiile scrise de GPT-5.6 Terra aveau formule stricate. Fără rezervă:
+// un apel care cade se reîncearcă tot cu Claude, iar itemii care tot lipsesc se scriu
+// separat, câte unul (sau din Admin, „🧩 Completează itemii lipsă"). LIVE_GEN_MODEL
+// schimbă modelul, LIVE_REZERVA_MODEL (ex. „gpt-5.6-terra") pune o rezervă — doar la nevoie.
+const OPUS = 'claude-opus-5-5';
+const GEN_MODEL = () => (process.env.LIVE_GEN_MODEL || '').trim() || OPUS;
+const FALLBACK_MODEL = () => (process.env.LIVE_REZERVA_MODEL || '').trim() || null;
 // doar ID-urile Anthropic („claude-…") merg pe API-ul Anthropic; „anthropic/claude-…"
 // (un furnizor compatibil OpenAI, prin AI_CHAT_BASE_URL) rămâne pe ai.chatJson
 const isClaude = (m) => /^claude-/i.test(String(m || '').trim());
-// alegerile din Admin (null = implicitul de mai sus)
-const WRITERS = [{ id: 'claude-opus-5-5', label: 'Claude Opus 5.5' }];
-const writerChoice = (m) => {
-  const id = claude.currentModel(m);
-  return WRITERS.some((w) => w.id === id) ? id : null;
-};
-// pauza dinaintea reîncercării când Claude e ocupat (429 pe minut / supraîncărcat)
+// pauza dinaintea reîncercării când Claude e ocupat (429 pe minut, supraîncărcat,
+// eroare temporară): 15 s, apoi dublu
 const CLAUDE_PAUSE_MS = () => Math.max(0, parseInt(process.env.LIVE_CLAUDE_PAUZA_MS || '15000', 10) || 0);
+const CLAUDE_TRIES = 3;
 const CHUNK = () => Math.max(1, parseInt(process.env.LIVE_ITEMI_PE_APEL || '3', 10));
 const TTS_PARALLEL = () => Math.max(1, parseInt(process.env.LIVE_TTS_PARALEL || '6', 10));
 
 let fixLatex = (s) => s;
 try { fixLatex = require('./meditatii').fixLatex || fixLatex; } catch { /* rămâne identitatea */ }
 // formulele pe care KaTeX nu le poate afișa (ex. „\\begin{pmatrix}…\\right)") — reparate la scriere
-const { fixMathText } = require('./texRepair');
+const { fixMathText, brokenMath } = require('./texRepair');
 
 // ─── Secțiunile subiectului și ale baremului ─────────────────────────────────
 // Unele PDF-uri repetă „SUBIECTUL I" (antet de pagină, tabelul de punctaj):
@@ -281,7 +277,7 @@ function systemPrompt(teacher, exam, profile) {
     `Pregătești o meditație online, ca într-o clasă virtuală cu mai mulți elevi, în care explici un subiect de ${live.EXAM_LABEL(exam, profile)}${exam === 'bac' && live.PROFILE_LABELS[profile] ? ` (programa ${live.PROFILE_LABELS[profile]})` : ''} DOAR pe baza baremului oficial.`,
     '',
     'REGULI:',
-    '0. FORMULELE: dacă ai paginile PDF atașate (subiectul și baremul), citește formulele DIN PAGINI — textul extras le pierde des (radicali, linii de fracție, exponenți, integrale, determinanți, matrice, vectori, limite, figuri). Transcrie-le exact, în LaTeX între $...$: $\\sqrt{2}$, $\\sqrt[3]{x}$, $\\frac{a}{b}$, $x^{2}$, $a_{n}$, $\\int_{0}^{1} f(x)\\,dx$, $\\lim_{x \\to 2} f(x)$, $\\begin{vmatrix} 1 & 2 \\\\ 3 & 4 \\end{vmatrix}$ (determinant), $\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}$ (matrice), $\\overrightarrow{AB}$, $\\vec{v}$, $\\log_{2} x$, $\\widehat{ABC}$, $\\mathbb{R}$. Nu scrie NICIODATĂ un enunț cu „[formula nu e lizibilă]" sau „…": dacă un item chiar nu se poate citi nici din pagină, nu îl include.',
+    '0. FORMULELE: dacă ai paginile PDF atașate (subiectul și baremul), citește formulele DIN PAGINI — textul extras le pierde des (radicali, linii de fracție, exponenți, integrale, determinanți, matrice, vectori, limite, figuri). Transcrie-le exact, în LaTeX între $...$: $\\sqrt{2}$, $\\sqrt[3]{x}$, $\\frac{a}{b}$, $x^{2}$, $a_{n}$, $\\int_{0}^{1} f(x)\\,dx$, $\\lim_{x \\to 2} f(x)$, $\\begin{vmatrix} 1 & 2 \\\\ 3 & 4 \\end{vmatrix}$ (determinant), $\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}$ (matrice), $\\overrightarrow{AB}$, $\\vec{v}$, $\\log_{2} x$, $\\widehat{ABC}$, $\\mathbb{R}$. Nu scrie NICIODATĂ un enunț cu „[formula nu e lizibilă]" sau „…": dacă un item chiar nu se poate citi nici din pagină, nu îl include. Mulțimile se scriu $\\mathbb{R}$, $\\mathbb{N}$, $\\mathbb{Z}$, $\\mathbb{Q}$, $\\mathbb{C}$ — textul extras din PDF le strică des (apar ca „0", „□" sau lipsesc, ex. „f: 0 → 0" în loc de „f: ℝ → ℝ"): ia-le din pagină. Fiecare formulă stă între o pereche de $…$, pe un singur rând (fără rând nou înăuntru); nu lăsa un $ fără pereche; \\text{…} doar pentru cuvinte, nu pentru formule întregi. În JSON, fiecare backslash din LaTeX se scrie dublat („\\\\frac", „\\\\infty", „\\\\mathbb").',
     '1. Sursa de adevăr este BAREMUL. Rezultatele, pașii și punctajele le iei din barem. Nu inventa alt rezultat. Dacă un item nu apare în barem, NU îl include.',
     '2. Enunțul îl iei din textul subiectului; corectezi doar greșelile de extragere din PDF (spații, indici, fracții, radicali). Formulele în LaTeX între $...$.',
     '3. Fiecare item se explică în mai multe moduri: „barem" (rezolvarea oficială, pas cu pas, spunând câte puncte se acordă: „pentru acest calcul se acordă 2 puncte"), „intuitiv" (ideea pentru un elev care nu a înțeles: o imagine, o comparație, o verificare rapidă, fără calcule lungi), „greseli" (greșelile tipice și cum se pierd puncte) și „alta_metoda" (o altă rezolvare corectă, cu ACELAȘI rezultat — baremul punctează orice metodă corectă; null dacă nu există una firească).',
@@ -857,6 +853,9 @@ function anthropicContent(text, parts = []) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const transient = (e) => (e && e.status === 429
+  ? !/usage limits|spend/i.test(String(e.message))
+  : /overload|internal server error|api_error|timed? ?out|fetch failed|ECONNRESET|socket hang up|network|service unavailable|\b5\d\d\b/i.test(String(e && e.message)));
 
 // Elementele ÎNTREGI ale listei "items" dintr-un JSON tăiat: doar cele care se închid
 // (un obiect scris pe jumătate nu intră, oricât de „reparabil" ar părea)
@@ -895,10 +894,13 @@ async function claudeJson({ model, system, text, parts, schema, maxTokens, usage
       r = await claude.chatClaude({ system: system + formatNote(schema), messages: [{ role: 'user', content: anthropicContent(text, parts) }], schema, maxTokens, model });
       break;
     } catch (e) {
-      // limita pe minut / supraîncărcare: o pauză și o singură reîncercare (plafonul
-      // lunar de cheltuieli nu trece cu o pauză → direct rezerva)
-      const busy = e.status === 429 ? !/usage limits|spend/i.test(String(e.message)) : /overloaded/i.test(String(e.message));
-      if (attempt === 0 && busy) { await sleep(e.retryAfter ? Math.min(60000, e.retryAfter * 1000) : CLAUDE_PAUSE_MS()); continue; }
+      // limita pe minut / supraîncărcare / o eroare temporară a serverului: o pauză și
+      // reîncercare (cel mult CLAUDE_TRIES încercări); plafonul lunar de cheltuieli sau o
+      // cerere greșită nu trec cu o pauză
+      if (attempt + 1 < CLAUDE_TRIES && transient(e)) {
+        await sleep(e.retryAfter ? Math.min(60000, e.retryAfter * 1000) : CLAUDE_PAUSE_MS() * (attempt + 1));
+        continue;
+      }
       throw e;
     }
   }
@@ -937,20 +939,28 @@ async function openaiJson({ model, system, text, parts = [], schema, schemaName,
 async function writeJson(opts) {
   const { model, log = () => {}, what = 'lecția' } = opts;
   if (isClaude(model)) {
+    const fb = FALLBACK_MODEL();
     if (claude.HAS_KEY) {
       try { return { data: await claudeJson(opts), model }; }
-      catch (e) { log(`live: ${what} — ${model} a eșuat (${e.message}); scrie ${FALLBACK_MODEL()}`); }
-    } else log(`live: ${what} — ANTHROPIC_API_KEY lipsește; scrie ${FALLBACK_MODEL()}`);
-    return { data: await openaiJson({ ...opts, model: FALLBACK_MODEL() }), model: FALLBACK_MODEL(), fallback: true };
+      catch (e) {
+        if (!fb) { log(`live: ${what} — ${model} a eșuat (${e.message})`); throw e; }
+        log(`live: ${what} — ${model} a eșuat (${e.message}); scrie ${fb}`);
+      }
+    } else {
+      if (!fb) throw noKeyError();
+      log(`live: ${what} — ANTHROPIC_API_KEY lipsește; scrie ${fb}`);
+    }
+    return { data: await openaiJson({ ...opts, model: fb }), model: fb, fallback: true };
   }
   return { data: await openaiJson(opts), model };
 }
+const noKeyError = () => Object.assign(new Error('ANTHROPIC_API_KEY lipsește în Vercel — lecțiile live le scrie Claude Opus 5.5.'), { code: 'NO_ANTHROPIC_KEY', status: 503 });
 
 // ─── 1. Scriptul ─────────────────────────────────────────────────────────────
 // Jurnalul scrierii: tot ce se loghează merge în log; în script.writer.notes rămân doar
 // evenimentele care contează (eșecuri, rezerva, răspunsuri tăiate, itemi omiși sau lipsă),
 // nu corecturile de rutină (litera grilei din barem, întrebările pe pași respinse)
-const NOTE_KEEP = /eșua|tăiat|lips|omis\b|niciun item|scrie |ANTHROPIC_API_KEY|refuz|completare/i;
+const NOTE_KEEP = /eșua|tăiat|lips|omis\b|niciun item|scrie |rescri|formul|ANTHROPIC_API_KEY|refuz|completare/i;
 const NOTE_SKIP = /întrebarea pe pas|întrebării pe pas|întrebare pe pas/i;
 const noteTo = (notes, log) => (m) => {
   const line = String(m).replace(/^live:\s*/, '').slice(0, 300);
@@ -963,6 +973,16 @@ const dedupeItems = (list) => {
   const seen = new Set();
   return list.filter((it) => (seen.has(it.ref) ? false : (seen.add(it.ref), true))).sort(refOrder);
 };
+
+// O formulă a itemului pe care KaTeX nu o poate afișa nici după reparare (texRepair) —
+// enunțul, variantele, întrebările, tabla. null = toate se afișează.
+function itemBrokenMath(it) {
+  const texts = [it.statement, it.statementTry, ...(it.options || [])];
+  for (const p of [it.tryPoll, it.check, ...(it.steps || [])]) if (p) texts.push(p.question, p.hint, ...(p.options || []));
+  for (const segs of Object.values(it.modes || {})) for (const sg of segs || []) texts.push(...(sg.board || []));
+  for (const t of texts) { const bad = brokenMath(t); if (bad) return bad; }
+  return null;
+}
 
 // Itemii care LIPSESC după prima trecere (răspuns tăiat, itemi omiși de model sau
 // respinși la verificări — ex. „Subiectul III, 1 b) și c)"): câte un apel pe item,
@@ -981,7 +1001,7 @@ async function fillItems({ refs, sections, attachments, teacher, exam, profile, 
     try {
       let r = await writeJson({ ...req, model });
       let items = mine(r);
-      if (!items.length && isClaude(r.model)) {
+      if (!items.length && isClaude(r.model) && FALLBACK_MODEL()) {
         log(`live: ${what} — niciun item valid de la ${r.model}; scrie ${FALLBACK_MODEL()}`);
         r = await writeJson({ ...req, model: FALLBACK_MODEL() });
         items = mine(r);
@@ -1005,6 +1025,8 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
   }
   const genModel = model || GEN_MODEL();
   const sections = { subject: sectionMap(subjectText), barem: sectionMap(baremText) };
+  // fără cheie Anthropic și fără rezervă: nimic de scris (eroarea apare în Admin)
+  if (isClaude(genModel) && !claude.HAS_KEY && !FALLBACK_MODEL()) throw noKeyError();
   // bucățile după modelul care scrie EFECTIV (fără cheie Anthropic scrie rezerva)
   const planModel = isClaude(genModel) && !claude.HAS_KEY ? FALLBACK_MODEL() : genModel;
   let plan = callPlan(exam, sections, (sec) => chunkSize(planModel, sec));
@@ -1038,7 +1060,7 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
       let items = normalizeItems(r.data?.items, { section: p.section, exam, grile, baremText, log: note });
       // fără structura subiectului (whole) nu se pot completa itemi după: Claude fără
       // niciun item valid → aceeași bucată, cu rezerva
-      if (whole && !items.length && isClaude(r.model)) {
+      if (whole && !items.length && isClaude(r.model) && FALLBACK_MODEL()) {
         note(`live: ${what} — niciun item valid de la ${r.model}; scrie ${FALLBACK_MODEL()}`);
         r = await writeJson({ ...req, model: FALLBACK_MODEL() });
         items = normalizeItems(r.data?.items, { section: p.section, exam, grile, baremText, log: note });
@@ -1051,13 +1073,25 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
     }
   }));
   let items = dedupeItems(results.flat());
+  // itemii cu o formulă care nu se poate afișa (nici după reparare) → rescriși o dată;
+  // dacă rescrierea nu vine, rămâne varianta de acum (formula apare ca text simplu)
+  const broken = new Map();
+  if (!whole) for (const it of items) { const bad = itemBrokenMath(it); if (bad) broken.set(it.ref, it); }
+  if (broken.size) {
+    note(`live: formule care nu se pot afișa (${[...broken.keys()].join(', ')}) — itemii se rescriu`);
+    items = items.filter((it) => !broken.has(it.ref));
+  }
   // itemii care lipsesc față de structura subiectului → scriși separat, câte unul
   const expected = whole ? [] : expectedRefs(exam, sections);
   let missing = missingOf(expected, items);
-  if (missing.length) {
-    note(`live: lipsesc după prima trecere: ${missing.join(', ')} — se scriu separat`);
-    const more = await fillItems({ refs: missing, sections, attachments, teacher, exam, profile, title, grile, baremText, model: genModel, usage, wrote, log: note });
+  const redo = [...new Set([...missing, ...broken.keys()])];
+  if (redo.length) {
+    const lost = missing.filter((ref) => !broken.has(ref));
+    if (lost.length) note(`live: lipsesc după prima trecere: ${lost.join(', ')} — se scriu separat`);
+    const more = await fillItems({ refs: redo, sections, attachments, teacher, exam, profile, title, grile, baremText, model: genModel, usage, wrote, log: note });
     items = dedupeItems([...items, ...more]);
+    for (const [ref, it] of broken) if (!items.some((x) => x.ref === ref)) items.push(it);
+    items = dedupeItems(items);
     missing = missingOf(expected, items);
     if (missing.length) note(`live: tot lipsesc: ${missing.join(', ')}`);
   }
@@ -1091,6 +1125,7 @@ async function completeScript({ script, ctx, teacher, attachments = null, model 
   const copy = JSON.parse(JSON.stringify(script));
   const exam = copy.exam, profile = copy.profile || null;
   const genModel = model || GEN_MODEL();
+  if (isClaude(genModel) && !claude.HAS_KEY && !FALLBACK_MODEL()) throw noKeyError();
   const usage = { in: 0, out: 0, model: genModel, byModel: {} };
   const baremText = String(ctx.baremText || '');
   const sections = { subject: sectionMap(String(ctx.text || '')), barem: sectionMap(baremText) };
@@ -1277,8 +1312,8 @@ function playableHead(script, audio) {
 module.exports = {
   generateScript, adaptScript, renameTeacher, dropUnreadable, pdfAttachments, sectionPages, voiceScript, playableHead, segmentsInOrder, voiceOrder, itemSegments, templates, assignIds,
   normalizeItems, sectionMap, callPlan, parseRef, refKey, SCHEMA, systemPrompt, userPrompt, GEN_MODEL,
-  // cine scrie (Terra / Claude Opus 5.5, cu rezerva) și costul pe model
-  FALLBACK_MODEL, WRITERS, writerChoice, isClaude, writeJson, anthropicContent, usageParts,
+  // cine scrie (Claude Opus 5.5; o rezervă doar cu LIVE_REZERVA_MODEL) și costul pe model
+  OPUS, FALLBACK_MODEL, isClaude, writeJson, anthropicContent, usageParts,
   // itemii lipsă (structura subiectului, completarea lor)
   expectedRefs, missingOf, missingGuess, chunkSize, completeScript,
   // întrebările pe pași

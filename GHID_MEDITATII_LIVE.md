@@ -19,7 +19,7 @@ Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 | **🎓 Pregătire de examen** (din „Planul meu"): aceeași clasă, dar profesorul propune ordinea — S. I ex. 1 → ex. 2 → … → S. II → S. III, câte cel puțin 10 exerciții pe poziție, apoi un test; elevul poate alege **orice exercițiu** (la BAC și doar un subpunct a/b/c). **Prețul: ca la 1-la-1** — o ședință de 60 min, prelungite cât lucrează | din **aceleași 8/lună incluse** în abonament (comune cu 1-la-1 live), apoi 20 lei; fără abonament, biletul de 20 lei — `/meditatii/pregatire` (`?pos=II.2.b` = începe direct acolo); vezi secțiunea 3 |
 | **Plata**: 10 lei ședința de grup fără abonament; inclusă în abonament. În lobby, **„💳 Prețuri"** deschide lista tuturor prețurilor, cu și fără abonament | Stripe (plată unică), bilet în `live_tickets`; lista: `src/components/live/PriceList.jsx` |
 | **🎁 Meditații gratuite** — **câte una pe fiecare examen** (Evaluarea Națională, BAC Mate-Info, BAC Științele Naturii, BAC Tehnologic): o lecție pe care oricine are cont o face **1-la-1, fără abonament și fără plată** — la vedere în lobby, chiar sub prezentare, cu „▶ Începe gratuit" (prima e cea a sălii alese) | alese automat până le alegi tu din **Admin → 🎥 Meditații live → „🎁 Meditațiile gratuite"** (câte un rând pe examen; sau „🎁 Fă-o gratuită" la o lecție) — vezi secțiunea 3d |
-| **Lecția, scrisă o singură dată pe subiect** (explicația pe barem + explicațiile de rezervă + întrebările), apoi refolosită peste tot | **Admin → 🎥 Meditații live → „✍️ Cine scrie lecțiile"**: GPT-5.6 Terra (implicit) sau **Claude Opus 5.5** (mai bun la matematică, ~1,7× costul), cu Terra ca rezervă — vezi secțiunea 3e |
+| **Lecția, scrisă o singură dată pe subiect** (explicația pe barem + explicațiile de rezervă + întrebările + **desenul din PDF** la problemele cu figură), apoi refolosită peste tot | **doar Claude Opus 5.5** (din 13 oct.; `ANTHROPIC_API_KEY`); Admin → 🎥 Meditații live → „Lecțiile recente": Regenerează, 🧩 itemii lipsă, 🖼 desenele, **🗑 versiunile vechi** — vezi secțiunea 3e |
 
 **Fără barem, profesorul nu explică nimic:** sunt propuse doar subiectele al căror barem
 a fost găsit și citit (cache-ul `ai_pdf_text`), iar explicația „pe barem" e obligatorie
@@ -161,8 +161,10 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 | `LIVE_PREGATIRE_AUTO` | oprit | `1` = lecțiile se scriu din timp pentru toate ședințele (cost și când nu vine nimeni); implicit, doar când apare primul elev |
 | `LIVE_PREGATIRE_ORE` | `4` | orizontul cronului: ședințele din următoarele ore pentru care pregătește lecții (cu elevi) / generează vocea |
 | `LIVE_REFOLOSIRE_ZILE` | `21` | după câte zile se poate repeta un subiect |
-| `LIVE_GEN_MODEL`, `LIVE_CHAT_MODEL` | modelul de PDF („terra") / modelul de chat | modelul care scrie lecția pe barem (din paginile PDF) / răspunde în chat. Alegerea din Admin („✍️ Cine scrie lecțiile", vezi 3e) are întâietate; `LIVE_GEN_MODEL=claude-opus-5-5` = Claude Opus 5.5 implicit, cu Terra ca rezervă |
-| `LIVE_CLAUDE_PAUZA_MS` | `15000` | când Claude răspunde „prea multe cereri" (429) la scrierea unei lecții: pauza înainte de singura reîncercare (apoi bucata o scrie Terra) |
+| `LIVE_GEN_MODEL`, `LIVE_CHAT_MODEL` | `claude-opus-5-5` / modelul de chat | modelul care scrie lecția pe barem (din paginile PDF) — din 13 oct. **doar Claude Opus 5.5** (vezi 3e; fără alegere în Admin) / modelul care răspunde în chat |
+| `LIVE_REZERVA_MODEL` | — (fără rezervă) | ex. `gpt-5.6-terra`: scrie bucata la care Claude nu răspunde (fără cheie, eroare, plafonul lunar). Implicit nu există: lecțiile le scrie doar Opus 5.5 |
+| `LIVE_CLAUDE_PAUZA_MS` | `15000` | când Claude e ocupat (429 pe minut, supraîncărcat, eroare temporară) la scrierea unei lecții: pauza înainte de reîncercare (apoi dublu; cel mult 3 încercări, tot cu Claude) |
+| `LIVE_DESENE` | pornit | `0` = fără desenele decupate din PDF lângă enunț (vezi 3e, „🖼 Desenele din PDF") |
 | `LIVE_PROF_RADU_NUME`, `LIVE_PROF_RADU_BIO` | `Prof. Tudor` | numele și prezentarea profesorului (id-ul intern a rămas `radu`) |
 
 ---
@@ -353,84 +355,103 @@ Naturii — o meditație 1-la-1".
 
 ---
 
-## 3e. ✍️ Cine scrie lecțiile: GPT-5.6 Terra sau Claude Opus 5.5 (octombrie 2026)
+## 3e. ✍️ Cine scrie lecțiile: doar Claude Opus 5.5 (din 13 octombrie 2026)
 
-Cererea: „Păstrează explicațiile de rezervă. Adaugă opțiunea Opus 5.5" — pentru scrierea lecțiilor
-live (o lecție se scrie o singură dată pe subiect și se refolosește).
+Cererile: „Adaugă opțiunea Opus 5.5" (11 oct.); pe 13 oct., după un test scris de GPT-5.6 Terra cu
+formule stricate: „Pune doar Opus 5.5 la generare meditații video. … pune și desenul din PDF. Pune
+buton de ștergere a variantelor vechi regenerate în alte variante noi".
 
-- **Unde:** Admin → 🎥 Meditații live → cutia **„✍️ Cine scrie lecțiile"**: **GPT-5.6 Terra**
-  (implicit, mai ieftin) sau **Claude Opus 5.5** (mai bun la matematică). Alegerea se salvează în
-  `app_settings` (cheia `live_gen_model`) și contează pentru lecțiile scrise **de acum înainte** —
-  ședințele de grup, 1-la-1 și Pregătirea de examen folosesc aceleași lecții. Pentru o lecție
-  existentă: „Regenerează" în „Lecțiile recente" (versiune nouă, costă din nou).
-- **Ce scrie modelul ales:** tot scriptul — enunțul curat, întrebarea „încercați singuri", explicația
-  pe barem cu punctajul pașilor, **explicațiile de rezervă** („Explică altfel": pe înțelesul tuturor,
-  greșeli care costă puncte, altă metodă — rămân, neschimbate), verificarea și întrebările pe pași.
-  Aceleași reguli și aceeași schemă strictă (Structured Outputs), aceleași pagini PDF ale subiectului
-  și baremului (la Claude, ca documente PDF), aceleași verificări deterministe după (literele grilelor
-  de EN din tabelul baremului, enunțurile ilizibile scoase).
-- **Rezerva (Terra), pe bucăți:** lecția se scrie pe bucăți, în paralel — Terra câte 3 itemi; Claude
-  câte 3 la Subiectul I și **câte 2 la Subiectele II–III** (din 12 oct.: cu 3 itemi lungi, un răspuns
-  depășea uneori limita de 16.000 de tokeni). O bucată pe care Claude nu o scrie — lipsește
-  `ANTHROPIC_API_KEY`, eroare, „prea multe cereri" (429: o pauză de `LIVE_CLAUDE_PAUZA_MS`, implicit
-  15 s, și o reîncercare; la plafonul lunar de cheltuieli Anthropic, direct rezerva), răspuns tăiat
-  fără niciun item întreg — o scrie **GPT-5.6 Terra**, așa că lecția nu rămâne nescrisă. În „Lecțiile recente" apare cine a scris-o:
-  „scrisă de Claude Opus 5.5" sau, cu rezerva folosită, „Claude Opus 5.5 (5 bucăți) + GPT-5.6 Terra
-  (1 bucată)". Limitele Anthropic pentru Opus 5.5 (chiar la nivelul Start: 1.000 de cereri, 2 milioane
-  de tokeni de intrare și 400.000 de ieșire pe minut) încap lejer cele 6 bucăți deodată.
-- **Costul:** Claude Opus 5.5 costă 4 $ / 20 $ pe milionul de tokeni (intrare / ieșire), Terra
-  2 $ / 12 $ → o lecție cu Claude iese cam de **1,7 ori** mai scumpă (~2,5–8,5 lei în loc de
-  ~1,5–5 lei), **o singură dată pe subiect**. Costul se socotește pe fiecare model (bucățile scrise
-  de rezervă, la prețul lui Terra): în coloana „Cost" din Admin și în `ai_usage` (rândurile
-  `live-lectie` / `live-pasi`, câte unul pe model). Și tokenii unei încercări eșuate se notează.
-- **Sol sau Terra?** (întrebarea lui Radu, 11 oct.) Până pe 11 oct. lecțiile le scria implicit **GPT-5.6
-  Sol** (modelul de generare); de atunci, **GPT-5.6 Terra** (economii — `GHID_LIMITE_AI.md`). Sunt din
-  aceeași familie OpenAI: Sol e cel mai puternic (scoruri mai mari la raționament), Terra mai ieftin și
-  mai rapid la scris — 2 $ / 12 $ față de 4 $ / 20 $, deci o lecție cu Sol ar costa cam 1,7× (cât una
-  cu Claude Opus 5.5). La lecțiile live, pașii și rezultatele vin din **baremul oficial**, iar
-  verificările deterministe prind rezultatele greșite, așa că diferența contează mai puțin decât la
-  generarea de exerciții fără barem (unde a rămas Sol); se poate simți la citirea formulelor din
-  paginile PDF și la explicațiile de rezervă. Pentru calitate maximă: butonul Claude Opus 5.5 (același
-  preț ca Sol); `LIVE_GEN_MODEL=gpt-5.6-sol` în Vercel readuce Sol ca implicit. Lecțiile deja scrise
-  rămân cum sunt (cele de dinainte, cu Sol) până la „Regenerează".
-- **Timpul:** Claude scrie mai încet decât Terra (~2–5 minute pe lecție, în loc de 1–3). Lacătul
-  lecției ține cât poate dura funcția (14 minute), ca două cereri să nu scrie aceeași lecție de două
-  ori; cronul nu mai începe o lecție nouă cu Claude după primele 7 minute ale rulării (o scrie rularea
-  următoare sau sala de așteptare); Pregătirea de examen așteaptă până la 5 minute o lecție pe care o
-  scrie chiar atunci altă cerere (în loc să scrie alt subiect).
+- **Cine scrie:** **Claude Opus 5.5** (API-ul Anthropic, `ANTHROPIC_API_KEY` — aceeași cheie folosită
+  deja de exercițiile din „Meditații" și de agenți), toate lecțiile scrise de acum: ședințele de grup,
+  1-la-1 și Pregătirea de examen (aceleași lecții). Alegerea Terra / Opus din Admin a dispărut: cutia
+  **„✍️ Lecțiile le scrie Claude Opus 5.5"** doar arată modelul și avertizează dacă lipsește cheia.
+  Fără cheie nu se scrie nicio lecție nouă (eroarea apare în Admin și în sala de așteptare) — nu mai
+  scrie Terra în locul lui, pe ascuns.
+- **Fără rezervă automată:** un apel la care Claude nu răspunde (limita pe minut — 429, supraîncărcare,
+  o eroare temporară) se **reîncearcă tot cu Claude** (cel mult 3 încercări, cu pauze de
+  `LIVE_CLAUDE_PAUZA_MS`, implicit 15 s, apoi dublu). Itemii care tot lipsesc se scriu apoi separat, câte
+  unul, tot cu Claude; ce rămâne apare în Admin („🧩 Completează itemii lipsă"). La plafonul lunar de
+  cheltuieli Anthropic lecția nu se poate scrie (vezi Probleme frecvente). `LIVE_REZERVA_MODEL=gpt-5.6-terra`
+  (Vercel) pune la loc o rezervă, doar dacă e nevoie; `LIVE_GEN_MODEL` schimbă modelul.
+- **Ce scrie:** tot scriptul — enunțul curat, întrebarea „încercați singuri", explicația pe barem cu
+  punctajul pașilor, **explicațiile de rezervă** („Explică altfel": pe înțelesul tuturor, greșeli care
+  costă puncte, altă metodă), verificarea și întrebările pe pași. Schema strictă (Structured Outputs),
+  paginile PDF ale subiectului și baremului ca documente, aceleași verificări deterministe după
+  (literele grilelor de EN din tabelul baremului, enunțurile ilizibile scoase, formulele — mai jos).
+- **Pe bucăți, în paralel:** câte 3 itemi pe apel la Subiectul I și **câte 2 la Subiectele II–III** (cu 3
+  itemi lungi, un răspuns depășea uneori limita de 16.000 de tokeni). Limitele Anthropic pentru Opus 5.5
+  (chiar la nivelul Start: 1.000 de cereri, 2 milioane de tokeni de intrare și 400.000 de ieșire pe minut)
+  încap lejer bucățile deodată.
+- **Costul:** 4 $ / 20 $ pe milionul de tokeni (intrare / ieșire) → ~2,5–8,5 lei pe lecție (fără voce),
+  **o singură dată pe subiect** — cam de 1,7 ori cât cu Terra. Coloana „Cost" din Admin și `ai_usage`
+  (rândurile `live-lectie` / `live-pasi`); și tokenii unei încercări eșuate se notează.
+- **Timpul:** ~2–5 minute pe lecție. Lacătul lecției ține 14 minute (cât poate dura funcția), ca două
+  cereri să nu scrie aceeași lecție de două ori; cronul nu mai începe o lecție nouă după primele 7 minute
+  ale rulării (o scrie rularea următoare sau sala de așteptare); Pregătirea de examen așteaptă până la
+  5 minute o lecție pe care o scrie chiar atunci altă cerere.
+- **Lecțiile scrise înainte** (de GPT-5.6 Terra sau Sol) rămân cum sunt până la **„Regenerează"** (Admin →
+  „Lecțiile recente"): versiune nouă, scrisă de Opus 5.5 (costă din nou). Formulele lor se repară oricum
+  la afișare (mai jos); pentru explicații mai bune — „Regenerează", apoi „🗑 Șterge versiunile vechi".
 - **🧩 Itemii lipsă (12 oct.):** „Opus 5.5 nu a generat tot subiectul de BAC — lipsesc subpunctele b) și
-  c) de la Subiectul III, ex. 1". Acum, după prima trecere, lecția se compară cu **structura subiectului**
+  c) de la Subiectul III, ex. 1". După prima trecere, lecția se compară cu **structura subiectului**
   (exercițiile „1."…„6." din text și, la BAC II–III, cerințele „a)", „b)", „c)" ale fiecărei probleme;
   structura oficială când textul nu se citește sigur): fiecare item care lipsește — răspuns tăiat, item
-  omis de model sau respins la verificări — se scrie **separat, câte unul** (cu paginile secțiunii; Claude,
-  apoi Terra). Un răspuns tăiat la limita de tokeni își păstrează itemii întregi (doar cel scris pe
-  jumătate se aruncă). Ce lipsește tot rămâne în `script.missing`. **Lecțiile deja scrise:** Admin →
-  „Lecțiile recente" → „Scriptul" arată ce pare să lipsească (față de structura oficială) și butonul
-  **„🧩 Completează itemii lipsă"** — verifică pe textul subiectului și scrie DOAR itemii care lipsesc
-  (cu modelul ales; ~0,7 lei pe item cu Opus 5.5), apoi vocea lor; explicațiile, id-urile și vocea
-  celorlalți rămân (ieftin, față de „Regenerează"). Lecțiile scrise de acum au rândul „lipsesc itemii: …"
-  direct în listă.
-- **Jurnalul scrierii:** Admin → „Scriptul" → „Jurnalul scrierii": ce s-a întâmplat la scriere (rezerva,
-  răspunsurile tăiate, itemii omiși sau completați) — `script.writer.notes`.
-- **Formulele stricate (12 oct.):** modelele greșesc uneori LaTeX-ul citit din PDF — ex. paranteza înaltă din
-  „2(1 − 1/6)" scrisă ca matrice, „2\begin{pmatrix}1-\frac{1}{6}\right)", pe care KaTeX nu o poate afișa
-  (apărea textul brut, cu roșu). `api/_lib/texRepair.js` repară mediile fără pereche, `\left`/`\right`
-  dezechilibrate și acoladele — la scrierea lecției (fiecare formulă, verificată cu KaTeX) și în browser,
-  la afișare (`src/lib/katex.js` → `renderMath`, deci și lecțiile deja scrise); ce nu se poate repara apare
-  ca text simplu („8/3 − 2(1 − 1/6)"), nu cu roșu.
-- **Vocea „se generează…" (12 oct.):** un apel lucrează pe server cel mult ~4 minute (textul, apoi vocea);
-  ce nu încape rămânea „vocea se generează…" până intra primul elev. Acum, în Admin, pregătirea
-  (Regenerează, Pregătește, vocea, întrebările pe pași, itemii lipsă) **continuă singură până la „gata"**
-  cât pagina e deschisă (cu progresul: „vocea, 140/512 fraze"), iar lecțiile rămase la jumătate au
-  butonul **„▶ Continuă"**.
-- **Fără Admin:** `LIVE_GEN_MODEL=claude-opus-5-5` în Vercel face din Claude implicitul (cu aceeași
-  rezervă). `ANTHROPIC_API_KEY` e aceeași cheie folosită deja de exercițiile din „Meditații" și de agenți.
-- **Tehnic:** `api/_lib/liveLesson.js` (`writeJson`: Claude prin `api/_lib/claude.js`, cu paginile
-  ca documente PDF, altfel `ai.chatJson`; `usageParts`: tokenii pe model; `WRITERS`, `writerChoice`),
-  `api/live.js` (`lessonWriter`, `admin_set_writer`, `logWriteUsage`), `src/components/LiveAdmin.jsx`.
-  Itemii lipsă: `expectedRefs`, `fillItems`, `completeScript`, `wholeItems` (liveLesson.js), `fill` în
-  `admin_prepare` (live.js). Formulele: `api/_lib/texRepair.js` + oglinda `src/lib/texRepair.js`.
-  Teste: `test/lectii-live-opus.test.js`, `test/formule-reparate.test.js`.
+  omis de model sau respins la verificări — se scrie **separat, câte unul** (cu paginile secțiunii). Un
+  răspuns tăiat la limita de tokeni își păstrează itemii întregi (doar cel scris pe jumătate se aruncă).
+  Ce lipsește tot rămâne în `script.missing`. **Lecțiile deja scrise:** Admin → „Lecțiile recente" →
+  „Scriptul" arată ce pare să lipsească (față de structura oficială) și butonul **„🧩 Completează itemii
+  lipsă"** — verifică pe textul subiectului și scrie DOAR itemii care lipsesc (~0,7 lei pe item), apoi
+  vocea lor; explicațiile, id-urile și vocea celorlalți rămân (ieftin, față de „Regenerează").
+- **Jurnalul scrierii:** Admin → „Scriptul" → „Jurnalul scrierii": ce s-a întâmplat la scriere
+  (reîncercările, răspunsurile tăiate, itemii omiși, completați sau rescriși) — `script.writer.notes`.
+- **Formulele stricate (12–13 oct.):**
+  - *12 oct.:* paranteza înaltă din „2(1 − 1/6)" scrisă ca matrice, „2\begin{pmatrix}1-\frac{1}{6}\right)",
+    pe care KaTeX nu o poate afișa (apărea textul brut, cu roșu): se repară mediile fără pereche,
+    `\left`/`\right` dezechilibrate și acoladele.
+  - *13 oct. (pozele cu `\text{f: (-4,+⊠infty)→u001bmathbbR}`, „$f: 0\to 0,f(x)=7x+5.Determinaținumărul…"):*
+    în JSON-ul modelului un backslash din LaTeX se pierde — „\t" din „\to" devine TAB, „\f" din „\frac"
+    salt de pagină, „\b" din „\beta" alt caracter de control, iar „\u001b" ajunge scris ca text
+    („⊠infty", „u001bmathbbR"). Mulțimea ℝ, în textul extras din PDF, apare ca „0" („f: 0 → 0"), iar o
+    formulă ruptă pe două rânduri despărțea perechile de `$` (textul de după se lipea de formulă). Acum
+    caracterele de control și „\u00XX" redevin comenzile LaTeX (`\to`, `\frac`, `\infty`, `\mathbb`),
+    „f: 0 → 0" devine „f: ℝ → ℝ", rândurile noi din formule se unesc; rezerva „ca text" nu mai poate conține
+    caractere de control (KaTeX o respingea și pe ea). **De ce „Regenerează" cu Opus dăduse la fel:** se
+    putea pierde și în răspunsul lui Claude câte un backslash, iar afișarea nu repara caracterele de control
+    — iar o bucată la care Claude nu răspundea o scria pe ascuns Terra.
+  - Reparațiile merg **la scriere** (`fixMathText`: fiecare formulă verificată cu KaTeX; un item cu o
+    formulă care tot nu se poate afișa se **rescrie o dată**) și **la afișare** (`src/lib/katex.js` →
+    `renderMath`, `Board.jsx` → `flatMath`), deci și lecțiile deja scrise se văd corect, fără Regenerează.
+    Ce nu se poate repara apare ca text simplu („8/3 − 2(1 − 1/6)"), nu cu roșu. Instrucțiunile cer
+    modelului backslash-ul dublat în JSON („\\frac") și ℝ luat din pagină.
+- **🖼 Desenele din PDF (13 oct.):** la problemele cu figură („În figura alăturată…", „desenul", „schița",
+  „tabelul alăturat"), desenul din subiect apare pe **tabla digitală, în dreapta enunțului** (și în „Caietul
+  meu", sub enunț). Figurile din subiectele oficiale sunt desenate cu linii (nu sunt imagini), deci se
+  **decupează din pagina PDF** (MuPDF, pe server): zona exercițiului („6." din subiectul lui, până la
+  exercițiul următor / subiectul următor / subsol), apoi liniile desenului din ea — fără liniile de fracție
+  și barele radicalilor, fără ramele și separatoarele paginii, fără tabelul variantelor — cu etichetele lor
+  (A, B, C', 4 cm…); se randează de 3× pe alb, ca PNG în Storage (`live-media/lessons/<id>/fig-III6.png`).
+  Toți itemii problemei (a, b, c) primesc același desen; un enunț care, cu desenul, nu mai încape în
+  proiecție își micșorează scrisul (până la 70%). **O singură dată pe lecție** (câteva secunde,
+  gratuit): la lecțiile noi, imediat după scriere; la cele scrise înainte, la prima folosire (intrarea în
+  sală, cronul dinaintea ședinței, Pregătirea de examen) — cronologia nu se schimbă, deci merge și cât
+  ține o ședință. Admin → „Scriptul": „🖼 Desenele din PDF: III.6 · negăsite: II.4", miniaturile, și
+  **„🖼 Refă desenele"** (din nou, pentru o lecție). Un desen negăsit sau un PDF care nu se descarcă nu
+  oprește nimic (lecția merge fără desen; motivul apare acolo). `LIVE_DESENE=0` le oprește.
+- **🗑 Versiunile vechi (13 oct.):** „Regenerează" scrie o versiune nouă; sălile, Pregătirea de examen și
+  simulările folosesc mereu cea mai nouă, iar cele vechi doar ocupau loc (în listă și în Storage, cu
+  vocea lor — sute de fișiere pe lecție). Admin → „Lecțiile recente": rândurile vechi au „versiune veche —
+  înlocuită de v3", iar sus e butonul **„🗑 Șterge versiunile vechi (N)"** (sau „🗑 Șterge" pe un rând):
+  șterge rândul și fișierele lui (`lessons/<id>/`: vocea, desenele). **Cât versiunea nouă nu e gata** (se
+  scrie sau a eșuat), cea veche rămâne — e singura bună; la fel o versiune „în lucru". Câte 40 pe cerere
+  (butonul repetă până termină).
+- **Tehnic:** `api/_lib/liveLesson.js` (`GEN_MODEL`, `FALLBACK_MODEL`, `writeJson`: Claude prin
+  `api/_lib/claude.js`, cu paginile ca documente PDF; `usageParts`: tokenii pe model; itemii lipsă:
+  `expectedRefs`, `fillItems`, `completeScript`, `wholeItems`; formulele: `itemBrokenMath`), `api/live.js`
+  (`writerAdminView`, `logWriteUsage`, `fill` / `figures` în `admin_prepare`, pasul „1d" din
+  `prepareLesson`, `admin_delete_old`), `api/_lib/texRepair.js` + oglinda `src/lib/texRepair.js`,
+  `api/_lib/figuri.js` (desenele; pachetul npm `mupdf`), `src/components/live/Board.jsx`,
+  `src/components/LiveAdmin.jsx`. Teste: `test/lectii-live-opus.test.js`, `test/formule-reparate.test.js`,
+  `test/desene-pdf.test.js`, `test/versiuni-vechi.test.js`.
 
 ---
 
@@ -541,8 +562,9 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
   Cu 4 săli: cel mult 4 lecții noi pe zi (doar în sălile în care intră elevi) — ~6–20 lei/zi în
   cel mai rău caz; costul scade singur, pentru că o sală refolosește lecțiile gata după ce și-a
   parcurs subiectele (se repetă după `LIVE_REFOLOSIRE_ZILE`, implicit 21 de zile).
-  Costul exact al fiecărei lecții apare în Admin → Meditații live. Cu **Claude Opus 5.5** (Admin →
-  „✍️ Cine scrie lecțiile", vezi 3e): cam 1,7× (~2,5–8,5 lei pe subiect nou), tot o singură dată.
+  Costul exact al fiecărei lecții apare în Admin → Meditații live. Din 13 oct. lecțiile le scrie
+  doar **Claude Opus 5.5** (vezi 3e): cam 1,7× cât cu Terra (~2,5–8,5 lei pe subiect nou), tot o
+  singură dată. Desenele din PDF: 0 lei (se decupează pe server).
 - **Răspunsurile în chat** (întrebări către profesor): bani mărunți, limitate (`LIVE_INTREBARI_MAX`).
 - **Întrebările pe pași**: la o lecție nouă, aproape nimic în plus (se scriu odată cu ea; uneori un
   apel scurt pentru subpunctele rămase fără întrebare). La o lecție scrisă înainte: ~0,5–1 leu, **o
@@ -575,6 +597,12 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | Enunț fără radical / fracție („2 2 6 2 3 2") sau „[formula nu e lizibilă]" | lecție scrisă înainte de citirea paginilor PDF → Admin → „Lecțiile recente" → **Regenerează** |
 | Lipsesc subpuncte (ex. la S. III ex. 1 doar „a)") | Admin → „Lecțiile recente" → „Scriptul" → **„🧩 Completează itemii lipsă"** (doar itemii care lipsesc; restul rămâne) — vezi 3e |
 | O formulă apare ca text simplu („8/3-2(1-1/6)") | modelul a scris un LaTeX pe care nici reparatorul nu l-a putut îndrepta; se citește, dar fără fracții etajate → „Regenerează" lecția, dacă formula e importantă |
+| Formule cu roșu / „u001bmathbbR", „⊠infty", „f: 0 → 0", text lipit de formulă | reparat 13 oct. la afișare (și la lecțiile deja scrise) — dacă se mai vede, pagina e o versiune veche din cache: închide și redeschide (vezi 3e, „Formulele stricate") |
+| „ANTHROPIC_API_KEY lipsește în Vercel — lecțiile live le scrie Claude Opus 5.5" | pune cheia Anthropic în Vercel → Settings → Environment Variables (aceeași ca la „Meditații") și fă Redeploy; lecțiile deja scrise merg oricum |
+| O lecție nouă nu se scrie: „usage limits" / „spend limit" de la Anthropic | plafonul lunar de cheltuieli din console.anthropic.com (Settings → Limits) — ridică-l; până atunci, la nevoie, `LIVE_REZERVA_MODEL=gpt-5.6-terra` |
+| La o problemă „În figura alăturată…" nu apare desenul | Admin → „Scriptul" → „🖼 Desenele din PDF" spune de ce („negăsite", „subiectul nu are PDF", „MuPDF nu s-a încărcat pe server") → „🖼 Refă desenele"; un PDF scanat (fără text) nu are de unde decupa |
+| Desenul e tăiat greșit (lipsește o parte / are și text în plus) | figura e prea aproape de text sau desenată neobișnuit; decuparea e automată (la fel la „🖼 Refă desenele") → trimite subiectul (PDF-ul) ca să fie îmbunătățită decuparea (`api/_lib/figuri.js`); `LIVE_DESENE=0` le oprește pe toate |
+| În „Lecțiile recente" apare de mai multe ori același subiect (v1, v2, v3) | versiunile vechi, de dinainte de „Regenerează" → **„🗑 Șterge versiunile vechi"** (cele încă necesare — versiunea nouă nu e gata — rămân) |
 | „vocea se generează…" rămâne în Admin | normal când pagina s-a închis înainte de sfârșit: vocea continuă la primul elev care intră; sau „▶ Continuă" (continuă singur până la „gata") |
 | „Profesorul nu are încă un subiect cu barem" | nu există subiecte EN/BAC cu barem citit; cronul citește câteva bareme la fiecare rulare (`LIVE_CRON_BAREME`), sau alege manual subiectul din Admin |
 | Profesorul nu vorbește (doar subtitrări) | dispozitivul nu are o voce românească → Edge (voce naturală, gratuită) sau vocea română în Windows; verifică și volumul/tab-ul fără sonor |

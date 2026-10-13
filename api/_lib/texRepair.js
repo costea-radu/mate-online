@@ -21,6 +21,27 @@
 // paranteză înaltă (citită greșit din PDF) → \left( … \right)
 const TEX_MATRIX = { pmatrix: ['(', ')'], bmatrix: ['[', ']'], Bmatrix: ['\\{', '\\}'], vmatrix: ['|', '|'], Vmatrix: ['\\|', '\\|'], matrix: ['', ''], smallmatrix: ['', ''] };
 
+// Backslash-urile PIERDUTE în JSON: un model care scrie „\infty", „\mathbb" cu UN singur
+// backslash produce, după decodare, caractere de control („\t" → TAB, „\f" → FF, „\b" →
+// BS…) sau escape-uri rămase ca text („\u001bmathbb"). Le refacem comenzi LaTeX: TAB +
+// „o" → „\to", <control> + „infty" → „\infty", „\u001bmathbb" → „\mathbb"; celelalte
+// caractere de control dispar (rândul nou rămâne).
+const TEX_CTRL = { '\t': '\\t', '\f': '\\f', '\b': '\\b', '\v': '\\v', '\r': '\\r' };
+function texFixControl(t) {
+  const s = String(t == null ? '' : t);
+  if (!/[\u0000-\u0009\u000b-\u001f\u007f]|\\u00[01][0-9a-fA-F]/.test(s)) return s;
+  return s
+    .replace(/\\u00[01][0-9a-fA-F](?=[a-zA-Z])/g, '\\')
+    .replace(/\\u00[01][0-9a-fA-F]/g, '')
+    .replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, (c, i, all) => (/[a-zA-Z]/.test(all[i + 1] || '') ? (TEX_CTRL[c] || '\\') : (c === '\t' ? ' ' : '')));
+}
+
+// ℝ citit greșit din textul extras („f: 0 → 0", în PDF-urile cu fontul MathType): o funcție
+// „f: 0 → 0" nu apare în subiecte — e mereu f: ℝ → ℝ
+function texFixSets(t) {
+  return t.replace(/(\b[a-zA-Z]\s*:\s*)0(\s*(?:\\to|\\rightarrow|→)\s*)0(?![\d.])/g, '$1\\mathbb{R}$2\\mathbb{R}');
+}
+
 // \begin{X} / \end{X} fără pereche
 function texFixEnvs(t) {
   const toks = [];
@@ -77,7 +98,8 @@ function texFixBraces(t) {
 
 // LaTeX-ul reparat (cât mai puțin schimbat) sau null; parses(t) → true dacă KaTeX îl afișează
 function repairTex(tex, parses) {
-  const src = String(tex == null ? '' : tex);
+  // întâi backslash-urile pierdute (altfel KaTeX „trece" peste TAB+„o") și ℝ citit „0"
+  const src = texFixSets(texFixControl(tex));
   if (!parses || parses(src)) return src;
   let t = src;
   for (const f of [texFixEnvs, texFixLeftRight, texFixBraces, texStripLeftRight]) {
@@ -107,7 +129,7 @@ const TEX_SUB = { 0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄', 5: '₅', 6:
 const texMapAll = (s, map) => (s && [...s].every((ch) => map[ch]) ? [...s].map((ch) => map[ch]).join('') : null);
 
 function texText(tex) {
-  let t = String(tex == null ? '' : tex).replace(/\\\{/g, '\u0001').replace(/\\\}/g, '\u0002');
+  let t = texFixControl(tex).replace(/\\\{/g, '\u0001').replace(/\\\}/g, '\u0002');
   t = t.replace(/\\(?:text|textrm|textbf|textit|textup|mathrm|mathbf|mathit|operatorname|mbox|boldsymbol)\s*\{([^{}]*)\}/g, '$1');
   t = t.replace(/\\mathbb\s*\{?\s*([RNZQC])\s*\}?/g, (m, c) => ({ R: 'ℝ', N: 'ℕ', Z: 'ℤ', Q: 'ℚ', C: 'ℂ' })[c]);
   // „matricele" → parantezele lor; celelalte medii dispar
@@ -136,7 +158,7 @@ function texText(tex) {
   t = t.replace(/\\([a-zA-Z]+)/g, '$1');                // comenzile rămase: doar numele
   t = t.replace(/\\([%$#&_|])/g, '$1').replace(/\\[,;:! ]/g, ' ');
   t = t.replace(/[{}]/g, '').replace(/\u0001/g, '{').replace(/\u0002/g, '}');
-  return t.replace(/\s+/g, ' ').trim();
+  return t.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 // textul simplu, ca formulă KaTeX care nu poate eșua: \text{…} cu caracterele speciale scăpate
@@ -156,8 +178,14 @@ const parses = (t) => {
 // „… $\frac{8}{3}-2\begin{pmatrix}1-\frac{1}{6}\right)$ …" → „… $\frac{8}{3}-2\left(1-\frac{1}{6}\right)$ …".
 // Formulele care nu se pot repara rămân (browserul le arată ca text simplu).
 function fixMathText(text) {
-  if (!katex || typeof text !== 'string' || text.indexOf('$') === -1) return text;
-  return text.replace(/\$\$([^$]+)\$\$|\$([^$]+)\$/g, (m, disp, inl) => {
+  if (typeof text !== 'string' || !text) return text;
+  // în formule: backslash-urile pierdute (caractere de control, „\u001b") și rândurile noi
+  // (un rând nou în $…$ rupea formula în două, iar perechile de $ se amestecau)
+  let t = text.replace(/\$\$[\s\S]*?\$\$|\$[^$]*\$/g, (m) => texFixControl(m).replace(/\n/g, ' '));
+  // în afara formulelor, caracterele de control nu au ce căuta
+  t = t.replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, ' ');
+  if (!katex || t.indexOf('$') === -1) return t;
+  return t.replace(/\$\$([^$]+)\$\$|\$([^$]+)\$/g, (m, disp, inl) => {
     const tex = disp != null ? disp : inl;
     const fixed = repairTex(tex, parses);
     if (fixed == null || fixed === tex) return m;
@@ -165,4 +193,14 @@ function fixMathText(text) {
   });
 }
 
-module.exports = { repairTex, texText, texAsText, fixMathText, parses };
+// o formulă din text pe care KaTeX nu o poate afișa nici după reparare (null = toate merg)
+function brokenMath(text) {
+  if (!katex || typeof text !== 'string' || text.indexOf('$') === -1) return null;
+  for (const m of text.matchAll(/\$\$([^$]+)\$\$|\$([^$]+)\$/g)) {
+    const tex = m[1] != null ? m[1] : m[2];
+    if (repairTex(tex, parses) == null) return tex;
+  }
+  return null;
+}
+
+module.exports = { repairTex, texFixControl, texText, texAsText, fixMathText, brokenMath, parses };

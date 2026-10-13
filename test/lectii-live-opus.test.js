@@ -1,8 +1,8 @@
-// Teste pentru lecțiile live scrise de Claude Opus 5.5 (api/_lib/liveLesson.js →
-// writeJson / generateScript / completeScript, api/live.js → admin_set_writer, costul pe
-// model, completarea itemilor lipsă): paginile PDF ajung la Claude ca documente, schema
-// strictă e aceeași, verificările pe barem rămân; o bucată pe care Claude nu o scrie (fără
-// cheie, eroare, 429, răspuns tăiat fără niciun item întreg) o scrie Terra; un răspuns
+// Teste pentru lecțiile live scrise DOAR de Claude Opus 5.5 (api/_lib/liveLesson.js →
+// writeJson / generateScript / completeScript, api/live.js → Admin, costul pe model,
+// completarea itemilor lipsă): paginile PDF ajung la Claude ca documente, schema strictă e
+// aceeași, verificările pe barem rămân; o bucată la care Claude nu răspunde se reîncearcă tot
+// cu Claude (rezerva — doar cu LIVE_REZERVA_MODEL); fără cheie → eroare clară; un răspuns
 // tăiat își păstrează itemii întregi; itemii care LIPSESC față de structura subiectului
 // (ex. „Subiectul III, 1 b) și c)") se scriu separat, câte unul — la scriere și, pentru
 // lecțiile deja scrise, din Admin („🧩 Completează itemii lipsă"), fără să atingă restul.
@@ -143,14 +143,15 @@ const genBac = (model, log = () => {}) => LL.generateScript({
 const ALL_REFS = ['I.1', 'I.2', 'I.3', 'I.4', 'I.5', 'I.6', 'II.1', 'II.2', 'II.3', 'II.4', 'II.5', 'II.6'];
 const CLAUDE_EN_CHUNKS = ['I.1', 'I.4', 'II.1', 'II.3', 'II.5'];   // I: câte 3; II–III: câte 2
 
-test('alegerea din Admin: doar Claude Opus 5.5 (Opus 5 vechi → 5.5); orice altceva = implicitul', () => {
-  assert.strictEqual(LL.writerChoice('claude-opus-5-5'), 'claude-opus-5-5');
-  assert.strictEqual(LL.writerChoice('claude-opus-5'), 'claude-opus-5-5');
-  for (const m of [null, '', 'gpt-5.6-sol', 'claude-fable-5-1', 'anthropic/claude-opus-5-5']) assert.strictEqual(LL.writerChoice(m), null, String(m));
+test('doar Claude Opus 5.5 scrie lecțiile; fără rezervă implicită; LIVE_GEN_MODEL / LIVE_REZERVA_MODEL doar la nevoie', () => {
+  assert.strictEqual(LL.GEN_MODEL(), 'claude-opus-5-5');
+  assert.strictEqual(LL.FALLBACK_MODEL(), null, 'fără Terra ca rezervă');
+  process.env.LIVE_GEN_MODEL = 'gpt-5.6-terra'; process.env.LIVE_REZERVA_MODEL = 'gpt-5.6-terra';
+  try { assert.strictEqual(LL.GEN_MODEL(), 'gpt-5.6-terra'); assert.strictEqual(LL.FALLBACK_MODEL(), 'gpt-5.6-terra'); }
+  finally { delete process.env.LIVE_GEN_MODEL; delete process.env.LIVE_REZERVA_MODEL; }
   assert.ok(LL.isClaude('claude-opus-5-5'));
   assert.ok(!LL.isClaude('anthropic/claude-opus-5-5'), 'furnizorii compatibili OpenAI rămân pe ai.chatJson');
   assert.ok(!LL.isClaude('gpt-5.6-terra'));
-  assert.strictEqual(LL.FALLBACK_MODEL(), ai.PDF_MODEL);
 });
 
 test('paginile PDF pentru Anthropic: blocuri „document" înaintea textului; fără pagini → doar textul', () => {
@@ -241,35 +242,40 @@ test('cererea HTTP către Anthropic: documentele PDF, schema (output_config), f�
   } finally { global.fetch = origFetch; ai.chatJson = origChat; }
 });
 
-test('implicitul (fără alegere): Terra, ca înainte (bucăți de câte 3) — Claude nu e chemat', async () => {
+test('LIVE_GEN_MODEL=gpt-5.6-terra (doar la nevoie): Terra scrie, ca înainte (bucăți de câte 3) — Claude nu e chemat', async () => {
   const s = stub({ claudeFn: never('Claude'), openaiFn: terraOk });
+  process.env.LIVE_GEN_MODEL = 'gpt-5.6-terra';
   try {
     const r = await gen(null);
     assert.deepStrictEqual(keys(s.seen.openai), ['I.1', 'I.4', 'II.1', 'II.4']);
-    assert.ok(s.seen.openai.every((a) => a.model === LL.GEN_MODEL() && a.schema === LL.SCHEMA && a.schemaName === 'lectie_live'));
+    assert.ok(s.seen.openai.every((a) => a.model === 'gpt-5.6-terra' && a.schema === LL.SCHEMA && a.schemaName === 'lectie_live'));
     // paginile merg ca părți „file" (formatul OpenAI), după text
     const secI = s.seen.openai.find((a) => reqOf(a).sec === 'I');
     assert.deepStrictEqual(secI.messages[0].content.map((b) => b.type), ['text', 'file', 'file']);
-    assert.deepStrictEqual(r.script.writer, { model: LL.GEN_MODEL(), parts: { [LL.GEN_MODEL()]: 4 }, notes: [] });
-    assert.deepStrictEqual(LL.usageParts(r.usage), [{ in: 3200, out: 1600, model: LL.GEN_MODEL() }]);
-  } finally { s.restore(); }
+    assert.deepStrictEqual(r.script.writer, { model: 'gpt-5.6-terra', parts: { 'gpt-5.6-terra': 4 }, notes: [] });
+    assert.deepStrictEqual(LL.usageParts(r.usage), [{ in: 3200, out: 1600, model: 'gpt-5.6-terra' }]);
+  } finally { s.restore(); delete process.env.LIVE_GEN_MODEL; }
 });
 
-test('rezerva: fără ANTHROPIC_API_KEY, toată lecția o scrie Terra (în bucățile ei, de câte 3)', async () => {
-  const s = stub({ key: false, claudeFn: never('Claude'), openaiFn: terraOk });
+test('fără ANTHROPIC_API_KEY: nicio lecție scrisă de alt model — eroare clară (Admin); cu LIVE_REZERVA_MODEL o scrie rezerva', async () => {
+  let s = stub({ key: false, claudeFn: never('Claude'), openaiFn: never('Terra') });
+  try {
+    await assert.rejects(gen(null), (e) => e.code === 'NO_ANTHROPIC_KEY' && /ANTHROPIC_API_KEY lipsește/.test(e.message));
+    assert.strictEqual(s.seen.openai.length, 0);
+  } finally { s.restore(); }
+  s = stub({ key: false, claudeFn: never('Claude'), openaiFn: terraOk });
+  process.env.LIVE_REZERVA_MODEL = 'gpt-5.6-terra';
   const logs = [];
   try {
-    const r = await gen('claude-opus-5-5', (m) => logs.push(m));
-    assert.deepStrictEqual(keys(s.seen.openai), ['I.1', 'I.4', 'II.1', 'II.4']);
-    assert.ok(s.seen.openai.every((a) => a.model === ai.PDF_MODEL));
+    const r = await gen(null, (m) => logs.push(m));
+    assert.deepStrictEqual(keys(s.seen.openai), ['I.1', 'I.4', 'II.1', 'II.4'], 'în bucățile rezervei, de câte 3');
     assert.deepStrictEqual(r.script.items.map((it) => it.ref), ALL_REFS);
-    assert.deepStrictEqual(r.script.writer.parts, { [ai.PDF_MODEL]: 4 });
-    assert.ok(logs.some((l) => /ANTHROPIC_API_KEY lipsește/.test(l)));
-    assert.ok(r.script.writer.notes.some((l) => /ANTHROPIC_API_KEY lipsește/.test(l)), 'și în jurnalul scrierii');
-  } finally { s.restore(); }
+    assert.deepStrictEqual(r.script.writer.parts, { 'gpt-5.6-terra': 4 });
+    assert.ok(r.script.writer.notes.some((l) => /ANTHROPIC_API_KEY lipsește/.test(l)));
+  } finally { s.restore(); delete process.env.LIVE_REZERVA_MODEL; }
 });
 
-test('pe bucăți: eroare → Terra; răspuns tăiat → itemii întregi rămân, restul se scriu separat; itemi respinși → scriși separat; costul pe model', async () => {
+test('pe bucăți, doar cu Claude: eroare → reîncercări, apoi itemii scriși separat; răspuns tăiat → itemii întregi rămân; itemi respinși → rescriși; costul pe model', async () => {
   const s = stub({
     claudeFn: (a) => {
       const q = reqOf(a);
@@ -282,30 +288,34 @@ test('pe bucăți: eroare → Terra; răspuns tăiat → itemii întregi rămân
       if (q.key === 'II.5') return claudeOk(a, { modes: { barem: [], intuitiv: [], greseli: [], alta_metoda: null } });   // fără explicație pe barem → respinși
       return claudeOk(a);
     },
-    openaiFn: terraOk,
+    openaiFn: never('Terra'),
   });
   const logs = [];
   try {
-    const r = await gen('claude-opus-5-5', (m) => logs.push(m));
-    assert.deepStrictEqual(keys(s.seen.claude), [...CLAUDE_EN_CHUNKS, 'doar:II.4', 'doar:II.5', 'doar:II.6'].sort());
-    assert.deepStrictEqual(keys(s.seen.openai), ['I.4', 'II.1'], 'doar bucățile fără niciun item întreg');
-    assert.ok(s.seen.openai.every((a) => a.model === ai.PDF_MODEL));
-    assert.deepStrictEqual(r.script.items.map((it) => it.ref), ALL_REFS, 'lecția e întreagă');
+    const r = await gen(null, (m) => logs.push(m));
+    const fills = ['doar:I.4', 'doar:I.5', 'doar:I.6', 'doar:II.1', 'doar:II.2', 'doar:II.4', 'doar:II.5', 'doar:II.6'];
+    assert.deepStrictEqual(keys(s.seen.claude), [...CLAUDE_EN_CHUNKS, 'I.4', 'I.4', ...fills].sort(), 'I.4: 3 încercări; apoi câte un apel pe item');
+    assert.deepStrictEqual(r.script.items.map((it) => it.ref), ALL_REFS, 'lecția e întreagă, toată scrisă de Claude');
     assert.deepStrictEqual(r.script.missing, []);
-    assert.deepStrictEqual(r.script.writer.parts, { 'claude-opus-5-5': 5, [ai.PDF_MODEL]: 2 });
-    const parts = Object.fromEntries(LL.usageParts(r.usage).map((u) => [u.model, [u.in, u.out]]));
-    assert.deepStrictEqual(parts, { 'claude-opus-5-5': [7000, 34500], [ai.PDF_MODEL]: [1600, 800] });
-    // jurnalul scrierii: ce s-a întâmplat, pe scurt
+    assert.deepStrictEqual(r.script.writer.parts, { 'claude-opus-5-5': 10 });
+    assert.deepStrictEqual(LL.usageParts(r.usage), [{ in: 12000, out: 37000, model: 'claude-opus-5-5' }]);
     const notes = r.script.writer.notes.join('\n');
     assert.match(notes, /I, itemii 4–6 — claude-opus-5-5 a eșuat \(Internal server error\)/);
     assert.match(notes, /II, itemii 3–4 — răspuns tăiat la 16000 tokeni: păstrez 1 item întreg/);
-    assert.match(notes, /lipsesc după prima trecere: II\.4, II\.5, II\.6 — se scriu separat/);
+    assert.match(notes, /lipsesc după prima trecere: I\.4, I\.5, I\.6, II\.1, II\.2, II\.4, II\.5, II\.6 — se scriu separat/);
     assert.ok(logs.length >= r.script.writer.notes.length);
-    // completarea cere exact itemul, cu paginile secțiunii
     const fill = s.seen.claude.find((a) => reqOf(a).key === 'doar:II.5');
     assert.match(textOf(fill.messages[0].content), /Explică DOAR itemul II\.5 din SUBIECTUL II — ceilalți itemi sunt deja explicați/);
     assert.strictEqual(fill.messages[0].content[0].type, 'document');
   } finally { s.restore(); }
+  // cu o rezervă pusă (LIVE_REZERVA_MODEL): bucata cu eroare o scrie rezerva, direct
+  const s2 = stub({ claudeFn: (a) => { if (reqOf(a).key === 'I.4') { const e = new Error('Prompt is too long'); e.status = 502; throw e; } return claudeOk(a); }, openaiFn: terraOk });
+  process.env.LIVE_REZERVA_MODEL = 'gpt-5.6-terra';
+  try {
+    const r = await gen(null);
+    assert.deepStrictEqual(keys(s2.seen.openai), ['I.4'], 'o eroare care nu trece cu o pauză: fără reîncercări, direct rezerva');
+    assert.deepStrictEqual(r.script.writer.parts, { 'claude-opus-5-5': 4, 'gpt-5.6-terra': 1 });
+  } finally { s2.restore(); delete process.env.LIVE_REZERVA_MODEL; }
 });
 
 test('BAC: Claude omite III.1 b) și c) → se scriu separat, câte unul; lecția are toți cei 18 itemi', async () => {
@@ -336,13 +346,13 @@ test('BAC: Claude omite III.1 b) și c) → se scriu separat, câte unul; lecți
       const items = q.refs.filter((ref) => !['III.1.b', 'III.1.c'].includes(ref)).map((ref) => rawItem(ref));
       return { text: JSON.stringify({ items }), usage: { prompt_tokens: 10, completion_tokens: 5, model: a.model }, stopReason: 'end_turn' };
     },
-    openaiFn: (a) => ({ data: { items: [] }, usage: { in: 5, out: 2 } }),
+    openaiFn: never('Terra'),
   });
   try {
     const r = await genBac('claude-opus-5-5');
     assert.deepStrictEqual(r.script.missing, ['III.1.b', 'III.1.c']);
     assert.strictEqual(r.script.items.length, 16);
-    assert.strictEqual(s2.seen.openai.length, 2, 'Claude fără item → Terra, câte unul');
+    assert.deepStrictEqual(s2.seen.claude.filter((a) => reqOf(a).fill).map((a) => reqOf(a).key).sort(), ['doar:III.1.b', 'doar:III.1.c'], 'câte o încercare pe item, doar Claude');
   } finally { s2.restore(); }
 });
 
@@ -376,7 +386,7 @@ test('lecțiile deja scrise: completeScript scrie doar itemii lipsă; ceilalți 
   } finally { s.restore(); }
 });
 
-test('429: o pauză și o singură reîncercare cu Claude; plafonul lunar de cheltuieli → direct Terra', async () => {
+test('429: o pauză și reîncercarea cu Claude; plafonul lunar de cheltuieli → fără reîncercări, lecția nu se scrie (fără rezervă)', async () => {
   // limita pe minut: prima cerere a bucății I.1 e respinsă o dată, apoi merge
   let rejected = false;
   let s = stub({
@@ -387,20 +397,18 @@ test('429: o pauză și o singură reîncercare cu Claude; plafonul lunar de che
     openaiFn: never('Terra'),
   });
   try {
-    const r = await gen('claude-opus-5-5');
+    const r = await gen(null);
     assert.strictEqual(s.seen.claude.length, 6, '5 bucăți + o reîncercare');
     assert.deepStrictEqual(r.script.writer.parts, { 'claude-opus-5-5': 5 });
   } finally { s.restore(); }
-  // plafonul lunar (429 fără retry-after): reîncercarea n-ar ajuta
+  // plafonul lunar (429 fără retry-after): o pauză n-ar ajuta
   s = stub({
     claudeFn: () => { const e = new Error('You have reached your API usage limits: your organization has crossed its monthly API usage threshold'); e.status = 429; throw e; },
-    openaiFn: terraOk,
+    openaiFn: never('Terra'),
   });
   try {
-    const r = await gen('claude-opus-5-5');
-    assert.strictEqual(s.seen.claude.length, 5, 'fără reîncercări');
-    assert.strictEqual(s.seen.openai.length, 5);
-    assert.deepStrictEqual(r.script.items.map((it) => it.ref), ALL_REFS);
+    await assert.rejects(gen(null), (e) => e.code === 'SCRIPT_FAIL');
+    assert.strictEqual(s.seen.claude.length, 5 + 12, 'câte o încercare pe bucată, apoi pe fiecare item — fără reîncercări');
   } finally { s.restore(); }
 });
 
@@ -431,7 +439,40 @@ test('formulele pe care KaTeX nu le poate afișa se repară la scriere (parantez
   } finally { s.restore(); }
 });
 
-test('întrebările pe pași: același model ales, fără pagini PDF, cu aceeași rezervă', async () => {
+test('o formulă care nu se poate afișa nici după reparare → itemul se rescrie o dată, separat (dacă rescrierea nu vine, rămâne cel vechi)', async () => {
+  const BAD = 'Calculați $\\comandanecunoscuta{x}+1$.';
+  let s = stub({
+    claudeFn: (a) => {
+      const q = reqOf(a);
+      if (!q.fill && q.key === 'I.1') return { text: JSON.stringify({ items: q.refs.map((ref) => rawItem(ref, ref === 'I.2' ? { statement: BAD } : {})) }), usage: { prompt_tokens: 1000, completion_tokens: 500, model: a.model }, stopReason: 'end_turn' };
+      return claudeOk(a);
+    },
+    openaiFn: never('Terra'),
+  });
+  try {
+    const r = await gen(null);
+    assert.deepStrictEqual(s.seen.claude.filter((a) => reqOf(a).fill).map((a) => reqOf(a).key), ['doar:I.2']);
+    assert.strictEqual(r.script.items.find((it) => it.ref === 'I.2').statement, 'Rezultatul calculului $2+3\\cdot 4$ este:', 'varianta rescrisă');
+    assert.match(r.script.writer.notes.join('\n'), /formule care nu se pot afișa \(I\.2\) — itemii se rescriu/);
+    assert.deepStrictEqual(r.script.items.map((it) => it.ref), ALL_REFS);
+  } finally { s.restore(); }
+  // rescrierea nu vine → rămâne itemul vechi (formula apare ca text simplu în sală)
+  s = stub({
+    claudeFn: (a) => {
+      const q = reqOf(a);
+      if (q.fill) return { text: '{"items":[]}', usage: { prompt_tokens: 10, completion_tokens: 5, model: a.model }, stopReason: 'end_turn' };
+      return { text: JSON.stringify({ items: q.refs.map((ref) => rawItem(ref, ref === 'I.2' ? { statement: BAD } : {})) }), usage: { prompt_tokens: 10, completion_tokens: 5, model: a.model }, stopReason: 'end_turn' };
+    },
+    openaiFn: never('Terra'),
+  });
+  try {
+    const r = await gen(null);
+    assert.strictEqual(r.script.items.find((it) => it.ref === 'I.2').statement, BAD);
+    assert.deepStrictEqual(r.script.items.map((it) => it.ref), ALL_REFS);
+  } finally { s.restore(); }
+});
+
+test('întrebările pe pași: tot Claude Opus 5.5, fără pagini PDF; Claude cade → pașii din barem', async () => {
   process.env.LIVE_INTREBARI_PASI = '1';
   const item = {
     ref: 'III.1', section: 'III', title: 'Subiectul III, exercițiul 1', kind: 'rezolvare',
@@ -451,14 +492,14 @@ test('întrebările pe pași: același model ales, fără pagini PDF, cu aceeaș
     assert.deepStrictEqual(LL.usageParts(r.usage), [{ in: 300, out: 100, model: 'claude-opus-5-5' }]);
     assert.strictEqual(r.report.ai + r.report.fromBarem >= 1, true);
   } finally { s.restore(); }
-  // Claude cade → Terra scrie întrebările
-  s = stub({ claudeFn: () => { const e = new Error('Overloaded'); e.status = 502; throw e; }, openaiFn: () => ({ data: reply, usage: { in: 200, out: 80 } }) });
+  // Claude supraîncărcat → reîncercări; tot nu → întrebările din barem (fără alt model)
+  s = stub({ claudeFn: () => { const e = new Error('Overloaded'); e.status = 502; throw e; }, openaiFn: never('Terra') });
   try {
     const r = await LL.addStepQuestions({ script, teacher: live.teacherById('radu'), log: () => {}, model: 'claude-opus-5-5' });
-    assert.strictEqual(s.seen.claude.length, 2, 'supraîncărcat: o reîncercare');
-    assert.strictEqual(s.seen.openai.length, 1);
-    assert.strictEqual(s.seen.openai[0].model, ai.PDF_MODEL);
-    assert.deepStrictEqual(LL.usageParts(r.usage), [{ in: 200, out: 80, model: ai.PDF_MODEL }]);
+    assert.strictEqual(s.seen.claude.length, 3, 'supraîncărcat: trei încercări');
+    assert.strictEqual(r.report.aiFailed, 1);
+    assert.ok(r.report.fromBarem >= 1, 'pașii din barem');
+    assert.deepStrictEqual([r.usage.in, r.usage.out], [0, 0], 'nimic de plătit');
   } finally { s.restore(); process.env.LIVE_INTREBARI_PASI = '0'; }
 });
 
@@ -514,37 +555,26 @@ function harness() {
   return { fake, used, call, restore };
 }
 
-test('Admin: cine scrie lecțiile (doar adminul), lecția nouă o scrie modelul ales, costul și ai_usage pe model', async () => {
+test('Admin: lecțiile le scrie Claude Opus 5.5 (fără alegere); costul și ai_usage pe model; lacătul în timpul scrisului', async () => {
   const h = harness();
   const { fake, used, call } = h;
   const genCalls = [];
   let fail = null;
   LL.generateScript = async (args) => {
     const row = fake.db.tables.live_lessons.find((l) => l.subject_id === EN1 && l.status === 'nou');
-    genCalls.push({ model: args.model, lockMin: (new Date(row.locked_until).getTime() - Date.now()) / 60000 });
-    const usage = { in: 1e6, out: 1e6, model: args.model, byModel: { 'claude-opus-5-5': { in: 1e6, out: 0 }, 'gpt-5.6-terra': { in: 0, out: 1e6 } } };
+    genCalls.push({ model: args.model || LL.GEN_MODEL(), lockMin: (new Date(row.locked_until).getTime() - Date.now()) / 60000 });
+    const usage = { in: 1e6, out: 1e6, model: LL.GEN_MODEL(), byModel: { 'claude-opus-5-5': { in: 1e6, out: 0 }, 'gpt-5.6-terra': { in: 0, out: 1e6 } } };
     if (fail) { const e = new Error(fail); e.code = 'SCRIPT_FAIL'; e.usage = usage; throw e; }
-    return { script: lessonScript({ model: args.model || LL.GEN_MODEL(), parts: { 'claude-opus-5-5': 5, 'gpt-5.6-terra': 1 } }), usage };
+    return { script: lessonScript({ model: LL.GEN_MODEL(), parts: { 'claude-opus-5-5': 5, 'gpt-5.6-terra': 1 } }), usage };
   };
   try {
-    // doar adminul alege; un model necunoscut e respins
-    assert.strictEqual((await call('admin_set_writer', { model: 'claude-opus-5-5' }, U.free)).statusCode, 403);
-    assert.strictEqual((await call('admin_set_writer', { model: 'gpt-9' }, U.admin)).statusCode, 400);
     let ov = await call('admin_overview', {}, U.admin);
     assert.strictEqual(ov.statusCode, 200, JSON.stringify(ov.body));
-    assert.strictEqual(ov.body.writer.model, null, 'implicit: Terra');
-    assert.strictEqual(ov.body.writer.default, LL.GEN_MODEL());
-    assert.deepStrictEqual(ov.body.writer.choices, [{ id: 'claude-opus-5-5', label: 'Claude Opus 5.5' }]);
-    assert.strictEqual(typeof ov.body.writer.claudeKey, 'boolean');
-    // alegerea veche „Opus 5" ajunge pe Opus 5.5
-    const set = await call('admin_set_writer', { model: 'claude-opus-5' }, U.admin);
-    assert.strictEqual(set.statusCode, 200, JSON.stringify(set.body));
-    assert.strictEqual(set.body.writer.model, 'claude-opus-5-5');
-    const stored = fake.db.tables.app_settings.find((r) => r.key === 'live_gen_model');
-    assert.strictEqual(stored.value.model, 'claude-opus-5-5');
-    assert.strictEqual(stored.value.by, U.admin);
+    assert.deepStrictEqual(ov.body.writer, { model: 'claude-opus-5-5', fallback: null, claudeKey: true });
+    // alegerea modelului nu mai există
+    assert.strictEqual((await call('admin_set_writer', { model: 'gpt-5.6-terra' }, U.admin)).statusCode, 400);
 
-    // lecția nouă: scrisă de modelul ales; lacătul ține cât poate trăi funcția, apoi se eliberează
+    // lecția nouă: scrisă de Opus; lacătul ține cât poate trăi funcția, apoi se eliberează
     const prep = await call('admin_prepare', { subjectId: EN1, teacher: 'radu' }, U.admin);
     assert.strictEqual(prep.statusCode, 200, JSON.stringify(prep.body));
     assert.strictEqual(prep.body.lesson.status, 'gata');
@@ -553,24 +583,17 @@ test('Admin: cine scrie lecțiile (doar adminul), lecția nouă o scrie modelul 
     assert.ok(genCalls[0].lockMin > 13, `lacătul în timpul scrisului: ${genCalls[0].lockMin} min`);
     const row = fake.db.tables.live_lessons.find((l) => l.subject_id === EN1);
     assert.strictEqual(row.locked_until, null, 'lacătul se eliberează');
-    // costul: fiecare model la prețul lui (Claude 1M intrare + Terra 1M ieșire)
+    // costul: fiecare model la prețul lui
     const want = ai.costMicroLei('claude-opus-5-5', { in: 1e6, out: 0 }) + ai.costMicroLei('gpt-5.6-terra', { in: 0, out: 1e6 });
     assert.strictEqual(row.cost_micro, want);
     assert.deepStrictEqual(used, [
       { endpoint: 'live-lectie', model: 'claude-opus-5-5', in: 1e6, out: 0 },
       { endpoint: 'live-lectie', model: 'gpt-5.6-terra', in: 0, out: 1e6 },
     ]);
-    // „Lecțiile recente" arată cine a scris-o și itemii lipsă (aici: niciunul)
     ov = await call('admin_overview', {}, U.admin);
     const l = ov.body.lessons.find((x) => x.subject_id === EN1);
     assert.deepStrictEqual(l.writer, { model: 'claude-opus-5-5', parts: { 'claude-opus-5-5': 5, 'gpt-5.6-terra': 1 } });
     assert.deepStrictEqual(l.missing, []);
-
-    // înapoi la implicit: regenerarea o scrie Terra (model null → GEN_MODEL)
-    assert.strictEqual((await call('admin_set_writer', { model: null }, U.admin)).body.writer.model, null);
-    const re = await call('admin_prepare', { subjectId: EN1, teacher: 'radu', regenerate: true }, U.admin);
-    assert.strictEqual(re.statusCode, 200, JSON.stringify(re.body));
-    assert.strictEqual(genCalls[1].model, null);
 
     // o încercare eșuată: tokenii consumați ajung totuși în ai_usage
     used.length = 0;
@@ -582,7 +605,7 @@ test('Admin: cine scrie lecțiile (doar adminul), lecția nouă o scrie modelul 
   } finally { h.restore(); }
 });
 
-test('Admin → „🧩 Completează itemii lipsă": lecția gata primește doar III.1 b) și c), cu modelul ales; restul rămâne', async () => {
+test('Admin → „🧩 Completează itemii lipsă": lecția gata primește doar III.1 b) și c), scriși de Opus; restul rămâne', async () => {
   const h = harness();
   const { fake, used, call } = h;
   const radu = live.teacherById('radu');
@@ -593,7 +616,6 @@ test('Admin → „🧩 Completează itemii lipsă": lecția gata primește doar
   const lesson = { id: 'dddddddd-0000-4000-8000-0000000000aa', subject_id: BAC1, teacher: 'radu', version: 1, status: 'gata', title: script.title, exam: 'bac', profile: 'stiinte-naturii', script,
     progress: { audio: {}, noVoice: true, total: LL.segmentsInOrder(script).length, done: 0 }, cost_micro: 1000, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   fake.db.tables.live_lessons = [lesson];
-  await call('admin_set_writer', { model: 'claude-opus-5-5' }, U.admin);
   const s = stub({ claudeFn: (a) => claudeOk(a), openaiFn: never('Terra') });
   try {
     // „Scriptul": ce PARE să lipsească (fără textul subiectului)

@@ -947,7 +947,7 @@ export default function LiveRoom({ demo = null }) {
       </footer>
 
       <SpatiuDeLucru open={notebook} onClose={() => setNotebook(false)} title="Caietul meu"
-        enunt={(ps?.head?.statementTry && ['item', 'sondaj'].includes(ps?.scene?.type) ? ps.head.statementTry : ps?.head?.statement) || null} storageKey={`live:${sessionId}`} />
+        enunt={(ps?.head?.statementTry && ['item', 'sondaj'].includes(ps?.scene?.type) ? ps.head.statementTry : ps?.head?.statement) || null} figura={ps?.head?.figure?.url || null} storageKey={`live:${sessionId}`} />
     </div>
   );
 }

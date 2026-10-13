@@ -11,7 +11,7 @@ Data: 21 august 2026 (tranșa 1 + tranșa 2 + tranșa 3: email automat, JSON-LD,
 
 Unde apare: **Footer** (toate paginile, bloc „Tehnologie AI" — un rând pentru utilizatori/OpenAI, unul pentru Meditații/Claude Opus 5.5, unul pentru uneltele interne), **Home** (pastile sub titlul secțiunii AI — OpenAI + Claude Opus 5.5 + interne Anthropic), **/profesor-virtual** (hero, modelele OpenAI + Claude Opus 5.5), **chatul Profesorului Virtual** (sub câmpul de scris: modelele + „AI-ul poate greși"), **/preturi** (lista Premium + o linie sub „Conținut gratuit"), **/despre-noi** (paragraf nou), **/faq#ai** (categorie nouă, prima din pagină, 4 întrebări; linkul deschide automat răspunsurile).
 
-Mesajul este consecvent cu Politica de Confidențialitate (§7–8) și Termenii (§7, §9): OpenAI procesează datele utilizatorilor, Anthropic e folosit doar pentru conținut educațional (seturile de exerciții din „Meditații", pe Claude Opus 5.5, și — dacă adminul alege — lecțiile meditațiilor live, scrise din subiectele și baremele oficiale) și unelte interne, fără date personale. Paginile legale nu au fost modificate.
+Mesajul este consecvent cu Politica de Confidențialitate (§7–8) și Termenii (§7, §9): OpenAI procesează datele utilizatorilor, Anthropic e folosit doar pentru conținut educațional (seturile de exerciții din „Meditații", pe Claude Opus 5.5, și lecțiile meditațiilor live, scrise tot de Claude Opus 5.5 din subiectele și baremele oficiale) și unelte interne, fără date personale. Paginile legale nu au fost modificate.
 
 > **Actualizat 23 august 2026:** GPT-5 mini (explicații pas cu pas — `AI_TUTOR_MODEL`) a intrat în lista pentru clienți, iar Claude Opus 5 e afișat acum și ca model *pentru clienți* (Meditații), nu doar ca unealtă internă.
 >

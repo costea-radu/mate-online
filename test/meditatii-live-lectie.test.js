@@ -3,6 +3,9 @@
 // de EN (baremul are ultimul cuvânt, nu AI-ul), itemii fără explicație pe barem
 // eliminați, id-urile stabile ale segmentelor, adaptarea la alt profesor și textul
 // rostit (fără LaTeX), plus conversia vocii în MP3/WAV.
+// lecțiile le scrie Claude Opus 5.5 (implicit, din 13 oct.); testele de aici verifică
+// logica scrierii prin ai.chatJson (înlocuit) → modelul de PDF, ca înainte
+process.env.LIVE_GEN_MODEL = 'gpt-5.6-terra';
 const test = require('node:test');
 const assert = require('node:assert');
 const LL = require('../api/_lib/liveLesson');

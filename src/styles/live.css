@@ -134,6 +134,10 @@
 .lv-screen .katex { color: #fff; }
 .lv-screen-kicker { font-size: .74em; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #e8b931; margin-bottom: 8px; }
 .lv-screen-statement { font-size: 1.05em; }
+/* desenul din PDF (api/_lib/figuri.js): în dreapta enunțului, cât încape; pe ecranul închis —
+   o foaie albă; proiectat pe tablă — albul dispare (multiply), rămân liniile */
+.lv-screen-fig { float: right; width: auto; height: auto; max-width: 40%; max-height: 8.5em; margin: 0 0 8px 14px; object-fit: contain; background: #fff; border-radius: 6px; padding: 4px; }
+.lv-scene-screen.is-proj .lv-screen-fig { background: transparent; padding: 0; border-radius: 0; }
 .lv-screen-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin-top: 12px; }
 .lv-screen-opt { background: rgba(255,255,255,.06); border-radius: 8px; padding: 6px 10px; }
 .lv-screen-opt b { color: #e8b931; }
