@@ -4,6 +4,18 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 13 octombrie 2026 (seara) — Telefonul rămânea la versiunea veche a site-ului după deploy
+
+Întrebarea: „Unde găsesc «Șterge versiunile vechi»? Unde găsesc «Scriptul» și butonul «Refă desenele»? Găsesc doar un script cu textul meditației." — capturile arătau Admin-ul de pe 12 oct. (fără rândul „🖼 Desenele din PDF" din „Scriptul").
+
+- **Cauza (greșeala mea din 12 oct.):** înregistrarea service worker-ului mutată în `src/main.jsx` (`injectRegister: false`) a scos, fără să se vadă, și `skipWaiting` / `clientsClaim` — pluginul le pune singur doar cu înregistrarea lui. De atunci, versiunea nouă a site-ului se descărca, dar aștepta până se închideau TOATE tab-urile site-ului; pe telefon (site sau aplicație ținute deschise în fundal), pagina rămânea la versiunea veche.
+- **Acum** (`vite.config.js`, `src/main.jsx`): versiunea nouă preia imediat paginile; o pagină abia deschisă (sub 10 s) se reîncarcă o dată și arată direct versiunea nouă; la revenirea în site (cel mult o dată la 30 de minute) se caută versiunea nouă. Admin → Meditații live arată **„Versiunea site-ului: 13.10.2026, 23:45"** (momentul build-ului), ca să se vadă ce rulează telefonul. Butonul „🗑 Șterge versiunile vechi (N)" se vede mereu (inactiv la 0).
+- **O singură dată, acum:** pe telefon, închide complet site-ul (toate tab-urile / aplicația, din lista aplicațiilor deschise) și redeschide-l. De la deploy-ul următor, nu mai e nevoie.
+
+**Verificat:** `npm test` 762/762 (`test/erori-client.test.js` verifică acum și `skipWaiting` / `clientsClaim` și reîncărcarea); `vite build` — `sw.js` are `self.skipWaiting()` și `clientsClaim()`. Funcția `api/live.js` urmărită ca pe Vercel (`@vercel/nft`): 26 MB, cu fișierul WebAssembly al MuPDF inclus.
+
+---
+
 ## 13 octombrie 2026 — Lecțiile live: doar Claude Opus 5.5, formulele stricate (runda 2), desenul din PDF, ștergerea versiunilor vechi
 
 Cererea (cu 5 poze): „Testul generat cu GPT Terra are erorile din poze. Am dat regenerare cu Opus 5.5 selectat dar s-a regenerat la fel. Pune doar Opus 5.5 la generare meditații video. În poza fără erori roșii cu problema de geometrie clasa a opta, pune și desenul din PDF, dacă poți. Pune buton de ștergere a variantelor vechi regenerate în alte variante noi."

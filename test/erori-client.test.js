@@ -73,9 +73,15 @@ test('configurația: fișierele lipsă din /assets/ primesc 404 (nu index.html);
   assert.ok(re.test('/meditatii/sala/abc') && re.test('/admin'), 'rutele aplicației rămân');
   // headerul „immutable" al /assets/ nu mai ajunge pe index.html servit în locul unui chunk
   assert.ok(vercel.headers.some((h) => h.source === '/assets/(.*)'));
-  assert.match(read('vite.config.js'), /injectRegister:\s*false/);
+  const vite = read('vite.config.js');
+  assert.match(vite, /injectRegister:\s*false/);
+  // cu înregistrarea noastră, pluginul nu mai pune singur skipWaiting/clientsClaim: fără ele,
+  // versiunea nouă aștepta până se închideau toate tab-urile (Admin vechi după deploy, 13 oct.)
+  assert.match(vite, /skipWaiting:\s*true/);
+  assert.match(vite, /clientsClaim:\s*true/);
   const main = read('src/main.jsx');
   assert.match(main, /navigator\.serviceWorker\.register\('\/sw\.js', \{ scope: '\/' \}\)\s*\n?\s*\.catch\(/);
+  assert.match(main, /addEventListener\('controllerchange', \(\) => \{\s*\n?\s*if \(hadController && performance\.now\(\) < 10000\) reloadForNewVersion\(\);/);
   assert.match(main, /vite:preloadError', \(\) => \{ reloadForNewVersion\(\); \}/);
   const rep = read('src/lib/errorReport.js');
   assert.match(rep, /window\.__mateReloading/);

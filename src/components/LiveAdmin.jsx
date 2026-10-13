@@ -47,6 +47,9 @@ const kindShort = (k) => KIND_GROUPS.find((x) => x.id === k)?.short || 'Subiect'
 
 const MODEL_LABEL = { 'gpt-5.6-terra': 'GPT-5.6 Terra', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'claude-opus-5-5': 'Claude Opus 5.5' };
 const modelLabel = (id) => MODEL_LABEL[id] || id || '—';
+// momentul build-ului (vite.config.js → define): ce versiune a site-ului rulează telefonul
+// eslint-disable-next-line no-undef
+const BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' ? new Date(__BUILD_TIME__).toLocaleString('ro-RO', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
 // „Claude Opus 5.5" sau, cu rezerva folosită, „Claude Opus 5.5 (5 bucăți) + GPT-5.6 Terra (1 bucată)"
 function writerText(w) {
   const parts = Object.entries(w?.parts || {});
@@ -170,6 +173,7 @@ export default function LiveAdmin() {
               Profesor: {(data?.teachers || []).map((t) => t.name).join(', ') || '—'} · Vocea: <b>{data ? (data.tts || 'lipsă') : '…'}</b>
               {data && !data.tts && <span style={{ color: '#b3261e' }}> — fără cheie TTS (OPENAI_API_KEY sau AZURE_SPEECH_KEY), lecțiile folosesc vocea browserului</span>}
             </div>
+            {BUILD_TIME && <div style={{ color: '#9aa1ad', fontSize: '.74rem', marginTop: 2 }}>Versiunea site-ului: {BUILD_TIME}</div>}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <button type="button" style={btn} onClick={() => go(-1)} disabled={!day}>←</button>
@@ -344,8 +348,8 @@ export default function LiveAdmin() {
         <div style={box}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
             <h3 style={{ color: 'var(--navy)' }}>Lecțiile recente</h3>
-            {data.oldVersions?.count > 0 && (
-              <button type="button" style={btn} disabled={!!busy}
+            {data.oldVersions && (
+              <button type="button" style={btn} disabled={!!busy || !data.oldVersions.count}
                 title={'Versiunile înlocuite prin „Regenerează" nu mai sunt folosite nicăieri (sălile, Pregătirea de examen și simulările iau versiunea nouă): se șterg, cu vocea și desenele lor din Storage. Cât versiunea nouă nu e gata, cea veche rămâne.'}
                 onClick={() => deleteOld()}>
                 {busy === 'del-old' ? '…' : `🗑 Șterge versiunile vechi (${data.oldVersions.count})`}

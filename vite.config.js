@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  // momentul build-ului: Admin → Meditații live arată ce versiune rulează telefonul
+  define: { __BUILD_TIME__: JSON.stringify(new Date().toISOString()) },
   plugins: [
     react(),
     VitePWA({
@@ -43,6 +45,12 @@ export default defineConfig({
         ]
       },
       workbox: {
+        // versiunea nouă (după un deploy) preia imediat paginile deschise. Pluginul le pune
+        // singur DOAR cu înregistrarea lui; cu injectRegister: false (12 oct.) lipseau, iar
+        // versiunea nouă aștepta până se închideau TOATE tab-urile site-ului — pe telefon,
+        // Admin rămăsese la versiunea veche după deploy (13 oct.).
+        skipWaiting: true,
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         // scena profesorului din meditațiile live se încarcă doar în sală, nu la toată lumea
         globIgnores: ['live/**', 'assets/KaTeX_*', 'assets/katex-*'],   // KaTeX (cod + fonturi): la cerere, nu în precache
