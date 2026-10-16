@@ -511,6 +511,39 @@ test('vocea generată: dacă eșuează → vocea browserului (ședința nu se bl
   }
 });
 
+// 15 oct.: „🔊 Generează vocea" și din Lecțiile recente (lessonId, nu subiect + profesor)
+test('„🔊 Generează vocea" din Lecțiile recente (lessonId): eșuează iar → tot vocea browserului, cu motivul; cu vocea bună → gata', async () => {
+  const tts = require('../api/_lib/tts');
+  const origVoice = tts.voiceSegment;
+  process.env.AZURE_SPEECH_KEY = 'cheie-test'; process.env.AZURE_SPEECH_REGION = 'westeurope';
+  try {
+    fake = createFakeSupabase(seed());
+    tts.voiceSegment = async () => { throw new Error('OpenAI TTS 429: quota exceeded'); };
+    await call('admin_prepare', { subjectId: C.en1, teacher: 'radu' }, U.admin);
+    const row = () => fake.db.tables.live_lessons.find((l) => l.subject_id === C.en1);
+    const id = row().id;
+    assert.strictEqual(row().progress.noVoice, true);
+    const again = await call('admin_prepare', { lessonId: id, revoice: true }, U.admin);
+    assert.strictEqual(again.statusCode, 200, JSON.stringify(again.body));
+    assert.strictEqual(again.body.lesson.status, 'gata');
+    assert.strictEqual(again.body.lesson.noVoice, true, 'Admin spune „vocea a eșuat din nou", nu „gata."');
+    assert.match(row().error || '', /vocea generată a eșuat/);
+    let n = 0;
+    tts.voiceSegment = async ({ }, { path }) => { n++; return { url: `https://x/${path}.mp3`, dur: 2.5, lip: [], cost: 10 }; };
+    const good = await call('admin_prepare', { lessonId: id, revoice: true }, U.admin);
+    assert.strictEqual(good.statusCode, 200, JSON.stringify(good.body));
+    assert.strictEqual(good.body.lesson.status, 'gata');
+    assert.strictEqual(good.body.lesson.noVoice, false);
+    assert.strictEqual(row().id, id, 'aceeași lecție (nu o versiune nouă)');
+    assert.strictEqual(row().error, null);
+    assert.strictEqual(Object.keys(row().progress.audio).length, row().progress.total);
+    assert.ok(n > 0);
+  } finally {
+    tts.voiceSegment = origVoice;
+    delete process.env.AZURE_SPEECH_KEY; delete process.env.AZURE_SPEECH_REGION;
+  }
+});
+
 test('fără tabele (SQL nerulat) → mesaj clar pentru admin, nu o eroare obscură', async () => {
   fake = createFakeSupabase(seed());
   fake.db.failTables.add('live_sessions');

@@ -11,8 +11,10 @@
 // titlul ședinței la început și rezumatul la final.
 // =====================================================================
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ensureKatex, renderMath } from '../../lib/katex';
 import { fmtClock } from '../../lib/live/timeline';
+import { fsElement } from '../../lib/live/fullscreen';
 
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 // un rând nou ÎN formulă ($…$) se face spațiu: ca <br/> rupea formula în două, iar
@@ -227,16 +229,67 @@ export function DigitalScreen({ state, results, myAnswers, title, examLabel, tea
   return <div className="lv-screen lv-screen-title"><div className="lv-screen-big">{title}</div></div>;
 }
 
+// Desenul MĂRIT (la atingerea desenului de pe proiecție): pe telefon, proiecția din sală
+// e mică și „pe perete" (cu perspectivă și puțin încețoșată, ca la un proiector), deci
+// desenul se deschide peste toată sala, pe o foaie albă, cât de mare încape.
+// Se închide la atingere oriunde, cu Esc sau când se schimbă itemul (ScreenItem dispare).
+// Pe ecranul complet (Android, calculator), fereastra se pune în elementul afișat pe tot
+// ecranul — altfel n-ar apărea deloc.
+const ZOOM_MAX = 1.5;   // cât se poate întinde imaginea peste mărimea ei (e randată la 3 px/punct PDF)
+function FigZoom({ fig, title, onClose }) {
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const btnRef = useRef(null);
+  const [vp, setVp] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
+  useEffect(() => {
+    const close = () => closeRef.current();
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    const onSize = () => setVp({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onSize);
+    document.addEventListener('fullscreenchange', close);
+    document.addEventListener('webkitfullscreenchange', close);
+    btnRef.current?.focus({ preventScroll: true });
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onSize);
+      document.removeEventListener('fullscreenchange', close);
+      document.removeEventListener('webkitfullscreenchange', close);
+    };
+  }, []);
+  // mărimea: cât încape (minus marginile, titlul și îndemnul), fără să întindă prea mult
+  const ar = fig.w > 0 && fig.h > 0 ? fig.w / fig.h : 0;
+  let size;
+  if (ar) {
+    const w = Math.max(40, Math.min(vp.w - 52, (vp.h - 132) * ar, fig.w * ZOOM_MAX));
+    size = { width: Math.round(w), height: Math.round(w / ar) };
+  }
+  return createPortal(
+    // (atingerile nu ajung la scenă — în React, evenimentele din portal urcă la PortraitScene,
+    // care ar muta camera la o glisare)
+    <div className="lv-fig-zoom" role="dialog" aria-modal="true" aria-label="Desenul din subiect, mărit" onClick={(e) => { e.stopPropagation(); closeRef.current(); }}
+      onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+      {title && <div className="lv-fig-zoom-title">{title}</div>}
+      <img src={fig.url} alt="Desenul din subiect" style={size} draggable={false} />
+      <button type="button" ref={btnRef} className="lv-fig-zoom-close">Atinge oriunde ca să închizi ✕</button>
+    </div>,
+    fsElement() || document.body,
+  );
+}
+
 // Enunțul proiectat, cu desenul problemei (figura geometrică, graficul — decupat din PDF-ul
 // subiectului) în dreapta. Dacă nu încape (enunț lung, desen, variante), scrisul se
 // micșorează (până la FIT_MIN), ca la tabla albă — în proiecție nu se poate derula.
+// Desenul se mărește la atingere (FigZoom).
 function ScreenItem({ head, trying, original }) {
   const boxRef = useRef(null);
   const innerRef = useRef(null);
   const [fit, setFit] = useState(1);
   const fitRef = useRef(1);
+  const [zoom, setZoom] = useState(false);
   const key = `${head.item}|${trying ? 'try' : 'sub'}`;
   useEffect(() => { fitRef.current = 1; setFit(1); }, [key]);
+  useEffect(() => { setZoom(false); }, [head.item]);
   useEffect(() => {
     const el = boxRef.current, inner = innerRef.current;
     if (!el || !inner || typeof ResizeObserver === 'undefined') return undefined;
@@ -257,7 +310,11 @@ function ScreenItem({ head, trying, original }) {
     <div className="lv-screen" ref={boxRef}>
       <div ref={innerRef} style={fit < 1 ? { fontSize: `${fit}em` } : undefined}>
         <div className="lv-screen-kicker">{head.title}{head.points ? ` · ${head.points} puncte` : ''}{original ? ' · cerința din subiect' : ''}</div>
-        {fig && <img className="lv-screen-fig" src={fig.url} width={fig.w || undefined} height={fig.h || undefined} alt="Desenul din subiect" decoding="async" />}
+        {fig && <img className="lv-screen-fig" src={fig.url} width={fig.w || undefined} height={fig.h || undefined} alt="Desenul din subiect — atinge ca să-l mărești" decoding="async"
+          role="button" tabIndex={0} title="Mărește desenul" draggable={false}
+          onClick={(e) => { e.stopPropagation(); setZoom(true); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setZoom(true); } }} />}
+        {fig && zoom && <FigZoom fig={fig} title={head.title} onClose={() => setZoom(false)} />}
         <MathHtml className="lv-screen-statement" text={trying ? head.statementTry : head.statement} />
         {head.options && (
           <div className="lv-screen-opts">

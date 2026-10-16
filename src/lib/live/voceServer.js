@@ -22,6 +22,7 @@ export const isMaleVoice = (v) => !!(v && MALE_VOICE.test(String(v.name || '')))
 
 let state = 'necunoscut';             // necunoscut | da | nu (serverul n-are voce configurată)
 export const serverVoiceOff = () => state === 'nu';
+export const serverVoiceState = () => state;     // (pentru raportul despre sunet — audio.js → diag)
 // browserul nu are voce românească de bărbat → cerem vocea de pe server
 export const wantsServerVoice = (browserVoice) => state !== 'nu' && typeof fetch === 'function' && !isMaleVoice(browserVoice);
 

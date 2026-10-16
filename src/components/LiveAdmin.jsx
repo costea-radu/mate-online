@@ -14,6 +14,8 @@
 // ✍️ Lecțiile le scrie doar Claude Opus 5.5 (din 13 oct.; cutia doar arată modelul și
 // avertizează dacă lipsește ANTHROPIC_API_KEY).
 // 🖼 Desenele din PDF (Scriptul → „Refă desenele") și 🗑 versiunile vechi (după „Regenerează").
+// 🔊 „Generează vocea" și în Lecțiile recente (15 oct.): o lecție „gata · vocea browserului"
+// (vocea generată a eșuat — motivul e scris cu roșu) își primește vocea fără să fie regenerată.
 // Pregătirea (Regenerează, Pregătește, vocea, întrebările pe pași, itemii lipsă)
 // continuă singură până la „gata", cât pagina e deschisă — cu progresul vocii.
 // 🧩 Itemii lipsă (ex. Subiectul III, 1 b) și c)): se scriu doar ei, ceilalți rămân.
@@ -116,6 +118,8 @@ export default function LiveAdmin() {
       }
       const st = r?.lesson?.status;
       if (st === 'eroare') setErr(`${what}: ${r.lesson.error || 'lecția nu s-a putut pregăti.'}`);
+      // vocea a eșuat iar (cheia / cota TTS): lecția rămâne „gata" cu vocea browserului — nu e „gata."
+      else if (st === 'gata' && r.lesson.noVoice && args.revoice) setErr(`${what}: vocea generată a eșuat din nou — lecția merge în continuare cu vocea browserului. Motivul e scris cu roșu la lecție (Lecțiile recente).`);
       else setMsg(st === 'gata' ? `${what}: gata.` : `${what}: a înaintat — continuă la primul elev care intră sau cu „▶ Continuă".`);
       await load();
     } catch (e) { setErr(e.message); }
@@ -404,6 +408,13 @@ export default function LiveAdmin() {
                           title="Întrebările pe pașii din barem (Subiectele II și III): elevii răspund pe ecran înaintea fiecărui rezultat intermediar. Doar întrebările se scriu (≈ 0,5–1 leu); explicațiile și vocea rămân."
                           onClick={() => { const again = Number(l.pasi) > 0; if (!again || window.confirm('Scrii din nou întrebările pe pași (le înlocuiește pe cele de acum)?')) prepareLoop(`ps-${l.id}`, { lessonId: l.id, steps: true, force: again }, 'Întrebările pe pași'); }}>
                           {busy === `ps-${l.id}` ? '…' : Number(l.pasi) > 0 ? '↻ Întrebări pe pași' : '➕ Întrebări pe pași'}
+                        </button>
+                      )}
+                      {l.status === 'gata' && l.noVoice && data.tts && (
+                        <button type="button" style={btnMain} disabled={!!busy}
+                          title={'Lecția merge acum cu vocea browserului (vocea generată a eșuat sau lipsea cheia TTS): pe iPhone și Android, fiecare frază așteaptă vocea de pe server — dacă nici ea nu vine, vorbește vocea telefonului (sau, pe unele telefoane, nu se aude nimic). Generează vocea lecției o dată, pentru toți elevii.'}
+                          onClick={() => prepareLoop(`voce-${l.id}`, { lessonId: l.id, revoice: true }, 'Vocea')}>
+                          {busy === `voce-${l.id}` ? 'Se generează…' : '🔊 Generează vocea'}
                         </button>
                       )}
                       {(l.status === 'script' || l.status === 'audio') && (

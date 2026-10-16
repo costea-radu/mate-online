@@ -34,12 +34,45 @@
 //     audio se reia când pagina revine în față și la primul gest (atingere, tastă).
 // La ieșirea din sală (close) sesiunea revine la „auto" (restul site-ului — ex.
 // sunetul de mesaj nou — ascultă iar de butonul Silențios).
+//
+// 15 OCT. 2026 — „la lecția nouă (EN), pe iPhone nu se aude nimic" (doar subtitrarea),
+// deși celelalte lecții se aud. Cel mai probabil lecția a rămas „cu vocea browserului"
+// (vocea generată a eșuat — Admin → Lecțiile recente arată eroarea): pe iPhone fiecare
+// frază așteaptă atunci vocea de bărbat de pe server și, dacă nu vine, o rostește „Ioana".
+// Ce s-a întărit:
+//   · vocea de pe server care lipsește de 2 ori la rând (cotă, cheie, fără credite,
+//     rețea) se ocolește 2 minute: frazele nu mai așteaptă câte 6 s (cele scurte se
+//     pierdeau de tot — trecea timpul lor până venea rezerva);
+//   · „Ioana" vorbește și fără obiectul vocii (lang „ro-RO" — iOS își alege singur vocea;
+//     lista vocilor vine uneori goală sau târziu);
+//   · o frază a browserului care nu pornește în 4 s, una refuzată („not-allowed") sau
+//     3 fraze la rând fără niciun sunet → sala arată „🔊 Pornește sunetul", iar atingerea
+//     rostește fraza din nou, chiar din gest (iOS poate cere gestul);
+//   · rezerva <audio> (un fișier pe care Web Audio nu-l poate lua) folosește UN element,
+//     deblocat la „Participă acum" — un <audio> nou, pornit mai târziu fără gest, e blocat
+//     pe iPhone (rămânea doar subtitrarea);
+//   · WAV-ul (vocea urcată fără ffmpeg) se citește direct, fără decodeAudioData;
+//   · ce nu merge se raportează o dată pe sală (onProblem → Admin → Debug, „Erorile din
+//     browserele vizitatorilor"): dispozitivul, starea sunetului, ce anume a eșuat.
 // =====================================================================
 import { clock } from './clock';
 import { lipAt, syntheticLip } from './lip';
-import { wantsServerVoice, serverVoiceUrl } from './voceServer';
+import { wantsServerVoice, serverVoiceUrl, serverVoiceState } from './voceServer';
 
 const MAX_CACHE = 36;
+
+// Timpii vocii (ms) — exportați, ca testele să-i poată scurta
+export const TIMING = {
+  serverWait: 6000,     // vocea de pe server n-a venit (sau nu se poate reda) → o rostește browserul
+  serverPause: 120000,  // după 2 lipsuri la rând, vocea de pe server se ocolește atât
+  ttsSlow: 4000,        // fraza browserului n-a pornit → sala arată „🔊 Pornește sunetul"
+  ttsGiveUp: 9000,      // … iar după atât trecem la următoarea
+  ctxRecent: 45000,     // lecția fără fișiere: contextul audio contează doar dacă a fost folosit de curând
+};
+const QUIET_LIMIT = 3;  // fraze la rând fără niciun sunet → „🔊 Pornește sunetul" (și raportul)
+const perfNow = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+// ultima parte a adresei unui fișier de voce (pentru raport: fără domeniu, fără parametri)
+const fileOf = (url) => String(url || '').split('?')[0].split('/').slice(-2).join('/');
 
 // iPhone / iPad (iPadOS se prezintă ca Mac, dar are ecran tactil)
 const isIOS = () => typeof navigator !== 'undefined'
@@ -78,7 +111,39 @@ function silentWav(rate) {
   return `data:audio/wav;base64,${btoa(bin)}`;
 }
 
+// WAV PCM pe 16 biți (vocea urcată fără ffmpeg — api/_lib/tts.js → pcmToWav) → AudioBuffer,
+// citit direct: nu depinde de decodeAudioData (Safari refuză uneori fișiere prin Web Audio).
+// Altceva (MP3, alt fel de WAV) → null: se decodează ca înainte.
+export function wavToBuffer(ctx, ab) {
+  try {
+    if (!ctx || !ab || ab.byteLength < 44) return null;
+    const v = new DataView(ab);
+    const tag = (o) => String.fromCharCode(v.getUint8(o), v.getUint8(o + 1), v.getUint8(o + 2), v.getUint8(o + 3));
+    if (tag(0) !== 'RIFF' || tag(8) !== 'WAVE') return null;
+    let fmt = null;
+    for (let o = 12; o + 8 <= ab.byteLength;) {
+      const id = tag(o), size = v.getUint32(o + 4, true), body = o + 8;
+      if (id === 'fmt ' && size >= 16 && body + 16 <= ab.byteLength) {
+        fmt = { format: v.getUint16(body, true), ch: v.getUint16(body + 2, true), rate: v.getUint32(body + 4, true), bits: v.getUint16(body + 14, true) };
+      } else if (id === 'data') {
+        if (!fmt || fmt.format !== 1 || fmt.bits !== 16 || fmt.ch < 1 || fmt.ch > 2 || fmt.rate < 8000 || fmt.rate > 96000) return null;
+        const frames = Math.floor(Math.min(size, ab.byteLength - body) / (2 * fmt.ch));
+        if (frames < 1) return null;
+        const buf = ctx.createBuffer(fmt.ch, frames, fmt.rate);
+        for (let c = 0; c < fmt.ch; c++) {
+          const d = buf.getChannelData(c);
+          for (let i = 0, p = body + c * 2; i < frames; i++, p += 2 * fmt.ch) d[i] = v.getInt16(p, true) / 32768;
+        }
+        return buf;
+      }
+      o = body + size + (size & 1);
+    }
+    return null;
+  } catch { return null; }
+}
+
 const WAKE_EVENTS = ['pointerup', 'touchend', 'keydown', 'focus', 'pageshow'];
+const GESTURES = new Set(['pointerup', 'touchend', 'keydown']);
 
 const RO = /^ro([-_]|$)/i;
 function voiceScore(v) {
@@ -151,6 +216,27 @@ export class AudioEngine {
     this.silentEl = null;        // iOS fără Audio Session API: <audio> cu liniște, în buclă
     this.recording = false;      // microfonul (dictarea) e pornit
     this._wake = null;           // ascultătorii care reiau sunetul după o întrerupere
+    // rezerva <audio>: UN element, deblocat din gest, și segmentul care îl folosește acum
+    this.mediaEl = null;
+    this.mediaOwner = null;
+    this.mediaUnlocked = false;
+    this.mediaBlocked = false;   // browserul i-a refuzat pornirea (fără gest)
+    // „nu se aude nimic": vocea browserului nu pornește / fraze la rând fără niciun sunet
+    this.ttsStuck = false;
+    this.quiet = 0;
+    this.noSound = false;
+    // vocea de pe server: lipsuri la rând; ocolită până la (performance.now)
+    this.serverMiss = 0;
+    this.serverOffUntil = 0;
+    this.ctxUsedAt = -Infinity;  // ultima oară când a pornit ceva prin contextul audio
+    this.onProblem = null;       // (tip, diag) → sala raportează (Admin → Debug)
+    this._reported = new Set();
+    this.stats = {
+      fisiere: { ok: 0, wav: 0, http: 0, retea: 0, decodare: 0, ultima: null },
+      rezerva: { porniri: 0, blocate: 0, ultima: null },
+      server: { ok: 0, lipsa: 0, ocolit: 0 },
+      browser: { fraze: 0, pornite: 0, nepornite: 0, erori: 0, ultima: null },
+    };
     if (hasTTS()) {
       this._pickVoice();
       try { window.speechSynthesis.addEventListener('voiceschanged', () => this._pickVoice()); } catch { /* ignore */ }
@@ -158,14 +244,19 @@ export class AudioEngine {
   }
 
   _pickVoice() { this.tts.voice = pickRomanianVoice(); return this.tts.voice; }
-  // vocea de bărbat de pe server: browserul n-are una (iPhone, Android…)
-  _serverVoice() { return wantsServerVoice(this.tts.voice || this._pickVoice()); }
+  // vocea de bărbat de pe server: browserul n-are una (iPhone, Android…), iar serverul n-a
+  // lipsit de curând (atunci frazele merg direct la vocea browserului, fără așteptare)
+  _serverVoice() { return perfNow() >= this.serverOffUntil && wantsServerVoice(this.tts.voice || this._pickVoice()); }
+  // browserul poate rosti în română: are o voce românească — sau e iPhone / iPad, unde
+  // sistemul își alege singur vocea după limbă („Ioana"; lista vocilor vine uneori goală)
+  _browserCanSpeak() { return hasTTS() && (!!(this.tts.voice || this._pickVoice()) || isIOS()); }
 
   // Pentru interfață: „ok" (vorbește), „fara-ro" (nicio voce românească), „fara" (fără voce deloc)
   voiceStatus() {
     if (!hasTTS()) return { status: 'fara', name: null };
     const v = this.tts.voice || this._pickVoice();
     if (v) return { status: 'ok', name: v.name };
+    if (isIOS()) return { status: 'ok', name: null };          // vocea sistemului, aleasă după limbă
     let n = 0;
     try { n = (window.speechSynthesis.getVoices() || []).length; } catch { /* ignore */ }
     return { status: n ? 'fara-ro' : 'necunoscut', name: null };
@@ -175,22 +266,29 @@ export class AudioEngine {
   unlock() {
     // iPhone: sesiunea „playback" ÎNAINTE de primul sunet — altfel Silențios taie vocea
     const session = this.recording ? setAudioSession('play-and-record') : setAudioSession('playback');
+    let ok = false;
     try {
-      if (!this.ctx) {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) { this._warmTTS(); return false; }
-        this.ctx = new AC({ latencyHint: 'interactive' });
-        this._buildChain();
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) {
+        if (!this.ctx) {
+          this.ctx = new AC({ latencyHint: 'interactive' });
+          this._buildChain();
+        }
+        this._resumeCtx();
+        const b = this.ctx.createBuffer(1, 1, 22050);
+        const s = this.ctx.createBufferSource();
+        s.buffer = b; s.connect(this.ctx.destination); s.start(0);
+        if (!session && isIOS()) this._silentLoop();      // iOS < 16.4
+        this._watch();
+        ok = true;
       }
-      this._resumeCtx();
-      const b = this.ctx.createBuffer(1, 1, 22050);
-      const s = this.ctx.createBufferSource();
-      s.buffer = b; s.connect(this.ctx.destination); s.start(0);
-      if (!session && isIOS()) this._silentLoop();      // iOS < 16.4
-      this._watch();
-      this._warmTTS();
-      return true;
-    } catch { this._warmTTS(); return false; }
+    } catch { ok = false; }
+    // tot din gest: <audio>-ul de rezervă și vocea browserului (fraza care nu pornea — din nou)
+    this._unlockMedia();
+    if (this.ttsStuck || this.noSound) this._kickTTS(); else this._warmTTS();
+    this.noSound = false;
+    this.quiet = 0;
+    return ok;
   }
 
   // Prima frază a vocii din sistem (ex. Windows) pornește cu câteva secunde de
@@ -207,6 +305,33 @@ export class AudioEngine {
     } catch { /* ignore */ }
   }
 
+  // Din gestul elevului („🔊 Pornește sunetul" sau orice atingere): vocea browserului nu
+  // pornea (pe iPhone, speechSynthesis poate cere un gest) → o oprim, o „trezim" și rostim
+  // fraza de acum din nou, chiar din gest
+  _kickTTS() {
+    this.ttsStuck = false;
+    if (!hasTTS()) return;
+    // (același gest ajunge aici de două ori: atingerea — _watch — și clicul pe buton — unlock)
+    if (perfNow() - (this._kickedAt || -Infinity) < 400) return;
+    this._kickedAt = perfNow();
+    const T = this.tts;
+    const cur = T.current;
+    if (cur && cur.utter && cur.started && !cur.ended) return;      // vorbește deja
+    const redo = cur && cur.utter && !cur.ended ? cur : null;
+    if (redo) { this._retire(redo); T.current = null; }
+    try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+    T.warmed = false;
+    this._warmTTS();
+    if (redo && !redo.dropped) this._speakBrowser(redo);
+    else if (!T.current) this._pump();
+  }
+  // o frază scoasă din joc: evenimentele ei întârziate (ex. după cancel) nu mai contează
+  _retire(entry) {
+    entry.gen = (entry.gen || 0) + 1;
+    clearTimeout(entry.watch);
+    clearTimeout(entry.slow);
+  }
+
   // Contextul audio oprit („suspended", iar pe iOS și „interrupted") → îl pornim.
   _resumeCtx() {
     const c = this.ctx;
@@ -214,12 +339,21 @@ export class AudioEngine {
     try { const p = c.resume(); if (p && typeof p.catch === 'function') p.catch(() => {}); } catch { /* ignore */ }
   }
 
-  // true = există context audio, dar browserul îl ține oprit (sala arată „atinge
-  // ecranul ca să pornească sunetul"; primul gest îl reia — vezi _watch)
-  audioBlocked() {
+  // Ce oprește sunetul acum (sala arată „🔊 Pornește sunetul"; primul gest îl reia — vezi
+  // _watch): 'ctx' — contextul audio e oprit de browser; 'rezerva' — <audio>-ul de rezervă
+  // a fost refuzat; 'voce' — vocea browserului nu pornește; 'liniste' — fraze la rând fără
+  // niciun sunet. null = nimic.
+  // lazyCtx (lecțiile fără fișiere): contextul contează doar dacă a trecut ceva prin el de
+  // curând (vocea de pe server da; vocea browserului nu trece prin el).
+  blockReason({ lazyCtx = false } = {}) {
     const c = this.ctx;
-    return !!c && c.state !== 'running' && c.state !== 'closed';
+    if (c && c.state !== 'running' && c.state !== 'closed' && (!lazyCtx || perfNow() - this.ctxUsedAt < TIMING.ctxRecent)) return 'ctx';
+    if (this.mediaBlocked) return 'rezerva';
+    if (this.ttsStuck) return 'voce';
+    if (this.noSound) return 'liniste';
+    return null;
   }
+  audioBlocked(opts) { return !!this.blockReason(opts); }
 
   // iOS < 16.4 (fără navigator.audioSession): un <audio> cu liniște, în buclă, mută
   // pagina pe canalul „media" — Web Audio se aude atunci și pe Silențios.
@@ -243,10 +377,11 @@ export class AudioEngine {
   // După o întrerupere (ecran blocat, apel, Siri, alt tab, microfonul pornit),
   // iOS lasă contextul audio oprit și nu-l mai pornește singur: îl reluăm când
   // pagina revine în față și la primul gest. Bucla mută stă pe pauză cât pagina e
-  // ascunsă (fără comenzi de redare pe ecranul blocat).
+  // ascunsă (fără comenzi de redare pe ecranul blocat). Tot la un gest pornesc și
+  // rezerva <audio> refuzată și vocea browserului care nu pornea.
   _watch() {
     if (this._wake || typeof window === 'undefined') return;
-    this._wake = () => {
+    this._wake = (ev) => {
       if (!this.ctx) return;
       // „playback" din nou (un alt tab / o altă aplicație o poate schimba) — dar nu
       // peste microfonul care ascultă acum („play-and-record", vezi setRecording / voice.js)
@@ -256,6 +391,10 @@ export class AudioEngine {
       this._resumeCtx();
       if (this.silentEl && this.silentEl.paused && !document.hidden) {
         try { const p = this.silentEl.play(); if (p && typeof p.catch === 'function') p.catch(() => {}); } catch { /* ignore */ }
+      }
+      if (ev && GESTURES.has(ev.type)) {
+        if (this.mediaBlocked) this._unlockMedia();
+        if (this.ttsStuck) this._kickTTS();
       }
     };
     this._onVis = () => {
@@ -281,6 +420,87 @@ export class AudioEngine {
       try { this.silentEl.pause(); this.silentEl.removeAttribute('src'); this.silentEl.load(); } catch { /* ignore */ }
       this.silentEl = null;
     }
+  }
+
+  // ─── rezerva <audio>: un fișier pe care Web Audio nu-l poate lua (rețea, decodare) ───
+  // UN singur element, creat și „deblocat" din gest: iOS îl lasă apoi să pornească singur;
+  // un <audio> nou, creat mai târziu, ar fi blocat (se vedea doar subtitrarea)
+  _mediaElement() {
+    if (!this.mediaEl && typeof window !== 'undefined' && typeof window.Audio === 'function') {
+      try {
+        const el = new window.Audio();
+        el.preload = 'auto';
+        try { el.setAttribute('playsinline', ''); el.setAttribute('x-webkit-airplay', 'deny'); el.disableRemotePlayback = true; } catch { /* ignore */ }
+        this.mediaEl = el;
+      } catch { this.mediaEl = null; }
+    }
+    return this.mediaEl;
+  }
+
+  _unlockMedia() {
+    const el = this._mediaElement();
+    if (!el) return;
+    const owner = this.mediaOwner;
+    // fraza de rezervă refuzată de browser: pornește acum, din gest, de unde a ajuns
+    if (owner && this.mediaBlocked) {
+      this.mediaBlocked = false;
+      this._seekMedia(owner);
+      this._mediaStart(owner);
+      return;
+    }
+    if (this.mediaUnlocked || owner) return;
+    try {
+      el.src = silentWav((this.ctx && this.ctx.sampleRate) || 44100);
+      const p = el.play();
+      const done = () => { this.mediaUnlocked = true; if (!this.mediaOwner) { try { el.pause(); } catch { /* ignore */ } } };
+      if (p && typeof p.then === 'function') p.then(done, () => {});
+      else done();
+    } catch { /* ignore */ }
+  }
+
+  _mediaPlay(entry) {
+    if (this.active.get(entry.id) !== entry) return;
+    const el = entry.el;
+    this.mediaOwner = entry;            // (un segment de rezervă de dinainte se oprește aici)
+    this.mediaBlocked = false;
+    el.onended = () => {
+      if (this.mediaOwner !== entry) return;
+      this.mediaOwner = null;
+      if (this.active.get(entry.id) === entry) this.active.delete(entry.id);
+      entry.onEnd?.();
+    };
+    el.onplaying = () => { if (this.mediaOwner === entry) { this.stats.rezerva.porniri++; this._audible(); } };
+    el.onloadedmetadata = () => { if (this.mediaOwner === entry) this._seekMedia(entry); };
+    el.volume = Math.min(1, this.muted ? 0 : this.volume);
+    try { el.src = entry.url; } catch { /* ignore */ }
+    this._attempt();
+    this._mediaStart(entry);
+  }
+
+  // intrăm la poziția potrivită (segmentul a început deja, pe ceasul comun)
+  _seekMedia(entry) {
+    const t = (clock.now() - entry.startServer) / 1000;
+    if (t > 0.3) { try { entry.el.currentTime = t; } catch { /* încă fără metadate */ } }
+  }
+
+  _mediaStart(entry) {
+    const R = this.stats.rezerva;
+    try {
+      const p = entry.el.play();
+      if (p && typeof p.catch === 'function') {
+        p.catch((e) => {
+          if (this.mediaOwner !== entry) return;
+          const why = String((e && (e.name || e.message)) || e).slice(0, 60);
+          R.ultima = why;
+          if (/NotAllowed/i.test(why)) {
+            // fără gest: sala arată „🔊 Pornește sunetul" (atingerea o pornește de unde a ajuns)
+            this.mediaBlocked = true;
+            R.blocate++;
+            this._problem('rezerva-blocata');
+          } else this._problem('rezerva-eroare');
+        });
+      }
+    } catch (e) { R.ultima = String((e && e.message) || e).slice(0, 60); }
   }
 
   // Microfonul elevului (dictarea întrebării): pe Safari, cât ascultă, sesiunea
@@ -327,19 +547,35 @@ export class AudioEngine {
     if (this.cache.has(url)) return this.cache.get(url);
     const p = (async () => {
       if (!this.ctx || this.failedDecode) return null;
+      const F = this.stats.fisiere;
+      const fail = (kind, what) => {
+        F[kind]++;
+        F.ultima = `${what} · ${fileOf(url)}`;
+        if (F.http + F.retea + F.decodare >= 2) this._problem('fisierele-vocii');
+        return null;
+      };
+      let ab;
       try {
         const r = await fetch(url, { mode: 'cors' });
-        if (!r.ok) return null;
-        const ab = await r.arrayBuffer();
-        return await new Promise((res) => {
-          try {
-            const pr = this.ctx.decodeAudioData(ab, (b) => res(b), () => res(null));
-            if (pr && pr.then) pr.then(res, () => res(null));
-          } catch { res(null); }
-        });
-      } catch { return null; }
+        if (!r.ok) return fail('http', `HTTP ${r.status}`);
+        ab = await r.arrayBuffer();
+      } catch (e) { return fail('retea', String((e && e.message) || e).slice(0, 60)); }
+      // WAV (vocea urcată fără ffmpeg): citit direct, fără decodeAudioData
+      const wav = wavToBuffer(this.ctx, ab);
+      if (wav) { F.ok++; F.wav++; return wav; }
+      const buf = await new Promise((res) => {
+        try {
+          const pr = this.ctx.decodeAudioData(ab, (b) => res(b), () => res(null));
+          if (pr && pr.then) pr.then(res, () => res(null));
+        } catch { res(null); }
+      });
+      if (!buf) return fail('decodare', 'nu se decodează');
+      F.ok++;
+      return buf;
     })();
     this.cache.set(url, p);
+    // un fișier care n-a venit (rețeaua) se mai încearcă data viitoare
+    p.then((b) => { if (!b && this.cache.get(url) === p) this.cache.delete(url); });
     if (this.cache.size > MAX_CACHE) this.cache.delete(this.cache.keys().next().value);
     return p;
   }
@@ -363,22 +599,18 @@ export class AudioEngine {
       src.start(startCtx, offset);
       entry = { src, startCtx, offset, dur: dur || buffer.duration, lip, endAtServer: atServerMs + (dur || buffer.duration) * 1000 };
       src.onended = () => { if (this.active.get(id) === entry) this.active.delete(id); onEnd?.(); };
+      this._ctxPlayed();
     } else if (url) {
-      // rezervă: <audio> (fără lanțul de efecte)
-      const el = new Audio(url);
-      el.crossOrigin = 'anonymous';
-      el.volume = Math.min(1, this.muted ? 0 : this.volume);
-      entry = { el, startServer: atServerMs, offset, dur, lip, endAtServer: atServerMs + (dur || 0) * 1000 };
-      const go = () => {
-        try { el.currentTime = Math.max(0, (clock.now() - atServerMs) / 1000); } catch { /* ignore */ }
-        el.play().catch(() => { /* blocat de browser — rămâne subtitrarea */ });
-      };
-      if (delay > 0) entry.timer = setTimeout(go, delay * 1000); else go();
-      el.onended = () => { if (this.active.get(id) === entry) this.active.delete(id); onEnd?.(); };
+      // rezervă: <audio>-ul sălii, deblocat la „Participă acum" (fără lanțul de efecte)
+      const el = this._mediaElement();
+      entry = { el, media: true, id, url, onEnd, startServer: atServerMs, offset, dur, lip, endAtServer: atServerMs + (dur || 0) * 1000 };
+      if (el) entry.timer = setTimeout(() => this._mediaPlay(entry), Math.max(0, delay * 1000));
+      else entry.silent = true;
     } else {
       // fără fișier: vocea browserului (sau cea de bărbat de pe server), la coadă (vezi _say)
       entry = { synthetic: true, id, startServer: atServerMs, dur, text, endAtServer: atServerMs + (dur || 3) * 1000, started: null, ended: false };
-      if (text && this._serverVoice()) serverVoiceUrl(speakable(text));      // cerută din timp
+      // cerută din timp (și cât e ocolită: când revine, frazele sunt deja gata)
+      if (text && wantsServerVoice(this.tts.voice || this._pickVoice())) serverVoiceUrl(speakable(text));
       const sayNow = () => this._say(entry);
       if (delay > 0) entry.timer = setTimeout(sayNow, delay * 1000); else sayNow();
       entry.cleanup = setTimeout(() => { if (this.active.get(id) === entry) this.active.delete(id); onEnd?.(); }, Math.max(0, (entry.endAtServer - clock.now())));
@@ -387,18 +619,23 @@ export class AudioEngine {
     return entry;
   }
 
+  // ceva a pornit prin contextul audio: dacă rulează, se aude
+  _ctxPlayed() {
+    this.ctxUsedAt = perfNow();
+    if (this.ctx && this.ctx.state === 'running') this._audible();
+  }
+
   // O frază pentru vocea browserului. Dacă cea de dinainte încă se aude, o lăsăm
   // să se termine (coadă) — dar nu rămânem în urmă cu mai mult de o frază.
   _say(entry) {
     const T = this.tts;
-    const v = hasTTS() ? (T.voice || this._pickVoice()) : null;
-    if (!entry.text || (!v && !this._serverVoice())) { entry.silent = true; return; }   // fără voce: doar subtitrarea
+    if (!entry.text || !(this._serverVoice() || this._browserCanSpeak())) { entry.silent = true; return; }   // fără voce: doar subtitrarea
     T.queue = T.queue.filter((e) => !e.dropped);
     while (T.queue.length >= 1) T.queue.shift().dropped = true;   // frazele rămase în urmă se sar
     T.queue.push(entry);
     // o frază „blocată" (nu s-a terminat de mult peste durata ei) → o oprim
     const cur = T.current;
-    if (cur && cur.started && performance.now() - cur.started > ((cur.dur || 6) + 6) * 1000) this._silence(false);
+    if (cur && cur.started && perfNow() - cur.started > ((cur.dur || 6) + 6) * 1000) this._silence(false);
     this._pump();
   }
 
@@ -406,7 +643,11 @@ export class AudioEngine {
     const T = this.tts;
     if (T.current || !T.queue.length) return;
     const server = this._serverVoice();
-    if (!server && !hasTTS()) return;
+    if (!server && !this._browserCanSpeak()) {
+      T.queue.forEach((e) => { e.silent = true; });                // fără voce: doar subtitrarea
+      T.queue = [];
+      return;
+    }
     const entry = T.queue.shift();
     if (entry.dropped) { this._pump(); return; }
     if (server) this._speakServer(entry);
@@ -415,21 +656,37 @@ export class AudioEngine {
 
   // Fraza cu vocea de bărbat de pe server, prin lanțul audio al sălii. Nu vine în
   // câteva secunde (sau nu se poate reda) → o rostește browserul (sau doar subtitrarea).
+  // Lipsește de 2 ori la rând → o vreme frazele merg direct la browser (TIMING.serverPause).
   _speakServer(entry) {
     const T = this.tts;
+    const S = this.stats.server;
     T.current = entry;
+    let settled = false;
+    const miss = () => {
+      if (settled) return;
+      settled = true;
+      S.lipsa++;
+      if (++this.serverMiss >= 2) {
+        this.serverMiss = 0;
+        S.ocolit++;
+        this.serverOffUntil = perfNow() + TIMING.serverPause;
+        this._problem('vocea-de-pe-server-lipseste');
+      }
+    };
     const fallback = () => {
+      miss();
       if (T.current !== entry || entry.ended) return;
       clearTimeout(entry.watch);
       T.current = null;
       if (entry.dropped) { this._pump(); return; }
-      if (hasTTS() && (T.voice || this._pickVoice())) this._speakBrowser(entry);
+      if (this._browserCanSpeak()) this._speakBrowser(entry);
       else { entry.silent = true; this._pump(); }
     };
-    entry.watch = setTimeout(fallback, 6000);
+    entry.watch = setTimeout(fallback, TIMING.serverWait);
     serverVoiceUrl(speakable(entry.text))
       .then((url) => (url ? this.load(url) : null))
       .then((buf) => {
+        if (buf && !settled) { settled = true; this.serverMiss = 0; S.ok++; }
         if (T.current !== entry || entry.ended) return;
         if (entry.dropped) { clearTimeout(entry.watch); T.current = null; this._pump(); return; }
         if (!buf || !this.ctx || !this.input) { fallback(); return; }
@@ -445,31 +702,69 @@ export class AudioEngine {
         };
         entry.node = src;
         src.start();
-        entry.started = performance.now();
+        entry.started = perfNow();
+        this._ctxPlayed();
       })
       .catch(fallback);
   }
 
   _speakBrowser(entry) {
     const T = this.tts;
+    if (!this._browserCanSpeak()) { entry.silent = true; if (T.current === entry) T.current = null; this._pump(); return; }
+    const B = this.stats.browser;
     const v = T.voice || this._pickVoice();
-    if (!v) { entry.silent = true; return; }
+    const gen = (entry.gen || 0) + 1;
+    entry.gen = gen;
+    const mine = () => entry.gen === gen;
     try {
       const u = new window.SpeechSynthesisUtterance(speakable(entry.text));
-      u.voice = v; u.lang = v.lang; u.rate = 1.05; u.volume = this.muted ? 0 : Math.min(1, this.volume);
-      const done = () => {
+      // fără obiectul vocii (iPhone, lista încă goală): limba alege vocea sistemului („Ioana")
+      if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'ro-RO';
+      u.rate = 1.05; u.volume = this.muted ? 0 : Math.min(1, this.volume);
+      const t0 = perfNow();
+      const done = (ev) => {
+        if (!mine()) return;
+        clearTimeout(entry.watch); clearTimeout(entry.slow);
+        if (ev && ev.type === 'error') {
+          const why = String(ev.error || 'error');
+          if (/not-allowed/i.test(why)) {
+            // browserul cere un gest: „🔊 Pornește sunetul" (atingerea o rostește din nou)
+            this.ttsStuck = true;
+            this._problem('vocea-browserului-refuzata');
+          }
+          if (!/interrupted|cancel/i.test(why)) { B.erori++; B.ultima = why.slice(0, 40); }
+        } else if (!entry.started && perfNow() - t0 > 400) this._audible();   // a vorbit, deși „start" n-a venit
         entry.ended = true;
         if (T.current === entry) T.current = null;
         this._pump();
       };
-      u.onstart = () => { entry.started = performance.now(); };
+      u.onstart = () => {
+        if (!mine()) return;
+        entry.started = perfNow();
+        clearTimeout(entry.slow);
+        B.pornite++;
+        this.ttsStuck = false;
+        this._audible();
+      };
       u.onend = done; u.onerror = done;
       entry.utter = u;                     // referință păstrată (Chrome „uită" altfel evenimentele)
       T.current = entry;
+      B.fraze++;
+      this._attempt();
       window.speechSynthesis.speak(u);
-      // n-a pornit deloc în 9 s → mergem mai departe
-      entry.watch = setTimeout(() => { if (!entry.started && T.current === entry) { this._silence(false); } }, 9000);
-    } catch { T.current = null; entry.silent = true; }
+      // n-a pornit în 4 s → „🔊 Pornește sunetul" (atingerea o rostește din gest); în 9 s → mai departe
+      entry.slow = setTimeout(() => {
+        if (!mine() || entry.started || T.current !== entry) return;
+        B.nepornite++;
+        this.ttsStuck = true;
+        this._problem('vocea-browserului-nu-porneste');
+      }, TIMING.ttsSlow);
+      entry.watch = setTimeout(() => { if (mine() && !entry.started && T.current === entry) this._silence(false); }, TIMING.ttsGiveUp);
+    } catch (e) {
+      if (T.current === entry) T.current = null;
+      entry.silent = true;
+      B.ultima = String((e && e.message) || e).slice(0, 60);
+    }
   }
 
   // Oprește vocea browserului (și coada). keepQueue=false golește și coada.
@@ -477,13 +772,50 @@ export class AudioEngine {
     const T = this.tts;
     if (clearQueue) { T.queue.forEach((e) => { e.dropped = true; }); T.queue = []; }
     if (T.current) {
-      T.current.ended = true; clearTimeout(T.current.watch);
+      T.current.ended = true;
+      this._retire(T.current);
       try { T.current.node?.stop(); } catch { /* ignore */ }     // vocea de pe server
       T.current = null;
     }
     try { if (hasTTS()) window.speechSynthesis.cancel(); } catch { /* ignore */ }
     // (Chrome: speak() imediat după cancel() se pierde uneori — lăsăm o clipă)
     if (!clearQueue) setTimeout(() => this._pump(), 150);
+  }
+
+  // „Nu se aude nimic": o frază care ar trebui să se audă (vocea browserului, rezerva
+  // <audio>) — dacă QUIET_LIMIT la rând trec fără niciun sunet, sala arată butonul
+  _attempt() {
+    this.quiet++;
+    if (this.quiet >= QUIET_LIMIT && !this.noSound) {
+      this.noSound = true;
+      this._problem('fara-sunet');
+    }
+  }
+  _audible() { this.quiet = 0; this.noSound = false; }
+
+  // Ce știm despre sunet, pentru raportul din Admin → Debug (fără date personale)
+  diag() {
+    let voices = -1;
+    try { if (hasTTS()) voices = (window.speechSynthesis.getVoices() || []).length; } catch { /* ignore */ }
+    return {
+      ua: typeof navigator !== 'undefined' ? String(navigator.userAgent || '').slice(0, 180) : '',
+      ios: isIOS(),
+      ctx: this.ctx ? `${this.ctx.state} ${this.ctx.sampleRate} Hz` : 'fără',
+      sesiune: sessionType(),
+      vocea: this.tts.voice ? `${this.tts.voice.name} (${this.tts.voice.lang})` : null,
+      voci: voices,
+      server: serverVoiceState(),
+      serverOcolit: perfNow() < this.serverOffUntil,
+      blocat: this.blockReason(),
+      ...JSON.parse(JSON.stringify(this.stats)),
+    };
+  }
+
+  // o singură dată pe sală, pentru fiecare fel de problemă
+  _problem(kind) {
+    if (this._reported.has(kind)) return;
+    this._reported.add(kind);
+    try { this.onProblem?.(kind, this.diag()); } catch { /* raportul nu are voie să strice sunetul */ }
   }
 
   isPlaying(id) { return this.active.has(id); }
@@ -495,7 +827,11 @@ export class AudioEngine {
     if (!a) return;
     this.active.delete(id);
     try { a.src?.stop(); } catch { /* ignore */ }
-    try { a.el?.pause(); } catch { /* ignore */ }
+    // <audio>-ul de rezervă e comun: îl oprim doar dacă e (încă) al acestui segment
+    if (a.el && (!a.media || this.mediaOwner === a)) {
+      try { a.el.pause(); } catch { /* ignore */ }
+      if (a.media) { this.mediaOwner = null; this.mediaBlocked = false; }
+    }
     if (a.timer) clearTimeout(a.timer);
     if (a.cleanup) clearTimeout(a.cleanup);
     if (a.synthetic) {
@@ -515,11 +851,12 @@ export class AudioEngine {
     let best = null;
     for (const a of this.active.values()) {
       let t;
-      if (a.synthetic) {
+      if (a.synthetic || (a.media && !a.el)) {
         if (!a.silent) continue;                       // vocea browserului: vezi mai jos
         t = (clock.now() - a.startServer) / 1000;       // fără voce: gura urmează subtitrarea
       } else if (a.src) t = this.ctx.currentTime - a.startCtx + a.offset;
-      else if (a.el) t = a.el.paused ? -1 : a.el.currentTime;
+      else if (a.el) t = a.el.paused || (a.media && this.mediaOwner !== a) ? -1 : a.el.currentTime;
+      else continue;
       if (t < 0 || (a.dur && t > a.dur)) continue;
       const m = a.lip ? lipAt(a.lip, t) : syntheticLip(t, 1);
       if (!best || m.open > best.open) best = { ...m, t };
@@ -527,7 +864,7 @@ export class AudioEngine {
     // vocea browserului: gura se mișcă exact cât se aude fraza
     const c = this.tts.current;
     if (c && c.started && !c.ended) {
-      const t = (performance.now() - c.started) / 1000;
+      const t = (perfNow() - c.started) / 1000;
       const m = syntheticLip(t, 1);
       if (!best || m.open > best.open) best = { ...m, t };
     }
@@ -539,6 +876,12 @@ export class AudioEngine {
   close() {
     this.stopAll(null, { hard: true });
     this._unwatch();
+    if (this.mediaEl) {
+      try { this.mediaEl.pause(); this.mediaEl.removeAttribute('src'); this.mediaEl.load(); } catch { /* ignore */ }
+      this.mediaEl = null;
+    }
+    this.mediaOwner = null; this.mediaUnlocked = false; this.mediaBlocked = false;
+    this.ttsStuck = false; this.noSound = false; this.quiet = 0;
     try { this.ctx?.close(); } catch { /* ignore */ }
     this.ctx = null;
     this.cache.clear();

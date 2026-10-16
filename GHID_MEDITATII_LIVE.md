@@ -120,6 +120,22 @@ browserul tot îl ține oprit, sus apare **„🔊 Pornește sunetul"**. Microfo
 „play-and-record" cât ascultă. La ieșirea din sală sesiunea revine la „auto". Cod:
 `src/lib/live/audio.js`; teste: `test/sunet-iphone.test.js`.
 
+**iPhone — o lecție anume tace (15 octombrie 2026):** „la ultima meditație generată pentru EN nu
+se aude nimic pe telefon; celelalte se aud". Cel mai probabil lecția a rămas **„✓ gata · vocea
+browserului"** (vocea generată a eșuat la pregătire — Admin → „Lecțiile recente" arată motivul cu
+roșu): fără fișierele vocii, pe iPhone fiecare frază aștepta vocea de pe server și abia apoi o
+rostea „Ioana" — iar dacă și aceea lipsea, frazele scurte se pierdeau și sala nu arăta nimic.
+Rezolvarea: **„🔊 Generează vocea"** (acum și în „Lecțiile recente") — vocea se generează o dată,
+pentru toți elevii. În plus, sala e mai robustă: vocea de pe server care lipsește de 2 ori la rând
+se ocolește 2 minute (frazele merg direct la vocea telefonului); pe iPhone „Ioana" vorbește și fără
+obiectul vocii (după limbă); o frază care nu pornește în 4 s, una refuzată de browser sau 3 fraze
+la rând fără sunet aduc **„🔊 Pornește sunetul"** și la lecțiile cu vocea browserului (atingerea
+rostește fraza din nou, din gest); rezerva `<audio>` e un singur element, deblocat la „Participă
+acum"; WAV-ul se citește direct. Ce nu merge se raportează o dată pe sală în Admin → **Debug** →
+„🧯 Erorile din browserele vizitatorilor", ca **„Sala live — sunet: …"** (`vocea-de-pe-server-lipseste`,
+`vocea-browserului-nu-porneste`, `vocea-browserului-refuzata`, `fara-sunet`, `fisierele-vocii`,
+`rezerva-blocata`), cu dispozitivul, starea sunetului, vocea găsită și lecția — fără date personale.
+
 ### 1.3 Cronul
 `vercel.json` conține deja `/api/live?action=cron` la 15 minute. Ca toate cronurile
 site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalte cronuri).
@@ -437,6 +453,18 @@ buton de ștergere a variantelor vechi regenerate în alte variante noi".
   ține o ședință. Admin → „Scriptul": „🖼 Desenele din PDF: III.6 · negăsite: II.4", miniaturile, și
   **„🖼 Refă desenele"** (din nou, pentru o lecție). Un desen negăsit sau un PDF care nu se descarcă nu
   oprește nimic (lecția merge fără desen; motivul apare acolo). `LIVE_DESENE=0` le oprește.
+  - **Caroiajul (15 oct.):** subiectele de EN din 2024 încoace au sub fiecare exercițiu caroiajul pentru
+    rezolvare (mii de pătrățele) și sunt așezate într-un tabel (coloana punctajului, ramele rândurilor).
+    Decuparea le lua drept desen, deci „desenul" era toată pagina, micșorată, cu figura abia vizibilă
+    într-un colț (ex. EN 2026, S. III ex. 4, cercul). Acum caroiajul e recunoscut și scos și din
+    decupare, și din desenul randat; zona exercițiului se oprește la marginea rândului din tabel; o
+    figură-imagine se decupează exact pe marginea ei, cu etichetele. Verificat pe PDF-urile oficiale (EN
+    2024, modelele 2021–2022). Lecțiile existente își refac desenele singure, o dată, la prima folosire
+    (`FIG_V = 2` în `api/_lib/figuri.js`) — sau imediat cu „🖼 Refă desenele".
+  - **Mărit la atingere (15 oct.):** pe telefon, proiecția din sală e mică și „pe perete"; o atingere pe
+    desen îl deschide peste toată sala, pe alb, cât de mare încape (și pe ecranul complet, și în
+    Pregătirea de examen); se închide la o atingere oriunde, cu Esc sau la itemul următor. Pe proiecție,
+    desenul ocupă acum până la 45% din lățime (10 rânduri înălțime).
 - **🗑 Versiunile vechi (13 oct.):** „Regenerează" scrie o versiune nouă; sălile, Pregătirea de examen și
   simulările folosesc mereu cea mai nouă, iar cele vechi doar ocupau loc (în listă și în Storage, cu
   vocea lor — sute de fișiere pe lecție). Admin → „Lecțiile recente": rândurile vechi au „versiune veche —
@@ -601,6 +629,7 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | „ANTHROPIC_API_KEY lipsește în Vercel — lecțiile live le scrie Claude Opus 5.5" | pune cheia Anthropic în Vercel → Settings → Environment Variables (aceeași ca la „Meditații") și fă Redeploy; lecțiile deja scrise merg oricum |
 | O lecție nouă nu se scrie: „usage limits" / „spend limit" de la Anthropic | plafonul lunar de cheltuieli din console.anthropic.com (Settings → Limits) — ridică-l; până atunci, la nevoie, `LIVE_REZERVA_MODEL=gpt-5.6-terra` |
 | La o problemă „În figura alăturată…" nu apare desenul | Admin → „Scriptul" → „🖼 Desenele din PDF" spune de ce („negăsite", „subiectul nu are PDF", „MuPDF nu s-a încărcat pe server") → „🖼 Refă desenele"; un PDF scanat (fără text) nu are de unde decupa |
+| Desenul de pe proiecție e mic, iar „desenul" e de fapt toată pagina, cu figura într-un colț (EN din 2024 încoace) | reparat 15 oct.: caroiajul de sub exerciții era luat drept desen. Desenele se refac singure la prima folosire a lecției, sau imediat: Admin → „Scriptul" → „🖼 Refă desenele". Pe telefon, **atinge desenul** ca să-l mărești |
 | Desenul e tăiat greșit (lipsește o parte / are și text în plus) | figura e prea aproape de text sau desenată neobișnuit; decuparea e automată (la fel la „🖼 Refă desenele") → trimite subiectul (PDF-ul) ca să fie îmbunătățită decuparea (`api/_lib/figuri.js`); `LIVE_DESENE=0` le oprește pe toate |
 | Admin nu arată butoanele noi după un deploy (ex. „🗑 Șterge versiunile vechi", „🖼 Refă desenele" din „Scriptul") | telefonul rulează versiunea veche a site-ului: sus, în Admin → Meditații live, „Versiunea site-ului" arată data build-ului. Închide complet site-ul (toate tab-urile / aplicația) și redeschide-l; din 13 oct. (seara) versiunea nouă se ia singură |
 | În „Lecțiile recente" apare de mai multe ori același subiect (v1, v2, v3) | versiunile vechi, de dinainte de „Regenerează" → **„🗑 Șterge versiunile vechi"** (cele încă necesare — versiunea nouă nu e gata — rămân) |
@@ -609,7 +638,8 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | Profesorul nu vorbește (doar subtitrări) | dispozitivul nu are o voce românească → Edge (voce naturală, gratuită) sau vocea română în Windows; verifică și volumul/tab-ul fără sonor |
 | Pe iPhone nu se aude nimic în sală, deși la demo se aude o voce (de femeie) | reparat 8 oct.: vocea generată (Web Audio) era tăiată de modul **Silențios**; acum sala cere sesiunea audio „playback" la „Participă acum". Versiune veche în cache (PWA) → închide și redeschide pagina. Dacă apare „🔊 Pornește sunetul", apasă-l (după un apel / ecran blocat) |
 | Pe iPhone profesorul are voce de femeie | e vocea browserului („Ioana" — singura voce românească de la Apple). Cu o cheie de voce în Vercel (`AZURE_SPEECH_KEY` + `AZURE_SPEECH_REGION`, sau `OPENAI_API_KEY`), Prof. Tudor vorbește peste tot cu vocea de bărbat de pe server (vezi 1.2). Fără cheie, sau dacă vocea nu vine în câteva secunde, fraza o rostește browserul |
-| Vocea generată nu apare | lipsește cheia TTS sau a expirat; lecția merge cu vocea browserului — vezi Admin → eroarea lecției, apoi „Generează vocea" |
+| Vocea generată nu apare | lipsește cheia TTS sau a expirat; lecția merge cu vocea browserului — vezi Admin → eroarea lecției, apoi „🔊 Generează vocea" (în „Lecțiile recente" sau în „Ședințele zilei"); dacă eșuează din nou, Admin spune asta, cu motivul la lecție |
+| Pe iPhone nu se aude nimic la o lecție anume (celelalte se aud) | aproape sigur lecția e „✓ gata · vocea browserului" (vocea generată a eșuat) → Admin → „Lecțiile recente" → **„🔊 Generează vocea"** (motivul eșecului e scris cu roșu la lecție). Din 15 oct., în sală apare și aici „🔊 Pornește sunetul" când vocea nu pornește; Admin → Debug → „Erorile din browserele vizitatorilor" → „Sala live — sunet: …" arată ce anume a eșuat pe acel telefon |
 | „Ședința s-a încheiat" mult înainte de sfârșitul orei | subiectul era scurt (o fișă, nu un subiect complet); acum ședințele de grup aleg subiecte complete, iar elevul poate „Continuă 1-la-1" până la sfârșitul orei |
 | Un singur elev la ora de grup | normal: ședința devine 1-la-1 pentru el (fără cost în plus); `LIVE_MINIM_GRUP` schimbă pragul |
 | O sală (ex. BAC Tehnologic) scrie „Subiectul se anunță în curând" | nu există încă niciun subiect al acelui examen cu barem citit; sala nu primește subiecte de alt profil. Cronul citește întâi baremele pentru ea (Admin → „Subiecte cu barem, pe săli" arată câte are fiecare), sau încarcă subiecte + bareme pentru acel profil |

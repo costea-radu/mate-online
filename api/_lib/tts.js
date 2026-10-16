@@ -44,7 +44,9 @@ const available = () => !!provider();
 // ─── Textul rostit: fără LaTeX, fără simboluri (plasă de siguranță) ──────────
 // Modelul scrie deja „say" ca vorbire; aici prindem ce a scăpat.
 function speakable(text) {
-  let t = String(text || '');
+  // caracterele de control (ex. o comandă LaTeX „mâncată" de JSON: „\frac" → ␌rac) nu au
+  // ce căuta în voce: Azure respinge SSML-ul cu ele (XML invalid → 400), iar vocea eșua
+  let t = String(text || '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ');
   t = t.replace(/\[([^\]\n]+)\]\(([^)]*)\)/g, '$1')
     .replace(/\*\*(.+?)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1');
   for (let i = 0; i < 4; i++) {

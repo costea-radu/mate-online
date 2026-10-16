@@ -192,7 +192,137 @@ test('axa numerelor (joasă, cu etichetele pe un rând) e un desen; tabelul vari
   const sq = FIG.figureBox(m[0], FIG.findBand(m, 'I', 5));
   assert.ok(sq && sq.x0 > 470 && sq.x0 < 490 && sq.y0 < top(605) && sq.y1 > top(560), `pătratul, nu tabelul: ${JSON.stringify(sq)}`);
   const img = FIG.figureBox(m[0], FIG.findBand(m, 'I', 6));
-  assert.ok(img && Math.abs(img.x0 - 434) < 3 && Math.abs(img.x1 - 526) < 3 && Math.abs(img.y0 - (top(500) - 6)) < 3 && Math.abs(img.y1 - (top(440) + 6)) < 3, `imaginea: ${JSON.stringify(img)}`);
+  // un desen-imagine se decupează exact pe marginea ei (are deja alb în jur)
+  assert.ok(img && Math.abs(img.x0 - 440) < 1.5 && Math.abs(img.x1 - 520) < 1.5 && Math.abs(img.y0 - top(500)) < 1.5 && Math.abs(img.y1 - top(440)) < 1.5, `imaginea: ${JSON.stringify(img)}`);
+});
+
+// ─── Subiectele de EN din 2024 încoace: caroiajul pe care se rezolvă ─────────
+// Ca în PDF-urile oficiale (Word): pagina e un tabel — coloana cu punctajul în stânga, rama
+// în dreapta, liniile dintre exerciții — iar sub fiecare cerință e caroiajul: sute de
+// pătrățele de ~5 mm, desenate ca dreptunghiuri pline subțiri (0,48 pt), peste toată
+// lățimea. Desenul problemei e o IMAGINE în dreapta enunțului. Până pe 15 oct., decuparea
+// lua caroiajul drept desen: „desenul" era toată pagina, cu figura mică într-un colț.
+const CELL = 14.17;
+async function gridPage({ figure = 'image' } = {}) {
+  const mupdf = await mu();
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const black = rgb(0, 0, 0), gray = rgb(0.55, 0.55, 0.55);
+  const pg = doc.addPage([595.32, H]);
+  const t = (s, x, y, size = 11) => pg.drawText(s, { x, y, size, font, color: black });
+  const bar = (x, y, w, h, color = black) => pg.drawRectangle({ x, y, width: w, height: h, color });   // dreptunghi plin (latura de tabel Word)
+  // tabelul paginii: rama de sus/jos, coloana cu punctajul (x 40–64), marginea din dreapta (x 555)
+  bar(34.6, H - 36, 526, 0.5); bar(34.6, H - 789.6, 526, 0.5);
+  for (const x of [38.5, 66.6, 556.3]) bar(x, H - 755.4, 0.5, 719);
+  bar(39, H - 36.6, 27.6, 0.5); bar(39, H - 755.9, 27.6, 0.5);
+  // caroiajul: x 72–552, sub cerința a) (y 128–360) și sub b) (y 386–755), câte o latură pe pătrățel
+  for (const [y0, y1] of [[128, 360], [386, 755]]) {
+    const cols = Math.floor((552 - 72) / CELL), rows = Math.floor((y1 - y0) / CELL);
+    for (let r = 0; r <= rows; r++) for (let c = 0; c < cols; c++) bar(72 + c * CELL, H - (y0 + r * CELL) - 0.24, CELL, 0.48, gray);
+    for (let c = 0; c <= cols; c++) for (let r = 0; r < rows; r++) bar(72 + c * CELL - 0.24, H - (y0 + (r + 1) * CELL), 0.48, CELL, gray);
+  }
+  t('SUBIECTUL al III-lea (30 de puncte)', 200, H - 28, 8);
+  t('5p', 44, H - 50); t('4. In figura alaturata este reprezentat dreptunghiul ABCD cu AB = 12 cm si BC = 9 cm.', 72, H - 52, 10);
+  t('Punctul E apartine segmentului AC, astfel incat AE = 10 cm.', 72, H - 70, 10);
+  t('(2p) a) Arata ca AC = 15 cm.', 72, H - 118, 10);
+  t('(3p) b) Arata ca aria patrulaterului AMEQ este de patru ori mai mare.', 72, H - 380, 10);
+  t('Proba scrisa la matematica                                Model', 36, H - 800, 9);
+  t('7', 295, H - 812, 9);
+  if (figure === 'image') {
+    // desenul: o imagine albă cu dreptunghiul și diagonala (ca figurile din PDF-urile oficiale)
+    const fd = await PDFDocument.create();
+    const fp = fd.addPage([215, 166]);
+    fp.drawRectangle({ x: 15, y: 15, width: 185, height: 136, borderColor: black, borderWidth: 2 });
+    fp.drawLine({ start: { x: 15, y: 15 }, end: { x: 200, y: 151 }, thickness: 2, color: black });
+    const fpix = mupdf.Document.openDocument(Buffer.from(await fd.save()), 'application/pdf').loadPage(0)
+      .toPixmap(mupdf.Matrix.scale(2, 2), mupdf.ColorSpace.DeviceRGB, false);
+    const png = await doc.embedPng(Buffer.from(fpix.asPNG()));
+    pg.drawImage(png, { x: 348, y: H - 297, width: 215, height: 166 });
+  } else {
+    // desenul cu linii (vectorial), peste caroiaj, cu etichetele A, B, C, D
+    const ln = (x1, y1, x2, y2) => pg.drawLine({ start: { x: x1, y: H - y1 }, end: { x: x2, y: H - y2 }, thickness: 1, color: black });
+    ln(380, 150, 530, 150); ln(530, 150, 530, 270); ln(530, 270, 380, 270); ln(380, 270, 380, 150); ln(380, 270, 530, 150);
+    t('D', 370, H - 148, 10); t('C', 533, H - 148, 10); t('A', 370, H - 280, 10); t('B', 533, H - 280, 10);
+  }
+  const buf = Buffer.from(await doc.save());
+  const page = mupdf.Document.openDocument(buf, 'application/pdf').loadPage(0);
+  return { mupdf, buf, page, pm: FIG.pageModel(mupdf, page) };
+}
+// partea „cu cerneală" a unei zone dintr-un PNG (x0, y0, x1, y1 în pixeli)
+async function inkIn(png, [x0, y0, x1, y1]) {
+  const mupdf = await mu();
+  const pix = new mupdf.Image(png).toPixmap();
+  const px = pix.getPixels(), n = pix.getNumberOfComponents(), w = pix.getWidth();
+  let dark = 0, all = 0;
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { all++; if (px[(y * w + x) * n] < 200) dark++; }
+  return dark / Math.max(1, all);
+}
+
+test('caroiajul subiectelor noi de EN: recunoscut (pătrățele de ~14 pt), fără desene făcute din pătrățele', async () => {
+  const { pm } = await gridPage();
+  const grid = FIG.gridOf(pm);
+  assert.ok(grid, 'pagina are caroiaj');
+  assert.ok(grid.cell >= 13 && grid.cell <= 15, JSON.stringify(grid));
+  assert.strictEqual(grid.k, 'fill');
+  assert.ok(grid.x0 < 75 && grid.x1 > 535, JSON.stringify(grid));
+  // laturile pătrățelelor și ramele tabelului nu sunt desen; liniile desenului, da
+  assert.strictEqual(FIG.frameMark({ x0: 100, y0: 200, x1: 114.2, y1: 200.5, k: 'fill' }, pm, grid), true, 'latura unui pătrățel');
+  assert.strictEqual(FIG.frameMark({ x0: 556.3, y0: 36, x1: 556.8, y1: 755, k: 'fill' }, pm, grid), true, 'rama din dreapta');
+  assert.strictEqual(FIG.frameMark({ x0: 40.4, y0: 160, x1: 40.9, y1: 306, k: 'fill' }, pm, grid), true, 'coloana cu punctajul');
+  assert.strictEqual(FIG.frameMark({ x0: 380, y0: 150, x1: 530, y1: 151, k: 'stroke' }, pm, grid), false, 'latura dreptunghiului din desen');
+  assert.strictEqual(FIG.frameMark({ x0: 348, y0: 131, x1: 563, y1: 297, k: 'image' }, pm, grid), false, 'imaginea desenului');
+  // paginile vechi (fără caroiaj) — nimic recunoscut
+  const { models: ms } = await models();
+  assert.strictEqual(FIG.gridOf(ms[0]), null);
+  assert.strictEqual(FIG.gridOf(ms[1]), null);
+});
+
+test('desenul-imagine de pe o pagină cu caroiaj: decupat pe marginea imaginii, fără caroiaj, rame sau enunț', async () => {
+  const { mupdf, page, pm } = await gridPage();
+  const band = FIG.findBand([pm], 'III', 4);
+  assert.ok(band && band.top < 45 && band.bottom > 780, JSON.stringify(band));
+  const box = FIG.figureBox(pm, band);
+  assert.ok(box, 'desenul a fost găsit');
+  // imaginea: x 348–563, y 131–297 (coordonatele MuPDF, de sus în jos)
+  assert.ok(Math.abs(box.x0 - 348) < 1.5 && Math.abs(box.x1 - 563) < 1.5 && Math.abs(box.y0 - 131) < 1.5 && Math.abs(box.y1 - 297) < 1.5, JSON.stringify(box));
+  // imaginea decupată: caroiajul și rama din jurul desenului nu apar (o zonă cu 10 pt mai mare)
+  const grid = FIG.gridOf(pm);
+  const around = { x0: box.x0 - 10, y0: box.y0 - 10, x1: box.x1 - 0, y1: box.y1 + 10 };
+  const clean = FIG.renderBox(mupdf, page, around, 3, (m) => FIG.frameMark(m, pm, grid));
+  const raw = FIG.renderBox(mupdf, page, around, 3);
+  const margin = [0, 0, 27, clean.h];                       // fâșia din stânga desenului (cei 10 pt în plus)
+  assert.ok(await inkIn(raw.png, margin) > 0.01, 'în PDF, acolo e caroiajul');
+  assert.ok(await inkIn(clean.png, margin) < 0.002, 'în imaginea decupată, nu');
+});
+
+test('figuresFromPdf pe o pagină cu caroiaj: imaginea desenului (de 3×), nu toată pagina', async () => {
+  const { buf, pm } = await gridPage();
+  assert.ok(pm.marks.length > 1500, `caroiajul are multe laturi: ${pm.marks.length}`);
+  const figs = await FIG.figuresFromPdf(buf, [{ ref: 'III.4.a', statement: 'În figura alăturată este reprezentat dreptunghiul ABCD…' }]);
+  assert.strictEqual(figs.length, 1);
+  const f = figs[0];
+  assert.strictEqual(f.key, 'III.4');
+  // cât imaginea (215 × 166 pt, de 3×) — înainte: toată pagina (~1600 × 2200)
+  assert.ok(Math.abs(f.w - 645) <= 4 && Math.abs(f.h - 498) <= 4, `${f.w}×${f.h}`);
+  const ink = await inkRatio(f.png);
+  assert.ok(ink > 0.005 && ink < 0.2, `doar liniile desenului: ${ink}`);
+});
+
+test('desenul cu linii peste caroiaj: liniile figurii + etichetele, fără pătrățele', async () => {
+  const { mupdf, page, pm } = await gridPage({ figure: 'linii' });
+  const band = { page: 0, top: 40, bottom: 790 };
+  const box = FIG.figureBox(pm, band);
+  assert.ok(box, 'desenul a fost găsit');
+  assert.ok(box.x0 > 355 && box.x0 < 375 && box.x1 > 535 && box.x1 < 550 && box.y0 > 130 && box.y0 < 145 && box.y1 > 275 && box.y1 < 290, JSON.stringify(box));
+  // în imagine: liniile desenului (cerneală), dar nu caroiajul — între laturile dreptunghiului
+  // (x 400–510, y 170–250) PDF-ul are pătrățele, imaginea decupată e albă
+  const grid = FIG.gridOf(pm);
+  const clean = FIG.renderBox(mupdf, page, box, 3, (m) => FIG.frameMark(m, pm, grid));
+  const raw = FIG.renderBox(mupdf, page, box, 3);
+  const inside = [Math.round((400 - box.x0) * 3), Math.round((175 - box.y0) * 3), Math.round((450 - box.x0) * 3), Math.round((200 - box.y0) * 3)];
+  assert.ok(await inkIn(raw.png, inside) > 0.01, 'în PDF, caroiajul');
+  assert.ok(await inkIn(clean.png, inside) < 0.002, 'în imagine, nu');
+  assert.ok(await inkRatio(clean.png) > 0.005, 'liniile desenului rămân');
 });
 
 test('figuresFromPdf: un PNG pe problemă (de 3×), cu desenul în el', async () => {
@@ -276,6 +406,24 @@ test('cronologia: scena „item" are desenul (doar la itemii cu desen); tabla di
   assert.match(board, /<img className="lv-screen-fig" src=\{fig\.url\}/);
   const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'live.css'), 'utf8');
   assert.match(css, /\.lv-screen-fig \{[^}]*float: right/);
+});
+
+// 15 oct.: pe telefon, proiecția din sală e mică (și „pe perete", cu perspectivă) — desenul se
+// mărește la atingere, peste toată sala (și pe ecranul complet)
+test('desenul de pe proiecție se mărește la atingere: peste toată sala, și pe ecranul complet; alt item → se închide', () => {
+  const board = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'live', 'Board.jsx'), 'utf8');
+  assert.match(board, /function FigZoom\(/);
+  assert.match(board, /createPortal\(/);
+  assert.match(board, /fsElement\(\) \|\| document\.body/, 'pe ecranul complet, în elementul afișat (altfel nu s-ar vedea)');
+  assert.match(board, /onClick=\{\(e\) => \{ e\.stopPropagation\(\); setZoom\(true\); \}\}/);
+  assert.match(board, /useEffect\(\(\) => \{ setZoom\(false\); \}, \[head\.item\]\)/);
+  assert.match(board, /onTouchStart=\{\(e\) => e\.stopPropagation\(\)\}/, 'o glisare pe desenul mărit nu mută camera');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'live.css'), 'utf8');
+  assert.match(css, /\.lv-screen-fig \{[^}]*pointer-events: auto/, 'proiecția nu primește atingeri, desenul da');
+  assert.match(css, /\.lv-screen-fig \{[^}]*max-height: 10em/);
+  assert.match(css, /\.lv-fig-zoom \{[^}]*position: fixed/);
+  const z = /\.lv-fig-zoom \{[^}]*z-index: (\d+)/.exec(css);
+  assert.ok(z && Number(z[1]) > 900, 'peste sală (.lv-room are z-index 900)');
 });
 
 // ─── integrarea: api/live.js (o lecție scrisă înainte de desene) ──────────────

@@ -43,6 +43,7 @@ import { LiveChat } from '../components/live/LiveChat';
 import SpatiuDeLucru from '../components/SpatiuDeLucru';
 import PrepPicker from '../components/live/PrepPicker';
 import { startDictation, speechRecognitionSupported } from '../lib/voice';
+import { reportError } from '../lib/errorReport';
 import '../styles/live.css';
 
 const STATUS_BADGE = {
@@ -119,6 +120,7 @@ export default function PregatireExamen() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [toast, setToast] = useState(null);
   const [voiceHint, setVoiceHint] = useState(null);
+  const [soundBlocked, setSoundBlocked] = useState(null);    // ce oprește sunetul (audio.js → blockReason) sau null
   // ședința 1-la-1 (ca la meditațiile live): în curs, pornirea, plata, sfârșitul
   const [session, setSession] = useState(null);       // { endsAt, via, extended } — null = niciuna în curs
   const [needExam, setNeedExam] = useState(false);    // fără examen în „Planul meu" → îl alege aici
@@ -320,6 +322,22 @@ export default function PregatireExamen() {
     }, 1800);
     return () => { clearTimeout(t); clearTimeout(hide); };
   }, [joined, engine]);
+
+  // sunetul oprit (ca în sala live): contextul audio oprit de browser, vocea browserului
+  // care nu pornește, fraze la rând fără niciun sunet → „🔊 Pornește sunetul". Aici vorbește
+  // vocea browserului (sau cea de pe server, frază cu frază) — contextul contează doar dacă
+  // a trecut ceva prin el de curând.
+  useEffect(() => {
+    if (!joined) { setSoundBlocked(null); return undefined; }
+    const t = setInterval(() => setSoundBlocked(engine.blockReason({ lazyCtx: true })), 1500);
+    return () => clearInterval(t);
+  }, [joined, engine]);
+  // ce nu merge la sunet se raportează o dată (Admin → Debug → „Erorile din browserele vizitatorilor")
+  useEffect(() => {
+    if (!engine) return undefined;
+    engine.onProblem = (kind, d) => reportError(new Error(`Pregătirea de examen — sunet: ${kind}`), JSON.stringify(d));
+    return () => { engine.onProblem = null; };
+  }, [engine]);
 
   // ─── 4. playerul (un exercițiu, testul sau explicațiile greșelilor) ─────────
   function play(timeline) {
@@ -779,6 +797,12 @@ export default function PregatireExamen() {
               <div className="lv-voice-hint" role="status">
                 <span>🔈 {voiceHint}</span>
                 <button type="button" onClick={() => setVoiceHint(null)} aria-label="Închide">✕</button>
+              </div>
+            )}
+            {soundBlocked && (
+              <div className="lv-voice-hint is-sound" role="status">
+                <span>{soundBlocked === 'ctx' || soundBlocked === 'rezerva' ? '🔇 Browserul a oprit sunetul.' : '🔇 Nu se aude vocea profesorului? Atinge butonul (și verifică volumul).'}</span>
+                <button type="button" className="lv-sound-on" onClick={() => { engine.unlock(); setSoundBlocked(null); }}>🔊 Pornește sunetul</button>
               </div>
             )}
             {toast && <div className="lv-toast">{toast}</div>}

@@ -135,9 +135,17 @@
 .lv-screen-kicker { font-size: .74em; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #e8b931; margin-bottom: 8px; }
 .lv-screen-statement { font-size: 1.05em; }
 /* desenul din PDF (api/_lib/figuri.js): în dreapta enunțului, cât încape; pe ecranul închis —
-   o foaie albă; proiectat pe tablă — albul dispare (multiply), rămân liniile */
-.lv-screen-fig { float: right; width: auto; height: auto; max-width: 40%; max-height: 8.5em; margin: 0 0 8px 14px; object-fit: contain; background: #fff; border-radius: 6px; padding: 4px; }
+   o foaie albă; proiectat pe tablă — albul dispare (multiply), rămân liniile.
+   La atingere se mărește peste toată sala (Board.jsx → FigZoom); proiecția din scenă nu
+   primește atingeri (pointer-events: none), desenul da. */
+.lv-screen-fig { float: right; width: auto; height: auto; max-width: 45%; max-height: 10em; margin: 0 0 8px 14px; object-fit: contain; background: #fff; border-radius: 6px; padding: 4px; pointer-events: auto; cursor: zoom-in; -webkit-touch-callout: none; user-select: none; }
 .lv-scene-screen.is-proj .lv-screen-fig { background: transparent; padding: 0; border-radius: 0; }
+.lv-fig-zoom { position: fixed; inset: 0; z-index: 1200; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: rgba(9, 12, 18, .9); cursor: zoom-out; animation: lvPop .2s ease; -webkit-tap-highlight-color: transparent; font-family: var(--font-body), system-ui, sans-serif; }
+.lv-fig-zoom img { display: block; box-sizing: content-box; max-width: calc(100% - 20px); max-height: calc(100% - 112px); width: auto; height: auto; object-fit: contain; background: #fff; border-radius: 10px; padding: 10px; box-shadow: 0 14px 40px rgba(0,0,0,.5); user-select: none; -webkit-touch-callout: none; }
+.lv-fig-zoom-title { color: #e8b931; font-weight: 800; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; text-align: center; max-width: 100%; }
+.lv-fig-zoom-close { background: rgba(255,255,255,.12); color: #e8eaed; border: 0; border-radius: 18px; padding: 8px 16px; font: inherit; font-size: .85rem; cursor: pointer; }
 .lv-screen-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin-top: 12px; }
 .lv-screen-opt { background: rgba(255,255,255,.06); border-radius: 8px; padding: 6px 10px; }
 .lv-screen-opt b { color: #e8b931; }

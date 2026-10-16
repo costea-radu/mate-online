@@ -51,6 +51,7 @@ import { itemsFromTimeline, defaultRefs, sceneIndexForRef, itemStatus, refLabel 
 import { LiveChat, Participants, colorOf } from '../components/live/LiveChat';
 import SpatiuDeLucru from '../components/SpatiuDeLucru';
 import { startDictation, speechRecognitionSupported } from '../lib/voice';
+import { reportError } from '../lib/errorReport';
 import demoData from '../lib/live/demo.json';
 import { DEMO_SCRIPT } from '../lib/live/demoScript';
 import '../styles/live.css';
@@ -121,7 +122,7 @@ export default function LiveRoom({ demo = null }) {
   const [mode, setMode] = useState(null);             // 'individual' = ședința de grup ținută 1-la-1
   const [modeWhy, setModeWhy] = useState(null);       // 'singur' (un singur elev la început) | 'dupa' (după lecția comună)
   const [voiceHint, setVoiceHint] = useState(null);
-  const [soundBlocked, setSoundBlocked] = useState(false);   // contextul audio oprit de browser
+  const [soundBlocked, setSoundBlocked] = useState(null);    // ce oprește sunetul (audio.js → blockReason) sau null
   // „📋 Exerciții": exercițiul cu care începe elevul (ales la intrare sau din lobby: ?ex=II.2.b)
   const [startRef, setStartRef] = useState(() => {
     try { const v = new URLSearchParams(window.location.search).get('ex'); return v && /^I{1,3}\.\d(\.[a-d])?$/i.test(v) ? v.toUpperCase().replace(/\.([A-D])$/, (m, l) => `.${l.toLowerCase()}`) : null; } catch { return null; }
@@ -356,14 +357,27 @@ export default function LiveRoom({ demo = null }) {
     return () => { clearTimeout(t); clearTimeout(hide); };
   }, [joined, timeline?.noVoice, engine]);
 
-  // vocea generată (Web Audio) oprită de browser — ex. pe iPhone după un apel, după
-  // ecranul blocat sau dacă „Participă acum" n-a putut porni sunetul: un buton
-  // „🔊 Pornește sunetul" (orice atingere pe pagină îl reia, de fapt — vezi audio.js)
+  // sunetul oprit — contextul audio oprit de browser (ex. pe iPhone după un apel, după
+  // ecranul blocat sau dacă „Participă acum" n-a putut porni sunetul), rezerva <audio>
+  // refuzată, vocea browserului care nu pornește sau fraze la rând fără niciun sunet: un
+  // buton „🔊 Pornește sunetul" (orice atingere pe pagină îl reia, de fapt — vezi audio.js).
+  // Și la lecțiile „cu vocea browserului" (15 oct.: pe iPhone nu se auzea nimic și nu apărea
+  // nimic) — acolo contextul audio contează doar dacă trece prin el vocea de pe server.
   useEffect(() => {
-    if (!joined || !hasTimeline || tlNoVoice) { setSoundBlocked(false); return undefined; }
-    const t = setInterval(() => setSoundBlocked(engine.audioBlocked()), 1500);
+    if (!joined || !hasTimeline) { setSoundBlocked(null); return undefined; }
+    const t = setInterval(() => setSoundBlocked(engine.blockReason({ lazyCtx: tlNoVoice })), 1500);
     return () => clearInterval(t);
   }, [joined, hasTimeline, tlNoVoice, engine]);
+
+  // ce nu merge la sunet se raportează o dată pe sală (Admin → Debug → „Erorile din
+  // browserele vizitatorilor"): dispozitivul, starea sunetului, ce anume a eșuat
+  const soundInfo = useRef({});
+  soundInfo.current = { lectie: lesson?.id || null, faraVoce: tlNoVoice, privat: !!privat, demo: demo || null };
+  useEffect(() => {
+    if (!engine) return undefined;
+    engine.onProblem = (kind, d) => reportError(new Error(`Sala live — sunet: ${kind}`), JSON.stringify({ ...soundInfo.current, ...d }));
+    return () => { engine.onProblem = null; };
+  }, [engine]);
 
   // răspunsurile rostite ale profesorului (grup: în „Întrebări")
   useEffect(() => { if (!privat && playerRef.current instanceof GroupPlayer) playerRef.current.setAnswers(messages); }, [messages, privat, ps?.phase]);
@@ -801,8 +815,8 @@ export default function LiveRoom({ demo = null }) {
             )}
             {soundBlocked && (
               <div className="lv-voice-hint is-sound" role="status">
-                <span>🔇 Browserul a oprit sunetul sălii.</span>
-                <button type="button" className="lv-sound-on" onClick={() => { engine.unlock(); setSoundBlocked(false); }}>🔊 Pornește sunetul</button>
+                <span>{soundBlocked === 'ctx' || soundBlocked === 'rezerva' ? '🔇 Browserul a oprit sunetul sălii.' : '🔇 Nu se aude vocea profesorului? Atinge butonul (și verifică volumul).'}</span>
+                <button type="button" className="lv-sound-on" onClick={() => { engine.unlock(); setSoundBlocked(null); }}>🔊 Pornește sunetul</button>
               </div>
             )}
             {privat && ps?.status === 'incarca' && <div className="lv-toast">Profesorul își aranjează notițele… (vocea se pregătește)</div>}
