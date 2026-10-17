@@ -292,3 +292,20 @@ test('formulele: paginile PDF ale secțiunii merg la model; enunțurile stricate
   const old = { items: [{ ref: 'I.1', statement: 'Calculați $\\sqrt{2}$.' }, { ref: 'I.2', statement: 'Rezultatul: [formula nu e lizibilă]' }] };
   assert.deepStrictEqual(LL.dropUnreadable(old).items.map((i) => i.ref), ['I.1']);
 });
+
+// ─── STRICT PE BAREM (cererea din 17 oct. 2026: „să se explice strict baremul") ─────
+// Explicația comună e baremul; „altă metodă" rămâne doar pentru „Explică altfel" (la cerere).
+test('strict pe barem: promptul cere metoda din barem; „altă metodă" — doar pentru „Explică altfel"', () => {
+  const sp = LL.systemPrompt(live.teacherById('radu'), 'bac', 'tehnologic');
+  assert.match(sp, /Explici STRICT BAREMUL/);
+  assert.match(sp, /în modurile „barem", „intuitiv" și „greseli" rezolvi cu METODA DIN BAREM/);
+  assert.match(sp, /Pentru butonul „Explică altfel" \(elevul îl cere și alege\)/);
+  assert.match(sp, /„intuitiv" \(ACEEAȘI rezolvare din barem/);
+  assert.match(sp, /„alta_metoda" \(o altă rezolvare corectă, cu ACELAȘI rezultat ca baremul/);
+  assert.deepStrictEqual(Object.keys(LL.SCHEMA.properties.items.items.properties.modes.properties), ['barem', 'intuitiv', 'greseli', 'alta_metoda']);
+  const raw = rawItem('I.1');
+  const [it] = LL.normalizeItems([{ ...raw, modes: { ...raw.modes, alta_metoda: [{ say: 'Altfel, cu altă formulă, același rezultat.', board: [] }] } }], { section: 'I', exam: 'en', baremText: BAREM });
+  assert.strictEqual(it.modes.alta_metoda.length, 1, '„altă metodă" rămâne pentru „Explică altfel"');
+  const [none] = LL.normalizeItems([rawItem('I.2')], { section: 'I', exam: 'en', baremText: BAREM });
+  assert.deepStrictEqual(none.modes.alta_metoda, []);
+});

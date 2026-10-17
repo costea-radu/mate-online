@@ -1105,8 +1105,10 @@ async function enforceFreeQuota(supa, profile) {
 //   4. bugetul zilnic soft → NU blochează: întoarce { degraded:true }, iar
 //      endpoint-urile aleg un model mai ieftin prin ai.pickModel(...)
 // `profile` e opțional (compatibil cu apelurile vechi); cu el, adminul e scutit
-// de bugete (rata orară rămâne). Întoarce starea limitelor.
-async function enforceRateLimit(supa, userId, profile = null) {
+// de bugete (rata orară rămâne). `budgets: false` = doar rata orară (ex. întrebările
+// din Pregătirea de examen, într-o ședință 1-la-1 deja plătită / inclusă — ca în sala
+// live). Întoarce starea limitelor.
+async function enforceRateLimit(supa, userId, profile = null, { budgets = true } = {}) {
   const since = new Date(Date.now() - 3600 * 1000).toISOString();
   // „voce" = frazele rostite de Prof. Tudor cu vocea generată (api/live.js → voce):
   // nu sunt cereri AI — nu intră în limita orară (costul lor intră în credite)
@@ -1116,6 +1118,7 @@ async function enforceRateLimit(supa, userId, profile = null) {
     const e = new Error(`Ai atins limita de ${RATE_PER_HOUR} cereri AI pe oră. Încearcă din nou mai târziu.`);
     e.status = 429; e.code = 'RATE_HOUR'; throw e;
   }
+  if (!budgets) return null;
   return enforceBudgets(supa, userId, profile);
 }
 

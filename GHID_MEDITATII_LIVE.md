@@ -9,22 +9,28 @@ Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 |---|---|
 | **Programul zilnic**: la aceeași oră (implicit 17:00–19:00), **4 săli** — câte un subiect rezolvat în fiecare: **Evaluarea Națională, BAC Mate-Info, BAC Științele Naturii, BAC Tehnologic** | `api/live.js` + cron la 15 minute: creează cele 4 ședințe, alege pentru fiecare sală un subiect **complet, cu barem, al examenului ei** (niciodată de alt profil); lecția se scrie abia când vine primul elev (bilet sau sala de așteptare) |
 | **Ședința comună pornește doar cu cel puțin 2 elevi** | la ora de început: ≥ 2 elevi în sală → lecția comună; **un singur elev → ședința devine 1-la-1 pentru el, fără cost în plus**; dacă lecția comună se termină înainte de sfârșitul orei → „Continuă 1-la-1” |
+| **Lobby-ul, fără texte lungi** (17 oct.): elevul alege **examenul** și **cum lucrează** — 👥 ședință de grup · 📄 1-la-1 pe un subiect întreg · 🎯 1-la-1 pe **un singur tip de exercițiu** · 🎁 gratuit; descrierea fiecărei opțiuni apare doar când e selectată | `src/pages/MeditatiiLive.jsx` — vezi secțiunea 3g |
 | **„Conectează-te"** → pregătirea (camera/microfonul tău, ca la Meet) → sala | `/meditatii` (lobby) → `/meditatii/sala/:id` (sala, pe tot ecranul) |
 | **Profesorul viu, în clasă**: vorbește, respiră, își mută greutatea, întoarce capul spre tablă, gesticulează, zâmbește, dă din cap | o singură fotografie, animată în browser (WebGL), fără niciun serviciu plătit — vezi „Profesorul animat" |
 | **Tabla albă** din spatele profesorului (scrie pas cu pas, în ritmul vocii) + **proiecția** din dreapta ei (enunțul, rezultatele, videoclipuri) | scrisul și proiecția stau în perspectivă pe tabla din fotografie; profesorul trece prin fața lor. Fără panou separat „Tabla digitală”. **Pe telefon** (tabla și proiecția nu încap citibil deodată) camera se oprește pe una dintre ele: butonul **„✎ Explicația / 📝 Exercițiul”** sau o glisare stânga/dreapta o mută, iar tabla primește culoarea și rama ei |
 | **Întrebări grilă și cu răspuns de completat**, cu rezultatele clasei (ca Zoom Polls) | sondajele vin din barem; răspunsul corect e verificat pe server |
 | **Întrebări pe pași** la problemele grele (Subiectele II și III): explicația se oprește înaintea rezultatelor intermediare din barem — elevul calculează pasul și răspunde pe ecran (cu „💡 Indiciu"; la 1-la-1 și „🤷 Nu știu — arată-mi"), apoi profesorul îl scrie pe tablă; **cel puțin o întrebare la fiecare subpunct** | `it.steps` în lecție (scrise odată cu lecția, verificate determinist); lecțiile vechi le primesc o singură dată, la prima folosire — vezi secțiunea 3c |
 | **Chat**, mâna ridicată, reacții, participanți, subtitrări, „Caiet", ecran complet (pe telefon: sus, în dreapta — se vede și ținut vertical; ce nu încape în bară stă în „⋯ Mai mult") | Supabase Realtime (canal privat pe ședință) |
-| **1-la-1, oricând** (60 min, **prelungite până termini exercițiile**): elevul **alege subiectul** — lista „Alege subiectul" are, în ordine, **variantele date, modelele, testele de antrenament, simulările**, iar la sfârșit **„Subiectul I, ex. 1", „Subiectul I, ex. 2"…** (un singur exercițiu, din toate subiectele oficiale) — și **exercițiile** (📋 — ex. S. I ex. 5, S. II ex. 2 b), S. III ex. 1 c), nu neapărat la rând); se oprește la întrebări, „Ai înțeles?", „Explică altfel", răspunde cu voce | 8/lună incluse în abonament, apoi 20 lei; prelungirea e fără cost în plus — vezi secțiunile 3b și 3f |
-| **🎓 Pregătire de examen** (din „Planul meu"): aceeași clasă, dar profesorul propune ordinea — S. I ex. 1 → ex. 2 → … → S. II → S. III, câte cel puțin 10 exerciții pe poziție, apoi un test; elevul poate alege **orice exercițiu** (la BAC și doar un subpunct a/b/c). **Prețul: ca la 1-la-1** — o ședință de 60 min, prelungite cât lucrează | din **aceleași 8/lună incluse** în abonament (comune cu 1-la-1 live), apoi 20 lei; fără abonament, biletul de 20 lei — `/meditatii/pregatire` (`?pos=II.2.b` = începe direct acolo); vezi secțiunea 3 |
-| **Plata**: 10 lei ședința de grup fără abonament; inclusă în abonament. În lobby, **„💳 Prețuri"** deschide lista tuturor prețurilor, cu și fără abonament | Stripe (plată unică), bilet în `live_tickets`; lista: `src/components/live/PriceList.jsx` |
+| **1-la-1, oricând** (60 min, **prelungite până termini exercițiile**): elevul **alege subiectul** — în ordine, **variantele date, modelele, testele de antrenament, simulările** — și **exercițiile** (📋 — ex. S. I ex. 5, S. II ex. 2 b), S. III ex. 1 c), nu neapărat la rând); se oprește la întrebări, „Ai înțeles?", „Explică altfel", răspunde cu voce | 8/lună incluse în abonament, apoi **30 lei**; prelungirea e fără cost în plus — vezi secțiunile 3b și 3f |
+| **🎯 1-la-1 pe un singur tip de exercițiu** (17 oct.): examenul + exercițiul (ex. BAC Tehnologic, S. III ex. 1) și, la BAC (S. II și III), **subpunctul a), b) sau c)** — profesorul ia DOAR exerciții de acest tip, din subiectele oficiale, fiecare pe baremul lui, și **nu trece la alt tip**: după fiecare, altul de același tip (din alt subiect), iar elevul poate alege din nou doar c) | aceeași ședință 1-la-1 (inclusă / 30 lei); clasa Pregătirii de examen cu `doar=1` — vezi secțiunea 3g |
+| **🎓 Pregătire de examen** (din „Planul meu"): aceeași clasă, dar profesorul propune ordinea — S. I ex. 1 → ex. 2 → … → S. II → S. III, câte cel puțin 10 exerciții pe poziție, apoi un test; elevul poate alege **orice exercițiu** (la BAC și doar un subpunct a/b/c). **Prețul: ca la 1-la-1** — o ședință de 60 min, prelungite cât lucrează | din **aceleași 8/lună incluse** în abonament (comune cu 1-la-1 live), apoi 30 lei; fără abonament, biletul de 30 lei — `/meditatii/pregatire` (`?pos=II.2.b` = începe direct acolo); vezi secțiunea 3 |
+| **Plata** (din 17 oct. 2026): **20 lei ședința de grup**, **30 lei ședința individuală (1-la-1)** fără abonament; cu abonament, grupul e inclus, iar 1-la-1 — 8 pe lună incluse. În lobby, **„💳 Prețuri"** deschide lista tuturor prețurilor, cu și fără abonament | Stripe (plată unică), bilet în `live_tickets`; lista: `src/components/live/PriceList.jsx`; sumele: `LIVE_PRICE_GRUP_LEI` / `LIVE_PRICE_PRIVAT_LEI` (secțiunea 2) |
 | **🎁 Meditații gratuite** — **câte una pe fiecare examen** (Evaluarea Națională, BAC Mate-Info, BAC Științele Naturii, BAC Tehnologic): o lecție pe care oricine are cont o face **1-la-1, fără abonament și fără plată** — la vedere în lobby, chiar sub prezentare, cu „▶ Începe gratuit" (prima e cea a sălii alese) | alese automat până le alegi tu din **Admin → 🎥 Meditații live → „🎁 Meditațiile gratuite"** (câte un rând pe examen; sau „🎁 Fă-o gratuită" la o lecție) — vezi secțiunea 3d |
 | **Lecția, scrisă o singură dată pe subiect** (explicația pe barem + explicațiile de rezervă + întrebările + **desenul din PDF** la problemele cu figură), apoi refolosită peste tot | **doar Claude Opus 5.5** (din 13 oct.; `ANTHROPIC_API_KEY`); Admin → 🎥 Meditații live → „Lecțiile recente": Regenerează, 🧩 itemii lipsă, 🖼 desenele, **🗑 versiunile vechi** — vezi secțiunea 3e |
 
-**Fără barem, profesorul nu explică nimic:** sunt propuse doar subiectele al căror barem
-a fost găsit și citit (cache-ul `ai_pdf_text`), iar explicația „pe barem" e obligatorie
-la fiecare item; celelalte moduri („pe înțelesul tuturor", „greșeli care costă puncte",
-„altă metodă") pornesc tot de la barem.
+**Fără barem, profesorul nu explică nimic — și explică STRICT baremul** (17 oct. 2026):
+sunt propuse doar subiectele al căror barem a fost găsit și citit (cache-ul `ai_pdf_text`),
+iar explicația „pe barem" e obligatorie la fiecare item: pașii, ordinea, metoda și punctajele
+din barem. În grup, al doilea mod (auzit de toți) e tot baremul — „pe înțelesul tuturor" (aceeași
+rezolvare, spusă mai simplu) sau „greșeli care costă puncte" (la pașii din barem). **„Altă metodă"**
+(o rezolvare care nu e cea din barem, cu același rezultat) vine **doar la cererea elevului**, la
+**„🔁 Explică altfel"** (1-la-1), care își arată funcțiile: elevul alege pe care o ascultă. La chat,
+profesorul răspunde tot pe pașii din barem. Vezi secțiunea 3g.
 
 **Formulele se citesc din paginile PDF:** textul extras dintr-un PDF pierde des radicalii,
 liniile de fracție, exponenții, integralele, determinanții, matricele. De aceea, la scrierea
@@ -160,7 +166,7 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 |---|---|---|
 | `LIVE_INTERVALE` | `17-19` | ora ședințelor (ora României); ex. `18-20` pentru ora 18:00; mai multe: `17-19,19-21` (în fiecare interval, toate sălile) |
 | `LIVE_SALI` | `en,mate-info,stiinte-naturii,tehnologic` | sălile (câte o ședință pe zi în fiecare); se pot scoate, ex. `en,mate-info` |
-| `LIVE_PRICE_GRUP_LEI` / `LIVE_PRICE_PRIVAT_LEI` | `10` / `20` | prețurile fără abonament |
+| `LIVE_PRICE_GRUP_LEI` / `LIVE_PRICE_PRIVAT_LEI` | `20` / `30` | prețurile fără abonament (din 17 oct. 2026; înainte 10 / 20). **Dacă sunt setate în Vercel, ele au întâietate** — șterge-le sau pune 20 / 30 |
 | `LIVE_PRIVAT_INCLUSE` | `8` | ședințe 1-la-1 incluse pe lună în abonament — **comune** pentru 1-la-1 live și Pregătirea de examen |
 | `LIVE_GRATUIT_LUNA` | `4` | câte meditații gratuite (1-la-1) poate porni un elev pe lună — plasă anti-abuz; peste, plătește ca de obicei |
 | `LIVE_GRATUIT_INTREBARI` | `10` | la câte întrebări din chat răspunde profesorul într-o meditație gratuită (lecția merge oricum până la capăt) |
@@ -224,10 +230,10 @@ salvează după fiecare exercițiu.
 
 | | Fără abonament | Cu abonament |
 |---|---|---|
-| Ședința de Pregătire de examen (60 min, prelungite cât lucrează) | **20 lei** (biletul 1-la-1) | din **cele 8 pe lună incluse** — aceleași 8 ca la 1-la-1 live; apoi 20 lei |
+| Ședința de Pregătire de examen (60 min, prelungite cât lucrează) | **30 lei** (biletul 1-la-1) | din **cele 8 pe lună incluse** — aceleași 8 ca la 1-la-1 live; apoi 30 lei |
 
 - **Pornirea:** la intrare, butonul spune ce se folosește („▶ Începe ședința" — din cele incluse,
-  „· cu biletul", sau „Plătește 20 lei"). Ședința se consumă abia la apăsare; o ședință în curs se
+  „· cu biletul", sau „Plătește 30 lei"). Ședința se consumă abia la apăsare; o ședință în curs se
   continuă fără cost (și după ce elevul iese și revine în cele 60 de minute).
 - **Ceasul:** 60 de minute (`LIVE_PRIVAT_MINUTE`), prelungite cât elevul e în clasă, ca la 1-la-1
   live (`LIVE_PRELUNGIRE_PAS` / `LIVE_PRELUNGIRE_MAX`). Sus, în clasă: „⏱ 42 min".
@@ -391,7 +397,7 @@ buton de ștergere a variantelor vechi regenerate în alte variante noi".
   (Vercel) pune la loc o rezervă, doar dacă e nevoie; `LIVE_GEN_MODEL` schimbă modelul.
 - **Ce scrie:** tot scriptul — enunțul curat, întrebarea „încercați singuri", explicația pe barem cu
   punctajul pașilor, **explicațiile de rezervă** („Explică altfel": pe înțelesul tuturor, greșeli care
-  costă puncte, altă metodă), verificarea și întrebările pe pași. Schema strictă (Structured Outputs),
+  costă puncte, altă metodă — aceasta doar la cererea elevului, vezi 3g), verificarea și întrebările pe pași. Schema strictă (Structured Outputs),
   paginile PDF ale subiectului și baremului ca documente, aceleași verificări deterministe după
   (literele grilelor de EN din tabelul baremului, enunțurile ilizibile scoase, formulele — mai jos).
 - **Pe bucăți, în paralel:** câte 3 itemi pe apel la Subiectul I și **câte 2 la Subiectele II–III** (cu 3
@@ -507,7 +513,9 @@ primele în listă, apoi la sfârșit «subiect 1 ex 1», «subiect 1 ex 2» etc
   de examen pe acea poziție (secțiunea 3): după 10 exerciții, un test scurt. „Începe" duce în clasa
   Pregătirii (`/meditatii/pregatire?pos=I.1&examen=bac-mate-info&din=live`), pe examenul listei alese în
   lobby (are întâietate față de cel din „Planul meu" și rămâne și după plata biletului), iar „Înapoi"
-  duce la Meditații live. Prețul: o ședință 1-la-1, ca oricare (inclusă / bilet de 20 lei).
+  duce la Meditații live. Prețul: o ședință 1-la-1, ca oricare (inclusă / bilet de 30 lei).
+  **Din 17 oct.** grupul „Pe exerciții" nu mai stă la sfârșitul listei: a devenit opțiunea separată
+  **„🎯 1-la-1: un singur tip de exercițiu"**, lângă alegerea examenului, cu subpunctele a/b/c (secțiunea 3g).
 - **De ce nu fișele „Subiectul I - Exercițiul 1" / „SUBIECTUL I, Ex. 1"** (rubricile „Exerciții pe
   Subiecte"): sunt culegeri de 30 de exerciții din variante, **fără barem** propriu — profesorul nu le
   poate explica pe barem. Exercițiile lor sunt aceleași (din variantele oficiale), iar „Pe exerciții"
@@ -518,6 +526,120 @@ primele în listă, apoi la sfârșit «subiect 1 ex 1», «subiect 1 ex 2» etc
   `src/pages/MeditatiiLive.jsx`, `src/pages/PregatireExamen.jsx`, `src/lib/live/api.js`
   (`setPrepExam(target, { force })`). Teste: `test/alege-subiectul.test.js`,
   `test/pregatire-examen.test.js` (examenul ales în lobby).
+
+---
+
+## 3g. Lobby fără texte lungi, „🎯 Un singur tip de exercițiu", strict pe barem, prețuri noi (17 octombrie 2026)
+
+Cererea: „1) verifică dacă au acces la meditații online — lecții live toți utilizatorii: cei fără
+abonament, cu abonament. Dacă nu au, fă să aibe. 2) verifică ca la meditații live să se explice strict
+baremul; la meditații live sunt prea multe texte — șterge-le și pune-le să apară când se selectează
+opțiunea descrisă de ele; pe lângă opțiunea de alegere examen pune opțiunea să facă doar anumite
+exerciții din subiecte și doar acel tip de exercițiu, nu să treacă la alt tip (ex. BAC tehnologic,
+subiectul 3 exercițiul 1: prof prezintă doar exerciții 1 luate din fișiere cu baremele lor); pune
+posibilitatea să aleagă subpunctul a), b) sau c) — dacă dorește doar c), să poată schimba exercițiul
+când îl termină cu altul de același tip și să poată alege doar c) la alt exercițiu; schimbă prețul la
+30 lei ședința individuală și 20 lei ședința de grup."
+
+### Accesul (verificat)
+| Cine | Ședința de grup | 1-la-1 (subiect / un singur tip / Pregătire) | Meditațiile gratuite |
+|---|---|---|---|
+| Fără cont | vede programul și demo-urile; intră după ce își face cont | „Intră în cont" | „Intră în cont și începe" |
+| Cont **fără abonament** | bilet de **20 lei** (plătit din lobby sau din sală) | bilet de **30 lei** (o ședință, 60 min prelungite) | gratuit, cel mult 4 pe lună |
+| Cont **cu abonament** | inclusă, oricâte | **8 pe lună incluse**, apoi bilet de 30 lei | gratuit (nu consumă cele 8) |
+| Admin | gratuit | nelimitat | — |
+
+Regulile erau corecte pe server (`L.groupAccess`, `L.privateAccess`, `L.freeAccess`, checkout-ul
+acceptă biletul 1-la-1 și de la abonați). **Două goluri, reparate:**
+- **Sala 1-la-1 cerea un bilet de grup.** Dacă între „Începe" și „Participă acum" se terminau ședințele
+  incluse sau meditațiile gratuite ale lunii (ex. două ședințe deschise cu un singur bilet), sala arăta
+  „Ședința de grup costă 10 lei" și pornea plata unui bilet de **grup** pentru o ședință 1-la-1 —
+  checkout-ul o refuza („Ședința nu există."), iar elevul rămânea blocat. Acum `private_begin` răspunde
+  cu prețul și felul biletului (`price`, `kind: 'privat'`), sala arată „Ședința 1-la-1 costă 30 lei",
+  plătește biletul 1-la-1 și **revine în aceeași sală** (`/meditatii/sala/<id>?plata=ok`); „Participă
+  acum" îl folosește (reîncearcă câteva secunde cât întârzie webhookul Stripe), iar exercițiul ales
+  (`?ex=`) se păstrează. Linkul ședinței 1-la-1 a altui elev arată un mesaj clar (nu o plată).
+- **Întrebările din Pregătirea de examen** (inclusiv „🎯 Un singur tip") se opreau când elevul își
+  consumase creditele AI în altă parte (Profesorul Virtual) — deși ședința era plătită / inclusă. Acum,
+  ca în sala live, în ședința în curs rămâne doar plafonul orar anti-abuz (`ai.enforceRateLimit(…, {
+  budgets: false })`).
+
+### Strict pe barem
+- Ce aude elevul fără să ceară e baremul: **„pe barem"** (pașii, metoda, ordinea și punctajele din barem
+  — obligatoriu), iar în grup, ca al doilea mod, **„pe înțelesul tuturor"** (ACEEAȘI rezolvare, spusă mai
+  simplu) sau **„greșeli care costă puncte"** (la pașii din barem) — `L.GROUP_ALT_MODES`. Înainte, în grup
+  intra la cam un item din trei și „altă metodă"; acum nu mai intră.
+- **„🔁 Explică altfel" (1-la-1, la „Ai înțeles?") — refăcut, cu toate funcțiile lui** (`L.ALT_MODES`):
+  butonul își arată funcțiile, iar elevul alege pe care o ascultă — **💡 Pe înțelesul tuturor**, **⚠️
+  Greșeli care costă puncte**, **🔀 Altă metodă (se punctează la fel)**; cele ascultate au ✓ și se pot
+  asculta din nou; după fiecare, profesorul întreabă iar „Ai înțeles?". „Altă metodă" vine **doar** aici,
+  la cererea elevului (același rezultat ca baremul; profesorul spune că e altă metodă decât cea din barem).
+  Cu un singur mod disponibil, „Explică altfel" îl pornește direct. Merge în sala 1-la-1, în ședința de
+  grup ținută 1-la-1, în Pregătirea de examen și în „🎯 Un singur tip"; și în demo-ul 1-la-1.
+- Instrucțiunile pentru modelul care scrie lecțiile (`api/_lib/liveLesson.js`): „Explici STRICT BAREMUL … în
+  modurile «barem», «intuitiv» și «greseli» rezolvi cu METODA DIN BAREM (aceleași formule, aceleași
+  transformări) — nu cu alta, nici «mai scurt»; dacă baremul dă mai multe variante, o urmezi pe prima; nu
+  adaugi teorie sau exerciții care nu sunt în subiect și în barem"; „alta_metoda" se scrie pentru „Explică
+  altfel" (null dacă nu există una firească). Pentru textul nou la lecțiile scrise înainte: Admin →
+  „Lecțiile recente" → „Regenerează".
+- Chatul (sala live și Pregătirea): „Explici STRICT pe barem: aceeași metodă, aceiași pași și aceleași
+  punctaje … nu propui altă metodă; dacă elevul vine cu altă metodă, îi spui că baremul punctează orice
+  metodă corectă, dar aici lucrăm pe pașii din barem".
+
+### Lobby-ul: textele apar doar la opțiunea selectată (`src/pages/MeditatiiLive.jsx`)
+Sus rămân doar titlul, „Prof. Tudor · Profesor virtual · AI — explică strict pe baremul oficial",
+demo-urile și butoanele („🎁 …gratuită", „📅 zilnic", „💳 Prețuri"). Apoi două alegeri:
+1. **Examenul tău** — Evaluarea Națională / BAC Mate-Info / BAC Științele Naturii / BAC Tehnologic (se
+   ține minte; filtrul vechi pe săli se preia);
+2. **Cum lucrezi** — patru opțiuni; **doar a celei selectate** apare descrierea (2–3 rânduri), prețul
+   și alegerile ei:
+   - 👥 **Ședință de grup** — sala examenului ales, azi și mâine (Conectează-te / Rezervă / Plătește);
+   - 📄 **1-la-1: un subiect întreg** — lista subiectelor examenului (meditația gratuită deasupra) și
+     „📋 Cu ce exercițiu începi?" (închis până îl deschizi);
+   - 🎯 **1-la-1: un singur tip de exercițiu** — mai jos;
+   - 🎁 **Gratuit** — câte o meditație pe examen (cea a examenului ales, prima).
+„Cum decurge o ședință" stă închis (ℹ️) până îl deschizi; secțiunea „1. Profesorul tău" apare doar cu mai
+mulți profesori. Linkuri: `/meditatii?mod=grup|subiect|tip|gratuit` (`?unu=1` = subiect). Pe ecranul de
+intrare în sală, notițele sunt scurtate (camera/microfonul, prelungirea).
+
+### „🎯 1-la-1: un singur tip de exercițiu"
+- **Alegerea:** examenul (sus) + exercițiul — Subiectul I: 1–6; la BAC, Subiectele II și III: „Ex. 1"
+  (toată problema) sau doar **a)**, **b)**, **c)**; la EN, S. II și III: 1–6 (problemele de la S. III se
+  lucrează întregi, așa sunt itemii lecțiilor). „▶ Începe: S. III · ex. 1 c)" → clasa Pregătirii de
+  examen: `/meditatii/pregatire?pos=III.1.c&examen=bac-tehnologic&din=live&doar=1`.
+- **În clasă** profesorul spune „Lucrăm doar Subiectul al treilea, exercițiul 1, punctul c…" și ia, unul
+  după altul, exerciții de pe ACEASTĂ poziție, din subiectele oficiale ale examenului (variante, modele,
+  teste, simulări), fiecare explicat pe baremul lui. **După fiecare exercițiu**: „▶ Alt exercițiu: S. III ·
+  ex. 1 c)" (alt subiect, tot doar c), „Alt exercițiu, doar a)" / „doar b)" / „toată problema (a, b, c)"
+  (din alt subiect decât cel de acum), „🧪 Test pe acest tip" (de la 3 exerciții, opțional) și „🏁
+  Ajunge pentru azi". **Niciodată „Trecem la …"** — nici după test, nici când s-au terminat exercițiile
+  de acest tip (atunci: testul pe acest tip sau alt subpunct). „🔄 Alt exercițiu" (sari peste cel de acum)
+  merge ca înainte. Panoul „🎯 Tipul de exercițiu" (în loc de „🗺️ Planul de examen") arată doar problema
+  și subpunctele ei, plus „Alt tip de exercițiu → Meditații live" (ședința continuă, fără cost în plus).
+- **Prețul:** o ședință 1-la-1 — din cele 8 incluse sau biletul de 30 lei (plata și întoarcerea de la
+  Stripe păstrează examenul, exercițiul și modul „doar").
+- **Tehnic:** `api/_lib/pregatire.js` → `focusOf` (familia poziției: problema + subpunctele),
+  `proposeFocusWelcome / AfterExercise / AfterTest / Exhausted` (opțiunile `next`, `switch`, `test`,
+  `review`, `end` — fără `advance` / `choose`); `api/live.js` → `prepFocus` (din `focus`, trimis de clasă
+  cu fiecare cerere `prep_*` — `setPrepFocus` în `src/lib/live/api.js`); `src/lib/live/items.js` →
+  `prepPositions` (pozițiile pentru alegerea din lobby); `src/pages/PregatireExamen.jsx` (`doar=1`).
+  Progresul: același ca la Pregătire (pe poziție și pe subpunct), deci se vede și în „Planul meu". Fără
+  SQL nou.
+
+### Prețurile
+**20 lei** ședința de grup și **30 lei** ședința individuală (1-la-1 live, „un singur tip", Pregătirea de
+examen), fără abonament — implicit în cod (`L.PRICE_GROUP_LEI` / `L.PRICE_PRIVATE_LEI`), deci și la
+plată (Stripe, din `create-checkout`), în lobby, în „💳 Prețuri", în sală, în „Planul meu", pe pagina
+/preturi și în ghidul Profesorului Virtual. **Atenție:** dacă în Vercel există `LIVE_PRICE_GRUP_LEI` /
+`LIVE_PRICE_PRIVAT_LEI`, ele au întâietate — șterge-le (sau pune 20 / 30). Biletele cumpărate înainte
+rămân valabile (biletul nu ține prețul).
+
+**Teste:** `test/pregatire-examen.test.js` (familia, propunerile „un singur tip" — fără trecere la alt
+tip —, fluxul API pe BAC Tehnologic S. III ex. 1 b) → doar a) → epuizat), `test/meditatii-live.test.js`
+și `test/meditatii-live-lectie.test.js` (strict pe barem în grup; „Explică altfel" cu toate trei funcțiile la
+1-la-1; promptul, schema), `test/meditatii-live-client.test.js` („Explică altfel": funcția aleasă, ✓, apoi
+iar „Ai înțeles?"), `test/meditatii-gratuite.test.js` (`private_begin` → plata biletului 1-la-1, cu
+prețul), prețurile noi în toate testele.
 
 ---
 
@@ -656,5 +778,9 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | Admin → „🎁 Meditațiile gratuite": „rulează supabase/setari_ordine_gratuite.sql" | scriptul setărilor nu e rulat; până atunci sunt gratuite cele alese automat, câte una pe examen (nu se pot schimba) |
 | În lobby nu apare secțiunea „Încearcă gratuit" (sau lipsește un examen) | examenul nu are niciun subiect cu barem încă, sau ai ales „✕ Fără meditație gratuită" la el în Admin („🤖 Alege automat" o pune la loc) |
 | Meditația gratuită a unui examen „se pregătește când pornești (2–4 minute)" | e aleasă automat dintre subiectele cu barem (examenul nu avea nicio lecție gata); lecția se scrie la primul elev, o singură dată — sau Admin → „🎁 Meditațiile gratuite" → „Pregătește acum" |
-| În „Alege subiectul" nu mai apar fișele „Subiectul I - Exercițiul 1" | normal (11 oct.): n-au barem propriu; la sfârșitul listei, „Pe exerciții" → „Subiectul I, exercițiul 1"… ia aceleași exerciții din subiectele oficiale, pe barem |
+| În „Alege subiectul" nu mai apar fișele „Subiectul I - Exercițiul 1" | normal (11 oct.): n-au barem propriu; opțiunea „🎯 1-la-1: un singur tip de exercițiu" (17 oct.) ia aceleași exerciții din subiectele oficiale, pe barem |
+| La „🔁 Explică altfel" nu apare „🔀 Altă metodă" (doar celelalte) | itemul nu are o altă metodă firească (ex. o grilă de un pas), așa că modelul n-a scris-o; la o lecție veche: Admin → „Lecțiile recente" → „Regenerează" o scrie, dacă există. Funcțiile prezente sunt mereu toate în listă |
+| Prețurile din lobby / de la plată sunt tot 10 și 20 lei | `LIVE_PRICE_GRUP_LEI` / `LIVE_PRICE_PRIVAT_LEI` sunt setate în Vercel (au întâietate față de 20 / 30 din cod) → șterge-le sau pune 20 / 30, apoi Redeploy |
+| La 1-la-1, după „Participă acum": „Ședința 1-la-1 costă 30 lei" și „Plătește 30 lei" | normal când între pornire și intrare s-au terminat ședințele incluse (sau meditațiile gratuite ale lunii). Până pe 17 oct. butonul cerea, greșit, un bilet de **grup** (plata nu pornea); acum cere biletul 1-la-1, iar după plată elevul revine în aceeași sală |
+| La „🎯 Un singur tip", profesorul spune „Am lucrat toate exercițiile de acest tip…" | s-au terminat subiectele cu barem care au acel exercițiu (sau plafonul de lecții noi pe zi, `PREP_GENERARI_ZI`); propune testul pe acest tip sau alt subpunct — nu trece singur la alt tip. Alt tip: „🎯 Tipul de exercițiu" → „Alt tip de exercițiu → Meditații live" (ședința continuă, fără cost în plus) |
 | Elevul vede „Ai făcut deja cele 4 meditații gratuite din luna aceasta" | plafonul lunar (`LIVE_GRATUIT_LUNA`); de luna viitoare le poate face din nou |

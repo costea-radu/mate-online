@@ -92,22 +92,22 @@ test('alegerea subiectului: întâi lecțiile deja pregătite, apoi subiectele n
   assert.ok(!L.pickSubject(many, { seed: 'q', exclude: ['s1', 's2'] }).id.match(/^s[12]$/));
 });
 
-test('acces la grup: abonament / admin gratuit, altfel bilet de 10 lei', () => {
+test('acces la grup: abonament / admin gratuit, altfel bilet de 20 lei', () => {
   assert.deepStrictEqual(L.groupAccess({ profile: { subscription_status: 'active' } }), { ok: true, via: 'abonament', price: 0 });
   assert.strictEqual(L.groupAccess({ profile: { is_admin: true } }).via, 'admin');
   const no = L.groupAccess({ profile: { subscription_status: 'inactive' } });
   assert.strictEqual(no.ok, false);
-  assert.strictEqual(no.price, 10);
+  assert.strictEqual(no.price, 20);
   assert.strictEqual(L.groupAccess({ profile: {}, ticket: { status: 'platit' } }).via, 'bilet');
   assert.strictEqual(L.groupAccess({ profile: {}, ticket: { status: 'rambursat' } }).ok, false);
 });
 
-test('acces 1-la-1: 8 incluse pe lună pentru abonați, apoi bilet de 20 lei', () => {
+test('acces 1-la-1: 8 incluse pe lună pentru abonați, apoi bilet de 30 lei', () => {
   const sub = { subscription_status: 'active' };
   let a = L.privateAccess({ profile: sub, includedUsed: 3 });
   assert.strictEqual(a.via, 'inclus'); assert.strictEqual(a.includedLeft, 5);
   a = L.privateAccess({ profile: sub, includedUsed: 8 });
-  assert.strictEqual(a.ok, false); assert.strictEqual(a.price, 20);
+  assert.strictEqual(a.ok, false); assert.strictEqual(a.price, 30);
   a = L.privateAccess({ profile: sub, includedUsed: 8, unusedTickets: 1 });
   assert.strictEqual(a.via, 'bilet');
   a = L.privateAccess({ profile: {}, includedUsed: 0 });
@@ -284,4 +284,35 @@ test('mișcarea gurii: liniște → gura închisă; vocea → gura se deschide; 
   assert.ok(Math.max(...speaking) > 0.5, `deschidere ${speaking}`);
   assert.ok(L.lipAt(b64, 1.5).shape < 0.5, 'sunet grav → formă rotunjită');
   assert.strictEqual(L.pcmDuration(48000, 24000), 1);
+});
+
+test('strict pe barem în grup; „Explică altfel" (1-la-1) cu toate funcțiile lui, inclusiv „altă metodă" — doar la cerere', () => {
+  const LL = require('../api/_lib/liveLesson');
+  assert.deepStrictEqual(L.ALT_MODES, ['intuitiv', 'greseli', 'alta_metoda']);
+  assert.deepStrictEqual(L.GROUP_ALT_MODES, ['intuitiv', 'greseli']);
+  assert.strictEqual(L.MODE_LABELS.alta_metoda, 'Altă metodă (se punctează la fel)');
+  const sg = (id, say) => ({ id, say, board: [] });
+  const script = {
+    intro: [sg('i0', 'Bun venit la meditație.')], qna: [], breakSay: [], outro: [],
+    items: [0, 1, 2].map((i) => ({
+      ref: `I.${i + 1}`, section: 'I', title: `Subiectul I, exercițiul ${i + 1}`, statement: 'Enunțul.', intro: [sg(`a${i}`, 'Citim enunțul.')],
+      tryPoll: null, afterTry: [], check: null, afterCheck: [],
+      modes: { barem: [sg(`b${i}`, 'Pașii din barem.')], intuitiv: [sg(`n${i}`, 'Aceiași pași, mai simplu.')], greseli: [sg(`g${i}`, 'Greșeala care costă puncte.')], alta_metoda: [sg(`m${i}`, 'Altă metodă, cu același rezultat.')] },
+    })),
+  };
+  // grupul: al doilea mod, auzit fără să-l ceară nimeni, e tot baremul (fără „altă metodă")
+  const grup = L.buildTimeline(script, {}, { mode: 'grup', qna: false, pause: false });
+  const modes = grup.scenes.filter((s) => s.type === 'explicatie').map((s) => s.mode);
+  assert.deepStrictEqual(modes, ['barem', 'intuitiv', 'barem', 'greseli', 'barem', 'intuitiv']);
+  // 1-la-1: „Ai înțeles?" → „Explică altfel" are toate trei funcțiile, cu etichetele lor
+  const priv = L.buildTimeline(script, {}, { mode: 'privat' });
+  const asks = priv.scenes.filter((s) => s.type === 'intrebare_intelegere');
+  assert.strictEqual(asks.length, 3);
+  for (const s of asks) {
+    assert.deepStrictEqual(s.modes, ['intuitiv', 'greseli', 'alta_metoda']);
+    assert.deepStrictEqual(s.alts.map((a) => a.label), ['Pe înțelesul tuturor', 'Greșeli care costă puncte', 'Altă metodă (se punctează la fel)']);
+  }
+  assert.ok(!priv.scenes.some((s) => s.type === 'explicatie' && s.mode !== 'barem'), 'la 1-la-1, celelalte moduri doar la cerere');
+  // vocea lor se generează (1-la-1 le poate cere)
+  assert.ok(LL.segmentsInOrder(script).some((s) => /^m\d$/.test(s.id)));
 });
