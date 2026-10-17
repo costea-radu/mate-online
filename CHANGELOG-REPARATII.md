@@ -4,6 +4,32 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 17 octombrie 2026 — Meditații live: accesul verificat, strict pe barem, lobby fără texte lungi, „🎯 Un singur tip de exercițiu", prețuri 30 / 20 lei
+
+Cererea: „1) verifică dacă au acces la meditații online - lecții live toți utilizatorii: cei fără abonament, cu abonament. Dacă nu au, fă să aibe. 2) verifică ca la meditații live să se explice strict baremul; la meditații live sunt prea multe texte — șterge-le și pune-le să apară când se selectează opțiunea descrisă de ele; pe lângă opțiunea de alegere examen pune opțiunea să facă doar anumite exerciții din subiecte și să facă doar acel tip de exercițiu, nu să treacă la alt tip (ex. bac tehnologic subiectul 3 exercițiul 1: prof prezintă doar exerciții 1 luate din fișiere cu baremele lor); pune posibilitatea să aleagă subpunctul a), b) sau c); dacă dorește doar c), să poată schimba exercițiul când îl termină cu altul de același tip și să poată alege doar c) la alt exercițiu; schimbă prețul la meditații live la 30 lei ședința individuală și 20 lei ședința de grup."
+
+### 1) Accesul — verificat pentru toți; două goluri reparate (`api/live.js`, `src/pages/LiveRoom.jsx`, `src/components/live/PreJoin.jsx`, `api/_lib/ai.js`)
+- **Verificat:** fără abonament — grupul cu bilet (20 lei), 1-la-1 / „un singur tip" / Pregătirea cu bilet (30 lei), meditațiile gratuite cu cont; cu abonament — grupul inclus, 8 ședințe 1-la-1 pe lună incluse, apoi bilet (checkout-ul îl acceptă și de la abonați); fără cont — programul și demo-urile, intrarea după autentificare. Meniul și rutele nu au nicio barieră de abonament.
+- **Sala 1-la-1 cerea un bilet de grup:** când între „Începe" și „Participă acum" se terminau ședințele incluse sau meditațiile gratuite ale lunii, sala arăta „Ședința de grup costă 10 lei" și pornea plata unui bilet de grup pentru o ședință 1-la-1 — refuzată de checkout, elevul rămânea blocat. Acum `private_begin` dă prețul și felul biletului (`kind: 'privat'`), sala cere biletul 1-la-1 și revine în aceeași sală după plată (cu reîncercare cât întârzie webhookul; exercițiul ales se păstrează). Linkul ședinței 1-la-1 a altui elev → mesaj clar, nu plată.
+- **Întrebările din Pregătirea de examen** nu mai depind de creditele AI ale elevului într-o ședință deja plătită / inclusă (ca în sala live; rămâne plafonul orar).
+
+### 2) Strict pe barem (`api/_lib/live.js`, `api/_lib/liveLesson.js`, `api/live.js`)
+- „Altă metodă" (o rezolvare care nu e cea din barem) nu se mai predă: în grup intra la cam un item din trei, la 1-la-1 la „Explică altfel". Rămân „pe barem", „pe înțelesul tuturor" (aceeași rezolvare din barem, spusă mai simplu) și „greșeli care costă puncte" — și la lecțiile deja scrise (vocea pentru „altă metodă" nu se mai generează).
+- Instrucțiunile lecției: metoda, pașii, ordinea și punctajele din barem; prima variantă a baremului; fără teorie sau exerciții în plus; schema nu mai cere `alta_metoda`. Chatul: tot pe pașii din barem, fără altă metodă.
+
+### 3) Lobby-ul fără texte lungi (`src/pages/MeditatiiLive.jsx`, `src/styles/live.css`, `src/components/live/PriceList.jsx`)
+- Sus: titlul, „Prof. Tudor · Profesor virtual · AI — explică strict pe baremul oficial", demo-urile, „🎁 / 📅 / 💳 Prețuri". Apoi **Examenul tău** (EN, BAC Mate-Info, Șt. Naturii, Tehnologic — ținut minte) și **Cum lucrezi** (👥 grup · 📄 1-la-1 subiect întreg · 🎯 1-la-1 un singur tip de exercițiu · 🎁 gratuit): descrierea, prețul și alegerile apar **doar la opțiunea selectată**. „Cum decurge o ședință" — închis până îl deschizi; „Cu ce exercițiu începi?" — la fel. Notițele de pe ecranul de intrare în sală — scurtate.
+
+### 4) „🎯 1-la-1: un singur tip de exercițiu" (`api/_lib/pregatire.js`, `api/live.js`, `src/pages/PregatireExamen.jsx`, `src/lib/live/api.js`, `src/lib/live/items.js`)
+- Lângă alegerea examenului: Subiectul + exercițiul și, la BAC (S. II–III), subpunctul a), b), c) sau toată problema → clasa Pregătirii de examen cu `doar=1`. Profesorul ia doar exerciții de acest tip, din subiectele oficiale, fiecare pe baremul lui; după fiecare: „▶ Alt exercițiu: S. III · ex. 1 c)" (alt subiect), „Alt exercițiu, doar a) / b) / toată problema", testul pe acest tip (opțional), „🏁 Ajunge" — **niciodată trecerea la alt tip** (nici după test, nici când s-au terminat exercițiile). Panoul „🎯 Tipul de exercițiu" arată doar problema și subpunctele ei. Fără SQL nou.
+
+### 5) Prețurile: 20 lei grup, 30 lei 1-la-1 (`api/_lib/live.js` + toate afișările)
+- Implicit în cod (`LIVE_PRICE_GRUP_LEI` = 20, `LIVE_PRICE_PRIVAT_LEI` = 30): plata Stripe, lobby, „💳 Prețuri", sala, Pregătirea, „Planul meu", /preturi, ghidul Profesorului Virtual. **Dacă variabilele sunt setate în Vercel, au întâietate** — șterge-le sau pune 20 / 30.
+
+**Verificat:** `npm test` (toate trec; noi: „un singur tip" — familia, propunerile, fluxul API pe BAC Tehnologic; strict pe barem — grup, 1-la-1, voce, prompt, schemă; `private_begin` → biletul 1-la-1 cu prețul); `vite build` trece; capturi Chromium (desktop și telefon 390 px, date simulate): lobby-ul pe fiecare opțiune, alegerea „S. III · ex. 1 c)" și intrarea în clasa „🎯 Un singur tip" cu „Plătește 30 lei". Neverificat aici: plata Stripe reală și o lecție nouă scrisă cu noile instrucțiuni (fără chei în sesiune).
+
+---
+
 ## 15 octombrie 2026 — Desenul de pe proiecție (caroiajul) și sunetul pe iPhone la lecția nouă de EN
 
 Cererea (cu poza proiecției „Subiectul al III-lea, exercițiul 4 · 5 puncte" — cercul de centru O): „1) nu se vede bine desenul în poză la meditația live; 2) nu merge sunetul pe telefon, la ultima meditație live generată, pt Evaluare Națională". Telefonul: iPhone; nu se aude nimic (doar subtitrarea); celelalte meditații live se aud pe același telefon.

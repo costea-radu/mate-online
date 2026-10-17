@@ -12,7 +12,7 @@
 //   poll_answer    — răspunsul la întrebarea profesorului (grilă / completare)
 //   poll_results   — rezultatele agregate ale unei întrebări
 //   private_subjects — subiectele cu barem, pentru o ședință 1-la-1
-//   private_start  — pornește o ședință 1-la-1 (8/lună incluse în abonament, apoi 20 lei)
+//   private_start  — pornește o ședință 1-la-1 (8/lună incluse în abonament, apoi 30 lei)
 //   private_begin  — pornește ceasul celor 60 de minute (după ce lecția e gata)
 //   private_state  — unde a rămas elevul (reluare după o deconectare)
 //   extend         — prelungirea: elevul care nu a terminat exercițiile nu e oprit
@@ -24,8 +24,10 @@
 //                    una (iPhone, Android): generată o dată pe frază, apoi din cache
 //   prep_*         — Pregătirea de examen („Planul meu"): tot o ședință 1-la-1, cu
 //                    aceleași reguli — prep_begin o pornește (din cele 8 incluse, COMUNE
-//                    cu 1-la-1 live, sau cu biletul de 20 lei), prep_session o prelungește
-//                    cât elevul e în clasă; vezi „PREGĂTIRE DE EXAMEN" mai jos
+//                    cu 1-la-1 live, sau cu biletul de 30 lei), prep_session o prelungește
+//                    cât elevul e în clasă; vezi „PREGĂTIRE DE EXAMEN" mai jos. Cu `focus`
+//                    („🎯 Doar un tip de exercițiu", ales în Meditații live): profesorul
+//                    rămâne la acel tip de exercițiu (vezi P.focusOf)
 //
 // MEDITAȚIILE GRATUITE: câteva lecții pregătite (implicit 2, una de EN și una de
 // BAC; adminul le schimbă) se fac 1-la-1 fără plată și fără abonament, de oricine
@@ -34,8 +36,8 @@
 // GET ?action=cron — ședințele de azi/mâine, subiectele, lecțiile pentru următoarele
 //   ore, asocierea subiect ↔ barem pentru materialele noi (Bearer CRON_SECRET)
 //
-// Profesorul explică DOAR subiecte cu barem asociat sigur. Plățile (10 lei grup,
-// 20 lei 1-la-1) trec prin api/create-checkout.js → api/stripe-webhook.js.
+// Profesorul explică DOAR subiecte cu barem asociat sigur, STRICT pe barem. Plățile
+// (20 lei grup, 30 lei 1-la-1) trec prin api/create-checkout.js → api/stripe-webhook.js.
 // Tabelele: supabase/meditatii_live.sql. Ghid: GHID_MEDITATII_LIVE.md.
 // =====================================================================
 const crypto = require('node:crypto');
@@ -839,7 +841,7 @@ async function join(req, res, supa) {
       // meditație gratuită (1-la-1 pornită gratuit / ședința de grup cu un subiect gratuit)
       free: session.kind === 'privat' ? session.access === 'gratuit' : access.via === 'gratuit' },
     teacher, now: now.toISOString(), me: { id: userId, name: L.displayName(profile.full_name, userId), admin: !!profile.is_admin, premium: premiumOf(profile) },
-    privMinutes: L.PRIVATE_MINUTES(), extendMaxMin: L.EXT_MAX_MIN(),
+    privMinutes: L.PRIVATE_MINUTES(), privIncluded: L.PRIVATE_INCLUDED(), extendMaxMin: L.EXT_MAX_MIN(),
   };
   if (!access.ok) {
     return res.status(402).json({ ...base, error: access.private ? 'Aceasta este ședința 1-la-1 a altui elev.' : `Ședința costă ${access.price} lei (sau e inclusă în abonament).`, code: 'LIVE_PAYMENT', price: access.price });
@@ -1021,7 +1023,7 @@ async function teacherAnswer(supa, { session, lesson, question, author, itemInde
     '',
     'CUM RĂSPUNZI:',
     `· Scurt și clar: ${privat ? 'cel mult 6 propoziții' : 'cel mult 4 propoziții'}. ${first ? `Te adresezi elevului pe prenume (${first}).` : 'Nu îi știi prenumele: nu i te adresa cu un nume (nici „Elev…").'}`,
-    '· Rezultatele și pașii din barem sunt sursa de adevăr. Nu inventa alt rezultat.',
+    '· Explici STRICT pe barem: aceeași metodă, aceiași pași și aceleași punctaje ca în baremul itemului. Nu inventa alt rezultat și nu propune altă metodă de rezolvare; dacă elevul vine cu altă metodă, îi spui că baremul punctează orice metodă corectă, dar aici lucrăm pe pașii din barem, și îi explici pasul din barem.',
     '· Dacă întrebarea nu ține de matematica din ședință, spui politicos că acum lucrăm subiectul și, dacă e nevoie, recomanzi o ședință 1-la-1.',
     '· Fără date personale, fără linkuri, fără emoji. Nu repeta întrebarea.',
     '· „say" se rostește: fără LaTeX și fără simboluri („x la pătrat", „radical din 3", „a supra b").',
@@ -1310,15 +1312,18 @@ async function privateBegin(req, res, supa) {
   }
   if (via !== 'admin' && via !== 'gratuit') {
     const acc = await privateAccessFor(supa, profile);
+    // fără drept (ex. cele incluse / meditațiile gratuite s-au terminat între pornire și
+    // intrare): sala arată plata unui bilet 1-LA-1 (kind) — cu prețul lui — și se întoarce aici
+    const pay = (error) => res.status(402).json({ error, code: 'LIVE_PAYMENT', price: acc.price || L.PRICE_PRIVATE_LEI(), kind: 'privat' });
     if (!acc.ok) {
-      throw fail(402, wasFree
+      return pay(wasFree
         ? `Meditația nu mai e gratuită (sau ai făcut deja meditațiile gratuite din luna aceasta) — ședința 1-la-1 costă ${acc.price} lei.`
-        : `Ședința 1-la-1 costă ${acc.price} lei — ai folosit ședințele incluse luna aceasta.`, 'LIVE_PAYMENT');
+        : `Ședința 1-la-1 costă ${acc.price} lei${acc.included ? ` — ai folosit cele ${acc.included} incluse luna aceasta` : ` (sau e inclusă în abonament: ${L.PRIVATE_INCLUDED()} pe lună)`}.`);
     }
     via = acc.via;
     if (via === 'bilet') {
       const used = await useTicket(supa, userId, session.id);
-      if (used === 'niciunul') throw fail(402, 'Nu mai ai niciun bilet 1-la-1 neconsumat.', 'LIVE_PAYMENT');
+      if (used === 'niciunul') return pay('Nu mai ai niciun bilet 1-la-1 neconsumat.');
       if (used === 'folosit') throw fail(409, 'Biletul a fost folosit între timp. Reîncearcă.');
     }
   }
@@ -1762,16 +1767,25 @@ async function cron(supa) {
 //
 // PREȚUL: ca o ședință 1-la-1 live. prep_begin pornește o ședință (un rând
 // live_sessions: kind 'privat', fără subiect, state.prep = examenul) — din cele
-// 8 incluse pe lună în abonament (COMUNE cu 1-la-1 live) sau cu un bilet de 20 lei;
+// 8 incluse pe lună în abonament (COMUNE cu 1-la-1 live) sau cu un bilet de 30 lei;
 // 60 de minute, prelungite cât elevul e în clasă (L.extensionPlan, ca la 1-la-1 live).
 // Lucrul NOU (exercițiu, test, întrebare către profesor) cere ședința în curs;
 // răspunsurile și încheierea unui exercițiu deja început merg oricând.
 // Examenul: cel din „Planul meu"; elevii fără el îl aleg în clasă (examTarget); venit din
-// Meditații live („Alege subiectul" → „Subiectul I, ex. 1"), cel al listei alese (examForce).
+// Meditații live („🎯 Doar un tip de exercițiu"), cel ales acolo (examForce) — iar `focus`
+// ține profesorul la tipul de exercițiu ales (P.focusOf / P.proposeFocus*).
 // ═════════════════════════════════════════════════════════════════════════════
 const P = require('./_lib/pregatire');
 const PREP_TEACHER = () => (L.teacherById('radu') ? 'radu' : L.teachers()[0].id);
 const PREP_ROWS = 'id, status, score, max_score, duration_sec, created_at, completed_at, prep:payload->prep';
+// „🎯 Doar un tip de exercițiu" (ales în Meditații live): clasa trimite poziția aleasă
+// (`focus`, ex. „III.1.c") → familia ei (problema și subpunctele, P.focusOf); cât
+// poziția de lucru e în familie, profesorul propune doar exerciții de același tip
+const prepFocus = (req, E, pos = null) => {
+  const f = typeof req.body?.focus === 'string' ? P.focusOf(E.exam, req.body.focus.slice(0, 12)) : null;
+  return f && (!pos || P.inFocus(f, pos)) ? f : null;
+};
+const focusView = (f) => (f ? { pos: f.pos, root: f.root, label: f.label, short: f.short, positions: f.positions } : null);
 // lecții noi scrise pentru un elev, pe zi (implicit 3: lecțiile se scriu o dată și
 // rămân pentru toți — a doua zi se pot scrie altele; PREP_GENERARI_ZI le schimbă)
 const PREP_GEN_MAX = () => Math.max(0, parseInt(process.env.PREP_GENERARI_ZI || '3', 10) || 0);
@@ -1973,10 +1987,11 @@ async function prepState(req, res, supa) {
     profile.is_admin ? { ok: true, via: 'admin', price: 0 } : LA.privateAccessFor(supa, profile),
   ]);
   const prog = P.progressFrom(rows, E.exam);
-  const proposal = P.proposeWelcome({ exam: E.exam, target: E.target, prog, name });
+  const focus = prepFocus(req, E);
+  const proposal = focus ? P.proposeFocusWelcome({ exam: E.exam, focus, prog, name }) : P.proposeWelcome({ exam: E.exam, target: E.target, prog, name });
   return res.status(200).json({
     exam: { target: E.target, exam: E.exam, profile: E.profile, label: E.label, fromPlan },
-    positions: P.publicProgress(E.exam, prog), current: proposal.pos, proposal,
+    positions: P.publicProgress(E.exam, prog), current: proposal.pos, proposal, focus: focusView(focus),
     settings: P.settings(), teacher: L.publicTeacher(L.teacherById(PREP_TEACHER())),
     me: { name, premium: premiumOf(profile), admin: !!profile.is_admin },
     // ședința 1-la-1: în curs (sau null) + dreptul la una nouă — ca la meditațiile live
@@ -2008,7 +2023,9 @@ async function prepExercise(req, res, supa) {
     if (pick?.generated) genRow = new Date().toISOString();
   }
   if (!pick) {
-    return res.status(200).json({ exhausted: true, proposal: P.proposeExhausted({ exam: E.exam, pos: pos.pos, prog }), positions: P.publicProgress(E.exam, prog) });
+    const focus = prepFocus(req, E, pos.pos);
+    const proposal = focus ? P.proposeFocusExhausted({ exam: E.exam, focus, pos: pos.pos, prog }) : P.proposeExhausted({ exam: E.exam, pos: pos.pos, prog });
+    return res.status(200).json({ exhausted: true, proposal, positions: P.publicProgress(E.exam, prog) });
   }
   // desenul din PDF (problemă cu figură, lecție scrisă înainte de desene): o singură dată pe lecție
   if (lacksFigures(pick.lesson) && FIG.figureKeys(pick.items).length) {
@@ -2140,9 +2157,10 @@ async function prepDone(req, res, supa) {
   }).eq('id', row.id);
   if (error) throw fail(500, error.message);
   const prog = P.progressFrom(await prepRows(supa, userId, E.target), E.exam);
+  const focus = prepFocus(req, E, prep.pos);
   return res.status(200).json({
     result, positions: P.publicProgress(E.exam, prog),
-    proposal: P.proposeAfterExercise({ exam: E.exam, pos: prep.pos, prog, result }),
+    proposal: focus ? P.proposeFocusAfterExercise({ exam: E.exam, focus, pos: prep.pos, prog, result }) : P.proposeAfterExercise({ exam: E.exam, pos: prep.pos, prog, result }),
   });
 }
 
@@ -2224,9 +2242,10 @@ async function prepTestFinish(req, res, supa) {
     if (ex) wrong.push(ex);
   }
   const review = wrong.length ? P.reviewTimeline(wrong, { introSay: wrong.length === 1 ? 'Hai să vedem pe barem exercițiul la care ai greșit.' : 'Hai să vedem pe barem exercițiile la care ai greșit.' }) : null;
+  const focus = prepFocus(req, E, prep.pos);
   return res.status(200).json({
     result, review, positions: P.publicProgress(E.exam, prog),
-    proposal: P.proposeAfterTest({ exam: E.exam, pos: prep.pos, result, prog }),
+    proposal: focus ? P.proposeFocusAfterTest({ exam: E.exam, focus, pos: prep.pos, result }) : P.proposeAfterTest({ exam: E.exam, pos: prep.pos, result, prog }),
   });
 }
 
@@ -2235,7 +2254,9 @@ async function prepChat(req, res, supa) {
   const ctx = await prepWho(req, supa);
   const { userId, profile, E, name } = ctx;
   await prepGate(supa, ctx);
-  await ai.enforceRateLimit(supa, userId, profile);
+  // ședința 1-la-1 e deja plătită / inclusă: ca în sala live, întrebările nu consumă
+  // creditele AI ale elevului (rămâne doar plafonul orar, anti-abuz)
+  await ai.enforceRateLimit(supa, userId, profile, { budgets: false });
   const { text, flagged } = L.moderate(req.body?.text || '');
   if (!text) throw fail(400, 'Mesajul e gol.');
   const teacher = L.teacherById(PREP_TEACHER()) || L.teachers()[0];

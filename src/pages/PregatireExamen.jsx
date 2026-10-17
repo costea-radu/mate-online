@@ -18,17 +18,20 @@
 //     la BAC, problemele de la Subiectele II și III se pot exersa și pe subpuncte (a, b, c);
 //   · o ȘEDINȚĂ 1-LA-1, ca la meditațiile live: 60 de minute, prelungite cât elevul e în
 //     clasă — din cele 8 incluse pe lună în abonament (comune cu 1-la-1 live) sau cu un
-//     bilet de 20 lei; după ce se încheie, lucrul nou cere o ședință nouă;
+//     bilet de 30 lei; după ce se încheie, lucrul nou cere o ședință nouă;
 //   · fără examen ales în „Planul meu", elevul îl alege aici (se ține minte);
-//   · din Meditații live („Alege subiectul" → la sfârșitul listei „Subiectul I, ex. 1"…):
-//     ?pos=I.1&examen=bac-tehnologic&din=live — examenul listei de acolo are întâietate
-//     (și după plata biletului), iar „Înapoi" duce la Meditații live.
+//   · din Meditații live („🎯 Un singur tip de exercițiu", lângă alegerea examenului):
+//     ?pos=III.1.c&examen=bac-tehnologic&din=live&doar=1 — examenul ales acolo are
+//     întâietate (și după plata biletului), iar „Înapoi" duce la Meditații live. Cu
+//     `doar=1` profesorul RĂMÂNE la acel tip de exercițiu: după fiecare, altul de același
+//     tip (din alt subiect), iar elevul poate alege subpunctul (doar a), b) sau c)) și la
+//     exercițiul următor — niciodată „trecem la alt exercițiu din examen".
 // Serverul: api/live.js (prep_*) + api/_lib/pregatire.js. Progresul: „Planul meu".
 // =====================================================================
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { liveApi, buyTicket, setPrepExam } from '../lib/live/api';
+import { liveApi, buyTicket, setPrepExam, setPrepFocus } from '../lib/live/api';
 import { clock } from '../lib/live/clock';
 import { AudioEngine } from '../lib/live/audio';
 import { PrivatePlayer, estimateSpeechSec } from '../lib/live/player';
@@ -64,10 +67,10 @@ const ENTRY_KEY = 'prep:intrare';   // venit din Meditații live: examenul + poz
 const isTarget = (t) => EXAMS.some((x) => x.target === t);
 // intrarea în pagină: din URL; la întoarcerea de la plată (Stripe nu păstrează parametrii), din sesiune
 function readEntry(params) {
-  const url = { examen: isTarget(params.get('examen')) ? params.get('examen') : null, din: params.get('din') === 'live' ? 'live' : null, pos: params.get('pos') || null };
+  const url = { examen: isTarget(params.get('examen')) ? params.get('examen') : null, din: params.get('din') === 'live' ? 'live' : null, pos: params.get('pos') || null, doar: params.get('doar') === '1' };
   try {
     if (url.examen || url.din) { sessionStorage.setItem(ENTRY_KEY, JSON.stringify(url)); return url; }
-    if (params.get('plata')) { const s = JSON.parse(sessionStorage.getItem(ENTRY_KEY) || 'null'); if (s && typeof s === 'object') return { examen: isTarget(s.examen) ? s.examen : null, din: s.din === 'live' ? 'live' : null, pos: url.pos || s.pos || null }; }
+    if (params.get('plata')) { const s = JSON.parse(sessionStorage.getItem(ENTRY_KEY) || 'null'); if (s && typeof s === 'object') return { examen: isTarget(s.examen) ? s.examen : null, din: s.din === 'live' ? 'live' : null, pos: url.pos || s.pos || null, doar: s.doar === true }; }
     sessionStorage.removeItem(ENTRY_KEY);
   } catch { /* fără stocare */ }
   return url;
@@ -81,6 +84,9 @@ export default function PregatireExamen() {
   const [entry] = useState(() => readEntry(searchParams));   // { examen, din, pos } — vezi readEntry
   const wantPos = searchParams.get('pos') || entry.pos;      // din „Planul meu" / Meditații live: exercițiul ales
   const back = entry.din === 'live' ? { to: '/meditatii', label: 'Înapoi la Meditații live' } : { to: '/meditatii/plan', label: 'Înapoi la Planul meu' };
+  // „🎯 Un singur tip de exercițiu": poziția aleasă (ex. „III.1.c"); se schimbă doar în
+  // familia ei (alt subpunct al aceleiași probleme) — profesorul nu trece la alt tip
+  const [focus, setFocus] = useState(() => (entry.doar && wantPos ? wantPos : null));
 
   const [st, setSt] = useState(null);                 // răspunsul prep_state
   const [fatal, setFatal] = useState(null);           // { text, code }
@@ -145,6 +151,10 @@ export default function PregatireExamen() {
   const cur = posInfo(curPos);
   const mainPositions = positions.filter((p) => !p.parent);   // subpunctele (a, b, c) au `parent`
   const spokenOf = (p) => (p ? p.spoken || p.label : 'exercițiul ales');
+  // „🎯 Un singur tip": familia poziției alese (problema + subpunctele ei), confirmată de server
+  const focusOn = !!(focus && st?.focus);
+  const family = focusOn ? positions.filter((p) => st.focus.positions.includes(p.pos)) : [];
+  const famRoot = focusOn ? posInfo(st.focus.root) : null;
 
   const flash = useCallback((t) => { setToast(t); setTimeout(() => setToast((x) => (x === t ? null : x)), 3800); }, []);
 
@@ -163,9 +173,13 @@ export default function PregatireExamen() {
       return null;
     }
   }, [wantPos]);
+  // focusul merge cu fiecare cerere prep_* (vezi setPrepFocus); la ieșire, nu rămâne agățat
+  useEffect(() => { setPrepFocus(focus); }, [focus]);
+  useEffect(() => () => setPrepFocus(null), []);
   useEffect(() => {
     if (authLoading) return;
     if (!user) { setFatal({ text: 'Intră în cont ca să începi pregătirea de examen.', code: 'LOGIN' }); return; }
+    setPrepFocus(focus);
     if (entry.examen) {
       // din Meditații live: examenul listei alese acolo (are întâietate față de „Planul meu")
       setPrepExam(entry.examen, { force: true });
@@ -253,7 +267,7 @@ export default function PregatireExamen() {
   // ─── 3. ședința 1-la-1 și intrarea (gestul elevului deblochează sunetul) ────
   const admin = !!st?.me?.admin;
   const access = st?.access || null;
-  const prices = st?.prices || { privat: 20, privatMin: 60, privatIncluse: 8 };
+  const prices = st?.prices || { privat: 30, privatMin: 60, privatIncluse: 8 };
   // pornește ședința (una în curs se continuă, fără cost); false = nu s-a putut
   async function ensureSession() {
     if (admin || session) return true;
@@ -298,7 +312,10 @@ export default function PregatireExamen() {
     // elevul a ales exercițiul (nu neapărat la rând): începem direct cu el
     const chosen = pick ? posInfo(pick) : null;
     const name = st?.me?.name ? `, ${st.me.name}` : '';
-    if (chosen) setTimeout(() => startExercise(chosen.pos, { lead: `Bună${name}! Începem cu ${spokenOf(chosen)}, cum ai ales.` }), 350);
+    const hello = focusOn
+      ? `Bună${name}! Lucrăm doar ${spokenOf(chosen)}: exerciții de acest tip din subiectele oficiale, fiecare explicat pe baremul lui. Când termini unul, îți dau altul de același tip.`
+      : `Bună${name}! Începem cu ${spokenOf(chosen)}, cum ai ales.`;
+    if (chosen) setTimeout(() => startExercise(chosen.pos, { lead: hello }), 350);
     else setTimeout(() => propose(proposal), 350);
   }
   // „sunt în clasă" (o dată pe minut): ședința se prelungește cât elevul lucrează
@@ -413,10 +430,21 @@ export default function PregatireExamen() {
     say(`Ai lucrat foarte bine azi. Data viitoare continuăm de aici${cur ? `, de la ${cur.label}` : ''}. Spor la învățat!`);
   }
 
+  // „🎯 Un singur tip de exercițiu": alt subpunct al aceleiași probleme (sau toată problema),
+  // tot din subiectele oficiale — nu din subiectul exercițiului de acum
+  function switchFocus(pos) {
+    const p = posInfo(pos);
+    if (!p) return;
+    setFocus(pos); setPrepFocus(pos);
+    startExercise(pos, { skip: ex?.exercise?.sid || null, lead: `Bine, acum ${spokenOf(p)}.` });
+  }
+
   function choose(o) {
     if (!o) return;
     switch (o.key) {
       case 'next': case 'stay': startExercise(o.pos || curPos); break;
+      // „🎯 Un singur tip": alt subpunct al aceleiași probleme (doar a), b), c) / toată), din alt subiect
+      case 'switch': switchFocus(o.pos); break;
       case 'advance': startExercise(o.pos, { lead: `Bine! Trecem la ${posInfo(o.pos) ? spokenOf(posInfo(o.pos)) : 'exercițiul următor'}.` }); break;
       case 'test': startTest(o.pos || curPos); break;
       case 'review': playReview(); break;
@@ -580,7 +608,7 @@ export default function PregatireExamen() {
     const done = positions.reduce((n, p) => n + (p.done || 0), 0);
     const mastered = mainPositions.filter((p) => p.mastered).length;
     const chosen = pick ? posInfo(pick) : null;
-    const enterLabel = chosen ? `începem cu ${chosen.short}` : null;
+    const enterLabel = chosen ? (focusOn ? `doar ${chosen.short}` : `începem cu ${chosen.short}`) : null;
     return (
       <div className="lv-room is-pre" ref={roomRef}>
         <div className="pe-lobby">
@@ -590,33 +618,47 @@ export default function PregatireExamen() {
               {rig?.thumb ? <img src={rig.thumb} alt="" /> : <span style={{ background: teacherColor(teacher) }}>{initials(teacher.name)}</span>}
             </div>
             <div className="pe-lobby-kicker">
-              🎓 Pregătire de examen · {exam?.label}
-              {exam && !exam.fromPlan && <button type="button" className="pe-lobby-change" onClick={() => setNeedExam(true)}>schimbă</button>}
+              {focusOn ? <>🎯 Un singur tip de exercițiu · {exam?.label}</> : <>🎓 Pregătire de examen · {exam?.label}</>}
+              {exam && !exam.fromPlan && !focusOn && <button type="button" className="pe-lobby-change" onClick={() => setNeedExam(true)}>schimbă</button>}
             </div>
             <h1>{teacher.name} te așteaptă în clasă</h1>
-            <p className="pe-lobby-sub">
-              Ca la o meditație live: exercițiu cu exercițiu, în ordinea din examen — pe fiecare poziție, doar exerciții
-              de pe acea poziție din subiectele oficiale, explicate pe barem. După cel puțin {st.settings?.target || 10} exerciții,
-              un test scurt; profesorul îți propune apoi ce urmează.
-            </p>
-            {cur && (
-              <div className="pe-lobby-now">
-                <b>Acum: {cur.label}</b>
-                <span>{cur.mastered ? '✓ testul trecut' : `${cur.done} din ${cur.nextTestAt} exerciții`}</span>
+            {focusOn ? (
+              // doar tipul ales: exerciții de pe această poziție, una după alta, fără trecere la alt tip
+              <div className="pe-lobby-pick">
+                <div className="pe-lobby-pick-t">
+                  🎯 <b>Doar {chosen ? chosen.label : famRoot?.label}</b> — din subiectele oficiale, fiecare pe baremul lui; după fiecare, altul de același tip.
+                  {family.length > 1 ? ' Poți alege subpunctul: a), b), c) sau toată problema.' : ''}
+                  {cur && cur.done > 0 ? ` Ai lucrat deja ${cur.done} de acest tip.` : ''}
+                </div>
+                {family.length > 1 && (
+                  <PrepPicker positions={family} selected={pick} compact onPick={(p) => { setPick(p.pos); setFocus(p.pos); }} />
+                )}
               </div>
-            )}
-            {(done > 0 || mastered > 0) && <div className="pe-lobby-stats">{done} exerciții lucrate · {mastered} din {mainPositions.length} poziții stăpânite</div>}
-            {/* elevul alege ORICE exercițiu, nu neapărat la rând */}
-            <div className="pe-lobby-pick">
-              <div className="pe-lobby-pick-t">
-                📋 <b>Cu ce începi?</b> Alege orice exercițiu, nu neapărat la rând
-                {exam?.exam !== 'en' ? ' — la Subiectele II și III, și doar un subpunct: a), b) sau c)' : ''}.
+            ) : (<>
+              <p className="pe-lobby-sub">
+                Ca la o meditație live: exercițiu cu exercițiu, în ordinea din examen — pe fiecare poziție, doar exerciții
+                de pe acea poziție din subiectele oficiale, explicate pe barem. După cel puțin {st.settings?.target || 10} exerciții,
+                un test scurt; profesorul îți propune apoi ce urmează.
+              </p>
+              {cur && (
+                <div className="pe-lobby-now">
+                  <b>Acum: {cur.label}</b>
+                  <span>{cur.mastered ? '✓ testul trecut' : `${cur.done} din ${cur.nextTestAt} exerciții`}</span>
+                </div>
+              )}
+              {(done > 0 || mastered > 0) && <div className="pe-lobby-stats">{done} exerciții lucrate · {mastered} din {mainPositions.length} poziții stăpânite</div>}
+              {/* elevul alege ORICE exercițiu, nu neapărat la rând */}
+              <div className="pe-lobby-pick">
+                <div className="pe-lobby-pick-t">
+                  📋 <b>Cu ce începi?</b> Alege orice exercițiu, nu neapărat la rând
+                  {exam?.exam !== 'en' ? ' — la Subiectele II și III, și doar un subpunct: a), b) sau c)' : ''}.
+                </div>
+                <PrepPicker positions={positions} current={curPos} selected={pick} compact
+                  onPick={(p) => setPick(p.pos === pick ? null : p.pos)}
+                  defaultLabel={cur ? `Cum propune ${teacher.name}: ${cur.label}` : `Cum propune ${teacher.name}`}
+                  onDefault={() => setPick(null)} />
               </div>
-              <PrepPicker positions={positions} current={curPos} selected={pick} compact
-                onPick={(p) => setPick(p.pos === pick ? null : p.pos)}
-                defaultLabel={cur ? `Cum propune ${teacher.name}: ${cur.label}` : `Cum propune ${teacher.name}`}
-                onDefault={() => setPick(null)} />
-            </div>
+            </>)}
             {/* ședința 1-la-1: ca la meditațiile live — 60 de minute, prelungite cât lucrezi */}
             <div className={`pe-lobby-free${!admin && !session && !access?.ok ? ' is-pay' : ''}`}>
               {admin ? <>⚙ <b>Cont de administrator</b> — fără limită de ședințe.</>
@@ -653,11 +695,13 @@ export default function PregatireExamen() {
   const board = lessonState?.board || null;
   const screenTitle = phase === 'test' ? `Test · ${test?.test?.label || cur?.label || ''}`
     : ex?.exercise ? ex.exercise.title : (cur?.label || exam?.label);
+  // „🎯 Un singur tip": fără „din 10 până la test" — exercițiile de acest tip vin unul după altul
+  const doneWord = (n) => `${n} ${n === 1 ? 'exercițiu lucrat' : 'exerciții lucrate'}`;
   const screenKicker = phase === 'test' ? `🧪 Test de verificare · ${exam?.label}`
-    : ex?.exercise && lessonState ? `${ex.exercise.label} · exercițiul ${ex.exercise.n}${ex.exercise.target ? ` din ${ex.exercise.target}` : ''}`
-      : `🎓 Pregătire de examen · ${exam?.label || ''}`;
+    : ex?.exercise && lessonState ? (focusOn ? `🎯 ${ex.exercise.label} · exercițiul ${ex.exercise.n}` : `${ex.exercise.label} · exercițiul ${ex.exercise.n}${ex.exercise.target ? ` din ${ex.exercise.target}` : ''}`)
+      : focusOn ? `🎯 Un singur tip de exercițiu · ${exam?.label || ''}` : `🎓 Pregătire de examen · ${exam?.label || ''}`;
   const screenNote = lessonState ? null : cur
-    ? `${cur.mastered ? '✓ testul trecut' : `${cur.done} din ${cur.nextTestAt} exerciții`}${cur.lastTest ? ` · ultimul test: ${cur.lastTest.correct}/${cur.lastTest.total}` : ''}`
+    ? `${focusOn ? doneWord(cur.done) : cur.mastered ? '✓ testul trecut' : `${cur.done} din ${cur.nextTestAt} exerciții`}${cur.lastTest ? ` · ultimul test: ${cur.lastTest.correct}/${cur.lastTest.total}` : ''}`
     : `Explicat pe baremul oficial · ${teacher.name}`;
   const resultOn = showResult && lastResult && !lessonState;
   const screenProps = {
@@ -670,7 +714,7 @@ export default function PregatireExamen() {
   const cardOpen = !!(pollScene?.poll || understand || (phase === 'propune' && proposal));
   const camInset = narrow ? sceneInset({ landscape: landscapeShort, card: cardOpen }) : null;
   const view = rig ? 'camera' : rigLoaded ? 'tabla' : 'camera';
-  const topSub = [exam?.label, cur?.label, ex?.exercise && phase === 'exercitiu' ? `ex. ${ex.exercise.n}/${ex.exercise.target}` : null, inTest && testQ?.n > 0 ? `test ${testQ.n}/${testQ.of}` : null].filter(Boolean).join(' · ');
+  const topSub = [exam?.label, cur?.label, ex?.exercise && phase === 'exercitiu' ? (focusOn ? `ex. ${ex.exercise.n}` : `ex. ${ex.exercise.n}/${ex.exercise.target}`) : null, inTest && testQ?.n > 0 ? `test ${testQ.n}/${testQ.of}` : null].filter(Boolean).join(' · ');
   const fsButton = (cls) => (canFs ? (
     <button type="button" className={cls} onClick={toggleFs} title={isFullscreen ? 'Ieși din ecranul complet' : 'Ecran complet'} aria-label={isFullscreen ? 'Ieși din ecranul complet' : 'Ecran complet'}>
       <span className="lv-ctl-ico">{isFullscreen ? '🗗' : '⛶'}</span><span className="lv-ctl-t">{isFullscreen ? 'Ieși' : 'Ecran complet'}</span>
@@ -694,7 +738,7 @@ export default function PregatireExamen() {
           <span className="lv-top-sub">{topSub}</span>
         </div>
         <div className="lv-top-right">
-          {cur && <span className="pe-top-pos" title={cur.label}>{cur.short}{cur.mastered ? ' ✓' : ` · ${Math.min(cur.done, cur.nextTestAt)}/${cur.nextTestAt}`}</span>}
+          {cur && <span className="pe-top-pos" title={cur.label}>{focusOn ? `🎯 ${cur.short} · ${cur.done}` : `${cur.short}${cur.mastered ? ' ✓' : ` · ${Math.min(cur.done, cur.nextTestAt)}/${cur.nextTestAt}`}`}</span>}
           {!admin && session && (
             <span className="pe-top-time" title="Ședința 1-la-1 — se prelungește cât lucrezi">
               ⏱ {minutesLeft(session)} min{session.extended ? ' · prelungită' : ''}
@@ -740,7 +784,7 @@ export default function PregatireExamen() {
               question={null}
               options={proposal.options.map((o) => ({ id: o.key + (o.pos || ''), label: o.label, primary: o.primary, onPick: () => choose(o) }))}
               onFree={(t) => { setPanel('chat'); sendChat(t); }} freePlaceholder="Sau întreabă-mă ceva…"
-              note={cur && !cur.mastered ? `${cur.label}: ${cur.done} din ${cur.nextTestAt} exerciții până la test` : null} />
+              note={cur && focusOn ? `${cur.label}: ${doneWord(cur.done)}` : cur && !cur.mastered ? `${cur.label}: ${cur.done} din ${cur.nextTestAt} exerciții până la test` : null} />
           )}
           {phase === 'pregateste' && busyText && (
             <div className="lv-wait pe-wait">
@@ -752,7 +796,9 @@ export default function PregatireExamen() {
             <div className="lv-ended">
               <div className="lv-ended-card">
                 <h2>Pe azi am terminat 👏</h2>
-                <p>{positions.reduce((n, p) => n + (p.done || 0), 0)} exerciții lucrate · {mainPositions.filter((p) => p.mastered).length} din {mainPositions.length} poziții stăpânite. Progresul e salvat în Planul meu.</p>
+                <p>{focusOn && cur
+                  ? `${cur.label}: ${doneWord(cur.done)}. Progresul e salvat în Planul meu.`
+                  : `${positions.reduce((n, p) => n + (p.done || 0), 0)} exerciții lucrate · ${mainPositions.filter((p) => p.mastered).length} din ${mainPositions.length} poziții stăpânite. Progresul e salvat în Planul meu.`}</p>
                 <div className="lv-pre-actions" style={{ justifyContent: 'center' }}>
                   <button type="button" className="lv-btn-primary" onClick={leave}>{back.label}</button>
                   <button type="button" className="lv-btn-soft" onClick={() => propose(proposal || st.proposal, 'Bine, mai lucrăm!')}>Mai lucrez puțin</button>
@@ -813,11 +859,27 @@ export default function PregatireExamen() {
           <aside className="lv-side">
             <div className="lv-side-tabs">
               <button type="button" className={panel === 'chat' ? 'is-on' : ''} onClick={() => setPanel('chat')}>💬 Întreabă</button>
-              <button type="button" className={panel === 'plan' ? 'is-on' : ''} onClick={() => setPanel('plan')}>🗺️ Planul de examen</button>
+              <button type="button" className={panel === 'plan' ? 'is-on' : ''} onClick={() => setPanel('plan')}>{focusOn ? '🎯 Tipul de exercițiu' : '🗺️ Planul de examen'}</button>
               <button type="button" className="lv-side-x" onClick={() => setPanel(null)} aria-label="Închide">✕</button>
             </div>
             {panel === 'chat' ? (
               <LiveChat messages={messages} meId="eu" teacher={teacher} privat onSend={(t) => sendChat(t)} pendingAnswer={pendingAnswer} prefill={prefill} />
+            ) : focusOn ? (
+              // „🎯 Un singur tip": doar familia aleasă (problema și subpunctele ei); alt tip — din Meditații live
+              <div className="pe-plan">
+                <div className="pe-plan-head">
+                  🎯 Lucrezi doar <b>{famRoot?.label || cur?.label}</b>{family.length > 1 ? ' — alege subpunctul pentru exercițiul următor (din alt subiect)' : ''}.
+                </div>
+                {family.length > 1 && (
+                  <PrepPicker positions={family} selected={curPos} compact disabled={phase === 'pregateste'}
+                    onPick={(p) => { setPanel(null); playerRef.current?.stop(); switchFocus(p.pos); }} />
+                )}
+                <div className="pe-plan-foot">
+                  {curPos && <button type="button" className="lv-btn-soft" disabled={phase === 'pregateste'} onClick={() => { setPanel(null); startTest(curPos); }}>🧪 Testul de verificare la {cur?.short}</button>}
+                  <button type="button" className="lv-btn-soft" onClick={leave}>Alt tip de exercițiu → Meditații live</button>
+                  <span className="pe-plan-note">Ședința ta continuă, fără cost în plus.</span>
+                </div>
+              </div>
             ) : (
               <div className="pe-plan">
                 <div className="pe-plan-head">

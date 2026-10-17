@@ -1,9 +1,9 @@
 // =====================================================================
 // src/components/live/PriceList.jsx — „💳 Prețuri" din lobby-ul meditațiilor live
 //
-// Lista prețurilor, cu și fără abonament: ședința de grup, ședința 1-la-1,
-// Pregătirea de examen („Planul meu", tot 1-la-1 — aceleași 8 incluse) și
-// meditațiile gratuite. Sumele vin de la server (`prices` din acțiunea
+// Lista prețurilor, cu și fără abonament: ședința de grup (20 lei), ședința
+// 1-la-1 (30 lei — un subiect întreg sau un singur tip de exercițiu), Pregătirea
+// de examen („Planul meu", tot 1-la-1 — aceleași 8 incluse) și meditațiile gratuite. Sumele vin de la server (`prices` din acțiunea
 // `program` — aceleași care se încasează; se schimbă din env, fără cod);
 // abonamentul, din src/lib/plans.js (ca pe pagina /preturi).
 // =====================================================================
@@ -24,15 +24,15 @@ export default function PriceList({ prices, timesLabel, roomsCount, freeCount = 
   }, [onClose]);
 
   const p = prices || {};
-  const grup = p.grup ?? 10;
-  const privat = p.privat ?? 20;
+  const grup = p.grup ?? 20;
+  const privat = p.privat ?? 30;
   const min = p.privatMin ?? 60;
   const incluse = p.privatIncluse ?? 8;
   const gratuite = p.gratuiteLuna ?? 4;
   const rows = [
     { id: 'grup', title: '👥 Ședință de grup', desc: `zilnic, ${timesLabel}, câte un subiect în ${roomsCount} ${plural(roomsCount, 'sală', 'săli')}`,
       fara: `${grup} lei / ședință`, cu: 'inclusă, oricâte' },
-    { id: 'privat', title: '🎓 Ședință 1-la-1', desc: `oricând, pe subiectul ales — ${min} de minute, prelungite până termini`,
+    { id: 'privat', title: '🎓 Ședință 1-la-1', desc: `oricând: un subiect întreg sau un singur tip de exercițiu — ${min} de minute, prelungite până termini`,
       fara: `${privat} lei / ședință`, cu: `${incluse} pe lună incluse, apoi ${privat} lei` },
     { id: 'pregatire', title: '📚 Pregătire de examen', desc: 'din „Planul meu" — 1-la-1 în clasă, exercițiu cu exercițiu',
       fara: `${privat} lei / ședință`, cu: `din aceleași ${incluse} incluse, apoi ${privat} lei` },

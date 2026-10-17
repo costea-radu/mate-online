@@ -121,7 +121,7 @@ test('lobby: azi și mâine, câte o ședință în fiecare sală (EN, BAC Mate-
   assert.strictEqual(p.days.length, 2);
   for (const d of p.days) {
     assert.strictEqual(d.sessions.length, 4, 'patru săli pe zi');
-    assert.ok(d.sessions.every((s) => s.teacher === 'radu' && s.access.ok === false && s.access.price === 10));
+    assert.ok(d.sessions.every((s) => s.teacher === 'radu' && s.access.ok === false && s.access.price === 20));
     assert.strictEqual(new Set(d.sessions.map((s) => s.starts_at)).size, 1, 'toate la aceeași oră');
     assert.deepStrictEqual(d.sessions.map((s) => s.room.n).sort(), [1, 2, 3, 4]);
   }
@@ -134,7 +134,7 @@ test('lobby: azi și mâine, câte o ședință în fiecare sală (EN, BAC Mate-
   assert.strictEqual(t0.teh.subject, null, 'niciun subiect de tehnologic cu barem → sala așteaptă, nu primește alt profil');
   assert.strictEqual(t0.teh.examLabel, 'BAC Tehnologic');
   assert.ok(!p.days.flatMap((d) => d.sessions).some((s) => s.subject?.id === C.bacPed), 'fără BAC pedagogic');
-  assert.deepStrictEqual(p.prices, { grup: 10, privat: 20, privatMin: 60, privatIncluse: 8, gratuiteLuna: 4 });
+  assert.deepStrictEqual(p.prices, { grup: 20, privat: 30, privatMin: 60, privatIncluse: 8, gratuiteLuna: 4 });
   assert.deepStrictEqual(p.freeLessons, [], 'nicio lecție gata încă → nicio meditație gratuită');
   assert.strictEqual(p.me.loggedIn, false);
   // subiectele atribuite: doar cu barem, fără bareme ca subiecte, fără repetare în aceeași zi
@@ -151,7 +151,7 @@ test('lobby: azi și mâine, câte o ședință în fiecare sală (EN, BAC Mate-
   // elevul fără abonament: plătește
   const free = (await call('program', {}, U.free)).body;
   assert.strictEqual(free.me.private.ok, false);
-  assert.strictEqual(free.me.private.price, 20);
+  assert.strictEqual(free.me.private.price, 30);
   assert.strictEqual(free.me.name, 'Ioana P.');
   // al doilea apel nu dublează ședințele
   assert.strictEqual(fake.db.tables.live_sessions.filter((s) => s.kind === 'grup').length, 8);
@@ -277,7 +277,7 @@ test('intrarea în sală: fără abonament → plata; cu bilet → cronologia, c
   const r1 = await call('join', { sessionId: s.id }, U.free);
   assert.strictEqual(r1.statusCode, 402);
   assert.strictEqual(r1.body.code, 'LIVE_PAYMENT');
-  assert.strictEqual(r1.body.price, 10);
+  assert.strictEqual(r1.body.price, 20);
   assert.strictEqual(r1.body.teacher.name, 'Prof. Tudor');
   // biletul (cum îl scrie webhook-ul Stripe)
   fake.db.tables.live_tickets = [TICKET(s.id)];
@@ -388,7 +388,7 @@ test('1-la-1: inclus în abonament (se consumă la pornire), fără barem → re
   // elevul fără abonament
   const free = await call('private_start', { teacher: 'radu', subjectId: C.en2 }, U.free);
   assert.strictEqual(free.statusCode, 402);
-  assert.strictEqual(free.body.price, 20);
+  assert.strictEqual(free.body.price, 30);
   // încheierea
   const end = await call('leave', { sessionId: st.body.sessionId, seconds: 30, end: true }, U.prem);
   assert.strictEqual(end.statusCode, 200);

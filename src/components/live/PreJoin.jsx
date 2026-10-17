@@ -3,6 +3,8 @@
 // Previzualizarea camerei proprii (doar locală — nu pleacă nicăieri), microfonul,
 // numele din ședință, cine predă și ce, câți colegi sunt deja înăuntru,
 // dreptul de acces (abonament / bilet / plată) și „Intră pe tot ecranul".
+// Plata: biletul ședinței de grup sau — la 1-la-1, când cele incluse / meditațiile
+// gratuite s-au terminat între pornire și intrare — un bilet 1-la-1 (payKind).
 // =====================================================================
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -10,8 +12,8 @@ import { initials, teacherColor } from '../../lib/live/profesori';
 import ItemPicker from './ItemPicker';
 import { refLabel } from '../../lib/live/items';
 
-export default function PreJoin({ info, teacher, rigThumb = null, present = 0, personal = null, access, price = null, onJoin, onPay, paying = false, error = null, waitingText = null, camOn, setCamOn, micOn, setMicOn, fullscreen, setFullscreen,
-  pickItems = null, startRef = null, setStartRef = null, privMinutes = 60 }) {
+export default function PreJoin({ info, teacher, rigThumb = null, present = 0, personal = null, access, price = null, payKind = 'grup', onJoin, onPay, paying = false, error = null, notice = null, waitingText = null, camOn, setCamOn, micOn, setMicOn, fullscreen, setFullscreen,
+  pickItems = null, startRef = null, setStartRef = null, privMinutes = 60, privIncluded = 8 }) {
   const [pickOpen, setPickOpen] = useState(!!startRef);
   const videoRef = useRef(null);
   const [camErr, setCamErr] = useState(null);
@@ -34,6 +36,7 @@ export default function PreJoin({ info, teacher, rigThumb = null, present = 0, p
   const liveNow = s?.phase === 'live';
   const color = teacherColor(teacher);
   const needPay = access === 'plata';
+  const payPrice = price ?? (payKind === 'privat' ? 30 : 20);
 
   return (
     <div className="lv-pre">
@@ -51,7 +54,7 @@ export default function PreJoin({ info, teacher, rigThumb = null, present = 0, p
             <button type="button" className={`lv-round${camOn ? '' : ' is-off'}`} onClick={() => { setCamErr(null); setCamOn(!camOn); }} title={camOn ? 'Oprește camera' : 'Pornește camera'} aria-label="Cameră">{camOn ? '📷' : '🚫'}</button>
           </div>
         </div>
-        <p className="lv-pre-privacy">🔒 Camera și microfonul tău <b>nu ajung la profesor sau la colegi</b>: camera e doar pentru tine, ca o oglindă, iar microfonul doar îți dictează întrebarea în chat (cu recunoașterea vorbirii din browser).</p>
+        <p className="lv-pre-privacy">🔒 Camera și microfonul <b>rămân la tine</b>: camera e o oglindă, microfonul doar îți dictează întrebarea în chat.</p>
         {camErr && <p className="lv-pre-warn">{camErr}</p>}
       </div>
 
@@ -75,14 +78,11 @@ export default function PreJoin({ info, teacher, rigThumb = null, present = 0, p
         </div>
         {(s?.kind === 'privat' || personal) && (
           <div className="lv-pre-note">
-            ⏱ {s?.kind === 'privat'
-              ? <>Dacă nu termini exercițiile în {privMinutes} de minute, ședința <b>se prelungește automat până le termini</b> — fără cost în plus.</>
-              : <>Dacă nu termini exercițiile până la sfârșitul orei, ședința <b>se prelungește până le termini</b> — fără cost în plus.</>}
-            {' '}Poți alege cu ce exercițiu începi și poți sări oricând la altul (📋 Exerciții).
+            ⏱ {s?.kind === 'privat' ? `${privMinutes} de minute, ` : ''}<b>prelungite până termini exercițiile</b> — fără cost în plus.
           </div>
         )}
         {s?.kind === 'grup' && !personal && (
-          <div className="lv-pre-note">⏱ După lecția comună poți continua <b>1-la-1</b>, fără cost în plus, până termini exercițiile.</div>
+          <div className="lv-pre-note">⏱ După lecția comună poți continua <b>1-la-1</b>, fără cost în plus.</div>
         )}
         {waitingText && <div className="lv-pre-wait">{waitingText}</div>}
         {pickItems && setStartRef && (
@@ -100,11 +100,14 @@ export default function PreJoin({ info, teacher, rigThumb = null, present = 0, p
         )}
         <div className="lv-pre-me">Numele tău în ședință: <b>{info?.me?.name}</b></div>
 
+        {notice && <div className="lv-pre-wait" role="status">{notice}</div>}
         {needPay ? (
           <div className="lv-pre-pay">
-            <div>Ședința de grup costă <b>{price ?? 10} lei</b> — sau intri gratuit cu abonamentul ExamenMate.</div>
+            <div>{payKind === 'privat'
+              ? <>Ședința 1-la-1 costă <b>{payPrice} lei</b> — sau e inclusă în abonamentul ExamenMate ({privIncluded} pe lună).</>
+              : <>Ședința de grup costă <b>{payPrice} lei</b> — sau intri gratuit cu abonamentul ExamenMate.</>}</div>
             <div className="lv-pre-actions">
-              <button type="button" className="lv-btn-primary lv-btn-lg" onClick={onPay} disabled={paying}>{paying ? 'Se deschide plata…' : `Plătește ${price ?? 10} lei`}</button>
+              <button type="button" className="lv-btn-primary lv-btn-lg" onClick={onPay} disabled={paying}>{paying ? 'Se deschide plata…' : `Plătește ${payPrice} lei`}</button>
               <Link to="/preturi" className="lv-btn-soft">Abonament</Link>
             </div>
           </div>
