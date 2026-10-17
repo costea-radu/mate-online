@@ -2,7 +2,9 @@
 // src/components/AITutor.jsx
 // - MathText: text cu formatare + formule KaTeX (export)
 // - ChatPanel: panou de chat (streaming, istoric, feedback) — reutilizabil
-// - FloatingTutor (export implicit): butonul plutitor de pe tot site-ul
+// - FloatingTutor (export implicit): butonul plutitor de pe tot site-ul; în
+//   fereastra lui, sub antet, butonul roșu „🔴 Meditații live" duce direct, la
+//   un clic, în /meditatii (lobby-ul meditațiilor live — nu în „Planul meu")
 // =====================================================================
 import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
@@ -1691,7 +1693,18 @@ export default function FloatingTutor() {
 
   return (
     <>
-      <style>{`@keyframes pvGlow{0%,100%{box-shadow:0 0 0 0 rgba(232,185,49,.55),0 6px 18px rgba(0,0,0,.28)}50%{box-shadow:0 0 0 12px rgba(232,185,49,0),0 6px 18px rgba(0,0,0,.28)}}`}</style>
+      <style>{`@keyframes pvGlow{0%,100%{box-shadow:0 0 0 0 rgba(232,185,49,.55),0 6px 18px rgba(0,0,0,.28)}50%{box-shadow:0 0 0 12px rgba(232,185,49,0),0 6px 18px rgba(0,0,0,.28)}}
+@keyframes pvLiveDot{0%{box-shadow:0 0 0 0 rgba(255,255,255,.85)}70%{box-shadow:0 0 0 9px rgba(255,255,255,0)}100%{box-shadow:0 0 0 0 rgba(255,255,255,0)}}
+@keyframes pvLiveGlow{0%,100%{box-shadow:0 6px 16px rgba(229,57,58,.35)}50%{box-shadow:0 6px 22px rgba(229,57,58,.6)}}
+.pv-live{display:flex;align-items:center;gap:10px;margin:10px 12px 4px;padding:10px 14px;border-radius:12px;text-decoration:none;color:#fff!important;background:linear-gradient(135deg,#e53935 0%,#ff6a3d 100%);animation:pvLiveGlow 2.4s ease-in-out infinite;transition:transform .15s,filter .15s}
+.pv-live:hover{transform:translateY(-1px);filter:brightness(1.06)}
+.pv-live:focus-visible{outline:3px solid var(--gold,#e8b931);outline-offset:2px}
+.pv-live-dot{width:10px;height:10px;border-radius:50%;background:#fff;flex:none;animation:pvLiveDot 1.6s infinite}
+.pv-live-t{flex:1;min-width:0;line-height:1.25}
+.pv-live-t b{display:block;font-size:.95rem;font-weight:800}
+.pv-live-t small{display:block;font-size:.72rem;font-weight:600;opacity:.92}
+.pv-live-tag{font-size:.62rem;font-weight:800;letter-spacing:.08em;background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.55);border-radius:6px;padding:2px 6px}
+.pv-live-go{font-size:1.15rem;font-weight:800}`}</style>
 
       {/* Eticheta widgetului lângă buton (când e închis) — după rol */}
       {!open && (
@@ -1746,39 +1759,28 @@ export default function FloatingTutor() {
             )}
           </div>
 
-          {/* Taburi (ascunse în modul „Meditatorul tău" — acolo e doar conversația) */}
-          {!medMode && (
+          {/* 🔴 MEDITAȚII LIVE — un clic și ești în /meditatii (lobby-ul meditațiilor live, nu
+              „Planul meu"); colorat, ca să se vadă. Pe /meditatii nu mai are rost. */}
+          {!medMode && pathname !== '/meditatii' && (
+            <Link to="/meditatii" onClick={() => setOpen(false)} className="pv-live" aria-label="Meditații live — intră acum">
+              <span className="pv-live-dot" aria-hidden="true" />
+              <span className="pv-live-t"><b>Meditații live</b><small>cu Prof. Tudor · pe barem</small></span>
+              <span className="pv-live-tag" aria-hidden="true">LIVE</span>
+              <span className="pv-live-go" aria-hidden="true">→</span>
+            </Link>
+          )}
+
+          {/* Taburi: profesor / părinte (chat + subiect de examen); elevul are doar conversația */}
+          {!medMode && isMentorAcc && (
             <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: '#fafbfc' }}>
               <button style={tabBtn(widgetTab === 'chat')} onClick={() => setWidgetTab('chat')}>💬 {askAiLabel({ isTeacher, isParent })}</button>
-              {isMentorAcc
-                ? <button style={tabBtn(widgetTab === 'exam')} onClick={() => setWidgetTab('exam')}>📄 Generează subiect examen</button>
-                : <button style={{ ...tabBtn(widgetTab === 'meditatii'), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }} onClick={() => setWidgetTab('meditatii')}><EinsteinIcon size={15} /> Meditații cu Prof. Virtual</button>}
+              <button style={tabBtn(widgetTab === 'exam')} onClick={() => setWidgetTab('exam')}>📄 Generează subiect examen</button>
             </div>
           )}
 
           <div style={{ flex: 1, minHeight: 0, overflowY: (widgetTab === 'chat' || medMode) ? 'hidden' : 'auto' }}>
             {(widgetTab === 'chat' || medMode) && <ChatPanel compact context={chatContext || {}} autoPrompt={medChat?.autoPrompt || null} coachInject={medChat?.coach || null} onNavigate={() => setOpen(false)} />}
-            {!medMode && widgetTab === 'exam' && <div style={{ padding: 12 }}><ExamGenerator compact /></div>}
-            {!medMode && widgetTab === 'meditatii' && (
-              <div style={{ padding: 16 }}>
-                <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '.95rem', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 7 }}><EinsteinIcon size={22} /> Meditații cu Profesorul Virtual</div>
-                <p style={{ fontSize: '.83rem', color: 'var(--text-light)', lineHeight: 1.55, marginBottom: 10 }}>
-                  Meditatorul tău personal: îți face <strong>testul inițial</strong>, îți construiește <strong>planul de învățare</strong>,
-                  îți explică <strong>teoria</strong>, îți dă <strong>exerciții și teme</strong> pe nivelul tău, îți analizează
-                  <strong> greșelile</strong> și revine cu <strong>recapitulări</strong> ca să nu uiți materia.
-                </p>
-                <ul style={{ fontSize: '.8rem', color: 'var(--text)', lineHeight: 1.7, margin: '0 0 12px', paddingLeft: 18 }}>
-                  <li>Plan personalizat cu obiective săptămânale</li>
-                  <li>Teme corectate, notate și explicate</li>
-                  <li>„Încă 10 exerciții la fel" unde greșești</li>
-                  <li>Recapitulări după 1 zi · 7 zile · 30 de zile</li>
-                  <li>Simulări de examen + nota estimată</li>
-                </ul>
-                <Link to="/meditatii/plan" onClick={() => setOpen(false)} className="btn btn-primary" style={{ width: '100%', textAlign: 'center' }}>
-                  Deschide meditațiile →
-                </Link>
-              </div>
-            )}
+            {!medMode && isMentorAcc && widgetTab === 'exam' && <div style={{ padding: 12 }}><ExamGenerator compact /></div>}
           </div>
         </div>
       )}
