@@ -6,7 +6,9 @@
 // La problema de la Subiectul al III-lea, profesorul pune ÎNTREBĂRI PE PAȘI (câte
 // una la fiecare subpunct, înaintea rezultatelor intermediare din barem).
 // Matematica e verificată: 2 + 3·4 = 14; E(2) = 3² − 2·4 = 9 − 8 = 1;
-// (x+1)² = x² + 2x + 1; x(x+2) = x² + 2x; E(x) = (x+1)² − x(x+2) = 1.
+// (x+1)² = x² + 2x + 1; x(x+2) = x² + 2x; E(x) = (x+1)² − x(x+2) = 1;
+// „altă metodă" (doar la „Explică altfel", 1-la-1): 3·4 = 4+4+4 = 12; cu y = x+1,
+// x(x+2) = (y−1)(y+1) = y² − 1, deci E = y² − (y² − 1) = 1.
 // =====================================================================
 const seg = (id, say, board = []) => ({ id, say, board });
 
@@ -32,7 +34,8 @@ export const DEMO_SCRIPT = {
         ],
         intuitiv: [seg('d-11n0', 'Gândiți-vă la bani: aveți doi lei și primiți trei monede de câte patru lei. Aveți paisprezece lei, nu douăzeci.', ['$2 + 3\\cdot 4 = 2 + 12$'])],
         greseli: [seg('d-11g0', 'Greșeala clasică: adunați întâi, doi plus trei egal cinci, apoi ori patru, și ieșiți douăzeci. Asta e varianta a, capcana subiectului!', ['✗ $(2+3)\\cdot 4 = 20$'])],
-        alta_metoda: [],
+        // „Explică altfel" → „altă metodă" (doar la cerere): același rezultat, 14
+        alta_metoda: [seg('d-11m0', 'Altă metodă, care se punctează la fel: trei ori patru înseamnă patru plus patru plus patru, adică doisprezece. Doi plus doisprezece face paisprezece, tot varianta b.', ['$3 \\cdot 4 = 4 + 4 + 4 = 12$', '$2 + 12 = 14 \\Rightarrow$ **b)**'])],
       },
       check: null, afterCheck: [],
     },
@@ -51,7 +54,8 @@ export const DEMO_SCRIPT = {
         ],
         intuitiv: [seg('d-31n0', 'Verificați cu un număr: pentru x egal trei, patru la pătrat este șaisprezece, iar trei ori cinci este cincisprezece. Diferența este unu!', ['$x = 3$: $16 - 15 = 1$ ✓'])],
         greseli: [seg('d-31g0', 'Atenție la semnul minus din fața parantezei: minus x ori x plus doi înseamnă minus x la pătrat minus doi x, nu plus.', ['$-x(x+2) = -x^2 - 2x$'])],
-        alta_metoda: [],
+        // „altă metodă": cu y = x + 1, x(x+2) = (y−1)(y+1) = y² − 1, deci E = y² − (y² − 1) = 1
+        alta_metoda: [seg('d-31m0', 'Altă metodă, care se punctează la fel: notăm y egal x plus unu. Atunci x ori x plus doi devine y minus unu ori y plus unu, adică y la pătrat minus unu. Deci E este y la pătrat minus y la pătrat plus unu, adică unu.', ['$y = x + 1 \\Rightarrow x(x+2) = (y-1)(y+1) = y^2 - 1$', '$E(x) = y^2 - (y^2 - 1) = 1$'])],
       },
       // întrebările pe pași: înaintea segmentului `at` din explicația pe barem
       steps: [

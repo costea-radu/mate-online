@@ -11,8 +11,8 @@
 //     alese din Admin sau automat): 1-la-1 fără plată și fără abonament, cu cont;
 //   · profesorul explică DOAR subiecte de EN/BAC cu barem asociat
 //     („fără barem nu explică nimic"), STRICT pe barem: rezolvarea din barem,
-//     apoi aceeași rezolvare spusă mai simplu sau greșelile care costă puncte
-//     (fără „altă metodă" — vezi ALT_MODES).
+//     apoi aceeași rezolvare spusă mai simplu sau greșelile care costă puncte;
+//     „altă metodă" doar la cererea elevului („Explică altfel" — vezi ALT_MODES).
 //
 // Tot ce e aici e determinist și testat în test/meditatii-live.test.js:
 // programul pe ora României, alegerea subiectului, drepturile de acces,
@@ -722,14 +722,17 @@ function packSegments(segments, audio) {
   return { segs: out, dur: out.length ? t - GAP : 0 };
 }
 
-// ordinea modurilor alternative (după „pe barem"). STRICT PE BAREM (cererea din
-// 17 oct. 2026: „să se explice strict baremul"): „intuitiv" = aceeași rezolvare din
-// barem, spusă mai simplu; „greseli" = greșelile la pașii din barem și punctele
-// pierdute. „alta_metoda" (o rezolvare care NU e cea din barem) nu se mai predă —
-// nici în grup, nici la „Explică altfel" (1-la-1), nici la lecțiile scrise înainte.
-const ALT_MODES = ['intuitiv', 'greseli'];
+// Modurile alternative (după „pe barem"), adică funcțiile lui „🔁 Explică altfel" (1-la-1,
+// la „Ai înțeles?" — elevul alege): „intuitiv" = aceeași rezolvare din barem, spusă mai
+// simplu; „greseli" = greșelile la pașii din barem și punctele pierdute; „alta_metoda" = altă
+// rezolvare corectă, cu același rezultat (baremul punctează orice metodă corectă).
+// STRICT PE BAREM (17 oct. 2026): explicația pe care o aude elevul fără să ceară — în grup,
+// al doilea mod după barem — e doar GROUP_ALT_MODES (fără „altă metodă"); „altă metodă" vine
+// numai la cererea elevului („Explică altfel").
+const ALT_MODES = ['intuitiv', 'greseli', 'alta_metoda'];
+const GROUP_ALT_MODES = ['intuitiv', 'greseli'];
 const MODE_LABELS = {
-  barem: 'Pe barem, pas cu pas', intuitiv: 'Pe înțelesul tuturor', greseli: 'Greșeli care costă puncte',
+  barem: 'Pe barem, pas cu pas', intuitiv: 'Pe înțelesul tuturor', greseli: 'Greșeli care costă puncte', alta_metoda: 'Altă metodă (se punctează la fel)',
 };
 
 // `script` (vezi _lib/liveLesson.js): { title, intro:[seg], outro:[seg],
@@ -811,9 +814,10 @@ function buildTimeline(script, audio = {}, opts = {}) {
       cursor = at;
     });
     baremPart(baremSegs.slice(cursor));
-    // 4) al doilea mod (grup: unul singur, alternativ; 1-la-1: la cerere)
+    // 4) al doilea mod (grup: unul singur, alternativ, strict pe barem — GROUP_ALT_MODES;
+    //    1-la-1: la cerere, „Explică altfel", cu toate funcțiile lui — ALT_MODES)
     if (mode === 'grup' && !dropAlt.has(i)) {
-      const avail = ALT_MODES.filter((m) => Array.isArray(it.modes?.[m]) && it.modes[m].length);
+      const avail = GROUP_ALT_MODES.filter((m) => Array.isArray(it.modes?.[m]) && it.modes[m].length);
       const pick = avail.length ? avail[i % avail.length] : null;
       if (pick) {
         const alt = segScene('explicatie', it.modes[pick], { ...common, mode: pick, label: MODE_LABELS[pick] });
@@ -1036,7 +1040,7 @@ module.exports = {
   EXT_STEP_MIN, EXT_MAX_MIN, baseEndOf, extensionPlan,
   displayName, moderate, isQuestion, foldRo,
   checkPollAnswer, pollResults, publicPoll,
-  buildTimeline, fitTimeline, sceneAt, qnaSchedule, packSegments, segDuration, MODE_LABELS, ALT_MODES, GAP,
+  buildTimeline, fitTimeline, sceneAt, qnaSchedule, packSegments, segDuration, MODE_LABELS, ALT_MODES, GROUP_ALT_MODES, GAP,
   STEPS_ON, stepsFor, itemPolls, POLL_STEP_SEC,
   lipFromPcm, lipAt, pcmDuration, LIP_FPS, shortId,
 };

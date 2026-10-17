@@ -141,6 +141,12 @@ export class GroupPlayer {
 // ═════════════════════════════════════════════════════════════════════════════
 // 1-la-1
 // ═════════════════════════════════════════════════════════════════════════════
+// funcțiile lui „Explică altfel" la un „Ai înțeles?": [{ mode, label, used }] (sau null)
+function altsOf(sc, seen) {
+  if (!sc || sc.type !== 'intrebare_intelegere' || !sc.alts?.length) return null;
+  return sc.alts.map((a) => ({ mode: a.mode, label: a.label, used: !!seen?.has(a.mode) }));
+}
+
 export class PrivatePlayer {
   constructor({ engine, onState, onSceneChange = null, onNeedAudio = null }) {
     this.engine = engine;
@@ -156,6 +162,7 @@ export class PrivatePlayer {
     this.timer = null;
     this.answered = {};           // pollId → { answer, correct }
     this.altUsed = {};            // index scenă → câte moduri s-au folosit
+    this.altSeen = {};            // index scenă → Set(modurile ascultate), pentru ✓ din „Explică altfel"
     this.voiceFallback = false;   // vocea generată a întârziat → segmentele fără fișier le rostește browserul
     this.waitSince = 0;           // de când așteaptă vocea (status „incarca")
     this.lastAsk = 0;
@@ -293,13 +300,18 @@ export class PrivatePlayer {
   // „Ai înțeles?" → Da
   understood() { if (this.scene?.type === 'intrebare_intelegere') this.next(); }
 
-  // „Explică altfel" → următorul mod nefolosit (intuitiv → greșeli → altă metodă)
-  explainAgain() {
+  // „Explică altfel": elevul alege CUM — `mode` = „intuitiv" (pe înțelesul tuturor), „greseli"
+  // (greșeli care costă puncte) sau „alta_metoda" (altă metodă, se punctează la fel); fără
+  // alegere → următorul mod neascultat (intuitiv → greșeli → altă metodă), apoi din nou de la capăt
+  explainAgain(mode = null) {
     const sc = this.tl?.scenes[this.index];
     if (!sc || sc.type !== 'intrebare_intelegere' || !sc.alts?.length) return false;
     const k = this.altUsed[this.index] || 0;
-    const alt = sc.alts[k % sc.alts.length];
+    const seen = this.altSeen[this.index] || (this.altSeen[this.index] = new Set());
+    const alt = (mode && sc.alts.find((a) => a.mode === mode))
+      || sc.alts.find((a) => !seen.has(a.mode)) || sc.alts[k % sc.alts.length];
     this.altUsed[this.index] = k + 1;
+    seen.add(alt.mode);
     this.engine.stopAll(null, { hard: true });
     this.inserted = {
       kind: 'alt',
@@ -414,6 +426,8 @@ export class PrivatePlayer {
       caption: this.status === 'alege' ? null : captionOf(sc, off), board, head, inserted: this.inserted?.kind || null,
       nextHead: this.status === 'alege' ? this.nextHead : null, pickMode: this.pickMode,
       answered: this.answered, altLeft: sc?.alts ? sc.alts.length - ((this.altUsed[this.index] || 0) % (sc.alts.length || 1)) : 0,
+      // „Explică altfel": funcțiile lui pentru „Ai înțeles?" de acum, cu cele deja ascultate
+      alts: altsOf(tl.scenes[this.index], this.altSeen[this.index]),
     });
   }
 }

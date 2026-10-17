@@ -4,6 +4,18 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 17 octombrie 2026 (2) — „🔁 Explică altfel" refăcut, cu toate funcțiile lui
+
+Cererea: „Refă butonul de «explică altfel» cu funcțiile lui. Fă merge și commit la final."
+
+- **Funcțiile, la vedere** (`src/components/live/PollCard.jsx` → `UnderstandCard`, `src/lib/live/player.js` → `explainAgain(mode)`): la „Ai înțeles?" (1-la-1), „🔁 Explică altfel" își arată funcțiile și elevul alege pe care o ascultă — **💡 Pe înțelesul tuturor**, **⚠️ Greșeli care costă puncte**, **🔀 Altă metodă (se punctează la fel)**; cele ascultate au ✓ și se pot relua; „← Înapoi" revine la „Ai înțeles?". După fiecare explicație, profesorul întreabă din nou „Ai înțeles?". Cu un singur mod, butonul îl pornește direct. Înainte, butonul trecea orbește la următorul mod, iar de la intrarea de mai jos rămăseseră doar două.
+- **„🔀 Altă metodă" e din nou acolo** (`L.ALT_MODES` = pe înțelesul tuturor, greșeli, altă metodă), dar **numai la cererea elevului**: în explicația comună a ședinței de grup rămâne strict baremul (`L.GROUP_ALT_MODES`). Lecțiile o scriu din nou (schema și instrucțiunile: același rezultat ca baremul, spus clar că e altă metodă; null dacă nu există una firească), cu vocea ei; lecțiile vechi care o aveau o arată din nou.
+- Peste tot unde e „Ai înțeles?": sala 1-la-1, grupul ținut 1-la-1, Pregătirea de examen, „🎯 Un singur tip", demo-ul 1-la-1 (care are acum și „altă metodă": 3·4 = 4+4+4; cu y = x+1, x(x+2) = y² − 1, deci E = 1 — demo-ul de grup a rămas neschimbat).
+
+**Verificat:** `npm test` (toate trec; nou: playerul — funcția aleasă, ✓, din nou „Ai înțeles?", fără alegere → următoarea neascultată; actualizate: grupul strict pe barem, 1-la-1 cu trei funcții, promptul și schema); `vite build` trece; în Chromium, demo-ul 1-la-1: „Ai înțeles?" → „🔁 Explică altfel" → cele trei funcții → „🔀 Altă metodă" (rostită și scrisă pe tablă) → iar „Ai înțeles?", cu ✓ la „Altă metodă".
+
+---
+
 ## 17 octombrie 2026 — Meditații live: accesul verificat, strict pe barem, lobby fără texte lungi, „🎯 Un singur tip de exercițiu", prețuri 30 / 20 lei
 
 Cererea: „1) verifică dacă au acces la meditații online - lecții live toți utilizatorii: cei fără abonament, cu abonament. Dacă nu au, fă să aibe. 2) verifică ca la meditații live să se explice strict baremul; la meditații live sunt prea multe texte — șterge-le și pune-le să apară când se selectează opțiunea descrisă de ele; pe lângă opțiunea de alegere examen pune opțiunea să facă doar anumite exerciții din subiecte și să facă doar acel tip de exercițiu, nu să treacă la alt tip (ex. bac tehnologic subiectul 3 exercițiul 1: prof prezintă doar exerciții 1 luate din fișiere cu baremele lor); pune posibilitatea să aleagă subpunctul a), b) sau c); dacă dorește doar c), să poată schimba exercițiul când îl termină cu altul de același tip și să poată alege doar c) la alt exercițiu; schimbă prețul la meditații live la 30 lei ședința individuală și 20 lei ședința de grup."
@@ -14,8 +26,8 @@ Cererea: „1) verifică dacă au acces la meditații online - lecții live toț
 - **Întrebările din Pregătirea de examen** nu mai depind de creditele AI ale elevului într-o ședință deja plătită / inclusă (ca în sala live; rămâne plafonul orar).
 
 ### 2) Strict pe barem (`api/_lib/live.js`, `api/_lib/liveLesson.js`, `api/live.js`)
-- „Altă metodă" (o rezolvare care nu e cea din barem) nu se mai predă: în grup intra la cam un item din trei, la 1-la-1 la „Explică altfel". Rămân „pe barem", „pe înțelesul tuturor" (aceeași rezolvare din barem, spusă mai simplu) și „greșeli care costă puncte" — și la lecțiile deja scrise (vocea pentru „altă metodă" nu se mai generează).
-- Instrucțiunile lecției: metoda, pașii, ordinea și punctajele din barem; prima variantă a baremului; fără teorie sau exerciții în plus; schema nu mai cere `alta_metoda`. Chatul: tot pe pașii din barem, fără altă metodă.
+- Ce aude elevul fără să ceară e baremul: în grup, al doilea mod e „pe înțelesul tuturor" (aceeași rezolvare din barem, spusă mai simplu) sau „greșeli care costă puncte" — „altă metodă" (care intra la cam un item din trei) nu mai intră. „Altă metodă" rămâne doar la cererea elevului, la „🔁 Explică altfel" (vezi intrarea următoare).
+- Instrucțiunile lecției: metoda, pașii, ordinea și punctajele din barem; prima variantă a baremului; fără teorie sau exerciții în plus. Chatul: tot pe pașii din barem, fără altă metodă.
 
 ### 3) Lobby-ul fără texte lungi (`src/pages/MeditatiiLive.jsx`, `src/styles/live.css`, `src/components/live/PriceList.jsx`)
 - Sus: titlul, „Prof. Tudor · Profesor virtual · AI — explică strict pe baremul oficial", demo-urile, „🎁 / 📅 / 💳 Prețuri". Apoi **Examenul tău** (EN, BAC Mate-Info, Șt. Naturii, Tehnologic — ținut minte) și **Cum lucrezi** (👥 grup · 📄 1-la-1 subiect întreg · 🎯 1-la-1 un singur tip de exercițiu · 🎁 gratuit): descrierea, prețul și alegerile apar **doar la opțiunea selectată**. „Cum decurge o ședință" — închis până îl deschizi; „Cu ce exercițiu începi?" — la fel. Notițele de pe ecranul de intrare în sală — scurtate.

@@ -833,9 +833,9 @@ export default function PregatireExamen() {
               onNext={() => playerRef.current?.pollDone(pollScene.poll.id, verdicts[pollScene.poll.id])} />
           )}
           {understand && (
-            <UnderstandCard teacherName={teacher.name} altLeft={ps?.altLeft || 0}
+            <UnderstandCard teacherName={teacher.name} alts={ps?.alts || null} altLeft={ps?.altLeft || 0}
               onYes={() => playerRef.current?.understood()}
-              onAgain={() => playerRef.current?.explainAgain()}
+              onAgain={(mode) => playerRef.current?.explainAgain(mode)}
               onAsk={() => { setPanel('chat'); setPrefill({ id: Date.now(), text: '' }); }} />
           )}
           <div className="lv-notes">

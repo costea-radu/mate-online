@@ -26,10 +26,11 @@ Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 **Fără barem, profesorul nu explică nimic — și explică STRICT baremul** (17 oct. 2026):
 sunt propuse doar subiectele al căror barem a fost găsit și citit (cache-ul `ai_pdf_text`),
 iar explicația „pe barem" e obligatorie la fiecare item: pașii, ordinea, metoda și punctajele
-din barem. Celelalte două moduri sunt tot baremul — „pe înțelesul tuturor" (aceeași rezolvare,
-spusă mai simplu) și „greșeli care costă puncte" (la pașii din barem). Modul „altă metodă" (o
-rezolvare care nu e cea din barem) **nu se mai predă**, nici la lecțiile scrise înainte; la
-chat, profesorul răspunde tot pe pașii din barem. Vezi secțiunea 3g.
+din barem. În grup, al doilea mod (auzit de toți) e tot baremul — „pe înțelesul tuturor" (aceeași
+rezolvare, spusă mai simplu) sau „greșeli care costă puncte" (la pașii din barem). **„Altă metodă"**
+(o rezolvare care nu e cea din barem, cu același rezultat) vine **doar la cererea elevului**, la
+**„🔁 Explică altfel"** (1-la-1), care își arată funcțiile: elevul alege pe care o ascultă. La chat,
+profesorul răspunde tot pe pașii din barem. Vezi secțiunea 3g.
 
 **Formulele se citesc din paginile PDF:** textul extras dintr-un PDF pierde des radicalii,
 liniile de fracție, exponenții, integralele, determinanții, matricele. De aceea, la scrierea
@@ -396,7 +397,7 @@ buton de ștergere a variantelor vechi regenerate în alte variante noi".
   (Vercel) pune la loc o rezervă, doar dacă e nevoie; `LIVE_GEN_MODEL` schimbă modelul.
 - **Ce scrie:** tot scriptul — enunțul curat, întrebarea „încercați singuri", explicația pe barem cu
   punctajul pașilor, **explicațiile de rezervă** („Explică altfel": pe înțelesul tuturor, greșeli care
-  costă puncte — fără „altă metodă" din 17 oct., vezi 3g), verificarea și întrebările pe pași. Schema strictă (Structured Outputs),
+  costă puncte, altă metodă — aceasta doar la cererea elevului, vezi 3g), verificarea și întrebările pe pași. Schema strictă (Structured Outputs),
   paginile PDF ale subiectului și baremului ca documente, aceleași verificări deterministe după
   (literele grilelor de EN din tabelul baremului, enunțurile ilizibile scoase, formulele — mai jos).
 - **Pe bucăți, în paralel:** câte 3 itemi pe apel la Subiectul I și **câte 2 la Subiectele II–III** (cu 3
@@ -564,16 +565,23 @@ acceptă biletul 1-la-1 și de la abonați). **Două goluri, reparate:**
   budgets: false })`).
 
 ### Strict pe barem
-- Lecția are acum trei moduri, toate pe barem: **„pe barem"** (pașii, metoda, ordinea și punctajele
-  din barem — obligatoriu), **„pe înțelesul tuturor"** (ACEEAȘI rezolvare, spusă mai simplu) și
-  **„greșeli care costă puncte"** (la pașii din barem). **„Altă metodă" a dispărut** (`L.ALT_MODES`): nu
-  se mai predă în grup (unde intra la cam un item din trei), nici la „Explică altfel" (1-la-1), nici la
-  lecțiile deja scrise (rămâne în baza de date, dar nu se mai arată și nu i se mai generează vocea).
-- Instrucțiunile pentru modelul care scrie lecțiile (`api/_lib/liveLesson.js`): „Explici STRICT BAREMUL … rezolvi cu
-  METODA DIN BAREM (aceleași formule, aceleași transformări) — nu cu alta, nici «mai scurt»; dacă baremul
-  dă mai multe variante, o urmezi pe prima; nu adaugi teorie sau exerciții care nu sunt în subiect și în
-  barem". Schema nu mai cere `alta_metoda`. Lecțiile scrise înainte își păstrează explicațiile (doar
-  „altă metodă" nu se mai arată); pentru textul nou: Admin → „Lecțiile recente" → „Regenerează".
+- Ce aude elevul fără să ceară e baremul: **„pe barem"** (pașii, metoda, ordinea și punctajele din barem
+  — obligatoriu), iar în grup, ca al doilea mod, **„pe înțelesul tuturor"** (ACEEAȘI rezolvare, spusă mai
+  simplu) sau **„greșeli care costă puncte"** (la pașii din barem) — `L.GROUP_ALT_MODES`. Înainte, în grup
+  intra la cam un item din trei și „altă metodă"; acum nu mai intră.
+- **„🔁 Explică altfel" (1-la-1, la „Ai înțeles?") — refăcut, cu toate funcțiile lui** (`L.ALT_MODES`):
+  butonul își arată funcțiile, iar elevul alege pe care o ascultă — **💡 Pe înțelesul tuturor**, **⚠️
+  Greșeli care costă puncte**, **🔀 Altă metodă (se punctează la fel)**; cele ascultate au ✓ și se pot
+  asculta din nou; după fiecare, profesorul întreabă iar „Ai înțeles?". „Altă metodă" vine **doar** aici,
+  la cererea elevului (același rezultat ca baremul; profesorul spune că e altă metodă decât cea din barem).
+  Cu un singur mod disponibil, „Explică altfel" îl pornește direct. Merge în sala 1-la-1, în ședința de
+  grup ținută 1-la-1, în Pregătirea de examen și în „🎯 Un singur tip"; și în demo-ul 1-la-1.
+- Instrucțiunile pentru modelul care scrie lecțiile (`api/_lib/liveLesson.js`): „Explici STRICT BAREMUL … în
+  modurile «barem», «intuitiv» și «greseli» rezolvi cu METODA DIN BAREM (aceleași formule, aceleași
+  transformări) — nu cu alta, nici «mai scurt»; dacă baremul dă mai multe variante, o urmezi pe prima; nu
+  adaugi teorie sau exerciții care nu sunt în subiect și în barem"; „alta_metoda" se scrie pentru „Explică
+  altfel" (null dacă nu există una firească). Pentru textul nou la lecțiile scrise înainte: Admin →
+  „Lecțiile recente" → „Regenerează".
 - Chatul (sala live și Pregătirea): „Explici STRICT pe barem: aceeași metodă, aceiași pași și aceleași
   punctaje … nu propui altă metodă; dacă elevul vine cu altă metodă, îi spui că baremul punctează orice
   metodă corectă, dar aici lucrăm pe pașii din barem".
@@ -628,8 +636,9 @@ rămân valabile (biletul nu ține prețul).
 
 **Teste:** `test/pregatire-examen.test.js` (familia, propunerile „un singur tip" — fără trecere la alt
 tip —, fluxul API pe BAC Tehnologic S. III ex. 1 b) → doar a) → epuizat), `test/meditatii-live.test.js`
-și `test/meditatii-live-lectie.test.js` (strict pe barem: fără „altă metodă" în grup / 1-la-1 / voce,
-promptul, schema), `test/meditatii-gratuite.test.js` (`private_begin` → plata biletului 1-la-1, cu
+și `test/meditatii-live-lectie.test.js` (strict pe barem în grup; „Explică altfel" cu toate trei funcțiile la
+1-la-1; promptul, schema), `test/meditatii-live-client.test.js` („Explică altfel": funcția aleasă, ✓, apoi
+iar „Ai înțeles?"), `test/meditatii-gratuite.test.js` (`private_begin` → plata biletului 1-la-1, cu
 prețul), prețurile noi în toate testele.
 
 ---
@@ -770,6 +779,7 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | În lobby nu apare secțiunea „Încearcă gratuit" (sau lipsește un examen) | examenul nu are niciun subiect cu barem încă, sau ai ales „✕ Fără meditație gratuită" la el în Admin („🤖 Alege automat" o pune la loc) |
 | Meditația gratuită a unui examen „se pregătește când pornești (2–4 minute)" | e aleasă automat dintre subiectele cu barem (examenul nu avea nicio lecție gata); lecția se scrie la primul elev, o singură dată — sau Admin → „🎁 Meditațiile gratuite" → „Pregătește acum" |
 | În „Alege subiectul" nu mai apar fișele „Subiectul I - Exercițiul 1" | normal (11 oct.): n-au barem propriu; opțiunea „🎯 1-la-1: un singur tip de exercițiu" (17 oct.) ia aceleași exerciții din subiectele oficiale, pe barem |
+| La „🔁 Explică altfel" nu apare „🔀 Altă metodă" (doar celelalte) | itemul nu are o altă metodă firească (ex. o grilă de un pas), așa că modelul n-a scris-o; la o lecție veche: Admin → „Lecțiile recente" → „Regenerează" o scrie, dacă există. Funcțiile prezente sunt mereu toate în listă |
 | Prețurile din lobby / de la plată sunt tot 10 și 20 lei | `LIVE_PRICE_GRUP_LEI` / `LIVE_PRICE_PRIVAT_LEI` sunt setate în Vercel (au întâietate față de 20 / 30 din cod) → șterge-le sau pune 20 / 30, apoi Redeploy |
 | La 1-la-1, după „Participă acum": „Ședința 1-la-1 costă 30 lei" și „Plătește 30 lei" | normal când între pornire și intrare s-au terminat ședințele incluse (sau meditațiile gratuite ale lunii). Până pe 17 oct. butonul cerea, greșit, un bilet de **grup** (plata nu pornea); acum cere biletul 1-la-1, iar după plată elevul revine în aceeași sală |
 | La „🎯 Un singur tip", profesorul spune „Am lucrat toate exercițiile de acest tip…" | s-au terminat subiectele cu barem care au acel exercițiu (sau plafonul de lecții noi pe zi, `PREP_GENERARI_ZI`); propune testul pe acest tip sau alt subpunct — nu trece singur la alt tip. Alt tip: „🎯 Tipul de exercițiu" → „Alt tip de exercițiu → Meditații live" (ședința continuă, fără cost în plus) |

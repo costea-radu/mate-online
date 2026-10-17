@@ -237,6 +237,11 @@
 .lv-poll-skip { border: none; background: none; color: #5f6368; font-size: .82rem; font-weight: 600; cursor: pointer; padding: 4px 2px; font-family: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .lv-poll-skip:hover:not(:disabled) { color: #1a73e8; }
 .lv-check-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* „🔁 Explică altfel": funcțiile lui, una sub alta — elevul alege; ✓ = deja ascultată */
+.lv-check-actions.is-alts { flex-direction: column; align-items: stretch; }
+.lv-check-actions.is-alts .lv-alt-btn { justify-content: flex-start; text-align: left; border-radius: 12px; }
+.lv-alt-done { font-style: normal; font-weight: 800; color: #188038; }
+.lv-check-actions.is-alts .lv-alt-back { align-self: flex-start; }
 .lv-ring { width: 38px; height: 38px; flex: none; }
 .lv-ring-bg { fill: none; stroke: #e8eaed; stroke-width: 3.5; }
 .lv-ring-fg { fill: none; stroke: #1a73e8; stroke-width: 3.5; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset .2s linear; }

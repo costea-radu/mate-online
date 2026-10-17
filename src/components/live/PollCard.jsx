@@ -110,16 +110,36 @@ export function PollCard({ poll, teacherName, total = 0, left = 0, mine = null, 
   );
 }
 
-// „Ai înțeles?" — după explicația pe barem (1-la-1)
-export function UnderstandCard({ teacherName, altLeft, onYes, onAgain, onAsk }) {
+// „Ai înțeles?" — după explicația pe barem (1-la-1). „🔁 Explică altfel" își arată funcțiile și elevul alege cum:
+// 💡 pe înțelesul tuturor · ⚠️ greșeli care costă puncte · 🔀 altă metodă (se punctează la
+// fel) — cele ascultate deja au ✓. Cu un singur mod, „Explică altfel" îl pornește direct.
+// alts = [{ mode, label, used }] (din player); onAgain(mode) — mode null = următorul neascultat
+const ALT_ICON = { intuitiv: '💡', greseli: '⚠️', alta_metoda: '🔀' };
+export function UnderstandCard({ teacherName, alts = null, altLeft = 0, onYes, onAgain, onAsk }) {
+  const [choosing, setChoosing] = useState(false);
+  const list = Array.isArray(alts) ? alts : [];
+  const again = () => (list.length > 1 ? setChoosing(true) : onAgain(list[0]?.mode || null));
   return (
-    <div className="lv-poll is-private lv-check" role="dialog" aria-label="Ai înțeles?">
-      <div className="lv-poll-head"><span className="lv-poll-kicker">🙋 {teacherName}: Ai înțeles?</span></div>
-      <div className="lv-check-actions">
-        <button type="button" className="lv-btn-primary" onClick={onYes}>✅ Da, mai departe</button>
-        {altLeft > 0 && <button type="button" className="lv-btn-soft" onClick={onAgain}>🔁 Explică altfel</button>}
-        <button type="button" className="lv-btn-soft" onClick={onAsk}>✋ Am o întrebare</button>
+    <div className="lv-poll is-private lv-check" role="dialog" aria-label={choosing ? 'Explică altfel' : 'Ai înțeles?'}>
+      <div className="lv-poll-head">
+        <span className="lv-poll-kicker">{choosing ? `🔁 Cum să-ți explice ${teacherName} altfel?` : `🙋 ${teacherName}: Ai înțeles?`}</span>
       </div>
+      {choosing ? (
+        <div className="lv-check-actions is-alts">
+          {list.map((a) => (
+            <button key={a.mode} type="button" className={`lv-btn-soft lv-alt-btn${a.used ? ' is-used' : ''}`} onClick={() => onAgain(a.mode)}>
+              <span aria-hidden="true">{ALT_ICON[a.mode] || '🔁'}</span> {a.label}{a.used && <i className="lv-alt-done" title="ascultat"> ✓</i>}
+            </button>
+          ))}
+          <button type="button" className="lv-btn-soft lv-alt-back" onClick={() => setChoosing(false)}>← Înapoi</button>
+        </div>
+      ) : (
+        <div className="lv-check-actions">
+          <button type="button" className="lv-btn-primary" onClick={onYes}>✅ Da, mai departe</button>
+          {(list.length > 0 || altLeft > 0) && <button type="button" className="lv-btn-soft" onClick={again}>🔁 Explică altfel</button>}
+          <button type="button" className="lv-btn-soft" onClick={onAsk}>✋ Am o întrebare</button>
+        </div>
+      )}
     </div>
   );
 }

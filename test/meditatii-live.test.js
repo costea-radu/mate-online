@@ -286,25 +286,33 @@ test('mișcarea gurii: liniște → gura închisă; vocea → gura se deschide; 
   assert.strictEqual(L.pcmDuration(48000, 24000), 1);
 });
 
-test('strict pe barem: „altă metodă" nu se mai predă — nici în grup, nici la „Explică altfel" — chiar dacă lecția (veche) o are', () => {
+test('strict pe barem în grup; „Explică altfel" (1-la-1) cu toate funcțiile lui, inclusiv „altă metodă" — doar la cerere', () => {
   const LL = require('../api/_lib/liveLesson');
-  assert.deepStrictEqual(L.ALT_MODES, ['intuitiv', 'greseli']);
+  assert.deepStrictEqual(L.ALT_MODES, ['intuitiv', 'greseli', 'alta_metoda']);
+  assert.deepStrictEqual(L.GROUP_ALT_MODES, ['intuitiv', 'greseli']);
+  assert.strictEqual(L.MODE_LABELS.alta_metoda, 'Altă metodă (se punctează la fel)');
   const sg = (id, say) => ({ id, say, board: [] });
   const script = {
     intro: [sg('i0', 'Bun venit la meditație.')], qna: [], breakSay: [], outro: [],
     items: [0, 1, 2].map((i) => ({
       ref: `I.${i + 1}`, section: 'I', title: `Subiectul I, exercițiul ${i + 1}`, statement: 'Enunțul.', intro: [sg(`a${i}`, 'Citim enunțul.')],
       tryPoll: null, afterTry: [], check: null, afterCheck: [],
-      modes: { barem: [sg(`b${i}`, 'Pașii din barem.')], intuitiv: [sg(`n${i}`, 'Aceiași pași, mai simplu.')], greseli: [sg(`g${i}`, 'Greșeala care costă puncte.')], alta_metoda: [sg(`m${i}`, 'Altă metodă, cu altă formulă.')] },
+      modes: { barem: [sg(`b${i}`, 'Pașii din barem.')], intuitiv: [sg(`n${i}`, 'Aceiași pași, mai simplu.')], greseli: [sg(`g${i}`, 'Greșeala care costă puncte.')], alta_metoda: [sg(`m${i}`, 'Altă metodă, cu același rezultat.')] },
     })),
   };
+  // grupul: al doilea mod, auzit fără să-l ceară nimeni, e tot baremul (fără „altă metodă")
   const grup = L.buildTimeline(script, {}, { mode: 'grup', qna: false, pause: false });
   const modes = grup.scenes.filter((s) => s.type === 'explicatie').map((s) => s.mode);
   assert.deepStrictEqual(modes, ['barem', 'intuitiv', 'barem', 'greseli', 'barem', 'intuitiv']);
+  // 1-la-1: „Ai înțeles?" → „Explică altfel" are toate trei funcțiile, cu etichetele lor
   const priv = L.buildTimeline(script, {}, { mode: 'privat' });
   const asks = priv.scenes.filter((s) => s.type === 'intrebare_intelegere');
   assert.strictEqual(asks.length, 3);
-  for (const s of asks) assert.deepStrictEqual(s.modes, ['intuitiv', 'greseli']);
-  // nici vocea ei nu se mai generează
-  assert.ok(!LL.segmentsInOrder(script).some((s) => /^m\d$/.test(s.id)));
+  for (const s of asks) {
+    assert.deepStrictEqual(s.modes, ['intuitiv', 'greseli', 'alta_metoda']);
+    assert.deepStrictEqual(s.alts.map((a) => a.label), ['Pe înțelesul tuturor', 'Greșeli care costă puncte', 'Altă metodă (se punctează la fel)']);
+  }
+  assert.ok(!priv.scenes.some((s) => s.type === 'explicatie' && s.mode !== 'barem'), 'la 1-la-1, celelalte moduri doar la cerere');
+  // vocea lor se generează (1-la-1 le poate cere)
+  assert.ok(LL.segmentsInOrder(script).some((s) => /^m\d$/.test(s.id)));
 });
