@@ -599,7 +599,9 @@ demo-urile și butoanele („🎁 …gratuită", „📅 zilnic", „💳 Prețu
    - 🎯 **1-la-1: un singur tip de exercițiu** — mai jos;
    - 🎁 **Gratuit** — câte o meditație pe examen (cea a examenului ales, prima).
 „Cum decurge o ședință" stă închis (ℹ️) până îl deschizi; secțiunea „1. Profesorul tău" apare doar cu mai
-mulți profesori. Linkuri: `/meditatii?mod=grup|subiect|tip|gratuit` (`?unu=1` = subiect). Pe ecranul de
+mulți profesori. **Widgetul Prof. Virtual** (butonul plutitor de pe tot site-ul) are sus, sub antet, butonul
+roșu **„🔴 Meditații live · LIVE →"**: un clic și elevul e în `/meditatii` (nu în „Planul meu"); a înlocuit
+fila „Meditații cu Prof. Virtual", care ducea, după încă un clic, în „Planul meu" (`src/components/AITutor.jsx`). Linkuri: `/meditatii?mod=grup|subiect|tip|gratuit` (`?unu=1` = subiect). Pe ecranul de
 intrare în sală, notițele sunt scurtate (camera/microfonul, prelungirea).
 
 ### „🎯 1-la-1: un singur tip de exercițiu"

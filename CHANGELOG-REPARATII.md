@@ -4,6 +4,18 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 17 octombrie 2026 (3) — Widgetul Prof. Virtual: butonul „🔴 Meditații live", direct la un clic
+
+Cererea: „Fă în widget butonul care trimite direct către meditații live, color să atragă atenția. Fă să trimită în meditații live, nu în planul meu. Să trimită direct, la clic pe el."
+
+- În fereastra widgetului (`src/components/AITutor.jsx`), imediat sub antet: butonul **„🔴 Meditații live — cu Prof. Tudor · pe barem · LIVE →"**, roșu-portocaliu, cu punct care pulsează și o strălucire lentă. Un clic → `/meditatii` (lobby-ul meditațiilor live) și widgetul se închide.
+- A înlocuit fila „Meditații cu Prof. Virtual" (o descriere + „Deschide meditațiile →" spre `/meditatii/plan`, adică „Planul meu", după încă un clic). Elevul vede acum direct conversația; profesorii și părinții își păstrează filele (chat + „Generează subiect examen") și au și ei butonul.
+- Pe `/meditatii` butonul nu apare (ești deja acolo).
+
+**Verificat:** `npm test` (toate trec), `vite build`; în Chromium (desktop și telefon 390 px): widget deschis → butonul la vedere → clic → `/meditatii`, cu widgetul închis; pe `/meditatii`, fără buton.
+
+---
+
 ## 17 octombrie 2026 (2) — „🔁 Explică altfel" refăcut, cu toate funcțiile lui
 
 Cererea: „Refă butonul de «explică altfel» cu funcțiile lui. Fă merge și commit la final."
