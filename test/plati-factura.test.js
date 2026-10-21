@@ -1,4 +1,4 @@
-// Plățile unice (pachete AI 10/20 lei, bilete la meditațiile live 10/20 lei)
+// Plățile unice (pachete AI 10/20 lei, bilete la meditațiile live — grup / 1-la-1)
 // primesc factură imediat în Stripe, pe clientul Stripe al contului; abonamentul
 // nu mai are probă gratuită. Verifică parametrii trimiși la Stripe Checkout
 // (api/create-checkout.js) și legarea clientului de cont în webhook
@@ -80,6 +80,7 @@ http.admin = () => supabaseFals();
 
 const checkout = require('../api/create-checkout.js');
 const webhook = require('../api/stripe-webhook.js');
+const L = require('../api/_lib/live'); // prețurile biletelor (LIVE_PRICE_GRUP_LEI / _PRIVAT_LEI)
 
 const abonat = { id: 'u1', email: 'abonat@test.ro', is_admin: false, subscription_status: 'active', stripe_customer_id: null };
 const gratuit = { id: 'u2', email: 'elev@test.ro', is_admin: false, subscription_status: 'inactive', stripe_customer_id: null };
@@ -148,19 +149,19 @@ test('client Stripe inutilizabil (șters / din modul test): plata nu se blocheaz
   }
 });
 
-test('bilet la meditația live de grup (10 lei): factură imediată', async () => {
+test('bilet la meditația live de grup: factură imediată, la prețul biletului', async () => {
   const s = await plata(gratuit, { type: 'live', kind: 'grup', sessionId: 's1' });
   areFactura(s);
-  assert.strictEqual(s.line_items[0].price_data.unit_amount, 1000);
+  assert.strictEqual(s.line_items[0].price_data.unit_amount, Math.round(L.PRICE_GROUP_LEI() * 100));
   assert.match(s.payment_intent_data.description, /^Meditație live de grup/);
   assert.strictEqual(s.metadata.live_kind, 'grup');
   assert.strictEqual(s.metadata.live_session_id, 's1');
 });
 
-test('bilet la meditația 1-la-1 (20 lei): factură imediată', async () => {
+test('bilet la meditația 1-la-1: factură imediată, la prețul biletului', async () => {
   const s = await plata(gratuit, { type: 'live', kind: 'privat' });
   areFactura(s);
-  assert.strictEqual(s.line_items[0].price_data.unit_amount, 2000);
+  assert.strictEqual(s.line_items[0].price_data.unit_amount, Math.round(L.PRICE_PRIVATE_LEI() * 100));
   assert.match(s.payment_intent_data.description, /^Meditație 1-la-1/);
   assert.strictEqual(s.metadata.live_kind, 'privat');
 });
