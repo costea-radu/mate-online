@@ -637,7 +637,7 @@ function FreeReport({ st }) {
         <p style={{ fontSize: '.9rem', color: 'var(--text)', margin: '0 0 12px', lineHeight: 1.6 }}>
           Diagnosticul e gata. Cu abonamentul, Profesorul Virtual chiar predă planul:
           lecții pe capitolele slabe, exerciții cu explicații, teme corectate, recapitulări
-          programate ca să nu uiți materia și simulări de examen. <strong>Primele 2 zile sunt gratuite.</strong>
+          programate ca să nu uiți materia și simulări de examen.
         </p>
         <Link to="/preturi" className="btn btn-primary">Începe planul →</Link>
       </div>

@@ -6,9 +6,9 @@ variabilele de mediu. Timp estimat: **30–40 de minute**.
 | Ce se schimbă | Stare |
 |---|---|
 | Google Analytics 4 + Meta Pixel, cu banner de consimțământ | ✅ în cod — ai nevoie de 2 variabile |
-| Evenimente de conversie (cont nou, început de plată, abonare, probă) | ✅ în cod — se configurează în GA4/Meta |
+| Evenimente de conversie (cont nou, început de plată, abonare) | ✅ în cod — se configurează în GA4/Meta |
 | Plan anual 500 lei (10 luni plătite, 2 cadou) | ✅ în cod — merge fără configurare |
-| Probă gratuită 2 zile, o singură dată per cont | ✅ în cod — merge fără configurare |
+| ~~Probă gratuită 2 zile~~ | ❌ scoasă pe 21 oct 2026 — abonamentul se plătește din prima zi |
 | Test inițial gratuit pentru elevii asociați cu un părinte | ✅ în cod — merge fără configurare |
 
 ---
@@ -73,7 +73,6 @@ Bifează **Production**, **Preview** și **Development** la fiecare:
 | `VITE_META_PIXEL_ID` | numărul pixelului (Pasul 2) | pentru Meta |
 | `PRICE_MONTHLY_LEI` | `50` | nu — asta e valoarea implicită |
 | `PRICE_ANNUAL_LEI` | `500` | nu — asta e valoarea implicită |
-| `TRIAL_DAYS` | `2` | nu — asta e valoarea implicită |
 | `MED_FREE_ASSESSMENTS` | `1` | nu — asta e valoarea implicită |
 
 Apoi **Deployments → ⋯ pe ultimul deploy → Redeploy**. Variabilele `VITE_*` intră în
@@ -97,7 +96,7 @@ build, deci fără redeploy nu apar în site.
 > două evenimente cu același nume și cifre duble.
 >
 > **Ca să apară azi**, parcurge tu fluxul în incognito: Accept la cookie-uri → cont nou
-> (`sign_up`) → `/preturi` → „Începe cu 2 zile gratuite" (`begin_checkout`, poți abandona
+> (`sign_up`) → `/preturi` → „Abonează-te" (`begin_checkout`, poți abandona
 > plata). Verifici în *Rapoarte → În timp real* sau *Administrare → DebugView*.
 
 **Administrare → Afișarea datelor → Evenimente → tabul „Evenimente recente"** → bifează steaua
@@ -108,7 +107,7 @@ de lângă fiecare, după ce a apărut în listă (~24 de ore):
 | `sign_up` | cont nou creat |
 | `begin_checkout` | a apăsat „Abonează-te" |
 | `purchase` | **abonare reușită** (are `value` în lei și `plan` = lunar/anual) |
-| `start_trial` | a intrat în proba de 2 zile |
+| `start_trial` | nu se mai trimite — proba de 2 zile a fost scoasă pe 21 oct 2026 |
 | `lead` | elev asociat cu un părinte (deblochează testul gratuit) |
 | `free_assessment_started` | a început testul inițial gratuit |
 
@@ -154,7 +153,7 @@ utilizatorii de iPhone care refuză urmărirea).
 
 ---
 
-## Planul anual și proba de 2 zile
+## Planul anual (fără probă gratuită)
 
 Nu e nevoie de nicio configurare în Stripe: prețurile se creează dinamic la fiecare
 checkout, ca și până acum.
@@ -164,9 +163,9 @@ checkout, ca și până acum.
 | Lunar | 50 lei / lună | „Plătești lună de lună. Renunți când vrei." |
 | Anual | **500 lei / an** | „Plătești 10 luni, primești 12. Adică 41,67 lei pe lună." |
 
-**Proba gratuită: 2 zile**, cu card cerut de la început și doar la **primul** abonament
-al contului (verificat prin `profiles.subscription_started_at`). Dacă la finalul probei
-cardul nu e valid, abonamentul se anulează singur — nimeni nu rămâne „activ" fără plată.
+**Fără probă gratuită** (scoasă pe 21 oct 2026): prima lună / primul an se plătește chiar
+la abonare, iar factura apare imediat în Stripe. Variabila `TRIAL_DAYS` nu mai e citită
+(dacă e setată în Vercel, o poți șterge).
 
 ### Dacă preferi prețurile administrate din Stripe Dashboard
 Creează două prețuri recurente (RON, lunar și anual) și pune ID-urile în Vercel ca
@@ -174,7 +173,7 @@ Creează două prețuri recurente (RON, lunar și anual) și pune ID-urile în V
 
 ### Test în modul Stripe Test
 Cu cheile de test, cardul `4242 4242 4242 4242` (orice dată viitoare, orice CVC).
-Verifică: alegi „Anual" → în Checkout scrie „2 zile gratuit, apoi 500 lei/an" → după
+Verifică: alegi „Anual" → în Checkout scrie „500 lei/an, fără zile gratuite" → după
 plată aterizezi pe `/profil` și contul devine Premium în câteva secunde.
 
 ---
@@ -212,9 +211,9 @@ un cont de părinte în plus.
 | `src/App.jsx` | montează bannerul + trimite câte o vizualizare la fiecare schimbare de rută |
 | `src/pages/Register.jsx` | eveniment `sign_up` |
 | `src/pages/Asociere.jsx` | eveniment `lead` la asocierea cu un părinte |
-| `src/pages/Pricing.jsx` | două planuri, proba de 2 zile, eveniment `begin_checkout`, reper de preț |
+| `src/pages/Pricing.jsx` | două planuri (fără probă din 21 oct 2026), eveniment `begin_checkout`, reper de preț |
 | `src/pages/Profile.jsx` | eveniment `purchase` la întoarcerea din Stripe (o singură dată per sesiune) |
 | `src/pages/PoliticaCookies.jsx` | cookie-urile de analiză, declarate corect |
-| `api/create-checkout.js` | planurile lunar/anual + proba de 2 zile la primul abonament |
+| `api/create-checkout.js` | planurile lunar/anual (fără probă din 21 oct 2026); factură la pachetele AI și biletele live |
 | `api/ai-meditatii.js` | testul inițial gratuit pentru elevii asociați cu un părinte |
 | `src/pages/Meditatii.jsx` | raportul gratuit + invitația la asociere |

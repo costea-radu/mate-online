@@ -4,6 +4,8 @@
 //     plată; doar pentru abonați; creditat de stripe-webhook în `ai_topups`)
 //   · type='live'          → BILET la meditațiile live: grup 10 lei / 1-la-1
 //     20 lei (mode: payment; creditat de stripe-webhook în `live_tickets`)
+//   Plățile unice (topup, live) primesc FACTURĂ în Stripe imediat după plată,
+//   ca abonamentul — vezi oneTimePayment().
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { admin, handledMethod, authUser } = require('./_lib/http');
 const ai = require('./_lib/ai'); // pachetele top-up (topupPacks, TOPUP_DAYS)
@@ -16,13 +18,14 @@ function siteUrl() {
 
 // ─── PLANURILE DE ABONAMENT ─────────────────────────────────────────────────
 // Lunar 50 lei · Anual 500 lei (10 luni plătite, 2 luni cadou).
-// Probă gratuită: 2 zile, DOAR la primul abonament al contului.
+// Fără perioadă de probă (scoasă pe 21 oct 2026): prima perioadă se plătește
+// chiar la abonare, iar factura reală apare imediat în Stripe (nu una de 0 lei).
+// Variabila de mediu TRIAL_DAYS nu mai e citită.
 //
 // Prețurile se pot schimba din variabile de mediu, fără deploy de cod:
-//   PRICE_MONTHLY_LEI=50   PRICE_ANNUAL_LEI=500   TRIAL_DAYS=2
+//   PRICE_MONTHLY_LEI=50   PRICE_ANNUAL_LEI=500
 // Dacă preferi să administrezi prețurile din Stripe Dashboard, pune ID-urile
 // în STRIPE_PRICE_MONTHLY / STRIPE_PRICE_ANNUAL — au prioritate.
-const TRIAL_DAYS = Math.max(0, parseInt(process.env.TRIAL_DAYS || '2', 10));
 const PLANS = {
   lunar: {
     id: 'lunar',
@@ -42,15 +45,50 @@ const PLANS = {
   },
 };
 
-// Proba gratuită se dă o singură dată per cont. `subscription_started_at`
-// (supabase/reviews_v2.sql) e completată de webhook la primul abonament; dacă
-// migrarea nu e rulată, coloana lipsește — atunci nu blocăm proba.
-async function trialDaysFor(supabase, userId) {
-  if (!TRIAL_DAYS) return 0;
-  const { data, error } = await supabase
-    .from('profiles').select('subscription_started_at').eq('id', userId).maybeSingle();
-  if (error) return TRIAL_DAYS; // coloana lipsește → nu blocăm nimic
-  return data?.subscription_started_at ? 0 : TRIAL_DAYS;
+// ─── Plățile unice: factură imediată, pe clientul Stripe al contului ─────────
+// Abonamentul își primește factura automat (Stripe Billing). O plată unică
+// (mode: 'payment' — pachet AI, bilet live) are factură doar dacă sesiunea o
+// cere (`invoice_creation`): imediat după plată, Stripe emite factura deja
+// PLĂTITĂ, în aceeași serie de numere cu abonamentele (Dashboard → Invoices).
+// Clientul primește pe e-mail factura + chitanța dacă e pornit Settings →
+// Business → Customer emails → „Successful payments". Cost Stripe: 0,4% din
+// sumă per factură (4 bani la 10 lei).
+//
+// Factura cere un client Stripe. Refolosim clientul contului
+// (profiles.stripe_customer_id — al abonamentului sau al unei plăți anterioare),
+// ca plățile unei persoane să stea pe o singură fișă de client și să apară și
+// în portalul „Gestionează abonamentul". Un id inutilizabil (client șters, creat
+// cu cheile de test) NU blochează plata: Checkout face alt client din e-mail,
+// iar webhookul îl leagă de cont dacă profilul nu avea deja unul.
+async function stripeCustomerOf(profile) {
+  const id = profile?.stripe_customer_id;
+  if (!id) return null;
+  try {
+    const c = await stripe.customers.retrieve(id);
+    return c && !c.deleted ? c.id : null;
+  } catch (e) {
+    console.warn('create-checkout: stripe_customer_id inutilizabil — Checkout creează alt client:', id, e.message);
+    return null;
+  }
+}
+
+// Parametrii comuni ai unei plăți unice: clientul, factura și o descriere
+// lizibilă a plății (în Payments / „Recent activity" apare textul, nu `ch_…`).
+// `metadata` ajunge pe sesiune (din ea creditează webhookul), pe plată și pe factură.
+async function oneTimePayment(profile, { title, details, metadata }) {
+  const customer = await stripeCustomerOf(profile);
+  return {
+    mode: 'payment',
+    ...(customer
+      ? { customer }
+      : { customer_email: profile?.email || undefined, customer_creation: 'always' }),
+    metadata,
+    payment_intent_data: { description: title, metadata },
+    invoice_creation: {
+      enabled: true,
+      invoice_data: { description: details || title, metadata },
+    },
+  };
 }
 
 // ─── Pachet AI suplimentar (top-up de buget) ─────────────────────────────────
@@ -71,25 +109,26 @@ async function topupCheckout(req, res, supabase, userId, profile) {
   }
 
   const base = siteUrl();
+  const name = `${pack.nume} — +${ai.fmtCredits(pack.creditLei)} credite AI`;
+  const description = `Credite AI suplimentare pentru Profesorul Virtual, valabile ${ai.TOPUP_DAYS} de zile. Se adaugă peste creditele incluse în abonament și deblochează toate cotele.`;
   const session = await stripe.checkout.sessions.create({
-    mode: 'payment',
-    customer_email: profile?.email || undefined,
     // Webhookul creditează EXACT din metadata (nu din env-ul de la momentul
     // webhookului) — pachetele pot fi reconfigurate fără să strice plățile în zbor.
-    metadata: {
-      supabase_user_id: userId,
-      topup_pack: pack.id,
-      topup_name: pack.nume,
-      topup_credit_lei: String(pack.creditLei),
-      topup_days: String(ai.TOPUP_DAYS),
-    },
+    ...(await oneTimePayment(profile, {
+      title: name,
+      details: description,
+      metadata: {
+        supabase_user_id: userId,
+        topup_pack: pack.id,
+        topup_name: pack.nume,
+        topup_credit_lei: String(pack.creditLei),
+        topup_days: String(ai.TOPUP_DAYS),
+      },
+    })),
     line_items: [{
       price_data: {
         currency: 'ron',
-        product_data: {
-          name: `${pack.nume} — +${ai.fmtCredits(pack.creditLei)} credite AI`,
-          description: `Credite AI suplimentare pentru Profesorul Virtual, valabile ${ai.TOPUP_DAYS} de zile. Se adaugă peste creditele incluse în abonament și deblochează toate cotele.`,
-        },
+        product_data: { name, description },
         unit_amount: Math.round(pack.pretLei * 100),
       },
       quantity: 1,
@@ -153,14 +192,16 @@ async function liveCheckout(req, res, supabase, userId, profile) {
   const back = /^\/meditatii(\/[\w/-]*)?$/.test(String(req.body?.returnTo || '')) ? req.body.returnTo : '/meditatii';
   const base = siteUrl();
   const session = await stripe.checkout.sessions.create({
-    mode: 'payment',
-    customer_email: profile?.email || undefined,
-    metadata: {
-      supabase_user_id: userId,
-      live_kind: kind,
-      live_session_id: sessionRow?.id || '',
-      live_price_lei: String(price),
-    },
+    ...(await oneTimePayment(profile, {
+      title: name,
+      details: description,
+      metadata: {
+        supabase_user_id: userId,
+        live_kind: kind,
+        live_session_id: sessionRow?.id || '',
+        live_price_lei: String(price),
+      },
+    })),
     line_items: [{
       price_data: { currency: 'ron', product_data: { name, description }, unit_amount: Math.round(price * 100) },
       quantity: 1,
@@ -179,7 +220,7 @@ module.exports = async function handler(req, res) {
 
     // Email + status abonament din profilul REAL (nu din body).
     const { data: profile, error: profileError } = await supabase
-      .from('profiles').select('subscription_status, email, is_admin').eq('id', userId).single();
+      .from('profiles').select('subscription_status, email, is_admin, stripe_customer_id').eq('id', userId).single();
     if (profileError) {
       console.error('Supabase profile error:', profileError);
       return res.status(500).json({ error: 'Eroare la citirea profilului' });
@@ -204,7 +245,6 @@ module.exports = async function handler(req, res) {
 
     // Planul ales pe /preturi (implicit lunar, ca înainte).
     const plan = PLANS[String(req.body?.plan || 'lunar')] || PLANS.lunar;
-    const trialDays = await trialDaysFor(supabase, userId);
 
     const base = siteUrl();
     const lineItem = plan.priceId
@@ -219,26 +259,23 @@ module.exports = async function handler(req, res) {
         quantity: 1,
       };
 
+    // Fără probă: prima perioadă se plătește acum și Stripe emite pe loc factura.
+    // Abonamentul NU refolosește clientul Stripe existent (spre deosebire de
+    // plățile unice): webhookul dezactivează contul după client, iar anularea
+    // unui abonament vechi, restant, ar opri și abonamentul nou de pe același
+    // client. Checkout creează clientul din e-mail, ca înainte.
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer_email: email,
       metadata: { supabase_user_id: userId, plan: plan.id },
       subscription_data: {
         metadata: { supabase_user_id: userId, plan: plan.id },
-        ...(trialDays ? {
-          trial_period_days: trialDays,
-          // Fără card valid la finalul probei, abonamentul se anulează
-          // singur — nu rămâne nimeni „activ" fără să poată plăti.
-          trial_settings: { end_behavior: { missing_payment_method: 'cancel' } },
-        } : {}),
       },
-      // Cardul se cere de la început, inclusiv în probă: altfel proba de 2 zile
-      // se poate relua la nesfârșit cu conturi noi.
       payment_method_collection: 'always',
       line_items: [lineItem],
-      // `plan` și `proba` ajung în pagina de mulțumire pentru măsurarea
+      // `plan` și `val` ajung în pagina de mulțumire pentru măsurarea
       // conversiei (GA4 + Meta Pixel) — vezi src/pages/Profile.jsx.
-      success_url: `${base}/profil?session_id={CHECKOUT_SESSION_ID}&plan=${plan.id}&val=${plan.lei}${trialDays ? '&proba=1' : ''}`,
+      success_url: `${base}/profil?session_id={CHECKOUT_SESSION_ID}&plan=${plan.id}&val=${plan.lei}`,
       cancel_url: `${base}/preturi?anulat=1`,
     });
 

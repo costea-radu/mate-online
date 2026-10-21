@@ -31,6 +31,23 @@ async function profileByCustomer(supabase, customerId) {
   return data || {};
 }
 
+// Plățile unice (pachete AI, bilete live) au factură, deci și client Stripe.
+// Dacă profilul n-are încă unul (n-a avut abonament), îl ținem minte: plățile
+// următoare îl refolosesc (api/create-checkout.js) și ajung pe aceeași fișă de
+// client. NU suprascrie clientul abonamentului; best-effort — nu pică webhookul.
+async function rememberCustomer(supabase, userId, customerId) {
+  if (!userId || typeof customerId !== 'string' || !customerId) return;
+  try {
+    const { error } = await supabase.from('profiles')
+      .update({ stripe_customer_id: customerId })
+      .eq('id', userId)
+      .is('stripe_customer_id', null);
+    if (error) console.error('stripe-webhook: clientul Stripe nu s-a putut lega de profil:', error.message);
+  } catch (e) {
+    console.error('stripe-webhook: clientul Stripe nu s-a putut lega de profil:', e.message);
+  }
+}
+
 const handler = async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).send('Method Not Allowed');
@@ -97,6 +114,7 @@ const handler = async function handler(req, res) {
             });
             return res.status(500).send('Live ticket failed');
           }
+          await rememberCustomer(supabase, userId, customerId);
           const { data: prof3 } = await supabase.from('profiles').select('full_name, email').eq('id', userId).single();
           const amount3 = session.amount_total != null ? `${(session.amount_total / 100).toFixed(2)} ${String(session.currency || '').toUpperCase()}` : '—';
           await alertAdmin({
@@ -146,6 +164,7 @@ const handler = async function handler(req, res) {
             return res.status(500).send('Topup credit failed');
           }
 
+          await rememberCustomer(supabase, userId, customerId);
           const { data: prof2 } = await supabase.from('profiles').select('full_name, email').eq('id', userId).single();
           const amount2 = session.amount_total != null ? `${(session.amount_total / 100).toFixed(2)} ${String(session.currency || '').toUpperCase()}` : '—';
           await alertAdmin({

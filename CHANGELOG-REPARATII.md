@@ -4,6 +4,25 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 21 octombrie 2026 — Factură imediată la pachetele AI și la biletele live · fără proba de 2 zile
+
+Cererea (cu pozele din Stripe: plata de 10 lei apărea în „Recent activity" doar cu id-ul `ch_…` și fără factură, pe când abonarea de 50 lei își are factura pe loc): „1) fă să înregistreze imediat plata în Stripe, cu emitere factură, pentru plata a 10 lei sau 20 lei (pachet AI mic, respectiv mare) — și pentru meditațiile live; 2) scoate perioada de probă de două zile".
+
+### 1) Factură imediată la plățile unice (`api/create-checkout.js`, `api/stripe-webhook.js`)
+- **Cauza:** pachetele AI (10 / 20 lei) și biletele la meditațiile live (10 lei grup / 20 lei 1-la-1) sunt plăți unice (`mode: 'payment'`). Stripe face singur factura doar la abonamente; la o plată unică, numai dacă sesiunea de Checkout o cere. Plata se înregistra, dar fără factură și fără descriere. („Pending" de lângă sumă înseamnă doar că banii nu sunt încă disponibili pentru transfer — la fel și la abonamente.)
+- **Acum:** sesiunea cere factura (`invoice_creation`): imediat după plată, Stripe emite factura deja plătită, în aceeași serie de numere cu abonamentele (Dashboard → Invoices), cu descrierea pachetului / biletului; plata are și ea o descriere lizibilă (ex. „Pachet AI Mic — +… credite AI"). Clientul primește factura și chitanța pe e-mail dacă e pornit Settings → Business → Customer emails → „Successful payments". Cost Stripe: 0,4% din sumă per factură (4 bani la 10 lei).
+- **Un singur client Stripe per cont:** factura cere un client Stripe. Se refolosește cel din `profiles.stripe_customer_id` (al abonamentului sau al unei plăți anterioare), deci facturile pachetelor apar și în portalul „Gestionează abonamentul". Dacă profilul n-are client (sau id-ul e inutilizabil — client șters, creat cu cheile de test), Checkout creează unul din e-mail, iar webhookul îl leagă de cont doar dacă profilul nu avea deja unul (nu suprascrie clientul abonamentului).
+- Abonamentul își păstrează clientul creat din e-mail, ca înainte: webhookul dezactivează contul după client, iar anularea unui abonament vechi, restant, ar opri și unul nou de pe același client.
+
+### 2) Fără proba gratuită de 2 zile (`api/create-checkout.js`, `src/pages/Pricing.jsx`, `src/pages/Meditatii.jsx`, `src/pages/FAQ.jsx`)
+- La abonare se plătește pe loc prima lună / primul an, iar factura e cea reală (nu una de 0 lei). `TRIAL_DAYS` nu mai e citită (dacă e setată în Vercel, se poate șterge).
+- `/preturi`: butonul e „Abonează-te · 50 lei pe lună" / „Abonează-te · 500 lei pe an", iar nota de sub el nu mai pomenește proba; a dispărut și „Primele 2 zile sunt gratuite" din invitația de după diagnostic (Planul meu). FAQ: „Primesc factură?" acoperă acum și pachetele AI și biletele live. `GHID_MASURARE_SI_ABONAMENTE.md`, actualizat.
+- Abonamentele pornite deja în probă își termină proba și se taxează automat la final (din Stripe se poate încheia proba mai devreme).
+
+**Verificat:** `npm test` 786 de teste — 784 trec, 2 sărite, 0 picate (noi: `test/plati-factura.test.js` +9 — factura la pachetul mic / mare și la biletul de grup / 1-la-1, refolosirea clientului Stripe, clientul inutilizabil care nu blochează plata, abonamentul fără probă chiar cu `TRIAL_DAYS` setat, legarea clientului în webhook fără suprascriere; pe codul vechi, 8 din 9 pică); `vite build` trece. Rulate într-o copie cu `npm ci` — în `node_modules` local lipsește `mathjs` (e în `package.json`; un `npm install` local îl aduce).
+
+---
+
 ## 15 octombrie 2026 — Desenul de pe proiecție (caroiajul) și sunetul pe iPhone la lecția nouă de EN
 
 Cererea (cu poza proiecției „Subiectul al III-lea, exercițiul 4 · 5 puncte" — cercul de centru O): „1) nu se vede bine desenul în poză la meditația live; 2) nu merge sunetul pe telefon, la ultima meditație live generată, pt Evaluare Națională". Telefonul: iPhone; nu se aude nimic (doar subtitrarea); celelalte meditații live se aud pe același telefon.

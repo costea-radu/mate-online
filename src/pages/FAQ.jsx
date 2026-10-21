@@ -104,8 +104,8 @@ const faqs = [
         a: 'Dacă nu ai accesat conținutul Premium după plată, poți solicita rambursarea în termen de 14 zile. Dacă ai accesat conținutul, rambursarea nu mai este posibilă conform politicii noastre de retur. Detalii complete în Politica de Retur.',
       },
       {
-        q: 'Primesc factură pentru abonament?',
-        a: 'Da. Stripe generează automat o chitanță la fiecare plată și o trimite pe adresa de e-mail asociată contului tău.',
+        q: 'Primesc factură?',
+        a: 'Da. La fiecare plată — abonament, pachet AI sau bilet la meditațiile live — Stripe emite automat factura și o trimite, împreună cu chitanța, pe adresa de e-mail folosită la plată.',
       },
       {
         q: 'Prețul se poate schimba?',

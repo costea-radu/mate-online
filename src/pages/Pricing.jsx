@@ -8,8 +8,6 @@ import { trackBeginCheckout } from '../lib/analytics';
 // Planurile afișate (doar pentru afișare — prețurile reale sunt pe server)
 import { PLANS } from '../lib/plans';
 
-const TRIAL_ZILE = 2;
-
 export default function Pricing() {
   const { user, isPremium, isSubscribed, isAdmin } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -83,6 +81,9 @@ export default function Pricing() {
       setLoading(false);
     }
   }
+
+  // planul selectat — prețul lui apare pe butonul de abonare
+  const planAles = PLANS.find((p) => p.id === plan) || PLANS[0];
 
   return (
     <>
@@ -214,13 +215,13 @@ export default function Pricing() {
                   {loading
                     ? 'Se procesează...'
                     : user
-                      ? `Începe cu ${TRIAL_ZILE} zile gratuite`
+                      ? `Abonează-te · ${planAles.pret} lei ${planAles.perioada}`
                       : 'Creează cont și începe'}
                 </button>
 
                 <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.5 }}>
-                  Primele {TRIAL_ZILE} zile sunt gratuite. Nu se percepe nimic dacă anulezi până la
-                  finalul lor, direct din contul tău. Proba se acordă o singură dată per cont.
+                  Plata se face securizat prin Stripe, iar factura se emite automat. Te poți
+                  dezabona oricând, direct din contul tău.
                 </p>
               </div>
 
