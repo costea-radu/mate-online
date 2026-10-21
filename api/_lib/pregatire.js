@@ -13,6 +13,9 @@
 //   · promovat (≥ PREP_PRAG, 80%) → profesorul propune poziția următoare;
 //     nepromovat → propune să mai rămână (încă PREP_IN_PLUS exerciții) și refacerea testului.
 // Elevul poate continua oricât, poate cere testul oricând sau alege orice poziție.
+// „🎯 Doar un tip de exercițiu" (ales în Meditații live, lângă examen): profesorul
+// rămâne la tipul ales — ex. doar S. III ex. 1 c) — și nu trece singur la alt tip
+// (focusOf + proposeFocus*).
 //
 // Progresul stă în ai_meditatii_sessions (fără tabele noi): un rând pe „bloc" de
 // lucru și unul pe test, cu chapter = „pregatire:<examen>" și payload.prep —
@@ -310,16 +313,19 @@ function proposeWelcome({ exam, target, prog, name = null }) {
   };
 }
 
+// ce spune profesorul după un exercițiu, după răspunsurile elevului
+function exerciseFeedback(result) {
+  if (!result || !(result.total > 0)) return 'Gata și acest exercițiu.';
+  return result.correct === result.total ? 'Foarte bine, totul corect!'
+    : result.correct === 0 ? 'De data asta n-a ieșit — uită-te încă o dată la pașii din barem, de pe tablă.'
+      : `Ai avut ${result.correct} din ${result.total} răspunsuri corecte — reține pașii din barem.`;
+}
+
 function proposeAfterExercise({ exam, pos, prog, result = null }) {
   const p = positionOf(exam, pos);
   const st = prog.byPos[pos];
   const nxt = nextPosition(exam, pos);
-  let fb = 'Gata și acest exercițiu.';
-  if (result && result.total > 0) {
-    fb = result.correct === result.total ? 'Foarte bine, totul corect!'
-      : result.correct === 0 ? 'De data asta n-a ieșit — uită-te încă o dată la pașii din barem, de pe tablă.'
-        : `Ai avut ${result.correct} din ${result.total} răspunsuri corecte — reține pașii din barem.`;
-  }
+  const fb = exerciseFeedback(result);
   if (st.mastered) {
     return {
       pos,
@@ -404,6 +410,104 @@ function proposeExhausted({ exam, pos, prog }) {
   };
 }
 
+// ─── „🎯 DOAR UN TIP DE EXERCIȚIU" (cererea din 17 oct. 2026) ─────────────────
+// Din Meditații live, lângă alegerea examenului: elevul alege UN tip de exercițiu —
+// ex. BAC Tehnologic, Subiectul al III-lea, exercițiul 1 — și, la BAC (S. II și III),
+// subpunctul: a), b), c) sau toată problema. Profesorul ia DOAR exerciții de acest tip,
+// din subiectele oficiale, fiecare pe baremul lui, și NU trece singur la alt tip: după
+// fiecare exercițiu propune altul de același tip (din alt subiect), cu același subpunct —
+// sau, dacă elevul vrea, alt subpunct al aceleiași probleme (doar c) și la exercițiul
+// următor, sau doar a)…). Testul de verificare rămâne la alegere, tot pe acest tip.
+// focus = familia poziției alese: problema („III.1") și subpunctele ei; la Subiectul I
+// și la EN (problemele se lucrează întregi), doar poziția însăși.
+function focusOf(exam, pos) {
+  const p = positionOf(exam, String(pos || ''));
+  if (!p) return null;
+  const root = positionOf(exam, p.parent || p.pos);
+  const subs = subPositions(exam).filter((x) => x.parent === root.pos);
+  return { pos: p.pos, root: root.pos, label: root.label, short: root.short, spoken: root.spoken, positions: [root.pos, ...subs.map((x) => x.pos)] };
+}
+const inFocus = (focus, pos) => !!focus && focus.positions.includes(pos);
+
+// celelalte variante ale aceleiași probleme, pentru exercițiul următor: doar a) / b) / c)
+// sau toată problema (key 'switch' — clasa ia alt subiect decât cel de acum)
+function focusSwitches(exam, focus, pos, { first = false } = {}) {
+  if (!focus || focus.positions.length < 2) return [];
+  return focus.positions.filter((x) => x !== pos).map((x) => {
+    const q = positionOf(exam, x);
+    const what = q.letter ? `doar ${q.letter})` : 'toată problema (a, b, c)';
+    return { key: 'switch', label: first ? `Încep cu ${what}` : `Alt exercițiu, ${what}`, pos: x };
+  });
+}
+const testOption = (p, { primary = false } = {}) => ({ key: 'test', label: `🧪 Test pe acest tip (${exWord(testSize(p))}, fără ajutor)`, pos: p.pos, ...(primary ? { primary: true } : {}) });
+const END = { key: 'end', label: '🏁 Ajunge pentru azi' };
+
+function proposeFocusWelcome({ exam, focus, prog, name = null }) {
+  const p = positionOf(exam, focus.pos);
+  const st = prog.byPos[p.pos];
+  const hi = name ? `, ${name}` : '';
+  const again = st && st.done ? ` Ai lucrat deja ${exWord(st.done)} de acest tip.` : '';
+  return {
+    pos: p.pos, focus: focus.root,
+    say: `Bună${hi}! Lucrăm doar ${p.spoken}: exerciții de acest tip din subiectele oficiale, fiecare explicat pe baremul lui. Când termini unul, îți dau altul de același tip.${again} Începem?`,
+    options: [
+      { key: 'next', label: `▶ Da, începem: ${p.short}`, primary: true, pos: p.pos },
+      ...focusSwitches(exam, focus, p.pos, { first: true }),
+    ],
+  };
+}
+
+function proposeFocusAfterExercise({ exam, focus, pos, prog, result = null }) {
+  const p = positionOf(exam, pos);
+  const st = prog.byPos[pos];
+  const sw = focusSwitches(exam, focus, pos);
+  return {
+    pos, focus: focus.root,
+    say: `${exerciseFeedback(result)} Îți dau alt exercițiu de același tip, din alt subiect?${sw.length ? ' Poți alege și alt subpunct al problemei.' : ''}`,
+    options: [
+      { key: 'next', label: `▶ Alt exercițiu: ${p.short}`, primary: true, pos },
+      ...sw,
+      ...(st.done >= 3 ? [testOption(p)] : []),
+      END,
+    ],
+  };
+}
+
+function proposeFocusAfterTest({ exam, focus, pos, result }) {
+  const p = positionOf(exam, pos);
+  const wrong = result.total - result.correct;
+  const line = `Ai rezolvat corect ${result.correct} din ${result.total}${result.total ? `, adică ${pct(result.correct, result.total)} la sută` : ''}.`;
+  return {
+    pos, focus: focus.root,
+    say: `${line} ${result.passed ? `Foarte bine! Stăpânești ${p.spoken}.` : 'Mai exersăm puțin pe acest tip.'}${wrong > 0 ? ' Dacă vrei, îți explic întâi ce ai greșit.' : ''} Continuăm cu exerciții de același tip?`,
+    options: [
+      { key: 'stay', label: `▶ Alt exercițiu: ${p.short}`, primary: true, pos },
+      ...(wrong > 0 ? [{ key: 'review', label: wrong === 1 ? '🔍 Vezi ce ai greșit' : `🔍 Vezi cele ${wrong} greșite`, pos }] : []),
+      ...focusSwitches(exam, focus, pos),
+      END,
+    ],
+  };
+}
+
+function proposeFocusExhausted({ exam, focus, pos, prog }) {
+  const p = positionOf(exam, pos);
+  const st = prog.byPos[pos];
+  const sw = focusSwitches(exam, focus, pos);
+  const base = `Am lucrat toate exercițiile de tipul ${p.spoken} pe care le am acum din subiectele oficiale.`;
+  const more = !st.mastered
+    ? ` Îți propun testul de verificare pe acest tip${sw.length ? ', sau alegi alt subpunct al problemei' : ''}.`
+    : sw.length ? ' Poți alege alt subpunct al problemei.' : ' La acest tip, pe azi am terminat.';
+  return {
+    pos, focus: focus.root,
+    say: base + more,
+    options: [
+      ...(!st.mastered ? [testOption(p, { primary: true })] : []),
+      ...sw.map((o, i) => (st.mastered && i === 0 ? { ...o, primary: true } : o)),
+      st.mastered && !sw.length ? { ...END, primary: true } : END,
+    ],
+  };
+}
+
 // ─── Alegerea subiectelor ─────────────────────────────────────────────────────
 // Ordinea în care vin subiectele e amestecată, dar stabilă pentru fiecare elev și
 // poziție (doi elevi nu primesc exact același șir; la reluare, același elev da).
@@ -440,5 +544,7 @@ module.exports = {
   settings, TARGETS, examOf, targetFor, chapterOf, positions, subPositions, allPositions, positionOf, nextPosition, itemsAt, pollsOf, hasPolls, testPollsOf,
   nsOf, splitNs, namespaced, exerciseTimeline, testTimeline, reviewTimeline, spokenTitle,
   progressFrom, currentPosition, testSize, proposeWelcome, proposeAfterExercise, proposeAfterTest, proposeExhausted,
+  // „🎯 Doar un tip de exercițiu": profesorul rămâne la tipul ales (și la subpunctul lui)
+  focusOf, inFocus, focusSwitches, proposeFocusWelcome, proposeFocusAfterExercise, proposeFocusAfterTest, proposeFocusExhausted,
   orderSubjects, gradeTest, publicProgress,
 };

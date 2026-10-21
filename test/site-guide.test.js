@@ -72,7 +72,7 @@ test('„ajută-mă la subiectul 1 bac": structura corectă (fără polinoame) �
   assert.match(en, /3 subiecte × 30 de puncte/);
   assert.match(en, /\(\/evaluare-nationala\?tab=pdf\)/);
   // prețurile vin din setările meditațiilor (aceleași ca la plată)
-  assert.match(G.answer(G.route({ message: 'cât costă meditatia 1 la 1?', context: {} })), /20 lei/);
+  assert.match(G.answer(G.route({ message: 'cât costă meditatia 1 la 1?', context: {} })), /1-la-1, oricând\*\*[^\n]*— 30 lei/);
 });
 
 test('ghidul nu intervine pe un PDF / test deschis, pe tabla din Planul meu, la profesori/părinți, cu poze sau la „Regenerează"', () => {

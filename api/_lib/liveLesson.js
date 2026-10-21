@@ -9,8 +9,9 @@
 //   1. SCRIPTUL: subiectul și baremul se taie pe SUBIECTUL I / II / III, iar
 //      câte un apel AI (în paralel, câte 3 itemi) scrie pentru fiecare item:
 //      enunțul curat, întrebarea „încercați singuri" (grilă / de completat),
-//      explicația PE BAREM (cu punctajul pașilor) și încă trei moduri —
-//      intuitiv, greșeli care costă puncte, altă metodă — plus verificarea.
+//      explicația PE BAREM (cu punctajul pașilor) și modurile lui „Explică altfel"
+//      (la cererea elevului): aceeași rezolvare din barem, pe înțelesul tuturor,
+//      greșelile care costă puncte și altă metodă (același rezultat) — plus verificarea.
 //      Literele grilelor de EN se verifică DETERMINIST cu baremul (barem.js).
 //   2. VOCEA: fiecare segment rostit → Storage (tts.js), cu durata exactă și
 //      mișcarea gurii; întâi începutul lecției, ca 1-la-1 să poată porni
@@ -249,9 +250,9 @@ const ITEM = S.obj({
   afterTry: SEGS('0–1 segment scurt de trecere spre răspuns („Să vedem răspunsul corect.")'),
   modes: S.obj({
     barem: S.arr(SEG_BAREM, '3–12 segmente: rezolvarea oficială pas cu pas, cu punctajul pașilor; pe tablă rămâne TOATĂ rezolvarea; „ask" = întrebarea pe pas pusă ÎNAINTEA segmentului (regula 6b), altfel null'),
-    intuitiv: SEGS('2–5 segmente: ideea pe înțelesul tuturor'),
-    greseli: SEGS('2–4 segmente: greșelile care costă puncte'),
-    alta_metoda: S.nullable(SEGS('2–6 segmente: altă metodă corectă, cu același rezultat')),
+    intuitiv: SEGS('2–5 segmente: ACEEAȘI rezolvare din barem (aceiași pași, aceeași metodă), spusă pe înțelesul tuturor'),
+    greseli: SEGS('2–4 segmente: greșelile tipice la pașii din barem și punctele din barem care se pierd'),
+    alta_metoda: S.nullable(SEGS('2–6 segmente, DOAR la cererea elevului („Explică altfel"): altă metodă corectă, cu același rezultat ca baremul; null dacă nu există una firească')),
   }),
   check: S.nullable(POLL),
   afterCheck: SEGS('0–1 segment scurt după verificare'),
@@ -278,9 +279,9 @@ function systemPrompt(teacher, exam, profile) {
     '',
     'REGULI:',
     '0. FORMULELE: dacă ai paginile PDF atașate (subiectul și baremul), citește formulele DIN PAGINI — textul extras le pierde des (radicali, linii de fracție, exponenți, integrale, determinanți, matrice, vectori, limite, figuri). Transcrie-le exact, în LaTeX între $...$: $\\sqrt{2}$, $\\sqrt[3]{x}$, $\\frac{a}{b}$, $x^{2}$, $a_{n}$, $\\int_{0}^{1} f(x)\\,dx$, $\\lim_{x \\to 2} f(x)$, $\\begin{vmatrix} 1 & 2 \\\\ 3 & 4 \\end{vmatrix}$ (determinant), $\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}$ (matrice), $\\overrightarrow{AB}$, $\\vec{v}$, $\\log_{2} x$, $\\widehat{ABC}$, $\\mathbb{R}$. Nu scrie NICIODATĂ un enunț cu „[formula nu e lizibilă]" sau „…": dacă un item chiar nu se poate citi nici din pagină, nu îl include. Mulțimile se scriu $\\mathbb{R}$, $\\mathbb{N}$, $\\mathbb{Z}$, $\\mathbb{Q}$, $\\mathbb{C}$ — textul extras din PDF le strică des (apar ca „0", „□" sau lipsesc, ex. „f: 0 → 0" în loc de „f: ℝ → ℝ"): ia-le din pagină. Fiecare formulă stă între o pereche de $…$, pe un singur rând (fără rând nou înăuntru); nu lăsa un $ fără pereche; \\text{…} doar pentru cuvinte, nu pentru formule întregi. În JSON, fiecare backslash din LaTeX se scrie dublat („\\\\frac", „\\\\infty", „\\\\mathbb").',
-    '1. Sursa de adevăr este BAREMUL. Rezultatele, pașii și punctajele le iei din barem. Nu inventa alt rezultat. Dacă un item nu apare în barem, NU îl include.',
+    '1. Explici STRICT BAREMUL: sursa de adevăr este baremul oficial. Rezultatele, pașii, ordinea lor și punctajele le iei din barem, iar în modurile „barem", „intuitiv" și „greseli" rezolvi cu METODA DIN BAREM (aceleași formule, aceleași transformări) — nu cu alta, nici „mai scurt" (o altă metodă are loc doar în „alta_metoda", regula 3). Dacă baremul dă mai multe variante de rezolvare, o urmezi pe prima. Nu inventa alt rezultat, alți pași sau alte punctaje și nu adăuga teorie sau exerciții care nu sunt în subiect și în barem. Dacă un item nu apare în barem, NU îl include.',
     '2. Enunțul îl iei din textul subiectului; corectezi doar greșelile de extragere din PDF (spații, indici, fracții, radicali). Formulele în LaTeX între $...$.',
-    '3. Fiecare item se explică în mai multe moduri: „barem" (rezolvarea oficială, pas cu pas, spunând câte puncte se acordă: „pentru acest calcul se acordă 2 puncte"), „intuitiv" (ideea pentru un elev care nu a înțeles: o imagine, o comparație, o verificare rapidă, fără calcule lungi), „greseli" (greșelile tipice și cum se pierd puncte) și „alta_metoda" (o altă rezolvare corectă, cu ACELAȘI rezultat — baremul punctează orice metodă corectă; null dacă nu există una firească).',
+    '3. Fiecare item se explică în mai multe moduri. Explicația pe care o aud toți elevii este „barem" (rezolvarea oficială, pas cu pas, spunând câte puncte se acordă: „pentru acest calcul se acordă 2 puncte"). Pentru butonul „Explică altfel" (elevul îl cere și alege) mai scrii: „intuitiv" (ACEEAȘI rezolvare din barem — aceiași pași, aceeași metodă, același rezultat — spusă mai simplu, pentru un elev care nu a înțeles: ce face fiecare pas și de ce; poți folosi o comparație, dar nu altă metodă), „greseli" (greșelile tipice la pașii din barem și ce puncte din barem se pierd din cauza lor) și „alta_metoda" (o altă rezolvare corectă, cu ACELAȘI rezultat ca baremul — spui de la început că e altă metodă decât cea din barem și că baremul o punctează la fel; null dacă nu există una firească).',
     '4. „say" se ROSTEȘTE: scrie exact cum se citește cu voce tare în română — fără LaTeX, fără simboluri: „x la pătrat", „radical din 3", „a supra b", „egal", „ori", „unghiul A B C", „segmentul A B". Numere zecimale cu virgulă („doi virgulă cinci"). Propoziții scurte, cel mult 40 de cuvinte pe segment. Vorbești la persoana a doua plural („încercați", „observați"), ca într-o clasă; nu comenta procente sau cine a răspuns.',
     '5. „board" = ce scrii pe tablă cât timp spui segmentul: 0–4 rânduri scurte, câte un pas pe rând; formulele în LaTeX între $...$ (ex. „$\\Delta = b^2 - 4ac = 16$"). Pe tablă rămân pașii rezolvării, ca pe o tablă adevărată. Pe tablă scrii matematică, nu fraze: cel mult câteva cuvinte de legătură („deci", „așadar", „din (1) și (2)").',
     '5b. REZOLVĂRILE COMPLETE: la itemii cu rezolvare (Subiectele II și III, probleme, demonstrații, calcule în mai mulți pași), în modul „barem" tabla trebuie să ajungă să conțină TOATĂ rezolvarea care ia punctajul maxim, ca în barem: formula sau proprietatea folosită, fiecare transformare pe rândul ei (fără pași săriți; lanțurile de egalități continuă pe rândul următor cu „$= \\ldots$"), rezultatul, cu punctajul pasului la sfârșitul rândului („(2p)"). La itemii-grilă și la cei cu rezultat scurt, baremul dă doar răspunsul: pe tablă scrii totuși CALCULUL care duce la el (2–5 rânduri: formula, înlocuirea, calculul, rezultatul), apoi varianta corectă; nu copia pe tablă tabelul de punctaj („Alt răspuns — 0p"). La itemii cu subpuncte a), b), c) în același enunț (ex. problemele de la Subiectul al III-lea, la EN), primul rând de pe tablă al fiecărui subpunct începe cu litera lui („a) …", „b) …"), iar în „say" spui „La punctul b, …".',
@@ -646,6 +647,7 @@ function normalizeItems(rawItems, { section, exam, grile = {}, baremText = '', l
         barem: bar.segs,
         intuitiv: cleanSegs(it.modes?.intuitiv, { max: 6 }),
         greseli: cleanSegs(it.modes?.greseli, { max: 5 }),
+        // „altă metodă" — doar la cererea elevului („Explică altfel"), niciodată în explicația comună
         alta_metoda: it.modes?.alta_metoda ? cleanSegs(it.modes.alta_metoda, { max: 7 }) : [],
       },
       check: cleanPoll(it.check),

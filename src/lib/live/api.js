@@ -29,12 +29,20 @@ async function call(body, { auth = true, keepalive = false } = {}) {
 
 // Pregătirea de examen: examenul ales în clasă de un elev fără examen în „Planul meu"
 // (PregatireExamen → setPrepExam); merge cu fiecare cerere prep_*. Cel din plan are întâietate —
-// mai puțin când elevul vine din Meditații live („Alege subiectul" → „Subiectul I, ex. 1" la
-// un anumit examen): `force` → examenul listei alese acolo (examForce).
+// mai puțin când elevul vine din Meditații live („🎯 Doar un tip de exercițiu" la un anumit
+// examen): `force` → examenul ales acolo (examForce).
 let prepExam = null;
 let prepForce = false;
 export const setPrepExam = (target, { force = false } = {}) => { prepExam = target || null; prepForce = !!(force && prepExam); };
-const prep = (body) => call(prepExam ? { ...body, examTarget: prepExam, ...(prepForce ? { examForce: true } : {}) } : body);
+// „🎯 Doar un tip de exercițiu" (ales în Meditații live): poziția aleasă („III.1.c") merge cu
+// fiecare cerere prep_* — profesorul rămâne la acest tip de exercițiu (P.focusOf pe server)
+let prepFocus = null;
+export const setPrepFocus = (pos) => { prepFocus = pos || null; };
+const prep = (body) => call({
+  ...body,
+  ...(prepExam ? { examTarget: prepExam, ...(prepForce ? { examForce: true } : {}) } : {}),
+  ...(prepFocus ? { focus: prepFocus } : {}),
+});
 
 export const liveApi = {
   // programul se vede și fără cont (fără drepturile personale)

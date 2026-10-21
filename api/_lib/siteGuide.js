@@ -192,7 +192,7 @@ function answer(r) {
         '**Meditațiile de pe ExamenMate** (cu Prof. Tudor, profesor virtual):',
         bullets([
           `**Live, de grup**: zilnic, ${liveTimes()}, câte o sală pentru EN și pentru fiecare profil de BAC — ${L.PRICE_GROUP_LEI()} lei ședința sau incluse în abonament. [Meditații live](/meditatii)`,
-          `**1-la-1, oricând**: alegi subiectul și exercițiile; ${L.PRIVATE_MINUTES()} de minute, prelungite până termini — ${L.PRICE_PRIVATE_LEI()} lei sau ${L.PRIVATE_INCLUDED()} pe lună incluse în abonament.`,
+          `**1-la-1, oricând**: un subiect întreg sau **un singur tip de exercițiu** (ex. Subiectul al III-lea, ex. 1 c), din toate subiectele oficiale); ${L.PRIVATE_MINUTES()} de minute, prelungite până termini — ${L.PRICE_PRIVATE_LEI()} lei sau ${L.PRIVATE_INCLUDED()} pe lună incluse în abonament.`,
           '**Pregătire de examen**: exercițiu cu exercițiu, în ordinea din examen, tot 1-la-1. [Pregătire de examen](/meditatii/pregatire)',
           '**Planul meu**: test inițial, plan personalizat, lecții pe tablă, teme corectate. [Planul meu](/meditatii/plan)',
         ]),

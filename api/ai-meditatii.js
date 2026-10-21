@@ -20,7 +20,7 @@ const scoreLib = require('./_lib/score');       // scorul testelor HTML recalcul
 const taxonomy = require('./_lib/taxonomy');    // subiectele canonice (Etapa 3, 5.1)
 const live = require('./_lib/live');            // Prof. Tudor — profesorul de la tablă (ca în sala live)
 const prep = require('./_lib/pregatire');       // „Pregătire de examen" (exercițiu cu exercițiu, ca la meditația live)
-const LA = require('./_lib/liveAccess');        // …o ședință 1-la-1: 8 incluse (comune cu live), apoi bilet de 20 lei
+const LA = require('./_lib/liveAccess');        // …o ședință 1-la-1: 8 incluse (comune cu live), apoi bilet de 30 lei
 const lectii = require('./_lib/lectii');        // biblioteca de lecții: teoria generată o dată, refolosită
 const simOficiale = require('./_lib/simulariOficiale'); // simulările din subiectele oficiale (fără model)
 

@@ -2,8 +2,8 @@
 //   · fără `type` în body  → abonament nou (mode: subscription, ca înainte)
 //   · type='topup'         → PACHET AI suplimentar (mode: payment, o singură
 //     plată; doar pentru abonați; creditat de stripe-webhook în `ai_topups`)
-//   · type='live'          → BILET la meditațiile live: grup 10 lei / 1-la-1
-//     20 lei (mode: payment; creditat de stripe-webhook în `live_tickets`)
+//   · type='live'          → BILET la meditațiile live: grup 20 lei / 1-la-1
+//     30 lei (mode: payment; creditat de stripe-webhook în `live_tickets`)
 //   Plățile unice (topup, live) primesc FACTURĂ în Stripe imediat după plată,
 //   ca abonamentul — vezi oneTimePayment().
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -142,9 +142,9 @@ async function topupCheckout(req, res, supabase, userId, profile) {
 }
 
 // ─── Bilet la MEDITAȚIILE LIVE (mode: 'payment', o singură plată) ─────────────
-//   kind='grup'   → o ședință de grup anume (10 lei; abonații intră gratuit)
+//   kind='grup'   → o ședință de grup anume (20 lei; abonații intră gratuit)
 //   kind='privat' → o ședință 1-la-1 de 60 de minute, folosită oricând — live sau
-//                   la Pregătirea de examen (20 lei; abonații au 8 incluse pe lună,
+//                   la Pregătirea de examen (30 lei; abonații au 8 incluse pe lună,
 //                   comune pentru amândouă; biletul e pentru restul)
 // Creditarea o face stripe-webhook.js în `live_tickets`, EXACT din metadata.
 async function liveCheckout(req, res, supabase, userId, profile) {
@@ -187,7 +187,7 @@ async function liveCheckout(req, res, supabase, userId, profile) {
     : `Meditație 1-la-1 (${L.PRIVATE_MINUTES()} de minute) — ${teacher.name}`;
   const description = kind === 'grup'
     ? `${L.EXAM_LABEL(sessionRow.exam, sessionRow.profile)} — subiect explicat pe barem, cu profesorul virtual (AI), în sala live ExamenMate.`
-    : 'O ședință privată cu profesorul virtual (AI), pornită oricând: un subiect de examen ales sau Pregătirea de examen din „Planul meu" (explicate pe barem).';
+    : 'O ședință privată cu profesorul virtual (AI), pornită oricând: un subiect de examen, un singur tip de exercițiu sau Pregătirea de examen din „Planul meu" (explicate strict pe barem).';
   // întoarcerea: doar în rubrica de meditații (nu acceptăm URL-uri din afară)
   const back = /^\/meditatii(\/[\w/-]*)?$/.test(String(req.body?.returnTo || '')) ? req.body.returnTo : '/meditatii';
   const base = siteUrl();
@@ -235,7 +235,7 @@ module.exports = async function handler(req, res) {
 
     // Pachet AI suplimentar (top-up) — flux separat, mode: 'payment'.
     if (req.body?.type === 'topup') return await topupCheckout(req, res, supabase, userId, profile);
-    // Bilet la meditațiile live (grup 10 lei / 1-la-1 20 lei) — mode: 'payment'.
+    // Bilet la meditațiile live (grup 20 lei / 1-la-1 30 lei) — mode: 'payment'.
     if (req.body?.type === 'live') return await liveCheckout(req, res, supabase, userId, profile);
 
     if (profile?.subscription_status === 'active') {

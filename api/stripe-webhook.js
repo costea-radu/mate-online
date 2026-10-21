@@ -87,7 +87,7 @@ const handler = async function handler(req, res) {
         }
 
         // ── BILET LA MEDITAȚIILE LIVE (mode: 'payment') ──────────────────
-        // grup (o ședință anume, 10 lei) sau 1-la-1 (se folosește oricând, 20 lei).
+        // grup (o ședință anume, 20 lei) sau 1-la-1 (se folosește oricând, 30 lei).
         // Idempotent pe stripe_session_id; NU atinge abonamentul.
         if (session.metadata?.live_kind) {
           const kind = session.metadata.live_kind === 'privat' ? 'privat' : 'grup';

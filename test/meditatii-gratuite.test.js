@@ -141,7 +141,7 @@ test('freeAccess / groupAccess: gratuit pentru oricine are cont, cu plafon lunar
   assert.deepStrictEqual(L.groupAccess({ profile: null, free: true }), { ok: false, via: null, price: 0, free: true }, 'fără cont: „Gratuit · intră în cont"');
   assert.strictEqual(L.groupAccess({ profile: prem, free: true }).via, 'abonament');
   assert.strictEqual(L.groupAccess({ profile: admin, free: true }).via, 'admin');
-  assert.deepStrictEqual(L.groupAccess({ profile: free }), { ok: false, via: null, price: 10 });
+  assert.deepStrictEqual(L.groupAccess({ profile: free }), { ok: false, via: null, price: 20 });
 });
 
 test('normalizeFreeIds: UUID-uri unice, litere mici, cel mult 12', () => {
@@ -221,7 +221,7 @@ test('alegerea automată: câte una pe examen (lecțiile gata; Tehnologic, făr�
   for (const s of p.body.days.flatMap((d) => d.sessions)) {
     const isFree = !!s.subject && freeIds.includes(s.subject.id);
     assert.strictEqual(s.free, isFree);
-    assert.strictEqual(s.access.price, isFree ? 0 : 10);
+    assert.strictEqual(s.access.price, isFree ? 0 : 20);
   }
   // 1-la-1 pe meditația gratuită de Tehnologic (lecția se scrie la prima folosire): gratuit
   const st = await call('private_start', { teacher: 'radu', subjectId: C.teh2 }, U.free);
@@ -300,7 +300,7 @@ test('1-la-1 gratuit: fără abonament și fără plată; nu consumă ședințel
   // un subiect care NU e gratuit → plata obișnuită
   const paid = await call('private_start', { teacher: 'radu', subjectId: C.en2 }, U.free);
   assert.strictEqual(paid.statusCode, 402);
-  assert.strictEqual(paid.body.price, 20);
+  assert.strictEqual(paid.body.price, 30);
   // a doua meditație gratuită
   const st2 = await call('private_start', { teacher: 'radu', subjectId: C.bac1 }, U.free);
   assert.strictEqual(st2.body.via, 'gratuit');
@@ -334,7 +334,7 @@ test('ședința de grup cu un subiect gratuit: elevul fără abonament intră f�
   assert.strictEqual(r.body.session.free, true);
   const r2 = await call('join', { sessionId: sPaid.id }, U.free);
   assert.strictEqual(r2.statusCode, 402);
-  assert.strictEqual(r2.body.price, 10);
+  assert.strictEqual(r2.body.price, 20);
   const prem = await call('join', { sessionId: sFree.id }, U.prem);
   assert.strictEqual(prem.body.access, 'abonament');
 });
@@ -418,6 +418,10 @@ test('adminul alege meditația gratuită a fiecărui examen; una scoasă → șe
   const begin = await call('private_begin', { sessionId: st.body.sessionId }, U.free);
   assert.strictEqual(begin.statusCode, 402);
   assert.match(begin.body.error, /nu mai e gratuită/);
+  // sala arată plata unui bilet 1-LA-1 (nu de grup), cu prețul lui
+  assert.strictEqual(begin.body.code, 'LIVE_PAYMENT');
+  assert.strictEqual(begin.body.kind, 'privat');
+  assert.strictEqual(begin.body.price, 30);
   const prem = await call('private_start', { teacher: 'radu', subjectId: C.en1 }, U.prem);
   assert.strictEqual(prem.body.via, 'inclus');
 

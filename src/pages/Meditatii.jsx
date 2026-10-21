@@ -1420,7 +1420,7 @@ export default function Meditatii() {
             <SetupWizard onStart={startSetup} starting={busy === 'setup'} error={actionError} />
           )}
 
-          {/* 🎓 Pregătirea de examen: o ședință 1-la-1 — și fără abonament (20 lei), ca la meditațiile live */}
+          {/* 🎓 Pregătirea de examen: o ședință 1-la-1 — și fără abonament (30 lei), ca la meditațiile live */}
           {st.examPrep && !quiz && (
             <ExamPrepCard info={st.examPrep} teacherName={TUDOR.name}
               onEnter={() => navigate('/meditatii/pregatire')}
@@ -1582,7 +1582,7 @@ function HeroChips({ profile, focus }) {
 // Aici: unde a rămas elevul și benzile pozițiilor, colorate după progres — și
 // „📋 Aleg eu exercițiul": ORICE exercițiu, nu neapărat la rând (la BAC, și doar
 // un subpunct: S. II ex. 2 b), S. III ex. 1 c)…) → /meditatii/pregatire?pos=…
-// PREȚUL — ca la meditațiile live 1-la-1: 20 lei ședința sau 8 pe lună incluse în
+// PREȚUL — ca la meditațiile live 1-la-1: 30 lei ședința sau 8 pe lună incluse în
 // abonament (aceleași 8, comune). Cardul se vede și fără abonament; fără examen
 // ales (info.current lipsește), doar oferta — examenul se alege în clasă.
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1590,7 +1590,7 @@ const PREP_SUB_LABEL = { I: 'Subiectul I', II: 'Subiectul al II-lea', III: 'Subi
 // rândul cu prețul (aceleași formulări ca în lobby-ul meditațiilor live)
 function prepPriceLine(info) {
   const a = info.access;
-  const p = info.price || { lei: 20, minute: 60, incluse: 8 };
+  const p = info.price || { lei: 30, minute: 60, incluse: 8 };
   const base = `1-la-1 · ${p.minute} de minute, prelungite până termini`;
   if (info.session) return { ok: true, text: '⏱ Ședința ta 1-la-1 e în desfășurare — intri fără cost în plus' };
   if (a?.via === 'admin') return { ok: true, text: '✓ Cont de administrator — nelimitat' };

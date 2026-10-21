@@ -4,13 +4,15 @@
 // Sala de tip Zoom/Meet cu profesorul virtual:
 //   · ședințe de GRUP zilnice, la aceeași oră (implicit 17–19), câte una în
 //     fiecare sală: Evaluarea Națională, BAC Mate-Info, BAC Științele Naturii,
-//     BAC Tehnologic — oricâți elevi, 10 lei ședința sau incluse în abonament;
-//   · ședințe 1-la-1 pornite ORICÂND, de 60 de minute — 20 lei sau incluse
-//     în abonament (8 pe lună; peste, 20 lei);
+//     BAC Tehnologic — oricâți elevi, 20 lei ședința sau incluse în abonament;
+//   · ședințe 1-la-1 pornite ORICÂND, de 60 de minute — 30 lei sau incluse
+//     în abonament (8 pe lună; peste, 30 lei);
 //   · meditații GRATUITE — câte una pe fiecare examen (EN și fiecare profil de BAC,
 //     alese din Admin sau automat): 1-la-1 fără plată și fără abonament, cu cont;
 //   · profesorul explică DOAR subiecte de EN/BAC cu barem asociat
-//     („fără barem nu explică nimic"), în mai multe moduri, pe baza lui.
+//     („fără barem nu explică nimic"), STRICT pe barem: rezolvarea din barem,
+//     apoi aceeași rezolvare spusă mai simplu sau greșelile care costă puncte;
+//     „altă metodă" doar la cererea elevului („Explică altfel" — vezi ALT_MODES).
 //
 // Tot ce e aici e determinist și testat în test/meditatii-live.test.js:
 // programul pe ora României, alegerea subiectului, drepturile de acces,
@@ -25,8 +27,9 @@ const envInt = (k, d) => { const v = parseInt(process.env[k] || '', 10); return 
 const envNum = (k, d) => { const v = parseFloat(process.env[k] || ''); return Number.isFinite(v) ? v : d; };
 
 // ─── Prețuri și reguli (schimbabile din env, fără cod) ───────────────────────
-const PRICE_GROUP_LEI = () => envNum('LIVE_PRICE_GRUP_LEI', 10);
-const PRICE_PRIVATE_LEI = () => envNum('LIVE_PRICE_PRIVAT_LEI', 20);
+// Din 17 oct. 2026: 20 lei ședința de grup, 30 lei ședința individuală (1-la-1).
+const PRICE_GROUP_LEI = () => envNum('LIVE_PRICE_GRUP_LEI', 20);
+const PRICE_PRIVATE_LEI = () => envNum('LIVE_PRICE_PRIVAT_LEI', 30);
 const PRIVATE_INCLUDED = () => Math.max(0, envInt('LIVE_PRIVAT_INCLUSE', 8));   // pe lună, pentru abonați
 const PRIVATE_MINUTES = () => Math.max(10, envInt('LIVE_PRIVAT_MINUTE', 60));
 const JOIN_EARLY_MIN = () => Math.max(0, envInt('LIVE_INTRARE_DEVREME_MIN', 15)); // sala de așteptare
@@ -394,7 +397,7 @@ const isAdminP = (p) => p?.is_admin === true;
 const isSubscribedP = (p) => p?.subscription_status === 'active';
 
 // Ședință de GRUP: admin / abonament → gratuit; subiectul e una dintre
-// meditațiile gratuite → gratuit pentru oricine are cont; altfel bilet de 10 lei.
+// meditațiile gratuite → gratuit pentru oricine are cont; altfel bilet de 20 lei.
 function groupAccess({ profile, ticket = null, free = false }) {
   if (isAdminP(profile)) return { ok: true, via: 'admin', price: 0 };
   if (isSubscribedP(profile)) return { ok: true, via: 'abonament', price: 0 };
@@ -404,7 +407,7 @@ function groupAccess({ profile, ticket = null, free = false }) {
 }
 
 // Ședință 1-la-1: admin → gratuit; abonat → primele N din lună incluse; apoi
-// (sau fără abonament) un bilet de 20 lei neconsumat.
+// (sau fără abonament) un bilet de 30 lei neconsumat.
 function privateAccess({ profile, includedUsed = 0, unusedTickets = 0 }) {
   const included = PRIVATE_INCLUDED();
   if (isAdminP(profile)) return { ok: true, via: 'admin', price: 0, included, includedLeft: included };
@@ -719,8 +722,15 @@ function packSegments(segments, audio) {
   return { segs: out, dur: out.length ? t - GAP : 0 };
 }
 
-// ordinea modurilor alternative (după „pe barem")
+// Modurile alternative (după „pe barem"), adică funcțiile lui „🔁 Explică altfel" (1-la-1,
+// la „Ai înțeles?" — elevul alege): „intuitiv" = aceeași rezolvare din barem, spusă mai
+// simplu; „greseli" = greșelile la pașii din barem și punctele pierdute; „alta_metoda" = altă
+// rezolvare corectă, cu același rezultat (baremul punctează orice metodă corectă).
+// STRICT PE BAREM (17 oct. 2026): explicația pe care o aude elevul fără să ceară — în grup,
+// al doilea mod după barem — e doar GROUP_ALT_MODES (fără „altă metodă"); „altă metodă" vine
+// numai la cererea elevului („Explică altfel").
 const ALT_MODES = ['intuitiv', 'greseli', 'alta_metoda'];
+const GROUP_ALT_MODES = ['intuitiv', 'greseli'];
 const MODE_LABELS = {
   barem: 'Pe barem, pas cu pas', intuitiv: 'Pe înțelesul tuturor', greseli: 'Greșeli care costă puncte', alta_metoda: 'Altă metodă (se punctează la fel)',
 };
@@ -804,9 +814,10 @@ function buildTimeline(script, audio = {}, opts = {}) {
       cursor = at;
     });
     baremPart(baremSegs.slice(cursor));
-    // 4) al doilea mod (grup: unul singur, alternativ; 1-la-1: la cerere)
+    // 4) al doilea mod (grup: unul singur, alternativ, strict pe barem — GROUP_ALT_MODES;
+    //    1-la-1: la cerere, „Explică altfel", cu toate funcțiile lui — ALT_MODES)
     if (mode === 'grup' && !dropAlt.has(i)) {
-      const avail = ALT_MODES.filter((m) => Array.isArray(it.modes?.[m]) && it.modes[m].length);
+      const avail = GROUP_ALT_MODES.filter((m) => Array.isArray(it.modes?.[m]) && it.modes[m].length);
       const pick = avail.length ? avail[i % avail.length] : null;
       if (pick) {
         const alt = segScene('explicatie', it.modes[pick], { ...common, mode: pick, label: MODE_LABELS[pick] });
@@ -1029,7 +1040,7 @@ module.exports = {
   EXT_STEP_MIN, EXT_MAX_MIN, baseEndOf, extensionPlan,
   displayName, moderate, isQuestion, foldRo,
   checkPollAnswer, pollResults, publicPoll,
-  buildTimeline, fitTimeline, sceneAt, qnaSchedule, packSegments, segDuration, MODE_LABELS, ALT_MODES, GAP,
+  buildTimeline, fitTimeline, sceneAt, qnaSchedule, packSegments, segDuration, MODE_LABELS, ALT_MODES, GROUP_ALT_MODES, GAP,
   STEPS_ON, stepsFor, itemPolls, POLL_STEP_SEC,
   lipFromPcm, lipAt, pcmDuration, LIP_FPS, shortId,
 };

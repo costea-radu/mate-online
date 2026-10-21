@@ -84,8 +84,11 @@ export default function LiveRoom({ demo = null }) {
 
   const [info, setInfo] = useState(null);
   const [fatal, setFatal] = useState(null);
-  const [payInfo, setPayInfo] = useState(null);     // { price } — trebuie plătit
+  const [payInfo, setPayInfo] = useState(null);     // { price, kind: 'grup' | 'privat' } — trebuie plătit
   const [paying, setPaying] = useState(false);
+  const [payErr, setPayErr] = useState(null);       // plata n-a putut porni (se vede pe ecranul de intrare)
+  // întoarcerea de la plata biletului 1-la-1 al acestei ședințe (Stripe → ?plata=ok|anulat)
+  const [paidBack] = useState(() => { try { return new URLSearchParams(window.location.search).get('plata'); } catch { return null; } });
   const [joined, setJoined] = useState(false);
   const [camOn, setCamOn] = useState(false);
   const [micOn, setMicOn] = useState(false);
@@ -125,7 +128,12 @@ export default function LiveRoom({ demo = null }) {
   const [soundBlocked, setSoundBlocked] = useState(null);    // ce oprește sunetul (audio.js → blockReason) sau null
   // „📋 Exerciții": exercițiul cu care începe elevul (ales la intrare sau din lobby: ?ex=II.2.b)
   const [startRef, setStartRef] = useState(() => {
-    try { const v = new URLSearchParams(window.location.search).get('ex'); return v && /^I{1,3}\.\d(\.[a-d])?$/i.test(v) ? v.toUpperCase().replace(/\.([A-D])$/, (m, l) => `.${l.toLowerCase()}`) : null; } catch { return null; }
+    try {
+      const q = new URLSearchParams(window.location.search);
+      // după plată (Stripe nu păstrează ?ex=), exercițiul ales rămâne din sesiunea browserului
+      const v = q.get('ex') || (q.get('plata') ? sessionStorage.getItem(`live:ex:${routeId}`) : null);
+      return v && /^I{1,3}\.\d(\.[a-d])?$/i.test(v) ? v.toUpperCase().replace(/\.([A-D])$/, (m, l) => `.${l.toLowerCase()}`) : null;
+    } catch { return null; }
   });
   const [visited, setVisited] = useState(() => new Set());
   // prelungirea: sfârșitul de acum (server), sfârșitul inițial (60 min / ora), plafonul atins
@@ -170,7 +178,10 @@ export default function LiveRoom({ demo = null }) {
       setMode(r.session?.mode || null);
       setModeWhy(r.session?.modeWhy || null);
     } catch (e) {
-      if (e.code === 'LIVE_PAYMENT' && e.data?.session) { setInfo(e.data); setPayInfo({ price: e.data.price }); return; }
+      if (e.code === 'LIVE_PAYMENT' && e.data?.session) {
+        if (e.data.session.kind === 'privat') { setFatal(e.message); return; }   // ședința 1-la-1 a altui elev
+        setInfo(e.data); setPayInfo({ price: e.data.price, kind: 'grup' }); return;
+      }
       if (e.status === 401) { setFatal('Intră în cont ca să participi la meditație.'); return; }
       setFatal(e.message || 'Nu am putut intra în ședință.');
     }
@@ -243,10 +254,21 @@ export default function LiveRoom({ demo = null }) {
     if (demo && demo !== 'privat') setStartedAt(new Date(clock.now() + 2500).toISOString());
   }
 
+  // întoarcerea de la plată: parametrul dispare din adresă (o reîncărcare nu-l mai repetă)
+  useEffect(() => { if (paidBack && !demo) navigate(`/meditatii/sala/${routeId}`, { replace: true }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Plata: la ședința de GRUP — biletul ședinței (înapoi în lobby); la 1-la-1 (cele incluse
+  // sau meditațiile gratuite s-au terminat între pornire și intrare) — un bilet 1-LA-1,
+  // apoi înapoi chiar în această sală, unde „Participă acum" îl folosește
   async function onPay() {
-    setPaying(true);
-    try { window.location.href = await buyTicket({ kind: 'grup', sessionId, returnTo: '/meditatii' }); }
-    catch (e) { flash(e.message); setPaying(false); }
+    setPaying(true); setPayErr(null);
+    const privatePay = payInfo?.kind === 'privat';
+    try {
+      if (privatePay && startRef) { try { sessionStorage.setItem(`live:ex:${sessionId}`, startRef); } catch { /* fără stocare */ } }
+      window.location.href = await buyTicket(privatePay
+        ? { kind: 'privat', teacher: info?.session?.teacher || null, returnTo: `/meditatii/sala/${sessionId}` }
+        : { kind: 'grup', sessionId, returnTo: '/meditatii' });
+    } catch (e) { setPayErr(e.message); setPaying(false); }
   }
 
   // ─── 4. playerul ───────────────────────────────────────────────────────────
@@ -293,8 +315,22 @@ export default function LiveRoom({ demo = null }) {
       (async () => {
         if (individual) setPrivEnds(Date.parse(info.session.ends_at));    // ședința de grup: până la sfârșitul orei
         else if (!demo) {
-          try { const b = await liveApi.privateBegin(sessionId); setPrivEnds(b.ends_at ? Date.parse(b.ends_at) : null); }
-          catch (e) { flash(e.message); if (e.code === 'LIVE_PAYMENT') { setJoined(false); setPayInfo({ price: e.data?.price || 20 }); return; } }
+          // întors de la plată: webhookul Stripe poate întârzia câteva secunde → reîncercăm
+          const begin = async () => {
+            for (let k = 0; ; k++) {
+              try { return await liveApi.privateBegin(sessionId); } catch (e) {
+                if (e.code !== 'LIVE_PAYMENT' || paidBack !== 'ok' || k >= 8) throw e;
+                if (!k) flash('Plata se confirmă — încă câteva secunde…');
+                await new Promise((ok) => setTimeout(ok, 2500));
+              }
+            }
+          };
+          try { const b = await begin(); setPrivEnds(b.ends_at ? Date.parse(b.ends_at) : null); }
+          catch (e) {
+            flash(e.message);
+            // fără drept la ședință: plata unui bilet 1-la-1 (nu a unuia de grup), cu prețul de pe server
+            if (e.code === 'LIVE_PAYMENT') { setJoined(false); setPayErr(null); setPayInfo({ price: e.data?.price ?? null, kind: 'privat' }); return; }
+          }
         } else setPrivEnds(clock.now() + 60 * 60000);
         p.start();
       })();
@@ -681,9 +717,10 @@ export default function LiveRoom({ demo = null }) {
     return (
       <div className="lv-room is-pre" ref={roomRef}>
         <PreJoin info={info} teacher={teacher} rigThumb={rig?.thumb || null} present={present || 0} personal={individual ? (modeWhy || 'singur') : null}
-          access={payInfo ? 'plata' : info.access} price={payInfo?.price} onJoin={onJoin} onPay={onPay} paying={paying}
+          access={payInfo ? 'plata' : info.access} price={payInfo?.price} payKind={payInfo?.kind || 'grup'} onJoin={onJoin} onPay={onPay} paying={paying} error={payErr}
+          notice={paidBack === 'ok' && !payInfo ? 'Plata a reușit ✓ — biletul tău 1-la-1 e în cont. Apasă „Participă acum".' : paidBack === 'anulat' ? 'Plata a fost anulată. Nu s-a încasat nimic.' : null}
           waitingText={waitingText} camOn={camOn} setCamOn={setCamOn} micOn={micOn} setMicOn={setMicOn} fullscreen={wantFs} setFullscreen={setWantFs}
-          pickItems={privat ? pickItems : null} startRef={startRef} setStartRef={setStartRef} privMinutes={info.privMinutes || 60} />
+          pickItems={privat ? pickItems : null} startRef={startRef} setStartRef={setStartRef} privMinutes={info.privMinutes || 60} privIncluded={info.privIncluded ?? 8} />
       </div>
     );
   }
@@ -800,9 +837,9 @@ export default function LiveRoom({ demo = null }) {
               note={overtime ? '⏱ Ședința e prelungită cât lucrezi — fără cost în plus.' : null} />
           )}
           {understand && (
-            <UnderstandCard teacherName={teacher?.name} altLeft={ps?.altLeft || 0}
+            <UnderstandCard teacherName={teacher?.name} alts={ps?.alts || null} altLeft={ps?.altLeft || 0}
               onYes={() => playerRef.current?.understood()}
-              onAgain={() => playerRef.current?.explainAgain()}
+              onAgain={(mode) => playerRef.current?.explainAgain(mode)}
               onAsk={() => { setPanel('chat'); setPrefill({ id: Date.now(), text: '' }); }} />
           )}
           {/* mesajele de sus, unul sub altul (nu se mai acoperă): îndemnul despre voce, „vocea se pregătește", mesajul scurt */}

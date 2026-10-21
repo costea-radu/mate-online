@@ -4,7 +4,7 @@
 // testul de verificare (fără răspunsuri trimise în browser) și acțiunile HTTP
 // prep_* din api/live.js, pe un Supabase în memorie (test/tools/fakeSupabase.js).
 // Prețul: o ședință 1-la-1, ca la meditațiile live — din cele 8 incluse pe lună
-// (COMUNE cu 1-la-1 live) sau cu biletul de 20 lei; vezi „ședința 1-la-1" mai jos.
+// (COMUNE cu 1-la-1 live) sau cu biletul de 30 lei; vezi „ședința 1-la-1" mai jos.
 const crypto = require('node:crypto');
 const test = require('node:test');
 const assert = require('node:assert');
@@ -220,24 +220,24 @@ async function solveExercise(pos, { right = true } = {}) {
   return { ex, done: d };
 }
 
-test('acces: cu cont; fără abonament vede clasa și prețul (20 lei), dar lucrul cere o ședință; fără examen → îl alege', async () => {
+test('acces: cu cont; fără abonament vede clasa și prețul (30 lei), dar lucrul cere o ședință; fără examen → îl alege', async () => {
   fake = fresh();
   assert.strictEqual((await call('prep_state', {}, null)).statusCode, 401);
   const free = await call('prep_state', {}, U.free);
   assert.strictEqual(free.statusCode, 200, JSON.stringify(free.body));
   assert.strictEqual(free.body.session, null);
   assert.strictEqual(free.body.access.ok, false);
-  assert.strictEqual(free.body.access.price, 20);
-  assert.deepStrictEqual(free.body.prices, { privat: 20, privatMin: 60, privatIncluse: 8 });
+  assert.strictEqual(free.body.access.price, 30);
+  assert.deepStrictEqual(free.body.prices, { privat: 30, privatMin: 60, privatIncluse: 8 });
   assert.strictEqual(free.body.me.premium, false);
   const ex = await call('prep_exercise', { pos: 'I.1' }, U.free);
   assert.strictEqual(ex.statusCode, 402);
   assert.strictEqual(ex.body.code, 'PREP_SESSION');
-  assert.match(ex.body.error, /costă 20 lei \(sau e inclusă în abonament: 8 pe lună\)/);
+  assert.match(ex.body.error, /costă 30 lei \(sau e inclusă în abonament: 8 pe lună\)/);
   const begin = await call('prep_begin', {}, U.free);
   assert.strictEqual(begin.statusCode, 402);
   assert.strictEqual(begin.body.code, 'LIVE_PAYMENT');
-  assert.strictEqual(begin.body.price, 20);
+  assert.strictEqual(begin.body.price, 30);
   assert.strictEqual(fake.db.tables.live_sessions.filter((x) => x.owner_id === U.free).length, 0, 'nicio ședință fără plată');
   const noexam = await call('prep_state', {}, U.noexam);
   assert.strictEqual(noexam.statusCode, 409);
@@ -522,7 +522,7 @@ test('Planul meu: starea arată unde a rămas elevul la pregătirea de examen ș
   assert.deepStrictEqual(b.examPrep.subs.find((x) => x.pos === 'II.2.b'), { pos: 'II.2.b', sub: 'II', ex: 2, parent: 'II.2', letter: 'b', label: 'Subiectul al II-lea, exercițiul 2 b)', short: 'S. II · ex. 2 b)', status: 'nou', done: 0, mastered: false });
   assert.strictEqual(b.examPrep.positions, 10, '„X din 10 stăpânite" — doar pozițiile întregi');
   // prețul ședinței 1-la-1 (ca la meditațiile live); ședința în curs se numără din cele 8
-  assert.deepStrictEqual(s.examPrep.price, { lei: 20, minute: 60, incluse: 8 });
+  assert.deepStrictEqual(s.examPrep.price, { lei: 30, minute: 60, incluse: 8 });
   assert.strictEqual(s.examPrep.access.via, 'inclus');
   assert.strictEqual(s.examPrep.access.includedLeft, 7);
   assert.ok(s.examPrep.session && s.examPrep.session.via === 'inclus');
@@ -530,11 +530,11 @@ test('Planul meu: starea arată unde a rămas elevul la pregătirea de examen ș
   const ne = (await state(U.noexam)).examPrep;
   assert.strictEqual(ne.target, null);
   assert.strictEqual(ne.access.includedLeft, 8);
-  // fără abonament: intrarea se vede, cu progresul și prețul (bilet de 20 lei)
+  // fără abonament: intrarea se vede, cu progresul și prețul (bilet de 30 lei)
   const fr = (await state(U.free)).examPrep;
   assert.strictEqual(fr.label, 'Evaluarea Națională');
   assert.strictEqual(fr.access.ok, false);
-  assert.strictEqual(fr.access.price, 20);
+  assert.strictEqual(fr.access.price, 30);
   assert.strictEqual(fr.session, null);
 });
 
@@ -580,7 +580,7 @@ test('ședința 1-la-1: două apăsări simultane → o singură ședință cons
   assert.strictEqual((await call('prep_state')).body.access.includedLeft, 7);
 });
 
-test('ședința 1-la-1: după cele 8 incluse (live + pregătire) → 20 lei; biletul se consumă la pornire', async () => {
+test('ședința 1-la-1: după cele 8 incluse (live + pregătire) → 30 lei; biletul se consumă la pornire', async () => {
   fake = fresh({ sessions: false });
   const month = Date.now() - 3600 * 1000;
   for (let k = 0; k < 8; k++) {
@@ -593,7 +593,7 @@ test('ședința 1-la-1: după cele 8 incluse (live + pregătire) → 20 lei; bil
   const no = await call('prep_begin');
   assert.strictEqual(no.statusCode, 402);
   assert.strictEqual(no.body.code, 'LIVE_PAYMENT');
-  assert.match(no.body.error, /20 lei \(ai folosit cele 8 incluse luna aceasta\)/);
+  assert.match(no.body.error, /30 lei \(ai folosit cele 8 incluse luna aceasta\)/);
   fake.db.tables.live_tickets.push({ id: crypto.randomUUID(), user_id: U.prem, kind: 'privat', session_id: null, status: 'platit', created_at: new Date().toISOString() });
   assert.strictEqual((await call('prep_state')).body.access.via, 'bilet');
   const b = await call('prep_begin');
@@ -604,7 +604,7 @@ test('ședința 1-la-1: după cele 8 incluse (live + pregătire) → 20 lei; bil
   assert.ok(fake.db.tables.live_sessions.some((x) => x.id === t.session_id && x.state.prep), 'biletul e legat de ședința de pregătire');
 });
 
-test('ședința 1-la-1 fără abonament: cu biletul de 20 lei; după sfârșit, exercițiul început se termină, dar nu începe altul', async () => {
+test('ședința 1-la-1 fără abonament: cu biletul de 30 lei; după sfârșit, exercițiul început se termină, dar nu începe altul', async () => {
   fake = fresh({ sessions: false });
   fake.db.tables.live_tickets.push({ id: crypto.randomUUID(), user_id: U.free, kind: 'privat', session_id: null, status: 'platit', created_at: new Date().toISOString() });
   const b = await call('prep_begin', {}, U.free);
@@ -684,4 +684,103 @@ test('din Meditații live („Alege subiectul" → „Subiectul I, ex. 1" la BAC
   assert.strictEqual((await call('prep_state', { examTarget: 'evaluare-nationala', examForce: true })).body.exam.fromPlan, true);
   assert.strictEqual((await call('prep_state', { examTarget: 'bac-tehnologic' })).body.exam.label, 'Evaluarea Națională');
   assert.strictEqual((await call('prep_state', { examTarget: 'nu-exista', examForce: true })).body.exam.label, 'Evaluarea Națională');
+});
+
+// ─── „🎯 UN SINGUR TIP DE EXERCIȚIU" (Meditații live, 17 oct. 2026) ─────────────────
+// „la meditații live pe lângă opțiunea de alegere examen pune opțiunea să facă doar anumite
+// exerciții din subiecte și să facă doar acel tip de exercițiu, nu să treacă la alt tip …
+// Dacă dorește doar c), să poată schimba exercițiul când îl termină cu altul de același tip
+// și să poată alege doar c) la alt exercițiu"
+test('„un singur tip": familia poziției alese (problema + subpunctele); la S. I și la EN, doar poziția', () => {
+  assert.deepStrictEqual(P.focusOf('bac', 'III.1.c'), {
+    pos: 'III.1.c', root: 'III.1', label: 'Subiectul al III-lea, exercițiul 1', short: 'S. III · ex. 1', spoken: 'Subiectul al treilea, exercițiul 1',
+    positions: ['III.1', 'III.1.a', 'III.1.b', 'III.1.c'],
+  });
+  assert.deepStrictEqual(P.focusOf('bac', 'II.2').positions, ['II.2', 'II.2.a', 'II.2.b', 'II.2.c']);
+  assert.deepStrictEqual(P.focusOf('bac', 'I.4').positions, ['I.4']);
+  assert.deepStrictEqual(P.focusOf('en', 'III.3').positions, ['III.3']);
+  assert.strictEqual(P.focusOf('en', 'III.1.c'), null, 'la EN problemele se lucrează întregi');
+  assert.strictEqual(P.focusOf('bac', 'IV.1'), null);
+  assert.ok(P.inFocus(P.focusOf('bac', 'III.1.c'), 'III.1.a'));
+  assert.ok(!P.inFocus(P.focusOf('bac', 'III.1.c'), 'III.2.a'));
+});
+
+test('„un singur tip": profesorul NU trece la alt tip — după exercițiu, test sau epuizare propune același tip (și subpunctele lui)', () => {
+  const at = '2026-10-17T10:00:00Z';
+  const rows = (n, pos) => [{ id: 1, status: 'finalizata', created_at: at, prep: { mode: 'antrenament', pos, ex: Array.from({ length: n }, (_, k) => ({ sid: `s${k}`, done: true, polls: { q: { correct: true } } })) } }];
+  const f = P.focusOf('bac', 'III.1.c');
+  // după primul exercițiu: altul de același tip (tot doar c), alt subpunct sau „ajunge"; testul încă nu
+  let prog = P.progressFrom(rows(1, 'III.1.c'), 'bac');
+  let p = P.proposeFocusAfterExercise({ exam: 'bac', focus: f, pos: 'III.1.c', prog, result: { correct: 1, total: 1 } });
+  assert.deepStrictEqual(p.options.map((o) => [o.key, o.pos || null]), [['next', 'III.1.c'], ['switch', 'III.1'], ['switch', 'III.1.a'], ['switch', 'III.1.b'], ['end', null]]);
+  assert.ok(p.options[0].primary);
+  assert.match(p.options[0].label, /Alt exercițiu: S\. III · ex\. 1 c\)/);
+  assert.match(p.options[2].label, /Alt exercițiu, doar a\)/);
+  assert.match(p.say, /alt exercițiu de același tip/);
+  assert.doesNotMatch(p.say, /Trecem|Mergem mai departe/);
+  // după 10 (pragul obișnuit al testului): testul e doar o opțiune, „alt exercițiu" rămâne primul
+  prog = P.progressFrom(rows(10, 'III.1.c'), 'bac');
+  p = P.proposeFocusAfterExercise({ exam: 'bac', focus: f, pos: 'III.1.c', prog });
+  assert.strictEqual(p.options[0].key, 'next');
+  assert.ok(p.options.some((o) => o.key === 'test' && o.pos === 'III.1.c'));
+  assert.ok(!p.options.some((o) => ['advance', 'choose'].includes(o.key)));
+  // după test (trecut sau nu): tot același tip — în modul obișnuit, la trecut ar propune poziția următoare
+  const failed = P.proposeFocusAfterTest({ exam: 'bac', focus: f, pos: 'III.1.c', result: { correct: 2, total: 3, passed: false } });
+  assert.deepStrictEqual(failed.options.map((o) => o.key), ['stay', 'review', 'switch', 'switch', 'switch', 'end']);
+  const passed = P.proposeFocusAfterTest({ exam: 'bac', focus: f, pos: 'III.1.c', result: { correct: 3, total: 3, passed: true } });
+  assert.ok(!passed.options.some((o) => ['advance', 'choose'].includes(o.key)));
+  assert.match(passed.say, /Stăpânești Subiectul al treilea, exercițiul 1, punctul c/);
+  assert.strictEqual(P.proposeAfterTest({ exam: 'bac', pos: 'III.1.c', result: { correct: 3, total: 3, passed: true }, prog }).options[0].key, 'advance', 'modul obișnuit, pentru comparație');
+  // epuizat: testul pe acest tip sau alt subpunct — niciodată alt tip
+  const ex = P.proposeFocusExhausted({ exam: 'bac', focus: f, pos: 'III.1.c', prog });
+  assert.deepStrictEqual(ex.options.map((o) => o.key), ['test', 'switch', 'switch', 'switch', 'end']);
+  // o poziție fără subpuncte (S. I): „alt exercițiu", testul (de la 3 exerciții), „ajunge"
+  const f1 = P.focusOf('bac', 'I.2');
+  const one = P.proposeFocusAfterExercise({ exam: 'bac', focus: f1, pos: 'I.2', prog: P.progressFrom(rows(4, 'I.2'), 'bac') });
+  assert.deepStrictEqual(one.options.map((o) => o.key), ['next', 'test', 'end']);
+  // începutul: „Lucrăm doar…", cu subpunctele de ales
+  const w = P.proposeFocusWelcome({ exam: 'bac', focus: f, prog: P.progressFrom([], 'bac'), name: 'Elena' });
+  assert.match(w.say, /^Bună, Elena! Lucrăm doar Subiectul al treilea, exercițiul 1, punctul c/);
+  assert.deepStrictEqual(w.options.map((o) => o.key), ['next', 'switch', 'switch', 'switch']);
+  assert.match(w.options[1].label, /^Încep cu toată problema/);
+});
+
+test('„un singur tip" (API): BAC Tehnologic, S. III ex. 1 b) — exercițiu după exercițiu, din alte subiecte, fără trecere la alt tip', async () => {
+  fake = fresh({ subjects: 2, ready: 2, bacSubjects: 3 });
+  const body = { examTarget: 'bac-tehnologic', examForce: true, focus: 'III.1.b' };
+  const st = await call('prep_state', body, U.bac);
+  assert.strictEqual(st.statusCode, 200, JSON.stringify(st.body));
+  assert.deepStrictEqual(st.body.focus, { pos: 'III.1.b', root: 'III.1', label: 'Subiectul al III-lea, exercițiul 1', short: 'S. III · ex. 1', positions: ['III.1', 'III.1.a', 'III.1.b', 'III.1.c'] });
+  assert.strictEqual(st.body.current, 'III.1.b');
+  assert.deepStrictEqual(st.body.proposal.options.map((o) => o.key), ['next', 'switch', 'switch', 'switch']);
+  // fără focus: propunerea obișnuită (ordinea din examen)
+  assert.strictEqual((await call('prep_state', { examTarget: 'bac-tehnologic' }, U.bac)).body.focus, null);
+  const sids = [];
+  const solve = async (pos, extra = {}) => {
+    const r = await call('prep_exercise', { ...body, ...extra, pos }, U.bac);
+    assert.strictEqual(r.statusCode, 200, JSON.stringify(r.body));
+    if (r.body.exhausted) return r;
+    const d = await call('prep_done', { ...body, ...extra, rowId: r.body.rowId, sid: r.body.exercise.sid, seconds: 30 }, U.bac);
+    assert.strictEqual(d.statusCode, 200, JSON.stringify(d.body));
+    return { r, d };
+  };
+  for (let k = 1; k <= 2; k++) {
+    const { r, d } = await solve('III.1.b');
+    assert.deepStrictEqual(r.body.exercise.refs, ['III.1.b'], 'doar subpunctul ales');
+    assert.ok(!sids.includes(r.body.exercise.sid), 'de fiecare dată alt subiect');
+    sids.push(r.body.exercise.sid);
+    assert.deepStrictEqual(d.body.proposal.options.map((o) => [o.key, o.pos || null]),
+      [['next', 'III.1.b'], ['switch', 'III.1'], ['switch', 'III.1.a'], ['switch', 'III.1.c'], ['end', null]]);
+  }
+  // „Alt exercițiu, doar a)": alt subpunct al aceleiași probleme — nu din subiectul de acum
+  const a = await solve('III.1.a', { focus: 'III.1.a', skip: sids[1] });
+  assert.deepStrictEqual(a.r.body.exercise.refs, ['III.1.a']);
+  assert.notStrictEqual(a.r.body.exercise.sid, sids[1]);
+  assert.deepStrictEqual(a.d.body.proposal.options.slice(0, 1).map((o) => [o.key, o.pos]), [['next', 'III.1.a']]);
+  // al treilea subiect (scris acum), apoi nu mai e niciunul: profesorul propune testul / alt subpunct — nu alt tip
+  await solve('III.1.b');
+  const out = await solve('III.1.b');
+  assert.strictEqual(out.body.exhausted, true);
+  assert.deepStrictEqual(out.body.proposal.options.map((o) => o.key), ['test', 'switch', 'switch', 'switch', 'end']);
+  assert.ok(!JSON.stringify(out.body.proposal).includes('advance'));
 });

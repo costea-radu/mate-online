@@ -4,9 +4,10 @@
 // O ședință 1-la-1 = 60 de minute cu profesorul virtual, prelungite cât elevul
 // lucrează. Se ține în două locuri, cu ACELEAȘI reguli și același contor:
 //   · Meditații live → „1-la-1, oricând" (un subiect de examen ales);
+//   · Meditații live → „🎯 Un singur tip de exercițiu" (clasa Pregătirii, cu `focus`);
 //   · „Planul meu" → 🎓 Pregătire de examen (exercițiu cu exercițiu).
 // Abonații au L.PRIVATE_INCLUDED() pe lună (implicit 8) — COMUNE pentru ambele;
-// apoi (sau fără abonament) un bilet de L.PRICE_PRIVATE_LEI() lei (implicit 20),
+// apoi (sau fără abonament) un bilet de L.PRICE_PRIVATE_LEI() lei (implicit 30),
 // folosibil în oricare dintre ele. Regula pură: L.privateAccess.
 //
 // Toate ședințele stau în live_sessions (kind 'privat'); cele de pregătire au

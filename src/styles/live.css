@@ -237,6 +237,11 @@
 .lv-poll-skip { border: none; background: none; color: #5f6368; font-size: .82rem; font-weight: 600; cursor: pointer; padding: 4px 2px; font-family: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .lv-poll-skip:hover:not(:disabled) { color: #1a73e8; }
 .lv-check-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* „🔁 Explică altfel": funcțiile lui, una sub alta — elevul alege; ✓ = deja ascultată */
+.lv-check-actions.is-alts { flex-direction: column; align-items: stretch; }
+.lv-check-actions.is-alts .lv-alt-btn { justify-content: flex-start; text-align: left; border-radius: 12px; }
+.lv-alt-done { font-style: normal; font-weight: 800; color: #188038; }
+.lv-check-actions.is-alts .lv-alt-back { align-self: flex-start; }
 .lv-ring { width: 38px; height: 38px; flex: none; }
 .lv-ring-bg { fill: none; stroke: #e8eaed; stroke-width: 3.5; }
 .lv-ring-fg { fill: none; stroke: #1a73e8; stroke-width: 3.5; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset .2s linear; }
@@ -840,3 +845,45 @@ a.lvl-hero-mock:hover { transform: scale(1.015); }
   .lvp-cell::before { content: attr(data-label); display: block; margin-bottom: 1px; font-size: .66rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); }
   .lvp-sub .lv-btn-primary { width: 100%; }
 }
+
+/* ─── Lobby-ul fără texte lungi (17 oct. 2026): examenul + „Cum lucrezi"; descrierea fiecărei
+   opțiuni apare doar când e selectată (src/pages/MeditatiiLive.jsx) ─── */
+.lvl-hero-sub { margin-top: 2px; }
+.lvl-hero-sub .lv-tag-ai { margin: 0 2px; }
+button.lvl-chip { cursor: pointer; font: inherit; font-size: .8rem; font-weight: 600; color: #fff; }
+.lvl-choose { background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.lvl-choose-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; align-items: center; }
+.lvl-choose-label { font-size: .74rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); }
+.lvl-choose .lvl-rooms { margin: 0; }
+.lvl-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.lvl-mode { display: flex; align-items: center; gap: 10px; text-align: left; background: #fff; border: 2px solid var(--border); border-radius: 14px; padding: 9px 12px; cursor: pointer; color: var(--text) !important; transition: border-color .15s, box-shadow .15s, background .15s; }
+.lvl-mode:hover { border-color: var(--gold, #e8b931); }
+.lvl-mode.is-on { border-color: var(--navy); background: #f4f8fd; box-shadow: 0 0 0 3px rgba(31,95,170,.12); }
+.lvl-mode.is-free { background: #fffbea; border-color: #efe1ad; }
+.lvl-mode.is-free.is-on { border-color: var(--gold, #e8b931); box-shadow: 0 0 0 3px rgba(232,185,49,.22); }
+.lvl-mode b { display: block; font-size: .9rem; color: var(--navy); line-height: 1.25; }
+.lvl-mode small { display: block; margin-top: 1px; font-size: .74rem; color: var(--text-muted); }
+.lvl-mode-ico { font-size: 1.3rem; flex: none; }
+.lvl-panel { margin-top: 12px; background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 16px; }
+.lvl-panel-desc { margin: 0 0 8px; font-size: .9rem; color: var(--text-light); line-height: 1.55; max-width: 880px; }
+.lvl-panel-price { margin-bottom: 12px; font-size: .84rem; font-weight: 700; color: var(--navy); }
+.lvl-panel-price .lvl-quota { margin-top: 0; }
+.lvl-panel .lvl-subjects { max-height: 420px; }
+.lvl-panel .lvl-free-list { margin-top: 4px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.lvl-panel .lvl-startpick .lv-pre-pick-toggle { padding: 4px 0 8px; }
+.lvl-type-pick { border: 1px solid #e3e8ef; border-radius: 12px; padding: 12px; background: #fbfcfe; }
+.lvl-type-note { margin-top: 6px; font-size: .78rem; color: var(--text-muted); }
+.lvl-how-wrap { margin-top: 22px; }
+.lvl-how-wrap summary { cursor: pointer; font-weight: 700; color: var(--navy); font-size: .92rem; padding: 6px 0; }
+.lvl-how-wrap[open] summary { margin-bottom: 10px; }
+@media (max-width: 760px) {
+  .lvl-choose { padding: 12px; }
+  .lvl-choose-row { grid-template-columns: 1fr; gap: 6px; }
+  .lvl-modes { grid-template-columns: 1fr 1fr; }
+  .lvl-panel { padding: 14px 12px; }
+}
+@media (max-width: 420px) { .lvl-modes { grid-template-columns: 1fr; } }
+
+/* Pregătirea de examen, „🎯 Un singur tip de exercițiu": panoul cu familia problemei */
+.pe-plan-foot { flex-wrap: wrap; gap: 8px; }
+.pe-plan-note { flex-basis: 100%; text-align: center; font-size: .74rem; color: #5f6368; }

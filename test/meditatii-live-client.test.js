@@ -322,3 +322,65 @@ test('player 1-la-1, „📋 aleg eu": „Mai departe" după ultimul exercițiu 
     assert.strictEqual(p.status, 'final');
   } finally { Date.now = realNow; }
 });
+
+// „Ai înțeles?" → „🔁 Explică altfel": elevul alege funcția (pe înțelesul tuturor / greșeli
+// care costă puncte / altă metodă); cele ascultate au ✓; fără alegere → următoarea neascultată
+function altTimeline() {
+  const seg = (id, t) => ({ id, t, dur: 1.5, say: `fraza ${id}`, caption: `fraza ${id}`, board: [], audio: null, lip: null });
+  const alt = (mode, label) => ({ mode, label, segs: [seg(`alt-${mode}`, 0)], dur: 2.3 });
+  return {
+    duration: 10, noVoice: true,
+    scenes: [
+      { type: 'item', item: 0, ref: 'I.1', t0: 0, dur: 2, segs: [seg('i', 0)], statement: 'A' },
+      { type: 'explicatie', item: 0, ref: 'I.1', t0: 2, dur: 2, mode: 'barem', segs: [seg('b', 0)] },
+      { type: 'intrebare_intelegere', item: 0, ref: 'I.1', t0: 4, dur: 0, wait: true, modes: ['intuitiv', 'greseli', 'alta_metoda'],
+        alts: [alt('intuitiv', 'Pe înțelesul tuturor'), alt('greseli', 'Greșeli care costă puncte'), alt('alta_metoda', 'Altă metodă (se punctează la fel)')] },
+      { type: 'final', t0: 4, dur: 2, segs: [seg('fi', 0)] },
+    ],
+  };
+}
+
+test('player 1-la-1, „Explică altfel": elevul alege funcția (și „altă metodă"); cele ascultate au ✓; apoi iar „Ai înțeles?"', async () => {
+  const { PrivatePlayer } = await player();
+  const realNow = Date.now;
+  let now = 15_000_000;
+  Date.now = () => now;
+  try {
+    let last = null;
+    const p = new PrivatePlayer({ engine: fakeEngine(), onState: (s) => { last = s; } });
+    p.setTimeline(altTimeline());
+    p.start(); clearInterval(p.timer); p.timer = null;
+    const run = (sec) => { for (let k = 0; k < sec * 4; k++) { now += 250; p.tick(); } };
+    run(5);
+    assert.strictEqual(p.scene.type, 'intrebare_intelegere');
+    assert.strictEqual(p.status, 'asteapta');
+    assert.deepStrictEqual(last.alts.map((a) => [a.mode, a.used]), [['intuitiv', false], ['greseli', false], ['alta_metoda', false]]);
+    // elevul alege direct „altă metodă"
+    assert.strictEqual(p.explainAgain('alta_metoda'), true);
+    assert.strictEqual(p.scene.mode, 'alta_metoda');
+    assert.strictEqual(p.scene.label, 'Altă metodă (se punctează la fel)');
+    assert.strictEqual(last.inserted, 'alt');
+    run(3);
+    assert.strictEqual(p.scene.type, 'intrebare_intelegere', 'după explicație: iar „Ai înțeles?"');
+    assert.strictEqual(p.status, 'asteapta');
+    assert.deepStrictEqual(last.alts.map((a) => a.used), [false, false, true], '✓ la „altă metodă"');
+    // fără alegere: următoarea funcție neascultată (pe înțelesul tuturor), apoi greșelile
+    p.explainAgain();
+    assert.strictEqual(p.scene.mode, 'intuitiv');
+    run(3);
+    p.explainAgain(null);
+    assert.strictEqual(p.scene.mode, 'greseli');
+    run(3);
+    assert.deepStrictEqual(last.alts.map((a) => a.used), [true, true, true]);
+    // toate ascultate: oricare se poate asculta din nou; un mod necunoscut → următorul la rând
+    p.explainAgain('intuitiv');
+    assert.strictEqual(p.scene.mode, 'intuitiv');
+    run(3);
+    assert.strictEqual(p.explainAgain('nu-exista'), true);
+    run(3);
+    // „Da, mai departe"
+    p.understood();
+    assert.strictEqual(p.scene.type, 'final');
+    assert.strictEqual(p.explainAgain('intuitiv'), false, 'în afara lui „Ai înțeles?" nu face nimic');
+  } finally { Date.now = realNow; }
+});

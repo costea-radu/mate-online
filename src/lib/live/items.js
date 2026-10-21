@@ -49,6 +49,26 @@ export function defaultRefs(exam) {
   return out.map((ref) => ({ item: null, ref, title: refLabel(ref, { long: true }), section: parseRef(ref).section }));
 }
 
+// „🎯 Doar un tip de exercițiu" (lobby-ul Meditații live): pozițiile din examen, ca în
+// Pregătirea de examen (api/_lib/pregatire.js → positions + subPositions): EN — S. I, II,
+// III × 6 (problemele de la S. III se lucrează întregi); BAC — S. I × 6, apoi problemele
+// II.1, II.2, III.1, III.2, fiecare și pe subpuncte (a, b, c). Forma cerută de PrepPicker.
+export function prepPositions(exam) {
+  const out = [];
+  const add = (sub, ex, letter = null) => {
+    const pos = letter ? `${sub}.${ex}.${letter}` : `${sub}.${ex}`;
+    out.push({ pos, sub, ex, letter, parent: letter ? `${sub}.${ex}` : null, multi: !letter && (exam === 'bac' ? sub !== 'I' : sub === 'III'),
+      label: refLabel(pos, { long: true }), short: refLabel(pos) });
+  };
+  for (let k = 1; k <= 6; k++) add('I', k);
+  if (exam === 'bac') {
+    for (const s of ['II', 'III']) for (let k = 1; k <= 2; k++) { add(s, k); for (const l of ['a', 'b', 'c']) add(s, k, l); }
+  } else {
+    for (const s of ['II', 'III']) for (let k = 1; k <= 6; k++) add(s, k);
+  }
+  return out;
+}
+
 // grupate pe subiecte; la problemele cu a), b), c) — pe exerciții
 export function groupItems(items) {
   const secs = [];
