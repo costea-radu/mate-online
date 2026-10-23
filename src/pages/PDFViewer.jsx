@@ -1,13 +1,12 @@
 import { authHeaders } from '../lib/api';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { ChatPanel, TutorFab } from '../components/AITutor';
 import EinsteinIcon from '../components/EinsteinIcon';
 import { aiClient } from '../lib/aiClient';
 import TestModeBadge from '../components/TestModeBadge';
-import SpatiuDeLucru from '../components/SpatiuDeLucru';
 
 function isMobile() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -39,10 +38,29 @@ function loadPdfJs() {
   return pdfjsPromise;
 }
 
+// Pagina din PDF-ul deschis unde începe baremul inclus („subiecte + barem" în
+// același fișier): prima pagină, de la a doua încolo, cu titlul „BAREM…".
+async function findBaremPage(data) {
+  if (!data) return null;
+  const pdfjs = await loadPdfJs();
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(data.slice(0)) }).promise;
+  try {
+    for (let n = 2; n <= doc.numPages; n++) {
+      const page = await doc.getPage(n);
+      const tc = await page.getTextContent();
+      if (/\bBAREM(?:UL)?\b/i.test(tc.items.map((i) => i.str).join(' '))) return n;
+    }
+    return null;
+  } finally {
+    try { doc.destroy(); } catch { /* noop */ }
+  }
+}
+
 // Vizualizator PDF intern (canvas + zoom din butoane sau CU DOUĂ DEGETE).
-// `data` = ArrayBuffer-ul PDF-ului.
+// `data` = ArrayBuffer-ul PDF-ului. `jumpTo` = { page, seq }: derulează la o
+// pagină (baremul inclus în același PDF și înapoi la subiecte).
 const MIN_ZOOM = 0.6, MAX_ZOOM = 5;
-function PdfCanvasViewer({ data, blobUrl, onFail }) {
+function PdfCanvasViewer({ data, blobUrl, onFail, jumpTo = null }) {
   const holderRef = useRef(null);   // containerul cu scroll
   const pagesRef = useRef(null);    // învelișul paginilor — scalat CSS în timpul pinch-ului
   const pdfRef = useRef(null);
@@ -52,6 +70,21 @@ function PdfCanvasViewer({ data, blobUrl, onFail }) {
   const [status, setStatus] = useState('loading'); // loading | ok | error
   const [zoom, setZoom] = useState(1);
   const [vw, setVw] = useState(0); // re-randare la rotirea ecranului
+
+  // salt la o pagină; dacă paginile nu sunt încă desenate, se face după randare
+  const jumpRef = useRef(null);
+  function applyJump() {
+    const j = jumpRef.current, holder = holderRef.current, wrap = pagesRef.current;
+    const el = j && wrap && wrap.children[j.page - 1];
+    if (!el || !holder) return;
+    holder.scrollTop += el.getBoundingClientRect().top - holder.getBoundingClientRect().top - 8;
+    jumpRef.current = null;
+  }
+  useEffect(() => {
+    if (!jumpTo) return;
+    jumpRef.current = jumpTo;
+    applyJump();
+  }, [jumpTo?.seq]); // eslint-disable-line
 
   useEffect(() => {
     let t = null;
@@ -232,6 +265,7 @@ function PdfCanvasViewer({ data, blobUrl, onFail }) {
           holder.scrollTop = Math.max(0, pendingScroll.current.top);
           pendingScroll.current = null;
         }
+        applyJump(); // un salt cerut înainte să existe paginile
         // 3) desenăm paginile
         for (const j of jobs) {
           if (seq !== renderSeq.current) return;
@@ -318,19 +352,25 @@ export default function PDFViewer() {
 
   // ─── Profesorul Virtual lângă PDF ─────────────────────────────────────────
   const [tutorOpen, setTutorOpen] = useState(!!state?.openTutor);
-  const [workOpen, setWorkOpen] = useState(false);        // ✍️ caietul digital
-  const [autoPrompt, setAutoPrompt] = useState(null);     // mesaj trimis singur în chat
+  // ✍️ Spațiul de lucru se deschide ÎN zona de conversație a profesorului
+  // (butonul e în antetul panoului), nu ca fereastră peste PDF
+  const [workOpen, setWorkOpen] = useState(false);
   const [tutorWide, setTutorWide] = useState(false); // fereastră mărită (doar pe desktop)
   const tutorConvId = state?.tutorConvId || null;
   const [pdfText, setPdfText] = useState(null);      // textul extras din PDF
   const [pdfFileName, setPdfFileName] = useState(null); // numele original al fișierului testului
-  const [barem, setBarem] = useState(null);          // {title, text, fileName} — baremul asociat testului
+  const [barem, setBarem] = useState(null);          // {id, title, text, fileName, matchedBy, evidence} — baremul asociat testului
+  const [baremStatus, setBaremStatus] = useState(null); // 'este_barem' = PDF-ul deschis e chiar un barem
   const [pdfLoading, setPdfLoading] = useState(false);
   // Admin (Etapa 2, 3.1): alegerea manuală a baremului pentru acest test
   const [baremPick, setBaremPick] = useState({ open: false, loading: false, candidates: [], override: null, choice: '', saving: false, msg: null });
   const [narrow, setNarrow] = useState(typeof window !== 'undefined' && window.innerWidth < 800);
+  // Telefon (sub 520 px): bara de sus se strânge — butoanele pe un rând, fără
+  // subtitlu, fără eticheta Gratuit/Premium. Altfel bara ieșea din ecran
+  // (≈490 px de conținut): titlul dispărea, iar eticheta se tăia.
+  const [tiny, setTiny] = useState(typeof window !== 'undefined' && window.innerWidth < 520);
   useEffect(() => {
-    const onResize = () => setNarrow(window.innerWidth < 800);
+    const onResize = () => { setNarrow(window.innerWidth < 800); setTiny(window.innerWidth < 520); };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
@@ -364,29 +404,50 @@ export default function PDFViewer() {
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* noop */ }
   }
 
-  // Textul PDF-ului se aduce o singură dată, când elevul deschide profesorul
-  // (și din nou după ce adminul schimbă baremul asociat)
+  // Textul PDF-ului (+ baremul asociat) se aduce o singură dată: când elevul
+  // deschide profesorul, apasă „📋 Barem" sau, pentru un cont logat, la scurt
+  // timp după ce s-a încărcat PDF-ul (serverul îl ține în cache — ai_pdf_text).
+  // Din nou după ce adminul schimbă baremul asociat.
+  // Întoarce { barem, baremStatus } (null la eroare).
+  const ctxPromiseRef = useRef(null);
+  const ctxFailedRef = useRef(false);
   function loadPdfContext() {
-    if (!item?.id) return;
+    if (!item?.id) return Promise.resolve(null);
+    if (ctxPromiseRef.current) return ctxPromiseRef.current;
     setPdfLoading(true);
-    aiClient.pdfContext({ contentId: item.id })
+    const p = aiClient.pdfContext({ contentId: item.id })
       .then((r) => {
+        ctxFailedRef.current = false;
         setPdfText(r?.text || '');
         setPdfFileName(r?.fileName || null);
+        setBaremStatus(r?.baremStatus || null);
         // baremul asociat (BAC sau Evaluare Națională) + dovada potrivirii:
         // metadate (titlu/fișier), antetul PDF-urilor (an + variantă), conținut,
         // „inclus" (subiecte + barem în același fișier) sau „admin" (asociat manual)
-        setBarem(r?.baremText && r?.barem
-          ? { title: r.barem.title || 'Barem', text: r.baremText, fileName: r.barem.fileName || null, matchedBy: r.barem.matchedBy || null, evidence: r.barem.evidence || null }
-          : null);
+        const b = r?.baremText && r?.barem
+          ? { id: r.barem.id || null, title: r.barem.title || 'Barem', text: r.baremText, fileName: r.barem.fileName || null, matchedBy: r.barem.matchedBy || null, evidence: r.barem.evidence || null }
+          : null;
+        setBarem(b);
+        return { barem: b, baremStatus: r?.baremStatus || null };
       })
-      .catch(() => setPdfText(''))
-      .finally(() => setPdfLoading(false));
+      .catch(() => { ctxFailedRef.current = true; setPdfText(''); return null; })
+      .finally(() => { setPdfLoading(false); ctxPromiseRef.current = null; });
+    ctxPromiseRef.current = p;
+    return p;
   }
   useEffect(() => {
-    if (!tutorOpen || !item?.id || pdfText !== null || pdfLoading) return;
+    // (după o încercare eșuată — de ex. cea de la încărcare — profesorul mai încearcă o dată)
+    if (!tutorOpen || !item?.id || (pdfText !== null && !ctxFailedRef.current) || pdfLoading) return;
     loadPdfContext();
   }, [tutorOpen, item?.id]); // eslint-disable-line
+  // Cont logat: contextul se aduce și fără profesor deschis, ca „📋 Barem" să
+  // știe din prima dacă există barem (și profesorul să pornească imediat).
+  // Nu și în test/duel — acolo butonul de barem nu există.
+  useEffect(() => {
+    if (!user || modTest || loading || !item?.id || pdfText !== null) return;
+    const t = setTimeout(() => { loadPdfContext(); }, 900);
+    return () => clearTimeout(t);
+  }, [user, modTest, loading, item?.id]); // eslint-disable-line
 
   // Admin: deschide lista de bareme-candidat din aceeași categorie
   async function openBaremPick() {
@@ -407,6 +468,119 @@ export default function PDFViewer() {
       setPdfText(null); // reîncărcăm textul + baremul (serverul a pus noul barem în cache)
       loadPdfContext();
     } catch (e) { setBaremPick((b) => ({ ...b, saving: false, msg: 'Eroare: ' + e.message })); }
+  }
+
+  // ── „📋 Barem": baremul asociat se deschide ÎN LOCUL subiectelor ────────────
+  // Butonul din bară (unde era „✍️ Spațiu de lucru", mutat acum în antetul
+  // Profesorului Virtual). Baremul separat se descarcă o dată (get-file-url —
+  // aceleași reguli de acces ca la orice PDF) și se arată în același
+  // vizualizator, cu profesorul alături; un nou clic → înapoi la subiecte.
+  // Baremul inclus în același PDF („subiecte + barem") → saltul la pagina lui.
+  // În testul pe grupă și în duel butonul NU există: baremul = răspunsurile.
+  const [baremView, setBaremView] = useState({ open: false, status: 'idle', data: null, url: null, forId: null, inclus: false, page: 1, seq: 0 });
+  const [baremFailed, setBaremFailed] = useState(false); // pdf.js n-a putut desena baremul (telefon)
+  const [note, setNote] = useState(null);                // { text, link? } — mesaj scurt sub bară
+  const baremUrlRef = useRef(null);
+  const baremPageRef = useRef(null);                     // pagina baremului inclus (căutată o dată)
+  useEffect(() => () => { if (baremUrlRef.current) URL.revokeObjectURL(baremUrlRef.current); }, []);
+  useEffect(() => {
+    if (!note) return undefined;
+    const t = setTimeout(() => setNote(null), 6000);
+    return () => clearTimeout(t);
+  }, [note]);
+  // adminul a schimbat baremul asociat → cel descărcat nu mai e bun
+  useEffect(() => {
+    setBaremView((v) => (v.forId && v.forId !== (barem?.id || null)
+      ? { ...v, open: false, status: 'idle', data: null, url: null, forId: null }
+      : v));
+  }, [barem?.id]);
+  // PDF-ul deschis e chiar un barem → butonul n-are rost (după subcategorie sau
+  // după verdictul serverului; titlul singur nu ajunge: „subiecte + barem")
+  const isBaremItem = item?.subcategory === 'bareme';
+  const showBaremBtn = !modTest && !isBaremItem && baremStatus !== 'este_barem';
+
+  async function toggleBarem() {
+    if (baremView.open) {
+      // înapoi la subiecte (la baremul inclus: înapoi la prima pagină)
+      setBaremView((v) => ({ ...v, open: false, status: v.status === 'loading' ? 'idle' : v.status, page: 1, seq: v.seq + 1 }));
+      return;
+    }
+    if (baremView.status === 'loading') return;
+    if (!user) {
+      setNote({ text: 'Autentifică-te ca să deschizi baremul acestui test.', link: { to: '/autentificare', label: 'Autentificare' } });
+      return;
+    }
+    let b = barem;
+    if (pdfText === null || pdfLoading || ctxFailedRef.current) {
+      setBaremView((v) => ({ ...v, status: 'loading' }));
+      const r = await loadPdfContext();
+      if (!r) {
+        setBaremView((v) => ({ ...v, status: 'idle' }));
+        setNote({ text: 'Nu am putut căuta baremul acum. Încearcă din nou peste câteva secunde.' });
+        return;
+      }
+      b = r.barem;
+    }
+    if (!b || !b.id) {
+      setBaremView((v) => ({ ...v, status: 'idle' }));
+      setNote({ text: 'Nu am găsit baremul acestui test.' });
+      return;
+    }
+    // baremul e în ACELAȘI PDF, după subiecte → sărim la pagina lui
+    if (b.matchedBy === 'inclus' || b.id === item?.id) {
+      setBaremView((v) => ({ ...v, status: 'loading' }));
+      let page = baremPageRef.current;
+      if (!page) {
+        try { page = await findBaremPage(pdfData); } catch { page = null; }
+        baremPageRef.current = page;
+      }
+      if (!page) {
+        setBaremView((v) => ({ ...v, status: 'idle' }));
+        setNote({ text: 'Baremul e inclus în acest PDF, după subiecte — derulează până la el.' });
+        return;
+      }
+      setBaremView((v) => ({ ...v, open: true, status: 'ok', inclus: true, page, seq: v.seq + 1 }));
+      setNote({ text: `📋 Baremul e în același PDF și începe la pagina ${page}.` });
+      return;
+    }
+    if (baremView.forId === b.id && baremView.data) {
+      setBaremView((v) => ({ ...v, open: true, status: 'ok', inclus: false }));
+      return;
+    }
+    setBaremFailed(false);
+    setBaremView((v) => ({ ...v, open: true, status: 'loading', inclus: false }));
+    try {
+      const res = await fetch('/api/get-file-url', {
+        method: 'POST', headers: await authHeaders(), body: JSON.stringify({ contentId: b.id }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { const e = new Error(d.error || `HTTP ${res.status}`); e.status = res.status; throw e; }
+      const resp = await fetch(d.url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const buf = await resp.arrayBuffer();
+      if (baremUrlRef.current) URL.revokeObjectURL(baremUrlRef.current);
+      const url = URL.createObjectURL(new Blob([buf], { type: 'application/pdf' }));
+      baremUrlRef.current = url;
+      // dacă elevul a apăsat între timp „înapoi la subiecte", rămâne acolo
+      setBaremView((v) => ({ ...v, status: 'ok', data: buf, url, forId: b.id, inclus: false }));
+    } catch (e) {
+      setBaremView((v) => ({ ...v, open: false, status: 'idle' }));
+      setNote(e.status === 403
+        ? { text: 'Baremul acestui test face parte din abonament.', link: { to: '/preturi', label: 'Vezi abonamentele' } }
+        : { text: 'Nu am putut deschide baremul. Încearcă din nou.' });
+    }
+  }
+
+  // ✍️ Spațiul de lucru (în zona de conversație). Pe desktop, panoul se lățește
+  // cât e deschis (o foaie de 400 px e prea îngustă) și revine la închidere.
+  const wideBeforeWorkRef = useRef(null);
+  function setWork(next) {
+    if (next === workOpen) return;
+    if (!narrow) {
+      if (next) { wideBeforeWorkRef.current = tutorWide; setTutorWide(true); }
+      else if (wideBeforeWorkRef.current !== null) { setTutorWide(wideBeforeWorkRef.current); wideBeforeWorkRef.current = null; }
+    }
+    setWorkOpen(next);
   }
 
   const tutorContext = useMemo(() => ({
@@ -540,14 +714,14 @@ export default function PDFViewer() {
 
   const barStyle = {
     display:'flex', alignItems:'center', justifyContent:'space-between',
-    padding:'10px 20px', background:'var(--navy)', flexShrink:0,
-    boxShadow:'0 2px 8px rgba(0,0,0,0.3)', gap:12,
+    padding: tiny ? '8px 10px' : '10px 20px', background:'var(--navy)', flexShrink:0,
+    boxShadow:'0 2px 8px rgba(0,0,0,0.3)', gap: tiny ? 8 : 12,
   };
 
   const backBtn = {
     background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.2)',
-    color:'#fff', borderRadius:6, padding:'6px 14px', cursor:'pointer',
-    fontSize:'0.85rem', fontWeight:600, whiteSpace:'nowrap',
+    color:'#fff', borderRadius:6, padding: tiny ? '6px 10px' : '6px 14px', cursor:'pointer',
+    fontSize:'0.85rem', fontWeight:600, whiteSpace:'nowrap', flexShrink:0,
   };
 
   const badge = {
@@ -574,15 +748,16 @@ export default function PDFViewer() {
       style={{
         background: tutorOpen ? 'var(--gold)' : 'rgba(232,185,49,0.15)',
         border: '1px solid var(--gold)', color: tutorOpen ? 'var(--navy)' : 'var(--gold)',
-        borderRadius: 14, padding: '4px 12px', cursor: 'pointer', flexShrink: 0,
+        borderRadius: 14, padding: tiny ? '4px 10px' : '4px 12px', cursor: 'pointer', flexShrink: 0,
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1.25,
+        ...(tiny ? { minHeight: 32, justifyContent: 'center' } : {}),
       }}
     >
-      <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', fontWeight: 700 }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
         {modTest ? '📝' : <EinsteinIcon size={18} />}{' '}
         {tutorOpen ? 'Închide' : modTest ? 'Răspunde la test' : 'Profesorul virtual'}
       </span>
-      {!tutorOpen && (
+      {!tutorOpen && !tiny && (
         <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.9 }}>
           {modTest ? 'trimiți răspunsurile spre corectare' : 'te ajută la exercițiile din PDF'}
         </span>
@@ -590,43 +765,96 @@ export default function PDFViewer() {
     </button>
   );
 
-  // ── „✍️ Spațiu de lucru": caietul digital peste PDF ─────────────────────
-  // Elevul scrie rezolvarea de mână pe ecran, iar rândurile devin text frumos.
-  // Rămâne pornit și în modul TEST: e ciorna lui, nu ajutor de la AI.
-  const workBtn = (
+  // ── „📋 Barem" în bară — locul fostului „✍️ Spațiu de lucru" ──────────────
+  const baremLoading = baremView.status === 'loading';
+  const baremBtn = showBaremBtn && (
     <button
-      onClick={() => setWorkOpen(true)}
-      title="Scrie rezolvarea cu degetul sau cu creionul — apoi o transformi în text frumos, cu un buton"
+      onClick={toggleBarem}
+      aria-pressed={baremView.open}
+      title={baremView.open ? 'Înapoi la subiectele testului' : 'Deschide baremul oficial asociat acestui test'}
       style={{
-        background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.3)',
-        color: '#fff', borderRadius: 14, padding: '4px 12px', cursor: 'pointer', flexShrink: 0,
+        background: baremView.open ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.10)',
+        border: '1px solid rgba(255,255,255,0.3)',
+        color: baremView.open ? 'var(--navy)' : '#fff', borderRadius: 14, padding: tiny ? '4px 10px' : '4px 12px',
+        cursor: baremLoading && !baremView.open ? 'progress' : 'pointer', flexShrink: 0,
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1.25,
+        ...(tiny ? { minHeight: 32, justifyContent: 'center' } : {}),
       }}
     >
-      <span style={{ fontSize: '0.82rem', fontWeight: 700, whiteSpace: 'nowrap' }}>✍️ Spațiu de lucru</span>
-      <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.8, whiteSpace: 'nowrap' }}>scrii de mână, se face text</span>
+      <span style={{ fontSize: '0.82rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
+        {baremView.open ? '📄 Subiectele' : baremLoading ? '⏳ Barem…' : '📋 Barem'}
+      </span>
+      {!tiny && (
+        <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.8, whiteSpace: 'nowrap' }}>
+          {baremView.open ? 'înapoi la test' : 'deschide baremul'}
+        </span>
+      )}
     </button>
   );
+  const badgeJsx = !tiny && <span style={badge}>{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>;
 
-  const workSheet = (
-    <SpatiuDeLucru
-      open={workOpen}
-      onClose={() => setWorkOpen(false)}
-      title={item?.title || ''}
-      hint={(pdfText || '').slice(0, 700)}
-      /* textul PDF-ului — elevul îl vede oricum alături, dar în caiet îl are
-         sub ochi fără să mai comute între ferestre */
-      enunt={pdfText || ''}
-      storageKey={`pdf:${item?.id || 'material'}`}
-      onCorect={modTest ? null : (text) => {
-        setTutorOpen(true);
-        setAutoPrompt({
-          id: Date.now(),
-          text: `Am scris rezolvarea în spațiul de lucru. Verific-o pas cu pas, spune-mi unde greșesc și ce lipsește — nu-mi da direct răspunsul dacă mai pot corecta singur:\n\n${text}`,
-        });
-      }}
-    />
+  // Baremul separat, în locul subiectelor (testul rămâne încărcat dedesubt,
+  // ascuns — la întoarcere e exact unde l-ai lăsat)
+  const showBaremDoc = baremView.open && !baremView.inclus;
+  const baremPane = showBaremDoc && (
+    <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', background: '#1a1a2e' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', flexShrink: 0,
+        background: '#f0f9f1', color: '#1e7e34', borderBottom: '1px solid #cfe8d4', fontSize: '.78rem', fontWeight: 700,
+      }}>
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          📋 Barem: {barem?.title || 'baremul testului'}
+        </span>
+        <button type="button" onClick={toggleBarem}
+          style={{ background: '#fff', border: '1px solid #cfe8d4', color: 'var(--navy)', borderRadius: 8, padding: '3px 10px', fontSize: '.74rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
+          📄 Înapoi la subiecte
+        </button>
+      </div>
+      {baremLoading || !baremView.data ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+          <div className="spinner" />
+          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem' }}>Se încarcă baremul…</span>
+        </div>
+      ) : !mobile ? (
+        <iframe src={baremView.url} title={barem?.title || 'Barem'} style={{ flex: 1, border: 'none', width: '100%', minHeight: 0 }} />
+      ) : !baremFailed ? (
+        <PdfCanvasViewer key={baremView.forId} data={baremView.data} blobUrl={baremView.url} onFail={() => setBaremFailed(true)} />
+      ) : (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, padding: 24, textAlign: 'center' }}>
+          <div style={{ fontSize: '3rem' }}>📋</div>
+          <a href={baremView.url} target="_blank" rel="noopener noreferrer"
+            style={{ display: 'inline-block', padding: '12px 28px', background: 'var(--gold)', color: 'var(--navy-dark)', borderRadius: 10, fontWeight: 700, textDecoration: 'none' }}>
+            📂 Deschide baremul
+          </a>
+        </div>
+      )}
+    </div>
   );
+
+  // Mesajul scurt de sub bară (barem negăsit, abonament, autentificare)
+  const noteJsx = note && (
+    <div role="status" style={{
+      position: 'fixed', top: 70, left: '50%', transform: 'translateX(-50%)', zIndex: 1600,
+      background: '#fff', color: 'var(--navy)', borderRadius: 10, padding: '9px 12px 9px 14px',
+      boxShadow: '0 8px 28px rgba(0,0,0,.35)', fontSize: '.84rem', fontWeight: 600, lineHeight: 1.4,
+      width: 'max-content', maxWidth: 'min(92vw, 460px)', display: 'flex', alignItems: 'center', gap: 10,
+    }}>
+      <span>{note.text}</span>
+      {note.link && (
+        <Link to={note.link.to} style={{ background: 'var(--gold)', color: 'var(--navy)', borderRadius: 7, padding: '4px 10px', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+          {note.link.label}
+        </Link>
+      )}
+      <button type="button" onClick={() => setNote(null)} aria-label="Închide mesajul"
+        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '.9rem', padding: '0 2px' }}>✕</button>
+    </div>
+  );
+
+  // Testul deschis: la baremul inclus în același PDF, vizualizatorul sare la
+  // pagina baremului și înapoi (pe desktop, iframe-ul se reîncarcă la #page=N)
+  const testJump = baremView.inclus ? { page: baremView.open ? baremView.page : 1, seq: baremView.seq } : null;
+  const testSrc = blobUrl && testJump ? `${blobUrl}#page=${testJump.page}` : blobUrl;
+  const testKey = testJump ? `test-${testJump.seq}` : 'test';
 
   // ── Widgetul plutitor (vizibil în vizualizatorul de PDF; se poate MUTA) ──
   const tutorWidget = !tutorOpen && !modTest && <TutorFab onOpen={() => setTutorOpen(true)} />;
@@ -646,7 +874,7 @@ export default function PDFViewer() {
         style={{
           background: 'var(--navy)', color: '#fff', padding: narrow ? '4px 12px 8px' : '8px 12px',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
-          ...(narrow ? { cursor: 'ns-resize', touchAction: 'none', position: 'relative' } : {}),
+          ...(narrow ? { cursor: 'ns-resize', touchAction: 'none', position: 'relative', userSelect: 'none', WebkitUserSelect: 'none' } : {}),
         }}>
         {narrow && (
           <div style={{
@@ -654,13 +882,31 @@ export default function PDFViewer() {
             width: 44, height: 4, borderRadius: 3, background: 'rgba(255,255,255,.45)',
           }} />
         )}
-        <div style={{ fontWeight: 700, fontSize: '.9rem', display: 'flex', alignItems: 'center', gap: 6 }}>
-          {modTest ? <>📝 Răspunsurile tale</> : <><EinsteinIcon size={20} /> Profesorul Virtual</>}
+        <div style={{ fontWeight: 700, fontSize: '.9rem', display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+          {modTest ? <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📝 Răspunsurile tale</span>
+            : <><EinsteinIcon size={20} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Profesorul Virtual</span></>}
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        {/* Butoanele din antet nu pornesc tragerea panoului (pe telefon antetul e
+            mânerul): fără stopPropagation, captura pointerului lua clicul butonului */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }} onPointerDown={(e) => e.stopPropagation()}>
+          {/* ✍️ SPAȚIUL DE LUCRU — se deschide chiar aici, în zona de conversație
+              (foaie goală, ca zona conversației, fără linii). Rămâne și în test:
+              e ciorna elevului, nu ajutor de la AI. */}
+          {user && (
+            <button onClick={() => setWork(!workOpen)}
+              aria-pressed={workOpen}
+              title={workOpen ? 'Înapoi la conversație' : 'Scrie rezolvarea cu degetul sau cu creionul, aici — apoi o transformi în text'}
+              style={{
+                background: workOpen ? 'var(--gold)' : 'rgba(232,185,49,0.15)', border: '1px solid var(--gold)',
+                color: workOpen ? 'var(--navy)' : 'var(--gold)', borderRadius: 14, padding: '3px 11px',
+                cursor: 'pointer', fontSize: '.78rem', fontWeight: 700, whiteSpace: 'nowrap', lineHeight: 1.3,
+              }}>
+              {workOpen ? '💬 Conversația' : '✍️ Spațiu de lucru'}
+            </button>
+          )}
           {/* Mărire/micșorare fereastră — doar pe desktop (pe mobil se trage de bară) */}
           {!narrow && (
-            <button onClick={() => setTutorWide((w) => !w)}
+            <button onClick={() => { wideBeforeWorkRef.current = null; setTutorWide((w) => !w); }}
               title={tutorWide ? 'Micșorează fereastra' : 'Mărește fereastra'}
               aria-label={tutorWide ? 'Micșorează fereastra profesorului' : 'Mărește fereastra profesorului'}
               style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: '.82rem', fontWeight: 600, lineHeight: 1.2 }}>
@@ -724,7 +970,15 @@ export default function PDFViewer() {
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0 }}>
-        <ChatPanel compact context={tutorContext} initialConversationId={tutorConvId} testMode={modTest} autoPrompt={autoPrompt} />
+        <ChatPanel compact context={tutorContext} initialConversationId={tutorConvId} testMode={modTest}
+          workspace={{
+            open: workOpen,
+            onClose: () => setWork(false),
+            title: item?.title || '',
+            hint: (pdfText || '').slice(0, 700),
+            // aceeași ciornă ca până acum (fereastra veche folosea aceeași cheie)
+            storageKey: `pdf:${item?.id || 'material'}`,
+          }} />
       </div>
     </div>
   );
@@ -751,14 +1005,16 @@ export default function PDFViewer() {
               borderRadius: 12, padding: '3px 10px', fontSize: '0.74rem', fontWeight: 800, whiteSpace: 'nowrap',
             }} title="Duel: Profesorul Virtual nu dă indicii">⚔️ DUEL</span>
           )}
-          {workBtn}
+          {baremBtn}
           {tutorBtn}
-          <span style={badge}>{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>
+          {badgeJsx}
         </div>
 
         <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column' }}>
+          {/* subiectele rămân încărcate (doar ascunse) cât se vede baremul */}
+          <div style={{ flex:1, minHeight:0, display: showBaremDoc ? 'none' : 'flex', flexDirection:'column' }}>
           {internalViewer ? (
-            <PdfCanvasViewer data={pdfData} blobUrl={blobUrl} onFail={() => setViewerFailed(true)} />
+            <PdfCanvasViewer data={pdfData} blobUrl={blobUrl} onFail={() => setViewerFailed(true)} jumpTo={testJump} />
           ) : (
             <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:24, padding:32, textAlign:'center', overflowY:'auto' }}>
               <div style={{ fontSize:'4rem' }}>📄</div>
@@ -783,11 +1039,13 @@ export default function PDFViewer() {
               </p>
             </div>
           )}
+          </div>
+          {baremPane}
 
           {tutorPanel}
         </div>
         {tutorWidget}
-        {workSheet}
+        {noteJsx}
       </div>
     );
   }
@@ -803,24 +1061,26 @@ export default function PDFViewer() {
           📄 {item?.title}
         </span>
         {gtId && <TestModeBadge compact />}
-        {workBtn}
+        {baremBtn}
         {tutorBtn}
-        <span style={badge}>{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>
+        {badgeJsx}
       </div>
 
       <div style={{ flex:1, display:'flex', flexDirection: narrow ? 'column' : 'row', minHeight:0 }}>
         {blobUrl && (
           <iframe
-            src={blobUrl}
-            style={{ flex:1, border:'none', width:'100%', minHeight:0 }}
+            key={testKey}
+            src={testSrc}
+            style={{ flex:1, border:'none', width:'100%', minHeight:0, display: showBaremDoc ? 'none' : 'block' }}
             title={item?.title}
           />
         )}
+        {baremPane}
         {tutorPanel}
       </div>
 
       {tutorWidget}
-      {workSheet}
+      {noteJsx}
     </div>
   );
 }

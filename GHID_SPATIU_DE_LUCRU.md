@@ -22,12 +22,33 @@ butonului. Nimic nu se pierde.
 | Loc | Cum se deschide | Ce poate face cu textul |
 |---|---|---|
 | **Exerciții interactive** (iframe) | „✍️ Spațiu de lucru" în bara de sus **și** pe fiecare pas / grilă (injectat de `tutorBridge.js`) | `✓ Pune în răspuns` scrie în câmpul pasului curent · `🎓 Cere corectarea` deschide Profesorul Virtual |
-| **Vizualizator PDF** | „✍️ Spațiu de lucru" în bara de sus | `🎓 Cere corectarea` · `📋 Copiază` |
+| **Vizualizator PDF** | „✍️ Spațiu de lucru" în **antetul Profesorului Virtual** (panoul de lângă PDF); se deschide **în zona de conversație** — vezi mai jos | `🎓 Cere corectarea` · `✓ Pune în întrebare` · `📋 Copiază` |
 | **Tabla din „Planul meu"** (conversația cu Prof. Tudor) | butonul `✍️` din bara de scris, lângă 📷 și 🎤 | `✓ Pune în întrebare` · `🎓 Cere corectarea` |
 | **Formularul „📝 Răspunde în chat"** (tot la tabla din „Planul meu") | „✍️ Spațiu de lucru" sub fiecare cerință | `✓ Pune în răspuns` completează exact acea cerință |
 
 Din **widgetul plutitor** (Prof. Virtual) caietul a fost scos: acolo nu mai apar nici
 butonul `✍️` din bara de scris, nici „✍️ Spațiu de lucru" din formularul de răspuns.
+
+### În zona de conversație (vizualizatorul PDF) — din 23 octombrie 2026
+
+În bara de sus a PDF-ului, locul butonului l-a luat **„📋 Barem"** (deschide baremul
+asociat, în locul subiectelor). „✍️ Spațiu de lucru" stă acum în antetul panoului
+Profesorului Virtual și **nu mai deschide o fereastră**: foaia ia locul conversației.
+
+- Arată ca **zona goală de conversație**: același fundal (`#f7f9fc`), **fără linii**,
+  fără margine roșie, fără enunț deasupra (PDF-ul e oricum alături).
+- Sus, în locul barei „＋ Conversație nouă · Voce · Istoric", e rândul de unelte:
+  `✎` `◯` `✋` · culoarea (pe telefon o bulină care trece la următoarea) · `↩` `🗑` ·
+  `✨ Transformă (n)`. Pe un panou lat, uneltele au și text.
+- Jos, plutitoare, după ce elevul scrie: `🎓 Cere corectarea` · `✓ Pune în întrebare`
+  (textul intră în câmpul de întrebare de dedesubt) · `📋`. Primele două închid foaia,
+  ca să se vadă conversația. „?"-ul liniei necitite stă la capătul liniei.
+- **Mărimea** o dă panoul: pe telefon se trage de bara albastră a panoului, ca până acum
+  (foaia urmează); pe desktop panoul se lățește singur cât e deschisă foaia și revine
+  la închidere. Butonul din antet devine `💬 Conversația` (înapoi la chat).
+- Ciorna e aceeași ca în fereastra veche (`sdl2:pdf:<id>`) — nimic nu s-a pierdut.
+- În **testul pe grupă** / duel: rămâne doar ciorna și `📋` (fără corectare, fără întrebare).
+- Elevul neautentificat nu vede butonul (panoul îi cere autentificarea).
 
 În **testul pe grupă** caietul rămâne deschis (e ciorna elevului), dar
 `🎓 Cere corectarea` dispare — ajutorul de la AI rămâne blocat, ca până acum.
@@ -165,8 +186,9 @@ citește corectarea. Liniile ies în ordinea de sus în jos a foii, indiferent
 | `src/lib/katex.js` | `autoMath` — acolade echilibrate la `\frac`/`\sqrt`, operatori mari cu limitele lor |
 | `test/katex-automath.test.js` | regresii pentru `autoMath` (**nou**) |
 | `src/pages/InteractiveViewer.jsx` | ascultă `MATE_WORKSPACE_OPEN`, deschide caietul |
-| `src/pages/PDFViewer.jsx` | butonul + caietul peste PDF |
-| `src/components/AITutor.jsx` | butonul din bara de scris + pe fiecare cerință — doar în modul tablă („Planul meu"), nu în widgetul plutitor |
+| `src/pages/PDFViewer.jsx` | butonul din antetul Profesorului Virtual (`workspace` pentru chat) + „📋 Barem" în bara de sus |
+| `src/components/AITutor.jsx` | butonul din bara de scris + pe fiecare cerință — doar în modul tablă („Planul meu"), nu în widgetul plutitor; `workspace` → caietul `embedded` în locul mesajelor (PDF) |
+| `test/pdf-barem-spatiu.test.js` | regresii: „📋 Barem" în bară (nu în test), caietul în zona de conversație, fără linii |
 
 ---
 

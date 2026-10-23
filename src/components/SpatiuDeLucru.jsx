@@ -25,12 +25,18 @@
 //
 // Se deschide din butonul „✍️ Spațiu de lucru", din patru locuri:
 //   · exercițiile interactive (iframe → MATE_WORKSPACE_OPEN → InteractiveViewer)
-//   · vizualizatorul PDF
-//   · widgetul plutitor al Profesorului Virtual
+//   · vizualizatorul PDF — ÎN zona de conversație a Profesorului Virtual
+//     (`embedded`, butonul e în antetul panoului; vezi PDFViewer.jsx)
+//   · tabla din „Planul meu" (bara de scris a chatului)
 //   · formularul „📝 Răspunde în chat" (câte un buton pe fiecare cerință)
 //
 // Props:
 //   open, onClose
+//   embedded     — fără fereastră: foaia ocupă locul conversației din chat și
+//                  arată ca zona goală de conversație (fundalul ei, FĂRĂ linii,
+//                  fără margine). Mărimea o dă panoul (pe telefon se trage de
+//                  bara lui). Uneltele stau sus, pe un rând; butoanele de
+//                  folosire a textului apar jos, plutitoare, după ce scrii.
 //   title        — ce scrie în antet (exercițiul la care lucrează)
 //   hint         — enunțul, trimis MODELULUI ca să aleagă notația potrivită.
 //                  Poate conține răspunsurile corecte (așa vine din bridge) —
@@ -56,6 +62,7 @@ const PEN_W = 2.4;
 const ERASER_R = 15;
 const GUTTER = 44;
 const COLORS = ['#12263a', '#c62828', '#1565c0', '#2e7d32'];
+const ZONE_BG = '#f7f9fc';   // fundalul zonei de conversație din chat (AITutor.jsx)
 
 // Fereastra: mărimea aleasă de elev se ține minte de la o deschidere la alta
 const WIN_KEY = 'sdl:fereastra';
@@ -215,7 +222,7 @@ function LinieRandata({ latex, onEdit }) {
 
 export default function SpatiuDeLucru({
   open = false, onClose, title = '', hint = '', enunt = null, figura = null, storageKey = null,
-  onInsert = null, insertLabel = '✓ Pune în răspuns', onCorect = null,
+  onInsert = null, insertLabel = '✓ Pune în răspuns', onCorect = null, embedded = false,
 }) {
   const scrollRef = useRef(null);
   const canvasRef = useRef(null);
@@ -732,7 +739,10 @@ export default function SpatiuDeLucru({
     if (bottomY > (rows - 2) * ROW_H) setRows((r) => Math.min(MAX_ROWS, r + 3));
     const el = scrollRef.current;
     if (!el) return;
-    const want = bottomY + ROW_H * 1.5;
+    // loc liber sub linie: un rând și jumătate — dar nu mai mult de ~jumătate
+    // din ce se vede (în zona de conversație de pe telefon, foaia e mică și
+    // linia abia scrisă ar fugi din ecran)
+    const want = bottomY + Math.min(ROW_H * 1.5, el.clientHeight * 0.45);
     if (want > el.scrollTop + el.clientHeight) {
       requestAnimationFrame(() => {
         if (scrollRef.current) scrollRef.current.scrollTop = want - scrollRef.current.clientHeight;
@@ -853,6 +863,193 @@ export default function SpatiuDeLucru({
     padding: '9px 16px', fontSize: '.86rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap',
   };
   const ghostBtn = { ...actBtn, background: '#fff', border: '1px solid #d7dee7', color: '#44566b', fontWeight: 700 };
+
+  // ── Foaia (aceeași în fereastră și în zona de conversație) ──────────────
+  // În fereastră: caiet cu linii și margine roșie. În zona de conversație
+  // (`embedded`): exact fundalul conversației goale — fără linii, fără margine.
+  const gut = embedded ? 0 : GUTTER;
+  const sheetJsx = (
+    <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', background: embedded ? ZONE_BG : '#fdfdf8' }}>
+      <div style={{ position: 'relative', width: '100%', height: sheetH }}>
+
+        {!embedded && (
+          <>
+            <div aria-hidden style={{
+              position: 'absolute', inset: 0,
+              backgroundImage: `repeating-linear-gradient(to bottom, transparent, transparent ${ROW_H - 1}px, #dfe6ee ${ROW_H - 1}px, #dfe6ee ${ROW_H}px)`,
+            }} />
+            <div aria-hidden style={{ position: 'absolute', top: 0, bottom: 0, left: GUTTER, width: 1, background: '#f0c9c9' }} />
+          </>
+        )}
+
+        {/* liniile transformate în text frumos — așezate exact peste cerneala lor */}
+        {lines.map((L) => {
+          const m = meta[L.id];
+          if (!m) return null;
+          const cy = (L.box.y0 + L.box.y1) / 2;
+          const left = Math.max(gut + 8, L.box.x0);
+          if (m.status === 'busy') {
+            // lângă cerneală (nu peste ea), ca elevul să-și vadă scrisul cât se citește
+            return (
+              <div key={'b' + L.id} style={{
+                position: 'absolute', left: Math.max(gut + 8, Math.min(L.box.x1 + 14, width - 190)), top: cy, transform: 'translateY(-50%)',
+                display: 'flex', alignItems: 'center', gap: 8, color: '#8a6d00',
+                fontSize: '.78rem', fontWeight: 700, pointerEvents: 'none',
+                background: 'rgba(255,248,225,.94)', borderRadius: 12, padding: '3px 9px',
+              }}>
+                <span style={{
+                  width: 13, height: 13, borderRadius: '50%', border: '2px solid #e8b931',
+                  borderTopColor: 'transparent', animation: 'sdl-spin .7s linear infinite', display: 'inline-block',
+                }} />
+                se transformă în text…
+              </div>
+            );
+          }
+          if (m.status === 'fail') {
+            // încercată, dar necitită: rămâne cerneală, cu un „?" în margine
+            // (fără margine, în zona de conversație: „?" stă la capătul liniei)
+            return (
+              <div key={'f' + L.id} aria-hidden title="N-am putut citi linia — rescrie-o mai clar" style={{
+                position: 'absolute', left: embedded ? Math.min(L.box.x1 + 8, width - 26) : Math.max(4, GUTTER - 30), top: cy, transform: 'translateY(-50%)',
+                width: 22, height: 22, borderRadius: '50%', background: '#fdecea', border: '1px solid #f1a9a0',
+                color: '#b3261e', fontWeight: 800, fontSize: '.8rem', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', pointerEvents: 'none', fontFamily: 'var(--font-body, sans-serif)',
+              }}>?</div>
+            );
+          }
+          if (!m.latex) return null;
+          return (
+            <div key={'t' + L.id} style={{
+              position: 'absolute', left, top: cy, transform: 'translateY(-50%)',
+              maxWidth: `calc(100% - ${left + 10}px)`, overflowX: 'auto', overflowY: 'hidden',
+            }}>
+              <LinieRandata
+                latex={m.latex}
+                onEdit={() => setMeta((mm) => ({ ...mm, [L.id]: { status: 'idle', latex: null, sig: L.sig } }))}
+              />
+            </div>
+          );
+        })}
+
+        <canvas
+          ref={canvasRef}
+          onPointerDown={onDown} onPointerMove={onMove}
+          onPointerUp={onUp} onPointerCancel={onUp} onPointerLeave={onUp}
+          style={{
+            position: 'absolute', inset: 0, width: '100%', height: sheetH,
+            touchAction: tool === 'pan' ? 'pan-y' : 'none',
+            cursor: tool === 'eraser' ? 'cell' : tool === 'pan' ? 'grab' : 'crosshair',
+          }}
+        />
+      </div>
+    </div>
+  );
+
+  // ── ÎN ZONA DE CONVERSAȚIE (vizualizatorul PDF) ─────────────────────────
+  // Fără fereastră, antet și mânere: foaia ia locul mesajelor din chat. Sus,
+  // un rând de unelte în stilul barei chatului; jos, după ce elevul scrie,
+  // butoanele care folosesc textul (plutitoare, ca zona să rămână goală).
+  if (embedded) {
+    const mic = width < 560;   // panou îngust: telefonul sau panoul lateral de 400 px
+    const barBtn = (on) => ({
+      background: on ? 'var(--gold, #e8b931)' : 'none',
+      border: '1px solid ' + (on ? 'var(--gold, #e8b931)' : 'var(--border, #dde1e8)'),
+      color: on ? 'var(--navy, #0f2b44)' : 'var(--text-light, #5a6170)',
+      borderRadius: 8, padding: mic ? '4px 8px' : '4px 10px', fontSize: '.76rem', fontWeight: 600,
+      cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: 1.35, flexShrink: 0,
+    });
+    const chip = {
+      pointerEvents: 'auto', borderRadius: 20, padding: '7px 13px', fontSize: '.8rem', fontWeight: 800,
+      cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 3px 12px rgba(15,43,68,.18)',
+    };
+    const idle = !areScris || working;
+    const dot = (c, on) => ({
+      width: 20, height: 20, borderRadius: '50%', background: c, cursor: 'pointer', padding: 0, flexShrink: 0,
+      border: on ? '3px solid var(--gold, #e8b931)' : '2px solid #fff', boxShadow: '0 0 0 1px #cfd8e3',
+    });
+    return (
+      <div aria-label="Spațiu de lucru" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative', background: ZONE_BG }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: mic ? 4 : 6, padding: '8px 12px', background: '#fff',
+          borderBottom: '1px solid var(--border, #dde1e8)', flexShrink: 0, overflowX: 'auto', scrollbarWidth: 'none',
+        }}>
+          <button style={barBtn(tool === 'pen')} onClick={() => setTool('pen')} title="Scrie cu degetul sau cu creionul" aria-label="Scrie">{mic ? '✎' : '✎ Scrie'}</button>
+          <button style={barBtn(tool === 'eraser')} onClick={() => setTool('eraser')} title="Șterge ce ai scris" aria-label="Radieră">{mic ? '◯' : '◯ Radieră'}</button>
+          <button style={barBtn(tool === 'pan')} onClick={() => setTool('pan')} title="Derulează foaia fără să scrii" aria-label="Derulează">{mic ? '✋' : '✋ Derulează'}</button>
+          {mic ? (
+            // pe ecran îngust, o singură bulină: fiecare apăsare trece la culoarea următoare
+            <button onClick={() => { setColor(COLORS[(COLORS.indexOf(color) + 1) % COLORS.length]); setTool('pen'); }}
+              aria-label="Schimbă culoarea" title="Schimbă culoarea" style={dot(color, false)} />
+          ) : COLORS.map((c) => (
+            <button key={c} onClick={() => { setColor(c); setTool('pen'); }} aria-label={'Culoare ' + c} style={dot(c, color === c)} />
+          ))}
+          <button style={barBtn(false)} onClick={undo} title="Anulează ultimul tras" aria-label="Înapoi">{mic ? '↩' : '↩ Înapoi'}</button>
+          <button style={barBtn(false)} onClick={clearAll} title="Șterge tot ce ai scris" aria-label="Șterge tot">{mic ? '🗑' : '✕ Șterge tot'}</button>
+          <button
+            onClick={transformaTot}
+            disabled={working || !deTransformat.length}
+            aria-busy={working || undefined}
+            title={deTransformat.length
+              ? 'Transformă în text tot ce ai scris (scrisul de mână devine text cu formule)'
+              : 'Scrie ceva, apoi apasă aici ca să-l transformi în text'}
+            style={{
+              ...barBtn(!!deTransformat.length && !working), marginLeft: 'auto', fontWeight: 800,
+              ...(deTransformat.length && !working ? { boxShadow: '0 2px 8px rgba(232,185,49,.45)' } : {}),
+              ...(!deTransformat.length && !working ? { opacity: 0.6, cursor: 'default' } : {}),
+              ...(working ? { background: '#fff8e1', border: '1px solid #e8b931', color: '#8a6d00', cursor: 'progress' } : {}),
+            }}>
+            {working ? '⏳ Transform…' : `✨ ${mic ? 'Transformă' : 'Transformă în text'}${deTransformat.length ? ` (${deTransformat.length})` : ''}`}
+          </button>
+        </div>
+
+        {sheetJsx}
+
+        {/* jos, plutitoare: eroarea și butoanele care folosesc textul */}
+        <div style={{
+          position: 'absolute', left: 10, right: 10, bottom: 10, display: 'flex', flexDirection: 'column',
+          alignItems: 'flex-end', gap: 6, pointerEvents: 'none',
+        }}>
+          {err && (
+            <div role="alert" style={{
+              pointerEvents: 'auto', alignSelf: 'stretch', background: '#fdecea', color: '#8a2b25', border: '1px solid #f5c6c2',
+              borderRadius: 10, padding: '7px 10px', fontSize: '.78rem', display: 'flex', gap: 8, alignItems: 'center',
+              boxShadow: '0 3px 12px rgba(15,43,68,.12)',
+            }}>
+              <span style={{ flex: 1 }}>{err}</span>
+              <button onClick={() => setErr(null)} aria-label="Închide eroarea"
+                style={{ background: 'none', border: '1px solid #f5c6c2', borderRadius: 7, color: '#8a2b25', padding: '2px 8px', cursor: 'pointer' }}>✕</button>
+            </div>
+          )}
+          {(areScris || pending) && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              {onCorect && (
+                <button style={{ ...chip, background: 'var(--gold, #e8b931)', color: 'var(--navy, #0f2b44)', border: 'none', ...(idle ? { opacity: 0.6, cursor: working ? 'progress' : 'default' } : {}) }}
+                  disabled={idle}
+                  onClick={() => act('corect')}
+                  title="Profesorul virtual îți citește rezolvarea și îți spune unde greșești">
+                  {pending === 'corect' ? '⏳ Transform și trimit…' : '🎓 Cere corectarea'}
+                </button>
+              )}
+              {onInsert && (
+                <button style={{ ...chip, background: '#fff', color: '#8a6d00', border: '1px solid #e8b931', ...(idle ? { opacity: 0.6, cursor: working ? 'progress' : 'default' } : {}) }}
+                  disabled={idle}
+                  onClick={() => act('insert')}>
+                  {pending === 'insert' ? '⏳ Transform…' : insertLabel}
+                </button>
+              )}
+              <button style={{ ...chip, background: '#fff', color: '#44566b', border: '1px solid #d7dee7', fontWeight: 700, ...(idle ? { opacity: 0.6, cursor: working ? 'progress' : 'default' } : {}) }}
+                disabled={idle}
+                onClick={() => act('copy')}
+                aria-label="Copiază textul transformat"
+                title="Copiază textul transformat">{pending === 'copy' ? '⏳' : copied ? '✓ Copiat' : mic ? '📋' : '📋 Copiază'}</button>
+            </div>
+          )}
+        </div>
+
+        <style>{'@keyframes sdl-spin{to{transform:rotate(360deg)}}'}</style>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -976,75 +1173,7 @@ export default function SpatiuDeLucru({
         )}
 
         {/* ── Foaia ── */}
-        <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', background: '#fdfdf8' }}>
-          <div style={{ position: 'relative', width: '100%', height: sheetH }}>
-
-            <div aria-hidden style={{
-              position: 'absolute', inset: 0,
-              backgroundImage: `repeating-linear-gradient(to bottom, transparent, transparent ${ROW_H - 1}px, #dfe6ee ${ROW_H - 1}px, #dfe6ee ${ROW_H}px)`,
-            }} />
-            <div aria-hidden style={{ position: 'absolute', top: 0, bottom: 0, left: GUTTER, width: 1, background: '#f0c9c9' }} />
-
-            {/* liniile transformate în text frumos — așezate exact peste cerneala lor */}
-            {lines.map((L) => {
-              const m = meta[L.id];
-              if (!m) return null;
-              const cy = (L.box.y0 + L.box.y1) / 2;
-              const left = Math.max(GUTTER + 8, L.box.x0);
-              if (m.status === 'busy') {
-                // lângă cerneală (nu peste ea), ca elevul să-și vadă scrisul cât se citește
-                return (
-                  <div key={'b' + L.id} style={{
-                    position: 'absolute', left: Math.max(GUTTER + 8, Math.min(L.box.x1 + 14, width - 190)), top: cy, transform: 'translateY(-50%)',
-                    display: 'flex', alignItems: 'center', gap: 8, color: '#8a6d00',
-                    fontSize: '.78rem', fontWeight: 700, pointerEvents: 'none',
-                    background: 'rgba(255,248,225,.94)', borderRadius: 12, padding: '3px 9px',
-                  }}>
-                    <span style={{
-                      width: 13, height: 13, borderRadius: '50%', border: '2px solid #e8b931',
-                      borderTopColor: 'transparent', animation: 'sdl-spin .7s linear infinite', display: 'inline-block',
-                    }} />
-                    se transformă în text…
-                  </div>
-                );
-              }
-              if (m.status === 'fail') {
-                // încercată, dar necitită: rămâne cerneală, cu un „?" în margine
-                return (
-                  <div key={'f' + L.id} aria-hidden title="N-am putut citi linia — rescrie-o mai clar" style={{
-                    position: 'absolute', left: Math.max(4, GUTTER - 30), top: cy, transform: 'translateY(-50%)',
-                    width: 22, height: 22, borderRadius: '50%', background: '#fdecea', border: '1px solid #f1a9a0',
-                    color: '#b3261e', fontWeight: 800, fontSize: '.8rem', display: 'flex', alignItems: 'center',
-                    justifyContent: 'center', pointerEvents: 'none', fontFamily: 'var(--font-body, sans-serif)',
-                  }}>?</div>
-                );
-              }
-              if (!m.latex) return null;
-              return (
-                <div key={'t' + L.id} style={{
-                  position: 'absolute', left, top: cy, transform: 'translateY(-50%)',
-                  maxWidth: `calc(100% - ${left + 10}px)`, overflowX: 'auto', overflowY: 'hidden',
-                }}>
-                  <LinieRandata
-                    latex={m.latex}
-                    onEdit={() => setMeta((mm) => ({ ...mm, [L.id]: { status: 'idle', latex: null, sig: L.sig } }))}
-                  />
-                </div>
-              );
-            })}
-
-            <canvas
-              ref={canvasRef}
-              onPointerDown={onDown} onPointerMove={onMove}
-              onPointerUp={onUp} onPointerCancel={onUp} onPointerLeave={onUp}
-              style={{
-                position: 'absolute', inset: 0, width: '100%', height: sheetH,
-                touchAction: tool === 'pan' ? 'pan-y' : 'none',
-                cursor: tool === 'eraser' ? 'cell' : tool === 'pan' ? 'grab' : 'crosshair',
-              }}
-            />
-          </div>
-        </div>
+        {sheetJsx}
 
         {err && (
           <div style={{

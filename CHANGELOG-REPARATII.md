@@ -4,6 +4,29 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 23 octombrie 2026 (2) — Icon nou ΣxamenMate; PDF: „📋 Barem" în bară, „✍️ Spațiu de lucru" în conversație
+
+Cererea: „Schimbă iconul site-ului și al aplicației cu poza trimisă (culorile site-ului, după stilul iconului actual, caracterele un pic mai groase, efecte). La fișierele PDF, în viewer, pune buton care deschide baremul asociat, în locul butonului «spațiu de lucru». Mută butonul «spațiu de lucru» în widget și fă să se deschidă în zona de conversație, ca un spațiu gol de lucru, care să arate exact la fel ca zona goală de conversație, fără linii orizontale; zona să poată fi modificată ca mărime de pe telefon ca până acum."
+
+### Iconul
+- Logo-ul lui Radu (Σ = „E" din Examen; întors, Σ devine „M" din „Mate") trasat vectorial, auriu `#f0c040` cu gradient metalic pe navy `#1a3a5c` cu lumină de sus, îngroșat ușor, cu umbră. Colțurile ca la iconul vechi (18,75%).
+- `public/`: `favicon.svg` (vectorial, fără umbră, puțin mai gros — să se vadă la 16–32 px), `pwa-192x192`, `pwa-512x512` (și imaginea de share / logo-ul din datele structurate), `pwa-maskable-512`, `apple-touch-icon`.
+- Android (`android-twa/`): toate densitățile; fundalul iconului adaptiv e acum o imagine separată (`ic_launcher_background`), primul plan transparent (splash-ul de Android 12 nu mai are cerc vizibil), icon monocrom, splash. `versionCode 2` / `1.0.1` — iconul aplicației din magazin se schimbă abia cu o versiune nouă (`.\gradlew.bat bundleRelease` → Play Console).
+- `play-assets/`: `icon-512.png` și `feature-graphic-1024x500.png` cu noul logo.
+- `tools/icon/`: poza, curbele trasate și scripturile care refac toate iconurile.
+
+### Vizualizatorul PDF
+- **„📋 Barem"** (bara de sus, locul fostului „✍️ Spațiu de lucru"): deschide baremul asociat **în locul subiectelor**, cu Profesorul Virtual alături; „📄 Subiectele" / „📄 Înapoi la subiecte" revine exact unde rămăsese testul. Baremul separat se descarcă prin `get-file-url` (aceleași reguli: barem premium fără abonament → mesaj + „Vezi abonamentele"). Baremul inclus în același PDF → saltul la pagina lui (pe desktop `#page=N`). Fără barem găsit → „Nu am găsit baremul acestui test." **Nu apare** în testul pe grupă și în duel (baremul = răspunsurile) și nici când PDF-ul deschis e chiar un barem.
+- Contextul PDF-ului (text + barem) se aduce acum și fără profesor deschis, pentru conturile logate, la ~1 s după încărcare (serverul îl ține în cache) — butonul știe din prima dacă există barem, iar profesorul pornește imediat.
+- **„✍️ Spațiu de lucru"** în antetul panoului Profesorului Virtual: foaia se deschide **în zona de conversație** — fundalul conversației, fără linii și fără margine; uneltele în locul barei de sus a chatului; `🎓 Cere corectarea` / `✓ Pune în întrebare` / `📋` apar jos după ce scrii. Pe telefon panoul se trage de bara lui, ca până acum; pe desktop se lățește cât e deschisă foaia. Ciorna veche se păstrează. Fereastra caietului (exerciții interactive, „Planul meu") — neschimbată.
+- Pe telefon, butoanele din antetul panoului nu mai pornesc tragerea lui (captura pointerului le putea lua clicul).
+- Bara de sus pe telefon (sub 520 px): butoanele fără subtitlu, fără eticheta Gratuit/Premium — încape pe ecran (înainte avea ~490 px și se tăia).
+- `GHID_SPATIU_DE_LUCRU.md` (secțiunea „În zona de conversație"), `test/pdf-barem-spatiu.test.js`.
+
+**Verificat:** `npm test` (807), `vite build`; în Chromium, cu PDF-uri de test și API simulat — desktop 1280 px și telefon 360/390/430 px: barem separat, barem inclus (salt la pagina 4 și înapoi), fără barem, barem premium (403), test pe grupă (fără buton; caiet doar cu `📋`), neautentificat; caietul: scris → `✨ Transformă (2)` → text KaTeX → `✓ Pune în întrebare` (text în câmp, foaia se închide) → redeschis (ciorna e acolo) → `🎓 Cere corectarea` (răspunsul vine în chat); panoul tras de bară pe telefon 414 → 652 px cu foaia deschisă; fereastra caietului din exercițiile interactive arată ca înainte.
+
+---
+
 ## 23 octombrie 2026 — Meditații live: la Subiectele II și III, întâi întrebarea pe ecran, apoi explicația
 
 Cererea: „Verifică dacă la meditații live profesorul lasă prima dată elevul să rezolve, apoi dă răspunsul. Dacă nu face asta, fă ca prima dată să facă și la subiectele 2 și 3 ca la subiectul 1, să pună întrebarea pe ecran prima dată."

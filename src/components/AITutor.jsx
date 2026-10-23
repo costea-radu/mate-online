@@ -258,7 +258,10 @@ const consumedAutoPrompts = new Set();
 export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null, onAction = null,
   initialConversationId = null, autoPrompt = null, coachInject = null, testMode = false,
   boardSlots = null, cmdRef = null, onBusy = null, onSpeaking = null, speaker = null, boardFooter = null, teacherName = 'Prof. Tudor',
-  board = null }) {
+  board = null, workspace = null }) {
+  // workspace = { open, onClose, storageKey, title, hint } — „✍️ Spațiu de
+  // lucru" ÎN zona de conversație (vizualizatorul PDF: butonul e în antetul
+  // panoului). Cât e deschis, foaia ia locul mesajelor și al barei de sus.
   // boardSlots = { board, composer } — cele două containere din pagina de
   // meditații: tabla (mesajele) și zona de sub ea (câmpul de scris).
   // speaker = glasul lui Prof. Tudor (src/lib/live/vorbire.js): pe tablă,
@@ -409,6 +412,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // Caietul rămâne doar la tabla din „Planul meu"; din widgetul plutitor a fost scos
   // (paginile cu exerciții — PDF, interactive, sala live — au caietul lor)
   const workOn = boardMode;
+  // Vizualizatorul PDF: caietul se deschide CHIAR în zona de conversație (`workspace`)
+  const wsOpen = !!(workspace && workspace.open) && !boardMode;
 
   // textul testului „citibil" din PDF-ul deschis (nu mesajul de avertizare)
   const pdfTextOk = !!(context.pdf && context.pdfReadable !== false && (context.exerciseText || '').trim().length > 80);
@@ -519,7 +524,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     // firul elevului (sub tablă) își are propria derulare
     if (mineRef.current) mineRef.current.scrollTop = mineRef.current.scrollHeight;
-  }, [messages, streaming, boardSlots?.board, boardFooter?.key ?? (boardFooter ? 1 : 0)]);
+  }, [messages, streaming, boardSlots?.board, boardFooter?.key ?? (boardFooter ? 1 : 0), wsOpen]);   // wsOpen: la întoarcerea din spațiul de lucru
 
   const patchLast = useCallback((patch) => {
     setMessages((msgs) => {
@@ -888,7 +893,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     <>
       {/* evidențierea părții citite cu voce din răspuns */}
       <style>{`.pv-said{background:rgba(232,185,49,.16);border-radius:3px}.pv-now{background:rgba(232,185,49,.42);border-radius:3px}`}</style>
-      {/* Bară: conversație nouă + istoric */}
+      {/* Bară: conversație nouă + istoric (cât e deschis spațiul de lucru, locul
+          ei îl ia bara cu uneltele caietului) */}
+      {!wsOpen && (
       <div className={boardMode ? 'bdchat-bar' : undefined}
         style={boardMode ? undefined : { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid var(--border)', gap: 8 }}>
         <button onClick={newConversation} style={miniBtn}>＋ Conversație nouă</button>
@@ -915,6 +922,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           <button onClick={openHistory} style={miniBtn}>🕘 Istoric</button>
         </div>
       </div>
+      )}
 
       {/* Cât a mai rămas din creditele AI — avertizare de la 50% în sus, plus
           starea „s-au terminat", cu butoanele către pachete. */}
@@ -940,7 +948,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       {/* „Răspunde în chat" (doar pentru elevi, când există un test PDF deschis
           sau o poză / un PDF încărcat): deschide formularul de răspunsuri.
           NU pornește automat — doar la apăsarea butonului. */}
-      {!isMentor && canAnswer && !form && (
+      {!isMentor && canAnswer && !form && !wsOpen && (
         <div style={{ display: 'flex', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)', alignItems: 'center', flexWrap: 'wrap', background: '#fffdf5' }}>
           <button onClick={openAnswerForm} disabled={formLoading || streaming}
             style={{
@@ -965,7 +973,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       )}
 
       {/* Listă istoric (overlay) */}
-      {showHistory && (
+      {showHistory && !wsOpen && (
         <div style={{ position: 'absolute', top: 86, left: 0, right: 0, bottom: 0, background: '#fff', zIndex: 5, overflowY: 'auto', padding: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <strong style={{ color: 'var(--navy)', fontSize: '.9rem' }}>Conversațiile tale</strong>
@@ -995,10 +1003,33 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         </Suspense>
       )}
 
-      {/* Mesaje */}
-      {/* minHeight 0 în modul compact: altfel, pe panouri mici (mobil),
-          zona de mesaje împinge câmpul de scris în afara ecranului */}
-      {/* overscrollBehavior contain: derularea din chat nu se mai „scurge" în pagină */}
+      {/* ✍️ SPAȚIUL DE LUCRU, în locul mesajelor (vizualizatorul PDF). Arată ca
+          zona goală de conversație: același fundal, fără linii. „✓ Pune în
+          întrebare" scrie textul în câmpul de jos; „🎓 Cere corectarea" îl
+          trimite profesorului — și foaia se închide, ca să se vadă răspunsul.
+          În testul pe grupă rămâne doar ciorna (+ „📋 Copiază"). */}
+      {wsOpen ? (
+        <SpatiuDeLucru
+          embedded
+          open
+          onClose={workspace.onClose}
+          title={workspace.title || context.title || ''}
+          hint={workspace.hint != null ? String(workspace.hint) : String(context.exerciseText || '').slice(0, 700)}
+          storageKey={workspace.storageKey || null}
+          insertLabel="✓ Pune în întrebare"
+          onInsert={testActiv ? null : (text) => {
+            setInput((v) => (v ? v + ' ' : '') + text.replace(/\n+/g, ' ').trim());
+            setTimeout(() => inputRef.current?.focus(), 30);
+          }}
+          onCorect={testActiv ? null : (text) => {
+            send(`Am scris rezolvarea în spațiul de lucru. Verific-o pas cu pas, spune-mi unde greșesc și ce lipsește — nu-mi da direct răspunsul dacă mai pot corecta singur:\n\n${text}`);
+          }}
+        />
+      ) : (
+      /* Mesaje */
+      /* minHeight 0 în modul compact: altfel, pe panouri mici (mobil),
+         zona de mesaje împinge câmpul de scris în afara ecranului */
+      /* overscrollBehavior contain: derularea din chat nu se mai „scurge" în pagină */
       <div ref={scrollRef} className={boardMode ? 'bdchat-msgs' : undefined}
         style={boardMode ? undefined : { flex: 1, overflowY: 'auto', overscrollBehavior: 'contain', padding: 14, minHeight: compact ? 0 : 320, background: '#f7f9fc' }}>
         {/* Chat GOL: fără mesaj de întâmpinare și fără butoane cu întrebări
@@ -1185,6 +1216,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         ))}
         {boardMode && boardFooter}
       </div>
+      )}
     </>
   );
 
