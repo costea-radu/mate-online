@@ -3,8 +3,9 @@
 // (/meditatii/demo): doi itemi de EN explicați pe barem, fără voce generată
 // (în demonstrație vorbește vocea browserului). Cronologia gata calculată
 // (demo.json) se obține cu: node test/tools/live-demo.js
-// La problema de la Subiectul al III-lea, profesorul pune ÎNTREBĂRI PE PAȘI (câte
-// una la fiecare subpunct, înaintea rezultatelor intermediare din barem).
+// La problema de la Subiectul al III-lea, profesorul pune ÎNTREBĂRI PE PAȘI: la
+// fiecare subpunct, întâi întrebarea (elevul încearcă singur, ca la Subiectul I),
+// apoi explicația, oprită și la rezultatele intermediare din barem.
 // Matematica e verificată: 2 + 3·4 = 14; E(2) = 3² − 2·4 = 9 − 8 = 1;
 // (x+1)² = x² + 2x + 1; x(x+2) = x² + 2x; E(x) = (x+1)² − x(x+2) = 1;
 // „altă metodă" (doar la „Explică altfel", 1-la-1): 3·4 = 4+4+4 = 12; cu y = x+1,
@@ -57,12 +58,13 @@ export const DEMO_SCRIPT = {
         // „altă metodă": cu y = x + 1, x(x+2) = (y−1)(y+1) = y² − 1, deci E = y² − (y² − 1) = 1
         alta_metoda: [seg('d-31m0', 'Altă metodă, care se punctează la fel: notăm y egal x plus unu. Atunci x ori x plus doi devine y minus unu ori y plus unu, adică y la pătrat minus unu. Deci E este y la pătrat minus y la pătrat plus unu, adică unu.', ['$y = x + 1 \\Rightarrow x(x+2) = (y-1)(y+1) = y^2 - 1$', '$E(x) = y^2 - (y^2 - 1) = 1$'])],
       },
-      // întrebările pe pași: înaintea segmentului `at` din explicația pe barem
+      // întrebările pe pași: înaintea segmentului `at` din explicația pe barem — prima a
+      // fiecărui subpunct (a: 0, b: 2) înaintea explicației lui
       steps: [
         {
-          id: 'd-s1', at: 1, part: 'a', type: 'completare', question: 'Cât este $(2+1)^2$?', options: null, answer: '9',
-          hint: 'Calculați întâi paranteza, apoi ridicați la pătrat.', explain: '$(2+1)^2 = 3^2 = 9$',
-          ask: [seg('d-31q1', 'Înainte să scriu, încercați voi: cât este doi plus unu, totul la pătrat? Scrieți rezultatul pe ecran.')],
+          id: 'd-s1', at: 0, part: 'a', type: 'completare', question: 'Cât este $E(2)$?', options: null, answer: '1',
+          hint: 'Înlocuiți $x$ cu $2$: $(2+1)^2 - 2 \\cdot (2+2)$.', explain: '$E(2) = 3^2 - 2 \\cdot 4 = 9 - 8 = 1$',
+          ask: [seg('d-31q1', 'Încercați întâi singuri punctul a: cât este E de doi? Scrieți rezultatul pe ecran, apoi îl rezolvăm împreună.')],
         },
         {
           id: 'd-s2', at: 2, part: 'b', type: 'completare', question: 'Desfaceți pătratul: $(x+1)^2 = \\;?$', options: null, answer: 'x^2+2x+1',

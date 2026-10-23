@@ -496,7 +496,7 @@ export default function LiveAdmin() {
                     <summary>întrebări pe pași · {it.steps.length}</summary>
                     <ol style={{ paddingLeft: 20 }}>{it.steps.map((st) => (
                       <li key={st.id || st.question}>
-                        {st.part ? <b>{st.part}) </b> : null}înainte de fraza {st.at + 1}: {st.question}
+                        {st.part ? <b>{st.part}) </b> : null}{st.first ? 'întâi, înaintea explicației' : `înainte de fraza ${st.at + 1}`}: {st.question}
                         <span style={{ color: '#188038' }}> → {st.type === 'grila' ? `${st.answer}) ${(st.options || [])['abcd'.indexOf(st.answer)] || ''}` : st.answer}</span>
                         {st.src === 'barem' ? <span style={{ color: '#6b7280' }}> (din barem)</span> : null}
                       </li>

@@ -170,7 +170,7 @@ function testTimeline(exercises, { introSay }) {
   const items = [];
   for (const e of exercises) items.push(...namespaced(e.items.filter(hasPolls), e.sid));
   const script = { intro: [segOf(`ptest-${crypto.randomBytes(3).toString('hex')}`, introSay)], items, qna: [], breakSay: [], outro: [] };
-  const tl = L.buildTimeline(script, {}, { mode: 'privat', ...TEST_STEPS });
+  const tl = L.buildTimeline(script, {}, { mode: 'privat', ...TEST_STEPS, leadAsk: false });
   // la test nu se explică nimic: doar enunțul (proiectat) și întrebarea (fără barem, fără răspuns)
   const keep = tl.scenes.filter((s) => s.type === 'intro' || s.type === 'item' || s.type === 'sondaj');
   let t = 0;

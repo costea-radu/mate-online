@@ -219,12 +219,13 @@ const POLL = S.obj({
 });
 // ÎNTREBAREA PE PAS: pusă înaintea segmentului în care profesorul scrie pe tablă un
 // rezultat intermediar din barem — elevii îl calculează ei, răspund pe ecran, apoi
-// profesorul scrie pasul (regula 6b din prompt)
+// profesorul scrie pasul (regula 6b din prompt). Prima a fiecărui subpunct: pe primul
+// lui segment — elevii încearcă întâi singuri (ca la Subiectul I), apoi el explică.
 const ASK_PROPS = {
   type: S.enum(['grila', 'completare']),
-  question: S.str('întrebarea despre REZULTATUL INTERMEDIAR pe care profesorul îl scrie pe tablă în acest segment; se înțelege și fără tablă (conține expresia sau datele necesare); NU conține rezultatul; LaTeX între $...$'),
+  question: S.str('întrebarea despre un rezultat pe care profesorul îl scrie pe tablă DUPĂ ea: rezultatul intermediar din acest segment sau, la prima întrebare a unui subpunct (pusă pe primul lui segment), rezultatul subpunctului ori primul lui rezultat intermediar; se înțelege și fără tablă (conține expresia sau datele necesare); NU conține rezultatul; LaTeX între $...$'),
   options: S.nullable(S.arr(S.str(), 'exact 4 variante la grilă: rezultatul corect și greșelile tipice; null la completare')),
-  answer: S.str('grilă: litera corectă (a/b/c/d); completare: rezultatul intermediar din barem — un singur număr sau o expresie scurtă, în LaTeX fără $ („16", „2x+3", „\\frac{1}{2}", „\\{1, 3\\}")'),
+  answer: S.str('grilă: litera corectă (a/b/c/d); completare: rezultatul din barem — un singur număr sau o expresie scurtă, în LaTeX fără $ („16", „2x+3", „\\frac{1}{2}", „\\{1, 3\\}")'),
   hint: S.str('un indiciu scurt (formula sau proprietatea de folosit), FĂRĂ rezultat'),
   explain: S.str('o propoziție: de unde vine rezultatul (pasul din barem)'),
   say: S.str('ce spune profesorul cu voce tare când pune întrebarea: fără simboluri și fără rezultat, cel mult 25 de cuvinte („Înainte să scriu, încercați voi: cât este delta? Scrieți rezultatul pe ecran.")'),
@@ -263,8 +264,8 @@ const SCHEMA = S.obj({ items: S.arr(ITEM) });
 // lecțiilor scrise înainte — addStepQuestions)
 const STEP_RULES = [
   'Elevii lucrează EI pașii rezolvării: înaintea fiecărui rezultat intermediar important din barem (un pas care primește puncte: o valoare calculată, o expresie obținută, o ecuație sau o relație, o mulțime de soluții, un determinant, o derivată, o limită, o arie…), profesorul îi întreabă, ei răspund pe ecran, apoi el scrie pasul pe tablă și îl explică.',
-  'CEL PUȚIN o întrebare la FIECARE subpunct (a, b, c) al itemului — de preferat la primul pas al subpunctului, înainte să înceapă explicația lui — și câte una la fiecare rezultat intermediar important (în total 2–4 la un item cu mai mulți pași, 1 la un item cu un singur pas).',
-  '(1) Rezultatul întrebat NU apare pe tablă și NU e rostit înainte de întrebare: abia în segmentul de după întrebare se scrie pe tablă.',
+  'ÎNTÂI ÎNTREBAREA, APOI EXPLICAȚIA — ca la Subiectul I, unde elevii încearcă singuri înainte de explicație: CEL PUȚIN o întrebare la FIECARE subpunct (a, b, c) al itemului, iar PRIMA se pune pe PRIMUL segment al subpunctului, înainte să explici ceva din el. Ea cere rezultatul subpunctului, dacă e scurt și NU e scris în enunț („Calculați $E(2)$." → „Cât este $E(2)$?"; „Determinați numărul real $m$…" → valoarea lui $m$); altfel (la „Arătați că…", la o demonstrație, la un rezultat lung) cere primul rezultat intermediar din barem. (Un item cu „tryPoll" începe deja cu încercarea: acolo, la primul subpunct, întrebările pe pași vin la rezultatele intermediare.) Apoi câte o întrebare la fiecare rezultat intermediar important (în total 2–4 la un item cu mai mulți pași, 1 la un item cu un singur pas).',
+  '(1) Rezultatul întrebat NU apare pe tablă și NU e rostit înainte de întrebare: se scrie pe tablă abia după ea.',
   '(2) Întrebarea se înțelege singură, fără tablă: conține expresia sau datele de care e nevoie („Cât este $\\Delta$ pentru ecuația $x^2 - 4x + 3 = 0$?", „Ce obțineți pentru $f\'(x)$, dacă $f(x) = x^3 - 3x$?", „Cât este $\\det(A(1))$?") și nu conține rezultatul.',
   '(3) „completare" când răspunsul e un singur număr sau o expresie scurtă (scris în LaTeX fără $: „16", „2x+3", „\\frac{1}{2}", „\\{1, 3\\}"); altfel „grila", cu 4 variante plauzibile — rezultatul corect și greșelile tipice — și litera corectă (a/b/c/d), corecta nu mereu pe aceeași poziție.',
   '(4) „say" = ce spune profesorul cu voce tare când pune întrebarea (fără simboluri, fără rezultat): „Înainte să scriu, încercați voi: cât este delta? Scrieți rezultatul pe ecran."; „hint" = un indiciu scurt (formula, proprietatea), fără rezultat; „explain" = de unde vine rezultatul.',
@@ -286,8 +287,8 @@ function systemPrompt(teacher, exam, profile) {
     '5. „board" = ce scrii pe tablă cât timp spui segmentul: 0–4 rânduri scurte, câte un pas pe rând; formulele în LaTeX între $...$ (ex. „$\\Delta = b^2 - 4ac = 16$"). Pe tablă rămân pașii rezolvării, ca pe o tablă adevărată. Pe tablă scrii matematică, nu fraze: cel mult câteva cuvinte de legătură („deci", „așadar", „din (1) și (2)").',
     '5b. REZOLVĂRILE COMPLETE: la itemii cu rezolvare (Subiectele II și III, probleme, demonstrații, calcule în mai mulți pași), în modul „barem" tabla trebuie să ajungă să conțină TOATĂ rezolvarea care ia punctajul maxim, ca în barem: formula sau proprietatea folosită, fiecare transformare pe rândul ei (fără pași săriți; lanțurile de egalități continuă pe rândul următor cu „$= \\ldots$"), rezultatul, cu punctajul pasului la sfârșitul rândului („(2p)"). La itemii-grilă și la cei cu rezultat scurt, baremul dă doar răspunsul: pe tablă scrii totuși CALCULUL care duce la el (2–5 rânduri: formula, înlocuirea, calculul, rezultatul), apoi varianta corectă; nu copia pe tablă tabelul de punctaj („Alt răspuns — 0p"). La itemii cu subpuncte a), b), c) în același enunț (ex. problemele de la Subiectul al III-lea, la EN), primul rând de pe tablă al fiecărui subpunct începe cu litera lui („a) …", „b) …"), iar în „say" spui „La punctul b, …".',
     '5c. Cerințele „Arătați că…", „Demonstrați că…", „Verificați că…" au rezultatul scris chiar în enunț. (1) Dacă rezultatul e o valoare sau o expresie care se CALCULEAZĂ (ex. „Arătați că $E(x) = 4x$", „Arătați că $a = 2$", „Verificați că $f(1) = 3$"), elevii nu trebuie să-l vadă înainte să încerce: în „statementTry" scrii enunțul cu cerința reformulată ca întrebare de calcul, FĂRĂ rezultat („Calculați $E(x)$.", „Determinați numărul $a$.", „Calculați $f(1)$."), restul enunțului rămânând la fel; „tryPoll" = type „completare", cu aceeași întrebare de calcul și rezultatul ca răspuns; în „intro" citești cerința reformulată (fără rezultat). (2) Altfel (ex. „Arătați că triunghiul $ABC$ este dreptunghic"): „statementTry" = null și „tryPoll" = null. (3) În ambele cazuri, în modul „barem" scrii pe tablă ETAPELE INTERMEDIARE din barem, fiecare pe rândul ei (nu doar rezultatul, nu porni de la rezultat), iar la final spui că ați obținut exact ce cerea subiectul („Deci $E(x) = 4x$, exact ce trebuia arătat.").',
-    '6. „tryPoll": la itemii-grilă (variante a–d) întrebarea e chiar itemul, cu variantele lui și LITERA corectă din barem (type „grila"); la itemii cu un rezultat scurt, type „completare", cu rezultatul din barem. La itemii cu rezolvare lungă: null (excepție: „Arătați că…" cu rezultat calculabil, vezi 5c). „statementTry" = null la toți ceilalți itemi.',
-    '6b. ÎNTREBĂRILE PE PAȘI („ask" în segmentele modului „barem") — DOAR la Subiectele II și III, la itemii cu rezolvare (nu la grile, nu la Subiectul I). „ask" = întrebarea pe care profesorul o pune ÎNAINTEA segmentului în care scrie pe tablă rezultatul intermediar întrebat; la celelalte segmente „ask" = null. ' + STEP_RULES.join(' '),
+    '6. „tryPoll": la itemii-grilă (variante a–d) întrebarea e chiar itemul, cu variantele lui și LITERA corectă din barem (type „grila"); la itemii cu un rezultat scurt, type „completare", cu rezultatul din barem. La itemii cu rezolvare lungă: null (excepție: „Arătați că…" cu rezultat calculabil, vezi 5c) — și acolo elevii încearcă întâi: prima întrebare pe pas a fiecărui subpunct vine înaintea explicației lui (regula 6b). „statementTry" = null la toți ceilalți itemi.',
+    '6b. ÎNTREBĂRILE PE PAȘI („ask" în segmentele modului „barem") — DOAR la Subiectele II și III, la itemii cu rezolvare (nu la grile, nu la Subiectul I). „ask" = întrebarea pe care profesorul o pune ÎNAINTEA segmentului: pe primul segment al fiecărui subpunct, întrebarea cu care începe subpunctul (elevii încearcă întâi singuri); apoi înaintea segmentului în care scrie pe tablă rezultatul intermediar întrebat; la celelalte segmente „ask" = null. ' + STEP_RULES.join(' '),
     '7. „check": la itemii fără tryPoll — o întrebare scurtă de VERIFICARE, la sfârșit (rezultatul final sau un pas-cheie din barem), diferită de întrebările pe pași (grilă cu 4 variante sau completare cu un număr). La itemii cu tryPoll: null.',
     '8. „intro": anunți itemul („Trecem la Subiectul al doilea, exercițiul 4.") și citești enunțul. „afterTry"/„afterCheck": o trecere scurtă („Să vedem răspunsul corect.").',
     '9. Ton: cald, sigur, încurajator; fără glume forțate; fără emoji; fără linkuri.',
@@ -308,7 +309,7 @@ function userPrompt({ exam, section, from, to, subjectSection, baremSection, tit
       ? `Explică DOAR ${only.length === 1 ? 'itemul' : 'itemii'} ${only.join(', ')} din SUBIECTUL ${section} — ceilalți itemi sunt deja explicați. Dacă ${only.length === 1 ? 'itemul nu apare' : 'un item nu apare'} în subiect sau în barem, nu îl include („items": []).`
       : `Explică itemii ${from}–${to} din SUBIECTUL ${section} (în ordinea din subiect).`,
     bacSub ? `La acest subiect fiecare problemă are cerințele a), b), c): fiecare literă e un item separat. Itemii 1–3 = problema 1 (a, b, c), itemii 4–6 = problema 2 (a, b, c). Ref: „${section}.1.a", „${section}.1.b", …` : '',
-    section !== 'I' && live.STEPS_ON() ? 'Nu uita întrebările pe pași („ask", regula 6b) la itemii cu rezolvare: cel puțin una la fiecare subpunct, înaintea rezultatelor intermediare din barem.' : '',
+    section !== 'I' && live.STEPS_ON() ? 'Nu uita întrebările pe pași („ask", regula 6b) la itemii cu rezolvare: la fiecare subpunct, prima pe PRIMUL lui segment (elevii încearcă întâi singuri, apoi explici), apoi înaintea rezultatelor intermediare din barem.' : '',
     '',
     `=== TEXTUL SUBIECTULUI ${section} (extras din PDF) ===`,
     subjectSection.slice(0, 9000),
@@ -353,11 +354,8 @@ function cleanPoll(p) {
   return poll;
 }
 
-// „II.1.a" → { subject:'II', ex:1, letter:'a' }; „I.3" → { subject:'I', ex:3 }
-function parseRef(ref) {
-  const m = /^\s*(I{1,3})\s*[.\s]\s*(\d)(?:\s*[.\s]\s*([a-d]))?/i.exec(String(ref || ''));
-  return m ? { subject: m[1].toUpperCase(), ex: parseInt(m[2], 10), letter: m[3] ? m[3].toLowerCase() : null } : null;
-}
+// „II.1.a" → { subject:'II', ex:1, letter:'a' }; „I.3" → { subject:'I', ex:3 } (în live.js)
+const { parseRef } = live;
 const refKey = (r) => (r ? `${r.subject}.${r.ex}${r.letter ? '.' + r.letter : ''}` : '');
 
 // „Arătați că / Demonstrați că / Verificați că…" — rezultatul e scris în enunț
@@ -377,7 +375,9 @@ function leaksAnswer(text, ans) {
 // Profesorul se oprește înaintea rezultatelor intermediare din barem și îi pune pe
 // elevi să le calculeze (răspund pe ecran), apoi scrie pasul pe tablă. Cel puțin o
 // întrebare la FIECARE subpunct: la BAC itemul e un subpunct (II.1.a); la EN,
-// problemele de la Subiectul al III-lea au a), b) în același item.
+// problemele de la Subiectul al III-lea au a), b) în același item. Prima întrebare a
+// fiecărui subpunct se pune ÎNAINTEA explicației lui (elevii încearcă întâi singuri, ca
+// la Subiectul I) — în sală o mută acolo cronologia (live.askFirst), oriunde ar fi `at`.
 // Un pas = { at, part, type, question, options, answer, explain, hint, ask:[seg], src }
 //   at  = indexul segmentului din modes.barem ÎNAINTEA căruia se pune întrebarea
 //         (segmentul care scrie rezultatul pe tablă; = numărul de segmente → la sfârșit)
@@ -398,42 +398,11 @@ const ASK_SAY = [
 const stepEligible = (it) => !!it && live.STEPS_ON() && (it.section === 'II' || it.section === 'III')
   && it.kind !== 'grila' && !(Array.isArray(it.options) && it.options.length) && Array.isArray(it.modes?.barem) && it.modes.barem.length > 0;
 
-// Subpunctele unui item: la BAC itemul e chiar subpunctul (o singură parte, null);
-// la EN, „a) … b) …" din enunț → ['a', 'b']
-// (Doar când explicația pe barem arată și ea unde începe fiecare subpunct — altfel
-// întrebările n-ar putea fi puse pe subpuncte, iar itemul se tratează ca unul singur.)
-function itemParts(it) {
-  const r = parseRef(it?.ref);
-  if (!r || r.letter) return [null];
-  const letters = [];
-  for (const m of String(it.statement || '').matchAll(/(?:^|\n|[.:;!?]\s+)\(?([a-d])\)\s*(?=\S)/g)) {
-    const l = m[1].toLowerCase();
-    if (!letters.includes(l)) letters.push(l);
-  }
-  if (letters.length < 2 || letters[0] !== 'a') return [null];
-  const seen = new Set(markedParts(it.modes?.barem || [], letters));
-  return seen.size >= 2 ? letters : [null];
-}
-
-// Subpunctul marcat la începutul unui segment: primul rând de pe tablă („b) …") sau
-// începutul frazei („La punctul b, …"); null dacă segmentul nu începe un subpunct
-function partMark(s, parts) {
-  const first = String((s.board || [])[0] || '').replace(/^\s*\$?\s*/, '');
-  const m = /^\(?([a-d])\)/i.exec(first)
-    || /^\s*(?:(?:acum|apoi|trecem)\s+)?(?:la\s+)?(?:punctul|subpunctul|cerin[țt]a)\s+([a-d])\b/i.exec(String(s.say || ''))
-    || /^\s*\(?([a-d])\)/i.exec(String(s.say || ''));
-  const l = m ? m[1].toLowerCase() : null;
-  return l && parts.includes(l) ? l : null;
-}
-function markedParts(segs, parts) {
-  let cur = parts[0];
-  return (segs || []).map((s) => (cur = partMark(s, parts) || cur));
-}
-// Subpunctul fiecărui segment din explicația pe barem
-function segmentParts(segs, parts) {
-  if (!parts || parts.length < 2) return (segs || []).map(() => (parts && parts[0]) || null);
-  return markedParts(segs, parts);
-}
+// Subpunctele unui item (la BAC itemul e chiar subpunctul → [null]; la EN, „a) … b) …"
+// → ['a', 'b']) și subpunctul fiecărui segment din explicația pe barem: în live.js —
+// și cronologia le folosește (prima întrebare a fiecărui subpunct vine înaintea
+// explicației lui, live.askFirst)
+const { itemParts, segmentParts } = live;
 const partAt = (segParts, at) => (segParts.length ? segParts[Math.max(0, Math.min(segParts.length - 1, at))] : null) ?? null;
 
 // Rezultatul e deja scris în text (pe tablă / în întrebare)? Doar ca valoare
@@ -1163,7 +1132,7 @@ const STEP_FIX_SCHEMA = S.obj({
   items: S.arr(S.obj({
     ref: S.str('referința itemului, exact ca în listă („II.1.a", „III.2")'),
     steps: S.arr(S.obj({
-      before: S.int('numărul segmentului [k] ÎNAINTEA căruia pui întrebarea: segmentul în care se scrie pe tablă, prima dată, rezultatul întrebat (N+1 = după ultimul segment)'),
+      before: S.int('numărul segmentului [k] ÎNAINTEA căruia pui întrebarea: la prima întrebare a unui subpunct, primul lui segment; la celelalte, segmentul în care se scrie pe tablă, prima dată, rezultatul întrebat (N+1 = după ultimul segment)'),
       ...ASK_PROPS,
     }), '1–4 întrebări; cel puțin una la fiecare subpunct marcat „LIPSĂ"'),
   })),
@@ -1177,7 +1146,7 @@ function stepsSystemPrompt(teacher, exam, profile) {
     '',
     'REGULI:',
     ...STEP_RULES,
-    '(6) „before" = numărul segmentului [k] ÎNAINTEA căruia pui întrebarea: segmentul în care se scrie pe tablă, PRIMA DATĂ, rezultatul întrebat. Pentru o întrebare de la sfârșitul explicației, „before" = N+1 (N = numărul de segmente ale itemului).',
+    '(6) „before" = numărul segmentului [k] ÎNAINTEA căruia pui întrebarea: la prima întrebare a unui subpunct, PRIMUL segment al subpunctului; la celelalte, segmentul în care se scrie pe tablă, PRIMA DATĂ, rezultatul întrebat. Pentru o întrebare de la sfârșitul explicației, „before" = N+1 (N = numărul de segmente ale itemului).',
     '(7) Rezultatele le iei DOAR din barem și din explicația dată — nu inventa alt rezultat. Formulele în LaTeX între $...$; „say" fără LaTeX, cum se citește cu voce tare.',
     '(8) Nu repeta întrebările deja puse (sunt trecute la fiecare item). Ton cald, încurajator; fără emoji.',
   ].join('\n');

@@ -697,7 +697,8 @@ const playableFor = (session, lesson) => lesson.status === 'gata' || (session.ki
 
 // „amprenta" cronologiei: lecția + versiunea regulilor de durată (dacă se schimbă
 // estimarea duratelor, ședințele în curs își recalculează ferestrele întrebărilor)
-const TL_VERSION = 2;
+// v3 (23 oct. 2026): prima întrebare a fiecărui subpunct vine înaintea explicației lui
+const TL_VERSION = 3;
 const tlStamp = (lesson) => `${lesson.updated_at}|v${TL_VERSION}`;
 
 // răspunsurile corecte ale tuturor întrebărilor (încercarea, pașii, verificarea)
@@ -1586,9 +1587,17 @@ async function adminLesson(req, res, supa) {
   const lesson = await loadLesson(supa, req.body?.lessonId, { fresh: true });
   if (!lesson) throw fail(404, 'Lecția nu există.');
   const tl = lesson.script ? L.buildTimeline(lesson.script, lesson.progress?.audio || {}, { mode: 'grup' }) : null;
+  // întrebările pe pași cu locul lor din sală: prima de la fiecare subpunct vine înaintea
+  // explicației lui (L.stepsFor → `first`), oriunde ar fi pus-o lecția
+  const placed = (it) => {
+    if (!Array.isArray(it.steps) || !it.steps.length) return it;
+    const room = new Map(L.stepsFor(it).map((s) => [s.id, s]));
+    return { ...it, steps: it.steps.map((s) => (room.has(s.id) ? { ...s, at: room.get(s.id).at, first: !!room.get(s.id).first } : s)) };
+  };
+  const script = lesson.script ? { ...lesson.script, items: (lesson.script.items || []).map(placed) } : lesson.script;
   return res.status(200).json({
     lesson: {
-      ...lessonView({ ...lesson, total: lesson.progress?.total, done: lesson.progress?.done }), script: lesson.script, duration: tl?.duration || null, cost_lei: Math.round((lesson.cost_micro || 0) / 1e4) / 100,
+      ...lessonView({ ...lesson, total: lesson.progress?.total, done: lesson.progress?.done }), script, duration: tl?.duration || null, cost_lei: Math.round((lesson.cost_micro || 0) / 1e4) / 100,
       // itemii care lipsesc: verificați pe subiect (lecțiile noi) sau ce PARE să lipsească
       // față de structura oficială (lecțiile scrise înainte — butonul verifică pe subiect)
       missing: lesson.script ? (Array.isArray(lesson.script.missing) ? lesson.script.missing : LL.missingGuess(lesson.script)) : [],

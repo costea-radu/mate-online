@@ -656,6 +656,8 @@ function pollResults(poll, answers) {
 // ask: [seg] }]: întrebarea se pune ÎNAINTEA segmentului `at` din modes.barem
 // (`at` = numărul de segmente → la sfârșitul explicației); `part` = subpunctul
 // (a/b/c) la problemele de EN cu subpuncte, null la BAC (itemul e un subpunct).
+// Prima întrebare a fiecărui subpunct vine ÎNAINTEA explicației lui (askFirst): ca la
+// Subiectul I, elevul încearcă întâi singur, apoi profesorul explică.
 // ═════════════════════════════════════════════════════════════════════════════
 const GAP = 0.45;              // pauza naturală dintre două segmente de vorbire (s)
 const POLL_GRILA_SEC = () => envInt('LIVE_SONDAJ_GRILA_SEC', 45);
@@ -669,14 +671,83 @@ const BREAK_SEC = () => envInt('LIVE_PAUZA_SEC', 300);
 // LIVE_INTREBARI_PASI=0 → fără întrebările pe pași (lecția curge ca înainte)
 const STEPS_ON = () => !/^(0|nu|false|no|off)$/i.test(String(process.env.LIVE_INTREBARI_PASI || '1').trim());
 
-// Întrebările pe pași ale unui item, în ordinea din explicație. opts.steps === false
-// → niciuna; opts.stepsPerPart = n → primele n pe fiecare subpunct (încadrarea în
-// timp a ședinței de grup păstrează măcar una la fiecare subpunct).
+// ─── Subpunctele (a, b, c) unui item și ale explicației lui pe barem ─────────
+// (aici, nu în liveLesson.js: și cronologia are nevoie de ele — vezi askFirst)
+// „II.1.a" → { subject:'II', ex:1, letter:'a' }; „I.3" → { subject:'I', ex:3 }
+function parseRef(ref) {
+  const m = /^\s*(I{1,3})\s*[.\s]\s*(\d)(?:\s*[.\s]\s*([a-d]))?/i.exec(String(ref || ''));
+  return m ? { subject: m[1].toUpperCase(), ex: parseInt(m[2], 10), letter: m[3] ? m[3].toLowerCase() : null } : null;
+}
+
+// Subpunctele unui item: la BAC itemul e chiar subpunctul (o singură parte, null);
+// la EN, „a) … b) …" din enunț → ['a', 'b']
+// (Doar când explicația pe barem arată și ea unde începe fiecare subpunct — altfel
+// întrebările n-ar putea fi puse pe subpuncte, iar itemul se tratează ca unul singur.)
+function itemParts(it) {
+  const r = parseRef(it?.ref);
+  if (!r || r.letter) return [null];
+  const letters = [];
+  for (const m of String(it.statement || '').matchAll(/(?:^|\n|[.:;!?]\s+)\(?([a-d])\)\s*(?=\S)/g)) {
+    const l = m[1].toLowerCase();
+    if (!letters.includes(l)) letters.push(l);
+  }
+  if (letters.length < 2 || letters[0] !== 'a') return [null];
+  const seen = new Set(markedParts(it.modes?.barem || [], letters));
+  return seen.size >= 2 ? letters : [null];
+}
+
+// Subpunctul marcat la începutul unui segment: primul rând de pe tablă („b) …") sau
+// începutul frazei („La punctul b, …"); null dacă segmentul nu începe un subpunct
+function partMark(s, parts) {
+  const first = String((s.board || [])[0] || '').replace(/^\s*\$?\s*/, '');
+  const m = /^\(?([a-d])\)/i.exec(first)
+    || /^\s*(?:(?:acum|apoi|trecem)\s+)?(?:la\s+)?(?:punctul|subpunctul|cerin[țt]a)\s+([a-d])\b/i.exec(String(s.say || ''))
+    || /^\s*\(?([a-d])\)/i.exec(String(s.say || ''));
+  const l = m ? m[1].toLowerCase() : null;
+  return l && parts.includes(l) ? l : null;
+}
+function markedParts(segs, parts) {
+  let cur = parts[0];
+  return (segs || []).map((s) => (cur = partMark(s, parts) || cur));
+}
+// Subpunctul fiecărui segment din explicația pe barem
+function segmentParts(segs, parts) {
+  if (!parts || parts.length < 2) return (segs || []).map(() => (parts && parts[0]) || null);
+  return markedParts(segs, parts);
+}
+
+// ÎNTREBAREA ÎNTÂI (23 oct. 2026): ca la Subiectul I, elevul încearcă singur înainte
+// ca profesorul să explice. La fiecare subpunct, PRIMA întrebare pe pas se pune
+// înaintea explicației lui (la primul segment al subpunctului), oriunde ar fi pus-o
+// lecția: elevul răspunde, apoi profesorul explică și scrie pasul pe tablă. Se schimbă
+// doar locul întrebării (id-ul, vocea, explicația rămân), deci și lecțiile deja scrise
+// o pun întâi. Subpunctul care începe deja cu „încercați singuri" (tryPoll, înaintea
+// explicației itemului) rămâne cum e. `first` = întrebarea vine înaintea explicației
+// subpunctului ei (pe telefon, camera stă pe exercițiu — framing.autoFocus).
+function askFirst(it, steps) {
+  if (!steps.length) return steps;
+  const segs = Array.isArray(it.modes?.barem) ? it.modes.barem : [];
+  const segParts = segmentParts(segs, itemParts(it));
+  const seen = new Set();
+  return steps.map((st) => {
+    const p = st.part ?? null;
+    if (seen.has(p)) return st;
+    seen.add(p);
+    const start = segParts.findIndex((x) => (x ?? null) === p);
+    if (start < 0 || (start === 0 && it.tryPoll)) return st;
+    return { ...st, at: Math.min(st.at, start), first: true };
+  }).sort((a, b) => a.at - b.at);
+}
+
+// Întrebările pe pași ale unui item, în ordinea din explicație (prima de la fiecare
+// subpunct: înaintea explicației lui — askFirst). opts.steps === false → niciuna;
+// opts.stepsPerPart = n → primele n pe fiecare subpunct (încadrarea în timp a
+// ședinței de grup păstrează măcar una la fiecare subpunct: cea de dinaintea explicației).
 function stepsFor(it, opts = {}) {
   if (!it || opts.steps === false || !STEPS_ON()) return [];
-  const all = (Array.isArray(it.steps) ? it.steps : [])
+  const all = askFirst(it, (Array.isArray(it.steps) ? it.steps : [])
     .filter((s) => s && s.id && s.question && Number.isFinite(s.at))
-    .slice().sort((a, b) => a.at - b.at);
+    .slice().sort((a, b) => a.at - b.at));
   const per = Number(opts.stepsPerPart) || 0;
   if (!per) return all;
   const seen = new Map();
@@ -744,7 +815,9 @@ const MODE_LABELS = {
 // opts.steps = false → fără întrebările pe pași; opts.stepsPerPart = n → cel mult n
 //   pe subpunct; opts.leanCheck → fără verificarea de la sfârșit la itemii care au
 //   întrebări pe pași (încadrarea în timp a ședinței de grup); opts.stepSec = timpul
-//   de răspuns la o întrebare pe pas (grup)
+//   de răspuns la o întrebare pe pas (grup); opts.leadAsk = false → fraza cu care se
+//   pune întrebarea de la începutul itemului rămâne în afara scenei enunțului (testul
+//   din Pregătirea de examen păstrează doar enunțul și întrebarea)
 function buildTimeline(script, audio = {}, opts = {}) {
   const mode = opts.mode || 'grup';
   const scenes = [];
@@ -778,10 +851,15 @@ function buildTimeline(script, audio = {}, opts = {}) {
     }
     lastSection = it.section;
     const common = { item: i, ref: it.ref, section: it.section, title: it.title };
+    // întrebările pe pași (Subiectele II și III): prima a fiecărui subpunct vine înaintea
+    // explicației lui (askFirst); cea de la începutul itemului (fără „încercați singuri")
+    // o pune profesorul imediat după enunț, în aceeași scenă — exercițiul e pe proiecție
+    const steps = stepsFor(it, opts);
+    const lead = !it.tryPoll && opts.leadAsk !== false && steps[0]?.first && steps[0].at <= 0 ? steps[0] : null;
     // 1) enunțul (pe tabla digitală) + ce spune profesorul la început
     // statementTry: „Arătați că…" reformulat ca „Calculați…" (fără rezultat), cât încearcă elevii
     // figure: desenul problemei, decupat din PDF (api/_lib/figuri.js) — { url, w, h }
-    const head = segScene('item', it.intro, { ...common, statement: it.statement, statementTry: (it.tryPoll && it.statementTry) || null, options: it.options || null, points: it.points || null, ...(it.figure?.url ? { figure: it.figure } : {}), minDur: 2 });
+    const head = segScene('item', [...(it.intro || []), ...(lead && Array.isArray(lead.ask) ? lead.ask : [])], { ...common, statement: it.statement, statementTry: (it.tryPoll && it.statementTry) || null, options: it.options || null, points: it.points || null, ...(it.figure?.url ? { figure: it.figure } : {}), minDur: 2 });
     if (head) push(head);
     // 2) „încercați singuri" (grilă sau rezultat) — sondajul ÎNAINTE de explicație
     if (it.tryPoll) {
@@ -792,9 +870,9 @@ function buildTimeline(script, audio = {}, opts = {}) {
     }
     // 3) explicația pe barem (obligatorie), oprită la fiecare întrebare pe pas: profesorul
     //    explică până la rezultatul intermediar, întreabă (segmentele `ask`), elevii
-    //    răspund pe ecran (grup: rezultatele clasei), apoi el scrie pasul pe tablă.
+    //    răspund pe ecran (grup: rezultatele clasei), apoi el scrie pasul pe tablă. La
+    //    începutul fiecărui subpunct întrebarea vine întâi, înaintea explicației (`first`).
     //    Bucățile de după prima continuă aceeași tablă (`cont`).
-    const steps = stepsFor(it, opts);
     const baremSegs = Array.isArray(it.modes?.barem) ? it.modes.barem : [];
     let cursor = 0, parts = 0;
     const baremPart = (segments) => {
@@ -803,8 +881,8 @@ function buildTimeline(script, audio = {}, opts = {}) {
     };
     steps.forEach((st, j) => {
       const at = Math.max(cursor, Math.min(baremSegs.length, Math.round(st.at)));
-      baremPart([...baremSegs.slice(cursor, at), ...(Array.isArray(st.ask) ? st.ask : [])]);
-      const step = { n: j + 1, of: steps.length, part: st.part || null };
+      baremPart([...baremSegs.slice(cursor, at), ...(st !== lead && Array.isArray(st.ask) ? st.ask : [])]);
+      const step = { n: j + 1, of: steps.length, part: st.part || null, ...(st.first ? { first: true } : {}) };
       push({ type: 'sondaj', ...common, poll: publicPoll(st), dur: mode === 'privat' ? 0 : (opts.stepSec ?? POLL_STEP_SEC()), wait: mode === 'privat', step });
       // la 1-la-1 verdictul apare pe loc, pe cardul întrebării; în grup — rezultatele clasei
       if (mode !== 'privat') {
@@ -1041,6 +1119,6 @@ module.exports = {
   displayName, moderate, isQuestion, foldRo,
   checkPollAnswer, pollResults, publicPoll,
   buildTimeline, fitTimeline, sceneAt, qnaSchedule, packSegments, segDuration, MODE_LABELS, ALT_MODES, GROUP_ALT_MODES, GAP,
-  STEPS_ON, stepsFor, itemPolls, POLL_STEP_SEC,
+  STEPS_ON, stepsFor, itemPolls, POLL_STEP_SEC, askFirst, parseRef, itemParts, segmentParts,
   lipFromPcm, lipAt, pcmDuration, LIP_FPS, shortId,
 };
