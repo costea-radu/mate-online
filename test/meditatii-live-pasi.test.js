@@ -238,20 +238,24 @@ test('lecțiile scrise înainte: addStepQuestions adaugă doar întrebările (id
 });
 
 // ─── 2. Cronologia ───────────────────────────────────────────────────────────
-test('cronologia: explicația pe barem se oprește la fiecare pas (grup: rezultatele clasei; 1-la-1: așteaptă elevul)', () => {
+test('cronologia: la fiecare subpunct întâi întrebarea, apoi explicația pe barem, oprită la pași (grup: rezultatele clasei; 1-la-1: așteaptă elevul)', () => {
   const script = scriptOf(norm([rawEn()]));
   const tl = L.buildTimeline(script, {}, { mode: 'grup', qnaSec: 30 });
   const types = tl.scenes.map((s) => `${s.type}${s.step ? `#${s.step.n}` : ''}${s.cont ? '+' : ''}`);
-  assert.deepStrictEqual(types.slice(0, 13), ['item', 'explicatie', 'sondaj#1', 'rezultate#1', 'explicatie+', 'sondaj#2', 'rezultate#2', 'explicatie+', 'sondaj#3', 'rezultate#3', 'explicatie+', 'explicatie', 'intrebari']);
+  // a): întrebarea imediat după enunț; b): după explicația lui a), înaintea explicației lui b)
+  assert.deepStrictEqual(types.slice(0, 12), ['item', 'sondaj#1', 'rezultate#1', 'explicatie', 'sondaj#2', 'rezultate#2', 'explicatie+', 'sondaj#3', 'rezultate#3', 'explicatie+', 'explicatie', 'intrebari']);
   const q1 = tl.scenes.find((s) => s.type === 'sondaj');
   assert.strictEqual(q1.poll.answer, undefined, 'răspunsul nu pleacă în browser cât e deschisă întrebarea');
   assert.strictEqual(q1.poll.hint, 'Folosiți formula.');
-  assert.deepStrictEqual(q1.step, { n: 1, of: 3, part: 'a' });
+  assert.deepStrictEqual(q1.step, { n: 1, of: 3, part: 'a', first: true });
   assert.strictEqual(q1.dur, L.POLL_STEP_SEC());
   assert.strictEqual(tl.scenes.find((s) => s.type === 'rezultate').poll.answer, '9');
-  // fraza cu care se pune întrebarea e la sfârșitul bucății de explicație dinainte
-  const e1 = tl.scenes[1];
-  assert.strictEqual(e1.segs[e1.segs.length - 1].id, script.items[0].steps[0].ask[0].id);
+  // fraza cu care se pune prima întrebare: în scena enunțului (exercițiul e pe proiecție);
+  // a celei de la b): la sfârșitul explicației lui a)
+  const head = tl.scenes[0];
+  assert.strictEqual(head.segs[head.segs.length - 1].id, script.items[0].steps[0].ask[0].id);
+  const e1 = tl.scenes[3];
+  assert.strictEqual(e1.segs[e1.segs.length - 1].id, script.items[0].steps[1].ask[0].id);
   // pe tablă: toată rezolvarea, în aceeași ordine (bucățile nu pierd și nu dublează rânduri)
   const lines = tl.scenes.filter((s) => s.type === 'explicatie' && s.mode === 'barem').flatMap((s) => s.segs.flatMap((g) => g.board));
   assert.deepStrictEqual(lines, script.items[0].modes.barem.flatMap((s) => s.board));
@@ -332,7 +336,7 @@ test('browserul: tabla continuă după fiecare întrebare (un singur bloc „pe 
   assert.strictEqual(F.autoFocus({ phase: 'live', scene: { type: 'sondaj' } }), 'ecran', 'încercarea de la început: exercițiul');
 });
 
-test('browserul, 1-la-1: la întrebarea pe pas profesorul așteaptă răspunsul, apoi scrie pasul', async () => {
+test('browserul, 1-la-1: la întrebarea pe pas profesorul așteaptă răspunsul (tabla e încă goală), apoi explică și scrie pasul', async () => {
   const { PrivatePlayer } = await importLive(['player', 'clock', 'timeline'], 'player');
   const realNow = Date.now;
   let now = 5_000_000;
@@ -348,11 +352,12 @@ test('browserul, 1-la-1: la întrebarea pe pas profesorul așteaptă răspunsul,
     run(40);
     assert.strictEqual(p.scene.type, 'sondaj');
     assert.strictEqual(p.status, 'asteapta', 'oricât ar dura, nu trece singur peste întrebare');
-    assert.deepStrictEqual(p.scene.step, { n: 1, of: 3, part: 'a' });
+    assert.deepStrictEqual(p.scene.step, { n: 1, of: 3, part: 'a', first: true });
+    assert.deepStrictEqual(last.board?.blocks || [], [], 'întâi întrebarea: nimic scris pe tablă înainte să răspundă elevul');
     const id = p.scene.poll.id;
     p.pollDone(id, { correct: false, answer: '9' });   // „Nu știu — arată-mi"
     assert.strictEqual(p.scene.type, 'explicatie');
-    assert.strictEqual(p.scene.cont, true);
+    assert.ok(!p.scene.cont, 'abia acum începe explicația');
     run(1);
     assert.ok(last.board.blocks[0].lines.length >= 1);
   } finally { Date.now = realNow; }

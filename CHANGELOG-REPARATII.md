@@ -4,6 +4,29 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 23 octombrie 2026 — Meditații live: la Subiectele II și III, întâi întrebarea pe ecran, apoi explicația
+
+Cererea: „Verifică dacă la meditații live profesorul lasă prima dată elevul să rezolve, apoi dă răspunsul. Dacă nu face asta, fă ca prima dată să facă și la subiectele 2 și 3 ca la subiectul 1, să pună întrebarea pe ecran prima dată."
+
+### Verificarea
+- **Subiectul I — da:** după enunț apare „încercați singuri" (grilă sau rezultat de completat); răspunsul corect și explicația pe barem vin abia după ce elevul răspunde (grup: rezultatele clasei; 1-la-1: verdictul). La EN, la fel și la Subiectul al II-lea (tot grile).
+- **Subiectele II și III — nu:** după enunț, profesorul începea direct explicația pe barem; întrebările pe pași veneau abia înaintea rezultatelor intermediare — de obicei după ce scrisese deja pe tablă primii pași (ex. matricea A(2), apoi „Cât este determinantul?"). Instrucțiunile cereau prima întrebare doar „de preferat" înaintea explicației subpunctului. Numai „Arătați că…" cu rezultat calculabil începea cu încercarea.
+
+### Ce s-a schimbat
+- **Întâi întrebarea (`api/_lib/live.js` → `askFirst`, `stepsFor`, `buildTimeline`):** la fiecare subpunct de la Subiectele II și III (BAC II.1.a … III.2.c; EN, problemele de la S. III, cu a) / b)), prima întrebare pe pas vine ÎNAINTEA explicației lui: profesorul citește enunțul, spune „încercați voi…", întrebarea apare pe ecran, elevul răspunde, abia apoi profesorul explică și scrie pe tablă. Tabla e goală cât elevul încearcă. Celelalte întrebări pe pași rămân la rezultatele intermediare; itemii care încep deja cu încercarea („Arătați că…" reformulat) rămân cum erau. Funcțiile pentru subpuncte (`itemParts`, `segmentParts`, `parseRef`) s-au mutat din `liveLesson.js` în `live.js` (cronologia are nevoie de ele); `liveLesson.js` le folosește de acolo.
+- **Și lecțiile deja scrise, fără „Regenerează" și fără cost:** se schimbă doar locul întrebării în cronologie — scriptul, id-urile frazelor și vocea generată rămân. Cronologia are versiunea 3 (`TL_VERSION`, `api/live.js`): o ședință de grup în curs la deploy își recalculează ferestrele întrebărilor (deploy-ul, mai bine în afara orei 17–19).
+- **Ședința de grup prea lungă** (o întrebare pe subpunct): rămâne tocmai cea de dinaintea explicației.
+- **Pregătirea de examen** și „🎯 Un singur tip": exercițiile, la fel; testul — neschimbat: doar enunțul și întrebarea, fără fraza ei (`leadAsk: false`, `api/_lib/pregatire.js`).
+- **Pe telefon** (`src/lib/live/framing.js`): la întrebarea de dinaintea explicației camera stă pe exercițiu (ca la „încercați singuri"); la pașii din mijloc, pe tablă.
+- **Lecțiile noi** (`api/_lib/liveLesson.js`): instrucțiunile cer prima întrebare a fiecărui subpunct pe primul lui segment — rezultatul subpunctului, dacă e scurt și nu e scris în enunț („Calculați E(2)" → „Cât este E(2)?"), altfel primul rezultat intermediar din barem (la „Arătați că…", la demonstrații); la fel la completarea întrebărilor pentru lecțiile vechi.
+- **Admin → „Scriptul"** (`api/live.js` → `admin_lesson`, `src/components/LiveAdmin.jsx`): întrebările pe pași arată locul din sală („întâi, înaintea explicației").
+- **Demo-ul** (`/meditatii/demo`, `/meditatii/demo-1la1`): la Subiectul III, a) începe cu „Cât este E(2)?", b) cu „Desfaceți pătratul…" (`src/lib/live/demoScript.js`; `demo.json` refăcut cu `node test/tools/live-demo.js`).
+- `GHID_MEDITATII_LIVE.md` — secțiunea 3c („Întâi întrebarea, apoi explicația") și „Probleme frecvente".
+
+**Verificat:** `npm test` — 804 teste, toate trec (noi: `test/intrebarea-intai.test.js` +12; pe codul vechi 9 din 12 pică — celelalte 3 verifică ce trebuia să rămână la fel: Subiectul I, itemii cu încercare, lecția neatinsă; în `test/meditatii-live-pasi.test.js`, 2 teste care fixau ordinea veche arată acum ordinea nouă); `vite build` trece; în Chromium (desktop și telefon 390 px), demo-ul 1-la-1 pornit de la S. III ex. 1: întâi cardul „📝 Prof. Tudor întreabă · pasul 1 din 3 · a) — Cât este E(2)?", cu tabla goală (pe telefon, camera pe exercițiu), apoi verdictul și explicația scrisă pe tablă.
+
+---
+
 ## 21 octombrie 2026 — Factură imediată la pachetele AI și la biletele live · fără proba de 2 zile
 
 Cererea (cu pozele din Stripe: plata de 10 lei apărea în „Recent activity" doar cu id-ul `ch_…` și fără factură, pe când abonarea de 50 lei își are factura pe loc): „1) fă să înregistreze imediat plata în Stripe, cu emitere factură, pentru plata a 10 lei sau 20 lei (pachet AI mic, respectiv mare) — și pentru meditațiile live; 2) scoate perioada de probă de două zile".

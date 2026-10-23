@@ -14,7 +14,7 @@ Evaluare Națională sau Bacalaureat **numai pe baza baremului oficial**.
 | **Profesorul viu, în clasă**: vorbește, respiră, își mută greutatea, întoarce capul spre tablă, gesticulează, zâmbește, dă din cap | o singură fotografie, animată în browser (WebGL), fără niciun serviciu plătit — vezi „Profesorul animat" |
 | **Tabla albă** din spatele profesorului (scrie pas cu pas, în ritmul vocii) + **proiecția** din dreapta ei (enunțul, rezultatele, videoclipuri) | scrisul și proiecția stau în perspectivă pe tabla din fotografie; profesorul trece prin fața lor. Fără panou separat „Tabla digitală”. **Pe telefon** (tabla și proiecția nu încap citibil deodată) camera se oprește pe una dintre ele: butonul **„✎ Explicația / 📝 Exercițiul”** sau o glisare stânga/dreapta o mută, iar tabla primește culoarea și rama ei |
 | **Întrebări grilă și cu răspuns de completat**, cu rezultatele clasei (ca Zoom Polls) | sondajele vin din barem; răspunsul corect e verificat pe server |
-| **Întrebări pe pași** la problemele grele (Subiectele II și III): explicația se oprește înaintea rezultatelor intermediare din barem — elevul calculează pasul și răspunde pe ecran (cu „💡 Indiciu"; la 1-la-1 și „🤷 Nu știu — arată-mi"), apoi profesorul îl scrie pe tablă; **cel puțin o întrebare la fiecare subpunct** | `it.steps` în lecție (scrise odată cu lecția, verificate determinist); lecțiile vechi le primesc o singură dată, la prima folosire — vezi secțiunea 3c |
+| **Întrebări pe pași** la problemele grele (Subiectele II și III): **la fiecare subpunct, întâi întrebarea pe ecran** — elevul încearcă singur, ca la Subiectul I, și abia apoi profesorul explică (23 oct.); explicația se oprește și înaintea rezultatelor intermediare din barem — elevul calculează pasul și răspunde pe ecran (cu „💡 Indiciu"; la 1-la-1 și „🤷 Nu știu — arată-mi"), apoi profesorul îl scrie pe tablă | `it.steps` în lecție (scrise odată cu lecția, verificate determinist); prima a fiecărui subpunct o pune cronologia înaintea explicației (și la lecțiile deja scrise); lecțiile vechi le primesc o singură dată, la prima folosire — vezi secțiunea 3c |
 | **Chat**, mâna ridicată, reacții, participanți, subtitrări, „Caiet", ecran complet (pe telefon: sus, în dreapta — se vede și ținut vertical; ce nu încape în bară stă în „⋯ Mai mult") | Supabase Realtime (canal privat pe ședință) |
 | **1-la-1, oricând** (60 min, **prelungite până termini exercițiile**): elevul **alege subiectul** — în ordine, **variantele date, modelele, testele de antrenament, simulările** — și **exercițiile** (📋 — ex. S. I ex. 5, S. II ex. 2 b), S. III ex. 1 c), nu neapărat la rând); se oprește la întrebări, „Ai înțeles?", „Explică altfel", răspunde cu voce | 8/lună incluse în abonament, apoi **30 lei**; prelungirea e fără cost în plus — vezi secțiunile 3b și 3f |
 | **🎯 1-la-1 pe un singur tip de exercițiu** (17 oct.): examenul + exercițiul (ex. BAC Tehnologic, S. III ex. 1) și, la BAC (S. II și III), **subpunctul a), b) sau c)** — profesorul ia DOAR exerciții de acest tip, din subiectele oficiale, fiecare pe baremul lui, și **nu trece la alt tip**: după fiecare, altul de același tip (din alt subiect), iar elevul poate alege din nou doar c) | aceeași ședință 1-la-1 (inclusă / 30 lei); clasa Pregătirii de examen cu `doar=1` — vezi secțiunea 3g |
@@ -47,9 +47,11 @@ mai mic când pașii sunt mulți, ca să rămână toți la vedere. La **„Ară
 răspuns de completat), apoi profesorul scrie pe tablă etapele intermediare din barem, iar pe
 proiecție reapare cerința din subiect.
 
-**Interactiv la fiecare pas:** la problemele de la Subiectele II și III, profesorul nu doar scrie
-pașii — se oprește înaintea fiecărui rezultat intermediar din barem și îi pune pe elevi să-l
-calculeze (cel puțin o dată la fiecare subpunct a), b), c)). Detalii în secțiunea 3c.
+**Întâi întrebarea, apoi explicația — la toate subiectele:** la Subiectul I elevii încearcă singuri
+(„încercați singuri"), apoi vin răspunsul corect și explicația; din 23 oct. la fel la Subiectele II
+și III: la fiecare subpunct a), b), c), întrebarea apare pe ecran înainte ca profesorul să explice
+ceva din el. Apoi profesorul nu doar scrie pașii — se oprește înaintea rezultatelor intermediare din
+barem și îi pune pe elevi să le calculeze. Detalii în secțiunea 3c.
 
 ---
 
@@ -277,10 +279,14 @@ salvează după fiecare exercițiu.
 ## 3c. Întrebările pe pași (Subiectele II și III, octombrie 2026)
 
 La problemele cu rezolvare (BAC: II.1.a … III.2.c; EN: problemele de la Subiectul al III-lea, cu
-a) și b)), explicația pe barem **se oprește înaintea rezultatelor intermediare**:
+a) și b)), **elevul încearcă întâi, la fiecare subpunct**, iar explicația pe barem **se oprește și
+înaintea rezultatelor intermediare**:
 
-1. profesorul explică până la pasul următor, apoi întreabă („Înainte să scriu, încercați voi: cât
-   este delta?") — pe ecran apare cardul **„📝 Prof. Tudor întreabă · pasul 2 din 3 · b)"**;
+1. **la începutul fiecărui subpunct** — imediat după enunț sau, la b) și c), după explicația
+   subpunctului dinainte — profesorul întreabă înainte să explice ceva din el („Încercați întâi
+   singuri: cât este E de doi?"); tabla e încă goală. La pașii următori explică până la pasul
+   următor, apoi întreabă din nou („Înainte să scriu, încercați voi: cât este delta?") — pe ecran
+   apare cardul **„📝 Prof. Tudor întreabă · pasul 2 din 3 · b)"**;
 2. elevul calculează și răspunde: **de completat** (un număr sau o expresie — „16", „2x+3", „1/2";
    se verifică matematic, deci „x²+2x+1" = „x^2 + 2x + 1"; la întrebările despre semn — „f'(x) < 0" —
    se primește și „−", „minus", „negativ(ă)", „< 0", „mai mic decât 0", la fel „+", „plus",
@@ -291,14 +297,41 @@ a) și b)), explicația pe barem **se oprește înaintea rezultatelor intermedia
    **rezultatele clasei** și răspunsul corect; 1-la-1: verdictul vine pe loc, cu explicația, apoi
    „Mai departe: pasul pe tablă →";
 4. profesorul scrie pasul pe tablă și continuă — tabla rămâne o singură rezolvare (bucățile de
-   explicație dintre întrebări nu se despart), iar pe telefon camera stă pe tablă la aceste întrebări.
+   explicație dintre întrebări nu se despart), iar pe telefon camera stă pe tablă la aceste întrebări
+   (la cea de la începutul subpunctului — pe exercițiu, ca la „încercați singuri").
 
-**Cel puțin o întrebare la fiecare subpunct** (de preferat la primul pas al lui, înainte să înceapă
-explicația), plus câte una la rezultatele intermediare importante — cel mult 4 pe item. Verificarea de
-la sfârșit („check") rămâne, ca înainte.
+**Cel puțin o întrebare la fiecare subpunct — prima înaintea explicației lui** (vezi „Întâi
+întrebarea" mai jos), plus câte una la rezultatele intermediare importante — cel mult 4 pe item.
+Verificarea de la sfârșit („check") rămâne, ca înainte.
+
+**Întâi întrebarea, apoi explicația (23 octombrie 2026).** Cererea: „Verifică dacă la meditații live
+profesorul lasă prima dată elevul să rezolve, apoi dă răspunsul. Dacă nu face asta, fă ca prima dată să
+facă și la subiectele 2 și 3 ca la subiectul 1, să pună întrebarea pe ecran prima dată." Verificarea: la
+Subiectul I — da („încercați singuri" înaintea explicației; la EN și la Subiectul al II-lea, tot grile);
+la Subiectele II–III — nu: după enunț profesorul începea explicația (și scrisul pe tablă), iar prima
+întrebare pe pas venea abia la primul rezultat intermediar (instrucțiunile o cereau doar „de preferat" la
+începutul subpunctului). Acum:
+- **Cronologia** (`api/_lib/live.js` → `askFirst`, folosită de `stepsFor` și `buildTimeline`) pune
+  prima întrebare a fiecărui subpunct înaintea explicației lui, oriunde ar fi pus-o lecția; profesorul o
+  rostește imediat după enunț (sau după explicația subpunctului dinainte), iar scena ei are `step.first`.
+  Itemii care încep deja cu „încercați singuri" (tryPoll — „Arătați că…" reformulat) rămân cum erau.
+- **Și la lecțiile deja scrise, fără „Regenerează" și fără cost:** se schimbă doar locul întrebării —
+  scriptul, id-urile frazelor și vocea rămân. Cronologia are versiunea 3 (`TL_VERSION`, `api/live.js`):
+  o ședință de grup în curs la deploy își recalculează ferestrele întrebărilor — fă deploy-ul în afara
+  orei ședințelor (17–19), ca elevii dintr-o ședință începută să nu aibă cronologii diferite.
+- **În 2 ore (grup)**, când rămâne o singură întrebare pe subpunct, rămâne tocmai aceasta.
+- **Pe telefon**, la întrebarea de dinaintea explicației camera stă pe exercițiu (`framing.autoFocus`).
+- **Pregătirea de examen** și „🎯 Un singur tip": exercițiile, la fel; testul — neschimbat (doar enunțul și
+  întrebarea, fără fraza ei: `leadAsk: false`).
+- **Lecțiile noi:** instrucțiunile cer prima întrebare a fiecărui subpunct pe primul lui segment —
+  rezultatul subpunctului, dacă e scurt și nu e scris în enunț („Calculați $E(2)$." → „Cât este $E(2)$?"),
+  altfel primul rezultat intermediar din barem (la „Arătați că…", la demonstrații).
+- **Admin → „Scriptul":** la întrebările pe pași, „întâi, înaintea explicației" = locul din sală.
+- **Demo-ul:** la Subiectul III, a) începe cu „Cât este E(2)?", b) cu „Desfaceți pătratul…".
+- Teste: `test/intrebarea-intai.test.js`.
 
 **Cum se scriu:** odată cu lecția — modelul pune întrebarea (`ask`) la segmentul din explicația pe
-barem care scrie rezultatul. Apoi, **determinist**: întrebarea cade dacă rezultatul e deja pe tablă,
+barem care scrie rezultatul (prima a fiecărui subpunct: pe primul lui segment). Apoi, **determinist**: întrebarea cade dacă rezultatul e deja pe tablă,
 dacă întrebarea îl conține sau dacă e chiar rezultatul dat în enunț („Arătați că $E(x) = 1$");
 grila trebuie să aibă 4 variante și o literă. Subpunctele rămase fără întrebare primesc încă un apel
 scurt (doar pentru ele, cu explicația pe segmente numerotate), iar ce rămâne tot fără — **fără AI**,
@@ -775,6 +808,7 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | 1-la-1 s-a oprit la 60 de minute | versiune veche a paginii (PWA din cache) → reîncarcă; acum ședința se prelungește singură (cronometrul arată „+mm:ss prelungire"), până la plafonul `LIVE_PRELUNGIRE_MAX` |
 | După un exercițiu ales, profesorul nu trece singur mai departe | normal: la alegerea elevului întreabă ce urmează; „⏩ Continuă în ordine" revine la lecția care curge singură |
 | La 1-la-1, înainte de lecție: „pregătește întrebările pentru pașii din barem" | normal, o singură dată pe subiect (lecție scrisă înainte de întrebările pe pași), cam un minut |
+| La o problemă de la S. II/III profesorul începe să explice fără să întrebe întâi | din 23 oct. prima întrebare a fiecărui subpunct vine înaintea explicației lui (secțiunea 3c) — dacă lipsește, subpunctul nu are nicio întrebare pe pas: Admin → „Scriptul" → „întrebări pe pași" (litera lui nu apare) → „↻ Întrebări pe pași"; cu `LIVE_INTREBARI_PASI=0` nu există întrebări pe pași deloc |
 | O problemă de la S. II/III fără întrebări pe pași | lecție veche folosită cât rula o ședință de grup cu ea (atunci nu se schimbă) → Admin → „➕ Întrebări pe pași"; sau nicio întrebare n-a trecut verificările (Admin → „Scriptul" → „↻ Întrebări pe pași") |
 | Ședința de grup e prea lungă cu toate întrebările | normal: rămâne câte o întrebare la fiecare subpunct; `LIVE_SONDAJ_PAS_SEC` (ex. 30) scurtează timpul de răspuns |
 | Admin → „🎁 Meditațiile gratuite": „rulează supabase/setari_ordine_gratuite.sql" | scriptul setărilor nu e rulat; până atunci sunt gratuite cele alese automat, câte una pe examen (nu se pot schimba) |
