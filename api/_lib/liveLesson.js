@@ -1316,9 +1316,13 @@ function adaptScript(script, teacher) {
 }
 
 // ─── 2. Vocea (pe bucăți, cu buget de timp) ──────────────────────────────────
+// o frază fără nimic de rostit (ex. doar „$$") nu primește fișier, dar nici nu mai ține
+// lecția la „vocea se generează…": se socotește făcută
+const voiced = (audio, s) => !!audio[s.id] || !tts.speakable(s.say);
+
 async function voiceScript(supa, { lessonId, script, teacher, audio = {}, budgetMs = 240000, log = console.warn, onProgress = null, every = 15, fromRef = null }) {
   const t0 = Date.now();
-  const todo = voiceOrder(script, fromRef).filter((s) => !audio[s.id]);
+  const todo = voiceOrder(script, fromRef).filter((s) => !voiced(audio, s));
   let cost = 0, failed = 0, sinceSave = 0, inARow = 0, lastError = null;
   const queue = todo.slice();
   const worker = async () => {
@@ -1344,7 +1348,7 @@ async function voiceScript(supa, { lessonId, script, teacher, audio = {}, budget
   };
   await Promise.all(Array.from({ length: TTS_PARALLEL() }, worker));
   const total = segmentsInOrder(script).length;
-  const done = segmentsInOrder(script).filter((s) => audio[s.id]).length;
+  const done = segmentsInOrder(script).filter((s) => voiced(audio, s)).length;
   return { audio, cost, failed, total, done, lastError };
 }
 
@@ -1359,7 +1363,7 @@ function playableHead(script, audio) {
     (it.modes?.barem || []).forEach((s) => need.push(s));
     for (const st of live.stepsFor(it)) (st.ask || []).forEach((s) => need.push(s));
   }
-  return need.length > 0 && need.every((s) => audio[s.id]);
+  return need.length > 0 && need.every((s) => voiced(audio, s));
 }
 
 module.exports = {

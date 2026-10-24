@@ -52,6 +52,16 @@ const modelLabel = (id) => MODEL_LABEL[id] || id || '—';
 // momentul build-ului (vite.config.js → define): ce versiune a site-ului rulează telefonul
 // eslint-disable-next-line no-undef
 const BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' ? new Date(__BUILD_TIME__).toLocaleString('ro-RO', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+// ce se întâmplă cu vocea neterminată a unei lecții (l.voiceAuto vine de pe server — voiceAutoOf):
+// vocea începută o termină singur serverul (cronul, la 15 minute), fără „▶ Continuă"
+function voiceHint(l, retryHours = 2) {
+  const n = Number(l.total) > 0 ? `vocea: ${Number(l.done) || 0}/${l.total} fraze — ` : 'vocea — ';
+  if (l.voiceAuto === 'continua') return `${n}o termină singur serverul (la 15 minute), nu trebuie apăsat nimic`;
+  if (l.voiceAuto === 'reia') return `serverul reîncearcă singur vocea celorlalte fraze (o dată la ${retryHours} ${retryHours === 1 ? 'oră' : 'ore'}, cât nu e o ședință cu lecția)`;
+  if (l.voiceAuto === 'oprita') return 'reîncercările automate ale vocii s-au oprit (de prea multe ori la rând fără nicio frază nouă) — după ce rezolvi motivul, apasă „🔊 Generează vocea"';
+  if (l.superseded || !['script', 'audio'].includes(l.status) || !(Number(l.total) > 0)) return null;
+  return `${n}${l.status === 'script' ? 'începe la prima ședință live cu lecția, sau apasă „▶ Continuă"' : 'apasă „▶ Continuă"'}`;
+}
 // „Claude Opus 5.5" sau, cu rezerva folosită, „Claude Opus 5.5 (5 bucăți) + GPT-5.6 Terra (1 bucată)"
 function writerText(w) {
   const parts = Object.entries(w?.parts || {});
@@ -97,30 +107,38 @@ export default function LiveAdmin() {
   }
 
   // Pregătirea unei lecții, CONTINUATĂ până la „gata": un apel lucrează pe server cel
-  // mult ~4 minute (scriptul, apoi vocea), apoi pagina cere încă unul — cât e deschisă.
-  // Închisă mai devreme: vocea continuă la primul elev care intră (sau „▶ Continuă").
+  // mult ~4 minute (scriptul, apoi vocea), apoi pagina cere încă unul — cât e deschisă,
+  // fără limită de runde. Închisă mai devreme (sau telefonul blocat): vocea începută o
+  // termină singur serverul (cronul, la 15 minute) — fără „▶ Continuă".
   const leaving = useRef(false);
   useEffect(() => () => { leaving.current = true; }, []);
   async function prepareLoop(key, args, what) {
     setBusy(key); setMsg(''); setErr('');
+    const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
     try {
       let req = args;
       let r = await liveApi.adminPrepare(req);
-      for (let round = 0; round < 15 && r?.lesson && (r.lesson.busy || !['gata', 'eroare'].includes(r.lesson.status)) && !leaving.current; round++) {
+      let fails = 0;
+      for (let round = 0; round < 400 && r?.lesson && (r.lesson.busy || !['gata', 'eroare'].includes(r.lesson.status)) && !leaving.current; round++) {
         const l = r.lesson;
         // cererea a rulat (sau a creat deja versiunea nouă): de acum, doar continuarea;
-        // lecția ocupată de altă cerere → aceeași cerere (ex. itemii lipsă), puțin mai târziu
+        // lecția ocupată de altă cerere (ex. cronul îi face vocea) → aceeași cerere, puțin mai târziu
         if (!l.busy || args.regenerate) req = { lessonId: l.id };
-        setMsg(`${what}: ${l.busy ? 'lecția e ocupată de altă pregătire, aștept' : l.status === 'nou' ? 'se scrie textul lecției' : `vocea, ${l.done || 0}/${l.total || '?'} fraze`}… (lasă pagina deschisă — continuă singur)`);
+        setMsg(`${what}: ${l.busy ? `lecția e ocupată de altă pregătire (ex. serverul îi face vocea${l.total ? `, ${l.done || 0}/${l.total} fraze` : ''}), aștept` : l.status === 'nou' ? 'se scrie textul lecției' : `vocea, ${l.done || 0}/${l.total || '?'} fraze`}… (continuă singur — și dacă închizi pagina, serverul o termină)`);
         load();
-        if (l.busy) await new Promise((ok) => setTimeout(ok, 8000));
-        r = await liveApi.adminPrepare(req);
+        if (l.busy) await wait(8000);
+        try { r = await liveApi.adminPrepare(req); fails = 0; }
+        catch (e) {
+          // rețeaua (Wi-Fi, telefonul în fundal) sau serverul ocupat: reîncerc de câteva ori
+          if ((e.status && e.status < 500) || ++fails > 4) throw e;
+          await wait(5000 * fails);
+        }
       }
       const st = r?.lesson?.status;
       if (st === 'eroare') setErr(`${what}: ${r.lesson.error || 'lecția nu s-a putut pregăti.'}`);
       // vocea a eșuat iar (cheia / cota TTS): lecția rămâne „gata" cu vocea browserului — nu e „gata."
       else if (st === 'gata' && r.lesson.noVoice && args.revoice) setErr(`${what}: vocea generată a eșuat din nou — lecția merge în continuare cu vocea browserului. Motivul e scris cu roșu la lecție (Lecțiile recente).`);
-      else setMsg(st === 'gata' ? `${what}: gata.` : `${what}: a înaintat — continuă la primul elev care intră sau cu „▶ Continuă".`);
+      else setMsg(st === 'gata' ? `${what}: gata.` : `${what}: a înaintat — restul vocii îl face singur serverul (la 15 minute), fără „▶ Continuă".`);
       await load();
     } catch (e) { setErr(e.message); }
     finally { setBusy(''); }
@@ -382,7 +400,7 @@ export default function LiveAdmin() {
                       {l.status === 'gata' && Number(l.sv || 1) < 2 && <div style={{ color: '#b3261e', fontSize: '.76rem' }}>scrisă fără paginile PDF — formulele (radicali, fracții…) pot lipsi; apasă „Regenerează"</div>}
                       {l.status === 'gata' && !Number(l.pasi) && <div style={{ color: '#8a5a00', fontSize: '.76rem' }}>fără întrebări pe pași (S. II–III) — se completează singure la prima folosire, sau apasă „➕ Întrebări pe pași"</div>}
                       {Number(l.pasi) > 0 && l.pasiInfo && <div style={{ color: '#6b7280', fontSize: '.76rem' }}>întrebări pe pași: {l.pasiInfo.ai || 0} scrise de AI, {l.pasiInfo.fromBarem || 0} din barem{l.pasiInfo.missing?.length ? ` · fără: ${l.pasiInfo.missing.join(', ')}` : ''}</div>}
-                      {(l.status === 'script' || l.status === 'audio') && Number(l.total) > 0 && <div style={{ color: '#6b7280', fontSize: '.76rem' }}>vocea: {Number(l.done) || 0}/{l.total} fraze — continuă la primul elev care intră, sau apasă „▶ Continuă"</div>}
+                      {voiceHint(l, data.voiceRetryHours) && <div style={{ color: l.voiceAuto === 'oprita' ? '#8a5a00' : '#6b7280', fontSize: '.76rem' }}>{voiceHint(l, data.voiceRetryHours)}</div>}
                       {l.missing?.length > 0 && <div style={{ color: '#b3261e', fontSize: '.76rem' }}>lipsesc itemii: {l.missing.join(', ')} — apasă „🧩 Completează itemii lipsă"</div>}
                       {l.itemi?.added?.length > 0 && <div style={{ color: '#6b7280', fontSize: '.76rem' }}>itemi completați: {l.itemi.added.join(', ')}</div>}
                       {l.itemi?.error && <div style={{ color: '#b3261e', fontSize: '.76rem' }}>completarea itemilor a eșuat: {l.itemi.error}</div>}
@@ -423,7 +441,7 @@ export default function LiveAdmin() {
                         </button>
                       )}
                       {(l.status === 'script' || l.status === 'audio') && (
-                        <button type="button" style={btnMain} disabled={!!busy} title={'Continuă vocea lecției până la „gata" (cât pagina e deschisă)'}
+                        <button type="button" style={btnMain} disabled={!!busy} title={'Generează vocea acum, cu pagina deschisă (mai repede). Odată pornită, vocea o termină oricum singur serverul (la 15 minute), și dacă închizi pagina.'}
                           onClick={() => prepareLoop(`cont-${l.id}`, { lessonId: l.id }, 'Vocea')}>
                           {busy === `cont-${l.id}` ? '…' : '▶ Continuă'}
                         </button>

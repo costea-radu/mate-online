@@ -4,6 +4,22 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 24 octombrie 2026 (3) — Vocea lecțiilor merge singură până la capăt, fără „▶ Continuă"
+
+Cererea (cu captura din Admin → Meditații live → Lecțiile recente: „2026 științele naturii varianta 03 — vocea se generează… vocea: 237/306 fraze — continuă la primul elev care intră, sau apasă «▶ Continuă»"): „Vocea se oprește la un anumit nr. de fraze. Fă să meargă până la final, fără să mai dau eu «continuă»."
+
+- **De ce se oprea:** vocea se genera doar cât o cerea cineva — pagina de Admin (câte un apel de ~4 minute, apoi următorul, cât pagina rămânea deschisă: pe telefon, ecranul blocat sau altă aplicație o opreau, iar pagina se oprea oricum după 16 apeluri), elevul din sală, sau cronul, dar numai pentru ședințele de grup din următoarele 4 ore. O lecție fără ședință apropiată rămânea la „237/306".
+- **Cronul o termină** (`api/live.js` → `voiceBacklog`, la sfârșitul cronului, la 15 minute): vocea începută a **oricărei** lecții (starea „audio"), dacă n-a mai generat-o nimeni de 3 minute, cu restul bugetului rulării, până la „✓ gata". Doar cea mai nouă versiune a lecției; lecțiile doar cu textul (Pregătirea de examen) și cele făcute toate cu vocea browserului rămân ca înainte (fără cost cât nu vine nimeni).
+- **Vocea eșuată pe drum se reia singură** (creditul, furnizorul — „✓ gata · vocea generată la 237 din 306 fraze"): la `LIVE_VOCE_REIA_ORE` ore (implicit 2), doar cât nicio ședință cu lecția nu e în curs și nu începe în 45 de minute, de cel mult 6 ori la rând fără nicio frază nouă (`progress.voiceTries`).
+- **Nicio lecție nu mai rămâne „vocea se generează…" la nesfârșit** (`api/_lib/liveLesson.js`, `api/live.js` → `prepareLesson`): o frază fără nimic de rostit (ex. doar „$$") se socotește făcută — și nu mai blochează nici pornirea 1-la-1; una pe care furnizorul o respinge de fiecare dată → după 3 treceri la rând fără nimic nou, lecția pleacă „gata", doar fraza aceea cu vocea browserului. „Generează vocea" pornește din starea „audio" (nu „script"), ca o întrerupere să lase lecția de continuat.
+- **Cât cronul ține lecția** (lacătul), sala 1-la-1 primește și dacă poate porni cu vocea de până atunci (`headCheck`) — nu mai așteaptă să se termine toată vocea.
+- **Admin** (`src/components/LiveAdmin.jsx`): sub lecție, „vocea: 237/306 fraze — o termină singur serverul (la 15 minute), nu trebuie apăsat nimic"; la vocea eșuată, „serverul reîncearcă singur…" sau, după 6 reîncercări, „reîncercările automate s-au oprit — apasă «🔊 Generează vocea»". „▶ Continuă" rămâne, ca s-o faci imediat: pagina merge acum până la capăt (fără limita de 16 apeluri) și trece peste o întrerupere a rețelei (reîncearcă de 4 ori).
+- `GHID_MEDITATII_LIVE.md` — secțiunile 1.2 („Vocea începută se termină singură") și 1.3, setarea `LIVE_VOCE_REIA_ORE`, „Probleme frecvente".
+
+**Verificat:** `npm test` — 825 de teste, toate trec (noi: `test/voce-pana-la-capat.test.js` +8 — cronul termină o lecție „audio" fără nicio ședință, ce lasă în pace (vocea generată chiar acum, lacătul, textul fără voce, versiunea veche, lecția toată cu vocea browserului), reluarea vocii eșuate și limitele ei, fraza respinsă mereu, fraza fără nimic de rostit, 1-la-1 cât cronul ține lecția, Admin; pe codul vechi toate 8 pică); `vite build` trece. Nu am acces la Vercel / Supabase: lecția din captură o termină prima rulare a cronului după deploy (cel mult ~15 minute).
+
+---
+
 ## 24 octombrie 2026 (2) — Vocea profesorului nu mai trece pe vocea browserului la prima problemă
 
 Cererea: „Sunetul vocii trece pe cea a browserului. Până acum cine făcea vocea, OpenAI?"

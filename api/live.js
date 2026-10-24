@@ -493,7 +493,7 @@ async function logWriteUsage(supa, endpoint, usage) {
 // steps: o lecție scrisă înainte de întrebările pe pași le primește acum (forceSteps:
 //   le scrie din nou, de la zero — din Admin).
 // figures: desenele din PDF, o singură dată pe lecție (forceFigures: din nou — din Admin).
-async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.warn, revoice = false, fromRef = null, scriptOnly = false, steps = false, forceSteps = false, fill = false, figures = true, forceFigures = false } = {}) {
+async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.warn, revoice = false, fromRef = null, scriptOnly = false, steps = false, forceSteps = false, fill = false, figures = true, forceFigures = false, headCheck = false } = {}) {
   const t0 = Date.now();
   const nowIso = new Date().toISOString();
   const until = new Date(Date.now() + budgetMs + 90 * 1000).toISOString();
@@ -502,8 +502,12 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
     .or(`locked_until.is.null,locked_until.lt.${nowIso}`).select('*');
   dbCheck(lockErr, 'lecția');
   if (!locked || !locked.length) {
-    const { data: cur } = await supa.from('live_lessons').select(LIGHT).eq('id', lessonId).maybeSingle();
-    return { ...lessonView(cur), busy: true };
+    // altă pregătire ține lecția (ex. cronul îi termină vocea): 1-la-1 poate porni și acum,
+    // cu vocea făcută până aici — ca atunci când o generează chiar sala elevului (headCheck:
+    // doar sala 1-la-1 citește atunci tot scriptul; grupul așteaptă oricum „gata")
+    const { data: cur } = await supa.from('live_lessons').select(headCheck ? `${LIGHT}, script, audio:progress->audio` : LIGHT).eq('id', lessonId).maybeSingle();
+    const playable = !!cur && (cur.status === 'gata' || (headCheck && cur.script ? LL.playableHead(cur.script, cur.audio || {}) : false));
+    return { ...lessonView(cur), busy: true, playable };
   }
   let row = locked[0];
   const teacher = L.teacherById(row.teacher) || L.teachers()[0];
@@ -514,13 +518,14 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
   };
   // vocea browserului — lecția e jucabilă imediat. Frazele care au deja vocea generată o
   // păstrează (computeTimeline folosește fișierele și atunci); `audio` = ce s-a generat
-  // până acum în această pregătire, ca nimic să nu se piardă
-  const browserVoice = async (why, audio = null) => {
-    await save({ status: 'gata', error: why || null, progress: { ...row.progress, ...(audio ? { audio, done: Object.keys(audio).length } : {}), noVoice: true, phase: 'gata', total: LL.segmentsInOrder(row.script).length } });
+  // până acum în această pregătire, ca nimic să nu se piardă (`more`: alte câmpuri ale progresului)
+  const browserVoice = async (why, audio = null, more = {}) => {
+    await save({ status: 'gata', error: why || null, progress: { ...row.progress, ...(audio ? { audio, done: Object.keys(audio).length } : {}), ...more, noVoice: true, phase: 'gata', total: LL.segmentsInOrder(row.script).length } });
   };
   try {
+    // „audio" (nu „script"): o întrerupere aici lasă lecția „cu vocea începută" — o termină cronul
     if (revoice && row.status === 'gata' && row.progress?.noVoice && row.script && tts.provider()) {
-      await save({ status: 'script', error: null, progress: { ...row.progress, noVoice: false, phase: 'voce', audio: row.progress?.audio || {} } });
+      await save({ status: 'audio', error: null, progress: { ...row.progress, noVoice: false, phase: 'voce', audio: row.progress?.audio || {} } });
     }
     // ── 1. scriptul ──
     if (row.status === 'nou' || (row.status === 'eroare' && !row.script)) {
@@ -644,19 +649,23 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
         await browserVoice(null);
         return { ...lessonView(row), noVoice: true };
       }
+      // trecerile la rând fără nicio frază nouă, deși s-a încercat (cronul nu le reia la nesfârșit)
+      const voiceTries = r.done > doneBefore ? 0 : (Number(row.progress?.voiceTries) || 0) + (r.failed ? 1 : 0);
       // vocea nu merge acum (cheia, creditul, furnizorul — și după rezervele din tts.js):
       // nimic nou, doar erori → lecția pleacă acum; frazele cu voce generată o păstrează,
-      // doar celelalte le rostește vocea browserului; restul se reia (cronul, „Generează vocea")
-      if (r.failed >= 3 && r.done === doneBefore) {
+      // doar celelalte le rostește vocea browserului; restul se reia (cronul, „Generează vocea").
+      // La fel când aceleași una-două fraze eșuează la fiecare trecere (furnizorul le respinge):
+      // după 3 treceri la rând, lecția nu mai rămâne „vocea se generează…" pentru ele
+      if (r.failed && r.done === doneBefore && (r.failed >= 3 || voiceTries >= 3)) {
         const why = r.lastError ? ` (${r.lastError})` : '';
-        await browserVoice(`vocea generată a eșuat de ${r.failed} ori${why} — ${r.done ? `${r.done} din ${r.total} fraze au vocea generată, restul le rostește vocea browserului` : 'merge cu vocea browserului'}`, audio);
+        await browserVoice(`vocea generată a eșuat de ${r.failed} ori${why} — ${r.done ? `${r.done} din ${r.total} fraze au vocea generată, restul le rostește vocea browserului` : 'merge cu vocea browserului'}`, audio, { voiceTries });
         return { ...lessonView(row), noVoice: true };
       }
       const allDone = r.done >= r.total;
       const dur = allDone ? L.buildTimeline(row.script, audio, { mode: 'grup' }).duration : null;
       await save({
         status: allDone ? 'gata' : 'audio', error: null,
-        progress: { ...row.progress, audio, total: r.total, done: r.done, phase: allDone ? 'gata' : 'voce' },
+        progress: { ...row.progress, audio, total: r.total, done: r.done, phase: allDone ? 'gata' : 'voce', voiceTries },
         cost_micro: (row.cost_micro || 0) + (r.cost || 0), ...(dur ? { duration_sec: dur } : {}),
       });
     }
@@ -919,7 +928,7 @@ async function prepare(req, res, supa) {
   }
   // 1-la-1 deja pornit: vocea continuă în fundal, întâi de la itemul la care e elevul
   const fromRef = typeof req.body?.fromRef === 'string' ? req.body.fromRef.slice(0, 20) : null;
-  const r = await prepareLesson(supa, lesson.id, { budgetMs: Math.min(240000, Math.max(20000, Number(req.body?.budgetMs) || 55000)), fromRef });
+  const r = await prepareLesson(supa, lesson.id, { budgetMs: Math.min(240000, Math.max(20000, Number(req.body?.budgetMs) || 55000)), fromRef, headCheck: session.kind === 'privat' });
   return res.status(200).json({ lesson: r });
 }
 
@@ -1390,7 +1399,7 @@ async function adminOverview(req, res, supa) {
   const total = {};
   for (const p of parts || []) total[p.session_id] = (total[p.session_id] || 0) + 1;
   const [en, bac] = await Promise.all([eligibleSubjects(supa, { exam: 'en', fresh: !!req.body?.fresh }), eligibleSubjects(supa, { exam: 'bac', fresh: !!req.body?.fresh })]);
-  const { data: lessonRows } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, title, duration_sec, error, cost_micro, updated_at, noVoice:progress->noVoice, sv:script->v, pasi:script->pasi, pasiInfo:progress->pasi, writer:script->writer, missing:script->missing, itemi:progress->itemi, total:progress->total, done:progress->done').order('updated_at', { ascending: false }).limit(60);
+  const { data: lessonRows } = await supa.from('live_lessons').select('id, subject_id, teacher, version, status, title, duration_sec, error, cost_micro, updated_at, noVoice:progress->noVoice, sv:script->v, pasi:script->pasi, pasiInfo:progress->pasi, writer:script->writer, missing:script->missing, itemi:progress->itemi, total:progress->total, done:progress->done, tries:progress->voiceTries').order('updated_at', { ascending: false }).limit(60);
   const free = await freeAdminView(supa, { fresh: !!req.body?.fresh, en, bac });
   const writer = writerAdminView();
   const freeSet = new Set(free.lessons.map((l) => String(l.subjectId).toLowerCase()));
@@ -1409,7 +1418,10 @@ async function adminOverview(req, res, supa) {
       phase: L.phaseOf(s), status: s.status, present: present[s.id] || 0, participants: total[s.id] || 0, note: s.admin_note || null,
     })),
     subjects: { en, bac },
-    lessons: (lessonRows || []).map((l) => ({ ...l, cost_lei: Math.round((l.cost_micro || 0) / 1e4) / 100, free: freeSet.has(String(l.subject_id).toLowerCase()), superseded: superseded.get(l.id) || null })),
+    // voiceAuto: vocea începută o termină singur cronul ('continua'), o reia după un eșec ('reia')
+    // sau s-a oprit după prea multe reîncercări fără nicio frază nouă ('oprita') — voiceAutoOf
+    lessons: (lessonRows || []).map((l) => ({ ...l, cost_lei: Math.round((l.cost_micro || 0) / 1e4) / 100, free: freeSet.has(String(l.subject_id).toLowerCase()), superseded: superseded.get(l.id) || null, voiceAuto: superseded.get(l.id) ? null : voiceAutoOf(l) })),
+    voiceRetryHours: VOICE_RETRY_MS() / 3600000,
     oldVersions: { count: versions.old.length, waiting: versions.waiting.length },
     free,
     writer,
@@ -1683,9 +1695,58 @@ async function adminDeleteOld(req, res, supa) {
   return res.status(200).json({ deleted: done.length, files, left: todo.length - done.length, waiting: waiting.length, errors });
 }
 
+// ─── Vocea începută se termină singură (cronul, la 15 minute) ────────────────
+// Vocea se generează doar cât o cere cineva: pagina de Admin deschisă, elevul din sală,
+// ședințele de grup din următoarele ore. Pagina închisă (telefonul blocat) sau elevul plecat
+// o lăsau la jumătate — ex. „vocea: 237/306 fraze" — până la „▶ Continuă". Acum o duce
+// cronul mai departe, la fiecare rulare, până la „gata":
+//   · 'continua' — vocea a pornit (starea „audio") și n-o mai generează nimeni de 3 minute;
+//   · 'reia' — lecția a plecat „gata" cu vocea generată doar la o parte din fraze (vocea a
+//     eșuat pe drum: creditul, furnizorul): reîncercată la LIVE_VOCE_REIA_ORE ore (implicit 2),
+//     doar cât nicio ședință cu ea nu e în curs sau nu începe în 45 de minute (cronologia ei
+//     s-ar schimba) și de cel mult VOICE_MAX_TRIES ori la rând fără nicio frază nouă ('oprita').
+// Lecțiile doar cu textul (Pregătirea de examen: „script", vocea neîncepută) și cele făcute
+// toate cu vocea browserului rămân așa: vocea lor o cere o ședință live (cronul, mai jos).
+const VOICE_IDLE_MS = 3 * 60000;
+const VOICE_MAX_TRIES = 6;
+const VOICE_RETRY_MS = () => (parseFloat(process.env.LIVE_VOCE_REIA_ORE) > 0 ? parseFloat(process.env.LIVE_VOCE_REIA_ORE) : 2) * 3600000;
+function voiceAutoOf(l) {
+  if (!l || !tts.provider()) return null;
+  const done = Number(l.done) || 0, total = Number(l.total) || 0;
+  if (l.status === 'audio') return 'continua';
+  if (l.status === 'gata' && l.noVoice === true && done > 0 && done < total) return (Number(l.tries) || 0) < VOICE_MAX_TRIES ? 'reia' : 'oprita';
+  return null;
+}
+// lecțiile pe care cronul le duce acum mai departe: întâi cele începute, apoi reluările
+async function voiceBacklog(supa, now = new Date(), skip = new Set()) {
+  const cols = `${LIGHT}, tries:progress->voiceTries`;
+  const [started, partial] = await Promise.all([
+    supa.from('live_lessons').select(cols).eq('status', 'audio').order('updated_at', { ascending: false }).limit(100),
+    supa.from('live_lessons').select(cols).eq('status', 'gata').eq('progress->>noVoice', 'true').order('updated_at', { ascending: false }).limit(500),
+  ]);
+  dbCheck(started.error, 'lecțiile');
+  if (partial.error) console.warn(`live: vocea de reluat: ${partial.error.message}`);   // cele începute merg oricum
+  const t = now.getTime();
+  const quiet = (l, ms) => !(l.locked_until && Date.parse(l.locked_until) > t) && Date.parse(l.updated_at) < t - ms;
+  const want = [...(started.data || []), ...(partial.data || [])].filter((l) => !skip.has(l.id)).map((l) => ({ ...l, auto: voiceAutoOf(l) }))
+    .filter((l) => (l.auto === 'continua' && quiet(l, VOICE_IDLE_MS)) || (l.auto === 'reia' && quiet(l, VOICE_RETRY_MS())))
+    .slice(0, 40);                // o rulare face oricum doar câteva lecții; restul, la următoarea
+  if (!want.length) return [];
+  const subjects = [...new Set(want.map((l) => l.subject_id))];
+  // doar cea mai nouă versiune (celelalte au fost înlocuite prin „Regenerează")
+  const { data: vers, error } = await supa.from('live_lessons').select('subject_id, teacher, version').in('subject_id', subjects);
+  dbCheck(error, 'lecțiile');
+  const top = new Map();
+  for (const v of vers || []) { const k = `${v.subject_id}|${v.teacher}`; top.set(k, Math.max(top.get(k) || 0, v.version)); }
+  const { data: busy } = await supa.from('live_sessions').select('subject_id, teacher').in('subject_id', subjects).in('status', ['programata', 'activa'])
+    .lte('starts_at', new Date(t + 45 * 60000).toISOString()).gt('ends_at', now.toISOString());
+  const inUse = new Set((busy || []).map((s) => `${s.subject_id}|${s.teacher}`));
+  return want.filter((l) => l.version >= (top.get(`${l.subject_id}|${l.teacher}`) || 0) && (l.auto === 'continua' || !inUse.has(`${l.subject_id}|${l.teacher}`)));
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // CRON (la 15 minute): programul, subiectele, lecțiile următoarelor ore,
-// asocierea subiect ↔ barem pentru materialele fără cache
+// asocierea subiect ↔ barem pentru materialele fără cache, vocea începută
 // ═════════════════════════════════════════════════════════════════════════════
 async function cron(supa) {
   const t0 = Date.now();
@@ -1773,6 +1834,19 @@ async function cron(supa) {
   const { data: closed } = await supa.from('live_sessions').update({ status: 'incheiata' })
     .lt('ends_at', now.toISOString()).in('status', ['programata', 'activa']).select('id');
   report.closed = (closed || []).length;
+
+  // vocea începută, a oricărei lecții (nu doar a ședințelor de mai sus), cu restul bugetului:
+  // lecția ajunge singură la „gata", fără „▶ Continuă" (voiceBacklog)
+  report.voiced = [];
+  try {
+    if (Date.now() - t0 < budget - 90000) {
+      for (const l of await voiceBacklog(supa, new Date(), new Set(report.prepared.map((p) => p.lesson)))) {
+        if (Date.now() - t0 > budget - 90000) break;
+        const r = await prepareLesson(supa, l.id, { revoice: l.auto === 'reia', budgetMs: Math.max(30000, budget - (Date.now() - t0) - 60000) });
+        report.voiced.push({ lesson: l.id, auto: l.auto, before: Number(l.done) || 0, done: r.done, total: r.total, status: r.status, ...(r.busy ? { busy: true } : {}), ...(r.noVoice ? { noVoice: true } : {}) });
+      }
+    }
+  } catch (e) { report.errors.push(`vocea: ${e.message}`); }
   report.ms = Date.now() - t0;
   return report;
 }
@@ -2396,6 +2470,6 @@ module.exports = async function handler(req, res) {
 };
 
 // pentru teste
-module.exports._internals = { computeTimeline, compactState, pollKeys, itemContext, ensureGroupClock, prepareLesson, cron, broadcast, msgView,
+module.exports._internals = { computeTimeline, compactState, pollKeys, itemContext, ensureGroupClock, prepareLesson, cron, broadcast, msgView, voiceAutoOf, voiceBacklog,
   resetCaches: () => { eligibleCache.clear(); lessonCache.clear(); freeCache = null; },
   resetFree: () => { freeCache = null; } };

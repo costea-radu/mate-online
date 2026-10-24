@@ -114,7 +114,8 @@ spunea doar „a eșuat de 3 ori". Acum (`api/_lib/tts.js` → `synthesizePcm`):
   direct la Azure;
 - dacă tot nu merge, lecția pornește, dar **frazele cu voce generată o păstrează** — doar celelalte le
   rostește browserul (`computeTimeline`) —, iar pregătirea se oprește după 8 eșecuri la rând (nu mai
-  cere sute de fraze degeaba); restul se completează mai târziu (cronul, „🔊 Generează vocea");
+  cere sute de fraze degeaba); restul îl reia singur cronul, la 2 ore (vezi mai jos), sau imediat
+  „🔊 Generează vocea";
 - **motivul real** apare cu roșu la lecție: „vocea generată a eșuat de 8 ori (OpenAI TTS 429: You exceeded
   your current quota…) — 412 din 520 fraze au vocea generată, restul le rostește vocea browserului", iar
   starea: „✓ gata · vocea generată la 412 din 520 fraze (restul: vocea browserului)".
@@ -122,6 +123,35 @@ spunea doar „a eșuat de 3 ori". Acum (`api/_lib/tts.js` → `synthesizePcm`):
 O rezervă care nu depinde de contul OpenAI: cheile Azure (`AZURE_SPEECH_KEY` + `AZURE_SPEECH_REGION`;
 nivelul gratuit F0 — 500.000 de caractere pe lună —, voce românească nativă de bărbat). Cu ele, Azure
 devine vocea principală, iar OpenAI rezerva. Teste: `test/voce-rezerva.test.js`.
+
+**Vocea începută se termină singură (24 octombrie 2026).** Cererea: „Vocea se oprește la un anumit
+nr. de fraze. Fă să meargă până la final, fără să mai dau eu «continuă»" (Admin → Lecțiile recente:
+„vocea se generează… vocea: 237/306 fraze — continuă la primul elev care intră, sau apasă «▶
+Continuă»"). Vocea se genera **doar cât o cerea cineva**: pagina de Admin (un apel de ~4 minute, apoi
+următorul — cât pagina rămâne deschisă; pe telefon, ecranul blocat sau altă aplicație o opresc, iar
+pagina se oprea oricum după 16 apeluri), elevul din sală, sau cronul — dar numai pentru ședințele de
+grup din următoarele 4 ore. Acum (`api/live.js` → `voiceBacklog`, la sfârșitul cronului):
+- **cronul (la 15 minute) duce mai departe vocea începută a ORICĂREI lecții** (starea „audio"),
+  dacă n-a mai generat-o nimeni de 3 minute, cu ce rămâne din bugetul rulării (`LIVE_CRON_MS`, 10
+  minute; vocea unei lecții întregi cere câteva minute), până la „✓ gata". Nu trebuie apăsat nimic;
+  sub lecție: „vocea: 237/306 fraze — o termină singur serverul (la 15 minute), nu trebuie apăsat
+  nimic". **„▶ Continuă"** rămâne, ca s-o faci imediat, cu pagina deschisă — care acum merge până la
+  capăt (fără limita de 16 apeluri) și trece peste o întrerupere a rețelei (reîncearcă de 4 ori);
+- **vocea eșuată pe drum** (creditul, furnizorul — „✓ gata · vocea generată la 237 din 306 fraze
+  (restul: vocea browserului)") se reia singură, la `LIVE_VOCE_REIA_ORE` ore (implicit 2) — doar cât
+  nicio ședință cu lecția nu e în curs și nu începe în 45 de minute (cronologia ei s-ar schimba) și de
+  cel mult 6 ori la rând fără nicio frază nouă; apoi Admin scrie că reîncercările automate s-au oprit
+  („🔊 Generează vocea", după ce rezolvi motivul — ex. creditul OpenAI);
+- **nicio lecție nu mai rămâne „vocea se generează…" la nesfârșit**: o frază fără nimic de rostit
+  (ex. doar „$$") se socotește făcută; una pe care furnizorul o respinge de fiecare dată → după 3
+  treceri la rând fără nimic nou, lecția pleacă „gata", doar fraza aceea cu vocea browserului;
+- cât cronul ține lecția (lacătul), un **1-la-1 poate porni** cu vocea făcută până atunci (începutul
+  lecției), ca atunci când o generează chiar sala elevului.
+
+Rămân fără voce generată, ca înainte (fără cost cât nu vine nimeni): lecțiile **doar cu textul**
+(Pregătirea de examen — „scriptul e gata, urmează vocea") și cele făcute **toate cu vocea browserului**
+(înainte de cheile TTS); vocea lor o cere o ședință live (cronul, înainte de ședință) sau „🔊 Generează
+vocea". Teste: `test/voce-pana-la-capat.test.js`.
 
 **1-la-1 pornit înainte să fie gata toată vocea generată:** restul vocii se generează în fundal,
 cât elevul lucrează — întâi de la itemul la care a ajuns (dacă a sărit înainte cu **⏭ Înainte**),
@@ -172,6 +202,7 @@ acum"; WAV-ul se citește direct. Ce nu merge se raportează o dată pe sală î
 ### 1.3 Cronul
 `vercel.json` conține deja `/api/live?action=cron` la 15 minute. Ca toate cronurile
 site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalte cronuri).
+Tot el termină singur vocea începută a lecțiilor (vezi 1.2, „Vocea începută se termină singură").
 
 ### 1.4 Deploy și verificare
 1. Deploy (ordinea față de SQL nu contează; după un deploy nou, o reîncărcare a paginii aduce
@@ -208,7 +239,8 @@ site-ului, cere `CRON_SECRET` setat în Vercel (îl ai deja, dacă merg celelalt
 | `LIVE_MINIM_GRUP` | `2` | câți elevi trebuie să fie în sală la ora de început ca să pornească ședința comună (mai puțini → 1-la-1) |
 | `LIVE_PDF_PAGINI` | pornit | `0` = lecția se scrie doar din textul extras (fără paginile PDF; formulele pot lipsi) |
 | `LIVE_PREGATIRE_AUTO` | oprit | `1` = lecțiile se scriu din timp pentru toate ședințele (cost și când nu vine nimeni); implicit, doar când apare primul elev |
-| `LIVE_PREGATIRE_ORE` | `4` | orizontul cronului: ședințele din următoarele ore pentru care pregătește lecții (cu elevi) / generează vocea |
+| `LIVE_PREGATIRE_ORE` | `4` | orizontul cronului: ședințele din următoarele ore pentru care pregătește lecții (cu elevi) / generează vocea (vocea începută a oricărei lecții o termină oricum — vezi 1.2) |
+| `LIVE_VOCE_REIA_ORE` | `2` | la câte ore reia cronul vocea eșuată pe drum (lecțiile „gata" cu vocea generată doar la o parte din fraze), de cel mult 6 ori la rând fără nicio frază nouă |
 | `LIVE_REFOLOSIRE_ZILE` | `21` | după câte zile se poate repeta un subiect |
 | `LIVE_GEN_MODEL`, `LIVE_CHAT_MODEL` | `claude-opus-5-5` / modelul de chat | modelul care scrie lecția pe barem (din paginile PDF) — din 13 oct. **Claude Opus 5.5** (vezi 3e; fără alegere în Admin) / modelul care răspunde în chat |
 | `LIVE_REZERVA_MODEL` | `gpt-5-mini` (cu `OPENAI_API_KEY`) | cine scrie bucata la care Claude nu răspunde (fără cheie, plafonul lunar, eroare): din 24 oct. **GPT-5 mini**; `fara` = fără rezervă; ex. `gpt-5.6-terra` = alt model |
@@ -855,7 +887,7 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | Desenul e tăiat greșit (lipsește o parte / are și text în plus) | figura e prea aproape de text sau desenată neobișnuit; decuparea e automată (la fel la „🖼 Refă desenele") → trimite subiectul (PDF-ul) ca să fie îmbunătățită decuparea (`api/_lib/figuri.js`); `LIVE_DESENE=0` le oprește pe toate |
 | Admin nu arată butoanele noi după un deploy (ex. „🗑 Șterge versiunile vechi", „🖼 Refă desenele" din „Scriptul") | telefonul rulează versiunea veche a site-ului: sus, în Admin → Meditații live, „Versiunea site-ului" arată data build-ului. Închide complet site-ul (toate tab-urile / aplicația) și redeschide-l; din 13 oct. (seara) versiunea nouă se ia singură |
 | În „Lecțiile recente" apare de mai multe ori același subiect (v1, v2, v3) | versiunile vechi, de dinainte de „Regenerează" → **„🗑 Șterge versiunile vechi"** (cele încă necesare — versiunea nouă nu e gata — rămân) |
-| „vocea se generează…" rămâne în Admin | normal când pagina s-a închis înainte de sfârșit: vocea continuă la primul elev care intră; sau „▶ Continuă" (continuă singur până la „gata") |
+| „vocea se generează…" rămâne în Admin | normal cât pagina s-a închis înainte de sfârșit: vocea o termină singur serverul (cronul, la 15 minute) — nu trebuie apăsat nimic; „▶ Continuă" o face imediat, cu pagina deschisă. Dacă rămâne așa ore întregi: cronul nu rulează — verifică `CRON_SECRET` și `/api/live?action=cron` în Vercel → Logs |
 | „Profesorul nu are încă un subiect cu barem" | nu există subiecte EN/BAC cu barem citit; cronul citește câteva bareme la fiecare rulare (`LIVE_CRON_BAREME`), sau alege manual subiectul din Admin |
 | Profesorul nu vorbește (doar subtitrări) | dispozitivul nu are o voce românească → Edge (voce naturală, gratuită) sau vocea română în Windows; verifică și volumul/tab-ul fără sonor |
 | Pe iPhone nu se aude nimic în sală, deși la demo se aude o voce (de femeie) | reparat 8 oct.: vocea generată (Web Audio) era tăiată de modul **Silențios**; acum sala cere sesiunea audio „playback" la „Participă acum". Versiune veche în cache (PWA) → închide și redeschide pagina. Dacă apare „🔊 Pornește sunetul", apasă-l (după un apel / ecran blocat) |
