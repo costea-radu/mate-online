@@ -143,9 +143,16 @@ const genBac = (model, log = () => {}) => LL.generateScript({
 const ALL_REFS = ['I.1', 'I.2', 'I.3', 'I.4', 'I.5', 'I.6', 'II.1', 'II.2', 'II.3', 'II.4', 'II.5', 'II.6'];
 const CLAUDE_EN_CHUNKS = ['I.1', 'I.4', 'II.1', 'II.3', 'II.5'];   // I: câte 3; II–III: câte 2
 
-test('doar Claude Opus 5.5 scrie lecțiile; fără rezervă implicită; LIVE_GEN_MODEL / LIVE_REZERVA_MODEL doar la nevoie', () => {
+test('Claude Opus 5.5 scrie lecțiile; rezerva implicită GPT-5 mini (cu cheia OpenAI); LIVE_GEN_MODEL / LIVE_REZERVA_MODEL la nevoie', () => {
   assert.strictEqual(LL.GEN_MODEL(), 'claude-opus-5-5');
-  assert.strictEqual(LL.FALLBACK_MODEL(), null, 'fără Terra ca rezervă');
+  assert.strictEqual(LL.FALLBACK_MODEL(), null, 'fără cheia OpenAI, rezerva n-are cu ce scrie');
+  const hasChat = ai.hasChat;
+  ai.hasChat = () => true;
+  try {
+    assert.strictEqual(LL.FALLBACK_MODEL(), 'gpt-5-mini', 'din 24 oct.: GPT-5 mini, dacă Opus 5.5 nu poate scrie');
+    process.env.LIVE_REZERVA_MODEL = 'fara';
+    assert.strictEqual(LL.FALLBACK_MODEL(), null, 'LIVE_REZERVA_MODEL=fara o oprește');
+  } finally { ai.hasChat = hasChat; delete process.env.LIVE_REZERVA_MODEL; }
   process.env.LIVE_GEN_MODEL = 'gpt-5.6-terra'; process.env.LIVE_REZERVA_MODEL = 'gpt-5.6-terra';
   try { assert.strictEqual(LL.GEN_MODEL(), 'gpt-5.6-terra'); assert.strictEqual(LL.FALLBACK_MODEL(), 'gpt-5.6-terra'); }
   finally { delete process.env.LIVE_GEN_MODEL; delete process.env.LIVE_REZERVA_MODEL; }
@@ -257,7 +264,7 @@ test('LIVE_GEN_MODEL=gpt-5.6-terra (doar la nevoie): Terra scrie, ca înainte (b
   } finally { s.restore(); delete process.env.LIVE_GEN_MODEL; }
 });
 
-test('fără ANTHROPIC_API_KEY: nicio lecție scrisă de alt model — eroare clară (Admin); cu LIVE_REZERVA_MODEL o scrie rezerva', async () => {
+test('fără ANTHROPIC_API_KEY și fără cheia OpenAI: eroare clară (Admin); cu LIVE_REZERVA_MODEL o scrie rezerva', async () => {
   let s = stub({ key: false, claudeFn: never('Claude'), openaiFn: never('Terra') });
   try {
     await assert.rejects(gen(null), (e) => e.code === 'NO_ANTHROPIC_KEY' && /ANTHROPIC_API_KEY lipsește/.test(e.message));
@@ -386,7 +393,33 @@ test('lecțiile deja scrise: completeScript scrie doar itemii lipsă; ceilalți 
   } finally { s.restore(); }
 });
 
-test('429: o pauză și reîncercarea cu Claude; plafonul lunar de cheltuieli → fără reîncercări, lecția nu se scrie (fără rezervă)', async () => {
+// rezerva implicită (24 oct.): GPT-5 mini scrie ce nu poate scrie Opus 5.5 — cu cheia OpenAI
+test('rezerva GPT-5 mini: plafonul lunar Anthropic → bucățile le scrie GPT-5 mini; fără ANTHROPIC_API_KEY → toată lecția, cu paginile PDF', async () => {
+  const hasChat = ai.hasChat;
+  ai.hasChat = () => true;
+  const limit = () => { const e = new Error('You have reached your API usage limits: your organization has crossed its monthly API usage threshold'); e.status = 429; throw e; };
+  let s = stub({ claudeFn: limit, openaiFn: terraOk });
+  try {
+    const r = await gen(null);
+    assert.deepStrictEqual(r.script.items.map((it) => it.ref), ALL_REFS, 'lecția e întreagă');
+    assert.ok(s.seen.openai.length > 0 && s.seen.openai.every((a) => a.model === 'gpt-5-mini'));
+    assert.deepStrictEqual(keys(s.seen.openai), CLAUDE_EN_CHUNKS.slice().sort(), 'aceleași bucăți la care Claude n-a răspuns');
+    assert.strictEqual(s.seen.claude.length, CLAUDE_EN_CHUNKS.length, 'plafonul lunar: o singură încercare cu Claude pe bucată');
+    assert.deepStrictEqual(r.script.writer, { model: 'claude-opus-5-5', parts: { 'gpt-5-mini': 5 }, notes: r.script.writer.notes });
+    assert.ok(r.script.writer.notes.some((l) => /claude-opus-5-5 a eșuat .*scrie gpt-5-mini/.test(l)), r.script.writer.notes.join('\n'));
+    assert.deepStrictEqual(LL.usageParts(r.usage).map((u) => u.model), ['gpt-5-mini'], 'costul, la prețul lui GPT-5 mini');
+  } finally { s.restore(); }
+  s = stub({ key: false, claudeFn: never('Claude'), openaiFn: terraOk });
+  try {
+    const r = await gen(null);
+    assert.deepStrictEqual(r.script.items.map((it) => it.ref), ALL_REFS);
+    assert.deepStrictEqual(keys(s.seen.openai), ['I.1', 'I.4', 'II.1', 'II.4'], 'în bucățile rezervei, de câte 3');
+    assert.ok(s.seen.openai.every((a) => a.model === 'gpt-5-mini' && a.messages[0].content.some((p) => p.type === 'file')), 'cu paginile PDF');
+    assert.deepStrictEqual(r.script.writer.parts, { 'gpt-5-mini': 4 });
+  } finally { s.restore(); ai.hasChat = hasChat; }
+});
+
+test('429: o pauză și reîncercarea cu Claude; plafonul lunar de cheltuieli → fără reîncercări, lecția nu se scrie (fără rezervă: fără cheia OpenAI)', async () => {
   // limita pe minut: prima cerere a bucății I.1 e respinsă o dată, apoi merge
   let rejected = false;
   let s = stub({

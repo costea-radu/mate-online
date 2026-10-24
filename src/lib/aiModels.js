@@ -59,7 +59,7 @@ export const AI_STACK = {
     furnizorAnthropic: 'Anthropic',
     modeleAnthropic: ['Claude Opus 5.5'],
     furnizori: 'OpenAI și Anthropic',
-    descriere: 'GPT-4o mini răspunde rapid în chat; GPT-5 mini preia explicațiile pas cu pas — rezolvările comentate, indiciile și „explică-mi din nou"; GPT-5.6 Terra și GPT-5.6 Sol preiau sarcinile care cer precizie maximă — citirea subiectelor PDF, citirea pozelor cu exerciții, corectarea după barem, generarea de teste și exerciții. Claude Opus 5.5, de la Anthropic, generează seturile de exerciții din „Meditații cu Profesorul Virtual" și scrie lecțiile meditațiilor live (explicațiile pe baremul oficial).',
+    descriere: 'GPT-4o mini răspunde rapid în chat; GPT-5 mini preia explicațiile pas cu pas — rezolvările comentate, indiciile și „explică-mi din nou"; GPT-5.6 Terra și GPT-5.6 Sol preiau sarcinile care cer precizie maximă — citirea subiectelor PDF, citirea pozelor cu exerciții, corectarea după barem, generarea de teste și exerciții. Claude Opus 5.5, de la Anthropic, generează seturile de exerciții din „Meditații cu Profesorul Virtual" și scrie lecțiile meditațiilor live (explicațiile pe baremul oficial; când nu e disponibil, le scrie GPT-5 mini).',
   },
   // Anthropic (Claude): (a) uneltele administrative interne ale echipei și
   // (b) GENERAREA seturilor de exerciții din „Meditații cu Profesorul Virtual"
@@ -69,8 +69,9 @@ export const AI_STACK = {
   // de remediere primește și răspunsul greșit al elevului (fără nume, e-mail
   // sau alte date de identificare). Ține textul sincron cu codul:
   // api/_lib/meditatii.js → OPUS_MODEL. Din octombrie 2026, Claude Opus 5.5 scrie și
-  // lecțiile meditațiilor live (doar el, din 13 oct.; doar subiectele și baremele
-  // oficiale ajung la model) — api/_lib/liveLesson.js → GEN_MODEL.
+  // lecțiile meditațiilor live (din 13 oct.; din 24 oct., când el nu poate scrie, rezerva
+  // GPT-5 mini; doar subiectele și baremele oficiale ajung la model) —
+  // api/_lib/liveLesson.js → GEN_MODEL / FALLBACK_MODEL.
   intern: {
     furnizor: 'Anthropic',
     modele: ['Claude Opus 5.5', 'Claude Fable 5'],

@@ -11,8 +11,8 @@
 // alese automat până le alegi tu, pe fiecare rând (sau cu „🎁" din „Lecțiile recente").
 // Subiectele din liste (și din „Ședințele zilei") sunt în ordinea de pe site: variante
 // date → modele → teste de antrenament → simulări.
-// ✍️ Lecțiile le scrie doar Claude Opus 5.5 (din 13 oct.; cutia doar arată modelul și
-// avertizează dacă lipsește ANTHROPIC_API_KEY).
+// ✍️ Lecțiile le scrie Claude Opus 5.5 (din 13 oct.), cu rezerva GPT-5 mini (24 oct.) când
+// Opus nu poate scrie; cutia doar arată modelul, rezerva și ce cheie lipsește.
 // 🖼 Desenele din PDF (Scriptul → „Refă desenele") și 🗑 versiunile vechi (după „Regenerează").
 // 🔊 „Generează vocea" și în Lecțiile recente (15 oct.): o lecție „gata · vocea browserului"
 // (vocea generată a eșuat — motivul e scris cu roșu) își primește vocea fără să fie regenerată.
@@ -47,7 +47,7 @@ const KIND_GROUPS = [
 ];
 const kindShort = (k) => KIND_GROUPS.find((x) => x.id === k)?.short || 'Subiect';
 
-const MODEL_LABEL = { 'gpt-5.6-terra': 'GPT-5.6 Terra', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'claude-opus-5-5': 'Claude Opus 5.5' };
+const MODEL_LABEL = { 'gpt-5.6-terra': 'GPT-5.6 Terra', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'gpt-5-mini': 'GPT-5 mini', 'claude-opus-5-5': 'Claude Opus 5.5' };
 const modelLabel = (id) => MODEL_LABEL[id] || id || '—';
 // momentul build-ului (vite.config.js → define): ce versiune a site-ului rulează telefonul
 // eslint-disable-next-line no-undef
@@ -199,10 +199,12 @@ export default function LiveAdmin() {
             desenele din PDF — și se refolosește la toate ședințele și în Pregătirea de examen. Un apel care cade se reîncearcă; itemii
             care tot lipsesc apar în „Lecțiile recente" („🧩 Completează itemii lipsă"). Lecțiile scrise înainte (de GPT-5.6 Terra
             sau Sol) se rescriu cu „Regenerează"; versiunile vechi se șterg cu „🗑 Șterge versiunile vechi".
-            {writer.fallback ? <> Rezervă (LIVE_REZERVA_MODEL): {modelLabel(writer.fallback)}.</> : null}
+            {writer.fallback
+              ? <> Rezerva: dacă {modelLabel(writer.model)} nu poate scrie (cheia lipsește, plafonul lunar de cheltuieli, nu răspunde), bucata o scrie <b>{modelLabel(writer.fallback)}</b> — la lecție se vede cine a scris-o.</>
+              : <> Fără rezervă: dacă {modelLabel(writer.model)} nu poate scrie, lecția nu se scrie (rezerva GPT-5 mini cere OPENAI_API_KEY; LIVE_REZERVA_MODEL=fara o oprește).</>}
           </p>
           {/^claude-/.test(writer.model || '') && !writer.claudeKey && (
-            <div style={{ marginTop: 10, color: '#b3261e', fontSize: '.84rem' }}>⚠ ANTHROPIC_API_KEY lipsește în Vercel — fără ea nu se poate scrie nicio lecție nouă.</div>
+            <div style={{ marginTop: 10, color: '#b3261e', fontSize: '.84rem' }}>⚠ ANTHROPIC_API_KEY lipsește în Vercel — {writer.fallback ? `lecțiile noi le scrie rezerva (${modelLabel(writer.fallback)})` : 'fără ea nu se poate scrie nicio lecție nouă'}.</div>
           )}
         </div>
       )}
@@ -488,6 +490,7 @@ export default function LiveAdmin() {
             {script.script && (script.script.items || []).map((it) => (
               <div key={it.ref} style={{ borderTop: '1px solid #eef1f5', padding: '10px 0' }}>
                 <b>{it.title}</b> {it.points ? `· ${it.points}p` : ''} {it.tryPoll ? `· sondaj (${it.tryPoll.type}, răspuns: ${it.tryPoll.answer})` : ''}
+                {it.tryPoll?.unconfirmed && <span style={{ color: '#8a5a00' }} title="Tabelul baremului nu s-a putut citi din textul PDF-ului: litera e cea din lecție (citită de model din paginile baremului). Verific-o în barem."> · litera din lecție — verific-o în barem</span>}
                 {it.steps?.length ? ` · ${it.steps.length} ${it.steps.length === 1 ? 'întrebare pe pas' : 'întrebări pe pași'}` : ''}
                 <div style={{ color: '#374151', fontSize: '.86rem', margin: '4px 0' }}>{it.statement}</div>
                 {it.figure?.url && <img src={it.figure.url} alt={`Desenul ${it.ref}`} style={{ display: 'block', maxHeight: 140, maxWidth: '60%', margin: '4px 0', border: '1px solid #eef1f5', borderRadius: 6 }} />}

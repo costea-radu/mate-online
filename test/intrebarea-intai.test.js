@@ -182,7 +182,7 @@ test('ședința de grup încadrată în 2 ore: rămâne tocmai întrebarea de di
   assert.ok(!boardUpTo(tl, qb).some((l) => /^b\)/.test(l)));
 });
 
-test('serverul: cronologia trimisă în sală (1-la-1 și grup) pune întrebarea întâi; versiunea cronologiei e 3', () => {
+test('serverul: cronologia trimisă în sală (1-la-1 și grup) pune întrebarea întâi; cronologia are amprenta versiunii (v4 din 24 oct.)', () => {
   const { computeTimeline, compactState } = handler._internals;
   const script = scriptOf(norm([rawBac()], 'II', 'bac'));
   const lesson = { id: 'l1', status: 'gata', script, progress: { audio: {}, noVoice: true }, updated_at: '2026-10-23T10:00:00.000Z' };
@@ -193,7 +193,7 @@ test('serverul: cronologia trimisă în sală (1-la-1 și grup) pune întrebarea
   assert.deepStrictEqual(kinds(group).slice(0, 4), ['item', 'sondaj#1!', 'rezultate#1!', 'explicatie']);
   // ședințele în curs își recalculează ferestrele întrebărilor (amprenta nouă)
   const st = compactState(group, lesson);
-  assert.strictEqual(st.stamp, '2026-10-23T10:00:00.000Z|v3');
+  assert.strictEqual(st.stamp, '2026-10-23T10:00:00.000Z|v4');
   const q = group.scenes.find((s) => s.type === 'sondaj');
   assert.deepStrictEqual(st.polls[q.poll.id], [q.t0, q.t0 + q.dur]);
 });

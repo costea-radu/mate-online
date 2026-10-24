@@ -26,14 +26,21 @@ const live = require('./live');
 const tts = require('./tts');
 
 // lecția pe barem se scrie o singură dată pe subiect, din paginile PDF ale subiectului
-// și baremului → DOAR Claude Opus 5.5 (API-ul Anthropic, ANTHROPIC_API_KEY): cerința
-// din 13 oct. — lecțiile scrise de GPT-5.6 Terra aveau formule stricate. Fără rezervă:
-// un apel care cade se reîncearcă tot cu Claude, iar itemii care tot lipsesc se scriu
-// separat, câte unul (sau din Admin, „🧩 Completează itemii lipsă"). LIVE_GEN_MODEL
-// schimbă modelul, LIVE_REZERVA_MODEL (ex. „gpt-5.6-terra") pune o rezervă — doar la nevoie.
+// și baremului, de Claude Opus 5.5 (API-ul Anthropic, ANTHROPIC_API_KEY): cerința din
+// 13 oct. — lecțiile scrise de GPT-5.6 Terra aveau formule stricate. Un apel care cade se
+// reîncearcă întâi tot cu Claude, iar itemii care tot lipsesc se scriu separat, câte unul
+// (sau din Admin, „🧩 Completează itemii lipsă"). REZERVA (24 oct. 2026): dacă Opus 5.5 tot
+// nu scrie — cheia lipsește, plafonul lunar de cheltuieli, Anthropic nu răspunde —, bucata
+// o scrie GPT-5 mini (cu cheia OpenAI), ca lecția să nu rămână nescrisă; Admin arată cine a
+// scris-o. LIVE_GEN_MODEL schimbă modelul, LIVE_REZERVA_MODEL rezerva (`fara` = fără rezervă).
 const OPUS = 'claude-opus-5-5';
+const MINI = 'gpt-5-mini';
 const GEN_MODEL = () => (process.env.LIVE_GEN_MODEL || '').trim() || OPUS;
-const FALLBACK_MODEL = () => (process.env.LIVE_REZERVA_MODEL || '').trim() || null;
+const FALLBACK_MODEL = () => {
+  const v = (process.env.LIVE_REZERVA_MODEL || '').trim();
+  if (/^(0|nu|fara|fără|none|off|false)$/i.test(v)) return null;
+  return v || (ai.hasChat() ? MINI : null);   // rezerva implicită merge doar cu cheia OpenAI
+};
 // doar ID-urile Anthropic („claude-…") merg pe API-ul Anthropic; „anthropic/claude-…"
 // (un furnizor compatibil OpenAI, prin AI_CHAT_BASE_URL) rămâne pe ai.chatJson
 const isClaude = (m) => /^claude-/i.test(String(m || '').trim());
@@ -592,6 +599,68 @@ function cleanBaremSegs(arr, { min = 1, max = 14 } = {}) {
   return segs.length >= min ? { segs, asks } : { segs: [], asks: [] };
 }
 
+// ─── GRILELE (EN, Subiectele I și II): întrebarea pe ecran, înainte de explicație ─
+// Litera corectă vine din tabelul baremului (B.grilaAnswers / locateBaremItem). Până pe
+// 24 oct. 2026, o grilă a cărei literă nu se citea din textul PDF-ului rămânea FĂRĂ
+// întrebare, deși profesorul spunea „răspundeți pe ecran" (cerința: la EN, Subiectul al
+// II-lea). Acum rămâne litera din lecție — modelul a citit-o din paginile baremului — când
+// explicația pe barem o CONFIRMĂ (dă aceeași literă: „⇒ b)", „Răspunsul corect este b", sau
+// scrie pe tablă rezultatul variantei ei) și nimic nu o contrazice; altfel tot fără întrebare
+// (nu riscăm o cheie greșită). `unconfirmed` = litera nu e confirmată din tabelul baremului
+// (Admin → „Scriptul" o arată, ca s-o poți verifica în barem).
+const letterOf = (s) => ((/^\s*\(?\s*([a-d])\s*(?:[).]|$)/i.exec(String(s ?? '').replace(/\$|\*\*/g, '')) || [])[1] || '').toLowerCase() || null;
+// literele pe care explicația pe barem le dă drept răspuns („⇒ b)", „Răspunsul corect este b")
+function explainedLetters(it) {
+  const out = new Set();
+  for (const s of it?.modes?.barem || []) {
+    for (const t of [s?.say, ...(s?.board || [])]) {
+      const f = live.foldRo(String(t || '')).replace(/\$|\*\*/g, ' ');
+      for (const m of f.matchAll(/(?:\\rightarrow|\\implies|⇒|=>|→)\s*\(?([a-d])\)/g)) out.add(m[1]);
+      for (const m of f.matchAll(/\b(?:raspunsul?(?:\s+corect)?|(?:varianta|litera)\s+corecta)\s*:?\s+(?:este\s+|e\s+)?(?:varianta\s+|litera\s+)?\(?([a-d])\)?(?![a-z0-9])/g)) out.add(m[1]);
+    }
+  }
+  return out;
+}
+// varianta al cărei rezultat îl scrie explicația pe tablă („= 14" → varianta „14"); -1 = niciuna
+// sau mai multe (nu se poate spune)
+function shownOption(it, opts) {
+  const lines = (it?.modes?.barem || []).flatMap((s) => s?.board || []);
+  const hit = opts.map((o, k) => (lines.some((l) => revealsAnswer(l, o)) ? k : -1)).filter((k) => k >= 0);
+  return hit.length === 1 ? hit[0] : -1;
+}
+// Încercarea unei grile cu litera din lecție: enunțul, cele 4 variante, litera (null = nu
+// se poate: fără 4 variante sau fără literă, încercarea și răspunsul itemului nu spun
+// aceeași literă, ori explicația nu o confirmă sau o contrazice)
+function grilaTry(it) {
+  const tp = it?.tryPoll && it.tryPoll.type === 'grila' ? it.tryPoll : null;
+  const fromItem = letterOf(it?.answer), fromTry = tp ? letterOf(tp.answer) : null;
+  const letter = fromItem || fromTry;
+  if (!letter || (fromItem && fromTry && fromItem !== fromTry)) return null;
+  const opts = [tp?.options, it?.options].find((o) => Array.isArray(o) && o.length === 4 && o.every((x) => String(x ?? '').trim()));
+  if (!opts || !String(it.statement || '').trim()) return null;
+  const said = explainedLetters(it), shown = shownOption(it, opts), k = 'abcd'.indexOf(letter);
+  const confirmed = said.has(letter) || shown === k;
+  const contradicted = [...said].some((l) => l !== letter) || (shown >= 0 && shown !== k);
+  if (!confirmed || contradicted) return null;
+  return { type: 'grila', question: (tp && tp.question) || it.statement, options: opts, answer: letter, explain: (tp && tp.explain) || '' };
+}
+// Lecțiile scrise înainte de 24 oct., din care întrebarea unei grile căzuse: o primesc la
+// încărcare (sala, Pregătirea de examen, simulările), cu litera din lecție — lecția din
+// bază nu se schimbă, fără cost; id-ul, ca la scriere (assignItemIds). Verificarea de la
+// sfârșit, dacă era, lasă locul încercării (un singur sondaj: înainte SAU după).
+function restoreGrilaTries(script) {
+  if (!script || !Array.isArray(script.items)) return script;
+  let changed = false;
+  const items = script.items.map((it, k) => {
+    if (!it || it.tryPoll || !(it.section === 'I' || it.section === 'II') || (Array.isArray(it.steps) && it.steps.length)) return it;
+    const t = grilaTry(it);
+    if (!t) return it;
+    changed = true;
+    return { ...it, tryPoll: { ...t, unconfirmed: true, id: `p${k}t-${live.shortId(it.ref + 'try')}` }, check: null, afterCheck: [] };
+  });
+  return changed ? { ...script, items } : script;
+}
+
 // Aplică verificările deterministe pe itemii unei secțiuni. `grile` = răspunsurile
 // oficiale din tabelul baremului (EN), `baremText` = tot baremul.
 function normalizeItems(rawItems, { section, exam, grile = {}, baremText = '', log = () => {} }) {
@@ -637,14 +706,21 @@ function normalizeItems(rawItems, { section, exam, grile = {}, baremText = '', l
         item.tryPoll = { type: 'grila', question: item.statement, options: item.options, answer: official, explain: '' };
       }
     } else if (exam === 'en' && (section === 'I' || section === 'II') && item.kind === 'grila') {
-      // grilă fără literă găsită în barem → fără sondaj (nu riscăm o cheie greșită)
       const loc = B.locateBaremItem(baremText, { subject: section, ex: r.ex, letter: null });
       if (loc && loc.kind === 'grila') {
         if (item.tryPoll && item.tryPoll.type === 'grila') item.tryPoll.answer = loc.litera;
         item.answer = loc.litera;
-      } else if (item.tryPoll && item.tryPoll.type === 'grila') {
-        log(`live: ${item.ref} — litera nu se poate confirma din barem → fără sondaj`);
-        item.tryPoll = null;
+      } else {
+        // litera nu se citește din textul baremului → litera din lecție, dacă explicația o
+        // confirmă și nimic nu o contrazice (grilaTry); altfel fără sondaj — nu riscăm o cheie greșită
+        const t = !item.tryPoll || item.tryPoll.type === 'grila' ? grilaTry(item) : null;
+        if (t) {
+          log(`live: ${item.ref} — litera ${t.answer}) din lecție (nu se citește din textul baremului)`);
+          item.tryPoll = { ...t, unconfirmed: true };
+        } else if (item.tryPoll && item.tryPoll.type === 'grila') {
+          log(`live: ${item.ref} — litera nu se poate confirma din barem → fără sondaj`);
+          item.tryPoll = null;
+        }
       }
     }
     // rezultat scurt (bareme vechi de EN): rezultatul oficial la sondajul de completare
@@ -958,7 +1034,7 @@ function itemBrokenMath(it) {
 // Itemii care LIPSESC după prima trecere (răspuns tăiat, itemi omiși de model sau
 // respinși la verificări — ex. „Subiectul III, 1 b) și c)"): câte un apel pe item,
 // cu paginile secțiunii — un răspuns scurt, fără risc de tăiere; aceeași rezervă
-// (Claude → Terra). Cel mult FILL_MAX itemi (mai mulți = altă problemă, nu omisiuni).
+// (Claude → GPT-5 mini). Cel mult FILL_MAX itemi (mai mulți = altă problemă, nu omisiuni).
 const FILL_MAX = 12;
 async function fillItems({ refs, sections, attachments, teacher, exam, profile, title, grile, baremText, model, usage, wrote, log }) {
   const got = await Promise.all(refs.slice(0, FILL_MAX).map(async (ref) => {
@@ -1281,10 +1357,10 @@ function playableHead(script, audio) {
 }
 
 module.exports = {
-  generateScript, adaptScript, renameTeacher, dropUnreadable, pdfAttachments, sectionPages, voiceScript, playableHead, segmentsInOrder, voiceOrder, itemSegments, templates, assignIds,
+  generateScript, adaptScript, renameTeacher, dropUnreadable, restoreGrilaTries, grilaTry, pdfAttachments, sectionPages, voiceScript, playableHead, segmentsInOrder, voiceOrder, itemSegments, templates, assignIds,
   normalizeItems, sectionMap, callPlan, parseRef, refKey, SCHEMA, systemPrompt, userPrompt, GEN_MODEL,
-  // cine scrie (Claude Opus 5.5; o rezervă doar cu LIVE_REZERVA_MODEL) și costul pe model
-  OPUS, FALLBACK_MODEL, isClaude, writeJson, anthropicContent, usageParts,
+  // cine scrie (Claude Opus 5.5; rezerva GPT-5 mini sau LIVE_REZERVA_MODEL) și costul pe model
+  OPUS, MINI, FALLBACK_MODEL, isClaude, writeJson, anthropicContent, usageParts,
   // itemii lipsă (structura subiectului, completarea lor)
   expectedRefs, missingOf, missingGuess, chunkSize, completeScript,
   // întrebările pe pași

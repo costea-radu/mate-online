@@ -496,7 +496,9 @@ function grilaAnswers(baremText) {
   for (const sec of subjectSections(baremText)) {
     if (sec.sub !== 'I' && sec.sub !== 'II') continue;
     const map = {};
-    const lines = sec.text.split('\n').map((l) => l.trim()).filter(Boolean);
+    // NFKC: literele scrise cu fontul de ecuații („𝑏") sau late („ｂ") devin „b"
+    const text = sec.text.normalize('NFKC');
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
     // (a) tabel orizontal: rândul cu numerele itemilor + rândul cu literele
     //     (sau amândouă pe același rând: „1. c. 2. d. 3. b. …")
     const LABELS = new Set(['nr', 'numar', 'numarul', 'item', 'itemul', 'itemului', 'itemi', 'de', 'ordine', 'crt', 'intrebare', 'intrebarea', 'intrebarii', 'exercitiu', 'exercitiul', 'exercitiului', 'subiect', 'punct', 'rezultat', 'rezultate', 'raspuns', 'raspunsul', 'raspunsuri', 'corect', 'corecte', 'punctaj']);
@@ -516,7 +518,22 @@ function grilaAnswers(baremText) {
     // (b) pe verticală / inline: „3. c. 5p" sau „3. c) 5 puncte"
     if (!Object.keys(map).length) {
       const re = /(?:^|\n|\s)([1-9])\s*[.)]\s*([a-d])\s*[.)]?\s*\d\s*p(?:uncte)?\b/gi;
-      for (const m of sec.text.matchAll(re)) map[parseInt(m[1], 10)] = m[2].toLowerCase();
+      for (const m of text.matchAll(re)) map[parseInt(m[1], 10)] = m[2].toLowerCase();
+    }
+    // (c) tabelul rupt pe mai multe rânduri (rândul numerelor împărțit în două, sau câte o
+    //     celulă pe rând): numerele 1, 2, … n, în ordine, apoi — după eticheta rândului
+    //     („Rezultate", „Răspuns corect") — exact n litere
+    if (!Object.keys(map).length) {
+      const toks = text.split(/\s+/).filter(Boolean);
+      for (let i = 0; i < toks.length && !Object.keys(map).length; i++) {
+        let n = 0;
+        while (i + n < toks.length && new RegExp(`^${n + 1}[.)]?$`).test(toks[i + n])) n++;
+        if (n < 4) continue;
+        let j = i + n;
+        while (j < toks.length && LABELS.has(norm(toks[j]).replace(/[^a-z]/g, ''))) j++;
+        const letters = toks.slice(j, j + n).map((t) => (/^\(?([a-d])[.)]?$/i.exec(t) || [])[1]);
+        if (letters.length === n && letters.every(Boolean)) letters.forEach((l, k) => { map[k + 1] = l.toLowerCase(); });
+      }
     }
     if (Object.keys(map).length >= 3) out[sec.sub] = map;
   }

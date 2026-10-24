@@ -102,8 +102,9 @@ async function loadLesson(supa, lessonId, { fresh = false } = {}) {
   if (!fresh && c && Date.now() - c.at < LESSON_TTL) return c.row;
   const { data, error } = await supa.from('live_lessons').select('*').eq('id', lessonId).maybeSingle();
   dbCheck(error, 'lecția');
-  // numele profesorului din lecțiile scrise înainte de o redenumire (ex. „Prof. Radu" → „Prof. Tudor")
-  if (data?.script) data.script = LL.dropUnreadable(LL.renameTeacher(data.script, L.teacherById(data.teacher)));
+  // numele profesorului din lecțiile scrise înainte de o redenumire (ex. „Prof. Radu" → „Prof. Tudor");
+  // grilele (EN) rămase fără întrebare în lecțiile scrise înainte de 24 oct. o primesc acum
+  if (data?.script) data.script = LL.restoreGrilaTries(LL.dropUnreadable(LL.renameTeacher(data.script, L.teacherById(data.teacher))));
   if (data) lessonCache.set(lessonId, { at: Date.now(), row: data });
   if (lessonCache.size > 40) lessonCache.delete(lessonCache.keys().next().value);
   return data || null;
@@ -465,8 +466,8 @@ async function stepsUpgradeFor(supa, session, light, now = new Date()) {
   return !(await groupBusy(supa, session.subject_id, session.teacher, now));
 }
 
-// ─── Cine scrie lecțiile: DOAR Claude Opus 5.5 (liveLesson.GEN_MODEL; din 13 oct. nu
-// mai e o alegere în Admin — LIVE_GEN_MODEL / LIVE_REZERVA_MODEL doar la nevoie) ──
+// ─── Cine scrie lecțiile: Claude Opus 5.5 (liveLesson.GEN_MODEL; din 13 oct. nu mai e o
+// alegere în Admin), cu rezerva GPT-5 mini din 24 oct. (liveLesson.FALLBACK_MODEL) ──
 // scrisul cu Claude durează minute: lacătul ține cât poate trăi funcția (800 s), ca o
 // cerere paralelă să nu scrie aceeași lecție a doua oară (finally îl eliberează)
 const WRITE_LOCK_MS = 14 * 60 * 1000;
@@ -698,7 +699,8 @@ const playableFor = (session, lesson) => lesson.status === 'gata' || (session.ki
 // „amprenta" cronologiei: lecția + versiunea regulilor de durată (dacă se schimbă
 // estimarea duratelor, ședințele în curs își recalculează ferestrele întrebărilor)
 // v3 (23 oct. 2026): prima întrebare a fiecărui subpunct vine înaintea explicației lui
-const TL_VERSION = 3;
+// v4 (24 oct. 2026): grilele de EN rămase fără întrebare o primesc (LL.restoreGrilaTries)
+const TL_VERSION = 4;
 const tlStamp = (lesson) => `${lesson.updated_at}|v${TL_VERSION}`;
 
 // răspunsurile corecte ale tuturor întrebărilor (încercarea, pașii, verificarea)
@@ -1517,7 +1519,7 @@ async function adminSetFree(req, res, supa) {
   return res.status(200).json({ ok: true, free: await freeAdminView(supa, { fresh: true }) });
 }
 
-// ─── Cine scrie lecțiile (Admin → „✍️ Lecțiile le scrie Claude Opus 5.5") ─────
+// ─── Cine scrie lecțiile (Admin → „✍️ Lecțiile le scrie Claude Opus 5.5", cu rezerva) ──
 function writerAdminView() {
   return { model: LL.GEN_MODEL(), fallback: LL.FALLBACK_MODEL(), claudeKey: !!require('./_lib/claude').HAS_KEY };
 }

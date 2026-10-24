@@ -117,7 +117,7 @@ test('BAC: itemii pe litere (II.1.a) și verificarea automată cu rezultatul fin
   assert.strictEqual(LL.parseRef('x'), null);
 });
 
-test('grila fără literă confirmată de barem → fără sondaj (nu riscăm o cheie greșită)', () => {
+test('grila fără literă confirmată de barem și fără confirmare în explicație → fără sondaj (nu riscăm o cheie greșită)', () => {
   const [n] = LL.normalizeItems([rawItem('II.2')], { section: 'II', exam: 'en', grile: {}, baremText: 'SUBIECTUL al II-lea\n2. rezolvare lungă fără literă 5p' });
   assert.strictEqual(n.tryPoll, null);
 });

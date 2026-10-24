@@ -4,6 +4,27 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 24 octombrie 2026 — Meditații live: întrebările grilelor de EN apar pe ecran · rezerva GPT-5 mini când Opus 5.5 nu poate scrie lecția
+
+Cererea: „1) La Evaluare Națională, la subiectul al doilea nu apar întrebările, doar spune profesorul să răspundă pe ecran. Fă să apară întrebarea pe ecran. 2) Fă să genereze vocea cu alt model, GPT-5 mini, dacă nu merge cu Opus 5.5."
+
+### 1) Grilele de EN: întrebarea pe ecran (`api/_lib/liveLesson.js`, `api/live.js`, `api/_lib/barem.js`, `api/_lib/simulariOficiale.js`, `src/components/LiveAdmin.jsx`)
+- **Cauza:** litera corectă a unei grile (EN, Subiectele I și II) se ia din tabelul baremului, citit din textul PDF-ului. Când tabelul nu se citea din text, întrebarea grilei cădea din lecție („nu riscăm o cheie greșită"), deși modelul o scrisese din paginile baremului și profesorul spunea „alegeți răspunsul pe ecran" — un subiect întreg rămânea fără întrebări. Nu am avut acces la lecția de pe site, deci nu știu exact ce formă avea acolo tabelul; reparația nu depinde de forma lui (litera vine din lecție, confirmată de explicație).
+- **Acum:** litera din tabel are în continuare ultimul cuvânt; când nu se citește, rămâne litera din lecție, **doar dacă explicația pe barem o confirmă** (aceeași literă, sau rezultatul variantei scris pe tablă) și nimic nu o contrazice (`grilaTry`). Altfel grila rămâne fără întrebare: o cheie greșită ar nota greșit elevii.
+- **Lecțiile deja scrise** primesc întrebarea la încărcare (`restoreGrilaTries` în `loadLesson`; și simulările din subiectele oficiale): fără „Regenerează", fără cost, lecția din bază neschimbată; id-ul ca la scriere, cheia pe server aceeași. O verificare de la sfârșit, dacă era, lasă locul încercării. Cronologia v4 (`TL_VERSION`).
+- **Tabelul din barem se citește mai des:** literele din fontul de ecuații („𝑏") prin NFKC; tabelul rupt pe rânduri sau cu câte o celulă pe rând.
+- **Admin → „Scriptul":** „litera din lecție — verific-o în barem" la grilele cu litera neconfirmată de tabel.
+
+### 2) Rezerva GPT-5 mini (`api/_lib/liveLesson.js` → `FALLBACK_MODEL`, `src/components/LiveAdmin.jsx`, `src/lib/aiModels.js`)
+- Vocea (sunetul) nu o face Opus 5.5: o generează Azure / OpenAI TTS. Opus 5.5 scrie lecția — ce spune profesorul —, deci acolo e rezerva: dacă Opus 5.5 tot nu scrie după reîncercări (cheia Anthropic lipsește, plafonul lunar de cheltuieli, Anthropic nu răspunde), **bucata o scrie GPT-5 mini** (cu cheia OpenAI), cu aceleași pagini PDF, aceeași schemă și aceleași verificări. Până acum rezerva era oprită implicit (`LIVE_REZERVA_MODEL` gol), iar lecția nu se scria.
+- `LIVE_REZERVA_MODEL=fara` o oprește; alt model — `LIVE_REZERVA_MODEL=gpt-5.6-terra`. Fără cheia OpenAI nu există rezervă (ca înainte).
+- Admin → „✍️ Lecțiile le scrie Claude Opus 5.5": „Rezerva: … GPT-5 mini"; la lecție, „scrisă de: Claude Opus 5.5 (5 bucăți) + GPT-5 mini (1 bucată)"; costul, la prețul lui GPT-5 mini. Lista publică a modelelor AI (`aiModels.js`) spune și ea că GPT-5 mini scrie lecțiile când Opus 5.5 nu e disponibil.
+- `GHID_MEDITATII_LIVE.md` — secțiunile 3e și 3h, setările, „Probleme frecvente".
+
+**Verificat:** `npm test` — 812 teste, toate trec (noi: `test/grile-en-intrebarea.test.js` +4 — lecțiile noi, lecțiile deja scrise, prin server: întrebarea în sală, răspunsul corectat cu litera bună, Admin; tabelul din barem; în `test/lectii-live-opus.test.js` +1 — plafonul lunar Anthropic și lipsa cheii → scrie GPT-5 mini; pe codul vechi toate 6 pică); `vite build` trece.
+
+---
+
 ## 23 octombrie 2026 (2) — Icon nou ΣxamenMate; PDF: „📋 Barem" în bară, „✍️ Spațiu de lucru" în conversație
 
 Cererea: „Schimbă iconul site-ului și al aplicației cu poza trimisă (culorile site-ului, după stilul iconului actual, caracterele un pic mai groase, efecte). La fișierele PDF, în viewer, pune buton care deschide baremul asociat, în locul butonului «spațiu de lucru». Mută butonul «spațiu de lucru» în widget și fă să se deschidă în zona de conversație, ca un spațiu gol de lucru, care să arate exact la fel ca zona goală de conversație, fără linii orizontale; zona să poată fi modificată ca mărime de pe telefon ca până acum."
