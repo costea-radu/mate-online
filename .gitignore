@@ -38,3 +38,6 @@ play-assets/*.apk
 *.keystore
 *.jks
 keystore.properties
+
+# parolele cheilor de semnare (copii)
+android-twa/keystore/*.properties

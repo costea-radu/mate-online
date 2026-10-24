@@ -40,7 +40,7 @@
   "fallbackType": "customtabs",
   "webManifestUrl": "https://examenmate.com/manifest.webmanifest",
   "fullScopeUrl": "https://examenmate.com/",
-  "minSdkVersion": 21,
+  "minSdkVersion": 24,
   "isChromeOSOnly": false,
   "isMetaQuest": false,
   "additionalTrustedOrigins": [
