@@ -512,9 +512,11 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
     if (error) log(`live: salvarea lecției ${row.id}: ${error.message}`);
     if (data) row = data;
   };
-  // vocea browserului (fără fișiere) — lecția e jucabilă imediat
-  const browserVoice = async (why) => {
-    await save({ status: 'gata', error: why || null, progress: { ...row.progress, noVoice: true, phase: 'gata', total: LL.segmentsInOrder(row.script).length } });
+  // vocea browserului — lecția e jucabilă imediat. Frazele care au deja vocea generată o
+  // păstrează (computeTimeline folosește fișierele și atunci); `audio` = ce s-a generat
+  // până acum în această pregătire, ca nimic să nu se piardă
+  const browserVoice = async (why, audio = null) => {
+    await save({ status: 'gata', error: why || null, progress: { ...row.progress, ...(audio ? { audio, done: Object.keys(audio).length } : {}), noVoice: true, phase: 'gata', total: LL.segmentsInOrder(row.script).length } });
   };
   try {
     if (revoice && row.status === 'gata' && row.progress?.noVoice && row.script && tts.provider()) {
@@ -569,7 +571,7 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
           script: r.script, status: next, error: null,
           progress: { ...row.progress, total: all.length, done: all.filter((x) => audio[x.id]).length, phase: next === 'gata' ? 'gata' : 'voce', pasi: { at: new Date().toISOString(), ...r.report } },
           cost_micro: (row.cost_micro || 0) + costMicro,
-          ...(next === 'gata' ? { duration_sec: L.buildTimeline(r.script, row.progress?.noVoice ? {} : audio, { mode: 'grup' }).duration } : {}),
+          ...(next === 'gata' ? { duration_sec: L.buildTimeline(r.script, audio, { mode: 'grup' }).duration } : {}),
         });
         log(`live: lecția ${row.id} — întrebări pe pași: ${r.report.ai} scrise de model, ${r.report.fromBarem} din barem${r.report.missing.length ? `, fără întrebare: ${r.report.missing.join(', ')}` : ''}`);
       } catch (e) {
@@ -600,7 +602,7 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
           script: r.script, status: next, error: null,
           progress: { ...row.progress, total: all.length, done: all.filter((x) => audio[x.id]).length, phase: next === 'gata' ? 'gata' : 'voce', itemi: { at: new Date().toISOString(), ...r.report } },
           cost_micro: (row.cost_micro || 0) + costMicro,
-          ...(next === 'gata' ? { duration_sec: L.buildTimeline(r.script, row.progress?.noVoice ? {} : audio, { mode: 'grup' }).duration } : {}),
+          ...(next === 'gata' ? { duration_sec: L.buildTimeline(r.script, audio, { mode: 'grup' }).duration } : {}),
         });
         log(`live: lecția ${row.id} — itemi lipsă: ${r.report.asked.join(', ') || 'niciunul'}; scriși acum: ${r.report.added.join(', ') || 'niciunul'}`);
       } catch (e) {
@@ -637,15 +639,17 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
           onProgress: async (a) => { await save({ status: 'audio', progress: { ...row.progress, audio: a, done: Object.keys(a).length } }); },
         });
       } catch (e) {
-        if (e.code !== 'NO_TTS') { await browserVoice(`vocea: ${String(e.message || e).slice(0, 300)}`); return { ...lessonView(row), noVoice: true }; }
+        if (e.code !== 'NO_TTS') { await browserVoice(`vocea: ${String(e.message || e).slice(0, 300)}`, audio); return { ...lessonView(row), noVoice: true }; }
         // fără nicio voce configurată: lecția merge cu vocea browserului (durate estimate)
         await browserVoice(null);
         return { ...lessonView(row), noVoice: true };
       }
-      // vocea nu merge deloc (cheie greșită, cotă depășită): nimic nou, doar erori →
-      // lecția pleacă acum cu vocea browserului; ce s-a generat rămâne pentru mai târziu
+      // vocea nu merge acum (cheia, creditul, furnizorul — și după rezervele din tts.js):
+      // nimic nou, doar erori → lecția pleacă acum; frazele cu voce generată o păstrează,
+      // doar celelalte le rostește vocea browserului; restul se reia (cronul, „Generează vocea")
       if (r.failed >= 3 && r.done === doneBefore) {
-        await browserVoice(`vocea generată a eșuat de ${r.failed} ori — merge cu vocea browserului`);
+        const why = r.lastError ? ` (${r.lastError})` : '';
+        await browserVoice(`vocea generată a eșuat de ${r.failed} ori${why} — ${r.done ? `${r.done} din ${r.total} fraze au vocea generată, restul le rostește vocea browserului` : 'merge cu vocea browserului'}`, audio);
         return { ...lessonView(row), noVoice: true };
       }
       const allDone = r.done >= r.total;
@@ -681,7 +685,9 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
 // în live_sessions.state, ca fiecare răspuns al elevilor să nu recitească lecția.
 function computeTimeline(session, lesson, { individual = false } = {}) {
   if (!lesson?.script) return null;
-  const audio = lesson.progress?.noVoice ? {} : (lesson.progress?.audio || {});
+  // vocea generată se folosește și când n-a putut fi terminată (noVoice): doar frazele fără
+  // fișier le rostește vocea browserului (până pe 24 oct. trecea pe ea toată lecția)
+  const audio = lesson.progress?.audio || {};
   let tl;
   if (session.kind === 'grup' && !individual) {
     const start = new Date(session.state?.startedAt || session.starts_at).getTime();
@@ -689,7 +695,8 @@ function computeTimeline(session, lesson, { individual = false } = {}) {
     const target = Math.max(1800, (new Date(L.baseEndOf(session) || session.ends_at).getTime() - start) / 1000 - 120);
     tl = L.fitTimeline(lesson.script, audio, target);
   } else tl = L.buildTimeline(lesson.script, audio, { mode: 'privat' });
-  // fără voce generată (nicio cheie TTS): playerul nu așteaptă sunetul, vorbește browserul
+  // vocea generată lipsește sau n-a putut fi terminată: playerul nu așteaptă sunetul —
+  // frazele fără fișier le rostește browserul
   if (tl && lesson.progress?.noVoice) tl.noVoice = true;
   return tl;
 }
@@ -700,7 +707,8 @@ const playableFor = (session, lesson) => lesson.status === 'gata' || (session.ki
 // estimarea duratelor, ședințele în curs își recalculează ferestrele întrebărilor)
 // v3 (23 oct. 2026): prima întrebare a fiecărui subpunct vine înaintea explicației lui
 // v4 (24 oct. 2026): grilele de EN rămase fără întrebare o primesc (LL.restoreGrilaTries)
-const TL_VERSION = 4;
+// v5 (24 oct. 2026): vocea generată se folosește și la lecțiile „cu vocea browserului"
+const TL_VERSION = 5;
 const tlStamp = (lesson) => `${lesson.updated_at}|v${TL_VERSION}`;
 
 // răspunsurile corecte ale tuturor întrebărilor (încercarea, pașii, verificarea)
@@ -1406,6 +1414,7 @@ async function adminOverview(req, res, supa) {
     free,
     writer,
     tts: tts.provider(),
+    ttsChain: tts.chainLabel(),   // cine face vocea, cu rezervele: „OpenAI gpt-4o-mini-tts → OpenAI tts-1"
   });
 }
 

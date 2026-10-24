@@ -1319,7 +1319,7 @@ function adaptScript(script, teacher) {
 async function voiceScript(supa, { lessonId, script, teacher, audio = {}, budgetMs = 240000, log = console.warn, onProgress = null, every = 15, fromRef = null }) {
   const t0 = Date.now();
   const todo = voiceOrder(script, fromRef).filter((s) => !audio[s.id]);
-  let cost = 0, failed = 0, sinceSave = 0;
+  let cost = 0, failed = 0, sinceSave = 0, inARow = 0, lastError = null;
   const queue = todo.slice();
   const worker = async () => {
     while (queue.length && Date.now() - t0 < budgetMs) {
@@ -1327,19 +1327,25 @@ async function voiceScript(supa, { lessonId, script, teacher, audio = {}, budget
       try {
         const v = await tts.voiceSegment(supa, { text: seg.say, teacher, path: `lessons/${lessonId}/${seg.id}` });
         if (v) { audio[seg.id] = { url: v.url, dur: v.dur, lip: v.lip }; cost += v.cost || 0; }
+        inARow = 0;
         // progresul se salvează din când în când: o întrerupere nu pierde vocea deja făcută
         if (onProgress && ++sinceSave >= every) { sinceSave = 0; try { await onProgress(audio, cost); } catch { /* următoarea salvare */ } }
       } catch (e) {
         failed++;
         if (e.code === 'NO_TTS') { queue.length = 0; throw e; }
+        // motivul (ex. „OpenAI TTS 429: … quota") ajunge în Admin, la lecție
+        lastError = String(e.message || e).replace(/\s+/g, ' ').slice(0, 160);
         log(`live: vocea segmentului ${seg.id} a eșuat: ${e.message}`);
+        // vocea nu merge deloc acum (cheia, creditul — după rezervele din tts.js): nu mai
+        // cerem sute de fraze degeaba; se reia la următoarea pregătire
+        if (++inARow >= 8) queue.length = 0;
       }
     }
   };
   await Promise.all(Array.from({ length: TTS_PARALLEL() }, worker));
   const total = segmentsInOrder(script).length;
   const done = segmentsInOrder(script).filter((s) => audio[s.id]).length;
-  return { audio, cost, failed, total, done };
+  return { audio, cost, failed, total, done, lastError };
 }
 
 // Câte segmente de la început au voce (1-la-1 poate porni după intro + 2 itemi).

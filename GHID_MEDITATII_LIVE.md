@@ -96,7 +96,32 @@ După ce pui cheia: lecțiile gata „cu vocea browserului" primesc vocea genera
 înainte de ședință) sau imediat din Admin → **„Generează vocea"**. Dacă vocea generată eșuează
 (cheie greșită, cotă depășită), lecția merge mai departe cu vocea browserului — nu se blochează.
 Opțional: `LIVE_TTS=azure|openai|fara` (forțează), `LIVE_TTS_AZURE_RATE` (ex. `-5%`, mai rar),
-`LIVE_PROF_RADU_VOCE_AZURE` / `LIVE_PROF_RADU_VOCE_OPENAI` (altă voce).
+`LIVE_PROF_RADU_VOCE_AZURE` / `LIVE_PROF_RADU_VOCE_OPENAI` (altă voce), `LIVE_TTS_MODEL` (modelul
+OpenAI, implicit `gpt-4o-mini-tts`), `LIVE_TTS_MODEL_REZERVA` (modelul OpenAI de rezervă, implicit
+`tts-1`; `fara` = fără), `LIVE_TTS_PAUZA_MS` (pauza dinaintea unei reîncercări, implicit 1500).
+
+**Cine face vocea și rezervele ei (24 octombrie 2026).** Cererea: „Sunetul vocii trece pe cea a
+browserului. Până acum cine făcea vocea, OpenAI?" — Da: cu cheia OpenAI (fără cheile Azure), vocea o
+face **OpenAI, modelul gpt-4o-mini-tts, vocea „ash"**; cu cheile Azure, Azure („Emil") are întâietate.
+În Admin → 🎥 Meditații live, sus: „Vocea: openai (OpenAI gpt-4o-mini-tts → OpenAI tts-1)" — ordinea
+încercărilor. Până pe 24 oct., după 3 eșecuri la rând (limita de cereri, creditul, cheia), **toată
+lecția** trecea pe vocea browserului — chiar și frazele care aveau deja vocea generată —, iar Admin
+spunea doar „a eșuat de 3 ori". Acum (`api/_lib/tts.js` → `synthesizePcm`):
+- o eroare trecătoare (limita pe minut — 429, serverul ocupat — 5xx, rețeaua) se **reîncearcă** (de 3
+  ori, cu pauză; „Retry-After" are întâietate);
+- apoi **alt model OpenAI** (`tts-1`, aceeași voce „ash", fără indicațiile de ton), apoi **Azure**, dacă
+  are cheie; când contul OpenAI n-are credit sau cheia e greșită, alt model OpenAI n-ar ajuta — se trece
+  direct la Azure;
+- dacă tot nu merge, lecția pornește, dar **frazele cu voce generată o păstrează** — doar celelalte le
+  rostește browserul (`computeTimeline`) —, iar pregătirea se oprește după 8 eșecuri la rând (nu mai
+  cere sute de fraze degeaba); restul se completează mai târziu (cronul, „🔊 Generează vocea");
+- **motivul real** apare cu roșu la lecție: „vocea generată a eșuat de 8 ori (OpenAI TTS 429: You exceeded
+  your current quota…) — 412 din 520 fraze au vocea generată, restul le rostește vocea browserului", iar
+  starea: „✓ gata · vocea generată la 412 din 520 fraze (restul: vocea browserului)".
+
+O rezervă care nu depinde de contul OpenAI: cheile Azure (`AZURE_SPEECH_KEY` + `AZURE_SPEECH_REGION`;
+nivelul gratuit F0 — 500.000 de caractere pe lună —, voce românească nativă de bărbat). Cu ele, Azure
+devine vocea principală, iar OpenAI rezerva. Teste: `test/voce-rezerva.test.js`.
 
 **1-la-1 pornit înainte să fie gata toată vocea generată:** restul vocii se generează în fundal,
 cât elevul lucrează — întâi de la itemul la care a ajuns (dacă a sărit înainte cu **⏭ Înainte**),
@@ -434,8 +459,8 @@ vocea cu alt model, GPT-5 mini, dacă nu merge cu Opus 5.5".
   (ca înainte, lecția nu se scrie). `LIVE_REZERVA_MODEL=fara` o oprește; `LIVE_REZERVA_MODEL=gpt-5.6-terra`
   pune alt model.
 - **Vocea (sunetul) nu o face niciun model de text:** Opus 5.5 / GPT-5 mini scriu doar ce spune profesorul;
-  vocea o generează Azure („Emil") sau OpenAI (gpt-4o-mini-tts, „ash") — vezi 1.2. Dacă vocea generată
-  eșuează, lecția merge cu vocea browserului (Admin → „🔊 Generează vocea").
+  vocea o generează Azure („Emil") sau OpenAI (gpt-4o-mini-tts, „ash") — vezi 1.2, cu rezervele ei (alt
+  model OpenAI, Azure). Ce tot nu se poate genera rostește vocea browserului (Admin → „🔊 Generează vocea").
 - **Ce scrie:** tot scriptul — enunțul curat, întrebarea „încercați singuri", explicația pe barem cu
   punctajul pașilor, **explicațiile de rezervă** („Explică altfel": pe înțelesul tuturor, greșeli care
   costă puncte, altă metodă — aceasta doar la cererea elevului, vezi 3g), verificarea și întrebările pe pași. Schema strictă (Structured Outputs),
@@ -836,6 +861,7 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | Pe iPhone nu se aude nimic în sală, deși la demo se aude o voce (de femeie) | reparat 8 oct.: vocea generată (Web Audio) era tăiată de modul **Silențios**; acum sala cere sesiunea audio „playback" la „Participă acum". Versiune veche în cache (PWA) → închide și redeschide pagina. Dacă apare „🔊 Pornește sunetul", apasă-l (după un apel / ecran blocat) |
 | Pe iPhone profesorul are voce de femeie | e vocea browserului („Ioana" — singura voce românească de la Apple). Cu o cheie de voce în Vercel (`AZURE_SPEECH_KEY` + `AZURE_SPEECH_REGION`, sau `OPENAI_API_KEY`), Prof. Tudor vorbește peste tot cu vocea de bărbat de pe server (vezi 1.2). Fără cheie, sau dacă vocea nu vine în câteva secunde, fraza o rostește browserul |
 | Vocea generată nu apare | lipsește cheia TTS sau a expirat; lecția merge cu vocea browserului — vezi Admin → eroarea lecției, apoi „🔊 Generează vocea" (în „Lecțiile recente" sau în „Ședințele zilei"); dacă eșuează din nou, Admin spune asta, cu motivul la lecție |
+| Sunetul trece pe vocea browserului | Admin → „Lecțiile recente": la lecție scrie cu roșu motivul, de la furnizor (din 24 oct.) — ex. „OpenAI TTS 429: … quota" = contul OpenAI n-are credit (platform.openai.com → Billing), „401" = cheia greșită. Rezolvă cauza, apoi „🔊 Generează vocea": se completează doar frazele lipsă. Între timp, frazele cu voce generată o păstrează (doar celelalte merg cu vocea browserului). O rezervă independentă: cheile Azure (secțiunea 1.2) |
 | Pe iPhone nu se aude nimic la o lecție anume (celelalte se aud) | aproape sigur lecția e „✓ gata · vocea browserului" (vocea generată a eșuat) → Admin → „Lecțiile recente" → **„🔊 Generează vocea"** (motivul eșecului e scris cu roșu la lecție). Din 15 oct., în sală apare și aici „🔊 Pornește sunetul" când vocea nu pornește; Admin → Debug → „Erorile din browserele vizitatorilor" → „Sala live — sunet: …" arată ce anume a eșuat pe acel telefon |
 | „Ședința s-a încheiat" mult înainte de sfârșitul orei | subiectul era scurt (o fișă, nu un subiect complet); acum ședințele de grup aleg subiecte complete, iar elevul poate „Continuă 1-la-1" până la sfârșitul orei |
 | Un singur elev la ora de grup | normal: ședința devine 1-la-1 pentru el (fără cost în plus); `LIVE_MINIM_GRUP` schimbă pragul |

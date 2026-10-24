@@ -4,6 +4,21 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 24 octombrie 2026 (2) — Vocea profesorului nu mai trece pe vocea browserului la prima problemă
+
+Cererea: „Sunetul vocii trece pe cea a browserului. Până acum cine făcea vocea, OpenAI?"
+
+- **Cine face vocea:** cu cheia OpenAI (fără cheile Azure) — **OpenAI, modelul gpt-4o-mini-tts, vocea „ash"**; cu cheile Azure, Azure („Emil") are întâietate. Admin → 🎥 Meditații live, sus: „Vocea: openai (OpenAI gpt-4o-mini-tts → OpenAI tts-1)".
+- **De ce trecea pe vocea browserului:** după 3 eșecuri la rând (limita de cereri, creditul contului, cheia), pregătirea marca lecția „cu vocea browserului", iar sala ignora atunci **toată** vocea generată — și frazele care o aveau deja. Admin spunea doar „vocea generată a eșuat de 3 ori", fără motivul de la OpenAI.
+- **Rezervele vocii** (`api/_lib/tts.js` → `synthesizePcm`): erorile trecătoare (429 de la limita pe minut, 5xx, rețeaua) se reîncearcă (de 3 ori, cu pauză; „Retry-After" are întâietate); apoi alt model OpenAI (`tts-1`, aceeași voce „ash"; `LIVE_TTS_MODEL_REZERVA`); apoi Azure, dacă are cheie. Contul fără credit sau cheia greșită → direct Azure (alt model al aceluiași cont n-ar ajuta). Azure picat → OpenAI, ca înainte.
+- **Vocea deja generată rămâne** (`api/live.js` → `computeTimeline`): lecția pornește, iar doar frazele fără fișier le rostește browserul. Pregătirea se oprește după 8 eșecuri la rând (`liveLesson.voiceScript`) — nu mai cere sute de fraze degeaba —, iar ce s-a generat în ea se salvează. Cronologia v5 (`TL_VERSION`).
+- **Motivul real în Admin:** „vocea generată a eșuat de 8 ori (OpenAI TTS 429: You exceeded your current quota…) — 412 din 520 fraze au vocea generată, restul le rostește vocea browserului"; starea „✓ gata · vocea generată la 412 din 520 fraze (restul: vocea browserului)".
+- `GHID_MEDITATII_LIVE.md` — secțiunea 1.2 („Cine face vocea și rezervele ei") și „Probleme frecvente".
+
+**Verificat:** `npm test` — 817 teste, toate trec (noi: `test/voce-rezerva.test.js` +5 — lanțul vocilor, reîncercarea la 429, `tts-1` când modelul lipsește, cota / cheia → Azure fără alt model OpenAI, Azure → OpenAI, lecția cu vocea parțială și motivul real; pe codul vechi toate 5 pică); `vite build` trece. Nu am avut acces la Vercel / Supabase, deci nu am văzut motivul exact din producție — Admin îl arată acum.
+
+---
+
 ## 24 octombrie 2026 — Meditații live: întrebările grilelor de EN apar pe ecran · rezerva GPT-5 mini când Opus 5.5 nu poate scrie lecția
 
 Cererea: „1) La Evaluare Națională, la subiectul al doilea nu apar întrebările, doar spune profesorul să răspundă pe ecran. Fă să apară întrebarea pe ecran. 2) Fă să genereze vocea cu alt model, GPT-5 mini, dacă nu merge cu Opus 5.5."

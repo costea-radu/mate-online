@@ -175,6 +175,7 @@ export default function LiveAdmin() {
             <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', fontSize: '1.25rem' }}>🎥 Meditații live — programul</h2>
             <div style={{ color: '#6b7280', fontSize: '.85rem', marginTop: 4 }}>
               Profesor: {(data?.teachers || []).map((t) => t.name).join(', ') || '—'} · Vocea: <b>{data ? (data.tts || 'lipsă') : '…'}</b>
+              {data?.ttsChain && <span title="Ordinea încercărilor: dacă primul nu merge (limita de cereri, modelul, creditul), vocea o face următorul; abia la sfârșit vocea browserului"> ({data.ttsChain})</span>}
               {data && !data.tts && <span style={{ color: '#b3261e' }}> — fără cheie TTS (OPENAI_API_KEY sau AZURE_SPEECH_KEY), lecțiile folosesc vocea browserului</span>}
             </div>
             {BUILD_TIME && <div style={{ color: '#9aa1ad', fontSize: '.74rem', marginTop: 2 }}>Versiunea site-ului: {BUILD_TIME}</div>}
@@ -375,7 +376,9 @@ export default function LiveAdmin() {
                       {l.superseded && <div style={{ color: '#8a5a00', fontSize: '.76rem' }}>versiune veche — înlocuită de v{l.superseded.by}{l.superseded.deletable ? '' : ', care încă nu e gata (până atunci rămâne aceasta)'}</div>}
                     </td>
                     <td style={td}>
-                      {l.status === 'gata' && l.noVoice ? LESSON_LABEL.gata_fara_voce : (LESSON_LABEL[l.status] || l.status)}
+                      {l.status === 'gata' && l.noVoice
+                        ? (Number(l.done) > 0 && Number(l.total) > 0 ? `✓ gata · vocea generată la ${Math.min(Number(l.done), Number(l.total))} din ${l.total} fraze (restul: vocea browserului)` : LESSON_LABEL.gata_fara_voce)
+                        : (LESSON_LABEL[l.status] || l.status)}
                       {l.status === 'gata' && Number(l.sv || 1) < 2 && <div style={{ color: '#b3261e', fontSize: '.76rem' }}>scrisă fără paginile PDF — formulele (radicali, fracții…) pot lipsi; apasă „Regenerează"</div>}
                       {l.status === 'gata' && !Number(l.pasi) && <div style={{ color: '#8a5a00', fontSize: '.76rem' }}>fără întrebări pe pași (S. II–III) — se completează singure la prima folosire, sau apasă „➕ Întrebări pe pași"</div>}
                       {Number(l.pasi) > 0 && l.pasiInfo && <div style={{ color: '#6b7280', fontSize: '.76rem' }}>întrebări pe pași: {l.pasiInfo.ai || 0} scrise de AI, {l.pasiInfo.fromBarem || 0} din barem{l.pasiInfo.missing?.length ? ` · fără: ${l.pasiInfo.missing.join(', ')}` : ''}</div>}
