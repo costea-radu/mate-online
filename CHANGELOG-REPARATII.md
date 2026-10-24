@@ -4,6 +4,58 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 24 octombrie 2026 (3) — Vocea lecțiilor merge singură până la capăt, fără „▶ Continuă"
+
+Cererea (cu captura din Admin → Meditații live → Lecțiile recente: „2026 științele naturii varianta 03 — vocea se generează… vocea: 237/306 fraze — continuă la primul elev care intră, sau apasă «▶ Continuă»"): „Vocea se oprește la un anumit nr. de fraze. Fă să meargă până la final, fără să mai dau eu «continuă»."
+
+- **De ce se oprea:** vocea se genera doar cât o cerea cineva — pagina de Admin (câte un apel de ~4 minute, apoi următorul, cât pagina rămânea deschisă: pe telefon, ecranul blocat sau altă aplicație o opreau, iar pagina se oprea oricum după 16 apeluri), elevul din sală, sau cronul, dar numai pentru ședințele de grup din următoarele 4 ore. O lecție fără ședință apropiată rămânea la „237/306".
+- **Cronul o termină** (`api/live.js` → `voiceBacklog`, la sfârșitul cronului, la 15 minute): vocea începută a **oricărei** lecții (starea „audio"), dacă n-a mai generat-o nimeni de 3 minute, cu restul bugetului rulării, până la „✓ gata". Doar cea mai nouă versiune a lecției; lecțiile doar cu textul (Pregătirea de examen) și cele făcute toate cu vocea browserului rămân ca înainte (fără cost cât nu vine nimeni).
+- **Vocea eșuată pe drum se reia singură** (creditul, furnizorul — „✓ gata · vocea generată la 237 din 306 fraze"): la `LIVE_VOCE_REIA_ORE` ore (implicit 2), doar cât nicio ședință cu lecția nu e în curs și nu începe în 45 de minute, de cel mult 6 ori la rând fără nicio frază nouă (`progress.voiceTries`).
+- **Nicio lecție nu mai rămâne „vocea se generează…" la nesfârșit** (`api/_lib/liveLesson.js`, `api/live.js` → `prepareLesson`): o frază fără nimic de rostit (ex. doar „$$") se socotește făcută — și nu mai blochează nici pornirea 1-la-1; una pe care furnizorul o respinge de fiecare dată → după 3 treceri la rând fără nimic nou, lecția pleacă „gata", doar fraza aceea cu vocea browserului. „Generează vocea" pornește din starea „audio" (nu „script"), ca o întrerupere să lase lecția de continuat.
+- **Cât cronul ține lecția** (lacătul), sala 1-la-1 primește și dacă poate porni cu vocea de până atunci (`headCheck`) — nu mai așteaptă să se termine toată vocea.
+- **Admin** (`src/components/LiveAdmin.jsx`): sub lecție, „vocea: 237/306 fraze — o termină singur serverul (la 15 minute), nu trebuie apăsat nimic"; la vocea eșuată, „serverul reîncearcă singur…" sau, după 6 reîncercări, „reîncercările automate s-au oprit — apasă «🔊 Generează vocea»". „▶ Continuă" rămâne, ca s-o faci imediat: pagina merge acum până la capăt (fără limita de 16 apeluri) și trece peste o întrerupere a rețelei (reîncearcă de 4 ori).
+- `GHID_MEDITATII_LIVE.md` — secțiunile 1.2 („Vocea începută se termină singură") și 1.3, setarea `LIVE_VOCE_REIA_ORE`, „Probleme frecvente".
+
+**Verificat:** `npm test` — 825 de teste, toate trec (noi: `test/voce-pana-la-capat.test.js` +8 — cronul termină o lecție „audio" fără nicio ședință, ce lasă în pace (vocea generată chiar acum, lacătul, textul fără voce, versiunea veche, lecția toată cu vocea browserului), reluarea vocii eșuate și limitele ei, fraza respinsă mereu, fraza fără nimic de rostit, 1-la-1 cât cronul ține lecția, Admin; pe codul vechi toate 8 pică); `vite build` trece. Nu am acces la Vercel / Supabase: lecția din captură o termină prima rulare a cronului după deploy (cel mult ~15 minute).
+
+---
+
+## 24 octombrie 2026 (2) — Vocea profesorului nu mai trece pe vocea browserului la prima problemă
+
+Cererea: „Sunetul vocii trece pe cea a browserului. Până acum cine făcea vocea, OpenAI?"
+
+- **Cine face vocea:** cu cheia OpenAI (fără cheile Azure) — **OpenAI, modelul gpt-4o-mini-tts, vocea „ash"**; cu cheile Azure, Azure („Emil") are întâietate. Admin → 🎥 Meditații live, sus: „Vocea: openai (OpenAI gpt-4o-mini-tts → OpenAI tts-1)".
+- **De ce trecea pe vocea browserului:** după 3 eșecuri la rând (limita de cereri, creditul contului, cheia), pregătirea marca lecția „cu vocea browserului", iar sala ignora atunci **toată** vocea generată — și frazele care o aveau deja. Admin spunea doar „vocea generată a eșuat de 3 ori", fără motivul de la OpenAI.
+- **Rezervele vocii** (`api/_lib/tts.js` → `synthesizePcm`): erorile trecătoare (429 de la limita pe minut, 5xx, rețeaua) se reîncearcă (de 3 ori, cu pauză; „Retry-After" are întâietate); apoi alt model OpenAI (`tts-1`, aceeași voce „ash"; `LIVE_TTS_MODEL_REZERVA`); apoi Azure, dacă are cheie. Contul fără credit sau cheia greșită → direct Azure (alt model al aceluiași cont n-ar ajuta). Azure picat → OpenAI, ca înainte.
+- **Vocea deja generată rămâne** (`api/live.js` → `computeTimeline`): lecția pornește, iar doar frazele fără fișier le rostește browserul. Pregătirea se oprește după 8 eșecuri la rând (`liveLesson.voiceScript`) — nu mai cere sute de fraze degeaba —, iar ce s-a generat în ea se salvează. Cronologia v5 (`TL_VERSION`).
+- **Motivul real în Admin:** „vocea generată a eșuat de 8 ori (OpenAI TTS 429: You exceeded your current quota…) — 412 din 520 fraze au vocea generată, restul le rostește vocea browserului"; starea „✓ gata · vocea generată la 412 din 520 fraze (restul: vocea browserului)".
+- `GHID_MEDITATII_LIVE.md` — secțiunea 1.2 („Cine face vocea și rezervele ei") și „Probleme frecvente".
+
+**Verificat:** `npm test` — 817 teste, toate trec (noi: `test/voce-rezerva.test.js` +5 — lanțul vocilor, reîncercarea la 429, `tts-1` când modelul lipsește, cota / cheia → Azure fără alt model OpenAI, Azure → OpenAI, lecția cu vocea parțială și motivul real; pe codul vechi toate 5 pică); `vite build` trece. Nu am avut acces la Vercel / Supabase, deci nu am văzut motivul exact din producție — Admin îl arată acum.
+
+---
+
+## 24 octombrie 2026 — Meditații live: întrebările grilelor de EN apar pe ecran · rezerva GPT-5 mini când Opus 5.5 nu poate scrie lecția
+
+Cererea: „1) La Evaluare Națională, la subiectul al doilea nu apar întrebările, doar spune profesorul să răspundă pe ecran. Fă să apară întrebarea pe ecran. 2) Fă să genereze vocea cu alt model, GPT-5 mini, dacă nu merge cu Opus 5.5."
+
+### 1) Grilele de EN: întrebarea pe ecran (`api/_lib/liveLesson.js`, `api/live.js`, `api/_lib/barem.js`, `api/_lib/simulariOficiale.js`, `src/components/LiveAdmin.jsx`)
+- **Cauza:** litera corectă a unei grile (EN, Subiectele I și II) se ia din tabelul baremului, citit din textul PDF-ului. Când tabelul nu se citea din text, întrebarea grilei cădea din lecție („nu riscăm o cheie greșită"), deși modelul o scrisese din paginile baremului și profesorul spunea „alegeți răspunsul pe ecran" — un subiect întreg rămânea fără întrebări. Nu am avut acces la lecția de pe site, deci nu știu exact ce formă avea acolo tabelul; reparația nu depinde de forma lui (litera vine din lecție, confirmată de explicație).
+- **Acum:** litera din tabel are în continuare ultimul cuvânt; când nu se citește, rămâne litera din lecție, **doar dacă explicația pe barem o confirmă** (aceeași literă, sau rezultatul variantei scris pe tablă) și nimic nu o contrazice (`grilaTry`). Altfel grila rămâne fără întrebare: o cheie greșită ar nota greșit elevii.
+- **Lecțiile deja scrise** primesc întrebarea la încărcare (`restoreGrilaTries` în `loadLesson`; și simulările din subiectele oficiale): fără „Regenerează", fără cost, lecția din bază neschimbată; id-ul ca la scriere, cheia pe server aceeași. O verificare de la sfârșit, dacă era, lasă locul încercării. Cronologia v4 (`TL_VERSION`).
+- **Tabelul din barem se citește mai des:** literele din fontul de ecuații („𝑏") prin NFKC; tabelul rupt pe rânduri sau cu câte o celulă pe rând.
+- **Admin → „Scriptul":** „litera din lecție — verific-o în barem" la grilele cu litera neconfirmată de tabel.
+
+### 2) Rezerva GPT-5 mini (`api/_lib/liveLesson.js` → `FALLBACK_MODEL`, `src/components/LiveAdmin.jsx`, `src/lib/aiModels.js`)
+- Vocea (sunetul) nu o face Opus 5.5: o generează Azure / OpenAI TTS. Opus 5.5 scrie lecția — ce spune profesorul —, deci acolo e rezerva: dacă Opus 5.5 tot nu scrie după reîncercări (cheia Anthropic lipsește, plafonul lunar de cheltuieli, Anthropic nu răspunde), **bucata o scrie GPT-5 mini** (cu cheia OpenAI), cu aceleași pagini PDF, aceeași schemă și aceleași verificări. Până acum rezerva era oprită implicit (`LIVE_REZERVA_MODEL` gol), iar lecția nu se scria.
+- `LIVE_REZERVA_MODEL=fara` o oprește; alt model — `LIVE_REZERVA_MODEL=gpt-5.6-terra`. Fără cheia OpenAI nu există rezervă (ca înainte).
+- Admin → „✍️ Lecțiile le scrie Claude Opus 5.5": „Rezerva: … GPT-5 mini"; la lecție, „scrisă de: Claude Opus 5.5 (5 bucăți) + GPT-5 mini (1 bucată)"; costul, la prețul lui GPT-5 mini. Lista publică a modelelor AI (`aiModels.js`) spune și ea că GPT-5 mini scrie lecțiile când Opus 5.5 nu e disponibil.
+- `GHID_MEDITATII_LIVE.md` — secțiunile 3e și 3h, setările, „Probleme frecvente".
+
+**Verificat:** `npm test` — 812 teste, toate trec (noi: `test/grile-en-intrebarea.test.js` +4 — lecțiile noi, lecțiile deja scrise, prin server: întrebarea în sală, răspunsul corectat cu litera bună, Admin; tabelul din barem; în `test/lectii-live-opus.test.js` +1 — plafonul lunar Anthropic și lipsa cheii → scrie GPT-5 mini; pe codul vechi toate 6 pică); `vite build` trece.
+
+---
+
 ## 23 octombrie 2026 (2) — Icon nou ΣxamenMate; PDF: „📋 Barem" în bară, „✍️ Spațiu de lucru" în conversație
 
 Cererea: „Schimbă iconul site-ului și al aplicației cu poza trimisă (culorile site-ului, după stilul iconului actual, caracterele un pic mai groase, efecte). La fișierele PDF, în viewer, pune buton care deschide baremul asociat, în locul butonului «spațiu de lucru». Mută butonul «spațiu de lucru» în widget și fă să se deschidă în zona de conversație, ca un spațiu gol de lucru, care să arate exact la fel ca zona goală de conversație, fără linii orizontale; zona să poată fi modificată ca mărime de pe telefon ca până acum."

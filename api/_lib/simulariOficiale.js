@@ -125,7 +125,8 @@ async function readyLessons(supa, E) {
 async function loadItems(supa, lessonId) {
   const { data } = await supa.from('live_lessons').select('id, subject_id, title, items:script->items').eq('id', lessonId).maybeSingle();
   if (!data || !Array.isArray(data.items) || !data.items.length) return null;
-  const items = LL.dropUnreadable({ items: data.items }).items;
+  // grilele (EN) rămase fără întrebare în lecțiile scrise înainte de 24 oct. o primesc și aici
+  const items = LL.restoreGrilaTries(LL.dropUnreadable({ items: data.items })).items;
   return { sid: data.subject_id, title: data.title || 'Subiect oficial', items };
 }
 
