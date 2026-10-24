@@ -254,9 +254,10 @@ img { max-width: 100%; display: block; }
    spațiu în plus între bară și conținut. Sub 768px bara dispare, iar
    navigarea rămâne pe drawer-ul ☰ de până acum.
 
-   PLIEREA: bara pornește DESCHISĂ. Săgeata din margine o strânge la o bandă
-   îngustă, cu doar pictogramele (`.pliat`); cât e strânsă, hover-ul o
-   redeschide temporar PESTE conținut, fără să-l mai împingă. */
+   PLIEREA: bara pornește PLIATĂ — o bandă îngustă, cu doar pictogramele
+   (`.pliat`); hover-ul o desface temporar PESTE conținut, fără să-l împingă.
+   Săgeata din margine o fixează desfăcută (`body.sidebar-deschis`: conținutul
+   se decalează cu toată lățimea ei) sau o pliază la loc. */
 .app-sidebar {
   position: fixed;
   top: var(--navbar-h);
@@ -426,14 +427,16 @@ img { max-width: 100%; display: block; }
   background: rgba(255,255,255,0.10);
 }
 
-.app-shell { padding-left: var(--sidebar-w); transition: padding-left 0.18s ease; }
-body.sidebar-pliat .app-shell { padding-left: var(--sidebar-rail); }
+/* implicit = bara pliată, starea de la încărcare: nicio clasă de așteptat din
+   JS, deci conținutul nu alunecă spre stânga când pornește pagina */
+.app-shell { padding-left: var(--sidebar-rail); transition: padding-left 0.18s ease; }
+body.sidebar-deschis .app-shell { padding-left: var(--sidebar-w); }
 
 /* Sub 768px: bara laterală dispare, conținutul revine pe toată lățimea. */
 @media (max-width: 768px) {
   .app-sidebar { display: none; }
   .app-shell,
-  body.sidebar-pliat .app-shell { padding-left: 0; }
+  body.sidebar-deschis .app-shell { padding-left: 0; }
 }
 
 /* ─── Drawer-ul ☰ de pe telefon ───

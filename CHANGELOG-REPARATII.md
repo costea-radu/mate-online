@@ -4,6 +4,18 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 24 octombrie 2026 (4) — Meniul lateral pornește pliat
+
+Cererea: „Fă ca meniul lateral hover să fie închis by default, la deschiderea paginii. Acum el apare deschis."
+
+- **Pliat la încărcare** (`src/components/Sidebar.jsx`): pe orice pagină, bara pornește ca bandă îngustă, doar cu pictogramele, și se desface la hover peste conținut, fără să-l împingă. Săgeata din margine o fixează desfăcută (atunci împinge conținutul) și rămâne așa cât navighezi prin site — nu și la o încărcare nouă a paginii; intrarea în „Meditații" o pliază la loc, ca până acum.
+- **Conținutul stă pe loc din primul cadru** (`src/styles/global.css`): decalajul implicit al conținutului (`.app-shell`) e acum banda îngustă, iar clasa de pe `<body>` și-a inversat sensul — `sidebar-deschis` (cât bara e fixată desfăcută) în loc de `sidebar-pliat`. Starea de la încărcare nu mai așteaptă nicio clasă pusă din JS după primul cadru, deci conținutul nu alunecă la pornirea paginii.
+- **Meniul de la hover se strânge după ce alegi ceva:** linkul (sau secțiunea ▼) apăsat cu mouse-ul păstra focusul, iar regula `:focus-within` ținea bara desfăcută peste pagină și după ce mouse-ul pleca de pe ea, până la un clic în altă parte. Acum clicul cu mouse-ul lasă focusul (`lasaFocusul`, pe `<aside>`); cu tastatura (Tab, Enter) bara rămâne desfăcută cât focusul e în ea, ca înainte.
+
+**Verificat:** în Chromium (1400×900), pe build-ul de producție și pe serverul de dezvoltare, cadru cu cadru: la încărcarea paginii principale și a „Meditații" bara are 62px și conținutul e decalat cu 62px din primul cadru; hover → 240px peste conținut; clic pe „Auxiliare" și mouse-ul pe pagină → 62px (pe codul vechi rămânea 240px); Tab până în bară → se desface; săgeata → fixată (conținutul la 240px), rămâne așa după un link, iar săgeata din nou o pliază. `npm test` — 828 de teste, toate trec (2 sărite, ca înainte; nou: `test/meniu-lateral-pliat.test.js` +3, pe codul vechi toate 3 pică); `vite build` trece.
+
+---
+
 ## 24 octombrie 2026 (3) — Vocea lecțiilor merge singură până la capăt, fără „▶ Continuă"
 
 Cererea (cu captura din Admin → Meditații live → Lecțiile recente: „2026 științele naturii varianta 03 — vocea se generează… vocea: 237/306 fraze — continuă la primul elev care intră, sau apasă «▶ Continuă»"): „Vocea se oprește la un anumit nr. de fraze. Fă să meargă până la final, fără să mai dau eu «continuă»."

@@ -10,9 +10,10 @@ import { sectiuniMeniu, esteActiv } from '../lib/meniu';
 // Structura (categoriile) vine din src/lib/meniu.js — aceeași folosită de
 // drawer-ul ☰ de pe telefon, ca cele două să nu mai poată să se despartă.
 //
-// PLIEREA: bara e DESCHISĂ la încărcarea paginii. Săgeata din marginea din
-// dreapta o pliază la o bandă îngustă, cu doar pictogramele; cât e pliată, se
-// redeschide singură la hover (peste conținut, fără să-l mai împingă).
+// PLIEREA: bara e PLIATĂ la încărcarea paginii — o bandă îngustă, cu doar
+// pictogramele, care se desface la hover peste conținut (fără să-l împingă).
+// Săgeata din marginea din dreapta o fixează desfăcută (atunci împinge
+// conținutul) sau o pliază la loc.
 //
 // Pe mobil (≤768px) bara dispare — acolo rămâne drawer-ul ☰.
 // Indicatorii (bulina de mesaje, punctul auriu de forum) vin ca props din
@@ -54,21 +55,36 @@ export default function Sidebar({
 }) {
   const { pathname } = useLocation();
 
-  // Deschisă la fiecare încărcare de pagină (cerut explicit) — nu ținem minte
-  // starea între vizite, doar în timpul navigării prin site. EXCEPȚIE: pe
-  // „Meditații", unde tabla trebuie să ocupe cât mai mult, pornește pliată
-  // (rămâne la un hover distanță, iar elevul o poate desface oricând).
-  const [pliat, setPliat] = useState(() => pathname.startsWith('/meditatii'));
+  // Pliată la fiecare încărcare de pagină (cerut explicit, 24 oct. 2026) — nu
+  // ținem minte starea între vizite, doar în timpul navigării prin site: cine o
+  // fixează desfăcută cu săgeata o găsește așa și pe pagina următoare. EXCEPȚIE:
+  // intrarea în „Meditații", unde tabla trebuie să ocupe cât mai mult, o pliază
+  // la loc (rămâne la un hover distanță).
+  const [pliat, setPliat] = useState(true);
   useEffect(() => {
     if (pathname.startsWith('/meditatii')) setPliat(true);
   }, [pathname]);
 
-  // Conținutul paginii (.app-shell) se decalează cât e bara de lată: clasa de
-  // pe <body> e semnalul, ca să nu trebuiască să trecem starea prin App.jsx.
+  // Conținutul paginii (.app-shell) se decalează cât e bara de lată: implicit
+  // (în CSS) cu banda îngustă, iar cât bara e fixată desfăcută, cu toată lățimea
+  // ei — clasa de pe <body> e semnalul, ca să nu trebuiască să trecem starea prin
+  // App.jsx. Starea de la încărcare (pliată) nu cere nicio clasă, deci conținutul
+  // stă din primul cadru unde trebuie, fără să alunece după ce pornește React.
   useEffect(() => {
-    document.body.classList.toggle('sidebar-pliat', pliat);
-    return () => document.body.classList.remove('sidebar-pliat');
+    document.body.classList.toggle('sidebar-deschis', !pliat);
+    return () => document.body.classList.remove('sidebar-deschis');
   }, [pliat]);
+
+  // Clic cu mouse-ul pe o intrare a barei: focusul nu rămâne pe ea. Altfel regula
+  // `:focus-within` (cea care ține bara desfăcută la navigarea cu tastatura) o
+  // ține desfăcută peste pagină și după ce mouse-ul a plecat de pe ea — după
+  // fiecare link ales din meniul de la hover. La tastatură (Enter: `detail` 0)
+  // focusul rămâne, ca Tab să continue de unde era.
+  function lasaFocusul(e) {
+    if (e.detail === 0) return;
+    const el = e.target.closest('a, button');
+    if (el) el.blur();
+  }
 
   const sectiuni = sectiuniMeniu({ user, isAdmin, isPremium, aiLabel, chatUnread, forumUnread, forumHasNew });
 
@@ -149,7 +165,7 @@ export default function Sidebar({
   }
 
   return (
-    <aside className={`app-sidebar${pliat ? ' pliat' : ''}`} aria-label="Meniu principal">
+    <aside className={`app-sidebar${pliat ? ' pliat' : ''}`} aria-label="Meniu principal" onClick={lasaFocusul}>
       {/* Săgeata din margine: pliază / desface bara */}
       <button
         type="button"
