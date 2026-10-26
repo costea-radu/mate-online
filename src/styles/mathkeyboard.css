@@ -1,0 +1,100 @@
+/* =====================================================================
+ * src/styles/mathkeyboard.css — TASTATURA MATEMATICĂ (MathKeyboard.jsx, MathInput.jsx)
+ * Un card luminos (e o suprafață de scris), la fel în sala live (întunecată), lângă PDF
+ * și pe telefon. Tastele: 7 pe rând, cel puțin 40 px înălțime (degetul), etichetele KaTeX.
+ * ===================================================================== */
+.mk { background: #fff; color: #202124; border: 1px solid #dadce0; border-radius: 14px; padding: 8px; display: grid; gap: 7px; box-shadow: 0 2px 10px rgba(0,0,0,.08); text-align: left; }
+.mk-field { position: relative; border: 1.5px solid #1a73e8; border-radius: 10px; min-height: 50px; display: flex; align-items: center; background: #fbfcfe; overflow: hidden; }
+.mk-field.is-loading { border-color: #dadce0; }
+.mk-field math-field { flex: 1; min-width: 0; width: 100%; font-size: 1.45rem; padding: 6px 10px; border: none; outline: none; background: transparent; color: #202124; --caret-color: #1a73e8; --selection-background-color: #d2e3fc; --contains-highlight-background-color: transparent; --placeholder-color: #1a73e8; --placeholder-opacity: .55; }
+.mk-field math-field:focus-within { outline: none; }
+.mk-field math-field::part(virtual-keyboard-toggle), .mk-field math-field::part(menu-toggle) { display: none; }
+.mk-loading { color: #5f6368; font-size: .86rem; padding: 0 12px; }
+.mk-loading.is-err { color: #b3261e; }
+.mk-loading-box { color: #5f6368; font-size: .86rem; padding: 12px; background: #f8f9fa; border-radius: 10px; }
+
+.mk-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.mk-tabs::-webkit-scrollbar { display: none; }
+.mk-tab { flex: 1 0 auto; border: 1px solid #dadce0; background: #f8f9fa; color: #3c4043; border-radius: 999px; padding: 5px 10px; font-size: .82rem; font-weight: 700; cursor: pointer; white-space: nowrap; font-family: inherit; }
+.mk-tab.is-on { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+
+.mk-keys { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.mk-nav { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.mk-key { min-height: 42px; border: none; border-radius: 8px; background: #f1f3f4; color: #202124; font-size: 1.02rem; font-family: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 2px 3px; overflow: hidden; touch-action: manipulation; -webkit-tap-highlight-color: transparent; user-select: none; }
+.mk-key:hover { background: #e8eaed; }
+.mk-key:active { background: #d2e3fc; transform: translateY(1px); }
+.mk-key:disabled { opacity: .45; cursor: default; }
+.mk-key.is-digit { background: #e8f0fe; font-weight: 700; font-size: 1.12rem; }
+.mk-key.is-wide { grid-column: span 2; }
+.mk-navkey { background: #e8eaed; font-size: .9rem; font-weight: 700; }
+.mk-nav .mk-navkey.is-wide { grid-column: span 2; font-size: .8rem; }
+.mk-tex { display: inline-block; max-width: 100%; line-height: 1; pointer-events: none; }
+.mk-tex .katex { font-size: 1em; }
+.mk-keys-matrice .mk-key.is-wide .katex { font-size: .72em; }
+.mk-keys-analiza .mk-key .katex, .mk-keys-multimi .mk-key .katex { font-size: .92em; }
+
+.mk-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
+.mk-btn-main { background: #1a73e8; color: #fff; border: none; border-radius: 20px; padding: 9px 18px; font-weight: 800; font-size: .92rem; cursor: pointer; font-family: inherit; }
+.mk-btn-main:disabled { background: #a8c7fa; cursor: default; }
+.mk-btn-soft { background: #f1f3f4; color: #1a73e8; border: 1px solid #dadce0; border-radius: 20px; padding: 8px 14px; font-weight: 700; font-size: .86rem; cursor: pointer; font-family: inherit; }
+.mk-hint { font-size: .74rem; color: #5f6368; line-height: 1.4; }
+.mk.is-compact .mk-key { min-height: 38px; }
+.mk.is-compact .mk-hint { display: none; }
+
+/* câmpul de răspuns (Abc) + „√x" */
+.mk-fill { align-items: stretch; }
+.mk-toggle { flex: none; border: 1.5px solid #1a73e8; background: #e8f0fe; color: #1a73e8; border-radius: 10px; padding: 0 12px; font-weight: 800; font-size: 1rem; cursor: pointer; font-family: 'KaTeX_Main', 'Times New Roman', serif; }
+.mk-toggle:disabled { opacity: .5; cursor: default; }
+.mk-answer { margin-top: 2px; }
+
+/* butonul „√x" de lângă chat + panoul deasupra rândului de scris */
+.mk-insert-btn { flex: none; border: 1px solid #c6dafc; background: #e8f0fe; color: #1a73e8; border-radius: 10px; padding: 0 11px; min-width: 44px; font-weight: 800; font-size: 1rem; cursor: pointer; font-family: 'KaTeX_Main', 'Times New Roman', serif; }
+.mk-insert-btn.is-on { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+.mk-insert-panel { padding: 8px; }
+.mk-insert-panel .mk { box-shadow: 0 6px 22px rgba(0,0,0,.18); }
+
+@media (max-width: 420px) {
+  .mk { padding: 6px; gap: 5px; border-radius: 12px; }
+  .mk-keys, .mk-nav { gap: 3px; }
+  .mk-key { min-height: 40px; font-size: .95rem; padding: 1px; }
+  .mk.is-compact .mk-key { min-height: 36px; }
+  .mk-field math-field { font-size: 1.3rem; }
+  .mk-tab { padding: 4px 8px; font-size: .78rem; }
+}
+.mk-keys { grid-auto-flow: row dense; }
+.mk-keys-analiza .mk-key.is-wide .katex { font-size: .86em; }
+@media (max-width: 420px) { .mk-navkey { font-size: .82rem; } .mk-nav .mk-navkey.is-wide { font-size: .74rem; } }
+/* etichetele înalte (matricea / determinantul de ordinul 3) și cele late („Unghi”) încap în tastă și pe telefoanele mici */
+.mk-keys-matrice .mk-key.is-wide.is-tall { padding-top: 0; padding-bottom: 0; }
+.mk-keys-matrice .mk-key.is-wide.is-tall .katex { font-size: .55em; }
+.mk-keys-matrice .mk-key.is-small .katex { font-size: .8em; }
+
+/* în sala live, regula `.lv-room button { color: inherit }` (specificitate 0,1,1) bătea culorile de
+   mai sus (o singură clasă): „Trimite" / „✓ Pune în mesaj" ieșeau cu text închis pe albastru */
+.mk .mk-key { color: #202124; }
+.mk .mk-tab { color: #3c4043; }
+.mk .mk-tab.is-on { color: #fff; }
+.mk .mk-btn-main { color: #fff; }
+.mk .mk-btn-soft { color: #1a73e8; }
+.mk-fill .mk-toggle { color: #1a73e8; font-family: 'KaTeX_Main', 'Times New Roman', serif; }
+.mk-insert-btn.mk-insert-btn { color: #1a73e8; font-family: 'KaTeX_Main', 'Times New Roman', serif; }
+.mk-insert-btn.mk-insert-btn.is-on { color: #fff; }
+
+/* chatul din sala live, pe telefon: cât e deschisă tastatura, panoul de jos crește până sub bara de sus
+   (altfel butoanele „Renunț / ✓ Pune în mesaj" rămâneau sub bara cu butoane); dacă tot nu încape
+   (telefon ținut orizontal), formularul se derulează */
+.lv-chat-form:has(.mk-insert-panel) { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+.lv-chat-form .mk-insert-panel { padding: 0 0 8px; }
+.lv-chat-form .mk-insert-panel .mk { box-shadow: none; }
+@media (max-width: 860px) {
+  .lv-side:has(.mk-insert-panel) { top: 52px; height: auto; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .lv-side:has(.mk-insert-panel) { top: 38px; height: auto; }
+}
+.mk-insert-panel .mk { max-width: 620px; }
+/* pe telefon, tastatura câmpurilor din zone mici (formularul „📝 Răspunde în chat", chatul de lângă PDF)
+   stă jos pe ecran, peste pagină — ca tastatura telefonului (MathInsertPanel dock) */
+.mk-insert-panel.is-dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1700; padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(to top, rgba(32,33,36,.18), rgba(32,33,36,0)); }
+.mk-insert-panel.is-dock .mk { max-width: 520px; margin: 0 auto; box-shadow: 0 -8px 28px rgba(0,0,0,.28); }
+.mk-dock-cap { max-width: 520px; margin: 0 auto 4px; font-size: .76rem; font-weight: 800; color: #fff; background: #1a73e8; border-radius: 10px 10px 0 0; padding: 4px 10px; width: fit-content; }

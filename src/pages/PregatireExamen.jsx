@@ -47,6 +47,8 @@ import SpatiuDeLucru from '../components/SpatiuDeLucru';
 import PrepPicker from '../components/live/PrepPicker';
 import { startDictation, speechRecognitionSupported } from '../lib/voice';
 import { reportError } from '../lib/errorReport';
+import { sunaGata, vibreaza, deblocheazaSunetul } from '../lib/chatAlert';
+import { flashTitle, pageHidden } from '../lib/live/notify';
 import '../styles/live.css';
 
 const STATUS_BADGE = {
@@ -370,11 +372,25 @@ export default function PregatireExamen() {
   }
   const secsSinceStart = () => Math.round((Date.now() - startedRef.current) / 1000);
 
+  // o lecție nouă se scrie în câteva minute (estimarea vine de la server, din lecțiile scrise până
+  // acum — prep_state → prepEta.scriptLabel); când o așteptare lungă se termină: sunetul „gata"
+  // și, dacă elevul e în alt tab, titlul tabului clipește până revine
+  const stopFlashRef = useRef(null);
+  useEffect(() => () => stopFlashRef.current?.(), []);
   async function busyWhile(text, fn) {
     setBusyText(text);
-    const slow = setTimeout(() => setBusyText(`${teacher.name} citește un subiect oficial nou și baremul lui, ca să-ți explice exercițiul pe barem. Durează 1–2 minute, doar prima dată — apoi e gata pentru toți.`), 5000);
-    try { return await fn(); }
-    finally { clearTimeout(slow); setBusyText(null); }
+    deblocheazaSunetul();                // încă în clicul elevului: sunetul „gata" va putea suna
+    const t0 = Date.now();
+    const how = st?.prepEta?.scriptLabel ? `de obicei ${st.prepEta.scriptLabel}` : 'câteva minute';
+    const slow = setTimeout(() => setBusyText(`${teacher.name} citește un subiect oficial nou și baremul lui, ca să-ți explice exercițiul pe barem. Durează ${how}, doar prima dată — apoi e gata pentru toți. Poți face altceva între timp: te anunțăm cu un sunet când e gata.`), 5000);
+    try {
+      const r = await fn();
+      if (Date.now() - t0 > 20000) {
+        try { sunaGata(); vibreaza([200, 100, 200]); } catch { /* fără sunet */ }
+        if (pageHidden()) { stopFlashRef.current?.(); stopFlashRef.current = flashTitle(`✅ ${teacher.name} e gata!`); }
+      }
+      return r;
+    } finally { clearTimeout(slow); setBusyText(null); }
   }
 
   // fraza de trecere („Bine, trecem la…") se aude întreagă, apoi începe exercițiul

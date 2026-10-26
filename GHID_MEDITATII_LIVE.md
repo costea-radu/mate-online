@@ -66,6 +66,14 @@ lecțiilor) și regulile pentru canalele Realtime private (`live:<id>`).
 În Supabase → **Realtime → Settings**, verifică să fie permise canalele private
 („Allow public access" poate rămâne cum e — sala folosește canale private).
 
+Pentru **notificarea „lecția e gata"** și **botul care verifică lecțiile** (secțiunile 3i și 3j),
+rulează o dată și `supabase/notificari_lectii.sql` (26 oct. 2026): tabela `push_subscriptions`
+(abonările Web Push), coloanele `notify_at` / `notified_at` în `live_participants` și tabela
+`live_lesson_qa` (rapoartele botului) — cu RLS și GRANT (din 30 oct. 2026 Supabase nu mai dă singur acces
+la tabelele noi), fără acces pentru vizitatori. Fără el
+merge tot ca înainte: sala anunță elevul cu sunet, titlul tabului și notificarea din pagină, doar
+notificarea cu pagina închisă lipsește, iar botul verifică lecțiile fără să păstreze rapoartele.
+
 Pentru **meditațiile gratuite** alese de tine (secțiunea 3d), rulează o dată și
 `supabase/setari_ordine_gratuite.sql` (tabela `app_settings` — setările alese din Admin;
 același script face și opțiunea „📥 Materialele noi apar: ultimele" din Tot Conținutul).
@@ -214,7 +222,9 @@ Tot el termină singur vocea începută a lecțiilor (vezi 1.2, „Vocea începu
    în cardul pentru cei fără abonament.
 3. În **Admin → 🎥 Meditații live**: programul zilei, subiectele, starea lecțiilor.
    Apasă **„Pregătește lecția"** dacă vrei o lecție scrisă din timp (altfel se scrie singură
-   când intră primul elev — durează 1–3 minute, cât stă elevul în sala de așteptare).
+   când intră primul elev — durează câteva minute, de obicei 4–8 cu Claude Opus 5.5; sala de
+   așteptare arată etapele, cât a trecut și cât mai durează, iar cu **„🔔 Anunță-mă când e gata"**
+   elevul poate face altceva între timp — vezi 3i).
 
 ---
 
@@ -247,6 +257,10 @@ Tot el termină singur vocea începută a lecțiilor (vezi 1.2, „Vocea începu
 | `LIVE_CLAUDE_PAUZA_MS` | `15000` | când Claude e ocupat (429 pe minut, supraîncărcat, eroare temporară) la scrierea unei lecții: pauza înainte de reîncercare (apoi dublu; cel mult 3 încercări, tot cu Claude) |
 | `LIVE_DESENE` | pornit | `0` = fără desenele decupate din PDF lângă enunț (vezi 3e, „🖼 Desenele din PDF") |
 | `LIVE_PROF_RADU_NUME`, `LIVE_PROF_RADU_BIO` | `Prof. Tudor` | numele și prezentarea profesorului (id-ul intern a rămas `radu`) |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | generate de server | cheile notificărilor Web Push („✅ Prof. Tudor e gata"); fără ele, serverul le generează o singură dată și le ține în `app_settings` (`web_push_vapid`). Le setezi doar dacă vrei aceleași chei și în alt proiect (`npx web-push generate-vapid-keys`) |
+| `VAPID_SUBJECT` | adresa site-ului | contactul cerut de serviciile de push (ex. `mailto:contact@examenmate.com`) |
+| `LIVE_BOT_VERIFICARI` | `8` | câte lecții verifică botul la fiecare rulare a cronului (fără AI, fără cost); `0` = doar din Admin și după pregătiri |
+| `LIVE_BOT_REPARA` | `voce_refa` | ce repară botul singur, în cron: `voce_refa` = fișierele de voce pierdute din Storage / sunetul gol; se pot adăuga `voce` (vocea care n-a fost generată), `pasi` (întrebările pe pași din barem, fără AI), `figuri` (desenele); `0` = nimic singur (doar butoanele din Admin) |
 
 ---
 
@@ -269,8 +283,9 @@ complet), în care **profesorul propune desfășurarea**:
    alege altă poziție sau trece mai departe.
 
 Exercițiile vin din **lecțiile pe barem de aici** (`live_lessons`, profesorul `radu`). Când un
-elev a lucrat toate lecțiile gata, se scrie lecția unui subiect nou (doar textul, 1–3 minute,
-o singură dată — apoi o folosesc toți elevii și ședințele live). Plafon: `PREP_GENERARI_ZI`
+elev a lucrat toate lecțiile gata, se scrie lecția unui subiect nou (doar textul, câteva minute —
+pagina arată cât durează de obicei și sună când e gata —, o singură dată; apoi o folosesc toți
+elevii și ședințele live). Plafon: `PREP_GENERARI_ZI`
 (implicit 3 lecții noi pe elev pe zi). Progresul: `ai_meditatii_sessions` (fără SQL nou).
 Setările (`PREP_EXERCITII`, `PREP_TEST_EXERCITII`, `PREP_TEST_PROBLEME`, `PREP_PRAG`,
 `PREP_IN_PLUS`, `PREP_GENERARI_ZI`) sunt descrise în `GHID_MEDITATII.md` → Runda 12.
@@ -434,7 +449,8 @@ Naturii — o meditație 1-la-1".
   cea mai potrivită pentru o primă încercare (subiect complet — variantă / model / simulare —, cu
   întrebări pe pași, scrisă cu paginile PDF, cu voce; la egalitate, varianta cea mai nouă). Un examen
   fără nicio lecție gata (ex. BAC Tehnologic) primește cea mai nouă **variantă dată cu barem** — lecția
-  ei se scrie la prima folosire (2–4 minute, o singură dată; din Admin o poți pregăti dinainte).
+  ei se scrie la prima folosire (câteva minute — lobby-ul arată cât durează de obicei —, o singură
+  dată; din Admin o poți pregăti dinainte).
   Alegerea se salvează o dată (rămâne aceeași până o schimbi). Cele alese până acum (formatul vechi,
   o listă) rămân: prima lecție a fiecărui examen; examenele fără ea se completează automat.
 - **În lobby** (`/meditatii`): în prezentare, „🎁 Câte o meditație 1-la-1 gratuită pentru fiecare
@@ -774,6 +790,132 @@ răspundă pe ecran. Fă să apară întrebarea pe ecran."
 
 ---
 
+## 3i. ⏳ Sala de așteptare și „🔔 Anunță-mă când e gata" (26 octombrie 2026)
+
+Cererea: „În «meditații live» arată 1-3 minute de pregătire lecție, dar durează mult până se pregătește
+o lecție live, iar un elev și-ar putea pierde interesul. Pune o notificare când se termină și poate intra
+elevul."
+
+- **Cât durează cu adevărat:** o lecție nouă o scrie Claude Opus 5.5 din paginile PDF (câteva minute),
+  apoi se înregistrează vocea începutului. În locul lui „1–3 / 2–4 minute", serverul calculează
+  **estimarea din lecțiile scrise până acum** (`prepEta`: mediana timpului de scriere + a vocii
+  începutului, ultimele 20 de lecții; fără date — 4–8 minute). Apare în lobby („4–8 min pregătire"),
+  la meditațiile gratuite și în sala de așteptare („de obicei 4–8 minute"); se ajustează singură.
+- **Etapele, pe ecran** (`src/components/live/PrepWait.jsx`): 📄 citește subiectul și baremul → ✍️ scrie
+  explicațiile, exercițiu cu exercițiu („2 din 6 părți") → ❓ întrebările pentru exerciții → 🎙️ vocea
+  începutului lecției → ✅ gata; bara de progres, cât a trecut („⏱ 3:12") și cât mai durează.
+  Progresul vine des, fără să pregătească nimic (`action: 'status'`, la ~3,5 s).
+- **1-la-1: un singur apel lung** (`untilPlayable`): textul + vocea DOAR a începutului (intro + primii
+  doi itemi), apoi lecția poate porni; restul vocii se face în fundal, cât elevul lucrează. Apelul merge
+  pe server până la capăt **și dacă elevul închide pagina** (Vercel nu oprește funcția).
+- **„🔔 Anunță-mă când e gata"** (butonul din sala de așteptare): când lecția se poate ține, elevul
+  primește **sunetul „gata"** + vibrația, **titlul tabului clipește** („✅ Prof. Tudor e gata!") cât e în
+  alt tab, **notificarea de sistem** și — dacă a permis notificările — **notificarea Web Push**, care vine
+  și **cu pagina închisă** (Chrome, Edge, Firefox, Android, aplicația ExamenMate; pe iPhone doar aplicația
+  pusă pe ecranul principal, iOS 16.4+). Clicul pe notificare deschide sala. O singură dată pe elev și
+  ședință; cine e deja în sală când lecția e gata nu mai primește nimic. „Nu mai anunța" o oprește.
+  La ședințele de grup: „🔴 Meditația a început", la ora de început (în sală sau din cron).
+- **Elevul în alt tab la 1-la-1:** lecția **nu pornește singură** — îl așteaptă cardul „✅ Prof. Tudor e
+  gata! ▶ Începe lecția"; cele 60 de minute pornesc abia la clic.
+- **Fără SQL / fără permisiune:** sunetul, titlul tabului și notificarea din pagină merg oricum.
+- **Tehnic:** `api/live.js` (`prepEta`, `statusAction`, `notifyAction`, `notifySession`,
+  `notifyLessonReady` — chemat la sfârșitul fiecărei pregătiri, `prepareLesson` cu `untilPlayable` și
+  momentele `progress.startedAt / scriptSec / head / playableAt / headSec`), `api/_lib/push.js` (cheile
+  VAPID, abonările, trimiterea; abonările expirate se șterg), `public/sw-push.js` (inclus în service worker:
+  notificarea și clicul), `src/lib/live/notify.js`, `src/pages/LiveRoom.jsx`, `src/components/live/PreJoin.jsx`,
+  `src/pages/MeditatiiLive.jsx`; SQL: `supabase/notificari_lectii.sql`. Teste: `test/notificare-lectie-gata.test.js`.
+- **Pregătirea de examen** („Planul meu"): aceeași scriere de lecție — în locul lui „1–2 minute" arată
+  estimarea (doar textul) și sună când așteptarea lungă se termină (titlul tabului clipește, dacă elevul
+  e în alt tab).
+
+---
+
+## 3j. 🤖 Botul care verifică lecțiile generate (26 octombrie 2026)
+
+Cererea: „Fă un bot care să verifice dacă o lecție generată are sunet, întrebări pentru exerciții."
+
+**Admin → 🎥 Meditații live → „🤖 Botul de verificare"** (`src/components/LiveQaBot.jsx`). Verifică
+lecția **exact cum o primesc elevii**, fără AI și fără cost (`api/_lib/lessonCheck.js`):
+
+1. **Sunetul** — fiecare frază rostită are vocea generată (fișier + durată), **fișierul chiar există în
+   Storage** (`live-media/lessons/<id>/`; o lipsă se confirmă și direct, cu o cerere HEAD — o listă
+   greșită nu acuză nimic) și nu e gol. Arată: „sunet 100%", „vocea lipsește la 12 din 306 fraze (la
+   I.4, II.2)", „3 fișiere de voce lipsesc din Storage", „fără voce generată (vocea browserului)", sau
+   „nu e configurată nicio voce" (cheile din 1.2).
+2. **Întrebările la exerciții** — fiecare exercițiu are cel puțin o întrebare pentru elev; grilele au
+   întrebarea pe ecran (4 variante + litera corectă); la Subiectele II și III, **fiecare subpunct**
+   (a, b, c) are întrebarea lui; fiecare întrebare e validă (răspuns nevid, nu prea lung, variantele
+   diferite, nu își spune singură răspunsul), iar răspunsul corect scris simplu („1/2" pentru `\frac{1}{2}`)
+   e recunoscut de verificarea automată.
+3. **Itemii** — toți itemii subiectului, enunțurile lizibile, formulele care se afișează, desenele din PDF.
+4. **Cronologia** — lecția se poate juca (grup și 1-la-1), fiecare întrebare are răspunsul corect.
+
+Fiecare lecție primește un scor și o linie („✓ sunet 100% · 24 întrebări la 18/18 exerciții" sau
+„⚠ sunet 96% · 2 cu subpuncte fără întrebare"), iar în „Lecțiile recente" o insignă („🤖 ✓ verificată"
+/ „🤖 ⚠ 3 probleme"). Sus: câte lecții sunt fără probleme, cu probleme, fără sunet complet, cu exerciții
+fără întrebări, neverificate încă; lecțiile cu probleme apar primele (cele mai grave întâi), cu „Detalii".
+
+**Când rulează:** după fiecare pregătire care ajunge „gata", în cron (câte `LIVE_BOT_VERIFICARI` lecții
+pe rulare — cele neverificate, schimbate de la ultima verificare sau verificate acum peste o săptămână)
+și oricând din Admin („🔎 Verifică toate acum", sau 🔎 la o lecție). Raportul stă în `live_lesson_qa`, separat
+de lecție (o verificare nu schimbă lecția și nici ordinea din Admin).
+
+**Reparațiile, cu un clic, la fiecare lecție:** „🔊 Refă fișierele de voce" (doar frazele cu fișierul
+pierdut / sunetul gol), „🔊 Generează vocea care lipsește", „❓ Întrebări din barem" (subpunctele fără
+întrebare, fără AI, gratuit) sau „✨ Întrebări cu AI", „🧩 Completează itemii lipsă", „🖼 Refă desenele";
+„↻ Regenerează" doar unde nimic altceva nu ajută (costă din nou). „🔧 Repară tot fără AI" le trece pe
+toate lecțiile cu probleme prin reparațiile gratuite (vocea refăcută, întrebările din barem, desenele). **Singur, în cron** (`LIVE_BOT_REPARA`, implicit doar `voce_refa`): fișierele de voce
+pierdute și sunetul gol se refac — niciodată cât o ședință de grup cu lecția e în curs sau începe în
+45 de minute, de cel mult 2 ori pe problemă (a doua încercare după 6 ore).
+
+**Tehnic:** `api/_lib/lessonCheck.js` (`checkLesson`, `confirmFiles`), `api/live.js` (`qaRun`, `qaCron`,
+`adminQa` → `action: 'admin_qa'`; reparațiile trec prin `admin_prepare`: `voiceFix`, `dropAudio`,
+`stepsGaps`, `stepsAi`), `src/components/LiveQaBot.jsx`, `src/components/LiveAdmin.jsx`. Teste:
+`test/bot-verificare-lectii.test.js`.
+
+---
+
+## 3k. √x Tastatura matematică (26 octombrie 2026)
+
+Cererea: „La meditații live și rezolvare PDF în chat, fă ca elevul să poată scrie simboluri matematice ca
+radical, radical de ordin n, integrală, limită, fracție, putere, vector, aranjamente, combinări, grade,
+matrice de ordin 2 și 3, determinant, indice, intersecție, reuniune, aparține, rezultă, infinit, pi, sau
+alte forme, de pe telefon sau calculator. Pune o tastatură specială pentru introducere răspuns cu aceste
+simboluri. Să accepte răspuns și în formă de text."
+
+- **Unde apare:** la întrebările profesorului din sala live (grup, 1-la-1) și din Pregătirea de examen —
+  butonul **„√x"** de lângă câmpul de răspuns; în **chatul sălii** (√x lângă rândul de scris); în chatul
+  **Profesorului Virtual de lângă PDF** (√x lângă întrebare) și în formularul **„📝 Răspunde în chat"**
+  („√x Simboluri" sub fiecare cerință și subpunct).
+- **Cum arată:** un editor matematic adevărat (MathLive, licență MIT) — fracția are căsuțe pentru numărător
+  și numitor, radicalul pentru ordin și sub-radical, matricea pentru fiecare element; elevul nu vede cod.
+  Tastatura e a noastră, în română, la fel pe telefon și pe calculator, pe file: **123** (cifre, operații,
+  fracție, radical, putere, π, ∞), **√ xⁿ** (radical de ordin n, ∛, puteri, indice, modul, grade, factorial,
+  ln / lg / log în baza a, sin…ctg, ≤ ≥ ≠ ±), **∫ lim** (limite, integrale, sumă, derivate, ±∞), **∩ ∈ ⇒**
+  (aparține, intersecție, reuniune, incluziune, mulțimea vidă, ℝ ℕ ℤ ℚ ℂ, intervale, rezultă, echivalent,
+  ∀ ∃), **[ ] A C** (matrice și determinanți de ordin 2 și 3, inversa, transpusa, vectori, aranjamente,
+  combinări, permutări, unghi, triunghi, paralel, perpendicular), **abc** (litere, litere grecești).
+  Rândul de jos: ← → „⇥ căsuța următoare" ⌫ 🗑. Pe telefon nu mai apare tastatura sistemului peste câmp;
+  în zonele mici (formularul de la PDF) tastatura stă jos pe ecran, ca tastatura telefonului. Pe calculator
+  se poate scrie și de la tastatură (`/` = fracție, `^` = putere, `_` = indice, Enter = Trimite).
+- **Și ca text:** „Abc · text" trece înapoi la câmpul obișnuit (formula devine text: `\frac{1}{2}` → „1/2",
+  matricea → „[[1, 2], [3, 4]]"); alegerea „√x / Abc" se ține minte în browser. Serverul primește la fel
+  „radical din 2", „3 radical din 2", „1 supra 2", „x la pătrat", „2 la puterea 3", „combinări de 5 luate câte 2",
+  „60 de grade", „minus infinit", „mulțimea vidă", „o jumătate".
+- **Verificarea răspunsului** (`api/_lib/mathcheck.js`): matematic, ca până acum, plus intervalele
+  (**paranteza contează**: „(2, 5]" ≠ „(2, 5)"), mulțimile (ordinea nu), perechile (ordinea da),
+  **matricele** (element cu element), **determinanții** (valoarea), combinări / aranjamente / permutări,
+  logaritmii în orice bază, gradele, vectorii. Răspunsurile pot avea acum până la 300 de caractere (o matrice
+  de ordin 3), mesajele din chat 500.
+- **Încărcare:** editorul (~230 KB comprimat) se descarcă doar la prima deschidere a tastaturii, nu intră
+  în aplicația pusă pe telefon (precache).
+- **Tehnic:** `src/components/math/MathKeyboard.jsx` (tastele, editorul), `src/components/math/MathInput.jsx`
+  (`MathAnswer`, `MathInsertButton`, `MathInsertPanel`), `src/lib/mathPlain.js` (forma text), `src/styles/mathkeyboard.css`,
+  `src/components/live/PollCard.jsx`, `src/components/live/LiveChat.jsx`, `src/components/AITutor.jsx`;
+  dependența `mathlive` (`npm install`). Teste: `test/tastatura-matematica.test.js`.
+
+---
+
 ## 4. Profesorul animat (scena)
 
 Scena e construită **o singură dată**, offline, dintr-o fotografie a clasei cu profesorul
@@ -911,10 +1053,18 @@ pagina de intrare scrie că vocea și imaginea sunt generate (cerință AI Act).
 | Ședința de grup e prea lungă cu toate întrebările | normal: rămâne câte o întrebare la fiecare subpunct; `LIVE_SONDAJ_PAS_SEC` (ex. 30) scurtează timpul de răspuns |
 | Admin → „🎁 Meditațiile gratuite": „rulează supabase/setari_ordine_gratuite.sql" | scriptul setărilor nu e rulat; până atunci sunt gratuite cele alese automat, câte una pe examen (nu se pot schimba) |
 | În lobby nu apare secțiunea „Încearcă gratuit" (sau lipsește un examen) | examenul nu are niciun subiect cu barem încă, sau ai ales „✕ Fără meditație gratuită" la el în Admin („🤖 Alege automat" o pune la loc) |
-| Meditația gratuită a unui examen „se pregătește când pornești (2–4 minute)" | e aleasă automat dintre subiectele cu barem (examenul nu avea nicio lecție gata); lecția se scrie la primul elev, o singură dată — sau Admin → „🎁 Meditațiile gratuite" → „Pregătește acum" |
+| Meditația gratuită a unui examen „se pregătește când pornești (4–8 min; te anunțăm când e gata)" | e aleasă automat dintre subiectele cu barem (examenul nu avea nicio lecție gata); lecția se scrie la primul elev, o singură dată — sau Admin → „🎁 Meditațiile gratuite" → „Pregătește acum" |
 | În „Alege subiectul" nu mai apar fișele „Subiectul I - Exercițiul 1" | normal (11 oct.): n-au barem propriu; opțiunea „🎯 1-la-1: un singur tip de exercițiu" (17 oct.) ia aceleași exerciții din subiectele oficiale, pe barem |
 | La „🔁 Explică altfel" nu apare „🔀 Altă metodă" (doar celelalte) | itemul nu are o altă metodă firească (ex. o grilă de un pas), așa că modelul n-a scris-o; la o lecție veche: Admin → „Lecțiile recente" → „Regenerează" o scrie, dacă există. Funcțiile prezente sunt mereu toate în listă |
 | Prețurile din lobby / de la plată sunt tot 10 și 20 lei | `LIVE_PRICE_GRUP_LEI` / `LIVE_PRICE_PRIVAT_LEI` sunt setate în Vercel (au întâietate față de 20 / 30 din cod) → șterge-le sau pune 20 / 30, apoi Redeploy |
 | La 1-la-1, după „Participă acum": „Ședința 1-la-1 costă 30 lei" și „Plătește 30 lei" | normal când între pornire și intrare s-au terminat ședințele incluse (sau meditațiile gratuite ale lunii). Până pe 17 oct. butonul cerea, greșit, un bilet de **grup** (plata nu pornea); acum cere biletul 1-la-1, iar după plată elevul revine în aceeași sală |
 | La „🎯 Un singur tip", profesorul spune „Am lucrat toate exercițiile de acest tip…" | s-au terminat subiectele cu barem care au acel exercițiu (sau plafonul de lecții noi pe zi, `PREP_GENERARI_ZI`); propune testul pe acest tip sau alt subpunct — nu trece singur la alt tip. Alt tip: „🎯 Tipul de exercițiu" → „Alt tip de exercițiu → Meditații live" (ședința continuă, fără cost în plus) |
+| Elevul a cerut „🔔 Anunță-mă", dar nu i-a venit notificarea cu pagina închisă | notificările sunt blocate pentru site (iconița 🔒 din bara de adrese → Notificări → Permite), browserul nu are Web Push (iPhone fără aplicația pusă pe ecranul principal), sau `supabase/notificari_lectii.sql` nu e rulat (Admin → „🤖 Botul de verificare" spune). Cu pagina deschisă, sunetul și titlul tabului merg oricum |
+| Sala de așteptare arată „de obicei 4–8 minute", dar lecția se scrie mai repede / mai încet | estimarea vine din ultimele 20 de lecții scrise (mediana) — se ajustează singură; o lecție deja scrisă pentru alt profesor se copiază în câteva secunde |
+| Botul spune „N fișiere de voce lipsesc din Storage" | fișierele lecției au fost șterse din `live-media` (ex. curățenie manuală); botul le reface singur în cron (`LIVE_BOT_REPARA`), sau imediat: „🔊 Refă fișierele de voce" (doar frazele acelea) |
+| Botul spune „subpunctele b), c) n-au nicio întrebare" | „❓ Întrebări din barem" (gratuit) sau „✨ Întrebări cu AI"; dacă nici așa nu apar, explicația subpunctului nu are un rezultat de întrebat → „↻ Regenerează" |
+| Botul: „⚠ Rapoartele nu se pot salva încă: rulează o dată supabase/notificari_lectii.sql" | tabela `live_lesson_qa` lipsește → rulează SQL-ul; botul verifică oricum, doar nu păstrează rapoartele |
+| Botul spune „fișierele din Storage neverificate" | lista fișierelor din Storage n-a putut fi confirmată (rețeaua, o listă incompletă) — botul nu acuză nimic pe o listă nesigură; la verificarea următoare se încearcă din nou |
+| „Se încarcă tastatura matematică…" rămâne / „Tastatura nu s-a putut încărca" | rețeaua a picat la prima deschidere (editorul se descarcă atunci) — elevul poate răspunde ca text („Abc"); la o reîncărcare a paginii se încearcă din nou |
+| Răspunsul scris cu √x e marcat greșit, deși e corect | trimite răspunsul și întrebarea (Admin → Meditații live → ședința → răspunsurile): verificarea compară matematic; la răspunsurile-text („triunghiul este isoscel") compară doar textul — botul le semnalează ca „răspuns text" |
 | Elevul vede „Ai făcut deja cele 4 meditații gratuite din luna aceasta" | plafonul lunar (`LIVE_GRATUIT_LUNA`); de luna viitoare le poate face din nou |

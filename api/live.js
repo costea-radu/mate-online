@@ -401,6 +401,8 @@ async function program(req, res, supa) {
     rooms: L.rooms(),
     prices: { grup: L.PRICE_GROUP_LEI(), privat: L.PRICE_PRIVATE_LEI(), privatMin: L.PRIVATE_MINUTES(), privatIncluse: L.PRIVATE_INCLUDED(), gratuiteLuna: L.FREE_MONTHLY() },
     joinEarlyMin: L.JOIN_EARLY_MIN(),
+    // cât durează pregătirea unei lecții NOI (din lecțiile scrise până acum) — în locul lui „2–4 min"
+    prepEta: await prepEta(supa),
     // meditațiile gratuite (1-la-1 fără plată, pentru oricine are cont)
     freeLessons: await freeLessonsView(supa, L.teachers()[0].id),
     days: days.map((d, i) => ({ day: d, label: i === 0 ? 'Azi' : 'Mâine', sessions: all.filter((s) => s.day === d).map(view) })),
@@ -417,7 +419,9 @@ async function program(req, res, supa) {
 // ═════════════════════════════════════════════════════════════════════════════
 // LECȚIA: găsire / creare / pregătire (cu lacăt)
 // ═════════════════════════════════════════════════════════════════════════════
-const LIGHT = 'id, subject_id, teacher, version, status, title, exam, profile, duration_sec, error, locked_until, updated_at, total:progress->total, done:progress->done, noVoice:progress->noVoice, phase:progress->>phase, pasi:script->pasi, figv:script->figv';
+// + progresul pregătirii pentru sala de așteptare: când a început scrisul, paginile PDF
+// citite, bucățile scrise, vocea începutului (1-la-1 pornește cu ea) — vezi prepareLesson
+const LIGHT = 'id, subject_id, teacher, version, status, title, exam, profile, duration_sec, error, locked_until, updated_at, total:progress->total, done:progress->done, noVoice:progress->noVoice, phase:progress->>phase, pasi:script->pasi, figv:script->figv, startedAt:progress->>startedAt, pdfAt:progress->>pdfAt, write:progress->write, head:progress->head';
 
 async function lessonFor(supa, subjectId, teacherId, { create = true } = {}) {
   const { data, error } = await supa.from('live_lessons').select(LIGHT)
@@ -436,7 +440,18 @@ async function lessonFor(supa, subjectId, teacherId, { create = true } = {}) {
   return ins;
 }
 
-const lessonView = (l) => l && ({ id: l.id, status: l.status, title: l.title, error: l.status === 'eroare' ? l.error : null, total: Number(l.total) || 0, done: Number(l.done) || 0, phase: l.phase || null });
+// progresul pregătirii (sala de așteptare): `write` = bucățile scrise ({ phase, done, total }),
+// `head` = vocea începutului lecției ({ done, total }), `startedAt` / `pdf` = etapele
+const prepView = (l) => {
+  const w = l.write && typeof l.write === 'object' ? l.write : null;
+  const h = l.head && typeof l.head === 'object' ? l.head : null;
+  return {
+    startedAt: l.startedAt || null, pdf: !!l.pdfAt,
+    write: w ? { phase: String(w.phase || 'scriere'), done: Number(w.done) || 0, total: Number(w.total) || 0 } : null,
+    head: h ? { done: Number(h.done) || 0, total: Number(h.total) || 0 } : null,
+  };
+};
+const lessonView = (l) => l && ({ id: l.id, status: l.status, title: l.title, error: l.status === 'eroare' ? l.error : null, total: Number(l.total) || 0, done: Number(l.done) || 0, phase: l.phase || null, ...prepView(l) });
 
 // ─── DESENELE din PDF (api/_lib/figuri.js) pentru lecțiile scrise înainte de ele ──
 // o singură dată pe lecție (câteva secunde): doar it.figure + script.figv — cronologia
@@ -493,7 +508,19 @@ async function logWriteUsage(supa, endpoint, usage) {
 // steps: o lecție scrisă înainte de întrebările pe pași le primește acum (forceSteps:
 //   le scrie din nou, de la zero — din Admin).
 // figures: desenele din PDF, o singură dată pe lecție (forceFigures: din nou — din Admin).
-async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.warn, revoice = false, fromRef = null, scriptOnly = false, steps = false, forceSteps = false, fill = false, figures = true, forceFigures = false, headCheck = false } = {}) {
+// untilPlayable: sala de așteptare 1-la-1 — după text, vocea DOAR până poate porni lecția
+//   (începutul: intro + primii itemi), cu cel puțin 150 s pentru ea și după un text scris
+//   în câteva minute. Apelul merge până la capăt și dacă elevul închide pagina (Vercel nu
+//   oprește funcția) — iar la sfârșit, cine a cerut „🔔 Anunță-mă" primește notificarea.
+// Progresul (sala de așteptare): progress.startedAt / pdfAt / write (bucățile scrise) /
+//   scriptAt + scriptSec / head (vocea începutului) / playableAt + headSec / readyAt —
+//   din ele vine și estimarea timpului (prepEta), în locul vechiului „1–3 minute".
+// Reparațiile botului de verificare (și butoanele lui din Admin):
+//   voiceFix  — vocea frazelor care n-o au (lecția gata trece pe „audio" cât se generează);
+//               dropAudio = frazele cu fișierul pierdut / sunetul gol, care se refac
+//   stepsGaps — întrebările pe pași DOAR pentru subpunctele fără nicio întrebare (celelalte
+//               rămân); stepsAi: false = doar din barem (fără AI, gratuit), true = întâi cu AI
+async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.warn, revoice = false, fromRef = null, scriptOnly = false, steps = false, forceSteps = false, fill = false, figures = true, forceFigures = false, headCheck = false, untilPlayable = false, voiceFix = false, dropAudio = null, stepsGaps = false, stepsAi = true } = {}) {
   const t0 = Date.now();
   const nowIso = new Date().toISOString();
   const until = new Date(Date.now() + budgetMs + 90 * 1000).toISOString();
@@ -520,7 +547,15 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
   // păstrează (computeTimeline folosește fișierele și atunci); `audio` = ce s-a generat
   // până acum în această pregătire, ca nimic să nu se piardă (`more`: alte câmpuri ale progresului)
   const browserVoice = async (why, audio = null, more = {}) => {
-    await save({ status: 'gata', error: why || null, progress: { ...row.progress, ...(audio ? { audio, done: Object.keys(audio).length } : {}), ...more, noVoice: true, phase: 'gata', total: LL.segmentsInOrder(row.script).length } });
+    await save({ status: 'gata', error: why || null, progress: { ...row.progress, ...(audio ? { audio, done: Object.keys(audio).length } : {}), ...more, noVoice: true, phase: 'gata', total: LL.segmentsInOrder(row.script).length, readyAt: row.progress?.readyAt || new Date().toISOString() } });
+  };
+  // progresul scrisului (bucățile scrise): cel mult o salvare pe secundă și jumătate
+  let lastWriteSave = 0;
+  const saveWrite = async (p) => {
+    const t = Date.now();
+    if (p.phase === 'scriere' && p.done > 0 && p.done < p.total && t - lastWriteSave < 1500) return;
+    lastWriteSave = t;
+    await save({ progress: { ...(row.progress || {}), write: { phase: p.phase, done: p.done, total: p.total, at: new Date(t).toISOString() } } });
   };
   try {
     // „audio" (nu „script"): o întrerupere aici lasă lecția „cu vocea începută" — o termină cronul
@@ -529,14 +564,15 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
     }
     // ── 1. scriptul ──
     if (row.status === 'nou' || (row.status === 'eroare' && !row.script)) {
-      await save({ status: 'nou', error: null, progress: { ...(row.progress || {}), phase: 'script', startedAt: new Date().toISOString() } });
+      await save({ status: 'nou', error: null, progress: { ...(row.progress || {}), phase: 'script', startedAt: new Date().toISOString(), pdfAt: null, write: null } });
       const { data: other } = await supa.from('live_lessons').select('script')
         .eq('subject_id', row.subject_id).neq('teacher', row.teacher).not('script', 'is', null)
         .order('updated_at', { ascending: false }).limit(1);
-      let script = null, costMicro = 0;
+      let script = null, costMicro = 0, copied = false;
       if (other && other[0]?.script) {
         // desenele se extrag din nou: fișierele sunt ale fiecărei lecții
         script = FIG.stripFigures(LL.adaptScript(other[0].script, teacher));
+        copied = true;
       } else {
         const { data: content } = await supa.from('content').select('*').eq('id', row.subject_id).maybeSingle();
         if (!content) throw fail(404, 'Subiectul nu mai există.');
@@ -544,22 +580,32 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
         const se = L.subjectExam(content, B) || { exam: 'en', profile: null };
         // paginile PDF (subiect + barem): modelul vede formulele pierdute la extragerea textului
         const attachments = await LL.pdfAttachments({ supa, content, ctx, pdfCtx: pdfContext(), log });
+        await save({ progress: { ...(row.progress || {}), pdfAt: new Date().toISOString() } });
         await holdLock(supa, row.id);
         let r;
-        try { r = await LL.generateScript({ ctx, content, teacher, exam: se.exam, profile: se.profile, log, attachments }); }
+        try { r = await LL.generateScript({ ctx, content, teacher, exam: se.exam, profile: se.profile, log, attachments, onProgress: saveWrite }); }
         catch (e) { await logWriteUsage(supa, 'live-lectie', e.usage); throw e; }   // și o încercare eșuată costă
         script = r.script;
         costMicro = await logWriteUsage(supa, 'live-lectie', r.usage);
       }
       const total = LL.segmentsInOrder(script).length;
+      // cât a durat scrisul (doar cel adevărat, nu copia altui profesor) → estimarea din sala de așteptare
+      const startedAt = row.progress?.startedAt || null;
+      const scriptAt = new Date().toISOString();
+      const scriptSec = startedAt && !copied ? Math.round((Date.parse(scriptAt) - Date.parse(startedAt)) / 1000) : null;
       await save({
         status: 'script', script, title: script.title, exam: script.exam, profile: script.profile,
-        progress: { audio: {}, total, done: 0, phase: 'voce' }, error: null,
+        progress: {
+          audio: {}, total, done: 0, phase: 'voce', startedAt, pdfAt: row.progress?.pdfAt || null, scriptAt,
+          ...(scriptSec != null && scriptSec > 0 ? { scriptSec } : {}), head: LL.headProgress(script, {}),
+        },
+        error: null,
         cost_micro: (row.cost_micro || 0) + costMicro,
       });
     }
-    // ── 1b. întrebările pe pași (lecțiile scrise înainte de ele) ──
-    if ((steps || forceSteps) && row.script && (forceSteps || LL.needsSteps(row.script)) && ['gata', 'script', 'audio'].includes(row.status)) {
+    // ── 1b. întrebările pe pași (lecțiile scrise înainte de ele; sau doar golurile — botul) ──
+    const gapSteps = !!stepsGaps && !!row.script && LL.stepGapRefs(row.script).length > 0;
+    if ((steps || forceSteps || gapSteps) && row.script && (forceSteps || gapSteps || LL.needsSteps(row.script)) && ['gata', 'script', 'audio'].includes(row.status)) {
       const was = row.status;
       const audio = row.progress?.audio || {};
       const voiced = !row.progress?.noVoice && Object.keys(audio).length > 0;
@@ -567,7 +613,7 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
       if (was === 'gata') await save({ status: 'script', progress: { ...row.progress, phase: 'pasi' } });
       try {
         await holdLock(supa, row.id);
-        const r = await LL.addStepQuestions({ script: row.script, teacher, log, force: !!forceSteps });
+        const r = await LL.addStepQuestions({ script: row.script, teacher, log, force: !!forceSteps, useAi: gapSteps && !forceSteps && !steps ? stepsAi !== false : true });
         const costMicro = await logWriteUsage(supa, 'live-pasi', r.usage);
         // vocea generată: frazele noi (întrebările) se înregistrează mai jos, în același apel
         const next = voiced && tts.provider() ? 'audio' : (was === 'gata' ? 'gata' : was);
@@ -629,6 +675,24 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
         await save({ script: { ...row.script, figv: FIG.FIG_V, figErr: String(e.message || e).slice(0, 200) } });   // desenele de dinainte rămân
       }
     }
+    // ── 1e. vocea care lipsește (botul de verificare): fișierele pierdute din Storage și
+    //        sunetul gol se refac, frazele fără voce o primesc — lecția trece pe „audio"
+    //        cât se generează (1-la-1 merge și atunci; grupul așteaptă „gata")
+    //        voiceFix === 'refa': DOAR frazele din dropAudio, pe loc — lecția rămâne cum era (gata
+    //        rămâne gata; cele cu vocea browserului rămân așa): reparația automată a cronului
+    if (voiceFix === 'refa' && Array.isArray(dropAudio) && dropAudio.length && row.script && ['gata', 'audio', 'script'].includes(row.status) && tts.provider()) {
+      const audio = { ...(row.progress?.audio || {}) };
+      const only = new Set(dropAudio.map(String));
+      for (const id of only) delete audio[id];
+      const r = await LL.voiceScript(supa, { lessonId: row.id, script: row.script, teacher, audio, budgetMs: Math.max(20000, budgetMs - (Date.now() - t0) - 4000), log, only });
+      const dur = row.status === 'gata' ? L.buildTimeline(row.script, audio, { mode: 'grup' }).duration : null;
+      await save({ progress: { ...row.progress, audio, done: r.done, total: r.total }, cost_micro: (row.cost_micro || 0) + (r.cost || 0), ...(dur ? { duration_sec: dur } : {}) });
+    } else if ((voiceFix || (Array.isArray(dropAudio) && dropAudio.length)) && row.script && ['gata', 'audio', 'script'].includes(row.status) && tts.provider()) {
+      const audio = { ...(row.progress?.audio || {}) };
+      for (const id of Array.isArray(dropAudio) ? dropAudio : []) delete audio[String(id)];
+      const lacking = LL.segmentsInOrder(row.script).filter((s) => !audio[s.id] && tts.speakable(s.say)).length;
+      if (lacking > 0) await save({ status: 'audio', error: null, progress: { ...row.progress, audio, noVoice: false, phase: 'voce', voiceTries: 0 } });
+    }
     // ── 2. vocea ──
     // (doar textul: cu voce configurată, lecția rămâne „script" — vocea se face când o
     //  cere o ședință live; fără voce configurată → gata, cu vocea browserului)
@@ -636,12 +700,15 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
     if (!scriptOnly && (row.status === 'script' || row.status === 'audio' || (row.status === 'eroare' && row.script))) {
       const audio = { ...(row.progress?.audio || {}) };
       const doneBefore = Object.keys(audio).length;
-      const left = Math.max(5000, budgetMs - (Date.now() - t0) - 4000);
+      // sala de așteptare 1-la-1: vocea începutului are timp și după un text scris în câteva minute
+      const left = Math.max(untilPlayable ? 150000 : 5000, budgetMs - (Date.now() - t0) - 4000);
+      const until = untilPlayable ? (a) => LL.playableHead(row.script, a) : null;
       let r;
       try {
         r = await LL.voiceScript(supa, {
-          lessonId: row.id, script: row.script, teacher, audio, budgetMs: left, log, fromRef,
-          onProgress: async (a) => { await save({ status: 'audio', progress: { ...row.progress, audio: a, done: Object.keys(a).length } }); },
+          lessonId: row.id, script: row.script, teacher, audio, budgetMs: left, log, fromRef, until,
+          every: untilPlayable ? 6 : 15,
+          onProgress: async (a) => { await save({ status: 'audio', progress: { ...row.progress, audio: a, done: Object.keys(a).length, head: LL.headProgress(row.script, a) } }); },
         });
       } catch (e) {
         if (e.code !== 'NO_TTS') { await browserVoice(`vocea: ${String(e.message || e).slice(0, 300)}`, audio); return { ...lessonView(row), noVoice: true }; }
@@ -663,9 +730,20 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
       }
       const allDone = r.done >= r.total;
       const dur = allDone ? L.buildTimeline(row.script, audio, { mode: 'grup' }).duration : null;
+      // momentele pentru estimarea din sala de așteptare: începutul cu voce (1-la-1 poate
+      // porni) și toată lecția gata; headSec doar când vocea a urmat imediat după text
+      const head = LL.headProgress(row.script, audio);
+      const nowIso = new Date().toISOString();
+      const timing = {};
+      if (head.total > 0 && head.done >= head.total && !row.progress?.playableAt) {
+        timing.playableAt = nowIso;
+        const hs = row.progress?.scriptAt ? Math.round((Date.parse(nowIso) - Date.parse(row.progress.scriptAt)) / 1000) : null;
+        if (hs != null && hs >= 0 && hs <= 600) timing.headSec = hs;
+      }
+      if (allDone && !row.progress?.readyAt) timing.readyAt = nowIso;
       await save({
         status: allDone ? 'gata' : 'audio', error: null,
-        progress: { ...row.progress, audio, total: r.total, done: r.done, phase: allDone ? 'gata' : 'voce', voiceTries },
+        progress: { ...row.progress, audio, total: r.total, done: r.done, phase: allDone ? 'gata' : 'voce', voiceTries, head, ...timing },
         cost_micro: (row.cost_micro || 0) + (r.cost || 0), ...(dur ? { duration_sec: dur } : {}),
       });
     }
@@ -677,12 +755,305 @@ async function prepareLesson(supa, lessonId, { budgetMs = 55000, log = console.w
   } finally {
     await supa.from('live_lessons').update({ locked_until: null }).eq('id', row.id);
     lessonCache.delete(row.id);
+    // lecția se poate ține acum: cine a cerut „🔔 Anunță-mă" (sala 1-la-1 nepornită, ședința de
+    // grup începută) primește notificarea — și cu pagina închisă (Web Push)
+    const canPlay = row.status === 'gata' || (['script', 'audio'].includes(row.status) && !!row.script && LL.playableHead(row.script, row.progress?.audio || {}));
+    if (canPlay) await notifyLessonReady(supa, row, { log }).catch((e) => log(`live: notificarea „lecția e gata" (${row.id}): ${e.message}`));
+    // botul de verificare: lecția tocmai a ajuns „gata" → raportul ei (vocea, întrebările, itemii)
+    if (row.status === 'gata' && row.script) await qaAfterPrepare(supa, row, { log }).catch((e) => log(`live: botul de verificare (${row.id}): ${e.message}`));
   }
   return {
     ...lessonView({ ...row, total: row.progress?.total, done: row.progress?.done }),
     noVoice: !!row.progress?.noVoice,
     playable: row.status === 'gata' || (row.script ? LL.playableHead(row.script, row.progress?.audio || {}) : false),
   };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// „🔔 ANUNȚĂ-MĂ CÂND E GATA" — notificarea din sala de așteptare (26 oct. 2026)
+// Lecția nouă se scrie în câteva minute (Claude Opus 5.5 + vocea începutului), nu în
+// „1–3": elevul vede etapele și cât mai durează, iar când lecția se poate ține primește
+// un sunet + notificarea din pagină (browserul) și — dacă a cerut-o, și cu pagina închisă —
+// o notificare Web Push (api/_lib/push.js, public/sw-push.js). O singură dată pe elev și
+// ședință: live_participants.notify_at (a cerut) / notified_at (a primit-o).
+// ═════════════════════════════════════════════════════════════════════════════
+const PUSH = require('./_lib/push');
+
+// estimarea timpului de pregătire al unei lecții NOI, din lecțiile scrise până acum:
+// mediana textului (scriptSec) + a vocii începutului (headSec); fără date — valorile tipice
+let etaCache = null;
+const median = (a) => (a.length ? a.slice().sort((x, y) => x - y)[Math.floor(a.length / 2)] : null);
+const quart = (a, q) => (a.length ? a.slice().sort((x, y) => x - y)[Math.min(a.length - 1, Math.max(0, Math.round(q * (a.length - 1))))] : null);
+function etaFrom(rows, { claude = true } = {}) {
+  const xs = (rows || []).map((r) => Number(r.scriptSec)).filter((n) => Number.isFinite(n) && n > 5 && n < 1800);
+  const hs = (rows || []).map((r) => Number(r.headSec)).filter((n) => Number.isFinite(n) && n >= 0 && n <= 600);
+  const script = median(xs) ?? (claude ? 270 : 120);
+  const head = median(hs) ?? 45;
+  const sec = script + head;
+  const lo = xs.length >= 4 ? quart(xs, 0.25) + head : Math.round(sec * 0.8);
+  const hi = xs.length >= 4 ? quart(xs, 0.75) + head : Math.round(sec * 1.4);
+  const minLo = Math.max(1, Math.floor(lo / 60));
+  const minHi = Math.max(minLo + 1, Math.ceil(hi / 60));
+  // doar textul (Pregătirea de examen scrie lecția fără voce): fără vocea începutului
+  const sLo = xs.length >= 4 ? quart(xs, 0.25) : Math.round(script * 0.8);
+  const sHi = xs.length >= 4 ? quart(xs, 0.75) : Math.round(script * 1.4);
+  const sMinLo = Math.max(1, Math.floor(sLo / 60));
+  const sMinHi = Math.max(sMinLo + 1, Math.ceil(sHi / 60));
+  return { sec, script, head, n: xs.length, lo, hi, minLo, minHi, label: `${minLo}–${minHi} minute`, scriptLabel: `${sMinLo}–${sMinHi} minute` };
+}
+async function prepEta(supa, { fresh = false } = {}) {
+  if (!fresh && etaCache && Date.now() - etaCache.at < 10 * 60 * 1000) return etaCache.v;
+  let rows = [];
+  try {
+    const { data } = await supa.from('live_lessons').select('scriptSec:progress->scriptSec, headSec:progress->headSec')
+      .not('progress->scriptSec', 'is', null).order('updated_at', { ascending: false }).limit(20);
+    rows = data || [];
+  } catch { rows = []; }
+  const v = etaFrom(rows, { claude: LL.isClaude(LL.GEN_MODEL()) });
+  etaCache = { at: Date.now(), v };
+  return v;
+}
+
+// a cerut elevul notificarea pentru această ședință? (fără coloanele din SQL: { setup: false })
+async function notifyStateOf(supa, sessionId, userId) {
+  try {
+    const { data, error } = await supa.from('live_participants').select('notify_at, notified_at').eq('session_id', sessionId).eq('user_id', userId).maybeSingle();
+    if (error) return { setup: false, asked: false };
+    return { setup: true, asked: !!data?.notify_at && !data?.notified_at, sent: !!data?.notified_at };
+  } catch { return { setup: false, asked: false }; }
+}
+// elevul e deja aici (lecția gata la intrare / a pornit-o): nu mai primește notificarea
+async function markNotified(supa, sessionId, userId) {
+  try { await supa.from('live_participants').update({ notified_at: new Date().toISOString() }).eq('session_id', sessionId).eq('user_id', userId).not('notify_at', 'is', null).is('notified_at', null); }
+  catch { /* coloanele lipsesc — nimic de marcat */ }
+}
+
+// trimite notificarea celor care au cerut-o într-o ședință (o singură dată pe elev)
+// kind: 'gata' (1-la-1: lecția e pregătită) | 'start' (grup: ședința a început)
+async function notifySession(supa, session, { kind = 'gata', title = null } = {}) {
+  const { data: waiting, error } = await supa.from('live_participants').select('user_id')
+    .eq('session_id', session.id).not('notify_at', 'is', null).is('notified_at', null).limit(300);
+  if (error || !waiting?.length) return 0;
+  const teacherName = L.teacherById(session.teacher)?.name || 'Profesorul';
+  const subj = title || (await subjectTitles(supa, [session.subject_id]))[session.subject_id] || 'subiectul ales';
+  const url = `/meditatii/sala/${session.id}`;
+  let sent = 0;
+  for (const w of waiting) {
+    if (session.kind === 'privat' && session.owner_id && w.user_id !== session.owner_id) continue;
+    // „revendicată" o singură dată (două pregătiri care se termină deodată nu trimit de două ori)
+    const { data: claimed } = await supa.from('live_participants').update({ notified_at: new Date().toISOString() })
+      .eq('session_id', session.id).eq('user_id', w.user_id).is('notified_at', null).select('user_id');
+    if (!claimed || !claimed.length) continue;
+    const payload = kind === 'start'
+      ? { kind, title: '🔴 Meditația a început', body: `${teacherName} predă acum „${subj}". Intră în sală!`, url, tag: `live-${session.id}` }
+      : { kind, title: `✅ ${teacherName} e gata!`, body: `Lecția „${subj}" e pregătită. Intră și începe meditația 1-la-1.`, url, tag: `live-${session.id}` };
+    const r = await PUSH.sendToUser(supa, w.user_id, payload, { ttl: kind === 'start' ? 1800 : 3600 });
+    if (r.sent) sent++;
+  }
+  return sent;
+}
+
+// lecția se poate ține: ședințele care o așteaptă — 1-la-1 nepornite; grup, doar după ora de început
+async function notifyLessonReady(supa, lesson, { log = console.warn, now = new Date() } = {}) {
+  if (!lesson?.subject_id) return 0;
+  const info = await PUSH.pushInfo(supa);
+  if (!info.on) return 0;
+  const { data: list } = await supa.from('live_sessions').select('id, kind, owner_id, teacher, subject_id, starts_at, ends_at, state, status')
+    .eq('subject_id', lesson.subject_id).eq('teacher', lesson.teacher).in('status', ['programata', 'activa']).gt('ends_at', now.toISOString()).limit(60);
+  let sent = 0;
+  for (const s of list || []) {
+    if (s.kind === 'privat') { if (s.state?.startedAt) continue; }
+    else if (lesson.status !== 'gata' || now.getTime() < new Date(s.starts_at).getTime()) continue;
+    try { sent += await notifySession(supa, s, { kind: s.kind === 'privat' ? 'gata' : 'start', title: lesson.title || null }); }
+    catch (e) { log(`live: notificarea ședinței ${s.id}: ${e.message}`); }
+  }
+  return sent;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 🤖 BOTUL CARE VERIFICĂ LECȚIILE GENERATE (api/_lib/lessonCheck.js) — 26 oct. 2026
+// Are sunet fiecare frază (și fișierul chiar e în Storage)? Are fiecare exercițiu întrebări
+// pentru elev (grilele pe ecran, fiecare subpunct de la S. II–III)? Sunt toți itemii?
+// Rulează singur: după fiecare pregătire care ajunge „gata", în cron (lecțiile neverificate
+// sau schimbate, câte LIVE_BOT_VERIFICARI pe rulare) și din Admin („🔎 Verifică acum").
+// Raportul stă în public.live_lesson_qa (supabase/notificari_lectii.sql) — nu în
+// live_lessons, ca o verificare să nu-i schimbe lecției updated_at (cronologia ședințelor,
+// ordinea din Admin). Reparațiile automate (cron, LIVE_BOT_REPARA, implicit „voce_refa"): fișierele
+// de voce pierdute din Storage și sunetul gol — doar cât nicio ședință de grup cu lecția nu e în
+// curs / aproape, de cel mult 2 ori pe problemă. Restul, cu un clic în Admin („🔧 Repară"): vocea
+// care lipsește, întrebările pe pași (din barem sau „✨ cu AI"), itemii lipsă, desenele;
+// „Regenerează" rămâne manual.
+// ═════════════════════════════════════════════════════════════════════════════
+const LC = require('./_lib/lessonCheck');
+const QA_TABLE = 'live_lesson_qa';
+const QA_CRON_MAX = () => Math.max(0, parseInt(process.env.LIVE_BOT_VERIFICARI || '8', 10) || 0);
+// implicit doar „voce_refa": fișierele de voce pierdute / sunetul gol (un defect clar, cât vocea deja
+// plătită). Vocea care n-a fost generată niciodată rămâne ca până acum (cronul o termină pe cea
+// începută; lecțiile toate cu vocea browserului nu costă cât nu vine nimeni) — „voce" o adaugă;
+// „pasi" = întrebările pe pași din barem (fără AI, dar cu vocea frazelor noi); „figuri" = desenele.
+const QA_AUTO = () => {
+  const v = String(process.env.LIVE_BOT_REPARA ?? 'voce_refa').trim().toLowerCase();
+  if (/^(0|nu|fara|fără|none|off|false)$/.test(v)) return new Set();
+  return new Set(v.split(/[\s,;]+/).filter(Boolean));
+};
+const QA_FIX_TRIES = 2;
+const QA_FIX_WAIT_MS = 6 * 3600000;        // o reparație automată eșuată se reîncearcă după 6 ore
+const QA_STALE_MS = 7 * 24 * 3600000;      // o verificare mai veche de o săptămână se reface (fișierele)
+let qaSetup = null;                        // tabela live_lesson_qa există? (null = încă nu știm)
+
+// „amprenta" lecției: dacă se schimbă (vocea, întrebările, itemii, desenele), se verifică din nou
+function qaStamp(l) {
+  const s = l?.script || {};
+  const items = Array.isArray(s.items) ? s.items : [];
+  const steps = items.reduce((n, it) => n + (Array.isArray(it.steps) ? it.steps.length : 0), 0);
+  const audio = l?.progress?.audio ? Object.keys(l.progress.audio).length : 0;
+  return [l?.status, l?.version, items.length, steps, audio, l?.progress?.noVoice ? 1 : 0, s.pasi || 0, s.figv || 0, Array.isArray(s.missing) ? s.missing.length : '-', LC.QA_V].join('|');
+}
+
+async function qaRead(supa, lessonIds) {
+  if (qaSetup === false || !lessonIds.length) return new Map();
+  const { data, error } = await supa.from(QA_TABLE).select('lesson_id, report, stamp, checked_at').in('lesson_id', lessonIds);
+  if (error) { if (PUSH.isMissing(error)) qaSetup = false; return new Map(); }
+  qaSetup = true;
+  return new Map((data || []).map((r) => [r.lesson_id, r]));
+}
+async function qaSave(supa, lessonId, report, stamp) {
+  if (qaSetup === false) return false;
+  const { error } = await supa.from(QA_TABLE).upsert({ lesson_id: lessonId, report, stamp, ok: !!report.ok, score: report.score, checked_at: new Date().toISOString() }, { onConflict: 'lesson_id' });
+  if (error) { if (PUSH.isMissing(error)) qaSetup = false; return false; }
+  qaSetup = true;
+  return true;
+}
+
+// verifică o lecție (exact cum o primesc elevii — loadLesson) și salvează raportul
+async function qaRun(supa, lessonId, { save = true, files = true, prev = undefined } = {}) {
+  const lesson = await loadLesson(supa, lessonId, { fresh: true });
+  if (!lesson) throw fail(404, 'Lecția nu există.');
+  // fișierele vocii din Storage — doar cu lista confirmată (LC.confirmFiles), altfel neverificate
+  const names = files ? await LC.confirmFiles(supa, lesson).catch(() => null) : null;
+  const report = LC.checkLesson(lesson, { files: names, ttsOn: !!tts.provider(), needsFigures: !!lesson.script && FIG.needsFigures(lesson.script) });
+  const old = prev !== undefined ? prev : (await qaRead(supa, [lesson.id])).get(lesson.id) || null;
+  report.tries = old?.report?.tries || {};          // reparațiile automate încercate (rămân)
+  report.title = lesson.title || null;
+  if (save) await qaSave(supa, lesson.id, report, qaStamp(lesson));
+  return report;
+}
+
+// după o pregătire care a ajuns „gata" (prepareLesson → finally): doar verificarea, fără reparații
+async function qaAfterPrepare(supa, row, { log = console.warn } = {}) {
+  if (qaSetup === false) return null;
+  const r = await qaRun(supa, row.id);
+  if (!r.ok) log(`live: botul de verificare — lecția ${row.id}: ${r.summary}`);
+  return r;
+}
+
+// ce argumente de pregătire repară o problemă (aceleași ca butoanele din Admin)
+function qaFixArgs(fix, report, { ai = false } = {}) {
+  if (fix === 'voce_refa') return { voiceFix: 'refa', dropAudio: report?.sound?.brokenIds || [] };
+  if (fix === 'voce') return { voiceFix: true, dropAudio: report?.sound?.brokenIds || [] };
+  if (fix === 'pasi') return { stepsGaps: true, stepsAi: !!ai };
+  if (fix === 'itemi') return { fill: true };
+  if (fix === 'figuri') return { forceFigures: true };
+  return null;
+}
+
+// cronul: verifică lecțiile gata încă neverificate / schimbate, apoi repară ce se poate repara singur
+async function qaCron(supa, { max = 8, now = new Date() } = {}) {
+  const out = { checked: 0, fixed: [], skipped: 0, setup: qaSetup !== false };
+  if (!max || qaSetup === false) return out;
+  const { data: rows, error } = await supa.from('live_lessons')
+    .select('id, subject_id, teacher, version, status, updated_at, locked_until')
+    .in('status', ['gata', 'audio']).order('updated_at', { ascending: false }).limit(400);
+  if (error) throw new Error(error.message);
+  // doar cea mai nouă versiune a fiecărei lecții (celelalte au fost înlocuite)
+  const top = new Map();
+  for (const r of rows || []) { const k = `${r.subject_id}|${r.teacher}`; if (!top.has(k) || top.get(k).version < r.version) top.set(k, r); }
+  const list = [...top.values()].filter((r) => !(r.locked_until && Date.parse(r.locked_until) > now.getTime()));
+  const known = await qaRead(supa, list.map((r) => r.id));
+  if (qaSetup === false) return { ...out, setup: false };
+  out.setup = true;
+  // de verificat: fără raport, cu raportul vechi (altă versiune a verificărilor) sau de peste o săptămână,
+  // ori lecția s-a schimbat (amprenta) — amprenta cere scriptul, deci o citim doar la cele candidate
+  const todo = [];
+  for (const r of list) {
+    const q = known.get(r.id);
+    const stale = !q || Number(q.report?.v) !== LC.QA_V || now.getTime() - Date.parse(q.checked_at) > QA_STALE_MS;
+    if (stale || Date.parse(r.updated_at) > Date.parse(q.checked_at)) todo.push(r);
+  }
+  for (const r of todo) {
+    if (out.checked >= max) break;
+    const lesson = await loadLesson(supa, r.id, { fresh: true });
+    const q = known.get(r.id);
+    if (q && Number(q.report?.v) === LC.QA_V && q.stamp === qaStamp(lesson) && now.getTime() - Date.parse(q.checked_at) <= QA_STALE_MS) { out.skipped++; continue; }
+    try { const rep = await qaRun(supa, r.id, { prev: q || null }); known.set(r.id, { report: rep, stamp: qaStamp(lesson), checked_at: rep.at }); out.checked++; }
+    catch (e) { out.skipped++; }
+  }
+  // reparațiile automate: cel mult 2 pe rulare, fiecare problemă de cel mult QA_FIX_TRIES ori
+  const auto = QA_AUTO();
+  if (!auto.size) return out;
+  let fixes = 0;
+  for (const r of list) {
+    if (fixes >= 2) break;
+    const q = known.get(r.id);
+    const rep = q?.report;
+    if (!rep || rep.ok || !Array.isArray(rep.fixes)) continue;
+    const fix = rep.fixes.find((f) => auto.has(f) && f !== 'regenereaza' && f !== 'itemi' && (!/^voce/.test(f) || tts.provider()));
+    if (!fix) continue;
+    const tries = rep.tries?.[fix] || { n: 0, at: null };
+    if (tries.n >= QA_FIX_TRIES || (tries.at && now.getTime() - Date.parse(tries.at) < QA_FIX_WAIT_MS)) continue;
+    // nu cât o ședință de grup cu lecția e în curs sau începe curând (toți ar trebui să aibă aceeași lecție)
+    if (await groupBusySoon(supa, r.subject_id, r.teacher, now)) continue;
+    const args = qaFixArgs(fix, rep, { ai: false });
+    if (!args) continue;
+    fixes++;
+    rep.tries = { ...(rep.tries || {}), [fix]: { n: tries.n + 1, at: now.toISOString() } };
+    await qaSave(supa, r.id, rep, q.stamp);
+    try {
+      await prepareLesson(supa, r.id, { ...args, budgetMs: 180000 });
+      const again = await qaRun(supa, r.id, { prev: { report: rep } });
+      out.fixed.push({ lesson: r.id, fix, ok: !again.fixes.includes(fix) });
+    } catch (e) { out.fixed.push({ lesson: r.id, fix, error: String(e.message || e).slice(0, 120) }); }
+  }
+  return out;
+}
+// o ședință de grup cu lecția e în curs sau începe în următoarele 45 de minute?
+async function groupBusySoon(supa, subjectId, teacher, now = new Date()) {
+  if (!subjectId) return false;
+  const { data } = await supa.from('live_sessions').select('id')
+    .eq('kind', 'grup').eq('subject_id', subjectId).eq('teacher', teacher).in('status', ['programata', 'activa'])
+    .lte('starts_at', new Date(now.getTime() + 45 * 60000).toISOString()).gt('ends_at', now.toISOString()).limit(1);
+  return !!(data && data.length);
+}
+
+// Admin → „🤖 Botul de verificare": { lessonId } = o lecție; altfel toate (cele mai noi versiuni),
+// câte `limit` pe cerere (`after` = pagina următoare); { list: true } = doar rapoartele salvate
+async function adminQa(req, res, supa) {
+  await requireAdminUser(req, supa);
+  const body = req.body || {};
+  if (body.lessonId) {
+    const report = await qaRun(supa, String(body.lessonId));
+    return res.status(200).json({ report, setup: qaSetup !== false });
+  }
+  const { data: rows, error } = await supa.from('live_lessons')
+    .select('id, subject_id, teacher, version, status, title, updated_at, locked_until')
+    .in('status', ['gata', 'audio', 'script', 'eroare']).order('updated_at', { ascending: false }).limit(400);
+  dbCheck(error, 'lecțiile');
+  const top = new Map();
+  for (const r of rows || []) { const k = `${r.subject_id}|${r.teacher}`; if (!top.has(k) || top.get(k).version < r.version) top.set(k, r); }
+  const list = [...top.values()];
+  if (body.list) {
+    const known = await qaRead(supa, list.map((r) => r.id));
+    return res.status(200).json({ setup: qaSetup !== false, total: list.length, reports: list.map((r) => ({ lessonId: r.id, title: r.title, status: r.status, report: known.get(r.id)?.report || null, checkedAt: known.get(r.id)?.checked_at || null })) });
+  }
+  const limit = Math.max(1, Math.min(40, Number(body.limit) || 15));
+  const after = Math.max(0, Number(body.after) || 0);
+  const page = list.slice(after, after + limit);
+  const reports = [];
+  for (const r of page) {
+    try { reports.push({ lessonId: r.id, title: r.title, status: r.status, report: await qaRun(supa, r.id) }); }
+    catch (e) { reports.push({ lessonId: r.id, title: r.title, status: r.status, error: e.message }); }
+  }
+  return res.status(200).json({ setup: qaSetup !== false, total: list.length, next: after + page.length < list.length ? after + page.length : null, reports });
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -785,7 +1156,12 @@ async function ensureGroupClock(supa, session, lesson, now = new Date()) {
   else if (!session.state?.startedAt) q = q.is('state->>startedAt', null);
   const { data } = await q.select('*').maybeSingle();
   if (data) {
-    if (decided) broadcast(session.id, 'session', { changed: true }).catch(() => {});   // sala de așteptare află imediat
+    if (decided) {
+      broadcast(session.id, 'session', { changed: true }).catch(() => {});   // sala de așteptare află imediat
+      // cine a cerut „🔔 Anunță-mă" și a plecat din pagină: „Meditația a început" (cel mult 2,5 s aici;
+      // ce nu pleacă acum trimite cronul)
+      await Promise.race([notifySession(supa, data, { kind: 'start', title: lesson.title || null }).catch(() => 0), new Promise((ok) => setTimeout(ok, 2500))]);
+    }
     return data;
   }
   const { data: cur } = await supa.from('live_sessions').select('*').eq('id', session.id).maybeSingle();
@@ -903,6 +1279,13 @@ async function join(req, res, supa) {
     out.noVoice = !!lesson.progress?.noVoice;
     out.baremTitle = lesson.script?.baremTitle || null;
   }
+  // „🔔 Anunță-mă când e gata": cheia publică Web Push (null = doar sunetul și notificarea din
+  // pagină) + dacă a cerut-o deja; estimarea pregătirii unei lecții noi (sala de așteptare)
+  const playableNow = !!out.lesson?.playable && (session.kind === 'privat' || !!s.state?.startedAt || personal);
+  const [push, nst, eta] = await Promise.all([PUSH.pushInfo(supa).catch(() => ({ on: false })), notifyStateOf(supa, session.id, userId), prepEta(supa)]);
+  if (playableNow && nst.asked) await markNotified(supa, session.id, userId);   // e deja aici
+  out.notify = { push: push.on ? push.key : null, setup: nst.setup, asked: nst.asked && !playableNow };
+  out.eta = eta;
   // răspunsurile mele la întrebări (reluare după reîncărcarea paginii)
   const { data: ans } = await supa.from('live_poll_answers').select('poll_id, answer, correct').eq('session_id', session.id).eq('user_id', userId);
   out.myAnswers = Object.fromEntries((ans || []).map((a) => [a.poll_id, { answer: a.answer, correct: a.correct }]));
@@ -928,8 +1311,52 @@ async function prepare(req, res, supa) {
   }
   // 1-la-1 deja pornit: vocea continuă în fundal, întâi de la itemul la care e elevul
   const fromRef = typeof req.body?.fromRef === 'string' ? req.body.fromRef.slice(0, 20) : null;
-  const r = await prepareLesson(supa, lesson.id, { budgetMs: Math.min(240000, Math.max(20000, Number(req.body?.budgetMs) || 55000)), fromRef, headCheck: session.kind === 'privat' });
+  // sala de așteptare 1-la-1 (nepornită): textul + vocea începutului într-un singur apel —
+  // continuă pe server și dacă elevul închide pagina, apoi îl anunță (notificarea)
+  const untilPlayable = session.kind === 'privat' && !session.state?.startedAt && req.body?.untilPlayable === true;
+  const r = await prepareLesson(supa, lesson.id, { budgetMs: Math.min(240000, Math.max(20000, Number(req.body?.budgetMs) || 55000)), fromRef, headCheck: session.kind === 'privat', untilPlayable });
   return res.status(200).json({ lesson: r });
+}
+
+// Progresul pregătirii, citit des cât elevul așteaptă (fără să pregătească nimic): etapa,
+// bucățile scrise, vocea începutului, estimarea. Doar pentru cine a intrat deja (join).
+async function statusAction(req, res, supa) {
+  const { userId } = await who(req, supa);
+  const session = await loadSession(supa, req.body?.sessionId);
+  const { data: part } = await supa.from('live_participants').select('user_id').eq('session_id', session.id).eq('user_id', userId).maybeSingle();
+  if (!part) throw fail(403, 'Intră întâi în sală.');
+  const eta = await prepEta(supa);
+  if (!session.subject_id) return res.status(200).json({ lesson: null, eta, now: new Date().toISOString() });
+  const light = await lessonFor(supa, session.subject_id, session.teacher, { create: false });
+  if (!light) return res.status(200).json({ lesson: null, eta, now: new Date().toISOString() });
+  const v = lessonView(light);
+  const headOk = !!v.head && v.head.total > 0 && v.head.done >= v.head.total;
+  const playable = light.status === 'gata' || (session.kind === 'privat' && ['script', 'audio'].includes(light.status) && headOk);
+  return res.status(200).json({ lesson: { ...v, playable, busy: !!(light.locked_until && Date.parse(light.locked_until) > Date.now()) }, eta, now: new Date().toISOString() });
+}
+
+// „🔔 Anunță-mă când e gata": { sessionId, subscription? (PushSubscription.toJSON()), off? }
+// → abonarea Web Push (dacă browserul a dat-o) + cererea pe ședință (notify_at)
+async function notifyAction(req, res, supa) {
+  const { userId, profile } = await who(req, supa);
+  const session = await loadSession(supa, req.body?.sessionId);
+  const access = await accessToSession(supa, session, profile);
+  if (!access.ok) throw fail(402, 'Nu ai acces la această ședință.', 'LIVE_PAYMENT');
+  const off = req.body?.off === true;
+  // abonarea retrasă (permisiunea luată înapoi / alt browser): se șterge
+  if (req.body?.unsubscribe) await PUSH.removeSubscription(supa, userId, String(req.body.unsubscribe).slice(0, 900));
+  let push = false;
+  if (!off && req.body?.subscription) {
+    const info = await PUSH.pushInfo(supa);
+    if (info.on) push = await PUSH.saveSubscription(supa, userId, req.body.subscription, req.headers?.['user-agent'] || '');
+  }
+  // rândul de participant există după join; dacă lipsește (cerere rapidă), îl facem acum
+  const { data: part } = await supa.from('live_participants').select('user_id').eq('session_id', session.id).eq('user_id', userId).maybeSingle();
+  if (!part) await registerParticipant(supa, session, profile, access.via);
+  const { error } = await supa.from('live_participants').update({ notify_at: off ? null : new Date().toISOString(), notified_at: null })
+    .eq('session_id', session.id).eq('user_id', userId);
+  if (error) return res.status(200).json({ ok: false, setup: false, push: false, error: 'Notificările nu sunt încă activate (Admin: rulează supabase/notificari_lectii.sql).' });
+  return res.status(200).json({ ok: true, setup: true, on: !off, push });
 }
 
 async function timeline(req, res, supa) {
@@ -1076,7 +1503,8 @@ async function chat(req, res, supa) {
   const individual = individualFor(session);
   const privat = session.kind === 'privat' || individual;
   const toTeacher = individual ? true : (session.kind === 'privat' ? false : !!req.body?.toTeacher);
-  const { text, flagged } = L.moderate(req.body?.text || '');
+  // formulele scrise cu tastatura matematică ($\frac{…}{…}$, matrice) lungesc mesajul: până la 500
+  const { text, flagged } = L.moderate(req.body?.text || '', { max: 500 });
   if (!text) throw fail(400, 'Mesajul e gol.');
 
   // limite anti-abuz: 1 mesaj la 2,5 s, maximum N pe ședință
@@ -1184,7 +1612,8 @@ async function pollAnswer(req, res, supa) {
   const access = await accessToSession(supa, session, profile);
   if (!access.ok) throw fail(402, 'Nu ai acces la această ședință.', 'LIVE_PAYMENT');
   const pollId = String(req.body?.pollId || '').slice(0, 40);
-  const answer = String(req.body?.answer ?? '').trim().slice(0, 80);
+  // tastatura matematică trimite LaTeX (matrice, fracții): până la 300 de caractere
+  const answer = String(req.body?.answer ?? '').trim().slice(0, 300);
   if (!pollId || !answer) throw fail(400, 'Răspuns gol.');
 
   let key = session.state?.tl?.keys?.[pollId] || null;
@@ -1261,6 +1690,7 @@ async function privateSubjects(req, res, supa) {
       .map((s) => ({ ...s, ready: ready.has(s.id), scriptReady: anyReady.has(s.id), free: free.set.has(String(s.id).toLowerCase()) })),
     kinds: L.SUBJECT_KINDS.filter((k) => k.id !== 'fisa'),
     prep: target ? { target, exercises: P.settings().target, positions: P.positions(P.examOf(target).exam).map((p) => ({ pos: p.pos, label: p.label, short: p.short })) } : null,
+    prepEta: await prepEta(supa),
     access: await privateAccessFor(supa, profile),
     freeAccess: L.freeAccess({ profile, free: true, freeUsed: await freeUsedThisMonth(supa, profile.id) }),
   });
@@ -1349,6 +1779,7 @@ async function privateBegin(req, res, supa) {
   }
   const now = new Date();
   const ends = new Date(now.getTime() + L.PRIVATE_MINUTES() * 60000);
+  await markNotified(supa, session.id, userId);   // a pornit lecția: fără notificare întârziată
   const { data } = await supa.from('live_sessions').update({ access: via, state: { ...(session.state || {}), startedAt: now.toISOString() }, ends_at: ends.toISOString(), status: 'activa' })
     .eq('id', session.id).is('state->>startedAt', null).select('state, ends_at').maybeSingle();
   if (!data) {
@@ -1590,19 +2021,27 @@ async function adminPrepare(req, res, supa) {
       lessonId = (await lessonFor(supa, subjectId, teacher.id)).id;
     }
   }
-  // întrebările pe pași / itemii lipsă: doar când nicio ședință de grup cu lecția aceasta nu e în curs
+  // întrebările pe pași / itemii lipsă / vocea refăcută (botul): doar când nicio ședință de grup
+  // cu lecția aceasta nu e în curs
   const steps = !!req.body?.steps;
   const fill = !!req.body?.fill;
-  if (steps || fill) {
+  const stepsGaps = !!req.body?.stepsGaps;
+  const voiceFix = req.body?.voiceFix === 'refa' ? 'refa' : !!req.body?.voiceFix;
+  if (steps || fill || stepsGaps || voiceFix) {
     const { data: lrow } = await supa.from('live_lessons').select('subject_id, teacher').eq('id', lessonId).maybeSingle();
-    if (lrow && await groupBusy(supa, lrow.subject_id, lrow.teacher)) throw fail(409, `O ședință de grup cu această lecție e în curs sau începe imediat — ${fill ? 'completează itemii' : 'completează întrebările pe pași'} după ea.`);
+    if (lrow && await groupBusy(supa, lrow.subject_id, lrow.teacher)) throw fail(409, `O ședință de grup cu această lecție e în curs sau începe imediat — ${fill ? 'completează itemii' : voiceFix ? 'refă vocea' : 'completează întrebările pe pași'} după ea.`);
   }
+  const dropAudio = Array.isArray(req.body?.dropAudio) ? req.body.dropAudio.map(String).slice(0, 1000) : null;
   const r = await prepareLesson(supa, lessonId, {
     revoice: !!req.body?.revoice, steps, forceSteps: steps && !!req.body?.force, fill,
     forceFigures: !!req.body?.figures,              // „🖼 Refă desenele" (Admin → Script)
+    voiceFix, dropAudio, stepsGaps, stepsAi: req.body?.stepsAi !== false,
     budgetMs: Math.min(600000, Math.max(30000, Number(req.body?.budgetMs) || 240000)),
   });
-  return res.status(200).json({ lesson: r });
+  // botul: raportul lecției, refăcut după reparație (Admin îl arată imediat)
+  let qa = null;
+  if (req.body?.qa) { try { qa = await qaRun(supa, lessonId); } catch { qa = null; } }
+  return res.status(200).json({ lesson: r, qa });
 }
 
 async function adminLesson(req, res, supa) {
@@ -1835,6 +2274,19 @@ async function cron(supa) {
     .lt('ends_at', now.toISOString()).in('status', ['programata', 'activa']).select('id');
   report.closed = (closed || []).length;
 
+  // „🔔 Anunță-mă când e gata": ședințele de grup care au început (lecția gata) — cine a cerut
+  // notificarea și a plecat din pagină primește „Meditația a început" (o singură dată)
+  report.notified = 0;
+  try {
+    const started = sessions.filter((s) => s.kind === 'grup' && s.subject_id && s.status !== 'anulata' && L.phaseOf(s, now) === 'live');
+    if (started.length && (await PUSH.pushInfo(supa)).on) {
+      for (const s of started) {
+        const l = await lessonFor(supa, s.subject_id, s.teacher, { create: false });
+        if (l?.status === 'gata') report.notified += await notifySession(supa, s, { kind: 'start', title: l.title || null });
+      }
+    }
+  } catch (e) { report.errors.push(`notificări: ${e.message}`); }
+
   // vocea începută, a oricărei lecții (nu doar a ședințelor de mai sus), cu restul bugetului:
   // lecția ajunge singură la „gata", fără „▶ Continuă" (voiceBacklog)
   report.voiced = [];
@@ -1847,6 +2299,12 @@ async function cron(supa) {
       }
     }
   } catch (e) { report.errors.push(`vocea: ${e.message}`); }
+
+  // 🤖 botul de verificare: lecțiile gata încă neverificate (sau cu verificarea veche) — câteva
+  // pe rulare, fără AI și fără cost (vocea, întrebările la exerciții, itemii, fișierele din Storage)
+  try {
+    if (Date.now() - t0 < budget - 30000) report.qa = await qaCron(supa, { max: QA_CRON_MAX() });
+  } catch (e) { report.errors.push(`botul de verificare: ${e.message}`); }
   report.ms = Date.now() - t0;
   return report;
 }
@@ -2091,6 +2549,8 @@ async function prepState(req, res, supa) {
     // ședința 1-la-1: în curs (sau null) + dreptul la una nouă — ca la meditațiile live
     session: LA.prepSessionView(session), access,
     prices: { privat: L.PRICE_PRIVATE_LEI(), privatMin: L.PRIVATE_MINUTES(), privatIncluse: L.PRIVATE_INCLUDED() },
+    // cât durează scrierea unei lecții noi (doar textul), din lecțiile scrise până acum — în locul lui „1–2 minute"
+    prepEta: await prepEta(supa),
     now: new Date().toISOString(),
   });
 }
@@ -2201,7 +2661,8 @@ async function prepAnswer(req, res, supa) {
   const { userId } = await prepWho(req, supa);
   const row = await prepRow(supa, userId, req.body?.rowId);
   const pollId = String(req.body?.pollId || '').slice(0, 90);
-  const answer = String(req.body?.answer ?? '').trim().slice(0, 80);
+  // tastatura matematică trimite LaTeX (matrice, fracții): până la 300 de caractere
+  const answer = String(req.body?.answer ?? '').trim().slice(0, 300);
   if (!pollId || !answer) throw fail(400, 'Răspuns gol.');
   const prep = row.payload.prep;
   const isTest = prep.mode === 'test';
@@ -2351,7 +2812,8 @@ async function prepChat(req, res, supa) {
   // ședința 1-la-1 e deja plătită / inclusă: ca în sala live, întrebările nu consumă
   // creditele AI ale elevului (rămâne doar plafonul orar, anti-abuz)
   await ai.enforceRateLimit(supa, userId, profile, { budgets: false });
-  const { text, flagged } = L.moderate(req.body?.text || '');
+  // formulele scrise cu tastatura matematică ($\frac{…}{…}$, matrice) lungesc mesajul: până la 500
+  const { text, flagged } = L.moderate(req.body?.text || '', { max: 500 });
   if (!text) throw fail(400, 'Mesajul e gol.');
   const teacher = L.teacherById(PREP_TEACHER()) || L.teachers()[0];
   const sys = (t) => ({ id: -Date.now(), author: 'ExamenMate', role: 'sistem', text: t, at: new Date().toISOString() });
@@ -2434,6 +2896,8 @@ async function voce(req, res, supa) {
 // ═════════════════════════════════════════════════════════════════════════════
 const ACTIONS = {
   program, join, prepare, timeline, heartbeat, chat, messages,
+  // sala de așteptare: progresul pregătirii + „🔔 Anunță-mă când e gata"
+  status: statusAction, notify: notifyAction,
   poll_answer: pollAnswer, poll_results: pollResultsAction,
   private_subjects: privateSubjects, private_start: privateStart, private_begin: privateBegin, private_state: privateState,
   extend,
@@ -2441,6 +2905,9 @@ const ACTIONS = {
   voce,
   admin_overview: adminOverview, admin_set_subject: adminSetSubject, admin_prepare: adminPrepare, admin_lesson: adminLesson,
   admin_set_free: adminSetFree, admin_delete_old: adminDeleteOld,
+  // 🤖 botul care verifică lecțiile (vocea, întrebările la exerciții, itemii); reparațiile
+  // trec prin admin_prepare (voiceFix / stepsGaps / fill / figures), ca butoanele de până acum
+  admin_qa: adminQa,
   // Pregătirea de examen („Planul meu") — o ședință 1-la-1: prep_begin / prep_session
   prep_state: prepState, prep_begin: prepBegin, prep_session: prepSession,
   prep_exercise: prepExercise, prep_prefetch: prepPrefetch, prep_answer: prepAnswer,
@@ -2471,5 +2938,6 @@ module.exports = async function handler(req, res) {
 
 // pentru teste
 module.exports._internals = { computeTimeline, compactState, pollKeys, itemContext, ensureGroupClock, prepareLesson, cron, broadcast, msgView, voiceAutoOf, voiceBacklog,
-  resetCaches: () => { eligibleCache.clear(); lessonCache.clear(); freeCache = null; },
+  etaFrom, prepEta, notifyLessonReady, notifySession, qaRun, qaCron, qaStamp, qaFixArgs,
+  resetCaches: () => { eligibleCache.clear(); lessonCache.clear(); freeCache = null; etaCache = null; qaSetup = null; PUSH.resetCache(); },
   resetFree: () => { freeCache = null; } };

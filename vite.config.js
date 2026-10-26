@@ -51,9 +51,12 @@ export default defineConfig({
         // Admin rămăsese la versiunea veche după deploy (13 oct.).
         skipWaiting: true,
         clientsClaim: true,
+        // notificările „lecția e gata" (Web Push + clicul pe notificare): public/sw-push.js
+        importScripts: ['/sw-push.js'],
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        // scena profesorului din meditațiile live se încarcă doar în sală, nu la toată lumea
-        globIgnores: ['live/**', 'assets/KaTeX_*', 'assets/katex-*'],   // KaTeX (cod + fonturi): la cerere, nu în precache
+        // scena profesorului din meditațiile live se încarcă doar în sală, nu la toată lumea;
+        // tastatura matematică (MathLive) — doar la prima deschidere, nu la toată lumea
+        globIgnores: ['live/**', 'assets/KaTeX_*', 'assets/katex-*', 'sw-push.js', 'assets/mathlive*', 'assets/MathKeyboard*'],   // KaTeX (cod + fonturi): la cerere, nu în precache
         // SPA: orice navigare necunoscută primește index.html…
         navigateFallback: '/index.html',
         // …dar NU rutele serverless (/api/*) și NU fișierele de verificare

@@ -51,6 +51,11 @@ export function pregatesteSunetul() {
   window.addEventListener('keydown', deblocheaza, { once: true });
 }
 
+/** Deblochează sunetul ACUM — apelată chiar din gestul elevului (clicul care pornește o așteptare). */
+export function deblocheazaSunetul() {
+  try { const c = context(); if (c && c.state === 'suspended') c.resume().catch(() => {}); } catch { /* fără sunet */ }
+}
+
 /** „Ding-dong" scurt: două note, cu stingere lină. */
 export function sunaMesajNou() {
   if (!alertePornite()) return;
@@ -73,6 +78,35 @@ export function sunaMesajNou() {
       osc.stop(t0 + dt + 0.28);
     });
   } catch { /* fără sunet — alerta de pe ecran rămâne */ }
+}
+
+/**
+ * „Gata!" — trei note care urcă (sol–si–re), mai lungi decât „ding-dong"-ul
+ * mesajelor: lecția live pe care o aștepta elevul s-a pregătit (LiveRoom).
+ * Se aude și cu alertele de chat oprite? Nu — același comutator 🔔/🔕.
+ */
+export function sunaGata() {
+  if (!alertePornite()) return;
+  try {
+    const c = context();
+    if (!c) return;
+    if (c.state === 'suspended') c.resume().catch(() => {});
+    const t0 = c.currentTime + 0.02;
+    [[783.99, 0], [987.77, 0.16], [1174.66, 0.32], [1567.98, 0.5]].forEach(([hz, dt], i) => {
+      const osc = c.createOscillator();
+      const vol = c.createGain();
+      osc.type = i === 3 ? 'triangle' : 'sine';
+      osc.frequency.value = hz;
+      const len = i === 3 ? 0.55 : 0.22;
+      vol.gain.setValueAtTime(0.0001, t0 + dt);
+      vol.gain.exponentialRampToValueAtTime(0.2, t0 + dt + 0.02);
+      vol.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + len);
+      osc.connect(vol);
+      vol.connect(c.destination);
+      osc.start(t0 + dt);
+      osc.stop(t0 + dt + len + 0.05);
+    });
+  } catch { /* fără sunet — rămân titlul tabului și notificarea */ }
 }
 
 // ─── Vibrație (telefon) ──────────────────────────────────────────────────────

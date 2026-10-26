@@ -26,6 +26,7 @@ import { renderFigure, extractFigureMarkers } from '../lib/figureRender'; // fig
 import { awardBadges } from '../lib/badges';
 import { notaDinScor } from '../lib/nota';
 import AIPoweredBy from './AIPoweredBy';
+import { MathInsertButton, MathInsertPanel, insertAtCursor } from './math/MathInput';
 
 // ─── Terminologie școlară: „factorizare" → „descompunere în factori" ─────────
 const FACTORIZARE = {
@@ -295,6 +296,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   const [photo, setPhoto] = useState(null);              // { dataUrl, thumb } — poza merge la model CA IMAGINE (Etapa 3, 4.4)
   const [chipsUid, setChipsUid] = useState(null);        // ultimul răspuns cu „chips" de continuare (Etapa 3, 4.5)
   const inputRef = useRef(null);
+  // ── tastatura matematică (√x): în bara de scris și la fiecare cerință a formularului ──
+  const [mathOpen, setMathOpen] = useState(null);     // null | 'input' | <id cerință>
+  const formFieldRefs = useRef({});
   const [editingAttach, setEditingAttach] = useState(false);
   const [visionLoading, setVisionLoading] = useState(false);
   const fileRef = useRef(null);
@@ -1076,7 +1080,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                       sentences={!boardMode} readPos={!boardMode && voiceState.idx === i ? voiceState.sent : null} />)
                 : <div style={{ whiteSpace: 'pre-wrap' }}>
                     {m.image && <img src={m.image} alt="poza trimisă" style={{ display: 'block', maxWidth: 160, maxHeight: 120, borderRadius: 8, marginBottom: m.content ? 6 : 0, border: '1px solid rgba(255,255,255,.35)' }} />}
-                    {m.content}
+                    {/* formulele scrise de elev cu tastatura matematică ($…$) se văd desenate */}
+                    {/\$[^$\n]+\$/.test(m.content || '') ? <MathText text={m.content} /> : m.content}
                   </div>}
               {/* Figurile desenate de profesor ([[FIGURA:{...}]] → SVG determinist) — Etapa 3 */}
               {m.role === 'assistant' && !m.streaming && Array.isArray(m.figures) && m.figures.length > 0 && (
@@ -1244,6 +1249,28 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     </div>
   ) : null;
 
+  // formularul „📝 Răspunde în chat": sub fiecare cerință, „√x Simboluri" → panoul tastaturii;
+  // formula intră în răspunsul cerinței, la cursor, ca $…$ (corectarea o citește ca LaTeX)
+  const formMathRow = (id, caption = '') => (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: 3 }}>
+        <button type="button" onClick={() => setMathOpen(mathOpen === id ? null : id)} aria-expanded={mathOpen === id}
+          style={{ ...miniBtn, fontSize: '.72rem', padding: '3px 8px', borderColor: '#c6dafc', color: '#1a73e8', background: mathOpen === id ? '#e8f0fe' : '#fff' }}
+          title="Tastatura cu simboluri: radical, fracție, putere, integrală, limită, matrice, mulțimi…">
+          √x Simboluri
+        </button>
+      </div>
+      <MathInsertPanel open={mathOpen === id} onClose={() => setMathOpen(null)} label="✓ Pune în răspuns" dock caption={caption ? `răspunsul la ${caption}` : 'răspunsul tău'}
+        onInsert={(tex) => {
+          const el = formFieldRefs.current[id];
+          setFormAnswers((a) => {
+            const { next } = insertAtCursor(el, a[id] || '', tex);
+            return { ...a, [id]: next };
+          });
+        }} />
+    </>
+  );
+
   const composerJsx = (
     <>
       {/* FORMULARUL DE RĂSPUNS: câte un câmp pentru fiecare exercițiu și
@@ -1292,11 +1319,13 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                         </div>
                       )}
                       <textarea
+                        ref={(el) => { formFieldRefs.current[s.id] = el; }}
                         value={formAnswers[s.id] || ''}
                         onChange={(e) => setFormAnswers((a) => ({ ...a, [s.id]: e.target.value }))}
                         rows={2} placeholder="Răspunsul / rezolvarea ta…"
                         style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 9px', fontSize: 16, fontFamily: 'var(--font-body)', resize: 'vertical', background: '#fbfcfe' }}
                       />
+                      {formMathRow(s.id, `${it.eticheta} ${s.eticheta}`)}
                       {workOn && (
                         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
                           <button onClick={() => setWork({ target: s.id, eticheta: `${it.eticheta} ${s.eticheta}`, cerinta: s.cerinta || it.cerinta || '' })}
@@ -1309,12 +1338,16 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                     </div>
                   ))
                 ) : (
-                  <textarea
-                    value={formAnswers[it.id] || ''}
-                    onChange={(e) => setFormAnswers((a) => ({ ...a, [it.id]: e.target.value }))}
-                    rows={2} placeholder="Răspunsul / rezolvarea ta…"
-                    style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 9px', fontSize: 16, fontFamily: 'var(--font-body)', resize: 'vertical', background: '#fbfcfe' }}
-                  />
+                  <>
+                    <textarea
+                      ref={(el) => { formFieldRefs.current[it.id] = el; }}
+                      value={formAnswers[it.id] || ''}
+                      onChange={(e) => setFormAnswers((a) => ({ ...a, [it.id]: e.target.value }))}
+                      rows={2} placeholder="Răspunsul / rezolvarea ta…"
+                      style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 9px', fontSize: 16, fontFamily: 'var(--font-body)', resize: 'vertical', background: '#fbfcfe' }}
+                    />
+                    {formMathRow(it.id, it.eticheta)}
+                  </>
                 )}
                 {workOn && !it.subpuncte?.length && (
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
@@ -1414,6 +1447,14 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           </div>
         </div>
       ) : (
+      <>
+      {/* formula scrisă cu tastatura matematică (√x) intră în întrebare, la cursor, ca $…$ */}
+      <MathInsertPanel open={mathOpen === 'input'} onClose={() => setMathOpen(null)} label="✓ Pune în întrebare" dock caption="întrebarea ta"
+        onInsert={(tex) => {
+          const { next, caret } = insertAtCursor(inputRef.current, input, tex);
+          setInput(next);
+          setTimeout(() => { const el = inputRef.current; if (el) { el.focus(); try { el.setSelectionRange(caret, caret); } catch { /* ignore */ } } }, 30);
+        }} />
       <div style={{ display: 'flex', gap: 8, padding: 12, borderTop: '1px solid var(--border)', background: '#fff', flexShrink: 0 }}>
         <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={onPickPhoto} style={{ display: 'none' }} />
         <button onClick={() => fileRef.current?.click()} disabled={visionLoading} title="Fotografiază un exercițiu sau încarcă un PDF"
@@ -1431,6 +1472,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
             ✍️
           </button>
         )}
+        <MathInsertButton open={mathOpen === 'input'} setOpen={(o) => setMathOpen(o ? 'input' : null)} style={{ borderRadius: 10 }} />
         <input
           ref={inputRef}
           value={input}
@@ -1460,6 +1502,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           </button>
         )}
       </div>
+      </>
       )}
       {/* Modelele AI + „AI-ul poate greși" — o linie minusculă sub câmpul de scris
           (textele vin din src/lib/aiModels.js → AI_STACK) */}

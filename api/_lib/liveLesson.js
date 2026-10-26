@@ -1064,7 +1064,10 @@ async function fillItems({ refs, sections, attachments, teacher, exam, profile, 
 }
 
 // model: cine scrie (Admin → Meditații live; null = GEN_MODEL)
-async function generateScript({ ctx, content, teacher, exam, profile, log = console.warn, attachments = null, model = null }) {
+// onProgress({ phase, done, total }): cât s-a scris — bucățile (6, în paralel), apoi itemii
+// rescriși separat și întrebările pe pași; sala de așteptare îl arată elevului
+async function generateScript({ ctx, content, teacher, exam, profile, log = console.warn, attachments = null, model = null, onProgress = null }) {
+  const report = (p) => { if (onProgress) { try { Promise.resolve(onProgress(p)).catch(() => {}); } catch { /* doar progresul */ } } };
   const subjectText = String(ctx.text || '');
   const baremText = String(ctx.baremText || '');
   if (!live.hasBarem({ barem_status: ctx.baremStatus, barem_text: baremText })) {
@@ -1092,6 +1095,8 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
   const notes = [];
   const note = noteTo(notes, log);
 
+  let chunksDone = 0;
+  report({ phase: 'scriere', done: 0, total: plan.length });
   const results = await Promise.all(plan.map(async (p) => {
     try {
       const parts = (attachments && attachments[p.section]) || [];
@@ -1117,6 +1122,8 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
     } catch (e) {
       note(`live: generarea ${p.section} ${p.from}–${p.to} a eșuat: ${e.message}`);
       return [];
+    } finally {
+      report({ phase: 'scriere', done: ++chunksDone, total: plan.length });
     }
   }));
   let items = dedupeItems(results.flat());
@@ -1135,6 +1142,7 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
   if (redo.length) {
     const lost = missing.filter((ref) => !broken.has(ref));
     if (lost.length) note(`live: lipsesc după prima trecere: ${lost.join(', ')} — se scriu separat`);
+    report({ phase: 'completare', done: plan.length, total: plan.length, refs: redo.length });
     const more = await fillItems({ refs: redo, sections, attachments, teacher, exam, profile, title, grile, baremText, model: genModel, usage, wrote, log: note });
     items = dedupeItems([...items, ...more]);
     for (const [ref, it] of broken) if (!items.some((x) => x.ref === ref)) items.push(it);
@@ -1148,6 +1156,7 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
   }
   // întrebările pe pași: subpunctele rămase fără nicio întrebare → un apel scurt doar
   // pentru ele, apoi (fără AI) rezultatele pașilor scriși pe tablă
+  if (live.STEPS_ON()) report({ phase: 'pasi', done: plan.length, total: plan.length });
   const steps = live.STEPS_ON() ? await fillMissingSteps(items, { teacher, exam, profile, title, log: note, usage, model: genModel }) : null;
   // v2 = scrisă cu paginile PDF (formulele citite din pagini); v1 = doar din textul extras
   const withPages = Object.values(attachments || {}).some((a) => Array.isArray(a) && a.length);
@@ -1289,6 +1298,9 @@ async function fillMissingSteps(items, { teacher, exam, profile, title, log = co
 // singură dată — doar întrebările: explicațiile, id-urile lor și vocea rămân.
 const needsSteps = (script) => !!script && live.STEPS_ON() && Number(script.pasi || 0) < PASI_V
   && Array.isArray(script.items) && script.items.length > 0;
+// itemii cu subpuncte (S. II–III) fără nicio întrebare — „golurile" pe care le repară botul
+// de verificare (addStepQuestions fără force: doar ele primesc întrebări, restul rămân)
+const stepGapRefs = (script) => (Array.isArray(script?.items) ? script.items : []).filter((it) => missingParts(it).length > 0).map((it) => it.ref);
 
 async function addStepQuestions({ script, teacher, log = console.warn, force = false, useAi = true, model = null }) {
   const copy = JSON.parse(JSON.stringify(script));
@@ -1320,19 +1332,24 @@ function adaptScript(script, teacher) {
 // lecția la „vocea se generează…": se socotește făcută
 const voiced = (audio, s) => !!audio[s.id] || !tts.speakable(s.say);
 
-async function voiceScript(supa, { lessonId, script, teacher, audio = {}, budgetMs = 240000, log = console.warn, onProgress = null, every = 15, fromRef = null }) {
+// until(audio) → true: oprește vocea mai devreme (ex. sala de așteptare 1-la-1: doar până
+// are voce începutul lecției — restul îl face sala, în fundal, sau cronul)
+// only (Set de id-uri): doar aceste fraze (botul de verificare reface fișierele pierdute, nu toată vocea)
+async function voiceScript(supa, { lessonId, script, teacher, audio = {}, budgetMs = 240000, log = console.warn, onProgress = null, every = 15, fromRef = null, until = null, only = null }) {
   const t0 = Date.now();
-  const todo = voiceOrder(script, fromRef).filter((s) => !voiced(audio, s));
+  const todo = voiceOrder(script, fromRef).filter((s) => !voiced(audio, s) && (!only || only.has(s.id)));
   let cost = 0, failed = 0, sinceSave = 0, inARow = 0, lastError = null;
   const queue = todo.slice();
+  const enough = () => { try { return !!until && !!until(audio); } catch { return false; } };
   const worker = async () => {
-    while (queue.length && Date.now() - t0 < budgetMs) {
+    while (queue.length && Date.now() - t0 < budgetMs && !enough()) {
       const seg = queue.shift();
       try {
         const v = await tts.voiceSegment(supa, { text: seg.say, teacher, path: `lessons/${lessonId}/${seg.id}` });
         if (v) { audio[seg.id] = { url: v.url, dur: v.dur, lip: v.lip }; cost += v.cost || 0; }
         inARow = 0;
         // progresul se salvează din când în când: o întrerupere nu pierde vocea deja făcută
+        // (în sala de așteptare, mai des: elevul vede cum crește procentul)
         if (onProgress && ++sinceSave >= every) { sinceSave = 0; try { await onProgress(audio, cost); } catch { /* următoarea salvare */ } }
       } catch (e) {
         failed++;
@@ -1354,20 +1371,30 @@ async function voiceScript(supa, { lessonId, script, teacher, audio = {}, budget
 
 // Câte segmente de la început au voce (1-la-1 poate porni după intro + 2 itemi).
 // Celelalte moduri („Explică altfel") vin imediat după, în ordinea vocii.
-function playableHead(script, audio) {
+function headSegments(script) {
   const need = [];
-  (script.intro || []).forEach((s) => need.push(s));
-  for (const it of (script.items || []).slice(0, 2)) {
+  (script?.intro || []).forEach((s) => need.push(s));
+  for (const it of (script?.items || []).slice(0, 2)) {
     (it.intro || []).forEach((s) => need.push(s));
     (it.afterTry || []).forEach((s) => need.push(s));
     (it.modes?.barem || []).forEach((s) => need.push(s));
     for (const st of live.stepsFor(it)) (st.ask || []).forEach((s) => need.push(s));
   }
+  return need;
+}
+function playableHead(script, audio) {
+  const need = headSegments(script);
   return need.length > 0 && need.every((s) => voiced(audio, s));
+}
+// cât din „începutul" lecției are voce — sala de așteptare 1-la-1 arată progresul
+// („Înregistrează vocea începutului: 60%"); { done, total }
+function headProgress(script, audio) {
+  const need = headSegments(script);
+  return { done: need.filter((s) => voiced(audio || {}, s)).length, total: need.length };
 }
 
 module.exports = {
-  generateScript, adaptScript, renameTeacher, dropUnreadable, restoreGrilaTries, grilaTry, pdfAttachments, sectionPages, voiceScript, playableHead, segmentsInOrder, voiceOrder, itemSegments, templates, assignIds,
+  generateScript, adaptScript, renameTeacher, dropUnreadable, restoreGrilaTries, grilaTry, pdfAttachments, sectionPages, voiceScript, playableHead, headSegments, headProgress, segmentsInOrder, voiceOrder, itemSegments, templates, assignIds,
   normalizeItems, sectionMap, callPlan, parseRef, refKey, SCHEMA, systemPrompt, userPrompt, GEN_MODEL,
   // cine scrie (Claude Opus 5.5; rezerva GPT-5 mini sau LIVE_REZERVA_MODEL) și costul pe model
   OPUS, MINI, FALLBACK_MODEL, isClaude, writeJson, anthropicContent, usageParts,
@@ -1375,5 +1402,5 @@ module.exports = {
   expectedRefs, missingOf, missingGuess, chunkSize, completeScript,
   // întrebările pe pași
   PASI_V, STEP_FIX_SCHEMA, stepEligible, itemParts, segmentParts, missingParts, addSteps, addBaremSteps, lastEquality, revealsAnswer,
-  fillMissingSteps, needsSteps, addStepQuestions, stepsSystemPrompt, stepsUserPrompt,
+  fillMissingSteps, needsSteps, stepGapRefs, addStepQuestions, stepsSystemPrompt, stepsUserPrompt,
 };

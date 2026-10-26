@@ -50,8 +50,12 @@ import ItemPicker from '../components/live/ItemPicker';
 import { itemsFromTimeline, defaultRefs, sceneIndexForRef, itemStatus, refLabel } from '../lib/live/items';
 import { LiveChat, Participants, colorOf } from '../components/live/LiveChat';
 import SpatiuDeLucru from '../components/SpatiuDeLucru';
+import PrepWait from '../components/live/PrepWait';
 import { startDictation, speechRecognitionSupported } from '../lib/voice';
 import { reportError } from '../lib/errorReport';
+import { askNotifyPermission, subscribePush, systemNotify, flashTitle, pageHidden, notifySupport } from '../lib/live/notify';
+import { sunaGata, vibreaza, pregatesteSunetul } from '../lib/chatAlert';
+import { latexToPlain } from '../lib/mathPlain';
 import demoData from '../lib/live/demo.json';
 import { DEMO_SCRIPT } from '../lib/live/demoScript';
 import '../styles/live.css';
@@ -139,6 +143,18 @@ export default function LiveRoom({ demo = null }) {
   // prelungirea: sfârșitul de acum (server), sfârșitul inițial (60 min / ora), plafonul atins
   const [ext, setExt] = useState({ ends: null, base: null, capped: false, cap: null });
   const [continueOk, setContinueOk] = useState(false);
+  // ─── sala de așteptare: pregătirea lecției pe etape + „🔔 Anunță-mă când e gata" ───
+  const [eta, setEta] = useState(null);               // cât durează de obicei o lecție nouă (server)
+  const [notif, setNotif] = useState({ on: false, push: false, permission: null, key: null, setup: true });
+  const [notifBusy, setNotifBusy] = useState(false);
+  const [justReady, setJustReady] = useState(false);  // lecția tocmai s-a făcut gata (banda verde)
+  const [readyHold, setReadyHold] = useState(false);  // 1-la-1: gata cât elevul era în altă parte → pornește la clicul lui
+  const waitedFromRef = useRef(null);                 // de când așteaptă elevul pregătirea (null = n-a așteptat)
+  const stopFlashRef = useRef(null);
+  // readyHold, citit SINCRON de efectul playerului: în ciclul în care sosește lecția, efectul de mai
+  // jos pune cardul „e gata", dar starea nouă se vede abia la randarea următoare — fără ref, playerul
+  // pornea deja (și ceasul celor 60 de minute) în spatele cardului
+  const holdRef = useRef(false);
 
   const roomRef = useRef(null);
   const engineRef = useRef(null);
@@ -172,6 +188,9 @@ export default function LiveRoom({ demo = null }) {
       setMessages(r.messages || []);
       setMyAnswers(r.myAnswers || {});
       setLesson(r.lesson || null);
+      if (r.eta) setEta(r.eta);
+      if (r.notify) setNotif((n) => ({ ...n, on: !!r.notify.asked, key: r.notify.push || null, setup: r.notify.setup !== false, permission: notifySupport().permission }));
+      if (!r.timeline && r.session?.subject && !waitedFromRef.current) waitedFromRef.current = Date.now();
       if (r.timeline) setTimeline(r.timeline);
       setStartedAt(r.session?.startedAt || null);
       modeRef.current = r.session?.mode || null;
@@ -196,29 +215,113 @@ export default function LiveRoom({ demo = null }) {
   const view = rig ? 'camera' : rigLoaded ? 'tabla' : 'camera';
 
   // ─── 2. pregătirea lecției (dacă nu e gata), cât timp elevul așteaptă ──────
+  // 1-la-1: un singur apel lung (textul + vocea începutului — untilPlayable), care merge pe
+  // server până la capăt și dacă elevul închide pagina; cât durează, progresul (etapa, bucățile
+  // scrise, vocea) vine din `status`, citit la câteva secunde. Grup: ca înainte (bucăți de ~1 min).
   useEffect(() => {
     if (demo || !info?.session || timeline || payInfo) return undefined;
     if (!info.session.subject) return undefined;
-    let alive = true, timer = null;
-    const step = async () => {
+    let alive = true, timer = null, statusTimer = null, fetching = false;
+    if (!waitedFromRef.current) waitedFromRef.current = Date.now();
+    const unprivate = info.session.kind === 'privat' && !info.session.state?.startedAt;
+    const getTimeline = async () => {
+      if (fetching) return false;
+      fetching = true;
       try {
-        const r = await liveApi.prepare(sessionId);
+        const t = await liveApi.timeline(sessionId);
+        if (!alive) return false;
+        if (t.timeline) { modeRef.current = t.mode || null; setMode(t.mode || null); setModeWhy(t.modeWhy || null); setTimeline(t.timeline); setStartedAt(t.startedAt || null); return true; }
+      } catch { /* reîncercăm */ } finally { fetching = false; }
+      return false;
+    };
+    const step = async () => {
+      let wait = privat ? 2500 : 15000;
+      try {
+        const r = await liveApi.prepare(sessionId, privat ? { budgetMs: 240000, untilPlayable: unprivate } : null);
         if (!alive) return;
-        setLesson(r.lesson);
-        if (r.lesson?.playable || r.lesson?.status === 'gata') {
-          const t = await liveApi.timeline(sessionId);
-          if (!alive) return;
-          if (t.timeline) { modeRef.current = t.mode || null; setMode(t.mode || null); setModeWhy(t.modeWhy || null); setTimeline(t.timeline); setStartedAt(t.startedAt || null); return; }
-        }
+        setLesson((l) => ({ ...(l || {}), ...r.lesson }));
+        if ((r.lesson?.playable || r.lesson?.status === 'gata') && await getTimeline()) return;
+        // altă pregătire ține lecția (ex. apelul de dinainte, după o întrerupere a rețelei): progresul
+        // îl aduce `status`; aici doar reîncercăm, mai rar
+        if (r.lesson?.busy) wait = 10000;
       } catch (e) {
         if (!alive) return;
         setLesson((l) => ({ ...(l || {}), error: e.message }));
       }
-      if (alive) timer = setTimeout(step, privat ? 4000 : 15000);
+      if (alive) timer = setTimeout(step, wait);
+    };
+    // progresul, des (nu pregătește nimic): etapele, bucățile scrise, vocea începutului, estimarea
+    const poll = async () => {
+      try {
+        const r = await liveApi.status(sessionId);
+        if (!alive) return;
+        if (r.eta) setEta(r.eta);
+        if (r.lesson) setLesson((l) => ({ ...(l || {}), ...r.lesson }));
+        if (r.lesson?.playable && await getTimeline()) return;
+      } catch { /* următoarea citire */ }
+      if (alive) statusTimer = setTimeout(poll, 3500);
     };
     step();
-    return () => { alive = false; clearTimeout(timer); };
+    statusTimer = setTimeout(poll, 2500);
+    return () => { alive = false; clearTimeout(timer); clearTimeout(statusTimer); };
   }, [demo, info?.session, timeline, payInfo, privat, sessionId]);
+
+  // ─── 2b. lecția s-a făcut gata: elevul e anunțat (sunet, vibrație, titlul tabului, notificarea) ──
+  // doar dacă a așteptat (o lecție gata de la intrare nu „sună"); la 1-la-1, dacă era în altă parte
+  // (tab în fundal), lecția nu pornește singură: îl așteaptă cardul „✅ … e gata — ▶ Începe".
+  const announce = useCallback(({ title, body }) => {
+    try { sunaGata(); vibreaza([200, 100, 200, 100, 400]); } catch { /* fără sunet */ }
+    if (pageHidden()) {
+      stopFlashRef.current?.();
+      stopFlashRef.current = flashTitle(title);
+      systemNotify({ title, body, tag: `live-${sessionId}`, url: `/meditatii/sala/${sessionId}` });
+    }
+  }, [sessionId]);
+  const hadTimeline = useRef(false);
+  useEffect(() => {
+    if (!timeline || hadTimeline.current) { if (timeline) hadTimeline.current = true; return; }
+    hadTimeline.current = true;
+    const waited = waitedFromRef.current && Date.now() - waitedFromRef.current > 8000;
+    waitedFromRef.current = null;
+    if (demo || !waited) return;
+    setJustReady(true);
+    const subj = info?.session?.subject?.title;
+    const away = pageHidden();
+    if (privat && joined && away) { holdRef.current = true; setReadyHold(true); }
+    if (privat || info?.session?.startedAt || (info?.session?.starts_at && clock.now() >= Date.parse(info.session.starts_at))) {
+      announce({ title: `✅ ${teacher?.name || 'Profesorul'} e gata!`, body: `Lecția${subj ? ` „${subj}"` : ''} e pregătită. Intră și începe meditația.` });
+    }
+  }, [timeline, demo, privat, joined, info?.session, teacher?.name, announce]);
+  // grup: ședința a început cât elevul era în sala de așteptare, dar în alt tab
+  const lastPhase = useRef(null);
+  useEffect(() => {
+    const ph = ps?.phase || null;
+    if (lastPhase.current === 'asteptare' && ph === 'live' && !privat && !demo && pageHidden()) {
+      announce({ title: '🔴 Meditația a început', body: `${teacher?.name || 'Profesorul'} predă acum — intră în sală.` });
+    }
+    lastPhase.current = ph;
+  }, [ps?.phase, privat, demo, teacher?.name, announce]);
+  useEffect(() => () => stopFlashRef.current?.(), []);
+  useEffect(() => { if (!timeline && info?.session?.subject && !demo) pregatesteSunetul(); }, [timeline, info?.session?.subject, demo]);
+
+  // „🔔 Anunță-mă când e gata" (on) / „Nu mai anunța" (off): permisiunea, abonarea Web Push, cererea
+  async function toggleNotify(on) {
+    if (notifBusy) return;
+    setNotifBusy(true);
+    try {
+      let permission = notifySupport().permission, sub = null;
+      if (on) {
+        permission = await askNotifyPermission();
+        if (permission === 'granted' && notif.key) sub = await subscribePush(notif.key);
+      }
+      let r = { ok: true, push: false, setup: true };
+      if (!demo) r = await liveApi.notify(sessionId, { subscription: sub, off: !on });
+      setNotif((n) => ({ ...n, on, push: on && !!sub && !!r.push, permission, setup: r.setup !== false }));
+    } catch (e) {
+      setNotif((n) => ({ ...n, on }));      // sunetul și titlul tabului merg oricum
+      flash(e.message || 'Notificarea nu s-a putut porni.');
+    } finally { setNotifBusy(false); }
+  }
 
   // grup: ceasul comun pornește când începe ora (serverul fixează startedAt)
   const applyTimeline = useCallback((r) => {
@@ -273,7 +376,7 @@ export default function LiveRoom({ demo = null }) {
 
   // ─── 4. playerul ───────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!joined || !timeline) return undefined;
+    if (!joined || !timeline || readyHold || holdRef.current) return undefined;
     // s-a schimbat modul (grup → 1-la-1): playerul vechi se oprește
     if (playerRef.current && (privat ? !(playerRef.current instanceof PrivatePlayer) : !(playerRef.current instanceof GroupPlayer))) {
       playerRef.current.stop(); playerRef.current = null;
@@ -339,7 +442,7 @@ export default function LiveRoom({ demo = null }) {
     }
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [joined, timeline, startedAt, privat]);
+  }, [joined, timeline, startedAt, privat, readyHold]);
 
   useEffect(() => () => { playerRef.current?.stop(); engine?.close(); }, [engine]);
 
@@ -651,11 +754,11 @@ export default function LiveRoom({ demo = null }) {
     } catch { return null; }
   }, [demo, sessionId]);
   useEffect(() => {
-    if (!joined || demo || !privat || ended || !hasTimeline) return undefined;
+    if (!joined || demo || !privat || ended || !hasTimeline || readyHold || holdRef.current) return undefined;   // cardul „e gata": după clic
     extendNow();
     const t = setInterval(extendNow, 60000);
     return () => clearInterval(t);
-  }, [joined, demo, privat, ended, hasTimeline, extendNow]);
+  }, [joined, demo, privat, ended, hasTimeline, extendNow, readyHold]);
   // a trecut ora / cele 60 de minute: o singură dată, profesorul spune că mergem mai departe
   const overNotified = useRef(false);
   useEffect(() => {
@@ -709,9 +812,16 @@ export default function LiveRoom({ demo = null }) {
   }
   if (!info) return <div className="lv-fatal"><div className="spinner" /></div>;
 
+  const lessonFailed = lesson?.status === 'eroare' && !!lesson?.error;
   const waitingText = !timeline && info.session?.subject
-    ? lessonWaitText(lesson, teacher)
+    ? (lessonFailed ? lessonWaitText(lesson, teacher) : null)
     : !info.session?.subject ? 'Profesorul nu are încă un subiect cu barem pentru această ședință. Revino puțin mai târziu.' : null;
+  // pregătirea lecției, pe etape, cu „🔔 Anunță-mă când e gata" (ecranul de intrare și peste sală)
+  const preparing = !timeline && !!info.session?.subject && !lessonFailed && !payInfo;
+  const prepWait = (dark = false) => (
+    <PrepWait lesson={lesson} eta={eta} privat={privat} teacherName={teacher?.name || 'Profesorul'} dark={dark}
+      notify={notif} onNotify={demo ? null : toggleNotify} notifyBusy={notifBusy} waitedFrom={waitedFromRef.current} />
+  );
 
   if (!joined) {
     return (
@@ -719,7 +829,9 @@ export default function LiveRoom({ demo = null }) {
         <PreJoin info={info} teacher={teacher} rigThumb={rig?.thumb || null} present={present || 0} personal={individual ? (modeWhy || 'singur') : null}
           access={payInfo ? 'plata' : info.access} price={payInfo?.price} payKind={payInfo?.kind || 'grup'} onJoin={onJoin} onPay={onPay} paying={paying} error={payErr}
           notice={paidBack === 'ok' && !payInfo ? 'Plata a reușit ✓ — biletul tău 1-la-1 e în cont. Apasă „Participă acum".' : paidBack === 'anulat' ? 'Plata a fost anulată. Nu s-a încasat nimic.' : null}
-          waitingText={waitingText} camOn={camOn} setCamOn={setCamOn} micOn={micOn} setMicOn={setMicOn} fullscreen={wantFs} setFullscreen={setWantFs}
+          waitingText={waitingText} prep={preparing ? prepWait(false) : null}
+          ready={justReady && !!timeline ? `✅ ${teacher?.name || 'Profesorul'} e gata! Apasă „Participă acum" și începeți.` : null}
+          camOn={camOn} setCamOn={setCamOn} micOn={micOn} setMicOn={setMicOn} fullscreen={wantFs} setFullscreen={setWantFs}
           pickItems={privat ? pickItems : null} startRef={startRef} setStartRef={setStartRef} privMinutes={info.privMinutes || 60} privIncluded={info.privIncluded ?? 8} />
       </div>
     );
@@ -800,15 +912,24 @@ export default function LiveRoom({ demo = null }) {
           )}
 
           {/* așteptarea (înainte de început / lecția încă se pregătește) */}
-          {(!timeline || ps?.phase === 'asteptare') && (
-            <div className="lv-wait">
-              {!timeline ? <>
+          {(!timeline || ps?.phase === 'asteptare') && !readyHold && (
+            <div className={`lv-wait${!timeline && preparing ? ' has-prep' : ''}`}>
+              {!timeline ? (preparing ? prepWait(true) : <>
                 <div className="lv-wait-title">{teacher?.name} își pregătește lecția</div>
                 <div className="lv-wait-sub">{waitingText}</div>
-              </> : <>
+              </>) : <>
                 <div className="lv-wait-title">{(ps?.startsIn || 0) > 0 ? `Ședința începe în ${fmtClock(ps.startsIn)}` : 'Ședința începe…'}</div>
                 <div className="lv-wait-sub">Ești în sala de așteptare. Dacă la ora de început ești singurul elev, {teacher?.name || 'profesorul'} îți ține ședința 1-la-1.</div>
               </>}
+            </div>
+          )}
+
+          {/* 1-la-1: lecția s-a făcut gata cât elevul era în alt tab — pornește la clicul lui */}
+          {readyHold && (
+            <div className="lv-ready-card" role="dialog" aria-label="Lecția e gata">
+              <h2>✅ {teacher?.name || 'Profesorul'} e gata!</h2>
+              <p>Lecția s-a pregătit cât erai în altă parte. Începem când ești aici{info.session?.kind === 'privat' ? ` — cele ${info.privMinutes || 60} de minute pornesc abia acum` : ''}.</p>
+              <button type="button" className="lv-btn-primary lv-btn-lg is-ready" onClick={() => { engine.unlock(); stopFlashRef.current?.(); holdRef.current = false; setReadyHold(false); }}>▶ Începe lecția</button>
             </div>
           )}
 
@@ -1007,7 +1128,7 @@ function lessonWaitText(lesson, teacher) {
   if (!lesson) return 'Pregătesc sala…';
   if (lesson.error && lesson.status === 'eroare') return `Lecția nu s-a putut pregăti: ${lesson.error}`;
   if (lesson.phase === 'pasi') return `${teacher?.name || 'Profesorul'} pregătește întrebările pentru pașii din barem (Subiectele II și III), ca să lucrezi tu fiecare pas — o singură dată pe subiect, cam un minut.`;
-  if (lesson.status === 'nou') return `${teacher?.name || 'Profesorul'} citește subiectul și baremul oficial și își scrie explicațiile… (1–3 minute)`;
+  if (lesson.status === 'nou') return `${teacher?.name || 'Profesorul'} citește subiectul și baremul oficial și își scrie explicațiile… (câteva minute, o singură dată pe subiect)`;
   if (lesson.status === 'script' || lesson.status === 'audio') {
     const pct = lesson.total ? Math.round((100 * (lesson.done || 0)) / lesson.total) : 0;
     return `Explicațiile sunt gata; se înregistrează vocea — ${pct}%.`;
@@ -1035,7 +1156,8 @@ function demoKey(pollId) {
   }
   return { answer: '', explain: null };
 }
-// „x² + 2x + 1" = „x^2+2x+1" (demonstrația: fără serverul care verifică matematic)
-const demoNorm = (s) => String(s || '').toLowerCase().replace(/\$/g, '').replace(/²/g, '^2').replace(/³/g, '^3').replace(/\\cdot|·|\*/g, '').replace(/,/g, '.').replace(/\s+/g, '');
+// „x² + 2x + 1" = „x^2+2x+1" (demonstrația: fără serverul care verifică matematic); răspunsul
+// scris cu tastatura matematică (LaTeX: „x^{2}+2x+1", „\frac{1}{2}") trece întâi prin latexToPlain
+const demoNorm = (s) => latexToPlain(String(s || '')).toLowerCase().replace(/\$/g, '').replace(/²/g, '^2').replace(/³/g, '^3').replace(/\\cdot|·|\*/g, '').replace(/,/g, '.').replace(/\s+/g, '');
 const demoSame = (a, b) => demoNorm(a) === demoNorm(b);
 

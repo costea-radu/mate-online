@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MathHtml } from './Board';
 import { initials, teacherColor } from '../../lib/live/profesori';
 import { speechRecognitionSupported, startDictation } from '../../lib/voice';
+import { MathInsertButton, MathInsertPanel, insertAtCursor } from '../math/MathInput';
 
 const hhmm = (iso) => { try { return new Date(iso).toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
 
@@ -17,6 +18,7 @@ export function LiveChat({ messages, meId, teacher, privat = false, onSend, disa
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [listening, setListening] = useState(false);
+  const [mathOpen, setMathOpen] = useState(false);     // tastatura matematică (√x)
   const listRef = useRef(null);
   const stickRef = useRef(true);
   const inputRef = useRef(null);
@@ -88,8 +90,16 @@ export function LiveChat({ messages, meId, teacher, privat = false, onSend, disa
             </select>
           </label>
         )}
+        {/* formula scrisă cu tastatura matematică intră în mesaj, la cursor, ca $…$ */}
+        <MathInsertPanel open={mathOpen && !disabled} onClose={() => setMathOpen(false)}
+          onInsert={(tex) => {
+            const { next, caret } = insertAtCursor(inputRef.current, text, tex);
+            setText(next.slice(0, 500));
+            setTimeout(() => { const el = inputRef.current; if (el) { el.focus(); try { el.setSelectionRange(caret, caret); } catch { /* ignore */ } } }, 30);
+          }} />
         <div className="lv-chat-row">
-          <textarea ref={inputRef} rows={1} value={text} disabled={disabled} maxLength={300}
+          <MathInsertButton open={mathOpen} setOpen={setMathOpen} />
+          <textarea ref={inputRef} rows={1} value={text} disabled={disabled} maxLength={500}
             placeholder={privat ? 'Întreabă profesorul…' : toTeacher ? 'Mesaj privat pentru profesor…' : 'Scrie un mesaj sau o întrebare…'}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />

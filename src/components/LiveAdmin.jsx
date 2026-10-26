@@ -19,10 +19,13 @@
 // Pregătirea (Regenerează, Pregătește, vocea, întrebările pe pași, itemii lipsă)
 // continuă singură până la „gata", cât pagina e deschisă — cu progresul vocii.
 // 🧩 Itemii lipsă (ex. Subiectul III, 1 b) și c)): se scriu doar ei, ceilalți rămân.
+// 🤖 Botul de verificare (26 oct.): are sunet fiecare lecție, are întrebări fiecare exercițiu?
+// (LiveQaBot.jsx) — raportul, eticheta din „Lecțiile recente" și reparațiile cu un clic.
 // =====================================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { liveApi } from '../lib/live/api';
+import LiveQaBot, { QaBadge } from './LiveQaBot';
 
 const LESSON_LABEL = { nou: 'nepregătită (se scrie când intră primul elev)', script: 'scriptul e gata, urmează vocea', audio: 'vocea se generează…', gata: '✓ gata', gata_fara_voce: '✓ gata · vocea browserului', eroare: '⚠ eroare' };
 const PHASE_LABEL = { viitoare: 'urmează', sala_asteptare: 'sala e deschisă', live: '🔴 LIVE', incheiata: 'încheiată', anulata: 'anulată' };
@@ -82,6 +85,8 @@ export default function LiveAdmin() {
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
   const [script, setScript] = useState(null);
+  const [qaReports, setQaReports] = useState({});   // 🤖 rapoartele botului, pe lecție
+  const [qaKey, setQaKey] = useState(0);
 
   const load = useCallback(async (d = day) => {
     setErr('');
@@ -140,6 +145,7 @@ export default function LiveAdmin() {
       else if (st === 'gata' && r.lesson.noVoice && args.revoice) setErr(`${what}: vocea generată a eșuat din nou — lecția merge în continuare cu vocea browserului. Motivul e scris cu roșu la lecție (Lecțiile recente).`);
       else setMsg(st === 'gata' ? `${what}: gata.` : `${what}: a înaintat — restul vocii îl face singur serverul (la 15 minute), fără „▶ Continuă".`);
       await load();
+      setQaKey((k) => k + 1);
     } catch (e) { setErr(e.message); }
     finally { setBusy(''); }
   }
@@ -228,6 +234,13 @@ export default function LiveAdmin() {
         </div>
       )}
 
+      <LiveQaBot prepareLoop={prepareLoop} busy={busy} refreshKey={qaKey} onReports={setQaReports}
+        onRegenerate={(id) => {
+          const l = (data?.lessons || []).find((x) => x.id === id);
+          if (!l) { setErr('Lecția nu e în „Lecțiile recente" — regenereaz-o de acolo.'); return; }
+          if (window.confirm('Regenerezi lecția (script + voce nouă)? Costă din nou.')) prepareLoop(`re-${l.id}`, { subjectId: l.subject_id, teacher: l.teacher, regenerate: true }, 'Regenerarea');
+        }} />
+
       {free && (
         <div style={{ ...box, background: '#fffdf6', border: '1px solid #f1e2ac' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
@@ -261,7 +274,7 @@ export default function LiveAdmin() {
                     <div style={{ fontSize: '.76rem', color: l?.missing || l?.noBarem ? '#b3261e' : l?.ready ? '#137333' : '#8a5a00' }}>
                       {l ? (l.missing ? '⚠ subiectul nu mai există — alege altul'
                         : l.noBarem ? '⚠ subiectul nu mai are barem găsit — alege altul'
-                          : l.ready ? '✓ lecția e gata' : 'lecția se scrie la prima folosire (1–3 min, o singură dată)') : ''}
+                          : l.ready ? '✓ lecția e gata' : 'lecția se scrie la prima folosire (câteva minute, o singură dată)') : ''}
                       {l && sl.auto ? <span style={{ color: '#8a6d1a' }}> · aleasă automat</span> : null}
                     </div>
                   </div>
@@ -280,7 +293,7 @@ export default function LiveAdmin() {
                       </optgroup>
                     )}
                     {later.length > 0 && (
-                      <optgroup label="Se scriu la prima folosire (1–3 min, o dată)">
+                      <optgroup label="Se scriu la prima folosire (câteva minute, o dată)">
                         {later.map((o) => <option key={o.subjectId} value={o.subjectId}>{kindShort(o.kind)} · {o.title}</option>)}
                       </optgroup>
                     )}
@@ -390,6 +403,7 @@ export default function LiveAdmin() {
                     <td style={td}>
                       <b>{l.title || '(fără titlu încă)'}</b>
                       {l.free && <span style={{ marginLeft: 6, fontSize: '.72rem', fontWeight: 700, color: '#6b4e00', background: '#fff6d6', border: '1px solid #e8b931', borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>🎁 gratuită</span>}
+                      <QaBadge report={qaReports[l.id]} />
                       <div style={{ color: '#6b7280', fontSize: '.78rem' }}>{teacherName[l.teacher] || l.teacher} · v{l.version}{l.writer?.model ? ` · scrisă de ${writerText(l.writer)}` : ''}</div>{l.error && <div style={{ color: '#b3261e', fontSize: '.78rem' }}>{l.error}</div>}
                       {l.superseded && <div style={{ color: '#8a5a00', fontSize: '.76rem' }}>versiune veche — înlocuită de v{l.superseded.by}{l.superseded.deletable ? '' : ', care încă nu e gata (până atunci rămâne aceasta)'}</div>}
                     </td>

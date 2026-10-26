@@ -19,6 +19,11 @@
 // =====================================================================
 import { useEffect, useRef, useState } from 'react';
 import { MathHtml, Countdown } from './Board';
+import { MathAnswer } from '../math/MathInput';
+import { looksLatex, latexToPlain } from '../../lib/mathPlain';
+
+// răspunsul elevului, scris cu tastatura matematică (LaTeX) sau ca text
+const asMath = (a) => (looksLatex(a) ? `$${String(a).replace(/\$/g, '')}$` : String(a ?? ''));
 
 // Eticheta unei întrebări pe pas: „📝 Prof. Tudor întreabă · pasul 2 din 3 · b)"
 export function pollKicker(scene, teacherName) {
@@ -30,12 +35,11 @@ export function pollKicker(scene, teacherName) {
 export function PollCard({ poll, teacherName, total = 0, left = 0, mine = null, answeredCount = 0, onSubmit, privat = false, verdict = null, onNext,
   kicker = null, explain = null, answerLabel = null, extra = null, nextLabel = 'Mai departe →', className = '', autoFocus = true,
   skip = false, skipLabel = '🤷 Nu știu — arată-mi', step = false }) {
-  const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [hintOpen, setHintOpen] = useState(false);
   const inputRef = useRef(null);
-  useEffect(() => { setValue(''); setErr(null); setHintOpen(false); }, [poll?.id]);
+  useEffect(() => { setErr(null); setHintOpen(false); }, [poll?.id]);
   useEffect(() => { if (autoFocus && poll?.type === 'completare' && !mine) setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 120); }, [poll?.id, poll?.type, mine, autoFocus]);
   if (!poll) return null;
   const closed = !privat && left <= 0;
@@ -78,11 +82,9 @@ export function PollCard({ poll, teacherName, total = 0, left = 0, mine = null, 
           })}
         </div>
       ) : (
-        <form className="lv-poll-fill" onSubmit={(e) => { e.preventDefault(); send(value); }}>
-          <input ref={inputRef} value={value} onChange={(e) => setValue(e.target.value)} disabled={busy || closed || (privat && !!verdict)}
-            placeholder={mine && !gaveUp ? `Ai răspuns: ${mine.answer} — poți schimba` : step ? 'Rezultatul (ex. 9, 2x+3, 1/2)' : 'Scrie rezultatul (ex. 12, 1/2, 2√3)'} inputMode="text" autoComplete="off" />
-          <button type="submit" className="lv-btn-primary" disabled={busy || closed || !value.trim() || (privat && !!verdict)}>Trimite</button>
-        </form>
+        // răspunsul: ca text („1/2", „radical din 2", „x la pătrat") sau cu tastatura matematică (√x)
+        <MathAnswer key={poll.id} inputRef={inputRef} onSubmit={(a) => send(a)} busy={busy} disabled={closed || (privat && !!verdict)}
+          placeholder={mine && !gaveUp ? `Ai răspuns: ${looksLatex(mine.answer) ? latexToPlain(mine.answer) : mine.answer} — poți schimba` : step ? 'Rezultatul (ex. 9, 2x+3, 1/2)' : 'Scrie rezultatul (ex. 12, 1/2, 2√3)'} />
       )}
       {skip && privat && !verdict && (
         <div className="lv-poll-skip-row">
@@ -92,7 +94,7 @@ export function PollCard({ poll, teacherName, total = 0, left = 0, mine = null, 
       {err && <div className="lv-poll-err">{err}</div>}
       {!privat && (
         <div className="lv-poll-foot">
-          {closed ? 'Timpul a expirat — urmează rezultatele.' : mine ? `✓ Ai răspuns ${poll.type === 'grila' ? mine.answer + ')' : mine.answer}. Poți schimba până expiră timpul.` : 'Alege răspunsul înainte să expire timpul.'}
+          {closed ? 'Timpul a expirat — urmează rezultatele.' : mine ? <>✓ Ai răspuns {poll.type === 'grila' ? `${mine.answer})` : <MathHtml tag="span" text={asMath(mine.answer)} />}. Poți schimba până expiră timpul.</> : 'Alege răspunsul înainte să expire timpul.'}
           {answeredCount > 0 && <span className="lv-poll-count"> · {answeredCount} {answeredCount === 1 ? 'coleg a răspuns' : 'colegi au răspuns'}</span>}
         </div>
       )}

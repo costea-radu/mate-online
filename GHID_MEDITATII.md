@@ -520,7 +520,8 @@ recapitulările, testele din site și rapoartele rămân pe tablă, ca până ac
 
 **De unde vin exercițiile:** din lecțiile pe barem ale meditațiilor live (aceleași subiecte
 oficiale, cu barem citit). Dacă elevul a lucrat toate lecțiile gata, profesorul scrie lecția
-unui subiect nou (1–3 minute, doar prima dată; apoi o folosesc toți elevii și sălile live).
+unui subiect nou (câteva minute, doar prima dată — pagina arată cât durează de obicei, din lecțiile
+scrise până acum, și sună când e gata; apoi o folosesc toți elevii și sălile live).
 Următorul exercițiu se pregătește din timp, cât elevul îl rezolvă pe cel curent.
 
 **Progresul** stă în `ai_meditatii_sessions` (chapter `pregatire:<examen>`, `payload.prep`) —
@@ -594,5 +595,5 @@ modificate — `api/live.js` (acțiunile `prep_*`), `api/ai-meditatii.js` (`exam
 | „🧩 Test din site" nu arată teste interactive | Nivelul elevului nu are încă materiale interactive vizibile pe site (EN/BAC: rubricile „Teste interactive", „Exerciții pe subiecte", „Capitole"; la BAC și profilul potrivit). Un material pus într-o rubrică doar-PDF nu apare nici pe site, nici aici — Admin → Tot Conținutul arată avertismentul. |
 | Testul interactiv ales nu apare în „Progresul meu" | Scorul intră la „Corectează" (viewerul trimite `session_score` cu `medSesId`). Dacă înregistrarea sesiunii a eșuat, testul s-a deschis oricum, fără `medSesId` — scorul e doar în `progress`. |
 | Nu apare cardul „🎓 Pregătire de examen" | Apare doar elevilor abonați care și-au ales examenul (EN / BAC) la înscriere. Elevii fără examen (ex. clasa a VI-a) nu îl au. |
-| În sala de pregătire: „Profesorul citește un subiect oficial nou…" | Nu mai era nicio lecție gata cu exercițiul acelei poziții — se scrie una (1–3 minute, o singură dată). Lecțiile scrise pentru ședințele live (inclusiv cele din Admin → Meditații live → „Pregătește lecția") se folosesc și aici, așa că așteptarea apare tot mai rar. |
+| În sala de pregătire: „Profesorul citește un subiect oficial nou…" | Nu mai era nicio lecție gata cu exercițiul acelei poziții — se scrie una (câteva minute, „de obicei 4–6 minute" — estimarea din lecțiile scrise; o singură dată). Elevul poate face altceva: la sfârșit se aude sunetul „gata", iar titlul tabului clipește dacă e în alt tab. Lecțiile scrise pentru ședințele live (inclusiv cele din Admin → Meditații live → „Pregătește lecția") se folosesc și aici, așa că așteptarea apare tot mai rar. |
 | „Am lucrat toate exercițiile de acest tip pe care le am acum" | S-au terminat subiectele cu barem ale examenului (sau plafonul zilnic `PREP_GENERARI_ZI`). Profesorul propune testul / poziția următoare; a doua zi se pot scrie lecții noi. |

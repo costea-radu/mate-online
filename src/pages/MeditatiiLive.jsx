@@ -225,6 +225,8 @@ export default function MeditatiiLive() {
   }
 
   const priv = me.private;
+  // cât durează pregătirea unei lecții noi (din lecțiile scrise până acum — api/live.js → prepEta)
+  const prepLabel = data?.prepEta?.label ? data.prepEta.label.replace(' minute', ' min') : 'câteva min';
   const prices = data?.prices || { grup: 20, privat: 30, privatMin: 60, privatIncluse: 8 };
   const rooms = data?.rooms || [];
   const timesLabel = (data?.intervals || []).map((i) => i.label).join(' și ') || '17:00–19:00';
@@ -250,7 +252,7 @@ export default function MeditatiiLive() {
   const renderSubject = (x) => (
     <button type="button" key={x.id} role="option" aria-selected={x.id === subjectId} className={`lvl-subject${x.id === subjectId ? ' is-on' : ''}${x.free ? ' is-free' : ''}`} onClick={() => setSubjectId(x.id)}>
       <span>{x.free && <span className="lvl-free-tag">🎁 gratuit</span>}{x.title}</span>
-      {x.ready ? <span className="lvl-ready">✓ gata de pornire</span> : x.scriptReady ? <span className="lvl-ready" style={{ color: '#8a6d1a' }}>~1 min pregătire</span> : <span className="lvl-ready" style={{ color: '#80868b' }}>2–4 min pregătire</span>}
+      {x.ready ? <span className="lvl-ready">✓ gata de pornire</span> : x.scriptReady ? <span className="lvl-ready" style={{ color: '#8a6d1a' }}>~1 min pregătire</span> : <span className="lvl-ready" style={{ color: '#80868b' }} title="Lecția se scrie o singură dată pe subiect, când o pornești — te anunțăm când e gata">{prepLabel} pregătire</span>}
     </button>
   );
   // „🎯 Un singur tip": pozițiile examenului (la BAC, S. II și III și pe subpuncte)
@@ -509,7 +511,7 @@ export default function MeditatiiLive() {
                   <div key={f.subjectId} className={`lvl-free-card${ofExam(f) ? ' is-mine' : ''}`}>
                     <span className={`lvl-slot-exam${f.exam === 'bac' ? ' is-bac' : ''}`}>{f.examLabel}</span>
                     <div className="lvl-free-title">{f.title}</div>
-                    <div className="lvl-free-meta">{f.ready ? '✓ gata de pornire' : 'se pregătește când pornești (2–4 minute)'}</div>
+                    <div className="lvl-free-meta">{f.ready ? '✓ gata de pornire' : `se pregătește când pornești (${prepLabel}; te anunțăm când e gata)`}</div>
                     {!me.loggedIn
                       ? <Link className="lv-btn-primary" to="/autentificare">Intră în cont și începe</Link>
                       : <button type="button" className="lv-btn-primary" disabled={!!busy} onClick={() => startPrivate(f.subjectId, null, key)}>{busy === key ? 'Pornesc…' : label}</button>}

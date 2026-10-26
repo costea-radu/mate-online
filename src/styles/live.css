@@ -887,3 +887,50 @@ button.lvl-chip { cursor: pointer; font: inherit; font-size: .8rem; font-weight:
 /* Pregătirea de examen, „🎯 Un singur tip de exercițiu": panoul cu familia problemei */
 .pe-plan-foot { flex-wrap: wrap; gap: 8px; }
 .pe-plan-note { flex-basis: 100%; text-align: center; font-size: .74rem; color: #5f6368; }
+
+/* ── sala de așteptare: pregătirea lecției, pe etape (PrepWait) + „🔔 Anunță-mă când e gata" ── */
+.lv-prep { background: #fff8e1; border: 1px solid #f3dfa2; border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; color: #3c4043; text-align: left; }
+.lv-prep.is-ready { background: #e6f4ea; border-color: #b7e1c1; }
+.lv-prep.is-dark { background: transparent; border: none; padding: 0; margin: 0; color: #e8eaed; }
+.lv-prep-head { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1rem; line-height: 1.3; }
+.lv-prep-spin { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid rgba(26,115,232,.25); border-top-color: #1a73e8; animation: lvSpin .9s linear infinite; flex: none; }
+.lv-prep.is-dark .lv-prep-spin { border-color: rgba(138,180,248,.25); border-top-color: #8ab4f8; }
+@keyframes lvSpin { to { transform: rotate(360deg); } }
+.lv-prep-time { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; font-size: .86rem; color: #5f6368; margin: 6px 0 8px; }
+.lv-prep-time b { font-variant-numeric: tabular-nums; color: #202124; }
+.lv-prep.is-dark .lv-prep-time { color: #9aa0a6; }
+.lv-prep.is-dark .lv-prep-time b { color: #e8eaed; }
+.lv-prep-bar { height: 7px; border-radius: 6px; background: rgba(0,0,0,.08); overflow: hidden; }
+.lv-prep.is-dark .lv-prep-bar { background: rgba(255,255,255,.12); }
+.lv-prep-bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #1a73e8, #34a853); transition: width .8s ease; }
+.lv-prep-steps { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 5px; font-size: .86rem; }
+.lv-prep-steps li { display: flex; align-items: flex-start; gap: 8px; color: #80868b; line-height: 1.35; }
+.lv-prep-steps li.is-done { color: #188038; }
+.lv-prep-steps li.is-now { color: #202124; font-weight: 700; }
+.lv-prep-steps small { font-weight: 700; color: #1a73e8; }
+.lv-prep.is-dark .lv-prep-steps li { color: #80868b; }
+.lv-prep.is-dark .lv-prep-steps li.is-done { color: #81c995; }
+.lv-prep.is-dark .lv-prep-steps li.is-now { color: #fff; }
+.lv-prep.is-dark .lv-prep-steps small { color: #8ab4f8; }
+.lv-prep-ico { width: 20px; text-align: center; flex: none; }
+.lv-prep-notify { margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(0,0,0,.14); display: grid; gap: 6px; }
+.lv-prep.is-dark .lv-prep-notify { border-top-color: rgba(255,255,255,.14); }
+.lv-prep .lv-prep-btn { justify-self: start; background: #1a73e8; color: #fff; border: none; border-radius: 20px; padding: 9px 16px; font-weight: 800; font-size: .92rem; cursor: pointer; box-shadow: 0 2px 8px rgba(26,115,232,.3); }
+.lv-prep .lv-prep-btn:disabled { opacity: .6; cursor: default; }
+.lv-prep-on { font-weight: 700; color: #188038; font-size: .9rem; }
+.lv-prep.is-dark .lv-prep-on { color: #81c995; }
+.lv-prep-hint { font-size: .8rem; color: #5f6368; line-height: 1.45; }
+.lv-prep.is-dark .lv-prep-hint { color: #9aa0a6; }
+.lv-prep .lv-prep-off { justify-self: start; background: none; border: none; color: #5f6368; text-decoration: underline; font-size: .78rem; cursor: pointer; padding: 0; }
+.lv-prep.is-dark .lv-prep-off { color: #9aa0a6; }
+.lv-wait.has-prep { text-align: left; width: min(520px, 92%); padding: 16px 18px; }
+/* lecția e gata: banda verde pe ecranul de intrare + butonul care pulsează */
+.lv-pre-ready { background: #e6f4ea; color: #0d652d; border: 1px solid #b7e1c1; border-radius: 12px; padding: 10px 14px; font-weight: 700; margin-bottom: 12px; font-size: .95rem; }
+.lv-btn-primary.is-ready { background: #188038; animation: lvReadyPulse 1.4s ease-in-out infinite; }
+.lv-btn-primary.is-ready:hover { background: #137333; }
+@keyframes lvReadyPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(24,128,56,.45); } 50% { box-shadow: 0 0 0 10px rgba(24,128,56,0); } }
+/* 1-la-1: lecția s-a făcut gata cât elevul era în altă parte — pornește abia la clicul lui */
+.lv-ready-card { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 9; background: #fff; color: #202124; border-radius: 16px; padding: 20px 22px; width: min(420px, 90%); text-align: center; box-shadow: 0 14px 40px rgba(0,0,0,.45); }
+.lv-ready-card h2 { font-size: 1.2rem; margin: 0 0 6px; color: #0d652d; }
+.lv-ready-card p { color: #5f6368; font-size: .9rem; margin: 0 0 14px; }
+@media (prefers-reduced-motion: reduce) { .lv-btn-primary.is-ready, .lv-prep-spin { animation: none; } }

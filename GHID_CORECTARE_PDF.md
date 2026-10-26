@@ -26,7 +26,14 @@ exact cum corectează testele interactive.
    utilizatorii** (vezi „Formularul se construiește o singură dată" mai jos):
    primul elev îl așteaptă 10–25 s, următorii îl primesc instantaneu.
 3. Elevul completează ce a rezolvat (poate lăsa goale cerințele nerezolvate) și
-   apasă **„✅ Corectează"**.
+   apasă **„✅ Corectează"**. Sub fiecare cerință, **„√x Simboluri"** deschide tastatura
+   matematică (26 oct. 2026): radical și radical de ordin n, fracție, putere, indice,
+   integrală, limită, vector, aranjamente, combinări, grade, matrice și determinanți de
+   ordin 2 și 3, intersecție, reuniune, aparține, rezultă, infinit, π…; formula intră în
+   răspuns, la cursor, ca `$…$` (corectarea o citește ca LaTeX). Pe telefon tastatura stă
+   jos pe ecran. Și în rândul de scris al chatului există butonul **„√x"** (formula intră
+   în întrebare). Răspunsul se poate scrie oricând și ca text („radical din 2", „1/2").
+   Detalii: `GHID_MEDITATII_LIVE.md` → 3k.
 4. AI-ul primește: **(1) testul, (2) baremul, (3) răspunsurile elevului** și:
    - acordă **punctaj pe fiecare subpunct**, ca în barem (punctaj parțial pe
      elementele atinse);

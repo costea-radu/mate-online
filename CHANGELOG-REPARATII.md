@@ -4,6 +4,36 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 26 octombrie 2026 — Meditații live: „🔔 Anunță-mă când e gata", botul care verifică lecțiile, tastatura matematică √x
+
+Cererea: „1) în «meditații live» arată 1-3 minute de pregătire lecție, dar durează mult până se pregătește o lecție live, iar un elev și-ar putea pierde interesul. Pune o notificare când se termină și poate intra elevul. 2) fă un bot care să verifice dacă o lecție generată are sunet, întrebări pentru exerciții 3) la meditații live și rezolvare pdf în chat, fă ca elevul să poată scrie simboluri matematice […] de pe telefon sau calculator. Pune o tastatură specială pentru introducere răspuns cu aceste simboluri. Să accepte răspuns și în formă de text."
+
+### 1) Sala de așteptare și notificarea (`api/live.js`, `api/_lib/push.js`, `public/sw-push.js`, `src/lib/live/notify.js`, `src/components/live/PrepWait.jsx`, `src/pages/LiveRoom.jsx`, `src/components/live/PreJoin.jsx`, `src/pages/MeditatiiLive.jsx`, `src/pages/PregatireExamen.jsx`)
+- **Estimarea reală** în locul lui „1–3 / 2–4 minute": din lecțiile scrise până acum (`prepEta`: mediana scrisului + a vocii începutului; fără date, 4–8 minute) — în lobby, la meditațiile gratuite, în sala de așteptare și în Pregătirea de examen (acolo „1–2 minute" devine estimarea pentru doar text).
+- **Etapele pe ecran:** citește subiectul și baremul → scrie explicațiile („2 din 6 părți") → întrebările → vocea începutului → gata; cât a trecut și cât mai durează (`action: 'status'`, fără să pregătească nimic).
+- **1-la-1: un singur apel lung** (`untilPlayable`): textul + vocea doar a începutului, apoi lecția poate porni; continuă pe server și cu pagina închisă. Momentele lui (`scriptSec`, `headSec`) hrănesc estimarea.
+- **„🔔 Anunță-mă când e gata":** sunetul „gata" + vibrația, titlul tabului care clipește, notificarea de sistem (prin service worker, merge și pe Android) și **Web Push** — și cu pagina închisă (cheile VAPID din Vercel sau generate o dată de server în `app_settings`). O singură dată pe elev și ședință; cine e deja în sală nu mai primește nimic. La grup: „🔴 Meditația a început".
+- **În alt tab, la 1-la-1, lecția nu mai pornește singură:** cardul „✅ Prof. Tudor e gata! ▶ Începe lecția" — cele 60 de minute pornesc abia la clic (pe drum am găsit că playerul pornea deja în spatele cardului, în același ciclu de randare — reparat cu un ref citit sincron).
+- **SQL nou:** `supabase/notificari_lectii.sql` (`push_subscriptions`, `live_participants.notify_at / notified_at`, `live_lesson_qa`) — cu RLS, GRANT pentru `authenticated` și `service_role`, fără `anon`, plus politici. Fără el, totul merge ca înainte, minus notificarea cu pagina închisă.
+
+### 2) 🤖 Botul de verificare (`api/_lib/lessonCheck.js`, `api/live.js`, `src/components/LiveQaBot.jsx`, `src/components/LiveAdmin.jsx`)
+- Verifică fiecare lecție exact cum o primesc elevii, fără AI și fără cost: **sunetul** (fiecare frază are vocea, fișierul e chiar în Storage — lipsa confirmată cu HEAD, nu e gol), **întrebările la exerciții** (fiecare exercițiu; grilele pe ecran; fiecare subpunct de la S. II–III; întrebări valide, cu răspunsul verificabil), **itemii** și **cronologia**. Scor, rezumat, insignă în „Lecțiile recente".
+- Rulează după fiecare pregătire „gata", în cron (`LIVE_BOT_VERIFICARI`, implicit 8 pe rulare) și din Admin („🔎 Verifică toate acum"). Raportul în `live_lesson_qa` (lecția rămâne neatinsă).
+- Reparații cu un clic (vocea, fișierele pierdute, întrebările din barem / cu AI, itemii, desenele) și singur, în cron (`LIVE_BOT_REPARA`, implicit doar fișierele de voce pierdute — nu lângă o ședință de grup, de cel mult 2 ori).
+
+### 3) √x Tastatura matematică (`src/components/math/MathKeyboard.jsx`, `src/components/math/MathInput.jsx`, `src/lib/mathPlain.js`, `src/styles/mathkeyboard.css`, `src/components/live/PollCard.jsx`, `src/components/live/LiveChat.jsx`, `src/components/AITutor.jsx`, `api/_lib/mathcheck.js`)
+- Editorul MathLive (MIT, încărcat doar la prima deschidere, în afara precache-ului) cu tastatura noastră, în română, la fel pe telefon și pe calculator: radical și de ordin n, fracție, putere, indice, integrală, limită, vector, aranjamente, combinări, permutări, grade, matrice și determinanți de ordin 2 și 3, intersecție, reuniune, aparține, rezultă, infinit, π, logaritmi, intervale, mulțimi, geometrie, litere grecești.
+- La întrebările din sala live / Pregătirea de examen („√x" lângă răspuns), în chatul sălii, în chatul de lângă PDF și în „📝 Răspunde în chat" (sub fiecare cerință). Pe telefon, în zonele mici, tastatura stă jos pe ecran.
+- **Și ca text:** „Abc · text" (formula devine text: „1/2", „√2", „[[1, 2], [3, 4]]"); serverul primește și „radical din 2", „1 supra 2", „x la pătrat", „combinări de 5 luate câte 2", „60 de grade", „minus infinit".
+- **Verificarea răspunsului:** intervalele țin cont de paranteze, perechile de ordine, matricele de fiecare element, determinanții de valoare (+ câteva greșeli vechi ale verificării: mulțimile `\{1, 3\}`, parantezele intervalelor ignorate). Răspunsurile pot avea 300 de caractere (erau 80), mesajele din chat 500.
+- Pe drum: în sala live, butoanele tastaturii și „🔔 Anunță-mă" ieșeau cu text închis pe albastru (regula `.lv-room button { color: inherit }`) — reparat; pe telefon, panoul √x din chat nu mai rămâne sub bara cu butoane.
+
+**Verificat:** `npm test` — 861 de teste, toate trec (noi: `test/tastatura-matematica.test.js` +10, `test/bot-verificare-lectii.test.js` +12, `test/notificare-lectie-gata.test.js` +11); `vite build` trece (MathLive nu intră în precache-ul aplicației: 83 de fișiere, 2,5 MB; editorul se descarcă doar la prima deschidere a tastaturii). În Chromium (calculator, iPhone 13, iPhone SE, telefon culcat): sala de așteptare cu etapele, „🔔 Anunță-mă", notificarea și titlul care clipește cu tabul în fundal, cardul „▶ Începe lecția" (fără `private_begin` înainte de clic), fiecare filă a tastaturii fără etichete tăiate, răspunsurile cu tastatura și ca text, chatul sălii, chatul de lângă PDF și formularul „Răspunde în chat". Nu am acces la Vercel / Supabase: notificarea cu pagina închisă se verifică după ce rulezi SQL-ul și faci deploy.
+
+**De făcut o dată:** în Supabase → SQL Editor, rulează `supabase/notificari_lectii.sql`; apoi commit + deploy (Vercel instalează singur `mathlive` și `web-push` din `package.json`; local, pentru `npm run dev`, rulează `npm install`).
+
+---
+
 ## 24 octombrie 2026 (4) — Meniul lateral pornește pliat
 
 Cererea: „Fă ca meniul lateral hover să fie închis by default, la deschiderea paginii. Acum el apare deschis."

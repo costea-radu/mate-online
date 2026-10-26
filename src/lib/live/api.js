@@ -53,7 +53,13 @@ export const liveApi = {
   join: (sessionId) => call({ action: 'join', sessionId }),
   // opts: un număr (bugetul în ms, ca înainte) sau { budgetMs, fromRef } — fromRef = itemul la
   // care e elevul (1-la-1 pornit): vocea care lipsește se generează întâi de acolo
+  // { untilPlayable: true } (sala de așteptare 1-la-1): textul + vocea începutului într-un apel,
+  // care continuă pe server și dacă elevul închide pagina (apoi îl anunță)
   prepare: (sessionId, opts = null) => call({ action: 'prepare', sessionId, ...(typeof opts === 'number' ? { budgetMs: opts } : (opts || {})) }),
+  // progresul pregătirii (etapa, bucățile scrise, vocea începutului, estimarea) — fără să pregătească
+  status: (sessionId) => call({ action: 'status', sessionId }),
+  // „🔔 Anunță-mă când e gata": abonarea Web Push (PushSubscription.toJSON() sau null); off = renunță
+  notify: (sessionId, { subscription = null, off = false } = {}) => call({ action: 'notify', sessionId, subscription, off }),
   timeline: (sessionId) => call({ action: 'timeline', sessionId }),
   heartbeat: (sessionId, seconds) => call({ action: 'heartbeat', sessionId, seconds }),
   chat: (sessionId, text, { toTeacher = false, item = null } = {}) => call({ action: 'chat', sessionId, text, toTeacher, item }),
@@ -96,6 +102,8 @@ export const liveApi = {
   // versiunile vechi ale lecțiilor (înlocuite prin „Regenerează"): {} = toate (câte 40 pe cerere),
   // { lessonId } = una; { dry: true } = doar numărul
   adminDeleteOld: (args = {}) => call({ action: 'admin_delete_old', ...args }),
+  // 🤖 botul de verificare: { lessonId } = o lecție; { after, limit } = toate, pe pagini; { list: true } = rapoartele salvate
+  adminQa: (args = {}) => call({ action: 'admin_qa', ...args }),
 };
 
 // Plata unui bilet (Stripe Checkout) — întoarce URL-ul paginii de plată
