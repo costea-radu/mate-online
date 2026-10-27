@@ -34,6 +34,13 @@ const SYMBOLS = [
 ];
 const FUNCS = /\\(ln|lg|log|sin|cos|tg|ctg|tan|cot|arcsin|arccos|arctg|arctan|det|lim|max|min|rang|rank)(?![a-zA-Z])/g;
 
+// factorul amplificării / simplificării, scris mic, sus: „2" → „²", „12" → „¹²", „n" → „ⁿ"
+const SUP = { 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', n: 'ⁿ', x: 'ˣ', a: 'ᵃ', b: 'ᵇ', k: 'ᵏ', m: 'ᵐ', p: 'ᵖ', y: 'ʸ', '+': '⁺', '-': '⁻' };
+export function supText(s) {
+  const v = String(s ?? '').replace(/\s+/g, '');
+  return [...v].map((c) => SUP[c] || c).join('');
+}
+
 export function latexToPlain(latex) {
   let t = String(latex ?? '').replace(/\$/g, '').trim();
   if (!t) return '';
@@ -52,6 +59,10 @@ export function latexToPlain(latex) {
     .replace(/\^\s*\{\s*\\circ\s*\}|\^\s*\\circ(?![a-zA-Z])|\\degree(?![a-zA-Z])/g, '°')
     .replace(/\\%/g, '%')
     .replace(/\{\}\^\{t\}\s*(?:\\!\s*)?/g, 'ᵗ')                       // transpusa: {}^{t}A → ᵗA
+    // amplificarea / simplificarea fracțiilor (notația de la clasă): {}^{2)}\frac{3}{4} → ²⁾3/4,
+    // \frac{18}{24}^{(6} → 18/24⁽⁶ — înainte de puterile obișnuite (nu sunt puteri)
+    .replace(/\{\}\s*\^\s*\{\s*([^{}()]*?)\s*\)\s*\}/g, (m, n) => `${supText(n)}⁾`)
+    .replace(/\^\s*\{\s*\(\s*([^{}()]*?)\s*\}/g, (m, n) => `⁽${supText(n)}`)
     .replace(/\\operatorname\*?\{([^{}]*)\}/g, '$1')
     .replace(/\\mathbb\{([A-Za-z])\}/g, (m, l) => ({ R: 'ℝ', N: 'ℕ', Z: 'ℤ', Q: 'ℚ', C: 'ℂ' }[l] || l))
     .replace(/\\mathrm\{([^{}]*)\}/g, '$1');

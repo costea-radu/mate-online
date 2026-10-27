@@ -997,12 +997,19 @@ function contextBlock(docs) {
   }).join('\n\n');
 }
 
+// ─── Notația de la clasă pentru amplificarea / simplificarea fracțiilor ─────
+// Elevul o scrie cu tastatura matematică („√x Simboluri" → tastele de lângă
+// fracție, 27 oct. 2026) sau de mână: factorul SUS, cu paranteză — în stânga
+// fracției la amplificare, în dreapta ei la simplificare. Nu sunt puteri.
+const FRACTII_NOTATIE = `- AMPLIFICAREA ȘI SIMPLIFICAREA FRACȚIILOR (notația de la clasă): factorul scris sus, în STÂNGA fracției, urmat de paranteză — $^{3)}\\frac{2}{5}$, în LaTeX $\{\}^{3)}\\frac{2}{5}$ — înseamnă „amplific fracția cu 3"; factorul scris sus, în DREAPTA fracției, după o paranteză deschisă — $\\frac{18}{24}^{(6}$ — înseamnă „simplific fracția prin 6". NU sunt puteri. Le recunoști în ce scrie elevul și le poți folosi și tu, la fel, în explicații.`;
+
 // ─── Persona + reguli ale tutorelui (română) ─────────────────────────────────
 const PERSONA = `Ești "Profesorul Virtual" de pe ExamenMate, un profesor de matematică român, calm, încurajator și răbdător, pentru elevi de clasele 5–12, Evaluare Națională și Bacalaureat.
 Reguli:
 - Răspunzi DOAR în limba română, clar și la nivelul elevului.
 - Te bazezi pe MATERIALELE DIN CONTEXT pentru stilul de explicație, notații și tipurile de exerciții. Dacă în context apar exemple, urmează-le stilul.
 - Scrii formulele în LaTeX: între $...$ pentru inline și $$...$$ pe rând separat. Exemple: $x^2$, $\\frac{a}{b}$, $\\sqrt{2}$, $\\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$. Restul textului rămâne în română normală. IMPORTANT: conținutul dintre $$...$$ stă pe UN SINGUR rând, fără Enter în interior. Încadrezi ÎNTREAGA expresie matematică între $...$ — corect: $4(10)^3 = 4000$; GREȘIT: 4(10$)^3$ = 4000 sau 10$^3$ (niciodată „$" în mijlocul unei expresii ori doar în jurul exponentului). Folosește NUMAI delimitatorii $...$ și $$...$$ — NICIODATĂ \\[...\\] sau \\(...\\).
+${FRACTII_NOTATIE}
 - RELAȚIILE LUI VIÈTE: la problemele cu rădăcinile $x_1, x_2, x_3, \\dots$ ale unui polinom (sume, produse, expresii simetrice precum $x_1+x_2+x_3$, $x_1 x_2 x_3$, $x_1^2+x_2^2+\\dots$, $\\frac{1}{x_1}+\\frac{1}{x_2}+\\dots$), folosești relațiile lui Viète: scrii ÎNTÂI relațiile pentru polinomul dat (cu semnele corecte: $x_1+x_2+\\dots = -\\frac{a_{n-1}}{a_n}$ etc.), apoi exprimi cerința prin ele. NU calcula rădăcinile explicit decât dacă problema o cere sau descompunerea e evidentă.
 - Linkurile către paginile site-ului le scrii mereu RELATIVE, în format markdown: [Titlu](/cale) — ex: [Evaluare Națională](/evaluare-nationala). NICIODATĂ cu domeniu; adresa „examenmate.ro" NU există.
 - Explici pas cu pas, numerotat, cu un exemplu scurt când ajută.
@@ -1565,6 +1572,7 @@ MISIUNEA TA, în această ordine:
 Reguli:
 - Răspunzi DOAR în limba română, clar și la nivelul elevului.
 - Scrii formulele în LaTeX: între $...$ pentru inline și $$...$$ pe rând separat. Exemple: $x^2$, $\\frac{a}{b}$, $\\sqrt{2}$, $\\vec{AB}$. Restul textului rămâne în română normală. IMPORTANT: conținutul dintre $$...$$ stă pe UN SINGUR rând, fără Enter în interior. Încadrezi ÎNTREAGA expresie matematică între $...$ — corect: $4(10)^3 = 4000$; GREȘIT: 4(10$)^3$ = 4000 sau 10$^3$. Folosește NUMAI delimitatorii $...$ și $$...$$ — NICIODATĂ \\[...\\] sau \\(...\\).
+${FRACTII_NOTATIE}
 - RELAȚIILE LUI VIÈTE: la problemele cu rădăcinile $x_1, x_2, x_3, \\dots$ ale unui polinom (sume, produse, expresii simetrice), folosești relațiile lui Viète: scrii ÎNTÂI relațiile pentru polinomul dat (cu semnele corecte), apoi exprimi cerința prin ele. NU calcula rădăcinile explicit decât dacă problema o cere sau descompunerea e evidentă.
 - Linkurile către paginile site-ului le scrii mereu RELATIVE, în format markdown: [Titlu](/cale) — ex: [Blog / Rezolvări / Teorie](/rezolvari). NICIODATĂ cu domeniu; adresa „examenmate.ro" NU există.
 - Explici pas cu pas, numerotat. Nu inventezi formule, rezultate sau surse.
@@ -1948,7 +1956,7 @@ async function prepareChat(supa, { userId, message, mode = 'tutor', conversation
     // Etapa 2 (1.1): PAGINA din PDF cu exercițiul întrebat merge la model ca
     // fișier (text + imagine) — vede radicalii, fracțiile, figurile pierdute
     // la extracție. Doar pagina/paginile exercițiului, nu tot testul.
-    attachments = await pdfPageAttachments(supa, { context, message, priorMsgs, baremItem });
+    attachments = await pdfPageAttachments(supa, { context, message, priorMsgs, baremItem, userId });
     if (attachments.length) system += '\n\n' + PDF_PAGE_NOTE;
   } else {
     system = await interactiveAgentSystem(supa, { userId, mode, context, ctxBlock });
@@ -1997,8 +2005,43 @@ const PDF_PAGE_NOTE = `PAGINA DIN PDF: mesajul elevului are atașată pagina (sa
 // cache mic, pe instanță, pentru paginile extrase (evită re-descărcarea la fiecare mesaj)
 const pageCache = new Map();
 const PAGE_CACHE_MAX = 24;
-async function pdfPageAttachments(supa, { context, message, priorMsgs, baremItem }) {
-  if (!PDF_VISION || !context || !context.pdf || !context.contentId) return [];
+// Material din Biblioteca utilizatorilor (context.libraryId): pagina exercițiului
+// la fel; la PDF-urile fără text pe pagini (poze încărcate, transcrierea lipsă)
+// merg primele pagini — modelul le citește din imagine.
+async function libraryPageAttachments(supa, { context, message, priorMsgs, baremItem, userId }) {
+  try {
+    const pdfCtx = require('../ai-pdf-context');
+    const pdfpages = require('./pdfpages');
+    const profile = await requireUser(supa, userId);
+    const row = await pdfCtx.loadLibraryForUser(supa, context.libraryId, profile, userId);
+    if (row.kind !== 'pdf' || !row.payload || (!row.payload.pdfPath && !row.payload.pdfBase64)) return [];
+    const lc = await pdfCtx.libraryContext(supa, row).catch(() => null);
+    const pages = Array.isArray(lc?.pageTexts) ? lc.pageTexts : [];
+    let idx = pages.length ? pdfpages.findPages(pages, { enunt: baremItem?.enunt || null, ref: refFromConversation(message, priorMsgs) }) : [];
+    const fara_text = !pages.some((t) => String(t || '').trim().length > 30);
+    if (!idx.length && fara_text) idx = [0, 1];
+    if (!idx.length) return [];
+    const key = `lib:${row.id}:${row.payload.pdfPath || 'b64'}:${idx.join(',')}`;
+    let part = pageCache.get(key);
+    if (!part) {
+      const buf = await pdfCtx.downloadLibraryPdf(supa, row);
+      const sub = await pdfpages.extractPagesPdf(buf, idx);
+      part = pdfpages.filePart(sub, `pagina-${idx.map((i) => i + 1).join('-')}.pdf`);
+      if (!part) return [];
+      if (pageCache.size >= PAGE_CACHE_MAX) pageCache.delete(pageCache.keys().next().value);
+      pageCache.set(key, part);
+    }
+    return [part];
+  } catch (e) {
+    warnOnce('libpage:' + (context && context.libraryId), `pdfPageAttachments (bibliotecă): ${e.message}`);
+    return [];
+  }
+}
+
+async function pdfPageAttachments(supa, { context, message, priorMsgs, baremItem, userId = null }) {
+  if (!PDF_VISION || !context || !context.pdf) return [];
+  if (context.libraryId && !context.contentId) return userId ? libraryPageAttachments(supa, { context, message, priorMsgs, baremItem, userId }) : [];
+  if (!context.contentId) return [];
   try {
     const pdfCtx = require('../ai-pdf-context');   // lazy: evită dependența circulară
     const pdfpages = require('./pdfpages');
@@ -2393,6 +2436,7 @@ module.exports = {
   budgetNotice,
   CORS, applyCors, admin, authUser, requireAdmin, signedUrlFromPublic, isCronRequest,
   chat, chatStream, chatVision, embed, transcribe, retrieve, topMaterial, routeForCategory, contextBlock, systemFor, prepareChat, openConversation, PERSONA,
+  FRACTII_NOTATIE, // amplificarea / simplificarea fracțiilor (corectorul și corectarea formularului o folosesc și ele)
   dropLastTurn, loadHistory, // „Regenerează" (exportate pentru teste)
   chatJson, S, deepRestoreLatex, restoreLatexControl, parseJsonLoose, buildBody, adaptBodyToError, answerIndex, // Structured Outputs
   extractBaremItem, fragmentFromBarem, verifiedPdfReply, wantsOtherExplanation, isFollowUpQuestion,

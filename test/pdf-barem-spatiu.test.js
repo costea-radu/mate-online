@@ -23,14 +23,16 @@ test('PDF: în bara de sus e „📋 Barem", nu mai e fereastra caietului peste 
   assert.match(src, /e\.status === 403/);
   // baremul inclus în același PDF („subiecte + barem") → saltul la pagina lui
   assert.match(src, /findBaremPage\(pdfData\)/);
-  assert.match(src, /#page=\$\{testJump\.page\}/);
+  // (din 27 oct.: adresa iframe-ului o face pdfFrameSrc — #page=N + coloana cu pagini)
+  assert.match(src, /pdfFrameSrc\(blobUrl, \{ page: testJump \? testJump\.page : null, pagini \}\)/);
+  assert.match(read('src/lib/pdfFrame.js'), /p\.push\(`page=\$\{page\}`\)/);
 });
 
 test('PDF: „✍️ Spațiu de lucru" e în antetul profesorului și se deschide în zona de conversație', () => {
   const src = read('src/pages/PDFViewer.jsx');
   assert.match(src, /'✍️ Spațiu de lucru'/);
   assert.match(src, /workspace=\{\{/);
-  assert.match(src, /storageKey: `pdf:\$\{item\?\.id \|\| 'material'\}`/, 'aceeași ciornă ca înainte');
+  assert.match(src, /storageKey: isLib \? `pdf:lib:\$\{lib\?\.id \|\| 'material'\}` : `pdf:\$\{item\?\.id \|\| 'material'\}`/, 'aceeași ciornă ca înainte (materialele din bibliotecă au cheia lor)');
   // pe telefon antetul e mânerul de tras: butoanele lui nu pornesc tragerea
   // (altfel captura pointerului le lua clicul)
   assert.match(src, /onPointerDown=\{\(e\) => e\.stopPropagation\(\)\}/);

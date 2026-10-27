@@ -56,7 +56,8 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         // scena profesorului din meditațiile live se încarcă doar în sală, nu la toată lumea;
         // tastatura matematică (MathLive) — doar la prima deschidere, nu la toată lumea
-        globIgnores: ['live/**', 'assets/KaTeX_*', 'assets/katex-*', 'sw-push.js', 'assets/mathlive*', 'assets/MathKeyboard*'],   // KaTeX (cod + fonturi): la cerere, nu în precache
+        // încărcarea materialelor (pdf-lib, docx-preview, html-to-image) — doar la profesori, la cerere
+        globIgnores: ['live/**', 'assets/KaTeX_*', 'assets/katex-*', 'sw-push.js', 'assets/mathlive*', 'assets/MathKeyboard*', 'assets/material-*'],   // KaTeX (cod + fonturi): la cerere, nu în precache
         // SPA: orice navigare necunoscută primește index.html…
         navigateFallback: '/index.html',
         // …dar NU rutele serverless (/api/*) și NU fișierele de verificare
@@ -92,6 +93,11 @@ export default defineConfig({
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
           'supabase': ['@supabase/supabase-js'],
+          // „📤 Încarcă material" (doar profesorii, la încărcare): Word → PDF și poze → PDF.
+          // Bucăți cu nume știut, ca să rămână în afara precache-ului PWA (vezi globIgnores)
+          'material-pdflib': ['pdf-lib'],
+          'material-docx': ['docx-preview', 'jszip'],
+          'material-img': ['html-to-image'],
         },
       },
     },

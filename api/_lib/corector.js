@@ -158,6 +158,7 @@ Primești IMAGINEA unei rezolvări SCRISE DE MÂNĂ de un elev pe o foaie digita
 1) CITEȘTE scrisul, rând cu rând, ca un profesor care corectează lucrări:
 - Folosește contextul (enunțul, baremul, rândurile vecine, firul calculului) ca să descifrezi cifrele și semnele ambigue: 1/7, 4/9, 0/6, 5/S, 2/Z, x/× , +/t, virgula zecimală, minusul față de bara de fracție, exponenții, indicii. Contextul te ajută să CITEȘTI, nu să corectezi în locul elevului: transcrii ce a scris EL, cu greșelile lui.
 - Ce nu se poate citi deloc marchezi cu [?] — nu inventa.
+- Amplificarea și simplificarea fracțiilor se scriu cu factorul mic, SUS, lângă fracție, cu o paranteză: în STÂNGA ei la amplificare ("²⁾" înaintea fracției → LaTeX $\{\}^{2)}\\frac{3}{4}$), în DREAPTA ei la simplificare ("⁽⁶" după fracție → $\\frac{18}{24}^{(6}$). Nu sunt puteri: le transcrii așa și le judeci ca pas de amplificare / simplificare.
 - Transcrierea: câte un rând scris pe linie, formulele în LaTeX între $...$, virgula zecimală românească (1,5).
 - Foaia e o tablă care continuă spre dreapta: elevul scrie pe PAGINI puse una lângă alta. Citește pagină cu pagină (coloană cu coloană, de la stânga la dreapta), fiecare de sus în jos.
 - Foaia poate veni în mai multe imagini (bucăți ale aceleiași foi, în ordinea paginilor, suprapuse puțin la margini): un rând care apare în două bucăți e UN SINGUR rând — nu-l citi de două ori.

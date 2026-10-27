@@ -34,6 +34,12 @@ exact cum corectează testele interactive.
    jos pe ecran. Și în rândul de scris al chatului există butonul **„√x"** (formula intră
    în întrebare). Răspunsul se poate scrie oricând și ca text („radical din 2", „1/2").
    Detalii: `GHID_MEDITATII_LIVE.md` → 3k.
+   Din 27 oct. 2026, fila „123" are și **amplificarea** (`²⁾ 3/4` — factorul sus, în
+   stânga, cu paranteză; LaTeX `{}^{2)}\frac{3}{4}`) și **simplificarea** (`18/24 ⁽⁶` —
+   `\frac{18}{24}^{(6}`); corectarea și profesorul știu că nu sunt puteri.
+   **„⤢ Mărește"** (în capul formularului) îl întinde pe **tot chatul**, cu casete de
+   5 rânduri — loc pentru rezolvări lungi; „⤡ Micșorează" îl readuce jos. Erorile apar
+   atunci în formular.
 4. AI-ul primește: **(1) testul, (2) baremul, (3) răspunsurile elevului** și:
    - acordă **punctaj pe fiecare subpunct**, ca în barem (punctaj parțial pe
      elementele atinse);
@@ -55,6 +61,10 @@ exact cum corectează testele interactive.
   automat pe server în explicații și cerințe.
 5. Merge și pentru **poze 📷 și PDF-uri încărcate de elev direct în chat**
    (butonul 📷 acceptă acum și fișiere PDF) — acolo fără barem, doar răspunsuri.
+6. Și pentru **materialele din Biblioteca utilizatorilor** (27 oct. 2026), deschise în
+   vizualizator cu `/pdf-viewer?lib=<id>`: serverul recitește textul după `libraryId`
+   (sursa formularului semnat e `lib:<id>`, cache-ul `l:<id>`); la testele generate,
+   răspunsurile + rezolvările țin loc de barem. Detalii: `GHID_BIBLIOTECA_UTILIZATORILOR.md`.
 
 Butoanele vechi de mod („Învață-mă", „Teoria", „Dă-mi un indiciu") au fost
 eliminate din chat — locul lor l-a luat „📝 Răspunde în chat".

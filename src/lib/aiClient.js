@@ -213,8 +213,9 @@ export const aiClient = {
   // Pentru un test din platformă (contentId) serverul recitește SINGUR textul și
   // baremul (nu mai are încredere în cele din browser); răspunsul include un
   // `token` semnat care se trimite înapoi la corectare.
-  correctForm: ({ testText, baremText = '', title = '', category = null, contentId = null }) =>
-    post('/api/ai-correct', { action: 'form', testText, baremText, title, category, contentId }),
+  // La un material din Biblioteca utilizatorilor (libraryId) — la fel, de pe server.
+  correctForm: ({ testText, baremText = '', title = '', category = null, contentId = null, libraryId = null }) =>
+    post('/api/ai-correct', { action: 'form', testText, baremText, title, category, contentId, libraryId }),
   // Corectarea: AI-ul primește testul + baremul + răspunsurile și dă punctajul
   correctGrade: (payload) => post('/api/ai-correct', { action: 'grade', ...payload }),
 
@@ -319,6 +320,8 @@ export const aiClient = {
   publicList: ({ q = '', category = null } = {}) => post('/api/ai-public', { action: 'list', q, category }),
   publicGet: ({ id }) => post('/api/ai-public', { action: 'get', id }),
   publicSetFree: ({ id, isFree }) => post('/api/ai-public', { action: 'set_free', id, isFree }),
+  // Materiale ÎNCĂRCATE din poze: textul paginilor (modelul de vedere, o dată, la încărcare)
+  publicTranscribe: ({ images }) => post('/api/ai-public', { action: 'transcribe', images }),
 
   // Cont
   accountDelete: () => post('/api/ai-account', { action: 'delete' }),
@@ -329,8 +332,10 @@ export const aiClient = {
   // Voce: transcriere audio (fallback STT)
   transcribe: ({ audioBase64, mime = 'audio/webm' }) => post('/api/ai-transcribe', { audioBase64, mime }),
 
-  // Textul unui PDF deschis — ca Profesorul Virtual să „vadă" exercițiile din el
-  pdfContext: ({ contentId }) => post('/api/ai-pdf-context', { contentId }),
+  // Textul unui PDF deschis — ca Profesorul Virtual să „vadă" exercițiile din el.
+  // contentId = material din platformă; libraryId = din Biblioteca utilizatorilor
+  // (PDF publicat / încărcat de profesor sau test generat — /pdf-viewer?lib=<id>)
+  pdfContext: ({ contentId = null, libraryId = null }) => post('/api/ai-pdf-context', libraryId && !contentId ? { libraryId } : { contentId }),
   // Admin (Etapa 2, 3.1): asocierea test ↔ barem confirmată manual.
   //   candidates → { candidates:[{id,title,isBarem}], current:{barem,baremStatus,override} }
   //   set_barem  → baremId=null revine la potrivirea automată
@@ -395,6 +400,37 @@ export const aiClient = {
       await supabase.storage.from('personal-pdfs').remove([path]).catch(() => {});
       const hint = /check|constraint|kind/i.test(e.message) ? ' — rulează scriptul supabase/personal_pdfs_bucket.sql (permite kind=pdf).' : '';
       throw new Error(e.message + hint);
+    }
+  },
+  // ÎNCARCĂ UN MATERIAL în Biblioteca utilizatorilor (profesor / admin) — PDF-ul
+  // gata făcut (din PDF, Word sau poze: src/lib/materialPdf.js) merge în folderul
+  // profesorului din bucketul privat, rămâne și în „Testele și exercițiile mele"
+  // și se publică (serverul face copia publică — api/ai-public.js → publish).
+  // extra = { source, fileName, pages, text?, pageTexts? } → payload-ul PDF-ului.
+  // Întoarce { publicId, privateId, title }.
+  async uploadMaterial({ title, category = null, topic = null, blob, extra = {} }) {
+    const userId = await uid();
+    if (!userId) throw new Error('Trebuie să fii autentificat.');
+    if (!blob || !blob.size) throw new Error('Nu am niciun fișier de încărcat.');
+    if (blob.size > 24 * 1024 * 1024) throw new Error('Fișierul e prea mare (cel mult 24 MB).');
+    const path = `${userId}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.pdf`;
+    const { error: upErr } = await supabase.storage.from('personal-pdfs')
+      .upload(path, blob, { contentType: 'application/pdf', upsert: false });
+    if (upErr) throw new Error(`Încărcarea a eșuat (${upErr.message}). Dacă persistă: scriptul supabase/personal_pdfs_bucket.sql trebuie rulat în Supabase.`);
+    const payload = { pdfPath: path, bucket: 'personal-pdfs', origin: 'upload', ...extra };
+    // copia privată, în „Testele și exercițiile mele" (dacă nu merge, publicăm oricum)
+    let privateId = null;
+    try { privateId = await this.saveLibraryItem({ kind: 'pdf', title, category, topic, payload }); }
+    catch (e) { console.warn('uploadMaterial: copia privată nu s-a salvat:', e.message); }
+    try {
+      const r = await post('/api/ai-public', { action: 'publish', kind: 'pdf', title, category, topic, payload });
+      return { publicId: r.id, privateId, title: r.title || title };
+    } catch (e) {
+      if (!privateId) await supabase.storage.from('personal-pdfs').remove([path]).catch(() => {});
+      throw e;
+    } finally {
+      // fără copie privată, fișierul din folderul profesorului nu mai folosește la nimic
+      if (!privateId) supabase.storage.from('personal-pdfs').remove([path]).catch(() => {});
     }
   },
   // Descarcă PDF-ul unui element din bibliotecă (Storage sau base64 vechi) ca Blob.

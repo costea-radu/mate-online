@@ -68,6 +68,9 @@
 .mk-keys-matrice .mk-key.is-wide.is-tall { padding-top: 0; padding-bottom: 0; }
 .mk-keys-matrice .mk-key.is-wide.is-tall .katex { font-size: .55em; }
 .mk-keys-matrice .mk-key.is-small .katex { font-size: .8em; }
+/* amplificarea / simplificarea: fracția cu factorul sus (²⁾ a/b, a/b ⁽²) încape în tasta îngustă */
+.mk-key.is-frac .katex { font-size: .95em; }
+.mk-key.is-frac { background: #eef6ee; }
 
 /* în sala live, regula `.lv-room button { color: inherit }` (specificitate 0,1,1) bătea culorile de
    mai sus (o singură clasă): „Trimite" / „✓ Pune în mesaj" ieșeau cu text închis pe albastru */

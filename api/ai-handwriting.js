@@ -8,6 +8,8 @@
 // citește și îl corectează într-un singur pas, STRICT după barem, unde există:
 //   · test PDF din platformă → testul + baremul asociat, citite DE PE SERVER
 //     (cache-ul ai_pdf_text), nu din browser;
+//   · material din Biblioteca utilizatorilor → textul lui + baremul, unde există
+//     (rezolvările testului generat / baremul inclus în PDF), tot de pe server;
 //   · exercițiu interactiv → enunțul cu pașii, răspunsurile corecte și
 //     indicațiile oficiale (țin loc de barem; modelul nu le dezvăluie);
 //   · altfel → doar enunțul (fără puncte, doar verdicte pe pași).
@@ -16,7 +18,7 @@
 //
 // Body: { action: 'correct', images: [dataUrl, …] (1–6), grid?: {cols, rows},
 //         thumb?: dataUrl ≤ 16 KB, conversationId?, context?: { pdf, contentId,
-//         category, title, meditatii }, exerciseText? }
+//         libraryId, category, title, meditatii }, exerciseText? }
 // Răspuns: { conversationId, messageId, text, puncte, puncteMax, hasBarem,
 //            lizibil, itemi, spoken, model }
 //
@@ -51,7 +53,7 @@ function cleanImages(list) {
 }
 
 // De unde vine „baremul" corectării (vezi antetul)
-async function resolveSource(supa, profile, body) {
+async function resolveSource(supa, profile, body, userId = null) {
   const ctx = body.context && typeof body.context === 'object' ? body.context : {};
   const title = String(ctx.title || '').slice(0, 140);
   const exercise = String(body.exerciseText || ctx.exerciseText || '').trim();
@@ -70,6 +72,25 @@ async function resolveSource(supa, profile, body) {
     } catch (e) {
       if (e && (e.status === 403 || e.status === 404)) throw e;
       console.warn('ai-handwriting: contextul PDF nu s-a putut citi:', e && e.message);
+    }
+  }
+  // material din Biblioteca utilizatorilor: textul (și baremul — rezolvările testului
+  // generat sau baremul inclus în PDF) tot DE PE SERVER, cu verificarea accesului
+  if (ctx.libraryId && !ctx.contentId) {
+    try {
+      const row = await pdfContext.loadLibraryForUser(supa, ctx.libraryId, profile, userId);
+      const lc = await pdfContext.libraryContext(supa, row);
+      const test = String(lc.text || '').trim();
+      const barem = String(lc.baremText || '').trim();
+      if (test.length > 40 || barem.length > 80) {
+        return {
+          kind: 'pdf', title: String(row.title || title).slice(0, 140), test, barem,
+          hasBarem: barem.length > 80, category: row.category || ctx.category || null, contentId: null, libraryId: row.id,
+        };
+      }
+    } catch (e) {
+      if (e && (e.status === 402 || e.status === 403 || e.status === 404)) throw e;
+      console.warn('ai-handwriting: materialul din bibliotecă nu s-a putut citi:', e && e.message);
     }
   }
   if (exercise.length > 20) {
@@ -122,7 +143,7 @@ module.exports = async function handler(req, res) {
     const lim = await ai.enforceRateLimit(supa, userId, profile);      // limita orară + creditele
     await ai.enforceFeatureQuota(supa, userId, profile, 'scris', lim); // cota zilnică a corectărilor de pe foaie
 
-    const src = await resolveSource(supa, profile, body);
+    const src = await resolveSource(supa, profile, body, userId);
     let out;
     try {
       out = await corector.correctHandwriting({ images, grid: body.grid || null, src, lim });
@@ -152,7 +173,7 @@ module.exports = async function handler(req, res) {
           .insert({
             user_id: userId,
             title: `Corectare: ${src.title || 'spațiul de lucru'}`.slice(0, 60),
-            context: { pdf: !!ctx.pdf, meditatii: !!ctx.meditatii, contentId: src.contentId || null, category: src.category || null, title: src.title || null },
+            context: { pdf: !!ctx.pdf, meditatii: !!ctx.meditatii, contentId: src.contentId || null, libraryId: src.libraryId || null, category: src.category || null, title: src.title || null },
           })
           .select('id').single();
         convId = data?.id || null;

@@ -7,7 +7,8 @@ import { autoMath } from './katex';
 import { renderFigure } from './figureRender';
 
 function esc(s = '') {
-  return String(autoMath(s || '')).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // (numerele itemilor pot veni ca numere din JSON-ul generat — autoMath cere text)
+  return String(autoMath(s == null ? '' : String(s))).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // ── Figura itemului (SVG generat determinist din specificația AI) ────────────
@@ -30,11 +31,11 @@ function solutionSpace(h) {
   return `<div class="solspace"><svg width="100%" height="${h}" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="${id}" width="15" height="15" patternUnits="userSpaceOnUse"><path d="M15 0H0V15" fill="none" stroke="#e2e2e2" stroke-width="0.7"/></pattern></defs><rect x="0.5" y="0.5" width="99.7%" height="${h - 1}" fill="url(#${id})" stroke="#cfcfcf" stroke-width="0.8"/></svg></div>`;
 }
 
-// Deschide un document tipăribil, autonom, cu KaTeX.
-export function openPrintDocument(title, bodyHtml) {
-  const w = window.open('', '_blank');
-  if (!w) { alert('Permite ferestrele pop-up pentru a deschide varianta PDF.'); return; }
-  const doc = `<!DOCTYPE html>
+// Documentul tipăribil, autonom, cu KaTeX (HTML complet). `embedded`: fără bara
+// „Printează / Închide" — pentru vizualizatorul cu Profesorul Virtual alături
+// (testele generate din Biblioteca utilizatorilor, /pdf-viewer?lib=<id>).
+export function printDocumentHtml(title, bodyHtml, { embedded = false } = {}) {
+  return `<!DOCTYPE html>
 <html lang="ro"><head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -84,6 +85,8 @@ export function openPrintDocument(title, bodyHtml) {
   .part > b { color: #0f2b44; }
   .sol { white-space: pre-wrap; line-height: 1.55; color: #333; font-size: 14px; margin-top: 4px; }
   .foot { text-align: center; font-size: 11px; color: #888; margin-top: 30px; border-top: 1px solid #eee; padding-top: 8px; }
+  /* pe telefon (și în panoul îngust al vizualizatorului) foaia își strânge marginile */
+  @media screen and (max-width: 640px) { .sheet { margin: 8px; padding: 22px 16px; } }
   @media print {
     body { background: #fff; }
     .topbar { display: none; }
@@ -97,10 +100,10 @@ export function openPrintDocument(title, bodyHtml) {
   }
 </style>
 </head><body>
-<div class="topbar">
+${embedded ? '' : `<div class="topbar">
   <button onclick="window.print()">🖨️ Printează / Salvează ca PDF</button>
   <button class="ghost" onclick="window.close()">Închide</button>
-</div>
+</div>`}
 <div class="sheet">${bodyHtml}</div>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
@@ -112,6 +115,13 @@ export function openPrintDocument(title, bodyHtml) {
   if (window.renderMathInElement) go(); else window.addEventListener('load', go);
 </script>
 </body></html>`;
+}
+
+// Deschide un document tipăribil, autonom, cu KaTeX.
+export function openPrintDocument(title, bodyHtml) {
+  const w = window.open('', '_blank');
+  if (!w) { alert('Permite ferestrele pop-up pentru a deschide varianta PDF.'); return; }
+  const doc = printDocumentHtml(title, bodyHtml);
   w.document.open();
   w.document.write(doc);
   w.document.close();
@@ -119,6 +129,14 @@ export function openPrintDocument(title, bodyHtml) {
 
 // ─── Test de examen ──────────────────────────────────────────────────────────
 export function printExam(exam, { withSolutions = false } = {}) {
+  openPrintDocument(exam.title || 'Model de test', examBodyHtml(exam, { withSolutions }));
+}
+// Același test, ca document HTML întreg (vizualizatorul cu Profesorul Virtual)
+export function examDocumentHtml(exam, { withSolutions = false, embedded = true } = {}) {
+  return printDocumentHtml(exam.title || 'Model de test', examBodyHtml(exam, { withSolutions }), { embedded });
+}
+
+function examBodyHtml(exam, { withSolutions = false } = {}) {
   const subjects = Array.isArray(exam.subjects) ? exam.subjects : [];
   const header = `
     <h1 class="exam-title">${esc(exam.title || 'Model de test')}</h1>
@@ -204,7 +222,7 @@ export function printExam(exam, { withSolutions = false } = {}) {
   }).join('');
 
   const foot = `<div class="foot">Material de pregătire generat automat — poate conține mici erori. Nu este un subiect oficial.</div>`;
-  openPrintDocument(exam.title || 'Model de test', header + body + foot);
+  return header + body + foot;
 }
 
 // ─── Un singur exercițiu (fișă de lucru) ─────────────────────────────────────

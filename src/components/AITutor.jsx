@@ -412,6 +412,11 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   const [formLoading, setFormLoading] = useState(false);
   const [grading, setGrading] = useState(false);
   const formStartRef = useRef(null);
+  // „⤢ Mărește": formularul ocupă TOT chatul (peste conversație și caseta de întrebări),
+  // ca să ai loc de scris rezolvarea; „⤡ Micșorează" îl readuce jos, peste conversație.
+  // Se închide odată cu formularul.
+  const [formMax, setFormMax] = useState(false);
+  useEffect(() => { if (!form) setFormMax(false); }, [form]);
 
   // ── „✍️ Spațiu de lucru" — caietul digital (SpatiuDeLucru.jsx) ────────────
   // Scrisul rămâne scris de mână (nu se mai transformă în text): „🎓 Cere
@@ -441,9 +446,11 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       return {
         testText: context.exerciseText || '', baremText: context.baremText || '',
         title: context.title || 'Testul deschis', contentId: context.contentId || null, category: context.category || null,
+        // material din Biblioteca utilizatorilor: serverul îi recitește textul (și baremul)
+        libraryId: context.contentId ? null : (context.libraryId || null),
       };
     }
-    return { testText: attached, baremText: '', title: 'Exercițiul din poza/PDF-ul tău', contentId: null, category: context.category || null };
+    return { testText: attached, baremText: '', title: 'Exercițiul din poza/PDF-ul tău', contentId: null, libraryId: null, category: context.category || null };
   }
 
   async function openAnswerForm() {
@@ -452,7 +459,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     try {
       const src = answerSource();
       // testul din platformă: serverul recitește textul + baremul după contentId
-      const r = await aiClient.correctForm({ testText: src.testText, baremText: src.baremText, title: src.title, category: src.category, contentId: src.contentId });
+      const r = await aiClient.correctForm({ testText: src.testText, baremText: src.baremText, title: src.title, category: src.category, contentId: src.contentId, libraryId: src.libraryId });
       setForm({ ...r, src });
       setFormAnswers({}); setFormImages([]);
       formStartRef.current = Date.now();
@@ -471,10 +478,10 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       const durationSec = Math.round((Date.now() - (formStartRef.current || Date.now())) / 1000);
       const r = await aiClient.correctGrade({
         conversationId: convId,
-        context: { pdf: !!context.pdf, contentId: form.src.contentId, category: form.src.category, title: form.src.title, meditatii: !!context.meditatii },
+        context: { pdf: !!context.pdf, contentId: form.src.contentId, libraryId: form.src.libraryId || null, category: form.src.category, title: form.src.title, meditatii: !!context.meditatii },
         // testText contează doar la poza/PDF-ul propriu; la testele din
-        // platformă serverul îl recitește după contentId (baremul la fel)
-        testText: form.src.contentId ? '' : form.src.testText, title: form.title || form.src.title,
+        // platformă (și din Biblioteca utilizatorilor) serverul îl recitește singur
+        testText: form.src.contentId || form.src.libraryId ? '' : form.src.testText, title: form.title || form.src.title,
         items: form.items, answers: formAnswers, durationSec,
         meditatii: !!context.meditatii,
         token: form.token || null, // formularul semnat de server
@@ -544,9 +551,11 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         images: pack.images, thumb: pack.thumb || null, grid: pack.grid || null, conversationId: convId,
         context: {
           pdf: !!context.pdf, contentId: context.contentId || null, category: context.category || null,
+          libraryId: context.contentId ? null : (context.libraryId || null),
           title: context.title || null, meditatii: !!context.meditatii,
         },
-        // la PDF serverul recitește testul + baremul după contentId; la exercițiile
+        // la PDF serverul recitește testul + baremul după contentId (sau libraryId,
+        // la materialele din Biblioteca utilizatorilor); la exercițiile
         // interactive textul conține și rezolvarea oficială (pentru model, nu pe ecran)
         exerciseText: String(exerciseText || context.exerciseText || '').slice(0, 14000),
       });
@@ -1366,7 +1375,16 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           subpunct a), b), c) — cu punctele din barem. Butonul „Corectează"
           trimite testul + baremul + răspunsurile la corectare. */}
       {form && (
-        <div style={{ borderTop: '2px solid var(--gold)', background: '#fffdf5', display: 'flex', flexDirection: 'column', maxHeight: '58%', minHeight: 160 }}>
+        <div className={`pv-form${formMax ? ' is-max' : ''}`} style={{
+          borderTop: '2px solid var(--gold)', background: '#fffdf5', display: 'flex', flexDirection: 'column',
+          ...(formMax
+            // mărit: acoperă tot chatul (panoul de lângă PDF / exercițiu, widgetul);
+            // la tabla din „Planul meu" câmpul de scris stă sub tablă → tot ecranul
+            ? (boardMode
+              ? { position: 'fixed', inset: 0, zIndex: 1500, borderTop: '3px solid var(--gold)' }
+              : { position: 'absolute', inset: 0, zIndex: 8 })
+            : { maxHeight: '58%', minHeight: 160 }),
+        }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
             <div style={{ minWidth: 0 }}>
               <strong style={{ fontSize: '.82rem', color: 'var(--navy)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1376,7 +1394,14 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                 {form.hasBarem ? `📋 punctat după barem — ${form.total}p${form.oficiu ? ` + ${form.oficiu}p din oficiu` : ''}` : 'fără barem — completezi doar răspunsurile'}
               </span>
             </div>
-            <button onClick={() => { setForm(null); setFormAnswers({}); }} style={miniBtn}>✕ Renunț</button>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              <button onClick={() => setFormMax((v) => !v)} aria-pressed={formMax}
+                title={formMax ? 'Micșorează formularul — revine jos, peste conversație' : 'Mărește formularul pe tot chatul — mai mult loc pentru rezolvare'}
+                style={{ ...miniBtn, ...(formMax ? { background: 'var(--gold)', color: 'var(--navy)', borderColor: 'var(--gold)' } : {}) }}>
+                {formMax ? '⤡ Micșorează' : '⤢ Mărește'}
+              </button>
+              <button onClick={() => { setForm(null); setFormAnswers({}); }} style={miniBtn}>✕ Renunț</button>
+            </div>
           </div>
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', padding: '10px 12px' }}>
             <p style={{ fontSize: '.74rem', color: 'var(--text-muted)', margin: '0 0 10px' }}>
@@ -1411,7 +1436,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                         ref={(el) => { formFieldRefs.current[s.id] = el; }}
                         value={formAnswers[s.id] || ''}
                         onChange={(e) => setFormAnswers((a) => ({ ...a, [s.id]: e.target.value }))}
-                        rows={2} placeholder="Răspunsul / rezolvarea ta…"
+                        rows={formMax ? 5 : 2} placeholder="Răspunsul / rezolvarea ta…"
                         style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 9px', fontSize: 16, fontFamily: 'var(--font-body)', resize: 'vertical', background: '#fbfcfe' }}
                       />
                       {formMathRow(s.id, `${it.eticheta} ${s.eticheta}`)}
@@ -1432,7 +1457,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                       ref={(el) => { formFieldRefs.current[it.id] = el; }}
                       value={formAnswers[it.id] || ''}
                       onChange={(e) => setFormAnswers((a) => ({ ...a, [it.id]: e.target.value }))}
-                      rows={2} placeholder="Răspunsul / rezolvarea ta…"
+                      rows={formMax ? 5 : 2} placeholder="Răspunsul / rezolvarea ta…"
                       style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 9px', fontSize: 16, fontFamily: 'var(--font-body)', resize: 'vertical', background: '#fbfcfe' }}
                     />
                     {formMathRow(it.id, it.eticheta)}
@@ -1471,6 +1496,13 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
             ))}
             {!formImages.length && <span style={{ fontSize: '.7rem', color: 'var(--text-muted)' }}>opțional — pașii scriși pe caiet se punctează și ei</span>}
           </div>
+          {/* mărit, formularul acoperă și banda de erori de dedesubt → eroarea apare aici */}
+          {formMax && error && (
+            <div role="alert" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 12px', borderTop: '1px solid #f5c6c2', background: '#fdecea', color: '#b71c1c', fontSize: '.8rem', lineHeight: 1.4, flexShrink: 0 }}>
+              <span style={{ flex: 1 }}>⚠️ {error}</span>
+              <button onClick={() => setError(null)} aria-label="Închide eroarea" style={{ ...miniBtn, color: '#b71c1c', borderColor: '#f5c6c2', padding: '2px 8px' }}>✕</button>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '9px 12px', borderTop: '1px solid var(--border)', flexShrink: 0, background: '#fff' }}>
             <button onClick={submitCorrection} disabled={grading}
               style={{
@@ -1518,8 +1550,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 
       {/* Erori din afara conversației (poză/PDF necitit, microfon, formular):
           până acum erau setate dar NU afișate nicăieri — elevul nu afla de ce
-          nu s-a întâmplat nimic. Se închid cu ✕ sau la următoarea acțiune. */}
-      {error && (
+          nu s-a întâmplat nimic. Se închid cu ✕ sau la următoarea acțiune.
+          (Cu formularul mărit, eroarea apare chiar în el.) */}
+      {error && !(form && formMax) && (
         <div role="alert" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 12px', borderTop: '1px solid #f5c6c2', background: '#fdecea', color: '#b71c1c', fontSize: '.8rem', lineHeight: 1.4, flexShrink: 0 }}>
           <span style={{ flex: 1 }}>⚠️ {error}</span>
           <button onClick={() => setError(null)} aria-label="Închide eroarea" style={{ ...miniBtn, color: '#b71c1c', borderColor: '#f5c6c2', padding: '2px 8px' }}>✕</button>
