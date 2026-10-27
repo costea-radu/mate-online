@@ -45,14 +45,24 @@ export function loadMathLive() {
 // (MathLive: #0 = selecția sau o căsuță, #? = o căsuță, #@ = ce e înainte); c = comandă
 const K = (l, i, title, extra = {}) => ({ l, i, title, ...extra });
 const T = (t, i, title, extra = {}) => ({ t, i, title, ...extra });
+// AMPLIFICAREA și SIMPLIFICAREA fracțiilor, cu notația de la clasă (cererea din 27 oct.
+// 2026): factorul stă SUS, cu paranteză — în STÂNGA fracției la amplificare (²⁾ 3/4),
+// în DREAPTA ei la simplificare (18/24 ⁽⁶). În LaTeX: {}^{2)}\frac{3}{4} și
+// \frac{18}{24}^{(6}. Fiecare tastă pune fracția cu tot cu factorul, cu căsuțe: la amplificare
+// întâi factorul, apoi numărătorul și numitorul; la simplificare numărătorul, numitorul, apoi
+// factorul (⇥ trece la căsuța următoare). („#@" nu prinde o fracție scrisă înainte.)
+export const KEY_AMPLIFICARE = K('{}^{n)}\\frac{a}{b}', '{}^{#?)}\\frac{#?}{#?}', 'Amplificare: factorul sus, în stânga fracției, cu paranteză — ex. ²⁾3/4 = 6/8 (scrii factorul, apoi fracția)', { frac: true });
+export const KEY_SIMPLIFICARE = K('\\frac{a}{b}^{(n}', '\\frac{#?}{#?}^{(#?}', 'Simplificare: factorul sus, în dreapta fracției, cu paranteză — ex. 18/24⁽⁶ = 3/4 (scrii fracția, apoi factorul)', { frac: true });
 const TABS = [
   {
     id: 'baza', label: '123', title: 'Cifre și operații',
+    // fracția, amplificarea și simplificarea stau una lângă alta; literele „n" și „a"
+    // au rămas în fila „abc"
     keys: [
       T('7', '7'), T('8', '8'), T('9', '9'), K('\\div', '\\div', 'împărțit'), T('(', '('), T(')', ')'), K('x', 'x', 'x'),
-      T('4', '4'), T('5', '5'), T('6', '6'), K('\\cdot', '\\cdot', 'ori'), K('\\frac{a}{b}', '\\frac{#@}{#?}', 'Fracție'), K('x^2', '#@^{2}', 'La pătrat'), K('y', 'y', 'y'),
-      T('1', '1'), T('2', '2'), T('3', '3'), T('−', '-', { title: 'minus' }), K('\\sqrt{x}', '\\sqrt{#0}', 'Radical'), K('x^n', '#@^{#?}', 'Putere'), K('n', 'n', 'n'),
-      T('0', '0'), T(',', ',', { title: 'virgulă' }), T('=', '='), T('+', '+'), K('\\pi', '\\pi', 'pi'), K('\\infty', '\\infty', 'Infinit'), K('a', 'a', 'a'),
+      T('4', '4'), T('5', '5'), T('6', '6'), K('\\cdot', '\\cdot', 'ori'), K('\\frac{a}{b}', '\\frac{#@}{#?}', 'Fracție'), KEY_AMPLIFICARE, KEY_SIMPLIFICARE,
+      T('1', '1'), T('2', '2'), T('3', '3'), T('−', '-', { title: 'minus' }), K('\\sqrt{x}', '\\sqrt{#0}', 'Radical'), K('x^2', '#@^{2}', 'La pătrat'), K('x^n', '#@^{#?}', 'Putere'),
+      T('0', '0'), T(',', ',', { title: 'virgulă' }), T('=', '='), T('+', '+'), K('\\pi', '\\pi', 'pi'), K('\\infty', '\\infty', 'Infinit'), K('y', 'y', 'y'),
     ],
   },
   {
@@ -223,7 +233,7 @@ export default function MathPanel({ value = '', onSubmit, onCancel = null, onTex
       </div>
       <div className={`mk-keys mk-keys-${cur.id}`} role="group" aria-label={cur.title}>
         {cur.keys.map((k, n) => (
-          <button key={`${cur.id}-${n}`} type="button" className={`mk-key${k.wide ? ' is-wide' : ''}${k.tall ? ' is-tall' : ''}${k.small ? ' is-small' : ''}${k.t && /^\d$/.test(k.t) ? ' is-digit' : ''}`} title={k.title || k.t || k.l}
+          <button key={`${cur.id}-${n}`} type="button" className={`mk-key${k.wide ? ' is-wide' : ''}${k.tall ? ' is-tall' : ''}${k.small ? ' is-small' : ''}${k.frac ? ' is-frac' : ''}${k.t && /^\d$/.test(k.t) ? ' is-digit' : ''}`} title={k.title || k.t || k.l}
             aria-label={k.title || k.t || k.l} disabled={!ready || disabled} onPointerDown={keep} onClick={() => press(k)}>
             {k.t ? k.t : <KeyLabel tex={k.l} />}
           </button>

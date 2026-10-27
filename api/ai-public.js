@@ -5,6 +5,16 @@
 //   action='list'    (public): { q?, category?, limit? } → { items:[...] }
 //   action='get'     (public): { id } → { item }
 //   action='delete'  (creator/admin): { id } → { ok }
+//   action='transcribe' (profesor/admin): { images: [dataUrl…] (≤ 8) } → { pages: [text…] }
+//        — paginile unui material ÎNCĂRCAT din poze (src/components/IncarcaMaterial.jsx):
+//        modelul de vedere le transcrie o dată, la încărcare, ca Profesorul Virtual
+//        să aibă textul fișei (payload.text / pageTexts).
+//
+// ÎNCĂRCAREA materialelor (27 oct. 2026): profesorul încarcă un PDF, un Word sau
+// poze; browserul face din ele un PDF (Word și pozele → src/lib/materialPdf.js),
+// îl urcă în folderul lui din bucketul privat 'personal-pdfs' și îl publică aici
+// ca orice PDF (kind 'pdf' — serverul face copia publică). Payload-ul aduce în plus
+// { origin:'upload', source:'pdf'|'docx'|'foto', fileName, pages, text?, pageTexts? }.
 // =====================================================================
 const ai = require('./_lib/ai');
 
@@ -14,9 +24,71 @@ function buildSearchText(kind, title, topic, payload) {
     payload.exam.subjects.forEach((s) => (s.items || []).forEach((it) => parts.push(it.statement || '')));
   } else if (kind === 'practice') {
     parts.push(payload?.statement || '');
+  } else if (kind === 'pdf' && payload?.text) {
+    // materialele încărcate se găsesc și după conținut (textul fișei)
+    parts.push(String(payload.text).slice(0, 3500));
   }
   return parts.join(' ').slice(0, 4000);
 }
+
+// Câmpurile unui PDF publicat/încărcat — curățate (textul vine din browser:
+// îl citește doar Profesorul Virtual, dar nu-l lăsăm să umfle rândul)
+const PDF_SOURCES = new Set(['pdf', 'docx', 'foto']);
+function cleanPdfPayload(p) {
+  const out = { ...(p || {}) };
+  delete out.signedUrl;
+  if (out.text != null) out.text = String(out.text).slice(0, 40000);
+  if (out.pageTexts != null) out.pageTexts = (Array.isArray(out.pageTexts) ? out.pageTexts : []).slice(0, 40).map((t) => String(t || '').slice(0, 6000));
+  if (out.fileName != null) out.fileName = String(out.fileName).slice(0, 140);
+  if (out.source != null && !PDF_SOURCES.has(out.source)) delete out.source;
+  if (out.origin != null && out.origin !== 'upload') delete out.origin;
+  if (out.pages != null) out.pages = Math.max(0, Math.min(500, parseInt(out.pages, 10) || 0));
+  return out;
+}
+
+// Rezultatul unui elev la un material public (interactiv rezolvat în pagină sau
+// PDF corectat cu „Răspunde în chat" — api/ai-correct.js). Cel mai bun scor rămâne.
+async function recordPublicResult(supa, { publicId, userId, profile = null, score = 0, maxScore = 100 }) {
+  // (rotunjit: la PDF-urile corectate punctajul poate avea zecimale — 7,5p)
+  const sc = Math.max(0, Math.round(Number(score) || 0));
+  const mx = Math.max(1, Math.round(Number(maxScore) || 100));
+  // Snapshot cu numele elevului: scorul rămâne lizibil pentru autorul
+  // testului și după ștergerea contului elevului (vezi
+  // supabase/pastreaza_date_publice.sql — FK devine SET NULL).
+  const studentName = (profile && (profile.full_name || profile.username
+    || (profile.email ? profile.email.split('@')[0] : null))) || null;
+  const { data: ex } = await supa.from('ai_public_results')
+    .select('id, attempts, score').eq('public_id', publicId).eq('student_id', userId).maybeSingle();
+  const writeRow = (withName) => ex
+    ? supa.from('ai_public_results').update({
+        score: Math.max(ex.score || 0, sc), max_score: mx,
+        attempts: (ex.attempts || 1) + 1, completed_at: new Date().toISOString(),
+        ...(withName ? { student_name: studentName } : {}),
+      }).eq('id', ex.id)
+    : supa.from('ai_public_results').insert({
+        public_id: publicId, student_id: userId, score: sc, max_score: mx, attempts: 1,
+        ...(withName ? { student_name: studentName } : {}),
+      });
+  let wr = await writeRow(true);
+  if (wr.error && /student_name/i.test(wr.error.message || '')) {
+    // instalare fără coloana nouă (pastreaza_date_publice.sql nerulat)
+    wr = await writeRow(false);
+  }
+  if (wr.error) { const e = new Error(wr.error.message); e.status = 500; throw e; }
+  return { ok: true };
+}
+
+// Transcrierea paginilor încărcate din poze (o dată, la încărcare)
+const TRANSCRIBE_MAX = 8;
+const TRANSCRIBE_SYSTEM = `Transcrii fidel paginile unei fișe / unui test de matematică, fotografiate de un profesor român, ca Profesorul Virtual al platformei să le poată citi.
+Pentru FIECARE imagine, în ordine, scrii tot textul paginii:
+- formulele în LaTeX, între $...$ (pe rând separat între $$...$$), virgula zecimală românească (1,5);
+- păstrezi numerotarea exercițiilor, subpunctele a), b), c), variantele de răspuns și punctajele, cum apar;
+- figurile le descrii scurt, între paranteze drepte: [Figura: triunghiul ABC dreptunghic în A, cu AB = 6 cm …];
+- tabelele, rând cu rând, cu celulele despărțite prin „ | ";
+- NU rezolvi nimic și NU adaugi nimic; ce nu se poate citi marchezi cu [?];
+- o imagine fără conținut matematic lizibil → textul gol.
+În JSON, comenzile LaTeX se scriu cu backslash DUBLAT („\\\\frac", „\\\\sqrt"). Răspunzi DOAR cu obiectul JSON cerut, cu EXACT câte un element în "pagini" pentru fiecare imagine.`;
 
 // POLITICĂ: tot ce se publică e PREMIUM implicit. Sistemul menține însă minim
 // 3 teste gratuite (cele mai RECENTE), ca vizitatorii să aibă mostre — DAR
@@ -133,7 +205,7 @@ module.exports = async function handler(req, res) {
       // PDF-urile stau în bucketul PRIVAT al profesorului — publicăm o COPIE
       // independentă (dacă profesorul își șterge itemul privat, cel public
       // rămâne întreg). Cititorii primesc URL semnat la 'get'.
-      let pubPayload = payload;
+      let pubPayload = kind === 'pdf' ? cleanPdfPayload(payload) : payload;
       if (kind === 'pdf' && payload?.pdfPath) {
         const bucket = payload.bucket || 'personal-pdfs';
         const { data: fileData, error: dlErr } = await supa.storage.from(bucket).download(payload.pdfPath);
@@ -142,7 +214,7 @@ module.exports = async function handler(req, res) {
         const buf = Buffer.from(await fileData.arrayBuffer());
         const { error: upErr } = await supa.storage.from(bucket).upload(copyPath, buf, { contentType: 'application/pdf', upsert: false });
         if (upErr) return res.status(502).json({ error: 'Copia publică nu a putut fi creată: ' + upErr.message });
-        pubPayload = { ...payload, pdfPath: copyPath, bucket };
+        pubPayload = { ...pubPayload, pdfPath: copyPath, bucket };
       }
 
       // Permite publicarea cu același nume; dacă ACELAȘI profesor a mai publicat
@@ -171,37 +243,61 @@ module.exports = async function handler(req, res) {
       const { id, score = 0, maxScore = 100 } = req.body || {};
       const profile = await ai.requireUser(supa, userId);
       if (!id) return res.status(400).json({ error: 'id obligatoriu' });
-      const sc = Math.max(0, parseInt(score, 10) || 0);
-      const mx = Math.max(1, parseInt(maxScore, 10) || 100);
-      // Snapshot cu numele elevului: scorul rămâne lizibil pentru autorul
-      // testului și după ștergerea contului elevului (vezi
-      // supabase/pastreaza_date_publice.sql — FK devine SET NULL).
-      const studentName = profile.full_name || profile.username
-        || (profile.email ? profile.email.split('@')[0] : null) || null;
       // Notă: erorile de scriere NU se mai ignoră — altfel scorul se pierde
       // în tăcere iar clientul primește {ok:true} (bug istoric).
-      const { data: ex } = await supa.from('ai_public_results')
-        .select('id, attempts, score').eq('public_id', id).eq('student_id', userId).maybeSingle();
-      const writeRow = (withName) => ex
-        ? supa.from('ai_public_results').update({
-            score: Math.max(ex.score || 0, sc), max_score: mx,
-            attempts: (ex.attempts || 1) + 1, completed_at: new Date().toISOString(),
-            ...(withName ? { student_name: studentName } : {}),
-          }).eq('id', ex.id)
-        : supa.from('ai_public_results').insert({
-            public_id: id, student_id: userId, score: sc, max_score: mx, attempts: 1,
-            ...(withName ? { student_name: studentName } : {}),
-          });
-      let wr = await writeRow(true);
-      if (wr.error && /student_name/i.test(wr.error.message || '')) {
-        // instalare fără coloana nouă (pastreaza_date_publice.sql nerulat)
-        wr = await writeRow(false);
-      }
-      if (wr.error) {
-        console.error('ai-public record error:', wr.error);
-        return res.status(500).json({ error: 'Scorul nu a putut fi salvat.', detail: wr.error.message });
+      try {
+        await recordPublicResult(supa, { publicId: id, userId, profile, score, maxScore });
+      } catch (e) {
+        console.error('ai-public record error:', e.message);
+        return res.status(500).json({ error: 'Scorul nu a putut fi salvat.', detail: e.message });
       }
       return res.status(200).json({ ok: true });
+    }
+
+    // Paginile unui material încărcat din POZE → textul lor (profesor/admin)
+    if (action === 'transcribe') {
+      const userId = await ai.authUser(req, supa);
+      const profile = await ai.requireUser(supa, userId);
+      if (!(profile.role === 'profesor' || profile.is_admin)) {
+        return res.status(403).json({ error: 'Doar profesorii pot încărca materiale în bibliotecă.' });
+      }
+      // Fiecare poză primită își păstrează locul în răspuns: una invalidă sau peste
+      // limite primește textul gol, ca paginile să nu alunece una peste alta.
+      const raw = (Array.isArray(req.body?.images) ? req.body.images : []).slice(0, TRANSCRIBE_MAX);
+      let total = 0;
+      const images = [];
+      const slots = [];   // slots[i] = indexul pozei i în `images` sau -1
+      for (const u of raw) {
+        const ok = typeof u === 'string' && u.length <= 1_500_000 && total + u.length <= 4_200_000
+          && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(u);
+        if (ok) { total += u.length; slots.push(images.length); images.push(u); } else slots.push(-1);
+      }
+      if (!images.length) return res.status(400).json({ error: 'Nu am primit nicio poză de transcris.' });
+      const lim = await ai.enforceRateLimit(supa, userId, profile); // limita orară + creditele profesorului
+      const parts = [];
+      images.forEach((u, i) => {
+        parts.push({ type: 'text', text: `Pagina ${i + 1} din ${images.length}:` });
+        parts.push({ type: 'image_url', image_url: { url: u, detail: 'high' } });
+      });
+      parts.push({ type: 'text', text: `Transcrie cele ${images.length} pagini, în ordine.` });
+      const schema = ai.S.obj({ pagini: ai.S.arr(ai.S.obj({ text: ai.S.str('tot textul paginii, cu formulele în LaTeX între $...$') })) });
+      let r;
+      try {
+        r = await ai.chatJson({
+          system: TRANSCRIBE_SYSTEM, messages: [{ role: 'user', content: parts }],
+          schema, schemaName: 'transcriere_pagini', temperature: 0.1,
+          maxTokens: Math.min(16000, 1500 + images.length * 1800),
+          model: ai.pickModel(ai.VISION_MODEL, lim), restoreLatex: true,
+        });
+      } catch (e) {
+        if (e.usage) await ai.logUsage(supa, userId, 'ai-public:transcribe', e.usage);
+        throw e;
+      }
+      await ai.logUsage(supa, userId, 'ai-public:transcribe', r.usage);
+      const got = (Array.isArray(r.data?.pagini) ? r.data.pagini : []).slice(0, images.length)
+        .map((p) => String((p && p.text) || '').slice(0, 6000));
+      const pages = slots.map((k) => (k >= 0 ? got[k] || '' : ''));
+      return res.status(200).json({ pages });
     }
 
     if (action === 'delete') {
@@ -224,7 +320,12 @@ module.exports = async function handler(req, res) {
 
     return res.status(400).json({ error: 'action invalid' });
   } catch (err) {
-    console.error('ai-public error:', err);
+    if (!err.status || err.status >= 500) console.error('ai-public error:', err);
     return res.status(err.status || 500).json({ error: err.message || 'Eroare server', code: err.code || null });
   }
 };
+
+// exportate pentru api/ai-correct.js (rezultatul la un PDF din bibliotecă) și pentru teste
+module.exports.recordPublicResult = recordPublicResult;
+module.exports.cleanPdfPayload = cleanPdfPayload;
+module.exports.buildSearchText = buildSearchText;

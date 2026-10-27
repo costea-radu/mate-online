@@ -50,8 +50,9 @@ async function downloadContentPdf(supa, content) {
   return buf;
 }
 
-async function contentPdfText(supa, content, maxChars) {
-  const buf = await downloadContentPdf(supa, content);
+// Textul unui PDF (octeții lui) — și al fiecărei pagini.
+// Răspuns: { text (tăiat la maxChars), full, chars, truncated, pages }
+async function pdfBufferText(buf, maxChars = MAX_CHARS) {
   let text = '';
   const pages = []; // textul FIECĂREI pagini (Etapa 2: paginile exercițiului merg la model)
   try {
@@ -66,7 +67,12 @@ async function contentPdfText(supa, content, maxChars) {
   } catch (e) {
     console.warn('ai-pdf-context pdf-parse:', e.message);
   }
-  return { text: text.slice(0, maxChars), full: text, chars: text.length, truncated: text.length > maxChars, pages, buf };
+  return { text: text.slice(0, maxChars), full: text, chars: text.length, truncated: text.length > maxChars, pages };
+}
+
+async function contentPdfText(supa, content, maxChars) {
+  const buf = await downloadContentPdf(supa, content);
+  return { ...(await pdfBufferText(buf, maxChars)), buf };
 }
 
 // ── DECIZIA test ↔ barem (pură: primește candidații și un cititor de text) ────
@@ -329,6 +335,123 @@ async function loadContentForUser(supa, contentId, profile) {
   return content;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// BIBLIOTECA UTILIZATORILOR (ai_public_library) — 27 octombrie 2026
+// PDF-urile publicate sau ÎNCĂRCATE de profesori (kind 'pdf') și testele generate
+// (kind 'exam') se deschid acum în vizualizator, cu Profesorul Virtual alături.
+// Textul lor pentru profesor:
+//   · 'pdf'  → payload.text, dacă există: încărcările din Word îl aduc citit în
+//              browser, cele din poze transcris de modelul de vedere (api/ai-public.js
+//              → 'transcribe'); altfel îl extragem aici din PDF (pdf-parse, ca la
+//              materialele platformei) și îl păstrăm în payload (o singură dată).
+//              Un PDF „subiecte + barem" își dă singur baremul (ca în platformă).
+//   · 'exam' → enunțurile + rezolvările testului generat; rezolvările țin loc de barem.
+// Accesul: ca la 'get' din api/ai-public.js — gratuit / abonat / autorul / admin.
+// ═════════════════════════════════════════════════════════════════════════════
+const LIB_KINDS = new Set(['pdf', 'exam']);
+const LIB_TEXT_MAX = 40000;       // cât text păstrăm în payload
+const LIB_PAGE_MAX = 6000;        // pe pagină
+const LIB_PAGES_MAX = 40;
+
+async function loadLibraryForUser(supa, libraryId, profile, userId = null) {
+  if (!libraryId) { const e = new Error('Material negăsit'); e.status = 404; throw e; }
+  const { data: row } = await supa.from('ai_public_library').select('*').eq('id', libraryId).maybeSingle();
+  if (!row || !LIB_KINDS.has(row.kind)) { const e = new Error('Materialul nu a fost găsit în bibliotecă.'); e.status = 404; throw e; }
+  const uid = userId || profile?.id || null;
+  const premium = ai.isPremium(profile) || !!profile?.is_admin;
+  if (!(row.is_free || premium || (uid && row.created_by === uid))) {
+    const e = new Error('Acest material necesită abonament. Fără abonament poți deschide doar materialele gratuite din bibliotecă.');
+    e.status = 402; e.code = 'PREMIUM_REQUIRED'; throw e;
+  }
+  return row;
+}
+
+// Octeții PDF-ului unui material din bibliotecă (bucket privat → clientul admin)
+async function downloadLibraryPdf(supa, row) {
+  const p = (row && row.payload) || {};
+  if (p.pdfPath) {
+    const { data, error } = await supa.storage.from(p.bucket || 'personal-pdfs').download(p.pdfPath);
+    if (error || !data) throw new Error('PDF-ul nu a putut fi descărcat' + (error?.message ? `: ${error.message}` : '.'));
+    return Buffer.from(await data.arrayBuffer());
+  }
+  if (p.pdfBase64) return Buffer.from(String(p.pdfBase64), 'base64');
+  throw new Error('Materialul nu conține un PDF.');
+}
+
+// Testul generat (JSON: subjects → items → parts/options) → textul testului și
+// „baremul" (răspunsurile + rezolvările), pentru profesor și pentru corectare.
+function examTexts(exam) {
+  const subjects = Array.isArray(exam && exam.subjects) ? exam.subjects : [];
+  const T = [], B = [];
+  if (exam && exam.title) T.push(String(exam.title));
+  let solved = 0;
+  for (const s of subjects) {
+    const head = `${s.label || 'Subiect'}${s.points != null ? ` (${s.points} de puncte)` : ''}`;
+    T.push(`\n${head}`);
+    if (s.instructions) T.push(String(s.instructions));
+    B.push(`\n${s.label || 'Subiect'}`);
+    for (const it of (Array.isArray(s.items) ? s.items : [])) {
+      const num = it.number != null ? `${it.number}. ` : '';
+      T.push(`${num}${it.statement || ''}${it.points != null ? ` (${it.points}p)` : ''}`);
+      (Array.isArray(it.options) ? it.options : []).forEach((o, i) => T.push(`   ${String.fromCharCode(97 + i)}) ${o}`));
+      const parts = Array.isArray(it.parts) ? it.parts : [];
+      parts.forEach((p) => T.push(`   ${p.label || ''}) ${p.text || ''}${p.points != null ? ` (${p.points}p)` : ''}`));
+      const sol = [];
+      if (it.answer) sol.push(`Răspuns corect: ${it.answer}${it.points != null ? ` (${it.points}p)` : ''}`);
+      parts.forEach((p) => { if (p.solution) sol.push(`${p.label || ''}) ${p.solution}${p.points != null ? ` (${p.points}p)` : ''}`); });
+      if (it.solution) sol.push(String(it.solution));
+      if (sol.length) { solved++; B.push(`${num}${sol.join('\n')}`); }
+    }
+  }
+  return { text: T.join('\n').trim(), barem: solved ? B.join('\n').trim() : '' };
+}
+
+const libBarem = (row, matchedBy, title) => ({
+  id: null, title, fileName: null, matchedBy, evidence: row.kind === 'exam' ? 'rezolvările incluse în testul generat' : 'baremul se află în același fișier', contentScore: null,
+});
+
+// Contextul unui material din bibliotecă (aceeași formă ca getPdfContext).
+async function libraryContext(supa, row) {
+  const base = {
+    title: row.title || null, fileName: (row.payload && row.payload.fileName) || null, category: row.category || null,
+    barem: null, baremText: '', baremStatus: 'negasit', pageTexts: [],
+    library: { id: row.id, kind: row.kind, source: (row.payload && row.payload.source) || null },
+  };
+  if (row.kind === 'exam') {
+    const { text, barem } = examTexts((row.payload && row.payload.exam) || {});
+    return {
+      ...base, text: text.slice(0, MAX_CHARS), chars: text.length, truncated: text.length > MAX_CHARS,
+      ...(barem ? { barem: libBarem(row, 'biblioteca', 'rezolvările testului (generate de profesor cu AI)'), baremText: barem.slice(0, BAREM_MAX_CHARS), baremStatus: 'biblioteca' } : {}),
+    };
+  }
+  const p = row.payload || {};
+  let full = String(p.text || '').trim();
+  let pageTexts = Array.isArray(p.pageTexts) ? p.pageTexts.map((t) => String(t || '')) : [];
+  if (!full) {
+    const buf = await downloadLibraryPdf(supa, row);
+    const r = await pdfBufferText(buf, MAX_CHARS);
+    full = r.full; pageTexts = r.pages || [];
+    if (full) {
+      // o singură dată: textul rămâne în payload (următoarele deschideri nu mai parsează PDF-ul)
+      try {
+        await supa.from('ai_public_library').update({
+          payload: { ...p, text: full.slice(0, LIB_TEXT_MAX), pageTexts: pageTexts.slice(0, LIB_PAGES_MAX).map((t) => t.slice(0, LIB_PAGE_MAX)), textAt: new Date().toISOString() },
+        }).eq('id', row.id);
+      } catch (e) { warnOnce('lib_text_w', `ai-pdf-context: textul din bibliotecă nu s-a putut păstra (${e.message})`); }
+    }
+  }
+  let test = full;
+  const embedded = full ? B.splitEmbeddedBarem(full) : null;
+  if (embedded) {
+    test = embedded.test;
+    return {
+      ...base, pageTexts, text: test.slice(0, MAX_CHARS), chars: test.length, truncated: test.length > MAX_CHARS,
+      barem: libBarem(row, 'inclus', `${row.title || 'Material'} (baremul inclus în PDF)`), baremText: embedded.barem.slice(0, BAREM_MAX_CHARS), baremStatus: 'inclus',
+    };
+  }
+  return { ...base, pageTexts, text: test.slice(0, MAX_CHARS), chars: test.length, truncated: test.length > MAX_CHARS };
+}
+
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -339,7 +462,16 @@ module.exports = async function handler(req, res) {
     const userId = await ai.authUser(req, supa);
     const profile = await ai.requireUser(supa, userId);
 
-    const { contentId, refresh = false, action = null } = req.body || {};
+    const { contentId, libraryId = null, refresh = false, action = null } = req.body || {};
+    // material din Biblioteca utilizatorilor (vizualizatorul: /pdf-viewer?lib=<id>)
+    if (libraryId && !contentId) {
+      const row = await loadLibraryForUser(supa, libraryId, profile, userId); // 404 / 402
+      try {
+        return res.status(200).json(await libraryContext(supa, row));
+      } catch (e) {
+        return res.status(502).json({ error: e.message });
+      }
+    }
     if (!contentId) return res.status(400).json({ error: 'contentId obligatoriu' });
     const content = await loadContentForUser(supa, contentId, profile);
 
@@ -372,8 +504,8 @@ module.exports = async function handler(req, res) {
     }
     return res.status(200).json(ctx);
   } catch (err) {
-    console.error('ai-pdf-context error:', err);
-    return res.status(err.status || 500).json({ error: err.message || 'Eroare server' });
+    if (!err.status || err.status >= 500) console.error('ai-pdf-context error:', err);
+    return res.status(err.status || 500).json({ error: err.message || 'Eroare server', code: err.code || null });
   }
 };
 
@@ -382,5 +514,11 @@ module.exports.getPdfContext = getPdfContext;
 module.exports.computePdfContext = computePdfContext;
 module.exports.loadContentForUser = loadContentForUser;
 module.exports.contentPdfText = contentPdfText;
+module.exports.pdfBufferText = pdfBufferText;
+// Biblioteca utilizatorilor (vizualizatorul, chatul, corectările)
+module.exports.loadLibraryForUser = loadLibraryForUser;
+module.exports.libraryContext = libraryContext;
+module.exports.downloadLibraryPdf = downloadLibraryPdf;
+module.exports.examTexts = examTexts;
 module.exports.downloadContentPdf = downloadContentPdf;
 module.exports.setOverride = setOverride;

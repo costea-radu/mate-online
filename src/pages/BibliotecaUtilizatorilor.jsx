@@ -3,17 +3,20 @@
 // Rută: /biblioteca-utilizatorilor (NU în Navbar; e în burger + Home + Căutare)
 // Neabonații pot deschide doar primele 3; restul necesită abonament.
 // Exercițiul se deschide inline, sub cardul lui.
+// PDF-urile și testele generate (27 oct. 2026) se deschid în vizualizator, cu
+// Profesorul Virtual alături (/pdf-viewer?lib=<id>), iar profesorii pot ÎNCĂRCA
+// aici materiale — PDF, Word sau poze (src/components/IncarcaMaterial.jsx).
 // =====================================================================
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
-import { printExam } from '../lib/examPrint';
 import { MathText } from '../components/AITutor';
 import { renderQuiz } from '../lib/quizRender';
 import SendToStudents from '../components/SendToStudents';
 import { fetchReviewStats } from '../lib/reviews';
 import { RatingBadge, ReviewList } from '../components/ReviewWidget';
+import IncarcaMaterial from '../components/IncarcaMaterial';
 
 const CATS = [
   { id: '', label: 'Toate' },
@@ -27,7 +30,9 @@ const FREE_LIMIT = 3;
 export default function BibliotecaUtilizatorilor() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const { user, isAdmin, isPremium, isStudent } = useAuth();
+  const { user, isAdmin, isPremium, isStudent, isTeacher } = useAuth();
+  const [upload, setUpload] = useState(false); // „📤 Încarcă material" deschis (profesor / admin)
+  const canUpload = !!user && (isTeacher || isAdmin);
   const [q, setQ] = useState(params.get('q') || '');
   const [category, setCategory] = useState('');
   const [items, setItems] = useState([]);
@@ -84,27 +89,23 @@ export default function BibliotecaUtilizatorilor() {
 
   async function openItem(it) {
     if (open?.id === it.id) { setOpen(null); return; } // toggle
-    // PDF: fereastra se deschide SINCRON (altfel browserul o blochează),
-    // apoi primește fișierul descărcat prin URL-ul semnat de server
-    const pdfWin = it.kind === 'pdf' ? window.open('', '_blank') : null;
+    // PDF-urile (publicate / încărcate) și testele generate: în vizualizator, cu
+    // Profesorul Virtual alături — accesul îl verifică tot serverul (publicGet)
+    if (it.kind === 'pdf' || it.kind === 'exam') {
+      if (!user) { navigate('/autentificare'); return; }
+      navigate(`/pdf-viewer?lib=${it.id}`, { state: { returnTo: '/biblioteca-utilizatorilor' } });
+      return;
+    }
     try {
       const { item } = await aiClient.publicGet({ id: it.id });
-      if (item.kind === 'exam') { printExam(item.payload.exam, { withSolutions: false }); }
-      else if (item.kind === 'pdf') {
-        const blob = await aiClient.getLibraryPdfBlob(item.payload);
-        const url = URL.createObjectURL(blob);
-        if (pdfWin) pdfWin.location = url; else window.open(url, '_blank');
-      }
-      else if (item.kind === 'interactive' && (item.payload?.questions || item.payload?.html)) {
+      if (item.kind === 'interactive' && (item.payload?.questions || item.payload?.html)) {
         // pagină nouă cu buton „Închide”, exact ca la PDF-uri
         const doc = item.payload.questions ? renderQuiz(item.title, item.payload.questions, item.payload.meta || {}) : item.payload.html;
         navigate('/exercitiu-ai', { state: { html: doc, title: item.title, mode: user ? 'public' : null, id: item.id } });
       }
       else setOpen(item);
     } catch (e) {
-      if (pdfWin) pdfWin.close();
       if (e.premium) alert('Acest test necesită abonament. Fără abonament poți deschide doar testele marcate „Gratuit".');
-      else if (it.kind === 'pdf') alert('PDF-ul nu a putut fi deschis: ' + (e?.message || 'eroare necunoscută'));
     }
   }
 
@@ -138,7 +139,21 @@ export default function BibliotecaUtilizatorilor() {
   return (
     <div style={wrap}>
       <h1 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', fontSize: 'clamp(1.7rem,4vw,2.4rem)', marginBottom: 6 }}>🏛️ Biblioteca utilizatorilor</h1>
-      <p style={{ color: 'var(--text-light)', marginBottom: 16 }}>Teste și exerciții create și publicate de profesori cu Profesorul Virtual.</p>
+      <p style={{ color: 'var(--text-light)', marginBottom: 16 }}>Teste, exerciții și fișe create sau încărcate de profesori. PDF-urile se deschid cu Profesorul Virtual alături — îl poți întreba despre orice exercițiu.</p>
+
+      {/* Profesorii încarcă aici materiale: PDF, Word sau poze → PDF în bibliotecă */}
+      {canUpload && (
+        <div style={{ marginBottom: 16 }}>
+          {upload ? (
+            <IncarcaMaterial onDone={() => load()} onCancel={() => setUpload(false)} />
+          ) : (
+            <button className="btn btn-primary" onClick={() => setUpload(true)}
+              title="Încarcă o fișă sau un test (PDF, Word sau poze) — elevii îl deschid cu Profesorul Virtual alături">
+              📤 Încarcă material (PDF, Word, poze)
+            </button>
+          )}
+        </div>
+      )}
 
       {locked && (
         <div style={{ ...card, background: '#fff4e5', borderColor: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
@@ -155,7 +170,7 @@ export default function BibliotecaUtilizatorilor() {
       </div>
 
       {loading ? <div style={{ padding: 40, textAlign: 'center' }}><div className="spinner" /></div>
-        : items.length === 0 ? <div style={card}><p style={{ color: 'var(--text-muted)', margin: 0 }}>Niciun rezultat. Profesorii pot publica teste din „Profesor Virtual".</p></div>
+        : items.length === 0 ? <div style={card}><p style={{ color: 'var(--text-muted)', margin: 0 }}>Niciun rezultat. Profesorii pot publica teste din „Asistent AI" sau pot încărca materiale (PDF, Word, poze).</p></div>
         : (
           <div>
             {items.map((it, idx) => {
@@ -186,7 +201,8 @@ export default function BibliotecaUtilizatorilor() {
                       {isLocked ? (
                         <Link to="/preturi" className="btn btn-sm" style={{ background: 'var(--gold)', color: 'var(--navy)', fontWeight: 700 }}>🔒 Deblochează</Link>
                       ) : (
-                        <button className="btn btn-sm btn-primary" onClick={() => openItem(it)}>
+                        <button className="btn btn-sm btn-primary" onClick={() => openItem(it)}
+                          title={it.kind === 'exam' || it.kind === 'pdf' ? 'Se deschide cu Profesorul Virtual alături' : undefined}>
                           {it.kind === 'exam' || it.kind === 'pdf' ? '📄 Deschide PDF' : (isOpen ? '✕ Închide' : '▶ Deschide')}
                         </button>
                       )}

@@ -173,6 +173,14 @@ liniuța din mijloc): spre stânga se lățește, spre dreapta se îngustează �
 strat transparent acoperă pagina (PDF-ul și exercițiul sunt în iframe-uri, care altfel
 „fură" mouse-ul).
 
+**„📑 Ascunde paginile"** (bara de sus a vizualizatorului PDF, 27 oct. 2026) scoate
+coloana cu miniaturile paginilor din vizualizatorul browserului (`#navpanes=0`), iar
+panoul profesorului ia locul eliberat: cel puțin lățimea coloanei (~300 px), iar pe
+ecranele late tot ce nu-i trebuie paginii la 100%. „📑 Arată paginile" readuce coloana și lățimea de dinainte
+(dacă n-ai tras între timp de margine); alegerea se ține minte (`pdf:pagini`). Lățirile
+automate — foaia deschisă și paginile ascunse — se adună: panoul ia lățimea cea mai mare
+cerută și revine abia când nu mai cere niciuna. Detalii: `GHID_BIBLIOTECA_UTILIZATORILOR.md` → 3.
+
 ---
 
 ## Fișierele

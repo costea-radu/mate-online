@@ -17,7 +17,9 @@
 //   action='docx_text' { fileBase64 }               → { text, chars, truncated }
 //        (fișa de lucru în Word, încărcată de profesor la „Generează
 //         exerciții/teste” — sursa de conținut a testului)
-//   action='form'     { testText, baremText?, title? } → { items, hasBarem, total, oficiu, title, cached }
+//   action='form'     { testText, baremText?, title?, contentId?, libraryId? } → { items, hasBarem, total, oficiu, title, cached }
+//        (contentId = test din platformă, libraryId = material din Biblioteca
+//         utilizatorilor — la amândouă textul și baremul vin DE PE SERVER)
 //        Formularul se construiește O SINGURĂ DATĂ pentru un material și se
 //        refolosește de toți utilizatorii (supabase/ai_correct_forms.sql):
 //        al doilea elev îl primește instantaneu, fără niciun token de model.
@@ -30,6 +32,7 @@ const med = require('./_lib/meditatii');
 const { pageRenderer, toPdfData } = require('./_lib/pdftext');
 const { docxText } = require('./_lib/docxtext'); // textul dintr-un .docx (fișa de lucru Word)
 const pdfContext = require('./ai-pdf-context'); // getPdfContext / loadContentForUser (textul + baremul DE PE SERVER)
+const aiPublic = require('./ai-public');        // recordPublicResult — rezultatul la un material din Biblioteca utilizatorilor
 const xp = require('./_lib/xp');
 const duel = require('./_lib/duel');
 const turneu = require('./_lib/turneu');
@@ -54,6 +57,10 @@ function itemsFingerprint(items) {
   ]);
   return ai.sha256(JSON.stringify(canon)).slice(0, 32);
 }
+// `contentId` = sursa verificată de server: id-ul materialului din platformă SAU
+// „lib:<id>" pentru un material din Biblioteca utilizatorilor (formSid) — atunci
+// textul nu mai intră în amprentă (serverul îl recitește singur).
+const formSid = (src) => (src && src.contentId) || (src && src.libraryId ? `lib:${src.libraryId}` : null);
 function signForm({ items, contentId = null, testText = '', hasBarem = false, total = 0, oficiu = 0 }) {
   return ai.signToken({
     v: 1, h: itemsFingerprint(items), c: contentId || null,
@@ -93,7 +100,7 @@ function formSourceHash(src) {
   return ai.sha256(JSON.stringify({ t: src.test || '', b: src.barem || '', c: src.category || '' })).slice(0, 48);
 }
 function formCacheKey(src, hash) {
-  return src.contentId ? `c:${src.contentId}` : `u:${hash}`;
+  return src.contentId ? `c:${src.contentId}` : src.libraryId ? `l:${src.libraryId}` : `u:${hash}`;
 }
 
 async function readFormCache(supa, key, hash) {
@@ -396,7 +403,21 @@ function officialStructureNote(category) {
 //     calcul), cu verificarea accesului — textul și baremul din body se ignoră;
 //   · poză / PDF încărcat de elev (fără contentId) → textul din body (al lui),
 //     FĂRĂ barem (nu există unul verificat pentru materialele încărcate).
-async function resolveSource(supa, profile, { contentId, testText, baremText, title, category }) {
+async function resolveSource(supa, profile, { contentId, libraryId = null, testText, baremText, title, category, userId = null }) {
+  // material din Biblioteca utilizatorilor → tot de pe server (textul + baremul,
+  // unde există: rezolvările testului generat / baremul inclus în PDF)
+  if (!contentId && libraryId) {
+    const row = await pdfContext.loadLibraryForUser(supa, libraryId, profile, userId); // 404/402
+    const ctx = await pdfContext.libraryContext(supa, row);
+    return {
+      contentId: null, libraryId: row.id,
+      test: String(ctx.text || '').slice(0, MAX_TEXT),
+      barem: String(ctx.baremText || '').slice(0, MAX_TEXT),
+      title: String(title || row.title || '').slice(0, 140),
+      category: row.category || category || '',
+      fromServer: true,
+    };
+  }
   if (contentId) {
     const content = await pdfContext.loadContentForUser(supa, contentId, profile); // 404/403
     const ctx = await pdfContext.getPdfContext(supa, content);
@@ -420,8 +441,8 @@ async function resolveSource(supa, profile, { contentId, testText, baremText, ti
 }
 
 async function buildForm(req, res, supa, userId, lim, profile) {
-  const { testText = '', baremText = '', title = '', category = '', contentId = null } = req.body || {};
-  const src = await resolveSource(supa, profile, { contentId, testText, baremText, title, category });
+  const { testText = '', baremText = '', title = '', category = '', contentId = null, libraryId = null } = req.body || {};
+  const src = await resolveSource(supa, profile, { contentId, libraryId, testText, baremText, title, category, userId });
   const test = src.test;
   const barem = src.barem;
   if (test.trim().length < 30 && barem.trim().length < 30) {
@@ -442,7 +463,7 @@ async function buildForm(req, res, supa, userId, lim, profile) {
     return res.status(200).json({
       items: hit.items, hasBarem: hit.hasBarem, total: hit.total, oficiu: hit.oficiu,
       token: signForm({
-        items: hit.items, contentId: src.contentId, testText: test,
+        items: hit.items, contentId: formSid(src), testText: test,
         hasBarem: hit.hasBarem, total: hit.total, oficiu: hit.oficiu,
       }),
       contentId: src.contentId, title: hit.title, cached: true,
@@ -498,7 +519,7 @@ Răspunde DOAR cu JSON: {"titlu":"<titlu scurt: despre ce e testul>","oficiu":${
   const oficiu = (official || hasBarem) ? Math.max(0, Math.min(10, parseInt(parsed?.oficiu, 10) || (official ? 10 : 0))) : 0;
   // tokenul semnat: la „Corectează" serverul verifică amprenta cerințelor
   // (id-uri + puncte) și sursa — formularul nu poate fi „editat" din browser
-  const token = signForm({ items, contentId: src.contentId, testText: test, hasBarem, total, oficiu });
+  const token = signForm({ items, contentId: formSid(src), testText: test, hasBarem, total, oficiu });
   const formTitle = cleanMath(String(parsed?.titlu || src.title || 'Exercițiu').slice(0, 140));
   // îl păstrăm pentru următorii elevi — AȘTEPTĂM scrierea: pe serverless
   // funcția îngheață imediat după răspuns, iar un upsert nefinalizat s-ar
@@ -534,14 +555,15 @@ async function grade(req, res, supa, userId, lim, profile) {
 
   // 1) formularul trebuie să fie cel semnat de server (id-uri + puncte + sursă)
   const contentId = context.contentId || null;
-  const signed = verifyForm(token, { items, contentId, testText: bodyTestText });
+  const libraryId = contentId ? null : (context.libraryId || null); // Biblioteca utilizatorilor
+  const signed = verifyForm(token, { items, contentId: contentId || (libraryId ? `lib:${libraryId}` : null), testText: bodyTestText });
   if (!signed) {
     return res.status(400).json({ error: 'Formularul a expirat sau a fost modificat. Apasă din nou „Răspunde în chat" și completează răspunsurile.', code: 'FORM_TOKEN' });
   }
   // 2) testul + baremul: DE PE SERVER pentru materialele din platformă
   //    (cache ai_pdf_text), din body doar pentru poza/PDF-ul propriu al elevului
   const src = await resolveSource(supa, profile, {
-    contentId, testText: bodyTestText, baremText: '', title: bodyTitle || context.title, category: context.category,
+    contentId, libraryId, testText: bodyTestText, baremText: '', title: bodyTitle || context.title, category: context.category, userId,
   });
   const testText = src.test;
   const baremText = src.barem;
@@ -573,6 +595,7 @@ ${hasBarem ? `- BAREMUL este SINGURA sursă a punctajului: pentru fiecare cerin�
 - La cerințele de tip grilă sau „se punctează doar rezultatul": rezultat corect = punctaj întreg; altfel 0.
 - Rezultatul corect al fiecărei cerințe este cel din barem — NU recalcula altă valoare.` : `- Fără barem oficial: rezolvă TU fiecare cerință foarte atent (verifică de două ori calculele), apoi compară cu răspunsul elevului și punctează din maximul cerinței (punctaj parțial pentru metodă corectă cu greșeli de calcul).`}
 - Acceptă forme echivalente ale rezultatului (ex. $1/2$ = $0,5$, ordinea factorilor, simplificări echivalente).
+${ai.FRACTII_NOTATIE}
 - SIMBOLURI PIERDUTE LA EXTRACȚIE: textul testului vine dintr-o extracție automată din PDF — radicalii, exponenții și fracțiile se pot pierde. Dacă enunțul din test și ${hasBarem ? 'baremul' : 'logica rezolvării'} nu se potrivesc numeric (ex. în test „3x+6=6", ${hasBarem ? 'în barem apare 36, adică 6²' : 'iar rezolvarea firească trece prin 36 = 6²'}), enunțul REAL avea radical ($\\\\sqrt{3x+6}=6$) — corectează după enunțul reconstruit și explică-i elevului legătura, fără să afirmi că un număr „vine din enunț" dacă acolo scrie altceva.
 - Răspuns gol → "verdict":"necompletat", 0 puncte.
 - "explicatie": 1–3 propoziții calde, în română, la persoana a II-a: ce a făcut bine, UNDE a greșit și ce trebuia făcut (cu formulele în LaTeX $...$). La cerințele corecte, o confirmare scurtă.
@@ -692,6 +715,12 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
         feedback, testText,
       });
       attempts = r.attempts; timeSpent = r.timeSpent; saved = { kind: 'upload' };
+      // material din Biblioteca utilizatorilor → și în rezultatele lui (autorul le
+      // vede, ca la exercițiile interactive publicate)
+      if (src.libraryId) {
+        try { await aiPublic.recordPublicResult(supa, { publicId: src.libraryId, userId, profile, score, maxScore }); }
+        catch (e) { console.warn('ai-correct: rezultatul din bibliotecă nu s-a salvat:', e.message); }
+      }
     }
   } catch (e) {
     console.error('ai-correct: salvarea punctajului a eșuat:', e.message);
@@ -707,7 +736,7 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
     }
     if (!convId) {
       const { data } = await supa.from('ai_conversations')
-        .insert({ user_id: userId, title: `Corectare: ${title}`.slice(0, 60), context: { pdf: !!context.pdf, meditatii: !!meditatii, contentId, category, title } })
+        .insert({ user_id: userId, title: `Corectare: ${title}`.slice(0, 60), context: { pdf: !!context.pdf, meditatii: !!meditatii, contentId, libraryId: src.libraryId || null, category, title } })
         .select('id').single();
       convId = data?.id || null;
     }

@@ -19,6 +19,7 @@ import AIPoweredBy from '../components/AIPoweredBy';
 import InteractiveGenForm, { useInteractiveGen } from '../components/InteractiveGenForm';
 import { invatăDinReal, crediteDinCost, fmtEstimare } from '../lib/aiCost';
 import VerificationNote from '../components/VerificationNote';
+import IncarcaMaterial from '../components/IncarcaMaterial';
 
 const CATEGORIES = [
   { id: '', label: 'Toate' },
@@ -30,7 +31,7 @@ const CATEGORIES = [
 const DIFFS = ['ușor', 'mediu', 'greu'];
 
 export default function ProfesorVirtual() {
-  const { user, loading, isStudent, isTeacher, isParent } = useAuth();
+  const { user, loading, isStudent, isTeacher, isParent, isAdmin } = useAuth();
   const [tab, setTab] = useState('chat');
   const navigate = useNavigate();
 
@@ -54,6 +55,8 @@ export default function ProfesorVirtual() {
         { id: 'exam', label: '📄 Generează subiect examen' },
         { id: 'interactive', label: '🧩 Generează exerciții/teste interactive/PDF' },
         { id: 'library', label: '📚 Testele și exercițiile mele' },
+        // profesorul încarcă fișe / teste (PDF, Word, poze) în Biblioteca utilizatorilor
+        ...(isTeacher || isAdmin ? [{ id: 'upload', label: '📤 Încarcă material' }] : []),
         { id: 'grupa', label: '👥 Test pe grupă (teste diferite)' },
       ];
 
@@ -103,6 +106,7 @@ export default function ProfesorVirtual() {
           {tab === 'interactive' && <InteractiveTab />}
           {tab === 'exam' && <ExamGenerator canManage={isTeacher} />}
           {tab === 'library' && <LibraryTab />}
+          {tab === 'upload' && <UploadTab />}
           {tab === 'grupa' && <GroupTab />}
           {tab === 'progress' && <ProgressTab />}
         </>
@@ -706,7 +710,7 @@ function LibItem({ it, isTeacher, onRemove }) {
   const row = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' };
   const box = { background: '#f7f9fc', borderRadius: 10, padding: '10px 12px' };
   const ta = { width: '100%', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 7px', fontSize: '.8rem', marginTop: 3, marginBottom: 3 };
-  const icon = it.kind === 'exam' ? '📄' : it.kind === 'practice' ? '✍️' : '🧩';
+  const icon = it.kind === 'exam' || it.kind === 'pdf' ? '📄' : it.kind === 'practice' ? '✍️' : '🧩';
 
   return (
     <div style={box}>
@@ -810,6 +814,23 @@ function LibItem({ it, isTeacher, onRemove }) {
           {msg && <div style={{ marginTop: 8, fontSize: '.82rem', color: msg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{msg}</div>}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── ÎNCARCĂ MATERIAL: PDF, Word sau poze → Biblioteca utilizatorilor ─────────
+function UploadTab() {
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
+        <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>📤 Încarcă un material în Biblioteca utilizatorilor</h3>
+        <p style={{ fontSize: '.84rem', color: 'var(--text-muted)', margin: 0 }}>
+          O fișă de lucru, un test sau un set de probleme — ca <strong>PDF</strong>, <strong>Word (.docx)</strong> sau <strong>poze</strong>.
+          Se publică ca PDF în <Link to="/biblioteca-utilizatorilor">Biblioteca utilizatorilor</Link> și se deschide cu Profesorul Virtual
+          alături: elevii îl întreabă despre exerciții și își trimit răspunsurile spre corectare. Rămâne și în „📚 Testele și exercițiile mele".
+        </p>
+      </div>
+      <IncarcaMaterial />
     </div>
   );
 }
