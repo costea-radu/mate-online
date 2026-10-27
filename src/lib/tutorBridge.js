@@ -293,7 +293,7 @@ const BRIDGE_SCRIPT = String.raw`
   }
   // ── „✍️ Spațiu de lucru" — caietul digital (SpatiuDeLucru.jsx) ────
   // Butonul trăiește în iframe, dar caietul se deschide în pagina-părinte:
-  // acolo sunt sesiunea, creditele AI și recunoașterea scrisului de mână.
+  // acolo sunt sesiunea, creditele AI și corectarea scrisului de mână.
   var WORK_CSS = 'display:inline-flex;align-items:center;gap:6px;background:#eef4fb;border:1.5px solid #7fa6cf;color:#1a4d80;border-radius:8px;padding:6px 12px;font-family:inherit;font-weight:700;font-size:.78rem;cursor:pointer;';
   function makeWorkBtn(card){
     var b = document.createElement('button');
@@ -301,7 +301,7 @@ const BRIDGE_SCRIPT = String.raw`
     b.setAttribute('data-mt-work', '1');
     b.innerHTML = '<span style="font-size:.95rem;line-height:1">\u270D\uFE0F</span><span>Spațiu de lucru</span>';
     b.style.cssText = WORK_CSS;
-    b.title = 'Scrie rezolvarea cu degetul sau cu creionul — apoi o transformi în text frumos, cu un buton';
+    b.title = 'Scrie rezolvarea cu degetul sau cu creionul pe o foaie albă — profesorul virtual o corectează după rezolvarea oficială';
     b.addEventListener('click', function(ev){
       ev.preventDefault(); ev.stopPropagation();
       focusCard = card || null;

@@ -13,6 +13,8 @@ import TestModeBadge from '../components/TestModeBadge';
 import EinsteinIcon from '../components/EinsteinIcon';
 import { ReviewToast } from '../components/ReviewWidget';
 import SpatiuDeLucru from '../components/SpatiuDeLucru';
+import ManerLatime from '../components/ManerLatime';
+import { useLatimePanou } from '../lib/latimePanou';
 
 export default function InteractiveViewer() {
   const { state } = useLocation();
@@ -37,6 +39,10 @@ export default function InteractiveViewer() {
   const [exState, setExState] = useState(null);                     // starea live din exercițiu (bridge)
   const [autoPrompt, setAutoPrompt] = useState(null);                // mesaj trimis automat în chat
   const [workOpen, setWorkOpen] = useState(false);                  // caietul digital („✍️ Spațiu de lucru")
+  const [autoCorrect, setAutoCorrect] = useState(null);              // foaia trimisă la corectare (o preia chatul)
+  // Pe calculator, panoul profesorului se lățește / îngustează trăgând de marginea
+  // lui stângă (pe telefon: în sus / în jos, de bara albastră) — src/lib/latimePanou.js
+  const lat = useLatimePanou({ storageKey: 'pv:latime', initial: 400 });
   const [newBadges, setNewBadges] = useState([]);                    // insigne proaspăt câștigate (toast)
   const [xpToast, setXpToast] = useState(null);                       // XP / streak / misiune câștigate (Arena)
   const [duelRez, setDuelRez] = useState(null);                       // rezultatul duelului, după trimiterea scorului
@@ -623,7 +629,7 @@ export default function InteractiveViewer() {
               nu ajutor de la AI. */}
           <button
             onClick={() => setWorkOpen(true)}
-            title="Scrie rezolvarea cu degetul sau cu creionul — apoi o transformi în text frumos, cu un buton"
+            title="Scrie rezolvarea cu degetul sau cu creionul pe o foaie albă — profesorul virtual o corectează după rezolvarea oficială"
             style={{
               background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.3)',
               color: '#fff', borderRadius: 14, padding: '4px 14px', cursor: 'pointer',
@@ -754,11 +760,13 @@ export default function InteractiveViewer() {
 
         {tutorOpen && !faraAjutor && (
           <div style={{
-            flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', minHeight: 0,
+            flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', minHeight: 0, position: 'relative',
             ...(isMobile
               ? { height: `${panelPct}%`, borderTop: '3px solid var(--gold)' }
-              : { width: 400, maxWidth: '45vw', borderLeft: '3px solid var(--gold)' }),
+              : { width: lat.width, borderLeft: '3px solid var(--gold)' }),
           }}>
+            {/* Pe calculator: mânerul de pe marginea stângă — tragi și fereastra se lățește */}
+            {!isMobile && <ManerLatime lat={lat} />}
             {/* Pe mobil, bara albastră e și mâner: trage în sus/jos ca să mărești sau să micșorezi panoul */}
             <div
               onPointerDown={barDown} onPointerMove={barMove} onPointerUp={barUp} onPointerCancel={barUp}
@@ -788,6 +796,7 @@ export default function InteractiveViewer() {
                 onAction={sendTutorAction}
                 initialConversationId={tutorConvId}
                 autoPrompt={autoPrompt}
+                autoCorrect={autoCorrect}
               />
             </div>
           </div>
@@ -800,26 +809,25 @@ export default function InteractiveViewer() {
         <TutorFab onOpen={() => { setAutoPrompt(null); setTutorOpen(true); }} />
       )}
 
-      {/* ✍️ Caietul digital, peste exercițiu. „Pune în răspuns" scrie textul
-          recunoscut chiar în câmpul pasului curent (prin bridge), iar
-          „Cere corectarea" îl duce la Profesorul Virtual. */}
+      {/* ✍️ Caietul digital, peste exercițiu: foaie albă, fără linii, care continuă
+          în dreapta. Scrisul rămâne scris de mână — „🎓 Cere corectarea" trimite
+          foaia corectorului, iar corectarea apare în Profesorul Virtual (se
+          deschide singur). Rezolvarea oficială a exercițiului ține loc de barem.
+          („✓ Pune în răspuns" a plecat odată cu transformarea în text: răspunsul
+          final se scrie în câmpul pasului, ca până acum.) */}
       <SpatiuDeLucru
         open={workOpen}
         onClose={() => setWorkOpen(false)}
         title={item?.title || exState?.title || ''}
-        hint={exState?.text || ''}
         /* enunțul CURAT, fără răspunsurile corecte (collectEnunt din tutorBridge):
-           `exState.text` le conține, pentru model — pe ecran n-au ce căuta */
+           `exState.text` le conține, pentru corector — pe ecran n-au ce căuta */
         enunt={exState?.enunt || ''}
         storageKey={`ex:${item?.id || 'exercitiu'}`}
-        onInsert={(text) => sendTutorAction({ kind: 'fill', value: text.replace(/\$/g, '').replace(/\n+/g, ' ').trim() })}
-        insertLabel="✓ Pune în răspuns"
-        onCorect={faraAjutor ? null : (text) => {
+        corectLocked={!!user && !authLoading && !isPremium}
+        onCorect={faraAjutor ? null : (pack) => {
+          setAutoPrompt(null);
           setTutorOpen(true);
-          setAutoPrompt({
-            id: Date.now(),
-            text: `Am scris rezolvarea în spațiul de lucru. Verific-o pas cu pas, spune-mi unde greșesc și ce lipsește — nu-mi da direct răspunsul dacă mai pot corecta singur:\n\n${text}`,
-          });
+          setAutoCorrect({ id: Date.now(), pack, exerciseText: tutorContext.exerciseText || exState?.text || '' });
         }}
       />
 

@@ -14,8 +14,9 @@
 // pas cu pas, PDF-uri, poze, corectare, generare de teste) și Anthropic —
 // Claude Opus 5.5, care generează seturile de exerciții din „Meditații". De
 // aceea toate variantele afișează și clienti.modeleAnthropic, cu pastile
-// mov, lângă cele OpenAI. EXCEPȚIE: `disclaimer` (sub caseta de chat) arată
-// doar modelele OpenAI — chatul nu trece prin Anthropic.
+// mov, lângă cele OpenAI. `disclaimer` (sub caseta de chat) arată modelele
+// OpenAI ale conversației și, separat, corectorul scrisului de mână (Claude):
+// corectarea din „✍️ Spațiu de lucru" apare tot în chat (din 27 oct. 2026).
 //
 // Props: variant, showIntern (menționează și uneltele interne; implicit doar
 //        la footer), center (aliniere centrată, pentru Home), style.
@@ -40,7 +41,7 @@ export default function AIPoweredBy({ variant = 'inline', showIntern, center = f
           Pentru utilizatori: <strong style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>{clienti.furnizor}</strong> — {clienti.modele.join(', ')}
         </div>
         <div>
-          Meditații: <strong style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>{clienti.furnizorAnthropic}</strong> — {clienti.modeleAnthropic.join(', ')}
+          Meditații și corectarea scrisului: <strong style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>{clienti.furnizorAnthropic}</strong> — {clienti.modeleAnthropic.join(', ')}
         </div>
         {withIntern && (
           <div>
@@ -68,8 +69,8 @@ export default function AIPoweredBy({ variant = 'inline', showIntern, center = f
         {clienti.modele.map((m) => (
           <span key={`openai-${m}`} style={chip('rgba(232,185,49,.12)', 'rgba(232,185,49,.5)', 'var(--navy)')}>{m}</span>
         ))}
-        {/* Tot pentru clienți, dar de la Anthropic: exercițiile din „Meditații" */}
-        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, marginLeft: 4 }}>· {clienti.furnizorAnthropic} (Meditații):</span>
+        {/* Tot pentru clienți, dar de la Anthropic: „Meditații" + corectarea scrisului de mână */}
+        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, marginLeft: 4 }}>· {clienti.furnizorAnthropic} (Meditații, corectarea scrisului):</span>
         {clienti.modeleAnthropic.map((m) => (
           <span key={`clienti-${m}`} style={chip('#f3e5f5', '#d7b8e8', '#5b2c83')}>{m}</span>
         ))}
@@ -91,14 +92,14 @@ export default function AIPoweredBy({ variant = 'inline', showIntern, center = f
   if (variant === 'disclaimer') {
     // Sub câmpul de scris din chat: o singură linie, minusculă, ca să nu
     // împingă câmpul în afara ecranului pe panourile compacte (mobil).
-    // Aici stă AI_STACK_SCURT (doar OpenAI), nu AI_STACK_SCURT_TOT:
-    // răspunsurile din chat nu trec prin Anthropic.
+    // Aici stă AI_STACK_SCURT (OpenAI — întrebările din chat nu trec prin
+    // Anthropic) + corectorul scrisului de mână, care răspunde tot aici.
     return (
       <div style={{
         fontSize: '0.66rem', color: 'var(--text-muted)', lineHeight: 1.35, padding: '0 12px 6px',
         background: '#fff', flexShrink: 0, textAlign: 'center', ...style,
       }}>
-        Răspunsuri generate cu {AI_STACK_SCURT}. AI-ul poate greși — verifică rezultatele importante.{' '}
+        Răspunsuri generate cu {AI_STACK_SCURT}; corectarea scrisului de mână: {clienti.furnizorAnthropic} {clienti.corector}. AI-ul poate greși — verifică rezultatele importante.{' '}
         <Link to={FAQ_LINK} style={{ color: 'var(--text-muted)', textDecoration: 'underline' }}>Detalii</Link>
       </div>
     );

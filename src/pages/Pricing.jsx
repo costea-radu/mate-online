@@ -198,6 +198,7 @@ export default function Pricing() {
                   <li><span className="pricing-check">✓</span> 8 meditații 1-la-1 pe lună, oricând — live sau Pregătire de examen (apoi 30 lei ședința)</li>
                   <li><span className="pricing-check">✓</span> Planul meu: test inițial, plan personalizat, teme corectate și simulări</li>
                   <li><span className="pricing-check">✓</span> Inteligența Artificială - Prof. Virtual ({AI_STACK.clienti.furnizor} {AI_STACK.clienti.modele.join(', ')}): învățare cu AI, generare de teste, exerciții</li>
+                  <li><span className="pricing-check">✓</span> Corectarea rezolvărilor scrise de mână — în „✍️ Spațiu de lucru" sau din poze —, strict după barem ({AI_STACK.clienti.furnizorAnthropic} {AI_STACK.clienti.corector})</li>
                   <li><span className="pricing-check">✓</span> Manuale online</li>
                   <li><span className="pricing-check">✓</span> Teste interactive pentru Evaluarea Națională</li>
                   <li><span className="pricing-check">✓</span> Teste interactive pentru Bacalaureat</li>

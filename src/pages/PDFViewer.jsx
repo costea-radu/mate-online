@@ -7,6 +7,8 @@ import { ChatPanel, TutorFab } from '../components/AITutor';
 import EinsteinIcon from '../components/EinsteinIcon';
 import { aiClient } from '../lib/aiClient';
 import TestModeBadge from '../components/TestModeBadge';
+import ManerLatime from '../components/ManerLatime';
+import { useLatimePanou } from '../lib/latimePanou';
 
 function isMobile() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -355,7 +357,16 @@ export default function PDFViewer() {
   // ✍️ Spațiul de lucru se deschide ÎN zona de conversație a profesorului
   // (butonul e în antetul panoului), nu ca fereastră peste PDF
   const [workOpen, setWorkOpen] = useState(false);
-  const [tutorWide, setTutorWide] = useState(false); // fereastră mărită (doar pe desktop)
+  // Lățimea panoului profesorului PE CALCULATOR: elevul o trage de marginea
+  // stângă (ca înălțimea pe telefon, de bara albastră) și se ține minte;
+  // „□ / ❐” trece între lățimea obișnuită și una mare (src/lib/latimePanou.js).
+  // Cât e deschis spațiul de lucru, panoul se lățește singur (vezi setWork).
+  const wideBeforeWorkRef = useRef(null);
+  const lat = useLatimePanou({
+    storageKey: 'pv:latime', initial: 400,
+    // lățimea aleasă de elev cu mâna rămâne și după ce închide foaia
+    onUserResize: () => { wideBeforeWorkRef.current = null; },
+  });
   const tutorConvId = state?.tutorConvId || null;
   const [pdfText, setPdfText] = useState(null);      // textul extras din PDF
   const [pdfFileName, setPdfFileName] = useState(null); // numele original al fișierului testului
@@ -572,13 +583,17 @@ export default function PDFViewer() {
   }
 
   // ✍️ Spațiul de lucru (în zona de conversație). Pe desktop, panoul se lățește
-  // cât e deschis (o foaie de 400 px e prea îngustă) și revine la închidere.
-  const wideBeforeWorkRef = useRef(null);
+  // cât e deschis (o foaie de 400 px e prea îngustă) și revine la închidere —
+  // dacă între timp elevul n-a ales singur altă lățime, trăgând de margine.
   function setWork(next) {
     if (next === workOpen) return;
     if (!narrow) {
-      if (next) { wideBeforeWorkRef.current = tutorWide; setTutorWide(true); }
-      else if (wideBeforeWorkRef.current !== null) { setTutorWide(wideBeforeWorkRef.current); wideBeforeWorkRef.current = null; }
+      if (next) {
+        if (lat.width < lat.wideW) { wideBeforeWorkRef.current = lat.width; lat.setWidth(lat.wideW, { save: false }); }
+      } else if (wideBeforeWorkRef.current !== null) {
+        lat.setWidth(wideBeforeWorkRef.current, { save: false });
+        wideBeforeWorkRef.current = null;
+      }
     }
     setWorkOpen(next);
   }
@@ -862,13 +877,13 @@ export default function PDFViewer() {
   // ── Panoul de chat, interconectat cu PDF-ul deschis ─────────────────────
   const tutorPanel = tutorOpen && (
     <div style={{
-      flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', minHeight: 0,
+      flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', minHeight: 0, position: 'relative',
       ...(narrow
         ? { height: `${panelPct}%`, borderTop: '3px solid var(--gold)' }
-        : tutorWide
-        ? { width: 'min(900px, 75vw)', maxWidth: '75vw', borderLeft: '3px solid var(--gold)' }
-        : { width: 400, maxWidth: '45vw', borderLeft: '3px solid var(--gold)' }),
+        : { width: lat.width, borderLeft: '3px solid var(--gold)' }),
     }}>
+      {/* Pe calculator: mânerul de pe marginea stângă — tragi și fereastra se lățește */}
+      {!narrow && <ManerLatime lat={lat} />}
       <div
         onPointerDown={barDown} onPointerMove={barMove} onPointerUp={barUp} onPointerCancel={barUp}
         style={{
@@ -895,7 +910,7 @@ export default function PDFViewer() {
           {user && (
             <button onClick={() => setWork(!workOpen)}
               aria-pressed={workOpen}
-              title={workOpen ? 'Înapoi la conversație' : 'Scrie rezolvarea cu degetul sau cu creionul, aici — apoi o transformi în text'}
+              title={workOpen ? 'Înapoi la conversație' : 'Scrie rezolvarea cu degetul sau cu creionul pe o foaie albă, aici — profesorul o corectează după barem'}
               style={{
                 background: workOpen ? 'var(--gold)' : 'rgba(232,185,49,0.15)', border: '1px solid var(--gold)',
                 color: workOpen ? 'var(--navy)' : 'var(--gold)', borderRadius: 14, padding: '3px 11px',
@@ -906,11 +921,11 @@ export default function PDFViewer() {
           )}
           {/* Mărire/micșorare fereastră — doar pe desktop (pe mobil se trage de bară) */}
           {!narrow && (
-            <button onClick={() => { wideBeforeWorkRef.current = null; setTutorWide((w) => !w); }}
-              title={tutorWide ? 'Micșorează fereastra' : 'Mărește fereastra'}
-              aria-label={tutorWide ? 'Micșorează fereastra profesorului' : 'Mărește fereastra profesorului'}
+            <button onClick={() => { wideBeforeWorkRef.current = null; lat.setWidth(lat.isWide ? 400 : lat.wideW); }}
+              title={lat.isWide ? 'Lățimea obișnuită (sau trage de marginea din stânga)' : 'Fereastră mare (sau trage de marginea din stânga)'}
+              aria-label={lat.isWide ? 'Micșorează fereastra profesorului' : 'Mărește fereastra profesorului'}
               style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: '.82rem', fontWeight: 600, lineHeight: 1.2 }}>
-              {tutorWide ? '❐' : '□'}
+              {lat.isWide ? '❐' : '□'}
             </button>
           )}
           <button onClick={() => setTutorOpen(false)}

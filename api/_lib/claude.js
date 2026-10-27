@@ -33,6 +33,7 @@ const MODELS = [
   { id: 'claude-opus-5-5',   label: 'Opus 5.5',   note: 'generația curentă Opus — cel mai bun raport calitate/preț pentru verificări matematice și cod' },
   { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', note: 'generația curentă Sonnet — rapid, jumătate din prețul lui Opus 5.5' },
   { id: 'claude-fable-5-1',  label: 'Fable 5.1',  note: 'cel mai capabil model public — cel mai scump (2,5× Opus 5.5)' },
+  { id: 'claude-haiku-5-5',  label: 'Haiku 5.5',  note: 'generația curentă Haiku (7 oct. 2026) — cel mai ieftin (0,10/0,50 $ sub 100k tokeni), pentru sarcini simple' },
   { id: 'claude-sonnet-5',   label: 'Sonnet 5',   note: 'rapid și echilibrat — implicit' },
   { id: 'claude-fable-5',    label: 'Fable 5',    note: 'cel mai nou și mai capabil model (iunie 2026) — cel mai scump' },
   { id: 'claude-haiku-4-5',  label: 'Haiku 4.5',  note: 'cel mai rapid și mai ieftin — pentru sarcini simple' },
@@ -494,14 +495,16 @@ async function callAdvanced(opts = {}) {
 
 // Un singur răspuns (opțional JSON pe schemă). Răspuns tăiat la max_tokens →
 // încă o încercare, cu buget mai mare și efort mai mic.
-async function chatAdvanced({ system, messages, model = null, maxTokens = 32000, effort = 'high', schema = null, onEvent = null, timeoutMs = 0 }) {
+// `cache: false` — pentru apelurile unice (ex. corectarea unei foi scrise de
+// mână): scrierea prefixului în cache costă 1,25× la intrare și nu s-ar mai citi.
+async function chatAdvanced({ system, messages, model = null, maxTokens = 32000, effort = 'high', schema = null, onEvent = null, timeoutMs = 0, cache = true }) {
   const usage = {};
-  let r = await callAdvanced({ system, messages, model, maxTokens, effort, schema, onEvent, timeoutMs });
+  let r = await callAdvanced({ system, messages, model, maxTokens, effort, schema, onEvent, timeoutMs, cache });
   addUsage(usage, r.data.usage);
   let data = schema ? extractJson(r.text) : null;
   if (r.stop === 'max_tokens' && (!r.text.trim() || (schema && !data))) {
     const lower = EFFORTS[Math.max(0, EFFORTS.indexOf(effort) - 1)] || 'medium';
-    r = await callAdvanced({ system, messages, model, maxTokens: Math.min(Math.round(maxTokens * 1.7), 120000), effort: lower, schema, onEvent, timeoutMs });
+    r = await callAdvanced({ system, messages, model, maxTokens: Math.min(Math.round(maxTokens * 1.7), 120000), effort: lower, schema, onEvent, timeoutMs, cache });
     addUsage(usage, r.data.usage);
     data = schema ? extractJson(r.text) : null;
   }

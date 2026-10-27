@@ -1,166 +1,87 @@
 // =====================================================================
 // src/components/SpatiuDeLucru.jsx — caietul digital al elevului
 //
-// Elevul scrie cu degetul sau cu creionul pe o foaie cu linii. Scrisul rămâne
-// scris de mână cât timp vrea el: NIMIC nu se transformă singur. Abia când
-// apasă „✨ Transformă în text", liniile scrise pleacă la recunoaștere
-// (api/ai-handwriting) și cerneala e înlocuită de textul frumos randat cu
-// KaTeX — radicali, fracții, integrale, sume, limite, grade, tot.
-// „🎓 Cere corectarea", „✓ Pune în răspuns" și „📋 Copiază" transformă întâi
-// ce a rămas netransformat (tot la apăsarea lor), apoi folosesc textul.
+// O FOAIE ALBĂ, FĂRĂ LINII, care nu se termină: elevul scrie cu degetul sau
+// cu creionul și merge mai departe în DREAPTA (sau în jos) cât vrea, ca pe
+// tabla interactivă. Foaia se trage cu „✋ Derulează", cu DOUĂ DEGETE (și în
+// modul scris), cu rotița mouse-ului (Shift + rotița = lateral), cu bara de
+// derulare sau cu ◀ ▶. „➕ Pagină nouă" duce la o porțiune goală, în dreapta
+// a tot ce s-a scris; „⟲" — înapoi la începutul foii.
 //
-// GRUPAREA PE LINII (partea delicată): liniile NU sunt benzi fixe pe ecran.
-// Nimeni nu scrie exact între două linii de caiet — un „4" iese deasupra, o
-// virgulă coboară dedesubt, iar o fracție ocupă cât trei rânduri. Dacă tăiem
-// după o grilă fixă, o linie scrisă se rupe în două, fiecare jumătate pleacă
-// separat la model și iese o prostie („= 4,0 = 4" citit ca „−4 4" + „−10 =").
-// De aceea liniile se formează din GEOMETRIA traseelor: un traseu intră în
-// linia cu care se suprapune pe verticală, iar semnele mici (punct, virgulă,
-// minus, bara fracției) se lipesc de linia de lângă ele. Un traseu care leagă
-// două linii le UNEȘTE. Liniile de pe foaie rămân doar un ajutor vizual.
+// Scrisul RĂMÂNE scris de mână. „✨ Transformă în text" a fost scos (27 oct.
+// 2026): citea greșit scrisul urât. „🎓 Cere corectarea" trimite chiar SCRISUL
+// — o imagine a foii (exportSheet) — corectorului AI (api/ai-handwriting.js):
+// un model competent îl citește și îl corectează strict după barem, unde
+// există. Corectarea face parte din Premium (`corectLocked` = fără abonament).
 //
-// Dacă scrie din nou peste o linie deja transformată, textul dispare și revine
-// cerneala: linia se recunoaște iar, întreagă, la următoarea apăsare a
-// butonului. Nimic nu se pierde.
+// Tehnic: traseele au coordonate de „lume" (px CSS de la colțul din stânga-sus
+// al foii) și se desenează ca <path> într-un SVG cât foaia — derularea e cea
+// nativă a browserului (lină, și pe telefon), fără redesenare. Zona derulabilă
+// are mereu cu un ecran gol mai mult decât ce s-a scris și decât poziția
+// curentă: de aceea foaia „nu se termină". (Varianta veche — o pânză canvas
+// cât toată foaia — nu putea crește lateral: pe telefon, pânzele foarte mari
+// depășesc limita de memorie a browserului.)
 //
-// Se deschide din butonul „✍️ Spațiu de lucru", din patru locuri:
-//   · exercițiile interactive (iframe → MATE_WORKSPACE_OPEN → InteractiveViewer)
-//   · vizualizatorul PDF — ÎN zona de conversație a Profesorului Virtual
-//     (`embedded`, butonul e în antetul panoului; vezi PDFViewer.jsx)
-//   · tabla din „Planul meu" (bara de scris a chatului)
-//   · formularul „📝 Răspunde în chat" (câte un buton pe fiecare cerință)
+// Se deschide din: exercițiile interactive (iframe → MATE_WORKSPACE_OPEN →
+// InteractiveViewer), vizualizatorul PDF (ÎN zona de conversație a
+// Profesorului Virtual — `embedded`), tabla din „Planul meu" (bara de scris
+// și formularul „📝 Răspunde în chat"), sala meditațiilor live și Pregătirea
+// de examen („Caietul meu" — acolo e doar ciornă, fără butoane AI).
 //
 // Props:
 //   open, onClose
-//   embedded     — fără fereastră: foaia ocupă locul conversației din chat și
-//                  arată ca zona goală de conversație (fundalul ei, FĂRĂ linii,
-//                  fără margine). Mărimea o dă panoul (pe telefon se trage de
-//                  bara lui). Uneltele stau sus, pe un rând; butoanele de
-//                  folosire a textului apar jos, plutitoare, după ce scrii.
-//   title        — ce scrie în antet (exercițiul la care lucrează)
-//   hint         — enunțul, trimis MODELULUI ca să aleagă notația potrivită.
-//                  Poate conține răspunsurile corecte (așa vine din bridge) —
-//                  NU se afișează niciodată.
-//   enunt        — enunțul CURAT, de arătat elevului în panoul de sus. Lipsește
-//                  → panoul nu apare. Vezi collectEnunt() din tutorBridge.js.
-//   figura       — URL-ul desenului problemei (meditațiile live: decupat din PDF),
-//                  arătat sub enunț (opțional)
-//   storageKey   — cheia de salvare locală (ciorna supraviețuiește reîncărcării)
-//   onInsert     — (text) => void : „✓ Pune în răspuns" (opțional)
-//   insertLabel  — eticheta acelui buton
-//   onCorect     — (text) => void : „🎓 Cere corectarea" (opțional)
+//   embedded     — fără fereastră: foaia ia locul conversației din chat.
+//                  Mărimea o dă panoul (pe telefon se trage de bara lui, pe
+//                  calculator de marginea lui stângă).
+//   title        — ce scrie în antetul ferestrei (exercițiul la care lucrează)
+//   enunt        — enunțul CURAT, de arătat elevului (fără răspunsuri — vezi
+//                  collectEnunt() din tutorBridge.js). Lipsește → fără panou.
+//   figura       — URL-ul desenului problemei (opțional, sub enunț)
+//   storageKey   — cheia ciornei locale (`sdl2:<cheie>`): supraviețuiește
+//                  reîncărcării paginii
+//   onCorect     — ({ images, thumb, grid, size }) => void : „🎓 Cere corectarea"
+//   corectLocked — true = elevul nu are Premium: butonul arată ⭐ și, la apăsare,
+//                  explică (nu trimite nimic)
+//   onAttach     — ({ images, thumb, grid, size }) => void : scrisul pleacă ca
+//                  IMAGINE (la întrebarea din chat / la răspunsul unei cerințe)
+//   attachLabel  — eticheta acelui buton
 // =====================================================================
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { aiClient } from '../lib/aiClient';
+import { Link } from 'react-router-dom';
 import { ensureKatex, renderMath, autoMath } from '../lib/katex';
+// geometria foii + imaginea pentru corector (pure — testate fără DOM)
+import { PEN_W, boxOf, unionBox, strokeBox, pathD, exportSheet } from '../lib/foaie';
 
-const ROW_H = 80;            // distanța dintre liniile desenate pe foaie (px CSS)
-const START_ROWS = 9;
-const MAX_ROWS = 60;
-const MAX_BATCH = 4;         // câte linii intră într-o singură cerere
-const PEN_W = 2.4;
 const ERASER_R = 15;
-const GUTTER = 44;
 const COLORS = ['#12263a', '#c62828', '#1565c0', '#2e7d32'];
-const ZONE_BG = '#f7f9fc';   // fundalul zonei de conversație din chat (AITutor.jsx)
+// Foaia e ALBĂ și FĂRĂ LINII peste tot — în fereastră și în zona de conversație
+export const SHEET_BG = '#ffffff';
+// câte ecrane goale are mereu foaia „în față" (în dreapta și în jos)
+const AHEAD = 1;
+const SVGNS = 'http://www.w3.org/2000/svg';
+const MAX_HISTORY = 200;
 
 // Fereastra: mărimea aleasă de elev se ține minte de la o deschidere la alta
 const WIN_KEY = 'sdl:fereastra';
 const MIN_W = 320, MIN_H = 300;
-const NARROW = 720;           // sub atât, lățimea e fixă (telefon)
+const NARROW = 720;           // sub atât, lățimea ferestrei e fixă (telefon)
 const ENUNT_MIN = 46, ENUNT_MAX_FRAC = 0.55;
+const ENUNT_MAX_FRAC_NARROW = 0.24;   // pe telefon: foaia trebuie să rămână mare
 
-// Pragurile grupării pe linii (vezi sameLine mai jos)
-const OVERLAP_MIN = 0.22;    // cât din înălțimea mai mică trebuie să se suprapună
-const SMALL_H = 30;          // sub atât un traseu e „bară" (minus, egal, bara fracției)
-const SMALL_W = 60;          // sub atât e „semn îngust" (virgulă, punct, exponent)
-const STACK_GAP = 36;        // cât de departe poate sta un etaj de altul (fracție, exponent)
-const NEAR_X = 220;          // cât de departe pe orizontală mai ține de aceeași linie
-const TIGHT_X = 50;          // cât de departe poate sta un semn îngust de vecinul lui
-
-// ── Geometrie ────────────────────────────────────────────────────────────
-function strokeBox(s) {
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (const [x, y] of s.pts) { if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; }
-  return { x0, y0, x1, y1 };
-}
-function unionBox(strokes) {
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (const s of strokes) {
-    const b = s.pts ? strokeBox(s) : s;
-    if (b.x0 < x0) x0 = b.x0; if (b.y0 < y0) y0 = b.y0;
-    if (b.x1 > x1) x1 = b.x1; if (b.y1 > y1) y1 = b.y1;
+// Radiera atinge traseul? Distanța până la fiecare SEGMENT (nu doar până la
+// puncte: o linie trasă repede are puncte rare, iar radiera trecea printre ele).
+function nearStroke(pts, x, y, r) {
+  const r2 = r * r;
+  if (pts.length === 1) return (pts[0][0] - x) ** 2 + (pts[0][1] - y) ** 2 <= r2;
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, ay] = pts[i - 1], [bx, by] = pts[i];
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2)) : 0;
+    const qx = ax + t * dx - x, qy = ay + t * dy - y;
+    if (qx * qx + qy * qy <= r2) return true;
   }
-  return { x0, y0, x1, y1 };
-}
-
-// O pată izolată (un punct rătăcit) nu e o linie de citit: nu pleacă la model
-// și nu apare nici la „în așteptare".
-const isSpeck = (L) => !((L.box.x1 - L.box.x0) > 14 || (L.box.y1 - L.box.y0) > 14 || L.strokes.length > 1);
-
-// Amprenta unei linii: id-urile traseelor din ea. Se schimbă exact când linia
-// s-a modificat — traseu nou, radieră, unire cu altă linie, rupere în două.
-const sigOf = (strokes) => strokes.map((s) => s.id).sort((a, b) => a - b).join(',');
-
-// Traseu neted (aceleași curbe Bézier ca la creionul din testele interactive)
-function pathOf(ctx, pts) {
-  ctx.beginPath();
-  ctx.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 1; i < pts.length - 1; i++) {
-    const mx = (pts[i][0] + pts[i + 1][0]) / 2;
-    const my = (pts[i][1] + pts[i + 1][1]) / 2;
-    ctx.quadraticCurveTo(pts[i][0], pts[i][1], mx, my);
-  }
-  const last = pts[pts.length - 1];
-  ctx.lineTo(last[0], last[1]);
-}
-
-// ── Curățarea LaTeX-ului venit de la model ───────────────────────────────
-// Modelele scriu virgula zecimală în fel și chip („3{,}6", „3{.}6"), pun
-// spațieri tipografice („\quad", „\,") și folosesc minusul Unicode. În caiet
-// nu se vede diferența, dar în câmpul de răspuns al formularului ajunge text
-// brut — și acolo „$3{,}6+0{,}4$" e exact ce nu vrea profesorul să citească.
-function normalizeLatex(raw) {
-  let t = String(raw || '').trim();
-  t = t.replace(/\{\s*,\s*\}/g, ',').replace(/\{\s*\.\s*\}/g, '.');   // 3{,}6 → 3,6
-  t = t.replace(/\\(?:quad|qquad|;|:|!|,)(?![a-zA-Z])/g, ' ');         // spațieri tipografice
-  t = t.replace(/−/g, '-').replace(/·/g, '\\cdot ');         // − → -, · → \cdot
-  t = t.replace(/×/g, '\\times ').replace(/÷/g, '\\div ');
-  t = t.replace(/[ \t]{2,}/g, ' ').replace(/\s+([,;])/g, '$1');
-  t = t.replace(/^\\\[|\\\]$/g, '').trim();
-  return t;
-}
-
-// O linie care e doar aritmetică simplă (cifre, virgulă zecimală, + − · / = ( ))
-// se scrie ca TEXT CURAT, nu împachetată în $...$: „3·1,2+0,4=" citește mai
-// bine în câmpul de răspuns decât „$3\cdot 1,2+0,4=$".
-const SIMPLE_RE = /^[0-9\s,.:+\-=()[\]<>%]*$/;
-function isSimpleArithmetic(latex) {
-  const t = latex.replace(/\\cdot/g, '·').replace(/\\times/g, '×').replace(/\\div/g, ':').replace(/\\pm/g, '±');
-  return /[0-9]/.test(t) && SIMPLE_RE.test(t.replace(/[·×±]/g, ''));
-}
-function plainOf(latex) {
-  return latex
-    .replace(/\\cdot\s*/g, ' · ').replace(/\\times\s*/g, ' × ').replace(/\\div\s*/g, ' : ')
-    .replace(/\\pm\s*/g, ' ± ').replace(/\s{2,}/g, ' ').trim();
-}
-
-// Pentru CAIET: matematica „goală" se scrie cu \displaystyle, ca fracțiile și
-// radicalii să iasă la mărimea de pe hârtie. Un rând amestecat (text + $…$)
-// rămâne cum l-a scris modelul.
-function toDisplay(latex) {
-  const t = normalizeLatex(latex);
-  if (!t) return '';
-  return t.includes('$') ? t : `$\\displaystyle ${t}$`;
-}
-
-// Pentru FORMULAR / CHAT: aritmetica simplă ca text, restul în $…$ (așa îl
-// randează MathText din chat și îl citește corectarea).
-function toPlain(latex) {
-  const t = normalizeLatex(latex);
-  if (!t) return '';
-  if (t.includes('$')) return t;
-  return isSimpleArithmetic(t) ? plainOf(t) : `$${t}$`;
+  return false;
 }
 
 // ── Enunțul arătat elevului ────────────────────────────────
@@ -170,10 +91,11 @@ function toPlain(latex) {
 const SECRET_RE = /\s*\|?\s*\[răspuns corect[^\]]*\]/gi;
 const HINT_RE = /\s*\|\s*Indicația oficială:[^\n]*/gi;
 const ANS_RE = /\s*\|\s*Răspunsul elevului:[^|\n]*/gi;
+const EXPL_RE = /\s*\[explicația oficială[^\]]*\]/gi;
 function cleanEnunt(raw) {
   let t = String(raw || '').trim();
   if (!t) return '';
-  t = t.replace(SECRET_RE, '').replace(HINT_RE, '').replace(ANS_RE, '');
+  t = t.replace(SECRET_RE, '').replace(HINT_RE, '').replace(ANS_RE, '').replace(EXPL_RE, '');
   t = t.replace(/← ALES DE ELEV/g, '');
   t = t.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   return t;
@@ -190,186 +112,51 @@ function TextEnunt({ text }) {
   return (
     <div ref={ref} style={{
       whiteSpace: 'pre-wrap', fontSize: '.84rem', lineHeight: 1.6, color: '#2b3d50',
-      fontFamily: 'Georgia, "Times New Roman", serif',
-      // o formulă lungă nu se rupe în mijloc, dar nici nu taie textul: rândul
-      // se întoarce unde poate, iar ce rămâne lat se derulează lateral
-      overflowWrap: 'break-word',
+      fontFamily: 'Georgia, "Times New Roman", serif', overflowWrap: 'break-word',
     }} />
   );
 }
 
-// ── O linie randată cu KaTeX ─────────────────────────────────────────────
-function LinieRandata({ latex, onEdit }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.textContent = toDisplay(latex);
-    ensureKatex().then(() => { if (ref.current) renderMath(ref.current); });
-  }, [latex]);
-  return (
-    <span
-      ref={ref}
-      onDoubleClick={onEdit}
-      title="Dublu-clic ca să scrii din nou pe linia aceasta"
-      style={{
-        fontFamily: 'Georgia, "Times New Roman", serif', fontSize: '1.12rem',
-        color: '#12263a', lineHeight: 1.25, whiteSpace: 'nowrap',
-      }}
-    />
-  );
-}
-
 export default function SpatiuDeLucru({
-  open = false, onClose, title = '', hint = '', enunt = null, figura = null, storageKey = null,
-  onInsert = null, insertLabel = '✓ Pune în răspuns', onCorect = null, embedded = false,
+  open = false, onClose, title = '', enunt = null, figura = null, storageKey = null,
+  onCorect = null, corectLocked = false, onAttach = null, attachLabel = '📎 Pune în întrebare',
+  embedded = false,
 }) {
-  const scrollRef = useRef(null);
-  const canvasRef = useRef(null);
+  const scrollRef = useRef(null);   // zona derulabilă (derularea nativă a browserului)
+  const svgRef = useRef(null);      // foaia: cât zona derulabilă, cu un ecran gol în față
+  const gRef = useRef(null);        // traseele (<path>), gestionate direct (nu prin React)
 
-  const strokesRef = useRef([]);              // [{ id, line, color, pts }]
+  const strokesRef = useRef([]);              // [{ id, color, pts, box }] — ordinea = ordinea scrisului
+  const pathsRef = useRef(new Map());         // id → <path>
+  const contentRef = useRef(null);            // dreptunghiul a tot ce s-a scris
+  const historyRef = useRef([]);              // pentru „↩ Înapoi": add / erase / clear
   const drawingRef = useRef(null);
+  const panRef = useRef(null);                // tragere cu mouse-ul (✋ / rotița apăsată) sau cu două degete
+  const touchesRef = useRef(new Map());       // degetele de pe foaie (pentru derularea cu două degete)
   const penSeenRef = useRef(false);
   const seqRef = useRef(1);
-  const lineSeqRef = useRef(1);
-  const busyRef = useRef(false);
+  const saveTimerRef = useRef(0);
+  const posRafRef = useRef(0);
+  const viewRef = useRef({ x: 0, y: 0 });     // ultima poziție pe foaie (se salvează și după închidere)
 
   const [tool, setTool] = useState('pen');
   const [color, setColor] = useState(COLORS[0]);
-  const [rows, setRows] = useState(START_ROWS);
-  // { [lineId]: { status, latex, sig } } — status: 'idle' (scrisă, netransformată),
-  // 'busy' (se citește), 'done' (e text), 'fail' (n-a putut fi citită; se
-  // reîncearcă la „✨ Transformă în text" sau după ce elevul o rescrie)
-  const [meta, setMeta] = useState({});
-  const [working, setWorking] = useState(false);   // transformarea e pe drum
-  const [then, setThen] = useState(null);          // acțiunea care așteaptă textul: 'corect' | 'insert' | 'copy'
-  const [copied, setCopied] = useState(false);
-  const [pending, setPending] = useState(null);    // butonul apăsat cât se transformă ('corect' | 'insert' | 'copy')
-  const [width, setWidth] = useState(900);
+  const [area, setArea] = useState({ w: 0, h: 0 });            // zona vizibilă a foii
+  const [pos, setPos] = useState({ page: 1, pages: 1, atStart: true, atLeft: true });
+  const [count, setCount] = useState(0);                        // câte trasee are foaia
   const [err, setErr] = useState(null);
-  const [tick, setTick] = useState(0);
-  const repaintSoon = useCallback(() => setTick((n) => n + 1), []);
-
-  const sheetH = rows * ROW_H;
-
-  // ── Liniile, derivate din trasee ──────────────────────────────────────
-  const linesOf = useCallback(() => {
-    const m = new Map();
-    for (const s of strokesRef.current) {
-      if (!m.has(s.line)) m.set(s.line, []);
-      m.get(s.line).push(s);
-    }
-    const out = [];
-    for (const [id, strokes] of m) {
-      // „sig" = amprenta traseelor din linie. Dacă se schimbă, linia s-a
-      // modificat (traseu nou, radieră, unire, rupere) și textul ei nu mai e bun.
-      out.push({ id, strokes, box: unionBox(strokes), sig: sigOf(strokes) });
-    }
-    out.sort((a, b) => a.box.y0 - b.box.y0 || a.box.x0 - b.box.x0);
-    return out;
-  }, []);
-
-  // Două trasee sunt pe ACEEAȘI linie scrisă? Regula are două jumătăți:
-  //  · se suprapun pe verticală → aceeași linie (cazul obișnuit: literele și
-  //    cifrele unui rând se încalecă mereu pe câțiva pixeli);
-  //  · NU se suprapun, dar stau unul peste altul, aproape și înguste → tot
-  //    aceeași linie. Asta prinde fracția (numărător / bară / numitor), exponentul
-  //    și virgula care coboară sub rând. Un rând NOU de scris nu intră aici:
-  //    e lat (peste SMALL_W) și stă mai jos de STACK_GAP.
-  function sameLine(a, b) {
-    const ha = a.y1 - a.y0, hb = b.y1 - b.y0;
-    const wa = a.x1 - a.x0, wb = b.x1 - b.x0;
-    const ov = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
-    const hGap = Math.max(a.x0 - b.x1, b.x0 - a.x1);       // negativ = se suprapun lateral
-    const mic = Math.min(wa, wb) <= SMALL_W || Math.min(ha, hb) <= SMALL_H;
-    if (ov > 0) {
-      if (hGap > NEAR_X) return false;
-      if (ov / Math.max(Math.min(ha, hb), 10) >= OVERLAP_MIN) return true;
-      // Un semn mic care doar ATINGE rândul (bara fracției peste un „=" de
-      // alături, o virgulă care urcă un pixel) trebuie să fie și LIPIT de el.
-      // Fără condiția asta, o bară de fracție și o virgulă aflate la 200 px una
-      // de alta se uneau doar fiindcă se încalecau cu un pixel pe verticală.
-      return mic && hGap <= TIGHT_X;
-    }
-    if (-ov > STACK_GAP) return false;                      // prea jos: e alt rând
-    const hOv = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
-    const minW = Math.min(wa, wb);
-    if (minW > 180) return false;                           // două rânduri late, unul sub altul
-    if (hOv > 0.5 * Math.max(minW, 1)) return true;         // etajat exact deasupra (fracție)
-    return minW <= SMALL_W && hGap <= TIGHT_X;              // semn îngust lipit de vecin
-  }
-
-  // Regrupează TOATE traseele în linii. Se rulează din nou la fiecare schimbare,
-  // deci rezultatul nu depinde de ordinea în care a scris elevul: dacă adaugă
-  // bara fracției la urmă, ea unește numărătorul cu numitorul, retroactiv.
-  // Id-ul unei linii se moștenește de la gruparea anterioară (traseul majoritar),
-  // ca textul deja recunoscut să nu sărică de pe linia lui.
-  const relayout = useCallback(() => {
-    const st = strokesRef.current;
-    if (!st.length) return [];
-    const boxes = st.map(strokeBox);
-    const parent = st.map((_, i) => i);
-    const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
-    for (let i = 0; i < st.length; i++) {
-      for (let j = i + 1; j < st.length; j++) {
-        if (find(i) === find(j)) continue;
-        if (sameLine(boxes[i], boxes[j])) parent[find(i)] = find(j);
-      }
-    }
-    const groups = new Map();
-    for (let i = 0; i < st.length; i++) {
-      const r = find(i);
-      if (!groups.has(r)) groups.set(r, []);
-      groups.get(r).push(i);
-    }
-    const prevId = st.map((x) => x.line);
-    const order = [...groups.values()].sort(
-      (g1, g2) => Math.min(...g1.map((i) => boxes[i].y0)) - Math.min(...g2.map((i) => boxes[i].y0)),
-    );
-    const taken = new Set();
-    const out = [];
-    for (const g of order) {
-      const tally = new Map();
-      for (const i of g) { const id = prevId[i]; if (id) tally.set(id, (tally.get(id) || 0) + 1); }
-      let id = null, best = 0;
-      for (const [k, v] of tally) if (v > best && !taken.has(k)) { best = v; id = k; }
-      if (!id) id = lineSeqRef.current++;
-      taken.add(id);
-      for (const i of g) st[i].line = id;
-      out.push({
-        id,
-        strokes: g.map((i) => st[i]),
-        box: unionBox(g.map((i) => boxes[i])),
-        sig: sigOf(g.map((i) => st[i])),
-      });
-    }
-    return out;
-  }, []);
-
-  // După regrupare: liniile a căror compunere s-a schimbat își pierd textul și
-  // redevin cerneală, până la următoarea apăsare a butonului „✨ Transformă în
-  // text". „sig" e amprenta traseelor din linie — acoperă deodată adăugarea,
-  // radiera, unirea și ruperea liniilor.
-  const reconcile = useCallback((lines) => {
-    setMeta((m) => {
-      const n = {};
-      let changed = false;
-      for (const L of lines) {
-        const old = m[L.id];
-        if (old && old.sig === L.sig) { n[L.id] = old; continue; }
-        if (old) changed = true;
-        n[L.id] = { status: 'idle', latex: null, sig: L.sig };
-      }
-      for (const k of Object.keys(m)) if (!(k in n)) changed = true;
-      return changed || Object.keys(n).length !== Object.keys(m).length ? n : m;
-    });
-  }, []);
+  const [lockInfo, setLockInfo] = useState(false);              // banda „⭐ Premium"
+  const [busy, setBusy] = useState(null);                       // 'corect' | 'attach'
+  const toolRef = useRef(tool);
+  const colorRef = useRef(color);
+  useEffect(() => { toolRef.current = tool; }, [tool]);
+  useEffect(() => { colorRef.current = color; }, [color]);
 
   // ── Fereastra: mărime, maximizare, mânere de tras ────────────────
   // Elevul o face cât îi trebuie: pe desktop trage de colț sau de margini, pe
   // telefon de bara de jos. Mărimea se ține minte (localStorage).
   const dialogRef = useRef(null);
-  const [vp, setVp] = useState(() => ({
+  const [scr, setScr] = useState(() => ({
     w: typeof window === 'undefined' ? 1200 : window.innerWidth,
     h: typeof window === 'undefined' ? 800 : window.innerHeight,
   }));
@@ -385,18 +172,19 @@ export default function SpatiuDeLucru({
   const lastSizeRef = useRef(null);
 
   useEffect(() => {
-    const onR = () => setVp({ w: window.innerWidth, h: window.innerHeight });
+    const onR = () => setScr({ w: window.innerWidth, h: window.innerHeight });
     window.addEventListener('resize', onR);
     window.addEventListener('orientationchange', onR);
     return () => { window.removeEventListener('resize', onR); window.removeEventListener('orientationchange', onR); };
   }, []);
 
-  const narrow = vp.w < NARROW;
-  const maxW = Math.max(MIN_W, vp.w - (narrow ? 8 : 24));
-  const maxH = Math.max(MIN_H, vp.h - (narrow ? 8 : 24));
+  const narrow = scr.w < NARROW;
+  const maxW = Math.max(MIN_W, scr.w - (narrow ? 8 : 24));
+  const maxH = Math.max(MIN_H, scr.h - (narrow ? 8 : 24));
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const winW = maxi ? maxW : narrow ? maxW : clamp(win ? win.w : Math.min(1100, maxW), MIN_W, maxW);
-  const winH = maxi ? maxH : clamp(win ? win.h : Math.round(vp.h * 0.94), MIN_H, maxH);
+  const winH = maxi ? maxH : clamp(win ? win.h : Math.round(scr.h * 0.94), MIN_H, maxH);
+  const enuntFrac = narrow ? ENUNT_MAX_FRAC_NARROW : ENUNT_MAX_FRAC;
 
   function startResize(dir, e) {
     if (maxi) return;
@@ -446,7 +234,7 @@ export default function SpatiuDeLucru({
     const r = enuntRef.current;
     if (!r) return;
     e.preventDefault();
-    lastEnuntHRef.current = clamp(r.h + (e.clientY - r.y), ENUNT_MIN, Math.round(winH * ENUNT_MAX_FRAC));
+    lastEnuntHRef.current = clamp(r.h + (e.clientY - r.y), ENUNT_MIN, Math.round(winH * enuntFrac));
     setEnuntH(lastEnuntHRef.current);
   }
   function endEnuntResize(e) {
@@ -457,500 +245,525 @@ export default function SpatiuDeLucru({
     if (last) { try { localStorage.setItem('sdl:enuntH', String(last)); } catch { /* fără loc */ } }
   }
 
-  // ── Desenarea cernelii ────────────────────────────────────────────────
-  const repaint = useCallback(() => {
-    const cv = canvasRef.current;
-    if (!cv) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
-    if (cv.width !== Math.round(width * dpr) || cv.height !== Math.round(sheetH * dpr)) {
-      cv.width = Math.round(width * dpr);
-      cv.height = Math.round(sheetH * dpr);
-    }
-    const ctx = cv.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, width, sheetH);
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  // ── Foaia „fără sfârșit": mărimea zonei derulabile ──────────────────────
+  // Mereu cu un ecran gol în dreapta și în jos — față de tot ce s-a scris ȘI
+  // față de poziția curentă. Cât elevul trage foaia spre stânga, zona crește
+  // odată cu el; când se întoarce, se strânge la loc (dar nu sub poziția lui).
+  // Se scrie direct pe element: la tragerea cu degetul, o redesenare React
+  // ar veni prea târziu și derularea s-ar opri la marginea veche.
+  const ensureExtent = useCallback((minW = 0, minH = 0) => {
+    const sc = scrollRef.current, svg = svgRef.current;
+    if (!sc || !svg) return;
+    const vw = sc.clientWidth || 1, vh = sc.clientHeight || 1;
+    const bb = contentRef.current;
+    const W = Math.ceil(Math.max(vw * (1 + AHEAD), sc.scrollLeft + vw * (1 + AHEAD), bb ? bb.x1 + vw : 0, minW));
+    const H = Math.ceil(Math.max(vh * (1 + AHEAD), sc.scrollTop + vh * (1 + AHEAD), bb ? bb.y1 + vh : 0, minH));
+    if (svg.getAttribute('width') !== String(W)) svg.setAttribute('width', String(W));
+    if (svg.getAttribute('height') !== String(H)) svg.setAttribute('height', String(H));
+  }, []);
+
+  // „pagina 2 din 3" — paginile au lățimea zonei vizibile
+  const updatePos = useCallback(() => {
+    posRafRef.current = 0;
+    const sc = scrollRef.current;
+    if (!sc) return;
+    const vw = sc.clientWidth || 1;
+    const bb = contentRef.current;
+    const page = Math.floor((sc.scrollLeft + vw * 0.5) / vw) + 1;
+    const pages = Math.max(page, bb ? Math.ceil((bb.x1 + 1) / vw) : 1);
+    const atLeft = sc.scrollLeft < 4;
+    const atStart = atLeft && sc.scrollTop < 4;
+    setPos((p) => (p.page === page && p.pages === pages && p.atStart === atStart && p.atLeft === atLeft ? p : { page, pages, atStart, atLeft }));
+  }, []);
+  const updatePosSoon = useCallback(() => {
+    if (!posRafRef.current) posRafRef.current = requestAnimationFrame(updatePos);
+  }, [updatePos]);
+
+  function onScroll() {
+    const sc = scrollRef.current;
+    if (sc) viewRef.current = { x: Math.round(sc.scrollLeft), y: Math.round(sc.scrollTop) };
+    ensureExtent();
+    updatePosSoon();
+    scheduleSave();
+  }
+
+  // ── Traseele pe foaie (SVG) ─────────────────────────────────────────────
+  function makePath(s) {
+    const p = document.createElementNS(SVGNS, 'path');
+    p.setAttribute('d', pathD(s.pts));
+    p.setAttribute('stroke', s.color);
+    p.setAttribute('stroke-width', String(PEN_W));
+    p.setAttribute('fill', 'none');
+    p.setAttribute('stroke-linecap', 'round');
+    p.setAttribute('stroke-linejoin', 'round');
+    return p;
+  }
+  const rebuildPaths = useCallback(() => {
+    const g = gRef.current;
+    pathsRef.current = new Map();
+    if (!g) return;
+    while (g.firstChild) g.removeChild(g.firstChild);
     for (const s of strokesRef.current) {
-      if (meta[s.line] && meta[s.line].status === 'done') continue;   // linia e deja text
-      if (s.pts.length < 2) {
-        ctx.fillStyle = s.color;
-        ctx.beginPath(); ctx.arc(s.pts[0][0], s.pts[0][1], PEN_W / 1.6, 0, 6.2832); ctx.fill();
-        continue;
-      }
-      ctx.strokeStyle = s.color; ctx.lineWidth = PEN_W;
-      pathOf(ctx, s.pts); ctx.stroke();
+      const p = makePath(s);
+      g.appendChild(p);
+      pathsRef.current.set(s.id, p);
     }
-  }, [width, sheetH, meta]);
-
-  useLayoutEffect(() => { repaint(); });
-
-  useEffect(() => {
-    if (!open) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setWidth(Math.max(320, el.clientWidth)));
-    ro.observe(el);
-    setWidth(Math.max(320, el.clientWidth));
-    return () => ro.disconnect();
-  }, [open]);
+  }, []);
+  const refreshContent = useCallback(() => {
+    contentRef.current = unionBox(strokesRef.current.map(strokeBox));
+    setCount(strokesRef.current.length);
+    ensureExtent();
+    updatePosSoon();
+  }, [ensureExtent, updatePosSoon]);
 
   // ── Ciornă salvată local ──────────────────────────────────────────────
   const LSK = storageKey ? `sdl2:${storageKey}` : null;
-  useEffect(() => {
-    if (!open || !LSK) return;
-    try {
-      const raw = localStorage.getItem(LSK);
-      if (!raw) return;
-      const o = JSON.parse(raw);
-      if (o && Array.isArray(o.strokes)) {
-        strokesRef.current = o.strokes.filter((s) => s && Array.isArray(s.pts) && s.pts.length);
-        seqRef.current = strokesRef.current.reduce((m, s) => Math.max(m, s.id || 0), 0) + 1;
-        lineSeqRef.current = strokesRef.current.reduce((m, s) => Math.max(m, s.line || 0), 0) + 1;
-        // o linie salvată „în citire" (fereastra s-a închis între timp) redevine cerneală
-        const m0 = {};
-        for (const [k, v] of Object.entries(o.meta || {})) m0[k] = v && v.status === 'busy' ? { ...v, status: 'idle', latex: null } : v;
-        setMeta(m0);
-        setRows(Math.min(MAX_ROWS, Math.max(START_ROWS, (o.rows | 0) || START_ROWS)));
-        // regrupăm ciorna: pragurile se pot schimba între versiuni, iar liniile
-        // salvate trebuie să cadă la fel ca acum
-        setTimeout(() => reconcile(relayout()), 0);
-      }
-    } catch { /* ciornă coruptă — pornim de la foaie albă */ }
-  }, [open, LSK]);
+  const lskRef = useRef(LSK);
+  useEffect(() => { lskRef.current = LSK; }, [LSK]);
 
-  const saveDraft = useCallback(() => {
-    if (!LSK) return;
+  const saveNow = useCallback((key = lskRef.current) => {
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = 0;
+    if (!key) return;
     try {
+      if (!strokesRef.current.length) { localStorage.removeItem(key); return; }
       const strokes = strokesRef.current.map((s) => ({
-        id: s.id, line: s.line, color: s.color,
+        id: s.id, color: s.color,
         pts: s.pts.map(([x, y]) => [Math.round(x * 2) / 2, Math.round(y * 2) / 2]),
       }));
-      localStorage.setItem(LSK, JSON.stringify({ strokes, meta, rows }));
+      // la închidere, zona derulabilă nu mai există — poziția vine din viewRef
+      localStorage.setItem(key, JSON.stringify({ v: 3, strokes, view: viewRef.current }));
     } catch { /* fără loc în localStorage — ciorna nu se salvează, atât */ }
-  }, [LSK, meta, rows]);
-  useEffect(() => { if (open) saveDraft(); }, [open, meta, rows, saveDraft]);
-
-  // ── Rasterizarea unei linii, pentru recunoaștere ──────────────────────
-  // Cerneala colorată devine neagră pe alb, la o înălțime confortabilă pentru
-  // model (~170 px): pe crop-uri mici confundă virgula cu punctul și 0 cu 6.
-  function lineImage(L) {
-    if (!L.strokes.length) return null;
-    const b = L.box;
-    const pad = 14;
-    const w = Math.max(28, b.x1 - b.x0 + pad * 2);
-    const h = Math.max(28, b.y1 - b.y0 + pad * 2);
-    const scale = Math.min(4, Math.max(1, 170 / h), 1600 / w);
-    const cv = document.createElement('canvas');
-    cv.width = Math.round(w * scale); cv.height = Math.round(h * scale);
-    const ctx = cv.getContext('2d');
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-    ctx.setTransform(scale, 0, 0, scale, 0, 0);
-    ctx.translate(-b.x0 + pad, -b.y0 + pad);
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.strokeStyle = '#000'; ctx.fillStyle = '#000'; ctx.lineWidth = PEN_W * 1.2;
-    for (const s of L.strokes) {
-      if (s.pts.length < 2) { ctx.beginPath(); ctx.arc(s.pts[0][0], s.pts[0][1], PEN_W, 0, 6.2832); ctx.fill(); continue; }
-      pathOf(ctx, s.pts); ctx.stroke();
-    }
-    return cv;
+  }, []);
+  function scheduleSave() {
+    if (!lskRef.current) return;
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => saveNow(), 500);
   }
 
-  // Mai multe linii într-o singură imagine: numerotate în stânga, despărțite
-  // de o bară groasă. O cerere în loc de patru — contează la limita orară.
-  function composite(list) {
-    const imgs = list.map((L) => ({ L, cv: lineImage(L) })).filter((o) => o.cv);
-    if (!imgs.length) return null;
-    const GAP = 22;
-    const w = Math.min(1700, GUTTER + Math.max(...imgs.map((o) => o.cv.width)) + 18);
-    const cv = document.createElement('canvas');
-    cv.width = w;
-    cv.height = Math.min(2200, imgs.reduce((s, o) => s + o.cv.height + GAP, GAP));
-    const ctx = cv.getContext('2d');
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-    ctx.textBaseline = 'middle';
-    let y = GAP;
-    const used = [];
-    imgs.forEach((o, i) => {
-      if (y + o.cv.height > cv.height) return;   // ce nu încape rămâne pe tura următoare
-      ctx.fillStyle = '#000'; ctx.font = 'bold 26px sans-serif';
-      ctx.fillText(String(i + 1) + '.', 6, y + o.cv.height / 2);
-      ctx.drawImage(o.cv, GUTTER, y);
-      used.push(o.L.id);
-      y += o.cv.height + GAP;
-      if (i < imgs.length - 1) {
-        ctx.strokeStyle = '#999'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(2, y - GAP / 2); ctx.lineTo(cv.width - 2, y - GAP / 2); ctx.stroke();
-      }
-    });
-    if (!used.length) return null;
-    return { dataUrl: cv.toDataURL('image/png'), used };
-  }
-
-  // ── Recunoașterea — DOAR la apăsarea unui buton ─────────────────────────
-  const metaRef = useRef(meta);
-  useEffect(() => { metaRef.current = meta; }, [meta]);
-
-  // Un lot: până la MAX_BATCH linii, într-o singură imagine și o singură cerere.
-  // Întoarce id-urile citite (sau încercate), [] dacă n-a avut ce citi, null la eroare.
-  const recognizeOnce = useCallback(async (ids) => {
-    const all = linesOf();
-    const byId = new Map(all.map((L) => [L.id, L]));
-    const list = ids
-      .map((id) => byId.get(id)).filter(Boolean)
-      .filter((L) => !isSpeck(L))                  // pete izolate: nu au ce căuta la model
-      .sort((a, b) => a.box.y0 - b.box.y0)
-      .slice(0, MAX_BATCH);
-    if (!list.length) return [];
-    const packed = composite(list);
-    if (!packed) return [];
-    const sigById = new Map(list.map((L) => [L.id, L.sig]));
-
-    // context: ce scrie pe liniile de DEASUPRA primei linii din lot — modelul
-    // alege mult mai bine între „0" și „6", „,"" și „." când vede firul
-    const first = list[0];
-    const prev = all
-      .filter((L) => L.box.y1 <= first.box.y0 && metaRef.current[L.id] && metaRef.current[L.id].latex)
-      .slice(-3).map((L) => normalizeLatex(metaRef.current[L.id].latex)).join('\n');
-
-    setMeta((m) => {
-      const n = { ...m };
-      for (const id of packed.used) n[id] = { ...(n[id] || {}), status: 'busy', sig: sigById.get(id) };
-      return n;
-    });
-    try {
-      const { lines } = await aiClient.handwriting({
-        imageBase64: packed.dataUrl, count: packed.used.length, hint, prev,
-      });
-      const got = {};
-      (lines || []).forEach((l) => { const id = packed.used[l.i - 1]; if (id != null && l.latex) got[id] = l.latex; });
-      setMeta((m) => {
-        const n = { ...m };
-        for (const id of packed.used) {
-          const sig = sigById.get(id);
-          // între timp elevul a scris mai departe pe linia asta (sau a șters-o):
-          // răspunsul e depășit — linia rămâne cerneală, pentru apăsarea următoare
-          if (!n[id] || n[id].sig !== sig) continue;
-          n[id] = got[id] ? { status: 'done', latex: got[id], sig } : { status: 'fail', latex: null, sig };
+  // La deschidere: ciorna (dacă are cheie) — sau ce era deja pe foaie
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    let view = null;
+    if (LSK) {
+      let loaded = [];
+      try {
+        const o = JSON.parse(localStorage.getItem(LSK) || 'null');
+        if (o && Array.isArray(o.strokes)) {
+          // ciornele vechi (cu `line` / `meta` — din vremea „Transformă") se
+          // citesc la fel: aceleași coordonate, câmpurile în plus se ignoră
+          loaded = o.strokes
+            .filter((s) => s && Array.isArray(s.pts) && s.pts.length && s.pts.every((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])))
+            .map((s, i) => ({ id: Number.isFinite(s.id) ? s.id : i + 1, color: typeof s.color === 'string' ? s.color : COLORS[0], pts: s.pts }));
+          loaded.sort((a, b) => a.id - b.id);
+          if (o.view && Number.isFinite(o.view.x) && Number.isFinite(o.view.y)) view = o.view;
         }
-        metaRef.current = n;          // lotul următor vede deja textul (contextul „prev")
-        return n;
-      });
-      return packed.used;
-    } catch (e) {
-      setErr(e.message || 'Nu am putut citi scrisul.');
-      setMeta((m) => {
-        const n = { ...m };
-        for (const id of packed.used) if (n[id] && n[id].status === 'busy') n[id] = { status: 'idle', latex: null, sig: sigById.get(id) };
-        return n;
-      });
-      return null;
+      } catch { loaded = []; /* ciornă coruptă — pornim de la foaie albă */ }
+      strokesRef.current = loaded;
+      historyRef.current = [];
     }
-  }, [hint, linesOf]);
+    for (const s of strokesRef.current) { s.box = null; strokeBox(s); }
+    seqRef.current = strokesRef.current.reduce((m, s) => Math.max(m, s.id || 0), 0) + 1;
+    rebuildPaths();
+    refreshContent();
+    const sc = scrollRef.current;
+    if (sc && view) {
+      ensureExtent(view.x + sc.clientWidth * 2, view.y + sc.clientHeight * 2);
+      sc.scrollLeft = view.x; sc.scrollTop = view.y;
+      viewRef.current = { x: Math.round(sc.scrollLeft), y: Math.round(sc.scrollTop) };
+    } else if (sc) {
+      viewRef.current = { x: Math.round(sc.scrollLeft), y: Math.round(sc.scrollTop) };
+    }
+    const key = LSK;
+    return () => { if (key) saveNow(key); };
+  }, [open, LSK]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Transformă liniile date, lot după lot. Liniile scrise ÎN TIMPUL transformării
-  // nu intră — ele așteaptă următoarea apăsare. true = totul a mers (fără eroare).
-  const transform = useCallback(async (ids) => {
-    if (busyRef.current || !ids.length) return !busyRef.current;
-    busyRef.current = true;
-    setWorking(true); setErr(null);
-    let ok = true;
-    try {
-      let rest = [...ids];
-      while (rest.length) {
-        const used = await recognizeOnce(rest);
-        if (used === null) { ok = false; break; }   // eroarea e deja afișată
-        if (!used.length) break;                     // nimic de citit (pete, linii dispărute)
-        rest = rest.filter((id) => !used.includes(id));
-      }
-    } finally {
-      busyRef.current = false;
-      setWorking(false);
-    }
-    return ok;
-  }, [recognizeOnce]);
+  useEffect(() => {
+    if (!open) return undefined;
+    const flush = () => saveNow();
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+  }, [open, saveNow]);
+
+  // Mărimea zonei vizibile → mărimea foii și indicatorul de pagină
+  useEffect(() => {
+    if (!open) return undefined;
+    const el = scrollRef.current;
+    if (!el) return undefined;
+    const upd = () => {
+      setArea((a) => (a.w === el.clientWidth && a.h === el.clientHeight ? a : { w: el.clientWidth, h: el.clientHeight }));
+      ensureExtent();
+      updatePosSoon();
+    };
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(upd) : null;
+    if (ro) ro.observe(el);
+    upd();
+    return () => { if (ro) ro.disconnect(); };
+  }, [open, embedded, ensureExtent, updatePosSoon]);
 
   // ── Scrisul ───────────────────────────────────────────────────────────
-  function pointOf(e) {
-    const rect = canvasRef.current.getBoundingClientRect();
-    return [e.clientX - rect.left, e.clientY - rect.top];
+  // Coordonatele de „lume": SVG-ul se mișcă odată cu derularea, deci poziția
+  // față de colțul lui este direct poziția pe foaie.
+  function toWorld(e) {
+    const r = svgRef.current.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  }
+  function pushHistory(h) {
+    historyRef.current.push(h);
+    if (historyRef.current.length > MAX_HISTORY) historyRef.current.shift();
+  }
+  function addPoint(d, x, y) {
+    const last = d.pts[d.pts.length - 1];
+    if (Math.abs(x - last[0]) < 0.7 && Math.abs(y - last[1]) < 0.7) return false;
+    d.pts.push([x, y]);
+    return true;
+  }
+  // Al doilea deget a atins foaia: trasul abia început cu primul deget era, de
+  // fapt, începutul unei derulări cu două degete → se anulează.
+  function abandonStroke() {
+    const d = drawingRef.current;
+    drawingRef.current = null;
+    if (!d || d.eraser) return;
+    const recent = performance.now() - d.t0 < 400 || d.pts.length < 10;
+    if (!recent) { finishStroke(d); return; }
+    strokesRef.current = strokesRef.current.filter((s) => s !== d);
+    const p = pathsRef.current.get(d.id);
+    if (p && p.parentNode) p.parentNode.removeChild(p);
+    pathsRef.current.delete(d.id);
+  }
+  function finishStroke(d) {
+    d.box = boxOf(d.pts);
+    pushHistory({ t: 'add', id: d.id });
+    refreshContent();
+    followDown(d.box);
+    scheduleSave();
   }
 
   function onDown(e) {
-    if (tool === 'pan') return;
+    const sc = scrollRef.current;
+    if (!sc) return;
+    if (e.pointerType === 'touch') {
+      touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touchesRef.current.size === 2 && !(drawingRef.current && drawingRef.current.pen)) {
+        // DOUĂ DEGETE → derulare (în orice unealtă), ca pe tabla interactivă
+        abandonStroke();
+        const [a, b] = [...touchesRef.current.values()];
+        panRef.current = { two: true, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, sl: sc.scrollLeft, st: sc.scrollTop };
+        return;
+      }
+      if (touchesRef.current.size > 2) return;
+    }
+    // ✋ cu mouse-ul / creionul, sau rotița apăsată (oricare unealtă) → tragi foaia
+    if (e.button === 1 || (toolRef.current === 'pan' && e.pointerType !== 'touch')) {
+      e.preventDefault();
+      panRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY, sl: sc.scrollLeft, st: sc.scrollTop };
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* merge și fără */ }
+      return;
+    }
+    if (toolRef.current === 'pan') return;   // ✋ cu degetul → derularea nativă (touch-action)
     if (e.pointerType === 'pen') penSeenRef.current = true;
     if (penSeenRef.current && e.pointerType === 'touch') return;   // palma sprijinită nu scrie
-    if (!e.isPrimary) return;
+    if (e.button && e.button !== 0 && e.button !== 5) return;
+    if (drawingRef.current) return;
     e.preventDefault();
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* merge și fără capture */ }
-    const [x, y] = pointOf(e);
-    if (tool === 'eraser') { drawingRef.current = { eraser: true }; erase(x, y); return; }
-    drawingRef.current = { id: seqRef.current++, line: 0, color, pts: [[x, y]] };
-    strokesRef.current.push(drawingRef.current);
-    repaintSoon();
+    const [x, y] = toWorld(e);
+    // capătul „radieră" al creionului (sau butonul lui) șterge, oricare unealtă e aleasă
+    const eraser = toolRef.current === 'eraser' || e.button === 5 || (e.buttons & 32) === 32;
+    if (eraser) { drawingRef.current = { eraser: true, id: e.pointerId, removed: [] }; erase(x, y); return; }
+    const d = { id: seqRef.current++, color: colorRef.current, pts: [[x, y]], t0: performance.now(), ptr: e.pointerId, pen: e.pointerType === 'pen' };
+    drawingRef.current = d;
+    strokesRef.current.push(d);
+    const p = makePath(d);
+    if (gRef.current) gRef.current.appendChild(p);
+    pathsRef.current.set(d.id, p);
   }
 
   function onMove(e) {
+    if (e.pointerType === 'touch' && touchesRef.current.has(e.pointerId)) {
+      touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    const sc = scrollRef.current;
+    const pan = panRef.current;
+    if (pan && sc) {
+      if (pan.two) {
+        if (touchesRef.current.size >= 2) {
+          const [a, b] = [...touchesRef.current.values()];
+          const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+          ensureExtent(pan.sl - (mx - pan.mx) + sc.clientWidth * 2, pan.st - (my - pan.my) + sc.clientHeight * 2);
+          sc.scrollLeft = pan.sl - (mx - pan.mx);
+          sc.scrollTop = pan.st - (my - pan.my);
+        }
+        return;
+      }
+      if (pan.id === e.pointerId) {
+        e.preventDefault();
+        const nl = pan.sl - (e.clientX - pan.x), nt = pan.st - (e.clientY - pan.y);
+        ensureExtent(nl + sc.clientWidth * 2, nt + sc.clientHeight * 2);
+        sc.scrollLeft = nl; sc.scrollTop = nt;
+      }
+      return;
+    }
     const d = drawingRef.current;
     if (!d) return;
+    if (!d.eraser && d.ptr !== e.pointerId) return;
+    if (d.eraser && d.id !== e.pointerId) return;
     e.preventDefault();
-    const [x, y] = pointOf(e);
-    if (d.eraser) { erase(x, y); return; }
-    const last = d.pts[d.pts.length - 1];
-    if (Math.abs(x - last[0]) < 0.7 && Math.abs(y - last[1]) < 0.7) return;
-    d.pts.push([x, y]);
-    repaintSoon();
+    const evs = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : null;
+    const list = evs && evs.length ? evs : [e];
+    if (d.eraser) { for (const ev of list) { const [x, y] = toWorld(ev); erase(x, y); } return; }
+    let changed = false;
+    for (const ev of list) { const [x, y] = toWorld(ev); if (addPoint(d, x, y)) changed = true; }
+    if (changed) { const p = pathsRef.current.get(d.id); if (p) p.setAttribute('d', pathD(d.pts)); }
   }
 
-  // Gruparea se reface ABIA la ridicarea mâinii: acum se știe cât de sus și cât
-  // de jos a ajuns traseul, deci și cu ce se leagă. Transformarea în text NU
-  // mai pornește singură de aici — doar la „✨ Transformă în text".
-  function onUp() {
+  function onUp(e) {
+    if (e.pointerType === 'touch') touchesRef.current.delete(e.pointerId);
+    const pan = panRef.current;
+    if (pan) {
+      if (pan.two ? touchesRef.current.size < 2 : pan.id === e.pointerId) {
+        panRef.current = null;
+        try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* deja eliberat */ }
+        scheduleSave();
+      }
+      return;
+    }
     const d = drawingRef.current;
-    drawingRef.current = null;
     if (!d) return;
-    if (d.eraser) { reconcile(relayout()); saveDraft(); return; }
-    reconcile(relayout());
-    growIfNeeded(strokeBox(d).y1);
-    saveDraft();
-    repaintSoon();
+    if (d.eraser ? d.id !== e.pointerId : d.ptr !== e.pointerId) return;
+    drawingRef.current = null;
+    if (d.eraser) {
+      if (d.removed.length) { pushHistory({ t: 'erase', list: d.removed }); refreshContent(); scheduleSave(); }
+      return;
+    }
+    finishStroke(d);
   }
 
   function erase(x, y) {
-    const before = strokesRef.current.length;
-    const hitLines = new Set();
-    strokesRef.current = strokesRef.current.filter((s) => {
-      const hit = s.pts.some(([px, py]) => Math.abs(px - x) < ERASER_R && Math.abs(py - y) < ERASER_R);
-      if (hit) hitLines.add(s.line);
-      return !hit;
-    });
-    // radiera trece și peste textul deja transformat: îl șterge cu totul
-    for (const L of linesOf()) {
-      if (x >= L.box.x0 - 20 && x <= L.box.x1 + 20 && y >= L.box.y0 - 14 && y <= L.box.y1 + 14) hitLines.add(L.id);
+    const d = drawingRef.current;
+    const keep = [];
+    let changed = false;
+    for (const s of strokesRef.current) {
+      const b = strokeBox(s);
+      if (x < b.x0 - ERASER_R || x > b.x1 + ERASER_R || y < b.y0 - ERASER_R || y > b.y1 + ERASER_R) { keep.push(s); continue; }
+      const hit = nearStroke(s.pts, x, y, ERASER_R);
+      if (hit) {
+        changed = true;
+        if (d && d.removed) d.removed.push(s);
+        const p = pathsRef.current.get(s.id);
+        if (p && p.parentNode) p.parentNode.removeChild(p);
+        pathsRef.current.delete(s.id);
+      } else keep.push(s);
     }
-    if (!hitLines.size) return;
-    // linia atinsă își pierde textul; restul se așază singur la regrupare
-    for (const s of strokesRef.current) if (hitLines.has(s.line)) s.line = 0;
-    if (before !== strokesRef.current.length) repaintSoon();
+    if (changed) strokesRef.current = keep;
   }
 
-  // Foaia crește singură și urcă odată cu elevul, ca linia următoare să fie
-  // mereu sub mână, fără să caute bara de derulare.
-  function growIfNeeded(bottomY) {
-    if (bottomY > (rows - 2) * ROW_H) setRows((r) => Math.min(MAX_ROWS, r + 3));
-    const el = scrollRef.current;
-    if (!el) return;
-    // loc liber sub linie: un rând și jumătate — dar nu mai mult de ~jumătate
-    // din ce se vede (în zona de conversație de pe telefon, foaia e mică și
-    // linia abia scrisă ar fugi din ecran)
-    const want = bottomY + Math.min(ROW_H * 1.5, el.clientHeight * 0.45);
-    if (want > el.scrollTop + el.clientHeight) {
-      requestAnimationFrame(() => {
-        if (scrollRef.current) scrollRef.current.scrollTop = want - scrollRef.current.clientHeight;
-      });
+  // Foaia urcă odată cu elevul: după un rând scris jos de tot, apare loc
+  // dedesubt (cât un rând și ceva — dar nu mai mult de ~o treime din ce se
+  // vede: în zona de conversație de pe telefon foaia e mică).
+  function followDown(box) {
+    const sc = scrollRef.current;
+    if (!sc || !box) return;
+    const vh = sc.clientHeight;
+    const room = Math.min(110, vh * 0.3);
+    if (box.y1 - sc.scrollTop > vh - room * 0.6) {
+      const top = Math.max(0, box.y1 + room - vh);
+      ensureExtent(0, top + vh * 2);
+      try { sc.scrollTo({ top, behavior: 'smooth' }); } catch { sc.scrollTop = top; }
     }
   }
 
   function undo() {
-    const s = strokesRef.current.pop();
-    if (!s) return;
-    reconcile(relayout());
-    repaintSoon(); saveDraft();
+    const h = historyRef.current.pop();
+    if (!h) return;
+    if (h.t === 'add') {
+      strokesRef.current = strokesRef.current.filter((s) => s.id !== h.id);
+    } else if (h.t === 'erase' || h.t === 'clear') {
+      strokesRef.current = [...strokesRef.current, ...h.list].sort((a, b) => a.id - b.id);
+    }
+    rebuildPaths();
+    refreshContent();
+    scheduleSave();
   }
 
   function clearAll() {
+    if (!strokesRef.current.length) return;
+    pushHistory({ t: 'clear', list: strokesRef.current });
     strokesRef.current = [];
-    setMeta({}); setRows(START_ROWS); setErr(null);
-    repaintSoon();
-    if (LSK) { try { localStorage.removeItem(LSK); } catch { /* nimic de curățat */ } }
+    rebuildPaths();
+    refreshContent();
+    setErr(null);
+    goTo(0, 0, false);
+    saveNow();
   }
 
-  // ── Textul final ──────────────────────────────────────────────────────
-  const lines = useMemo(() => linesOf(), [linesOf, tick, meta]);   // eslint-disable-line react-hooks/exhaustive-deps
-
-  const textOut = useMemo(
-    () => lines.map((L) => (meta[L.id] && meta[L.id].latex ? toPlain(meta[L.id].latex) : ''))
-      .filter(Boolean).join('\n').trim(),
-    [lines, meta],
-  );
-
-  const statusOf = (L) => (meta[L.id] && meta[L.id].status) || 'idle';
-  const nDone = lines.filter((L) => meta[L.id] && meta[L.id].latex).length;
-  const nBusy = lines.filter((L) => statusOf(L) === 'busy').length;
-  // scrise, netransformate încă (petele izolate nu se numără)
-  const asteapta = lines.filter((L) => statusOf(L) === 'idle' && !isSpeck(L));
-  // încercate, dar necitite — rămân cerneală până le rescrie sau reîncearcă
-  const necitite = lines.filter((L) => statusOf(L) === 'fail');
-  const deTransformat = [...asteapta, ...necitite];
-  const areScris = nDone > 0 || deTransformat.length > 0;
-
-  // „✨ Transformă în text": tot ce e scris și netransformat (plus reîncercarea
-  // liniilor pe care nu le-a putut citi data trecută)
-  function transformaTot() {
-    if (working) return;
-    transform(deTransformat.map((L) => L.id));
+  // ── Navigarea pe foaie ──────────────────────────────────────────────────
+  function goTo(left, top, smooth = true) {
+    const sc = scrollRef.current;
+    if (!sc) return;
+    const l = Math.max(0, Math.round(left)), t = Math.max(0, Math.round(top));
+    ensureExtent(l + sc.clientWidth * 2, t + sc.clientHeight * 2);
+    try { sc.scrollTo({ left: l, top: t, behavior: smooth ? 'smooth' : 'auto' }); } catch { sc.scrollLeft = l; sc.scrollTop = t; }
+  }
+  // Paginile stau una lângă alta, fiecare cât zona vizibilă: ◀ ▶ sar exact la
+  // începutul paginii vecine (între ele foaia se trage liber, cu ✋ / degetele).
+  function pageNext() {
+    const sc = scrollRef.current;
+    if (!sc) return;
+    const vw = sc.clientWidth || 1;
+    goTo((Math.floor((sc.scrollLeft + 4) / vw) + 1) * vw, sc.scrollTop);
+  }
+  function pagePrev() {
+    const sc = scrollRef.current;
+    if (!sc) return;
+    const vw = sc.clientWidth || 1;
+    goTo((Math.ceil((sc.scrollLeft - 4) / vw) - 1) * vw, sc.scrollTop);
+  }
+  // „➕ Pagină nouă": prima pagină goală din dreapta a tot ce s-a scris
+  // (dacă elevul e deja pe una goală, următoarea), de sus.
+  function newPage() {
+    const sc = scrollRef.current;
+    if (!sc) return;
+    const vw = sc.clientWidth || 1;
+    const bb = contentRef.current;
+    let left = bb ? Math.ceil((bb.x1 + 30) / vw) * vw : (Math.floor((sc.scrollLeft + 4) / vw) + 1) * vw;
+    if (left < sc.scrollLeft + 10) left = (Math.floor((sc.scrollLeft + 4) / vw) + 1) * vw;
+    goTo(left, 0);
   }
 
-  // Butoanele de jos: întâi transformă ce a rămas netransformat (la apăsarea
-  // lor, nu singur), apoi folosesc textul — după ce se randează, ca să-l
-  // ia pe cel nou (efectul de mai jos).
-  function act(kind) {
-    if (working) return;
-    setCopied(false);
-    if (asteapta.length) {
-      setPending(kind);
-      transform(asteapta.map((L) => L.id)).then((ok) => { setPending(null); if (ok) setThen(kind); });
-      return;
-    }
-    finish(kind);
+  // ── Butoanele care trimit scrisul ───────────────────────────────────────
+  async function act(kind) {
+    if (busy) return;
+    setErr(null);
+    if (kind === 'corect' && corectLocked) { setLockInfo(true); return; }
+    if (!strokesRef.current.length) { setErr('Scrie întâi rezolvarea pe foaie.'); return; }
+    setBusy(kind);
+    await new Promise((ok) => setTimeout(ok, 30));   // butonul apucă să arate „⏳"
+    let pack = null;
+    try { pack = exportSheet(strokesRef.current); } catch { pack = null; }
+    setBusy(null);
+    if (!pack || !pack.images.length) { setErr('Nu am găsit nimic de trimis pe foaie — scrie rezolvarea, apoi apasă din nou.'); return; }
+    saveNow();
+    if (kind === 'corect') { if (onCorect) onCorect(pack); } else if (onAttach) onAttach(pack);
+    if (onClose) onClose();
   }
-  // o linie n-a putut fi citită → NU o lăsăm deoparte pe ascuns: o arătăm
-  // (marcată cu „?") și spunem o dată; a doua apăsare folosește ce s-a citit
-  const warnedRef = useRef('');
-  function finish(kind) {
-    const failKey = necitite.map((L) => L.sig).join('|');
-    if (necitite.length && kind !== 'copy' && textOut && warnedRef.current !== failKey) {
-      warnedRef.current = failKey;
-      setErr(`${necitite.length === 1 ? 'O linie n-am putut-o citi — a rămas scrisă de mână, marcată cu „?"' : `${necitite.length} linii n-am putut să le citesc — au rămas scrise de mână, marcate cu „?"`}. Rescrie mai clar și apasă „✨ Transformă în text" — sau apasă din nou și folosesc doar textul citit.`);
-      return;
-    }
-    runAct(kind, textOut, necitite.length);
-  }
-  function runAct(kind, text, nFail) {
-    if (!text) {
-      setErr(nFail
-        ? 'Nu am putut citi ce ai scris — scrie puțin mai mare și mai rar, apoi apasă din nou „✨ Transformă în text".'
-        : 'Scrie întâi rezolvarea pe foaie.');
-      return;
-    }
-    if (kind === 'copy') {
-      const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1800); };
-      try {
-        Promise.resolve(navigator.clipboard.writeText(text)).then(done, () => setErr('Textul e gata — apasă din nou „📋 Copiază" ca să-l copiez.'));
-      } catch { setErr('Nu am putut copia textul în acest browser.'); }
-      return;
-    }
-    if (kind === 'corect' && onCorect) onCorect(text);
-    else if (kind === 'insert' && onInsert) onInsert(text);
-    else return;
-    onClose && onClose();
-  }
-  useEffect(() => {
-    if (!then) return;
-    const kind = then;
-    setThen(null);
-    if (!open) return;                 // fereastra s-a închis între timp: nu mai trimitem nimic
-    finish(kind);
-  }, [then]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e) => { if (e.key === 'Escape') onClose && onClose(); };
+    if (!open) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') { if (onClose) onClose(); return; }
+      const ae = document.activeElement;
+      const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable);
+      if (!typing && (e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undo(); }
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open, onClose]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null;
 
-  const toolBtn = (on) => ({
-    background: on ? 'var(--gold, #e8b931)' : '#fff',
-    border: '1px solid ' + (on ? 'var(--gold, #e8b931)' : '#d7dee7'),
-    color: on ? '#12263a' : '#44566b',
-    borderRadius: 9, padding: '6px 11px', fontSize: '.8rem', fontWeight: 700,
-    cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: 1.2,
-  });
-  const actBtn = {
-    background: 'var(--gold, #e8b931)', color: '#12263a', border: 'none', borderRadius: 10,
-    padding: '9px 16px', fontSize: '.86rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap',
-  };
-  const ghostBtn = { ...actBtn, background: '#fff', border: '1px solid #d7dee7', color: '#44566b', fontWeight: 700 };
+  const hasInk = count > 0;
+  const mic = (area.w || 999) < 560;      // panou îngust: telefonul sau panoul lateral de 400 px
 
   // ── Foaia (aceeași în fereastră și în zona de conversație) ──────────────
-  // În fereastră: caiet cu linii și margine roșie. În zona de conversație
-  // (`embedded`): exact fundalul conversației goale — fără linii, fără margine.
-  const gut = embedded ? 0 : GUTTER;
+  const navBtn = (disabled = false) => ({
+    width: 30, height: 28, borderRadius: 14, border: 'none', background: 'none', cursor: disabled ? 'default' : 'pointer',
+    color: disabled ? '#b5c0cc' : '#24384d', fontSize: '.86rem', fontWeight: 800, lineHeight: 1, padding: 0,
+  });
   const sheetJsx = (
-    <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', background: embedded ? ZONE_BG : '#fdfdf8' }}>
-      <div style={{ position: 'relative', width: '100%', height: sheetH }}>
-
-        {!embedded && (
-          <>
-            <div aria-hidden style={{
-              position: 'absolute', inset: 0,
-              backgroundImage: `repeating-linear-gradient(to bottom, transparent, transparent ${ROW_H - 1}px, #dfe6ee ${ROW_H - 1}px, #dfe6ee ${ROW_H}px)`,
-            }} />
-            <div aria-hidden style={{ position: 'absolute', top: 0, bottom: 0, left: GUTTER, width: 1, background: '#f0c9c9' }} />
-          </>
-        )}
-
-        {/* liniile transformate în text frumos — așezate exact peste cerneala lor */}
-        {lines.map((L) => {
-          const m = meta[L.id];
-          if (!m) return null;
-          const cy = (L.box.y0 + L.box.y1) / 2;
-          const left = Math.max(gut + 8, L.box.x0);
-          if (m.status === 'busy') {
-            // lângă cerneală (nu peste ea), ca elevul să-și vadă scrisul cât se citește
-            return (
-              <div key={'b' + L.id} style={{
-                position: 'absolute', left: Math.max(gut + 8, Math.min(L.box.x1 + 14, width - 190)), top: cy, transform: 'translateY(-50%)',
-                display: 'flex', alignItems: 'center', gap: 8, color: '#8a6d00',
-                fontSize: '.78rem', fontWeight: 700, pointerEvents: 'none',
-                background: 'rgba(255,248,225,.94)', borderRadius: 12, padding: '3px 9px',
-              }}>
-                <span style={{
-                  width: 13, height: 13, borderRadius: '50%', border: '2px solid #e8b931',
-                  borderTopColor: 'transparent', animation: 'sdl-spin .7s linear infinite', display: 'inline-block',
-                }} />
-                se transformă în text…
-              </div>
-            );
-          }
-          if (m.status === 'fail') {
-            // încercată, dar necitită: rămâne cerneală, cu un „?" în margine
-            // (fără margine, în zona de conversație: „?" stă la capătul liniei)
-            return (
-              <div key={'f' + L.id} aria-hidden title="N-am putut citi linia — rescrie-o mai clar" style={{
-                position: 'absolute', left: embedded ? Math.min(L.box.x1 + 8, width - 26) : Math.max(4, GUTTER - 30), top: cy, transform: 'translateY(-50%)',
-                width: 22, height: 22, borderRadius: '50%', background: '#fdecea', border: '1px solid #f1a9a0',
-                color: '#b3261e', fontWeight: 800, fontSize: '.8rem', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', pointerEvents: 'none', fontFamily: 'var(--font-body, sans-serif)',
-              }}>?</div>
-            );
-          }
-          if (!m.latex) return null;
-          return (
-            <div key={'t' + L.id} style={{
-              position: 'absolute', left, top: cy, transform: 'translateY(-50%)',
-              maxWidth: `calc(100% - ${left + 10}px)`, overflowX: 'auto', overflowY: 'hidden',
-            }}>
-              <LinieRandata
-                latex={m.latex}
-                onEdit={() => setMeta((mm) => ({ ...mm, [L.id]: { status: 'idle', latex: null, sig: L.sig } }))}
-              />
-            </div>
-          );
-        })}
-
-        <canvas
-          ref={canvasRef}
-          onPointerDown={onDown} onPointerMove={onMove}
-          onPointerUp={onUp} onPointerCancel={onUp} onPointerLeave={onUp}
+    <div style={{ flex: 1, minHeight: 0, position: 'relative', background: SHEET_BG }}>
+      <div ref={scrollRef} onScroll={onScroll}
+        data-foaie="1"
+        style={{ position: 'absolute', inset: 0, overflow: 'auto', overscrollBehavior: 'contain', background: SHEET_BG }}>
+        {/* lățimea/înălțimea le pune DOAR ensureExtent (nu React): o redesenare
+            nu are voie să strângă foaia sub poziția la care a ajuns elevul */}
+        <svg
+          ref={svgRef}
+          xmlns={SVGNS}
+          onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+          onLostPointerCapture={(e) => { if (drawingRef.current && !drawingRef.current.eraser && drawingRef.current.ptr === e.pointerId) onUp(e); }}
+          onContextMenu={(e) => e.preventDefault()}
           style={{
-            position: 'absolute', inset: 0, width: '100%', height: sheetH,
-            touchAction: tool === 'pan' ? 'pan-y' : 'none',
+            display: 'block', background: SHEET_BG,
+            // ✋ cu degetul: derularea nativă (lină, cu inerție); altfel scrisul
+            // primește atingerea, iar derularea se face cu două degete
+            touchAction: tool === 'pan' ? 'pan-x pan-y' : 'none',
             cursor: tool === 'eraser' ? 'cell' : tool === 'pan' ? 'grab' : 'crosshair',
-          }}
-        />
+            userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none',
+          }}>
+          <g ref={gRef} />
+        </svg>
+      </div>
+
+      {/* foaia goală: un singur rând de îndrumare (nu prinde atingerile) */}
+      {!hasInk && (
+        <div aria-hidden style={{
+          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none', padding: 20, textAlign: 'center', color: '#9aa8b8', fontSize: mic ? '.8rem' : '.88rem', lineHeight: 1.55,
+        }}>
+          <div>
+            ✍️ Scrie aici cu degetul sau cu creionul.<br />
+            Foaia continuă în dreapta → trage-o cu ✋ sau cu două degete.
+          </div>
+        </div>
+      )}
+
+      {/* navigarea pe foaie: ◀ pagina ▶, înapoi la început */}
+      <div style={{
+        position: 'absolute', left: 10, bottom: 10, display: 'flex', alignItems: 'center', gap: 2,
+        background: 'rgba(255,255,255,.94)', border: '1px solid #dde3ea', borderRadius: 18, padding: '2px 3px',
+        boxShadow: '0 2px 10px rgba(15,43,68,.12)', zIndex: 2,
+      }}>
+        <button type="button" onClick={pagePrev} disabled={pos.atLeft} aria-label="Pagina din stânga" title="Pagina din stânga" style={navBtn(pos.atLeft)}>◀</button>
+        <span style={{ fontSize: '.72rem', fontWeight: 700, color: '#44566b', minWidth: 38, textAlign: 'center', whiteSpace: 'nowrap' }}
+          title="Pagina pe care o vezi · câte pagini ai scris">
+          {pos.page}/{pos.pages}
+        </span>
+        <button type="button" onClick={pageNext} aria-label="Pagina din dreapta" title="Pagina din dreapta" style={navBtn(false)}>▶</button>
+        {!pos.atStart && (
+          <button type="button" onClick={() => goTo(0, 0)} aria-label="Înapoi la începutul foii" title="Înapoi la începutul foii"
+            style={{ ...navBtn(false), borderLeft: '1px solid #e3e8ee', borderRadius: 0, width: 32 }}>⟲</button>
+        )}
       </div>
     </div>
   );
 
+  // ⭐ fără abonament: explicația, cu drumul spre abonamente
+  const lockJsx = lockInfo && (
+    <div role="status" style={{
+      background: '#fff8e1', color: '#5d4500', border: '1px solid #f1d27a', borderRadius: 10,
+      padding: '8px 10px', fontSize: '.78rem', display: 'flex', gap: 8, alignItems: 'center', lineHeight: 1.4,
+      boxShadow: '0 3px 12px rgba(15,43,68,.12)', pointerEvents: 'auto',
+    }}>
+      <span style={{ flex: 1 }}>
+        ⭐ <strong>Corectarea face parte din abonamentul Premium.</strong> Profesorul virtual îți citește scrisul de mână și îl punctează după barem.{' '}
+        <Link to="/preturi" style={{ color: 'var(--navy, #0f2b44)', fontWeight: 800, textDecoration: 'underline' }}>Vezi abonamentele →</Link>
+      </span>
+      <button type="button" onClick={() => setLockInfo(false)} aria-label="Închide"
+        style={{ background: 'none', border: '1px solid #f1d27a', borderRadius: 7, color: '#5d4500', padding: '2px 8px', cursor: 'pointer' }}>✕</button>
+    </div>
+  );
+  const errJsx = err && (
+    <div role="alert" style={{
+      background: '#fdecea', color: '#8a2b25', border: '1px solid #f5c6c2', borderRadius: 10,
+      padding: '7px 10px', fontSize: '.78rem', display: 'flex', gap: 8, alignItems: 'center',
+      boxShadow: '0 3px 12px rgba(15,43,68,.12)', pointerEvents: 'auto',
+    }}>
+      <span style={{ flex: 1 }}>{err}</span>
+      <button type="button" onClick={() => setErr(null)} aria-label="Închide eroarea"
+        style={{ background: 'none', border: '1px solid #f5c6c2', borderRadius: 7, color: '#8a2b25', padding: '2px 8px', cursor: 'pointer' }}>✕</button>
+    </div>
+  );
+
+  const corectTitle = corectLocked
+    ? 'Corectarea scrisului de mână face parte din abonamentul Premium'
+    : 'Profesorul virtual îți citește scrisul și îl corectează după barem';
+
   // ── ÎN ZONA DE CONVERSAȚIE (vizualizatorul PDF) ─────────────────────────
   // Fără fereastră, antet și mânere: foaia ia locul mesajelor din chat. Sus,
   // un rând de unelte în stilul barei chatului; jos, după ce elevul scrie,
-  // butoanele care folosesc textul (plutitoare, ca zona să rămână goală).
+  // butoanele care trimit scrisul (plutitoare, ca foaia să rămână liberă).
   if (embedded) {
-    const mic = width < 560;   // panou îngust: telefonul sau panoul lateral de 400 px
     const barBtn = (on) => ({
       background: on ? 'var(--gold, #e8b931)' : 'none',
       border: '1px solid ' + (on ? 'var(--gold, #e8b931)' : 'var(--border, #dde1e8)'),
@@ -962,99 +775,87 @@ export default function SpatiuDeLucru({
       pointerEvents: 'auto', borderRadius: 20, padding: '7px 13px', fontSize: '.8rem', fontWeight: 800,
       cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 3px 12px rgba(15,43,68,.18)',
     };
-    const idle = !areScris || working;
     const dot = (c, on) => ({
       width: 20, height: 20, borderRadius: '50%', background: c, cursor: 'pointer', padding: 0, flexShrink: 0,
       border: on ? '3px solid var(--gold, #e8b931)' : '2px solid #fff', boxShadow: '0 0 0 1px #cfd8e3',
     });
     return (
-      <div aria-label="Spațiu de lucru" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative', background: ZONE_BG }}>
+      <div aria-label="Spațiu de lucru" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative', background: SHEET_BG }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: mic ? 4 : 6, padding: '8px 12px', background: '#fff',
           borderBottom: '1px solid var(--border, #dde1e8)', flexShrink: 0, overflowX: 'auto', scrollbarWidth: 'none',
         }}>
-          <button style={barBtn(tool === 'pen')} onClick={() => setTool('pen')} title="Scrie cu degetul sau cu creionul" aria-label="Scrie">{mic ? '✎' : '✎ Scrie'}</button>
-          <button style={barBtn(tool === 'eraser')} onClick={() => setTool('eraser')} title="Șterge ce ai scris" aria-label="Radieră">{mic ? '◯' : '◯ Radieră'}</button>
-          <button style={barBtn(tool === 'pan')} onClick={() => setTool('pan')} title="Derulează foaia fără să scrii" aria-label="Derulează">{mic ? '✋' : '✋ Derulează'}</button>
+          <button type="button" style={barBtn(tool === 'pen')} onClick={() => setTool('pen')} title="Scrie cu degetul sau cu creionul" aria-label="Scrie">{mic ? '✎' : '✎ Scrie'}</button>
+          <button type="button" style={barBtn(tool === 'eraser')} onClick={() => setTool('eraser')} title="Șterge ce ai scris" aria-label="Radieră">{mic ? '◯' : '◯ Radieră'}</button>
+          <button type="button" style={barBtn(tool === 'pan')} onClick={() => setTool('pan')} title="Trage foaia în dreapta, în stânga, în sus sau în jos (merge și cu două degete)" aria-label="Derulează">{mic ? '✋' : '✋ Derulează'}</button>
           {mic ? (
             // pe ecran îngust, o singură bulină: fiecare apăsare trece la culoarea următoare
-            <button onClick={() => { setColor(COLORS[(COLORS.indexOf(color) + 1) % COLORS.length]); setTool('pen'); }}
+            <button type="button" onClick={() => { setColor(COLORS[(COLORS.indexOf(color) + 1) % COLORS.length]); setTool('pen'); }}
               aria-label="Schimbă culoarea" title="Schimbă culoarea" style={dot(color, false)} />
           ) : COLORS.map((c) => (
-            <button key={c} onClick={() => { setColor(c); setTool('pen'); }} aria-label={'Culoare ' + c} style={dot(c, color === c)} />
+            <button type="button" key={c} onClick={() => { setColor(c); setTool('pen'); }} aria-label={'Culoare ' + c} style={dot(c, color === c)} />
           ))}
-          <button style={barBtn(false)} onClick={undo} title="Anulează ultimul tras" aria-label="Înapoi">{mic ? '↩' : '↩ Înapoi'}</button>
-          <button style={barBtn(false)} onClick={clearAll} title="Șterge tot ce ai scris" aria-label="Șterge tot">{mic ? '🗑' : '✕ Șterge tot'}</button>
-          <button
-            onClick={transformaTot}
-            disabled={working || !deTransformat.length}
-            aria-busy={working || undefined}
-            title={deTransformat.length
-              ? 'Transformă în text tot ce ai scris (scrisul de mână devine text cu formule)'
-              : 'Scrie ceva, apoi apasă aici ca să-l transformi în text'}
-            style={{
-              ...barBtn(!!deTransformat.length && !working), marginLeft: 'auto', fontWeight: 800,
-              ...(deTransformat.length && !working ? { boxShadow: '0 2px 8px rgba(232,185,49,.45)' } : {}),
-              ...(!deTransformat.length && !working ? { opacity: 0.6, cursor: 'default' } : {}),
-              ...(working ? { background: '#fff8e1', border: '1px solid #e8b931', color: '#8a6d00', cursor: 'progress' } : {}),
-            }}>
-            {working ? '⏳ Transform…' : `✨ ${mic ? 'Transformă' : 'Transformă în text'}${deTransformat.length ? ` (${deTransformat.length})` : ''}`}
+          <button type="button" style={barBtn(false)} onClick={undo} title="Anulează ultima schimbare (Ctrl+Z)" aria-label="Înapoi">{mic ? '↩' : '↩ Înapoi'}</button>
+          <button type="button" style={barBtn(false)} onClick={clearAll} title="Șterge tot ce ai scris (se poate anula cu ↩)" aria-label="Șterge tot">{mic ? '🗑' : '✕ Șterge tot'}</button>
+          <button type="button" onClick={newPage}
+            title="O pagină goală, în dreapta a tot ce ai scris — te întorci trăgând foaia înapoi sau cu ◀"
+            aria-label="Pagină nouă"
+            style={{ ...barBtn(false), marginLeft: 'auto', fontWeight: 800, color: 'var(--navy, #0f2b44)' }}>
+            {mic ? '➕' : '➕ Pagină nouă'}
           </button>
         </div>
 
         {sheetJsx}
 
-        {/* jos, plutitoare: eroarea și butoanele care folosesc textul */}
+        {/* jos, plutitoare: mesajele și butoanele care trimit scrisul */}
         <div style={{
-          position: 'absolute', left: 10, right: 10, bottom: 10, display: 'flex', flexDirection: 'column',
-          alignItems: 'flex-end', gap: 6, pointerEvents: 'none',
+          position: 'absolute', left: 10, right: 10, bottom: mic ? 50 : 10, display: 'flex', flexDirection: 'column',
+          alignItems: 'flex-end', gap: 6, pointerEvents: 'none', zIndex: 3,
         }}>
-          {err && (
-            <div role="alert" style={{
-              pointerEvents: 'auto', alignSelf: 'stretch', background: '#fdecea', color: '#8a2b25', border: '1px solid #f5c6c2',
-              borderRadius: 10, padding: '7px 10px', fontSize: '.78rem', display: 'flex', gap: 8, alignItems: 'center',
-              boxShadow: '0 3px 12px rgba(15,43,68,.12)',
-            }}>
-              <span style={{ flex: 1 }}>{err}</span>
-              <button onClick={() => setErr(null)} aria-label="Închide eroarea"
-                style={{ background: 'none', border: '1px solid #f5c6c2', borderRadius: 7, color: '#8a2b25', padding: '2px 8px', cursor: 'pointer' }}>✕</button>
-            </div>
-          )}
-          {(areScris || pending) && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {lockJsx}
+          {errJsx}
+          {hasInk && (onCorect || onAttach) && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: mic ? 0 : 150 }}>
               {onCorect && (
-                <button style={{ ...chip, background: 'var(--gold, #e8b931)', color: 'var(--navy, #0f2b44)', border: 'none', ...(idle ? { opacity: 0.6, cursor: working ? 'progress' : 'default' } : {}) }}
-                  disabled={idle}
-                  onClick={() => act('corect')}
-                  title="Profesorul virtual îți citește rezolvarea și îți spune unde greșești">
-                  {pending === 'corect' ? '⏳ Transform și trimit…' : '🎓 Cere corectarea'}
+                <button type="button" disabled={!!busy}
+                  style={{ ...chip, background: 'var(--gold, #e8b931)', color: 'var(--navy, #0f2b44)', border: 'none', ...(busy ? { opacity: 0.6, cursor: 'progress' } : {}) }}
+                  onClick={() => act('corect')} title={corectTitle}>
+                  {busy === 'corect' ? '⏳ Pregătesc foaia…' : `🎓 Cere corectarea${corectLocked ? ' ⭐' : ''}`}
                 </button>
               )}
-              {onInsert && (
-                <button style={{ ...chip, background: '#fff', color: '#8a6d00', border: '1px solid #e8b931', ...(idle ? { opacity: 0.6, cursor: working ? 'progress' : 'default' } : {}) }}
-                  disabled={idle}
-                  onClick={() => act('insert')}>
-                  {pending === 'insert' ? '⏳ Transform…' : insertLabel}
+              {onAttach && (
+                <button type="button" disabled={!!busy}
+                  style={{ ...chip, background: '#fff', color: '#8a6d00', border: '1px solid #e8b931', ...(busy ? { opacity: 0.6, cursor: 'progress' } : {}) }}
+                  onClick={() => act('attach')} title="Scrisul tău pleacă la profesor ca imagine, împreună cu ce scrii în câmpul de jos">
+                  {busy === 'attach' ? '⏳' : attachLabel}
                 </button>
               )}
-              <button style={{ ...chip, background: '#fff', color: '#44566b', border: '1px solid #d7dee7', fontWeight: 700, ...(idle ? { opacity: 0.6, cursor: working ? 'progress' : 'default' } : {}) }}
-                disabled={idle}
-                onClick={() => act('copy')}
-                aria-label="Copiază textul transformat"
-                title="Copiază textul transformat">{pending === 'copy' ? '⏳' : copied ? '✓ Copiat' : mic ? '📋' : '📋 Copiază'}</button>
             </div>
           )}
         </div>
-
-        <style>{'@keyframes sdl-spin{to{transform:rotate(360deg)}}'}</style>
       </div>
     );
   }
 
+  // ── ÎN FEREASTRĂ (exerciții interactive, „Planul meu", sala live) ───────
+  const toolBtn = (on) => ({
+    background: on ? 'var(--gold, #e8b931)' : '#fff',
+    border: '1px solid ' + (on ? 'var(--gold, #e8b931)' : '#d7dee7'),
+    color: on ? '#12263a' : '#44566b',
+    borderRadius: 9, padding: narrow ? '5px 9px' : '6px 11px', fontSize: '.8rem', fontWeight: 700,
+    cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: 1.2, flexShrink: 0,
+  });
+  const actBtn = {
+    background: 'var(--gold, #e8b931)', color: '#12263a', border: 'none', borderRadius: 10,
+    padding: narrow ? '8px 12px' : '9px 16px', fontSize: narrow ? '.82rem' : '.86rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap',
+  };
+  const ghostBtn = { ...actBtn, background: '#fff', border: '1px solid #e8b931', color: '#8a6d00', fontWeight: 700 };
+  const off = !hasInk || !!busy;
+
   return (
     <div
       role="dialog" aria-modal="true" aria-label="Spațiu de lucru"
-      onPointerDown={(e) => { if (e.target === e.currentTarget) onClose && onClose(); }}
+      onPointerDown={(e) => { if (e.target === e.currentTarget && onClose) onClose(); }}
       style={{
         position: 'fixed', inset: 0, zIndex: 100000, background: 'rgba(10,22,36,.55)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
@@ -1070,7 +871,7 @@ export default function SpatiuDeLucru({
           onDoubleClick={() => setMaxi((v) => !v)}
           title="Dublu-clic ca să mărești sau să micșorezi fereastra"
           style={{
-            background: 'var(--navy, #0f2b44)', color: '#fff', padding: '9px 14px',
+            background: 'var(--navy, #0f2b44)', color: '#fff', padding: narrow ? '7px 10px' : '9px 14px',
             display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, cursor: 'default',
           }}>
           <div style={{ minWidth: 0, flex: 1 }}>
@@ -1081,54 +882,49 @@ export default function SpatiuDeLucru({
               </div>
             )}
           </div>
-          <button onClick={() => setMaxi((v) => !v)} aria-label={maxi ? 'Micșorează fereastra' : 'Mărește fereastra pe tot ecranul'}
+          <button type="button" onClick={() => setMaxi((v) => !v)} aria-label={maxi ? 'Micșorează fereastra' : 'Mărește fereastra pe tot ecranul'}
             title={maxi ? 'Micșorează fereastra' : 'Pe tot ecranul'}
             style={{
               background: 'rgba(255,255,255,.14)', border: 'none', color: '#fff', borderRadius: 8,
               padding: '5px 10px', fontSize: '.9rem', fontWeight: 700, cursor: 'pointer', lineHeight: 1,
             }}>{maxi ? '⤵' : '⛶'}</button>
-          <button onClick={onClose} aria-label="Închide spațiul de lucru" style={{
+          <button type="button" onClick={onClose} aria-label="Închide spațiul de lucru" style={{
             background: 'rgba(255,255,255,.14)', border: 'none', color: '#fff', borderRadius: 8,
             padding: '5px 11px', fontSize: '.85rem', fontWeight: 700, cursor: 'pointer',
-          }}>✕ Închide</button>
+          }}>{narrow ? '✕' : '✕ Închide'}</button>
         </div>
 
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
-          padding: '7px 12px', background: '#f2f6fa', borderBottom: '1px solid #dde4ec', flexShrink: 0,
+          display: 'flex', alignItems: 'center', gap: narrow ? 4 : 6, flexWrap: narrow ? 'nowrap' : 'wrap',
+          overflowX: narrow ? 'auto' : 'visible', scrollbarWidth: 'none',
+          padding: narrow ? '6px 8px' : '7px 12px', background: '#f2f6fa', borderBottom: '1px solid #dde4ec', flexShrink: 0,
         }}>
-          <button style={toolBtn(tool === 'pen')} onClick={() => setTool('pen')} title="Scrie cu degetul sau cu creionul">✎ Scrie</button>
-          <button style={toolBtn(tool === 'eraser')} onClick={() => setTool('eraser')} title="Șterge ce ai scris">◯ Radieră</button>
-          <button style={toolBtn(tool === 'pan')} onClick={() => setTool('pan')} title="Derulează foaia fără să scrii">✋ Derulează</button>
-          <span style={{ width: 1, height: 20, background: '#cfd8e3', margin: '0 3px' }} />
-          {COLORS.map((c) => (
-            <button key={c} onClick={() => { setColor(c); setTool('pen'); }} aria-label={'Culoare ' + c}
+          {/* pe telefon: un singur rând, doar pictogramele (foaia rămâne mare) */}
+          <button type="button" style={toolBtn(tool === 'pen')} onClick={() => setTool('pen')} title="Scrie cu degetul sau cu creionul" aria-label="Scrie">{narrow ? '✎' : '✎ Scrie'}</button>
+          <button type="button" style={toolBtn(tool === 'eraser')} onClick={() => setTool('eraser')} title="Șterge ce ai scris" aria-label="Radieră">{narrow ? '◯' : '◯ Radieră'}</button>
+          <button type="button" style={toolBtn(tool === 'pan')} onClick={() => setTool('pan')} title="Trage foaia în dreapta, în stânga, în sus sau în jos (merge și cu două degete)" aria-label="Derulează">{narrow ? '✋' : '✋ Derulează'}</button>
+          {!narrow && <span style={{ width: 1, height: 20, background: '#cfd8e3', margin: '0 3px' }} />}
+          {narrow ? (
+            // o singură bulină: fiecare apăsare trece la culoarea următoare
+            <button type="button" onClick={() => { setColor(COLORS[(COLORS.indexOf(color) + 1) % COLORS.length]); setTool('pen'); }}
+              aria-label="Schimbă culoarea" title="Schimbă culoarea"
+              style={{ width: 22, height: 22, borderRadius: '50%', background: color, cursor: 'pointer', padding: 0, flexShrink: 0, border: '2px solid #fff', boxShadow: '0 0 0 1px #cfd8e3' }} />
+          ) : COLORS.map((c) => (
+            <button type="button" key={c} onClick={() => { setColor(c); setTool('pen'); }} aria-label={'Culoare ' + c}
               style={{
                 width: 22, height: 22, borderRadius: '50%', background: c, cursor: 'pointer', padding: 0,
                 border: color === c ? '3px solid var(--gold, #e8b931)' : '2px solid #fff',
                 boxShadow: '0 0 0 1px #cfd8e3',
               }} />
           ))}
-          <span style={{ width: 1, height: 20, background: '#cfd8e3', margin: '0 3px' }} />
-          <button style={toolBtn(false)} onClick={undo} title="Anulează ultimul tras">↩ Înapoi</button>
-          <button style={toolBtn(false)} onClick={clearAll} title="Foaie nouă">✕ Șterge tot</button>
-          {/* Scrisul NU se mai transformă singur: elevul apasă butonul când
-              vrea (după ce a terminat un rând, sau toată rezolvarea) */}
-          <button
-            onClick={transformaTot}
-            disabled={working || !deTransformat.length}
-            aria-busy={working || undefined}
-            title={deTransformat.length
-              ? 'Transformă în text tot ce ai scris (scrisul de mână devine text cu formule)'
-              : 'Scrie ceva pe foaie, apoi apasă aici ca să-l transformi în text'}
-            style={{
-              ...toolBtn(!!deTransformat.length && !working), marginLeft: 'auto',
-              padding: '7px 13px', fontWeight: 800,
-              ...(deTransformat.length && !working ? { boxShadow: '0 2px 8px rgba(232,185,49,.45)' } : {}),
-              ...(!deTransformat.length && !working ? { opacity: 0.6, cursor: 'default' } : {}),
-              ...(working ? { background: '#fff8e1', border: '1px solid #e8b931', color: '#8a6d00', cursor: 'progress' } : {}),
-            }}>
-            {working ? '⏳ Transform în text…' : `✨ Transformă în text${deTransformat.length ? ` (${deTransformat.length})` : ''}`}
+          {!narrow && <span style={{ width: 1, height: 20, background: '#cfd8e3', margin: '0 3px' }} />}
+          <button type="button" style={toolBtn(false)} onClick={undo} title="Anulează ultima schimbare (Ctrl+Z)" aria-label="Înapoi">{narrow ? '↩' : '↩ Înapoi'}</button>
+          <button type="button" style={toolBtn(false)} onClick={clearAll} title="Șterge tot ce ai scris (se poate anula cu ↩)" aria-label="Șterge tot">{narrow ? '🗑' : '✕ Șterge tot'}</button>
+          <button type="button" onClick={newPage}
+            title="O pagină goală, în dreapta a tot ce ai scris — te întorci trăgând foaia înapoi sau cu ◀"
+            aria-label="Pagină nouă"
+            style={{ ...toolBtn(false), marginLeft: 'auto', fontWeight: 800, color: '#12263a', borderColor: '#e8b931' }}>
+            {narrow ? '➕' : '➕ Pagină nouă'}
           </button>
         </div>
 
@@ -1136,6 +932,7 @@ export default function SpatiuDeLucru({
         {enuntText && (
           <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', borderBottom: '1px solid #dde4ec', background: '#fbfdff' }}>
             <button
+              type="button"
               onClick={toggleEnunt}
               aria-expanded={enuntOpen}
               style={{
@@ -1150,7 +947,7 @@ export default function SpatiuDeLucru({
             {enuntOpen && (
               <>
                 <div style={{
-                  height: Math.min(enuntH, Math.round(winH * ENUNT_MAX_FRAC)),
+                  height: Math.min(enuntH, Math.round(winH * enuntFrac)),
                   overflowY: 'auto', overflowX: 'auto', overscrollBehavior: 'contain', padding: '8px 12px',
                 }}>
                   <TextEnunt text={enuntText} />
@@ -1175,53 +972,39 @@ export default function SpatiuDeLucru({
         {/* ── Foaia ── */}
         {sheetJsx}
 
-        {err && (
-          <div style={{
-            background: '#fdecea', color: '#8a2b25', borderTop: '1px solid #f5c6c2',
-            padding: '7px 12px', fontSize: '.78rem', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0,
-          }}>
-            <span style={{ flex: 1 }}>{err}</span>
-            <button onClick={() => setErr(null)} aria-label="Închide eroarea"
-              style={{ background: 'none', border: '1px solid #f5c6c2', borderRadius: 7, color: '#8a2b25', padding: '2px 8px', cursor: 'pointer' }}>✕</button>
+        {(lockJsx || errJsx) && (
+          <div style={{ padding: '6px 12px 0', display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0, background: '#fff', borderTop: '1px solid #dde4ec' }}>
+            {lockJsx}
+            {errJsx}
           </div>
         )}
 
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-          padding: '9px 12px', borderTop: '1px solid #dde4ec', background: '#fff', flexShrink: 0,
+          padding: narrow ? '7px 10px 14px' : '9px 12px', borderTop: (lockJsx || errJsx) ? 'none' : '1px solid #dde4ec', background: '#fff', flexShrink: 0,
         }}>
-          {/* Fiecare buton transformă întâi ce a rămas scris de mână (la apăsare,
-              nu singur), apoi folosește textul */}
           {onCorect && (
-            <button style={{ ...actBtn, ...(!areScris || working ? { opacity: 0.6, cursor: working ? 'progress' : 'default' } : {}) }}
-              disabled={!areScris || working}
+            <button type="button" style={{ ...actBtn, ...(off ? { opacity: 0.6, cursor: busy ? 'progress' : 'default' } : {}) }}
+              disabled={off}
               onClick={() => act('corect')}
-              title="Profesorul virtual îți citește rezolvarea și îți spune unde greșești">
-              {pending === 'corect' ? '⏳ Transform și trimit…' : '🎓 Cere corectarea'}
+              title={corectTitle}>
+              {busy === 'corect' ? '⏳ Pregătesc foaia…' : `🎓 Cere corectarea${corectLocked ? ' ⭐' : ''}`}
             </button>
           )}
-          {onInsert && (
-            <button style={{ ...(areScris ? { ...ghostBtn, border: '1px solid #e8b931', color: '#8a6d00' } : ghostBtn), ...(!areScris || working ? { opacity: 0.6, cursor: working ? 'progress' : 'default' } : {}) }}
-              disabled={!areScris || working}
-              onClick={() => act('insert')}>
-              {pending === 'insert' ? '⏳ Transform…' : insertLabel}
+          {onAttach && (
+            <button type="button" style={{ ...ghostBtn, ...(off ? { opacity: 0.6, cursor: busy ? 'progress' : 'default' } : {}) }}
+              disabled={off}
+              onClick={() => act('attach')}
+              aria-label={attachLabel}
+              title={`${attachLabel} — scrisul tău pleacă la profesor ca imagine`}>
+              {busy === 'attach' ? '⏳' : (narrow && onCorect ? '📎' : attachLabel)}
             </button>
           )}
-          <button style={{ ...ghostBtn, ...(!areScris || working ? { opacity: 0.6, cursor: working ? 'progress' : 'default' } : {}) }}
-            disabled={!areScris || working}
-            onClick={() => act('copy')}
-            title="Copiază textul transformat">{pending === 'copy' ? '⏳ Transform…' : copied ? '✓ Copiat' : '📋 Copiază'}</button>
-
           <span style={{ flex: 1 }} />
-          <span style={{ fontSize: '.74rem', color: '#6b7c8f' }}>
-            {!areScris && !nBusy
-              ? 'Scrie pe foaie, apoi apasă „✨ Transformă în text".'
-              : [
-                nDone ? `${nDone} ${nDone === 1 ? 'linie transformată' : 'linii transformate'}` : null,
-                nBusy ? 'se citește…' : null,
-                asteapta.length ? `${asteapta.length} ${asteapta.length === 1 ? 'linie netransformată' : 'linii netransformate'}` : null,
-                necitite.length ? `${necitite.length} ${necitite.length === 1 ? 'necitită' : 'necitite'} (?)` : null,
-              ].filter(Boolean).join(' · ')}
+          <span style={{ fontSize: '.74rem', color: '#6b7c8f', display: narrow && (onCorect || onAttach) ? 'none' : undefined }}>
+            {hasInk
+              ? 'Mergi mai departe în dreapta: trage foaia cu ✋ sau cu două degete, ori apasă ▶ / „➕ Pagină nouă".'
+              : 'Scrie oriunde pe foaie — e albă și continuă în dreapta cât vrei.'}
           </span>
         </div>
         {/* ── Mânerele de redimensionare a ferestrei ── */}
@@ -1233,7 +1016,7 @@ export default function SpatiuDeLucru({
                 onPointerDown={(e) => startResize('e', e)} onPointerMove={moveResize}
                 onPointerUp={endResize} onPointerCancel={endResize}
                 title="Trage ca să lățești fereastra"
-                style={{ position: 'absolute', top: 44, right: 0, width: 10, bottom: 26, cursor: 'ew-resize', touchAction: 'none' }} />
+                style={{ position: 'absolute', top: 44, right: 0, width: 10, bottom: 26, cursor: 'ew-resize', touchAction: 'none', zIndex: 4 }} />
             )}
             <div
               onPointerDown={(e) => startResize('s', e)} onPointerMove={moveResize}
@@ -1241,7 +1024,7 @@ export default function SpatiuDeLucru({
               title="Trage ca să înalți fereastra"
               style={{
                 position: 'absolute', left: 26, right: 26, bottom: 0, height: narrow ? 16 : 10,
-                cursor: 'ns-resize', touchAction: 'none',
+                cursor: 'ns-resize', touchAction: 'none', zIndex: 4,
                 display: 'flex', alignItems: 'flex-end', justifyContent: 'center', paddingBottom: 3,
               }}>
               <span style={{ width: 54, height: 4, borderRadius: 4, background: '#c4cfdb' }} />
@@ -1253,15 +1036,13 @@ export default function SpatiuDeLucru({
                 title="Trage ca să redimensionezi fereastra"
                 style={{
                   position: 'absolute', right: 0, bottom: 0, width: 22, height: 22,
-                  cursor: 'nwse-resize', touchAction: 'none',
+                  cursor: 'nwse-resize', touchAction: 'none', zIndex: 4,
                   backgroundImage: 'linear-gradient(135deg, transparent 48%, #b9c9dc 48%, #b9c9dc 56%, transparent 56%, transparent 70%, #b9c9dc 70%, #b9c9dc 78%, transparent 78%)',
                 }} />
             )}
           </>
         )}
       </div>
-
-      <style>{'@keyframes sdl-spin{to{transform:rotate(360deg)}}'}</style>
     </div>
   );
 }

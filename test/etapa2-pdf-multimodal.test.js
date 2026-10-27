@@ -183,11 +183,12 @@ function fakeRes() {
   return r;
 }
 // ai-correct apelează ai.* prin obiectul modulului → le înlocuim pe durata testului
-function stubAuth(t) {
+function stubAuth(t, { premium = false } = {}) {
   const saved = {};
   const patch = (k, v) => { saved[k] = ai[k]; ai[k] = v; };
   patch('authUser', async () => 'u-1');
-  patch('requireUser', async () => ({ id: 'u-1', is_admin: false, plan: 'premium' }));
+  // corectarea după POZE e în Premium (27 oct. 2026) → profilul cu abonament activ
+  patch('requireUser', async () => ({ id: 'u-1', is_admin: false, plan: 'premium', subscription_status: premium ? 'active' : null }));
   patch('enforceRateLimit', async () => ({ degraded: false }));
   patch('enforceFreeQuota', async () => {});
   patch('enforceFeatureQuota', async () => {});
@@ -204,7 +205,9 @@ const ITEMS = [
 ];
 
 test('grade cu poze: mesaj multimodal (text + image_url), pozele invalide sunt filtrate, cerința rezolvată doar în poză primește punctele', async (t) => {
-  stubAuth(t);
+  // fără cheia Anthropic (ca aici), corectorul (api/_lib/corector.js) lucrează cu
+  // modelul de vedere al platformei, prin furnizorul compatibil OpenAI
+  stubAuth(t, { premium: true });
   const calls = fakeLLM(() => JSON.stringify({
     items: [
       { id: 'ex1', puncte: 10, verdict: 'corect', explicatie: 'Corect, $x=3$.', tema: 'ecuații' },
@@ -222,11 +225,13 @@ test('grade cu poze: mesaj multimodal (text + image_url), pozele invalide sunt f
   const res = fakeRes();
   await correct(req, res);
   assert.strictEqual(res.statusCode, 200, JSON.stringify(res.body));
-  // mesajul către model: text + 3 poze, detail high
+  // mesajul către model: 3 poze (detail high, fiecare cu eticheta ei) + textul
+  assert.strictEqual(calls[0].model, ai.VISION_MODEL);
   const user = calls[0].messages.find((m) => m.role === 'user');
   assert.ok(Array.isArray(user.content));
-  assert.strictEqual(user.content[0].type, 'text');
-  assert.match(user.content[0].text, /POZE CU REZOLVAREA SCRISĂ DE MÂNĂ \(3\)/);
+  const texts = user.content.filter((p) => p.type === 'text').map((p) => p.text);
+  assert.ok(texts.some((x) => /POZE CU REZOLVAREA SCRISĂ DE MÂNĂ \(3\)/.test(x)));
+  assert.ok(texts.some((x) => /^Poza 1 din 3/.test(x)));
   const imgs = user.content.filter((p) => p.type === 'image_url');
   assert.strictEqual(imgs.length, 3);
   assert.ok(imgs.every((p) => p.image_url.url === PNG && p.image_url.detail === 'high'));
@@ -237,6 +242,17 @@ test('grade cu poze: mesaj multimodal (text + image_url), pozele invalide sunt f
   assert.strictEqual(byId.ex3.verdict, 'necompletat'); assert.strictEqual(byId.ex3.puncte, 0); assert.strictEqual(byId.ex3.answered, false);
   assert.strictEqual(res.body.score, 16);
   assert.strictEqual(res.body.maxScore, 30);
+});
+
+test('grade cu poze FĂRĂ Premium → 402 (corectarea după poze e în abonament), fără apel la model', async (t) => {
+  stubAuth(t, { premium: false });
+  const calls = fakeLLM(() => '{}');
+  const token = correct.signForm({ items: ITEMS, contentId: null, testText: TEST_TEXT, hasBarem: false, total: 30, oficiu: 0 });
+  const res = fakeRes();
+  await correct({ method: 'POST', headers: {}, body: { action: 'grade', token, items: ITEMS, testText: TEST_TEXT, answers: { ex1: 'x = 3' }, images: [PNG] } }, res);
+  assert.strictEqual(res.statusCode, 402);
+  assert.strictEqual(res.body.code, 'PREMIUM_REQUIRED');
+  assert.strictEqual(calls.length, 0);
 });
 
 test('grade: fără poze, mesajul rămâne text simplu și cerințele goale sunt necompletate chiar dacă modelul le punctează', async (t) => {

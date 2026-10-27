@@ -2,7 +2,7 @@
 //  · în bara de sus, „📋 Barem" (deschide baremul asociat, în locul subiectelor)
 //    stă unde era „✍️ Spațiu de lucru";
 //  · „✍️ Spațiu de lucru" e acum în antetul Profesorului Virtual și se deschide
-//    ÎN zona de conversație: foaie goală, cu fundalul conversației, fără linii.
+//    ÎN zona de conversație: foaie ALBĂ, fără linii (27 oct.: și în fereastră).
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -38,18 +38,17 @@ test('PDF: „✍️ Spațiu de lucru" e în antetul profesorului și se deschid
   const chat = read('src/components/AITutor.jsx');
   assert.match(chat, /const wsOpen = !!\(workspace && workspace\.open\) && !boardMode;/);
   assert.match(chat, /\{wsOpen \? \(\s*<SpatiuDeLucru\s+embedded/);
-  // în testul pe grupă rămâne doar ciorna (+ „📋 Copiază")
-  assert.match(chat, /onInsert=\{testActiv \? null :/);
+  // în testul pe grupă rămâne doar ciorna (fără corectare și fără atașare)
+  assert.match(chat, /onAttach=\{testActiv \? null : attachToQuestion\}/);
   assert.match(chat, /onCorect=\{testActiv \? null :/);
 });
 
-test('caietul din zona de conversație: fundalul conversației, fără linii și fără margine', () => {
+test('caietul din zona de conversație: foaie ALBĂ, fără linii și fără margine (ca și fereastra)', () => {
   const src = read('src/components/SpatiuDeLucru.jsx');
-  const chat = read('src/components/AITutor.jsx');
-  assert.match(src, /const ZONE_BG = '#f7f9fc';/);
-  assert.match(chat, /background: '#f7f9fc'/, 'zona de conversație are același fundal');
-  // liniile (gradientul repetat) și marginea roșie rămân doar în fereastră
-  assert.match(src, /\{!embedded && \(\s*<>\s*<div aria-hidden style=\{\{\s*position: 'absolute', inset: 0,\s*backgroundImage: `repeating-linear-gradient/);
-  assert.match(src, /background: embedded \? ZONE_BG : '#fdfdf8'/);
+  assert.match(src, /export const SHEET_BG = '#ffffff';/);
+  // liniile (gradientul repetat) și marginea roșie au dispărut cu totul
+  assert.doesNotMatch(src, /repeating-linear-gradient/);
+  assert.doesNotMatch(src, /#f0c9c9/);
   assert.match(src, /if \(embedded\) \{/);
+  assert.match(src, /aria-label="Spațiu de lucru" style=\{\{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative', background: SHEET_BG \}\}/);
 });

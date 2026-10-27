@@ -25,6 +25,7 @@
 //                       items, answers, durationSec?, meditatii? }
 // =====================================================================
 const ai = require('./_lib/ai');
+const corector = require('./_lib/corector'); // pozele cu rezolvarea scrisă de mână → corectorul competent (Premium)
 const med = require('./_lib/meditatii');
 const { pageRenderer, toPdfData } = require('./_lib/pdftext');
 const { docxText } = require('./_lib/docxtext'); // textul dintr-un .docx (fișa de lucru Word)
@@ -520,6 +521,17 @@ async function grade(req, res, supa, userId, lim, profile) {
   } = req.body || {};
   const photos = (Array.isArray(images) ? images : []).filter((u) => typeof u === 'string' && /^data:image\/(jpeg|png|webp);base64,/.test(u) && u.length <= 2_200_000).slice(0, 3);
 
+  // 0) CORECTAREA DUPĂ POZE (rezolvarea scrisă de mână, fotografiată sau din
+  //    „✍️ Spațiu de lucru") face parte din abonamentul Premium: o citește și o
+  //    punctează corectorul competent (api/_lib/corector.js), nu modelul de chat.
+  //    Răspunsurile TASTATE rămân ca până acum (și în acțiunile gratuite).
+  if (photos.length && !ai.isPremium(profile)) {
+    return res.status(402).json({
+      error: 'Corectarea după poze (rezolvarea scrisă de mână) face parte din abonamentul Premium. Poți corecta gratuit răspunsurile tastate în formular.',
+      code: 'PREMIUM_REQUIRED',
+    });
+  }
+
   // 1) formularul trebuie să fie cel semnat de server (id-uri + puncte + sursă)
   const contentId = context.contentId || null;
   const signed = verifyForm(token, { items, contentId, testText: bodyTestText });
@@ -569,29 +581,48 @@ ${hasBarem ? `- BAREMUL este SINGURA sursă a punctajului: pentru fiecare cerin�
 - REDACTARE: în stringurile JSON, comenzile LaTeX se scriu cu backslash DUBLAT ("$\\\\frac{30}{100} \\\\cdot 500 = 150$", "$\\\\sqrt{3x+6}$") — altfel se pierd la parsare. Nu pune ** sau alte marcaje în interiorul formulelor $...$.
 Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"verdict":"corect|partial|gresit|necompletat","explicatie":"...","tema":"..."}],"feedback":"..."} — cu EXACT un element pentru FIECARE cerință primită, cu id-ul ei neschimbat.`;
 
-  const userText = `TESTUL${title ? ` „${title}"` : ''}:\n"""${String(testText || '').slice(0, MAX_TEXT)}"""\n\n${hasBarem ? `BAREMUL OFICIAL:\n"""${String(baremText).slice(0, MAX_TEXT)}"""\n\n` : ''}RĂSPUNSURILE ELEVULUI (corectează fiecare cerință):\n${listing}${photos.length ? `\n\nPOZE CU REZOLVAREA SCRISĂ DE MÂNĂ (${photos.length}): citește pașii și rezultatele din imagini pentru FIECARE cerință; punctezi și ce e scris în poze (metodă, calcule, rezultat), ca un profesor corector. Dacă pentru o cerință există și text tastat, și rezolvare în poză, le iei împreună; textul tastat are prioritate la rezultatul final dacă diferă. O cerință cu rezolvare DOAR în poză NU este „necompletată".` : ''}`;
-  // mesaj multimodal: text + pozele (format OpenAI image_url); fără poze → doar text
-  const user = photos.length
-    ? [{ type: 'text', text: userText }, ...photos.map((u) => ({ type: 'image_url', image_url: { url: u, detail: 'high' } }))]
-    : userText;
+  const userText = `TESTUL${title ? ` „${title}"` : ''}:\n"""${String(testText || '').slice(0, MAX_TEXT)}"""\n\n${hasBarem ? `BAREMUL OFICIAL:\n"""${String(baremText).slice(0, MAX_TEXT)}"""\n\n` : ''}RĂSPUNSURILE ELEVULUI (corectează fiecare cerință):\n${listing}${photos.length ? `\n\nPOZE CU REZOLVAREA SCRISĂ DE MÂNĂ (${photos.length}): citește pașii și rezultatele din imagini pentru FIECARE cerință; punctezi și ce e scris în poze (metodă, calcule, rezultat), ca un profesor corector. Scrisul poate fi urât: descifrează cifrele și semnele ambigue (1/7, 4/9, 0/6, x/×, virgula zecimală, minusul față de bara de fracție) din context — enunțul, baremul, firul calculului —, dar punctezi ce a scris ELEVUL, nu ce ar fi trebuit să scrie; ce nu se poate citi deloc nu se punctează. Dacă pentru o cerință există și text tastat, și rezolvare în poză, le iei împreună; textul tastat are prioritate la rezultatul final dacă diferă. O cerință cu rezolvare DOAR în poză NU este „necompletată".` : ''}`;
 
   const maxTokens = Math.min(7000, 900 + leaves.length * 220);
-  const gradeModel = ai.pickModel(hasBarem ? ai.PDF_MODEL : ai.GEN_MODEL, lim); // peste bugetul zilnic → model standard
   let parsed = null;
-  try {
-    // schemă strictă: verdictele din enum, punctele numere; chatJson reîncearcă
-    // singur o dată dacă răspunsul nu e JSON valid
-    const r = await ai.chatJson({
-      system, messages: [{ role: 'user', content: user }],
-      temperature: 0.1, maxTokens, model: gradeModel,
-      schema: GRADE_SCHEMA, schemaName: 'corectare_lucrare',
-      restoreLatex: false, // cleanMath de mai jos face reparația LaTeX
-    });
-    parsed = r.data;
-    await ai.logUsage(supa, userId, 'ai-correct:grade', r.usage);
-  } catch (e) {
-    if (e.usage) await ai.logUsage(supa, userId, 'ai-correct:grade', e.usage);
-    if (e.status !== 502) throw e;
+  if (photos.length) {
+    // CU POZE → corectorul competent la scris de mână (implicit Claude Opus 5.5,
+    // cu rezervă GPT-5.6 Terra) — vezi api/_lib/corector.js. Doar corectarea
+    // reușită se numără în cota lunară („ai-correct:grade"); o încercare eșuată
+    // înainte de rezervă intră doar în credite.
+    try {
+      const r = await corector.correctJson({
+        system, text: userText, images: photos,
+        labels: photos.length > 1 ? photos.map((_, i) => `Poza ${i + 1} din ${photos.length} cu rezolvarea scrisă de mână:`) : null,
+        schema: GRADE_SCHEMA, schemaName: 'corectare_lucrare',
+        maxTokens: Math.min(12000, maxTokens + 3000), lim,
+      });
+      parsed = r.data;
+      for (let i = 0; i < r.usages.length; i++) {
+        await ai.logUsage(supa, userId, i === r.usages.length - 1 ? 'ai-correct:grade' : 'ai-correct:retry', r.usages[i]);
+      }
+    } catch (e) {
+      for (const u of (e && e.usages) || []) await ai.logUsage(supa, userId, 'ai-correct:retry', u);
+      console.error('ai-correct: corectorul (poze) a eșuat:', e && e.message);
+      if (e && e.status === 429) throw e;
+    }
+  } else {
+    const gradeModel = ai.pickModel(hasBarem ? ai.PDF_MODEL : ai.GEN_MODEL, lim); // peste bugetul zilnic → model standard
+    try {
+      // schemă strictă: verdictele din enum, punctele numere; chatJson reîncearcă
+      // singur o dată dacă răspunsul nu e JSON valid
+      const r = await ai.chatJson({
+        system, messages: [{ role: 'user', content: userText }],
+        temperature: 0.1, maxTokens, model: gradeModel,
+        schema: GRADE_SCHEMA, schemaName: 'corectare_lucrare',
+        restoreLatex: false, // cleanMath de mai jos face reparația LaTeX
+      });
+      parsed = r.data;
+      await ai.logUsage(supa, userId, 'ai-correct:grade', r.usage);
+    } catch (e) {
+      if (e.usage) await ai.logUsage(supa, userId, 'ai-correct:grade', e.usage);
+      if (e.status !== 502) throw e;
+    }
   }
   if (!parsed || !Array.isArray(parsed.items)) {
     return res.status(502).json({ error: 'Corectarea nu a reușit (răspuns invalid). Mai încearcă o dată.' });

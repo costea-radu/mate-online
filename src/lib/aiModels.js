@@ -12,6 +12,7 @@ export const AI_MODELS = [
   { id: 'claude-opus-5-5',   label: 'Opus 5.5',   hint: 'generația curentă Opus (4/20 $ pe milion de tokeni) — recomandat pentru verificarea matematicii și pentru cod' },
   { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', hint: 'generația curentă Sonnet (2/10 $) — rapid și ieftin, bun pentru o primă trecere pe multe materiale' },
   { id: 'claude-fable-5-1',  label: 'Fable 5.1',  hint: 'cel mai capabil model public (10/50 $) — pentru cazurile cele mai grele' },
+  { id: 'claude-haiku-5-5',  label: 'Haiku 5.5',  hint: 'generația curentă Haiku (0,10/0,50 $ sub 100k tokeni) — cel mai ieftin, pentru sarcini simple' },
   { id: 'claude-sonnet-5',   label: 'Sonnet 5',   hint: 'rapid și echilibrat — recomandat pentru sarcinile de zi cu zi' },
   { id: 'claude-fable-5',    label: 'Fable 5',    hint: 'cel mai nou și mai capabil model Anthropic (iunie 2026) — cel mai scump' },
   { id: 'claude-haiku-4-5',  label: 'Haiku 4.5',  hint: 'cel mai rapid și mai ieftin — pentru sarcini simple (atenție la calcule)' },
@@ -57,9 +58,12 @@ export const AI_STACK = {
     furnizor: 'OpenAI',
     modele: ['GPT-4o mini', 'GPT-5 mini', 'GPT-5.6 Terra', 'GPT-5.6 Sol'],
     furnizorAnthropic: 'Anthropic',
-    modeleAnthropic: ['Claude Opus 5.5'],
+    modeleAnthropic: ['Claude Opus 5.5', 'Claude Sonnet 5.5'],
     furnizori: 'OpenAI și Anthropic',
-    descriere: 'GPT-4o mini răspunde rapid în chat; GPT-5 mini preia explicațiile pas cu pas — rezolvările comentate, indiciile și „explică-mi din nou"; GPT-5.6 Terra și GPT-5.6 Sol preiau sarcinile care cer precizie maximă — citirea subiectelor PDF, citirea pozelor cu exerciții, corectarea după barem, generarea de teste și exerciții. Claude Opus 5.5, de la Anthropic, generează seturile de exerciții din „Meditații cu Profesorul Virtual" și scrie lecțiile meditațiilor live (explicațiile pe baremul oficial; când nu e disponibil, le scrie GPT-5 mini).',
+    // corectorul scrisului de mână (api/_lib/corector.js → AI_CORECTOR_MODEL):
+    // apare și în disclaimerul de sub chat, unde se afișează corectarea
+    corector: 'Claude Opus 5.5',
+    descriere: 'GPT-4o mini răspunde rapid în chat; GPT-5 mini preia explicațiile pas cu pas — rezolvările comentate, indiciile și „explică-mi din nou"; GPT-5.6 Terra și GPT-5.6 Sol preiau sarcinile care cer precizie maximă — citirea subiectelor PDF, citirea pozelor cu exerciții, corectarea răspunsurilor tastate după barem, generarea de teste și exerciții. Claude Opus 5.5, de la Anthropic, generează seturile de exerciții din „Meditații cu Profesorul Virtual", scrie lecțiile meditațiilor live (explicațiile pe baremul oficial; când nu e disponibil, le scrie GPT-5 mini) și citește și corectează rezolvările SCRISE DE MÂNĂ — din „✍️ Spațiu de lucru" și din pozele cu rezolvarea —, strict după barem (în zilele cu consum mare, Claude Sonnet 5.5; dacă Claude nu răspunde, GPT-5.6 Terra).',
   },
   // Anthropic (Claude): (a) uneltele administrative interne ale echipei și
   // (b) GENERAREA seturilor de exerciții din „Meditații cu Profesorul Virtual"
@@ -75,7 +79,7 @@ export const AI_STACK = {
   intern: {
     furnizor: 'Anthropic',
     modele: ['Claude Opus 5.5', 'Claude Fable 5'],
-    descriere: 'Folosite în două locuri: (1) uneltele administrative ale echipei ExamenMate — generarea și verificarea testelor și exercițiilor din biblioteca site-ului, articolele, optimizările paginilor; (2) generarea seturilor de exerciții din „Meditații cu Profesorul Virtual" — aceasta este o funcție pentru tine, nu una internă, și rulează pe Claude Opus 5.5 (tot el scrie și lecțiile meditațiilor live, din subiectele și baremele oficiale, fără date despre elevi). La exercițiile de remediere, modelul primește și exercițiul greșit împreună cu răspunsul dat de elev, ca să genereze exerciții de același tip. Nu primește numele, e-mailul sau alte date care te identifică, iar datele trimise prin API nu sunt folosite la antrenarea modelelor.',
+    descriere: 'Folosite în trei locuri: (1) uneltele administrative ale echipei ExamenMate — generarea și verificarea testelor și exercițiilor din biblioteca site-ului, articolele, optimizările paginilor; (2) generarea seturilor de exerciții din „Meditații cu Profesorul Virtual" — aceasta este o funcție pentru tine, nu una internă, și rulează pe Claude Opus 5.5 (tot el scrie și lecțiile meditațiilor live, din subiectele și baremele oficiale, fără date despre elevi); (3) corectarea rezolvărilor scrise de mână pe care le trimiți la corectare (din „✍️ Spațiu de lucru" sau ca poze în formularul de răspuns) — tot o funcție pentru tine: modelul primește imaginea rezolvării, enunțul și baremul exercițiului. La exercițiile de remediere, modelul primește și exercițiul greșit împreună cu răspunsul dat de elev, ca să genereze exerciții de același tip. Nu primește numele, e-mailul sau alte date care te identifică, iar datele trimise prin API nu sunt folosite la antrenarea modelelor.',
   },
 };
 
@@ -86,9 +90,11 @@ export const AI_STACK_CLIENTI_MODELE = [
   ...AI_STACK.clienti.modeleAnthropic,
 ];
 
-// Linie scurtă pentru CHAT (disclaimerul de sub caseta de scris): doar
-// modelele OpenAI — chatul nu trece prin Anthropic.
+// Linie scurtă pentru CHAT (disclaimerul de sub caseta de scris): modelele
+// OpenAI ale conversației — întrebările din chat nu trec prin Anthropic.
 // „OpenAI GPT-4o mini · GPT-5 mini · GPT-5.6 Terra · GPT-5.6 Sol"
+// (corectarea scrisului de mână, afișată tot în chat, e menționată separat —
+// AI_STACK.clienti.corector — în disclaimer, vezi AIPoweredBy.jsx)
 export const AI_STACK_SCURT = `${AI_STACK.clienti.furnizor} ${AI_STACK.clienti.modele.join(' · ')}`;
 
 // Linie scurtă pentru PLATFORMĂ (Prețuri, Despre noi): include și modelul

@@ -1,175 +1,177 @@
-# Ghid: „✍️ Spațiu de lucru" — caietul digital
+# Ghid: „✍️ Spațiu de lucru" — foaia albă care continuă în dreapta
 
-Elevul scrie rezolvarea cu **degetul sau cu creionul**, pe o foaie cu linii.
-Scrisul rămâne **scris de mână** cât timp vrea el — **nimic nu se transformă
-singur**. Abia când apasă **„✨ Transformă în text"**, liniile scrise devin
-text frumos, randat cu KaTeX, chiar în locul cernelii: fracții, radicali,
-integrale, sume, limite, unghiuri, grade — tot ce se scrie la matematică.
+Elevul scrie rezolvarea cu **degetul sau cu creionul**, pe o **foaie albă, fără
+linii**, care **nu se termină**: merge mai departe în dreapta (sau în jos) cât
+vrea, ca pe tabla interactivă din clasă.
 
-Dacă scrie din nou peste o linie deja transformată, textul dispare, revine
-cerneala și linia se recunoaște iar, întreagă, la următoarea apăsare a
-butonului. Nimic nu se pierde.
-
-> **Schimbare (runda 11):** până acum fiecare linie pleca singură la
-> recunoaștere la ~1,3 s după ce elevul ridica mâna (cu un comutator
-> „✨ Automat: pornit/oprit"). Acum transformarea se face **doar la apăsarea
-> unui buton** — comutatorul a dispărut.
+Scrisul **rămâne scris de mână**. Butonul „✨ Transformă în text" a fost **scos**
+(27 octombrie 2026): citea greșit scrisul urât, iar corectarea pornea de la un
+text deja stricat. Acum „🎓 Cere corectarea" trimite **chiar scrisul** — imaginea
+foii — **corectorului**: un model de vedere competent (implicit **Claude Opus
+5.5**) îl citește și îl corectează într-un singur pas, **strict după barem**,
+unde există. Corectarea face parte din **Premium**.
 
 ---
 
-## Unde apare butonul
+## Unde apare
 
-| Loc | Cum se deschide | Ce poate face cu textul |
+| Loc | Cum se deschide | Ce se poate face cu scrisul |
 |---|---|---|
-| **Exerciții interactive** (iframe) | „✍️ Spațiu de lucru" în bara de sus **și** pe fiecare pas / grilă (injectat de `tutorBridge.js`) | `✓ Pune în răspuns` scrie în câmpul pasului curent · `🎓 Cere corectarea` deschide Profesorul Virtual |
-| **Vizualizator PDF** | „✍️ Spațiu de lucru" în **antetul Profesorului Virtual** (panoul de lângă PDF); se deschide **în zona de conversație** — vezi mai jos | `🎓 Cere corectarea` · `✓ Pune în întrebare` · `📋 Copiază` |
-| **Tabla din „Planul meu"** (conversația cu Prof. Tudor) | butonul `✍️` din bara de scris, lângă 📷 și 🎤 | `✓ Pune în întrebare` · `🎓 Cere corectarea` |
-| **Formularul „📝 Răspunde în chat"** (tot la tabla din „Planul meu") | „✍️ Spațiu de lucru" sub fiecare cerință | `✓ Pune în răspuns` completează exact acea cerință |
+| **Exerciții interactive** (iframe) | „✍️ Spațiu de lucru" în bara de sus **și** pe fiecare pas / grilă (injectat de `tutorBridge.js`) — fereastră peste exercițiu | `🎓 Cere corectarea`: se deschide Profesorul Virtual, iar corectarea apare acolo (rezolvarea oficială a exercițiului ține loc de barem) |
+| **Vizualizatorul PDF** | „✍️ Spațiu de lucru" în **antetul Profesorului Virtual** — foaia ia locul conversației | `🎓 Cere corectarea` (testul + baremul asociat, citite de pe server) · `📎 Pune în întrebare` |
+| **Tabla din „Planul meu"** | butonul `✍️` din bara de scris, lângă 📷 și 🎤 | `🎓 Cere corectarea` · `📎 Pune în întrebare` |
+| **Formularul „📝 Răspunde în chat"** (tot la tabla din „Planul meu") | „✍️ Spațiu de lucru" sub fiecare cerință | `📎 Atașează la răspuns` → foaia intră la „📷 Poze cu rezolvarea"; o punctează „✅ Corectează" |
+| **Sala meditațiilor live / Pregătirea de examen** | „✍️ Caietul meu" din meniu | doar ciornă (fără AI) |
 
-Din **widgetul plutitor** (Prof. Virtual) caietul a fost scos: acolo nu mai apar nici
-butonul `✍️` din bara de scris, nici „✍️ Spațiu de lucru" din formularul de răspuns.
+Din **widgetul plutitor** caietul a fost scos mai demult (paginile cu exerciții au caietul lor).
+În **testul pe grupă** / **duel** rămâne doar ciorna: fără corectare și fără atașare.
 
-### În zona de conversație (vizualizatorul PDF) — din 23 octombrie 2026
-
-În bara de sus a PDF-ului, locul butonului l-a luat **„📋 Barem"** (deschide baremul
-asociat, în locul subiectelor). „✍️ Spațiu de lucru" stă acum în antetul panoului
-Profesorului Virtual și **nu mai deschide o fereastră**: foaia ia locul conversației.
-
-- Arată ca **zona goală de conversație**: același fundal (`#f7f9fc`), **fără linii**,
-  fără margine roșie, fără enunț deasupra (PDF-ul e oricum alături).
-- Sus, în locul barei „＋ Conversație nouă · Voce · Istoric", e rândul de unelte:
-  `✎` `◯` `✋` · culoarea (pe telefon o bulină care trece la următoarea) · `↩` `🗑` ·
-  `✨ Transformă (n)`. Pe un panou lat, uneltele au și text.
-- Jos, plutitoare, după ce elevul scrie: `🎓 Cere corectarea` · `✓ Pune în întrebare`
-  (textul intră în câmpul de întrebare de dedesubt) · `📋`. Primele două închid foaia,
-  ca să se vadă conversația. „?"-ul liniei necitite stă la capătul liniei.
-- **Mărimea** o dă panoul: pe telefon se trage de bara albastră a panoului, ca până acum
-  (foaia urmează); pe desktop panoul se lățește singur cât e deschisă foaia și revine
-  la închidere. Butonul din antet devine `💬 Conversația` (înapoi la chat).
-- Ciorna e aceeași ca în fereastra veche (`sdl2:pdf:<id>`) — nimic nu s-a pierdut.
-- În **testul pe grupă** / duel: rămâne doar ciorna și `📋` (fără corectare, fără întrebare).
-- Elevul neautentificat nu vede butonul (panoul îi cere autentificarea).
-
-În **testul pe grupă** caietul rămâne deschis (e ciorna elevului), dar
-`🎓 Cere corectarea` dispare — ajutorul de la AI rămâne blocat, ca până acum.
+„✓ Pune în răspuns" (scria textul transformat în câmpul pasului) și „📋 Copiază" au
+plecat odată cu transformarea în text: răspunsul final se scrie în câmpul pasului, ca
+înainte, iar în chat scrisul pleacă **ca imagine** („📎").
 
 ---
 
-## Butoanele
+## Foaia
 
-| Buton | Ce face |
+- **Albă și fără linii peste tot** — și în fereastră, și în zona de conversație
+  (`SHEET_BG = '#ffffff'`). Fără marginea roșie de caiet.
+- **Nu se termină.** Zona derulabilă are mereu **cu un ecran gol mai mult** decât tot
+  ce s-a scris și decât poziția curentă — cât elevul trage foaia spre stânga, ea crește
+  odată cu el; când se întoarce, se strânge la loc (dar niciodată sub poziția lui).
+- **Paginile** au lățimea zonei vizibile și stau una lângă alta. Jos, în stânga:
+  `◀ 2/3 ▶ ⟲` — pagina pe care o vezi / câte ai scris; ◀ ▶ sar exact la pagina vecină,
+  ⟲ duce la începutul foii.
+- **„➕ Pagină nouă"** (în bara de unelte) duce la **prima pagină goală din dreapta** a tot
+  ce s-a scris, de sus. Te întorci trăgând foaia înapoi sau cu ◀.
+
+### Cum se trage foaia
+
+| Cu ce | Cum |
 |---|---|
-| `✨ Transformă în text (n)` — în bara de unelte, în dreapta | transformă tot ce e scris și netransformat (**n** = câte linii). Reîncearcă și liniile pe care nu le-a putut citi data trecută. E inactiv cât nu e nimic de transformat; cât lucrează scrie `⏳ Transform în text…` |
-| `🎓 Cere corectarea` · `✓ Pune în răspuns` · `📋 Copiază` — jos | transformă **întâi** ce a rămas netransformat (tot la apăsare, nu singur), apoi folosesc textul. Cât se transformă, butonul apăsat scrie `⏳ Transform…` |
+| ✋ **Derulează** | pe telefon: derularea nativă (lină, cu inerție); cu mouse-ul: tragi foaia în orice direcție |
+| **Două degete** | în **orice** unealtă (și cât scrii) — ca pe tabla interactivă; trasul abia început cu primul deget se anulează |
+| **Rotița** | sus/jos; **Shift + rotița** = lateral; pe touchpad, glisarea laterală merge direct |
+| **Rotița apăsată** (butonul din mijloc) | tragi foaia, oricare unealtă e aleasă |
+| **Bara de derulare**, **◀ ▶**, **➕ Pagină nouă**, **⟲** | vezi mai sus |
 
-**Linie necitită.** Dacă modelul nu poate citi o linie, ea rămâne cerneală,
-cu un **„?"** roșu în margine, iar în subsol apare „1 necitită (?)". La
-`🎓 Cere corectarea` / `✓ Pune în răspuns`, elevul e avertizat **o dată**
-(„O linie n-am putut-o citi…") — ca să nu trimită rezolvarea pe jumătate fără
-să știe. Poate rescrie linia și apăsa `✨ Transformă în text`, sau apasă din
-nou butonul și se folosește doar textul citit.
+### Uneltele
 
-În subsol se vede mereu starea foii: „2 linii transformate · 1 linie
-netransformată · 1 necitită (?)"; pe foaia goală: „Scrie pe foaie, apoi apasă
-„✨ Transformă în text"".
+`✎ Scrie` · `◯ Radieră` (șterge traseele atinse; și capătul-radieră al creionului) ·
+`✋ Derulează` · 4 culori (pe ecran îngust, o bulină care trece la următoarea) ·
+`↩ Înapoi` (anulează și radiera, și „Șterge tot"; **Ctrl+Z**) · `✕ Șterge tot`.
+Creionul (stylus) pornește **respingerea palmei**: din acel moment atingerile cu degetul
+nu mai scriu (două degete tot derulează). Traseele sunt netede (punctele intermediare
+ale creionului — `getCoalescedEvents`).
+
+### Fereastra (exerciții interactive, „Planul meu", sala live)
+
+Mărimea o alege elevul și rămâne așa (`localStorage`, `sdl:fereastra`): pe calculator
+trage de colț / margini, pe telefon de bara de jos; `⛶` sau dublu-clic pe antet = tot
+ecranul. **Enunțul** (curat, fără răspunsuri — `collectEnunt()`, plus plasa `cleanEnunt`)
+stă într-un panou pliabil deasupra foii. **Pe telefon** fereastra se strânge: unelte doar
+cu pictograme, pe un rând; enunțul ocupă cel mult 24% din fereastră; îndrumarea din
+subsol dispare — foaia rămâne mare (pe un iPhone SE: ~180 px în loc de 45).
+
+### În zona de conversație (vizualizatorul PDF)
+
+Foaia ia locul mesajelor; sus, rândul de unelte în stilul barei chatului; jos,
+plutitoare (după ce scrii), `🎓 Cere corectarea` · `📎 Pune în întrebare`. **Mărimea o
+dă panoul** — și rămâne redimensionarea de până acum: pe telefon se trage de bara
+albastră, pe calculator panoul se lățește singur cât e deschisă foaia (și revine la
+închidere, dacă între timp nu l-ai lățit tu, trăgând de margine — vezi mai jos).
+
+### Ciorna
+
+Locală, în browser: `localStorage`, cheia `sdl2:<cheie>` (aceleași chei ca înainte:
+`pdf:<id>`, `ex:<id>`, `chat:…`, `live:<sesiune>`, `pregatire:<poziție>`), cu **poziția pe
+foaie**. Se salvează la fiecare traseu și la închiderea paginii. Ciornele vechi (cu
+liniile „transformate") se citesc la fel — aceleași coordonate.
 
 ---
 
-## Fereastra și enunțul
-
-**Mărimea** o alege elevul și rămâne așa și data viitoare (`localStorage`,
-cheia `sdl:fereastra`):
-
-| Unde | Cum |
-|---|---|
-| Desktop | trage de colțul din dreapta-jos, de marginea dreaptă sau de cea de jos |
-| Telefon | trage de bara de jos (lățimea rămâne cât ecranul) |
-| Oriunde | butonul `⛶` din antet, sau dublu-clic pe antet — pe tot ecranul și înapoi |
-
-**Enunțul exercițiului** stă într-un panou pliabil, deasupra foii, randat cu
-KaTeX. Se pliază din antetul lui, iar înălțimea se trage de mânerul de sub el
-(până la 55% din fereastră). Și pliatul, și înălțimea se țin minte.
-
-> **Atenție la ce se afișează.** `payload.text` din bridge (cel care merge la
-> model) conține **răspunsurile corecte** și indicațiile oficiale, marcate
-> „dezvăluie DOAR dacă elevul îl cere". Panoul NU-l folosește: primește
-> `payload.enunt`, construit de `collectEnunt()` din enunț, cerințe și variante,
-> fără nimic din ce ar da răspunsul. În plus, componenta mai taie o dată
-> marcajele (`cleanEnunt`), ca plasă de siguranță — dacă adăugi alt loc de unde
-> se deschide caietul, **nu** trece `hint` și în `enunt`.
-
----
-
-## Cum funcționează, pe scurt
+## Corectarea („🎓 Cere corectarea")
 
 ```
-degetul/creionul → trasee pe canvas → grupate în LINII (geometric, vezi mai jos)
-   ↓ elevul apasă „✨ Transformă în text" (sau un buton de jos)
-liniile netransformate → rasterizate alb-negru → stivuite într-O SINGURĂ
-imagine, numerotate 1., 2., 3. și despărțite de o bară (câte 4 pe cerere)
+foaia (trasee SVG) → exportSheet (src/lib/foaie.js)
+   · dale ≤ 2000 × 1800 px, la mărimea reală a scrisului, suprapuse 80 px
+   · golurile mari dintre pagini se strâng (compactGaps), max 6 dale
+   · miniatura ≤ 16 KB pentru conversație
    ↓
-POST /api/ai-handwriting  { imageBase64, count, hint, prev }
-   ↓ ai.chatVision (model de vedere) → JSON
-{ "lines": [ { "i": 1, "latex": "\\frac{-b\\pm\\sqrt{b^2-4ac}}{2a}" } ] }
-   ↓
-KaTeX randează linia peste cerneală (\displaystyle — mărimea de pe caiet)
+POST /api/ai-handwriting { action:'correct', images, grid, thumb, conversationId,
+                           context:{ pdf, contentId, category, title }, exerciseText }
+   ↓ Premium? test pe grupă? cota „scris"? limitele + creditele
+   ↓ baremul: PDF → testul + baremul DE PE SERVER (ai_pdf_text)
+   ↓          interactiv → rezolvarea oficială (răspunsuri + indicații) — nedezvăluită
+   ↓          altfel → doar enunțul (fără puncte)
+corector (api/_lib/corector.js) — Claude Opus 5.5, imaginile ÎNAINTEA textului,
+   gândire adaptivă (efort „low"), JSON pe schemă, fără cache (apel unic)
+   ↓ rezervă: GPT-5.6 Terra (cheie lipsă / pană / răspuns stricat)
+{ transcriere, itemi:[{ eticheta, verdict, puncte, puncte_max, pasi, motiv_punctaj }], feedback, sfat }
+   ↓ punctele ținute în [0, maxim], verdictul aliniat cu punctajul
+mesajul profesorului în conversație (+ salvat în ai_messages, cu miniatura foii)
 ```
 
-**De ce o singură imagine pentru mai multe linii:** limita de cereri AI e pe
-oră (`AI_RATE_PER_HOUR`, implicit 80). La apăsarea butonului, liniile scrise
-pleacă împreună — o cerere în loc de patru. Maximum 4 linii pe cerere; ce nu
-încape pleacă în cererea următoare, tot din aceeași apăsare (lot după lot, în
-ordinea de sus în jos, fiecare lot cu textul liniilor de deasupra drept
-context). Liniile scrise **în timpul** transformării nu intră — așteaptă
-următoarea apăsare. Cu transformarea doar la buton se fac și **mai puține
-cereri** decât înainte: nu mai pleacă la model fiecare rând abia terminat.
+**Regulile corectării** (promptul `HW_SYSTEM`): citește rând cu rând, folosind contextul
+(enunț, barem, firul calculului) ca să descifreze semnele ambigue (1/7, 4/9, 0/6, x/×,
+virgula, minusul vs. bara de fracție) — dar transcrie ce a scris **elevul**; ce nu se
+poate citi → `[?]`. **Baremul e singura sursă a punctajului**: puncte doar pentru
+elementele atinse efectiv; o metodă corectă diferită primește punctajul corespunzător
+(regula oficială); rezultatul corect e cel din barem. Fără barem: verdicte pe pași,
+**fără puncte**. Nu dezvăluie rezultatul final dacă elevul a greșit și mai poate corecta
+singur — îi dă un indiciu.
+
+**Ce vede elevul** în chat: titlul cu punctajul („**3/5p** (după barem)"), **„Ce am citit
+pe foaie"** (ca să vadă dacă scrisul a fost citit corect), **pas cu pas** (✔ ✖ ◐ ❔),
+**Punctaj** (pe ce elemente din barem), aprecierea și **💡 sfatul**. Poate întreba mai
+departe, în aceeași conversație. Pe tablă (Planul meu), Prof. Tudor spune aprecierea.
+
+**Acces:** doar **Premium** (sau admin) — altfel 402, iar butonul arată ⭐ și explică, cu
+link spre abonamente (nu trimite nimic). Oprit în **testul pe grupă** (423). Cotă zilnică
+proprie **„✍️ Corectări din spațiul de lucru"** (elev 20/zi, profesor/părinte 10/zi;
+apare în „Contul meu → ⚡ Consum AI"). Imaginile **nu se salvează** — doar miniatura, în
+conversație.
 
 ---
 
-## Gruparea pe linii — partea de care depinde totul
+## Modelul și costul
 
-Liniile **nu** sunt benzi fixe pe ecran. Nimeni nu scrie exact între două linii
-de caiet: un „4" iese deasupra, o virgulă coboară dedesubt, o fracție ocupă
-cât trei rânduri. Cu o grilă fixă, o linie scrisă se rupe în două, fiecare
-jumătate pleacă separat la model și iese o prostie — „= 4,0 = 4" citit ca
-„−4 4" pe un rând și „−10 =" pe următorul.
+| Variabilă | Implicit | Ce face |
+|---|---|---|
+| `AI_CORECTOR_MODEL` | `claude-opus-5-5` | corectorul. `claude-…` → Anthropic (`ANTHROPIC_API_KEY`); alt ID (ex. `gpt-5.6-terra`, `google/gemini-3.1-pro-preview` prin AI Gateway) → furnizorul compatibil OpenAI |
+| `AI_CORECTOR_MODEL_ECON` | `claude-sonnet-5-5` | peste bugetul zilnic soft al elevului (nu coboară pe un model de chat) |
+| `AI_CORECTOR_EFFORT` | `low` | cât „gândește" Claude înainte să corecteze (`medium`/`high` = mai atent, mai scump) |
+| `AI_QUOTA_CORECTARI_SCRIS_ZI` | 20 (elev) / 10 | corectări de pe foaie pe zi; fin, per rol: `AI_QUOTAS_JSON={"elev":{"scris":30}}` |
+| `AI_HANDWRITING_MODEL`, `AI_QUOTA_SCRIS_ZI` | — | **scoase** (erau pentru transformarea în text) — se pot șterge din Vercel |
 
-De aceea liniile se formează din **geometria traseelor** (`sameLine` +
-union-find peste toate traseele, refacut la fiecare schimbare):
+Repere (octombrie 2026, 4,6 lei/USD; o corectare: ~3–12k tokeni la intrare — imaginea
+foii (o dală ≈ 700–4800 de tokeni), enunțul, iar la un subiect PDF testul și baremul
+întregi (~5k) —, ~1–3k la ieșire, cu gândirea):
 
-| Caz | Regula |
-|---|---|
-| Două trasee se suprapun pe verticală | aceeași linie, dacă suprapunerea e peste 22% din înălțimea mai mică |
-| Un semn mic doar *atinge* rândul (bară, virgulă, punct) | aceeași linie **doar dacă e și lipit** — sub 50 px lateral |
-| Etajate, fără suprapunere (numărător / bară / numitor, exponent) | aceeași linie dacă sunt sub 36 px unul de altul, înguste și unul peste altul |
-| Două rânduri late, unul sub altul | linii diferite |
+| Model | Preț (USD / 1M tokeni) | O corectare de pe foaie | 20 de corectări / lună |
+|---|---|---|---|
+| **Claude Opus 5.5** (implicit) | 4 / 20 | ~0,15–0,5 lei (de obicei ~0,25) | ~3–10 lei |
+| Claude Sonnet 5.5 | 2 / 10 | ~0,07–0,25 lei | ~1,5–5 lei |
+| GPT-5.6 Terra (rezerva) | 2 / 12 | ~0,08–0,3 lei | ~1,6–6 lei |
+| Gemini 3.1 Pro (prin AI Gateway) | 2 / 12 | ~0,08–0,3 lei | ~1,6–6 lei |
+| Claude Haiku 5.5 | 0,10 / 0,50 | ~0,004–0,012 lei | sub 0,3 lei |
 
-Gruparea se **reface de la zero** la fiecare traseu, radieră sau undo, deci nu
-depinde de ordinea în care a scris elevul: dacă pune bara fracției la urmă, ea
-unește numărătorul cu numitorul retroactiv. Fiecare linie are o amprentă
-(`sig` = id-urile traseelor din ea); când amprenta se schimbă, **doar acea
-linie** își pierde textul și se citește din nou — vecinele rămân neatinse.
+Corectările intră în creditele elevului ca orice acțiune AI (plafonul lunar implicit:
+12 lei din abonamentul de 50 lei — cu Opus 5.5, ~25–80 de corectări pe lună, dacă elevul
+nu folosește altceva; cota zilnică de 20 nu e plafonul real).
 
 ---
 
-## Ce ajunge în câmpul de răspuns
+## Fereastra Profesorului Virtual, pe calculator
 
-Modelele scriu virgula zecimală în fel și chip și pun spațieri tipografice.
-În caiet nu se vede, dar în formular ajunge text brut, deci se curăță de două
-ori — pe server (`parseLines`) și în client (`normalizeLatex`):
-
-| Ce vine de la model | Ce ajunge în formular |
-|---|---|
-| `$3\cdot 1{,}2+0{,}4=$` | `3 · 1,2+0,4=` |
-| `1−2=` (minus Unicode) | `1-2=` |
-| `−4\quad 4` | `-4 4` |
-| `\frac{-b\pm\sqrt{b^2-4ac}}{2a}` | `$\frac{-b\pm\sqrt{b^2-4ac}}{2a}$` |
-| `Rezultă că $\sqrt{18}=3\sqrt{2}$` | neatins |
-
-Regula: aritmetica simplă (cifre, virgulă zecimală, `+ - · : = ( )`) intră ca
-**text curat**; restul rămâne în `$…$`, așa cum îl randează chatul și îl
-citește corectarea. Liniile ies în ordinea de sus în jos a foii, indiferent
-în ce ordine le-a scris elevul.
+Pe telefon, panoul de lângă PDF / exercițiu se trage **în sus și în jos** de bara
+albastră. Pe calculator se trage **lateral**, de **marginea stângă** (linia aurie, cu
+liniuța din mijloc): spre stânga se lățește, spre dreapta se îngustează — între 320 px
+și cât lasă loc materialului (300 px). **Dublu-clic** pe mâner: lățime mare / obișnuită
+(la fel butonul `□ / ❐` din antet). Lățimea se ține minte (`pv:latime`). La fel și
+**widgetul plutitor** de pe tot site-ul (`pv:widget`, marginea lui stângă). Cât tragi, un
+strat transparent acoperă pagina (PDF-ul și exercițiul sunt în iframe-uri, care altfel
+„fură" mouse-ul).
 
 ---
 
@@ -177,61 +179,19 @@ citește corectarea. Liniile ies în ordinea de sus în jos a foii, indiferent
 
 | Fișier | Ce e |
 |---|---|
-| `api/ai-handwriting.js` | endpointul de recunoaștere (**nou**) |
-| `api/_lib/ai.js` | `chatVision` acceptă acum `model` (o linie — restul neatins) |
-| `src/components/SpatiuDeLucru.jsx` | caietul: desen, grupare pe linii, recunoaștere **la buton**, KaTeX |
-| `test/spatiu-de-lucru.test.js` | regresii: fără transformare automată, recunoașterea pornește doar din butoane (runda 11) |
-| `src/lib/aiClient.js` | `aiClient.handwriting({ imageBase64, count, hint, prev })` |
-| `src/lib/tutorBridge.js` | butonul din iframe, mesajul `MATE_WORKSPACE_OPEN` și `collectEnunt()` (enunțul fără răspunsuri) |
-| `src/lib/katex.js` | `autoMath` — acolade echilibrate la `\frac`/`\sqrt`, operatori mari cu limitele lor |
-| `test/katex-automath.test.js` | regresii pentru `autoMath` (**nou**) |
-| `src/pages/InteractiveViewer.jsx` | ascultă `MATE_WORKSPACE_OPEN`, deschide caietul |
-| `src/pages/PDFViewer.jsx` | butonul din antetul Profesorului Virtual (`workspace` pentru chat) + „📋 Barem" în bara de sus |
-| `src/components/AITutor.jsx` | butonul din bara de scris + pe fiecare cerință — doar în modul tablă („Planul meu"), nu în widgetul plutitor; `workspace` → caietul `embedded` în locul mesajelor (PDF) |
-| `test/pdf-barem-spatiu.test.js` | regresii: „📋 Barem" în bară (nu în test), caietul în zona de conversație, fără linii |
-
----
-
-## Setări (env)
-
-| Variabilă | Implicit | Ce face |
-|---|---|---|
-| `AI_HANDWRITING_MODEL` | modelul de vedere (`AI_VISION_MODEL`) | modelul care citește scrisul. Un model mai ieftin merge: e o linie, nu o pagină |
-| `AI_QUOTA_SCRIS_ZI` | `300` | câte **cereri** de recunoaștere pe zi are un elev (o linie ≈ o cerere). `0` = fără cotă proprie |
-| `AI_RATE_PER_HOUR` | `80` | limita orară comună cu chatul — asta se atinge prima la un elev care scrie mult |
-
-Consumul se vede în `ai_usage`, la endpointul `ai-handwriting`.
-Nu intră în cotele din „Contul meu → ⚡ Consum AI": recunoașterea e o **unealtă
-de scris**, nu o acțiune pe care o cumperi.
-
----
-
-## Protocolul iframe ↔ pagină
-
-Butonul trăiește în exercițiu (iframe), dar caietul se deschide în
-pagina-părinte — acolo sunt sesiunea, creditele AI și KaTeX.
-
-```
-iframe → părinte :  MATE_WORKSPACE_OPEN  { text, enunt, title, focus }
-părinte → iframe :  MATE_TUTOR_ACTION    { kind: 'fill', value: '<textul recunoscut>' }
-```
-
-`text` → la model (conține răspunsurile corecte) · `enunt` → pe ecran (nu le conține).
-
-`fill` e acțiunea care exista deja pentru Profesorul Virtual — caietul o
-refolosește, nu adaugă una nouă.
-
----
-
-## Ce nu face (deocamdată)
-
-- **Nu corectează calculul** la recunoaștere: transcrie exact ce a scris elevul,
-  greșeli cu tot. Corectarea e treaba Profesorului Virtual, la cerere.
-- **Nu recunoaște desene / figuri geometrice** — doar linii de text și formule.
-  Pentru figuri există creionul de pe figura exercițiului.
-- **Nu ține minte pe server**: ciorna se salvează doar local, în browserul
-  elevului (`localStorage`, cheia `sdl2:…`). Se șterge cu „✕ Șterge tot".
-- **Nu mută fereastra** — doar o redimensionează. Stă centrată.
+| `src/components/SpatiuDeLucru.jsx` | foaia: SVG + derulare nativă, unelte, pagini, ciornă, butoanele |
+| `src/lib/foaie.js` | geometria foii și imaginea pentru corector: `pathD`, `planTiles`, `compactGaps`, `exportSheet` |
+| `api/ai-handwriting.js` | endpointul de corectare (era cel de transcriere) |
+| `api/_lib/corector.js` | corectorul: modelul, apelul Claude / rezerva, promptul, normalizarea, mesajul |
+| `api/ai-correct.js` | `grade`: cu poze → corectorul + Premium |
+| `api/_lib/claude.js` | `chatAdvanced({ cache:false })`; Haiku 5.5 în listă |
+| `api/_lib/ai.js` | cota `scris`, prețul Haiku 5.5 |
+| `src/components/AITutor.jsx` | `correctHandwriting`, `attachToQuestion`, `attachToForm`, `autoCorrect`; mânerul widgetului |
+| `src/pages/InteractiveViewer.jsx` | caietul peste exercițiu → `autoCorrect`; mânerul panoului |
+| `src/pages/PDFViewer.jsx` | caietul în conversație; mânerul panoului |
+| `src/lib/latimePanou.js`, `src/components/ManerLatime.jsx` | lățimea ferestrei profesorului pe calculator |
+| `src/lib/aiClient.js` | `aiClient.corectareScris(…)` |
+| `test/spatiu-de-lucru.test.js`, `test/corector-scris.test.js`, `test/pdf-barem-spatiu.test.js` | regresiile |
 
 ---
 
@@ -239,12 +199,13 @@ refolosește, nu adaugă una nouă.
 
 | Situație | Comportament |
 |---|---|
-| Elevul scrie și nu apasă nimic | nimic nu pleacă la model — scrisul rămâne cerneală (și se salvează în ciornă) |
-| Linie indescifrabilă | rămâne cerneală, cu „?" în margine; se reîncearcă la `✨ Transformă în text` sau după ce elevul o rescrie |
-| Pată sau punct rătăcit, singur pe foaie | nu pleacă deloc la model și nu se numără „în așteptare" — se ignoră |
-| Elevul scrie mai departe cât e cererea pe drum | răspunsul depășit se aruncă; linia rămâne cerneală până la următoarea apăsare, apoi se citește întreagă |
-| Fereastra se închide cât se transformă | nu se mai trimite / pune nimic; textul citit rămâne în ciornă. O linie rămasă „în citire" în ciornă redevine cerneală la redeschidere |
-| Cotă zilnică atinsă | mesaj în bara roșie; **scrisul merge mai departe**, doar transformarea se oprește |
-| Fără rețea / eroare server | linia revine la cerneală, mesajul apare jos |
-| Elevul folosește stylus | prima atingere de stylus pornește respingerea palmei: atingerile cu degetul sunt ignorate din acel moment |
-| Elevul scrie doar cu degetul | totul merge normal; pentru derulat există unealta `✋ Derulează` |
+| Elev fără abonament apasă „🎓 Cere corectarea" | banda ⭐ „Corectarea face parte din abonamentul Premium" + link; nu pleacă nimic |
+| Foaia goală | „Scrie întâi rezolvarea pe foaie." |
+| Scris complet ilizibil | „Nu am reușit să citesc rezolvarea de pe foaie" + ce a putut desluși + sfat (scrie mai mare și mai rar) |
+| Claude nu răspunde / cheia lipsește | corectează rezerva (GPT-5.6 Terra) — elevul primește corectarea oricum |
+| Nici rezerva nu reușește | 502 „Corectarea nu a reușit acum…" (fără mesajul tehnic); nu se consumă din cotă |
+| Cota zilnică atinsă / creditele terminate | mesajul obișnuit al limitelor (429), cu pachetele AI |
+| S-a scris foarte mult spre dreapta | foaia pleacă în mai multe bucăți (≤ 6); golurile dintre pagini se strâng; peste, scrisul se micșorează treptat |
+| Al doilea deget atinge foaia cât scrii | trasul abia început se anulează și foaia se derulează (un traseu lung, deja scris, rămâne) |
+| Test pe grupă | doar ciorna; serverul refuză oricum (423) |
+| Ciorna nu încape în `localStorage` | foaia merge mai departe, doar nu se mai salvează |

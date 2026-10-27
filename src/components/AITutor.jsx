@@ -27,6 +27,8 @@ import { awardBadges } from '../lib/badges';
 import { notaDinScor } from '../lib/nota';
 import AIPoweredBy from './AIPoweredBy';
 import { MathInsertButton, MathInsertPanel, insertAtCursor } from './math/MathInput';
+import ManerLatime from './ManerLatime';
+import { useLatimePanou } from '../lib/latimePanou';
 
 // ─── Terminologie școlară: „factorizare" → „descompunere în factori" ─────────
 const FACTORIZARE = {
@@ -259,10 +261,13 @@ const consumedAutoPrompts = new Set();
 export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor', onNavigate = null, onAction = null,
   initialConversationId = null, autoPrompt = null, coachInject = null, testMode = false,
   boardSlots = null, cmdRef = null, onBusy = null, onSpeaking = null, speaker = null, boardFooter = null, teacherName = 'Prof. Tudor',
-  board = null, workspace = null }) {
+  board = null, workspace = null, autoCorrect = null }) {
   // workspace = { open, onClose, storageKey, title, hint } — „✍️ Spațiu de
   // lucru" ÎN zona de conversație (vizualizatorul PDF: butonul e în antetul
   // panoului). Cât e deschis, foaia ia locul mesajelor și al barei de sus.
+  // autoCorrect = { id, pack, exerciseText } — foaia trimisă la corectare din
+  // spațiul de lucru deschis PESTE pagină (exercițiile interactive): corectarea
+  // pornește aici, o singură dată pe id, și apare în conversație.
   // boardSlots = { board, composer } — cele două containere din pagina de
   // meditații: tabla (mesajele) și zona de sub ea (câmpul de scris).
   // speaker = glasul lui Prof. Tudor (src/lib/live/vorbire.js): pe tablă,
@@ -277,7 +282,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // Pe tablă scrie DOAR profesorul. Ce spune elevul rămâne SUB tablă, lipit de
   // câmpul de scris, ca un fir de conversație care nu se pierde (`mineRef`).
   const mineRef = useRef(null);
-  const { user, isPremium, isTeacher, isParent } = useAuth();
+  const { user, profile, isPremium, isTeacher, isParent } = useAuth();
   // Test pe grupă în desfășurare → nu se pot pune întrebări. Corectarea
   // („📝 Răspunde în chat") rămâne pornită: la testele PDF ea duce
   // punctajul la profesor. Blocarea reală e pe server (api/_lib/testlock.js).
@@ -409,10 +414,13 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   const formStartRef = useRef(null);
 
   // ── „✍️ Spațiu de lucru" — caietul digital (SpatiuDeLucru.jsx) ────────────
-  // Se deschide din două locuri: bara de scris (textul recunoscut ajunge în
-  // câmpul de întrebare) și fiecare cerință a formularului de răspuns (textul
-  // ajunge în câmpul acelei cerințe). `work` spune unde se întoarce rezultatul.
+  // Scrisul rămâne scris de mână (nu se mai transformă în text): „🎓 Cere
+  // corectarea" îl trimite corectorului (correctHandwriting, mai jos), iar
+  // „📎 Pune în întrebare / Atașează la răspuns" îl atașează ca IMAGINE — la
+  // întrebarea următoare din chat sau la pozele formularului de răspuns.
+  // `work` spune de unde s-a deschis caietul (bara de scris / o cerință).
   const [work, setWork] = useState(null);   // null | { target: 'input' | <id cerință>, eticheta }
+  const [hwBusy, setHwBusy] = useState(false);   // corectarea scrisului e pe drum
   // Caietul rămâne doar la tabla din „Planul meu"; din widgetul plutitor a fost scos
   // (paginile cu exerciții — PDF, interactive, sala live — au caietul lor)
   const workOn = boardMode;
@@ -505,6 +513,72 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       setError(e.message);
       if (e.premium) setUpsell(true);
     } finally { setGrading(false); }
+  }
+
+  // ── „🎓 Cere corectarea" din spațiul de lucru: SCRISUL (imaginea foii) merge
+  //    direct la corector (api/ai-handwriting.js) — un model competent îl citește
+  //    și îl punctează strict după barem, unde există. Premium. Corectarea apare
+  //    în conversație: miniatura foii (mesajul elevului) + verdictul profesorului.
+  async function correctHandwriting(pack, { exerciseText = '' } = {}) {
+    if (!pack || !Array.isArray(pack.images) || !pack.images.length) return;
+    if (testActiv) { setError('Profesorul Virtual e oprit cât timp ai un test pe grupă în desfășurare.'); return; }
+    // (profilul încă se încarcă → decide serverul: 402 dacă nu e Premium)
+    if (profile && !isPremium) {
+      setUpsell(true);
+      setError('Corectarea scrisului de mână face parte din abonamentul Premium: profesorul virtual îți citește rezolvarea și o punctează după barem.');
+      return;
+    }
+    if (streaming || hwBusy) { setError('Așteaptă să se termine răspunsul de acum, apoi cere din nou corectarea.'); return; }
+    if (boardMode && speaker) ['chat', 'chat-q', 'coach', 'propunere', 'repeta'].forEach((k) => speaker.stop(k));
+    const userUid = ++uidRef.current;
+    const uid = ++uidRef.current;
+    setError(null); setShowHistory(false); setChipsUid(null);
+    setMessages((m) => [
+      ...m,
+      { role: 'user', content: '✍️ Corectează-mi rezolvarea scrisă de mână din spațiul de lucru.', uid: userUid, ...(pack.thumb ? { image: pack.thumb } : {}) },
+      { role: 'assistant', content: '⏳ Citesc ce ai scris și compar cu baremul…', streaming: true, hw: true, uid },
+    ]);
+    setHwBusy(true);
+    try {
+      const r = await aiClient.corectareScris({
+        images: pack.images, thumb: pack.thumb || null, grid: pack.grid || null, conversationId: convId,
+        context: {
+          pdf: !!context.pdf, contentId: context.contentId || null, category: context.category || null,
+          title: context.title || null, meditatii: !!context.meditatii,
+        },
+        // la PDF serverul recitește testul + baremul după contentId; la exercițiile
+        // interactive textul conține și rezolvarea oficială (pentru model, nu pe ecran)
+        exerciseText: String(exerciseText || context.exerciseText || '').slice(0, 14000),
+      });
+      if (r.conversationId) setConvId(r.conversationId);
+      patchMsg(uid, { streaming: false, content: r.text || 'Am corectat rezolvarea ta.', id: r.messageId || undefined, hw: true });
+      if (boardMode && speaker && r.spoken) speaker.say(r.spoken, { key: 'chat' });
+    } catch (e) {
+      patchMsg(uid, { streaming: false, isError: true, retryable: false, hw: true, content: '⚠️ ' + (e.message || 'Corectarea nu a reușit. Mai încearcă o dată.') });
+      if (e.premium) setUpsell(true);
+    } finally {
+      setHwBusy(false);
+    }
+  }
+
+  // „📎 Pune în întrebare": scrisul pleacă la profesor ca IMAGINE, o singură
+  // dată, cu întrebarea pe care elevul o scrie acum în câmpul de jos
+  function attachToQuestion(pack) {
+    if (!pack || !pack.images || !pack.images.length) return;
+    setPhoto({ dataUrl: pack.images[0], extra: pack.images.slice(1, 3), thumb: pack.thumb || null, fromWorkspace: true });
+    setAttached((a) => (a == null ? '' : a));
+    setEditingAttach(false);
+    setTimeout(() => inputRef.current?.focus(), 60);
+  }
+  // „📎 Atașează la răspuns" (o cerință din formular): foaia intră la pozele cu
+  // rezolvarea — corectorul le citește la „✅ Corectează" (Premium, ca orice poză)
+  function attachToForm(pack) {
+    if (!pack || !pack.images || !pack.images.length) return;
+    const add = pack.images.slice(0, Math.max(0, 3 - formImages.length));
+    const lost = pack.images.length - add.length;
+    if (add.length) setFormImages((imgs) => [...imgs, ...add].slice(0, 3));
+    if (lost) setError(`Formularul primește cel mult 3 imagini — ${lost === 1 ? 'o bucată din foaie n-a mai încăput' : `${lost} bucăți din foaie n-au mai încăput`}. Șterge o poză și atașează din nou, sau scrie mai compact.`);
+    else if (profile && !isPremium) { setUpsell(true); setError('Corectarea după poze (scrisul de mână) face parte din abonamentul Premium — fără abonament se corectează doar răspunsurile tastate.'); }
   }
 
   // Poze cu rezolvarea scrisă de mână, atașate formularului (max 3, comprimate)
@@ -619,15 +693,18 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       const sendPhoto = photo; // poza merge O SINGURĂ dată (la mesajul următor)
       await aiClient.chatStream(
         { message: msg, mode: modeOverride || mode, conversationId: convId, context: sendCtx, regenerate,
-          ...(sendPhoto?.dataUrl ? { images: [sendPhoto.dataUrl], imageThumb: sendPhoto.thumb || null } : {}) },
+          // poza (sau foaia din spațiul de lucru — până la 3 bucăți) merge la model ca imagini
+          ...(sendPhoto?.dataUrl ? { images: [sendPhoto.dataUrl, ...(sendPhoto.extra || [])].slice(0, 3), imageThumb: sendPhoto.thumb || null } : {}) },
         {
           signal: controller ? controller.signal : null,
           onMeta: ({ conversationId, sources, primaryMaterial }) => { setConvId(conversationId); patchMsg(uid, { sources, primaryMaterial }); },
           onDelta: (delta) => { acc += delta; patchMsg(uid, (m) => ({ ...m, content: m.content + delta })); },
           onDone: ({ messageId }) => {
             // poza a ajuns la profesor: nu o mai retrimitem la fiecare mesaj
-            // (transcrierea rămâne în panoul „📎", ca material de discutat)
+            // (transcrierea rămâne în panoul „📎", ca material de discutat);
+            // foaia din spațiul de lucru n-are transcriere → panoul se închide
             if (sendPhoto) setPhoto(null);
+            if (sendPhoto?.fromWorkspace) setAttached((a) => (a && a.trim() ? a : null));
             // extrage acțiunile [[ACTIUNE:...]] / [[MEDITATII:...]] și curăță textul afișat
             const { text: cleanText, actions, medActions, figures, board } = cleanReply(acc);
             patchMsg(uid, { streaming: false, id: messageId, content: cleanText, figures, raw: board });
@@ -697,10 +774,13 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
 
   // Reia conversația începută în altă parte (ex: chat plutitor → exercițiu)
   const resumedRef = useRef(false);
+  // cât se încarcă istoricul reluat, corectarea automată a foii așteaptă:
+  // altfel istoricul, sosit după ea, i-ar înlocui bulele (și conversația)
+  const [resumePending, setResumePending] = useState(!!initialConversationId);
   useEffect(() => {
     if (!initialConversationId || resumedRef.current) return;
     resumedRef.current = true;
-    loadConversation(initialConversationId).catch(() => {});
+    loadConversation(initialConversationId).catch(() => {}).finally(() => setResumePending(false));
   }, [initialConversationId]); // eslint-disable-line
 
   // Mesaj trimis automat (butonul „Întreabă profesorul virtual" din exercițiu).
@@ -713,6 +793,16 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     consumedAutoPrompts.add(autoPrompt.id);
     send(autoPrompt.text, { modeOverride: autoPrompt.mode || null });
   }, [autoPrompt, streaming]); // eslint-disable-line
+
+  // Foaia trimisă la corectare din spațiul de lucru deschis peste pagină
+  // (exercițiile interactive): o singură dată pe id, după răspunsul în curs.
+  useEffect(() => {
+    if (!autoCorrect || !autoCorrect.id || !user || resumePending) return;
+    const key = `hw:${autoCorrect.id}`;
+    if (consumedAutoPrompts.has(key) || streaming || hwBusy) return;
+    consumedAutoPrompts.add(key);
+    correctHandwriting(autoCorrect.pack, { exerciseText: autoCorrect.exerciseText || '' });
+  }, [autoCorrect, streaming, hwBusy, user, resumePending]); // eslint-disable-line
 
   // Mesaj automat al PROFESORULUI (coach de meditații): apare ca mesaj al lui,
   // cu BUTOANE de pași („Recapitulare", „Exerciții"...). Nu se salvează în
@@ -1007,27 +1097,26 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
         </Suspense>
       )}
 
-      {/* ✍️ SPAȚIUL DE LUCRU, în locul mesajelor (vizualizatorul PDF). Arată ca
-          zona goală de conversație: același fundal, fără linii. „✓ Pune în
-          întrebare" scrie textul în câmpul de jos; „🎓 Cere corectarea" îl
-          trimite profesorului — și foaia se închide, ca să se vadă răspunsul.
-          În testul pe grupă rămâne doar ciorna (+ „📋 Copiază"). */}
+      {/* ✍️ SPAȚIUL DE LUCRU, în locul mesajelor (vizualizatorul PDF): foaie
+          ALBĂ, fără linii, care continuă în dreapta cât vrea elevul. Scrisul
+          rămâne scris de mână: „🎓 Cere corectarea" trimite foaia corectorului
+          (strict după baremul testului; Premium), „📎 Pune în întrebare" o
+          atașează ca imagine la întrebarea din câmpul de jos — și foaia se
+          închide, ca să se vadă conversația. În testul pe grupă rămâne doar ciorna. */}
       {wsOpen ? (
         <SpatiuDeLucru
           embedded
           open
           onClose={workspace.onClose}
           title={workspace.title || context.title || ''}
-          hint={workspace.hint != null ? String(workspace.hint) : String(context.exerciseText || '').slice(0, 700)}
           storageKey={workspace.storageKey || null}
-          insertLabel="✓ Pune în întrebare"
-          onInsert={testActiv ? null : (text) => {
-            setInput((v) => (v ? v + ' ' : '') + text.replace(/\n+/g, ' ').trim());
-            setTimeout(() => inputRef.current?.focus(), 30);
-          }}
-          onCorect={testActiv ? null : (text) => {
-            send(`Am scris rezolvarea în spațiul de lucru. Verific-o pas cu pas, spune-mi unde greșesc și ce lipsește — nu-mi da direct răspunsul dacă mai pot corecta singur:\n\n${text}`);
-          }}
+          corectLocked={!!profile && !isPremium}
+          onCorect={testActiv ? null : (pack) => correctHandwriting(pack, {
+            // tot textul testului (serverul recitește oricum testul + baremul după contentId)
+            exerciseText: String(context.exerciseText || workspace.hint || ''),
+          })}
+          attachLabel="📎 Pune în întrebare"
+          onAttach={testActiv ? null : attachToQuestion}
         />
       ) : (
       /* Mesaje */
@@ -1208,7 +1297,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                 )}
                 {/* „Regenerează": doar pe ULTIMUL răspuns la un mesaj trimis din acest panou
                     (și pe răspunsurile oprite cu „Oprește") */}
-                {!m.coach && !m.correction && i === messages.length - 1 && lastSentRef.current && (
+                {!m.coach && !m.correction && !m.hw && i === messages.length - 1 && lastSentRef.current && (
                   <button onClick={regenerateLast} disabled={streaming} title="Cere alt răspuns la aceeași întrebare"
                     style={{ ...miniBtn, cursor: 'pointer' }}>
                     ↻ Regenerează
@@ -1330,7 +1419,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
                           <button onClick={() => setWork({ target: s.id, eticheta: `${it.eticheta} ${s.eticheta}`, cerinta: s.cerinta || it.cerinta || '' })}
                             style={{ ...miniBtn, fontSize: '.72rem', padding: '3px 8px', borderColor: '#7fa6cf', color: '#1a4d80' }}
-                            title="Scrie rezolvarea de mână — o transformi în text și intră aici">
+                            title="Scrie rezolvarea de mână — o atașezi la răspuns ca imagine, iar profesorul o punctează">
                             ✍️ Spațiu de lucru
                           </button>
                         </div>
@@ -1353,7 +1442,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
                     <button onClick={() => setWork({ target: it.id, eticheta: it.eticheta, cerinta: it.cerinta || '' })}
                       style={{ ...miniBtn, fontSize: '.72rem', padding: '3px 8px', borderColor: '#7fa6cf', color: '#1a4d80' }}
-                      title="Scrie rezolvarea de mână — o transformi în text și intră aici">
+                      title="Scrie rezolvarea de mână — o atașezi la răspuns ca imagine, iar profesorul o punctează">
                       ✍️ Spațiu de lucru
                     </button>
                   </div>
@@ -1364,8 +1453,14 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           {/* Pozele cu rezolvarea scrisă de mână (Etapa 2): modelul le citește și punctează pașii din ele */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '6px 12px', borderTop: '1px dashed var(--border)', flexShrink: 0, background: '#fffdf5' }}>
             <input ref={formImgRef} type="file" accept="image/*" multiple onChange={onPickFormImages} style={{ display: 'none' }} />
-            <button onClick={() => formImgRef.current?.click()} disabled={grading || formImages.length >= 3} style={miniBtn} title="Fotografiază rezolvarea de pe caiet — profesorul o citește și o punctează">
-              📷 Poze cu rezolvarea {formImages.length ? `(${formImages.length}/3)` : ''}
+            {/* corectarea după poze (scrisul de mână) e în Premium — fără abonament,
+                butonul explică, în loc să lase elevul să atașeze degeaba */}
+            <button onClick={() => {
+              if (profile && !isPremium) { setUpsell(true); setError('Corectarea după poze (scrisul de mână) face parte din abonamentul Premium — fără abonament se corectează doar răspunsurile tastate.'); return; }
+              formImgRef.current?.click();
+            }} disabled={grading || formImages.length >= 3} style={miniBtn}
+              title={profile && !isPremium ? 'Corectarea după poze face parte din abonamentul Premium' : 'Fotografiază rezolvarea de pe caiet — profesorul o citește și o punctează după barem'}>
+              📷 Poze cu rezolvarea {formImages.length ? `(${formImages.length}/3)` : ''}{profile && !isPremium ? ' ⭐' : ''}
             </button>
             {formImages.map((u, k) => (
               <span key={k} style={{ position: 'relative', display: 'inline-block' }}>
@@ -1398,10 +1493,10 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <strong style={{ fontSize: '.78rem', color: 'var(--navy)', display: 'flex', alignItems: 'center', gap: 8 }}>
               {photo?.thumb && <img src={photo.thumb} alt="" style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />}
-              📎 {photo ? 'Poza ta (merge la profesor ca imagine)' : 'Exercițiul tău (poză / PDF)'}
+              📎 {photo?.fromWorkspace ? 'Scrisul tău din spațiul de lucru (merge la profesor ca imagine)' : photo ? 'Poza ta (merge la profesor ca imagine)' : 'Exercițiul tău (poză / PDF)'}
             </strong>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={() => setEditingAttach((s) => !s)} style={miniBtn}>{editingAttach ? '✓ Gata' : '✎ Editează'}</button>
+              {!photo?.fromWorkspace && <button onClick={() => setEditingAttach((s) => !s)} style={miniBtn}>{editingAttach ? '✓ Gata' : '✎ Editează'}</button>}
               <button onClick={() => { setAttached(null); setPhoto(null); setEditingAttach(false); }} style={miniBtn}>✕ Șterge</button>
             </div>
           </div>
@@ -1413,7 +1508,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
                 <MathText text={attached.length > 900 ? attached.slice(0, 900) + '…' : attached} />
               </div>}
           {!editingAttach && (attached.trim() || photo) && (
-            <button onClick={() => send(photo ? 'Uită-te la poza mea: explică-mi exercițiul sau verifică-mi rezolvarea.' : 'Ajută-mă cu acest exercițiu.')} disabled={streaming}
+            <button onClick={() => send(photo?.fromWorkspace ? 'Uită-te la ce am scris în spațiul de lucru: verifică-mi rezolvarea și spune-mi unde greșesc.' : photo ? 'Uită-te la poza mea: explică-mi exercițiul sau verifică-mi rezolvarea.' : 'Ajută-mă cu acest exercițiu.')} disabled={streaming}
               style={{ marginTop: 8, background: 'var(--gold)', color: 'var(--navy)', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: '.82rem', fontWeight: 700, opacity: streaming ? 0.5 : 1 }}>
               {askAiLabel({ isTeacher, isParent })} despre el →
             </button>
@@ -1465,9 +1560,9 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           style={{ background: listening ? 'var(--gold)' : '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '0 12px', fontSize: '1.1rem', cursor: 'pointer' }}>
           {listening ? '⏺️' : '🎤'}
         </button>
-        {/* ✍️ Caietul digital (doar la tabla din „Planul meu"): scrii cu degetul, iese text frumos în câmpul de mai jos */}
+        {/* ✍️ Caietul digital (doar la tabla din „Planul meu"): scrii cu degetul pe o foaie albă, iar profesorul îți corectează scrisul */}
         {workOn && (
-          <button onClick={() => setWork({ target: 'input' })} title="Scrie de mână — apoi o transformi în text frumos"
+          <button onClick={() => setWork({ target: 'input' })} title="Scrie de mână pe foaia albă — profesorul îți corectează scrisul"
             style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '0 12px', fontSize: '1.1rem', cursor: 'pointer' }}>
             ✍️
           </button>
@@ -1508,37 +1603,29 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
           (textele vin din src/lib/aiModels.js → AI_STACK) */}
       {!testActiv && <AIPoweredBy variant="disclaimer" />}
 
-      {/* ✍️ Caietul digital (doar la tabla din „Planul meu"). Textul recunoscut se
-          întoarce ori în câmpul de întrebare (deschis din bara de scris), ori în
-          cerința din formularul de răspuns de unde a fost deschis. */}
+      {/* ✍️ Caietul digital (doar la tabla din „Planul meu"). Scrisul rămâne scris
+          de mână: din bara de scris, „🎓 Cere corectarea" îl trimite corectorului,
+          iar „📎 Pune în întrebare" îl atașează ca imagine la întrebarea de jos;
+          de la o cerință a formularului, „📎 Atașează la răspuns" îl pune la
+          pozele cu rezolvarea — le punctează „✅ Corectează". */}
       {workOn && <SpatiuDeLucru
         open={!!work}
         onClose={() => setWork(null)}
         title={work && work.eticheta
           ? `${work.eticheta} · ${form ? (form.title || form.src.title) : ''}`
           : (context.title || 'Scrie rezolvarea')}
-        hint={work && work.cerinta
-          ? String(work.cerinta)
-          : String(attached || context.exerciseText || '').slice(0, 700)}
         /* enunțul arătat în caiet: cerința de la care s-a deschis, iar din bara
            de scris — exercițiul din poză / PDF-ul deschis */
         enunt={work && work.cerinta
           ? [work.eticheta, String(work.cerinta)].filter(Boolean).join('\n')
           : String(attached || context.exerciseText || '')}
         storageKey={work ? `chat:${form?.src?.contentId || context.contentId || 'liber'}:${work.target}` : null}
-        insertLabel={work && work.target === 'input' ? '✓ Pune în întrebare' : '✓ Pune în răspuns'}
-        onInsert={(text) => {
-          if (!work) return;
-          if (work.target === 'input') {
-            setInput((v) => (v ? v + ' ' : '') + text.replace(/\n+/g, ' ').trim());
-            setTimeout(() => inputRef.current?.focus(), 30);
-          } else {
-            setFormAnswers((a) => ({ ...a, [work.target]: [a[work.target], text].filter(Boolean).join('\n') }));
-          }
-        }}
-        onCorect={testActiv || (work && work.target !== 'input') ? null : (text) => {
-          send(`Am scris rezolvarea de mână în spațiul de lucru. Verific-o pas cu pas, spune-mi unde greșesc și ce lipsește:\n\n${text}`);
-        }}
+        corectLocked={!!profile && !isPremium}
+        onCorect={testActiv || (work && work.target !== 'input') ? null : (pack) => correctHandwriting(pack, {
+          exerciseText: String(attached || context.exerciseText || ''),
+        })}
+        attachLabel={work && work.target === 'input' ? '📎 Pune în întrebare' : '📎 Atașează la răspuns'}
+        onAttach={!work ? null : work.target === 'input' ? (testActiv ? null : attachToQuestion) : attachToForm}
       />}
     </>
   );
@@ -1709,6 +1796,9 @@ export default function FloatingTutor() {
   const [pos, setPos] = useState(null); // colțul stânga-sus al butonului
   const drag = useRef({ active: false, moved: false, dx: 0, dy: 0 });
   const BTN = 60;
+  // Pe calculator, fereastra widgetului se lățește / îngustează trăgând de
+  // marginea ei stângă (ca panoul de lângă PDF); lățimea se ține minte
+  const lat = useLatimePanou({ storageKey: 'pv:widget', initial: 400, min: 340, maxFrac: 0.92, reserve: 32, wide: 760 });
 
   useEffect(() => {
     if (!pos) setPos({ x: window.innerWidth - BTN - 22, y: window.innerHeight - BTN - 22 });
@@ -1741,7 +1831,9 @@ export default function FloatingTutor() {
   if (testActiv) return null;
   if (!pos) return null;
 
-  const popupW = Math.min(400, window.innerWidth - 32);
+  // pe calculator (≥ 800 px) lățimea o alege elevul, trăgând de marginea stângă
+  const desk = window.innerWidth >= 800;
+  const popupW = desk ? lat.width : Math.min(400, window.innerWidth - 32);
   const popupH = Math.min(640, window.innerHeight - 130);
   const bottomHalf = pos.y > window.innerHeight / 2;
   const labelLeft = pos.x < 150; // dacă butonul e lipit de stânga, punem eticheta în dreapta
@@ -1819,6 +1911,8 @@ export default function FloatingTutor() {
 
       {open && (
         <div style={popupStyle}>
+          {/* mânerul de lățime (calculator): marginea stângă a ferestrei */}
+          {desk && <ManerLatime lat={lat} top={44} offset={0} />}
           <div style={{ background: 'var(--navy)', color: '#fff', padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ fontWeight: 700, fontFamily: 'var(--font-display)', fontSize: '.95rem', display:'flex', alignItems:'center', gap:6 }}><EinsteinIcon size={22} /> {widgetLabel}</div>
             {medMode ? (

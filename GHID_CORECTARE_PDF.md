@@ -165,3 +165,9 @@ Rulează în **Supabase → SQL Editor**: `supabase/corectare_pdf.sql`
 - Modelul de corectare se setează cu `AI_PDF_CHAT_MODEL` (cu barem — implicit
   `gpt-5.6-terra`, folosit și de Prof. Virtual pe orice PDF deschis) și
   `AI_GEN_CHAT_MODEL` (fără barem) — aceleași variabile ca până acum.
+- **Cu POZE ale rezolvării** („📷 Poze cu rezolvarea", sau foaia din „✍️ Spațiu
+  de lucru" atașată la o cerință) corectarea e **doar pentru Premium** (402
+  altfel; răspunsurile tastate se corectează ca până acum) și o face
+  **corectorul scrisului de mână** — `AI_CORECTOR_MODEL`, implicit Claude Opus
+  5.5, cu rezerva `AI_VISION_MODEL` (terra) — vezi `api/_lib/corector.js` și
+  `GHID_SPATIU_DE_LUCRU.md`. Baremul rămâne singura sursă a punctajului.

@@ -127,6 +127,9 @@ const PRICES_USD = {
   'claude-opus-5-5':        { in: 4,    out: 20 },
   'claude-sonnet-5-5':      { in: 2,    out: 10 },
   'claude-fable-5-1':       { in: 10,   out: 50 },
+  // Haiku 5.5 (7 oct. 2026): 0,10/0,50 $ pentru cererile sub 100k tokeni (peste,
+  // de 5× — aplicația nu trimite atât); fără intrarea asta ar cădea pe prețul implicit
+  'claude-haiku-5-5':       { in: 0.10, out: 0.50 },
   'whisper':                { perCall: 0.003 },      // STT e pe minut → estimare per apel (~20-30s)
 };
 let PRICES_EXTRA = {};
@@ -249,6 +252,10 @@ const FEATURE_QUOTAS = {
   teste:       { endpoint: 'ai-exam',                 label: 'Subiecte de examen generate',   emoji: '📄', window: 'month' },
   interactive: { endpoint: 'ai-generate-interactive', label: 'Exerciții interactive generate', emoji: '🧩', window: 'month' },
   foto:        { endpoint: 'ai-vision',               label: 'Foto-rezolvări',                emoji: '📷', window: 'day' },
+  // „🎓 Cere corectarea" din „✍️ Spațiu de lucru" (api/ai-handwriting.js): un model
+  // competent citește scrisul de mână și îl corectează după barem — cotă ZILNICĂ
+  // proprie, ca foto (nu consumă din pool-ul lunar al corectărilor de teste)
+  scris:       { endpoint: 'ai-handwriting:correct',  label: 'Corectări din spațiul de lucru', emoji: '✍️', window: 'day' },
 };
 
 // Limitele implicite PER ROL (0 = cota funcției e dezactivată pentru acel rol).
@@ -256,9 +263,9 @@ const FEATURE_QUOTAS = {
 // generează subiecte pentru clase → subiecte mai multe, corectări puține
 // (ei corectează cu baremul, nu cu AI-ul).
 const QUOTA_ROLE_DEFAULTS = {
-  elev:     { corectari: 20, teste: 20, interactive: 40, foto: 10 },
-  profesor: { corectari: 5,  teste: 40, interactive: 40, foto: 10 },
-  parinte:  { corectari: 20, teste: 20, interactive: 40, foto: 10 },
+  elev:     { corectari: 20, teste: 20, interactive: 40, foto: 10, scris: 20 },
+  profesor: { corectari: 5,  teste: 40, interactive: 40, foto: 10, scris: 10 },
+  parinte:  { corectari: 20, teste: 20, interactive: 40, foto: 10, scris: 10 },
 };
 // Suprascrieri din env: GLOBALE (aceeași valoare pentru toate rolurile) —
 // env-urile existente AI_QUOTA_* — și FINE, per rol:
@@ -268,6 +275,9 @@ const QUOTA_GLOBAL_ENV = {
   teste: process.env.AI_QUOTA_TESTE_LUNA,
   interactive: process.env.AI_QUOTA_INTERACTIVE_LUNA,
   foto: process.env.AI_QUOTA_FOTO_ZI,
+  // nume NOU: vechiul AI_QUOTA_SCRIS_ZI număra rândurile transformate în text
+  // (implicit 300/zi) — refolosit, ar fi permis 300 de corectări pe zi
+  scris: process.env.AI_QUOTA_CORECTARI_SCRIS_ZI,
 };
 let QUOTAS_JSON = {};
 try { QUOTAS_JSON = JSON.parse(process.env.AI_QUOTAS_JSON || '{}'); }

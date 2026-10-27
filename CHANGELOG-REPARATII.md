@@ -4,6 +4,41 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 27 octombrie 2026 — „✍️ Spațiu de lucru": foaie albă care continuă în dreapta, corectare direct pe scrisul de mână (Premium, strict pe barem) · fereastra profesorului se lățește pe calculator
+
+Cererea: „Pentru spațiul de lucru, fă să pot face pagina nouă ca pe tabla interactivă: să o pot derula, trage de la dreapta la stânga și înapoi, oricât vreau, ca o derulare sau scrolling lateral. Să rămână redimensionarea din chat. Scoate «transformă» deoarece se face greșit. Corectarea să se facă direct pentru scrisul de mână. […] Corectarea foto să se facă tot cu un AI competent. Corectarea să facă parte din planul premium, și să se facă strict pe baza de barem, unde există baremul. Suprafața de lucru să fie ca în spațiul de lucru din chat, fără linii, o suprafață albă. Pe calculator, fereastra profesorului virtual widget să poată fi redimensionată lateral, la fel ca redimensionarea verticală pe telefon." (+ întrebarea: ce AI și cât costă corectorul.)
+
+### 1) Foaia (`src/components/SpatiuDeLucru.jsx`, nou `src/lib/foaie.js`)
+- **Albă și fără linii peste tot** — și în fereastră (exerciții interactive, „Planul meu", sala live), ca în chat. Fără marginea roșie.
+- **Nu se termină, ca tabla interactivă:** zona derulabilă are mereu un ecran gol în plus față de scris și de poziția curentă, deci foaia se trage spre dreapta (și în jos) oricât. Se trage cu **✋** (pe telefon derularea nativă, cu inerție), cu **două degete în orice unealtă** (trasul abia început se anulează), cu rotița (Shift = lateral), cu rotița apăsată, cu bara de derulare.
+- **Pagini puse una lângă alta:** `◀ 2/3 ▶ ⟲` jos în stânga (◀ ▶ sar exact la pagina vecină, ⟲ la început) și **„➕ Pagină nouă"** — prima pagină goală din dreapta scrisului.
+- Tehnic: traseele sunt `<path>` într-un SVG cu derulare nativă (lină, fără redesenare). Pânza veche, cât toată foaia, nu putea crește lateral — pe telefon pânzele mari depășesc memoria browserului.
+- **„✨ Transformă în text" scos** cu totul (recunoașterea pe rânduri, textul KaTeX peste cerneală, „?"-urile, „✓ Pune în răspuns", „📋 Copiază"). Scrisul rămâne scris de mână.
+- Mai bine pe drum: radiera lovește traseele și între puncte (segmente, nu doar puncte rare); „↩ Înapoi" anulează și radiera și „Șterge tot" (Ctrl+Z); capătul-radieră al creionului șterge; ciorna ține minte și poziția pe foaie (ciornele vechi se citesc). Pe telefon fereastra se strânge (unelte pe un rând, enunțul ≤ 24%): pe un iPhone SE foaia are ~180 px în loc de 45.
+
+### 2) Corectarea direct pe scrisul de mână (`api/ai-handwriting.js` rescris, nou `api/_lib/corector.js`)
+- **„🎓 Cere corectarea" trimite imaginea foii** (dale ≤ 2000×1800 px la mărimea reală a scrisului, golurile dintre pagini strânse, cel mult 6) — un model competent o citește și o corectează **într-un singur pas**, cu enunțul și baremul în față: semnele ambigue se descifrează din context, nu rând cu rând, orbește.
+- **Strict pe barem:** test PDF → testul + baremul **citite de pe server** (nu din browser); exercițiu interactiv → rezolvarea oficială (răspunsuri + indicații) ține loc de barem și nu se dezvăluie; fără barem → doar verdicte pe pași, **fără puncte**. Puncte doar pentru elementele din barem atinse efectiv; altă metodă corectă → punctajul corespunzător; punctele ținute în [0, maxim] pe server.
+- În chat: miniatura foii + „⏳ Citesc ce ai scris și compar cu baremul…", apoi corectarea: punctajul, **„Ce am citit pe foaie"**, pas cu pas (✔ ✖ ◐ ❔), punctajul pe elemente, 💡 un indiciu (fără rezultatul final, dacă elevul mai poate corecta singur). Salvată în conversație. La exercițiile interactive se deschide singur Profesorul Virtual (`autoCorrect`, o singură dată, după istoricul reluat).
+- **Modelul:** `AI_CORECTOR_MODEL` = **Claude Opus 5.5** (Anthropic, aceeași cheie ca la meditații; gândire adaptivă „low", JSON pe schemă, fără cache — apel unic), peste bugetul zilnic soft **Claude Sonnet 5.5**, rezervă **GPT-5.6 Terra** la orice pană. Orice alt model se pune din env (ex. Gemini 3.1 Pro prin AI Gateway). Cost: ~0,15–0,5 lei / corectare cu Opus 5.5, de obicei ~0,25 (~0,07–0,25 cu Sonnet 5.5).
+- **Doar Premium** (402 + banda ⭐ cu link spre abonamente; nu trimite nimic); oprit în testul pe grupă (423); cotă zilnică nouă **„✍️ Corectări din spațiul de lucru"** (elev 20/zi, profesor/părinte 10/zi — în „Contul meu → ⚡ Consum AI"; `AI_QUOTA_CORECTARI_SCRIS_ZI`). `AI_HANDWRITING_MODEL` și `AI_QUOTA_SCRIS_ZI` nu mai sunt citite.
+- **„📎 Pune în întrebare"**: foaia pleacă la profesor ca imagine (până la 3 bucăți), cu întrebarea scrisă jos; la o cerință din formular, **„📎 Atașează la răspuns"** o pune la pozele cu rezolvarea.
+
+### 3) Corectarea foto (`api/ai-correct.js` → `grade`)
+- Cu **poze ale rezolvării**: **doar Premium** și prin **același corector competent** (Opus 5.5 / rezervă Terra), cu îndrumarea de citire a scrisului urât. Răspunsurile tastate — ca până acum. Butonul „📷 Poze cu rezolvarea" arată ⭐ fără abonament.
+
+### 4) Fereastra Profesorului Virtual pe calculator (`src/lib/latimePanou.js`, `src/components/ManerLatime.jsx`)
+- Panoul de lângă PDF și de lângă exercițiul interactiv **se trage lateral de marginea stângă** (liniuța de pe linia aurie) — perechea tragerii în sus/jos de pe telefon, care rămâne neschimbată. 320 px … cât lasă 300 px materialului; dublu-clic = mare / obișnuită (ca `□ / ❐`); se ține minte (`pv:latime`). La fel **widgetul plutitor** de pe tot site-ul (`pv:widget`). Redimensionarea din chat rămâne: panoul se lățește singur cât e deschisă foaia și revine — dacă nu l-ai lățit tu între timp.
+
+### 5) Texte publice (corectarea trimite imagini la Anthropic)
+- `AI_STACK` (`src/lib/aiModels.js`), disclaimerul de sub chat, footerul, „Despre noi", FAQ și **Politica de confidențialitate** (secțiunile 1, procesatori, 8; „Ultima actualizare: 27 octombrie 2026"): rezolvările scrise de mână trimise la corectare ajung la Anthropic (imaginea + enunțul + baremul, fără nume/e-mail); chatul, pozele atașate întrebărilor și vocea — tot nu. „Prețuri": corectarea scrisului de mână e în Premium. Haiku 5.5 adăugat în lista de modele și în prețuri (0,10/0,50 $).
+
+**Verificat:** `npm test` — 882 de teste, toate trec (noi: `test/corector-scris.test.js` +16 — Premium, testul pe grupă, baremul de pe server, cererea către Claude cu imaginile înaintea textului și fără cache, rezerva Terra, cota, punctele în limite, dalele, golurile; `test/spatiu-de-lucru.test.js` rescris; `etapa2-pdf-multimodal` și `pdf-barem-spatiu` actualizate); `vite build` trece. În Chromium (1280×800, 1366×768, iPhone 13, iPhone SE): foaia albă, tragerea spre dreapta de 5 ori la rând (980 → 4900 px), două degete fără urme, ✋ nativ pe telefon, ◀ ▶ ⟲ „➕ Pagină nouă" (indicatorul 3/3), Shift+rotița, radiera, Ctrl+Z, ciorna după reîncărcare (cu poziția), exportul (o dală, golurile strânse), banda Premium, fluxul din chat cap-coadă (cu API simulat: miniatura, așteptarea, corectarea randată cu KaTeX, „📎 Pune în întrebare"), `autoCorrect`, mânerul lateral (400 → 700 → 320 → 1066, dublu-clic 400/900, ținut minte). Nu am acces la Vercel: corectarea reală cu Claude se verifică după deploy.
+
+**De făcut o dată:** nimic de rulat în Supabase. În Vercel, opțional: `AI_CORECTOR_MODEL` (implicit Opus 5.5), `AI_QUOTA_CORECTARI_SCRIS_ZI`; poți șterge `AI_HANDWRITING_MODEL` și `AI_QUOTA_SCRIS_ZI`. `ANTHROPIC_API_KEY` trebuie să fie setată (e deja, pentru meditațiile live) — fără ea, corectează rezerva Terra. Apoi commit + deploy.
+
+---
+
 ## 26 octombrie 2026 — Meditații live: „🔔 Anunță-mă când e gata", botul care verifică lecțiile, tastatura matematică √x
 
 Cererea: „1) în «meditații live» arată 1-3 minute de pregătire lecție, dar durează mult până se pregătește o lecție live, iar un elev și-ar putea pierde interesul. Pune o notificare când se termină și poate intra elevul. 2) fă un bot care să verifice dacă o lecție generată are sunet, întrebări pentru exerciții 3) la meditații live și rezolvare pdf în chat, fă ca elevul să poată scrie simboluri matematice […] de pe telefon sau calculator. Pune o tastatură specială pentru introducere răspuns cu aceste simboluri. Să accepte răspuns și în formă de text."

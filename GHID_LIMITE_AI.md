@@ -234,6 +234,7 @@ două zile.
 | explicații pas-cu-pas (tutor/explain/hint) → `AI_TUTOR_MODEL` (Etapa 2; default = `AI_CHAT_MODEL`) | → `AI_CHAT_MODEL` |
 | corectare/generare → `AI_PDF_CHAT_MODEL` (terra) / `AI_GEN_CHAT_MODEL` (sol) | → `AI_CHAT_MODEL` (modelul standard) |
 | foto-rezolvare → `AI_VISION_MODEL` (terra) | → `AI_CHAT_MODEL` (modelul standard) |
+| corectarea scrisului de mână („✍️ Spațiu de lucru" + pozele din „📝 Răspunde în chat") → `AI_CORECTOR_MODEL` (Claude Opus 5.5) | → `AI_CORECTOR_MODEL_ECON` (Claude Sonnet 5.5) — **nu** coboară pe un model de chat: un model slab nu descifrează scrisul urât |
 | verificatorul independent al itemilor generați → `AI_VERIFY_MODEL` (Etapa 2; default = modelul de generare, adică **sol** — merită setat pe altceva, vezi mai jos) | — (plafonat de `AI_VERIFY_MAX_ITEMS` / `AI_VERIFY_TIME_MS`) |
 
 **Uneltele tutorelui (Etapa 3, tool calling).** Un răspuns în care modelul cere unelte
@@ -278,6 +279,13 @@ Limitele diferă după rolul contului:
 | 📄 Subiecte de examen (`ai-exam`) | 20 / lună | **40 / lună** |
 | 🧩 Exerciții interactive (`ai-generate-interactive`) | 40 / lună | 40 / lună |
 | 📷 Foto-rezolvări (`ai-vision`) | 10 / zi | 10 / zi |
+| ✍️ Corectări din spațiul de lucru (`ai-handwriting:correct`, 27 oct. 2026) | **20 / zi** (părinte: 10) | 10 / zi |
+
+Corectările din spațiul de lucru sunt **doar pentru Premium** (402 `PREMIUM_REQUIRED`
+altfel — nu consumă nici acțiunile gratuite). Fereastra e zilnică, ca la foto, și nu
+intră în pool-ul lunar; o încercare eșuată înainte de rezervă se loghează la
+`ai-handwriting:retry` (intră în credite, nu în cotă). Env: `AI_QUOTA_CORECTARI_SCRIS_ZI`
+(nume NOU — vechiul `AI_QUOTA_SCRIS_ZI`, 300 de rânduri transformate pe zi, nu mai e citit).
 
 Reglaje: env-urile `AI_QUOTA_*` (global, toate rolurile) sau
 `AI_QUOTAS_JSON='{"profesor":{"corectari":3}}'` (fin, per rol). 0 = dezactivată.
@@ -432,6 +440,9 @@ Abonamentul e 50 lei/lună. Defaulturile alocă AI-ului maxim 12 lei/utilizator/
 | verificarea a 24 de itemi pe sol (`AI_VERIFY_MODEL` nesetat) | ~1,17 lei |
 | aceeași verificare pe `gpt-5-mini` | ~0,11 lei |
 | corectare test (PDF_MODEL = gpt-5.6-terra, 2/12 USD/1M) | ~0,15–0,4 lei |
+| corectare de pe foaie — „✍️ Spațiu de lucru" (AI_CORECTOR_MODEL = Claude Opus 5.5, 4/20 USD/1M; ~3–12k tokeni intrare — imaginea, enunțul, la un subiect PDF testul și baremul întregi —, ~1–3k ieșire) | ~0,15–0,5 lei (de obicei ~0,25) |
+| aceeași pe Claude Sonnet 5.5 (2/10 USD/1M; `AI_CORECTOR_MODEL_ECON`) | ~0,07–0,25 lei |
+| corectare test cu poze ale rezolvării (corectorul, Opus 5.5; testul + baremul + 1–3 poze) | ~0,3–0,8 lei |
 
 **Din 23 august 2026, `GEN_MODEL` e implicit `gpt-5.6-sol` și `VISION_MODEL` e `gpt-5.6-terra`**
 (erau amândouă `gpt-4o-mini`). Generarea și corectarea fără barem sunt locurile unde modelul
