@@ -545,3 +545,4 @@ module.exports.downloadLibraryPdf = downloadLibraryPdf;
 module.exports.examTexts = examTexts;
 module.exports.downloadContentPdf = downloadContentPdf;
 module.exports.setOverride = setOverride;
+module.exports.writeCache = writeCache;   // botul de examene: repune potrivirea automată a site-ului

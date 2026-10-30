@@ -157,6 +157,35 @@ zilnic și restul săptămânal.
 
 ## 5. Legarea subiect ↔ barem și căutarea baremelor lipsă
 
+### 🔒 Legăturile care există pe site nu se schimbă
+
+Site-ul avea deja o corespondență test ↔ barem, folosită de lecțiile live,
+corectări și explicații: **potrivirea automată** (titlu, nume de fișier, antet,
+conținut — `api/ai-pdf-context.js`) și **baremul ales de tine** în vizualizatorul
+PDF („⚙ barem"). Botul **nu le atinge**: leagă un barem doar unde site-ul nu
+folosește ACUM niciunul.
+
+- Starea se citește chiar înainte de fiecare legare, din locul pe care îl
+  folosește site-ul (`ai_pdf_text`), nu din indexul botului (care poate fi vechi
+  de câteva ore). Dacă subiectul a primit între timp un barem — automat sau de la
+  tine — botul nu-l schimbă și nici nu-l mai caută online; jurnalul scrie
+  „🔒 … are deja barem pe site — nu-l schimb".
+- Un barem nou publicat de bot nu schimbă potrivirile automate existente: cele
+  confirmate rămân în cache (triggerul din `ai_pdf_cache_v2.sql` le păstrează), iar
+  cele „negăsit" doar se recalculează — adică se completează.
+- Din fila botului, „🔗 Alt barem…" și „✕ Desface" apar doar la legăturile
+  botului și la cele puse de tine tot din fila botului. Celelalte arată
+  „🔒 legătura site-ului — botul n-o schimbă"; dacă vrei alt barem acolo, îl
+  schimbi ca până acum, din vizualizatorul PDF al testului („⚙ barem").
+- 🛡 **O singură dată, după actualizare**, botul își verifică legăturile făcute
+  înainte de această regulă (prima versiune, din 30 oct., lega după indexul ei):
+  pentru fiecare, calculează potrivirea automată a site-ului. Dacă aceasta dă
+  **alt** barem, botul își anulează legătura și o repune pe a site-ului; dacă nu
+  dă niciunul (sau dă același), legătura botului rămâne — doar completa un gol.
+  Rezultatul apare sus în filă și în 🧾 Jurnal („↩ …").
+
+### Cum leagă
+
 Un barem se leagă de un subiect **doar dacă se potrivesc toate**: titlul, numele
 original al fișierului, antetul (examen, an, profil, fel, variantă) și
 **conținutul** (răspunsurile din barem corespund enunțurilor). Legătura se scrie
@@ -206,7 +235,7 @@ rulează în același timp (lacăt în `exam_bot_runs`).
 | Lista | Pe fiecare rând |
 |---|---|
 | ⚠ **Fără barem** | 🔍 Caută (botul) · 🤖 Caută cu AI · 🔗 Asociază… (baremele de pe site, verificate pe conținut — cele potrivite primele) · Nu are barem |
-| ✅ **Cu barem** | baremul și dovada · ↺ Reverifică · 🔗 Alt barem… · ✕ Desface (doar legăturile făcute de bot sau de tine) |
+| ✅ **Cu barem** | baremul și dovada · ↺ Reverifică · 🔗 Alt barem… și ✕ Desface — doar la legăturile botului și la cele puse de tine din fila botului; la restul: 🔒 legătura site-ului |
 | 📥 **Găsite de bot** | fișierul original, sursa, articolul, starea: ✓ publicat · ⏸ de verificat (✓ Publică… cu examenul / felul / anul / varianta / titlul alese de tine · ✕ Respinge) · = există deja · ⚠ eroare (↻ Reîncearcă). Bifa „arată ce a ignorat" arată și traducerile / alte materii |
 | 📋 **Bareme** | cât e folosit fiecare barem |
 | 🚫 **„Nu are barem"** | subiectele marcate de tine · ↺ Caută iar baremul |
@@ -235,7 +264,8 @@ rulează în același timp (lacăt în `exam_bot_runs`).
 | Un subiect rămâne „fără barem" | baremul nu e încă publicat nicăieri (simulările județene îl dau uneori târziu), PDF-ul e scanat (fără text) sau baremul găsit e al altei variante. Încearcă „🤖 Caută cu AI" sau „🔗 Asociază…"; dacă nu există, „Nu are barem" |
 | Un fișier stă la „de verificat" | motivul e scris sub el (scanat, felul neclar, antetul contrazice numele). „✓ Publică…" cu datele corecte sau „✕ Respinge" |
 | „Botul lucrează deja" | o altă rulare (cron sau alt tab) e în curs; încearcă peste câteva minute |
-| O legătură greșită | „✕ Desface" (site-ul revine la potrivirea automată) sau „🔗 Alt barem…" |
+| O legătură greșită a botului | „✕ Desface" (site-ul revine la potrivirea automată) sau „🔗 Alt barem…" |
+| „Testul are deja un barem pe site…" (409) | legătura existentă e protejată; dacă vrei alt barem, schimbă-l din vizualizatorul PDF al testului („⚙ barem") |
 
 ---
 
@@ -244,10 +274,13 @@ rulează în același timp (lacăt în `exam_bot_runs`).
 - Nu ia fișiere de pe site-uri care interzic roboții și nu ocolește `robots.txt`.
 - Nu publică materiale neoficiale (culegeri, rezolvări ale altor site-uri): doar
   fișierele Ministerului Educației și ale inspectoratelor școlare, cu sursa scrisă.
+- Nu schimbă legăturile test ↔ barem care există pe site (automate sau alese de
+  tine) — doar completează unde lipsește baremul.
 - Nu publică traducerile în limbile minorităților (se pot activa ulterior).
 - Nu folosește AI fără să apeși butonul.
 
-Teste: `node --test test/bot-examene.test.js` (21 de teste: clasificarea numelor
+Teste: `node --test test/bot-examene.test.js` (23 de teste: clasificarea numelor
 oficiale, deciziile, rubricile, titlurile, amprentele, verificarea subiect ↔ barem,
 `robots.txt`, rețeaua, arhivele, cap-coadă cu un „internet" simulat, căutarea web
-o dată pe zi, publicarea manuală, asocierea manuală, API-ul).
+o dată pe zi, publicarea manuală, asocierea manuală, legăturile existente
+protejate, verificarea legăturilor vechi ale botului, API-ul).

@@ -314,11 +314,11 @@ export default function AdminBotExamene({ s }) {
     finally { setRowBusy((b) => { const n = { ...b }; delete n[id]; return n; }); }
   }
   const cautaBarem = (r, useAi = false) => {
-    if (useAi && !window.confirm(`Caut baremul pentru „${r.title}" cu AI (Claude + căutare web).\nCost: ~0,1–0,5 lei. Botul verifică el însuși ce propune AI-ul.\n\nContinui?`)) return;
+    if (useAi && !window.confirm(`Caut baremul pentru „${r.title}" cu AI (Claude + căutare web).\nCost: ~0,2–1 leu. Botul verifică el însuși ce propune AI-ul.\n\nContinui?`)) return;
     rowAction(r.content_id, useAi ? '🤖 caută cu AI…' : '🔍 caută…', { action: 'find_barem', contentId: r.content_id, useAi }, (res) => {
       const x = res.result || {};
-      setRowMsg((m) => ({ ...m, [r.content_id]: { ok: !!x.found, text: x.found ? (x.pending ? `Găsit (${x.barem?.title || 'barem'}) — așteaptă publicarea în „Găsite de bot".` : `Găsit și legat: ${x.barem?.title || 'barem'}`) : (x.note || 'Negăsit.') } }));
-      if (x.found) { loadStatus(); setTimeout(() => loadList(), 1200); }
+      setRowMsg((m) => ({ ...m, [r.content_id]: { ok: !!(x.found || x.existing), text: x.found ? (x.pending ? `Găsit (${x.barem?.title || 'barem'}) — așteaptă publicarea în „Găsite de bot".` : `Găsit și legat: ${x.barem?.title || 'barem'}`) : x.existing ? `🔒 ${x.note}` : (x.note || 'Negăsit.') } }));
+      if (x.found || x.existing) { loadStatus(); setTimeout(() => loadList(), 1200); }
     });
   };
 
@@ -378,6 +378,8 @@ export default function AdminBotExamene({ s }) {
           Fără AI: caută pe edupedu.ro, subiecte.edu.ro (dacă permite roboții), edu.ro, paginile urmărite (inspectorate) și — dacă pui o cheie — pe un motor de căutare.
           Citește antetul fiecărui PDF (examen, an, profil, sesiune, variantă), îl compară cu ce e deja pe site și publică în rubrica lui doar ce e sigur.
           Un barem se leagă de subiect doar dacă se potrivesc titlul, numele fișierului, antetul și conținutul.
+          {' '}<strong style={{ color: 'var(--navy)' }}>🔒 Legăturile test ↔ barem care există deja pe site nu se schimbă</strong> (cele folosite de lecțiile live, corectări și explicații): botul completează doar unde lipsește baremul.
+          {st?.audit?.done && st.audit.total > 0 && <> {' '}Legăturile făcute de bot înainte de această regulă: {st.audit.total || 0} verificate{st.audit.restored ? <>, <strong>{st.audit.restored} repuse pe legătura site-ului</strong></> : ' — niciuna nu înlocuise o legătură existentă'}.</>}
         </div>
 
         {running && (
@@ -493,9 +495,13 @@ export default function AdminBotExamene({ s }) {
                 {rowBusy[r.content_id] ? <span style={muted}>{rowBusy[r.content_id]}</span> : (
                   <>
                     <button type="button" style={smallBtn} onClick={() => rowAction(r.content_id, 'verific…', { action: 'step', kind: 'verificare', ids: [r.content_id], force: true }, () => { loadList(); })}>↺ Reverifică</button>
-                    <button type="button" style={smallBtn} onClick={() => setOpen(open?.id === r.content_id ? null : { id: r.content_id, what: 'asociaza' })}>🔗 Alt barem…</button>
-                    {(r.barem_status === 'ok_bot' || r.barem_status === 'ok_admin') && (
-                      <button type="button" style={{ ...smallBtn, color: '#b3261e' }} onClick={() => window.confirm('Desfac legătura cu baremul? Site-ul revine la potrivirea automată.') && rowAction(r.content_id, '…', { action: 'associate', contentId: r.content_id, baremId: null }, () => { loadList(); loadStatus(); })}>✕ Desface</button>
+                    {r.barem_status === 'ok_bot' || (r.barem_status === 'ok_admin' && r.barem_how === 'admin · fila botului') ? (
+                      <>
+                        <button type="button" style={smallBtn} onClick={() => setOpen(open?.id === r.content_id ? null : { id: r.content_id, what: 'asociaza' })}>🔗 Alt barem…</button>
+                        <button type="button" style={{ ...smallBtn, color: '#b3261e' }} onClick={() => window.confirm(`Desfac legătura făcută ${r.barem_status === 'ok_bot' ? 'de bot' : 'de tine din fila botului'}? Site-ul revine la potrivirea automată.`) && rowAction(r.content_id, '…', { action: 'associate', contentId: r.content_id, baremId: null }, () => { loadList(); loadStatus(); })}>✕ Desface</button>
+                      </>
+                    ) : (
+                      <span style={{ ...muted, maxWidth: 230 }} title={'Legăturile care există pe site nu se schimbă din fila botului. Dacă vrei alt barem: vizualizatorul PDF al testului → „⚙ barem”.'}>🔒 legătura site-ului — botul n-o schimbă</span>
                     )}
                   </>
                 )}

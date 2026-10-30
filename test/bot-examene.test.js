@@ -23,6 +23,7 @@ const { PDFDocument, StandardFonts } = require('pdf-lib');
 const E = require('../api/_lib/examBot');
 const N = require('../api/_lib/examBotNet');
 const R = require('../api/_lib/examBotRun');
+const PDF = require('../api/ai-pdf-context');
 const B = require('../api/_lib/barem');
 const { unzip, makeZip } = require('../api/_lib/unzip');
 const http = require('../api/_lib/http');
@@ -653,7 +654,7 @@ test('„De verificat": un fișier nesigur așteaptă; adminul îl publică (cu 
   assert.deepStrictEqual([supa.db.tables.exam_bot_items[0].status, supa.db.tables.exam_bot_items[0].attempts], ['nou', 0]);
 });
 
-test('asocierea manuală și „nu are barem": candidații verificați pe conținut, legarea, dezlegarea', async () => {
+test('asocierea manuală din fila botului: completează unde lipsește; legătura existentă a site-ului e protejată; „nu are barem"', async () => {
   const P = await buildPdfs();
   const supa = await seedSite(P);
   supa.db.tables.content.push({ id: 'bbbbbbbb-0000-4000-8000-000000000007', title: 'Barem — EN 2024 V7', category: 'evaluare-nationala', subcategory: 'bareme', content_type: 'pdf', is_free: true, file_url: `${FAKE}pdf/evaluare-nationala/1700000000009_barem7.pdf`, created_at: '2025-02-01T10:00:00Z' });
@@ -667,17 +668,116 @@ test('asocierea manuală și „nu are barem": candidații verificați pe conți
   assert.strictEqual(cands.candidates[0].id, 'bbbbbbbb-0000-4000-8000-000000000007');
   assert.strictEqual(cands.candidates[0].ok, true);
   assert.ok(cands.candidates.some((c) => c.id === C.enB2 && !c.ok), 'baremul V2 apare, dar respins');
-  // adminul leagă altceva (e alegerea lui) → asocierea manuală; apoi o desface
-  await R.manualAssociate(R.makeCtx(supa, S, { budgetMs: 60000 }), C.en7, C.enB2);
-  assert.strictEqual(supa.db.tables.ai_pdf_text.find((x) => x.content_id === C.en7).barem_override_by, 'admin');
-  assert.strictEqual(at(C.en7).barem_status, 'ok_admin');
-  await R.manualAssociate(R.makeCtx(supa, S, { budgetMs: 60000 }), C.en7, null);
-  assert.strictEqual(supa.db.tables.ai_pdf_text.find((x) => x.content_id === C.en7).barem_override_id, null);
+  // 🔒 V7 are deja legătura automată a site-ului → din fila botului nu se schimbă și nu se desface
+  const cache = (id) => supa.db.tables.ai_pdf_text.find((x) => x.content_id === id);
+  await assert.rejects(R.manualAssociate(R.makeCtx(supa, S, { budgetMs: 60000 }), C.en7, C.enB2),
+    (e) => e.status === 409 && e.code === 'EXISTENT' && /vizualizatorul PDF/.test(e.message));
+  await assert.rejects(R.manualAssociate(R.makeCtx(supa, S, { budgetMs: 60000 }), C.en7, null), (e) => e.status === 409);
+  assert.ok(!cache(C.en7).barem_override_id, 'legătura automată rămâne cum era');
+  assert.strictEqual(cache(C.en7).barem_id, 'bbbbbbbb-0000-4000-8000-000000000007');
+  // EN 2023 n-are barem → adminul îl completează din fila botului (alegerea lui) și își poate desface legătura tot de aici
+  await R.manualAssociate(R.makeCtx(supa, S, { budgetMs: 60000 }), C.en1, C.enB2);
+  assert.strictEqual(cache(C.en1).barem_override_by, 'admin');
+  assert.strictEqual(at(C.en1).barem_status, 'ok_admin');
+  await R.verifyStep(R.makeCtx(supa, S, { budgetMs: 60000 }), { ids: [C.en1], force: true });   // reverificată: rămâne „a lui"
+  assert.strictEqual(at(C.en1).barem_how, 'admin · fila botului');
+  await R.manualAssociate(R.makeCtx(supa, S, { budgetMs: 60000 }), C.en1, null);
+  assert.strictEqual(cache(C.en1).barem_override_id, null);
+  // alegerea făcută din vizualizatorul PDF (nu din fila botului) e protejată și ea
+  await PDF.setOverride(supa, supa.db.tables.content.find((x) => x.id === C.en1), C.enB2);
+  await assert.rejects(R.manualAssociate(R.makeCtx(supa, S, { budgetMs: 60000 }), C.en1, null), (e) => e.status === 409);
+  await PDF.setOverride(supa, supa.db.tables.content.find((x) => x.id === C.en1), null);
   // „nu are barem" → iese din lista „fără barem" și din căutări
   await R.setIgnored(supa, C.en1, true);
   const fara = await R.listView(supa, 'fara');
   assert.strictEqual(fara.rows.some((x) => x.content_id === C.en1), false);
   assert.strictEqual((await R.listView(supa, 'ignorate')).rows.some((x) => x.content_id === C.en1), true);
+});
+
+test('🔒 botul nu schimbă legăturile existente test ↔ barem (indexul lui vechi nu contează); 🛡 își verifică o dată legăturile vechi', async () => {
+  const P = await buildPdfs();
+  const supa = await seedSite(P);
+  R.setNetFactory(netWith(fakeWeb({})));
+  const S = E.normalizeSettings(null);
+  const ctx = () => R.makeCtx(supa, S, { budgetMs: 120000 });
+  const content = (id) => supa.db.tables.content.find((c) => c.id === id);
+  const cache = (id) => supa.db.tables.ai_pdf_text.find((x) => x.content_id === id);
+  const at = (id) => supa.db.tables.exam_bot_index.find((x) => x.content_id === id);
+  await R.verifyStep(ctx(), { ids: Object.values(C) });   // (cu ids: fără verificarea legăturilor vechi — o facem la pasul 4)
+  assert.strictEqual(at(C.en7).barem_status, 'negasit');
+  assert.strictEqual(at(C.en1).barem_status, 'negasit');
+
+  // 1) după verificare, adminul alege din vizualizatorul PDF un barem pentru V7 (indexul botului zice tot „negasit")
+  await PDF.setOverride(supa, content(C.en7), C.enB2);
+  const c1 = ctx();
+  const r1 = await R.findMissingStep(c1, { ids: [C.en7] });
+  assert.strictEqual(r1.results[0].existing, true, JSON.stringify(r1));
+  assert.deepStrictEqual([cache(C.en7).barem_override_id, cache(C.en7).barem_override_by], [C.enB2, 'admin'], 'alegerea adminului rămâne');
+  assert.strictEqual(at(C.en7).barem_status, 'ok_admin', 'subiectul iese din „Fără barem", fără căutare online');
+  assert.strictEqual(c1.stats.bareme_cautate, 0);
+
+  // 2) între timp, site-ul a legat AUTOMAT testul EN 2023 de un barem încărcat de admin (un elev l-a deschis)
+  const X = 'cccccccc-0000-4000-8000-000000002301';
+  supa.db.tables.content.push({ id: X, title: 'Barem EN 2023 varianta 1', category: 'evaluare-nationala', subcategory: 'bareme', content_type: 'pdf', is_free: true, file_url: `${FAKE}pdf/evaluare-nationala/1700000000010_barem_2023_v1.pdf`, created_at: '2025-03-01T10:00:00Z' });
+  supa.db.files.set('content-files-free/pdf/evaluare-nationala/1700000000010_barem_2023_v1.pdf', P.enB1_2023);
+  await PDF.getPdfContext(supa, content(C.en1), { refresh: true });
+  assert.ok(['ok', 'ok_antet', 'ok_continut'].includes(cache(C.en1).barem_status), cache(C.en1).barem_status);
+  assert.strictEqual(cache(C.en1).barem_id, X);
+  // botul (indexul lui: „negasit") vrea să lege alt barem — după publicare, după căutare, oricum → refuză
+  const c2 = ctx();
+  assert.strictEqual(await R.associate(c2, content(C.en1), { id: C.enB2, title: 'Barem EN 2024 varianta 2', file_url: content(C.enB2).file_url }, null, 'bot'), false);
+  assert.ok(!cache(C.en1).barem_override_id, 'nicio legătură a botului peste cea automată');
+  assert.strictEqual(cache(C.en1).barem_id, X);
+  assert.strictEqual(c2.stats.pastrate, 1);
+  assert.ok(c2.lines.some((l) => /🔒/.test(l) && /nu-l schimb/.test(l)), c2.lines.join('\n'));
+  assert.strictEqual(at(C.en1).barem_status, cache(C.en1).barem_status, 'indexul botului ține pasul cu site-ul');
+  await assert.rejects(R.manualAssociate(ctx(), C.en1, C.enB2), (e) => e.status === 409 && e.code === 'EXISTENT');
+
+  // 3) unde site-ul NU folosește niciun barem, botul completează (aici: V7, după ce adminul și-a retras alegerea)
+  await PDF.setOverride(supa, content(C.en7), null);
+  assert.strictEqual(await R.siteLink(supa, content(C.en7)), null);
+  assert.strictEqual(await R.associate(ctx(), content(C.en7), { id: C.enB2, title: 'Barem EN 2024 varianta 2', file_url: content(C.enB2).file_url }, null, 'bot'), true);
+  assert.deepStrictEqual([cache(C.en7).barem_override_id, cache(C.en7).barem_override_by], [C.enB2, 'bot']);
+
+  // 4) 🛡 o legătură a botului care ia locul celei pe care o dă site-ul (versiunea veche nu verifica) → repusă cea a site-ului
+  const V7 = 'cccccccc-0000-4000-8000-000000000007';
+  supa.db.tables.content.push({ id: V7, title: 'Barem EN 2024 varianta 7', category: 'evaluare-nationala', subcategory: 'bareme', content_type: 'pdf', is_free: true, file_url: `${FAKE}pdf/evaluare-nationala/1700000000011_barem_2024_v7.pdf`, created_at: '2025-03-01T10:00:00Z' });
+  supa.db.files.set('content-files-free/pdf/evaluare-nationala/1700000000011_barem_2024_v7.pdf', P.enB7);
+  const c4 = ctx();
+  const a = await R.auditBotLinks(c4);
+  assert.deepStrictEqual([a.done, a.total, a.restored, a.kept], [true, 1, 1, 0], JSON.stringify(a));
+  assert.ok(!cache(C.en7).barem_override_id, 'legătura botului anulată');
+  assert.strictEqual(cache(C.en7).barem_id, V7);
+  const pc = await PDF.getPdfContext(supa, content(C.en7));
+  assert.strictEqual(pc.barem.id, V7);
+  assert.notStrictEqual(pc.barem.matchedBy, 'bot');
+  assert.ok(c4.lines.some((l) => /↩/.test(l)), c4.lines.join('\n'));
+  assert.strictEqual(at(C.en7).barem_status, cache(C.en7).barem_status);
+  // o singură dată: a doua oară nu mai face nimic
+  const before = JSON.stringify(supa.db.tables.ai_pdf_text);
+  const again = await R.auditBotLinks(ctx());
+  assert.strictEqual(again.done, true);
+  assert.strictEqual(JSON.stringify(supa.db.tables.ai_pdf_text), before);
+  const rep = await R.report(supa);
+  assert.deepStrictEqual([rep.audit.done, rep.audit.restored], [true, 1]);
+});
+
+test('🛡 legătura veche a botului rămâne unde site-ul nu dă niciun barem sau dă același', async () => {
+  const P = await buildPdfs();
+  const supa = await seedSite(P);
+  R.setNetFactory(netWith(fakeWeb({})));
+  const S = E.normalizeSettings(null);
+  const content = (id) => supa.db.tables.content.find((c) => c.id === id);
+  const cache = (id) => supa.db.tables.ai_pdf_text.find((x) => x.content_id === id);
+  // EN 2024 V7 ↔ baremul V7 (același pe care l-ar alege și site-ul); EN 2023 ↔ un barem pe care site-ul nu l-ar alege (nu dă niciunul)
+  const V7 = 'cccccccc-0000-4000-8000-000000000007';
+  supa.db.tables.content.push({ id: V7, title: 'Barem EN 2024 varianta 7', category: 'evaluare-nationala', subcategory: 'bareme', content_type: 'pdf', is_free: true, file_url: `${FAKE}pdf/evaluare-nationala/1700000000011_barem_2024_v7.pdf`, created_at: '2025-03-01T10:00:00Z' });
+  supa.db.files.set('content-files-free/pdf/evaluare-nationala/1700000000011_barem_2024_v7.pdf', P.enB7);
+  await PDF.setOverride(supa, content(C.en7), V7, { by: 'bot' });
+  await PDF.setOverride(supa, content(C.en1), C.enB2, { by: 'bot' });
+  const a = await R.auditBotLinks(R.makeCtx(supa, S, { budgetMs: 120000 }));
+  assert.deepStrictEqual([a.done, a.total, a.restored, a.kept], [true, 2, 0, 2], JSON.stringify(a));
+  assert.deepStrictEqual([cache(C.en7).barem_override_id, cache(C.en1).barem_override_id], [V7, C.enB2]);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

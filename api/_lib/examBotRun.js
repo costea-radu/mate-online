@@ -22,6 +22,11 @@
 //     și AI). Baremul găsit se încarcă la „Bareme" și se leagă de subiect
 //     (ai_pdf_text.barem_override_id, by = 'bot').
 //
+// 🔒 Legăturile test ↔ barem care există pe site (potrivirea automată sau
+// baremul ales de admin — folosite de lecțiile live, corectări, explicații) NU
+// se schimbă: botul leagă doar unde site-ul nu folosește ACUM niciun barem
+// (siteLink, citit chiar înainte de fiecare legare). Vezi și auditBotLinks.
+//
 // Tabelele: supabase/bot_examene.sql. Setările: app_settings 'exam_bot'.
 // =====================================================================
 const crypto = require('node:crypto');
@@ -78,8 +83,48 @@ async function setupInfo(supa) {
 function newStats() {
   return {
     pagini: 0, linkuri: 0, noi: 0, descarcate: 0, publicate: 0, asteptare: 0, duplicate: 0, ignorate: 0, erori: 0,
-    verificate: 0, bareme_cautate: 0, bareme_gasite: 0, asocieri: 0, cautari_web: 0, cautari_ai: 0, cost_usd: 0,
+    verificate: 0, bareme_cautate: 0, bareme_gasite: 0, asocieri: 0, pastrate: 0, restaurate: 0, cautari_web: 0, cautari_ai: 0, cost_usd: 0,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🔒 LEGĂTURILE EXISTENTE test ↔ barem NU SE SCHIMBĂ
+// ═══════════════════════════════════════════════════════════════════════════
+// Site-ul avea deja corespondența test ↔ barem (ai_pdf_text: potrivirea automată
+// confirmată sau baremul ales de admin), folosită de lecțiile live, corectări și
+// Profesorul Virtual. Botul doar COMPLETEAZĂ: leagă un barem numai unde site-ul
+// nu folosește ACUM niciunul. Starea se citește chiar înainte de legare (nu din
+// indexul botului, care poate fi vechi de câteva ore).
+const SITE_OK = new Set(['ok', 'ok_antet', 'ok_continut', 'inclus', 'ok_admin']);
+const LINK_KIND = { auto: 'potrivirea automată a site-ului', admin: 'ales de administrator', bot: 'legat deja de bot', necunoscut: 'starea nu s-a putut citi' };
+const ADMIN_TAB = 'admin · fila botului';   // legat manual din fila botului (adminul îl poate desface tot de aici)
+// → null (site-ul nu folosește niciun barem) | { kind: 'auto' | 'admin' | 'bot' | 'necunoscut', baremId, status }
+async function siteLink(supa, row) {
+  if (!row || !row.id) return { kind: 'necunoscut', baremId: null, status: null };
+  const cols = 'content_id, file_url, barem_id, barem_status, barem_override_id';
+  let r = await supa.from('ai_pdf_text').select(`${cols}, barem_override_by`).eq('content_id', row.id).maybeSingle();
+  if (r.error && /barem_override_by/.test(String(r.error.message || ''))) r = await supa.from('ai_pdf_text').select(cols).eq('content_id', row.id).maybeSingle();
+  if (r.error) return isMissing(r.error) ? null : { kind: 'necunoscut', baremId: null, status: null };   // fără cache: site-ul nu are nicio legătură salvată
+  const d = r.data;
+  if (!d) return null;
+  if (d.barem_override_id) return { kind: d.barem_override_by === 'bot' ? 'bot' : 'admin', baremId: d.barem_override_id, status: 'ok_admin' };
+  if (SITE_OK.has(d.barem_status) && (d.barem_id || d.barem_status === 'inclus') && (!d.file_url || !row.file_url || d.file_url === row.file_url)) {
+    return { kind: 'auto', baremId: d.barem_id || row.id, status: d.barem_status };
+  }
+  return null;
+}
+// indexul botului ține pasul cu legătura găsită pe site (subiectul iese din „Fără barem")
+async function syncIndexToSite(ctx, row, cur) {
+  const patch = {
+    barem_status: cur.kind === 'auto' ? cur.status : cur.kind === 'bot' ? 'ok_bot' : cur.kind === 'admin' ? 'ok_admin' : 'eroare',
+    barem_id: cur.baremId || null, barem_how: LINK_KIND[cur.kind] || cur.kind,
+    checked_at: null,   // verificarea următoare completează titlul și dovada
+  };
+  if (cur.baremId && cur.baremId !== row.id) {
+    const { data: b } = await ctx.supa.from('content').select('title').eq('id', cur.baremId).maybeSingle();
+    if (b) patch.barem_title = b.title;
+  }
+  await ctx.supa.from(T.index).update(patch).eq('content_id', row.id);
 }
 function mergeStats(a, b) {
   const out = { ...(a || {}) };
@@ -197,6 +242,8 @@ async function indexOne(ctx, row, prev = null) {
       if (status === 'ok_admin' && pc.barem && pc.barem.matchedBy === 'bot') status = 'ok_bot';
       baremId = pc.barem ? pc.barem.id || (status === 'inclus' ? row.id : null) : null;
       how = pc.barem ? pc.barem.matchedBy || null : null;
+      // legătura pusă de admin din fila botului își păstrează semnul (o poate desface tot de acolo)
+      if (status === 'ok_admin' && prev && prev.barem_how === ADMIN_TAB && prev.barem_id === baremId) how = ADMIN_TAB;
       evidence = pc.barem ? pc.barem.evidence || null : null;
       baremTitle = pc.barem ? pc.barem.title || null : null;
       score = pc.barem && typeof pc.barem.contentScore === 'number' ? pc.barem.contentScore : null;
@@ -223,8 +270,60 @@ async function indexOne(ctx, row, prev = null) {
   return { ...(prev || {}), ...idx };
 }
 
+// 🛡 O SINGURĂ DATĂ, după actualizare: legăturile făcute de bot ÎNAINTE de regula
+// „🔒 nu schimba ce există" (versiunea din 30 oct., 22:35, lega după indexul ei,
+// fără să recitească starea site-ului chiar înainte). Pentru fiecare: potrivirea
+// automată a site-ului, calculată acum. Dă ALT barem → botul își anulează legătura
+// și repune legătura site-ului. Nu dă niciun barem (sau dă același) → legătura
+// botului rămâne: doar completa un gol. Progresul: app_settings 'exam_bot_audit_v1'.
+const AUDIT_KEY = 'exam_bot_audit_v1';
+async function auditBotLinks(ctx) {
+  const { supa } = ctx;
+  let st;
+  try { st = await SET.readSetting(supa, AUDIT_KEY); } catch { return { skipped: 'app_settings indisponibil' }; }
+  if (!st.setup) return { skipped: 'app_settings indisponibil' };
+  const state = st.value && typeof st.value === 'object' ? st.value : {};
+  if (state.done) return { done: true, ...state };
+  const { data: links, error } = await supa.from('ai_pdf_text').select('content_id, barem_override_id').eq('barem_override_by', 'bot');
+  if (error) return { skipped: error.message };
+  const seen = new Set(Array.isArray(state.seen) ? state.seen : []);
+  let restored = state.restored || 0, kept = state.kept || 0;
+  const list = Array.isArray(state.restoredList) ? state.restoredList : [];
+  const save = (v) => SET.writeSetting(supa, AUDIT_KEY, v).catch(() => {});
+  for (const l of (links || []).filter((x) => x.barem_override_id && !seen.has(x.content_id))) {
+    if (ctx.left() < 45000) break;
+    const { data: row } = await supa.from('content').select('*').eq('id', l.content_id).maybeSingle();
+    if (row && row.file_url) {
+      let auto;
+      try { auto = await PDF().computePdfContext(supa, row); } catch (e) { ctx.log(`⚠ verificarea legăturii botului pentru „${row.title}": ${e.message} — reiau la rularea următoare`); break; }
+      const autoId = auto && auto.barem ? auto.barem.id : null;
+      if (autoId && autoId !== l.barem_override_id) {
+        await PDF().setOverride(supa, row, null);
+        await PDF().writeCache(supa, row, auto);
+        await supa.from(T.index).update({
+          barem_status: auto.baremStatus, barem_id: autoId, barem_title: auto.barem.title, barem_how: 'automat (site) — repus',
+          barem_evidence: null, barem_score: typeof auto.barem.contentScore === 'number' ? auto.barem.contentScore : null, checked_at: null,
+        }).eq('content_id', row.id);
+        restored++;
+        ctx.stats.restaurate++;
+        list.push({ id: row.id, title: row.title, bot: l.barem_override_id, site: autoId, at: nowIso() });
+        ctx.log(`↩ „${row.title}": site-ul are baremul lui („${auto.barem.title}") — am anulat legătura botului și am repus-o pe a site-ului`);
+      } else kept++;
+    }
+    seen.add(l.content_id);
+    await save({ seen: [...seen], restored, kept, restoredList: list.slice(-100) });
+  }
+  const left = (links || []).filter((x) => x.barem_override_id && !seen.has(x.content_id)).length;
+  if (left) return { done: false, restored, kept, left };
+  const fin = { done: true, at: nowIso(), total: seen.size, restored, kept, restoredList: list.slice(-100) };
+  await save(fin);
+  ctx.log(`🛡 legăturile făcute de bot până acum: ${seen.size} verificate — ${restored ? `${restored} repuse pe legătura site-ului` : 'niciuna nu a luat locul unei legături existente'}`);
+  return fin;
+}
+
 // ✅ VERIFICAREA: indexează PDF-urile noi / schimbate / vechi (felie cu felie)
 async function verifyStep(ctx, { force = false, ids = null } = {}) {
+  if (!ids) await auditBotLinks(ctx);
   const rows = await loadExamPdfs(ctx.supa, ids);
   const index = await loadIndex(ctx.supa);
   const byId = new Map(index.map((r) => [r.content_id, r]));
@@ -256,18 +355,29 @@ async function verifyStep(ctx, { force = false, ids = null } = {}) {
 // ═══════════════════════════════════════════════════════════════════════════
 // Asocierea subiect ↔ barem
 // ═══════════════════════════════════════════════════════════════════════════
+// → true dacă a legat; false dacă subiectul avea deja un barem pe site (botul nu-l schimbă)
 async function associate(ctx, subjectRow, baremRow, verdict, by = 'bot') {
+  if (by === 'bot') {
+    const cur = await siteLink(ctx.supa, subjectRow);
+    if (cur) {
+      ctx.stats.pastrate++;
+      ctx.log(`🔒 „${subjectRow.title}" are deja barem pe site (${LINK_KIND[cur.kind]}) — nu-l schimb`);
+      await syncIndexToSite(ctx, subjectRow, cur);
+      return false;
+    }
+  }
   await PDF().setOverride(ctx.supa, subjectRow, baremRow.id, { by });
   const ev = verdict ? JSON.stringify({ ...verdict.evidence, cum: verdict.how }) : null;
   await ctx.supa.from(T.index).update({
     barem_status: by === 'bot' ? 'ok_bot' : 'ok_admin', barem_id: baremRow.id, barem_title: baremRow.title,
-    barem_how: by === 'bot' ? `bot · ${verdict && verdict.how ? verdict.how : 'verificat'}` : 'admin',
+    barem_how: by === 'bot' ? `bot · ${verdict && verdict.how ? verdict.how : 'verificat'}` : ADMIN_TAB,
     barem_evidence: ev, barem_score: verdict && typeof verdict.score === 'number' ? verdict.score : null,
     search_status: 'gasit', searched_at: nowIso(), checked_at: nowIso(),
   }).eq('content_id', subjectRow.id);
   ctx.stats.asocieri++;
   if (ctx.linked) ctx.linked.add(subjectRow.id);
   ctx.log(`🔗 „${subjectRow.title}" ↔ „${baremRow.title}"${verdict && verdict.score != null ? ` (conținut ${Math.round(verdict.score * 100)}%)` : ''}`);
+  return true;
 }
 
 // baremele de pe site compatibile cu un subiect (după amprentele din index), cele mai potrivite întâi
@@ -647,10 +757,11 @@ async function pairPublished(ctx, index) {
     const cands = [...same, ...fromSite.filter((r) => !same.some((x) => x.id === r.id))];
     for (const b of cands) {
       const v = E.verifyPair({ row: s.row, text: s.text }, { row: b, text: await textOf(ctx, b) });
-      if (v.ok) { await associate(ctx, s.row, b, v, 'bot'); ctx.stats.bareme_gasite++; break; }
+      if (v.ok) { if (await associate(ctx, s.row, b, v, 'bot')) ctx.stats.bareme_gasite++; break; }
     }
   }
   // baremele noi pentru subiecte care erau deja pe site, fără barem
+  // (fără barem după index; associate() verifică încă o dată pe site, chiar înainte)
   for (const b of bars) {
     if (ctx.left() < 15000) break;
     const bt = B.tokensOf(b.row, B.docTokens(b.text));
@@ -661,7 +772,7 @@ async function pairPublished(ctx, index) {
     for (const x of subjects.slice(0, 6)) {
       const row = { id: x.content_id, title: x.title, file_url: x.file_url, category: x.category, profile: x.profile, subcategory: x.subcategory };
       const v = E.verifyPair({ row, text: await textOf(ctx, row) }, { row: b.row, text: b.text });
-      if (v.ok) { await associate(ctx, row, b.row, v, 'bot'); ctx.stats.bareme_gasite++; }
+      if (v.ok && await associate(ctx, row, b.row, v, 'bot')) ctx.stats.bareme_gasite++;
     }
   }
 }
@@ -727,8 +838,8 @@ async function tryBaremUrl(ctx, cand, subject, sc, index) {
     const onSite = sameDocIn(index, { ...dec.cls, exam: subject.row.category === 'evaluare-nationala' ? 'en' : 'bac', isBarem: true }, fp);
     if (onSite) {
       const row = { id: onSite.content_id, title: onSite.title, file_url: onSite.file_url, category: onSite.category, profile: onSite.profile };
-      await associate(ctx, subject.row, row, v, 'bot');
-      return { ok: true, existed: true, row };
+      const linked = await associate(ctx, subject.row, row, v, 'bot');
+      return { ok: true, existed: true, row, kept: !linked };
     }
     // nou → îl publicăm la „Bareme", cu felul (sesiune / simulare…) subiectului, apoi îl legăm
     const cls = { ...sc, ...Object.fromEntries(Object.entries(dec.cls).filter(([k, val]) => val !== null && val !== undefined && ['year', 'variant', 'kind', 'profile', 'exam'].includes(k))), isBarem: true, embedded: false };
@@ -747,8 +858,8 @@ async function tryBaremUrl(ctx, cand, subject, sc, index) {
       return { ok: true, pending: true, row: { id: null, title: E.titleFor(cls) || f.name } };
     }
     const ins = await publish(ctx, { ...it, sha256: sha256(f.buf), confidence: 'sigur', reasons: [`găsit pentru „${subject.row.title}" — ${v.how}`] }, cls, f.buf, text, fp, index);
-    await associate(ctx, subject.row, ins, v, 'bot');
-    return { ok: true, existed: false, row: ins };
+    const linked = await associate(ctx, subject.row, ins, v, 'bot');
+    return { ok: true, existed: false, row: ins, kept: !linked };
   }
   return { ok: false, why: 'niciun PDF de acolo nu e baremul acestui subiect' };
 }
@@ -757,6 +868,14 @@ async function findBaremFor(ctx, ix, index, { useAi = false, aiModel = null } = 
   const { supa } = ctx;
   const { data: row } = await supa.from('content').select(CONTENT_COLS).eq('id', ix.content_id).maybeSingle();
   if (!row) return { found: false, note: 'materialul nu mai există' };
+  // 🔒 între timp a primit un barem pe site (automat sau de la admin)? → nu căutăm, nu schimbăm nimic
+  const cur = await siteLink(supa, row);
+  if (cur) {
+    ctx.stats.pastrate++;
+    await syncIndexToSite(ctx, row, cur);
+    ctx.log(`🔒 „${row.title}" are deja barem pe site (${LINK_KIND[cur.kind]}) — nu caut altul`);
+    return { found: false, existing: true, note: `are deja barem pe site (${LINK_KIND[cur.kind]}) — botul nu-l schimbă` };
+  }
   ctx.stats.bareme_cautate++;
   const text = await textOf(ctx, row);
   const note = (status, msg) => supa.from(T.index).update({ search_status: status, searched_at: nowIso(), search_note: String(msg).slice(0, 500) }).eq('content_id', row.id);
@@ -770,7 +889,11 @@ async function findBaremFor(ctx, ix, index, { useAi = false, aiModel = null } = 
     if (ctx.left() < 25000) break;
     const brow = { id: c.content_id, title: c.title, file_url: c.file_url, category: c.category, profile: c.profile, subcategory: c.subcategory };
     const v = E.verifyPair(subject, { row: brow, text: await textOf(ctx, brow) });
-    if (v.ok) { await associate(ctx, row, brow, v, 'bot'); ctx.stats.bareme_gasite++; return { found: true, how: 'site', barem: brow, verdict: v }; }
+    if (v.ok) {
+      if (!(await associate(ctx, row, brow, v, 'bot'))) return { found: false, existing: true, note: 'are deja barem pe site — botul nu-l schimbă' };
+      ctx.stats.bareme_gasite++;
+      return { found: true, how: 'site', barem: brow, verdict: v };
+    }
   }
   // B) online
   const cands = [];
@@ -858,6 +981,10 @@ async function findBaremFor(ctx, ix, index, { useAi = false, aiModel = null } = 
       await note('gasit_asteptare', `găsit online, așteaptă publicarea (Găsite de bot): ${r.row.title}`);
       return { found: true, pending: true, how: 'online', barem: r.row };
     }
+    if (r.ok && r.kept) {
+      // între timp subiectul a primit un barem pe site: legătura lui rămâne (baremul găsit, dacă era nou, stă la „Bareme")
+      return { found: false, existing: true, note: 'are deja barem pe site — botul nu-l schimbă' };
+    }
     if (r.ok) {
       ctx.stats.bareme_gasite++;
       await note('gasit', `găsit ${r.existed ? 'pe site' : 'online'}: ${r.row.title}`);
@@ -943,6 +1070,14 @@ async function report(supa) {
   out.items = { total: items.length, ...st, noi30: items.filter((r) => (Date.parse(r.found_at) || 0) > month).length };
   const { data: runs } = await supa.from(T.runs).select('id, kind, by, status, started_at, finished_at, stats, cost_usd, note').order('started_at', { ascending: false }).limit(8);
   out.runs = runs || [];
+  // 🛡 verificarea legăturilor făcute de bot înainte de regula „nu schimba ce există"
+  try {
+    const a = await SET.readSetting(supa, AUDIT_KEY);
+    if (a.value && typeof a.value === 'object') {
+      const { seen, ...rest } = a.value;
+      out.audit = { ...rest, checked: Array.isArray(seen) ? seen.length : rest.total || 0 };
+    }
+  } catch { /* fără */ }
   return out;
 }
 
@@ -1006,11 +1141,23 @@ async function baremCandidates(ctx, contentId) {
   return { subject: { id: row.id, title: row.title, describe: ix ? ix.describe : null }, candidates: out };
 }
 
+// Din fila botului se COMPLETEAZĂ (subiectele fără barem) și se corectează legăturile botului.
+// Legăturile care existau pe site (automate sau alese de admin) nu se ating de aici —
+// se schimbă, ca până acum, din vizualizatorul PDF al testului („⚙ barem").
+const PROTEJAT = 'Legăturile test ↔ barem care există pe site (folosite de lecțiile live, corectări și explicații) nu se schimbă din fila botului. Dacă vrei totuși alt barem, schimbă-l din vizualizatorul PDF al testului (butonul „⚙ barem").';
 async function manualAssociate(ctx, contentId, baremId) {
   const { data: rows } = await ctx.supa.from('content').select(CONTENT_COLS).in('id', [contentId, baremId].filter(Boolean));
   const row = (rows || []).find((r) => r.id === contentId);
   if (!row) throw fail(404, 'Material negăsit.');
+  const cur = await siteLink(ctx.supa, row);
+  // legătura făcută de admin TOT din fila botului (pe un subiect fără barem) rămâne a lui: o poate schimba / desface de aici
+  const { data: ixRow } = await ctx.supa.from(T.index).select('barem_how, barem_id').eq('content_id', contentId).maybeSingle();
+  const mine = !!cur && cur.kind === 'admin' && !!ixRow && ixRow.barem_how === ADMIN_TAB && ixRow.barem_id === cur.baremId;
+  if (cur && cur.kind !== 'bot' && !mine) {
+    throw fail(409, `${baremId ? 'Testul are deja un barem pe site' : 'Legătura aceasta nu e făcută din fila botului'} (${LINK_KIND[cur.kind]}). ${PROTEJAT}`, 'EXISTENT');
+  }
   if (!baremId) {
+    if (!cur) return { ok: true, unlinked: false };
     await PDF().setOverride(ctx.supa, row, null);
     await ctx.supa.from(T.index).update({ barem_status: 'negasit', barem_id: null, barem_title: null, barem_how: null, barem_evidence: null, checked_at: null }).eq('content_id', contentId);
     return { ok: true, unlinked: true };
@@ -1109,8 +1256,9 @@ async function cron(supa, { now = new Date(), budgetMs = 640000 } = {}) {
 }
 
 module.exports = {
-  T, SETTINGS_KEY, EXAM_CATS, NEEDS_BAREM_SUBS, BAREM_OK, SETUP_HINT,
+  T, SETTINGS_KEY, EXAM_CATS, NEEDS_BAREM_SUBS, BAREM_OK, SETUP_HINT, SITE_OK, LINK_KIND, AUDIT_KEY,
   loadSettings, saveSettings, setupInfo, newStats, mergeStats, makeCtx, setNetFactory, startRun, saveRun,
+  siteLink, auditBotLinks,
   loadExamPdfs, loadIndex, needsBarem, textOf, indexOne, verifyStep,
   associate, compatibleBaremes, insertItems, preFilter, collect, discoveryYears, processPdf, processZip, processItem, processPending,
   publish, pairPublished, announce, subjectClass, tryBaremUrl, findBaremFor, findMissingStep, discoverStep,

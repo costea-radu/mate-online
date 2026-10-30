@@ -4,6 +4,26 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 30 octombrie 2026 (3) — 🔒 Botul de examene nu schimbă legăturile test ↔ barem existente
+
+Cererea: „in site era deja o corespondenta intre teste si bareme in site, folosita in lectii live si corectari plus explicatii. verifica daca bot-ul creat a modificat-o sau o va modifica. fa sa nu modifice legatura deja existenta, doar sa completeze acolo unde nu exista"
+
+### Ce am găsit
+- Corespondența site-ului stă în `ai_pdf_text`: potrivirea automată confirmată (`ok` / `ok_antet` / `ok_continut` / `inclus`) și baremul ales de admin (`barem_override_id`). Pe ea se sprijină lecțiile live, corectările, scrisul de mână și Profesorul Virtual (`getPdfContext`).
+- Botul (versiunea din 30 oct., 22:35) lega doar subiectele noi și pe cele pe care **indexul lui** le vedea „fără barem" (negăsit / ambiguu / conținut diferit — stări în care site-ul nu folosește niciun barem). Baremele noi publicate de el nu ating potrivirile confirmate: triggerul `ai_pdf_text_on_new_content` șterge din cache doar intrările fără barem.
+- **Golul:** indexul botului putea fi vechi de până la o zi. Dacă între verificare și legare adminul alegea un barem din vizualizator sau site-ul lega automat testul, botul și-ar fi pus legătura peste. La fel, „🔗 Alt barem…" / „✕ Desface" din fila botului puteau schimba manual o legătură existentă. Într-o singură rulare (verificare → legare, în câteva minute) golul practic nu se deschide; pentru siguranță, botul își verifică o dată legăturile vechi (mai jos).
+
+### Ce am schimbat (`api/_lib/examBotRun.js`, `api/ai-pdf-context.js`, `src/components/AdminBotExamene.jsx`)
+- **🔒 Înainte de orice legare** (după publicare, după căutarea online, la potrivirea cu baremele de pe site), botul citește starea chiar din `ai_pdf_text` (`siteLink`): dacă testul are deja un barem — automat, ales de admin sau pus de bot — nu-l schimbă, sincronizează indexul („🔒 … are deja barem pe site — nu-l schimb" în jurnal) și nici nu-l mai caută online (fără căutări / AI degeaba). Starea care nu se poate citi = nu leagă.
+- **Fila botului:** „🔗 Alt barem…" și „✕ Desface" apar doar la legăturile botului și la cele puse de admin tot din fila botului (semnul `admin · fila botului`, păstrat la reverificare); la celelalte: „🔒 legătura site-ului — botul n-o schimbă". Serverul refuză (409) și cererile directe; mesajul trimite la vizualizatorul PDF („⚙ barem"), unde se schimbă, ca până acum. Pe subiectele fără barem, asocierea manuală merge ca înainte.
+- **🛡 O singură dată, după actualizare** (la primul „✅ Verifică baremele" sau la cron): pentru fiecare legătură pusă de bot înainte de regula nouă, potrivirea automată a site-ului calculată acum; dacă dă **alt** barem, legătura botului se anulează și se repune cea a site-ului („↩ …" în jurnal); dacă nu dă niciunul sau dă același, legătura botului rămâne (doar completa un gol). Progres și rezultat în `app_settings` → `exam_bot_audit_v1`, arătat sus în filă.
+
+**Verificat:** `npm test` — 980 de teste, toate trec (noi în `test/bot-examene.test.js`: indexul vechi + baremul ales de admin, indexul vechi + potrivirea automată, completarea unde lipsește, verificarea legăturilor vechi — repusă / păstrată, o singură dată; testul asocierii manuale rescris pentru regula nouă); `vite build` trece. În Chromium (calculator și telefon): lista „✅ Cu barem" cu toate cele patru feluri de legături (automată, aleasă din vizualizator, pusă din fila botului, a botului), fără scroll orizontal.
+
+**De făcut:** doar commit + deploy (fără SQL nou).
+
+---
+
 ## 30 octombrie 2026 (2) — 🔔 Amintirea misiunii zilnice · 📚 Botul de examene: subiecte și bareme oficiale (EN · BAC), publicate și legate singur
 
 Cererea: „1) pune notificare pentru misiunea zilnica 2) fa un bot (sau un agent) care sa caute permanent pe internet: modele de examen, variante oficiale (date in sesiune, rezerve, pentru olimpici), simulari, teste de antrenament, bareme, pentru examenele: Evaluare Nationala, BAC Tehnologic, BAC stiintele naturii, BAC Mate-Info si sa le incarce in baza de date, sa le publice pe site, fiecare la rubrica corespunzatoare din site. […] sa caute examenul si baremul, ca sa poata fi folosite in rezolvarile interactive sau la lectiile live din site. […] Acelasi bot sa mai faca inca un lucru: sa verifice toate fisierele incarcate daca au un barem corespunzator incarcat, iar daca nu au sa il caute pe internet si sa il incarce in zona corespunzatoare. sa verifice numele din site, numele original al fisierului dar si continutul sa se potriveasca exact. pune in «admin» o sectiune pentru acest bot […] pune butoane sa il pot folosi si manual la cautare, verificare, asociere barem gasit … incearca prima data sa fie bot, pt economie"
