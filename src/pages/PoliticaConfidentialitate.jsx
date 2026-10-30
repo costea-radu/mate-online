@@ -11,7 +11,7 @@ export default function PoliticaConfidentialitate() {
             <Link to="/">Acasă</Link><span>›</span><span>Politica de Confidențialitate</span>
           </div>
           <h1>Politica de Confidențialitate</h1>
-          <p>Ultima actualizare: 27 octombrie 2026</p>
+          <p>Ultima actualizare: 30 octombrie 2026</p>
         </div>
       </div>
 
@@ -28,6 +28,7 @@ export default function PoliticaConfidentialitate() {
                 <li><strong>Date de cont (înregistrare prin email):</strong> nume complet, adresă de e-mail, parolă (stocată criptat prin hashing).</li>
                 <li><strong>Date de cont (autentificare cu Google sau Discord):</strong> dacă alegi să te autentifici prin contul Google sau Discord, primim de la aceste servicii numele tău, adresa de e-mail și fotografia de profil/avatarul asociate contului respectiv.</li>
                 <li><strong>Date de utilizare:</strong> paginile accesate, exercițiile parcurse, progresul înregistrat, postările din secțiunea Forum.</li>
+                <li><strong>Statistici interne de vizitare:</strong> pentru a ști ce pagini și ce materiale sunt cele mai folosite, platforma înregistrează, în propria bază de date (fără Google sau alți terți), pagina vizitată, materialul deschis, tipul de dispozitiv (telefon, tabletă, calculator) și, la prima pagină dintr-o vizită, site-ul de pe care ai venit. Dacă ești autentificat, vizita se leagă de contul tău — echipa ExamenMate vede, de exemplu, cât de des revii pe platformă. Dacă nu ai cont, vizita se numără fără niciun identificator, iar un identificator anonim, păstrat în browser, se folosește doar dacă ai acceptat cookie-urile. Datele se păstrează 180 de zile și se șterg odată cu contul.</li>
                 <li><strong>Date de plată:</strong> procesate exclusiv prin Stripe (card bancar, Apple Pay sau Google Pay). Nu stocăm datele cardului, ale Apple Pay sau Google Pay — acestea sunt gestionate direct de Stripe.</li>
                 <li><strong>Date tehnice:</strong> adresa IP, tipul browserului și dispozitivului, necesare pentru securitate și diagnosticarea erorilor.</li>
                 <li><strong>Date trimise către asistentul AI (Profesorul Virtual):</strong> întrebările tale, textul și fotografiile exercițiilor pe care le încarci, precum și înregistrările vocale (dacă folosești dictarea) sunt trimise către OpenAI pentru a genera răspunsuri. Rezolvările scrise de mână pe care le trimiți la corectare (din „Spațiu de lucru" sau ca poze cu rezolvarea, în formularul de răspuns) sunt trimise către Anthropic, care le citește și le corectează. Vezi secțiunea „8. Profesorul Virtual (AI)".</li>

@@ -46,6 +46,7 @@ export default function InteractiveViewer() {
   const [newBadges, setNewBadges] = useState([]);                    // insigne proaspăt câștigate (toast)
   const [xpToast, setXpToast] = useState(null);                       // XP / streak / misiune câștigate (Arena)
   const [duelRez, setDuelRez] = useState(null);                       // rezultatul duelului, după trimiterea scorului
+  const [misiuneRez, setMisiuneRez] = useState(null);                 // misiunea zilnică (Arena), după trimiterea scorului
   const [partialSalvat, setPartialSalvat] = useState(null);           // salvarea automată de la jumătatea exercițiului
   const [reviewOpen, setReviewOpen] = useState(false);               // „Cum ți s-a părut testul?" (după scor salvat)
   const reviewAskedRef = useRef(new Set());                          // testele pentru care am întrebat deja (în această vizită)
@@ -83,6 +84,9 @@ export default function InteractiveViewer() {
   const gtId = searchParams.get('gt');       // TEMĂ PE GRUPĂ (/tema-grupa): repartizarea acestui elev
   const medSesId = searchParams.get('medSesId'); // sesiune „site-first" de la Meditator (exerciții/simulare din site)
   const duelId = searchParams.get('duel');   // DUEL 1-la-1 (/arena): rezultatul intră în duel
+  // deschis din „🎯 Misiunea zilnică" (/arena) — doar insigna din bară: misiunea
+  // se bifează pe server după exercițiu (orice drum ar fi deschis elevul)
+  const dinMisiune = searchParams.get('misiune') === '1';
   // În duel, ca și la testul pe grupă, Profesorul Virtual e închis: altfel
   // duelul ar măsura cine știe să întrebe tutorele, nu cine știe matematică.
   const faraAjutor = !!gtId || !!duelId;
@@ -204,6 +208,8 @@ export default function InteractiveViewer() {
             // Arena: XP, serie de zile, misiunea zilei, puncte de ligă
             if (r.xp && r.xp.xp > 0) { setXpToast(r.xp); arenaChanged(r.xp); }
             if (duelId && r.duel) setDuelRez(r.duel);
+            // 🎯 misiunea zilnică: exercițiul zilei — îndeplinită sau „mai încearcă"
+            if (r.misiune) { setMisiuneRez(r.misiune); arenaChanged(); }
             awardBadges(user.id, { score: r.score, maxScore: r.maxScore, attempts: r.attempts || 1, category: item.category })
               .then((earned) => { if (earned.length) setNewBadges(earned); })
               .catch(() => {});
@@ -453,6 +459,12 @@ export default function InteractiveViewer() {
     const t = setTimeout(() => setXpToast(null), 8000);
     return () => clearTimeout(t);
   }, [xpToast]);
+  // …iar cel al misiunii zilnice după 12 (e felicitarea zilei)
+  useEffect(() => {
+    if (!misiuneRez) return undefined;
+    const t = setTimeout(() => setMisiuneRez(null), 12000);
+    return () => clearTimeout(t);
+  }, [misiuneRez]);
 
   // ─── Recenzie după test ─────────────────────────────────────────────────────
   // La 1,5 s după ce scorul s-a SALVAT (deci există rândul din `progress` pe
@@ -595,6 +607,12 @@ export default function InteractiveViewer() {
               background: 'rgba(232,185,49,0.16)', border: '1px solid var(--gold)', color: 'var(--gold)',
               borderRadius: 12, padding: '3px 10px', fontSize: '0.76rem', fontWeight: 800, whiteSpace: 'nowrap',
             }} title="Duel: ai o singură încercare, iar Profesorul Virtual e închis">⚔️ DUEL</span>
+          )}
+          {dinMisiune && !duelId && (
+            <span style={{
+              background: 'rgba(232,185,49,0.16)', border: '1px solid var(--gold)', color: 'var(--gold)',
+              borderRadius: 12, padding: '3px 10px', fontSize: '0.76rem', fontWeight: 800, whiteSpace: 'nowrap',
+            }} title="Exercițiul zilei din Arena: îl bifezi rezolvându-l cu cel puțin 50%">{isMobile ? '🎯' : '🎯 MISIUNEA ZILEI'}</span>
           )}
           {partialSalvat && !scoreSaved && (
             <span style={{
@@ -847,8 +865,8 @@ export default function InteractiveViewer() {
             </div>
             <div style={{ fontSize: '.78rem', color: 'rgba(255,255,255,.75)', marginTop: 6, lineHeight: 1.5 }}>
               {xpToast.nivelNou && <div>🎉 Nivel nou: <strong>{xpToast.nivelNou.name}</strong></div>}
-              {xpToast.misiune?.tocmaiFinalizata && <div>🎯 Misiunea zilei — terminată!</div>}
-              {xpToast.misiune && !xpToast.misiune.done && <div>🎯 Misiune: {xpToast.misiune.progress}/{xpToast.misiune.target}</div>}
+              {xpToast.misiune?.tocmaiFinalizata && <div>⚡ Provocarea bonus a zilei — terminată!</div>}
+              {xpToast.misiune && !xpToast.misiune.done && <div>⚡ Provocarea bonus: {xpToast.misiune.progress}/{xpToast.misiune.target}</div>}
               {xpToast.liga && <div>{xpToast.liga.icon} Liga {xpToast.liga.name}: {xpToast.liga.puncte} puncte</div>}
               {xpToast.plafonAtins && <div>Ai atins plafonul zilnic de puncte de ligă.</div>}
               <Link to="/arena" style={{ color: 'var(--gold-light)', textDecoration: 'underline' }}>Vezi Arena</Link>
@@ -876,6 +894,40 @@ export default function InteractiveViewer() {
               {duelRez.neverificat && 'Rezultatul nu intră în duel: exercițiul nu are cheie de verificare pe server.'}
               {duelRez.gata && 'Vezi cine a câștigat în Arenă.'}
               {' '}<Link to="/arena" style={{ color: 'var(--navy)', fontWeight: 700 }}>Deschide Arena</Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast: 🎯 misiunea zilnică (exercițiul zilei din Arena) */}
+      {misiuneRez && (
+        <div style={{ position: 'fixed', top: duelRez ? 250 : 150, left: 16, zIndex: 2000, maxWidth: 330 }} role="status">
+          <div style={{
+            background: misiuneRez.indeplinita ? 'linear-gradient(135deg, #fff8e1, #ffffff)' : '#fff',
+            border: `2px solid ${misiuneRez.indeplinita ? 'var(--gold)' : '#f1d27a'}`, borderRadius: 12, padding: '12px 14px',
+            boxShadow: '0 8px 24px rgba(0,0,0,.25)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, color: 'var(--navy)' }}>
+              <span style={{ fontSize: '1.4rem' }}>🎯</span>
+              {misiuneRez.tocmaiIndeplinita ? 'Misiunea zilnică — îndeplinită!' : misiuneRez.indeplinita ? 'Misiunea de azi e deja bifată' : 'Misiunea zilnică — încă nu'}
+              <button onClick={() => setMisiuneRez(null)} aria-label="Închide"
+                style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#6b7689' }}>✕</button>
+            </div>
+            <div style={{ fontSize: '.8rem', color: '#44566b', marginTop: 6, lineHeight: 1.55 }}>
+              {misiuneRez.tocmaiIndeplinita && (
+                <>
+                  <strong>+{misiuneRez.xp} XP · +{misiuneRez.coins} 🪙</strong>
+                  {misiuneRez.perfect ? ' (bonus pentru 90%+)' : ''}
+                  {misiuneRez.serie ? <> · 🎯 {misiuneRez.serie} {misiuneRez.serie === 1 ? 'zi' : 'zile'} la rând</> : null}
+                  {misiuneRez.bonusSerie && <div>🏅 Bonus de serie: încă o săptămână fără pauză!</div>}
+                  <div>Revino mâine pentru următorul exercițiu.</div>
+                </>
+              )}
+              {!misiuneRez.indeplinita && (
+                <>Ai avut <strong>{misiuneRez.pct}%</strong> — misiunea se îndeplinește de la {misiuneRez.prag}%. Mai încearcă (butonul de resetare al exercițiului), ai voie de câte ori vrei azi.</>
+              )}
+              {misiuneRez.indeplinita && !misiuneRez.tocmaiIndeplinita && <>Ai rezolvat azi exercițiul zilei — exersezi în plus. 💪</>}
+              {' '}<Link to="/arena" style={{ color: 'var(--navy)', fontWeight: 700 }}>Vezi Arena</Link>
             </div>
           </div>
         </div>

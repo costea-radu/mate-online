@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, lazy, Suspense } from 'react';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -9,6 +9,7 @@ import InstallPrompt from './components/InstallPrompt';
 import CookieConsent from './components/CookieConsent';
 import { Analytics } from '@vercel/analytics/react';
 import { initAnalytics, trackPageView } from './lib/analytics';
+import { trimiteVizita } from './lib/vizite';
 import Home from './pages/Home';
 
 // ─── Rute încărcate la cerere (code-splitting) — reduc JS-ul inițial ─────────
@@ -74,6 +75,20 @@ function AnalyticsRouteTracker() {
   return null;
 }
 
+// Vizitele pentru „📊 Statistici de utilizare" (Admin → 🤖 AI Tutor) — ale
+// noastre, în baza de date a site-ului (api/vizita.js): ruta, materialul
+// deschis, dispozitivul. Așteptăm autentificarea (vizita se leagă de cont pe
+// server, din token); adminii nu se numără. Vezi src/lib/vizite.js.
+function VizitaTracker() {
+  const location = useLocation();
+  const { loading, isAdmin } = useAuth();
+  useEffect(() => {
+    if (loading) return;
+    trimiteVizita({ pathname: location.pathname, search: location.search, isAdmin });
+  }, [location.pathname, location.search, loading, isAdmin]);
+  return null;
+}
+
 function Layout({ children }) {
   const { pathname } = useLocation();
   // sala live (ca un apel Zoom) ocupă tot ecranul, fără bara de sus și fără widget —
@@ -125,6 +140,7 @@ export default function App() {
         <AuthProvider>
           <ScrollToTop />
           <AnalyticsRouteTracker />
+          <VizitaTracker />
           <Layout>
             <ErrorBoundary>
               <Suspense fallback={<PageFallback />}>

@@ -25,6 +25,7 @@ Cele trei straturi:
    | `supabase/gamificare_v5_harta.sql` | `chapter_state` + coloana `content.chapter_id` |
    | `supabase/gamificare_v6_public.sql` | turnee publice: `tournaments.scope`/`auto`, `tournament_entries` |
    | `supabase/gamificare_v7_partial.sql` | salvare parțială în dueluri: `duels.*_partial` |
+   | `supabase/gamificare_v8_misiune_zilnica.sql` | misiunea zilnică: `daily_exercises` + `user_stats.mission_category` |
    | `supabase/gamificare_lints.sql` | politici explicite `service_role` (închide avertismentele INFO ale linterului) |
 
    Toate sunt idempotente (se pot rula de mai multe ori).
@@ -94,7 +95,39 @@ Efectul: liga nu se câștigă stând mult într-o zi, ci intrând în fiecare z
 
 ---
 
-## 5. Misiunea zilei
+## 5. Misiunea zilnică (30 oct. 2026) și provocarea bonus
+
+### 🎯 Misiunea zilnică — un exercițiu pe zi, ca la Duolingo
+
+Cardul stă în `/arena` **deasupra duelurilor** (`src/components/MisiuneZilnica.jsx`).
+
+- Elevul își alege **clasa** (a V-a … a XII-a; se poate schimba oricând din
+  „Clasa a VII-a ✎"). Alegerea stă în `user_stats.mission_category`.
+- În fiecare zi primește **un exercițiu interactiv din site** al clasei
+  (`api/_lib/misiune.js` → `alegeExercitiul`), în ordinea din site — „drumul
+  clasei": întâi cele pe care nu le-a rezolvat niciodată, apoi cele cu sub 70%
+  (nu cel de ieri), apoi recapitulare (cel folosit cel mai demult). Fără
+  abonament, doar exercițiile gratuite; baremele nu apar niciodată.
+- Clasele fără exerciții interactive proprii iau din examenul lor: a VIII-a din
+  **Evaluarea Națională**, liceul din **Bacalaureat** (cardul spune asta).
+- Exercițiul zilei rămâne același toată ziua (un rând `daily_exercises` per elev
+  per zi). Se deschide în vizualizatorul obișnuit, `/exercitiu?id=…&misiune=1`
+  (insigna „🎯 MISIUNEA ZILEI" în bară).
+- **Îndeplinită** când elevul trimite rezolvarea cu **cel puțin 50%** — scorul
+  verificat pe server (`api/ai-score.js` → `misiune.inregistreaza`). Salvarea
+  automată de la jumătate NU o bifează. Sub 50%: „mai încearcă", de câte ori vrea.
+  O singură recompensă pe zi (actualizare condiționată pe `status`).
+- **Recompensa** (prin `xp.bonus`, cu plafonul ligii): 20 XP + 5 🪙; +10 XP la
+  90% sau mai mult (doar pe scor verificat); la fiecare **7 zile la rând** încă
+  30 XP + 10 🪙.
+- **Progresul**: 🎯 zilele la rând cu misiunea îndeplinită (seria de ieri rămâne
+  „vie" până la noapte), săptămâna L M M J V S D (✓ / azi / ratat), recordul,
+  totalul și **drumul clasei** (exercițiile clasei rezolvate cu ≥ 50%).
+- Navbarul (`ArenaIndicator`) arată **🎯** cât misiunea de azi te așteaptă.
+- API: `/api/gamificare` → `action: 'misiune'` (starea + atribuirea exercițiului
+  zilei) și `action: 'misiune_clasa'` (`{ categorie }`).
+
+### ⚡ Provocarea bonus a zilei (fosta „misiune a zilei")
 
 Un rând în `daily_missions` per elev per zi, generat la prima deschidere a
 Arenei sau la primul exercițiu. Trei tipuri, în rotație zilnică:
@@ -106,7 +139,8 @@ Arenei sau la primul exercițiu. Trei tipuri, în rotație zilnică:
 | `precizie` | minimum 80% la 2 exerciții |
 
 Recompensă: **50 XP + 10 monede** 🪙. Monedele se adună acum; magazinul de
-avataruri/rame/scuturi vine la un pas următor.
+avataruri/rame/scuturi vine la un pas următor. În Arena apare compact, deasupra
+misiunii zilnice, ca „⚡ Provocarea bonus a zilei" (ca să nu se confunde cu ea).
 
 ---
 
@@ -133,9 +167,9 @@ avataruri/rame/scuturi vine la un pas următor.
 
 | Loc | Ce arată |
 |---|---|
-| `/arena` (`src/pages/Arena.jsx`) | nivel, XP, serie, misiunea zilei, clasamentul cohortei, explicația formulei |
-| Navbar (`ArenaIndicator.jsx`) | `⚔️ 🔥6 ⭐2450` — cârligul de revenire |
-| Exercițiul interactiv | toast „+63 XP" cu nivel nou / misiune / ligă |
+| `/arena` (`src/pages/Arena.jsx`) | nivel, XP, serie, provocarea bonus, **misiunea zilnică** (deasupra duelurilor), clasamentul cohortei, explicația formulei |
+| Navbar (`ArenaIndicator.jsx`) | `⚔️ 🔥6 🎯 ⭐2450` — cârligul de revenire (🎯 = misiunea de azi te așteaptă) |
+| Exercițiul interactiv | toast „+63 XP" cu nivel nou / provocare / ligă; „🎯 Misiunea zilnică — îndeplinită!" sau „mai încearcă" |
 
 ---
 

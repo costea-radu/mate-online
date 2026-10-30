@@ -41,7 +41,7 @@ async function runCleanup(supa, { dry = false } = {}) {
     dry, emailEnabled: mailer.enabled(),
     reactivated: 0, warned: 0, warnFailed: 0, reminded: 0,
     deleted: 0, archivedFor: 0, deleteFailed: 0, skippedProtected: 0,
-    usagePruned: 0,
+    usagePruned: 0, viewsPruned: 0,
   };
 
   // ── 0) REACTIVARE ──────────────────────────────────────────────────────────
@@ -166,6 +166,26 @@ async function runCleanup(supa, { dry = false } = {}) {
         if (old.length < 1000) break;
       }
     } catch (e) { console.warn('account-cleanup: curățarea ai_usage a sărit peste (neblocant):', e.message); }
+  }
+
+  // ── 3¾) IGIENĂ DB: vizitele (page_views) mai vechi de 180 de zile ─────────
+  // „📊 Statistici de utilizare" arată cel mult 90 de zile (+ perioada dinainte,
+  // pentru retenție); vizitele mai vechi nu mai servesc la nimic și nu le
+  // păstrăm (Politica de confidențialitate: 6 luni). Același tipar ca mai sus.
+  if (!dry) {
+    try {
+      const cutoff = new Date(now.getTime() - 180 * inact.DAY_MS).toISOString();
+      for (let lot = 0; lot < 20; lot++) {
+        const { data: old, error: selErr } = await supa.from('page_views')
+          .select('id').lt('created_at', cutoff).limit(1000);
+        if (selErr || !old || !old.length) break;
+        const { error: delErr } = await supa.from('page_views')
+          .delete().in('id', old.map((r) => r.id));
+        if (delErr) { console.warn('account-cleanup: curățarea page_views a eșuat (neblocant):', delErr.message); break; }
+        stats.viewsPruned += old.length;
+        if (old.length < 1000) break;
+      }
+    } catch (e) { console.warn('account-cleanup: curățarea page_views a sărit peste (neblocant):', e.message); }
   }
 
   // ── 4) Rezumat către admin (best-effort) ───────────────────────────────────

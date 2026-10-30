@@ -28,6 +28,14 @@
 // și formularul „📝 Răspunde în chat"), sala meditațiilor live și Pregătirea
 // de examen („Caietul meu" — acolo e doar ciornă, fără butoane AI).
 //
+// FEREASTRA (30 oct. 2026) se mută și se redimensionează peste tot, ca widgetul
+// Profesorului Virtual: pe calculator e o fereastră PLUTITOARE (nu mai
+// întunecă pagina — exercițiul de dedesubt rămâne la vedere și se poate
+// folosi), se trage de antet ca s-o muți și de ORICE margine sau colț ca s-o
+// faci cât vrei (mânerele au liniuța widgetului); pe telefon stă jos, pe toată
+// lățimea, și se trage de bara albastră în sus / în jos — ca panoul
+// profesorului. Mărimea și locul se țin minte (localStorage).
+//
 // Props:
 //   open, onClose
 //   embedded     — fără fereastră: foaia ia locul conversației din chat.
@@ -51,6 +59,8 @@ import { Link } from 'react-router-dom';
 import { ensureKatex, renderMath, autoMath } from '../lib/katex';
 // geometria foii + imaginea pentru corector (pure — testate fără DOM)
 import { PEN_W, boxOf, unionBox, strokeBox, pathD, exportSheet } from '../lib/foaie';
+// locul și mărimea ferestrei după o tragere (pure — testate fără DOM)
+import { geometrieFereastra, MIN_W, MIN_H } from '../lib/fereastra';
 
 const ERASER_R = 15;
 const COLORS = ['#12263a', '#c62828', '#1565c0', '#2e7d32'];
@@ -61,10 +71,17 @@ const AHEAD = 1;
 const SVGNS = 'http://www.w3.org/2000/svg';
 const MAX_HISTORY = 200;
 
-// Fereastra: mărimea aleasă de elev se ține minte de la o deschidere la alta
+// Fereastra: mărimea (și locul) alese de elev se țin minte de la o deschidere
+// la alta — pe calculator { x, y, w, h } (ferestrele vechi aveau doar { w, h }:
+// se deschid centrate), pe telefon doar înălțimea.
 const WIN_KEY = 'sdl:fereastra';
-const MIN_W = 320, MIN_H = 300;
-const NARROW = 720;           // sub atât, lățimea ferestrei e fixă (telefon)
+const SHEET_KEY = 'sdl:fereastra:tel';
+const MIN_H_TEL = 220;        // pe telefon: cât de jos se poate strânge foaia
+const NARROW = 720;           // sub atât (telefon): pe toată lățimea, jos pe ecran
+// mânerele ferestrei: marginile și colțurile (n = sus, s = jos, e = dreapta, w = stânga)
+const GRIP_CURSOR = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', ne: 'nesw-resize', sw: 'nesw-resize', nw: 'nwse-resize', se: 'nwse-resize', move: 'move', sheet: 'ns-resize' };
+
+// (noua geometrie după o tragere — mutare, margine sau colț: src/lib/fereastra.js)
 const ENUNT_MIN = 46, ENUNT_MAX_FRAC = 0.55;
 const ENUNT_MAX_FRAC_NARROW = 0.24;   // pe telefon: foaia trebuie să rămână mare
 
@@ -152,9 +169,12 @@ export default function SpatiuDeLucru({
   useEffect(() => { toolRef.current = tool; }, [tool]);
   useEffect(() => { colorRef.current = color; }, [color]);
 
-  // ── Fereastra: mărime, maximizare, mânere de tras ────────────────
-  // Elevul o face cât îi trebuie: pe desktop trage de colț sau de margini, pe
-  // telefon de bara de jos. Mărimea se ține minte (localStorage).
+  // ── Fereastra: loc, mărime, maximizare, mânere de tras ──────────
+  // Ca widgetul Profesorului Virtual: pe calculator o MUȚI trăgând de antet și
+  // o faci cât vrei trăgând de ORICE margine sau colț; pe telefon stă jos, pe
+  // toată lățimea, și se trage de bara albastră în sus / în jos. Locul și
+  // mărimea se țin minte (localStorage). Fereastra nu mai întunecă pagina:
+  // exercițiul de dedesubt rămâne la vedere și se poate folosi.
   const dialogRef = useRef(null);
   const [scr, setScr] = useState(() => ({
     w: typeof window === 'undefined' ? 1200 : window.innerWidth,
@@ -164,9 +184,13 @@ export default function SpatiuDeLucru({
     try { const o2 = JSON.parse(localStorage.getItem(WIN_KEY) || 'null'); if (o2 && o2.w && o2.h) return o2; } catch { /* implicit */ }
     return null;
   });
+  const [sheetH, setSheetH] = useState(() => {
+    try { const v = parseInt(localStorage.getItem(SHEET_KEY) || '0', 10); return v > 0 ? v : null; } catch { return null; }
+  });
   const [maxi, setMaxi] = useState(false);
-  const resizeRef = useRef(null);
-  // Ultima mărime trasă, ținută într-un ref: la sfârșitul tragerii, starea din
+  const dragRef = useRef(null);
+  const [dragging, setDragging] = useState(null);   // ce se trage acum (pentru stratul de deasupra iframe-urilor)
+  // Ultima geometrie trasă, ținută într-un ref: la sfârșitul tragerii, starea din
   // closure poate fi încă cea veche (React n-a apucat să redeseneze dacă ultima
   // mișcare și ridicarea degetului cad în același cadru) — și se salva mai nimic.
   const lastSizeRef = useRef(null);
@@ -179,38 +203,61 @@ export default function SpatiuDeLucru({
   }, []);
 
   const narrow = scr.w < NARROW;
-  const maxW = Math.max(MIN_W, scr.w - (narrow ? 8 : 24));
-  const maxH = Math.max(MIN_H, scr.h - (narrow ? 8 : 24));
+  const MARGIN = narrow ? 4 : 12;
+  const maxW = Math.max(MIN_W, scr.w - 2 * MARGIN);
+  const maxH = Math.max(MIN_H, scr.h - 2 * MARGIN);
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const winW = maxi ? maxW : narrow ? maxW : clamp(win ? win.w : Math.min(1100, maxW), MIN_W, maxW);
-  const winH = maxi ? maxH : clamp(win ? win.h : Math.round(scr.h * 0.94), MIN_H, maxH);
+  const winW = maxi || narrow ? maxW : clamp(win ? win.w : Math.min(1100, maxW), MIN_W, maxW);
+  const winH = maxi ? maxH
+    : narrow ? clamp(sheetH || Math.round(scr.h * 0.94), Math.min(MIN_H_TEL, maxH), scr.h - MARGIN)
+      : clamp(win ? win.h : Math.round(scr.h * 0.94), MIN_H, maxH);
+  // locul: centrată până o muți (ferestrele salvate fără x / y — tot centrate)
+  const winX = maxi || narrow ? MARGIN : clamp(win && win.x != null ? win.x : Math.round((scr.w - winW) / 2), MARGIN, Math.max(MARGIN, scr.w - MARGIN - winW));
+  const winY = maxi ? MARGIN : narrow ? scr.h - winH
+    : clamp(win && win.y != null ? win.y : Math.round((scr.h - winH) / 2), MARGIN, Math.max(MARGIN, scr.h - MARGIN - winH));
   const enuntFrac = narrow ? ENUNT_MAX_FRAC_NARROW : ENUNT_MAX_FRAC;
 
-  function startResize(dir, e) {
+  // Tragerea: 'move' (antetul, pe calculator), o margine / un colț ('n', 'se'…)
+  // sau 'sheet' (bara albastră, pe telefon: înălțimea foii de jos).
+  function startDrag(kind, e) {
     if (maxi) return;
+    if (e.button != null && e.button !== 0) return;
+    // butoanele din antet (⛶, ✕) nu pornesc tragerea
+    if (kind === 'move' || kind === 'sheet') { if (e.target && e.target.closest && e.target.closest('button')) return; }
     e.preventDefault(); e.stopPropagation();
     const r = dialogRef.current.getBoundingClientRect();
-    resizeRef.current = { dir, x: e.clientX, y: e.clientY, w: r.width, h: r.height };
+    dragRef.current = { kind, sx: e.clientX, sy: e.clientY, start: { x: r.left, y: r.top, w: r.width, h: r.height } };
+    setDragging(kind);
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* merge și fără */ }
   }
-  function moveResize(e) {
-    const r = resizeRef.current;
-    if (!r) return;
+  function moveDrag(e) {
+    const d = dragRef.current;
+    if (!d) return;
     e.preventDefault();
-    // fereastra e centrată: cât tragi într-o parte, atât crește și în cealaltă
-    let w = r.w, h = r.h;
-    if (r.dir.indexOf('e') >= 0) w = clamp(r.w + (e.clientX - r.x) * 2, MIN_W, maxW);
-    if (r.dir.indexOf('s') >= 0) h = clamp(r.h + (e.clientY - r.y) * 2, MIN_H, maxH);
-    lastSizeRef.current = { w: Math.round(w), h: Math.round(h) };
+    const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+    if (d.kind === 'sheet') {
+      // pe telefon: tragi bara în sus → foaia crește (ca panoul profesorului)
+      lastSizeRef.current = Math.round(clamp(d.start.h - dy, Math.min(MIN_H_TEL, maxH), scr.h - MARGIN));
+      setSheetH(lastSizeRef.current);
+      return;
+    }
+    lastSizeRef.current = geometrieFereastra(d.kind, d.start, dx, dy, scr, { margin: MARGIN });
     setWin(lastSizeRef.current);
   }
-  function endResize(e) {
-    if (!resizeRef.current) return;
-    resizeRef.current = null;
+  function endDrag(e) {
+    const d = dragRef.current;
+    if (!d) return;
+    dragRef.current = null;
+    setDragging(null);
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* deja eliberat */ }
     const last = lastSizeRef.current;
-    if (last) { try { localStorage.setItem(WIN_KEY, JSON.stringify(last)); } catch { /* fără loc */ } }
+    lastSizeRef.current = null;
+    if (last == null) return;
+    try { localStorage.setItem(d.kind === 'sheet' ? SHEET_KEY : WIN_KEY, JSON.stringify(last)); } catch { /* fără loc */ }
   }
+  const dragProps = (kind) => ({
+    onPointerDown: (e) => startDrag(kind, e), onPointerMove: moveDrag, onPointerUp: endDrag, onPointerCancel: endDrag,
+  });
 
   // ── Panoul cu enunțul ───────────────────────────────────
   const enuntText = useMemo(() => cleanEnunt(enunt), [enunt]);
@@ -852,28 +899,56 @@ export default function SpatiuDeLucru({
   const ghostBtn = { ...actBtn, background: '#fff', border: '1px solid #e8b931', color: '#8a6d00', fontWeight: 700 };
   const off = !hasInk || !!busy;
 
-  return (
-    <div
-      role="dialog" aria-modal="true" aria-label="Spațiu de lucru"
-      onPointerDown={(e) => { if (e.target === e.currentTarget && onClose) onClose(); }}
+  // mânerele ferestrei (calculator): liniuța widgetului pe mijlocul fiecărei
+  // margini + colțurile; aceeași liniuță, aurie, cât tragi
+  const bara = (vert) => ({
+    width: vert ? 6 : 48, height: vert ? 48 : 6, borderRadius: 4,
+    background: dragging ? 'var(--gold, #e8b931)' : 'var(--navy, #0f2b44)',
+    opacity: dragging ? 1 : 0.5, boxShadow: '0 0 0 2px #fff, 0 2px 6px rgba(15,43,68,.25)', pointerEvents: 'none',
+  });
+  const grip = (kind, pos, title) => (
+    <div key={kind} role="separator" aria-orientation={kind === 'e' || kind === 'w' ? 'vertical' : 'horizontal'}
+      aria-label={title} title={`${title} · dublu-clic pe antet: tot ecranul`} {...dragProps(kind)}
       style={{
-        position: 'fixed', inset: 0, zIndex: 100000, background: 'rgba(10,22,36,.55)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
-      }}
-    >
-      <div ref={dialogRef} style={{
-        background: '#fff', borderRadius: narrow ? 10 : 14, width: winW, height: winH,
-        display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 18px 60px rgba(0,0,0,.35)',
-        position: 'relative',
+        position: 'absolute', zIndex: 4, touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
+        cursor: GRIP_CURSOR[kind], display: 'flex', alignItems: 'center', justifyContent: 'center', ...pos,
+      }}>
+      {(kind === 'e' || kind === 'w') && <span aria-hidden style={bara(true)} />}
+      {(kind === 's') && <span aria-hidden style={bara(false)} />}
+    </div>
+  );
+
+  return (
+    <>
+    <div
+      ref={dialogRef}
+      role="dialog" aria-modal="false" aria-label="Spațiu de lucru"
+      style={{
+        position: 'fixed', zIndex: 100000, left: winX, top: winY, width: winW, height: winH,
+        background: '#fff', borderRadius: narrow ? '14px 14px 0 0' : 14,
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        boxShadow: '0 18px 60px rgba(0,0,0,.35), 0 0 0 1px rgba(15,43,68,.14)',
       }}>
 
         <div
           onDoubleClick={() => setMaxi((v) => !v)}
-          title="Dublu-clic ca să mărești sau să micșorezi fereastra"
+          {...(narrow ? dragProps('sheet') : dragProps('move'))}
+          title={narrow
+            ? 'Trage bara în sus sau în jos ca să mărești sau să micșorezi foaia · dublu-clic: tot ecranul'
+            : 'Trage de aici ca să muți fereastra · dublu-clic: tot ecranul'}
           style={{
-            background: 'var(--navy, #0f2b44)', color: '#fff', padding: narrow ? '7px 10px' : '9px 14px',
-            display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, cursor: 'default',
+            background: 'var(--navy, #0f2b44)', color: '#fff', padding: narrow ? '12px 10px 7px' : '9px 14px',
+            display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, position: 'relative',
+            cursor: maxi ? 'default' : narrow ? 'ns-resize' : (dragging === 'move' ? 'grabbing' : 'grab'),
+            touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
           }}>
+          {/* pe telefon, bara e mânerul (ca la panoul profesorului): liniuța de sus */}
+          {narrow && !maxi && (
+            <span aria-hidden style={{
+              position: 'absolute', top: 4, left: '50%', transform: 'translateX(-50%)',
+              width: 44, height: 4, borderRadius: 3, background: 'rgba(255,255,255,.5)',
+            }} />
+          )}
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: '.95rem' }}>✍️ Spațiu de lucru</div>
             {title && (
@@ -1007,42 +1082,27 @@ export default function SpatiuDeLucru({
               : 'Scrie oriunde pe foaie — e albă și continuă în dreapta cât vrei.'}
           </span>
         </div>
-        {/* ── Mânerele de redimensionare a ferestrei ── */}
-        {/* Pe telefon rămâne doar înălțimea (lățimea e cât ecranul, oricum). */}
-        {!maxi && (
+        {/* ── Mânerele ferestrei, ca la widget: ORICE margine și orice colț ── */}
+        {/* (pe telefon, mânerul e bara albastră de sus — vezi antetul) */}
+        {!maxi && !narrow && (
           <>
-            {!narrow && (
-              <div
-                onPointerDown={(e) => startResize('e', e)} onPointerMove={moveResize}
-                onPointerUp={endResize} onPointerCancel={endResize}
-                title="Trage ca să lățești fereastra"
-                style={{ position: 'absolute', top: 44, right: 0, width: 10, bottom: 26, cursor: 'ew-resize', touchAction: 'none', zIndex: 4 }} />
-            )}
-            <div
-              onPointerDown={(e) => startResize('s', e)} onPointerMove={moveResize}
-              onPointerUp={endResize} onPointerCancel={endResize}
-              title="Trage ca să înalți fereastra"
-              style={{
-                position: 'absolute', left: 26, right: 26, bottom: 0, height: narrow ? 16 : 10,
-                cursor: 'ns-resize', touchAction: 'none', zIndex: 4,
-                display: 'flex', alignItems: 'flex-end', justifyContent: 'center', paddingBottom: 3,
-              }}>
-              <span style={{ width: 54, height: 4, borderRadius: 4, background: '#c4cfdb' }} />
-            </div>
-            {!narrow && (
-              <div
-                onPointerDown={(e) => startResize('se', e)} onPointerMove={moveResize}
-                onPointerUp={endResize} onPointerCancel={endResize}
-                title="Trage ca să redimensionezi fereastra"
-                style={{
-                  position: 'absolute', right: 0, bottom: 0, width: 22, height: 22,
-                  cursor: 'nwse-resize', touchAction: 'none', zIndex: 4,
-                  backgroundImage: 'linear-gradient(135deg, transparent 48%, #b9c9dc 48%, #b9c9dc 56%, transparent 56%, transparent 70%, #b9c9dc 70%, #b9c9dc 78%, transparent 78%)',
-                }} />
-            )}
+            {grip('w', { left: 0, top: 50, bottom: 24, width: 14 }, 'Trage marginea din stânga ca să lățești sau să îngustezi fereastra')}
+            {grip('e', { right: 0, top: 50, bottom: 24, width: 14 }, 'Trage marginea din dreapta ca să lățești sau să îngustezi fereastra')}
+            {grip('n', { top: 0, left: 24, right: 24, height: 6 }, 'Trage marginea de sus ca să înalți fereastra')}
+            {grip('s', { bottom: 0, left: 24, right: 24, height: 12 }, 'Trage marginea de jos ca să înalți fereastra')}
+            {grip('nw', { left: 0, top: 0, width: 16, height: 16 }, 'Trage colțul ca să redimensionezi fereastra')}
+            {grip('ne', { right: 0, top: 0, width: 16, height: 16 }, 'Trage colțul ca să redimensionezi fereastra')}
+            {grip('sw', { left: 0, bottom: 0, width: 22, height: 22 }, 'Trage colțul ca să redimensionezi fereastra')}
+            {grip('se', {
+              right: 0, bottom: 0, width: 22, height: 22,
+              backgroundImage: 'linear-gradient(135deg, transparent 48%, #b9c9dc 48%, #b9c9dc 56%, transparent 56%, transparent 70%, #b9c9dc 70%, #b9c9dc 78%, transparent 78%)',
+            }, 'Trage colțul ca să redimensionezi fereastra')}
           </>
         )}
-      </div>
     </div>
+    {/* cât tragi, un strat transparent acoperă pagina: exercițiul / PDF-ul sunt
+        în iframe-uri, care altfel „fură" mișcarea mouse-ului (ca la ManerLatime) */}
+    {dragging && <div aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 100001, cursor: GRIP_CURSOR[dragging] || 'default' }} />}
+    </>
   );
 }

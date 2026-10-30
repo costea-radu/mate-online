@@ -137,8 +137,15 @@ export const aiClient = {
   //   ghidează AI-ul la numărul/dificultatea itemilor)
   // sourceText: materialul încărcat de profesor (poză / PDF / Word) — când
   //   există, itemii se compun DIN EL, nu din baza de date
-  generateInteractive: ({ category = null, topic = '', difficulty = 'mediu', dataMode = 'modify', chapters = [], kind = 'exercitiu', count = null, qtype = 'mixt', durationMin = null, oficiu = null, sourceText = '' }) =>
-    post('/api/ai-generate-interactive', { category, topic, difficulty, dataMode, chapters, kind, count, qtype, durationMin, oficiu, sourceText }),
+  // model: „📐 Test după model" — structura testului-model (analyzeModel),
+  //   eventual modificată de profesor: testul nou are exact exercițiile ei
+  generateInteractive: ({ category = null, topic = '', difficulty = 'mediu', dataMode = 'modify', chapters = [], kind = 'exercitiu', count = null, qtype = 'mixt', durationMin = null, oficiu = null, sourceText = '', model = null }) =>
+    post('/api/ai-generate-interactive', { category, topic, difficulty, dataMode, chapters, kind, count, qtype, durationMin, oficiu, sourceText, ...(model ? { model } : {}) }),
+  // „📐 Test după model": citește STRUCTURA unui test al profesorului (textul
+  //   extras în pagină din PDF / Word / poză) → { model: { title, category,
+  //   difficulty, durationMin, oficiu, exercises:[{ type, topic, statement,
+  //   points, difficulty }] } }. Nu generează nimic.
+  analyzeModel: ({ modelText }) => post('/api/ai-generate-interactive', { action: 'model', modelText }),
 
   // Agenți Claude (admin): generator exerciții + SEO/marketing
   exerciseAgent: (payload) => post('/api/ai-exercise-agent', payload),

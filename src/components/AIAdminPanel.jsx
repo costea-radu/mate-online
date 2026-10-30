@@ -11,6 +11,7 @@ import AISEOAgent from './AISEOAgent';
 import SEOActionsQueue from './SEOActionsQueue';
 import SEORankTracker from './SEORankTracker';
 import SocialQueue from './SocialQueue';
+import AdminStatistici from './AdminStatistici';
 
 // Rezumatul pre-generării dintr-un răspuns de la /api/ai-ingest. Până acum
 // rezultatul venea în răspuns dar nu se afișa nicăieri, așa că o pre-generare
@@ -134,6 +135,10 @@ export default function AIAdminPanel() {
 
   return (
     <>
+    {/* 📊 Statistici de utilizare: paginile cele mai vizitate, testele cele mai
+        folosite, cine revine cel mai des… (src/components/AdminStatistici.jsx) */}
+    <div style={{ marginBottom: 18 }}><AdminStatistici box={box} /></div>
+
     {/* Rolldown: baza de cunoștințe (conținutul rămâne montat și închis) */}
     <Rolldown box={box} storageKey="kb" title="🤖 Profesor Virtual — Bază de cunoștințe">
       <p style={{ fontSize: '.85rem', color: 'var(--text-light)', marginBottom: 16 }}>

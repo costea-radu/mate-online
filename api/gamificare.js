@@ -2,7 +2,14 @@
 // api/gamificare.js — Arena matematică: starea elevului + liga săptămânală
 //
 // POST /api/gamificare            { action: 'state' }   (implicit)
-//   → { stats, nivel, streak, misiune, azi, liga, saptamanaTrecuta, recent }
+//   → { stats, nivel, streak, misiune, azi, liga, saptamanaTrecuta, recent,
+//       misiuneAzi: { clasa, status } }   (indicatorul din navbar — un rând)
+//
+// POST /api/gamificare            { action: 'misiune' }
+//   → { misiune } — MISIUNEA ZILNICĂ (exercițiul zilei, seria, săptămâna,
+//     drumul clasei); atribuie exercițiul zilei la prima deschidere din zi.
+// POST /api/gamificare            { action: 'misiune_clasa', categorie }
+//   → alege / schimbă clasa misiunii (clasa-5 … clasa-12). api/_lib/misiune.js
 //
 // GET  /api/gamificare?action=cron-league   (doar cron, cu CRON_SECRET)
 //   → închide sezoanele încheiate: locuri, promovări, retrogradări.
@@ -15,6 +22,7 @@ const ai = require('./_lib/ai');
 const http = require('./_lib/http');
 const xp = require('./_lib/xp');
 const duel = require('./_lib/duel');
+const misiune = require('./_lib/misiune');   // misiunea zilnică (supabase/gamificare_v8_misiune_zilnica.sql)
 
 // „Ana Maria Popescu" → „Ana P." (clasamentul e public în cohortă: arătăm
 // prenumele și inițiala, nu numele complet al copilului)
@@ -123,6 +131,16 @@ async function state(supa, userId) {
     .select('source, xp, league_pts, created_at, meta')
     .eq('user_id', userId).order('created_at', { ascending: false }).limit(8);
 
+  // Misiunea zilnică — doar cât îi trebuie indicatorului din navbar (🎯 când
+  // elevul are o clasă aleasă și misiunea de azi nu e încă îndeplinită). Tot
+  // restul (exercițiul zilei, seria, drumul) vine din action 'misiune'.
+  let misiuneAzi = null;
+  try {
+    const { data: mz, error: eMz } = await supa.from('daily_exercises')
+      .select('status').eq('user_id', userId).eq('day', day).maybeSingle();
+    if (!eMz) misiuneAzi = { clasa: stats.mission_category || null, status: mz ? mz.status : null };
+  } catch { /* migrarea v8 nerulată */ }
+
   return {
     ok: true,
     setup: { tabele: !eTabele, mesaj: eTabele ? eTabele.message : null },
@@ -145,6 +163,7 @@ async function state(supa, userId) {
     dueluri,
     saptamanaTrecuta,
     recent: recent || [],
+    misiuneAzi,
   };
 }
 
@@ -239,9 +258,16 @@ module.exports = async function handler(req, res) {
 
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
     const userId = await ai.authUser(req, supa);
-    await ai.requireUser(supa, userId);
+    const profile = await ai.requireUser(supa, userId);
 
     if (action === 'state') return res.status(200).json(await state(supa, userId));
+    // misiunea zilnică: starea (cu exercițiul zilei) și alegerea clasei
+    if (action === 'misiune') return res.status(200).json({ ok: true, misiune: await misiune.stare(supa, userId, profile) });
+    if (action === 'misiune_clasa') {
+      const r = await misiune.alegeClasa(supa, userId, profile, req.body?.categorie);
+      if (r.error) return res.status(400).json(r);
+      return res.status(200).json(r);
+    }
     return res.status(400).json({ error: `Acțiune necunoscută: ${action}` });
   } catch (err) {
     console.error('gamificare error:', err);

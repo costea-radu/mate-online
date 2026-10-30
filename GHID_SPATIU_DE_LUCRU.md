@@ -64,11 +64,25 @@ Creionul (stylus) pornește **respingerea palmei**: din acel moment atingerile c
 nu mai scriu (două degete tot derulează). Traseele sunt netede (punctele intermediare
 ale creionului — `getCoalescedEvents`).
 
-### Fereastra (exerciții interactive, „Planul meu", sala live)
+### Fereastra (exerciții interactive, „Planul meu", sala live, Pregătirea de examen)
 
-Mărimea o alege elevul și rămâne așa (`localStorage`, `sdl:fereastra`): pe calculator
-trage de colț / margini, pe telefon de bara de jos; `⛶` sau dublu-clic pe antet = tot
-ecranul. **Enunțul** (curat, fără răspunsuri — `collectEnunt()`, plus plasa `cleanEnunt`)
+Din 30 octombrie 2026 se mută și se redimensionează **ca widgetul Profesorului Virtual**,
+peste tot unde apare:
+
+- **Pe calculator** e o fereastră **plutitoare**: nu mai întunecă pagina, deci exercițiul
+  de dedesubt rămâne la vedere și se poate folosi (scrii în foaie, răspunzi în exercițiu).
+  **O muți** trăgând de antetul albastru; **o faci cât vrei** trăgând de **orice margine**
+  (stânga, dreapta, sus, jos — liniuța widgetului, aurie cât tragi) sau de **orice colț**;
+  marginea opusă stă pe loc, iar fereastra rămâne în ecran (minimum 320 × 300 px).
+  Geometria pură: `src/lib/fereastra.js` (`geometrieFereastra`).
+- **Pe telefon** stă **jos, pe toată lățimea**; **bara albastră** de sus (cu liniuța) se
+  trage în sus / în jos — ca panoul profesorului de lângă exercițiu.
+- Locul și mărimea se țin minte: `sdl:fereastra` (calculator, `{ x, y, w, h }` — cele
+  vechi, doar cu `{ w, h }`, se deschid centrate) și `sdl:fereastra:tel` (înălțimea pe
+  telefon). `⛶` sau dublu-clic pe antet = tot ecranul. Escape sau „✕ Închide" o închid
+  (clicul în afara ei nu o mai închide — pagina de dedesubt e a ta).
+- Cât tragi, un strat transparent acoperă pagina (iframe-urile exercițiului / PDF-ului
+  nu „fură" mișcarea mouse-ului). **Enunțul** (curat, fără răspunsuri — `collectEnunt()`, plus plasa `cleanEnunt`)
 stă într-un panou pliabil deasupra foii. **Pe telefon** fereastra se strânge: unelte doar
 cu pictograme, pe un rând; enunțul ocupă cel mult 24% din fereastră; îndrumarea din
 subsol dispare — foaia rămâne mare (pe un iPhone SE: ~180 px în loc de 45).
