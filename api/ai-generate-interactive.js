@@ -13,14 +13,25 @@
 //                      poză (tablă / fișă de lucru), dintr-un PDF sau dintr-un
 //                      fișier Word. Când există, itemii se compun DIN EL
 //                      (exercițiile sau teoria din material), nu din baza de
-//                      date — cazul „test de 10 minute făcut direct în clasă”. }
+//                      date — cazul „test de 10 minute făcut direct în clasă”,
+//         model?: „📐 Test după model” — structura unui test DE-AL PROFESORULUI
+//                 ({ title, exercises:[{ type, topic, statement, points,
+//                 difficulty }] }, citită cu action 'model' și apoi modificată
+//                 de el): testul nou are exact acele exerciții, în ordine, cu
+//                 același tip, pe aceleași competențe, cu alte date. }
 // Răspuns: { questions:[{statement, options?, answer, explanation?}], kind, title,
 //            topic, durationMin, oficiu }
+//
+// Body { action: 'model', modelText } — CITEȘTE structura unui test-model
+// (textul extras în pagină din PDF / Word / poză): formatul, exercițiile,
+// numărul și dificultatea → { model } (api/_lib/modelTest.js). Nu generează
+// nimic și nu consumă din cota „interactive" (doar credite, ca orice apel AI).
 // Randarea în HTML interactiv se face pe client (src/lib/quizRender.js).
 // =====================================================================
 const ai = require('./_lib/ai');
 const med = require('./_lib/meditatii'); // verifyQuestionSet (validare + verificator independent)
 const { pdfText, storagePath, modeLine, cutBarem } = require('./_lib/pdftext');
+const modelTest = require('./_lib/modelTest'); // „📐 Test după model"
 const { S } = ai;
 
 // Schema STRICTĂ a răspunsului (Structured Outputs): JSON garantat valid,
@@ -48,14 +59,21 @@ module.exports = async function handler(req, res) {
     // capitolele alese de profesor (titluri) — întrebările vin DOAR din ele
     const chapters = (Array.isArray(req.body?.chapters) ? req.body.chapters : [])
       .map((c) => String(c || '').replace(/\s+/g, ' ').trim().slice(0, 140)).filter(Boolean).slice(0, 12);
+    // „📐 Test după model": structura testului-model, așa cum a lăsat-o
+    // profesorul (curățată aici — nu avem încredere în ce vine din browser).
+    // Cu model, testul are EXACT exercițiile modelului, în ordine.
+    const model = modelTest.sanitizeModel(req.body?.model);
     // EXERCIȚIU (implicit, ca până acum: ~5 întrebări, max 8) sau TEST cu un
     // NUMĂR DE ITEMI ales direct de profesor (4–24)
-    const kind = req.body?.kind === 'test' ? 'test' : 'exercitiu';
+    const kind = model || req.body?.kind === 'test' ? 'test' : 'exercitiu';
     const countReq = parseInt(req.body?.count, 10);
-    const count = kind === 'test' ? Math.min(24, Math.max(4, Number.isFinite(countReq) ? countReq : 10)) : null;
+    const count = model ? model.exercises.length
+      : kind === 'test' ? Math.min(24, Math.max(4, Number.isFinite(countReq) ? countReq : 10)) : null;
     const maxItems = kind === 'test' ? count : 8;
     // tipul itemilor: mixt (implicit) / doar grilă / doar cu redactarea răspunsului
-    const qtype = ['grila', 'redactare'].includes(req.body?.qtype) ? req.body.qtype : 'mixt';
+    // (după model: tipul fiecărui exercițiu e cel din model)
+    const qtype = model ? modelTest.modelFormat(model)
+      : ['grila', 'redactare'].includes(req.body?.qtype) ? req.body.qtype : 'mixt';
     // timpul de lucru (5–180 min) și punctele din oficiu (0–20) alese de profesor
     const durNum = parseInt(req.body?.durationMin, 10);
     const durationMin = Number.isFinite(durNum) ? Math.min(180, Math.max(5, durNum)) : null;
@@ -68,6 +86,24 @@ module.exports = async function handler(req, res) {
     const profile = await ai.requireUser(supa, userId);
     if (!profile.is_admin) ai.requirePremium(profile);
     const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete
+
+    // ── „📐 Test după model": doar CITIM structura modelului ─────────────
+    // (un apel, fără cota „interactive" — generarea propriu-zisă o consumă)
+    if (req.body?.action === 'model') {
+      try {
+        const r = await modelTest.analyzeModel(req.body?.modelText, {
+          chatJson: ai.chatJson, S, model: ai.pickModel(ai.PDF_MODEL, lim),
+        });
+        await ai.logUsage(supa, userId, 'ai-generate-interactive:model', r.usage);
+        const lei = ai.costMicroLei(r.usage.model, r.usage) / 1e6;
+        return res.status(200).json({ model: r.model, cost: { credits: ai.leiToCredits(lei), lei: Math.round(lei * 1000) / 1000 } });
+      } catch (e) {
+        if (e.usage) await ai.logUsage(supa, userId, 'ai-generate-interactive:model', e.usage);
+        if (e.status === 502) return res.status(502).json({ error: 'Nu am putut citi structura modelului. Mai încearcă o dată.' });
+        throw e;
+      }
+    }
+
     await ai.enforceFeatureQuota(supa, userId, profile, 'interactive', lim); // cota lunară
 
     // „Subiect + instrucțiuni": câmpul acceptă un prompt amplu de la profesor
@@ -87,7 +123,8 @@ module.exports = async function handler(req, res) {
     let plan = '';
     // Cu material încărcat de profesor, sursele din baza de date NU se mai
     // citesc: itemii trebuie să vină din fișa/tabla lui, nu din alte teste.
-    if (category && !sourceText) {
+    // La fel după model: structura (și competențele) vin din testul lui.
+    if (category && !sourceText && !model) {
       try {
         const { data: rowsAll } = await supa.from('content')
           .select('title, file_url, interactive_data, content_type, subcategory')
@@ -140,7 +177,9 @@ module.exports = async function handler(req, res) {
       } catch { /* fără surse */ }
     }
 
-    const taskLine = kind === 'test'
+    const taskLine = model
+      ? `Sarcină: creează un TEST de matematică NOU, DUPĂ TESTUL-MODEL al profesorului (mai jos), cu EXACT ${count} ${count === 1 ? 'item' : 'itemi'}: aceeași ordine, același tip și aceleași competențe ca exercițiile modelului, cu alte date. Scrie TOȚI cei ${count} itemi, fără să te oprești mai devreme.`
+      : kind === 'test'
       ? `Sarcină: creează un TEST de matematică cu EXACT ${count} itemi (întrebări numerotate), în stilul exemplelor din baza de date, de la mai simplu la mai complex — ca o lucrare de verificare. Scrie TOȚI cei ${count} itemi, fără să te oprești mai devreme.`
       : 'Sarcină: creează un set de întrebări de matematică pentru un exercițiu interactiv, în stilul exemplelor din baza de date. Implicit 5 întrebări; dacă profesorul cere alt număr în instrucțiunile lui, respectă-l (minim 3, maxim 8).';
 
@@ -166,8 +205,8 @@ ${taskLine}
 === EXEMPLE DIN BAZA DE DATE (temă/stil) ===
 ${examples}
 === SFÂRȘIT ===
-${srcBlock ? `\n=== SUBIECTE REALE DIN CATEGORIE (sursa itemilor — antrenament/variante/simulări) ===\n${srcBlock}\n=== SFÂRȘIT SURSE ===\nPLAN (tras la sorți — respectă-l): fiecare întrebare vine din sursa indicată:\n${plan}\n` : ''}${materialBlock}${timeLine}${oficiuLine}
-REGIM DE LUCRU CU DATELE: ${modeLine(dataMode)}
+${srcBlock ? `\n=== SUBIECTE REALE DIN CATEGORIE (sursa itemilor — antrenament/variante/simulări) ===\n${srcBlock}\n=== SFÂRȘIT SURSE ===\nPLAN (tras la sorți — respectă-l): fiecare întrebare vine din sursa indicată:\n${plan}\n` : ''}${materialBlock}${modelTest.modelBlock(model)}${timeLine}${oficiuLine}
+REGIM DE LUCRU CU DATELE: ${modeLine(model ? 'modify' : dataMode)}
 
 Răspunde STRICT cu un OBIECT JSON valid (fără text în plus, fără markdown), cu EXACT această formă — cheia "questions" conține obiectele-întrebare:
 {
@@ -181,13 +220,15 @@ Răspunde STRICT cu un OBIECT JSON valid (fără text în plus, fără markdown)
   ]
 }
 Reguli:
-${qtype === 'grila'
+${model && qtype === 'mixt'
+    ? `- Tipul fiecărei întrebări e cel al exercițiului corespunzător din model: la GRILĂ, "options" cu exact 4 variante și "answer" = INDEXUL variantei corecte (0,1,2,3), distribuit aleatoriu între poziții, cu variante greșite plauzibile; la REDACTARE, OMITE "options", "answer" = răspunsul final scurt (text), iar "explanation" = redactarea model a rezolvării, pas cu pas.`
+    : qtype === 'grila'
     ? `- TOATE întrebările sunt GRILĂ: "options" cu exact 4 variante și "answer" = INDEXUL variantei corecte (0,1,2,3). DISTRIBUIE răspunsul corect aleatoriu între cele 4 poziții (nu mereu 0). Variantele greșite trebuie să fie plauzibile (greșeli tipice de calcul). NU face nicio întrebare cu răspuns liber.`
     : qtype === 'redactare'
       ? `- TOATE întrebările sunt CU REDACTAREA RĂSPUNSULUI (fără variante): OMITE complet "options"; "answer" = răspunsul final, scurt, ca text (ex: "12", "x=3", "aria = 24 cm²"); "explanation" = REDACTAREA MODEL a rezolvării, pas cu pas, cum ar scrie-o elevul pe foaie (ea apare la barem). NU face nicio întrebare grilă.`
       : `- Majoritatea întrebărilor cu "options" (grilă, exact 4 variante) și "answer" = INDEXUL variantei corecte (0,1,2,3). DISTRIBUIE răspunsul corect aleatoriu între cele 4 poziții (nu mereu 0).
 - Poți face și întrebări cu răspuns liber: OMITE "options" și pune "answer" ca text (ex: "12" sau "x=3").`}
-- ${sourceText ? 'Exemplele din baza de date sunt DOAR reper de stil și de formulare — conținutul matematic vine din materialul încărcat de profesor.' : 'Respectă cât mai fidel exercițiile-model (tip, stil, dificultate), schimbând doar minim datele.'}
+- ${model ? 'Exemplele din baza de date sunt DOAR reper de stil — structura, tipul și competența fiecărui item vin din testul-model al profesorului.' : sourceText ? 'Exemplele din baza de date sunt DOAR reper de stil și de formulare — conținutul matematic vine din materialul încărcat de profesor.' : 'Respectă cât mai fidel exercițiile-model (tip, stil, dificultate), schimbând doar minim datele.'}
 - Subiect: ${topicShort || 'potrivit categoriei'}${category ? ' · categoria ' + category : ''}. Dificultate: ${difficulty}.
 - Folosește „·" (\\cdot în LaTeX) pentru înmulțire, NICIODATĂ × sau litera x.
 - Variază: la cereri repetate pentru același model, generează exerciții DIFERITE (alte valori, alt context).${chapters.length ? `
@@ -202,14 +243,16 @@ ${topicFull}
     // bugetul de tokeni crește cu numărul de itemi (un item ≈ 350–450 tokeni cu
     // opțiuni + explicație); la 3200, testele de 15–24 itemi s-ar trunchia.
     // Redactările model (qtype='redactare') sunt mai lungi → buget mai mare.
-    const perItem = qtype === 'redactare' ? 600 : 450;
-    const base = qtype === 'redactare' ? 4000 : 3200;
+    // (după model, grilele amestecate cu redactări cer și ele bugetul mai mare)
+    const lungi = qtype === 'redactare' || (model && qtype === 'mixt');
+    const perItem = lungi ? 600 : 450;
+    const base = lungi ? 4000 : 3200;
     const maxTokens = maxItems <= 8 ? base : Math.min(12000, base + (maxItems - 8) * perItem);
     let data, usage, text;
     try {
       ({ data, usage, text } = await ai.chatJson({
         system,
-        messages: [{ role: 'user', content: `Generează obiectul JSON cu ${kind === 'test' ? `TESTUL de ${count} itemi${durationMin ? ` (${durationMin} min)` : ''}` : 'întrebările'} acum${sourceText ? ', STRICT pe materialul încărcat de profesor' : ''}${topicFull ? ', respectând întocmai subiectul și instrucțiunile profesorului' : ''}. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
+        messages: [{ role: 'user', content: `Generează obiectul JSON cu ${kind === 'test' ? `TESTUL de ${count} itemi${durationMin ? ` (${durationMin} min)` : ''}` : 'întrebările'} acum${model ? ', DUPĂ TESTUL-MODEL al profesorului (aceeași ordine și același tip la fiecare item)' : ''}${sourceText ? ', STRICT pe materialul încărcat de profesor' : ''}${topicFull ? ', respectând întocmai subiectul și instrucțiunile profesorului' : ''}. Fă-le DIFERITE de generările anterioare (alte numere, alte contexte, altă ordine). Sesiune #${Math.random().toString(36).slice(2, 8)}.` }],
         temperature: 0.9, maxTokens,
         model: ai.pickModel(ai.GEN_MODEL, lim), // peste bugetul zilnic → model standard
         schema: QUESTIONS_SCHEMA, schemaName: 'intrebari_interactive',
@@ -273,7 +316,7 @@ ${topicFull}
     const checked = await med.verifyQuestionSet(questions, {
       model: ai.pickModel(ai.GEN_MODEL, lim), supa, userId, endpoint: 'ai-generate-interactive:verify',
       wantCount: kind === 'test' ? count : null, qtype,
-      regenContext: `Subiect: ${topicShort || chapters.join(', ') || category || 'matematică'}. Dificultate: ${difficulty}.${chapters.length ? ` Capitole: ${chapters.join(' · ')}.` : ''}`,
+      regenContext: `Subiect: ${topicShort || chapters.join(', ') || category || 'matematică'}. Dificultate: ${difficulty}.${chapters.length ? ` Capitole: ${chapters.join(' · ')}.` : ''}${model ? ` Test după modelul profesorului «${model.title}» — competențele: ${model.exercises.map((e) => e.topic).filter(Boolean).slice(0, 12).join('; ')}.` : ''}`,
     });
     questions = checked.questions;
     if (!questions.length) {
@@ -290,15 +333,16 @@ ${topicFull}
       + ai.costMicroLei(checked.usage?.model, checked.usage || {});
     const costLei = costMicro / 1e6;
 
-    const subject = topicShort || chapters[0] || (sourceText ? 'material încărcat' : null) || category || 'matematică';
+    const subject = (model ? model.title : null) || topicShort || chapters[0] || (sourceText ? 'material încărcat' : null) || category || 'matematică';
     return res.status(200).json({
       questions,
       kind,
-      title: `${kind === 'test' ? `Test (${questions.length} itemi${durationMin ? `, ${durationMin} min` : ''})` : 'Exercițiu interactiv'} · ${subject}`,
+      title: `${model ? `Test după model (${questions.length} itemi${durationMin ? `, ${durationMin} min` : ''})` : kind === 'test' ? `Test (${questions.length} itemi${durationMin ? `, ${durationMin} min` : ''})` : 'Exercițiu interactiv'} · ${subject}`,
       topic: topicShort || chapters[0] || null,
       durationMin,
       oficiu,
       fromSource: !!sourceText,
+      fromModel: !!model,
       verification: checked.report,
       cost: {
         credits: ai.leiToCredits(costLei),

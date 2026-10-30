@@ -1,8 +1,11 @@
 // =====================================================================
 // src/pages/Arena.jsx — „⚔️ Arena matematică" (pașii 1-2 din gamificare)
 //
-// Ce arată: nivelul și XP-ul, seria de zile (streak), misiunea zilei și
-// LIGA săptămânală (cohorta ta, cu zonele de promovare/retrogradare).
+// Ce arată: nivelul și XP-ul, seria de zile (streak), MISIUNEA ZILNICĂ (un
+// exercițiu pe zi, ca la Duolingo — src/components/MisiuneZilnica.jsx, deasupra
+// duelurilor; vechea „misiune a zilei" — 8 itemi / 100 XP / 80% — e acum
+// „⚡ Provocarea bonus", în același card) și LIGA săptămânală (cohorta ta, cu
+// zonele de promovare/retrogradare).
 // Datele vin din /api/gamificare (action=state) — vezi api/_lib/xp.js.
 //
 // Dueluri, turnee și harta capitolelor sunt pașii 3-5; aici doar le anunțăm.
@@ -12,6 +15,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { arenaState, onArenaChange } from '../lib/arena';
 import DueluriPanel from '../components/DueluriPanel';
+import MisiuneZilnica from '../components/MisiuneZilnica';
 import TurneePanel from '../components/TurneePanel';
 
 const cardStyle = {
@@ -63,7 +67,7 @@ export default function Arena() {
   if (!user) {
     return (
       <>
-        <div className="page-header"><div className="container"><h1>⚔️ Arena matematică</h1><p>XP, serie de zile, misiunea zilei și liga săptămânală.</p></div></div>
+        <div className="page-header"><div className="container"><h1>⚔️ Arena matematică</h1><p>XP, serie de zile, misiunea zilnică și liga săptămânală.</p></div></div>
         <div className="content-list"><div className="container">
           <div style={{ ...cardStyle, textAlign: 'center', padding: 40 }}>
             <p style={{ marginBottom: 16 }}>Intră în cont ca să-ți vezi nivelul, seria de zile și clasamentul din ligă.</p>
@@ -157,22 +161,27 @@ export default function Arena() {
             </div>
           </div>
 
-          {/* ─── Misiunea zilei ─── */}
+          {/* ─── ⚡ Provocarea bonus a zilei (fosta „misiune a zilei": 8 itemi
+                corecți / 100 XP / 80% la 2 exerciții, prin rotație) ─── */}
           {misiune && (
-            <div style={{ ...cardStyle, borderColor: misiune.done ? 'var(--success)' : 'var(--border)' }}>
-              <Eticheta culoare={misiune.done ? 'var(--success)' : 'var(--text-muted)'}>
-                🎯 Misiunea zilei {misiune.done && '· terminată'}
-              </Eticheta>
-              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-                <strong style={{ fontSize: '1.05rem' }}>{misiune.label}</strong>
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
-                  {misiune.done ? `+${misiune.reward_xp} XP · +${misiune.reward_coins} 🪙 primite` : `Recompensă: ${misiune.reward_xp} XP + ${misiune.reward_coins} 🪙`}
+            <div style={{ ...cardStyle, padding: '12px 16px', borderColor: misiune.done ? 'var(--success)' : 'var(--border)' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+                <span style={{ fontSize: '0.92rem' }}>
+                  <span style={{ fontWeight: 700, color: misiune.done ? 'var(--success)' : 'var(--text-muted)', fontSize: '0.72rem', letterSpacing: '0.06em', textTransform: 'uppercase', marginRight: 8 }}>
+                    ⚡ Provocarea bonus a zilei{misiune.done ? ' · terminată' : ''}
+                  </span>
+                  <strong>{misiune.label}</strong>
+                </span>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>
+                  {misiune.progress} / {misiune.target} · {misiune.done ? `+${misiune.reward_xp} XP · +${misiune.reward_coins} 🪙 primite` : `${misiune.reward_xp} XP + ${misiune.reward_coins} 🪙`}
                 </span>
               </div>
-              <Bara pct={(misiune.progress / misiune.target) * 100} culoare={misiune.done ? 'var(--success)' : 'var(--gold)'} inaltime={10} />
-              <div style={{ fontSize: '0.82rem', color: 'var(--text-light)', marginTop: 8 }}>{misiune.progress} / {misiune.target}</div>
+              <Bara pct={(misiune.progress / misiune.target) * 100} culoare={misiune.done ? 'var(--success)' : 'var(--gold)'} inaltime={7} />
             </div>
           )}
+
+          {/* ─── 🎯 Misiunea zilnică: un exercițiu pe zi (deasupra duelurilor) ─── */}
+          <MisiuneZilnica />
 
           {/* ─── Dueluri 1-la-1 ─── */}
           <DueluriPanel />

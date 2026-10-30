@@ -413,7 +413,8 @@ test('vizualizatorul: ?lib=<id> → publicGet (accesul pe server), PDF din URL-u
   assert.match(read('src/lib/aiClient.js'), /pdfContext: \(\{ contentId = null, libraryId = null \}\) => post\('\/api\/ai-pdf-context', libraryId && !contentId \? \{ libraryId \} : \{ contentId \}\)/);
   // testul generat: documentul fără bara de tipărire, cu tipărirea separat
   const ex = read('src/lib/examPrint.js');
-  assert.match(ex, /export function examDocumentHtml\(exam, \{ withSolutions = false, embedded = true \} = \{\}\)/);
+  // (30 oct.: și `workSpace` — testul generat „fără spațiu de lucru", test/test-dupa-model.test.js)
+  assert.match(ex, /export function examDocumentHtml\(exam, \{ withSolutions = false, embedded = true, workSpace \} = \{\}\)/);
   assert.match(ex, /\$\{embedded \? '' : `<div class="topbar">/);
   assert.match(ex, /autoMath\(s == null \? '' : String\(s\)\)/, 'numerele itemilor (numere în JSON) nu mai strică documentul');
 });

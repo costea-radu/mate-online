@@ -3,6 +3,9 @@
 // Reutilizat în pagina „Profesor Virtual" și în widgetul plutitor.
 // prop compact=true → stil mic (widget). prop canManage=true (profesor) →
 // permite EDITAREA subiectului și PUBLICAREA în „Biblioteca utilizatorilor".
+// „✍️ Spațiu de lucru" (30 oct. 2026): subiectul generat cu AI se tipărește cu
+// caroiaj sub problemele de redactat (ca la examen) sau FĂRĂ — alegerea stă în
+// test (`exam.workSpace`), deci o păstrează și biblioteca, și publicarea.
 // =====================================================================
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -12,6 +15,7 @@ import { supabase } from '../lib/supabase';
 import { authHeaders } from '../lib/api';
 import { combineExamPdfs, fetchPdfSources, stratifyBySubcategory, probeExamPdf } from '../lib/pdfCombine';
 import CapitolePicker from './CapitolePicker';
+import OptiuneSpatiuLucru from './OptiuneSpatiuLucru';
 import { capitoleForExamType } from '../lib/capitole';
 
 // separarea STRICTĂ a categoriilor: fiecare tip de examen combină doar propriile subiecte
@@ -50,17 +54,22 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
   const [combineMsg, setCombineMsg] = useState(null);
   const [combineReport, setCombineReport] = useState(null);
   const [verification, setVerification] = useState(null); // raportul validării + verificatorului independent (Etapa 2)
+  // „✍️ Spațiu de lucru" pe foaie (cu / fără caroiaj) + copia din „Testele mele"
+  const [workSpace, setWorkSpace] = useState(true);
+  const [savedId, setSavedId] = useState(null);
 
   async function gen() {
-    setLoading(true); setError(null); setUpsell(false); setExam(null); setEditing(false); setPublishMsg(null); setCombineMsg(null); setCombineReport(null); setVerification(null);
+    setLoading(true); setError(null); setUpsell(false); setExam(null); setEditing(false); setPublishMsg(null); setCombineMsg(null); setCombineReport(null); setVerification(null); setSavedId(null);
     try {
       const res = await aiClient.generateExam({ examType, instructions, dataMode, chapters: chapterTitles() });
-      setExam(res.exam);
+      // alegerea „cu / fără spațiu de lucru" intră în test (tipărire, bibliotecă, publicare)
+      const ex = workSpace ? res.exam : { ...res.exam, workSpace: false };
+      setExam(ex);
       setVerification(res.verification || null);
       if (Array.isArray(res.combinedFrom) && res.combinedFrom.length) {
         setCombineMsg('✅ Itemii au fost combinați din: ' + res.combinedFrom.join('; ') + '.');
       }
-      try { await aiClient.saveLibraryItem({ kind: 'exam', title: res.exam.title, category: examType, payload: { exam: res.exam } }); } catch { /* ignore */ }
+      try { setSavedId(await aiClient.saveLibraryItem({ kind: 'exam', title: ex.title, category: examType, payload: { exam: ex } })); } catch { /* ignore */ }
     } catch (e) { setError(e.message); if (e.premium) setUpsell(true); }
     finally { setLoading(false); }
   }
@@ -117,6 +126,17 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
     finally { setCombining(false); }
   }
 
+  // „✍️ Spațiu de lucru" schimbat după generare: testul (și copia lui din
+  // „Testele și exercițiile mele") se tipărește de acum așa
+  function alegeSpatiu(v) {
+    setWorkSpace(v);
+    if (!exam) return;
+    const { workSpace: _vechi, ...rest } = exam;
+    const ex = v ? rest : { ...rest, workSpace: false };
+    setExam(ex);
+    if (savedId) aiClient.updateLibraryItem(savedId, { payload: { exam: ex } }).catch(() => {});
+  }
+
   function patchItem(si, ii, patch) {
     setExam((ex) => { const c = structuredClone(ex); c.subjects[si].items[ii] = { ...c.subjects[si].items[ii], ...patch }; return c; });
   }
@@ -152,6 +172,11 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
       <div style={card}>
         <p style={{ color: 'var(--text-light)', fontSize: compact ? '.82rem' : '.9rem', marginBottom: 12 }}>
           Generează un <strong>model de subiect</strong> după structura oficială, în format PDF. Construit din exercițiile de pe site — material de pregătire, nu subiect oficial.
+          {canManage && !compact && (
+            <span style={{ display: 'block', fontSize: '.8rem', marginTop: 4 }}>
+              Ai un test-model al tău? Încarcă-l la <strong>„📐 Test după model”</strong>, în fila „🧩 Generează exerciții/teste interactive/PDF”.
+            </span>
+          )}
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr 1fr' : 'repeat(auto-fit,minmax(180px,1fr))', gap: 8, marginBottom: 14 }}>
           {EXAM_TYPES.map((t) => (
@@ -182,6 +207,8 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
               extraPlaceholder="ex: pune accent pe geometrie; Subiectul III mai ușor; capitolul „Ecuații cu modul”…"
               hint="Subiectul păstrează structura oficială (subiecte, punctaje), dar itemii vin DOAR din capitolele alese. Selecția de capitole funcționează la generarea cu AI; „combinarea exactă” de mai sus folosește subiectele întregi ale site-ului."
             />
+            {/* caroiajul de sub problemele de redactat: cu (ca la examen) sau fără */}
+            <OptiuneSpatiuLucru value={workSpace} onChange={alegeSpatiu} compact={compact} style={{ margin: '4px 0 12px' }} />
           </div>
         )}
         {dataMode === 'keep' ? (
@@ -285,6 +312,7 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
             </div>
           )}
 
+          <OptiuneSpatiuLucru value={exam.workSpace !== false} onChange={alegeSpatiu} compact style={{ marginBottom: 10 }} />
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn btn-primary btn-sm" onClick={() => printExam(exam, { withSolutions: false })}>📄 Varianta elev (PDF)</button>
             <button className="btn btn-outline btn-sm" onClick={() => printExam(exam, { withSolutions: true })}>📝 Barem (PDF)</button>

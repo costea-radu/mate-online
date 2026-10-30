@@ -51,6 +51,7 @@ export default function PoliticaCookies() {
                       { name: 'discord_*', scop: 'Autentificare OAuth cu Discord', durata: 'Sesiune', tip: 'Necesar' },
                       { name: '_ga, _ga_*', scop: 'Statistici anonime de utilizare (Google Analytics 4): ce pagini sunt vizitate și ce materiale sunt căutate', durata: '2 ani', tip: 'Analiză' },
                       { name: '_fbp', scop: 'Măsurarea eficienței anunțurilor (Meta Pixel): ne arată dacă un anunț a dus la o înregistrare sau la o abonare', durata: '3 luni', tip: 'Analiză' },
+                      { name: 'em_vid', scop: 'Identificator anonim (stocare locală) pentru statisticile interne ale site-ului: deosebește vizitatorii fără cont, ca să știm câte persoane au văzut o pagină. Nu pleacă la terți', durata: 'Până îl ștergi', tip: 'Analiză' },
                     ].map((row, i) => (
                       <tr key={i} style={{ borderBottom: '1px solid #f0f4f8' }}>
                         <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '0.83rem', color: '#1565c0' }}>{row.name}</td>

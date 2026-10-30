@@ -10,6 +10,12 @@
 // subiectul și modul de tratare a datelor) plus butonul de acțiune primit ca
 // `children`. Ce se face cu rezultatul rămâne în pagina care îl folosește.
 //
+// „📐 Test după model" (30 oct. 2026): profesorul încarcă un test DE-AL LUI
+// (PDF, Word sau poză); serverul îi citește structura (api/_lib/modelTest.js)
+// și o vede aici ca formular — formatul, exercițiile, numărul și dificultatea
+// se pot schimba —, apoi generarea scrie un test NOU după ea. Tot aici:
+// „✍️ Spațiu de lucru" pe foaie (cu / fără) pentru PDF-ul tipărit.
+//
 //   const g = useInteractiveGen();                    // starea alegerilor
 //   <InteractiveGenForm g={g}>…butonul…</InteractiveGenForm>
 //   await aiClient.generateInteractive(g.payload());  // generarea propriu-zisă
@@ -17,6 +23,8 @@
 import { useRef, useState } from 'react';
 import { aiClient } from '../lib/aiClient';
 import CapitolePicker from './CapitolePicker';
+import OptiuneSpatiuLucru from './OptiuneSpatiuLucru';
+import ModelTestPanel from './ModelTestPanel';
 import { fileToCompressedDataUrl } from '../lib/image';
 import { capitoleForCategory } from '../lib/capitole';
 import { estimeazaCredite, fmtEstimare } from '../lib/aiCost';
@@ -30,6 +38,49 @@ export const GEN_CATEGORIES = [
   { id: 'bacalaureat', label: 'Bacalaureat' },
 ];
 export const GEN_DIFFS = ['ușor', 'mediu', 'greu'];
+const MODEL_MAX = 24;   // cât duce generatorul (api/_lib/modelTest.js → MAX_EXERCITII)
+const TIMPI = [5, 10, 15, 20, 25, 30, 40, 45, 50, 60, 90, 120, 150, 180];
+const OFICIU = [0, 5, 10, 15, 20];
+// cea mai apropiată valoare din listă (timpul / oficiul citit din model)
+const celMaiAproape = (v, list) => list.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a), list[0]);
+const exId = () => `ex_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+
+// Formatul de ansamblu al modelului, din tipurile exercițiilor
+export function formatModel(model) {
+  const tipuri = new Set(((model && model.exercises) || []).map((e) => e.type));
+  if (tipuri.size === 1) return tipuri.has('grila') ? 'grila' : 'redactare';
+  return 'mixt';
+}
+
+// ─── Textul dintr-un fișier (poză / PDF / Word) ─────────────────────────────
+// Același drum pentru materialul testului și pentru modelul lui: poza →
+// api/ai-vision; PDF → api/ai-correct (pdf_text); Word → api/ai-correct (docx_text).
+async function citesteFisier(file, { note } = {}) {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+  const isWord = /\.docx?$/i.test(file.name || '') || /wordprocessingml|msword/.test(file.type || '');
+  let text = '', thumb = null, kind = 'foto';
+  if (isPdf || isWord) {
+    if (file.size > 3.5 * 1024 * 1024) throw new Error(`„${file.name}" e prea mare (max ~3,5 MB).`);
+    const fileBase64 = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result));
+      fr.onerror = () => reject(new Error('Fișierul nu a putut fi citit.'));
+      fr.readAsDataURL(file);
+    });
+    kind = isPdf ? 'pdf' : 'word';
+    const r = isPdf ? await aiClient.correctPdfText({ fileBase64 }) : await aiClient.correctDocxText({ fileBase64 });
+    text = r.text || '';
+  } else {
+    const dataUrl = await fileToCompressedDataUrl(file, { maxDim: 1600, quality: 0.78 });
+    try { thumb = await fileToCompressedDataUrl(file, { maxDim: 120, quality: 0.6 }); } catch { thumb = null; }
+    const r = await aiClient.visionExtract({ imageBase64: dataUrl, note });
+    text = r.problemText || '';
+  }
+  if (!text.trim() || /^Nu am putut citi/i.test(text.trim())) {
+    throw new Error(`Nu am găsit text în „${file.name}". Fotografiază mai de aproape sau încarcă alt fișier.`);
+  }
+  return { text: text.trim(), thumb, kind };
+}
 
 // ─── Starea alegerilor din formular ─────────────────────────────────────────
 // Toate câmpurile sunt expuse ca { valoare, setValoare }, ca formularul de mai
@@ -55,9 +106,19 @@ export function useInteractiveGen(init = {}) {
   const [srcError, setSrcError] = useState(null);
   const [srcOpen, setSrcOpen] = useState(null);   // id-ul sursei cu textul deschis
   const [dataMode, setDataMode] = useState(init.dataMode ?? 'modify');
+  // „✍️ Spațiu de lucru" pe PDF-ul tipărit: caroiaj sub problemele de redactat
+  // (implicit, ca la examen) sau test compact, fără el
+  const [workSpace, setWorkSpace] = useState(init.workSpace ?? true);
   const camRef = useRef(null);
   const imgRef = useRef(null);
   const docRef = useRef(null);
+  // „📐 Test după model": structura citită din testul profesorului
+  // model: { title, source, exercises:[{ id, type, typeOrig, topic, statement, points, difficulty }] }
+  const [model, setModel] = useState(null);
+  const [modelBusy, setModelBusy] = useState(null);
+  const [modelError, setModelError] = useState(null);
+  const modelRef = useRef(null);
+  const modelCamRef = useRef(null);
   const [chapterExtra, setChapterExtra] = useState('');  // alt capitol, scris liber
   const chapterOptions = capitoleForCategory(category);
   // la schimbarea categoriei păstrăm doar capitolele care există și în noua listă
@@ -92,33 +153,12 @@ export function useInteractiveGen(init = {}) {
       const isWord = /\.docx?$/i.test(file.name || '') || /wordprocessingml|msword/.test(file.type || '');
       setSrcBusy(isPdf ? 'Citesc PDF-ul…' : isWord ? 'Citesc fișierul Word…' : 'Citesc poza…');
       try {
-        let text = '', thumb = null, sKind = 'foto';
-        if (isPdf || isWord) {
-          if (file.size > 3.5 * 1024 * 1024) throw new Error(`„${file.name}" e prea mare (max ~3,5 MB).`);
-          const fileBase64 = await new Promise((resolve, reject) => {
-            const fr = new FileReader();
-            fr.onload = () => resolve(String(fr.result));
-            fr.onerror = () => reject(new Error('Fișierul nu a putut fi citit.'));
-            fr.readAsDataURL(file);
-          });
-          sKind = isPdf ? 'pdf' : 'word';
-          const r = isPdf ? await aiClient.correctPdfText({ fileBase64 }) : await aiClient.correctDocxText({ fileBase64 });
-          text = r.text || '';
-        } else {
-          const dataUrl = await fileToCompressedDataUrl(file, { maxDim: 1600, quality: 0.78 });
-          try { thumb = await fileToCompressedDataUrl(file, { maxDim: 120, quality: 0.6 }); } catch { thumb = null; }
-          const r = await aiClient.visionExtract({
-            imageBase64: dataUrl,
-            note: 'Transcrie TOT ce se vede în imagine (exerciții și/sau teorie predată: definiții, formule, exemple rezolvate), cu formulele în LaTeX. Nu rezolva nimic.',
-          });
-          text = r.problemText || '';
-        }
-        if (!text.trim() || /^Nu am putut citi/i.test(text.trim())) {
-          throw new Error(`Nu am găsit text în „${file.name}". Fotografiază mai de aproape sau încarcă alt fișier.`);
-        }
+        const { text, thumb, kind: sKind } = await citesteFisier(file, {
+          note: 'Transcrie TOT ce se vede în imagine (exerciții și/sau teorie predată: definiții, formule, exemple rezolvate), cu formulele în LaTeX. Nu rezolva nimic.',
+        });
         setSources((list) => [...list, {
           id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          kind: sKind, name: file.name || (sKind === 'foto' ? 'Poză' : 'Fișier'), text: text.trim(), thumb,
+          kind: sKind, name: file.name || (sKind === 'foto' ? 'Poză' : 'Fișier'), text, thumb,
         }]);
       } catch (err) {
         setSrcError(err.message);
@@ -130,23 +170,115 @@ export function useInteractiveGen(init = {}) {
   function patchSource(id, text) { setSources((l) => l.map((sc) => (sc.id === id ? { ...sc, text } : sc))); }
   function delSource(id) { setSources((l) => l.filter((sc) => sc.id !== id)); setSrcOpen((o) => (o === id ? null : o)); }
 
-  // timpul de lucru / punctele din oficiu care însoțesc testul
-  const quizMeta = () => ({ durationMin, oficiu });
+  // ── „📐 TEST DUPĂ MODEL" ────────────────────────────────────────────────
+  // 1) textul modelului (același drum ca la material), 2) structura lui citită
+  // de server, 3) formularul editabil de mai jos. Alegerile de sus (formatul
+  // itemilor, dificultatea, timpul, oficiul, categoria) se potrivesc după model
+  // și, cât e încărcat, lucrează pe el.
+  async function loadModel(e) {
+    const file = (e.target.files || [])[0];
+    e.target.value = '';
+    if (!file) return;
+    setModelError(null);
+    try {
+      setModelBusy('Citesc modelul…');
+      const { text, kind: mKind } = await citesteFisier(file, {
+        note: 'Este un TEST de matematică (model). Transcrie-l COMPLET, exercițiu cu exercițiu, cu numerotarea, variantele de răspuns, punctajele și formulele în LaTeX. Nu rezolva nimic.',
+      });
+      setModelBusy('Îi citesc structura: exercițiile, tipul, numărul și dificultatea…');
+      const r = await aiClient.analyzeModel({ modelText: text.slice(0, 14000) });
+      const m = r && r.model;
+      if (!m || !Array.isArray(m.exercises) || !m.exercises.length) throw new Error('Nu am recunoscut exerciții în model.');
+      const exercises = m.exercises.slice(0, MODEL_MAX).map((x) => ({ ...x, id: exId(), typeOrig: x.type }));
+      setModel({ title: m.title || 'Test', source: { name: file.name || 'model', kind: mKind }, exercises });
+      // alegerile de sus urmează modelul (profesorul le poate schimba apoi)
+      setItemKind('test');
+      setItemCount(Math.max(4, Math.min(24, exercises.length)));
+      setQtype(formatModel({ exercises }));
+      if (GEN_DIFFS.includes(m.difficulty)) setDifficulty(m.difficulty);
+      if (m.durationMin) setDurationMin(celMaiAproape(m.durationMin, TIMPI));
+      if (m.oficiu != null) setOficiu(celMaiAproape(m.oficiu, OFICIU));
+      if (m.category && GEN_CATEGORIES.some((c) => c.id === m.category)) pickCategory(m.category);
+    } catch (err) {
+      setModelError(err.message);
+      if (err.premium && init.onPremium) init.onPremium(err);
+    } finally { setModelBusy(null); }
+  }
+  const clearModel = () => { setModel(null); setModelError(null); };
+  const patchModel = (patch) => setModel((m) => (m ? { ...m, ...patch } : m));
+  const patchModelEx = (id, patch) => setModel((m) => (m ? { ...m, exercises: m.exercises.map((x) => (x.id === id ? { ...x, ...patch, ...(patch.type ? { typeOrig: patch.type } : {}) } : x)) } : m));
+  const delModelEx = (id) => setModel((m) => (m && m.exercises.length > 1 ? { ...m, exercises: m.exercises.filter((x) => x.id !== id) } : m));
+  const moveModelEx = (id, dir) => setModel((m) => {
+    if (!m) return m;
+    const i = m.exercises.findIndex((x) => x.id === id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= m.exercises.length) return m;
+    const ex = [...m.exercises];
+    [ex[i], ex[j]] = [ex[j], ex[i]];
+    return { ...m, exercises: ex };
+  });
+  // Numărul de exerciții: în plus → copii ale exercițiilor modelului, pe rând
+  // (același tip și aceeași competență, cu enunțul lor ca reper); în minus → de la coadă.
+  const setModelCount = (n) => setModel((m) => {
+    if (!m) return m;
+    const tinta = Math.max(1, Math.min(MODEL_MAX, parseInt(n, 10) || 1));
+    const ex = m.exercises.slice(0, tinta);
+    for (let i = ex.length; i < tinta; i++) {
+      const sursa = m.exercises[i % m.exercises.length];
+      ex.push({ ...sursa, id: exId() });
+    }
+    return { ...m, exercises: ex };
+  });
+  const addModelEx = () => setModel((m) => (m && m.exercises.length < MODEL_MAX
+    ? { ...m, exercises: [...m.exercises, { id: exId(), type: 'redactare', typeOrig: 'redactare', topic: '', statement: '', points: null, difficulty }] }
+    : m));
+  // Formatul și dificultatea de sus, cât e încărcat un model, se aplică pe el:
+  // „Doar grilă" / „Doar redactare" schimbă toate exercițiile; „Mixt" readuce
+  // tipurile din model (cele ale fiecărui exercițiu, cum le-a lăsat profesorul).
+  const setQtypeAll = (t) => {
+    setQtype(t);
+    setModel((m) => (m ? { ...m, exercises: m.exercises.map((x) => ({ ...x, type: t === 'mixt' ? (x.typeOrig || x.type) : t })) } : m));
+  };
+  const setDifficultyAll = (d) => {
+    setDifficulty(d);
+    setModel((m) => (m ? { ...m, exercises: m.exercises.map((x) => ({ ...x, difficulty: d })) } : m));
+  };
+
+  // ce se generează efectiv (cu model: un test cu exercițiile lui)
+  const effKind = model ? 'test' : itemKind;
+  const effCount = model ? model.exercises.length : itemCount;
+  const effQtype = model ? formatModel(model) : qtype;
+
+  // timpul de lucru / punctele din oficiu care însoțesc testul (+ alegerea
+  // „fără spațiu de lucru", ca PDF-ul tipărit mai târziu să o păstreze)
+  const quizMeta = () => ({ durationMin, oficiu, ...(workSpace ? {} : { workSpace: false }) });
   // ce se trimite la api/ai-generate-interactive
   const payload = (over = {}) => ({
     category: category || null, topic, difficulty, dataMode, chapters: chapterTitles(),
-    kind: itemKind, count: itemKind === 'test' ? itemCount : null, qtype,
-    durationMin, oficiu, sourceText: sourceText(), ...over,
+    kind: effKind, count: effKind === 'test' ? effCount : null, qtype: effQtype,
+    durationMin, oficiu, sourceText: sourceText(),
+    ...(model ? {
+      model: {
+        title: model.title,
+        difficulty,
+        exercises: model.exercises.map(({ type, topic: t, statement, points, difficulty: d }) => ({ type, topic: t, statement, points, difficulty: d })),
+      },
+    } : {}),
+    ...over,
   });
 
   return {
     category, setCategory, pickCategory, topic, setTopic, chapters, setChapters,
-    difficulty, setDifficulty, output, setOutput, itemKind, setItemKind,
-    itemCount, setItemCount, qtype, setQtype, durationMin, setDurationMin,
+    difficulty, setDifficulty: setDifficultyAll, output, setOutput, itemKind, setItemKind,
+    itemCount, setItemCount, qtype, setQtype: setQtypeAll, durationMin, setDurationMin,
     oficiu, setOficiu, sources, setSources, srcBusy, srcError, setSrcError,
     srcOpen, setSrcOpen, dataMode, setDataMode, camRef, imgRef, docRef,
     chapterExtra, setChapterExtra, chapterOptions, chapterTitles, topicShort,
     sourceText, addSource, patchSource, delSource, quizMeta, payload,
+    workSpace, setWorkSpace,
+    model, modelBusy, modelError, modelRef, modelCamRef, loadModel, clearModel,
+    patchModel, patchModelEx, delModelEx, moveModelEx, setModelCount, addModelEx,
+    effKind, effCount, effQtype,
   };
 }
 
@@ -158,10 +290,12 @@ export default function InteractiveGenForm({ g, showOutput = true, cardStyle = n
   const {
     category, pickCategory, topic, setTopic, chapters, setChapters,
     difficulty, setDifficulty, output, setOutput, itemKind, setItemKind,
-    itemCount, setItemCount, qtype, setQtype, durationMin, setDurationMin,
+    itemCount, setItemCount, setQtype, durationMin, setDurationMin,
     oficiu, setOficiu, sources, srcBusy, srcError, srcOpen, setSrcOpen,
     dataMode, setDataMode, camRef, imgRef, docRef, chapterExtra, setChapterExtra,
     chapterOptions, addSource, patchSource, delSource,
+    // ce se generează efectiv (cu „📐 Test după model": testul modelului)
+    workSpace, setWorkSpace, model, effKind, effCount, effQtype,
   } = g;
   const CATEGORIES = GEN_CATEGORIES;
   const DIFFS = GEN_DIFFS;
@@ -181,6 +315,12 @@ export default function InteractiveGenForm({ g, showOutput = true, cardStyle = n
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 6 }}>Ce generez</div>
+          {model ? (
+            // cu model încărcat, numărul și exercițiile se aleg în blocul „📐" de mai jos
+            <div style={{ ...seg(true), display: 'inline-block', cursor: 'default' }}>
+              📐 Test după model · {effCount} {effCount === 1 ? 'exercițiu' : 'exerciții'}
+            </div>
+          ) : (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button style={seg(itemKind === 'exercitiu')} onClick={() => setItemKind('exercitiu')}>🧠 Exercițiu</button>
             <button style={seg(itemKind === 'test')} onClick={() => setItemKind('test')}>📋 Test</button>
@@ -193,13 +333,14 @@ export default function InteractiveGenForm({ g, showOutput = true, cardStyle = n
               </label>
             )}
           </div>
+          )}
           {/* Timpul de lucru și punctele din oficiu — apar pe test
               (cronometru la interactiv, antet la PDF) și calibrează AI-ul */}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
             <label style={{ fontSize: '.82rem', color: 'var(--text-light)', display: 'flex', alignItems: 'center', gap: 6 }}>
               ⏱ Timp:
               <select value={durationMin} onChange={(e) => setDurationMin(Number(e.target.value))} style={{ ...inp, padding: '7px 9px' }}>
-                {[5, 10, 15, 20, 25, 30, 40, 45, 50, 60, 90, 120, 150, 180].map((n) => (
+                {TIMPI.map((n) => (
                   <option key={n} value={n}>{n} min</option>
                 ))}
               </select>
@@ -207,7 +348,7 @@ export default function InteractiveGenForm({ g, showOutput = true, cardStyle = n
             <label style={{ fontSize: '.82rem', color: 'var(--text-light)', display: 'flex', alignItems: 'center', gap: 6 }}>
               🎁 Puncte din oficiu:
               <select value={oficiu} onChange={(e) => setOficiu(Number(e.target.value))} style={{ ...inp, padding: '7px 9px' }}>
-                {[0, 5, 10, 15, 20].map((n) => <option key={n} value={n}>{n === 0 ? 'fără' : `${n} p`}</option>)}
+                {OFICIU.map((n) => <option key={n} value={n}>{n === 0 ? 'fără' : `${n} p`}</option>)}
               </select>
             </label>
           </div>
@@ -227,15 +368,17 @@ export default function InteractiveGenForm({ g, showOutput = true, cardStyle = n
         <div>
           <div style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 6 }}>Itemii (tipul problemelor)</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button style={seg(qtype === 'mixt')} onClick={() => setQtype('mixt')} title="Amestec: majoritatea grilă + câteva cu răspuns liber">🔀 Mixt</button>
-            <button style={seg(qtype === 'grila')} onClick={() => setQtype('grila')} title="Toate problemele cu 4 variante de răspuns (a, b, c, d)">🔘 Doar grilă</button>
-            <button style={seg(qtype === 'redactare')} onClick={() => setQtype('redactare')} title="Toate problemele cu redactarea răspunsului (fără variante) — rezolvarea model apare la barem">✍️ Cu redactarea răspunsului</button>
+            <button style={seg(effQtype === 'mixt')} onClick={() => setQtype('mixt')} title={model ? 'Fiecare exercițiu păstrează tipul din model' : 'Amestec: majoritatea grilă + câteva cu răspuns liber'}>🔀 Mixt</button>
+            <button style={seg(effQtype === 'grila')} onClick={() => setQtype('grila')} title="Toate problemele cu 4 variante de răspuns (a, b, c, d)">🔘 Doar grilă</button>
+            <button style={seg(effQtype === 'redactare')} onClick={() => setQtype('redactare')} title="Toate problemele cu redactarea răspunsului (fără variante) — rezolvarea model apare la barem">✍️ Cu redactarea răspunsului</button>
           </div>
         </div>
       </div>
       {showOutput && output === 'pdf' && (
         <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: -8, marginBottom: 12 }}>
-          📄 La rezultat PDF primești documentul tipăribil (ca la „Generează subiect examen"): <strong>varianta elev</strong> și <strong>varianta cu barem</strong> — fereastra de tipărire → „Salvează ca PDF". {itemKind === 'test' ? 'Testul' : 'Exercițiul'} rămâne salvat și în „Testele și exercițiile mele".
+          📄 La rezultat PDF primești documentul tipăribil (ca la „Generează subiect examen"): <strong>varianta elev</strong> și <strong>varianta cu barem</strong> — fereastra de tipărire → „Salvează ca PDF". {effKind === 'test' ? 'Testul' : 'Exercițiul'} rămâne salvat și în „Testele și exercițiile mele".
+          {/* caroiajul de sub problemele de redactat: cu (ca la examen) sau fără */}
+          <OptiuneSpatiuLucru value={workSpace} onChange={setWorkSpace} style={{ marginTop: 8 }} />
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginBottom: 14 }}>
@@ -250,6 +393,9 @@ export default function InteractiveGenForm({ g, showOutput = true, cardStyle = n
           </select>
         </label>
       </div>
+      {/* 📐 TEST DUPĂ MODEL — un test de-al profesorului; structura lui se
+          poate modifica înainte de generare (src/components/ModelTestPanel.jsx) */}
+      <ModelTestPanel g={g} />
       {/* MATERIALUL PROFESORULUI — înaintea capitolelor: poză de la tablă /
           fișă de lucru / PDF / Word. Când există, testul se compune DIN EL
           (exercițiile sau teoria din material), nu din baza de date. */}
@@ -301,7 +447,7 @@ export default function InteractiveGenForm({ g, showOutput = true, cardStyle = n
               </div>
             ))}
             <div style={{ fontSize: '.75rem', color: '#1e7e34', fontWeight: 600 }}>
-              ✅ {sources.length === 1 ? 'Materialul încărcat va fi' : `Cele ${sources.length} materiale încărcate vor fi`} sursa {itemKind === 'test' ? 'testului' : 'exercițiului'}. Capitolele de mai jos rămân opționale — restrâng suplimentar ce se ia din material.
+              ✅ {sources.length === 1 ? 'Materialul încărcat va fi' : `Cele ${sources.length} materiale încărcate vor fi`} sursa {effKind === 'test' ? 'testului' : 'exercițiului'}. Capitolele de mai jos rămân opționale — restrâng suplimentar ce se ia din material.
             </div>
           </div>
         )}
@@ -344,7 +490,7 @@ export default function InteractiveGenForm({ g, showOutput = true, cardStyle = n
         <span
           title={'Estimare, nu preț fix: costul depinde de câți itemi ceri și de cât text scrie AI-ul. Cifra se ajustează singură după fiecare generare, din consumul real al contului tău. Îl vezi oricând în „Contul meu" → „⚡ Consum AI".'}
           style={{ fontWeight: 700, color: 'var(--navy)', background: 'rgba(232,185,49,.18)', border: '1px solid var(--gold)', borderRadius: 20, padding: '2px 9px', cursor: 'help' }}>
-          ⚡ costă ~{fmtEstimare(estimeazaCredite({ kind: itemKind, count: itemCount, qtype }))}
+          ⚡ costă ~{fmtEstimare(estimeazaCredite({ kind: effKind, count: effCount, qtype: effQtype }))}
         </span>
         {costExtra}
         {isAdmin && <span>— contul tău de admin nu consumă din credite</span>}

@@ -16,6 +16,7 @@ const score = require('./_lib/score');
 const xp = require('./_lib/xp');
 const duel = require('./_lib/duel');
 const turneu = require('./_lib/turneu');
+const misiune = require('./_lib/misiune');
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -137,7 +138,13 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    return res.status(200).json({ ok: true, score: v.score, maxScore: v.maxScore, verified: v.verified, attempts, timeSpent, correct: v.correct ?? null, total: v.total ?? null, xp: gami, duel: duelRez, turneu: turneuRez });
+    // MISIUNEA ZILNICĂ (Arena): dacă e exercițiul zilei, încercarea se numără,
+    // iar de la 50% misiunea e îndeplinită (o dată pe zi). Nu aruncă niciodată.
+    const misiuneRez = await misiune.inregistreaza(supa, userId, {
+      contentId: content.id, score: v.score, maxScore: v.maxScore, verified: !!v.verified,
+    });
+
+    return res.status(200).json({ ok: true, score: v.score, maxScore: v.maxScore, verified: v.verified, attempts, timeSpent, correct: v.correct ?? null, total: v.total ?? null, xp: gami, duel: duelRez, turneu: turneuRez, misiune: misiuneRez });
   } catch (err) {
     console.error('ai-score error:', err);
     return res.status(err.status || 500).json({ error: err.message || 'Eroare server', code: err.code || null });

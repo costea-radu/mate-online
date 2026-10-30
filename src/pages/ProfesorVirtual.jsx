@@ -20,6 +20,7 @@ import InteractiveGenForm, { useInteractiveGen } from '../components/Interactive
 import { invatăDinReal, crediteDinCost, fmtEstimare } from '../lib/aiCost';
 import VerificationNote from '../components/VerificationNote';
 import IncarcaMaterial from '../components/IncarcaMaterial';
+import OptiuneSpatiuLucru from '../components/OptiuneSpatiuLucru';
 
 const CATEGORIES = [
   { id: '', label: 'Toate' },
@@ -411,9 +412,12 @@ function InteractiveTab() {
   // exact același formular.
   const g = useInteractiveGen({ onPremium: () => setUpsell(true) });
   const {
-    category, topic, difficulty, itemKind, itemCount, qtype, output,
-    durationMin, setDurationMin, oficiu, setOficiu, sources, srcBusy,
+    category, output,
+    durationMin, setDurationMin, oficiu, setOficiu, srcBusy,
     topicShort, quizMeta, payload,
+    // ce se generează efectiv (cu „📐 Test după model": testul modelului)
+    effKind: itemKind, effCount: itemCount, effQtype: qtype,
+    model, workSpace, setWorkSpace,
   } = g;
   const [questions, setQuestions] = useState(null); // listă structurată
   const [title, setTitle] = useState('');
@@ -438,6 +442,7 @@ function InteractiveTab() {
           setQuestions(p.questions); setTitle(p.title || 'Exercițiu interactiv');
           if (p.meta?.durationMin) setDurationMin(p.meta.durationMin);
           if (p.meta?.oficiu != null) setOficiu(p.meta.oficiu);
+          if (p.meta?.workSpace === false) setWorkSpace(false);
         }
       }
     } catch { /* ignore */ }
@@ -500,7 +505,8 @@ function InteractiveTab() {
     });
     const isTest = itemKind === 'test' || /^Test/.test(title || '');
     printExam({
-      title, durationMin, totalPoints: 100, oficiu,
+      // workSpace: „✍️ Spațiu de lucru" ales de profesor (cu / fără caroiaj)
+      title, durationMin, totalPoints: 100, oficiu, workSpace,
       subjects: [{ label: isTest ? 'Test' : 'Exerciții', points: 100 - oficiu, items: exItems }],
     }, { withSolutions });
   }
@@ -526,10 +532,12 @@ function InteractiveTab() {
       {/* Formularul generatorului — același component ca la „Test pe grupă"
           → „⚡ Generează acum testele" (src/components/InteractiveGenForm.jsx) */}
       <InteractiveGenForm g={g}>
-        <button className="btn btn-primary" onClick={gen} disabled={loading || !!srcBusy}>
+        <button className="btn btn-primary" onClick={gen} disabled={loading || !!srcBusy || !!g.modelBusy}>
           {loading
             ? `Se generează... (${itemKind === 'test' && itemCount > 10 ? '~30–60s' : '~20s'})`
-            : itemKind === 'test'
+            : model
+              ? `✨ Generează testul după model (${itemCount} ${itemCount === 1 ? 'exercițiu' : 'exerciții'}, ${durationMin} min, ${output === 'pdf' ? 'PDF' : 'interactiv'})`
+              : itemKind === 'test'
               ? `✨ Generează testul (${itemCount} itemi, ${durationMin} min, ${output === 'pdf' ? 'PDF' : 'interactiv'})`
               : `✨ Generează exercițiul (${output === 'pdf' ? 'PDF' : 'interactiv'})`}
         </button>
@@ -565,6 +573,8 @@ function InteractiveTab() {
                 <button className="btn btn-outline" onClick={() => exportPdf(true)}>📝 PDF cu barem (răspunsuri)</button>
                 <button className="btn btn-outline" onClick={() => navigate('/exercitiu-ai', { state: { html, title } })}>🗗 Deschide și interactiv</button>
               </div>
+              {/* se poate schimba și după generare: PDF-ul se face la apăsare */}
+              <OptiuneSpatiuLucru value={workSpace} onChange={setWorkSpace} compact style={{ justifyContent: 'center', marginTop: 12 }} />
             </div>
           )}
           {!editing && output !== 'pdf' && (

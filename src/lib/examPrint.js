@@ -128,16 +128,30 @@ export function openPrintDocument(title, bodyHtml) {
 }
 
 // ─── Test de examen ──────────────────────────────────────────────────────────
-export function printExam(exam, { withSolutions = false } = {}) {
-  openPrintDocument(exam.title || 'Model de test', examBodyHtml(exam, { withSolutions }));
+// `workSpace` (spațiul de lucru = caroiajul de sub probleme): implicit cel ales
+// la generare și păstrat în test (`exam.workSpace === false` → fără); un apel
+// îl poate cere explicit. Fără spațiu, testul încape pe mai puține pagini, iar
+// elevii scriu rezolvările pe o foaie separată.
+export function printExam(exam, { withSolutions = false, workSpace } = {}) {
+  openPrintDocument(exam.title || 'Model de test', examBodyHtml(exam, { withSolutions, workSpace }));
 }
 // Același test, ca document HTML întreg (vizualizatorul cu Profesorul Virtual)
-export function examDocumentHtml(exam, { withSolutions = false, embedded = true } = {}) {
-  return printDocumentHtml(exam.title || 'Model de test', examBodyHtml(exam, { withSolutions }), { embedded });
+export function examDocumentHtml(exam, { withSolutions = false, embedded = true, workSpace } = {}) {
+  return printDocumentHtml(exam.title || 'Model de test', examBodyHtml(exam, { withSolutions, workSpace }), { embedded });
 }
 
-function examBodyHtml(exam, { withSolutions = false } = {}) {
+// Testul are spațiu de lucru? (opțiunea apelului > alegerea salvată în test > da)
+export function hasWorkSpace(exam, workSpace) {
+  if (typeof workSpace === 'boolean') return workSpace;
+  return !(exam && exam.workSpace === false);
+}
+
+export function examBodyHtml(exam, { withSolutions = false, workSpace } = {}) {
   const subjects = Array.isArray(exam.subjects) ? exam.subjects : [];
+  // fără spațiu de lucru, dar cu probleme de redactat → elevul află unde scrie
+  const anyWritten = subjects.some((s) => (Array.isArray(s.items) ? s.items : []).some((it) =>
+    (Array.isArray(it.parts) && it.parts.length) || !(Array.isArray(it.options) && it.options.length)));
+  const separateSheet = !withSolutions && exam.oficiu != null && !hasWorkSpace(exam, workSpace) && anyWritten;
   const header = `
     <h1 class="exam-title">${esc(exam.title || 'Model de test')}</h1>
     <div class="exam-sub">Model de pregătire · generat de Profesorul Virtual</div>
@@ -145,6 +159,7 @@ function examBodyHtml(exam, { withSolutions = false } = {}) {
       Toate subiectele sunt obligatorii.${exam.oficiu === 0 ? '' : ` Se acordă ${exam.oficiu ?? 10} puncte din oficiu.`}<br/>
       Timp de lucru: ${exam.durationMin || 120} de minute · Total: ${exam.totalPoints || 100} de puncte
       ${withSolutions ? ' · <strong>BAREM DE CORECTARE</strong>' : ''}
+      ${separateSheet ? '<br/>Rezolvările complete se scriu pe o foaie separată.' : ''}
     </div>`;
 
   const optsHtml = (options) =>
@@ -153,8 +168,9 @@ function examBodyHtml(exam, { withSolutions = false } = {}) {
     parts.map((p) => `<div class="part"><b>${esc(p.label || '')})</b> ${esc(p.text || '')}${(withSol && p.points != null) ? ` <span class="pts">(${p.points}p)</span>` : ''}${(withSol && p.solution) ? `<div class="sol">${esc(p.solution)}</div>` : ''}</div>`).join('');
 
   // Subiect „oficial" (are puncte din oficiu) → problemele cu rezolvare scrisă
-  // primesc spațiu de redactare, ca în modelele reale de examen.
-  const isOfficial = exam.oficiu != null;
+  // primesc spațiu de redactare, ca în modelele reale de examen — dacă
+  // profesorul nu l-a generat „fără spațiu de lucru".
+  const isOfficial = exam.oficiu != null && hasWorkSpace(exam, workSpace);
 
   // Problemă cu rezolvare scrisă (Subiectul al III-lea / itemii fără grilă):
   // figura în dreapta, spațiu de redactare în stânga figurii și dedesubtul ei,

@@ -2,6 +2,7 @@
 // src/components/ArenaIndicator.jsx — cârligul de revenire din Navbar:
 // „🔥 6 · ⭐ 2.450" → duce în /arena. Se reîmprospătează singur după fiecare
 // exercițiu rezolvat (evenimentul 'em:arena' emis de arenaChanged).
+// „🎯" = misiunea zilnică de azi te așteaptă (clasă aleasă, încă neîndeplinită).
 // =====================================================================
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -28,6 +29,8 @@ export default function ArenaIndicator({ compact = false, onClick = null }) {
   const streak = s?.stats?.streak || 0;
   const provocari = s?.dueluri?.provocari || 0;   // provocări la care n-am răspuns
   const deJucat = s?.dueluri?.deJucat || 0;       // dueluri acceptate, nejucate
+  const misiune = s?.misiuneAzi;                  // { clasa, status } — misiunea zilnică
+  const misiuneAsteapta = !!(misiune && misiune.clasa && misiune.status !== 'indeplinit');
 
   return (
     <Link
@@ -35,7 +38,7 @@ export default function ArenaIndicator({ compact = false, onClick = null }) {
       onClick={onClick || undefined}
       title={provocari > 0
         ? `${provocari} ${provocari === 1 ? 'provocare nouă la duel' : 'provocări noi la duel'}`
-        : s ? `Arena: nivel ${s.nivel?.level} · ${xp} XP${streak ? ` · serie de ${streak} zile` : ''}` : 'Arena matematică'}
+        : s ? `Arena: nivel ${s.nivel?.level} · ${xp} XP${streak ? ` · serie de ${streak} zile` : ''}${misiuneAsteapta ? ' · misiunea zilnică te așteaptă' : ''}` : 'Arena matematică'}
       aria-label="Arena matematică"
       style={{
         position: 'relative',
@@ -50,6 +53,7 @@ export default function ArenaIndicator({ compact = false, onClick = null }) {
     >
       <span>⚔️</span>
       {streak > 0 && <span title="serie de zile">🔥{streak}</span>}
+      {misiuneAsteapta && <span title="Misiunea zilnică te așteaptă">🎯</span>}
       {s && <span title="XP total">⭐{xp}</span>}
       {/* provocare nouă la duel — bulina roșie, ca la mesagerie */}
       {(provocari > 0 || deJucat > 0) && (

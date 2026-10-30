@@ -54,15 +54,16 @@ export default function VariantGenerator({
   async function genereaza() {
     setErr(null); setRezultat(null); setVizibila(null); setCost(null);
     try {
-      setBusy(`Se generează testul… (${g.itemCount > 10 ? '~30–60s' : '~20s'})`);
-      const res = await aiClient.generateInteractive(g.payload({ kind: 'test', count: g.itemCount }));
+      setBusy(`Se generează testul… (${g.effCount > 10 ? '~30–60s' : '~20s'})`);
+      // (cu „📐 Test după model", numărul de itemi e cel al modelului)
+      const res = await aiClient.generateInteractive(g.payload({ kind: 'test', count: g.effCount }));
       // costul real al generării (variantele nu mai costă nimic — amestecul
       // se face aici, în browser) + calibrarea estimării de sub buton
       setCost(crediteDinCost(res.cost));
-      invatăDinReal(res.cost, { kind: 'test', count: g.itemCount, qtype: g.qtype });
+      invatăDinReal(res.cost, { kind: 'test', count: g.effCount, qtype: g.effQtype });
       const qs = res.questions || [];
       if (!qs.length) throw new Error('Generatorul nu a întors nicio întrebare. Încearcă din nou sau schimbă capitolele.');
-      const titlu = res.title || `Test · ${g.itemCount} itemi`;
+      const titlu = res.title || `Test · ${g.effCount} itemi`;
 
       const variante = makeVariants(qs, nVariante);
       const meta = g.quizMeta();
@@ -105,14 +106,14 @@ export default function VariantGenerator({
         cardStyle={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 0 }}
         costExtra={<span>— <strong>atât, pentru toate cele {nVariante} variante</strong>: AI-ul e chemat o singură dată, iar amestecul se face în pagină, fără cost</span>}>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <button className="btn btn-primary" onClick={genereaza} disabled={!!busy || !!g.srcBusy}>
-            {busy || `✨ Generează testul în ${nVariante} ${nVariante === 1 ? 'variantă' : 'variante'} (${g.itemCount} itemi)`}
+          <button className="btn btn-primary" onClick={genereaza} disabled={!!busy || !!g.srcBusy || !!g.modelBusy}>
+            {busy || `✨ Generează testul${g.model ? ' după model' : ''} în ${nVariante} ${nVariante === 1 ? 'variantă' : 'variante'} (${g.effCount} itemi)`}
           </button>
           {rezultat && !busy && (
             <button className="btn btn-outline btn-sm" onClick={genereaza}>🔄 Alt test</button>
           )}
         </div>
-        {g.qtype === 'redactare' && (
+        {g.effQtype === 'redactare' && (
           <div style={{ fontSize: '.76rem', color: '#b26a00', marginTop: 8 }}>
             ⚠️ La „cu redactarea răspunsului" nu există variante de răspuns, deci între teste diferă
             doar <strong>ordinea problemelor</strong>. Pentru litere corecte diferite, alege „🔘 Doar grilă" sau „🔀 Mixt".
