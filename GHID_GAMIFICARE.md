@@ -26,6 +26,7 @@ Cele trei straturi:
    | `supabase/gamificare_v6_public.sql` | turnee publice: `tournaments.scope`/`auto`, `tournament_entries` |
    | `supabase/gamificare_v7_partial.sql` | salvare parțială în dueluri: `duels.*_partial` |
    | `supabase/gamificare_v8_misiune_zilnica.sql` | misiunea zilnică: `daily_exercises` + `user_stats.mission_category` |
+   | `supabase/misiune_notificari.sql` | amintirea misiunii: `user_stats.mission_notify`, `mission_notify_hour`, `mission_notified_on`, `mission_streak_notified_on` (+ `push_subscriptions`, dacă lipsește) |
    | `supabase/gamificare_lints.sql` | politici explicite `service_role` (închide avertismentele INFO ale linterului) |
 
    Toate sunt idempotente (se pot rula de mai multe ori).
@@ -37,6 +38,7 @@ Cele trei straturi:
    | `/api/gamificare?action=cron-league` | luni 03:00 RO | promovări și retrogradări în ligă |
    | `/api/duel?action=cron` | la 6 ore | închide duelurile depășite (neprezentare) |
    | `/api/turneu?action=cron` | la 6 ore | închide turneele expirate și dă premiile |
+   | `/api/gamificare?action=cron-misiune` | la fiecare oră (minutul 5) | amintirea misiunii zilnice (notificare / clopoțel) |
 
 3. Deploy. Nu e nevoie de nicio variabilă nouă de mediu — cele opționale sunt
    mai jos.
@@ -127,6 +129,39 @@ Cardul stă în `/arena` **deasupra duelurilor** (`src/components/MisiuneZilnica
 - API: `/api/gamificare` → `action: 'misiune'` (starea + atribuirea exercițiului
   zilei) și `action: 'misiune_clasa'` (`{ categorie }`).
 
+### 🔔 Amintirea misiunii (notificare)
+
+`api/_lib/misiuneNotificari.js` · cardul din `MisiuneZilnica.jsx` · SQL:
+`supabase/misiune_notificari.sql`.
+
+- Sub misiune, cardul întreabă o dată: **„🔔 Vrei să-ți amintesc de misiune în
+  fiecare zi?"** — elevul alege ora (8:00 – 21:00, implicit **17:00**) și apasă
+  „🔔 Amintește-mi" (sau „Nu, mulțumesc"). Browserul cere permisiunea de
+  notificări; abonamentul Web Push se salvează în `push_subscriptions` (aceleași
+  chei VAPID ca la lecțiile live). Pornită, cardul arată „🔔 Amintire zilnică la
+  [ora ▾]" cu **Trimite o probă** și **Oprește**.
+- În fiecare zi, la ora aleasă, **doar dacă misiunea de azi nu e îndeplinită**:
+  „🎯 Misiunea zilei te așteaptă" (sau „… · seria ta: 5 zile 🔥") cu titlul
+  exercițiului; clicul deschide direct exercițiul zilei.
+- Seara la **20:00** (`MISIUNE_SERIE_ORA`), cine are o serie de **cel puțin 2 zile**
+  și n-a făcut încă misiunea primește „🔥 Seria ta de N zile se pierde la noapte"
+  (doar dacă și-a ales o oră de amintire mai devreme de 20:00).
+- Unde ajunge: **notificarea de sistem** (merge și cu site-ul închis — Chrome,
+  Edge, Firefox, Android, aplicația instalată; pe iPhone doar aplicația pusă pe
+  ecranul principal, iOS 16.4+). Dacă nu se poate (Safari pe iPhone, notificări
+  blocate, chei VAPID lipsă), aceeași amintire apare în **clopoțelul 🔔** din site.
+  Cardul spune elevului unde o va primi și cum deblochează notificările.
+- Reguli: cel mult o amintire + o alertă de serie pe zi (revendicate atomic în
+  `user_stats`, deci două rulări ale cronului nu trimit de două ori); nimic între
+  22:00 și 8:00; nimic cui a oprit notificările din cont
+  (`profiles.notifications_enabled = false`); o oră de cron ratată se recuperează
+  în ora următoare.
+- API: `/api/gamificare` → `action: 'misiune'` întoarce și `notificari`;
+  `action: 'misiune_notificari'` (`{ on, ora, subscription, unsubscribe }`);
+  `action: 'misiune_notificari_proba'` (notificarea de probă).
+- Fără `misiune_notificari.sql` cardul nu arată întrebarea (adminul vede de ce),
+  restul misiunii merge ca înainte.
+
 ### ⚡ Provocarea bonus a zilei (fosta „misiune a zilei")
 
 Un rând în `daily_missions` per elev per zi, generat la prima deschidere a
@@ -180,6 +215,7 @@ misiunii zilnice, ca „⚡ Provocarea bonus a zilei" (ca să nu se confunde cu 
 | `GAMI_LEAGUE_DAILY_CAP` | 200 | plafonul zilnic de puncte de ligă |
 | `GAMI_STREAK_MIN_XP` | 20 | XP-ul minim ca ziua să conteze pentru serie |
 | `GAMI_COHORT_SIZE` | 30 | câți elevi într-o cohortă |
+| `MISIUNE_SERIE_ORA` | 20 | ora alertei de seară „🔥 seria se pierde la noapte" (12–21) |
 
 Constantele de formulă (5 XP/item, ponderi, plafonul de 100/exercițiu, nivelurile)
 sunt în capul lui `api/_lib/xp.js`.

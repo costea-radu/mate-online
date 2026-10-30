@@ -10,6 +10,13 @@
 //     drumul clasei); atribuie exercițiul zilei la prima deschidere din zi.
 // POST /api/gamificare            { action: 'misiune_clasa', categorie }
 //   → alege / schimbă clasa misiunii (clasa-5 … clasa-12). api/_lib/misiune.js
+// POST /api/gamificare            { action: 'misiune_notificari', on?, ora?, subscription?, unsubscribe? }
+//   → „🔔 Amintește-mi" (ora aleasă, Web Push). { action: 'misiune_notificari_proba' }
+//   → o notificare de probă. api/_lib/misiuneNotificari.js
+//
+// GET  /api/gamificare?action=cron-misiune  (doar cron, cu CRON_SECRET)
+//   → amintirile misiunii zilnice, la ora aleasă de fiecare elev; seara, alerta
+//     „seria ta se pierde la noapte". vercel.json: „5 * * * *" (la fiecare oră).
 //
 // GET  /api/gamificare?action=cron-league   (doar cron, cu CRON_SECRET)
 //   → închide sezoanele încheiate: locuri, promovări, retrogradări.
@@ -23,6 +30,7 @@ const http = require('./_lib/http');
 const xp = require('./_lib/xp');
 const duel = require('./_lib/duel');
 const misiune = require('./_lib/misiune');   // misiunea zilnică (supabase/gamificare_v8_misiune_zilnica.sql)
+const MN = require('./_lib/misiuneNotificari'); // amintirile misiunii (supabase/misiune_notificari.sql)
 
 // „Ana Maria Popescu" → „Ana P." (clasamentul e public în cohortă: arătăm
 // prenumele și inițiala, nu numele complet al copilului)
@@ -255,6 +263,11 @@ module.exports = async function handler(req, res) {
       if (!ai.isCronRequest(req)) return res.status(403).json({ error: 'Neautorizat' });
       return res.status(200).json(await closeSeasons(supa));
     }
+    // amintirile misiunii zilnice — la fiecare oră
+    if (action === 'cron-misiune') {
+      if (!ai.isCronRequest(req)) return res.status(403).json({ error: 'Neautorizat' });
+      return res.status(200).json(await MN.cron(supa));
+    }
 
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
     const userId = await ai.authUser(req, supa);
@@ -262,7 +275,22 @@ module.exports = async function handler(req, res) {
 
     if (action === 'state') return res.status(200).json(await state(supa, userId));
     // misiunea zilnică: starea (cu exercițiul zilei) și alegerea clasei
-    if (action === 'misiune') return res.status(200).json({ ok: true, misiune: await misiune.stare(supa, userId, profile) });
+    if (action === 'misiune') {
+      const [m, notificari] = await Promise.all([misiune.stare(supa, userId, profile), MN.stare(supa, userId)]);
+      return res.status(200).json({ ok: true, misiune: m, notificari });
+    }
+    // „🔔 Amintește-mi": pornește / oprește / ora + abonarea Web Push a acestui browser
+    if (action === 'misiune_notificari') {
+      const b = req.body || {};
+      return res.status(200).json(await MN.seteaza(supa, userId, {
+        on: b.on === undefined ? undefined : b.on === true,
+        ora: b.ora === undefined || b.ora === null ? undefined : Number(b.ora),
+        subscription: b.subscription || null,
+        unsubscribe: b.unsubscribe || null,
+        userAgent: req.headers?.['user-agent'] || '',
+      }));
+    }
+    if (action === 'misiune_notificari_proba') return res.status(200).json(await MN.trimiteProba(supa, userId));
     if (action === 'misiune_clasa') {
       const r = await misiune.alegeClasa(supa, userId, profile, req.body?.categorie);
       if (r.error) return res.status(400).json(r);

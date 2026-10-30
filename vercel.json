@@ -64,6 +64,14 @@
     {
       "path": "/api/live?action=cron",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/gamificare?action=cron-misiune",
+      "schedule": "5 * * * *"
+    },
+    {
+      "path": "/api/exam-bot?action=cron",
+      "schedule": "40 */2 * * *"
     }
   ],
   "rewrites": [

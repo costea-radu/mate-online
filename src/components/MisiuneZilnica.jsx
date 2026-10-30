@@ -12,12 +12,160 @@
 // API: /api/gamificare → action 'misiune' (starea + exercițiul zilei) și
 // 'misiune_clasa' (alegerea clasei) — api/_lib/misiune.js. După fiecare
 // exercițiu rezolvat, evenimentul 'em:arena' (src/lib/arena.js) reîncarcă cardul.
+//
+// „🔔 Amintește-mi" (30 oct. 2026, AmintireMisiune mai jos): elevul își alege ora;
+// în zilele în care n-a făcut misiunea primește o notificare (Web Push — și cu
+// site-ul închis; altfel în clopoțelul din site), iar seara, dacă seria e în
+// pericol, „🔥 Seria ta se pierde la noapte". 'misiune_notificari' /
+// 'misiune_notificari_proba' — api/_lib/misiuneNotificari.js.
 // =====================================================================
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
 import { arenaChanged, onArenaChange } from '../lib/arena';
 import { useAuth } from '../context/AuthContext';
+import { notifySupport, askNotifyPermission, subscribePush } from '../lib/live/notify';
+
+const PUSH_KEY = 'mz_push_ep';   // endpoint-ul abonării trimise deja serverului din acest browser
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* fără stocare */ } };
+const ora = (h) => `${String(h).padStart(2, '0')}:00`;
+
+// ─── „🔔 Amintește-mi" ─────────────────────────────────────────────────────────
+function AmintireMisiune({ notif, setNotif, isAdmin }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);           // { tip: 'ok' | 'info' | 'err', text }
+  const [alegeOra, setAlegeOra] = useState(notif?.ora || 17);
+  const support = notifySupport();
+  const key = notif?.push?.on ? notif.push.key : null;
+
+  useEffect(() => { if (notif?.ora) setAlegeOra(notif.ora); }, [notif?.ora]);
+
+  // amintirea pornită + permisiunea dată: abonarea ACESTUI browser ajunge la server
+  // (o singură dată per endpoint — ex. elevul a pornit-o de pe telefon, acum e pe laptop)
+  useEffect(() => {
+    if (!notif?.on || !key || support.permission !== 'granted') return;
+    let viu = true;
+    (async () => {
+      const sub = await subscribePush(key);
+      if (!viu || !sub?.endpoint || lsGet(PUSH_KEY) === sub.endpoint) return;
+      try {
+        const r = await aiClient.gamificare({ action: 'misiune_notificari', subscription: sub });
+        if (r?.pushSalvat) lsSet(PUSH_KEY, sub.endpoint);
+      } catch { /* data viitoare */ }
+    })();
+    return () => { viu = false; };
+  }, [notif?.on, key, support.permission]);
+
+  if (!notif) return null;
+  if (notif.setup === false) {
+    if (!isAdmin) return null;
+    return (
+      <div style={{ marginTop: 12, fontSize: '.78rem', color: 'var(--danger)' }}>
+        🔔 Amintirile misiunii nu sunt active: rulează <code>supabase/misiune_notificari.sql</code> în Supabase.
+      </div>
+    );
+  }
+
+  // unde ajunge amintirea pe acest dispozitiv (perm / abonat: starea de DUPĂ cererea permisiunii)
+  const undeAjunge = (perm = support.permission, abonat = null) => {
+    if (!notif.push?.on) return isAdmin
+      ? `Web Push nu e activ pe server (${notif.push?.why === 'sql' ? 'tabela push_subscriptions lipsește' : 'cheile VAPID'}) — amintirea apare în clopoțelul 🔔.`
+      : 'Amintirea apare în clopoțelul 🔔 din site.';
+    if (support.ios && !support.standalone) return 'Pe iPhone, notificările vin doar din aplicația ExamenMate pusă pe ecranul principal (Safari → Distribuie → „Adaugă pe ecranul principal"). Până atunci, amintirea apare în clopoțelul 🔔 din site.';
+    if (!support.push) return 'Browserul acesta nu primește notificări — amintirea apare în clopoțelul 🔔 din site.';
+    if (perm === 'denied') return 'Notificările sunt blocate pentru site în acest browser — amintirea apare în clopoțelul 🔔. Le poți permite din 🔒 (lângă adresă) → Notificări.';
+    if (perm === 'granted' && abonat === false) return 'Browserul n-a dat încă o adresă pentru notificări — amintirea apare deocamdată în clopoțelul 🔔 (încearcă „Trimite o probă" peste puțin).';
+    if (perm === 'granted') return 'Vine ca notificare pe acest dispozitiv, chiar și cu site-ul închis.';
+    return null;
+  };
+
+  async function salveaza(on, oraNoua = alegeOra) {
+    if (busy) return;
+    setBusy(true); setMsg(null);
+    try {
+      let sub = null;
+      let perm = support.permission;
+      if (on && key && support.push && !(support.ios && !support.standalone)) {
+        perm = await askNotifyPermission();             // cererea vine din clicul elevului (cerința browserelor)
+        if (perm === 'granted') sub = await subscribePush(key);
+      }
+      const r = await aiClient.gamificare({ action: 'misiune_notificari', on, ora: oraNoua, ...(sub ? { subscription: sub } : {}) });
+      if (r?.notificari) setNotif(r.notificari);
+      if (sub?.endpoint && r?.pushSalvat) lsSet(PUSH_KEY, sub.endpoint);
+      const abonat = perm === 'granted' ? !!(sub && r?.pushSalvat) : null;
+      if (on) setMsg({ tip: 'ok', text: `Gata! Îți amintesc la ${ora(oraNoua)}, doar în zilele în care n-ai făcut încă misiunea. ${undeAjunge(perm, abonat) || ''}`.trim() });
+      else setMsg({ tip: 'info', text: 'Amintirea zilnică e oprită. O poți porni oricând de aici.' });
+    } catch (e) { setMsg({ tip: 'err', text: e.message || 'Nu am putut salva amintirea.' }); }
+    finally { setBusy(false); }
+  }
+
+  async function proba() {
+    if (busy) return;
+    setBusy(true); setMsg(null);
+    try {
+      // abonarea acestui browser, înainte de probă (poate e un dispozitiv nou)
+      if (key && support.permission === 'granted') {
+        const sub = await subscribePush(key);
+        if (sub?.endpoint && lsGet(PUSH_KEY) !== sub.endpoint) {
+          const r0 = await aiClient.gamificare({ action: 'misiune_notificari', subscription: sub });
+          if (r0?.pushSalvat) lsSet(PUSH_KEY, sub.endpoint);
+        }
+      }
+      const r = await aiClient.gamificare({ action: 'misiune_notificari_proba' });
+      if (r?.sent > 0) setMsg({ tip: 'ok', text: `Am trimis o notificare de probă pe ${r.sent === 1 ? 'un dispozitiv' : `${r.sent} dispozitive`}. Dacă n-a apărut, verifică setările de notificări ale browserului.` });
+      else setMsg({ tip: 'info', text: `Nu am unde trimite o notificare de probă. ${undeAjunge() || 'Permite notificările pentru site și încearcă din nou.'}` });
+    } catch (e) { setMsg({ tip: 'err', text: e.message || 'Proba nu a mers.' }); }
+    finally { setBusy(false); }
+  }
+
+  const selOra = (
+    <select value={alegeOra} disabled={busy} aria-label="Ora amintirii"
+      onChange={(e) => { const h = Number(e.target.value); setAlegeOra(h); if (notif.on) salveaza(true, h); }}
+      style={{ padding: '4px 8px', borderRadius: 8, border: '1px solid var(--border)', fontWeight: 700, color: 'var(--navy)', background: '#fff' }}>
+      {(notif.ore || [17]).map((h) => <option key={h} value={h}>{ora(h)}</option>)}
+    </select>
+  );
+  const linkBtn = { background: 'none', border: 'none', padding: 0, color: 'var(--navy)', fontWeight: 700, textDecoration: 'underline', cursor: busy ? 'progress' : 'pointer', fontSize: '.8rem' };
+  const culori = { ok: '#1e7e34', info: 'var(--text-light)', err: 'var(--danger)' };
+
+  return (
+    <div style={{
+      marginTop: 12, padding: notif.on || notif.ales ? '10px 0 0' : '10px 12px', borderRadius: notif.on || notif.ales ? 0 : 10,
+      borderTop: notif.on || notif.ales ? '1px dashed var(--border)' : 'none',
+      background: notif.on || notif.ales ? 'transparent' : 'rgba(232,185,49,.12)',
+    }}>
+      {notif.on ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: '.84rem', color: 'var(--text-light)' }}>
+          <span>🔔 <strong style={{ color: 'var(--navy)' }}>Amintire zilnică</strong> la</span>
+          {selOra}
+          <span>dacă n-ai făcut misiunea{notif.serieOra && notif.ora < notif.serieOra ? `; la ${ora(notif.serieOra)}, dacă seria e în pericol` : ''}.</span>
+          <span style={{ display: 'inline-flex', gap: 12 }}>
+            <button type="button" style={linkBtn} disabled={busy} onClick={proba}>Trimite o probă</button>
+            <button type="button" style={{ ...linkBtn, color: 'var(--text-muted)' }} disabled={busy} onClick={() => salveaza(false)}>Oprește</button>
+          </span>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: '.86rem' }}>
+          <span style={{ color: 'var(--navy)', fontWeight: notif.ales ? 600 : 800 }}>
+            🔔 {notif.ales ? 'Amintirea zilnică e oprită.' : 'Vrei să-ți amintesc de misiune în fiecare zi?'}
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>la {selOra}</span>
+          <button type="button" className={notif.ales ? 'btn btn-sm btn-outline' : 'btn btn-sm btn-primary'} disabled={busy} onClick={() => salveaza(true)}>
+            {busy ? 'Se salvează…' : '🔔 Amintește-mi'}
+          </button>
+          {!notif.ales && (
+            <button type="button" style={{ ...linkBtn, color: 'var(--text-muted)', fontWeight: 600 }} disabled={busy} onClick={() => salveaza(false)}>Nu, mulțumesc</button>
+          )}
+        </div>
+      )}
+      {msg && <div role="status" style={{ marginTop: 6, fontSize: '.78rem', lineHeight: 1.5, color: culori[msg.tip] || 'var(--text-light)' }}>{msg.text}</div>}
+      {!msg && notif.on && undeAjunge() && (
+        <div style={{ marginTop: 4, fontSize: '.74rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>{undeAjunge()}</div>
+      )}
+    </div>
+  );
+}
 
 const card = {
   background: 'var(--white)', border: '1px solid var(--border)',
@@ -47,6 +195,7 @@ export default function MisiuneZilnica() {
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
   const [m, setM] = useState(null);
+  const [notif, setNotif] = useState(null);       // amintirea zilnică („🔔 Amintește-mi")
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [schimba, setSchimba] = useState(false);   // alegerea clasei deschisă
@@ -55,6 +204,7 @@ export default function MisiuneZilnica() {
     try {
       const r = await aiClient.gamificare({ action: 'misiune' });
       setM(r?.misiune || null);
+      if (r?.notificari) setNotif(r.notificari);
       setErr(null);
     } catch (e) { setErr(e?.message || 'Nu am putut încărca misiunea zilnică.'); }
   }, []);
@@ -219,6 +369,8 @@ export default function MisiuneZilnica() {
             {' '}la fiecare {m.recompensa?.seriePas ?? 7} zile la rând, încă {m.recompensa?.serieXp ?? 30} XP.
             {' '}Misiuni îndeplinite: <strong>{m.total || 0}</strong>{m.record ? ` · record: ${m.record} ${m.record === 1 ? 'zi' : 'zile'} la rând` : ''}.
           </div>
+
+          <AmintireMisiune notif={notif} setNotif={setNotif} isAdmin={isAdmin} />
         </>
       )}
     </div>

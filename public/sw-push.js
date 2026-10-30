@@ -3,8 +3,10 @@
  * (inclus în sw.js de vite.config.js → workbox.importScripts)
  *
  *  · push — notificarea venită de pe server (api/_lib/push.js): „✅ Prof. Tudor
- *    e gata — intră", „🔴 Meditația a început". Dacă elevul are deja sala
- *    deschisă și la vedere, nu mai apare o notificare (pagina îl anunță singură).
+ *    e gata — intră", „🔴 Meditația a început", „🎯 Misiunea zilei te așteaptă"
+ *    (api/_lib/misiuneNotificari.js). Dacă elevul are deja pagina deschisă și la
+ *    vedere, nu mai apare o notificare (pagina îl anunță singură). Amintirile
+ *    (requireInteraction: false) dispar singure, ca orice notificare obișnuită.
  *  · notificationclick — clicul pe notificare aduce în față tabul sălii (sau
  *    îl deschide, dacă a fost închis).
  * ===================================================================== */
@@ -24,7 +26,7 @@ self.addEventListener('push', (event) => {
       body: data.body || '',
       tag: data.tag || 'examenmate',
       renotify: true,
-      requireInteraction: true,
+      requireInteraction: data.requireInteraction !== false,
       icon: '/pwa-192x192.png',
       badge: '/pwa-192x192.png',
       vibrate: [200, 100, 200, 100, 400],

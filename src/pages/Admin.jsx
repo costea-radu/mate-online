@@ -8,6 +8,7 @@ import ReviewsAdmin from '../components/ReviewsAdmin';
 import LiveAdmin from '../components/LiveAdmin';
 import AdminVerificare from '../components/AdminVerificare';
 import AdminDebug from '../components/AdminDebug';
+import AdminBotExamene from '../components/AdminBotExamene';
 import { ContentMetaFields, EditContentModal, ReplaceFileModal, ReorderPanel } from '../components/ContentAdminTools';
 import { CATEGORIES, CONTENT_TYPES, categoryLabel, subcategoryLabel, profileLabel, hasSubcategories, visibilityWarning } from '../lib/contentMeta';
 import '../styles/admin.css';
@@ -913,6 +914,7 @@ const TABS = [
   { id: 'recenzii',    icon: '⭐', label: 'Recenzii' },
   { id: 'live',        icon: '🎥', label: 'Meditații live' },
   { id: 'verificare',  icon: '🔎', label: 'Verificare materiale' },
+  { id: 'bot',         icon: '📚', label: 'Bot examene' },
   { id: 'debug',       icon: '🐞', label: 'Agent debug' },
 ];
 
@@ -1056,6 +1058,7 @@ export default function Admin() {
           {tab === 'recenzii'    && <ReviewsAdmin s={s} />}
           {tab === 'live'        && <LiveAdmin />}
           {tab === 'verificare'  && <AdminVerificare s={s} />}
+          {tab === 'bot'         && <AdminBotExamene s={s} />}
           {tab === 'debug'       && <AdminDebug s={s} />}
         </main>
       </div>
