@@ -9,8 +9,12 @@
 //
 // Un element de meniu:
 //   { tip: 'link',    to, icon, label, badge?, badgeTitlu?, punct?, accent? }
-//   { tip: 'pliabil', cheie, icon, label, copii: [{to,label}], prefixe: [] }
+//   { tip: 'pliabil', cheie, icon, label, copii: [{to,label,accent?}], prefixe: [] }
 //   { tip: 'iesire',  icon, label }     — butonul de deconectare
+//
+// Conturile de PROFESOR au în „🎓 Examene" (bara de sus, meniul lateral și
+// drawer-ul ☰) și „📄 Generează subiect examen", care deschide „Asistent AI
+// pentru profesori" direct pe fila generatorului (cerut pe 31 oct. 2026).
 // =====================================================================
 
 export const CLASE = [
@@ -30,6 +34,13 @@ export const EXAMENE = [
   { to: '/bacalaureat/stiinte-naturii', label: 'Bacalaureat Șt. Naturii' },
   { to: '/bacalaureat/tehnologic',      label: 'Bacalaureat Tehnologic' },
 ];
+
+// Doar pentru profesori: generatorul de subiecte din „Asistent AI pentru profesori"
+// (src/pages/ProfesorVirtual.jsx deschide fila din ?tab=exam).
+export const EXAMEN_GENERATOR = { to: '/profesor-virtual?tab=exam', label: '📄 Generează subiect examen', accent: true };
+
+// Intrările din „🎓 Examene" pentru un cont: examenele + generatorul, la profesori.
+export const examenePentru = ({ isTeacher = false } = {}) => (isTeacher ? [...EXAMENE, EXAMEN_GENERATOR] : EXAMENE);
 
 export const INFORMATII = [
   { to: '/despre-noi',                 icon: 'ℹ️', label: 'Despre noi' },
@@ -52,6 +63,7 @@ export function esteActiv(pathname, to) {
 export function sectiuniMeniu({
   user = null,
   isAdmin = false,
+  isTeacher = false,
   isPremium = false,
   aiLabel = 'Profesor Virtual',
   chatUnread = 0,
@@ -65,7 +77,7 @@ export function sectiuniMeniu({
     {
       titlu: 'Materiale',
       items: [
-        { tip: 'pliabil', cheie: 'examene', icon: '🎓', label: 'Examene', copii: EXAMENE, prefixe: ['/evaluare-nationala', '/bacalaureat'] },
+        { tip: 'pliabil', cheie: 'examene', icon: '🎓', label: 'Examene', copii: examenePentru({ isTeacher }), prefixe: ['/evaluare-nationala', '/bacalaureat'] },
         { tip: 'pliabil', cheie: 'clase',   icon: '📚', label: 'Clase',   copii: CLASE,   prefixe: ['/clase'] },
         { tip: 'link', to: '/manuale',                  icon: '📖',  label: 'Auxiliare' },
         { tip: 'link', to: '/rezolvari',                icon: '📝',  label: 'Blog / Rezolvări / Teorie' },

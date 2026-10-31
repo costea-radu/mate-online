@@ -7,9 +7,15 @@
 //   2) formatul (interactiv sau PDF)
 //   3) numărul de teste + locul de unde vin (generate de el, din Biblioteca
 //      utilizatorilor, din site — „Examene" și „Clase" — sau „⚡ Generează acum
-//      testele": AI-ul face UN test și îl dă în atâtea variante câte teste s-au
-//      cerut în bazin — aceleași probleme, altă ordine și altă literă corectă
-//      la grilă; src/components/VariantGenerator.jsx)
+//      testele"):
+//        · format interactiv → AI-ul face UN test și îl dă în atâtea variante
+//          câte teste s-au cerut în bazin — aceleași probleme, altă ordine și
+//          altă literă corectă la grilă (src/components/VariantGenerator.jsx);
+//        · format PDF (31 oct. 2026) → atâtea teste PDF NOI, combinate exact din
+//          subiectele PDF ale site-ului, ca la „📄 Generează subiect examen":
+//          toate subiectele sau doar I / II / III / I + II; fiecare se salvează în
+//          „Testele și exercițiile mele", se publică în „Biblioteca
+//          utilizatorilor" și se poate descărca (src/components/CombinedPdfGenerator.jsx)
 //   4) alegerea testelor: automat, prin bifare, sau mixt (propunerea automată
 //      se poate debifa / completa) — lista arată TOATE testele, fără plafon
 //   5) timpul de lucru: de la 10 minute la 3 ore (ore + minute), sau fără
@@ -31,22 +37,33 @@
 // Montat în „Contul meu" (src/pages/Profile.jsx) și în „Asistent AI"
 // (src/pages/ProfesorVirtual.jsx, după „Testele și exercițiile mele").
 // =====================================================================
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { aiClient } from '../lib/aiClient';
 import { useAuth } from '../context/AuthContext';
 import { CATEGORIES } from '../lib/contentMeta';
 import { fmtDurata } from '../lib/testMode';
 import VariantGenerator from './VariantGenerator';
 
+// Generatorul de teste PDF (cu motorul combinării, src/lib/pdfCombine.js) se
+// încarcă doar când profesorul îl deschide — „Contul meu" îl încarcă oricine.
+const CombinedPdfGenerator = lazy(() => import('./CombinedPdfGenerator'));
+
 const SOURCES = [
   { id: 'personal', label: '🧩 Testele generate de mine', hint: 'din „Testele și exercițiile mele"' },
   { id: 'public', label: '🏛️ Biblioteca utilizatorilor', hint: 'teste publicate de profesori' },
   { id: 'site', label: '📚 Testele din site', hint: '„Examene" și „Clase"' },
 ];
-// A patra sursă nu ia teste gata făcute, ci le FACE pe loc: un singur test,
-// dat în atâtea variante câte se cer în bazin (altă ordine a problemelor și
-// altă literă corectă la grilă) — src/components/VariantGenerator.jsx.
-const SRC_GEN = { id: 'generate', label: '⚡ Generează acum testele', hint: 'un test în mai multe variante, făcut acum de AI' };
+// A patra sursă nu ia teste gata făcute, ci le FACE pe loc:
+//   · interactiv — un singur test, dat în atâtea variante câte se cer în bazin
+//     (altă ordine a problemelor și altă literă corectă la grilă) —
+//     src/components/VariantGenerator.jsx;
+//   · PDF — atâtea teste noi, combinate exact din subiectele PDF ale site-ului
+//     (fiecare poziție din alt test-sursă) — src/components/CombinedPdfGenerator.jsx.
+const SRC_GEN = {
+  id: 'generate', label: '⚡ Generează acum testele',
+  hint: 'un test în mai multe variante, făcut acum de AI',
+  hintPdf: 'teste PDF noi, combinate exact din subiectele site-ului (fără AI)',
+};
 const FORMATS = [
   { id: 'interactive', label: '🧩 Interactiv', hint: 'se rezolvă în site, scorul se salvează automat' },
   { id: 'pdf', label: '📄 PDF', hint: 'se deschide în vizualizator, cu Prof. Virtual alături' },
@@ -200,9 +217,10 @@ export default function GroupAssignment({ compact = false }) {
   }
 
   // ── „⚡ Generează acum testele" ──────────────────────────────────────────
-  // Bifarea deschide, aici în pagină, formularul din „Generează exerciții/teste
-  // interactive/PDF". Variantele ies interactive, deci formatul se fixează pe
-  // „interactiv", iar bazinul devine exact lista lor.
+  // Bifarea deschide, aici în pagină, generatorul formatului ales: la
+  // „interactiv" formularul din „Generează exerciții/teste interactive/PDF"
+  // (variantele unui test), la „PDF" combinarea exactă din subiectele site-ului.
+  // Bazinul devine exact lista testelor generate.
   function toggleGenNow() {
     const on = !genNow;
     setGenNow(on);
@@ -210,12 +228,18 @@ export default function GroupAssignment({ compact = false }) {
     setChecked([]);
     setError(null);
     if (on) {
-      setFormat('interactive');
       setPick('manual');
       setStep(3);
     } else {
       setPick('auto');
     }
+  }
+  // Formatul se poate schimba și cu „Generează acum" bifat: testele generate
+  // pentru celălalt format nu mai intră în bazin.
+  function chooseFormat(id) {
+    if (id === format) return;
+    setFormat(id);
+    if (genNow) { setGenItems([]); setChecked([]); }
   }
   function onVariantsReady(items) {
     setGenItems(items);
@@ -424,15 +448,16 @@ export default function GroupAssignment({ compact = false }) {
         done summary={FORMATS.find((f) => f.id === format)?.label}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {FORMATS.map((f) => (
-            <button key={f.id} type="button" style={{ ...chip(format === f.id), opacity: genNow && f.id !== 'interactive' ? .45 : 1 }}
-              onClick={() => !genNow && setFormat(f.id)} disabled={genNow && f.id !== 'interactive'} title={f.hint}>{f.label}</button>
+            <button key={f.id} type="button" style={chip(format === f.id)}
+              onClick={() => chooseFormat(f.id)} title={f.hint}>{f.label}</button>
           ))}
         </div>
         <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: 8 }}>{FORMATS.find((f) => f.id === format)?.hint}</div>
         {genNow && (
           <div style={{ fontSize: '.76rem', color: '#b26a00', marginTop: 6 }}>
-            ⚡ Testele generate acum se rezolvă în site (interactiv), ca scorul fiecărui elev să intre singur
-            în raport. Le poți tipări oricând ca PDF din „Testele și exercițiile mele".
+            {format === 'pdf'
+              ? <>⚡ Testele generate acum sunt PDF-uri noi, combinate exact din subiectele site-ului — se salvează în „Testele și exercițiile mele", se publică în „Biblioteca utilizatorilor" și se pot descărca.</>
+              : <>⚡ Testele generate acum se rezolvă în site (interactiv), ca scorul fiecărui elev să intre singur în raport. Le poți tipări oricând ca PDF din „Testele și exercițiile mele".</>}
           </div>
         )}
       </Step>
@@ -447,13 +472,13 @@ export default function GroupAssignment({ compact = false }) {
               onChange={(e) => setPoolSize(Math.max(1, Math.min(60, parseInt(e.target.value, 10) || 1)))}
               style={{ ...selStyle, width: 90 }} />
             <span style={{ fontSize: '.76rem', color: 'var(--text-muted)', fontWeight: 400 }}>
-              {genNow ? 'atâtea variante ale testului se generează mai jos' : 'fiecare elev primește 1 test din bazin'}
+              {genNow ? (format === 'pdf' ? 'atâtea teste PDF combinate se generează mai jos' : 'atâtea variante ale testului se generează mai jos') : 'fiecare elev primește 1 test din bazin'}
               {nStudents > 0 && poolSize < nStudents ? ` — ai ${nStudents} elevi, deci unele teste se vor repeta` : ''}
             </span>
           </div>
           {genNow && genItems.length > 0 && genItems.length !== Number(poolSize) && (
             <div style={{ fontSize: '.76rem', color: '#b26a00', fontWeight: 400, marginTop: 6 }}>
-              ⚠️ Ai generat {genItems.length} variante, dar acum ceri {poolSize}. Generează din nou, ca bazinul să aibă {poolSize} variante.
+              ⚠️ Ai generat {genItems.length} {format === 'pdf' ? 'teste' : 'variante'}, dar acum ceri {poolSize}. Generează din nou, ca bazinul să aibă {poolSize} {format === 'pdf' ? 'teste' : 'variante'}.
             </div>
           )}
         </label>
@@ -475,13 +500,22 @@ export default function GroupAssignment({ compact = false }) {
           }}>
             <input type="checkbox" checked={genNow} onChange={toggleGenNow} />
             <span style={{ color: 'var(--navy)', fontWeight: 700 }}>{SRC_GEN.label}</span>
-            <span style={{ color: 'var(--text-muted)', fontSize: '.76rem' }}>— {SRC_GEN.hint}</span>
+            <span style={{ color: 'var(--text-muted)', fontSize: '.76rem' }}>— {format === 'pdf' ? SRC_GEN.hintPdf : SRC_GEN.hint}</span>
           </label>
         </div>
 
+        {/* Ce se generează: variante interactive (AI) sau teste PDF combinate
+            exact din subiectele site-ului — e chiar formatul de la pasul 2. */}
+        {genNow && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 12 }}>
+            <span style={{ fontSize: '.8rem', fontWeight: 600, color: 'var(--navy)' }}>Ce generez:</span>
+            <button type="button" style={chip(format === 'interactive')} onClick={() => chooseFormat('interactive')}>🧩 Teste interactive (variante, AI)</button>
+            <button type="button" style={chip(format === 'pdf')} onClick={() => chooseFormat('pdf')}>📄 Teste PDF combinate din subiectele site-ului</button>
+          </div>
+        )}
         {/* Generatorul din „🧩 Generează exerciții/teste interactive/PDF",
             adus aici, în pagină, exact ca acolo (același component). */}
-        {genNow && (
+        {genNow && format === 'interactive' && (
           <VariantGenerator
             poolSize={poolSize}
             category={category}
@@ -490,20 +524,39 @@ export default function GroupAssignment({ compact = false }) {
             onError={(e) => setError(e.message)}
           />
         )}
+        {/* PDF: combinarea exactă din „📄 Generează subiect examen", în mai multe teste */}
+        {genNow && format === 'pdf' && (
+          <Suspense fallback={<div style={{ padding: 14, textAlign: 'center' }}><div className="spinner" /></div>}>
+            <CombinedPdfGenerator
+              poolSize={poolSize}
+              category={category}
+              onCategory={setCategory}
+              onDone={onVariantsReady}
+              onError={(e) => setError(e.message)}
+            />
+          </Suspense>
+        )}
       </Step>
 
       {/* 4 · Alegerea testelor */}
       <Step n={4} title="Alege testele: automat, prin bifare, sau mixt" open={step === 4} onToggle={() => setStep(step === 4 ? -1 : 4)}
         done={!genNow || checked.length > 0}
-        summary={genNow ? `${checked.length} variante generate` : mode === 'auto' ? 'automat' : `${checked.length} teste bifate`}>
+        summary={genNow ? `${checked.length} ${format === 'pdf' ? 'teste PDF generate' : 'variante generate'}` : mode === 'auto' ? 'automat' : `${checked.length} teste bifate`}>
         {genNow ? (
           /* bazinul e format din variantele generate la pasul 3 */
           <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', background: 'var(--cream)', borderRadius: 8, padding: '9px 11px' }}>
-            {checked.length ? (
+            {checked.length ? (format === 'pdf' ? (
+              <>
+                Testele vin din <strong>cele {checked.length} teste PDF combinate acum</strong> (pasul 3) — fiecare elev
+                primește alt test: pe fiecare poziție, exercițiul vine din alt subiect al site-ului.
+              </>
+            ) : (
               <>
                 Testele vin din <strong>cele {checked.length} variante generate acum</strong> (pasul 3) — fiecare elev
                 primește altă variantă: aceleași probleme, altă ordine și altă literă corectă la grilă.
               </>
+            )) : format === 'pdf' ? (
+              <>Apasă <strong>„📎 Generează {poolSize} teste PDF"</strong> la pasul 3. Testele intră singure aici, bifate.</>
             ) : (
               <>Apasă <strong>„✨ Generează testul în {poolSize} variante"</strong> la pasul 3. Variantele intră singure aici, bifate.</>
             )}
@@ -668,7 +721,7 @@ export default function GroupAssignment({ compact = false }) {
           {busy ? 'Se creează…' : '🔗 Creează linkul testului'}
         </button>
         <span style={{ fontSize: '.78rem', color: 'var(--text-muted)' }}>
-          {groupName || 'Toți elevii mei'} · {catLabel} · {format === 'pdf' ? 'PDF' : 'interactiv'} · {genNow ? `${checked.length} variante generate acum` : mode === 'auto' ? `${poolSize} teste automat` : `${checked.length} teste bifate`} · {timeLimit ? `⏳ ${fmtDurata(timeLimit)}` : 'fără limită de timp'}
+          {groupName || 'Toți elevii mei'} · {catLabel} · {format === 'pdf' ? 'PDF' : 'interactiv'} · {genNow ? `${checked.length} ${format === 'pdf' ? 'teste PDF generate acum' : 'variante generate acum'}` : mode === 'auto' ? `${poolSize} teste automat` : `${checked.length} teste bifate`} · {timeLimit ? `⏳ ${fmtDurata(timeLimit)}` : 'fără limită de timp'}
         </span>
       </div>
 

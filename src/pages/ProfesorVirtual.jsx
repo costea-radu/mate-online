@@ -1,9 +1,12 @@
 // =====================================================================
 // src/pages/ProfesorVirtual.jsx — pagina dedicată a tutorelui AI
 // Tab-uri: Întreabă profesorul · Antrenament · Progresul meu
+// Fila se poate deschide direct din adresă: /profesor-virtual?tab=exam —
+// „📄 Generează subiect examen" din meniul „🎓 Examene" al profesorilor
+// (src/lib/meniu.js → EXAMEN_GENERATOR). Un clic pe o filă o scrie în adresă.
 // =====================================================================
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ChatPanel, MathText } from '../components/AITutor';
 import { aiClient } from '../lib/aiClient';
 import { useAuth } from '../context/AuthContext';
@@ -33,8 +36,16 @@ const DIFFS = ['ușor', 'mediu', 'greu'];
 
 export default function ProfesorVirtual() {
   const { user, loading, isStudent, isTeacher, isParent, isAdmin } = useAuth();
-  const [tab, setTab] = useState('chat');
+  const [params, setParams] = useSearchParams();
+  const tabParam = params.get('tab');
+  const [tabAles, setTabAles] = useState(tabParam || 'chat');
   const navigate = useNavigate();
+  // ?tab=… (ex. din meniul „🎓 Examene") deschide fila — și când pagina e deja deschisă
+  useEffect(() => { if (tabParam) setTabAles(tabParam); }, [tabParam]);
+  function selectTab(id) {
+    setTabAles(id);
+    if (tabParam !== id) setParams({ tab: id }, { replace: true });
+  }
 
   // Contul de ELEV: „Întreabă profesorul" + „Meditații cu Prof. Virtual" + „Progresul meu".
   // (Generatoarele de subiecte/interactive și biblioteca rămân pentru profesori/părinți.)
@@ -60,6 +71,8 @@ export default function ProfesorVirtual() {
         ...(isTeacher || isAdmin ? [{ id: 'upload', label: '📤 Încarcă material' }] : []),
         { id: 'grupa', label: '👥 Test pe grupă (teste diferite)' },
       ];
+  // fila cerută există pentru acest cont? (elevul care deschide ?tab=exam ajunge la chat)
+  const tab = TABS.some((t) => t.id === tabAles && t.id !== 'meditatii') ? tabAles : 'chat';
 
   return (
     <div style={{ maxWidth: 'var(--container)', margin: '0 auto', padding: '32px 20px 60px' }}>
@@ -79,7 +92,7 @@ export default function ProfesorVirtual() {
       {/* Tab-uri */}
       <div style={{ display: 'flex', gap: 8, borderBottom: '2px solid var(--border)', marginBottom: 24, flexWrap: 'wrap' }}>
         {TABS.map((t) => (
-          <button key={t.id} onClick={() => (t.id === 'meditatii' ? navigate('/meditatii/plan') : setTab(t.id))}
+          <button key={t.id} onClick={() => (t.id === 'meditatii' ? navigate('/meditatii/plan') : selectTab(t.id))}
             style={{
               background: 'none', border: 'none', padding: '10px 4px', marginBottom: -2,
               borderBottom: '3px solid', borderColor: tab === t.id ? 'var(--gold)' : 'transparent',
@@ -686,19 +699,46 @@ function LibItem({ it, isTeacher, onRemove }) {
 
   // Publică un subiect generat (kind 'exam' — JSON printabil; kind 'pdf' —
   // fișier combinat exact; serverul face o copie publică a fișierului).
+  // Un PDF deja publicat (ex. testele combinate pentru testul pe grupă, publicate
+  // automat — payload.publicId) nu se mai publică o dată, cât timp copia lui
+  // publică există.
   const [publishing, setPublishing] = useState(false);
   async function publishPdf() {
     setMsg(null); setPublishing(true);
     try {
       const f = full || await aiClient.getLibraryItem(it.id);
       if (!full) setFull(f);
-      const payload = it.kind === 'exam' ? { exam: f?.payload?.exam } : (f?.payload || {});
+      const { publicId: _pub, ...pdfPayload } = f?.payload || {};
+      const payload = it.kind === 'exam' ? { exam: f?.payload?.exam } : pdfPayload;
       if (it.kind === 'exam' && !payload.exam) throw new Error('Subiectul nu a putut fi încărcat.');
       if (it.kind === 'pdf' && !payload.pdfPath && !payload.pdfBase64) throw new Error('PDF-ul nu a putut fi încărcat.');
+      if (it.kind === 'pdf' && _pub) {
+        const deja = await aiClient.publicGet({ id: _pub }).then((r) => r?.item || null).catch(() => null);
+        if (deja) { setMsg('✅ E deja în „Biblioteca utilizatorilor", ca „' + (deja.title || it.title) + '".'); return; }
+      }
       const r = await aiClient.publicPublish({ kind: it.kind, title: it.title || f?.title || 'Subiect', category: f?.category || null, topic: f?.topic || null, payload });
+      if (it.kind === 'pdf' && r?.id) aiClient.updateLibraryItem(it.id, { payload: { ...pdfPayload, publicId: r.id } }).catch(() => {});
       setMsg('✅ Publicat în „Biblioteca utilizatorilor" ca „' + (r?.title || it.title) + '".');
     } catch (e) { setMsg('Eroare: ' + e.message); }
     finally { setPublishing(false); }
+  }
+
+  // ⬇ Descarcă PDF-ul (subiect combinat, test pe grupă, material încărcat)
+  const [downloading, setDownloading] = useState(false);
+  async function downloadPdf() {
+    setMsg(null); setDownloading(true);
+    try {
+      const f = full || await aiClient.getLibraryItem(it.id);
+      if (!full) setFull(f);
+      const blob = await aiClient.getLibraryPdfBlob(f?.payload || {});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${String(it.title || 'test').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'test'}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) { setMsg('Eroare: ' + (e?.message || 'PDF indisponibil')); }
+    finally { setDownloading(false); }
   }
 
   // scor la re-rezolvarea interactivului
@@ -739,6 +779,11 @@ function LibItem({ it, isTeacher, onRemove }) {
             </>
           ) : (
             <button className="btn btn-sm btn-outline" onClick={toggle}>{open ? '✕ Închide' : '▶ Deschide'}</button>
+          )}
+          {it.kind === 'pdf' && (
+            <button className="btn btn-sm btn-outline" disabled={downloading} onClick={downloadPdf}>
+              {downloading ? '⏳' : '⬇ Descarcă'}
+            </button>
           )}
           {isTeacher && (it.kind === 'exam' || it.kind === 'pdf') && (
             <button className="btn btn-sm btn-outline" disabled={publishing} onClick={publishPdf}>

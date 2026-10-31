@@ -260,6 +260,7 @@ export default function AIExerciseAgent({ box }) {
         await aiClient.savePdfLibraryItem({
           title: `Subiect combinat · ${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}`,
           category: r.category, blob, sources: res.sources,
+          extra: { text: res.text, pageTexts: res.pageTexts, pages: res.pages },
         });
         savedNote = ' Salvat și în „Testele și exercițiile mele".';
       } catch (e) { savedNote = ' (Nu s-a putut salva în „Testele și exercițiile mele": ' + (e?.message || 'eroare') + ')'; }

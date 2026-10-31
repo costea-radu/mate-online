@@ -13,7 +13,6 @@ import { aiClient } from '../lib/aiClient';
 import { printExam } from '../lib/examPrint';
 import { supabase } from '../lib/supabase';
 import { authHeaders } from '../lib/api';
-import { combineExamPdfs, fetchPdfSources, stratifyBySubcategory, probeExamPdf } from '../lib/pdfCombine';
 import CapitolePicker from './CapitolePicker';
 import OptiuneSpatiuLucru from './OptiuneSpatiuLucru';
 import { capitoleForExamType } from '../lib/capitole';
@@ -88,6 +87,9 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
     setCombining(true); setError(null); setUpsell(false); setCombineReport(null);
     setCombineMsg('Caut subiectele-sursă ale categoriei…');
     try {
+      // motorul combinării se încarcă la nevoie: generatorul e și în widgetul
+      // de pe toate paginile, iar combinarea exactă o folosesc doar profesorii
+      const { combineExamPdfs, fetchPdfSources, stratifyBySubcategory, probeExamPdf } = await import('../lib/pdfCombine');
       const cfgS = EXAM_SOURCES[examType];
       // ordonat + limită mare: interogarea veche lua un eșantion NESORTAT de 60
       // de rânduri, în care Variantele Date lipseau des → combina doar Simulări
@@ -117,6 +119,9 @@ export default function ExamGenerator({ compact = false, canManage = false }) {
         await aiClient.savePdfLibraryItem({
           title: `Subiect combinat · ${EXAM_TYPES.find((t) => t.id === examType)?.label || examType}`,
           category: examType, blob, sources: r.sources,
+          // textul exercițiilor așezate — îl citește Profesorul Virtual după publicare
+          // (din fișier ar citi și exercițiile decupate din paginile-sursă)
+          extra: { text: r.text, pageTexts: r.pageTexts, pages: r.pages },
         });
         saved = ' Salvat și în „Testele și exercițiile mele”.';
       } catch (e) { saved = ' (Nu s-a putut salva în „Testele și exercițiile mele”: ' + (e?.message || 'eroare') + ')'; }

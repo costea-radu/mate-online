@@ -62,8 +62,8 @@ Ambele apar doar pentru conturile de **profesor** (și pentru admin).
 | **0** | **Grupa** de elevi (sau „toți elevii mei"). Grupele se fac în „Contul meu" → Rezultate elevi. |
 | **1** | **Categoria**: examen (Evaluare Națională / Bacalaureat) sau clasă (V–XII), ori „Toate". |
 | **2** | **Formatul**: 🧩 interactiv sau 📄 PDF. |
-| **3** | **Numărul de teste din bazin** (1–60) și **de unde vin**: testele generate de profesor, Biblioteca utilizatorilor, testele din site („Examene" și „Clase") — se pot bifa mai multe surse deodată — sau **`⚡ Generează acum testele`**, care face testele pe loc, în atâtea variante câte s-au cerut (vezi mai jos). |
-| **4** | **Alegerea testelor**: `🎲 Automat din categorie`, `☑️ Testele bifate de mine`, sau `🔀 Mixt` — bifează automat propunerea, apoi profesorul debifează / adaugă ce vrea (butonul apăsat rămâne aprins). Lista de bifat aduce **toate** testele din sursele alese, fără plafon. Când testele sunt generate acum, pasul 4 arată doar din ce variante e făcut bazinul. |
+| **3** | **Numărul de teste din bazin** (1–60) și **de unde vin**: testele generate de profesor, Biblioteca utilizatorilor, testele din site („Examene" și „Clase") — se pot bifa mai multe surse deodată — sau **`⚡ Generează acum testele`**, care face testele pe loc: la 🧩 interactiv, un test în atâtea variante câte s-au cerut; la 📄 PDF, atâtea teste PDF noi, combinate exact din subiectele site-ului (vezi mai jos). |
+| **4** | **Alegerea testelor**: `🎲 Automat din categorie`, `☑️ Testele bifate de mine`, sau `🔀 Mixt` — bifează automat propunerea, apoi profesorul debifează / adaugă ce vrea (butonul apăsat rămâne aprins). Lista de bifat aduce **toate** testele din sursele alese, fără plafon. Când testele sunt generate acum, pasul 4 arată doar din ce teste e făcut bazinul. |
 | **5** | **Timpul de lucru**: butoane rapide (10, 20, 30, 40, 50 minute, 1 oră, 1 oră și 30 de minute, 2 ore, 2 ore și 30 de minute, 3 ore), selectoare de **ore + minute** pentru orice altă durată, sau `∞ Fără limită`. Minimul e 10 minute, maximul 3 ore. |
 
 La final: **🔗 Creează linkul testului**. Lângă linkul creat apar:
@@ -87,10 +87,12 @@ titlu filtrează tot ce s-a încărcat.
 În **bazin** intră tot cel mult 60 de teste (`MAX_POOL`) — dacă sunt bifate mai
 multe, se ia primele 60 și profesorul e avertizat pe loc.
 
-### ⚡ Generează acum testele — un test în mai multe variante
+### ⚡ Generează acum testele — 🧩 interactiv: un test în mai multe variante
 
 A patra sursă de la pasul 3 nu caută teste gata făcute, ci **le face pe loc**.
-La bifare se deschide, chiar acolo în pagină, formularul din
+Ce face depinde de format — se alege la pasul 2 sau din comutatorul „Ce generez:"
+de sub bifă: **🧩 interactiv** (mai jos) sau **📄 PDF** (secțiunea următoare).
+La formatul interactiv se deschide, chiar acolo în pagină, formularul din
 *„🧩 Generează exerciții/teste interactive/PDF"* — **același component**
 (`src/components/InteractiveGenForm.jsx`), deci aceleași alegeri: exercițiu sau
 test, numărul de itemi, timpul și punctele din oficiu, tipul itemilor (mixt /
@@ -117,10 +119,71 @@ Detalii care contează:
 - fiecare variantă se salvează în **„Testele și exercițiile mele"** ca
   `Titlu · Varianta k` (`ai_personal_items`, `kind='interactive'`) și intră
   automat, bifată, în bazin — de acolo se poate și retipări sau retrimite;
-- formatul se fixează pe **interactiv** (scorul fiecărui elev intră singur în
+- variantele sunt **interactive** (scorul fiecărui elev intră singur în
   raport); PDF-ul se scoate oricând din bibliotecă;
 - butoanele „▸ Varianta 1…N" de sub generator arată pe loc cum arată fiecare
   variantă — ordinea problemelor și litera corectă, marcată cu ✓.
+
+### ⚡ Generează acum testele — 📄 PDF: teste combinate din subiectele site-ului
+
+(31 octombrie 2026) Cu formatul **📄 PDF**, „⚡ Generează acum testele" face
+**atâtea teste PDF noi câte s-au cerut în bazin**, fiecare **combinat exact** din
+subiectele PDF ale site-ului — aceeași metodă ca la *„📄 Generează subiect examen"
+→ „📎 Combină exact"* (`src/lib/pdfCombine.js`; componenta:
+`src/components/CombinedPdfGenerator.jsx`):
+
+- exercițiile sunt **decupate** din variantele date, modelele, simulările și
+  testele de antrenament ale examenului (rubricile cu teste întregi — capitolele,
+  fișele pe exerciții și baremele nu intră) și așezate pe **aceeași poziție**:
+  exercițiul 3 de la Subiectul II vine dintre exercițiile 3 de la Subiectul II;
+- redactarea e **identică** cu originalele: fără AI, fără cost;
+- **testele diferă între ele**: pentru N teste se descarcă 6–12 subiecte-sursă;
+  testele dintr-o „tură" iau, pe fiecare poziție, exercițiul din altă sursă, iar
+  într-un test cele 6 exerciții ale unui subiect vin din 6 surse diferite (cât
+  ajung). Un test identic cu altul se trage din nou;
+- **examenul**: Evaluare Națională, BAC Tehnologic, BAC Științele Naturii, BAC
+  Mate-Info — propus după categoria de la pasul 1; la generare, testul pe grupă
+  primește categoria examenului;
+- **ce subiecte intră**: `Toate subiectele (I, II și III)` · `Doar Subiectul I` ·
+  `Doar Subiectul al II-lea` · `Doar Subiectul al III-lea` · `Doar Subiectele I și II`.
+
+| Alegerea | Cum arată fiecare PDF |
+|---|---|
+| Toate subiectele | coperta oficială a unuia dintre subiectele-sursă (la BAC, antetul probei: „Proba E. c) … Toate subiectele sunt obligatorii…"), apoi cele trei subiecte |
+| Doar unele subiecte | fără copertă (ea vorbește de toate subiectele și de timpul examenului); în locul ei, un **antet scurt**: „Evaluarea Națională · Matematică", „Test de antrenament · Subiectul I (30 de puncte)", „Test combinat nr. N" și rândul „Numele și prenumele … Clasa … Data" |
+
+Fiecare test:
+
+1. se **salvează** în „📚 Testele și exercițiile mele" (`ai_personal_items`,
+   `kind='pdf'`; fișierul în bucketul privat `personal-pdfs`);
+2. se **publică automat** în „🏛️ Biblioteca utilizatorilor" (serverul face copia
+   publică, ca la orice PDF publicat; e ⭐ premium implicit — elevii grupei îl
+   primesc oricum gratuit, prin linkul testului pe grupă). Copia privată ține minte
+   publicarea (`payload.publicId`), așa că „🏛️ Publică" din „Testele mele" nu mai
+   face un duplicat;
+3. se poate **descărca**: `⬇ Descarcă` și `👁 Vezi` la fiecare test, plus
+   `⬇ Descarcă toate testele într-un singur PDF (de tipărit)`; mai târziu, din
+   „📚 Testele și exercițiile mele" → `⬇ Descarcă`;
+4. intră **bifat** în bazinul testului pe grupă (sursa „🧩 Testele generate de mine").
+
+Titlul: `Test combinat nr. N — Evaluare Națională · Subiectul I` (la testul complet,
+fără „· Subiectul …"); numărul continuă de la un lot la altul. „▸ Sursele" arată
+de unde vine fiecare exercițiu.
+
+Profesorul Virtual citește din fiecare test **doar exercițiile așezate**
+(`payload.text` / `pageTexts`, scrise la generare): în fișier, paginile-sursă
+încorporate își păstrează tot textul (sunt doar decupate vizual), deci textul
+citit din PDF ar fi amestecat și exercițiile celelalte.
+
+Elevul primește testul ca PDF („📄 Deschide PDF-ul" pe pagina temei) și îl
+rezolvă pe hârtie.
+
+| Mesaj | Ce înseamnă |
+|---|---|
+| „Examenul ales are prea puține subiecte PDF pe site" | trebuie cel puțin 2 subiecte în rubricile Variante / Simulări / Teste de antrenament ale examenului |
+| „Nu am putut descărca suficiente subiecte-sursă cu structură de examen" | PDF-urile găsite sunt scanate (fără text) sau nu au structura oficială („SUBIECTUL I … 1. … 6.") |
+| „Din subiectele găsite se pot face cel mult X teste diferite" | de obicei la „Doar Subiectul al II-lea / al III-lea" de BAC (câte 2 probleme), cu puține surse — unele teste se repetă |
+| „nepublicat (…)" la un test | publicarea a picat; testul e salvat — se publică din „Testele și exercițiile mele" → 🏛️ Publică |
 
 ### Timpul de lucru (pasul 5)
 

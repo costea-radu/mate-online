@@ -47,6 +47,7 @@ export default function Sidebar({
   user,
   isPremium = false,
   isAdmin = false,
+  isTeacher = false,
   aiLabel = 'Profesor Virtual',
   chatUnread = 0,
   forumUnread = 0,
@@ -86,7 +87,7 @@ export default function Sidebar({
     if (el) el.blur();
   }
 
-  const sectiuni = sectiuniMeniu({ user, isAdmin, isPremium, aiLabel, chatUnread, forumUnread, forumHasNew });
+  const sectiuni = sectiuniMeniu({ user, isAdmin, isTeacher, isPremium, aiLabel, chatUnread, forumUnread, forumHasNew });
 
   // Secțiunile pliabile se deschid singure când ești deja înăuntru.
   const deschisInitial = {};
@@ -139,7 +140,7 @@ export default function Sidebar({
             <Link
               key={c.to}
               to={c.to}
-              className={`sb-sub${esteActiv(pathname, c.to) ? ' activ' : ''}`}
+              className={`sb-sub${esteActiv(pathname, c.to) ? ' activ' : ''}${c.accent ? ' sb-sub-accent' : ''}`}
             >
               {c.label}
             </Link>

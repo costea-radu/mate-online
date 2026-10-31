@@ -382,7 +382,9 @@ export const aiClient = {
   // în Storage (bucket privat 'personal-pdfs'), în tabel rămâne doar calea.
   // Base64 în payload NU merge pentru fișiere mari: API-ul Supabase respinge
   // cererile JSON de peste ~1 MB cu eroarea 413 — de aceea „nu se salvau”.
-  async savePdfLibraryItem({ title, category = null, topic = null, blob, sources = [] }) {
+  // `extra` intră în payload (ex. { text, pageTexts } ale subiectului combinat —
+  // le citește Profesorul Virtual după publicare, în locul textului din fișier).
+  async savePdfLibraryItem({ title, category = null, topic = null, blob, sources = [], extra = {} }) {
     const userId = await uid();
     if (!userId) throw new Error('Trebuie să fii autentificat.');
     if (blob.size > 24 * 1024 * 1024) throw new Error('PDF-ul e prea mare pentru bibliotecă (max 24 MB).');
@@ -397,12 +399,12 @@ export const aiClient = {
           fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
           fr.onerror = reject; fr.readAsDataURL(blob);
         });
-        return this.saveLibraryItem({ kind: 'pdf', title, category, topic, payload: { pdfBase64: b64, sources } });
+        return this.saveLibraryItem({ kind: 'pdf', title, category, topic, payload: { ...extra, pdfBase64: b64, sources } });
       }
       throw new Error(`Storage indisponibil (${upErr.message}). Rulează scriptul supabase/personal_pdfs_bucket.sql în Supabase → SQL Editor.`);
     }
     try {
-      return await this.saveLibraryItem({ kind: 'pdf', title, category, topic, payload: { pdfPath: path, bucket: 'personal-pdfs', sources } });
+      return await this.saveLibraryItem({ kind: 'pdf', title, category, topic, payload: { ...extra, pdfPath: path, bucket: 'personal-pdfs', sources } });
     } catch (e) {
       await supabase.storage.from('personal-pdfs').remove([path]).catch(() => {});
       const hint = /check|constraint|kind/i.test(e.message) ? ' — rulează scriptul supabase/personal_pdfs_bucket.sql (permite kind=pdf).' : '';
@@ -439,6 +441,61 @@ export const aiClient = {
       // fără copie privată, fișierul din folderul profesorului nu mai folosește la nimic
       if (!privateId) supabase.storage.from('personal-pdfs').remove([path]).catch(() => {});
     }
+  },
+  // TESTE PDF COMBINATE (31 oct. 2026) — „👥 Test pe grupă → ⚡ Generează acum
+  // testele" în format PDF (src/components/CombinedPdfGenerator.jsx). Fiecare PDF:
+  //   1. merge în folderul profesorului din bucketul privat (ca uploadMaterial);
+  //   2. rămâne în „Testele și exercițiile mele" (copia privată — pe ea o primesc
+  //      elevii prin testul pe grupă, fără abonament);
+  //   3. se publică în „Biblioteca utilizatorilor" (serverul face copia publică);
+  //      copia privată ține minte publicarea (`publicId`), ca „🏛️ Publică" din
+  //      „Testele mele" să nu facă un duplicat.
+  // Dacă publicarea pică, testul rămâne salvat (publishError) — se poate publica
+  // mai târziu din „Testele și exercițiile mele".
+  // Întoarce { privateId, publicId, title, publishError }.
+  async saveCombinedPdf({ title, category = null, topic = null, blob, extra = {}, publish = true }) {
+    const userId = await uid();
+    if (!userId) throw new Error('Trebuie să fii autentificat.');
+    if (!blob || !blob.size) throw new Error('PDF-ul generat e gol.');
+    if (blob.size > 24 * 1024 * 1024) throw new Error('PDF-ul e prea mare (cel mult 24 MB).');
+    const path = `${userId}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.pdf`;
+    const { error: upErr } = await supabase.storage.from('personal-pdfs')
+      .upload(path, blob, { contentType: 'application/pdf', upsert: false });
+    if (upErr) throw new Error(`Salvarea PDF-ului a eșuat (${upErr.message}). Dacă persistă: scriptul supabase/personal_pdfs_bucket.sql trebuie rulat în Supabase.`);
+    const payload = { ...extra, pdfPath: path, bucket: 'personal-pdfs' };
+    let privateId;
+    try { privateId = await this.saveLibraryItem({ kind: 'pdf', title, category, topic, payload }); }
+    catch (e) {
+      await supabase.storage.from('personal-pdfs').remove([path]).catch(() => {});
+      throw e;
+    }
+    if (!publish) return { privateId, publicId: null, title, publishError: null };
+    try {
+      const r = await post('/api/ai-public', { action: 'publish', kind: 'pdf', title, category, topic, payload });
+      const finalTitle = r.title || title;
+      try {
+        await supabase.from('ai_personal_items')
+          .update({ title: finalTitle, payload: { ...payload, publicId: r.id } }).eq('id', privateId);
+      } catch { /* doar semnul publicării — testul e salvat și publicat oricum */ }
+      return { privateId, publicId: r.id, title: finalTitle, publishError: null };
+    } catch (e) {
+      return { privateId, publicId: null, title, publishError: e.message || 'publicarea a eșuat' };
+    }
+  },
+  // Următorul număr pentru „Test combinat nr. N" — după testele combinate deja
+  // salvate de profesor, ca numerotarea să continue de la un lot la altul (și
+  // titlurile din „Biblioteca utilizatorilor" să nu se repete).
+  async nextCombinedTestNumber() {
+    const userId = await uid();
+    if (!userId) return 1;
+    const { data } = await supabase.from('ai_personal_items').select('title')
+      .eq('user_id', userId).eq('kind', 'pdf').ilike('title', 'Test combinat nr.%').limit(5000);
+    let max = 0;
+    (data || []).forEach((r) => {
+      const m = /^Test combinat nr\. (\d+)/.exec(r.title || '');
+      if (m) max = Math.max(max, Number(m[1]));
+    });
+    return max + 1;
   },
   // Descarcă PDF-ul unui element din bibliotecă (Storage sau base64 vechi) ca Blob.
   async getLibraryPdfBlob(payload) {

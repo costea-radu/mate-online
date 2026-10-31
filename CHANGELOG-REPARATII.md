@@ -4,6 +4,39 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 31 octombrie 2026 — 📎 Teste PDF combinate în „Test pe grupă" · 📄 „Generează subiect examen" în meniul profesorilor
+
+Cererea: „in Asistent AI pentru profesori: * fa ca la testele pe grupa sa se poata genera PDF care sa combine exercitiile din testele din site, exact cum se genereaza subiecte de evaluare nationala. aceste tipuri de teste: - sa se salveze in "testele si exercitiile mele"; - sa se posteze automat in "biblioteca utilizatorilor"; - sa se poata descarca; - tot aici sa se poata alege cate subiecte sa se genereze: doar subiectul I, doar subiectul II , doar subiectul III, doar subiectele I si II * In contul de profesor: pune “generează subiect examen” în tabul “examene” din navbar și deschide cu el asistent și pt profesori."
+
+### 1) 👥 Test pe grupă → ⚡ Generează acum testele, în format PDF (nou `src/components/CombinedPdfGenerator.jsx`; `src/components/GroupAssignment.jsx`, `src/lib/aiClient.js`, `src/pages/ProfesorVirtual.jsx`)
+- Cu formatul **📄 PDF** (pasul 2 sau comutatorul nou „Ce generez:" de la pasul 3), „⚡ Generează acum testele" face **atâtea teste PDF câte sunt în bazin**, fiecare **combinat exact** din subiectele PDF ale site-ului, ca „📄 Generează subiect examen" → „📎 Combină exact": exercițiile se decupează din variante date, modele, simulări și teste de antrenament (capitolele, fișele pe exerciții și baremele nu se mai descarcă degeaba) și se așază pe aceeași poziție. Fără AI, fără cost. Înainte, „Generează acum" forța formatul interactiv.
+- **Testele diferă între ele**: 6–12 subiecte-sursă (după câte teste se cer); într-o „tură", pe fiecare poziție, alt test-sursă la fiecare test; într-un test, cele 6 exerciții ale unui subiect din 6 surse diferite; un test identic cu altul se trage din nou (iar dacă sursele nu ajung, interfața spune câte teste diferite se pot face).
+- **Examenul** (EN, BAC Tehnologic / Științele Naturii / Mate-Info) și **ce subiecte intră**: toate · doar I · doar II · doar III · doar I și II. Testul complet păstrează coperta oficială a unei surse (la BAC, antetul probei); cele parțiale primesc un **antet scurt** (titlu, „Test de antrenament · Subiectul I (30 de puncte)", „Test combinat nr. N", „Numele și prenumele … Clasa … Data") — coperta vorbește de toate subiectele și de timpul examenului.
+- Fiecare test: **salvat** în „Testele și exercițiile mele" (`kind='pdf'`, bucketul privat), **publicat automat** în „Biblioteca utilizatorilor" (`aiClient.saveCombinedPdf`; copia privată ține minte `publicId`, deci „🏛️ Publică" nu mai face duplicat — dacă copia publică a fost ștearsă, se publică din nou), **descărcabil** (`⬇ Descarcă`, `👁 Vezi`, `⬇ Descarcă toate testele într-un singur PDF (de tipărit)`) și **bifat** în bazin (sursa „Testele generate de mine" — elevii îl primesc gratuit). Titluri `Test combinat nr. N — Evaluare Națională · Subiectul I`, numerotare continuă între loturi. Dacă publicarea pică, testul rămâne salvat, cu mesaj.
+- La generare, testul pe grupă primește categoria examenului. Generatorul se încarcă doar când e deschis (`React.lazy`) — „Contul meu", unde e montat testul pe grupă, îl deschid toți.
+- „📚 Testele și exercițiile mele": buton **`⬇ Descarcă`** la orice PDF (fără să-l mai deschizi întâi).
+- Profesorul Virtual citește din testele combinate **doar exercițiile așezate** (`payload.text` / `pageTexts`, scrise la generare). Găsit la verificare: o pagină-sursă încorporată își păstrează în PDF **tot textul** (e doar decupată vizual) — dintr-un test „doar Subiectul I" cu 6 exerciții, textul citit din fișier avea 42 de exerciții. Același text intră acum și la subiectele combinate din „📄 Generează subiect examen" și din agentul din Admin (`extra` la `savePdfLibraryItem`), deci și la publicarea lor ulterioară.
+
+### 2) Motorul combinării exacte (`src/lib/pdfCombine.js`) — același pentru generatorul de subiecte și agentul din Admin
+- Analiza unui PDF se face **o singură dată** (verificarea o păstrează pe sursă), iar worker-ul pdf.js se eliberează după fiecare document (înainte rămâneau deschise).
+- **BAC**: subiectele de BAC n-au copertă (antetul probei și SUBIECTUL I stau pe pagina 1), iar verificarea cerea 12 exerciții — BAC are 6 · 2 · 2. Toate PDF-urile de BAC erau refuzate, deci „Combină exact" la BAC dădea mereu eroare. Acum: întâi ca până acum (pagina 1 = copertă, EN), apoi fără copertă; antetul probei ține loc de copertă.
+- Se combină doar sursele cu **aceeași structură** (EN de azi 6 · 6 · 6 înaintea modelului vechi 6 · 5 · 5), ca pe o poziție să vină mereu același tip de exercițiu; o sursă trebuie să aibă toate cele trei subiecte.
+- **Planul poziție cu poziție** (`planCombinations`, pur, testat în Node) și amestecul Fisher–Yates (în locul `sort(() => Math.random() - 0.5)`).
+- **Tăieturile nu mai trec prin figuri**: pagina se randează mic, iar o tăietură care cade pe un desen (figura exercițiului de deasupra coboară sub textul lui, etichetele figurii urcă peste rând) se mută în cel mai apropiat alb — în jos cel mult până la 14pt deasupra rândului (loc pentru fracții), în sus cel mult 12pt. Tăieturile care cad deja în alb rămân neschimbate.
+- **Albul de sub ultimul exercițiu al paginii** (Subiectele I și II) se taie după ultima cerneală reală — un test „doar Subiectul I" ieșea pe 2 pagini, cu exercițiul 6 singur; acum 1. Subiectul III rămâne neatins (spațiul de scris). Titlul unui subiect nu mai rămâne singur la capătul paginii.
+- **PDF-uri mai mici**: regiunile unei surse se încorporează împreună, deci fonturile ei intră o singură dată (pe subiectele de test, din aceleași 5 surse: 145 KB în loc de 364 KB).
+- „📄 Generează subiect examen" încarcă motorul la nevoie (`import()`): generatorul e și în widgetul de pe toate paginile — pachetul principal a scăzut cu ~3 KB.
+
+### 3) 📄 „Generează subiect examen" în „🎓 Examene" — conturile de profesor (`src/lib/meniu.js`, `src/components/Navbar.jsx`, `src/components/Sidebar.jsx`, `src/styles/global.css`, `src/pages/ProfesorVirtual.jsx`)
+- În meniul „🎓 Examene" din bara de sus, în meniul lateral și în drawer-ul ☰ de pe telefon, profesorii au, sub examene, **„📄 Generează subiect examen"** (auriu, despărțit de examene). Deschide **„Asistent AI pentru profesori"** direct pe fila generatorului: `/profesor-virtual?tab=exam`. Elevii și părinții nu-l au.
+- `/profesor-virtual` deschide fila din adresă (`?tab=…`), și când pagina e deja deschisă; un clic pe o filă o scrie în adresă (`replace`). O filă care nu există pentru cont (elevul cu `?tab=exam`) → „Întreabă".
+
+**Verificat:** `npm test` — 991 de teste, toate trec (noi: `test/teste-pdf-combinate.test.js`, 11); `vite build` trece. Motorul, în Chromium cu pdf.js 3.11.174 + pdf-lib 1.17.1 (versiunile de pe site), pe subiecte sintetice EN (cu copertă, cu figuri, cu problemă pe două pagini, cu barem la final) și BAC (fără copertă): 10 teste complete toate diferite, fiecare exercițiu pe poziția lui și din sursa din raport, testele parțiale (I · II · III · I + II), BAC complet pe 2 pagini, figurile întregi, PDF-ul „toate într-unul". Interfața reală (build-ul, Supabase și /api simulate): meniul pe calculator și pe telefon, generatorul în testul pe grupă (4 teste „doar Subiectul I" → salvate, publicate, descărcate, linkul creat cu `format: 'pdf'`, `sources: ['personal']`), „⬇ Descarcă" și „🏛️ Publică" fără duplicat în „Testele mele", „📎 Combină exact" din generatorul de subiecte, fără scroll orizontal pe telefon.
+
+**De făcut:** doar commit + deploy (fără SQL nou, fără variabile noi).
+
+---
+
 ## 30 octombrie 2026 (3) — 🔒 Botul de examene nu schimbă legăturile test ↔ barem existente
 
 Cererea: „in site era deja o corespondenta intre teste si bareme in site, folosita in lectii live si corectari plus explicatii. verifica daca bot-ul creat a modificat-o sau o va modifica. fa sa nu modifice legatura deja existenta, doar sa completeze acolo unde nu exista"

@@ -462,6 +462,9 @@ body.sidebar-deschis .app-shell { padding-left: var(--sidebar-w); }
 .mm-nav .sb-item.activ,
 .mm-nav .sb-sub.activ { color: var(--gold); font-weight: 600; }
 .mm-nav .sb-item.sb-accent { color: var(--gold); font-weight: 700; }
+/* „📄 Generează subiect examen" (profesori) sub „🎓 Examene": auriu, despărțit de examene */
+.sb-sub.sb-sub-accent,
+.mm-nav .sb-sub.sb-sub-accent { color: var(--gold); font-weight: 700; border-top: 1px solid rgba(232,185,49,0.25); }
 .mm-nav .sb-item.sb-iesire { color: rgba(255,120,120,0.85); }
 
 /* ======= HERO ======= */

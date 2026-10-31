@@ -9,7 +9,7 @@ import { aiAssistantLabel } from '../lib/aiLabel';
 import { useChatUnread, refreshChatUnread } from '../lib/chatUnread';
 import ChatAlerts from './ChatAlerts';
 import Sidebar from './Sidebar';
-import { CLASE, EXAMENE, sectiuniMeniu, esteActiv } from '../lib/meniu';
+import { CLASE, examenePentru, sectiuniMeniu, esteActiv } from '../lib/meniu';
 
 // ─── Bulina roșie de mesaje noi (ca la Messenger) ─────────────────────────────
 // `flotanta` = lipită în colțul unei iconițe; altfel stă în rând, după text.
@@ -86,9 +86,10 @@ function DesktopDropdown({ label, items, badge = 0, accent = false, badgeTitlu =
               onClick={() => setOpen(false)}
               style={{
                 display: 'block', padding: '10px 18px',
-                color: location.pathname.startsWith(item.to) ? 'var(--gold)' : 'rgba(255,255,255,0.85)',
-                fontWeight: location.pathname.startsWith(item.to) ? 600 : 400,
+                color: item.accent || location.pathname.startsWith(item.to) ? 'var(--gold)' : 'rgba(255,255,255,0.85)',
+                fontWeight: item.accent ? 700 : location.pathname.startsWith(item.to) ? 600 : 400,
                 fontSize: '0.88rem',
+                ...(item.accent ? { borderTop: '1px solid rgba(232,185,49,0.35)', whiteSpace: 'nowrap' } : {}),
                 borderBottom: '1px solid rgba(255,255,255,0.05)',
                 background: location.pathname.startsWith(item.to) ? 'rgba(232,185,49,0.08)' : 'transparent',
               }}
@@ -351,13 +352,13 @@ function SearchModal({ onClose }) {
 // Aceleași categorii, în aceeași ordine, ca în bara laterală de pe desktop:
 // structura vine din src/lib/meniu.js, iar stilurile refolosesc clasele
 // `.sb-*` (doar mărite puțin, prin `.mm-nav`, ca să se apese ușor cu degetul).
-function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profesor Virtual', forumUnread = 0, forumHasNew = false, chatUnread = 0, onSignOut }) {
+function MobileMenu({ open, onClose, user, isPremium, isAdmin, isTeacher = false, aiLabel = 'Profesor Virtual', forumUnread = 0, forumHasNew = false, chatUnread = 0, onSignOut }) {
   const { pathname } = useLocation();
   const [deschise, setDeschise] = useState({});
 
   if (!open) return null;
 
-  const sectiuni = sectiuniMeniu({ user, isAdmin, isPremium, aiLabel, chatUnread, forumUnread, forumHasNew });
+  const sectiuni = sectiuniMeniu({ user, isAdmin, isTeacher, isPremium, aiLabel, chatUnread, forumUnread, forumHasNew });
 
   function icon(nume) {
     return (
@@ -393,7 +394,7 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, aiLabel = 'Profes
           </button>
           {desfasurat && it.copii.map((c) => (
             <Link key={c.to} to={c.to} onClick={onClose}
-              className={`sb-sub${esteActiv(pathname, c.to) ? ' activ' : ''}`}>
+              className={`sb-sub${esteActiv(pathname, c.to) ? ' activ' : ''}${c.accent ? ' sb-sub-accent' : ''}`}>
               {c.label}
             </Link>
           ))}
@@ -592,7 +593,8 @@ export default function Navbar() {
               scoase de aici — ambele stau în meniul lateral / drawer-ul ☰,
               la categoriile lor. Ce a rămas se împarte uniform pe lățime. */}
           <ul className="navbar-links" style={{ alignItems: 'center' }}>
-            <li><DesktopDropdown label="🎓 Examene" items={EXAMENE} accent /></li>
+            {/* profesorii au aici și „📄 Generează subiect examen" (Asistent AI → generatorul) */}
+            <li><DesktopDropdown label="🎓 Examene" items={examenePentru({ isTeacher })} accent /></li>
             <li><DesktopDropdown label="📚 Clase" items={CLASE} accent /></li>
           </ul>
 
@@ -665,6 +667,7 @@ export default function Navbar() {
         user={user}
         isPremium={isPremium}
         isAdmin={isAdmin}
+        isTeacher={isTeacher}
         aiLabel={aiLabel}
         chatUnread={chatUnread}
         forumUnread={forumUnread}
@@ -679,6 +682,7 @@ export default function Navbar() {
         user={user}
         isPremium={isPremium}
         isAdmin={isAdmin}
+        isTeacher={isTeacher}
         aiLabel={aiLabel}
         forumUnread={forumUnread}
         forumHasNew={forumHasNew}
