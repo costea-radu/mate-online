@@ -582,7 +582,9 @@ test('ședința 1-la-1: două apăsări simultane → o singură ședință cons
 
 test('ședința 1-la-1: după cele 8 incluse (live + pregătire) → 30 lei; biletul se consumă la pornire', async () => {
   fake = fresh({ sessions: false });
-  const month = Date.now() - 3600 * 1000;
+  // cu o oră în urmă, dar NU înainte de 1 ale lunii (ora României): în prima
+  // oră a lunii, „acum − 1h" cădea în luna trecută și testul pica (1 nov. 2026)
+  const month = Math.max(Date.now() - 3600 * 1000, Date.parse(L.monthStart()) + 10 * 1000);
   for (let k = 0; k < 8; k++) {
     // ședințe 1-la-1 live și de pregătire, la un loc
     const r = prepSessionRow(U.prem, 'evaluare-nationala', { at: month - k * 1000 });

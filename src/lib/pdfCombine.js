@@ -12,8 +12,10 @@
 //   • „👥 Test pe grupă → ⚡ Generează acum testele" în format PDF
 //     (src/components/CombinedPdfGenerator.jsx, 31 oct. 2026) — MAI MULTE
 //     teste deodată, diferite între ele, cu toate subiectele sau doar cu unele
-//     (I · II · III · I + II): prepareExamSources → planCombinations →
-//     openSourceDocs → composeExamPdf.
+//     (I · II · III · I + II) și, din 1 nov. 2026, cu exercițiile BIFATE — la
+//     BAC și subpunctele a), b), c) ale problemelor de la Subiectele II și III
+//     (`selection`): prepareExamSources → planCombinations → openSourceDocs →
+//     composeExamPdf.
 //
 // Pe scurt:
 //   1. analyze — markerele „SUBIECTUL …" și „1." … „6." din textul PDF-ului
@@ -98,6 +100,101 @@ export const isFullTest = (list) => normSubjects(list).length === 3;
 // fiecare subiect are 30 de puncte (EN și BAC); oficiul (10p) e doar la testul complet
 export const subjectsPoints = (list) => normSubjects(list).length * 30;
 
+// ─── Ce EXERCIȚII intră (bife, cerut pe 1 nov. 2026) ─────────────────────────
+// Profesorul bifează exercițiile fiecărui subiect; la BAC, la Subiectele II și
+// III (câte 2 probleme), și subpunctele a), b), c). Selecția:
+//   { items: { 1: [1, 2, 4], 2: [1, 2], 3: [2] }, parts: { '2.1': ['a', 'c'], … } }
+// `parts` contează doar la problemele cu subpuncte (BAC II și III). Fiecare
+// exercițiu și fiecare subpunct valorează 5 puncte (EN: 6 × 5 pe subiect; BAC:
+// 6 × 5 la Subiectul I, 2 × 3 × 5 la II și III). Exercițiile își păstrează
+// numărul din subiectul oficial (nu se renumerotează).
+export const PART_LETTERS = ['a', 'b', 'c'];
+const range = (n) => Array.from({ length: n }, (_, i) => i + 1);
+export function examLayout(exam) {
+  const bac = /^bac/.test(String(exam || '')) || exam === '6-2-2';
+  return bac
+    ? { kind: 'bac', items: { 1: 6, 2: 2, 3: 2 }, parts: { 2: PART_LETTERS, 3: PART_LETTERS } }
+    : { kind: 'en', items: { 1: 6, 2: 6, 3: 6 }, parts: {} };
+}
+// toate exercițiile (și subpunctele) subiectelor date
+export function fullSelection(layout, subjects = [1, 2, 3]) {
+  const subj = normSubjects(subjects);
+  const items = {}, parts = {};
+  for (const s of [1, 2, 3]) {
+    items[s] = subj.includes(s) ? range(layout.items[s]) : [];
+    if (layout.parts[s]) for (const it of items[s]) parts[`${s}.${it}`] = [...layout.parts[s]];
+  }
+  return { items, parts };
+}
+// curăță o selecție după structura examenului: numere valide, ordonate, fără
+// dubluri; o problemă cu subpuncte e bifată ⇔ are cel puțin un subpunct
+export function normSelection(sel, layout) {
+  const items = {}, parts = {};
+  for (const s of [1, 2, 3]) {
+    const max = layout.items[s];
+    let list = [...new Set(((sel && sel.items && sel.items[s]) || []).map(Number))]
+      .filter((v) => Number.isInteger(v) && v >= 1 && v <= max).sort((a, b) => a - b);
+    if (layout.parts[s]) {
+      list = list.filter((it) => {
+        const got = sel && sel.parts && sel.parts[`${s}.${it}`];
+        const want = Array.isArray(got) ? layout.parts[s].filter((l) => got.includes(l)) : [...layout.parts[s]];
+        if (want.length) parts[`${s}.${it}`] = want;
+        return want.length > 0;
+      });
+    }
+    items[s] = list;
+  }
+  return { items, parts };
+}
+export const selectionSubjects = (sel) => [1, 2, 3].filter((s) => ((sel && sel.items && sel.items[s]) || []).length > 0);
+// subiectul s are TOATE exercițiile (și toate subpunctele) bifate?
+export function subjectComplete(sel, layout, s) {
+  const n = normSelection(sel, layout);
+  if (n.items[s].length !== layout.items[s]) return false;
+  return !layout.parts[s] || n.items[s].every((it) => n.parts[`${s}.${it}`].length === layout.parts[s].length);
+}
+export const selectionComplete = (sel, layout) => [1, 2, 3].every((s) => subjectComplete(sel, layout, s));
+// punctajul bifat (al unui subiect sau al tuturor): 5 puncte pe exercițiu / subpunct
+export function selectionPoints(sel, layout, only = null) {
+  const n = normSelection(sel, layout);
+  let pts = 0;
+  for (const s of only ? [only] : [1, 2, 3]) {
+    pts += layout.parts[s]
+      ? n.items[s].reduce((sum, it) => sum + 5 * n.parts[`${s}.${it}`].length, 0)
+      : 5 * n.items[s].length;
+  }
+  return pts;
+}
+// „5 puncte", „15 puncte", „20 de puncte", „90 de puncte"
+export function pointsLabel(n) {
+  const v = Math.abs(Math.round(Number(n) || 0));
+  if (v === 1) return '1 punct';
+  const r = v % 100;
+  return `${v} ${r === 0 && v > 0 ? 'de ' : r >= 20 ? 'de ' : ''}puncte`;
+}
+// selecția care corespunde unei alegeri rapide (Toate / Doar I / …) sau null
+export function presetOf(sel, layout) {
+  const subj = selectionSubjects(normSelection(sel, layout));
+  if (!subj.length || !subj.every((s) => subjectComplete(sel, layout, s))) return null;
+  const c = SUBJECT_CHOICES.find((x) => x.subjects.join(',') === subj.join(','));
+  return c ? c.id : null;
+}
+// rezumatul selecției: „Subiectul I: 1, 2, 4 · Subiectul al II-lea: 1 a), c); 2"
+export const subjectName = (s) => (s === 1 ? 'Subiectul I' : `Subiectul al ${ROMAN[s]}-lea`);
+export function selectionSummary(sel, layout) {
+  const n = normSelection(sel, layout);
+  return [1, 2, 3].filter((s) => n.items[s].length).map((s) => {
+    if (subjectComplete(n, layout, s)) return `${subjectName(s)}: toate`;
+    const its = n.items[s].map((it) => {
+      const p = layout.parts[s] && n.parts[`${s}.${it}`];
+      return p && p.length < layout.parts[s].length ? `${it} ${p.map((l) => `${l})`).join(', ')}` : String(it);
+    });
+    return `${subjectName(s)}: ${its.join(layout.parts[s] ? '; ' : ', ')}`;
+  }).join(' · ');
+}
+// subpunctele cerute la o poziție sunt doar o parte din cele trei?
+const partialWant = (w) => Array.isArray(w) && PART_LETTERS.some((l) => !w.includes(l));
+
 // pdf.js sparge deseori diacriticele în bucăți („Prob ă scris ă”) — de aceea
 // detectăm antetele/footerele pe text NORMALIZAT (fără diacritice și spații).
 const normTxt = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, '').toLowerCase();
@@ -122,12 +219,13 @@ async function readPages(doc) {
       const y = Math.round(it.transform[5]);
       const key = [...lines.keys()].find((k) => Math.abs(k - y) <= 2) ?? y;
       if (!lines.has(key)) lines.set(key, []);
-      lines.get(key).push({ x: it.transform[4], str: it.str });
+      lines.get(key).push({ x: it.transform[4], str: it.str, h: Math.abs(it.transform[3]) || it.height || 0 });
     }
     const arr = [...lines.entries()].map(([y, parts]) => ({
       y,
       x: Math.min(...parts.map((q) => q.x)),
       text: parts.sort((a, b) => a.x - b.x).map((q) => q.str).join(' ').replace(/\s+/g, ' ').trim(),
+      h: Math.round(Math.max(...parts.map((q) => q.h)) * 10) / 10, // mărimea literei (titlurile generate o copiază)
     })).sort((a, b) => b.y - a.y);
     pageLines[p] = arr;
 
@@ -249,7 +347,8 @@ function structureFrom(pg, from, ink = null) {
     } else {
       chunks.push({ p: cur.p, top: startTop, bottom: contentMinY[cur.p], toEnd: true });
       for (let mid = cur.p + 1; mid < endP; mid++) chunks.push({ p: mid, top: contentMaxY[mid], bottom: contentMinY[mid], toEnd: true });
-      if (contentMaxY[endP] - endTop > 14) chunks.push({ p: endP, top: contentMaxY[endP], bottom: endTop });
+      // la sfârșitul documentului, bucata de pe ultima pagină merge și ea până la subsol
+      if (contentMaxY[endP] - endTop > 14) chunks.push({ p: endP, top: contentMaxY[endP], bottom: endTop, ...(endTop <= contentMinY[endP] ? { toEnd: true } : {}) });
     }
     const key = cur.kind === 'S' ? `S${cur.v}` : `${cur.s}.${cur.v}`;
     regions[key] = chunks.filter((c) => c.top - c.bottom > 5);
@@ -261,9 +360,13 @@ function structureFrom(pg, from, ink = null) {
   // spațiu de scris) bucata se oprește sub ultima cerneală reală, deci figurile,
   // tabelele și liniile rămân întregi. Subiectul III rămâne neatins (la EN, sub
   // probleme poate fi spațiul de scris al elevului).
+  // La BAC (Subiectul III cu cel mult 3 probleme) nu există spațiu de scris în
+  // subiect — elevii scriu pe foaia de examen —, deci se taie și la Subiectul III.
   if (ink) {
+    const s3 = Object.keys(regions).filter((k) => /^3\.\d$/.test(k)).length;
+    const trim = s3 && s3 <= 3 ? /^[123]\.\d$/ : /^[12]\.\d$/;
     for (const [key, chunks] of Object.entries(regions)) {
-      if (!/^[12]\.\d$/.test(key)) continue;
+      if (!trim.test(key)) continue;
       for (const c of chunks) {
         if (!c.toEnd || !ink[c.p]) continue;
         let y = c.bottom;
@@ -283,8 +386,96 @@ function structureFrom(pg, from, ink = null) {
     const m = /^([123])\.([1-6])$/.exec(k);
     if (m && regions[k].length) counts[m[1]] = Math.max(counts[m[1]], Number(m[2]));
   }
+
+  // Subpunctele a), b), c) ale problemelor de BAC (Subiectele II și III, câte 2
+  // probleme) — pentru bifele pe subpuncte (1 nov. 2026). Rândul unui subpunct
+  // începe la marginea din stânga cu „5p a)" (sau doar „a)"); trebuie găsite
+  // toate trei, în ordine. La EN nu se caută: acolo Subiectele I și II sunt
+  // grile, iar rândul variantelor începe tot cu „a)".
+  // Tăietura dinaintea unui subpunct cade în MIJLOCUL albului dintre rândul lui
+  // și rândul de deasupra (harta cernelii) — rândurile sunt mai apropiate decât
+  // exercițiile, deci regula exercițiilor (14–30pt deasupra) ar tăia prin text.
+  // → { y, clean }: `clean` = tăietura trece printr-un rând de pixeli complet alb.
+  // Dacă rândurile se ating (de ex. numărătorul unei fracții urcă până în
+  // rândul de deasupra), nicio linie orizontală nu le desparte fără să taie
+  // din ele — atunci problema nu se desparte pe subpuncte (merge întreagă,
+  // sau din altă sursă), ca să nu iasă niciodată o formulă ciuntită.
+  const subCut = (mk) => {
+    const lines = pageLines[mk.p];
+    // rândul de deasupra: cel puțin 7,5pt mai sus; ce e mai aproape (numărătorul
+    // unei fracții, un exponent — citite de pdf.js ca rânduri separate) ține de
+    // rândul subpunctului, deci albul se caută DEASUPRA lor
+    const own = lines.filter((L) => L.y > mk.y && L.y <= mk.y + 7.5);
+    const above = lines.filter((L) => L.y > mk.y + 7.5 && L.y <= contentMaxY[mk.p]).sort((a, b) => a.y - b.y)[0];
+    if (!above) return { y: Math.min(mk.y + 18, contentMaxY[mk.p]), clean: true };
+    const d = above.y - mk.y;
+    const m = ink && ink[mk.p];
+    // fără hartă (Node, sau pagina n-a putut fi randată): ~62% din distanță,
+    // dar peste literele mari (≈9,5pt) ale rândului
+    if (!m) return { y: Math.min(mk.y + Math.max(Math.min(9.5, d - 3), d * 0.62), contentMaxY[mk.p]), clean: true };
+    // cel mai lung șir de rânduri de pixeli albe dintre cele două rânduri de text
+    const lo = Math.max(mk.y + 2, ...own.map((L) => L.y + 2));
+    const rA = Math.max(0, Math.ceil((m.top - above.y) * m.scale) + 1);
+    const rB = Math.min(m.rows.length - 1, Math.floor((m.top - lo) * m.scale));
+    let best = null, run = null;
+    for (let r = rA; r <= rB + 1; r++) {
+      if (r <= rB && m.rows[r] === 0) { if (run == null) run = r; continue; }
+      if (run != null && (!best || r - run > best.len)) best = { len: r - run, mid: (run + r - 1) / 2 };
+      run = null;
+    }
+    if (!best) return { y: mk.y + d * 0.62, clean: false };
+    return { y: Math.min(m.top - best.mid / m.scale, contentMaxY[mk.p]), clean: true };
+  };
+  const parts = {};
+  for (const s of [2, 3]) {
+    if (!counts[s] || counts[s] > 3) continue;
+    for (let it = 1; it <= counts[s]; it++) {
+      const key = `${s}.${it}`;
+      const chunks = regions[key];
+      if (!chunks || !chunks.length) continue;
+      const found = [];
+      for (const c of chunks) {
+        for (const L of pageLines[c.p]) {
+          if (found.length === PART_LETTERS.length) break;
+          if (L.y >= c.top - 1 || L.y <= c.bottom || L.x > 130) continue;
+          const m = L.text.match(/^(?:\(?\d+\s*p\)?\.?\s*)?([a-c])\s*\)/);
+          if (m && m[1] === PART_LETTERS[found.length]) found.push({ letter: m[1], p: c.p, y: L.y });
+        }
+      }
+      if (found.length !== PART_LETTERS.length) continue;
+      const cuts = found.map(subCut);
+      if (cuts.some((c) => !c.clean)) continue;
+      const segs = splitRegion(chunks, found.map((mk, i) => ({ p: mk.p, y: cuts[i].y })));
+      if (segs.length !== found.length + 1 || segs.some((g) => !g.length)) continue;
+      parts[key] = { letters: found.map((f) => f.letter), stem: segs[0] };
+      found.forEach((f, i) => { parts[key][f.letter] = segs[i + 1]; });
+    }
+  }
   // marginea din stânga a textului (rândul „SUBIECTUL I") — antetul generat se aliniază la ea
-  return { regions, counts, left: firstS ? firstS.x : null };
+  return { regions, counts, parts, left: firstS ? firstS.x : null };
+}
+
+// Taie o regiune (bucăți pe una sau mai multe pagini, în ordinea citirii) la
+// pozițiile `cuts` ([{ p, y }], tot în ordinea citirii) → cuts.length + 1 segmente.
+export function splitRegion(chunks, cuts) {
+  const segs = [[]];
+  let ci = 0;
+  const push = (c) => { if (c.top - c.bottom > 2) segs[segs.length - 1].push(c); };
+  for (const c of chunks || []) {
+    let top = c.top;
+    // o tăietură de pe o pagină anterioară, sau chiar pe marginea de sus a
+    // bucății → segmentul următor începe cu bucata aceasta
+    while (ci < cuts.length && (cuts[ci].p < c.p || (cuts[ci].p === c.p && cuts[ci].y >= top))) { segs.push([]); ci++; }
+    while (ci < cuts.length && cuts[ci].p === c.p && cuts[ci].y > c.bottom) {
+      const y = cuts[ci].y;
+      push({ p: c.p, top, bottom: y });
+      segs.push([]);
+      top = y; ci++;
+    }
+    push({ p: c.p, top, bottom: c.bottom, ...(c.toEnd ? { toEnd: true } : {}) });
+  }
+  while (segs.length < cuts.length + 1) segs.push([]);
+  return segs;
 }
 
 // O sursă e bună dacă are toate cele trei subiecte, cu exercițiile recunoscute:
@@ -315,12 +506,14 @@ async function analyze(bytes) {
       // refac cu tăieturile prin alb și fără albul de la capătul paginii
       const pages = [];
       for (let p = from; p <= pg.n; p++) pages.push(p);
-      const ink = await inkRows(doc, pages);
+      // la BAC (probleme cu subpuncte, rânduri apropiate) harta e de 2× mai fină:
+      // albul dintre două rânduri are uneori doar 1–2pt
+      const ink = await inkRows(doc, pages, (st.counts[2] || 0) <= 3 ? 2 : 1);
       if (Object.keys(ink).length) {
         try { const fin = structureFrom(pg, from, ink); if (structureOk(fin.counts)) st = fin; } catch { /* rămân regiunile după text */ }
       }
       return {
-        bytes, numPages: pg.n, W: pg.W, H: pg.H, regions: st.regions, counts: st.counts,
+        bytes, numPages: pg.n, W: pg.W, H: pg.H, regions: st.regions, counts: st.counts, parts: st.parts || {},
         signature: signatureOf(st.counts), hasCover: from === 2, pageLines: pg.pageLines, left: st.left,
       };
     }
@@ -336,10 +529,10 @@ async function analyze(bytes) {
 // folosesc tăieturile dintre exerciții (să nu treacă prin desene) și tăierea
 // albului de la capătul paginii. Fără canvas (sau dacă randarea pică) → {}, iar
 // regiunile rămân cele calculate după text, ca înainte.
-async function inkRows(doc, pages) {
+async function inkRows(doc, pages, SCALE = 1) {
   const out = {};
   if (typeof document === 'undefined') return out;
-  const SCALE = 1, DARK = 236;
+  const DARK = 236;
   for (const p of pages) {
     try {
       const page = await doc.getPage(p);
@@ -416,14 +609,34 @@ export async function prepareExamSources(sources, { onProgress } = {}) {
 }
 
 const hasRegion = (a, key) => !!(a && a.regions && a.regions[key] && a.regions[key].length);
+// sursa `a` poate da poziția `key` cu subpunctele `want`? Fără `want` (sau cu
+// toate trei) merge regiunea întreagă; cu doar unele, subpunctele sursei
+// trebuie să fi fost găsite și separate (analysis.parts)
+function usable(a, key, want) {
+  if (!hasRegion(a, key)) return false;
+  if (!partialWant(want)) return true;
+  const P = a.parts && a.parts[key];
+  return !!(P && want.length && want.every((l) => P.letters.includes(l) && P[l] && P[l].length));
+}
+// subiectele și pozițiile cerute: din selecție (bife) sau toate pozițiile subiectelor
+const subjOf = (subjects, selection) => (selection ? selectionSubjects(selection) : normSubjects(subjects));
+function positionsOf(list, s, selection) {
+  let m = 0;
+  for (const a of list || []) for (let it = 1; it <= 6; it++) if (hasRegion(a, `${s}.${it}`)) m = Math.max(m, it);
+  const all = range(m);
+  return selection ? all.filter((it) => ((selection.items && selection.items[s]) || []).includes(it)) : all;
+}
+const wantOf = (selection, key) => (selection && selection.parts ? selection.parts[key] : undefined);
 
 // Câte teste DIFERITE se pot face din surse (produsul alegerilor pe poziții).
-export function maxDistinctTests(list, subjects) {
-  const subj = normSubjects(subjects);
+export function maxDistinctTests(list, subjects, selection = null) {
   let prod = 1;
-  for (const s of subj) {
-    for (let it = 1; it <= 6; it++) {
-      const k = (list || []).filter((a) => hasRegion(a, `${s}.${it}`)).length;
+  for (const s of subjOf(subjects, selection)) {
+    for (const it of positionsOf(list, s, selection)) {
+      const key = `${s}.${it}`;
+      const want = wantOf(selection, key);
+      let k = (list || []).filter((a) => usable(a, key, want)).length;
+      if (!k) k = (list || []).filter((a) => hasRegion(a, key)).length; // problema întreagă
       if (k) prod *= k;
       if (prod > 1e9) return Infinity;
     }
@@ -440,23 +653,35 @@ export function maxDistinctTests(list, subjects) {
  *   • testele dintr-o „tură" (câte surse sunt) diferă la FIECARE poziție; între
  *     ture permutările se trag din nou, iar un test identic cu unul deja făcut
  *     se trage iar (cel mult 40 de încercări — `duplicate` dacă nu se poate).
+ *   • cu `selection` (bife): doar pozițiile bifate; la o problemă cu doar unele
+ *     subpuncte bifate, doar sursele în care subpunctele s-au putut separa — dacă
+ *     nu e niciuna, problema întreagă (`whole[key]`, semnalat în raport).
  * Pur (fără pdf.js / pdf-lib) — se testează direct în Node.
  * @param {Array<{regions}>} list sursele pregătite
- * @returns {Array<{ index, base, picks: { 's.it': sursa }, duplicate }>}
+ * @returns {Array<{ index, base, picks: { 's.it': sursa }, whole: { 's.it': true }, duplicate }>}
  */
-export function planCombinations(list, { count = 1, subjects = [1, 2, 3], seed = null } = {}) {
+export function planCombinations(list, { count = 1, subjects = [1, 2, 3], seed = null, selection = null } = {}) {
   const S = (list || []).length;
   if (!S) return [];
-  const subj = normSubjects(subjects);
+  const subj = subjOf(subjects, selection);
+  if (!subj.length) throw new Error('Bifează cel puțin un exercițiu.');
   const n = Math.max(1, Math.min(200, parseInt(count, 10) || 1));
   const rnd = rngFrom(seed ?? ((Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0));
   const all = [...Array(S).keys()];
-  // câte poziții are fiecare subiect (la EN 6, la BAC 6 / 2 / 2)
+  // pozițiile fiecărui subiect (la EN 6, la BAC 6 / 2 / 2 — sau doar cele bifate)
   const positions = {};
+  for (const s of subj) positions[s] = positionsOf(list, s, selection);
+  // la fiecare poziție: sursele bune (cu subpunctele cerute), altfel problema întreagă
+  const whole = {};
+  const okFor = {};
   for (const s of subj) {
-    let m = 0;
-    for (let i = 0; i < S; i++) for (let it = 1; it <= 6; it++) if (hasRegion(list[i], `${s}.${it}`)) m = Math.max(m, it);
-    positions[s] = m;
+    for (const it of positions[s]) {
+      const key = `${s}.${it}`;
+      const want = wantOf(selection, key);
+      let ok = all.filter((i) => usable(list[i], key, want));
+      if (!ok.length && partialWant(want)) { ok = all.filter((i) => hasRegion(list[i], key)); if (ok.length) whole[key] = true; }
+      okFor[key] = new Set(ok);
+    }
   }
   // baza: o sursă care are titlurile tuturor subiectelor alese; se rotește între teste
   const complete = all.filter((i) => subj.every((s) => hasRegion(list[i], `S${s}`)));
@@ -469,11 +694,11 @@ export function planCombinations(list, { count = 1, subjects = [1, 2, 3], seed =
     const picks = {};
     for (const s of subj) {
       const P = perm(s, r);
-      for (let it = 1; it <= positions[s]; it++) {
+      for (const it of positions[s]) {
         const key = `${s}.${it}`;
         for (let k = 0; k < S; k++) {
           const cand = P[(off + it - 1 + k) % S];
-          if (hasRegion(list[cand], key)) { picks[key] = cand; break; }
+          if (okFor[key].has(cand)) { picks[key] = cand; break; }
         }
       }
     }
@@ -482,9 +707,9 @@ export function planCombinations(list, { count = 1, subjects = [1, 2, 3], seed =
   function randomPicks() {
     const picks = {};
     for (const s of subj) {
-      for (let it = 1; it <= positions[s]; it++) {
+      for (const it of positions[s]) {
         const key = `${s}.${it}`;
-        const c = all.filter((i) => hasRegion(list[i], key));
+        const c = [...okFor[key]];
         if (c.length) picks[key] = c[Math.floor(rnd() * c.length)];
       }
     }
@@ -499,7 +724,9 @@ export function planCombinations(list, { count = 1, subjects = [1, 2, 3], seed =
     for (let tries = 0; seen.has(sig) && tries < 40; tries++) { picks = randomPicks(); sig = sigOf(picks); }
     const duplicate = seen.has(sig);
     seen.add(sig);
-    plans.push({ index: t + 1, base: bases[t % bases.length], picks, duplicate });
+    const w = {};
+    for (const key of Object.keys(picks)) if (whole[key]) w[key] = true;
+    plans.push({ index: t + 1, base: bases[t % bases.length], picks, whole: w, duplicate });
   }
   return plans;
 }
@@ -526,34 +753,87 @@ const pageText = (a, p) => ((a.pageLines && a.pageLines[p]) || []).map((L) => L.
  *    obligatorii… două ore") — în locul ei, antetul `header`: rezultatul lui
  *    makeHeaderPng sau o funcție (lățimeaPt) → makeHeaderPng(…), ca antetul să
  *    aibă exact lățimea textului din pagină;
- *  • titlurile subiectelor (SUBIECTUL I (30 de puncte) + indicațiile) din bază.
- * @returns {{ bytes, report, sources, pages, text, pageTexts, size }}
+ *  • titlurile subiectelor (SUBIECTUL I (30 de puncte) + indicațiile) din bază;
+ *  • `selection` (bife): doar exercițiile bifate, iar la problemele de BAC doar
+ *    subpunctele bifate (enunțul problemei + a), c) …, cu spațierea originală).
+ *    Un subiect din care lipsește ceva primește titlul lui generat, cu punctajul
+ *    bifat („SUBIECTUL al II-lea (15 puncte)") + indicațiile din bază; testul
+ *    are copertă / antetul probei doar dacă e bifat TOT.
+ * @returns {{ bytes, report, sources, pages, text, pageTexts, size, points, wholeFallback }}
  */
-export async function composeExamPdf(prepared, plan, { subjects = [1, 2, 3], header = null, srcDocs = null } = {}) {
+export async function composeExamPdf(prepared, plan, { subjects = [1, 2, 3], header = null, srcDocs = null, selection = null } = {}) {
   await ensureLibs();
   const { PDFDocument } = window.PDFLib;
   const list = Array.isArray(prepared) ? prepared : (prepared && prepared.list) || [];
   if (!list.length || !plan) throw new Error('Nu am surse pentru combinare.');
-  const subj = normSubjects(subjects);
-  const full = subj.length === 3;
+  const subj = subjOf(subjects, selection);
   const docs = srcDocs || await openSourceDocs(list);
   const baseI = list[plan.base] ? plan.base : 0;
   const base = list[baseI];
   const W = base.W, H = base.H, TOP = 46, BOT = H - 46, GAP = 8;
+  // marginea textului (rândul „SUBIECTUL …" din sursa de bază) — antetele generate se aliniază la ea
+  const hx = Math.max(30, Math.min(110, Math.round(base.left || 30)));
+  // problemele cu subpuncte (BAC, Subiectele II și III: câte 2 probleme × 3 subpuncte × 5p)
+  const withParts = (s) => s > 1 && (base.counts?.[s] || 0) > 0 && base.counts[s] <= 3;
+  // lipsește ceva din subiectul s (o poziție nebifată sau o problemă cu doar unele subpuncte)?
+  const partialSubject = (s) => !!selection && (
+    positionsOf(list, s, null).some((it) => !((selection.items && selection.items[s]) || []).includes(it))
+    || positionsOf(list, s, selection).some((it) => partialWant(wantOf(selection, `${s}.${it}`))));
+  const full = subj.length === 3 && !subj.some(partialSubject);
 
   // 1) ce se așază, în ordine
   const blocks = [];
   const report = [];
+  let points = 0;
+  const wholeFallback = [];
   if (full && !base.hasCover && hasRegion(base, 'H')) blocks.push({ src: baseI, chunks: base.regions.H });
   for (const s of subj) {
-    if (hasRegion(base, `S${s}`)) blocks.push({ src: baseI, chunks: base.regions[`S${s}`], head: true });
-    for (let it = 1; it <= 6; it++) {
+    const items = [];
+    let pts = 0;
+    for (const it of positionsOf(list, s, selection)) {
       const key = `${s}.${it}`;
       const srcI = plan.picks ? plan.picks[key] : null;
       if (srcI == null || !hasRegion(list[srcI], key)) continue;
-      blocks.push({ src: srcI, chunks: list[srcI].regions[key] });
-      report.push(`S${s}.${it} ← ${list[srcI].label}`);
+      const src = list[srcI];
+      const want = wantOf(selection, key);
+      const P = src.parts && src.parts[key];
+      if (partialWant(want) && P && !(plan.whole && plan.whole[key]) && usable(src, key, want)) {
+        // enunțul problemei rămâne lângă primul subpunct; între bucățile aceleiași
+        // probleme nu se adaugă spațiu (tăieturile sunt în mijlocul albului dintre rânduri)
+        const ls = P.letters.filter((l) => want.includes(l));
+        items.push({ src: srcI, chunks: P.stem, keep: true, gap: 0 });
+        ls.forEach((l, i) => items.push({ src: srcI, chunks: P[l], gap: i < ls.length - 1 ? 0 : GAP + 6 }));
+        report.push(`S${s}.${it} ${ls.map((l) => `${l})`).join(', ')} ← ${src.label}`);
+        pts += 5 * ls.length;
+      } else {
+        items.push({ src: srcI, chunks: src.regions[key] });
+        const nota = partialWant(want) ? ' (problema întreagă: subpunctele nu s-au putut separa)' : '';
+        if (nota) wholeFallback.push(key);
+        report.push(`S${s}.${it} ← ${src.label}${nota}`);
+        pts += withParts(s) ? 5 * ((P && P.letters.length) || PART_LETTERS.length) : 5;
+      }
     }
+    if (!items.length) continue;
+    if (partialSubject(s) || !hasRegion(base, `S${s}`)) {
+      // titlul generat, cu punctajul bifat; indicațiile („Încercuiește litera…") din
+      // bază, cu mărimea literei din bază
+      const src = (base.regions[`S${s}`] || []).flatMap((c) => ((base.pageLines && base.pageLines[c.p]) || [])
+        .filter((L) => L.y <= c.top && L.y > c.bottom));
+      const head = src.find((L) => normTxt(L.text).startsWith('subiectul'));
+      const rest = src.filter((L) => L !== head && !normTxt(L.text).startsWith('subiectul'))
+        .map((L) => ({ t: L.text.replace(/\(\s*\d+\s*(de\s+)?puncte\s*\)/gi, '').replace(/\s+/g, ' ').trim(), h: L.h }))
+        .filter((x) => x.t.length > 2);
+      const size = (h) => (h >= 8 && h <= 16 ? h : 12);
+      const title = `${s === 1 ? 'SUBIECTUL I' : `SUBIECTUL al ${ROMAN[s]}-lea`} (${pointsLabel(pts)})`;
+      blocks.push({
+        img: await makeSubjectTitlePng({ title, lines: rest.map((x) => x.t), size: size(head && head.h), lineSize: size(rest[0] && rest[0].h) }, { widthPt: W - hx - 30 }),
+        head: true,
+      });
+    } else {
+      blocks.push({ src: baseI, chunks: base.regions[`S${s}`], head: true });
+    }
+    blocks.push(...items);
+    points += pts;
   }
   if (!report.length) throw new Error('Nu am găsit în PDF-urile-sursă exercițiile subiectelor alese.');
 
@@ -562,7 +842,7 @@ export async function composeExamPdf(prepared, plan, { subjects = [1, 2, 3], hea
   const out = await PDFDocument.create();
   const bySrc = new Map();
   for (const b of blocks) {
-    for (const c of b.chunks) {
+    for (const c of b.chunks || []) {
       if (!bySrc.has(b.src)) bySrc.set(b.src, []);
       bySrc.get(b.src).push(c);
     }
@@ -589,8 +869,7 @@ export async function composeExamPdf(prepared, plan, { subjects = [1, 2, 3], hea
   const newPage = () => { pageTexts.push(txt.join('\n')); page = out.addPage([W, H]); cursor = TOP; txt = []; };
   // antetul generat (testele parțiale), aliniat cu textul paginii (marginea
   // rândului „SUBIECTUL …" din sursa de bază, simetric)
-  const hx = Math.max(30, Math.min(110, Math.round(base.left || 30)));
-  const hdr = typeof header === 'function' ? await header(W - 2 * hx) : header;
+  const hdr = typeof header === 'function' ? await header(W - 2 * hx, { points }) : header;
   if (hdr && hdr.png) {
     const img = await out.embedPng(hdr.png);
     const w = W - 2 * hx;
@@ -599,17 +878,26 @@ export async function composeExamPdf(prepared, plan, { subjects = [1, 2, 3], hea
     cursor += h + GAP;
     if (hdr.text) txt.push(hdr.text);
   }
+  const heightOf = (b) => (b.img ? b.img.heightPt : (b.chunks || []).reduce((sum, c) => sum + (c.top - c.bottom), 0));
   for (let bi = 0; bi < blocks.length; bi++) {
     const b = blocks[bi];
     // titlul subiectului („SUBIECTUL al II-lea" + indicațiile) rămâne lângă primul
-    // lui exercițiu: dacă nu încap împreună, subiectul începe pe pagina următoare
-    if (b.head && cursor > TOP) {
+    // lui exercițiu, iar enunțul unei probleme lângă primul ei subpunct: dacă nu
+    // încap împreună, merg amândouă pe pagina următoare
+    if ((b.head || b.keep) && cursor > TOP) {
       const next = blocks[bi + 1];
-      const need = b.chunks.reduce((sum, c) => sum + (c.top - c.bottom), 0)
-        + (next && !next.head && next.chunks[0] ? next.chunks[0].top - next.chunks[0].bottom : 0);
+      const first = next && !next.head && next.chunks && next.chunks[0];
+      const need = heightOf(b) + (first ? first.top - first.bottom : 0);
       if (cursor + need > BOT) newPage();
     }
-    for (const c of b.chunks) {
+    if (b.img) {
+      const img = await out.embedPng(b.img.png);
+      if (cursor + b.img.heightPt > BOT && cursor > TOP) newPage();
+      page.drawImage(img, { x: hx, y: H - cursor - b.img.heightPt, width: b.img.widthPt, height: b.img.heightPt });
+      cursor += b.img.heightPt;
+      txt.push(b.img.text);
+    }
+    for (const c of b.chunks || []) {
       const emb = embedded.get(c);
       if (!emb) continue;
       const h = c.top - c.bottom;
@@ -618,7 +906,7 @@ export async function composeExamPdf(prepared, plan, { subjects = [1, 2, 3], hea
       cursor += h;
       txt.push(chunkText(list[b.src], c));
     }
-    cursor += GAP;
+    cursor += b.gap ?? GAP;
   }
   pageTexts.push(txt.join('\n'));
 
@@ -628,18 +916,41 @@ export async function composeExamPdf(prepared, plan, { subjects = [1, 2, 3], hea
   return {
     bytes, report, sources: used, pages: out.getPageCount(),
     text: pageTexts.filter(Boolean).join('\n\n'), pageTexts, size: bytes.length,
+    points, full, wholeFallback,
   };
 }
 
 // Combină UN subiect (generatorul de subiecte, agentul din Admin): coperta +
 // antetele dintr-o sursă, fiecare poziție din ALTĂ sursă. `subjects` (opțional)
-// păstrează doar subiectele alese.
-export async function combineExamPdfs(sources, { onProgress, subjects = [1, 2, 3] } = {}) {
+// păstrează doar subiectele alese; `selection` (opțional) doar exercițiile bifate.
+export async function combineExamPdfs(sources, { onProgress, subjects = [1, 2, 3], selection = null } = {}) {
   const prepared = await prepareExamSources(sources, { onProgress });
   onProgress?.('Compun subiectul nou…');
-  const [plan] = planCombinations(prepared.list, { count: 1, subjects });
-  const r = await composeExamPdf(prepared, plan, { subjects });
+  const [plan] = planCombinations(prepared.list, { count: 1, subjects, selection });
+  const r = await composeExamPdf(prepared, plan, { subjects, selection });
   return { bytes: r.bytes, report: r.report, sources: r.sources, text: r.text, pageTexts: r.pageTexts, pages: r.pages };
+}
+
+// Titlul unui subiect din care s-au bifat doar unele exerciții: „SUBIECTUL al
+// II-lea (15 puncte)" + indicațiile subiectului — punctajul din PDF-ul-sursă
+// („(30 de puncte)") nu mai e adevărat. Desenat pe canvas, ca antetul.
+export async function makeSubjectTitlePng({ title = '', lines = [], size = 12, lineSize = 12 } = {}, { widthPt = 500, scale = 3 } = {}) {
+  const LH = Math.max(size, lineSize) * 1.2;
+  const heightPt = Math.round(size * 1.2 + LH * lines.length + 8);
+  const c = document.createElement('canvas');
+  c.width = Math.round(widthPt * scale);
+  c.height = Math.round(heightPt * scale);
+  const g = c.getContext('2d');
+  g.scale(scale, scale);
+  const SERIF = '"Times New Roman", Times, "Liberation Serif", "DejaVu Serif", serif';
+  g.fillStyle = '#000';
+  g.textBaseline = 'alphabetic';
+  g.font = `bold ${size}px ${SERIF}`;
+  g.fillText(title, 0, size * 1.05, widthPt);
+  g.font = `${lineSize}px ${SERIF}`;
+  lines.forEach((t, i) => g.fillText(t, 0, size * 1.05 + LH * (i + 1), widthPt));
+  const png = await canvasPng(c);
+  return { png, widthPt, heightPt, text: [title, ...lines].join('\n') };
 }
 
 // Antetul testelor PARȚIALE (doar unele subiecte): coperta oficială spune „Toate
@@ -779,3 +1090,6 @@ export function stratifyBySubcategory(rows) {
   }
   return out;
 }
+
+// pentru testele din Node (test/teste-pdf-bife.test.js): analiza pe rânduri de text sintetice
+export const _pentruTeste = { structureFrom };

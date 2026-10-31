@@ -131,7 +131,7 @@ test('motorul PDF: analiza o singură dată, compunere cu încorporare pe sursă
   // testul complet: coperta bazei; parțial: antetul generat, fără copertă
   assert.match(src, /if \(full && base\.hasCover\) \{/);
   assert.match(src, /if \(full && !base\.hasCover && hasRegion\(base, 'H'\)\)/);
-  assert.match(src, /const hdr = typeof header === 'function' \? await header\(W - 2 \* hx\) : header;/);
+  assert.match(src, /const hdr = typeof header === 'function' \? await header\(W - 2 \* hx, \{ points \}\) : header;/);
   // textul — doar regiunile așezate (fișierul ar avea și textul decupat vizual)
   assert.match(src, /txt\.push\(chunkText\(list\[b\.src\], c\)\);/);
   // analiza verificării se păstrează pe sursă și nu se repetă
@@ -141,14 +141,14 @@ test('motorul PDF: analiza o singură dată, compunere cu încorporare pe sursă
   assert.match(src, /doc\.destroy\(\);/);
   // „cerneala" paginii (randare mică): tăieturile nu trec prin figuri, iar albul de
   // sub ultimul exercițiu al paginii se taie doar la Subiectele I și II
-  assert.match(src, /async function inkRows\(doc, pages\)/);
+  assert.match(src, /async function inkRows\(doc, pages, SCALE = 1\)/);
   assert.match(src, /const floor = mk\.y \+ 14;/);
   assert.match(src, /if \(y < ceil && y - mk\.cut <= 12\) \{/);
-  assert.match(src, /if \(!\/\^\[12\]\\\.\\d\$\/\.test\(key\)\) continue;\s*for \(const c of chunks\) \{\s*if \(!c\.toEnd \|\| !ink\[c\.p\]\) continue;/);
+  assert.match(src, /const trim = s3 && s3 <= 3 \? \/\^\[123\]\\\.\\d\$\/ : \/\^\[12\]\\\.\\d\$\/;\s*for \(const \[key, chunks\] of Object\.entries\(regions\)\) \{\s*if \(!trim\.test\(key\)\) continue;\s*for \(const c of chunks\) \{\s*if \(!c\.toEnd \|\| !ink\[c\.p\]\) continue;/);
   // titlul unui subiect nu rămâne singur la capătul paginii
-  assert.match(src, /if \(b\.head && cursor > TOP\) \{/);
+  assert.match(src, /if \(\(b\.head \|\| b\.keep\) && cursor > TOP\) \{/);
   // API-ul vechi rămâne (generatorul de subiecte și agentul din Admin)
-  assert.match(src, /export async function combineExamPdfs\(sources, \{ onProgress, subjects = \[1, 2, 3\] \} = \{\}\)/);
+  assert.match(src, /export async function combineExamPdfs\(sources, \{ onProgress, subjects = \[1, 2, 3\], selection = null \} = \{\}\)/);
   assert.match(src, /return \{ bytes: r\.bytes, report: r\.report, sources: r\.sources, text: r\.text, pageTexts: r\.pageTexts, pages: r\.pages \};/);
 });
 
@@ -174,8 +174,8 @@ test('generatorul PDF: subiectele alese, salvare + publicare + descărcare, bazi
   assert.match(g, /SUBJECT_CHOICES\.map\(\(c\) => \(/);
   assert.match(g, /const TEST_SUBCATS = new Set\(\['variante', 'simulari', 'teste-antrenament', ''\]\);/);
   assert.match(g, /fetchPdfSources\(stratifyBySubcategory\(rows\), getUrlFor, \{[\s\S]{0,140}probe: probeExamPdf/);
-  assert.match(g, /const planuri = planCombinations\(prep\.list, \{ count: n, subjects \}\);/);
-  assert.match(g, /header: complet \? null : \(latime\) => makeHeaderPng\(/);
+  assert.match(g, /const planuri = planCombinations\(prep\.list, \{ count: n, subjects, selection: selectie \}\);/);
+  assert.match(g, /header: complet \? null : \(latime, info2\) => makeHeaderPng\(/);
   assert.match(g, /await aiClient\.saveCombinedPdf\(\{[\s\S]{0,300}text: r\.text, pageTexts: r\.pageTexts/);
   assert.match(g, /onDone\?\.\(teste\.map\(\(t\) => \(\{ source: 'personal', refId: t\.privateId, title: t\.title, isFree: true \}\)\)\);/);
   assert.match(g, /⬇ Descarcă toate testele într-un singur PDF/);

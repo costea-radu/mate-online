@@ -50,7 +50,7 @@ const KIND_GROUPS = [
 ];
 const kindShort = (k) => KIND_GROUPS.find((x) => x.id === k)?.short || 'Subiect';
 
-const MODEL_LABEL = { 'gpt-5.6-terra': 'GPT-5.6 Terra', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'gpt-5-mini': 'GPT-5 mini', 'claude-opus-5-5': 'Claude Opus 5.5' };
+const MODEL_LABEL = { 'gpt-5.6-terra': 'GPT-5.6 Terra', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'gpt-6.1-terra': 'GPT-6.1 Terra', 'gpt-6.1-sol': 'GPT-6.1 Sol', 'gpt-5-mini': 'GPT-5 mini', 'claude-opus-5-5': 'Claude Opus 5.5' };
 const modelLabel = (id) => MODEL_LABEL[id] || id || '—';
 // momentul build-ului (vite.config.js → define): ce versiune a site-ului rulează telefonul
 // eslint-disable-next-line no-undef

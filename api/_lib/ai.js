@@ -70,8 +70,11 @@ const GEN_MODEL = process.env.AI_GEN_CHAT_MODEL || MODEL_PREFIX + 'gpt-5.6-sol';
 // a,b --mode tutor`; apoi setezi AI_TUTOR_MODEL (ex. gpt-5-mini) în env.
 const TUTOR_MODEL = process.env.AI_TUTOR_MODEL || CHAT_MODEL;
 const TUTOR_MODES = new Set(['tutor', 'explain', 'hint']);
-// Efortul de raționament trimis modelelor cu raționament (gpt-5.x, o-series):
-// 'minimal' | 'low' | 'medium' | 'high'. Nesetat → providerul decide (medium).
+// Efortul de raționament trimis modelelor cu raționament (gpt-5.x, gpt-6.x,
+// o-series): 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'.
+// Nesetat → providerul decide (medium). Fiecare model acceptă doar o parte
+// (ex. gpt-6.1-sol: low…max, fără none/minimal) — valoarea refuzată o scoate
+// adaptBodyToError, iar cererea pleacă din nou cu implicitul providerului.
 // Cu `low`, gpt-5-mini rămâne ieftin și rapid; se poate suprascrie per apel.
 const REASONING_EFFORT = String(process.env.AI_REASONING_EFFORT || '').trim().toLowerCase() || null;
 // Modelul de chat după MOD și context: pe un PDF deschis → modelul PDF (citește
@@ -112,8 +115,14 @@ const PRICES_USD = {
   // costă, iar degradarea peste bugetul zilnic soft pornea mult prea devreme.
   // Platforma folosește doar terra și sol (plus gpt-4o-mini).
   'gpt-5.6-terra':          { in: 2,    out: 12 },   // modelul PDF / corectare / pre-generare
-  'gpt-5.6-sol':            { in: 4,    out: 20 },   // flagship (redus de la 5/30 după lansare)
+  'gpt-5.6-sol':            { in: 4,    out: 20 },   // flagship (redus de la 5/30; preț promoțional, garantat
+                                                    // cel puțin până pe 21 nov. 2026 — dacă se schimbă: AI_PRICES_JSON)
   'gpt-5.6':                { in: 5,    out: 30 },   // altă variantă gpt-5.6, nefolosită → conservator
+  // Familia gpt-6.1 (lansată la sfârșitul lui sept. 2026; prețuri verificate pe
+  // 1 nov. 2026 în developers.openai.com/api/docs/models). Fără intrările astea
+  // ar fi căzut pe prețul implicit 3/15 — costul real, supraestimat de 1,5–3×.
+  'gpt-6.1-sol':            { in: 2,    out: 10 },   // jumătate din prețul lui gpt-5.6-sol
+  'gpt-6.1-terra':          { in: 1,    out: 5 },    // are vedere (PDF / poze), sub gpt-5.6-terra (2/12)
   'text-embedding-3-small': { in: 0.02, out: 0 },
   'text-embedding-3-large': { in: 0.13, out: 0 },
   'claude-haiku-4-5':       { in: 1,    out: 5 },
@@ -426,15 +435,22 @@ function cycleInfo(now = new Date()) {
 const cycleStart = (now = new Date()) => cycleInfo(now).startsAt;
 
 // ─── Compatibilitate parametri între generațiile de modele ───────────────────
-// Modelele noi OpenAI (gpt-5.x, o1/o3/o4...) REFUZĂ `max_tokens` (cer
+// Modelele noi OpenAI (gpt-5.x, gpt-6.x, o1/o3/o4...) REFUZĂ `max_tokens` (cer
 // `max_completion_tokens`) și unele refuză `temperature` ≠ 1. Construim
 // corpul potrivit după numele modelului și, ca plasă de siguranță, reparăm
 // automat la eroarea 400 „unsupported parameter" și reîncercăm o dată.
-const isNewGenModel = (m) => /\bgpt-5|^o[1-9]\b|\bo[1-9]-/i.test(String(m || ''));
+// Recunoaște orice gpt-N cu N ≥ 5 (gpt-5-mini, gpt-5.6-sol, gpt-6.1-terra,
+// gpt-7…), cu sau fără prefixul gateway-ului („openai/gpt-6.1-sol"); NU și
+// gpt-4o / gpt-4.1 / gpt-4.5 / gpt-3.5. Până pe 1 nov. 2026 recunoștea DOAR
+// gpt-5.x: un gpt-6.1-sol pleca cu max_tokens + temperature, adică eroare 400
+// sau, în cel mai bun caz, 7.500 de tokeni în loc de 16.000 și răspuns tăiat
+// (reîncercarea cu buget maxim de mai jos nu se aplica).
+const isNewGenModel = (m) => /\bgpt-(?:[5-9]|[1-9]\d)(?!\d)|^o[1-9]\b|\bo[1-9]-/i.test(String(m || ''));
 // `schema` (opțional): JSON Schema STRICT → Structured Outputs (decodare
 // constrânsă: JSON garantat valid, enum-urile respectate). Fără schemă, `json`
 // → modul clasic json_object. Vezi chatJson() și helperul S de mai jos.
-const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+// 'max' există la gpt-5.6 și gpt-6.1 (până acum era ignorat în tăcere)
+const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 function buildBody({ model, temperature, maxTokens, messages, system, json, stream, schema = null, schemaName = 'raspuns', reasoningEffort = REASONING_EFFORT, tools = null }) {
   const body = { model, messages: system ? [{ role: 'system', content: system }, ...messages] : [...messages] };
   // unelte (tool calling, Etapa 3): format OpenAI `tools`; bucla de apeluri e în chat/chatStream

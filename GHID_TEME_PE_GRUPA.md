@@ -150,7 +150,51 @@ subiectele PDF ale site-ului — aceeași metodă ca la *„📄 Generează subi
 | Alegerea | Cum arată fiecare PDF |
 |---|---|
 | Toate subiectele | coperta oficială a unuia dintre subiectele-sursă (la BAC, antetul probei: „Proba E. c) … Toate subiectele sunt obligatorii…"), apoi cele trei subiecte |
-| Doar unele subiecte | fără copertă (ea vorbește de toate subiectele și de timpul examenului); în locul ei, un **antet scurt**: „Evaluarea Națională · Matematică", „Test de antrenament · Subiectul I (30 de puncte)", „Test combinat nr. N" și rândul „Numele și prenumele … Clasa … Data" |
+| Doar unele subiecte | fără copertă (ea vorbește de toate subiectele și de timpul examenului); în locul ei, un **antet scurt**: „Evaluarea Națională · Matematică", „Test de antrenament · Subiectul I — 30 de puncte", „Test combinat nr. N" și rândul „Numele și prenumele … Clasa … Data" |
+
+#### Bife pe exerciții și pe subpuncte (1 noiembrie 2026)
+
+Sub alegerile rapide, **„Exercițiile incluse"** are o bifă pentru fiecare exercițiu
+al fiecărui subiect (implicit toate bifate):
+
+- **EN**: Subiectul I `1.`–`6.`, Subiectul al II-lea `1.`–`6.`, Subiectul al III-lea `1.`–`6.`;
+- **BAC**: Subiectul I `1.`–`6.`; la Subiectele **II și III**, fiecare problemă (`1.`, `2.`)
+  cu subpunctele ei **`a)` `b)` `c)`** — în test intră enunțul problemei și doar
+  subpunctele bifate (de exemplu `1.` cu `a)` și `c)`).
+
+Bifa subiectului și bifa problemei le schimbă pe toate (sunt „pe jumătate" când e
+bifată doar o parte; un clic pe una „pe jumătate" le bifează pe toate). Alegerile
+rapide de deasupra bifează subiectele întregi și se aprind singure când bifele
+corespund uneia dintre ele. Lângă fiecare subiect apare punctajul bifat (5 puncte
+pe exercițiu, la BAC 5 puncte pe subpunct), iar dedesubt rezumatul: „Subiectul I:
+1, 2, 4 · Subiectul al II-lea: 1 a), c); 2 — 35 de puncte". Fără nimic bifat,
+butonul de generare e oprit.
+
+Cum iese testul:
+
+- un subiect din care **lipsește ceva** are **titlul cu punctajul bifat**
+  („SUBIECTUL al II-lea (15 puncte)") + indicațiile lui („Încercuiește litera…"), cu
+  mărimea literei din subiectul-sursă; un subiect întreg își păstrează titlul original;
+- coperta oficială / antetul probei — doar dacă e bifat **tot**; altfel, antetul
+  scurt, cu punctajul bifat;
+- exercițiile și subpunctele își **păstrează numărul** din subiectul oficial (nu se
+  renumerotează): `1.`, `3.`, `6.`; `a)`, `c)`;
+- între enunțul unei probleme și subpunctele ei, spațierea e cea originală
+  (tăieturile cad în mijlocul albului dintre rânduri);
+- titlul testului primește „(exerciții alese)", iar „▸ Sursele" arată și subpunctele
+  (`S2.1 a), c) ← …`).
+
+Subpunctele se recunosc din textul PDF-ului (rândurile „5p a)", „5p b)", „5p c)" de
+la marginea din stânga, toate trei, în ordine; și când problema trece pe pagina
+următoare). Dacă într-o sursă două subpuncte se ating (nicio linie albă între
+rânduri — de exemplu o fracție urcă până în rândul de deasupra), sursa aceea nu se
+desparte pe subpuncte, ca să nu iasă o formulă ciuntită: problema vine din altă
+sursă, iar dacă nu se poate despărți în niciuna, intră **întreagă**, cu avertisment.
+
+Tot de acum: la BAC se taie și **albul de la capătul paginii** la Subiectul III
+(subiectele de BAC nu au spațiu de scris — elevii scriu pe foaia de examen), deci
+testele de BAC ies mai scurte. La EN, sub problemele Subiectului III rămâne spațiul
+de scris, ca până acum.
 
 Fiecare test:
 
@@ -184,6 +228,8 @@ rezolvă pe hârtie.
 | „Nu am putut descărca suficiente subiecte-sursă cu structură de examen" | PDF-urile găsite sunt scanate (fără text) sau nu au structura oficială („SUBIECTUL I … 1. … 6.") |
 | „Din subiectele găsite se pot face cel mult X teste diferite" | de obicei la „Doar Subiectul al II-lea / al III-lea" de BAC (câte 2 probleme), cu puține surse — unele teste se repetă |
 | „nepublicat (…)" la un test | publicarea a picat; testul e salvat — se publică din „Testele și exercițiile mele" → 🏛️ Publică |
+| „La unele probleme, subpunctele nu s-au putut separa în niciun PDF-sursă — au intrat întregi" | ai bifat doar unele subpuncte, dar în subiectele-sursă găsite problema nu se poate tăia curat între subpuncte; în „▸ Sursele", rândul ei are „(problema întreagă: …)" |
+| „Bifează cel puțin un exercițiu." | nu e nimic bifat la „Exercițiile incluse" |
 
 ### Timpul de lucru (pasul 5)
 

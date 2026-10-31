@@ -45,7 +45,8 @@ const MOCK = opt('mock', null); // true | 'wrong'
 const CONC = parseInt(opt('concurrency', '3'), 10) || 3;
 const OUT = String(opt('out', path.join(__dirname, 'reports')));
 const INCLUDE_REVIEW = !!opt('include-review', null);
-// efortul de raționament (modele gpt-5.x / o-series): 'minimal'|'low'|'medium'|'high'
+// efortul de raționament (modele gpt-5.x / gpt-6.x / o-series):
+// 'none'|'minimal'|'low'|'medium'|'high'|'xhigh'|'max' (fiecare model acceptă doar o parte)
 // — se setează ÎNAINTE de a încărca ai.js (citește AI_REASONING_EFFORT)
 const EFFORT = opt('effort', null);
 if (EFFORT && EFFORT !== true) process.env.AI_REASONING_EFFORT = String(EFFORT);

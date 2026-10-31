@@ -437,6 +437,7 @@ Abonamentul e 50 lei/lună. Defaulturile alocă AI-ului maxim 12 lei/utilizator/
 | generare exercițiu de antrenament (GEN_MODEL = gpt-5.6-sol, 4/20 USD/1M) | ~0,2 lei |
 | set de Meditații (înlocuiri, GEN_MODEL) | ~0,5 lei |
 | generare test de examen (GEN_MODEL, ~10k in) | **1,0–1,7 lei** |
+| aceeași generare pe `gpt-6.1-sol` (2/10 USD/1M, prețul din nov. 2026; `AI_GEN_CHAT_MODEL`) | ~0,5–0,85 lei (estimare: aceiași tokeni, jumătate din preț) |
 | verificarea a 24 de itemi pe sol (`AI_VERIFY_MODEL` nesetat) | ~1,17 lei |
 | aceeași verificare pe `gpt-5-mini` | ~0,11 lei |
 | corectare test (PDF_MODEL = gpt-5.6-terra, 2/12 USD/1M) | ~0,15–0,4 lei |
@@ -467,6 +468,20 @@ generare — exact ce nu vrei.
 
 (Până pe 22 august 2026 terra era contorizat la prețul lui sol, 5/30 — o corectare
 „costa" în contor ~0,4–0,9 lei, de 2,5× mai mult decât real; vezi CHANGELOG.)
+
+**gpt-6.1 (din 1 nov. 2026).** `gpt-6.1-sol` (2/10 USD/1M) și `gpt-6.1-terra` (1/5, cu vedere)
+sunt în tabelul de prețuri și merg pe drumul modelelor cu raționament: `isNewGenModel`
+recunoaște orice gpt-N cu N ≥ 5, deci primesc `max_completion_tokens` (16000 la un test de
+examen), fără `temperature`, plus reîncercarea cu buget maxim la răspuns tăiat. Până atunci
+codul recunoștea doar gpt-5.x: cu `AI_GEN_CHAT_MODEL=gpt-6.1-sol`, cererea pleca cu
+`max_tokens` + `temperature` → eroare 400. Comutarea se face doar din env:
+`AI_GEN_CHAT_MODEL=gpt-6.1-sol` (generare + corectarea fără barem + verificatorul, dacă
+`AI_VERIFY_MODEL` lipsește), `AI_VISION_MODEL` / `AI_PDF_CHAT_MODEL=gpt-6.1-terra` (poze / PDF).
+La același număr de tokeni, un test de examen costă cam jumătate, iar un profesor primește de
+două ori mai multe generări din același buget. Compară întâi calitatea pe câteva subiecte EN.
+Prețul de 4/20 al lui `gpt-5.6-sol` e promoțional, garantat cel puțin până pe 21 nov. 2026;
+dacă OpenAI îl schimbă, pune-l pe cel nou în `AI_PRICES_JSON`, altfel contorul subestimează
+costul real.
 
 Deci defaulturile înseamnă, practic: sute de mesaje de chat pe zi SAU un test de examen
 complet plus verificare și chat pe zi la calitate sol (degradarea pe modelul standard pornește

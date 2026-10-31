@@ -4,6 +4,51 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 1 noiembrie 2026 (2) — ☑️ Teste PDF pe grupă: bife pe exerciții și, la BAC, pe subpunctele a), b), c)
+
+Cererea: „la generatorul pdf de teste pe grupa creat ultima data, fa sa pot alege exercitiile pe care sa la includ la fiecare subiect, prin bifare. la bac, la subiectul II si III, fa sa pot bifa subpunctele a), b) sau c)"
+
+### 1) Generatorul (`src/components/CombinedPdfGenerator.jsx`)
+- **„Exercițiile incluse"**: la fiecare subiect, o bifă pe exercițiu (EN: 6 · 6 · 6; BAC: 6 la Subiectul I). La BAC, la Subiectele **II și III**, fiecare problemă cu bifele **a), b), c)**. Bifa subiectului / a problemei le schimbă pe toate (e „pe jumătate" când e bifată doar o parte). Implicit, totul e bifat.
+- Alegerile rapide (Toate · Doar I · Doar II · Doar III · Doar I și II) bifează subiectele întregi și se aprind singure când bifele corespund uneia dintre ele. Schimbarea examenului (EN ↔ BAC = altă structură) păstrează, întregi, subiectele care aveau ceva bifat.
+- Punctajul bifat la fiecare subiect (5p pe exercițiu; la BAC 5p pe subpunct), rezumatul („Subiectul I: 1, 2, 4 · Subiectul al II-lea: 1 a), c); 2 — 35 de puncte") și butonul cu „exerciții alese". Fără nimic bifat, butonul e oprit.
+- Titlul testului: „… (exerciții alese)"; antetul scurt are punctajul bifat; în `payload.combined` se salvează și `points` și `selection`. La fiecare test: punctajul; avertisment dacă o problemă a intrat întreagă.
+
+### 2) Motorul (`src/lib/pdfCombine.js`)
+- **Subpunctele**: la analiza unui subiect de BAC (Subiectele II și III, câte 2 probleme), rândurile „5p a)", „5p b)", „5p c)" de la marginea din stânga, toate trei și în ordine, împart problema în **enunț + a) + b) + c)** — și când problema trece pe pagina următoare (`analysis.parts`, `splitRegion`). Tăietura cade în mijlocul albului dintre două rânduri, găsit pe harta cernelii (la BAC, de 2× mai fină: albul dintre rânduri are uneori doar 1–2pt). Dacă rândurile se ating (de ex. o fracție urcă până în rândul de deasupra), sursa nu se desparte pe subpuncte — niciodată o formulă ciuntită.
+- **Planul** (`planCombinations`, `maxDistinctTests`) primește `selection`: doar pozițiile bifate; la o problemă cu doar unele subpuncte, doar sursele în care s-au putut separa; dacă nu e niciuna, problema întreagă (`whole`, semnalat în raport).
+- **Compunerea** (`composeExamPdf`): enunțul problemei rămâne lângă primul subpunct (pe aceeași pagină), între bucățile aceleiași probleme nu se adaugă spațiu. Un subiect din care lipsește ceva primește titlul generat cu punctajul bifat („SUBIECTUL al II-lea (15 puncte)") + indicațiile lui, cu mărimea literei din sursă (`makeSubjectTitlePng`); coperta / antetul probei — doar la testul bifat întreg. Raportul: `S2.1 a), c) ← sursa`. Întoarce și `points`.
+- La BAC, albul de la capătul paginii se taie și la **Subiectul III** (subiectele de BAC n-au spațiu de scris), inclusiv pe ultima pagină a sursei — testele de BAC ies mai scurte (cel complet, pe subiectele de probă: 2 pagini în loc de 3). La EN, Subiectul III rămâne neatins (spațiul de scris).
+- Apelurile fără `selection` (generatorul de subiecte, agentul din Admin) merg exact ca înainte.
+
+**Verificat:** `npm test` — 1011 teste, toate trec (noi: `test/teste-pdf-bife.test.js`, 9 — selecția și punctajele, alegerile rapide, planul cu bife, recunoașterea subpunctelor pe rânduri de text, inclusiv peste pagină, `splitRegion`, motorul și interfața; actualizate: `test/teste-pdf-combinate.test.js`). `vite build` trece. În Chromium (pdf.js 3.11.174 + pdf-lib 1.17.1), pe subiecte sintetice BAC cu „5p" în margine, rânduri la 14pt, o fracție etajată, litere mari cu diacritice la început de rând și o problemă trecută pe pagina următoare: subpunctele găsite în toate sursele, sursa cu fracția lipită de rândul de deasupra refuzată la despărțire, testele parțiale cu exact exercițiile și subpunctele bifate (marcaje verificate în ordine), titlurile cu punctajul corect, nimic tăiat (verificat pe imagini); EN cu exerciții alese și cu un subiect întreg + unul parțial; testul complet — ca înainte. Interfața reală, cu Supabase și `/api` simulate: bifele EN și BAC, starea „pe jumătate", punctajele, testele salvate cu `selection`/`points`, butonul oprit fără bife, telefonul (390px) fără derulare orizontală. Fluxurile vechi ale motorului (teste complete, doar unele subiecte, API-ul generatorului de subiecte) — neschimbate.
+
+**De făcut:** doar commit + deploy (fără SQL nou, fără variabile noi).
+
+---
+
+## 1 noiembrie 2026 — 🤖 Modelele gpt-6.x (gpt-6.1-sol, gpt-6.1-terra) merg ca modele cu raționament
+
+Cererea: „fa reparatia pentru gpt-6.x"
+
+### Ce era greșit (`api/_lib/ai.js`)
+- `isNewGenModel` recunoștea doar `gpt-5…` (și seria o). Cu `AI_GEN_CHAT_MODEL=gpt-6.1-sol` (2/10 USD/1M, jumătate din `gpt-5.6-sol`), cererile plecau cu parametrii modelelor vechi: `max_tokens` + `temperature`. OpenAI le refuză la modelele cu raționament: primul 400 (`max_tokens`) se repara singur, al doilea (temperatura) dădea „LLM 400", deci generarea cădea. Chiar și la un provider mai îngăduitor, testul de examen primea 7.500 de tokeni în loc de 16.000 și nu avea reîncercarea la răspuns tăiat.
+- `PRICES_USD` n-avea gpt-6.x → prețul implicit 3/15: cost supraestimat de 1,5× la sol și de 3× la terra, deci bugetele în lei se „consumau" mai repede decât în realitate.
+
+### Ce am schimbat
+- `isNewGenModel` recunoaște orice gpt-N cu N ≥ 5 (gpt-5-mini, gpt-5.6-sol, gpt-6.1-terra, gpt-7…), și cu prefixul gateway-ului (`openai/gpt-6.1-sol`). gpt-4o / gpt-4.1 / gpt-4.5 / gpt-3.5 rămân pe drumul vechi.
+- Prețuri noi: `gpt-6.1-sol` 2/10, `gpt-6.1-terra` 1/5 (verificate pe 1 nov. 2026 în paginile modelelor OpenAI). La `gpt-5.6-sol`, notă: prețul de 4/20 e promoțional, garantat cel puțin până pe 21 nov. 2026.
+- Efortul de raționament acceptă și `max` (îl au gpt-5.6 și gpt-6.1; până acum era ignorat în tăcere). O valoare pe care modelul n-o are (ex. `minimal` la gpt-6.1-sol) se scoate automat, ca înainte.
+- Admin → lecții live: etichete pentru GPT-6.1 Sol / Terra (`src/components/LiveAdmin.jsx`).
+- Documentație: `.env.ai.example` (alternativele gpt-6.1, valorile efortului, prețul promoțional), `GHID_LIMITE_AI.md` (rând nou în tabelul de costuri + secțiunea gpt-6.1), comentariul din `eval/run.js`.
+- `test/pregatire-examen.test.js`: testul „după cele 8 incluse → 30 lei" punea ședințele „acum − 1 oră", deci pica în prima oră a fiecărei luni (ora României). Acum nu le pune înainte de 1 ale lunii. Codul aplicației era corect.
+
+**Verificat:** `npm test` — 1002 teste, toate trec (noi: `test/modele-gpt6.test.js`, 11: recunoașterea, corpul cererii „Generează subiect examen", reîncercarea la răspuns tăiat / gol, poza pe terra, efortul refuzat, fluxul EN cu regenerarea țintită și verificarea celor 12 grile, prețurile — totul pe un provider simulat care refuză `max_tokens` și temperatura, ca OpenAI). Pe codul vechi, 10 din cele 11 cad (generarea: „LLM 400 … temperature"). `vite build` trece.
+
+**De făcut:** commit + deploy. Comutarea e opțională, doar din Vercel: `AI_GEN_CHAT_MODEL=gpt-6.1-sol` (și, dacă vrei, `AI_VISION_MODEL` / `AI_PDF_CHAT_MODEL=gpt-6.1-terra`). Fără variabile, nu se schimbă nimic: rămâne gpt-5.6.
+
+---
+
 ## 31 octombrie 2026 — 📎 Teste PDF combinate în „Test pe grupă" · 📄 „Generează subiect examen" în meniul profesorilor
 
 Cererea: „in Asistent AI pentru profesori: * fa ca la testele pe grupa sa se poata genera PDF care sa combine exercitiile din testele din site, exact cum se genereaza subiecte de evaluare nationala. aceste tipuri de teste: - sa se salveze in "testele si exercitiile mele"; - sa se posteze automat in "biblioteca utilizatorilor"; - sa se poata descarca; - tot aici sa se poata alege cate subiecte sa se genereze: doar subiectul I, doar subiectul II , doar subiectul III, doar subiectele I si II * In contul de profesor: pune “generează subiect examen” în tabul “examene” din navbar și deschide cu el asistent și pt profesori."
