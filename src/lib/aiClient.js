@@ -5,6 +5,7 @@
 import { supabase } from './supabase';
 import { authHeaders, getValidSession, forceRefresh } from './api';
 import { setAIBudget, markAIBudgetBlocked, refreshAIBudgetSoon } from './aiCredit';
+import { setInfo } from './testeSet';
 
 // Rutele AI care CONSUMĂ credite (nu și cele de citire: progres, istoric…).
 // După ele, dacă răspunsul nu aduce singur starea creditelor, o cerem noi —
@@ -453,7 +454,10 @@ export const aiClient = {
   // Dacă publicarea pică, testul rămâne salvat (publishError) — se poate publica
   // mai târziu din „Testele și exercițiile mele".
   // Întoarce { privateId, publicId, title, publishError }.
-  async saveCombinedPdf({ title, category = null, topic = null, blob, extra = {}, publish = true }) {
+  // `syncTitle`: titlul copiei private îl urmează pe cel public („X 2" la un nume
+  // deja publicat); la seturile de teste diferite titlul cerut rămâne neschimbat.
+  // Întoarce și `payload` (seturile ascund variantele scriind în el `setId`).
+  async saveCombinedPdf({ title, category = null, topic = null, blob, extra = {}, publish = true, syncTitle = true }) {
     const userId = await uid();
     if (!userId) throw new Error('Trebuie să fii autentificat.');
     if (!blob || !blob.size) throw new Error('PDF-ul generat e gol.');
@@ -469,18 +473,72 @@ export const aiClient = {
       await supabase.storage.from('personal-pdfs').remove([path]).catch(() => {});
       throw e;
     }
-    if (!publish) return { privateId, publicId: null, title, publishError: null };
+    if (!publish) return { privateId, publicId: null, title, publishError: null, payload };
     try {
-      const r = await post('/api/ai-public', { action: 'publish', kind: 'pdf', title, category, topic, payload });
-      const finalTitle = r.title || title;
+      // copia publică nu are nevoie de lista variantelor private (doar câte sunt)
+      const pub = payload.set ? { ...payload, set: { ...payload.set, childIds: [] } } : payload;
+      const r = await post('/api/ai-public', { action: 'publish', kind: 'pdf', title, category, topic, payload: pub });
+      const finalTitle = syncTitle ? (r.title || title) : title;
+      const withPub = { ...payload, publicId: r.id };
       try {
         await supabase.from('ai_personal_items')
-          .update({ title: finalTitle, payload: { ...payload, publicId: r.id } }).eq('id', privateId);
+          .update({ title: finalTitle, payload: withPub }).eq('id', privateId);
       } catch { /* doar semnul publicării — testul e salvat și publicat oricum */ }
-      return { privateId, publicId: r.id, title: finalTitle, publishError: null };
+      return { privateId, publicId: r.id, title: finalTitle, publicTitle: r.title || title, publishError: null, payload: withPub };
     } catch (e) {
-      return { privateId, publicId: null, title, publishError: e.message || 'publicarea a eșuat' };
+      return { privateId, publicId: null, title, publishError: e.message || 'publicarea a eșuat', payload };
     }
+  },
+  // SETUL DE TESTE DIFERITE (1 nov. 2026 — src/lib/testeSet.js): când „👥 Teste
+  // diferite / elev" face mai multe teste, în „Testele și exercițiile mele" intră
+  // UN SINGUR element — PDF-ul cu toate variantele („25 de teste grilă diferite,
+  // pentru 25 de elevi") —, publicat în bibliotecă dacă se cere. Variantele,
+  // salvate deja separat (children: [{ id, payload }]), se ASCUND în spatele lui
+  // (payload.setId): pe ele le folosește testul pe grupă, câte una pe elev.
+  //   kind 'exam' → `exam` = setul (buildExamSet), tipărit de examPrint.js;
+  //   kind 'pdf'  → `blob` = PDF-ul unit (variantele decupate exact), + `extra`.
+  // Întoarce { privateId, publicId, title, publicTitle, publishError, hidden }.
+  async saveTestSet({ kind = 'exam', title, category = null, topic = null, exam = null, blob = null, extra = {}, children = [], grila = false, publish = true }) {
+    const kids = (children || []).filter((c) => c && c.id);
+    const set = setInfo(kids.map((c) => c.id), { grila, kind });
+    let r;
+    if (kind === 'pdf') {
+      r = await this.saveCombinedPdf({ title, category, topic, blob, extra: { ...extra, set }, publish, syncTitle: false });
+    } else {
+      const payload = { exam, set };
+      const privateId = await this.saveLibraryItem({ kind: 'exam', title, category, topic, payload });
+      r = { privateId, publicId: null, title, publicTitle: null, publishError: null };
+      if (publish) {
+        try {
+          const p = await post('/api/ai-public', { action: 'publish', kind: 'exam', title, category, topic, payload: { exam, set: { ...set, childIds: [] } } });
+          r.publicId = p.id || null;
+          r.publicTitle = p.title || title;
+          if (p.id) {
+            try { await supabase.from('ai_personal_items').update({ payload: { ...payload, publicId: p.id } }).eq('id', privateId); }
+            catch { /* doar semnul publicării */ }
+          }
+        } catch (e) { r.publishError = e.message || 'publicarea a eșuat'; }
+      }
+    }
+    // variantele, ascunse în spatele setului (câte 6 deodată)
+    let hidden = 0;
+    const queue = kids.filter((c) => c.payload);
+    for (let i = 0; i < queue.length; i += 6) {
+      // eslint-disable-next-line no-await-in-loop
+      const ok = await Promise.all(queue.slice(i, i + 6).map((c) => supabase.from('ai_personal_items')
+        .update({ payload: { ...c.payload, setId: r.privateId } }).eq('id', c.id)
+        .then(({ error }) => !error, () => false)));
+      hidden += ok.filter(Boolean).length;
+    }
+    return { ...r, hidden };
+  },
+  // variantele unui set (în ordinea lor), pentru „Testele și exercițiile mele"
+  async getLibraryItems(ids) {
+    const list = (ids || []).filter(Boolean);
+    if (!list.length) return [];
+    const { data } = await supabase.from('ai_personal_items').select('id, kind, title, category, topic, payload').in('id', list);
+    const pos = new Map(list.map((id, i) => [id, i]));
+    return (data || []).sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
   },
   // Următorul număr pentru „Test combinat nr. N" — după testele combinate deja
   // salvate de profesor, ca numerotarea să continue de la un lot la altul (și
@@ -547,9 +605,12 @@ export const aiClient = {
   async listLibrary(kind = null) {
     const userId = await uid();
     if (!userId) return [];
+    // variantele unui set de teste diferite nu apar separat — doar setul lor
+    // (payload.setId; src/lib/testeSet.js). `set` = { count, childIds, grila, kind }.
     let q = supabase.from('ai_personal_items')
-      .select('id, kind, title, category, topic, score, max_score, completed_at, created_at')
-      .eq('user_id', userId).order('created_at', { ascending: false }).limit(60);
+      .select('id, kind, title, category, topic, score, max_score, completed_at, created_at, set:payload->set')
+      .eq('user_id', userId).is('payload->>setId', null)
+      .order('created_at', { ascending: false }).limit(60);
     if (kind) q = q.eq('kind', kind);
     const { data } = await q;
     return data || [];
@@ -559,12 +620,27 @@ export const aiClient = {
     return data;
   },
   async deleteLibraryItem(id) {
-    // dacă elementul are un PDF în Storage, îl ștergem și pe acela (best-effort)
+    // dacă elementul are un PDF în Storage, îl ștergem și pe acela (best-effort);
+    // un SET de teste diferite se șterge împreună cu variantele lui
+    let kids = [];
     try {
       const { data } = await supabase.from('ai_personal_items').select('payload').eq('id', id).single();
       const p = data?.payload;
-      if (p?.pdfPath) await supabase.storage.from(p.bucket || 'personal-pdfs').remove([p.pdfPath]);
-    } catch { /* ignorăm — ștergem măcar rândul */ }
+      const files = [];
+      if (p?.pdfPath) files.push([p.bucket || 'personal-pdfs', p.pdfPath]);
+      kids = (p?.set?.childIds || []).filter(Boolean);
+      if (kids.length) {
+        const { data: rows } = await supabase.from('ai_personal_items').select('id, payload').in('id', kids);
+        (rows || []).forEach((r) => { if (r.payload?.pdfPath) files.push([r.payload.bucket || 'personal-pdfs', r.payload.pdfPath]); });
+      }
+      const byBucket = {};
+      files.forEach(([b, f]) => { (byBucket[b] = byBucket[b] || []).push(f); });
+      for (const [b, list] of Object.entries(byBucket)) {
+        // eslint-disable-next-line no-await-in-loop
+        await supabase.storage.from(b).remove(list);
+      }
+    } catch { /* ignorăm — ștergem măcar rândurile */ }
+    if (kids.length) await supabase.from('ai_personal_items').delete().in('id', kids);
     await supabase.from('ai_personal_items').delete().eq('id', id);
   },
 };

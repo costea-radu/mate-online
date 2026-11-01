@@ -138,7 +138,11 @@ export function openPrintDocument(title, bodyHtml) {
 // îl poate cere explicit. Fără spațiu, testul încape pe mai puține pagini, iar
 // elevii scriu rezolvările pe o foaie separată.
 export function printExam(exam, { withSolutions = false, workSpace } = {}) {
-  openPrintDocument(exam.title || 'Model de test', examBodyHtml(exam, { withSolutions, workSpace }));
+  // titlul ferestrei = numele fișierului la „Salvează ca PDF" (la un set de
+  // variante: „25 de teste grilă diferite, pentru 25 de elevi" / „Barem · …")
+  const t = exam.title || 'Model de test';
+  const title = withSolutions && Array.isArray(exam.variants) && exam.variants.length ? `Barem · ${t}` : t;
+  openPrintDocument(title, examBodyHtml(exam, { withSolutions, workSpace }));
 }
 // MAI MULTE TESTE într-un singur document, fiecare de la pagină nouă (1 nov.
 // 2026: „👥 Teste diferite / elev" → „🖨 Tipărește toate testele" — câte un
@@ -164,6 +168,13 @@ export function hasWorkSpace(exam, workSpace) {
 }
 
 export function examBodyHtml(exam, { withSolutions = false, workSpace } = {}) {
+  // un SET de teste diferite („25 de teste grilă diferite, pentru 25 de elevi",
+  // 1 nov. 2026 — src/lib/testeSet.js): fiecare variantă e un test întreg, cu
+  // titlul „Varianta k", de la pagină nouă
+  if (Array.isArray(exam && exam.variants) && exam.variants.length) {
+    return exam.variants.filter(Boolean)
+      .map((v) => `<section class="exam-doc">${examBodyHtml(v, { withSolutions, workSpace })}</section>`).join('');
+  }
   const subjects = Array.isArray(exam.subjects) ? exam.subjects : [];
   // fără spațiu de lucru, dar cu probleme de redactat → elevul află unde scrie
   const anyWritten = subjects.some((s) => (Array.isArray(s.items) ? s.items : []).some((it) =>

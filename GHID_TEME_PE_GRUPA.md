@@ -140,10 +140,34 @@ moduri: `✨ Un test / exercițiu` (generatorul de până acum) și `👥 Teste 
 | 📚 Fișele claselor 5–12 | PDF: exercițiile **exact din fișă**, fără AI și fără cost (fără barem); interactiv: AI-ul adaugă doar răspunsurile și variantele de grilă (un apel pe test) | AI-ul rescrie exercițiile alese cu alte numere și notații, cu barem / răspunsuri (un apel pe test) |
 | 🧩 Un test AI, în N variante | — (formularul generatorului are propriul „regim al datelor") | — |
 
-Butoanele de la final: `🖨 Tipărește toate testele` (un singur document, **fiecare test
-de la pagină nouă**, cu rândul „Numele și prenumele … Clasa … Data") și, unde există,
-`📝 Toate baremele`; la fiecare test `📄 PDF` / `📝 Barem` (la cele interactive și
-`🗗 Deschide`).
+**Un singur PDF, cu „Varianta 1", „Varianta 2"…** (1 noiembrie 2026, după-amiaza —
+`src/lib/testeSet.js`). Când se generează **mai multe teste** deodată, ele formează un
+**set**:
+
+- fiecare test e o variantă și are pe foaie **„Varianta k"**: titlul testului (la testele
+  tipăribile din fișe, la cele cu numere schimbate și la cele interactive, în versiunea
+  PDF), în antetul scurt (subiectele PDF parțiale, îngroșat, în dreapta) sau într-o casetă
+  sus, în dreapta copertei (subiectele PDF complete);
+- în **„Testele și exercițiile mele"** intră **un singur element** — PDF-ul cu toate
+  variantele, fiecare de la pagină nouă, cu titlul **„25 de teste grilă diferite, pentru
+  25 de elevi"** („grilă" doar când toți itemii sunt grilă: la EN, Subiectele I și II; la
+  BAC niciodată; „de" de la 20 în sus); dedesubt: „un singur PDF: Varianta 1–25 · <ce
+  conține>". Se tipărește / descarcă întreg (`📄 PDF`, `📝 Barem`, `⬇ Descarcă`), iar
+  `▸ Variantele (25)` le arată una câte una;
+- cu bifa „🏛️ Publică…", în **„Biblioteca utilizatorilor"** se publică tot **o singură
+  dată**, setul întreg (variantele nu se mai publică separat);
+- **variantele rămân salvate și separat, dar ascunse** în spatele setului
+  (`payload.setId`): pe ele le folosește **„👥 Test interactiv pe grupă"**, câte una
+  pentru fiecare elev (`👥 Folosește-le…` le aduce bifate; la sursa „🧩 Testele generate de
+  mine" apar variantele, nu setul). Ștergerea setului (🗑, cu confirmare) șterge și
+  variantele;
+- un singur test (Nr. teste diferite / elev = 1) se salvează ca până acum.
+
+În generator, sub rezultat: „📚 Salvate într-un singur PDF: „…"" cu `📄 PDF — toate cele N
+variante` / `📝 Baremul tuturor variantelor` (sau `⬇ Descarcă PDF-ul cu toate cele N
+variante` la subiectele decupate exact); la fiecare variantă, `📄 PDF` / `📝 Barem` (la cele
+interactive și `🗗 Deschide`). Dacă setul n-a putut fi salvat, testele rămân separat, iar
+butoanele vechi (`🖨 Tipărește toate testele`, `📝 Toate baremele`) apar în locul lui.
 
 **Spre testul pe grupă:** `👥 Folosește-le în testul interactiv pe grupă` duce testele
 generate în fila „👥 Test interactiv pe grupă (teste diferite)": formatul (PDF sau
@@ -418,7 +442,8 @@ variante), `src/lib/testVariante.js` (amestecul ordinii și al literelor),
 `src/components/FiseTestGenerator.jsx` + `src/lib/fiseTeste.js` (testele din fișele
 claselor 5–12), `api/fise.js` + `api/_lib/fise.js` + `supabase/fise_banca.sql` (banca
 fișelor), `src/components/ListaTesteExam.jsx` (lista testelor „exam", tipărirea tuturor),
-`src/lib/grupaPreset.js` (testele generate → testul pe grupă); modificate:
+`src/lib/grupaPreset.js` (testele generate → testul pe grupă), `src/lib/testeSet.js`
+(setul salvat ca un singur PDF, cu „Varianta k" — `test/teste-set-variante.test.js`); modificate:
 `src/components/CombinedPdfGenerator.jsx` („🔢 Schimbă numerele"), `src/lib/examPrint.js`
 (`printExams`, subtitlul, rândul pentru nume), `src/components/GroupAssignment.jsx` (fără
 generator; primește testele generate). Teste: `test/teste-diferite-fise.test.js`.

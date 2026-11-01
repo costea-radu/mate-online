@@ -178,12 +178,16 @@ test('generatorul PDF: subiectele alese, salvare + publicare + descărcare, bazi
   assert.match(g, /fetchPdfSources\(stratifyBySubcategory\(rows\), getUrlFor, \{[\s\S]{0,140}probe: probeExamPdf/);
   assert.match(g, /const planuri = planCombinations\(prep\.list, \{ count: n, subjects, selection: selectie \}\);/);
   assert.match(g, /header: complet \? null : \(latime, info2\) => makeHeaderPng\(/);
-  assert.match(g, /await aiClient\.saveCombinedPdf\(\{[\s\S]{0,300}text: r\.text, pageTexts: r\.pageTexts/);
+  assert.match(g, /await aiClient\.saveCombinedPdf\(\{[\s\S]{0,500}text: r\.text, pageTexts: r\.pageTexts/);
   assert.match(g, /onDone\?\.\(teste\.map\(\(t\) => \(\{ source: 'personal', refId: t\.privateId, title: t\.title, isFree: true \}\)\), \{ format: 'pdf', category: cfg\.category \}\);/);
+  // (1 nov. 2026, seara) mai multe teste = un SET, salvat ca un singur PDF (test/teste-set-variante.test.js);
+  // „Descarcă toate…" rămâne doar dacă setul n-a putut fi salvat
   assert.match(g, /⬇ Descarcă toate testele într-un singur PDF/);
+  assert.match(g, /⬇ Descarcă PDF-ul cu toate cele \{rezultat\.teste\.length\} variante/);
   assert.match(g, /mergePdfs\(/);
   assert.match(g, /descarca\(t\.blob, `\$\{slug\(t\.title\)\}\.pdf`\)/);
-  assert.match(g, /Test combinat nr\. \$\{nr\} — \$\{exam\.short\}\$\{complet \? '' : ` · \$\{sl\}`\}/);
+  assert.match(g, /const context = `\$\{exam\.short\}\$\{complet \? '' : ` · \$\{sl\}`\}\$\{alese \? ' \(exerciții alese\)' : ''\}`;/);
+  assert.match(g, /const titlu = multe \? variantTitle\(`Test combinat — \$\{context\}`, plan\.index\) : `Test combinat nr\. \$\{nr\} — \$\{context\}`;/);
 });
 
 test('aiClient.saveCombinedPdf: copia privată + publicarea în bibliotecă (copia privată ține minte publicId)', () => {
@@ -191,8 +195,10 @@ test('aiClient.saveCombinedPdf: copia privată + publicarea în bibliotecă (cop
   const f = c.slice(c.indexOf('async saveCombinedPdf('), c.indexOf('async nextCombinedTestNumber('));
   assert.match(f, /supabase\.storage\.from\('personal-pdfs'\)\s*\.upload\(path, blob/);
   assert.match(f, /this\.saveLibraryItem\(\{ kind: 'pdf', title, category, topic, payload \}\)/);
-  assert.match(f, /post\('\/api\/ai-public', \{ action: 'publish', kind: 'pdf', title, category, topic, payload \}\)/);
-  assert.match(f, /payload: \{ \.\.\.payload, publicId: r\.id \}/);
+  // (copia publică a unui set nu are lista variantelor private — `pub`)
+  assert.match(f, /post\('\/api\/ai-public', \{ action: 'publish', kind: 'pdf', title, category, topic, payload: pub \}\)/);
+  assert.match(f, /const withPub = \{ \.\.\.payload, publicId: r\.id \};/);
+  assert.match(f, /update\(\{ title: finalTitle, payload: withPub \}\)/);
   assert.match(f, /publishError: e\.message \|\| 'publicarea a eșuat'/, 'publicarea picată nu pierde testul salvat');
   // numerotarea continuă de la un lot la altul (din 1 nov. 2026 numără și testele kind 'exam')
   assert.match(c, /async nextCombinedTestNumber\(\) \{\s*return this\.nextNumberedTitle\('Test combinat nr\.'\);/);

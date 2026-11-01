@@ -4,6 +4,23 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 1 noiembrie 2026 (4) — 📚 Testele diferite se salvează într-un singur PDF, cu „Varianta 1, 2…"
+
+Cererea: „fa ca acele teste care sunt in numar mai mare, sa se salveze intr-un singur PDF cu titlul "X teste (grila sau nu) diferite, pentru X elevi", fiecare test sa aibe numerotat: Varianta 1, varianta 2, etc"
+
+### Ce s-a schimbat (nou `src/lib/testeSet.js`)
+- Când „👥 Teste diferite / elev" face **mai multe teste** (subiectele de examen — exact sau cu numere schimbate —, fișele claselor, PDF sau interactiv, un test AI în variante), ele formează un **set**: în „Testele și exercițiile mele" intră **un singur element**, PDF-ul cu toate testele, fiecare de la pagină nouă, cu titlul **„25 de teste grilă diferite, pentru 25 de elevi"** („grilă" doar când toți itemii sunt grilă; „de" de la 20 în sus, ca în română). Cu bifa de publicare, în bibliotecă intră tot o singură dată, setul.
+- **„Varianta k" pe fiecare test**: titlul testului tipăribil; la subiectele PDF decupate exact — îngroșat în antetul scurt (testele parțiale) sau într-o casetă sus, în dreapta copertei oficiale (testul complet; `composeExamPdf(…, { label })`, `stampLabel`). PDF-ul setului = variantele unite (`mergePdfs`).
+- **Variantele rămân salvate separat, dar ascunse** în spatele setului (`payload.setId`; setul ține `payload.set = { count, childIds, grila }`): „Testele mele" arată doar setul (`listLibrary` → `payload->>setId is null`), cu „un singur PDF: Varianta 1–N", `▸ Variantele (N)` și 🗑 cu confirmare, care șterge și variantele (și fișierele lor). „👥 Test interactiv pe grupă" primește în continuare variantele, câte una pe elev; în lista lui de bifat (`api/_lib/catalog.js`) intră variantele, nu setul.
+- Tipărirea (`src/lib/examPrint.js`): un „exam" cu `variants` se tipărește ca un document, fiecare variantă cu titlul ei; fereastra (= numele fișierului la „Salvează ca PDF") poartă titlul setului, la barem „Barem · …".
+- Un singur test (Nr. teste diferite / elev = 1) se salvează și se publică ca până acum.
+
+**Verificat:** `npm test` — 1040 de teste, toate trec (noi: `test/teste-set-variante.test.js`, 7; actualizate: `test/teste-pdf-combinate.test.js`, `test/teste-pdf-bife.test.js`). `vite build` trece. Interfața reală în Chromium, cu Supabase și `/api` simulate: 3 teste din fișe → 3 variante ascunse + 1 set „3 teste diferite, pentru 3 elevi" (publicat o dată), tipărit cu „Varianta 1/2/3", trimis în testul pe grupă cu cele 3 variante; 3 teste interactive grilă → setul „3 teste grilă diferite, pentru 3 elevi"; EN cu numere schimbate → setul + baremul „Barem · 2 teste diferite, pentru 2 elevi"; EN exact, parțial (antetul cu „Varianta 2") și complet (caseta „Varianta 1" / „Varianta 2" pe copertă — citită din PDF, la paginile 1 și 6 ale setului); „Testele mele" cu doar seturile și „▸ Variantele".
+
+**De făcut:** doar commit + deploy (fără SQL nou).
+
+---
+
 ## 1 noiembrie 2026 (3) — 👥 „Teste diferite / elev" în generator · teste din fișele claselor 5–12 · GPT-6.1 implicit
 
 Cererea: „schimba numele din "test pe grupa (teste diferite)" in "test interactiv pe grupa (teste diferite)" * muta continutul "genereaza acum testele" din "test pe grupa (teste diferite)" in "genereaza exercitii/teste interactive/PDF" si pune un buton unde se poate introduce "nr teste diferite / elev". fa sa poata alege pe langa continutul examenelor si clasele 5-12; sa ia exercitiile din fisele cu exercitii clase 5-12 si sa poata fi selectate prin bifare "nivele" sau "tipuri", dupa cum sunt scrise in fisiere. Pune sa pot folosi si varianta care schimba numerele si notatiile, ca la generatorul de examene si ca la celelalte teste * pot pune peste tot in loc de gpt 5.6 cu gpt 6.x? […] modifica si in descrierile din site ce varianta gpt folosesc" — cu alegerile: amândouă generatoarele se mută (testul pe grupă păstrează formatul PDF); fișa se citește o dată și se păstrează în bancă; „nr teste diferite / elev" = câte teste diferite se generează.

@@ -762,7 +762,10 @@ const pageText = (a, p) => ((a.pageLines && a.pageLines[p]) || []).map((L) => L.
  *    are copertă / antetul probei doar dacă e bifat TOT.
  * @returns {{ bytes, report, sources, pages, text, pageTexts, size, points, wholeFallback }}
  */
-export async function composeExamPdf(prepared, plan, { subjects = [1, 2, 3], header = null, srcDocs = null, selection = null } = {}) {
+// `label` (1 nov. 2026, seturile „X teste diferite, pentru X elevi"): „Varianta 3"
+// scris pe prima pagină a testului complet (coperta oficială / antetul probei),
+// într-o casetă sus, în dreapta. Testele parțiale îl au deja în antetul generat.
+export async function composeExamPdf(prepared, plan, { subjects = [1, 2, 3], header = null, srcDocs = null, selection = null, label = null } = {}) {
   await ensureLibs();
   const { PDFDocument } = window.PDFLib;
   const list = Array.isArray(prepared) ? prepared : (prepared && prepared.list) || [];
@@ -911,6 +914,12 @@ export async function composeExamPdf(prepared, plan, { subjects = [1, 2, 3], hea
   }
   pageTexts.push(txt.join('\n'));
 
+  // „Varianta k" pe prima pagină, când testul n-are antet generat (testul complet)
+  if (label && !(hdr && hdr.png)) {
+    await stampLabel(out, out.getPage(0), label);
+    pageTexts[0] = `${label}\n${pageTexts[0] || ''}`;
+  }
+
   const bytes = await out.save();
   const used = [];
   [baseI, ...Object.values(plan.picks || {})].forEach((i) => { const l = list[i] && list[i].label; if (l && !used.includes(l)) used.push(l); });
@@ -919,6 +928,24 @@ export async function composeExamPdf(prepared, plan, { subjects = [1, 2, 3], hea
     text: pageTexts.filter(Boolean).join('\n\n'), pageTexts, size: bytes.length,
     points, full, wholeFallback,
   };
+}
+
+// Caseta „Varianta k" sus, în dreapta paginii (în marginea de sus a copertei /
+// a antetului probei). Textul e ASCII („Varianta 12"), deci merge cu fontul
+// standard Helvetica din pdf-lib (fără diacritice).
+async function stampLabel(doc, page, label) {
+  const { StandardFonts, rgb } = window.PDFLib;
+  const font = await doc.embedFont(StandardFonts.HelveticaBold);
+  const box = typeof page.getCropBox === 'function' ? page.getCropBox() : { x: 0, y: 0, ...page.getSize() };
+  const size = 12;
+  const pad = 5;
+  const tw = font.widthOfTextAtSize(label, size);
+  const w = tw + 2 * pad;
+  const h = size + 2 * pad;
+  const x = box.x + box.width - w - 28;
+  const y = box.y + box.height - h - 12;
+  page.drawRectangle({ x, y, width: w, height: h, color: rgb(1, 1, 1), borderColor: rgb(0, 0, 0), borderWidth: 0.9 });
+  page.drawText(label, { x: x + pad, y: y + pad + 2, size, font, color: rgb(0, 0, 0) });
 }
 
 // Combină UN subiect (generatorul de subiecte, agentul din Admin): coperta +
@@ -959,7 +986,9 @@ export async function makeSubjectTitlePng({ title = '', lines = [], size = 12, l
 // ei — titlul, subiectele și „Numele și prenumele". Se desenează pe canvas
 // (fonturile sistemului au diacriticele românești, fonturile standard din pdf-lib
 // nu le au) și intră în PDF ca imagine; textul lui se întoarce separat.
-export async function makeHeaderPng({ title = '', subtitle = '', right = '', nameLine = true } = {}, { widthPt = 535, scale = 3 } = {}) {
+// `rightBold`: textul din dreapta îngroșat și mai mare („Varianta 3" la seturile
+// de teste diferite — trebuie să se vadă de la prima privire).
+export async function makeHeaderPng({ title = '', subtitle = '', right = '', nameLine = true, rightBold = false } = {}, { widthPt = 535, scale = 3 } = {}) {
   const heightPt = nameLine ? 66 : 42;
   const c = document.createElement('canvas');
   c.width = Math.round(widthPt * scale);
@@ -970,7 +999,7 @@ export async function makeHeaderPng({ title = '', subtitle = '', right = '', nam
   g.fillStyle = '#000';
   g.textBaseline = 'alphabetic';
   if (right) {
-    g.font = `10px ${SERIF}`;
+    g.font = rightBold ? `bold 13px ${SERIF}` : `10px ${SERIF}`;
     g.textAlign = 'right';
     g.fillText(right, widthPt, 14);
     g.textAlign = 'left';

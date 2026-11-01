@@ -24,6 +24,10 @@ import { useEffect, useState } from 'react';
 import { aiClient } from '../lib/aiClient';
 import InteractiveGenForm, { useInteractiveGen } from './InteractiveGenForm';
 import { makeVariants, numeVarianta } from '../lib/testVariante';
+import { setTitle, buildExamSet, quizIsGrila } from '../lib/testeSet';
+import { quizToExam } from '../lib/fiseTeste';
+import { printExam } from '../lib/examPrint';
+import { SetSalvat } from './ListaTesteExam';
 import { invatăDinReal, crediteDinCost, fmtEstimare } from '../lib/aiCost';
 import { MathText } from './AITutor';
 import VerificationNote from './VerificationNote';
@@ -72,15 +76,32 @@ export default function VariantGenerator({
       for (const v of variante) {
         setBusy(`Salvez varianta ${v.index} din ${variante.length}…`);
         const title = numeVarianta(titlu, v.index);
+        const payload = { questions: v.questions, meta, variantaDin: titlu, variantaNr: v.index, variante: variante.length };
         // eslint-disable-next-line no-await-in-loop
         const id = await aiClient.saveLibraryItem({
-          kind: 'interactive', title, category: g.category || null, topic: g.topicShort,
-          payload: { questions: v.questions, meta, variantaDin: titlu, variantaNr: v.index, variante: variante.length },
+          kind: 'interactive', title, category: g.category || null, topic: g.topicShort, payload,
         });
-        salvate.push({ source: 'personal', refId: id, title, isFree: true, questions: v.questions });
+        salvate.push({ source: 'personal', refId: id, title, isFree: true, questions: v.questions, payload });
       }
-      setRezultat({ titlu, variante: salvate, itemi: qs.length, verificare: res.verification || null });
-      onDone?.(salvate, { format: 'interactive', category: g.category || '' });
+      // mai multe variante → UN SINGUR PDF în „Testele mele" („10 teste grilă
+      // diferite, pentru 10 elevi", fiecare test cu „Varianta k" — src/lib/testeSet.js);
+      // variantele interactive rămân, ascunse în spatele lui, pentru testul pe grupă
+      let set = null;
+      if (salvate.length > 1) {
+        setBusy(`Salvez cele ${salvate.length} variante într-un singur PDF…`);
+        try {
+          const grila = quizIsGrila(qs);
+          const title = setTitle(salvate.length, grila);
+          const exam = buildExamSet(salvate.map((v) => quizToExam(v.title, v.questions, meta)), { title, context: titlu });
+          const r = await aiClient.saveTestSet({
+            kind: 'exam', title, category: g.category || null, topic: g.topicShort || titlu, exam, grila, publish: false,
+            children: salvate.map((v) => ({ id: v.refId, payload: v.payload })),
+          });
+          set = { ...r, exam };
+        } catch (e2) { set = { error: e2.message || 'setul nu s-a putut salva' }; }
+      }
+      setRezultat({ titlu, variante: salvate, itemi: qs.length, verificare: res.verification || null, set });
+      onDone?.(salvate.map(({ payload: _p, ...v }) => v), { format: 'interactive', category: g.category || '' });
     } catch (e) {
       setErr(e.message); onError?.(e);
     } finally { setBusy(null); }
@@ -135,8 +156,16 @@ export default function VariantGenerator({
             ✅ {rezultat.variante.length} variante gata — „{rezultat.titlu}" · {rezultat.itemi} itemi
             {cost ? <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}> · au costat {fmtEstimare(cost)} în total</span> : null}
           </div>
+          <SetSalvat set={rezultat.set} count={rezultat.variante.length} publish={false}>
+            {rezultat.set && !rezultat.set.error && rezultat.set.exam && (
+              <>
+                <button type="button" className="btn btn-sm btn-primary" onClick={() => printExam(rezultat.set.exam)}>📄 PDF — toate cele {rezultat.variante.length} variante</button>
+                <button type="button" className="btn btn-sm btn-outline" onClick={() => printExam(rezultat.set.exam, { withSolutions: true })}>📝 Baremul tuturor variantelor</button>
+              </>
+            )}
+          </SetSalvat>
           <p style={{ fontSize: '.77rem', color: 'var(--text-muted)', margin: '0 0 8px' }}>
-            Salvate în „Testele și exercițiile mele". Cu „👥 Folosește-le în testul interactiv pe grupă" (mai jos) intră bifate în bazinul unui test pe grupă.
+            {rezultat.set && !rezultat.set.error ? 'Variantele interactive se rezolvă în site' : 'Salvate în „Testele și exercițiile mele"'}. Cu „👥 Folosește-le în testul interactiv pe grupă" (mai jos) intră bifate în bazinul unui test pe grupă.
           </p>
           {/* verificarea privește testul din care s-au făcut variantele — deci
               toate variantele deodată (aceleași probleme, altă ordine) */}

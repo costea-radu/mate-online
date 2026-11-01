@@ -45,10 +45,12 @@ async function catalogList(supa, userId, { source, category, format }) {
   }
   const kinds = format === 'pdf' ? ['pdf', 'exam'] : ['interactive'];
   if (source === 'personal') {
-    // testele generate chiar de profesor (private) — toate, paginat
+    // testele generate chiar de profesor (private) — toate, paginat. Un SET de
+    // teste diferite (PDF-ul cu toate variantele, payload.set — src/lib/testeSet.js)
+    // nu se dă unui elev: în listă intră variantele lui, câte una (payload.setId).
     const data = await allRows((from, to) => {
       let qq = supa.from('ai_personal_items').select('id, kind, title, category, topic')
-        .eq('user_id', userId).in('kind', kinds)
+        .eq('user_id', userId).in('kind', kinds).is('payload->>set', null)
         .order('created_at', { ascending: false }).range(from, to);
       if (category) qq = qq.eq('category', category);
       return qq;

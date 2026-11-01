@@ -216,7 +216,8 @@ test('generatorul: bifele pe exerciții și subpuncte, alegerile rapide, butonul
   assert.match(g, /disabled=\{!!busy \|\| !subjects\.length\}/);
   assert.match(g, /composeExamPdf\(prep, plan, \{\s*subjects, srcDocs: docs, selection: selectie,/);
   assert.match(g, /maxDistinctTests\(prep\.list, subjects, selectie\)/);
-  assert.match(g, /combined: \{ exam: examType, subjects, nr: nrTest, report: r\.report, points: r\.points, \.\.\.\(complet \? \{\} : \{ selection: selectie \}\) \}/);
+  // (1 nov. 2026, seara: la un set de teste diferite, și numărul variantei)
+  assert.match(g, /combined: \{ exam: examType, subjects, nr: nrTest, \.\.\.\(multe \? \{ variant: plan\.index \} : \{\}\), report: r\.report, points: r\.points, \.\.\.\(complet \? \{\} : \{ selection: selectie \}\) \}/);
   // alt examen → altă structură: subiectele bifate rămân, întregi
   assert.match(g, /useEffect\(\(\) => \{\s*setSel\(\(cur\) => \{\s*const subj = selectionSubjects\(cur\);\s*return fullSelection\(examLayout\(examType\), subj\.length \? subj : \[1, 2, 3\]\);/);
 });

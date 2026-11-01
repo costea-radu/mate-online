@@ -29,11 +29,12 @@ import { aiClient } from '../lib/aiClient';
 import { useAuth } from '../context/AuthContext';
 import { ensureKatex, renderMath } from '../lib/katex';
 import OptiuneSpatiuLucru from './OptiuneSpatiuLucru';
-import ListaTesteExam from './ListaTesteExam';
+import ListaTesteExam, { SetSalvat } from './ListaTesteExam';
 import VerificationNote from './VerificationNote';
 import { estimeazaCredite, fmtEstimare, crediteDinCost, invatăDinReal } from '../lib/aiCost';
 import { renderQuiz } from '../lib/quizRender';
 import { printExam, printExams } from '../lib/examPrint';
+import { setTitle, variantLabel, variantTitle, buildExamSet, examIsGrila, quizIsGrila } from '../lib/testeSet';
 import {
   planFiseTests, maxDistinctFiseTests, exercisesPerTest, testToExam, sourceTextOf, topicFor,
   aiExamFromQuestions, quizToExam, compositionLabel, usableExercises, shortSheetTitle, clasaLabel,
@@ -209,17 +210,19 @@ export default function FiseTestGenerator({
       : perTest > maxEx ? `Un test are cel mult ${maxEx} exerciții${aiNeeded ? ' când lucrează AI-ul' : ''} (acum: ${perTest}).`
         : null;
 
-  async function salveaza({ kind, title, topic, payload }) {
+  // `publica`: un test singur se publică acum; variantele unui set — nu (setul se
+  // publică o singură dată, întreg, la final)
+  async function salveaza({ kind, title, topic, payload, publica = publish }) {
     const privateId = await aiClient.saveLibraryItem({ kind, title, category, topic, payload });
     let publicId = null; let publishError = null;
-    if (publish) {
+    if (publica) {
       try {
         const r = await aiClient.publicPublish({ kind, title, category, topic, payload });
         publicId = r?.id || null;
         if (publicId) aiClient.updateLibraryItem(privateId, { payload: { ...payload, publicId } }).catch(() => {});
       } catch (e) { publishError = e.message || 'publicarea a eșuat'; }
     }
-    return { privateId, publicId, publishError };
+    return { privateId, publicId, publishError, payload };
   }
 
   async function genereaza() {
@@ -227,31 +230,52 @@ export default function FiseTestGenerator({
     if (problema) { setErr(problema); return; }
     const plan = planFiseTests(picks, { tests: n, seed: (Date.now() % 2147483646) + 1, withFigures });
     const kind = output === 'interactive' ? 'interactive' : 'exam';
+    // mai multe teste → un SET: „Varianta 1…N", salvat ca un singur PDF (src/lib/testeSet.js)
+    const multe = plan.length > 1;
     const teste = [];
     let cost = 0;
-    const gata = (extra = {}) => {
-      setRezultat({ kind, teste: [...teste], gata: true, total: teste.length, cost: cost || null, ...extra });
+    const fise = [...new Set(picks.map((p) => shortSheetTitle(p.sheetTitle)))];
+    const eticheta = `${clasaLabel(category)} · ${fise.slice(0, 2).join(' + ')}${fise.length > 2 ? ' …' : ''}${dataMode === 'modify' ? ' · numere schimbate' : ''}`;
+    const topic = `${fise.join(' + ')} — ${picks.map((p) => p.title).join(', ')}`.slice(0, 200);
+    const gata = async (extra = {}) => {
+      let set = null;
+      if (multe && teste.length > 1 && viu.current) {
+        setBusy(`Salvez cele ${teste.length} teste într-un singur PDF…`);
+        try {
+          // la interactive, PDF-ul setului e varianta lor de tipărit (cu barem)
+          const exams = teste.map((t) => t.exam || quizToExam(t.title, t.questions, t.meta || {}));
+          const grila = kind === 'interactive' ? teste.every((t) => quizIsGrila(t.questions)) : exams.every(examIsGrila);
+          const title = setTitle(teste.length, grila);
+          const examSet = buildExamSet(exams, { title, context: `Test din fișe — ${eticheta}` });
+          const r = await aiClient.saveTestSet({
+            kind: 'exam', title, category, topic, exam: examSet, grila, publish,
+            children: teste.map((t) => ({ id: t.privateId, payload: t.payload })),
+          });
+          set = { ...r, exam: examSet };
+        } catch (e) { set = { error: e.message || 'setul nu s-a putut salva' }; }
+      }
+      setRezultat({ kind, teste: [...teste], gata: true, total: teste.length, cost: cost || null, set, ...extra });
       if (viu.current && teste.length) {
         onDone?.(teste.map((t) => ({ source: 'personal', refId: t.privateId, title: t.title, isFree: true })),
           { format: kind === 'interactive' ? 'interactive' : 'pdf', category });
       }
     };
     try {
-      let nr = await aiClient.nextNumberedTitle('Test din fișe nr.').catch(() => 1);
-      const fise = [...new Set(picks.map((p) => shortSheetTitle(p.sheetTitle)))];
-      const eticheta = `${clasaLabel(category)} · ${fise.slice(0, 2).join(' + ')}${fise.length > 2 ? ' …' : ''}`;
-      const topic = `${fise.join(' + ')} — ${picks.map((p) => p.title).join(', ')}`.slice(0, 200);
+      let nr = multe ? 0 : await aiClient.nextNumberedTitle('Test din fișe nr.').catch(() => 1);
       for (const t of plan) {
         if (!viu.current) return;
-        const titlu = `Test din fișe nr. ${nr} — ${eticheta}${dataMode === 'modify' ? ' · numere schimbate' : ''}`;
+        const titlu = multe ? variantTitle(`Test din fișe — ${eticheta}`, t.index) : `Test din fișe nr. ${nr} — ${eticheta}`;
+        // pe foaia fiecărei variante: „Varianta k" (o primește un elev, prin testul pe grupă)
+        const pe = multe ? variantLabel(t.index) : titlu;
+        const cine = multe ? variantLabel(t.index) : `Testul ${t.index}`;
         if (!aiNeeded) {
-          setBusy(`Testul ${t.index} din ${plan.length}: îl compun din banca fișei și îl salvez…`);
-          const exam = testToExam(t, { title: titlu, durationMin, oficiu, workSpace, category });
+          setBusy(`${cine} din ${plan.length}: o compun din banca fișei și o salvez…`);
+          const exam = testToExam(t, { title: pe, durationMin, oficiu, workSpace, category });
           // eslint-disable-next-line no-await-in-loop
-          const e = await salveaza({ kind: 'exam', title: titlu, topic, payload: { exam } });
+          const e = await salveaza({ kind: 'exam', title: titlu, topic, payload: { exam }, publica: publish && !multe });
           teste.push({ ...e, title: titlu, exam, repeats: t.repeats, nr });
         } else {
-          setBusy(`Testul ${t.index} din ${plan.length}: AI-ul ${dataMode === 'modify' ? 'schimbă numerele și notațiile' : 'adaugă răspunsurile'}… (~20–60 s)`);
+          setBusy(`${cine} din ${plan.length}: AI-ul ${dataMode === 'modify' ? 'schimbă numerele și notațiile' : 'adaugă răspunsurile'}… (~20–60 s)`);
           // eslint-disable-next-line no-await-in-loop
           const res = await aiClient.generateInteractive({
             category, topic: topicFor(t, { dataMode }), difficulty: 'mediu', dataMode, chapters: [],
@@ -263,27 +287,27 @@ export default function FiseTestGenerator({
           invatăDinReal(res.cost, { kind: 'test', count: perTest, qtype: effQtype });
           const qs = res.questions || [];
           if (!qs.length) throw new Error('AI-ul nu a întors niciun item. Mai încearcă o dată.');
-          setBusy(`Testul ${t.index} din ${plan.length}: îl salvez…`);
+          setBusy(`${cine} din ${plan.length}: o salvez…`);
           if (kind === 'exam') {
-            const exam = aiExamFromQuestions(t, qs, { title: titlu, durationMin, oficiu, workSpace, category });
+            const exam = aiExamFromQuestions(t, qs, { title: pe, durationMin, oficiu, workSpace, category });
             // eslint-disable-next-line no-await-in-loop
-            const e = await salveaza({ kind: 'exam', title: titlu, topic, payload: { exam } });
+            const e = await salveaza({ kind: 'exam', title: titlu, topic, payload: { exam }, publica: publish && !multe });
             teste.push({ ...e, title: titlu, exam, repeats: t.repeats, nr, verification: res.verification || null });
           } else {
             const meta = { durationMin, oficiu, ...(workSpace ? {} : { workSpace: false }) };
             // eslint-disable-next-line no-await-in-loop
-            const e = await salveaza({ kind: 'interactive', title: titlu, topic, payload: { questions: qs, meta, source: { kind: 'fise', category } } });
+            const e = await salveaza({ kind: 'interactive', title: titlu, topic, payload: { questions: qs, meta, source: { kind: 'fise', category } }, publica: publish && !multe });
             teste.push({ ...e, title: titlu, questions: qs, meta, repeats: t.repeats, nr, verification: res.verification || null });
           }
         }
         setRezultat({ kind, teste: [...teste], gata: false, total: plan.length, cost: cost || null });
         nr += 1;
       }
-      gata();
+      await gata();
     } catch (e) {
       setErr(e.message || 'Generarea testelor a eșuat.');
       onError?.(e);
-      if (teste.length) gata({ intrerupt: true });
+      if (teste.length) await gata({ intrerupt: true });
     } finally { setBusy(null); }
   }
 
@@ -521,17 +545,35 @@ function TesteInteractive({ rezultat, publish, onOpen }) {
   const teste = rezultat.teste;
   const caExam = (t) => quizToExam(t.title, t.questions, t.meta || {});
   const publicate = teste.filter((t) => t.publicId).length;
+  const set = rezultat.set && !rezultat.set.error ? rezultat.set : null;
   return (
     <div style={{ marginTop: 12, background: 'rgba(39,174,96,.08)', border: '1px solid rgba(39,174,96,.35)', borderRadius: 10, padding: 12 }}>
       <div style={{ fontWeight: 700, color: '#1e7e34', fontSize: '.86rem', marginBottom: 4 }}>
-        {rezultat.gata ? '✅' : '⏳'} {teste.length}{rezultat.gata ? '' : ` din ${rezultat.total}`} {teste.length === 1 ? 'test interactiv' : 'teste interactive'}
+        {rezultat.gata ? '✅' : '⏳'} {teste.length}{rezultat.gata ? '' : ` din ${rezultat.total}`} {teste.length === 1 ? 'test interactiv' : (rezultat.gata ? 'teste interactive diferite' : 'variante')}
         {rezultat.cost ? <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}> · au costat {fmtEstimare(rezultat.cost)}</span> : null}
       </div>
-      <p style={{ fontSize: '.77rem', color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.5 }}>
-        Salvate în „Testele și exercițiile mele"{publish ? <> · publicate în „Biblioteca utilizatorilor": {publicate} din {teste.length}</> : ''}.
-      </p>
-      {rezultat.intrerupt && <div style={{ fontSize: '.77rem', color: '#b26a00', marginBottom: 8 }}>⚠️ Generarea s-a oprit înainte de capăt — au rămas {teste.length} teste, folosibile.</div>}
       {rezultat.gata && (
+        <SetSalvat set={rezultat.set} count={teste.length} publish={publish}>
+          {set && set.exam && (
+            <>
+              <button type="button" className="btn btn-sm btn-primary" onClick={() => printExam(set.exam)}>📄 PDF — toate cele {teste.length} variante</button>
+              <button type="button" className="btn btn-sm btn-outline" onClick={() => printExam(set.exam, { withSolutions: true })}>📝 Baremul tuturor variantelor</button>
+            </>
+          )}
+        </SetSalvat>
+      )}
+      {!set && (
+        <p style={{ fontSize: '.77rem', color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.5 }}>
+          Salvate în „Testele și exercițiile mele"{publish ? <> · publicate în „Biblioteca utilizatorilor": {publicate} din {teste.length}</> : ''}.
+        </p>
+      )}
+      {set && (
+        <p style={{ fontSize: '.77rem', color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.5 }}>
+          Variantele interactive se rezolvă în site — le dai elevilor cu „👥 Folosește-le în testul interactiv pe grupă" (mai jos), câte una fiecăruia; le găsești și în „Testele și exercițiile mele", la PDF-ul setului → „▸ Variantele".
+        </p>
+      )}
+      {rezultat.intrerupt && <div style={{ fontSize: '.77rem', color: '#b26a00', marginBottom: 8 }}>⚠️ Generarea s-a oprit înainte de capăt — au rămas {teste.length} teste, folosibile.</div>}
+      {rezultat.gata && !set && teste.length > 1 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
           <button type="button" className="btn btn-outline btn-sm" onClick={() => printExams(teste.map(caExam), { title: `${teste.length} teste` })}>🖨 Tipărește toate testele ({teste.length})</button>
           <button type="button" className="btn btn-outline btn-sm" onClick={() => printExams(teste.map(caExam), { withSolutions: true, title: `Barem · ${teste.length} teste` })}>📝 Toate baremele</button>

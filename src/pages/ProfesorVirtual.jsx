@@ -729,6 +729,31 @@ function LibItem({ it, isTeacher, onRemove }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [full, setFull] = useState(null);
+  // SET de teste diferite (1 nov. 2026, src/lib/testeSet.js): UN SINGUR PDF cu
+  // „Varianta 1…N"; variantele lui stau ascunse aici (le folosește testul pe grupă)
+  const set = it.set && Array.isArray(it.set.childIds) ? it.set : null;
+  const [showVar, setShowVar] = useState(false);
+  const [variante, setVariante] = useState(null);
+  async function toggleVariante() {
+    if (showVar) { setShowVar(false); return; }
+    setShowVar(true);
+    if (!variante) setVariante(await aiClient.getLibraryItems(set.childIds).catch(() => []));
+  }
+  async function descarcaVarianta(v) {
+    try {
+      const blob = await aiClient.getLibraryPdfBlob(v.payload || {});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${String(v.title || 'varianta').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'varianta'}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) { setMsg('Eroare: ' + (e?.message || 'PDF indisponibil')); }
+  }
+  function sterge() {
+    if (set && !window.confirm(`Ștergi PDF-ul cu toate cele ${set.count} variante? Se șterg și variantele separate; dacă le-ai trimis printr-un test pe grupă, elevii care nu și-au deschis încă testul nu-l mai primesc.`)) return;
+    onRemove();
+  }
   const [editing, setEditing] = useState(false);
   const [qs, setQs] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -752,7 +777,9 @@ function LibItem({ it, isTeacher, onRemove }) {
       const f = full || await aiClient.getLibraryItem(it.id);
       if (!full) setFull(f);
       const { publicId: _pub, ...pdfPayload } = f?.payload || {};
-      const payload = it.kind === 'exam' ? { exam: f?.payload?.exam } : pdfPayload;
+      // copia publică: fără lista variantelor private ale unui set (doar câte sunt)
+      const payload = it.kind === 'exam' ? { exam: f?.payload?.exam }
+        : (pdfPayload.set ? { ...pdfPayload, set: { ...pdfPayload.set, childIds: [] } } : pdfPayload);
       if (it.kind === 'exam' && !payload.exam) throw new Error('Subiectul nu a putut fi încărcat.');
       if (it.kind === 'pdf' && !payload.pdfPath && !payload.pdfBase64) throw new Error('PDF-ul nu a putut fi încărcat.');
       // (și testele kind 'exam' publicate automat din „👥 Teste diferite / elev")
@@ -761,7 +788,8 @@ function LibItem({ it, isTeacher, onRemove }) {
         if (deja) { setMsg('✅ E deja în „Biblioteca utilizatorilor", ca „' + (deja.title || it.title) + '".'); return; }
       }
       const r = await aiClient.publicPublish({ kind: it.kind, title: it.title || f?.title || 'Subiect', category: f?.category || null, topic: f?.topic || null, payload });
-      if (r?.id) aiClient.updateLibraryItem(it.id, { payload: { ...(it.kind === 'exam' ? payload : pdfPayload), publicId: r.id } }).catch(() => {});
+      // tot payload-ul rămâne (la un set: `set`, cu variantele lui), plus semnul publicării
+      if (r?.id) aiClient.updateLibraryItem(it.id, { payload: { ...pdfPayload, publicId: r.id } }).catch(() => {});
       setMsg('✅ Publicat în „Biblioteca utilizatorilor" ca „' + (r?.title || it.title) + '".');
     } catch (e) { setMsg('Eroare: ' + e.message); }
     finally { setPublishing(false); }
@@ -810,9 +838,10 @@ function LibItem({ it, isTeacher, onRemove }) {
     <div style={box}>
       <div style={row}>
         <div>
-          <div style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '.9rem' }}>{icon} {it.title || 'Exercițiu'}</div>
+          <div style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '.9rem' }}>{set ? '📚' : icon} {it.title || 'Exercițiu'}</div>
           <div style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>
             {new Date(it.created_at).toLocaleDateString('ro-RO')}{it.score != null && it.max_score ? ` · scor ${it.score}/${it.max_score}` : ''}
+            {set ? ` · un singur PDF: Varianta 1–${set.count}${it.topic ? ` · ${it.topic}` : ''}` : ''}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -829,14 +858,43 @@ function LibItem({ it, isTeacher, onRemove }) {
               {downloading ? '⏳' : '⬇ Descarcă'}
             </button>
           )}
+          {set && (
+            <button className="btn btn-sm btn-outline" onClick={toggleVariante}>{showVar ? '▾' : '▸'} Variantele ({set.count})</button>
+          )}
           {isTeacher && (it.kind === 'exam' || it.kind === 'pdf') && (
             <button className="btn btn-sm btn-outline" disabled={publishing} onClick={publishPdf}>
               {publishing ? '⏳ Se publică...' : '🏛️ Publică'}
             </button>
           )}
-          <button className="btn btn-sm" style={{ color: '#c0392b' }} onClick={onRemove}>🗑</button>
+          <button className="btn btn-sm" style={{ color: '#c0392b' }} onClick={sterge} title={set ? 'Șterge PDF-ul și toate variantele' : 'Șterge'}>🗑</button>
         </div>
       </div>
+      {set && showVar && (
+        <div style={{ marginTop: 8, display: 'grid', gap: 4 }}>
+          <div style={{ fontSize: '.74rem', color: 'var(--text-muted)' }}>
+            Variantele separate — pe ele le folosește „👥 Test interactiv pe grupă" (câte una pentru fiecare elev; le găsești bifabile la sursa „🧩 Testele generate de mine").
+          </div>
+          {!variante ? <div style={{ padding: 6 }}><div className="spinner" style={{ width: 16, height: 16 }} /></div>
+            : !variante.length ? <div style={{ fontSize: '.78rem', color: 'var(--text-muted)' }}>Variantele nu mai există.</div>
+              : variante.map((v) => (
+                <div key={v.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', background: '#fff', border: '1px solid var(--border)', borderRadius: 8, padding: '5px 8px' }}>
+                  <span style={{ flex: '1 1 200px', minWidth: 0, fontSize: '.8rem', color: 'var(--navy)' }}>{v.title}</span>
+                  {v.kind === 'interactive' && v.payload?.questions && (
+                    <button className="btn btn-sm btn-outline" onClick={() => navigate('/exercitiu-ai', { state: { html: renderQuiz(v.title, v.payload.questions, v.payload.meta || {}), title: v.title } })}>🗗 Deschide</button>
+                  )}
+                  {v.kind === 'exam' && v.payload?.exam && (
+                    <>
+                      <button className="btn btn-sm btn-outline" onClick={() => printExam(v.payload.exam)}>📄 PDF</button>
+                      <button className="btn btn-sm btn-outline" onClick={() => printExam(v.payload.exam, { withSolutions: true })}>📝 Barem</button>
+                    </>
+                  )}
+                  {v.kind === 'pdf' && (v.payload?.pdfPath || v.payload?.pdfBase64) && (
+                    <button className="btn btn-sm btn-outline" onClick={() => descarcaVarianta(v)}>⬇ Descarcă</button>
+                  )}
+                </div>
+              ))}
+        </div>
+      )}
       {!open && msg && <div style={{ marginTop: 8, fontSize: '.82rem', color: msg.startsWith('✅') ? '#1e7e34' : '#b71c1c' }}>{msg}</div>}
 
       {open && full && (

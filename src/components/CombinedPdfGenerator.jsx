@@ -46,8 +46,9 @@ import {
 } from '../lib/pdfCombine';
 import { EXAM_SOURCES, EXAM_TYPES } from './ExamGenerator';
 import { filterExamBySelection } from '../lib/fiseTeste';
+import { setTitle, setText, variantLabel, variantTitle, buildExamSet, examIsGrila, combinedIsGrila } from '../lib/testeSet';
 import OptiuneSpatiuLucru from './OptiuneSpatiuLucru';
-import ListaTesteExam from './ListaTesteExam';
+import ListaTesteExam, { SetSalvat } from './ListaTesteExam';
 import { fmtEstimare } from '../lib/aiCost';
 
 // un test de examen compus de AI (gpt-6.1-sol, cu verificatorul): ~0,5–0,85 lei
@@ -262,28 +263,52 @@ export default function CombinedPdfGenerator({
     if (cfg.category !== category) onCategory?.(cfg.category);
     const selectie = selN;
     const info = { examen: exam.short, subiecte: complet ? 'toate subiectele' : eticheta };
+    // mai multe teste → un SET: „Varianta 1…N", salvat ca un singur PDF (src/lib/testeSet.js)
+    const multe = n > 1;
+    const context = `${exam.short}${complet ? '' : ` · ${sl}`}${alese ? ' (exerciții alese)' : ''} · numere schimbate`;
+    const topic = `${sl}${cfg.profile ? ` · M_${cfg.profile}` : ''} · numere schimbate`;
     const teste = [];
-    const gata = (extra = {}) => {
-      setRezultatAI({ ...info, teste: [...teste], gata: true, total: teste.length, ...extra });
+    const gata = async (extra = {}) => {
+      let set = null;
+      if (multe && teste.length > 1 && viu.current) {
+        setBusy(`Salvez cele ${teste.length} teste într-un singur PDF…`);
+        try {
+          const exams = teste.map((t) => t.exam);
+          const grila = exams.every(examIsGrila);
+          const title = setTitle(teste.length, grila);
+          const examSet = buildExamSet(exams, { title, context });
+          const r = await aiClient.saveTestSet({
+            kind: 'exam', title, category: cfg.category, topic, exam: examSet, grila, publish,
+            children: teste.map((t) => ({ id: t.privateId, payload: { exam: t.exam } })),
+          });
+          set = { ...r, exam: examSet };
+        } catch (e) { set = { error: e.message || 'setul nu s-a putut salva' }; }
+      }
+      setRezultatAI({ ...info, teste: [...teste], gata: true, total: teste.length, set, ...extra });
       if (viu.current && teste.length) onDone?.(teste.map((t) => ({ source: 'personal', refId: t.privateId, title: t.title, isFree: true })), { format: 'pdf', category: cfg.category });
     };
     try {
-      let nr = await aiClient.nextCombinedTestNumber().catch(() => 1);
-      const topic = `${sl}${cfg.profile ? ` · M_${cfg.profile}` : ''} · numere schimbate`;
+      let nr = multe ? 0 : await aiClient.nextCombinedTestNumber().catch(() => 1);
       for (let i = 0; i < n; i++) {
         if (!viu.current) return;
-        setBusy(`Testul ${i + 1} din ${n}: AI-ul îl compune din subiectele site-ului, cu alte numere și notații… (~1–2 minute)`);
+        setBusy(`${multe ? `Varianta ${i + 1}` : 'Testul'} din ${n}: AI-ul o compune din subiectele site-ului, cu alte numere și notații… (~1–2 minute)`);
         // eslint-disable-next-line no-await-in-loop
         const res = await aiClient.generateExam({ examType, dataMode: 'modify', instructions: '', chapters: [] });
-        const titlu = `Test combinat nr. ${nr} — ${exam.short}${complet ? '' : ` · ${sl}`}${alese ? ' (exerciții alese)' : ''} · numere schimbate`;
+        const titlu = multe ? variantTitle(`Test combinat — ${context}`, i + 1) : `Test combinat nr. ${nr} — ${context}`;
         const ex0 = filterExamBySelection(res.exam, selectie, { complete: complet });
         const { workSpace: _ws, ...rest } = ex0 || {};
-        const ex = { ...rest, title: titlu, ...(workSpace ? {} : { workSpace: false }) };
-        setBusy(`Testul ${i + 1} din ${n}: îl salvez în „Testele mele"${publish ? ' și îl public în bibliotecă' : ''}…`);
+        const ex = {
+          ...rest,
+          // varianta din set poartă „Varianta k" și pe foaie (o primește un elev)
+          ...(multe ? { title: variantLabel(i + 1), subtitle: context, nameLine: true } : { title: titlu }),
+          ...(workSpace ? {} : { workSpace: false }),
+        };
+        setBusy(`${multe ? `Varianta ${i + 1}` : 'Testul'} din ${n}: o salvez…`);
         // eslint-disable-next-line no-await-in-loop
         const privateId = await aiClient.saveLibraryItem({ kind: 'exam', title: titlu, category: cfg.category, topic, payload: { exam: ex } });
         let publicId = null; let publishError = null;
-        if (publish) {
+        // un set se publică o singură dată, întreg (la final); un test singur — acum
+        if (publish && !multe) {
           try {
             // eslint-disable-next-line no-await-in-loop
             const r = await aiClient.publicPublish({ kind: 'exam', title: titlu, category: cfg.category, topic, payload: { exam: ex } });
@@ -295,11 +320,11 @@ export default function CombinedPdfGenerator({
         setRezultatAI({ ...info, teste: [...teste], gata: false, total: n });
         nr += 1;
       }
-      gata();
+      await gata();
     } catch (e) {
       setErr(e.message || 'Generarea testelor a eșuat.');
       onError?.(e);
-      if (teste.length) gata({ intrerupt: true });
+      if (teste.length) await gata({ intrerupt: true });
     } finally { setBusy(null); }
   }
 
@@ -312,9 +337,39 @@ export default function CombinedPdfGenerator({
     if (cfg.category !== category) onCategory?.(cfg.category);
     const selectie = selN;
     const info = { examen: exam.short, subiecte: complet ? 'toate subiectele' : eticheta };
+    // mai multe teste → un SET: „Varianta 1…N" pe fiecare test, toate într-un
+    // singur PDF salvat (și publicat) o dată; variantele rămân separat, ascunse,
+    // pentru testul pe grupă (src/lib/testeSet.js)
+    const multe = n > 1;
+    const context = `${exam.short}${complet ? '' : ` · ${sl}`}${alese ? ' (exerciții alese)' : ''}`;
     const teste = [];
     let surse = [];
     let maxDiferite = Infinity;
+    const gata = async (extra = {}) => {
+      let set = null;
+      if (multe && teste.length > 1 && viu.current) {
+        setBusy(`Unesc cele ${teste.length} teste într-un singur PDF și îl salvez…`);
+        try {
+          const bytes = await mergePdfs(await Promise.all(teste.map(async (t) => new Uint8Array(await t.blob.arrayBuffer()))));
+          const blob = new Blob([bytes], { type: 'application/pdf' });
+          const grila = combinedIsGrila(examType, subjects);
+          const title = setTitle(teste.length, grila);
+          const r = await aiClient.saveTestSet({
+            kind: 'pdf', title, category: cfg.category, topic: `${sl}${cfg.profile ? ` · M_${cfg.profile}` : ''}`, blob, grila, publish,
+            extra: {
+              text: setText(teste.map((t) => t.text)).slice(0, 60000),
+              pageTexts: teste.flatMap((t) => t.pageTexts || []),
+              pages: teste.reduce((sum, t) => sum + (t.pages || 0), 0),
+              combined: { exam: examType, subjects, variants: teste.length, ...(complet ? {} : { selection: selectie }) },
+            },
+            children: teste.map((t) => ({ id: t.privateId, payload: t.payload })),
+          });
+          set = { ...r, blob, size: blob.size, pages: teste.reduce((sum, t) => sum + (t.pages || 0), 0) };
+        } catch (e) { set = { error: e.message || 'setul nu s-a putut salva' }; }
+      }
+      setRezultat({ ...info, teste: [...teste], surse, maxDiferite, gata: true, total: teste.length, set, ...extra });
+      if (viu.current && teste.length) onDone?.(teste.map((t) => ({ source: 'personal', refId: t.privateId, title: t.title, isFree: true })), { format: 'pdf', category: cfg.category });
+    };
     try {
       setBusy('Caut subiectele-sursă ale examenului…');
       let q = supabase.from('content').select('id, title, file_url, is_free, subcategory')
@@ -337,52 +392,54 @@ export default function CombinedPdfGenerator({
       const planuri = planCombinations(prep.list, { count: n, subjects, selection: selectie });
       setBusy('Pregătesc subiectele-sursă…');
       const docs = await openSourceDocs(prep.list);
-      let nr = await aiClient.nextCombinedTestNumber().catch(() => 1);
+      let nr = multe ? 0 : await aiClient.nextCombinedTestNumber().catch(() => 1);
       const topic = `${sl}${cfg.profile ? ` · M_${cfg.profile}` : ''}`;
 
       for (const plan of planuri) {
         if (!viu.current) return;
-        const titlu = `Test combinat nr. ${nr} — ${exam.short}${complet ? '' : ` · ${sl}`}${alese ? ' (exerciții alese)' : ''}`;
+        const eticheta2 = multe ? variantLabel(plan.index) : null;
+        const titlu = multe ? variantTitle(`Test combinat — ${context}`, plan.index) : `Test combinat nr. ${nr} — ${context}`;
         const nrTest = nr;
-        setBusy(`Testul ${plan.index} din ${planuri.length}: compun PDF-ul…`);
+        setBusy(`${multe ? eticheta2 : `Testul ${plan.index}`} din ${planuri.length}: compun PDF-ul…`);
         // eslint-disable-next-line no-await-in-loop
         const r = await composeExamPdf(prep, plan, {
           subjects, srcDocs: docs, selection: selectie,
+          // testul complet (coperta oficială): „Varianta k" într-o casetă sus, în dreapta
+          label: eticheta2,
           // testele parțiale: antet scurt în locul copertei (care vorbește de toate subiectele)
           header: complet ? null : (latime, info2) => makeHeaderPng({
             title: exam.head,
             subtitle: `Test de antrenament · ${sl}${alese ? ' (exerciții alese)' : ''} — ${pointsLabel(info2?.points ?? puncte)}`,
-            right: `Test combinat nr. ${nrTest}`,
+            right: multe ? eticheta2 : `Test combinat nr. ${nrTest}`,
+            rightBold: multe,
           }, { widthPt: latime }),
         });
         const blob = new Blob([r.bytes], { type: 'application/pdf' });
-        setBusy(`Testul ${plan.index} din ${planuri.length}: îl salvez în „Testele mele" și îl public în bibliotecă…`);
+        setBusy(`${multe ? eticheta2 : `Testul ${plan.index}`} din ${planuri.length}: o salvez${publish && !multe ? ' și o public în bibliotecă' : ''}…`);
         // eslint-disable-next-line no-await-in-loop
-        const s = await aiClient.saveCombinedPdf({
-          title: titlu, category: cfg.category, topic, blob, publish,
+        const s2 = await aiClient.saveCombinedPdf({
+          title: titlu, category: cfg.category, topic, blob,
+          // un set se publică o singură dată, întreg (la final)
+          publish: publish && !multe,
           extra: {
             // textul testului (doar exercițiile așezate) — îl citește Profesorul Virtual
             sources: r.sources, text: r.text, pageTexts: r.pageTexts, pages: r.pages,
-            combined: { exam: examType, subjects, nr: nrTest, report: r.report, points: r.points, ...(complet ? {} : { selection: selectie }) },
+            combined: { exam: examType, subjects, nr: nrTest, ...(multe ? { variant: plan.index } : {}), report: r.report, points: r.points, ...(complet ? {} : { selection: selectie }) },
           },
         });
         teste.push({
-          ...s, nr: nrTest, blob, size: r.size, pages: r.pages, report: r.report, duplicate: plan.duplicate,
-          points: r.points, intregi: (r.wholeFallback || []).length,
+          ...s2, nr: nrTest, variant: multe ? plan.index : null, blob, size: r.size, pages: r.pages, report: r.report, duplicate: plan.duplicate,
+          points: r.points, intregi: (r.wholeFallback || []).length, text: r.text, pageTexts: r.pageTexts,
         });
         setRezultat({ ...info, teste: [...teste], surse, maxDiferite, gata: false, total: planuri.length });
         nr += 1;
       }
-      setRezultat({ ...info, teste: [...teste], surse, maxDiferite, gata: true, total: teste.length });
-      if (viu.current) onDone?.(teste.map((t) => ({ source: 'personal', refId: t.privateId, title: t.title, isFree: true })), { format: 'pdf', category: cfg.category });
+      await gata();
     } catch (e) {
       setErr(e.message || 'Generarea testelor a eșuat.');
       onError?.(e);
       // ce s-a salvat până la eroare rămâne folosibil (și e deja în „Testele mele")
-      if (teste.length) {
-        setRezultat({ ...info, teste: [...teste], surse, maxDiferite, gata: true, total: teste.length, intrerupt: true });
-        if (viu.current) onDone?.(teste.map((t) => ({ source: 'personal', refId: t.privateId, title: t.title, isFree: true })), { format: 'pdf', category: cfg.category });
-      }
+      if (teste.length) await gata({ intrerupt: true });
     } finally { setBusy(null); }
   }
 
@@ -420,7 +477,9 @@ export default function CombinedPdfGenerator({
             subiectele site-ului (variante date, modele, simulări), cu <strong>alte numere și notații</strong>, și îl
             recalculează — cu <strong>barem</strong>. Rămân doar exercițiile bifate mai jos. <strong>Un apel AI pe test</strong>:
             {' '}~{fmtEstimare(CREDITE_TEST_EXAMEN_AI)} pe test.
-            <br />Fiecare test se <strong>salvează</strong> în „Testele și exercițiile mele"{publish ? <>, se <strong>publică</strong> în „Biblioteca utilizatorilor"</> : ''} și se poate <strong>tipări</strong> (PDF), cu sau fără barem.
+            <br />{n > 1
+              ? <>Toate cele {n} teste se <strong>salvează într-un singur PDF</strong>, fiecare test cu <strong>„Varianta 1", „Varianta 2"…</strong>{publish ? <>; PDF-ul se <strong>publică</strong> în „Biblioteca utilizatorilor"</> : ''}. Se tipărește cu sau fără barem.</>
+              : <>Testul se <strong>salvează</strong> în „Testele și exercițiile mele"{publish ? <>, se <strong>publică</strong> în „Biblioteca utilizatorilor"</> : ''} și se poate <strong>tipări</strong> (PDF), cu sau fără barem.</>}
           </p>
         </>
       ) : (
@@ -434,7 +493,9 @@ export default function CombinedPdfGenerator({
             <strong> aceeași poziție</strong> — exercițiul 3 de la Subiectul II vine dintre exercițiile 3 de la Subiectul II.
             Redactarea e identică cu originalele, fără AI și fără cost. <strong>Testele diferă între ele</strong>: pe fiecare
             poziție, alt test-sursă.
-            <br />Fiecare PDF se <strong>salvează</strong> în „Testele și exercițiile mele"{publish ? <>, se <strong>publică</strong> în „Biblioteca utilizatorilor"</> : ''} și se poate <strong>descărca</strong>.
+            <br />{n > 1
+              ? <>Toate cele {n} teste se <strong>salvează într-un singur PDF</strong>, fiecare test cu <strong>„Varianta 1", „Varianta 2"…</strong> (pe copertă sau în antet){publish ? <>; PDF-ul se <strong>publică</strong> în „Biblioteca utilizatorilor"</> : ''} și se poate <strong>descărca</strong>.</>
+              : <>PDF-ul se <strong>salvează</strong> în „Testele și exercițiile mele"{publish ? <>, se <strong>publică</strong> în „Biblioteca utilizatorilor"</> : ''} și se poate <strong>descărca</strong>.</>}
           </p>
         </>
       )}
@@ -508,13 +569,30 @@ export default function CombinedPdfGenerator({
       {!ai && rezultat && rezultat.teste.length > 0 && (
         <div style={{ marginTop: 12, background: 'rgba(39,174,96,.08)', border: '1px solid rgba(39,174,96,.35)', borderRadius: 10, padding: 12 }}>
           <div style={{ fontWeight: 700, color: '#1e7e34', fontSize: '.86rem', marginBottom: 4 }}>
-            {rezultat.gata ? '✅' : '⏳'} {rezultat.teste.length}{rezultat.gata ? '' : ` din ${rezultat.total}`} {rezultat.teste.length === 1 ? 'test PDF' : 'teste PDF'} — {rezultat.examen} · {rezultat.subiecte}
+            {rezultat.gata ? '✅' : '⏳'} {rezultat.teste.length}{rezultat.gata ? '' : ` din ${rezultat.total}`} {rezultat.teste.length === 1 ? 'test PDF' : (rezultat.gata ? 'teste PDF diferite' : 'variante')} — {rezultat.examen} · {rezultat.subiecte}
           </div>
-          <p style={{ fontSize: '.77rem', color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.5 }}>
-            Salvate în „Testele și exercițiile mele"{publish ? <> · publicate în „Biblioteca utilizatorilor": {publicate} din {rezultat.teste.length}
-            {publicate < rezultat.teste.length && rezultat.gata ? ' (restul le poți publica din „Testele și exercițiile mele" → 🏛️ Publică)' : ''}.
-            {' '}În bibliotecă sunt ⭐ premium, ca orice material publicat; elevii tăi le primesc gratuit prin testul pe grupă.</> : '.'}
-          </p>
+          {rezultat.gata && (
+            <SetSalvat set={rezultat.set} count={rezultat.teste.length} publish={publish}>
+              {rezultat.set && rezultat.set.blob && (
+                <>
+                  <button type="button" className="btn btn-sm btn-primary" onClick={() => descarca(rezultat.set.blob, `${slug(rezultat.set.title)}.pdf`)}>
+                    ⬇ Descarcă PDF-ul cu toate cele {rezultat.teste.length} variante
+                  </button>
+                  <button type="button" className="btn btn-sm btn-outline" onClick={() => vezi(rezultat.set)}>👁 Vezi</button>
+                  <span style={{ fontSize: '.72rem', color: 'var(--text-muted)', alignSelf: 'center' }}>
+                    {rezultat.set.pages} pagini · {marime(rezultat.set.size)}
+                  </span>
+                </>
+              )}
+            </SetSalvat>
+          )}
+          {!(rezultat.set && !rezultat.set.error) && (
+            <p style={{ fontSize: '.77rem', color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.5 }}>
+              Salvate în „Testele și exercițiile mele"{publish ? <> · publicate în „Biblioteca utilizatorilor": {publicate} din {rezultat.teste.length}
+              {publicate < rezultat.teste.length && rezultat.gata ? ' (restul le poți publica din „Testele și exercițiile mele" → 🏛️ Publică)' : ''}.
+              {' '}În bibliotecă sunt ⭐ premium, ca orice material publicat; elevii tăi le primesc gratuit prin testul pe grupă.</> : '.'}
+            </p>
+          )}
           {rezultat.intrerupt && (
             <div style={{ fontSize: '.77rem', color: '#b26a00', marginBottom: 8 }}>
               ⚠️ Generarea s-a oprit înainte de capăt — au rămas {rezultat.teste.length} teste, folosibile.
@@ -530,7 +608,7 @@ export default function CombinedPdfGenerator({
               ⚠️ Din subiectele găsite se pot face cel mult {rezultat.maxDiferite} teste diferite cu {rezultat.subiecte} — unele teste se repetă.
             </div>
           )}
-          {rezultat.gata && rezultat.teste.length > 1 && (
+          {rezultat.gata && rezultat.teste.length > 1 && !(rezultat.set && !rezultat.set.error) && (
             <button type="button" className="btn btn-outline btn-sm" style={{ marginBottom: 8 }} onClick={descarcaToate} disabled={toateBusy}>
               {toateBusy ? 'Unesc PDF-urile…' : `⬇ Descarcă toate testele într-un singur PDF (de tipărit)`}
             </button>
