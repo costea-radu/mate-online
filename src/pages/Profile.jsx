@@ -714,7 +714,7 @@ export default function Profile() {
             {isTeacher && (
               <details className="card" style={{ marginBottom: 24 }}>
                 <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  👥 Test pe grupă — fiecare elev primește alt test
+                  👥 Test interactiv pe grupă — fiecare elev primește alt test
                 </summary>
                 <div style={{ marginTop: 16 }}>
                   <GroupAssignment />

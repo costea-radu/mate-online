@@ -2,8 +2,8 @@
 // src/components/ModelTestPanel.jsx — „📐 Test după model" (30 oct. 2026)
 //
 // În formularul generatorului (src/components/InteractiveGenForm.jsx), deci
-// și în „🧩 Generează exerciții/teste interactive/PDF", și în „👥 Test pe
-// grupă → ⚡ Generează acum testele".
+// și în „🧩 Generează exerciții/teste interactive/PDF", și în „👥 Teste
+// diferite / elev" → „🧩 Un test AI, în N variante".
 //
 // Profesorul încarcă un test DE-AL LUI — PDF, Word sau poză. Textul se citește
 // ca la materialul încărcat, apoi serverul îi scoate STRUCTURA

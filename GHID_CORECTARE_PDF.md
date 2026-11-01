@@ -173,7 +173,7 @@ Rulează în **Supabase → SQL Editor**: `supabase/corectare_pdf.sql`
   `supabase/corectare_pdf.sql` (pentru încărcări) / `supabase/pastreaza_rezultate.sql`
   (pentru snapshotul titlurilor).
 - Modelul de corectare se setează cu `AI_PDF_CHAT_MODEL` (cu barem — implicit
-  `gpt-5.6-terra`, folosit și de Prof. Virtual pe orice PDF deschis) și
+  `gpt-6.1-terra` din 1 nov. 2026, înainte `gpt-5.6-terra`; folosit și de Prof. Virtual pe orice PDF deschis) și
   `AI_GEN_CHAT_MODEL` (fără barem) — aceleași variabile ca până acum.
 - **Cu POZE ale rezolvării** („📷 Poze cu rezolvarea", sau foaia din „✍️ Spațiu
   de lucru" atașată la o cerință) corectarea e **doar pentru Premium** (402

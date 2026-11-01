@@ -120,7 +120,7 @@ POST /api/ai-handwriting { action:'correct', images, grid, thumb, conversationId
    ↓          altfel → doar enunțul (fără puncte)
 corector (api/_lib/corector.js) — Claude Opus 5.5, imaginile ÎNAINTEA textului,
    gândire adaptivă (efort „low"), JSON pe schemă, fără cache (apel unic)
-   ↓ rezervă: GPT-5.6 Terra (cheie lipsă / pană / răspuns stricat)
+   ↓ rezervă: GPT-6.1 Terra (cheie lipsă / pană / răspuns stricat; până pe 1 nov. 2026, GPT-5.6 Terra)
 { transcriere, itemi:[{ eticheta, verdict, puncte, puncte_max, pasi, motiv_punctaj }], feedback, sfat }
    ↓ punctele ținute în [0, maxim], verdictul aliniat cu punctajul
 mesajul profesorului în conversație (+ salvat în ai_messages, cu miniatura foii)
@@ -166,7 +166,8 @@ foii (o dală ≈ 700–4800 de tokeni), enunțul, iar la un subiect PDF testul 
 |---|---|---|---|
 | **Claude Opus 5.5** (implicit) | 4 / 20 | ~0,15–0,5 lei (de obicei ~0,25) | ~3–10 lei |
 | Claude Sonnet 5.5 | 2 / 10 | ~0,07–0,25 lei | ~1,5–5 lei |
-| GPT-5.6 Terra (rezerva) | 2 / 12 | ~0,08–0,3 lei | ~1,6–6 lei |
+| GPT-6.1 Terra (rezerva, din 1 nov. 2026) | 1 / 5 | ~0,04–0,15 lei (estimare) | ~0,8–3 lei |
+| GPT-5.6 Terra (rezerva până pe 1 nov. 2026) | 2 / 12 | ~0,08–0,3 lei | ~1,6–6 lei |
 | Gemini 3.1 Pro (prin AI Gateway) | 2 / 12 | ~0,08–0,3 lei | ~1,6–6 lei |
 | Claude Haiku 5.5 | 0,10 / 0,50 | ~0,004–0,012 lei | sub 0,3 lei |
 
@@ -224,7 +225,7 @@ cerută și revine abia când nu mai cere niciuna. Detalii: `GHID_BIBLIOTECA_UTI
 | Elev fără abonament apasă „🎓 Cere corectarea" | banda ⭐ „Corectarea face parte din abonamentul Premium" + link; nu pleacă nimic |
 | Foaia goală | „Scrie întâi rezolvarea pe foaie." |
 | Scris complet ilizibil | „Nu am reușit să citesc rezolvarea de pe foaie" + ce a putut desluși + sfat (scrie mai mare și mai rar) |
-| Claude nu răspunde / cheia lipsește | corectează rezerva (GPT-5.6 Terra) — elevul primește corectarea oricum |
+| Claude nu răspunde / cheia lipsește | corectează rezerva (GPT-6.1 Terra) — elevul primește corectarea oricum |
 | Nici rezerva nu reușește | 502 „Corectarea nu a reușit acum…" (fără mesajul tehnic); nu se consumă din cotă |
 | Cota zilnică atinsă / creditele terminate | mesajul obișnuit al limitelor (429), cu pachetele AI |
 | S-a scris foarte mult spre dreapta | foaia pleacă în mai multe bucăți (≤ 6); golurile dintre pagini se strâng; peste, scrisul se micșorează treptat |

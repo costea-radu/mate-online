@@ -20,11 +20,12 @@ const CHAT_MODEL = process.env.AI_CHAT_MODEL     || 'gpt-4o-mini';
 // modelului de chat, ca să funcționeze și prin gateway, și direct pe OpenAI.
 const MODEL_PREFIX = CHAT_MODEL.includes('/') ? CHAT_MODEL.slice(0, CHAT_MODEL.lastIndexOf('/') + 1) : '';
 // Model cu vedere (foto-rezolvare, api/ai-vision.js): citește enunțul din poza
-// elevului. IMPLICIT „terra" (gpt-5.6) — scrisul de mână, formulele și pozele
-// strâmbe cer un model bun la vedere, iar o transcriere greșită strică tot ce
-// urmează. NU mai moștenește modelul de chat. AI_VISION_MODEL îl schimbă;
+// elevului. IMPLICIT „terra" (gpt-6.1-terra din 1 nov. 2026; înainte gpt-5.6-terra)
+// — scrisul de mână, formulele și pozele strâmbe cer un model bun la vedere, iar o
+// transcriere greșită strică tot ce urmează. NU mai moștenește modelul de chat.
+// AI_VISION_MODEL îl schimbă (AI_VISION_MODEL=gpt-5.6-terra = modelul de dinainte);
 // peste bugetul zilnic soft, pickModel coboară automat pe modelul standard.
-const VISION_MODEL = process.env.AI_VISION_MODEL || MODEL_PREFIX + 'gpt-5.6-terra';
+const VISION_MODEL = process.env.AI_VISION_MODEL || MODEL_PREFIX + 'gpt-6.1-terra';
 
 const EMBED_BASE  = process.env.AI_EMBED_BASE_URL || 'https://api.openai.com/v1';
 const EMBED_KEY   = process.env.AI_EMBED_API_KEY  || process.env.OPENAI_API_KEY || '';
@@ -48,20 +49,22 @@ const hasEmbeddings = () => !!EMBED_KEY;
 const hasChat = () => !!CHAT_KEY;
 
 // Modelul agentului de teste PDF — citirea enunțurilor și fidelitatea față de
-// barem cer un model bun, deci IMPLICIT „terra" (flagship-ul gpt-5.6), nu mai
-// depinde de setarea din env (cu prefixul providerului moștenit de la modelul
-// de chat, pentru AI Gateway). AI_PDF_CHAT_MODEL în env îl poate schimba;
-// peste bugetul zilnic soft, pickModel coboară automat pe modelul standard.
-const PDF_MODEL = process.env.AI_PDF_CHAT_MODEL || MODEL_PREFIX + 'gpt-5.6-terra';
+// barem cer un model bun, deci IMPLICIT „terra" (gpt-6.1-terra din 1 nov. 2026:
+// 1/5 USD/1M, față de 2/12 la gpt-5.6-terra), nu mai depinde de setarea din env
+// (cu prefixul providerului moștenit de la modelul de chat, pentru AI Gateway).
+// AI_PDF_CHAT_MODEL în env îl poate schimba; peste bugetul zilnic soft,
+// pickModel coboară automat pe modelul standard.
+const PDF_MODEL = process.env.AI_PDF_CHAT_MODEL || MODEL_PREFIX + 'gpt-6.1-terra';
 // Modelul pentru GENERAREA de teste/exerciții și CORECTAREA răspunsurilor —
 // acolo modelul calculează singur (fără barem), deci o greșeală de calcul ajunge
 // direct „răspuns oficial" în cheia unui test dat elevilor. IMPLICIT „sol"
-// (gpt-5.6-sol, flagship-ul), nu modelul de chat: e cel folosit în contul de
-// profesor pentru teste și exerciții PDF/interactive. AI_GEN_CHAT_MODEL îl
-// schimbă; peste bugetul zilnic soft, pickModel coboară automat pe CHAT_MODEL.
-// ATENȚIE la cost: sol e ~27× mai scump la intrare și ~33× la ieșire față de
-// gpt-4o-mini — vezi GHID_LIMITE_AI.md pentru bugete.
-const GEN_MODEL = process.env.AI_GEN_CHAT_MODEL || MODEL_PREFIX + 'gpt-5.6-sol';
+// (gpt-6.1-sol din 1 nov. 2026 — 2/10 USD/1M, jumătate din gpt-5.6-sol), nu
+// modelul de chat: e cel folosit în contul de profesor pentru teste și exerciții
+// PDF/interactive. AI_GEN_CHAT_MODEL îl schimbă (AI_GEN_CHAT_MODEL=gpt-5.6-sol =
+// modelul de dinainte); peste bugetul zilnic soft, pickModel coboară automat pe
+// CHAT_MODEL. ATENȚIE la cost: sol e ~13× mai scump la intrare și ~17× la ieșire
+// față de gpt-4o-mini — vezi GHID_LIMITE_AI.md pentru bugete.
+const GEN_MODEL = process.env.AI_GEN_CHAT_MODEL || MODEL_PREFIX + 'gpt-6.1-sol';
 // Model separat (opțional) pentru EXPLICAȚIILE pas-cu-pas din chat — modurile
 // „tutor" / „explain" / „hint" (punctul 1.4 din AUDIT_AGENTI_AI.md): acolo
 // modelul calculează, iar 4o-mini greșește cel mai des la probleme cu mai mulți
@@ -192,7 +195,9 @@ function costMicroLei(model, usage = {}) {
 // Reperul: o zi „grea" de elev trebuie să încapă SUB limita soft, altfel
 // degradarea pe modelul economic pornește după prima acțiune și sol n-ar
 // mai apuca să conteze. Un test de examen costă 1,0–1,7 lei (sol e model cu
-// raționament: max_completion_tokens ajunge la 16000), plus verificarea.
+// raționament: max_completion_tokens ajunge la 16000), plus verificarea. Din
+// 1 nov. 2026 generarea e implicit pe gpt-6.1-sol (2/10 USD/1M) — la aceiași
+// tokeni, ~0,5–0,85 lei pe test; bugetele au rămas aceleași.
 //   zi soft: 0,8 → 2,5 lei  (×3,1)   — un test complet + verificare + chat
 //   zi hard: 2,5 → 6 lei    (×2,4)   — oprire la abuz
 //   lună:      6 → 12 lei   (×2)     — 24% dintr-un abonament de 50 lei

@@ -442,8 +442,8 @@ export const aiClient = {
       if (!privateId) supabase.storage.from('personal-pdfs').remove([path]).catch(() => {});
     }
   },
-  // TESTE PDF COMBINATE (31 oct. 2026) — „👥 Test pe grupă → ⚡ Generează acum
-  // testele" în format PDF (src/components/CombinedPdfGenerator.jsx). Fiecare PDF:
+  // TESTE PDF COMBINATE (31 oct. 2026) — din 1 nov. 2026 în „👥 Teste diferite /
+  // elev" → „🎓 Subiectele de examen" (src/components/CombinedPdfGenerator.jsx). Fiecare PDF:
   //   1. merge în folderul profesorului din bucketul privat (ca uploadMaterial);
   //   2. rămâne în „Testele și exercițiile mele" (copia privată — pe ea o primesc
   //      elevii prin testul pe grupă, fără abonament);
@@ -485,18 +485,33 @@ export const aiClient = {
   // Următorul număr pentru „Test combinat nr. N" — după testele combinate deja
   // salvate de profesor, ca numerotarea să continue de la un lot la altul (și
   // titlurile din „Biblioteca utilizatorilor" să nu se repete).
+  // (1 nov. 2026: numără și testele kind 'exam' — „🔢 Schimbă numerele" la
+  //  „👥 Teste diferite / elev" face tot „Test combinat nr. N", ca JSON de examen)
   async nextCombinedTestNumber() {
+    return this.nextNumberedTitle('Test combinat nr.');
+  },
+  // Următorul N pentru titlurile „<prefix> N" ale profesorului (PDF, examene,
+  // teste interactive) — „Test din fișe nr. N" la testele din fișele claselor.
+  async nextNumberedTitle(prefix) {
     const userId = await uid();
     if (!userId) return 1;
     const { data } = await supabase.from('ai_personal_items').select('title')
-      .eq('user_id', userId).eq('kind', 'pdf').ilike('title', 'Test combinat nr.%').limit(5000);
+      .eq('user_id', userId).in('kind', ['pdf', 'exam', 'interactive']).ilike('title', `${prefix}%`).limit(5000);
+    const re = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(\\d+)`);
     let max = 0;
     (data || []).forEach((r) => {
-      const m = /^Test combinat nr\. (\d+)/.exec(r.title || '');
+      const m = re.exec(r.title || '');
       if (m) max = Math.max(max, Number(m[1]));
     });
     return max + 1;
   },
+  // ── Banca de exerciții din fișele claselor 5–12 (api/fise.js) ──
+  // fișele PDF ale clasei + starea lor (citită / necitită / se citește)
+  fiseList: ({ category }) => post('/api/fise', { action: 'list', category }),
+  // grupele unei fișe (nivele / tipuri / secțiuni) cu exercițiile lor; fișa
+  // necitită se citește acum, o singură dată (1–3 minute) → { reading:true } dacă
+  // o citește deja altcineva. refresh = admin: citește din nou.
+  fiseBank: ({ contentId, refresh = false }) => post('/api/fise', { action: 'bank', contentId, refresh }),
   // Descarcă PDF-ul unui element din bibliotecă (Storage sau base64 vechi) ca Blob.
   async getLibraryPdfBlob(payload) {
     // PDF publicat: serverul a atașat un URL semnat (bucketul e privat,

@@ -1,12 +1,12 @@
 // =====================================================================
-// src/components/VariantGenerator.jsx — „⚡ Generează acum testele"
+// src/components/VariantGenerator.jsx — „🧩 Un test AI, în N variante"
 //
-// Se deschide în „👥 Test pe grupă", la pasul „Alege numărul de teste și de
-// unde vin", când profesorul bifează sursa „⚡ Generează acum testele".
-// Aduce ACOLO, în pagină, formularul din „🧩 Generează exerciții/teste
-// interactive/PDF" (src/components/InteractiveGenForm.jsx — același component,
-// ca alegerile să fie identice în ambele locuri) și face, dintr-o singură
-// generare, atâtea VARIANTE câte teste s-au cerut în bazin:
+// Din 1 nov. 2026 stă în „🧩 Generează exerciții/teste interactive/PDF" →
+// „👥 Teste diferite / elev" (src/components/TesteDiferite.jsx); până atunci se
+// deschidea în „👥 Test pe grupă" → „⚡ Generează acum testele". Folosește
+// formularul generatorului (src/components/InteractiveGenForm.jsx — același
+// component) și face, dintr-o singură generare, atâtea VARIANTE câte teste
+// diferite / elev s-au cerut:
 //
 //   • aceleași probleme în toate variantele, dar în ALTĂ ORDINE — problema de
 //     la punctul 1 la o variantă e la punctul 4 la alta;
@@ -14,8 +14,9 @@
 //     variantă răspunsul b), c) sau d).
 //
 // Fiecare variantă se salvează în „Testele și exercițiile mele"
-// (ai_personal_items, kind='interactive') și intră automat, bifată, în bazinul
-// testului pe grupă — sursa „🧩 Testele generate de mine".
+// (ai_personal_items, kind='interactive'); cu „👥 Folosește-le în testul
+// interactiv pe grupă" intră bifate în bazinul unui test pe grupă — sursa
+// „🧩 Testele generate de mine".
 //
 // Amestecul propriu-zis: src/lib/testVariante.js (makeVariants).
 // =====================================================================
@@ -30,10 +31,10 @@ import VerificationNote from './VerificationNote';
 const LITERE = 'abcdefghij';
 
 export default function VariantGenerator({
-  poolSize = 10,          // câte variante se cer (= câte teste intră în bazin)
-  category = '',          // categoria aleasă la pasul 1 al testului pe grupă
-  durationMin = 0,        // timpul de lucru ales la pasul 5 (0 = fără limită)
-  onDone,                 // (items) → testele generate intră bifate în bazin
+  poolSize = 10,          // câte variante se cer (= câte teste diferite / elev)
+  category = '',          // categoria aleasă (clasa sau examenul)
+  durationMin = 0,        // timpul de lucru (0 = cel din formular)
+  onDone,                 // (items, { format, category }) → testele generate
   onError,
 }) {
   const [busy, setBusy] = useState(null);      // eticheta pasului în curs
@@ -45,7 +46,7 @@ export default function VariantGenerator({
   const g = useInteractiveGen({ kind: 'test', count: 10, qtype: 'grila', category, output: 'interactive' });
   const { setCategory, setDurationMin } = g;
 
-  // categoria și timpul de lucru se iau din pașii testului pe grupă
+  // categoria (și timpul de lucru, dacă e dat) vin din „Teste diferite / elev"
   useEffect(() => { setCategory(category || ''); }, [category, setCategory]);
   useEffect(() => { if (durationMin) setDurationMin(durationMin); }, [durationMin, setDurationMin]);
 
@@ -79,7 +80,7 @@ export default function VariantGenerator({
         salvate.push({ source: 'personal', refId: id, title, isFree: true, questions: v.questions });
       }
       setRezultat({ titlu, variante: salvate, itemi: qs.length, verificare: res.verification || null });
-      onDone?.(salvate);
+      onDone?.(salvate, { format: 'interactive', category: g.category || '' });
     } catch (e) {
       setErr(e.message); onError?.(e);
     } finally { setBusy(null); }
@@ -90,7 +91,7 @@ export default function VariantGenerator({
   return (
     <div style={box}>
       <div style={{ fontSize: '.86rem', fontWeight: 700, color: 'var(--navy)', marginBottom: 4 }}>
-        ⚡ Generează acum testele — {nVariante} {nVariante === 1 ? 'variantă' : 'variante'} ale aceluiași test
+        🧩 Un test AI, în {nVariante} {nVariante === 1 ? 'variantă' : 'variante'} — fiecare elev primește altă variantă
       </div>
       <p style={{ fontSize: '.79rem', color: 'var(--text-light)', margin: '0 0 10px', lineHeight: 1.55 }}>
         AI-ul face <strong>un singur test</strong>, iar noi îl dăm în {nVariante} variante:
@@ -135,7 +136,7 @@ export default function VariantGenerator({
             {cost ? <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}> · au costat {fmtEstimare(cost)} în total</span> : null}
           </div>
           <p style={{ fontSize: '.77rem', color: 'var(--text-muted)', margin: '0 0 8px' }}>
-            Sunt deja bifate în bazinul testului pe grupă. Apasă „🔗 Creează linkul testului" mai jos.
+            Salvate în „Testele și exercițiile mele". Cu „👥 Folosește-le în testul interactiv pe grupă" (mai jos) intră bifate în bazinul unui test pe grupă.
           </p>
           {/* verificarea privește testul din care s-au făcut variantele — deci
               toate variantele deodată (aceleași probleme, altă ordine) */}

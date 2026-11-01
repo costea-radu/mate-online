@@ -153,20 +153,22 @@ test('motorul PDF: analiza o singură dată, compunere cu încorporare pe sursă
 });
 
 // ═════════════════════ 2) testul pe grupă în format PDF ═════════════════════
-test('„👥 Test pe grupă": cu formatul PDF, „⚡ Generează acum testele" combină teste PDF din subiectele site-ului', () => {
+// (1 nov. 2026: generatorul s-a MUTAT din „👥 Test pe grupă" → „⚡ Generează acum
+//  testele" în „🧩 Generează exerciții/teste interactive/PDF" → „👥 Teste diferite /
+//  elev" — vezi și test/teste-diferite-fise.test.js)
+test('„👥 Teste diferite / elev" → „🎓 Subiectele de examen": teste PDF combinate din subiectele site-ului; testul pe grupă le primește bifate', () => {
+  const td = read('src/components/TesteDiferite.jsx');
+  // se încarcă doar la nevoie (motorul pdf.js + pdf-lib)
+  assert.match(td, /const CombinedPdfGenerator = lazy\(\(\) => import\('\.\/CombinedPdfGenerator'\)\);/);
+  assert.match(td, /\{sursaEf === 'subiecte' && \(\s*<Suspense fallback=\{[\s\S]{0,160}\}>\s*<CombinedPdfGenerator poolSize=\{n\}[\s\S]{0,200}onDone=\{onDone\}/);
+  assert.match(td, /\{sursaEf === 'variante' && \(\s*<VariantGenerator poolSize=\{n\}/);
+  // în testul pe grupă nu mai e generatorul — doar trimiterea spre el și testele aduse, bifate
   const ga = read('src/components/GroupAssignment.jsx');
-  // se încarcă doar la nevoie („Contul meu", unde e montat testul pe grupă, îl deschide oricine)
-  assert.match(ga, /const CombinedPdfGenerator = lazy\(\(\) => import\('\.\/CombinedPdfGenerator'\)\);/);
-  assert.match(ga, /\{genNow && format === 'interactive' && \(\s*<VariantGenerator/);
-  assert.match(ga, /\{genNow && format === 'pdf' && \(\s*<Suspense fallback=\{[\s\S]{0,160}\}>\s*<CombinedPdfGenerator[\s\S]{0,200}onDone=\{onVariantsReady\}/);
-  // formatul nu mai e forțat pe „interactiv" la bifarea „Generează acum"
-  const toggle = ga.slice(ga.indexOf('function toggleGenNow()'), ga.indexOf('function chooseFormat('));
-  assert.doesNotMatch(toggle, /setFormat\('interactive'\)/);
-  assert.match(ga, /function chooseFormat\(id\) \{[\s\S]{0,140}if \(genNow\) \{ setGenItems\(\[\]\); setChecked\(\[\]\); \}/);
-  assert.match(ga, /onClick=\{\(\) => chooseFormat\('pdf'\)\}>📄 Teste PDF combinate din subiectele site-ului/);
-  assert.doesNotMatch(ga, /disabled=\{genNow && f\.id !== 'interactive'\}/, 'butonul PDF nu mai e blocat');
-  // testele generate intră în bazin ca „Testele generate de mine"
-  assert.match(ga, /sources: genNow \? \['personal'\] : sources/);
+  assert.doesNotMatch(ga, /CombinedPdfGenerator|<VariantGenerator|genNow/);
+  assert.match(ga, /🧩 Deschide generatorul/);
+  // testele aduse din „Teste diferite / elev" intră ca „Testele generate de mine", bifate
+  assert.match(ga, /setSources\(\['personal'\]\);\s*setPresetItems\(items\);\s*setChecked\(items\);\s*setPick\('manual'\);/);
+  assert.match(ga, /function chooseFormat\(id\) \{[\s\S]{0,140}if \(presetItems\.length\) \{ setPresetItems\(\[\]\); setChecked\(\[\]\); setPick\('auto'\); \}/);
 });
 
 test('generatorul PDF: subiectele alese, salvare + publicare + descărcare, bazinul testului pe grupă', () => {
@@ -177,7 +179,7 @@ test('generatorul PDF: subiectele alese, salvare + publicare + descărcare, bazi
   assert.match(g, /const planuri = planCombinations\(prep\.list, \{ count: n, subjects, selection: selectie \}\);/);
   assert.match(g, /header: complet \? null : \(latime, info2\) => makeHeaderPng\(/);
   assert.match(g, /await aiClient\.saveCombinedPdf\(\{[\s\S]{0,300}text: r\.text, pageTexts: r\.pageTexts/);
-  assert.match(g, /onDone\?\.\(teste\.map\(\(t\) => \(\{ source: 'personal', refId: t\.privateId, title: t\.title, isFree: true \}\)\)\);/);
+  assert.match(g, /onDone\?\.\(teste\.map\(\(t\) => \(\{ source: 'personal', refId: t\.privateId, title: t\.title, isFree: true \}\)\), \{ format: 'pdf', category: cfg\.category \}\);/);
   assert.match(g, /⬇ Descarcă toate testele într-un singur PDF/);
   assert.match(g, /mergePdfs\(/);
   assert.match(g, /descarca\(t\.blob, `\$\{slug\(t\.title\)\}\.pdf`\)/);
@@ -192,12 +194,15 @@ test('aiClient.saveCombinedPdf: copia privată + publicarea în bibliotecă (cop
   assert.match(f, /post\('\/api\/ai-public', \{ action: 'publish', kind: 'pdf', title, category, topic, payload \}\)/);
   assert.match(f, /payload: \{ \.\.\.payload, publicId: r\.id \}/);
   assert.match(f, /publishError: e\.message \|\| 'publicarea a eșuat'/, 'publicarea picată nu pierde testul salvat');
-  assert.match(c, /\.ilike\('title', 'Test combinat nr\.%'\)/, 'numerotarea continuă de la un lot la altul');
+  // numerotarea continuă de la un lot la altul (din 1 nov. 2026 numără și testele kind 'exam')
+  assert.match(c, /async nextCombinedTestNumber\(\) \{\s*return this\.nextNumberedTitle\('Test combinat nr\.'\);/);
+  assert.match(c, /\.ilike\('title', `\$\{prefix\}%`\)/);
   // „Testele mele": PDF-ul se descarcă; un PDF deja publicat nu se mai publică o dată
   const pv = read('src/pages/ProfesorVirtual.jsx');
   assert.match(pv, /async function downloadPdf\(\)/);
   assert.match(pv, /\{it\.kind === 'pdf' && \(\s*<button className="btn btn-sm btn-outline" disabled=\{downloading\} onClick=\{downloadPdf\}>/);
-  assert.match(pv, /if \(it\.kind === 'pdf' && _pub\) \{/);
+  // (și testele kind 'exam' publicate automat din „👥 Teste diferite / elev")
+  assert.match(pv, /if \(_pub\) \{\s*const deja = await aiClient\.publicGet/);
 });
 
 test('bazinul: testele PDF generate (ai_personal_items, kind pdf) se aleg și se deschid de elev fără abonament', async () => {

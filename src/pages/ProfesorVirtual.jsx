@@ -1,6 +1,8 @@
 // =====================================================================
 // src/pages/ProfesorVirtual.jsx — pagina dedicată a tutorelui AI
 // Tab-uri: Întreabă profesorul · Antrenament · Progresul meu
+// (profesor: … · „🧩 Generează exerciții/teste interactive/PDF", cu modul
+//  „👥 Teste diferite / elev" → ?tab=interactive&mod=elevi)
 // Fila se poate deschide direct din adresă: /profesor-virtual?tab=exam —
 // „📄 Generează subiect examen" din meniul „🎓 Examene" al profesorilor
 // (src/lib/meniu.js → EXAMEN_GENERATOR). Un clic pe o filă o scrie în adresă.
@@ -24,6 +26,7 @@ import { invatăDinReal, crediteDinCost, fmtEstimare } from '../lib/aiCost';
 import VerificationNote from '../components/VerificationNote';
 import IncarcaMaterial from '../components/IncarcaMaterial';
 import OptiuneSpatiuLucru from '../components/OptiuneSpatiuLucru';
+import TesteDiferite from '../components/TesteDiferite';
 
 const CATEGORIES = [
   { id: '', label: 'Toate' },
@@ -69,7 +72,7 @@ export default function ProfesorVirtual() {
         { id: 'library', label: '📚 Testele și exercițiile mele' },
         // profesorul încarcă fișe / teste (PDF, Word, poze) în Biblioteca utilizatorilor
         ...(isTeacher || isAdmin ? [{ id: 'upload', label: '📤 Încarcă material' }] : []),
-        { id: 'grupa', label: '👥 Test pe grupă (teste diferite)' },
+        { id: 'grupa', label: '👥 Test interactiv pe grupă (teste diferite)' },
       ];
   // fila cerută există pentru acest cont? (elevul care deschide ?tab=exam ajunge la chat)
   const tab = TABS.some((t) => t.id === tabAles && t.id !== 'meditatii') ? tabAles : 'chat';
@@ -416,7 +419,47 @@ function PracticeCard({ item, index, canSend, canEdit, onRemove }) {
   );
 }
 
+// „🧩 Generează exerciții/teste interactive/PDF": două moduri (profesori/admin):
+//   ✨ Un test / exercițiu — generatorul de până acum (InteractiveSingle);
+//   👥 Teste diferite / elev — câte un test diferit pentru fiecare elev, din
+//      subiectele de examen, din fișele claselor 5–12 sau dintr-un test AI în
+//      variante (src/components/TesteDiferite.jsx; 1 nov. 2026 — mutat aici din
+//      „👥 Test interactiv pe grupă" → „⚡ Generează acum testele").
+// Modul stă în adresă: ?tab=interactive&mod=elevi (link din testul pe grupă).
 function InteractiveTab() {
+  const { isTeacher, isAdmin } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const poateTeste = isTeacher || isAdmin;
+  const mod = poateTeste && params.get('mod') === 'elevi' ? 'elevi' : 'unul';
+  function alegeMod(m) {
+    const p = new URLSearchParams(params);
+    p.set('tab', 'interactive');
+    if (m === 'elevi') p.set('mod', 'elevi'); else p.delete('mod');
+    setParams(p, { replace: true });
+  }
+  const seg = (on) => ({
+    padding: '9px 14px', borderRadius: 10, cursor: 'pointer', fontWeight: 700, fontSize: '.86rem',
+    border: `2px solid ${on ? 'var(--navy)' : 'var(--border)'}`,
+    background: on ? 'var(--navy)' : '#fff', color: on ? '#fff' : 'var(--navy)',
+  });
+  return (
+    <div>
+      {poateTeste && (
+        <div role="tablist" aria-label="Ce generez" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+          <button type="button" role="tab" aria-selected={mod === 'unul'} style={seg(mod === 'unul')} onClick={() => alegeMod('unul')}>
+            ✨ Un test / exercițiu
+          </button>
+          <button type="button" role="tab" aria-selected={mod === 'elevi'} style={seg(mod === 'elevi')} onClick={() => alegeMod('elevi')}>
+            👥 Teste diferite / elev
+          </button>
+        </div>
+      )}
+      {mod === 'elevi' ? <TesteDiferite /> : <InteractiveSingle />}
+    </div>
+  );
+}
+
+function InteractiveSingle() {
   const { isTeacher, isParent } = useAuth();
   const [upsell, setUpsell] = useState(false);
   // Alegerile generatorului (ce generez, timp, oficiu, itemi, categorie,
@@ -542,8 +585,8 @@ function InteractiveTab() {
 
   return (
     <div>
-      {/* Formularul generatorului — același component ca la „Test pe grupă"
-          → „⚡ Generează acum testele" (src/components/InteractiveGenForm.jsx) */}
+      {/* Formularul generatorului — același component ca la „👥 Teste diferite /
+          elev" → „🧩 Un test AI, în N variante" (src/components/InteractiveGenForm.jsx) */}
       <InteractiveGenForm g={g}>
         <button className="btn btn-primary" onClick={gen} disabled={loading || !!srcBusy || !!g.modelBusy}>
           {loading
@@ -712,12 +755,13 @@ function LibItem({ it, isTeacher, onRemove }) {
       const payload = it.kind === 'exam' ? { exam: f?.payload?.exam } : pdfPayload;
       if (it.kind === 'exam' && !payload.exam) throw new Error('Subiectul nu a putut fi încărcat.');
       if (it.kind === 'pdf' && !payload.pdfPath && !payload.pdfBase64) throw new Error('PDF-ul nu a putut fi încărcat.');
-      if (it.kind === 'pdf' && _pub) {
+      // (și testele kind 'exam' publicate automat din „👥 Teste diferite / elev")
+      if (_pub) {
         const deja = await aiClient.publicGet({ id: _pub }).then((r) => r?.item || null).catch(() => null);
         if (deja) { setMsg('✅ E deja în „Biblioteca utilizatorilor", ca „' + (deja.title || it.title) + '".'); return; }
       }
       const r = await aiClient.publicPublish({ kind: it.kind, title: it.title || f?.title || 'Subiect', category: f?.category || null, topic: f?.topic || null, payload });
-      if (it.kind === 'pdf' && r?.id) aiClient.updateLibraryItem(it.id, { payload: { ...pdfPayload, publicId: r.id } }).catch(() => {});
+      if (r?.id) aiClient.updateLibraryItem(it.id, { payload: { ...(it.kind === 'exam' ? payload : pdfPayload), publicId: r.id } }).catch(() => {});
       setMsg('✅ Publicat în „Biblioteca utilizatorilor" ca „' + (r?.title || it.title) + '".');
     } catch (e) { setMsg('Eroare: ' + e.message); }
     finally { setPublishing(false); }
@@ -906,7 +950,7 @@ function GroupTab() {
   }
   return (
     <div style={card}>
-      <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>👥 Test pe grupă — fiecare elev primește alt test</h3>
+      <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>👥 Test interactiv pe grupă — fiecare elev primește alt test</h3>
       <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 16 }}>
         Trimiți un singur link unei grupe, iar sistemul dă fiecărui elev un test diferit de al colegilor. (Temele cu exerciții bifate se dau din „Contul meu" → butonul „📝 Dă temă".)
       </p>

@@ -325,6 +325,19 @@ poate coborî sub pragul de 1024 tokeni și cachingul nu se mai declanșează
 (testul `pregen-cache.test.js` verifică mărimea). La mentori (persona scurtă)
 prefixul e sub prag — volumul lor e mic, nu contează.
 
+### Banca fișelor claselor 5–12 (1 nov. 2026) — citire o dată, cost 0 la folosire
+
+„👥 Teste diferite / elev" → „📚 Fișele cu exerciții ale clasei" (`api/fise.js`,
+`GHID_TEME_PE_GRUPA.md`): fiecare fișă PDF o citește modelul cu vedere
+(`AI_PDF_CHAT_MODEL`, implicit gpt-6.1-terra, efort „low") **o singură dată**, la
+prima deschidere — ~1–2 lei pe fișă. Banca (`fise_banca`) e comună tuturor
+profesorilor, deci costul e de **PLATFORMĂ**: logat cu `user_id null`, endpoint
+`fise:transcriere` — nu intră în creditele profesorului care a deschis fișa (se
+aplică doar limita lui orară). Testele „cu datele păstrate" se compun apoi din bancă
+fără niciun apel AI; doar „🔢 Schimbă numerele" și formatul interactiv cer **un apel
+pe test** (`ai-generate-interactive`, din creditele profesorului, ca orice generare).
+Costul total al băncii: `select round(sum(cost_micro)/1e6, 2) from public.fise_banca;`
+
 ### Pre-generarea explicațiilor (pasul 3) — cost 0 la servire
 
 Baza de exerciții e finită, deci „explică-mi exercițiul X" are un răspuns bun
@@ -434,16 +447,21 @@ Abonamentul e 50 lei/lună. Defaulturile alocă AI-ului maxim 12 lei/utilizator/
 |---|---|
 | mesaj chat (gpt-4o-mini, cu RAG) | ~0,005 lei |
 | foto-rezolvare (VISION_MODEL = gpt-5.6-terra, 2/12 USD/1M) | ~0,07 lei |
+| aceeași pe gpt-6.1-terra (implicit din 1 nov. 2026; 1/5 USD/1M) | ~0,03 lei (estimare) |
 | generare exercițiu de antrenament (GEN_MODEL = gpt-5.6-sol, 4/20 USD/1M) | ~0,2 lei |
+| același pe gpt-6.1-sol (implicit din 1 nov. 2026; 2/10 USD/1M) | ~0,1 lei (estimare) |
 | set de Meditații (înlocuiri, GEN_MODEL) | ~0,5 lei |
 | generare test de examen (GEN_MODEL, ~10k in) | **1,0–1,7 lei** |
 | aceeași generare pe `gpt-6.1-sol` (2/10 USD/1M, prețul din nov. 2026; `AI_GEN_CHAT_MODEL`) | ~0,5–0,85 lei (estimare: aceiași tokeni, jumătate din preț) |
 | verificarea a 24 de itemi pe sol (`AI_VERIFY_MODEL` nesetat) | ~1,17 lei |
 | aceeași verificare pe `gpt-5-mini` | ~0,11 lei |
 | corectare test (PDF_MODEL = gpt-5.6-terra, 2/12 USD/1M) | ~0,15–0,4 lei |
+| aceeași pe gpt-6.1-terra (implicit din 1 nov. 2026) | ~0,07–0,2 lei (estimare) |
 | corectare de pe foaie — „✍️ Spațiu de lucru" (AI_CORECTOR_MODEL = Claude Opus 5.5, 4/20 USD/1M; ~3–12k tokeni intrare — imaginea, enunțul, la un subiect PDF testul și baremul întregi —, ~1–3k ieșire) | ~0,15–0,5 lei (de obicei ~0,25) |
 | aceeași pe Claude Sonnet 5.5 (2/10 USD/1M; `AI_CORECTOR_MODEL_ECON`) | ~0,07–0,25 lei |
 | corectare test cu poze ale rezolvării (corectorul, Opus 5.5; testul + baremul + 1–3 poze) | ~0,3–0,8 lei |
+
+**Din 1 noiembrie 2026, implicitele sunt `gpt-6.1-sol` (`GEN_MODEL`) și `gpt-6.1-terra` (`PDF_MODEL`, `VISION_MODEL`)** — la jumătate din preț față de gpt-5.6; cu `AI_GEN_CHAT_MODEL=gpt-5.6-sol` / `AI_PDF_CHAT_MODEL` / `AI_VISION_MODEL=gpt-5.6-terra` în Vercel se revine la modelele de dinainte. Atenție: dacă variabilele sunt deja setate în Vercel pe gpt-5.6, ele câștigă — schimbă-le acolo.
 
 **Din 23 august 2026, `GEN_MODEL` e implicit `gpt-5.6-sol` și `VISION_MODEL` e `gpt-5.6-terra`**
 (erau amândouă `gpt-4o-mini`). Generarea și corectarea fără barem sunt locurile unde modelul
@@ -474,11 +492,13 @@ sunt în tabelul de prețuri și merg pe drumul modelelor cu raționament: `isNe
 recunoaște orice gpt-N cu N ≥ 5, deci primesc `max_completion_tokens` (16000 la un test de
 examen), fără `temperature`, plus reîncercarea cu buget maxim la răspuns tăiat. Până atunci
 codul recunoștea doar gpt-5.x: cu `AI_GEN_CHAT_MODEL=gpt-6.1-sol`, cererea pleca cu
-`max_tokens` + `temperature` → eroare 400. Comutarea se face doar din env:
-`AI_GEN_CHAT_MODEL=gpt-6.1-sol` (generare + corectarea fără barem + verificatorul, dacă
-`AI_VERIFY_MODEL` lipsește), `AI_VISION_MODEL` / `AI_PDF_CHAT_MODEL=gpt-6.1-terra` (poze / PDF).
+`max_tokens` + `temperature` → eroare 400. Tot din 1 nov. 2026 sunt și **implicitele**
+codului: `gpt-6.1-sol` la generare (+ corectarea fără barem + verificatorul, dacă
+`AI_VERIFY_MODEL` lipsește) și `gpt-6.1-terra` la poze / PDF-uri. Variabilele din Vercel
+câștigă: dacă `AI_GEN_CHAT_MODEL` / `AI_PDF_CHAT_MODEL` / `AI_VISION_MODEL` sunt setate pe
+gpt-5.6, schimbă-le acolo (sau șterge-le) — tot ele readuc gpt-5.6, dacă vrei înapoi.
 La același număr de tokeni, un test de examen costă cam jumătate, iar un profesor primește de
-două ori mai multe generări din același buget. Compară întâi calitatea pe câteva subiecte EN.
+două ori mai multe generări din același buget.
 Prețul de 4/20 al lui `gpt-5.6-sol` e promoțional, garantat cel puțin până pe 21 nov. 2026;
 dacă OpenAI îl schimbă, pune-l pe cel nou în `AI_PRICES_JSON`, altfel contorul subestimează
 costul real.

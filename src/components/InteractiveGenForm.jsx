@@ -2,8 +2,9 @@
 // src/components/InteractiveGenForm.jsx — FORMULARUL generatorului de
 // exerciții/teste (AI), folosit în două locuri, ca să fie unul singur:
 //   • „🧩 Generează exerciții/teste interactive/PDF" (src/pages/ProfesorVirtual.jsx)
-//   • „👥 Test pe grupă" → „⚡ Generează acum testele"
-//     (src/components/VariantGenerator.jsx, în src/components/GroupAssignment.jsx)
+//   • „👥 Teste diferite / elev" → „🧩 Un test AI, în N variante"
+//     (src/components/VariantGenerator.jsx, în src/components/TesteDiferite.jsx;
+//     până pe 1 nov. 2026 era în „👥 Test pe grupă" → „⚡ Generează acum testele")
 //
 // Aici stau DOAR alegerile (ce generez, timp, oficiu, tipul itemilor,
 // categorie, dificultate, materialul de la tablă/PDF/Word, capitolele,

@@ -85,6 +85,10 @@ export function printDocumentHtml(title, bodyHtml, { embedded = false } = {}) {
   .part > b { color: #0f2b44; }
   .sol { white-space: pre-wrap; line-height: 1.55; color: #333; font-size: 14px; margin-top: 4px; }
   .foot { text-align: center; font-size: 11px; color: #888; margin-top: 30px; border-top: 1px solid #eee; padding-top: 8px; }
+  .nameline { display: flex; gap: 18px; flex-wrap: wrap; justify-content: space-between; font-size: 13px; color: #222; margin: 12px 0 0; }
+  .nameline span { white-space: nowrap; }
+  /* mai multe teste într-un singur document (printExams): fiecare de la pagină nouă */
+  .exam-doc + .exam-doc { border-top: 2px dashed #c9cdd3; margin-top: 40px; padding-top: 34px; }
   /* pe telefon (și în panoul îngust al vizualizatorului) foaia își strânge marginile */
   @media screen and (max-width: 640px) { .sheet { margin: 8px; padding: 22px 16px; } }
   @media print {
@@ -97,6 +101,7 @@ export function printDocumentHtml(title, bodyHtml, { embedded = false } = {}) {
        dar caroiajele și figurile nu se taie la mijloc */
     .item.written { break-inside: auto; }
     .solrow, .solspace, .fig, .part { break-inside: avoid; }
+    .exam-doc + .exam-doc { border-top: none; margin-top: 0; padding-top: 0; break-before: page; page-break-before: always; }
   }
 </style>
 </head><body>
@@ -135,6 +140,18 @@ export function openPrintDocument(title, bodyHtml) {
 export function printExam(exam, { withSolutions = false, workSpace } = {}) {
   openPrintDocument(exam.title || 'Model de test', examBodyHtml(exam, { withSolutions, workSpace }));
 }
+// MAI MULTE TESTE într-un singur document, fiecare de la pagină nouă (1 nov.
+// 2026: „👥 Teste diferite / elev" → „🖨 Tipărește toate testele" — câte un
+// test pentru fiecare elev, la o singură tipărire).
+export function examsBodyHtml(exams, { withSolutions = false, workSpace } = {}) {
+  return (exams || []).filter(Boolean)
+    .map((ex) => `<section class="exam-doc">${examBodyHtml(ex, { withSolutions, workSpace })}</section>`).join('');
+}
+export function printExams(exams, { withSolutions = false, workSpace, title = null } = {}) {
+  const list = (exams || []).filter(Boolean);
+  if (!list.length) return;
+  openPrintDocument(title || (list.length === 1 ? list[0].title : `${list.length} teste`), examsBodyHtml(list, { withSolutions, workSpace }));
+}
 // Același test, ca document HTML întreg (vizualizatorul cu Profesorul Virtual)
 export function examDocumentHtml(exam, { withSolutions = false, embedded = true, workSpace } = {}) {
   return printDocumentHtml(exam.title || 'Model de test', examBodyHtml(exam, { withSolutions, workSpace }), { embedded });
@@ -152,9 +169,12 @@ export function examBodyHtml(exam, { withSolutions = false, workSpace } = {}) {
   const anyWritten = subjects.some((s) => (Array.isArray(s.items) ? s.items : []).some((it) =>
     (Array.isArray(it.parts) && it.parts.length) || !(Array.isArray(it.options) && it.options.length)));
   const separateSheet = !withSolutions && exam.oficiu != null && !hasWorkSpace(exam, workSpace) && anyWritten;
+  // `subtitle` (ex. „Exerciții din fișa …") și `nameLine` (rândul pentru numele
+  // elevului) — testele din fișele claselor, tipărite câte unul pentru fiecare elev
   const header = `
     <h1 class="exam-title">${esc(exam.title || 'Model de test')}</h1>
-    <div class="exam-sub">Model de pregătire · generat de Profesorul Virtual</div>
+    <div class="exam-sub">${exam.subtitle ? esc(exam.subtitle) : 'Model de pregătire · generat de Profesorul Virtual'}</div>
+    ${exam.nameLine && !withSolutions ? '<div class="nameline"><span>Numele și prenumele: ______________________________</span><span>Clasa: ________</span><span>Data: ____________</span></div>' : ''}
     <div class="rules">
       Toate subiectele sunt obligatorii.${exam.oficiu === 0 ? '' : ` Se acordă ${exam.oficiu ?? 10} puncte din oficiu.`}<br/>
       Timp de lucru: ${exam.durationMin || 120} de minute · Total: ${exam.totalPoints || 100} de puncte
@@ -237,7 +257,7 @@ export function examBodyHtml(exam, { withSolutions = false, workSpace } = {}) {
     </div>`;
   }).join('');
 
-  const foot = `<div class="foot">Material de pregătire generat automat — poate conține mici erori. Nu este un subiect oficial.</div>`;
+  const foot = `<div class="foot">${exam.footNote ? esc(exam.footNote) : 'Material de pregătire generat automat — poate conține mici erori. Nu este un subiect oficial.'}</div>`;
   return header + body + foot;
 }
 

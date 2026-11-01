@@ -610,7 +610,7 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
   let parsed = null;
   if (photos.length) {
     // CU POZE → corectorul competent la scris de mână (implicit Claude Opus 5.5,
-    // cu rezervă GPT-5.6 Terra) — vezi api/_lib/corector.js. Doar corectarea
+    // cu rezervă GPT-6.1 Terra) — vezi api/_lib/corector.js. Doar corectarea
     // reușită se numără în cota lunară („ai-correct:grade"); o încercare eșuată
     // înainte de rezervă intră doar în credite.
     try {

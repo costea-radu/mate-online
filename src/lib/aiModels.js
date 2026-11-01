@@ -56,14 +56,14 @@ export const AI_STACK = {
   // chat (FAQ, Politica de confidențialitate) îl folosesc ca destinatar.
   clienti: {
     furnizor: 'OpenAI',
-    modele: ['GPT-4o mini', 'GPT-5 mini', 'GPT-5.6 Terra', 'GPT-5.6 Sol'],
+    modele: ['GPT-4o mini', 'GPT-5 mini', 'GPT-6.1 Terra', 'GPT-6.1 Sol'],
     furnizorAnthropic: 'Anthropic',
     modeleAnthropic: ['Claude Opus 5.5', 'Claude Sonnet 5.5'],
     furnizori: 'OpenAI și Anthropic',
     // corectorul scrisului de mână (api/_lib/corector.js → AI_CORECTOR_MODEL):
     // apare și în disclaimerul de sub chat, unde se afișează corectarea
     corector: 'Claude Opus 5.5',
-    descriere: 'GPT-4o mini răspunde rapid în chat; GPT-5 mini preia explicațiile pas cu pas — rezolvările comentate, indiciile și „explică-mi din nou"; GPT-5.6 Terra și GPT-5.6 Sol preiau sarcinile care cer precizie maximă — citirea subiectelor PDF, citirea pozelor cu exerciții, corectarea răspunsurilor tastate după barem, generarea de teste și exerciții. Claude Opus 5.5, de la Anthropic, generează seturile de exerciții din „Meditații cu Profesorul Virtual", scrie lecțiile meditațiilor live (explicațiile pe baremul oficial; când nu e disponibil, le scrie GPT-5 mini) și citește și corectează rezolvările SCRISE DE MÂNĂ — din „✍️ Spațiu de lucru" și din pozele cu rezolvarea —, strict după barem (în zilele cu consum mare, Claude Sonnet 5.5; dacă Claude nu răspunde, GPT-5.6 Terra).',
+    descriere: 'GPT-4o mini răspunde rapid în chat; GPT-5 mini preia explicațiile pas cu pas — rezolvările comentate, indiciile și „explică-mi din nou"; GPT-6.1 Terra și GPT-6.1 Sol preiau sarcinile care cer precizie maximă — citirea subiectelor PDF, citirea pozelor cu exerciții, corectarea răspunsurilor tastate după barem, generarea de teste și exerciții. Claude Opus 5.5, de la Anthropic, generează seturile de exerciții din „Meditații cu Profesorul Virtual", scrie lecțiile meditațiilor live (explicațiile pe baremul oficial; când nu e disponibil, le scrie GPT-5 mini) și citește și corectează rezolvările SCRISE DE MÂNĂ — din „✍️ Spațiu de lucru" și din pozele cu rezolvarea —, strict după barem (în zilele cu consum mare, Claude Sonnet 5.5; dacă Claude nu răspunde, GPT-6.1 Terra).',
   },
   // Anthropic (Claude): (a) uneltele administrative interne ale echipei și
   // (b) GENERAREA seturilor de exerciții din „Meditații cu Profesorul Virtual"
@@ -92,12 +92,12 @@ export const AI_STACK_CLIENTI_MODELE = [
 
 // Linie scurtă pentru CHAT (disclaimerul de sub caseta de scris): modelele
 // OpenAI ale conversației — întrebările din chat nu trec prin Anthropic.
-// „OpenAI GPT-4o mini · GPT-5 mini · GPT-5.6 Terra · GPT-5.6 Sol"
+// „OpenAI GPT-4o mini · GPT-5 mini · GPT-6.1 Terra · GPT-6.1 Sol"
 // (corectarea scrisului de mână, afișată tot în chat, e menționată separat —
 // AI_STACK.clienti.corector — în disclaimer, vezi AIPoweredBy.jsx)
 export const AI_STACK_SCURT = `${AI_STACK.clienti.furnizor} ${AI_STACK.clienti.modele.join(' · ')}`;
 
 // Linie scurtă pentru PLATFORMĂ (Prețuri, Despre noi): include și modelul
 // Anthropic folosit pentru clienți.
-// „OpenAI GPT-4o mini · … · GPT-5.6 Sol · Anthropic Claude Opus 5.5"
+// „OpenAI GPT-4o mini · … · GPT-6.1 Sol · Anthropic Claude Opus 5.5"
 export const AI_STACK_SCURT_TOT = `${AI_STACK_SCURT} · ${AI_STACK.clienti.furnizorAnthropic} ${AI_STACK.clienti.modeleAnthropic.join(' · ')}`;

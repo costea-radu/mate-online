@@ -9,8 +9,9 @@
 //   • „📄 Generează subiect examen" (src/components/ExamGenerator.jsx) și
 //     agentul din Admin (src/components/AIExerciseAgent.jsx) — UN subiect:
 //     combineExamPdfs(sources);
-//   • „👥 Test pe grupă → ⚡ Generează acum testele" în format PDF
-//     (src/components/CombinedPdfGenerator.jsx, 31 oct. 2026) — MAI MULTE
+//   • „👥 Teste diferite / elev" → „🎓 Subiectele de examen" (din 1 nov. 2026;
+//     înainte „👥 Test pe grupă → ⚡ Generează acum testele" în format PDF —
+//     src/components/CombinedPdfGenerator.jsx, 31 oct. 2026) — MAI MULTE
 //     teste deodată, diferite între ele, cu toate subiectele sau doar cu unele
 //     (I · II · III · I + II) și, din 1 nov. 2026, cu exercițiile BIFATE — la
 //     BAC și subpunctele a), b), c) ale problemelor de la Subiectele II și III

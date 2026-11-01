@@ -20,7 +20,7 @@
 // preview" prin Vercel AI Gateway / OpenRouter) merge prin furnizorul compatibil
 // OpenAI din AI_CHAT_BASE_URL. REZERVA: dacă Claude nu poate (cheie lipsă, pană,
 // răspuns stricat), corectarea se face cu modelul de vedere al platformei
-// (AI_VISION_MODEL, implicit gpt-5.6-terra) — elevul primește corectarea oricum.
+// (AI_VISION_MODEL, implicit gpt-6.1-terra) — elevul primește corectarea oricum.
 //
 // Costul (prețurile: api/_lib/ai.js → PRICES_USD) se loghează pe fiecare apel,
 // deci intră în creditele elevului ca orice acțiune AI.

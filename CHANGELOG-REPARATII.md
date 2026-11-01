@@ -4,6 +4,44 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 1 noiembrie 2026 (3) — 👥 „Teste diferite / elev" în generator · teste din fișele claselor 5–12 · GPT-6.1 implicit
+
+Cererea: „schimba numele din "test pe grupa (teste diferite)" in "test interactiv pe grupa (teste diferite)" * muta continutul "genereaza acum testele" din "test pe grupa (teste diferite)" in "genereaza exercitii/teste interactive/PDF" si pune un buton unde se poate introduce "nr teste diferite / elev". fa sa poata alege pe langa continutul examenelor si clasele 5-12; sa ia exercitiile din fisele cu exercitii clase 5-12 si sa poata fi selectate prin bifare "nivele" sau "tipuri", dupa cum sunt scrise in fisiere. Pune sa pot folosi si varianta care schimba numerele si notatiile, ca la generatorul de examene si ca la celelalte teste * pot pune peste tot in loc de gpt 5.6 cu gpt 6.x? […] modifica si in descrierile din site ce varianta gpt folosesc" — cu alegerile: amândouă generatoarele se mută (testul pe grupă păstrează formatul PDF); fișa se citește o dată și se păstrează în bancă; „nr teste diferite / elev" = câte teste diferite se generează.
+
+### 1) Numele filei
+- „👥 Test pe grupă (teste diferite)" → **„👥 Test interactiv pe grupă (teste diferite)"** (fila din Asistent AI, titlul ei, rolldown-ul din „Contul meu").
+
+### 2) „🧩 Generează exerciții/teste interactive/PDF" → „👥 Teste diferite / elev" (nou `src/components/TesteDiferite.jsx`)
+- Fila are două moduri (profesori și admin): `✨ Un test / exercițiu` (ca până acum) și `👥 Teste diferite / elev` (`?tab=interactive&mod=elevi`).
+- Câmpul **„Nr. teste diferite / elev"** (1–60) — câte teste diferite se generează, unul pentru fiecare elev.
+- **Conținutul**: EXAMENE (Evaluare Națională, Bacalaureat) sau **CLASE (a V-a – a XII-a)**; sursa: `🎓 Subiectele de examen` (generatorul PDF mutat din testul pe grupă), `📚 Fișele cu exerciții ale clasei` (nou) sau `🧩 Un test AI, în N variante` (generatorul de variante mutat din testul pe grupă).
+- **Datele problemelor**: `📋 Păstrează datele` sau `🔢 Schimbă numerele și notațiile` (AI, un apel pe test, cu barem). Bifa „🏛️ Publică testele și în Biblioteca utilizatorilor".
+- `🖨 Tipărește toate testele` — un singur document, fiecare test de la pagină nouă, cu rândul „Numele și prenumele … Clasa … Data" (`src/lib/examPrint.js` → `printExams`; testele „exam" pot avea acum `subtitle`, `nameLine`, `footNote`); `📝 Toate baremele`.
+- `👥 Folosește-le în testul interactiv pe grupă` → fila testului pe grupă, cu formatul, categoria și testele generate **bifate** în bazin (`src/lib/grupaPreset.js`).
+
+### 3) Testul pe grupă (`src/components/GroupAssignment.jsx`)
+- Fără „⚡ Generează acum testele" (bifa, comutatorul „Ce generez", generatoarele din pas): în locul lor, la pasul 3, trimiterea „🧩 Deschide generatorul"; testele aduse de acolo apar sus („📥 N teste generate acum sunt în bazin", cu `✖ Renunță la ele`) și la pasul 4, bifate. „Contul meu" nu mai încarcă generatoarele deloc.
+
+### 4) Fișele claselor 5–12: nivele și tipuri, cum sunt scrise în fișă (noi `api/fise.js`, `api/_lib/fise.js`, `supabase/fise_banca.sql`, `src/components/FiseTestGenerator.jsx`, `src/lib/fiseTeste.js`)
+- Lista fișelor PDF ale clasei; la deschidere, **grupele fișei exact cum sunt scrise**: „Nivel 3: Raționalizare", „Triunghiuri asemenea · MODEL 2", „Exercițiul 1 — ecuații de forma …", secțiuni — cu bifă și „câte exerciții / test" la fiecare; previzualizarea exercițiilor (cu formule); se pot amesteca grupe din mai multe fișe.
+- **Citirea o singură dată**: modelul cu vedere (`PDF_MODEL`, gpt-6.1-terra, efort „low") citește fișa câte 2 pagini (la pagini cu poze — pagină cu pagină), cu schemă strictă: grupe după titluri, exerciții în LaTeX, fără rezolvări, „cu figură" unde trebuie desenul. Banca `fise_banca` e comună tuturor profesorilor; costul (~1–2 lei pe fișă) e de **platformă** (`ai_usage` cu `user_id null`, `fise:transcriere`), nu din creditele profesorului. Lacăt pentru citirile simultane (202 „se citește", reîntrebare automată), recitire la fișier schimbat, „partial" dacă o bucată de pagini nu se poate citi; adminul: „📖 citește toate fișele necitite" și „🔄 Citește din nou".
+- **Testele diferite**: un exercițiu se repetă abia după ce s-au folosit toate exercițiile grupei, niciodată de două ori în același test; rezumatul spune câte teste ies fără repetări. PDF cu datele păstrate = **fără AI și fără cost** (fără barem); „🔢 numere schimbate" sau interactiv = un apel AI pe test (`generateInteractive`, exercițiile testului ca material, 1:1), cu răspunsuri/barem. Titluri `Test din fișe nr. N — Clasa a VII-a · Radicali + Asemănarea`.
+
+### 5) Subiectele de examen cu „🔢 Schimbă numerele" (`src/components/CombinedPdfGenerator.jsx`)
+- Pe lângă combinarea exactă (PDF, fără AI), fiecare test îl compune AI-ul ca la „📄 Generează subiect examen" cu „modifică datele" (`generateExam`), apoi rămân doar exercițiile bifate, la BAC și subpunctele (`filterExamBySelection`; testul parțial: fără oficiu, timp pe măsura punctelor). Salvat `kind='exam'` cu categoria examenului, publicat (opțional), cu barem. Numerotarea „Test combinat nr. N" numără acum și testele `exam` (`aiClient.nextNumberedTitle`). În „Testele mele", „🏛️ Publică" nu mai dublează nici testele `exam` deja publicate.
+
+### 6) GPT-6.x peste tot în locul lui GPT-5.6
+- Implicitele serverului (`api/_lib/ai.js`): `AI_VISION_MODEL` și `AI_PDF_CHAT_MODEL` → **gpt-6.1-terra**, `AI_GEN_CHAT_MODEL` → **gpt-6.1-sol** (rollback din Vercel, la gpt-5.6).
+- Descrierile din site — o singură sursă, `src/lib/aiModels.js` (subsolul, Prețuri, Despre noi, FAQ, cipurile din Asistent AI): „GPT-6.1 Terra · GPT-6.1 Sol", inclusiv rezerva corectării scrisului.
+- Estimarea de sub buton (`src/lib/aiCost.js`): bazele înjumătățite (prețul gpt-6.1-sol e jumătate din gpt-5.6-sol); calibrarea din browser o corectează singură.
+- Ghiduri: `.env.ai.example`, `GHID_LIMITE_AI.md`, `GHID_CORECTARE_PDF.md`, `GHID_SPATIU_DE_LUCRU.md`, `GHID_RECENZII_SI_MODELE_AI.md`.
+
+**Verificat:** `npm test` — 1033 de teste, toate trec (noi: `test/teste-diferite-fise.test.js`, 22 — citirea fișei pe un PDF real cu un model simulat: bucățile, îmbinarea grupelor, reîncercarea, citirea parțială, paginile prea mari; endpoint-ul pe o bază simulată: prima citire plătită de platformă, a doua din bancă fără AI, lacătul, fișierul schimbat, rolurile, abonamentul, migrarea nerulată; planul testelor, testul ca „exam", materialul pentru AI, filtrul examenelor cu numere schimbate, tipărirea mai multor teste, interfața, migrarea SQL, modelele implicite; actualizate: `test/teste-pdf-combinate.test.js`, `test/gateway-model.test.js`). `vite build` trece. Interfața reală în Chromium, cu Supabase și `/api` simulate: fila redenumită și trimiterea spre generator; clasa a VII-a → fișe → bife pe nivele și tipuri din două fișe → 3 teste PDF fără niciun apel AI, publicate, tipărite toate (3 secțiuni, cu rândul pentru nume) → testul pe grupă cu cele 3 teste bifate și linkul creat (format PDF, sursa „personal"); aceleași fișe cu numere schimbate, interactiv (3 apeluri AI, 4 itemi fiecare); EN cu numere schimbate (doar exercițiile bifate, barem) și exact (PDF, fără AI); adminul pe telefon (390px): citirea tuturor fișelor necitite, inclusiv una „citită de altcineva" (reîntrebare), fără derulare orizontală.
+
+**De făcut:** (1) rulează în Supabase **`supabase/fise_banca.sql`**; (2) commit + deploy; (3) dacă în Vercel sunt setate `AI_VISION_MODEL`, `AI_PDF_CHAT_MODEL` sau `AI_GEN_CHAT_MODEL` pe gpt-5.6, ele câștigă în fața noilor implicite — șterge-le (sau pune gpt-6.1-terra / gpt-6.1-sol); (4) opțional, ca admin: „📖 Admin: citește toate fișele necitite" la fiecare clasă, ca profesorii să nu aștepte la prima deschidere.
+
+---
+
 ## 1 noiembrie 2026 (2) — ☑️ Teste PDF pe grupă: bife pe exerciții și, la BAC, pe subpunctele a), b), c)
 
 Cererea: „la generatorul pdf de teste pe grupa creat ultima data, fa sa pot alege exercitiile pe care sa la includ la fiecare subiect, prin bifare. la bac, la subiectul II si III, fa sa pot bifa subpunctele a), b) sau c)"

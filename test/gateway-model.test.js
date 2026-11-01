@@ -30,7 +30,7 @@ test('gpt-4o-mini prin gateway nu mai costă cât prețul implicit (~20×)', () 
 
 test('implicitele moștenesc prefixul providerului din AI_CHAT_MODEL', () => {
   // fără AI_PDF_CHAT_MODEL / AI_ECON_CHAT_MODEL în env, implicitele vin cu prefix
-  assert.strictEqual(ai.PDF_MODEL, 'openai/gpt-5.6-terra');
+  assert.strictEqual(ai.PDF_MODEL, 'openai/gpt-6.1-terra');
   assert.strictEqual(ai.ECON_CHAT_MODEL, 'openai/gpt-4o-mini');
 });
 

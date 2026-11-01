@@ -30,10 +30,13 @@
 import { leiToCredits } from './aiCredit';
 
 // Partea fixă: contextul trimis la fiecare generare (persona + exemple +
-// subiectele-sursă din categorie).
-const BAZA = 18;
+// subiectele-sursă din categorie). Din 1 nov. 2026 generarea e implicit pe
+// gpt-6.1-sol (2/10 USD/1M, jumătate din gpt-5.6-sol) — cifrele de mai jos sunt
+// cele măsurate pe gpt-5.6-sol (18 și 3,2), înjumătățite; calibrarea din browser
+// le corectează singură după prima generare.
+const BAZA = 9;
 // Partea proporțională: un item generat (enunț + 4 variante + explicație).
-const PER_ITEM = 3.2;
+const PER_ITEM = 1.6;
 // Itemii „cu redactarea răspunsului" au rezolvarea model scrisă integral —
 // ies mai lungi, deci mai scumpi (bugetul de tokeni din generator: 600 vs 450).
 const F_REDACTARE = 1.35;
