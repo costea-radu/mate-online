@@ -43,7 +43,7 @@ export default function CookieConsent() {
         🍪 Ne ajuți cu statisticile?
       </div>
       <p style={{ fontSize: '.88rem', color: 'var(--text-light)', margin: '0 0 14px', lineHeight: 1.55 }}>
-        Folosim cookie-uri de analiză (Google Analytics și Meta) ca să vedem ce materiale
+        Folosim cookie-uri de analiză (Google Analytics, Meta și TikTok) ca să vedem ce materiale
         sunt căutate și ce pagini nu funcționează. Nu sunt necesare ca să folosești site-ul —
         dacă refuzi, nu se încarcă nimic. Detalii în{' '}
         <Link to="/politica-cookies" style={{ color: 'var(--navy)', fontWeight: 600 }}>

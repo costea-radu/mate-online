@@ -51,6 +51,7 @@ export default function PoliticaCookies() {
                       { name: 'discord_*', scop: 'Autentificare OAuth cu Discord', durata: 'Sesiune', tip: 'Necesar' },
                       { name: '_ga, _ga_*', scop: 'Statistici anonime de utilizare (Google Analytics 4): ce pagini sunt vizitate și ce materiale sunt căutate', durata: '2 ani', tip: 'Analiză' },
                       { name: '_fbp', scop: 'Măsurarea eficienței anunțurilor (Meta Pixel): ne arată dacă un anunț a dus la o înregistrare sau la o abonare', durata: '3 luni', tip: 'Analiză' },
+                      { name: '_ttp, _tt_enable_cookie', scop: 'Măsurarea eficienței anunțurilor (TikTok Pixel): ne arată dacă un anunț de pe TikTok a dus la o înregistrare sau la o abonare', durata: '13 luni', tip: 'Analiză' },
                       { name: 'em_vid', scop: 'Identificator anonim (stocare locală) pentru statisticile interne ale site-ului: deosebește vizitatorii fără cont, ca să știm câte persoane au văzut o pagină. Nu pleacă la terți', durata: 'Până îl ștergi', tip: 'Analiză' },
                     ].map((row, i) => (
                       <tr key={i} style={{ borderBottom: '1px solid #f0f4f8' }}>
@@ -71,9 +72,9 @@ export default function PoliticaCookies() {
               </div>
 
               <p style={{ marginTop: 16 }}>
-                Cookie-urile de <strong>analiză</strong> (Google Analytics 4 și Meta Pixel) se încarcă
+                Cookie-urile de <strong>analiză</strong> (Google Analytics 4, Meta Pixel și TikTok Pixel) se încarcă
                 <strong> numai după ce apeși „Accept"</strong> în bannerul afișat la prima vizită. Dacă alegi
-                „Doar strict necesare", niciun script de la Google sau Meta nu este încărcat și nicio
+                „Doar strict necesare", niciun script de la Google, Meta sau TikTok nu este încărcat și nicio
                 cerere nu pleacă spre serverele lor. Nu vindem și nu transmitem date personale altor
                 terți în scopuri publicitare.
               </p>
@@ -85,12 +86,15 @@ export default function PoliticaCookies() {
               </p>
               <p style={{ marginTop: 12 }}>
                 Cu acordul tău, folosim și <strong>Google Analytics 4</strong> (statistici de utilizare) și
-                <strong> Meta Pixel</strong> (măsurarea eficienței anunțurilor). Ambele pot transfera date
+                <strong> Meta Pixel</strong> și <strong>TikTok Pixel</strong> (măsurarea eficienței anunțurilor).
+                Toate pot transfera date
                 în afara Spațiului Economic European, pe baza clauzelor contractuale standard ale
                 furnizorilor. Politicile lor:{' '}
                 <a href="https://policies.google.com/technologies/cookies" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Google</a>
                 {' · '}
-                <a href="https://www.facebook.com/policies/cookies/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Meta</a>.
+                <a href="https://www.facebook.com/policies/cookies/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>Meta</a>
+                {' · '}
+                <a href="https://www.tiktok.com/legal/page/global/cookie-policy/en" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 600 }}>TikTok</a>.
               </p>
             </Section>
 

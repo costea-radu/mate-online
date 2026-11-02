@@ -1,5 +1,5 @@
 // =====================================================================
-// src/lib/analytics.js — GA4 + Meta Pixel, cu consimțământ (GDPR).
+// src/lib/analytics.js — GA4 + Meta Pixel + TikTok Pixel, cu consimțământ (GDPR).
 //
 // Reguli implementate aici:
 //   1. NIMIC nu se încarcă până când vizitatorul nu apasă „Accept" în
@@ -15,11 +15,17 @@
 // Variabile de mediu (Vercel → Settings → Environment Variables):
 //   VITE_GA4_ID         G-XXXXXXXXXX      (Google Analytics 4)
 //   VITE_META_PIXEL_ID  1234567890        (Meta / Facebook Pixel)
+//   VITE_TIKTOK_PIXEL_ID  CXXXXXXXXXXXXXXXXXXX (TikTok Pixel; în build-ul de
+//                       producție are implicit ID-ul ExamenMate, vezi mai jos)
 // Lipsesc → codul nu face nimic (dezvoltare locală, preview-uri).
 // =====================================================================
 
 const GA4_ID = import.meta.env.VITE_GA4_ID || '';
 const PIXEL_ID = import.meta.env.VITE_META_PIXEL_ID || '';
+// TikTok: ID-ul pixelului e public (apare oricum în pagină), așa că îl lăsăm
+// ca valoare implicită pentru producție; `npm run dev` nu trimite nimic.
+const TIKTOK_ID = import.meta.env.VITE_TIKTOK_PIXEL_ID
+  || (import.meta.env.PROD ? 'DBKCFLRC77UASCMH1D3G' : '');
 
 const STORAGE_KEY = 'em_cookie_consent'; // 'granted' | 'denied'
 const MAX_QUEUE = 20;
@@ -77,11 +83,26 @@ function loadPixel() {
   window.fbq('init', PIXEL_ID);
 }
 
+// Codul oficial TikTok (Events Manager → Install base code), fără `ttq.page()`:
+// page view-urile le trimite trackPageView() la fiecare schimbare de rută.
+function loadTikTok() {
+  if (!TIKTOK_ID || window.ttq) return;
+  /* eslint-disable */
+  !function (w, d, t) {
+    w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(
+var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};n=document.createElement("script")
+;n.type="text/javascript",n.async=!0,n.src=r+"?sdkid="+e+"&lib="+t;e=document.getElementsByTagName("script")[0];e.parentNode.insertBefore(n,e)};
+    ttq.load(TIKTOK_ID);
+  }(window, document, 'ttq');
+  /* eslint-enable */
+}
+
 function loadAll() {
   if (loaded) return;
   loaded = true;
   try { loadGA4(); } catch (e) { console.warn('GA4:', e.message); }
   try { loadPixel(); } catch (e) { console.warn('Meta Pixel:', e.message); }
+  try { loadTikTok(); } catch (e) { console.warn('TikTok Pixel:', e.message); }
 }
 
 // ─── API public ─────────────────────────────────────────────────────────────
@@ -125,6 +146,7 @@ export function trackPageView(path, title) {
     });
   }
   if (window.fbq) window.fbq('track', 'PageView');
+  if (window.ttq && TIKTOK_ID) window.ttq.page();
 }
 
 // Evenimentele care contează. `name` e numele GA4; maparea către Meta e mai jos.
@@ -134,6 +156,16 @@ const META_MAP = {
   purchase: 'Purchase',
   start_trial: 'StartTrial',
   lead: 'Lead',
+};
+
+// Aceleași evenimente, cu numele standard TikTok (restul pleacă ca evenimente
+// personalizate, cu numele GA4).
+const TIKTOK_MAP = {
+  sign_up: 'CompleteRegistration',
+  begin_checkout: 'InitiateCheckout',
+  purchase: 'CompletePayment',
+  start_trial: 'Subscribe',
+  lead: 'SubmitForm',
 };
 
 export function track(name, params = {}) {
@@ -147,6 +179,17 @@ export function track(name, params = {}) {
     if (params.plan) metaParams.content_name = params.plan;
     if (metaName) window.fbq('track', metaName, metaParams);
     else window.fbq('trackCustom', name, params);
+  }
+  if (window.ttq && TIKTOK_ID) {
+    const ttParams = {};
+    if (params.value != null) ttParams.value = params.value;
+    if (params.currency) ttParams.currency = params.currency;
+    if (params.plan) {
+      ttParams.content_type = 'product';
+      ttParams.content_id = `abonament_${params.plan}`;
+      ttParams.content_name = params.plan;
+    }
+    window.ttq.track(TIKTOK_MAP[name] || name, ttParams);
   }
 }
 
