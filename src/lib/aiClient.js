@@ -128,8 +128,9 @@ export const aiClient = {
 
   // Generator de teste de examen (model oficial) — doar abonați.
   // chapters: liste de TITLURI de capitole — itemii vin doar din ele (opțional)
-  generateExam: ({ examType, instructions = '', dataMode = 'modify', chapters = [] }) =>
-    post('/api/ai-exam', { examType, instructions, dataMode, chapters }),
+  // barem: false = „📄 Fără barem" (4 nov. 2026): fără rezolvări, mai rapid și mai ieftin
+  generateExam: ({ examType, instructions = '', dataMode = 'modify', chapters = [], barem = true }) =>
+    post('/api/ai-exam', { examType, instructions, dataMode, chapters, ...(barem === false ? { barem: false } : {}) }),
 
   // Generator de exerciții/teste interactive (HTML) — admin sau abonat.
   // kind: 'exercitiu' (implicit) | 'test' + count = numărul de itemi ai testului (4–24)
@@ -140,8 +141,8 @@ export const aiClient = {
   //   există, itemii se compun DIN EL, nu din baza de date
   // model: „📐 Test după model" — structura testului-model (analyzeModel),
   //   eventual modificată de profesor: testul nou are exact exercițiile ei
-  generateInteractive: ({ category = null, topic = '', difficulty = 'mediu', dataMode = 'modify', chapters = [], kind = 'exercitiu', count = null, qtype = 'mixt', durationMin = null, oficiu = null, sourceText = '', model = null }) =>
-    post('/api/ai-generate-interactive', { category, topic, difficulty, dataMode, chapters, kind, count, qtype, durationMin, oficiu, sourceText, ...(model ? { model } : {}) }),
+  generateInteractive: ({ category = null, topic = '', difficulty = 'mediu', dataMode = 'modify', chapters = [], kind = 'exercitiu', count = null, qtype = 'mixt', durationMin = null, oficiu = null, sourceText = '', model = null, barem = true }) =>
+    post('/api/ai-generate-interactive', { category, topic, difficulty, dataMode, chapters, kind, count, qtype, durationMin, oficiu, sourceText, ...(model ? { model } : {}), ...(barem === false ? { barem: false } : {}) }),
   // „📐 Test după model": citește STRUCTURA unui test al profesorului (textul
   //   extras în pagină din PDF / Word / poză) → { model: { title, category,
   //   difficulty, durationMin, oficiu, exercises:[{ type, topic, statement,
@@ -601,6 +602,30 @@ export const aiClient = {
     // salvează peste itemul privat (ex: payload editat). RLS permite doar proprietarului.
     const { error } = await supabase.from('ai_personal_items').update(patch).eq('id', id);
     if (error) throw new Error(error.message);
+  },
+  // „📚 Testele și exercițiile mele" PE PAGINI (4 nov. 2026): profesorii cu multe
+  // teste nu le mai văd doar pe ultimele 60 — fiecare pagină se cere separat, cu
+  // numărul total (count exact), filtrul pe fel (interactiv / PDF / exercițiu) și
+  // căutarea în titlu. Variantele unui set rămân ascunse în spatele setului.
+  // → { items, total }
+  async listLibraryPage({ page = 1, pageSize = 20, kinds = null, q = '' } = {}) {
+    const userId = await uid();
+    if (!userId) return { items: [], total: 0 };
+    const size = Math.max(5, Math.min(100, parseInt(pageSize, 10) || 20));
+    const from = Math.max(0, (Math.max(1, parseInt(page, 10) || 1) - 1) * size);
+    let qq = supabase.from('ai_personal_items')
+      // nb = testul generat „📄 Fără barem" (fără butonul „📝 Barem")
+      .select('id, kind, title, category, topic, score, max_score, completed_at, created_at, set:payload->set, nb:payload->exam->>noBarem', { count: 'exact' })
+      .eq('user_id', userId).is('payload->>setId', null)
+      .order('created_at', { ascending: false })
+      .range(from, from + size - 1);
+    if (Array.isArray(kinds) && kinds.length) qq = qq.in('kind', kinds);
+    const t = String(q || '').trim().slice(0, 80);
+    // % și _ sunt metacaractere în ILIKE — le căutăm ca litere
+    if (t) qq = qq.ilike('title', `%${t.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+    const { data, count, error } = await qq;
+    if (error) throw error;
+    return { items: data || [], total: typeof count === 'number' ? count : (data || []).length };
   },
   async listLibrary(kind = null) {
     const userId = await uid();

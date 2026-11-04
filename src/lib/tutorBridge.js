@@ -14,13 +14,27 @@
 //  3. Execută acțiuni cerute de AI (DOAR la cererea explicită a elevului):
 //     completare răspuns, alegere opțiune grilă, adevărat/fals, confirmare.
 //
+//  4. (4 nov. 2026) „✓ Corectează exercițiul" la FIECARE exercițiu: la
+//     șablonul cu pași (variantele de BAC, Subiectul al III-lea la EN) și la
+//     cardurile-grilă. Butonul de sus al testului devine „✓ Corectează total"
+//     (punctajul întregului test). Exercițiul corectat separat rămâne blocat,
+//     cu pașii marcați ✓ / ✗ — ca după corectarea totală.
+//  5. (4 nov. 2026) Pe telefon, bara de sus a testului se mută în bara
+//     paginii-părinte, doar cu pictograme (↺ Resetează, ☰ Toate exercițiile,
+//     ✓ Corectează total): bridge-ul spune ce butoane are testul
+//     (MATE_TOOLBAR) și le apasă la cererea părintelui (MATE_TOOLBAR_CMD).
+//     „Rezolvate / Scor / Corecte" apar abia după prima corectare.
+//
 // Protocol postMessage:
 //  iframe → părinte: MATE_TUTOR_READY | MATE_TUTOR_STATE | MATE_TUTOR_OPEN
 //                    | MATE_WORKSPACE_OPEN (butonul „✍️ Spațiu de lucru" —
-//                      părintele deschide caietul digital peste exercițiu)
+//                      părintele deschide caietul digital lângă exercițiu)
 //                    | MATE_RESET_REQ (butonul „Resetează" al testului e
 //                      defect → părintele reîncarcă exercițiul de la zero)
+//                    | MATE_TOOLBAR { total, reset, all, graded }
 //  părinte → iframe: MATE_TUTOR_STATE_REQ | MATE_TUTOR_ACTION | MATE_ANSWERS_REQ
+//                    | MATE_COMPACT { on } (telefon: bara testului se strânge)
+//                    | MATE_TOOLBAR_CMD { cmd: 'total' | 'reset' | 'all' }
 // =====================================================================
 
 const BRIDGE_SCRIPT = String.raw`
@@ -116,6 +130,11 @@ const BRIDGE_SCRIPT = String.raw`
         lines.push(row);
       }
       if (st.corr) lines.push('Problema a fost corectată: ' + st.score + '/' + p.max + ' puncte.');
+      // corectată separat, cu „✓ Corectează exercițiul" (elevul vede pe ecran
+      // pașii marcați ✓ / ✗ și răspunsurile corecte ale pașilor greșiți)
+      if (st.mtg && !st.corr) {
+        try { lines.push('Exercițiul a fost corectat separat („✓ Corectează exercițiul"): ' + probScore(p) + ' din ' + (p.max != null ? p.max : ((p.pa || 0) + (p.pb || 0))) + ' puncte — elevul vede pe ecran pașii greșiți și răspunsurile lor corecte.'); } catch (e2) {}
+      }
       var all = allProblemsText();
       if (all) lines.push('', all);
       return lines.join('\n');
@@ -508,6 +527,9 @@ const BRIDGE_SCRIPT = String.raw`
     try {
       var b = ev.target && ev.target.closest ? ev.target.closest('button, a, [role="button"]') : null;
       if (!b) return;
+      // „✓ Corectează exercițiul" corectează UN exercițiu: nu e corectarea
+      // testului — fără scor trimis (altfel s-ar salva un punctaj parțial)
+      if (b.getAttribute && b.getAttribute('data-mt-ex')) return;
       var t = (b.textContent || '').toLowerCase();
       if (/corecteaz|verific[aă]\s*(tot|toate)?$|finalizeaz|corectare/.test(t.replace(/\s+/g, ' ').trim())) {
         postAnswers(); // și la testele „native": scorul lor nu poartă răspunsurile
@@ -576,11 +598,432 @@ const BRIDGE_SCRIPT = String.raw`
     } catch(e){}
   }, true);
 
+  // ══════════════════════════════════════════════════════════════════
+  // „✓ CORECTEAZĂ EXERCIȚIUL" + „✓ CORECTEAZĂ TOTAL" (4 nov. 2026)
+  // Cererea: „pune la testele interactive «corectează exercițiul» la fiecare
+  // exercițiu. «Corectează» transformă-l în «corectează total», care să
+  // corecteze cu punctajul total".
+  //  • Șablonul cu PAȘI (PROBS / ST / GRADED / renderProb — variantele de BAC,
+  //    Subiectul al III-lea la EN): ST[n].mtg = 1 = exercițiul corectat
+  //    separat. Funcțiile de redare ale testului (renderProb, badgeOf,
+  //    gradeCls) rulează pentru EL cu GRADED = true: exact afișarea de după
+  //    corectarea totală (pași ✓ / ✗, „Corect: …", punctajul exercițiului),
+  //    doar pentru exercițiul acesta. Fișierul din baza de date rămâne neatins.
+  //  • CARDURILE-grilă (.card cu data-correct): cardul se corectează singur,
+  //    ca în checkAll-ul testului, și rămâne blocat.
+  //  • „Scor" / „Corecte" din bara testului arată, până la corectarea totală,
+  //    suma exercițiilor corectate separat. Scorul pentru platformă (MATE_SCORE)
+  //    pleacă tot doar la „✓ Corectează total".
+  // ══════════════════════════════════════════════════════════════════
+  var geval = eval;   // apel INDIRECT → evaluare în contextul global al testului
+  // Motorul ÎNCHIS într-o funcție — (function(){ "use strict"; var PROBS=…; … })(),
+  // Subiectul al III-lea din testele interactive de EN: variabilele lui nu sunt
+  // globale. injectTutorBridge() pune la capătul funcției window.__mtScope —
+  // getter / setter pentru numele de mai jos — și bridge-ul le citește de acolo.
+  function inScope(n){
+    var S = window.__mtScope;
+    if (!S || !Object.prototype.hasOwnProperty.call(S, n)) return false;
+    try { return S[n] !== undefined; } catch(e){ return false; }
+  }
+  function hasG(n){ if (inScope(n)) return true; try { if (n in window) return true; return geval('typeof ' + n) !== 'undefined'; } catch(e){ return false; } }
+  function gget(n){ if (inScope(n)) { try { return window.__mtScope[n]; } catch(e){} } try { if (n in window) return window[n]; return geval(n); } catch(e){ return undefined; } }
+  function gset(n, v){
+    if (inScope(n)) { try { window.__mtScope[n] = v; return; } catch(e){} }
+    try {
+      if (n in window) { window[n] = v; return; }
+      window.__mtV = v; geval(n + ' = window.__mtV'); window.__mtV = undefined;   // let-urile testului
+    } catch(e){}
+  }
+  function fmtP(x){ x = Math.round(Number(x || 0) * 100) / 100; return String(x).replace('.', ','); }
+  function setTxt(el, t){ if (el && el.textContent !== t) el.textContent = t; }
+  var EX_CSS = 'display:inline-flex;align-items:center;gap:6px;background:#0f2b44;border:1.5px solid #0f2b44;color:#fff;border-radius:8px;padding:6px 12px;font-family:inherit;font-weight:700;font-size:.78rem;cursor:pointer;line-height:1.25;';
+  function makeExBtn(kind, onClick){
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('data-mt-ex', kind);
+    b.textContent = '✓ Corectează exercițiul';
+    b.title = 'Corectează doar acest exercițiu și vezi pe loc punctajul lui (după corectare, exercițiul nu se mai poate schimba)';
+    b.style.cssText = EX_CSS;
+    b.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); onClick(b); });
+    return b;
+  }
+
+  // ── șablonul cu pași ──
+  var IS_STEP = false;
+  function detectStep(){
+    var P = gget('PROBS');
+    return !!(Array.isArray(P) && P.length && P[0] && P[0].steps
+      && typeof gget('renderProb') === 'function' && typeof gget('probScore') === 'function'
+      && typeof gget('isRight') === 'function' && hasG('GRADED') && hasG('ST') && hasG('cur')
+      // șablonul „capitole" are deja corectarea pe problemă („✓ Corectează problema")
+      && typeof gget('gradeProb') !== 'function');
+  }
+  function probByN(n){ var P = gget('PROBS') || []; for (var i = 0; i < P.length; i++) if (P[i] && P[i].n === n) return P[i]; return null; }
+  function curProb(){ var c = gget('cur'); return c == null ? null : probByN(c); }
+  function probMax(p){
+    var m = Number(p && p.max); if (isFinite(m) && m > 0) return m;
+    var s = (Number(p && p.pa) || 0) + (Number(p && p.pb) || 0); if (s > 0) return s;
+    var t = 0, st = (p && p.steps) || [];
+    for (var i = 0; i < st.length; i++) t += Number(st[i] && st[i].pts) || 0;
+    return t;
+  }
+  function stMarked(p){ var S = gget('ST'); return !!(p && S && S[p.n] && S[p.n].mtg); }
+  function anyMarked(){ var P = gget('PROBS') || []; for (var i = 0; i < P.length; i++) if (stMarked(P[i])) return true; return false; }
+  // rulează o funcție de redare a testului cu GRADED = true, când exercițiul p
+  // a fost corectat separat (apoi GRADED revine la cât era)
+  function asGraded(p, fn, self, args){
+    var tmp = !!p && !gget('GRADED') && stMarked(p);
+    if (tmp) gset('GRADED', true);
+    try { return fn.apply(self, args); } finally { if (tmp) gset('GRADED', false); }
+  }
+  function wrapStep(){
+    if (window.__mtStepWrap) return;
+    window.__mtStepWrap = true;
+    var render = gget('renderProb');
+    gset('renderProb', function(){
+      var p = curProb();
+      var tmp = !!p && !gget('GRADED') && stMarked(p);
+      var r = asGraded(p, render, this, arguments);
+      // renderProb își pictează bara cu GRADED = true (scorul TUTUROR pașilor) —
+      // o pictăm din nou, cu GRADED la loc: suma exercițiilor corectate separat
+      if (tmp) { var pb = gget('paintBar'); if (typeof pb === 'function') { try { pb(); } catch(e){} } }
+      try { decorateProb(); } catch(e){}
+      return r;
+    });
+    ['badgeOf', 'gradeCls'].forEach(function(name){
+      var f = gget(name);
+      if (typeof f === 'function') gset(name, function(p){ return asGraded(p, f, this, arguments); });
+    });
+    var bar = gget('paintBar');
+    if (typeof bar === 'function') gset('paintBar', function(){ var r = bar.apply(this, arguments); paintPartial(); return r; });
+  }
+  function gradeCurrent(){
+    var p = curProb();
+    if (!p || gget('GRADED') || stMarked(p)) return;
+    var st = null;
+    try { var so = gget('stOf'); if (typeof so === 'function') st = so(p.n); } catch(e){}
+    if (!st) { var S = gget('ST'); if (!S) return; if (!S[p.n]) S[p.n] = { ans: [] }; st = S[p.n]; }
+    st.mtg = 1;
+    gset('redo', null);
+    try { var sv = gget('save'); if (typeof sv === 'function') sv(); } catch(e){}
+    try { gget('renderProb')(); } catch(e){}
+    try { if (window.MathJax && MathJax.typesetPromise) MathJax.typesetPromise(); } catch(e){}
+    afterExGrade(document.getElementById('donerow'));
+  }
+  // butoanele exercițiului deschis + textele care vorbeau doar de „✓ Corectează"
+  function decorateProb(){
+    if (!IS_STEP) return;
+    var stmt = document.getElementById('stmt');
+    var view = stmt ? stmt.parentNode : null;
+    if (!view) return;
+    var p = curProb();
+    var graded = !p || !!gget('GRADED') || stMarked(p);
+    // sus, lângă „Toate exercițiile"
+    var back = view.querySelector('.backrow');
+    if (back) {
+      var top = back.querySelector('[data-mt-ex="top"]');
+      if (!top) {
+        top = makeExBtn('top', function(){ gradeCurrent(); });
+        top.style.marginLeft = 'auto';
+        back.appendChild(top);
+        back.style.display = 'flex'; back.style.alignItems = 'center'; back.style.flexWrap = 'wrap'; back.style.gap = '8px';
+      }
+      var w1 = graded ? 'none' : '';
+      if (top.style.display !== w1) top.style.display = w1;
+    }
+    // jos, după ultimul pas: „Ai completat toți pașii…"
+    var dr = document.getElementById('donerow');
+    if (dr) {
+      var bot = dr.querySelector('[data-mt-ex="done"]');
+      if (!bot) {
+        bot = makeExBtn('done', function(){ gradeCurrent(); });
+        bot.style.margin = '0 8px 6px 0';
+        var nx = dr.querySelector('button');
+        if (nx) dr.insertBefore(bot, nx); else dr.appendChild(bot);
+      }
+      var w2 = graded ? 'none' : '';
+      if (bot.style.display !== w2) bot.style.display = w2;
+      var msg = document.getElementById('doneMsg');
+      if (msg && !graded && /punctajul se d[ăa] la/i.test(msg.textContent || '')) {
+        msg.innerHTML = msg.innerHTML.replace(/Po[țt]i trece mai departe[\s\S]*$/i, 'Apasă <b>✓ Corectează exercițiul</b> ca să vezi punctajul lui — sau treci la alt exercițiu.');
+      }
+    }
+    // cerința de sub enunț
+    var task = stmt.querySelector('.task');
+    if (task && !task.getAttribute('data-mt-txt') && /Corecteaz/.test(task.textContent || '')) {
+      task.setAttribute('data-mt-txt', '1');
+      task.innerHTML = 'Completează rezolvarea pas cu pas, apoi apasă <b>✓ Corectează exercițiul</b> — vezi pe loc punctajul acestui exercițiu. <b>✓ Corectează total</b> (sus) corectează tot testul.';
+    }
+  }
+
+  // ── cardurile-grilă ──
+  function cardCorrect(card){ var s = card.querySelector('.opt.sel'); return !!(s && s.getAttribute('data-opt') === card.getAttribute('data-correct')); }
+  function cardPts(card){ var v = parseFloat(card.getAttribute('data-points')); return isFinite(v) && v > 0 ? v : 5; }
+  function cardNote(card, text){
+    var row = card.querySelector('[data-mt-row]');
+    if (!row) return;
+    var n = row.querySelector('[data-mt-note]');
+    if (!n) {
+      n = document.createElement('span');
+      n.setAttribute('data-mt-note', '1');
+      n.style.cssText = 'font-size:.76rem;color:#b23b2e;font-weight:700;align-self:center;';
+      row.appendChild(n);
+    }
+    n.textContent = text;
+    clearTimeout(n.__t);
+    n.__t = setTimeout(function(){ if (n.parentNode) n.parentNode.removeChild(n); }, 3500);
+  }
+  function gradeCard(card){
+    if (!card || card.dataset.checked) return;
+    var sel = card.querySelector('.opt.sel');
+    if (!sel) { cardNote(card, 'Alege întâi un răspuns.'); return; }
+    card.dataset.checked = '1';
+    card.setAttribute('data-mt-checked', '1');
+    var ok = card.getAttribute('data-correct');
+    var ex = card.querySelector('.expl'); if (ex) ex.classList.add('show');
+    sel.classList.add(sel.getAttribute('data-opt') === ok ? 'ok' : 'err');
+    var okEl = card.querySelector('.opt[data-opt="' + ok + '"]');
+    if (okEl && !okEl.classList.contains('ok')) okEl.classList.add('show-ok');
+    try { if (window.MathJax && MathJax.typesetPromise) MathJax.typesetPromise([card]); } catch(e){}
+    decorateCards();
+    afterExGrade(null);
+  }
+  function decorateCards(){
+    var cards = document.querySelectorAll('.card[data-correct]');
+    for (var i = 0; i < cards.length; i++) {
+      var card = cards[i];
+      if (!card.querySelector('.opt')) continue;
+      // după „↺ Resetează" testul scoate data-checked — semnul nostru pleacă și el
+      if (!card.dataset.checked && card.hasAttribute('data-mt-checked')) card.removeAttribute('data-mt-checked');
+      var row = card.querySelector('[data-mt-row]');
+      if (!row) {
+        row = document.createElement('div');
+        row.setAttribute('data-mt-row', '1');
+        row.style.cssText = 'padding:0 18px 14px;display:flex;gap:8px;flex-wrap:wrap;';
+        card.appendChild(row);
+      }
+      var b = row.querySelector('[data-mt-ex="card"]');
+      if (!b) {
+        b = makeExBtn('card', (function(c){ return function(){ gradeCard(c); }; })(card));
+        row.insertBefore(b, row.firstChild);
+      }
+      var chip = row.querySelector('[data-mt-res]');
+      if (card.dataset.checked) {
+        if (b.style.display !== 'none') b.style.display = 'none';
+        var okk = cardCorrect(card), has = !!card.querySelector('.opt.sel');
+        var state = okk ? 'ok' : has ? 'err' : 'none';
+        if (!chip || chip.getAttribute('data-mt-res') !== state) {
+          if (chip) chip.parentNode.removeChild(chip);
+          chip = document.createElement('span');
+          chip.setAttribute('data-mt-res', state);
+          chip.textContent = (okk ? '✓ Corect' : has ? '✗ Greșit' : '— Fără răspuns') + ' · ' + fmtP(okk ? cardPts(card) : 0) + ' / ' + fmtP(cardPts(card)) + ' pct';
+          chip.style.cssText = 'display:inline-flex;align-items:center;border-radius:8px;padding:6px 12px;font-weight:800;font-size:.78rem;'
+            + (okk ? 'background:#e8f5e9;color:#1e6b2a;border:1.5px solid #2e7d32;' : 'background:#fdecea;color:#a3271d;border:1.5px solid #c62828;');
+          row.insertBefore(chip, row.firstChild);
+        }
+      } else {
+        if (b.style.display === 'none') b.style.display = '';
+        if (chip) chip.parentNode.removeChild(chip);
+      }
+    }
+  }
+
+  // ── bara testului: punctajul exercițiilor corectate separat ──
+  function isGradedAny(){
+    try { if (gget('GRADED')) return true; } catch(e){}
+    if (IS_STEP && anyMarked()) return true;
+    if (document.querySelector('.card[data-checked]')) return true;
+    var f = document.querySelector('.final.show, #final.show');
+    return !!f;
+  }
+  function paintPartial(){
+    if (gget('GRADED')) return;   // după corectarea totală, testul își arată singur punctajul
+    var any = false, score = 0, steps = 0, full = 0, okCards = 0;
+    if (IS_STEP) {
+      var P = gget('PROBS') || [], S = gget('ST') || {}, isR = gget('isRight'), ps = gget('probScore');
+      for (var i = 0; i < P.length; i++) {
+        var p = P[i];
+        if (!stMarked(p)) continue;
+        any = true;
+        var sc = 0;
+        try { sc = Number(ps(p)) || 0; } catch(e){}
+        score += sc;
+        var mx = probMax(p);
+        if (mx > 0 && sc >= mx - 1e-9) full++;
+        var st = S[p.n];
+        if (st && st.ans) for (var k = 0; k < (p.steps || []).length; k++) { try { if (isR(p.steps[k], st.ans[k])) steps++; } catch(e){} }
+      }
+    }
+    var cards = document.querySelectorAll('.card[data-mt-checked]');
+    for (var j = 0; j < cards.length; j++) {
+      if (!cards[j].dataset.checked) continue;
+      any = true;
+      if (cardCorrect(cards[j])) { okCards++; score += cardPts(cards[j]); }
+    }
+    if (!any) return;
+    setTxt(document.getElementById('pScore'), fmtP(score));
+    setTxt(document.getElementById('pCor'), String(steps));
+    setTxt(document.getElementById('sc'), fmtP(score));
+    setTxt(document.getElementById('cor'), String(okCards + full));
+  }
+  function afterExGrade(el){
+    paintPartial();
+    postToolbar(true);
+    post('MATE_TUTOR_STATE', collect());
+    try { if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e){}
+  }
+
+  // ── „✓ Corectează total" ──
+  var TOTAL_FNS = ['checkAll', 'gradeAll', 'corecteaza', 'verificaTot', 'finalizeaza'];
+  function wrapTotal(){
+    if (window.__mtTotalWrap) return;
+    window.__mtTotalWrap = true;
+    TOTAL_FNS.forEach(function(name){
+      var f = gget(name);
+      if (typeof f !== 'function') return;
+      gset(name, function(){
+        // checkAll-ul testelor-grilă sare peste cardurile deja corectate și nu
+        // le-ar mai număra: cele corectate separat se corectează încă o dată,
+        // odată cu toate celelalte (aspectul rămâne același)
+        try {
+          var cs = document.querySelectorAll('.card[data-mt-checked]');
+          for (var i = 0; i < cs.length; i++) {
+            var c = cs[i];
+            delete c.dataset.checked;
+            c.removeAttribute('data-mt-checked');
+            var os = c.querySelectorAll('.opt');
+            for (var k = 0; k < os.length; k++) os[k].classList.remove('ok', 'err', 'show-ok');
+            var ex = c.querySelector('.expl'); if (ex) ex.classList.remove('show');
+          }
+        } catch(e){}
+        var r = f.apply(this, arguments);
+        setTimeout(function(){ try { refreshUI(); postToolbar(true); } catch(e){} }, 60);
+        return r;
+      });
+    });
+  }
+  function btnLabel(b){ return ((b.textContent || '') + ' ' + (b.getAttribute('onclick') || '')).toLowerCase(); }
+  function findTotalBtn(){
+    var bs = document.querySelectorAll('.sbar button, button[onclick]');
+    for (var i = 0; i < bs.length; i++) {
+      var b = bs[i];
+      if (b.getAttribute('data-mt-ex')) continue;
+      var oc = b.getAttribute('onclick') || '';
+      if (/\b(checkAll|gradeAll|verificaTot|corecteazaTot)\s*\(/.test(oc)) return b;
+      if (b.closest && b.closest('.sbar') && /corecteaz/i.test(b.textContent || '')) return b;
+    }
+    return null;
+  }
+  function findResetBtn(){
+    var bs = document.querySelectorAll('.sbar button');
+    for (var i = 0; i < bs.length; i++) if (/reset/.test(btnLabel(bs[i]))) return bs[i];
+    return null;
+  }
+  function findAllBtn(){
+    var b = document.getElementById('btnAllTop');
+    if (b) return b;
+    var bs = document.querySelectorAll('.sbar button');
+    for (var i = 0; i < bs.length; i++) if (/gopicker|toate exerci|toate problemele/.test(btnLabel(bs[i]))) return bs[i];
+    return null;
+  }
+  function renameTotal(){
+    var b = findTotalBtn();
+    if (!b || b.getAttribute('data-mt-total')) return;
+    b.setAttribute('data-mt-total', '1');
+    if (!/total/i.test(b.textContent || '')) b.innerHTML = '&#x2713; Corectează total';
+    b.title = 'Corectează tot testul și vezi punctajul total';
+  }
+  // „…apeși <b>✓ Corectează</b> în bara de sus" → „✓ Corectează total"
+  function retext(){
+    try {
+      var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null), n, list = [];
+      while ((n = w.nextNode())) { var v = n.nodeValue; if (v && v.indexOf('Corecteaz') !== -1) list.push(n); }
+      for (var i = 0; i < list.length; i++) {
+        var t = list[i], par = t.parentNode;
+        if (!par || !/^(B|STRONG)$/.test(par.nodeName)) continue;
+        if (par.closest && par.closest('button')) continue;
+        if (/^\s*[✓✔]?\s*Corecteaz[ăa]\s*$/.test(t.nodeValue)) t.nodeValue = t.nodeValue.replace(/Corecteaz[ăa]/, 'Corectează total');
+      }
+    } catch(e){}
+    // nota Subiectului al III-lea la EN („Punctajul se acordă o singură dată,
+    // pentru tot testul, când apeși ✓ Corectează…") — acum fiecare problemă
+    // se poate corecta și separat
+    try {
+      if (!IS_STEP) return;
+      var notes = document.querySelectorAll('.exam-note');
+      for (var k = 0; k < notes.length; k++) {
+        var nt = notes[k];
+        if (nt.getAttribute('data-mt-txt')) continue;
+        var h = nt.innerHTML;
+        var h2 = h.replace(/Punctajul se acord[ăa] o singur[ăa] dat[ăa], pentru tot testul,[^<]*<b>[^<]*<\/b>[^.<]*\./i,
+          'Fiecare problemă se poate corecta separat, cu <b>✓ Corectează exercițiul</b> (vezi pe loc punctajul ei); <b>✓ Corectează total</b>, din bara de sus, dă punctajul întregului test.');
+        if (h2 !== h) { nt.setAttribute('data-mt-txt', '1'); nt.innerHTML = h2; }
+      }
+    } catch(e){}
+  }
+  function decorateExercises(){
+    try { renameTotal(); } catch(e){}
+    try { decorateCards(); } catch(e){}
+    try { if (IS_STEP) decorateProb(); } catch(e){}
+  }
+
+  // ── PE TELEFON: bara testului se mută în bara paginii (doar pictograme) ──
+  // Părintele (InteractiveViewer) cere modul compact (MATE_COMPACT) și arată
+  // în bara lui ↺ / ☰ / ✓ Corectează total, după ce află ce are testul
+  // (MATE_TOOLBAR); butoanele testului se ascund, iar bara lui reapare doar cu
+  // „Rezolvate · Scor · Corecte", după prima corectare.
+  var COMPACT = false, lastTb = '';
+  var COMPACT_CSS = 'html.mt-compact [data-mt-mirror]{display:none!important}'
+    + 'html.mt-compact .sbar .pill{display:none!important}'
+    + 'html.mt-compact.mt-graded .sbar .pill{display:inline-block!important;padding:3px 9px!important;font-size:.72rem!important}'
+    + 'html.mt-compact .sbar{padding:5px 8px!important;gap:5px!important}'
+    + 'html.mt-compact:not(.mt-graded) .sbar.mt-sbar-mirror{display:none!important}';
+  function toolbarState(){
+    var t = findTotalBtn(), r = findResetBtn(), a = findAllBtn();
+    return { total: !!t, reset: !!r, all: !!a && a.style.display !== 'none', graded: isGradedAny() };
+  }
+  function applyCompact(s){
+    var root = document.documentElement;
+    if (!COMPACT) { if (root.classList.contains('mt-compact')) root.classList.remove('mt-compact', 'mt-graded'); return; }
+    if (!document.getElementById('mtCompactCss')) {
+      var st = document.createElement('style');
+      st.id = 'mtCompactCss';
+      st.textContent = COMPACT_CSS;
+      (document.head || root).appendChild(st);
+    }
+    if (!root.classList.contains('mt-compact')) root.classList.add('mt-compact');
+    var g = s ? !!s.graded : isGradedAny();
+    if (root.classList.contains('mt-graded') !== g) root.classList.toggle('mt-graded', g);
+    [findTotalBtn(), findResetBtn(), findAllBtn()].forEach(function(b){ if (b && !b.getAttribute('data-mt-mirror')) b.setAttribute('data-mt-mirror', '1'); });
+    var bars = document.querySelectorAll('.sbar');
+    for (var i = 0; i < bars.length; i++) {
+      var only = true, ch = bars[i].children;
+      for (var k = 0; k < ch.length; k++) {
+        if (!(ch[k].classList.contains('pill') || ch[k].getAttribute('data-mt-mirror'))) { only = false; break; }
+      }
+      if (only !== bars[i].classList.contains('mt-sbar-mirror')) bars[i].classList.toggle('mt-sbar-mirror', only);
+    }
+  }
+  function postToolbar(force){
+    var s = toolbarState(), sig = JSON.stringify(s);
+    applyCompact(s);
+    if (!force && sig === lastTb) return;
+    lastTb = sig;
+    post('MATE_TOOLBAR', s);
+  }
+
   // ── Ascultă părintele ──────────────────────────────────────────────
   window.addEventListener('message', function(ev){
     var d = ev && ev.data;
     if (!d || typeof d !== 'object') return;
     if (d.type === 'MATE_TUTOR_STATE_REQ') post('MATE_TUTOR_STATE', collect());
+    if (d.type === 'MATE_COMPACT') { COMPACT = !!d.on; postToolbar(true); }
+    // telefonul: pictogramele din bara paginii apasă butoanele testului
+    if (d.type === 'MATE_TOOLBAR_CMD') {
+      var tb = d.cmd === 'total' ? findTotalBtn() : d.cmd === 'reset' ? findResetBtn() : d.cmd === 'all' ? findAllBtn() : null;
+      if (tb) { userActed = true; try { tb.click(); } catch(e){} }
+      setTimeout(function(){ postToolbar(true); }, 200);
+    }
     // salvarea parțială (dueluri/turnee): părintele cere răspunsurile de acum,
     // fără să fie nevoie ca elevul să apese „Verifică"
     if (d.type === 'MATE_ANSWERS_REQ') postAnswers();
@@ -636,17 +1079,24 @@ const BRIDGE_SCRIPT = String.raw`
 
   // ── Observă re-randările exercițiului ─────────────────────────────
   var deb = null;
-  function refreshUI(){ rewireHintButtons(); ensureStepHelpers(); }
+  function refreshUI(){ rewireHintButtons(); ensureStepHelpers(); decorateExercises(); }
   function onMutate(){
     refreshUI();
     if (deb) clearTimeout(deb);
     deb = setTimeout(function(){
       tryReportScore(); // rezervă: teste cu altă funcție de corectare (detectăm panoul final)
+      retext();
+      paintPartial();
+      postToolbar();
       post('MATE_TUTOR_STATE', collect());
     }, 400);
   }
   function start(){
+    // „✓ Corectează exercițiul" / „✓ Corectează total" — întâi învelim funcțiile testului
+    try { IS_STEP = detectStep(); if (IS_STEP) wrapStep(); } catch(e){ IS_STEP = false; }
+    try { wrapTotal(); } catch(e){}
     refreshUI();
+    retext();
     // Dacă testul se deschide DEJA corectat (stare salvată local), reținem
     // scorul existent ca punct de plecare — nu îl re-raportăm la simpla
     // redeschidere; doar o corectare nouă (sau un scor schimbat) se trimite.
@@ -657,17 +1107,52 @@ const BRIDGE_SCRIPT = String.raw`
     try { new MutationObserver(onMutate).observe(document.body, { childList: true, subtree: true }); } catch(e){}
     post('MATE_TUTOR_READY', { title: document.title || '' });
     post('MATE_TUTOR_STATE', collect());
+    postToolbar(true);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 })();
 </` + `script>`;
 
+// ── Motorul închis într-o funcție (4 nov. 2026) ──────────────────────
+// Testele interactive de EN au Subiectul al III-lea într-un
+//   <script>(function(){ "use strict"; var PROBS=…, ST=…, GRADED=…; … })();</script>
+// — PROBS / ST / GRADED / renderProb nu sunt globale, deci bridge-ul nu le-ar
+// vedea și „✓ Corectează exercițiul" n-ar apărea la problemele de acolo.
+// Chiar înainte de închiderea funcției punem un obiect cu getter / setter
+// pentru aceste nume (window.__mtScope): bridge-ul citește starea și
+// înlocuiește funcțiile de redare exact ca la șabloanele cu variabile globale.
+// Dacă scriptul nu are forma așteptată, HTML-ul rămâne neschimbat.
+const SCOPE_NAMES = ['PROBS', 'ST', 'GRADED', 'cur', 'redo', 'renderProb', 'badgeOf', 'gradeCls', 'paintBar', 'probScore', 'isRight', 'stOf', 'save', 'gradeProb'];
+function scopeSnippet() {
+  const defs = SCOPE_NAMES.map((n) => `d("${n}",function(){return typeof ${n}!=="undefined"?${n}:void 0},function(v){try{${n}=v}catch(e){}})`).join(';');
+  return `\n;try{(function(S){function d(n,g,s){try{Object.defineProperty(S,n,{configurable:true,enumerable:true,get:g,set:s})}catch(e){}}${defs}})(window.__mtScope=window.__mtScope||{})}catch(e){}\n`;
+}
+export function exposeClosureEngine(html) {
+  if (!html || typeof html !== 'string' || html.includes('__mtScope')) return html;
+  const re = /<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    const body = m[1];
+    if (!/\b(?:var|let|const)\s+PROBS\s*=/.test(body)) continue;
+    // comentariile de la început (/* … */ sau // …) nu contează
+    const lead = body.replace(/^(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*/, '');
+    if (!/^[;!]?\s*\(\s*function\s*\(\s*\)\s*\{/.test(lead)) return html; // motor global — se vede direct
+    const end = /\}\s*\)\s*\(\s*\)\s*;?\s*$|\}\s*\(\s*\)\s*\)\s*;?\s*$/.exec(body);
+    if (!end) return html;
+    const bodyStart = m.index + m[0].indexOf('>') + 1;
+    const at = bodyStart + end.index;
+    return html.slice(0, at) + scopeSnippet() + html.slice(at);
+  }
+  return html;
+}
+
 // Injectează bridge-ul în HTML-ul exercițiului, înainte de </body>
 // (sau la final, dacă documentul nu are </body>).
 export function injectTutorBridge(html) {
   if (!html || typeof html !== 'string') return html;
   if (html.includes('__MATE_TUTOR_BRIDGE__')) return html; // deja injectat
+  html = exposeClosureEngine(html);
   // Dacă exercițiul își raportează SINGUR scorul (șablonul platformei),
   // reporterul din bridge stă deoparte — altfel scorul s-ar salva de două ori.
   const nativeFlag = /MATE_SCORE/.test(html)

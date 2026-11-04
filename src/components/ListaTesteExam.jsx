@@ -15,7 +15,8 @@ import VerificationNote from './VerificationNote';
 const nrItemi = (ex) => (ex?.subjects || []).reduce((n, s) => n + (s.items || []).length, 0);
 // testul are ce pune în barem? (răspunsuri / rezolvări — testele din fișe cu
 // datele păstrate nu au: exercițiile sunt copiate exact din fișă)
-export const areBarem = (ex) => (ex?.subjects || []).some((s) => (s.items || []).some((it) =>
+// („📄 Fără barem" — noBarem, 4 nov. 2026: răspunsurile scurte rămân, dar fără barem)
+export const areBarem = (ex) => !ex?.noBarem && (ex?.subjects || []).some((s) => (s.items || []).some((it) =>
   (it.answer != null && String(it.answer).trim()) || (it.solution && String(it.solution).trim())
   || (Array.isArray(it.parts) && it.parts.some((p) => p && p.solution))));
 
@@ -73,7 +74,9 @@ export default function ListaTesteExam({ rezultat, publish = true, titlu = null,
         {set ? null : <>Salvate în „Testele și exercițiile mele"
           {publish ? <> · publicate în „Biblioteca utilizatorilor": {publicate} din {teste.length}{publicate < teste.length && rezultat.gata ? ' (restul le poți publica din „Testele și exercițiile mele" → 🏛️ Publică)' : ''}</> : ''}. </>}
         Se tipăresc din fereastra de print („Salvează ca PDF").
-        {!cuBarem && <> Exercițiile sunt copiate exact din fișe, deci testele <strong>nu au barem</strong> — pentru rezolvări, alege „🔢 Schimbă numerele" sau formatul interactiv.</>}
+        {!cuBarem && (teste.some((t) => t.exam?.noBarem)
+          ? <> Testele au fost generate <strong>fără barem</strong> („📄 Fără barem") — pentru rezolvări, generează-le „📝 Cu barem".</>
+          : <> Exercițiile sunt copiate exact din fișe, deci testele <strong>nu au barem</strong> — pentru rezolvări, alege „🔢 Schimbă numerele" sau formatul interactiv.</>)}
       </p>
       {rezultat.intrerupt && (
         <div style={{ fontSize: '.77rem', color: '#b26a00', marginBottom: 8 }}>

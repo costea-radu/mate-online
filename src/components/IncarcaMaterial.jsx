@@ -17,6 +17,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
 import { detectMaterial, titleFromFile, prepareMaterial, transcribeBatches, fmtMb, MAX_PHOTOS, MAX_FILE_MB } from '../lib/materialPdf';
+import { arataPdf, pdfInPagina } from '../lib/pdfOpen';
 
 export const CATEGORII_MATERIAL = [
   { id: '', label: '— alege clasa / examenul —' },
@@ -169,7 +170,8 @@ export default function IncarcaMaterial({ onDone = null, onCancel = null }) {
       {prep && !busy && (
         <div style={{ marginTop: 10, padding: '8px 11px', borderRadius: 10, background: '#f0f9f1', border: '1px solid #cfe8d4', fontSize: '.82rem', color: '#1e5a2a', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <span>✓ PDF pregătit: <strong>{prep.pages ? `${prep.pages} ${prep.pages === 1 ? 'pagină' : 'pagini'}` : 'gata'}</strong> · {fmtMb(prep.blob.size)}</span>
-          <a href={prep.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 700 }}>👁 Vezi PDF-ul</a>
+          <a href={prep.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy)', fontWeight: 700 }}
+            onClick={(e) => { if (pdfInPagina()) { e.preventDefault(); arataPdf(prep.blob, { title: title || 'Material' }).catch(() => {}); } }}>👁 Vezi PDF-ul</a>
           {prep.source === 'docx' && <span style={{ color: 'var(--text-muted)', fontSize: '.74rem', flexBasis: '100%' }}>Verifică paginile: formulele făcute cu MathType pot lipsi — atunci salvează din Word ca PDF și încarcă PDF-ul.</span>}
           {prep.source === 'foto' && <span style={{ color: 'var(--text-muted)', fontSize: '.74rem', flexBasis: '100%' }}>La publicare, textul pozelor îl citește o dată Profesorul Virtual (din creditele tale AI), ca să le poată explica elevilor.</span>}
         </div>

@@ -68,8 +68,9 @@ test('fereastra e plutitoare, ca widgetul: nu mai întunecă pagina; se mută de
   assert.doesNotMatch(code, /aria-modal="true"/);
   assert.match(code, /role="dialog" aria-modal="false" aria-label="Spațiu de lucru"/);
   assert.match(code, /position: 'fixed', zIndex: 100000, left: winX, top: winY, width: winW, height: winH/);
-  // antetul: pe calculator mută fereastra, pe telefon e mânerul înălțimii (ca panoul profesorului)
-  assert.match(code, /\{\.\.\.\(narrow \? dragProps\('sheet'\) : dragProps\('move'\)\)\}/);
+  // antetul: pe calculator mută fereastra, pe telefon e mânerul înălțimii (ca panoul profesorului);
+  // andocată lângă test (exercițiile interactive, 4 nov. 2026) nu se mută
+  assert.match(code, /\{\.\.\.\(narrow \? dragProps\('sheet'\) : dock \? \{\} : dragProps\('move'\)\)\}/);
   assert.match(code, /e\.target\.closest\('button'\)/, 'butoanele din antet nu pornesc tragerea');
   // toate cele 8 mânere
   for (const k of ['w', 'e', 'n', 's', 'nw', 'ne', 'sw', 'se']) assert.match(code, new RegExp(`grip\\('${k}', \\{`), `mânerul ${k}`);

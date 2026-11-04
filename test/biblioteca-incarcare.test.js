@@ -119,12 +119,14 @@ test('pageWidthPt / pdfColumnWidth: lățimea primei pagini din /MediaBox (A4, L
 
 test('vizualizatorul PDF: „📑 Ascunde paginile" pe calculator, alegerea ținută minte, profesorul ia locul coloanei', () => {
   const src = read('src/pages/PDFViewer.jsx');
-  assert.match(src, /import \{ pdfFrameSrc, pageWidthPt, pdfColumnWidth, paginiPanelWidth, readPaginiPref, savePaginiPref \} from '\.\.\/lib\/pdfFrame';/);
+  // (4 nov. 2026: și alegerea vizualizatorului — al browserului / al site-ului, pentru tablele interactive)
+  assert.match(src, /import \{ pdfFrameSrc, pageWidthPt, pdfColumnWidth, paginiPanelWidth, readPaginiPref, savePaginiPref, readViewerPref, saveViewerPref \} from '\.\.\/lib\/pdfFrame';/);
   assert.match(src, /const \[pagini, setPagini\] = useState\(readPaginiPref\);/);
   assert.match(src, /'📑 Ascunde paginile'/);
   assert.match(src, /'📑 Arată paginile'/);
-  // doar pe calculator, la PDF-urile din vizualizatorul browserului (nu pe telefon / la testul generat)
-  assert.match(src, /const paginiActive = !mobile && !narrow && !examHtml && !!blobUrl;/);
+  // doar pe calculator, la PDF-urile din vizualizatorul browserului (nu pe telefon / la testul generat /
+  // când PDF-ul îl desenează site-ul — pe tablele interactive)
+  assert.match(src, /const paginiActive = !mobile && !narrow && !examHtml && !!blobUrl && !internal;/);
   assert.match(src, /\{paginiBtn\}/);
   // iframe-ul se reîncarcă cu noul parametru (și baremul separat la fel)
   assert.match(src, /const testKey = `\$\{testJump \? `test-\$\{testJump\.seq\}` : 'test'\}-\$\{pagini \|\| 'x'\}`;/);

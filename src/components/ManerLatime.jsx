@@ -10,14 +10,16 @@
 // =====================================================================
 // offset: cât iese mânerul în afara panoului (-7 = jumătate peste linia aurie;
 // 0 = în interior — pentru ferestrele cu overflow:hidden, ca widgetul)
-export default function ManerLatime({ lat, edge = 'left', top = 0, offset = -7 }) {
+// label: ce lățește mânerul (implicit fereastra profesorului; în exercițiile
+// interactive, și coloana „✍️ Spațiu de lucru" — 4 nov. 2026)
+export default function ManerLatime({ lat, edge = 'left', top = 0, offset = -7, label = 'Lățimea ferestrei profesorului' }) {
   if (!lat) return null;
   return (
     <>
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="Lățimea ferestrei profesorului: trage spre stânga sau spre dreapta"
+        aria-label={`${label}: trage spre stânga sau spre dreapta`}
         aria-valuenow={lat.width} aria-valuemin={lat.min} aria-valuemax={lat.max}
         title="Trage ca să lățești sau să îngustezi fereastra · dublu-clic: mare / obișnuită"
         {...lat.handleProps}

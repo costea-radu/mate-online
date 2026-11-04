@@ -53,6 +53,12 @@
 //   onAttach     — ({ images, thumb, grid, size }) => void : scrisul pleacă ca
 //                  IMAGINE (la întrebarea din chat / la răspunsul unei cerințe)
 //   attachLabel  — eticheta acelui buton
+//   docked       — (4 nov. 2026, exercițiile interactive pe calculator) fără
+//                  fereastră plutitoare: foaia stă în coloana din DREAPTA
+//                  testului (testul rămâne întreg în stânga, nu mai e acoperit).
+//                  Lățimea o dă coloana (mânerul de pe marginea ei); ⛶ / dublu-
+//                  clic pe antet = tot ecranul, ca înainte. Pe telefon nu schimbă
+//                  nimic (foaia rămâne jos, pe toată lățimea).
 // =====================================================================
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -137,7 +143,7 @@ function TextEnunt({ text }) {
 export default function SpatiuDeLucru({
   open = false, onClose, title = '', enunt = null, figura = null, storageKey = null,
   onCorect = null, corectLocked = false, onAttach = null, attachLabel = '📎 Pune în întrebare',
-  embedded = false,
+  embedded = false, docked = false,
 }) {
   const scrollRef = useRef(null);   // zona derulabilă (derularea nativă a browserului)
   const svgRef = useRef(null);      // foaia: cât zona derulabilă, cu un ecran gol în față
@@ -203,12 +209,15 @@ export default function SpatiuDeLucru({
   }, []);
 
   const narrow = scr.w < NARROW;
+  // andocată în coloana din dreapta testului (nu pe telefon și nu „pe tot ecranul")
+  const dock = docked && !narrow && !maxi;
   const MARGIN = narrow ? 4 : 12;
   const maxW = Math.max(MIN_W, scr.w - 2 * MARGIN);
   const maxH = Math.max(MIN_H, scr.h - 2 * MARGIN);
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const winW = maxi || narrow ? maxW : clamp(win ? win.w : Math.min(1100, maxW), MIN_W, maxW);
   const winH = maxi ? maxH
+    : dock ? Math.max(MIN_H, scr.h - 64)   // cât coloana (sub bara paginii)
     : narrow ? clamp(sheetH || Math.round(scr.h * 0.94), Math.min(MIN_H_TEL, maxH), scr.h - MARGIN)
       : clamp(win ? win.h : Math.round(scr.h * 0.94), MIN_H, maxH);
   // locul: centrată până o muți (ferestrele salvate fără x / y — tot centrate)
@@ -221,6 +230,7 @@ export default function SpatiuDeLucru({
   // sau 'sheet' (bara albastră, pe telefon: înălțimea foii de jos).
   function startDrag(kind, e) {
     if (maxi) return;
+    if (dock && kind !== 'sheet') return;   // andocată: lățimea o dă coloana
     if (e.button != null && e.button !== 0) return;
     // butoanele din antet (⛶, ✕) nu pornesc tragerea
     if (kind === 'move' || kind === 'sheet') { if (e.target && e.target.closest && e.target.closest('button')) return; }
@@ -923,7 +933,11 @@ export default function SpatiuDeLucru({
     <div
       ref={dialogRef}
       role="dialog" aria-modal="false" aria-label="Spațiu de lucru"
-      style={{
+      style={dock ? {
+        // în coloana din dreapta testului: cât coloana, fără umbră
+        position: 'relative', flex: 1, width: '100%', height: '100%', minHeight: 0,
+        background: '#fff', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      } : {
         position: 'fixed', zIndex: 100000, left: winX, top: winY, width: winW, height: winH,
         background: '#fff', borderRadius: narrow ? '14px 14px 0 0' : 14,
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
@@ -932,14 +946,15 @@ export default function SpatiuDeLucru({
 
         <div
           onDoubleClick={() => setMaxi((v) => !v)}
-          {...(narrow ? dragProps('sheet') : dragProps('move'))}
+          {...(narrow ? dragProps('sheet') : dock ? {} : dragProps('move'))}
           title={narrow
             ? 'Trage bara în sus sau în jos ca să mărești sau să micșorezi foaia · dublu-clic: tot ecranul'
-            : 'Trage de aici ca să muți fereastra · dublu-clic: tot ecranul'}
+            : dock ? 'Lățimea: trage de marginea din stânga · dublu-clic: tot ecranul'
+              : 'Trage de aici ca să muți fereastra · dublu-clic: tot ecranul'}
           style={{
             background: 'var(--navy, #0f2b44)', color: '#fff', padding: narrow ? '12px 10px 7px' : '9px 14px',
             display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, position: 'relative',
-            cursor: maxi ? 'default' : narrow ? 'ns-resize' : (dragging === 'move' ? 'grabbing' : 'grab'),
+            cursor: maxi || dock ? 'default' : narrow ? 'ns-resize' : (dragging === 'move' ? 'grabbing' : 'grab'),
             touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
           }}>
           {/* pe telefon, bara e mânerul (ca la panoul profesorului): liniuța de sus */}
@@ -1084,7 +1099,7 @@ export default function SpatiuDeLucru({
         </div>
         {/* ── Mânerele ferestrei, ca la widget: ORICE margine și orice colț ── */}
         {/* (pe telefon, mânerul e bara albastră de sus — vezi antetul) */}
-        {!maxi && !narrow && (
+        {!maxi && !narrow && !dock && (
           <>
             {grip('w', { left: 0, top: 50, bottom: 24, width: 14 }, 'Trage marginea din stânga ca să lățești sau să îngustezi fereastra')}
             {grip('e', { right: 0, top: 50, bottom: 24, width: 14 }, 'Trage marginea din dreapta ca să lățești sau să îngustezi fereastra')}

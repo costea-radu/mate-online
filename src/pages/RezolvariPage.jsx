@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { arataPdf, pdfInPagina } from '../lib/pdfOpen';
 
 const CATEGORIES = [
   { value: '', label: 'Toate categoriile' },
@@ -75,8 +76,10 @@ function getVideoEmbed(url) {
   return { type: 'link', url };
 }
 
-// Deschide fișier ca blob (ascunde URL-ul Supabase)
-async function openAsBlob(url, mimeType = 'application/pdf') {
+// Deschide fișier ca blob (ascunde URL-ul Supabase). PDF-urile, pe tablele
+// interactive / telefoane: fereastra PDF a site-ului (src/lib/pdfOpen.js)
+async function openAsBlob(url, mimeType = 'application/pdf', title = 'Rezolvare') {
+  if (mimeType === 'application/pdf' && pdfInPagina()) { await arataPdf(url, { title }); return; }
   const resp = await fetch(url);
   if (!resp.ok) throw new Error('Eroare fetch');
   const buf = await resp.arrayBuffer();
@@ -115,7 +118,7 @@ function RezolvareCard({ item, user, isPremium }) {
     setLoading(true);
     try {
       const url = await getSecureUrl(item, user);
-      await openAsBlob(url, 'application/pdf');
+      await openAsBlob(url, 'application/pdf', item.title || 'Rezolvare');
     } catch (e) { alert(e.message); }
     setLoading(false);
   }

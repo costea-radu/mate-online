@@ -7,6 +7,8 @@ import ErrorBoundary from './components/ErrorBoundary';
 import FloatingTutor from './components/AITutor';
 import InstallPrompt from './components/InstallPrompt';
 import CookieConsent from './components/CookieConsent';
+// PDF-urile deschise pe tablele interactive / telefoane: fereastra site-ului (4 nov. 2026)
+import { PdfOverlayHost } from './components/PdfOverlay';
 import { Analytics } from '@vercel/analytics/react';
 import { initAnalytics, trackPageView } from './lib/analytics';
 import { trimiteVizita } from './lib/vizite';
@@ -193,6 +195,7 @@ export default function App() {
             </ErrorBoundary>
           </Layout>
           <CookieConsent />
+          <PdfOverlayHost />
           <Analytics />
         </AuthProvider>
       </ErrorBoundary>

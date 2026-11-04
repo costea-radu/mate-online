@@ -64,10 +64,28 @@ Creionul (stylus) pornește **respingerea palmei**: din acel moment atingerile c
 nu mai scriu (două degete tot derulează). Traseele sunt netede (punctele intermediare
 ale creionului — `getCoalescedEvents`).
 
-### Fereastra (exerciții interactive, „Planul meu", sala live, Pregătirea de examen)
+### În testele interactive, pe calculator: coloana din dreapta testului (4 nov. 2026)
+
+Cererea: „la teste interactive, spațiul de lucru pe desktop este peste test. Fă să se
+alinieze testul în stânga și spațiul de lucru în dreapta."
+
+- În **testele / exercițiile interactive** (`src/pages/InteractiveViewer.jsx`), pe
+  calculator, foaia **nu mai e o fereastră peste test**: se deschide într-o **coloană în
+  dreapta** testului, iar testul rămâne întreg în stânga (`<SpatiuDeLucru docked …>`).
+- **Lățimea coloanei** se trage de marginea ei stângă (mânerul „Lățimea spațiului de
+  lucru", `src/components/ManerLatime.jsx`) și se ține minte (`sdl:latime`, implicit ~42%
+  din ecran, minimum 340 px; testul păstrează cel puțin 360 px). Cu Profesorul Virtual
+  deschis, testul se îngustează între cele două coloane.
+- `⛶` = foaia pe tot ecranul; `⤵` = înapoi lângă test. Butonul ✍️ din bară sau
+  „✍️ Spațiu de lucru" din exercițiu o deschid / închid; enunțul exercițiului stă deasupra foii.
+- **Pe telefon** nimic nu se schimbă: foaia stă jos, pe toată lățimea, ca mai jos.
+- În celelalte locuri („Planul meu", sala live, Pregătirea de examen) foaia rămâne
+  fereastra plutitoare de mai jos.
+
+### Fereastra (exerciții interactive pe telefon, „Planul meu", sala live, Pregătirea de examen)
 
 Din 30 octombrie 2026 se mută și se redimensionează **ca widgetul Profesorului Virtual**,
-peste tot unde apare:
+peste tot unde apare (în testele interactive pe calculator — coloana de mai sus):
 
 - **Pe calculator** e o fereastră **plutitoare**: nu mai întunecă pagina, deci exercițiul
   de dedesubt rămâne la vedere și se poate folosi (scrii în foaie, răspunzi în exercițiu).

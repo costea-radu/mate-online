@@ -50,12 +50,36 @@ export default function InteractiveViewer() {
   const [partialSalvat, setPartialSalvat] = useState(null);           // salvarea automată de la jumătatea exercițiului
   const [reviewOpen, setReviewOpen] = useState(false);               // „Cum ți s-a părut testul?" (după scor salvat)
   const reviewAskedRef = useRef(new Set());                          // testele pentru care am întrebat deja (în această vizită)
-  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 800);
+  const [vw, setVw] = useState(typeof window !== 'undefined' ? window.innerWidth : 1280);
   useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 800);
+    const onResize = () => setVw(window.innerWidth);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+  const isMobile = vw < 800;
+  // ✍️ Spațiul de lucru PE CALCULATOR (4 nov. 2026): nu mai stă peste test, ci în
+  // coloana din DREAPTA lui — testul rămâne întreg în stânga. Lățimea coloanei se
+  // trage de marginea ei stângă și se ține minte (ca la panoul profesorului).
+  const wsLat = useLatimePanou({
+    storageKey: 'sdl:latime', initial: Math.round((typeof window !== 'undefined' ? window.innerWidth : 1280) * 0.42),
+    min: 340, maxFrac: 0.72, reserve: 360,
+  });
+
+  // ── Bara testului pe TELEFON (4 nov. 2026) ──────────────────────────────
+  // Doar pictograme, pe un rând: ← · profesorul virtual · ✍️ · ↺ Resetează ·
+  // ☰ Toate exercițiile · ✓ Corectează total. Ultimele trei sunt butoanele
+  // TESTULUI (din iframe): bridge-ul spune ce are testul (MATE_TOOLBAR) și le
+  // apasă la cerere (MATE_TOOLBAR_CMD); bara testului se ascunde (MATE_COMPACT)
+  // și reapare doar cu „Rezolvate · Scor · Corecte", după prima corectare.
+  const [tb, setTb] = useState(null);                 // { total, reset, all, graded } — null = testul n-a răspuns încă
+  const isMobileRef = useRef(isMobile);
+  function sendCompact() {
+    try { iframeRef.current?.contentWindow?.postMessage({ type: 'MATE_COMPACT', on: !!isMobileRef.current }, '*'); } catch { /* fără bridge */ }
+  }
+  function tbCmd(cmd) {
+    try { iframeRef.current?.contentWindow?.postMessage({ type: 'MATE_TOOLBAR_CMD', cmd }, '*'); } catch { /* fără bridge */ }
+  }
+  useEffect(() => { isMobileRef.current = isMobile; sendCompact(); }, [isMobile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Înălțimea panoului pe mobil (% din ecran) — se trage de bara albastră
   const [panelPct, setPanelPct] = useState(48);
@@ -106,7 +130,7 @@ export default function InteractiveViewer() {
     if (!temaId) return;
     if (hwMarked) { navigate('/meditatii/plan?tab=teme'); return; }
     const ok = window.confirm(
-      'Finalizezi tema fără să fi apăsat „Verifică/Corectează"?\n\n' +
+      'Finalizezi tema fără să fi apăsat „Corectează total"?\n\n' +
       'Se înregistrează ca TEMĂ INCOMPLETĂ — o poți relua oricând din Meditații → Teme, iar o temă neterminată nu te împiedică să primești altele.'
     );
     if (!ok) return;
@@ -410,6 +434,10 @@ export default function InteractiveViewer() {
     function onTutorMsg(event) {
       const d = event.data;
       if (event.source === window || !d || typeof d !== 'object') return;
+      // bara testului (telefon): doar de la exercițiul nostru
+      const fromTest = !iframeRef.current || event.source === iframeRef.current.contentWindow;
+      if (d.type === 'MATE_TUTOR_READY' && fromTest) { sendCompact(); return; }
+      if (d.type === 'MATE_TOOLBAR' && fromTest) { if (d.payload) setTb(d.payload); return; }
       // răspunsurile elevului, citite din pagină de bridge (Etapa 3): serverul
       // recalculează scorul din ele, chiar dacă testul e un HTML mai vechi
       if (d.type === 'MATE_ANSWERS' && Array.isArray(d.answers)) { lastAnswersRef.current = d.answers; return; }
@@ -445,6 +473,9 @@ export default function InteractiveViewer() {
   function sendTutorAction(action) {
     try { iframeRef.current?.contentWindow?.postMessage({ type: 'MATE_TUTOR_ACTION', action }, '*'); } catch { /* noop */ }
   }
+
+  // exercițiul reîncărcat de la zero (↺ / alt material) → bara lui se anunță din nou
+  useEffect(() => { setTb(null); }, [iframeKey, srcDoc]);
 
   // Insignele-toast dispar singure
   useEffect(() => {
@@ -579,11 +610,101 @@ export default function InteractiveViewer() {
   // Nota cu 10 puncte din oficiu (testele care raportează „din 100" o au deja inclusă)
   const savedNota = savedScore ? notaDinScor(savedScore.score, savedScore.maxScore) : null;
 
+  // ✍️ Spațiul de lucru — aceleași date pe calculator (coloana din dreapta testului)
+  // și pe telefon (foaia de jos). „🎓 Cere corectarea" trimite foaia corectorului,
+  // iar corectarea apare în Profesorul Virtual (se deschide singur). Rezolvarea
+  // oficială a exercițiului ține loc de barem.
+  const workspaceProps = {
+    open: workOpen,
+    onClose: () => setWorkOpen(false),
+    title: item?.title || exState?.title || '',
+    /* enunțul CURAT, fără răspunsurile corecte (collectEnunt din tutorBridge):
+       `exState.text` le conține, pentru corector — pe ecran n-au ce căuta */
+    enunt: exState?.enunt || '',
+    storageKey: `ex:${item?.id || 'exercitiu'}`,
+    corectLocked: !!user && !authLoading && !isPremium,
+    onCorect: faraAjutor ? null : (pack) => {
+      setAutoPrompt(null);
+      setTutorOpen(true);
+      setAutoCorrect({ id: Date.now(), pack, exerciseText: tutorContext.exerciseText || exState?.text || '' });
+    },
+  };
+  // coloana spațiului de lucru (calculator): lățimea aleasă, dar testul păstrează
+  // măcar ~380 px și când e deschis și profesorul virtual
+  const wsWidth = Math.max(300, Math.min(wsLat.width, vw - (tutorOpen && !faraAjutor ? lat.width : 0) - 380));
+
+  // ── Bara de sus pe TELEFON: doar pictograme, pe un singur rând ─────────────
+  const ib = (on = false) => ({
+    width: 34, height: 34, flexShrink: 0, borderRadius: 10, cursor: 'pointer', padding: 0,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '1.05rem', fontWeight: 700, lineHeight: 1,
+    background: on ? 'var(--gold)' : 'rgba(255,255,255,0.10)',
+    border: `1px solid ${on ? 'var(--gold)' : 'rgba(255,255,255,0.25)'}`,
+    color: on ? 'var(--navy)' : '#fff',
+  });
+  const chip = (bg, color, border = bg) => ({
+    flexShrink: 0, borderRadius: 10, padding: '5px 8px', fontSize: '0.72rem', fontWeight: 800,
+    whiteSpace: 'nowrap', background: bg, color, border: `1px solid ${border}`, lineHeight: 1.2,
+  });
+  const phoneBar = (
+    <div role="toolbar" aria-label="Bara testului" style={{
+      display: 'flex', alignItems: 'center', gap: 5, padding: '6px 8px', background: 'var(--navy)',
+      flexShrink: 0, boxShadow: '0 2px 8px rgba(0,0,0,0.3)', overflowX: 'auto', scrollbarWidth: 'none',
+    }}>
+      <button onClick={goBack} aria-label="Înapoi" title="Înapoi" style={{ ...ib(), fontSize: '1.15rem' }}>←</button>
+      {!faraAjutor && (
+        <button onClick={() => { setAutoPrompt(null); setTutorOpen((o) => !o); }}
+          aria-label={tutorOpen ? 'Închide profesorul virtual' : 'Profesorul virtual'} aria-pressed={tutorOpen}
+          title="Profesorul virtual — te ajută să rezolvi exercițiul" style={ib(tutorOpen)}>
+          <EinsteinIcon size={22} />
+        </button>
+      )}
+      <button onClick={() => setWorkOpen((o) => !o)} aria-label="Spațiu de lucru" aria-pressed={workOpen}
+        title="Spațiu de lucru — scrii rezolvarea de mână" style={ib(workOpen)}>✍️</button>
+      {tb?.reset && (
+        <button onClick={() => tbCmd('reset')} aria-label="Resetează testul" title="Resetează — reiei testul de la început"
+          style={{ ...ib(), fontSize: '1.2rem' }}>↺</button>
+      )}
+      {tb?.all && (
+        <button onClick={() => tbCmd('all')} aria-label="Toate exercițiile" title="Toate exercițiile" style={ib()}>☰</button>
+      )}
+      {/* stările (rare) — doar semnul, explicația e în title */}
+      {gtId && <TestModeBadge compact />}
+      {duelId && <span title="Duel: ai o singură încercare, iar Profesorul Virtual e închis" style={chip('rgba(232,185,49,0.16)', 'var(--gold)', 'var(--gold)')}>⚔️</span>}
+      {dinMisiune && !duelId && <span title="Exercițiul zilei din Arena: îl bifezi rezolvându-l cu cel puțin 50%" style={chip('rgba(232,185,49,0.16)', 'var(--gold)', 'var(--gold)')}>🎯</span>}
+      {partialSalvat && !scoreSaved && <span title="Ce ai rezolvat până acum e salvat. Apasă „Corectează total” pentru rezultatul final." style={chip('rgba(46,204,113,0.14)', '#7ee2a8', 'rgba(46,204,113,0.5)')}>💾</span>}
+      {item?.category === 'manuale' && <button onClick={() => navigate('/')} aria-label="Acasă" title="Acasă" style={ib()}>🏠</button>}
+      {hwMarked && <span title={`Temă bifată · nota ${hwMarked.grade}`} style={chip('var(--gold)', 'var(--navy)')}>✓ {hwMarked.grade}</span>}
+      {temaId && (
+        <button onClick={finalizeHomework} disabled={hwFinalizing}
+          aria-label={hwMarked ? 'Temă finalizată — înapoi la meditații' : 'Finalizează tema'}
+          title={hwMarked ? 'Tema e bifată cu scorul tău — înapoi la meditații' : 'Închide tema acum, chiar dacă nu ai terminat: se înregistrează ca temă incompletă'}
+          style={ib(!!hwMarked)}>{hwFinalizing ? '⏳' : '🏁'}</button>
+      )}
+      {hwError && <span title={hwError} style={chip('#c62828', '#fff')}>⚠</span>}
+      {!hwMarked && medMarked && <span title="Trimis Meditatorului" style={chip('var(--gold)', 'var(--navy)')}>✓ {medMarked.pct}%</span>}
+      {saveError && <span title={`Scorul nu s-a salvat — reîncearcă „Corectează total": ${saveError}`} style={chip('#c62828', '#fff')}>⚠ scor</span>}
+      {scoreSaved && savedScore && (
+        <span title={`Scor salvat: ${savedScore.score}/${savedScore.maxScore} (${scorePct}%)${savedNota != null && !hwMarked ? ` · nota ${savedNota}` : ''}`}
+          style={chip(scoreColor, '#fff')}>✓ {savedScore.score}/{savedScore.maxScore}</span>
+      )}
+      <span style={{ flex: 1, minWidth: 2 }} />
+      {tb?.total && (
+        <button onClick={() => tbCmd('total')} title="Corectează tot testul și vezi punctajul total" style={{
+          flexShrink: 0, height: 34, borderRadius: 10, padding: '0 10px', cursor: 'pointer', whiteSpace: 'nowrap',
+          background: 'var(--gold)', border: '1px solid var(--gold)', color: 'var(--navy)', fontWeight: 800,
+          fontSize: vw < 375 ? '0.74rem' : '0.8rem',
+        }}>✓ {vw < 340 ? 'Total' : 'Corectează total'}</button>
+      )}
+    </div>
+  );
+
   return (
     <div className="iv-root" style={{ display: 'flex', flexDirection: 'column', background: 'var(--navy-dark)' }}>
       {/* 100dvh pe mobil: altfel bara browserului taie câmpul de scris al chatului */}
       <style>{`.iv-root{height:100vh;height:100dvh}`}</style>
-      {/* Bara de sus */}
+      {/* Bara de sus — pe telefon: doar pictogramele (vezi phoneBar) */}
+      {isMobile ? phoneBar : (
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '10px 20px', background: 'var(--navy)', flexShrink: 0,
@@ -619,7 +740,7 @@ export default function InteractiveViewer() {
               background: 'rgba(46,204,113,0.14)', border: '1px solid rgba(46,204,113,0.5)',
               color: '#7ee2a8', borderRadius: 12, padding: '3px 10px', fontSize: '0.72rem',
               fontWeight: 700, whiteSpace: 'nowrap',
-            }} title="Ce ai rezolvat până acum e salvat. Apasă „Verifică” pentru rezultatul final.">
+            }} title="Ce ai rezolvat până acum e salvat. Apasă „Corectează total” pentru rezultatul final.">
               💾 salvat automat
             </span>
           )}
@@ -642,24 +763,27 @@ export default function InteractiveViewer() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {/* Caietul digital: elevul scrie rezolvarea de mână, peste exercițiu.
-              Rămâne pornit și în timpul testului pe grupă — e foaia lui de ciornă,
-              nu ajutor de la AI. */}
+          {/* Caietul digital: elevul scrie rezolvarea de mână, în coloana din
+              dreapta testului. Rămâne pornit și în timpul testului pe grupă — e
+              foaia lui de ciornă, nu ajutor de la AI. */}
           <button
-            onClick={() => setWorkOpen(true)}
-            title="Scrie rezolvarea cu degetul sau cu creionul pe o foaie albă — profesorul virtual o corectează după rezolvarea oficială"
+            onClick={() => setWorkOpen((o) => !o)}
+            aria-pressed={workOpen}
+            title={workOpen ? 'Închide spațiul de lucru' : 'Scrie rezolvarea cu degetul sau cu creionul pe o foaie albă, lângă test — profesorul virtual o corectează după rezolvarea oficială'}
             style={{
-              background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.3)',
+              background: workOpen ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.3)',
               color: '#fff', borderRadius: 14, padding: '4px 14px', cursor: 'pointer',
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1.25,
             }}
           >
             <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.83rem', fontWeight: 700 }}>
-              ✍️ Spațiu de lucru
+              ✍️ {workOpen ? 'Închide spațiul de lucru' : 'Spațiu de lucru'}
             </span>
-            <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.8 }}>
-              scrii de mână, se face text
-            </span>
+            {!workOpen && (
+              <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.8 }}>
+                scrii de mână, lângă test
+              </span>
+            )}
           </button>
 
           {/* Profesorul Virtual lângă exercițiu — deschidere manuală: chat gol,
@@ -736,7 +860,7 @@ export default function InteractiveViewer() {
               background: '#c62828', color: '#fff', padding: '4px 14px', borderRadius: 20,
               fontSize: '0.8rem', fontWeight: 700,
             }} title={saveError}>
-              ⚠ Scorul nu s-a salvat — reîncearcă „Verifică"
+              ⚠ Scorul nu s-a salvat — reîncearcă „Corectează total"
             </div>
           )}
 
@@ -762,6 +886,7 @@ export default function InteractiveViewer() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Exercițiul + Profesorul Virtual, unul lângă altul, interconectate */}
       <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: 0 }}>
@@ -774,6 +899,17 @@ export default function InteractiveViewer() {
             title={item?.title}
             sandbox="allow-scripts allow-forms allow-popups allow-top-navigation-by-user-activation"
           />
+        )}
+
+        {/* ✍️ pe calculator: testul în stânga, spațiul de lucru în dreapta lui */}
+        {!isMobile && workOpen && (
+          <div style={{
+            flexShrink: 0, width: wsWidth, position: 'relative', display: 'flex', flexDirection: 'column',
+            minHeight: 0, background: '#fff', borderLeft: '3px solid var(--gold)',
+          }}>
+            <ManerLatime lat={wsLat} label="Lățimea spațiului de lucru" />
+            <SpatiuDeLucru docked {...workspaceProps} />
+          </div>
         )}
 
         {tutorOpen && !faraAjutor && (
@@ -823,31 +959,14 @@ export default function InteractiveViewer() {
 
       {/* Widget plutitor pe desktop (FloatingTutor global e ascuns pe /exercitiu):
           deschide profesorul LÂNGĂ exercițiu; se poate MUTA (tragi de el) */}
-      {!tutorOpen && !isMobile && !faraAjutor && (
+      {!tutorOpen && !isMobile && !faraAjutor && !workOpen && (
         <TutorFab onOpen={() => { setAutoPrompt(null); setTutorOpen(true); }} />
       )}
 
-      {/* ✍️ Caietul digital, peste exercițiu: foaie albă, fără linii, care continuă
-          în dreapta. Scrisul rămâne scris de mână — „🎓 Cere corectarea" trimite
-          foaia corectorului, iar corectarea apare în Profesorul Virtual (se
-          deschide singur). Rezolvarea oficială a exercițiului ține loc de barem.
-          („✓ Pune în răspuns" a plecat odată cu transformarea în text: răspunsul
-          final se scrie în câmpul pasului, ca până acum.) */}
-      <SpatiuDeLucru
-        open={workOpen}
-        onClose={() => setWorkOpen(false)}
-        title={item?.title || exState?.title || ''}
-        /* enunțul CURAT, fără răspunsurile corecte (collectEnunt din tutorBridge):
-           `exState.text` le conține, pentru corector — pe ecran n-au ce căuta */
-        enunt={exState?.enunt || ''}
-        storageKey={`ex:${item?.id || 'exercitiu'}`}
-        corectLocked={!!user && !authLoading && !isPremium}
-        onCorect={faraAjutor ? null : (pack) => {
-          setAutoPrompt(null);
-          setTutorOpen(true);
-          setAutoCorrect({ id: Date.now(), pack, exerciseText: tutorContext.exerciseText || exState?.text || '' });
-        }}
-      />
+      {/* ✍️ Caietul digital pe TELEFON: foaia de jos, pe toată lățimea, care se
+          trage în sus / în jos (pe calculator stă în coloana din dreapta testului —
+          mai sus). Foaie albă, fără linii, care continuă în dreapta. */}
+      {isMobile && <SpatiuDeLucru {...workspaceProps} />}
 
       {/* Toast: XP câștigat (Arena — src/pages/Arena.jsx) */}
       {xpToast && (

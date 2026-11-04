@@ -302,6 +302,20 @@ export function filterExamBySelection(exam, selection, { complete = false } = {}
   return { ...exam, subjects, oficiu: 0, totalPoints: total || exam.totalPoints, durationMin };
 }
 
+// „📄 Fără barem" (4 nov. 2026, „👥 Teste diferite / elev" → „🔢 Schimbă numerele
+// și notațiile"): testul rămâne cu enunțurile, variantele și răspunsurile scurte
+// (corectorul AI și verificarea grilelor le folosesc), dar fără rezolvări; nu mai
+// oferă „📝 Barem" (noBarem — ListaTesteExam.areBarem, „Testele mele").
+export function examFaraBarem(exam) {
+  if (!exam || typeof exam !== 'object') return exam;
+  const fara = (o) => { const { solution: _sol, ...rest } = o || {}; return rest; };
+  const subjects = (exam.subjects || []).map((s) => ({
+    ...s,
+    items: (s.items || []).map((it) => ({ ...fara(it), ...(Array.isArray(it?.parts) ? { parts: it.parts.map(fara) } : {}) })),
+  }));
+  return { ...exam, subjects, noBarem: true };
+}
+
 // Un test interactiv (întrebările generatorului) ca „exam" — pentru „📄 PDF",
 // „📝 Barem" și „🖨 Tipărește toate" (aceeași împărțire a punctajului ca la
 // „🧩 Generează exerciții/teste interactive/PDF" → export PDF).

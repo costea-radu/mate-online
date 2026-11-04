@@ -23,6 +23,9 @@
 //         src/components/FiseTestGenerator.jsx;
 //       – 🧩 un test AI, în N variante (interactiv: altă ordine, altă literă
 //         corectă) — src/components/VariantGenerator.jsx;
+//   • (4 nov. 2026) la „🔢 Schimbă numerele și notațiile": „📝 Cu barem" (AI-ul
+//     rezolvă fiecare test; baremul se tipărește separat, așezat ca baremele
+//     oficiale) sau „📄 Fără barem" (doar enunțurile — mai rapid și mai ieftin);
 //   • testele se salvează în „Testele și exercițiile mele" (și, opțional, se
 //     publică); „👥 Folosește-le în testul interactiv pe grupă" le duce bifate în
 //     „👥 Test interactiv pe grupă (teste diferite)" (src/components/GroupAssignment.jsx,
@@ -65,6 +68,8 @@ export default function TesteDiferite() {
   const [sursa, setSursa] = useState(() => init.sursa || null);   // 'subiecte' | 'fise' | 'variante'
   const [dataMode, setDataMode] = useState('keep');
   const [publish, setPublish] = useState(() => init.publish !== false);
+  // „🔢 Schimbă numerele": cu barem (AI-ul rezolvă testul) sau fără (doar enunțurile)
+  const [barem, setBarem] = useState(() => init.barem !== false);
   const [gata, setGata] = useState(null);       // { items, format, category }
   const [eroare, setEroare] = useState(null);
 
@@ -76,8 +81,8 @@ export default function TesteDiferite() {
       : esteExamen ? 'subiecte' : 'fise';
 
   useEffect(() => {
-    try { window.localStorage.setItem(CHEIE, JSON.stringify({ n, category, sursa, publish })); } catch { /* fără storage */ }
-  }, [n, category, sursa, publish]);
+    try { window.localStorage.setItem(CHEIE, JSON.stringify({ n, category, sursa, publish, barem })); } catch { /* fără storage */ }
+  }, [n, category, sursa, publish, barem]);
 
   function alegeContinut(c) {
     if (c === category) return;
@@ -177,9 +182,35 @@ export default function TesteDiferite() {
                 <label style={seg(dataMode === 'modify')}>
                   <input type="radio" name="td-date" checked={dataMode === 'modify'} onChange={() => { setDataMode('modify'); setGata(null); }} style={{ marginTop: 3 }} />
                   <span><strong>🔢 Schimbă numerele și notațiile</strong> — ca la generatorul de examene<br />
-                    <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>AI-ul rescrie fiecare test și îl recalculează, cu barem — un apel AI pe test</span></span>
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>AI-ul rescrie fiecare test cu alte numere — un apel AI pe test; alegi mai jos dacă are barem</span></span>
                 </label>
               </div>
+              {/* „📝 Cu barem" / „📄 Fără barem" — doar la numerele schimbate */}
+              {dataMode === 'modify' && (
+                <div role="radiogroup" aria-label="Baremul testelor cu numerele schimbate" style={{
+                  marginTop: 8, padding: '10px 12px', borderRadius: 10, background: '#f7f9fc',
+                  border: '1px solid var(--border)', borderLeft: '4px solid var(--gold)',
+                }}>
+                  <div style={{ fontSize: '.78rem', fontWeight: 800, color: 'var(--navy)', marginBottom: 7 }}>📝 Baremul testelor cu numerele schimbate</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button type="button" role="radio" aria-checked={barem} style={seg(barem)} onClick={() => { setBarem(true); setGata(null); }}>
+                      <span style={{ fontSize: '1.05rem' }}>📝</span>
+                      <span><strong>Cu barem</strong><br />
+                        <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>AI-ul rezolvă fiecare test; baremul se tipărește separat, așezat ca baremele oficiale (tabel la grile)</span></span>
+                    </button>
+                    <button type="button" role="radio" aria-checked={!barem} style={seg(!barem)} onClick={() => { setBarem(false); setGata(null); }}>
+                      <span style={{ fontSize: '1.05rem' }}>📄</span>
+                      <span><strong>Fără barem</strong><br />
+                        <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>doar testele, cu alte numere — mai rapid și mai ieftin (AI-ul nu mai scrie rezolvările)</span></span>
+                    </button>
+                  </div>
+                  {sursaEf === 'fise' && (
+                    <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: 6 }}>
+                      Contează la testele PDF; la cele interactive, explicațiile rămân (elevul le vede după „✓ Corectează").
+                    </div>
+                  )}
+                </div>
+              )}
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: '.8rem', color: 'var(--navy)', cursor: 'pointer' }}>
                 <input type="checkbox" checked={publish} onChange={(e) => setPublish(e.target.checked)} />
                 🏛️ Publică testele și în „Biblioteca utilizatorilor"
@@ -191,11 +222,11 @@ export default function TesteDiferite() {
           {sursaEf === 'subiecte' && (
             <Suspense fallback={<div style={{ padding: 14, textAlign: 'center' }}><div className="spinner" /></div>}>
               <CombinedPdfGenerator poolSize={n} category={category} onCategory={setCategory}
-                dataMode={dataMode} publish={publish} onDone={onDone} onError={onError} />
+                dataMode={dataMode} barem={barem} publish={publish} onDone={onDone} onError={onError} />
             </Suspense>
           )}
           {sursaEf === 'fise' && (
-            <FiseTestGenerator n={n} category={category} dataMode={dataMode} publish={publish} onDone={onDone} onError={onError} />
+            <FiseTestGenerator n={n} category={category} dataMode={dataMode} barem={barem} publish={publish} onDone={onDone} onError={onError} />
           )}
           {sursaEf === 'variante' && (
             <VariantGenerator poolSize={n} category={category} onDone={onDone} onError={onError} />

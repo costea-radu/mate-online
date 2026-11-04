@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { arataPdf, pdfInPagina } from '../lib/pdfOpen';
 
 const CATEGORIES = [
   { value: '', label: '— Selectează categoria —' },
@@ -195,6 +196,12 @@ function SecurePdf({ url, name }) {
   const [loading, setLoading] = useState(false);
 
   function openPdf() {
+    // pe tablele interactive / telefoane: fereastra PDF a site-ului (src/lib/pdfOpen.js)
+    if (pdfInPagina()) {
+      setLoading(true);
+      arataPdf(url, { title: name || 'PDF' }).catch(() => { const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.click(); }).finally(() => setLoading(false));
+      return;
+    }
     if (blobUrl) { const a = document.createElement('a'); a.href = blobUrl; a.target = '_blank'; a.click(); return; }
     setLoading(true);
     fetch(url)

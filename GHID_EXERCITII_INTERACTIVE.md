@@ -65,3 +65,31 @@ function trimiteScor(punctajObtinut, punctajMaxim) {
 - Dacă scorul e trimis de mai multe ori, se salvează **cel mai recent**
 - Scorul e vizibil utilizatorului în lista de exerciții ca procent (ex: ✓ 80%)
 - Dacă exercițiul nu trimite niciun mesaj, nu se salvează niciun scor (normal)
+
+## Ce adaugă singură platforma în teste (4 nov. 2026)
+
+Puntea `src/lib/tutorBridge.js` e injectată automat în HTML-ul fiecărui test (fișierul din
+baza de date rămâne neatins) și adaugă:
+
+- **„✓ Corectează exercițiul"** la fiecare exercițiu — exercițiul se corectează singur, cu
+  punctajul lui, și rămâne blocat (ca după corectarea totală, dar doar el). Scorul pentru
+  platformă (`MATE_SCORE`) pleacă tot doar la corectarea totală, iar ea numără și
+  exercițiile corectate separat.
+- Butonul de sus al testului devine **„✓ Corectează total"** (punctajul întregului test).
+- **Pe telefon**, bara testului trece în bara paginii, doar cu pictograme (↺ · ☰ · ✓ Total);
+  „Rezolvate / Scor / Corecte" apar după prima corectare.
+
+Ca un test nou să primească toate acestea, păstrează forma testelor existente:
+
+- **Exerciții cu pași** (variantele de BAC, Subiectul al III-lea la EN): `PROBS` (fiecare cu
+  `n` și `steps`), `ST`, `GRADED`, `cur`, `redo` și funcțiile `renderProb`, `probScore`,
+  `isRight` (opțional `badgeOf`, `gradeCls`, `paintBar`, `stOf`, `save`). Pot fi globale sau
+  închise într-o funcție — `<script>(function(){ "use strict"; var PROBS=…; … })();</script>`;
+  la a doua formă, platforma le face vizibile singură (`exposeClosureEngine`). Problema
+  deschisă are `#stmt` (cu `.task`), `.backrow` (butonul de sus) și `#donerow` / `#doneMsg`.
+  Testele cu `gradeProb` (rezolvările pe capitole) au deja „✓ Corectează problema" și
+  rămân cum sunt.
+- **Grile**: `.card` cu `data-correct="b"` (și, opțional, `data-points="5"`), variantele
+  `.opt[data-opt="a"]`… (alegerea = clasa `sel`), explicația `.expl` (se arată cu `show`).
+- **Bara de sus**: `.sbar` cu pastilele `.pill` și butoanele `onclick="checkAll()"`,
+  `onclick="resetAll()"` și, la testele cu listă, `#btnAllTop` (`goPicker()`).

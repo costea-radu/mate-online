@@ -37,7 +37,7 @@ import { printExam, printExams } from '../lib/examPrint';
 import { setTitle, variantLabel, variantTitle, buildExamSet, examIsGrila, quizIsGrila } from '../lib/testeSet';
 import {
   planFiseTests, maxDistinctFiseTests, exercisesPerTest, testToExam, sourceTextOf, topicFor,
-  aiExamFromQuestions, quizToExam, compositionLabel, usableExercises, shortSheetTitle, clasaLabel,
+  aiExamFromQuestions, quizToExam, compositionLabel, usableExercises, shortSheetTitle, clasaLabel, examFaraBarem,
   AI_MIN_EX, AI_MAX_EX, MAX_EX,
 } from '../lib/fiseTeste';
 
@@ -71,6 +71,7 @@ export default function FiseTestGenerator({
   n = 10,               // câte teste diferite (unul pentru fiecare elev)
   category,             // clasa-5 … clasa-12
   dataMode = 'keep',    // 'keep' = exact din fișă · 'modify' = AI, alte numere și notații
+  barem = true,         // testele PDF cu numerele schimbate: cu barem (AI-ul rezolvă) sau fără (4 nov. 2026)
   publish = true,       // se publică și în „Biblioteca utilizatorilor"
   onDone,               // (items, { format, category }) → testele generate
   onError,
@@ -203,7 +204,11 @@ export default function FiseTestGenerator({
   const minEx = aiNeeded ? AI_MIN_EX : 1;
   const maxEx = aiNeeded ? AI_MAX_EX : MAX_EX;
   const effQtype = output === 'pdf' ? 'redactare' : qtype;
-  const crediteTest = aiNeeded ? estimeazaCredite({ kind: 'test', count: Math.max(AI_MIN_EX, perTest || AI_MIN_EX), qtype: effQtype }) : 0;
+  // „📄 Fără barem": doar la PDF-urile cu numerele schimbate (la interactive,
+  // explicațiile rămân — elevul le vede după „✓ Corectează")
+  const faraBarem = !barem && dataMode === 'modify' && output === 'pdf';
+  const crediteTest0 = aiNeeded ? estimeazaCredite({ kind: 'test', count: Math.max(AI_MIN_EX, perTest || AI_MIN_EX), qtype: effQtype }) : 0;
+  const crediteTest = faraBarem ? Math.max(1, Math.round(crediteTest0 * 0.65)) : crediteTest0;
   const cuFigura = picks.reduce((s, p) => s + (p.exercises || []).filter((e) => e.figure).length, 0);
   const problema = !picks.length ? 'Bifează cel puțin un nivel / tip de exerciții dintr-o fișă.'
     : perTest < minEx ? `Cu AI, un test are cel puțin ${AI_MIN_EX} exerciții — mărește numărul de exerciții de la grupele bifate (acum: ${perTest}).`
@@ -281,15 +286,18 @@ export default function FiseTestGenerator({
             category, topic: topicFor(t, { dataMode }), difficulty: 'mediu', dataMode, chapters: [],
             kind: 'test', count: perTest, qtype: effQtype, durationMin, oficiu,
             sourceText: sourceTextOf(t, { category }),
+            ...(faraBarem ? { barem: false } : {}),
           });
           const c = crediteDinCost(res.cost);
           if (c) cost += c;
-          invatăDinReal(res.cost, { kind: 'test', count: perTest, qtype: effQtype });
+          // (fără barem costul e mai mic — nu calibrăm estimarea obișnuită cu el)
+          if (!faraBarem) invatăDinReal(res.cost, { kind: 'test', count: perTest, qtype: effQtype });
           const qs = res.questions || [];
           if (!qs.length) throw new Error('AI-ul nu a întors niciun item. Mai încearcă o dată.');
           setBusy(`${cine} din ${plan.length}: o salvez…`);
           if (kind === 'exam') {
-            const exam = aiExamFromQuestions(t, qs, { title: pe, durationMin, oficiu, workSpace, category });
+            const exam0 = aiExamFromQuestions(t, qs, { title: pe, durationMin, oficiu, workSpace, category });
+            const exam = faraBarem ? examFaraBarem(exam0) : exam0;
             // eslint-disable-next-line no-await-in-loop
             const e = await salveaza({ kind: 'exam', title: titlu, topic, payload: { exam }, publica: publish && !multe });
             teste.push({ ...e, title: titlu, exam, repeats: t.repeats, nr, verification: res.verification || null });
@@ -330,7 +338,7 @@ export default function FiseTestGenerator({
         apoi alege câte exerciții intră din fiecare, în fiecare test. Testele <strong>diferă între ele</strong>: un exercițiu
         se repetă abia după ce s-au folosit toate exercițiile grupei lui. Poți amesteca grupe din mai multe fișe.
         {dataMode === 'modify'
-          ? <> Cu <strong>„🔢 Schimbă numerele și notațiile"</strong>, AI-ul rescrie fiecare test (un apel pe test), cu barem.</>
+          ? <> Cu <strong>„🔢 Schimbă numerele și notațiile"</strong>, AI-ul rescrie fiecare test (un apel pe test){output === 'pdf' ? (barem ? ', cu barem' : ', fără barem') : ''}.</>
           : <> Cu <strong>datele păstrate</strong>, exercițiile intră exact ca în fișă{output === 'pdf' ? ' — fără AI și fără cost' : ''}.</>}
       </p>
 
@@ -510,7 +518,8 @@ export default function FiseTestGenerator({
 
       <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.5 }}>
         {aiNeeded
-          ? <>✨ Un apel AI pe test{dataMode === 'modify' ? ' (alte numere și notații, recalculate, cu barem)' : ' (exercițiile rămân exact ca în fișă; AI-ul le adaugă răspunsurile și variantele de grilă)'}: ~{fmtEstimare(crediteTest)} pe test → ~{fmtEstimare(crediteTest * n)} pentru {n} {n === 1 ? 'test' : 'teste'}.</>
+          ? <>✨ Un apel AI pe test{dataMode === 'modify' ? (faraBarem ? ' (alte numere și notații, fără barem — doar enunțurile)' : ' (alte numere și notații, recalculate, cu barem)') : ' (exercițiile rămân exact ca în fișă; AI-ul le adaugă răspunsurile și variantele de grilă)'}: ~{fmtEstimare(crediteTest)} pe test → ~{fmtEstimare(crediteTest * n)} pentru {n} {n === 1 ? 'test' : 'teste'}.
+              {!barem && dataMode === 'modify' && output === 'interactive' && <> „📄 Fără barem" contează doar la PDF: la testele interactive, explicațiile rămân (elevul le vede după „✓ Corectează").</>}</>
           : <>✅ Fără AI și fără cost: testele se compun din banca fișei, cu exercițiile exact ca în fișă (fără barem).</>}
       </div>
 

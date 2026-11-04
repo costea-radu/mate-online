@@ -10,6 +10,10 @@
 //   numărătoare inversă, care oprește testul la expirare) și punctele din
 //   oficiu (intră în scorul final, ca la lucrările din clasă).
 // Scorul se raportează prin postMessage({type:'MATE_SCORE', score, maxScore}).
+//
+// (4 nov. 2026) Fiecare întrebare are „✓ Corectează exercițiul": corectează
+// doar întrebarea ei (✓ / ✗ + explicația) și o blochează; butonul de jos e
+// „✓ Corectează total" — punctajul întregului test (singurul care trimite scorul).
 // =====================================================================
 import { autoMath } from './katex';
 import { ANS_EQ_SRC } from './ansEq'; // echivalența răspunsurilor („1/2” = „0,5”, „x=3” = „3”) — Etapa 2
@@ -40,6 +44,7 @@ export function renderQuiz(title, questions, meta = {}) {
     return `<div class="q" data-i="${i}">
       <div class="stmt"><b>${i + 1}.</b> ${esc(q.statement || '')}</div>
       ${body}
+      <button type="button" class="qchk" data-mt-ex="quiz" data-qi="${i}" title="Corectează doar această întrebare (după corectare nu se mai poate schimba)">✓ Corectează exercițiul</button>
       <div class="fb" id="fb${i}"></div>
     </div>`;
   }).join('');
@@ -64,6 +69,9 @@ export function renderQuiz(title, questions, meta = {}) {
   .ok{color:#1e7e34}.bad{color:#c0392b}
   .exp{margin-top:6px;font-weight:400;color:#444;font-size:.86rem}
   button{background:#e8b931;color:#0f2b44;border:none;border-radius:10px;padding:11px 20px;font-weight:700;font-size:.95rem;cursor:pointer;margin-top:6px}
+  button.qchk{background:#0f2b44;color:#fff;border-radius:8px;padding:7px 13px;font-size:.82rem;margin-top:4px}
+  .q.done .opt{cursor:default}
+  .note{font-size:.8rem;color:#b23b2e;font-weight:600;margin-left:8px}
   .res{font-size:1.1rem;font-weight:800;margin:10px 0}
   .bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;border:1px solid #e6e9ef;border-radius:12px;padding:10px 14px;margin-bottom:14px;background:#f7f9fc}
   .clock{font-variant-numeric:tabular-nums;font-weight:800;font-size:1.15rem;color:#0f2b44}
@@ -81,7 +89,7 @@ export function renderQuiz(title, questions, meta = {}) {
     ${durationMin ? '<button id="start" style="margin-top:0;padding:7px 14px;font-size:.85rem">▶ Pornește timpul</button>' : ''}
   </div>` : ''}
   <div id="quiz">${qHtml}</div>
-  <button id="check">Verifică</button>
+  <button id="check" title="Corectează tot testul și vezi punctajul total">✓ Corectează total</button>
   <div class="res" id="res"></div>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
@@ -94,21 +102,49 @@ export function renderQuiz(title, questions, meta = {}) {
   ${ANS_EQ_SRC}
   function render(){ if(window.renderMathInElement) renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false}); }
   if(window.renderMathInElement) render(); else window.addEventListener('load', render);
+  // răspunsul întrebării i: { ok, a (pentru server), has (a răspuns ceva) }
+  function judge(i){
+    if(ANS[i].type==='choice'){
+      var sel=document.querySelector('input[name="q'+i+'"]:checked');
+      return { ok: !!sel && Number(sel.value)===ANS[i].answer, a: sel?Number(sel.value):null, has: !!sel };
+    }
+    var el=document.querySelector('input[name="q'+i+'"]');
+    var v=el?String(el.value||''):'';
+    return { ok: !!el && ansEq(v, ANS[i].answer), a: v, has: v.trim()!=='' };
+  }
+  function showFb(i, ok){
+    var fb=document.getElementById('fb'+i);
+    fb.className='fb '+(ok?'ok':'bad');
+    fb.innerHTML=(ok?'✓ Corect':'✗ Greșit')+(EXP[i]?'<div class="exp">'+EXP[i]+'</div>':'');
+  }
+  // „✓ Corectează exercițiul": doar întrebarea ei — apoi rămâne blocată
+  document.getElementById('quiz').addEventListener('click', function(ev){
+    var b=ev.target && ev.target.closest ? ev.target.closest('.qchk') : null;
+    if(!b) return;
+    var i=Number(b.getAttribute('data-qi')), q=b.closest('.q'), r=judge(i);
+    if(!r.has){
+      var n=q.querySelector('.note');
+      if(!n){ n=document.createElement('span'); n.className='note'; b.parentNode.insertBefore(n, b.nextSibling); }
+      n.textContent=ANS[i].type==='choice'?'Alege întâi un răspuns.':'Scrie întâi răspunsul.';
+      setTimeout(function(){ if(n.parentNode) n.parentNode.removeChild(n); }, 3500);
+      return;
+    }
+    showFb(i, r.ok);
+    q.classList.add('done');
+    q.querySelectorAll('input').forEach(function(x){ x.disabled=true; });
+    b.style.display='none';
+    var n2=q.querySelector('.note'); if(n2) n2.parentNode.removeChild(n2);
+    render();
+  });
   document.getElementById('check').addEventListener('click', function(){
     var correct=0, A=[];
     for(var i=0;i<ANS.length;i++){
-      var fb=document.getElementById('fb'+i); var ok=false;
-      if(ANS[i].type==='choice'){
-        var sel=document.querySelector('input[name="q'+i+'"]:checked');
-        ok = sel && Number(sel.value)===ANS[i].answer; A.push(sel?Number(sel.value):null);
-      } else {
-        var el=document.querySelector('input[name="q'+i+'"]');
-        ok = el && ansEq(el.value, ANS[i].answer); A.push(el?String(el.value||''):'');
-      }
-      if(ok) correct++;
-      fb.className='fb '+(ok?'ok':'bad');
-      fb.innerHTML=(ok?'✓ Corect':'✗ Greșit')+(EXP[i]?'<div class="exp">'+EXP[i]+'</div>':'');
+      var r=judge(i);
+      A.push(r.a);
+      if(r.ok) correct++;
+      showFb(i, r.ok);
     }
+    document.querySelectorAll('.qchk').forEach(function(b){ b.style.display='none'; });
     render();
     var total=ANS.length||1;
     // cu puncte din oficiu, itemii împart restul până la 100 (ca la lucrări)

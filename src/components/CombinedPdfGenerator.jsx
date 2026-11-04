@@ -32,7 +32,8 @@
 // aiClient.generateExam), apoi se păstrează doar exercițiile bifate
 // (src/lib/fiseTeste.js → filterExamBySelection). Testul e un „exam" (JSON
 // tipăribil, cu barem) — kind 'exam' în „Testele mele", merge și în testul pe
-// grupă în format PDF.
+// grupă în format PDF. Cu „📄 Fără barem" (4 nov. 2026, prop `barem` = false)
+// AI-ul nu mai scrie rezolvările: mai rapid și mai ieftin, testul nu are barem.
 // =====================================================================
 import { useEffect, useRef, useState } from 'react';
 import { aiClient } from '../lib/aiClient';
@@ -45,15 +46,18 @@ import {
   selectionComplete, subjectComplete, selectionPoints, pointsLabel, presetOf, selectionSummary, subjectName,
 } from '../lib/pdfCombine';
 import { EXAM_SOURCES, EXAM_TYPES } from './ExamGenerator';
-import { filterExamBySelection } from '../lib/fiseTeste';
+import { filterExamBySelection, examFaraBarem } from '../lib/fiseTeste';
 import { setTitle, setText, variantLabel, variantTitle, buildExamSet, examIsGrila, combinedIsGrila } from '../lib/testeSet';
 import OptiuneSpatiuLucru from './OptiuneSpatiuLucru';
 import ListaTesteExam, { SetSalvat } from './ListaTesteExam';
 import { fmtEstimare } from '../lib/aiCost';
+import { deschidePdf } from '../lib/pdfOpen';
 
 // un test de examen compus de AI (gpt-6.1-sol, cu verificatorul): ~0,5–0,85 lei
 // (GHID_LIMITE_AI.md) — estimarea afișată sub buton, în credite (100 = 1 leu)
 const CREDITE_TEST_EXAMEN_AI = 70;
+// fără rezolvări (răspunsul AI-ului e cam cu o treime mai scurt)
+const CREDITE_TEST_EXAMEN_AI_FARA_BAREM = 50;
 
 // Doar rubricile cu teste ÎNTREGI (structura oficială). Capitolele, fișele pe
 // exerciții și baremele nu au structură de subiect — nu le descărcăm degeaba.
@@ -200,6 +204,7 @@ export default function CombinedPdfGenerator({
   onError,
   dataMode = 'keep', // 'keep' = decupate exact (fără AI) · 'modify' = AI, alte numere și notații
   publish = true,    // se publică și în „Biblioteca utilizatorilor"
+  barem = true,      // la „🔢 Schimbă numerele": cu barem (AI-ul rezolvă) sau fără (doar enunțurile)
 }) {
   const ai = dataMode === 'modify';
   const [examType, setExamType] = useState(() => examFromCategory(category));
@@ -293,9 +298,10 @@ export default function CombinedPdfGenerator({
         if (!viu.current) return;
         setBusy(`${multe ? `Varianta ${i + 1}` : 'Testul'} din ${n}: AI-ul o compune din subiectele site-ului, cu alte numere și notații… (~1–2 minute)`);
         // eslint-disable-next-line no-await-in-loop
-        const res = await aiClient.generateExam({ examType, dataMode: 'modify', instructions: '', chapters: [] });
+        const res = await aiClient.generateExam({ examType, dataMode: 'modify', instructions: '', chapters: [], barem });
         const titlu = multe ? variantTitle(`Test combinat — ${context}`, i + 1) : `Test combinat nr. ${nr} — ${context}`;
-        const ex0 = filterExamBySelection(res.exam, selectie, { complete: complet });
+        const ex0f = filterExamBySelection(res.exam, selectie, { complete: complet });
+        const ex0 = barem ? ex0f : examFaraBarem(ex0f);
         const { workSpace: _ws, ...rest } = ex0 || {};
         const ex = {
           ...rest,
@@ -453,17 +459,17 @@ export default function CombinedPdfGenerator({
     finally { setToateBusy(false); }
   }
 
+  // filă nouă — sau, pe tablele interactive / telefoane, fereastra PDF a site-ului
   function vezi(t) {
-    const url = URL.createObjectURL(t.blob);
-    window.open(url, '_blank', 'noopener');
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    deschidePdf(t.blob, { title: t.title || 'Test' }).catch((e) => setErr(e.message || 'PDF-ul nu se poate deschide.'));
   }
 
   const box = { border: '2px dashed var(--gold)', borderRadius: 12, background: 'rgba(232,185,49,.06)', padding: 14, marginTop: 12 };
   const lbl = { fontSize: '.78rem', fontWeight: 700, color: 'var(--navy)', margin: '10px 0 6px' };
   const publicate = rezultat ? rezultat.teste.filter((t) => t.publicId).length : 0;
 
-  const crediteAI = CREDITE_TEST_EXAMEN_AI * n;
+  const crediteTestAI = barem ? CREDITE_TEST_EXAMEN_AI : CREDITE_TEST_EXAMEN_AI_FARA_BAREM;
+  const crediteAI = crediteTestAI * n;
 
   return (
     <div style={box}>
@@ -475,11 +481,11 @@ export default function CombinedPdfGenerator({
           <p style={{ fontSize: '.79rem', color: 'var(--text-light)', margin: '0 0 6px', lineHeight: 1.55 }}>
             Ca la <strong>„📄 Generează subiect examen" → „modifică datele"</strong>: fiecare test îl compune AI-ul din
             subiectele site-ului (variante date, modele, simulări), cu <strong>alte numere și notații</strong>, și îl
-            recalculează — cu <strong>barem</strong>. Rămân doar exercițiile bifate mai jos. <strong>Un apel AI pe test</strong>:
-            {' '}~{fmtEstimare(CREDITE_TEST_EXAMEN_AI)} pe test.
+            recalculează — {barem ? <><strong>cu barem</strong> (îl tipărești separat, așezat ca baremele oficiale)</> : <><strong>fără barem</strong> (doar enunțurile — mai rapid)</>}. Rămân doar exercițiile bifate mai jos. <strong>Un apel AI pe test</strong>:
+            {' '}~{fmtEstimare(crediteTestAI)} pe test.
             <br />{n > 1
-              ? <>Toate cele {n} teste se <strong>salvează într-un singur PDF</strong>, fiecare test cu <strong>„Varianta 1", „Varianta 2"…</strong>{publish ? <>; PDF-ul se <strong>publică</strong> în „Biblioteca utilizatorilor"</> : ''}. Se tipărește cu sau fără barem.</>
-              : <>Testul se <strong>salvează</strong> în „Testele și exercițiile mele"{publish ? <>, se <strong>publică</strong> în „Biblioteca utilizatorilor"</> : ''} și se poate <strong>tipări</strong> (PDF), cu sau fără barem.</>}
+              ? <>Toate cele {n} teste se <strong>salvează într-un singur PDF</strong>, fiecare test cu <strong>„Varianta 1", „Varianta 2"…</strong>{publish ? <>; PDF-ul se <strong>publică</strong> în „Biblioteca utilizatorilor"</> : ''}.{barem ? ' Baremul tuturor variantelor se tipărește separat.' : ''}</>
+              : <>Testul se <strong>salvează</strong> în „Testele și exercițiile mele"{publish ? <>, se <strong>publică</strong> în „Biblioteca utilizatorilor"</> : ''} și se poate <strong>tipări</strong> (PDF){barem ? ', iar baremul separat' : ''}.</>}
           </p>
         </>
       ) : (
@@ -541,7 +547,7 @@ export default function CombinedPdfGenerator({
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 12 }}>
         <button type="button" className="btn btn-primary" onClick={genereaza} disabled={!!busy || !subjects.length}>
           {busy ? 'Se generează…' : ai
-            ? `🔢 Generează ${n} ${n === 1 ? 'test' : 'teste'} cu numerele schimbate (${subjects.length ? eticheta : 'nimic bifat'})`
+            ? `🔢 Generează ${n} ${n === 1 ? 'test' : 'teste'} cu numerele schimbate${barem ? ', cu barem' : ', fără barem'} (${subjects.length ? eticheta : 'nimic bifat'})`
             : `📎 Generează ${n} ${n === 1 ? 'test PDF' : 'teste PDF'} (${subjects.length ? eticheta : 'nimic bifat'})`}
         </button>
         {(ai ? rezultatAI?.gata : rezultat?.gata) && !busy && (

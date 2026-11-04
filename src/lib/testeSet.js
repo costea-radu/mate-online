@@ -62,6 +62,8 @@ export function buildExamSet(exams, { title, context = null } = {}) {
     title: title || setTitle(list.length, list.length > 0 && list.every(examIsGrila)),
     durationMin: first.durationMin, oficiu: first.oficiu, totalPoints: first.totalPoints,
     ...(first.workSpace === false ? { workSpace: false } : {}),
+    // „📄 Fără barem" (4 nov. 2026): setul nu oferă baremul variantelor
+    ...(list.length && list.every((e) => e && e.noBarem) ? { noBarem: true } : {}),
     subjects: first.subjects || [],
     variants,
   };

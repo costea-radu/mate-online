@@ -13,6 +13,17 @@
 //   paginiPanelWidth({ base, vw, pdfCol }) → lățimea profesorului, paginile ascunse
 // =====================================================================
 
+// Vizualizatorul ales (4 nov. 2026): '' = automat (al browserului doar unde există —
+// pe tablele interactive și pe telefon desenează site-ul), 'intern' = mereu al site-ului
+// (pdf.js, src/components/PdfCanvasViewer.jsx), 'browser' = mereu al browserului.
+export const VIEWER_KEY = 'pdf:vizualizator';
+export function readViewerPref() {
+  try { const v = localStorage.getItem(VIEWER_KEY); return v === 'intern' || v === 'browser' ? v : ''; } catch { return ''; }
+}
+export function saveViewerPref(v) {
+  try { localStorage.setItem(VIEWER_KEY, v === 'intern' || v === 'browser' ? v : ''); } catch { /* mod privat */ }
+}
+
 export const PAGINI_KEY = 'pdf:pagini';   // '' = cum vrea browserul · '0' = ascunse · '1' = arătate
 export function readPaginiPref() {
   try { const v = localStorage.getItem(PAGINI_KEY); return v === '0' || v === '1' ? v : ''; } catch { return ''; }

@@ -56,6 +56,9 @@ module.exports = async function handler(req, res) {
   try {
     const userId = await ai.authUser(req, supa);
     const { category = null, topic = '', difficulty = 'mediu', dataMode = 'modify' } = req.body || {};
+    // „📄 Fără barem" (4 nov. 2026, testele PDF din fișe cu numerele schimbate):
+    // fără explicații / redactări model — mai rapid și mai ieftin
+    const faraBarem = req.body?.barem === false;
     // capitolele alese de profesor (titluri) — întrebările vin DOAR din ele
     const chapters = (Array.isArray(req.body?.chapters) ? req.body.chapters : [])
       .map((c) => String(c || '').replace(/\s+/g, ' ').trim().slice(0, 140)).filter(Boolean).slice(0, 12);
@@ -233,7 +236,8 @@ ${model && qtype === 'mixt'
 - Folosește „·" (\\cdot în LaTeX) pentru înmulțire, NICIODATĂ × sau litera x.
 - Variază: la cereri repetate pentru același model, generează exerciții DIFERITE (alte valori, alt context).${chapters.length ? `
 - CAPITOLELE CERUTE DE PROFESOR (restricție OBLIGATORIE de conținut): ${chapters.join(' · ')}.${sourceText ? ' Ele restrâng suplimentar materialul încărcat: alege din el doar ce ține de aceste capitole.' : ''} TOATE întrebările provin EXCLUSIV din aceste capitole — dacă o sursă sau planul indică un exercițiu din alt capitol, alege/compune în loc unul din capitolele cerute, în același stil.` : ''}
-- IMPORTANT JSON valid: scrie fiecare backslash din LaTeX de DOUĂ ori. Ex: pentru fracție "$\\\\frac{1}{2}$", radical "$\\\\sqrt{9}$".${topicFull ? `
+${faraBarem ? `- FĂRĂ BAREM (cerut de profesor): "explanation" = "" (șir gol) la TOATE întrebările — nu scrie justificări sau redactări model. "answer" rămâne obligatoriu (răspunsul final / indexul variantei corecte).
+` : ''}- IMPORTANT JSON valid: scrie fiecare backslash din LaTeX de DOUĂ ori. Ex: pentru fracție "$\\\\frac{1}{2}$", radical "$\\\\sqrt{9}$".${topicFull ? `
 
 SUBIECT + INSTRUCȚIUNI DE LA PROFESOR — au PRIORITATE față de regulile de stil și de plan de mai sus (temă, tipuri de întrebări, număr de întrebări, dificultate, restricții asupra numerelor, contexte etc.); respectă-le întocmai, păstrând DOAR formatul JSON cerut:
 """
@@ -245,8 +249,8 @@ ${topicFull}
     // Redactările model (qtype='redactare') sunt mai lungi → buget mai mare.
     // (după model, grilele amestecate cu redactări cer și ele bugetul mai mare)
     const lungi = qtype === 'redactare' || (model && qtype === 'mixt');
-    const perItem = lungi ? 600 : 450;
-    const base = lungi ? 4000 : 3200;
+    const perItem = faraBarem ? (lungi ? 280 : 240) : (lungi ? 600 : 450);
+    const base = faraBarem ? 2600 : (lungi ? 4000 : 3200);
     const maxTokens = maxItems <= 8 ? base : Math.min(12000, base + (maxItems - 8) * perItem);
     let data, usage, text;
     try {
@@ -319,6 +323,7 @@ ${topicFull}
       regenContext: `Subiect: ${topicShort || chapters.join(', ') || category || 'matematică'}. Dificultate: ${difficulty}.${chapters.length ? ` Capitole: ${chapters.join(' · ')}.` : ''}${model ? ` Test după modelul profesorului «${model.title}» — competențele: ${model.exercises.map((e) => e.topic).filter(Boolean).slice(0, 12).join('; ')}.` : ''}`,
     });
     questions = checked.questions;
+    if (faraBarem) questions = questions.map((q) => ({ ...q, explanation: '' }));
     if (!questions.length) {
       return res.status(502).json({ error: 'Întrebările generate nu au trecut verificarea automată. Mai încearcă o dată.' });
     }

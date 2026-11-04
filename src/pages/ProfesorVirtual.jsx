@@ -7,7 +7,7 @@
 // „📄 Generează subiect examen" din meniul „🎓 Examene" al profesorilor
 // (src/lib/meniu.js → EXAMEN_GENERATOR). Un clic pe o filă o scrie în adresă.
 // =====================================================================
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ChatPanel, MathText } from '../components/AITutor';
 import { aiClient } from '../lib/aiClient';
@@ -27,6 +27,8 @@ import VerificationNote from '../components/VerificationNote';
 import IncarcaMaterial from '../components/IncarcaMaterial';
 import OptiuneSpatiuLucru from '../components/OptiuneSpatiuLucru';
 import TesteDiferite from '../components/TesteDiferite';
+import { deschidePdf, pdfInPagina } from '../lib/pdfOpen';
+import { pageWindow } from '../lib/paginare';
 
 const CATEGORIES = [
   { id: '', label: 'Toate' },
@@ -695,30 +697,133 @@ function InteractiveSingle() {
   );
 }
 
+// „📚 Testele și exercițiile mele" — PE PAGINI (4 nov. 2026). Cererea lui Radu:
+// „în cont de prof, la «asistent AI» nu văd toate testele și exercițiile mele,
+// deoarece sunt multe. Fă să apară pe pagini, toate." Înainte se vedeau doar
+// ultimele 60. Acum: toate, câte 20 / 50 / 100 pe pagină, cu numărul total,
+// filtrul pe fel și căutarea în titlu (aiClient.listLibraryPage).
+const LIB_KINDS = [
+  { id: '', label: 'Toate', kinds: null },
+  { id: 'interactive', label: '🧩 Interactive', kinds: ['interactive'] },
+  { id: 'pdf', label: '📄 PDF / subiecte', kinds: ['pdf', 'exam'] },
+  { id: 'practice', label: '✍️ Exerciții', kinds: ['practice'] },
+];
+const LIB_PREF = 'mate_lib_pagina';   // mărimea paginii și filtrul (per browser)
+
 function LibraryTab() {
   const { isTeacher } = useAuth();
-  const [items, setItems] = useState(null);
+  const [pref] = useState(() => { try { return JSON.parse(localStorage.getItem(LIB_PREF) || '{}') || {}; } catch { return {}; } });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(() => ([20, 50, 100].includes(pref.pageSize) ? pref.pageSize : 20));
+  const [kind, setKind] = useState(() => (LIB_KINDS.some((k) => k.id === pref.kind) ? pref.kind : ''));
+  const [q, setQ] = useState('');
+  const [qLive, setQLive] = useState('');          // ce s-a tastat (căutarea pleacă după o pauză)
+  const [data, setData] = useState({ items: null, total: 0 });
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const topRef = useRef(null);
+  const seq = useRef(0);
 
-  async function load() { setLoading(true); setItems(await aiClient.listLibrary()); setLoading(false); }
-  useEffect(() => { load(); }, []);
+  useEffect(() => { try { localStorage.setItem(LIB_PREF, JSON.stringify({ pageSize, kind })); } catch { /* fără storage */ } }, [pageSize, kind]);
+  useEffect(() => { const t = setTimeout(() => { setQ(qLive.trim()); setPage(1); }, 350); return () => clearTimeout(t); }, [qLive]);
 
-  async function remove(id) { await aiClient.deleteLibraryItem(id); setItems((x) => (x || []).filter((i) => i.id !== id)); }
+  async function load(p = page) {
+    const my = ++seq.current;
+    setLoading(true); setErr(null);
+    try {
+      const r = await aiClient.listLibraryPage({ page: p, pageSize, kinds: (LIB_KINDS.find((k) => k.id === kind) || LIB_KINDS[0]).kinds, q });
+      if (my !== seq.current) return;
+      const pages = Math.max(1, Math.ceil(r.total / pageSize));
+      // pagina a rămas fără elemente (s-a șters ultimul de pe ea) → cea dinainte
+      if (!r.items.length && p > 1 && p > pages) { setPage(pages); return; }
+      setData(r);
+    } catch (e) {
+      if (my === seq.current) setErr(e?.message || 'Lista nu s-a putut încărca.');
+    } finally { if (my === seq.current) setLoading(false); }
+  }
+  useEffect(() => { load(page); }, [page, pageSize, kind, q]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function goPage(p) {
+    setPage(p);
+    try { topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* noop */ }
+  }
+  async function remove(id) {
+    await aiClient.deleteLibraryItem(id);
+    load(page);   // pagina se completează cu următorul element
+  }
 
   const card = { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 18 };
-  if (loading) return <div style={{ padding: 40, textAlign: 'center' }}><div className="spinner" /></div>;
+  const items = data.items;
+  const total = data.total;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const first = total ? (page - 1) * pageSize + 1 : 0;
+  const last = Math.min(total, page * pageSize);
+  const filtered = !!(kind || q);
+  const chipS = (on) => ({
+    padding: '6px 12px', borderRadius: 999, cursor: 'pointer', fontSize: '.8rem', fontWeight: 600, whiteSpace: 'nowrap',
+    border: `1.5px solid ${on ? 'var(--navy)' : 'var(--border)'}`, background: on ? 'var(--navy)' : '#fff', color: on ? '#fff' : 'var(--navy)',
+  });
+  const pgBtn = (on, disabled) => ({
+    minWidth: 36, height: 34, padding: '0 10px', borderRadius: 8, fontSize: '.84rem', fontWeight: 700,
+    cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.45 : 1,
+    border: `1.5px solid ${on ? 'var(--navy)' : 'var(--border)'}`, background: on ? 'var(--navy)' : '#fff', color: on ? '#fff' : 'var(--navy)',
+  });
+  const pager = pages > 1 && (
+    <nav aria-label="Paginile listei" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap', marginTop: 14 }}>
+      <button type="button" style={pgBtn(false, page <= 1 || loading)} disabled={page <= 1 || loading} onClick={() => goPage(page - 1)} aria-label="Pagina anterioară">‹ Înapoi</button>
+      {pageWindow(page, pages).map((p, i) => (p === '…'
+        ? <span key={`g${i}`} style={{ color: 'var(--text-muted)', padding: '0 2px' }}>…</span>
+        : <button type="button" key={p} style={pgBtn(p === page, loading)} disabled={loading} aria-current={p === page ? 'page' : undefined} onClick={() => p !== page && goPage(p)}>{p}</button>))}
+      <button type="button" style={pgBtn(false, page >= pages || loading)} disabled={page >= pages || loading} onClick={() => goPage(page + 1)} aria-label="Pagina următoare">Înainte ›</button>
+    </nav>
+  );
+
+  if (items === null && loading) return <div style={{ padding: 40, textAlign: 'center' }}><div className="spinner" /></div>;
 
   return (
-    <div>
-      {(!items || items.length === 0) ? (
+    <div ref={topRef}>
+      {(!filtered && !loading && !err && total === 0) ? (
         <div style={card}><p style={{ color: 'var(--text-muted)', fontSize: '.9rem', margin: 0 }}>Aici apar testele și exercițiile interactive pe care le generezi. Încă nu ai niciunul.</p></div>
       ) : (
         <div style={card}>
-          <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', marginBottom: 4 }}>📚 Testele și exercițiile mele</h3>
-          <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 14 }}>Private — vizibile doar pentru tine. {isTeacher ? 'Le poți deschide, edita și trimite elevilor ca temă.' : ''}</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {items.map((it) => <LibItem key={it.id} it={it} isTeacher={isTeacher} onRemove={() => remove(it.id)} />)}
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: 0 }}>📚 Testele și exercițiile mele</h3>
+            <span style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--text-muted)' }}>
+              {total} {total === 1 ? 'element' : total >= 20 ? 'de elemente' : 'elemente'}{filtered ? ' găsite' : ''}
+            </span>
           </div>
+          <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>Private — vizibile doar pentru tine. {isTeacher ? 'Le poți deschide, edita și trimite elevilor ca temă.' : ''}</p>
+
+          {/* filtrele: felul, căutarea în titlu, câte pe pagină */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+            {LIB_KINDS.map((k) => (
+              <button type="button" key={k.id || 'toate'} style={chipS(kind === k.id)} onClick={() => { setKind(k.id); setPage(1); }}>{k.label}</button>
+            ))}
+            <input type="search" value={qLive} onChange={(e) => setQLive(e.target.value)} placeholder="🔎 Caută în titlu…"
+              aria-label="Caută în titlurile testelor"
+              style={{ flex: '1 1 180px', minWidth: 150, border: '1px solid var(--border)', borderRadius: 8, padding: '7px 10px', fontSize: '.84rem' }} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '.78rem', color: 'var(--text-muted)' }}>
+              pe pagină
+              <select value={pageSize} onChange={(e) => { setPageSize(parseInt(e.target.value, 10) || 20); setPage(1); }}
+                style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '5px 6px', fontSize: '.8rem' }}>
+                {[20, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
+          </div>
+
+          {err && <div style={{ fontSize: '.82rem', color: '#b71c1c', marginBottom: 10 }}>⚠️ {err} <button type="button" className="btn btn-sm btn-outline" onClick={() => load(page)}>↻ Reîncearcă</button></div>}
+          {total > 0 && (
+            <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+              {first}–{last} din {total}{pages > 1 ? ` · pagina ${page} din ${pages}` : ''}
+            </div>
+          )}
+          {filtered && !loading && total === 0 && (
+            <p style={{ color: 'var(--text-muted)', fontSize: '.86rem', margin: '6px 0' }}>Nimic găsit cu aceste filtre.</p>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, opacity: loading ? 0.55 : 1, transition: 'opacity .15s' }} aria-busy={loading}>
+            {(items || []).map((it) => <LibItem key={it.id} it={it} isTeacher={isTeacher} onRemove={() => remove(it.id)} />)}
+          </div>
+          {pager}
         </div>
       )}
     </div>
@@ -848,7 +953,8 @@ function LibItem({ it, isTeacher, onRemove }) {
           {it.kind === 'exam' ? (
             <>
               <button className="btn btn-sm btn-outline" onClick={() => openExamPdf(false)}>📄 PDF</button>
-              <button className="btn btn-sm btn-outline" onClick={() => openExamPdf(true)}>📝 Barem</button>
+              {/* testele generate „📄 Fără barem" nu au barem */}
+              {String(it.nb) !== 'true' && <button className="btn btn-sm btn-outline" onClick={() => openExamPdf(true)}>📝 Barem</button>}
             </>
           ) : (
             <button className="btn btn-sm btn-outline" onClick={toggle}>{open ? '✕ Închide' : '▶ Deschide'}</button>
@@ -885,7 +991,7 @@ function LibItem({ it, isTeacher, onRemove }) {
                   {v.kind === 'exam' && v.payload?.exam && (
                     <>
                       <button className="btn btn-sm btn-outline" onClick={() => printExam(v.payload.exam)}>📄 PDF</button>
-                      <button className="btn btn-sm btn-outline" onClick={() => printExam(v.payload.exam, { withSolutions: true })}>📝 Barem</button>
+                      {!v.payload.exam.noBarem && <button className="btn btn-sm btn-outline" onClick={() => printExam(v.payload.exam, { withSolutions: true })}>📝 Barem</button>}
                     </>
                   )}
                   {v.kind === 'pdf' && (v.payload?.pdfPath || v.payload?.pdfBase64) && (
@@ -902,12 +1008,12 @@ function LibItem({ it, isTeacher, onRemove }) {
           {full.kind === 'pdf' && (full.payload?.pdfPath || full.payload?.pdfBase64) && (
             <button className="btn btn-primary btn-sm" style={{ marginBottom: 8 }} onClick={async () => {
               // fereastra se deschide SINCRON (altfel browserul o blochează),
-              // apoi primește PDF-ul descărcat din Storage sau din base64 (vechi)
-              const w = window.open('', '_blank');
+              // apoi primește PDF-ul descărcat din Storage sau din base64 (vechi).
+              // Pe tablele interactive / telefoane: fereastra PDF a site-ului (pdfOpen.js)
+              const w = pdfInPagina() ? null : window.open('', '_blank');
               try {
                 const blob = await aiClient.getLibraryPdfBlob(full.payload);
-                const url = URL.createObjectURL(blob);
-                if (w) w.location = url; else window.open(url, '_blank');
+                await deschidePdf(blob, { win: w, title: full.title || it.title || 'PDF' });
               } catch (e) { if (w) w.close(); setMsg('Eroare: ' + (e?.message || 'PDF indisponibil')); }
             }}>📄 Deschide PDF-ul</button>
           )}

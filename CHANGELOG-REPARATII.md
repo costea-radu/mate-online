@@ -4,6 +4,42 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 4 noiembrie 2026 — 🖥️ PDF-urile pe tablele interactive · spațiul de lucru lângă test · „✓ Corectează exercițiul / total" · bara de pe telefon · „Testele mele" pe pagini · cu / fără barem
+
+Cererea: „pe tabla interactivă Samsung Flip nu se afișează PDF-urile, apare scris "file format unsupported". Nici pe altă tablă interactivă nu se afișează PDF-urile. Dacă se poate, fă să se afișeze. * la teste interactive, spațiul de lucru pe desktop este peste test. Fă să se alinieze testul în stânga și spațiul de lucru în dreapta * pune la testele interactive "corectează exercițiul" la fiecare exercițiu. "Corectează" transformă-l în "corectează total" care să corecteze cu punctajul total * pe telefon e prea mare bara de sus de la teste interactive. Păstrează doar icon-urile: simbolul "înapoi", prof virtual, spațiu de lucru, resetează, toate exercițiile. "rezolvate", "scor" și "corecte" să apară după ce elevul apasă "corectează" * în cont de prof, la "asistent AI" nu văd toate testele și exercițiile mele, deoarece sunt multe. Fă să apară pe pagini, toate * la generatorul de exerciții și teste, la "teste diferite/elev" la opțiunea "schimbă numerele și notațiile" pune buton: cu barem sau fără barem. "Cu barem" se face cu AI, de aceea fă ca să se aranjeze în pagină mai bine"
+
+### 1) PDF-urile pe tablele interactive (noi `src/lib/pdfjs.js`, `src/components/PdfCanvasViewer.jsx`, `src/lib/pdfOpen.js`, `src/components/PdfOverlay.jsx`)
+- De ce: browserele tablelor (Samsung Flip / Tizen, tablele cu Android, televizoarele) **nu au vizualizator PDF** — iframe-ul cu PDF-ul rămânea cu „file format unsupported".
+- `pdfInlineSupport()`: vizualizatorul browserului doar unde există (`navigator.pdfViewerEnabled`, pluginul PDF); Tizen, Android, webOS, televizoarele, iPad-ul „pentru desktop" → **PDF-ul îl desenează site-ul**, pe `<canvas>`, cu pdf.js (ca pe telefon). Pentru Chromium vechi (fără `structuredClone` / `Array.at`) vine construcția **legacy** a pdf.js (jsdelivr, apoi unpkg — dacă rețeaua școlii blochează un CDN).
+- `PdfCanvasViewer`: paginile se desenează când ajung aproape de ecran și se eliberează când se depărtează (memoria mică a tablelor); `⤢ Pagina întreagă` / `↔ Lățimea paginii` (ținut minte, `pdf:potrivire`).
+- `src/pages/PDFViewer.jsx`: pe calculator rămâne vizualizatorul browserului, cu butonul **„🖥️ Nu se vede PDF-ul?"** → vizualizatorul site-ului (alegerea se ține minte, `pdf:vizualizator`; înapoi: „🌐 Vizualizatorul browserului"). Și baremul de lângă test.
+- PDF-urile care se deschideau într-o **filă nouă** (testele generate și salvate, fișele combinate, temele, rezolvările, PDF-urile din discuții, materialul încărcat) se deschid, unde nu există vizualizator, **în fereastra site-ului** (`deschidePdf` / `arataPdf`, cu „⬇ Descarcă" și „✕ Închide").
+
+### 2) Spațiul de lucru lângă test, pe calculator (`src/pages/InteractiveViewer.jsx`, `src/components/SpatiuDeLucru.jsx` → `docked`, `src/components/ManerLatime.jsx` → `label`)
+- Testul în **stânga**, foaia într-o **coloană în dreapta** (nu mai e fereastră peste test); lățimea se trage de margine și se ține minte (`sdl:latime`); `⛶` tot ecranul, `⤵` înapoi lângă test; cu profesorul deschis, testul se îngustează între cele două. Pe telefon — ca înainte (jos).
+
+### 3) „✓ Corectează exercițiul" la fiecare exercițiu, „✓ Corectează total" sus (`src/lib/tutorBridge.js`, `src/lib/quizRender.js`)
+- **Exercițiile cu pași** (variantele de BAC, Subiectul al III-lea la EN): sus în exercițiu și lângă „Alege alt exercițiu" — exercițiul se afișează corectat (pași ✓ / ✗, răspunsurile corecte, „Exercițiu corectat: 2 / 5 pct") și rămâne blocat; lista arată punctajul lui. **Cardurile-grilă**: „✓ Corect · 5 / 5 pct" / „✗ Greșit · 0 / 5 pct", explicația, blocat; fără răspuns ales → „Alege întâi un răspuns.".
+- Butonul de sus devine **„✓ Corectează total"** (și textele care îl pomenesc); corectarea totală numără și exercițiile corectate separat. „Scor / Corecte" din bara testului arată, până atunci, suma exercițiilor corectate. Scorul pentru platformă (`MATE_SCORE`) pleacă tot doar la total.
+- Testele de EN au motorul Subiectului al III-lea **închis într-o funcție** (variabilele nu sunt globale): `exposeClosureEngine()` pune la capătul funcției `window.__mtScope` (getter / setter), prin care bridge-ul îl vede. Fișierele din baza de date rămân neatinse.
+- Testele AI (`renderQuiz`): „✓ Corectează exercițiul" la fiecare întrebare, „✓ Corectează total" jos. Rezolvările pe capitole aveau deja „✓ Corectează problema" — rămân așa.
+
+### 4) Bara testelor interactive pe telefon (`InteractiveViewer.jsx` + bridge: `MATE_COMPACT`, `MATE_TOOLBAR`, `MATE_TOOLBAR_CMD`)
+- Un singur rând (46 px), doar pictograme: **← · 🎓 profesorul virtual · ✍️ · ↺ Resetează · ☰ Toate exercițiile** (în exercițiu) · „✓ Total". Bara testului dispare; **„Rezolvate · Scor · Corecte"** apar abia după prima corectare (a unui exercițiu sau totală), pe un rând de 28 px. La 320 px încap toate.
+
+### 5) „📚 Testele și exercițiile mele" pe pagini (`aiClient.listLibraryPage`, noi `src/lib/paginare.js`, `src/pages/ProfesorVirtual.jsx`)
+- Nu mai apar doar ultimele 60: **toate**, câte 20 / 50 / 100 pe pagină (ținut minte), cu numărul total, filtru pe fel (interactiv / PDF-subiecte / exerciții…) și căutare în titlu; bara de pagini jos.
+
+### 6) „👥 Teste diferite / elev" → „🔢 Schimbă numerele și notațiile": „📝 Cu barem" / „📄 Fără barem"
+- Alegerea apare doar la numerele schimbate (`src/components/TesteDiferite.jsx`), la subiectele de examen și la fișele claselor (PDF). **Fără barem**: AI-ul nu mai scrie rezolvările (prompt + `stripSolutions` în `api/ai-exam.js`; `explanation` gol în `api/ai-generate-interactive.js`) — mai rapid și mai ieftin (~50 de credite pe test în loc de ~70); răspunsurile scurte rămân (verificarea automată); testul are `noBarem` și **nu primește butonul „📝 Barem"** (nici setul, nici „Testele mele").
+- **Așezarea în pagină** (`src/lib/examPrint.js`): variantele scurte ale grilelor pe un rând (4 sau 2 coloane, ca în subiectele oficiale); subiectele curg de la o pagină la alta (nu mai sar întregi, lăsând jumătăți de pagină goale); exercițiile nu se rup; la problemele cu spațiu de redactare, fiecare cerință stă cu caroiajul ei (enunțul nu mai rămâne singur jos pe pagină); figurile grilelor puțin mai mici. **Baremul** e așezat ca baremele oficiale: la grile un tabel (nr. · răspuns corect · punctaj · justificare), la probleme subpunctele cu punctajul și rezolvarea. Pe un test EN: testul de la 8 la 6 pagini, baremul de la 7 la 2.
+
+**Verificat:** `npm test` — 1060 de teste, toate trec (noi: `test/corectare-exercitiu.test.js`, `test/pdf-table-interactive.test.js`, `test/biblioteca-pagini.test.js`, `test/teste-diferite-barem.test.js` — 20; actualizate: `test/biblioteca-incarcare.test.js`, `test/fereastra-spatiu-lucru.test.js`). `vite build` trece. Interfața reală în Chromium, cu Supabase și `/api` simulate: coloana spațiului de lucru (calculator), bara de pe telefon (46 px, 320 px), PDF de 12 pagini ca pe Samsung Flip (Tizen, pdf.js legacy, pagini desenate la cerere), „🖥️ Nu se vede PDF-ul?" pe calculator, 57 de teste pe 3 pagini (filtru, căutare, fără „📝 Barem" la testele fără barem), alegerea cu / fără barem. Bridge-ul nou, pe **toate cele 44 de teste interactive gratuite de pe site** (în iframe-ul izolat, ca în aplicație): 9 variante de BAC, 3 teste de EN (inclusiv Subiectul al III-lea), 17 teste-grilă, 15 rezolvări pe capitole — corectarea unui exercițiu, „✓ Corectează total" (numără și exercițiile corectate separat), fără scor trimis la corectarea unui exercițiu, modul telefon, fără erori JavaScript.
+
+**De făcut:** doar commit + deploy (fără SQL nou).
+
+---
+
 ## 1 noiembrie 2026 (4) — 📚 Testele diferite se salvează într-un singur PDF, cu „Varianta 1, 2…"
 
 Cererea: „fa ca acele teste care sunt in numar mai mare, sa se salveze intr-un singur PDF cu titlul "X teste (grila sau nu) diferite, pentru X elevi", fiecare test sa aibe numerotat: Varianta 1, varianta 2, etc"

@@ -14,6 +14,7 @@ import { aiClient } from '../lib/aiClient';
 import { renderQuiz } from '../lib/quizRender';
 import { printExam } from '../lib/examPrint';
 import { startTestMode, endTestMode, isTestMode, useTestCountdown, fmtRamas, fmtDurata } from '../lib/testMode';
+import { deschidePdf } from '../lib/pdfOpen';
 
 export default function GrupaTema() {
   const [params] = useSearchParams();
@@ -118,13 +119,14 @@ export default function GrupaTema() {
     } else if (t.type === 'exam' && t.exam) {
       printExam(t.exam, { withSolutions: false });
     } else if (t.type === 'pdf-file') {
-      if (t.url) window.open(t.url, '_blank', 'noopener,noreferrer');
+      // filă nouă — sau, pe tablele interactive / telefoane, fereastra PDF a site-ului
+      const titlu = t.title || 'PDF';
+      if (t.url) deschidePdf(t.url, { title: titlu }).catch(() => window.open(t.url, '_blank', 'noopener,noreferrer'));
       else if (t.pdfBase64) {
         const bin = atob(t.pdfBase64);
         const arr = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-        const url = URL.createObjectURL(new Blob([arr], { type: 'application/pdf' }));
-        window.open(url, '_blank', 'noopener,noreferrer');
+        deschidePdf(new Blob([arr], { type: 'application/pdf' }), { title: titlu }).catch(() => {});
       }
     }
   }

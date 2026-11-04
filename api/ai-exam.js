@@ -1,6 +1,9 @@
 // =====================================================================
 // api/ai-exam.js — generează un MODEL de test de examen (structura oficială)
-// Body: { userId, examType }
+// Body: { userId, examType, dataMode, instructions, chapters, barem }
+//   barem: false (4 nov. 2026, „👥 Teste diferite / elev" → „📄 Fără barem") —
+//   AI-ul nu mai scrie rezolvările (mai rapid, mai ieftin); testul păstrează
+//   răspunsurile scurte (verificarea grilelor, corectorul AI) și primește noBarem.
 //   examType: 'evaluare-nationala' | 'bac-tehnologic' | 'bac-stiinte' | 'bac-mate-info'
 // Răspuns: { exam: {...structură cu subiecte, itemi, punctaje, barem} }
 // Doar pentru abonați.
@@ -132,6 +135,16 @@ const EXAM_SCHEMA = ai.S.obj({
     items: ai.S.arr(ITEM_SCHEMA),
   })),
 });
+// „📄 Fără barem": testul rămâne fără rezolvări (itemi și subpuncte) — noBarem
+function stripSolutions(exam) {
+  (exam.subjects || []).forEach((sub) => (sub.items || []).forEach((it) => {
+    if (!it || typeof it !== 'object') return;
+    delete it.solution;
+    if (Array.isArray(it.parts)) it.parts.forEach((p) => { if (p && typeof p === 'object') delete p.solution; });
+  }));
+  exam.noBarem = true;
+  return exam;
+}
 // scoate cheile null (forma clasică a testului) și curăță figurile
 function stripNulls(obj) {
   if (Array.isArray(obj)) return obj.map(stripNulls);
@@ -393,6 +406,7 @@ module.exports = async function handler(req, res) {
   try {
     const userId = await ai.authUser(req, supa);
     const { examType, instructions = '', dataMode = 'modify' } = req.body || {};
+    const faraBarem = req.body?.barem === false;
     // capitolele alese de profesor (titluri) — itemii vin DOAR din ele
     const chapters = (Array.isArray(req.body?.chapters) ? req.body.chapters : [])
       .map((c) => String(c || '').replace(/\s+/g, ' ').trim().slice(0, 140)).filter(Boolean).slice(0, 12);
@@ -528,6 +542,12 @@ Pentru FIECARE poziție: COPIAZĂ itemul indicat (enunț, tip, structură, stil)
 Sursele provin din subcategorii diferite (marcate în paranteză la fiecare TEST — ex. „simulari”, „variante”): testul final trebuie să fie un MIX REAL, cu itemi preluați din TOATE subcategoriile prezente, nu doar dintr-una.`;
     }
 
+    // „📄 Fără barem": fără rezolvări (răspunsurile scurte rămân — pe ele le
+    // verifică verificatorul independent și le folosește corectorul AI)
+    if (faraBarem) {
+      system += `\n\nFĂRĂ BAREM (cerut de profesor): NU scrie rezolvări. „solution" = null la toți itemii, iar la subpuncte „solution" = "" (șir gol). „answer" rămâne OBLIGATORIU: litera variantei corecte la grilă, răspunsul final la itemii cu răspuns scurt.`;
+    }
+
     // Structured Outputs (Etapa 3): schema strictă a testului — DSL-ul figurilor
     // are acum TOATE cheile posibile (nullable), deci intră în modul strict.
     // Dacă providerul refuză schema, chatJson coboară singur pe json_object
@@ -580,6 +600,7 @@ Sursele provin din subcategorii diferite (marcate în paranteză la fiecare TEST
     //    „nesigur" (profesorul vede avertismentul și poate edita/șterge itemul).
     const genModel = ai.pickModel(ai.GEN_MODEL, lim);
     const verification = await verifyAndRepairExam(exam, { examType, model: genModel, supa, userId });
+    if (faraBarem) stripSolutions(exam);
     return res.status(200).json({ exam, combinedFrom, verification });
   } catch (err) {
     console.error('ai-exam error:', err);
@@ -593,3 +614,4 @@ module.exports.regenItem = regenItem;
 module.exports.EXAM_SCHEMA = EXAM_SCHEMA;
 module.exports.ITEM_SCHEMA = ITEM_SCHEMA;
 module.exports.stripNulls = stripNulls;
+module.exports.stripSolutions = stripSolutions;
