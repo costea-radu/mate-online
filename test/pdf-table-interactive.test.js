@@ -63,7 +63,8 @@ test('needsLegacyPdfJs: construcția legacy pentru Chromium vechi (fără struct
 test('PDFViewer: pe table PDF-ul e desenat de site; „🖥️ Nu se vede PDF-ul?" pe calculator, alegerea se ține minte', () => {
   const v = read('src/pages/PDFViewer.jsx');
   assert.match(v, /import PdfCanvasViewer from '\.\.\/components\/PdfCanvasViewer'/);
-  assert.match(v, /const internal = mobile \|\| viewerPref === 'intern' \|\| \(viewerPref !== 'browser' && !inlineOk\);/);
+  // (7 nov. 2026: și cât e pornit „✏️ Rezolvă pe PDF" — stratul de scris stă peste paginile desenate de site)
+  assert.match(v, /const internal = mobile \|\| solveActive \|\| viewerPref === 'intern' \|\| \(viewerPref !== 'browser' && !inlineOk\);/);
   assert.match(v, /🖥️ Nu se vede PDF-ul\?/);
   assert.match(v, /🌐 Vizualizatorul browserului/);
   assert.match(v, /saveViewerPref\(next\)/);

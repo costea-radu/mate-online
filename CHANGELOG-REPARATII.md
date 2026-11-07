@@ -4,6 +4,35 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 7 noiembrie 2026 (3) — ✏️ Rezolvă pe PDF: grila încercuită și Subiectul III scris direct pe testul de EN, cu „✅ Corectează"
+
+Cererea: „pentru PDF-urile de la Evaluare Nationala, poti sa faci cumva sa se poata rezolva grila de la subiectele I si II direct pe PDF, prin incercuire? iar la subiectul III sa se poata scrie direct pe zona de rezolvare. cumva sa pui ca un spatiu de lucru, dar invizibil, cu corectare si cu recunoastere pe PDF a exercitiului rezolvat. PDF-ul sa ramana tot PDF cu aceleasi functionalitati. corectarea sa fie pornita cu un buton "rezolva pe PDF" cu buton la final "corecteaza""
+
+Ghidul complet: `GHID_REZOLVA_PE_PDF.md`.
+
+### 1) Stratul invizibil de scris (noi `src/components/RezolvarePdf.jsx`, `src/lib/pdfRezolvare.js`; `PdfCanvasViewer.jsx`, `PDFViewer.jsx`)
+- **„✏️ Rezolvă pe PDF"** în bara PDF-ului — la testele de Evaluare Națională (din platformă și din Biblioteca utilizatorilor), nu la bareme, nu în testul pe grupă / duel. PDF-ul trece în vizualizatorul site-ului (pdf.js), iar peste fiecare pagină stă un SVG transparent: un deget / creionul / mouse-ul scrie, două degete derulează și măresc, radiera (și capătul-radieră al creionului), 3 culori, ↩ / Ctrl+Z, 🗑. Ciornă locală (`pdfink:<id>`).
+- Uneltele stau în bara de zoom; **„✅ Corectează"** în bară și în caseta „Ai terminat?" de după ultima pagină. „⬇ PDF" descarcă PDF-ul cu scrisul desenat vectorial (pdf-lib) — tot PDF.
+- `PdfCanvasViewer`: `overlay` (portal în fiecare pagină), `toolbar`, `footer`; la „lățimea paginii", o schimbare doar de înălțime (bara pe două rânduri, panoul tras pe telefon) nu mai redesenează toate paginile.
+
+### 2) Recunoașterea exercițiului, pe PDF (fără AI)
+- **Harta testului** din textul PDF-ului: regiunile exercițiilor ca la „📎 Combină exact" (`pdfCombine.examStructureOf`, plus `pageLinesFromItems` / `contentBoundsOf` exportate, aceeași logică), literele a)–d) ale grilelor (caracter cu caracter — litera și valoarea pot fi în itemi separați), subpunctele `(2p) a)` / `(3p) b)`.
+- Fiecare traseu → exercițiul în a cărui zonă e scris. Cercul (și cel lăsat deschis, spirala, cercul în jurul valorii; bifa mică pe literă) → varianta, afișată pe loc pe margine: `b)` · `⚠ a b` · `?` · `✍️`.
+- Fără hartă (scanat, structură necunoscută, rotit, **test combinat** — textul ascuns al paginilor-sursă cade peste exerciții, recunoscut după textul suprapus; textul fără pixeli sub el e ignorat): se scrie la fel, corectorul primește paginile întregi.
+
+### 3) Corectarea (noi `api/rezolva-pdf.js`, `api/_lib/pdfRezolvare.js`; `ai-correct.js` exportă `saveProgress` / `saveUploadResult`; `aiClient.rezolvaPdf`; `AITutor` → `cmdRef.beginExternal`)
+- **Grilele** → litera din tabelul baremului de pe server (`barem.grilaAnswers`): 5p / 0p, două variante = 0p, fără variantă clară = 0p cu motiv. **Fără AI și fără abonament.**
+- **Scrisul** (Subiectul III) → imaginile zonelor din pagină cu scrisul pe ele → corectorul (Claude Opus 5.5), strict după barem, pe a) și b), problema ≤ 5p. **Premium**, cota „✍️ Corectări din spațiul de lucru". Fără Premium: `⭐` pe acele probleme, grilele corectate.
+- Pe PDF: `✔ 5p` / `✖ 0p` / `3/5p` (+ subpunctele); în Profesorul Virtual: mesajul complet, în conversația curentă. Litera corectă a unei grile greșite nu se spune. Testul întreg corectat complet → `progress` (din 90, + oficiu), XP / ligă / turnee; corectarea parțială doar se arată.
+
+**Verificat:** `npm test` — 1104 teste, toate trec (nou `test/rezolva-pe-pdf.test.js` — 15; `test/pdf-table-interactive.test.js` — regula `internal` include modul). `vite build` trece. În Chrome (pdf.js 3.11, Supabase simulat, endpointul real cu Claude simulat), pe subiecte EN sintetice cu aspectul oficial (variante pe coloană, pe rând, 2×2; Subiectul III cu spațiu de scris): cercuri, cerc deschis, cerc pe valoare, bifă, două variante, cerc peste toate, calcule lângă variante, radieră, ↩; corectare Premium și fără Premium; recorectare după schimbarea unei grile; telefon (390 px) cu degetul (CDP: un deget scrie, două derulează); testul combinat → fără hartă; „⬇ PDF" deschis cu pdfium (scrisul vectorial, textul păstrat); imaginea trimisă corectorului = zona III.1 cu enunțul + scrisul.
+
+**Nevăzut încă:** PDF-urile reale de EN de pe site (rețeaua de aici nu ajunge la Supabase / edu.ro) — dacă la vreun test cercurile clare apar cu `?`, trimite-mi PDF-ul.
+
+**De făcut:** doar commit + deploy (fără SQL nou, fără variabile noi).
+
+---
+
 ## 7 noiembrie 2026 (2) — ⬜ Alb peste dreptunghiul negru (pe o copie; „⬛ Original" / „⬜ Fără suprafață neagră" în bară) · bara de sus pe telefon la vedere
 
 Cererea: „* pe telefon la teste interactive si PDF-uri nu se vede bine bara de sus cu butoanele "inapoi", "corecteaza", "barem" * am obtinut erori la scoaterea dreptunghiului negru. fa cat mai simplu: lipeste un dreptunghi alb peste dreptunghiul negru si pastreaza spatiu gol alb acolo. pune in bara buton: "original" care se schimba in "fara suprafata neagra", pentru a accesa ambele variante la deschidere"

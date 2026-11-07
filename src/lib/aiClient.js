@@ -10,7 +10,7 @@ import { setInfo } from './testeSet';
 // Rutele AI care CONSUMĂ credite (nu și cele de citire: progres, istoric…).
 // După ele, dacă răspunsul nu aduce singur starea creditelor, o cerem noi —
 // rar, o dată la 30 de secunde (src/lib/aiCredit.js).
-const CONSUMA_CREDITE = /^\/api\/ai-(chat|correct|exam|generate-interactive|vision|meditatii|practice|assignment|transcribe|handwriting)/;
+const CONSUMA_CREDITE = /^\/api\/(ai-(chat|correct|exam|generate-interactive|vision|meditatii|practice|assignment|transcribe|handwriting)|rezolva-pdf)/;
 
 async function uid() {
   const { data: { session } } = await supabase.auth.getSession();
@@ -211,6 +211,11 @@ export const aiClient = {
   // enunțul (la exercițiile interactive: cu rezolvarea oficială, pentru model).
   corectareScris: ({ images, thumb = null, grid = null, conversationId = null, context = {}, exerciseText = '' }) =>
     post('/api/ai-handwriting', { action: 'correct', images, thumb, grid, conversationId, context, exerciseText }),
+
+  // „✏️ Rezolvă pe PDF" → „✅ Corectează" (api/rezolva-pdf.js): grilele încercuite pe
+  // PDF (recunoscute în browser) se punctează după barem, fără AI; zonele scrise de
+  // mână (imagini ale paginii cu scrisul pe ea) le corectează corectorul — Premium.
+  rezolvaPdf: (payload) => post('/api/rezolva-pdf', payload),
 
   // ── Corectarea cu punctaj a testelor / exercițiilor PDF („Răspunde în chat") ──
   // Textul unui PDF încărcat de elev direct în chat (temă, fișă, variantă)

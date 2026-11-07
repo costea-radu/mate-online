@@ -56,6 +56,12 @@ async function ensureLibs() {
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
 }
 
+// doar pdf-lib (din CDN, o singură dată) — „✏️ Rezolvă pe PDF" → „⬇ PDF cu rezolvarea"
+export async function loadPdfLib() {
+  if (!window.PDFLib) await loadScript(PDFLIB_URL);
+  return window.PDFLib;
+}
+
 // generator pseudo-aleator cu sămânță (mulberry32) + amestec Fisher–Yates —
 // `sort(() => Math.random() - 0.5)` nu dă o permutare uniformă
 function rngFrom(seed) {
@@ -205,6 +211,41 @@ const BAREM_N = ['baremdeevaluare', 'baremdecorectare', 'baremdenotare'];
 
 // Textul paginilor: rândurile (cu y-ul lor) + zona de conținut a fiecărei pagini.
 // Coordonate pdf.js/pdf-lib: originea JOS-stânga (y crește în sus).
+// (7 nov. 2026: partea pură — rândurile și zona de conținut — e exportată și
+// folosită și de „✏️ Rezolvă pe PDF", src/lib/pdfRezolvare.js: aceleași regiuni
+// ale exercițiilor ca la combinare.)
+// items: [{ str, x, y, h }] — textul unei pagini, cu poziția (originea jos-stânga)
+export function pageLinesFromItems(items) {
+  // grupăm pe linii (y rotunjit)
+  const lines = new Map();
+  for (const it of items || []) {
+    if (!it.str || !it.str.trim()) continue;
+    const y = Math.round(it.y);
+    const key = [...lines.keys()].find((k) => Math.abs(k - y) <= 2) ?? y;
+    if (!lines.has(key)) lines.set(key, []);
+    lines.get(key).push({ x: it.x, str: it.str, h: it.h || 0 });
+  }
+  return [...lines.entries()].map(([y, parts]) => ({
+    y,
+    x: Math.min(...parts.map((q) => q.x)),
+    text: parts.sort((a, b) => a.x - b.x).map((q) => q.str).join(' ').replace(/\s+/g, ' ').trim(),
+    h: Math.round(Math.max(...parts.map((q) => q.h)) * 10) / 10, // mărimea literei (titlurile generate o copiază)
+  })).sort((a, b) => b.y - a.y);
+}
+// zona de conținut a unei pagini de înălțime H: fără antetul ministerului și fără subsol
+export function contentBoundsOf(lines, H) {
+  let maxY = H - 30, minY = 34;
+  for (const L of lines || []) {
+    const nt = normTxt(L.text);
+    if (HEADER_N.some((k) => nt.includes(k)) && L.y > H * 0.7) maxY = Math.min(maxY, L.y - 6);
+    if (FOOTER_N.some((k) => nt.includes(k)) && L.y < H * 0.3) minY = Math.max(minY, L.y + 12);
+  }
+  return { maxY, minY };
+}
+// itemii pdf.js ai unei pagini → { str, x, y, h }
+const itemsOfTextContent = (tc) => (tc.items || []).map((it) => ({
+  str: it.str, x: it.transform[4], y: it.transform[5], h: Math.abs(it.transform[3]) || it.height || 0,
+}));
 async function readPages(doc) {
   const n = doc.numPages;
   const first = await doc.getPage(1);
@@ -213,32 +254,27 @@ async function readPages(doc) {
   for (let p = 1; p <= n; p++) {
     const page = p === 1 ? first : await doc.getPage(p);
     const tc = await page.getTextContent();
-    // grupăm pe linii (y rotunjit)
-    const lines = new Map();
-    for (const it of tc.items) {
-      if (!it.str || !it.str.trim()) continue;
-      const y = Math.round(it.transform[5]);
-      const key = [...lines.keys()].find((k) => Math.abs(k - y) <= 2) ?? y;
-      if (!lines.has(key)) lines.set(key, []);
-      lines.get(key).push({ x: it.transform[4], str: it.str, h: Math.abs(it.transform[3]) || it.height || 0 });
-    }
-    const arr = [...lines.entries()].map(([y, parts]) => ({
-      y,
-      x: Math.min(...parts.map((q) => q.x)),
-      text: parts.sort((a, b) => a.x - b.x).map((q) => q.str).join(' ').replace(/\s+/g, ' ').trim(),
-      h: Math.round(Math.max(...parts.map((q) => q.h)) * 10) / 10, // mărimea literei (titlurile generate o copiază)
-    })).sort((a, b) => b.y - a.y);
+    const arr = pageLinesFromItems(itemsOfTextContent(tc));
     pageLines[p] = arr;
-
-    let maxY = H - 30, minY = 34;
-    for (const L of arr) {
-      const nt = normTxt(L.text);
-      if (HEADER_N.some((k) => nt.includes(k)) && L.y > H * 0.7) maxY = Math.min(maxY, L.y - 6);
-      if (FOOTER_N.some((k) => nt.includes(k)) && L.y < H * 0.3) minY = Math.max(minY, L.y + 12);
-    }
-    contentMaxY[p] = maxY; contentMinY[p] = minY;
+    const b = contentBoundsOf(arr, H);
+    contentMaxY[p] = b.maxY; contentMinY[p] = b.minY;
   }
   return { n, W, H, contentMaxY, contentMinY, pageLines };
+}
+
+// Structura de subiect a unui document deja citit (`pg` ca la readPages): întâi cu
+// pagina 1 drept copertă (EN), apoi fără copertă (BAC) — ca analyze(), dar doar după
+// text (fără harta cernelii: „✏️ Rezolvă pe PDF" are nevoie doar de zonele
+// exercițiilor). null = structura nu e cea a unui subiect de examen.
+export function examStructureOf(pg) {
+  for (const from of [2, 1]) {
+    if (from > pg.n) continue;
+    try {
+      const st = structureFrom(pg, from);
+      if (structureOk(st.counts)) return { ...st, from, hasCover: from === 2 };
+    } catch { /* încercăm fără copertă */ }
+  }
+  return null;
 }
 
 // Markerele subiectelor/itemilor de la pagina `from` încolo → regiunile.

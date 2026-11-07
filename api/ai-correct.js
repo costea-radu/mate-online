@@ -901,3 +901,6 @@ module.exports.formSourceHash = formSourceHash;
 module.exports.formCacheKey = formCacheKey;
 module.exports.readFormCache = readFormCache;
 module.exports.writeFormCache = writeFormCache;
+// salvarea punctajului — folosită și de „✏️ Rezolvă pe PDF" (api/rezolva-pdf.js)
+module.exports.saveProgress = saveProgress;
+module.exports.saveUploadResult = saveUploadResult;

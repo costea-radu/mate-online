@@ -19,6 +19,7 @@ unde există. Corectarea face parte din **Premium**.
 |---|---|---|
 | **Exerciții interactive** (iframe) | „✍️ Spațiu de lucru" în bara de sus **și** pe fiecare pas / grilă (injectat de `tutorBridge.js`) — fereastră peste exercițiu | `🎓 Cere corectarea`: se deschide Profesorul Virtual, iar corectarea apare acolo (rezolvarea oficială a exercițiului ține loc de barem) |
 | **Vizualizatorul PDF** | „✍️ Spațiu de lucru" în **antetul Profesorului Virtual** — foaia ia locul conversației | `🎓 Cere corectarea` (testul + baremul asociat, citite de pe server) · `📎 Pune în întrebare` |
+| **Testele PDF de EN — direct pe pagină** (7 nov. 2026) | „✏️ Rezolvă pe PDF" în bara PDF-ului — un strat **invizibil** de scris peste pagini: grila se încercuiește, Subiectul III se scrie în spațiul lui | `✅ Corectează`: grilele după barem (fără AI), scrisul de la III — corectorul (Premium). Ghid: `GHID_REZOLVA_PE_PDF.md` |
 | **Tabla din „Planul meu"** | butonul `✍️` din bara de scris, lângă 📷 și 🎤 | `🎓 Cere corectarea` · `📎 Pune în întrebare` |
 | **Formularul „📝 Răspunde în chat"** (tot la tabla din „Planul meu") | „✍️ Spațiu de lucru" sub fiecare cerință | `📎 Atașează la răspuns` → foaia intră la „📷 Poze cu rezolvarea"; o punctează „✅ Corectează" |
 | **Sala meditațiilor live / Pregătirea de examen** | „✍️ Caietul meu" din meniu | doar ciornă (fără AI) |

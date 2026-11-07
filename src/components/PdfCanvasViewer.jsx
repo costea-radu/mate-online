@@ -20,8 +20,14 @@
 // Props: data (ArrayBuffer), blobUrl (pentru „deschide extern"), onFail,
 //        jumpTo = { page, seq } (salt la o pagină — baremul inclus și înapoi),
 //        dark (fundal închis, implicit da).
+//   „✏️ Rezolvă pe PDF" (7 nov. 2026 — src/components/RezolvarePdf.jsx):
+//        overlay = ({ n, w, h }) => ReactNode — stratul de deasupra paginii n (w × h
+//                  = mărimea paginii în puncte), desenat într-un <div> peste pânză;
+//        toolbar = { left, right } — butoanele modului, în bara de zoom;
+//        footer  = ce apare după ultima pagină („✅ Am terminat — Corectează").
 // =====================================================================
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { loadPdfJs } from '../lib/pdfjs';
 
 const MIN_ZOOM = 0.4, MAX_ZOOM = 5;
@@ -33,7 +39,7 @@ function readFit() {
   try { return localStorage.getItem(FIT_KEY) === 'page' ? 'page' : 'width'; } catch { return 'width'; }
 }
 
-export default function PdfCanvasViewer({ data, blobUrl, onFail, jumpTo = null }) {
+export default function PdfCanvasViewer({ data, blobUrl, onFail, jumpTo = null, overlay = null, toolbar = null, footer = null }) {
   const holderRef = useRef(null);   // containerul cu scroll
   const pagesRef = useRef(null);    // învelișul paginilor — scalat CSS în timpul pinch-ului
   const pdfRef = useRef(null);
@@ -45,8 +51,12 @@ export default function PdfCanvasViewer({ data, blobUrl, onFail, jumpTo = null }
   const [status, setStatus] = useState('loading'); // loading | ok | error
   const [zoom, setZoom] = useState(1);
   const [fit, setFit] = useState(readFit);
+  const fitRef = useRef(fit);
+  fitRef.current = fit;
   const [vw, setVw] = useState(0); // re-randare la rotirea ecranului / redimensionarea panoului
   const [pageInfo, setPageInfo] = useState({ cur: 1, total: 0 });
+  // straturile de deasupra paginilor (portaluri React în <div>-ul fiecărei pagini)
+  const [ovs, setOvs] = useState({ seq: 0, list: [] });
 
   // salt la o pagină; dacă paginile nu sunt încă așezate, se face după randare
   const jumpRef = useRef(null);
@@ -73,7 +83,11 @@ export default function PdfCanvasViewer({ data, blobUrl, onFail, jumpTo = null }
     const bump = () => { clearTimeout(t); t = setTimeout(() => setVw((n) => n + 1), 250); };
     const ro = typeof ResizeObserver !== 'undefined' && holder ? new ResizeObserver(() => {
       const w = holder.clientWidth, h = holder.clientHeight;
-      if (Math.abs(w - lastW) < 4 && Math.abs(h - lastH) < 4) return;
+      // la „lățimea paginii" contează doar lățimea: o schimbare doar de înălțime (bara
+      // „✏️ Rezolvă pe PDF" care trece pe două rânduri, panoul profesorului tras pe
+      // telefon) nu mai redesenează toate paginile
+      const hMatters = fitRef.current === 'page';
+      if (Math.abs(w - lastW) < 4 && (!hMatters || Math.abs(h - lastH) < 4)) { if (!hMatters) lastH = h; return; }
       lastW = w; lastH = h;
       bump();
     }) : null;
@@ -268,7 +282,12 @@ export default function PdfCanvasViewer({ data, blobUrl, onFail, jumpTo = null }
           const el = document.createElement('div');
           el.setAttribute('data-pagina', String(n));
           el.style.cssText = `width:${Math.floor(vp.width)}px;height:${Math.floor(vp.height)}px;margin:0 auto 10px;background:#fff;border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.35);position:relative`;
-          slots.push({ n, page, vp, dpr, el, canvas: null, task: null, drawnAt: 0, visible: false });
+          // locul stratului de deasupra paginii („✏️ Rezolvă pe PDF"): peste pânză
+          const ov = document.createElement('div');
+          ov.setAttribute('data-strat', String(n));
+          ov.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:2';   // fără inset: Chromium-ul vechi al tablelor
+          el.appendChild(ov);
+          slots.push({ n, page, vp, dpr, el, ov, bw: base.width, bh: base.height, canvas: null, task: null, drawnAt: 0, visible: false });
         }
         if (seq !== renderSeq.current) return;
         // schimbăm conținutul dintr-o mișcare: scoatem scala CSS a pinch-ului
@@ -278,6 +297,7 @@ export default function PdfCanvasViewer({ data, blobUrl, onFail, jumpTo = null }
         slots.forEach((s) => wrap.appendChild(s.el));
         wrap.style.transform = '';
         wrap.style.willChange = '';
+        setOvs({ seq, list: slots.map((s) => ({ n: s.n, el: s.ov, w: s.bw, h: s.bh })) });
         // scrollul care ține punctul ciupit pe loc
         if (pendingScroll.current) {
           holder.scrollLeft = Math.max(0, pendingScroll.current.left);
@@ -320,6 +340,8 @@ export default function PdfCanvasViewer({ data, blobUrl, onFail, jumpTo = null }
 
   // la închidere: pânzele se eliberează imediat (memoria tablelor e mică)
   useEffect(() => () => { slotsRef.current.forEach(freeSlot); slotsRef.current = []; }, []);
+  // documentul nou (altă variantă a PDF-ului): straturile vechi nu mai au pagini
+  useEffect(() => { setOvs((o) => (o.list.length ? { seq: o.seq, list: [] } : o)); }, [data]);
 
   function setFitMode(f) {
     setFit(f);
@@ -338,7 +360,8 @@ export default function PdfCanvasViewer({ data, blobUrl, onFail, jumpTo = null }
   return (
     <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
       {/* bara de zoom + potrivire + deschidere externă (rezervă) */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '6px 10px', background: 'rgba(0,0,0,0.25)', flexShrink: 0, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '6px 10px', background: toolbar ? 'rgba(232,185,49,0.16)' : 'rgba(0,0,0,0.25)', flexShrink: 0, flexWrap: 'wrap', rowGap: 6, ...(toolbar ? { borderBottom: '1px solid rgba(232,185,49,0.45)' } : {}) }}>
+        {toolbar && toolbar.left}
         <button type="button" style={zBtn} onClick={() => setZoom((z) => Math.max(MIN_ZOOM, Math.round((z - 0.25) * 100) / 100))} aria-label="Micșorează">−</button>
         <span title="Poți mări și cu două degete, direct pe pagină"
           style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.78rem', fontWeight: 700, minWidth: 44, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
@@ -353,12 +376,13 @@ export default function PdfCanvasViewer({ data, blobUrl, onFail, jumpTo = null }
             {pageInfo.cur} / {pageInfo.total}
           </span>
         )}
-        {blobUrl && (
+        {blobUrl && !toolbar && (
           <a href={blobUrl} target="_blank" rel="noopener noreferrer"
             style={{ marginLeft: 4, color: 'rgba(255,255,255,0.55)', fontSize: '0.72rem', textDecoration: 'underline', whiteSpace: 'nowrap' }}>
             deschide extern ↗
           </a>
         )}
+        {toolbar && toolbar.right}
       </div>
       {/* paginile — cu un deget derulezi, cu două degete dai zoom */}
       <div
@@ -379,7 +403,9 @@ export default function PdfCanvasViewer({ data, blobUrl, onFail, jumpTo = null }
           </div>
         )}
         <div ref={pagesRef} />
+        {status === 'ok' && footer}
       </div>
+      {overlay && ovs.list.map((o) => createPortal(overlay(o), o.el, `ov-${ovs.seq}-${o.n}`))}
     </div>
   );
 }

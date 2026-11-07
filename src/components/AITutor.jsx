@@ -969,6 +969,26 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       answerForm: () => openAnswerForm(),
       newConversation: () => newConversation(),
       canAnswer: () => !!canAnswer,
+      // „✏️ Rezolvă pe PDF" → „✅ Corectează" (src/pages/PDFViewer.jsx): corectarea
+      // o face vizualizatorul (api/rezolva-pdf.js), iar mesajele apar AICI, în
+      // conversația curentă — elevul poate întreba mai departe despre ea.
+      conversationId: () => convId,
+      beginExternal: ({ userText, thumb = null, pendingText = '⏳ Corectez…' } = {}) => {
+        const u1 = ++uidRef.current, u2 = ++uidRef.current;
+        setError(null); setShowHistory(false); setChipsUid(null);
+        setMessages((m) => [
+          ...m,
+          { role: 'user', content: userText || '✏️ Corectează-mi rezolvarea de pe PDF.', uid: u1, ...(thumb ? { image: thumb } : {}) },
+          { role: 'assistant', content: pendingText, streaming: true, hw: true, uid: u2 },
+        ]);
+        return {
+          done: (text, { conversationId = null, messageId = null } = {}) => {
+            if (conversationId) setConvId(conversationId);
+            patchMsg(u2, { streaming: false, content: text || 'Am corectat rezolvarea ta.', id: messageId || undefined, hw: true });
+          },
+          fail: (text) => patchMsg(u2, { streaming: false, isError: true, retryable: false, hw: true, content: '⚠️ ' + (text || 'Corectarea nu a reușit. Mai încearcă o dată.') }),
+        };
+      },
     };
     return () => { if (cmdRef) cmdRef.current = null; };
   });

@@ -14,6 +14,9 @@ import { loadPdfJs, pdfInlineSupport } from '../lib/pdfjs';
 import PdfCanvasViewer from '../components/PdfCanvasViewer';
 import { examDocumentHtml, printExam } from '../lib/examPrint';
 import { useBaraSusVizibila, paddingBara } from '../lib/baraSus';
+// „✏️ Rezolvă pe PDF" (7 nov. 2026): stratul invizibil de scris peste paginile
+// testelor de Evaluare Națională + „✅ Corectează" (api/rezolva-pdf.js)
+import { useRezolvarePdf, rezolvareToolbar, RezolvareFooter } from '../components/RezolvarePdf';
 
 function isMobile() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -87,6 +90,13 @@ export default function PDFViewer() {
 
   // ─── Profesorul Virtual lângă PDF ─────────────────────────────────────────
   const [tutorOpen, setTutorOpen] = useState(!!state?.openTutor);
+  // comenzile chatului (ChatPanel → cmdRef): corectarea de pe PDF apare în conversație
+  const chatCmdRef = useRef(null);
+  // ✏️ REZOLVĂ PE PDF — elevul încercuiește litera la grile (Subiectele I și II) și
+  // scrie rezolvarea la Subiectul al III-lea direct pe paginile PDF-ului, într-un
+  // strat transparent; „✅ Corectează" la final (src/components/RezolvarePdf.jsx)
+  const [solveOn, setSolveOn] = useState(false);
+  const [solveBusy, setSolveBusy] = useState(false);
   // ✍️ Spațiul de lucru se deschide ÎN zona de conversație a profesorului
   // (butonul e în antetul panoului), nu ca fereastră peste PDF
   const [workOpen, setWorkOpen] = useState(false);
@@ -269,6 +279,20 @@ export default function PDFViewer() {
   // test generat / baremul inclus în PDF le are doar profesorul virtual)
   const showBaremBtn = !modTest && !isLib && !isBaremItem && baremStatus !== 'este_barem';
 
+  // ✏️ „Rezolvă pe PDF": testele PDF de Evaluare Națională (din platformă și din
+  // Biblioteca utilizatorilor), nu baremele; nu în testul pe grupă / duel (acolo
+  // răspunsurile pleacă la profesor cu „📝 Răspunde la test").
+  const isEnPdf = item?.category === 'evaluare-nationala' && !isBaremItem && baremStatus !== 'este_barem';
+  const canSolve = isEnPdf && !modTest && !examHtml && !!pdfData;
+  const solveActive = solveOn && canSolve;
+  const inkKey = isLib ? (lib?.id ? `lib:${lib.id}` : null) : (item?.id || null);
+  const solve = useRezolvarePdf({ on: solveActive, data: pdfData, draftKey: inkKey });
+  useEffect(() => {
+    if (solveActive && solve.mapState === 'fail') {
+      setNote({ text: 'Nu am recunoscut structura acestui PDF (subiectele și exercițiile). Poți scrie pe el; la „✅ Corectează" îl citește profesorul virtual (Premium).' });
+    }
+  }, [solveActive, solve.mapState]);
+
   async function toggleBarem() {
     if (baremView.open) {
       // înapoi la subiecte (la baremul inclus: înapoi la prima pagină)
@@ -350,6 +374,78 @@ export default function PDFViewer() {
     setWorkOpen(next);
   }
 
+  // ✏️ Pornește / oprește rezolvarea pe PDF (scrisul rămâne în ciorna locală)
+  function toggleSolve() {
+    if (solveOn) { solve.store.flush(); setSolveOn(false); return; }
+    if (baremView.open) setBaremView((v) => ({ ...v, open: false, page: 1, seq: v.seq + 1 }));
+    setViewerFailed(false);
+    setSolveOn(true);
+    setNote({ text: '✏️ Încercuiește litera la grile și scrie rezolvarea la Subiectul al III-lea, direct pe pagină. Cu două degete derulezi și mărești. La final: „✅ Corectează".' });
+  }
+
+  // ✅ „Corectează": grilele recunoscute → barem (fără AI); zonele scrise de mână →
+  // imagini ale paginii cu scrisul pe ea → corectorul (Premium). Corectarea apare în
+  // conversația Profesorului Virtual și, cu ✔ / ✖ și punctaje, chiar pe PDF.
+  async function corecteazaPePdf() {
+    if (solveBusy) return;
+    if (!user) {
+      setNote({ text: 'Autentifică-te ca să-ți corectăm rezolvarea de pe PDF.', link: { to: '/autentificare', label: 'Autentificare' } });
+      return;
+    }
+    if (solve.mapState === 'loading') { setNote({ text: 'Mai citesc testul — încearcă din nou peste o clipă.' }); return; }
+    const req = solve.request();
+    if (!req.any) {
+      setNote({ text: 'Încercuiește răspunsurile sau scrie rezolvarea pe PDF, apoi apasă „✅ Corectează".' });
+      return;
+    }
+    const premium = isPremium || isAdmin;
+    if (!req.harta && !premium) {
+      setNote({ text: 'La acest PDF rezolvarea o citește profesorul virtual — corectarea face parte din abonamentul Premium.', link: { to: '/preturi', label: 'Vezi abonamentele' } });
+      return;
+    }
+    setSolveBusy(true);
+    setTutorOpen(true);
+    let h = null;
+    try {
+      let images = [], thumb = null;
+      if (premium && (req.scris.length || !req.harta)) {
+        const r = await solve.renderImages(req);
+        images = r.images; thumb = r.thumb;
+      }
+      // chatul se montează odată cu panoul profesorului
+      for (let i = 0; i < 40 && !chatCmdRef.current; i++) await new Promise((ok) => setTimeout(ok, 50));
+      const cmd = chatCmdRef.current;
+      h = cmd && cmd.beginExternal ? cmd.beginExternal({
+        userText: '✏️ Corectează-mi rezolvarea de pe PDF.', thumb,
+        pendingText: images.length ? '⏳ Corectez grilele după barem și citesc ce ai scris pe PDF…' : '⏳ Corectez grilele după barem…',
+      }) : null;
+      const r = await aiClient.rezolvaPdf({
+        context: { contentId: isLib ? null : (item?.id || null), libraryId: isLib ? (lib?.id || null) : null, title: item?.title || null, category: item?.category || null },
+        conversationId: cmd && cmd.conversationId ? cmd.conversationId() : null,
+        grile: req.grile, nerecunoscute: req.nerecunoscute, scris: req.scris,
+        harta: req.harta, structura: req.structura, images, thumb, durationSec: solve.durationSec(),
+      });
+      if (h) h.done(r.text, { conversationId: r.conversationId, messageId: r.messageId });
+      solve.keepResult(r, req.sigs);
+      if (r.premiumNeeded) {
+        setNote({ text: 'Grilele sunt corectate. Scrisul de la Subiectul al III-lea îl corectează profesorul virtual cu Premium.', link: { to: '/preturi', label: 'Vezi abonamentele' } });
+      } else if (req.outside) {
+        setNote({ text: 'Unele trasee sunt în afara exercițiilor (antet, margini) — nu le-am corectat.' });
+      }
+    } catch (e) {
+      if (h) h.fail(e.message);
+      setNote(e.premium
+        ? { text: e.message, link: { to: '/preturi', label: 'Vezi abonamentele' } }
+        : { text: e.message || 'Corectarea nu a reușit. Mai încearcă o dată.' });
+    } finally {
+      setSolveBusy(false);
+    }
+  }
+  async function descarcaPdfRezolvat() {
+    try { await solve.downloadPdf(item?.title || 'test'); }
+    catch (e) { console.error('PDF cu rezolvarea:', e); setNote({ text: 'Nu am putut pregăti PDF-ul cu rezolvarea. Încearcă din nou.' }); }
+  }
+
   // 📑 Coloana cu paginile ascunsă + profesorul deschis → panoul ia locul ei: cel puțin
   // lățimea coloanei de miniaturi (pagina PDF rămâne cât era), iar pe ecranele late și
   // mai mult — PDF-ului îi rămâne doar cât îi trebuie paginii la 100%. Paginile arătate
@@ -357,7 +453,8 @@ export default function PDFViewer() {
   const pdfCol = useMemo(() => pdfColumnWidth(pageWidthPt(pdfData)), [pdfData]);
   // PDF-ul desenat de site (nu de browser): pe telefon, pe tablele interactive /
   // browserele fără vizualizator PDF, sau la cerere
-  const internal = mobile || viewerPref === 'intern' || (viewerPref !== 'browser' && !inlineOk);
+  // („✏️ Rezolvă pe PDF" desenează și el pagina: stratul de scris stă peste ea)
+  const internal = mobile || solveActive || viewerPref === 'intern' || (viewerPref !== 'browser' && !inlineOk);
   function toggleViewer() {
     const next = internal ? 'browser' : 'intern';
     setViewerPref(next);
@@ -688,6 +785,37 @@ export default function PDFViewer() {
       )}
     </button>
   );
+  // ── „✏️ Rezolvă pe PDF" (testele de Evaluare Națională) ──────────────────
+  const solveBtn = canSolve && (
+    <button
+      onClick={toggleSolve}
+      aria-pressed={solveActive}
+      title={solveActive
+        ? 'Închide rezolvarea pe PDF (ce ai scris rămâne salvat pe acest dispozitiv)'
+        : 'Rezolvă testul direct pe PDF: încercuiește litera la grile și scrie rezolvarea la Subiectul al III-lea; la final „✅ Corectează"'}
+      style={{
+        background: solveActive ? 'var(--gold)' : 'rgba(232,185,49,0.15)', border: '1px solid var(--gold)',
+        color: solveActive ? 'var(--navy)' : 'var(--gold)', borderRadius: tiny ? 10 : 14, padding: tiny ? '0 9px' : '4px 12px',
+        cursor: 'pointer', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1.25,
+        ...(tiny ? { height: 34, justifyContent: 'center' } : {}),
+      }}
+    >
+      <span style={{ fontSize: '0.82rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
+        {solveActive ? '✏️ Rezolvi pe PDF' : (tiny ? '✏️ Rezolvă' : '✏️ Rezolvă pe PDF')}
+      </span>
+      {!tiny && (
+        <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.85, whiteSpace: 'nowrap' }}>
+          {solveActive ? 'apasă ca să închizi' : 'încercuiește și scrie pe test'}
+        </span>
+      )}
+    </button>
+  );
+  // stratul de scris, uneltele (în bara de zoom) și „✅ Corectează" de după ultima pagină
+  const solveProps = solveActive ? {
+    overlay: solve.overlay,
+    toolbar: rezolvareToolbar({ solve, compact: narrow, busy: solveBusy, onCorect: corecteazaPePdf, onClose: toggleSolve, onDownload: descarcaPdfRezolvat }),
+    footer: <RezolvareFooter solve={solve} busy={solveBusy} onCorect={corecteazaPePdf} premium={isPremium || isAdmin} />,
+  } : {};
   const badgeJsx = !tiny && <span style={badge} title={isLib ? 'Material din Biblioteca utilizatorilor' : undefined}>{isLib ? '🏛️ ' : ''}{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>;
 
   // ── 📑 „Ascunde paginile" (pe calculator, la PDF-urile din vizualizatorul browserului):
@@ -716,7 +844,7 @@ export default function PDFViewer() {
   );
   // 🖥️ Vizualizatorul PDF (calculator, table interactive): al browserului ↔ al site-ului.
   // Pe browserele fără vizualizator PDF butonul nu apare: acolo merge doar al site-ului.
-  const viewerBtn = !mobile && !examHtml && !!blobUrl && (inlineOk || viewerPref === 'browser') && (
+  const viewerBtn = !mobile && !examHtml && !!blobUrl && !solveActive && (inlineOk || viewerPref === 'browser') && (
     <button
       onClick={toggleViewer}
       aria-pressed={internal}
@@ -960,7 +1088,7 @@ export default function PDFViewer() {
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0 }}>
-        <ChatPanel compact context={tutorContext} initialConversationId={tutorConvId} testMode={modTest}
+        <ChatPanel compact context={tutorContext} initialConversationId={tutorConvId} testMode={modTest} cmdRef={chatCmdRef}
           workspace={{
             open: workOpen,
             onClose: () => setWork(false),
@@ -997,6 +1125,7 @@ export default function PDFViewer() {
               borderRadius: 12, padding: '3px 10px', fontSize: '0.74rem', fontWeight: 800, whiteSpace: 'nowrap',
             }} title="Duel: Profesorul Virtual nu dă indicii">⚔️ DUEL</span>
           )}
+          {solveBtn}
           {baremBtn}
           {variantaBtn}
           {tutorBtn}
@@ -1007,7 +1136,7 @@ export default function PDFViewer() {
           {/* subiectele rămân încărcate (doar ascunse) cât se vede baremul */}
           <div style={{ flex:1, minHeight:0, display: showBaremDoc ? 'none' : 'flex', flexDirection:'column' }}>
           {internalViewer ? (
-            <PdfCanvasViewer data={pdfData} blobUrl={blobUrl} onFail={() => setViewerFailed(true)} jumpTo={testJump} />
+            <PdfCanvasViewer data={pdfData} blobUrl={blobUrl} onFail={() => setViewerFailed(true)} jumpTo={testJump} {...solveProps} />
           ) : (
             <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:24, padding:32, textAlign:'center', overflowY:'auto' }}>
               <div style={{ fontSize:'4rem' }}>📄</div>
@@ -1057,6 +1186,7 @@ export default function PDFViewer() {
         {viewerBtn}
         {paginiBtn}
         {printBtn}
+        {solveBtn}
         {baremBtn}
         {variantaBtn}
         {tutorBtn}
@@ -1077,7 +1207,7 @@ export default function PDFViewer() {
         {blobUrl && internal && (
           <div style={{ flex:1, minHeight:0, minWidth:0, display: showBaremDoc ? 'none' : 'flex', flexDirection:'column' }}>
             {pdfData && !viewerFailed ? (
-              <PdfCanvasViewer data={pdfData} blobUrl={blobUrl} onFail={() => setViewerFailed(true)} jumpTo={testJump} />
+              <PdfCanvasViewer data={pdfData} blobUrl={blobUrl} onFail={() => setViewerFailed(true)} jumpTo={testJump} {...solveProps} />
             ) : (
               <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:18, padding:32, textAlign:'center' }}>
                 <div style={{ fontSize:'3.4rem' }}>📄</div>
