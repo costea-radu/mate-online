@@ -15,6 +15,7 @@ import { ReviewToast } from '../components/ReviewWidget';
 import SpatiuDeLucru from '../components/SpatiuDeLucru';
 import ManerLatime from '../components/ManerLatime';
 import { useLatimePanou } from '../lib/latimePanou';
+import { useBaraSusVizibila, paddingBara } from '../lib/baraSus';
 
 export default function InteractiveViewer() {
   const { state } = useLocation();
@@ -57,6 +58,9 @@ export default function InteractiveViewer() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
   const isMobile = vw < 800;
+  // pe telefon, bara de sus rămâne la vedere: nu sub bara de stare (aplicația de pe
+  // ecranul principal) și nici „urcată" după închiderea tastaturii (iPhone, Safari 26)
+  useBaraSusVizibila();
   // ✍️ Spațiul de lucru PE CALCULATOR (4 nov. 2026): nu mai stă peste test, ci în
   // coloana din DREAPTA lui — testul rămâne întreg în stânga. Lățimea coloanei se
   // trage de marginea ei stângă și se ține minte (ca la panoul profesorului).
@@ -648,7 +652,7 @@ export default function InteractiveViewer() {
   });
   const phoneBar = (
     <div role="toolbar" aria-label="Bara testului" style={{
-      display: 'flex', alignItems: 'center', gap: 5, padding: '6px 8px', background: 'var(--navy)',
+      display: 'flex', alignItems: 'center', gap: 5, ...paddingBara(6, 8), background: 'var(--navy)',
       flexShrink: 0, boxShadow: '0 2px 8px rgba(0,0,0,0.3)', overflowX: 'auto', scrollbarWidth: 'none',
     }}>
       <button onClick={goBack} aria-label="Înapoi" title="Înapoi" style={{ ...ib(), fontSize: '1.15rem' }}>←</button>
@@ -707,7 +711,7 @@ export default function InteractiveViewer() {
       {isMobile ? phoneBar : (
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '10px 20px', background: 'var(--navy)', flexShrink: 0,
+        ...paddingBara(10, 20), background: 'var(--navy)', flexShrink: 0,
         boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

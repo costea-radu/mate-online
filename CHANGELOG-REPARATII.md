@@ -4,6 +4,35 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 7 noiembrie 2026 (2) — ⬜ Alb peste dreptunghiul negru (pe o copie; „⬛ Original" / „⬜ Fără suprafață neagră" în bară) · bara de sus pe telefon la vedere
+
+Cererea: „* pe telefon la teste interactive si PDF-uri nu se vede bine bara de sus cu butoanele "inapoi", "corecteaza", "barem" * am obtinut erori la scoaterea dreptunghiului negru. fa cat mai simplu: lipeste un dreptunghi alb peste dreptunghiul negru si pastreaza spatiu gol alb acolo. pune in bara buton: "original" care se schimba in "fara suprafata neagra", pentru a accesa ambele variante la deschidere"
+
+### 1) De ce erau erori la dreptunghi
+- Prima versiune urca PDF-ul curățat **peste original** (aceeași cale din Storage), apoi îl descărca să compare amprenta. Storage (CDN-ul) dădea înapoi, încă o oră, **fișierul vechi** → „fișierul urcat nu se potrivește la verificare — am pus originalul la loc" la 54 de teste, 0 curățate. Testele de pe site au rămas originalele.
+
+### 2) Acum: alb lipit peste, pe o copie (`api/_lib/pagina2.js`, `api/_lib/pagina2Run.js`, nou `api/_lib/pagina2Alb.js`)
+- **Motorul, mult mai simplu:** găsește dreptunghiul pe randare (ca înainte) și lipește un dreptunghi **alb** peste el — și peste rama / umbra lui, până la 1,5 pt în jur, dar nu peste linia antetului sau un text de alături. Conținutul paginii nu se mai atinge (s-au scos cititorul de desene, planul de scoatere, formularele): e doar închis între „q … Q", cu q / Q numărate (și BT / BDC rămase deschise), ca albul să se deseneze exact peste dreptunghi oricum ar fi scris PDF-ul. Salvare incrementală (+ ~0,5 KB); verificarea prin randare rămâne (în afara albului, pixel cu pixel identic; celelalte pagini identice).
+- **Originalul nu se mai atinge.** Copia albă se urcă în **același bucket** (aceleași reguli de acces: gratuit / premium), la o cale nouă: `_pagina2-alb/<id>/<amprenta>_<nume>.pdf` — niciodată peste ceva, deci fără problema cache-ului.
+- **Trecerea de la prima versiune:** stările vechi se iau de la capăt la prima rulare; dacă prima versiune apucase totuși să scrie peste un original (o rulare a cronului de dinaintea actualizării), originalul se pune la loc din copia ei privată, apoi se face varianta albă.
+- **Admin → 📚 Bot examene → „⬜ Dreptunghiul negru de pe pagina 2":** cu varianta albă · de făcut · fără dreptunghi · nesigure / erori · ascunse; „🔍 Caută dreptunghiul (fără modificări)", „⬜ Pune alb peste dreptunghi acum"; pe fiecare test: ⬛ Originalul · ⬜ Varianta albă · 🙈 Ascunde varianta albă / 👁 Arată (în locul lui „↩ Restaurează", care nu mai are rost).
+
+### 3) „⬛ Original" ↔ „⬜ Fără suprafață neagră" în bara PDF-ului (`src/pages/PDFViewer.jsx`, `api/get-file-url.js`)
+- La testele de EN cu varianta albă, vizualizatorul o deschide pe ea; butonul **„⬛ Original"** arată originalul și devine **„⬜ Fără suprafață neagră"** (și înapoi). Pe telefon și pe calculator. Cealaltă variantă se aduce la primul clic, apoi trecerea e pe loc.
+- `api/get-file-url.js` cu `variante: true` întoarce `{ url, alb }` — linkul copiei doar după aceleași verificări (gratuit / abonament / temă pe grupă). Celelalte locuri care descarcă PDF-uri (generatoarele) nu cer variantele: lucrează cu originalul, ca înainte.
+
+### 4) Bara de sus pe telefon (nou `src/lib/baraSus.js`; `InteractiveViewer.jsx`, `PDFViewer.jsx`, `ExercitiuAIViewer.jsx`)
+- **iPhone (Safari 26):** după ce se închide tastatura (pașii testului, chatul), pagina rămânea „urcată" cu înălțimea barei de stare, iar bara testului ajungea sub ceas și baterie (captura cu BAC 2014). Acum documentul revine la 0 de cum tastatura e închisă (și la orice derulare a lui) — vizualizatoarele ocupă exact ecranul, deci n-are de ce să fie derulat. Cât e tastatura deschisă nu se atinge (iOS ține câmpul la vedere).
+- **Aplicația de pe ecranul principal** (bara de stare „black-translucent"): barele au acum spațiul de sus al ecranului (`env(safe-area-inset-top)`) și pe cel din lateral (landscape), ca bara Admin-ului.
+- **Bara PDF-ului pe telefon:** „← Înapoi" · „📋 Barem" · „⬛ Original" · profesorul virtual (doar Einstein, ca în bara testelor interactive), fără titlul care rămânea „📄…"; „Profesorul virtual" nu mai iese din ecran. Încap pe un rând de la 360 px; mai îngust, ultimul buton trece pe al doilea rând (nimic nu mai e tăiat).
+- Bara testelor interactive pe telefon rămâne cu pictogramele cerute pe 4 nov.
+
+**Verificat:** `npm test` — 1089 de teste, toate trec (rescris `test/pagina2-dreptunghi.test.js` — 19; nou `test/bara-sus-telefon.test.js` — 4). `vite build` trece. În Chrome (pdf.js 3.11, iPhone emulat, Supabase și `/api` simulate): bara PDF-ului la 430 / 393 / 375 / 360 / 320 px în ambele stări, comutarea arată pagina 2 cu alb (0 pixeli ne-albi în zona dreptunghiului) și cu dreptunghiul; caseta din Admin, pe telefon și pe calculator.
+
+**De făcut:** commit + deploy (fără SQL nou). După deploy: Admin → 📚 Bot examene → „⬜ Pune alb peste dreptunghi acum" (sau așteaptă cronul).
+
+---
+
 ## 7 noiembrie 2026 — 🧽 Dreptunghiul negru de pe pagina 2 (testele de EN) · „Înapoi" fără derularea înghețată
 
 Cererea: „1. La testele de evaluare nationala, fa un bot care scoate dreptunghiul negru de pe pagina 2, in rest nu schimba nimic. reposteaza in acelasi loc testul, cu acelasi nume, proprietati si barem asociat 2. butonul "Înapoi" de la PDF-uri si teste interactive duce inapoi si deruleaza exact unde trebuie, dar derularea e cateva secunde inghetata in dreptul testului de la care am dat "inapoi". poti sa faci sa mearga derularea dar sa nu modifici revenirea in dreptul testului?"

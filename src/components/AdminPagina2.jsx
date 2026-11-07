@@ -1,12 +1,12 @@
 // =====================================================================
-// src/components/AdminPagina2.jsx — Admin → „📚 Bot examene" → 🧽 Dreptunghiul de pe pagina 2
+// src/components/AdminPagina2.jsx — Admin → „📚 Bot examene" → ⬜ Dreptunghiul de pe pagina 2
 //
-// Botul scoate dreptunghiul negru de pe pagina 2 a testelor de Evaluare Națională
-// (Variante date + modele, Simulări) — spatele „colțului secretizat" de pe foaia
-// de examen — și pune PDF-ul curățat ÎN ACELAȘI LOC (aceeași adresă): titlul,
-// rubrica, gratuit / premium, ordinea și baremul asociat rămân aceleași. Restul
-// PDF-ului nu se schimbă (verificat prin randare, pixel cu pixel). Originalul se
-// păstrează: „↩ Restaurează" îl pune la loc.
+// Pe pagina 2 a testelor de Evaluare Națională (Variante date + modele, Simulări)
+// e un dreptunghi negru — spatele „colțului secretizat" de pe foaia de examen.
+// Botul face o COPIE a fiecărui test cu un dreptunghi ALB lipit peste el (spațiu gol,
+// alb). Originalul rămâne neatins, la adresa lui: același nume, aceleași proprietăți,
+// același barem. În vizualizatorul PDF se deschide varianta albă, iar butonul
+// „⬛ Original" / „⬜ Fără suprafață neagră" din bară trece de la una la alta.
 // Serverul: api/exam-bot.js (pagina2_*) → api/_lib/pagina2Run.js → api/_lib/pagina2.js.
 // =====================================================================
 import { useEffect, useRef, useState } from 'react';
@@ -19,20 +19,19 @@ const muted = { fontSize: '.76rem', color: 'var(--text-muted)' };
 const rowBox = { display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap', padding: '10px 4px', borderBottom: '1px solid #f0f4f8' };
 const logBox = { marginTop: 8, maxHeight: 180, overflow: 'auto', background: '#0f2b44', color: '#d7e3f0', borderRadius: 8, padding: '8px 10px', fontFamily: 'ui-monospace, Menlo, Consolas, monospace', fontSize: '.74rem', lineHeight: 1.5, whiteSpace: 'pre-wrap' };
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleString('ro-RO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
-const kb = (n) => `${Math.round(n / 102.4) / 10} KB`;
 
 export const P2_ST = {
-  curatat: { label: '✓ curățat', bg: '#e6f4ea', fg: '#137333' },
-  de_curatat: { label: '🔍 de curățat', bg: '#e8f0fe', fg: '#1a56c4' },
+  curatat: { label: '⬜ are varianta albă', bg: '#e6f4ea', fg: '#137333' },
+  ascuns: { label: '🙈 varianta albă ascunsă', bg: '#fdecd8', fg: '#b45309' },
+  de_curatat: { label: '🔍 de făcut', bg: '#e8f0fe', fg: '#1a56c4' },
   neverificat: { label: 'neverificat', bg: '#f1f3f4', fg: '#5f6368' },
   fara: { label: 'fără dreptunghi', bg: '#f1f3f4', fg: '#5f6368' },
-  nesigur: { label: '⚠ nesigur — lăsat neatins', bg: '#fef7e0', fg: '#8a6d1a' },
+  nesigur: { label: '⚠ nesigur — doar originalul', bg: '#fef7e0', fg: '#8a6d1a' },
   eroare: { label: '⚠ eroare', bg: '#fce8e6', fg: '#b3261e' },
-  restaurat: { label: '↩ original (restaurat)', bg: '#fdecd8', fg: '#b45309' },
 };
 const SUB = { variante: 'Variante + modele', simulari: 'Simulări' };
 // grupele din care se filtrează lista (dalele de sus)
-const GROUPS = { curatat: ['curatat'], todo: ['de_curatat', 'neverificat'], fara: ['fara'], probleme: ['nesigur', 'eroare'], restaurat: ['restaurat'] };
+const GROUPS = { curatat: ['curatat'], todo: ['de_curatat', 'neverificat'], fara: ['fara'], probleme: ['nesigur', 'eroare'], ascuns: ['ascuns'] };
 
 function Tile({ icon, label, value, sub, tone = 'navy', active, onClick }) {
   const colors = { navy: 'var(--navy)', green: '#137333', red: '#b3261e', amber: '#8a6d1a', blue: '#1a56c4', gray: '#5f6368' };
@@ -111,13 +110,13 @@ export default function AdminPagina2({ s, otherBusy = false, onBusy, onRunEnd })
     }
   }
 
-  async function restore(r) {
-    if (!window.confirm(`Pun la loc PDF-ul original (cu dreptunghiul negru) pentru „${r.title}"?\n\nTestul rămâne cu același nume, aceleași proprietăți și același barem. Botul nu-l mai curăță singur (doar dacă apeși „🧽 Curăță din nou").`)) return;
-    setRowBusy((b) => ({ ...b, [r.id]: '↩ restaurez…' }));
+  // 🙈 / 👁 varianta albă în vizualizator (originalul rămâne oricum la locul lui)
+  async function setHidden(r, on) {
+    setRowBusy((b) => ({ ...b, [r.id]: on ? '🙈 o ascund…' : '👁 o arăt…' }));
     setRowMsg((m) => ({ ...m, [r.id]: null }));
     try {
-      await apiPost(API, { action: 'pagina2_restore', contentId: r.id });
-      setRowMsg((m) => ({ ...m, [r.id]: { ok: true, text: 'Originalul e la loc.' } }));
+      await apiPost(API, { action: 'pagina2_hide', contentId: r.id, on });
+      setRowMsg((m) => ({ ...m, [r.id]: { ok: true, text: on ? 'Vizualizatorul arată acum doar originalul.' : 'Vizualizatorul deschide din nou varianta albă.' } }));
       await load();
     } catch (e) { setRowMsg((m) => ({ ...m, [r.id]: { ok: false, text: e.message } })); }
     setRowBusy((b) => { const n = { ...b }; delete n[r.id]; return n; });
@@ -126,17 +125,17 @@ export default function AdminPagina2({ s, otherBusy = false, onBusy, onRunEnd })
   const rows = (st?.rows || []).filter((r) => !filter || (GROUPS[filter] || [filter]).includes(r.status));
   const pickFilter = (g) => setFilter(filter === g ? null : g);
   const totals = running?.total || {};
-  const summary = [['p2_curatate', 'curățate'], ['p2_de_curatat', 'de curățat'], ['p2_fara', 'fără dreptunghi'], ['p2_nesigure', 'nesigure (neatinse)'], ['p2_erori', 'erori']]
+  const summary = [['p2_curatate', 'variante albe făcute'], ['p2_de_curatat', 'de făcut'], ['p2_fara', 'fără dreptunghi'], ['p2_nesigure', 'nesigure (doar originalul)'], ['p2_originale', 'originale puse la loc'], ['p2_erori', 'erori']]
     .filter(([k]) => totals[k]).map(([k, l]) => `${totals[k]} ${l}`).join(' · ');
 
   return (
     <div style={s.card}>
-      <div style={s.cardTitle}>🧽 Dreptunghiul negru de pe pagina 2 — testele de Evaluare Națională</div>
+      <div style={s.cardTitle}>⬜ Dreptunghiul negru de pe pagina 2 — testele de Evaluare Națională</div>
       {err && <div style={s.alert('error')}>{err}</div>}
       {st && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
-          <span style={st.settings.auto ? pill('#e6f4ea', '#137333') : pill('#fef7e0', '#8a6d1a')}>
-            {st.settings.auto ? '⏱ curăță singur testele noi (la 2 ore, după publicare)' : '⏱ oprit — doar din butoanele de aici'}
+          <span style={{ ...(st.settings.auto ? pill('#e6f4ea', '#137333') : pill('#fef7e0', '#8a6d1a')), whiteSpace: 'normal' }}>
+            {st.settings.auto ? '⏱ face singur varianta albă a testelor noi (la 2 ore)' : '⏱ oprit — doar din butoanele de aici'}
           </span>
           <button type="button" style={smallBtn} disabled={savingAuto} onClick={toggleAuto}>{st.settings.auto ? 'Oprește automat' : 'Pornește automat'}</button>
         </div>
@@ -144,29 +143,30 @@ export default function AdminPagina2({ s, otherBusy = false, onBusy, onRunEnd })
       {c && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, marginBottom: 12 }}>
           <Tile icon="📄" label="Teste EN" value={c.total} sub="variante + simulări" active={filter === ''} onClick={() => pickFilter('')} />
-          <Tile icon="✓" label="Curățate" value={c.curatat} tone="green" active={filter === 'curatat'} onClick={() => pickFilter('curatat')} />
-          <Tile icon="🔍" label="De curățat" value={(c.de_curatat || 0) + (c.neverificat || 0)} tone="blue" sub={c.neverificat ? `${c.neverificat} încă neverificate` : null} active={filter === 'todo'} onClick={() => pickFilter('todo')} />
+          <Tile icon="⬜" label="Cu varianta albă" value={c.curatat} tone="green" sub="+ originalul" active={filter === 'curatat'} onClick={() => pickFilter('curatat')} />
+          <Tile icon="🔍" label="De făcut" value={(c.de_curatat || 0) + (c.neverificat || 0)} tone="blue" sub={c.neverificat ? `${c.neverificat} încă neverificate` : null} active={filter === 'todo'} onClick={() => pickFilter('todo')} />
           <Tile icon="·" label="Fără dreptunghi" value={c.fara} tone="gray" sub="pe pagina 2" active={filter === 'fara'} onClick={() => pickFilter('fara')} />
-          <Tile icon="⚠" label="Nesigure / erori" value={(c.nesigur || 0) + (c.eroare || 0)} tone={(c.nesigur || 0) + (c.eroare || 0) ? 'amber' : 'gray'} sub="lăsate neatinse" active={filter === 'probleme'} onClick={() => pickFilter('probleme')} />
-          {c.restaurat ? <Tile icon="↩" label="Restaurate" value={c.restaurat} tone="amber" active={filter === 'restaurat'} onClick={() => pickFilter('restaurat')} /> : null}
+          <Tile icon="⚠" label="Nesigure / erori" value={(c.nesigur || 0) + (c.eroare || 0)} tone={(c.nesigur || 0) + (c.eroare || 0) ? 'amber' : 'gray'} sub="rămân doar cu originalul" active={filter === 'probleme'} onClick={() => pickFilter('probleme')} />
+          {c.ascuns ? <Tile icon="🙈" label="Ascunse" value={c.ascuns} tone="amber" sub="doar originalul" active={filter === 'ascuns'} onClick={() => pickFilter('ascuns')} /> : null}
         </div>
       )}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <button type="button" style={s.btnSecondary} disabled={!st || busy || otherBusy} onClick={() => run(true)}>🔍 Caută dreptunghiul (fără modificări)</button>
-        <button type="button" style={s.btnPrimary} disabled={!st || busy || otherBusy} onClick={() => run(false)}>🧽 Scoate dreptunghiul acum</button>
+        <button type="button" style={s.btnPrimary} disabled={!st || busy || otherBusy} onClick={() => run(false)}>⬜ Pune alb peste dreptunghi acum</button>
       </div>
       <div style={{ ...muted, marginTop: 8, lineHeight: 1.6 }}>
-        Pe pagina 2 a subiectelor de EN e un dreptunghi negru (spatele colțului secretizat al foii de examen). Botul îl scoate și pune PDF-ul
-        {' '}<strong style={{ color: 'var(--navy)' }}>în același loc</strong>: același nume, aceleași proprietăți (rubrică, gratuit / premium, ordine), același barem asociat.
-        Restul PDF-ului rămâne neschimbat — verificat prin randare, pixel cu pixel; dacă nu poate scoate dreptunghiul curat, lasă testul neatins („nesigur").
-        Originalul se păstrează (privat): „↩ Restaurează" îl pune la loc oricând.
+        Pe pagina 2 a subiectelor de EN e un dreptunghi negru (spatele colțului secretizat al foii de examen). Botul face o
+        {' '}<strong style={{ color: 'var(--navy)' }}>copie</strong> a testului cu un dreptunghi alb lipit peste el — acolo rămâne spațiu gol, alb.
+        {' '}<strong style={{ color: 'var(--navy)' }}>Originalul nu se atinge</strong>: același nume, aceleași proprietăți (rubrică, gratuit / premium, ordine), același barem.
+        În vizualizatorul PDF se deschide varianta albă; butonul <strong style={{ color: 'var(--navy)' }}>„⬛ Original"</strong> din bară arată originalul și devine
+        {' '}<strong style={{ color: 'var(--navy)' }}>„⬜ Fără suprafață neagră"</strong>. Restul paginii e verificat prin randare, pixel cu pixel.
       </div>
 
       {running && (
         <div style={{ marginTop: 12, border: '1px solid #e6eaf0', borderRadius: 12, padding: 12, background: '#fbfcfe' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <strong style={{ color: 'var(--navy)' }}>
-              {running.dry ? '🔍 Caut dreptunghiul (fără modificări)' : '🧽 Scot dreptunghiul'} {running.finished ? (running.error ? '— oprit de o eroare' : running.stopped ? '— oprit' : '— gata') : `— pasul ${running.steps + 1}…`}
+              {running.dry ? '🔍 Caut dreptunghiul (fără modificări)' : '⬜ Pun alb peste dreptunghi'} {running.finished ? (running.error ? '— oprit de o eroare' : running.stopped ? '— oprit' : '— gata') : `— pasul ${running.steps + 1}…`}
             </strong>
             {!running.finished ? <button type="button" style={smallBtn} onClick={() => { stopRef.current = true; }}>■ Oprește după pasul curent</button>
               : <button type="button" style={smallBtn} onClick={() => setRunning(null)}>✕ Închide</button>}
@@ -192,8 +192,7 @@ export default function AdminPagina2({ s, otherBusy = false, onBusy, onRunEnd })
               {!rows.length && <div style={{ ...muted, padding: '8px 4px' }}>Niciun test aici.</div>}
               {rows.map((r) => {
                 const lab = P2_ST[r.status] || P2_ST.neverificat;
-                const canRestore = r.backup && (r.status === 'curatat' || r.status === 'eroare');
-                const canClean = ['restaurat', 'nesigur', 'eroare', 'de_curatat', 'neverificat'].includes(r.status);
+                const canMake = ['nesigur', 'eroare', 'de_curatat', 'neverificat'].includes(r.status);
                 return (
                   <div key={r.id} style={rowBox}>
                     <div style={{ flex: '1 1 320px', minWidth: 0 }}>
@@ -201,8 +200,6 @@ export default function AdminPagina2({ s, otherBusy = false, onBusy, onRunEnd })
                       <div style={muted}>{SUB[r.subcategory] || r.subcategory}{r.is_free ? ' · gratuit' : ' · premium'}{r.at ? ` · ${r.by === 'cron' ? 'automat' : 'din Admin'}, ${fmtDate(r.at)}` : ''}</div>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4, flexWrap: 'wrap' }}>
                         <span style={pill(lab.bg, lab.fg)}>{lab.label}</span>
-                        {r.kindsText && (r.status === 'curatat' || r.status === 'de_curatat') && <span style={muted}>{r.kindsText}</span>}
-                        {(r.status === 'curatat' || r.status === 'de_curatat') && r.bytes_before && r.bytes_after ? <span style={muted}>· {kb(r.bytes_after - r.bytes_before)} în plus</span> : null}
                       </div>
                       {r.error && <div style={{ ...muted, color: '#8a6d1a', marginTop: 3 }}>{r.error}</div>}
                       {r.notes && r.notes.length ? <div style={{ ...muted, marginTop: 3 }}>{r.notes.join(' · ')}</div> : null}
@@ -211,10 +208,11 @@ export default function AdminPagina2({ s, otherBusy = false, onBusy, onRunEnd })
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                       {rowBusy[r.id] ? <span style={muted}>{rowBusy[r.id]}</span> : (
                         <>
-                          <button type="button" style={smallBtn} onClick={() => openFile(r.id, 'acum')}>📄 PDF-ul de acum</button>
-                          {r.backup && <button type="button" style={smallBtn} onClick={() => openFile(r.id, 'original')}>📄 Originalul</button>}
-                          {canRestore && <button type="button" style={{ ...smallBtn, color: '#b45309' }} onClick={() => restore(r)}>↩ Restaurează</button>}
-                          {canClean && <button type="button" style={smallBtn} disabled={busy || otherBusy} onClick={() => run(false, { ids: [r.id], force: true })}>🧽 {r.status === 'restaurat' ? 'Curăță din nou' : 'Curăță'}</button>}
+                          <button type="button" style={smallBtn} onClick={() => openFile(r.id, 'original')}>⬛ Originalul</button>
+                          {r.alb && <button type="button" style={smallBtn} onClick={() => openFile(r.id, 'alb')}>⬜ Varianta albă</button>}
+                          {r.status === 'curatat' && <button type="button" style={{ ...smallBtn, color: '#b45309' }} onClick={() => setHidden(r, true)}>🙈 Ascunde varianta albă</button>}
+                          {r.status === 'ascuns' && <button type="button" style={smallBtn} onClick={() => setHidden(r, false)}>👁 Arată varianta albă</button>}
+                          {canMake && <button type="button" style={smallBtn} disabled={busy || otherBusy} onClick={() => run(false, { ids: [r.id], force: true })}>⬜ Fă varianta albă</button>}
                         </>
                       )}
                     </div>

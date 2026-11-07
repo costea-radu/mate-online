@@ -57,7 +57,7 @@ const SEARCH_ST = {
 };
 const TIP = { sesiune: 'sesiune', rezerva: 'rezervă', speciala: 'olimpici', simulare: 'simulare', model: 'model', antrenament: 'antrenament' };
 const SURSA = { edupedu: 'edupedu.ro', 'subiecte.edu.ro': 'subiecte.edu.ro', 'edu.ro': 'edu.ro', pagina: 'pagină urmărită', cautare: 'căutare web', ai: 'AI', ghicit: 'nume oficial', arhiva: 'arhivă .zip', bot: 'bot' };
-const KIND_LABEL = { descoperire: '🔎 Căutare online', verificare: '✅ Verificarea baremelor', bareme: '🔍 Baremele lipsă', pagina2: '🧽 Dreptunghiul de pe pagina 2' };
+const KIND_LABEL = { descoperire: '🔎 Căutare online', verificare: '✅ Verificarea baremelor', bareme: '🔍 Baremele lipsă', pagina2: '⬜ Alb peste dreptunghiul de pe pagina 2' };
 
 function rubrica(r) {
   return [categoryLabel(r.category), r.subcategory ? subcategoryLabel(r.category, r.subcategory) : null, r.profile ? profileLabel(r.profile) : null].filter(Boolean).join(' · ');
@@ -567,7 +567,7 @@ export default function AdminBotExamene({ s }) {
         {!list.loading && view === 'jurnal' && shown.map((r) => {
           const stt = r.stats || {};
           const sum = (r.kind === 'pagina2'
-            ? [['p2_curatate', 'teste curățate'], ['p2_de_curatat', 'de curățat'], ['p2_fara', 'fără dreptunghi'], ['p2_nesigure', 'nesigure (neatinse)'], ['p2_erori', 'erori']]
+            ? [['p2_curatate', 'variante albe făcute'], ['p2_de_curatat', 'de făcut'], ['p2_fara', 'fără dreptunghi'], ['p2_nesigure', 'nesigure (doar originalul)'], ['p2_originale', 'originale puse la loc'], ['p2_erori', 'erori']]
             : [['publicate', 'publicate'], ['asteptare', 'de verificat'], ['duplicate', 'existau deja'], ['verificate', 'verificate'], ['bareme_gasite', 'bareme găsite'], ['asocieri', 'asocieri'], ['erori', 'erori']])
             .filter(([k]) => stt[k]).map(([k, l]) => `${stt[k]} ${l}`).join(' · ');
           return (

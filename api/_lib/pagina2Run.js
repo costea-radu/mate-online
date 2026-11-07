@@ -1,22 +1,26 @@
 // =====================================================================
-// api/_lib/pagina2Run.js — 🧽 BOTUL „DREPTUNGHIUL DE PE PAGINA 2" (testele de EN)
+// api/_lib/pagina2Run.js — ⬜ BOTUL „ALB PESTE DREPTUNGHIUL DE PE PAGINA 2" (testele de EN)
 //
-// Cererea lui Radu (6 nov. 2026): „La testele de evaluare națională, fă un bot
-// care scoate dreptunghiul negru de pe pagina 2, în rest nu schimba nimic.
-// Repostează în același loc testul, cu același nume, proprietăți și barem asociat."
+// Cererea lui Radu (7 nov. 2026): „fă cât mai simplu: lipește un dreptunghi alb peste
+// dreptunghiul negru și păstrează spațiu gol alb acolo. Pune în bară buton «original»
+// care se schimbă în «fără suprafață neagră», pentru a accesa ambele variante."
+// (Prima versiune, din 6–7 nov., scria PDF-ul curățat PESTE original, în aceeași
+// cale, apoi îl descărca să-l verifice — și cache-ul Storage dădea înapoi fișierul
+// vechi: „fișierul urcat nu se potrivește la verificare".)
 //
 // Testele: Evaluare Națională → „Variante date + modele" și „Simulări" (PDF).
 // Pentru fiecare test (o singură dată; din nou doar dacă i se înlocuiește fișierul):
 //   1. descarcă PDF-ul din Storage (cu service role);
-//   2. motorul (api/_lib/pagina2.js) caută și scoate dreptunghiul, salvează
-//      incremental și verifică prin randare că în rest nu s-a schimbat nimic;
-//   3. copia ORIGINALULUI → content-files (privat) / _pagina2-originale/<id>/…
-//      (pentru „↩ Restaurează"; se păstrează mereu);
-//   4. PDF-ul curățat se urcă PESTE cel vechi, în aceeași cale din Storage →
-//      adresa (file_url) rămâne aceeași, deci rândul din `content` (titlul,
-//      rubrica, gratuit / premium, ordinea, data) NU se atinge, iar baremul
-//      asociat (ai_pdf_text, legat de content_id + file_url) rămâne același;
-//   5. îl descarcă din nou și compară amprenta (SHA-256) cu ce a urcat.
+//   2. motorul (api/_lib/pagina2.js) găsește dreptunghiul și lipește alb peste el,
+//      pe o copie; verifică prin randare că în rest nu s-a schimbat nimic;
+//   3. copia („varianta albă") se urcă ÎN ALT LOC, în același bucket:
+//      `_pagina2-alb/<id>/<amprenta>_<nume>.pdf` — o cale nouă de fiecare dată
+//      (amprenta în nume), deci nu se scrie niciodată peste nimic;
+//   4. ORIGINALUL RĂMÂNE NEATINS, la adresa lui (file_url): rândul din `content`
+//      (titlu, rubrică, gratuit / premium, ordine) și baremul asociat (ai_pdf_text)
+//      nu se schimbă.
+// Vizualizatorul PDF deschide varianta albă, cu butonul „⬛ Original" / „⬜ Fără
+// suprafață neagră" în bară (api/get-file-url.js → api/_lib/pagina2Alb.js).
 // Starea fiecărui test: app_settings 'pagina2:<content_id>' (fără SQL nou).
 // Setarea (cronul îl rulează singur sau nu): app_settings 'pagina2' = { auto }.
 //
@@ -29,21 +33,17 @@ const crypto = require('node:crypto');
 const http = require('./http');
 const SET = require('./settings');
 const P2 = require('./pagina2');
+const ALB = require('./pagina2Alb');
 
 const SETTINGS_KEY = 'pagina2';
-const STATE_PREFIX = 'pagina2:';
-const CATEGORY = 'evaluare-nationala';
-const SUBCATS = ['variante', 'simulari'];
+const { STATE_PREFIX, CATEGORY, SUBCATS, ALB_DIR } = ALB;
 const CONTENT_BUCKETS = ['content-files', 'content-files-free'];
-const BACKUP_BUCKET = 'content-files';          // privat: originalele nu sunt publice
-const BACKUP_DIR = '_pagina2-originale';
 const ERR_LIMIT = 300;                          // erori MuPDF pe o instanță, înainte de una nouă (vezi pagina2.js)
 const MAX_ATTEMPTS = 3;                         // „eroare" se reîncearcă de cel mult atâtea ori (apoi o dată pe zi)
 const COLS = 'id, title, category, subcategory, content_type, file_url, is_free, created_at';
 
 const nowIso = () => new Date().toISOString();
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
-const kb = (n) => `${Math.round(n / 102.4) / 10} KB`;
 function fail(status, message, code = null) { const e = new Error(message); e.status = status; if (code) e.code = code; return e; }
 const errMsg = (e) => (e && e.message ? e.message : String(e));
 
@@ -59,7 +59,7 @@ async function saveSettings(supa, value, userId = null) {
 }
 
 // ─── testele și starea lor ──────────────────────────────────────────────────
-const isTest = (r) => !!r && r.category === CATEGORY && r.content_type === 'pdf' && SUBCATS.includes(r.subcategory) && !!r.file_url;
+const isTest = ALB.isEnTest;
 async function loadTests(supa, ids = null) {
   let rows;
   if (ids && ids.length) {
@@ -86,13 +86,14 @@ const saveState = (supa, id, st) => SET.writeSetting(supa, STATE_PREFIX + id, st
 function needsWork(row, st, { force = false, dry = false, now = Date.now() } = {}) {
   if (force) return true;
   if (!st || st.file_url !== row.file_url) return true;              // nou / fișier înlocuit din Admin
+  if ((st.v || 0) < P2.VERSION) return true;                         // starea versiunii vechi a botului (scria peste original)
+  if (st.v1 && !dry) return true;                                    // originalul încă de pus la loc (după o căutare „fără modificări")
   if (st.status === 'eroare') {
     const t = Date.parse(st.at) || 0;
     return (st.attempts || 0) < MAX_ATTEMPTS || now - t > 86400000;
   }
-  if (st.status === 'fara' || st.status === 'nesigur') return (st.v || 0) < P2.VERSION;   // motorul s-a schimbat
   if (st.status === 'de_curatat') return !dry;
-  return false;                                                       // curatat · restaurat
+  return false;                                                       // curatat · fara · nesigur
 }
 
 // ─── motorul (o instanță MuPDF, înlocuită după o cădere / prea multe erori) ──
@@ -104,11 +105,11 @@ async function engine(ctx, { fresh = false } = {}) {
   }
   return inst.mupdf;
 }
-async function cleanBytes(ctx, buf) {
-  let r = P2.cleanPage2(await engine(ctx), buf);
+async function albBytes(ctx, buf) {
+  let r = P2.albPage2(await engine(ctx), buf);
   if (r.status === 'eroare' && P2.isWasmCrash(r.error)) {
     ctx.log('♻ MuPDF a căzut — reiau fișierul cu o instanță nouă');
-    r = P2.cleanPage2(await engine(ctx, { fresh: true }), buf);
+    r = P2.albPage2(await engine(ctx, { fresh: true }), buf);
   }
   return r;
 }
@@ -130,95 +131,118 @@ async function upload(supa, bucket, path, bytes, { upsert }) {
   return error || null;
 }
 const baseName = (p) => String(p).split('/').pop() || 'test.pdf';
+const pick = (r) => ({ rect: r.rect || null, box: r.box || null, notes: r.notes && r.notes.length ? r.notes : null, pages: r.pages || null, incremental: r.incremental === undefined ? null : !!r.incremental });
 
-// copia originalului (o dată; numele are amprenta, deci aceeași copie se refolosește)
-async function backupOriginal(supa, row, loc, buf, sha, prev) {
-  if (prev && prev.backup && prev.backup.sha === sha) return prev.backup;
-  const path = `${BACKUP_DIR}/${row.id}/${sha.slice(0, 12)}_${baseName(loc.filePath)}`;
-  const err = await upload(supa, BACKUP_BUCKET, path, buf, { upsert: false });
-  if (err && !/exist|duplicate|already/i.test(String(err.message || err))) throw new Error(`copia originalului nu s-a salvat (${err.message || err})`);
-  const back = await download(supa, BACKUP_BUCKET, path);
-  if (sha256(back) !== sha) throw new Error('copia originalului nu se potrivește cu fișierul (nu am atins testul)');
-  return { bucket: BACKUP_BUCKET, path, sha, bytes: buf.length, at: nowIso() };
+// 🔙 Versiunea veche a botului (6–7 nov.) urca PDF-ul curățat PESTE original (și
+// putea reuși la o rulare a cronului de dinaintea actualizării). Dacă fișierul de
+// acum e cel scris de ea, punem la loc originalul din copia ei privată
+// (`content-files/_pagina2-originale/<id>/…`): „⬛ Original" din vizualizator trebuie
+// să fie chiar originalul. Datele ei — { backup, sha_after, sha_bad } — vin din
+// starea veche (v1) sau, după o căutare „fără modificări", din `v1` al stării noi.
+function legacyOf(prev) {
+  if (!prev) return null;
+  if (prev.v1 && prev.v1.backup) return prev.v1;
+  if ((prev.v || 0) < 2 && prev.backup) return { backup: prev.backup, sha_after: prev.sha_after || null, sha_bad: prev.sha_bad || null };
+  return null;
+}
+function writtenByV1(v1, sha) {
+  return !!(v1 && v1.backup && v1.backup.sha && v1.backup.sha !== sha && [v1.sha_after, v1.sha_bad].filter(Boolean).includes(sha));
+}
+async function v1Original(ctx, v1) {
+  const orig = await download(ctx.supa, v1.backup.bucket, v1.backup.path);
+  if (sha256(orig) !== v1.backup.sha) throw new Error('copia originalului (de la versiunea veche a botului) nu mai e întreagă — nu am atins testul');
+  return orig;
+}
+async function restoreV1Original(ctx, row, loc, v1) {
+  const orig = await v1Original(ctx, v1);
+  const { data: cur } = await ctx.supa.from('content').select('id, file_url').eq('id', row.id).maybeSingle();
+  if (!cur || cur.file_url !== row.file_url) throw new Error('fișierul testului s-a schimbat între timp — îl iau la rularea următoare');
+  const err = await upload(ctx.supa, loc.bucket, loc.filePath, orig, { upsert: true });
+  if (err) throw new Error(`nu am putut pune originalul la loc (${err.message || err})`);
+  ctx.stats.p2_originale = (ctx.stats.p2_originale || 0) + 1;
+  ctx.log(`↩ „${row.title}": am pus la loc originalul (versiunea veche a botului scrisese peste el)`);
+  return orig;
 }
 
 // ─── un test ─────────────────────────────────────────────────────────────────
-const KIND_RO = { vector: 'desen', subpaths: 'bucăți de desen', image: 'imagine', mask: 'mască', inline: 'imagine inline', form: 'formular', overlay: 'alb peste scanare', hidden: 'ce era sub el rămâne ascuns' };
-const kindsText = (k) => Object.entries(k || {}).filter(([, n]) => n).map(([key, n]) => (key === 'hidden' ? KIND_RO.hidden : `${KIND_RO[key] || key}${n > 1 ? ` ×${n}` : ''}`)).join(', ');
-const pick = (r) => ({ rect: r.rect || null, kinds: r.kinds || null, overlay: r.overlay || null, notes: r.notes && r.notes.length ? r.notes : null, pages: r.pages || null, incremental: r.incremental === undefined ? null : !!r.incremental });
-
 async function processOne(ctx, row, prev, { dry = false } = {}) {
   const { supa } = ctx;
   const base = { v: P2.VERSION, file_url: row.file_url, at: nowIso(), by: ctx.by || 'admin' };
   const stats = ctx.stats;
   stats.p2_verificate = (stats.p2_verificate || 0) + 1;
-  const keepBackup = prev && prev.file_url === row.file_url && prev.backup ? { backup: prev.backup } : {};
+  const same = !!(prev && prev.file_url === row.file_url);
+  // alegerea adminului („🙈 Ascunde varianta albă") rămâne
+  const keep = same && prev.hidden ? { hidden: true, hidden_at: prev.hidden_at || null, hidden_by: prev.hidden_by || null } : {};
+  const v1 = same ? legacyOf(prev) : null;
+  // cât nu știm că la adresa testului e originalul, datele versiunii vechi rămân în stare
+  let pending = v1 ? { v1 } : {};
   const saveErr = async (message, extra = {}) => {
     stats.p2_erori = (stats.p2_erori || 0) + 1;
-    const attempts = (prev && prev.status === 'eroare' && prev.file_url === row.file_url ? prev.attempts || 0 : 0) + 1;
-    const st = { ...base, ...keepBackup, ...extra, status: 'eroare', error: String(message).slice(0, 300), attempts };
+    const attempts = (same && prev.status === 'eroare' && (prev.v || 0) >= P2.VERSION ? prev.attempts || 0 : 0) + 1;
+    const st = { ...base, ...keep, ...pending, ...extra, status: 'eroare', error: String(message).slice(0, 300), attempts };
     await saveState(supa, row.id, st);
     ctx.log(`⚠ „${row.title}": ${message}`);
     return st;
   };
   let loc, buf;
   try { loc = locate(row); buf = await download(supa, loc.bucket, loc.filePath); } catch (e) { return saveErr(errMsg(e)); }
-  const sha = sha256(buf);
-  // fișierul e chiar cel curățat de noi → nimic de făcut (nu-l „curățăm" a doua oară)
-  if (prev && prev.status === 'curatat' && prev.file_url === row.file_url && prev.sha_after === sha) {
-    ctx.log(`= „${row.title}": e deja curățat`);
+  let sha = sha256(buf);
+  if (writtenByV1(v1, sha)) {
+    if (dry) {
+      // „fără modificări": analizăm originalul din copie, fără să scriem ceva (rularea adevărată îl pune la loc)
+      try { buf = await v1Original(ctx, v1); } catch (e) { return saveErr(errMsg(e)); }
+    } else {
+      try { buf = await restoreV1Original(ctx, row, loc, v1); } catch (e) { return saveErr(errMsg(e)); }
+      pending = {};
+    }
+    sha = v1.backup.sha;
+  } else pending = {};                 // la adresa testului e originalul
+  // are deja varianta albă a ACESTUI original → nimic de făcut
+  if (same && (prev.v || 0) >= P2.VERSION && prev.status === 'curatat' && prev.sha_before === sha && prev.alb) {
+    ctx.log(`= „${row.title}": are deja varianta albă`);
     return prev;
   }
   const t0 = Date.now();
-  const r = await cleanBytes(ctx, buf);
+  const r = await albBytes(ctx, buf);
   const ms = Date.now() - t0;
+  const info = { ...pick(r), sha_before: sha, bytes_before: buf.length, ms };
   if (r.status === 'fara') {
     stats.p2_fara = (stats.p2_fara || 0) + 1;
-    const st = { ...base, ...keepBackup, status: 'fara', ...pick(r), sha_before: sha, bytes_before: buf.length, ms };
+    const st = { ...base, ...pending, status: 'fara', ...info };
     await saveState(supa, row.id, st);
     ctx.log(`· „${row.title}": pagina 2 nu are dreptunghiul negru${r.notes && r.notes.length ? ` (${r.notes.join('; ')})` : ''}`);
     return st;
   }
   if (r.status === 'nesigur') {
     stats.p2_nesigure = (stats.p2_nesigure || 0) + 1;
-    const st = { ...base, ...keepBackup, status: 'nesigur', ...pick(r), error: r.error || null, sha_before: sha, bytes_before: buf.length, ms };
+    const st = { ...base, ...keep, ...pending, status: 'nesigur', ...info, error: r.error || null };
     await saveState(supa, row.id, st);
-    ctx.log(`⚠ „${row.title}": am găsit dreptunghiul, dar nu-l pot scoate sigur (${r.error}) — testul rămâne neatins`);
+    ctx.log(`⚠ „${row.title}": am găsit dreptunghiul, dar albul nu iese curat (${r.error}) — rămâne doar originalul`);
     return st;
   }
   if (r.status !== 'curatat' || !r.bytes) return saveErr(r.error || 'motorul nu a întors fișierul');
 
   if (dry) {
     stats.p2_de_curatat = (stats.p2_de_curatat || 0) + 1;
-    const st = { ...base, ...keepBackup, status: 'de_curatat', ...pick(r), sha_before: sha, bytes_before: buf.length, bytes_after: r.bytes.length, ms };
+    const st = { ...base, ...keep, ...pending, status: 'de_curatat', ...info, bytes_after: r.bytes.length };
     await saveState(supa, row.id, st);
-    ctx.log(`🔍 „${row.title}": dreptunghi găsit (${kindsText(r.kinds)}) — se poate scoate (${kb(r.bytes.length - buf.length)} în plus)`);
+    ctx.log(`🔍 „${row.title}": dreptunghi găsit — se poate acoperi cu alb`);
     return st;
   }
 
-  // copia originalului, apoi fișierul nou PESTE cel vechi (aceeași cale)
-  let backup;
-  try { backup = await backupOriginal(supa, row, loc, buf, sha, prev); } catch (e) { return saveErr(errMsg(e)); }
-  // între timp, adminul a înlocuit fișierul testului? → nu scriem peste
-  const { data: cur } = await supa.from('content').select('id, file_url').eq('id', row.id).maybeSingle();
-  if (!cur || cur.file_url !== row.file_url) { ctx.log(`= „${row.title}": fișierul s-a schimbat între timp — îl iau la rularea următoare`); return prev || null; }
-  const shaAfter = sha256(r.bytes);
-  const upErr = await upload(supa, loc.bucket, loc.filePath, r.bytes, { upsert: true });
-  if (upErr) return saveErr(`urcarea fișierului curățat a eșuat (${upErr.message || upErr}) — testul a rămas cel vechi`);
-  let check = null;
-  try { check = sha256(await download(supa, loc.bucket, loc.filePath)); } catch (e) { check = `eroare: ${errMsg(e)}`; }
-  if (check !== shaAfter) {
-    // ceva nu e în regulă → punem originalul la loc (și verificăm); copia rămâne pentru „↩ Restaurează"
-    const back = await upload(supa, loc.bucket, loc.filePath, buf, { upsert: true });
-    let restored = false;
-    if (!back) { try { restored = sha256(await download(supa, loc.bucket, loc.filePath)) === sha; } catch { restored = false; } }
-    return saveErr(`fișierul urcat nu se potrivește la verificare — ${restored ? 'am pus originalul la loc' : 'nici originalul nu l-am putut pune la loc: folosește „↩ Restaurează"'}`,
-      restored ? { backup } : { backup, sha_before: sha, sha_after: shaAfter, sha_bad: typeof check === 'string' && check.length === 64 ? check : null });
-  }
+  // varianta albă: o cale NOUĂ (amprenta ei în nume), în bucket-ul originalului
+  const shaAlb = sha256(r.bytes);
+  const alb = { bucket: loc.bucket, path: `${ALB_DIR}/${row.id}/${shaAlb.slice(0, 12)}_${baseName(loc.filePath)}`, sha: shaAlb, bytes: r.bytes.length, at: nowIso() };
+  const upErr = await upload(supa, alb.bucket, alb.path, r.bytes, { upsert: false });
+  if (upErr && !/exist|duplicate|already/i.test(String(upErr.message || upErr))) return saveErr(`urcarea variantei albe a eșuat (${upErr.message || upErr}) — originalul a rămas neatins`);
   stats.p2_curatate = (stats.p2_curatate || 0) + 1;
-  const st = { ...base, status: 'curatat', ...pick(r), backup, sha_before: sha, sha_after: shaAfter, bytes_before: buf.length, bytes_after: r.bytes.length, ms };
+  const st = { ...base, ...keep, status: 'curatat', ...info, alb, bytes_after: r.bytes.length };
   await saveState(supa, row.id, st);
-  ctx.log(`🧽 „${row.title}": dreptunghiul de pe pagina 2 a fost scos (${kindsText(r.kinds)}) · ${kb(r.bytes.length - buf.length)} în plus`);
+  // varianta albă de dinainte (alt fișier / alt bucket) nu mai folosește la nimic
+  if (prev && prev.alb && (prev.alb.bucket !== alb.bucket || prev.alb.path !== alb.path)) {
+    try { await supa.storage.from(prev.alb.bucket).remove([prev.alb.path]); } catch { /* rămâne un fișier în plus, nefolosit */ }
+  }
+  ctx.log(`⬜ „${row.title}": varianta fără suprafața neagră e gata (alb peste dreptunghi; originalul rămâne)`);
   return st;
 }
 
@@ -237,7 +261,7 @@ async function cleanStep(ctx, { ids = null, force = false, dry = false, max = nu
     results.push({ id: r.id, status: st ? st.status : null });
     done++;
   }
-  if (!todo.length) ctx.log(dry ? '🔍 nimic nou de căutat: toate testele au fost deja verificate' : '🧽 nimic de făcut: toate testele sunt deja verificate');
+  if (!todo.length) ctx.log(dry ? '🔍 nimic nou de căutat: toate testele au fost deja verificate' : '⬜ nimic de făcut: toate testele sunt deja verificate');
   return { total: rows.length, todo: todo.length, done, left: Math.max(0, todo.length - done), results };
 }
 
@@ -256,55 +280,44 @@ async function cronStep(supa, step) {
 async function status(supa) {
   const [settings, rows] = await Promise.all([loadSettings(supa), loadTests(supa)]);
   const states = await loadStates(supa, rows.map((r) => r.id));
-  const counts = { total: rows.length, curatat: 0, fara: 0, nesigur: 0, eroare: 0, restaurat: 0, de_curatat: 0, neverificat: 0 };
+  const counts = { total: rows.length, curatat: 0, ascuns: 0, fara: 0, nesigur: 0, eroare: 0, de_curatat: 0, neverificat: 0 };
   const list = rows.map((r) => {
     let st = states.get(r.id) || null;
-    if (st && st.file_url !== r.file_url) st = null;      // fișier înlocuit: încă neverificat
-    const s = st ? st.status : 'neverificat';
+    if (st && (st.file_url !== r.file_url || (st.v || 0) < P2.VERSION)) st = null;   // fișier înlocuit / starea versiunii vechi: încă neverificat
+    let s = st ? st.status : 'neverificat';
+    if (s === 'curatat' && st.hidden) s = 'ascuns';
     counts[s] = (counts[s] || 0) + 1;
     return {
       id: r.id, title: r.title, subcategory: r.subcategory, is_free: !!r.is_free, created_at: r.created_at,
-      status: s, at: st ? st.at : null, by: st ? st.by : null, kinds: st ? st.kinds : null, kindsText: st ? kindsText(st.kinds) : '',
-      rect: st ? st.rect : null, overlay: st ? st.overlay : null, notes: st ? st.notes : null, error: st ? st.error || null : null,
+      status: s, at: st ? st.at : null, by: st ? st.by : null,
+      rect: st ? st.rect || null : null, box: st ? st.box || null : null, notes: st ? st.notes || null : null, error: st ? st.error || null : null,
       bytes_before: st ? st.bytes_before || null : null, bytes_after: st ? st.bytes_after || null : null,
-      backup: !!(st && st.backup), restored_at: st ? st.restored_at || null : null,
+      alb: !!(st && st.alb), hidden: !!(st && st.hidden),
     };
   });
   return { settings: settings.value, settingsSetup: settings.setup, version: P2.VERSION, counts, rows: list };
 }
 
-// ─── ↩ restaurarea originalului ──────────────────────────────────────────────
-async function restore(supa, contentId, { userId = null } = {}) {
+// ─── 🙈 ascunde / 👁 arată varianta albă (vizualizatorul arată atunci doar originalul) ─
+async function hide(supa, contentId, on = true, { userId = null } = {}) {
   const { data: row } = await supa.from('content').select(COLS).eq('id', contentId).maybeSingle();
   if (!row) throw fail(404, 'Testul nu mai există.');
   const st = (await loadStates(supa, [contentId])).get(contentId);
-  if (!st || !st.backup) throw fail(404, 'Nu am copia originalului pentru acest test (n-a fost curățat de bot).');
-  if (st.file_url !== row.file_url) throw fail(409, 'Testul are între timp alt fișier (înlocuit din Admin) — copia veche nu se mai pune peste el.');
-  const loc = locate(row);
-  const curSha = sha256(await download(supa, loc.bucket, loc.filePath));
-  // fișierul de acum trebuie să fie al nostru: cel curățat, originalul sau (după o urcare stricată) ce a rămas atunci
-  if (![st.sha_after, st.backup.sha, st.sha_bad].filter(Boolean).includes(curSha)) throw fail(409, 'Fișierul testului s-a schimbat de la curățare — nu-l suprascriu.');
-  if (curSha !== st.backup.sha) {
-    const orig = await download(supa, st.backup.bucket, st.backup.path);
-    if (sha256(orig) !== st.backup.sha) throw fail(500, 'Copia originalului nu mai e întreagă — nu am atins testul.');
-    const err = await upload(supa, loc.bucket, loc.filePath, orig, { upsert: true });
-    if (err) throw fail(500, `Restaurarea a eșuat: ${err.message || err}`);
-    const check = sha256(await download(supa, loc.bucket, loc.filePath));
-    if (check !== st.backup.sha) throw fail(500, 'Fișierul restaurat nu se potrivește la verificare — mai încearcă o dată.');
-  }
-  const next = { ...st, status: 'restaurat', restored_at: nowIso(), restored_by: userId || null };
+  if (!st || (st.v || 0) < P2.VERSION || st.file_url !== row.file_url || !st.alb) throw fail(404, 'Testul n-are încă varianta albă.');
+  const next = { ...st, hidden: !!on, hidden_at: on ? nowIso() : null, hidden_by: on ? userId || null : null };
   await saveState(supa, contentId, next);
-  return { ok: true, status: next.status };
+  return { ok: true, hidden: !!on };
 }
 
-// linkul (semnat, 10 minute) la fișierul de acum sau la original
-async function link(supa, contentId, which = 'acum') {
+// linkul (semnat, 10 minute) la original sau la varianta albă
+async function link(supa, contentId, which = 'original') {
   const { data: row } = await supa.from('content').select(COLS).eq('id', contentId).maybeSingle();
   if (!row || !row.file_url) throw fail(404, 'Testul nu mai există.');
-  if (which === 'original') {
+  if (which === 'alb') {
     const st = (await loadStates(supa, [contentId])).get(contentId);
-    if (!st || !st.backup) throw fail(404, 'Nu am copia originalului pentru acest test.');
-    const { data, error } = await supa.storage.from(st.backup.bucket).createSignedUrl(st.backup.path, 600);
+    const a = st && (st.v || 0) >= P2.VERSION && st.file_url === row.file_url ? st.alb : null;
+    if (!a) throw fail(404, 'Testul n-are încă varianta albă.');
+    const { data, error } = await supa.storage.from(a.bucket).createSignedUrl(a.path, 600);
     if (error || !data || !data.signedUrl) throw fail(500, 'Nu am putut face linkul.');
     return { url: data.signedUrl };
   }
@@ -312,7 +325,7 @@ async function link(supa, contentId, which = 'acum') {
 }
 
 module.exports = {
-  SETTINGS_KEY, STATE_PREFIX, CATEGORY, SUBCATS, BACKUP_BUCKET, BACKUP_DIR, MAX_ATTEMPTS,
-  loadSettings, saveSettings, normSettings, loadTests, loadStates, needsWork, processOne, cleanStep, cronStep, status, restore, link, kindsText,
+  SETTINGS_KEY, STATE_PREFIX, CATEGORY, SUBCATS, ALB_DIR, MAX_ATTEMPTS,
+  loadSettings, saveSettings, normSettings, loadTests, loadStates, needsWork, processOne, cleanStep, cronStep, status, hide, link,
   _reset: () => { inst = null; },
 };

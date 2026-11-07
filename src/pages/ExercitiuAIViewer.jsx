@@ -18,6 +18,7 @@ import { ReviewToast } from '../components/ReviewWidget';
 import { ChatPanel, TutorFab } from '../components/AITutor';
 import EinsteinIcon from '../components/EinsteinIcon';
 import { injectTutorBridge } from '../lib/tutorBridge';
+import { useBaraSusVizibila, paddingBara } from '../lib/baraSus';
 
 export default function ExercitiuAIViewer() {
   const navigate = useNavigate();
@@ -34,6 +35,8 @@ export default function ExercitiuAIViewer() {
   const [autoPrompt, setAutoPrompt] = useState(null); // „Nu înțeleg acest pas" din iframe
   const iframeRef = useRef(null);
   const [narrow, setNarrow] = useState(typeof window !== 'undefined' && window.innerWidth < 800);
+  // pe telefon, bara de sus rămâne la vedere (src/lib/baraSus.js)
+  useBaraSusVizibila();
   useEffect(() => {
     const onResize = () => setNarrow(window.innerWidth < 800);
     window.addEventListener('resize', onResize);
@@ -105,8 +108,8 @@ export default function ExercitiuAIViewer() {
 
   const bar = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '10px 20px', background: 'var(--navy)', flexShrink: 0,
-    boxShadow: '0 2px 8px rgba(0,0,0,0.3)', gap: 12,
+    ...paddingBara(10, narrow ? 10 : 20), background: 'var(--navy)', flexShrink: 0,
+    boxShadow: '0 2px 8px rgba(0,0,0,0.3)', gap: narrow ? 8 : 12,
   };
   const closeBtn = {
     background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
@@ -130,7 +133,9 @@ export default function ExercitiuAIViewer() {
   const testActiv = !!(state?.gtId || state?.mode === 'group');
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#1a1a2e' }}>
+    <div className="exai-root" style={{ display: 'flex', flexDirection: 'column', background: '#1a1a2e' }}>
+      {/* 100dvh pe telefon: altfel bara browserului taie partea de jos */}
+      <style>{'.exai-root{height:100vh;height:100dvh}'}</style>
       <div style={bar}>
         <button onClick={() => navigate(-1)} style={closeBtn}>✕ Închide</button>
         <span style={{ color: '#fff', fontWeight: 600, fontSize: '0.9rem', flex: 1, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

@@ -21,11 +21,12 @@
 //   { action: 'item_publish', itemId, edits? }             → „De verificat" → publicat
 //   { action: 'item_reject' | 'item_retry', itemId }
 //   { action: 'settings', value }
-//   🧽 dreptunghiul negru de pe pagina 2 a testelor de EN (api/_lib/pagina2Run.js):
+//   ⬜ alb peste dreptunghiul negru de pe pagina 2 a testelor de EN (api/_lib/pagina2Run.js),
+//   pe o copie — originalul rămâne neatins:
 //   { action: 'pagina2_status' }                           → raportul + lista testelor
 //   { action: 'pagina2_step', runId?, dry?, ids?, force? } → un pas (dry: doar caută, nu schimbă nimic)
-//   { action: 'pagina2_restore', contentId }               → pune la loc PDF-ul original
-//   { action: 'pagina2_link', contentId, which }           → link (10 min) la fișierul de acum / original
+//   { action: 'pagina2_hide', contentId, on }              → ascunde / arată varianta albă (în vizualizator)
+//   { action: 'pagina2_link', contentId, which }           → link (10 min) la original / la varianta albă ('alb')
 //   { action: 'pagina2_settings', value: { auto } }        → îl rulează cronul singur sau nu
 // Logica: api/_lib/examBotRun.js · examBot.js · examBotNet.js. SQL: supabase/bot_examene.sql.
 // =====================================================================
@@ -67,7 +68,7 @@ async function step(supa, userId, body) {
   }
 }
 
-// 🧽 un pas al botului „dreptunghiul de pe pagina 2" (aceeași evidență: exam_bot_runs, kind 'pagina2')
+// ⬜ un pas al botului „alb peste dreptunghiul de pe pagina 2" (aceeași evidență: exam_bot_runs, kind 'pagina2')
 async function pagina2Step(supa, body) {
   const dry = body.dry === true;
   const ids = Array.isArray(body.ids) ? body.ids.map(uuidOrNull).filter(Boolean) : null;
@@ -115,11 +116,11 @@ module.exports = async function handler(req, res) {
     if (action === 'pagina2_status') return res.status(200).json(await P2R.status(supa));
     if (action === 'pagina2_step') return res.status(200).json(await pagina2Step(supa, b));
     if (action === 'pagina2_settings') return res.status(200).json({ ok: true, settings: await P2R.saveSettings(supa, b.value || {}, userId) });
-    if (action === 'pagina2_restore' || action === 'pagina2_link') {
+    if (action === 'pagina2_hide' || action === 'pagina2_link') {
       const id = uuidOrNull(b.contentId);
       if (!id) return res.status(400).json({ error: 'contentId lipsă' });
-      if (action === 'pagina2_link') return res.status(200).json(await P2R.link(supa, id, b.which === 'original' ? 'original' : 'acum'));
-      return res.status(200).json(await P2R.restore(supa, id, { userId }));
+      if (action === 'pagina2_link') return res.status(200).json(await P2R.link(supa, id, b.which === 'alb' ? 'alb' : 'original'));
+      return res.status(200).json(await P2R.hide(supa, id, b.on !== false, { userId }));
     }
 
     const contentId = uuidOrNull(b.contentId);

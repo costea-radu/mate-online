@@ -13,6 +13,7 @@ import { pdfFrameSrc, pageWidthPt, pdfColumnWidth, paginiPanelWidth, readPaginiP
 import { loadPdfJs, pdfInlineSupport } from '../lib/pdfjs';
 import PdfCanvasViewer from '../components/PdfCanvasViewer';
 import { examDocumentHtml, printExam } from '../lib/examPrint';
+import { useBaraSusVizibila, paddingBara } from '../lib/baraSus';
 
 function isMobile() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -48,6 +49,13 @@ export default function PDFViewer() {
   const [blobUrl, setBlobUrl] = useState(null);
   const [pdfData, setPdfData] = useState(null);       // ArrayBuffer — viewerul intern de pe mobil
   const [viewerFailed, setViewerFailed] = useState(false); // pdf.js indisponibil → varianta veche
+  // ⬜ / ⬛ Testele de EN (7 nov. 2026): varianta „fără suprafață neagră" — alb lipit
+  // peste dreptunghiul negru de pe pagina 2 (botul: api/_lib/pagina2Run.js) — se
+  // deschide implicit; „⬛ Original" din bară arată PDF-ul neatins, iar butonul devine
+  // „⬜ Fără suprafață neagră". Fiecare variantă se aduce o singură dată (variantsRef).
+  const [varianta, setVarianta] = useState(null);   // null = fără variantă albă · 'alb' · 'original'
+  const [varLoading, setVarLoading] = useState(false);
+  const variantsRef = useRef({});                   // { forId, alb: { data, url }, original: { data, url } }
   // 🖥️ Vizualizatorul (4 nov. 2026): al browserului (iframe) sau al site-ului (pdf.js
   // pe <canvas>). Implicit al site-ului unde browserul n-are vizualizator PDF — pe
   // tablele interactive (Samsung Flip / Tizen, Android) iframe-ul rămânea cu „file
@@ -444,26 +452,10 @@ export default function PDFViewer() {
   }, []);
 
   // iOS: tastatura poate „împinge" pagina în sus; după închiderea ei rămânea
-  // aplicația deplasată, cu o zonă goală dedesubt. O readucem la poziția 0
-  // (doar când nu se scrie — cât timp e focus pe input, lăsăm iOS să-l țină vizibil).
-  useEffect(() => {
-    let t = null;
-    const reset = () => {
-      clearTimeout(t);
-      t = setTimeout(() => {
-        const ae = document.activeElement;
-        const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable);
-        if (!typing) { try { window.scrollTo(0, 0); } catch { /* noop */ } }
-      }, 120);
-    };
-    window.addEventListener('focusout', reset);
-    window.visualViewport?.addEventListener('resize', reset);
-    return () => {
-      clearTimeout(t);
-      window.removeEventListener('focusout', reset);
-      window.visualViewport?.removeEventListener('resize', reset);
-    };
-  }, []);
+  // aplicația deplasată (bara de sus sub ceas și baterie). O readucem la poziția 0
+  // (doar când nu se scrie — cât timp e tastatura deschisă, iOS ține câmpul la vedere).
+  // Același lucru și în testele interactive: src/lib/baraSus.js.
+  useBaraSusVizibila();
 
   useEffect(() => {
     if (authLoading) return;
@@ -478,9 +470,12 @@ export default function PDFViewer() {
     }
 
     let createdUrl = null; // pt. revocarea CORECTĂ a blob-ului în cleanup
+    const forId = item.id || null;
+    variantsRef.current = { forId };
     async function load() {
       try {
         let buffer;
+        let which = null;  // testele de EN cu variantă albă: 'alb' (implicit) / 'original'
         if (item.lib) {
           // PDF din bibliotecă: URL semnat de server (sau base64-ul vechilor PDF-uri mici)
           const b = await aiClient.getLibraryPdfBlob(lib?.payload || {});
@@ -488,22 +483,28 @@ export default function PDFViewer() {
         } else {
           // Semnăm TOT (gratuit + premium) prin get-file-url — funcționează și pe
           // bucket privat, deci nu mai depindem de URL-uri publice brute.
+          // `variante`: la testele de EN vine și linkul variantei fără suprafața neagră
           const res = await fetch('/api/get-file-url', {
             method: 'POST',
             headers: await authHeaders(),
-            body: JSON.stringify({ contentId: item.id, grant }),
+            body: JSON.stringify({ contentId: item.id, grant, variante: true }),
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error);
           const url = data.url;
 
-          const response = await fetch(url);
+          // întâi varianta fără suprafața neagră; dacă nu vine, originalul (fără buton)
+          let response = data.alb ? await fetch(data.alb).catch(() => null) : null;
+          if (response && response.ok) which = 'alb';
+          else response = await fetch(url);
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           buffer = await response.arrayBuffer();
         }
         const blob = new Blob([buffer], { type: 'application/pdf' });
         const localUrl = URL.createObjectURL(blob);
         createdUrl = localUrl;
+        if (which) variantsRef.current = { forId, [which]: { data: buffer, url: localUrl } };
+        setVarianta(which);
         setPdfData(buffer);
         setBlobUrl(localUrl);
       } catch (err) {
@@ -519,8 +520,51 @@ export default function PDFViewer() {
     return () => {
       // revocăm URL-ul CHIAR creat (starea blobUrl e încă null când rulează efectul)
       if (createdUrl) URL.revokeObjectURL(createdUrl);
+      // și cealaltă variantă, adusă la „⬛ Original" / „⬜ Fără suprafață neagră"
+      const v = variantsRef.current || {};
+      for (const k of ['alb', 'original']) if (v[k] && v[k].url && v[k].url !== createdUrl) URL.revokeObjectURL(v[k].url);
+      variantsRef.current = {};
     };
   }, [authLoading, item, isPremium, isAdmin, grant, lib]);
+
+  // „⬛ Original" ↔ „⬜ Fără suprafață neagră": cealaltă variantă se aduce la primul clic
+  // (link semnat proaspăt), apoi trecerea e pe loc
+  async function toggleVarianta() {
+    if (!varianta || varLoading || !item?.id) return;
+    const next = varianta === 'alb' ? 'original' : 'alb';
+    const forId = item.id;
+    let v = variantsRef.current[next];
+    if (!v) {
+      setVarLoading(true);
+      try {
+        const res = await fetch('/api/get-file-url', {
+          method: 'POST',
+          headers: await authHeaders(),
+          body: JSON.stringify({ contentId: forId, grant, variante: true }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+        const u = next === 'alb' ? d.alb : d.url;
+        if (!u) throw new Error('varianta nu mai există');
+        const r = await fetch(u);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const buf = await r.arrayBuffer();
+        if (variantsRef.current.forId !== forId) return;          // s-a deschis între timp alt test
+        v = { data: buf, url: URL.createObjectURL(new Blob([buf], { type: 'application/pdf' })) };
+        variantsRef.current[next] = v;
+      } catch (e) {
+        console.error('PDF varianta:', e);
+        setNote({ text: next === 'alb' ? 'Nu am putut deschide varianta fără suprafață neagră. Încearcă din nou.' : 'Nu am putut deschide originalul. Încearcă din nou.' });
+        return;
+      } finally {
+        setVarLoading(false);
+      }
+    }
+    setViewerFailed(false);
+    setPdfData(v.data);
+    setBlobUrl(v.url);
+    setVarianta(next);
+  }
 
   if (authLoading || loading) {
     return (
@@ -545,16 +589,22 @@ export default function PDFViewer() {
     );
   }
 
+  // Bara de sus. Pe telefon (7 nov. 2026): „← Înapoi" · „📋 Barem" · „⬛ Original" ·
+  // profesorul virtual (doar Einstein, ca în bara testelor interactive), fără titlu
+  // (oricum nu încăpea: rămânea „📄…"); dacă tot nu încap, trec pe al doilea rând —
+  // niciun buton nu mai iese din ecran. Sus, nu sub bara de stare (src/lib/baraSus.js).
   const barStyle = {
     display:'flex', alignItems:'center', justifyContent:'space-between',
-    padding: tiny ? '8px 10px' : '10px 20px', background:'var(--navy)', flexShrink:0,
-    boxShadow:'0 2px 8px rgba(0,0,0,0.3)', gap: tiny ? 8 : 12,
+    ...(tiny ? paddingBara(7, 8) : paddingBara(10, 20)), background:'var(--navy)', flexShrink:0,
+    boxShadow:'0 2px 8px rgba(0,0,0,0.3)', gap: tiny ? 6 : 12,
+    ...(tiny ? { flexWrap:'wrap', rowGap:6 } : {}),
   };
 
   const backBtn = {
     background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.2)',
-    color:'#fff', borderRadius:6, padding: tiny ? '6px 10px' : '6px 14px', cursor:'pointer',
+    color:'#fff', borderRadius:tiny ? 10 : 6, padding: tiny ? '0 9px' : '6px 14px', cursor:'pointer',
     fontSize:'0.85rem', fontWeight:600, whiteSpace:'nowrap', flexShrink:0,
+    ...(tiny ? { height:34 } : {}),
   };
 
   const badge = {
@@ -574,7 +624,21 @@ export default function PDFViewer() {
   // TEST PE GRUPĂ (?gt=…): Profesorul Virtual e oprit — nu se pot pune întrebări.
   // Panoul rămâne totuși de deschis pentru „📝 Răspunde în chat": la testele
   // PDF formularul de răspuns e chiar modul în care punctajul ajunge la profesor.
-  const tutorBtn = (
+  const tutorIcon = tiny && !modTest;   // pe telefon: doar Einstein (ca în bara testelor interactive)
+  const tutorBtn = tutorIcon ? (
+    <button
+      onClick={() => setTutorOpen((o) => !o)}
+      aria-label={tutorOpen ? 'Închide profesorul virtual' : 'Profesorul virtual'} aria-pressed={tutorOpen}
+      title="Profesorul virtual — te ajută la exercițiile din PDF"
+      style={{
+        width: 38, height: 34, flexShrink: 0, borderRadius: 10, cursor: 'pointer', padding: 0,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        background: tutorOpen ? 'var(--gold)' : 'rgba(232,185,49,0.15)', border: '1px solid var(--gold)',
+      }}
+    >
+      <EinsteinIcon size={24} />
+    </button>
+  ) : (
     <button
       onClick={() => setTutorOpen((o) => !o)}
       title={modTest ? 'Completează răspunsurile la test' : 'Întreabă-l despre exercițiile din acest material'}
@@ -608,10 +672,10 @@ export default function PDFViewer() {
       style={{
         background: baremView.open ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.10)',
         border: '1px solid rgba(255,255,255,0.3)',
-        color: baremView.open ? 'var(--navy)' : '#fff', borderRadius: 14, padding: tiny ? '4px 10px' : '4px 12px',
+        color: baremView.open ? 'var(--navy)' : '#fff', borderRadius: tiny ? 10 : 14, padding: tiny ? '0 9px' : '4px 12px',
         cursor: baremLoading && !baremView.open ? 'progress' : 'pointer', flexShrink: 0,
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1.25,
-        ...(tiny ? { minHeight: 32, justifyContent: 'center' } : {}),
+        ...(tiny ? { height: 34, justifyContent: 'center' } : {}),
       }}
     >
       <span style={{ fontSize: '0.82rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
@@ -685,6 +749,42 @@ export default function PDFViewer() {
   // Baremul separat, în locul subiectelor (testul rămâne încărcat dedesubt,
   // ascuns — la întoarcere e exact unde l-ai lăsat)
   const showBaremDoc = baremView.open && !baremView.inclus;
+
+  // ── „⬛ Original" / „⬜ Fără suprafață neagră" — testele de EN cu varianta albă ──
+  // Implicit se vede varianta albă, iar butonul spune „⬛ Original"; apăsat, arată
+  // originalul (cu dreptunghiul negru) și devine „⬜ Fără suprafață neagră".
+  const peOriginal = varianta === 'original';
+  const variantaBtn = !!varianta && !showBaremDoc && (
+    <button
+      onClick={toggleVarianta}
+      aria-pressed={peOriginal}
+      disabled={varLoading}
+      title={peOriginal
+        ? 'Arată testul fără suprafața neagră de pe pagina 2 (alb în locul dreptunghiului)'
+        : 'Arată PDF-ul original, cu dreptunghiul negru de pe pagina 2'}
+      style={{
+        background: peOriginal ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.10)',
+        border: '1px solid rgba(255,255,255,0.3)', color: peOriginal ? 'var(--navy)' : '#fff',
+        borderRadius: tiny ? 10 : 14, cursor: varLoading ? 'progress' : 'pointer', flexShrink: 0,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+        ...(tiny
+          ? { width: 118, height: 34, padding: '0 6px', lineHeight: 1.1 }
+          : { padding: '4px 12px', lineHeight: 1.25 }),
+      }}
+    >
+      <span style={{
+        fontWeight: 700, textAlign: 'center',
+        ...(tiny ? { fontSize: peOriginal ? '0.7rem' : '0.8rem', whiteSpace: peOriginal ? 'normal' : 'nowrap' } : { fontSize: '0.82rem', whiteSpace: 'nowrap' }),
+      }}>
+        {varLoading ? '⏳ …' : peOriginal ? '⬜ Fără suprafață neagră' : '⬛ Original'}
+      </span>
+      {!tiny && (
+        <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.8, whiteSpace: 'nowrap' }}>
+          {peOriginal ? 'alb pe pagina 2' : 'cu dreptunghiul negru'}
+        </span>
+      )}
+    </button>
+  );
   const baremPane = showBaremDoc && (
     <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', background: '#1a1a2e' }}>
       <div style={{
@@ -885,9 +985,11 @@ export default function PDFViewer() {
         <style>{`.pdf-root{height:100vh;height:100dvh}html,body{overflow:hidden;overscroll-behavior:none}`}</style>
         <div style={barStyle}>
           <button onClick={goBack} style={backBtn}>← Înapoi</button>
-          <span style={{ color:'#fff', fontWeight:600, fontSize:'0.9rem', flex:1, textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-            📄 {item?.title}
-          </span>
+          {tiny ? <span style={{ flex:1 }} /> : (
+            <span style={{ color:'#fff', fontWeight:600, fontSize:'0.9rem', flex:1, textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              📄 {item?.title}
+            </span>
+          )}
           {gtId && <TestModeBadge compact />}
           {duelId && (
             <span style={{
@@ -896,6 +998,7 @@ export default function PDFViewer() {
             }} title="Duel: Profesorul Virtual nu dă indicii">⚔️ DUEL</span>
           )}
           {baremBtn}
+          {variantaBtn}
           {tutorBtn}
           {badgeJsx}
         </div>
@@ -955,6 +1058,7 @@ export default function PDFViewer() {
         {paginiBtn}
         {printBtn}
         {baremBtn}
+        {variantaBtn}
         {tutorBtn}
         {badgeJsx}
       </div>
