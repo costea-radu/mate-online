@@ -36,6 +36,7 @@ const B = require('./barem');
 const SET = require('./settings');
 const http = require('./http');
 const { unzip } = require('./unzip');
+const P2R = require('./pagina2Run');
 
 let _pdf = null;
 const PDF = () => (_pdf || (_pdf = require('../ai-pdf-context')));
@@ -1214,9 +1215,6 @@ async function itemSetStatus(supa, itemId, status) {
 async function cron(supa, { now = new Date(), budgetMs = 640000 } = {}) {
   const t0 = Date.now();
   const st = await loadSettings(supa);
-  if (!st.value.enabled) return { ok: true, skipped: 'oprit din setări' };
-  const setup = await setupInfo(supa);
-  if (!setup.tables) return { ok: false, skipped: SETUP_HINT };
   const S = st.value;
   const rest = () => budgetMs - (Date.now() - t0);
   // un pas al cronului = o rulare în jurnal; dacă botul lucrează deja (pornit din Admin), pasul se sare
@@ -1231,6 +1229,14 @@ async function cron(supa, { now = new Date(), budgetMs = 640000 } = {}) {
       return { eroare: e.message };
     }
   };
+  // 🧽 dreptunghiul de pe pagina 2 al testelor de EN noi (are setarea lui: merge și cu botul oprit)
+  const pagina2 = async () => { try { return await P2R.cronStep(supa, step); } catch (e) { return { eroare: e.message }; } };
+  if (!S.enabled) {
+    const setup0 = await setupInfo(supa);
+    return { ok: true, skipped: 'oprit din setări', ...(setup0.tables ? { pagina2: await pagina2() } : {}) };
+  }
+  const setup = await setupInfo(supa);
+  if (!setup.tables) return { ok: false, skipped: SETUP_HINT };
   // a venit vremea căutării online? (zilnic; în perioadele de examen, la câteva ore)
   const { data: last } = await supa.from(T.runs).select('started_at').eq('kind', 'descoperire').in('status', ['ok', 'ruleaza']).eq('note', 'cautare').order('started_at', { ascending: false }).limit(1);
   const lastAt = last && last[0] ? Date.parse(last[0].started_at) || 0 : 0;
@@ -1249,7 +1255,9 @@ async function cron(supa, { now = new Date(), budgetMs = 640000 } = {}) {
       return r;
     });
   }
-  // 3) baremele lipsă (câteva pe rulare, fără AI)
+  // 3) 🧽 testele de EN publicate acum (și cele încă necurățate): fără dreptunghiul de pe pagina 2
+  out.pagina2 = await pagina2();
+  // 4) baremele lipsă (câteva pe rulare, fără AI)
   if (S.maxBaremSearchPerRun > 0) out.bareme = await step('bareme', 200000, (ctx) => findMissingStep(ctx, { max: S.maxBaremSearchPerRun }));
   out.ms = Date.now() - t0;
   return out;

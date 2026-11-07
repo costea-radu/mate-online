@@ -4,6 +4,31 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 7 noiembrie 2026 — 🧽 Dreptunghiul negru de pe pagina 2 (testele de EN) · „Înapoi" fără derularea înghețată
+
+Cererea: „1. La testele de evaluare nationala, fa un bot care scoate dreptunghiul negru de pe pagina 2, in rest nu schimba nimic. reposteaza in acelasi loc testul, cu acelasi nume, proprietati si barem asociat 2. butonul "Înapoi" de la PDF-uri si teste interactive duce inapoi si deruleaza exact unde trebuie, dar derularea e cateva secunde inghetata in dreptul testului de la care am dat "inapoi". poti sa faci sa mearga derularea dar sa nu modifici revenirea in dreptul testului?"
+
+### 1) Botul „🧽 Dreptunghiul de pe pagina 2" (noi `api/_lib/pagina2.js`, `api/_lib/pagina2Run.js`, `src/components/AdminPagina2.jsx`; `api/exam-bot.js` → `pagina2_*`; `api/_lib/examBotRun.js` → pasul din cron)
+- **Ce teste:** Evaluare Națională → Variante date + modele și Simulări (PDF). Dreptunghiul e spatele colțului secretizat de pe foaia de examen.
+- **Motorul (MuPDF):** randează pagina 2, găsește dreptunghiul (sus-stânga, plin de negru), scoate din conținut doar ce cade în el (desen, ramă, imagine, mască, formular; la drumurile compuse doar bucata lui); ce era desenat sub el rămâne ascuns (alb în locul negrului); la paginile scanate pune alb peste el (cu marginea / umbra, fără linia antetului). Salvare **incrementală** (originalul rămâne octet cu octet la începutul fișierului). Verificare prin randare: alb în dreptunghi, **0 pixeli schimbați** în rest, celelalte pagini identice; altfel „nesigur" și testul rămâne neatins.
+- **„În același loc":** PDF-ul curățat se urcă **peste cel vechi, în aceeași cale din Storage** → aceeași adresă → rândul din `content` (titlu, rubrică, gratuit / premium, ordine, data) și baremul asociat (`ai_pdf_text`) nu se ating. Apoi se descarcă și se compară amprenta; la nepotrivire, originalul se pune la loc.
+- **Originalul:** copie privată în `content-files/_pagina2-originale/<id>/`; „↩ Restaurează" (Admin) îl pune la loc.
+- **Automat:** pas în cronul botului de examene (la 2 ore, după publicarea testelor noi; merge și cu botul de examene oprit), cu setarea lui („Oprește / Pornește automat"); fără nimic de făcut, nu lasă nicio rulare în jurnal. Același lacăt și jurnal ca botul (`exam_bot_runs`, kind `pagina2`).
+- **Admin → 📚 Bot examene → caseta „🧽 Dreptunghiul negru de pe pagina 2":** casetele, „🔍 Caută dreptunghiul (fără modificări)", „🧽 Scoate dreptunghiul acum", lista cu 📄 PDF-ul de acum · 📄 Originalul · ↩ Restaurează · 🧽 Curăță (din nou).
+- **MuPDF în WebAssembly:** găsită și reparată cauza căderilor „memory access out of bounds" după ~90 de fișiere la rând — `readStream()` pe dicționarul rezolvat al unui formular arunca „object is not a stream" (~20 pe fișier), iar fiecare eroare care ajunge în JavaScript lasă ~70 de octeți din stiva WebAssembly (64 KB). Acum formularele se citesc prin referința lor (0 erori pe toate testele de pe site), erorile se numără, iar la prag / la o cădere se ia o instanță nouă și fișierul se reia. Buffer-ele MuPDF se eliberează explicit, cache-ul MuPDF se golește după fiecare fișier.
+- **Pe testele de pe site** (79, rulate cu motorul final): 61 cu dreptunghiul — toate curățate (desen 49, imagine 31, mască 9, 6 scanate, la 2 ce era sub el a rămas ascuns), 18 fără (15 modele 2021, Olt 2024, Ilfov 2023; Buzău 2026 îl are pe pagina 1 — rămâne). Cele 61 verificate și cu pdf.js 3.11 (vizualizatorul site-ului: alb în dreptunghi, 0 pixeli schimbați în rest), pdf.js 1.10 (textul pentru Profesorul Virtual: identic), pdf-lib (PDF-urile combinate). 141 de curățări la rând pe aceeași instanță, fără nicio cădere.
+
+### 2) „Înapoi" din PDF / testul interactiv (nou `src/lib/scrollToCard.js`; `src/components/ContentPage.jsx` îl re-exportă)
+- De ce: după „Înapoi", pagina re-centra cardul de 12 ori, la 250 ms — 3 secunde în care orice derulare era trasă înapoi la card.
+- Acum: **revenirea e aceeași** (cardul centrat de cum apare, re-centrat cât timp lista se mai mișcă, derularea lină de până acum), dar de cum elevul derulează (rotița, degetul, tastele, un clic, bara de derulare) pagina e a lui; când lista s-a așezat, se oprește singură (de obicei după ~0,7 s).
+- Verificat și pe pagina reală (examenmate.com, Simulări, 42 de carduri): fără derulare — cardul exact în centru; derulare la 1,2 s după — înainte era trasă înapoi la card (13 re-centrări), acum rămâne unde a dus-o elevul.
+
+**Verificat:** `npm test` — 1082 de teste, toate trec (noi: `test/pagina2-dreptunghi.test.js` — 16, `test/revenire-card-derulare.test.js` — 6). `vite build` trece.
+
+**De făcut:** doar commit + deploy (fără SQL nou). După deploy, botul curăță singur testele la prima rulare a cronului (sau imediat: Admin → 📚 Bot examene → „🧽 Scoate dreptunghiul acum").
+
+---
+
 ## 4 noiembrie 2026 — 🖥️ PDF-urile pe tablele interactive · spațiul de lucru lângă test · „✓ Corectează exercițiul / total" · bara de pe telefon · „Testele mele" pe pagini · cu / fără barem
 
 Cererea: „pe tabla interactivă Samsung Flip nu se afișează PDF-urile, apare scris "file format unsupported". Nici pe altă tablă interactivă nu se afișează PDF-urile. Dacă se poate, fă să se afișeze. * la teste interactive, spațiul de lucru pe desktop este peste test. Fă să se alinieze testul în stânga și spațiul de lucru în dreapta * pune la testele interactive "corectează exercițiul" la fiecare exercițiu. "Corectează" transformă-l în "corectează total" care să corecteze cu punctajul total * pe telefon e prea mare bara de sus de la teste interactive. Păstrează doar icon-urile: simbolul "înapoi", prof virtual, spațiu de lucru, resetează, toate exercițiile. "rezolvate", "scor" și "corecte" să apară după ce elevul apasă "corectează" * în cont de prof, la "asistent AI" nu văd toate testele și exercițiile mele, deoarece sunt multe. Fă să apară pe pagini, toate * la generatorul de exerciții și teste, la "teste diferite/elev" la opțiunea "schimbă numerele și notațiile" pune buton: cu barem sau fără barem. "Cu barem" se face cu AI, de aceea fă ca să se aranjeze în pagină mai bine"

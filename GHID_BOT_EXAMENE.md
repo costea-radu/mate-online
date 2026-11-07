@@ -19,6 +19,9 @@ titlurile, rubricile, verificarea) · `api/_lib/examBotNet.js` (rețeaua, sursel
 căutarea web / AI) · `api/_lib/examBotRun.js` (rulările) · `api/_lib/unzip.js`
 (arhivele .zip) · `src/components/AdminBotExamene.jsx` (Admin) ·
 `supabase/bot_examene.sql` · `test/bot-examene.test.js`.
+🧽 Dreptunghiul negru de pe pagina 2 a testelor de EN (secțiunea 10):
+`api/_lib/pagina2.js` (motorul) · `api/_lib/pagina2Run.js` (rularea) ·
+`src/components/AdminPagina2.jsx` · `test/pagina2-dreptunghi.test.js`.
 
 ---
 
@@ -240,7 +243,9 @@ rulează în același timp (lacăt în `exam_bot_runs`).
 | 📋 **Bareme** | cât e folosit fiecare barem |
 | 🚫 **„Nu are barem"** | subiectele marcate de tine · ↺ Caută iar baremul |
 | 📚 **Alte PDF-uri** | ce nu are nevoie de barem (capitole, fișe) |
-| 🧾 **Jurnal** | fiecare rulare (cron / Admin): ce a găsit, publicat, legat, costul AI |
+| 🧾 **Jurnal** | fiecare rulare (cron / Admin): ce a găsit, publicat, legat, costul AI — și rulările „🧽 Dreptunghiul de pe pagina 2" |
+
+Sub raport e caseta **🧽 Dreptunghiul negru de pe pagina 2** (secțiunea 10).
 
 ---
 
@@ -284,3 +289,73 @@ oficiale, deciziile, rubricile, titlurile, amprentele, verificarea subiect ↔ b
 `robots.txt`, rețeaua, arhivele, cap-coadă cu un „internet" simulat, căutarea web
 o dată pe zi, publicarea manuală, asocierea manuală, legăturile existente
 protejate, verificarea legăturilor vechi ale botului, API-ul).
+
+---
+
+## 10. 🧽 Dreptunghiul negru de pe pagina 2 (testele de EN)
+
+Pe pagina 2 a subiectelor de Evaluare Națională e un dreptunghi negru, sus în
+stânga: spatele colțului secretizat de pe prima pagină (pe foaia de examen, ca
+să nu se vadă numele elevului prin hârtie). Pe site nu folosește la nimic.
+Cererea (6 nov. 2026): *„fă un bot care scoate dreptunghiul negru de pe pagina 2,
+în rest nu schimba nimic; repostează în același loc testul, cu același nume,
+proprietăți și barem asociat"*.
+
+| | |
+|---|---|
+| **Ce teste** | Evaluare Națională → 📋 Variante date + modele și 🎯 Simulări (PDF). Baremele, capitolele, BAC-ul — nu |
+| **Ce schimbă** | doar pagina 2, doar dreptunghiul (cu rama / umbra lui). Salvare **incrementală**: fișierul nou = cel vechi, octet cu octet, + o actualizare de 0,5–13 KB la sfârșit |
+| **Unde îl pune** | **în aceeași cale din Storage** → aceeași adresă (`file_url`) → rândul din `content` nu se atinge (titlu, descriere, rubrică, gratuit / premium, ordine, data) și nici baremul asociat (`ai_pdf_text`, legat de `content_id` + `file_url`) |
+| **Verificarea** | prin randare (MuPDF): în dreptunghi — alb; în afara lui — identic, pixel cu pixel; celelalte pagini — identice; textul — același. Apoi PDF-ul se descarcă din Storage și se compară amprenta (SHA-256). Dacă ceva nu iese curat → **„nesigur"**: testul rămâne neatins |
+| **Originalul** | copie privată: `content-files/_pagina2-originale/<id>/` (se păstrează mereu) → **↩ Restaurează** |
+| **Când** | singur, la cron (la 2 ore, după publicarea testelor noi — și cu botul de examene oprit), dacă e pornit „automat"; oricând din Admin |
+
+**Cum îl scoate.** Randează pagina 2 și caută sus în stânga un dreptunghi plin de
+negru (110–430 pt, ≥ 92 % negru). În conținutul paginii scoate ce cade în el:
+desenul (dreptunghiul, rama), imaginea neagră, masca, formularul — sau, la un
+drum compus, doar bucata din dreptunghi. Ce era desenat **sub** el (un text, o
+linie) rămâne ascuns: în locul negrului vine alb. La paginile **scanate**
+(dreptunghiul e în pixelii imaginii) pune un dreptunghi alb peste, cât
+dreptunghiul cu marginea / umbra lui — dar nu peste linia antetului sau rama unui
+tabel care trec pe lângă el.
+
+**În Admin** (📚 Bot examene → caseta „🧽 Dreptunghiul negru de pe pagina 2"):
+casetele (teste EN · curățate · de curățat · fără dreptunghi · nesigure / erori ·
+restaurate), **🔍 Caută dreptunghiul (fără modificări)** (doar arată ce ar face),
+**🧽 Scoate dreptunghiul acum**, „Oprește / Pornește automat", iar în listă, pe
+fiecare test: 📄 PDF-ul de acum · 📄 Originalul · ↩ Restaurează · 🧽 Curăță (din
+nou). Un test restaurat nu se mai curăță singur.
+
+**Pe site, la 6–7 nov. 2026:** 79 de teste EN — **61 cu dreptunghiul** (scos din
+desen la 49, imagine la 31, mască la 9; 6 pagini scanate; la 2, ce era sub el a
+rămas ascuns) și **18 fără** (cele 15 modele din 2021, simulările Olt 2024 și
+Ilfov 2023; la Buzău 2026 dreptunghiul e pe pagina 1 — rămâne). Cele 61, verificate
+și cu pdf.js 3.11 (vizualizatorul site-ului: dreptunghiul alb, 0 pixeli schimbați
+în rest), pdf.js 1.10 (textul pentru Profesorul Virtual: identic) și pdf-lib
+(PDF-urile combinate: se deschid, dreptunghiul nu mai e).
+
+| Situație | Ce faci |
+|---|---|
+| „⚠ nesigur — lăsat neatins" | motivul e scris (ex. formularul cu dreptunghiul e desenat de două ori pe pagină). Testul a rămas cum era |
+| „⚠ eroare" | se reia singur de 3 ori, apoi o dată pe zi; motivul e scris |
+| Testul arată încă dreptunghiul imediat după | fișierele publice au cache 1 oră (browser / CDN); peste cel mult o oră se vede cel nou |
+| Ai înlocuit fișierul testului din Admin | botul îl ia din nou (alt fișier = altă adresă) |
+| O verificare veche a agentului de conținut zice că fișierul s-a schimbat | e adevărat (dreptunghiul): „Verifică din nou" |
+
+Starea fiecărui test: `app_settings` `pagina2:<id>`; setarea: `app_settings`
+`pagina2` = `{ auto }`. **Fără SQL nou.** Rulările — în `exam_bot_runs` (kind
+`pagina2`), cu același lacăt ca botul de examene.
+
+Detaliu tehnic (MuPDF în WebAssembly): fiecare eroare MuPDF care ajunge în
+JavaScript lasă ~70 de octeți din stiva WebAssembly (64 KB) — după ~900 de erori
+instanța se strică („memory access out of bounds"). Motorul nu provoacă erori
+(stream-urile formularelor se citesc prin referința lor), le numără și ia o
+instanță nouă înainte de prag sau după o cădere (fișierul se reia).
+
+Teste: `node --test test/pagina2-dreptunghi.test.js` (16 teste: subiectele
+oficiale, simulările ISJ, imagini, scanări strâmbe / cu chenar și antet lipit,
+formulare (în formular, comune cu pagina 3, desenate de două ori), drumuri
+compuse, ce era ascuns sub dreptunghi, fără dreptunghi; rularea cu Storage —
+aceeași cale, același rând, același barem, copia originalului, „fără modificări",
+restaurarea, fișierul înlocuit, urcarea stricată, căderea MuPDF; API-ul; cronul).
+

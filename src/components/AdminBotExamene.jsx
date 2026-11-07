@@ -17,6 +17,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiPost } from '../lib/api';
 import { categoryLabel, subcategoryLabel, profileLabel } from '../lib/contentMeta';
+import AdminPagina2 from './AdminPagina2';
 
 const API = '/api/exam-bot';
 const pill = (bg, fg) => ({ display: 'inline-block', background: bg, color: fg, borderRadius: 12, padding: '2px 9px', fontSize: '.74rem', fontWeight: 700, whiteSpace: 'nowrap' });
@@ -56,7 +57,7 @@ const SEARCH_ST = {
 };
 const TIP = { sesiune: 'sesiune', rezerva: 'rezervă', speciala: 'olimpici', simulare: 'simulare', model: 'model', antrenament: 'antrenament' };
 const SURSA = { edupedu: 'edupedu.ro', 'subiecte.edu.ro': 'subiecte.edu.ro', 'edu.ro': 'edu.ro', pagina: 'pagină urmărită', cautare: 'căutare web', ai: 'AI', ghicit: 'nume oficial', arhiva: 'arhivă .zip', bot: 'bot' };
-const KIND_LABEL = { descoperire: '🔎 Căutare online', verificare: '✅ Verificarea baremelor', bareme: '🔍 Baremele lipsă' };
+const KIND_LABEL = { descoperire: '🔎 Căutare online', verificare: '✅ Verificarea baremelor', bareme: '🔍 Baremele lipsă', pagina2: '🧽 Dreptunghiul de pe pagina 2' };
 
 function rubrica(r) {
   return [categoryLabel(r.category), r.subcategory ? subcategoryLabel(r.category, r.subcategory) : null, r.profile ? profileLabel(r.profile) : null].filter(Boolean).join(' · ');
@@ -261,6 +262,7 @@ export default function AdminBotExamene({ s }) {
   const [rowBusy, setRowBusy] = useState({});         // id → text
   const [rowMsg, setRowMsg] = useState({});           // id → { ok, text }
   const [showIgnored, setShowIgnored] = useState(false);
+  const [p2busy, setP2busy] = useState(false);        // 🧽 botul de la pagina 2 rulează (același lacăt pe server)
   const stopRef = useRef(false);
   const logRef = useRef(null);
 
@@ -369,9 +371,9 @@ export default function AdminBotExamene({ s }) {
           </div>
         )}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button type="button" style={s.btnPrimary} disabled={!setupOk || (running && !running.finished)} onClick={() => run('descoperire')}>🔎 Caută acum online</button>
-          <button type="button" style={s.btnSecondary} disabled={!setupOk || (running && !running.finished)} onClick={() => run('verificare', { force: false })}>✅ Verifică baremele</button>
-          <button type="button" style={s.btnSecondary} disabled={!setupOk || (running && !running.finished)} onClick={() => run('bareme', { force: true })}>🔍 Caută baremele lipsă</button>
+          <button type="button" style={s.btnPrimary} disabled={!setupOk || p2busy || (running && !running.finished)} onClick={() => run('descoperire')}>🔎 Caută acum online</button>
+          <button type="button" style={s.btnSecondary} disabled={!setupOk || p2busy || (running && !running.finished)} onClick={() => run('verificare', { force: false })}>✅ Verifică baremele</button>
+          <button type="button" style={s.btnSecondary} disabled={!setupOk || p2busy || (running && !running.finished)} onClick={() => run('bareme', { force: true })}>🔍 Caută baremele lipsă</button>
           <button type="button" style={s.btnSecondary} disabled={!st} onClick={() => setSettingsOpen((v) => !v)}>⚙ Setări</button>
         </div>
         <div style={{ ...muted, marginTop: 8, lineHeight: 1.6 }}>
@@ -406,6 +408,8 @@ export default function AdminBotExamene({ s }) {
         )}
         {settingsOpen && st && <Setari s={s} value={st.settings} onClose={() => setSettingsOpen(false)} onSaved={(v) => setSt((x) => ({ ...x, settings: v }))} />}
       </div>
+
+      {setupOk && <AdminPagina2 s={s} otherBusy={!!(running && !running.finished)} onBusy={setP2busy} onRunEnd={() => { if (view === 'jurnal') loadList('jurnal'); }} />}
 
       <div style={s.card}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -562,13 +566,15 @@ export default function AdminBotExamene({ s }) {
         {/* 🧾 Jurnal */}
         {!list.loading && view === 'jurnal' && shown.map((r) => {
           const stt = r.stats || {};
-          const sum = [['publicate', 'publicate'], ['asteptare', 'de verificat'], ['duplicate', 'existau deja'], ['verificate', 'verificate'], ['bareme_gasite', 'bareme găsite'], ['asocieri', 'asocieri'], ['erori', 'erori']]
+          const sum = (r.kind === 'pagina2'
+            ? [['p2_curatate', 'teste curățate'], ['p2_de_curatat', 'de curățat'], ['p2_fara', 'fără dreptunghi'], ['p2_nesigure', 'nesigure (neatinse)'], ['p2_erori', 'erori']]
+            : [['publicate', 'publicate'], ['asteptare', 'de verificat'], ['duplicate', 'existau deja'], ['verificate', 'verificate'], ['bareme_gasite', 'bareme găsite'], ['asocieri', 'asocieri'], ['erori', 'erori']])
             .filter(([k]) => stt[k]).map(([k, l]) => `${stt[k]} ${l}`).join(' · ');
           return (
             <div key={r.id} style={rowBox}>
               <div style={{ flex: '1 1 320px', minWidth: 0 }}>
                 <strong style={{ color: 'var(--navy)' }}>{KIND_LABEL[r.kind] || r.kind}</strong>
-                <span style={muted}> · {r.by === 'cron' ? 'automat' : 'din Admin'} · {fmtDate(r.started_at)}</span>
+                <span style={muted}>{r.kind === 'pagina2' && r.note ? ` (${r.note})` : ''} · {r.by === 'cron' ? 'automat' : 'din Admin'} · {fmtDate(r.started_at)}</span>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3, flexWrap: 'wrap' }}>
                   <span style={r.status === 'ok' ? pill('#e6f4ea', '#137333') : r.status === 'ruleaza' ? pill('#e8f0fe', '#1a56c4') : pill('#fce8e6', '#b3261e')}>{r.status === 'ok' ? 'gata' : r.status === 'ruleaza' ? 'rulează' : r.status}</span>
                   <span style={muted}>{sum || 'nimic nou'}{Number(r.cost_usd) > 0 ? ` · ${lei(r.cost_usd)}` : ''}</span>

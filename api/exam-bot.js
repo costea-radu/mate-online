@@ -21,10 +21,17 @@
 //   { action: 'item_publish', itemId, edits? }             → „De verificat" → publicat
 //   { action: 'item_reject' | 'item_retry', itemId }
 //   { action: 'settings', value }
+//   🧽 dreptunghiul negru de pe pagina 2 a testelor de EN (api/_lib/pagina2Run.js):
+//   { action: 'pagina2_status' }                           → raportul + lista testelor
+//   { action: 'pagina2_step', runId?, dry?, ids?, force? } → un pas (dry: doar caută, nu schimbă nimic)
+//   { action: 'pagina2_restore', contentId }               → pune la loc PDF-ul original
+//   { action: 'pagina2_link', contentId, which }           → link (10 min) la fișierul de acum / original
+//   { action: 'pagina2_settings', value: { auto } }        → îl rulează cronul singur sau nu
 // Logica: api/_lib/examBotRun.js · examBot.js · examBotNet.js. SQL: supabase/bot_examene.sql.
 // =====================================================================
 const http = require('./_lib/http');
 const R = require('./_lib/examBotRun');
+const P2R = require('./_lib/pagina2Run');
 
 const STEP_MS = parseInt(process.env.EXAM_BOT_STEP_MS || '200000', 10);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -60,6 +67,26 @@ async function step(supa, userId, body) {
   }
 }
 
+// 🧽 un pas al botului „dreptunghiul de pe pagina 2" (aceeași evidență: exam_bot_runs, kind 'pagina2')
+async function pagina2Step(supa, body) {
+  const dry = body.dry === true;
+  const ids = Array.isArray(body.ids) ? body.ids.map(uuidOrNull).filter(Boolean) : null;
+  const st = await R.loadSettings(supa);
+  const run = await R.startRun(supa, { kind: 'pagina2', by: 'admin', runId: uuidOrNull(body.runId) });
+  if (dry && !body.runId) await supa.from(R.T.runs).update({ note: 'fără modificări' }).eq('id', run.id);
+  const ctx = R.makeCtx(supa, st.value, { budgetMs: STEP_MS, by: 'admin' });
+  try {
+    const progress = await P2R.cleanStep(ctx, { ids: ids && ids.length ? ids : null, force: body.force === true, dry });
+    const done = progress.left === 0;
+    const saved = await R.saveRun(supa, run, ctx, { final: done });
+    return { ok: true, runId: run.id, kind: 'pagina2', done, progress, log: ctx.lines, stats: ctx.stats, total: saved.stats };
+  } catch (e) {
+    ctx.log(`⚠ ${e.message}`);
+    await R.saveRun(supa, run, ctx, { final: true, status: 'eroare' }).catch(() => {});
+    throw e;
+  }
+}
+
 module.exports = async function handler(req, res) {
   if (http.handledMethod(req, res, { allowGet: true })) return;
   const supa = http.admin();
@@ -84,6 +111,15 @@ module.exports = async function handler(req, res) {
     if (action === 'settings') {
       const value = await R.saveSettings(supa, b.value || {}, userId);
       return res.status(200).json({ ok: true, settings: value });
+    }
+    if (action === 'pagina2_status') return res.status(200).json(await P2R.status(supa));
+    if (action === 'pagina2_step') return res.status(200).json(await pagina2Step(supa, b));
+    if (action === 'pagina2_settings') return res.status(200).json({ ok: true, settings: await P2R.saveSettings(supa, b.value || {}, userId) });
+    if (action === 'pagina2_restore' || action === 'pagina2_link') {
+      const id = uuidOrNull(b.contentId);
+      if (!id) return res.status(400).json({ error: 'contentId lipsă' });
+      if (action === 'pagina2_link') return res.status(200).json(await P2R.link(supa, id, b.which === 'original' ? 'original' : 'acum'));
+      return res.status(200).json(await P2R.restore(supa, id, { userId }));
     }
 
     const contentId = uuidOrNull(b.contentId);
@@ -133,4 +169,4 @@ module.exports = async function handler(req, res) {
   }
 };
 
-module.exports._internals = { step };
+module.exports._internals = { step, pagina2Step };

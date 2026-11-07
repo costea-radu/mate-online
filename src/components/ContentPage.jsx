@@ -7,44 +7,15 @@ import { useAuth } from '../context/AuthContext';
 import { notaDinScor } from '../lib/nota';
 import { fetchReviewStats } from '../lib/reviews';
 import { RatingBadge, ReviewList } from './ReviewWidget';
+import { scrollToCard } from '../lib/scrollToCard';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// Scroll robust către un card: așteaptă apariția în DOM, apoi re-centrează
-// repetat câteva sute de ms, ca să compenseze deplasările de layout cauzate
-// de încărcarea asincronă a conținutului (important mai ales pe mobil).
-export function scrollToCard(cardId, { initialDelay = 150 } = {}) {
-  if (!cardId) return () => {};
-  let cancelled = false;
-  const timers = [];
-  let findAttempts = 0;
-  let recenters = 0;
-
-  function recenter() {
-    if (cancelled) return;
-    const el = document.getElementById(`card-${cardId}`);
-    if (el) el.scrollIntoView({ block: 'center' });
-  }
-
-  function tick() {
-    if (cancelled) return;
-    const el = document.getElementById(`card-${cardId}`);
-    if (el) {
-      recenter();
-      // Re-centrăm de mai multe ori pe măsură ce conținutul se așază
-      if (recenters < 12) {
-        recenters++;
-        timers.push(setTimeout(tick, 250));
-      }
-    } else if (findAttempts < 60) {
-      findAttempts++;
-      timers.push(setTimeout(tick, 100));
-    }
-  }
-
-  timers.push(setTimeout(tick, initialDelay));
-  return () => { cancelled = true; timers.forEach(clearTimeout); };
-}
+// Revenirea la cardul testului după „Înapoi": așteaptă cardul în DOM, îl
+// centrează și îl ține centrat cât timp lista se mai așază — dar se oprește de
+// cum elevul derulează (logica: src/lib/scrollToCard.js). Exportat și de aici
+// pentru paginile care îl importă din ContentPage.
+export { scrollToCard } from '../lib/scrollToCard';
 
 function getOriginalFilename(url) {
   if (!url) return null;
