@@ -161,7 +161,11 @@ export default function ReviewsAdmin({ s }) {
   }
 
   function openTarget(type, id) {
-    if (type === 'content') window.open(`/exercitiu?id=${id}`, '_blank', 'noopener');
+    // recenziile la PDF-uri (8 nov. 2026) → vizualizatorul PDF, nu cel interactiv
+    if (type === 'content') {
+      const pdf = titles[`content:${id}`]?.type === 'pdf';
+      window.open(`${pdf ? '/pdf-viewer' : '/exercitiu'}?id=${id}`, '_blank', 'noopener');
+    }
     else if (type === 'public_item') window.open(`/biblioteca-utilizatorilor?q=${encodeURIComponent(titles[`public_item:${id}`]?.title || '')}`, '_blank', 'noopener');
   }
 

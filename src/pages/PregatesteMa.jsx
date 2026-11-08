@@ -3,8 +3,8 @@
 // Ruta: /pregateste-ma
 //
 // Cererea: un buton care amintește zilnic, printr-o notificare, să rezolvi un
-// test; progresul cu XP în Arena și clasament, simplu ca pe Duolingo, cu
-// promovare și alte răsplăți; contează și o parte dintr-un test.
+// test; progresul cu XP în Arena și clasament, simplu, cu promovare și alte
+// răsplăți; contează și o parte dintr-un test.
 //
 // Pagina: examenul ales · TESTUL DE AZI (interactiv sau — cu Premium — subiect
 // oficial pe PDF) · seria de zile și săptămâna · „🔔 Amintește-mi" · răsplățile
@@ -116,7 +116,7 @@ export default function PregatesteMa() {
       <div className="container">
         <div className="breadcrumb"><Link to="/">Acasă</Link><span>›</span><span>Pregătește-mă de examen</span></div>
         <h1>🎯 Pregătește-mă de examen</h1>
-        <p>Un test pe zi, ca la Duolingo: rezolvi cât poți — contează și o parte din test —, primești XP, urci în ligă și nu-ți pierzi seria.</p>
+        <p>Un test pe zi: rezolvi cât poți — contează și o parte din test —, primești XP, urci în ligă și nu-ți pierzi seria.</p>
       </div>
     </div>
   );

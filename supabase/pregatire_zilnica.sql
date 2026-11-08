@@ -3,8 +3,8 @@
 -- (8 noiembrie 2026)
 --
 -- Cererea: un buton „pregătește-mă de examen" care amintește zilnic, printr-o
--- notificare, să rezolvi un test; progresul cu XP în Arena și clasament, simplu
--- ca pe Duolingo, cu promovare și alte răsplăți; contează și o parte de test;
+-- notificare, să rezolvi un test; progresul cu XP în Arena și clasament, simplu,
+-- cu promovare și alte răsplăți; contează și o parte de test;
 -- în Arena, ca pe Facebook, cine a rezolvat, cine a promovat, ce subiect, ce
 -- provocări noi apar — fără note.
 --

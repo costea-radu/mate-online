@@ -49,7 +49,8 @@ Reguli impuse în baza de date, nu doar în UI:
 ### Unde apar recenziile
 
 - **După test** — `InteractiveViewer.jsx` (testele din site) și `ExercitiuAIViewer.jsx` (Biblioteca utilizatorilor, după ce scorul e înregistrat pe server): la 1,5 s după „Scor salvat" apare cardul „Cum ți s-a părut testul?" (stele + comentariu opțional), o singură dată per test; închis fără notă → nu mai insistă în sesiunea respectivă.
-- **Pe carduri** — listele pe clase, Evaluare Națională, Bacalaureat (`ContentPage.jsx`, `ExamContent.jsx`) și Biblioteca utilizatorilor: media „★ 4,6 (23)" + butonul „💬 Părerile (7)" care desface comentariile sub card.
+- **După corectarea unui test PDF** (8 nov. 2026) — `PDFViewer.jsx`: după „✅ Corectează" pe PDF sau după corectarea din foaia de lucru / formular (panoul profesorului anunță `testCorectat` din `src/lib/arena.js`), când rezultatul s-a salvat în `progress` — același card, aceeași regulă (notează doar cine a rezolvat testul pe site). Cardul așteaptă să se închidă felicitarea testului zilei.
+- **Pe carduri** — listele pe clase, Evaluare Națională, Bacalaureat (`ContentPage.jsx`, `ExamContent.jsx`) și Biblioteca utilizatorilor: media „★ 4,6 (23)" + butonul „💬 Părerile (7)" care desface comentariile sub card — la testele interactive și, din 8 nov. 2026, și la cele PDF (lângă nota și punctajul elevului).
 - **Home** — secțiunea „Ce spun elevii, părinții și profesorii" (`Testimonials`), între „Ce găsești pe ExamenMate" și CTA-ul final: media generală + până la 6 recenzii aprobate cu text, sortate după stele. **Nu apare deloc cât timp nu există recenzii aprobate.**
 - **Profil** — cardul „⭐ Părerea ta despre ExamenMate" (toate rolurile), înainte de „Setări cont": stele + text, stare (⏳ în așteptare / ✓ publicată), modificare, ștergere.
 - **/recenzii** — media generală, formularul (`#formular`), lista recenziilor publicate. Linkuri: Footer → Informații, Navbar → „Mai multe" și meniul de mobil, butoanele din secțiunea de pe Home.

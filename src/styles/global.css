@@ -2032,3 +2032,12 @@ body.sidebar-deschis .app-shell { padding-left: var(--sidebar-w); }
   .pz-home-pasi li > span { width: 30px; height: 30px; font-size: 1.1rem; border-radius: 9px; }
   .pz-home-pasi small { font-size: .76rem; line-height: 1.35; }
 }
+
+/* ─── Bara de stare pe iPhone (Safari 26, 8 nov. 2026) ─────────────────────────
+   Safari 26 ignoră <meta name="theme-color"> în browser și colorează bara de stare
+   după fundalul lui html/body (sau după o bară fixă / sticky de sus). Vizualizatoarele
+   pe tot ecranul (/pdf-viewer, /exercitiu, /exercitiu-ai) au bara lor navy, nefixă →
+   fundalul paginii le ia culoarea cât sunt deschise (clasa pusă din App.jsx → Layout);
+   altfel crem-ul paginii se vedea, estompat, peste butoanele de sus. */
+html.em-ecran-plin,
+html.em-ecran-plin body { background-color: var(--navy); }

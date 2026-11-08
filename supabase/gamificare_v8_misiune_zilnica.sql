@@ -1,7 +1,7 @@
 -- =====================================================================
 -- ExamenMate · GAMIFICARE v8 — MISIUNEA ZILNICĂ (Arena matematică, 30 oct. 2026)
 --
--- Ca la Duolingo: UN exercițiu pe zi. Elevul își alege clasa (a V-a … a XII-a),
+-- UN exercițiu pe zi. Elevul își alege clasa (a V-a … a XII-a),
 -- iar în fiecare zi primește următorul exercițiu INTERACTIV din site al clasei
 -- (în ordinea din site — „drumul clasei"). Misiunea e îndeplinită când îl
 -- rezolvă (scorul salvat și verificat de api/ai-score.js, minimum 50%); poate

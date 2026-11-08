@@ -535,6 +535,7 @@ export default function InteractiveViewer() {
   const reviewSkipKey = item?.id ? `em_review_skip_${item.id}` : null;
   useEffect(() => {
     if (!scoreSaved || !savedScore || !user || !item?.id) return;
+    if (pregRez) return;   // întâi felicitarea testului zilei (stau amândouă stânga-sus)
     if (reviewAskedRef.current.has(item.id)) return;
     try { if (reviewSkipKey && sessionStorage.getItem(reviewSkipKey)) return; } catch { /* ignore */ }
     // marcăm „întrebat" abia când cardul chiar apare: dacă scorul se salvează
@@ -542,7 +543,7 @@ export default function InteractiveViewer() {
     const id = item.id;
     const t = setTimeout(() => { reviewAskedRef.current.add(id); setReviewOpen(true); }, 1500);
     return () => clearTimeout(t);
-  }, [scoreSaved, savedScore, user, item?.id, reviewSkipKey]);
+  }, [scoreSaved, savedScore, user, item?.id, reviewSkipKey, pregRez]);
   useEffect(() => { setReviewOpen(false); }, [item?.id]);
   function closeReview() {
     setReviewOpen(false);

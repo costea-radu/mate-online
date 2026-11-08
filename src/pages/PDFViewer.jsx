@@ -18,7 +18,8 @@ import { useBaraSusVizibila, paddingBara } from '../lib/baraSus';
 // testelor de Evaluare Națională + „✅ Corectează" (api/rezolva-pdf.js)
 import { useRezolvarePdf, rezolvareToolbar, RezolvareFooter } from '../components/RezolvarePdf';
 import PregatireToast, { deAratat } from '../components/PregatireToast';
-import { onPregatire, arenaChanged } from '../lib/arena';
+import { onPregatire, arenaChanged, onTestCorectat } from '../lib/arena';
+import { ReviewToast } from '../components/ReviewWidget';
 
 function isMobile() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -89,6 +90,13 @@ export default function PDFViewer() {
   const dinPregatire = !modTest && searchParams.get('pregatire') === '1';
   const pregPornitRef = useRef(false);
   const [pregRez, setPregRez] = useState(null);    // { rez, fel } — PregatireToast
+  // Recenzia testului PDF (8 nov. 2026, „pune și recenzii"): după o corectare SALVATĂ
+  // (rândul din `progress` pe care îl cere RLS-ul recenziilor) — „Cum ți s-a părut
+  // testul?", o dată pe test în vizită, ca la testele interactive; așteaptă să se
+  // închidă felicitarea testului zilei (stau amândouă stânga-sus).
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewCerut, setReviewCerut] = useState(false);
+  const reviewAskedRef = useRef(new Set());
   const pregItemiRef = useRef(-1);
   const [lib, setLib] = useState(null);             // rândul din ai_public_library (kind 'pdf' | 'exam')
   const [examHtml, setExamHtml] = useState(null);   // testul generat (kind 'exam'), ca document HTML
@@ -398,6 +406,29 @@ export default function PDFViewer() {
   // corectările din panoul profesorului (formularul de răspunsuri, foaia de lucru)
   useEffect(() => onPregatire((rez) => arataPregatire(rez)), []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ⭐ Recenzia testului: după o corectare salvată — aici („✏️ Rezolvă pe PDF") sau în
+  // panoul profesorului (foaia de lucru, formularul); nu la Biblioteca utilizatorilor
+  // (acolo recenziile au alt traseu). Închis fără notă → nu mai întrebăm în vizita asta.
+  const reviewSkipKey = item?.id ? `em_review_skip_${item.id}` : null;
+  function cereRecenzie() {
+    if (!user || isLib || !item?.id) return;
+    setReviewCerut(true);
+  }
+  useEffect(() => onTestCorectat((d) => { if (d && item?.id && d.contentId === item.id) cereRecenzie(); }), [item?.id, user, isLib]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!reviewCerut || pregRez || !user || isLib || !item?.id) return undefined;
+    if (reviewAskedRef.current.has(item.id)) { setReviewCerut(false); return undefined; }
+    try { if (reviewSkipKey && sessionStorage.getItem(reviewSkipKey)) { setReviewCerut(false); return undefined; } } catch { /* ignore */ }
+    const id = item.id;
+    const t = setTimeout(() => { reviewAskedRef.current.add(id); setReviewCerut(false); setReviewOpen(true); }, 1500);
+    return () => clearTimeout(t);
+  }, [reviewCerut, pregRez, user, isLib, item?.id, reviewSkipKey]);
+  useEffect(() => { setReviewOpen(false); setReviewCerut(false); }, [item?.id]);
+  function closeReview() {
+    setReviewOpen(false);
+    try { if (reviewSkipKey) sessionStorage.setItem(reviewSkipKey, '1'); } catch { /* ignore */ }
+  }
+
   // testul zilei: o singură dată, după ce PDF-ul s-a încărcat — rezolvarea pe PDF
   // (EN) sau foaia de lucru (BAC / alte PDF-uri; doar cu cont)
   useEffect(() => {
@@ -485,6 +516,7 @@ export default function PDFViewer() {
       });
       if (h) h.done(r.text, { conversationId: r.conversationId, messageId: r.messageId });
       solve.keepResult(r, req.sigs);
+      if (r.saved && r.saved.kind === 'progress') cereRecenzie();   // ⭐ „Cum ți s-a părut testul?"
       arataPregatire(r.pregatire);   // „🎯 Pregătește-mă de examen": ziua bifată / cât mai e
       if (r.pregatire?.tocmaiBifata) arenaChanged();
       if (r.gratuite) {
@@ -1058,6 +1090,9 @@ export default function PDFViewer() {
   const tutorWidget = !tutorOpen && !modTest && <TutorFab onOpen={() => setTutorOpen(true)} />;
   // 🎯 „Pregătește-mă de examen": felicitarea / progresul spre bifa zilei
   const pregToast = pregRez && <PregatireToast rez={pregRez.rez} fel={pregRez.fel} onClose={() => setPregRez(null)} top={note ? 150 : 110} />;
+  const reviewJsx = reviewOpen && item?.id && !isLib && (
+    <ReviewToast targetType="content" targetId={item.id} title={item.title} onClose={closeReview} />
+  );
 
   // ── Panoul de chat, interconectat cu PDF-ul deschis ─────────────────────
   const tutorPanel = tutorOpen && (
@@ -1251,6 +1286,7 @@ export default function PDFViewer() {
         {tutorWidget}
         {noteJsx}
         {pregToast}
+        {reviewJsx}
       </div>
     );
   }
@@ -1324,6 +1360,7 @@ export default function PDFViewer() {
       {tutorWidget}
       {noteJsx}
       {pregToast}
+      {reviewJsx}
     </div>
   );
 }

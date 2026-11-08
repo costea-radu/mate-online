@@ -3,7 +3,7 @@
 //
 // Cererea: un buton „pregătește-mă de examen" care amintește zilnic, printr-o
 // notificare, să rezolvi un test; progresul cu XP în Arena și clasament cu alți
-// utilizatori, simplu ca pe Duolingo, cu promovare și alte răsplăți; „se
+// utilizatori, simplu, cu promovare și alte răsplăți; „se
 // consideră lucru și dacă elevul rezolvă o parte dintr-un test, nu complet".
 //
 // Cum merge:

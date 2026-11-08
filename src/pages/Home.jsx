@@ -28,7 +28,7 @@ function PregatireCard() {
       <div className="container">
         <Link to="/pregateste-ma" className="pz-home-card">
           <div className="pz-home-text">
-            <div className="pz-home-kicker">Nou · un test pe zi, ca la Duolingo</div>
+            <div className="pz-home-kicker">Nou · un test pe zi, cu serie și ligă</div>
             <h2>🎯 Pregătește-mă de examen</h2>
             <p>
               Alegi examenul — <strong>Evaluarea Națională</strong> sau <strong>Bacalaureatul</strong> — și primești în fiecare zi

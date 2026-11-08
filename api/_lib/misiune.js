@@ -1,7 +1,7 @@
 // =====================================================================
 // api/_lib/misiune.js — MISIUNEA ZILNICĂ din Arena matematică (30 oct. 2026)
 //
-// Ca la Duolingo: UN exercițiu pe zi. Elevul își alege clasa (a V-a … a XII-a)
+// UN exercițiu pe zi. Elevul își alege clasa (a V-a … a XII-a)
 // și primește, în fiecare zi, următorul exercițiu INTERACTIV din site al clasei,
 // în ordinea din site — „drumul clasei": întâi cele pe care nu le-a făcut
 // niciodată, apoi cele la care a avut sub 70%, apoi recapitulare. Exercițiul

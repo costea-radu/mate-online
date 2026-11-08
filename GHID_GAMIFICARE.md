@@ -101,7 +101,7 @@ Efectul: liga nu se câștigă stând mult într-o zi, ci intrând în fiecare z
 
 ## 5. Misiunea zilnică (30 oct. 2026) și provocarea bonus
 
-### 🎯 Misiunea zilnică — un exercițiu pe zi, ca la Duolingo
+### 🎯 Misiunea zilnică — un exercițiu pe zi
 
 Cardul stă în `/arena` **deasupra duelurilor** (`src/components/MisiuneZilnica.jsx`).
 

@@ -5,7 +5,7 @@
 //    și în prof virtual, înainte de meditații live. Pune-l și în Home, ca un card
 //    înainte de toate cardurile. Acest buton să amintească zilnic printr-o
 //    notificare, utilizatorul să rezolve un test. Progresul să se înregistreze cu
-//    XP în «arena» și clasament cu alți utilizatori, simplu ca pe duolingo, cu
+//    XP în «arena» și clasament cu alți utilizatori, simplu (…), cu
 //    promovare și alte modalități de răsplată. Se consideră lucru și dacă elevul
 //    rezolvă o parte dintr-un test, nu complet. În arena să apară ca pe Facebook
 //    cine a rezolvat, a promovat, ce subiect, ce provocări noi apar, etc., notele

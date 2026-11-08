@@ -174,3 +174,9 @@ Nota să apară în statistici la «rezultate elevi»".
   mele" și „Grupe / Rezultate elevi". XP doar când punctajul crește.
 - Lucrul pe PDF bifează și **testul zilei** din „🎯 Pregătește-mă de examen" (de la 3
   exerciții) — `GHID_PREGATESTE_MA.md`.
+
+## Nota pe card și recenzia (8 nov. 2026, seara)
+
+- În listele de teste (EN, BAC, pe clase), cardul PDF arată, ca la cele interactive, rezultatul elevului din `progress`
+  („✓ 17% · nota 2,50" + „15/90 pct"), media recenziilor („★ 4,6 (12)") și „💬 Părerile (n)".
+- După o corectare salvată apare cardul „Cum ți s-a părut testul?" (stele + comentariu) — `GHID_RECENZII_SI_MODELE_AI.md`.

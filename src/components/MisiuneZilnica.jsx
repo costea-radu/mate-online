@@ -2,7 +2,7 @@
 // src/components/MisiuneZilnica.jsx — „🎯 Misiunea zilnică" din Arena
 // (30 oct. 2026), deasupra duelurilor.
 //
-// Ca la Duolingo: un exercițiu pe zi, cu progres. Elevul își alege clasa (a V-a
+// Un exercițiu pe zi, cu progres. Elevul își alege clasa (a V-a
 // … a XII-a), primește în fiecare zi următorul exercițiu INTERACTIV din site al
 // clasei și îl rezolvă în vizualizatorul obișnuit (/exercitiu?id=…&misiune=1).
 // Misiunea se îndeplinește de la 50% (scorul verificat pe server); se poate

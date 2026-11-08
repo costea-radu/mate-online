@@ -10,7 +10,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } fro
 import { createPortal } from 'react-dom';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
-import { pregatireRezultat } from '../lib/arena';
+import { pregatireRezultat, testCorectat } from '../lib/arena';
 import { useTestMode } from '../lib/testMode';
 import { supabase } from '../lib/supabase';
 import ExamGenerator from './ExamGenerator';
@@ -511,6 +511,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       setForm(null); setFormAnswers({}); setFormImages([]);
       formStartRef.current = Date.now(); // pregătește o eventuală reîncercare
       pregatireRezultat(r.pregatire);    // „🎯 Pregătește-mă de examen": ziua bifată / progresul
+      testCorectat({ contentId: context.contentId || null, saved: r.saved || null });   // PDF: „Cum ți s-a părut testul?"
       // pe tablă: Prof. Tudor spune rezultatul (punctajul rămâne scris pe tablă)
       if (boardMode && speaker) speaker.say(`${r.feedback || 'Am corectat lucrarea ta — punctajul e pe tablă.'}${context.meditatii ? ' Cum mergem mai departe?' : ''}`, { key: 'chat' });
       // insigne, ca la testele interactive (doar când punctajul s-a salvat)

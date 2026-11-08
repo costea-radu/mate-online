@@ -51,3 +51,18 @@ export function onPregatire(fn) {
   window.addEventListener('em:pregatire', h);
   return () => window.removeEventListener('em:pregatire', h);
 }
+
+// Recenzii la PDF-uri (8 nov. 2026): o corectare din panoul Profesorului Virtual
+// (foaia de lucru, formularul) s-a SALVAT în `progress` pentru testul `contentId` →
+// vizualizatorul PDF întreabă „Cum ți s-a părut testul?" (RLS-ul recenziilor cere
+// exact rândul acesta: notează doar cine a rezolvat testul).
+export function testCorectat({ contentId = null, saved = null } = {}) {
+  if (!contentId || !saved || saved.kind !== 'progress') return;
+  try { window.dispatchEvent(new CustomEvent('em:corectat', { detail: { contentId } })); } catch { /* SSR */ }
+}
+
+export function onTestCorectat(fn) {
+  const h = (e) => fn(e.detail || null);
+  window.addEventListener('em:corectat', h);
+  return () => window.removeEventListener('em:corectat', h);
+}

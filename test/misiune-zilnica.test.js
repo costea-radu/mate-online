@@ -1,6 +1,6 @@
 // =====================================================================
 // test/misiune-zilnica.test.js — cererea din 30 octombrie 2026 (2):
-//   „în «arena matematică» fă misiune zilnică, la fel ca la duolingo:
+//   „în «arena matematică» fă misiune zilnică (…):
 //    rezolvarea unui exercițiu pe zi, cu progres. Exercițiile să fie preluate
 //    din site, interactive, începând cu clasa a 5-a, până pe a 12-a. Pune
 //    deasupra de «dueluri»."

@@ -111,6 +111,19 @@ function Layout({ children }) {
     return () => { document.body.style.overflow = prev; };
   }, [lockScroll]);
 
+  // iPhone / iPad cu Safari 26: browserul nu mai folosește <meta name="theme-color">;
+  // culoarea barei de stare (ceasul, bateria) o ia din fundalul paginii (html/body)
+  // sau dintr-o bară fixă / sticky de sus. Pe celelalte pagini bara site-ului e
+  // sticky și navy; vizualizatoarele (PDF, test interactiv, exercițiu AI) n-o au,
+  // iar fundalul crem al paginii ajungea, estompat, peste butoanele lor de sus
+  // („o bară difuză"). Cât sunt deschise, fundalul paginii e navy, ca bara lor.
+  useEffect(() => {
+    if (!lockScroll) return undefined;
+    const el = document.documentElement;
+    el.classList.add('em-ecran-plin');
+    return () => el.classList.remove('em-ecran-plin');
+  }, [lockScroll]);
+
   return (
     <>
       {!fullscreen && <Navbar />}

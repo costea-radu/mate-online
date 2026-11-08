@@ -193,7 +193,7 @@ function ProgressBadge({ progress }) {
         padding:'4px 10px', borderRadius:20, fontSize:'0.73rem', fontWeight:700,
         background:bg, color,
       }}>
-        ✓ {pct}%{nota != null ? ` · nota ${nota}` : ''}
+        ✓ {pct}%{nota != null ? ` · nota ${nota.replace('.', ',')}` : ''}
       </span>
       <span style={{ fontSize:'0.69rem', color:'var(--text-muted)', whiteSpace:'nowrap' }}>
         {progress.score}/{progress.max_score} pct
@@ -277,7 +277,8 @@ export function ContentCard({ item, isPremium, user, progress, rating, _override
 
       {/* Rând 2: progres + badge + buton */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {isInteractive && user && progress && (
+        {/* nota + punctajul elevului: la testele interactive și la PDF-urile corectate pe site */}
+        {(isInteractive || isPdf) && user && progress && (
           <ProgressBadge progress={progress} />
         )}
 
@@ -468,16 +469,17 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
   // Încarcă progresul pentru exercițiile interactive
   useEffect(() => {
     if (!user || items.length === 0) return;
-    const interactiveIds = items
-      .filter(i => i.content_type === 'interactive')
+    // testele interactive și cele PDF (corectate cu „✏️ Rezolvă" / „Foaia de lucru")
+    const testIds = items
+      .filter(i => i.content_type === 'interactive' || i.content_type === 'pdf')
       .map(i => i.id);
-    if (interactiveIds.length === 0) return;
+    if (testIds.length === 0) return;
 
     supabase
       .from('progress')
       .select('*')
       .eq('user_id', user.id)
-      .in('content_id', interactiveIds)
+      .in('content_id', testIds)
       .then(({ data }) => {
         if (data) {
           const map = {};

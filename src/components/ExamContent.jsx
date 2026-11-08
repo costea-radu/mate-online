@@ -33,8 +33,10 @@ export function ItemBlock({ category, subcategory, profile, contentType, emptyTe
     load();
   }, [category, subcategory, profile, contentType]);
 
+  // Rezultatul elevului (nota, punctajul) — și la PDF-uri (8 nov. 2026): „✏️ Rezolvă pe
+  // PDF" și „Foaia de lucru" salvează corectarea în `progress`, ca testele interactive
   useEffect(() => {
-    if (!user || items.length === 0 || contentType !== 'interactive') return;
+    if (!user || items.length === 0) return;
     const ids = items.map(i => i.id);
     supabase.from('progress').select('*').eq('user_id', user.id).in('content_id', ids)
       .then(({ data }) => {
@@ -44,15 +46,15 @@ export function ItemBlock({ category, subcategory, profile, contentType, emptyTe
           setProgressMap(map);
         }
       });
-  }, [user, items, contentType]);
+  }, [user, items]);
 
-  // Media recenziilor (stele) — doar testele interactive primesc note
+  // Media recenziilor (stele) — la testele interactive și la cele PDF
   useEffect(() => {
-    if (items.length === 0 || contentType !== 'interactive') return;
+    if (items.length === 0) return;
     let alive = true;
     fetchReviewStats('content', items.map(i => i.id)).then(map => { if (alive) setRatingMap(map); });
     return () => { alive = false; };
-  }, [items, contentType]);
+  }, [items]);
 
   if (loading) return (
     <div style={{ padding: '10px 0', color: 'var(--text-muted)', fontSize: '0.83rem' }}>
@@ -105,10 +107,13 @@ export function Section({ title, icon, defaultOpen = false, children, level = 1 
 }
 
 // ─── Comutator Interactive / PDF în interiorul unei secțiuni ───────────────────
-export function TypeTabs({ category, subcategory, profile, returnTab }) {
+// `pdfFirst` (Evaluarea Națională, 8 nov. 2026): 📄 PDF în stânga și ales implicit,
+// 🧩 Interactive în dreapta; fără el (Bacalaureat) rămâne Interactive | PDF.
+export function TypeTabs({ category, subcategory, profile, returnTab, pdfFirst = false }) {
   const location = useLocation();
   const returningHere = location.state?.scrollToCardId && location.state?.returnSubcategory === subcategory;
-  const initialType = returningHere ? (location.state?.returnContentType || 'interactive') : 'interactive';
+  const implicit = pdfFirst ? 'pdf' : 'interactive';
+  const initialType = returningHere ? (location.state?.returnContentType || implicit) : implicit;
   const [type, setType] = useState(initialType);
   const btn = (active) => ({
     flex: 1, padding: '8px 12px', cursor: 'pointer',
@@ -121,12 +126,13 @@ export function TypeTabs({ category, subcategory, profile, returnTab }) {
   return (
     <div>
       <div style={{ display: 'flex', gap: 0, marginBottom: 12, borderRadius: 8, overflow: 'hidden' }}>
-        <button style={{ ...btn(type === 'interactive'), borderRadius: '8px 0 0 8px' }} onClick={() => setType('interactive')}>
-          🧩 Interactive
-        </button>
-        <button style={{ ...btn(type === 'pdf'), borderRadius: '0 8px 8px 0', borderLeft: 'none' }} onClick={() => setType('pdf')}>
-          📄 PDF
-        </button>
+        {(pdfFirst ? ['pdf', 'interactive'] : ['interactive', 'pdf']).map((t, i) => (
+          <button key={t}
+            style={{ ...btn(type === t), borderRadius: i === 0 ? '8px 0 0 8px' : '0 8px 8px 0', ...(i ? { borderLeft: 'none' } : {}) }}
+            onClick={() => setType(t)}>
+            {t === 'pdf' ? '📄 PDF' : '🧩 Interactive'}
+          </button>
+        ))}
       </div>
       {type === 'interactive'
         ? <ItemBlock category={category} subcategory={subcategory} profile={profile} contentType="interactive" returnTab={returnTab} />

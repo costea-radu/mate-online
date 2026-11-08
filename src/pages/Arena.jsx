@@ -2,7 +2,7 @@
 // src/pages/Arena.jsx — „⚔️ Arena matematică" (pașii 1-2 din gamificare)
 //
 // Ce arată: nivelul și XP-ul, seria de zile (streak), MISIUNEA ZILNICĂ (un
-// exercițiu pe zi, ca la Duolingo — src/components/MisiuneZilnica.jsx, deasupra
+// exercițiu pe zi — src/components/MisiuneZilnica.jsx, deasupra
 // duelurilor; vechea „misiune a zilei" — 8 itemi / 100 XP / 80% — e acum
 // „⚡ Provocarea bonus", în același card) și LIGA săptămânală (cohorta ta, cu
 // zonele de promovare/retrogradare).
