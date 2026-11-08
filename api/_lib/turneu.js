@@ -375,6 +375,10 @@ async function finalizeExpired(supa) {
     for (let i = 0; i < premiati.length; i++) {
       const uid = premiati[i].user_id;
       if (!uid) continue;
+      // fluxul Arenei: doar turneele PUBLICE (cele de grupă rămân în grupă)
+      if (t.scope === 'public') {
+        await require('./arenaFeed').post(supa, { userId: uid, kind: 'turneu', dedupeKey: `turneu:${t.id}:${uid}`, payload: { titlu: t.title, loc: i + 1, link: '/arena' } });
+      }
       await xp.bonus(supa, uid, {
         source: 'turneu', refId: t.id, xp: PREMII[i], coins: PREMII_MONEDE[i],
         meta: { turneu: t.title, loc: i + 1 },
@@ -436,6 +440,8 @@ async function ensureWeeklyPublic(supa) {
   await supa.from('tournament_items').insert(
     alese.map((c, i) => ({ tournament_id: t.id, content_id: c.id, title: c.title, position: i })),
   );
+  // fluxul Arenei: „🏆 Turneu nou: …" (anunț, fără nume)
+  await require('./arenaFeed').post(supa, { kind: 'turneu', dedupeKey: `turneu-nou:${t.id}`, payload: { titlu: t.title, exercitii: alese.length, zile: AUTO_ZILE, link: '/arena' } });
   return { creat: true, id: t.id, exercitii: alese.length };
 }
 

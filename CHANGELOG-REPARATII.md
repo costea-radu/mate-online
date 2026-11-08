@@ -4,6 +4,38 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 8 noiembrie 2026 (2) — 🎯 Pregătește-mă de examen (testul zilei, XP, ligă, flux în Arenă), nota cu roșu pe test, notă și pentru o parte de test, Home cu bara albastră subțire
+
+Cererea: „1. Pune un buton “pregătește-mă de examen” in “învățare cu AI” in meniul hamburger pe telefon și in meniul hover lateral. Pune butonul și în navbar și in prof virtual, înainte de meditații live. Pune-l și în Home, ca un card înainte de toate cardurile. Acest buton sa amintească zilnic printr-o notificare, utilizatorul sa rezolve un test. Progresul sa se înregistreze cu XP in “arena” și clasament cu alți utilizatori, simplu ca pe duolingo, cu promovare și alte modalități de răsplată. Se consideră lucru și dacă elevul rezolvă o parte dintr-un test, nu complet. În arena să apară ca pe Facebook cine a rezolvat, a promovat, ce subiect, ce provocări noi apar, etc., notele să nu apară dacă sunt probleme cu politica de confidențialitate. 2. după corectare, notează cu roșu nota pe test, scris de mână, de exemplu: 7,30(șapte ^30) 3. pune o notă chiar dacă se rezolvă doar câteva exerciții doar de la un subiect. Trece nota și lasă posibilitatea să se revină și să rezolve din nou. Nota sa apară în statistici la “rezultate elevi” 4. fa mai mică secțiunea albastră din “Home”, ca o bară orizontală. Sub ea mare pune cardul: pregătește-mă de examen, de care am vorbit"
+
+Ghidul: `GHID_PREGATESTE_MA.md` (nou); actualizate `GHID_GAMIFICARE.md`, `GHID_REZOLVA_PE_PDF.md`.
+**De făcut o dată**: rulează `supabase/pregatire_zilnica.sql` (RLS + GRANT, fără `anon`). Dependența nouă `@fontsource/caveat` o instalează Vercel la build (`npm install` doar pentru rularea locală).
+
+### 1) 🎯 Pregătește-mă de examen (`/pregateste-ma`, `api/_lib/pregatireZilnica.js`)
+- Butonul: primul în „Învățare cu AI" (meniul ☰ de pe telefon și meniul lateral), primul în bara de sus („🎯 Pregătește-mă"; sub 1200px doar 🎯), în Profesorul Virtual înainte de „Meditații live" (și fila din pagina Profesorul Virtual), card mare în Home, card în Arena; 📝 în indicatorul Arenei cât testul te așteaptă.
+- Examenul (EN, BAC M1/M2/M3) → **testul zilei** din site (nerezolvate → sub 70% → recapitulare; fără abonament doar gratuite; fără bareme); 🔀 Alt test; cu Premium, la alegere, subiectul oficial PDF.
+- **Ziua se bifează de la 3 exerciții lucrate**, în orice test de examen, și fără să-l termine (salvarea automată a testelor interactive, corectarea pe PDF, foaia de lucru, scrisul de mână).
+- Răsplata (o dată pe zi, prin `xp.bonus` → și în liga săptămânii, cu promovare): 25 XP + 5 🪙, +10 XP la 80%+, la fiecare 7 zile la rând +40 XP + 15 🪙; seria 🔥; 6 insigne.
+- Amintirea zilnică (`api/_lib/pregatireNotificari.js`, cron `cron-pregatire` la fiecare oră): ora aleasă (implicit 18:00), doar dacă ziua nu e bifată; alertă de serie la 20:00; Web Push sau clopoțelul.
+
+### 2) 📣 Fluxul Arenei (`api/_lib/arenaFeed.js`, `src/components/ArenaFeed.jsx`)
+- „Ana P. a lucrat azi la Subiectul I · Evaluarea Națională", teste complete, promovări în ligă, serii, insigne, niveluri, dueluri câștigate, turnee (noi / câștigători, doar publice), provocarea bonus a zilei.
+- **Fără note, punctaje, procente sau XP** (listă albă de câmpuri), doar prenumele + inițiala, opt-out „Apar în activitatea Arenei". Politica de confidențialitate actualizată (secțiunea 3, „Ultima actualizare: 8 noiembrie 2026").
+
+### 3) Nota cu roșu pe test (`RezolvarePdf.jsx`, `src/lib/pdfRezolvare.js`)
+- După corectare, pe pagina 1, scrisă de mână (Caveat): **7,30 (șapte³⁰)**, în primul loc liber din dreapta-sus (nu acoperă antetul); estompată dacă elevul scrie din nou; și în PDF-ul descărcat.
+
+### 4) Notă și pentru o parte de test (`api/rezolva-pdf.js`, `api/_lib/pdfRezolvare.js`)
+- Nota la orice corectare cu puncte (ce lipsește = 0p), salvată de fiecare dată în `progress` → „Rezultatele mele" și „Grupe / Rezultate elevi"; elevul poate reveni și corecta din nou.
+
+### 5) Home
+- Secțiunea albastră → bară orizontală subțire; sub ea, mare, cardul „Pregătește-mă de examen".
+
+### Teste
+- `test/pregatire-zilnica.test.js` (30), `test/rezolva-pe-pdf.test.js` actualizat; `test/tools/fakeSupabase.js`: filtrul `like`, constrângeri UNIQUE, id-uri serial pentru `arena_feed`. `npm test`: 1140/1140. Verificat în Chromium (desktop + telefon): butoanele, Home, `/pregateste-ma`, fluxul Arenei, nota cu roșu pe ecran și în PDF-ul descărcat.
+
+---
+
 ## 8 noiembrie 2026 — ✏️ Rezolvă pe PDF, runda a 2-a: corectarea cu Premium (+2 corectări gratuite ale grilei), tăiat / revenire la grilă, „✏️ Rezolvă" pulsant, „Foaie de lucru", BAC → foaia de lucru
 
 Cererea: „* Corectarea sa se facă doar cu premium si pentru grila. pune o corectare gratuita, după barem * La grila fa sa poata: a) să taie o grilă și să încercuiască o alta, b) sa taie noua grila încercuită și să scrie lângă grila tăiată litera ei și să o încercuiască ca fiind corecta. * Fă butonul “rezolvă” pulsatil ca să atragă atenția. * Spațiul de lucru redenumește-l “foaie de lucru” * La testele de bac și celelalte fișiere PDF butonul “rezolvă” să deschidă foaia de lucru. Daca nu e deja, aplica același model de corectare: în spațiul de lucru, după barem" — și, la întrebarea mea: „un singur buton, care functioneaza doar cu premium, dar utilizatorul are doua corectari gratuite a grilei, apoi indemnul spre Premium. grila se corcteaza fara AI dupa barem, iar subiectul III cu AI cum ai stabilit cu opus 5.5."

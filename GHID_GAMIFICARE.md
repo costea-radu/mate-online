@@ -27,6 +27,7 @@ Cele trei straturi:
    | `supabase/gamificare_v7_partial.sql` | salvare parțială în dueluri: `duels.*_partial` |
    | `supabase/gamificare_v8_misiune_zilnica.sql` | misiunea zilnică: `daily_exercises` + `user_stats.mission_category` |
    | `supabase/misiune_notificari.sql` | amintirea misiunii: `user_stats.mission_notify`, `mission_notify_hour`, `mission_notified_on`, `mission_streak_notified_on` (+ `push_subscriptions`, dacă lipsește) |
+   | `supabase/pregatire_zilnica.sql` | „🎯 Pregătește-mă de examen" (8 nov. 2026): `daily_tests`, fluxul Arenei `arena_feed`, `user_stats.prep_*` și `arena_public` — vezi `GHID_PREGATESTE_MA.md` |
    | `supabase/gamificare_lints.sql` | politici explicite `service_role` (închide avertismentele INFO ale linterului) |
 
    Toate sunt idempotente (se pot rula de mai multe ori).
@@ -39,6 +40,7 @@ Cele trei straturi:
    | `/api/duel?action=cron` | la 6 ore | închide duelurile depășite (neprezentare) |
    | `/api/turneu?action=cron` | la 6 ore | închide turneele expirate și dă premiile |
    | `/api/gamificare?action=cron-misiune` | la fiecare oră (minutul 5) | amintirea misiunii zilnice (notificare / clopoțel) |
+   | `/api/gamificare?action=cron-pregatire` | la fiecare oră (minutul 8) | amintirea testului zilei („Pregătește-mă de examen") |
 
 3. Deploy. Nu e nevoie de nicio variabilă nouă de mediu — cele opționale sunt
    mai jos.
@@ -178,6 +180,15 @@ avataruri/rame/scuturi vine la un pas următor. În Arena apare compact, deasupr
 misiunii zilnice, ca „⚡ Provocarea bonus a zilei" (ca să nu se confunde cu ea).
 
 ---
+
+### 🎯 Pregătește-mă de examen — testul zilei (8 nov. 2026)
+
+Pagina `/pregateste-ma` (butonul e în meniuri, în bara de sus, în Profesorul Virtual
+și în Home): un **test de examen pe zi** (EN sau BAC), ziua bifată de la **3 exerciții
+lucrate** (și o parte de test), **25 XP + 5 🪙** (+10 la 80%), bonus la fiecare 7 zile la
+rând, insigne, amintire zilnică — XP-ul intră în liga de mai jos. În Arena, fluxul
+**📣 Ce se întâmplă în Arenă** (fără note, „Ana P.", cu opt-out). Totul în
+`GHID_PREGATESTE_MA.md`.
 
 ## 6. Liga săptămânală
 

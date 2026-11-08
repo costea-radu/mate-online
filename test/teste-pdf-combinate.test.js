@@ -250,5 +250,6 @@ test('meniul „🎓 Examene": profesorii au „📄 Generează subiect examen" 
   assert.match(pv, /useEffect\(\(\) => \{ if \(tabParam\) setTabAles\(tabParam\); \}, \[tabParam\]\);/);
   assert.match(pv, /\{ id: 'exam', label: '📄 Generează subiect examen' \}/);
   assert.match(pv, /\{tab === 'exam' && <ExamGenerator canManage=\{isTeacher\} \/>\}/);
-  assert.match(pv, /const tab = TABS\.some\(\(t\) => t\.id === tabAles && t\.id !== 'meditatii'\) \? tabAles : 'chat';/, 'elevul care deschide ?tab=exam ajunge la chat');
+  // (8 nov. 2026: și „🎯 Pregătește-mă de examen" e un link spre altă pagină, nu o filă)
+  assert.match(pv, /const tab = TABS\.some\(\(t\) => t\.id === tabAles && t\.id !== 'meditatii' && t\.id !== 'pregatire'\) \? tabAles : 'chat';/, 'elevul care deschide ?tab=exam ajunge la chat');
 });

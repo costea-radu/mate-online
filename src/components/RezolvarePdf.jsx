@@ -19,14 +19,92 @@
 // Corectarea o pornește src/pages/PDFViewer.jsx (api/rezolva-pdf.js); logica
 // pură e în src/lib/pdfRezolvare.js.
 // =====================================================================
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import '@fontsource/caveat/700.css';   // scrisul de mână al notei (roșu, pe prima pagină)
 import { loadPdfJs } from '../lib/pdfjs';
 import {
   PEN_PT, INK_COLORS, boxOf, nearStroke, inkPath, buildExamMap, readTextPages, recognize,
   correctionPlan, recognitionSummary, cropPlan, cropLabels, readDraft, saveDraft, renderCrop,
-  canvasJpeg, thumbOf, exportInkPdf, itemShort,
+  canvasJpeg, thumbOf, exportInkPdf, itemShort, notaScrisa, pozitieNota, latimeNota,
 } from '../lib/pdfRezolvare';
+
+// ─── NOTA, scrisă cu roșu pe test (8 nov. 2026) ───────────────────────────────
+// „7,30 (șapte³⁰)" pe prima pagină, sus în dreapta, ca pe o lucrare corectată.
+// `vechi` = elevul a mai scris după corectare: nota se estompează până la
+// următorul „✅ Corectează".
+const ROSU = '#d32f2f';
+const FONT_MANA = "Caveat, 'Segoe Script', 'Bradley Hand', cursive";
+export function NotaRosie({ nota, w, h, vechi = false, cutii = null }) {
+  const ns = notaScrisa(nota);
+  const size0 = pozitieNota(w, h).size;
+  const P = useMemo(() => pozitieNota(w, h, { cutii, latime: latimeNota(ns, size0) }), [w, h, cutii, nota]); // eslint-disable-line react-hooks/exhaustive-deps
+  const textRef = useRef(null);
+  const [tw, setTw] = useState(() => latimeNota(ns, P.size));
+  // lățimea adevărată, după ce fontul de mână s-a încărcat (sublinierea o urmează)
+  useLayoutEffect(() => {
+    let viu = true;
+    const masoara = () => { try { const b = textRef.current && textRef.current.getBBox(); if (viu && b && b.width > 0) setTw(b.width); } catch { /* jsdom */ } };
+    masoara();
+    try { document.fonts && document.fonts.load(`700 ${Math.round(P.size)}px Caveat`).then(masoara).catch(() => {}); } catch { /* fără API de fonturi */ }
+    return () => { viu = false; };
+  }, [nota, P.size]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!ns) return null;
+  const s = P.size;
+  const sus = ns.zecimale ? s * 0.38 : 0;
+  return (
+    <g pointerEvents="none" transform={`rotate(${P.rot} ${P.x} ${P.y})`} opacity={vechi ? 0.4 : 1} className="nota-rosie">
+      <title>{`Nota ${ns.cifre}${vechi ? ' (de la corectarea de dinainte)' : ''}`}</title>
+      <text ref={textRef} x={P.x} y={P.y} textAnchor="end" fontFamily={FONT_MANA} fontWeight="700" fontSize={s} fill={ROSU}>
+        {ns.cifre}{' '}
+        <tspan fontSize={s * 0.82}>({ns.cuvant}</tspan>
+        {ns.zecimale ? <tspan fontSize={s * 0.5} dy={-sus}>{ns.zecimale}</tspan> : null}
+        <tspan fontSize={s * 0.82} dy={sus}>)</tspan>
+      </text>
+      <path d={`M ${P.x - tw - s * 0.08} ${P.y + s * 0.2} Q ${P.x - tw / 2} ${P.y + s * 0.34} ${P.x + s * 0.06} ${P.y + s * 0.14}`}
+        stroke={ROSU} strokeWidth={Math.max(1, s * 0.055)} fill="none" strokeLinecap="round" />
+    </g>
+  );
+}
+
+// Aceeași notă, desenată pe o pânză (pentru PDF-ul descărcat) → { png, x, y, w, h } în puncte
+async function notaPng(nota, W, H, { k = 4, cutii = null } = {}) {
+  const ns = notaScrisa(nota);
+  if (!ns || typeof document === 'undefined') return null;
+  const s0 = pozitieNota(W, H).size;
+  const P = pozitieNota(W, H, { cutii, latime: latimeNota(ns, s0) });
+  const s = P.size;
+  try { if (document.fonts) await document.fonts.load(`700 ${Math.round(s * k)}px Caveat`); } catch { /* fontul de rezervă */ }
+  const est = latimeNota(ns, s);
+  const boxW = est * 1.25 + s, boxH = s * 2.6;
+  const left = P.x - est * 1.2 - s * 0.5, top = P.y - s * 1.7;
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(boxW * k); c.height = Math.ceil(boxH * k);
+  const ctx = c.getContext('2d');
+  ctx.scale(k, k);
+  ctx.translate(P.x - left, P.y - top);          // originea = ancora notei
+  ctx.rotate((P.rot * Math.PI) / 180);
+  ctx.fillStyle = ROSU; ctx.strokeStyle = ROSU; ctx.textBaseline = 'alphabetic';
+  const piese = [
+    { t: `${ns.cifre} `, f: s, dy: 0 },
+    { t: `(${ns.cuvant}`, f: s * 0.82, dy: 0 },
+    ...(ns.zecimale ? [{ t: ns.zecimale, f: s * 0.5, dy: -s * 0.38 }] : []),
+    { t: ')', f: s * 0.82, dy: 0 },
+  ];
+  const latime = (p) => { ctx.font = `700 ${p.f}px Caveat, 'Segoe Script', cursive`; return ctx.measureText(p.t).width; };
+  const total = piese.reduce((a, p) => a + latime(p), 0);
+  let x = -total;
+  for (const p of piese) {
+    ctx.font = `700 ${p.f}px Caveat, 'Segoe Script', cursive`;
+    ctx.fillText(p.t, x, p.dy);
+    x += ctx.measureText(p.t).width;
+  }
+  ctx.lineWidth = Math.max(1, s * 0.055); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-total - s * 0.08, s * 0.2); ctx.quadraticCurveTo(-total / 2, s * 0.34, s * 0.06, s * 0.14); ctx.stroke();
+  const blob = await new Promise((res) => c.toBlob(res, 'image/png'));
+  if (!blob) return null;
+  return { png: new Uint8Array(await blob.arrayBuffer()), x: left, y: top, w: boxW, h: boxH };
+}
 
 const MAX_HISTORY = 300;
 const ERASER_PX = 10;                 // raza radierei, în px de ecran
@@ -203,7 +281,7 @@ export function computeMarks(map, rec, result) {
 }
 
 // ═════════════════════════════ stratul unei pagini ═════════════════════════════
-export function InkPage({ n, w, h, store, tool, color, marks }) {
+export function InkPage({ n, w, h, store, tool, color, marks, nota = null }) {
   const svgRef = useRef(null);
   const curRef = useRef(null);
   const drawRef = useRef(null);
@@ -307,6 +385,8 @@ export function InkPage({ n, w, h, store, tool, color, marks }) {
           );
         })}
       </g>
+      {/* nota corectării, cu roșu, scrisă de mână (doar pe prima pagină) */}
+      {nota && nota.v != null && <NotaRosie nota={nota.v} w={w} h={h} vechi={!!nota.vechi} cutii={nota.cutii || null} />}
     </svg>
   );
 }
@@ -441,7 +521,12 @@ export function useRezolvarePdf({ on, data, draftKey }) {
   }
 
   async function downloadPdf(title) {
-    const bytes = await exportInkPdf(data, store.ink, (map && map.pages) || await geoOf(data));
+    const geo = (map && map.pages) || await geoOf(data);
+    // nota corectării, scrisă cu roșu pe prima pagină (ca pe ecran)
+    let notaImg = null;
+    const v = store.result && store.result.nota;
+    if (v != null && geo && geo[1]) { try { notaImg = await notaPng(v, geo[1].W, geo[1].H, { cutii: (map && map.cutii1) || null }); } catch { notaImg = null; } }
+    const bytes = await exportInkPdf(data, store.ink, geo, { notaImg });
     const blob = new Blob([bytes], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -455,7 +540,15 @@ export function useRezolvarePdf({ on, data, draftKey }) {
 
   const durationSec = () => (store.startedAt ? Math.round((Date.now() - store.startedAt) / 1000) : 0);
 
-  const overlay = ({ n, w, h }) => <InkPage n={n} w={w} h={h} store={store} tool={tool} color={color} marks={marks[n]} />;
+  // nota de la ultima corectare: estompată dacă elevul a mai scris de atunci
+  const notaPag = useMemo(() => {
+    const r = store.result;
+    if (!r || r.nota == null) return null;
+    const sigs = r.sigs || {};
+    const vechi = !!rec && Object.entries(rec.items || {}).some(([k, it]) => it && it.n && sigs[k] !== it.sig);
+    return { v: r.nota, vechi, cutii: (map && map.cutii1) || null };
+  }, [store.result, rec, map]); // eslint-disable-line react-hooks/exhaustive-deps
+  const overlay = ({ n, w, h }) => <InkPage n={n} w={w} h={h} store={store} tool={tool} color={color} marks={marks[n]} nota={n === 1 ? notaPag : null} />;
 
   return {
     store, ver, tool, setTool, color, setColor, map, mapState, rec, result, marks, summary, overlay,

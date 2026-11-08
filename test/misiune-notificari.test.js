@@ -249,10 +249,11 @@ test('vercel.json: cronul amintirilor rulează la fiecare oră; cardul și servi
   assert.ok(c, 'cronul misiunii');
   assert.strictEqual(c.schedule, '5 * * * *');
   const card = read('src/components/MisiuneZilnica.jsx');
-  assert.match(card, /function AmintireMisiune/);
+  // (8 nov. 2026: componenta e generală — AmintireZilnica — și o folosește și testul zilei)
+  assert.match(card, /export function AmintireZilnica/);
   assert.match(card, /misiune_notificari_proba/);
   assert.match(card, /askNotifyPermission\(\)/, 'permisiunea se cere doar la clicul elevului');
-  assert.match(card, /<AmintireMisiune /);
+  assert.match(card, /<AmintireZilnica notif=\{notif\} setNotif=\{setNotif\} isAdmin=\{isAdmin\} \/>/);
   const sw = read('public/sw-push.js');
   assert.match(sw, /requireInteraction: data\.requireInteraction !== false/);
   assert.match(read('src/components/AINotifications.jsx'), /misiune: '🎯'/);

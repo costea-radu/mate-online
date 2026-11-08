@@ -36,6 +36,7 @@ const aiPublic = require('./ai-public');        // recordPublicResult — rezult
 const xp = require('./_lib/xp');
 const duel = require('./_lib/duel');
 const turneu = require('./_lib/turneu');
+const pregatire = require('./_lib/pregatireZilnica'); // „Pregătește-mă de examen": ziua se bifează și cu o parte de test
 
 const MAX_TEXT = 12000;          // textul testului / baremului trimis modelului
 const MAX_LEAVES = 40;           // câte cerințe (subpuncte) acceptăm în formular
@@ -683,7 +684,7 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
 
   // ── salvarea punctajului (ca la testele interactive) ──
   const sessionSeconds = Math.max(0, Math.min(6 * 3600, Math.round(Number(durationSec) || 0)));
-  let saved = null, attempts = 1, timeSpent = sessionSeconds;
+  let saved = null, attempts = 1, timeSpent = sessionSeconds, pregatireRez = null;
   const category = src.category || context.category || null; // contentId: verificat mai sus (token + acces)
   try {
     if (contentId) {
@@ -707,6 +708,12 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
           await turneu.recordScore(supa, userId, contentId, { points: gami.xpExercitiu, pct });
         }
       } catch (e) { console.warn('ai-correct gamificare:', e.message); }
+      // „🎯 Pregătește-mă de examen": cerințele completate se numără (și o parte de test)
+      pregatireRez = await pregatire.inregistreaza(supa, userId, {
+        content: { id: contentId, title, category, content_type: 'pdf', subcategory: src?.subcategory || null, profile: src?.profile || null },
+        itemi: graded.filter((g) => g.answered).length, pct, nota: nota != null ? Number(nota) : null,
+        complet: necompletate.length === 0, verificat: true,
+      });
     } else {
       // POZĂ / PDF ÎNCĂRCAT DE ELEV → `ai_pdf_results`
       const r = await saveUploadResult(supa, userId, {
@@ -769,7 +776,7 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
     items: graded, score, maxScore, pct, nota,
     oficiu: hasBarem ? 10 : 0,
     feedback, necompletate,
-    saved, attempts, timeSpent, mistakeIds,
+    saved, attempts, timeSpent, mistakeIds, pregatire: pregatireRez,
   });
 }
 

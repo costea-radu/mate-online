@@ -381,6 +381,8 @@ async function finalize(supa, d, { neprezentare = false } = {}) {
     }
   } else if (winner) {
     await xp.bonus(supa, winner, { source: 'duel', refId: d.id, xp: xpDuel(XP_VICTORIE, pctul(winner)), coins: 10, meta: { rezultat: 'victorie', pct: Math.round(pctul(winner)) } });
+    // fluxul Arenei: „Ana P. a câștigat un duel" (fără adversar și fără scor)
+    await require('./arenaFeed').post(supa, { userId: winner, kind: 'duel', dedupeKey: `duel:${d.id}`, payload: { link: '/arena' } });
     if (perdant && aJucat(perdant)) {
       await xp.bonus(supa, perdant, { source: 'duel', refId: d.id, xp: xpDuel(XP_INFRANGERE, pctul(perdant)), coins: 3, meta: { rezultat: 'infrangere', pct: Math.round(pctul(perdant)) } });
     }

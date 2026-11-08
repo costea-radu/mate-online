@@ -35,3 +35,19 @@ export function onArenaChange(fn) {
   window.addEventListener('em:arena', h);
   return () => window.removeEventListener('em:arena', h);
 }
+
+// „🎯 Pregătește-mă de examen" (8 nov. 2026): o corectare făcută în panoul
+// Profesorului Virtual (formularul de răspunsuri, foaia de lucru) a numărat la
+// testul zilei → vizualizatorul deschis arată felicitarea / progresul
+// (src/components/PregatireToast.jsx). `rez` = răspunsul `pregatire` de la server.
+export function pregatireRezultat(rez) {
+  if (!rez) return;
+  if (rez.tocmaiBifata) arenaChanged();
+  try { window.dispatchEvent(new CustomEvent('em:pregatire', { detail: rez })); } catch { /* SSR */ }
+}
+
+export function onPregatire(fn) {
+  const h = (e) => fn(e.detail || null);
+  window.addEventListener('em:pregatire', h);
+  return () => window.removeEventListener('em:pregatire', h);
+}

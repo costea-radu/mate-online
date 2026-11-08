@@ -1,9 +1,62 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import EinsteinIcon from '../components/EinsteinIcon';
 import AIPoweredBy from '../components/AIPoweredBy';
 import { Testimonials } from '../components/ReviewWidget';
+import { useAuth } from '../context/AuthContext';
+import { arenaState, onArenaChange } from '../lib/arena';
+
+// ─── „🎯 Pregătește-mă de examen" — cardul mare de sub bara albastră (8 nov. 2026)
+// Primul card din Home: testul zilei, amintirea zilnică, XP și liga. Pentru
+// elevul autentificat arată și seria lui și dacă testul de azi îl așteaptă
+// (din starea Arenei — aceeași cerere ca indicatorul din bara de sus).
+function PregatireCard() {
+  const { user } = useAuth();
+  const [z, setZ] = useState(null);   // { examen, azi, serie, aziFacut } — api/_lib/pregatireZilnica.js → rezumat
+  useEffect(() => {
+    if (!user) { setZ(null); return undefined; }
+    let viu = true;
+    const load = (force = false) => arenaState({ force }).then((r) => { if (viu) setZ(r?.pregatireAzi || null); }).catch(() => {});
+    load();
+    const off = onArenaChange(() => load(true));
+    return () => { viu = false; off(); };
+  }, [user]);
+  const inceput = !!(z && z.examen);
+  const cta = !user ? 'Începe azi — gratuit' : !inceput ? 'Alege examenul și începe' : z.aziFacut ? '↻ Mai lucrează azi' : '▶ Testul de azi';
+  return (
+    <section className="pz-home" aria-label="Pregătește-mă de examen">
+      <div className="container">
+        <Link to="/pregateste-ma" className="pz-home-card">
+          <div className="pz-home-text">
+            <div className="pz-home-kicker">Nou · un test pe zi, ca la Duolingo</div>
+            <h2>🎯 Pregătește-mă de examen</h2>
+            <p>
+              Alegi examenul — <strong>Evaluarea Națională</strong> sau <strong>Bacalaureatul</strong> — și primești în fiecare zi
+              un test. Îți amintim de el, contează și o parte din test, iar fiecare zi lucrată îți aduce XP, monede,
+              o serie de zile la rând și un loc mai bun în liga săptămânii.
+            </p>
+            {inceput && (
+              <div className="pz-home-stare">
+                <span>🔥 <strong>{z.serie || 0}</strong> {z.serie === 1 ? 'zi' : 'zile'} la rând</span>
+                <span>{z.aziFacut ? '✅ Ziua de azi e bifată' : '📝 Testul de azi te așteaptă'}</span>
+              </div>
+            )}
+            <span className="btn btn-primary btn-lg pz-home-btn">{cta}{'\u00a0'}→</span>
+          </div>
+          <ol className="pz-home-pasi" aria-label="Cum funcționează">
+            <li><span>📝</span><div><b>Testul zilei</b><small>interactiv sau pe PDF, ca la examen</small></div></li>
+            <li><span>🔔</span><div><b>Amintire zilnică</b><small>la ora aleasă de tine</small></div></li>
+            <li><span>🔥</span><div><b>Bifezi ziua</b><small>de la 3 exerciții · +XP și 🪙</small></div></li>
+            <li><span>🏆</span><div><b>Urci în ligă</b><small>🥉 → 🥈 → 🥇 → 💎 → 👑</small></div></li>
+          </ol>
+        </Link>
+      </div>
+    </section>
+  );
+}
 
 export default function Home() {
+  const { user, isPremium } = useAuth();
   const categories = [
     { to: '/clase/5',  icon: '5',  title: 'Clasa a V-a',    desc: 'Exerciții și teste PDF, interactive' },
     { to: '/clase/6',  icon: '6',  title: 'Clasa a VI-a',   desc: 'Exerciții și teste PDF, interactive' },
@@ -26,28 +79,25 @@ export default function Home() {
 
   return (
     <>
-      {/* Hero */}
-      <section className="hero">
-        <div className="container hero-content">
-          <h1 className="fade-in-up">
-            Matematica devine <span>simplă</span> cu ExamenMate
-          </h1>
-          <p className="fade-in-up delay-1">
-            Exerciții PDF, teste interactive, auxiliare online și un Profesor Virtual (AI)
-            care te ajută pas cu pas — pentru clasele 5–12, Evaluarea Națională și Bacalaureat.
-            Totul într-un singur loc.
-          </p>
-          <div className="hero-actions fade-in-up delay-2">
-            <Link to="/inregistrare" className="btn btn-primary btn-lg">Începe gratuit</Link>
-            <Link to="/preturi" className="btn btn-lg" style={{
-              color: 'rgba(255,255,255,0.85)',
-              border: '2px solid rgba(255,255,255,0.25)'
-            }}>
-              Vezi abonamentul
-            </Link>
+      {/* Bara albastră (fostul „hero" mare — 8 nov. 2026: „fă mai mică secțiunea
+          albastră din Home, ca o bară orizontală") */}
+      <section className="hero hero-bara">
+        <div className="container hero-bara-in">
+          <div className="hero-bara-text">
+            <h1>Matematica devine <span>simplă</span> cu ExamenMate</h1>
+            <p>Exerciții PDF, teste interactive, auxiliare și un Profesor Virtual (AI) — clasele 5–12, Evaluarea Națională și Bacalaureat.</p>
           </div>
+          {(!user || !isPremium) && (
+            <div className="hero-bara-btns">
+              {!user && <Link to="/inregistrare" className="btn btn-primary">Începe gratuit</Link>}
+              <Link to="/preturi" className="btn hero-bara-sec">{user ? '⭐ Abonamentul' : 'Vezi abonamentul'}</Link>
+            </div>
+          )}
         </div>
       </section>
+
+      {/* 🎯 Pregătește-mă de examen — cardul mare, înaintea tuturor cardurilor */}
+      <PregatireCard />
 
       {/* Exams */}
       <section className="section" id="examene">

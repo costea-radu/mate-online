@@ -9,6 +9,10 @@
 // Datele vin din /api/gamificare (action=state) — vezi api/_lib/xp.js.
 //
 // Dueluri, turnee și harta capitolelor sunt pașii 3-5; aici doar le anunțăm.
+//
+// 8 nov. 2026: „🎯 Pregătește-mă de examen" (cardul testului zilei, sus — XP-ul
+// lui intră în ligă) și „📣 Ce se întâmplă în Arenă" (fluxul de activitate, ca pe
+// Facebook — src/components/ArenaFeed.jsx; fără note).
 // =====================================================================
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -17,6 +21,7 @@ import { arenaState, onArenaChange } from '../lib/arena';
 import DueluriPanel from '../components/DueluriPanel';
 import MisiuneZilnica from '../components/MisiuneZilnica';
 import TurneePanel from '../components/TurneePanel';
+import ArenaFeed from '../components/ArenaFeed';
 
 const cardStyle = {
   background: 'var(--white)', border: '1px solid var(--border)',
@@ -84,6 +89,7 @@ export default function Arena() {
   const misiune = s?.misiune;
   const liga = s?.liga;
   const st = s?.saptamanaTrecuta;
+  const pz = s?.pregatireAzi;   // { examen, azi, serie, aziFacut } — „Pregătește-mă de examen"
 
   return (
     <>
@@ -160,6 +166,28 @@ export default function Arena() {
               </div>
             </div>
           </div>
+
+          {/* ─── 🎯 Pregătește-mă de examen: testul zilei (XP-ul lui intră în ligă) ─── */}
+          <Link to="/pregateste-ma" className="arena-pz" style={{
+            ...cardStyle, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', textDecoration: 'none', color: 'inherit',
+            borderWidth: 2, borderColor: pz?.aziFacut ? 'var(--success)' : 'var(--gold)',
+            background: pz?.aziFacut ? 'rgba(39,174,96,0.06)' : 'linear-gradient(135deg, #fffaf0, #fff)',
+          }}>
+            <span style={{ fontSize: '2rem' }} aria-hidden>🎯</span>
+            <span style={{ flex: 1, minWidth: 200 }}>
+              <Eticheta culoare={pz?.aziFacut ? 'var(--success)' : 'var(--gold-dim)'}>Pregătește-mă de examen</Eticheta>
+              <strong style={{ color: 'var(--navy)', fontSize: '1.02rem' }}>
+                {!pz?.examen ? 'Un test pe zi până la examen — alege-ți examenul' : pz.aziFacut ? '✅ Testul de azi: ziua e bifată' : '📝 Testul de azi te așteaptă'}
+              </strong>
+              <span style={{ display: 'block', fontSize: '.82rem', color: 'var(--text-light)', marginTop: 2 }}>
+                {pz?.examen ? `🔥 ${pz.serie || 0} ${pz.serie === 1 ? 'zi' : 'zile'} la rând · ` : ''}contează și o parte din test · XP-ul intră în liga de mai jos
+              </span>
+            </span>
+            <span className={pz?.aziFacut ? 'btn btn-sm btn-outline' : 'btn btn-primary'}>{pz?.aziFacut ? 'Deschide' : '▶ Începe'}</span>
+          </Link>
+
+          {/* ─── 📣 Ce se întâmplă în Arenă (fluxul de activitate, ca pe Facebook; fără note) ─── */}
+          <ArenaFeed />
 
           {/* ─── ⚡ Provocarea bonus a zilei (fosta „misiune a zilei": 8 itemi
                 corecți / 100 XP / 80% la 2 exerciții, prin rotație) ─── */}

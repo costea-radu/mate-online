@@ -18,10 +18,15 @@
 //   gratuit de PDF_GRILA_GRATUITE ori (implicit 2) — numărate în ai_usage, sub
 //   „rezolva-pdf:grila" (nu sunt cereri AI: nu consumă acțiunile AI gratuite, nici
 //   limita orară — ai.NU_E_CERERE_AI) —, apoi 402 cu îndemnul spre Premium.
-//   3. Testul ÎNTREG, corectat complet (toate trei subiectele atinse, totul
-//      punctat), intră în `progress` — ca la „📝 Răspunde în chat": la profesor,
-//      părinte, în „Rezultatele mele"; o corectare parțială doar se arată.
+//   3. NOTA se pune la ORICE corectare (8 nov. 2026: „pune o notă chiar dacă se
+//      rezolvă doar câteva exerciții doar de la un subiect"), ca la examen: ce nu
+//      e rezolvat (sau nu s-a putut corecta) are 0 puncte — nota = 1 + punctaj/10.
+//      Fiecare corectare se SALVEAZĂ în `progress` (ultima contează, ca la testele
+//      interactive): la profesor („Rezultate elevi"), părinte, în „Rezultatele mele";
+//      elevul poate reveni, rezolva mai departe și corecta din nou. XP doar când
+//      punctajul crește (apăsat de mai multe ori fără schimbări nu mai dă nimic).
 //   4. Corectarea intră în CONVERSAȚIA Profesorului Virtual (se poate întreba mai departe).
+//   5. „🎯 Pregătește-mă de examen": exercițiile lucrate se numără la testul zilei.
 //
 // Body: { context: { contentId | libraryId, title, category }, conversationId?,
 //         grile: [{ key:'1.3', litere:['b'], cum }], nerecunoscute: [{ key, motiv }],
@@ -42,6 +47,10 @@ const turneu = require('./_lib/turneu');
 const pdfContext = require('./ai-pdf-context');
 const correct = require('./ai-correct');          // saveProgress / saveUploadResult
 const aiPublic = require('./ai-public');           // recordPublicResult (Biblioteca utilizatorilor)
+const pregatire = require('./_lib/pregatireZilnica'); // „🎯 Pregătește-mă de examen" (testul zilei)
+
+// o corectare identică (același punctaj) în ultimele NESCHIMBAT_MIN minute nu se mai salvează din nou
+const NESCHIMBAT_MIN = 30;
 
 // corectările GRATUITE ale grilei, pentru un cont fără abonament (apoi: Premium)
 const GRATUITE = Math.max(0, parseInt(process.env.PDF_GRILA_GRATUITE || '2', 10) || 0);
@@ -172,24 +181,41 @@ module.exports = async function handler(req, res) {
     }
     items.sort((a, b) => (a.s - b.s) || (a.ex - b.ex));
     const sum = R.summarize(items, { structura: q.structura });
-    const nota = sum.complete && sum.total ? med.notaTest(sum.score, sum.total) : null;
+    // nota testului, la orice corectare: ce lipsește are 0 puncte (+10 din oficiu)
+    const punctat = items.some((it) => it.puncte != null);
+    const nota = punctat && sum.total ? med.notaTest(sum.score, sum.total) : null;
 
-    // 4) testul întreg, corectat complet → rezultatele elevului (ca la „Răspunde în chat")
+    // 4) fiecare corectare → rezultatele elevului (ultima contează; se poate reveni)
     let saved = null;
-    if (sum.complete) {
+    if (punctat && sum.total) {
       try {
         if (src.contentId) {
-          const r = await correct.saveProgress(supa, userId, { contentId: src.contentId, title: src.title, category: src.category, score: sum.score, maxScore: sum.total, sessionSeconds: q.durationSec });
-          saved = { kind: 'progress', attempts: r.attempts };
+          // același punctaj, corectat din nou de curând → nu mai numărăm o încercare
+          let vechi = null;
           try {
-            const pct = Math.round((sum.score / sum.total) * 100);
-            const gami = await xp.award(supa, userId, {
-              source: 'pdf', refId: src.contentId, content: { category: src.category, difficulty: src.difficulty },
-              score: sum.score, maxScore: sum.total, attempts: r.attempts, meta: { titlu: src.title || null },
-            });
-            await duel.recordByContent(supa, userId, src.contentId, { score: sum.score, maxScore: sum.total });
-            if (gami && gami.xpExercitiu > 0) await turneu.recordScore(supa, userId, src.contentId, { points: gami.xpExercitiu, pct });
-          } catch (e) { console.warn('rezolva-pdf gamificare:', e.message); }
+            const { data } = await supa.from('progress').select('score, max_score, completed_at')
+              .eq('user_id', userId).eq('content_id', src.contentId).maybeSingle();
+            vechi = data || null;
+          } catch { vechi = null; }
+          const recent = vechi && vechi.completed_at && (Date.now() - Date.parse(vechi.completed_at)) < NESCHIMBAT_MIN * 60000;
+          if (vechi && recent && Number(vechi.score) === Math.round(sum.score) && Number(vechi.max_score) === Math.round(sum.total)) {
+            saved = { kind: 'progress', neschimbat: true };
+          } else {
+            const r = await correct.saveProgress(supa, userId, { contentId: src.contentId, title: src.title, category: src.category, score: sum.score, maxScore: sum.total, sessionSeconds: q.durationSec });
+            saved = { kind: 'progress', attempts: r.attempts, partial: !sum.complete };
+            try {
+              const pct = Math.round((sum.score / sum.total) * 100);
+              // XP doar pentru punctele câștigate în plus față de ultima corectare salvată
+              const crescut = !vechi || Math.round(sum.score) > Number(vechi.score || 0);
+              const gami = crescut ? await xp.award(supa, userId, {
+                source: 'pdf', refId: src.contentId, content: { category: src.category, difficulty: src.difficulty },
+                score: sum.score, maxScore: sum.total, attempts: r.attempts, meta: { titlu: src.title || null, partial: !sum.complete },
+              }) : null;
+              await duel.recordByContent(supa, userId, src.contentId, { score: sum.score, maxScore: sum.total, partial: !sum.complete });
+              if (gami && gami.xpExercitiu > 0) await turneu.recordScore(supa, userId, src.contentId, { points: gami.xpExercitiu, pct });
+              if (gami) saved.xp = gami.xp;
+            } catch (e) { console.warn('rezolva-pdf gamificare:', e.message); }
+          }
         } else if (src.libraryId) {
           const r = await correct.saveUploadResult(supa, userId, {
             title: src.title, category: src.category, score: sum.score, maxScore: sum.total, sessionSeconds: q.durationSec,
@@ -209,10 +235,18 @@ module.exports = async function handler(req, res) {
     // corectarea gratuită a grilei s-a făcut → se numără (nu e cerere AI: cost 0)
     if (gratuite) await ai.logUsage(supa, userId, EP_GRATUIT, { in: 0, out: 0, model: null });
 
+    // 4b) „🎯 Pregătește-mă de examen": exercițiile lucrate pe PDF (și o parte de test)
+    const lucrate = new Set([...q.grile.map((x) => x.key), ...q.nerecunoscute.map((x) => x.key), ...q.scris]);
+    const pregatireRez = await pregatire.inregistreaza(supa, userId, {
+      content: { id: src.contentId || null, title: src.title, category: src.category, content_type: 'pdf' },
+      itemi: lucrate.size, pct: sum.total ? Math.round((sum.score / sum.total) * 100) : null, nota,
+      subiecte: [...lucrate].map((k) => Number(String(k).split('.')[0])), complet: sum.complete, verificat: true,
+    });
+
     // 5) mesajul profesorului, în conversație
     const text = R.formatMessage({
       items, sum, structura: q.structura, title: src.title, hasBarem: src.hasBarem,
-      feedback: aiOut ? aiOut.feedback : '', sfat: aiOut ? aiOut.sfat : '', nota, premiumNeeded, gratuite,
+      feedback: aiOut ? aiOut.feedback : '', sfat: aiOut ? aiOut.sfat : '', nota, premiumNeeded, gratuite, saved,
     }) + (aiError ? `\n\n⚠️ ${aiError}` : '');
     let convId = body.conversationId || null, messageId = null;
     try {
@@ -254,6 +288,7 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({
       items: marks, score: sum.score, total: sum.total, gradedMax: sum.gradedMax, nota, complete: sum.complete, pending: sum.pending,
       premiumNeeded, saved, conversationId: convId, messageId, text, aiError, hasBarem: src.hasBarem, model, gratuite,
+      pregatire: pregatireRez,
     });
   } catch (err) {
     if (!err.status) console.error('rezolva-pdf error:', err);

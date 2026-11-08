@@ -1946,3 +1946,89 @@ body.sidebar-deschis .app-shell { padding-left: var(--sidebar-w); }
 @media (prefers-reduced-motion: reduce) {
   .em-pulse { animation: none; box-shadow: 0 0 0 3px rgba(232,185,49,0.55); }
 }
+
+/* ===== „🎯 Pregătește-mă de examen" în bara de sus (8 nov. 2026) =====
+   Intrarea principală a testului zilei: plină, aurie. Pe ecranele late — tot
+   textul; mai îngust — „🎯 Pregătește-mă" (src/components/Navbar.jsx). */
+.navbar-links a.nav-pregatire {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  background: linear-gradient(135deg, var(--gold), var(--gold-light));
+  color: var(--navy); font-weight: 800; border-radius: 999px; padding: 6px 16px;
+  box-shadow: 0 2px 10px rgba(232,185,49,.35);
+}
+.navbar-links a.nav-pregatire:hover,
+.navbar-links a.nav-pregatire.activ { color: var(--navy); background: var(--gold-light); filter: brightness(1.04); }
+.nav-pregatire .nav-scurt { display: none; }
+/* lățimile au fost măsurate în Chromium: „⭐ Contul meu" nu trebuie să treacă pe
+   două rânduri (nici când indicatorul Arenei arată 🎯 și 📝) */
+/* containerul are cel mult 1200px: eticheta lungă nu încape niciodată lângă
+   celelalte → în bară „🎯 Pregătește-mă" (numele întreg e în title / aria-label) */
+.nav-pregatire .nav-lung { display: none; }
+.nav-pregatire .nav-scurt { display: inline; }
+@media (max-width: 1199px) {
+  .nav-pregatire .nav-scurt { display: none; }
+  .navbar-links a.nav-pregatire { padding: 6px 10px; }
+  .search-btn-desktop .nav-cauta-txt { display: none; }   /* rămâne 🔍 */
+}
+@media (max-width: 1100px) and (min-width: 769px) {
+  .navbar-links { margin: 0 6px; gap: 4px; }
+  .navbar-auth { gap: 6px; }
+  .navbar-auth .arena-xp { display: none; }   /* XP-ul rămâne în Arenă și în titlul indicatorului */
+}
+
+/* ===== Home: bara albastră + cardul „🎯 Pregătește-mă de examen" (8 nov. 2026) ===== */
+.hero.hero-bara { padding: 18px 0; }
+.hero.hero-bara::after { display: none; }
+.hero.hero-bara::before { width: 360px; height: 360px; top: -120%; right: -6%; }
+.hero-bara-in { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.hero-bara-text { min-width: 0; }
+.hero.hero-bara h1 { font-size: 1.55rem; margin: 0; line-height: 1.25; }
+.hero.hero-bara p { font-size: .9rem; margin: 4px 0 0; max-width: 720px; line-height: 1.45; color: rgba(255,255,255,0.72); }
+.hero-bara-btns { display: flex; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
+.hero-bara-btns .btn { padding: 9px 18px; font-size: .9rem; }
+.hero-bara-sec { color: rgba(255,255,255,0.88) !important; border: 2px solid rgba(255,255,255,0.25) !important; background: transparent; }
+@media (max-width: 768px) {
+  .hero.hero-bara { padding: 12px 0; }
+  .hero-bara-in { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .hero.hero-bara h1 { font-size: 1.15rem; }
+  .hero.hero-bara p { display: none; }
+  .hero-bara-btns .btn { padding: 7px 14px; font-size: .84rem; }
+}
+
+.pz-home { padding: 26px 0 8px; }
+.pz-home-card {
+  display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 26px; align-items: center;
+  background: linear-gradient(135deg, #fffaf0 0%, #fff 55%, #fdf3d2 100%);
+  border: 2px solid var(--gold); border-radius: 22px; padding: 30px 32px;
+  box-shadow: 0 12px 34px rgba(232,185,49,0.22); text-decoration: none; color: inherit;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.pz-home-card:hover { transform: translateY(-2px); box-shadow: 0 16px 40px rgba(232,185,49,0.3); }
+.pz-home-kicker { font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; font-weight: 800; color: var(--gold-dim); }
+.pz-home-card h2 { font-family: var(--font-display); color: var(--navy); font-size: 2.15rem; margin: 6px 0 10px; line-height: 1.15; }
+.pz-home-card p { color: var(--text-light); font-size: 1rem; line-height: 1.65; margin: 0 0 14px; }
+.pz-home-stare { display: flex; gap: 14px; flex-wrap: wrap; font-size: .92rem; color: var(--navy); font-weight: 600; margin-bottom: 14px; }
+.pz-home-stare span { background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; }
+.pz-home-btn { pointer-events: none; }
+.pz-home-pasi { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.pz-home-pasi li { display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 11px 14px; }
+.pz-home-pasi li > span { font-size: 1.55rem; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: rgba(232,185,49,.16); flex-shrink: 0; }
+.pz-home-pasi b { display: block; color: var(--navy); font-size: .95rem; }
+.pz-home-pasi small { display: block; color: var(--text-muted); font-size: .8rem; }
+@media (max-width: 860px) {
+  .pz-home-card { grid-template-columns: 1fr; padding: 22px 18px; gap: 16px; }
+  .pz-home-card h2 { font-size: 1.6rem; }
+  .pz-home-card p { font-size: .94rem; }
+  .pz-home-pasi { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pz-home-pasi li { padding: 9px 10px; gap: 8px; }
+  .pz-home-pasi li > span { width: 34px; height: 34px; font-size: 1.25rem; }
+}
+@media (max-width: 520px) {
+  .pz-home { padding-top: 16px; }
+  .pz-home-card h2 { font-size: 1.42rem; }
+  .pz-home-btn { padding: 12px 18px; font-size: 1rem; width: 100%; justify-content: center; text-align: center; }
+  /* pictograma deasupra textului: rândurile rămân scurte și pe telefon */
+  .pz-home-pasi li { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .pz-home-pasi li > span { width: 30px; height: 30px; font-size: 1.1rem; border-radius: 9px; }
+  .pz-home-pasi small { font-size: .76rem; line-height: 1.35; }
+}

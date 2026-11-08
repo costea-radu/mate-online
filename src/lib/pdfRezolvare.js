@@ -233,6 +233,13 @@ export function buildExamMap(pages) {
   const geo = {};
   for (const pg of list) geo[pg.n] = { W: pg.view[2] - pg.view[0], H: pg.view[3] - pg.view[1], x0: pg.view[0], top: pg.view[3] };
   if (list.some((p) => ((p.rotate || 0) % 360) !== 0)) return { ok: false, reason: 'rotit', pages: geo };
+  // textul primei pagini: nota scrisă cu roșu se așază lângă el, nu peste el
+  const cutii1 = cutiiText(list.find((p) => p.n === 1));
+  const r0 = buildExamMapDin(list, geo);
+  return { ...r0, cutii1 };
+}
+
+function buildExamMapDin(list, geo) {
   if (list.some((p, i) => p.n !== i + 1)) return { ok: false, reason: 'pagini', pages: geo };
   const n = list.length;
   const W = list[0].view[2], H = list[0].view[3];   // ca readPages (pdfCombine)
@@ -765,10 +772,85 @@ export function thumbOf(cv) {
 // „⬇ PDF cu rezolvarea": același PDF (text, pagini, tot), cu scrisul elevului
 // desenat VECTORIAL peste pagini — rămâne un PDF obișnuit.
 const hexRgb = (h) => { const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(h || ''); return m ? [1, 2, 3].map((i) => parseInt(m[i], 16) / 255) : [0.11, 0.3, 0.85]; };
-export async function exportInkPdf(bytes, ink, geo) {
+// ═════════════════════════ NOTA, SCRISĂ CU ROȘU PE TEST (8 nov. 2026) ═════════════════════════
+// „după corectare, notează cu roșu nota pe test, scris de mână, de exemplu:
+// 7,30 (șapte ^30)" — ca profesorul pe lucrare: cifrele, apoi în paranteză nota
+// în litere, cu sutimile în exponent. Pe prima pagină, sus, în dreapta.
+const NOTE_LITERE = ['', 'unu', 'doi', 'trei', 'patru', 'cinci', 'șase', 'șapte', 'opt', 'nouă', 'zece'];
+
+// 7.3 → { cifre: '7,30', cuvant: 'șapte', zecimale: '30', text: '7,30 (șapte^30)' }
+export function notaScrisa(nota) {
+  const n = Number(nota);
+  if (!Number.isFinite(n)) return null;
+  const v = Math.max(1, Math.min(10, Math.round(n * 100) / 100));
+  const intreg = Math.floor(v + 1e-9);
+  const zec = Math.round((v - intreg) * 100);
+  const z2 = String(zec).padStart(2, '0');
+  return {
+    cifre: `${intreg},${z2}`, cuvant: NOTE_LITERE[intreg], zecimale: zec ? z2 : '',
+    text: `${intreg},${z2} (${NOTE_LITERE[intreg]}${zec ? `^${z2}` : ''})`,
+  };
+}
+
+// cutiile rândurilor de text ale unei pagini citite cu readTextPages (puncte,
+// colțul din stânga-sus = 0,0) — locurile pe care nota nu trebuie să le acopere
+export function cutiiText(pg) {
+  if (!pg || !Array.isArray(pg.view)) return [];
+  const x0p = pg.view[0], top = pg.view[3];
+  return (pg.items || [])
+    .filter((it) => it && String(it.str || '').trim() && !it.rot && it.w > 0 && it.h > 0)
+    .map((it) => ({ x0: it.x - x0p, x1: it.x - x0p + it.w, y0: top - it.y - it.h * 0.85, y1: top - it.y + it.h * 0.22 }));
+}
+
+// unde se scrie nota pe pagina 1 (puncte PDF, colțul din stânga-sus = 0,0): ancora
+// e capătul din DREAPTA al rândului (textul se scrie spre stânga), ușor înclinat —
+// spre stânga coboară. Cu `cutii` (textul paginii) și `latime` (lățimea notei):
+// primul loc liber de sus în jos, în dreapta paginii (întâi în marginea de sus),
+// ca nota să nu acopere antetul testului; fără loc liber → în marginea de sus.
+export function pozitieNota(W, H, { cutii = null, latime = null } = {}) {
+  const size = Math.max(18, Math.min(34, W * 0.052));
+  const rot = -6;
+  const sus = size * 1.12;                                  // linia de bază, în marginea de sus
+  if (!Array.isArray(cutii) || !latime) return { x: W * 0.93, y: sus, size, rot };
+  const panta = Math.tan((Math.abs(rot) * Math.PI) / 180);
+  const ocupat = (x, y) => cutii.some((c) => {
+    const a = Math.max(c.x0, x - latime - size * 0.25), b = Math.min(c.x1, x + size * 0.15);
+    if (a >= b) return false;
+    // marginile notei înclinate, pe porțiunea comună cu rândul de text
+    const jos = y + size * 0.36 + (x - a) * panta;
+    const virf = y - size * 0.92 + (x - b) * panta;
+    return c.y0 < jos && c.y1 > virf;
+  });
+  for (let y = sus; y <= H * 0.2; y += size * 0.25) {
+    for (const fx of [0.93, 0.955, 0.9]) {
+      const x = W * fx;
+      if (x - latime > W * 0.04 && !ocupat(x, y)) return { x, y, size, rot, liber: true };
+    }
+  }
+  return { x: W * 0.93, y: sus, size, rot };
+}
+
+// lățimea aproximativă a notei (fontul de mână are ~0,45 em pe literă) — pentru
+// sublinierea de sub ea și pentru imaginea din PDF-ul descărcat
+export function latimeNota(ns, size) {
+  if (!ns) return 0;
+  const em = 0.45 * size;
+  return em * (ns.cifre.length + 1) + em * 0.82 * (ns.cuvant.length + 2) + em * 0.5 * ns.zecimale.length;
+}
+
+// notaImg: { png: Uint8Array, x, y, w, h } (puncte, colțul din stânga-sus) — nota
+// scrisă cu roșu, desenată în browser (font de mână) și pusă pe pagina 1
+export async function exportInkPdf(bytes, ink, geo, { notaImg = null } = {}) {
   const L = await loadPdfLib();
   const doc = await L.PDFDocument.load(bytes.slice ? bytes.slice(0) : bytes, { ignoreEncryption: true });
   const pages = doc.getPages();
+  if (notaImg && notaImg.png && pages[0] && geo && geo[1]) {
+    try {
+      const g1 = geo[1];
+      const img = await doc.embedPng(notaImg.png);
+      pages[0].drawImage(img, { x: g1.x0 + notaImg.x, y: g1.top - notaImg.y - notaImg.h, width: notaImg.w, height: notaImg.h });
+    } catch { /* PDF-ul rămâne fără notă, cu scrisul */ }
+  }
   for (const [pk, list] of Object.entries(ink || {})) {
     const page = pages[Number(pk) - 1];
     const g = geo && geo[pk];

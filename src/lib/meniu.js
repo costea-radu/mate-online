@@ -15,6 +15,11 @@
 // Conturile de PROFESOR au în „🎓 Examene" (bara de sus, meniul lateral și
 // drawer-ul ☰) și „📄 Generează subiect examen", care deschide „Asistent AI
 // pentru profesori" direct pe fila generatorului (cerut pe 31 oct. 2026).
+//
+// „🎯 Pregătește-mă de examen" (8 nov. 2026) e PRIMA intrare din „Învățare cu
+// AI", înaintea „Meditațiilor live" — testul zilei (src/pages/PregatesteMa.jsx).
+// Același buton stă și în bara de sus (Navbar), în fereastra Profesorului
+// Virtual (AITutor, deasupra „Meditații live") și pe Home (cardul mare).
 // =====================================================================
 
 export const CLASE = [
@@ -41,6 +46,9 @@ export const EXAMEN_GENERATOR = { to: '/profesor-virtual?tab=exam', label: '📄
 
 // Intrările din „🎓 Examene" pentru un cont: examenele + generatorul, la profesori.
 export const examenePentru = ({ isTeacher = false } = {}) => (isTeacher ? [...EXAMENE, EXAMEN_GENERATOR] : EXAMENE);
+
+// „🎯 Pregătește-mă de examen" — testul zilei, amintirea zilnică, XP în Arenă
+export const PREGATESTE_MA = { to: '/pregateste-ma', icon: '🎯', label: 'Pregătește-mă de examen' };
 
 export const INFORMATII = [
   { to: '/despre-noi',                 icon: 'ℹ️', label: 'Despre noi' },
@@ -88,6 +96,7 @@ export function sectiuniMeniu({
     {
       titlu: 'Învățare cu AI',
       items: [
+        { tip: 'link', ...PREGATESTE_MA, accent: true },
         { tip: 'link', to: '/meditatii',        icon: 'einstein', label: 'Meditații live' },
         { tip: 'link', to: '/profesor-virtual', icon: 'einstein', label: aiLabel },
       ],

@@ -296,11 +296,15 @@ const ICON_PAS = { corect: '✔', gresit: '✖', incomplet: '◐', neclar: '❔'
 const fmtP = (n) => String(n).replace('.', ',');
 
 // Mesajul profesorului în conversație (Markdown ușor + $…$, ca MathText)
-function formatMessage({ items, sum, structura, title, hasBarem, feedback = '', sfat = '', nota = null, premiumNeeded = false, order = null, gratuite = null }) {
+// nota cu două zecimale, ca în catalog: 7.3 → „7,30"
+const fmtNota = (n) => Number(n).toFixed(2).replace('.', ',');
+
+function formatMessage({ items, sum, structura, title, hasBarem, feedback = '', sfat = '', nota = null, premiumNeeded = false, order = null, gratuite = null, saved = null }) {
   const out = [];
   const en = isEn666(structura);
+  // nota se pune la orice corectare (8 nov. 2026): ce lipsește are 0 puncte
   const head = sum.total
-    ? `**${fmtP(sum.score)}/${sum.total}p**${sum.pending.length ? ' (fără itemii necorectați)' : ''}${nota != null && sum.complete ? ` · cu cele 10p din oficiu: **${fmtP(round2(sum.score + 10))}p**, nota **${fmtP(nota)}**` : ''}`
+    ? `**${fmtP(sum.score)}/${sum.total}p**${sum.pending.length ? ' (fără itemii necorectați)' : ''}${nota != null ? ` · cu cele 10p din oficiu: **${fmtP(round2(sum.score + 10))}p**, nota **${fmtNota(nota)}**` : ''}`
     : (sum.gradedMax ? `**${fmtP(sum.score)}/${fmtP(sum.gradedMax)}p**` : '');
   out.push(`✏️ **Corectarea rezolvării de pe PDF**${title ? ` · ${title}` : ''}${head ? ` — ${head}` : ''}`);
   const allKeys = order && order.length ? order : (en ? [1, 2, 3].flatMap((s) => [1, 2, 3, 4, 5, 6].map((e) => `${s}.${e}`)) : []);
@@ -341,15 +345,20 @@ function formatMessage({ items, sum, structura, title, hasBarem, feedback = '', 
   if (!hasBarem) out.push('Pentru acest test nu am barem, așa că la problemele scrise nu dau puncte — doar verific pașii.');
   if (feedback) out.push(feedback);
   if (sfat) out.push(`💡 ${sfat}`);
-  out.push(sum.complete
-    ? 'Rezultatul s-a salvat la „Rezultatele mele". Întreabă-mă orice despre corectare.'
-    : gratuite
-      ? 'Întreabă-mă orice despre corectare.'
-      : 'Poți corecta oricând din nou: modifică pe PDF și apasă iar „✅ Corectează". Întreabă-mă orice despre corectare.');
+  // nota pe un test început: se socotește ca la examen — ce nu e rezolvat are 0 puncte
+  if (nota != null && !sum.complete) out.push(`📝 Nota **${fmtNota(nota)}** e pe testul așa cum e acum: ce n-ai rezolvat încă are 0 puncte. Poți reveni oricând — rezolvi mai departe pe PDF și apeși iar „✅ Corectează"; nota se actualizează.`);
+  const salvata = saved && (saved.kind === 'progress' || saved.kind === 'upload');
+  out.push(salvata
+    ? `${nota != null ? 'Nota' : 'Rezultatul'} s-a salvat la „Rezultatele mele"${saved.kind === 'progress' ? ' (o vede și profesorul tău, la „Rezultate elevi")' : ''}. Întreabă-mă orice despre corectare.`
+    : sum.complete
+      ? 'Rezultatul s-a salvat la „Rezultatele mele". Întreabă-mă orice despre corectare.'
+      : gratuite
+        ? 'Întreabă-mă orice despre corectare.'
+        : 'Poți corecta oricând din nou: modifică pe PDF și apasă iar „✅ Corectează". Întreabă-mă orice despre corectare.');
   return out.join('\n\n');
 }
 
 module.exports = {
-  cleanBody, gradeGrile, schema, SYSTEM, userText, normalizeAi, summarize, formatMessage,
+  cleanBody, gradeGrile, schema, SYSTEM, userText, normalizeAi, summarize, formatMessage, fmtNota,
   isEn666, itemMax, longName, short, MAX_IMAGES,
 };

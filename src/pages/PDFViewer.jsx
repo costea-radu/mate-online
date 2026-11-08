@@ -17,6 +17,8 @@ import { useBaraSusVizibila, paddingBara } from '../lib/baraSus';
 // „✏️ Rezolvă pe PDF" (7 nov. 2026): stratul invizibil de scris peste paginile
 // testelor de Evaluare Națională + „✅ Corectează" (api/rezolva-pdf.js)
 import { useRezolvarePdf, rezolvareToolbar, RezolvareFooter } from '../components/RezolvarePdf';
+import PregatireToast, { deAratat } from '../components/PregatireToast';
+import { onPregatire, arenaChanged } from '../lib/arena';
 
 function isMobile() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -82,6 +84,12 @@ export default function PDFViewer() {
   // Accesul îl verifică serverul (api/ai-public.js → get: gratuit / abonat / autor).
   const libId = modTest ? null : searchParams.get('lib');
   const isLib = !!libId;
+  // deschis din „🎯 Pregătește-mă de examen" (testul zilei): pornește singur
+  // „✏️ Rezolvă pe PDF" (EN) sau foaia de lucru (BAC și celelalte), o dată
+  const dinPregatire = !modTest && searchParams.get('pregatire') === '1';
+  const pregPornitRef = useRef(false);
+  const [pregRez, setPregRez] = useState(null);    // { rez, fel } — PregatireToast
+  const pregItemiRef = useRef(-1);
   const [lib, setLib] = useState(null);             // rândul din ai_public_library (kind 'pdf' | 'exam')
   const [examHtml, setExamHtml] = useState(null);   // testul generat (kind 'exam'), ca document HTML
   const [item, setItem] = useState(state?.item || null);
@@ -377,6 +385,33 @@ export default function PDFViewer() {
     setWorkOpen(next);
   }
 
+  // „🎯 Pregătește-mă de examen": felicitarea (ziua bifată) sau progresul spre ea
+  function arataPregatire(rez) {
+    const fel = deAratat(rez, { dinPregatire });
+    if (!fel) return;
+    if (fel === 'progres') {
+      if (rez.itemi === pregItemiRef.current) return;
+      pregItemiRef.current = rez.itemi;
+    }
+    setPregRez({ rez, fel });
+  }
+  // corectările din panoul profesorului (formularul de răspunsuri, foaia de lucru)
+  useEffect(() => onPregatire((rez) => arataPregatire(rez)), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // testul zilei: o singură dată, după ce PDF-ul s-a încărcat — rezolvarea pe PDF
+  // (EN) sau foaia de lucru (BAC / alte PDF-uri; doar cu cont)
+  useEffect(() => {
+    if (!dinPregatire || pregPornitRef.current) return;
+    if (canSolve && !solveOn) {
+      pregPornitRef.current = true;
+      toggleSolve();
+    } else if (rezolvaFoaie && user && !(tutorOpen && workOpen)) {
+      pregPornitRef.current = true;
+      setTutorOpen(true);
+      setWork(true);
+    }
+  }, [dinPregatire, canSolve, rezolvaFoaie, user]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ✏️ „Rezolvă" pe un PDF care nu e test de EN: foaia de lucru, în panoul profesorului
   function toggleFoaia() {
     if (tutorOpen && workOpen) { setWork(false); return; }
@@ -450,6 +485,8 @@ export default function PDFViewer() {
       });
       if (h) h.done(r.text, { conversationId: r.conversationId, messageId: r.messageId });
       solve.keepResult(r, req.sigs);
+      arataPregatire(r.pregatire);   // „🎯 Pregătește-mă de examen": ziua bifată / cât mai e
+      if (r.pregatire?.tocmaiBifata) arenaChanged();
       if (r.gratuite) {
         setNote({
           text: r.gratuite.ramase > 0
@@ -1019,6 +1056,8 @@ export default function PDFViewer() {
 
   // ── Widgetul plutitor (vizibil în vizualizatorul de PDF; se poate MUTA) ──
   const tutorWidget = !tutorOpen && !modTest && <TutorFab onOpen={() => setTutorOpen(true)} />;
+  // 🎯 „Pregătește-mă de examen": felicitarea / progresul spre bifa zilei
+  const pregToast = pregRez && <PregatireToast rez={pregRez.rez} fel={pregRez.fel} onClose={() => setPregRez(null)} top={note ? 150 : 110} />;
 
   // ── Panoul de chat, interconectat cu PDF-ul deschis ─────────────────────
   const tutorPanel = tutorOpen && (
@@ -1211,6 +1250,7 @@ export default function PDFViewer() {
         </div>
         {tutorWidget}
         {noteJsx}
+        {pregToast}
       </div>
     );
   }
@@ -1283,6 +1323,7 @@ export default function PDFViewer() {
 
       {tutorWidget}
       {noteJsx}
+      {pregToast}
     </div>
   );
 }

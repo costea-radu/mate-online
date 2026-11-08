@@ -16,9 +16,12 @@ const DEFAULTS = {
   live_tickets: () => ({ status: 'platit', created_at: new Date().toISOString() }),
   // „Planul meu" (Pregătirea de examen): ca în Postgres, created_at = now()
   ai_meditatii_sessions: () => ({ status: 'activa', payload: {}, duration_sec: 0, created_at: new Date(Date.now() + (++stamp)).toISOString() }),
+  // „Pregătește-mă de examen" (supabase/pregatire_zilnica.sql)
+  arena_feed: () => ({ payload: {}, created_at: new Date().toISOString() }),
+  daily_tests: () => ({ status: 'deschis', items_done: 0, xp: 0, created_at: new Date().toISOString() }),
 };
 let stamp = 0;   // rânduri create în aceeași milisecundă: ordinea rămâne cea a inserării
-const SERIAL = new Set(['live_messages']);
+const SERIAL = new Set(['live_messages', 'arena_feed']);   // id-uri bigint (identity), crescătoare
 const NO_ID = new Set(['live_participants', 'live_poll_answers']);
 
 // valoarea unei coloane sau a unei căi JSON („state->>startedAt", „barem->title")
@@ -54,6 +57,7 @@ function test(row, f) {
     case 'gte': return v != null && cmp(v, f.val) >= 0;
     case 'lt': return v != null && cmp(v, f.val) < 0;
     case 'lte': return v != null && cmp(v, f.val) <= 0;
+    case 'like': return v != null && new RegExp(`^${String(f.val).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.')}$`).test(String(v));
     case 'not': return !test(row, { col: f.col, op: f.inner, val: f.val });
     case 'or': return f.alts.some((a) => test(row, a));
     default: throw new Error(`fakeSupabase: filtru necunoscut ${f.op}`);
@@ -95,6 +99,7 @@ class Query {
   lt(col, val) { this.filters.push({ col, op: 'lt', val }); return this; }
   lte(col, val) { this.filters.push({ col, op: 'lte', val }); return this; }
   not(col, op, val) { this.filters.push({ col, op: 'not', inner: op, val }); return this; }
+  like(col, val) { this.filters.push({ col, op: 'like', val }); return this; }
   or(expr) {
     const alts = String(expr).split(',').map((p) => {
       const [col, op, ...rest] = p.split('.');
@@ -146,6 +151,15 @@ class Query {
     }
     if (this.op === 'insert') {
       const list = (Array.isArray(this.payload) ? this.payload : [this.payload]).map((r) => this._newRow(r));
+      // constrângerile UNIQUE declarate de test (db.unique = { tabela: [['col', …], …] })
+      for (const keys of (this.db.unique && this.db.unique[this.table]) || []) {
+        for (const r of list) {
+          if (keys.some((k) => r[k] == null)) continue;
+          if (this._rows().some((x) => keys.every((k) => String(x[k]) === String(r[k])))) {
+            return { data: null, error: { message: `duplicate key value violates unique constraint "${this.table}_${keys.join('_')}_key"` } };
+          }
+        }
+      }
       this._rows().push(...list);
       return this.returning ? this._out(list) : { data: null, error: null };
     }

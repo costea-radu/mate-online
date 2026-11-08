@@ -12,7 +12,7 @@ const ICONS = {
   material: '📄', forum: '💬', forum_reply: '💬', like: '❤️',
   stagnation: '⚠️', evolution: '📈', decline: '📉', update: '✨',
   assignment: '📝', assignment_done: '✅', message: '✉️', info: 'ℹ️',
-  duel: '⚔️', turneu: '🏆', capitol: '🗺️', misiune: '🎯',
+  duel: '⚔️', turneu: '🏆', capitol: '🗺️', misiune: '🎯', pregatire: '📝',
 };
 
 export default function AINotifications() {

@@ -325,6 +325,10 @@ async function award(supa, userId, opts = {}) {
 
     const levelBefore = levelOf(stats.total_xp || 0);
     const level = levelOf(totalXp);
+    if (level.level > levelBefore.level && level.level >= 3) {
+      // fluxul Arenei (api/_lib/arenaFeed.js — cerut târziu, ca să nu fie dependență circulară)
+      await require('./arenaFeed').post(supa, { userId, kind: 'nivel', dedupeKey: `nivel:${userId}:${level.level}`, payload: { nivel: level.level, nivelNume: level.name, link: '/arena' } });
+    }
 
     return {
       xp: xpAcordat,

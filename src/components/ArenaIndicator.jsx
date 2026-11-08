@@ -31,6 +31,9 @@ export default function ArenaIndicator({ compact = false, onClick = null }) {
   const deJucat = s?.dueluri?.deJucat || 0;       // dueluri acceptate, nejucate
   const misiune = s?.misiuneAzi;                  // { clasa, status } — misiunea zilnică
   const misiuneAsteapta = !!(misiune && misiune.clasa && misiune.status !== 'indeplinit');
+  // „🎯 Pregătește-mă de examen": testul de azi te așteaptă (examen ales, ziua nebifată)
+  const prep = s?.pregatireAzi;
+  const testAsteapta = !!(prep && prep.examen && prep.azi !== 'lucrat');
 
   return (
     <Link
@@ -38,7 +41,7 @@ export default function ArenaIndicator({ compact = false, onClick = null }) {
       onClick={onClick || undefined}
       title={provocari > 0
         ? `${provocari} ${provocari === 1 ? 'provocare nouă la duel' : 'provocări noi la duel'}`
-        : s ? `Arena: nivel ${s.nivel?.level} · ${xp} XP${streak ? ` · serie de ${streak} zile` : ''}${misiuneAsteapta ? ' · misiunea zilnică te așteaptă' : ''}` : 'Arena matematică'}
+        : s ? `Arena: nivel ${s.nivel?.level} · ${xp} XP${streak ? ` · serie de ${streak} zile` : ''}${misiuneAsteapta ? ' · misiunea zilnică te așteaptă' : ''}${testAsteapta ? ' · testul zilei te așteaptă' : ''}` : 'Arena matematică'}
       aria-label="Arena matematică"
       style={{
         position: 'relative',
@@ -54,7 +57,8 @@ export default function ArenaIndicator({ compact = false, onClick = null }) {
       <span>⚔️</span>
       {streak > 0 && <span title="serie de zile">🔥{streak}</span>}
       {misiuneAsteapta && <span title="Misiunea zilnică te așteaptă">🎯</span>}
-      {s && <span title="XP total">⭐{xp}</span>}
+      {testAsteapta && <span title="Testul zilei te așteaptă (Pregătește-mă de examen)">📝</span>}
+      {s && <span className="arena-xp" title="XP total">⭐{xp}</span>}
       {/* provocare nouă la duel — bulina roșie, ca la mesagerie */}
       {(provocari > 0 || deJucat > 0) && (
         <span style={{

@@ -70,6 +70,10 @@
       "schedule": "5 * * * *"
     },
     {
+      "path": "/api/gamificare?action=cron-pregatire",
+      "schedule": "8 * * * *"
+    },
+    {
       "path": "/api/exam-bot?action=cron",
       "schedule": "40 */2 * * *"
     }

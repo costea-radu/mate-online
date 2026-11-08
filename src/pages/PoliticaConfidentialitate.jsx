@@ -11,7 +11,7 @@ export default function PoliticaConfidentialitate() {
             <Link to="/">Acasă</Link><span>›</span><span>Politica de Confidențialitate</span>
           </div>
           <h1>Politica de Confidențialitate</h1>
-          <p>Ultima actualizare: 30 octombrie 2026</p>
+          <p>Ultima actualizare: 8 noiembrie 2026</p>
         </div>
       </div>
 
@@ -50,6 +50,12 @@ export default function PoliticaConfidentialitate() {
             <Section title="3. Conținut generat de utilizatori">
               <p>
                 Conținutul pe care îl postezi în secțiunea Forum (texte, imagini, fișiere PDF) este stocat în Supabase Storage și afișat public celorlalți utilizatori autentificați ai platformei. Poți șterge propriile postări oricând direct din platformă. La ștergerea contului, toate postările și fișierele asociate sunt eliminate automat.
+              </p>
+              <p style={{ marginTop: 12 }}>
+                <strong>Arena matematică — clasamentul și activitatea.</strong> În clasamentul ligii săptămânale și în fluxul „Ce se întâmplă în Arenă" (văzute doar de utilizatorii autentificați) apar <strong>prenumele și inițiala numelui</strong> (de exemplu „Ana P."), niciodată numele complet, fotografia sau adresa de e-mail. În flux apare doar <strong>ce ai făcut</strong> — de exemplu că ai lucrat la testul zilei la „Subiectul I · Evaluarea Națională", că ai promovat într-o ligă, că ai o serie de zile sau o insignă nouă — <strong>fără note, punctaje sau procente</strong>. Poți ieși oricând din flux, din Arenă, debifând „Apar în activitatea Arenei"; atunci activitatea ta nu mai e arătată nimănui.
+              </p>
+              <p style={{ marginTop: 12 }}>
+                <strong>„Pregătește-mă de examen".</strong> Ca să-ți propunem testul zilei, păstrăm examenul ales, zilele în care ai lucrat, câte exerciții ai rezolvat și nota de la corectare — nota o vezi doar tu (și, ca orice rezultat, profesorul sau părintele asociat contului tău). Amintirea zilnică o pornești și o oprești tu, din pagina „Pregătește-mă de examen"; vine ca notificare în browser (dacă o permiți) sau în clopoțelul din site.
               </p>
             </Section>
 

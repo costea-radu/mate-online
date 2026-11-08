@@ -22,6 +22,18 @@
 //   → închide sezoanele încheiate: locuri, promovări, retrogradări.
 //     vercel.json: "0 0 * * 1" = luni 03:00 ora României.
 //
+// „🎯 PREGĂTEȘTE-MĂ DE EXAMEN" (8 nov. 2026 — api/_lib/pregatireZilnica.js):
+// POST { action: 'pregatire' } → { pregatire, notificari } — testul zilei, seria,
+//   săptămâna, insignele (atribuie testul zilei la prima deschidere din zi);
+// POST { action: 'pregatire_alege', examen?, format? } — examenul / formatul;
+// POST { action: 'pregatire_alt_test' } — „🔀 Alt test";
+// POST { action: 'pregatire_notificari', on?, ora?, subscription?, unsubscribe? }
+//   și { action: 'pregatire_notificari_proba' } — amintirea zilnică
+//   (api/_lib/pregatireNotificari.js);
+// GET  ?action=cron-pregatire (cron, la fiecare oră) — amintirile testului zilei.
+// FLUXUL ARENEI (api/_lib/arenaFeed.js): POST { action: 'arena_feed', inainte? }
+//   → { feed, public }; POST { action: 'arena_public', on } — apar / nu apar în flux.
+//
 // Tabelele: supabase/gamificare_v2.sql · motorul: api/_lib/xp.js
 // Toate scrierile se fac cu rolul de serviciu — elevul nu-și poate atinge XP-ul.
 // =====================================================================
@@ -31,6 +43,9 @@ const xp = require('./_lib/xp');
 const duel = require('./_lib/duel');
 const misiune = require('./_lib/misiune');   // misiunea zilnică (supabase/gamificare_v8_misiune_zilnica.sql)
 const MN = require('./_lib/misiuneNotificari'); // amintirile misiunii (supabase/misiune_notificari.sql)
+const pregatire = require('./_lib/pregatireZilnica');   // „Pregătește-mă de examen" (supabase/pregatire_zilnica.sql)
+const PN = require('./_lib/pregatireNotificari');      // amintirea testului zilei
+const feed = require('./_lib/arenaFeed');              // fluxul de activitate al Arenei
 
 // „Ana Maria Popescu" → „Ana P." (clasamentul e public în cohortă: arătăm
 // prenumele și inițiala, nu numele complet al copilului)
@@ -149,6 +164,10 @@ async function state(supa, userId) {
     if (!eMz) misiuneAzi = { clasa: stats.mission_category || null, status: mz ? mz.status : null };
   } catch { /* migrarea v8 nerulată */ }
 
+  // „Pregătește-mă de examen" — doar cât îi trebuie navbarului / Home (📝 când
+  // testul de azi te așteaptă, seria de zile)
+  const pregatireAzi = await pregatire.rezumat(supa, userId);
+
   return {
     ok: true,
     setup: { tabele: !eTabele, mesaj: eTabele ? eTabele.message : null },
@@ -172,6 +191,7 @@ async function state(supa, userId) {
     saptamanaTrecuta,
     recent: recent || [],
     misiuneAzi,
+    pregatireAzi,
   };
 }
 
@@ -226,6 +246,9 @@ async function closeSeasons(supa) {
         }
         // mic bonus pentru promovare (nu intră în punctele de ligă)
         if (outcome === 'promovat') {
+          // fluxul Arenei: „Ana P. a promovat în 🥈 Liga Argint" (o dată pe sezon)
+          const tNou = xp.tierInfo(tierNou);
+          await feed.post(supa, { userId: r.user_id, kind: 'promovare', dedupeKey: `promovare:${r.user_id}:${season.week_start}`, payload: { liga: tNou.name, ligaIcon: tNou.icon, link: '/arena' } });
           await supa.from('xp_events').insert({
             user_id: r.user_id, day: xp.dayKey(), source: 'liga', xp: 100, league_pts: 0,
             meta: { promovat_in: tierNou, loc },
@@ -250,6 +273,8 @@ async function closeSeasons(supa) {
 }
 
 // ─── Handler ────────────────────────────────────────────────────────────────
+let provocareAnuntata = null;   // ziua pentru care s-a pus deja „⚡ Provocarea bonus de azi" în flux
+
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -267,6 +292,11 @@ module.exports = async function handler(req, res) {
     if (action === 'cron-misiune') {
       if (!ai.isCronRequest(req)) return res.status(403).json({ error: 'Neautorizat' });
       return res.status(200).json(await MN.cron(supa));
+    }
+    // amintirile testului zilei („Pregătește-mă de examen") — la fiecare oră
+    if (action === 'cron-pregatire') {
+      if (!ai.isCronRequest(req)) return res.status(403).json({ error: 'Neautorizat' });
+      return res.status(200).json(await PN.cron(supa));
     }
 
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
@@ -291,6 +321,57 @@ module.exports = async function handler(req, res) {
       }));
     }
     if (action === 'misiune_notificari_proba') return res.status(200).json(await MN.trimiteProba(supa, userId));
+
+    // ── „🎯 Pregătește-mă de examen" ──
+    if (action === 'pregatire') {
+      const [p, notificari] = await Promise.all([pregatire.stare(supa, userId, profile), PN.stare(supa, userId)]);
+      return res.status(200).json({ ok: true, pregatire: p, notificari });
+    }
+    if (action === 'pregatire_alege') {
+      const b = req.body || {};
+      const r = await pregatire.alege(supa, userId, profile, {
+        examen: b.examen === undefined ? undefined : String(b.examen || ''),
+        format: b.format === undefined ? undefined : (b.format === null ? null : String(b.format)),
+      });
+      if (r.error) return res.status(r.setup === false ? 503 : 400).json(r);
+      return res.status(200).json(r);
+    }
+    if (action === 'pregatire_alt_test') {
+      const r = await pregatire.altTest(supa, userId, profile);
+      if (r.error) return res.status(400).json(r);
+      return res.status(200).json(r);
+    }
+    if (action === 'pregatire_notificari') {
+      const b = req.body || {};
+      return res.status(200).json(await PN.seteaza(supa, userId, {
+        on: b.on === undefined ? undefined : b.on === true,
+        ora: b.ora === undefined || b.ora === null ? undefined : Number(b.ora),
+        subscription: b.subscription || null,
+        unsubscribe: b.unsubscribe || null,
+        userAgent: req.headers?.['user-agent'] || '',
+      }));
+    }
+    if (action === 'pregatire_notificari_proba') return res.status(200).json(await PN.trimiteProba(supa, userId));
+
+    // ── fluxul de activitate al Arenei ──
+    if (action === 'arena_feed') {
+      // provocarea bonus de azi apare o dată pe zi în flux (anunț, fără nume);
+      // ținută minte în instanță, ca să nu se încerce la fiecare încărcare
+      const zi = xp.dayKey();
+      if (provocareAnuntata !== zi) {
+        await feed.post(supa, { kind: 'provocare', dedupeKey: `provocare:${zi}`, payload: { eticheta: xp.missionForDay(zi).label, link: '/arena' } });
+        provocareAnuntata = zi;
+      }
+      const b = req.body || {};
+      const [f, pub] = await Promise.all([
+        feed.list(supa, { viewerId: userId, limit: b.limit || 20, inainte: b.inainte || null }),
+        feed.stare(supa, userId),
+      ]);
+      return res.status(200).json({ ok: true, feed: f, public: pub });
+    }
+    if (action === 'arena_public') {
+      return res.status(200).json(await feed.setPublic(supa, userId, req.body?.on !== false));
+    }
     if (action === 'misiune_clasa') {
       const r = await misiune.alegeClasa(supa, userId, profile, req.body?.categorie);
       if (r.error) return res.status(400).json(r);

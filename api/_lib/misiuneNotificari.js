@@ -196,16 +196,18 @@ async function contextLot(supa, ids, azi) {
   return { azim, zileDe, oprit };
 }
 
-// Trimite: Web Push; fără nicio notificare livrată → clopoțelul din site
-async function livreaza(supa, userId, payload, azi, fel) {
+// Trimite: Web Push; fără nicio notificare livrată → clopoțelul din site.
+// `tip` = felul notificării din clopoțel (și prefixul cheii de o dată pe zi):
+// 'misiune' aici, 'pregatire' la testul zilei (api/_lib/pregatireNotificari.js).
+async function livreaza(supa, userId, payload, azi, fel, tip = 'misiune') {
   let r = { sent: 0, failed: 0, gone: 0 };
   try { r = await PUSH.sendToUser(supa, userId, payload, { ttl: 4 * 3600, urgency: 'normal' }); } catch { /* clopoțelul */ }
   if (r.sent > 0) return { push: true, clopotel: false };
   let ok = false;
   try {
     ok = await ai.createNotification(supa, {
-      recipientId: userId, type: 'misiune', title: payload.title, body: payload.body,
-      data: { url: payload.url }, dedupeKey: `misiune-${fel}:${azi}`, dedupeDays: 1,
+      recipientId: userId, type: tip, title: payload.title, body: payload.body,
+      data: { url: payload.url }, dedupeKey: `${tip}-${fel}:${azi}`, dedupeDays: 1,
     });
   } catch { ok = false; }
   return { push: false, clopotel: !!ok };
@@ -274,7 +276,9 @@ async function cron(supa, { now = new Date(), budgetMs = 240000 } = {}) {
 }
 
 module.exports = {
-  ORE, ORA_IMPLICITA, SERIE_ORA, SERIE_MIN, FEREASTRA, LINISTE_DE, LINISTE_PANA,
-  oraRo, oraValida, eLiniste, eMomentul, fmtOra, mesajAmintire, mesajSerie,
+  ORE, ORA_IMPLICITA, SERIE_ORA, SERIE_MIN, FEREASTRA, LINISTE_DE, LINISTE_PANA, LOT, PARALEL,
+  oraRo, oraValida, eLiniste, eMomentul, fmtOra, mesajAmintire, mesajSerie, isMissing,
   stare, seteaza, trimiteProba, cron,
+  // folosite și de amintirea testului zilei (api/_lib/pregatireNotificari.js)
+  revendica, livreaza, inParalel,
 };

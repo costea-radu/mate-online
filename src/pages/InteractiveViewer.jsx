@@ -7,7 +7,8 @@ import { aiClient } from '../lib/aiClient';
 import { ChatPanel, TutorFab } from '../components/AITutor';
 import { injectTutorBridge } from '../lib/tutorBridge';
 import { awardBadges } from '../lib/badges';
-import { arenaChanged } from '../lib/arena';
+import { arenaChanged, onPregatire } from '../lib/arena';
+import PregatireToast, { deAratat } from '../components/PregatireToast';
 import { notaDinScor } from '../lib/nota';
 import TestModeBadge from '../components/TestModeBadge';
 import EinsteinIcon from '../components/EinsteinIcon';
@@ -48,6 +49,8 @@ export default function InteractiveViewer() {
   const [xpToast, setXpToast] = useState(null);                       // XP / streak / misiune câștigate (Arena)
   const [duelRez, setDuelRez] = useState(null);                       // rezultatul duelului, după trimiterea scorului
   const [misiuneRez, setMisiuneRez] = useState(null);                 // misiunea zilnică (Arena), după trimiterea scorului
+  const [pregRez, setPregRez] = useState(null);                       // „Pregătește-mă de examen": { rez, fel } (toast)
+  const pregItemiRef = useRef(-1);                                    // ultimul progres arătat (fără toast repetat)
   const [partialSalvat, setPartialSalvat] = useState(null);           // salvarea automată de la jumătatea exercițiului
   const [reviewOpen, setReviewOpen] = useState(false);               // „Cum ți s-a părut testul?" (după scor salvat)
   const reviewAskedRef = useRef(new Set());                          // testele pentru care am întrebat deja (în această vizită)
@@ -115,6 +118,9 @@ export default function InteractiveViewer() {
   // deschis din „🎯 Misiunea zilnică" (/arena) — doar insigna din bară: misiunea
   // se bifează pe server după exercițiu (orice drum ar fi deschis elevul)
   const dinMisiune = searchParams.get('misiune') === '1';
+  // deschis din „🎯 Pregătește-mă de examen" (testul zilei) — insigna din bară și
+  // progresul spre bifa zilei; ziua se bifează pe server, de la câteva exerciții
+  const dinPregatire = searchParams.get('pregatire') === '1';
   // În duel, ca și la testul pe grupă, Profesorul Virtual e închis: altfel
   // duelul ar măsura cine știe să întrebe tutorele, nu cine știe matematică.
   const faraAjutor = !!gtId || !!duelId;
@@ -238,6 +244,8 @@ export default function InteractiveViewer() {
             if (duelId && r.duel) setDuelRez(r.duel);
             // 🎯 misiunea zilnică: exercițiul zilei — îndeplinită sau „mai încearcă"
             if (r.misiune) { setMisiuneRez(r.misiune); arenaChanged(); }
+            // 🎯 Pregătește-mă de examen: ziua bifată (sau cât mai e până la bifă)
+            arataPregatire(r.pregatire);
             awardBadges(user.id, { score: r.score, maxScore: r.maxScore, attempts: r.attempts || 1, category: item.category })
               .then((earned) => { if (earned.length) setNewBadges(earned); })
               .catch(() => {});
@@ -378,6 +386,22 @@ export default function InteractiveViewer() {
     };
   }, [user, item, temaId, medSesId]);
 
+  // „🎯 Pregătește-mă de examen": felicitarea (ziua bifată) sau progresul spre bifă —
+  // progresul doar în testul zilei și doar când s-a schimbat numărul de exerciții
+  function arataPregatire(rez) {
+    const fel = deAratat(rez, { dinPregatire });
+    if (!fel) return;
+    if (fel === 'progres') {
+      if (rez.itemi === pregItemiRef.current) return;
+      pregItemiRef.current = rez.itemi;
+    }
+    if (fel === 'bifata') arenaChanged();
+    setPregRez({ rez, fel });
+  }
+
+  // corectările din panoul profesorului (foaia de lucru) numără și ele la testul zilei
+  useEffect(() => onPregatire((rez) => arataPregatire(rez)), []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ─── SALVARE PARȚIALĂ ───────────────────────────────────────────────────────
   // Dacă elevul închide pagina la jumătate (sau îi pică netul), munca lui nu
   // trebuie să se piardă: cerem periodic răspunsurile de la bridge și le
@@ -412,6 +436,8 @@ export default function InteractiveViewer() {
           keepalive: imediat,   // cererea pleacă până la capăt și dacă se închide fila
         });
         if (r?.ok && viu) setPartialSalvat({ la: Date.now(), score: r.score, maxScore: r.maxScore });
+        // ziua din „Pregătește-mă de examen" se poate bifa și din salvarea automată
+        if (r?.ok && viu && r.pregatire) arataPregatire(r.pregatire);
       } catch { /* salvarea parțială e best-effort */ }
     }
 
@@ -676,6 +702,7 @@ export default function InteractiveViewer() {
       {gtId && <TestModeBadge compact />}
       {duelId && <span title="Duel: ai o singură încercare, iar Profesorul Virtual e închis" style={chip('rgba(232,185,49,0.16)', 'var(--gold)', 'var(--gold)')}>⚔️</span>}
       {dinMisiune && !duelId && <span title="Exercițiul zilei din Arena: îl bifezi rezolvându-l cu cel puțin 50%" style={chip('rgba(232,185,49,0.16)', 'var(--gold)', 'var(--gold)')}>🎯</span>}
+      {dinPregatire && !dinMisiune && !duelId && <span title="Testul zilei („Pregătește-mă de examen”): ziua se bifează de la câteva exerciții" style={chip('rgba(232,185,49,0.16)', 'var(--gold)', 'var(--gold)')}>📝</span>}
       {partialSalvat && !scoreSaved && <span title="Ce ai rezolvat până acum e salvat. Apasă „Corectează total” pentru rezultatul final." style={chip('rgba(46,204,113,0.14)', '#7ee2a8', 'rgba(46,204,113,0.5)')}>💾</span>}
       {item?.category === 'manuale' && <button onClick={() => navigate('/')} aria-label="Acasă" title="Acasă" style={ib()}>🏠</button>}
       {hwMarked && <span title={`Temă bifată · nota ${hwMarked.grade}`} style={chip('var(--gold)', 'var(--navy)')}>✓ {hwMarked.grade}</span>}
@@ -738,6 +765,12 @@ export default function InteractiveViewer() {
               background: 'rgba(232,185,49,0.16)', border: '1px solid var(--gold)', color: 'var(--gold)',
               borderRadius: 12, padding: '3px 10px', fontSize: '0.76rem', fontWeight: 800, whiteSpace: 'nowrap',
             }} title="Exercițiul zilei din Arena: îl bifezi rezolvându-l cu cel puțin 50%">{isMobile ? '🎯' : '🎯 MISIUNEA ZILEI'}</span>
+          )}
+          {dinPregatire && !dinMisiune && !duelId && (
+            <span style={{
+              background: 'rgba(232,185,49,0.16)', border: '1px solid var(--gold)', color: 'var(--gold)',
+              borderRadius: 12, padding: '3px 10px', fontSize: '0.76rem', fontWeight: 800, whiteSpace: 'nowrap',
+            }} title="Testul zilei („Pregătește-mă de examen”): ziua se bifează de la câteva exerciții — nu trebuie să-l termini">{isMobile ? '📝' : '📝 TESTUL ZILEI'}</span>
           )}
           {partialSalvat && !scoreSaved && (
             <span style={{
@@ -1020,6 +1053,11 @@ export default function InteractiveViewer() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Toast: 🎯 „Pregătește-mă de examen" — ziua bifată / cât mai e */}
+      {pregRez && (
+        <PregatireToast rez={pregRez.rez} fel={pregRez.fel} onClose={() => setPregRez(null)} top={misiuneRez ? (duelRez ? 380 : 280) : (duelRez ? 250 : 150)} />
       )}
 
       {/* Toast: 🎯 misiunea zilnică (exercițiul zilei din Arena) */}

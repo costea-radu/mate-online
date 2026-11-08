@@ -30,6 +30,7 @@
 // =====================================================================
 const ai = require('./_lib/ai');
 const testlock = require('./_lib/testlock');
+const pregatire = require('./_lib/pregatireZilnica'); // „🎯 Pregătește-mă de examen": exercițiile de pe foaie se numără
 const corector = require('./_lib/corector');
 const pdfContext = require('./ai-pdf-context');
 
@@ -195,10 +196,19 @@ module.exports = async function handler(req, res) {
       }
     } catch (e) { console.warn('ai-handwriting: salvarea în conversație a eșuat:', e.message); }
 
+    // „🎯 Pregătește-mă de examen": exercițiile rezolvate pe foaie, la un test de examen
+    const pregatireRez = src.category ? await pregatire.inregistreaza(supa, userId, {
+      content: { id: src.contentId || null, title: src.title || null, category: src.category, content_type: 'pdf' },
+      itemi: (r.itemi || []).filter((it) => it && it.verdict !== 'necompletat').length,
+      pct: r.puncteMax ? Math.round((Number(r.puncte || 0) / Number(r.puncteMax)) * 100) : null,
+      verificat: true,
+    }) : null;
+
     return res.status(200).json({
       conversationId: convId, messageId,
       text: out.text,
       puncte: r.puncte, puncteMax: r.puncteMax, hasBarem: !!src.hasBarem,
+      pregatire: pregatireRez,
       lizibil: r.lizibil, itemi: r.itemi,
       spoken: r.feedback || '',
       model: out.model,

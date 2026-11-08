@@ -64,6 +64,8 @@ export default function ProfesorVirtual() {
   const TABS = isStudentView
     ? [
         { id: 'chat', label: `💬 ${askAiLabel({ isTeacher, isParent })}` },
+        // 🎯 testul zilei (8 nov. 2026) — înaintea meditațiilor; duce la /pregateste-ma
+        { id: 'pregatire', label: '🎯 Pregătește-mă de examen' },
         { id: 'meditatii', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><EinsteinIcon size={17} /> Meditații cu Prof. Virtual</span> },
         { id: 'progress', label: '📈 Progresul meu' },
       ]
@@ -77,7 +79,7 @@ export default function ProfesorVirtual() {
         { id: 'grupa', label: '👥 Test interactiv pe grupă (teste diferite)' },
       ];
   // fila cerută există pentru acest cont? (elevul care deschide ?tab=exam ajunge la chat)
-  const tab = TABS.some((t) => t.id === tabAles && t.id !== 'meditatii') ? tabAles : 'chat';
+  const tab = TABS.some((t) => t.id === tabAles && t.id !== 'meditatii' && t.id !== 'pregatire') ? tabAles : 'chat';
 
   return (
     <div style={{ maxWidth: 'var(--container)', margin: '0 auto', padding: '32px 20px 60px' }}>
@@ -97,7 +99,7 @@ export default function ProfesorVirtual() {
       {/* Tab-uri */}
       <div style={{ display: 'flex', gap: 8, borderBottom: '2px solid var(--border)', marginBottom: 24, flexWrap: 'wrap' }}>
         {TABS.map((t) => (
-          <button key={t.id} onClick={() => (t.id === 'meditatii' ? navigate('/meditatii/plan') : selectTab(t.id))}
+          <button key={t.id} onClick={() => (t.id === 'meditatii' ? navigate('/meditatii/plan') : t.id === 'pregatire' ? navigate('/pregateste-ma') : selectTab(t.id))}
             style={{
               background: 'none', border: 'none', padding: '10px 4px', marginBottom: -2,
               borderBottom: '3px solid', borderColor: tab === t.id ? 'var(--gold)' : 'transparent',

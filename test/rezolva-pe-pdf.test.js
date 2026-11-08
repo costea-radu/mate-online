@@ -344,7 +344,13 @@ test('totalul: din 90; „complet" doar cu toate trei subiectele atinse și totu
   assert.deepStrictEqual(locked.pending, ['3.1']);
   const msg = R.formatMessage({ items, sum, structura: '6-6-6', title: 'Varianta 3', hasBarem: true, nota: 2.3 });
   assert.match(msg, /\*\*13\/90p\*\*/);
-  assert.match(msg, /nota \*\*2,3\*\*/);
+  assert.match(msg, /nota \*\*2,30\*\*/);
+  // nota pe un test început (8 nov. 2026): pusă și explicată, cu drumul de revenire
+  const msgP = R.formatMessage({ items: items.slice(0, 3), sum: partial, structura: '6-6-6', title: 'Varianta 3', hasBarem: true, nota: 2, saved: { kind: 'progress' } });
+  assert.match(msgP, /nota \*\*2,00\*\*/);
+  assert.match(msgP, /ce n-ai rezolvat încă are 0 puncte\. Poți reveni oricând/);
+  assert.match(msgP, /Nota s-a salvat la „Rezultatele mele" \(o vede și profesorul tău, la „Rezultate elevi"\)/);
+  assert.strictEqual(R.fmtNota(7.3), '7,30');
   assert.match(msg, /necompletați: I\.3, I\.4/);
   assert.match(msg, /✖ 2\. ai ales a\) — 0\/5p/);
   assert.ok(!/corect(ul|ă)? (e|era) c\)/i.test(msg), 'nu spune litera corectă');
@@ -360,6 +366,7 @@ const correct = require('../api/ai-correct.js');
 const xp = require('../api/_lib/xp.js');
 const duel = require('../api/_lib/duel.js');
 const turneu = require('../api/_lib/turneu.js');
+const pregatire = require('../api/_lib/pregatireZilnica.js');
 const handler = require('../api/rezolva-pdf.js');
 
 function supaStub(log, { usedFree = 0 } = {}) {
@@ -387,7 +394,7 @@ function supaStub(log, { usedFree = 0 } = {}) {
 function stub(t, { premium = true, locked = false, usedFree = 0 } = {}) {
   const saved = [];
   const patch = (obj, k, v) => { saved.push([obj, k, obj[k]]); obj[k] = v; };
-  const st = { usage: [], quota: [], db: [], progress: [], claude: [] };
+  const st = { usage: [], quota: [], db: [], progress: [], claude: [], pregatire: [] };
   patch(ai, 'authUser', async () => 'u-1');
   patch(ai, 'requireUser', async () => ({ id: 'u-1', role: 'elev', is_admin: false, subscription_status: premium ? 'active' : null }));
   patch(ai, 'enforceRateLimit', async () => ({ degraded: false }));
@@ -401,6 +408,8 @@ function stub(t, { premium = true, locked = false, usedFree = 0 } = {}) {
   patch(xp, 'award', async () => ({ xpExercitiu: 0 }));
   patch(duel, 'recordByContent', async () => {});
   patch(turneu, 'recordScore', async () => {});
+  // „🎯 Pregătește-mă de examen" (8 nov. 2026): ce primește testul zilei
+  patch(pregatire, 'inregistreaza', async (s, u, o) => { st.pregatire.push({ userId: u, ...o }); return { tocmaiBifata: true, itemi: o.itemi, lipsa: 0 }; });
   const origFetch = global.fetch;
   global.fetch = async (url, opts) => {
     if (String(url) !== 'https://api.anthropic.com/v1/messages') throw new Error('apel neașteptat: ' + url);
@@ -437,7 +446,7 @@ const BODY = {
 };
 const call = async (body) => { const res = fakeRes(); await handler({ method: 'POST', headers: {}, body }, res); return res; };
 
-test('fără Premium: prima din cele 2 corectări gratuite ale grilei — după barem, fără AI; III rămâne „⭐ Premium"; nimic nu se salvează ca test întreg', async (t) => {
+test('fără Premium: prima din cele 2 corectări gratuite ale grilei — după barem, fără AI; III rămâne „⭐ Premium"; nota pe testul început se salvează', async (t) => {
   const st = stub(t, { premium: false });
   const res = await call({ ...BODY, images: [] });
   assert.strictEqual(res.statusCode, 200, JSON.stringify(res.body));
@@ -456,10 +465,28 @@ test('fără Premium: prima din cele 2 corectări gratuite ale grilei — după 
   assert.strictEqual(by['3.1'].verdict, 'blocat');
   assert.strictEqual(res.body.score, 10);
   assert.strictEqual(res.body.complete, false);
-  assert.strictEqual(st.progress.length, 0);
+  // nota se pune și pe un test început: 10p + 10 din oficiu → 2,00; se salvează
+  // (la „Rezultatele mele" și „Rezultate elevi"), ca elevul să poată reveni
+  assert.strictEqual(res.body.nota, 2);
+  assert.strictEqual(st.progress.length, 1);
+  assert.deepStrictEqual([st.progress[0].score, st.progress[0].maxScore], [10, 90]);
+  assert.strictEqual(res.body.saved.kind, 'progress');
+  assert.strictEqual(res.body.saved.partial, true);
+  assert.match(res.body.text, /nota \*\*2,00\*\*/);
   assert.match(res.body.text, /Premium/);
   // corectarea intră în conversație
   assert.ok(st.db.some((x) => x.table === 'ai_messages' && /Corectarea rezolvării de pe PDF/.test(x.insert.content)));
+  // „🎯 Pregătește-mă de examen": exercițiile lucrate pe PDF se numără la testul
+  // zilei (și o parte de test): 3 grile + III.1 scris = 4, din subiectele I, II, III
+  assert.strictEqual(st.pregatire.length, 1);
+  const pz = st.pregatire[0];
+  assert.strictEqual(pz.userId, 'u-1');
+  assert.deepStrictEqual([pz.content.id, pz.content.category, pz.content.content_type], ['en-3', 'evaluare-nationala', 'pdf']);
+  assert.strictEqual(pz.itemi, 4);
+  assert.deepStrictEqual([...new Set(pz.subiecte)].sort(), [1, 2, 3]);
+  assert.strictEqual(pz.nota, 2);
+  assert.strictEqual(pz.complet, false);
+  assert.strictEqual(res.body.pregatire.tocmaiBifata, true, 'răspunsul poartă bifa zilei (PregatireToast)');
 });
 
 test('fără Premium: a doua corectare gratuită e ultima; a treia → îndemnul spre Premium (402), fără nimic consumat', async (t) => {

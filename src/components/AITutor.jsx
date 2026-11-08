@@ -10,6 +10,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } fro
 import { createPortal } from 'react-dom';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
+import { pregatireRezultat } from '../lib/arena';
 import { useTestMode } from '../lib/testMode';
 import { supabase } from '../lib/supabase';
 import ExamGenerator from './ExamGenerator';
@@ -509,6 +510,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       ]);
       setForm(null); setFormAnswers({}); setFormImages([]);
       formStartRef.current = Date.now(); // pregătește o eventuală reîncercare
+      pregatireRezultat(r.pregatire);    // „🎯 Pregătește-mă de examen": ziua bifată / progresul
       // pe tablă: Prof. Tudor spune rezultatul (punctajul rămâne scris pe tablă)
       if (boardMode && speaker) speaker.say(`${r.feedback || 'Am corectat lucrarea ta — punctajul e pe tablă.'}${context.meditatii ? ' Cum mergem mai departe?' : ''}`, { key: 'chat' });
       // insigne, ca la testele interactive (doar când punctajul s-a salvat)
@@ -562,6 +564,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       if (r.conversationId) setConvId(r.conversationId);
       patchMsg(uid, { streaming: false, content: r.text || 'Am corectat rezolvarea ta.', id: r.messageId || undefined, hw: true });
       if (boardMode && speaker && r.spoken) speaker.say(r.spoken, { key: 'chat' });
+      pregatireRezultat(r.pregatire);    // „🎯 Pregătește-mă de examen"
     } catch (e) {
       patchMsg(uid, { streaming: false, isError: true, retryable: false, hw: true, content: '⚠️ ' + (e.message || 'Corectarea nu a reușit. Mai încearcă o dată.') });
       if (e.premium) setUpsell(true);
@@ -1930,7 +1933,12 @@ export default function FloatingTutor() {
 .pv-live-t b{display:block;font-size:.95rem;font-weight:800}
 .pv-live-t small{display:block;font-size:.72rem;font-weight:600;opacity:.92}
 .pv-live-tag{font-size:.62rem;font-weight:800;letter-spacing:.08em;background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.55);border-radius:6px;padding:2px 6px}
-.pv-live-go{font-size:1.15rem;font-weight:800}`}</style>
+.pv-live-go{font-size:1.15rem;font-weight:800}
+.pv-prep{display:flex;align-items:center;gap:10px;margin:10px 12px 0;padding:9px 14px;border-radius:12px;text-decoration:none;color:var(--navy,#0f2b44)!important;background:linear-gradient(135deg,var(--gold,#e8b931) 0%,#f5d76e 100%);box-shadow:0 2px 10px rgba(232,185,49,.35);transition:transform .15s,filter .15s}
+.pv-prep:hover{transform:translateY(-1px);filter:brightness(1.04)}
+.pv-prep:focus-visible{outline:3px solid var(--navy,#0f2b44);outline-offset:2px}
+.pv-prep-ic{font-size:1.25rem;flex:none}
+.pv-prep + .pv-live{margin-top:8px}`}</style>
 
       {/* Eticheta widgetului lângă buton (când e închis) — după rol */}
       {!open && (
@@ -1986,6 +1994,16 @@ export default function FloatingTutor() {
               </Link>
             )}
           </div>
+
+          {/* 🎯 PREGĂTEȘTE-MĂ DE EXAMEN (8 nov. 2026) — înainte de „Meditații live":
+              testul zilei, cu amintire zilnică, XP și ligă (/pregateste-ma) */}
+          {!medMode && pathname !== '/pregateste-ma' && (
+            <Link to="/pregateste-ma" onClick={() => setOpen(false)} className="pv-prep" aria-label="Pregătește-mă de examen — testul zilei">
+              <span className="pv-prep-ic" aria-hidden="true">🎯</span>
+              <span className="pv-live-t"><b>Pregătește-mă de examen</b><small>un test pe zi · XP · ligă</small></span>
+              <span className="pv-live-go" aria-hidden="true">→</span>
+            </Link>
+          )}
 
           {/* 🔴 MEDITAȚII LIVE — un clic și ești în /meditatii (lobby-ul meditațiilor live, nu
               „Planul meu"); colorat, ca să se vadă. Pe /meditatii nu mai are rost. */}

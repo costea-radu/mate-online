@@ -35,6 +35,20 @@ export const BADGES = [
   { id: 'pregatit-en', icon: '📘', name: 'Pregătit de Evaluare',
     desc: '5 exerciții finalizate din secțiunea Evaluare Națională.',
     check: (c) => (c.totals.byCategory['evaluare-nationala'] || 0) >= 5 },
+  // „🎯 Pregătește-mă de examen" (8 nov. 2026): le acordă SERVERUL, la bifa zilei
+  // (api/_lib/pregatireZilnica.js → INSIGNE) — aici doar descrierea lor
+  { id: 'pregatire-prima-zi', icon: '📝', name: 'Prima zi de pregătire', server: true,
+    desc: 'Ai bifat prima zi din „Pregătește-mă de examen".', check: () => false },
+  { id: 'pregatire-test-complet', icon: '✅', name: 'Test complet', server: true,
+    desc: 'Ai rezolvat un test de examen de la început până la sfârșit.', check: () => false },
+  { id: 'pregatire-serie-7', icon: '🔥', name: 'O săptămână de pregătire', server: true,
+    desc: '7 zile la rând cu testul zilei.', check: () => false },
+  { id: 'pregatire-zile-10', icon: '🎓', name: '10 zile de pregătire', server: true,
+    desc: 'Ai lucrat la testul zilei în 10 zile.', check: () => false },
+  { id: 'pregatire-serie-30', icon: '🗓️', name: 'O lună fără pauză', server: true,
+    desc: '30 de zile la rând cu testul zilei.', check: () => false },
+  { id: 'pregatire-zile-50', icon: '🏅', name: '50 de zile de pregătire', server: true,
+    desc: 'Ai lucrat la testul zilei în 50 de zile.', check: () => false },
 ];
 
 // Verifică și acordă insignele noi după un scor salvat.

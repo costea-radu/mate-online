@@ -9,7 +9,7 @@ import { aiAssistantLabel } from '../lib/aiLabel';
 import { useChatUnread, refreshChatUnread } from '../lib/chatUnread';
 import ChatAlerts from './ChatAlerts';
 import Sidebar from './Sidebar';
-import { CLASE, examenePentru, sectiuniMeniu, esteActiv } from '../lib/meniu';
+import { CLASE, examenePentru, sectiuniMeniu, esteActiv, PREGATESTE_MA } from '../lib/meniu';
 
 // ─── Bulina roșie de mesaje noi (ca la Messenger) ─────────────────────────────
 // `flotanta` = lipită în colțul unei iconițe; altfel stă în rând, după text.
@@ -594,6 +594,15 @@ export default function Navbar() {
               la categoriile lor. Ce a rămas se împarte uniform pe lățime. */}
           <ul className="navbar-links" style={{ alignItems: 'center' }}>
             {/* profesorii au aici și „📄 Generează subiect examen" (Asistent AI → generatorul) */}
+            {/* 🎯 „Pregătește-mă de examen" (8 nov. 2026) — testul zilei. În bară:
+                „🎯 Pregătește-mă" (numele întreg în title / aria-label); sub 1200px
+                doar 🎯 — măsurat ca „⭐ Contul meu" să rămână pe un rând */}
+            <li>
+              <Link to={PREGATESTE_MA.to} className={`nav-pregatire${location.pathname === PREGATESTE_MA.to ? ' activ' : ''}`}
+                title="Pregătește-mă de examen — un test pe zi, cu amintire zilnică, XP și ligă" aria-label={PREGATESTE_MA.label}>
+                {PREGATESTE_MA.icon} <span className="nav-lung">{PREGATESTE_MA.label}</span><span className="nav-scurt">Pregătește-mă</span>
+              </Link>
+            </li>
             <li><DesktopDropdown label="🎓 Examene" items={examenePentru({ isTeacher })} accent /></li>
             <li><DesktopDropdown label="📚 Clase" items={CLASE} accent /></li>
           </ul>
@@ -605,8 +614,9 @@ export default function Navbar() {
               className="search-btn-desktop"
               onClick={() => setSearchOpen(true)}
               aria-label="Căutare"
+              title="Caută"
             >
-              🔍 Caută
+              🔍 <span className="nav-cauta-txt">Caută</span>
             </button>
             {isAdmin && (
               <Link to="/admin" style={{

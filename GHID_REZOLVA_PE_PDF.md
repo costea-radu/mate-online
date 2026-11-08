@@ -152,3 +152,25 @@ baremele), și la testele de EN din testul pe grupă / duel, același buton **�
 de lucru · apasă ca să închizi") — închide foaia și revine la conversație. Neautentificat: „Autentifică-te…".
 Corectarea de pe foaie e cea de până acum: **„🎓 Cere corectarea"** — testul și baremul citite de pe server,
 corectorul (Claude Opus 5.5) strict după barem, **Premium**. În testul pe grupă / duel foaia rămâne doar ciornă.
+
+## Nota cu roșu pe test și nota pentru o parte de test (8 nov. 2026)
+
+Cererea: „după corectare, notează cu roșu nota pe test, scris de mână, de exemplu:
+7,30 (șapte ^30)" și „pune o notă chiar dacă se rezolvă doar câteva exerciții doar de
+la un subiect. Trece nota și lasă posibilitatea să se revină și să rezolve din nou.
+Nota să apară în statistici la «rezultate elevi»".
+
+- **Nota cu roșu**: după „✅ Corectează", pe prima pagină, sus în dreapta, scrisă de mână
+  (fontul Caveat, `@fontsource/caveat`): **7,30 (șapte³⁰)**, ușor înclinată și
+  subliniată (`NotaRosie` în `RezolvarePdf.jsx`, `notaScrisa` în `src/lib/pdfRezolvare.js`).
+  Se așază în primul loc liber de sus în jos, fără să acopere antetul (rândurile de text
+  ale paginii 1: `cutiiText` / `pozitieNota`). Scrii din nou după corectare → nota se
+  estompează până la corectarea următoare. **⬇ PDF-ul descărcat** o are și el (imagine
+  PNG pe pagina 1: `exportInkPdf(…, { notaImg })`).
+- **Nota pentru o parte de test**: `api/rezolva-pdf.js` calculează nota la orice corectare
+  cu puncte (ce lipsește are 0p): „📝 Nota **2,30** e pe testul așa cum e acum: ce n-ai
+  rezolvat încă are 0 puncte. Poți reveni oricând…". Se salvează în `progress` de fiecare
+  dată (o corectare identică în 30 de minute nu mai adaugă o încercare) → „Rezultatele
+  mele" și „Grupe / Rezultate elevi". XP doar când punctajul crește.
+- Lucrul pe PDF bifează și **testul zilei** din „🎯 Pregătește-mă de examen" (de la 3
+  exerciții) — `GHID_PREGATESTE_MA.md`.
