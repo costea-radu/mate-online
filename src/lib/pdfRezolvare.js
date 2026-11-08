@@ -313,19 +313,45 @@ export function itemAt(map, p, y) {
 }
 
 // ═════════════════════════════ recunoașterea ══════════════════════════════
-// Varianta încercuită la o grilă: un traseu ÎNCHIS (cerc, oval) care cuprinde
-// litera — sau valoarea — unei SINGURE variante. Fără cerc: un semn mic (✓, ✗)
-// tras peste literă. Mai multe variante → `letters` are mai multe litere.
+// O linie aproape dreaptă (tăietura peste o variantă): deschisă, direcția se
+// rotește puțin (o bifă ✓ sau un C se rotesc mult), cel puțin cât ~o literă.
+export function isStrike(pts, b = boxOf(pts), lh = 11) {
+  if (!pts || pts.length < 2 || !b) return false;
+  if (Math.max(b.x1 - b.x0, b.y1 - b.y0) < lh * 0.8) return false;
+  if (isClosedish(pts, b)) return false;
+  return tangentTurning(pts) < Math.PI * 0.5;
+}
+// punctele traseului, dese (cel mult ~1pt între ele): o linie trasă repede are puncte rare
+function dense(pts, step = 1) {
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, ay] = pts[i - 1], [bx, by] = pts[i];
+    const n = Math.min(60, Math.floor(Math.hypot(bx - ax, by - ay) / step));
+    for (let k = 1; k <= n; k++) out.push([ax + ((bx - ax) * k) / (n + 1), ay + ((by - ay) * k) / (n + 1)]);
+    out.push(pts[i]);
+  }
+  return out;
+}
+
+// Varianta aleasă la o grilă, după regulile foii de examen (EN):
+//  · încercuiești litera (sau varianta): un traseu ÎNCHIS care cuprinde litera —
+//    sau valoarea — unei SINGURE variante;
+//  · vrei să schimbi: TAI varianta încercuită (o linie peste ea) și încercuiești alta;
+//  · vrei să revii la o variantă tăiată: tai și varianta nouă, scrii LÂNGĂ varianta
+//    tăiată litera ei și o încercuiești (un cerc „liber", cu scris înăuntru, lângă ea).
+// O variantă doar tăiată (eliminată), fără cerc, nu e aleasă. Bifa (✓) nu e încercuire.
+// → { letters, how: 'cerc' | 'revenire' | null, unclear, taiate }
 export function recognizeChoice(item, strokes) {
   const opts = (item && item.options) || [];
-  const strong = new Set(), weak = new Set();
+  const circles = [];        // { s, b, opt }   opt = varianta din cerc (null = cerc „liber")
+  const lines = [];          // { s, b }        tăieturi posibile
   let unclear = 0;
   for (const s of strokes || []) {
     const pts = s.pts || [];
     if (!pts.length) continue;
-    const b = boxOf(pts);
     const mine = opts.filter((o) => o.p === s.p);
     if (!mine.length) continue;
+    const b = boxOf(pts);
     const lh = mine[0].h || 11;
     if (isClosedish(pts, b)) {
       const hits = [];
@@ -335,25 +361,77 @@ export function recognizeChoice(item, strokes) {
         const V = windingNumber(pts, (o.vx0 + o.vx1) / 2, ly) !== 0;
         if (L || V) hits.push({ o, L });
       }
-      if (hits.length === 1) { strong.add(hits[0].o.l); continue; }
+      if (hits.length === 1) { circles.push({ s, b, opt: hits[0].o }); continue; }
       if (hits.length > 1) {
         // un cerc mare peste mai multe variante: contează doar dacă o SINGURĂ literă e înăuntru
         const withL = hits.filter((h) => h.L);
-        if (withL.length === 1 && (b.y1 - b.y0) <= lh * 2.6) strong.add(withL[0].o.l); else unclear++;
+        if (withL.length === 1 && (b.y1 - b.y0) <= lh * 2.6) circles.push({ s, b, opt: withL[0].o }); else unclear++;
         continue;
       }
+      circles.push({ s, b, opt: null });
+      continue;
     }
-    // semn mic peste literă (bifă, X): nu și calculele scrise lângă variante. Variantele
-    // stau aproape una de alta: câștigă litera cu cele mai multe puncte ale semnului
-    if ((b.x1 - b.x0) <= lh * 3 && (b.y1 - b.y0) <= lh * 2.4) {
-      const m = lh * 0.2;
-      const counts = mine.map((o) => ({ o, n: pts.filter(([x, y]) => x >= o.lx0 - m && x <= o.lx1 + m && y >= o.y0 - m && y <= o.y1 + m).length }))
-        .filter((c) => c.n > 0).sort((a1, a2) => a2.n - a1.n);
-      if (counts.length && (counts.length === 1 || counts[0].n > counts[1].n)) weak.add(counts[0].o.l);
-    }
+    if (isStrike(pts, b, lh)) lines.push({ s, b });
   }
-  const pick = strong.size ? strong : weak;
-  return { letters: [...pick].sort(), how: strong.size ? 'cerc' : (weak.size ? 'semn' : null), unclear };
+  // în interiorul unui cerc „liber"? (literele scrise de mână dintr-o revenire)
+  const insideFree = (b, p) => circles.some((c) => !c.opt && c.s.p === p
+    && windingNumber(c.s.pts, (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2) !== 0
+    && (b.x1 - b.x0) <= (c.b.x1 - c.b.x0) && (b.y1 - b.y0) <= (c.b.y1 - c.b.y0));
+
+  // zona unei variante: litera, valoarea și cercurile din jurul ei
+  const areaOf = (o) => {
+    let a = { x0: Math.min(o.lx0, o.vx0), y0: o.y0, x1: Math.max(o.lx1, o.vx1), y1: o.y1 };
+    for (const c of circles) if (c.opt === o) a = unionBox(a, c.b);
+    return a;
+  };
+  // TĂIETURILE: linia trece PESTE variantă (îi traversează o bună parte), nu doar o atinge
+  const taiate = new Set();
+  for (const ln of lines) {
+    if (insideFree(ln.b, ln.s.p)) continue;
+    const mine = opts.filter((o) => o.p === ln.s.p);
+    const lh = mine[0].h || 11;
+    const pts = dense(ln.s.pts);
+    const counts = mine.map((o) => {
+      const a = areaOf(o), m = lh * 0.25;
+      const ins = pts.filter(([x, y]) => x >= a.x0 - m && x <= a.x1 + m && y >= a.y0 - m && y <= a.y1 + m);
+      if (!ins.length) return { o, n: 0 };
+      const bx = boxOf(ins);
+      const crosses = (bx.x1 - bx.x0) >= 0.45 * Math.min(a.x1 - a.x0, (o.lx1 - o.lx0) * 2 + 4) || (bx.y1 - bx.y0) >= 0.6 * (a.y1 - a.y0);
+      return { o, n: crosses ? ins.length : 0 };
+    });
+    const max = Math.max(0, ...counts.map((c) => c.n));
+    if (max < 2) continue;
+    counts.filter((c) => c.n >= Math.max(2, max * 0.5)).forEach((c) => taiate.add(c.o.l));
+  }
+  // REVENIREA: un cerc „liber", mic, cu scris înăuntru, lângă o variantă tăiată
+  const inapoi = new Set();
+  for (const c of circles.filter((x) => !x.opt)) {
+    const mine = opts.filter((o) => o.p === c.s.p);
+    const lh = mine[0].h || 11;
+    if ((c.b.x1 - c.b.x0) > lh * 4 || (c.b.y1 - c.b.y0) > lh * 3.2) continue;
+    const scris = (strokes || []).some((t) => t !== c.s && t.p === c.s.p && t.pts && t.pts.length
+      && (() => { const tb = boxOf(t.pts); return windingNumber(c.s.pts, (tb.x0 + tb.x1) / 2, (tb.y0 + tb.y1) / 2) !== 0 && (tb.x1 - tb.x0) < (c.b.x1 - c.b.x0) && (tb.y1 - tb.y0) < (c.b.y1 - c.b.y0); })());
+    if (!scris) continue;
+    const cy = (c.b.y0 + c.b.y1) / 2;
+    let best = null, bestD = Infinity;
+    for (const o of mine) {
+      if (!taiate.has(o.l)) continue;
+      const a = areaOf(o);
+      if (cy < a.y0 - lh * 0.9 || cy > a.y1 + lh * 0.9) continue;
+      const dx = c.b.x1 < a.x0 ? a.x0 - c.b.x1 : (c.b.x0 > a.x1 ? c.b.x0 - a.x1 : 0);
+      if (dx <= lh * 5 && dx < bestD) { bestD = dx; best = o; }
+    }
+    if (best) inapoi.add(best.l);
+  }
+  const incercuite = [...new Set(circles.filter((c) => c.opt).map((c) => c.opt.l))];
+  const active = incercuite.filter((l) => !taiate.has(l));
+  const letters = [...new Set([...active, ...inapoi])].sort();
+  return {
+    letters,
+    how: active.length ? 'cerc' : (inapoi.size ? 'revenire' : null),
+    unclear,
+    taiate: [...taiate].sort(),
+  };
 }
 
 // Toate traseele → itemii lor + ce s-a recunoscut la fiecare.
@@ -550,7 +628,7 @@ export function nearStroke(pts, x, y, r) {
   return false;
 }
 
-// Traseu neted (curbe), ca în „✍️ Spațiu de lucru"
+// Traseu neted (curbe), ca pe „✍️ Foaia de lucru"
 const r2 = (n) => Math.round(n * 100) / 100;
 export function inkPath(pts) {
   if (!pts || !pts.length) return '';

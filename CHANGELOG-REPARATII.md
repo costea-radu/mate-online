@@ -4,6 +4,42 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 8 noiembrie 2026 — ✏️ Rezolvă pe PDF, runda a 2-a: corectarea cu Premium (+2 corectări gratuite ale grilei), tăiat / revenire la grilă, „✏️ Rezolvă" pulsant, „Foaie de lucru", BAC → foaia de lucru
+
+Cererea: „* Corectarea sa se facă doar cu premium si pentru grila. pune o corectare gratuita, după barem * La grila fa sa poata: a) să taie o grilă și să încercuiască o alta, b) sa taie noua grila încercuită și să scrie lângă grila tăiată litera ei și să o încercuiască ca fiind corecta. * Fă butonul “rezolvă” pulsatil ca să atragă atenția. * Spațiul de lucru redenumește-l “foaie de lucru” * La testele de bac și celelalte fișiere PDF butonul “rezolvă” să deschidă foaia de lucru. Daca nu e deja, aplica același model de corectare: în spațiul de lucru, după barem" — și, la întrebarea mea: „un singur buton, care functioneaza doar cu premium, dar utilizatorul are doua corectari gratuite a grilei, apoi indemnul spre Premium. grila se corcteaza fara AI dupa barem, iar subiectul III cu AI cum ai stabilit cu opus 5.5."
+
+Ghidul: `GHID_REZOLVA_PE_PDF.md` (actualizat).
+
+### 1) Corectarea: Premium; fără abonament — 2 corectări gratuite ale grilei (`api/rezolva-pdf.js`, `api/_lib/ai.js`, `api/_lib/pdfRezolvare.js`)
+- Un singur buton, „✅ Corectează". Cu **Premium**: grila după barem (fără AI) + Subiectul III cu corectorul (Claude Opus 5.5), ca până acum.
+- **Fără abonament**: doar grila, după barem, **de 2 ori** (`PDF_GRILA_GRATUITE`, opțional, implicit 2) — numărate în `ai_usage` la `endpoint = 'rezolva-pdf:grila'`, un rând pe corectare reușită (cost 0). A treia → **402** „Ai folosit cele 2 corectări gratuite ale grilei…". Doar Subiectul III → 402 Premium; nicio grilă clară → 400 „încercuiește litera".
+- Rândurile `rezolva-pdf:grila` (ca și „voce") **nu** sunt cereri AI: nu consumă cele 2 acțiuni gratuite cu AI-ul și nu intră în limita orară (`NU_E_CERERE_AI` în `enforceFreeQuota` / `enforceRateLimit`).
+- Mesajul din conversație spune câte au rămas („🎁 … 1 din 2 — ți-a mai rămas una" / „… ultima").
+
+### 2) În browser (`PDFViewer.jsx`, `RezolvarePdf.jsx`, `AITutor.jsx`, `aiClient.js`)
+- Fără abonament: scris doar la III → îndemnul spre Premium, fără cerere; nicio grilă clară → „încercuiește litera…".
+- Nota de sub bară, caseta „Ai terminat?" (cu „⭐ Vezi abonamentele"; după ultima: `✅ Corectează ⭐`) și banda de sus a profesorului arată motivul adevărat: „🔒 Ai folosit corectările gratuite ale grilei." (nu „Ai folosit cele 2 încercări gratuite" — acelea sunt acțiunile cu AI-ul).
+
+### 3) Grila: tăiat și revenire, ca pe foaia de examen (`src/lib/pdfRezolvare.js` → `isStrike`, `recognizeChoice`)
+- **a)** o linie peste varianta încercuită (literă + valoare) o anulează; contează cercul nou.
+- **b)** tăiată și noua variantă → lângă varianta tăiată dorită, litera ei scrisă și încercuită („revenire") → contează aceea.
+- Bifa nu mai alege o variantă. Serverul primește `cum: 'cerc' | 'revenire'`; promptul corectorului cunoaște regula.
+
+### 4) „✏️ Rezolvă" pulsează (`src/styles/global.css` → `.em-pulse`, `@keyframes emPulse`)
+- Inel auriu care se lărgește + o mărire ușoară, cât modul nu e pornit; oprit la `prefers-reduced-motion` (rămâne inelul fix) și cât e ținut mouse-ul pe el.
+
+### 5) La BAC și la celelalte PDF-uri, „✏️ Rezolvă" → foaia de lucru (`PDFViewer.jsx` → `rezolvaFoaie`, `toggleFoaia`)
+- Orice PDF care nu e test de EN (și nu e barem), inclusiv testele din testul pe grupă / duel: butonul deschide foaia de lucru în panoul profesorului; a doua apăsare o închide. Corectarea de pe foaie e cea de până acum — „🎓 Cere corectarea", după barem (testul și baremul citite de pe server), Claude Opus 5.5, Premium; în test pe grupă / duel rămâne ciornă.
+
+### 6) „Spațiu de lucru" → „Foaie de lucru"
+- Butoane, titluri, aria-label-uri, mesajele din conversație și de pe server, cota „✍️ Corectări de pe foaia de lucru", Prețuri, Politica de confidențialitate, descrierea modelelor AI, butonul injectat în exercițiile interactive (`tutorBridge.js`). Opțiunea de tipărire „✍️ Spațiu de lucru pe foaie: cu / fără" (caroiajul testelor PDF generate) **nu** s-a schimbat — e altceva.
+
+**Verificat:** `npm test` — 1110 teste, toate trec (`test/rezolva-pe-pdf.test.js` — 21; actualizate pentru noul nume: `bara-sus-telefon`, `corectare-exercitiu`, `corector-scris`, `fereastra-spatiu-lucru`, `pdf-barem-spatiu`). `vite build` trece. În Chrome (Supabase simulat, endpointul real): EN fără abonament — tăiat + alt cerc (I.2 → b), tăiat + revenire cu litera încercuită (I.3 → c, „revenire"), corectarea 1 („ți-a mai rămas una"), 2 („ultima"), 3 → 402 + îndemnul (conversație, bandă, notă, casetă); EN cu Premium (grile + III) ca înainte; BAC pe calculator și pe telefon (390 px): „✏️ Rezolvă" pulsează, deschide și închide foaia de lucru.
+
+**De făcut:** doar commit + deploy (fără SQL; variabila `PDF_GRILA_GRATUITE` e opțională).
+
+---
+
 ## 7 noiembrie 2026 (3) — ✏️ Rezolvă pe PDF: grila încercuită și Subiectul III scris direct pe testul de EN, cu „✅ Corectează"
 
 Cererea: „pentru PDF-urile de la Evaluare Nationala, poti sa faci cumva sa se poata rezolva grila de la subiectele I si II direct pe PDF, prin incercuire? iar la subiectul III sa se poata scrie direct pe zona de rezolvare. cumva sa pui ca un spatiu de lucru, dar invizibil, cu corectare si cu recunoastere pe PDF a exercitiului rezolvat. PDF-ul sa ramana tot PDF cu aceleasi functionalitati. corectarea sa fie pornita cu un buton "rezolva pe PDF" cu buton la final "corecteaza""

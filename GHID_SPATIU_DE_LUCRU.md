@@ -1,4 +1,8 @@
-# Ghid: „✍️ Spațiu de lucru" — foaia albă care continuă în dreapta
+# Ghid: „✍️ Foaie de lucru" — foaia albă care continuă în dreapta
+
+> Până la 8 noiembrie 2026 se numea **„✍️ Spațiu de lucru"**. Atunci a fost redenumită „Foaie de lucru" peste
+> tot în site (butoane, titluri, mesaje, „Contul meu → ⚡ Consum AI"). Opțiunea de tipărire „✍️ Spațiu de lucru
+> pe foaie: cu / fără" (caroiajul de sub problemele unui test PDF generat) e altceva și și-a păstrat numele.
 
 Elevul scrie rezolvarea cu **degetul sau cu creionul**, pe o **foaie albă, fără
 linii**, care **nu se termină**: merge mai departe în dreapta (sau în jos) cât
@@ -17,11 +21,11 @@ unde există. Corectarea face parte din **Premium**.
 
 | Loc | Cum se deschide | Ce se poate face cu scrisul |
 |---|---|---|
-| **Exerciții interactive** (iframe) | „✍️ Spațiu de lucru" în bara de sus **și** pe fiecare pas / grilă (injectat de `tutorBridge.js`) — fereastră peste exercițiu | `🎓 Cere corectarea`: se deschide Profesorul Virtual, iar corectarea apare acolo (rezolvarea oficială a exercițiului ține loc de barem) |
-| **Vizualizatorul PDF** | „✍️ Spațiu de lucru" în **antetul Profesorului Virtual** — foaia ia locul conversației | `🎓 Cere corectarea` (testul + baremul asociat, citite de pe server) · `📎 Pune în întrebare` |
-| **Testele PDF de EN — direct pe pagină** (7 nov. 2026) | „✏️ Rezolvă pe PDF" în bara PDF-ului — un strat **invizibil** de scris peste pagini: grila se încercuiește, Subiectul III se scrie în spațiul lui | `✅ Corectează`: grilele după barem (fără AI), scrisul de la III — corectorul (Premium). Ghid: `GHID_REZOLVA_PE_PDF.md` |
+| **Exerciții interactive** (iframe) | „✍️ Foaie de lucru" în bara de sus **și** pe fiecare pas / grilă (injectat de `tutorBridge.js`) — fereastră peste exercițiu | `🎓 Cere corectarea`: se deschide Profesorul Virtual, iar corectarea apare acolo (rezolvarea oficială a exercițiului ține loc de barem) |
+| **Vizualizatorul PDF** | „✍️ Foaie de lucru" în **antetul Profesorului Virtual** — foaia ia locul conversației; la **BAC și la celelalte PDF-uri** (nu testele de EN, nu baremele) o deschide și butonul pulsant **„✏️ Rezolvă"** din bara PDF-ului (8 nov. 2026) | `🎓 Cere corectarea` (testul + baremul asociat, citite de pe server) · `📎 Pune în întrebare` |
+| **Testele PDF de EN — direct pe pagină** (7 nov. 2026) | „✏️ Rezolvă pe PDF" în bara PDF-ului — un strat **invizibil** de scris peste pagini: grila se încercuiește, Subiectul III se scrie în spațiul lui | `✅ Corectează` (Premium): grilele după barem (fără AI), scrisul de la III — corectorul; fără abonament: **2 corectări gratuite ale grilei**, apoi îndemnul spre Premium. Ghid: `GHID_REZOLVA_PE_PDF.md` |
 | **Tabla din „Planul meu"** | butonul `✍️` din bara de scris, lângă 📷 și 🎤 | `🎓 Cere corectarea` · `📎 Pune în întrebare` |
-| **Formularul „📝 Răspunde în chat"** (tot la tabla din „Planul meu") | „✍️ Spațiu de lucru" sub fiecare cerință | `📎 Atașează la răspuns` → foaia intră la „📷 Poze cu rezolvarea"; o punctează „✅ Corectează" |
+| **Formularul „📝 Răspunde în chat"** (tot la tabla din „Planul meu") | „✍️ Foaie de lucru" sub fiecare cerință | `📎 Atașează la răspuns` → foaia intră la „📷 Poze cu rezolvarea"; o punctează „✅ Corectează" |
 | **Sala meditațiilor live / Pregătirea de examen** | „✍️ Caietul meu" din meniu | doar ciornă (fără AI) |
 
 Din **widgetul plutitor** caietul a fost scos mai demult (paginile cu exerciții au caietul lor).
@@ -73,12 +77,12 @@ alinieze testul în stânga și spațiul de lucru în dreapta."
 - În **testele / exercițiile interactive** (`src/pages/InteractiveViewer.jsx`), pe
   calculator, foaia **nu mai e o fereastră peste test**: se deschide într-o **coloană în
   dreapta** testului, iar testul rămâne întreg în stânga (`<SpatiuDeLucru docked …>`).
-- **Lățimea coloanei** se trage de marginea ei stângă (mânerul „Lățimea spațiului de
+- **Lățimea coloanei** se trage de marginea ei stângă (mânerul „Lățimea foii de
   lucru", `src/components/ManerLatime.jsx`) și se ține minte (`sdl:latime`, implicit ~42%
   din ecran, minimum 340 px; testul păstrează cel puțin 360 px). Cu Profesorul Virtual
   deschis, testul se îngustează între cele două coloane.
 - `⛶` = foaia pe tot ecranul; `⤵` = înapoi lângă test. Butonul ✍️ din bară sau
-  „✍️ Spațiu de lucru" din exercițiu o deschid / închid; enunțul exercițiului stă deasupra foii.
+  „✍️ Foaie de lucru" din exercițiu o deschid / închid; enunțul exercițiului stă deasupra foii.
 - **Pe telefon** nimic nu se schimbă: foaia stă jos, pe toată lățimea, ca mai jos.
 - În celelalte locuri („Planul meu", sala live, Pregătirea de examen) foaia rămâne
   fereastra plutitoare de mai jos.
@@ -161,7 +165,7 @@ departe, în aceeași conversație. Pe tablă (Planul meu), Prof. Tudor spune ap
 
 **Acces:** doar **Premium** (sau admin) — altfel 402, iar butonul arată ⭐ și explică, cu
 link spre abonamente (nu trimite nimic). Oprit în **testul pe grupă** (423). Cotă zilnică
-proprie **„✍️ Corectări din spațiul de lucru"** (elev 20/zi, profesor/părinte 10/zi;
+proprie **„✍️ Corectări de pe foaia de lucru"** (elev 20/zi, profesor/părinte 10/zi;
 apare în „Contul meu → ⚡ Consum AI"). Imaginile **nu se salvează** — doar miniatura, în
 conversație.
 

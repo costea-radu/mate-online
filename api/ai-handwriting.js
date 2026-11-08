@@ -1,5 +1,5 @@
 // =====================================================================
-// api/ai-handwriting.js — „🎓 Cere corectarea" din „✍️ Spațiu de lucru"
+// api/ai-handwriting.js — „🎓 Cere corectarea" de pe „✍️ Foaia de lucru"
 //
 // Elevul scrie rezolvarea cu degetul / creionul pe foaia albă (SpatiuDeLucru).
 // La „Cere corectarea", clientul trimite CHIAR SCRISUL: imaginea foii (tăiată
@@ -122,7 +122,7 @@ module.exports = async function handler(req, res) {
     const profile = await ai.requireUser(supa, userId);
     const body = req.body || {};
     if (body.action && body.action !== 'correct') {
-      return res.status(400).json({ error: 'Transformarea în text a fost scoasă — spațiul de lucru trimite acum scrisul direct la corectare.', code: 'ACTION_REMOVED' });
+      return res.status(400).json({ error: 'Transformarea în text a fost scoasă — foaia de lucru trimite acum scrisul direct la corectare.', code: 'ACTION_REMOVED' });
     }
 
     // Test pe grupă în desfășurare → corectarea (ajutor de la AI) e oprită
@@ -172,7 +172,7 @@ module.exports = async function handler(req, res) {
         const { data } = await supa.from('ai_conversations')
           .insert({
             user_id: userId,
-            title: `Corectare: ${src.title || 'spațiul de lucru'}`.slice(0, 60),
+            title: `Corectare: ${src.title || 'foaia de lucru'}`.slice(0, 60),
             context: { pdf: !!ctx.pdf, meditatii: !!ctx.meditatii, contentId: src.contentId || null, libraryId: src.libraryId || null, category: src.category || null, title: src.title || null },
           })
           .select('id').single();
@@ -181,7 +181,7 @@ module.exports = async function handler(req, res) {
       if (convId) {
         await supa.from('ai_messages').insert({
           conversation_id: convId, role: 'user', mode: 'tutor',
-          content: '✍️ Am trimis la corectare rezolvarea scrisă de mână din spațiul de lucru.',
+          content: '✍️ Am trimis la corectare rezolvarea scrisă de mână de pe foaia de lucru.',
           ...(thumb ? { metadata: { image: thumb } } : {}),
         });
         const { data: saved } = await supa.from('ai_messages')

@@ -1,5 +1,6 @@
 // =====================================================================
-// src/components/SpatiuDeLucru.jsx — caietul digital al elevului
+// src/components/SpatiuDeLucru.jsx — caietul digital al elevului:
+// „✍️ Foaie de lucru" (până la 8 nov. 2026 se numea „Spațiu de lucru")
 //
 // O FOAIE ALBĂ, FĂRĂ LINII, care nu se termină: elevul scrie cu degetul sau
 // cu creionul și merge mai departe în DREAPTA (sau în jos) cât vrea, ca pe
@@ -837,7 +838,7 @@ export default function SpatiuDeLucru({
       border: on ? '3px solid var(--gold, #e8b931)' : '2px solid #fff', boxShadow: '0 0 0 1px #cfd8e3',
     });
     return (
-      <div aria-label="Spațiu de lucru" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative', background: SHEET_BG }}>
+      <div aria-label="Foaie de lucru" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative', background: SHEET_BG }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: mic ? 4 : 6, padding: '8px 12px', background: '#fff',
           borderBottom: '1px solid var(--border, #dde1e8)', flexShrink: 0, overflowX: 'auto', scrollbarWidth: 'none',
@@ -932,7 +933,7 @@ export default function SpatiuDeLucru({
     <>
     <div
       ref={dialogRef}
-      role="dialog" aria-modal="false" aria-label="Spațiu de lucru"
+      role="dialog" aria-modal="false" aria-label="Foaie de lucru"
       style={dock ? {
         // în coloana din dreapta testului: cât coloana, fără umbră
         position: 'relative', flex: 1, width: '100%', height: '100%', minHeight: 0,
@@ -965,7 +966,7 @@ export default function SpatiuDeLucru({
             }} />
           )}
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: '.95rem' }}>✍️ Spațiu de lucru</div>
+            <div style={{ fontWeight: 800, fontSize: '.95rem' }}>✍️ Foaie de lucru</div>
             {title && (
               <div style={{ fontSize: '.72rem', opacity: .82, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {title}
@@ -978,7 +979,7 @@ export default function SpatiuDeLucru({
               background: 'rgba(255,255,255,.14)', border: 'none', color: '#fff', borderRadius: 8,
               padding: '5px 10px', fontSize: '.9rem', fontWeight: 700, cursor: 'pointer', lineHeight: 1,
             }}>{maxi ? '⤵' : '⛶'}</button>
-          <button type="button" onClick={onClose} aria-label="Închide spațiul de lucru" style={{
+          <button type="button" onClick={onClose} aria-label="Închide foaia de lucru" style={{
             background: 'rgba(255,255,255,.14)', border: 'none', color: '#fff', borderRadius: 8,
             padding: '5px 11px', fontSize: '.85rem', fontWeight: 700, cursor: 'pointer',
           }}>{narrow ? '✕' : '✕ Închide'}</button>

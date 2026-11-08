@@ -48,7 +48,7 @@ export function useLatimePanou({
     try { localStorage.setItem(storageKey, String(Math.round(w))); } catch { /* fără loc */ }
   }, [storageKey]);
 
-  // setWidth(w, { save:false }) — o lățime de moment (ex. spațiul de lucru
+  // setWidth(w, { save:false }) — o lățime de moment (ex. foaia de lucru
   // deschis lățește panoul), fără să înlocuiască preferința elevului
   const setWidth = useCallback((w, { save = true } = {}) => {
     const v = clamp(Math.round(w), min, max);

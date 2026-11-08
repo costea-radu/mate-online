@@ -39,6 +39,8 @@ async function post(path, body, { keepalive = false } = {}) {
     const e = new Error(data.error || `Eroare server (${res.status})`);
     if (data.code === 'PREMIUM_REQUIRED' || res.status === 402) e.premium = true;
     e.code = data.code || null;
+    // „✏️ Rezolvă pe PDF" fără abonament: corectările gratuite ale grilei s-au terminat
+    if (data.gratuite) e.gratuite = data.gratuite;
     // creditele lunii s-au terminat → banda de avertizare trece pe „blocat"
     if (data.code === 'BUDGET_MONTH') markAIBudgetBlocked();
     throw e;
@@ -204,7 +206,7 @@ export const aiClient = {
   // Foto-rezolvare: transcrie exercițiul dintr-o imagine (data URL)
   visionExtract: ({ imageBase64, note = '' }) => post('/api/ai-vision', { imageBase64, note }),
 
-  // „✍️ Spațiu de lucru" → „🎓 Cere corectarea": SCRISUL DE MÂNĂ (imaginea foii,
+  // „✍️ Foaie de lucru" → „🎓 Cere corectarea": SCRISUL DE MÂNĂ (imaginea foii,
   // în 1–6 bucăți — exportSheet din SpatiuDeLucru.jsx) merge direct la corector,
   // care îl citește și îl punctează după barem (api/ai-handwriting.js). Premium.
   // context = { pdf, contentId, category, title, meditatii }; exerciseText =

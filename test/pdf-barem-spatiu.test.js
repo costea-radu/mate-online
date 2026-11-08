@@ -28,9 +28,9 @@ test('PDF: în bara de sus e „📋 Barem", nu mai e fereastra caietului peste 
   assert.match(read('src/lib/pdfFrame.js'), /p\.push\(`page=\$\{page\}`\)/);
 });
 
-test('PDF: „✍️ Spațiu de lucru" e în antetul profesorului și se deschide în zona de conversație', () => {
+test('PDF: „✍️ Foaie de lucru" e în antetul profesorului și se deschide în zona de conversație', () => {
   const src = read('src/pages/PDFViewer.jsx');
-  assert.match(src, /'✍️ Spațiu de lucru'/);
+  assert.match(src, /'✍️ Foaie de lucru'/);
   assert.match(src, /workspace=\{\{/);
   assert.match(src, /storageKey: isLib \? `pdf:lib:\$\{lib\?\.id \|\| 'material'\}` : `pdf:\$\{item\?\.id \|\| 'material'\}`/, 'aceeași ciornă ca înainte (materialele din bibliotecă au cheia lor)');
   // pe telefon antetul e mânerul de tras: butoanele lui nu pornesc tragerea
@@ -52,5 +52,5 @@ test('caietul din zona de conversație: foaie ALBĂ, fără linii și fără mar
   assert.doesNotMatch(src, /repeating-linear-gradient/);
   assert.doesNotMatch(src, /#f0c9c9/);
   assert.match(src, /if \(embedded\) \{/);
-  assert.match(src, /aria-label="Spațiu de lucru" style=\{\{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative', background: SHEET_BG \}\}/);
+  assert.match(src, /aria-label="Foaie de lucru" style=\{\{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative', background: SHEET_BG \}\}/);
 });

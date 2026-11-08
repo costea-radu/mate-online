@@ -297,8 +297,9 @@ test('modelul: Opus 5.5 implicit, Sonnet 5.5 peste bugetul zilnic soft; prețuri
   assert.strictEqual(require('../api/_lib/claude.js').resolveModel('claude-haiku-5-5'), 'claude-haiku-5-5');
 });
 
-test('cota zilnică „scris" (Corectări din spațiul de lucru): fereastră pe zi, separată de pool-ul lunar', () => {
+test('cota zilnică „scris" (Corectări de pe foaia de lucru): fereastră pe zi, separată de pool-ul lunar', () => {
   const q = ai.FEATURE_QUOTAS.scris;
+  assert.strictEqual(q.label, 'Corectări de pe foaia de lucru');
   assert.strictEqual(q.endpoint, 'ai-handwriting:correct');
   assert.strictEqual(q.window, 'day');
   assert.strictEqual(ai.quotasForRole('elev').scris, 20);

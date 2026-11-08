@@ -27,7 +27,7 @@
 //
 // Protocol postMessage:
 //  iframe → părinte: MATE_TUTOR_READY | MATE_TUTOR_STATE | MATE_TUTOR_OPEN
-//                    | MATE_WORKSPACE_OPEN (butonul „✍️ Spațiu de lucru" —
+//                    | MATE_WORKSPACE_OPEN (butonul „✍️ Foaie de lucru" —
 //                      părintele deschide caietul digital lângă exercițiu)
 //                    | MATE_RESET_REQ (butonul „Resetează" al testului e
 //                      defect → părintele reîncarcă exercițiul de la zero)
@@ -310,7 +310,7 @@ const BRIDGE_SCRIPT = String.raw`
     b.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); focusCard = card || null; post('MATE_TUTOR_OPEN', collect()); });
     return b;
   }
-  // ── „✍️ Spațiu de lucru" — caietul digital (SpatiuDeLucru.jsx) ────
+  // ── „✍️ Foaie de lucru" — caietul digital (SpatiuDeLucru.jsx) ────
   // Butonul trăiește în iframe, dar caietul se deschide în pagina-părinte:
   // acolo sunt sesiunea, creditele AI și corectarea scrisului de mână.
   var WORK_CSS = 'display:inline-flex;align-items:center;gap:6px;background:#eef4fb;border:1.5px solid #7fa6cf;color:#1a4d80;border-radius:8px;padding:6px 12px;font-family:inherit;font-weight:700;font-size:.78rem;cursor:pointer;';
@@ -318,7 +318,7 @@ const BRIDGE_SCRIPT = String.raw`
     var b = document.createElement('button');
     b.type = 'button';
     b.setAttribute('data-mt-work', '1');
-    b.innerHTML = '<span style="font-size:.95rem;line-height:1">\u270D\uFE0F</span><span>Spațiu de lucru</span>';
+    b.innerHTML = '<span style="font-size:.95rem;line-height:1">\u270D\uFE0F</span><span>Foaie de lucru</span>';
     b.style.cssText = WORK_CSS;
     b.title = 'Scrie rezolvarea cu degetul sau cu creionul pe o foaie albă — profesorul virtual o corectează după rezolvarea oficială';
     b.addEventListener('click', function(ev){

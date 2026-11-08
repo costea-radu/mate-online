@@ -97,14 +97,14 @@ export default function PDFViewer() {
   // strat transparent; „✅ Corectează" la final (src/components/RezolvarePdf.jsx)
   const [solveOn, setSolveOn] = useState(false);
   const [solveBusy, setSolveBusy] = useState(false);
-  // ✍️ Spațiul de lucru se deschide ÎN zona de conversație a profesorului
+  // ✍️ Foaia de lucru se deschide ÎN zona de conversație a profesorului
   // (butonul e în antetul panoului), nu ca fereastră peste PDF
   const [workOpen, setWorkOpen] = useState(false);
   // Lățimea panoului profesorului PE CALCULATOR: elevul o trage de marginea
   // stângă (ca înălțimea pe telefon, de bara albastră) și se ține minte;
   // „□ / ❐” trece între lățimea obișnuită și una mare (src/lib/latimePanou.js).
-  // Cât e deschis spațiul de lucru, panoul se lățește singur (vezi setWork).
-  // Lățirile AUTOMATE (pe calculator): spațiul de lucru deschis ('foaie') și
+  // Cât e deschisă foaia de lucru, panoul se lățește singur (vezi setWork).
+  // Lățirile AUTOMATE (pe calculator): foaia de lucru deschisă ('foaie') și
   // coloana cu paginile ascunsă ('pagini'). Panoul ia lățimea cea mai mare cerută
   // și revine la lățimea elevului când nicio cauză nu mai e activă — dacă între
   // timp elevul n-a ales singur alta, trăgând de margine (atunci rămâne a lui).
@@ -249,7 +249,7 @@ export default function PDFViewer() {
   }
 
   // ── „📋 Barem": baremul asociat se deschide ÎN LOCUL subiectelor ────────────
-  // Butonul din bară (unde era „✍️ Spațiu de lucru", mutat acum în antetul
+  // Butonul din bară (unde era „✍️ Spațiu de lucru" — acum „✍️ Foaie de lucru" —, mutat în antetul
   // Profesorului Virtual). Baremul separat se descarcă o dată (get-file-url —
   // aceleași reguli de acces ca la orice PDF) și se arată în același
   // vizualizator, cu profesorul alături; un nou clic → înapoi la subiecte.
@@ -285,6 +285,9 @@ export default function PDFViewer() {
   const isEnPdf = item?.category === 'evaluare-nationala' && !isBaremItem && baremStatus !== 'este_barem';
   const canSolve = isEnPdf && !modTest && !examHtml && !!pdfData;
   const solveActive = solveOn && canSolve;
+  // La BAC și la celelalte PDF-uri (și la testele de EN din testul pe grupă / duel),
+  // „✏️ Rezolvă" deschide FOAIA DE LUCRU din panoul profesorului (8 nov. 2026)
+  const rezolvaFoaie = !canSolve && (!!pdfData || !!examHtml) && !isBaremItem && baremStatus !== 'este_barem';
   const inkKey = isLib ? (lib?.id ? `lib:${lib.id}` : null) : (item?.id || null);
   const solve = useRezolvarePdf({ on: solveActive, data: pdfData, draftKey: inkKey });
   useEffect(() => {
@@ -365,13 +368,24 @@ export default function PDFViewer() {
     }
   }
 
-  // ✍️ Spațiul de lucru (în zona de conversație). Pe desktop, panoul se lățește
+  // ✍️ Foaia de lucru (în zona de conversație). Pe desktop, panoul se lățește
   // cât e deschis (o foaie de 400 px e prea îngustă) și revine la închidere —
   // dacă între timp elevul n-a ales singur altă lățime, trăgând de margine.
   function setWork(next) {
     if (next === workOpen) return;
     if (!narrow) autoWiden('foaie', next ? lat.wideW : null);
     setWorkOpen(next);
+  }
+
+  // ✏️ „Rezolvă" pe un PDF care nu e test de EN: foaia de lucru, în panoul profesorului
+  function toggleFoaia() {
+    if (tutorOpen && workOpen) { setWork(false); return; }
+    if (!user) {
+      setNote({ text: 'Autentifică-te ca să rezolvi pe foaia de lucru.', link: { to: '/autentificare', label: 'Autentificare' } });
+      return;
+    }
+    setTutorOpen(true);
+    setWork(true);
   }
 
   // ✏️ Pornește / oprește rezolvarea pe PDF (scrisul rămâne în ciorna locală)
@@ -398,9 +412,18 @@ export default function PDFViewer() {
       setNote({ text: 'Încercuiește răspunsurile sau scrie rezolvarea pe PDF, apoi apasă „✅ Corectează".' });
       return;
     }
+    // Corectarea e Premium; fără abonament: 2 corectări gratuite ale GRILEI (după barem,
+    // fără AI — le numără serverul), apoi îndemnul spre Premium
     const premium = isPremium || isAdmin;
+    const laPremium = { to: '/preturi', label: 'Vezi abonamentele' };
     if (!req.harta && !premium) {
-      setNote({ text: 'La acest PDF rezolvarea o citește profesorul virtual — corectarea face parte din abonamentul Premium.', link: { to: '/preturi', label: 'Vezi abonamentele' } });
+      setNote({ text: 'La acest PDF rezolvarea o citește profesorul virtual — corectarea face parte din abonamentul Premium.', link: laPremium });
+      return;
+    }
+    if (!premium && !req.grile.length) {
+      setNote(req.nerecunoscute.length
+        ? { text: 'N-am văzut nicio literă încercuită clar la grile — încercuiește litera răspunsului ales (ca să schimbi, taie-o și încercuiește alta).' }
+        : { text: 'Corectarea scrisului de mână de la Subiectul al III-lea face parte din abonamentul Premium.', link: laPremium });
       return;
     }
     setSolveBusy(true);
@@ -427,15 +450,23 @@ export default function PDFViewer() {
       });
       if (h) h.done(r.text, { conversationId: r.conversationId, messageId: r.messageId });
       solve.keepResult(r, req.sigs);
-      if (r.premiumNeeded) {
-        setNote({ text: 'Grilele sunt corectate. Scrisul de la Subiectul al III-lea îl corectează profesorul virtual cu Premium.', link: { to: '/preturi', label: 'Vezi abonamentele' } });
+      if (r.gratuite) {
+        setNote({
+          text: r.gratuite.ramase > 0
+            ? `🎁 Corectare gratuită a grilei: ${r.gratuite.folosite} din ${r.gratuite.total} — ți-a mai rămas ${r.gratuite.ramase === 1 ? 'una' : r.gratuite.ramase}.${r.premiumNeeded ? ' Subiectul al III-lea îl corectează profesorul virtual cu Premium.' : ''}`
+            : '🎁 Aceasta a fost ultima corectare gratuită a grilei. De acum, corectarea de pe PDF face parte din abonamentul Premium.',
+          link: laPremium,
+        });
+      } else if (r.premiumNeeded) {
+        setNote({ text: 'Grilele sunt corectate. Scrisul de la Subiectul al III-lea îl corectează profesorul virtual cu Premium.', link: laPremium });
       } else if (req.outside) {
         setNote({ text: 'Unele trasee sunt în afara exercițiilor (antet, margini) — nu le-am corectat.' });
       }
     } catch (e) {
-      if (h) h.fail(e.message);
+      if (h) h.fail(e.message, { premium: !!e.premium, banner: e.gratuite ? '🔒 Ai folosit corectările gratuite ale grilei.' : null });
+      if (e.gratuite) solve.markGratuite(e.gratuite);
       setNote(e.premium
-        ? { text: e.message, link: { to: '/preturi', label: 'Vezi abonamentele' } }
+        ? { text: e.message, link: laPremium }
         : { text: e.message || 'Corectarea nu a reușit. Mai încearcă o dată.' });
     } finally {
       setSolveBusy(false);
@@ -759,7 +790,7 @@ export default function PDFViewer() {
     </button>
   );
 
-  // ── „📋 Barem" în bară — locul fostului „✍️ Spațiu de lucru" ──────────────
+  // ── „📋 Barem" în bară — locul fostului „✍️ Spațiu de lucru" (azi „Foaie de lucru") ──────────────
   const baremLoading = baremView.status === 'loading';
   const baremBtn = showBaremBtn && (
     <button
@@ -786,26 +817,38 @@ export default function PDFViewer() {
     </button>
   );
   // ── „✏️ Rezolvă pe PDF" (testele de Evaluare Națională) ──────────────────
-  const solveBtn = canSolve && (
+  // (pulsează cât nu e pornit — 8 nov. 2026: „fă butonul «rezolvă» pulsatil ca să
+  // atragă atenția"; animația: .em-pulse din src/styles/global.css). La testele de EN
+  // pornește rezolvarea PE PDF; la BAC și la celelalte PDF-uri deschide foaia de lucru.
+  const foaieActiva = tutorOpen && workOpen;
+  const rezolvaActiv = canSolve ? solveActive : foaieActiva;
+  const solveBtn = (canSolve || rezolvaFoaie) && (
     <button
-      onClick={toggleSolve}
-      aria-pressed={solveActive}
-      title={solveActive
-        ? 'Închide rezolvarea pe PDF (ce ai scris rămâne salvat pe acest dispozitiv)'
-        : 'Rezolvă testul direct pe PDF: încercuiește litera la grile și scrie rezolvarea la Subiectul al III-lea; la final „✅ Corectează"'}
+      onClick={canSolve ? toggleSolve : toggleFoaia}
+      aria-pressed={rezolvaActiv}
+      className={rezolvaActiv ? undefined : 'em-pulse'}
+      title={canSolve
+        ? (solveActive
+          ? 'Închide rezolvarea pe PDF (ce ai scris rămâne salvat pe acest dispozitiv)'
+          : 'Rezolvă testul direct pe PDF: încercuiește litera la grile și scrie rezolvarea la Subiectul al III-lea; la final „✅ Corectează"')
+        : (foaieActiva
+          ? 'Închide foaia de lucru'
+          : 'Rezolvă pe foaia de lucru: scrii cu degetul sau cu creionul, iar profesorul virtual îți corectează rezolvarea după barem')}
       style={{
-        background: solveActive ? 'var(--gold)' : 'rgba(232,185,49,0.15)', border: '1px solid var(--gold)',
-        color: solveActive ? 'var(--navy)' : 'var(--gold)', borderRadius: tiny ? 10 : 14, padding: tiny ? '0 9px' : '4px 12px',
+        background: rezolvaActiv ? 'var(--gold)' : 'rgba(232,185,49,0.15)', border: '1px solid var(--gold)',
+        color: rezolvaActiv ? 'var(--navy)' : 'var(--gold)', borderRadius: tiny ? 10 : 14, padding: tiny ? '0 9px' : '4px 12px',
         cursor: 'pointer', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1.25,
         ...(tiny ? { height: 34, justifyContent: 'center' } : {}),
       }}
     >
       <span style={{ fontSize: '0.82rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
-        {solveActive ? '✏️ Rezolvi pe PDF' : (tiny ? '✏️ Rezolvă' : '✏️ Rezolvă pe PDF')}
+        {canSolve
+          ? (solveActive ? '✏️ Rezolvi pe PDF' : (tiny ? '✏️ Rezolvă' : '✏️ Rezolvă pe PDF'))
+          : (foaieActiva ? '✏️ Foaia de lucru' : '✏️ Rezolvă')}
       </span>
       {!tiny && (
         <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.85, whiteSpace: 'nowrap' }}>
-          {solveActive ? 'apasă ca să închizi' : 'încercuiește și scrie pe test'}
+          {rezolvaActiv ? 'apasă ca să închizi' : (canSolve ? 'încercuiește și scrie pe test' : 'pe foaia de lucru')}
         </span>
       )}
     </button>
@@ -813,7 +856,7 @@ export default function PDFViewer() {
   // stratul de scris, uneltele (în bara de zoom) și „✅ Corectează" de după ultima pagină
   const solveProps = solveActive ? {
     overlay: solve.overlay,
-    toolbar: rezolvareToolbar({ solve, compact: narrow, busy: solveBusy, onCorect: corecteazaPePdf, onClose: toggleSolve, onDownload: descarcaPdfRezolvat }),
+    toolbar: rezolvareToolbar({ solve, compact: narrow, busy: solveBusy, onCorect: corecteazaPePdf, onClose: toggleSolve, onDownload: descarcaPdfRezolvat, premium: isPremium || isAdmin }),
     footer: <RezolvareFooter solve={solve} busy={solveBusy} onCorect={corecteazaPePdf} premium={isPremium || isAdmin} />,
   } : {};
   const badgeJsx = !tiny && <span style={badge} title={isLib ? 'Material din Biblioteca utilizatorilor' : undefined}>{isLib ? '🏛️ ' : ''}{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>;
@@ -1007,7 +1050,7 @@ export default function PDFViewer() {
         {/* Butoanele din antet nu pornesc tragerea panoului (pe telefon antetul e
             mânerul): fără stopPropagation, captura pointerului lua clicul butonului */}
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }} onPointerDown={(e) => e.stopPropagation()}>
-          {/* ✍️ SPAȚIUL DE LUCRU — se deschide chiar aici, în zona de conversație
+          {/* ✍️ FOAIA DE LUCRU — se deschide chiar aici, în zona de conversație
               (foaie goală, ca zona conversației, fără linii). Rămâne și în test:
               e ciorna elevului, nu ajutor de la AI. */}
           {user && (
@@ -1019,7 +1062,7 @@ export default function PDFViewer() {
                 color: workOpen ? 'var(--navy)' : 'var(--gold)', borderRadius: 14, padding: '3px 11px',
                 cursor: 'pointer', fontSize: '.78rem', fontWeight: 700, whiteSpace: 'nowrap', lineHeight: 1.3,
               }}>
-              {workOpen ? '💬 Conversația' : '✍️ Spațiu de lucru'}
+              {workOpen ? '💬 Conversația' : '✍️ Foaie de lucru'}
             </button>
           )}
           {/* Mărire/micșorare fereastră — doar pe desktop (pe mobil se trage de bară) */}

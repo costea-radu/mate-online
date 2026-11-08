@@ -543,7 +543,7 @@ async function grade(req, res, supa, userId, lim, profile) {
   const photos = (Array.isArray(images) ? images : []).filter((u) => typeof u === 'string' && /^data:image\/(jpeg|png|webp);base64,/.test(u) && u.length <= 2_200_000).slice(0, 3);
 
   // 0) CORECTAREA DUPĂ POZE (rezolvarea scrisă de mână, fotografiată sau din
-  //    „✍️ Spațiu de lucru") face parte din abonamentul Premium: o citește și o
+  //    „✍️ Foaie de lucru") face parte din abonamentul Premium: o citește și o
   //    punctează corectorul competent (api/_lib/corector.js), nu modelul de chat.
   //    Răspunsurile TASTATE rămân ca până acum (și în acțiunile gratuite).
   if (photos.length && !ai.isPremium(profile)) {

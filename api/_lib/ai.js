@@ -266,10 +266,10 @@ const FEATURE_QUOTAS = {
   teste:       { endpoint: 'ai-exam',                 label: 'Subiecte de examen generate',   emoji: '📄', window: 'month' },
   interactive: { endpoint: 'ai-generate-interactive', label: 'Exerciții interactive generate', emoji: '🧩', window: 'month' },
   foto:        { endpoint: 'ai-vision',               label: 'Foto-rezolvări',                emoji: '📷', window: 'day' },
-  // „🎓 Cere corectarea" din „✍️ Spațiu de lucru" (api/ai-handwriting.js): un model
+  // „🎓 Cere corectarea" de pe „✍️ Foaia de lucru" (api/ai-handwriting.js): un model
   // competent citește scrisul de mână și îl corectează după barem — cotă ZILNICĂ
   // proprie, ca foto (nu consumă din pool-ul lunar al corectărilor de teste)
-  scris:       { endpoint: 'ai-handwriting:correct',  label: 'Corectări din spațiul de lucru', emoji: '✍️', window: 'day' },
+  scris:       { endpoint: 'ai-handwriting:correct',  label: 'Corectări de pe foaia de lucru', emoji: '✍️', window: 'day' },
 };
 
 // Limitele implicite PER ROL (0 = cota funcției e dezactivată pentru acel rol).
@@ -1127,10 +1127,16 @@ function premiumError(msg) {
 function requirePremium(profile) {
   if (!isPremium(profile)) throw premiumError();
 }
+// Rândurile din ai_usage care NU sunt cereri AI: „voce" (frazele rostite de Prof.
+// Tudor) și „rezolva-pdf:grila" (corectarea GRATUITĂ a grilei de pe PDF — după
+// barem, fără AI; api/rezolva-pdf.js le numără pe ale lui). Nu intră nici în
+// acțiunile AI gratuite, nici în limita orară.
+const NU_E_CERERE_AI = ['voce', 'rezolva-pdf:grila'];
+const faraNonAi = (q) => NU_E_CERERE_AI.reduce((acc, ep) => acc.neq('endpoint', ep), q);
 // Utilizatorii fără abonament au voie la un număr limitat de acțiuni AI (default 1).
 async function enforceFreeQuota(supa, profile) {
   if (isPremium(profile)) return;
-  const { count } = await supa.from('ai_usage').select('*', { count: 'exact', head: true }).eq('user_id', profile.id).neq('endpoint', 'voce');
+  const { count } = await faraNonAi(supa.from('ai_usage').select('*', { count: 'exact', head: true }).eq('user_id', profile.id));
   if ((count || 0) >= FREE_ACTIONS) {
     throw premiumError(`Ai folosit cele ${FREE_ACTIONS} acțiuni gratuite cu Profesorul Virtual. Abonează-te pentru acces nelimitat (explicații, exerciții, foto-rezolvare, voce și teste de examen).`);
   }
@@ -1150,8 +1156,8 @@ async function enforceRateLimit(supa, userId, profile = null, { budgets = true }
   const since = new Date(Date.now() - 3600 * 1000).toISOString();
   // „voce" = frazele rostite de Prof. Tudor cu vocea generată (api/live.js → voce):
   // nu sunt cereri AI — nu intră în limita orară (costul lor intră în credite)
-  const { count } = await supa.from('ai_usage').select('*', { count: 'exact', head: true })
-    .eq('user_id', userId).neq('endpoint', 'voce').gte('created_at', since);
+  const { count } = await faraNonAi(supa.from('ai_usage').select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)).gte('created_at', since);
   if ((count || 0) >= RATE_PER_HOUR) {
     const e = new Error(`Ai atins limita de ${RATE_PER_HOUR} cereri AI pe oră. Încearcă din nou mai târziu.`);
     e.status = 429; e.code = 'RATE_HOUR'; throw e;
@@ -2465,6 +2471,7 @@ module.exports = {
   levelLabel, interactiveCatalog, studentState, meditatiiMemory, meditatiiBoardRules,
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, enforceBudgets, logUsage, signToken, verifyToken, sha256,
+  NU_E_CERERE_AI,
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS, PDF_MODEL, GEN_MODEL,
   TUTOR_MODEL, TUTOR_MODES, REASONING_EFFORT, chatModelFor, isNewGenModel, pdfPageAttachments, refFromConversation,
   runToolCall, TOOL_ROUNDS,

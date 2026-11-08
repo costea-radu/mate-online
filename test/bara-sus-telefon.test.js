@@ -105,7 +105,7 @@ test('vizualizatoarele folosesc bara „sigură": testele interactive, PDF-urile
   assert.match(iv, /gap: 5, \.\.\.paddingBara\(6, 8\), background: 'var\(--navy\)'/, 'bara de pe telefon');
   assert.match(iv, /\.\.\.paddingBara\(10, 20\), background: 'var\(--navy\)'/, 'bara de pe calculator');
   // bara testelor interactive pe telefon: aceleași pictograme (cererea din 4 nov.)
-  for (const label of ['Înapoi', 'Spațiu de lucru', 'Resetează testul', 'Toate exercițiile']) assert.ok(iv.includes(`aria-label="${label}"`), label);
+  for (const label of ['Înapoi', 'Foaie de lucru', 'Resetează testul', 'Toate exercițiile']) assert.ok(iv.includes(`aria-label="${label}"`), label);
 
   const pdf = read('src/pages/PDFViewer.jsx');
   assert.match(pdf, /\n  useBaraSusVizibila\(\);\n/);

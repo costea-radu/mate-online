@@ -5,19 +5,32 @@ se rezolve **direct pe PDF, prin încercuire**, iar la Subiectul al III-lea elev
 de rezolvare** — „un spațiu de lucru, dar invizibil", cu **recunoașterea exercițiului rezolvat** și
 **corectare**; pornit cu **„Rezolvă pe PDF"**, cu **„Corectează"** la final; **PDF-ul rămâne PDF**.
 
+**Runda a 2-a (8 nov. 2026):** corectarea — **doar cu Premium**, dar fără abonament elevul are **2 corectări
+gratuite ale grilei, după barem** (fără AI), apoi îndemnul spre Premium; la grilă se poate **tăia** o variantă și
+încercui alta, ori tăia și noua variantă și **reveni** la cea tăiată (litera scrisă lângă ea, încercuită);
+butonul **„✏️ Rezolvă" pulsează**; „Spațiul de lucru" se numește acum **„Foaie de lucru"**; la **BAC și la
+celelalte PDF-uri**, „✏️ Rezolvă" deschide **foaia de lucru**. Subiectul al III-lea — cu AI (Claude Opus 5.5),
+după barem, Premium.
+
 ---
 
 ## Ce vede elevul
 
 1. Deschide un test PDF de EN (variantă, model, simulare — nu baremele) și apasă **„✏️ Rezolvă pe PDF"**
-   în bara de sus (pe telefon: „✏️ Rezolvă").
+   în bara de sus (pe telefon: „✏️ Rezolvă"). Butonul **pulsează** (un inel auriu) cât modul nu e pornit;
+   cu „reducerea animațiilor" din sistem rămâne doar inelul, fix.
 2. Peste pagini apare un **strat transparent de scris**. PDF-ul arată la fel; în bara de zoom apar uneltele:
    `✎ Scrie` · `◯ Radieră` · `✋ Derulează` · 3 culori (pix albastru, negru, roșu) · `↩` (și Ctrl+Z) · `🗑` ·
    `⬇ PDF` · **`✅ Corectează`** · `✕`.
 3. **Grile (Subiectele I și II):** încercuiește litera (sau varianta). În marginea din stânga a exercițiului
    apare pe loc ce s-a recunoscut: `b)` · `⚠ a b` (două variante încercuite) · `?` (nicio variantă clară).
-   Merge și cercul lăsat puțin deschis, cercul în jurul valorii, spirala, o bifă mică pe literă.
-   Calculele scrise lângă variante nu contează.
+   Merge și cercul lăsat puțin deschis, cercul în jurul valorii, spirala. Bifa nu mai alege o variantă
+   (regula foii de examen: se încercuiește). Calculele scrise lângă variante nu contează.
+   **Răzgândirea, ca pe foaia de examen** (8 nov. 2026):
+   - **a)** tai varianta încercuită (o linie peste literă și valoare) și încercuiești alta → contează cea nouă;
+   - **b)** tai și noua variantă, iar **lângă varianta tăiată** pe care o vrei înapoi scrii litera ei și o
+     **încercuiești** → contează aceea (la corectare: „revenire").
+   Radiera și „↩" merg în continuare.
 4. **Subiectul al III-lea:** scrie rezolvarea în spațiul de sub fiecare problemă — pe margine apare `✍️`.
 5. La final, **„✅ Corectează"** (în bară sau în caseta „Ai terminat?" de după ultima pagină):
    - pe PDF: `✔ 5p` / `✖ 0p` / `? 0p` la grile, `3/5p` la probleme și `2/2p`, `1/3p` lângă a) și b);
@@ -27,7 +40,7 @@ de rezolvare** — „un spațiu de lucru, dar invizibil", cu **recunoașterea e
 6. Schimbă ceva la un exercițiu (radieră, alt cerc) → marcajul corectării lui dispare până la o nouă corectare.
 
 **PDF-ul rămâne PDF:** zoom (butoane, două degete), „⤢ Pagina întreagă", 📋 Barem, ⬛ Original / ⬜ Fără
-suprafață neagră, Profesorul Virtual, spațiul de lucru din chat — toate merg și cât e pornit modul.
+suprafață neagră, Profesorul Virtual, foaia de lucru din chat — toate merg și cât e pornit modul.
 **„⬇ PDF"** descarcă același PDF (text, pagini) cu scrisul elevului desenat vectorial peste el.
 Ce s-a scris rămâne pe dispozitiv (ciornă locală, `pdfink:<id>`) și reapare la redeschiderea modului.
 
@@ -58,17 +71,29 @@ Textul fără niciun pixel sub el (alb lipit peste, decupat) nu intră în hart�
 
 ## Corectarea (`api/rezolva-pdf.js`, `api/_lib/pdfRezolvare.js`)
 
-| Ce | Cum | Abonament |
-|---|---|---|
-| **Grile recunoscute** | litera elevului ↔ tabelul **baremului** de pe server (`barem.grilaAnswers`): 5p sau 0p; două variante = 0p | **gratuit** (fără AI) |
-| Grile fără variantă clară | 0p, cu motivul („încercuiește litera") — nu se trimit la AI | gratuit |
-| **Scrisul de mână** (Subiectul III; orice item la care nu s-au găsit variantele în text) | imaginea zonei din pagină **cu scrisul pe ea** (enunțul tipărit + rezolvarea; ≤ 6 imagini, ≤ 1568 px) → corectorul (`corector.correctJson`, implicit **Claude Opus 5.5**, rezerva Terra), strict după barem: a) / b) cu punctele lor, problema ≤ 5p | **Premium** |
-| Grile la care baremul nu dă litera | le rezolvă corectorul (din textul testului) | Premium |
+Un singur buton, **„✅ Corectează"**, care merge **cu Premium**; fără abonament: **2 corectări gratuite ale
+grilei** (după barem, fără AI), apoi îndemnul spre Premium (8 nov. 2026).
 
-- Fără Premium: grilele se corectează, iar problemele scrise rămân `⭐` („se corectează cu Premium") —
-  browserul nici nu trimite imaginile.
-- Cota: aceeași ca „🎓 Cere corectarea" — **„✍️ Corectări din spațiul de lucru"** (elev 20/zi), plus limita
-  orară și creditele (`ai-handwriting:correct`). Grilele singure nu consumă nimic.
+| Ce | Cum | Cu Premium | Fără abonament |
+|---|---|---|---|
+| **Grile recunoscute** | litera elevului ↔ tabelul **baremului** de pe server (`barem.grilaAnswers`): 5p sau 0p; două variante = 0p; tăiată = nealeasă; „revenire" = litera încercuită lângă varianta tăiată | da (fără AI) | **de 2 ori** (gratuit, fără AI) |
+| Grile fără variantă clară | 0p, cu motivul („încercuiește litera") — nu se trimit la AI | da | odată cu grila |
+| **Scrisul de mână** (Subiectul III; orice item la care nu s-au găsit variantele în text) | imaginea zonei din pagină **cu scrisul pe ea** (enunțul tipărit + rezolvarea; ≤ 6 imagini, ≤ 1568 px) → corectorul (`corector.correctJson`, implicit **Claude Opus 5.5**, rezerva Terra), strict după barem: a) / b) cu punctele lor, problema ≤ 5p | da | `⭐` („se corectează cu Premium") — browserul nici nu trimite imaginile |
+| Grile la care baremul nu dă litera | le rezolvă corectorul (din textul testului) | da | ⭐ |
+
+- **Corectările gratuite ale grilei** (`api/rezolva-pdf.js`): numărate în `ai_usage`, la `endpoint =
+  'rezolva-pdf:grila'` (un rând pe corectare reușită, cost 0). Câte sunt: variabila **`PDF_GRILA_GRATUITE`**
+  (opțională, implicit **2**). **Nu** intră în cele 2 acțiuni AI gratuite și nici în limita orară
+  (`api/_lib/ai.js` → `NU_E_CERERE_AI`). Ca toate rândurile din `ai_usage`, se șterg după 90 de zile — aceeași
+  regulă ca la încercările gratuite cu AI-ul.
+- Mesajele: după prima — „🎁 Corectare gratuită a grilei: 1 din 2 — ți-a mai rămas una"; după a doua — „🎁
+  Aceasta a fost ultima corectare gratuită a grilei…"; apoi **402** „Ai folosit cele 2 corectări gratuite ale
+  grilei…" — în conversație (`⭐ …`), în banda de sus a profesorului („🔒 Ai folosit corectările gratuite ale
+  grilei. · Abonează-te →"), în nota de sub bară și în caseta „Ai terminat?" (`✅ Corectează ⭐`, „⭐ Vezi
+  abonamentele"). Elevul fără abonament care a scris doar la Subiectul III primește direct îndemnul spre Premium
+  (fără să se consume nimic); cel care n-a încercuit clar nicio grilă — „încercuiește litera…".
+- Cota scrisului (Premium): aceeași ca „🎓 Cere corectarea" — **„✍️ Corectări de pe foaia de lucru"** (elev
+  20/zi), plus limita orară și creditele (`ai-handwriting:correct`). Grilele nu consumă nimic din ele.
 - Oprit în timpul unui **test pe grupă** (423), ca orice ajutor. În testul pe grupă / duel butonul nici nu apare
   (acolo răspunsurile pleacă la profesor cu „📝 Răspunde la test").
 - **Salvarea în „Rezultatele mele"** (`progress`, ca la „📝 Răspunde în chat", cu XP / ligă / turnee): doar
@@ -86,14 +111,17 @@ Textul fără niciun pixel sub el (alb lipit peste, decupat) nu intră în hart�
 | `src/lib/pdfRezolvare.js` | harta (`buildExamMap`, `richLines`, `overlappingText`, `visibleIn`), recunoașterea (`recognize`, `recognizeChoice`, `correctionPlan`), imaginile (`cropPlan`, `renderCrop`), ciorna (`encodeInk`/`decodeInk`), „⬇ PDF" (`exportInkPdf`, pdf-lib) |
 | `src/components/RezolvarePdf.jsx` | traseele (`createInkStore`), stratul unei pagini (`InkPage`), marcajele (`computeMarks`), controlerul (`useRezolvarePdf`), uneltele și caseta „Ai terminat?" |
 | `src/components/PdfCanvasViewer.jsx` | `overlay` (portal în fiecare pagină), `toolbar`, `footer`; la „lățimea paginii" nu mai redesenează paginile când se schimbă doar înălțimea |
-| `src/pages/PDFViewer.jsx` | butonul, modul (forțează vizualizatorul site-ului), `corecteazaPePdf`, legătura cu chatul (`cmdRef`) |
-| `src/components/AITutor.jsx` | `cmdRef.beginExternal` / `conversationId` — corectarea apare în conversația curentă |
+| `src/pages/PDFViewer.jsx` | butonul (pulsează; la EN → modul, la BAC / alte PDF-uri → foaia de lucru: `toggleFoaia`), modul (forțează vizualizatorul site-ului), `corecteazaPePdf` (Premium / corectările gratuite), legătura cu chatul (`cmdRef`) |
+| `src/components/AITutor.jsx` | `cmdRef.beginExternal` / `conversationId` — corectarea apare în conversația curentă; `fail(text, { premium, banner })` |
+| `src/styles/global.css` | `.em-pulse` / `@keyframes emPulse` (fără mișcare la `prefers-reduced-motion`) |
 | `src/lib/pdfCombine.js` | `pageLinesFromItems`, `contentBoundsOf`, `examStructureOf`, `loadPdfLib` (exportate, aceeași logică) |
-| `api/rezolva-pdf.js`, `api/_lib/pdfRezolvare.js` | endpointul și partea pură (curățarea cererii, grilele, promptul + schema corectorului, totalul, mesajul) |
+| `api/rezolva-pdf.js`, `api/_lib/pdfRezolvare.js` | endpointul (Premium / `PDF_GRILA_GRATUITE`) și partea pură (curățarea cererii, grilele, promptul + schema corectorului, totalul, mesajul) |
+| `api/_lib/ai.js` | `NU_E_CERERE_AI` — „voce" și „rezolva-pdf:grila" nu sunt cereri AI (nici în acțiunile gratuite, nici în limita orară) |
 | `api/ai-correct.js` | exportă `saveProgress`, `saveUploadResult` |
-| `test/rezolva-pe-pdf.test.js` | 15 teste (harta, recunoașterea, ciorna, grilele, corectorul, endpointul, legăturile) |
+| `test/rezolva-pe-pdf.test.js` | 21 de teste (harta, recunoașterea — și tăieturile / revenirea —, ciorna, grilele, corectorul, endpointul cu Premium și cu corectările gratuite, legăturile, butonul pulsant, foaia de lucru la BAC) |
 
-Nimic nou în Supabase (fără SQL), nicio variabilă nouă.
+Nimic nou în Supabase (fără SQL: corectările gratuite stau în `ai_usage`, care există). O variabilă
+**opțională**: `PDF_GRILA_GRATUITE` (câte corectări gratuite ale grilei; implicit 2).
 
 ---
 
@@ -103,6 +131,8 @@ Nimic nou în Supabase (fără SQL), nicio variabilă nouă.
 |---|---|
 | PDF fără text / scanat / combinat / structură necunoscută | „Nu am recunoscut structura…" — se scrie la fel; corectarea: paginile întregi la corector (Premium) |
 | Elev neautentificat apasă „Corectează" | „Autentifică-te…" (scrisul rămâne) |
+| Fără abonament, după cele 2 corectări gratuite ale grilei | 402 + îndemnul spre Premium (conversație, banda de sus, nota, caseta de la final); scrisul rămâne |
+| Fără abonament, scris doar la Subiectul III | îndemnul spre Premium, fără cerere la server |
 | Nimic scris | „Încercuiește răspunsurile sau scrie rezolvarea pe PDF…" |
 | Scris în antet / pe copertă | ignorat, cu mesaj |
 | Corectorul cade | grilele rămân corectate; problemele „necorectate" + „mai apasă o dată" (nu se salvează) |
@@ -111,3 +141,14 @@ Nimic nou în Supabase (fără SQL), nicio variabilă nouă.
 **De văzut pe testele reale de pe site:** recunoașterea a fost verificată pe subiecte EN sintetice (aspectul
 oficial: variante pe coloană, pe rând, 2×2, Subiectul III cu `(2p) a)` / `(3p) b)`, test combinat), nu pe
 PDF-urile de pe site. Dacă la un test literele nu se recunosc (eticheta `?` la un cerc clar), trimite-mi PDF-ul.
+
+---
+
+## La BAC și la celelalte PDF-uri: „✏️ Rezolvă" → foaia de lucru (8 nov. 2026)
+
+La orice PDF care nu e test de Evaluare Națională (BAC, capitole, fișe, manuale, Biblioteca utilizatorilor — nu
+baremele), și la testele de EN din testul pe grupă / duel, același buton **„✏️ Rezolvă"** (pulsant) deschide
+**foaia de lucru** în panoul Profesorului Virtual (pe calculator panoul se lățește). Apăsat din nou („✏️ Foaia
+de lucru · apasă ca să închizi") — închide foaia și revine la conversație. Neautentificat: „Autentifică-te…".
+Corectarea de pe foaie e cea de până acum: **„🎓 Cere corectarea"** — testul și baremul citite de pe server,
+corectorul (Claude Opus 5.5) strict după barem, **Premium**. În testul pe grupă / duel foaia rămâne doar ciornă.

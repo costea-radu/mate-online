@@ -1930,3 +1930,19 @@ body.sidebar-deschis .app-shell { padding-left: var(--sidebar-w); }
 /* câmpul de scris, evidențiat: e locul din care elevul conduce meditația */
 .bdchat-composer input[type="text"], .bdchat-composer input:not([type]) { background: #fffdf5; }
 .med-section { margin-top: 20px; }
+
+/* ===== „✏️ Rezolvă" în bara PDF-ului — pulsează ca să atragă atenția (8 nov. 2026) =====
+   Un inel auriu care se lărgește și se stinge, cât timp modul nu e pornit
+   (src/pages/PDFViewer.jsx → className="em-pulse"). Fără mișcare la
+   „prefers-reduced-motion": rămâne doar inelul fix. */
+@keyframes emPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(232,185,49,0.75); transform: scale(1); }
+  50%  { transform: scale(1.045); }
+  70%  { box-shadow: 0 0 0 10px rgba(232,185,49,0); }
+  100% { box-shadow: 0 0 0 0 rgba(232,185,49,0); transform: scale(1); }
+}
+.em-pulse { animation: emPulse 1.7s ease-out infinite; }
+.em-pulse:hover, .em-pulse:focus-visible { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .em-pulse { animation: none; box-shadow: 0 0 0 3px rgba(232,185,49,0.55); }
+}

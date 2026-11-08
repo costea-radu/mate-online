@@ -1,5 +1,5 @@
 // =====================================================================
-// src/lib/fereastra.js — geometria ferestrei „✍️ Spațiu de lucru" (fără React;
+// src/lib/fereastra.js — geometria ferestrei „✍️ Foaie de lucru" (fără React;
 // testată în test/fereastra-spatiu-lucru.test.js)
 //
 // Fereastra se mută și se redimensionează ca widgetul Profesorului Virtual:

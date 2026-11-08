@@ -1,6 +1,6 @@
 // =====================================================================
 // api/_lib/corector.js — CORECTORUL pe scris de mână
-//   · „🎓 Cere corectarea" din „✍️ Spațiu de lucru" (api/ai-handwriting.js)
+//   · „🎓 Cere corectarea" de pe „✍️ Foaia de lucru" (api/ai-handwriting.js)
 //   · pozele cu rezolvarea din „📝 Răspunde în chat" (api/ai-correct.js → grade)
 //
 // Citește scrisul ȘI îl corectează într-un singur apel, cu un model de vedere
@@ -128,7 +128,7 @@ async function correctJson({ system, text, images, labels = null, schema, schema
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// CORECTAREA DIN „✍️ SPAȚIU DE LUCRU"
+// CORECTAREA DE PE „✍️ FOAIA DE LUCRU"
 // ═════════════════════════════════════════════════════════════════════════
 const VERDICT_ITEM = ['corect', 'partial', 'gresit', 'necompletat'];
 const VERDICT_PAS = ['corect', 'gresit', 'incomplet', 'neclar'];

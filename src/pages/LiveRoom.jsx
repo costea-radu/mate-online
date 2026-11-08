@@ -10,7 +10,7 @@
 //      dreapta tablei. Pe telefon (nu încap citibil deodată) butonul
 //      „✎ Explicația / 📝 Exercițiul" (sau o glisare) mută camera între ele;
 //      banda cu participanții, chatul, lista de participanți, subtitrările,
-//      reacțiile, mâna ridicată, caietul (Spațiul de lucru), ecranul complet
+//      reacțiile, mâna ridicată, caietul (Foaia de lucru), ecranul complet
 //      (pe telefon: sus, în dreapta), „Părăsește";
 //   3. întrebările profesorului (grilă / de completat) și „Ai înțeles?" (1-la-1) —
 //      la Subiectele II și III și pe PAȘII din barem: explicația se oprește înaintea

@@ -11,7 +11,7 @@
 //   · SCRISUL DE MÂNĂ (Subiectul al III-lea, și orice item la care nu s-au găsit
 //     variantele în text) — imaginile zonelor din pagină, cu scrisul pe ele, merg
 //     la corectorul de scris de mână (corector.correctJson: implicit Claude Opus
-//     5.5), strict după barem. Premium, ca „🎓 Cere corectarea" din spațiul de lucru.
+//     5.5), strict după barem. Premium, ca „🎓 Cere corectarea" de pe foaia de lucru.
 // Partea pură (curățarea cererii, punctarea grilelor, normalizarea, mesajul) e
 // testată în test/rezolva-pe-pdf.test.js.
 // =====================================================================
@@ -44,7 +44,7 @@ function cleanBody(body) {
     const litere = [...new Set((Array.isArray(g.litere) ? g.litere : []).map((l) => String(l).toLowerCase()).filter((l) => LIT.includes(l)))].sort();
     if (!litere.length) continue;
     seen.add(key);
-    grile.push({ key, litere, cum: g.cum === 'semn' ? 'semn' : 'cerc' });
+    grile.push({ key, litere, cum: g.cum === 'revenire' ? 'revenire' : 'cerc' });
   }
   const nerecunoscute = [];
   for (const g of Array.isArray(b.nerecunoscute) ? b.nerecunoscute : []) {
@@ -157,7 +157,7 @@ CU BAREM — strict:
 - BAREMUL este SINGURA sursă a punctajului: acorzi punctele DOAR pentru elementele punctate în barem pe care elevul le-a atins efectiv, exact cum le împarte baremul; nu depășești punctajul maxim; intențiile și pașii nescriși nu se punctează;
 - rezultatul corect este cel din barem — nu recalcula altă valoare; formele echivalente se acceptă; o metodă corectă diferită de cea din barem primește punctajul corespunzător (regula oficială);
 - la Subiectul al III-lea fiecare problemă are subpunctele a) și b) (la Evaluarea Națională de azi: a) 2p, b) 3p): câte un element în "subpuncte" pentru FIECARE subpunct, cu punctele lui; subpunctul nerezolvat → "necompletat", 0 puncte;
-- la grile (Subiectele I și II): în "litera" pui litera încercuită de elev (sau null), iar în "subpuncte" un singur element (litera ""): 5 puncte doar dacă litera e cea din barem, altfel 0.
+- la grile (Subiectele I și II): în "litera" pui litera încercuită de elev (sau null), iar în "subpuncte" un singur element (litera ""): 5 puncte doar dacă litera e cea din barem, altfel 0. Regulile foii de examen: contează varianta încercuită și NETĂIATĂ; dacă elevul a tăiat o variantă încercuită și a încercuit alta, contează cea nouă; dacă a tăiat și varianta nouă și a scris LÂNGĂ o variantă tăiată litera ei, încercuită, contează aceasta (a revenit la ea); o variantă doar tăiată nu e aleasă; două variante valabile → null.
 FĂRĂ BAREM: rezolvă TU atent fiecare item (verifică de două ori calculele), compară pas cu pas cu ce a scris elevul; NU acorzi puncte ("puncte" și "puncte_max" = null), doar verdicte.
 
 3) CUM SCRII: la persoana a II-a, concis. Arată EXACT primul pas greșit și de ce; spune și ce a făcut bine. NU dezvălui rezultatul final corect dacă elevul a greșit și mai poate corecta singur — în "sfat" îi dai un indiciu. Baremul e pentru TINE, nu-l recita.
@@ -296,7 +296,7 @@ const ICON_PAS = { corect: '✔', gresit: '✖', incomplet: '◐', neclar: '❔'
 const fmtP = (n) => String(n).replace('.', ',');
 
 // Mesajul profesorului în conversație (Markdown ușor + $…$, ca MathText)
-function formatMessage({ items, sum, structura, title, hasBarem, feedback = '', sfat = '', nota = null, premiumNeeded = false, order = null }) {
+function formatMessage({ items, sum, structura, title, hasBarem, feedback = '', sfat = '', nota = null, premiumNeeded = false, order = null, gratuite = null }) {
   const out = [];
   const en = isEn666(structura);
   const head = sum.total
@@ -333,12 +333,19 @@ function formatMessage({ items, sum, structura, title, hasBarem, feedback = '', 
     out.push(lines.join('\n'));
   }
   if (premiumNeeded) out.push('⭐ Grilele ți le-am corectat după barem. Scrisul de mână de la Subiectul al III-lea îl citește și îl punctează profesorul virtual cu abonamentul Premium.');
+  if (gratuite) {
+    out.push(gratuite.ramase > 0
+      ? `🎁 Corectare gratuită a grilei: ${gratuite.folosite} din ${gratuite.total} — ți-a mai rămas ${gratuite.ramase === 1 ? 'una' : gratuite.ramase}. Apoi, corectarea de pe PDF face parte din abonamentul Premium.`
+      : `🎁 Aceasta a fost ultima corectare gratuită a grilei (${gratuite.folosite} din ${gratuite.total}). De acum, corectarea de pe PDF — grila și Subiectul al III-lea — face parte din abonamentul Premium.`);
+  }
   if (!hasBarem) out.push('Pentru acest test nu am barem, așa că la problemele scrise nu dau puncte — doar verific pașii.');
   if (feedback) out.push(feedback);
   if (sfat) out.push(`💡 ${sfat}`);
   out.push(sum.complete
     ? 'Rezultatul s-a salvat la „Rezultatele mele". Întreabă-mă orice despre corectare.'
-    : 'Poți corecta oricând din nou: modifică pe PDF și apasă iar „✅ Corectează". Întreabă-mă orice despre corectare.');
+    : gratuite
+      ? 'Întreabă-mă orice despre corectare.'
+      : 'Poți corecta oricând din nou: modifică pe PDF și apasă iar „✅ Corectează". Întreabă-mă orice despre corectare.');
   return out.join('\n\n');
 }
 

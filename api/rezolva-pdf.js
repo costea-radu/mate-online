@@ -7,11 +7,17 @@
 // Subiectul al III-lea. Browserul a făcut harta testului (src/lib/pdfRezolvare.js)
 // și a recunoscut variantele încercuite; aici:
 //   1. GRILELE se punctează după tabelul BAREMULUI (de pe server — ai_pdf_text),
-//      fără AI: 5p sau 0p. Merge și FĂRĂ abonament (e o comparație de litere).
+//      fără AI: 5p sau 0p.
 //   2. SCRISUL DE MÂNĂ (imaginile zonelor din pagini, cu scrisul pe ele) îl citește
 //      și îl punctează corectorul (api/_lib/corector.js — implicit Claude Opus 5.5),
-//      strict după barem. Doar PREMIUM (ca „🎓 Cere corectarea"); aceeași cotă
-//      zilnică „✍️ Corectări din spațiul de lucru" și aceleași credite.
+//      strict după barem; aceeași cotă zilnică „✍️ Corectări de pe foaia de lucru"
+//      și aceleași credite.
+//   Corectarea e o funcție PREMIUM (8 nov. 2026, cererea lui Radu: „un singur buton,
+//   care funcționează doar cu premium, dar utilizatorul are două corectări gratuite
+//   a grilei, apoi îndemnul spre Premium"). Fără abonament: GRILA se corectează
+//   gratuit de PDF_GRILA_GRATUITE ori (implicit 2) — numărate în ai_usage, sub
+//   „rezolva-pdf:grila" (nu sunt cereri AI: nu consumă acțiunile AI gratuite, nici
+//   limita orară — ai.NU_E_CERERE_AI) —, apoi 402 cu îndemnul spre Premium.
 //   3. Testul ÎNTREG, corectat complet (toate trei subiectele atinse, totul
 //      punctat), intră în `progress` — ca la „📝 Răspunde în chat": la profesor,
 //      părinte, în „Rezultatele mele"; o corectare parțială doar se arată.
@@ -22,7 +28,7 @@
 //         scris: ['3.1', …], images: [{ url, label }] (≤ 6), harta, structura:'6-6-6',
 //         durationSec, thumb? }
 // Răspuns: { items, score, total, nota, complete, pending, premiumNeeded, saved,
-//            conversationId, messageId, text, aiError }
+//            conversationId, messageId, text, aiError, gratuite: { folosite, total, ramase } | null }
 // =====================================================================
 const ai = require('./_lib/ai');
 const B = require('./_lib/barem');
@@ -36,6 +42,12 @@ const turneu = require('./_lib/turneu');
 const pdfContext = require('./ai-pdf-context');
 const correct = require('./ai-correct');          // saveProgress / saveUploadResult
 const aiPublic = require('./ai-public');           // recordPublicResult (Biblioteca utilizatorilor)
+
+// corectările GRATUITE ale grilei, pentru un cont fără abonament (apoi: Premium)
+const GRATUITE = Math.max(0, parseInt(process.env.PDF_GRILA_GRATUITE || '2', 10) || 0);
+const EP_GRATUIT = 'rezolva-pdf:grila';
+const MSG_PREMIUM_III = 'Corectarea rezolvării scrise de mână (Subiectul al III-lea) face parte din abonamentul Premium: profesorul virtual îți citește scrisul și îl punctează după barem.';
+const msgGratuiteGata = (n) => `Ai folosit ${n === 1 ? 'corectarea gratuită a grilei' : `cele ${n} corectări gratuite ale grilei`}. Corectarea de pe PDF — grila după barem și Subiectul al III-lea, citit de profesorul virtual — face parte din abonamentul Premium.`;
 
 // testul + baremul, DE PE SERVER (cu verificarea accesului)
 async function loadSource(supa, profile, ctx, userId) {
@@ -83,6 +95,24 @@ module.exports = async function handler(req, res) {
     const testul = await testlock.activeTest(supa, userId);
     if (testul.locked) return res.status(423).json({ error: testlock.TEST_MSG_CHAT, code: 'TEST_MODE' });
 
+    // Fără abonament: doar grila, de cel mult GRATUITE ori; apoi îndemnul spre Premium
+    const premium = ai.isPremium(profile);
+    let gratuite = null;
+    if (!premium) {
+      if (!q.grile.length) {
+        if (q.nerecunoscute.length) {
+          return res.status(400).json({ error: 'N-am văzut nicio literă încercuită clar la grile — încercuiește litera răspunsului ales, apoi apasă din nou „✅ Corectează".', code: 'GRILA_NERECUNOSCUTA' });
+        }
+        return res.status(402).json({ error: MSG_PREMIUM_III, code: 'PREMIUM_REQUIRED' });
+      }
+      const { count } = await supa.from('ai_usage').select('*', { count: 'exact', head: true }).eq('user_id', userId).eq('endpoint', EP_GRATUIT);
+      const used = count || 0;
+      if (used >= GRATUITE) {
+        return res.status(402).json({ error: msgGratuiteGata(GRATUITE), code: 'PREMIUM_REQUIRED', gratuite: { folosite: used, total: GRATUITE, ramase: 0 } });
+      }
+      gratuite = { folosite: used + 1, total: GRATUITE, ramase: Math.max(0, GRATUITE - used - 1) };
+    }
+
     const src = await loadSource(supa, profile, ctx, userId);
     if (!src) return res.status(400).json({ error: 'Nu știu ce test corectez — deschide din nou PDF-ul.' });
     const keyMap = src.barem ? B.grilaAnswers(src.barem) : {};
@@ -92,7 +122,6 @@ module.exports = async function handler(req, res) {
 
     // 2) scrisul de mână → corectorul (Premium). Fără abonament, browserul nici nu
     //    trimite imaginile: itemii scriși rămân „⭐ Premium", grilele se corectează.
-    const premium = ai.isPremium(profile);
     const wantsAi = q.scris.length > 0 || q.images.length > 0 || (g.faraCheie.length > 0 && !!src.test);
     const premiumNeeded = wantsAi && !premium;
     const canAi = premium && (q.images.length > 0 || (g.faraCheie.length > 0 && !!src.test));
@@ -177,10 +206,13 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    // corectarea gratuită a grilei s-a făcut → se numără (nu e cerere AI: cost 0)
+    if (gratuite) await ai.logUsage(supa, userId, EP_GRATUIT, { in: 0, out: 0, model: null });
+
     // 5) mesajul profesorului, în conversație
     const text = R.formatMessage({
       items, sum, structura: q.structura, title: src.title, hasBarem: src.hasBarem,
-      feedback: aiOut ? aiOut.feedback : '', sfat: aiOut ? aiOut.sfat : '', nota, premiumNeeded,
+      feedback: aiOut ? aiOut.feedback : '', sfat: aiOut ? aiOut.sfat : '', nota, premiumNeeded, gratuite,
     }) + (aiError ? `\n\n⚠️ ${aiError}` : '');
     let convId = body.conversationId || null, messageId = null;
     try {
@@ -221,7 +253,7 @@ module.exports = async function handler(req, res) {
     }));
     return res.status(200).json({
       items: marks, score: sum.score, total: sum.total, gradedMax: sum.gradedMax, nota, complete: sum.complete, pending: sum.pending,
-      premiumNeeded, saved, conversationId: convId, messageId, text, aiError, hasBarem: src.hasBarem, model,
+      premiumNeeded, saved, conversationId: convId, messageId, text, aiError, hasBarem: src.hasBarem, model, gratuite,
     });
   } catch (err) {
     if (!err.status) console.error('rezolva-pdf error:', err);
@@ -230,3 +262,5 @@ module.exports = async function handler(req, res) {
 };
 
 module.exports.loadSource = loadSource;
+module.exports.GRATUITE = GRATUITE;
+module.exports.EP_GRATUIT = EP_GRATUIT;

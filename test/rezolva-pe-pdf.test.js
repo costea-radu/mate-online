@@ -136,18 +136,19 @@ test('textul ascuns: un item fără niciun pixel închis sub el (sau în afara p
 });
 
 // ═════════════════════════ 2) recunoașterea ═════════════════════════
-test('cercul: în jurul literei, al valorii, lăsat deschis, în spirală → varianta; bifa pe literă → varianta (semn)', async () => {
+test('cercul: în jurul literei, al valorii, lăsat deschis, în spirală → varianta; bifa nu e încercuire', async () => {
   const P = await lib();
   const map = P.buildExamMap(enPages());
   const O = (k, l) => map.items[k].options.find((o) => o.l === l);
   const S = (p, pts) => ({ p, pts });
-  assert.deepStrictEqual(P.recognizeChoice(map.items['1.1'], [S(2, circle(...lc(O('1.1', 'b')), 9, 8))]), { letters: ['b'], how: 'cerc', unclear: 0 });
+  assert.deepStrictEqual(P.recognizeChoice(map.items['1.1'], [S(2, circle(...lc(O('1.1', 'b')), 9, 8))]), { letters: ['b'], how: 'cerc', unclear: 0, taiate: [] });
   assert.deepStrictEqual(P.recognizeChoice(map.items['1.2'], [S(2, circle(...vc(O('1.2', 'c')), 11, 8))]).letters, ['c']);
   const d = O('1.3', 'd');
   assert.deepStrictEqual(P.recognizeChoice(map.items['1.3'], [S(2, circle((d.lx0 + d.vx1) / 2, (d.y0 + d.y1) / 2, 22, 9, 0.8))]).letters, ['d'], 'cerc lăsat deschis');
   assert.deepStrictEqual(P.recognizeChoice(map.items['1.4'], [S(2, circle(...lc(O('1.4', 'a')), 9, 8, 1.45))]).letters, ['a'], 'spirală');
+  // (8 nov. 2026: bifa nu mai alege varianta — pe foaia de examen se încercuiește; o linie peste literă e o TĂIETURĂ)
   const [x, y] = lc(O('1.5', 'c'));
-  assert.deepStrictEqual(P.recognizeChoice(map.items['1.5'], [S(2, [[x - 5, y], [x - 1, y + 5], [x + 7, y - 7]])]), { letters: ['c'], how: 'semn', unclear: 0 });
+  assert.deepStrictEqual(P.recognizeChoice(map.items['1.5'], [S(2, [[x - 5, y], [x - 1, y + 5], [x + 7, y - 7]])]).letters, []);
   // pe rând (Subiectul II): cerc în jurul lui c)
   assert.deepStrictEqual(P.recognizeChoice(map.items['2.2'], [S(3, circle(...lc(O('2.2', 'c')), 9, 8))]).letters, ['c']);
 });
@@ -160,11 +161,43 @@ test('fără variantă clară: două cercuri → ambele litere; cerc peste toate
   assert.deepStrictEqual(two.letters, ['a', 'd']);
   const a = O('2.4', 'a'), d = O('2.4', 'd');
   const big = P.recognizeChoice(map.items['2.4'], [{ p: 3, pts: circle((a.lx0 + d.vx1) / 2, (a.y0 + a.y1) / 2, (d.vx1 - a.lx0) / 2 + 8, 12) }]);
-  assert.deepStrictEqual(big, { letters: [], how: null, unclear: 1 });
+  assert.deepStrictEqual(big, { letters: [], how: null, unclear: 1, taiate: [] });
   const v = O('2.5', 'b');
   // calculele scrise sub rândul variantelor (nu peste o literă)
   const calc = P.recognizeChoice(map.items['2.5'], [{ p: 3, pts: [[v.vx0, v.y1 + 9], [v.vx0 + 10, v.y1 + 16], [v.vx0 + 20, v.y1 + 9]] }]);
   assert.deepStrictEqual(calc.letters, []);
+});
+
+test('tăieturi (regulile foii de examen): tai varianta încercuită și încercuiești alta; revii la o variantă tăiată scriind litera ei lângă ea, încercuită', async () => {
+  const P = await lib();
+  for (const layout of ['col', 'row']) {
+    const map = P.buildExamMap(enPages({ s1: layout }));
+    const O = (k, l) => map.items[k].options.find((o) => o.l === l);
+    const line = (x0, y0, x1, y1) => [[x0, y0], [(x0 + x1) / 2, (y0 + y1) / 2 + 0.4], [x1, y1]];
+    const strike = (o) => { const [x, y] = lc(o); return line(x - 12, y + 6, x + 12, y - 6); };
+    // litera scrisă de mână (tijă + buclă) și încercuită, la dreapta valorii variantei tăiate
+    const reselect = (o) => { const x = o.vx1 + 14, y = (o.y0 + o.y1) / 2; return [[[x, y - 7], [x, y + 4]], circle(x + 3, y + 1.5, 3, 3, 1, 0, 16), circle(x + 2, y, 10, 10)]; };
+    const R2 = (k, list) => P.recognizeChoice(map.items[k], list.map((pts) => ({ p: 2, pts })));
+    // a) b încercuit, tăiat; c încercuit → c
+    assert.deepStrictEqual(R2('1.1', [circle(...lc(O('1.1', 'b')), 9, 8), strike(O('1.1', 'b')), circle(...lc(O('1.1', 'c')), 9, 8)]),
+      { letters: ['c'], how: 'cerc', unclear: 0, taiate: ['b'] }, layout);
+    // b) b încercuit și tăiat, c încercuit și tăiat, lângă b litera „b" încercuită → b
+    assert.deepStrictEqual(R2('1.2', [circle(...lc(O('1.2', 'b')), 9, 8), strike(O('1.2', 'b')), circle(...lc(O('1.2', 'c')), 9, 8), strike(O('1.2', 'c')), ...reselect(O('1.2', 'b'))]),
+      { letters: ['b'], how: 'revenire', unclear: 0, taiate: ['b', 'c'] }, layout);
+    // variantele eliminate (doar tăiate) nu sunt alese; cercul rămâne
+    assert.deepStrictEqual(R2('1.3', [strike(O('1.3', 'a')), strike(O('1.3', 'd')), circle(...lc(O('1.3', 'c')), 9, 8)]).letters, ['c'], layout);
+    assert.deepStrictEqual(R2('1.4', [strike(O('1.4', 'b'))]).letters, [], layout);
+    // X (două linii) peste varianta încercuită = tăiată
+    const [x, y] = lc(O('1.5', 'a'));
+    assert.deepStrictEqual(R2('1.5', [circle(x, y, 9, 8), line(x - 10, y - 8, x + 10, y + 8), line(x - 10, y + 8, x + 10, y - 8), circle(...lc(O('1.5', 'd')), 9, 8)]).letters, ['d'], layout);
+    // un cerc liber cu litera înăuntru, dar lângă o variantă NETĂIATĂ, nu alege nimic în plus
+    assert.deepStrictEqual(R2('1.6', [circle(...lc(O('1.6', 'a')), 9, 8), ...reselect(O('1.6', 'c'))]).letters, ['a'], layout);
+  }
+  // linia (tăietura) vs. bifa / cercul
+  assert.strictEqual(P.isStrike([[0, 0], [12, 1], [24, 2]]), true);
+  assert.strictEqual(P.isStrike([[0, 0], [4, 6], [12, -6]]), false, 'bifa se rotește mult');
+  assert.strictEqual(P.isStrike(circle(10, 10, 8, 8)), false);
+  assert.strictEqual(P.isStrike([[0, 0], [3, 0]]), false, 'prea scurtă');
 });
 
 test('recunoașterea pe tot testul: fiecare traseu la itemul în a cărui zonă e scris; planul corectării; rezumatul', async () => {
@@ -329,7 +362,7 @@ const duel = require('../api/_lib/duel.js');
 const turneu = require('../api/_lib/turneu.js');
 const handler = require('../api/rezolva-pdf.js');
 
-function supaStub(log) {
+function supaStub(log, { usedFree = 0 } = {}) {
   function make(table) {
     const ops = [];
     const p = new Proxy(function () {}, {
@@ -337,9 +370,11 @@ function supaStub(log) {
         if (prop === 'then') {
           const ins = ops.find((o) => o[0] === 'insert');
           if (ins) log.push({ table, insert: ins[1][0] });
+          if (table === 'ai_usage' && !ins) log.push({ table, query: ops.map((o) => [o[0], ...o[1].filter((a) => typeof a === 'string')]) });
           const out = table === 'ai_conversations' && ins ? { data: { id: 'conv-pdf' }, error: null }
             : table === 'ai_messages' && ins ? { data: { id: 'msg-' + log.length }, error: null }
-              : { data: null, error: null };
+              : table === 'ai_usage' ? { data: null, count: usedFree, error: null }
+                : { data: null, error: null };
           return (res, rej) => Promise.resolve(out).then(res, rej);
         }
         return (...args) => { ops.push([prop, args]); return p; };
@@ -349,7 +384,7 @@ function supaStub(log) {
   }
   return { from: (t) => make(t) };
 }
-function stub(t, { premium = true, locked = false } = {}) {
+function stub(t, { premium = true, locked = false, usedFree = 0 } = {}) {
   const saved = [];
   const patch = (obj, k, v) => { saved.push([obj, k, obj[k]]); obj[k] = v; };
   const st = { usage: [], quota: [], db: [], progress: [], claude: [] };
@@ -358,7 +393,7 @@ function stub(t, { premium = true, locked = false } = {}) {
   patch(ai, 'enforceRateLimit', async () => ({ degraded: false }));
   patch(ai, 'enforceFeatureQuota', async (s, u, p, key) => { st.quota.push(key); });
   patch(ai, 'logUsage', async (s, u, endpoint) => { st.usage.push(endpoint); });
-  patch(ai, 'admin', () => supaStub(st.db));
+  patch(ai, 'admin', () => supaStub(st.db, { usedFree }));
   patch(testlock, 'activeTest', async () => ({ locked }));
   patch(pdfContext, 'loadContentForUser', async (s, id) => ({ id, title: 'EN Varianta 3', category: 'evaluare-nationala' }));
   patch(pdfContext, 'getPdfContext', async () => ({ text: 'SUBIECTUL I ... SUBIECTUL al III-lea 1. Ana și Bogdan ...', baremText: BAREM }));
@@ -380,7 +415,9 @@ function stub(t, { premium = true, locked = false } = {}) {
     });
     return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ content: [{ type: 'text', text }], stop_reason: 'end_turn', usage: { input_tokens: 4000, output_tokens: 900 } }) };
   };
-  t.after(() => { for (const [obj, k, v] of saved.reverse()) obj[k] = v; global.fetch = origFetch; });
+  // (în ordine inversă; o a doua simulare în același test se face după st.restore())
+  st.restore = () => { while (saved.length) { const [obj, k, v] = saved.pop(); obj[k] = v; } global.fetch = origFetch; };
+  t.after(st.restore);
   return st;
 }
 function fakeRes() {
@@ -400,13 +437,19 @@ const BODY = {
 };
 const call = async (body) => { const res = fakeRes(); await handler({ method: 'POST', headers: {}, body }, res); return res; };
 
-test('fără Premium: grilele se corectează după barem (fără AI); scrisul de la III rămâne „⭐ Premium"; nimic nu se salvează ca test întreg', async (t) => {
+test('fără Premium: prima din cele 2 corectări gratuite ale grilei — după barem, fără AI; III rămâne „⭐ Premium"; nimic nu se salvează ca test întreg', async (t) => {
   const st = stub(t, { premium: false });
   const res = await call({ ...BODY, images: [] });
   assert.strictEqual(res.statusCode, 200, JSON.stringify(res.body));
   assert.strictEqual(st.claude.length, 0);
   assert.deepStrictEqual(st.quota, []);
   assert.strictEqual(res.body.premiumNeeded, true);
+  // numărătoarea: corectările gratuite ale contului, sub „rezolva-pdf:grila"
+  const q = st.db.find((x) => x.table === 'ai_usage' && x.query);
+  assert.ok(q && JSON.stringify(q.query).includes('"eq","endpoint","rezolva-pdf:grila"'), JSON.stringify(q));
+  assert.deepStrictEqual(st.usage, ['rezolva-pdf:grila']);
+  assert.deepStrictEqual(res.body.gratuite, { folosite: 1, total: 2, ramase: 1 });
+  assert.match(res.body.text, /🎁 Corectare gratuită a grilei: 1 din 2 — ți-a mai rămas una/);
   const by = Object.fromEntries(res.body.items.map((x) => [x.key, x]));
   assert.strictEqual(by['1.1'].verdict, 'corect');
   assert.strictEqual(by['1.2'].verdict, 'gresit');
@@ -417,6 +460,56 @@ test('fără Premium: grilele se corectează după barem (fără AI); scrisul de
   assert.match(res.body.text, /Premium/);
   // corectarea intră în conversație
   assert.ok(st.db.some((x) => x.table === 'ai_messages' && /Corectarea rezolvării de pe PDF/.test(x.insert.content)));
+});
+
+test('fără Premium: a doua corectare gratuită e ultima; a treia → îndemnul spre Premium (402), fără nimic consumat', async (t) => {
+  let st = stub(t, { premium: false, usedFree: 1 });
+  let res = await call({ ...BODY, images: [] });
+  assert.strictEqual(res.statusCode, 200);
+  assert.deepStrictEqual(res.body.gratuite, { folosite: 2, total: 2, ramase: 0 });
+  assert.match(res.body.text, /ultima corectare gratuită a grilei/);
+  st.restore();
+  st = stub(t, { premium: false, usedFree: 2 });
+  res = await call({ ...BODY, images: [] });
+  assert.strictEqual(res.statusCode, 402);
+  assert.strictEqual(res.body.code, 'PREMIUM_REQUIRED');
+  assert.match(res.body.error, /cele 2 corectări gratuite ale grilei/);
+  assert.deepStrictEqual(res.body.gratuite, { folosite: 2, total: 2, ramase: 0 });
+  assert.deepStrictEqual(st.usage, []);
+  assert.ok(!st.db.some((x) => x.table === 'ai_messages'));
+});
+
+test('fără Premium: doar Subiectul III scris → Premium (402); doar grile neîncercuite clar → 400; niciuna nu consumă', async (t) => {
+  let st = stub(t, { premium: false });
+  let res = await call({ ...BODY, grile: [], images: [] });
+  assert.strictEqual(res.statusCode, 402);
+  assert.match(res.body.error, /Subiectul al III-lea/);
+  assert.deepStrictEqual(st.usage, []);
+  st.restore();
+  st = stub(t, { premium: false });
+  res = await call({ ...BODY, grile: [], scris: [], images: [], nerecunoscute: [{ key: '1.4', motiv: 'nimic' }] });
+  assert.strictEqual(res.statusCode, 400);
+  assert.strictEqual(res.body.code, 'GRILA_NERECUNOSCUTA');
+  assert.deepStrictEqual(st.usage, []);
+});
+
+test('corectările gratuite ale grilei nu sunt cereri AI: nu consumă acțiunile AI gratuite, nici limita orară', async () => {
+  assert.deepStrictEqual(ai.NU_E_CERERE_AI, ['voce', 'rezolva-pdf:grila']);
+  // interogarea reală a celor două limite, pe un Supabase simulat
+  const filtre = [];
+  const q = new Proxy({}, {
+    get(_, prop) {
+      if (prop === 'then') return (res) => res({ count: 0, data: null, error: null });
+      return (...args) => { filtre.push([prop, ...args.filter((a) => typeof a === 'string')]); return q; };
+    },
+  });
+  const supa = { from: () => q };
+  await ai.enforceFreeQuota(supa, { id: 'u-1', subscription_status: null });
+  assert.deepStrictEqual(filtre.filter((f) => f[0] === 'neq'), [['neq', 'endpoint', 'voce'], ['neq', 'endpoint', 'rezolva-pdf:grila']]);
+  filtre.length = 0;
+  await ai.enforceRateLimit(supa, 'u-1', null, { budgets: false });
+  assert.deepStrictEqual(filtre.filter((f) => f[0] === 'neq'), [['neq', 'endpoint', 'voce'], ['neq', 'endpoint', 'rezolva-pdf:grila']]);
+  assert.ok(filtre.some((f) => f[0] === 'gte' && f[1] === 'created_at'));
 });
 
 test('Premium: imaginea zonei III.1 merge la corector ÎNAINTEA textului, cu eticheta ei; cota „scris"; testul întreg corectat → progress din 90', async (t) => {
@@ -445,10 +538,10 @@ test('Premium: imaginea zonei III.1 merge la corector ÎNAINTEA textului, cu eti
 });
 
 test('test pe grupă în desfășurare → 423; nimic de corectat → 400', async (t) => {
-  stub(t, { locked: true });
+  const st = stub(t, { locked: true });
   assert.strictEqual((await call(BODY)).statusCode, 423);
-  const t2 = { after: t.after.bind(t) };
-  stub(t2, {});
+  st.restore();
+  stub(t, {});
   assert.strictEqual((await call({ context: BODY.context })).statusCode, 400);
 });
 
@@ -475,4 +568,43 @@ test('interfața: „✏️ Rezolvă pe PDF" în bara PDF-ului (doar EN, nu bare
   assert.match(r, /if \(store\.penSeen && e\.pointerType === 'touch'\) return;/);
   assert.match(r, /if \(touches\.size >= 2\) \{ abandon\(\); return; \}/);
   assert.match(r, /\(e\.buttons & 32\) === 32/);
+});
+
+test('interfața (8 nov.): „✏️ Rezolvă" pulsează; la BAC și la celelalte PDF-uri deschide foaia de lucru; corectările gratuite ale grilei', () => {
+  const v = read('src/pages/PDFViewer.jsx');
+  // la orice PDF care nu e test de EN (și nu e barem) → foaia de lucru din panoul profesorului
+  assert.match(v, /const rezolvaFoaie = !canSolve && \(!!pdfData \|\| !!examHtml\) && !isBaremItem && baremStatus !== 'este_barem';/);
+  assert.match(v, /const solveBtn = \(canSolve \|\| rezolvaFoaie\) && \(/);
+  assert.match(v, /onClick=\{canSolve \? toggleSolve : toggleFoaia\}/);
+  assert.match(v, /function toggleFoaia\(\) \{\s*if \(tutorOpen && workOpen\) \{ setWork\(false\); return; \}/);
+  assert.match(v, /setTutorOpen\(true\);\s*setWork\(true\);/);
+  // pulsează cât nu e pornit
+  assert.match(v, /className=\{rezolvaActiv \? undefined : 'em-pulse'\}/);
+  const css = read('src/styles/global.css');
+  assert.match(css, /@keyframes emPulse/);
+  assert.match(css, /\.em-pulse \{ animation: emPulse/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.em-pulse \{ animation: none;/);
+  // fără abonament: doar grila, după barem (2 corectări gratuite), apoi îndemnul spre Premium
+  assert.match(v, /if \(!premium && !req\.grile\.length\) \{/);
+  assert.match(v, /if \(r\.gratuite\) \{/);
+  assert.match(v, /h\.fail\(e\.message, \{ premium: !!e\.premium, banner: e\.gratuite \? '🔒 Ai folosit corectările gratuite ale grilei\.' : null \}\)/);
+  const t = read('src/components/AITutor.jsx');
+  assert.match(t, /fail: \(text, \{ premium = false, banner = null \} = \{\}\) => \{/);
+  // banda de sus spune motivul adevărat (nu „Ai folosit cele 2 încercări gratuite" — acțiunile cu AI-ul)
+  assert.match(t, /if \(premium\) setUpsell\(banner \|\| '🔒 Corectarea face parte din abonamentul Premium\.'\);/);
+  assert.match(t, /typeof upsell === 'string' \? upsell : '🔒 Ai folosit cele 2 încercări gratuite\.'/);
+  const r = read('src/components/RezolvarePdf.jsx');
+  assert.match(r, /export const GRATUITE_GRILA = 2;/);
+  assert.match(r, /gratuite: r\.gratuite \|\| null/);
+  assert.match(r, /<Link to="\/preturi"/);
+  // butonul e unul singur: „✅ Corectează" (cu ⭐ după ce s-au terminat corectările gratuite)
+  assert.match(r, /`✅ Corectează\$\{gata \? ' ⭐' : ''\}`/);
+});
+
+test('interfața: 402 „corectările gratuite s-au terminat" → capătul PDF-ului arată îndemnul spre Premium', () => {
+  assert.match(read('src/lib/aiClient.js'), /if \(data\.gratuite\) e\.gratuite = data\.gratuite;/);
+  assert.match(read('src/pages/PDFViewer.jsx'), /if \(e\.gratuite\) solve\.markGratuite\(e\.gratuite\);/);
+  const r = read('src/components/RezolvarePdf.jsx');
+  assert.match(r, /function markGratuite\(g\) \{/);
+  assert.match(r, /store\.setResult\(\{ \.\.\.\(store\.result \|\| \{ byKey: \{\}, sigs: \{\} \}\), gratuite: g \}\);/);
 });

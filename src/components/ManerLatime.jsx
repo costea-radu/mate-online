@@ -11,7 +11,7 @@
 // offset: cât iese mânerul în afara panoului (-7 = jumătate peste linia aurie;
 // 0 = în interior — pentru ferestrele cu overflow:hidden, ca widgetul)
 // label: ce lățește mânerul (implicit fereastra profesorului; în exercițiile
-// interactive, și coloana „✍️ Spațiu de lucru" — 4 nov. 2026)
+// interactive, și coloana „✍️ Foaie de lucru" — 4 nov. 2026)
 export default function ManerLatime({ lat, edge = 'left', top = 0, offset = -7, label = 'Lățimea ferestrei profesorului' }) {
   if (!lat) return null;
   return (

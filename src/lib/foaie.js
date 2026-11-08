@@ -1,5 +1,5 @@
 // =====================================================================
-// src/lib/foaie.js — geometria foii din „✍️ Spațiu de lucru" și imaginea ei
+// src/lib/foaie.js — geometria foii din „✍️ Foaie de lucru" și imaginea ei
 // pentru corector (fără React; testată în test/spatiu-de-lucru.test.js)
 //
 // Traseele au coordonate de „lume": px CSS de la colțul din stânga-sus al

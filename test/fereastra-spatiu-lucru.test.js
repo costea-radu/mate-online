@@ -66,7 +66,7 @@ test('fereastra e plutitoare, ca widgetul: nu mai întunecă pagina; se mută de
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   assert.doesNotMatch(code, /rgba\(10,22,36,\.55\)/, 'fără fundalul întunecat peste pagină');
   assert.doesNotMatch(code, /aria-modal="true"/);
-  assert.match(code, /role="dialog" aria-modal="false" aria-label="Spațiu de lucru"/);
+  assert.match(code, /role="dialog" aria-modal="false" aria-label="Foaie de lucru"/);
   assert.match(code, /position: 'fixed', zIndex: 100000, left: winX, top: winY, width: winW, height: winH/);
   // antetul: pe calculator mută fereastra, pe telefon e mânerul înălțimii (ca panoul profesorului);
   // andocată lângă test (exercițiile interactive, 4 nov. 2026) nu se mută

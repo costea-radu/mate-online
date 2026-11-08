@@ -16,7 +16,7 @@
 // aceea toate variantele afișează și clienti.modeleAnthropic, cu pastile
 // mov, lângă cele OpenAI. `disclaimer` (sub caseta de chat) arată modelele
 // OpenAI ale conversației și, separat, corectorul scrisului de mână (Claude):
-// corectarea din „✍️ Spațiu de lucru" apare tot în chat (din 27 oct. 2026).
+// corectarea de pe „✍️ Foaia de lucru" apare tot în chat (din 27 oct. 2026).
 //
 // Props: variant, showIntern (menționează și uneltele interne; implicit doar
 //        la footer), center (aliniere centrată, pentru Home), style.

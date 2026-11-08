@@ -39,7 +39,7 @@ export default function InteractiveViewer() {
   const tutorConvId = state?.tutorConvId || null;                    // conversația continuă
   const [exState, setExState] = useState(null);                     // starea live din exercițiu (bridge)
   const [autoPrompt, setAutoPrompt] = useState(null);                // mesaj trimis automat în chat
-  const [workOpen, setWorkOpen] = useState(false);                  // caietul digital („✍️ Spațiu de lucru")
+  const [workOpen, setWorkOpen] = useState(false);                  // caietul digital („✍️ Foaie de lucru")
   const [autoCorrect, setAutoCorrect] = useState(null);              // foaia trimisă la corectare (o preia chatul)
   // Pe calculator, panoul profesorului se lățește / îngustează trăgând de marginea
   // lui stângă (pe telefon: în sus / în jos, de bara albastră) — src/lib/latimePanou.js
@@ -61,7 +61,7 @@ export default function InteractiveViewer() {
   // pe telefon, bara de sus rămâne la vedere: nu sub bara de stare (aplicația de pe
   // ecranul principal) și nici „urcată" după închiderea tastaturii (iPhone, Safari 26)
   useBaraSusVizibila();
-  // ✍️ Spațiul de lucru PE CALCULATOR (4 nov. 2026): nu mai stă peste test, ci în
+  // ✍️ Foaia de lucru PE CALCULATOR (4 nov. 2026): nu mai stă peste test, ci în
   // coloana din DREAPTA lui — testul rămâne întreg în stânga. Lățimea coloanei se
   // trage de marginea ei stângă și se ține minte (ca la panoul profesorului).
   const wsLat = useLatimePanou({
@@ -446,7 +446,7 @@ export default function InteractiveViewer() {
       // recalculează scorul din ele, chiar dacă testul e un HTML mai vechi
       if (d.type === 'MATE_ANSWERS' && Array.isArray(d.answers)) { lastAnswersRef.current = d.answers; return; }
       if (d.type === 'MATE_TUTOR_STATE' && d.payload) setExState(d.payload);
-      // „✍️ Spațiu de lucru" apăsat în exercițiu → caietul se deschide AICI,
+      // „✍️ Foaie de lucru" apăsat în exercițiu → caietul se deschide AICI,
       // în pagina-părinte (iframe-ul n-are sesiune, credite, nici KaTeX).
       if (d.type === 'MATE_WORKSPACE_OPEN') {
         if (d.payload) setExState(d.payload);
@@ -614,7 +614,7 @@ export default function InteractiveViewer() {
   // Nota cu 10 puncte din oficiu (testele care raportează „din 100" o au deja inclusă)
   const savedNota = savedScore ? notaDinScor(savedScore.score, savedScore.maxScore) : null;
 
-  // ✍️ Spațiul de lucru — aceleași date pe calculator (coloana din dreapta testului)
+  // ✍️ Foaia de lucru — aceleași date pe calculator (coloana din dreapta testului)
   // și pe telefon (foaia de jos). „🎓 Cere corectarea" trimite foaia corectorului,
   // iar corectarea apare în Profesorul Virtual (se deschide singur). Rezolvarea
   // oficială a exercițiului ține loc de barem.
@@ -633,7 +633,7 @@ export default function InteractiveViewer() {
       setAutoCorrect({ id: Date.now(), pack, exerciseText: tutorContext.exerciseText || exState?.text || '' });
     },
   };
-  // coloana spațiului de lucru (calculator): lățimea aleasă, dar testul păstrează
+  // coloana foii de lucru (calculator): lățimea aleasă, dar testul păstrează
   // măcar ~380 px și când e deschis și profesorul virtual
   const wsWidth = Math.max(300, Math.min(wsLat.width, vw - (tutorOpen && !faraAjutor ? lat.width : 0) - 380));
 
@@ -663,8 +663,8 @@ export default function InteractiveViewer() {
           <EinsteinIcon size={22} />
         </button>
       )}
-      <button onClick={() => setWorkOpen((o) => !o)} aria-label="Spațiu de lucru" aria-pressed={workOpen}
-        title="Spațiu de lucru — scrii rezolvarea de mână" style={ib(workOpen)}>✍️</button>
+      <button onClick={() => setWorkOpen((o) => !o)} aria-label="Foaie de lucru" aria-pressed={workOpen}
+        title="Foaie de lucru — scrii rezolvarea de mână" style={ib(workOpen)}>✍️</button>
       {tb?.reset && (
         <button onClick={() => tbCmd('reset')} aria-label="Resetează testul" title="Resetează — reiei testul de la început"
           style={{ ...ib(), fontSize: '1.2rem' }}>↺</button>
@@ -773,7 +773,7 @@ export default function InteractiveViewer() {
           <button
             onClick={() => setWorkOpen((o) => !o)}
             aria-pressed={workOpen}
-            title={workOpen ? 'Închide spațiul de lucru' : 'Scrie rezolvarea cu degetul sau cu creionul pe o foaie albă, lângă test — profesorul virtual o corectează după rezolvarea oficială'}
+            title={workOpen ? 'Închide foaia de lucru' : 'Scrie rezolvarea cu degetul sau cu creionul pe o foaie albă, lângă test — profesorul virtual o corectează după rezolvarea oficială'}
             style={{
               background: workOpen ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.3)',
               color: '#fff', borderRadius: 14, padding: '4px 14px', cursor: 'pointer',
@@ -781,7 +781,7 @@ export default function InteractiveViewer() {
             }}
           >
             <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.83rem', fontWeight: 700 }}>
-              ✍️ {workOpen ? 'Închide spațiul de lucru' : 'Spațiu de lucru'}
+              ✍️ {workOpen ? 'Închide foaia de lucru' : 'Foaie de lucru'}
             </span>
             {!workOpen && (
               <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.8 }}>
@@ -905,13 +905,13 @@ export default function InteractiveViewer() {
           />
         )}
 
-        {/* ✍️ pe calculator: testul în stânga, spațiul de lucru în dreapta lui */}
+        {/* ✍️ pe calculator: testul în stânga, foaia de lucru în dreapta lui */}
         {!isMobile && workOpen && (
           <div style={{
             flexShrink: 0, width: wsWidth, position: 'relative', display: 'flex', flexDirection: 'column',
             minHeight: 0, background: '#fff', borderLeft: '3px solid var(--gold)',
           }}>
-            <ManerLatime lat={wsLat} label="Lățimea spațiului de lucru" />
+            <ManerLatime lat={wsLat} label="Lățimea foii de lucru" />
             <SpatiuDeLucru docked {...workspaceProps} />
           </div>
         )}

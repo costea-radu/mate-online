@@ -162,7 +162,7 @@ test('telefon: bara testului se mută în bara paginii (MATE_COMPACT / MATE_TOOL
 
   const v = read('src/pages/InteractiveViewer.jsx');
   assert.match(v, /role="toolbar" aria-label="Bara testului"/);
-  for (const label of ['Înapoi', 'Profesorul virtual', 'Spațiu de lucru', 'Resetează testul', 'Toate exercițiile']) {
+  for (const label of ['Înapoi', 'Profesorul virtual', 'Foaie de lucru', 'Resetează testul', 'Toate exercițiile']) {
     assert.ok(v.includes(`aria-label="${label}"`) || v.includes(`: '${label}'}`), `bara de pe telefon are butonul „${label}"`);
   }
   assert.match(v, /type: 'MATE_COMPACT'/);
@@ -170,10 +170,10 @@ test('telefon: bara testului se mută în bara paginii (MATE_COMPACT / MATE_TOOL
   assert.match(v, /Corectează total/);
 });
 
-test('desktop: testul în stânga, spațiul de lucru în dreapta (coloană lângă test, cu lățime reglabilă)', () => {
+test('desktop: testul în stânga, foaia de lucru în dreapta (coloană lângă test, cu lățime reglabilă)', () => {
   const v = read('src/pages/InteractiveViewer.jsx');
   assert.match(v, /<SpatiuDeLucru docked/);
-  assert.match(v, /label="Lățimea spațiului de lucru"/);
+  assert.match(v, /label="Lățimea foii de lucru"/);
   const s = read('src/components/SpatiuDeLucru.jsx');
   assert.match(s, /const dock = docked && !narrow && !maxi;/);
   const m = read('src/components/ManerLatime.jsx');

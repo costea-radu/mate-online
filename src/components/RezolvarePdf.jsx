@@ -1,7 +1,7 @@
 // =====================================================================
 // src/components/RezolvarePdf.jsx — „✏️ Rezolvă pe PDF" (7 nov. 2026)
 //
-// Un „spațiu de lucru INVIZIBIL" peste paginile PDF-ului de Evaluare Națională:
+// O „foaie de lucru INVIZIBILĂ" peste paginile PDF-ului de Evaluare Națională:
 // elevul încercuiește litera la grilele de la Subiectele I și II și scrie
 // rezolvarea la Subiectul al III-lea direct pe pagină (degetul, creionul sau
 // mouse-ul). PDF-ul rămâne PDF: zoom, două degete, „⤢ Pagina întreagă", 📋 Barem,
@@ -20,6 +20,7 @@
 // pură e în src/lib/pdfRezolvare.js.
 // =====================================================================
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { loadPdfJs } from '../lib/pdfjs';
 import {
   PEN_PT, INK_COLORS, boxOf, nearStroke, inkPath, buildExamMap, readTextPages, recognize,
@@ -429,7 +430,14 @@ export function useRezolvarePdf({ on, data, draftKey }) {
   function keepResult(r, sigs = {}) {
     const byKey = {};
     for (const it of (r && r.items) || []) byKey[it.key] = it;
-    store.setResult({ byKey, sigs, score: r.score, total: r.total, nota: r.nota, complete: r.complete, at: Date.now() });
+    store.setResult({ byKey, sigs, score: r.score, total: r.total, nota: r.nota, complete: r.complete, gratuite: r.gratuite || null, at: Date.now() });
+  }
+
+  // fără abonament: câte corectări gratuite ale grilei au mai rămas (și când serverul
+  // refuză cu 402 — elevul le-a folosit, poate pe alt test sau alt dispozitiv)
+  function markGratuite(g) {
+    if (!g) return;
+    store.setResult({ ...(store.result || { byKey: {}, sigs: {} }), gratuite: g });
   }
 
   async function downloadPdf(title) {
@@ -451,7 +459,7 @@ export function useRezolvarePdf({ on, data, draftKey }) {
 
   return {
     store, ver, tool, setTool, color, setColor, map, mapState, rec, result, marks, summary, overlay,
-    request, renderImages, keepResult, downloadPdf, durationSec,
+    request, renderImages, keepResult, markGratuite, downloadPdf, durationSec,
     undo: () => store.undo(), clearAll: () => store.clearAll(),
     canUndo: store.canUndo, hasInk: store.hasInk,
   };
@@ -479,7 +487,7 @@ const tBtn = (on) => ({
 });
 
 // butoanele modului, în bara de zoom a vizualizatorului → { left, right } (PdfCanvasViewer `toolbar`)
-export function rezolvareToolbar({ solve, compact = false, busy = false, onCorect, onClose, onDownload }) {
+export function rezolvareToolbar({ solve, compact = false, busy = false, onCorect, onClose, onDownload, premium = true }) {
   const left = (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       {!compact && <span style={{ color: 'var(--gold)', fontWeight: 800, fontSize: '.8rem', whiteSpace: 'nowrap' }}>✏️ Rezolvi pe PDF</span>}
@@ -515,7 +523,9 @@ export function rezolvareToolbar({ solve, compact = false, busy = false, onCorec
       <button type="button" style={tBtn(false)} onClick={onDownload} disabled={!solve.hasInk} aria-label="⬇ PDF"
         title="Descarcă PDF-ul cu rezolvarea ta pe el (rămâne un PDF obișnuit)">⬇{compact ? '' : ' PDF'}</button>
       <button type="button" onClick={onCorect} disabled={busy}
-        title="Corectează ce ai rezolvat pe PDF: grilele după barem, iar scrisul de la Subiectul al III-lea îl citește profesorul virtual"
+        title={premium
+          ? 'Corectează ce ai rezolvat pe PDF: grilele după barem, iar scrisul de la Subiectul al III-lea îl citește profesorul virtual'
+          : `Corectarea de pe PDF face parte din abonamentul Premium. Fără abonament: ${GRATUITE_GRILA} corectări gratuite ale grilei (Subiectele I și II), după barem`}
         style={{ ...tBtn(true), background: busy ? '#cfd8dc' : '#2e7d32', borderColor: busy ? '#cfd8dc' : '#2e7d32', color: '#fff', padding: '0 12px', cursor: busy ? 'progress' : 'pointer' }}>
         {busy ? '⏳ Corectez…' : '✅ Corectează'}
       </button>
@@ -525,18 +535,35 @@ export function rezolvareToolbar({ solve, compact = false, busy = false, onCorec
   return { left, right };
 }
 
+// Fără abonament: atâtea corectări gratuite ale GRILEI (după barem, fără AI) — numărul
+// adevărat îl ține serverul (api/rezolva-pdf.js, PDF_GRILA_GRATUITE); aici e doar textul
+export const GRATUITE_GRILA = 2;
+
+// ce scrie sub „Ai terminat?" pentru elevul fără abonament
+function textGratuite(g) {
+  if (!g) return `Corectarea de pe PDF face parte din abonamentul Premium. Fără abonament ai ${GRATUITE_GRILA} corectări gratuite ale grilei (Subiectele I și II), după barem; scrisul de la Subiectul al III-lea îl corectează profesorul virtual cu Premium.`;
+  if (g.ramase > 0) return `🎁 Ți-a mai rămas ${g.ramase === 1 ? 'o corectare gratuită' : `${g.ramase} corectări gratuite`} a grilei (după barem). Scrisul de la Subiectul al III-lea îl corectează profesorul virtual cu Premium.`;
+  return 'Ai folosit corectările gratuite ale grilei. De acum, corectarea de pe PDF — grila și Subiectul al III-lea — face parte din abonamentul Premium.';
+}
+
 export function RezolvareFooter({ solve, busy = false, onCorect, premium = true }) {
   const r = solve.result;
+  const gata = !premium && r && r.gratuite && r.gratuite.ramase === 0;
   return (
     <div style={{ maxWidth: 560, margin: '6px auto 26px', background: '#fff', borderRadius: 12, padding: '16px 18px', textAlign: 'center', boxShadow: '0 4px 18px rgba(0,0,0,.35)', border: '2px solid var(--gold)' }}>
       <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1rem', marginBottom: 6 }}>Ai terminat?</div>
       <div style={{ color: 'var(--text-light)', fontSize: '.84rem', lineHeight: 1.5, marginBottom: 12 }}>
-        Grilele (Subiectele I și II) le corectez după barem. Scrisul de la Subiectul al III-lea îl citește profesorul virtual{premium ? '' : ' — cu abonamentul Premium'}.
+        {premium
+          ? 'Grilele (Subiectele I și II) le corectez după barem. Scrisul de la Subiectul al III-lea îl citește profesorul virtual.'
+          : textGratuite(r && r.gratuite)}
+        {!premium && (
+          <>{' '}<Link to="/preturi" style={{ color: 'var(--navy)', fontWeight: 700 }}>⭐ Vezi abonamentele</Link></>
+        )}
         {solve.summary ? <><br /><span style={{ fontWeight: 600 }}>🔎 {solve.summary}</span></> : null}
       </div>
       <button type="button" onClick={onCorect} disabled={busy}
         style={{ background: busy ? '#cfd8dc' : '#2e7d32', color: '#fff', border: 'none', borderRadius: 10, padding: '12px 28px', fontWeight: 800, fontSize: '1rem', cursor: busy ? 'progress' : 'pointer', boxShadow: '0 4px 14px rgba(46,125,50,.35)' }}>
-        {busy ? '⏳ Corectez…' : '✅ Corectează'}
+        {busy ? '⏳ Corectez…' : `✅ Corectează${gata ? ' ⭐' : ''}`}
       </button>
       {r && r.total ? (
         <div style={{ marginTop: 10, fontSize: '.82rem', color: 'var(--navy)', fontWeight: 700 }}>
