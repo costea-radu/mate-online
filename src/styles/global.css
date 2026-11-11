@@ -2040,7 +2040,7 @@ body.sidebar-deschis .app-shell { padding-left: var(--sidebar-w); }
 .acasa-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .acasa-head h2 { font-family: var(--font-display); color: var(--navy); font-size: 1.45rem; margin: 0; }
 .acasa-head p { color: var(--text-muted); font-size: .9rem; margin: 0; }
-.acasa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.acasa-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
 .acasa-grid > * { min-width: 0; }
 .acasa-card {
   position: relative; display: flex; align-items: flex-start; gap: 12px; text-decoration: none; color: var(--text);
@@ -2070,9 +2070,6 @@ a.acasa-card:focus-visible, .acasa-card-link:focus-visible { outline: 3px solid 
 .acasa-link button { border: 1.5px solid var(--navy); background: #fff; color: var(--navy); border-radius: 8px; padding: 3px 10px; font-size: .76rem; font-weight: 700; cursor: pointer; }
 /* Home → „Contul meu": secțiunea derulată rămâne sub bara de sus (lipicioasă) */
 #rezultate, #rezultate-elevi, #insigne, #teme, #invita, #parere, #catalog { scroll-margin-top: 84px; }
-.acasa-parere { grid-column: 1 / -1; cursor: default; }
-.acasa-parere .acasa-txt { max-width: 760px; }
-.acasa-parere .acasa-go { display: none; }
 @media (max-width: 620px) {
   .acasa-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .acasa-card { min-height: 0; padding: 12px 12px 12px 10px; }

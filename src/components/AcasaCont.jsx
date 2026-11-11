@@ -4,15 +4,17 @@
 //
 // Cererea lui Radu, pentru pagina „home":
 //   · ELEV: păstrează „Pregătește-mă de examen" (fără cuvântul „nou") și adaugă
-//     „insignele mele (progresul meu)", „rezultatele", „teme", „mesageria",
-//     „părerea ta despre ExamenMate";
+//     „insignele mele (progresul meu)", „rezultatele", „teme", „mesageria";
 //   · PĂRINTE: fără „Pregătește-mă de examen"; „rezultate elev", „asociază-te cu
-//     copilul tău", „mesageria", „părerea ta despre ExamenMate";
+//     copilul tău", „mesageria";
 //   · PROFESOR: fără „Pregătește-mă de examen"; „generează teste", „rezultate
-//     elevi", „invită elevi", „mesageria grupei", „părerea ta despre ExamenMate"
+//     elevi", „invită elevi", „mesageria grupei"
 //     (+ profesorii dau note, plusuri, minusuri, aprecieri — în „Rezultate elevi").
 // Fiecare card duce direct la secțiunea lui din „Contul meu" (?rezultate=1 …),
-// la mesagerie sau la generator; „Părerea ta" se scrie chiar aici.
+// la mesagerie sau la generator.
+// Fără „Părerea ta despre ExamenMate" (scos în aceeași zi, la cererea lui Radu):
+// recenzia se lasă din „Lasă o recenzie", la sfârșitul paginii (Testimonials),
+// și din „Contul meu" (cardul „⭐ Părerea ta despre ExamenMate").
 // =====================================================================
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -22,7 +24,6 @@ import { aiClient } from '../lib/aiClient';
 import { getMyBadges } from '../lib/badges';
 import { arenaState } from '../lib/arena';
 import { useChatUnread } from '../lib/chatUnread';
-import { SiteReviewForm } from './ReviewWidget';
 import { rezumatCatalog, fmtNotaCatalog } from './CatalogNote';
 
 // o memorie scurtă (1 minut) pentru cererile la server ale cardurilor — revenirea în Home
@@ -73,20 +74,6 @@ function Card({ to, icon, titlu, sub, children, accent = 'var(--gold)', id, extr
     <div className="acasa-card acasa-card-div" id={id} style={{ '--acasa-accent': accent }}>
       <Link to={to} className="acasa-card-link" aria-label={titlu} />
       {continut}
-    </div>
-  );
-}
-
-// „Părerea ta despre ExamenMate" — se scrie direct în Home
-function ParereCard() {
-  return (
-    <div className="acasa-card acasa-parere" id="acasa-parere">
-      <span className="acasa-ic" aria-hidden="true">⭐</span>
-      <div className="acasa-txt">
-        <b>Părerea ta despre ExamenMate</b>
-        <small>Cum te ajută platforma? După verificare, apare pe pagina principală. <Link to="/recenzii">Vezi recenziile →</Link></small>
-        <div style={{ marginTop: 10 }}><SiteReviewForm compact /></div>
-      </div>
     </div>
   );
 }
@@ -191,7 +178,6 @@ export function AcasaElev() {
             {teme && teme.pending === 0 && <span className="acasa-mic">{teme.mentor ? '🎉 Nicio temă nefăcută' : 'Temele primite apar aici'}</span>}
           </Card>
           <MesageriaCard />
-          <ParereCard />
         </div>
       </div>
     </section>
@@ -210,7 +196,6 @@ export function AcasaParinte() {
           <Card to="/profil?rezultate=1" icon="📊" titlu="Rezultate elev" sub="testele, notele, temele și ce i-au dat profesorii" accent="var(--navy)" />
           <InvitaCard to="/profil?asociere=1" titlu="Asociază-te cu copilul tău" sub="trimite-i linkul: după ce îl deschide, îi vezi rezultatele" cod={profile?.teacher_code} />
           <MesageriaCard sub="cu profesorii copilului și cu grupa" />
-          <ParereCard />
         </div>
       </div>
     </section>
@@ -231,7 +216,6 @@ export function AcasaProfesor() {
           <Card to="/profil?rezultate=1" icon="📊" titlu="Rezultate elevi" sub="grupe, medii și catalogul: note, plusuri, minusuri, aprecieri" accent="var(--navy)" />
           <InvitaCard to="/profil?invita=1" titlu="Invită elevi" sub="un link: elevii se asociază cu un clic" cod={profile?.teacher_code} />
           <MesageriaCard to="/profil?mesagerie=1" titlu="Mesageria grupei" sub="tu, elevii grupei și părinții lor" />
-          <ParereCard />
         </div>
       </div>
     </section>

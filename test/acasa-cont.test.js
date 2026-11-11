@@ -25,36 +25,59 @@ test('Home: elevul și vizitatorul păstrează „Pregătește-mă de examen" (f
 
 const blocul = (src, nume) => src.slice(src.indexOf(`export function ${nume}`), src.indexOf('\n}\n', src.indexOf(`export function ${nume}`)));
 
-test('Home — elev: insignele mele (progresul meu), rezultatele, temele, mesageria, părerea ta', () => {
+// după ultimul card nu mai vine nimic (fără „Părerea ta despre ExamenMate", scos în aceeași zi)
+const ultimulCard = (bloc, s) => {
+  const dupa = bloc.slice(bloc.indexOf(s));
+  assert.ok(bloc.indexOf(s) > 0, s);
+  assert.match(dupa, /^[^\n]*\n\s*<\/div>\n\s*<\/div>\n\s*<\/section>/, `${s} e ultimul card`);
+};
+
+test('Home — elev: insignele mele (progresul meu), rezultatele, temele, mesageria', () => {
   const a = read('src/components/AcasaCont.jsx');
   const elev = blocul(a, 'AcasaElev');
-  const ordine = ['to="/profil?insigne=1"', 'titlu="Insignele mele" sub="progresul meu"', 'to="/profil?rezultate=1"', 'to="/profil?teme=1"', '<MesageriaCard />', '<ParereCard />'];
+  const ordine = ['to="/profil?insigne=1"', 'titlu="Insignele mele" sub="progresul meu"', 'to="/profil?rezultate=1"', 'to="/profil?teme=1"', '<MesageriaCard />'];
   let last = -1;
   for (const s of ordine) { const i = elev.indexOf(s); assert.ok(i > last, s); last = i; }
+  ultimulCard(elev, '<MesageriaCard />');
   assert.ok(!/pregateste-ma/.test(elev), '„Pregătește-mă" e cardul mare de deasupra');
   assert.match(elev, /aiClient\.homeworkStudentList\(\)/, 'câte teme are de făcut');
   assert.match(elev, /aiClient\.catalogMine\(\)/, 'ultima notă de la profesor');
 });
 
-test('Home — părinte: rezultate elev, asociază-te cu copilul tău, mesageria, părerea ta (fără „Pregătește-mă")', () => {
+test('Home — părinte: rezultate elev, asociază-te cu copilul tău, mesageria (fără „Pregătește-mă")', () => {
   const p = blocul(read('src/components/AcasaCont.jsx'), 'AcasaParinte');
-  const ordine = ['titlu="Rezultate elev"', 'titlu="Asociază-te cu copilul tău"', '<MesageriaCard', '<ParereCard />'];
+  const ordine = ['titlu="Rezultate elev"', 'titlu="Asociază-te cu copilul tău"', '<MesageriaCard'];
   let last = -1;
   for (const s of ordine) { const i = p.indexOf(s); assert.ok(i > last, s); last = i; }
+  ultimulCard(p, '<MesageriaCard');
   assert.match(p, /to="\/profil\?asociere=1"/);
   assert.match(p, /cod=\{profile\?\.teacher_code\}/, 'linkul de asociere, cu „Copiază"');
   assert.ok(!/pregateste|PregatireCard/i.test(p));
 });
 
-test('Home — profesor: generează teste, rezultate elevi, invită elevi, mesageria grupei, părerea ta', () => {
+test('Home — profesor: generează teste, rezultate elevi, invită elevi, mesageria grupei', () => {
   const p = blocul(read('src/components/AcasaCont.jsx'), 'AcasaProfesor');
-  const ordine = ['titlu="Generează teste"', 'titlu="Rezultate elevi"', 'titlu="Invită elevi"', 'titlu="Mesageria grupei"', '<ParereCard />'];
+  const ordine = ['titlu="Generează teste"', 'titlu="Rezultate elevi"', 'titlu="Invită elevi"', 'titlu="Mesageria grupei"'];
   let last = -1;
   for (const s of ordine) { const i = p.indexOf(s); assert.ok(i > last, s); last = i; }
+  ultimulCard(p, '<MesageriaCard to="/profil?mesagerie=1"');
   assert.match(p, /to="\/profesor-virtual\?tab=interactive"/);
   assert.match(p, /to="\/profil\?mesagerie=1"/, 'deschide mesageria grupei din „Contul meu"');
   assert.match(p, /note, plusuri, minusuri, aprecieri/);
   assert.ok(!/pregateste|PregatireCard/i.test(p));
+});
+
+test('Home: fără „Părerea ta despre ExamenMate" — recenzia se lasă din „Lasă o recenzie" (sfârșitul paginii) și din „Contul meu"', () => {
+  const a = read('src/components/AcasaCont.jsx');
+  assert.ok(!/ParereCard|SiteReviewForm|acasa-parere|<b>Părerea ta/.test(a), 'niciun card / formular de recenzie în cardurile din Home');
+  assert.ok(!/\.acasa-parere/.test(read('src/styles/global.css')));
+  // la sfârșitul Home, pentru toate conturile: „Ce spun elevii, părinții și profesorii" cu „Lasă o recenzie"
+  const home = read('src/pages/Home.jsx');
+  assert.ok(home.indexOf('<Testimonials limit={6} />') > home.indexOf('<AcasaProfesor />'));
+  assert.ok(!/\{[^{}\n]*&& <Testimonials/.test(home), '„Lasă o recenzie" nu depinde de tipul de cont');
+  assert.match(read('src/components/ReviewWidget.jsx'), /<Link to="\/recenzii#formular" className="btn btn-primary">Lasă o recenzie<\/Link>/);
+  // și în „Contul meu"
+  assert.match(read('src/pages/Profile.jsx'), /className="card" id="parere"[\s\S]{0,600}<SiteReviewForm compact \/>/);
 });
 
 test('Home: fără <a> în <a> și fără butoane în linkuri (cardurile cu linkuri proprii sunt <div>)', () => {
@@ -62,7 +85,8 @@ test('Home: fără <a> în <a> și fără butoane în linkuri (cardurile cu link
   assert.match(a, /if \(!extra\) \{\s*\n\s*return <Link to=\{to\} className="acasa-card"/);
   assert.match(a, /<div className="acasa-card acasa-card-div"[^>]*>\s*\n\s*<Link to=\{to\} className="acasa-card-link" aria-label=\{titlu\} \/>/);
   const css = read('src/styles/global.css');
-  assert.match(css, /\.acasa-grid \{ display: grid; grid-template-columns: repeat\(auto-fill, minmax\(250px, 1fr\)\);/);
+  // auto-fit: cele 3 carduri ale părintelui umplu rândul (fără loc gol în dreapta)
+  assert.match(css, /\.acasa-grid \{ display: grid; grid-template-columns: repeat\(auto-fit, minmax\(250px, 1fr\)\);/);
   assert.match(css, /\.acasa-card-link \{ position: absolute; inset: 0;/);
 });
 

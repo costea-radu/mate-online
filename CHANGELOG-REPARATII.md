@@ -4,6 +4,17 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 11 noiembrie 2026 (seara) — Home: fără „Părerea ta despre ExamenMate"
+
+Cererea: „Scoate «părerea ta despre ExamenMate» din home, există la sfârșit «lasă o recenzie»."
+
+- Cardul „⭐ Părerea ta despre ExamenMate" (cu formularul de recenzie) a dispărut din Home, la toate conturile (elev, părinte, profesor). Recenzia se lasă din „Lasă o recenzie", în secțiunea „Ce spun elevii, părinții și profesorii" de la sfârșitul paginii (→ `/recenzii#formular`; secțiunea apare cât timp există cel puțin o recenzie publicată), și din „Contul meu" (cardul „⭐ Părerea ta despre ExamenMate", neschimbat). (`src/components/AcasaCont.jsx`, `src/styles/global.css`)
+- Grila cardurilor din Home: `auto-fit` în loc de `auto-fill` — cele 3 carduri ale părintelui umplu rândul pe calculator (fără loc gol în dreapta); la elev și la profesor (4 carduri) nu se schimbă nimic.
+
+**Verificat:** `test/acasa-cont.test.js` (9; nou: „fără «Părerea ta»"), `npm test`, `vite build`; în Chromium, calculator și telefon (390 px): Home pentru elev / părinte / profesor — 4 / 3 / 4 carduri, „Lasă o recenzie" la sfârșitul paginii la toate trei.
+
+---
+
 ## 11 noiembrie 2026 — nota cu roșu și pe PDF (din orice corectare) · meditații live: „⏭ Înainte" în două trepte · „Contul meu" cu rezultatele primele · asistentul părinților: „📝 Creează o temă elevului" (fără AI) · Home pe tipul de cont · 📒 catalogul profesorului (note, plusuri, minusuri, aprecieri)
 
 Cererea:
