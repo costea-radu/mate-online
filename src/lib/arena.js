@@ -61,6 +61,22 @@ export function testCorectat({ contentId = null, saved = null } = {}) {
   try { window.dispatchEvent(new CustomEvent('em:corectat', { detail: { contentId } })); } catch { /* SSR */ }
 }
 
+// 🔴 Nota pe PDF (11 nov. 2026 — „fă să se treacă nota cu roșu și pe PDF"): o corectare
+// din panoul Profesorului Virtual (formularul „📝 Răspunde în chat", foaia de lucru) a
+// dat o notă testului PDF deschis → vizualizatorul o scrie cu roșu sus, pe prima pagină,
+// și derulează acolo (src/pages/PDFViewer.jsx).
+export function notaPdfCorectata({ contentId = null, libraryId = null, nota = null, score = null, total = null, sursa = null } = {}) {
+  const v = Number(nota);
+  if ((!contentId && !libraryId) || nota == null || !Number.isFinite(v)) return;
+  try { window.dispatchEvent(new CustomEvent('em:nota-pdf', { detail: { contentId, libraryId, nota: v, score, total, sursa } })); } catch { /* SSR */ }
+}
+
+export function onNotaPdf(fn) {
+  const h = (e) => fn(e.detail || null);
+  window.addEventListener('em:nota-pdf', h);
+  return () => window.removeEventListener('em:nota-pdf', h);
+}
+
 export function onTestCorectat(fn) {
   const h = (e) => fn(e.detail || null);
   window.addEventListener('em:corectat', h);

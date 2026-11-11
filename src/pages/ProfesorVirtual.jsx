@@ -29,6 +29,7 @@ import OptiuneSpatiuLucru from '../components/OptiuneSpatiuLucru';
 import TesteDiferite from '../components/TesteDiferite';
 import { deschidePdf, pdfInPagina } from '../lib/pdfOpen';
 import { pageWindow } from '../lib/paginare';
+import TemaAutomata from '../components/TemaAutomata';
 
 const CATEGORIES = [
   { id: '', label: 'Toate' },
@@ -60,6 +61,35 @@ export default function ProfesorVirtual() {
   //  /profil?topup=... — unde rolldown-ul „⚡ Consum AI" se deschide singur.)
 
   if (loading) return <div style={{ padding: 60, textAlign: 'center' }}><div className="spinner" /></div>;
+
+  // ── PĂRINTE (11 nov. 2026): „asistentul AI să facă doar asta: creează o temă elevului,
+  // ceea ce creează automat o temă pentru nivelul elevului, sau subiect de examen din cele
+  // din site, fără AI" — fără chat și fără generatoare; doar panoul temei automate.
+  if (isParent && !isTeacher) {
+    return (
+      <div style={{ maxWidth: 'var(--container)', margin: '0 auto', padding: '32px 20px 60px' }}>
+        <div style={{ marginBottom: 20 }}>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(1.8rem,4vw,2.6rem)', color: 'var(--navy)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <EinsteinIcon size={48} /> {aiAssistantLabel({ isTeacher, isParent })}
+          </h1>
+          <p style={{ color: 'var(--text-light)', maxWidth: 640 }}>
+            Dă-i copilului tău o temă potrivită, cu un singur clic: exerciții pe nivelul lui sau un subiect de examen din site.
+          </p>
+        </div>
+        {!user ? (
+          <div style={{ textAlign: 'center', padding: 50, background: '#f7f9fc', borderRadius: 'var(--radius-lg)' }}>
+            <div style={{ fontSize: '3rem', marginBottom: 12 }}>🔒</div>
+            <p style={{ color: 'var(--text-light)', marginBottom: 18 }}>Autentifică-te ca să-i dai copilului tău o temă.</p>
+            <Link to="/autentificare" className="btn btn-primary">Autentificare</Link>
+          </div>
+        ) : (
+          <div className="card" style={{ maxWidth: 820 }}>
+            <TemaAutomata />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   const TABS = isStudentView
     ? [

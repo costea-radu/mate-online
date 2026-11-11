@@ -686,9 +686,9 @@ async function inkMaskOf(page) {
   } catch { return null; }   // fără randare: păstrăm tot textul
 }
 // Textul paginilor, cu pozițiile (pentru harta testului)
-export async function readTextPages(doc, { onlyVisible = true } = {}) {
+export async function readTextPages(doc, { onlyVisible = true, maxPages = Infinity } = {}) {
   const pages = [];
-  for (let n = 1; n <= doc.numPages; n++) {
+  for (let n = 1; n <= Math.min(doc.numPages, maxPages); n++) {
     // eslint-disable-next-line no-await-in-loop
     const page = await doc.getPage(n);
     // eslint-disable-next-line no-await-in-loop
@@ -826,6 +826,26 @@ export function veziNota({ lin = true, doc = docImplicit() } = {}) {
   if (typeof holder.scrollTo === 'function') holder.scrollTo({ ...poz, behavior: lin ? 'smooth' : 'auto' });
   else { holder.scrollTop = poz.top; holder.scrollLeft = poz.left; }
   return poz;
+}
+
+// „Fă să se treacă nota cu roșu și pe PDF, la început și să se deruleze la partea de la
+// început unde s-a trecut nota" (11 nov. 2026): după FIECARE corectare cu notă (nu doar
+// prima din vizită), oricare ar fi drumul ei — „✏️ Rezolvă pe PDF", foaia de lucru sau
+// formularul din chat —, pagina se derulează la începutul testului, unde e nota. Nota
+// poate apărea abia după o clipă (vizualizatorul site-ului se încarcă, paginile se
+// așază): o așteptăm cel mult `timeoutMs`. → poziția derulării sau null.
+export function asteaptaSiVeziNota({ timeoutMs = 6000, pasMs = 120, lin = true, doc = docImplicit() } = {}) {
+  return new Promise((ok) => {
+    const t0 = Date.now();
+    const incearca = () => {
+      const e = notaEl(doc);
+      const b = e && e.g.getBoundingClientRect();
+      if (b && b.width > 0 && b.height > 0) { ok(veziNota({ lin, doc })); return; }
+      if (Date.now() - t0 >= timeoutMs) { ok(null); return; }
+      setTimeout(incearca, pasMs);
+    };
+    incearca();
+  });
 }
 
 // cutiile rândurilor de text ale unei pagini citite cu readTextPages (puncte,

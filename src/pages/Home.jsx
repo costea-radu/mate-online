@@ -5,6 +5,7 @@ import AIPoweredBy from '../components/AIPoweredBy';
 import { Testimonials } from '../components/ReviewWidget';
 import { useAuth } from '../context/AuthContext';
 import { arenaState, onArenaChange } from '../lib/arena';
+import { AcasaElev, AcasaParinte, AcasaProfesor } from '../components/AcasaCont';
 
 // ─── „🎯 Pregătește-mă de examen" — cardul mare de sub bara albastră (8 nov. 2026)
 // Primul card din Home: testul zilei, amintirea zilnică, XP și liga. Pentru
@@ -28,7 +29,7 @@ function PregatireCard() {
       <div className="container">
         <Link to="/pregateste-ma" className="pz-home-card">
           <div className="pz-home-text">
-            <div className="pz-home-kicker">Nou · un test pe zi, cu serie și ligă</div>
+            <div className="pz-home-kicker">Un test pe zi, cu serie și ligă</div>
             <h2>🎯 Pregătește-mă de examen</h2>
             <p>
               Alegi examenul — <strong>Evaluarea Națională</strong> sau <strong>Bacalaureatul</strong> — și primești în fiecare zi
@@ -56,7 +57,11 @@ function PregatireCard() {
 }
 
 export default function Home() {
-  const { user, isPremium } = useAuth();
+  const { user, isPremium, isTeacher, isParent } = useAuth();
+  // prima pagină pe tipul de cont (11 nov. 2026 — src/components/AcasaCont.jsx):
+  // elevul (și vizitatorul) păstrează „Pregătește-mă de examen"; părintele și
+  // profesorul au în locul lui cardurile contului lor
+  const cont = !user ? 'vizitator' : isTeacher ? 'profesor' : isParent ? 'parinte' : 'elev';
   const categories = [
     { to: '/clase/5',  icon: '5',  title: 'Clasa a V-a',    desc: 'Exerciții și teste PDF, interactive' },
     { to: '/clase/6',  icon: '6',  title: 'Clasa a VI-a',   desc: 'Exerciții și teste PDF, interactive' },
@@ -96,8 +101,13 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 🎯 Pregătește-mă de examen — cardul mare, înaintea tuturor cardurilor */}
-      <PregatireCard />
+      {/* 🎯 Pregătește-mă de examen — cardul mare, înaintea tuturor cardurilor (elev / vizitator);
+          sub el, la elev: insignele, rezultatele, temele, mesageria, părerea ta.
+          Părintele și profesorul: cardurile contului lor, fără „Pregătește-mă" */}
+      {(cont === 'vizitator' || cont === 'elev') && <PregatireCard />}
+      {cont === 'elev' && <AcasaElev />}
+      {cont === 'parinte' && <AcasaParinte />}
+      {cont === 'profesor' && <AcasaProfesor />}
 
       {/* Exams */}
       <section className="section" id="examene">

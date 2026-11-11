@@ -1,5 +1,33 @@
 const { createClient } = require('@supabase/supabase-js');
 const { handledMethod, authUser } = require('./_lib/http');
+const NP = require('./_lib/noteProfesor');   // 📒 catalogul: note, plusuri, minusuri, aprecieri (11 nov. 2026)
+
+// notificarea unei note / unui plus / minus / unei aprecieri (nu oprește salvarea)
+async function notifyMark(supabase, mark, { teacherName, studentName }) {
+  const send = async (recipientId, n, key) => {
+    try {
+      const { data: ex } = await supabase.from('ai_notifications').select('id')
+        .eq('recipient_id', recipientId).eq('dedupe_key', key).limit(1);
+      if (ex && ex.length) return;
+      await supabase.from('ai_notifications').insert({
+        recipient_id: recipientId, type: 'catalog', title: n.title.slice(0, 200), body: n.body ? String(n.body).slice(0, 600) : null,
+        data: { url: '/profil?rezultate=1', markId: mark.id, kind: mark.kind }, dedupe_key: key,
+      });
+    } catch (e) { console.warn('catalog: notificarea nu a plecat:', e.message); }
+  };
+  const prof = teacherName ? `prof. ${teacherName}` : 'profesorul tău';
+  await send(mark.student_id, NP.notificare(mark, { profesor: prof, cui: 'elev' }), `catalog:${mark.id}`);
+  // părinții elevului (asociați cu rolul „parinte")
+  try {
+    const { data: parents } = await supabase.from('mentor_students').select('mentor_id')
+      .eq('student_id', mark.student_id).eq('mentor_role', 'parinte');
+    const elev = (studentName || 'Copilul tău').split(' ')[0];
+    for (const p of parents || []) {
+      // eslint-disable-next-line no-await-in-loop
+      await send(p.mentor_id, NP.notificare(mark, { profesor: prof, elev, cui: 'parinte' }), `catalog:${mark.id}:p`);
+    }
+  } catch { /* fără părinți asociați */ }
+}
 
 module.exports = async function handler(req, res) {
   if (handledMethod(req, res)) return;
@@ -39,9 +67,22 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({ mentors });
   }
 
+  // 📒 Elevul: ce i-au dat profesorii (note, plusuri, minusuri, aprecieri) — oricine își
+  // vede doar rândurile lui (src/pages/Profile.jsx → „Rezultatele mele", Home)
+  if (action === 'my_marks') {
+    const { data, error } = await supabase.from('teacher_marks')
+      .select('id, teacher_id, teacher_name, kind, value, title, comment, created_at')
+      .eq('student_id', userId).order('created_at', { ascending: false }).limit(200);
+    if (error) {
+      if (NP.lipsaTabela(error)) return res.status(200).json({ marks: [], setup: false });
+      return res.status(500).json({ error: error.message });
+    }
+    return res.status(200).json({ marks: data || [], setup: true });
+  }
+
   const { data: caller, error: callerErr } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, full_name')
     .eq('id', userId)
     .maybeSingle();
   if (callerErr) return res.status(500).json({ error: callerErr.message });
@@ -61,6 +102,10 @@ module.exports = async function handler(req, res) {
   }
   // Mediile încheiate — profesorii și părinții (părintele are un singur copil,
   // deci doar media „pe elev"; media pe grupă rămâne a profesorului).
+  // 📒 Catalogul (note, plusuri, minusuri, aprecieri) → doar profesorii
+  if ((action === 'add_mark' || action === 'delete_mark') && !isTeacher) {
+    return res.status(403).json({ error: 'Doar profesorii pot da note, plusuri, minusuri și aprecieri.' });
+  }
   if ((action === 'close_average' || action === 'close_averages' || action === 'delete_average') && !isMentor) {
     return res.status(403).json({ error: 'Acces interzis.' });
   }
@@ -298,6 +343,49 @@ module.exports = async function handler(req, res) {
         .from('mentor_grade_periods').insert(row).select('*').single();
       if (error) throw error;
       return res.status(200).json({ ok: true, period: saved });
+    }
+
+    // ─── 📒 CATALOGUL: NOTĂ / PLUS / MINUS / APRECIERE (11 nov. 2026) ──────
+    // Profesorul îi dă unui elev asociat lui o notă (1–10), un plus, un minus sau o
+    // apreciere. Elevul și părinții lui primesc o notificare; notele intră în mediile
+    // profesorului (src/components/TeacherResults.jsx → gradesOf).
+    if (action === 'add_mark') {
+      const studentId = req.body.studentId;
+      if (!studentId) return res.status(400).json({ error: 'studentId obligatoriu' });
+      const v = NP.validateMark(req.body);
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      const { data: link } = await supabase.from('mentor_students')
+        .select('student_id, group_id').eq('mentor_id', userId).eq('student_id', studentId).maybeSingle();
+      let groupId = link ? (link.group_id || null) : null;
+      if (!link) {
+        const { data: legacy } = await supabase.from('profiles')
+          .select('id').eq('id', studentId).eq('teacher_id', userId).maybeSingle();
+        if (!legacy) return res.status(403).json({ error: 'Elevul nu este asociat contului tău.' });
+        groupId = null;
+      }
+      const { data: stud } = await supabase.from('profiles').select('full_name').eq('id', studentId).maybeSingle();
+      const teacherName = caller.full_name || null;
+      const { data: saved, error } = await supabase.from('teacher_marks').insert({
+        teacher_id: userId, teacher_name: teacherName, student_id: studentId, group_id: groupId, ...v.row,
+      }).select('*').single();
+      if (error) {
+        if (NP.lipsaTabela(error)) {
+          return res.status(500).json({ error: 'Catalogul are nevoie de tabela `teacher_marks`. Rulează supabase/catalog_profesor.sql în Supabase → SQL Editor.', code: 'SETUP' });
+        }
+        throw error;
+      }
+      await notifyMark(supabase, saved, { teacherName, studentName: stud?.full_name || null });
+      return res.status(200).json({ ok: true, mark: saved });
+    }
+
+    if (action === 'delete_mark') {
+      const { markId } = req.body;
+      if (!markId) return res.status(400).json({ error: 'markId obligatoriu' });
+      const { data: gone, error } = await supabase.from('teacher_marks').delete()
+        .eq('id', markId).eq('teacher_id', userId).select('id');
+      if (error) throw error;
+      if (!gone || !gone.length) return res.status(404).json({ error: 'Rândul nu există (sau nu l-ai dat tu).' });
+      return res.status(200).json({ ok: true });
     }
 
     // Ștergerea unei medii încheiate: notele ei se întorc în perioada curentă.

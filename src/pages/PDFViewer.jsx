@@ -16,9 +16,10 @@ import { examDocumentHtml, printExam } from '../lib/examPrint';
 import { useBaraSusVizibila, paddingBara } from '../lib/baraSus';
 // „✏️ Rezolvă pe PDF" (7 nov. 2026): stratul invizibil de scris peste paginile
 // testelor de Evaluare Națională + „✅ Corectează" (api/rezolva-pdf.js)
-import { useRezolvarePdf, rezolvareToolbar, RezolvareFooter } from '../components/RezolvarePdf';
+import { useRezolvarePdf, rezolvareToolbar, RezolvareFooter, NotaPagina, cutiiPagina1 } from '../components/RezolvarePdf';
 import PregatireToast, { deAratat } from '../components/PregatireToast';
-import { onPregatire, arenaChanged, onTestCorectat } from '../lib/arena';
+import { onPregatire, arenaChanged, onTestCorectat, onNotaPdf } from '../lib/arena';
+import { asteaptaSiVeziNota } from '../lib/pdfRezolvare';
 import { ReviewToast } from '../components/ReviewWidget';
 
 function isMobile() {
@@ -97,7 +98,16 @@ export default function PDFViewer() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewCerut, setReviewCerut] = useState(false);
   const reviewAskedRef = useRef(new Set());
-  const notaArataRef = useRef(false);     // 🔴 nota de pe test, arătată după prima corectare din vizită
+  // 🔴 NOTA PE TEST (11 nov. 2026 — „fă să se treacă nota cu roșu și pe PDF, la început și
+  // să se deruleze la partea de la început unde s-a trecut nota"): după FIECARE corectare cu
+  // notă — „✏️ Rezolvă pe PDF", foaia de lucru sau formularul din chat (panoul profesorului,
+  // la orice PDF, și la BAC) — nota se scrie cu roșu sus, pe prima pagină, iar paginile se
+  // derulează la ea. Nota rămâne pe test și după ce elevul închide modul de rezolvare.
+  // Se desenează în vizualizatorul site-ului: pe calculator, unde era al browserului,
+  // vizualizatorul trece pe al site-ului (doar în vizita asta; alegerea salvată rămâne).
+  const [notaExt, setNotaExt] = useState(null);   // { v, at, sursa } — din panoul profesorului
+  const [notaCutii, setNotaCutii] = useState(null);
+  const prefInainteDeNota = useRef(undefined);
   const pregItemiRef = useRef(-1);
   const [lib, setLib] = useState(null);             // rândul din ai_public_library (kind 'pdf' | 'exam')
   const [examHtml, setExamHtml] = useState(null);   // testul generat (kind 'exam'), ca document HTML
@@ -307,6 +317,16 @@ export default function PDFViewer() {
   const rezolvaFoaie = !canSolve && (!!pdfData || !!examHtml) && !isBaremItem && baremStatus !== 'este_barem';
   const inkKey = isLib ? (lib?.id ? `lib:${lib.id}` : null) : (item?.id || null);
   const solve = useRezolvarePdf({ on: solveActive, data: pdfData, draftKey: inkKey });
+  // 🔴 nota de pe test în afara modului de rezolvare: cea din panoul profesorului (vizita
+  // asta) sau a ultimei corectări „✏️ Rezolvă pe PDF" (ciorna testului, și din altă vizită)
+  const notaSursa = notaExt || (solve.nota && solve.nota.v != null ? solve.nota : null);
+  useEffect(() => {
+    if (!notaSursa || !pdfData) return undefined;
+    let viu = true;
+    cutiiPagina1(pdfData).then((c) => { if (viu) setNotaCutii(c); });
+    return () => { viu = false; };
+  }, [!!notaSursa, pdfData]); // eslint-disable-line react-hooks/exhaustive-deps
+  const notaPeTest = notaSursa && !examHtml ? { v: notaSursa.v, vechi: false, cutii: notaSursa.cutii || notaCutii || null } : null;
   useEffect(() => {
     if (solveActive && solve.mapState === 'fail') {
       setNote({ text: 'Nu am recunoscut structura acestui PDF (subiectele și exercițiile). Poți scrie pe el; la „✅ Corectează" îl citește profesorul virtual (Premium).' });
@@ -424,7 +444,33 @@ export default function PDFViewer() {
     const t = setTimeout(() => { reviewAskedRef.current.add(id); setReviewCerut(false); setReviewOpen(true); }, 1500);
     return () => clearTimeout(t);
   }, [reviewCerut, pregRez, user, isLib, item?.id, reviewSkipKey]);
-  useEffect(() => { setReviewOpen(false); setReviewCerut(false); notaArataRef.current = false; }, [item?.id]);
+  useEffect(() => {
+    setReviewOpen(false); setReviewCerut(false); setNotaExt(null); setNotaCutii(null);
+    // vizualizatorul ales înainte de notă revine la testul următor
+    if (prefInainteDeNota.current !== undefined) { setViewerPref(prefInainteDeNota.current); prefInainteDeNota.current = undefined; }
+  }, [item?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // nota se desenează doar în vizualizatorul site-ului: îl pornim (vizita asta) și
+  // închidem baremul deschis, ca testul cu nota să fie pe ecran
+  function aratăTestulPentruNota() {
+    setViewerFailed(false);
+    if (baremView.open) setBaremView((v) => ({ ...v, open: false, page: 1, seq: v.seq + 1 }));
+    setViewerPref((p) => {
+      if (p === 'intern') return p;
+      if (prefInainteDeNota.current === undefined) prefInainteDeNota.current = p;
+      return 'intern';
+    });
+  }
+  // 🔴 nota venită din panoul profesorului (foaia de lucru, formularul „Răspunde în chat")
+  useEffect(() => onNotaPdf((d) => {
+    if (!d) return;
+    const alTestului = isLib ? (!!d.libraryId && d.libraryId === (lib?.id || libId)) : (!!d.contentId && d.contentId === item?.id);
+    if (!alTestului || examHtml) return;   // (testul generat, ca pagină HTML: nota rămâne în chat)
+    setNotaExt({ v: d.nota, at: Date.now(), sursa: d.sursa || null });
+    aratăTestulPentruNota();
+    setNote({ text: `📝 Nota ${String(Number(d.nota).toFixed(2)).replace('.', ',')} e scrisă cu roșu sus, pe prima pagină a testului.` });
+    setTimeout(() => { asteaptaSiVeziNota(); }, 350);
+  }), [item?.id, lib?.id, libId, isLib, baremView.open, !!examHtml]); // eslint-disable-line react-hooks/exhaustive-deps
   function closeReview() {
     setReviewOpen(false);
     try { if (reviewSkipKey) sessionStorage.setItem(reviewSkipKey, '1'); } catch { /* ignore */ }
@@ -517,11 +563,13 @@ export default function PDFViewer() {
       });
       if (h) h.done(r.text, { conversationId: r.conversationId, messageId: r.messageId });
       solve.keepResult(r, req.sigs);
-      // 🔴 prima notă din vizita asta: o arătăm pe test (e scrisă sus, pe prima pagină),
-      // dacă elevul e pe altă pagină — după ce nota s-a desenat
-      if (r.nota != null && !notaArataRef.current) {
-        notaArataRef.current = true;
-        setTimeout(() => { if (!solve.notaPeEcran()) solve.veziNota(); }, 450);
+      // 🔴 după FIECARE corectare cu notă: paginile se derulează la începutul testului,
+      // unde e nota (scrisă sus, pe prima pagină) — după ce s-a desenat; nota rămâne pe
+      // test și după închiderea modului (vizualizatorul site-ului rămâne pornit)
+      if (r.nota != null) {
+        setNotaExt(null);   // cea mai nouă notă e acum cea de pe PDF
+        aratăTestulPentruNota();
+        setTimeout(() => { solve.asteaptaSiVeziNota(); }, 350);
       }
       if (r.saved && r.saved.kind === 'progress') cereRecenzie();   // ⭐ „Cum ți s-a părut testul?"
       arataPregatire(r.pregatire);   // „🎯 Pregătește-mă de examen": ziua bifată / cât mai e
@@ -934,7 +982,7 @@ export default function PDFViewer() {
     overlay: solve.overlay,
     toolbar: rezolvareToolbar({ solve, compact: narrow, busy: solveBusy, onCorect: corecteazaPePdf, onClose: toggleSolve, onDownload: descarcaPdfRezolvat, premium: isPremium || isAdmin }),
     footer: <RezolvareFooter solve={solve} busy={solveBusy} onCorect={corecteazaPePdf} premium={isPremium || isAdmin} />,
-  } : {};
+  } : (notaPeTest ? { overlay: ({ n, w, h }) => <NotaPagina n={n} w={w} h={h} nota={notaPeTest} /> } : {});
   const badgeJsx = !tiny && <span style={badge} title={isLib ? 'Material din Biblioteca utilizatorilor' : undefined}>{isLib ? '🏛️ ' : ''}{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>;
 
   // ── 📑 „Ascunde paginile" (pe calculator, la PDF-urile din vizualizatorul browserului):

@@ -1073,7 +1073,10 @@ export default function LiveRoom({ demo = null }) {
             {ps?.status === 'pauza'
               ? <button type="button" className="lv-ctl is-accent" onClick={() => playerRef.current?.resume()}><span className="lv-ctl-ico">▶</span><span className="lv-ctl-t">Continuă</span></button>
               : <button type="button" className="lv-ctl" onClick={() => playerRef.current?.pause()} title="Profesorul se oprește"><span className="lv-ctl-ico">⏸</span><span className="lv-ctl-t">Pauză</span></button>}
-            <button type="button" className="lv-ctl" onClick={() => playerRef.current?.nextItem()} title="Itemul următor"><span className="lv-ctl-ico">⏭</span><span className="lv-ctl-t">Înainte</span></button>
+            {/* ⏭ în două trepte: cât se citește enunțul → la rezolvarea pe tablă; apoi → exercițiul următor */}
+            <button type="button" className="lv-ctl" onClick={() => playerRef.current?.skipForward()}
+              title={ps?.scene?.type === 'item' && !ps?.inserted ? 'Sari peste citirea enunțului — la rezolvarea pe tablă' : 'Exercițiul următor'}>
+              <span className="lv-ctl-ico">⏭</span><span className="lv-ctl-t">Înainte</span></button>
             <button type="button" className={`lv-ctl lv-ctl-items${panel === 'items' ? ' is-on' : ''}`} onClick={() => setPanel(panel === 'items' ? null : 'items')} title="Alege orice exercițiu, nu neapărat la rând">
               <span className="lv-ctl-ico">📋</span><span className="lv-ctl-t">Exerciții</span>
             </button>

@@ -2033,6 +2033,52 @@ body.sidebar-deschis .app-shell { padding-left: var(--sidebar-w); }
   .pz-home-pasi small { font-size: .76rem; line-height: 1.35; }
 }
 
+/* ─── Home pe tipul de cont (11 nov. 2026 — src/components/AcasaCont.jsx) ─────────
+   Elev: insignele, rezultatele, temele, mesageria, părerea ta (sub „Pregătește-mă");
+   părinte / profesor: cardurile contului lor, în locul lui „Pregătește-mă". */
+.acasa { padding: 18px 0 6px; }
+.acasa-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.acasa-head h2 { font-family: var(--font-display); color: var(--navy); font-size: 1.45rem; margin: 0; }
+.acasa-head p { color: var(--text-muted); font-size: .9rem; margin: 0; }
+.acasa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.acasa-grid > * { min-width: 0; }
+.acasa-card {
+  position: relative; display: flex; align-items: flex-start; gap: 12px; text-decoration: none; color: var(--text);
+  background: #fff; border: 1px solid var(--border); border-left: 4px solid var(--acasa-accent, var(--gold));
+  border-radius: 14px; padding: 14px 14px 14px 12px; min-height: 92px;
+  transition: transform .15s, box-shadow .15s; box-shadow: 0 2px 10px rgba(15, 43, 68, .05);
+}
+a.acasa-card:hover, .acasa-card-div:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(15, 43, 68, .12); }
+a.acasa-card:focus-visible, .acasa-card-link:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.acasa-card-link { position: absolute; inset: 0; border-radius: 14px; z-index: 0; }
+.acasa-card-div .acasa-txt a, .acasa-card-div .acasa-txt button { position: relative; z-index: 1; }
+.acasa-ic { font-size: 1.55rem; width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: rgba(232, 185, 49, .16); }
+.acasa-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.acasa-txt > b { color: var(--navy); font-size: 1rem; line-height: 1.25; }
+.acasa-txt > small { color: var(--text-muted); font-size: .8rem; line-height: 1.4; }
+.acasa-txt > small a { color: var(--navy); font-weight: 700; }
+.acasa-go { color: var(--gold-dim, #b8860b); font-weight: 800; font-size: 1.1rem; align-self: center; }
+.acasa-mic { font-size: .8rem; color: var(--navy); font-weight: 600; margin-top: 3px; }
+.acasa-linkuri { display: flex; gap: 12px; flex-wrap: wrap; }
+.acasa-linkuri a { color: var(--navy); text-decoration: underline; font-weight: 700; }
+.acasa-pill { align-self: flex-start; margin-top: 4px; font-size: .74rem; font-weight: 800; border-radius: 999px; padding: 2px 10px; }
+.acasa-pill-rosu { background: #e74c3c; color: #fff; }
+.acasa-insigne { display: flex; gap: 4px; flex-wrap: wrap; font-size: 1.25rem; margin-top: 4px; }
+.acasa-insigne em { font-style: normal; font-size: .78rem; font-weight: 800; color: var(--text-muted); align-self: center; }
+.acasa-link { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.acasa-link code { flex: 1 1 150px; min-width: 0; font-size: .72rem; background: var(--cream); border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.acasa-link button { border: 1.5px solid var(--navy); background: #fff; color: var(--navy); border-radius: 8px; padding: 3px 10px; font-size: .76rem; font-weight: 700; cursor: pointer; }
+/* Home → „Contul meu": secțiunea derulată rămâne sub bara de sus (lipicioasă) */
+#rezultate, #rezultate-elevi, #insigne, #teme, #invita, #parere, #catalog { scroll-margin-top: 84px; }
+.acasa-parere { grid-column: 1 / -1; cursor: default; }
+.acasa-parere .acasa-txt { max-width: 760px; }
+.acasa-parere .acasa-go { display: none; }
+@media (max-width: 620px) {
+  .acasa-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .acasa-card { min-height: 0; padding: 12px 12px 12px 10px; }
+  .acasa-head h2 { font-size: 1.25rem; }
+}
+
 /* ─── Bara de stare pe iPhone (Safari 26, 8 nov. 2026) ─────────────────────────
    Safari 26 ignoră <meta name="theme-color"> în browser și colorează bara de stare
    după fundalul lui html/body (sau după o bară fixă / sticky de sus). Vizualizatoarele

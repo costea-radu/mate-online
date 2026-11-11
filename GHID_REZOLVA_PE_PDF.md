@@ -187,3 +187,24 @@ Nota să apară în statistici la «rezultate elevi»".
 - În listele de teste (EN, BAC, pe clase), cardul PDF arată, ca la cele interactive, rezultatul elevului din `progress`
   („✓ 17% · nota 2,50" + „15/90 pct"), media recenziilor („★ 4,6 (12)") și „💬 Părerile (n)".
 - După o corectare salvată apare cardul „Cum ți s-a părut testul?" (stele + comentariu) — `GHID_RECENZII_SI_MODELE_AI.md`.
+
+## Nota cu roșu din ORICE corectare și derularea la ea (11 nov. 2026)
+
+Cererea: „Fă să se treacă nota cu roșu și pe PDF, la început și să se deruleze la partea de la
+început unde s-a trecut nota."
+
+- **Foaia de lucru și formularul „📝 Răspunde în chat"** (panoul profesorului, la orice PDF — la BAC
+  „✏️ Rezolvă" deschide foaia de lucru) scriu și ele nota pe prima pagină: `AITutor` →
+  `notaPdfCorectata` (evenimentul `em:nota-pdf`, `src/lib/arena.js`) → `PDFViewer` (`onNotaPdf`) →
+  stratul `NotaPagina` (`src/components/RezolvarePdf.jsx`). Pe calculator, PDF-ul trece din
+  vizualizatorul browserului în al site-ului (doar în vizita asta; la testul următor revine alegerea
+  salvată), iar baremul deschis se închide, ca testul cu nota să fie pe ecran.
+- **Foaia de lucru dă nota testului** la subiectele de examen cu barem oficial (EN / BAC: 90 p + 10 din
+  oficiu; `notaDinFoaie` în `api/ai-handwriting.js`): ce nu e pe foaie are 0 puncte. Se salvează în
+  `progress` ca la „✏️ Rezolvă pe PDF" (o corectare identică în 30 de minute nu mai e o încercare).
+- **Derularea după FIECARE corectare cu notă** (nu doar prima din vizită): `asteaptaSiVeziNota`
+  (`src/lib/pdfRezolvare.js`) așteaptă până la 6 s să se deseneze nota, apoi aduce începutul primei
+  pagini pe ecran.
+- **Nota rămâne pe test** după închiderea modului „✏️ Rezolvă pe PDF" (vizualizatorul site-ului
+  rămâne pornit); pe telefon, nota ultimei corectări de pe PDF se vede și la redeschiderea testului.
+- Testele: `test/nota-pe-pdf.test.js`.

@@ -298,6 +298,17 @@ export const aiClient = {
   homeworkRename: ({ id, title }) => post('/api/homework', { action: 'rename', id, title }),
   homeworkDelete: ({ id }) => post('/api/homework', { action: 'delete', id }),
   homeworkStudentList: () => post('/api/homework', { action: 'student_list' }),
+  // 📝 „Creează o temă elevului" (asistentul părinților, 11 nov. 2026): tema se alege
+  // automat, FĂRĂ AI — pe nivelul elevului (clasa, ce n-a făcut / sub 70%) sau un
+  // subiect de examen din site
+  homeworkAutoOptions: () => post('/api/homework', { action: 'auto_options' }),
+  homeworkAuto: ({ studentId, fel = 'nivel', clasa = null, examen = null, numar = 5, dueAt = null, note = null } = {}) =>
+    post('/api/homework', { action: 'auto_create', studentId, fel, clasa, examen, numar, dueAt, note }),
+  // 📒 catalogul profesorului: note, plusuri, minusuri, aprecieri (api/teacher-manage.js)
+  catalogMine: () => post('/api/teacher-manage', { action: 'my_marks' }),
+  catalogAdd: ({ studentId, kind, value = null, title = null, comment = null }) =>
+    post('/api/teacher-manage', { action: 'add_mark', studentId, kind, value, title, comment }),
+  catalogDelete: ({ markId }) => post('/api/teacher-manage', { action: 'delete_mark', markId }),
   homeworkOpen: ({ id }) => post('/api/homework', { action: 'open', id }),
   homeworkScore: ({ progressId, score = null, maxScore = null, done = true }) =>
     post('/api/homework', { action: 'score', progressId, score, maxScore, done }),

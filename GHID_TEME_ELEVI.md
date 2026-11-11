@@ -88,6 +88,29 @@ notificare.
 Așa nu se dublează nimic și rezultatele apar și în „Rezultatele mele", și în
 raportul temei.
 
+## 6. Părinții: „📝 Creează o temă elevului" — automat, fără AI (11 nov. 2026)
+
+Cererea: „în contul de părinți, asistentul AI să facă doar asta: creează o temă elevului, ceea ce
+creează automat o temă pentru nivelul elevului, sau subiect de examen din cele din site, fără AI".
+
+- **Unde:** meniul → „Asistent AI pentru părinți" (`/profesor-virtual`) și widgetul plutitor al
+  părinților — arată DOAR acest panou (`src/components/TemaAutomata.jsx`); fără chat și fără generatoare.
+- **🧩 Temă pe nivelul lui:** 3, 5, 8 sau 10 exerciții interactive din clasa copilului, în ordinea din
+  site — întâi cele pe care nu le-a făcut niciodată, apoi cele la care a avut sub 70%; fără cele primite
+  deja ca temă în ultimele 60 de zile; dacă nu ajung, recapitulare (cele mai slabe întâi).
+- **📄 Subiect de examen:** un test din site al examenului lui (EN, BAC Mate-Info, Științele Naturii,
+  Tehnologic) — întâi unul nerezolvat, apoi cel mai slab.
+- Clasa: cea aleasă de copil în Arenă (misiunea zilnică) sau cea la care a lucrat cel mai mult;
+  examenul: cel din „Pregătește-mă de examen". Părintele le poate schimba. Fără abonamentul copilului —
+  doar materialele gratuite.
+- Tema e o temă obișnuită (`homework`, `student_id` = copilul, `teacher_id` = părintele): copilul e
+  anunțat și o găsește în „📌 Teme" (tabul apare și când are doar părinte asociat, cu „de la … (părinte)"),
+  iar părintele vede „📝 Temele date", cu raportul.
+- **API:** `api/homework.js` → `auto_options` (copiii, cu clasa și examenul lor), `auto_create`
+  (`{ studentId, fel: 'nivel'|'examen', clasa?, examen?, numar?, dueAt?, note? }` — părinte sau profesor,
+  doar pentru elevii lui); `mine` / `report` / `rename` / `delete` merg și pentru părinți (doar temele
+  date de ei). Alegerea: `api/_lib/temaAutomata.js` (fără niciun model AI). Teste: `test/tema-automata.test.js`.
+
 ## Fișiere
 
 **Noi:** `supabase/teme_elevi.sql`, `api/homework.js`, `api/_lib/catalog.js`,

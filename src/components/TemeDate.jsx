@@ -13,8 +13,10 @@ import { aiClient } from '../lib/aiClient';
 const td = { padding: '6px 8px', fontSize: '.8rem', borderBottom: '1px solid var(--border)' };
 const color = (p) => (p == null ? 'var(--text-muted)' : p >= 80 ? '#2e7d32' : p >= 50 ? '#e65100' : '#c62828');
 
-export default function TemeDate({ seed = 0 }) {
-  const [open, setOpen] = useState(false);
+// faraMesagerie — fără „💬 pe mesageria grupei" (părinții n-au grupă); deschisa — rolldown-ul
+// pornește deschis (asistentul părinților: „📝 Creează o temă elevului", 11 nov. 2026)
+export default function TemeDate({ seed = 0, faraMesagerie = false, deschisa = false }) {
+  const [open, setOpen] = useState(!!deschisa);
   const [list, setList] = useState(null);
   const [error, setError] = useState(null);
   const [openReport, setOpenReport] = useState(null);
@@ -105,8 +107,10 @@ export default function TemeDate({ seed = 0 }) {
                   onClick={() => { setRenaming(h.id); setName(h.title); }}>✎</button>
                 <button className="btn btn-sm btn-outline" title="Copiază linkul"
                   onClick={() => navigator.clipboard?.writeText(`${window.location.origin}${h.url}`)}>🔗</button>
-                <button className="btn btn-sm btn-outline" title="Trimite pe mesageria grupei"
-                  onClick={() => sendToChat(h)}>💬</button>
+                {!faraMesagerie && (
+                  <button className="btn btn-sm btn-outline" title="Trimite pe mesageria grupei"
+                    onClick={() => sendToChat(h)}>💬</button>
+                )}
                 <button className="btn btn-sm" style={{ color: '#c0392b' }} onClick={() => remove(h)}>🗑</button>
               </div>
               {openReport === h.id && <div style={{ flexBasis: '100%' }}><Raport id={h.id} /></div>}

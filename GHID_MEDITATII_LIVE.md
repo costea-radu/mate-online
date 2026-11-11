@@ -345,6 +345,12 @@ salvează după fiecare exercițiu.
 - **Ședința de grup**: lecția comună rămâne la ora ei (nu se prelungește pentru toți); cine
   continuă **1-la-1** după ea (sau e singur în sală) primește același tratament — până termină
   exercițiile, chiar dacă trece de ora de sfârșit.
+- **„⏭ Înainte" în două trepte (11 nov. 2026)** — „profesorul citește problema poate într-un ritm mai
+  încet decât elevul și când derulez în față, sare la exercițiul următor": cât profesorul citește
+  enunțul, „⏭" sare la **sfârșitul citirii — rezolvarea interactivă** (întrebarea „încercați singuri",
+  întrebările pe pași, explicația pe barem pe tablă); de acolo, următorul „⏭" duce la **exercițiul
+  următor**. Titlul butonului spune ce urmează. La fel în Pregătirea de examen. Tehnic:
+  `PrivatePlayer.skipTarget()` / `skipForward()` în `src/lib/live/player.js`.
 
 ---
 

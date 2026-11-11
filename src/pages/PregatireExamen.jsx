@@ -964,7 +964,10 @@ export default function PregatireExamen() {
           {ps?.status === 'pauza' && playing
             ? <button type="button" className="lv-ctl is-accent" onClick={() => playerRef.current?.resume()}><span className="lv-ctl-ico">▶</span><span className="lv-ctl-t">Continuă</span></button>
             : <button type="button" className="lv-ctl" disabled={!playing} onClick={() => playerRef.current?.pause()} title="Profesorul se oprește"><span className="lv-ctl-ico">⏸</span><span className="lv-ctl-t">Pauză</span></button>}
-          <button type="button" className="lv-ctl" disabled={!playing} onClick={() => playerRef.current?.nextItem()} title="Partea următoare (sau sfârșitul exercițiului)"><span className="lv-ctl-ico">⏭</span><span className="lv-ctl-t">Înainte</span></button>
+          {/* ⏭ în două trepte: cât se citește enunțul → la rezolvarea pe tablă; apoi → partea următoare */}
+          <button type="button" className="lv-ctl" disabled={!playing} onClick={() => playerRef.current?.skipForward()}
+            title={ps?.scene?.type === 'item' && !ps?.inserted ? 'Sari peste citirea enunțului — la rezolvarea pe tablă' : 'Partea următoare (sau sfârșitul exercițiului)'}>
+            <span className="lv-ctl-ico">⏭</span><span className="lv-ctl-t">Înainte</span></button>
           <button type="button" className="lv-ctl" onClick={raiseHand}><span className="lv-ctl-ico">✋</span><span className="lv-ctl-t">Mâna sus</span></button>
           <button type="button" className={`lv-ctl${panel === 'chat' ? ' is-on' : ''}`} onClick={() => setPanel(panel === 'chat' ? null : 'chat')}>
             <span className="lv-ctl-ico">💬</span><span className="lv-ctl-t">Întreabă</span>

@@ -6,6 +6,8 @@ import AITeacherReport from './AITeacherReport';
 import { DaTemaButton } from './TemaPicker';
 import TemeDate from './TemeDate';
 import { notaDinScor } from '../lib/nota';
+import { CatalogDialog, CatalogSumar, CatalogList } from './CatalogNote';
+import { aiClient } from '../lib/aiClient';
 
 const PER_PAGE = 10; // elevi pe pagină
 
@@ -33,6 +35,13 @@ function fmtTime(sec) {
 // următoare, care își primește propriul buton (Media 2) — ca în catalog.
 function gradesOf(student) {
   const out = [];
+  // 📒 notele date de profesor în catalog (11 nov. 2026) — intră în medie ca oricare
+  (student.marks || []).forEach((m) => {
+    if (m.kind !== 'nota' || m.value == null) return;
+    const v = Number(m.value);
+    if (!Number.isFinite(v)) return;
+    out.push({ nota: v, at: new Date(m.created_at || 0).getTime(), title: `📒 ${m.title || 'Notă de la profesor'}`, catalog: true });
+  });
   (student.rows || []).forEach((r) => {
     const n = notaDinScor(r.score, r.max_score);
     if (n == null) return;
@@ -343,7 +352,7 @@ function fallbackCopy(value, done) {
 }
 
 // ─── Bloc link de invitație (profesor sau părinte) ──────────────────────────
-function InviteBox({ inviteCode, displayName, role }) {
+function InviteBox({ inviteCode, displayName, role, jos = false }) {
   const navigate = useNavigate();
   const [copied, setCopied] = useState('');
   const [showMailOpts, setShowMailOpts] = useState(false);
@@ -387,12 +396,13 @@ function InviteBox({ inviteCode, displayName, role }) {
   }
 
   const title = isParent ? '🔗 Asociază-te cu copilul tău' : '🔗 Invită elevi';
+  const unde = jos ? 'mai sus' : 'mai jos';
   const intro = isParent
-    ? 'Trimite linkul de mai jos copilului tău, pe e-mail sau WhatsApp. Când dă clic pe link și se autentifică, este asociat automat contului tău și îi vei vedea rezultatele mai jos.'
-    : 'Trimite linkul de mai jos elevilor tăi, pe e-mail sau WhatsApp. Când dau clic pe link și se autentifică, sunt asociați automat contului tău și le vei vedea rezultatele mai jos.';
+    ? `Trimite linkul de mai jos copilului tău, pe e-mail sau WhatsApp. Când dă clic pe link și se autentifică, este asociat automat contului tău și îi vei vedea rezultatele ${unde}.`
+    : `Trimite linkul de mai jos elevilor tăi, pe e-mail sau WhatsApp. Când dau clic pe link și se autentifică, sunt asociați automat contului tău și le vei vedea rezultatele ${unde}.`;
 
   return (
-    <div className="card" style={{ marginBottom: 24 }}>
+    <div className="card" id="invita" style={{ marginBottom: 24 }}>
       <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 6, color: 'var(--navy)' }}>{title}</h3>
       <p style={{ color: 'var(--text-light)', fontSize: '0.9rem', marginBottom: 18 }}>{intro}</p>
 
@@ -539,7 +549,7 @@ function ProgressChart({ rows }) {
 }
 
 // ─── Rând elev (antet rolldown + detaliu cu Punctaj/Încercări/Timp/Progres) ──
-function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, onMove, onRemove, busy, onHomework, periods = [], onCloseAvg, onDeleteAvg }) {
+function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, onMove, onRemove, busy, onHomework, periods = [], onCloseAvg, onDeleteAvg, onCatalog = null, onDeleteMark = null }) {
   const hasRows = student.count > 0;
   const [showProgress, setShowProgress] = useState(false);
   const note = useMemo(() => gradesOf(student), [student]);
@@ -576,6 +586,8 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
           {hasRows
             ? `${student.count} ${student.count === 1 ? 'rezultat' : 'rezultate'}`
             : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Niciun rezultat încă</span>}
+          {/* 📒 catalogul: ultimele note, plusurile, minusurile, aprecierile */}
+          {(student.marks || []).length > 0 && <CatalogSumar marks={student.marks} style={{ display: 'flex', marginTop: 5 }} />}
         </td>
         <td style={{ padding: '11px 14px', textAlign: 'right', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -605,6 +617,14 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                   opacity: busy ? 0.6 : 1,
                 }}
               >🔒 Încheie media{noteNoi.length ? ` (${noteNoi.length})` : ''}</button>
+            )}
+            {/* 📒 „Notează" LÂNGĂ ELEV — notă, plus, minus, apreciere (11 nov. 2026) */}
+            {isTeacher && !student.archived && onCatalog && (
+              <button type="button" onClick={(e) => { e.stopPropagation(); onCatalog(student); }}
+                title={`Dă-i lui ${student.name.split(' ')[0]} o notă, un plus, un minus sau o apreciere`}
+                style={{ padding: '5px 11px', borderRadius: 8, fontWeight: 700, fontSize: '.76rem', border: '1.5px solid var(--gold)', background: 'rgba(232,185,49,.16)', color: 'var(--navy)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                📒 Notează
+              </button>
             )}
             {/* „Dă temă" LÂNGĂ ELEV — tema merge doar lui */}
             {isTeacher && !student.archived && (
@@ -652,6 +672,25 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                 {student.archived ? '🗑 Șterge definitiv datele' : '🗑 Ștergere elev'}
               </button>
             </div>
+
+            {/* 📒 Catalogul: notele, plusurile, minusurile și aprecierile de la profesor */}
+            {!student.archived && (isTeacher || (student.marks || []).length > 0) && (
+              <div style={{ background: '#fff', borderRadius: 'var(--radius)', border: '1.5px solid rgba(232,185,49,.55)', padding: '12px 14px', marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <strong style={{ fontSize: '0.85rem', color: 'var(--navy)' }}>
+                    📒 Catalog — {isParent ? 'de la profesori' : 'note, plusuri, minusuri, aprecieri'}
+                  </strong>
+                  {isTeacher && onCatalog && (
+                    <button type="button" onClick={() => onCatalog(student)}
+                      style={{ padding: '5px 12px', borderRadius: 8, fontWeight: 700, fontSize: '.78rem', border: 'none', background: 'var(--gold)', color: 'var(--navy)', cursor: 'pointer' }}>
+                      + Notează
+                    </button>
+                  )}
+                </div>
+                <CatalogList marks={student.marks || []} onDelete={isTeacher ? onDeleteMark : null} showTeacher={isParent} limit={8}
+                  gol={isTeacher ? 'Încă nimic în catalog. „+ Notează": notă, plus, minus sau apreciere — elevul și părinții lui sunt anunțați.' : 'Încă nimic de la profesori.'} />
+              </div>
+            )}
 
             {/* Mediile elevului: cele încheiate + notele care intră în cea următoare */}
             {!student.archived && onCloseAvg && (
@@ -848,13 +887,17 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
 }
 
 // ─── Dashboard mentor (profesor cu grupe / părinte simplu) ──────────────────
-export default function TeacherResults({ user, inviteCode, displayName, role = 'profesor' }) {
+// defaultOpen — rezultatele pornesc deschise („Contul meu" al părintelui: primul lucru
+// de pe pagină, 11 nov. 2026); invitePos — caseta de invitație/asociere sus sau jos;
+// openStudentId — rândul unui elev deschis din start (ex. venit din Home)
+export default function TeacherResults({ user, inviteCode, displayName, role = 'profesor', defaultOpen = false, invitePos = 'top' }) {
   const isTeacher = role === 'profesor';
   const isParent = role === 'parinte';
-  const [data, setData] = useState({ students: [], results: [], groups: [], aiUsage: [], archived: [], meditatii: [], averages: [] });
+  const [data, setData] = useState({ students: [], results: [], groups: [], aiUsage: [], archived: [], meditatii: [], averages: [], marks: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!defaultOpen);
+  const [catalogFor, setCatalogFor] = useState(null);   // 📒 elevul notat acum
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState({});
@@ -876,7 +919,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Eroare server (${res.status})`);
-      setData({ students: json.students || [], results: json.results || [], groups: json.groups || [], aiUsage: json.aiUsage || [], archived: json.archived || [], meditatii: json.meditatii || [], averages: json.averages || [] });
+      setData({ students: json.students || [], results: json.results || [], groups: json.groups || [], aiUsage: json.aiUsage || [], archived: json.archived || [], meditatii: json.meditatii || [], averages: json.averages || [], marks: json.marks || [] });
     } catch (e) {
       setError(e.message || 'Nu s-au putut încărca rezultatele.');
     } finally { setLoading(false); }
@@ -934,6 +977,12 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
       if (!s) return;
       if (!s.aiOnly) s.aiOnly = [];
       s.aiOnly.push(r);
+    });
+    // 📒 catalogul: notele, plusurile, minusurile și aprecierile de la profesor
+    (data.marks || []).forEach((m) => {
+      const s = map.get(m.student_id);
+      if (!s) return;
+      (s.marks || (s.marks = [])).push(m);
     });
     // temele de la Meditații cu Profesorul Virtual (inclusiv cele generate)
     (data.meditatii || []).forEach((r) => {
@@ -1029,6 +1078,20 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
     if (window.confirm('Ștergi elevul din lista ta? Asocierea va fi eliminată (contul elevului rămâne).')) {
       manage('remove_student', { studentId: student.id });
     }
+  }
+
+  // ─── 📒 CATALOGUL: notă / plus / minus / apreciere ───────────────────────────
+  function catalogSaved(mark) {
+    if (!mark) return;
+    setData((d) => ({ ...d, marks: [mark, ...(d.marks || [])] }));
+  }
+  async function deleteMark(mark) {
+    const ce = mark.kind === 'nota' ? `nota ${mark.value}` : mark.kind === 'plus' ? 'plusul' : mark.kind === 'minus' ? 'minusul' : 'aprecierea';
+    if (!window.confirm(`Ștergi ${ce}${mark.title ? ` (${mark.title})` : ''} din catalog?`)) return;
+    try {
+      await aiClient.catalogDelete({ markId: mark.id });
+      setData((d) => ({ ...d, marks: (d.marks || []).filter((m) => m.id !== mark.id) }));
+    } catch (e) { alert(e.message || 'Nu s-a putut șterge.'); }
   }
 
   // ─── MEDIILE ÎNCHEIATE ────────────────────────────────────────────────────
@@ -1143,9 +1206,9 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
 
   return (
     <>
-      <InviteBox inviteCode={inviteCode} displayName={displayName} role={role} />
+      {invitePos !== 'bottom' && <InviteBox inviteCode={inviteCode} displayName={displayName} role={role} />}
 
-      <div className="card" style={{ marginBottom: 24 }}>
+      <div className="card" id="rezultate-elevi" style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <h3 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: 0 }}>
             📊 {isTeacher ? 'Grupe / Rezultate elevi' : 'Rezultate elevi'}{' '}
@@ -1285,7 +1348,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
               </div>
             ) : totalStudents === 0 ? (
               <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '28px 16px', fontSize: '0.92rem', background: 'var(--cream)', borderRadius: 'var(--radius)' }}>
-                Niciun elev asociat încă. Trimite linkul de invitație de mai sus.
+                {isParent ? 'Încă nu ești asociat cu copilul tău.' : 'Niciun elev asociat încă.'} Trimite linkul de {isParent ? 'asociere' : 'invitație'} de mai {invitePos === 'bottom' ? 'jos' : 'sus'}.
               </div>
             ) : filtered.length === 0 ? (
               <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '24px 16px', fontSize: '0.9rem' }}>
@@ -1319,6 +1382,8 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
                           periods={periodsByStudent[s.id] || []}
                           onCloseAvg={closeStudentAverage}
                           onDeleteAvg={deleteAverage}
+                          onCatalog={isTeacher ? (st) => setCatalogFor(st) : null}
+                          onDeleteMark={isTeacher ? deleteMark : null}
                         />
                       ))}
                     </tbody>
@@ -1339,6 +1404,11 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
           </div>
         )}
       </div>
+
+      {invitePos === 'bottom' && <InviteBox inviteCode={inviteCode} displayName={displayName} role={role} jos />}
+
+      {/* 📒 fereastra „Notează" (notă, plus, minus, apreciere) */}
+      {catalogFor && <CatalogDialog student={catalogFor} onClose={() => setCatalogFor(null)} onSaved={catalogSaved} />}
     </>
   );
 }

@@ -384,3 +384,76 @@ test('player 1-la-1, „Explică altfel": elevul alege funcția (și „altă me
     assert.strictEqual(p.explainAgain('intuitiv'), false, 'în afara lui „Ai înțeles?" nu face nimic');
   } finally { Date.now = realNow; }
 });
+
+// ⏭ „Înainte" în două trepte (11 nov. 2026): „profesorul citește problema poate într-un
+// ritm mai încet decât elevul și când derulez în față, sare la exercițiul următor. Fă ca
+// la derulare să sară la rezolvarea interactivă pe tablă, la terminarea citirii textului,
+// apoi la următorul exercițiu."
+test('player 1-la-1, ⏭ Înainte: cât se citește enunțul → la rezolvarea pe tablă; de acolo → exercițiul următor', async () => {
+  const { PrivatePlayer } = await player();
+  const realNow = Date.now;
+  let now = 9_000_000;
+  Date.now = () => now;
+  try {
+    const seg = (id) => ({ id, t: 0, dur: 2, say: id, caption: id, board: [], audio: `https://x/${id}.mp3`, lip: null });
+    const tl = {
+      duration: 60,
+      scenes: [
+        { type: 'intro', t0: 0, dur: 2, segs: [seg('in')] },
+        // item 0: enunțul (citit) → „încercați singuri" → rezultatul → explicația pe barem → „Ai înțeles?"
+        { type: 'item', item: 0, ref: 'I.1', t0: 2, dur: 9, segs: [seg('e0')], statement: 'Enunțul 1' },
+        { type: 'sondaj', item: 0, ref: 'I.1', t0: 11, dur: 0, wait: true, poll: { id: 'p0', type: 'grila', options: ['1', '2', '3', '4'] } },
+        { type: 'rezultate', item: 0, ref: 'I.1', t0: 11, dur: 3, segs: [seg('r0')] },
+        { type: 'explicatie', item: 0, ref: 'I.1', mode: 'barem', t0: 14, dur: 6, segs: [seg('x0')] },
+        { type: 'intrebare_intelegere', item: 0, ref: 'I.1', t0: 20, dur: 0, wait: true, alts: [] },
+        // item 1: enunțul → explicația direct (fără sondaj de început)
+        { type: 'item', item: 1, ref: 'III.1', t0: 20, dur: 8, segs: [seg('e1')], statement: 'Enunțul 2' },
+        { type: 'explicatie', item: 1, ref: 'III.1', mode: 'barem', t0: 28, dur: 6, segs: [seg('x1')] },
+        // item 2: doar enunțul
+        { type: 'item', item: 2, ref: 'III.2', t0: 34, dur: 4, segs: [seg('e2')], statement: 'Enunțul 3' },
+        { type: 'final', t0: 38, dur: 2, segs: [seg('fi')] },
+      ],
+    };
+    const p = new PrivatePlayer({ engine: fakeEngine(), onState: () => {} });
+    p.setTimeline(tl);
+    p.start(); clearInterval(p.timer); p.timer = null;
+    // din introducere: la enunțul primului exercițiu
+    assert.deepStrictEqual(p.skipTarget(), { kind: 'exercitiu' });
+    assert.strictEqual(p.skipForward(), 'exercitiu');
+    assert.strictEqual(p.scene.type, 'item'); assert.strictEqual(p.scene.item, 0);
+    now += 1500; p.tick();
+    // în timpul citirii enunțului: ⏭ → sfârșitul citirii = încercarea elevului (sondajul), nu exercițiul 2
+    assert.deepStrictEqual(p.skipTarget(), { kind: 'rezolvare', index: 2 });
+    assert.strictEqual(p.skipForward(), 'rezolvare');
+    assert.strictEqual(p.scene.type, 'sondaj'); assert.strictEqual(p.scene.item, 0);
+    assert.strictEqual(p.status, 'asteapta', 'întrebarea așteaptă răspunsul elevului');
+    // de pe rezolvare: ⏭ → exercițiul următor (enunțul lui)
+    assert.strictEqual(p.skipForward(), 'exercitiu');
+    assert.strictEqual(p.scene.type, 'item'); assert.strictEqual(p.scene.item, 1);
+    // enunțul exercițiului 2 → direct explicația pe barem (tabla)
+    assert.strictEqual(p.skipForward(), 'rezolvare');
+    assert.strictEqual(p.scene.type, 'explicatie'); assert.strictEqual(p.scene.mode, 'barem');
+    assert.strictEqual(p.status, 'ruleaza');
+    // în mijlocul explicației: ⏭ → exercițiul următor
+    now += 2000; p.tick();
+    p.skipForward();
+    assert.strictEqual(p.scene.item, 2); assert.strictEqual(p.scene.type, 'item');
+    // un exercițiu fără rezolvare după enunț: ⏭ → mai departe (finalul lecției)
+    assert.deepStrictEqual(p.skipTarget(), { kind: 'exercitiu' });
+    p.skipForward();
+    assert.strictEqual(p.scene.type, 'final');
+    // un răspuns al profesorului inserat peste enunț: ⏭ nu „sare peste citire" în scena inserată
+    p.gotoItem(0); now += 500; p.tick();
+    p.playAnswer({ id: 'a1', text: 'Răspunsul.', dur: 2 });
+    assert.deepStrictEqual(p.skipTarget(), { kind: 'exercitiu' });
+  } finally { Date.now = realNow; }
+});
+
+test('sala live și Pregătirea de examen: ⏭ folosește saltul în două trepte (skipForward), cu titlul potrivit', () => {
+  for (const f of ['src/pages/LiveRoom.jsx', 'src/pages/PregatireExamen.jsx']) {
+    const src = fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+    assert.match(src, /onClick=\{\(\) => playerRef\.current\?\.skipForward\(\)\}/, f);
+    assert.ok(!/playerRef\.current\?\.nextItem\(\)/.test(src), `${f}: fără saltul direct la exercițiul următor`);
+    assert.match(src, /Sari peste citirea enunțului — la rezolvarea pe tablă/, f);
+  }
+});

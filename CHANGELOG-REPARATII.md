@@ -4,6 +4,53 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 11 noiembrie 2026 — nota cu roșu și pe PDF (din orice corectare) · meditații live: „⏭ Înainte" în două trepte · „Contul meu" cu rezultatele primele · asistentul părinților: „📝 Creează o temă elevului" (fără AI) · Home pe tipul de cont · 📒 catalogul profesorului (note, plusuri, minusuri, aprecieri)
+
+Cererea:
+1. „Fă să se treacă nota cu roșu și pe PDF, la început și să se deruleze la partea de la început unde s-a trecut nota."
+2. „La meditații live, profesorul citește problema poate într-un ritm mai încet decât elevul și când derulez în față, sare la exercițiul următor. Fă ca la derulare să sară la rezolvarea interactivă pe tablă, la terminarea citirii textului, apoi la următorul exercițiu."
+3. „Contul meu": părinte — „rezultate elevi" primele, sus; asistentul AI să facă doar „creează o temă elevului" (automat, pe nivelul elevului sau un subiect de examen din site, fără AI); „asistent AI pt părinți" scos din „Contul meu", păstrat în meniu și în widget. Elev — „rezultatele" primele; „prof virtual" scos din „Contul meu", păstrat în meniu și în widget.
+4. Home: elev — păstrează „pregătește-mă de examen" (fără „nou") + „insignele mele (progresul meu)", „rezultatele", „teme", „mesageria", „părerea ta despre ExamenMate"; părinte — fără „pregătește-mă", cu „rezultate elev", „asociază-te cu copilul tău", „mesageria", „părerea ta"; profesor — fără „pregătește-mă", cu „generează teste", „rezultate elevi", „invită elevi", „mesageria grupei", „părerea ta"; profesorii pot da note, plusuri, minusuri, aprecieri.
+
+**De rulat o dată:** `supabase/catalog_profesor.sql` (Supabase → SQL Editor) — tabela `teacher_marks`, cu RLS și GRANT (fără `anon`). Fără el merge tot, doar catalogul spune că trebuie rulat SQL-ul. Fără variabile noi.
+
+### 1) Nota cu roșu pe PDF, din orice corectare, și derularea la ea (`PDFViewer.jsx`, `RezolvarePdf.jsx`, `src/lib/pdfRezolvare.js`, `src/lib/arena.js`, `AITutor.jsx`, `api/ai-handwriting.js`)
+- **Formularul „📝 Răspunde în chat" și foaia de lucru** (panoul profesorului — la BAC „✏️ Rezolvă" deschide foaia de lucru) scriu și ele nota cu roșu sus, pe prima pagină a testului (până acum nota apărea doar în chat): `AITutor` trimite evenimentul `em:nota-pdf` (`notaPdfCorectata`), vizualizatorul o desenează (`NotaPagina`, același scris de mână ca la „✏️ Rezolvă pe PDF") și derulează la începutul testului. Pe calculator, unde PDF-ul era în vizualizatorul browserului (pe el nu se poate scrie), trece pe vizualizatorul site-ului — doar în vizita asta; alegerea salvată revine la testul următor. Un mesaj scurt: „📝 Nota 3,30 e scrisă cu roșu sus, pe prima pagină a testului."
+- **Foaia de lucru dă acum nota testului** la subiectele de examen din platformă cu barem oficial (EN / BAC, 90 p + 10 din oficiu): ce nu e scris pe foaie are 0 puncte, ca la „✏️ Rezolvă pe PDF" (`notaDinFoaie`). Nota apare în chat („📝 Nota pe test: 3,30 …"), se salvează în `progress` (lista testelor, „Rezultatele mele", „Rezultate elevi"; aceeași corectare repetată în 30 de minute nu mai e o încercare) și cere recenzia testului. Fișele claselor și materialele fără barem oficial: ca înainte, fără notă.
+- **„✏️ Rezolvă pe PDF": derularea la notă după FIECARE corectare** (înainte: doar după prima din vizită și doar dacă nota nu era pe ecran), și când nota apare abia după o clipă (`asteaptaSiVeziNota` o așteaptă până la 6 s).
+- **Nota rămâne pe test** și după ce elevul închide modul de rezolvare (vizualizatorul site-ului rămâne pornit); pe telefon (unde PDF-ul îl desenează mereu site-ul), nota ultimei corectări „✏️ Rezolvă pe PDF" se vede pe prima pagină și la redeschiderea testului.
+
+### 2) Meditații live: „⏭ Înainte" în două trepte (`src/lib/live/player.js`, `LiveRoom.jsx`, `PregatireExamen.jsx`)
+- Cât profesorul citește enunțul, „⏭ Înainte" sare la **sfârșitul citirii — rezolvarea interactivă** (întrebarea „încercați singuri", întrebările pe pași, explicația pe barem pe tablă); de acolo, următorul „⏭" duce la **exercițiul următor**. `PrivatePlayer.skipTarget()` / `skipForward()`; titlul butonului spune ce urmează („Sari peste citirea enunțului — la rezolvarea pe tablă" / „Exercițiul următor"). Același buton în sala 1-la-1 și în Pregătirea de examen.
+
+### 3) „Contul meu" (`Profile.jsx`, `TeacherResults.jsx`, `TemeNefacute.jsx`)
+- **Elev:** „📊 Rezultatele mele" e primul lucru din pagină, deschis (ultimele 10, „Arată toate"), cu „📒 De la profesori" (notele, plusurile, minusurile și aprecierile primite). Banda „Profesor Virtual" a dispărut din pagină (rămâne în meniu și în widget).
+- **Părinte:** „📊 Rezultate elevi" primul, deschis; „🔗 Asociază-te cu copilul tău" vine după. Banda „Asistent AI pentru părinți" a dispărut din pagină (rămâne în meniu și în widget). Profesorul își păstrează banda și „Grupe / Rezultate elevi" unde erau.
+- Cardurile din Home duc direct la secțiunea lor: `/profil?rezultate=1`, `?insigne=1`, `?teme=1`, `?asociere=1` / `?invita=1`, `?parere=1` (secțiunea se deschide și se derulează sub bara de sus).
+
+### 4) Asistentul părinților: doar „📝 Creează o temă elevului", fără AI (`TemaAutomata.jsx`, `ProfesorVirtual.jsx`, `AITutor.jsx`, `api/homework.js`, `api/_lib/temaAutomata.js`)
+- Pagina „Asistent AI pentru părinți" (`/profesor-virtual`) și widgetul plutitor al părinților arată doar panoul temei: **🧩 Temă pe nivelul lui** (3–10 exerciții interactive din clasa copilului — întâi ce n-a lucrat niciodată, apoi ce i-a ieșit sub 70%, fără ce a primit deja în ultimele 60 de zile) sau **📄 Subiect de examen** (un test din site al examenului lui: întâi unul nerezolvat). Clasa vine din alegerea lui din Arenă (sau din ce a lucrat), examenul din „Pregătește-mă de examen"; părintele le poate schimba. Fără abonamentul copilului — doar materialele gratuite. Termen și mesaj opționale.
+- Tema se creează cu tabelele existente (`homework*`); copilul primește notificarea („Ai o temă nouă de la Elena Popescu (părinte)") și o găsește în „📌 Teme" — tabul apare acum și când copilul are doar părinte asociat. Părintele vede „📝 Temele date", cu raportul.
+- Fără chat, fără generatoare, fără „Pregătește-mă" / „Meditații live" în widgetul părinților. Butonul „Dă temă" (bifat de mână) rămâne al profesorilor; tema automată o poate da și un profesor, la elevii lui (`auto_create`).
+
+### 5) Home pe tipul de cont (`Home.jsx`, `AcasaCont.jsx`, `global.css`)
+- **Elev** (și vizitatorul): „🎯 Pregătește-mă de examen" rămâne primul (eticheta „Un test pe zi, cu serie și ligă", fără „Nou"); sub el: 🏅 Insignele mele (progresul meu — insignele, nivelul, seria), 📊 Rezultatele mele (câte teste, media, ultima notă de la profesor), 📝 Teme (câte are de făcut), 💬 Mesageria (mesajele noi), ⭐ Părerea ta despre ExamenMate (se scrie chiar acolo).
+- **Părinte:** 📊 Rezultate elev, 🔗 Asociază-te cu copilul tău (linkul, cu „Copiază linkul"), 💬 Mesageria, ⭐ Părerea ta.
+- **Profesor:** 🧩 Generează teste (+ „Subiect de examen", „Teste diferite / elev"), 📊 Rezultate elevi (grupe, medii, catalog), 🔗 Invită elevi (linkul, cu „Copiază linkul"), 💬 Mesageria grupei, ⭐ Părerea ta.
+
+### 6) 📒 Catalogul profesorului: note, plusuri, minusuri, aprecieri (`supabase/catalog_profesor.sql`, `api/_lib/noteProfesor.js`, `api/teacher-manage.js`, `api/teacher-students.js`, `CatalogNote.jsx`, `TeacherResults.jsx`, `Profile.jsx`)
+- În „Grupe / Rezultate elevi", lângă fiecare elev: **„📒 Notează"** → 📝 notă 1–10 (cu „pentru ce": lucrare, test, răspuns oral…), ➕ plus, ➖ minus, 👏 apreciere (cu propuneri gata scrise). Elevul și părinții lui primesc o notificare (📒). Sub numele elevului: „📒 9 · 10 · ➕3 ➖1 · 👏2"; în rândul deschis, catalogul întreg (profesorul își poate șterge rândurile).
+- **Notele din catalog intră în mediile elevului** („🔒 Încheie media"), alături de notele testelor.
+- Elevul le vede în „Rezultatele mele" → „📒 De la profesori" (și pe Home, „ultima notă"); părintele, în rândul copilului din „Rezultate elevi", cu numele profesorului.
+- Siguranța: doar profesorul elevului poate da / șterge (asocierea verificată pe server); tabela se citește doar de profesor, elev și părinții elevului (RLS); scrierile doar prin API.
+
+### Teste
+- Noi: `test/nota-pe-pdf.test.js` (9), `test/catalog-profesor.test.js` (10), `test/tema-automata.test.js` (11), `test/acasa-cont.test.js` (8); `test/meditatii-live-client.test.js` (+2: saltul în două trepte). Actualizate: `test/versiune-noua.test.js`, `test/pdf-nota-recenzii-taburi.test.js`.
+
+**Verificat:** `npm test` 1197/1197 (2 sărite); `vite build`. În Chromium, cu Supabase și `/api` simulate: Home pentru elev / părinte / profesor (calculator și telefon 390 px); „Contul meu" pentru cele trei conturi (rezultatele primele, fără banda asistentului la elev și părinte); „📒 Notează" (nota 9 → în listă, în sumar și în medie); asistentul părinților în pagină și în widget (tema pe nivel și subiectul de examen); nota din foaia de lucru pe un PDF de BAC (calculator: din vizualizatorul browserului în al site-ului, nota pe pagina 1, derulat sus; telefon: de la ultima pagină înapoi la notă); „✏️ Rezolvă pe PDF" la EN (de pe pagina 3 → derulat la notă; nota rămâne după închiderea modului); demo-ul 1-la-1 (⏭ în timpul enunțului → întrebarea „încercați singuri"; ⏭ → exercițiul următor).
+
+---
+
 ## 8 noiembrie 2026 (4) — nota cu roșu și recenzia „nu apăreau": telefonul rula versiunea veche; nota, vizibilă de pe orice pagină
 
 Cererea: „nu apare nota cu rosu : nici pe test nici in lista ca la interactive. nu apare recenzia. fa sa apara acestea chiar daca s-au rezolvat doar 2 exercitii sau 3"

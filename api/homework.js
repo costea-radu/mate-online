@@ -18,11 +18,28 @@
 //                             nerezolvate + teme primite prin link /tema)
 //   open          (elev):     { id } → tema + exercițiile ei, gata de deschis
 //   score         (elev):     { progressId, score, maxScore } sau { done: true }
+//   auto_options  (părinte / profesor): elevii lui, cu clasa și examenul lor
+//   auto_create   (părinte / profesor): { studentId, fel: 'nivel'|'examen', clasa?,
+//                 examen?, numar?, dueAt?, note? } → tema aleasă AUTOMAT, FĂRĂ AI
+//
+// „📝 Creează o temă elevului" (11 nov. 2026 — asistentul părinților „să facă doar
+// asta: creează o temă elevului, ceea ce creează automat o temă pentru nivelul
+// elevului, sau subiect de examen din cele din site, fără AI"):
+//   · pe nivelul lui → exercițiile interactive ale CLASEI lui, în ordinea din site,
+//     ca la misiunea zilnică: întâi cele pe care nu le-a făcut niciodată, apoi cele
+//     la care a avut sub 70%; fără cele primite deja ca temă în ultimele 60 de zile;
+//   · subiect de examen → un test din site al examenului lui (EN, BAC Mate-Info,
+//     Științele Naturii, Tehnologic): întâi unul nerezolvat, apoi unul sub 70%.
+// Fără abonament (al elevului) — doar materialele gratuite. Mentorii pot vedea,
+// redenumi și șterge doar temele date de ei (mine / report / rename / delete).
 //
 // Tabele: supabase/teme_elevi.sql
 // =====================================================================
 const ai = require('./_lib/ai');
 const cat = require('./_lib/catalog');
+const misiune = require('./_lib/misiune');
+const pregatire = require('./_lib/pregatireZilnica');
+const TA = require('./_lib/temaAutomata');
 
 const MAX_ITEMS = 40;
 
@@ -43,6 +60,8 @@ module.exports = async function handler(req, res) {
     if (action === 'student_list') return await studentList(req, res, supa);
     if (action === 'open') return await openOne(req, res, supa);
     if (action === 'score') return await score(req, res, supa);
+    if (action === 'auto_options') return await autoOptions(req, res, supa);
+    if (action === 'auto_create') return await autoCreate(req, res, supa);
     return res.status(400).json({ error: 'action invalid' });
   } catch (err) {
     console.error('homework error:', err);
@@ -56,6 +75,17 @@ async function requireTeacher(req, supa) {
   const profile = await ai.requireUser(supa, userId);
   if (!(profile.role === 'profesor' || profile.is_admin)) {
     const e = new Error('Doar conturile de profesor pot da teme.');
+    e.status = 403; throw e;
+  }
+  return { userId, profile };
+}
+
+// Profesor SAU părinte (temele automate, lista temelor date de el)
+async function requireMentor(req, supa) {
+  const userId = await ai.authUser(req, supa);
+  const profile = await ai.requireUser(supa, userId);
+  if (!(profile.role === 'profesor' || profile.role === 'parinte' || profile.is_admin)) {
+    const e = new Error('Doar conturile de profesor sau de părinte pot da teme.');
     e.status = 403; throw e;
   }
   return { userId, profile };
@@ -228,7 +258,7 @@ async function create(req, res, supa) {
 
 // ─── Temele mele (profesor) ──────────────────────────────────────────────────
 async function mine(req, res, supa) {
-  const { userId } = await requireTeacher(req, supa);
+  const { userId } = await requireMentor(req, supa);
   const { data: rows } = await supa.from('homework')
     .select('id, title, group_id, group_name, student_id, student_name, note, due_at, created_at')
     .eq('teacher_id', userId).order('created_at', { ascending: false }).limit(40);
@@ -287,7 +317,7 @@ async function siteProgressMap(supa, contentIds, studentIds) {
 
 // ─── Raport: elev × exercițiu ────────────────────────────────────────────────
 async function report(req, res, supa) {
-  const { userId, profile } = await requireTeacher(req, supa);
+  const { userId, profile } = await requireMentor(req, supa);
   const { id } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id obligatoriu' });
   const { data: h } = await supa.from('homework').select('*').eq('id', id).maybeSingle();
@@ -338,7 +368,7 @@ async function report(req, res, supa) {
 
 // ─── Redenumire ──────────────────────────────────────────────────────────────
 async function rename(req, res, supa) {
-  const { userId, profile } = await requireTeacher(req, supa);
+  const { userId, profile } = await requireMentor(req, supa);
   const { id, title } = req.body || {};
   const t = String(title || '').trim().slice(0, 120);
   if (!id || !t) return res.status(400).json({ error: 'id și title obligatorii' });
@@ -352,7 +382,7 @@ async function rename(req, res, supa) {
 
 // ─── Ștergere ────────────────────────────────────────────────────────────────
 async function remove(req, res, supa) {
-  const { userId, profile } = await requireTeacher(req, supa);
+  const { userId, profile } = await requireMentor(req, supa);
   const { id } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id obligatoriu' });
   const { data: h } = await supa.from('homework').select('teacher_id').eq('id', id).maybeSingle();
@@ -380,10 +410,12 @@ async function studentList(req, res, supa) {
   const teacherLinks = (links || []).filter((l) => l.mentor_role === 'profesor');
   const teacherIds = [...new Set(teacherLinks.map((l) => l.mentor_id))];
   const groupIds = [...new Set(teacherLinks.map((l) => l.group_id).filter(Boolean))];
+  // părinții: temele create pentru el cu „📝 Creează o temă elevului" (11 nov. 2026)
+  const parentIds = [...new Set((links || []).filter((l) => l.mentor_role === 'parinte').map((l) => l.mentor_id))];
   const { data: me } = await supa.from('profiles').select('teacher_id').eq('id', userId).maybeSingle();
   if (me?.teacher_id && !teacherIds.includes(me.teacher_id)) teacherIds.push(me.teacher_id);
 
-  if (!teacherIds.length) return res.status(200).json({ pending, done, hasTeacher: false });
+  if (!teacherIds.length && !parentIds.length) return res.status(200).json({ pending, done, hasTeacher: false });
 
   // ── 1. Teme (homework) ────────────────────────────────────────────────────
   // Îi revin: temele adresate LUI, cele date grupei lui și cele date „tuturor
@@ -392,10 +424,11 @@ async function studentList(req, res, supa) {
   try {
     const { data } = await supa.from('homework')
       .select('id, title, teacher_id, teacher_name, group_id, group_name, student_id, note, due_at, created_at')
-      .in('teacher_id', teacherIds)
+      .in('teacher_id', [...teacherIds, ...parentIds])
       .order('created_at', { ascending: false }).limit(80);
     hwRows = (data || []).filter((h) => {
       if (h.student_id) return h.student_id === userId;
+      if (parentIds.includes(h.teacher_id) && !teacherIds.includes(h.teacher_id)) return false;  // părinții dau doar teme pe elev
       if (h.group_id) return groupIds.includes(h.group_id);
       return true;
     });
@@ -422,6 +455,7 @@ async function studentList(req, res, supa) {
       const entry = {
         kind: 'tema', id: h.id, url: `/tema-elev?id=${h.id}`,
         title: h.title, teacher: h.teacher_name, group: h.group_name,
+        fromParent: parentIds.includes(h.teacher_id) && !teacherIds.includes(h.teacher_id),
         note: h.note, dueAt: h.due_at, at: h.created_at,
         items: items.length, doneItems: doneCount,
       };
@@ -430,7 +464,7 @@ async function studentList(req, res, supa) {
   }
 
   // ── 2. Teste pe grupă ─────────────────────────────────────────────────────
-  try {
+  if (teacherIds.length) try {
     const { data: gas } = await supa.from('group_assignments')
       .select('id, title, creator_name, group_id, group_name, format, due_at, created_at')
       .in('created_by', teacherIds).order('created_at', { ascending: false }).limit(40);
@@ -486,6 +520,173 @@ async function studentList(req, res, supa) {
   const byDate = (a, b) => new Date(b.at || 0) - new Date(a.at || 0);
   pending.sort(byDate); done.sort(byDate);
   return res.status(200).json({ pending, done: done.slice(0, 30), hasTeacher: true });
+}
+
+// ─── „📝 CREEAZĂ O TEMĂ ELEVULUI" — automat, fără AI (11 nov. 2026) ──────────
+// elevii mentorului: asocierile din mentor_students (+ cea veche, profiles.teacher_id)
+async function mentorStudents(supa, userId) {
+  const { data } = await supa.from('mentor_students').select('student_id').eq('mentor_id', userId);
+  const ids = new Set((data || []).map((l) => l.student_id));
+  try {
+    const { data: legacy } = await supa.from('profiles').select('id').eq('teacher_id', userId);
+    (legacy || []).forEach((p) => ids.add(p.id));
+  } catch { /* fără asocierea veche */ }
+  return [...ids];
+}
+const ePremiumElev = (p) => !!(p && (p.subscription_status === 'active' || p.is_admin));
+
+// clasa / examenul ales de elev în site (misiunea zilnică, „Pregătește-mă de examen")
+async function nivelElevi(supa, ids) {
+  const out = {};
+  if (!ids.length) return out;
+  for (const cols of ['user_id, mission_category, prep_exam', 'user_id, mission_category', 'user_id']) {
+    // eslint-disable-next-line no-await-in-loop
+    const { data, error } = await supa.from('user_stats').select(cols).in('user_id', ids);
+    if (!error) { (data || []).forEach((r) => { out[r.user_id] = r; }); break; }
+  }
+  return out;
+}
+async function categoriiLucrate(supa, studentId) {
+  try {
+    const { data } = await supa.from('progress').select('category, content_id').eq('user_id', studentId)
+      .order('completed_at', { ascending: false }).limit(200);
+    let cats = (data || []).map((r) => r.category).filter(Boolean);
+    if (!cats.length && (data || []).length) {
+      const ids = [...new Set(data.map((r) => r.content_id).filter(Boolean))].slice(0, 150);
+      const { data: c } = await supa.from('content').select('category').in('id', ids);
+      cats = (c || []).map((r) => r.category).filter(Boolean);
+    }
+    return cats;
+  } catch { return []; }
+}
+async function pctMap(supa, studentId, ids) {
+  const out = new Map();
+  for (let i = 0; i < ids.length; i += 150) {
+    const chunk = ids.slice(i, i + 150);
+    // eslint-disable-next-line no-await-in-loop
+    const { data } = await supa.from('progress').select('content_id, score, max_score').eq('user_id', studentId).in('content_id', chunk);
+    (data || []).forEach((p) => out.set(p.content_id, p.max_score > 0 ? Math.round((p.score / p.max_score) * 100) : 0));
+  }
+  return out;
+}
+// exercițiile primite deja ca temă (de la oricine) în ultimele 60 de zile
+async function dejaDate(supa, studentId) {
+  const since = new Date(Date.now() - 60 * 86400000).toISOString();
+  try {
+    const { data: hw } = await supa.from('homework').select('id').eq('student_id', studentId).gte('created_at', since).limit(200);
+    const ids = (hw || []).map((h) => h.id);
+    if (!ids.length) return new Set();
+    const { data: its } = await supa.from('homework_items').select('ref_id').in('homework_id', ids);
+    return new Set((its || []).map((i) => i.ref_id));
+  } catch { return new Set(); }
+}
+
+async function autoOptions(req, res, supa) {
+  const { userId } = await requireMentor(req, supa);
+  const ids = await mentorStudents(supa, userId);
+  const clase = misiune.CLASE.map((c) => ({ id: c.id, label: `Clasa ${c.label}` }));
+  const examene = pregatire.EXAMENE.map((e) => ({ id: e.id, label: e.label }));
+  if (!ids.length) return res.status(200).json({ students: [], clase, examene });
+  const { data: profs } = await supa.from('profiles').select('id, full_name, email, subscription_status, is_admin').in('id', ids);
+  const niv = await nivelElevi(supa, ids);
+  const students = [];
+  for (const p of profs || []) {
+    const st = niv[p.id] || {};
+    // eslint-disable-next-line no-await-in-loop
+    const sug = st.mission_category ? { clasa: st.mission_category, sursa: 'misiune' } : TA.clasaSugerata({ categorii: await categoriiLucrate(supa, p.id) });
+    students.push({
+      id: p.id, name: p.full_name || (p.email ? p.email.split('@')[0] : 'Elev'),
+      premium: ePremiumElev(p),
+      clasa: sug.clasa, sursaClasa: sug.sursa,
+      examen: TA.examenSugerat({ ales: st.prep_exam || null, clasa: sug.clasa, valide: pregatire.EXAMENE.map((e) => e.id) }),
+      examenAles: !!st.prep_exam,
+    });
+  }
+  students.sort((a, b) => a.name.localeCompare(b.name, 'ro'));
+  return res.status(200).json({ students, clase, examene });
+}
+
+async function autoCreate(req, res, supa) {
+  const { userId, profile } = await requireMentor(req, supa);
+  const { studentId = null, fel = 'nivel', note = null, dueAt = null } = req.body || {};
+  if (!studentId) return res.status(400).json({ error: 'Alege copilul (elevul) căruia îi dai tema.' });
+  if (fel !== 'nivel' && fel !== 'examen') return res.status(400).json({ error: 'Alege: temă pe nivelul lui sau subiect de examen.' });
+  const ids = await mentorStudents(supa, userId);
+  if (!ids.includes(studentId) && !profile.is_admin) return res.status(403).json({ error: 'Elevul nu este asociat contului tău.' });
+
+  const { data: elev } = await supa.from('profiles').select('id, full_name, email, subscription_status, is_admin').eq('id', studentId).maybeSingle();
+  if (!elev) return res.status(404).json({ error: 'Elevul nu mai există.' });
+  const premium = ePremiumElev(elev);
+  const studentName = elev.full_name || (elev.email ? elev.email.split('@')[0] : 'Elev');
+  const niv = (await nivelElevi(supa, [studentId]))[studentId] || {};
+  const deja = await dejaDate(supa, studentId);
+
+  let ales = [];
+  let title = '';
+  let detaliu = null;
+  if (fel === 'nivel') {
+    let clasa = String(req.body.clasa || '');
+    if (!misiune.clasaValida(clasa)) {
+      const sug = niv.mission_category ? { clasa: niv.mission_category } : TA.clasaSugerata({ categorii: await categoriiLucrate(supa, studentId) });
+      clasa = misiune.clasaValida(sug.clasa) ? sug.clasa : null;
+    }
+    if (!clasa) return res.status(400).json({ error: 'Alege clasa copilului.', code: 'CLASA' });
+    const { lista, din } = await misiune.poolClasa(supa, clasa, { premium });
+    if (!lista.length) return res.status(404).json({ error: 'Nu am găsit exerciții interactive pentru această clasă. Alege „Subiect de examen" sau altă clasă.' });
+    const progres = await pctMap(supa, studentId, lista.map((r) => r.id));
+    const numar = TA.numarValid(req.body.numar);
+    ales = TA.alegeTema(lista, { progres, deja, numar });
+    const info = misiune.clasaInfo(clasa);
+    title = TA.titluTema('nivel', { clasaLabel: info ? info.label : clasa, n: ales.length });
+    detaliu = { clasa, din, nefacute: ales.filter((r) => !progres.has(r.id)).length };
+  } else {
+    let examen = String(req.body.examen || '');
+    if (!pregatire.examValid(examen)) examen = TA.examenSugerat({ ales: niv.prep_exam || null, clasa: niv.mission_category || null, valide: pregatire.EXAMENE.map((e) => e.id) });
+    const E = pregatire.examInfo(examen);
+    let lista = await pregatire.poolExamen(supa, examen, { format: 'interactiv', premium });
+    if (!lista.length) lista = await pregatire.poolExamen(supa, examen, { format: 'pdf', premium });
+    if (!lista.length) return res.status(404).json({ error: 'Nu am găsit încă un subiect de examen potrivit în site.' });
+    const progres = await pctMap(supa, studentId, lista.map((r) => r.id));
+    const s1 = TA.alegeSubiect(lista, { progres, deja });
+    ales = s1 ? [s1] : [];
+    title = TA.titluTema('examen', { examLabel: E ? E.label : examen });
+    detaliu = { examen, nerezolvat: s1 ? !progres.has(s1.id) : false };
+  }
+  if (!ales.length) return res.status(404).json({ error: 'Nu am găsit exerciții potrivite.' });
+
+  const mentorName = await displayName(supa, userId, profile.role === 'parinte' ? 'Părinte' : 'Profesor');
+  const { data: row, error } = await supa.from('homework').insert({
+    teacher_id: userId, teacher_name: mentorName,
+    group_id: null, group_name: null,
+    student_id: studentId, student_name: studentName,
+    title, note: String(note || '').trim().slice(0, 500) || null,
+    due_at: dueAt || null,
+  }).select('id').single();
+  if (error) return res.status(500).json({ error: error.message });
+  const { error: iErr } = await supa.from('homework_items').insert(ales.map((r, i) => ({
+    homework_id: row.id, source: 'site', ref_id: r.id, kind: r.content_type === 'pdf' ? 'pdf' : 'interactive',
+    title: r.title, category: r.category || null, is_free: r.is_free !== false, position: i,
+  })));
+  if (iErr) {
+    await supa.from('homework').delete().eq('id', row.id);
+    return res.status(500).json({ error: iErr.message });
+  }
+  const url = `/tema-elev?id=${row.id}`;
+  try {
+    const dela = profile.role === 'parinte' ? `${mentorName} (părinte)` : `profesorul ${mentorName}`;
+    await ai.createNotification(supa, {
+      recipientId: studentId, type: 'assignment',
+      title: `Ai o temă nouă de la ${dela}`,
+      body: `${title}${fel === 'nivel' ? '' : ` · ${ales[0].title}`}`,
+      data: { url, homeworkId: row.id },
+      dedupeKey: `homework:${row.id}:${studentId}`, dedupeDays: 30,
+    });
+  } catch (e) { console.warn('homework auto notify:', e.message); }
+
+  return res.status(200).json({
+    id: row.id, url, title, studentId, studentName, fel, detaliu, premium,
+    items: ales.map((r) => ({ id: r.id, title: r.title, kind: r.content_type === 'pdf' ? 'pdf' : 'interactive', category: r.category || null })),
+  });
 }
 
 // ─── ELEV: deschiderea unei teme ─────────────────────────────────────────────

@@ -13,6 +13,7 @@ const ICONS = {
   stagnation: '⚠️', evolution: '📈', decline: '📉', update: '✨',
   assignment: '📝', assignment_done: '✅', message: '✉️', info: 'ℹ️',
   duel: '⚔️', turneu: '🏆', capitol: '🗺️', misiune: '🎯', pregatire: '📝',
+  catalog: '📒',   // nota / plusul / minusul / aprecierea de la profesor (11 nov. 2026)
 };
 
 export default function AINotifications() {

@@ -64,7 +64,7 @@ module.exports = async function handler(req, res) {
 
   const linkList = links || [];
   if (linkList.length === 0) {
-    return res.status(200).json({ role, students: [], results: [], groups, aiUsage: [], archived, meditatii: [], averages: [] });
+    return res.status(200).json({ role, students: [], results: [], groups, aiUsage: [], archived, meditatii: [], averages: [], marks: [] });
   }
 
   const studentIds = linkList.map((l) => l.student_id);
@@ -297,5 +297,19 @@ module.exports = async function handler(req, res) {
     averages = per || [];
   } catch { /* tabela lipsește până se rulează supabase/medii_si_timp.sql */ }
 
-  return res.status(200).json({ role, students, results, groups, aiUsage, archived, meditatii, averages });
+  // 10. 📒 Catalogul (11 nov. 2026): notele, plusurile, minusurile și aprecierile date
+  //     de profesori — profesorul își vede doar ce a dat el; părintele vede tot ce a
+  //     primit copilul lui, de la oricare profesor (supabase/catalog_profesor.sql).
+  let marks = [];
+  try {
+    marks = await inBatches(studentIds, (chunk, from, to) => {
+      let q = supabase.from('teacher_marks')
+        .select('id, teacher_id, teacher_name, student_id, group_id, kind, value, title, comment, created_at')
+        .in('student_id', chunk);
+      if (role === 'profesor') q = q.eq('teacher_id', userId);
+      return q.order('created_at', { ascending: false }).range(from, to);
+    });
+  } catch { /* tabela lipsește până se rulează supabase/catalog_profesor.sql */ }
+
+  return res.status(200).json({ role, students, results, groups, aiUsage, archived, meditatii, averages, marks: marks || [] });
 };

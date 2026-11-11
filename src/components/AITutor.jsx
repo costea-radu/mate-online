@@ -10,7 +10,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } fro
 import { createPortal } from 'react-dom';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { aiClient } from '../lib/aiClient';
-import { pregatireRezultat, testCorectat } from '../lib/arena';
+import { pregatireRezultat, testCorectat, notaPdfCorectata } from '../lib/arena';
 import { useTestMode } from '../lib/testMode';
 import { supabase } from '../lib/supabase';
 import ExamGenerator from './ExamGenerator';
@@ -183,6 +183,8 @@ export function dispatchMeditatiiAction(action, navigate, onNavigate = null) {
 // ─── „🧩 Test din site" (chatul de meditații): lista stă în SitePicker.jsx,
 // încărcată LENEȘ la prima deschidere — chatul e în pachetul principal.
 const SitePicker = lazy(() => import('./SitePicker'));
+// „📝 Creează o temă elevului" — tot asistentul părinților (11 nov. 2026), încărcat la cerere
+const TemaAutomata = lazy(() => import('./TemaAutomata'));
 
 // ─── Rezultatul corectării unui test/exercițiu PDF — afișat în chat ──────────
 // Punctajul total + nota + punctajul PE FIECARE subpunct a), b), c) (ca în barem).
@@ -512,6 +514,10 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       formStartRef.current = Date.now(); // pregătește o eventuală reîncercare
       pregatireRezultat(r.pregatire);    // „🎯 Pregătește-mă de examen": ziua bifată / progresul
       testCorectat({ contentId: context.contentId || null, saved: r.saved || null });   // PDF: „Cum ți s-a părut testul?"
+      // 🔴 nota trecută cu roșu și pe PDF, sus pe prima pagină (vizualizatorul derulează la ea)
+      if (context.pdf && r.nota != null) {
+        notaPdfCorectata({ contentId: form.src.contentId || context.contentId || null, libraryId: form.src.libraryId || context.libraryId || null, nota: r.nota, score: r.score, total: r.maxScore, sursa: 'formular' });
+      }
       // pe tablă: Prof. Tudor spune rezultatul (punctajul rămâne scris pe tablă)
       if (boardMode && speaker) speaker.say(`${r.feedback || 'Am corectat lucrarea ta — punctajul e pe tablă.'}${context.meditatii ? ' Cum mergem mai departe?' : ''}`, { key: 'chat' });
       // insigne, ca la testele interactive (doar când punctajul s-a salvat)
@@ -566,6 +572,11 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       patchMsg(uid, { streaming: false, content: r.text || 'Am corectat rezolvarea ta.', id: r.messageId || undefined, hw: true });
       if (boardMode && speaker && r.spoken) speaker.say(r.spoken, { key: 'chat' });
       pregatireRezultat(r.pregatire);    // „🎯 Pregătește-mă de examen"
+      // nota testului (subiect de examen cu barem): în rezultate (recenzia) și cu roșu pe PDF
+      testCorectat({ contentId: context.contentId || null, saved: r.saved || null });
+      if (context.pdf && r.nota != null) {
+        notaPdfCorectata({ contentId: context.contentId || null, libraryId: context.contentId ? null : (context.libraryId || null), nota: r.nota, score: r.score, total: r.total, sursa: 'foaie' });
+      }
     } catch (e) {
       patchMsg(uid, { streaming: false, isError: true, retryable: false, hw: true, content: '⚠️ ' + (e.message || 'Corectarea nu a reușit. Mai încearcă o dată.') });
       if (e.premium) setUpsell(true);
@@ -1998,7 +2009,7 @@ export default function FloatingTutor() {
 
           {/* 🎯 PREGĂTEȘTE-MĂ DE EXAMEN (8 nov. 2026) — înainte de „Meditații live":
               testul zilei, cu amintire zilnică, XP și ligă (/pregateste-ma) */}
-          {!medMode && pathname !== '/pregateste-ma' && (
+          {!medMode && !isParent && pathname !== '/pregateste-ma' && (
             <Link to="/pregateste-ma" onClick={() => setOpen(false)} className="pv-prep" aria-label="Pregătește-mă de examen — testul zilei">
               <span className="pv-prep-ic" aria-hidden="true">🎯</span>
               <span className="pv-live-t"><b>Pregătește-mă de examen</b><small>un test pe zi · XP · ligă</small></span>
@@ -2008,7 +2019,7 @@ export default function FloatingTutor() {
 
           {/* 🔴 MEDITAȚII LIVE — un clic și ești în /meditatii (lobby-ul meditațiilor live, nu
               „Planul meu"); colorat, ca să se vadă. Pe /meditatii nu mai are rost. */}
-          {!medMode && pathname !== '/meditatii' && (
+          {!medMode && !isParent && pathname !== '/meditatii' && (
             <Link to="/meditatii" onClick={() => setOpen(false)} className="pv-live" aria-label="Meditații live — intră acum">
               <span className="pv-live-dot" aria-hidden="true" />
               <span className="pv-live-t"><b>Meditații live</b><small>cu Prof. Tudor · pe barem</small></span>
@@ -2017,18 +2028,27 @@ export default function FloatingTutor() {
             </Link>
           )}
 
-          {/* Taburi: profesor / părinte (chat + subiect de examen); elevul are doar conversația */}
-          {!medMode && isMentorAcc && (
+          {/* Taburi: profesor (chat + subiect de examen); elevul are doar conversația; părintele —
+              doar „📝 Creează o temă elevului" (11 nov. 2026, fără AI) */}
+          {!medMode && isTeacher && (
             <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: '#fafbfc' }}>
               <button style={tabBtn(widgetTab === 'chat')} onClick={() => setWidgetTab('chat')}>💬 {askAiLabel({ isTeacher, isParent })}</button>
               <button style={tabBtn(widgetTab === 'exam')} onClick={() => setWidgetTab('exam')}>📄 Generează subiect examen</button>
             </div>
           )}
 
-          <div style={{ flex: 1, minHeight: 0, overflowY: (widgetTab === 'chat' || medMode) ? 'hidden' : 'auto' }}>
-            {(widgetTab === 'chat' || medMode) && <ChatPanel compact context={chatContext || {}} autoPrompt={medChat?.autoPrompt || null} coachInject={medChat?.coach || null} onNavigate={() => setOpen(false)} />}
-            {!medMode && isMentorAcc && widgetTab === 'exam' && <div style={{ padding: 12 }}><ExamGenerator compact /></div>}
-          </div>
+          {isParent && !isTeacher ? (
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+              <Suspense fallback={<div style={{ padding: 20, textAlign: 'center' }}><div className="spinner" /></div>}>
+                <TemaAutomata compact onNavigate={() => setOpen(false)} />
+              </Suspense>
+            </div>
+          ) : (
+            <div style={{ flex: 1, minHeight: 0, overflowY: (widgetTab === 'chat' || medMode) ? 'hidden' : 'auto' }}>
+              {(widgetTab === 'chat' || medMode) && <ChatPanel compact context={chatContext || {}} autoPrompt={medChat?.autoPrompt || null} coachInject={medChat?.coach || null} onNavigate={() => setOpen(false)} />}
+              {!medMode && isTeacher && widgetTab === 'exam' && <div style={{ padding: 12 }}><ExamGenerator compact /></div>}
+            </div>
+          )}
         </div>
       )}
     </>

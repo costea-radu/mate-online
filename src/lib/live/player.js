@@ -290,6 +290,28 @@ export class PrivatePlayer {
     if (i >= 0) this._enter(i); else this._enter(this.tl.scenes.length - 1);
   }
 
+  // ⏭ „Înainte" (11 nov. 2026 — „profesorul citește problema poate într-un ritm mai
+  // încet decât elevul și când derulez în față, sare la exercițiul următor"): în două
+  // trepte. Cât profesorul citește enunțul (scena „item"), sare la sfârșitul citirii —
+  // la rezolvarea interactivă pe tablă (încercarea elevului, întrebările pe pași,
+  // explicația pe barem); abia de acolo, următorul ⏭ duce la exercițiul următor.
+  skipTarget() {
+    if (!this.tl) return null;
+    const sc = this.scene;
+    if (!this.inserted && sc && sc.type === 'item' && sc.item != null) {
+      const i = this.tl.scenes.findIndex((s, k) => k > this.index && s.item === sc.item && s.type !== 'item');
+      if (i > this.index) return { kind: 'rezolvare', index: i };
+    }
+    return { kind: 'exercitiu' };
+  }
+  skipForward() {
+    const t = this.skipTarget();
+    if (!t) return null;
+    if (t.kind === 'rezolvare') { this._enter(t.index); return 'rezolvare'; }
+    this.nextItem();
+    return 'exercitiu';
+  }
+
   // răspunsul elevului la întrebare (verificat deja de server)
   pollDone(pollId, result) {
     this.answered[pollId] = result;

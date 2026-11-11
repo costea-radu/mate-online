@@ -108,6 +108,28 @@ Verificări: media trebuie să fie între 1 și 10, trebuie să existe cel puți
 notă nouă, elevul trebuie să fie asociat mentorului, iar grupa să-i aparțină.
 Media pe grupă e doar pentru conturile de profesor.
 
+## 📒 Catalogul profesorului: note, plusuri, minusuri, aprecieri (11 nov. 2026)
+
+Cererea: „fă ca profesorii să poată da note elevilor, plusuri, minusuri, aprecieri".
+
+**Instalare (o singură dată):** `supabase/catalog_profesor.sql` (Supabase → SQL Editor) — tabela
+`teacher_marks` (`kind` = `nota` | `plus` | `minus` | `apreciere`, `value` 1–10 la notă, `title` = pentru
+ce, `comment` = aprecierea), cu RLS și GRANT (`authenticated` + `service_role`, fără `anon`). O citesc
+doar profesorul care a dat-o, elevul și părinții lui; scrierile trec doar prin API.
+
+- **Profesorul:** „Grupe / Rezultate elevi" → lângă fiecare elev **„📒 Notează"**: 📝 notă 1–10 (cu „pentru
+  ce" — lucrare, test, răspuns oral, temă…), ➕ plus, ➖ minus, 👏 apreciere (cu propuneri gata scrise).
+  Sub numele elevului apare sumarul („📒 9 · 10 · ➕3 ➖1 · 👏2"), iar în rândul deschis catalogul întreg
+  (cu 🗑 pentru rândurile date de el).
+- **Notele din catalog intră în medii** („🔒 Încheie media", media fiecărui elev), ca notele testelor.
+- **Elevul:** „Contul meu → 📊 Rezultatele mele → 📒 De la profesori" (și pe Home: „ultima notă").
+  **Părintele:** în rândul copilului din „Rezultate elevi", cu numele profesorului. Amândoi primesc o
+  notificare 📒 la fiecare rând nou.
+- **API:** `api/teacher-manage.js` → `add_mark` (doar profesorul elevului), `delete_mark` (doar ce a dat el),
+  `my_marks` (elevul); `api/teacher-students.js` → `marks` (profesorul: ce a dat el; părintele: tot).
+  Logica pură: `api/_lib/noteProfesor.js`; interfața: `src/components/CatalogNote.jsx`.
+  Teste: `test/catalog-profesor.test.js`.
+
 ## Fișiere atinse
 
 **Noi:** `supabase/medii_si_timp.sql`, `GHID_MEDII_NOTE.md`.

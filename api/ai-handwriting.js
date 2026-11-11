@@ -20,7 +20,14 @@
 //         thumb?: dataUrl ≤ 16 KB, conversationId?, context?: { pdf, contentId,
 //         libraryId, category, title, meditatii }, exerciseText? }
 // Răspuns: { conversationId, messageId, text, puncte, puncteMax, hasBarem,
-//            lizibil, itemi, spoken, model }
+//            lizibil, itemi, spoken, model, nota, score, total, saved }
+//
+// 🔴 NOTA (11 nov. 2026 — „fă să se treacă nota cu roșu și pe PDF"): la un subiect
+// de examen din platformă (Evaluare Națională / Bacalaureat, cu baremul oficial: 90 de
+// puncte + 10 din oficiu) corectarea foii dă și NOTA TESTULUI, ca „✏️ Rezolvă pe PDF":
+// ce nu e scris pe foaie are 0 puncte. Nota se salvează în rezultatele elevului
+// (`progress`, ultima corectare contează; aceeași corectare repetată în 30 de minute nu
+// mai numără o încercare) și vizualizatorul o scrie cu roșu pe prima pagină.
 //
 // Acces: DOAR Premium (sau admin) — corectarea face parte din abonament. Oprit
 // în timpul unui test pe grupă (e ajutor de la AI). Cotă zilnică proprie
@@ -33,6 +40,25 @@ const testlock = require('./_lib/testlock');
 const pregatire = require('./_lib/pregatireZilnica'); // „🎯 Pregătește-mă de examen": exercițiile de pe foaie se numără
 const corector = require('./_lib/corector');
 const pdfContext = require('./ai-pdf-context');
+const med = require('./_lib/meditatii');            // notaTest (cu cele 10 puncte din oficiu)
+const correct = require('./ai-correct');            // saveProgress / saveUploadResult
+
+const EXAMENE_OFICIALE = ['evaluare-nationala', 'bacalaureat'];
+const PUNCTE_EXAMEN = 90;          // + 10 din oficiu = 100
+const NESCHIMBAT_MIN = 30;         // aceeași corectare, din nou, în atâtea minute → nu mai e o încercare
+
+// Nota testului din corectarea foii: doar la subiectele de examen cu barem oficial
+// (EN / BAC: „Se acordă 10 puncte din oficiu"). → { nota, score, total } | null
+function notaDinFoaie(src, r) {
+  if (!src || src.kind !== 'pdf' || !src.hasBarem) return null;
+  if (!EXAMENE_OFICIALE.includes(src.category)) return null;
+  if (!/oficiu/i.test(String(src.barem || ''))) return null;
+  const p = r ? Number(r.puncte) : NaN;
+  if (!r || r.puncte == null || !Number.isFinite(p)) return null;
+  const score = Math.round(Math.max(0, Math.min(PUNCTE_EXAMEN, p)) * 100) / 100;
+  return { nota: med.notaTest(score, PUNCTE_EXAMEN), score, total: PUNCTE_EXAMEN };
+}
+const fmtNota = (n) => Number(n).toFixed(2).replace('.', ',');
 
 const MAX_IMAGES = 6;
 const MAX_IMG_CHARS = 2_200_000;     // o bucată a foii (data URL)
@@ -159,6 +185,42 @@ module.exports = async function handler(req, res) {
     await logAll(supa, userId, out.usages, true);
     const r = out.result;
 
+    // 🔴 nota testului (subiect de examen cu barem) — în chat, în rezultate și pe PDF
+    const notaT = notaDinFoaie(src, r);
+    if (notaT) {
+      out.text = `${out.text}\n\n📝 **Nota pe test: ${fmtNota(notaT.nota)}** (${notaT.score}/${notaT.total} puncte + 10 din oficiu) — e scrisă cu roșu sus, pe prima pagină a testului. Ce nu ai scris încă pe foaie are 0 puncte: continuă și cere din nou corectarea, iar nota se actualizează.`;
+    }
+    let saved = null;
+    if (notaT) {
+      try {
+        if (src.contentId) {
+          let vechi = null;
+          try {
+            const { data } = await supa.from('progress').select('score, max_score, completed_at')
+              .eq('user_id', userId).eq('content_id', src.contentId).maybeSingle();
+            vechi = data || null;
+          } catch { vechi = null; }
+          const recent = vechi && vechi.completed_at && (Date.now() - Date.parse(vechi.completed_at)) < NESCHIMBAT_MIN * 60000;
+          if (vechi && recent && Number(vechi.score) === Math.round(notaT.score) && Number(vechi.max_score) === notaT.total) {
+            saved = { kind: 'progress', neschimbat: true };
+          } else {
+            const pr = await correct.saveProgress(supa, userId, { contentId: src.contentId, title: src.title, category: src.category, score: notaT.score, maxScore: notaT.total, sessionSeconds: 0 });
+            saved = { kind: 'progress', attempts: pr.attempts, partial: true };
+          }
+        } else if (src.libraryId) {
+          const pr = await correct.saveUploadResult(supa, userId, {
+            title: src.title, category: src.category, score: notaT.score, maxScore: notaT.total, sessionSeconds: 0,
+            breakdown: (r.itemi || []).map((it, i) => ({ id: `foaie-${i + 1}`, eticheta: it.eticheta, puncte: it.puncte, maxPuncte: it.puncte_max, verdict: it.verdict })),
+            feedback: r.feedback || '', testText: src.test,
+          });
+          saved = { kind: 'upload', attempts: pr.attempts };
+        }
+      } catch (e) {
+        console.error('ai-handwriting: salvarea notei a eșuat:', e.message);
+        saved = { kind: 'nesalvat' };
+      }
+    }
+
     // ── corectarea intră în CONVERSAȚIE (istoricul chatului; profesorul o vede
     //    la întrebările următoare) ──
     const thumb = typeof body.thumb === 'string' && /^data:image\/(jpeg|png|webp);base64,/.test(body.thumb) && body.thumb.length <= 16000 ? body.thumb : null;
@@ -188,7 +250,7 @@ module.exports = async function handler(req, res) {
         const { data: saved } = await supa.from('ai_messages')
           .insert({
             conversation_id: convId, role: 'assistant', mode: 'tutor', content: out.text,
-            metadata: { handwriting: { puncte: r.puncte, puncteMax: r.puncteMax, hasBarem: !!src.hasBarem, model: out.model } },
+            metadata: { handwriting: { puncte: r.puncte, puncteMax: r.puncteMax, hasBarem: !!src.hasBarem, model: out.model, ...(notaT ? { nota: notaT.nota } : {}) } },
           })
           .select('id').single();
         messageId = saved?.id || null;
@@ -201,6 +263,7 @@ module.exports = async function handler(req, res) {
       content: { id: src.contentId || null, title: src.title || null, category: src.category, content_type: 'pdf' },
       itemi: (r.itemi || []).filter((it) => it && it.verdict !== 'necompletat').length,
       pct: r.puncteMax ? Math.round((Number(r.puncte || 0) / Number(r.puncteMax)) * 100) : null,
+      nota: notaT ? notaT.nota : null,
       verificat: true,
     }) : null;
 
@@ -212,6 +275,8 @@ module.exports = async function handler(req, res) {
       lizibil: r.lizibil, itemi: r.itemi,
       spoken: r.feedback || '',
       model: out.model,
+      nota: notaT ? notaT.nota : null, score: notaT ? notaT.score : null, total: notaT ? notaT.total : null,
+      saved,
     });
   } catch (err) {
     if (!err.status) console.error('ai-handwriting error:', err);
@@ -222,3 +287,6 @@ module.exports = async function handler(req, res) {
 // exportate pentru teste
 module.exports.cleanImages = cleanImages;
 module.exports.resolveSource = resolveSource;
+
+// exportată pentru teste (test/nota-pe-pdf.test.js)
+module.exports.notaDinFoaie = notaDinFoaie;

@@ -21,15 +21,30 @@ import { getMyBadges } from '../lib/badges';
 import { notaDinScor } from '../lib/nota';
 import { trackPurchase } from '../lib/analytics';
 import { SiteReviewForm } from '../components/ReviewWidget';
+import { MyCatalog, useMyCatalog } from '../components/CatalogNote';
+
+// Home → „Contul meu" (11 nov. 2026): fiecare card din Home duce direct la secțiunea lui
+// (?rezultate=1, ?insigne=1, ?teme=1, ?asociere=1 / ?invita=1, ?parere=1); secțiunea se
+// derulează sub bara de sus când apare (unele se încarcă după o clipă).
+const SECTIUNI_DIN_URL = { rezultate: ['rezultate', 'rezultate-elevi'], insigne: ['insigne'], teme: ['teme'], asociere: ['invita'], invita: ['invita'], parere: ['parere'], catalog: ['catalog', 'rezultate', 'rezultate-elevi'] };
+function sectiuneaDinUrl() {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    return Object.keys(SECTIUNI_DIN_URL).find((k) => q.has(k)) || null;
+  } catch { return null; }
+}
 
 // ─── Rezultatele ELEVULUI: testele și exercițiile rezolvate de el ────────────
 // Din `progress` (teste interactive + teste PDF corectate de Prof. Virtual) și
 // din `ai_pdf_results` (poze / PDF-uri încărcate în chat) — ambele protejate
 // de RLS (elevul își vede doar propriile rânduri). Lângă fiecare exercițiu se
 // menționează în paranteză dacă e (interactiv) sau (PDF).
-function MyResults({ user }) {
+function MyResults({ user, defaultOpen = false }) {
   const [rows, setRows] = useState(null);
+  const [toate, setToate] = useState(false);
   const loadedRef = useRef(false);
+  // 📒 notele, plusurile, minusurile și aprecierile de la profesori (11 nov. 2026)
+  const marks = useMyCatalog(!!user?.id);
 
   useEffect(() => {
     if (!user?.id || loadedRef.current) return;
@@ -92,11 +107,12 @@ function MyResults({ user }) {
   const col = (p) => (p >= 80 ? '#2e7d32' : p >= 50 ? '#e65100' : '#c62828');
 
   return (
-    <details className="card" style={{ marginBottom: 24 }} open={false}>
+    <details className="card" id="rezultate" style={{ marginBottom: 24 }} open={defaultOpen || undefined}>
       <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none' }}>
         📊 Rezultatele mele — teste și exerciții rezolvate{rows ? ` (${rows.length})` : ''}
       </summary>
       <div style={{ marginTop: 14 }}>
+        <MyCatalog marks={marks} />
         {rows === null && <p style={{ color: 'var(--text-muted)', fontSize: '.88rem' }}>Se încarcă…</p>}
         {rows !== null && rows.length === 0 && (
           <p style={{ color: 'var(--text-muted)', fontSize: '.88rem' }}>
@@ -115,7 +131,7 @@ function MyResults({ user }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.slice(0, 60).map((r) => {
+                {rows.slice(0, toate ? 60 : 10).map((r) => {
                   const p = pct(r.score, r.max);
                   const nota = notaDinScor(r.score, r.max);
                   return (
@@ -147,6 +163,12 @@ function MyResults({ user }) {
                 })}
               </tbody>
             </table>
+            {rows.length > 10 && (
+              <button type="button" onClick={() => setToate((v) => !v)}
+                style={{ marginTop: 10, background: 'none', border: 'none', color: 'var(--navy)', fontWeight: 700, fontSize: '.84rem', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                {toate ? 'Arată doar ultimele 10' : `Arată toate (${Math.min(rows.length, 60)})`}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -196,6 +218,27 @@ export default function Profile() {
     try { return new URLSearchParams(window.location.search).has('colegi'); }
     catch { return false; }
   });
+  // Home → secțiunea cerută (?rezultate=1 …): o derulăm sub bara de sus când apare
+  const [sectiune] = useState(sectiuneaDinUrl);
+  useEffect(() => {
+    if (!sectiune) return undefined;
+    let gata = false;
+    const t0 = Date.now();
+    const iduri = SECTIUNI_DIN_URL[sectiune] || [];
+    const incearca = () => {
+      if (gata) return;
+      const el = iduri.map((id) => document.getElementById(id)).find(Boolean);
+      if (el) {
+        if (el.tagName === 'DETAILS') el.open = true;
+        try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { el.scrollIntoView(); }
+        gata = true;
+        return;
+      }
+      if (Date.now() - t0 < 5000) setTimeout(incearca, 150);
+    };
+    const t = setTimeout(incearca, 250);
+    return () => { gata = true; clearTimeout(t); };
+  }, [sectiune]);
   const onboardingRan = useRef(false);
   const codeEnsured = useRef(false);
   // Citit o singură dată la montare: dacă există un tip de cont în așteptare
@@ -486,7 +529,10 @@ export default function Profile() {
           </div>
         )}
 
-        {/* Profesor Virtual (AI Tutor) */}
+        {/* Asistentul AI — DOAR în contul de profesor (11 nov. 2026: scos din „Contul meu" la
+            elevi — „Prof. Virtual" — și la părinți — „Asistent AI pentru părinți"; rămân în
+            meniu și în widgetul plutitor) */}
+        {isTeacher && (
         <div style={{
           background: 'linear-gradient(120deg, var(--navy), #163a5a)', color: '#fff',
           borderRadius: 'var(--radius-lg, 16px)', padding: '20px 24px', marginBottom: 24,
@@ -507,6 +553,22 @@ export default function Profile() {
             Deschide AI Tutor →
           </Link>
         </div>
+        )}
+
+        {/* 📊 REZULTATELE — primul lucru din pagină (11 nov. 2026): la elev „Rezultatele mele"
+            (deschise, cu notele / plusurile / aprecierile de la profesori), la părinte
+            „Rezultate elev" (deschise; caseta de asociere vine după ele) */}
+        {!isMentor && <MyResults user={user} defaultOpen />}
+        {isParent && (
+          <TeacherResults
+            user={user}
+            inviteCode={profile?.teacher_code}
+            displayName={displayName}
+            role={profile?.role}
+            defaultOpen
+            invitePos="bottom"
+          />
+        )}
 
         <div className="profile-grid">
           {/* Sidebar */}
@@ -661,7 +723,7 @@ export default function Profile() {
 
             {/* Insignele elevului (gamificare) */}
             {!isMentor && (
-              <div className="card" style={{ marginBottom: 24 }}>
+              <div className="card" id="insigne" style={{ marginBottom: 24 }}>
                 <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 12 }}>🏅 Insignele mele</h3>
                 {myBadges.length === 0 ? (
                   <p style={{ color: 'var(--text-light)', fontSize: '.9rem' }}>
@@ -689,22 +751,19 @@ export default function Profile() {
               </div>
             )}
 
-            {/* Teme nefăcute — DEASUPRA „Rezultatele mele"; apare doar dacă
-                elevul e asociat cu un profesor (componenta se ascunde singură
-                când nu are mentor). */}
+            {/* Teme — apare doar dacă elevul e asociat cu un profesor sau un părinte
+                (componenta se ascunde singură când nu are mentor). */}
             {!isMentor && <TemeNefacute />}
 
-            {/* Rezultatele ELEVULUI: testele și exercițiile rezolvate de el
-                (interactive + PDF corectate de Prof. Virtual) */}
-            {!isMentor && <MyResults user={user} />}
-
-            {/* Rezultate elevi — pentru profesori și părinți, sub Abonament */}
-            {isMentor && (
+            {/* Rezultatele ELEVULUI și „Rezultate elev" ale PĂRINTELUI stau acum sus, primele
+                în pagină. Aici rămân „Grupe / Rezultate elevi" ale profesorului. */}
+            {isTeacher && (
               <TeacherResults
                 user={user}
                 inviteCode={profile?.teacher_code}
                 displayName={displayName}
                 role={profile?.role}
+                defaultOpen={sectiune === 'rezultate' || sectiune === 'catalog'}
               />
             )}
 
@@ -756,7 +815,7 @@ export default function Profile() {
 
             {/* Părerea despre ExamenMate — toate tipurile de cont; apare public
                 după aprobare în Admin → ⭐ Recenzii (src/components/ReviewWidget.jsx) */}
-            <div className="card" style={{ marginBottom: 24 }}>
+            <div className="card" id="parere" style={{ marginBottom: 24 }}>
               <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 6 }}>⭐ Părerea ta despre ExamenMate</h3>
               <p style={{ fontSize: '.84rem', color: 'var(--text-muted)', marginBottom: 12 }}>
                 Cum te ajută platforma? Recenzia ta ajunge la noi și, după verificare, pe pagina principală.{' '}

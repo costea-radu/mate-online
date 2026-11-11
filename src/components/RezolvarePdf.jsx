@@ -27,6 +27,7 @@ import {
   PEN_PT, INK_COLORS, boxOf, nearStroke, inkPath, buildExamMap, readTextPages, recognize,
   correctionPlan, recognitionSummary, cropPlan, cropLabels, readDraft, saveDraft, renderCrop,
   canvasJpeg, thumbOf, exportInkPdf, itemShort, notaScrisa, pozitieNota, latimeNota, veziNota, notaPeEcran,
+  cutiiText, asteaptaSiVeziNota,
 } from '../lib/pdfRezolvare';
 
 // ─── NOTA, scrisă cu roșu pe test (8 nov. 2026) ───────────────────────────────
@@ -65,6 +66,43 @@ export function NotaRosie({ nota, w, h, vechi = false, cutii = null }) {
         stroke={ROSU} strokeWidth={Math.max(1, s * 0.055)} fill="none" strokeLinecap="round" />
     </g>
   );
+}
+
+// ─── Nota pe test ȘI în afara modului „✏️ Rezolvă pe PDF" (11 nov. 2026) ───────
+// „Fă să se treacă nota cu roșu și pe PDF, la început": corectarea din foaia de lucru
+// sau din formularul „📝 Răspunde în chat" (panoul profesorului, la orice PDF — și la
+// BAC) scrie și ea nota pe prima pagină; la fel, după ce elevul închide modul de
+// rezolvare, nota corectării rămâne pe test. Doar nota — stratul nu primește atingeri
+// (derularea, zoomul și restul vizualizatorului merg ca înainte).
+export function NotaPagina({ n, w, h, nota }) {
+  if (n !== 1 || !nota || nota.v == null) return null;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%" height="100%" aria-hidden="true"
+      style={{ display: 'block', position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+      <NotaRosie nota={nota.v} w={w} h={h} vechi={!!nota.vechi} cutii={nota.cutii || null} />
+    </svg>
+  );
+}
+
+// textul primei pagini (locurile pe care nota nu le acoperă) — o singură dată pe PDF
+const cutiiCache = new WeakMap();
+export async function cutiiPagina1(data) {
+  if (!data) return null;
+  if (cutiiCache.has(data)) return cutiiCache.get(data);
+  let doc = null;
+  try {
+    const pdfjs = await loadPdfJs();
+    doc = await pdfjs.getDocument({ data: new Uint8Array(data.slice(0)) }).promise;
+    const [p1] = await readTextPages(doc, { maxPages: 1 });
+    const c = cutiiText(p1);
+    cutiiCache.set(data, c);
+    return c;
+  } catch (e) {
+    console.warn('Nota pe PDF — textul primei pagini:', e);
+    return null;
+  } finally {
+    try { doc && doc.destroy(); } catch { /* noop */ }
+  }
 }
 
 // Aceeași notă, desenată pe o pânză (pentru PDF-ul descărcat) → { png, x, y, w, h } în puncte
@@ -555,6 +593,7 @@ export function useRezolvarePdf({ on, data, draftKey }) {
     request, renderImages, keepResult, markGratuite, downloadPdf, durationSec,
     // 🔴 nota de pe test: { v, vechi } + derularea la ea (src/lib/pdfRezolvare.js)
     nota: notaPag, veziNota: () => veziNota(), notaPeEcran: () => notaPeEcran(),
+    asteaptaSiVeziNota: (o) => asteaptaSiVeziNota(o),
     undo: () => store.undo(), clearAll: () => store.clearAll(),
     canUndo: store.canUndo, hasInk: store.hasInk,
   };

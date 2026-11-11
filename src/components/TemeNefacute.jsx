@@ -27,6 +27,8 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+// 11 nov. 2026: tabul apare și pentru temele date de PĂRINTE („📝 Creează o temă
+// elevului"); `id="teme"` — Home → „📝 Teme" derulează aici.
 export default function TemeNefacute() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -63,7 +65,7 @@ export default function TemeNefacute() {
             <span style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: '.74rem' }}>({k.label})</span>
           </span>
           <span style={{ display: 'block', fontSize: '.74rem', color: 'var(--text-muted)', marginTop: 2 }}>
-            {t.teacher ? `de la ${t.teacher}` : ''}{t.group ? ` · grupa ${t.group}` : ''}
+            {t.teacher ? `de la ${t.teacher}${t.fromParent ? ' (părinte)' : ''}` : ''}{t.group ? ` · grupa ${t.group}` : ''}
             {t.items > 1 ? ` · ${t.doneItems}/${t.items} rezolvate` : ''}
             {t.at ? ` · ${fmtDate(t.at)}` : ''}
             {t.dueAt ? ` · termen ${fmtDate(t.dueAt)}` : ''}
@@ -93,7 +95,7 @@ export default function TemeNefacute() {
   );
 
   return (
-    <details className="card" style={{ marginBottom: 24 }} open={pending.length > 0}>
+    <details className="card" id="teme" style={{ marginBottom: 24 }} open={pending.length > 0}>
       <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-display)', fontSize: '1.05rem', listStyle: 'none' }}>
         📌 Teme
         {pending.length > 0 && (

@@ -219,8 +219,9 @@ test('nota în bara de rezolvare (clic → la notă), în capătul paginilor și
   assert.match(rz, /const right = \(\s*\n\s*<span[^>]*>\s*\n\s*\{notaBtn\}/, 'primul în dreapta barei (se vede și pe telefon)');
   assert.match(rz, /vezi nota pe test ↑/);
   const pv = read('src/pages/PDFViewer.jsx');
-  assert.match(pv, /solve\.keepResult\(r, req\.sigs\);[\s\S]{0,400}if \(r\.nota != null && !notaArataRef\.current\) \{\s*\n\s*notaArataRef\.current = true;\s*\n\s*setTimeout\(\(\) => \{ if \(!solve\.notaPeEcran\(\)\) solve\.veziNota\(\); \}, 450\);/);
-  assert.match(pv, /notaArataRef\.current = false; \}, \[item\?\.id\]\);/, 'o dată pe test, în fiecare vizită');
+  // 11 nov. 2026: după FIECARE corectare cu notă (nu doar prima din vizită) — test/nota-pe-pdf.test.js
+  assert.match(pv, /solve\.keepResult\(r, req\.sigs\);[\s\S]{0,600}if \(r\.nota != null\) \{[\s\S]{0,200}setTimeout\(\(\) => \{ solve\.asteaptaSiVeziNota\(\); \}, 350\);/);
+  assert.ok(!/notaArataRef/.test(pv), 'nu mai e „doar prima dată"');
   // nota se calculează la ORICE corectare punctată (și cu 2–3 exerciții), iar punctajul se salvează
   const api = read('api/rezolva-pdf.js');
   assert.match(api, /const nota = punctat && sum\.total \? med\.notaTest\(sum\.score, sum\.total\) : null;/);
