@@ -174,6 +174,13 @@ Nota să apară în statistici la «rezultate elevi»".
   mele" și „Grupe / Rezultate elevi". XP doar când punctajul crește.
 - Lucrul pe PDF bifează și **testul zilei** din „🎯 Pregătește-mă de examen" (de la 3
   exerciții) — `GHID_PREGATESTE_MA.md`.
+- **Nota se vede de pe orice pagină** (8 nov. 2026, (4)): la EN grilele sunt pe pagina 2,
+  iar nota e pe pagina 1. După prima corectare din vizită pagina se derulează singură la
+  notă; nota stă și în bara de rezolvare, scrisă de mână cu roșu („2,00" — clic → pagina
+  se derulează la ea; estompată cât timp ai scris după corectare), iar în capătul
+  paginilor „vezi nota pe test ↑" (`veziNota` / `notaPeEcran` în `src/lib/pdfRezolvare.js`).
+  Pe telefon, butonul de potrivire din bară rămâne doar „↔" / „⤢", ca bara să încapă pe
+  două rânduri. Cardul de recenzie stă jos, în zona paginilor (sus ar acoperi nota).
 
 ## Nota pe card și recenzia (8 nov. 2026, seara)
 

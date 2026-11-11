@@ -4,6 +4,7 @@ import App from './App';
 import './styles/global.css';
 import { installErrorReporting } from './lib/errorReport';
 import { reloadForNewVersion } from './lib/chunkReload';
+import { verificaVersiunea } from './lib/versiune';
 
 // erorile JavaScript reale ale vizitatorilor → agentul de debug din Admin (fără date personale)
 installErrorReporting();
@@ -19,23 +20,27 @@ window.addEventListener('vite:preloadError', () => { reloadForNewVersion(); });
 // eșuează („An unknown error occurred when fetching the script"); site-ul merge și
 // fără el. O singură reîncercare, după 30 de secunde.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  // o versiune nouă (după un deploy) a preluat pagina: dacă pagina abia s-a deschis (sub
-  // 10 s), se reîncarcă o dată și arată direct versiunea nouă; altfel, la următoarea deschidere
+  // o versiune nouă (după un deploy) a preluat pagina. Paginile vin din rețea, deci de
+  // obicei pagina rulează deja versiunea nouă și nu se întâmplă nimic; dacă rulează una
+  // veche (a venit din precache), se actualizează: acum dacă abia s-a deschis, altfel la
+  // următoarea schimbare de pagină (src/lib/versiune.js)
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (hadController && performance.now() < 10000) reloadForNewVersion();
+    if (hadController) verificaVersiunea();
   });
   const register = (retry) => navigator.serviceWorker.register('/sw.js', { scope: '/' })
     .catch(() => { if (retry) setTimeout(() => register(false), 30000); });
   if (document.readyState === 'complete') register(true);
   else window.addEventListener('load', () => register(true), { once: true });
-  // site-ul ținut deschis pe telefon: la revenire (cel mult o dată la 30 de minute) caută
-  // versiunea nouă, ca următoarea deschidere să o aibă
+  // site-ul ținut deschis pe telefon (Safari „trezește" tab-ul fără să-l reîncarce): la
+  // revenire, cel mult o dată la 10 minute, caută versiunea nouă — o ia la următoarea
+  // schimbare de pagină, iar service worker-ul o pregătește pentru următoarea deschidere
   let lastCheck = Date.now();
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible' || Date.now() - lastCheck < 30 * 60000) return;
+    if (document.visibilityState !== 'visible' || Date.now() - lastCheck < 10 * 60000) return;
     lastCheck = Date.now();
     navigator.serviceWorker.getRegistration().then((r) => r && r.update()).catch(() => {});
+    verificaVersiunea();
   });
 }
 

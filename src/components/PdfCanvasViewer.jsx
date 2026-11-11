@@ -23,7 +23,7 @@
 //   „✏️ Rezolvă pe PDF" (7 nov. 2026 — src/components/RezolvarePdf.jsx):
 //        overlay = ({ n, w, h }) => ReactNode — stratul de deasupra paginii n (w × h
 //                  = mărimea paginii în puncte), desenat într-un <div> peste pânză;
-//        toolbar = { left, right } — butoanele modului, în bara de zoom;
+//        toolbar = { left, right, compact } — butoanele modului, în bara de zoom (compact: telefon);
 //        footer  = ce apare după ultima pagină („✅ Am terminat — Corectează").
 // =====================================================================
 import { useEffect, useRef, useState } from 'react';
@@ -366,10 +366,15 @@ export default function PdfCanvasViewer({ data, blobUrl, onFail, jumpTo = null, 
         <span title="Poți mări și cu două degete, direct pe pagină"
           style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.78rem', fontWeight: 700, minWidth: 44, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
         <button type="button" style={zBtn} onClick={() => setZoom((z) => Math.min(MAX_ZOOM, Math.round((z + 0.25) * 100) / 100))} aria-label="Mărește">+</button>
+        {/* pe telefon, în modul de rezolvare (toolbar.compact): doar simbolul — loc pentru
+            nota din bară, ca bara să rămână pe două rânduri */}
         <button type="button" style={{ ...zBtn, fontSize: '.74rem' }}
           onClick={() => setFitMode(fit === 'page' ? 'width' : 'page')}
+          aria-label={fit === 'page' ? 'Lățimea paginii' : 'Pagina întreagă'}
           title={fit === 'page' ? 'Paginile cât lățimea ecranului' : 'Pagina întreagă pe ecran (bun pe tabla interactivă)'}>
-          {fit === 'page' ? '↔ Lățimea paginii' : '⤢ Pagina întreagă'}
+          {toolbar && toolbar.compact
+            ? (fit === 'page' ? '↔' : '⤢')
+            : (fit === 'page' ? '↔ Lățimea paginii' : '⤢ Pagina întreagă')}
         </button>
         {pageInfo.total > 1 && (
           <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.74rem', fontWeight: 700 }}>

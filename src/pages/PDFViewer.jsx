@@ -97,6 +97,7 @@ export default function PDFViewer() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewCerut, setReviewCerut] = useState(false);
   const reviewAskedRef = useRef(new Set());
+  const notaArataRef = useRef(false);     // 🔴 nota de pe test, arătată după prima corectare din vizită
   const pregItemiRef = useRef(-1);
   const [lib, setLib] = useState(null);             // rândul din ai_public_library (kind 'pdf' | 'exam')
   const [examHtml, setExamHtml] = useState(null);   // testul generat (kind 'exam'), ca document HTML
@@ -423,7 +424,7 @@ export default function PDFViewer() {
     const t = setTimeout(() => { reviewAskedRef.current.add(id); setReviewCerut(false); setReviewOpen(true); }, 1500);
     return () => clearTimeout(t);
   }, [reviewCerut, pregRez, user, isLib, item?.id, reviewSkipKey]);
-  useEffect(() => { setReviewOpen(false); setReviewCerut(false); }, [item?.id]);
+  useEffect(() => { setReviewOpen(false); setReviewCerut(false); notaArataRef.current = false; }, [item?.id]);
   function closeReview() {
     setReviewOpen(false);
     try { if (reviewSkipKey) sessionStorage.setItem(reviewSkipKey, '1'); } catch { /* ignore */ }
@@ -516,6 +517,12 @@ export default function PDFViewer() {
       });
       if (h) h.done(r.text, { conversationId: r.conversationId, messageId: r.messageId });
       solve.keepResult(r, req.sigs);
+      // 🔴 prima notă din vizita asta: o arătăm pe test (e scrisă sus, pe prima pagină),
+      // dacă elevul e pe altă pagină — după ce nota s-a desenat
+      if (r.nota != null && !notaArataRef.current) {
+        notaArataRef.current = true;
+        setTimeout(() => { if (!solve.notaPeEcran()) solve.veziNota(); }, 450);
+      }
       if (r.saved && r.saved.kind === 'progress') cereRecenzie();   // ⭐ „Cum ți s-a părut testul?"
       arataPregatire(r.pregatire);   // „🎯 Pregătește-mă de examen": ziua bifată / cât mai e
       if (r.pregatire?.tocmaiBifata) arenaChanged();
@@ -1093,6 +1100,12 @@ export default function PDFViewer() {
   const reviewJsx = reviewOpen && item?.id && !isLib && (
     <ReviewToast targetType="content" targetId={item.id} title={item.title} onClose={closeReview} />
   );
+  // în PDF-ul desenat de site (pe telefon mereu): jos, în zona paginilor — sus sunt bara de
+  // rezolvare și nota cu roșu de pe prima pagină, pe care cardul le acoperea
+  const reviewJos = reviewOpen && item?.id && !isLib && (
+    <ReviewToast targetType="content" targetId={item.id} title={item.title} onClose={closeReview}
+      pozitie={{ position: 'absolute', top: 'auto', bottom: 10, left: 10, right: 10 }} />
+  );
 
   // ── Panoul de chat, interconectat cu PDF-ul deschis ─────────────────────
   const tutorPanel = tutorOpen && (
@@ -1251,7 +1264,8 @@ export default function PDFViewer() {
 
         <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column' }}>
           {/* subiectele rămân încărcate (doar ascunse) cât se vede baremul */}
-          <div style={{ flex:1, minHeight:0, display: showBaremDoc ? 'none' : 'flex', flexDirection:'column' }}>
+          <div style={{ flex:1, minHeight:0, display: showBaremDoc ? 'none' : 'flex', flexDirection:'column', position:'relative' }}>
+          {!showBaremDoc && reviewJos}
           {internalViewer ? (
             <PdfCanvasViewer data={pdfData} blobUrl={blobUrl} onFail={() => setViewerFailed(true)} jumpTo={testJump} {...solveProps} />
           ) : (
@@ -1286,7 +1300,7 @@ export default function PDFViewer() {
         {tutorWidget}
         {noteJsx}
         {pregToast}
-        {reviewJsx}
+        {showBaremDoc ? reviewJsx : null}
       </div>
     );
   }
@@ -1324,7 +1338,8 @@ export default function PDFViewer() {
         {/* tablele interactive / browserele fără vizualizator PDF: îl desenează site-ul
             (subiectele rămân încărcate, doar ascunse, cât se vede baremul) */}
         {blobUrl && internal && (
-          <div style={{ flex:1, minHeight:0, minWidth:0, display: showBaremDoc ? 'none' : 'flex', flexDirection:'column' }}>
+          <div style={{ flex:1, minHeight:0, minWidth:0, display: showBaremDoc ? 'none' : 'flex', flexDirection:'column', position:'relative' }}>
+            {!showBaremDoc && reviewJos}
             {pdfData && !viewerFailed ? (
               <PdfCanvasViewer data={pdfData} blobUrl={blobUrl} onFail={() => setViewerFailed(true)} jumpTo={testJump} {...solveProps} />
             ) : (
@@ -1360,7 +1375,8 @@ export default function PDFViewer() {
       {tutorWidget}
       {noteJsx}
       {pregToast}
-      {reviewJsx}
+      {/* PDF-ul desenat de site: cardul stă jos, în zona paginilor (ca pe telefon) */}
+      {blobUrl && internal && !showBaremDoc ? null : reviewJsx}
     </div>
   );
 }

@@ -26,7 +26,7 @@ import { loadPdfJs } from '../lib/pdfjs';
 import {
   PEN_PT, INK_COLORS, boxOf, nearStroke, inkPath, buildExamMap, readTextPages, recognize,
   correctionPlan, recognitionSummary, cropPlan, cropLabels, readDraft, saveDraft, renderCrop,
-  canvasJpeg, thumbOf, exportInkPdf, itemShort, notaScrisa, pozitieNota, latimeNota,
+  canvasJpeg, thumbOf, exportInkPdf, itemShort, notaScrisa, pozitieNota, latimeNota, veziNota, notaPeEcran,
 } from '../lib/pdfRezolvare';
 
 // ─── NOTA, scrisă cu roșu pe test (8 nov. 2026) ───────────────────────────────
@@ -553,6 +553,8 @@ export function useRezolvarePdf({ on, data, draftKey }) {
   return {
     store, ver, tool, setTool, color, setColor, map, mapState, rec, result, marks, summary, overlay,
     request, renderImages, keepResult, markGratuite, downloadPdf, durationSec,
+    // 🔴 nota de pe test: { v, vechi } + derularea la ea (src/lib/pdfRezolvare.js)
+    nota: notaPag, veziNota: () => veziNota(), notaPeEcran: () => notaPeEcran(),
     undo: () => store.undo(), clearAll: () => store.clearAll(),
     canUndo: store.canUndo, hasInk: store.hasInk,
   };
@@ -604,8 +606,22 @@ export function rezolvareToolbar({ solve, compact = false, busy = false, onCorec
       <button type="button" style={tBtn(false)} onClick={solve.clearAll} disabled={!solve.hasInk} title="Șterge tot ce ai scris pe PDF (se poate anula cu ↩)" aria-label="Șterge tot">🗑</button>
     </span>
   );
+  // 🔴 nota ultimei corectări, scrisă de mână, ca pe test; clic → pagina se derulează la ea
+  const ns = solve.nota ? notaScrisa(solve.nota.v) : null;
+  const notaBtn = ns && (
+    <button type="button" className="nota-bara" onClick={() => solve.veziNota()}
+      aria-label={`Nota ${ns.cifre} — arată-mi-o pe test`}
+      title={solve.nota.vechi
+        ? 'Nota de la corectarea de dinainte (ai mai scris de atunci — apasă „✅ Corectează" pentru nota nouă). Apasă ca s-o vezi pe test.'
+        : 'Nota ultimei corectări — e scrisă cu roșu sus, pe prima pagină. Apasă ca s-o vezi pe test.'}
+      style={{ ...tBtn(false), background: '#fff', borderColor: ROSU, color: ROSU, padding: '0 9px', gap: 5, opacity: solve.nota.vechi ? 0.6 : 1 }}>
+      {!compact && <span style={{ fontSize: '.7rem', fontWeight: 800, color: ROSU }}>nota</span>}
+      <span style={{ fontFamily: FONT_MANA, fontSize: '1.2rem', fontWeight: 700, lineHeight: 1 }}>{ns.cifre}</span>
+    </button>
+  );
   const right = (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      {notaBtn}
       {!compact && solve.summary && (
         <span title="Ce am recunoscut pe PDF până acum (la grile: litera încercuită)"
           style={{ color: 'rgba(255,255,255,.85)', fontSize: '.72rem', fontWeight: 600, maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -625,7 +641,7 @@ export function rezolvareToolbar({ solve, compact = false, busy = false, onCorec
       <button type="button" style={tBtn(false)} onClick={onClose} title="Închide modul (ce ai scris rămâne salvat pe acest dispozitiv)" aria-label="Închide rezolvarea pe PDF">✕</button>
     </span>
   );
-  return { left, right };
+  return { left, right, compact };
 }
 
 // Fără abonament: atâtea corectări gratuite ale GRILEI (după barem, fără AI) — numărul
@@ -661,6 +677,11 @@ export function RezolvareFooter({ solve, busy = false, onCorect, premium = true 
       {r && r.total ? (
         <div style={{ marginTop: 10, fontSize: '.82rem', color: 'var(--navy)', fontWeight: 700 }}>
           Ultima corectare: {fmt(r.score)}/{r.total}p{r.nota != null ? ` · nota ${fmt(r.nota)}` : ''}
+          {r.nota != null && (
+            <>{' '}<button type="button" onClick={() => solve.veziNota()}
+              style={{ background: 'none', border: 'none', padding: 0, color: ROSU, fontWeight: 800, fontSize: '.82rem', cursor: 'pointer', textDecoration: 'underline' }}>
+              vezi nota pe test ↑</button></>
+          )}
         </div>
       ) : null}
     </div>

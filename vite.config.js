@@ -2,11 +2,22 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// momentul build-ului = VERSIUNEA site-ului: Admin → Meditații live arată ce versiune rulează
+// telefonul, iar /version.json (scris mai jos) îi spune unui tab deschis de dinainte de un
+// deploy că a apărut una nouă (src/lib/versiune.js)
+const BUILD_TIME = new Date().toISOString();
+
 export default defineConfig({
-  // momentul build-ului: Admin → Meditații live arată ce versiune rulează telefonul
-  define: { __BUILD_TIME__: JSON.stringify(new Date().toISOString()) },
+  define: { __BUILD_TIME__: JSON.stringify(BUILD_TIME) },
   plugins: [
     react(),
+    {
+      name: 'version-json',
+      apply: 'build',
+      generateBundle() {
+        this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ v: BUILD_TIME }) });
+      },
+    },
     VitePWA({
       // 'autoUpdate' = la fiecare deploy pe Vercel, aplicația instalată se
       // actualizează singură la următoarea deschidere. O singură acțiune: git push.
@@ -58,14 +69,42 @@ export default defineConfig({
         // tastatura matematică (MathLive) — doar la prima deschidere, nu la toată lumea
         // încărcarea materialelor (pdf-lib, docx-preview, html-to-image) — doar la profesori, la cerere
         globIgnores: ['live/**', 'assets/KaTeX_*', 'assets/katex-*', 'sw-push.js', 'assets/mathlive*', 'assets/MathKeyboard*', 'assets/material-*'],   // KaTeX (cod + fonturi): la cerere, nu în precache
-        // SPA: orice navigare necunoscută primește index.html…
-        navigateFallback: '/index.html',
-        // …dar NU rutele serverless (/api/*) și NU fișierele de verificare
-        // Google (ex. /google88f99a4244b17e5a.html) — trebuie servite ca atare,
-        // altfel service worker-ul returnează app shell-ul și verificarea eșuează.
-        navigateFallbackDenylist: [/^\/api\//, /^\/google[0-9a-f]+\.html$/, /^\/sitemap\.xml$/, /^\/\.well-known\//],
+        // PAGINILE vin din REȚEA, nu din cache (8 nov. 2026). Înainte, orice deschidere primea
+        // index.html din precache — adică versiunea de DINAINTEA ultimului deploy; cea nouă
+        // apărea abia la a doua deschidere (pe iPhone, nota cu roșu și recenzia „lipseau"
+        // după deploy). Fără navigateFallback / directoryIndex, precache-ul nu mai răspunde
+        // la navigări (nici la „/"); le ia ruta „pagini" de mai jos.
+        navigateFallback: null,
+        directoryIndex: null,
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         runtimeCaching: [
+          {
+            // navigările: rețeaua întâi (versiunea nouă imediat după un deploy). Rețeaua nu
+            // răspunde în 4 s sau lipsește → index.html din precache (aceeași versiune cu
+            // fișierele din precache — niciodată un HTML vechi păstrat separat, care ar cere
+            // fișiere șterse după un deploy: pagină albă). NU rutele serverless (/api/*), NU
+            // fișierele de verificare Google (ex. /google88f99a4244b17e5a.html), sitemap-ul
+            // și /.well-known/ — acelea merg direct la server, ca atare.
+            // (funcția ajunge ca text în sw.js: nu are voie să folosească variabile de aici)
+            urlPattern: ({ request, url }) => request.mode === 'navigate'
+              && !/^\/(?:api\/|google[0-9a-f]+\.html$|sitemap\.xml$|\.well-known\/)/.test(url.pathname),
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'pagini',
+              networkTimeoutSeconds: 4,
+              plugins: [{
+                // HTML-ul paginilor nu se păstrează…
+                cacheWillUpdate: async () => null,
+                // …iar fără rețea (sau după 4 s) răspunde index.html din precache
+                cachedResponseWillBeUsed: async ({ cachedResponse }) => cachedResponse
+                  || (await caches.match('/index.html', { ignoreSearch: true })) || null,
+                // …la fel dacă serverul paginii are o pană (api/page-meta.js → 503)
+                fetchDidSucceed: async ({ response }) => (response.status >= 500
+                  && (await caches.match('/index.html', { ignoreSearch: true }))) || response,
+              }],
+              precacheFallback: { fallbackURL: '/index.html' },
+            },
+          },
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: 'StaleWhileRevalidate',

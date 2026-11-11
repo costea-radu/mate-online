@@ -81,7 +81,9 @@ test('configurația: fișierele lipsă din /assets/ primesc 404 (nu index.html);
   assert.match(vite, /clientsClaim:\s*true/);
   const main = read('src/main.jsx');
   assert.match(main, /navigator\.serviceWorker\.register\('\/sw\.js', \{ scope: '\/' \}\)\s*\n?\s*\.catch\(/);
-  assert.match(main, /addEventListener\('controllerchange', \(\) => \{\s*\n?\s*if \(hadController && performance\.now\(\) < 10000\) reloadForNewVersion\(\);/);
+  // versiunea nouă preia pagina → se verifică dacă pagina chiar rulează una veche
+  // (src/lib/versiune.js; testele în test/versiune-noua.test.js)
+  assert.match(main, /addEventListener\('controllerchange', \(\) => \{\s*\n?\s*if \(hadController\) verificaVersiunea\(\);/);
   assert.match(main, /vite:preloadError', \(\) => \{ reloadForNewVersion\(\); \}/);
   const rep = read('src/lib/errorReport.js');
   assert.match(rep, /window\.__mateReloading/);

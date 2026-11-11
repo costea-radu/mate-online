@@ -4,6 +4,37 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 8 noiembrie 2026 (4) — nota cu roșu și recenzia „nu apăreau": telefonul rula versiunea veche; nota, vizibilă de pe orice pagină
+
+Cererea: „nu apare nota cu rosu : nici pe test nici in lista ca la interactive. nu apare recenzia. fa sa apara acestea chiar daca s-au rezolvat doar 2 exercitii sau 3"
+
+Fără SQL nou, fără variabile noi.
+
+### 1) Cauza: site-ul era publicat, dar telefonul arăta versiunea de dinainte (`vite.config.js`, `src/lib/versiune.js`, `src/main.jsx`, `src/App.jsx`)
+- Vercel: `ccfe679` „Ready" în Production. Totuși, la prima deschidere examenmate.com răspundea cu versiunea veche: service worker-ul dădea la orice navigare `index.html` din precache — cel de dinaintea deploy-ului. Versiunea nouă se descărca în fundal și apărea abia la a doua deschidere (pagina se reîncărca singură doar dacă cea nouă se instala în primele 10 s — pe telefon, rar). Versiunea veche nu avea nota din listă și recenzia la PDF.
+- **Acum paginile vin din rețea** (ruta „pagini": rețeaua întâi, HTML-ul nu se mai păstrează separat; `navigateFallback` și `directoryIndex` scoase, ca nici „/" să nu mai vină din precache). Fără rețea, după 4 s de așteptare sau la o pană a serverului paginii (`api/page-meta.js` → 503) → aplicația din precache, aceeași versiune cu fișierele ei (un HTML vechi ar fi cerut fișiere șterse după deploy: pagină albă).
+- **`/version.json`** (scris la build = momentul build-ului, ca `__BUILD_TIME__`): dacă pagina tot rulează o versiune veche (a venit din precache sau tab-ul e deschis de dinainte de deploy — Safari „trezește" tab-ul fără să-l reîncarce), o află la preluarea paginii de către versiunea nouă și la revenirea în site (cel mult o dată la 10 minute) și ia versiunea nouă: **acum**, dacă pagina abia s-a deschis (sub 15 s), altfel **la următoarea schimbare de pagină** — nu la jumătatea unui test.
+- **O singură dată, după acest deploy:** telefonul are încă vechiul service worker → prima deschidere mai arată o dată versiunea veche (se reîncarcă singur dacă versiunea nouă se instalează în 10 s). Dacă nu, închide site-ul și redeschide-l. De la deploy-ul următor, versiunea nouă apare imediat. Ce versiune rulează telefonul: Admin → Meditații live → „Versiunea site-ului".
+
+### 2) Nota cu roșu, vizibilă de pe orice pagină (`RezolvarePdf.jsx`, `src/lib/pdfRezolvare.js`, `PDFViewer.jsx`, `PdfCanvasViewer.jsx`)
+- Nota se scrie sus, pe prima pagină; la EN grilele sunt pe pagina 2, iar elevul care corecta de acolo n-o vedea. Acum:
+  - după prima corectare din vizită, pagina se derulează singură la notă (dacă nu e deja pe ecran);
+  - nota stă și în bara de rezolvare, scrisă de mână cu roșu („2,00"); clic → pagina se derulează la ea (estompată cât timp ai scris după corectare);
+  - în capătul paginilor: „Ultima corectare: 10/90p · nota 2,00 · vezi nota pe test ↑";
+  - pe telefon, butonul „↔ Lățimea paginii / ⤢ Pagina întreagă" din bara de rezolvare rămâne doar cu simbolul, ca bara să încapă tot pe două rânduri.
+- Nota, punctajul salvat și nota din listă apar și după 2–3 exerciții (verificat cap-coadă cu 2 grile: „2,00" pe test și în bară; în listă „✓ 11% · nota 2,00 · 10/90 pct").
+
+### 3) Recenzia nu mai acoperă nota (`ReviewWidget.jsx`, `PDFViewer.jsx`)
+- Cardul „Cum ți s-a părut testul?" apărea sus, peste bara de rezolvare și peste nota de pe prima pagină. La PDF-ul desenat de site (pe telefon mereu) stă acum **jos, în zona paginilor**; cu baremul deschis sau în PDF-ul browserului rămâne sus (`ReviewToast … pozitie`).
+
+### Teste
+- `test/versiune-noua.test.js` (nou, 10 teste): compararea cu `/version.json`, actualizarea acum / la următoarea pagină, configurația service worker-ului (funcțiile care ajung în `sw.js`, evaluate: rutele lăsate serverului, fallback-ul la precache, pana serverului), nota pe ecran și derularea (DOM simulat), nota din bară, capătul paginilor, derularea după prima corectare.
+- `test/erori-client.test.js`, `test/pdf-nota-recenzii-taburi.test.js`: actualizate.
+
+**Verificat:** `npm test` 1157/1157; `vite build` (`sw.js`: fără `NavigationRoute`, `precacheAndRoute(…, {directoryIndex: null})`, ruta „pagini" `NetworkFirst`). Cap-coadă în Chromium, cu un server ca Vercel: deploy v1 → v2 → **v2 la prima reîncărcare**, fără reîncărcări în plus; fără rețea → aplicația din precache; rețea lentă (6 s) → precache la 4 s, apoi singur versiunea nouă (~8 s); tab deschis de mult → nimic sub mâna elevului, versiunea nouă la următoarea pagină; trecerea de la service worker-ul de acum → o dată versiunea veche, reîncărcare singură, apoi imediat. Telefon 390×844, 2 grile: nota în bară după 1,7 s, pagina derulată la notă, recenzia jos, clic pe notă de pe pagina 3 → înapoi la notă; lista: „✓ 11% · nota 2,00 | 10/90 pct | ★ 4,6 (12) | 💬 Părerile (2)".
+
+---
+
 ## 8 noiembrie 2026 (3) — fără numele aplicației de limbi, nota / punctajul / stelele / recenziile la testele PDF, EN: PDF în stânga, bara de sus pe iPhone
 
 Cererea: „1. Nu folosi cuvântul (…) pentru a nu fi probleme de drepturi de autor. Șterge-l 2. lângă fiecare test PDF pune ca la cele interactive nota, punctajul, stele din recenzii. Pune și recenzii. 3. la testele de evaluare națională, prima dată pune tabul de la testele PDF apoi cele interactive . Deci PDF în stânga, interactiv în dreapta 4. butoanele de sus sunt acoperite de o bară difuză. E doar la iPhone acest lucru sau la toate tipurile? Rezolvă da ase poate" (numele aplicației e înlocuit aici cu „(…)").

@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
-import { useEffect, lazy, Suspense } from 'react';
+import { useEffect, useRef, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -12,6 +12,7 @@ import { PdfOverlayHost } from './components/PdfOverlay';
 import { Analytics } from '@vercel/analytics/react';
 import { initAnalytics, trackPageView } from './lib/analytics';
 import { trimiteVizita } from './lib/vizite';
+import { laSchimbareaPaginii } from './lib/versiune';
 import Home from './pages/Home';
 
 // ─── Rute încărcate la cerere (code-splitting) — reduc JS-ul inițial ─────────
@@ -94,6 +95,13 @@ function VizitaTracker() {
 
 function Layout({ children }) {
   const { pathname } = useLocation();
+  // a apărut o versiune nouă a site-ului cât pagina era deschisă (src/lib/versiune.js):
+  // la următoarea schimbare de pagină, pagina se încarcă din nou — cu versiunea nouă
+  const primaRuta = useRef(true);
+  useEffect(() => {
+    if (primaRuta.current) { primaRuta.current = false; return; }
+    laSchimbareaPaginii();
+  }, [pathname]);
   // sala live (ca un apel Zoom) ocupă tot ecranul, fără bara de sus și fără widget —
   // la fel „Pregătirea de examen" din Planul meu (aceeași clasă, cu Prof. Tudor)
   const liveRoom = pathname.startsWith('/meditatii/sala/') || pathname.startsWith('/meditatii/demo') || pathname.startsWith('/meditatii/pregatire');

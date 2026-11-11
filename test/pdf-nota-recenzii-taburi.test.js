@@ -72,7 +72,13 @@ test('recenzia la PDF: „Cum ți s-a părut testul?" după o corectare salvată
   assert.match(pdf, /if \(!reviewCerut \|\| pregRez \|\| !user \|\| isLib \|\| !item\?\.id\) return undefined;/, 'așteaptă felicitarea testului zilei');
   assert.match(pdf, /em_review_skip_\$\{item\.id\}/, 'închis fără notă → nu mai întrebăm în vizita asta');
   assert.match(pdf, /<ReviewToast targetType="content" targetId=\{item\.id\} title=\{item\.title\} onClose=\{closeReview\} \/>/);
-  assert.strictEqual((pdf.match(/\{reviewJsx\}/g) || []).length, 2, 'pe telefon și pe calculator');
+  // JOS, în zona paginilor, la PDF-ul desenat de site (pe telefon mereu): sus sunt bara de
+  // rezolvare și nota cu roșu — 8 nov. 2026 (4); cu baremul deschis / PDF-ul browserului, sus
+  assert.match(pdf, /pozitie=\{\{ position: 'absolute', top: 'auto', bottom: 10, left: 10, right: 10 \}\}/);
+  assert.strictEqual((pdf.match(/position:'relative' \}\}>\s*\n\s*\{!showBaremDoc && reviewJos\}/g) || []).length, 2, 'pe telefon și pe calculator');
+  assert.match(pdf, /\{showBaremDoc \? reviewJsx : null\}/, 'telefon, cu baremul deschis');
+  assert.match(pdf, /\{blobUrl && internal && !showBaremDoc \? null : reviewJsx\}/, 'calculator: PDF-ul browserului / baremul');
+  assert.match(read('src/components/ReviewWidget.jsx'), /\.\.\.\(pozitie \|\| \{\}\),/);
   // panoul profesorului anunță corectarea salvată
   const tutor = read('src/components/AITutor.jsx');
   assert.match(tutor, /testCorectat\(\{ contentId: context\.contentId \|\| null, saved: r\.saved \|\| null \}\)/);

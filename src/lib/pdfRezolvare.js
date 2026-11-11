@@ -792,6 +792,42 @@ export function notaScrisa(nota) {
   };
 }
 
+// ─── 🔴 NOTA PE ECRAN (vizualizatorul de PDF, src/components/PdfCanvasViewer.jsx) ───
+// Nota se scrie sus, pe PRIMA pagină. Elevul care corectează de pe pagina 2 sau 3 n-o
+// vedea („nu apare nota cu roșu", 8 nov. 2026): după prima corectare din vizită și la clic
+// pe nota din bară, zona cu paginile se derulează la ea — ca la o lucrare primită înapoi.
+const docImplicit = () => (typeof document !== 'undefined' ? document : null);
+function notaEl(doc) {
+  const g = doc && doc.querySelector('.nota-rosie');
+  const holder = g && g.closest('[data-pdf-pagini]');
+  const pag = g && g.closest('[data-pagina]');
+  return holder && pag ? { g, holder, pag } : null;
+}
+// nota e pe ecran (în zona cu paginile)?
+export function notaPeEcran({ doc = docImplicit() } = {}) {
+  const e = notaEl(doc);
+  if (!e) return false;
+  const h = e.holder.getBoundingClientRect(), b = e.g.getBoundingClientRect();
+  return b.width > 0 && b.bottom > h.top + 4 && b.top < h.bottom - 4 && b.right > h.left + 4 && b.left < h.right - 4;
+}
+// derulează la notă: începutul primei pagini (antetul + nota) → { top, left }; null = nu e desenată
+export function veziNota({ lin = true, doc = docImplicit() } = {}) {
+  const e = notaEl(doc);
+  if (!e) return null;
+  const { holder } = e;
+  const h = holder.getBoundingClientRect(), p = e.pag.getBoundingClientRect(), b = e.g.getBoundingClientRect();
+  let top = holder.scrollTop + (p.top - h.top) - 8;
+  // pagina mult mărită: nota nu încape cu tot antetul deasupra → nota, spre mijloc
+  if (b.bottom - p.top + 16 > h.height) top = holder.scrollTop + (b.top - h.top) - h.height / 3;
+  let left = holder.scrollLeft;
+  if (b.right > h.right - 8) left += b.right - h.right + 16;
+  else if (b.left < h.left + 8) left -= h.left - b.left + 16;
+  const poz = { top: Math.max(0, Math.round(top)), left: Math.max(0, Math.round(left)) };
+  if (typeof holder.scrollTo === 'function') holder.scrollTo({ ...poz, behavior: lin ? 'smooth' : 'auto' });
+  else { holder.scrollTop = poz.top; holder.scrollLeft = poz.left; }
+  return poz;
+}
+
 // cutiile rândurilor de text ale unei pagini citite cu readTextPages (puncte,
 // colțul din stânga-sus = 0,0) — locurile pe care nota nu trebuie să le acopere
 export function cutiiText(pg) {

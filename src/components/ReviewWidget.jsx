@@ -82,8 +82,10 @@ export function RatingBadge({ stats, style = {} }) {
 
 // ─── Cardul de după test ─────────────────────────────────────────────────────
 // Props: targetType ('content' | 'public_item'), targetId, title (numele testului),
-//        onClose(), onSaved(review), position ('top-left' implicit).
-export function ReviewToast({ targetType = 'content', targetId, title, onClose, onSaved }) {
+//        onClose(), onSaved(review); poziția: sus-stânga, iar `pozitie` (stil) o schimbă —
+//        PDF-ul pe telefon îl pune JOS, în zona paginilor: sus stau bara de rezolvare și
+//        nota cu roșu, pe care cardul le acoperea.
+export function ReviewToast({ targetType = 'content', targetId, title, onClose, onSaved, pozitie = null }) {
   const { user } = useAuth();
   const [stars, setStars] = useState(0);
   const [body, setBody] = useState('');
@@ -141,6 +143,7 @@ export function ReviewToast({ targetType = 'content', targetId, title, onClose, 
       style={{
         position: 'fixed', zIndex: 1600,
         ...(isMobile ? { top: 64, left: 12, right: 12 } : { top: 70, left: 16, width: 340, maxWidth: 'calc(100vw - 32px)' }),
+        ...(pozitie || {}),
         background: '#fff', border: '2px solid var(--gold)', borderRadius: 14, padding: '12px 14px',
         boxShadow: '0 10px 30px rgba(0,0,0,.28)', animation: 'rvIn .3s ease',
         fontFamily: 'var(--font-body)',
