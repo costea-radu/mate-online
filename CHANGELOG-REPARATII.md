@@ -4,6 +4,17 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 11 noiembrie 2026 (seara, 2) — navbar: „🎯 Pregătește-mă" doar la elevi
+
+Cererea: „Scoate «pregătește-mă» din navbar din contul de profesor și părinte. Păstrează-l în contul de elev."
+
+- În bara de sus, butonul „🎯 Pregătește-mă" apare doar la elevi și la vizitatori (fără cont); profesorii și părinții nu-l mai au acolo (`arataPregatire = !isTeacher && !isParent`, `src/components/Navbar.jsx`). În meniul lateral / ☰, la „Învățare cu AI", rămâne pentru toate conturile (`src/lib/meniu.js` — doar comentariul).
+- Bara profesorului și a părintelui: „🎓 Examene" și „📚 Clase", împărțite pe lățime.
+
+**Verificat:** `test/pregatire-zilnica.test.js` (30), `npm test`, `vite build`; în Chromium, la 1366 și 1024 px: elev și vizitator — „🎯 Pregătește-mă" (sub 1200 px doar 🎯); profesor și părinte — fără el, „Contul meu" pe un rând.
+
+---
+
 ## 11 noiembrie 2026 (seara) — Home: fără „Părerea ta despre ExamenMate"
 
 Cererea: „Scoate «părerea ta despre ExamenMate» din home, există la sfârșit «lasă o recenzie»."

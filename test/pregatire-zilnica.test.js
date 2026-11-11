@@ -753,7 +753,7 @@ test('nota cu roșu în interfață: SVG cu fontul de mână (Caveat), roșu, pe
 });
 
 // ═══════════════════════════ 8) butoanele și paginile ═══════════════════════════
-test('butonul „🎯 Pregătește-mă de examen": primul în „Învățare cu AI" (meniul de pe telefon și cel lateral), în navbar, în Prof Virtual înainte de Meditații live', async () => {
+test('butonul „🎯 Pregătește-mă de examen": primul în „Învățare cu AI" (meniul de pe telefon și cel lateral), în navbar (doar la elevi și vizitatori), în Prof Virtual înainte de Meditații live', async () => {
   const meniu = await import('../src/lib/meniu.js');
   assert.deepStrictEqual({ ...meniu.PREGATESTE_MA }, { to: '/pregateste-ma', icon: '🎯', label: 'Pregătește-mă de examen' });
   const src = read('src/lib/meniu.js');
@@ -768,6 +768,10 @@ test('butonul „🎯 Pregătește-mă de examen": primul în „Învățare cu 
   const iPrep = nav.indexOf('nav-pregatire');
   const iLi = nav.lastIndexOf('<li', iPrep);
   assert.ok(iLi > 0 && nav.indexOf('<li', nav.indexOf('<ul', nav.lastIndexOf('<ul', iLi))) === iLi, 'primul element din bara de sus');
+  // în bara de sus doar la elevi și vizitatori; profesorii și părinții îl au doar în meniu (11 nov. 2026)
+  assert.match(nav, /const arataPregatire = !isTeacher && !isParent;/);
+  assert.match(nav, /\{arataPregatire && \(\s*\n\s*<li>\s*\n\s*<Link to=\{PREGATESTE_MA\.to\}/);
+  assert.ok(!/isTeacher|isParent|isMentor/.test(src.slice(iSec, src.indexOf('Meditații live', iSec))), 'în meniu rămâne pentru toate conturile');
   const css = read('src/styles/global.css');
   assert.match(css, /\.nav-pregatire/);
   // Prof Virtual (fereastra din colț): înaintea „Meditații live"

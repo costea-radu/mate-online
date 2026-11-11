@@ -463,6 +463,9 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, isTeacher = false
 export default function Navbar() {
   const { user, isPremium, isAdmin, isTeacher, isParent, signOut } = useAuth();
   const aiLabel = aiAssistantLabel({ isTeacher, isParent });
+  // „🎯 Pregătește-mă" în bara de sus: doar elevii (și vizitatorii) — scos la
+  // profesori și părinți (11 nov. 2026); rămâne în meniul lateral / ☰
+  const arataPregatire = !isTeacher && !isParent;
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -596,13 +599,17 @@ export default function Navbar() {
             {/* profesorii au aici și „📄 Generează subiect examen" (Asistent AI → generatorul) */}
             {/* 🎯 „Pregătește-mă de examen" (8 nov. 2026) — testul zilei. În bară:
                 „🎯 Pregătește-mă" (numele întreg în title / aria-label); sub 1200px
-                doar 🎯 — măsurat ca „⭐ Contul meu" să rămână pe un rând */}
-            <li>
-              <Link to={PREGATESTE_MA.to} className={`nav-pregatire${location.pathname === PREGATESTE_MA.to ? ' activ' : ''}`}
-                title="Pregătește-mă de examen — un test pe zi, cu amintire zilnică, XP și ligă" aria-label={PREGATESTE_MA.label}>
-                {PREGATESTE_MA.icon} <span className="nav-lung">{PREGATESTE_MA.label}</span><span className="nav-scurt">Pregătește-mă</span>
-              </Link>
-            </li>
+                doar 🎯 — măsurat ca „⭐ Contul meu" să rămână pe un rând.
+                Doar la elevi și vizitatori: profesorii și părinții nu-l mai au în bară
+                (11 nov. 2026) — îl găsesc în meniul lateral / ☰, la „Învățare cu AI". */}
+            {arataPregatire && (
+              <li>
+                <Link to={PREGATESTE_MA.to} className={`nav-pregatire${location.pathname === PREGATESTE_MA.to ? ' activ' : ''}`}
+                  title="Pregătește-mă de examen — un test pe zi, cu amintire zilnică, XP și ligă" aria-label={PREGATESTE_MA.label}>
+                  {PREGATESTE_MA.icon} <span className="nav-lung">{PREGATESTE_MA.label}</span><span className="nav-scurt">Pregătește-mă</span>
+                </Link>
+              </li>
+            )}
             <li><DesktopDropdown label="🎓 Examene" items={examenePentru({ isTeacher })} accent /></li>
             <li><DesktopDropdown label="📚 Clase" items={CLASE} accent /></li>
           </ul>

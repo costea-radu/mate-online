@@ -18,8 +18,10 @@
 //
 // „🎯 Pregătește-mă de examen" (8 nov. 2026) e PRIMA intrare din „Învățare cu
 // AI", înaintea „Meditațiilor live" — testul zilei (src/pages/PregatesteMa.jsx).
-// Același buton stă și în bara de sus (Navbar), în fereastra Profesorului
-// Virtual (AITutor, deasupra „Meditații live") și pe Home (cardul mare).
+// Același buton stă și în bara de sus (Navbar — doar la elevi și vizitatori, din
+// 11 nov. 2026), în fereastra Profesorului Virtual (AITutor, deasupra „Meditații
+// live") și pe Home (cardul mare, tot doar la elevi și vizitatori). În meniul
+// lateral / ☰ rămâne pentru toate conturile.
 // =====================================================================
 
 export const CLASE = [
