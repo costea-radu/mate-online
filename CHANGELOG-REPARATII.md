@@ -4,6 +4,56 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 12 noiembrie 2026 — revizia site-ului: Home și meniuri pe tipul de cont · de la vizitator la cont · de la cont la abonament · costul AI · vizibilitatea în Google · erori de cod
+
+Cererea: „Fă o revizie și o optimizare a site-ului din punct de vedere al marketingului, a arhitecturii, al ușurinței de utilizare, al vizibilității pe motoare de căutare. Am utilizatori dar puțini abonați (…) Fă să fie mai puțin text de descriere în pagini (…) Să nu aibe pe pagină și în contul de un anumit tip (cum ar fi părinte) butoane în plus de la alt tip de cont (cum ar fi elev). Fă site-ul ușor de folosit ca aplicație (…) Fă alte optimizări din punct de vedere al reducerii costului cu AI (…) Vezi și erori de cod dacă există."
+
+Punctul de plecare (statisticile din Admin, 30 de zile): 433 de conturi, 2 abonamente; 216 lei cost AI, din care 117 lei scrierea lecțiilor live, 80 lei pre-generarea explicațiilor și doar ~8 lei ce au cerut efectiv utilizatorii.
+
+**De rulat / de setat:** niciun SQL, nicio variabilă obligatorie. Opțional, în Vercel: `AI_FREE_CHAT_DAILY` (întrebări gratuite pe zi în chat, implicit 0 = oprit), `AI_PREGEN_PURGE_OLD_MODEL=1` (refacerea explicațiilor pre-generate cu modelul nou), `AI_PREGEN_IN_COTA=1` (numărarea de dinainte). După deploy: Search Console → retrimite `sitemap.xml`.
+
+### 1) Home și navigarea pe tipul de cont (`src/lib/meniu.js`, `Home.jsx`, `AcasaCont.jsx`, `Navbar.jsx`, `Sidebar.jsx`, `BaraJos.jsx` nou, `global.css`)
+- **O singură sursă pentru meniuri** (`sectiuniMeniu`, `baraJos`, `scurtaturi`): elevul vede ce e al elevului, profesorul „Clasa mea", părintele „Copilul meu". Linkurile de elev (`DOAR_ELEV`) nu mai apar la profesor și la părinte, nici în widgetul Profesorului Virtual.
+- **Home scurt**: bara albastră (vizitator: ce e site-ul; cont: salutul), cardul „Pregătește-mă de examen" cu buton real, cardurile contului, „Materiale" (examene + clase) și scurtăturile rolului. Pe telefon: de la ~9.400 px la ~4.000 px.
+- **Vizitatorul rezolvă un exercițiu pe loc** (`ExercitiuRapid.jsx`): 3 întrebări-grilă, verdict și explicație, apoi legătura spre un test întreg (`src/lib/testRapid.js`, `alegeTest.js`).
+- **Bara de jos pe telefon** (≤ 768 px), 5 intrări pe rol — site-ul se folosește ca o aplicație. Widgetul, bannerul de instalare și cel de cookie-uri se așază deasupra ei.
+- Înregistrarea: tipurile de cont explicate în trei cuvinte, `?tip=` din Home; subsol cu un singur rând despre AI.
+
+### 2) De la vizitator la cont (`InteractiveViewer.jsx`, `ScorInAsteptare.jsx` + `src/lib/scorInAsteptare.js` noi, `StartRapid.jsx` nou, `ContentPage.jsx`, `AuthContext.jsx` + `src/lib/contNou.js` nou)
+- Vizitatorul care termină un test primește invitația „Creează cont gratuit", iar **rezultatul îl așteaptă 48 de ore** și se salvează după autentificare.
+- „▶ Începe un test" pe paginile de Evaluare Națională și Bacalaureat (înainte: doar secțiuni închise).
+- Materialele se deschid cu `?id=` în adresă: se pot trimite mai departe și apar în statistici (înainte nu se numărau).
+- Conturile făcute cu Google / Discord sunt raportate și ele către Analytics și pixelii de reclamă (înainte doar cele cu e-mail).
+
+### 3) De la cont la abonament (`Pricing.jsx`, `Asociere.jsx`, `Profile.jsx`, `api/create-checkout.js`, `api/create-portal.js`, `api/asociere.js`, `api/_lib/abonamentCopil.js` nou, `Continuare.jsx` + `src/lib/continuare.js` noi)
+- **Părintele plătește pentru copil**: își alege copilul pe `/preturi`, abonamentul se activează pe contul elevului (`metadata.supabase_user_id` = copilul, `platit_de` = părintele); îl gestionează tot din contul lui. Doar pentru un copil asociat cu el.
+- **Elevul își invită părintele**: „📲 Trimite părintelui" — link semnat, valabil 14 zile; părintele își face cont, e asociat și ajunge la plată.
+- **Planul ales înainte de înregistrare nu se mai pierde** (cheia veche `em_plan` nu o citea nimeni).
+- `/preturi` rescris: planul și plata primele, 5 rânduri „Ce primești" pe tipul de cont, 3 întrebări; fără linkul spre `/asociere` care dădea „Link invalid".
+
+### 4) Costul AI (`api/_lib/pregen.js`, `api/ai-chat.js`, `api/ai-chat-stream.js`, `api/_lib/ai.js`, `src/lib/statistici.js`)
+- **Schimbarea modelului nu mai regenerează explicațiile pre-generate** (~3.000 de apeluri, ~80 de lei de fiecare dată). Rămân cât timp materialul nu s-a schimbat; refacerea doar la cerere.
+- **Explicația gata făcută se servește înaintea limitelor și a RAG-ului** (`pregen.serveFirst`): fără model, fără embeddings, fără să consume acțiunile gratuite de probă. Nu se servește cu poză / material încărcat sau la „Regenerează".
+- **Opțional: întrebări gratuite pe zi în chat** după acțiunile de probă (`AI_FREE_CHAT_DAILY`, implicit oprit), doar chat, pe modelul economic.
+- Statisticile din Admin numesc separat costurile de fond (pre-generare, scrierea lecțiilor live, întrebările pe pași); paginile claselor (`/clase/5`) apar cu numele lor.
+
+### 5) Vizibilitatea în Google (`api/_lib/seoRute.js` + `seoRute.json` noi, `api/page-meta.js`, `api/sitemap.js`, `index.html`, `vercel.json`, `public/robots.txt`, `public/og-examenmate.png` nou, `src/lib/titluPagina.js` nou)
+- **Titlu și descriere proprii pe fiecare pagină publică** (înainte: același titlu peste tot, dacă Agentul SEO nu aprobase unul). Ce aprobi în Admin are întâietate, câmp cu câmp.
+- **Scheletul paginii** în HTML: H1, o frază, lista materialelor din bază și legături — pentru crawlerele fără JavaScript.
+- Date structurate implicite (organizația + site-ul pe `/`, firimituri pe rest), imagine de share 1200×630, sitemap completat (BAC pe profil, „Pregătește-mă"), canonic / noindex pentru rutele inexistente.
+- Titlul filei din browser se schimbă odată cu pagina.
+
+### 6) Erori de cod (`Navbar.jsx`, `RezolvariPage.jsx`, `src/lib/cautare.js` nou, `TutorLenes.jsx` nou, `App.jsx`)
+- **Căutarea de sus**: rezolvarea găsită se deschide filtrată (`/rezolvari?q=…`, înainte pagina întreagă); **articolele de blog apar** și se deschid direct; autorul unei discuții e cel real (era „Utilizator" la toate); răspunsul unei căutări vechi nu-l mai acoperă pe al celei noi.
+- **Profesorul Virtual plutitor se încarcă după prima afișare**: bucata principală de cod, cea cu care pornește orice pagină, scade de la 440 KB la 198 KB (−55%). Dacă widgetul dă o eroare, pagina rămâne întreagă (înainte nu avea nicio plasă).
+- Verificare automată pe 364 de fișiere (variabile nedefinite, hook-uri apelate condiționat, chei duplicate, cod de neatins): nicio eroare.
+
+**Neschimbat, cu motiv:** scrierea lecțiilor live (cel mai mare cost) — lecția se scrie o singură dată per subiect și se refolosește; modelul se alege din Admin → Meditații live, iar `LIVE_REFOLOSIRE_ZILE` (21) hotărăște după câte zile se poate repeta o lecție.
+
+**Verificat:** `npm test` — 1239 din 1239 (noi: `navigare-pe-cont` 11, `scor-in-asteptare` 5, `abonament-copil` 7, `cost-ai` 6, `seo-rute` 8, `cautare` 4), `vite build`; în Chromium, la 390 și 1366 px, pentru vizitator / elev / părinte / profesor: Home, bara de jos, `/preturi` (alegerea copilului, linkul pentru părinte), `/asociere?elev=…`, `/rezolvari?q=…`, widgetul Profesorului Virtual deschis; scheletul paginilor cu JavaScript oprit.
+
+---
+
 ## 11 noiembrie 2026 (seara, 2) — navbar: „🎯 Pregătește-mă" doar la elevi
 
 Cererea: „Scoate «pregătește-mă» din navbar din contul de profesor și părinte. Păstrează-l în contul de elev."

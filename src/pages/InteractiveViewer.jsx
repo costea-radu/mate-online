@@ -10,6 +10,7 @@ import { awardBadges } from '../lib/badges';
 import { arenaChanged, onPregatire } from '../lib/arena';
 import PregatireToast, { deAratat } from '../components/PregatireToast';
 import { notaDinScor } from '../lib/nota';
+import { pastreazaScor } from '../lib/scorInAsteptare';
 import TestModeBadge from '../components/TestModeBadge';
 import EinsteinIcon from '../components/EinsteinIcon';
 import { ReviewToast } from '../components/ReviewWidget';
@@ -46,6 +47,7 @@ export default function InteractiveViewer() {
   // lui stângă (pe telefon: în sus / în jos, de bara albastră) — src/lib/latimePanou.js
   const lat = useLatimePanou({ storageKey: 'pv:latime', initial: 400 });
   const [newBadges, setNewBadges] = useState([]);                    // insigne proaspăt câștigate (toast)
+  const [invitatie, setInvitatie] = useState(null);                    // vizitator: „creează cont ca să-ți păstrezi rezultatul"
   const [xpToast, setXpToast] = useState(null);                       // XP / streak / misiune câștigate (Arena)
   const [duelRez, setDuelRez] = useState(null);                       // rezultatul duelului, după trimiterea scorului
   const [misiuneRez, setMisiuneRez] = useState(null);                 // misiunea zilnică (Arena), după trimiterea scorului
@@ -197,11 +199,20 @@ export default function InteractiveViewer() {
   useEffect(() => {
     async function saveScore(score, maxScore, answers = null) {
       if (typeof score !== 'number' || typeof maxScore !== 'number') return;
-      if (!user || !item) return;
+      if (!item) return;
       // răspunsurile elevului (din mesajul testului sau citite din pagină de
       // bridge): serverul RECALCULEAZĂ scorul din cheile materialului (Etapa 3)
       const raw = Array.isArray(answers) && answers.length ? answers : lastAnswersRef.current;
       const ans = Array.isArray(raw) && raw.length ? raw.slice(0, 60) : null;
+      // FĂRĂ CONT (11 nov. 2026, seara): rezultatul nu se poate salva încă — îl păstrăm 48 h
+      // în browser și invităm vizitatorul să-și facă un cont; după autentificare îl salvează
+      // serverul, verificat (src/lib/scorInAsteptare.js, src/components/ScorInAsteptare.jsx)
+      if (!user) {
+        if (authLoading || maxScore <= 0) return;
+        const pastrat = pastreazaScor({ contentId: item.id, title: item.title, score, maxScore, answers: ans, durationSec: Math.round((Date.now() - startedAtRef.current) / 1000) });
+        setInvitatie({ score, maxScore, pastrat });
+        return;
+      }
 
       // TEMĂ de la Meditatorul AI (deschisă cu ?temaId=...): se bifează DIRECT
       // pe server, independent de salvarea în `progress` — drumul sigur.
@@ -384,7 +395,7 @@ export default function InteractiveViewer() {
       window.removeEventListener('message', handleMessage);
       if (hintTimerRef.current) { clearTimeout(hintTimerRef.current); hintTimerRef.current = null; }
     };
-  }, [user, item, temaId, medSesId]);
+  }, [user, item, temaId, medSesId, authLoading]);
 
   // „🎯 Pregătește-mă de examen": felicitarea (ziua bifată) sau progresul spre bifă —
   // progresul doar în testul zilei și doar când s-a schimbat numărul de exerciții
@@ -1005,6 +1016,27 @@ export default function InteractiveViewer() {
           trage în sus / în jos (pe calculator stă în coloana din dreapta testului —
           mai sus). Foaie albă, fără linii, care continuă în dreapta. */}
       {isMobile && <SpatiuDeLucru {...workspaceProps} />}
+
+      {/* Vizitator (fără cont), după corectare: rezultatul se poate păstra — cont gratuit */}
+      {invitatie && !user && (
+        <div role="dialog" aria-label="Păstrează-ți rezultatul" style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 14, zIndex: 2000, width: 'min(440px, calc(100vw - 20px))' }}>
+          <div style={{ background: 'var(--navy)', color: '#fff', borderRadius: 16, padding: '14px 16px', boxShadow: '0 10px 30px rgba(0,0,0,.35)', border: '1px solid rgba(232,185,49,.6)' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <strong style={{ fontFamily: 'var(--font-display)', fontSize: '1.15rem' }}>
+                {invitatie.score}/{invitatie.maxScore}{notaDinScor(invitatie.score, invitatie.maxScore) != null ? ` — nota ${notaDinScor(invitatie.score, invitatie.maxScore)}` : ''}
+              </strong>
+              <button type="button" onClick={() => setInvitatie(null)} aria-label="Închide" style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'rgba(255,255,255,.6)', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
+            </div>
+            <p style={{ margin: '4px 0 12px', fontSize: '.9rem', lineHeight: 1.45, color: 'rgba(255,255,255,.85)' }}>
+              {invitatie.pastrat ? 'Fă-ți cont gratuit și îți păstrăm rezultatul: notele, seria de zile și insignele rămân ale tale.' : 'Cu un cont gratuit, rezultatele, seria de zile și insignele rămân ale tale.'}
+            </p>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Link to="/inregistrare" className="btn btn-primary btn-sm">Creează cont gratuit</Link>
+              <Link to="/autentificare" style={{ color: '#fff', fontSize: '.86rem', textDecoration: 'underline' }}>Am deja cont</Link>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast: XP câștigat (Arena — src/pages/Arena.jsx) */}
       {xpToast && (

@@ -10,6 +10,7 @@ import { useChatUnread, refreshChatUnread } from '../lib/chatUnread';
 import ChatAlerts from './ChatAlerts';
 import Sidebar from './Sidebar';
 import { CLASE, examenePentru, sectiuniMeniu, esteActiv, PREGATESTE_MA } from '../lib/meniu';
+import { tintaRezultat, cuAutori, eticDiscutie } from '../lib/cautare';
 
 // ─── Bulina roșie de mesaje noi (ca la Messenger) ─────────────────────────────
 // `flotanta` = lipită în colțul unei iconițe; altfel stă în rând, după text.
@@ -132,14 +133,17 @@ function SearchModal({ onClose }) {
   useEffect(() => {
     if (query.trim().length < 2) { setResults([]); return; }
     setLoading(true);
+    // răspunsul unei căutări mai vechi poate sosi după al celei noi — atunci îl ignorăm
+    let anulat = false;
     const timer = setTimeout(async () => {
-      // Caută în conținut, discuții, rezolvări și biblioteca utilizatorilor — în paralel
+      // Caută în conținut, discuții, rezolvări, articole și biblioteca utilizatorilor — în paralel
       const [
         { data: byTitle },
         { data: byFile },
         { data: byDisc },
         { data: byRez },
-        { data: byPub }
+        { data: byPub },
+        { data: byArt }
       ] = await Promise.all([
         supabase.from('content').select('*').ilike('title', `%${query}%`).limit(10),
         supabase.from('content').select('*').ilike('file_url', `%${query}%`).limit(10),
@@ -149,20 +153,33 @@ function SearchModal({ onClose }) {
           .ilike('title', `%${query}%`).limit(5),
         supabase.from('ai_public_library').select('id, kind, title, category, creator_name, creator_role')
           .ilike('search_text', `%${query}%`).limit(6),
+        // articolele publicate (Blog / Rezolvări / Teorie) — fiecare are pagina lui
+        supabase.from('articole').select('slug, title, kind')
+          .eq('status', 'published').ilike('title', `%${query}%`).limit(5),
       ]);
+      if (anulat) return;
+      // autorii discuțiilor găsite (numele nu vine odată cu postarea)
+      let autori = [];
+      const idAutori = [...new Set((byDisc || []).map(d => d.user_id).filter(Boolean))];
+      if (idAutori.length) {
+        const { data } = await supabase.from('profiles').select('id, full_name').in('id', idAutori);
+        autori = data || [];
+        if (anulat) return;
+      }
 
       const combined = [...(byTitle || [])];
       const ids = new Set(combined.map(i => i.id));
       for (const item of (byFile || [])) {
         if (!ids.has(item.id)) { combined.push(item); ids.add(item.id); }
       }
-      const discItems = (byDisc || []).map(d => ({ ...d, _type: 'discussion' }));
+      const discItems = cuAutori(byDisc, autori).map(d => ({ ...d, _type: 'discussion' }));
       const rezItems  = (byRez  || []).map(r => ({ ...r, _type: 'rezolvare' }));
       const pubItems  = (byPub  || []).map(p => ({ ...p, _type: 'public' }));
-      setResults([...combined.slice(0, 8), ...pubItems, ...discItems, ...rezItems]);
+      const artItems  = (byArt  || []).map(a => ({ ...a, id: a.slug, _type: 'articol' }));
+      setResults([...combined.slice(0, 8), ...pubItems, ...artItems, ...rezItems, ...discItems]);
       setLoading(false);
     }, 300);
-    return () => clearTimeout(timer);
+    return () => { anulat = true; clearTimeout(timer); };
   }, [query]);
 
   const categoryLabels = {
@@ -181,9 +198,9 @@ function SearchModal({ onClose }) {
       return;
     }
     if (item.content_type === 'pdf') {
-      navigate('/pdf-viewer', { state: { item } });
+      navigate(`/pdf-viewer?id=${item.id}`, { state: { item } });
     } else if (item.content_type === 'interactive' || item.content_type === 'manual') {
-      navigate('/exercitiu', { state: { item } });
+      navigate(`/exercitiu?id=${item.id}`, { state: { item } });
     }
     onClose();
   }
@@ -255,10 +272,31 @@ function SearchModal({ onClose }) {
               );
             }
 
-            // Rezolvare
+            // Articol (Blog / Rezolvări / Teorie) — se deschide direct pagina lui
+            if (item._type === 'articol') {
+              return (
+                <button key={'art-'+item.id} onClick={() => { navigate(tintaRezultat(item)); onClose(); }}
+                  style={{ display:'block', width:'100%', textAlign:'left', padding:'12px 18px', background:'none', border:'none', borderBottom:'1px solid #f0f4f8', cursor:'pointer', transition:'background 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.background='#f7f9fc'}
+                  onMouseLeave={e => e.currentTarget.style.background='none'}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    <span style={{ fontSize:'1rem', flexShrink:0 }}>📝</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:600, color:'var(--navy)', fontSize:'0.9rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.title}</div>
+                      <div style={{ fontSize:'0.73rem', color:'#8e95a3', marginTop:2 }}>
+                        📝 Blog / Rezolvări / Teorie · <span style={{ color:'#2e7d32', fontWeight:600 }}>Articol</span>
+                      </div>
+                    </div>
+                    <span style={{ fontSize:'0.75rem', color:'#bbb', flexShrink:0 }}>→</span>
+                  </div>
+                </button>
+              );
+            }
+
+            // Rezolvare — pagina de rezolvări, filtrată pe titlul ei
             if (item._type === 'rezolvare') {
               return (
-                <button key={'rez-'+item.id} onClick={() => { navigate('/rezolvari'); onClose(); }}
+                <button key={'rez-'+item.id} onClick={() => { navigate(tintaRezultat(item)); onClose(); }}
                   style={{ display:'block', width:'100%', textAlign:'left', padding:'12px 18px', background:'none', border:'none', borderBottom:'1px solid #f0f4f8', cursor:'pointer', transition:'background 0.15s' }}
                   onMouseEnter={e => e.currentTarget.style.background='#f7f9fc'}
                   onMouseLeave={e => e.currentTarget.style.background='none'}>
@@ -296,7 +334,7 @@ function SearchModal({ onClose }) {
                         {item.body?.slice(0, 80)}{item.body?.length > 80 ? '...' : ''}
                       </div>
                       <div style={{ fontSize:'0.73rem', color:'#8e95a3', marginTop:2 }}>
-                        💬 Discuții · {item.profile?.full_name || 'Utilizator'}
+                        {eticDiscutie(item)}
                       </div>
                     </div>
                     <span style={{ fontSize:'0.75rem', color:'#bbb', flexShrink:0 }}>→</span>
@@ -352,13 +390,13 @@ function SearchModal({ onClose }) {
 // Aceleași categorii, în aceeași ordine, ca în bara laterală de pe desktop:
 // structura vine din src/lib/meniu.js, iar stilurile refolosesc clasele
 // `.sb-*` (doar mărite puțin, prin `.mm-nav`, ca să se apese ușor cu degetul).
-function MobileMenu({ open, onClose, user, isPremium, isAdmin, isTeacher = false, aiLabel = 'Profesor Virtual', forumUnread = 0, forumHasNew = false, chatUnread = 0, onSignOut }) {
-  const { pathname } = useLocation();
+function MobileMenu({ open, onClose, user, isPremium, isAdmin, isTeacher = false, isParent = false, aiLabel = 'Profesor Virtual', forumUnread = 0, forumHasNew = false, chatUnread = 0, onSignOut }) {
+  const { pathname, search } = useLocation();
   const [deschise, setDeschise] = useState({});
 
   if (!open) return null;
 
-  const sectiuni = sectiuniMeniu({ user, isAdmin, isTeacher, isPremium, aiLabel, chatUnread, forumUnread, forumHasNew });
+  const sectiuni = sectiuniMeniu({ user, isAdmin, isTeacher, isPremium, isParent, aiLabel, chatUnread, forumUnread, forumHasNew });
 
   function icon(nume) {
     return (
@@ -404,7 +442,7 @@ function MobileMenu({ open, onClose, user, isPremium, isAdmin, isTeacher = false
 
     return (
       <Link key={it.to} to={it.to} onClick={onClose}
-        className={`sb-item${esteActiv(pathname, it.to) ? ' activ' : ''}${it.accent ? ' sb-accent' : ''}`}>
+        className={`sb-item${esteActiv(pathname, it.to, search) ? ' activ' : ''}${it.accent ? ' sb-accent' : ''}`}>
         {icon(it.icon)}
         <span className="sb-text">{it.label}</span>
         {it.punct && <span className="forum-dot" title="Activitate nouă pe forum" aria-label="Activitate nouă pe forum" />}
@@ -685,6 +723,7 @@ export default function Navbar() {
         isPremium={isPremium}
         isAdmin={isAdmin}
         isTeacher={isTeacher}
+        isParent={isParent}
         aiLabel={aiLabel}
         chatUnread={chatUnread}
         forumUnread={forumUnread}
@@ -700,6 +739,7 @@ export default function Navbar() {
         isPremium={isPremium}
         isAdmin={isAdmin}
         isTeacher={isTeacher}
+        isParent={isParent}
         aiLabel={aiLabel}
         forumUnread={forumUnread}
         forumHasNew={forumHasNew}

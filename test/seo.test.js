@@ -8,6 +8,8 @@ const { injectMeta, normRoute } = require('../api/page-meta');
 
 const SITE = 'https://examenmate.com';
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+// titlul implicit din index.html (12 nov. 2026: cel al primei pagini, din api/_lib/seoRute.json)
+const TITLU_INDEX = (html.match(/<title>([^<]*)<\/title>/) || [])[1];
 
 test('normRoute: normalizează și respinge rutele suspecte', () => {
   assert.strictEqual(normRoute('/'), '/');
@@ -36,7 +38,7 @@ test('injectMeta: înlocuiește title/description și adaugă canonical + OG', (
   assert.ok(out.includes('og:title'), 'og:title lipsește');
   assert.ok(out.includes('twitter:card'), 'twitter:card lipsește');
   // vechiul title nu mai există
-  assert.ok(!out.includes('<title>ExamenMate – Matematică pentru Succes</title>'), 'title-ul vechi a rămas');
+  assert.ok(!out.includes(`<title>${TITLU_INDEX}</title>`), 'title-ul vechi a rămas');
   // canonical-ul static din index.html a fost eliminat (nu duplicat)
   assert.strictEqual((out.match(/rel="canonical"/g) || []).length, 1, 'canonical duplicat');
   assert.strictEqual((out.match(/property="og:title"/g) || []).length, 1, 'og:title duplicat');
@@ -47,7 +49,8 @@ test('injectMeta: înlocuiește title/description și adaugă canonical + OG', (
 
 test('injectMeta: fără rând în seo_meta → păstrează title/description existente + adaugă OG', () => {
   const out = injectMeta(html, { route: '/preturi', meta: null, site: SITE });
-  assert.ok(out.includes('<title>ExamenMate – Matematică pentru Succes</title>'), 'title-ul implicit trebuie păstrat');
+  // injectMeta singur (fără implicitele rutei — vezi test/seo-rute.test.js) păstrează ce e în index.html
+  assert.ok(out.includes(`<title>${TITLU_INDEX}</title>`), 'title-ul implicit trebuie păstrat');
   assert.ok(out.includes(`<link rel="canonical" href="${SITE}/preturi" />`), 'canonical pe ruta cerută lipsește');
   assert.ok(out.includes('og:image'), 'og:image implicit lipsește');
 });

@@ -32,7 +32,7 @@ export default function CookieConsent() {
       aria-live="polite"
       aria-label="Setări pentru cookie-uri"
       style={{
-        position: 'fixed', left: 12, right: 12, bottom: 12, zIndex: 4000,
+        position: 'fixed', left: 12, right: 12, bottom: 'calc(12px + var(--bara-jos-h, 0px))', zIndex: 4000,
         maxWidth: 620, margin: '0 auto',
         background: 'var(--white)', border: '1px solid var(--border)',
         borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)',

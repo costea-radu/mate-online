@@ -1,16 +1,39 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import EinsteinIcon from '../components/EinsteinIcon';
-import AIPoweredBy from '../components/AIPoweredBy';
 import { Testimonials } from '../components/ReviewWidget';
 import { useAuth } from '../context/AuthContext';
 import { arenaState, onArenaChange } from '../lib/arena';
 import { AcasaElev, AcasaParinte, AcasaProfesor } from '../components/AcasaCont';
+import ExercitiuRapid from '../components/ExercitiuRapid';
+import { CLASE, EXAMENE, scurtaturi } from '../lib/meniu';
+import { PLANS } from '../lib/plans';
+
+// =====================================================================
+// HOME — pe tipul de cont, „ca o aplicație" (11 nov. 2026, seara)
+//
+// Cererea: mai puțin text, mai multe butoane; fiecare tip de cont are în Home
+// butoane simple către funcțiile LUI și niciun buton de la alt tip de cont.
+//   · bara albastră: titlul (vizitator) sau salutul (cont);
+//   · elev / vizitator: „🎯 Pregătește-mă de examen" — vizitatorul rezolvă pe loc
+//     un exercițiu (ExercitiuRapid), elevul își vede seria și testul de azi;
+//   · cardurile contului (AcasaCont.jsx) + „Tot ce poți face" (butoanele din
+//     src/lib/meniu.js → scurtaturi, pe tipul de cont);
+//   · „Materiale": examenele și clasele, ca butoane (id="materiale" — aici duce
+//     „📚 Materiale" din bara de jos de pe telefon);
+//   · doar vizitatorul: „Pentru cine e" (elev / părinte / profesor) și chemarea la cont;
+//   · fără abonament: „Gratuit / Premium", pe scurt.
+// Paginile lungi de prezentare (cardurile cu paragrafe, lista modelelor AI) au
+// plecat de aici: detaliile sunt în paginile lor.
+// =====================================================================
+
+const prenumeDin = (profile, user) => String(profile?.full_name || user?.user_metadata?.name || user?.user_metadata?.full_name || '').trim().split(/\s+/)[0] || '';
 
 // ─── „🎯 Pregătește-mă de examen" — cardul mare de sub bara albastră (8 nov. 2026)
 // Primul card din Home: testul zilei, amintirea zilnică, XP și liga. Pentru
 // elevul autentificat arată și seria lui și dacă testul de azi îl așteaptă
 // (din starea Arenei — aceeași cerere ca indicatorul din bara de sus).
+// Vizitatorul are lângă el un exercițiu pe care îl rezolvă pe loc.
 function PregatireCard() {
   const { user } = useAuth();
   const [z, setZ] = useState(null);   // { examen, azi, serie, aziFacut } — api/_lib/pregatireZilnica.js → rezumat
@@ -27,14 +50,12 @@ function PregatireCard() {
   return (
     <section className="pz-home" aria-label="Pregătește-mă de examen">
       <div className="container">
-        <Link to="/pregateste-ma" className="pz-home-card">
+        <div className={`pz-home-card${user ? '' : ' cu-exercitiu'}`}>
           <div className="pz-home-text">
             <div className="pz-home-kicker">Un test pe zi, cu serie și ligă</div>
             <h2>🎯 Pregătește-mă de examen</h2>
             <p>
-              Alegi examenul — <strong>Evaluarea Națională</strong> sau <strong>Bacalaureatul</strong> — și primești în fiecare zi
-              un test. Îți amintim de el, contează și o parte din test, iar fiecare zi lucrată îți aduce XP, monede,
-              o serie de zile la rând și un loc mai bun în liga săptămânii.
+              Alegi <strong>Evaluarea Națională</strong> sau <strong>Bacalaureatul</strong> și primești în fiecare zi un test scurt.
             </p>
             {inceput && (
               <div className="pz-home-stare">
@@ -42,55 +63,55 @@ function PregatireCard() {
                 <span>{z.aziFacut ? '✅ Ziua de azi e bifată' : '📝 Testul de azi te așteaptă'}</span>
               </div>
             )}
-            <span className="btn btn-primary btn-lg pz-home-btn">{cta}{'\u00a0'}→</span>
+            <Link to="/pregateste-ma" className="btn btn-primary btn-lg pz-home-btn">{cta}</Link>
+            <ul className="pz-home-pasi" aria-label="Ce primești">
+              <li>📝 testul zilei</li>
+              <li>🔔 amintire zilnică</li>
+              <li>🔥 serie de zile</li>
+              <li>🏆 ligă săptămânală</li>
+            </ul>
           </div>
-          <ol className="pz-home-pasi" aria-label="Cum funcționează">
-            <li><span>📝</span><div><b>Testul zilei</b><small>interactiv sau pe PDF, ca la examen</small></div></li>
-            <li><span>🔔</span><div><b>Amintire zilnică</b><small>la ora aleasă de tine</small></div></li>
-            <li><span>🔥</span><div><b>Bifezi ziua</b><small>de la 3 exerciții · +XP și 🪙</small></div></li>
-            <li><span>🏆</span><div><b>Urci în ligă</b><small>🥉 → 🥈 → 🥇 → 💎 → 👑</small></div></li>
-          </ol>
-        </Link>
+          {!user && <ExercitiuRapid />}
+        </div>
       </div>
     </section>
   );
 }
 
 export default function Home() {
-  const { user, isPremium, isTeacher, isParent } = useAuth();
+  const { user, profile, isPremium, isTeacher, isParent } = useAuth();
+  const { hash } = useLocation();
   // prima pagină pe tipul de cont (11 nov. 2026 — src/components/AcasaCont.jsx):
   // elevul (și vizitatorul) păstrează „Pregătește-mă de examen"; părintele și
   // profesorul au în locul lui cardurile contului lor
   const cont = !user ? 'vizitator' : isTeacher ? 'profesor' : isParent ? 'parinte' : 'elev';
-  const categories = [
-    { to: '/clase/5',  icon: '5',  title: 'Clasa a V-a',    desc: 'Exerciții și teste PDF, interactive' },
-    { to: '/clase/6',  icon: '6',  title: 'Clasa a VI-a',   desc: 'Exerciții și teste PDF, interactive' },
-    { to: '/clase/7',  icon: '7',  title: 'Clasa a VII-a',  desc: 'Exerciții și teste PDF, interactive' },
-    { to: '/clase/8',  icon: '8',  title: 'Clasa a VIII-a', desc: 'Exerciții și teste PDF, interactive' },
-    { to: '/clase/9',  icon: '9',  title: 'Clasa a IX-a',   desc: 'Exerciții și teste PDF, interactive' },
-    { to: '/clase/10', icon: '10', title: 'Clasa a X-a',    desc: 'Exerciții și teste PDF, interactive' },
-    { to: '/clase/11', icon: '11', title: 'Clasa a XI-a',   desc: 'Exerciții și teste PDF, interactive' },
-    { to: '/clase/12', icon: '12', title: 'Clasa a XII-a',  desc: 'Exerciții și teste PDF, interactive' },
-  ];
+  const prenume = prenumeDin(profile, user);
 
-  const features = [
-    { icon: '📄', title: 'Exerciții PDF', desc: 'Descarcă fișe de lucru și teste în format PDF. Jumătate din materiale sunt gratuite.' },
-    { icon: '🧩', title: 'Exerciții Interactive', desc: 'Rezolvă exerciții direct pe platformă cu feedback instant și explicații pas cu pas.' },
-    { icon: '📖', title: 'Auxiliare Online', desc: 'Acces la auxiliare și manuale digitale complete, disponibile oricând și de oriunde.' },
-    { icon: <EinsteinIcon size={30} />, title: 'Meditații live cu Profesorul Virtual', desc: 'Zilnic, la aceeași oră, profesorul rezolvă la tablă câte un subiect în 4 săli: EN, BAC Mate-Info, BAC Științele Naturii și BAC Tehnologic — pe baremul oficial. Întrebi în chat, răspunzi la grile — sau 1-la-1, oricând.' },
-    { icon: '🤖', title: 'Profesor Virtual (AI)', desc: 'Tutor AI disponibil non-stop: explică pas cu pas, generează teste interactive și fișe PDF și îți corectează rezolvările.' },
-    { icon: '🧑‍🏫', title: 'Generator de teste (profesori)', desc: 'Profesorii creează teste interactive sau PDF, inclusiv după modele oficiale, le trimit elevilor și văd rezultatele automat.' },
-  ];
+  // „📚 Materiale" din bara de jos (/#materiale): derulăm la blocul de materiale
+  useEffect(() => {
+    if (hash !== '#materiale') return undefined;
+    const t = setTimeout(() => {
+      try { document.getElementById('materiale')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* ignore */ }
+    }, 60);
+    return () => clearTimeout(t);
+  }, [hash]);
 
   return (
     <>
       {/* Bara albastră (fostul „hero" mare — 8 nov. 2026: „fă mai mică secțiunea
-          albastră din Home, ca o bară orizontală") */}
+          albastră din Home, ca o bară orizontală"). Vizitator: ce e site-ul;
+          cont: salutul. */}
       <section className="hero hero-bara">
-        <div className="container hero-bara-in">
+        <div className={`container hero-bara-in${user ? ' cu-cont' : ''}`}>
           <div className="hero-bara-text">
-            <h1>Matematica devine <span>simplă</span> cu ExamenMate</h1>
-            <p>Exerciții PDF, teste interactive, auxiliare și un Profesor Virtual (AI) — clasele 5–12, Evaluarea Națională și Bacalaureat.</p>
+            {user ? (
+              <h1>{cont === 'profesor' ? 'Bună ziua' : 'Bună'}{prenume ? `, ${prenume}` : ''}! 👋</h1>
+            ) : (
+              <>
+                <h1>Matematică pentru Evaluarea Națională și BAC</h1>
+                <p>Teste cu nota pe loc, fișe PDF și un profesor virtual care explică pas cu pas — clasele 5–12.</p>
+              </>
+            )}
           </div>
           {(!user || !isPremium) && (
             <div className="hero-bara-btns">
@@ -102,171 +123,165 @@ export default function Home() {
       </section>
 
       {/* 🎯 Pregătește-mă de examen — cardul mare, înaintea tuturor cardurilor (elev / vizitator);
-          sub el, la elev: insignele, rezultatele, temele, mesageria, părerea ta.
+          sub el, la elev: insignele, rezultatele, temele, mesageria.
           Părintele și profesorul: cardurile contului lor, fără „Pregătește-mă" */}
       {(cont === 'vizitator' || cont === 'elev') && <PregatireCard />}
       {cont === 'elev' && <AcasaElev />}
       {cont === 'parinte' && <AcasaParinte />}
       {cont === 'profesor' && <AcasaProfesor />}
 
-      {/* Exams */}
-      <section className="section" id="examene">
-        <div className="container">
-          <div className="section-header">
-            <h2 className="section-title">Pregătire pentru examene</h2>
-            <p className="section-subtitle">
-              Teste și exerciții special concepute pentru Evaluarea Națională și Bacalaureat.
-            </p>
-          </div>
-          <div className="card-grid" style={{ maxWidth: 1000, margin: '0 auto' }}>
-            <Link to="/evaluare-nationala" style={{ textDecoration: 'none' }}>
-              <div className="card" style={{ borderLeft: '4px solid var(--gold)' }}>
-                <div className="card-icon">📝</div>
-                <h3>Evaluarea Națională</h3>
-                <p>Teste, exerciții PDF și interactive pentru pregătirea examenului de clasa a VIII-a.</p>
-              </div>
-            </Link>
-            <Link to="/bacalaureat" style={{ textDecoration: 'none' }}>
-              <div className="card" style={{ borderLeft: '4px solid var(--navy)' }}>
-                <div className="card-icon">🎓</div>
-                <h3>Bacalaureat</h3>
-                <p>Materiale complete pentru pregătirea examenului de bacalaureat la matematică.</p>
-              </div>
-            </Link>
-            <Link to="/biblioteca-utilizatorilor" style={{ textDecoration: 'none' }}>
-              <div className="card" style={{ borderLeft: '4px solid #7c5cbf' }}>
-                <div className="card-icon">🏛️</div>
-                <h3>Biblioteca utilizatorilor</h3>
-                <p>Teste și exerciții create și publicate de profesori cu Profesorul Virtual.</p>
-              </div>
-            </Link>
-          </div>
-        </div>
-      </section>
+      {/* examenele și clasele: la vizitator și la elev înaintea restului butoanelor */}
+      {(cont === 'vizitator' || cont === 'elev') && <Materiale />}
+      <Scurtaturi rol={cont} />
+      {(cont === 'parinte' || cont === 'profesor') && <Materiale />}
 
-      {/* Profesorul Virtual (AI) + Generatorul de teste */}
-      <section className="section" style={{ background: 'linear-gradient(180deg, #f4f7fb, #fff)' }} id="profesor-virtual">
-        <div className="container">
-          <div className="section-header">
-            <h2 className="section-title">Învață cu Profesorul Virtual (AI)</h2>
-            <p className="section-subtitle" style={{ marginBottom: 14 }}>
-              Un tutor inteligent pentru elevi și un generator de teste pentru profesori — incluse în platformă.
-            </p>
-            {/* Modelele AI folosite pentru utilizatori (src/lib/aiModels.js → AI_STACK) */}
-            <AIPoweredBy variant="chips" showIntern center style={{ marginBottom: 40 }} />
-          </div>
-          <div className="card-grid" style={{ maxWidth: 1000, margin: '0 auto' }}>
-            <div className="card" style={{ borderTop: '4px solid #7c5cbf' }}>
-              <div className="card-icon"><EinsteinIcon size={34} /></div>
-              <h3>Meditații live cu Profesorul Virtual</h3>
-              <p>
-                O meditație online la ora fixă: în fiecare zi, profesorul rezolvă la tablă câte un subiect în 4 săli —
-                <strong> Evaluarea Națională, BAC Mate-Info, BAC Științele Naturii și BAC Tehnologic</strong> —
-                <strong> strict pe baremul oficial</strong>.
-                Întrebi în chat, răspunzi la grile și vezi cum au răspuns colegii — sau alegi o ședință
-                <strong> 1-la-1</strong>, oricând. În „Planul meu" ai în continuare testul inițial, planul de învățare,
-                temele corectate și simulările.
-              </p>
-              <Link to="/meditatii" className="btn btn-primary" style={{ marginTop: 14 }}>
-                Vezi programul de azi
-              </Link>
-            </div>
-            <div className="card" style={{ borderTop: '4px solid var(--gold)' }}>
-              <div className="card-icon">🤖</div>
-              <h3>Profesor Virtual — teste interactive și PDF</h3>
-              <p>
-                Asistentul AI îți explică noțiunile pas cu pas, te ajută la teme (poți chiar
-                fotografia exercițiul), generează <strong>teste interactive</strong> cu feedback
-                instant și <strong>fișe PDF</strong> de antrenament, apoi îți corectează
-                rezolvările și îți urmărește progresul.
-              </p>
-              <Link to="/profesor-virtual" className="btn btn-primary" style={{ marginTop: 14 }}>
-                Încearcă Profesorul Virtual
-              </Link>
-            </div>
-            <div className="card" style={{ borderTop: '4px solid var(--navy)' }}>
-              <div className="card-icon">🧑‍🏫</div>
-              <h3>Generator de teste pentru profesori</h3>
-              <p>
-                Profesorii creează în câteva minute <strong>teste interactive sau PDF</strong> —
-                inclusiv după modelele oficiale de Evaluare Națională și Bacalaureat — le trimit
-                elevilor direct din platformă și văd automat rezultatele și progresul fiecărui elev.
-              </p>
-              <Link to="/profesor-virtual" className="btn btn-outline" style={{ marginTop: 14 }}>
-                Descoperă uneltele pentru profesori
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Classes */}
-      <section className="section" style={{ background: 'var(--white)' }}>
-        <div className="container">
-          <div className="section-header">
-            <h2 className="section-title">Alege clasa ta</h2>
-            <p className="section-subtitle">
-              Materiale adaptate pentru fiecare nivel, de la clasa a V-a până la clasa a XII-a.
-            </p>
-          </div>
-          <div className="card-grid">
-            {categories.map(cat => (
-              <Link to={cat.to} key={cat.to} style={{ textDecoration: 'none' }}>
-                <div className="card">
-                  <div className="card-icon" style={{ fontSize: '1.3rem', fontFamily: 'var(--font-display)', fontWeight: 700 }}>
-                    {cat.icon}
-                  </div>
-                  <h3>{cat.title}</h3>
-                  <p>{cat.desc}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Features */}
-      <section className="section">
-        <div className="container">
-          <div className="section-header">
-            <h2 className="section-title">Ce găsești pe ExamenMate</h2>
-            <p className="section-subtitle">
-              Resurse clasice plus inteligență artificială — tot ce te ajută să înveți eficient.
-            </p>
-          </div>
-          <div className="card-grid">
-            {features.map(f => (
-              <div className="card" key={f.title}>
-                <div className="card-icon">{f.icon}</div>
-                <h3>{f.title}</h3>
-                <p>{f.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      {cont === 'vizitator' && <PentruCine />}
+      {!isPremium && cont !== 'profesor' && <GratuitPremium rol={cont} />}
 
       {/* Recenzii: „Ce spun elevii, părinții și profesorii" — apare doar când
           există recenzii aprobate în Admin (src/components/ReviewWidget.jsx) */}
       <Testimonials limit={6} />
+      {cont !== 'vizitator' && <div className="acasa-capat" />}
 
-      {/* CTA */}
-      <section className="section" style={{ background: 'linear-gradient(135deg, var(--navy), var(--navy-light))', textAlign: 'center' }}>
-        <div className="container">
-          <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--white)', fontSize: '2rem', marginBottom: 12 }}>
-            Pregătit să începi?
-          </h2>
-          <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 32, maxWidth: 480, margin: '0 auto 32px' }}>
-            Majoritatea exercițiilor PDF sunt gratuite. Pentru acces complet, abonamentul este de doar 50 lei/lună.
-          </p>
-          <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link to="/inregistrare" className="btn btn-primary btn-lg">Creează cont gratuit</Link>
-            <Link to="/preturi" className="btn btn-lg" style={{ color: 'var(--white)', border: '2px solid rgba(255,255,255,0.3)' }}>
-              Detalii abonament
+      {/* Chemarea la cont — doar vizitatorului */}
+      {cont === 'vizitator' && (
+        <section className="acasa-cta">
+          <div className="container">
+            <h2>Începe cu un test. Contul e gratuit.</h2>
+            <div className="acasa-cta-btns">
+              <Link to="/inregistrare" className="btn btn-primary btn-lg">Creează cont gratuit</Link>
+              <Link to="/evaluare-nationala?tab=interactive" className="btn btn-lg acasa-cta-sec">Vezi testele</Link>
+            </div>
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
+// ═══ Blocurile paginii (declarate după Home: funcțiile se ridică singure) ═══════
+
+// ─── „Tot ce poți face": butoanele contului (src/lib/meniu.js → scurtaturi) ──
+function Scurtaturi({ rol }) {
+  const lista = scurtaturi(rol);
+  const titlu = rol === 'profesor' ? 'Uneltele tale' : rol === 'parinte' ? 'Mai poți face' : 'Învață și joacă';
+  return (
+    <section className="acasa acasa-scurt" aria-label={titlu}>
+      <div className="container">
+        <h2 className="acasa-titlu">{titlu}</h2>
+        <div className="dale" data-n={lista.length}>
+          {lista.map((s) => (
+            <Link key={s.to + s.label} to={s.to} className="dala">
+              <span className="dala-ic" aria-hidden="true">{s.icon === 'einstein' ? <EinsteinIcon size={30} /> : s.icon}</span>
+              <span className="dala-txt">{s.label}</span>
             </Link>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ─── „Materiale": examenele și clasele, ca butoane ───────────────────────────
+const CIFRE = { '/clase/5': 'V', '/clase/6': 'VI', '/clase/7': 'VII', '/clase/8': 'VIII', '/clase/9': 'IX', '/clase/10': 'X', '/clase/11': 'XI', '/clase/12': 'XII' };
+function Materiale() {
+  return (
+    <section className="acasa acasa-mat" id="materiale" aria-label="Materiale">
+      <div className="container">
+        <h2 className="acasa-titlu">Materiale</h2>
+        <div className="mat-examene" id="examene">
+          {EXAMENE.map((e, i) => (
+            <Link key={e.to} to={e.to} className={`mat-ex${i === 0 ? ' en' : ''}`}>
+              <span className="mat-ex-ic" aria-hidden="true">{i === 0 ? '📝' : '🎓'}</span>
+              <span className="mat-ex-txt">{e.label}</span>
+            </Link>
+          ))}
+        </div>
+        <div className="mat-clase" role="group" aria-label="Clase">
+          {CLASE.map((c) => (
+            <Link key={c.to} to={c.to} className="mat-cl" aria-label={c.label}>
+              <small>clasa</small>
+              <b>{CIFRE[c.to]}</b>
+            </Link>
+          ))}
+        </div>
+        <div className="mat-alte">
+          <Link to="/manuale">📖 Auxiliare</Link>
+          <Link to="/rezolvari">📝 Rezolvări și teorie</Link>
+          <Link to="/biblioteca-utilizatorilor">🏛️ Biblioteca utilizatorilor</Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ─── Doar vizitatorul: pentru cine e site-ul (trei uși, cu contul potrivit) ──
+const PENTRU = [
+  {
+    tip: 'elev', icon: '🎒', titlu: 'Elev',
+    ce: ['Teste cu nota pe loc', 'Un test pe zi, cu serie și ligă', 'Profesorul Virtual îți explică pas cu pas'],
+    buton: 'Cont de elev',
+  },
+  {
+    tip: 'parinte', icon: '👨‍👩‍👧', titlu: 'Părinte',
+    ce: ['Vezi notele și temele copilului', 'Îi dai o temă din două atingeri', 'Vorbești cu profesorul lui'],
+    buton: 'Cont de părinte',
+  },
+  {
+    tip: 'profesor', icon: '🧑‍🏫', titlu: 'Profesor',
+    ce: ['Generezi teste interactive sau PDF', 'Le trimiți elevilor cu un link', 'Rezultatele și catalogul se completează singure'],
+    buton: 'Cont de profesor',
+  },
+];
+function PentruCine() {
+  return (
+    <section className="acasa acasa-cine" aria-label="Pentru cine e ExamenMate">
+      <div className="container">
+        <h2 className="acasa-titlu">Alege contul tău</h2>
+        <div className="cine-grid">
+          {PENTRU.map((p) => (
+            <div className="cine" key={p.tip}>
+              <h3><span aria-hidden="true">{p.icon}</span> {p.titlu}</h3>
+              <ul>
+                {p.ce.map((c) => <li key={c}>{c}</li>)}
+              </ul>
+              <Link to={`/inregistrare?tip=${p.tip}`} className="btn btn-outline btn-sm">{p.buton}</Link>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ─── Fără abonament: ce e gratuit și ce aduce Premium, pe scurt ──────────────
+function GratuitPremium({ rol }) {
+  const lunar = PLANS.find((p) => p.id === 'lunar') || PLANS[0];
+  const anual = PLANS.find((p) => p.id === 'anual');
+  return (
+    <section className="acasa acasa-plan" aria-label="Gratuit și Premium">
+      <div className="container">
+        <div className="plan-grid">
+          <div className="plan plan-gratuit">
+            <h3>Gratuit</h3>
+            <ul>
+              <li>Teste interactive, cu nota pe loc</li>
+              <li>Fișe și subiecte PDF gratuite</li>
+              <li>Testul zilei, Arena și insignele</li>
+            </ul>
+          </div>
+          <div className="plan plan-premium">
+            <h3>⭐ Premium <span>{lunar.pret} lei pe lună{anual ? ` sau ${anual.pret} lei pe an` : ''}</span></h3>
+            <ul>
+              <li>Profesorul Virtual: explicații la orice exercițiu</li>
+              <li>Corectarea rezolvărilor scrise de mână, după barem</li>
+              <li>Meditații live zilnice și 8 ședințe 1-la-1 pe lună</li>
+              <li>Toate materialele PDF și rezolvările</li>
+            </ul>
+            <Link to="/preturi" className="btn btn-primary">{rol === 'parinte' ? 'Abonament pentru copil' : 'Vezi abonamentul'}</Link>
           </div>
         </div>
-      </section>
-    </>
+      </div>
+    </section>
   );
 }

@@ -199,7 +199,8 @@ test('asistentul părinților (pagina /profesor-virtual și widgetul): doar „�
   assert.match(w, /const TemaAutomata = lazy\(\(\) => import\('\.\/TemaAutomata'\)\);/);
   assert.match(w, /\{isParent && !isTeacher \? \(\s*\n\s*<div[^>]*>\s*\n\s*<Suspense[\s\S]{0,200}?<TemaAutomata compact onNavigate=\{\(\) => setOpen\(false\)\} \/>/);
   assert.match(w, /\{!medMode && isTeacher && \(\s*\n\s*<div style=\{\{ display: 'flex', borderBottom/, 'tab-urile chat / subiect: doar la profesori');
-  assert.match(w, /\{!medMode && !isParent && pathname !== '\/pregateste-ma' && \(/);
+  // „Pregătește-mă" / „Meditații live" din widget: doar la elevi și vizitatori (11 nov. 2026, seara)
+  assert.match(w, /\{!medMode && !isMentorAcc && pathname !== '\/pregateste-ma' && \(/);
   // meniul: „Asistent AI pentru părinți" rămâne (/profesor-virtual)
   assert.match(read('src/lib/meniu.js'), /\{ tip: 'link', to: '\/profesor-virtual', icon: 'einstein', label: aiLabel \}/);
   assert.strictEqual(require('node:vm').runInNewContext(`(${read('src/lib/aiLabel.js').replace(/export /g, '').match(/function aiAssistantLabel[\s\S]*?\n\}/)[0]})({ isParent: true })`), 'Asistent AI pentru părinți');

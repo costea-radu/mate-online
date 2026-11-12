@@ -24,7 +24,13 @@ function isGoogleEmail(value) {
 
 export default function Register() {
   const [fullName, setFullName] = useState('');
-  const [accountType, setAccountType] = useState('elev');
+  // tipul de cont poate veni din adresă (Home → „Cont de părinte": /inregistrare?tip=parinte)
+  const [accountType, setAccountType] = useState(() => {
+    try {
+      const t = new URLSearchParams(window.location.search).get('tip');
+      return ['elev', 'profesor', 'parinte'].includes(t) ? t : 'elev';
+    } catch { return 'elev'; }
+  });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -177,7 +183,7 @@ export default function Register() {
     <div className="auth-page">
       <div className="auth-card">
         <h2>Creează un cont gratuit</h2>
-        <p className="auth-sub">Înregistrează-te pentru a accesa exerciții gratuite și premium.</p>
+        <p className="auth-sub">Durează sub un minut. Testele interactive sunt gratuite.</p>
 
         {/* Tip de cont — se aplică atât la înregistrarea cu e-mail, cât și cu Google/Discord */}
         <div style={{ marginBottom: 20 }}>
@@ -186,9 +192,9 @@ export default function Register() {
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
             {[
-              { value: 'elev', icon: '🎒', title: 'Elev', tag: 'doar rezolv' },
-              { value: 'profesor', icon: '🧑‍🏫', title: 'Profesor', tag: 'rezolv || corectez' },
-              { value: 'parinte', icon: '👨‍👩‍👧', title: 'Părinte', tag: 'urmăresc' },
+              { value: 'elev', icon: '🎒', title: 'Elev', tag: 'rezolv teste' },
+              { value: 'profesor', icon: '🧑‍🏫', title: 'Profesor', tag: 'dau teste elevilor' },
+              { value: 'parinte', icon: '👨‍👩‍👧', title: 'Părinte', tag: 'îmi urmăresc copilul' },
             ].map(opt => {
               const active = accountType === opt.value;
               return (
@@ -208,7 +214,7 @@ export default function Register() {
                     <span style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.95rem' }}>{opt.title}</span>
                   </span>
                   <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                    ({opt.tag})
+                    {opt.tag}
                   </span>
                 </button>
               );

@@ -4,9 +4,13 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import ErrorBoundary from './components/ErrorBoundary';
-import FloatingTutor from './components/AITutor';
+import FloatingTutor from './components/TutorLenes';   // widgetul Profesorului Virtual, încărcat după prima afișare
 import InstallPrompt from './components/InstallPrompt';
+import BaraJos from './components/BaraJos';
+import Continuare from './components/Continuare';             // după autentificare: planul ales / invitația copilului
+import ScorInAsteptare from './components/ScorInAsteptare';   // rezultatul testului rezolvat fără cont   // bara de jos de pe telefon, pe tipul de cont
 import CookieConsent from './components/CookieConsent';
+import { titluPentru } from './lib/titluPagina';   // titlul filei din browser, pe rută
 // PDF-urile deschise pe tablele interactive / telefoane: fereastra site-ului (4 nov. 2026)
 import { PdfOverlayHost } from './components/PdfOverlay';
 import { Analytics } from '@vercel/analytics/react';
@@ -72,8 +76,14 @@ function ScrollToTop() {
 // (Nimic nu pleacă până când vizitatorul nu acceptă cookie-urile de analiză.)
 function AnalyticsRouteTracker() {
   const location = useLocation();
+  const prima = useRef(true);
   useEffect(() => { initAnalytics(); }, []);
   useEffect(() => {
+    // titlul filei pe rută (înaintea vizualizării — Analytics îl citește din document);
+    // la prima încărcare rămâne cel pus de server — vezi src/lib/titluPagina.js
+    const titlu = titluPentru(location.pathname, { primaIncarcare: prima.current });
+    prima.current = false;
+    if (titlu) document.title = titlu;
     trackPageView(location.pathname + location.search);
   }, [location.pathname, location.search]);
   return null;
@@ -143,6 +153,8 @@ function Layout({ children }) {
         </main>
         {!fullscreen && <Footer />}
       </div>
+      {/* bara de jos de pe telefon (înaintea widgetului: el se așază deasupra ei) */}
+      {!fullscreen && <BaraJos />}
       {!fullscreen && <FloatingTutor />}
       {!fullscreen && <InstallPrompt />}
     </>
@@ -217,6 +229,8 @@ export default function App() {
             </Suspense>
             </ErrorBoundary>
           </Layout>
+          <ScorInAsteptare />
+          <Continuare />
           <CookieConsent />
           <PdfOverlayHost />
           <Analytics />

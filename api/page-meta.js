@@ -29,11 +29,20 @@
 //     <script id="__ARTICOL__"> ca pagina să nu refacă cererea);
 //   • slug inexistent/nepublicat → 404 + <meta name="robots" noindex>.
 //
+// 12 nov. 2026 — FIECARE rută publică are, și fără rând în `seo_meta`:
+//   • title + description proprii (api/_lib/seoRute.json), BreadcrumbList
+//     (Organization + WebSite pe prima pagină) și imaginea de share 1200×630;
+//   • un schelet în <div id="root">: H1, o frază, lista materialelor din
+//     `content` (paginile de examen și de clasă) sau a articolelor (/rezolvari)
+//     și legături spre paginile vecine — ce văd crawlerele fără JavaScript;
+//   • profil de BAC inexistent → canonic pe /bacalaureat; clasă inexistentă → noindex.
+//
 // Rutele care trec pe aici sunt DOAR cele publice (vezi rewrites în
 // vercel.json); /admin, /profil, viewerele etc. rămân SPA simplu.
 // =====================================================================
 const http = require('./_lib/http');
 const { mdExcerpt, validSlug } = require('./_lib/markdown');
+const seoRute = require('./_lib/seoRute'); // title/description, date structurate și scheletul implicit al fiecărei rute
 
 const SITE = (process.env.SITE_ORIGIN && process.env.SITE_ORIGIN !== '*')
   ? process.env.SITE_ORIGIN.replace(/\/$/, '')
@@ -106,6 +115,39 @@ async function articleFor(slug) {
   if (_artCache.size > 500) _artCache.clear();
   _artCache.set(slug, { row, exp: Date.now() + 60_000 });
   return row;
+}
+
+// Materialele unei pagini de examen / de clasă (doar titlurile — metadate
+// publice) pentru scheletul paginii. Cache 10 minute per rută.
+const _matCache = new Map(); // route → { rows, exp }
+async function materialsFor(route) {
+  const cat = seoRute.categoriaRutei(route);
+  if (!cat) return [];
+  const c = _matCache.get(route);
+  if (c && c.exp > Date.now()) return c.rows;
+  let rows = [];
+  try {
+    let q = supa().from('content').select('title, subcategory, content_type').eq('category', cat.category);
+    if (cat.profile) q = q.eq('profile', cat.profile);
+    const { data } = await q.order('sort_order', { ascending: true }).order('created_at', { ascending: false }).limit(600);
+    rows = data || [];
+  } catch { rows = []; }
+  if (_matCache.size > 100) _matCache.clear();
+  _matCache.set(route, { rows, exp: Date.now() + 10 * 60_000 });
+  return rows;
+}
+// Articolele publicate, pentru scheletul paginii /rezolvari (legături spre fiecare).
+const _listCache = { rows: null, exp: 0 };
+async function articlesList() {
+  if (_listCache.rows && _listCache.exp > Date.now()) return _listCache.rows;
+  let rows = [];
+  try {
+    const { data } = await supa().from('articole').select('slug, title')
+      .eq('status', 'published').order('published_at', { ascending: false }).limit(200);
+    rows = (data || []).filter((a) => validSlug(a.slug));
+  } catch { rows = []; }
+  _listCache.rows = rows; _listCache.exp = Date.now() + 10 * 60_000;
+  return rows;
 }
 
 // ─── Utilitare pure (testate în test/seo.test.js + test/articole.test.js) ────
@@ -459,7 +501,7 @@ module.exports = async function handler(req, res) {
       const meta = {
         title: seoRow?.title || article.title,
         description: seoRow?.description || article.description || mdExcerpt(article.content_md || '', 155),
-        og_image: seoRow?.og_image || null,
+        og_image: seoRow?.og_image || SITE + seoRute.OG_IMPLICIT,
         jsonld: seoRow?.jsonld || articleJsonLd(article, SITE),
         ogType: 'article',
         articleDates: { published: article.published_at || null, modified: article.updated_at || null },
@@ -478,7 +520,7 @@ module.exports = async function handler(req, res) {
         description: seoRow?.description || (data.stats
           ? `Media ${fmtAvg(data.stats.avg)} din 5 din ${data.stats.n} recenzii verificate. Păreri ale elevilor, părinților și profesorilor despre testele, Profesorul Virtual și meditațiile ExamenMate.`
           : 'Părerile elevilor, părinților și profesorilor despre ExamenMate — teste interactive, Profesor Virtual și meditații cu AI. Lasă și tu o recenzie.'),
-        og_image: seoRow?.og_image || null,
+        og_image: seoRow?.og_image || SITE + seoRute.OG_IMPLICIT,
         jsonld: seoRow?.jsonld || reviewsJsonLd(data, SITE),
       };
       let out = injectMeta(html, { route, meta, site: SITE });
@@ -486,8 +528,17 @@ module.exports = async function handler(req, res) {
       return sendHtml(res, 200, out, { cdn: 'public, s-maxage=60, stale-while-revalidate=3600' });
     }
 
-    const [html, meta] = await Promise.all([baseHtml(), metaFor(route)]);
-    const out = injectMeta(html, { route, meta, site: SITE });
+    // Restul rutelor publice: rândul din seo_meta (dacă există), completat cu
+    // implicitele rutei; scheletul paginii în <div id="root">.
+    const can = seoRute.canonic(route);
+    const [html, row, materiale, articole] = await Promise.all([
+      baseHtml(), metaFor(route), materialsFor(route),
+      route === '/rezolvari' ? articlesList() : Promise.resolve([]),
+    ]);
+    let out = injectMeta(html, { route: can.route, meta: seoRute.cuImplicite(route, row, SITE), site: SITE });
+    const sch = seoRute.schelet(route, { materiale, articole });
+    if (sch) out = injectRoot(out, sch);
+    if (!can.index) out = noindex(out);
     return sendHtml(res, 200, out);
   } catch (err) {
     console.error('page-meta:', err.message);

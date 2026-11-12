@@ -59,8 +59,21 @@ module.exports = async function handler(req, res) {
       return res.end();
     }
 
-    const lim = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete (vezi GHID_LIMITE_AI.md)
-    await ai.enforceFreeQuota(supa, profile);
+    // 0½. Explicație PRE-GENERATĂ (pasul 3 din GHID_LIMITE_AI.md): la prima cerere
+    // CANONICĂ despre un material din site, trimitem răspunsul deja generat, în
+    // bucăți — cost 0, latență ~0, gard premium inclus. ÎNAINTEA limitelor și a
+    // RAG-ului: nu consumă acțiunile AI gratuite și nu mai calculează embeddings.
+    const gata = await pregen.serveFirst(supa, { userId, profile, message, mode, conversationId, context, images, regenerate: !!regenerate, endpoint: 'ai-chat-stream' });
+    if (gata) {
+      send({ type: 'meta', conversationId: gata.convId, sources: gata.sources, primaryMaterial: null });
+      for (const chunk of gata.text.match(/[\s\S]{1,160}/g) || []) send({ type: 'delta', text: chunk });
+      send({ type: 'done', messageId: gata.messageId, aiBudget: null });
+      return res.end();
+    }
+
+    const lim0 = await ai.enforceRateLimit(supa, userId, profile); // limite orare + bugete (vezi GHID_LIMITE_AI.md)
+    // după acțiunile de probă: întrebările gratuite ale zilei (dacă sunt pornite) → modelul economic
+    const lim = ai.limitsFor(lim0, await ai.enforceFreeQuota(supa, profile, { chat: true }));
     const premium = ai.isPremium(profile);
 
     // 1-3. RAG + conversație + istoric + system prompt (helper comun cu ai-chat)
@@ -72,25 +85,10 @@ module.exports = async function handler(req, res) {
     // mesajul user trimis modelului: text (+ pagina PDF a exercițiului, Etapa 2)
     const userContent = pdfpages.userContent(message, attachments);
 
-    // 3½. Explicație PRE-GENERATA (pasul 3): la prima cerere CANONICĂ despre
-    // un material din site, trimitem răspunsul deja generat, în bucăți —
-    // cost 0, latență ~0. Gard premium inclus.
+    // 4. Generare.
     let full = '';
-    let servedPregen = false;
-    if (!baremItem && pregen.canServe({ mode, context, conversationId, message })) {
-      const served = await pregen.getServable(supa, { contentId: context.contentId, mode, premium });
-      if (served) {
-        servedPregen = true;
-        full = served.text;
-        for (const chunk of full.match(/[\s\S]{1,160}/g) || []) send({ type: 'delta', text: chunk });
-      }
-    }
-
-    // 4. Generare (dacă nu am servit din pre-generare).
     const stats = {}; // chatStream/verifiedPdfReply pun aici usage-ul + modelul real
-    if (servedPregen) {
-      // nimic de generat
-    } else if (baremItem) {
+    if (baremItem) {
       // AGENTUL PDF cu rezolvare din barem: generăm ÎNTREG răspunsul, îl
       // VERIFICĂM față de barem (numeric + semantic; reîncercare + fallback)
       // și abia apoi îl trimitem, în bucăți. Elevul nu vede niciodată un
@@ -124,7 +122,7 @@ module.exports = async function handler(req, res) {
 
     // 4½. Sub o explicație de matematică (în widgetul general): unde exersează pe
     // site — teste interactive, Pregătire de examen, meditații live
-    if (!servedPregen && !baremItem) {
+    if (!baremItem) {
       const more = siteGuide.footer({ message, context, mode, priorCount: priorMsgs.length, reply: full });
       if (more) { full += more; send({ type: 'delta', text: more }); }
     }
@@ -145,11 +143,8 @@ module.exports = async function handler(req, res) {
     if (cErr) console.error('ai-chat-stream: update conversație eșuat:', cErr);
     // usage-ul REAL din stream (stream_options.include_usage); dacă providerul
     // nu l-a trimis, estimăm ieșirea din lungimea textului, ca înainte.
-    // Servirea din pre-generare se loghează separat, cu cost 0.
-    await ai.logUsage(supa, userId,
-      servedPregen ? 'ai-chat-stream:pregen' : 'ai-chat-stream',
-      servedPregen ? { in: 0, out: 0, model: null }
-        : (stats.usage || { in: 0, out: Math.ceil(full.length / 4), model: stats.model }));
+    await ai.logUsage(supa, userId, 'ai-chat-stream',
+      stats.usage || { in: 0, out: Math.ceil(full.length / 4), model: stats.model });
 
     send({ type: 'done', messageId: saved?.id || null, aiBudget: ai.budgetNotice(lim) });
     return res.end();

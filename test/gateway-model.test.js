@@ -5,8 +5,9 @@
 //    gpt-4o-mini ieșea umflat ~20×, bugetul zilnic soft se „termina" după
 //    câteva mesaje și pickModel retrograda terra înapoi pe modelul de chat;
 // 2) implicitele derivate (PDF, economic) moștenesc prefixul providerului;
-// 3) pre-generarea folosește modelul de PDF și își purjează cache-ul generat
-//    cu modele vechi (intrările se regenerează cu modelul curent).
+// 3) pre-generarea folosește modelul de PDF; explicațiile generate cu un model
+//    vechi RĂMÂN (12 nov. 2026 — schimbarea modelului regenera toată baza, ~80 lei)
+//    și se șterg doar la cerere, cu AI_PREGEN_PURGE_OLD_MODEL=1.
 process.env.AI_CHAT_API_KEY = 'test-key';
 process.env.AI_CHAT_MODEL = 'openai/gpt-4o-mini';
 const test = require('node:test');
@@ -39,7 +40,7 @@ test('degradarea peste buget rămâne coerentă cu id-uri prefixate', () => {
   assert.strictEqual(ai.pickModel(ai.CHAT_MODEL, { degraded: true }), ai.ECON_CHAT_MODEL);
 });
 
-test('pre-generarea purjează intrările făcute cu ALT model decât cel curent', async () => {
+test('pre-generarea NU mai șterge explicațiile făcute cu alt model; doar la cerere (AI_PREGEN_PURGE_OLD_MODEL=1)', async () => {
   const calls = [];
   const supa = {
     from: (table) => ({
@@ -50,12 +51,23 @@ test('pre-generarea purjează intrările făcute cu ALT model decât cel curent'
     }),
     rpc: async (fn) => { calls.push(['rpc', fn]); return { data: [], error: null }; },
   };
-  const r = await pregen.processBatch(supa, 2);
-  // 1. șterge intrările cu model diferit de cel configurat (implicit: modelul de PDF)
-  assert.deepStrictEqual(calls[0], ['neq', 'ai_pregen', 'model', ai.PDF_MODEL]);
-  // 2. șterge și intrările fără model (nu le-ar prinde .neq)
-  assert.deepStrictEqual(calls[1], ['is', 'ai_pregen', 'model', null]);
-  // 3. abia apoi cere candidații — cei șterși redevin „lipsă" și se regenerează
-  assert.deepStrictEqual(calls[2], ['rpc', 'ai_pregen_candidates']);
-  assert.strictEqual(r.purged, 2);
+  // implicit: nicio ștergere — cere direct candidații (materiale noi sau modificate)
+  delete process.env.AI_PREGEN_PURGE_OLD_MODEL;
+  const r0 = await pregen.processBatch(supa, 2);
+  assert.deepStrictEqual(calls, [['rpc', 'ai_pregen_candidates']]);
+  assert.strictEqual(r0.purged, undefined);
+
+  // la cerere: comportamentul vechi
+  calls.length = 0;
+  process.env.AI_PREGEN_PURGE_OLD_MODEL = '1';
+  try {
+    const r = await pregen.processBatch(supa, 2);
+    // 1. șterge intrările cu model diferit de cel configurat (implicit: modelul de PDF)
+    assert.deepStrictEqual(calls[0], ['neq', 'ai_pregen', 'model', ai.PDF_MODEL]);
+    // 2. șterge și intrările fără model (nu le-ar prinde .neq)
+    assert.deepStrictEqual(calls[1], ['is', 'ai_pregen', 'model', null]);
+    // 3. abia apoi cere candidații — cei șterși redevin „lipsă" și se regenerează
+    assert.deepStrictEqual(calls[2], ['rpc', 'ai_pregen_candidates']);
+    assert.strictEqual(r.purged, 2);
+  } finally { delete process.env.AI_PREGEN_PURGE_OLD_MODEL; }
 });

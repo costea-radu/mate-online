@@ -1,6 +1,7 @@
 import { authHeaders } from '../lib/api';
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { cautareDinAdresa } from '../lib/cautare';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { arataPdf, pdfInPagina } from '../lib/pdfOpen';
@@ -245,7 +246,13 @@ export default function RezolvariPage() {
   const [loading, setLoading] = useState(true);
   const [filterCat, setFilterCat] = useState('');
   const [filterType, setFilterType] = useState('');
-  const [search, setSearch] = useState('');
+  // /rezolvari?q=… (din căutarea de sus): lista vine gata filtrată pe ce a ales omul
+  const location = useLocation();
+  const [search, setSearch] = useState(() => cautareDinAdresa(location.search) || '');
+  useEffect(() => {
+    const q = cautareDinAdresa(location.search);
+    if (q != null) setSearch(q);
+  }, [location.search]);
 
   useEffect(() => { load(); }, []);
 

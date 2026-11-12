@@ -532,7 +532,9 @@ test('corectările gratuite ale grilei nu sunt cereri AI: nu consumă acțiunile
   });
   const supa = { from: () => q };
   await ai.enforceFreeQuota(supa, { id: 'u-1', subscription_status: null });
-  assert.deepStrictEqual(filtre.filter((f) => f[0] === 'neq'), [['neq', 'endpoint', 'voce'], ['neq', 'endpoint', 'rezolva-pdf:grila']]);
+  // + răspunsurile servite din pre-generare (cost 0, fără model) — nici ele nu consumă acțiunile gratuite
+  assert.deepStrictEqual(filtre.filter((f) => f[0] === 'neq'), [['neq', 'endpoint', 'voce'], ['neq', 'endpoint', 'rezolva-pdf:grila'],
+    ['neq', 'endpoint', 'ai-chat:pregen'], ['neq', 'endpoint', 'ai-chat-stream:pregen']]);
   filtre.length = 0;
   await ai.enforceRateLimit(supa, 'u-1', null, { budgets: false });
   assert.deepStrictEqual(filtre.filter((f) => f[0] === 'neq'), [['neq', 'endpoint', 'voce'], ['neq', 'endpoint', 'rezolva-pdf:grila']]);

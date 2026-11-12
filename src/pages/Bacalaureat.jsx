@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Discussions from '../components/Discussions';
 import { Link, useParams, useLocation } from 'react-router-dom';
+import StartRapid from '../components/StartRapid';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { ContentCard, scrollToCard } from '../components/ContentPage';
@@ -73,6 +74,7 @@ export default function Bacalaureat() {
 
       <div className="content-list">
         <div className="container">
+          <StartRapid category="bacalaureat" profile={profile} />
           <div className="tabs">
             <button className={`tab ${mainTab === 'interactive' ? 'active' : ''}`} onClick={() => setMainTab('interactive')}>
               🧩 Teste Interactive

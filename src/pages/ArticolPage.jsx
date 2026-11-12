@@ -13,6 +13,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { ensureKatex, renderMath } from '../lib/katex';
+import { TITLU_IMPLICIT } from '../lib/titluPagina';
 
 const KIND_INFO = {
   articol:    { icon: '📖', label: 'Articol' },
@@ -93,7 +94,7 @@ export default function ArticolPage() {
     if (!article) return;
     document.title = article.title;
     ensureKatex().then(() => renderMath(contentRef.current));
-    return () => { document.title = 'ExamenMate – Matematică pentru Succes'; };
+    return () => { document.title = TITLU_IMPLICIT; };
   }, [article]);
 
   if (loading) {

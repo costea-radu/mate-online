@@ -1,103 +1,175 @@
 import { authHeaders } from '../lib/api';
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { AI_STACK } from '../lib/aiModels';
-import AIPoweredBy from '../components/AIPoweredBy';
-import { trackBeginCheckout } from '../lib/analytics';
+import { track, trackBeginCheckout } from '../lib/analytics';
 // Planurile afișate (doar pentru afișare — prețurile reale sunt pe server)
 import { PLANS } from '../lib/plans';
+import { tineMintePlanul } from '../lib/continuare';
+
+// =====================================================================
+// /preturi — abonamentul, pe scurt (rescrisă pe 11 nov. 2026, seara)
+//
+// Ce s-a schimbat față de pagina veche (o listă de 13 rânduri, cu numele
+// modelelor AI, și butonul de plată abia la capătul ei):
+//   · planul și butonul de plată sunt primele, unul sub altul;
+//   · „Ce primești": cinci rânduri, pe tipul de cont (elev / părinte / profesor);
+//   · PĂRINTELE alege copilul și plătește pentru contul LUI (api/create-checkout
+//     → pentruElev; api/_lib/abonamentCopil.js) — până acum abonamentul se punea
+//     pe contul părintelui, iar copilul rămânea pe gratuit;
+//   · ELEVUL îi trimite părintelui un link („📲 Trimite părintelui"): părintele
+//     îl deschide, se asociază cu contul copilului și îi face abonamentul;
+//   · vizitatorul care apasă „Creează cont și continuă" revine aici după
+//     înregistrare, cu planul ales (src/lib/continuare.js).
+// =====================================================================
+
+const CE_PRIMESTI = {
+  elev: [
+    ['🤖', 'Profesorul Virtual explică orice exercițiu, pas cu pas'],
+    ['✍️', 'Corectarea rezolvărilor scrise de mână, după barem'],
+    ['🔴', 'Meditații live zilnice (EN și BAC) și 8 ședințe 1-la-1 pe lună'],
+    ['🧭', 'Plan de învățare: test inițial, lecții, teme corectate, simulări'],
+    ['📄', 'Toate fișele și subiectele PDF, cu rezolvări'],
+  ],
+  profesor: [
+    ['🧩', 'Generator de teste interactive și PDF, după modelele oficiale'],
+    ['📄', 'Subiecte de examen generate, cu barem'],
+    ['👥', 'Teste diferite pentru fiecare elev, corectate automat'],
+    ['🤖', 'Asistentul AI pentru profesori'],
+    ['📚', 'Toate fișele și subiectele PDF, cu rezolvări'],
+  ],
+};
+
+async function cere(url, body) {
+  const response = await fetch(url, { method: 'POST', headers: await authHeaders(), body: JSON.stringify(body) });
+  let data;
+  try { data = await response.json(); } catch { throw new Error(`Răspuns invalid de la server (status ${response.status})`); }
+  if (!response.ok || data.error) throw new Error(data.error || `Eroare server: ${response.status}`);
+  return data;
+}
 
 export default function Pricing() {
-  const { user, isPremium, isSubscribed, isAdmin } = useAuth();
+  const { user, isPremium, isSubscribed, isAdmin, isTeacher, isParent } = useAuth();
+  const [params] = useSearchParams();
   const [loading, setLoading] = useState(false);
-  const [plan, setPlan] = useState('anual');
+  const [eroare, setEroare] = useState('');
+  const [plan, setPlan] = useState(() => (PLANS.some((p) => p.id === params.get('plan')) ? params.get('plan') : 'anual'));
   const navigate = useNavigate();
+  const anulat = params.get('anulat') === '1';
 
-  async function handleSubscribe() {
-    const ales = PLANS.find((p) => p.id === plan) || PLANS[0];
-    if (!user) {
-      // Reținem planul ales, ca după înregistrare să revină exact aici.
-      try { sessionStorage.setItem('em_plan', ales.id); } catch { /* mod privat */ }
-      navigate('/inregistrare');
-      return;
-    }
+  // PĂRINTE: copiii asociați, cu starea abonamentului fiecăruia
+  const [copii, setCopii] = useState(null);          // null = se încarcă
+  const [copilAles, setCopilAles] = useState(params.get('copil') || null);
+  useEffect(() => {
+    if (!user || !isParent) return undefined;
+    let viu = true;
+    cere('/api/create-checkout', { type: 'copii' })
+      .then((r) => {
+        if (!viu) return;
+        const lista = r.copii || [];
+        setCopii(lista);
+        setCopilAles((ales) => (lista.some((c) => c.id === ales && !c.premium) ? ales : (lista.find((c) => !c.premium) || {}).id || null));
+      })
+      .catch(() => { if (viu) setCopii([]); });
+    return () => { viu = false; };
+  }, [user, isParent]);
 
-    trackBeginCheckout(ales.id, ales.pret);
-    setLoading(true);
-    try {
-      const response = await fetch('/api/create-checkout', {
-        method: 'POST',
-        headers: await authHeaders(),
-        body: JSON.stringify({ userId: user.id, email: user.email, plan: ales.id }),
-      });
-
-      let data;
-      try {
-        data = await response.json();
-      } catch {
-        throw new Error(`Răspuns invalid de la server (status ${response.status})`);
-      }
-
-      if (!response.ok || data.error) {
-        throw new Error(data.error || `Eroare server: ${response.status}`);
-      }
-
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        throw new Error('Nu s-a primit URL de plată de la server.');
-      }
-    } catch (err) {
-      console.error('Checkout error:', err);
-      alert(`A apărut o eroare: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleManage() {
-    if (!user) return;
-    setLoading(true);
-    try {
-      const response = await fetch('/api/create-portal', {
-        method: 'POST',
-        headers: await authHeaders(),
-        body: JSON.stringify({ userId: user.id }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || `Server error: ${response.status}`);
-      }
-
-      if (data.error) throw new Error(data.error);
-      if (data.url) window.location.href = data.url;
-    } catch (err) {
-      console.error('Portal error:', err);
-      alert('A apărut o eroare la deschiderea portalului. Încearcă din nou.');
-    } finally {
-      setLoading(false);
-    }
-  }
+  // ELEV: linkul pe care îl trimite părintelui
+  const [invitatie, setInvitatie] = useState(null);  // { link, text } | { trimis: true }
+  const [copiat, setCopiat] = useState(false);
 
   // planul selectat — prețul lui apare pe butonul de abonare
   const planAles = PLANS.find((p) => p.id === plan) || PLANS[0];
+  const lunar = PLANS.find((p) => p.id === 'lunar') || PLANS[0];
+  const anual = PLANS.find((p) => p.id === 'anual') || PLANS[0];
+  const copil = (copii || []).find((c) => c.id === copilAles) || null;
+  const parinte = !!user && isParent;
+  const elev = !!user && !isParent && !isTeacher;
+
+  async function handleSubscribe() {
+    setEroare('');
+    if (!user) {
+      // Reținem planul ales: după înregistrare utilizatorul revine exact aici (src/lib/continuare.js)
+      tineMintePlanul(planAles.id);
+      navigate('/inregistrare');
+      return;
+    }
+    if (parinte && !copil) { setEroare('Alege copilul pentru care faci abonamentul.'); return; }
+    trackBeginCheckout(planAles.id, planAles.pret);
+    setLoading(true);
+    try {
+      const data = await cere('/api/create-checkout', { userId: user.id, email: user.email, plan: planAles.id, ...(parinte ? { pentruElev: copil.id } : {}) });
+      if (!data.url) throw new Error('Nu s-a primit adresa de plată de la server.');
+      window.location.href = data.url;
+    } catch (err) {
+      console.error('Checkout error:', err);
+      setEroare(err.message || 'Plata nu a putut porni. Mai încearcă.');
+      setLoading(false);
+    }
+  }
+
+  async function handleManage(pentruElev = null) {
+    if (!user) return;
+    setEroare('');
+    setLoading(true);
+    try {
+      const data = await cere('/api/create-portal', { userId: user.id, ...(pentruElev ? { pentruElev } : {}) });
+      if (data.url) window.location.href = data.url;
+      else setLoading(false);
+    } catch (err) {
+      console.error('Portal error:', err);
+      setEroare(err.message || 'Portalul de plată nu s-a putut deschide. Mai încearcă.');
+      setLoading(false);
+    }
+  }
+
+  async function trimiteParintelui() {
+    setEroare('');
+    try {
+      const d = await cere('/api/asociere', { action: 'invita_parinte' });
+      const link = `${window.location.origin}/asociere?elev=${d.token}`;
+      const text = `Mă pregătesc la matematică pe ExamenMate. Îmi poți face tu abonamentul (${lunar.pret} lei pe lună sau ${anual.pret} lei pe an)? Intră aici:`;
+      track('invita_parinte', {});
+      if (navigator.share) {
+        try { await navigator.share({ title: 'ExamenMate', text, url: link }); setInvitatie({ link, text, trimis: true }); return; } catch { /* a închis fereastra de trimitere → arătăm linkul */ }
+      }
+      setInvitatie({ link, text });
+    } catch (err) {
+      setEroare(err.message || 'Linkul nu s-a putut face. Mai încearcă.');
+    }
+  }
+  function copiaza(text) {
+    const gata = () => { setCopiat(true); setTimeout(() => setCopiat(false), 1800); };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(gata).catch(() => {});
+  }
+
+  const beneficii = CE_PRIMESTI[isTeacher ? 'profesor' : 'elev'];
+  const butonPlata = loading
+    ? 'Se deschide plata…'
+    : !user
+      ? 'Creează cont și continuă'
+      : parinte
+        ? (copil ? `Abonează-l pe ${copil.nume} · ${planAles.pret} lei ${planAles.perioada}` : 'Alege copilul')
+        : `Abonează-te · ${planAles.pret} lei ${planAles.perioada}`;
 
   return (
     <>
       <div className="page-header" style={{ textAlign: 'center' }}>
         <div className="container">
           <h1>Abonament Premium</h1>
-          <p>Acces complet la toate materialele ExamenMate. Poți anula oricând abonamentul</p>
+          <p>{parinte ? 'Pentru copilul tău. Plătești tu, primește el.' : 'Renunți oricând, direct din cont.'}</p>
         </div>
       </div>
 
-      <section className="section">
-        <div className="container">
+      <section className="section pret">
+        <div className="container pret-in">
 
-          {isPremium ? (
+          {anulat && !isPremium && (
+            <div className="pret-nota" role="status">Plata a fost oprită — nu s-a retras nimic. Poți relua oricând.</div>
+          )}
+          {eroare && <div className="pret-nota pret-eroare" role="alert">{eroare}</div>}
+
+          {isPremium && !parinte ? (
             <div className="pricing-card">
               <span className="badge badge-premium" style={{ fontSize: '0.85rem', padding: '6px 20px' }}>
                 {isSubscribed ? '⭐ Premium' : '🛡️ Administrator'}
@@ -117,169 +189,125 @@ export default function Pricing() {
                 </p>
               )}
               {isSubscribed && (
-                <button className="btn btn-outline" style={{ width: '100%' }} onClick={handleManage} disabled={loading}>
+                <button className="btn btn-outline" style={{ width: '100%' }} onClick={() => handleManage()} disabled={loading}>
                   {loading ? 'Se încarcă...' : 'Gestionează abonamentul'}
                 </button>
               )}
             </div>
           ) : (
             <>
+              {/* ── PĂRINTE: pentru cine e abonamentul ───────────────────── */}
+              {parinte && (
+                <div className="pret-copii">
+                  <h2>Pentru cine?</h2>
+                  {copii === null && <p className="pret-mic">Se încarcă…</p>}
+                  {copii && copii.length === 0 && (
+                    <div className="pret-nota">
+                      Întâi asociază-te cu contul copilului: trimite-i linkul tău de asociere sau roagă-l să apese
+                      „Trimite părintelui" pe pagina lui de abonament.
+                      <div style={{ marginTop: 10 }}>
+                        <Link to="/profil?asociere=1" className="btn btn-outline btn-sm">Linkul meu de asociere</Link>
+                      </div>
+                    </div>
+                  )}
+                  {copii && copii.length > 0 && (
+                    <div className="pret-copii-lista" role="radiogroup" aria-label="Copilul">
+                      {copii.map((c) => (c.premium ? (
+                        <div key={c.id} className="pret-copil are">
+                          <span><b>{c.nume}</b><small>⭐ are abonament</small></span>
+                          <button type="button" className="btn btn-outline btn-sm" onClick={() => handleManage(c.id)} disabled={loading}>Gestionează</button>
+                        </div>
+                      ) : (
+                        <button key={c.id} type="button" role="radio" aria-checked={copilAles === c.id}
+                          className={`pret-copil${copilAles === c.id ? ' ales' : ''}`} onClick={() => setCopilAles(c.id)}>
+                          <span className="pret-radio" aria-hidden="true" />
+                          <span><b>{c.nume}</b><small>cont gratuit</small></span>
+                        </button>
+                      )))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* ── Alegerea planului ─────────────────────────────────────── */}
-              <div style={{
-                display: 'grid', gap: 16, maxWidth: 720, margin: '0 auto 28px',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-              }}>
+              <div className="pret-planuri" role="radiogroup" aria-label="Planul">
                 {PLANS.map((p) => {
                   const activ = plan === p.id;
                   return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setPlan(p.id)}
-                      aria-pressed={activ}
-                      style={{
-                        position: 'relative', textAlign: 'left', cursor: 'pointer',
-                        background: 'var(--white)',
-                        border: activ ? '2px solid var(--gold)' : '2px solid var(--border)',
-                        borderRadius: 'var(--radius-lg)',
-                        padding: '26px 24px 22px',
-                        boxShadow: activ ? 'var(--shadow-gold)' : 'var(--shadow-sm)',
-                        transition: 'border-color .18s ease, box-shadow .18s ease',
-                        font: 'inherit', color: 'inherit', width: '100%',
-                      }}
-                    >
-                      {p.economie && (
-                        <span style={{
-                          position: 'absolute', top: -12, right: 18,
-                          background: 'var(--gold)', color: 'var(--navy)',
-                          fontSize: '.72rem', fontWeight: 800, letterSpacing: '.04em',
-                          padding: '4px 12px', borderRadius: 999, textTransform: 'uppercase',
-                        }}>
-                          {p.economie}
-                        </span>
-                      )}
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
-                        <span aria-hidden="true" style={{
-                          width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
-                          border: activ ? '5px solid var(--gold)' : '2px solid var(--border)',
-                          background: 'var(--white)', display: 'inline-block',
-                        }} />
-                        <span style={{ fontWeight: 700, color: 'var(--navy)' }}>{p.eticheta}</span>
-                      </div>
-
-                      <div style={{
-                        fontFamily: 'var(--font-display)', fontSize: '2.3rem',
-                        fontWeight: 800, color: 'var(--navy)', lineHeight: 1.05,
-                      }}>
-                        {p.pret} lei
-                      </div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '.86rem', marginBottom: 10 }}>
-                        {p.perioada}
-                      </div>
-                      <div style={{ fontSize: '.88rem', color: 'var(--text-light)', lineHeight: 1.5 }}>
-                        {p.subtitlu}
-                      </div>
+                    <button key={p.id} type="button" role="radio" aria-checked={activ}
+                      className={`pret-plan${activ ? ' ales' : ''}`} onClick={() => setPlan(p.id)}>
+                      {p.economie && <span className="pret-economie">{p.economie}</span>}
+                      <span className="pret-plan-sus"><span className="pret-radio" aria-hidden="true" />{p.eticheta}</span>
+                      <span className="pret-suma">{p.pret} lei <small>{p.perioada}</small></span>
+                      <span className="pret-plan-sub">{p.subtitlu}</span>
                     </button>
                   );
                 })}
               </div>
 
-              {/* ── Ce include ────────────────────────────────────────────── */}
-              <div className="pricing-card" style={{ maxWidth: 560 }}>
-                <span className="badge badge-premium" style={{ fontSize: '0.85rem', padding: '6px 20px' }}>
-                  ⭐ Ce primești
-                </span>
-
-                <ul className="pricing-features" style={{ marginTop: 22 }}>
-                  <li><span className="pricing-check">✓</span> Toate exercițiile și testele PDF (gratuite + premium)</li>
-                  <li><span className="pricing-check">✓</span> Exerciții interactive cu feedback</li>
-                  <li><span className="pricing-check">✓</span> Meditații live cu Profesorul Virtual: zilnic, câte un subiect în 4 săli (EN, BAC Mate-Info, BAC Științele Naturii, BAC Tehnologic), pe baremul oficial (fără abonament: 20 lei ședința)</li>
-                  <li><span className="pricing-check">✓</span> 8 meditații 1-la-1 pe lună, oricând — live sau Pregătire de examen (apoi 30 lei ședința)</li>
-                  <li><span className="pricing-check">✓</span> Planul meu: test inițial, plan personalizat, teme corectate și simulări</li>
-                  <li><span className="pricing-check">✓</span> Inteligența Artificială - Prof. Virtual ({AI_STACK.clienti.furnizor} {AI_STACK.clienti.modele.join(', ')}): învățare cu AI, generare de teste, exerciții</li>
-                  <li><span className="pricing-check">✓</span> Corectarea rezolvărilor scrise de mână — pe „✍️ Foaia de lucru" sau din poze —, strict după barem ({AI_STACK.clienti.furnizorAnthropic} {AI_STACK.clienti.corector})</li>
-                  <li><span className="pricing-check">✓</span> Manuale online</li>
-                  <li><span className="pricing-check">✓</span> Teste interactive pentru Evaluarea Națională</li>
-                  <li><span className="pricing-check">✓</span> Teste interactive pentru Bacalaureat</li>
-                  <li><span className="pricing-check">✓</span> Materiale noi adăugate regulat</li>
-                  <li><span className="pricing-check">✓</span> Acces complet la toate rezolvările</li>
-                  <li><span className="pricing-check">✓</span> Fără angajamente: te poți dezabona oricând, direct din contul tău</li>
-                </ul>
-
-                <button
-                  className="btn btn-primary btn-lg"
-                  style={{ width: '100%' }}
-                  onClick={handleSubscribe}
-                  disabled={loading}
-                >
-                  {loading
-                    ? 'Se procesează...'
-                    : user
-                      ? `Abonează-te · ${planAles.pret} lei ${planAles.perioada}`
-                      : 'Creează cont și începe'}
+              {/* ── Plata: imediat sub plan ──────────────────────────────── */}
+              <div className="pret-plata">
+                <button className="btn btn-primary btn-lg" onClick={handleSubscribe} disabled={loading || (parinte && !copil)}>
+                  {butonPlata}
                 </button>
+                <p className="pret-mic">Plată cu cardul, prin Stripe. Factura vine pe e-mail. Renunți oricând.</p>
 
-                <p style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.5 }}>
-                  Plata se face securizat prin Stripe, iar factura se emite automat. Te poți
-                  dezabona oricând, direct din contul tău.
-                </p>
+                {/* ELEV: abonamentul îl face de obicei părintele — un link de trimis */}
+                {elev && (
+                  <div className="pret-parinte">
+                    {!invitatie && (
+                      <button type="button" className="btn btn-outline" onClick={trimiteParintelui}>📲 Trimite părintelui</button>
+                    )}
+                    {invitatie && (
+                      <>
+                        <p className="pret-mic" style={{ marginBottom: 8 }}>
+                          {invitatie.trimis ? '✓ Trimis. ' : ''}Părintele deschide linkul, își face cont și îți poate face abonamentul. Linkul e valabil 14 zile.
+                        </p>
+                        <div className="pret-link">
+                          <code>{invitatie.link.replace(/^https?:\/\//, '')}</code>
+                          <button type="button" onClick={() => copiaza(`${invitatie.text} ${invitatie.link}`)}>{copiat ? '✓ Copiat' : 'Copiază'}</button>
+                          <a href={`https://wa.me/?text=${encodeURIComponent(`${invitatie.text} ${invitatie.link}`)}`} target="_blank" rel="noopener noreferrer">WhatsApp</a>
+                        </div>
+                      </>
+                    )}
+                    {!invitatie && <p className="pret-mic">Abonamentul îl poate face și părintele tău, din contul lui.</p>}
+                  </div>
+                )}
               </div>
 
-              {/* ── Reper de preț ─────────────────────────────────────────── */}
-              <p style={{
-                textAlign: 'center', maxWidth: 560, margin: '22px auto 0',
-                fontSize: '.9rem', color: 'var(--text-light)', lineHeight: 1.6,
-              }}>
-                Pentru comparație: o singură oră de meditații costă în 2026 între 70 și 120 de lei.
-                Abonamentul anual înseamnă mai puțin decât o oră pe lună — cu meditator disponibil
-                în fiecare zi.
-              </p>
+              {/* ── Ce primești ───────────────────────────────────────────── */}
+              <div className="pret-ce">
+                <h2>{parinte ? 'Ce primește copilul' : 'Ce primești'}</h2>
+                <ul>
+                  {beneficii.map(([ic, text]) => (
+                    <li key={text}><span aria-hidden="true">{ic}</span>{text}</li>
+                  ))}
+                </ul>
+                <p className="pret-mic">
+                  Rămân gratuite: testele interactive, fișele PDF gratuite, testul zilei și Arena.
+                  {' '}O oră de meditații costă 70–120 de lei; abonamentul pe un an înseamnă {(anual.pret / 12).toFixed(2).replace('.', ',')} lei pe lună.
+                </p>
+              </div>
             </>
           )}
 
-          {/* ── Test inițial gratuit (elev + părinte) ───────────────────── */}
+          {/* ── Întrebări scurte ───────────────────────────────────────── */}
           {!isPremium && (
-            <div style={{
-              marginTop: 40, padding: '26px 24px', background: 'var(--cream)',
-              border: '1px solid var(--cream-dark)', borderRadius: 'var(--radius-lg)',
-              maxWidth: 560, marginInline: 'auto', textAlign: 'center',
-            }}>
-              <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 8, fontSize: '1.1rem' }}>
-                🧭 Vrei să vezi întâi unde stă copilul?
-              </h3>
-              <p style={{ color: 'var(--text-light)', fontSize: '0.92rem', marginBottom: 14, lineHeight: 1.6 }}>
-                <strong>Testul inițial este gratuit</strong> pentru orice elev al cărui cont e asociat
-                cu al unui părinte. Primești nivelul, capitolele cu lacune și planul de învățare —
-                fără abonament și fără card.
-              </p>
-              <Link to="/asociere" className="btn btn-outline">Asociază contul cu un părinte →</Link>
+            <div className="pret-intrebari">
+              <details>
+                <summary>Sunt părinte. Cum îi fac abonament copilului?</summary>
+                <p>Intri cu contul tău de părinte, alegi copilul și plătești. Abonamentul se activează pe contul lui, iar factura vine la tine. Copilul îți poate trimite un link din pagina lui de abonament („Trimite părintelui").</p>
+              </details>
+              <details>
+                <summary>Pot încerca înainte să plătesc?</summary>
+                <p>Da. Testele interactive, testul zilei și Arena sunt gratuite, iar elevul asociat cu un părinte primește gratuit testul inițial, cu nivelul lui și capitolele cu lacune.</p>
+              </details>
+              <details>
+                <summary>Cum renunț?</summary>
+                <p>Oricând, cu „Gestionează abonamentul" — din această pagină sau din „Contul meu". Vezi și <Link to="/politica-retur">politica de retur</Link>.</p>
+              </details>
             </div>
           )}
-
-          {/* Free tier info */}
-          <div style={{
-            textAlign: 'center',
-            marginTop: 40,
-            padding: '32px 24px',
-            background: 'var(--white)',
-            borderRadius: 'var(--radius-lg)',
-            border: '1px solid var(--border)',
-            maxWidth: 540,
-            marginInline: 'auto',
-          }}>
-            <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 8 }}>
-              Conținut gratuit
-            </h3>
-            <p style={{ color: 'var(--text-light)', fontSize: '0.92rem' }}>
-              Majoritatea exercițiilor PDF sunt disponibile gratuit, fără abonament.
-              Creează un cont pentru acces nelimitat.
-            </p>
-            {/* Modelele AI din abonament (src/lib/aiModels.js → AI_STACK) */}
-            <div style={{ marginTop: 14 }}>
-              <AIPoweredBy variant="inline" />
-            </div>
-          </div>
         </div>
       </section>
     </>

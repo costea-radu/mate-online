@@ -346,7 +346,7 @@ COMUN tuturor elevilor. Sistemul îl generează O DATĂ și îl refolosește:
 - **Generarea** rulează pe cronul EXISTENT de ingest (fără cron nou), doar când
   coada de indexare e goală (cunoștințele sunt la zi): câte `AI_PREGEN_BATCH`
   (implicit 3) materiale per rulare, explicație + indiciu fiecare, pe modelul
-  ieftin (`AI_PREGEN_MODEL`, implicit modelul de chat). Costul e de PLATFORMĂ
+  de PDF (`AI_PREGEN_MODEL`, implicit `AI_PDF_CHAT_MODEL`). Costul e de PLATFORMĂ
   (logat cu `user_id null`, endpoint `ai-pregen:*`) — nu intră în bugetul
   niciunui elev. Câte materiale se generează în paralel:
   `AI_PREGEN_CONCURRENCY` (implicit 3).
@@ -362,17 +362,62 @@ COMUN tuturor elevilor. Sistemul îl generează O DATĂ și îl refolosește:
   candidați pe veci și blocau complet pre-generarea (vezi tabelul de la
   „Probleme frecvente"). La ~2.000 de materiale, generarea completă costă câțiva dolari,
   O SINGURĂ DATĂ; materialele editate se regenerează singure (hash pe sursă).
-- **Servirea** (în `ai-chat` + `ai-chat-stream`) e conservatoare — răspunsul
-  pre-generat se dă DOAR când: modul e `explain`/`hint` cu `context.contentId`,
-  e PRIMUL mesaj din conversație, cererea e CANONICĂ („explică-mi", „nu înțeleg",
-  „dă-mi un indiciu" — sub 120 de caractere), iar materialul e gratuit sau elevul
-  e abonat. Orice întrebare specifică merge pe fluxul normal, personalizat.
+- **Schimbarea modelului NU mai regenerează baza (12 nov. 2026).** Până acum,
+  la orice schimbare a modelului (inclusiv a implicitului din cod), cronul ștergea
+  toate explicațiile făcute cu modelul vechi și le genera din nou: ~3.000 de
+  apeluri, ~80 de lei de fiecare dată (în statistici: „🧠 Explicații
+  pre-generate"). Acum explicațiile rămân cât timp materialul nu s-a schimbat;
+  cu modelul nou se generează doar materialele noi sau editate. Dacă vrei
+  totuși refacerea întregii baze cu un model mai bun: pune
+  `AI_PREGEN_PURGE_OLD_MODEL=1` în Vercel, lasă cronul (sau „Pre-generează
+  acum") să ajungă la 0, apoi scoate variabila.
+- **Servirea** (în `ai-chat` + `ai-chat-stream`, `pregen.serveFirst`) e
+  conservatoare — răspunsul pre-generat se dă DOAR când: modul e
+  `explain`/`hint` cu `context.contentId`, e PRIMUL mesaj din conversație,
+  cererea e CANONICĂ („explică-mi", „nu înțeleg", „dă-mi un indiciu" — sub 120
+  de caractere), nu are poză / material încărcat și nu e „Regenerează", iar
+  materialul e gratuit sau elevul e abonat. Orice întrebare specifică merge pe
+  fluxul normal, personalizat.
   Servirile apar în jurnal ca `ai-chat:pregen` / `ai-chat-stream:pregen`, cu
   cost 0 — în `ai_usage_daily` vezi exact câți bani economisește.
+- **Servirea vine ÎNAINTEA limitelor și a RAG-ului (12 nov. 2026).** Înainte,
+  ordinea era: limite → acțiuni gratuite → RAG (embeddings + căutare) → abia
+  apoi verificarea „există răspunsul gata făcut?". Un cont fără abonament își
+  consuma una dintre cele 2 acțiuni de probă pe un răspuns care nu costa nimic,
+  iar după ele nu mai primea nici explicația gata făcută. Acum explicația
+  canonică a unui material GRATUIT se dă oricând (fără model, fără embeddings),
+  nu consumă acțiunile de probă și nici creditele; rămâne doar în limita orară
+  (frână la abuz). Întrebarea următoare e o cerere AI adevărată și trece prin
+  toate limitele. `AI_PREGEN_IN_COTA=1` readuce numărarea de dinainte.
 - **Batch API (−50%)**: am ales intenționat generarea prin cron pe modelul
   ieftin în locul Batch API-ului — la costul unic de câțiva dolari, economia de
   50% nu justifică infrastructura de fișiere JSONL + polling de 24h. Dacă baza
   crește la zeci de mii de materiale, reconsiderăm.
+
+### Conturile fără abonament: acțiunile de probă și întrebările zilei (12 nov. 2026)
+
+Un cont fără abonament are `AI_FREE_ACTIONS` (implicit **2**) acțiuni AI de
+probă, o singură dată: chat, antrenament, foto-rezolvare, dictare, corectare.
+Nu se numără: ghidul site-ului, explicațiile pre-generate (vezi mai sus),
+corectarea grilei de pe PDF și vocea — nu apelează niciun model.
+
+**Opțional — `AI_FREE_CHAT_DAILY`** (implicit **0 = oprit**, adică exact ca până
+acum): câte întrebări gratuite PE ZI are în chat un cont fără abonament, după
+ce și-a terminat acțiunile de probă. Gândit ca elevul venit din reclamă să aibă
+de ce să se întoarcă mâine, nu să se lovească de abonament pentru totdeauna
+după două mesaje.
+
+- doar chatul (`ai-chat`, `ai-chat-stream`); foto-rezolvarea, corectarea,
+  dictarea și antrenamentul rămân la abonament;
+- pe modelul economic (aceeași coborâre ca peste bugetul zilnic soft), cu
+  materialele gratuite din RAG;
+- ziua = de la miezul nopții, ora României; la epuizare: „Ai folosit cele N
+  întrebări gratuite de azi… Revino mâine sau abonează-te";
+- cost: un mesaj de chat ≈ 0,005 lei → cu `AI_FREE_CHAT_DAILY=3`, un cont activ
+  costă cel mult ~0,015 lei pe zi (100 de conturi active zilnic ≈ 1,5 lei/zi,
+  în cel mai rău caz). Alarma `AI_ALERT_DAY_LEI` rămâne plasa de siguranță.
+
+Se pornește din Vercel → Environment Variables (apoi Redeploy); fără SQL.
 
 ### Economiile din „Planul meu" și meditațiile live (fără model, unde se poate)
 

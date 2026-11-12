@@ -13,6 +13,11 @@ Disallow: /asociere
 Disallow: /exercitiu
 Disallow: /exercitiu-ai
 Disallow: /pdf-viewer
+Disallow: /mesagerie
+Disallow: /tema-elev
+Disallow: /tema-grupa
+Disallow: /meditatii/sala
+Disallow: /meditatii/plan
 Disallow: /api/
 
 Sitemap: https://examenmate.com/sitemap.xml

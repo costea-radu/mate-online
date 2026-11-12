@@ -1,7 +1,7 @@
 import { authHeaders } from '../lib/api';
 import { aiClient } from '../lib/aiClient';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { aiAssistantLabel } from '../lib/aiLabel';
 import { supabase } from '../lib/supabase';
@@ -219,7 +219,11 @@ export default function Profile() {
     catch { return false; }
   });
   // Home → secțiunea cerută (?rezultate=1 …): o derulăm sub bara de sus când apare
-  const [sectiune] = useState(sectiuneaDinUrl);
+  const [sectiune, setSectiune] = useState(sectiuneaDinUrl);
+  // bara de jos și meniul pot cere altă secțiune cât pagina e deja deschisă
+  // (/profil → /profil?rezultate=1): urmărim adresa, nu doar prima încărcare
+  const { search: cautare } = useLocation();
+  useEffect(() => { setSectiune(sectiuneaDinUrl()); }, [cautare]);
   useEffect(() => {
     if (!sectiune) return undefined;
     let gata = false;
@@ -238,7 +242,7 @@ export default function Profile() {
     };
     const t = setTimeout(incearca, 250);
     return () => { gata = true; clearTimeout(t); };
-  }, [sectiune]);
+  }, [sectiune, cautare]);
   const onboardingRan = useRef(false);
   const codeEnsured = useRef(false);
   // Citit o singură dată la montare: dacă există un tip de cont în așteptare
@@ -372,7 +376,9 @@ export default function Profile() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('session_id') && user) {
-      setCheckoutSuccess(true);
+      // părintele a plătit pentru copil (?copil=1): abonamentul e pe contul copilului
+      const pentruCopil = params.get('copil') === '1';
+      setCheckoutSuccess(pentruCopil ? 'copil' : true);
 
       // ── Conversia, măsurată o singură dată ──────────────────────────────
       // Reîncărcarea paginii de mulțumire nu trebuie să numere a doua oară
@@ -396,7 +402,7 @@ export default function Profile() {
       // întârzie față de redirect. Reîncărcăm profilul de câteva ori până devine
       // „active" (sau renunțăm după ~14s), ca utilizatorul care tocmai a plătit
       // să NU rămână pe „Cont gratuit".
-      let stop = false;
+      let stop = pentruCopil;   // contul părintelui nu devine Premium: nu avem ce aștepta
       (async () => {
         for (let i = 0; i < 7 && !stop; i++) {
           const p = await fetchProfile(user.id);
@@ -514,7 +520,9 @@ export default function Profile() {
             fontWeight: 500
           }}>
             <span style={{ fontSize: '1.3rem' }}>🎉</span>
-            <span>Abonamentul tău Premium a fost activat! Acum ai acces complet la toate materialele.</span>
+            <span>{checkoutSuccess === 'copil'
+              ? 'Plata a reușit: abonamentul Premium se activează pe contul copilului în câteva secunde. Factura vine pe e-mailul tău.'
+              : 'Abonamentul tău Premium a fost activat! Acum ai acces complet la toate materialele.'}</span>
           </div>
         )}
 

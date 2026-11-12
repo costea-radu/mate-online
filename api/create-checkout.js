@@ -9,6 +9,7 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { admin, handledMethod, authUser } = require('./_lib/http');
 const ai = require('./_lib/ai'); // pachetele top-up (topupPacks, TOPUP_DAYS)
+const AC = require('./_lib/abonamentCopil'); // părintele plătește abonamentul copilului
 
 // URL-ul site-ului: SITE_URL explicit; fallback pe VERCEL_URL (deployment).
 function siteUrl() {
@@ -238,7 +239,23 @@ module.exports = async function handler(req, res) {
     // Bilet la meditațiile live (grup 20 lei / 1-la-1 30 lei) — mode: 'payment'.
     if (req.body?.type === 'live') return await liveCheckout(req, res, supabase, userId, profile);
 
-    if (profile?.subscription_status === 'active') {
+    // Copiii părintelui, cu starea abonamentului (pagina /preturi îi arată ca alegere).
+    if (req.body?.type === 'copii') return res.status(200).json({ copii: await AC.copiiiParintelui(supabase, userId) });
+
+    // PĂRINTELE PLĂTEȘTE PENTRU COPIL (body.pentruElev): abonamentul se activează pe
+    // contul ELEVULUI (webhookul citește metadata.supabase_user_id), factura merge pe
+    // e-mailul părintelui. Doar pentru un copil asociat cu el — api/_lib/abonamentCopil.js.
+    let beneficiar = userId;
+    let platitDe = null;
+    const pentruElev = String(req.body?.pentruElev || '').trim();
+    if (pentruElev) {
+      const copil = await AC.copilulParintelui(supabase, userId, pentruElev);
+      if (AC.areAbonament(copil)) {
+        return res.status(400).json({ error: `${AC.numeDin(copil)} are deja un abonament activ.`, code: 'COPIL_ABONAT' });
+      }
+      beneficiar = copil.id;
+      platitDe = userId;
+    } else if (profile?.subscription_status === 'active') {
       return res.status(400).json({ error: 'Ai deja un abonament activ.' });
     }
     const email = profile?.email || req.body?.email;
@@ -267,16 +284,16 @@ module.exports = async function handler(req, res) {
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer_email: email,
-      metadata: { supabase_user_id: userId, plan: plan.id },
+      metadata: { supabase_user_id: beneficiar, plan: plan.id, ...(platitDe ? { platit_de: platitDe } : {}) },
       subscription_data: {
-        metadata: { supabase_user_id: userId, plan: plan.id },
+        metadata: { supabase_user_id: beneficiar, plan: plan.id, ...(platitDe ? { platit_de: platitDe } : {}) },
       },
       payment_method_collection: 'always',
       line_items: [lineItem],
       // `plan` și `val` ajung în pagina de mulțumire pentru măsurarea
       // conversiei (GA4 + Meta Pixel) — vezi src/pages/Profile.jsx.
-      success_url: `${base}/profil?session_id={CHECKOUT_SESSION_ID}&plan=${plan.id}&val=${plan.lei}`,
-      cancel_url: `${base}/preturi?anulat=1`,
+      success_url: `${base}/profil?session_id={CHECKOUT_SESSION_ID}&plan=${plan.id}&val=${plan.lei}${platitDe ? '&copil=1' : ''}`,
+      cancel_url: `${base}/preturi?anulat=1&plan=${plan.id}`,
     });
 
     return res.status(200).json({ url: session.url });

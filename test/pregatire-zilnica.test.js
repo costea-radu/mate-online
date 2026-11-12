@@ -757,9 +757,10 @@ test('butonul „🎯 Pregătește-mă de examen": primul în „Învățare cu 
   const meniu = await import('../src/lib/meniu.js');
   assert.deepStrictEqual({ ...meniu.PREGATESTE_MA }, { to: '/pregateste-ma', icon: '🎯', label: 'Pregătește-mă de examen' });
   const src = read('src/lib/meniu.js');
-  const iSec = src.indexOf("titlu: 'Învățare cu AI'");
+  const iSec = src.indexOf("titlu: caElev ? 'Învățare cu AI' : 'Asistent AI'");
+  assert.ok(iSec > 0, 'secțiunea „Învățare cu AI" (la profesori și părinți: „Asistent AI")');
   const iItems = src.indexOf('[', iSec);
-  const primul = src.slice(iItems, src.indexOf('\n', src.indexOf('\n', iItems) + 1));
+  const primul = src.slice(iItems, src.indexOf("to: '/meditatii'", iItems));
   assert.match(primul, /\{ tip: 'link', \.\.\.PREGATESTE_MA, accent: true \}/, 'primul link al secțiunii');
   // același meniu alimentează hamburgerul (telefon) și meniul lateral (hover)
   const nav = read('src/components/Navbar.jsx');
@@ -771,7 +772,12 @@ test('butonul „🎯 Pregătește-mă de examen": primul în „Învățare cu 
   // în bara de sus doar la elevi și vizitatori; profesorii și părinții îl au doar în meniu (11 nov. 2026)
   assert.match(nav, /const arataPregatire = !isTeacher && !isParent;/);
   assert.match(nav, /\{arataPregatire && \(\s*\n\s*<li>\s*\n\s*<Link to=\{PREGATESTE_MA\.to\}/);
-  assert.ok(!/isTeacher|isParent|isMentor/.test(src.slice(iSec, src.indexOf('Meditații live', iSec))), 'în meniu rămâne pentru toate conturile');
+  // 11 nov. 2026 (seara): „fiecare cont doar cu butoanele lui" — și în meniul lateral / ☰ doar la
+  // elevi și vizitatori (plus admin, care le verifică pe toate); vezi test/navigare-pe-cont.test.js
+  assert.match(src.slice(iSec, src.indexOf('Meditații live', iSec)), /\.\.\.\(caElev \? \[/);
+  const are = (o) => meniu.sectiuniMeniu(o).flatMap((s) => s.items).some((i) => i.to === '/pregateste-ma');
+  assert.ok(are({}) && are({ user: { id: 'u' } }), 'vizitator și elev');
+  assert.ok(!are({ user: { id: 'u' }, isTeacher: true }) && !are({ user: { id: 'u' }, isParent: true }), 'profesorul și părintele nu-l au');
   const css = read('src/styles/global.css');
   assert.match(css, /\.nav-pregatire/);
   // Prof Virtual (fereastra din colț): înaintea „Meditații live"

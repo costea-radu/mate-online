@@ -1995,43 +1995,57 @@ body.sidebar-deschis .app-shell { padding-left: var(--sidebar-w); }
   .hero-bara-btns .btn { padding: 7px 14px; font-size: .84rem; }
 }
 
-.pz-home { padding: 26px 0 8px; }
+.pz-home { padding: 22px 0 6px; }
 .pz-home-card {
-  display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 26px; align-items: center;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; align-items: center;
   background: linear-gradient(135deg, #fffaf0 0%, #fff 55%, #fdf3d2 100%);
-  border: 2px solid var(--gold); border-radius: 22px; padding: 30px 32px;
-  box-shadow: 0 12px 34px rgba(232,185,49,0.22); text-decoration: none; color: inherit;
-  transition: transform .18s ease, box-shadow .18s ease;
+  border: 2px solid var(--gold); border-radius: 22px; padding: 24px 28px;
+  box-shadow: 0 12px 34px rgba(232,185,49,0.22); color: inherit;
 }
-.pz-home-card:hover { transform: translateY(-2px); box-shadow: 0 16px 40px rgba(232,185,49,0.3); }
-.pz-home-kicker { font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; font-weight: 800; color: var(--gold-dim); }
-.pz-home-card h2 { font-family: var(--font-display); color: var(--navy); font-size: 2.15rem; margin: 6px 0 10px; line-height: 1.15; }
-.pz-home-card p { color: var(--text-light); font-size: 1rem; line-height: 1.65; margin: 0 0 14px; }
-.pz-home-stare { display: flex; gap: 14px; flex-wrap: wrap; font-size: .92rem; color: var(--navy); font-weight: 600; margin-bottom: 14px; }
+/* vizitatorul are în dreapta exercițiul pe care îl rezolvă pe loc (ExercitiuRapid.jsx) */
+.pz-home-card.cu-exercitiu { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
+.pz-home-kicker { font-size: .82rem; font-weight: 800; color: var(--gold-dim); }
+.pz-home-text h2 { font-family: var(--font-display); color: var(--navy); font-size: 1.9rem; margin: 4px 0 8px; line-height: 1.15; }
+.pz-home-text p { color: var(--text-light); font-size: .98rem; line-height: 1.55; margin: 0 0 12px; }
+.pz-home-stare { display: flex; gap: 10px; flex-wrap: wrap; font-size: .9rem; color: var(--navy); font-weight: 600; margin-bottom: 12px; }
 .pz-home-stare span { background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; }
-.pz-home-btn { pointer-events: none; }
-.pz-home-pasi { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.pz-home-pasi li { display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 11px 14px; }
-.pz-home-pasi li > span { font-size: 1.55rem; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: rgba(232,185,49,.16); flex-shrink: 0; }
-.pz-home-pasi b { display: block; color: var(--navy); font-size: .95rem; }
-.pz-home-pasi small { display: block; color: var(--text-muted); font-size: .8rem; }
+.pz-home-pasi { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.pz-home-pasi li { background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 3px 11px; font-size: .78rem; font-weight: 600; color: var(--navy); }
 @media (max-width: 860px) {
-  .pz-home-card { grid-template-columns: 1fr; padding: 22px 18px; gap: 16px; }
-  .pz-home-card h2 { font-size: 1.6rem; }
-  .pz-home-card p { font-size: .94rem; }
-  .pz-home-pasi { grid-template-columns: 1fr 1fr; gap: 8px; }
-  .pz-home-pasi li { padding: 9px 10px; gap: 8px; }
-  .pz-home-pasi li > span { width: 34px; height: 34px; font-size: 1.25rem; }
+  .pz-home-card, .pz-home-card.cu-exercitiu { grid-template-columns: minmax(0, 1fr); padding: 18px 16px; gap: 16px; }
+  .pz-home-text h2 { font-size: 1.5rem; }
 }
 @media (max-width: 520px) {
-  .pz-home { padding-top: 16px; }
-  .pz-home-card h2 { font-size: 1.42rem; }
-  .pz-home-btn { padding: 12px 18px; font-size: 1rem; width: 100%; justify-content: center; text-align: center; }
-  /* pictograma deasupra textului: rândurile rămân scurte și pe telefon */
-  .pz-home-pasi li { flex-direction: column; align-items: flex-start; gap: 6px; }
-  .pz-home-pasi li > span { width: 30px; height: 30px; font-size: 1.1rem; border-radius: 9px; }
-  .pz-home-pasi small { font-size: .76rem; line-height: 1.35; }
+  .pz-home { padding-top: 14px; }
+  .pz-home-text h2 { font-size: 1.35rem; }
+  .pz-home-btn { width: 100%; justify-content: center; text-align: center; }
 }
+
+/* ─── „Încearcă acum": exercițiul din Home, cu răspunsul pe loc (ExercitiuRapid.jsx) ── */
+.exr { background: var(--navy); color: #fff; border-radius: 18px; padding: 18px 18px 16px; min-width: 0; }
+.exr-sus { display: flex; justify-content: space-between; align-items: center; font-size: .82rem; font-weight: 700; color: var(--gold); margin-bottom: 8px; }
+.exr-pas { color: rgba(255,255,255,.6); font-weight: 600; }
+.exr-q { font-family: var(--font-display); font-size: 1.25rem; line-height: 1.3; margin: 0 0 12px; color: #fff; }
+.exr-opt { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.exr-o {
+  background: rgba(255,255,255,.08); border: 1.5px solid rgba(255,255,255,.22); color: #fff; border-radius: 12px;
+  padding: 12px 10px; font: inherit; font-size: 1rem; font-weight: 600; text-align: left; cursor: pointer; min-height: 48px;
+  transition: background .15s, border-color .15s;
+}
+.exr-o b { color: var(--gold); font-weight: 800; margin-right: 4px; }
+.exr-o:hover:not(:disabled) { background: rgba(255,255,255,.16); border-color: var(--gold); }
+.exr-o:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.exr-o:disabled { cursor: default; }
+.exr-o.bun { background: #1e7d46; border-color: #6fe3a0; }
+.exr-o.gresit { background: #a8322b; border-color: #ff9d96; }
+.exr-o.stins { opacity: .5; }
+.exr-verdict { font-weight: 800; margin: 12px 0 2px; font-size: .98rem; }
+.exr-verdict.bun { color: #8ff0b5; }
+.exr-verdict.gresit { color: #ffb3ad; }
+.exr-de { color: rgba(255,255,255,.82); font-size: .9rem; line-height: 1.5; margin: 0 0 12px; }
+.exr-act { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.exr-link { color: rgba(255,255,255,.85); font-size: .86rem; text-decoration: underline; text-underline-offset: 3px; }
+.exr .btn-outline { border-color: rgba(255,255,255,.5); color: #fff; }
 
 /* ─── Home pe tipul de cont (11 nov. 2026 — src/components/AcasaCont.jsx) ─────────
    Elev: insignele, rezultatele, temele, mesageria, părerea ta (sub „Pregătește-mă");
@@ -2084,3 +2098,183 @@ a.acasa-card:focus-visible, .acasa-card-link:focus-visible { outline: 3px solid 
    altfel crem-ul paginii se vedea, estompat, peste butoanele de sus. */
 html.em-ecran-plin,
 html.em-ecran-plin body { background-color: var(--navy); }
+
+/* ─── Home „ca o aplicație" (11 nov. 2026, seara — src/pages/Home.jsx) ─────────
+   Butoane în loc de paragrafe: „Tot ce poți face" (dale), „Materiale" (examene și
+   clase), „Alege contul tău" (vizitator), „Gratuit / Premium", chemarea la cont. */
+.acasa-titlu { font-family: var(--font-display); color: var(--navy); font-size: 1.25rem; margin: 0 0 10px; }
+/* Scheletul paginii, pus de server în #root până pornește aplicația (api/_lib/seoRute.js) */
+.schelet-lista { margin: 0 0 22px; padding-left: 20px; columns: 2 280px; column-gap: 28px; font-size: .95rem; line-height: 1.7; }
+.schelet-lista li { break-inside: avoid; }
+.schelet-leg { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 22px; }
+.acasa-capat { height: 28px; }
+.dale { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+.dala {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 96px; padding: 12px 8px;
+  background: #fff; border: 1px solid var(--border); border-radius: 16px; color: var(--navy); text-align: center;
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.dala:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(15, 43, 68, .1); border-color: var(--gold); }
+.dala:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.dala-ic { font-size: 1.7rem; line-height: 1; height: 32px; display: flex; align-items: center; }
+.dala-txt { font-size: .84rem; font-weight: 700; line-height: 1.2; }
+
+.mat-examene { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+.mat-ex {
+  display: flex; align-items: center; gap: 10px; padding: 14px; border-radius: 14px; min-height: 60px;
+  background: var(--navy); color: #fff; font-weight: 700; font-size: .95rem; line-height: 1.2;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.mat-ex.en { background: var(--gold); color: var(--navy); }
+.mat-ex:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(15, 43, 68, .18); }
+.mat-ex:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.mat-ex.en:focus-visible { outline-color: var(--navy); }
+.mat-ex-ic { font-size: 1.4rem; line-height: 1; }
+.mat-clase { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; }
+.mat-cl {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 62px; line-height: 1.1;
+  background: #fff; border: 1px solid var(--border); border-radius: 14px; color: var(--navy);
+  transition: border-color .15s ease, background .15s ease;
+}
+.mat-cl small { font-size: .68rem; color: var(--text-muted); font-weight: 600; }
+.mat-cl b { font-family: var(--font-display); font-size: 1.35rem; }
+.mat-cl:hover { border-color: var(--gold); background: #fffaf0; }
+.mat-cl:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.mat-alte { display: flex; gap: 8px 18px; flex-wrap: wrap; margin-top: 12px; font-size: .88rem; }
+.mat-alte a { color: var(--navy); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+
+.cine-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.cine { background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.cine h3 { font-family: var(--font-display); color: var(--navy); font-size: 1.15rem; margin: 0; }
+.cine ul, .plan ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.cine ul { flex: 1; align-content: start; }
+.cine li, .plan li { position: relative; padding-left: 20px; font-size: .9rem; line-height: 1.4; }
+.cine li::before, .plan li::before { content: '✓'; position: absolute; left: 0; font-weight: 800; color: var(--success, #27ae60); }
+.cine .btn { align-self: flex-start; }
+
+.plan-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 12px; }
+.plan { border-radius: 16px; padding: 16px 18px; }
+.plan h3 { font-family: var(--font-display); font-size: 1.15rem; margin: 0 0 8px; }
+.plan h3 span { font-family: var(--font-body); font-size: .82rem; font-weight: 600; margin-left: 6px; opacity: .85; }
+.plan-gratuit { background: #fff; border: 1px solid var(--border); color: var(--text); }
+.plan-gratuit h3 { color: var(--navy); }
+.plan-premium { background: var(--navy); color: #fff; }
+.plan-premium h3 { color: var(--gold); }
+.plan-premium li::before { color: var(--gold); }
+.plan-premium ul { margin-bottom: 14px; }
+
+.acasa-cta { background: linear-gradient(135deg, var(--navy), var(--navy-light)); text-align: center; padding: 36px 0; margin-top: 26px; }
+.acasa-cta h2 { font-family: var(--font-display); color: #fff; font-size: 1.5rem; margin: 0 0 16px; }
+.acasa-cta-btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.acasa-cta-sec { color: #fff !important; border: 2px solid rgba(255,255,255,.3) !important; }
+
+@media (max-width: 768px) {
+  .mat-examene { grid-template-columns: 1fr 1fr; }
+  .mat-clase { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .cine-grid, .plan-grid { grid-template-columns: minmax(0, 1fr); }
+  .acasa-cta { padding: 28px 0; }
+  .acasa-cta h2 { font-size: 1.25rem; }
+}
+@media (max-width: 520px) {
+  .dale { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .dale[data-n="4"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dala { min-height: 88px; padding: 10px 4px; }
+  .dala-txt { font-size: .78rem; }
+  .mat-ex { padding: 12px 10px; font-size: .88rem; }
+}
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+/* ─── Bara de jos de pe telefon, ca într-o aplicație (src/components/BaraJos.jsx) ──
+   Cel mult 5 intrări, pe tipul de cont (src/lib/meniu.js → baraJos). Doar sub 769 px;
+   pe calculator rămân bara de sus și meniul lateral. Conținutul paginii lasă loc
+   pentru ea (--bara-jos-h), la fel fereastra Profesorului Virtual și bannerele. */
+.bara-jos { display: none; }
+@media (max-width: 768px) {
+  body.cu-bara-jos { --bara-jos-h: calc(58px + env(safe-area-inset-bottom, 0px)); }
+  body.cu-bara-jos .app-shell { padding-bottom: var(--bara-jos-h); }
+  .bara-jos {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 950;
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+    min-height: 58px; padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--navy); border-top: 1px solid rgba(255,255,255,.12);
+    box-shadow: 0 -4px 18px rgba(9, 30, 48, .22);
+  }
+  .bj-item {
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    min-height: 58px; padding: 6px 2px; color: rgba(255,255,255,.74); font-size: .68rem; font-weight: 600;
+    text-align: center; line-height: 1.15; -webkit-tap-highlight-color: transparent;
+  }
+  .bj-item.activ { color: var(--gold); }
+  .bj-item.activ::before { content: ''; position: absolute; top: 0; left: 24%; right: 24%; height: 3px; border-radius: 0 0 3px 3px; background: var(--gold); }
+  .bj-item:focus-visible { outline: 3px solid var(--gold); outline-offset: -3px; }
+  .bj-ic { position: relative; font-size: 1.3rem; line-height: 1; }
+  .bj-badge { position: absolute; top: -6px; right: -12px; background: #e74c3c; color: #fff; border-radius: 10px; font-size: .6rem; font-weight: 800; padding: 1px 5px; min-width: 16px; line-height: 1.4; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dala, .mat-ex, .mat-cl, .exr-o { transition: none; }
+  .dala:hover, .mat-ex:hover { transform: none; }
+}
+
+/* ─── „▶ Începe un test", pe paginile de examen (src/components/StartRapid.jsx) ── */
+.start-rapid { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; margin: 0 0 16px; padding: 14px 16px; background: #fffaf0; border: 2px solid var(--gold); border-radius: 16px; }
+.start-rapid-txt { color: var(--text-light); font-size: .9rem; flex: 1 1 160px; }
+@media (max-width: 520px) {
+  .start-rapid { padding: 12px; }
+  .start-rapid .btn { width: 100%; justify-content: center; text-align: center; }
+  .start-rapid-txt { flex-basis: 100%; text-align: center; order: 3; }
+}
+/* bara albastră din Home, cu cont: salutul și „⭐ Abonamentul" pe un rând și pe telefon */
+@media (max-width: 768px) {
+  .hero-bara-in.cu-cont { flex-direction: row; align-items: center; justify-content: space-between; }
+}
+
+/* ─── /preturi, pe scurt (11 nov. 2026, seara — src/pages/Pricing.jsx) ─────────
+   Planul și butonul de plată primele; părintele alege copilul; cinci rânduri la
+   „Ce primești". */
+.pret-in { max-width: 640px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+.pret h2 { font-family: var(--font-display); color: var(--navy); font-size: 1.15rem; margin: 0 0 10px; }
+.pret-mic { font-size: .84rem; color: var(--text-light); line-height: 1.5; margin: 0; }
+.pret-nota { background: #fff8e1; border: 1px solid #f0d98a; color: #6b5200; border-radius: 12px; padding: 12px 14px; font-size: .9rem; line-height: 1.5; }
+.pret-nota.pret-eroare { background: #fce4ec; border-color: #f3b3c4; color: var(--danger); }
+.pret-radio { width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; border: 2px solid var(--border); background: #fff; display: inline-block; }
+.ales > .pret-radio, .ales .pret-plan-sus .pret-radio { border: 5px solid var(--gold); }
+.pret-planuri { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pret-plan {
+  position: relative; display: flex; flex-direction: column; gap: 4px; text-align: left; cursor: pointer;
+  background: #fff; border: 2px solid var(--border); border-radius: 16px; padding: 18px 16px 14px;
+  font: inherit; color: inherit; transition: border-color .15s ease, box-shadow .15s ease;
+}
+.pret-plan.ales { border-color: var(--gold); box-shadow: var(--shadow-gold, 0 6px 20px rgba(232,185,49,.25)); }
+.pret-plan:focus-visible, .pret-copil:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.pret-plan-sus { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--navy); }
+.pret-suma { font-family: var(--font-display); font-size: 1.9rem; font-weight: 800; color: var(--navy); line-height: 1.1; }
+.pret-suma small { font-family: var(--font-body); font-size: .82rem; font-weight: 500; color: var(--text-muted); }
+.pret-plan-sub { font-size: .82rem; color: var(--text-light); line-height: 1.4; }
+.pret-economie { position: absolute; top: -11px; right: 12px; background: var(--gold); color: var(--navy); font-size: .72rem; font-weight: 800; padding: 3px 10px; border-radius: 999px; }
+.pret-plata { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; text-align: center; }
+.pret-plata .btn-lg { width: 100%; justify-content: center; }
+.pret-parinte { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.pret-parinte > .btn { justify-self: center; }
+.pret-link { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; width: 100%; }
+.pret-link code { flex: 1 1 200px; min-width: 0; font-size: .74rem; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pret-link button, .pret-link a { border: 1.5px solid var(--navy); background: #fff; color: var(--navy); border-radius: 8px; padding: 5px 12px; font-size: .82rem; font-weight: 700; cursor: pointer; }
+.pret-copii-lista { display: grid; gap: 8px; }
+.pret-copil { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: #fff; border: 2px solid var(--border); border-radius: 12px; padding: 10px 14px; font: inherit; color: var(--navy); cursor: pointer; }
+.pret-copil.ales { border-color: var(--gold); }
+.pret-copil.are { cursor: default; justify-content: space-between; }
+.pret-copil b { display: block; }
+.pret-copil small { display: block; font-size: .78rem; color: var(--text-muted); }
+.pret-ce { background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 18px; }
+.pret-ce ul { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 10px; }
+.pret-ce li { display: flex; gap: 10px; align-items: flex-start; font-size: .95rem; line-height: 1.4; color: var(--text); }
+.pret-ce li span { flex-shrink: 0; width: 24px; text-align: center; }
+.pret-intrebari { display: grid; gap: 8px; }
+.pret-intrebari details { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.pret-intrebari summary { cursor: pointer; font-weight: 700; color: var(--navy); font-size: .93rem; }
+.pret-intrebari p { margin: 8px 0 0; font-size: .9rem; line-height: 1.55; color: var(--text-light); }
+.pret-intrebari a { color: var(--navy); font-weight: 700; text-decoration: underline; }
+@media (max-width: 520px) {
+  .pret-planuri { grid-template-columns: 1fr; }
+  .pret-suma { font-size: 1.6rem; }
+}

@@ -12,6 +12,8 @@
 //     (+ profesorii dau note, plusuri, minusuri, aprecieri — în „Rezultate elevi").
 // Fiecare card duce direct la secțiunea lui din „Contul meu" (?rezultate=1 …),
 // la mesagerie sau la generator.
+// Salutul („Bună, Andrei!") stă în bara albastră din Home; restul funcțiilor contului —
+// în „Tot ce poți face" (Home.jsx → Scurtaturi, din src/lib/meniu.js).
 // Fără „Părerea ta despre ExamenMate" (scos în aceeași zi, la cererea lui Radu):
 // recenzia se lasă din „Lasă o recenzie", la sfârșitul paginii (Testimonials),
 // și din „Contul meu" (cardul „⭐ Părerea ta despre ExamenMate").
@@ -36,8 +38,6 @@ function dinMemorie(cheie, fn, ttl = 60000) {
   memorie.set(cheie, { p, la: Date.now() });
   return p;
 }
-
-const prenumeDin = (profile, user) => String(profile?.full_name || user?.user_metadata?.name || user?.user_metadata?.full_name || '').trim().split(/\s+/)[0] || '';
 
 function copiaza(text, gata) {
   const ok = () => gata && gata();
@@ -105,18 +105,9 @@ function MesageriaCard({ to = '/mesagerie', titlu = 'Mesageria', sub = 'discuți
   );
 }
 
-function Antet({ titlu, sub }) {
-  return (
-    <div className="acasa-head">
-      <h2>{titlu}</h2>
-      {sub && <p>{sub}</p>}
-    </div>
-  );
-}
-
 // ─── ELEV ────────────────────────────────────────────────────────────────────
 export function AcasaElev() {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const [insigne, setInsigne] = useState(null);
   const [arena, setArena] = useState(null);
   const [rez, setRez] = useState(null);       // { n, media }
@@ -140,14 +131,12 @@ export function AcasaElev() {
     return () => { viu = false; };
   }, [user?.id]);
 
-  const prenume = prenumeDin(profile, user);
   const cat = rezumatCatalog(catalog || []);
   const ultimaNota = cat.note[0] || null;    // cele mai noi primele (my_marks)
   const nivel = arena?.nivel;
   return (
     <section className="acasa" aria-label="Contul tău">
       <div className="container">
-        <Antet titlu={prenume ? `Bună, ${prenume}! 👋` : 'Contul tău'} sub="Tot ce ai de făcut, dintr-o privire." />
         <div className="acasa-grid">
           <Card to="/profil?insigne=1" icon="🏅" titlu="Insignele mele" sub="progresul meu">
             {insigne && insigne.length > 0 && (
@@ -186,12 +175,10 @@ export function AcasaElev() {
 
 // ─── PĂRINTE ─────────────────────────────────────────────────────────────────
 export function AcasaParinte() {
-  const { user, profile } = useAuth();
-  const prenume = prenumeDin(profile, user);
+  const { profile } = useAuth();
   return (
     <section className="acasa" aria-label="Contul tău">
       <div className="container">
-        <Antet titlu={prenume ? `Bună, ${prenume}! 👋` : 'Contul tău'} sub="Cum merge copilul tău la matematică — dintr-o privire." />
         <div className="acasa-grid">
           <Card to="/profil?rezultate=1" icon="📊" titlu="Rezultate elev" sub="testele, notele, temele și ce i-au dat profesorii" accent="var(--navy)" />
           <InvitaCard to="/profil?asociere=1" titlu="Asociază-te cu copilul tău" sub="trimite-i linkul: după ce îl deschide, îi vezi rezultatele" cod={profile?.teacher_code} />
@@ -204,15 +191,12 @@ export function AcasaParinte() {
 
 // ─── PROFESOR ────────────────────────────────────────────────────────────────
 export function AcasaProfesor() {
-  const { user, profile } = useAuth();
-  const prenume = prenumeDin(profile, user);
+  const { profile } = useAuth();
   return (
     <section className="acasa" aria-label="Contul tău">
       <div className="container">
-        <Antet titlu={prenume ? `Bună ziua, ${prenume}! 👋` : 'Contul tău'} sub="Testele, elevii și catalogul tău, dintr-o privire." />
         <div className="acasa-grid">
-          <Card to="/profesor-virtual?tab=interactive" icon="🧩" titlu="Generează teste" sub="interactive sau PDF, după modelele oficiale" accent="#7c5cbf"
-            extra={<span className="acasa-mic acasa-linkuri"><Link to="/profesor-virtual?tab=exam">📄 Subiect de examen</Link><Link to="/profesor-virtual?tab=interactive&mod=elevi">👥 Teste diferite / elev</Link></span>} />
+          <Card to="/profesor-virtual?tab=interactive" icon="🧩" titlu="Generează teste" sub="interactive sau PDF, după modelele oficiale" accent="#7c5cbf" />
           <Card to="/profil?rezultate=1" icon="📊" titlu="Rezultate elevi" sub="grupe, medii și catalogul: note, plusuri, minusuri, aprecieri" accent="var(--navy)" />
           <InvitaCard to="/profil?invita=1" titlu="Invită elevi" sub="un link: elevii se asociază cu un clic" cod={profile?.teacher_code} />
           <MesageriaCard to="/profil?mesagerie=1" titlu="Mesageria grupei" sub="tu, elevii grupei și părinții lor" />

@@ -15,11 +15,17 @@ const PAGINI = {
   '/biblioteca-utilizatorilor': 'Biblioteca utilizatorilor', '/recenzii': 'Recenzii', '/mesagerie': 'Mesagerie',
   '/autentificare': 'Autentificare', '/inregistrare': 'Înregistrare', '/contact': 'Contact', '/faq': 'Întrebări frecvente',
   '/despre-noi': 'Despre noi', '/tema': 'Temă (de la profesor)', '/tema-grupa': 'Test pe grupă', '/tema-elev': 'Temele elevului',
+  '/pregateste-ma': 'Pregătește-mă de examen (testul zilei)', '/asociere': 'Asociere (invitație profesor / părinte)',
+  '/admin': 'Administrare', '/resetare-parola': 'Resetarea parolei', '/stergere-cont': 'Ștergerea contului',
+  '/meditatii/demo': 'Meditații live · demo', '/meditatii/demo-1la1': 'Meditații 1-la-1 · demo',
+  '/termeni-conditii': 'Termeni și condiții', '/politica-confidentialitate': 'Politica de confidențialitate',
+  '/politica-cookies': 'Politica de cookies', '/politica-retur': 'Politica de retur',
 };
 export function numePagina(p) {
   const s = String(p || '');
   if (PAGINI[s]) return PAGINI[s];
-  let m = /^\/clase\/clasa-(\d+)$/.exec(s);
+  // ruta reală e /clase/5 … /clase/12 (forma veche „/clase/clasa-5" rămâne recunoscută)
+  let m = /^\/clase\/(?:clasa-)?(\d+)$/.exec(s);
   if (m) return `Clasa ${CLASE[m[1]] || m[1]}`;
   m = /^\/bacalaureat\/(.+)$/.exec(s);
   if (m) return `Bacalaureat · ${m[1]}`;
@@ -41,6 +47,15 @@ export function numeFunctieAI(f) {
   if (s === 'ai-transcribe') return '🎤 Dictare';
   if (s === 'ai-assignment') return '📤 Teme trimise elevilor';
   if (s === 'ai-public') return '🏛️ Biblioteca utilizatorilor';
+  // costuri „de fond" (nu le declanșează direct un elev) — numite separat, ca să se
+  // vadă pe ce se duc banii: pre-generarea se plătește o dată per material, scrierea
+  // unei lecții live o dată per subiect (apoi lecția se refolosește)
+  if (s === 'ai-pregen') return '🧠 Explicații pre-generate (o dată per material)';
+  if (s === 'live-lectie') return '🔴 Meditații live · scrierea lecțiilor';
+  if (s === 'live-pasi') return '🔴 Meditații live · întrebările pe pași';
+  if (s === 'live-chat') return '🔴 Meditații live · întrebări în sală';
+  if (s === 'pregatire-chat') return '🎯 Pregătirea de examen · întrebări';
+  if (s === 'fise') return '📄 Transcrierea fișelor';
   if (s.startsWith('voce')) return '🔊 Vocea profesorului (lecții live)';
   if (s.startsWith('live')) return '🔴 Meditații live';
   if (/agent|seo|debug|content-check/.test(s)) return `🛠 Unelte de admin (${s})`;

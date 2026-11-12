@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Discussions from '../components/Discussions';
 import { Link, useLocation } from 'react-router-dom';
+import StartRapid from '../components/StartRapid';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { ContentCard, scrollToCard } from '../components/ContentPage';
@@ -47,6 +48,7 @@ export default function EvaluareNationala() {
 
       <div className="content-list">
         <div className="container">
+          <StartRapid category="evaluare-nationala" toate="/evaluare-nationala?tab=interactive" />
           <div className="tabs">
             <button
               className={`tab ${mainTab === 'pdf' ? 'active' : ''}`}

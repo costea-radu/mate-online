@@ -18,6 +18,11 @@ const STATIC_ROUTES = [
   ['/', 'daily', '1.0'],
   ['/evaluare-nationala', 'weekly', '0.9'],
   ['/bacalaureat', 'weekly', '0.9'],
+  // paginile pe profil au conținut propriu (12 nov. 2026 — lipseau din sitemap)
+  ['/bacalaureat/mate-info', 'weekly', '0.8'],
+  ['/bacalaureat/stiinte-naturii', 'weekly', '0.8'],
+  ['/bacalaureat/tehnologic', 'weekly', '0.8'],
+  ['/pregateste-ma', 'weekly', '0.8'],
   ['/rezolvari', 'daily', '0.9'],
   ['/manuale', 'weekly', '0.7'],
   ['/discutii', 'daily', '0.6'],

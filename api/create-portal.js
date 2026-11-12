@@ -1,6 +1,7 @@
 // api/create-portal.js — sesiune Stripe Billing Portal (gestionare abonament)
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { admin, handledMethod, authUser } = require('./_lib/http');
+const AC = require('./_lib/abonamentCopil');
 
 function siteUrl() {
   return process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL
@@ -12,6 +13,14 @@ module.exports = async function handler(req, res) {
   const supabase = admin();
   try {
     const userId = await authUser(req, supabase);
+
+    // Părintele gestionează abonamentul plătit de el pentru copil (api/_lib/abonamentCopil.js)
+    const pentruElev = String(req.body?.pentruElev || '').trim();
+    if (pentruElev) {
+      const customer = await AC.clientulPlatitDeParinte(supabase, stripe, userId, pentruElev);
+      const s = await stripe.billingPortal.sessions.create({ customer, return_url: `${siteUrl()}/preturi` });
+      return res.status(200).json({ url: s.url });
+    }
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles').select('stripe_customer_id').eq('id', userId).single();

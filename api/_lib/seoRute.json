@@ -1,0 +1,396 @@
+{
+ "/": {
+  "nume": "Acasă",
+  "title": "ExamenMate – Matematică pentru Evaluarea Națională și BAC",
+  "description": "Teste interactive gratuite, subiecte rezolvate pas cu pas și Profesor Virtual pentru matematică, clasele 5–12. Pregătire pentru Evaluarea Națională și Bacalaureat.",
+  "h1": "Matematică pentru Evaluarea Națională și BAC",
+  "intro": "Teste interactive corectate pe loc, subiecte de examen cu barem și rezolvări pas cu pas, plus un Profesor Virtual care îți explică orice exercițiu. Pentru clasele 5–12.",
+  "legaturi": [
+   "/evaluare-nationala",
+   "/bacalaureat",
+   "/pregateste-ma",
+   "/profesor-virtual",
+   "/meditatii",
+   "/rezolvari",
+   "/preturi"
+  ]
+ },
+ "/evaluare-nationala": {
+  "nume": "Evaluare Națională",
+  "title": "Evaluare Națională matematică: teste și subiecte rezolvate",
+  "description": "Variante date, modele și simulări pentru Evaluarea Națională la matematică, cu barem și rezolvări, exerciții pe capitole și teste interactive corectate pe loc.",
+  "h1": "Evaluarea Națională la matematică",
+  "intro": "Variante date în anii trecuți, modele, simulări și exerciții pe capitole și pe subiecte, pentru clasa a VIII-a. Testele interactive se corectează pe loc; subiectele PDF au barem.",
+  "legaturi": [
+   "/pregateste-ma",
+   "/clase/8",
+   "/meditatii",
+   "/rezolvari"
+  ]
+ },
+ "/bacalaureat": {
+  "nume": "Bacalaureat",
+  "title": "Bacalaureat matematică: subiecte, bareme și teste",
+  "description": "Subiecte de BAC la matematică pentru mate-info, științele naturii și tehnologic: variante, simulări, bareme și teste interactive cu rezolvări pas cu pas.",
+  "h1": "Bacalaureat la matematică",
+  "intro": "Variante, simulări și teste de antrenament pentru proba de matematică, pe profiluri: mate-info, științele naturii și tehnologic. Cu bareme și rezolvări.",
+  "legaturi": [
+   "/bacalaureat/mate-info",
+   "/bacalaureat/stiinte-naturii",
+   "/bacalaureat/tehnologic",
+   "/pregateste-ma",
+   "/meditatii"
+  ]
+ },
+ "/bacalaureat/mate-info": {
+  "nume": "Bacalaureat Mate-Info",
+  "title": "BAC matematică mate-info: subiecte, bareme și rezolvări",
+  "description": "Subiecte de Bacalaureat la matematică, profilul mate-info: variante date, simulări, teste de antrenament și bareme, plus teste interactive.",
+  "h1": "Bacalaureat la matematică, profilul mate-info",
+  "intro": "Variante date, simulări, teste de antrenament și bareme pentru proba de matematică de la profilul mate-info.",
+  "parinte": "/bacalaureat",
+  "legaturi": [
+   "/bacalaureat",
+   "/pregateste-ma",
+   "/meditatii"
+  ]
+ },
+ "/bacalaureat/stiinte-naturii": {
+  "nume": "Bacalaureat Științele Naturii",
+  "title": "BAC matematică științele naturii: subiecte, bareme și rezolvări",
+  "description": "Subiecte de Bacalaureat la matematică, profilul științele naturii: variante date, simulări, teste de antrenament și bareme, plus teste interactive.",
+  "h1": "Bacalaureat la matematică, profilul științele naturii",
+  "intro": "Variante date, simulări, teste de antrenament și bareme pentru proba de matematică de la profilul științele naturii.",
+  "parinte": "/bacalaureat",
+  "legaturi": [
+   "/bacalaureat",
+   "/pregateste-ma",
+   "/meditatii"
+  ]
+ },
+ "/bacalaureat/tehnologic": {
+  "nume": "Bacalaureat Tehnologic",
+  "title": "BAC matematică tehnologic: subiecte, bareme și rezolvări",
+  "description": "Subiecte de Bacalaureat la matematică, profilul tehnologic: variante date, simulări, teste de antrenament și bareme, plus teste interactive.",
+  "h1": "Bacalaureat la matematică, profilul tehnologic",
+  "intro": "Variante date, simulări, teste de antrenament și bareme pentru proba de matematică de la profilul tehnologic.",
+  "parinte": "/bacalaureat",
+  "legaturi": [
+   "/bacalaureat",
+   "/pregateste-ma",
+   "/meditatii"
+  ]
+ },
+ "/clase/5": {
+  "nume": "Clasa a V-a",
+  "title": "Matematică clasa a V-a: exerciții, teste și fișe",
+  "description": "Exerciții interactive, teste și fișe PDF de matematică pentru clasa a V-a, pe capitole, cu rezolvări și explicații pas cu pas.",
+  "h1": "Matematică pentru clasa a V-a",
+  "intro": "Exerciții interactive corectate pe loc, teste și fișe de lucru pentru clasa a V-a, grupate pe capitole.",
+  "legaturi": [
+   "/profesor-virtual",
+   "/rezolvari"
+  ]
+ },
+ "/clase/6": {
+  "nume": "Clasa a VI-a",
+  "title": "Matematică clasa a VI-a: exerciții, teste și fișe",
+  "description": "Exerciții interactive, teste și fișe PDF de matematică pentru clasa a VI-a, pe capitole, cu rezolvări și explicații pas cu pas.",
+  "h1": "Matematică pentru clasa a VI-a",
+  "intro": "Exerciții interactive corectate pe loc, teste și fișe de lucru pentru clasa a VI-a, grupate pe capitole.",
+  "legaturi": [
+   "/profesor-virtual",
+   "/rezolvari"
+  ]
+ },
+ "/clase/7": {
+  "nume": "Clasa a VII-a",
+  "title": "Matematică clasa a VII-a: exerciții, teste și fișe",
+  "description": "Exerciții interactive, teste și fișe PDF de matematică pentru clasa a VII-a, pe capitole, cu rezolvări și explicații pas cu pas.",
+  "h1": "Matematică pentru clasa a VII-a",
+  "intro": "Exerciții interactive corectate pe loc, teste și fișe de lucru pentru clasa a VII-a, grupate pe capitole.",
+  "legaturi": [
+   "/profesor-virtual",
+   "/rezolvari"
+  ]
+ },
+ "/clase/8": {
+  "nume": "Clasa a VIII-a",
+  "title": "Matematică clasa a VIII-a: exerciții, teste și fișe",
+  "description": "Exerciții interactive, teste și fișe PDF de matematică pentru clasa a VIII-a, pe capitole, cu rezolvări și explicații pas cu pas.",
+  "h1": "Matematică pentru clasa a VIII-a",
+  "intro": "Exerciții interactive corectate pe loc, teste și fișe de lucru pentru clasa a VIII-a, grupate pe capitole.",
+  "legaturi": [
+   "/evaluare-nationala",
+   "/profesor-virtual",
+   "/rezolvari"
+  ]
+ },
+ "/clase/9": {
+  "nume": "Clasa a IX-a",
+  "title": "Matematică clasa a IX-a: exerciții, teste și fișe",
+  "description": "Exerciții interactive, teste și fișe PDF de matematică pentru clasa a IX-a, pe capitole, cu rezolvări și explicații pas cu pas.",
+  "h1": "Matematică pentru clasa a IX-a",
+  "intro": "Exerciții interactive corectate pe loc, teste și fișe de lucru pentru clasa a IX-a, grupate pe capitole.",
+  "legaturi": [
+   "/profesor-virtual",
+   "/rezolvari"
+  ]
+ },
+ "/clase/10": {
+  "nume": "Clasa a X-a",
+  "title": "Matematică clasa a X-a: exerciții, teste și fișe",
+  "description": "Exerciții interactive, teste și fișe PDF de matematică pentru clasa a X-a, pe capitole, cu rezolvări și explicații pas cu pas.",
+  "h1": "Matematică pentru clasa a X-a",
+  "intro": "Exerciții interactive corectate pe loc, teste și fișe de lucru pentru clasa a X-a, grupate pe capitole.",
+  "legaturi": [
+   "/profesor-virtual",
+   "/rezolvari"
+  ]
+ },
+ "/clase/11": {
+  "nume": "Clasa a XI-a",
+  "title": "Matematică clasa a XI-a: exerciții, teste și fișe",
+  "description": "Exerciții interactive, teste și fișe PDF de matematică pentru clasa a XI-a, pe capitole, cu rezolvări și explicații pas cu pas.",
+  "h1": "Matematică pentru clasa a XI-a",
+  "intro": "Exerciții interactive corectate pe loc, teste și fișe de lucru pentru clasa a XI-a, grupate pe capitole.",
+  "legaturi": [
+   "/bacalaureat",
+   "/profesor-virtual",
+   "/rezolvari"
+  ]
+ },
+ "/clase/12": {
+  "nume": "Clasa a XII-a",
+  "title": "Matematică clasa a XII-a: exerciții, teste și fișe",
+  "description": "Exerciții interactive, teste și fișe PDF de matematică pentru clasa a XII-a, pe capitole, cu rezolvări și explicații pas cu pas.",
+  "h1": "Matematică pentru clasa a XII-a",
+  "intro": "Exerciții interactive corectate pe loc, teste și fișe de lucru pentru clasa a XII-a, grupate pe capitole.",
+  "legaturi": [
+   "/bacalaureat",
+   "/profesor-virtual",
+   "/rezolvari"
+  ]
+ },
+ "/pregateste-ma": {
+  "nume": "Pregătește-mă de examen",
+  "title": "Pregătește-mă de examen: un test de matematică pe zi",
+  "description": "Un test scurt de matematică în fiecare zi, pentru Evaluarea Națională sau BAC, cu serie de zile, puncte și ligă săptămânală. Începi gratuit.",
+  "h1": "Un test pe zi până la examen",
+  "intro": "Îți alegi examenul (Evaluarea Națională sau BAC) și primești în fiecare zi un test. Fiecare zi lucrată îți aduce puncte, o serie de zile la rând și un loc mai bun în liga săptămânii.",
+  "legaturi": [
+   "/inregistrare",
+   "/evaluare-nationala",
+   "/bacalaureat"
+  ]
+ },
+ "/rezolvari": {
+  "nume": "Blog / Rezolvări / Teorie",
+  "title": "Rezolvări și teorie la matematică, explicate pas cu pas",
+  "description": "Articole, rezolvări scrise și explicații de teorie pentru matematica de gimnaziu și liceu, pentru Evaluarea Națională și Bacalaureat.",
+  "h1": "Rezolvări, explicații și teorie",
+  "intro": "Rezolvări scrise pas cu pas, explicații de teorie și articole pentru matematica din clasele 5–12."
+ },
+ "/manuale": {
+  "nume": "Auxiliare",
+  "title": "Auxiliare de matematică pentru clasele 5–12",
+  "description": "Auxiliare digitale de matematică pentru gimnaziu și liceu, pe clase, de folosit alături de testele și exercițiile de pe ExamenMate.",
+  "h1": "Auxiliare de matematică",
+  "intro": "Auxiliare digitale de matematică pentru gimnaziu și liceu, pe clase."
+ },
+ "/discutii": {
+  "nume": "Forum",
+  "title": "Forum de matematică: întrebări și răspunsuri",
+  "description": "Întreabă și răspunde la probleme de matematică pentru clasele 5–12, Evaluarea Națională și Bacalaureat, alături de alți elevi și profesori.",
+  "h1": "Forum de matematică",
+  "intro": "Întrebări și răspunsuri la matematică, de la elevi și profesori."
+ },
+ "/profesor-virtual": {
+  "nume": "Profesor Virtual",
+  "title": "Profesor Virtual de matematică: explicații pas cu pas",
+  "description": "Întreabă Profesorul Virtual orice exercițiu de matematică: explică pas cu pas, dă indicii, corectează rezolvarea din poză și generează teste și fișe.",
+  "h1": "Profesorul Virtual de matematică",
+  "intro": "Explică pas cu pas orice exercițiu, dă un indiciu când te blochezi, corectează rezolvarea scrisă de mână și generează teste pe capitolul ales."
+ },
+ "/meditatii": {
+  "nume": "Meditații live",
+  "title": "Meditații live la matematică pentru Evaluarea Națională și BAC",
+  "description": "Meditații live la matematică pe subiecte de examen, cu explicații la tablă și întrebări pe parcurs, plus ședințe 1-la-1. Evaluare Națională și Bacalaureat.",
+  "h1": "Meditații live la matematică",
+  "intro": "Lecții live pe subiecte de Evaluare Națională și Bacalaureat, cu explicații la tablă și întrebări pe parcurs, și ședințe 1-la-1 în ritmul tău."
+ },
+ "/tema": {
+  "nume": "Temă de la profesor",
+  "title": "Tema de la profesor: rezolvă testul primit",
+  "description": "Deschide tema sau testul trimis de profesorul tău și rezolvă-l online. Rezultatul ajunge automat la profesor.",
+  "h1": "Tema de la profesor",
+  "intro": "Deschide tema sau testul primit de la profesor și rezolvă-l online."
+ },
+ "/biblioteca-utilizatorilor": {
+  "nume": "Biblioteca utilizatorilor",
+  "title": "Biblioteca utilizatorilor: teste și fișe de matematică",
+  "description": "Teste și fișe de matematică puse la comun de utilizatorii ExamenMate. Caută, deschide și rezolvă.",
+  "h1": "Biblioteca utilizatorilor",
+  "intro": "Teste și fișe de matematică puse la comun de utilizatori."
+ },
+ "/recenzii": {
+  "nume": "Recenzii",
+  "title": "Recenzii ExamenMate – ce spun elevii, părinții și profesorii",
+  "description": "Părerile elevilor, părinților și profesorilor despre ExamenMate — teste interactive, Profesor Virtual și meditații live. Lasă și tu o recenzie."
+ },
+ "/preturi": {
+  "nume": "Prețuri",
+  "title": "Prețuri și abonament Premium – ExamenMate",
+  "description": "Abonament Premium lunar sau anual: Profesor Virtual, corectarea rezolvărilor scrise de mână, meditații live și toate fișele PDF. Testele interactive rămân gratuite.",
+  "h1": "Abonament Premium",
+  "intro": "Abonament lunar sau anual, cu renunțare oricând. Testele interactive rămân gratuite."
+ },
+ "/faq": {
+  "nume": "Întrebări frecvente",
+  "title": "Întrebări frecvente – ExamenMate",
+  "description": "Răspunsuri despre conturi, abonament, teste interactive, Profesorul Virtual și meditațiile live de pe ExamenMate.",
+  "h1": "Întrebări frecvente",
+  "intro": "Răspunsuri despre conturi, abonament, teste și Profesorul Virtual."
+ },
+ "/despre-noi": {
+  "nume": "Despre noi",
+  "title": "Despre ExamenMate – platforma de matematică",
+  "description": "Cine suntem și cum ajută ExamenMate elevii din clasele 5–12 să se pregătească la matematică pentru Evaluarea Națională și Bacalaureat.",
+  "h1": "Despre ExamenMate",
+  "intro": "Cine suntem și cum lucrăm."
+ },
+ "/contact": {
+  "nume": "Contact",
+  "title": "Contact – ExamenMate",
+  "description": "Scrie-ne pentru întrebări despre cont, abonament sau materialele de matematică de pe ExamenMate.",
+  "h1": "Contact",
+  "intro": "Scrie-ne pentru orice întrebare despre cont, abonament sau materiale."
+ },
+ "/termeni-conditii": {
+  "nume": "Termeni și condiții",
+  "title": "Termeni și condiții – ExamenMate",
+  "description": "Termeni și condiții a platformei ExamenMate (examenmate.com).",
+  "h1": "Termeni și condiții"
+ },
+ "/politica-confidentialitate": {
+  "nume": "Politica de confidențialitate",
+  "title": "Politica de confidențialitate – ExamenMate",
+  "description": "Politica de confidențialitate a platformei ExamenMate (examenmate.com).",
+  "h1": "Politica de confidențialitate"
+ },
+ "/politica-cookies": {
+  "nume": "Politica de cookie-uri",
+  "title": "Politica de cookie-uri – ExamenMate",
+  "description": "Politica de cookie-uri a platformei ExamenMate (examenmate.com).",
+  "h1": "Politica de cookie-uri"
+ },
+ "/politica-retur": {
+  "nume": "Politica de retur",
+  "title": "Politica de retur – ExamenMate",
+  "description": "Politica de retur a platformei ExamenMate (examenmate.com).",
+  "h1": "Politica de retur"
+ },
+ "/stergere-cont": {
+  "nume": "Ștergerea contului",
+  "title": "Ștergerea contului – ExamenMate",
+  "description": "Cum îți ștergi contul ExamenMate și datele asociate.",
+  "h1": "Ștergerea contului",
+  "index": false
+ },
+ "/profil": {
+  "nume": "Contul meu",
+  "title": "Contul meu – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/autentificare": {
+  "nume": "Autentificare",
+  "title": "Autentificare – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/inregistrare": {
+  "nume": "Creează cont",
+  "title": "Creează cont – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/resetare-parola": {
+  "nume": "Resetarea parolei",
+  "title": "Resetarea parolei – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/mesagerie": {
+  "nume": "Mesagerie",
+  "title": "Mesagerie – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/arena": {
+  "nume": "Arena matematică",
+  "title": "Arena matematică – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/arena/harta": {
+  "nume": "Harta capitolelor",
+  "title": "Harta capitolelor – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/exercitiu": {
+  "nume": "Exercițiu interactiv",
+  "title": "Exercițiu interactiv – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/exercitiu-ai": {
+  "nume": "Exercițiu generat",
+  "title": "Exercițiu generat – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/pdf-viewer": {
+  "nume": "Test PDF",
+  "title": "Test PDF – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/asociere": {
+  "nume": "Asociere",
+  "title": "Asociere – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/tema-elev": {
+  "nume": "Temele mele",
+  "title": "Temele mele – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/tema-grupa": {
+  "nume": "Test pe grupă",
+  "title": "Test pe grupă – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/meditatii/plan": {
+  "nume": "Planul meu",
+  "title": "Planul meu – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/meditatii/pregatire": {
+  "nume": "Pregătirea de examen",
+  "title": "Pregătirea de examen – ExamenMate",
+  "description": "",
+  "index": false
+ },
+ "/admin": {
+  "nume": "Administrare",
+  "title": "Administrare – ExamenMate",
+  "description": "",
+  "index": false
+ }
+}

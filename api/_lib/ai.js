@@ -1133,13 +1133,39 @@ function requirePremium(profile) {
 // acțiunile AI gratuite, nici în limita orară.
 const NU_E_CERERE_AI = ['voce', 'rezolva-pdf:grila'];
 const faraNonAi = (q) => NU_E_CERERE_AI.reduce((acc, ep) => acc.neq('endpoint', ep), q);
-// Utilizatorii fără abonament au voie la un număr limitat de acțiuni AI (default 1).
-async function enforceFreeQuota(supa, profile) {
-  if (isPremium(profile)) return;
-  const { count } = await faraNonAi(supa.from('ai_usage').select('*', { count: 'exact', head: true }).eq('user_id', profile.id));
-  if ((count || 0) >= FREE_ACTIONS) {
-    throw premiumError(`Ai folosit cele ${FREE_ACTIONS} acțiuni gratuite cu Profesorul Virtual. Abonează-te pentru acces nelimitat (explicații, exerciții, foto-rezolvare, voce și teste de examen).`);
+// Răspunsurile servite din PRE-GENERARE (api/_lib/pregen.js) nu apelează niciun
+// model — cost 0. Nu consumă acțiunile AI gratuite ale contului fără abonament
+// (în limita orară rămân, ca frână la abuz). AI_PREGEN_IN_COTA=1 = ca înainte.
+const SERVIRI_FARA_COST = ['ai-chat:pregen', 'ai-chat-stream:pregen'];
+const pregenInCota = () => process.env.AI_PREGEN_IN_COTA === '1';
+// Întrebări gratuite PE ZI în chat, DUPĂ acțiunile gratuite de probă, pentru
+// conturile fără abonament. 0 (implicit) = oprit: comportamentul de până acum.
+// Doar chatul (nu foto-rezolvarea, corectarea sau dictarea) și doar pe modelul
+// economic — vezi `zilnic` mai jos și GHID_LIMITE_AI.md.
+const freeChatDaily = () => Math.max(0, parseInt(process.env.AI_FREE_CHAT_DAILY || '0', 10) || 0);
+const CHAT_ENDPOINTS = ['ai-chat', 'ai-chat-stream'];
+// Utilizatorii fără abonament au voie la un număr limitat de acțiuni AI (AI_FREE_ACTIONS).
+// Întoarce null (abonat / încă în acțiunile de probă) sau { zilnic: true, ramase }
+// când cererea trece pe întrebările gratuite ale zilei (doar cu `chat: true`).
+async function enforceFreeQuota(supa, profile, { chat = false } = {}) {
+  if (isPremium(profile)) return null;
+  let q = faraNonAi(supa.from('ai_usage').select('*', { count: 'exact', head: true }).eq('user_id', profile.id));
+  if (!pregenInCota()) q = SERVIRI_FARA_COST.reduce((acc, ep) => acc.neq('endpoint', ep), q);
+  const { count } = await q;
+  if ((count || 0) < FREE_ACTIONS) return null;
+  const peZi = chat ? freeChatDaily() : 0;
+  if (peZi > 0) {
+    const { count: azi } = await supa.from('ai_usage').select('*', { count: 'exact', head: true })
+      .eq('user_id', profile.id).in('endpoint', CHAT_ENDPOINTS).gte('created_at', dayStartBucharest());
+    if ((azi || 0) < peZi) return { zilnic: true, ramase: peZi - (azi || 0) - 1 };
+    throw premiumError(`Ai folosit cele ${peZi} întrebări gratuite de azi cu Profesorul Virtual. Revino mâine sau abonează-te pentru acces nelimitat (explicații, exerciții, foto-rezolvare, voce și teste de examen).`);
   }
+  throw premiumError(`Ai folosit cele ${FREE_ACTIONS} acțiuni gratuite cu Profesorul Virtual. Abonează-te pentru acces nelimitat (explicații, exerciții, foto-rezolvare, voce și teste de examen).`);
+}
+// Cererea trecută pe întrebările gratuite ale zilei folosește modelul economic
+// (aceeași coborâre ca peste bugetul zilnic soft — vezi pickModel).
+function limitsFor(lim, gratis) {
+  return gratis && gratis.zilnic ? { ...(lim || {}), degraded: true } : lim;
 }
 
 // Limitele de consum, în ordinea severității:
@@ -2471,7 +2497,7 @@ module.exports = {
   levelLabel, interactiveCatalog, studentState, meditatiiMemory, meditatiiBoardRules,
   createNotification, teachersOf, mentorsOf,
   requireUser, isPremium, requirePremium, enforceFreeQuota, enforceRateLimit, enforceBudgets, logUsage, signToken, verifyToken, sha256,
-  NU_E_CERERE_AI,
+  NU_E_CERERE_AI, SERVIRI_FARA_COST, limitsFor,
   hasEmbeddings, hasChat, hasSTT, EMBED_DIM, CHAT_MODEL, EMBED_MODEL, VISION_MODEL, STT_MODEL, FREE_ACTIONS, PDF_MODEL, GEN_MODEL,
   TUTOR_MODEL, TUTOR_MODES, REASONING_EFFORT, chatModelFor, isNewGenModel, pdfPageAttachments, refFromConversation,
   runToolCall, TOOL_ROUNDS,

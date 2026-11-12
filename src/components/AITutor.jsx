@@ -1870,13 +1870,15 @@ export default function FloatingTutor() {
   const [pos, setPos] = useState(null); // colțul stânga-sus al butonului
   const drag = useRef({ active: false, moved: false, dx: 0, dy: 0 });
   const BTN = 60;
+  // pe telefon, deasupra barei de jos (src/components/BaraJos.jsx — 58 px)
+  const jos = () => (window.innerWidth <= 768 ? 66 : 0);
   // Pe calculator, fereastra widgetului se lățește / îngustează trăgând de
   // marginea ei stângă (ca panoul de lângă PDF); lățimea se ține minte
   const lat = useLatimePanou({ storageKey: 'pv:widget', initial: 400, min: 340, maxFrac: 0.92, reserve: 32, wide: 760 });
 
   useEffect(() => {
-    if (!pos) setPos({ x: window.innerWidth - BTN - 22, y: window.innerHeight - BTN - 22 });
-    const onResize = () => setPos((p) => (p ? { x: Math.min(p.x, window.innerWidth - BTN - 8), y: Math.min(p.y, window.innerHeight - BTN - 8) } : p));
+    if (!pos) setPos({ x: window.innerWidth - BTN - 22, y: window.innerHeight - BTN - 22 - jos() });
+    const onResize = () => setPos((p) => (p ? { x: Math.min(p.x, window.innerWidth - BTN - 8), y: Math.min(p.y, window.innerHeight - BTN - 8 - jos()) } : p));
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []); // eslint-disable-line
@@ -1891,7 +1893,7 @@ export default function FloatingTutor() {
     if (Math.abs(e.clientX - drag.current.sx) > 4 || Math.abs(e.clientY - drag.current.sy) > 4) drag.current.moved = true;
     setPos({
       x: Math.max(8, Math.min(e.clientX - drag.current.dx, window.innerWidth - BTN - 8)),
-      y: Math.max(8, Math.min(e.clientY - drag.current.dy, window.innerHeight - BTN - 8)),
+      y: Math.max(8, Math.min(e.clientY - drag.current.dy, window.innerHeight - BTN - 8 - jos())),
     });
   }
   function onPointerUp() {
@@ -2008,8 +2010,9 @@ export default function FloatingTutor() {
           </div>
 
           {/* 🎯 PREGĂTEȘTE-MĂ DE EXAMEN (8 nov. 2026) — înainte de „Meditații live":
-              testul zilei, cu amintire zilnică, XP și ligă (/pregateste-ma) */}
-          {!medMode && !isParent && pathname !== '/pregateste-ma' && (
+              testul zilei, cu amintire zilnică, XP și ligă (/pregateste-ma). Doar la elevi și
+              vizitatori: profesorii și părinții au în widget doar uneltele lor (11 nov. 2026, seara) */}
+          {!medMode && !isMentorAcc && pathname !== '/pregateste-ma' && (
             <Link to="/pregateste-ma" onClick={() => setOpen(false)} className="pv-prep" aria-label="Pregătește-mă de examen — testul zilei">
               <span className="pv-prep-ic" aria-hidden="true">🎯</span>
               <span className="pv-live-t"><b>Pregătește-mă de examen</b><small>un test pe zi · XP · ligă</small></span>
@@ -2019,7 +2022,7 @@ export default function FloatingTutor() {
 
           {/* 🔴 MEDITAȚII LIVE — un clic și ești în /meditatii (lobby-ul meditațiilor live, nu
               „Planul meu"); colorat, ca să se vadă. Pe /meditatii nu mai are rost. */}
-          {!medMode && !isParent && pathname !== '/meditatii' && (
+          {!medMode && !isMentorAcc && pathname !== '/meditatii' && (
             <Link to="/meditatii" onClick={() => setOpen(false)} className="pv-live" aria-label="Meditații live — intră acum">
               <span className="pv-live-dot" aria-hidden="true" />
               <span className="pv-live-t"><b>Meditații live</b><small>cu Prof. Tudor · pe barem</small></span>

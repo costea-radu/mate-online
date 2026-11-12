@@ -3,20 +3,51 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { trackParentLink } from '../lib/analytics';
+import { tineMinteInvitatia, uitaInvitatia } from '../lib/continuare';
 
 export default function Asociere() {
   const [params] = useSearchParams();
   const code = params.get('cod') || params.get('code') || '';
+  // invitația trimisă de ELEV părintelui lui (/asociere?elev=<token>, de pe /preturi → „📲 Trimite părintelui")
+  const elevToken = params.get('elev') || '';
   const { user, loading, fetchProfile } = useAuth();
   const navigate = useNavigate();
   const [status, setStatus] = useState('working'); // working | success | error | need-auth
   const [teacherName, setTeacherName] = useState('');
   const [mentorRole, setMentorRole] = useState('profesor');
   const [message, setMessage] = useState('');
+  const [copil, setCopil] = useState(null);   // { id, nume } — după invitația copilului
   const ran = useRef(false);
 
   useEffect(() => {
     if (loading) return;
+
+    // ── INVITAȚIA COPILULUI: părintele se asociază cu contul lui ──
+    if (elevToken) {
+      if (!user) {
+        tineMinteInvitatia(elevToken);   // după autentificare, src/components/Continuare.jsx revine aici
+        setStatus('need-auth-parinte');
+        return;
+      }
+      if (ran.current) return;
+      ran.current = true;
+      (async () => {
+        try {
+          const res = await fetch('/api/asociere', { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ elevToken }) });
+          const data = await res.json();
+          uitaInvitatia();
+          if (!res.ok) throw new Error(data.error || 'A apărut o eroare la asociere.');
+          setCopil({ id: data.student_id, nume: data.student_name || 'copilul tău' });
+          setStatus('success-parinte');
+          await fetchProfile(user.id);
+        } catch (e) {
+          uitaInvitatia();
+          setStatus('error');
+          setMessage(e.message || 'A apărut o eroare la asociere.');
+        }
+      })();
+      return;
+    }
 
     if (!code) {
       setStatus('error');
@@ -56,7 +87,7 @@ export default function Asociere() {
         setMessage(e.message || 'A apărut o eroare la asociere.');
       }
     })();
-  }, [user, loading, code, fetchProfile]);
+  }, [user, loading, code, elevToken, fetchProfile]);
 
   return (
     <div className="auth-page">
@@ -83,6 +114,40 @@ export default function Asociere() {
               </Link>
               <Link to="/inregistrare" className="btn btn-outline" style={{ width: '100%' }}>
                 Creează cont
+              </Link>
+            </div>
+          </>
+        )}
+
+        {status === 'need-auth-parinte' && (
+          <>
+            <div style={{ fontSize: '3rem', marginBottom: 12 }}>👨‍👩‍👧</div>
+            <h2>Copilul tău te-a invitat</h2>
+            <p className="auth-sub">
+              Cu un cont de părinte îi vezi rezultatele la matematică și îi poți face abonamentul.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 18 }}>
+              <Link to="/inregistrare?tip=parinte" className="btn btn-primary" style={{ width: '100%' }}>
+                Creează cont de părinte
+              </Link>
+              <Link to="/autentificare" className="btn btn-outline" style={{ width: '100%' }}>
+                Am deja cont
+              </Link>
+            </div>
+          </>
+        )}
+
+        {status === 'success-parinte' && copil && (
+          <>
+            <div style={{ fontSize: '3rem', marginBottom: 12 }}>✅</div>
+            <h2>Ești asociat cu {copil.nume}</h2>
+            <p className="auth-sub">Îi vezi rezultatele, îi poți da teme și îi poți face abonamentul.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 18 }}>
+              <Link to={`/preturi?copil=${copil.id}`} className="btn btn-primary" style={{ width: '100%' }}>
+                ⭐ Fă-i abonamentul
+              </Link>
+              <Link to="/profil?rezultate=1" className="btn btn-outline" style={{ width: '100%' }}>
+                📊 Vezi rezultatele
               </Link>
             </div>
           </>

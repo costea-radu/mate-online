@@ -69,7 +69,7 @@ export default function InstallPrompt() {
 
   return (
     <div style={{
-      position: 'fixed', left: 16, bottom: narrow ? 96 : 16, zIndex: 998,
+      position: 'fixed', left: 16, bottom: narrow ? 'calc(96px + var(--bara-jos-h, 0px))' : 16, zIndex: 998,
       width: narrow ? 'min(340px, calc(100vw - 32px))' : 'min(340px, calc(100vw - 110px))',
       background: 'var(--navy, #0f2b44)', color: 'var(--cream, #faf6ec)',
       borderRadius: 14, boxShadow: '0 8px 30px rgba(0,0,0,.35)', padding: '14px 16px',

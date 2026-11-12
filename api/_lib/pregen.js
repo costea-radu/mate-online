@@ -17,7 +17,17 @@
 //   · e PRIMUL mesaj al conversației (fără istoric care să schimbe sensul);
 //   · mesajul e o cerere CANONICĂ („explică-mi...", „dă-mi un indiciu") —
 //     o întrebare specifică merge pe fluxul normal, cu răspuns personalizat;
-//   · materialul e gratuit SAU elevul e abonat (nu scurgem conținut premium).
+//   · materialul e gratuit SAU elevul e abonat (nu scurgem conținut premium);
+//   · fără poză / material încărcat și fără „Regenerează" (acolo elevul vrea
+//     un răspuns pe ce a trimis el, nu explicația canonică).
+// Servirea se face ÎNAINTEA limitelor AI și a RAG-ului (12 nov. 2026): nu
+// consumă acțiunile gratuite, nu calculează embeddings, nu caută în cunoștințe.
+//
+// SCHIMBAREA MODELULUI nu mai șterge explicațiile deja generate (12 nov. 2026):
+// ele rămân valabile cât timp materialul nu s-a schimbat (source_hash). Înainte,
+// orice schimbare de model (inclusiv a implicitului din cod) regenera TOATĂ baza
+// — ~3 000 de apeluri, ~80 de lei. Cine vrea totuși refacerea cu modelul nou
+// pune AI_PREGEN_PURGE_OLD_MODEL=1, lasă cronul să termine, apoi o scoate.
 // =====================================================================
 const ai = require('./ai');
 const { norm } = require('./barem');
@@ -35,6 +45,8 @@ const DISABLED = process.env.AI_PREGEN_DISABLED === '1';
 // implicit modelul de PDF (terra) — vezi nota din antet; AI_PREGEN_MODEL îl schimbă
 const PREGEN_MODEL = process.env.AI_PREGEN_MODEL || ai.PDF_MODEL;
 const MAX_SOURCE_CHARS = 9000;
+// citit la fiecare rulare (nu la încărcarea modulului): se pornește / oprește din env
+const purgeOldModel = () => process.env.AI_PREGEN_PURGE_OLD_MODEL === '1';
 
 const warned = new Set();
 const warnOnce = (k, msg) => { if (!warned.has(k)) { warned.add(k); console.warn(msg); } };
@@ -53,11 +65,13 @@ function isCanonicalAsk(message, mode) {
 }
 
 // Condițiile PURE de servire (fără DB) — apelate de endpoint-uri.
-function canServe({ mode, context = {}, conversationId, message }) {
+function canServe({ mode, context = {}, conversationId, message, images = null, regenerate = false }) {
   if (DISABLED) return false;
   if (mode !== 'explain' && mode !== 'hint') return false;
-  if (!context.contentId || context.pdf) return false; // agentul PDF are fluxul lui (barem)
-  if (conversationId) return false;                    // doar prima întrebare din conversație
+  if (!context || !context.contentId || context.pdf) return false; // agentul PDF are fluxul lui (barem)
+  if (conversationId || regenerate) return false;      // doar prima întrebare din conversație
+  // poză / PDF încărcat de elev → vrea răspuns pe materialul LUI, nu explicația canonică
+  if ((Array.isArray(images) && images.length) || String(context.attachedText || '').trim()) return false;
   return isCanonicalAsk(message, mode);
 }
 
@@ -147,18 +161,21 @@ async function revalidate(supa, contentId) {
 async function processBatch(supa, limit = BATCH, { concurrency = CONCURRENCY } = {}) {
   if (DISABLED) return { pregenerated: 0, note: 'AI_PREGEN_DISABLED=1' };
   if (!ai.hasChat()) return { pregenerated: 0, note: 'fără cheie LLM' };
-  // Cache-ul trebuie să corespundă MODELULUI configurat acum: intrările
-  // generate cu alt model (ex. gpt-4o-mini, dinainte de trecerea pe terra)
-  // se șterg aici, devin „lipsă" pentru ai_pregen_candidates și se
-  // regenerează în loturile următoare. Până atunci, cererile canonice merg
-  // pe fluxul normal de chat — nimic nu se strică, doar costă puțin.
+  // Explicațiile generate cu ALT model rămân în cache și se servesc în
+  // continuare (vezi antetul): materialele noi sau modificate se generează cu
+  // modelul curent, restul nu se mai plătesc a doua oară.
+  // Doar cu AI_PREGEN_PURGE_OLD_MODEL=1 intrările cu alt model se șterg aici,
+  // devin „lipsă" pentru ai_pregen_candidates și se regenerează în loturile
+  // următoare (costă cât toată baza — vezi GHID_LIMITE_AI.md).
   let purged = 0;
-  try {
-    const del1 = await supa.from('ai_pregen').delete().neq('model', PREGEN_MODEL).select('content_id');
-    const del2 = await supa.from('ai_pregen').delete().is('model', null).select('content_id');
-    purged = (del1.data?.length || 0) + (del2.data?.length || 0);
-    if (purged) console.warn(`pregen: ${purged} intrări generate cu alt model — șterse, se regenerează cu ${PREGEN_MODEL}`);
-  } catch (e) { warnOnce('purge', `pregen: purjarea intrărilor cu model vechi a eșuat: ${e.message}`); }
+  if (purgeOldModel()) {
+    try {
+      const del1 = await supa.from('ai_pregen').delete().neq('model', PREGEN_MODEL).select('content_id');
+      const del2 = await supa.from('ai_pregen').delete().is('model', null).select('content_id');
+      purged = (del1.data?.length || 0) + (del2.data?.length || 0);
+      if (purged) console.warn(`pregen: ${purged} intrări generate cu alt model — șterse, se regenerează cu ${PREGEN_MODEL}`);
+    } catch (e) { warnOnce('purge', `pregen: purjarea intrărilor cu model vechi a eșuat: ${e.message}`); }
+  }
   const scan = Math.min(Math.max(limit * SCAN_MULT, limit), SCAN_MAX);
   let ids = [];
   try {
@@ -217,20 +234,50 @@ async function processBatch(supa, limit = BATCH, { concurrency = CONCURRENCY } =
 }
 
 // ─── Servire (din chat): intrarea pre-generată + gardul premium ──────────────
-// Întoarce { text, model } sau null (lipsă / conținut premium la cont gratuit).
+// Întoarce { text, model, material } sau null (lipsă / conținut premium la cont
+// gratuit). `material` = { title, category } — sursa afișată sub răspuns.
 async function getServable(supa, { contentId, mode, premium }) {
   try {
     const { data } = await supa.from('ai_pregen')
-      .select('text, model, content:content_id ( is_free )')
+      .select('text, model, content:content_id ( is_free, title, category )')
       .eq('content_id', contentId).eq('kind', mode).maybeSingle();
     if (!data || !String(data.text || '').trim()) return null;
     const isFree = data.content ? !!data.content.is_free : false;
     if (!isFree && !premium) return null; // nu scurgem explicații de conținut premium
-    return { text: data.text, model: data.model || null };
+    const material = data.content && data.content.title
+      ? { title: data.content.title, category: data.content.category || null } : null;
+    return { text: data.text, model: data.model || null, material };
   } catch (e) {
     warnOnce('serve', `pregen: servire indisponibilă: ${e.message}`);
     return null;
   }
+}
+
+// ─── Servirea ÎNAINTEA limitelor și a RAG-ului (ai-chat / ai-chat-stream) ────
+// Dacă cererea e canonică și există explicația pre-generată, o întoarce gata
+// salvată în conversație: { text, convId, sources, messageId }. Altfel null —
+// endpointul merge pe fluxul normal (limite, RAG, model).
+// Nu trece prin acțiunile gratuite și nici prin bugete (cost 0); limita orară
+// rămâne (frână la abuz — o singură numărare).
+async function serveFirst(supa, { userId, profile, message, mode, conversationId = null, context = {}, images = null, regenerate = false, endpoint = 'ai-chat' }) {
+  if (!canServe({ mode, context, conversationId, message, images, regenerate })) return null;
+  const served = await getServable(supa, { contentId: context.contentId, mode, premium: ai.isPremium(profile) });
+  if (!served) return null;
+  if (process.env.AI_PREGEN_IN_COTA === '1') await ai.enforceFreeQuota(supa, profile); // comportamentul vechi, la cerere
+  await ai.enforceRateLimit(supa, userId, profile, { budgets: false });
+  const sources = served.material
+    ? [{ type: 'exercise', title: served.material.title, topic: null, category: served.material.category }] : [];
+  const convId = await ai.openConversation(supa, { userId, conversationId, message, context });
+  const { error: uErr } = await supa.from('ai_messages').insert({ conversation_id: convId, role: 'user', content: message, mode });
+  if (uErr) console.error('pregen: salvare mesaj user eșuată:', uErr);
+  const { data: saved, error: aErr } = await supa.from('ai_messages')
+    .insert({ conversation_id: convId, role: 'assistant', content: served.text, mode, metadata: { sources, primaryMaterial: null, pregen: true } })
+    .select('id').single();
+  if (aErr) console.error('pregen: salvare răspuns eșuată:', aErr);
+  await supa.from('ai_conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
+  // servirea se loghează separat, cu cost 0 — o vezi în ai_usage_daily
+  await ai.logUsage(supa, userId, `${endpoint}:pregen`, { in: 0, out: 0, model: null });
+  return { text: served.text, convId, sources, messageId: (saved && saved.id) || null };
 }
 
 // Statistici pentru panoul de admin (best-effort). Cerem doar COUNT-ul
@@ -253,4 +300,4 @@ async function stats(supa) {
   } catch { return { pregen_total: 0, pregen_pending: null }; }
 }
 
-module.exports = { canServe, isCanonicalAsk, getServable, processBatch, generateFor, sourceFor, revalidate, stats, BATCH, KIND_LIST };
+module.exports = { canServe, isCanonicalAsk, getServable, serveFirst, processBatch, generateFor, sourceFor, revalidate, stats, BATCH, KIND_LIST };

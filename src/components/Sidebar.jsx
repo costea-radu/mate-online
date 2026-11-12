@@ -48,13 +48,14 @@ export default function Sidebar({
   isPremium = false,
   isAdmin = false,
   isTeacher = false,
+  isParent = false,
   aiLabel = 'Profesor Virtual',
   chatUnread = 0,
   forumUnread = 0,
   forumHasNew = false,
   onSignOut,
 }) {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
 
   // Pliată la fiecare încărcare de pagină (cerut explicit, 24 oct. 2026) — nu
   // ținem minte starea între vizite, doar în timpul navigării prin site: cine o
@@ -87,7 +88,7 @@ export default function Sidebar({
     if (el) el.blur();
   }
 
-  const sectiuni = sectiuniMeniu({ user, isAdmin, isTeacher, isPremium, aiLabel, chatUnread, forumUnread, forumHasNew });
+  const sectiuni = sectiuniMeniu({ user, isAdmin, isTeacher, isPremium, isParent, aiLabel, chatUnread, forumUnread, forumHasNew });
 
   // Secțiunile pliabile se deschid singure când ești deja înăuntru.
   const deschisInitial = {};
@@ -149,7 +150,7 @@ export default function Sidebar({
       );
     }
 
-    const activ = esteActiv(pathname, it.to);
+    const activ = esteActiv(pathname, it.to, search);
     return (
       <Link
         key={it.to}

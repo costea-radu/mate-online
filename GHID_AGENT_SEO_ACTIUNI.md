@@ -167,6 +167,42 @@ rutele publice (NU și `/admin`, `/profil` etc. — acelea rămân SPA simplu):
 — după aprobare face upsert în `seo_meta`. Modificarea e live în minute, fără deploy.
 Asta e diferența dintre „agentul recomandă meta" (azi) și „agentul schimbă meta" (mâine).
 
+#### Update (12 noiembrie 2026): valori implicite pe fiecare rută + scheletul paginii
+
+Până acum, o rută fără rând în `seo_meta` primea titlul și descrierea primei
+pagini — adică aproape toate paginile aveau același `<title>`. Acum fiecare
+rută publică are, **și fără niciun rând aprobat**:
+
+- **title + description proprii** — în `api/_lib/seoRute.json` (un singur loc;
+  îl citește și aplicația, pentru titlul filei din browser:
+  `src/lib/titluPagina.js`). Un rând din `seo_meta` are în continuare
+  **întâietate, câmp cu câmp** (`seoRute.cuImplicite`): dacă agentul a aprobat
+  doar un titlu, descrierea rămâne cea implicită.
+- **date structurate**: `EducationalOrganization` + `WebSite` pe `/`,
+  `BreadcrumbList` pe celelalte (dacă `seo_meta.jsonld` e gol).
+- **imaginea de share** `public/og-examenmate.png` (1200×630, cardul mare pe
+  WhatsApp / Facebook / X), în locul pictogramei pătrate.
+- **scheletul paginii** în `<div id="root">` (`seoRute.schelet`): H1, o frază,
+  lista materialelor din `content` (Evaluare Națională, BAC pe profil, clase)
+  sau legăturile spre articole (`/rezolvari`) și linkuri spre paginile vecine.
+  Îl citesc crawlerele care nu rulează JavaScript (rețelele sociale, cele mai
+  multe motoare AI); React îl înlocuiește la pornire. Titlurile materialelor
+  sunt metadate publice — nu se scurge nimic din conținutul Premium.
+- **igienă**: `/bacalaureat/<profil inexistent>` are canonic pe `/bacalaureat`;
+  `/clase/<clasă inexistentă>` primește `noindex`.
+- **sitemap**: adăugate `/bacalaureat/mate-info`, `/bacalaureat/stiinte-naturii`,
+  `/bacalaureat/tehnologic` și `/pregateste-ma` (care trece acum și prin
+  `page-meta`). **robots.txt**: în plus `/mesagerie`, `/tema-elev`,
+  `/tema-grupa`, `/meditatii/sala`, `/meditatii/plan`.
+
+Când adaugi o pagină publică nouă: un rând în `seoRute.json` (generat cu
+titlul ≤ 65 și descrierea ≤ 165 de caractere), ruta în `vercel.json` și în
+`api/sitemap.js`. `test/seo-rute.test.js` pică dacă lipsește vreuna.
+
+După deploy: Google Search Console → Sitemaps → retrimite `sitemap.xml`, apoi
+„Inspectare URL" pe `/`, `/evaluare-nationala` și `/bacalaureat/mate-info` →
+„Solicită indexarea".
+
 ### 1c. sitemap.xml, robots.txt și date structurate
 
 - **`api/sitemap.js`** → servit ca `/sitemap.xml` (rewrite): rutele statice + paginile

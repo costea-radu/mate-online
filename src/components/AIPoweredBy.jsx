@@ -31,25 +31,13 @@ export default function AIPoweredBy({ variant = 'inline', showIntern, center = f
   const withIntern = showIntern ?? variant === 'footer';
 
   if (variant === 'footer') {
-    // Pe navy-dark: textul moștenește culoarea footerului (alb 60%).
+    // Pe navy-dark: textul moștenește culoarea footerului (alb 60%). Un singur rând
+    // (11 nov. 2026, seara — mai puțin text): lista modelelor e în FAQ și în „Despre noi".
     return (
       <div style={{ fontSize: '0.8rem', lineHeight: 1.7, marginTop: 14, maxWidth: 340, ...style }}>
-        <div style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 700, fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
-          Tehnologie AI
-        </div>
-        <div>
-          Pentru utilizatori: <strong style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>{clienti.furnizor}</strong> — {clienti.modele.join(', ')}
-        </div>
-        <div>
-          Meditații și corectarea scrisului: <strong style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>{clienti.furnizorAnthropic}</strong> — {clienti.modeleAnthropic.join(', ')}
-        </div>
-        {withIntern && (
-          <div>
-            Unelte interne: <strong style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>{intern.furnizor}</strong> — {intern.modele.join(', ')}
-          </div>
-        )}
-        <Link to={FAQ_LINK} style={{ color: 'var(--gold)', fontSize: '0.78rem', fontWeight: 600 }}>
-          Cum folosim AI-ul →
+        Profesorul Virtual folosește modele AI de la {clienti.furnizori}.{' '}
+        <Link to={FAQ_LINK} style={{ color: 'var(--gold)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+          Cum folosim AI-ul
         </Link>
       </div>
     );

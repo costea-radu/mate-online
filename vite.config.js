@@ -68,7 +68,7 @@ export default defineConfig({
         // scena profesorului din meditațiile live se încarcă doar în sală, nu la toată lumea;
         // tastatura matematică (MathLive) — doar la prima deschidere, nu la toată lumea
         // încărcarea materialelor (pdf-lib, docx-preview, html-to-image) — doar la profesori, la cerere
-        globIgnores: ['live/**', 'assets/KaTeX_*', 'assets/katex-*', 'sw-push.js', 'assets/mathlive*', 'assets/MathKeyboard*', 'assets/material-*'],   // KaTeX (cod + fonturi): la cerere, nu în precache
+        globIgnores: ['live/**', 'assets/KaTeX_*', 'assets/katex-*', 'sw-push.js', 'assets/mathlive*', 'assets/MathKeyboard*', 'og-*.png', 'assets/material-*'],   // KaTeX (cod + fonturi): la cerere, nu în precache
         // PAGINILE vin din REȚEA, nu din cache (8 nov. 2026). Înainte, orice deschidere primea
         // index.html din precache — adică versiunea de DINAINTEA ultimului deploy; cea nouă
         // apărea abia la a doua deschidere (pe iPhone, nota cu roșu și recenzia „lipseau"

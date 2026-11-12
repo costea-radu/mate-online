@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { getValidSession } from '../lib/api';
+import { trackSignUp } from '../lib/analytics';
+import { contNouPrinOAuth } from '../lib/contNou';
 
 const AuthContext = createContext({});
 
@@ -76,6 +78,8 @@ export function AuthProvider({ children }) {
       // Autentificare nouă → marcăm dispozitivul drept reconectat (nu mai forțăm deconectarea).
       // PASSWORD_RECOVERY = sesiune creată din linkul „Resetare parolă" — o tratăm la fel,
       // altfel gate-ul de mai jos ar deconecta utilizatorul chiar când vrea să-și schimbe parola.
+      // cont nou făcut cu Google / Discord → „sign_up" pentru GA4 / Meta / TikTok (src/lib/contNou.js)
+      if (event === 'SIGNED_IN') contNouPrinOAuth(session?.user, { trimite: trackSignUp });
       if (event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') {
         forcedRef.current = false;
         try { localStorage.setItem(FORCE_KEY, '1'); } catch { /* ignore */ }

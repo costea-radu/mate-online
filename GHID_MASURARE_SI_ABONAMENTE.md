@@ -178,6 +178,37 @@ plată aterizezi pe `/profil` și contul devine Premium în câteva secunde.
 
 ---
 
+## De la cont la abonament: părintele plătește pentru copil (12 nov. 2026)
+
+Cine plătește și cine învață nu sunt același cont: elevul rezolvă testele,
+părintele are cardul. Până acum, plata făcută de părinte activa Premium pe
+contul părintelui.
+
+- **Părintele**, pe `/preturi`, își alege copilul (dintre cei asociați cu el ca
+  părinte) și plătește. Abonamentul se activează pe **contul elevului**:
+  `api/create-checkout.js` pune în Stripe `metadata.supabase_user_id` = copilul
+  și `metadata.platit_de` = părintele. Webhookul nu s-a schimbat — activează
+  contul din `supabase_user_id`. Factura merge pe e-mailul părintelui.
+- **Gestionarea** („Gestionează abonamentul" lângă copilul abonat): portalul
+  Stripe se deschide doar părintelui care a plătit (`api/create-portal.js`
+  verifică `platit_de` pe abonament).
+- **Elevul își invită părintele**: „📲 Trimite părintelui" pe `/preturi` dă un
+  link `…/asociere?elev=<cod>` (semnat pe server, valabil 14 zile),
+  de trimis pe WhatsApp. Părintele își face cont, e asociat automat cu elevul
+  și ajunge la plată. Asocierea clasică, cu codul profesorului / părintelui,
+  a rămas neschimbată.
+- **Planul ales înainte de înregistrare** se ține minte 24 de ore
+  (`src/lib/continuare.js`): după crearea contului, omul e dus înapoi la
+  `/preturi?plan=…`.
+- Fiecare plată pentru un copil creează un client Stripe separat — doi frați
+  au două abonamente independente (anularea unuia nu-l atinge pe celălalt).
+
+**Test în modul Stripe Test:** cont de părinte asociat cu un elev → `/preturi`
+→ alege copilul → cardul `4242…` → după plată, contul ELEVULUI e Premium, al
+părintelui nu. Testele automate: `test/abonament-copil.test.js`.
+
+Fără SQL și fără variabile noi.
+
 ## Testul inițial gratuit (elev + părinte)
 
 **Cum funcționează.** Un elev fără abonament primește gratuit **testul inițial adaptiv
