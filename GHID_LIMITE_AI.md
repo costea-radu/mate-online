@@ -280,12 +280,27 @@ Limitele diferă după rolul contului:
 | 🧩 Exerciții interactive (`ai-generate-interactive`) | 40 / lună | 40 / lună |
 | 📷 Foto-rezolvări (`ai-vision`) | 10 / zi | 10 / zi |
 | ✍️ Corectări din spațiul de lucru (`ai-handwriting:correct`, 27 oct. 2026) | **20 / zi** (părinte: 10) | 10 / zi |
+| 🧮 Corectări AI fără barem (`ai-correct:farabarem`, 13 nov. 2026) | **3 / zi** | 3 / zi |
 
 Corectările din spațiul de lucru sunt **doar pentru Premium** (402 `PREMIUM_REQUIRED`
 altfel — nu consumă nici acțiunile gratuite). Fereastra e zilnică, ca la foto, și nu
 intră în pool-ul lunar; o încercare eșuată înainte de rezervă se loghează la
 `ai-handwriting:retry` (intră în credite, nu în cotă). Env: `AI_QUOTA_CORECTARI_SCRIS_ZI`
 (nume NOU — vechiul `AI_QUOTA_SCRIS_ZI`, 300 de rânduri transformate pe zi, nu mai e citit).
+
+**Corectări AI fără barem (13 nov. 2026, harta pregătirii).** Cererea: „la corectarea
+cu AI în lipsa baremului să ai grijă la consum, să pui limită sau taxă". Când testul nu
+are barem (fișele claselor, un enunț fără rezolvare), modelul trebuie să rezolve singur
+fiecare cerință — model mai scump, mai mulți tokeni. Așa că, în plus față de cotele de mai
+sus, orice corectare FĂRĂ barem — formularul „📝 Răspunde în chat" (și cu poze),
+„🎓 Cere corectarea" de pe foaia de lucru, „✏️ Rezolvă pe PDF" — consumă din cota zilnică
+**🧮 Corectări AI fără barem: 3 pe zi** (fiecare rol). Se numără doar corectarea reușită,
+printr-un rând de cost 0 (`ai-correct:farabarem`, în `NU_E_CERERE_AI`: nu consumă
+acțiunile gratuite și nici limita orară; costul real stă în rândul corectării).
+Peste cotă: **„taxa" = pachetul AI** (top-up din „Contul meu → ⚡ Consum AI") — cu un
+pachet activ, cotele incluse nu mai limitează, iar costul se scade din creditele lui.
+Env: `AI_QUOTA_FARA_BAREM_ZI` (0 = fără limită separată). Cota apare singură în
+„⚡ Consum AI", lângă celelalte cote zilnice.
 
 Reglaje: env-urile `AI_QUOTA_*` (global, toate rolurile) sau
 `AI_QUOTAS_JSON='{"profesor":{"corectari":3}}'` (fin, per rol). 0 = dezactivată.

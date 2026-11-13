@@ -171,6 +171,9 @@ module.exports = async function handler(req, res) {
     await ai.enforceFeatureQuota(supa, userId, profile, 'scris', lim); // cota zilnică a corectărilor de pe foaie
 
     const src = await resolveSource(supa, profile, body, userId);
+    // fără barem (fișele claselor, enunțul singur), corectorul rezolvă singur → cota zilnică
+    // „Corectări AI fără barem" (13 nov. 2026; pachetul AI o ridică)
+    if (!src.hasBarem) await ai.enforceFeatureQuota(supa, userId, profile, 'farabarem', lim);
     let out;
     try {
       out = await corector.correctHandwriting({ images, grid: body.grid || null, src, lim });
@@ -183,6 +186,7 @@ module.exports = async function handler(req, res) {
       throw fr;
     }
     await logAll(supa, userId, out.usages, true);
+    if (!src.hasBarem) await ai.logFaraBarem(supa, userId);
     const r = out.result;
 
     // 🔴 nota testului (subiect de examen cu barem) — în chat, în rezultate și pe PDF

@@ -5,10 +5,10 @@
 // Cererea: „fă site-ul ușor de folosit ca aplicație; fiecare tip de cont să aibă
 // butoane simple către funcțiile lui". Pe telefon, singura navigare era ☰ (peste
 // 20 de intrări). Bara de jos ține la un deget cele 5 locuri ale contului:
-//   · elev:      Acasă · Materiale · Testul zilei · Mesaje · Cont
+//   · elev:      Acasă · Materiale · Pregătire · Mesaje · Cont
 //   · părinte:   Acasă · Rezultate · Temă · Mesaje · Cont
-//   · profesor:  Acasă · Teste · Elevi · Mesaje · Cont
-//   · vizitator: Acasă · Materiale · Testul zilei · Abonament · Cont nou
+//   · profesor:  Acasă · Materiale · Elevi · Mesaje · Cont   (13 nov. 2026: Materiale în loc de Teste)
+//   · vizitator: Acasă · Materiale · Pregătire · Abonament · Cont nou
 // Intrările vin din src/lib/meniu.js (baraJos) — același loc din care se
 // construiesc meniul lateral și butoanele din Home. Doar sub 769 px (CSS);
 // paginile pe tot ecranul (teste, PDF, sala live, admin) nu o au (App.jsx).

@@ -521,7 +521,7 @@ test('fără Premium: doar Subiectul III scris → Premium (402); doar grile ne�
 });
 
 test('corectările gratuite ale grilei nu sunt cereri AI: nu consumă acțiunile AI gratuite, nici limita orară', async () => {
-  assert.deepStrictEqual(ai.NU_E_CERERE_AI, ['voce', 'rezolva-pdf:grila']);
+  assert.deepStrictEqual(ai.NU_E_CERERE_AI, ['voce', 'rezolva-pdf:grila', 'ai-correct:farabarem']);
   // interogarea reală a celor două limite, pe un Supabase simulat
   const filtre = [];
   const q = new Proxy({}, {
@@ -533,11 +533,11 @@ test('corectările gratuite ale grilei nu sunt cereri AI: nu consumă acțiunile
   const supa = { from: () => q };
   await ai.enforceFreeQuota(supa, { id: 'u-1', subscription_status: null });
   // + răspunsurile servite din pre-generare (cost 0, fără model) — nici ele nu consumă acțiunile gratuite
-  assert.deepStrictEqual(filtre.filter((f) => f[0] === 'neq'), [['neq', 'endpoint', 'voce'], ['neq', 'endpoint', 'rezolva-pdf:grila'],
+  assert.deepStrictEqual(filtre.filter((f) => f[0] === 'neq'), [['neq', 'endpoint', 'voce'], ['neq', 'endpoint', 'rezolva-pdf:grila'], ['neq', 'endpoint', 'ai-correct:farabarem'],
     ['neq', 'endpoint', 'ai-chat:pregen'], ['neq', 'endpoint', 'ai-chat-stream:pregen']]);
   filtre.length = 0;
   await ai.enforceRateLimit(supa, 'u-1', null, { budgets: false });
-  assert.deepStrictEqual(filtre.filter((f) => f[0] === 'neq'), [['neq', 'endpoint', 'voce'], ['neq', 'endpoint', 'rezolva-pdf:grila']]);
+  assert.deepStrictEqual(filtre.filter((f) => f[0] === 'neq'), [['neq', 'endpoint', 'voce'], ['neq', 'endpoint', 'rezolva-pdf:grila'], ['neq', 'endpoint', 'ai-correct:farabarem']]);
   assert.ok(filtre.some((f) => f[0] === 'gte' && f[1] === 'created_at'));
 });
 

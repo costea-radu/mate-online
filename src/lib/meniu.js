@@ -212,16 +212,20 @@ export function baraJos(rol = 'vizitator') {
   const materiale = { to: '/#materiale', icon: '📚', label: 'Materiale' };
   const mesaje = { to: '/mesagerie', icon: '💬', label: 'Mesaje', badge: 'chat' };
   const cont = { to: '/profil', icon: '👤', label: 'Cont' };
+  // profesorul: „Materiale", ca elevul (13 nov. 2026 — cererea: „în loc de «exerciții»
+  // interactive, pune buton «materiale», ca la conturile de elevi"); generatorul de teste
+  // rămâne în meniu („Clasa mea" → „Generează teste") și în butoanele din Home
   if (rol === 'profesor') {
-    return [acasa, { to: '/profesor-virtual?tab=interactive', icon: '🧩', label: 'Teste' }, { to: '/profil?rezultate=1', icon: '📊', label: 'Elevi' }, mesaje, cont];
+    return [acasa, materiale, { to: '/profil?rezultate=1', icon: '📊', label: 'Elevi' }, mesaje, cont];
   }
   if (rol === 'parinte') {
     return [acasa, { to: '/profil?rezultate=1', icon: '📊', label: 'Rezultate' }, { to: '/profesor-virtual', icon: '📝', label: 'Temă' }, mesaje, cont];
   }
+  // „Pregătire" (13 nov. 2026): pagina e acum harta pregătirii — pasul de azi din plan
   if (rol === 'elev') {
-    return [acasa, materiale, { to: PREGATESTE_MA.to, icon: '🎯', label: 'Testul zilei' }, mesaje, cont];
+    return [acasa, materiale, { to: PREGATESTE_MA.to, icon: '🎯', label: 'Pregătire' }, mesaje, cont];
   }
-  return [acasa, materiale, { to: PREGATESTE_MA.to, icon: '🎯', label: 'Testul zilei' }, { to: '/preturi', icon: '⭐', label: 'Abonament' }, { to: '/inregistrare', icon: '✨', label: 'Cont nou' }];
+  return [acasa, materiale, { to: PREGATESTE_MA.to, icon: '🎯', label: 'Pregătire' }, { to: '/preturi', icon: '⭐', label: 'Abonament' }, { to: '/inregistrare', icon: '✨', label: 'Cont nou' }];
 }
 
 // Intrarea activă a barei de jos: întâi potrivirea exactă cu ?… , apoi calea simplă

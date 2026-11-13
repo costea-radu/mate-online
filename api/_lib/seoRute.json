@@ -174,10 +174,10 @@
  },
  "/pregateste-ma": {
   "nume": "Pregătește-mă de examen",
-  "title": "Pregătește-mă de examen: un test de matematică pe zi",
-  "description": "Un test scurt de matematică în fiecare zi, pentru Evaluarea Națională sau BAC, cu serie de zile, puncte și ligă săptămânală. Începi gratuit.",
-  "h1": "Un test pe zi până la examen",
-  "intro": "Îți alegi examenul (Evaluarea Națională sau BAC) și primești în fiecare zi un test. Fiecare zi lucrată îți aduce puncte, o serie de zile la rând și un loc mai bun în liga săptămânii.",
+  "title": "Pregătește-mă de examen: harta exercițiilor, pas cu pas",
+  "description": "Toate exercițiile pentru Evaluarea Națională, BAC sau clasa ta, în ordine, pe o hartă: capitole, teste interactive, apoi PDF. Cu serie de zile și ligă.",
+  "h1": "Harta ta până la examen",
+  "intro": "Îți alegi examenul (Evaluarea Națională sau BAC) sau clasa și primești toate exercițiile în ordine, pe o hartă. Fiecare zi lucrată îți aduce puncte, o serie de zile la rând și un loc în liga săptămânii.",
   "legaturi": [
    "/inregistrare",
    "/evaluare-nationala",

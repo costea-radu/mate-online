@@ -431,7 +431,10 @@ export function InkPage({ n, w, h, store, tool, color, marks, nota = null }) {
 
 // ═════════════════════════════ controlerul ═════════════════════════════
 // on — modul e pornit; data — ArrayBuffer-ul PDF-ului deschis; draftKey — cheia ciornei
-export function useRezolvarePdf({ on, data, draftKey }) {
+// `generic` (13 nov. 2026 — harta pregătirii, „✏️ Pe PDF" la BAC / clase): fără harta
+// testului de EN — elevul scrie oriunde pe pagini, iar la „✅ Corectează" paginile scrise
+// pleacă, ca imagini, în formularul de răspuns al profesorului virtual (src/pages/PDFViewer.jsx)
+export function useRezolvarePdf({ on, data, draftKey, generic = false }) {
   const storeRef = useRef(null);
   if (!storeRef.current) storeRef.current = createInkStore();
   const store = storeRef.current;
@@ -466,6 +469,7 @@ export function useRezolvarePdf({ on, data, draftKey }) {
   const mapFor = useRef(null);
   useEffect(() => {
     if (!on || !data) return undefined;
+    if (generic) { setMap(null); setMapState('generic'); return undefined; }
     if (mapFor.current === data && map) return undefined;
     let dead = false;
     setMapState('loading');
@@ -487,7 +491,7 @@ export function useRezolvarePdf({ on, data, draftKey }) {
       }
     })();
     return () => { dead = true; };
-  }, [on, data]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [on, data, generic]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rec = useMemo(() => (map && map.ok ? recognize(map, store.ink) : null), [map, ver, store]); // eslint-disable-line react-hooks/exhaustive-deps
   const result = store.result;
@@ -621,13 +625,13 @@ const tBtn = (on) => ({
 });
 
 // butoanele modului, în bara de zoom a vizualizatorului → { left, right } (PdfCanvasViewer `toolbar`)
-export function rezolvareToolbar({ solve, compact = false, busy = false, onCorect, onClose, onDownload, premium = true }) {
+export function rezolvareToolbar({ solve, compact = false, busy = false, onCorect, onClose, onDownload, premium = true, generic = false }) {
   const left = (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       {!compact && <span style={{ color: 'var(--gold)', fontWeight: 800, fontSize: '.8rem', whiteSpace: 'nowrap' }}>✏️ Rezolvi pe PDF</span>}
       <span role="group" aria-label="Unealta" style={{ display: 'inline-flex', gap: 4 }}>
         <button type="button" style={tBtn(solve.tool === 'pen')} aria-pressed={solve.tool === 'pen'} aria-label="Scrie" onClick={() => solve.setTool('pen')}
-          title="Scrie pe PDF: încercuiește litera la grile, scrie rezolvarea la Subiectul al III-lea">✎{compact ? '' : ' Scrie'}</button>
+          title={generic ? 'Scrie rezolvarea direct pe PDF' : 'Scrie pe PDF: încercuiește litera la grile, scrie rezolvarea la Subiectul al III-lea'}>✎{compact ? '' : ' Scrie'}</button>
         <button type="button" style={tBtn(solve.tool === 'eraser')} aria-pressed={solve.tool === 'eraser'} aria-label="Radieră" onClick={() => solve.setTool('eraser')}
           title="Radiera: șterge traseele pe care le atingi (și capătul-radieră al creionului)">◯{compact ? '' : ' Radieră'}</button>
         <button type="button" style={tBtn(solve.tool === 'pan')} aria-pressed={solve.tool === 'pan'} aria-label="Derulează" onClick={() => solve.setTool('pan')}
@@ -671,9 +675,11 @@ export function rezolvareToolbar({ solve, compact = false, busy = false, onCorec
       <button type="button" style={tBtn(false)} onClick={onDownload} disabled={!solve.hasInk} aria-label="⬇ PDF"
         title="Descarcă PDF-ul cu rezolvarea ta pe el (rămâne un PDF obișnuit)">⬇{compact ? '' : ' PDF'}</button>
       <button type="button" onClick={onCorect} disabled={busy}
-        title={premium
-          ? 'Corectează ce ai rezolvat pe PDF: grilele după barem, iar scrisul de la Subiectul al III-lea îl citește profesorul virtual'
-          : `Corectarea de pe PDF face parte din abonamentul Premium. Fără abonament: ${GRATUITE_GRILA} corectări gratuite ale grilei (Subiectele I și II), după barem`}
+        title={generic
+          ? 'Ce ai scris pe PDF pleacă, ca imagini, în formularul de răspuns — profesorul virtual îl corectează (Premium)'
+          : premium
+            ? 'Corectează ce ai rezolvat pe PDF: grilele după barem, iar scrisul de la Subiectul al III-lea îl citește profesorul virtual'
+            : `Corectarea de pe PDF face parte din abonamentul Premium. Fără abonament: ${GRATUITE_GRILA} corectări gratuite ale grilei (Subiectele I și II), după barem`}
         style={{ ...tBtn(true), background: busy ? '#cfd8dc' : '#2e7d32', borderColor: busy ? '#cfd8dc' : '#2e7d32', color: '#fff', padding: '0 12px', cursor: busy ? 'progress' : 'pointer' }}>
         {busy ? '⏳ Corectez…' : '✅ Corectează'}
       </button>
@@ -694,9 +700,25 @@ function textGratuite(g) {
   return 'Ai folosit corectările gratuite ale grilei. De acum, corectarea de pe PDF — grila și Subiectul al III-lea — face parte din abonamentul Premium.';
 }
 
-export function RezolvareFooter({ solve, busy = false, onCorect, premium = true }) {
+export function RezolvareFooter({ solve, busy = false, onCorect, premium = true, generic = false }) {
   const r = solve.result;
   const gata = !premium && r && r.gratuite && r.gratuite.ramase === 0;
+  if (generic) {
+    return (
+      <div style={{ maxWidth: 560, margin: '6px auto 26px', background: '#fff', borderRadius: 12, padding: '16px 18px', textAlign: 'center', boxShadow: '0 4px 18px rgba(0,0,0,.35)', border: '2px solid var(--gold)' }}>
+        <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1rem', marginBottom: 6 }}>Ai terminat?</div>
+        <div style={{ color: 'var(--text-light)', fontSize: '.84rem', lineHeight: 1.5, marginBottom: 12 }}>
+          La „✅ Corectează", ce ai scris pe PDF ajunge în formularul de răspuns al profesorului virtual, ca imagini (până la 3).
+          Poți completa acolo și răspunsurile tastate, apoi îl corectează — după barem, dacă testul are unul.
+          {!premium && <>{' '}Corectarea scrisului de mână face parte din abonamentul Premium. <Link to="/preturi" style={{ color: 'var(--navy)', fontWeight: 700 }}>⭐ Vezi abonamentele</Link></>}
+        </div>
+        <button type="button" onClick={onCorect} disabled={busy}
+          style={{ background: busy ? '#cfd8dc' : '#2e7d32', color: '#fff', border: 'none', borderRadius: 10, padding: '12px 28px', fontWeight: 800, fontSize: '1rem', cursor: busy ? 'progress' : 'pointer', boxShadow: '0 4px 14px rgba(46,125,50,.35)' }}>
+          {busy ? '⏳ Pregătesc paginile…' : `✅ Corectează${premium ? '' : ' ⭐'}`}
+        </button>
+      </div>
+    );
+  }
   return (
     <div style={{ maxWidth: 560, margin: '6px auto 26px', background: '#fff', borderRadius: 12, padding: '16px 18px', textAlign: 'center', boxShadow: '0 4px 18px rgba(0,0,0,.35)', border: '2px solid var(--gold)' }}>
       <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1rem', marginBottom: 6 }}>Ai terminat?</div>

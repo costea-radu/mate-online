@@ -35,9 +35,10 @@ test('numele aplicației de limbi nu apare nicăieri în proiect (interfață, s
   })(ROOT);
   assert.deepStrictEqual(gasite, []);
   // textele vizibile rămân clare
-  assert.match(read('src/pages/PregatesteMa.jsx'), /<p>Un test pe zi: rezolvi cât poți/);
+  // 13 nov. 2026: pagina e harta pregătirii (planul de parcurs), cu serie și ligă
+  assert.match(read('src/pages/PregatesteMa.jsx'), /<p>Planul tău, pe o hartă: exercițiile în ordinea din site, pas cu pas/);
   // 11 nov. 2026: fără „Nou" în cardul „Pregătește-mă de examen"
-  assert.match(read('src/pages/Home.jsx'), /"pz-home-kicker">Un test pe zi, cu serie și ligă</);
+  assert.match(read('src/pages/Home.jsx'), /"pz-home-kicker">Harta ta, pas cu pas, cu serie și ligă</);
 });
 
 // ── 2) nota, punctajul și stelele la testele PDF; recenzii și pentru PDF-uri ──────

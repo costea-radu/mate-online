@@ -86,9 +86,11 @@ test('bara de jos de pe telefon: cel mult 5 intrări, pe tipul de cont', async (
     for (const i of it) assert.ok(i.icon && i.label && i.label.length <= 12, `${rol}: ${i.label}`);
     assert.strictEqual(new Set(it.map((i) => i.to)).size, it.length);
   }
-  assert.deepStrictEqual(b.elev.map((i) => i.label), ['Acasă', 'Materiale', 'Testul zilei', 'Mesaje', 'Cont']);
+  assert.deepStrictEqual(b.elev.map((i) => i.label), ['Acasă', 'Materiale', 'Pregătire', 'Mesaje', 'Cont']);
   assert.deepStrictEqual(b.parinte.map((i) => i.label), ['Acasă', 'Rezultate', 'Temă', 'Mesaje', 'Cont']);
-  assert.deepStrictEqual(b.profesor.map((i) => i.label), ['Acasă', 'Teste', 'Elevi', 'Mesaje', 'Cont']);
+  // 13 nov. 2026: la profesor „Materiale" (ca la elev) în loc de „Teste"
+  assert.deepStrictEqual(b.profesor.map((i) => i.label), ['Acasă', 'Materiale', 'Elevi', 'Mesaje', 'Cont']);
+  assert.strictEqual(b.profesor[1].to, '/#materiale');
   assert.deepStrictEqual(b.vizitator.map((i) => i.to), ['/', '/#materiale', '/pregateste-ma', '/preturi', '/inregistrare']);
   for (const to of [...DOAR_ELEV]) { assert.ok(!b.parinte.some((i) => i.to === to), to); assert.ok(!b.profesor.some((i) => i.to === to), to); }
   for (const to of [...DOAR_PROFESOR, ...DOAR_PARINTE]) assert.ok(!b.elev.some((i) => i.to === to) && !b.vizitator.some((i) => i.to === to), to);
@@ -107,8 +109,9 @@ test('intrarea activă: adresa cu ?… bate calea simplă („Rezultate" ≠ „
   assert.strictEqual(e[activInBara(e, { pathname: '/', hash: '#materiale' })].label, 'Materiale');
   assert.strictEqual(activInBara(e, { pathname: '/clase/7' }), -1, 'pe o pagină din afara barei nu e nimic aprins');
   const t = baraJos('profesor');
-  assert.strictEqual(t[activInBara(t, { pathname: '/profesor-virtual', search: '?tab=interactive' })].label, 'Teste');
-  assert.strictEqual(activInBara(t, { pathname: '/profesor-virtual', search: '?tab=exam' }), -1);
+  assert.strictEqual(t[activInBara(t, { pathname: '/', hash: '#materiale' })].label, 'Materiale');
+  assert.strictEqual(t[activInBara(t, { pathname: '/profil', search: '?rezultate=1' })].label, 'Elevi');
+  assert.strictEqual(activInBara(t, { pathname: '/profesor-virtual', search: '?tab=interactive' }), -1, 'generatorul nu mai e în bară (e în meniu)');
   // esteActiv: prefix de secțiune + ?…
   assert.ok(esteActiv('/clase/7', '/clase') && !esteActiv('/clasele', '/clase') && esteActiv('/', '/') && !esteActiv('/x', '/'));
   assert.ok(esteActiv('/profil', '/profil?rezultate=1', '?rezultate=1&x=2'));

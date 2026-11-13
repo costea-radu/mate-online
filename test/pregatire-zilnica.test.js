@@ -248,7 +248,8 @@ test('fără examen ales: alegerea (EN, BAC M1/M2/M3), cu sugestia din „Planul
   assert.match(r.error, /pregatire_zilnica\.sql/);
   assert.strictEqual(await P.inregistreaza(lipsa, U, { content: EN1, itemi: 5 }), null, 'salvarea scorului nu cade');
   assert.strictEqual(await P.rezumat(lipsa, U), null);
-  assert.deepStrictEqual(await P.alege(supa, U, ELEV, { examen: 'clasa-8' }), { error: 'Alege examenul: Evaluarea Națională sau unul dintre profilurile de BAC.' });
+  // 13 nov. 2026: ținta poate fi și o clasă (a V-a … a XII-a) — test/plan-pregatire.test.js
+  assert.deepStrictEqual(await P.alege(supa, U, ELEV, { examen: 'clasa-13' }), { error: 'Alege examenul (Evaluarea Națională sau un profil de BAC) sau o clasă, de la a V-a la a XII-a.' });
 });
 
 test('alegerea examenului → testul zilei din site (fără bareme; fără abonament doar cele gratuite); „🔀 Alt test"; PDF-ul oficial cu Premium', async () => {
@@ -275,7 +276,9 @@ test('alegerea examenului → testul zilei din site (fără bareme; fără abona
   // cu Premium: subiectul oficial PDF (variante / simulări / teste de antrenament — nu fișe)
   const fp = await P.alege(supa, U, PREMIUM, { format: 'pdf' });
   assert.deepStrictEqual([fp.pregatire.format, fp.pregatire.test.id], ['pdf', 'en-pdf']);
-  assert.strictEqual(fp.pregatire.test.url, '/pdf-viewer?id=en-pdf&pregatire=1');
+  // (13 nov. 2026) varianta e și pasul curent din harta pregătirii a contului Premium → &plan=1
+  assert.strictEqual(fp.pregatire.test.url, '/pdf-viewer?id=en-pdf&pregatire=1&plan=1');
+  assert.strictEqual(fp.pregatire.plan.pas.id, 'en-pdf');
   // BAC: doar testele profilului ales
   const b = baza();
   const rb = await P.alege(b, U, ELEV, { examen: 'bac-mate-info' });
@@ -810,7 +813,9 @@ test('Home: secțiunea albastră e o bară orizontală subțire; sub ea, mare, c
 
 test('/pregateste-ma și /arena: alegerea examenului, testul zilei, amintirea, răsplata; fluxul Arenei cu opt-out și fără note', () => {
   const pg = read('src/pages/PregatesteMa.jsx');
-  for (const a of ["action: 'pregatire'", "action: 'pregatire_alege'", "action: 'pregatire_alt_test'", 'pregatire_notificari']) assert.ok(pg.includes(a), a);
+  // 13 nov. 2026: „🔀 Alt test" a lăsat locul hărții pregătirii (pasul de azi = pasul curent; „⏭ Treci mai departe")
+  for (const a of ["action: 'pregatire'", "action: 'pregatire_alege'", "action: 'plan_sari'", 'pregatire_notificari']) assert.ok(pg.includes(a), a);
+  assert.match(pg, /<HartaPlan /);
   assert.match(pg, /<AmintireZilnica /, 'aceeași amintire ca la misiunea zilnică');
   assert.match(pg, /to="\/arena"/);
   const arena = read('src/pages/Arena.jsx');

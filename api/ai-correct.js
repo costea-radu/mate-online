@@ -583,6 +583,9 @@ async function grade(req, res, supa, userId, lim, profile) {
   });
   const answeredCount = leaves.filter((l) => ans[l.id]).length;
   if (!answeredCount && !photos.length) return res.status(400).json({ error: 'Completează măcar un răspuns (sau adaugă o poză cu rezolvarea) înainte de corectare.' });
+  // FĂRĂ BAREM modelul rezolvă singur fiecare cerință (mai scump) → cota zilnică proprie
+  // („Corectări AI fără barem", 3/zi implicit; pachetul AI o ridică) — 13 nov. 2026
+  if (!hasBarem) await ai.enforceFeatureQuota(supa, userId, profile, 'farabarem', lim);
 
   // ── promptul de corectare ──
   const listing = leaves.map((l) =>
@@ -651,6 +654,7 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
   if (!parsed || !Array.isArray(parsed.items)) {
     return res.status(502).json({ error: 'Corectarea nu a reușit (răspuns invalid). Mai încearcă o dată.' });
   }
+  if (!hasBarem) await ai.logFaraBarem(supa, userId);   // doar corectarea reușită se numără
 
   // ── punctajele, validate pe server (modelul nu poate depăși maximul) ──
   const byId = {};

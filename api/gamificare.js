@@ -27,6 +27,9 @@
 //   săptămâna, insignele (atribuie testul zilei la prima deschidere din zi);
 // POST { action: 'pregatire_alege', examen?, format? } — examenul / formatul;
 // POST { action: 'pregatire_alt_test' } — „🔀 Alt test";
+// POST { action: 'plan_sari', contentId } — „⏭ Treci mai departe" pe harta pregătirii
+//   (13 nov. 2026, api/_lib/planPregatire.js); `pregatire` întoarce și `plan`, iar
+//   `pregatire_alege` primește și o clasă (examen: 'clasa-5' … 'clasa-12');
 // POST { action: 'pregatire_notificari', on?, ora?, subscription?, unsubscribe? }
 //   și { action: 'pregatire_notificari_proba' } — amintirea zilnică
 //   (api/_lib/pregatireNotificari.js);
@@ -339,6 +342,12 @@ module.exports = async function handler(req, res) {
     if (action === 'pregatire_alt_test') {
       const r = await pregatire.altTest(supa, userId, profile);
       if (r.error) return res.status(400).json(r);
+      return res.status(200).json(r);
+    }
+    // 🗺️ harta pregătirii: „⏭ Treci mai departe" (pasul curent, după câteva încercări)
+    if (action === 'plan_sari') {
+      const r = await pregatire.sariPas(supa, userId, profile, { contentId: String(req.body?.contentId || '') });
+      if (r.error) return res.status(r.setup === false ? 503 : 400).json(r);
       return res.status(200).json(r);
     }
     if (action === 'pregatire_notificari') {

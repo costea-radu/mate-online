@@ -270,6 +270,12 @@ const FEATURE_QUOTAS = {
   // competent citește scrisul de mână și îl corectează după barem — cotă ZILNICĂ
   // proprie, ca foto (nu consumă din pool-ul lunar al corectărilor de teste)
   scris:       { endpoint: 'ai-handwriting:correct',  label: 'Corectări de pe foaia de lucru', emoji: '✍️', window: 'day' },
+  // Corectarea cu AI a unui test FĂRĂ BAREM (13 nov. 2026 — „la corectarea cu AI în lipsa
+  // baremului să ai grijă la consum, să pui limită sau taxă"): modelul trebuie să rezolve
+  // singur fiecare cerință (model mai scump, mai mulți tokeni) → cotă ZILNICĂ proprie, mică.
+  // Peste ea: pachetul AI plătit (top-up) o ridică, ca la celelalte cote. Se numără o singură
+  // dată pe corectare reușită, cu un rând de cost 0 (NU_E_CERERE_AI) — formular, poze, foaie.
+  farabarem:   { endpoint: 'ai-correct:farabarem',    label: 'Corectări AI fără barem',        emoji: '🧮', window: 'day' },
 };
 
 // Limitele implicite PER ROL (0 = cota funcției e dezactivată pentru acel rol).
@@ -277,9 +283,9 @@ const FEATURE_QUOTAS = {
 // generează subiecte pentru clase → subiecte mai multe, corectări puține
 // (ei corectează cu baremul, nu cu AI-ul).
 const QUOTA_ROLE_DEFAULTS = {
-  elev:     { corectari: 20, teste: 20, interactive: 40, foto: 10, scris: 20 },
-  profesor: { corectari: 5,  teste: 40, interactive: 40, foto: 10, scris: 10 },
-  parinte:  { corectari: 20, teste: 20, interactive: 40, foto: 10, scris: 10 },
+  elev:     { corectari: 20, teste: 20, interactive: 40, foto: 10, scris: 20, farabarem: 3 },
+  profesor: { corectari: 5,  teste: 40, interactive: 40, foto: 10, scris: 10, farabarem: 3 },
+  parinte:  { corectari: 20, teste: 20, interactive: 40, foto: 10, scris: 10, farabarem: 3 },
 };
 // Suprascrieri din env: GLOBALE (aceeași valoare pentru toate rolurile) —
 // env-urile existente AI_QUOTA_* — și FINE, per rol:
@@ -292,6 +298,7 @@ const QUOTA_GLOBAL_ENV = {
   // nume NOU: vechiul AI_QUOTA_SCRIS_ZI număra rândurile transformate în text
   // (implicit 300/zi) — refolosit, ar fi permis 300 de corectări pe zi
   scris: process.env.AI_QUOTA_CORECTARI_SCRIS_ZI,
+  farabarem: process.env.AI_QUOTA_FARA_BAREM_ZI,   // 0 = fără limită separată (doar celelalte cote)
 };
 let QUOTAS_JSON = {};
 try { QUOTAS_JSON = JSON.parse(process.env.AI_QUOTAS_JSON || '{}'); }
@@ -1131,7 +1138,7 @@ function requirePremium(profile) {
 // Tudor) și „rezolva-pdf:grila" (corectarea GRATUITĂ a grilei de pe PDF — după
 // barem, fără AI; api/rezolva-pdf.js le numără pe ale lui). Nu intră nici în
 // acțiunile AI gratuite, nici în limita orară.
-const NU_E_CERERE_AI = ['voce', 'rezolva-pdf:grila'];
+const NU_E_CERERE_AI = ['voce', 'rezolva-pdf:grila', 'ai-correct:farabarem'];
 const faraNonAi = (q) => NU_E_CERERE_AI.reduce((acc, ep) => acc.neq('endpoint', ep), q);
 // Răspunsurile servite din PRE-GENERARE (api/_lib/pregen.js) nu apelează niciun
 // model — cost 0. Nu consumă acțiunile AI gratuite ale contului fără abonament
@@ -1338,6 +1345,13 @@ async function enforceFeatureQuota(supa, userId, profile, featureKey, lim = null
   }
   // Sub totalul pool-ului → permis. Dacă propria cotă e depășită, diferența se
   // „transferă" din rezerva celorlalte — vizibil în Contul meu → ⚡ Consum AI.
+}
+
+// Corectarea fără barem s-a făcut → un rând de cost 0 în ai_usage, numărat de cota
+// zilnică „farabarem" (nu e o cerere AI în plus: costul real e în rândul corectării)
+async function logFaraBarem(supa, userId) {
+  try { await supa.from('ai_usage').insert({ user_id: userId, endpoint: FEATURE_QUOTAS.farabarem.endpoint, tokens_in: 0, tokens_out: 0, model: null, cost_micro: 0 }); }
+  catch { /* doar numărătoare */ }
 }
 
 // Alege modelul după starea bugetului (starea = ce întoarce enforceRateLimit).
@@ -2506,7 +2520,7 @@ module.exports = {
   // ciclul FIX al creditelor (resetare la interval stabilit, nu la 30 de zile de la consum)
   cycleInfo, cycleStart, fmtRamas, BUDGET_CYCLE_DAY,
   // cote per funcție + pachete top-up (pasul 2); per rol + pool comun
-  enforceFeatureQuota, FEATURE_QUOTAS, topupPacks, TOPUP_DAYS, quotasForRole, allocateQuotas,
+  enforceFeatureQuota, FEATURE_QUOTAS, topupPacks, TOPUP_DAYS, quotasForRole, allocateQuotas, logFaraBarem,
   // credite AI (unitatea afișată elevului: 100 credite = 1 leu de buget)
   CREDITS_PER_LEU, leiToCredits, fmtCredits,
   // folosit de _lib/pregen.js ca tonul explicațiilor pre-generate să fie identic cu chatul (pasul 3)

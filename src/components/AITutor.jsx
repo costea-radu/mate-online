@@ -419,7 +419,11 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // ca să ai loc de scris rezolvarea; „⤡ Micșorează" îl readuce jos, peste conversație.
   // Se închide odată cu formularul.
   const [formMax, setFormMax] = useState(false);
+  // îndemnul de deasupra formularului, când îl deschide altcineva decât elevul (13 nov.
+  // 2026 — harta pregătirii: „📷 Cu poza", „✏️ Pe PDF" cu paginile scrise atașate)
+  const [formHint, setFormHint] = useState(null);
   useEffect(() => { if (!form) setFormMax(false); }, [form]);
+  useEffect(() => { if (!form) setFormHint(null); }, [form]);
 
   // ── „✍️ Foaie de lucru" — caietul digital (SpatiuDeLucru.jsx) ────────────
   // Scrisul rămâne scris de mână (nu se mai transformă în text): „🎓 Cere
@@ -456,15 +460,26 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
     return { testText: attached, baremText: '', title: 'Exercițiul din poza/PDF-ul tău', contentId: null, libraryId: null, category: context.category || null };
   }
 
-  async function openAnswerForm() {
-    if (formLoading || form) return;
+  // `imagini` — rezolvarea scrisă (ex. paginile de pe PDF), atașată din start (max 3);
+  // `indemn` — ce să facă elevul mai departe (apare deasupra câmpurilor)
+  // `mare` — pe telefon formularul pornește mărit (îndemnul și „📷 Poze" se văd din prima)
+  async function openAnswerForm({ imagini = [], indemn = null, mare = false } = {}) {
+    const imgs = (Array.isArray(imagini) ? imagini : []).filter((u) => typeof u === 'string' && u.startsWith('data:image/')).slice(0, 3);
+    if (form) {
+      if (imgs.length) setFormImages((cur) => [...cur, ...imgs].slice(0, 3));
+      if (indemn) setFormHint(indemn);
+      if (mare) setFormMax(true);
+      return;
+    }
+    if (formLoading) return;
     setFormLoading(true); setError(null);
     try {
       const src = answerSource();
       // testul din platformă: serverul recitește textul + baremul după contentId
       const r = await aiClient.correctForm({ testText: src.testText, baremText: src.baremText, title: src.title, category: src.category, contentId: src.contentId, libraryId: src.libraryId });
       setForm({ ...r, src });
-      setFormAnswers({}); setFormImages([]);
+      setFormAnswers({}); setFormImages(imgs); setFormHint(indemn || null);
+      if (mare) setFormMax(true);
       formStartRef.current = Date.now();
     } catch (e) {
       setError(e.message);
@@ -981,7 +996,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       // deschide lista (dacă e deja deschisă, doar trece pe fila cerută)
       sitePicker: (tab) => setSitePick((cur) => (cur && !tab ? cur : { tab: tab || null })),
       pdfPicker: () => setSitePick({ tab: 'pdf' }),     // numele vechi: direct fila PDF
-      answerForm: () => openAnswerForm(),
+      answerForm: (opts) => openAnswerForm(opts || {}),
       newConversation: () => newConversation(),
       canAnswer: () => !!canAnswer,
       // „✏️ Rezolvă pe PDF" → „✅ Corectează" (src/pages/PDFViewer.jsx): corectarea
@@ -1165,8 +1180,8 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
             // tot textul testului (serverul recitește oricum testul + baremul după contentId)
             exerciseText: String(context.exerciseText || workspace.hint || ''),
           })}
-          attachLabel="📎 Pune în întrebare"
-          onAttach={testActiv ? null : attachToQuestion}
+          attachLabel={form ? '📎 Atașează la răspuns' : '📎 Pune în întrebare'}
+          onAttach={testActiv ? null : (form ? attachToForm : attachToQuestion)}
         />
       ) : (
       /* Mesaje */
@@ -1445,6 +1460,11 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
             </div>
           </div>
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', padding: '10px 12px' }}>
+            {formHint && (
+              <div role="status" style={{ fontSize: '.8rem', lineHeight: 1.45, color: 'var(--navy)', background: 'rgba(232,185,49,.14)', border: '1px solid rgba(232,185,49,.6)', borderRadius: 10, padding: '8px 10px', margin: '0 0 10px' }}>
+                {formHint}
+              </div>
+            )}
             <p style={{ fontSize: '.74rem', color: 'var(--text-muted)', margin: '0 0 10px' }}>
               Scrie răspunsul tău (sau pașii rezolvării) la fiecare cerință. Lasă gol ce nu ai rezolvat — îți spun eu ce lipsește.
             </p>

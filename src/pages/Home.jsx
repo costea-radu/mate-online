@@ -46,26 +46,27 @@ function PregatireCard() {
     return () => { viu = false; off(); };
   }, [user]);
   const inceput = !!(z && z.examen);
-  const cta = !user ? 'Începe azi — gratuit' : !inceput ? 'Alege examenul și începe' : z.aziFacut ? '↻ Mai lucrează azi' : '▶ Testul de azi';
+  // 13 nov. 2026: pagina e harta pregătirii — pasul de azi din plan (api/_lib/planPregatire.js)
+  const cta = !user ? 'Începe azi — gratuit' : !inceput ? 'Alege examenul sau clasa' : z.aziFacut ? '↻ Mai lucrează azi' : '▶ Pasul de azi';
   return (
     <section className="pz-home" aria-label="Pregătește-mă de examen">
       <div className="container">
         <div className={`pz-home-card${user ? '' : ' cu-exercitiu'}`}>
           <div className="pz-home-text">
-            <div className="pz-home-kicker">Un test pe zi, cu serie și ligă</div>
+            <div className="pz-home-kicker">Harta ta, pas cu pas, cu serie și ligă</div>
             <h2>🎯 Pregătește-mă de examen</h2>
             <p>
-              Alegi <strong>Evaluarea Națională</strong> sau <strong>Bacalaureatul</strong> și primești în fiecare zi un test scurt.
+              Alegi <strong>Evaluarea Națională</strong>, <strong>Bacalaureatul</strong> sau clasa și primești toate exercițiile în ordine, pe o hartă.
             </p>
             {inceput && (
               <div className="pz-home-stare">
                 <span>🔥 <strong>{z.serie || 0}</strong> {z.serie === 1 ? 'zi' : 'zile'} la rând</span>
-                <span>{z.aziFacut ? '✅ Ziua de azi e bifată' : '📝 Testul de azi te așteaptă'}</span>
+                <span>{z.aziFacut ? '✅ Ziua de azi e bifată' : '🗺️ Pasul de azi te așteaptă'}</span>
               </div>
             )}
             <Link to="/pregateste-ma" className="btn btn-primary btn-lg pz-home-btn">{cta}</Link>
             <ul className="pz-home-pasi" aria-label="Ce primești">
-              <li>📝 testul zilei</li>
+              <li>🗺️ harta exercițiilor</li>
               <li>🔔 amintire zilnică</li>
               <li>🔥 serie de zile</li>
               <li>🏆 ligă săptămânală</li>

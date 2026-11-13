@@ -22,6 +22,7 @@ import { notaDinScor } from '../lib/nota';
 import { trackPurchase } from '../lib/analytics';
 import { SiteReviewForm } from '../components/ReviewWidget';
 import { MyCatalog, useMyCatalog } from '../components/CatalogNote';
+import { eNeterminat } from '../lib/ciornaTest';
 
 // Home → „Contul meu" (11 nov. 2026): fiecare card din Home duce direct la secțiunea lui
 // (?rezultate=1, ?insigne=1, ?teme=1, ?asociere=1 / ?invita=1, ?parere=1); secțiunea se
@@ -39,6 +40,13 @@ function sectiuneaDinUrl() {
 // din `ai_pdf_results` (poze / PDF-uri încărcate în chat) — ambele protejate
 // de RLS (elevul își vede doar propriile rânduri). Lângă fiecare exercițiu se
 // menționează în paranteză dacă e (interactiv) sau (PDF).
+// 13 nov. 2026 — „să se poată reveni la un exercițiu sau test neterminat, să apară în
+// «rezultate»": testele începute și netrimise (doar salvarea automată, attempts = 0)
+// stau SUS, cu „▶ Continuă" (răspunsurile de data trecută se pun la loc —
+// src/lib/ciornaTest.js); orice test din platformă se redeschide din titlu.
+const urlRezultat = (r) => (!r.contentId ? null
+  : r.type === 'pdf' ? `/pdf-viewer?id=${encodeURIComponent(r.contentId)}` : `/exercitiu?id=${encodeURIComponent(r.contentId)}`);
+
 function MyResults({ user, defaultOpen = false }) {
   const [rows, setRows] = useState(null);
   const [toate, setToate] = useState(false);
@@ -68,10 +76,12 @@ function MyResults({ user, defaultOpen = false }) {
           const c = titleMap[p.content_id] || {};
           out.push({
             id: 'pr-' + (p.id || p.content_id),
+            contentId: p.content_id || null,
             title: c.title || p.test_title || 'Test',
             type: c.content_type || p.content_type || 'interactive',
             score: p.score, max: p.max_score,
-            attempts: p.attempts || 1, time: p.time_spent || 0,
+            attempts: p.attempts == null ? 1 : p.attempts, time: p.time_spent || 0,
+            neterminat: eNeterminat(p),
             at: p.completed_at,
           });
         });
@@ -105,6 +115,8 @@ function MyResults({ user, defaultOpen = false }) {
   };
   const pct = (s, m) => (m ? Math.round((s / m) * 100) : 0);
   const col = (p) => (p >= 80 ? '#2e7d32' : p >= 50 ? '#e65100' : '#c62828');
+  const neterminate = (rows || []).filter((r) => r.neterminat && r.contentId);
+  const inapoi = { returnTo: '/profil?rezultate=1' };
 
   return (
     <details className="card" id="rezultate" style={{ marginBottom: 24 }} open={defaultOpen || undefined}>
@@ -113,6 +125,26 @@ function MyResults({ user, defaultOpen = false }) {
       </summary>
       <div style={{ marginTop: 14 }}>
         <MyCatalog marks={marks} />
+        {neterminate.length > 0 && (
+          <div style={{ border: '1.5px dashed var(--gold)', background: 'rgba(232,185,49,.08)', borderRadius: 12, padding: '10px 12px', marginBottom: 14 }}>
+            <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '.9rem', marginBottom: 6 }}>
+              ⏸ Neterminate ({neterminate.length}) — continuă de unde ai rămas
+            </div>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {neterminate.slice(0, 8).map((r) => (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '7px 10px' }}>
+                  <span style={{ minWidth: 0, flex: '1 1 220px', fontSize: '.86rem', color: 'var(--text)', fontWeight: 600 }}>
+                    {r.title}
+                    <span style={{ display: 'block', fontSize: '.72rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                      salvat automat{r.max ? ` · ${r.score}/${r.max} până acum` : ''}{r.at ? ` · ${new Date(r.at).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short' })}` : ''}
+                    </span>
+                  </span>
+                  <Link to={urlRezultat(r)} state={inapoi} className="btn btn-sm btn-primary">▶ Continuă</Link>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {rows === null && <p style={{ color: 'var(--text-muted)', fontSize: '.88rem' }}>Se încarcă…</p>}
         {rows !== null && rows.length === 0 && (
           <p style={{ color: 'var(--text-muted)', fontSize: '.88rem' }}>
@@ -138,7 +170,10 @@ function MyResults({ user, defaultOpen = false }) {
                     <tr key={r.id} style={{ borderTop: '1px solid var(--border)' }}>
                       <td style={{ padding: '7px 10px' }}>
                         <span style={{ color: 'var(--text)', fontWeight: 500 }}>
-                          {r.title}{' '}
+                          {urlRezultat(r)
+                            ? <Link to={urlRezultat(r)} state={inapoi} style={{ color: 'var(--navy)', fontWeight: 600 }} title={r.neterminat ? 'Continuă testul' : 'Deschide din nou testul'}>{r.title}</Link>
+                            : r.title}{' '}
+                          {r.neterminat && <span style={{ background: 'rgba(232,185,49,.18)', color: '#8a6d00', borderRadius: 99, padding: '1px 7px', fontSize: '.68rem', fontWeight: 800, marginRight: 4 }}>neterminat</span>}
                           <span style={{ color: 'var(--text-muted)', fontWeight: 600, fontSize: '.74rem' }}>
                             ({r.type === 'interactive' ? 'interactiv' : r.type === 'pdf' ? 'PDF' : r.type})
                           </span>
@@ -156,7 +191,7 @@ function MyResults({ user, defaultOpen = false }) {
                           </span>
                         )}
                       </td>
-                      <td style={{ padding: '7px 10px', textAlign: 'right', color: 'var(--text)' }}>{r.attempts}</td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: 'var(--text)' }}>{r.neterminat ? '—' : r.attempts}</td>
                       <td style={{ padding: '7px 10px', textAlign: 'right', color: 'var(--text)', whiteSpace: 'nowrap' }}>{fmtT(r.time)}</td>
                     </tr>
                   );

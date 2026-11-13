@@ -198,7 +198,7 @@ test('acțiunile gratuite: servirile cu cost 0 nu se numără; limita orară le 
   const filtre = [];
   const q = new Proxy({}, { get(_, prop) { return prop === 'then' ? (res) => res({ count: 0 }) : (...a) => { filtre.push([prop, ...a.filter((x) => typeof x === 'string')]); return q; }; } });
   await ai.enforceRateLimit({ from: () => q }, NOU, null, { budgets: false });
-  assert.deepStrictEqual(filtre.filter((f) => f[0] === 'neq'), [['neq', 'endpoint', 'voce'], ['neq', 'endpoint', 'rezolva-pdf:grila']]);
+  assert.deepStrictEqual(filtre.filter((f) => f[0] === 'neq'), [['neq', 'endpoint', 'voce'], ['neq', 'endpoint', 'rezolva-pdf:grila'], ['neq', 'endpoint', 'ai-correct:farabarem']]);
 });
 
 test('întrebările gratuite pe zi în chat: oprite implicit; pornite, doar chatul și pe modelul economic', async (t) => {

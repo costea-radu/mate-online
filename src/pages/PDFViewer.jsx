@@ -89,7 +89,12 @@ export default function PDFViewer() {
   // deschis din „🎯 Pregătește-mă de examen" (testul zilei): pornește singur
   // „✏️ Rezolvă pe PDF" (EN) sau foaia de lucru (BAC și celelalte), o dată
   const dinPregatire = !modTest && searchParams.get('pregatire') === '1';
+  // 🗺️ pas din harta pregătirii (13 nov. 2026): ?mod= alege cum trimite elevul rezolvarea —
+  // 'pdf' (scrie pe test), 'chat' (formularul de răspuns), 'foaie' (foaia de lucru), 'poza'
+  const modPlan = dinPregatire && ['pdf', 'chat', 'foaie', 'poza'].includes(searchParams.get('mod')) ? searchParams.get('mod') : null;
   const pregPornitRef = useRef(false);
+  // formularul de răspuns cerut de pe hartă; se deschide când chatul a citit testul
+  const [formaCeruta, setFormaCeruta] = useState(null);   // null | { mod, imagini?, indemn? }
   const [pregRez, setPregRez] = useState(null);    // { rez, fel } — PregatireToast
   // Recenzia testului PDF (8 nov. 2026, „pune și recenzii"): după o corectare SALVATĂ
   // (rândul din `progress` pe care îl cere RLS-ul recenziilor) — „Cum ți s-a părut
@@ -311,12 +316,15 @@ export default function PDFViewer() {
   // răspunsurile pleacă la profesor cu „📝 Răspunde la test").
   const isEnPdf = item?.category === 'evaluare-nationala' && !isBaremItem && baremStatus !== 'este_barem';
   const canSolve = isEnPdf && !modTest && !examHtml && !!pdfData;
-  const solveActive = solveOn && canSolve;
+  // „✏️ Pe PDF" de pe harta pregătirii la BAC / clase: scrie oriunde pe pagini; la
+  // „✅ Corectează" paginile scrise pleacă, ca imagini, în formularul de răspuns
+  const solveGeneric = !isEnPdf && !modTest && !examHtml && !!pdfData && !isBaremItem && baremStatus !== 'este_barem';
+  const solveActive = solveOn && (canSolve || solveGeneric);
   // La BAC și la celelalte PDF-uri (și la testele de EN din testul pe grupă / duel),
   // „✏️ Rezolvă" deschide FOAIA DE LUCRU din panoul profesorului (8 nov. 2026)
   const rezolvaFoaie = !canSolve && (!!pdfData || !!examHtml) && !isBaremItem && baremStatus !== 'este_barem';
   const inkKey = isLib ? (lib?.id ? `lib:${lib.id}` : null) : (item?.id || null);
-  const solve = useRezolvarePdf({ on: solveActive, data: pdfData, draftKey: inkKey });
+  const solve = useRezolvarePdf({ on: solveActive, data: pdfData, draftKey: inkKey, generic: !canSolve });
   // 🔴 nota de pe test în afara modului de rezolvare: cea din panoul profesorului (vizita
   // asta) sau a ultimei corectări „✏️ Rezolvă pe PDF" (ciorna testului, și din altă vizită)
   const notaSursa = notaExt || (solve.nota && solve.nota.v != null ? solve.nota : null);
@@ -480,7 +488,32 @@ export default function PDFViewer() {
   // (EN) sau foaia de lucru (BAC / alte PDF-uri; doar cu cont)
   useEffect(() => {
     if (!dinPregatire || pregPornitRef.current) return;
-    if (canSolve && !solveOn) {
+    // de pe harta pregătirii: modul ales acolo
+    if (modPlan === 'chat' || modPlan === 'poza') {
+      if (!user || (!pdfData && !examHtml)) return;
+      pregPornitRef.current = true;
+      setTutorOpen(true);
+      setFormaCeruta({
+        mod: modPlan,
+        indemn: modPlan === 'poza'
+          ? '📷 Fotografiază rezolvarea de pe caiet și adaug-o cu „📷 Poze cu rezolvarea" (până la 3 poze), apoi „✅ Corectează".'
+          : '💬 Scrie răspunsul (sau pașii) la fiecare cerință, apoi „✅ Corectează". Ce lași gol are 0 puncte.',
+      });
+      return;
+    }
+    if (modPlan === 'foaie') {
+      if (!user || (!pdfData && !examHtml) || isBaremItem || baremStatus === 'este_barem') return;
+      pregPornitRef.current = true;
+      setTutorOpen(true);
+      setWork(true);
+      // fișele claselor n-au notă oficială: rezolvarea de pe foaie intră în rezultate (și
+      // bifează pasul) prin formular — „📎 Atașează la răspuns", apoi „✅ Corectează"
+      if (!['evaluare-nationala', 'bacalaureat'].includes(item?.category)) {
+        setFormaCeruta({ mod: 'foaie', indemn: '✍️ Scrie pe foaia de lucru, apoi „📎 Atașează la răspuns" și „✅ Corectează" aici — așa rezolvarea intră în rezultate și pasul se bifează pe hartă.' });
+      }
+      return;
+    }
+    if ((canSolve || (modPlan === 'pdf' && solveGeneric)) && !solveOn) {
       pregPornitRef.current = true;
       toggleSolve();
     } else if (rezolvaFoaie && user && !(tutorOpen && workOpen)) {
@@ -488,7 +521,31 @@ export default function PDFViewer() {
       setTutorOpen(true);
       setWork(true);
     }
-  }, [dinPregatire, canSolve, rezolvaFoaie, user]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dinPregatire, canSolve, solveGeneric, rezolvaFoaie, user, !!pdfData, !!examHtml, baremStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // formularul cerut de pe hartă: așteaptă chatul și textul testului, apoi îl deschide
+  // (cu îndemnul și, la „✏️ Pe PDF", cu paginile scrise atașate)
+  useEffect(() => {
+    if (!formaCeruta || !tutorOpen) return undefined;
+    let viu = true;
+    (async () => {
+      for (let i = 0; i < 120 && viu; i++) {      // ~18 s: textul PDF-ului se citește la deschiderea panoului
+        const cmd = chatCmdRef.current;
+        if (cmd && cmd.canAnswer && cmd.canAnswer() && cmd.answerForm) {
+          cmd.answerForm({ imagini: formaCeruta.imagini || [], indemn: formaCeruta.indemn || null, mare: narrow && formaCeruta.mod !== 'foaie' });
+          setFormaCeruta(null);
+          return;
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((ok) => setTimeout(ok, 150));
+      }
+      if (viu) {
+        setNote({ text: 'Nu am putut citi textul acestui PDF (poate e scanat), așa că formularul de răspuns nu pornește. Trimite rezolvarea de pe foaia de lucru („🎓 Cere corectarea") sau ca poză în chat.' });
+        setFormaCeruta(null);
+      }
+    })();
+    return () => { viu = false; };
+  }, [formaCeruta, tutorOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ✏️ „Rezolvă" pe un PDF care nu e test de EN: foaia de lucru, în panoul profesorului
   function toggleFoaia() {
@@ -507,13 +564,47 @@ export default function PDFViewer() {
     if (baremView.open) setBaremView((v) => ({ ...v, open: false, page: 1, seq: v.seq + 1 }));
     setViewerFailed(false);
     setSolveOn(true);
-    setNote({ text: '✏️ Încercuiește litera la grile și scrie rezolvarea la Subiectul al III-lea, direct pe pagină. Cu două degete derulezi și mărești. La final: „✅ Corectează".' });
+    setNote({ text: canSolve
+      ? '✏️ Încercuiește litera la grile și scrie rezolvarea la Subiectul al III-lea, direct pe pagină. Cu două degete derulezi și mărești. La final: „✅ Corectează".'
+      : '✏️ Scrie rezolvarea direct pe pagină, cu degetul sau cu creionul. Cu două degete derulezi și mărești. La final: „✅ Corectează" — scrisul ajunge la profesorul virtual, în formularul de răspuns.' });
+  }
+
+  // ✅ „Corectează" în modul fără harta testului (BAC / clase, de pe harta pregătirii):
+  // paginile scrise → imagini (cel mult 3) → formularul de răspuns al profesorului
+  // virtual (api/ai-correct.js) — punctajul intră în rezultate, ca la orice formular
+  async function corecteazaGeneric() {
+    if (solveBusy) return;
+    if (!user) {
+      setNote({ text: 'Autentifică-te ca să-ți corectăm rezolvarea de pe PDF.', link: { to: '/autentificare', label: 'Autentificare' } });
+      return;
+    }
+    if (!solve.hasInk) { setNote({ text: 'Scrie întâi rezolvarea pe PDF, apoi apasă „✅ Corectează".' }); return; }
+    if (!(isPremium || isAdmin)) {
+      setNote({ text: 'Corectarea scrisului de mână face parte din abonamentul Premium. Fără abonament poți scrie răspunsurile în chat — „📝 Răspunde în chat".', link: { to: '/preturi', label: 'Vezi abonamentele' } });
+      return;
+    }
+    setSolveBusy(true);
+    try {
+      solve.store.flush();
+      const r = await solve.renderImages(solve.request());
+      const toate = (r.images || []).map((x) => x.url).filter(Boolean);
+      if (!toate.length) { setNote({ text: 'Nu am găsit scris pe pagini. Scrie rezolvarea, apoi apasă din nou „✅ Corectează".' }); return; }
+      const lost = Math.max(0, toate.length - 3);
+      setTutorOpen(true);
+      setFormaCeruta({
+        mod: 'pdf', imagini: toate.slice(0, 3),
+        indemn: `✏️ Am atașat ce ai scris pe PDF (${Math.min(3, toate.length)} ${Math.min(3, toate.length) === 1 ? 'imagine' : 'imagini'}${lost ? `; au încăput primele 3 din ${toate.length}` : ''}). Poți completa și răspunsurile tastate, apoi „✅ Corectează".`,
+      });
+    } catch {
+      setNote({ text: 'Nu am putut pregăti paginile scrise. Mai încearcă o dată.' });
+    } finally { setSolveBusy(false); }
   }
 
   // ✅ „Corectează": grilele recunoscute → barem (fără AI); zonele scrise de mână →
   // imagini ale paginii cu scrisul pe ea → corectorul (Premium). Corectarea apare în
   // conversația Profesorului Virtual și, cu ✔ / ✖ și punctaje, chiar pe PDF.
   async function corecteazaPePdf() {
+    if (!canSolve) { await corecteazaGeneric(); return; }
     if (solveBusy) return;
     if (!user) {
       setNote({ text: 'Autentifică-te ca să-ți corectăm rezolvarea de pe PDF.', link: { to: '/autentificare', label: 'Autentificare' } });
@@ -980,8 +1071,8 @@ export default function PDFViewer() {
   // stratul de scris, uneltele (în bara de zoom) și „✅ Corectează" de după ultima pagină
   const solveProps = solveActive ? {
     overlay: solve.overlay,
-    toolbar: rezolvareToolbar({ solve, compact: narrow, busy: solveBusy, onCorect: corecteazaPePdf, onClose: toggleSolve, onDownload: descarcaPdfRezolvat, premium: isPremium || isAdmin }),
-    footer: <RezolvareFooter solve={solve} busy={solveBusy} onCorect={corecteazaPePdf} premium={isPremium || isAdmin} />,
+    toolbar: rezolvareToolbar({ solve, compact: narrow, busy: solveBusy, onCorect: corecteazaPePdf, onClose: toggleSolve, onDownload: descarcaPdfRezolvat, premium: isPremium || isAdmin, generic: !canSolve }),
+    footer: <RezolvareFooter solve={solve} busy={solveBusy} onCorect={corecteazaPePdf} premium={isPremium || isAdmin} generic={!canSolve} />,
   } : (notaPeTest ? { overlay: ({ n, w, h }) => <NotaPagina n={n} w={w} h={h} nota={notaPeTest} /> } : {});
   const badgeJsx = !tiny && <span style={badge} title={isLib ? 'Material din Biblioteca utilizatorilor' : undefined}>{isLib ? '🏛️ ' : ''}{item?.is_free ? 'Gratuit' : '⭐ Premium'}</span>;
 

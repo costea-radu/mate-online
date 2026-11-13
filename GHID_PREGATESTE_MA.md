@@ -1,4 +1,132 @@
-# 🎯 Pregătește-mă de examen — testul zilei, XP, ligă, fluxul Arenei, nota cu roșu
+# 🎯 Pregătește-mă de examen — harta pregătirii, testul zilei, XP, ligă, fluxul Arenei, nota cu roșu
+
+> **13 noiembrie 2026 — 🗺️ HARTA PREGĂTIRII** (planul de parcurs): vezi secțiunea 0,
+> imediat mai jos. Restul ghidului (8 nov.) rămâne valabil: seria, bifa zilei de la 3
+> exerciții, răsplata, liga, insignele, amintirea, fluxul Arenei, nota cu roșu.
+
+## 0. Harta pregătirii — planul de parcurs (13 nov. 2026)
+
+Cererea:
+
+> La conturile de elevi, pune în „pregătește-mă de examen" un plan de pregătire cu
+> exerciții în ordine: Planul să conțină, în ordine, toate exercițiile interactive din
+> subiectele de la „capitole cu exerciții", „exerciții pe subiecte" și apoi „teste
+> interactive" de la tipul de examen ales de elev. După terminarea testelor interactive,
+> să se treacă la cele PDF. La testele PDF să se poată trimite rezolvări: a) pe PDF,
+> b) în chat, c) în foaia de lucru, d) cu poza. Să se poată alege și o clasă: (…) toate
+> exercițiile interactive de la acea clasă, în ordinea din site, apoi din clasele
+> precedente. Apoi să se treacă la exerciții PDF (…) dar la corectarea cu AI în lipsa
+> baremului să ai grijă la consum, să pui limită sau taxă. Să se poată reveni la un
+> exercițiu sau test neterminat, să apară în „rezultate". Planul să se poată vedea ca o
+> hartă (…) Harta să se updateze mereu, dacă se adaugă exerciții noi în site. Să se poată
+> stagna pe hartă la un exercițiu până îl termină, dar să poată și trece mai departe după
+> mai multe încercări. Dacă se întrerupe șirul de zile, să se poată relua de unde a rămas.
+> Păstrează liga și XP, dar introdu harta de pregătire - planul de parcurs.
+
+### Instalare
+
+**Supabase → SQL Editor** → rulează `supabase/plan_pregatire.sql` (o singură coloană:
+`user_stats.prep_plan`, jsonb; fără tabele noi, deci fără GRANT-uri noi). Fără ea harta
+merge, doar „⏭ Treci mai departe" nu se poate salva (adminul vede un mesaj pe pagină).
+
+### Ținta și ordinea (`api/_lib/planPregatire.js`)
+
+- **Ținta** (tot în `user_stats.prep_exam`): un examen — EN, BAC Mate-Info, BAC Științele
+  Naturii, BAC Tehnologic — **sau o clasă**, de la a V-a la a XII-a (`clasa-5` … `clasa-12`).
+- **Examen** → etapele, în ordinea paginii examenului: *Capitole cu exerciții* →
+  *Exerciții pe subiecte* → *Teste interactive* (toate interactive), apoi PDF: *Capitole* →
+  *Exerciții pe subiecte* → *Variante* → (BAC) *Teste de antrenament* → *Simulări*.
+  Fără bareme. La BAC, „Capitole" sunt comune tuturor profilurilor (ca pe site); restul,
+  doar ale profilului ales.
+- **Clasă** → interactivele clasei alese, apoi ale claselor dinainte (… până la a V-a),
+  apoi PDF-urile, în aceeași ordine. Ex.: a VII-a → VII, VI, V interactive, apoi VII, VI,
+  V PDF. (La a IX-a intră și a VIII-a … a V-a — „clasele precedente".)
+- În fiecare etapă: ordinea din site (`sort_order`, apoi cele mai noi). Un material apare o
+  singură dată.
+- **Harta se construiește la fiecare deschidere** din `content`: un exercițiu nou intră
+  singur la locul lui; dacă e adăugat după începutul planului, are eticheta „nou" — iar
+  dacă e într-o etapă deja parcursă, devine pasul următor.
+
+### Pașii (starea vine din `progress`, ca „Rezultatele mele")
+
+| Stare | Când | Pe hartă |
+|---|---|---|
+| nou | neînceput | punct alb (sau „urmează", încuiat) |
+| neterminat | doar salvarea automată (`attempts = 0`) | ⏸ |
+| încercat | trimis / corectat, sub prag | cerc roșu, ×n încercări |
+| trecut | ≥ **70%** la interactive, ≥ **50%** la PDF (nota 5) | ✓ bleumarin |
+| sărit | „⏭ Treci mai departe", după **3** încercări | ⏭ |
+
+- **Pasul curent** = primul pas accesibil care nu e trecut și nici sărit. Elevul rămâne
+  pe el până îl trece; după 3 încercări apare „⏭ Treci mai departe" (pasul rămâne pe hartă,
+  se poate relua oricând). Pașii de după sunt încuiați — mai puțin cei la care elevul a
+  lucrat deja din site.
+- Un pas trecut rămâne trecut (ținut minte în `prep_plan.trecute`), chiar dacă o reluare
+  iese mai slabă (în `progress` contează ultima încercare).
+- **Fără abonament**: interactivele gratuite. Pașii Premium și testele PDF (corectarea lor e
+  Premium) apar cu ⭐ și nu opresc planul; „Ai terminat tot ce e gratuit" + îndemnul.
+- **Testul zilei = pasul curent** (rândul din `daily_tests` îl urmează cât ziua nu e încă
+  bifată); amintirea zilnică îl deschide direct. Vechea alegere (nerezolvate → sub 70% →
+  recapitulare) rămâne doar când planul e gata („Recapitulare").
+- **Bifa zilei** — neschimbată (3 exerciții, și o parte de test). La o țintă-clasă se
+  numără și exercițiile claselor din plan.
+- **După o pauză**: seria 🔥 o ia de la capăt (ca înainte), planul nu — „Bine ai revenit!
+  … te așteaptă exact unde l-ai lăsat: pasul 37".
+- Pragurile se schimbă din Vercel, fără cod: `PLAN_PRAG` (70), `PLAN_PRAG_PDF` (50),
+  `PLAN_INCERCARI` (3).
+
+### Pagina (`src/pages/PregatesteMa.jsx`, `src/components/HartaPlan.jsx`)
+
+- **🗺️ Pasul de azi**: etapa, „pasul 37 din 240", titlul, ce s-a întâmplat la el, bifa
+  zilei, butonul (▶ Începe / ▶ Continuă / ↻ Mai încearcă), „⏭ Treci mai departe" când e
+  voie; la testele PDF, cele patru moduri: **✏️ Pe PDF · 💬 În chat · ✍️ Foaia de lucru ·
+  📷 Cu poza**. Dedesubt: câți pași s-au trecut, bara, amintirea.
+- **Harta**: pagina de caiet de matematică (pătrățele, marginea roșie), pașii legați rând
+  după rând, în șerpuire; cercul = interactiv, pătratul rotunjit = test PDF; etapele sunt
+  notițe pe margine (se pliază; deschisă stă etapa pasului curent). Un clic pe un pas →
+  fișa lui jos, cu butoanele.
+- Pe calculator: pasul de azi și harta în stânga, răsplățile și insignele în dreapta. Pe
+  telefon: pasul, harta, apoi răsplățile.
+- Liga, XP-ul, monedele, insignele, „Ultimele zile", Prof. Tudor — neschimbate.
+- „🔀 Alt test" și comutatorul „interactiv / PDF" au lăsat locul hărții.
+- Vizualizatorul arată „🗺️ HARTA PREGĂTIRII" la pașii din plan; „Înapoi" revine pe hartă.
+
+### Testele PDF din plan (`src/pages/PDFViewer.jsx`, `?mod=`)
+
+| Mod | Ce se deschide | Cum ajunge pe hartă |
+|---|---|---|
+| ✏️ Pe PDF | EN: „Rezolvă pe PDF" (grilele după barem, scrisul la corector). BAC / clase: scrii oriunde pe pagini; la „✅ Corectează", paginile scrise (până la 3) intră ca imagini în formularul de răspuns | `api/rezolva-pdf.js` / `api/ai-correct.js` → `progress` |
+| 💬 În chat | formularul „📝 Răspunde în chat", deschis singur, cu îndemn | `api/ai-correct.js` → `progress` |
+| ✍️ Foaia de lucru | foaia de lucru, lângă test. La fișele claselor se deschide și formularul: „📎 Atașează la răspuns" → „✅ Corectează" | EN/BAC: nota de pe foaie (`api/ai-handwriting.js`); clase: prin formular |
+| 📷 Cu poza | formularul, cu îndemnul „📷 Poze cu rezolvarea" (până la 3) | `api/ai-correct.js` → `progress` |
+
+Corectarea scrisului (pe PDF, foaie, poze) e Premium, ca înainte. **Fără barem**: cota
+zilnică „🧮 Corectări AI fără barem" (3 pe zi; peste ea, pachetul AI) — `GHID_LIMITE_AI.md`.
+
+### Testele neterminate în „Rezultate" (`src/lib/ciornaTest.js`, `src/lib/tutorBridge.js`)
+
+- „📊 Rezultatele mele" (Contul meu): sus, **⏸ Neterminate** — testele începute și
+  netrimise, cu **▶ Continuă**; în tabel, eticheta „neterminat”, iar orice test din
+  platformă se redeschide din titlu („Înapoi" revine la rezultate).
+- La revenire, **răspunsurile de data trecută sunt puse la loc** (pe același dispozitiv,
+  30 de zile): vizualizatorul le ține minte din salvarea automată și le trimite testului
+  (`MATE_ANSWERS_SET`); nu suprascrie ce a scris elevul între timp. După „Corectează total",
+  „Resetează" sau reîncărcarea de la zero, ciorna se șterge. La PDF, scrisul de pe pagini se
+  păstra deja (ciorna locală a testului).
+
+### API
+
+`/api/gamificare` → `pregatire` întoarce și **`plan`** (etapele cu numărătorile, pașii,
+pasul curent cu adresele, regulile); `pregatire_alege` primește și o clasă
+(`{ examen: 'clasa-7' }`); **`plan_sari`** (`{ contentId }`) = „⏭ Treci mai departe"
+(400 cu motivul; 503 fără migrare).
+
+### Teste
+
+`test/plan-pregatire.test.js` (15), `test/plan-pregatire-pdf.test.js` (7),
+`test/rezultate-neterminate.test.js` (5).
+
+---
 
 Cererea (8 noiembrie 2026):
 
@@ -182,3 +310,8 @@ Cardul **📣 Ce se întâmplă în Arenă** (`src/components/ArenaFeed.jsx`), s
 | `src/pages/Home.jsx`, `Arena.jsx`, `ProfesorVirtual.jsx`, `src/components/Navbar.jsx`, `AITutor.jsx`, `src/lib/meniu.js` | butoanele |
 | `src/components/RezolvarePdf.jsx`, `src/lib/pdfRezolvare.js` | nota cu roșu (ecran + PDF descărcat) |
 | `test/pregatire-zilnica.test.js` | 30 de teste (logica, Supabase simulat, API, SQL, nota, interfața) |
+| `supabase/plan_pregatire.sql` | 13 nov.: coloana `user_stats.prep_plan` (pașii săriți / trecuți, începutul planului) |
+| `api/_lib/planPregatire.js` | 13 nov.: harta pregătirii — etapele, starea pașilor, pasul curent, sărirea |
+| `src/components/HartaPlan.jsx` | 13 nov.: harta (pagina de caiet, pașii, etapele) |
+| `src/lib/ciornaTest.js` | 13 nov.: răspunsurile de data trecută la testele neterminate |
+| `test/plan-pregatire.test.js`, `test/plan-pregatire-pdf.test.js`, `test/rezultate-neterminate.test.js` | 13 nov.: 27 de teste |

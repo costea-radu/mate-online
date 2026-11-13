@@ -41,7 +41,8 @@ test('PDF: „✍️ Foaie de lucru" e în antetul profesorului și se deschide 
   assert.match(chat, /const wsOpen = !!\(workspace && workspace\.open\) && !boardMode;/);
   assert.match(chat, /\{wsOpen \? \(\s*<SpatiuDeLucru\s+embedded/);
   // în testul pe grupă rămâne doar ciorna (fără corectare și fără atașare)
-  assert.match(chat, /onAttach=\{testActiv \? null : attachToQuestion\}/);
+  // 13 nov. 2026: cu formularul de răspuns deschis, foaia se atașează la răspuns (harta pregătirii)
+  assert.match(chat, /onAttach=\{testActiv \? null : \(form \? attachToForm : attachToQuestion\)\}/);
   assert.match(chat, /onCorect=\{testActiv \? null :/);
 });
 

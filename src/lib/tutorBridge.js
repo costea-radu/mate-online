@@ -33,6 +33,9 @@
 //                      defect → părintele reîncarcă exercițiul de la zero)
 //                    | MATE_TOOLBAR { total, reset, all, graded }
 //  părinte → iframe: MATE_TUTOR_STATE_REQ | MATE_TUTOR_ACTION | MATE_ANSWERS_REQ
+//                    | MATE_ANSWERS_SET { answers } (13 nov. 2026: elevul revine la un
+//                      test neterminat → răspunsurile lui de data trecută, puse la loc;
+//                      src/lib/ciornaTest.js) → MATE_ANSWERS_SET_ACK { n }
 //                    | MATE_COMPACT { on } (telefon: bara testului se strânge)
 //                    | MATE_TOOLBAR_CMD { cmd: 'total' | 'reset' | 'all' }
 // =====================================================================
@@ -461,6 +464,32 @@ const BRIDGE_SCRIPT = String.raw`
     var a = collectAnswers();
     if (!a) return;
     try { window.parent.postMessage({ type: 'MATE_ANSWERS', answers: a }, '*'); } catch(e){}
+  }
+  // ── RĂSPUNSURILE DE DATA TRECUTĂ (13 nov. 2026): părintele le trimite înapoi când
+  // elevul revine la un test neterminat. Aceleași câmpuri ca la collectAnswers
+  // (q0, q1, …): grila → varianta cu acel index, răspunsul liber → textul. Nu
+  // suprascrie ce a scris deja elevul și nu apasă „Verifică" (userActed rămâne fals).
+  function fireEv(el, type){ try { el.dispatchEvent(new Event(type, { bubbles: true })); } catch(e){} }
+  function setAnswers(a){
+    if (!a || !a.length) return 0;
+    var n = 0;
+    for (var i = 0; i < a.length && i <= 60; i++) {
+      var v = a[i];
+      if (v === null || v === undefined || String(v) === '') continue;
+      var radios = document.querySelectorAll('input[type="radio"][name="q' + i + '"]');
+      if (radios.length) {
+        var oricare = false;
+        for (var k = 0; k < radios.length; k++) if (radios[k].checked) oricare = true;
+        if (oricare) continue;
+        for (var j = 0; j < radios.length; j++) {
+          if (String(radios[j].value) === String(v)) { radios[j].checked = true; fireEv(radios[j], 'input'); fireEv(radios[j], 'change'); n++; break; }
+        }
+        continue;
+      }
+      var text = document.querySelector('input[type="text"][name="q' + i + '"], input[name="q' + i + '"]:not([type="radio"]), textarea[name="q' + i + '"]');
+      if (text && !text.disabled && !String(text.value || '')) { text.value = String(v); fireEv(text, 'input'); fireEv(text, 'change'); n++; }
+    }
+    return n;
   }
 
   function postScore(score, max, force){
@@ -1027,6 +1056,11 @@ const BRIDGE_SCRIPT = String.raw`
     // salvarea parțială (dueluri/turnee): părintele cere răspunsurile de acum,
     // fără să fie nevoie ca elevul să apese „Verifică"
     if (d.type === 'MATE_ANSWERS_REQ') postAnswers();
+    if (d.type === 'MATE_ANSWERS_SET') {
+      var pusi = setAnswers(d.answers);
+      post('MATE_ANSWERS_SET_ACK', { n: pusi });
+      setTimeout(function(){ postAnswers(); postToolbar(true); }, 150);
+    }
     if (d.type === 'MATE_TUTOR_ACTION') {
       var ok = doAction(d.action);
       post('MATE_TUTOR_ACK', { ok: ok, action: d.action });

@@ -139,6 +139,7 @@ module.exports = async function handler(req, res) {
     if (canAi) {
       const lim = await ai.enforceRateLimit(supa, userId, profile);       // limita orară + creditele
       await ai.enforceFeatureQuota(supa, userId, profile, 'scris', lim);  // cota zilnică a corectărilor de scris
+      if (!src.hasBarem) await ai.enforceFeatureQuota(supa, userId, profile, 'farabarem', lim); // fără barem: cota proprie (13 nov. 2026)
       try {
         const r = await corector.correctJson({
           system: R.SYSTEM,
@@ -151,6 +152,7 @@ module.exports = async function handler(req, res) {
           await ai.logUsage(supa, userId, i === r.usages.length - 1 ? 'ai-handwriting:correct' : 'ai-handwriting:retry', r.usages[i]);
         }
         model = r.model;
+        if (!src.hasBarem) await ai.logFaraBarem(supa, userId);
         aiOut = R.normalizeAi(r.data, { want: q.harta ? (q.images.length ? q.scris : []) : null, faraCheie: g.faraCheie, hasBarem: src.hasBarem, structura: q.structura, keyMap });
       } catch (e) {
         for (const u of (e && e.usages) || []) await ai.logUsage(supa, userId, 'ai-handwriting:retry', u);

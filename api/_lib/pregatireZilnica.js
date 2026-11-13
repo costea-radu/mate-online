@@ -30,12 +30,21 @@
 // Tabela: supabase/pregatire_zilnica.sql (daily_tests + user_stats.prep_*).
 // Funcțiile cu baza de date nu aruncă: salvarea scorurilor nu are voie să cadă
 // din cauza pregătirii.
+//
+// 13 nov. 2026 — „🗺️ HARTA PREGĂTIRII" (api/_lib/planPregatire.js): ținta poate fi
+// și o CLASĂ (clasa-5 … clasa-12, tot în user_stats.prep_exam); TESTUL ZILEI e
+// pasul curent din plan (capitole → exerciții pe subiecte → teste interactive →
+// PDF; la clasă: interactivele clasei și ale claselor dinainte, apoi PDF-urile).
+// Alegerea vechiului test (nerezolvate → sub 70% → recapitulare) rămâne doar
+// când planul e gata sau gol. La o țintă-clasă, ziua se bifează și cu exercițiile
+// claselor din plan. Liga, XP-ul, seria și insignele — neschimbate.
 // =====================================================================
 const xp = require('./xp');
 const http = require('./http');
 const barem = require('./barem');
 const misiune = require('./misiune');
 const feed = require('./arenaFeed');
+const plan = require('./planPregatire');   // „🗺️ Harta pregătirii" — planul de parcurs (13 nov. 2026)
 
 const EXAMENE = [
   { id: 'evaluare-nationala', label: 'Evaluarea Națională', scurt: 'EN', category: 'evaluare-nationala', profile: null },
@@ -71,9 +80,21 @@ const INSIGNE = [
   { id: 'pregatire-zile-50', icon: '🏅', name: '50 de zile de pregătire', desc: 'Ai lucrat la testul zilei în 50 de zile.', cand: (c) => c.total >= 50 },
 ];
 
+// Ținta poate fi și o CLASĂ (13 nov. 2026): planul ei = interactivele clasei, apoi ale
+// claselor dinainte, apoi PDF-urile (api/_lib/planPregatire.js)
+const CLASE_TINTA = plan.CLASE.map((g) => ({ id: `clasa-${g}`, label: plan.numeClasa(g), scurt: `Cl. ${plan.ROMAN[g]}`, category: `clasa-${g}`, profile: null, clasa: g }));
+
 const isMissing = (err) => !!err && /column .* does not exist|does not exist|schema cache|could not find/i.test(String(err.message || err));
 const examInfo = (id) => EXAMENE.find((e) => e.id === id) || null;
 const examValid = (id) => !!examInfo(id);
+// ținta elevului: un examen sau o clasă → { id, label, scurt, tip, category, profile, clasa? }
+function tintaInfo(id) {
+  const e = examInfo(id);
+  if (e) return { ...e, tip: 'examen' };
+  const c = CLASE_TINTA.find((x) => x.id === id);
+  return c ? { ...c, tip: 'clasa' } : null;
+}
+const tintaValida = (id) => !!tintaInfo(id);
 const formatValid = (f) => FORMATE.includes(f);
 const ePremium = (profile) => !!(profile && (profile.subscription_status === 'active' || profile.is_admin));
 const SUB_NUME = { 1: 'Subiectul I', 2: 'Subiectul al II-lea', 3: 'Subiectul al III-lea' };
@@ -96,12 +117,20 @@ function eDeExamen(c) {
   return !!c && CATEGORII_EXAMEN.includes(c.category) && !barem.isBaremRow(c);
 }
 
+// exercițiu de clasă din planul unei ținte-clasă (clasa aleasă sau una dinainte)
+function eDinPlanulClasei(c, tinta) {
+  if (!c || !tinta || tinta.tip !== 'clasa' || barem.isBaremRow(c)) return false;
+  const m = /^clasa-(\d{1,2})$/.exec(String(c.category || ''));
+  return !!m && Number(m[1]) >= 5 && Number(m[1]) <= tinta.clasa;
+}
+
 // adresa testului zilei (vizualizatorul obișnuit, cu insigna „🎯 TESTUL ZILEI")
 function urlTest(t) {
   if (!t || !t.id) return null;
+  const p = t.plan ? '&plan=1' : '';
   return t.tip === 'pdf'
-    ? `/pdf-viewer?id=${encodeURIComponent(t.id)}&pregatire=1`
-    : `/exercitiu?id=${encodeURIComponent(t.id)}&pregatire=1`;
+    ? `/pdf-viewer?id=${encodeURIComponent(t.id)}&pregatire=1${p}`
+    : `/exercitiu?id=${encodeURIComponent(t.id)}&pregatire=1${p}`;
 }
 
 // subiectele (1, 2, 3) → „Subiectul I și Subiectul al II-lea"
@@ -215,9 +244,13 @@ async function alegeTest(supa, userId, { exam, format, premium, rows = [], azi, 
   return { ales: null, format: formatFolosit(format, premium), total: 0, rezolvate: 0 };
 }
 
-// Rândul zilei: nou sau actualizat
-async function atribuie(supa, userId, { exam, format, premium, rows, azi, existent = null, dupa = null }) {
-  const r = await alegeTest(supa, userId, { exam, format, premium, rows, azi, dupa });
+// Rândul zilei: nou sau actualizat. `preferat` = pasul curent din planul de
+// pregătire (13 nov. 2026): el e testul zilei; alegerea veche rămâne pentru planul
+// gata / gol și pentru „🔀 Alt test".
+async function atribuie(supa, userId, { exam, format, premium, rows, azi, existent = null, dupa = null, preferat = null }) {
+  const r = preferat && !dupa
+    ? { ales: { id: preferat.id, title: preferat.titlu, content_type: preferat.tip === 'pdf' ? 'pdf' : 'interactive' }, format: preferat.tip === 'pdf' ? 'pdf' : 'interactiv', total: 0, rezolvate: 0 }
+    : await alegeTest(supa, userId, { exam, format, premium, rows, azi, dupa });
   if (dupa && !r.ales) return { row: existent, drum: null, format: r.format, faraAltul: true };
   const camp = {
     exam, content_id: r.ales ? r.ales.id : null, content_title: r.ales ? r.ales.title : null,
@@ -261,25 +294,30 @@ async function acordaInsigne(supa, userId, { serie = 0, total = 0, complet = fal
   return castigate;
 }
 
-// Forma trimisă paginii /pregateste-ma
-function vedere({ row, rows, azi, exam, format, formatAles, premium, drum = null, insigne = [] }) {
+// Forma trimisă paginii /pregateste-ma (+ `plan`: harta pregătirii)
+function vedere({ row, rows, azi, exam, format, formatAles, premium, drum = null, insigne = [], planul = null }) {
   const zile = (rows || []).filter((r) => r.status === 'lucrat').map((r) => r.day);
   if (row && row.status === 'lucrat' && !zile.includes(row.day)) zile.push(row.day);
   const s = misiune.serie(zile, azi);
-  const E = examInfo(exam);
+  const E = tintaInfo(exam);
   const test = row && row.content_id
     ? { id: row.content_id, titlu: row.content_title || 'Testul zilei', tip: row.content_type === 'pdf' ? 'pdf' : 'interactiv' }
     : null;
+  if (test && planul && planul.pas && planul.pas.id === row.content_id) test.plan = true;   // pasul curent din hartă
   if (test) test.url = urlTest(test);
   const ultimele = (rows || []).filter((r) => r.status === 'lucrat' && r.day !== azi).slice(0, 6)
     .map((r) => ({ zi: r.day, titlu: r.content_title || 'Test', itemi: r.items_done || 0, nota: r.grade != null ? Number(r.grade) : null }));
   return {
     activ: true,
     azi,
-    examen: E ? { id: E.id, label: E.label, scurt: E.scurt } : null,
+    examen: E ? { id: E.id, label: E.label, scurt: E.scurt, tip: E.tip } : null,
     examene: EXAMENE.map((e) => ({ id: e.id, label: e.label, scurt: e.scurt })),
+    clase: CLASE_TINTA.map((c) => ({ id: c.id, label: c.label, scurt: c.scurt })),
     format, formatAles: formatAles || null, premium,
     test,
+    plan: planul,
+    // seria s-a rupt după zile lucrate → pagina spune „continui de unde ai rămas"
+    pauza: s.curenta === 0 && s.total > 0,
     status: row ? row.status : null,
     lucrat: !!row && row.status === 'lucrat',
     itemi: row ? row.items_done || 0 : 0,
@@ -307,8 +345,8 @@ async function stare(supa, userId, profile = null) {
     const stats = await xp.ensureStats(supa, userId);
     const premium = ePremium(profile);
     const deAzi = rows.find((r) => r.day === azi) || null;
-    const exam = examValid(stats.prep_exam) ? stats.prep_exam
-      : (deAzi && examValid(deAzi.exam) ? deAzi.exam : ((rows.find((r) => examValid(r.exam)) || {}).exam || null));
+    const exam = tintaValida(stats.prep_exam) ? stats.prep_exam
+      : (deAzi && tintaValida(deAzi.exam) ? deAzi.exam : ((rows.find((r) => tintaValida(r.exam)) || {}).exam || null));
     if (!exam) {
       // sugestia: examenul din „Planul meu" (meditații), dacă și l-a ales acolo
       let sugestie = null;
@@ -319,6 +357,7 @@ async function stare(supa, userId, profile = null) {
       return {
         activ: true, azi, alegeExamen: true, examen: null, sugestie,
         examene: EXAMENE.map((e) => ({ id: e.id, label: e.label, scurt: e.scurt })),
+        clase: CLASE_TINTA.map((c) => ({ id: c.id, label: c.label, scurt: c.scurt })),
         premium, prag: PRAG_ITEMI, serie: 0, record: 0, total: 0, saptamana: misiune.saptamana([], azi),
         insigneToate: INSIGNE.map((b) => ({ id: b.id, icon: b.icon, name: b.name, desc: b.desc })),
         recompensa: { xp: XP_ZI, bun: XP_BUN, pragBun: PRAG_BUN, coins: MONEDE, seriePas: SERIE_PAS, serieXp: SERIE_XP, serieMonede: SERIE_MONEDE },
@@ -327,12 +366,22 @@ async function stare(supa, userId, profile = null) {
     const formatAles = formatValid(stats.prep_format) ? stats.prep_format : null;
     const format = formatFolosit(formatAles || 'interactiv', premium);
     const insigne = await insigneAvute(supa, userId);
-    // testul de azi există (sau ziua e deja bifată fără test) → doar îl arătăm
+    // 🗺️ harta pregătirii: pasul curent din plan e testul zilei
+    const planul = await plan.stare(supa, userId, { tinta: tintaInfo(exam), stats, premium, azi });
+    const pas = planul && planul.pas ? planul.pas : null;
+    // testul de azi există (sau ziua e deja bifată fără test) → doar îl arătăm; încă
+    // nelucrat și planul a mers mai departe (pas trecut / sărit) → trece pe pasul nou
     if (deAzi && (deAzi.content_id || deAzi.status === 'lucrat') && deAzi.exam === exam) {
-      return vedere({ row: deAzi, rows, azi, exam, format: deAzi.content_type === 'pdf' ? 'pdf' : format, formatAles, premium, insigne });
+      let row = deAzi;
+      if (pas && deAzi.status === 'deschis' && deAzi.content_id !== pas.id) {
+        const camp = { content_id: pas.id, content_title: pas.titlu, content_type: pas.tip === 'pdf' ? 'pdf' : 'interactive' };
+        const { data } = await supa.from('daily_tests').update(camp).eq('id', deAzi.id).eq('status', 'deschis').select().maybeSingle();
+        row = data || { ...deAzi, ...camp };
+      }
+      return vedere({ row, rows, azi, exam, format: row.content_type === 'pdf' ? 'pdf' : format, formatAles, premium, insigne, planul });
     }
-    const r = await atribuie(supa, userId, { exam, format, premium, rows, azi, existent: deAzi });
-    return vedere({ row: r.row, rows, azi, exam, format: r.format, formatAles, premium, drum: r.drum, insigne });
+    const r = await atribuie(supa, userId, { exam, format, premium, rows, azi, existent: deAzi, preferat: pas });
+    return vedere({ row: r.row, rows, azi, exam, format: r.format, formatAles, premium, drum: r.drum, insigne, planul });
   } catch (e) {
     console.warn('pregatire.stare:', e?.message || e);
     return { activ: false, mesaj: e?.message || 'eroare' };
@@ -341,7 +390,7 @@ async function stare(supa, userId, profile = null) {
 
 // Elevul își alege (sau schimbă) examenul și, opțional, formatul testului zilei
 async function alege(supa, userId, profile, { examen = undefined, format = undefined } = {}) {
-  if (examen !== undefined && !examValid(examen)) return { error: 'Alege examenul: Evaluarea Națională sau unul dintre profilurile de BAC.' };
+  if (examen !== undefined && !tintaValida(examen)) return { error: 'Alege examenul (Evaluarea Națională sau un profil de BAC) sau o clasă, de la a V-a la a XII-a.' };
   if (format !== undefined && format !== null && !formatValid(format)) return { error: 'Format necunoscut.' };
   const { error: eTab } = await supa.from('daily_tests').select('id').limit(1);
   if (eTab) return { error: 'Pregătirea zilnică nu e activă încă (Admin: rulează supabase/pregatire_zilnica.sql).', setup: false };
@@ -357,9 +406,10 @@ async function alege(supa, userId, profile, { examen = undefined, format = undef
   const deAzi = (rows || []).find((r) => r.day === azi) || null;
   if (deAzi && deAzi.status === 'deschis') {
     const stats = await xp.ensureStats(supa, userId);
-    const exam = examValid(stats.prep_exam) ? stats.prep_exam : deAzi.exam;
+    const exam = tintaValida(stats.prep_exam) ? stats.prep_exam : deAzi.exam;
     const premium = ePremium(profile);
-    await atribuie(supa, userId, { exam, format: formatFolosit(stats.prep_format || 'interactiv', premium), premium, rows, azi, existent: deAzi });
+    const planul = await plan.stare(supa, userId, { tinta: tintaInfo(exam), stats, premium, azi });
+    await atribuie(supa, userId, { exam, format: formatFolosit(stats.prep_format || 'interactiv', premium), premium, rows, azi, existent: deAzi, preferat: planul && planul.pas });
   }
   return { ok: true, pregatire: await stare(supa, userId, profile) };
 }
@@ -371,12 +421,28 @@ async function altTest(supa, userId, profile) {
   if (error) return { error: 'Pregătirea zilnică nu e activă încă.' };
   const deAzi = rows.find((r) => r.day === azi) || null;
   const stats = await xp.ensureStats(supa, userId);
-  const exam = examValid(stats.prep_exam) ? stats.prep_exam : (deAzi && deAzi.exam);
+  const exam = tintaValida(stats.prep_exam) ? stats.prep_exam : (deAzi && deAzi.exam);
   if (!exam) return { error: 'Alege întâi examenul.' };
   const premium = ePremium(profile);
   const format = formatFolosit(stats.prep_format || 'interactiv', premium);
   const r = await atribuie(supa, userId, { exam, format, premium, rows, azi, existent: deAzi, dupa: deAzi && deAzi.content_id ? deAzi.content_id : null });
   return { ok: true, faraAltul: !!r.faraAltul, pregatire: await stare(supa, userId, profile) };
+}
+
+// „⏭ Treci mai departe" pe harta pregătirii: pasul curent, după câteva încercări
+// (api/_lib/planPregatire.js → sari); întoarce starea nouă a paginii
+async function sariPas(supa, userId, profile, { contentId } = {}) {
+  try {
+    const stats = await xp.ensureStats(supa, userId);
+    const tinta = tintaInfo(stats.prep_exam);
+    if (!tinta) return { error: 'Alege întâi examenul sau clasa.' };
+    const r = await plan.sari(supa, userId, { contentId, tinta, stats, premium: ePremium(profile), azi: xp.dayKey() });
+    if (r.error) return r;
+    return { ok: true, pregatire: await stare(supa, userId, profile) };
+  } catch (e) {
+    console.warn('pregatire.sariPas:', e?.message || e);
+    return { error: 'Nu am putut trece mai departe. Încearcă din nou.' };
+  }
 }
 
 // Apelat după fiecare corectare / salvare de scor la un material de examen.
@@ -386,18 +452,25 @@ async function altTest(supa, userId, profile) {
 // Bifează ziua o singură dată (actualizare condiționată pe status) și dă răsplata.
 async function inregistreaza(supa, userId, { content = null, itemi = 0, pct = null, nota = null, subiecte = [], complet = false, verificat = true } = {}) {
   try {
-    if (!userId || !content || !eDeExamen(content)) return null;
+    if (!userId || !content) return null;
+    // un test de examen contează mereu; un exercițiu de clasă, doar dacă ținta elevului
+    // e o clasă și exercițiul e în planul ei (clasa aleasă sau una dinainte)
+    const deExamen = eDeExamen(content);
+    const deClasa = !deExamen && /^clasa-\d{1,2}$/.test(String(content.category || '')) && !barem.isBaremRow(content);
+    if (!deExamen && !deClasa) return null;
     const n = Math.max(0, Math.round(Number(itemi) || 0));
     if (n < 1) return null;
     const azi = xp.dayKey();
     const { data: row0, error } = await supa.from('daily_tests').select('*').eq('user_id', userId).eq('day', azi).maybeSingle();
     if (error) return null;                                   // migrarea nu e rulată
     let row = row0;
+    let st = null;
+    if (deClasa || !row) ({ data: st } = await supa.from('user_stats').select('prep_exam').eq('user_id', userId).maybeSingle());
+    if (deClasa && !eDinPlanulClasei(content, tintaInfo(st && st.prep_exam))) return null;
     if (!row) {
       // a lucrat la un test de examen fără să fi deschis azi pagina: contează
-      // doar dacă și-a început pregătirea (și-a ales examenul)
-      const { data: st } = await supa.from('user_stats').select('prep_exam').eq('user_id', userId).maybeSingle();
-      if (!st || !examValid(st.prep_exam)) return null;
+      // doar dacă și-a început pregătirea (și-a ales examenul sau clasa)
+      if (!st || !tintaValida(st.prep_exam)) return null;
       const { data: ins } = await supa.from('daily_tests').insert({
         user_id: userId, day: azi, exam: st.prep_exam, status: 'deschis',
         content_id: content.id || null, content_title: content.title || null,
@@ -412,7 +485,7 @@ async function inregistreaza(supa, userId, { content = null, itemi = 0, pct = nu
     const sub = numeSubiecte(subiecte);
     const undeA = complet ? 'tot testul' : (sub.length ? sub.join(', ') : row.worked_on);
     const camp = { items_done: itemiZi, best_pct: best, grade, worked_on: undeA };
-    const exam = examInfo(row.exam);
+    const exam = tintaInfo(row.exam);
     const baza = { titlu: content.title || row.content_title || null, itemi: itemiZi, prag: PRAG_ITEMI, examen: exam ? exam.label : null };
 
     if (row.status === 'lucrat' || itemiZi < PRAG_ITEMI) {
@@ -478,15 +551,16 @@ async function rezumat(supa, userId) {
     const zile = (rows || []).filter((r) => r.status === 'lucrat').map((r) => r.day);
     const s = misiune.serie(zile, azi);
     const deAzi = (rows || []).find((r) => r.day === azi);
-    return { examen: st && examValid(st.prep_exam) ? st.prep_exam : null, azi: deAzi ? deAzi.status : null, serie: s.curenta, aziFacut: s.aziFacut };
+    return { examen: st && tintaValida(st.prep_exam) ? st.prep_exam : null, azi: deAzi ? deAzi.status : null, serie: s.curenta, aziFacut: s.aziFacut };
   } catch { return null; }
 }
 
 module.exports = {
   EXAMENE, FORMATE, SUBCAT_PDF, PRAG_ITEMI, XP_ZI, XP_BUN, PRAG_BUN, MONEDE, SERIE_PAS, SERIE_XP, SERIE_MONEDE, INSIGNE, SERII_IN_FLUX,
   // pure
-  examInfo, examValid, formatValid, examenulMaterialului, eDeExamen, urlTest, numeSubiecte, subiecteDinRaspunsuri,
+  CLASE_TINTA,
+  examInfo, examValid, tintaInfo, tintaValida, eDinPlanulClasei, formatValid, examenulMaterialului, eDeExamen, urlTest, numeSubiecte, subiecteDinRaspunsuri,
   raspunsuriDate, recompensa, insigneNoi, formatFolosit, urmatorul,
   // cu baza de date
-  poolExamen, stare, alege, altTest, inregistreaza, rezumat,
+  poolExamen, stare, alege, altTest, sariPas, inregistreaza, rezumat,
 };

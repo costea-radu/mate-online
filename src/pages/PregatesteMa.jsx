@@ -2,17 +2,26 @@
 // src/pages/PregatesteMa.jsx — „🎯 PREGĂTEȘTE-MĂ DE EXAMEN" (8 nov. 2026)
 // Ruta: /pregateste-ma
 //
-// Cererea: un buton care amintește zilnic, printr-o notificare, să rezolvi un
-// test; progresul cu XP în Arena și clasament, simplu, cu promovare și alte
+// Cererea (8 nov.): un buton care amintește zilnic, printr-o notificare, să rezolvi
+// un test; progresul cu XP în Arena și clasament, simplu, cu promovare și alte
 // răsplăți; contează și o parte dintr-un test.
 //
-// Pagina: examenul ales · TESTUL DE AZI (interactiv sau — cu Premium — subiect
-// oficial pe PDF) · seria de zile și săptămâna · „🔔 Amintește-mi" · răsplățile
-// (XP, 🪙, liga din Arenă, insignele) · ultimele zile (nota se vede doar aici).
-// Ziua se bifează pe server (api/_lib/pregatireZilnica.js), când elevul a lucrat
-// la câteva exerciții dintr-un test de examen — oricare, nu neapărat întreg.
-// API: /api/gamificare → 'pregatire', 'pregatire_alege', 'pregatire_alt_test',
-// 'pregatire_notificari' / 'pregatire_notificari_proba'.
+// 13 nov. 2026 — „🗺️ HARTA PREGĂTIRII": „pune în «pregătește-mă de examen» un plan
+// de pregătire cu exerciții în ordine (…) Planul să se poată vedea ca o hartă pe
+// care s-au parcurs exerciții (…) Păstrează liga și XP, dar introdu harta de
+// pregătire - planul de parcurs." Pagina:
+//   · ținta: un examen (EN, BAC M1/M2/M3) SAU o clasă (a V-a … a XII-a);
+//   · PASUL DE AZI = pasul curent din plan (testul zilei): ▶ Începe / Continuă /
+//     ↻ Mai încearcă; după câteva încercări „⏭ Treci mai departe"; la testele PDF,
+//     cele patru moduri de a trimite rezolvarea (pe PDF, în chat, pe foaia de
+//     lucru, cu poza); seria de zile, săptămâna, ziua bifată de la 3 exerciții;
+//   · HARTA (src/components/HartaPlan.jsx): toți pașii, pe etape, pe o pagină de
+//     caiet; un clic pe un pas → fișa lui (jos), cu butoanele;
+//   · după o pauză: „continui de unde ai rămas" (seria se ia de la capăt, planul nu);
+//   · răsplățile (XP, 🪙, liga din Arenă, insignele), „🔔 Amintește-mi", ultimele zile.
+// Ziua se bifează pe server (api/_lib/pregatireZilnica.js); planul:
+// api/_lib/planPregatire.js. API: /api/gamificare → 'pregatire', 'pregatire_alege'
+// (examen sau clasă), 'plan_sari', 'pregatire_notificari' / 'pregatire_notificari_proba'.
 // (Altceva decât „Pregătirea de examen" cu Prof. Tudor, /meditatii/pregatire —
 // ședințele live pe barem; pagina trimite și acolo.)
 // =====================================================================
@@ -22,7 +31,8 @@ import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
 import { arenaChanged, onArenaChange } from '../lib/arena';
 import { AmintireZilnica } from '../components/MisiuneZilnica';
-import '@fontsource/caveat/700.css';   // nota „de mână" din ultimele zile
+import HartaPlan, { urlPas } from '../components/HartaPlan';
+import '@fontsource/caveat/700.css';   // nota „de mână", notițele de pe hartă
 
 const card = {
   background: 'var(--white)', border: '1px solid var(--border)',
@@ -34,21 +44,30 @@ const ziua = (iso) => {
   try { return new Date(`${iso}T12:00:00`).toLocaleDateString('ro-RO', { weekday: 'short', day: 'numeric', month: 'short' }); }
   catch { return iso; }
 };
+const ori = (n) => (n === 1 ? 'o dată' : `de ${n} ori`);
 
 const TEXTE_AMINTIRE = {
   actiune: 'pregatire_notificari', actiuneProba: 'pregatire_notificari_proba', pushLs: 'pz_push_ep',
-  intrebare: 'Vrei să-ți amintesc de testul zilei?',
-  dacaNu: 'dacă n-ai lucrat încă la test',
-  doarCand: 'doar în zilele în care n-ai lucrat încă la test',
-  sql: 'supabase/pregatire_zilnica.sql', inactiv: 'Amintirile testului zilei nu sunt active',
+  intrebare: 'Vrei să-ți amintesc de pasul zilei?',
+  dacaNu: 'dacă n-ai lucrat încă azi',
+  doarCand: 'doar în zilele în care n-ai lucrat încă',
+  sql: 'supabase/pregatire_zilnica.sql', inactiv: 'Amintirile pregătirii nu sunt active',
 };
+
+// modurile de a trimite rezolvarea unui test PDF (src/pages/PDFViewer.jsx → ?mod=)
+const MODURI_PDF = [
+  { mod: 'pdf', icon: '✏️', label: 'Pe PDF', titlu: 'Scrii direct pe test, apoi „✅ Corectează"' },
+  { mod: 'chat', icon: '💬', label: 'În chat', titlu: 'Scrii răspunsurile în formularul din chat' },
+  { mod: 'foaie', icon: '✍️', label: 'Foaia de lucru', titlu: 'Scrii de mână pe foaia de lucru, lângă test' },
+  { mod: 'poza', icon: '📷', label: 'Cu poza', titlu: 'Fotografiezi rezolvarea de pe caiet' },
+];
 
 // cerculețul unei zile din săptămână
 function Zi({ z }) {
   const facut = z.stare === 'facut', azi = z.stare === 'azi', ratat = z.stare === 'ratat';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 30 }}
-      title={facut ? `${z.day}: ziua bifată` : azi ? 'Azi — testul te așteaptă' : ratat ? `${z.day}: fără test` : z.day}>
+      title={facut ? `${z.day}: ziua bifată` : azi ? 'Azi — pasul te așteaptă' : ratat ? `${z.day}: fără pregătire` : z.day}>
       <span style={{ fontSize: '.68rem', fontWeight: 700, color: azi ? 'var(--navy)' : 'var(--text-muted)' }}>{z.label}</span>
       <span aria-hidden style={{
         width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -62,6 +81,126 @@ function Zi({ z }) {
   );
 }
 
+// ce s-a întâmplat la un pas, într-o propoziție
+function descriere(n, { esteCurent, reguli }) {
+  const prag = n.tip === 'pdf' ? reguli?.pragPdf ?? 50 : reguli?.pragInteractiv ?? 70;
+  if (!n.accesibil && n.stare !== 'trecut') {
+    return n.tip === 'pdf'
+      ? '⭐ Testele PDF le corectează profesorul virtual — fac parte din abonamentul Premium.'
+      : '⭐ Exercițiu din abonamentul Premium.';
+  }
+  if (n.stare === 'trecut') return `✓ Trecut${n.pct != null ? ` cu ${n.pct}%` : ''}${n.incercari > 1 ? ` (din ${n.incercari} încercări)` : ''}. Îl poți relua oricând.`;
+  if (n.stare === 'sarit') return `⏭ Ai trecut mai departe după ${n.incercari} încercări (ultima: ${n.pct ?? 0}%). Îl poți relua oricând.`;
+  if (n.stare === 'incercat') return `Ai încercat ${ori(n.incercari)} · ultima dată ${n.pct ?? 0}% — pasul e trecut de la ${prag}%.`;
+  if (n.stare === 'inceput') return 'L-ai început și nu l-ai terminat — continuă de unde ai rămas.';
+  if (!n.deschis) return '🔒 Se deschide după pasul tău de acum.';
+  return esteCurent ? 'Pasul tău de acum.' : 'Neînceput.';
+}
+
+// butoanele unui pas: deschiderea (la PDF, modul de rezolvare) și „⏭ Treci mai departe"
+function ActiuniPas({ n, esteCurent, plan, busy, onDeschide, onSari, onLaPasulMeu, mare = false }) {
+  if (!n.accesibil && n.stare !== 'trecut') {
+    return (
+      <div className="pz-act">
+        <Link to="/preturi" className={`btn btn-primary${mare ? ' btn-lg' : ''}`}>⭐ Vezi abonamentele</Link>
+      </div>
+    );
+  }
+  if (!n.deschis) {
+    return (
+      <div className="pz-act">
+        <button type="button" className="btn btn-outline" onClick={onLaPasulMeu}>↩ Du-mă la pasul meu</button>
+      </div>
+    );
+  }
+  const reguli = plan?.reguli || {};
+  const ramase = Math.max(0, (reguli.incercariSarire ?? 3) - (n.incercari || 0));
+  const label = n.stare === 'trecut' || n.stare === 'sarit' ? '↻ Reia'
+    : n.stare === 'incercat' ? '↻ Mai încearcă'
+      : n.stare === 'inceput' ? '▶ Continuă' : (esteCurent ? '▶ Începe' : '▶ Deschide');
+  return (
+    <>
+      {n.tip === 'pdf' ? (
+        <>
+          <div style={{ fontSize: '.8rem', color: 'var(--text-light)', margin: '2px 0 8px' }}>Cum trimiți rezolvarea?</div>
+          <div className="pz-moduri" role="group" aria-label="Cum trimiți rezolvarea testului">
+            {MODURI_PDF.map((m, k) => (
+              <button key={m.mod} type="button" className={`pz-mod${k === 0 ? ' prim' : ''}`} title={m.titlu}
+                onClick={() => onDeschide(urlPas(n, m.mod), n)}>
+                <span aria-hidden="true">{m.icon}</span> {m.label}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="pz-act">
+          <button type="button" className={`btn btn-primary${mare ? ' btn-lg' : ''}`} onClick={() => onDeschide(urlPas(n), n)}>{label}</button>
+        </div>
+      )}
+      {esteCurent && n.stare === 'incercat' && (
+        n.poateSari ? (
+          <div className="pz-sari">
+            <span>Ai încercat {ori(n.incercari)}. Poți rămâne aici până îl treci sau poți merge mai departe — îl găsești oricând pe hartă.</span>
+            <button type="button" className="btn btn-sm btn-outline" disabled={busy} onClick={() => onSari(n)}>⏭ Treci mai departe</button>
+          </div>
+        ) : (
+          <div className="pz-sari mic">
+            Mai {ramase === 1 ? 'ai o încercare' : `ai ${ramase} încercări`} până poți trece mai departe — sau îl treci acum.
+          </div>
+        )
+      )}
+    </>
+  );
+}
+
+// alegerea țintei: un examen sau o clasă
+function AlegereTinta({ p, busy, onAlege }) {
+  const ales = p?.examen?.id;
+  return (
+    <div className="pz-alege">
+      <div className="pz-grup">
+        <div className="pz-grup-tit">Examen</div>
+        <div className="pz-chips">
+          {(p?.examene || []).map((e) => (
+            <button key={e.id} type="button" disabled={busy}
+              className={`pz-chip${ales === e.id ? ' on' : ''}`} onClick={() => onAlege(e.id)}>
+              {e.id === 'evaluare-nationala' ? '📘' : '🎓'} {e.label}
+              <small>{e.id === 'evaluare-nationala' ? 'clasa a VIII-a' : 'clasa a XII-a'}{p?.sugestie === e.id ? ' · ales în „Planul meu"' : ''}</small>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="pz-grup">
+        <div className="pz-grup-tit">sau o clasă</div>
+        <div className="pz-clase">
+          {(p?.clase || []).map((c) => (
+            <button key={c.id} type="button" disabled={busy} title={c.label}
+              className={`pz-clasa${ales === c.id ? ' on' : ''}`} onClick={() => onAlege(c.id)}>
+              {c.label.replace('Clasa a ', '').replace('-a', '')}
+            </button>
+          ))}
+        </div>
+        <div className="pz-nota-mica">La o clasă: întâi exercițiile ei, apoi ale claselor dinainte — interactive, apoi PDF.</div>
+      </div>
+    </div>
+  );
+}
+
+// fișa pasului ales pe hartă (jos, peste pagină)
+function FisaPas({ n, plan, busy, onInchide, onDeschide, onSari, onLaPasulMeu }) {
+  const esteCurent = plan?.curent === n.i;
+  const et = (plan?.etape || []).find((e) => e.id === n.etapa);
+  return (
+    <div className="pz-fisa" role="dialog" aria-label={`Pasul ${n.i + 1}: ${n.titlu}`}>
+      <button type="button" className="pz-fisa-x" onClick={onInchide} aria-label="Închide">✕</button>
+      <div className="pz-fisa-et">{et ? et.titlu : ''} · pasul {n.i + 1} din {plan.total}{n.nou ? ' · ' : ''}{n.nou && <span className="pz-nou">nou în site</span>}</div>
+      <div className="pz-fisa-tit">{n.titlu}</div>
+      <div className="pz-fisa-st">{descriere(n, { esteCurent, reguli: plan.reguli })}</div>
+      <ActiuniPas n={n} esteCurent={esteCurent} plan={plan} busy={busy} onDeschide={onDeschide} onSari={onSari} onLaPasulMeu={onLaPasulMeu} />
+    </div>
+  );
+}
+
 export default function PregatesteMa() {
   const { user, isAdmin, isPremium, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -70,7 +209,7 @@ export default function PregatesteMa() {
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [schimba, setSchimba] = useState(false);
-  const [info, setInfo] = useState(null);
+  const [alesId, setAlesId] = useState(null);
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -90,33 +229,37 @@ export default function PregatesteMa() {
     return () => document.removeEventListener('visibilitychange', reia);
   }, [load]);
 
-  async function alege(payload) {
-    setBusy(true); setErr(null); setInfo(null);
+  async function alege(examen) {
+    setBusy(true); setErr(null);
     try {
-      const r = await aiClient.gamificare({ action: 'pregatire_alege', ...payload });
+      const r = await aiClient.gamificare({ action: 'pregatire_alege', examen });
       setP(r?.pregatire || null);
       setSchimba(false);
+      setAlesId(null);
       arenaChanged();
     } catch (e) { setErr(e?.message || 'Nu am putut salva alegerea.'); }
     finally { setBusy(false); }
   }
 
-  async function altTest() {
-    setBusy(true); setErr(null); setInfo(null);
+  async function sari(n) {
+    setBusy(true); setErr(null);
     try {
-      const r = await aiClient.gamificare({ action: 'pregatire_alt_test' });
+      const r = await aiClient.gamificare({ action: 'plan_sari', contentId: n.id });
       setP(r?.pregatire || null);
-      if (r?.faraAltul) setInfo('Nu mai am alt test în această listă — încearcă celălalt format sau revino mâine.');
-    } catch (e) { setErr(e?.message || 'Nu am putut schimba testul.'); }
+      setAlesId(null);
+    } catch (e) { setErr(e?.message || 'Nu am putut trece mai departe.'); }
     finally { setBusy(false); }
   }
+
+  // deschide un pas; „Înapoi" din vizualizator revine aici
+  const deschide = (url, n) => { if (url) navigate(url, { state: { returnTo: '/pregateste-ma', scrollToCardId: n?.id || null } }); };
 
   const header = (
     <div className="page-header pz-header">
       <div className="container">
         <div className="breadcrumb"><Link to="/">Acasă</Link><span>›</span><span>Pregătește-mă de examen</span></div>
         <h1>🎯 Pregătește-mă de examen</h1>
-        <p>Un test pe zi: rezolvi cât poți — contează și o parte din test —, primești XP, urci în ligă și nu-ți pierzi seria.</p>
+        <p>Planul tău, pe o hartă: exercițiile în ordinea din site, pas cu pas. Lucrezi zilnic, primești XP și urci în ligă.</p>
       </div>
     </div>
   );
@@ -125,18 +268,42 @@ export default function PregatesteMa() {
     <style>{`
 @keyframes pzPuls{0%,100%{box-shadow:0 0 0 0 rgba(15,43,68,.35)}50%{box-shadow:0 0 0 6px rgba(15,43,68,0)}}
 .pz-grid{display:grid;gap:18px}
-.pz-top{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:18px;align-items:start}
-@media (max-width: 900px){.pz-top{grid-template-columns:1fr}}
+/* calculator: pasul de azi și harta în stânga, răsplățile în dreapta; telefon: pasul, harta, apoi răsplățile */
+.pz-main{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);grid-template-areas:"pas side" "harta side";gap:18px;align-items:start}
+.pz-a-pas{grid-area:pas}.pz-a-side{grid-area:side;display:grid;gap:18px}.pz-a-harta{grid-area:harta;min-width:0}
+@media (max-width: 900px){.pz-main{grid-template-columns:minmax(0,1fr);grid-template-areas:"pas" "harta" "side"}}
+.pz-alege{display:grid;gap:14px;margin-top:12px}
+.pz-grup-tit{font-size:.74rem;font-weight:800;color:var(--text-muted);margin-bottom:6px}
+.pz-chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
 .pz-chip{padding:10px 14px;border-radius:12px;font-weight:800;font-size:.9rem;border:2px solid var(--border);background:#fff;color:var(--navy);cursor:pointer;text-align:left}
-.pz-chip.on{border-color:var(--gold);background:rgba(232,185,49,.14)}
+.pz-chip.on,.pz-clasa.on{border-color:var(--gold);background:rgba(232,185,49,.14)}
 .pz-chip small{display:block;font-weight:600;color:var(--text-muted);font-size:.72rem;margin-top:2px}
-.pz-fmt{display:inline-flex;border:1px solid var(--border);border-radius:999px;overflow:hidden}
-.pz-fmt button{background:#fff;border:none;padding:6px 12px;font-weight:700;font-size:.8rem;color:var(--navy);cursor:pointer}
-.pz-fmt button.on{background:var(--navy);color:#fff}
-.pz-fmt button:disabled{cursor:not-allowed;opacity:.6}
+.pz-clase{display:flex;flex-wrap:wrap;gap:8px}
+.pz-clasa{min-width:52px;padding:9px 10px;border-radius:12px;border:2px solid var(--border);background:#fff;color:var(--navy);font-weight:800;font-family:var(--font-display);font-size:1rem;cursor:pointer}
+.pz-nota-mica{font-size:.76rem;color:var(--text-muted);margin-top:6px}
+.pz-act{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.pz-moduri{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@media (max-width: 560px){.pz-moduri{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.pz-mod{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 8px;border-radius:12px;border:2px solid var(--navy);background:#fff;color:var(--navy);font-weight:800;font-size:.84rem;cursor:pointer;min-height:44px}
+.pz-mod.prim{background:var(--navy);color:#fff}
+.pz-mod:hover{box-shadow:var(--shadow)}
+.pz-sari{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:12px;padding:10px 12px;border-radius:12px;background:rgba(198,40,40,.06);border:1px dashed rgba(198,40,40,.35);font-size:.84rem;color:#7a2020;line-height:1.45}
+.pz-sari span{flex:1 1 240px}
+.pz-sari.mic{background:transparent;border:none;padding:0;margin-top:10px;color:var(--text-light);font-size:.8rem}
+.pz-bara{height:8px;border-radius:99px;background:var(--cream-dark);overflow:hidden;margin-top:6px}
+.pz-bara span{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--navy),var(--navy-light))}
 .pz-ins{display:flex;align-items:center;gap:8px;border-radius:12px;padding:8px 10px;border:1.5px solid var(--border);background:var(--cream)}
 .pz-ins.on{border-color:var(--gold);background:rgba(232,185,49,.10)}
 .pz-ins.off{filter:grayscale(1);opacity:.55}
+.pz-nou{background:#2e7d32;color:#fff;border-radius:99px;padding:1px 7px;font-size:.68rem;font-weight:800}
+.pz-harta-cap{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.pz-harta-cap h2{font-family:var(--font-display);color:var(--navy);font-size:1.35rem;margin:0}
+.pz-fisa{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--bara-jos-h, 0px) + 12px);width:min(560px,calc(100vw - 20px));z-index:1502;background:#fff;border:1px solid var(--border);border-top:4px solid var(--gold);border-radius:16px;box-shadow:var(--shadow-lg);padding:14px 16px 16px;max-height:70vh;overflow:auto}
+.pz-fisa-x{position:absolute;top:8px;right:10px;border:none;background:none;font-size:1rem;cursor:pointer;color:var(--text-muted);width:32px;height:32px}
+.pz-fisa-et{font-size:.74rem;font-weight:700;color:var(--text-muted);padding-right:30px}
+.pz-fisa-tit{font-weight:800;color:var(--navy);font-size:1.05rem;margin:4px 30px 6px 0;line-height:1.3}
+.pz-fisa-st{font-size:.86rem;color:var(--text-light);margin-bottom:12px;line-height:1.5}
+.pz-pauza{display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:space-between}
 `}</style>
   );
 
@@ -150,11 +317,12 @@ export default function PregatesteMa() {
         {header}
         <div className="content-list"><div className="container">
           <div style={{ ...card, textAlign: 'center', padding: 36 }}>
-            <div style={{ fontSize: '2.2rem' }}>📝🔥🏆</div>
-            <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: '10px 0 6px' }}>Un test pe zi până la examen</h2>
-            <p style={{ color: 'var(--text-light)', maxWidth: 560, margin: '0 auto 18px', lineHeight: 1.6 }}>
-              Îți alegi examenul (Evaluarea Națională sau BAC), primești în fiecare zi un test, iar noi îți amintim de el.
-              Fiecare zi lucrată îți aduce XP și monede, o serie de zile la rând și un loc mai bun în liga săptămânii.
+            <div style={{ fontSize: '2.2rem' }}>🗺️🔥🏆</div>
+            <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: '10px 0 6px' }}>Harta ta până la examen</h2>
+            <p style={{ color: 'var(--text-light)', maxWidth: 580, margin: '0 auto 18px', lineHeight: 1.6 }}>
+              Alegi examenul (Evaluarea Națională sau BAC) sau clasa și primești toate exercițiile în ordine, pe o hartă:
+              capitole, exerciții pe subiecte, teste interactive, apoi teste PDF. Fiecare zi lucrată îți aduce XP,
+              o serie de zile la rând și un loc în liga săptămânii — iar noi îți amintim de pasul zilei.
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
               <Link to="/inregistrare" className="btn btn-primary">Creează cont gratuit</Link>
@@ -167,7 +335,7 @@ export default function PregatesteMa() {
   }
 
   if (!p && !err) {
-    return <>{header}<div className="content-list"><div className="container"><div style={{ ...card, color: 'var(--text-light)' }}>🎯 Se pregătește testul de azi…</div></div></div></>;
+    return <>{header}<div className="content-list"><div className="container"><div style={{ ...card, color: 'var(--text-light)' }}>🗺️ Se pregătește harta…</div></div></div></>;
   }
 
   if (p && p.activ === false) {
@@ -185,22 +353,33 @@ export default function PregatesteMa() {
     );
   }
 
-  const alegereExamen = (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, marginTop: 12 }}>
-      {(p?.examene || []).map((e) => (
-        <button key={e.id} type="button" disabled={busy}
-          className={`pz-chip${p?.examen?.id === e.id ? ' on' : ''}`} onClick={() => alege({ examen: e.id })}>
-          {e.id === 'evaluare-nationala' ? '📘' : '🎓'} {e.label}
-          <small>{e.id === 'evaluare-nationala' ? 'clasa a VIII-a' : 'clasa a XII-a'}{p?.sugestie === e.id ? ' · ales în „Planul meu"' : ''}</small>
-        </button>
-      ))}
-    </div>
-  );
-
   const lucrat = !!p?.lucrat;
   const t = p?.test;
   const r = p?.recompensa || {};
-  const deschide = () => { if (t?.url) navigate(t.url); };
+  const plan = p?.plan && p.plan.noduri && p.plan.noduri.length ? p.plan : null;
+  const noduri = plan ? plan.noduri.map((n, i) => ({ ...n, i })) : [];
+  const pas = plan && plan.curent >= 0 ? noduri[plan.curent] : null;
+  const ales = alesId ? noduri.find((n) => n.id === alesId) || null : null;
+  const etapaPas = pas ? plan.etape.find((e) => e.id === pas.etapa) : null;
+  const laPasulMeu = () => {
+    setAlesId(null);
+    if (pas) setTimeout(() => document.getElementById(`pas-${pas.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+  };
+
+  // progresul zilei (bifa de la 3 exerciții), sub pasul de azi
+  const progresZi = lucrat ? (
+    <div style={{ fontSize: '.86rem', color: '#1e7e34', fontWeight: 600, marginBottom: 10, lineHeight: 1.5 }}>
+      ✅ Ziua e bifată{p.xpPrimit ? ` · +${p.xpPrimit} XP` : ''}{p.undeA ? ` · ai lucrat la: ${p.undeA}` : ''}. Poți merge mai departe pe hartă — fiecare exercițiu îți aduce XP.
+    </div>
+  ) : p?.itemi > 0 ? (
+    <div style={{ fontSize: '.86rem', color: '#9a5b00', fontWeight: 600, marginBottom: 10 }}>
+      Azi ai lucrat la {p.itemi} {p.itemi === 1 ? 'exercițiu' : 'exerciții'} — încă {Math.max(1, (p.prag || 3) - p.itemi)} și ziua e bifată.
+    </div>
+  ) : (
+    <div style={{ fontSize: '.86rem', color: 'var(--text-light)', marginBottom: 10, lineHeight: 1.5 }}>
+      Ziua se bifează de la <strong>{p?.prag || 3} exerciții</strong> lucrate — contează și o parte dintr-un test.
+    </div>
+  );
 
   return (
     <>
@@ -213,148 +392,188 @@ export default function PregatesteMa() {
           {p?.alegeExamen ? (
             <div style={{ ...card, borderColor: 'var(--gold)', borderWidth: 2 }}>
               <div style={{ ...eticheta, color: 'var(--gold-dim)' }}>Primul pas</div>
-              <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: '6px 0 4px', fontSize: '1.35rem' }}>Pentru ce examen te pregătești?</h2>
-              <p style={{ color: 'var(--text-light)', margin: 0, fontSize: '.92rem' }}>
-                În fiecare zi îți dau un test din examenul tău. Ziua se bifează de la {p.prag || 3} exerciții lucrate — nu trebuie să-l termini.
+              <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: '6px 0 4px', fontSize: '1.35rem' }}>Pentru ce te pregătești?</h2>
+              <p style={{ color: 'var(--text-light)', margin: 0, fontSize: '.92rem', lineHeight: 1.55 }}>
+                Primești toate exercițiile, în ordine, pe o hartă: la examen — capitolele, exercițiile pe subiecte și testele
+                interactive, apoi testele PDF. Treci de la un pas la altul când îl rezolvi, sau după câteva încercări.
               </p>
-              {alegereExamen}
+              <AlegereTinta p={p} busy={busy} onAlege={alege} />
             </div>
           ) : p && (
-            <div className="pz-top">
-              {/* ─── Testul de azi ─── */}
-              <div style={{ ...card, borderColor: lucrat ? 'var(--success)' : 'var(--gold)', borderWidth: 2 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                  <div style={{ ...eticheta, color: lucrat ? 'var(--success)' : 'var(--gold-dim)' }}>
-                    📝 Testul de azi{lucrat ? ' · ziua e bifată' : ''}
+            <>
+              {p.pauza && pas && (
+                <div style={{ ...card, background: 'var(--cream)' }} className="pz-pauza">
+                  <div style={{ fontSize: '.92rem', color: 'var(--navy)', lineHeight: 1.5 }}>
+                    <strong>Bine ai revenit!</strong> Seria de zile o iei de la capăt, dar planul te așteaptă exact unde l-ai lăsat: <strong>pasul {pas.i + 1}</strong>.
                   </div>
-                  <button type="button" onClick={() => setSchimba((v) => !v)}
-                    style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 999, padding: '3px 10px', fontSize: '.76rem', fontWeight: 700, color: 'var(--navy)', cursor: 'pointer' }}
-                    title="Schimbă examenul">
-                    {p.examen?.label} ✎
-                  </button>
+                  <button type="button" className="btn btn-sm btn-primary" onClick={() => deschide(pas.tip === 'pdf' ? urlPas(pas, 'pdf') : urlPas(pas), pas)}>▶ Continuă</button>
                 </div>
+              )}
 
-                {schimba && (
-                  <div style={{ background: 'var(--cream)', borderRadius: 12, padding: '10px 12px', marginTop: 10 }}>
-                    <div style={{ fontSize: '.82rem', color: 'var(--text-light)' }}>
-                      Alege alt examen{lucrat ? ' — testul se schimbă, ziua de azi rămâne bifată.' : ' — testul de azi se schimbă pe loc.'}
+              <div className="pz-main">
+                {/* ─── Pasul de azi ─── */}
+                <div className="pz-a-pas" style={{ ...card, borderColor: lucrat ? 'var(--success)' : 'var(--gold)', borderWidth: 2 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                    <div style={{ ...eticheta, color: lucrat ? 'var(--success)' : 'var(--gold-dim)' }}>
+                      🗺️ Pasul de azi{lucrat ? ' · ziua e bifată' : ''}
                     </div>
-                    {alegereExamen}
+                    <button type="button" onClick={() => setSchimba((v) => !v)}
+                      style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 999, padding: '3px 10px', fontSize: '.76rem', fontWeight: 700, color: 'var(--navy)', cursor: 'pointer' }}
+                      title="Schimbă examenul sau clasa">
+                      {p.examen?.label} ✎
+                    </button>
                   </div>
-                )}
 
-                <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center', marginTop: 12 }}>
-                  <div style={{ textAlign: 'center', minWidth: 92 }}>
-                    <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--navy)', lineHeight: 1 }}>🔥 {p.serie || 0}</div>
-                    <div style={{ fontSize: '.74rem', color: 'var(--text-muted)', marginTop: 4 }}>{p.serie === 1 ? 'zi la rând' : 'zile la rând'}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} aria-label="Zilele din săptămâna aceasta">
-                    {(p.saptamana || []).map((z) => <Zi key={z.day} z={z} />)}
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 14, background: lucrat ? 'rgba(39,174,96,0.08)' : 'rgba(232,185,49,0.10)' }}>
-                  {t ? (
-                    <>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '.72rem', fontWeight: 800, borderRadius: 999, padding: '2px 8px', background: '#fff', border: '1px solid var(--border)', color: 'var(--navy)' }}>
-                          {t.tip === 'pdf' ? '📄 Subiect pe PDF, ca la examen' : '🧩 Test interactiv'}
-                        </span>
+                  {schimba && (
+                    <div style={{ background: 'var(--cream)', borderRadius: 12, padding: '10px 12px', marginTop: 10 }}>
+                      <div style={{ fontSize: '.82rem', color: 'var(--text-light)' }}>
+                        Alege alt examen sau altă clasă — harta se schimbă pe loc; ce ai rezolvat rămâne rezolvat.
                       </div>
-                      <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.08rem', margin: '8px 0 6px' }}>{t.titlu}</div>
-                      {lucrat ? (
-                        <div style={{ fontSize: '.88rem', color: '#1e7e34', fontWeight: 600, marginBottom: 10, lineHeight: 1.5 }}>
-                          ✅ Ziua e bifată{p.xpPrimit ? ` · +${p.xpPrimit} XP` : ''}{p.undeA ? ` · ai lucrat la: ${p.undeA}` : ''}.
-                          {' '}Poți continua testul — fiecare exercițiu rezolvat contează la XP. Revino mâine pentru următorul!
-                        </div>
-                      ) : p.itemi > 0 ? (
-                        <div style={{ fontSize: '.88rem', color: '#9a5b00', fontWeight: 600, marginBottom: 10 }}>
-                          Ai lucrat la {p.itemi} {p.itemi === 1 ? 'exercițiu' : 'exerciții'} — încă {Math.max(1, (p.prag || 3) - p.itemi)} și ziua e bifată.
-                        </div>
-                      ) : (
-                        <div style={{ fontSize: '.88rem', color: 'var(--text-light)', marginBottom: 10, lineHeight: 1.5 }}>
-                          Rezolvă măcar <strong>{p.prag || 3} exerciții</strong> ca să bifezi ziua — contează și o parte din test.
-                          {t.tip === 'pdf' ? ' Încercuiești grilele și scrii pe PDF, apoi „✅ Corectează".' : ' Profesorul Virtual te ajută pe parcurs.'}
-                        </div>
-                      )}
-                      {p.nota != null && (
-                        <div style={{ fontSize: '.84rem', marginBottom: 10, color: 'var(--navy)' }}>
-                          Nota de azi: <strong style={{ color: '#c62828', fontFamily: '"Caveat", cursive', fontSize: '1.25rem' }}>{fmtNota(p.nota)}</strong>
-                          <span style={{ color: 'var(--text-muted)' }}> · o vezi doar tu (în Arenă nu apar note)</span>
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <button type="button" className={lucrat ? 'btn btn-outline' : 'btn btn-primary btn-lg'} onClick={deschide}>
-                          {lucrat ? '↻ Mai lucrează la test' : p.itemi > 0 ? '▶ Continuă testul' : '▶ Începe testul de azi'}
-                        </button>
-                        <button type="button" className="btn btn-sm btn-outline" disabled={busy} onClick={altTest} title="Alt test din același examen">
-                          🔀 Alt test
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <div style={{ fontSize: '.9rem', color: 'var(--text-light)' }}>
-                      Nu am găsit încă un test {p.format === 'pdf' ? 'PDF' : 'interactiv'} pentru {p.examen?.label}
-                      {!p.premium ? ' printre cele gratuite' : ''}. Încearcă alt format sau alt examen.
+                      <AlegereTinta p={p} busy={busy} onAlege={alege} />
                     </div>
                   )}
-                  {info && <div style={{ fontSize: '.8rem', color: 'var(--text-light)', marginTop: 8 }}>{info}</div>}
-                </div>
 
-                {/* formatul: interactiv (oricine) sau subiect oficial pe PDF (Premium — corectarea scrisului) */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 12, fontSize: '.82rem', color: 'var(--text-light)' }}>
-                  <span>Format:</span>
-                  <span className="pz-fmt" role="group" aria-label="Formatul testului zilei">
-                    <button type="button" className={p.format !== 'pdf' ? 'on' : ''} disabled={busy} onClick={() => alege({ format: 'interactiv' })}>🧩 Interactiv</button>
-                    <button type="button" className={p.format === 'pdf' ? 'on' : ''} disabled={busy || !p.premium}
-                      onClick={() => alege({ format: 'pdf' })}
-                      title={p.premium ? 'Subiecte oficiale pe PDF: rezolvi direct pe PDF și corectezi' : 'Subiectele oficiale pe PDF, corectate de profesorul virtual, sunt cu Premium'}>
-                      📄 PDF ca la examen{p.premium ? '' : ' ⭐'}
-                    </button>
-                  </span>
-                  {!p.premium && !isPremium && <Link to="/preturi" style={{ color: 'var(--navy)', fontWeight: 700 }}>⭐ Premium</Link>}
-                </div>
-
-                <AmintireZilnica notif={notif} setNotif={setNotif} isAdmin={isAdmin} texte={TEXTE_AMINTIRE} />
-              </div>
-
-              {/* ─── Răsplățile ─── */}
-              <div style={{ display: 'grid', gap: 18 }}>
-                <div style={card}>
-                  <div style={{ ...eticheta, color: 'var(--text-muted)' }}>🏆 Ce câștigi</div>
-                  <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: '.88rem', color: 'var(--text-light)', lineHeight: 1.65 }}>
-                    <li><strong>+{r.xp ?? 25} XP și {r.coins ?? 5} 🪙</strong> pentru fiecare zi bifată (+{r.bun ?? 10} XP la {r.pragBun ?? 80}% sau mai mult).</li>
-                    <li>La fiecare <strong>{r.seriePas ?? 7} zile la rând</strong>: încă +{r.serieXp ?? 40} XP și {r.serieMonede ?? 15} 🪙.</li>
-                    <li>Punctele intră în <strong>liga săptămânii</strong> din Arenă: primii 3 promovează luni (🥉 → 🥈 → 🥇 → 💎 → 👑).</li>
-                    <li>Insigne pentru serii și pentru zilele de pregătire.</li>
-                  </ul>
-                  <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <Link to="/arena" className="btn btn-sm btn-primary">⚔️ Clasamentul din Arenă</Link>
+                  <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center', marginTop: 12 }}>
+                    <div style={{ textAlign: 'center', minWidth: 92 }}>
+                      <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--navy)', lineHeight: 1 }}>🔥 {p.serie || 0}</div>
+                      <div style={{ fontSize: '.74rem', color: 'var(--text-muted)', marginTop: 4 }}>{p.serie === 1 ? 'zi la rând' : 'zile la rând'}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} aria-label="Zilele din săptămâna aceasta">
+                      {(p.saptamana || []).map((z) => <Zi key={z.day} z={z} />)}
+                    </div>
                   </div>
-                  <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: 10 }}>
-                    Zile bifate: <strong>{p.total || 0}</strong>{p.record ? ` · record: ${p.record} ${p.record === 1 ? 'zi' : 'zile'} la rând` : ''}.
-                  </div>
-                </div>
 
-                <div style={card}>
-                  <div style={{ ...eticheta, color: 'var(--text-muted)' }}>🏅 Insignele pregătirii</div>
-                  <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-                    {(p.insigneToate || []).map((b) => {
-                      const are = (p.insigne || []).some((x) => x.id === b.id);
-                      return (
-                        <div key={b.id} className={`pz-ins ${are ? 'on' : 'off'}`} title={b.desc}>
-                          <span style={{ fontSize: '1.3rem' }}>{b.icon}</span>
-                          <div style={{ lineHeight: 1.3 }}>
-                            <div style={{ fontWeight: 800, fontSize: '.84rem', color: 'var(--navy)' }}>{b.name}{are ? ' ✓' : ''}</div>
-                            <div style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>{b.desc}</div>
-                          </div>
+                  <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 14, background: lucrat ? 'rgba(39,174,96,0.08)' : 'rgba(232,185,49,0.10)' }}>
+                    {pas ? (
+                      <>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: '.76rem', color: 'var(--text-light)', fontWeight: 700 }}>
+                          <span style={{ borderRadius: 999, padding: '2px 8px', background: '#fff', border: '1px solid var(--border)', color: 'var(--navy)' }}>
+                            {pas.tip === 'pdf' ? '📄 Test PDF' : '🧩 Interactiv'}
+                          </span>
+                          <span>{etapaPas?.titlu} · pasul {pas.i + 1} din {plan.total}</span>
+                          {pas.nou && <span className="pz-nou">nou în site</span>}
                         </div>
-                      );
-                    })}
+                        <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.1rem', margin: '8px 0 4px' }}>{pas.titlu}</div>
+                        <div style={{ fontSize: '.86rem', color: 'var(--text-light)', marginBottom: 8, lineHeight: 1.5 }}>{descriere(pas, { esteCurent: true, reguli: plan.reguli })}</div>
+                        {progresZi}
+                        {p.nota != null && (
+                          <div style={{ fontSize: '.84rem', marginBottom: 10, color: 'var(--navy)' }}>
+                            Nota de azi: <strong style={{ color: '#c62828', fontFamily: '"Caveat", cursive', fontSize: '1.25rem' }}>{fmtNota(p.nota)}</strong>
+                            <span style={{ color: 'var(--text-muted)' }}> · o vezi doar tu (în Arenă nu apar note)</span>
+                          </div>
+                        )}
+                        <ActiuniPas n={pas} esteCurent plan={plan} busy={busy} mare onDeschide={deschide} onSari={sari} onLaPasulMeu={laPasulMeu} />
+                      </>
+                    ) : plan?.terminat ? (
+                      <>
+                        <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.08rem', marginBottom: 6 }}>
+                          🏁 {plan.ramasePremium ? 'Ai terminat tot ce e gratuit în plan!' : 'Ai parcurs tot planul!'}
+                        </div>
+                        <div style={{ fontSize: '.86rem', color: 'var(--text-light)', lineHeight: 1.5, marginBottom: 10 }}>
+                          {plan.ramasePremium
+                            ? `Mai ai ${plan.ramasePremium} pași cu Premium (testele PDF corectate de profesorul virtual și exercițiile din abonament).`
+                            : 'Poți relua pașii sub prag sau alege altă țintă.'}
+                          {t ? ` Pentru azi, o recapitulare: „${t.titlu}".` : ''}
+                        </div>
+                        {progresZi}
+                        <div className="pz-act">
+                          {t && <button type="button" className="btn btn-primary" onClick={() => deschide(t.url, { id: t.id })}>▶ Recapitulare</button>}
+                          {plan.ramasePremium > 0 && <Link to="/preturi" className="btn btn-outline">⭐ Premium</Link>}
+                        </div>
+                      </>
+                    ) : t ? (
+                      <>
+                        <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.08rem', margin: '0 0 6px' }}>{t.titlu}</div>
+                        {progresZi}
+                        <div className="pz-act">
+                          <button type="button" className="btn btn-primary btn-lg" onClick={() => deschide(t.url, { id: t.id })}>
+                            {lucrat ? '↻ Mai lucrează' : p.itemi > 0 ? '▶ Continuă' : '▶ Începe'}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: '.9rem', color: 'var(--text-light)' }}>
+                        Nu am găsit încă exerciții pentru {p.examen?.label}{!p.premium ? ' printre cele gratuite' : ''}. Alege altă țintă.
+                      </div>
+                    )}
+                  </div>
+
+                  {plan && (
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.8rem', color: 'var(--text-light)', fontWeight: 700 }}>
+                        <span>{plan.trecute} din {plan.total} pași trecuți{plan.sarite ? ` · ${plan.sarite} săriți` : ''}</span>
+                        <span>{plan.procent}%</span>
+                      </div>
+                      <div className="pz-bara" aria-hidden="true"><span style={{ width: `${plan.procent}%` }} /></div>
+                      {plan.ramasePremium > 0 && !isPremium && (
+                        <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: 8 }}>
+                          ⭐ {plan.ramasePremium} pași (testele PDF corectate de profesorul virtual și exercițiile din abonament) se deschid cu{' '}
+                          <Link to="/preturi" style={{ color: 'var(--navy)', fontWeight: 700 }}>Premium</Link>.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <AmintireZilnica notif={notif} setNotif={setNotif} isAdmin={isAdmin} texte={TEXTE_AMINTIRE} />
+                </div>
+
+                {/* ─── Răsplățile ─── */}
+                <div className="pz-a-side">
+                  <div style={card}>
+                    <div style={{ ...eticheta, color: 'var(--text-muted)' }}>🏆 Ce câștigi</div>
+                    <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: '.88rem', color: 'var(--text-light)', lineHeight: 1.65 }}>
+                      <li><strong>+{r.xp ?? 25} XP și {r.coins ?? 5} 🪙</strong> pentru fiecare zi bifată (+{r.bun ?? 10} XP la {r.pragBun ?? 80}% sau mai mult).</li>
+                      <li>La fiecare <strong>{r.seriePas ?? 7} zile la rând</strong>: încă +{r.serieXp ?? 40} XP și {r.serieMonede ?? 15} 🪙.</li>
+                      <li>Punctele intră în <strong>liga săptămânii</strong> din Arenă: primii 3 promovează luni (🥉 → 🥈 → 🥇 → 💎 → 👑).</li>
+                      <li>Insigne pentru serii și pentru zilele de pregătire.</li>
+                    </ul>
+                    <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <Link to="/arena" className="btn btn-sm btn-primary">⚔️ Clasamentul din Arenă</Link>
+                    </div>
+                    <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: 10 }}>
+                      Zile bifate: <strong>{p.total || 0}</strong>{p.record ? ` · record: ${p.record} ${p.record === 1 ? 'zi' : 'zile'} la rând` : ''}.
+                    </div>
+                  </div>
+
+                  <div style={card}>
+                    <div style={{ ...eticheta, color: 'var(--text-muted)' }}>🏅 Insignele pregătirii</div>
+                    <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                      {(p.insigneToate || []).map((b) => {
+                        const are = (p.insigne || []).some((x) => x.id === b.id);
+                        return (
+                          <div key={b.id} className={`pz-ins ${are ? 'on' : 'off'}`} title={b.desc}>
+                            <span style={{ fontSize: '1.3rem' }}>{b.icon}</span>
+                            <div style={{ lineHeight: 1.3 }}>
+                              <div style={{ fontWeight: 800, fontSize: '.84rem', color: 'var(--navy)' }}>{b.name}{are ? ' ✓' : ''}</div>
+                              <div style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>{b.desc}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
+
+                {/* ─── 🗺️ Harta pregătirii ─── */}
+                {plan && (
+                  <section className="pz-a-harta" aria-labelledby="pz-harta-tit">
+                    <div className="pz-harta-cap">
+                      <h2 id="pz-harta-tit">🗺️ Harta pregătirii · {p.examen?.label}</h2>
+                      <span style={{ fontSize: '.8rem', color: 'var(--text-light)' }}>
+                        Treci la pasul următor de la {plan.reguli?.pragInteractiv ?? 70}% (testele PDF: nota 5) sau după {plan.reguli?.incercariSarire ?? 3} încercări.
+                      </span>
+                    </div>
+                    <HartaPlan plan={plan} alesId={alesId} onAlege={(n) => setAlesId((cur) => (cur === n.id ? null : n.id))} />
+                    {!plan.coloana && isAdmin && (
+                      <div style={{ fontSize: '.78rem', color: 'var(--danger)', marginTop: 6 }}>
+                        Admin: rulează <code>supabase/plan_pregatire.sql</code> — fără el, „⏭ Treci mai departe" nu se poate salva.
+                      </div>
+                    )}
+                  </section>
+                )}
               </div>
-            </div>
+
+            </>
           )}
 
           {/* ─── Ultimele zile (doar pentru elev; nota nu apare nicăieri altundeva public) ─── */}
@@ -387,6 +606,10 @@ export default function PregatesteMa() {
           </div>
         </div>
       </div>
+
+      {ales && plan && (
+        <FisaPas n={ales} plan={plan} busy={busy} onInchide={() => setAlesId(null)} onDeschide={deschide} onSari={sari} onLaPasulMeu={laPasulMeu} />
+      )}
     </>
   );
 }
