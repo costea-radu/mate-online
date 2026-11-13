@@ -3,6 +3,10 @@
 > **13 noiembrie 2026 — 🗺️ HARTA PREGĂTIRII** (planul de parcurs): vezi secțiunea 0,
 > imediat mai jos. Restul ghidului (8 nov.) rămâne valabil: seria, bifa zilei de la 3
 > exerciții, răsplata, liga, insignele, amintirea, fluxul Arenei, nota cu roșu.
+>
+> **13 noiembrie 2026, după-amiaza — DOUĂ HĂRȚI**: 1 · exercițiile interactive, 2 ·
+> subiectele PDF **cu barem** (fără „Capitole" și „Exerciții pe subiecte" în PDF); progresul
+> din hartă apare și în **„Rezultate", la profesori și la părinți**. Vezi 0.1, mai jos.
 
 ## 0. Harta pregătirii — planul de parcurs (13 nov. 2026)
 
@@ -23,6 +27,45 @@ Cererea:
 > mai multe încercări. Dacă se întrerupe șirul de zile, să se poată relua de unde a rămas.
 > Păstrează liga și XP, dar introdu harta de pregătire - planul de parcurs.
 
+### 0.1 După-amiaza: două hărți, doar subiecte cu barem, progresul la profesori și părinți
+
+Cererea:
+
+> fă să apară progresul din hartă în „rezultate", la profesori și părinți · scoate din
+> hartă PDF exerciții pe capitole și exerciții pe subiecte. păstrează doar subiecte de
+> examen cu corectare după barem · împarte harta în două: prima dată harta exercițiilor
+> interactive și a doua harta exercițiilor PDF
+
+- **Harta 1 · 🧩 Exerciții interactive** — ca înainte: la examen *Capitole cu exerciții* →
+  *Exerciții pe subiecte* → *Teste interactive*; la clasă, interactivele clasei, apoi ale
+  claselor dinainte.
+- **Harta 2 · 📄 Subiecte PDF cu barem** — la examen: *Variante* → (BAC) *Teste de
+  antrenament* → *Simulări*, **doar cele cu barem legat**; la clasă: fișele PDF ale clasei
+  și ale claselor dinainte, tot **doar cu barem**. *Capitole* și *Exerciții pe subiecte* în
+  PDF nu mai intră.
+- **„Cu barem legat"** = același barem pe care îl folosește corectarea: potrivirea
+  confirmată a site-ului sau baremul ales de admin (`ai_pdf_text`: `ok`, `ok_antet`,
+  `ok_continut`, `inclus`, `ok_admin`, ori `barem_override_id`; dacă PDF-ul a fost înlocuit
+  între timp, potrivirea veche nu mai contează) sau legătura botului de examene
+  (`exam_bot_index`, și `ok_bot`). Un subiect căruia i se leagă baremul apare singur pe hartă.
+  Dacă tabelele baremelor lipsesc: la examen intră toate subiectele (au barem oficial),
+  la clasă niciuna.
+- **Fiecare hartă are pasul ei.** Pasul de azi (testul zilei) vine din harta 1; după ce o
+  termini, din harta 2. Cu Premium, harta 2 se poate lucra și **în paralel** („📄 Subiectul
+  de acum: pasul N" deschide fișa cu cele patru moduri). „⏭ Treci mai departe" — pe pasul
+  curent al hărții lui, după 3 încercări, în oricare hartă.
+- **Fără abonament**: harta 2 are ⭐ („se deschide cu Premium: profesorul virtual corectează
+  fiecare subiect după barem") și nu oprește nimic.
+- **„Rezultate" (Contul meu), la profesor și la părinte**: în rândul elevului, insigna
+  `🗺️ EN · 🧩 9/49 · 📄 1/11 · 🔥 3`; în zona deschisă, caseta **„🗺️ Harta pregătirii ·
+  ținta"**: cele două hărți, cu bara, etapele (`Capitole cu exerciții 8/21` …) și pasul la
+  care a ajuns („E la pasul 5: «Numere prime» — încercat de 3 ori, ultima dată 50%"),
+  neterminatele, cei săriți, seria și recordul, zilele bifate și ultima zi. Fără lista
+  pașilor și fără notele zilei (acelea le vede doar elevul). Elevul fără țintă: „nu și-a ales
+  încă examenul sau clasa". Pe telefon, zona deschisă a elevului stă acum în lățimea
+  ecranului (tabelul se derulează în lateral, casetele nu).
+- **SQL**: nimic nou (`prep_plan` există de dimineață).
+
 ### Instalare
 
 **Supabase → SQL Editor** → rulează `supabase/plan_pregatire.sql` (o singură coloană:
@@ -33,14 +76,13 @@ merge, doar „⏭ Treci mai departe" nu se poate salva (adminul vede un mesaj p
 
 - **Ținta** (tot în `user_stats.prep_exam`): un examen — EN, BAC Mate-Info, BAC Științele
   Naturii, BAC Tehnologic — **sau o clasă**, de la a V-a la a XII-a (`clasa-5` … `clasa-12`).
-- **Examen** → etapele, în ordinea paginii examenului: *Capitole cu exerciții* →
-  *Exerciții pe subiecte* → *Teste interactive* (toate interactive), apoi PDF: *Capitole* →
-  *Exerciții pe subiecte* → *Variante* → (BAC) *Teste de antrenament* → *Simulări*.
-  Fără bareme. La BAC, „Capitole" sunt comune tuturor profilurilor (ca pe site); restul,
-  doar ale profilului ales.
-- **Clasă** → interactivele clasei alese, apoi ale claselor dinainte (… până la a V-a),
-  apoi PDF-urile, în aceeași ordine. Ex.: a VII-a → VII, VI, V interactive, apoi VII, VI,
-  V PDF. (La a IX-a intră și a VIII-a … a V-a — „clasele precedente".)
+- **Examen** → harta 1: *Capitole cu exerciții* → *Exerciții pe subiecte* → *Teste
+  interactive* (toate interactive); harta 2 (PDF, doar cu barem — 0.1): *Variante* → (BAC)
+  *Teste de antrenament* → *Simulări*. Fără fișierele de barem. La BAC, „Capitole" sunt
+  comune tuturor profilurilor (ca pe site); restul, doar ale profilului ales.
+- **Clasă** → harta 1: interactivele clasei alese, apoi ale claselor dinainte (… până la
+  a V-a); harta 2: fișele PDF cu barem, în aceeași ordine. Ex.: a VII-a → VII, VI, V
+  interactive; VII, VI, V fișe cu barem. (La a IX-a intră și a VIII-a … a V-a.)
 - În fiecare etapă: ordinea din site (`sort_order`, apoi cele mai noi). Un material apare o
   singură dată.
 - **Harta se construiește la fiecare deschidere** din `content`: un exercițiu nou intră
@@ -77,14 +119,16 @@ merge, doar „⏭ Treci mai departe" nu se poate salva (adminul vede un mesaj p
 
 ### Pagina (`src/pages/PregatesteMa.jsx`, `src/components/HartaPlan.jsx`)
 
-- **🗺️ Pasul de azi**: etapa, „pasul 37 din 240", titlul, ce s-a întâmplat la el, bifa
-  zilei, butonul (▶ Începe / ▶ Continuă / ↻ Mai încearcă), „⏭ Treci mai departe" când e
-  voie; la testele PDF, cele patru moduri: **✏️ Pe PDF · 💬 În chat · ✍️ Foaia de lucru ·
-  📷 Cu poza**. Dedesubt: câți pași s-au trecut, bara, amintirea.
-- **Harta**: pagina de caiet de matematică (pătrățele, marginea roșie), pașii legați rând
-  după rând, în șerpuire; cercul = interactiv, pătratul rotunjit = test PDF; etapele sunt
-  notițe pe margine (se pliază; deschisă stă etapa pasului curent). Un clic pe un pas →
-  fișa lui jos, cu butoanele.
+- **🗺️ Pasul de azi**: harta din care vine („🧩 Harta interactivă" / „📄 Harta PDF"),
+  etapa, „pasul 5 din 49", titlul, ce s-a întâmplat la el, bifa zilei, butonul (▶ Începe /
+  ▶ Continuă / ↻ Mai încearcă), „⏭ Treci mai departe" când e voie; la subiectele PDF, cele
+  patru moduri: **✏️ Pe PDF · 💬 În chat · ✍️ Foaia de lucru · 📷 Cu poza**. Dedesubt:
+  câte un rând cu bara pentru fiecare hartă, amintirea.
+- **Hărțile** (1 · interactive, apoi 2 · PDF cu barem, una sub alta): pagina de caiet de
+  matematică (pătrățele, marginea roșie), pașii legați rând după rând, în șerpuire; cercul =
+  interactiv, pătratul rotunjit = subiect PDF; etapele sunt notițe pe margine (se pliază;
+  deschisă stă etapa pasului curent; o hartă terminată stă pliată, cu 🏁). Un clic pe un pas
+  → fișa lui jos, cu butoanele („pasul N din M" — numerotarea hărții lui).
 - Pe calculator: pasul de azi și harta în stânga, răsplățile și insignele în dreapta. Pe
   telefon: pasul, harta, apoi răsplățile.
 - Liga, XP-ul, monedele, insignele, „Ultimele zile", Prof. Tudor — neschimbate.
@@ -116,15 +160,20 @@ zilnică „🧮 Corectări AI fără barem" (3 pe zi; peste ea, pachetul AI) �
 
 ### API
 
-`/api/gamificare` → `pregatire` întoarce și **`plan`** (etapele cu numărătorile, pașii,
-pasul curent cu adresele, regulile); `pregatire_alege` primește și o clasă
-(`{ examen: 'clasa-7' }`); **`plan_sari`** (`{ contentId }`) = „⏭ Treci mai departe"
-(400 cu motivul; 503 fără migrare).
+`/api/gamificare` → `pregatire` întoarce și **`plan`**: `{ interactiv, pdf, pas, total,
+trecute, terminat, reguli, coloana, tinta }` — fiecare hartă cu etapele (numărători), pașii,
+`curent`, `pas` (cu adresele; la PDF și `moduri`), `procent`, `ramasePremium`; `plan.pas` =
+pasul zilei (din harta interactivă, apoi din cea PDF). `pregatire_alege` primește și o
+clasă (`{ examen: 'clasa-7' }`); **`plan_sari`** (`{ contentId }`) = „⏭ Treci mai departe"
+(400 cu motivul; 503 fără migrare). `/api/teacher-students` → fiecare elev are **`plan`**
+(rezumatul: ținta, cele două hărți fără lista pașilor, seria, recordul, zilele, ultima zi)
+sau `null`; dacă tabelele pregătirii lipsesc, rezultatele merg mai departe, fără hartă.
 
 ### Teste
 
-`test/plan-pregatire.test.js` (15), `test/plan-pregatire-pdf.test.js` (7),
-`test/rezultate-neterminate.test.js` (5).
+`test/plan-pregatire.test.js` (20: cele două hărți, baremele, pasul zilei, sărirea în
+fiecare hartă, rezumatul și `api/teacher-students` la profesor și părinte, paginile),
+`test/plan-pregatire-pdf.test.js` (7), `test/rezultate-neterminate.test.js` (5).
 
 ---
 
@@ -311,7 +360,9 @@ Cardul **📣 Ce se întâmplă în Arenă** (`src/components/ArenaFeed.jsx`), s
 | `src/components/RezolvarePdf.jsx`, `src/lib/pdfRezolvare.js` | nota cu roșu (ecran + PDF descărcat) |
 | `test/pregatire-zilnica.test.js` | 30 de teste (logica, Supabase simulat, API, SQL, nota, interfața) |
 | `supabase/plan_pregatire.sql` | 13 nov.: coloana `user_stats.prep_plan` (pașii săriți / trecuți, începutul planului) |
-| `api/_lib/planPregatire.js` | 13 nov.: harta pregătirii — etapele, starea pașilor, pasul curent, sărirea |
-| `src/components/HartaPlan.jsx` | 13 nov.: harta (pagina de caiet, pașii, etapele) |
+| `api/_lib/planPregatire.js` | 13 nov.: harta pregătirii — etapele, cele două hărți, baremele, starea pașilor, pasul curent, sărirea, rezumatul pentru profesori / părinți |
+| `src/components/HartaPlan.jsx` | 13 nov.: o hartă (pagina de caiet, pașii, etapele); pagina are două |
+| `src/components/HartaPlanRezumat.jsx` | 13 nov.: progresul din hartă în „Rezultate" (profesor, părinte) |
+| `api/teacher-students.js` | 13 nov.: `students[].plan` |
 | `src/lib/ciornaTest.js` | 13 nov.: răspunsurile de data trecută la testele neterminate |
 | `test/plan-pregatire.test.js`, `test/plan-pregatire-pdf.test.js`, `test/rezultate-neterminate.test.js` | 13 nov.: 27 de teste |

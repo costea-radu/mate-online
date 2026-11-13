@@ -1,5 +1,6 @@
 const { createClient } = require('@supabase/supabase-js');
 const { handledMethod, authUser, allRows, inBatches } = require('./_lib/http');
+const pregatire = require('./_lib/pregatireZilnica');   // 🗺️ progresul din harta pregătirii (13 nov. 2026)
 
 module.exports = async function handler(req, res) {
   if (handledMethod(req, res)) return;
@@ -76,7 +77,7 @@ module.exports = async function handler(req, res) {
   try {
     profiles = await inBatches(studentIds, (chunk, from, to) => supabase
       .from('profiles')
-      .select('id, full_name, email')
+      .select('id, full_name, email, subscription_status')
       .in('id', chunk)
       .range(from, to));
   } catch (e) { return res.status(500).json({ error: e.message }); }
@@ -104,6 +105,17 @@ module.exports = async function handler(req, res) {
       .order('completed_at', { ascending: false })
       .range(from, to));
   } catch (e) { return res.status(500).json({ error: e.message }); }
+
+  // 5b. 🗺️ Harta pregătirii (13 nov. 2026 — „fă să apară progresul din hartă în
+  //     «rezultate», la profesori și părinți"): pentru fiecare elev care și-a ales ținta
+  //     în „Pregătește-mă de examen", rezumatul celor două hărți (interactivă + PDF,
+  //     pasul la care e) și seria de zile — din aceleași rânduri `progress`. Nu oprește
+  //     restul rezultatelor (api/_lib/pregatireZilnica.js → rezumateElevi).
+  let harti = {};
+  try {
+    harti = await pregatire.rezumateElevi(supabase, (profiles || []).map((p) => ({ id: p.id, premium: p.subscription_status === 'active' })), prog || []);
+  } catch { harti = {}; }
+  students.forEach((s) => { s.plan = harti[s.id] || null; });
 
   // 6. Utilizarea Profesorului Virtual: câte întrebări a pus fiecare elev
   //    la fiecare material (conversațiile AI păstrează contentId în context).

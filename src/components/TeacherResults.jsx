@@ -7,6 +7,7 @@ import { DaTemaButton } from './TemaPicker';
 import TemeDate from './TemeDate';
 import { notaDinScor } from '../lib/nota';
 import { CatalogDialog, CatalogSumar, CatalogList } from './CatalogNote';
+import HartaPlanRezumat, { PlanChip } from './HartaPlanRezumat';
 import { aiClient } from '../lib/aiClient';
 
 const PER_PAGE = 10; // elevi pe pagină
@@ -588,6 +589,8 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
             : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Niciun rezultat încă</span>}
           {/* 📒 catalogul: ultimele note, plusurile, minusurile, aprecierile */}
           {(student.marks || []).length > 0 && <CatalogSumar marks={student.marks} style={{ display: 'flex', marginTop: 5 }} />}
+          {/* 🗺️ harta pregătirii: ținta, interactive / subiecte PDF trecute, seria */}
+          {!student.archived && student.plan && <div><PlanChip plan={student.plan} /></div>}
         </td>
         <td style={{ padding: '11px 14px', textAlign: 'right', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -637,6 +640,10 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
       {isOpen && (
         <tr style={{ background: 'var(--cream)', borderTop: '1px solid var(--border)' }}>
           <td colSpan={3} style={{ padding: '14px 16px' }}>
+            {/* pe telefon, tabelul e mai lat decât ecranul (se derulează în lateral): zona deschisă
+                stă în lățimea vizibilă (100cqi = lățimea containerului tabelului), ca harta
+                pregătirii și restul casetelor să se citească fără derulare laterală (13 nov. 2026) */}
+            <div style={{ maxWidth: 'calc(100cqi - 32px)' }}>
             {/* Opțiuni sub nume: mutare (profesor) + ștergere */}
             {student.archived && (
               <div style={{ fontSize: '0.8rem', color: 'var(--text-light)', background: 'rgba(198,40,40,.06)', border: '1px solid rgba(198,40,40,.25)', borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
@@ -705,6 +712,9 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                 onDelete={(pp) => onDeleteAvg(pp)}
               />
             )}
+
+            {/* 🗺️ Harta pregătirii: cele două hărți (interactive, apoi subiectele PDF cu barem) și pasul la care a ajuns */}
+            {!student.archived && <HartaPlanRezumat plan={student.plan} nume={student.name.split(' ')[0]} />}
 
             {/* Zona Progres — buton cu rolldown + grafic „bursă" */}
             <div style={{ background: '#fff', borderRadius: 'var(--radius)', marginBottom: 14, border: '1px solid var(--border)', overflow: 'hidden' }}>
@@ -879,6 +889,7 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
                 {student.assignmentsArchived.map((t) => `${t.title}${t.score != null ? ` (${t.score}/${t.max_score}${notaDinScor(t.score, t.max_score) != null ? ` · nota ${notaDinScor(t.score, t.max_score)}` : ''})` : ''}`).join(' · ')}
               </div>
             )}
+            </div>
           </td>
         </tr>
       )}
@@ -963,7 +974,8 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
   const studentsAll = useMemo(() => {
     const map = new Map();
     (data.students || []).forEach((s) => {
-      map.set(s.id, { id: s.id, name: s.full_name || 'Elev', email: s.email || '', group_id: s.group_id || null, rows: [] });
+      // plan: progresul din „🗺️ Harta pregătirii" (13 nov. 2026) — și la profesor, și la părinte
+      map.set(s.id, { id: s.id, name: s.full_name || 'Elev', email: s.email || '', group_id: s.group_id || null, rows: [], plan: s.plan || null });
     });
     (data.results || []).forEach((r) => {
       if (!map.has(r.student_id)) {
@@ -1356,7 +1368,7 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
               </div>
             ) : (
               <>
-                <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%', border: '1px solid var(--border)', borderRadius: 'var(--radius)', containerType: 'inline-size' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem', minWidth: 460 }}>
                     <thead>
                       <tr style={{ background: 'var(--cream)', textAlign: 'left' }}>

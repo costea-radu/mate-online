@@ -276,9 +276,10 @@ test('alegerea examenului → testul zilei din site (fără bareme; fără abona
   // cu Premium: subiectul oficial PDF (variante / simulări / teste de antrenament — nu fișe)
   const fp = await P.alege(supa, U, PREMIUM, { format: 'pdf' });
   assert.deepStrictEqual([fp.pregatire.format, fp.pregatire.test.id], ['pdf', 'en-pdf']);
-  // (13 nov. 2026) varianta e și pasul curent din harta pregătirii a contului Premium → &plan=1
-  assert.strictEqual(fp.pregatire.test.url, '/pdf-viewer?id=en-pdf&pregatire=1&plan=1');
-  assert.strictEqual(fp.pregatire.plan.pas.id, 'en-pdf');
+  // (13 nov. 2026) varianta n-are barem legat în datele de test → nu e pe harta PDF
+  // (doar subiecte cu barem), deci testul zilei vine din alegerea veche
+  assert.strictEqual(fp.pregatire.test.url, '/pdf-viewer?id=en-pdf&pregatire=1');
+  assert.deepStrictEqual(fp.pregatire.plan.pdf.noduri, []);
   // BAC: doar testele profilului ales
   const b = baza();
   const rb = await P.alege(b, U, ELEV, { examen: 'bac-mate-info' });

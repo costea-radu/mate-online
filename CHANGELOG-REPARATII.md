@@ -4,6 +4,22 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 13 noiembrie 2026 (2) — harta împărțită în două (interactive, apoi PDF cu barem) · progresul din hartă în „Rezultate", la profesori și părinți
+
+Cererea: „fă să apară progresul din hartă în «rezultate», la profesori și părinți · scoate din hartă PDF exerciții pe capitole și exerciții pe subiecte. păstrează doar subiecte de examen cu corectare după barem · împarte harta în două: prima dată harta exercițiilor interactive și a doua harta exercițiilor PDF"
+
+**De rulat:** nimic (`prep_plan` există de dimineață). Ghidul: `GHID_PREGATESTE_MA.md`, 0.1.
+
+1. **Două hărți** (`api/_lib/planPregatire.js`): **1 · 🧩 Exerciții interactive** (capitole → exerciții pe subiecte → teste interactive; la clasă, interactivele ei și ale claselor dinainte) și **2 · 📄 Subiecte PDF cu barem** (variante → teste de antrenament la BAC → simulări; la clasă, fișele PDF cu barem). PDF-urile pe capitole și pe subiecte nu mai intră. Fiecare hartă are pasul ei; pasul zilei vine din harta 1, apoi din harta 2; cu Premium, harta 2 se lucrează și în paralel. „⏭ Treci mai departe" — în oricare hartă, pe pasul ei curent.
+2. **„Cu barem"** = baremul pe care îl folosește corectarea: `ai_pdf_text` (potrivirea confirmată a site-ului / baremul ales de admin; potrivirea unui PDF înlocuit nu mai contează) sau `exam_bot_index` (botul de examene). Subiectul căruia i se leagă baremul apare singur pe hartă. Tabelele baremelor lipsă → la examen toate subiectele, la clasă niciunul.
+3. **Pagina** (`src/pages/PregatesteMa.jsx`, `src/components/HartaPlan.jsx`): cele două hărți una sub alta, cu numărul scris de mână; sub pasul de azi, câte o bară pentru fiecare hartă; „📄 Subiectul de acum: pasul N" deschide fișa cu cele 4 moduri; la contul gratuit, harta 2 are ⭐ și butonul spre abonamente; harta goală spune de ce. Harta terminată stă pliată (🏁 pe etape), iar 🏁 apare doar pe etapa parcursă toată; traseul nu mai trece „cu cerneală" peste pașii încuiați.
+4. **„Rezultate" la profesor și la părinte** (`api/teacher-students.js` → `students[].plan`, `api/_lib/pregatireZilnica.js` → `rezumateElevi`, `src/components/HartaPlanRezumat.jsx` nou, `src/components/TeacherResults.jsx`): în rândul elevului, insigna `🗺️ EN · 🧩 9/49 · 📄 1/11 · 🔥 3`; în zona deschisă, caseta „🗺️ Harta pregătirii" — ținta, cele două hărți cu bara, etapele și pasul la care a ajuns elevul (stare, încercări, procent), neterminatele, cei săriți, seria, recordul, zilele bifate, ultima zi. Fără lista pașilor și fără notele zilei. Conținutul și baremele se citesc o dată pe țintă (nu pe elev); dacă tabelele pregătirii lipsesc, rezultatele merg mai departe, fără hartă.
+5. **Telefon**: zona deschisă a unui elev din „Rezultate" stă acum în lățimea ecranului (tabelul elevilor rămâne derulabil în lateral, casetele nu mai sunt tăiate în dreapta).
+
+Teste: `plan-pregatire` rescris (20); actualizate `pregatire-zilnica`, `pdf-nota-recenzii-taburi`. `npm test`: 1271 din 1271; `vite build` curat. Verificat în Chromium (Supabase și API simulate): pagina cu două hărți pe telefon și calculator (Premium, gratuit, pasul zilei din harta PDF, clasă, clasă fără fișe cu barem, pauza), fișa subiectului PDF din harta 2, „Du-mă la pasul meu" dintr-un pas încuiat; „Rezultate" la profesor (calculator și telefon, elev cu examen, cu clasă, fără țintă) și la părinte (telefon).
+
+---
+
 ## 13 noiembrie 2026 — 🗺️ harta pregătirii în „Pregătește-mă de examen" · „Materiale" în bara de jos a profesorilor
 
 Cererea: „1. La conturile de profesori, în bara cu butoane de jos, în loc de «exerciții» interactive, pune buton «materiale», ca la conturile de elevi. 2. La conturile de elevi, pune în «pregătește-mă de examen» un plan de pregătire cu exerciții în ordine (…) capitole cu exerciții, exerciții pe subiecte și apoi teste interactive (…) apoi cele PDF (…) a) pe PDF, b) în chat, c) în foaia de lucru, d) cu poza. Să se poată alege și o clasă (…) la corectarea cu AI în lipsa baremului să ai grijă la consum, să pui limită sau taxă. Să se poată reveni la un exercițiu sau test neterminat, să apară în «rezultate». Planul să se poată vedea ca o hartă (…) să se updateze mereu (…) să se poată stagna pe hartă la un exercițiu până îl termină, dar să poată și trece mai departe după mai multe încercări. Dacă se întrerupe șirul de zile, să se poată relua de unde a rămas. Păstrează liga și XP, dar introdu harta de pregătire - planul de parcurs."

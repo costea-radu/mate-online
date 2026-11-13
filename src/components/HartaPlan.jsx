@@ -8,10 +8,13 @@
 //   ✓ bleumarin  — trecut          ● auriu (pulsează) — pasul tău de acum
 //   ◯ cu roșu    — încercat (×n)   ⏸ — început, neterminat
 //   ⏭ punctat    — sărit           ⭐ — cu Premium        · creion — urmează (încuiat)
-// Etapele (capitole → exerciții pe subiecte → teste interactive → PDF; la clasă:
-// clasa aleasă și cele dinainte) sunt notițe pe margine, cu câți pași s-au trecut;
-// se pliază — deschisă stă etapa pasului curent. Datele: api/_lib/planPregatire.js.
+// Etapele (capitole → exerciții pe subiecte → teste interactive; la clasă: clasa
+// aleasă și cele dinainte) sunt notițe pe margine, cu câți pași s-au trecut; se
+// pliază — deschisă stă etapa pasului curent. Datele: api/_lib/planPregatire.js.
 // Un clic pe un pas îl alege (onAlege) — pagina arată fișa lui, cu butoanele.
+// 13 nov. 2026 (după-amiaza): pagina are DOUĂ hărți — 1 · exercițiile interactive,
+// 2 · subiectele PDF cu barem; fiecare e o instanță a componentei, cu pasul ei
+// (`plan` = harta: { noduri, etape, curent }). Legenda — doar la prima (`legenda`).
 // =====================================================================
 import { useEffect, useMemo, useRef, useState } from 'react';
 import '@fontsource/caveat/700.css';
@@ -99,9 +102,14 @@ function Grila({ noduri, cols, curentId, alesId, onAlege, iCurent }) {
   const randuri = Math.ceil(noduri.length / cols);
   const W = 2 * MARG + cols * PAS;
   const H = 2 * MARG + randuri * RAND - (RAND - NOD) / 2;
-  // până unde e „parcurs" traseul în etapa asta: până la pasul curent (sau toată, dacă e în urmă)
+  // până unde e „parcurs" traseul în etapa asta: până la pasul curent (toată, dacă e în urma
+  // lui; nimic, dacă e înaintea lui). Harta fără pas curent (gata sau, fără abonament, cu ⭐):
+  // până la ultimul pas trecut sau sărit — nu și peste pașii încuiați
   const kCurent = noduri.findIndex((n) => n.id === curentId);
-  const parcurs = kCurent >= 0 ? kCurent : (iCurent < 0 || (noduri.length && noduri[noduri.length - 1].i < iCurent) ? noduri.length - 1 : -1);
+  let parcurs = -1;
+  if (kCurent >= 0) parcurs = kCurent;
+  else if (iCurent >= 0) parcurs = noduri.length && noduri[noduri.length - 1].i < iCurent ? noduri.length - 1 : -1;
+  else noduri.forEach((n, k) => { if (n.stare === 'trecut' || n.stare === 'sarit') parcurs = k; });
   return (
     <div className="hp-grila" style={{ width: W, height: H }}>
       <svg className="hp-traseu" width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
@@ -119,7 +127,7 @@ function Grila({ noduri, cols, curentId, alesId, onAlege, iCurent }) {
             className={`hp-nod ${n.tip === 'pdf' ? 'pdf' : 'int'} ${a.cls}${n.id === alesId ? ' ales' : ''}`}
             style={{ left: p.x - NOD / 2, top: p.y - NOD / 2 }}
             onClick={() => onAlege(n)}
-            aria-label={`Pasul ${n.i + 1}${n.tip === 'pdf' ? ' (test PDF)' : ''}: ${n.titlu} — ${a.eticheta}`}
+            aria-label={`Pasul ${n.i + 1}${n.tip === 'pdf' ? ' (subiect PDF)' : ''}: ${n.titlu} — ${a.eticheta}`}
             aria-pressed={n.id === alesId}
             title={`${n.i + 1}. ${n.titlu}`}
           >
@@ -135,7 +143,7 @@ function Grila({ noduri, cols, curentId, alesId, onAlege, iCurent }) {
   );
 }
 
-export default function HartaPlan({ plan, alesId = null, onAlege = () => {} }) {
+export default function HartaPlan({ plan, alesId = null, onAlege = () => {}, legenda = true }) {
   const ref = useRef(null);
   const w = useLatime(ref);
   const cols = coloane(w);
@@ -143,14 +151,16 @@ export default function HartaPlan({ plan, alesId = null, onAlege = () => {} }) {
   const curent = plan && plan.curent >= 0 ? noduri[plan.curent] : null;
   const ales = alesId ? noduri.find((n) => n.id === alesId) : null;
   const etape = plan?.etape || [];
-  // deschise: etapa pasului curent și a pasului ales (restul, la clic)
+  // deschise: etapa pasului curent și a pasului ales (restul, la clic); fără pas curent:
+  // prima etapă neterminată (fără abonament, cea cu ⭐); harta gata stă pliată (🏁 pe etape)
   const [deschise, setDeschise] = useState(() => new Set());
   useEffect(() => {
     setDeschise((d) => {
       const n = new Set(d);
       if (curent) n.add(curent.etapa);
       if (ales) n.add(ales.etapa);
-      if (!curent && etape.length && !n.size) n.add(etape[etape.length - 1].id);
+      const neterminata = etape.find((e) => e.trecute + e.sarite < e.total);
+      if (!curent && neterminata && !n.size) n.add(neterminata.id);
       return n;
     });
   }, [curent?.etapa, ales?.etapa, etape.length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -161,20 +171,21 @@ export default function HartaPlan({ plan, alesId = null, onAlege = () => {} }) {
   return (
     <div className="hp" ref={ref}>
       <style>{CSS}</style>
-      <ul className="hp-legenda" aria-label="Ce înseamnă semnele de pe hartă">
-        <li><i className="hp-l trecut">✓</i> trecut</li>
-        <li><i className="hp-l curent" /> pasul tău</li>
-        <li><i className="hp-l incercat" /> încercat</li>
-        <li><i className="hp-l inceput">⏸</i> neterminat</li>
-        <li><i className="hp-l sarit">⏭</i> sărit</li>
-        <li><i className="hp-l incuiat" /> urmează</li>
-        <li><i className="hp-l pdfl" /> test PDF</li>
-      </ul>
+      {legenda && (
+        <ul className="hp-legenda" aria-label="Ce înseamnă semnele de pe hartă">
+          <li><i className="hp-l trecut">✓</i> trecut</li>
+          <li><i className="hp-l curent" /> pasul tău</li>
+          <li><i className="hp-l incercat" /> încercat</li>
+          <li><i className="hp-l inceput">⏸</i> neterminat</li>
+          <li><i className="hp-l sarit">⏭</i> sărit</li>
+          <li><i className="hp-l incuiat" /> urmează</li>
+        </ul>
+      )}
       {etape.map((et, k) => {
         const ale = noduri.filter((n) => n.etapa === et.id);
         if (!ale.length) return null;
         const deschisa = deschise.has(et.id);
-        const gata = et.trecute + et.sarite >= et.total - et.inchise && et.trecute > 0;
+        const gata = et.total > 0 && et.trecute > 0 && et.trecute + et.sarite >= et.total;   // 🏁 doar etapa parcursă toată
         const pct = et.total ? Math.round((et.trecute / et.total) * 100) : 0;
         return (
           <section key={et.id} className={`hp-etapa${et.curenta ? ' curenta' : ''}${gata ? ' gata' : ''}`}>
@@ -208,7 +219,6 @@ const CSS = `
 .hp-l.inceput{border:2px dashed var(--gold-dim);background:#fff;color:var(--gold-dim)}
 .hp-l.sarit{border:2px dashed var(--hp-cerneala);background:#fff;color:var(--hp-cerneala);font-size:.55rem}
 .hp-l.incuiat{border:1.5px dashed var(--hp-creion);background:transparent}
-.hp-l.pdfl{border-radius:5px;border:2px solid var(--hp-cerneala);background:#fff}
 .hp-etapa{border-radius:14px;margin-bottom:10px;background:var(--hp-hartie);border:1px solid var(--cream-dark);overflow:hidden}
 .hp-etapa.curenta{border-color:rgba(232,185,49,.7);box-shadow:0 2px 14px rgba(232,185,49,.18)}
 .hp-cap{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"titlu cont" "bara sag";align-items:center;gap:2px 10px;padding:10px 14px 10px 44px;border:none;background:transparent;cursor:pointer;text-align:left;position:relative;font-family:var(--font-body)}

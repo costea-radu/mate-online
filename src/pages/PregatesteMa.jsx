@@ -19,6 +19,12 @@
 //     caiet; un clic pe un pas → fișa lui (jos), cu butoanele;
 //   · după o pauză: „continui de unde ai rămas" (seria se ia de la capăt, planul nu);
 //   · răsplățile (XP, 🪙, liga din Arenă, insignele), „🔔 Amintește-mi", ultimele zile.
+// 13 nov. 2026 (după-amiaza) — „împarte harta în două: prima dată harta exercițiilor
+// interactive și a doua harta exercițiilor PDF" + „păstrează doar subiecte de examen
+// cu corectare după barem": 1 · 🧩 harta exercițiilor interactive, 2 · 📄 harta
+// subiectelor PDF cu barem (la clasă: fișele PDF cu barem). Fiecare hartă are pasul
+// ei; pasul de azi vine din harta 1, iar după ce o termini, din harta 2. Cu Premium,
+// harta 2 se poate lucra și în paralel.
 // Ziua se bifează pe server (api/_lib/pregatireZilnica.js); planul:
 // api/_lib/planPregatire.js. API: /api/gamificare → 'pregatire', 'pregatire_alege'
 // (examen sau clasă), 'plan_sari', 'pregatire_notificari' / 'pregatire_notificari_proba'.
@@ -81,12 +87,19 @@ function Zi({ z }) {
   );
 }
 
+// cele două hărți, în ordine (planPregatire.js → HARTI)
+const HARTI = {
+  interactiv: { nr: 1, icon: '🧩', scurt: 'Harta interactivă', nume: 'Exerciții interactive' },
+  pdf: { nr: 2, icon: '📄', scurt: 'Harta PDF', nume: 'Subiecte PDF cu barem' },
+};
+const NR_HARTI = ['interactiv', 'pdf'];
+
 // ce s-a întâmplat la un pas, într-o propoziție
 function descriere(n, { esteCurent, reguli }) {
   const prag = n.tip === 'pdf' ? reguli?.pragPdf ?? 50 : reguli?.pragInteractiv ?? 70;
   if (!n.accesibil && n.stare !== 'trecut') {
     return n.tip === 'pdf'
-      ? '⭐ Testele PDF le corectează profesorul virtual — fac parte din abonamentul Premium.'
+      ? '⭐ Subiectele PDF le corectează profesorul virtual după barem — fac parte din abonamentul Premium.'
       : '⭐ Exercițiu din abonamentul Premium.';
   }
   if (n.stare === 'trecut') return `✓ Trecut${n.pct != null ? ` cu ${n.pct}%` : ''}${n.incercari > 1 ? ` (din ${n.incercari} încercări)` : ''}. Îl poți relua oricând.`;
@@ -180,20 +193,21 @@ function AlegereTinta({ p, busy, onAlege }) {
             </button>
           ))}
         </div>
-        <div className="pz-nota-mica">La o clasă: întâi exercițiile ei, apoi ale claselor dinainte — interactive, apoi PDF.</div>
+        <div className="pz-nota-mica">La o clasă: întâi exercițiile interactive ale ei, apoi ale claselor dinainte; pe a doua hartă, fișele PDF cu barem.</div>
       </div>
     </div>
   );
 }
 
-// fișa pasului ales pe hartă (jos, peste pagină)
-function FisaPas({ n, plan, busy, onInchide, onDeschide, onSari, onLaPasulMeu }) {
-  const esteCurent = plan?.curent === n.i;
-  const et = (plan?.etape || []).find((e) => e.id === n.etapa);
+// fișa pasului ales pe hartă (jos, peste pagină); `harta` = harta pasului (numerotarea e a ei)
+function FisaPas({ n, harta, plan, busy, onInchide, onDeschide, onSari, onLaPasulMeu }) {
+  const esteCurent = harta?.curent === n.i;
+  const et = (harta?.etape || []).find((e) => e.id === n.etapa);
+  const h = HARTI[n.harta] || HARTI.interactiv;
   return (
-    <div className="pz-fisa" role="dialog" aria-label={`Pasul ${n.i + 1}: ${n.titlu}`}>
+    <div className="pz-fisa" role="dialog" aria-label={`${h.scurt}, pasul ${n.i + 1}: ${n.titlu}`}>
       <button type="button" className="pz-fisa-x" onClick={onInchide} aria-label="Închide">✕</button>
-      <div className="pz-fisa-et">{et ? et.titlu : ''} · pasul {n.i + 1} din {plan.total}{n.nou ? ' · ' : ''}{n.nou && <span className="pz-nou">nou în site</span>}</div>
+      <div className="pz-fisa-et">{h.icon} {h.scurt} · {et ? et.titlu : ''} · pasul {n.i + 1} din {harta?.total}{n.nou ? ' · ' : ''}{n.nou && <span className="pz-nou">nou în site</span>}</div>
       <div className="pz-fisa-tit">{n.titlu}</div>
       <div className="pz-fisa-st">{descriere(n, { esteCurent, reguli: plan.reguli })}</div>
       <ActiuniPas n={n} esteCurent={esteCurent} plan={plan} busy={busy} onDeschide={onDeschide} onSari={onSari} onLaPasulMeu={onLaPasulMeu} />
@@ -201,15 +215,53 @@ function FisaPas({ n, plan, busy, onInchide, onDeschide, onSari, onLaPasulMeu })
   );
 }
 
+// toată harta (în afară de ce e deja trecut) e cu Premium — la harta PDF, fără abonament
+const hartaBlocata = (h) => !!h && h.ramasePremium > 0 && h.ramasePremium + h.trecute >= h.total;
+
+// ce mai rămâne de făcut cu Premium, după ce elevul a terminat tot ce e gratuit
+function ceRamaneCuPremium(plan) {
+  const nPdf = plan?.pdf?.ramasePremium || 0, nInt = plan?.interactiv?.ramasePremium || 0;
+  const pasi = (n) => (n === 1 ? 'un pas' : `${n} pași`);
+  if (nPdf && nInt) return `Mai ai ${pasi(nPdf + nInt)} cu Premium: subiectele PDF corectate după barem și exercițiile interactive din abonament.`;
+  if (nPdf) return `Harta subiectelor PDF (${pasi(nPdf)}), corectate după barem de profesorul virtual, se deschide cu Premium.`;
+  return `Mai ai ${nInt === 1 ? 'un exercițiu interactiv' : `${nInt} exerciții interactive`} din abonamentul Premium.`;
+}
+// „… se deschide(u) cu" (urmează legătura „Premium"), sub progresul hărților
+function seDeschideCu(plan) {
+  const nInt = plan?.interactiv?.ramasePremium || 0;
+  const ex = (n) => (n === 1 ? 'un exercițiu interactiv' : `${n} exerciții interactive`);
+  if (hartaBlocata(plan?.pdf)) {
+    return nInt ? `Harta subiectelor PDF și ${ex(nInt)} se deschid cu` : 'Harta subiectelor PDF, corectate după barem de profesorul virtual, se deschide cu';
+  }
+  const n = nInt + (plan?.pdf?.ramasePremium || 0);
+  return n === 1 ? 'Un pas din abonament se deschide cu' : `${n} pași din abonament se deschid cu`;
+}
+
+// progresul unei hărți, pe un rând (sub pasul de azi)
+function ProgresHarta({ id, h, laClasa = false }) {
+  const m = HARTI[id];
+  if (!h || !h.total) return null;
+  const blocata = hartaBlocata(h);
+  return (
+    <div className="pz-prog">
+      <div className="pz-prog-r">
+        <span className="pz-prog-n"><b>{m.nr}</b> {m.icon} {id === 'pdf' && laClasa ? 'Fișe PDF cu barem' : m.nume}</span>
+        <span>{blocata ? '⭐ cu Premium' : `${h.trecute} din ${h.total}${h.sarite ? ` · ${h.sarite} ${h.sarite === 1 ? 'sărit' : 'săriți'}` : ''} · ${h.procent}%`}</span>
+      </div>
+      <div className="pz-bara" aria-hidden="true"><span style={{ width: `${blocata ? 0 : h.procent}%` }} /></div>
+    </div>
+  );
+}
+
 export default function PregatesteMa() {
-  const { user, isAdmin, isPremium, loading: authLoading } = useAuth();
+  const { user, isAdmin, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [p, setP] = useState(null);
   const [notif, setNotif] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [schimba, setSchimba] = useState(false);
-  const [alesId, setAlesId] = useState(null);
+  const [ales, setAles] = useState(null);   // pasul ales pe o hartă: { harta, id }
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -235,7 +287,7 @@ export default function PregatesteMa() {
       const r = await aiClient.gamificare({ action: 'pregatire_alege', examen });
       setP(r?.pregatire || null);
       setSchimba(false);
-      setAlesId(null);
+      setAles(null);
       arenaChanged();
     } catch (e) { setErr(e?.message || 'Nu am putut salva alegerea.'); }
     finally { setBusy(false); }
@@ -246,7 +298,7 @@ export default function PregatesteMa() {
     try {
       const r = await aiClient.gamificare({ action: 'plan_sari', contentId: n.id });
       setP(r?.pregatire || null);
-      setAlesId(null);
+      setAles(null);
     } catch (e) { setErr(e?.message || 'Nu am putut trece mai departe.'); }
     finally { setBusy(false); }
   }
@@ -259,7 +311,7 @@ export default function PregatesteMa() {
       <div className="container">
         <div className="breadcrumb"><Link to="/">Acasă</Link><span>›</span><span>Pregătește-mă de examen</span></div>
         <h1>🎯 Pregătește-mă de examen</h1>
-        <p>Planul tău, pe o hartă: exercițiile în ordinea din site, pas cu pas. Lucrezi zilnic, primești XP și urci în ligă.</p>
+        <p>Planul tău, pe două hărți: întâi exercițiile interactive, apoi subiectele PDF corectate după barem. Lucrezi zilnic, primești XP și urci în ligă.</p>
       </div>
     </div>
   );
@@ -304,6 +356,19 @@ export default function PregatesteMa() {
 .pz-fisa-tit{font-weight:800;color:var(--navy);font-size:1.05rem;margin:4px 30px 6px 0;line-height:1.3}
 .pz-fisa-st{font-size:.86rem;color:var(--text-light);margin-bottom:12px;line-height:1.5}
 .pz-pauza{display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+/* cele două hărți: 1 · interactive, 2 · PDF cu barem — numărul scris de mână, ca etapele de pe margine */
+.pz-progs{display:grid;gap:10px;margin-top:14px}
+.pz-prog-r{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:.8rem;color:var(--text-light);font-weight:700}
+.pz-prog-n{color:var(--navy)}
+.pz-prog-n b{font-family:"Caveat",cursive;color:#c62828;font-size:1.15rem;margin-right:3px}
+.pz-harta-n + .pz-harta-n{margin-top:28px;padding-top:20px;border-top:1px dashed var(--cream-dark)}
+.pz-h3{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-family:var(--font-display);color:var(--navy);font-size:1.14rem;margin:0 0 2px}
+.pz-h3-nr{font-family:"Caveat",cursive;color:#c62828;font-size:1.7rem;line-height:1;min-width:16px}
+.pz-h3 small{font-family:var(--font-body);font-size:.78rem;font-weight:800;color:var(--text-light);margin-left:auto}
+.pz-h3-sub{font-size:.84rem;color:var(--text-light);margin:2px 0 10px;line-height:1.5;max-width:72ch}
+.pz-stare{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:10px 12px;border-radius:12px;background:#fff;border:1px solid var(--border);font-size:.84rem;color:var(--navy);line-height:1.45;margin-bottom:10px}
+.pz-stare span{flex:1 1 240px}
+.pz-gol{padding:14px 16px;border-radius:14px;border:1.5px dashed var(--cream-dark);background:#fdfbf4;font-size:.86rem;color:var(--text-light);line-height:1.5}
 `}</style>
   );
 
@@ -320,9 +385,10 @@ export default function PregatesteMa() {
             <div style={{ fontSize: '2.2rem' }}>🗺️🔥🏆</div>
             <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: '10px 0 6px' }}>Harta ta până la examen</h2>
             <p style={{ color: 'var(--text-light)', maxWidth: 580, margin: '0 auto 18px', lineHeight: 1.6 }}>
-              Alegi examenul (Evaluarea Națională sau BAC) sau clasa și primești toate exercițiile în ordine, pe o hartă:
-              capitole, exerciții pe subiecte, teste interactive, apoi teste PDF. Fiecare zi lucrată îți aduce XP,
-              o serie de zile la rând și un loc în liga săptămânii — iar noi îți amintim de pasul zilei.
+              Alegi examenul (Evaluarea Națională sau BAC) sau clasa și primești exercițiile în ordine, pe două hărți:
+              întâi cele interactive (capitole, exerciții pe subiecte, teste interactive), apoi subiectele de examen PDF,
+              corectate după barem. Fiecare zi lucrată îți aduce XP, o serie de zile la rând și un loc în liga
+              săptămânii — iar noi îți amintim de pasul zilei.
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
               <Link to="/inregistrare" className="btn btn-primary">Creează cont gratuit</Link>
@@ -356,15 +422,28 @@ export default function PregatesteMa() {
   const lucrat = !!p?.lucrat;
   const t = p?.test;
   const r = p?.recompensa || {};
-  const plan = p?.plan && p.plan.noduri && p.plan.noduri.length ? p.plan : null;
-  const noduri = plan ? plan.noduri.map((n, i) => ({ ...n, i })) : [];
-  const pas = plan && plan.curent >= 0 ? noduri[plan.curent] : null;
-  const ales = alesId ? noduri.find((n) => n.id === alesId) || null : null;
-  const etapaPas = pas ? plan.etape.find((e) => e.id === pas.etapa) : null;
-  const laPasulMeu = () => {
-    setAlesId(null);
-    if (pas) setTimeout(() => document.getElementById(`pas-${pas.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+  // cele două hărți (api/_lib/planPregatire.js → vedere): plan.interactiv, plan.pdf, plan.pas
+  const arePlan = p?.plan && p.plan.interactiv && p.plan.pdf;
+  const plan = arePlan && (p.plan.interactiv.noduri || []).length + (p.plan.pdf.noduri || []).length > 0 ? p.plan : null;
+  const noduri = {};
+  for (const h of NR_HARTI) noduri[h] = plan ? (plan[h].noduri || []).map((n, i) => ({ ...n, i, harta: h })) : [];
+  const curentDin = (h) => (plan && plan[h] && plan[h].curent >= 0 ? noduri[h][plan[h].curent] || null : null);
+  // pasul zilei: din harta interactivă; după ce e gata, din harta PDF
+  const hartaPas = plan?.pas?.harta && noduri[plan.pas.harta] ? plan.pas.harta : null;
+  const pas = hartaPas ? curentDin(hartaPas) : null;
+  const etapaPas = pas ? plan[hartaPas].etape.find((e) => e.id === pas.etapa) : null;
+  // harta PDF are pasul ei; cu Premium se lucrează și în paralel
+  const pasPdf = curentDin('pdf');
+  const nodAles = ales && plan ? (noduri[ales.harta] || []).find((n) => n.id === ales.id) || null : null;
+  const alege1 = (h) => (n) => setAles((cur) => (cur && cur.id === n.id ? null : { harta: h, id: n.id }));
+  const laPasulMeu = (h) => {
+    const tinta = curentDin(typeof h === 'string' ? h : hartaPas) || pas;
+    setAles(null);
+    if (tinta) setTimeout(() => document.getElementById(`pas-${tinta.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
   };
+  const ramasePremium = plan ? (plan.interactiv.ramasePremium || 0) + (plan.pdf.ramasePremium || 0) : 0;
+  const pdfBlocata = !!plan && hartaBlocata(plan.pdf);
+  const laClasa = p?.examen?.tip === 'clasa';
 
   // progresul zilei (bifa de la 3 exerciții), sub pasul de azi
   const progresZi = lucrat ? (
@@ -394,8 +473,9 @@ export default function PregatesteMa() {
               <div style={{ ...eticheta, color: 'var(--gold-dim)' }}>Primul pas</div>
               <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--navy)', margin: '6px 0 4px', fontSize: '1.35rem' }}>Pentru ce te pregătești?</h2>
               <p style={{ color: 'var(--text-light)', margin: 0, fontSize: '.92rem', lineHeight: 1.55 }}>
-                Primești toate exercițiile, în ordine, pe o hartă: la examen — capitolele, exercițiile pe subiecte și testele
-                interactive, apoi testele PDF. Treci de la un pas la altul când îl rezolvi, sau după câteva încercări.
+                Primești două hărți: întâi exercițiile interactive, în ordinea din site (la examen — capitolele, exercițiile
+                pe subiecte și testele interactive), apoi subiectele de examen PDF, corectate după barem. Treci de la un pas
+                la altul când îl rezolvi, sau după câteva încercări.
               </p>
               <AlegereTinta p={p} busy={busy} onAlege={alege} />
             </div>
@@ -404,7 +484,7 @@ export default function PregatesteMa() {
               {p.pauza && pas && (
                 <div style={{ ...card, background: 'var(--cream)' }} className="pz-pauza">
                   <div style={{ fontSize: '.92rem', color: 'var(--navy)', lineHeight: 1.5 }}>
-                    <strong>Bine ai revenit!</strong> Seria de zile o iei de la capăt, dar planul te așteaptă exact unde l-ai lăsat: <strong>pasul {pas.i + 1}</strong>.
+                    <strong>Bine ai revenit!</strong> Seria de zile o iei de la capăt, dar planul te așteaptă exact unde l-ai lăsat: <strong>pasul {pas.i + 1}</strong> din {hartaPas === 'pdf' ? 'harta subiectelor PDF' : 'harta exercițiilor interactive'}.
                   </div>
                   <button type="button" className="btn btn-sm btn-primary" onClick={() => deschide(pas.tip === 'pdf' ? urlPas(pas, 'pdf') : urlPas(pas), pas)}>▶ Continuă</button>
                 </div>
@@ -448,9 +528,9 @@ export default function PregatesteMa() {
                       <>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: '.76rem', color: 'var(--text-light)', fontWeight: 700 }}>
                           <span style={{ borderRadius: 999, padding: '2px 8px', background: '#fff', border: '1px solid var(--border)', color: 'var(--navy)' }}>
-                            {pas.tip === 'pdf' ? '📄 Test PDF' : '🧩 Interactiv'}
+                            {HARTI[hartaPas].icon} {HARTI[hartaPas].scurt}
                           </span>
-                          <span>{etapaPas?.titlu} · pasul {pas.i + 1} din {plan.total}</span>
+                          <span>{etapaPas?.titlu} · pasul {pas.i + 1} din {plan[hartaPas].total}</span>
                           {pas.nou && <span className="pz-nou">nou în site</span>}
                         </div>
                         <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.1rem', margin: '8px 0 4px' }}>{pas.titlu}</div>
@@ -462,23 +542,21 @@ export default function PregatesteMa() {
                             <span style={{ color: 'var(--text-muted)' }}> · o vezi doar tu (în Arenă nu apar note)</span>
                           </div>
                         )}
-                        <ActiuniPas n={pas} esteCurent plan={plan} busy={busy} mare onDeschide={deschide} onSari={sari} onLaPasulMeu={laPasulMeu} />
+                        <ActiuniPas n={pas} esteCurent plan={plan} busy={busy} mare onDeschide={deschide} onSari={sari} onLaPasulMeu={() => laPasulMeu(hartaPas)} />
                       </>
                     ) : plan?.terminat ? (
                       <>
                         <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.08rem', marginBottom: 6 }}>
-                          🏁 {plan.ramasePremium ? 'Ai terminat tot ce e gratuit în plan!' : 'Ai parcurs tot planul!'}
+                          🏁 {ramasePremium ? 'Ai terminat tot ce e gratuit în plan!' : 'Ai parcurs ambele hărți!'}
                         </div>
                         <div style={{ fontSize: '.86rem', color: 'var(--text-light)', lineHeight: 1.5, marginBottom: 10 }}>
-                          {plan.ramasePremium
-                            ? `Mai ai ${plan.ramasePremium} pași cu Premium (testele PDF corectate de profesorul virtual și exercițiile din abonament).`
-                            : 'Poți relua pașii sub prag sau alege altă țintă.'}
+                          {ramasePremium ? ceRamaneCuPremium(plan) : 'Poți relua pașii sub prag sau alege altă țintă.'}
                           {t ? ` Pentru azi, o recapitulare: „${t.titlu}".` : ''}
                         </div>
                         {progresZi}
                         <div className="pz-act">
                           {t && <button type="button" className="btn btn-primary" onClick={() => deschide(t.url, { id: t.id })}>▶ Recapitulare</button>}
-                          {plan.ramasePremium > 0 && <Link to="/preturi" className="btn btn-outline">⭐ Premium</Link>}
+                          {ramasePremium > 0 && <Link to="/preturi" className="btn btn-outline">⭐ Premium</Link>}
                         </div>
                       </>
                     ) : t ? (
@@ -499,15 +577,11 @@ export default function PregatesteMa() {
                   </div>
 
                   {plan && (
-                    <div style={{ marginTop: 14 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.8rem', color: 'var(--text-light)', fontWeight: 700 }}>
-                        <span>{plan.trecute} din {plan.total} pași trecuți{plan.sarite ? ` · ${plan.sarite} săriți` : ''}</span>
-                        <span>{plan.procent}%</span>
-                      </div>
-                      <div className="pz-bara" aria-hidden="true"><span style={{ width: `${plan.procent}%` }} /></div>
-                      {plan.ramasePremium > 0 && !isPremium && (
-                        <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: 8 }}>
-                          ⭐ {plan.ramasePremium} pași (testele PDF corectate de profesorul virtual și exercițiile din abonament) se deschid cu{' '}
+                    <div className="pz-progs" aria-label="Cât ai parcurs din fiecare hartă">
+                      {NR_HARTI.map((h) => <ProgresHarta key={h} id={h} h={plan[h]} laClasa={laClasa} />)}
+                      {ramasePremium > 0 && (
+                        <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                          ⭐ {seDeschideCu(plan)}{' '}
                           <Link to="/preturi" style={{ color: 'var(--navy)', fontWeight: 700 }}>Premium</Link>.
                         </div>
                       )}
@@ -554,16 +628,71 @@ export default function PregatesteMa() {
                   </div>
                 </div>
 
-                {/* ─── 🗺️ Harta pregătirii ─── */}
+                {/* ─── 🗺️ Harta pregătirii: 1 · exercițiile interactive, 2 · subiectele PDF cu barem ─── */}
                 {plan && (
                   <section className="pz-a-harta" aria-labelledby="pz-harta-tit">
                     <div className="pz-harta-cap">
                       <h2 id="pz-harta-tit">🗺️ Harta pregătirii · {p.examen?.label}</h2>
                       <span style={{ fontSize: '.8rem', color: 'var(--text-light)' }}>
-                        Treci la pasul următor de la {plan.reguli?.pragInteractiv ?? 70}% (testele PDF: nota 5) sau după {plan.reguli?.incercariSarire ?? 3} încercări.
+                        Treci la pasul următor de la {plan.reguli?.pragInteractiv ?? 70}% (subiectele PDF: nota 5) sau după {plan.reguli?.incercariSarire ?? 3} încercări.
                       </span>
                     </div>
-                    <HartaPlan plan={plan} alesId={alesId} onAlege={(n) => setAlesId((cur) => (cur === n.id ? null : n.id))} />
+
+                    <div className="pz-harta-n" aria-labelledby="pz-h-int">
+                      <h3 className="pz-h3" id="pz-h-int">
+                        <span className="pz-h3-nr" aria-hidden="true">1</span> 🧩 Exerciții interactive
+                        <small>{plan.interactiv.trecute} din {plan.interactiv.total}</small>
+                      </h3>
+                      <p className="pz-h3-sub">
+                        {laClasa
+                          ? `Exercițiile interactive ale ${String(p.examen?.label || '').replace('Clasa', 'clasei')}, apoi ale claselor dinainte, în ordinea din site.`
+                          : 'Capitolele, exercițiile pe subiecte și testele interactive, în ordinea din site.'}
+                      </p>
+                      {plan.interactiv.terminat && plan.pdf.total > 0 && (
+                        <div className="pz-stare"><span>🏁 Ai terminat harta exercițiilor interactive{pdfBlocata ? '.' : ' — pasul zilei vine acum din harta subiectelor PDF.'}</span></div>
+                      )}
+                      {plan.interactiv.total > 0
+                        ? <HartaPlan plan={plan.interactiv} alesId={ales?.harta === 'interactiv' ? ales.id : null} onAlege={alege1('interactiv')} />
+                        : <div className="pz-gol">Încă nu avem exerciții interactive pentru {p.examen?.label}. Apar aici singure, pe măsură ce le adăugăm.</div>}
+                    </div>
+
+                    <div className="pz-harta-n" aria-labelledby="pz-h-pdf">
+                      <h3 className="pz-h3" id="pz-h-pdf">
+                        <span className="pz-h3-nr" aria-hidden="true">2</span> 📄 {laClasa ? 'Fișe PDF cu barem' : 'Subiecte de examen PDF, cu barem'}
+                        {plan.pdf.total > 0 && <small>{pdfBlocata ? '⭐ cu Premium' : `${plan.pdf.trecute} din ${plan.pdf.total}`}</small>}
+                      </h3>
+                      <p className="pz-h3-sub">
+                        {laClasa
+                          ? `Fișele PDF ale ${String(p.examen?.label || '').replace('Clasa', 'clasei')} și ale claselor dinainte care au barem.`
+                          : `Variantele${String(p.examen?.id || '').startsWith('bac') ? ', testele de antrenament' : ''} și simulările care au barem.`}
+                        {' '}Profesorul virtual le corectează după barem; trimiți rezolvarea pe PDF, în chat, pe foaia de lucru sau cu poza.
+                      </p>
+                      {plan.pdf.total === 0 ? (
+                        <div className="pz-gol">
+                          {laClasa
+                            ? `Încă nu avem fișe PDF cu barem pentru ${String(p.examen?.label || '').replace('Clasa', 'clasa')} și clasele dinainte. Apar aici singure, când le adăugăm.`
+                            : `Încă nu avem subiecte cu barem legat pentru ${p.examen?.label}. Apar aici singure, pe măsură ce le legăm.`}
+                        </div>
+                      ) : (
+                        <>
+                          {pdfBlocata ? (
+                            <div className="pz-stare">
+                              <span>⭐ Harta subiectelor PDF se deschide cu Premium: profesorul virtual corectează fiecare subiect după barem.</span>
+                              <Link to="/preturi" className="btn btn-sm btn-primary">⭐ Vezi abonamentele</Link>
+                            </div>
+                          ) : plan.pdf.terminat ? (
+                            <div className="pz-stare"><span>🏁 Ai parcurs toate subiectele cu barem. Le poți relua oricând.</span></div>
+                          ) : pasPdf && hartaPas !== 'pdf' ? (
+                            <div className="pz-stare">
+                              <span>Poți lucra și la harta asta, în paralel — pasul zilei rămâne pe harta exercițiilor interactive până o termini.</span>
+                              <button type="button" className="btn btn-sm btn-outline" onClick={() => setAles({ harta: 'pdf', id: pasPdf.id })}>📄 Subiectul de acum: pasul {pasPdf.i + 1}</button>
+                            </div>
+                          ) : null}
+                          <HartaPlan plan={plan.pdf} legenda={false} alesId={ales?.harta === 'pdf' ? ales.id : null} onAlege={alege1('pdf')} />
+                        </>
+                      )}
+                    </div>
+
                     {!plan.coloana && isAdmin && (
                       <div style={{ fontSize: '.78rem', color: 'var(--danger)', marginTop: 6 }}>
                         Admin: rulează <code>supabase/plan_pregatire.sql</code> — fără el, „⏭ Treci mai departe" nu se poate salva.
@@ -607,8 +736,9 @@ export default function PregatesteMa() {
         </div>
       </div>
 
-      {ales && plan && (
-        <FisaPas n={ales} plan={plan} busy={busy} onInchide={() => setAlesId(null)} onDeschide={deschide} onSari={sari} onLaPasulMeu={laPasulMeu} />
+      {nodAles && plan && (
+        <FisaPas n={nodAles} harta={plan[nodAles.harta]} plan={plan} busy={busy} onInchide={() => setAles(null)}
+          onDeschide={deschide} onSari={sari} onLaPasulMeu={() => laPasulMeu(nodAles.harta)} />
       )}
     </>
   );

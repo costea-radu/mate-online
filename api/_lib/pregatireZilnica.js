@@ -445,6 +445,52 @@ async function sariPas(supa, userId, profile, { contentId } = {}) {
   }
 }
 
+// Progresul din harta pregătirii + seria de zile, pentru „Rezultate" la profesori și
+// părinți (13 nov. 2026; api/teacher-students.js → src/components/TeacherResults.jsx).
+// elevi: [{ id, premium }]; progRows: rândurile lor din `progress`, deja citite.
+// → { [id]: { tinta, interactiv, pdf, reguli, serie, record, zile, ultimaZi } } — doar
+// pentru elevii care și-au ales ținta. Nu aruncă: „Rezultate" merg și fără hartă.
+async function rezumateElevi(supa, elevi, progRows = []) {
+  const out = {};
+  try {
+    const ids = (elevi || []).map((e) => e && e.id).filter(Boolean);
+    if (!ids.length) return out;
+    let stats;
+    try {
+      stats = await http.inBatches(ids, (chunk, from, to) => supa.from('user_stats').select('user_id, prep_exam, prep_plan').in('user_id', chunk).range(from, to));
+    } catch {
+      try { stats = await http.inBatches(ids, (chunk, from, to) => supa.from('user_stats').select('user_id, prep_exam').in('user_id', chunk).range(from, to)); }
+      catch { return out; }
+    }
+    const stari = new Map((stats || []).filter((x) => x && x.user_id).map((x) => [x.user_id, x]));
+    const azi = xp.dayKey();
+    let zileRows = [];
+    try {
+      zileRows = await http.inBatches(ids, (chunk, from, to) => supa.from('daily_tests').select('user_id, day, status')
+        .in('user_id', chunk).eq('status', 'lucrat').gte('day', xp.addDays(azi, -400)).range(from, to));
+    } catch { /* migrarea pregătirii nu e rulată */ }
+    const zile = new Map();
+    for (const r of zileRows || []) { if (!r || !r.user_id) continue; if (!zile.has(r.user_id)) zile.set(r.user_id, []); zile.get(r.user_id).push(r.day); }
+    const harti = await plan.rezumateElevi(supa, elevi, { stari, progRows, tintaInfo });
+    for (const e of elevi) {
+      const st = stari.get(e.id);
+      const t = st ? tintaInfo(st.prep_exam) : null;
+      if (!t) continue;
+      const z = [...new Set(zile.get(e.id) || [])].sort();
+      const sr = misiune.serie(z, azi);
+      const h = harti.get(e.id) || null;
+      out[e.id] = {
+        tinta: { id: t.id, label: t.label, scurt: t.scurt, tip: t.tip },
+        interactiv: h ? h.interactiv : null, pdf: h ? h.pdf : null, reguli: h ? h.reguli : null,
+        serie: sr.curenta, record: sr.record, zile: sr.total, ultimaZi: z.length ? z[z.length - 1] : null,
+      };
+    }
+  } catch (e) {
+    console.warn('pregatire.rezumateElevi:', e?.message || e);
+  }
+  return out;
+}
+
 // Apelat după fiecare corectare / salvare de scor la un material de examen.
 //   itemi   — câte exerciții a lucrat elevul în acest test (cumulativ, la acest material)
 //   pct     — procentul (verificat) sau null; nota — nota testului sau null (privată)
@@ -562,5 +608,5 @@ module.exports = {
   examInfo, examValid, tintaInfo, tintaValida, eDinPlanulClasei, formatValid, examenulMaterialului, eDeExamen, urlTest, numeSubiecte, subiecteDinRaspunsuri,
   raspunsuriDate, recompensa, insigneNoi, formatFolosit, urmatorul,
   // cu baza de date
-  poolExamen, stare, alege, altTest, sariPas, inregistreaza, rezumat,
+  poolExamen, stare, alege, altTest, sariPas, inregistreaza, rezumat, rezumateElevi,
 };
