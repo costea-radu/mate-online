@@ -25,11 +25,13 @@ test('Home: elevul și vizitatorul păstrează „Pregătește-mă de examen" (f
 
 const blocul = (src, nume) => src.slice(src.indexOf(`export function ${nume}`), src.indexOf('\n}\n', src.indexOf(`export function ${nume}`)));
 
-// după ultimul card nu mai vine nimic (fără „Părerea ta despre ExamenMate", scos în aceeași zi)
+// după ultimul card nu mai vine nimic (fără „Părerea ta despre ExamenMate", scos în aceeași zi);
+// din 15 nov. 2026, la părinte și la profesor, sub grilă (pe toată lățimea) stă doar cardul
+// separat „🗺️ Harta pregătirii" (<HartaEleviAcasa />)
 const ultimulCard = (bloc, s) => {
   const dupa = bloc.slice(bloc.indexOf(s));
   assert.ok(bloc.indexOf(s) > 0, s);
-  assert.match(dupa, /^[^\n]*\n\s*<\/div>\n\s*<\/div>\n\s*<\/section>/, `${s} e ultimul card`);
+  assert.match(dupa, /^[^\n]*\n\s*<\/div>\n(\s*<HartaEleviAcasa rol="(parinte|profesor)" \/>\n)?\s*<\/div>\n\s*<\/section>/, `${s} e ultimul card`);
 };
 
 test('Home — elev: insignele mele (progresul meu), rezultatele, temele, mesageria', () => {

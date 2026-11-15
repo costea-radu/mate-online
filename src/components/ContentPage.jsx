@@ -8,6 +8,8 @@ import { notaDinScor } from '../lib/nota';
 import { fetchReviewStats } from '../lib/reviews';
 import { RatingBadge, ReviewList } from './ReviewWidget';
 import { scrollToCard } from '../lib/scrollToCard';
+import { esteBarem } from '../lib/bareme';
+import BaremeClasa, { useBaremeClasa } from './BaremeClasa';   // 📋 fila „Bareme” de la clase (15 nov. 2026)
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -438,7 +440,9 @@ function ManualViewer({ item }) {
 }
 
 // ─── Componentă principală ────────────────────────────────────────────────────
-export default function ContentPage({ category, title, subtitle, breadcrumb, tabs, emptyIcons }) {
+// `bareme` (clasele): fila „📋 Bareme” (src/components/BaremeClasa.jsx) — baremele nu mai stau
+// printre exercițiile PDF; fila apare dacă secțiunea e vizibilă elevilor (sau pentru admin)
+export default function ContentPage({ category, title, subtitle, breadcrumb, tabs, emptyIcons, bareme = false }) {
   const { user, isPremium, loading: authLoading } = useAuth();
   const location = useLocation();
   const initialTab = (location.state?.returnTab && tabs.some(t => t.id === location.state.returnTab))
@@ -450,6 +454,15 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
   const [ratingMap, setRatingMap] = useState({});   // content_id → { avg, n } (recenzii)
   const [loading, setLoading] = useState(true);
   const scrollRestored = useRef(false);
+  const bar = useBaremeClasa(category, { on: !!bareme, user });
+  const baremeVizibile = !!bareme && !!bar.data && !!(bar.data.vizibil || bar.data.admin);
+  const tabsVazute = tabs.filter((t) => t.id !== 'bareme' || baremeVizibile);
+  // în fila PDF a unei clase nu apar baremele (au fila lor)
+  const inTab = (item, tabId) => item.content_type === tabId && !(bareme && tabId === 'pdf' && esteBarem(item));
+  // secțiunea ascunsă elevilor → înapoi la prima filă
+  useEffect(() => {
+    if (activeTab === 'bareme' && bar.data && !baremeVizibile) setActiveTab(tabs[0].id);
+  }, [activeTab, bar.data, baremeVizibile]); // eslint-disable-line
 
   useEffect(() => {
     async function load() {
@@ -507,7 +520,8 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
     return () => { scrollRestored.current = false; cancel(); };
   }, [loading, authLoading, location.state]);
 
-  const filtered = items.filter(item => item.content_type === activeTab);
+  const filtered = items.filter(item => inTab(item, activeTab));
+  const numar = (tabId) => (tabId === 'bareme' ? (bar.data?.stats?.bareme || 0) : items.filter(i => inTab(i, tabId)).length);
 
   return (
     <>
@@ -524,16 +538,16 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
       <div className="content-list">
         <div className="container">
           <div className="tabs">
-            {tabs.map(tab => (
+            {tabsVazute.map(tab => (
               <button
                 key={tab.id}
                 className={`tab ${activeTab === tab.id ? 'active' : ''}`}
                 onClick={() => setActiveTab(tab.id)}
               >
                 {tab.label}
-                {items.filter(i => i.content_type === tab.id).length > 0 && (
+                {numar(tab.id) > 0 && (
                   <span style={{ marginLeft: 6, background: 'var(--gold)', color: 'var(--navy-dark)', borderRadius: 20, padding: '1px 7px', fontSize: '0.72rem', fontWeight: 700 }}>
-                    {items.filter(i => i.content_type === tab.id).length}
+                    {numar(tab.id)}
                   </span>
                 )}
               </button>
@@ -544,6 +558,8 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
             <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
               <div className="spinner" />
             </div>
+          ) : activeTab === 'bareme' ? (
+            <BaremeClasa category={category} stare={bar} items={items} user={user} isPremium={isPremium} Card={ContentCard} />
           ) : filtered.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">{emptyIcons?.[activeTab] || '📄'}</div>

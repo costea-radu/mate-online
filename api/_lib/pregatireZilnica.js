@@ -450,6 +450,68 @@ async function sariPas(supa, userId, profile, { contentId } = {}) {
 // elevi: [{ id, premium }]; progRows: rândurile lor din `progress`, deja citite.
 // → { [id]: { tinta, interactiv, pdf, reguli, serie, record, zile, ultimaZi } } — doar
 // pentru elevii care și-au ales ținta. Nu aruncă: „Rezultate" merg și fără hartă.
+// ─── Liga elevilor (15 nov. 2026 — „elevul să vadă progresul pe capitole, dar și pe
+// ligă; acest progres să apară și la părinți și profesori") ───────────────────
+// Pentru fiecare elev: divizia (🥉 Bronz … 👑 Maestru), punctele din săptămâna asta,
+// locul în grupa lui de ligă (aceeași divizie + cohortă, ca în clasamentul Arenei) și
+// câți sunt în ea, nivelul din XP-ul total. Fără rând în sezonul curent (n-a lucrat
+// încă săptămâna asta): divizia din user_stats.league_tier, 0 puncte, fără loc.
+// `stari` (opțional) = Map(id → rândul din user_stats, cu league_tier / total_xp).
+// Nu aruncă — fără tabelele gamificării întoarce ce a apucat ({} în cel mai rău caz).
+async function ligiElevi(supa, ids, { stari = null } = {}) {
+  const out = {};
+  const lista = [...new Set((ids || []).filter(Boolean))];
+  if (!lista.length) return out;
+  try {
+    let st = stari;
+    if (!st || ![...st.values()].some((x) => x && 'league_tier' in x)) {
+      const rows = await http.inBatches(lista, (chunk, from, to) => supa.from('user_stats').select('user_id, league_tier, total_xp').in('user_id', chunk).range(from, to));
+      st = new Map((rows || []).filter((r) => r && r.user_id).map((r) => [r.user_id, r]));
+    }
+    let rows = [];
+    try {
+      const { data: sezon } = await supa.from('league_seasons').select('id').eq('week_start', xp.weekStart()).maybeSingle();
+      if (sezon && sezon.id) {
+        rows = await http.inBatches(lista, (chunk, from, to) => supa.from('league_standings')
+          .select('user_id, tier, cohort, points').eq('season_id', sezon.id).in('user_id', chunk).range(from, to));
+        const grupe = new Map();
+        for (const r of rows) { const k = `${r.tier}|${r.cohort}`; if (!grupe.has(k)) grupe.set(k, { tier: r.tier, cohort: r.cohort, ord: [] }); }
+        for (const g of grupe.values()) {
+          const { data: toti } = await supa.from('league_standings').select('user_id, points, updated_at')
+            .eq('season_id', sezon.id).eq('tier', g.tier).eq('cohort', g.cohort)
+            .order('points', { ascending: false }).order('updated_at', { ascending: true }).limit(xp.COHORT_SIZE);
+          g.ord = (toti || []).map((x) => x.user_id);
+        }
+        for (const r of rows) {
+          const g = grupe.get(`${r.tier}|${r.cohort}`);
+          const k = g ? g.ord.indexOf(r.user_id) : -1;
+          r.loc = k >= 0 ? k + 1 : null;
+          r.membri = g && g.ord.length ? g.ord.length : null;
+        }
+      }
+    } catch { /* tabelele ligii lipsesc (gamificare_v2.sql nerulat) */ }
+    const peElev = new Map(rows.map((r) => [r.user_id, r]));
+    for (const id of lista) {
+      const s = st.get(id) || null;
+      const r = peElev.get(id) || null;
+      if (!s && !r) continue;
+      const info = xp.tierInfo(r ? r.tier : (s && s.league_tier) || 1);
+      const totalXp = s && s.total_xp != null ? Number(s.total_xp) || 0 : null;
+      const nivel = totalXp != null ? xp.levelOf(totalXp) : null;
+      out[id] = {
+        tier: info.tier, nume: info.name, icon: info.icon,
+        puncte: r ? r.points || 0 : 0, loc: r ? r.loc : null, membri: r ? r.membri : null,
+        promoveaza: xp.PROMOTE_TOP,
+        zona: r && r.loc && r.loc <= xp.PROMOTE_TOP && (r.points || 0) > 0 ? 'promovare' : null,
+        xp: totalXp, nivel: nivel ? { level: nivel.level, name: nivel.name } : null,
+      };
+    }
+  } catch (e) {
+    console.warn('pregatire.ligiElevi:', e?.message || e);
+  }
+  return out;
+}
+
 async function rezumateElevi(supa, elevi, progRows = []) {
   const out = {};
   try {
@@ -457,10 +519,13 @@ async function rezumateElevi(supa, elevi, progRows = []) {
     if (!ids.length) return out;
     let stats;
     try {
-      stats = await http.inBatches(ids, (chunk, from, to) => supa.from('user_stats').select('user_id, prep_exam, prep_plan').in('user_id', chunk).range(from, to));
+      stats = await http.inBatches(ids, (chunk, from, to) => supa.from('user_stats').select('user_id, prep_exam, prep_plan, league_tier, total_xp').in('user_id', chunk).range(from, to));
     } catch {
-      try { stats = await http.inBatches(ids, (chunk, from, to) => supa.from('user_stats').select('user_id, prep_exam').in('user_id', chunk).range(from, to)); }
-      catch { return out; }
+      try { stats = await http.inBatches(ids, (chunk, from, to) => supa.from('user_stats').select('user_id, prep_exam, prep_plan').in('user_id', chunk).range(from, to)); }
+      catch {
+        try { stats = await http.inBatches(ids, (chunk, from, to) => supa.from('user_stats').select('user_id, prep_exam').in('user_id', chunk).range(from, to)); }
+        catch { return out; }
+      }
     }
     const stari = new Map((stats || []).filter((x) => x && x.user_id).map((x) => [x.user_id, x]));
     const azi = xp.dayKey();
@@ -586,6 +651,24 @@ async function inregistreaza(supa, userId, { content = null, itemi = 0, pct = nu
 }
 
 // Rezumatul pentru navbar / Home / Arena (fără atribuire)
+// 🗺️ Harta pe scurt, pentru cardul din Home („harta din butonul Acasă", 15 nov. 2026):
+// ținta, cele două hărți ca la profesori (capitolele cu pictograme, pasul la care e) —
+// fără pași. null dacă elevul nu și-a ales ținta.
+async function hartaScurt(supa, userId, profile = null) {
+  try {
+    const stats = await xp.ensureStats(supa, userId);
+    const t = tintaInfo(stats && stats.prep_exam);
+    if (!t) return null;
+    const planul = await plan.stare(supa, userId, { tinta: t, stats, premium: ePremium(profile), azi: xp.dayKey() });
+    if (!planul) return { tinta: { id: t.id, label: t.label, scurt: t.scurt, tip: t.tip }, interactiv: null, pdf: null };
+    const r = plan.rezumat(planul);
+    return { ...r, tinta: { id: t.id, label: t.label, scurt: t.scurt, tip: t.tip }, pas: planul.pas ? { titlu: planul.pas.titlu, harta: planul.pas.harta, capitol: planul.pas.capitol || null } : null };
+  } catch (e) {
+    console.warn('pregatire.hartaScurt:', e?.message || e);
+    return null;
+  }
+}
+
 async function rezumat(supa, userId) {
   try {
     const azi = xp.dayKey();
@@ -608,5 +691,5 @@ module.exports = {
   examInfo, examValid, tintaInfo, tintaValida, eDinPlanulClasei, formatValid, examenulMaterialului, eDeExamen, urlTest, numeSubiecte, subiecteDinRaspunsuri,
   raspunsuriDate, recompensa, insigneNoi, formatFolosit, urmatorul,
   // cu baza de date
-  poolExamen, stare, alege, altTest, sariPas, inregistreaza, rezumat, rezumateElevi,
+  poolExamen, stare, alege, altTest, sariPas, inregistreaza, rezumat, rezumateElevi, ligiElevi, hartaScurt,
 };

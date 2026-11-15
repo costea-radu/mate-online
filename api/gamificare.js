@@ -30,6 +30,8 @@
 // POST { action: 'plan_sari', contentId } — „⏭ Treci mai departe" pe harta pregătirii
 //   (13 nov. 2026, api/_lib/planPregatire.js); `pregatire` întoarce și `plan`, iar
 //   `pregatire_alege` primește și o clasă (examen: 'clasa-5' … 'clasa-12');
+// POST { action: 'harta_scurt' } → { harta } — harta pe scurt, pentru cardul din Home
+//   (15 nov. 2026: capitolele cu pictograme, pasul la care e elevul);
 // POST { action: 'pregatire_notificari', on?, ora?, subscription?, unsubscribe? }
 //   și { action: 'pregatire_notificari_proba' } — amintirea zilnică
 //   (api/_lib/pregatireNotificari.js);
@@ -343,6 +345,10 @@ module.exports = async function handler(req, res) {
       const r = await pregatire.altTest(supa, userId, profile);
       if (r.error) return res.status(400).json(r);
       return res.status(200).json(r);
+    }
+    // 🗺️ harta pe scurt — cardul din Home (15 nov. 2026): capitolele cu pictograme și pasul
+    if (action === 'harta_scurt') {
+      return res.status(200).json({ ok: true, harta: await pregatire.hartaScurt(supa, userId, profile) });
     }
     // 🗺️ harta pregătirii: „⏭ Treci mai departe" (pasul curent, după câteva încercări)
     if (action === 'plan_sari') {

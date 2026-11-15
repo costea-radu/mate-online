@@ -66,6 +66,55 @@ Cererea:
   ecranului (tabelul se derulează în lateral, casetele nu).
 - **SQL**: nimic nou (`prep_plan` există de dimineață).
 
+### 0.2 Hărți pe capitole, cu pictograme · pas nou din PDF-ul capitolului · liga lângă hartă · cardul separat (15 nov. 2026)
+
+Cererea:
+
+> Hărți cu pictograme, împărțită pe capitole, la fiecare capitol mai mulți pași. Dacă adaug
+> PDF cu numele capitolului să îl adauge în plus la capitolul din hartă ca un pas în plus.
+> Elevul să vadă progresul pe capitole, dar și pe ligă. Acest progres să apară și la
+> părinți și profesori în rezultate dar și ca un card separat.
+
+- **Capitolele** (`api/_lib/capitoleHarta.js`, nou): fiecare material primește un capitol
+  după **titlu** — liste pe clasa a V-a … a VIII-a, pe EN și pe BAC (clasele IX–XII folosesc
+  capitolele BAC; la a XII-a „analiza" = integralele). Numele fiecărui capitol se potrivește
+  cu propria regulă, deci un PDF numit după capitol („Numere întregi — fișa 13") ajunge mereu
+  în el. Ce nu se recunoaște: „Alte exerciții" (clasă) / „Alte capitole" (examen) / „Alte
+  fișe" — la sfârșit.
+- **Pașii pe capitole** (`api/_lib/planPregatire.js`): în fiecare etapă, capitolele apar în
+  ordinea primului lor exercițiu din site, iar în capitol exercițiile rămân în ordinea din
+  site. „Exerciții pe subiecte" — pe Subiectul I / II / III; testele interactive — câte 10
+  („Testele 1–10"); subiectele PDF (variante, simulări) — pe ani. Pragurile (`PLAN_PRAG`,
+  `PLAN_PRAG_PDF`, `PLAN_INCERCARI`) și cele două hărți rămân cum erau.
+- **Pas nou din PDF-ul capitolului**: un PDF numit după un capitol, **cu barem legat**
+  (regula hărții 2 rămâne), apare singur ca pas în capitolul lui la următoarea deschidere a
+  hărții: la clase — în fișele PDF ale clasei; la examen — în etapa nouă a hărții 2, **„Fișe
+  pe capitole"** (doar fișele recunoscute pe un capitol; `PLAN_PDF_CAPITOLE=0` o oprește).
+  Fișa fără barem nu intră — de aceea secțiunea „📋 Bareme" de la clase (vezi
+  `GHID_BAREME_CLASE.md`) e drumul scurt: legi baremul, fișa apare pe hartă.
+- **Fișele: baremul după titlu** (`api/_lib/barem.js` → `matchBaremByTitle`,
+  `propuneriPeTitlu`, `baremCacheValid`): la fișele de lucru (clase, „Capitole" / „Exerciții
+  pe subiecte" de la examene) baremul se leagă doar după titlu și numele fișierului, unic în
+  ambele sensuri; potrivirile vechi „pe conținut" ale fișelor nu mai contează (pe site,
+  12 fișe de EN erau legate greșit de baremul simulării Suceava). Baremul ales de admin
+  rămâne neatins.
+- **Pagina elevului** (`src/components/HartaPlan.jsx`, `src/lib/pictograme.jsx` nou): fiecare
+  capitol are pictograma lui în inelul de progres („3 din 5"), un șir „Capitolele tale" sus,
+  capitolul pasului curent deschis, celelalte pliate; **🏆 Liga ta** (divizia, locul în grupa
+  de ligă, punctele, cât mai e până la promovare, nivelul) e primul card de lângă hartă, iar
+  pasul de azi spune și capitolul și arată liga pe scurt.
+- **Home (elev)**: cardul „🎯 Pregătește-mă de examen" arată capitolul pasului de azi (scris
+  de mână, cu pictograma), inelele capitolelor din jur și liga (`api/gamificare.js` →
+  `harta_scurt`, ținut un minut în browser).
+- **Părinți și profesori**: în „Rezultate", insigna din rândul elevului are și liga (`🥈 Argint
+  #4`), iar caseta „🗺️ Harta pregătirii" — capitolele fiecărei hărți (inele) și liga; **cardul
+  separat „🗺️ Harta pregătirii elevilor / copilului"** (`src/components/HartaEleviCard.jsx`)
+  stă deasupra rezultatelor și în Home: câte un rând pe elev — ținta, liga, 🧩/📄, seria,
+  capitolul de acum, inelele capitolelor; cine nu și-a ales ținta, pe un rând
+  (`api/teacher-students.js` → `students[].liga`; `mode: 'harti'` = doar hărțile și liga,
+  pentru Home).
+- **SQL**: nimic nou.
+
 ### Instalare
 
 **Supabase → SQL Editor** → rulează `supabase/plan_pregatire.sql` (o singură coloană:

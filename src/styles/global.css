@@ -2011,6 +2011,15 @@ body.sidebar-deschis .app-shell { padding-left: var(--sidebar-w); }
 .pz-home-stare span { background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; }
 .pz-home-pasi { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .pz-home-pasi li { background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 3px 11px; font-size: .78rem; font-weight: 600; color: var(--navy); }
+/* 15 nov. 2026 — harta pe scurt în Home: capitolul pasului de azi, inelele capitolelor, liga */
+.pz-home-harta { display: grid; gap: 10px; background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 12px 14px; margin: 0 0 14px; max-width: 640px; }
+.pz-home-cap { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; }
+.pz-home-cap small { display: block; font-size: .72rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.pz-home-cap b { display: block; font-family: "Caveat", cursive; font-size: 1.35rem; line-height: 1.05; color: var(--navy); }
+.pz-home-cap em { font-style: normal; font-size: .8rem; color: var(--text-light); font-weight: 600; }
+.pz-home-inele { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pz-home-inele .mai { font-size: .76rem; font-weight: 700; color: var(--text-muted); }
+.pz-home-liga { display: inline-flex; align-items: center; gap: 6px; justify-self: start; padding: 4px 11px; border-radius: 999px; background: rgba(232,185,49,.14); border: 1px solid rgba(232,185,49,.55); color: var(--navy); font-weight: 700; font-size: .8rem; text-decoration: none; }
 @media (max-width: 860px) {
   .pz-home-card, .pz-home-card.cu-exercitiu { grid-template-columns: minmax(0, 1fr); padding: 18px 16px; gap: 16px; }
   .pz-home-text h2 { font-size: 1.5rem; }

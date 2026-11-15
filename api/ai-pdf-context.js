@@ -115,6 +115,31 @@ async function chooseBarem({ content, subjectText, candidates, readText, maxRead
   });
   const minScore = 0.35; // sub acest prag, „titlurile mint" (numerele testului nu sunt în barem)
 
+  // 0) FIȘELE DE LUCRU (15 nov. 2026 — clasele V–XII, rubricile „Capitole" / „Exerciții pe
+  //    subiecte" de la examene): baremul se leagă DOAR după titlu (barem.matchBaremByTitle).
+  //    Numerele unei fișe se regăsesc în baremul oricărui subiect — potrivirea pe conținut
+  //    lega fișe de EN de baremul unei simulări. Antetul baremului poate doar să refuze.
+  if (B.esteFisa(content)) {
+    const mt = B.matchBaremByTitle(content, pool);
+    if (!mt.barem) return { barem: null, text: '', status: mt.status, tried: texts.size };
+    // și invers unic: dacă o altă fișă din categorie ar primi același barem, nu e al nimănui
+    const alteFise = (candidates || []).filter((c) => c && c.id !== content.id && !B.isBaremRow(c) && B.esteFisa(c));
+    if (alteFise.some((c) => { const o = B.matchBaremByTitle(c, pool); return o.barem && o.barem.id === mt.barem.id; })) {
+      log(`ai-pdf-context: baremul „${mt.barem.title}" se potrivește după titlu cu mai multe fișe — nu-l leg automat de „${content.title}"`);
+      return { barem: null, text: '', status: 'ambiguu', tried: texts.size };
+    }
+    const j = await judge(mt.barem);
+    if (j.compat === 'fara_text') {
+      log(`ai-pdf-context: baremul „${mt.barem.title}" (după titlu) nu are text — nu-l pot folosi automat pentru „${content.title}"`);
+      return { barem: null, text: '', status: 'negasit', tried: texts.size };
+    }
+    if (j.compat === 'contradiction') {
+      log(`ai-pdf-context: barem după titlu respins (antetul spune altceva): „${content.title}" vs „${mt.barem.title}"`);
+      return { barem: null, text: '', status: 'continut_diferit', tried: texts.size };
+    }
+    return pack({ ...j, evidence: `titlul fișei: „${mt.barem.title}"` }, j.score != null && j.score >= minScore ? 'titlu+continut' : 'titlu', 'ok');
+  }
+
   // 1) potrivire STRICTĂ pe metadate (titlu + numele fișierului + antetul testului)
   const m = B.matchBarem(content, pool, subjectDoc);
   let status = m.status;
@@ -235,6 +260,7 @@ async function readCache(supa, content) {
     if (error) { warnOnce('ai_pdf_text', `ai_pdf_text indisponibilă (${error.message}) — rulează supabase/ai_pdf_cache.sql; continui fără cache.`); return null; }
     if (!data || data.file_url !== content.file_url) return null; // fișier schimbat → recalcul
     if (!String(data.text || '').trim()) return null;             // rând doar cu override (fără text încă) → recalcul
+    if (!B.baremCacheValid(content, data)) return null;            // fișă legată altfel decât după titlu (15 nov. 2026) → recalcul
     if (!CACHE_OK.has(data.barem_status)) {
       const age = Date.now() - new Date(data.updated_at || 0).getTime();
       if (age > CACHE_RETRY_HOURS * 3600 * 1000) return null; // reîncercăm asocierea

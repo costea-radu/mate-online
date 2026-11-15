@@ -27,6 +27,7 @@ import { getMyBadges } from '../lib/badges';
 import { arenaState } from '../lib/arena';
 import { useChatUnread } from '../lib/chatUnread';
 import { rezumatCatalog, fmtNotaCatalog } from './CatalogNote';
+import { HartaEleviAcasa } from './HartaEleviCard';   // 🗺️ harta + liga elevilor / copilului (15 nov. 2026)
 
 // o memorie scurtă (1 minut) pentru cererile la server ale cardurilor — revenirea în Home
 // nu le mai repetă
@@ -184,6 +185,7 @@ export function AcasaParinte() {
           <InvitaCard to="/profil?asociere=1" titlu="Asociază-te cu copilul tău" sub="trimite-i linkul: după ce îl deschide, îi vezi rezultatele" cod={profile?.teacher_code} />
           <MesageriaCard sub="cu profesorii copilului și cu grupa" />
         </div>
+        <HartaEleviAcasa rol="parinte" />
       </div>
     </section>
   );
@@ -201,6 +203,7 @@ export function AcasaProfesor() {
           <InvitaCard to="/profil?invita=1" titlu="Invită elevi" sub="un link: elevii se asociază cu un clic" cod={profile?.teacher_code} />
           <MesageriaCard to="/profil?mesagerie=1" titlu="Mesageria grupei" sub="tu, elevii grupei și părinții lor" />
         </div>
+        <HartaEleviAcasa rol="profesor" />
       </div>
     </section>
   );

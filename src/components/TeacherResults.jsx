@@ -8,6 +8,7 @@ import TemeDate from './TemeDate';
 import { notaDinScor } from '../lib/nota';
 import { CatalogDialog, CatalogSumar, CatalogList } from './CatalogNote';
 import HartaPlanRezumat, { PlanChip } from './HartaPlanRezumat';
+import HartaEleviCard from './HartaEleviCard';   // 🗺️ cardul separat: harta + liga tuturor elevilor (15 nov. 2026)
 import { aiClient } from '../lib/aiClient';
 
 const PER_PAGE = 10; // elevi pe pagină
@@ -590,7 +591,7 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
           {/* 📒 catalogul: ultimele note, plusurile, minusurile, aprecierile */}
           {(student.marks || []).length > 0 && <CatalogSumar marks={student.marks} style={{ display: 'flex', marginTop: 5 }} />}
           {/* 🗺️ harta pregătirii: ținta, interactive / subiecte PDF trecute, seria */}
-          {!student.archived && student.plan && <div><PlanChip plan={student.plan} /></div>}
+          {!student.archived && (student.plan || student.liga) && <div><PlanChip plan={student.plan} liga={student.liga} /></div>}
         </td>
         <td style={{ padding: '11px 14px', textAlign: 'right', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -714,7 +715,7 @@ function StudentRow({ student, isOpen, onToggle, isTeacher, isParent, groups, on
             )}
 
             {/* 🗺️ Harta pregătirii: cele două hărți (interactive, apoi subiectele PDF cu barem) și pasul la care a ajuns */}
-            {!student.archived && <HartaPlanRezumat plan={student.plan} nume={student.name.split(' ')[0]} />}
+            {!student.archived && <HartaPlanRezumat plan={student.plan} liga={student.liga} nume={student.name.split(' ')[0]} />}
 
             {/* Zona Progres — buton cu rolldown + grafic „bursă" */}
             <div style={{ background: '#fff', borderRadius: 'var(--radius)', marginBottom: 14, border: '1px solid var(--border)', overflow: 'hidden' }}>
@@ -975,7 +976,8 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
     const map = new Map();
     (data.students || []).forEach((s) => {
       // plan: progresul din „🗺️ Harta pregătirii" (13 nov. 2026) — și la profesor, și la părinte
-      map.set(s.id, { id: s.id, name: s.full_name || 'Elev', email: s.email || '', group_id: s.group_id || null, rows: [], plan: s.plan || null });
+      // liga: divizia și locul din liga săptămânii (15 nov. 2026)
+      map.set(s.id, { id: s.id, name: s.full_name || 'Elev', email: s.email || '', group_id: s.group_id || null, rows: [], plan: s.plan || null, liga: s.liga || null });
     });
     (data.results || []).forEach((r) => {
       if (!map.has(r.student_id)) {
@@ -1219,6 +1221,10 @@ export default function TeacherResults({ user, inviteCode, displayName, role = '
   return (
     <>
       {invitePos !== 'bottom' && <InviteBox inviteCode={inviteCode} displayName={displayName} role={role} />}
+
+      {/* 🗺️ Harta pregătirii — CARD SEPARAT (15 nov. 2026): progresul pe capitole și liga
+          fiecărui elev, dintr-o privire (în rândul elevului rămân insigna și caseta) */}
+      {!loading && !error && <HartaEleviCard elevi={studentsAll} rol={role} />}
 
       <div className="card" id="rezultate-elevi" style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>

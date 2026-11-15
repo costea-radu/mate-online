@@ -15,6 +15,9 @@ const classNames = {
 const tabs = [
   { id: 'interactive', label: '🧩 Exerciții Interactive' },
   { id: 'pdf',         label: '📄 Exerciții PDF' },
+  // 15 nov. 2026 — baremele fișelor clasei (src/components/BaremeClasa.jsx, api/bareme.js);
+  // fila apare doar când secțiunea e vizibilă elevilor (sau pentru admin)
+  { id: 'bareme',      label: '📋 Bareme' },
 ];
 
 export default function ClassPage() {
@@ -28,7 +31,8 @@ export default function ClassPage() {
       subtitle={`Exerciții și teste de matematică pentru clasa ${name}`}
       breadcrumb={`Clasa ${name}`}
       tabs={tabs}
-      emptyIcons={{ pdf: '📄', interactive: '🧩' }}
+      emptyIcons={{ pdf: '📄', interactive: '🧩', bareme: '📋' }}
+      bareme
     />
   );
 }

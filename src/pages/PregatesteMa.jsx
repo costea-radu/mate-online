@@ -25,6 +25,12 @@
 // subiectelor PDF cu barem (la clasă: fișele PDF cu barem). Fiecare hartă are pasul
 // ei; pasul de azi vine din harta 1, iar după ce o termini, din harta 2. Cu Premium,
 // harta 2 se poate lucra și în paralel.
+// 15 nov. 2026 — „Hărți cu pictograme, împărțită pe capitole, la fiecare capitol mai mulți
+// pași (…) elevul să vadă progresul pe capitole, dar și pe ligă": fiecare hartă e un drum
+// de capitole cu pictograme (src/components/HartaPlan.jsx — inelul se umple cu pașii
+// trecuți, „Capitolele tale" sus); pasul de azi spune capitolul lui; liga săptămânii
+// (divizia, locul, punctele, cât mai e până la promovare) stă lângă hartă — în cardul
+// pasului de azi și în „🏆 Liga ta" (din starea Arenei, src/lib/arena.js).
 // Ziua se bifează pe server (api/_lib/pregatireZilnica.js); planul:
 // api/_lib/planPregatire.js. API: /api/gamificare → 'pregatire', 'pregatire_alege'
 // (examen sau clasă), 'plan_sari', 'pregatire_notificari' / 'pregatire_notificari_proba'.
@@ -35,9 +41,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
-import { arenaChanged, onArenaChange } from '../lib/arena';
+import { arenaChanged, onArenaChange, arenaState } from '../lib/arena';
 import { AmintireZilnica } from '../components/MisiuneZilnica';
-import HartaPlan, { urlPas } from '../components/HartaPlan';
+import HartaPlan, { urlPas, capitoleDin } from '../components/HartaPlan';
+import { InelCapitol, CSS_INEL } from '../lib/pictograme';
 import '@fontsource/caveat/700.css';   // nota „de mână", notițele de pe hartă
 
 const card = {
@@ -203,11 +210,12 @@ function AlegereTinta({ p, busy, onAlege }) {
 function FisaPas({ n, harta, plan, busy, onInchide, onDeschide, onSari, onLaPasulMeu }) {
   const esteCurent = harta?.curent === n.i;
   const et = (harta?.etape || []).find((e) => e.id === n.etapa);
+  const cap = capitoleDin(harta).find((c) => c.id === (n.cap || n.etapa));
   const h = HARTI[n.harta] || HARTI.interactiv;
   return (
     <div className="pz-fisa" role="dialog" aria-label={`${h.scurt}, pasul ${n.i + 1}: ${n.titlu}`}>
       <button type="button" className="pz-fisa-x" onClick={onInchide} aria-label="Închide">✕</button>
-      <div className="pz-fisa-et">{h.icon} {h.scurt} · {et ? et.titlu : ''} · pasul {n.i + 1} din {harta?.total}{n.nou ? ' · ' : ''}{n.nou && <span className="pz-nou">nou în site</span>}</div>
+      <div className="pz-fisa-et">{h.icon} {h.scurt} · {et ? et.titlu : ''}{cap && cap.titlu !== et?.titlu ? ` · ${cap.titlu}` : ''} · pasul {n.i + 1} din {harta?.total}{n.nou ? ' · ' : ''}{n.nou && <span className="pz-nou">nou în site</span>}</div>
       <div className="pz-fisa-tit">{n.titlu}</div>
       <div className="pz-fisa-st">{descriere(n, { esteCurent, reguli: plan.reguli })}</div>
       <ActiuniPas n={n} esteCurent={esteCurent} plan={plan} busy={busy} onDeschide={onDeschide} onSari={onSari} onLaPasulMeu={onLaPasulMeu} />
@@ -253,6 +261,75 @@ function ProgresHarta({ id, h, laClasa = false }) {
   );
 }
 
+// ─── 🏆 Liga săptămânii (15 nov. 2026 — „progresul pe capitole, dar și pe ligă") ──
+// Din starea Arenei (api/gamificare.js → state: liga, nivel, XP), cu memorie scurtă.
+function useLiga(user) {
+  const [a, setA] = useState(null);
+  useEffect(() => {
+    if (!user) return undefined;
+    let viu = true;
+    const load = (force = false) => arenaState({ force }).then((r) => { if (viu) setA(r || null); }).catch(() => {});
+    load();
+    const off = onArenaChange(() => load(true));
+    return () => { viu = false; off(); };
+  }, [user]);
+  return a;
+}
+// cât mai e până la zona de promovare (primii `promoveaza` din grupa de ligă)
+export function panaLaPromovare(liga) {
+  if (!liga || !liga.loc || !Array.isArray(liga.clasament)) return null;
+  const n = liga.promoveaza || 3;
+  if (liga.loc <= n) return 0;
+  const al = liga.clasament[n - 1];
+  return al ? Math.max(1, (al.puncte || 0) - (liga.puncte || 0) + 1) : null;
+}
+// rândul scurt din cardul pasului de azi
+function LigaScurt({ a }) {
+  const l = a?.liga;
+  if (!l) return null;
+  return (
+    <Link to="/arena" className="pz-liga-chip" title={`Liga ${l.name} — clasamentul din Arenă`}>
+      <span aria-hidden="true">{l.icon}</span> Liga {l.name}{l.loc ? <> · locul <b>{l.loc}</b>{l.membri ? ` din ${l.membri}` : ''}</> : ''}
+    </Link>
+  );
+}
+// cardul „🏆 Liga ta" de lângă hartă
+function LigaCard({ a }) {
+  const l = a?.liga;
+  if (!a) return null;
+  const pana = panaLaPromovare(l);
+  return (
+    <div style={card} className="pz-liga">
+      <div style={{ ...eticheta, color: 'var(--text-muted)' }}>🏆 Liga ta · săptămâna aceasta</div>
+      {l ? (
+        <>
+          <div className="pz-liga-r">
+            <span className="pz-liga-ic" aria-hidden="true">{l.icon}</span>
+            <div>
+              <div className="pz-liga-nume">Liga {l.name}</div>
+              <div className="pz-liga-loc">
+                {l.loc ? <>locul <b>{l.loc}</b>{l.membri ? ` din ${l.membri}` : ''} · </> : ''}<b>{l.puncte || 0}</b> {l.puncte === 1 ? 'punct' : 'puncte'}
+              </div>
+            </div>
+          </div>
+          <div className="pz-liga-st">
+            {pana === 0
+              ? `🔼 Ești în zona de promovare (primii ${l.promoveaza || 3}) — luni urci în liga următoare.`
+              : pana ? `Încă ${pana} ${pana === 1 ? 'punct' : 'puncte'} până la locul ${l.promoveaza || 3} (promovare).`
+                : 'Fiecare pas de pe hartă îți aduce puncte în ligă.'}
+          </div>
+        </>
+      ) : (
+        <div className="pz-liga-st">Intri în liga săptămânii la primul exercițiu rezolvat.</div>
+      )}
+      {a.nivel && (
+        <div className="pz-liga-niv">Nivelul {a.nivel.level} · {a.nivel.name}{a.stats?.totalXp != null ? ` · ${a.stats.totalXp} XP` : ''}</div>
+      )}
+      <div style={{ marginTop: 10 }}><Link to="/arena" className="btn btn-sm btn-outline">⚔️ Clasamentul ligii</Link></div>
+    </div>
+  );
+}
+
 export default function PregatesteMa() {
   const { user, isAdmin, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -262,6 +339,7 @@ export default function PregatesteMa() {
   const [busy, setBusy] = useState(false);
   const [schimba, setSchimba] = useState(false);
   const [ales, setAles] = useState(null);   // pasul ales pe o hartă: { harta, id }
+  const arena = useLiga(user);              // 🏆 liga săptămânii, nivelul, XP-ul (15 nov. 2026)
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -317,7 +395,7 @@ export default function PregatesteMa() {
   );
 
   const stil = (
-    <style>{`
+    <style>{`${CSS_INEL}
 @keyframes pzPuls{0%,100%{box-shadow:0 0 0 0 rgba(15,43,68,.35)}50%{box-shadow:0 0 0 6px rgba(15,43,68,0)}}
 .pz-grid{display:grid;gap:18px}
 /* calculator: pasul de azi și harta în stânga, răsplățile în dreapta; telefon: pasul, harta, apoi răsplățile */
@@ -369,6 +447,20 @@ export default function PregatesteMa() {
 .pz-stare{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:10px 12px;border-radius:12px;background:#fff;border:1px solid var(--border);font-size:.84rem;color:var(--navy);line-height:1.45;margin-bottom:10px}
 .pz-stare span{flex:1 1 240px}
 .pz-gol{padding:14px 16px;border-radius:14px;border:1.5px dashed var(--cream-dark);background:#fdfbf4;font-size:.86rem;color:var(--text-light);line-height:1.5}
+/* 15 nov. 2026: capitolul pasului de azi și liga săptămânii */
+.pz-capazi{display:flex;align-items:center;gap:10px;margin:10px 0 2px;padding:8px 10px;border-radius:12px;background:#fff;border:1px solid var(--border)}
+.pz-capazi-t{font-size:.74rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em}
+.pz-capazi-n{font-family:"Caveat",cursive;font-weight:700;font-size:1.3rem;color:var(--navy);line-height:1.05}
+.pz-capazi-c{font-size:.76rem;font-weight:700;color:var(--text-light)}
+.pz-liga-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;background:rgba(232,185,49,.14);border:1px solid rgba(232,185,49,.55);color:var(--navy);font-weight:700;font-size:.8rem;text-decoration:none;white-space:nowrap}
+.pz-liga-chip:hover{background:rgba(232,185,49,.24)}
+.pz-liga-r{display:flex;align-items:center;gap:12px;margin-top:10px}
+.pz-liga-ic{font-size:2.2rem;line-height:1}
+.pz-liga-nume{font-weight:800;color:var(--navy);font-size:1.05rem}
+.pz-liga-loc{font-size:.86rem;color:var(--text-light)}
+.pz-liga-loc b{color:var(--navy)}
+.pz-liga-st{font-size:.82rem;color:var(--text-light);margin-top:8px;line-height:1.45}
+.pz-liga-niv{font-size:.76rem;color:var(--text-muted);margin-top:8px}
 `}</style>
   );
 
@@ -432,6 +524,8 @@ export default function PregatesteMa() {
   const hartaPas = plan?.pas?.harta && noduri[plan.pas.harta] ? plan.pas.harta : null;
   const pas = hartaPas ? curentDin(hartaPas) : null;
   const etapaPas = pas ? plan[hartaPas].etape.find((e) => e.id === pas.etapa) : null;
+  // capitolul pasului de azi (15 nov. 2026): pictograma în inelul lui, câți pași are
+  const capPas = pas ? capitoleDin(plan[hartaPas]).find((c) => c.id === (pas.cap || pas.etapa)) || null : null;
   // harta PDF are pasul ei; cu Premium se lucrează și în paralel
   const pasPdf = curentDin('pdf');
   const nodAles = ales && plan ? (noduri[ales.harta] || []).find((n) => n.id === ales.id) || null : null;
@@ -521,6 +615,8 @@ export default function PregatesteMa() {
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} aria-label="Zilele din săptămâna aceasta">
                       {(p.saptamana || []).map((z) => <Zi key={z.day} z={z} />)}
                     </div>
+                    {/* 🏆 liga săptămânii, lângă serie (15 nov. 2026) */}
+                    <LigaScurt a={arena} />
                   </div>
 
                   <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 14, background: lucrat ? 'rgba(39,174,96,0.08)' : 'rgba(232,185,49,0.10)' }}>
@@ -533,6 +629,16 @@ export default function PregatesteMa() {
                           <span>{etapaPas?.titlu} · pasul {pas.i + 1} din {plan[hartaPas].total}</span>
                           {pas.nou && <span className="pz-nou">nou în site</span>}
                         </div>
+                        {capPas && (
+                          <div className="pz-capazi">
+                            <InelCapitol c={capPas} size={42} />
+                            <div style={{ minWidth: 0 }}>
+                              <div className="pz-capazi-t">Capitolul</div>
+                              <div className="pz-capazi-n">{capPas.titlu}</div>
+                              <div className="pz-capazi-c">{capPas.trecute} din {capPas.total} {capPas.total === 1 ? 'pas trecut' : 'pași trecuți'}</div>
+                            </div>
+                          </div>
+                        )}
                         <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.1rem', margin: '8px 0 4px' }}>{pas.titlu}</div>
                         <div style={{ fontSize: '.86rem', color: 'var(--text-light)', marginBottom: 8, lineHeight: 1.5 }}>{descriere(pas, { esteCurent: true, reguli: plan.reguli })}</div>
                         {progresZi}
@@ -591,8 +697,9 @@ export default function PregatesteMa() {
                   <AmintireZilnica notif={notif} setNotif={setNotif} isAdmin={isAdmin} texte={TEXTE_AMINTIRE} />
                 </div>
 
-                {/* ─── Răsplățile ─── */}
+                {/* ─── Liga și răsplățile ─── */}
                 <div className="pz-a-side">
+                  <LigaCard a={arena} />
                   <div style={card}>
                     <div style={{ ...eticheta, color: 'var(--text-muted)' }}>🏆 Ce câștigi</div>
                     <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: '.88rem', color: 'var(--text-light)', lineHeight: 1.65 }}>

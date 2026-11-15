@@ -56,15 +56,35 @@
 // Tabela: supabase/plan_pregatire.sql (coloana user_stats.prep_plan — sărite,
 // trecute, începutul planului). Fără coloană, harta merge, doar „⏭ Treci mai
 // departe" cere migrarea. Funcțiile cu baza de date nu aruncă spre apelant.
+//
+// 15 nov. 2026 — HĂRȚI PE CAPITOLE, CU PICTOGRAME: „Hărți cu pictograme, împărțită pe
+// capitole, la fiecare capitol mai mulți pași. Dacă adaug PDF cu numele capitolului să
+// îl adauge în plus la capitolul din hartă ca un pas în plus. Elevul să vadă progresul
+// pe capitole, dar și pe ligă (…) și la părinți și profesori."
+//   · În fiecare etapă, pașii se grupează pe CAPITOLE (api/_lib/capitoleHarta.js, după
+//     titlu): capitolele apar în ordinea primului lor exercițiu din site, iar în capitol
+//     exercițiile rămân în ordinea din site; ce nu se recunoaște — „Alte exerciții", la
+//     sfârșit. „Exerciții pe subiecte" se grupează pe Subiectul I / II / III, testele
+//     interactive câte 10, subiectele PDF (variante, simulări) pe ani.
+//   · Un PDF numit după capitol (cu barem legat — regula hărții PDF rămâne) apare singur
+//     în capitolul lui: la clase, în fișele PDF ale clasei; la examen, într-o etapă nouă
+//     a hărții PDF, „Fișe pe capitole" (doar fișele recunoscute pe un capitol și cu barem;
+//     PLAN_PDF_CAPITOLE=0 o oprește).
+//   · `vedereHarta` dă și `capitole` (pictograma, câți pași, câți trecuți, capitolul
+//     pasului curent); rezumatul pentru profesori / părinți — la fel, fără pași.
 // =====================================================================
 const http = require('./http');
 const barem = require('./barem');
+const CH = require('./capitoleHarta');
 
 const envInt = (k, d, min, max) => { const n = parseInt(process.env[k] || '', 10); return Number.isFinite(n) && n >= min && n <= max ? n : d; };
 const PRAG_INTERACTIV = envInt('PLAN_PRAG', 70, 1, 100);       // pasul interactiv e trecut de la atât la sută
 const PRAG_PDF = envInt('PLAN_PRAG_PDF', 50, 1, 100);          // testul PDF: nota 5 (corectarea costă AI)
 const INCERCARI_SARIRE = envInt('PLAN_INCERCARI', 3, 1, 20);    // după câte încercări poate trece mai departe
 const MAX_LISTA = 3000;                                         // plafonul listelor din prep_plan
+const TESTE_PE_GRUPA = 10;                                      // testele interactive, câte 10 pe „capitol"
+// fișele PDF pe capitole (cu barem) intră și ele în harta PDF a unui examen (15 nov. 2026)
+const PDF_CAPITOLE = () => process.env.PLAN_PDF_CAPITOLE !== '0';
 
 const ROMAN = { 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X', 11: 'XI', 12: 'XII' };
 const CLASE = [5, 6, 7, 8, 9, 10, 11, 12];
@@ -82,14 +102,18 @@ const BAREM_BOT_OK = new Set([...BAREM_SITE_OK, 'ok_bot']);
 // `profil: null` = oricare (EN; „Capitole cu exerciții" de la BAC sunt comune profilurilor)
 // `doarCuBarem` (hartă PDF): intră doar subiectele cu barem; `dacaNuStim` — ce intră când
 // nu se știe nimic despre bareme (tabelele lipsă): 'toate' (subiecte oficiale) / 'niciunul'
+// `grupare` — cum se împart pașii etapei pe „capitole" (15 nov. 2026): 'capitol' (după
+// titlu, api/_lib/capitoleHarta.js), 'subiect' (Subiectul I / II / III), 'bucati' (câte
+// TESTE_PE_GRUPA), 'an' (anul subiectului). `doarCuCapitol` — intră doar ce se
+// recunoaște pe un capitol (fișele pe capitole din harta PDF a unui examen).
 function etape(tinta) {
   if (!tinta) return [];
   if (tinta.tip === 'clasa') {
     const g0 = Number(tinta.clasa);
     if (!CLASE.includes(g0)) return [];
     const out = [];
-    for (let g = g0; g >= 5; g--) out.push({ id: `c${g}-int`, harta: 'interactiv', titlu: `${numeClasa(g)} · exerciții interactive`, tip: 'interactive', category: `clasa-${g}`, subcategory: null, profil: null });
-    for (let g = g0; g >= 5; g--) out.push({ id: `c${g}-pdf`, harta: 'pdf', titlu: `${numeClasa(g)} · fișe PDF cu barem`, tip: 'pdf', category: `clasa-${g}`, subcategory: null, profil: null, doarCuBarem: true, dacaNuStim: 'niciunul' });
+    for (let g = g0; g >= 5; g--) out.push({ id: `c${g}-int`, harta: 'interactiv', titlu: `${numeClasa(g)} · exerciții interactive`, tip: 'interactive', category: `clasa-${g}`, subcategory: null, profil: null, grupare: 'capitol' });
+    for (let g = g0; g >= 5; g--) out.push({ id: `c${g}-pdf`, harta: 'pdf', titlu: `${numeClasa(g)} · fișe PDF cu barem`, tip: 'pdf', category: `clasa-${g}`, subcategory: null, profil: null, doarCuBarem: true, dacaNuStim: 'niciunul', grupare: 'capitol' });
     return out;
   }
   const cat = tinta.category;
@@ -97,15 +121,18 @@ function etape(tinta) {
   const en = cat === 'evaluare-nationala';
   const prof = en ? null : (tinta.profile || null);
   const subiecte = en ? 'exercitii-subiecte' : 'exercitii';
-  const pdf = (o) => ({ harta: 'pdf', tip: 'pdf', category: cat, profil: prof, doarCuBarem: true, dacaNuStim: 'toate', ...o });
+  const pdf = (o) => ({ harta: 'pdf', tip: 'pdf', category: cat, profil: prof, doarCuBarem: true, dacaNuStim: 'toate', grupare: 'an', ...o });
   return [
-    { id: 'capitole', harta: 'interactiv', titlu: 'Capitole cu exerciții', tip: 'interactive', category: cat, subcategory: 'capitole', profil: null },
-    { id: 'subiecte', harta: 'interactiv', titlu: 'Exerciții pe subiecte', tip: 'interactive', category: cat, subcategory: subiecte, profil: prof },
-    { id: 'teste', harta: 'interactiv', titlu: 'Teste interactive', tip: 'interactive', category: cat, subcategory: 'teste-interactive', profil: prof },
-    // harta PDF: doar subiectele de examen (13 nov., după-amiaza: fără capitole și exerciții pe subiecte în PDF)
-    pdf({ id: 'pdf-variante', titlu: en ? 'Variante date și modele' : 'Variante date, olimpici, rezerve', subcategory: 'variante' }),
-    ...(en ? [] : [pdf({ id: 'pdf-antrenament', titlu: 'Teste de antrenament', subcategory: 'teste-antrenament' })]),
-    pdf({ id: 'pdf-simulari', titlu: en ? 'Simulări' : 'Simulări și modele', subcategory: 'simulari' }),
+    { id: 'capitole', harta: 'interactiv', titlu: 'Capitole cu exerciții', tip: 'interactive', category: cat, subcategory: 'capitole', profil: null, grupare: 'capitol' },
+    { id: 'subiecte', harta: 'interactiv', titlu: 'Exerciții pe subiecte', tip: 'interactive', category: cat, subcategory: subiecte, profil: prof, grupare: 'subiect' },
+    { id: 'teste', harta: 'interactiv', titlu: 'Teste interactive', tip: 'interactive', category: cat, subcategory: 'teste-interactive', profil: prof, grupare: 'bucati', icon: 'test' },
+    // harta PDF: subiectele de examen (13 nov., după-amiaza) — și, din 15 nov., fișele PDF
+    // numite după un capitol, dacă au barem (un pas în plus la capitolul lor); doar ele,
+    // nu toate fișele pe capitole / pe subiecte
+    ...(PDF_CAPITOLE() ? [pdf({ id: 'pdf-capitole', titlu: 'Fișe pe capitole', subcategory: 'capitole', profil: null, grupare: 'capitol', doarCuCapitol: true, dacaNuStim: 'niciunul' })] : []),
+    pdf({ id: 'pdf-variante', titlu: en ? 'Variante date și modele' : 'Variante date, olimpici, rezerve', subcategory: 'variante', icon: 'varianta' }),
+    ...(en ? [] : [pdf({ id: 'pdf-antrenament', titlu: 'Teste de antrenament', subcategory: 'teste-antrenament', icon: 'antrenament' })]),
+    pdf({ id: 'pdf-simulari', titlu: en ? 'Simulări' : 'Simulări și modele', subcategory: 'simulari', icon: 'simulare' }),
   ];
 }
 
@@ -132,17 +159,69 @@ function intraPdf(row, et, cuBarem) {
   return et.dacaNuStim === 'toate';
 }
 
+// ─── Capitolele unei etape (15 nov. 2026) ────────────────────────────────────
+const eExamen = (cat) => cat === 'evaluare-nationala' || cat === 'bacalaureat';
+const capitolAlte = (et) => ({
+  id: `${et.id}:alte`, alte: true, icon: 'alte',
+  titlu: et.tip === 'pdf' ? 'Alte fișe' : eExamen(et.category) ? 'Alte capitole' : 'Alte exerciții',
+});
+// capitolul unui material într-o etapă: { id (unic în hartă), titlu, icon, alte? }
+function capitolNod(r, et) {
+  const g = et.grupare || 'capitol';
+  if (g === 'subiect') {
+    const sb = CH.subiectDin(r.title);
+    return sb ? { id: `${et.id}:s${sb}`, titlu: CH.SUBIECT_TITLU[sb], icon: `sub${sb}` } : { ...capitolAlte(et), titlu: 'Alte exerciții pe subiecte' };
+  }
+  if (g === 'an') {
+    const an = CH.anDin(r.title, r.file_url);
+    return an ? { id: `${et.id}:${an}`, titlu: `Anul ${an}`, icon: et.icon || 'varianta' } : { ...capitolAlte(et), titlu: 'Alte subiecte', icon: et.icon || 'varianta' };
+  }
+  if (g === 'bucati') return { id: `${et.id}:b`, titlu: '', icon: et.icon || 'test' };   // numerotat în peCapitole
+  const c = CH.capitolDin(r.title, r.category || et.category);
+  return c ? { id: `${et.id}:${c.id}`, titlu: c.titlu, icon: c.icon } : capitolAlte(et);
+}
+
+// pașii unei etape, așezați pe capitole: capitolele în ordinea primului lor pas din
+// site (cele nerecunoscute — „Alte …" — la sfârșit), în capitol ordinea din site;
+// testele interactive: câte TESTE_PE_GRUPA, în ordinea din site
+function peCapitole(ale, et) {
+  if ((et.grupare || 'capitol') === 'bucati') {
+    return ale.map((n, k) => {
+      const b = Math.floor(k / TESTE_PE_GRUPA);
+      const de = b * TESTE_PE_GRUPA + 1, pana = Math.min(ale.length, de + TESTE_PE_GRUPA - 1);
+      return { ...n, cap: `${et.id}:b${b + 1}`, capTitlu: de === pana ? `Testul ${de}` : `Testele ${de}–${pana}`, capIcon: n.capIcon };
+    });
+  }
+  const grupe = new Map();
+  for (const n of ale) {
+    if (!grupe.has(n.cap)) grupe.set(n.cap, []);
+    grupe.get(n.cap).push(n);
+  }
+  const chei = [...grupe.keys()];
+  const ordine = [...chei.filter((k) => !grupe.get(k)[0].capAlte), ...chei.filter((k) => grupe.get(k)[0].capAlte)];
+  return ordine.flatMap((k) => grupe.get(k));
+}
+
 // Pașii planului: rândurile vin deja în ordinea din site (sort_order ↑, created_at ↓);
-// un material apare o singură dată, în prima etapă în care se potrivește.
+// un material apare o singură dată, în prima etapă în care se potrivește; în etapă,
+// pașii se așază pe capitole (vezi peCapitole).
 function construiesteNoduri(rows, lista, { cuBarem = null } = {}) {
   const noduri = [];
   const vazute = new Set();
   for (const et of lista) {
+    const ale = [];
     for (const r of rows || []) {
       if (!r || !r.id || vazute.has(r.id) || !sePotriveste(r, et) || barem.isBaremRow(r) || !intraPdf(r, et, cuBarem)) continue;
+      const cap = capitolNod(r, et);
+      if (et.doarCuCapitol && cap.alte) continue;   // fișa nu e pe un capitol → nu intră aici
       vazute.add(r.id);
-      noduri.push({ id: r.id, titlu: String(r.title || 'Exercițiu').slice(0, 160), tip: et.tip, harta: et.harta || (et.tip === 'pdf' ? 'pdf' : 'interactiv'), etapa: et.id, gratuit: !!r.is_free, creat: r.created_at || null });
+      ale.push({
+        id: r.id, titlu: String(r.title || 'Exercițiu').slice(0, 160), tip: et.tip, harta: et.harta || (et.tip === 'pdf' ? 'pdf' : 'interactiv'),
+        etapa: et.id, gratuit: !!r.is_free, creat: r.created_at || null,
+        cap: cap.id, capTitlu: cap.titlu, capIcon: cap.icon, ...(cap.alte ? { capAlte: true } : {}),
+      });
     }
+    noduri.push(...peCapitole(ale, et));
   }
   return noduri;
 }
@@ -192,9 +271,40 @@ function calculeazaHarti(noduri, progres, opt = {}) {
   return out;
 }
 
-// Ce primește pagina pentru o hartă: etapele cu numărătorile lor, pașii (compacți), pasul curent
+// capitolele unei hărți, în ordinea pașilor: numărătorile, procentul, capitolul pasului
+// curent, „gata" (toți pașii trecuți sau săriți, măcar unul trecut). Pașii fără capitol
+// (construiți în afara construiesteNoduri) stau în capitolul etapei lor.
+function capitoleHarta(noduri, curent, lista = []) {
+  const titluEtapa = new Map((lista || []).map((e) => [e.id, e.titlu]));
+  const out = [];
+  const idx = new Map();
+  for (const n of noduri) {
+    const id = n.cap || n.etapa || 'x';
+    if (!idx.has(id)) {
+      idx.set(id, out.length);
+      out.push({ id, etapa: n.etapa || null, titlu: n.capTitlu || titluEtapa.get(n.etapa) || 'Exerciții', icon: n.capIcon || 'alte', total: 0, trecute: 0, sarite: 0, incercate: 0, inchise: 0 });
+    }
+    const c = out[idx.get(id)];
+    c.total++;
+    if (n.stare === 'trecut') c.trecute++;
+    else if (n.stare === 'sarit') c.sarite++;
+    else if (n.stare === 'incercat' || n.stare === 'inceput') c.incercate++;
+    if (!n.accesibil) c.inchise++;
+  }
+  const cur = curent >= 0 ? noduri[curent] : null;
+  for (const c of out) {
+    c.procent = c.total ? Math.round((c.trecute / c.total) * 100) : 0;
+    c.gata = c.trecute > 0 && c.trecute + c.sarite >= c.total;
+    c.curent = !!cur && (cur.cap || cur.etapa || 'x') === c.id;
+  }
+  return out;
+}
+
+// Ce primește pagina pentru o hartă: etapele cu numărătorile lor, capitolele, pașii (compacți), pasul curent
 function vedereHarta({ noduri, curent }, lista, { premium = false } = {}) {
   const idxEtapa = new Map(lista.map((e, k) => [e.id, k]));
+  const capitole = capitoleHarta(noduri, curent, lista);
+  const idxCap = new Map(capitole.map((c, k) => [c.id, k]));
   const etapeOut = lista.map((e) => {
     const ale = noduri.filter((n) => n.etapa === e.id);
     return {
@@ -211,10 +321,14 @@ function vedereHarta({ noduri, curent }, lista, { premium = false } = {}) {
   const sarite = noduri.filter((n) => n.stare === 'sarit').length;
   const accesibile = noduri.filter((n) => n.accesibil);
   const c = curent >= 0 ? noduri[curent] : null;
+  const capDe = (n) => n.cap || n.etapa || 'x';
+  const capC = c ? capitole[idxCap.get(capDe(c))] : null;
   return {
     etape: etapeOut,
+    capitole,
     noduri: noduri.map((n) => ({
       id: n.id, titlu: n.titlu, tip: n.tip, etapa: n.etapa, e: idxEtapa.get(n.etapa),
+      cap: capDe(n), k: idxCap.get(capDe(n)),
       stare: n.stare, pct: n.pct, incercari: n.incercari, gratuit: n.gratuit,
       accesibil: n.accesibil, deschis: n.deschis, nou: n.nou, poateSari: n.poateSari,
     })),
@@ -223,6 +337,7 @@ function vedereHarta({ noduri, curent }, lista, { premium = false } = {}) {
       id: c.id, titlu: c.titlu, tip: c.tip, harta: c.harta, etapa: c.etapa, nr: c.i + 1, stare: c.stare, pct: c.pct,
       incercari: c.incercari, prag: c.prag, poateSari: c.poateSari, nou: c.nou,
       incercariRamase: Math.max(0, INCERCARI_SARIRE - c.incercari),
+      capitol: capC ? { id: capC.id, titlu: capC.titlu, icon: capC.icon, total: capC.total, trecute: capC.trecute } : null,
     } : null,
     total, trecute, sarite,
     neterminate: noduri.filter((n) => n.stare === 'inceput').length,
@@ -278,8 +393,10 @@ function rezumatHarta(h) {
   return {
     total: h.total, trecute: h.trecute, sarite: h.sarite, neterminate: h.neterminate, procent: h.procent,
     terminat: h.terminat, ramasePremium: h.ramasePremium,
-    pas: h.pas ? { nr: h.pas.nr, titlu: h.pas.titlu, stare: h.pas.stare, incercari: h.pas.incercari, pct: h.pas.pct } : null,
+    pas: h.pas ? { nr: h.pas.nr, titlu: h.pas.titlu, stare: h.pas.stare, incercari: h.pas.incercari, pct: h.pas.pct, capitol: h.pas.capitol ? h.pas.capitol.titlu : null } : null,
     etape: (h.etape || []).map((e) => ({ titlu: e.titlu, total: e.total, trecute: e.trecute })),
+    // capitolele (15 nov. 2026): pictograma, câți pași, câți trecuți — fără pașii lor
+    capitole: (h.capitole || []).map((c) => ({ titlu: c.titlu, icon: c.icon, etapa: c.etapa, total: c.total, trecute: c.trecute, sarite: c.sarite, gata: c.gata, curent: c.curent })),
   };
 }
 function rezumat(v) {
@@ -332,17 +449,20 @@ async function bareme(supa, rows) {
   if (!pdfs.length) return new Set();
   const ids = pdfs.map((r) => r.id);
   const fisier = new Map(pdfs.map((r) => [r.id, r.file_url || null]));
+  const randul = new Map(pdfs.map((r) => [r.id, r]));
   const ok = new Set();
   let stiut = false;
   try {   // potrivirea site-ului (Profesorul Virtual, corectarea) și baremul ales de admin
     const site = await http.inBatches(ids, (chunk, from, to) => supa.from('ai_pdf_text')
-      .select('content_id, file_url, barem_status, barem_id, barem_override_id').in('content_id', chunk).range(from, to));
+      .select('content_id, file_url, barem_status, barem_id, barem_override_id, barem').in('content_id', chunk).range(from, to));
     stiut = true;
     for (const d of site) {
       if (!d || !d.content_id) continue;
       if (d.barem_override_id) { ok.add(d.content_id); continue; }
       const f = fisier.get(d.content_id);
-      if (BAREM_SITE_OK.has(d.barem_status) && (d.barem_id || d.barem_status === 'inclus') && (!d.file_url || !f || d.file_url === f)) ok.add(d.content_id);
+      // la fișe, doar potrivirea după titlu (15 nov. 2026 — barem.baremCacheValid)
+      if (BAREM_SITE_OK.has(d.barem_status) && (d.barem_id || d.barem_status === 'inclus') && (!d.file_url || !f || d.file_url === f)
+        && barem.baremCacheValid(randul.get(d.content_id), d)) ok.add(d.content_id);
     }
   } catch { /* cache-ul PDF lipsește */ }
   try {   // legăturile botului de examene (EN / BAC)
@@ -467,10 +587,10 @@ async function rezumateElevi(supa, elevi, { stari = new Map(), progRows = [], ti
 }
 
 module.exports = {
-  PRAG_INTERACTIV, PRAG_PDF, INCERCARI_SARIRE, ROMAN, CLASE, HARTI, numeClasa,
+  PRAG_INTERACTIV, PRAG_PDF, INCERCARI_SARIRE, ROMAN, CLASE, HARTI, TESTE_PE_GRUPA, numeClasa,
   // pure
-  etape, categorii, sePotriveste, intraPdf, construiesteNoduri, stareNod, accesibil, calculeaza, calculeazaHarti,
-  vedereHarta, vedere, urlPas, rezumat, citestePlan, deScris, pctDin, incercariDin,
+  etape, categorii, sePotriveste, intraPdf, capitolNod, peCapitole, construiesteNoduri, stareNod, accesibil, calculeaza, calculeazaHarti,
+  capitoleHarta, vedereHarta, vedere, urlPas, rezumat, citestePlan, deScris, pctDin, incercariDin,
   // cu baza de date
   continut, bareme, progres, stare, sari, scriePlan, rezumateElevi,
 };

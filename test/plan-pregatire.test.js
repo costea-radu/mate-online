@@ -117,9 +117,12 @@ const plan = (supa, profile = PREMIUM, tinta = TINTA_EN) => PL.stare(supa, U, { 
 
 test('EN: harta interactivă (capitole → exerciții pe subiecte → teste interactive); harta PDF doar cu subiecte de examen (variante, simulări)', () => {
   const et = PL.etape(TINTA_EN);
-  assert.deepStrictEqual(et.map((e) => [e.id, e.harta]), [['capitole', 'interactiv'], ['subiecte', 'interactiv'], ['teste', 'interactiv'], ['pdf-variante', 'pdf'], ['pdf-simulari', 'pdf']],
-    'fără „Capitole · PDF" și „Exerciții pe subiecte · PDF"');
-  assert.ok(et.filter((e) => e.harta === 'pdf').every((e) => e.doarCuBarem && e.dacaNuStim === 'toate'));
+  // 15 nov. 2026: „Fișe pe capitole" — doar fișele PDF numite după un capitol, cu barem (pas în plus la capitolul lor)
+  assert.deepStrictEqual(et.map((e) => [e.id, e.harta]), [['capitole', 'interactiv'], ['subiecte', 'interactiv'], ['teste', 'interactiv'], ['pdf-capitole', 'pdf'], ['pdf-variante', 'pdf'], ['pdf-simulari', 'pdf']],
+    'fără „Exerciții pe subiecte · PDF"; fișele pe capitole doar cu barem și recunoscute pe un capitol');
+  assert.ok(et.filter((e) => e.harta === 'pdf').every((e) => e.doarCuBarem));
+  assert.deepStrictEqual(et.filter((e) => e.harta === 'pdf').map((e) => e.dacaNuStim), ['niciunul', 'toate', 'toate'], 'fără informații despre bareme: subiectele oficiale da, fișele nu');
+  assert.strictEqual(et.find((e) => e.id === 'pdf-capitole').doarCuCapitol, true);
   assert.strictEqual(et[1].subcategory, 'exercitii-subiecte');
   const rows = [...EN].sort((a, b) => a.sort_order - b.sort_order);
   const n = PL.construiesteNoduri(rows, et, { cuBarem: new Set(['en-var-1', 'en-sim-1']) });
@@ -134,12 +137,12 @@ test('EN: harta interactivă (capitole → exerciții pe subiecte → teste inte
 test('BAC: „Capitole" comune profilurilor, apoi doar profilul ales; harta PDF: variante, teste de antrenament, simulări (cu barem)', () => {
   const t = P.tintaInfo('bac-mate-info');
   const et = PL.etape(t);
-  assert.deepStrictEqual(et.map((e) => e.id), ['capitole', 'subiecte', 'teste', 'pdf-variante', 'pdf-antrenament', 'pdf-simulari']);
+  assert.deepStrictEqual(et.map((e) => e.id), ['capitole', 'subiecte', 'teste', 'pdf-capitole', 'pdf-variante', 'pdf-antrenament', 'pdf-simulari']);
   assert.strictEqual(et[1].subcategory, 'exercitii');
   const n = PL.construiesteNoduri(BAC, et, { cuBarem: new Set(['bac-mi-var', 'bac-mi-antr', 'bac-mi-cap-pdf']) }).map((x) => x.id);
   assert.deepStrictEqual(n, ['bac-cap', 'bac-mi-ex', 'bac-mi-test', 'bac-mi-var', 'bac-mi-antr']);
   assert.ok(!n.includes('bac-sn-ex'), 'exercițiile altui profil nu intră');
-  assert.ok(!n.includes('bac-mi-cap-pdf'), 'fișele pe capitole nu mai intră în harta PDF, nici cu barem');
+  assert.ok(!n.includes('bac-mi-cap-pdf'), 'o fișă pe capitole care NU e numită după un capitol nu intră în harta PDF, nici cu barem');
 });
 
 test('clasa aleasă: harta interactivă (ea, apoi clasele dinainte); harta PDF doar cu fișele care au barem — fără informații, niciuna', () => {
@@ -409,7 +412,7 @@ test('rezumatul pentru profesori / părinți: ținta, cele două hărți (trecut
   const x = r[U];
   assert.deepStrictEqual(x.tinta, { id: 'evaluare-nationala', label: 'Evaluarea Națională', scurt: 'EN', tip: 'examen' });
   assert.deepStrictEqual([x.interactiv.total, x.interactiv.trecute, x.interactiv.neterminate, x.interactiv.procent], [5, 1, 1, 20]);
-  assert.deepStrictEqual(x.interactiv.pas, { nr: 2, titlu: 'Fracții — interactiv', stare: 'incercat', incercari: 2, pct: 30 });
+  assert.deepStrictEqual(x.interactiv.pas, { nr: 2, titlu: 'Fracții — interactiv', stare: 'incercat', incercari: 2, pct: 30, capitol: 'Numere raționale și fracții' });
   assert.deepStrictEqual([x.pdf.total, x.pdf.pas, x.pdf.ramasePremium], [2, null, 2], 'cont gratuit: harta PDF cu ⭐');
   assert.deepStrictEqual(x.interactiv.etape.map((e) => [e.titlu, e.total, e.trecute]), [['Capitole cu exerciții', 2, 1], ['Exerciții pe subiecte', 2, 0], ['Teste interactive', 1, 0]]);
   assert.ok(!('noduri' in x.interactiv), 'fără lista pașilor');
@@ -477,9 +480,9 @@ test('„Pregătește-mă": două hărți, în ordine — 1 · exercițiile inte
 test('„Rezultate" (profesor și părinte): progresul din hartă — insigna din rândul elevului și caseta „🗺️ Harta pregătirii"', () => {
   const tr = read('src/components/TeacherResults.jsx');
   assert.match(tr, /import HartaPlanRezumat, \{ PlanChip \} from '\.\/HartaPlanRezumat';/);
-  assert.match(tr, /rows: \[\], plan: s\.plan \|\| null \}\);/);
-  assert.match(tr, /\{!student\.archived && student\.plan && <div><PlanChip plan=\{student\.plan\} \/><\/div>\}/);
-  assert.match(tr, /\{!student\.archived && <HartaPlanRezumat plan=\{student\.plan\} nume=\{student\.name\.split\(' '\)\[0\]\} \/>\}/);
+  assert.match(tr, /rows: \[\], plan: s\.plan \|\| null, liga: s\.liga \|\| null \}\);/);
+  assert.match(tr, /\{!student\.archived && \(student\.plan \|\| student\.liga\) && <div><PlanChip plan=\{student\.plan\} liga=\{student\.liga\} \/><\/div>\}/);
+  assert.match(tr, /\{!student\.archived && <HartaPlanRezumat plan=\{student\.plan\} liga=\{student\.liga\} nume=\{student\.name\.split\(' '\)\[0\]\} \/>\}/);
   // aceeași componentă servește și părinții (role="parinte"): fără condiție pe isTeacher
   const linie = tr.split('\n').find((l) => l.includes('<HartaPlanRezumat '));
   assert.ok(!/isTeacher|isParent/.test(linie));

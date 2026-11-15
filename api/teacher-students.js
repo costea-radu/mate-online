@@ -90,6 +90,27 @@ module.exports = async function handler(req, res) {
       group_id: groupByStudent[p.id] || null,
     }))
     .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '', 'ro'));
+  const elevi = (profiles || []).map((p) => ({ id: p.id, premium: p.subscription_status === 'active' }));
+
+  // 4b. 🗺️ Doar hărțile (15 nov. 2026 — cardul separat „Harta pregătirii" din Home, la
+  //     profesor și la părinte): progresul pe hărți / capitole și liga fiecărui elev,
+  //     fără rezultate, conversații AI, teme, medii, catalog. Progresul se citește doar cu
+  //     coloanele de care are nevoie harta.
+  if ((req.body || {}).mode === 'harti') {
+    let progH = [];
+    try {
+      progH = await inBatches(studentIds, (chunk, from, to) => supabase
+        .from('progress')
+        .select('user_id, content_id, score, max_score, attempts, completed_at')
+        .in('user_id', chunk)
+        .range(from, to));
+    } catch { progH = []; }
+    let hartiH = {}, ligiH = {};
+    try { hartiH = await pregatire.rezumateElevi(supabase, elevi, progH || []); } catch { hartiH = {}; }
+    try { ligiH = await pregatire.ligiElevi(supabase, studentIds); } catch { ligiH = {}; }
+    students.forEach((s) => { s.plan = hartiH[s.id] || null; s.liga = ligiH[s.id] || null; delete s.email; });
+    return res.status(200).json({ role, mode: 'harti', students, groups });
+  }
 
   // 5. Progresul elevilor (select * pentru a tolera coloane lipsă: attempts/time_spent).
   //    ATENȚIE — PAGINAT: ordonat descrescător după dată + limita implicită de
@@ -113,9 +134,13 @@ module.exports = async function handler(req, res) {
   //     restul rezultatelor (api/_lib/pregatireZilnica.js → rezumateElevi).
   let harti = {};
   try {
-    harti = await pregatire.rezumateElevi(supabase, (profiles || []).map((p) => ({ id: p.id, premium: p.subscription_status === 'active' })), prog || []);
+    harti = await pregatire.rezumateElevi(supabase, elevi, prog || []);
   } catch { harti = {}; }
-  students.forEach((s) => { s.plan = harti[s.id] || null; });
+  // 5c. 🏆 Liga fiecărui elev (15 nov. 2026 — „progresul pe ligă" și la părinți / profesori):
+  //     divizia, punctele săptămânii, locul în grupa lui de ligă — și fără țintă aleasă
+  let ligi = {};
+  try { ligi = await pregatire.ligiElevi(supabase, studentIds); } catch { ligi = {}; }
+  students.forEach((s) => { s.plan = harti[s.id] || null; s.liga = ligi[s.id] || null; });
 
   // 6. Utilizarea Profesorului Virtual: câte întrebări a pus fiecare elev
   //    la fiecare material (conversațiile AI păstrează contentId în context).

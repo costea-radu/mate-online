@@ -4,6 +4,9 @@ import EinsteinIcon from '../components/EinsteinIcon';
 import { Testimonials } from '../components/ReviewWidget';
 import { useAuth } from '../context/AuthContext';
 import { arenaState, onArenaChange } from '../lib/arena';
+import { aiClient } from '../lib/aiClient';
+import { InelCapitol, CSS_INEL } from '../lib/pictograme';
+import '@fontsource/caveat/700.css';   // titlul capitolului, scris de mână (ca pe hartă)
 import { AcasaElev, AcasaParinte, AcasaProfesor } from '../components/AcasaCont';
 import ExercitiuRapid from '../components/ExercitiuRapid';
 import { CLASE, EXAMENE, scurtaturi } from '../lib/meniu';
@@ -34,18 +37,75 @@ const prenumeDin = (profile, user) => String(profile?.full_name || user?.user_me
 // elevul autentificat arată și seria lui și dacă testul de azi îl așteaptă
 // (din starea Arenei — aceeași cerere ca indicatorul din bara de sus).
 // Vizitatorul are lângă el un exercițiu pe care îl rezolvă pe loc.
+// harta pe scurt (api/gamificare.js → 'harta_scurt'), ținută un minut: revenirea în Home
+// nu o mai cere din nou
+let hartaMem = { uid: null, la: 0, p: null };
+function hartaScurt(uid) {
+  if (hartaMem.uid === uid && hartaMem.p && Date.now() - hartaMem.la < 60000) return hartaMem.p;
+  const p = aiClient.gamificare({ action: 'harta_scurt' }).then((r) => r?.harta || null).catch((e) => { hartaMem = { uid: null, la: 0, p: null }; throw e; });
+  hartaMem = { uid, la: Date.now(), p };
+  return p;
+}
+
+// 15 nov. 2026 — „harta din butonul Acasă": capitolul pasului de azi (pictograma în
+// inelul lui), inelele capitolelor din jurul lui și liga săptămânii
+function HartaPeScurt({ h, liga }) {
+  const harta = h && (h[(h.pas && h.pas.harta) || 'interactiv'] || h.interactiv);
+  const caps = (harta && harta.capitole) || [];
+  if (!caps.length && !liga) return null;
+  let k = caps.findIndex((c) => c.curent);
+  if (k < 0) k = Math.max(0, caps.findIndex((c) => !c.gata));
+  const de = Math.max(0, Math.min(k - 2, caps.length - 8));
+  const vazute = caps.slice(de, de + 8);
+  const cur = caps[k] || null;
+  return (
+    <div className="pz-home-harta">
+      <style>{CSS_INEL}</style>
+      {cur && (
+        <Link to="/pregateste-ma" className="pz-home-cap">
+          <InelCapitol c={cur} size={44} />
+          <span>
+            <small>{cur.gata ? 'Capitol terminat' : 'Capitolul tău'}</small>
+            <b>{cur.titlu}</b>
+            <em>{cur.trecute} din {cur.total} {cur.total === 1 ? 'pas trecut' : 'pași trecuți'}</em>
+          </span>
+        </Link>
+      )}
+      {vazute.length > 1 && (
+        <div className="pz-home-inele" aria-label="Capitolele hărții">
+          {vazute.map((c) => <InelCapitol key={`${c.etapa}-${c.titlu}`} c={c} size={28} title={`${c.titlu} · ${c.trecute} din ${c.total}`} />)}
+          {caps.length > vazute.length && <span className="mai">+{caps.length - vazute.length}</span>}
+        </div>
+      )}
+      {liga && (
+        <Link to="/arena" className="pz-home-liga" title="Clasamentul ligii, în Arenă">
+          <span aria-hidden="true">{liga.icon}</span> Liga {liga.name}{liga.loc ? ` · locul ${liga.loc}${liga.membri ? ` din ${liga.membri}` : ''}` : ''} · {liga.puncte || 0} p
+        </Link>
+      )}
+    </div>
+  );
+}
+
 function PregatireCard() {
   const { user } = useAuth();
   const [z, setZ] = useState(null);   // { examen, azi, serie, aziFacut } — api/_lib/pregatireZilnica.js → rezumat
+  const [liga, setLiga] = useState(null);
+  const [harta, setHarta] = useState(null);
   useEffect(() => {
-    if (!user) { setZ(null); return undefined; }
+    if (!user) { setZ(null); setLiga(null); return undefined; }
     let viu = true;
-    const load = (force = false) => arenaState({ force }).then((r) => { if (viu) setZ(r?.pregatireAzi || null); }).catch(() => {});
+    const load = (force = false) => arenaState({ force }).then((r) => { if (viu) { setZ(r?.pregatireAzi || null); setLiga(r?.liga || null); } }).catch(() => {});
     load();
     const off = onArenaChange(() => load(true));
     return () => { viu = false; off(); };
   }, [user]);
   const inceput = !!(z && z.examen);
+  useEffect(() => {
+    if (!user || !inceput) { setHarta(null); return undefined; }
+    let viu = true;
+    hartaScurt(user.id).then((h) => { if (viu) setHarta(h); }).catch(() => {});
+    return () => { viu = false; };
+  }, [user, inceput, z?.examen]);
   // 13 nov. 2026: pagina e harta pregătirii — pasul de azi din plan (api/_lib/planPregatire.js)
   const cta = !user ? 'Începe azi — gratuit' : !inceput ? 'Alege examenul sau clasa' : z.aziFacut ? '↻ Mai lucrează azi' : '▶ Pasul de azi';
   return (
@@ -56,7 +116,7 @@ function PregatireCard() {
             <div className="pz-home-kicker">Harta ta, pas cu pas, cu serie și ligă</div>
             <h2>🎯 Pregătește-mă de examen</h2>
             <p>
-              Alegi <strong>Evaluarea Națională</strong>, <strong>Bacalaureatul</strong> sau clasa și primești toate exercițiile în ordine, pe o hartă.
+              Alegi <strong>Evaluarea Națională</strong>, <strong>Bacalaureatul</strong> sau clasa și primești toate exercițiile în ordine, pe o hartă împărțită pe capitole.
             </p>
             {inceput && (
               <div className="pz-home-stare">
@@ -64,6 +124,7 @@ function PregatireCard() {
                 <span>{z.aziFacut ? '✅ Ziua de azi e bifată' : '🗺️ Pasul de azi te așteaptă'}</span>
               </div>
             )}
+            {inceput && <HartaPeScurt h={harta} liga={liga} />}
             <Link to="/pregateste-ma" className="btn btn-primary btn-lg pz-home-btn">{cta}</Link>
             <ul className="pz-home-pasi" aria-label="Ce primești">
               <li>🗺️ harta exercițiilor</li>

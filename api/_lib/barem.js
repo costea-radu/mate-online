@@ -581,8 +581,138 @@ function locateBaremItem(baremText, ref) {
   return frag.length >= 15 ? { kind: 'rezolvare', text: frag } : null;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// FIȘELE DE LUCRU (15 nov. 2026) — baremul se leagă după TITLU, nu după numere
+//
+// O fișă (clasele V–XII; la examene, rubricile „Capitole" și „Exerciții pe subiecte")
+// nu e un subiect oficial: n-are an, variantă sau sesiune, iar exercițiile ei — adunate
+// din multe teste — au numere care se regăsesc ușor în baremul ORICĂRUI subiect. Pe
+// site, potrivirea „pe conținut" lega 12 fișe de EN pe capitole de „2026 barem simulare
+// Suceava (ianuarie)" — greșit. La fișe:
+//   · baremul se caută DOAR după titlu: „Barem — ALGEBRĂ - Fișă 4: Proporții" ↔
+//     „ALGEBRĂ - Fișă 4: Proporții" (aceleași cuvinte, numerele baremului se regăsesc
+//     în titlul fișei, un singur candidat clar — altfel niciunul);
+//   · o potrivire automată mai veche, făcută altfel decât după titlu, nu mai e de
+//     încredere (baremCacheValid) — se recalculează cu regula nouă;
+//   · baremul ales de admin (ai_pdf_text.barem_override_id) rămâne neatins.
+// ═══════════════════════════════════════════════════════════════════════════
+const FISA_SUB_EXAMEN = new Set(['capitole', 'exercitii-subiecte', 'exercitii']);
+function esteFisa(row) {
+  if (!row) return false;
+  const cat = String(row.category || '');
+  if (cat === 'evaluare-nationala' || cat === 'bacalaureat') return FISA_SUB_EXAMEN.has(String(row.subcategory || ''));
+  return /^clasa-\d{1,2}$/.test(cat) || cat === 'manuale';
+}
+
+// cuvintele care nu deosebesc două fișe între ele (și cele de barem)
+const MIEZ_STOP = new Set(('barem bareme baremul baremele bar rezolvari rezolvare rezolvarea rezolvarile raspuns raspunsuri raspunsurile ' +
+  'solutii solutia solutiile evaluare notare corectare fisa fise fisei fisa de si cu in la pe din pentru a al ale lui ' +
+  'clasa clasei matematica mate pdf exercitii exercitiu exercitiile').split(' '));
+// titlul unei fișe / al unui barem → { cuvinte (fără cifre), numere }
+function miezTitlu(title) {
+  const t = norm(title).replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const cuvinte = new Set();
+  const numere = new Set();
+  for (const w of t.split(' ')) {
+    if (!w) continue;
+    if (/^\d+$/.test(w)) { numere.add(String(parseInt(w, 10))); continue; }
+    if (w.length < 2 || MIEZ_STOP.has(w)) continue;
+    cuvinte.add(w);
+  }
+  return { cuvinte, numere };
+}
+
+// titlul și numele original al fișierului (fără prefixul de timestamp) — „miezul"
+// fiecăruia (15 nov. 2026, secțiunea „📋 Bareme" de la clase: un barem încărcat ca
+// „Barem fișa 13", dar cu fișierul „Barem_Numere_intregi_fisa_13.pdf", se recunoaște
+// după numele fișierului, ca la botul de examene)
+function miezuri(row) {
+  const out = [];
+  const t = miezTitlu(row && row.title);
+  if (t.cuvinte.size) out.push(t);
+  const f = miezTitlu(fileNameOf(row));
+  if (f.cuvinte.size) out.push(f);
+  return out;
+}
+// cât de bine se potrivesc două „miezuri" (fișa s, baremul b) — null = deloc
+function scorMiez(s, b) {
+  if ([...b.numere].some((n) => !s.numere.has(n))) return null;            // alt număr de fișă / de set
+  let comune = 0;
+  for (const w of b.cuvinte) if (s.cuvinte.has(w)) comune++;
+  if (!comune) return null;
+  const cont = comune / Math.min(s.cuvinte.size, b.cuvinte.size);           // cât din titlul mai scurt se regăsește
+  if (cont < 0.8) return null;
+  const jac = comune / (s.cuvinte.size + b.cuvinte.size - comune);
+  // numerele fișei care lipsesc din barem slăbesc potrivirea (dar nu o refuză)
+  const nrOk = s.numere.size ? [...s.numere].filter((n) => b.numere.has(n)).length / s.numere.size : 1;
+  return cont + jac + 0.5 * nrOk;
+}
+
+// Baremul unei fișe după TITLU (și numele fișierului), dintre `candidates` (rânduri
+// `content`). Un barem se potrivește dacă: e barem (titlu / rubrică / nume de fișier),
+// are cel puțin un cuvânt „de identitate" comun cu fișa, cuvintele lui se regăsesc
+// (≥ 80%) în titlul fișei sau invers, iar numerele lui (fișa 4, set 2) se regăsesc
+// toate în titlul fișei. Se compară titlu ↔ titlu, dar și numele fișierelor (cea mai
+// bună pereche). Doi candidați la fel de buni = ambiguu → niciunul.
+// Răspuns: { barem, status: 'ok' | 'negasit' | 'ambiguu', scor }
+function matchBaremByTitle(subject, candidates) {
+  const subs = miezuri(subject);
+  if (!subs.length) return { barem: null, status: 'negasit', scor: 0 };
+  const scored = [];
+  for (const c of candidates || []) {
+    if (!c || c.id === (subject && subject.id) || !isBaremRow(c)) continue;
+    let best = null;
+    for (const s of subs) {
+      for (const b of miezuri(c)) {
+        const sc = scorMiez(s, b);
+        if (sc != null && (best == null || sc > best)) best = sc;
+      }
+    }
+    if (best != null) scored.push({ c, scor: best });
+  }
+  if (!scored.length) return { barem: null, status: 'negasit', scor: 0 };
+  scored.sort((a, b) => b.scor - a.scor);
+  if (scored.length > 1 && scored[0].scor - scored[1].scor < 0.05) return { barem: null, status: 'ambiguu', scor: scored[0].scor };
+  return { barem: scored[0].c, status: 'ok', scor: Math.round(scored[0].scor * 100) / 100 };
+}
+
+// Propunerile după titlu pentru mai multe fișe odată (secțiunea „📋 Bareme" de la clase,
+// pasul 0 al corectării): un barem e propus unei fișe doar dacă e și invers unic — nicio
+// altă fișă nu l-ar primi la fel (două fișe „Triunghiul — fișa 2 / 3" și un singur
+// „Barem — Triunghiul" → niciuna), iar baremele deja legate (`folosite`) nu se mai propun.
+// Răspuns: Map(fișăId → barem)
+function propuneriPeTitlu(fise, bareme, { folosite = new Set() } = {}) {
+  const libere = (bareme || []).filter((b) => b && !folosite.has(b.id));
+  const alese = new Map();
+  const deCate = new Map();
+  for (const f of fise || []) {
+    const m = matchBaremByTitle(f, libere);
+    if (m.status !== 'ok') continue;
+    alese.set(f.id, m.barem);
+    deCate.set(m.barem.id, (deCate.get(m.barem.id) || 0) + 1);
+  }
+  for (const [id, b] of alese) if (deCate.get(b.id) > 1) alese.delete(id);
+  return alese;
+}
+
+// Potrivirea din cache (ai_pdf_text) a unui material mai e de încredere? La fișe, o
+// potrivire automată contează doar dacă a fost făcută după titlu (sau baremul e în
+// același PDF / l-a ales adminul / botul). Restul materialelor — ca înainte.
+const POTRIVIRE_AUTOMATA = new Set(['ok', 'ok_antet', 'ok_continut']);
+const POTRIVIRE_DUPA_TITLU = new Set(['titlu', 'titlu+continut', 'titlu+antet', 'inclus', 'admin', 'bot']);
+function baremCacheValid(content, t) {
+  if (!t) return false;
+  if (!esteFisa(content)) return true;
+  if (t.barem_override_id) return true;
+  if (!POTRIVIRE_AUTOMATA.has(t.barem_status)) return true;   // inclus / ok_admin / negăsit — nimic de bănuit
+  let b = t.barem;
+  if (typeof b === 'string') { try { b = JSON.parse(b); } catch { b = null; } }
+  return !!b && POTRIVIRE_DUPA_TITLU.has(b.matchedBy);
+}
+
 module.exports = {
   norm, isBaremTitle, isBaremRow, fileNameOf, profileOf, examOf, yearOf, tokensFromText, tokensOf, tokensStrictMatch,
+  esteFisa, miezTitlu, miezuri, matchBaremByTitle, propuneriPeTitlu, baremCacheValid,
   matchBarem, tokensContradict, tokensAgreement, pickByContentScore, contentMatchScore,
   docTokens, docsCompatible, describeTokens, splitEmbeddedBarem,
   parseExerciseRef, sliceExercise, subjectSections, formatRef, grilaAnswers, shortAnswerOf, locateBaremItem,
