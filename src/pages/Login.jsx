@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import OAuthButtons from '../components/OAuthButtons';
+import { destinatieDupaLogin, marcheazaLogin } from '../lib/dupaLogin';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -52,8 +53,9 @@ export default function Login() {
     setResendDone(false);
     setLoading(true);
     try {
-      await signIn(email, password);
-      navigate('/profil');
+      const data = await signIn(email, password);
+      // elevul ajunge direct la „🎯 Pregătește-mă de examen"; ceilalți, în contul lor (15 nov. 2026)
+      navigate(await destinatieDupaLogin(data?.user?.id));
     } catch (err) {
       const msg = err?.message || '';
       const code = err?.code || '';
@@ -119,12 +121,14 @@ export default function Login() {
 
   async function handleGoogle() {
     setError(''); setGoogleLoading(true);
+    marcheazaLogin();   // la întoarcere, elevul merge la „Pregătește-mă" (src/lib/dupaLogin.js)
     try { await signInWithGoogle(); }
     catch { setError('Eroare la autentificarea cu Google.'); setGoogleLoading(false); }
   }
 
   async function handleDiscord() {
     setError(''); setDiscordLoading(true);
+    marcheazaLogin();
     try { await signInWithDiscord(); }
     catch { setError('Eroare la autentificarea cu Discord.'); setDiscordLoading(false); }
   }

@@ -53,6 +53,16 @@
 //   · PROFESORII ȘI PĂRINȚII văd progresul (rezumat) în „Rezultate" —
 //     rezumateElevi() → api/teacher-students.js → src/components/TeacherResults.jsx.
 //
+// 15 nov. 2026 (seara) — CE LUCREZI ACUM: „fă să poată alege în hartă să facă direct teste
+// interactive sau pdf. la premium, fă să poată alege orice pas. testele premium să rămână
+// premium și în pași". prep_plan.focus = { harta, id, etapa } — de unde pornește pasul
+// curent al hărții alese (și pasul zilei vine din ea): oricine poate porni de la începutul
+// unei etape (de ex. „Teste interactive") sau din harta PDF (cu Premium — corectarea e
+// Premium); cu Premium, de la orice pas, iar toți pașii accesibili sunt deschiși (nu se
+// mai încuie pașii de după). Pasul curent = primul pas accesibil netrecut de la focus
+// încolo (apoi, dacă toți de după sunt gata, primul de la început). Pașii Premium rămân ⭐
+// fără abonament (accesibil). alegeFocus() — api/gamificare.js → 'plan_focus'.
+//
 // Tabela: supabase/plan_pregatire.sql (coloana user_stats.prep_plan — sărite,
 // trecute, începutul planului). Fără coloană, harta merge, doar „⏭ Treci mai
 // departe" cere migrarea. Funcțiile cu baza de date nu aruncă spre apelant.
@@ -250,24 +260,43 @@ function stareNod(nod, p, { sarite = new Set(), trecute = new Set() } = {}) {
 const accesibil = (nod, premium) => !!premium || (nod.gratuit && nod.tip === 'interactive');
 
 // O hartă: starea fiecărui pas, pasul curent, ce e deschis (indicii `i` — în harta ei)
-function calculeaza(noduri, progres, { sarite = new Set(), trecute = new Set(), premium = false, start = null } = {}) {
+// `deLa` = indicele de la care pornește pasul curent (focusul ales de elev; -1 = de la început)
+function calculeaza(noduri, progres, { sarite = new Set(), trecute = new Set(), premium = false, start = null, deLa = -1 } = {}) {
   const out = (noduri || []).map((n, i) => {
     const s = stareNod(n, progres.get(n.id) || null, { sarite, trecute });
     const zi = n.creat ? String(n.creat).slice(0, 10) : null;
     return { ...n, i, ...s, accesibil: accesibil(n, premium), nou: !!(start && zi && zi > start) };
   });
-  const curent = out.findIndex((n) => n.accesibil && n.stare !== 'trecut' && n.stare !== 'sarit');
+  const liber = (n) => n.accesibil && n.stare !== 'trecut' && n.stare !== 'sarit';
+  let curent = deLa >= 0 ? out.findIndex((n) => n.i >= deLa && liber(n)) : -1;
+  if (curent < 0) curent = out.findIndex(liber);
   for (const n of out) {
-    n.deschis = n.accesibil && (curent < 0 || n.i <= curent || STARI_LUCRATE.includes(n.stare));
+    // cu Premium, orice pas e deschis (15 nov. 2026: „la premium, să poată alege orice pas")
+    n.deschis = n.accesibil && (premium || curent < 0 || n.i <= curent || STARI_LUCRATE.includes(n.stare));
     n.poateSari = n.i === curent && n.stare === 'incercat' && n.incercari >= INCERCARI_SARIRE;
   }
   return { noduri: out, curent };
 }
 
-// cele două hărți, fiecare calculată separat
+// indicele de pornire al focusului într-o hartă (pasul ales; altfel începutul etapei lui)
+function indiceFocus(lista, focus) {
+  if (!focus) return -1;
+  if (focus.id) {
+    const k = lista.findIndex((n) => n.id === focus.id);
+    if (k >= 0) return k;
+  }
+  if (focus.etapa) return lista.findIndex((n) => n.etapa === focus.etapa);
+  return -1;
+}
+
+// cele două hărți, fiecare calculată separat (`focus` — doar în harta lui)
 function calculeazaHarti(noduri, progres, opt = {}) {
+  const { focus = null, ...rest } = opt;
   const out = {};
-  for (const h of HARTI) out[h] = calculeaza((noduri || []).filter((n) => n.harta === h), progres, opt);
+  for (const h of HARTI) {
+    const lista = (noduri || []).filter((n) => n.harta === h);
+    out[h] = calculeaza(lista, progres, { ...rest, deLa: focus && focus.harta === h ? indiceFocus(lista, focus) : -1 });
+  }
   return out;
 }
 
@@ -365,21 +394,26 @@ function cuAdrese(pas) {
 
 const REGULI = () => ({ pragInteractiv: PRAG_INTERACTIV, pragPdf: PRAG_PDF, incercariSarire: INCERCARI_SARIRE });
 
-// Ce primește pagina: cele două hărți + pasul zilei (din harta interactivă; când e gata, din cea PDF)
-function vedere(harti, lista, { tinta = null, coloana = true, premium = false } = {}) {
+// Ce primește pagina: cele două hărți + pasul zilei (din harta interactivă; când e gata, din
+// cea PDF) — sau din harta aleasă de elev („ce lucrezi acum", `focus`), cât are pași de lucrat
+function vedere(harti, lista, { tinta = null, coloana = true, premium = false, focus = null } = {}) {
   const v = {};
   for (const h of HARTI) {
     v[h] = vedereHarta(harti[h], lista.filter((e) => (e.harta || (e.tip === 'pdf' ? 'pdf' : 'interactiv')) === h), { premium });
     v[h].pas = cuAdrese(v[h].pas);
   }
   const total = v.interactiv.total + v.pdf.total;
+  const peFocus = focus && v[focus.harta] && v[focus.harta].pas ? v[focus.harta].pas : null;
   return {
     activ: true,
     coloana,
     tinta: tinta ? { id: tinta.id || null, label: tinta.label || null, tip: tinta.tip } : null,
     interactiv: v.interactiv,
     pdf: v.pdf,
-    pas: v.interactiv.pas || v.pdf.pas || null,
+    pas: peFocus || v.interactiv.pas || v.pdf.pas || null,
+    // ce a ales elevul să lucreze acum (null = în ordine); `activ` — harta aleasă mai are pași
+    focus: focus ? { harta: focus.harta, etapa: focus.etapa || null, id: focus.id || null, activ: !!peFocus } : null,
+    premium: !!premium,
     total,
     trecute: v.interactiv.trecute + v.pdf.trecute,
     terminat: total > 0 && !v.interactiv.pas && !v.pdf.pas && (v.interactiv.terminat || v.pdf.terminat),
@@ -416,12 +450,20 @@ function citestePlan(stats) {
     tinta: typeof o.tinta === 'string' ? o.tinta : null,
     sarite: new Set(lista(o.sarite)),
     trecute: new Set(lista(o.trecute)),
+    focus: focusValid(o.focus),
   };
+}
+// { harta, id?, etapa? } | null
+function focusValid(f) {
+  if (!f || typeof f !== 'object' || !HARTI.includes(f.harta)) return null;
+  const sir = (x) => (typeof x === 'string' && x.trim() ? x.trim().slice(0, 120) : null);
+  return { harta: f.harta, id: sir(f.id), etapa: sir(f.etapa) };
 }
 
 const deScris = (plan) => ({
   v: 1, start: plan.start || null, tinta: plan.tinta || null,
   sarite: [...plan.sarite].slice(-MAX_LISTA), trecute: [...plan.trecute].slice(-MAX_LISTA),
+  ...(plan.focus ? { focus: plan.focus } : {}),
 });
 
 async function scriePlan(supa, userId, plan) {
@@ -499,7 +541,11 @@ async function calculeazaPentru(supa, userId, { tinta, stats, premium = false })
   const noduri = construiesteNoduri(s.rows, s.lista, { cuBarem: s.cuBarem });
   const prog = await progres(supa, userId, noduri.map((n) => n.id));
   const plan = citestePlan(stats);
-  const harti = calculeazaHarti(noduri, prog, { sarite: plan.sarite, trecute: plan.trecute, premium, start: plan.start });
+  // la o țintă nouă, focusul vechi nu mai contează
+  if (plan.focus && plan.tinta !== (tinta && tinta.id ? tinta.id : null)) plan.focus = null;
+  // harta PDF fără abonament: focusul nu are ce alege (corectarea e Premium)
+  if (plan.focus && plan.focus.harta === 'pdf' && !premium) plan.focus = null;
+  const harti = calculeazaHarti(noduri, prog, { sarite: plan.sarite, trecute: plan.trecute, premium, start: plan.start, focus: plan.focus });
   return { lista: s.lista, noduri, prog, plan, harti };
 }
 
@@ -516,10 +562,11 @@ async function stare(supa, userId, { tinta, stats, premium = false, azi = null }
       for (const id of noi) plan.trecute.add(id);
       // planul începe azi (sau din nou, la altă țintă): „nou" = adăugat în site după ziua asta
       if (!plan.start || tintaNoua) plan.start = azi || new Date().toISOString().slice(0, 10);
+      if (tintaNoua) plan.focus = null;   // alegerea „ce lucrezi acum" ține de țintă
       plan.tinta = tid;
       await scriePlan(supa, userId, plan);
     }
-    return vedere(harti, lista, { tinta, coloana: plan.coloana, premium });
+    return vedere(harti, lista, { tinta, coloana: plan.coloana, premium, focus: plan.focus });
   } catch (e) {
     console.warn('plan.stare:', e?.message || e);
     return null;
@@ -548,6 +595,40 @@ async function sari(supa, userId, { contentId, tinta, stats, premium = false } =
   plan.sarite.add(id);
   if (!(await scriePlan(supa, userId, plan))) return { error: 'Nu am putut salva. Încearcă din nou.' };
   return { ok: true };
+}
+
+// „Ce lucrezi acum?" (15 nov. 2026, seara): de unde pornește pasul curent — și pasul zilei.
+//   { harta: null }                       → în ordine (fără focus)
+//   { harta: 'interactiv', etapa: 'teste' } → de la începutul unei etape (oricine)
+//   { harta: 'pdf' }                       → harta subiectelor PDF (cu Premium)
+//   { harta, id }                          → de la un pas anume (doar cu Premium)
+async function alegeFocus(supa, userId, { tinta, stats, premium = false, harta = null, id = null, etapa = null } = {}) {
+  const plan0 = citestePlan(stats);
+  if (!plan0.coloana) return { error: 'Alegerea nu se poate salva încă (Admin: rulează supabase/plan_pregatire.sql).', setup: false };
+  const x = await calculeazaPentru(supa, userId, { tinta, stats, premium });
+  if (!x) return { error: 'Alege întâi examenul sau clasa.' };
+  const { plan, noduri } = x;
+  plan.tinta = tinta && tinta.id ? tinta.id : plan.tinta;
+  if (!harta) {
+    plan.focus = null;
+  } else {
+    if (!HARTI.includes(harta)) return { error: 'Hartă necunoscută.' };
+    if (harta === 'pdf' && !premium) return { error: 'Subiectele PDF se deschid cu Premium: profesorul virtual le corectează după barem.', premium: false };
+    const ale = noduri.filter((n) => n.harta === harta);
+    if (!ale.length) return { error: 'Harta aleasă nu are încă pași.' };
+    let nod = null;
+    if (id) {
+      if (!premium) return { error: 'Cu Premium poți porni de la orice pas. Fără abonament, alegi o etapă: de exemplu testele interactive.', premium: false };
+      nod = ale.find((n) => n.id === String(id)) || null;
+      if (!nod) return { error: 'Pasul nu mai e în planul tău.' };
+    } else if (etapa) {
+      nod = ale.find((n) => n.etapa === String(etapa)) || null;
+      if (!nod) return { error: 'Etapa aleasă nu are pași.' };
+    }
+    plan.focus = { harta, id: nod ? nod.id : null, etapa: nod ? nod.etapa : null };
+  }
+  if (!(await scriePlan(supa, userId, plan))) return { error: 'Nu am putut salva alegerea. Încearcă din nou.' };
+  return { ok: true, focus: plan.focus };
 }
 
 // Progresul din hartă al mai multor elevi, pentru „Rezultate" (profesori și părinți).
@@ -579,8 +660,9 @@ async function rezumateElevi(supa, elevi, { stari = new Map(), progRows = [], ti
     const noduri = construiesteNoduri(s.rows, s.lista, { cuBarem: s.cuBarem });
     for (const e of lista) {
       const plan = citestePlan(stari.get(e.id));
-      const harti = calculeazaHarti(noduri, progPeElev.get(e.id) || new Map(), { sarite: plan.sarite, trecute: plan.trecute, premium: !!e.premium, start: plan.start });
-      out.set(e.id, rezumat(vedere(harti, s.lista, { tinta, coloana: plan.coloana, premium: !!e.premium })));
+      const focus = plan.focus && plan.tinta === tinta.id && (plan.focus.harta !== 'pdf' || e.premium) ? plan.focus : null;
+      const harti = calculeazaHarti(noduri, progPeElev.get(e.id) || new Map(), { sarite: plan.sarite, trecute: plan.trecute, premium: !!e.premium, start: plan.start, focus });
+      out.set(e.id, rezumat(vedere(harti, s.lista, { tinta, coloana: plan.coloana, premium: !!e.premium, focus })));
     }
   }
   return out;
@@ -590,7 +672,7 @@ module.exports = {
   PRAG_INTERACTIV, PRAG_PDF, INCERCARI_SARIRE, ROMAN, CLASE, HARTI, TESTE_PE_GRUPA, numeClasa,
   // pure
   etape, categorii, sePotriveste, intraPdf, capitolNod, peCapitole, construiesteNoduri, stareNod, accesibil, calculeaza, calculeazaHarti,
-  capitoleHarta, vedereHarta, vedere, urlPas, rezumat, citestePlan, deScris, pctDin, incercariDin,
+  capitoleHarta, vedereHarta, vedere, urlPas, rezumat, citestePlan, deScris, focusValid, indiceFocus, pctDin, incercariDin,
   // cu baza de date
-  continut, bareme, progres, stare, sari, scriePlan, rezumateElevi,
+  continut, bareme, progres, stare, sari, alegeFocus, scriePlan, rezumateElevi,
 };

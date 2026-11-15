@@ -42,7 +42,28 @@ const TEXTE_MISIUNE = {
 };
 
 // ─── „🔔 Amintește-mi" ─────────────────────────────────────────────────────────
-export function AmintireZilnica({ notif, setNotif, isAdmin, texte = TEXTE_MISIUNE }) {
+// Pornește amintirea zilnică dintr-un alt clic (15 nov. 2026, seara — „fă notificările pornite
+// când se apasă «începe»", src/pages/PregatesteMa.jsx): o singură dată, doar dacă elevul nu
+// a ales încă (notif.ales) și dacă amintirile există pe server. Cererea permisiunii pornește
+// chiar în clicul elevului (cerința browserelor); restul merge în fundal. → notif nou | null
+export async function pornesteAmintirea({ notif, texte = TEXTE_MISIUNE } = {}) {
+  const T = { ...TEXTE_MISIUNE, ...texte };
+  if (!notif || notif.setup === false || notif.on || notif.ales) return null;
+  const support = notifySupport();
+  const key = notif.push?.on ? notif.push.key : null;
+  let sub = null;
+  if (key && support.push && !(support.ios && !support.standalone)) {
+    const perm = await askNotifyPermission();
+    if (perm === 'granted') sub = await subscribePush(key);
+  }
+  const r = await aiClient.gamificare({ action: T.actiune, on: true, ora: notif.ora || 17, ...(sub ? { subscription: sub } : {}) });
+  if (sub?.endpoint && r?.pushSalvat) lsSet(T.pushLs, sub.endpoint);
+  return r?.notificari || null;
+}
+
+// `ascundeIntrebarea`: fără „Vrei să-ți amintesc…?" cât elevul n-a ales încă (pagina o
+// pornește singură, la „▶ Începe"); rămân starea pornită (ora, proba, oprește) și cea oprită
+export function AmintireZilnica({ notif, setNotif, isAdmin, texte = TEXTE_MISIUNE, ascundeIntrebarea = false }) {
   const T = { ...TEXTE_MISIUNE, ...texte };
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);           // { tip: 'ok' | 'info' | 'err', text }
@@ -77,6 +98,7 @@ export function AmintireZilnica({ notif, setNotif, isAdmin, texte = TEXTE_MISIUN
       </div>
     );
   }
+  if (ascundeIntrebarea && !notif.on && !notif.ales && !msg) return null;
 
   // unde ajunge amintirea pe acest dispozitiv (perm / abonat: starea de DUPĂ cererea permisiunii)
   const undeAjunge = (perm = support.permission, abonat = null) => {

@@ -115,6 +115,45 @@ Cererea:
   pentru Home).
 - **SQL**: nimic nou.
 
+### 0.3 Seara: „Ce lucrezi acum?", orice pas cu Premium, „▶ Începe" pornește amintirea, elevul ajunge aici după autentificare (15 nov. 2026)
+
+Cererea:
+
+> 1. când se conectează un elev, fă să ajungă în home la pregătește-mă
+> 2. fă să poată alege în hartă să facă direct teste interactive sau pdf. la premium, fă să
+>    poată alege orice pas. testele premium să rămână premium și în pași
+> 3. fă notificările pornite când se apasă „începe". scoate pasul aici la început. el se vede
+>    în hartă
+
+- **După autentificare** (`src/lib/dupaLogin.js`): cu email + parolă, elevul ajunge direct la
+  `/pregateste-ma` (profesorii și părinții — în „Contul meu", ca înainte). Cu Google / Discord,
+  Supabase întoarce contul la `/profil`; autentificarea e marcată înainte de plecare
+  (`sessionStorage`), iar `<DupaLogin />` (în `src/App.jsx`) mută elevul la `/pregateste-ma`.
+  Rămân la `/profil`: contul fără rol încă, tipul de cont sau asocierea cu profesorul în
+  așteptare (se aplică acolo). „🏠 Acasă" rămâne pagina de start obișnuită.
+- **„Ce lucrezi acum?"** (deasupra hărții): **🗺️ În ordine** (ca până acum), **📝 Teste
+  interactive** (pasul de azi = primul test netrecut — fără abonament, primul test gratuit),
+  **📄 Subiecte PDF** (cu Premium; fără abonament duce la abonamente). Alegerea se ține minte
+  în `prep_plan.focus` (`api/gamificare.js` → `plan_focus`), testul zilei încă nelucrat trece
+  pe pasul nou, iar la o țintă nouă alegerea se șterge. Când tot ce ai ales e gata, pasul de
+  azi vine din nou în ordine.
+- **Cu Premium, orice pas**: toți pașii accesibili sunt deschiși (nu se mai încuie cei de
+  după pasul curent), iar pe fișa oricărui pas e **„📍 Pornește de aici"** — pasul de azi
+  devine acela și harta continuă de acolo (alegerea apare sus, „📍 Pasul N", cu ✕ înapoi în
+  ordine). Fără abonament, pașii de după pasul curent rămân încuiați („🔒 … Cu Premium poți
+  porni de la orice pas"), iar **pașii Premium rămân ⭐** și în etapa aleasă — pasul curent sare
+  peste ei; vizualizatorul cere oricum abonamentul la materialele Premium.
+- **Cardul „Pasul de azi"** nu mai repetă pasul (titlul, capitolul — se văd pe hartă): seria,
+  liga, bifa zilei, **„▶ Începe"** (sau Continuă / Mai încearcă / modurile PDF) și **„📍 Vezi
+  pasul pe hartă"**.
+- **„▶ Începe" pornește amintirea zilnică** (`MisiuneZilnica.jsx` → `pornesteAmintirea`): o
+  singură dată, dacă elevul n-a ales încă (nici „Amintește-mi", nici „Nu, mulțumesc" /
+  „Oprește"); permisiunea de notificări se cere chiar în clic, restul merge în fundal, la ora
+  implicită. Întrebarea „Vrei să-ți amintesc…?" nu mai apare; o notă mică sub buton spune ce
+  se întâmplă. Pornită, rămâne rândul cu ora, „Trimite o probă" și „Oprește"; oprită de elev,
+  rămâne „🔔 Amintește-mi".
+- **SQL**: nimic nou (`prep_plan` e jsonb).
+
 ### Instalare
 
 **Supabase → SQL Editor** → rulează `supabase/plan_pregatire.sql` (o singură coloană:

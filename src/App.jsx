@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, useRef, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { DupaLogin } from './lib/dupaLogin';   // elevul ajunge la „Pregătește-mă” după autentificare (15 nov. 2026)
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -175,6 +176,7 @@ export default function App() {
       <ErrorBoundary>
         <AuthProvider>
           <ScrollToTop />
+          <DupaLogin />
           <AnalyticsRouteTracker />
           <VizitaTracker />
           <Layout>

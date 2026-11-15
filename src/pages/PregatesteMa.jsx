@@ -31,6 +31,15 @@
 // trecuți, „Capitolele tale" sus); pasul de azi spune capitolul lui; liga săptămânii
 // (divizia, locul, punctele, cât mai e până la promovare) stă lângă hartă — în cardul
 // pasului de azi și în „🏆 Liga ta" (din starea Arenei, src/lib/arena.js).
+// 15 nov. 2026 (seara) — „fă să poată alege în hartă să facă direct teste interactive sau
+// pdf. la premium, fă să poată alege orice pas. testele premium să rămână premium și în
+// pași" + „fă notificările pornite când se apasă «începe». scoate pasul aici la început.
+// el se vede în hartă": deasupra hărții, „Ce lucrezi acum?" — 🗺️ în ordine, 📝 testele
+// interactive, 📄 subiectele PDF (Premium); cu Premium, pe fișa oricărui pas, „📍 Pornește
+// de aici" (api/gamificare.js → 'plan_focus'); pașii Premium rămân ⭐ fără abonament.
+// Cardul „Pasul de azi" nu mai repetă pasul (titlul, capitolul — sunt pe hartă): seria,
+// liga, „▶ Începe" și „📍 Vezi pe hartă"; „▶ Începe" pornește și amintirea zilnică
+// (o singură dată, dacă elevul n-a ales încă — MisiuneZilnica → pornesteAmintirea).
 // Ziua se bifează pe server (api/_lib/pregatireZilnica.js); planul:
 // api/_lib/planPregatire.js. API: /api/gamificare → 'pregatire', 'pregatire_alege'
 // (examen sau clasă), 'plan_sari', 'pregatire_notificari' / 'pregatire_notificari_proba'.
@@ -42,9 +51,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
 import { arenaChanged, onArenaChange, arenaState } from '../lib/arena';
-import { AmintireZilnica } from '../components/MisiuneZilnica';
+import { AmintireZilnica, pornesteAmintirea } from '../components/MisiuneZilnica';
 import HartaPlan, { urlPas, capitoleDin } from '../components/HartaPlan';
-import { InelCapitol, CSS_INEL } from '../lib/pictograme';
+import { CSS_INEL } from '../lib/pictograme';
 import '@fontsource/caveat/700.css';   // nota „de mână", notițele de pe hartă
 
 const card = {
@@ -113,7 +122,7 @@ function descriere(n, { esteCurent, reguli }) {
   if (n.stare === 'sarit') return `⏭ Ai trecut mai departe după ${n.incercari} încercări (ultima: ${n.pct ?? 0}%). Îl poți relua oricând.`;
   if (n.stare === 'incercat') return `Ai încercat ${ori(n.incercari)} · ultima dată ${n.pct ?? 0}% — pasul e trecut de la ${prag}%.`;
   if (n.stare === 'inceput') return 'L-ai început și nu l-ai terminat — continuă de unde ai rămas.';
-  if (!n.deschis) return '🔒 Se deschide după pasul tău de acum.';
+  if (!n.deschis) return '🔒 Se deschide după pasul tău de acum. Cu Premium poți porni de la orice pas.';
   return esteCurent ? 'Pasul tău de acum.' : 'Neînceput.';
 }
 
@@ -207,8 +216,10 @@ function AlegereTinta({ p, busy, onAlege }) {
 }
 
 // fișa pasului ales pe hartă (jos, peste pagină); `harta` = harta pasului (numerotarea e a ei)
-function FisaPas({ n, harta, plan, busy, onInchide, onDeschide, onSari, onLaPasulMeu }) {
+function FisaPas({ n, harta, plan, busy, onInchide, onDeschide, onSari, onLaPasulMeu, onPornesteDeAici }) {
   const esteCurent = harta?.curent === n.i;
+  // cu Premium: orice pas poate deveni pasul de azi (15 nov. 2026, seara)
+  const poatePorni = !!plan?.premium && !esteCurent && n.accesibil && n.stare !== 'trecut';
   const et = (harta?.etape || []).find((e) => e.id === n.etapa);
   const cap = capitoleDin(harta).find((c) => c.id === (n.cap || n.etapa));
   const h = HARTI[n.harta] || HARTI.interactiv;
@@ -219,6 +230,65 @@ function FisaPas({ n, harta, plan, busy, onInchide, onDeschide, onSari, onLaPasu
       <div className="pz-fisa-tit">{n.titlu}</div>
       <div className="pz-fisa-st">{descriere(n, { esteCurent, reguli: plan.reguli })}</div>
       <ActiuniPas n={n} esteCurent={esteCurent} plan={plan} busy={busy} onDeschide={onDeschide} onSari={onSari} onLaPasulMeu={onLaPasulMeu} />
+      {poatePorni && (
+        <div className="pz-porneste">
+          <button type="button" className="btn btn-sm btn-outline" disabled={busy} onClick={() => onPornesteDeAici(n)}
+            title="Pasul de azi devine acesta; harta merge mai departe de aici">📍 Pornește de aici</button>
+          <span>Pasul de azi devine acesta, iar harta continuă de aici.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// „Ce lucrezi acum?" (15 nov. 2026, seara): în ordine, direct testele interactive, subiectele
+// PDF (Premium); cu Premium, pasul ales pe hartă („📍 Pornește de aici") apare ca alegere
+function CeLucrezi({ plan, laClasa, busy, onAlege }) {
+  const f = plan.focus || null;
+  const premium = !!plan.premium;
+  const primulDin = (h, etapa) => (plan[h]?.noduri || []).find((n) => n.etapa === etapa) || null;
+  const etTeste = (plan.interactiv.etape || []).find((e) => e.id === 'teste') || null;
+  const primulTest = etTeste ? primulDin('interactiv', 'teste') : null;
+  const peTeste = !!f && f.harta === 'interactiv' && f.etapa === 'teste' && (!f.id || (primulTest && f.id === primulTest.id));
+  const pePdf = !!f && f.harta === 'pdf' && !f.id;
+  const altPas = !!f && !peTeste && !pePdf && f.id ? (plan[f.harta]?.noduri || []).findIndex((n) => n.id === f.id) : -1;
+  const nodAlt = altPas >= 0 ? plan[f.harta].noduri[altPas] : null;
+  const pdfGol = !plan.pdf.total;
+  return (
+    <div className="pz-ce" role="group" aria-label="Ce lucrezi acum">
+      <div className="pz-ce-t">Ce lucrezi acum?</div>
+      <div className="pz-ce-r">
+        <button type="button" className={`pz-ce-b${!f ? ' on' : ''}`} disabled={busy} onClick={() => onAlege({ harta: null })} aria-pressed={!f}>
+          🗺️ În ordine<small>{laClasa ? 'exercițiile clasei, pe rând' : 'capitole → subiecte → teste'}</small>
+        </button>
+        {etTeste && (
+          <button type="button" className={`pz-ce-b${peTeste ? ' on' : ''}`} disabled={busy} onClick={() => onAlege({ harta: 'interactiv', etapa: 'teste' })} aria-pressed={peTeste}>
+            📝 Teste interactive<small>{etTeste.trecute} din {etTeste.total}{!premium && etTeste.inchise ? ` · ${etTeste.inchise} ⭐` : ''}</small>
+          </button>
+        )}
+        {!pdfGol && (premium ? (
+          <button type="button" className={`pz-ce-b${pePdf ? ' on' : ''}`} disabled={busy} onClick={() => onAlege({ harta: 'pdf' })} aria-pressed={pePdf}>
+            📄 {laClasa ? 'Fișe PDF' : 'Subiecte PDF'}<small>{plan.pdf.trecute} din {plan.pdf.total}</small>
+          </button>
+        ) : (
+          <Link to="/preturi" className="pz-ce-b stea" title="Subiectele PDF le corectează profesorul virtual după barem — cu Premium">
+            📄 {laClasa ? 'Fișe PDF' : 'Subiecte PDF'}<small>⭐ cu Premium</small>
+          </Link>
+        ))}
+        {nodAlt && (
+          <span className="pz-ce-b on alt">
+            📍 Pasul {altPas + 1}{f.harta === 'pdf' ? ' (PDF)' : ''}<small title={nodAlt.titlu}>{nodAlt.titlu}</small>
+            <button type="button" className="pz-ce-x" disabled={busy} onClick={() => onAlege({ harta: null })} aria-label="Înapoi în ordine">✕</button>
+          </span>
+        )}
+      </div>
+      <div className="pz-ce-n">
+        {f && !f.activ
+          ? '🏁 Ce ai ales e gata — pasul de azi vine din nou în ordine.'
+          : premium
+            ? 'Cu Premium poți porni de la orice pas: alege-l pe hartă, apoi „📍 Pornește de aici".'
+            : 'Pașii cu ⭐ (și subiectele PDF, corectate după barem) se deschid cu Premium.'}
+      </div>
     </div>
   );
 }
@@ -371,6 +441,20 @@ export default function PregatesteMa() {
     finally { setBusy(false); }
   }
 
+  // „Ce lucrezi acum?" / „📍 Pornește de aici": de unde pornește pasul de azi (api/_lib/planPregatire.js → alegeFocus)
+  async function focus(body) {
+    setBusy(true); setErr(null);
+    try {
+      const r = await aiClient.gamificare({ action: 'plan_focus', ...body });
+      setP(r?.pregatire || null);
+      setAles(null);
+      arenaChanged();
+      const nou = r?.pregatire?.plan?.pas;
+      if (nou) setTimeout(() => document.getElementById(`pas-${nou.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 250);
+    } catch (e) { setErr(e?.message || 'Nu am putut salva alegerea.'); }
+    finally { setBusy(false); }
+  }
+
   async function sari(n) {
     setBusy(true); setErr(null);
     try {
@@ -383,6 +467,15 @@ export default function PregatesteMa() {
 
   // deschide un pas; „Înapoi" din vizualizator revine aici
   const deschide = (url, n) => { if (url) navigate(url, { state: { returnTo: '/pregateste-ma', scrollToCardId: n?.id || null } }); };
+  // „▶ Începe" (și celelalte butoane ale pasului de azi) pornește și amintirea zilnică — o singură
+  // dată, dacă elevul n-a ales încă; cererea permisiunii pornește chiar în clic, restul în fundal
+  const incepe = (url, n) => {
+    if (notif && notif.setup !== false && !notif.on && !notif.ales) {
+      pornesteAmintirea({ notif, texte: TEXTE_AMINTIRE }).then((nn) => { if (nn) setNotif(nn); }).catch(() => {});
+    }
+    deschide(url, n);
+  };
+  const amintirePornesteLaStart = !!notif && notif.setup !== false && !notif.on && !notif.ales;
 
   const header = (
     <div className="page-header pz-header">
@@ -447,11 +540,22 @@ export default function PregatesteMa() {
 .pz-stare{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:10px 12px;border-radius:12px;background:#fff;border:1px solid var(--border);font-size:.84rem;color:var(--navy);line-height:1.45;margin-bottom:10px}
 .pz-stare span{flex:1 1 240px}
 .pz-gol{padding:14px 16px;border-radius:14px;border:1.5px dashed var(--cream-dark);background:#fdfbf4;font-size:.86rem;color:var(--text-light);line-height:1.5}
-/* 15 nov. 2026: capitolul pasului de azi și liga săptămânii */
-.pz-capazi{display:flex;align-items:center;gap:10px;margin:10px 0 2px;padding:8px 10px;border-radius:12px;background:#fff;border:1px solid var(--border)}
-.pz-capazi-t{font-size:.74rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em}
-.pz-capazi-n{font-family:"Caveat",cursive;font-weight:700;font-size:1.3rem;color:var(--navy);line-height:1.05}
-.pz-capazi-c{font-size:.76rem;font-weight:700;color:var(--text-light)}
+/* 15 nov. 2026: liga săptămânii; (seara) „Ce lucrezi acum?", „📍 Vezi pasul pe hartă", „📍 Pornește de aici" */
+.pz-pe-harta{display:flex;align-items:center;gap:6px 14px;flex-wrap:wrap;margin-top:10px;font-size:.78rem;color:var(--text-light);line-height:1.45}
+.pz-link{background:none;border:none;padding:0;color:var(--navy);font-weight:800;font-size:.82rem;text-decoration:underline;cursor:pointer;font-family:var(--font-body)}
+.pz-porneste{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px dashed var(--cream-dark);font-size:.8rem;color:var(--text-light)}
+.pz-ce{background:#fdfbf4;border:1px solid var(--cream-dark);border-radius:14px;padding:12px 14px;margin:0 0 18px}
+.pz-ce-t{font-size:.74rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+.pz-ce-r{display:flex;flex-wrap:wrap;gap:8px}
+.pz-ce-b{position:relative;display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;padding:8px 14px;border-radius:12px;border:2px solid var(--border);background:#fff;color:var(--navy);font-weight:800;font-size:.88rem;cursor:pointer;text-decoration:none;font-family:var(--font-body);text-align:left;max-width:100%}
+.pz-ce-b small{font-weight:600;font-size:.72rem;color:var(--text-muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pz-ce-b.on{border-color:var(--gold);background:rgba(232,185,49,.16)}
+.pz-ce-b.stea{border-style:dashed}
+.pz-ce-b.alt{padding-right:34px;cursor:default}
+.pz-ce-b:disabled{opacity:.6;cursor:progress}
+.pz-ce-x{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(15,43,68,.08);color:var(--navy);font-weight:800;cursor:pointer;line-height:1}
+.pz-ce-n{font-size:.76rem;color:var(--text-muted);margin-top:8px;line-height:1.45}
+@media (max-width:560px){.pz-ce-b{flex:1 1 calc(50% - 8px)}}
 .pz-liga-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;background:rgba(232,185,49,.14);border:1px solid rgba(232,185,49,.55);color:var(--navy);font-weight:700;font-size:.8rem;text-decoration:none;white-space:nowrap}
 .pz-liga-chip:hover{background:rgba(232,185,49,.24)}
 .pz-liga-r{display:flex;align-items:center;gap:12px;margin-top:10px}
@@ -524,8 +628,6 @@ export default function PregatesteMa() {
   const hartaPas = plan?.pas?.harta && noduri[plan.pas.harta] ? plan.pas.harta : null;
   const pas = hartaPas ? curentDin(hartaPas) : null;
   const etapaPas = pas ? plan[hartaPas].etape.find((e) => e.id === pas.etapa) : null;
-  // capitolul pasului de azi (15 nov. 2026): pictograma în inelul lui, câți pași are
-  const capPas = pas ? capitoleDin(plan[hartaPas]).find((c) => c.id === (pas.cap || pas.etapa)) || null : null;
   // harta PDF are pasul ei; cu Premium se lucrează și în paralel
   const pasPdf = curentDin('pdf');
   const nodAles = ales && plan ? (noduri[ales.harta] || []).find((n) => n.id === ales.id) || null : null;
@@ -580,7 +682,7 @@ export default function PregatesteMa() {
                   <div style={{ fontSize: '.92rem', color: 'var(--navy)', lineHeight: 1.5 }}>
                     <strong>Bine ai revenit!</strong> Seria de zile o iei de la capăt, dar planul te așteaptă exact unde l-ai lăsat: <strong>pasul {pas.i + 1}</strong> din {hartaPas === 'pdf' ? 'harta subiectelor PDF' : 'harta exercițiilor interactive'}.
                   </div>
-                  <button type="button" className="btn btn-sm btn-primary" onClick={() => deschide(pas.tip === 'pdf' ? urlPas(pas, 'pdf') : urlPas(pas), pas)}>▶ Continuă</button>
+                  <button type="button" className="btn btn-sm btn-primary" onClick={() => incepe(pas.tip === 'pdf' ? urlPas(pas, 'pdf') : urlPas(pas), pas)}>▶ Continuă</button>
                 </div>
               )}
 
@@ -622,25 +724,7 @@ export default function PregatesteMa() {
                   <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 14, background: lucrat ? 'rgba(39,174,96,0.08)' : 'rgba(232,185,49,0.10)' }}>
                     {pas ? (
                       <>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: '.76rem', color: 'var(--text-light)', fontWeight: 700 }}>
-                          <span style={{ borderRadius: 999, padding: '2px 8px', background: '#fff', border: '1px solid var(--border)', color: 'var(--navy)' }}>
-                            {HARTI[hartaPas].icon} {HARTI[hartaPas].scurt}
-                          </span>
-                          <span>{etapaPas?.titlu} · pasul {pas.i + 1} din {plan[hartaPas].total}</span>
-                          {pas.nou && <span className="pz-nou">nou în site</span>}
-                        </div>
-                        {capPas && (
-                          <div className="pz-capazi">
-                            <InelCapitol c={capPas} size={42} />
-                            <div style={{ minWidth: 0 }}>
-                              <div className="pz-capazi-t">Capitolul</div>
-                              <div className="pz-capazi-n">{capPas.titlu}</div>
-                              <div className="pz-capazi-c">{capPas.trecute} din {capPas.total} {capPas.total === 1 ? 'pas trecut' : 'pași trecuți'}</div>
-                            </div>
-                          </div>
-                        )}
-                        <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.1rem', margin: '8px 0 4px' }}>{pas.titlu}</div>
-                        <div style={{ fontSize: '.86rem', color: 'var(--text-light)', marginBottom: 8, lineHeight: 1.5 }}>{descriere(pas, { esteCurent: true, reguli: plan.reguli })}</div>
+                        {/* pasul în sine (titlul, capitolul) e pe hartă — aici doar ziua și „▶ Începe" (15 nov. 2026, seara) */}
                         {progresZi}
                         {p.nota != null && (
                           <div style={{ fontSize: '.84rem', marginBottom: 10, color: 'var(--navy)' }}>
@@ -648,7 +732,16 @@ export default function PregatesteMa() {
                             <span style={{ color: 'var(--text-muted)' }}> · o vezi doar tu (în Arenă nu apar note)</span>
                           </div>
                         )}
-                        <ActiuniPas n={pas} esteCurent plan={plan} busy={busy} mare onDeschide={deschide} onSari={sari} onLaPasulMeu={() => laPasulMeu(hartaPas)} />
+                        <ActiuniPas n={pas} esteCurent plan={plan} busy={busy} mare onDeschide={incepe} onSari={sari} onLaPasulMeu={() => laPasulMeu(hartaPas)} />
+                        <div className="pz-pe-harta">
+                          <button type="button" className="pz-link" onClick={() => laPasulMeu(hartaPas)}
+                            title={`${HARTI[hartaPas].scurt} · ${etapaPas?.titlu || ''} · pasul ${pas.i + 1} din ${plan[hartaPas].total}`}>
+                            📍 Vezi pasul pe hartă
+                          </button>
+                          {amintirePornesteLaStart && (
+                            <span>🔔 Când începi, pornește și amintirea zilnică{notif?.ora ? ` (la ${String(notif.ora).padStart(2, '0')}:00)` : ''} — o poți opri oricând.</span>
+                          )}
+                        </div>
                       </>
                     ) : plan?.terminat ? (
                       <>
@@ -661,7 +754,7 @@ export default function PregatesteMa() {
                         </div>
                         {progresZi}
                         <div className="pz-act">
-                          {t && <button type="button" className="btn btn-primary" onClick={() => deschide(t.url, { id: t.id })}>▶ Recapitulare</button>}
+                          {t && <button type="button" className="btn btn-primary" onClick={() => incepe(t.url, { id: t.id })}>▶ Recapitulare</button>}
                           {ramasePremium > 0 && <Link to="/preturi" className="btn btn-outline">⭐ Premium</Link>}
                         </div>
                       </>
@@ -670,7 +763,7 @@ export default function PregatesteMa() {
                         <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '1.08rem', margin: '0 0 6px' }}>{t.titlu}</div>
                         {progresZi}
                         <div className="pz-act">
-                          <button type="button" className="btn btn-primary btn-lg" onClick={() => deschide(t.url, { id: t.id })}>
+                          <button type="button" className="btn btn-primary btn-lg" onClick={() => incepe(t.url, { id: t.id })}>
                             {lucrat ? '↻ Mai lucrează' : p.itemi > 0 ? '▶ Continuă' : '▶ Începe'}
                           </button>
                         </div>
@@ -694,7 +787,7 @@ export default function PregatesteMa() {
                     </div>
                   )}
 
-                  <AmintireZilnica notif={notif} setNotif={setNotif} isAdmin={isAdmin} texte={TEXTE_AMINTIRE} />
+                  <AmintireZilnica notif={notif} setNotif={setNotif} isAdmin={isAdmin} texte={TEXTE_AMINTIRE} ascundeIntrebarea={!!pas || !!t} />
                 </div>
 
                 {/* ─── Liga și răsplățile ─── */}
@@ -744,6 +837,8 @@ export default function PregatesteMa() {
                         Treci la pasul următor de la {plan.reguli?.pragInteractiv ?? 70}% (subiectele PDF: nota 5) sau după {plan.reguli?.incercariSarire ?? 3} încercări.
                       </span>
                     </div>
+
+                    <CeLucrezi plan={plan} laClasa={laClasa} busy={busy} onAlege={focus} />
 
                     <div className="pz-harta-n" aria-labelledby="pz-h-int">
                       <h3 className="pz-h3" id="pz-h-int">
@@ -845,7 +940,8 @@ export default function PregatesteMa() {
 
       {nodAles && plan && (
         <FisaPas n={nodAles} harta={plan[nodAles.harta]} plan={plan} busy={busy} onInchide={() => setAles(null)}
-          onDeschide={deschide} onSari={sari} onLaPasulMeu={() => laPasulMeu(nodAles.harta)} />
+          onDeschide={deschide} onSari={sari} onLaPasulMeu={() => laPasulMeu(nodAles.harta)}
+          onPornesteDeAici={(n) => focus({ harta: n.harta, id: n.id })} />
       )}
     </>
   );

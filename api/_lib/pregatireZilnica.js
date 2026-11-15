@@ -445,6 +445,23 @@ async function sariPas(supa, userId, profile, { contentId } = {}) {
   }
 }
 
+// „Ce lucrezi acum?" pe harta pregătirii (15 nov. 2026, seara): direct testele interactive,
+// harta PDF (Premium) sau — cu Premium — orice pas (api/_lib/planPregatire.js → alegeFocus).
+// Testul zilei încă nelucrat trece pe pasul nou (stare → daily_tests). Întoarce starea nouă.
+async function alegeFocus(supa, userId, profile, { harta = null, id = null, etapa = null } = {}) {
+  try {
+    const stats = await xp.ensureStats(supa, userId);
+    const tinta = tintaInfo(stats.prep_exam);
+    if (!tinta) return { error: 'Alege întâi examenul sau clasa.' };
+    const r = await plan.alegeFocus(supa, userId, { tinta, stats, premium: ePremium(profile), harta, id, etapa });
+    if (r.error) return r;
+    return { ok: true, focus: r.focus, pregatire: await stare(supa, userId, profile) };
+  } catch (e) {
+    console.warn('pregatire.alegeFocus:', e?.message || e);
+    return { error: 'Nu am putut salva alegerea. Încearcă din nou.' };
+  }
+}
+
 // Progresul din harta pregătirii + seria de zile, pentru „Rezultate" la profesori și
 // părinți (13 nov. 2026; api/teacher-students.js → src/components/TeacherResults.jsx).
 // elevi: [{ id, premium }]; progRows: rândurile lor din `progress`, deja citite.
@@ -691,5 +708,5 @@ module.exports = {
   examInfo, examValid, tintaInfo, tintaValida, eDinPlanulClasei, formatValid, examenulMaterialului, eDeExamen, urlTest, numeSubiecte, subiecteDinRaspunsuri,
   raspunsuriDate, recompensa, insigneNoi, formatFolosit, urmatorul,
   // cu baza de date
-  poolExamen, stare, alege, altTest, sariPas, inregistreaza, rezumat, rezumateElevi, ligiElevi, hartaScurt,
+  poolExamen, stare, alege, altTest, sariPas, alegeFocus, inregistreaza, rezumat, rezumateElevi, ligiElevi, hartaScurt,
 };

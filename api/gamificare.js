@@ -30,6 +30,9 @@
 // POST { action: 'plan_sari', contentId } — „⏭ Treci mai departe" pe harta pregătirii
 //   (13 nov. 2026, api/_lib/planPregatire.js); `pregatire` întoarce și `plan`, iar
 //   `pregatire_alege` primește și o clasă (examen: 'clasa-5' … 'clasa-12');
+// POST { action: 'plan_focus', harta?, etapa?, id? } — „Ce lucrezi acum?" pe hartă (15 nov.
+//   2026, seara): direct testele interactive (etapa), harta PDF (Premium), orice pas (Premium);
+//   fără `harta` — înapoi „în ordine";
 // POST { action: 'harta_scurt' } → { harta } — harta pe scurt, pentru cardul din Home
 //   (15 nov. 2026: capitolele cu pictograme, pasul la care e elevul);
 // POST { action: 'pregatire_notificari', on?, ora?, subscription?, unsubscribe? }
@@ -353,6 +356,17 @@ module.exports = async function handler(req, res) {
     // 🗺️ harta pregătirii: „⏭ Treci mai departe" (pasul curent, după câteva încercări)
     if (action === 'plan_sari') {
       const r = await pregatire.sariPas(supa, userId, profile, { contentId: String(req.body?.contentId || '') });
+      if (r.error) return res.status(r.setup === false ? 503 : 400).json(r);
+      return res.status(200).json(r);
+    }
+    // 🗺️ „Ce lucrezi acum?": direct testele interactive, harta PDF sau (cu Premium) orice pas
+    if (action === 'plan_focus') {
+      const b = req.body || {};
+      const r = await pregatire.alegeFocus(supa, userId, profile, {
+        harta: b.harta ? String(b.harta) : null,
+        id: b.id ? String(b.id) : null,
+        etapa: b.etapa ? String(b.etapa) : null,
+      });
       if (r.error) return res.status(r.setup === false ? 503 : 400).json(r);
       return res.status(200).json(r);
     }

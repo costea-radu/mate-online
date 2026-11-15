@@ -251,7 +251,11 @@ test('harta EN din site: cele două hărți, etapele cu numărători, pasul zile
   assert.strictEqual(v.pas.url, '/exercitiu?id=en-cap-2&pregatire=1&plan=1');
   assert.deepStrictEqual([v.pdf.pas.id, v.pdf.pas.nr], ['en-sim-1', 2], 'harta PDF își are pasul ei, în paralel');
   assert.strictEqual(v.pdf.pas.moduri[1].url, '/pdf-viewer?id=en-sim-1&pregatire=1&plan=1&mod=chat');
-  assert.strictEqual(nod(v.interactiv, 'en-sub-1').deschis, false, 'încuiat până trece pasul curent');
+  // 15 nov. 2026 (seara): cu Premium, orice pas e deschis; fără abonament, încuiat până trece pasul curent
+  assert.strictEqual(nod(v.interactiv, 'en-sub-1').deschis, true, 'cu Premium — deschis');
+  const gratuit = await plan(baza({ tinta: 'evaluare-nationala', progress: [{ content_id: 'en-cap-2', score: 30, max_score: 100, attempts: 1 }] }), { subscription_status: null });
+  assert.strictEqual(nod(gratuit.interactiv, 'en-sub-2').deschis, false, 'fără abonament — încuiat până trece pasul curent');
+  assert.deepStrictEqual([nod(gratuit.interactiv, 'en-sub-1').accesibil, nod(gratuit.interactiv, 'en-sub-1').deschis], [false, false], 'pașii Premium rămân ⭐');
   assert.deepStrictEqual([v.total, v.trecute], [7, 2]);
   assert.deepStrictEqual(stats(supa).prep_plan.trecute.sort(), ['en-cap-1', 'en-var-1'], 'pașii trecuți sunt ținuți minte');
   assert.strictEqual(stats(supa).prep_plan.start, AZI);

@@ -4,6 +4,21 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 15 noiembrie 2026 (seara) — elevul ajunge la „Pregătește-mă" după autentificare · „Ce lucrezi acum?" pe hartă (teste interactive, PDF, orice pas cu Premium) · „▶ Începe" pornește amintirea · cardul pasului de azi, fără pas
+
+Cererea: „1. când se conectează un elev, fă să ajungă în home la pregătește-mă · 2. fă să poată alege în hartă să facă direct teste interactive sau pdf. la premium, fă să poată alege orice pas. testele premium să rămână premium și în pași · 3. fă notificările pornite când se apasă «începe». scoate pasul aici la început. el se vede în hartă"
+
+**De rulat:** nimic. Ghidul: `GHID_PREGATESTE_MA.md`, 0.3.
+
+1. **După autentificare** (`src/lib/dupaLogin.js` nou, `src/pages/Login.jsx`, `src/App.jsx`): elevul ajunge la `/pregateste-ma` — direct după email + parolă; după Google / Discord, din `/profil` (marcaj în `sessionStorage`, `<DupaLogin />`). Profesorii, părinții, conturile fără rol și onboarding-ul în așteptare (tip de cont, asociere) rămân la `/profil`.
+2. **„Ce lucrezi acum?"** (`src/pages/PregatesteMa.jsx`, `api/_lib/planPregatire.js` → `prep_plan.focus`, `alegeFocus`, `api/gamificare.js` → `plan_focus`): 🗺️ în ordine · 📝 teste interactive · 📄 subiecte PDF (Premium). Pasul curent pornește de la alegere; testul zilei nelucrat trece pe pasul nou; ținta nouă șterge alegerea.
+3. **Cu Premium, orice pas**: toți pașii accesibili deschiși + „📍 Pornește de aici" pe fișa pasului. Fără abonament: pașii de după pasul curent încuiați, pașii Premium ⭐ (și în etapa aleasă).
+4. **Cardul „Pasul de azi"**: fără titlul și capitolul pasului (sunt pe hartă) — „▶ Începe" + „📍 Vezi pasul pe hartă". „▶ Începe" pornește și amintirea zilnică, o singură dată, dacă elevul n-a ales încă (`MisiuneZilnica.jsx` → `pornesteAmintirea`); întrebarea „Vrei să-ți amintesc…?" nu mai apare aici.
+
+Teste: `plan-focus` nou (8); actualizat `plan-pregatire`. `npm test`: 1307 din 1307; `vite build` curat. Verificat în Chromium (date simulate, generate de codul serverului): pagina cu Premium și fără abonament (390 și 1366), „📝 Teste interactive" → pasul nou pe hartă, fișa unui pas cu „📍 Pornește de aici", pasul încuiat fără abonament, autentificarea elevului (→ `/pregateste-ma`) și a profesorului (→ `/profil`), întoarcerea de la Google simulată.
+
+---
+
 ## 15 noiembrie 2026 — 📤 fișierele model în Admin · 🗺️ harta pe capitole, cu pictograme și ligă (și la părinți / profesori, ca un card separat) · 📋 Bareme la fiecare clasă
 
 Cererea: implementarea prompturilor 1, 4 și 5 din `claude/prompturi-opus-platforma-15-noiembrie-2026.md`.
