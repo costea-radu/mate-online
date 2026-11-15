@@ -125,12 +125,12 @@ Cererea:
 > 3. fă notificările pornite când se apasă „începe". scoate pasul aici la început. el se vede
 >    în hartă
 
-- **După autentificare** (`src/lib/dupaLogin.js`): cu email + parolă, elevul ajunge direct la
-  `/pregateste-ma` (profesorii și părinții — în „Contul meu", ca înainte). Cu Google / Discord,
-  Supabase întoarce contul la `/profil`; autentificarea e marcată înainte de plecare
-  (`sessionStorage`), iar `<DupaLogin />` (în `src/App.jsx`) mută elevul la `/pregateste-ma`.
-  Rămân la `/profil`: contul fără rol încă, tipul de cont sau asocierea cu profesorul în
-  așteptare (se aplică acolo). „🏠 Acasă" rămâne pagina de start obișnuită.
+- **După autentificare** (`src/lib/dupaLogin.js`) — *schimbat în aceeași seară*: „fă ca orice
+  tip de utilizator la conectare să intre în Home". Cu email + parolă, oricine (elev,
+  profesor, părinte, admin) ajunge în **Home** (`/`). Cu Google / Discord, Supabase întoarce
+  contul la `/profil`; autentificarea e marcată înainte de plecare (`sessionStorage`), iar
+  `<DupaLogin />` (în `src/App.jsx`) îl mută în Home. Rămân la `/profil`: contul fără rol
+  încă, tipul de cont sau asocierea cu profesorul în așteptare (se aplică acolo).
 - **„Ce lucrezi acum?"** (deasupra hărții): **🗺️ În ordine** (ca până acum), **📝 Teste
   interactive** (pasul de azi = primul test netrecut — fără abonament, primul test gratuit),
   **📄 Subiecte PDF** (cu Premium; fără abonament duce la abonamente). Alegerea se ține minte
@@ -144,8 +144,10 @@ Cererea:
   porni de la orice pas"), iar **pașii Premium rămân ⭐** și în etapa aleasă — pasul curent sare
   peste ei; vizualizatorul cere oricum abonamentul la materialele Premium.
 - **Cardul „Pasul de azi"** nu mai repetă pasul (titlul, capitolul — se văd pe hartă): seria,
-  liga, bifa zilei, **„▶ Începe"** (sau Continuă / Mai încearcă / modurile PDF) și **„📍 Vezi
-  pasul pe hartă"**.
+  liga, bifa zilei, **„▶ Începe"** (sau Continuă / Mai încearcă) și **„📍 Vezi pasul pe hartă"**.
+  La un pas PDF nu mai sunt cele patru metode („Cum trimiți rezolvarea?"): metoda (pe PDF, cu
+  poză, în chat, în foaia de lucru) se alege în vizualizator, la „✏️ Rezolvă pe PDF", și se
+  schimbă oricând (`GHID_REZOLVA_PE_PDF.md`).
 - **„▶ Începe" pornește amintirea zilnică** (`MisiuneZilnica.jsx` → `pornesteAmintirea`): o
   singură dată, dacă elevul n-a ales încă (nici „Amintește-mi", nici „Nu, mulțumesc" /
   „Oprește"); permisiunea de notificări se cere chiar în clic, restul merge în fundal, la ora

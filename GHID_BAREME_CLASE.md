@@ -24,6 +24,7 @@
     „bareme", gratuit/Premium ca fișa) și se leagă de fișă;
   - **↺ Automat** — scoate legătura manuală (corectarea caută din nou după titlu).
   Baremele fără fișă stau la capitolul din titlul lor, cu „leagă de fișa…".
+- **Decizia lui Radu (15 nov. 2026, seara): fila rămâne vizibilă elevilor.**
 - **Bifa „Vizibilă elevilor (toate clasele)"** — implicit bifată (secțiunea e o referință,
   ca rubrica „Bareme" de la EN și BAC). Debifată: elevii nu mai văd fila și nici baremele
   în lista PDF; baremele se folosesc doar la corectare. Setarea: `app_settings` →

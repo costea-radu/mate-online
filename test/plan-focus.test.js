@@ -178,15 +178,40 @@ test('„Pasul de azi": fără titlul / capitolul pasului (sunt pe hartă) — �
   assert.match(mz, /if \(ascundeIntrebarea && !notif\.on && !notif\.ales && !msg\) return null;/);
 });
 
-test('după autentificare, elevul ajunge la „Pregătește-mă" (email + parolă direct; Google / Discord prin /profil)', () => {
+test('după autentificare, orice cont ajunge în Home (email + parolă direct; Google / Discord prin /profil); onboarding-ul rămâne în /profil', async () => {
   const dl = read('src/lib/dupaLogin.js');
-  assert.match(dl, /export const ACASA_ELEV = '\/pregateste-ma';/);
-  assert.match(dl, /export const destinatiePentru = \(role\) => \(role === 'elev' \? ACASA_ELEV : '\/profil'\);/);
-  assert.match(dl, /if \(profile\.role === 'elev' && pathname === '\/profil'\) navigate\(ACASA_ELEV, \{ replace: true \}\);/);
+  assert.match(dl, /export const ACASA = '\/';/);
+  assert.match(dl, /export const destinatiePentru = \(role\) => \(role \? ACASA : '\/profil'\);/);
+  assert.match(dl, /if \(profile\.role && pathname === '\/profil'\) navigate\(ACASA, \{ replace: true \}\);/);
   assert.match(dl, /localStorage\.getItem\('pending_account_type'\) \|\| localStorage\.getItem\('pending_teacher_code'\)/, 'onboarding-ul rămâne în /profil');
+  assert.ok(!/pregateste-ma/.test(dl), 'nu mai trimite elevul la „Pregătește-mă"');
   const lg = read('src/pages/Login.jsx');
   assert.match(lg, /navigate\(await destinatieDupaLogin\(data\?\.user\?\.id\)\);/);
+  assert.ok(!/navigate\('\/profil'\)/.test(lg));
   assert.strictEqual((lg.match(/marcheazaLogin\(\);/g) || []).length, 2, 'Google și Discord');
   const app = read('src/App.jsx');
   assert.match(app, /<ScrollToTop \/>\n {10}<DupaLogin \/>/);
+});
+
+test('subiectele PDF: metoda de rezolvare se alege în vizualizator („✏️ Rezolvă pe PDF" → pe PDF, cu poză, în chat, în foaia de lucru), nu în „Pregătește-mă"', () => {
+  const pg = read('src/pages/PregatesteMa.jsx');
+  assert.ok(!/MODURI_PDF|Cum trimiți rezolvarea|pz-moduri|urlPas\(n, m\.mod\)|urlPas\(pas, 'pdf'\)/.test(pg), 'fără butoanele metodelor în „Pregătește-mă"');
+  assert.match(pg, /alegi în vizualizator, la <b>„✏️ Rezolvă pe PDF"<\/b>, și poți schimba oricând/);
+  const v = read('src/pages/PDFViewer.jsx');
+  for (const [id, label] of [['pdf', 'Pe PDF'], ['poza', 'Cu poză'], ['chat', 'În chat'], ['foaie', 'În foaia de lucru']]) {
+    assert.ok(v.includes(`{ id: '${id}', icon: `) && v.includes(`label: '${label}'`), id);
+  }
+  // butonul din bară deschide meniul; în testul pe grupă / duel rămâne butonul de dinainte
+  assert.match(v, /const solveBtn = \(canSolve \|\| rezolvaFoaie\) && !modTest \? \(/);
+  assert.match(v, /onClick=\{deschideMeniuMetode\}/);
+  assert.match(v, /role="menuitemradio" aria-checked=\{on\} onClick=\{\(\) => alegeMetoda\(m\.id\)\}/);
+  // schimbarea oricând: metoda nouă o închide pe cea veche; scrisul de pe PDF rămâne în ciornă
+  const alege = v.slice(v.indexOf('function alegeMetoda(m) {'), v.indexOf('function inchideMetoda() {'));
+  assert.match(alege, /if \(solveOn\) \{ solve\.store\.flush\(\); setSolveOn\(false\); \}/);
+  assert.match(alege, /if \(tutorOpen && workOpen\) setWork\(false\);/);
+  assert.match(alege, /setFormaCeruta\(\{ mod: m, indemn: m === 'poza' \? INDEMN_POZA : INDEMN_CHAT \}\);/);
+  assert.match(alege, /scrieMetoda\(m\);/);
+  // de pe hartă, fără ?mod=: ultima metodă aleasă
+  assert.match(v, /const \[modPlan\] = useState\(\(\) => \(dinPregatire \? \(modParam \|\| citesteMetoda\(\)\) : null\)\);/);
+  assert.strictEqual((v.match(/\{meniuMetodeJsx\}/g) || []).length, 2, 'meniul, pe telefon și pe calculator');
 });

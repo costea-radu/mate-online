@@ -603,8 +603,12 @@ test('interfața (8 nov.): „✏️ Rezolvă" pulsează; la BAC și la celelalt
   const v = read('src/pages/PDFViewer.jsx');
   // la orice PDF care nu e test de EN (și nu e barem) → foaia de lucru din panoul profesorului
   assert.match(v, /const rezolvaFoaie = !canSolve && \(!!pdfData \|\| !!examHtml\) && !isBaremItem && baremStatus !== 'este_barem';/);
-  assert.match(v, /const solveBtn = \(canSolve \|\| rezolvaFoaie\) && \(/);
+  // (15 nov. 2026, seara) în afara testului pe grupă / duelului butonul deschide meniul metodelor;
+  // în testul pe grupă / duel rămâne butonul de dinainte (pe PDF la EN, foaia de lucru în rest)
+  assert.match(v, /const solveBtn = \(canSolve \|\| rezolvaFoaie\) && !modTest \? \(/);
+  assert.match(v, /\) : \(canSolve \|\| rezolvaFoaie\) && \(/);
   assert.match(v, /onClick=\{canSolve \? toggleSolve : toggleFoaia\}/);
+  assert.match(v, /className=\{metodaActiva \|\| meniuMetode \? undefined : 'em-pulse'\}/);
   assert.match(v, /function toggleFoaia\(\) \{\s*if \(tutorOpen && workOpen\) \{ setWork\(false\); return; \}/);
   assert.match(v, /setTutorOpen\(true\);\s*setWork\(true\);/);
   // pulsează cât nu e pornit

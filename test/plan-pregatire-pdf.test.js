@@ -71,9 +71,10 @@ test('cota se aplică doar FĂRĂ barem și se numără doar la corectarea reuș
   assert.match(rp, /model = r\.model;\s+if \(!src\.hasBarem\) await ai\.logFaraBarem\(supa, userId\);/);
 });
 
-test('vizualizatorul PDF: ?mod= de pe hartă — chat / poza → formularul (cu îndemn), foaie → foaia de lucru, pdf → scrisul pe test', () => {
+test('vizualizatorul PDF: de pe hartă — ?mod= sau (15 nov. 2026, seara) ultima metodă aleasă: chat / poza → formularul (cu îndemn), foaie → foaia de lucru, pdf → scrisul pe test', () => {
   const v = read('src/pages/PDFViewer.jsx');
-  assert.match(v, /const modPlan = dinPregatire && \['pdf', 'chat', 'foaie', 'poza'\]\.includes\(searchParams\.get\('mod'\)\)/);
+  assert.match(v, /const modParam = \['pdf', 'chat', 'foaie', 'poza'\]\.includes\(searchParams\.get\('mod'\)\)/);
+  assert.match(v, /const \[modPlan\] = useState\(\(\) => \(dinPregatire \? \(modParam \|\| citesteMetoda\(\)\) : null\)\);/);
   assert.match(v, /if \(modPlan === 'chat' \|\| modPlan === 'poza'\) \{/);
   assert.match(v, /📷 Fotografiază rezolvarea de pe caiet și adaug-o cu „📷 Poze cu rezolvarea"/);
   assert.match(v, /if \(modPlan === 'foaie'\) \{[\s\S]{0,400}setWork\(true\);/);
@@ -115,10 +116,12 @@ test('formularul de răspuns: se deschide cu imaginile atașate și cu un îndem
   assert.match(t, /\.filter\(\(u\) => typeof u === 'string' && u\.startsWith\('data:image\/'\)\)\.slice\(0, 3\)/);
 });
 
-test('harta: pașii PDF au cele patru moduri (✏️ Pe PDF · 💬 În chat · ✍️ Foaia de lucru · 📷 Cu poza); interactivele deschid vizualizatorul cu insigna hărții', () => {
+test('harta: pașii PDF au un singur „▶ Începe" — cele patru metode (✏️ Pe PDF · 📷 Cu poză · 💬 În chat · ✍️ Foaia de lucru) sunt în vizualizator (15 nov. 2026, seara); interactivele deschid vizualizatorul cu insigna hărții', () => {
   const pg = read('src/pages/PregatesteMa.jsx');
-  for (const m of ["mod: 'pdf'", "mod: 'chat'", "mod: 'foaie'", "mod: 'poza'"]) assert.ok(pg.includes(m), m);
-  assert.match(pg, /onClick=\{\(\) => onDeschide\(urlPas\(n, m\.mod\), n\)\}/);
+  for (const m of ["mod: 'pdf'", "mod: 'chat'", "mod: 'foaie'", "mod: 'poza'"]) assert.ok(!pg.includes(m), m);
+  assert.match(pg, /onClick=\{\(\) => onDeschide\(urlPas\(n\), n\)\}>\{label\}<\/button>/);
+  const v = read('src/pages/PDFViewer.jsx');
+  for (const m of ["{ id: 'pdf', icon: '✏️', label: 'Pe PDF'", "{ id: 'poza', icon: '📷', label: 'Cu poză'", "{ id: 'chat', icon: '💬', label: 'În chat'", "{ id: 'foaie', icon: '✍️', label: 'În foaia de lucru'"]) assert.ok(v.includes(m), m);
   const h = read('src/components/HartaPlan.jsx');
   assert.match(h, /return `\/pdf-viewer\?id=\$\{id\}&pregatire=1&plan=1\$\{mod \? `&mod=\$\{encodeURIComponent\(mod\)\}` : ''\}`;/);
   const iv = read('src/pages/InteractiveViewer.jsx');

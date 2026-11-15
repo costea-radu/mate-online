@@ -12,6 +12,23 @@ butonul **„✏️ Rezolvă" pulsează**; „Spațiul de lucru" se numește acu
 celelalte PDF-uri**, „✏️ Rezolvă" deschide **foaia de lucru**. Subiectul al III-lea — cu AI (Claude Opus 5.5),
 după barem, Premium.
 
+**15 nov. 2026 (seara) — metodele de rezolvare, la „✏️ Rezolvă pe PDF":** „la subiectele PDF, pune la Viewer
+în bara de sus la butonul «rezolvă pe PDF» metodele de rezolvare: pe PDF, cu poză, în chat, în foaia de lucru.
+șterge-le din «pregătește-mă de examen». fă ca elevul să poată schimba oricând metoda de rezolvare".
+- Butonul din bară (**„✏️ Rezolvă pe PDF ▾"**, pe telefon „✏️ Rezolvă ▾") deschide meniul **„Cum rezolvi?"**:
+  **✏️ Pe PDF** (la EN: încercuire + Subiectul III scris pe test; la celelalte: scris oriunde pe pagini, apoi
+  „✅ Corectează" trimite paginile la profesorul virtual), **📷 Cu poză** (formularul profesorului, cu poze de pe
+  caiet), **💬 În chat** (formularul de răspuns), **✍️ În foaia de lucru** (panoul profesorului).
+- **Metoda se schimbă oricând** din același meniu: cea nouă o închide pe cea veche (scrisul de pe PDF rămâne în
+  ciorna de pe dispozitiv); butonul arată metoda deschisă („💬 În chat ▾ · schimbă metoda"), iar meniul are și
+  „✕ Închide rezolvarea". Ultima metodă aleasă se ține minte pe dispozitiv (`em_metoda_rezolvare`): de pe harta
+  pregătirii, subiectul se deschide direct cu ea (fără alegere: la EN pe PDF, la celelalte foaia de lucru, ca
+  înainte). Linkurile vechi cu `?mod=` merg în continuare.
+- În „🎯 Pregătește-mă de examen" nu mai sunt cele patru butoane („Cum trimiți rezolvarea?") — pasul PDF are un
+  singur „▶ Începe".
+- În testul pe grupă și în duel, butonul rămâne cel de dinainte (foaia de lucru; răspunsurile pleacă la
+  profesor).
+
 ---
 
 ## Ce vede elevul

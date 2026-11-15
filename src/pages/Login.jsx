@@ -54,7 +54,7 @@ export default function Login() {
     setLoading(true);
     try {
       const data = await signIn(email, password);
-      // elevul ajunge direct la „🎯 Pregătește-mă de examen"; ceilalți, în contul lor (15 nov. 2026)
+      // oricine ajunge în Home (15 nov. 2026, seara); onboarding-ul în așteptare — în /profil
       navigate(await destinatieDupaLogin(data?.user?.id));
     } catch (err) {
       const msg = err?.message || '';
@@ -121,7 +121,7 @@ export default function Login() {
 
   async function handleGoogle() {
     setError(''); setGoogleLoading(true);
-    marcheazaLogin();   // la întoarcere, elevul merge la „Pregătește-mă" (src/lib/dupaLogin.js)
+    marcheazaLogin();   // la întoarcere, contul merge în Home (src/lib/dupaLogin.js)
     try { await signInWithGoogle(); }
     catch { setError('Eroare la autentificarea cu Google.'); setGoogleLoading(false); }
   }

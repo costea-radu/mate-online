@@ -4,6 +4,20 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 15 noiembrie 2026 (seara, a doua cerere) — oricine ajunge în Home după autentificare · metodele de rezolvare ale subiectelor PDF, în vizualizator · fila „📋 Bareme" rămâne vizibilă
+
+Cererea: „1. fișa bareme rămâne vizibilă elevilor · 2. fă ca orice tip de utilizator la conectare să intre în Home · 3. la subiectele PDF, pune la Viewer în bara de sus la butonul «rezolvă pe PDF» metodele de rezolvare: pe PDF, cu poză, în chat, în foaia de lucru. șterge-le din «pregătește-mă de examen». fă ca elevul să poată schimba oricând metoda de rezolvare"
+
+**De rulat:** nimic.
+
+1. **„📋 Bareme" la clase** — rămâne vizibilă elevilor (cum era; notat în `GHID_BAREME_CLASE.md`).
+2. **După autentificare → Home** (`src/lib/dupaLogin.js`, `src/pages/Login.jsx`): elev, profesor, părinte, admin — toți ajung în Home (înlocuiește „elevul → Pregătește-mă" de mai devreme). Google / Discord: tot prin `/profil` (onboarding-ul se termină acolo), apoi Home. Conturile fără rol și onboarding-ul în așteptare rămân la `/profil`.
+3. **Metodele de rezolvare, în vizualizator** (`src/pages/PDFViewer.jsx`): „✏️ Rezolvă pe PDF ▾" deschide „Cum rezolvi?" — ✏️ Pe PDF · 📷 Cu poză · 💬 În chat · ✍️ În foaia de lucru; metoda se schimbă oricând (cea nouă o închide pe cea veche, scrisul de pe PDF rămâne în ciornă), butonul arată metoda deschisă, „✕ Închide rezolvarea"; ultima metodă se ține minte pe dispozitiv și pornește singură când subiectul e deschis de pe harta pregătirii. În testul pe grupă / duel — butonul de dinainte. În „Pregătește-mă" (`src/pages/PregatesteMa.jsx`), pasul PDF are un singur „▶ Începe" (fără „Cum trimiți rezolvarea?").
+
+Teste: `plan-focus` (9, actualizat: Home după autentificare, metodele în vizualizator); actualizate `plan-pregatire-pdf`, `rezolva-pe-pdf`. `npm test`: 1308 din 1308; `vite build` curat. Verificat în Chromium (date simulate): meniul „Cum rezolvi?" pe 390 și 1366 px, alegerea „Pe PDF" apoi schimbarea pe „În chat" (butonul arată metoda, chatul se deschide, metoda veche se închide).
+
+---
+
 ## 15 noiembrie 2026 (seara) — elevul ajunge la „Pregătește-mă" după autentificare · „Ce lucrezi acum?" pe hartă (teste interactive, PDF, orice pas cu Premium) · „▶ Începe" pornește amintirea · cardul pasului de azi, fără pas
 
 Cererea: „1. când se conectează un elev, fă să ajungă în home la pregătește-mă · 2. fă să poată alege în hartă să facă direct teste interactive sau pdf. la premium, fă să poată alege orice pas. testele premium să rămână premium și în pași · 3. fă notificările pornite când se apasă «începe». scoate pasul aici la început. el se vede în hartă"

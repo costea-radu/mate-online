@@ -77,12 +77,9 @@ const TEXTE_AMINTIRE = {
 };
 
 // modurile de a trimite rezolvarea unui test PDF (src/pages/PDFViewer.jsx → ?mod=)
-const MODURI_PDF = [
-  { mod: 'pdf', icon: '✏️', label: 'Pe PDF', titlu: 'Scrii direct pe test, apoi „✅ Corectează"' },
-  { mod: 'chat', icon: '💬', label: 'În chat', titlu: 'Scrii răspunsurile în formularul din chat' },
-  { mod: 'foaie', icon: '✍️', label: 'Foaia de lucru', titlu: 'Scrii de mână pe foaia de lucru, lângă test' },
-  { mod: 'poza', icon: '📷', label: 'Cu poza', titlu: 'Fotografiezi rezolvarea de pe caiet' },
-];
+// (15 nov. 2026, seara: metodele de rezolvare ale subiectelor PDF — pe PDF, cu poză, în chat,
+// în foaia de lucru — nu mai stau aici: le alegi în vizualizator, la „✏️ Rezolvă pe PDF",
+// și le schimbi oricând; src/pages/PDFViewer.jsx)
 
 // cerculețul unei zile din săptămână
 function Zi({ z }) {
@@ -126,7 +123,8 @@ function descriere(n, { esteCurent, reguli }) {
   return esteCurent ? 'Pasul tău de acum.' : 'Neînceput.';
 }
 
-// butoanele unui pas: deschiderea (la PDF, modul de rezolvare) și „⏭ Treci mai departe"
+// butoanele unui pas: deschiderea și „⏭ Treci mai departe" (la PDF, metoda de rezolvare se
+// alege în vizualizator, la „✏️ Rezolvă pe PDF")
 function ActiuniPas({ n, esteCurent, plan, busy, onDeschide, onSari, onLaPasulMeu, mare = false }) {
   if (!n.accesibil && n.stare !== 'trecut') {
     return (
@@ -149,21 +147,12 @@ function ActiuniPas({ n, esteCurent, plan, busy, onDeschide, onSari, onLaPasulMe
       : n.stare === 'inceput' ? '▶ Continuă' : (esteCurent ? '▶ Începe' : '▶ Deschide');
   return (
     <>
-      {n.tip === 'pdf' ? (
-        <>
-          <div style={{ fontSize: '.8rem', color: 'var(--text-light)', margin: '2px 0 8px' }}>Cum trimiți rezolvarea?</div>
-          <div className="pz-moduri" role="group" aria-label="Cum trimiți rezolvarea testului">
-            {MODURI_PDF.map((m, k) => (
-              <button key={m.mod} type="button" className={`pz-mod${k === 0 ? ' prim' : ''}`} title={m.titlu}
-                onClick={() => onDeschide(urlPas(n, m.mod), n)}>
-                <span aria-hidden="true">{m.icon}</span> {m.label}
-              </button>
-            ))}
-          </div>
-        </>
-      ) : (
-        <div className="pz-act">
-          <button type="button" className={`btn btn-primary${mare ? ' btn-lg' : ''}`} onClick={() => onDeschide(urlPas(n), n)}>{label}</button>
+      <div className="pz-act">
+        <button type="button" className={`btn btn-primary${mare ? ' btn-lg' : ''}`} onClick={() => onDeschide(urlPas(n), n)}>{label}</button>
+      </div>
+      {n.tip === 'pdf' && (
+        <div className="pz-metoda-nota">
+          Cum rezolvi — pe PDF, cu poză, în chat sau pe foaia de lucru — alegi în vizualizator, la <b>„✏️ Rezolvă pe PDF"</b>, și poți schimba oricând.
         </div>
       )}
       {esteCurent && n.stare === 'incercat' && (
@@ -505,11 +494,6 @@ export default function PregatesteMa() {
 .pz-clasa{min-width:52px;padding:9px 10px;border-radius:12px;border:2px solid var(--border);background:#fff;color:var(--navy);font-weight:800;font-family:var(--font-display);font-size:1rem;cursor:pointer}
 .pz-nota-mica{font-size:.76rem;color:var(--text-muted);margin-top:6px}
 .pz-act{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.pz-moduri{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
-@media (max-width: 560px){.pz-moduri{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.pz-mod{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 8px;border-radius:12px;border:2px solid var(--navy);background:#fff;color:var(--navy);font-weight:800;font-size:.84rem;cursor:pointer;min-height:44px}
-.pz-mod.prim{background:var(--navy);color:#fff}
-.pz-mod:hover{box-shadow:var(--shadow)}
 .pz-sari{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:12px;padding:10px 12px;border-radius:12px;background:rgba(198,40,40,.06);border:1px dashed rgba(198,40,40,.35);font-size:.84rem;color:#7a2020;line-height:1.45}
 .pz-sari span{flex:1 1 240px}
 .pz-sari.mic{background:transparent;border:none;padding:0;margin-top:10px;color:var(--text-light);font-size:.8rem}
@@ -541,6 +525,7 @@ export default function PregatesteMa() {
 .pz-stare span{flex:1 1 240px}
 .pz-gol{padding:14px 16px;border-radius:14px;border:1.5px dashed var(--cream-dark);background:#fdfbf4;font-size:.86rem;color:var(--text-light);line-height:1.5}
 /* 15 nov. 2026: liga săptămânii; (seara) „Ce lucrezi acum?", „📍 Vezi pasul pe hartă", „📍 Pornește de aici" */
+.pz-metoda-nota{font-size:.76rem;color:var(--text-muted);margin-top:8px;line-height:1.45}
 .pz-pe-harta{display:flex;align-items:center;gap:6px 14px;flex-wrap:wrap;margin-top:10px;font-size:.78rem;color:var(--text-light);line-height:1.45}
 .pz-link{background:none;border:none;padding:0;color:var(--navy);font-weight:800;font-size:.82rem;text-decoration:underline;cursor:pointer;font-family:var(--font-body)}
 .pz-porneste{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px dashed var(--cream-dark);font-size:.8rem;color:var(--text-light)}
@@ -682,7 +667,7 @@ export default function PregatesteMa() {
                   <div style={{ fontSize: '.92rem', color: 'var(--navy)', lineHeight: 1.5 }}>
                     <strong>Bine ai revenit!</strong> Seria de zile o iei de la capăt, dar planul te așteaptă exact unde l-ai lăsat: <strong>pasul {pas.i + 1}</strong> din {hartaPas === 'pdf' ? 'harta subiectelor PDF' : 'harta exercițiilor interactive'}.
                   </div>
-                  <button type="button" className="btn btn-sm btn-primary" onClick={() => incepe(pas.tip === 'pdf' ? urlPas(pas, 'pdf') : urlPas(pas), pas)}>▶ Continuă</button>
+                  <button type="button" className="btn btn-sm btn-primary" onClick={() => incepe(urlPas(pas), pas)}>▶ Continuă</button>
                 </div>
               )}
 

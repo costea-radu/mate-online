@@ -22,6 +22,26 @@ import { onPregatire, arenaChanged, onTestCorectat, onNotaPdf } from '../lib/are
 import { asteaptaSiVeziNota } from '../lib/pdfRezolvare';
 import { ReviewToast } from '../components/ReviewWidget';
 
+// ✏️ METODELE DE REZOLVARE (15 nov. 2026, seara): „la subiectele PDF, pune la Viewer în bara
+// de sus la butonul «rezolvă pe PDF» metodele de rezolvare: pe PDF, cu poză, în chat, în foaia
+// de lucru (…) fă ca elevul să poată schimba oricând metoda de rezolvare". Butonul deschide
+// meniul; alegerea închide metoda de dinainte (scrisul de pe PDF rămâne în ciorna locală) și
+// se ține minte pe dispozitiv — de pe harta pregătirii pornește ultima metodă aleasă.
+export const METODE_REZOLVARE = [
+  { id: 'pdf', icon: '✏️', label: 'Pe PDF', scurt: 'Pe PDF' },
+  { id: 'poza', icon: '📷', label: 'Cu poză', scurt: 'Poză' },
+  { id: 'chat', icon: '💬', label: 'În chat', scurt: 'Chat' },
+  { id: 'foaie', icon: '✍️', label: 'În foaia de lucru', scurt: 'Foaia' },
+];
+const METODA_LS = 'em_metoda_rezolvare';
+export function citesteMetoda() {
+  try { const m = localStorage.getItem(METODA_LS); return METODE_REZOLVARE.some((x) => x.id === m) ? m : null; } catch { return null; }
+}
+function scrieMetoda(m) { try { localStorage.setItem(METODA_LS, m); } catch { /* fără stocare */ } }
+const INDEMN_POZA = '📷 Fotografiază rezolvarea de pe caiet și adaug-o cu „📷 Poze cu rezolvarea" (până la 3 poze), apoi „✅ Corectează".';
+const INDEMN_CHAT = '💬 Scrie răspunsul (sau pașii) la fiecare cerință, apoi „✅ Corectează". Ce lași gol are 0 puncte.';
+const INDEMN_FOAIE = '✍️ Scrie pe foaia de lucru, apoi „📎 Atașează la răspuns" și „✅ Corectează" aici — așa rezolvarea intră în rezultate și pasul se bifează pe hartă.';
+
 function isMobile() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
@@ -91,7 +111,13 @@ export default function PDFViewer() {
   const dinPregatire = !modTest && searchParams.get('pregatire') === '1';
   // 🗺️ pas din harta pregătirii (13 nov. 2026): ?mod= alege cum trimite elevul rezolvarea —
   // 'pdf' (scrie pe test), 'chat' (formularul de răspuns), 'foaie' (foaia de lucru), 'poza'
-  const modPlan = dinPregatire && ['pdf', 'chat', 'foaie', 'poza'].includes(searchParams.get('mod')) ? searchParams.get('mod') : null;
+  // (15 nov. 2026, seara) fără ?mod=, pornește ultima metodă aleasă de elev în meniul „✏️ Rezolvă pe PDF"
+  const modParam = ['pdf', 'chat', 'foaie', 'poza'].includes(searchParams.get('mod')) ? searchParams.get('mod') : null;
+  const [modPlan] = useState(() => (dinPregatire ? (modParam || citesteMetoda()) : null));
+  // metoda aleasă în meniu (chat / poză — pentru celelalte se vede din ce e deschis) și meniul
+  const [metoda, setMetoda] = useState(null);
+  const [meniuMetode, setMeniuMetode] = useState(null);   // null | { top, left } — poziția meniului
+  const metodeBtnRef = useRef(null);
   const pregPornitRef = useRef(false);
   // formularul de răspuns cerut de pe hartă; se deschide când chatul a citit testul
   const [formaCeruta, setFormaCeruta] = useState(null);   // null | { mod, imagini?, indemn? }
@@ -493,12 +519,8 @@ export default function PDFViewer() {
       if (!user || (!pdfData && !examHtml)) return;
       pregPornitRef.current = true;
       setTutorOpen(true);
-      setFormaCeruta({
-        mod: modPlan,
-        indemn: modPlan === 'poza'
-          ? '📷 Fotografiază rezolvarea de pe caiet și adaug-o cu „📷 Poze cu rezolvarea" (până la 3 poze), apoi „✅ Corectează".'
-          : '💬 Scrie răspunsul (sau pașii) la fiecare cerință, apoi „✅ Corectează". Ce lași gol are 0 puncte.',
-      });
+      setMetoda(modPlan);
+      setFormaCeruta({ mod: modPlan, indemn: modPlan === 'poza' ? INDEMN_POZA : INDEMN_CHAT });
       return;
     }
     if (modPlan === 'foaie') {
@@ -509,7 +531,7 @@ export default function PDFViewer() {
       // fișele claselor n-au notă oficială: rezolvarea de pe foaie intră în rezultate (și
       // bifează pasul) prin formular — „📎 Atașează la răspuns", apoi „✅ Corectează"
       if (!['evaluare-nationala', 'bacalaureat'].includes(item?.category)) {
-        setFormaCeruta({ mod: 'foaie', indemn: '✍️ Scrie pe foaia de lucru, apoi „📎 Atașează la răspuns" și „✅ Corectează" aici — așa rezolvarea intră în rezultate și pasul se bifează pe hartă.' });
+        setFormaCeruta({ mod: 'foaie', indemn: INDEMN_FOAIE });
       }
       return;
     }
@@ -546,6 +568,52 @@ export default function PDFViewer() {
     })();
     return () => { viu = false; };
   }, [formaCeruta, tutorOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ✏️ Meniul „Rezolvă pe PDF": metoda aleasă închide metoda de dinainte (15 nov. 2026, seara)
+  function alegeMetoda(m) {
+    setMeniuMetode(null);
+    if (!METODE_REZOLVARE.some((x) => x.id === m)) return;
+    scrieMetoda(m);
+    if (m === 'pdf') {
+      setMetoda(null);
+      if (tutorOpen && workOpen) setWork(false);
+      if (!solveOn) toggleSolve();
+      return;
+    }
+    if (solveOn) { solve.store.flush(); setSolveOn(false); }
+    if (!user) {
+      setNote({ text: 'Autentifică-te ca să-ți corecteze profesorul virtual rezolvarea.', link: { to: '/autentificare', label: 'Autentificare' } });
+      return;
+    }
+    if (baremView.open) setBaremView((v) => ({ ...v, open: false, page: 1, seq: v.seq + 1 }));
+    setTutorOpen(true);
+    if (m === 'foaie') {
+      setMetoda(null);
+      setWork(true);
+      if (!['evaluare-nationala', 'bacalaureat'].includes(item?.category)) setFormaCeruta({ mod: 'foaie', indemn: INDEMN_FOAIE });
+      return;
+    }
+    setWork(false);
+    setMetoda(m);
+    setFormaCeruta({ mod: m, indemn: m === 'poza' ? INDEMN_POZA : INDEMN_CHAT });
+  }
+  // „✕ Închide rezolvarea" din meniu: metoda deschisă se închide (scrisul rămâne salvat)
+  function inchideMetoda() {
+    setMeniuMetode(null);
+    if (solveOn) { solve.store.flush(); setSolveOn(false); }
+    if (tutorOpen && workOpen) setWork(false);
+    setMetoda(null);
+  }
+  function deschideMeniuMetode() {
+    if (meniuMetode) { setMeniuMetode(null); return; }
+    const r = metodeBtnRef.current ? metodeBtnRef.current.getBoundingClientRect() : null;
+    const lat = 288;
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
+    const left = r ? Math.max(8, Math.min(r.right - lat, vw - lat - 8)) : 8;
+    setMeniuMetode({ top: r ? r.bottom + 6 : 64, left, lat });
+  }
+  // chatul închis → metoda „chat" / „poză" nu mai e deschisă
+  useEffect(() => { if (!tutorOpen) setMetoda(null); }, [tutorOpen]);
 
   // ✏️ „Rezolvă" pe un PDF care nu e test de EN: foaia de lucru, în panoul profesorului
   function toggleFoaia() {
@@ -1037,7 +1105,78 @@ export default function PDFViewer() {
   // pornește rezolvarea PE PDF; la BAC și la celelalte PDF-uri deschide foaia de lucru.
   const foaieActiva = tutorOpen && workOpen;
   const rezolvaActiv = canSolve ? solveActive : foaieActiva;
-  const solveBtn = (canSolve || rezolvaFoaie) && (
+  // 15 nov. 2026 (seara): în afara testului pe grupă / duelului, butonul deschide meniul
+  // metodelor (pe PDF, cu poză, în chat, în foaia de lucru) — schimbabilă oricând
+  const metodaActiva = solveActive ? 'pdf' : foaieActiva ? 'foaie' : (tutorOpen && (metoda === 'chat' || metoda === 'poza') ? metoda : null);
+  const metodaInfo = METODE_REZOLVARE.find((m) => m.id === metodaActiva) || null;
+  const metodeVazute = METODE_REZOLVARE.filter((m) => (m.id === 'pdf' ? (canSolve || solveGeneric) : true));
+  const subMetoda = (id) => ({
+    pdf: canSolve ? 'încercuiești litera la grile și scrii la Subiectul al III-lea, direct pe test' : 'scrii rezolvarea direct pe paginile testului',
+    poza: 'fotografiezi rezolvarea de pe caiet (până la 3 poze)',
+    chat: 'scrii răspunsurile în formularul profesorului virtual',
+    foaie: 'scrii de mână pe foaia de lucru, lângă test',
+  }[id]);
+  const meniuMetodeJsx = meniuMetode && (
+    <>
+      <div onClick={() => setMeniuMetode(null)} style={{ position: 'fixed', inset: 0, zIndex: 1990 }} aria-hidden="true" />
+      <div role="menu" aria-label="Cum rezolvi testul" style={{
+        position: 'fixed', top: meniuMetode.top, left: meniuMetode.left, width: meniuMetode.lat, zIndex: 1991,
+        background: '#fff', borderRadius: 14, boxShadow: '0 14px 36px rgba(0,0,0,0.38)', padding: 8, maxHeight: '75vh', overflowY: 'auto',
+      }}>
+        <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#8e95a3', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '4px 10px 6px' }}>Cum rezolvi?</div>
+        {metodeVazute.map((m) => {
+          const on = metodaActiva === m.id;
+          return (
+            <button key={m.id} type="button" role="menuitemradio" aria-checked={on} onClick={() => alegeMetoda(m.id)}
+              style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10, width: '100%', textAlign: 'left', cursor: 'pointer',
+                border: on ? '1.5px solid var(--gold)' : '1.5px solid transparent', borderRadius: 10, padding: '8px 10px', marginBottom: 2,
+                background: on ? 'rgba(232,185,49,0.16)' : 'transparent', fontFamily: 'var(--font-body)',
+              }}>
+              <span style={{ fontSize: '1.15rem', lineHeight: 1.2 }} aria-hidden="true">{m.icon}</span>
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <span style={{ fontWeight: 800, color: 'var(--navy)', fontSize: '0.88rem' }}>{m.label}{on ? ' ✓' : ''}</span>
+                <span style={{ fontSize: '0.74rem', color: '#6b7280', lineHeight: 1.35 }}>{subMetoda(m.id)}</span>
+              </span>
+            </button>
+          );
+        })}
+        {metodaActiva && (
+          <button type="button" role="menuitem" onClick={inchideMetoda}
+            style={{ width: '100%', textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer', padding: '8px 10px', fontSize: '0.8rem', fontWeight: 700, color: '#b71c1c', fontFamily: 'var(--font-body)' }}>
+            ✕ Închide rezolvarea
+          </button>
+        )}
+        <div style={{ fontSize: '0.72rem', color: '#8e95a3', padding: '6px 10px 4px', lineHeight: 1.4, borderTop: '1px solid #eef0f4', marginTop: 4 }}>
+          Poți schimba metoda oricând — ce ai scris pe PDF rămâne salvat pe dispozitiv.
+        </div>
+      </div>
+    </>
+  );
+  const solveBtn = (canSolve || rezolvaFoaie) && !modTest ? (
+    <button
+      ref={metodeBtnRef}
+      onClick={deschideMeniuMetode}
+      aria-haspopup="menu" aria-expanded={!!meniuMetode}
+      className={metodaActiva || meniuMetode ? undefined : 'em-pulse'}
+      title={metodaInfo ? `Rezolvi: ${metodaInfo.label} — apasă ca să schimbi metoda` : 'Alege cum rezolvi: pe PDF, cu poză, în chat sau în foaia de lucru'}
+      style={{
+        background: metodaActiva ? 'var(--gold)' : 'rgba(232,185,49,0.15)', border: '1px solid var(--gold)',
+        color: metodaActiva ? 'var(--navy)' : 'var(--gold)', borderRadius: tiny ? 10 : 14, padding: tiny ? '0 9px' : '4px 12px',
+        cursor: 'pointer', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1.25,
+        ...(tiny ? { height: 34, justifyContent: 'center' } : {}),
+      }}
+    >
+      <span style={{ fontSize: '0.82rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
+        {metodaInfo ? `${metodaInfo.icon} ${tiny ? metodaInfo.scurt : metodaInfo.label}` : (tiny ? '✏️ Rezolvă' : '✏️ Rezolvă pe PDF')} ▾
+      </span>
+      {!tiny && (
+        <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.85, whiteSpace: 'nowrap' }}>
+          {metodaActiva ? 'schimbă metoda' : 'pe PDF · poză · chat · foaie'}
+        </span>
+      )}
+    </button>
+  ) : (canSolve || rezolvaFoaie) && (
     <button
       onClick={canSolve ? toggleSolve : toggleFoaia}
       aria-pressed={rezolvaActiv}
@@ -1438,6 +1577,7 @@ export default function PDFViewer() {
         </div>
         {tutorWidget}
         {noteJsx}
+        {meniuMetodeJsx}
         {pregToast}
         {showBaremDoc ? reviewJsx : null}
       </div>
@@ -1513,6 +1653,7 @@ export default function PDFViewer() {
 
       {tutorWidget}
       {noteJsx}
+      {meniuMetodeJsx}
       {pregToast}
       {/* PDF-ul desenat de site: cardul stă jos, în zona paginilor (ca pe telefon) */}
       {blobUrl && internal && !showBaremDoc ? null : reviewJsx}
