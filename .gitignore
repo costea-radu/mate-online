@@ -41,3 +41,6 @@ keystore.properties
 
 # parolele cheilor de semnare (copii)
 android-twa/keystore/*.properties
+
+# documente de lucru locale (audit) - nu se publica
+AUDIT_TEHNIC/
