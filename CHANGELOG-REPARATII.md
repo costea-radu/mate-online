@@ -4,6 +4,23 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 18 noiembrie 2026 — lecțiile claselor pe capitole, cu pictogramele hărții · „📚 Materiale" în Home (elev și profesor)
+
+Cererea: „1. Împarte pe capitole lecțiile din «clase». Pune acele pictograme ca la harta și la bareme 2. pune buton «materiale» în home la elevi sub «pregătește-mă de examen» iar la profesori primul deasupra de «generează»"
+
+**De rulat:** nimic (fără tabele, fără variabile). Ghidul: `GHID_PREGATESTE_MA.md`, 0.4.
+
+1. **Clasele, pe capitole** (`src/components/CapitoleClasa.jsx` și `src/lib/capitoleClasa.js` noi; `src/components/ContentPage.jsx` → prop-ul `capitole`; `src/pages/ClassPage.jsx`; `vite.config.js`): în filele „🧩 Exerciții Interactive" și „📄 Exerciții PDF" ale claselor a V-a – a XII-a, materialele stau pe capitole — aceleași ca pe „🗺️ Harta pregătirii" și în fila „📋 Bareme": capitolul după titlu, din `api/_lib/capitoleHarta.js`, același fișier și în browser (pluginul `capitole-harta-esm` din `vite.config.js` îl dă ca modul ES — o singură listă de reguli, nicio copie). Capitolele vin în ordinea primului lor material din site, „Alte exerciții" / „Alte fișe" la sfârșit.
+   - sus, **„Capitolele clasei"**: inelele tuturor capitolelor, cu pictogramele hărții (`src/lib/pictograme.jsx`); un clic deschide capitolul și duce la el; „▾ Deschide toate / ▴ Închide toate";
+   - fiecare capitol: pictograma în **inelul de progres** (cât a trecut elevul — 70% la interactive, 50% la PDF, pragurile hărții; ✓ când e gata), titlul, „5 exerciții · 2 trecute", bara; se deschide / se închide (e un `<details>`: căutarea din browser deschide singură capitolul în care găsește);
+   - la intrare e deschis primul capitol neterminat (vizitatorului — primul); ce deschide elevul se ține minte cât e deschis tab-ul (`sessionStorage`); la întoarcerea dintr-un exercițiu, capitolul lui e deschis și cardul revine pe ecran. Pe telefon, inelele stau pe un rând, „Deschide toate" lângă titlu.
+   - pe titlurile reale din site: 2–8 capitole pe filă; din toate clasele, un singur material ajunge la „Alte exerciții" (testul general al clasei a V-a).
+2. **„📚 Materiale" în Home** (`src/components/AcasaCont.jsx` → `MaterialeCard`, `src/styles/global.css`): card pe toată lățimea, primul din grila contului — la elev chiar sub „🎯 Pregătește-mă de examen", la profesor deasupra lui „🧩 Generează teste" (părintele — neschimbat). Duce la blocul „Materiale" din Home (examenele, clasele, auxiliarele), ca „📚 Materiale" din bara de jos a telefonului; derulează și la al doilea clic, iar blocul nu mai ajunge sub bara de sus.
+
+Teste: `clase-capitole` (8) și `acasa-materiale` (4), noi. `npm test`: 1320 din 1320; `vite build` curat. Verificat în Chromium (titlurile reale ale clasei a VI-a, progres simulat): elev pe 1366 și 390 px — capitolul deschis la intrare, inelele cu ✓, clic pe inel (capitolul ajunge sub bara de sus), Deschide / Închide toate, reîncărcarea, întoarcerea din exercițiu; vizitatorul; fila PDF; Home la elev (1366, 390) și la profesor — ordinea cardurilor și derularea la „Materiale".
+
+---
+
 ## 15 noiembrie 2026 (seara, a doua cerere) — oricine ajunge în Home după autentificare · metodele de rezolvare ale subiectelor PDF, în vizualizator · fila „📋 Bareme" rămâne vizibilă
 
 Cererea: „1. fișa bareme rămâne vizibilă elevilor · 2. fă ca orice tip de utilizator la conectare să intre în Home · 3. la subiectele PDF, pune la Viewer în bara de sus la butonul «rezolvă pe PDF» metodele de rezolvare: pe PDF, cu poză, în chat, în foaia de lucru. șterge-le din «pregătește-mă de examen». fă ca elevul să poată schimba oricând metoda de rezolvare"

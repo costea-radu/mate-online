@@ -7,9 +7,26 @@ import { VitePWA } from 'vite-plugin-pwa';
 // deploy că a apărut una nouă (src/lib/versiune.js)
 const BUILD_TIME = new Date().toISOString();
 
+// Capitolele „🗺️ Hărții pregătirii" (api/_lib/capitoleHarta.js — CommonJS, fără dependențe)
+// se folosesc și în browser: paginile claselor își așază lecțiile pe ACELEAȘI capitole
+// (src/lib/capitoleClasa.js, 18 nov. 2026). Browserul vrea modul ES, deci aici
+// `module.exports = { … }` devine `export { … }` — un singur fișier de reguli, nicio copie.
+// (În teste, Node îl importă direct: test/clase-capitole.test.js.)
+const CAPITOLE_HARTA = /[\\/]api[\\/]_lib[\\/]capitoleHarta\.js$/;
+const capitoleHartaEsm = () => ({
+  name: 'capitole-harta-esm',
+  transform(code, id) {
+    if (!CAPITOLE_HARTA.test(id.split('?')[0])) return null;
+    const esm = code.replace(/^module\.exports\s*=\s*\{/m, 'export {');
+    if (esm === code) this.error('api/_lib/capitoleHarta.js trebuie să se încheie cu `module.exports = { … }` (vezi vite.config.js)');
+    return { code: esm, map: null };
+  },
+});
+
 export default defineConfig({
   define: { __BUILD_TIME__: JSON.stringify(BUILD_TIME) },
   plugins: [
+    capitoleHartaEsm(),
     react(),
     {
       name: 'version-json',

@@ -19,6 +19,8 @@ const tabs = [
   // fila apare doar când secțiunea e vizibilă elevilor (sau pentru admin)
   { id: 'bareme',      label: '📋 Bareme' },
 ];
+// 18 nov. 2026 — exercițiile interactive și PDF-urile, pe CAPITOLE, cu pictogramele hărții
+// (`capitole` → src/components/CapitoleClasa.jsx, src/lib/capitoleClasa.js)
 
 export default function ClassPage() {
   const { grade } = useParams();
@@ -32,6 +34,7 @@ export default function ClassPage() {
       breadcrumb={`Clasa ${name}`}
       tabs={tabs}
       emptyIcons={{ pdf: '📄', interactive: '🧩', bareme: '📋' }}
+      capitole
       bareme
     />
   );
