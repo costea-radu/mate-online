@@ -1,6 +1,6 @@
-# Ghid: „📊 Statistici de utilizare" (Admin → 🤖 AI Tutor)
+# Ghid: „📊 Statistici de utilizare" (Admin → 🤖 Unelte AI)
 
-Primul panou din fila **🤖 AI Tutor** a Adminului. Arată, pe **ultimele 7 / 30 / 90 de
+Primul panou din fila **🤖 Unelte AI** a Adminului (până pe 18 nov. 2026 se numea „AI Tutor"). Arată, pe **ultimele 7 / 30 / 90 de
 zile**, cum e folosit site-ul — din datele **noastre**, nu din Google Analytics.
 
 ---
@@ -13,7 +13,10 @@ zile**, cum e folosit site-ul — din datele **noastre**, nu din Google Analytic
      **fără `anon`**; scrie și citește doar serverul);
    - `admin_statistici(zile)` — tot panoul dintr-un singur apel SQL (o cheamă doar
      `service_role`, adică `api/admin-stats.js`, după verificarea de admin).
-2. Deploy. Din clipa aceea, site-ul începe să numere vizitele. Testele rezolvate,
+2. **Toți vizitatorii, pe pagini** (18 nov. 2026): rulează și `supabase/statistici_vizitatori.sql`
+   (idempotent, fără tabele noi) — funcția `admin_vizitatori` + un index pe id-ul anonim.
+   Fără el, lista „🔁 Utilizatorii care revin" rămâne la primii 25 cu cont și spune ce e de rulat.
+3. Deploy. Din clipa aceea, site-ul începe să numere vizitele. Testele rezolvate,
    funcțiile AI și conturile apar imediat (vin din datele existente).
 
 Fără scriptul de la pasul 1, site-ul merge normal: `api/vizita.js` tace, iar panoul
@@ -31,7 +34,7 @@ spune ce e de rulat.
 | **📂 Cele mai accesate materiale** — PDF-uri și exerciții deschise | `page_views.content_id` |
 | **📝 Cele mai folosite teste** — rezolvate în perioadă: utilizatori diferiți, încercări, media | `progress` |
 | **🤖 Funcțiile AI cele mai folosite** — cereri, persoane, cost | `ai_usage` |
-| **🔁 Utilizatorii care revin cel mai des** (zile diferite cu vizite) / **👣 cu cele mai multe accesări** (pagini văzute) — nume, e-mail, rol, ⭐ Premium, ultima vizită; primii 10, „Arată toți cei 25" | `page_views` + `profiles` |
+| **🔁 Utilizatorii care revin cel mai des** (zile diferite cu vizite) / **👣 cu cele mai multe accesări** (pagini văzute) — **toți** cei din perioadă, câte 25 pe pagină (‹ Înapoi · 1 2 3 … · Înainte ›): **👤 Cu cont** (nume, e-mail, rol, ⭐ Premium) / **🕶️ Fără cont** (id-ul anonim — doar cei care au acceptat cookie-urile) / **👥 Toți**; pe fiecare rând: zilele active, paginile văzute, **ce a văzut cel mai des** (primele 6 pagini), dispozitivul, de unde a venit, prima și ultima vizită | `page_views` + `profiles` (`admin_vizitatori`, `api/admin-stats.js` → `vizitatori`) |
 | **Revin (retenție)** — din cei activi în perioada dinainte, câți au revenit | `page_views` |
 | **🕐 Orele de vârf** (ora României), **📱 Dispozitive**, **🔗 De unde vin** (domeniul), **👥 Conturile, pe rol** | `page_views`, `profiles` |
 

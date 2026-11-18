@@ -1,7 +1,11 @@
 // =====================================================================
 // src/components/ContentAdminTools.jsx — Admin → „Tot Conținutul"
 //   • ContentMetaFields — titlu / categorie / subcategorie / profil (folosit
-//     la Adaugă PDF, Adaugă Interactiv și la editare);
+//     la Adaugă PDF, Adaugă Interactiv și la editare); la încărcare (`auto`),
+//     rubrica de la EN / BAC se alege singură după titlu (18 nov. 2026);
+//   • UndeApare         — „📍 Unde apare pe site": clasa / examenul, rubrica,
+//     capitolul (cu pictograma hărții) și materialul după care intră — același
+//     calcul ca serverul după încărcare (planPlasare, api/_lib/contentAdmin.js);
 //   • EditContentModal  — „✏️ Editează": titlu, descriere, categorie, rubrică,
 //     tip, acces (gratuit/premium, cu mutarea fișierului între bucket-uri
 //     pe server), ordine;
@@ -18,6 +22,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiPost } from '../lib/api';
 import { supabase } from '../lib/supabase';
+import { rubricaAuto, rubricaPeCapitole } from '../lib/rubricaMaterial';
+import { capitolDin } from '../../api/_lib/capitoleHarta.js';
+import { planPlasare } from '../../api/_lib/contentAdmin.js';
+import { Pictograma } from '../lib/pictograme.jsx';
 import {
   CATEGORIES, BAC_PROFILES, CONTENT_TYPES,
   categoryLabel, subcategoryLabel, profileLabel, subcategoriesFor, needsProfile, hasSubcategories,
@@ -29,9 +37,34 @@ const dateRo = (d) => { try { return new Date(d).toLocaleDateString('ro-RO'); } 
 const sizeRo = (b) => (b < 1024 ? `${b} B` : b < 1024 * 1024 ? `${Math.round(b / 1024)} KB` : `${(b / 1024 / 1024).toFixed(1).replace('.', ',')} MB`);
 
 // ─── Câmpuri meta partajate (titlu/categorie/subcategorie/profil) ─────────────
-export function ContentMetaFields({ s, form, setForm, titlePlaceholder }) {
+// `auto` (Adaugă PDF / Interactiv, 18 nov. 2026 — „eu din admin aleg doar clasa sau
+// examenul și profilul"): la EN / BAC, rubrica goală = „🤖 Automat" — o dă titlul
+// (src/lib/rubricaMaterial.js → rubricaAuto); adminul o poate alege și de mână.
+// Rubrica folosită la încărcare: rubricaEfectiva(form, { contentType, fileName }).
+export function rubricaEfectiva(form, { contentType = 'pdf', fileName = '' } = {}) {
+  if (!hasSubcategories(form.category)) return { subcategory: '', auto: false, motiv: null };
+  if (form.subcategory) return { subcategory: form.subcategory, auto: false, motiv: null };
+  const r = rubricaAuto({ title: form.title, fileName, category: form.category, contentType });
+  return { subcategory: r.subcategory, auto: true, motiv: r.motiv };
+}
+
+export function ContentMetaFields({ s, form, setForm, titlePlaceholder, auto = false, contentType = 'pdf', fileName = '' }) {
   const subs = subcategoriesFor(form.category);
   const isBAC = form.category === 'bacalaureat';
+  const ef = auto ? rubricaEfectiva(form, { contentType, fileName }) : null;
+  const optiuneGoala = auto
+    ? (ef && ef.subcategory ? `🤖 Automat — ${subcategoryLabel(form.category, ef.subcategory)}` : '🤖 Automat — nerecunoscută din titlu (alege)')
+    : '— Selectează —';
+  const subSelect = (eticheta) => (
+    <div style={s.formGroup}>
+      <label style={s.label}>{eticheta}</label>
+      <select style={s.select} value={form.subcategory}
+        onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
+        <option value="">{optiuneGoala}</option>
+        {subs.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
+      </select>
+    </div>
+  );
   return (
     <>
       <div style={s.formRow}>
@@ -42,7 +75,7 @@ export function ContentMetaFields({ s, form, setForm, titlePlaceholder }) {
             placeholder={titlePlaceholder} />
         </div>
         <div style={s.formGroup}>
-          <label style={s.label}>Categorie *</label>
+          <label style={s.label}>{auto ? 'Clasa sau examenul *' : 'Categorie *'}</label>
           <select style={s.select} value={form.category}
             onChange={e => setForm(p => ({ ...p, category: e.target.value, subcategory: '', profile: '' }))}>
             {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
@@ -50,16 +83,7 @@ export function ContentMetaFields({ s, form, setForm, titlePlaceholder }) {
         </div>
       </div>
 
-      {subs.length > 0 && !isBAC && (
-        <div style={s.formGroup}>
-          <label style={s.label}>Subcategorie EN</label>
-          <select style={s.select} value={form.subcategory}
-            onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
-            <option value="">— Selectează —</option>
-            {subs.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
-          </select>
-        </div>
-      )}
+      {subs.length > 0 && !isBAC && subSelect(auto ? 'Rubrica EN' : 'Subcategorie EN')}
 
       {isBAC && (
         <div style={s.formRow}>
@@ -71,17 +95,83 @@ export function ContentMetaFields({ s, form, setForm, titlePlaceholder }) {
               {BAC_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
           </div>
-          <div style={s.formGroup}>
-            <label style={s.label}>Subcategorie BAC</label>
-            <select style={s.select} value={form.subcategory}
-              onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}>
-              <option value="">— Selectează —</option>
-              {subs.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
-            </select>
-          </div>
+          {subSelect(auto ? 'Rubrica BAC' : 'Subcategorie BAC')}
         </div>
       )}
     </>
+  );
+}
+
+// ─── „📍 Unde apare pe site" (Adaugă PDF / Interactiv, 18 nov. 2026) ──────────
+// Clasa / examenul → rubrica (aleasă sau automată) → capitolul (pictograma hărții) și
+// locul: după ultimul material al capitolului — exact ce face serverul după încărcare
+// (api/content-admin.js → 'plaseaza' → planPlasare). Listele fără capitole: regula
+// „📥 Materialele noi apar". Titlul fără capitol: „Alte exerciții / Alte fișe".
+const TAB_CLASA = { pdf: '📄 Exerciții PDF', interactive: '🧩 Exerciții Interactive' };
+export function UndeApare({ form, contentType = 'pdf', fileName = '' }) {
+  const [rows, setRows] = useState(null);
+  const [titlu, setTitlu] = useState(form.title);
+  // titlul se „așază" după o clipă (fără calcul la fiecare literă)
+  useEffect(() => { const t = setTimeout(() => setTitlu(form.title), 250); return () => clearTimeout(t); }, [form.title]);
+  useEffect(() => {
+    let viu = true;
+    setRows(null);
+    supabase.from('content').select('id, title, category, subcategory, profile, content_type, sort_order, created_at')
+      .eq('category', form.category).eq('content_type', contentType)
+      .then(({ data }) => { if (viu) setRows(data || []); }, () => { if (viu) setRows([]); });
+    return () => { viu = false; };
+  }, [form.category, contentType]);
+
+  const ef = rubricaEfectiva({ ...form, title: titlu }, { contentType, fileName });
+  const sub = ef.subcategory;
+  const peCapitole = rubricaPeCapitole(form.category, sub);
+  const nou = { id: '__nou__', title: titlu, category: form.category, subcategory: sub || null, profile: form.profile || null, content_type: contentType, sort_order: 0, created_at: new Date().toISOString() };
+  const plan = peCapitole && rows ? planPlasare(rows, nou, capitolDin) : null;
+  const cap = peCapitole ? capitolDin(titlu, form.category) : null;
+  const examen = hasSubcategories(form.category);
+  const box = { background: '#f4f8fc', border: '1px solid #d6e4f0', borderRadius: 10, padding: '10px 14px', margin: '4px 0 16px', fontSize: '.84rem', color: 'var(--navy)', lineHeight: 1.5 };
+  const mic = { fontSize: '.78rem', color: 'var(--text-light)' };
+  if (!titlu.trim()) {
+    return <div style={box}><b>📍 Unde apare pe site</b><div style={mic}>Scrie titlul: din el aflu {examen ? 'rubrica și ' : ''}capitolul.</div></div>;
+  }
+  const cale = [categoryLabel(form.category)];
+  if (examen) {
+    cale.push(sub ? `${subcategoryLabel(form.category, sub)}${ef.auto ? ' (automat)' : ''}` : '❓ rubrică nerecunoscută');
+    if (form.category === 'bacalaureat' && needsProfile(form.category, sub)) cale.push(form.profile ? `profilul ${profileLabel(form.profile)}` : '❓ alege profilul');
+  } else if (/^clasa-/.test(form.category)) {
+    cale.push(TAB_CLASA[contentType] || contentType);
+  }
+  return (
+    <div style={box} aria-live="polite">
+      <b>📍 Unde apare pe site</b>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 2 }}>
+        <span>{cale.join(' › ')}</span>
+        {cap && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700 }}>
+            › <span style={{ display: 'inline-flex', width: 24, height: 24, borderRadius: '50%', alignItems: 'center', justifyContent: 'center', background: '#fdfbf4', border: '1.5px solid var(--cream-dark, #ede5d0)' }}><Pictograma nume={cap.icon} size={15} /></span>
+            capitolul „{cap.titlu}"
+          </span>
+        )}
+      </div>
+      {examen && !sub && <div style={{ ...mic, color: '#b45309' }}>⚠️ Nu recunosc rubrica din titlu — alege-o mai sus (altfel materialul nu apare pe site).</div>}
+      {ef.auto && sub && ef.motiv && <div style={mic}>Rubrica aleasă automat: {ef.motiv}. O poți schimba mai sus.</div>}
+      {peCapitole && !cap && (
+        <div style={{ ...mic, color: '#b45309' }}>
+          ⚠️ Titlul nu spune capitolul — materialul va sta la „{contentType === 'pdf' ? 'Alte fișe' : 'Alte exerciții'}". Pune în titlu numele capitolului (ex. „Numere întregi — fișa 13").
+        </div>
+      )}
+      {plan && (
+        <div style={mic}>
+          {plan.dupa
+            ? (plan.capitolNou
+              ? <>Primul material din acest capitol — la sfârșitul listei, după „{plan.dupa.title}".</>
+              : <>La sfârșitul capitolului, după „{plan.dupa.title}" (locul {plan.loc} din {plan.total}).</>)
+            : <>Primul material din listă.</>}
+        </div>
+      )}
+      {peCapitole && cap && !rows && <div style={mic}>Caut locul în capitol…</div>}
+      {sub && !peCapitole && examen && <div style={mic}>Lista aceasta nu e pe capitole: locul îl dă regula „📥 Materialele noi apar" (Tot Conținutul → ↕ Ordinea de afișare).</div>}
+    </div>
   );
 }
 

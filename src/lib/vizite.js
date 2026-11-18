@@ -1,6 +1,6 @@
 // =====================================================================
 // src/lib/vizite.js — vizitele din site, pentru „📊 Statistici de utilizare"
-// (Admin → 🤖 AI Tutor). La fiecare schimbare de rută (App.jsx → VizitaTracker)
+// (Admin → 🤖 Unelte AI). La fiecare schimbare de rută (App.jsx → VizitaTracker)
 // trimitem serverului (api/vizita.js) DOAR: ruta (fără ?…), materialul deschis
 // (id-ul din /exercitiu?id=… și /pdf-viewer?id=…), dispozitivul (telefon /
 // tabletă / calculator) și, la prima pagină din vizită, domeniul de unde a venit.

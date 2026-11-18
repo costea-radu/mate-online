@@ -90,7 +90,7 @@ function AnalyticsRouteTracker() {
   return null;
 }
 
-// Vizitele pentru „📊 Statistici de utilizare" (Admin → 🤖 AI Tutor) — ale
+// Vizitele pentru „📊 Statistici de utilizare" (Admin → 🤖 Unelte AI) — ale
 // noastre, în baza de date a site-ului (api/vizita.js): ruta, materialul
 // deschis, dispozitivul. Așteptăm autentificarea (vizita se leagă de cont pe
 // server, din token); adminii nu se numără. Vezi src/lib/vizite.js.

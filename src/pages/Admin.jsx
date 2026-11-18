@@ -10,8 +10,9 @@ import AdminVerificare from '../components/AdminVerificare';
 import AdminDebug from '../components/AdminDebug';
 import AdminBotExamene from '../components/AdminBotExamene';
 import AdminFisiereModel from '../components/AdminFisiereModel';   // 📤 fișierele model (15 nov. 2026)
-import { ContentMetaFields, EditContentModal, ReplaceFileModal, ReorderPanel } from '../components/ContentAdminTools';
-import { CATEGORIES, CONTENT_TYPES, categoryLabel, subcategoryLabel, profileLabel, hasSubcategories, visibilityWarning } from '../lib/contentMeta';
+import AdminExplicatiiGrila from '../components/AdminExplicatiiGrila';   // 💡 explicațiile la grilă, EN (18 nov. 2026)
+import { ContentMetaFields, EditContentModal, ReplaceFileModal, ReorderPanel, UndeApare, rubricaEfectiva } from '../components/ContentAdminTools';
+import { CATEGORIES, CONTENT_TYPES, categoryLabel, subcategoryLabel, profileLabel, hasSubcategories, visibilityWarning, needsProfile } from '../lib/contentMeta';
 import '../styles/admin.css';
 
 // Rubricile (categorii, subcategorii EN/BAC, profiluri, tipuri) stau acum în
@@ -152,6 +153,28 @@ function FileUploadZone({ accept, label, hint, file, onFile, icon }) {
   );
 }
 
+// ─── Materialul nou: rubrica automată + locul în capitol (18 nov. 2026) ──────────
+// „Fă ca atunci când se adaugă un PDF sau test interactiv nou, să se adauge la capitolul
+// corespunzător din site. Eu din admin aleg doar clasa sau examenul și profilul."
+// Rubrica de la EN / BAC o dă titlul dacă adminul n-a ales-o (rubricaEfectiva); după
+// încărcare, serverul mută materialul la sfârșitul capitolului lui (content-admin →
+// 'plaseaza'). Întoarce mesajul de eroare sau null.
+function verificaRubrica(form, ef) {
+  if (hasSubcategories(form.category) && !ef.subcategory) return 'Nu recunosc rubrica din titlu — alege rubrica (altfel materialul nu apare pe site).';
+  if (needsProfile(form.category, ef.subcategory) && !form.profile) return 'Alege profilul de Bacalaureat.';
+  return null;
+}
+async function plaseazaLaCapitol(id) {
+  try {
+    const r = await apiPost('/api/content-admin', { action: 'plaseaza', id });
+    if (!r || !r.placed || !r.capitol) return '';
+    if (r.capitolNou) return ` 📍 Primul material al capitolului „${r.capitol.titlu}" — la sfârșitul listei.`;
+    return ` 📍 La capitolul „${r.capitol.titlu}"${r.dupa ? `, după „${r.dupa.title}"` : ''}.`;
+  } catch (e) {
+    return ` (Nu l-am putut muta la capitolul lui: ${e.message} — îl poți muta din ↕ Ordinea de afișare.)`;
+  }
+}
+
 // ─── Upload PDF ───────────────────────────────────────────────────────────────
 function UploadPDF({ onSuccess }) {
   const [form, setForm] = useState({ title: '', description: '', category: 'clasa-5', subcategory: '', profile: '', is_free: true });
@@ -167,7 +190,7 @@ function UploadPDF({ onSuccess }) {
       sessionStorage.removeItem('agent_prefill_pdf');
       const pre = JSON.parse(raw);
       setForm((f) => ({ ...f, ...pre.form }));
-      setMsg({ type: 'success', text: '📥 Date preluate de la agentul Claude. Atașează PDF-ul salvat din fereastra de tipărire, alege subcategoria/profilul și apasă Încarcă.' });
+      setMsg({ type: 'success', text: '📥 Date preluate de la agentul Claude. Atașează PDF-ul salvat din fereastra de tipărire, verifică „📍 Unde apare" (la BAC alege profilul) și apasă Încarcă.' });
     } catch { /* ignore */ }
   }, []);
 
@@ -179,6 +202,9 @@ function UploadPDF({ onSuccess }) {
       setMsg({ type: 'error', text: 'Completează titlul, categoria și selectează un PDF.' });
       return;
     }
+    const ef = rubricaEfectiva(form, { contentType: 'pdf', fileName: file.name });
+    const lipsa = verificaRubrica(form, ef);
+    if (lipsa) { setMsg({ type: 'error', text: lipsa }); return; }
     setLoading(true);
     setMsg(null);
     try {
@@ -189,20 +215,21 @@ function UploadPDF({ onSuccess }) {
 
       const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(path);
 
-      const { error: dbErr } = await supabase.from('content').insert({
+      const { data: nou, error: dbErr } = await supabase.from('content').insert({
         title: form.title, description: form.description,
         category: form.category, content_type: 'pdf',
         is_free: form.is_free, file_url: urlData?.publicUrl || path,
-        subcategory: form.subcategory || null,
+        subcategory: ef.subcategory || null,
         profile: form.profile || null,
         sort_order: 0,
-      });
+      }).select('id').single();
       if (dbErr) throw dbErr;
+      const loc = nou?.id ? await plaseazaLaCapitol(nou.id) : '';
 
-      setMsg({ type: 'success', text: 'PDF încărcat cu succes!' });
+      setMsg({ type: 'success', text: `PDF încărcat cu succes!${loc}` });
       setFile(null);
       setForm({ title: '', description: '', category: 'clasa-5', subcategory: '', profile: '', is_free: true });
-      onSuccess?.();
+      onSuccess?.(`✅ PDF încărcat: „${form.title}".${loc}`);
     } catch (err) {
       setMsg({ type: 'error', text: err.message });
     } finally {
@@ -215,7 +242,8 @@ function UploadPDF({ onSuccess }) {
       <div style={s.cardTitle}>📄 Adaugă PDF</div>
       {msg && <div style={s.alert(msg.type)}>{msg.text}</div>}
 
-      <ContentMetaFields s={s} form={form} setForm={setForm} titlePlaceholder="ex. Fișă de lucru – Fracții" />
+      <ContentMetaFields s={s} form={form} setForm={setForm} titlePlaceholder="ex. Fișă de lucru – Fracții" auto contentType="pdf" fileName={file?.name || ''} />
+      <UndeApare form={form} contentType="pdf" fileName={file?.name || ''} />
 
       <div style={s.formRow}>
         <div style={s.formGroup}>
@@ -269,7 +297,7 @@ function UploadInteractive({ onSuccess }) {
       const pre = JSON.parse(raw);
       setForm((f) => ({ ...f, ...pre.form }));
       if (pre.html) setFile(new File([pre.html], pre.fileName || 'exercitiu_agent.html', { type: 'text/html' }));
-      setMsg({ type: 'success', text: '📥 Exercițiul agentului Claude e atașat. Alege subcategoria/profilul dacă e cazul și apasă Încarcă.' });
+      setMsg({ type: 'success', text: '📥 Exercițiul agentului Claude e atașat. Verifică „📍 Unde apare" (la BAC alege profilul) și apasă Încarcă.' });
     } catch { /* ignore */ }
   }, []);
   const isEN = form.category === 'evaluare-nationala';
@@ -280,6 +308,9 @@ function UploadInteractive({ onSuccess }) {
       setMsg({ type: 'error', text: 'Completează titlul, categoria și selectează un fișier HTML.' });
       return;
     }
+    const ef = rubricaEfectiva(form, { contentType: 'interactive', fileName: file.name });
+    const lipsa = verificaRubrica(form, ef);
+    if (lipsa) { setMsg({ type: 'error', text: lipsa }); return; }
     setLoading(true);
     setMsg(null);
     try {
@@ -288,20 +319,21 @@ function UploadInteractive({ onSuccess }) {
       const { error: uploadErr } = await supabase.storage.from(bucket).upload(path, file, { contentType: 'text/html' });
       if (uploadErr) throw uploadErr;
       const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(path);
-      const { error: dbErr } = await supabase.from('content').insert({
+      const { data: nou, error: dbErr } = await supabase.from('content').insert({
         title: form.title, description: form.description,
         category: form.category, content_type: 'interactive',
         is_free: form.is_free, file_url: urlData?.publicUrl || path,
         interactive_data: { type: form.type, html: true },
-        subcategory: form.subcategory || null,
+        subcategory: ef.subcategory || null,
         profile: form.profile || null,
         sort_order: 0,
-      });
+      }).select('id').single();
       if (dbErr) throw dbErr;
-      setMsg({ type: 'success', text: 'Exercițiul interactiv a fost încărcat cu succes!' });
+      const loc = nou?.id ? await plaseazaLaCapitol(nou.id) : '';
+      setMsg({ type: 'success', text: `Exercițiul interactiv a fost încărcat cu succes!${loc}` });
       setFile(null);
       setForm({ title: '', description: '', category: 'clasa-5', subcategory: '', profile: '', is_free: false, type: 'exercise' });
-      onSuccess?.();
+      onSuccess?.(`✅ Exercițiul interactiv a fost încărcat: „${form.title}".${loc}`);
     } catch (err) {
       setMsg({ type: 'error', text: err.message });
     } finally {
@@ -317,7 +349,8 @@ function UploadInteractive({ onSuccess }) {
       </div>
       {msg && <div style={s.alert(msg.type)}>{msg.text}</div>}
 
-      <ContentMetaFields s={s} form={form} setForm={setForm} titlePlaceholder="ex. Test – Ecuații de gradul I" />
+      <ContentMetaFields s={s} form={form} setForm={setForm} titlePlaceholder="ex. Test – Ecuații de gradul I" auto contentType="interactive" fileName={file?.name || ''} />
+      <UndeApare form={form} contentType="interactive" fileName={file?.name || ''} />
 
       <div style={s.formRow}>
         <div style={s.formGroup}>
@@ -911,11 +944,12 @@ const TABS = [
   { id: 'interactive', icon: '🧩', label: 'Exerciții Interactive' },
   { id: 'rezolvari',   icon: '📝', label: 'Rezolvări' },
   { id: 'list',        icon: '📋', label: 'Tot Conținutul' },
-  { id: 'ai',          icon: '🤖', label: 'AI Tutor' },
+  { id: 'ai',          icon: '🤖', label: 'Unelte AI' },   // 18 nov. 2026: fostul „AI Tutor"
   { id: 'recenzii',    icon: '⭐', label: 'Recenzii' },
   { id: 'live',        icon: '🎥', label: 'Meditații live' },
   { id: 'verificare',  icon: '🔎', label: 'Verificare materiale' },
   { id: 'bot',         icon: '📚', label: 'Bot examene' },
+  { id: 'explicatii',  icon: '💡', label: 'Explicații grilă' },   // 18 nov. 2026 — baremele EN
   { id: 'fisiere-model', icon: '📤', label: 'Fișiere model' },
   { id: 'debug',       icon: '🐞', label: 'Agent debug' },
 ];
@@ -989,12 +1023,17 @@ export default function Admin() {
   function goTab(id) {
     setTab(id);
     setMenuOpen(false);
+    setDupaIncarcare(null);
     // fila nouă începe de sus (altfel rămânea la derularea listei lungi de dinainte)
     try { window.scrollTo({ top: 0 }); } catch { /* ignore */ }
   }
 
-  function onSuccess() {
+  // după încărcare: lista „Tot Conținutul", cu mesajul încărcării deasupra (unde a ajuns
+  // materialul — capitolul și materialul după care a intrat, 18 nov. 2026)
+  const [dupaIncarcare, setDupaIncarcare] = useState(null);
+  function onSuccess(mesaj) {
     setRefreshList(r => r + 1);
+    setDupaIncarcare(mesaj || null);
     setTab('list');
   }
 
@@ -1055,12 +1094,20 @@ export default function Admin() {
           {tab === 'rezolvari'   && <AdminRezolvari user={user} s={s} />}
           {tab === 'pdf'         && <UploadPDF onSuccess={onSuccess} />}
           {tab === 'interactive' && <UploadInteractive onSuccess={onSuccess} />}
+          {tab === 'list' && dupaIncarcare && (
+            <div style={{ ...s.alert('success'), display: 'flex', alignItems: 'flex-start', gap: 10 }} role="status">
+              <span style={{ flex: 1 }}>{dupaIncarcare}</span>
+              <button type="button" onClick={() => setDupaIncarcare(null)} aria-label="Închide mesajul"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: 'inherit', padding: 0 }}>✕</button>
+            </div>
+          )}
           {tab === 'list'        && <ContentList refresh={refreshList} />}
           {tab === 'ai'          && <AIAdminPanel />}
           {tab === 'recenzii'    && <ReviewsAdmin s={s} />}
           {tab === 'live'        && <LiveAdmin />}
           {tab === 'verificare'  && <AdminVerificare s={s} />}
           {tab === 'bot'         && <AdminBotExamene s={s} />}
+          {tab === 'explicatii'  && <AdminExplicatiiGrila s={s} />}
           {tab === 'fisiere-model' && <AdminFisiereModel s={s} />}
           {tab === 'debug'       && <AdminDebug s={s} />}
         </main>

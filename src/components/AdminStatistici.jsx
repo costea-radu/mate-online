@@ -1,6 +1,6 @@
 // =====================================================================
 // src/components/AdminStatistici.jsx — „📊 Statistici de utilizare"
-// (Admin → 🤖 AI Tutor, primul panou; 30 oct. 2026)
+// (Admin → 🤖 Unelte AI — fostul „AI Tutor", primul panou; 30 oct. 2026)
 //
 // Ce arată, pe ultimele 7 / 30 / 90 de zile:
 //   · cifrele mari: pagini văzute, utilizatori activi, vizitatori fără cont,
@@ -9,8 +9,10 @@
 //   · paginile văzute pe zi (coloane, cu detaliile la hover și tabelul lor);
 //   · cele mai vizitate pagini · cele mai deschise materiale · cele mai folosite
 //     teste (rezolvate) · utilizatorii care revin cel mai des și cei cu cele mai
-//     multe accesări · funcțiile AI folosite · dispozitivele · orele de vârf ·
-//     de unde vin vizitatorii · conturile pe rol.
+//     multe accesări — TOȚI cei din perioadă, cu cont sau fără, câte 25 pe pagină,
+//     cu paginile pe care le-au văzut (18 nov. 2026, ListaVizitatori) · funcțiile
+//     AI folosite · dispozitivele · orele de vârf · de unde vin vizitatorii ·
+//     conturile pe rol.
 // Datele: POST /api/admin-stats { action: 'site', zile } → funcția SQL
 // admin_statistici (supabase/statistici_vizite.sql). Vizitele le trimite
 // aplicația la fiecare pagină (src/lib/vizite.js → api/vizita.js).
@@ -19,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { authHeaders } from '../lib/api';
 import Rolldown from './Rolldown';
 import { numePagina, numeFunctieAI, zileComplete, ROLURI, nr, fmt, fmtZi, fmtCand } from '../lib/statistici';
+import { pageWindow } from '../lib/paginare';
 
 const PERIOADE = [7, 30, 90];
 const ACCENT = 'var(--gold, #e8b931)';
@@ -160,14 +163,174 @@ function Coloane({ date, eticheta, valoare, detaliu, inaltime = 150, etichetaJos
   );
 }
 
+// ─── „🔁 Utilizatorii care revin": TOȚI cei din perioadă, pe pagini ───────────
+// 18 nov. 2026 — „fă să văd mai mulți vizitatori care intră pe site, puși pe pagini
+// (…) pune-i pe toți care au accesat în ultimele x zile": POST /api/admin-stats
+// { action: 'vizitatori', zile, ordine, tip, pagina } → funcția SQL admin_vizitatori
+// (supabase/statistici_vizitatori.sql), câte 25 pe pagină. Cu cont / fără cont (id-ul
+// anonim, doar cu acordul pentru cookie-uri) / toți; după zilele active sau după
+// paginile văzute; pe fiecare rând — paginile pe care le-a văzut cel mai des.
+// Fără script: primii 25 cu cont (din „site"), ca înainte, cu nota ce e de rulat.
+const TIPURI_VIZ = [
+  { id: 'cont', label: '👤 Cu cont' },
+  { id: 'anonimi', label: '🕶️ Fără cont' },
+  { id: 'toti', label: '👥 Toți' },
+];
+const DISPOZITIV = { telefon: '📱 telefon', tableta: '📟 tabletă', calculator: '💻 calculator' };
+const th = { padding: '4px 6px', whiteSpace: 'nowrap' };
+const td = { padding: '6px 6px', verticalAlign: 'top' };
+
+function RandVizitator({ r, ordine }) {
+  const anonim = r.tip === 'anonim';
+  return (
+    <tr style={{ borderTop: '1px solid #eef1f5' }}>
+      <td style={{ ...td, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{r.loc}</td>
+      <td style={{ ...td, minWidth: 170 }}>
+        {anonim ? (
+          <>
+            <strong style={{ color: 'var(--navy)' }}>🕶️ Vizitator fără cont</strong>
+            <div style={{ color: 'var(--text-muted)', fontSize: '.72rem', fontFamily: 'monospace' }} title={r.id}>{String(r.id || '').slice(0, 10)}</div>
+          </>
+        ) : (
+          <>
+            <strong style={{ color: 'var(--navy)' }}>{r.nume || '(fără nume)'}</strong>
+            {r.premium && <span title="Abonament Premium activ" style={{ marginLeft: 6, fontSize: '.68rem', fontWeight: 800, color: '#8a6d00', background: 'rgba(232,185,49,.18)', borderRadius: 8, padding: '1px 6px' }}>⭐ Premium</span>}
+            {r.email && <div style={{ color: 'var(--text-muted)', fontSize: '.72rem' }}>{r.email}</div>}
+          </>
+        )}
+      </td>
+      <td style={td}>{anonim ? '—' : (r.rol || '—')}</td>
+      <td style={{ ...td, textAlign: 'right', fontWeight: ordine === 'zile' ? 800 : 400, color: 'var(--navy)' }}>{fmt(r.zile)}</td>
+      <td style={{ ...td, textAlign: 'right', fontWeight: ordine === 'accesari' ? 800 : 400, color: 'var(--navy)' }}>{fmt(r.vizualizari)}</td>
+      <td style={{ ...td, minWidth: 220 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {(r.pagini || []).map((pg) => (
+            <span key={pg.path} title={`${pg.path} · ${fmt(pg.n)} ${pg.n === 1 ? 'vizită' : 'vizite'}`}
+              style={{ fontSize: '.7rem', background: 'var(--cream, #faf6ec)', border: '1px solid var(--cream-dark, #ede5d0)', borderRadius: 99, padding: '1px 7px', whiteSpace: 'nowrap' }}>
+              {numePagina(pg.path)} <b style={{ color: 'var(--navy)' }}>×{fmt(pg.n)}</b>
+            </span>
+          ))}
+        </div>
+      </td>
+      <td style={{ ...td, whiteSpace: 'nowrap', color: 'var(--text-light)', fontSize: '.74rem' }}>
+        {DISPOZITIV[r.dispozitiv] || r.dispozitiv || '—'}
+        {r.sursa && <div title="De unde a venit prima dată">↪ {r.sursa}</div>}
+      </td>
+      <td style={{ ...td, whiteSpace: 'nowrap', color: 'var(--text-light)' }}>
+        {fmtCand(r.ultima)}
+        {r.prima && <div style={{ fontSize: '.7rem', color: 'var(--text-muted)' }}>prima: {fmtCand(r.prima)}</div>}
+      </td>
+    </tr>
+  );
+}
+
+export function ListaVizitatori({ zile, s, seg, reincarcat = null }) {
+  const [ordine, setOrdine] = useState('zile');      // 'zile' (revin cel mai des) | 'accesari'
+  const [tip, setTip] = useState('cont');           // 'cont' | 'anonimi' | 'toti'
+  const cheie = `${zile}|${ordine}|${tip}`;
+  // pagina ține de filtre: alte filtre → de la prima pagină (fără o cerere în plus)
+  const [pag, setPag] = useState({ cheie, p: 1 });
+  const pagina = pag.cheie === cheie ? pag.p : 1;
+  const [d, setD] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const sus = useRef(null);
+
+  useEffect(() => {
+    let viu = true;
+    setBusy(true); setErr(null);
+    (async () => {
+      try {
+        const res = await fetch('/api/admin-stats', { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ action: 'vizitatori', zile, ordine, tip, pagina }) });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j.error || `Eroare server (${res.status})`);
+        if (viu) setD(j);
+      } catch (e) { if (viu) setErr(e.message); }
+      finally { if (viu) setBusy(false); }
+    })();
+    return () => { viu = false; };
+  }, [cheie, pagina, reincarcat]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mergiLa = (p) => {
+    setPag({ cheie, p });
+    try { sus.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch { /* ignore */ }
+  };
+  const v = (s && s.vizite) || {};
+  const nrTip = { cont: v.utilizatori, anonimi: v.anonimi, toti: v.utilizatori != null && v.anonimi != null ? v.utilizatori + v.anonimi : null };
+  const faraScript = d && d.ok === false && d.setup === false;
+  // fără script: primii 25 cu cont, din „site" (ca înainte)
+  const vechi = ordine === 'zile' ? (s && s.revin) || [] : (s && s.accesari) || [];
+  const randuri = faraScript ? vechi.map((u, i) => ({ ...u, tip: 'cont', loc: i + 1, pagini: [] })) : (d && d.randuri) || [];
+  const total = faraScript ? vechi.length : (d && d.total) || 0;
+  const pagini = faraScript ? 1 : (d && d.pagini) || 1;
+  const pe = (d && d.peFiecarePagina) || 25;
+  const de = total ? (pagina - 1) * pe + 1 : 0;
+  const pana = Math.min(total, pagina * pe);
+
+  return (
+    <div ref={sus} style={{ scrollMarginTop: 84 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+        <button type="button" style={seg(ordine === 'zile')} onClick={() => setOrdine('zile')} aria-pressed={ordine === 'zile'}>🔁 Revin cel mai des (zile)</button>
+        <button type="button" style={seg(ordine === 'accesari')} onClick={() => setOrdine('accesari')} aria-pressed={ordine === 'accesari'}>👣 Cele mai multe accesări (pagini)</button>
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }} role="group" aria-label="Ce vizitatori">
+        {TIPURI_VIZ.map((t) => (
+          <button key={t.id} type="button" style={seg(tip === t.id)} onClick={() => setTip(t.id)} aria-pressed={tip === t.id} disabled={faraScript && t.id !== 'cont'}>
+            {t.label}{nrTip[t.id] != null ? ` (${fmt(nrTip[t.id])})` : ''}
+          </button>
+        ))}
+      </div>
+      {faraScript && (
+        <div style={{ fontSize: '.78rem', color: '#8a5a00', background: '#fff4e5', borderRadius: 8, padding: '6px 10px', marginBottom: 8 }}>
+          Arăt doar primii 25 cu cont. Ca să-i vezi pe <b>toți</b> (cu cont și fără, pe pagini, cu paginile văzute), rulează <code>supabase/statistici_vizitatori.sql</code> în Supabase → SQL Editor.
+        </div>
+      )}
+      {err && <div style={{ fontSize: '.8rem', color: '#c62828', marginBottom: 6 }}>⚠️ {err}</div>}
+      {randuri.length ? (
+        <>
+          <div style={{ fontSize: '.76rem', color: 'var(--text-light)', marginBottom: 4 }}>
+            {faraScript ? `${fmt(total)} afișați` : `${fmt(de)}–${fmt(pana)} din ${fmt(total)}`}
+            {busy && <span style={{ marginLeft: 8, color: 'var(--text-muted)' }}>· se încarcă…</span>}
+          </div>
+          <div style={{ overflowX: 'auto', opacity: busy ? 0.6 : 1, transition: 'opacity .15s' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.8rem' }}>
+              <thead>
+                <tr style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: '.74rem' }}>
+                  <th style={th}>#</th><th style={th}>Vizitator</th><th style={th}>Rol</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Zile active</th><th style={{ ...th, textAlign: 'right' }}>Pagini văzute</th>
+                  <th style={th}>Ce a văzut cel mai des</th><th style={th}>Dispozitiv</th><th style={th}>Ultima vizită</th>
+                </tr>
+              </thead>
+              <tbody>
+                {randuri.map((r) => <RandVizitator key={`${r.tip}:${r.id}`} r={r} ordine={ordine} />)}
+              </tbody>
+            </table>
+          </div>
+          {pagini > 1 && (
+            <nav aria-label="Paginile listei" style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+              <button type="button" className="btn btn-outline btn-sm" disabled={pagina <= 1 || busy} onClick={() => mergiLa(pagina - 1)}>‹ Înapoi</button>
+              {pageWindow(pagina, pagini).map((p, i) => (p === '…'
+                ? <span key={`g${i}`} style={{ padding: '0 4px', color: 'var(--text-muted)' }}>…</span>
+                : <button key={p} type="button" style={{ ...seg(p === pagina), minWidth: 36, padding: '5px 8px' }} aria-current={p === pagina ? 'page' : undefined} disabled={busy && p !== pagina} onClick={() => mergiLa(p)}>{p}</button>))}
+              <button type="button" className="btn btn-outline btn-sm" disabled={pagina >= pagini || busy} onClick={() => mergiLa(pagina + 1)}>Înainte ›</button>
+            </nav>
+          )}
+        </>
+      ) : (
+        <div style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>
+          {busy || (!d && !err) ? 'Se încarcă…' : tip === 'anonimi' ? 'Niciun vizitator fără cont (cu acord pentru cookie-uri) în perioada aceasta.' : 'Încă nu există vizite în perioada aceasta.'}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Panoul ─────────────────────────────────────────────────────────────────
 export default function AdminStatistici({ box }) {
   const [zile, setZile] = useState(30);
   const [s, setS] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  const [lista, setLista] = useState('revin');      // 'revin' | 'accesari'
-  const [toti, setToti] = useState(false);          // toți cei 25, nu doar primii 10
 
   const load = useCallback(async (z = zile) => {
     setBusy(true); setErr(null);
@@ -201,7 +364,6 @@ export default function AdminStatistici({ box }) {
   const disp = (s && s.dispozitive) || {};
   const dispTotal = Object.values(disp).reduce((t, n) => t + n, 0);
   const conturi = (s && s.conturi) || {};
-  const utilizatori = lista === 'revin' ? (s && s.revin) || [] : (s && s.accesari) || [];
   const faraVizite = s && s.ok && !(v.vizualizari > 0);
 
   return (
@@ -301,50 +463,11 @@ export default function AdminStatistici({ box }) {
             </Sectiune>
           </div>
 
-          {/* utilizatorii care revin cel mai des / cu cele mai multe accesări */}
+          {/* utilizatorii care revin cel mai des / cu cele mai multe accesări — toți, pe pagini */}
           <div style={{ marginTop: 12 }}>
             <Sectiune titlu="🔁 Utilizatorii care revin cel mai des"
-              nota="Zile diferite în care au intrat pe site, în perioada aleasă. Adminii nu se numără.">
-              <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-                <button type="button" style={seg(lista === 'revin')} onClick={() => setLista('revin')} aria-pressed={lista === 'revin'}>🔁 Revin cel mai des (zile)</button>
-                <button type="button" style={seg(lista === 'accesari')} onClick={() => setLista('accesari')} aria-pressed={lista === 'accesari'}>👣 Cele mai multe accesări (pagini)</button>
-              </div>
-              {utilizatori.length ? (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.8rem' }}>
-                    <thead>
-                      <tr style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: '.74rem' }}>
-                        <th style={{ padding: '4px 6px' }}>#</th><th style={{ padding: '4px 6px' }}>Utilizator</th><th style={{ padding: '4px 6px' }}>Rol</th>
-                        <th style={{ padding: '4px 6px', textAlign: 'right' }}>Zile active</th><th style={{ padding: '4px 6px', textAlign: 'right' }}>Pagini văzute</th>
-                        <th style={{ padding: '4px 6px' }}>Ultima vizită</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(toti ? utilizatori : utilizatori.slice(0, 10)).map((u, i) => (
-                        <tr key={u.id} style={{ borderTop: '1px solid #eef1f5' }}>
-                          <td style={{ padding: '5px 6px', color: 'var(--text-muted)' }}>{i + 1}</td>
-                          <td style={{ padding: '5px 6px', minWidth: 160 }}>
-                            <strong style={{ color: 'var(--navy)' }}>{u.nume || '(fără nume)'}</strong>
-                            {u.premium && <span title="Abonament Premium activ" style={{ marginLeft: 6, fontSize: '.68rem', fontWeight: 800, color: '#8a6d00', background: 'rgba(232,185,49,.18)', borderRadius: 8, padding: '1px 6px' }}>⭐ Premium</span>}
-                            {u.email && <div style={{ color: 'var(--text-muted)', fontSize: '.72rem' }}>{u.email}</div>}
-                          </td>
-                          <td style={{ padding: '5px 6px' }}>{u.rol || '—'}</td>
-                          <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: lista === 'revin' ? 800 : 400, color: 'var(--navy)' }}>{fmt(u.zile)}</td>
-                          <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: lista === 'accesari' ? 800 : 400, color: 'var(--navy)' }}>{fmt(u.vizualizari)}</td>
-                          <td style={{ padding: '5px 6px', whiteSpace: 'nowrap', color: 'var(--text-light)' }}>{fmtCand(u.ultima)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {utilizatori.length > 10 && (
-                    <button type="button" className="btn btn-outline btn-sm" style={{ marginTop: 8 }} onClick={() => setToti((t) => !t)}>
-                      {toti ? 'Arată doar primii 10' : `Arată toți cei ${utilizatori.length}`}
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>Încă nu există vizite cu cont în perioada aceasta.</div>
-              )}
+              nota={`Toți cei care au intrat pe site în ultimele ${s.zile} zile, câte 25 pe pagină. Zile active = zile diferite cu vizite. Vizitatorii fără cont apar doar dacă au acceptat cookie-urile. Adminii nu se numără.`}>
+              <ListaVizitatori zile={s.zile} s={s} seg={seg} reincarcat={s.incarcatLa} />
             </Sectiune>
           </div>
 

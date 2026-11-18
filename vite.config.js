@@ -7,18 +7,22 @@ import { VitePWA } from 'vite-plugin-pwa';
 // deploy că a apărut una nouă (src/lib/versiune.js)
 const BUILD_TIME = new Date().toISOString();
 
-// Capitolele „🗺️ Hărții pregătirii" (api/_lib/capitoleHarta.js — CommonJS, fără dependențe)
-// se folosesc și în browser: paginile claselor își așază lecțiile pe ACELEAȘI capitole
-// (src/lib/capitoleClasa.js, 18 nov. 2026). Browserul vrea modul ES, deci aici
-// `module.exports = { … }` devine `export { … }` — un singur fișier de reguli, nicio copie.
-// (În teste, Node îl importă direct: test/clase-capitole.test.js.)
-const CAPITOLE_HARTA = /[\\/]api[\\/]_lib[\\/]capitoleHarta\.js$/;
+// Modulele de server folosite și în browser (CommonJS, fără dependențe) — un singur fișier
+// de reguli, nicio copie:
+//   • api/_lib/capitoleHarta.js — capitolele „🗺️ Hărții pregătirii": paginile claselor își
+//     așază lecțiile pe ACELEAȘI capitole (src/lib/capitoleClasa.js, 18 nov. 2026);
+//   • api/_lib/contentAdmin.js — locul unui material nou în capitolul lui (planPlasare):
+//     Admin îl arată înainte de încărcare, serverul îl aplică după (18 nov. 2026).
+// Browserul vrea modul ES, deci aici `module.exports = { … }` devine `export { … }`.
+// (În teste, Node le importă direct: test/clase-capitole.test.js, test/material-capitol.test.js.)
+const COMUNE_SERVER = /[\\/]api[\\/]_lib[\\/](capitoleHarta|contentAdmin)\.js$/;
 const capitoleHartaEsm = () => ({
   name: 'capitole-harta-esm',
   transform(code, id) {
-    if (!CAPITOLE_HARTA.test(id.split('?')[0])) return null;
+    const fisier = id.split('?')[0];
+    if (!COMUNE_SERVER.test(fisier)) return null;
     const esm = code.replace(/^module\.exports\s*=\s*\{/m, 'export {');
-    if (esm === code) this.error('api/_lib/capitoleHarta.js trebuie să se încheie cu `module.exports = { … }` (vezi vite.config.js)');
+    if (esm === code) this.error(`${fisier.split(/[\\/]/).slice(-3).join('/')} trebuie să se încheie cu \`module.exports = { … }\` (vezi vite.config.js)`);
     return { code: esm, map: null };
   },
 });
