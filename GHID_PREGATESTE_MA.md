@@ -156,6 +156,30 @@ Cererea:
   rămâne „🔔 Amintește-mi".
 - **SQL**: nimic nou (`prep_plan` e jsonb).
 
+### 0.4 Paginile claselor, pe aceleași capitole (18 nov. 2026)
+
+Cererea: „Împarte pe capitole lecțiile din «clase». Pune acele pictograme ca la hartă și la
+bareme."
+
+- **Unde**: `/clase/5` … `/clase/12`, filele „🧩 Exerciții Interactive" și „📄 Exerciții PDF"
+  (`src/components/CapitoleClasa.jsx`, `src/lib/capitoleClasa.js`; `ContentPage` primește
+  `capitole` doar de la `src/pages/ClassPage.jsx` — examenele și auxiliarele rămân cum erau).
+- **Capitolele sunt cele ale hărții**: același fișier de reguli, `api/_lib/capitoleHarta.js`,
+  folosit și în browser (`vite.config.js` → pluginul `capitole-harta-esm` îl dă ca modul ES).
+  Un material stă deci în același capitol pe hartă, în fila „📋 Bareme" și în pagina clasei;
+  ca să muți un material în alt capitol, îi schimbi titlul (sau regula din
+  `capitoleHarta.js` — se schimbă peste tot deodată). `capitoleHarta.js` rămâne fără
+  `require` și se încheie cu `module.exports = { … }` (testul `clase-capitole` verifică).
+- **Ce vede elevul**: sus, „Capitolele clasei" — inelele capitolelor (un clic deschide
+  capitolul și duce la el; „Deschide toate / Închide toate"); fiecare capitol cu pictograma
+  în inelul de progres (trecut = 70% la interactive, 50% la PDF, ca pe hartă; ✓ când e gata),
+  „5 exerciții · 2 trecute" și bara. La intrare e deschis primul capitol neterminat
+  (vizitatorului, primul); ce deschide elevul se ține minte cât e deschis tab-ul
+  (`sessionStorage`, cheia `em_capitole:<clasa>:<fila>`); la întoarcerea dintr-un exercițiu,
+  capitolul lui se deschide și cardul revine pe ecran. Capitolele sunt `<details>`:
+  materialele rămân în pagină (căutarea din browser deschide capitolul în care găsește).
+- **SQL**: nimic.
+
 ### Instalare
 
 **Supabase → SQL Editor** → rulează `supabase/plan_pregatire.sql` (o singură coloană:

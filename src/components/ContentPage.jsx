@@ -10,6 +10,7 @@ import { RatingBadge, ReviewList } from './ReviewWidget';
 import { scrollToCard } from '../lib/scrollToCard';
 import { esteBarem } from '../lib/bareme';
 import BaremeClasa, { useBaremeClasa } from './BaremeClasa';   // 📋 fila „Bareme” de la clase (15 nov. 2026)
+import CapitoleClasa from './CapitoleClasa';   // lecțiile claselor pe capitole, cu pictograme (18 nov. 2026)
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -442,7 +443,9 @@ function ManualViewer({ item }) {
 // ─── Componentă principală ────────────────────────────────────────────────────
 // `bareme` (clasele): fila „📋 Bareme” (src/components/BaremeClasa.jsx) — baremele nu mai stau
 // printre exercițiile PDF; fila apare dacă secțiunea e vizibilă elevilor (sau pentru admin)
-export default function ContentPage({ category, title, subtitle, breadcrumb, tabs, emptyIcons, bareme = false }) {
+// `capitole` (clasele): filele interactive și PDF pe capitole, cu pictogramele hărții
+// (src/components/CapitoleClasa.jsx, 18 nov. 2026)
+export default function ContentPage({ category, title, subtitle, breadcrumb, tabs, emptyIcons, bareme = false, capitole = false }) {
   const { user, isPremium, loading: authLoading } = useAuth();
   const location = useLocation();
   const initialTab = (location.state?.returnTab && tabs.some(t => t.id === location.state.returnTab))
@@ -451,6 +454,7 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
   const [activeTab, setActiveTab] = useState(initialTab);
   const [items, setItems] = useState([]);
   const [progressMap, setProgressMap] = useState({});
+  const [progresGata, setProgresGata] = useState(false);   // a venit progresul elevului (capitolele deschid primul neterminat)
   const [ratingMap, setRatingMap] = useState({});   // content_id → { avg, n } (recenzii)
   const [loading, setLoading] = useState(true);
   const scrollRestored = useRef(false);
@@ -467,6 +471,7 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
   useEffect(() => {
     async function load() {
       setLoading(true);
+      setProgresGata(false);
       const { data, error } = await supabase
         .from('content')
         .select('*')
@@ -499,7 +504,8 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
           data.forEach(p => { map[p.content_id] = p; });
           setProgressMap(map);
         }
-      });
+        setProgresGata(true);
+      }, () => setProgresGata(true));
   }, [user, items]);
 
   // Media recenziilor (stele) pentru testele din listă — vizibilă și nelogat
@@ -522,6 +528,12 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
 
   const filtered = items.filter(item => inTab(item, activeTab));
   const numar = (tabId) => (tabId === 'bareme' ? (bar.data?.stats?.bareme || 0) : items.filter(i => inTab(i, tabId)).length);
+  const peCapitole = capitole && (activeTab === 'interactive' || activeTab === 'pdf');
+  const card = (item) => (
+    item.content_type === 'manual' && item.manual_content
+      ? <ManualViewer key={item.id} item={item} />
+      : <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} rating={ratingMap[item.id]} />
+  );
 
   return (
     <>
@@ -566,13 +578,20 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
               <h3>{tabs.find(t => t.id === activeTab)?.label} – {title}</h3>
               <p>Materialele vor fi adăugate în curând. Revino mai târziu!</p>
             </div>
+          ) : peCapitole ? (
+            <CapitoleClasa
+              key={`${category}:${activeTab}`}
+              category={category}
+              tip={activeTab}
+              items={filtered}
+              progres={user ? progressMap : null}
+              progresGata={!user || progresGata}
+              cardId={location.state?.returnTab === activeTab ? location.state?.scrollToCardId : null}
+              render={card}
+            />
           ) : (
             <div style={{ marginTop: 8 }}>
-              {filtered.map(item =>
-                item.content_type === 'manual' && item.manual_content
-                  ? <ManualViewer key={item.id} item={item} />
-                  : <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} rating={ratingMap[item.id]} />
-              )}
+              {filtered.map(card)}
             </div>
           )}
         </div>

@@ -2091,8 +2091,15 @@ a.acasa-card:focus-visible, .acasa-card-link:focus-visible { outline: 3px solid 
 .acasa-link { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .acasa-link code { flex: 1 1 150px; min-width: 0; font-size: .72rem; background: var(--cream); border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .acasa-link button { border: 1.5px solid var(--navy); background: #fff; color: var(--navy); border-radius: 8px; padding: 3px 10px; font-size: .76rem; font-weight: 700; cursor: pointer; }
-/* Home → „Contul meu": secțiunea derulată rămâne sub bara de sus (lipicioasă) */
-#rezultate, #rezultate-elevi, #insigne, #teme, #invita, #parere, #catalog { scroll-margin-top: 84px; }
+/* 📚 „Materiale" (18 nov. 2026): primul card, pe toată lățimea — la elev sub „Pregătește-mă
+   de examen", la profesor deasupra lui „Generează teste"; duce la blocul „Materiale" */
+.acasa-card[data-lat] { grid-column: 1 / -1; min-height: 0; align-items: center; }
+.acasa-card[data-lat] .acasa-ic { background: rgba(0, 137, 123, .12); }
+.acasa-mat-ce { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.acasa-mat-ce span { font-size: .74rem; font-weight: 700; color: var(--navy); background: var(--cream); border: 1px solid var(--cream-dark); border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
+/* Home → „Contul meu": secțiunea derulată rămâne sub bara de sus (lipicioasă);
+   „Materiale" din Home (bara de jos, cardul 📚) — la fel */
+#rezultate, #rezultate-elevi, #insigne, #teme, #invita, #parere, #catalog, #materiale { scroll-margin-top: 84px; }
 @media (max-width: 620px) {
   .acasa-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .acasa-card { min-height: 0; padding: 12px 12px 12px 10px; }

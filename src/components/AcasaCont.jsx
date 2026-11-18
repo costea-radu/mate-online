@@ -14,6 +14,9 @@
 // la mesagerie sau la generator.
 // Salutul („Bună, Andrei!") stă în bara albastră din Home; restul funcțiilor contului —
 // în „Tot ce poți face" (Home.jsx → Scurtaturi, din src/lib/meniu.js).
+// 18 nov. 2026: „pune buton «materiale» în home la elevi sub «pregătește-mă de examen»,
+// iar la profesori primul, deasupra de «generează»" → MaterialeCard, pe toată lățimea, primul
+// în grila elevului și a profesorului.
 // Fără „Părerea ta despre ExamenMate" (scos în aceeași zi, la cererea lui Radu):
 // recenzia se lasă din „Lasă o recenzie", la sfârșitul paginii (Testimonials),
 // și din „Contul meu" (cardul „⭐ Părerea ta despre ExamenMate").
@@ -55,7 +58,9 @@ function copiaza(text, gata) {
 // un card: pictograma, titlul, rândul mic și (opțional) o valoare / un conținut.
 // Tot cardul e link; cu `extra` (linkuri / butoane proprii) cardul e un <div>, iar
 // linkul principal acoperă cardul pe sub ele (fără <a> în <a>, fără buton în <a>).
-function Card({ to, icon, titlu, sub, children, accent = 'var(--gold)', id, extra = null }) {
+// `lat` = pe toată lățimea grilei (data-lat); `onClick` = pe lângă navigare (ex. derularea în
+// pagină) — doar la cardurile fără `extra`
+function Card({ to, icon, titlu, sub, children, accent = 'var(--gold)', id, extra = null, lat = false, onClick }) {
   const continut = (
     <>
       <span className="acasa-ic" aria-hidden="true">{icon}</span>
@@ -69,10 +74,10 @@ function Card({ to, icon, titlu, sub, children, accent = 'var(--gold)', id, extr
     </>
   );
   if (!extra) {
-    return <Link to={to} className="acasa-card" id={id} style={{ '--acasa-accent': accent }}>{continut}</Link>;
+    return <Link to={to} className="acasa-card" id={id} data-lat={lat || undefined} style={{ '--acasa-accent': accent }} onClick={onClick}>{continut}</Link>;
   }
   return (
-    <div className="acasa-card acasa-card-div" id={id} style={{ '--acasa-accent': accent }}>
+    <div className="acasa-card acasa-card-div" id={id} data-lat={lat || undefined} style={{ '--acasa-accent': accent }}>
       <Link to={to} className="acasa-card-link" aria-label={titlu} />
       {continut}
     </div>
@@ -102,6 +107,25 @@ function MesageriaCard({ to = '/mesagerie', titlu = 'Mesageria', sub = 'discuți
   return (
     <Card to={to} icon="💬" titlu={titlu} sub={sub} accent="#1565c0">
       {u.count > 0 && <span className="acasa-pill acasa-pill-rosu">{u.count} {u.count === 1 ? 'mesaj nou' : 'mesaje noi'}</span>}
+    </Card>
+  );
+}
+
+// 📚 „Materiale" — duce la blocul „Materiale" din Home (examenele, clasele, auxiliarele;
+// Home.jsx → id="materiale"), ca „📚 Materiale" din bara de jos a telefonului. Derulăm și de
+// aici: cu adresa deja /#materiale (al doilea clic), hash-ul nu se mai schimbă, deci Home nu
+// ar mai derula singur.
+function laMateriale() {
+  setTimeout(() => {
+    try { document.getElementById('materiale')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* ignore */ }
+  }, 60);
+}
+function MaterialeCard({ sub }) {
+  return (
+    <Card to="/#materiale" icon="📚" titlu="Materiale" sub={sub} accent="#00897b" lat onClick={laMateriale}>
+      <span className="acasa-mat-ce" aria-hidden="true">
+        <span>📝 Evaluare Națională</span><span>🎓 Bacalaureat</span><span>🏫 Clasele V–XII</span><span>📖 Auxiliare</span>
+      </span>
     </Card>
   );
 }
@@ -139,6 +163,7 @@ export function AcasaElev() {
     <section className="acasa" aria-label="Contul tău">
       <div className="container">
         <div className="acasa-grid">
+          <MaterialeCard sub="testele interactive și fișele PDF, pe examene și pe clase" />
           <Card to="/profil?insigne=1" icon="🏅" titlu="Insignele mele" sub="progresul meu">
             {insigne && insigne.length > 0 && (
               <span className="acasa-insigne" aria-label={`${insigne.length} insigne`}>
@@ -198,6 +223,7 @@ export function AcasaProfesor() {
     <section className="acasa" aria-label="Contul tău">
       <div className="container">
         <div className="acasa-grid">
+          <MaterialeCard sub="testele interactive și fișele PDF ale site-ului, pe examene și pe clase" />
           <Card to="/profesor-virtual?tab=interactive" icon="🧩" titlu="Generează teste" sub="interactive sau PDF, după modelele oficiale" accent="#7c5cbf" />
           <Card to="/profil?rezultate=1" icon="📊" titlu="Rezultate elevi" sub="grupe, medii și catalogul: note, plusuri, minusuri, aprecieri" accent="var(--navy)" />
           <InvitaCard to="/profil?invita=1" titlu="Invită elevi" sub="un link: elevii se asociază cu un clic" cod={profile?.teacher_code} />
