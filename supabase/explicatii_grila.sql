@@ -31,6 +31,10 @@ alter table public.barem_explicatii enable row level security;
 grant select, insert, update, delete on public.barem_explicatii to authenticated;
 grant select, insert, update, delete on public.barem_explicatii to service_role;
 
+-- În acest proiect, privilegiile implicite (pg_default_acl) dau unei tabele noi TOATE drepturile
+-- și pentru anon. Explicațiile nu sunt publice (le dă serverul, după verificare) → anon nimic.
+revoke all on public.barem_explicatii from anon;
+
 do $$
 begin
   -- doar serverul (rolul de serviciu); nicio politică pentru authenticated: nimeni nu

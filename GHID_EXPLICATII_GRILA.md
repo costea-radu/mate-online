@@ -6,9 +6,10 @@ Explicația la grilă o să fie generată ulterior și încărcată."
 
 ---
 
-## Instalare (o singură dată)
+## Instalare (o singură dată — făcută pe 19 nov. 2026)
 
-**Supabase → SQL Editor → New Query** → rulează `supabase/explicatii_grila.sql` (idempotent).
+**Supabase → SQL Editor → New Query** → rulează `supabase/explicatii_grila.sql` (idempotent;
+rulat deja în proiect, migrația `explicatii_grila`).
 Creează tabela `barem_explicatii` (un PDF de explicații pe barem) cu RLS și GRANT-urile cerute
 de `CLAUDE.md` — `authenticated` + `service_role`, **fără `anon`**; scrie și citește doar
 serverul (politica `barem_explicatii_service`). Fără script, butonul nu apare la elevi, iar

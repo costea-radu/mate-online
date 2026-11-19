@@ -45,6 +45,8 @@ test('SQL: tabela barem_explicatii cu RLS, GRANT-urile din CLAUDE.md (fără ano
   const dupa = sql.slice(sql.indexOf('create table if not exists public.barem_explicatii'));
   assert.match(dupa, /\);\nalter table public\.barem_explicatii enable row level security;\n\ngrant select, insert, update, delete on public\.barem_explicatii to authenticated;\ngrant select, insert, update, delete on public\.barem_explicatii to service_role;/);
   assert.doesNotMatch(sql, /to anon/, 'datele nu sunt publice: fără acces direct pentru vizitatori');
+  // privilegiile implicite ale proiectului dau tabelelor noi acces și pentru anon → scos explicit
+  assert.match(sql, /\nrevoke all on public\.barem_explicatii from anon;\n/);
   assert.match(sql, /create policy barem_explicatii_service on public\.barem_explicatii for all to service_role/);
 });
 
