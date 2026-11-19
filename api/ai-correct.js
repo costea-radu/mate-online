@@ -37,6 +37,9 @@ const xp = require('./_lib/xp');
 const duel = require('./_lib/duel');
 const turneu = require('./_lib/turneu');
 const pregatire = require('./_lib/pregatireZilnica'); // „Pregătește-mă de examen": ziua se bifează și cu o parte de test
+const PC = require('./_lib/punctajCumulat');        // punctajul cumulat pe exerciții, între metode (19 nov. 2026)
+// metodele de rezolvare din vizualizatorul PDF care ajung la formular (src/pages/PDFViewer.jsx)
+const METODE_FORMULAR = ['pdf', 'poza', 'chat', 'foaie'];
 
 const MAX_TEXT = 12000;          // textul testului / baremului trimis modelului
 const MAX_LEAVES = 40;           // câte cerințe (subpuncte) acceptăm în formular
@@ -684,7 +687,25 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
   const pct = maxScore ? Math.round((score / maxScore) * 100) : 0;
   const nota = med.notaTest(score, maxScore); // include cele 10 puncte din oficiu (regula notaDinScor)
   const feedback = cleanMath(String(parsed.feedback || '').slice(0, 1500));
-  const necompletate = graded.filter((g) => g.verdict === 'necompletat').map((g) => g.eticheta);
+
+  // ── PUNCTAJUL CUMULAT (19 nov. 2026 — api/_lib/punctajCumulat.js): la un test din
+  //    platformă, cerințele corectate mai devreme cu altă metodă (pe PDF, cu poză, în
+  //    chat, în foaia de lucru, în testul interactiv) își păstrează punctele; cele
+  //    completate acum le înlocuiesc. În `progress` intră punctajul testului întreg.
+  let cum = null;
+  if (contentId) {
+    const cit = await PC.citeste(supa, userId, contentId);
+    if (cit.coloana) {
+      const metoda = METODE_FORMULAR.includes(context.metoda) ? context.metoda : (photos.length ? 'poza' : 'chat');
+      cum = PC.combina(cit.itemi, PC.dinFormular(graded), { metoda, max: maxScore });
+    }
+  }
+  const scorTest = cum ? cum.score : score;
+  const maxTest = cum ? cum.max : maxScore;
+  const pctTest = maxTest ? Math.round((scorTest / maxTest) * 100) : 0;
+  const notaTest = cum ? med.notaTest(scorTest, maxTest) : nota;
+  const dinainte = (g) => !!(cum && cum.itemi.itemi[PC.cheie(g.id)]);
+  const necompletate = graded.filter((g) => g.verdict === 'necompletat' && !dinainte(g)).map((g) => g.eticheta);
 
   // ── salvarea punctajului (ca la testele interactive) ──
   const sessionSeconds = Math.max(0, Math.min(6 * 3600, Math.round(Number(durationSec) || 0)));
@@ -695,7 +716,8 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
       // TEST DIN PLATFORMĂ → `progress`, exact ca exercițiile interactive
       // (apare automat la „Rezultate elevi", „Raport AI", cont părinte și elev)
       const r = await saveProgress(supa, userId, {
-        contentId, title, category, score, maxScore, sessionSeconds,
+        contentId, title, category, score: scorTest, maxScore: maxTest, sessionSeconds,
+        itemi: cum ? cum.itemi : undefined,
       });
       attempts = r.attempts; timeSpent = r.timeSpent; saved = { kind: 'progress' };
 
@@ -707,7 +729,7 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
           source: 'pdf', refId: contentId, content: { category, difficulty: src?.difficulty },
           score, maxScore, attempts, meta: { titlu: title || null },
         });
-        await duel.recordByContent(supa, userId, contentId, { score, maxScore });
+        await duel.recordByContent(supa, userId, contentId, { score: scorTest, maxScore: maxTest });
         if (gami && gami.xpExercitiu > 0) {
           await turneu.recordScore(supa, userId, contentId, { points: gami.xpExercitiu, pct });
         }
@@ -715,7 +737,7 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
       // „🎯 Pregătește-mă de examen": cerințele completate se numără (și o parte de test)
       pregatireRez = await pregatire.inregistreaza(supa, userId, {
         content: { id: contentId, title, category, content_type: 'pdf', subcategory: src?.subcategory || null, profile: src?.profile || null },
-        itemi: graded.filter((g) => g.answered).length, pct, nota: nota != null ? Number(nota) : null,
+        itemi: graded.filter((g) => g.answered).length, pct: pctTest, nota: notaTest != null ? Number(notaTest) : null,
         complet: necompletate.length === 0, verificat: true,
       });
     } else {
@@ -757,10 +779,11 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
         const ic = g.verdict === 'corect' ? '✔' : g.verdict === 'partial' ? '◐' : g.verdict === 'necompletat' ? '—' : '✖';
         return `${ic} ${g.eticheta}: ${g.puncte}/${g.maxPuncte}p${g.explicatie ? ` — ${g.explicatie}` : ''}`;
       }).join('\n');
-      const asstMsg = `📋 Corectarea lucrării „${title}": **${score}/${maxScore} puncte** (${pct}%)${nota != null ? ` · nota ${nota}` : ''}.\n\n${feedback}\n\n${detail}${necompletate.length ? `\n\nNu ai completat: ${necompletate.join(', ')}.` : ''}\n\nÎntreabă-mă orice despre corectare — îți explic fiecare cerință pas cu pas.`;
+      const cumTxt = cum && cum.nAlte ? `\n\n${PC.linie(cum, { nota: notaTest })}` : '';
+      const asstMsg = `📋 Corectarea lucrării „${title}": **${score}/${maxScore} puncte** (${pct}%)${nota != null && !cumTxt ? ` · nota ${nota}` : ''}.${cumTxt}\n\n${feedback}\n\n${detail}${necompletate.length ? `\n\nNu ai completat: ${necompletate.join(', ')}.` : ''}\n\nÎntreabă-mă orice despre corectare — îți explic fiecare cerință pas cu pas.`;
       await supa.from('ai_messages').insert({ conversation_id: convId, role: 'user', content: userMsg, mode: 'tutor' });
       const { data: saved2 } = await supa.from('ai_messages')
-        .insert({ conversation_id: convId, role: 'assistant', content: asstMsg, mode: 'tutor', metadata: { correction: { score, maxScore, nota, title } } })
+        .insert({ conversation_id: convId, role: 'assistant', content: asstMsg, mode: 'tutor', metadata: { correction: { score, maxScore, nota, title, ...(cum && cum.nAlte ? { cumulat: { score: scorTest, max: maxTest, nota: notaTest } } : {}) } } })
         .select('id').single();
       messageId = saved2?.id || null;
       await supa.from('ai_conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
@@ -780,12 +803,14 @@ Răspunde DOAR cu JSON: {"items":[{"id":"<id-ul cerinței>","puncte":<număr>,"v
     items: graded, score, maxScore, pct, nota,
     oficiu: hasBarem ? 10 : 0,
     feedback, necompletate,
+    // punctajul TESTULUI, cumulat cu cerințele corectate mai devreme (alte metode)
+    cumulat: cum ? { score: scorTest, max: maxTest, pct: pctTest, nota: notaTest, dinAlte: cum.dinAlte, nAlte: cum.nAlte, metode: cum.metode } : null,
     saved, attempts, timeSpent, mistakeIds, pregatire: pregatireRez,
   });
 }
 
 // `progress` cu upsert progresiv (tolerează instalări fără coloanele snapshot)
-async function saveProgress(supa, userId, { contentId, title, category, score, maxScore, sessionSeconds }) {
+async function saveProgress(supa, userId, { contentId, title, category, score, maxScore, sessionSeconds, itemi = undefined }) {
   let existing = null;
   try {
     const { data } = await supa.from('progress').select('*')
@@ -800,8 +825,16 @@ async function saveProgress(supa, userId, { contentId, title, category, score, m
     completed_at: new Date().toISOString(), attempts,
   };
   const snapshot = { test_title: title || null, content_type: 'pdf', category: category || null };
-  let { error } = await supa.from('progress')
-    .upsert({ ...base, ...snapshot, time_spent: timeSpent }, { onConflict: 'user_id,content_id' });
+  let error = null;
+  // punctajul pe exerciții (progress.itemi — supabase/pdf_interactiv.sql); fără coloană → ca înainte
+  if (itemi !== undefined) {
+    ({ error } = await supa.from('progress')
+      .upsert({ ...base, ...snapshot, time_spent: timeSpent, itemi }, { onConflict: 'user_id,content_id' }));
+  }
+  if (itemi === undefined || error) {
+    ({ error } = await supa.from('progress')
+      .upsert({ ...base, ...snapshot, time_spent: timeSpent }, { onConflict: 'user_id,content_id' }));
+  }
   if (error) {
     ({ error } = await supa.from('progress').upsert({ ...base, time_spent: timeSpent }, { onConflict: 'user_id,content_id' }));
   }

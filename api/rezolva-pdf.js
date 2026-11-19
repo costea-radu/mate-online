@@ -25,6 +25,12 @@
 //      interactive): la profesor („Rezultate elevi"), părinte, în „Rezultatele mele";
 //      elevul poate reveni, rezolva mai departe și corecta din nou. XP doar când
 //      punctajul crește (apăsat de mai multe ori fără schimbări nu mai dă nimic).
+//   3b. PUNCTAJUL CUMULAT (19 nov. 2026): „La schimbarea metodei de rezolvare în timpul
+//      rezolvării, să se păstreze punctajul acumulat până atunci." Rezultatul se ține
+//      pe exerciții (progress.itemi — api/_lib/punctajCumulat.js): exercițiile corectate
+//      acum le înlocuiesc pe aceleași de dinainte, iar cele corectate mai devreme cu alte
+//      metode (poză, chat, foaia de lucru, testul interactiv) își păstrează punctele.
+//      Nota și punctajul salvat sunt ale testului întreg.
 //   4. Corectarea intră în CONVERSAȚIA Profesorului Virtual (se poate întreba mai departe).
 //   5. „🎯 Pregătește-mă de examen": exercițiile lucrate se numără la testul zilei.
 //
@@ -48,6 +54,7 @@ const pdfContext = require('./ai-pdf-context');
 const correct = require('./ai-correct');          // saveProgress / saveUploadResult
 const aiPublic = require('./ai-public');           // recordPublicResult (Biblioteca utilizatorilor)
 const pregatire = require('./_lib/pregatireZilnica'); // „🎯 Pregătește-mă de examen" (testul zilei)
+const PC = require('./_lib/punctajCumulat');        // punctajul cumulat pe exerciții (19 nov. 2026)
 
 // o corectare identică (același punctaj) în ultimele NESCHIMBAT_MIN minute nu se mai salvează din nou
 const NESCHIMBAT_MIN = 30;
@@ -183,37 +190,46 @@ module.exports = async function handler(req, res) {
     }
     items.sort((a, b) => (a.s - b.s) || (a.ex - b.ex));
     const sum = R.summarize(items, { structura: q.structura });
-    // nota testului, la orice corectare: ce lipsește are 0 puncte (+10 din oficiu)
     const punctat = items.some((it) => it.puncte != null);
-    const nota = punctat && sum.total ? med.notaTest(sum.score, sum.total) : null;
+    // 4a) PUNCTAJUL CUMULAT (19 nov. 2026 — api/_lib/punctajCumulat.js): exercițiile
+    //     corectate mai devreme cu alte metode (poză, chat, foaia de lucru, testul
+    //     interactiv) își păstrează punctele; cele corectate acum le înlocuiesc
+    let cit = { row: null, itemi: null, coloana: false };
+    let cum = null;
+    if (punctat && sum.total && src.contentId) {
+      cit = await PC.citeste(supa, userId, src.contentId);
+      if (cit.coloana) cum = PC.combina(cit.itemi, PC.dinRezolvaPdf(items), { metoda: 'pdf', max: sum.total });
+    }
+    const scorTest = cum ? cum.score : sum.score;
+    const maxTest = cum ? cum.max : sum.total;
+    // nota testului, la orice corectare: ce lipsește are 0 puncte (+10 din oficiu)
+    const nota = punctat && maxTest ? med.notaTest(scorTest, maxTest) : null;
 
-    // 4) fiecare corectare → rezultatele elevului (ultima contează; se poate reveni)
+    // 4) fiecare corectare → rezultatele elevului (ultima contează, pe fiecare exercițiu; se poate reveni)
     let saved = null;
     if (punctat && sum.total) {
       try {
         if (src.contentId) {
           // același punctaj, corectat din nou de curând → nu mai numărăm o încercare
-          let vechi = null;
-          try {
-            const { data } = await supa.from('progress').select('score, max_score, completed_at')
-              .eq('user_id', userId).eq('content_id', src.contentId).maybeSingle();
-            vechi = data || null;
-          } catch { vechi = null; }
+          const vechi = cit.row;
           const recent = vechi && vechi.completed_at && (Date.now() - Date.parse(vechi.completed_at)) < NESCHIMBAT_MIN * 60000;
-          if (vechi && recent && Number(vechi.score) === Math.round(sum.score) && Number(vechi.max_score) === Math.round(sum.total)) {
+          if (vechi && recent && Number(vechi.score) === Math.round(scorTest) && Number(vechi.max_score) === Math.round(maxTest)) {
             saved = { kind: 'progress', neschimbat: true };
+            // exercițiile pot fi altele, cu același total → doar lista lor se actualizează
+            if (cum) { try { await supa.from('progress').update({ itemi: cum.itemi }).eq('user_id', userId).eq('content_id', src.contentId); } catch { /* rămâne lista veche */ } }
           } else {
-            const r = await correct.saveProgress(supa, userId, { contentId: src.contentId, title: src.title, category: src.category, score: sum.score, maxScore: sum.total, sessionSeconds: q.durationSec });
+            const r = await correct.saveProgress(supa, userId, { contentId: src.contentId, title: src.title, category: src.category, score: scorTest, maxScore: maxTest, sessionSeconds: q.durationSec, itemi: cum ? cum.itemi : undefined });
             saved = { kind: 'progress', attempts: r.attempts, partial: !sum.complete };
             try {
               const pct = Math.round((sum.score / sum.total) * 100);
               // XP doar pentru punctele câștigate în plus față de ultima corectare salvată
-              const crescut = !vechi || Math.round(sum.score) > Number(vechi.score || 0);
+              // (XP-ul se socotește din corectarea de acum: exercițiile de dinainte și-au primit deja XP-ul)
+              const crescut = !vechi || Math.round(scorTest) > Number(vechi.score || 0);
               const gami = crescut ? await xp.award(supa, userId, {
                 source: 'pdf', refId: src.contentId, content: { category: src.category, difficulty: src.difficulty },
                 score: sum.score, maxScore: sum.total, attempts: r.attempts, meta: { titlu: src.title || null, partial: !sum.complete },
               }) : null;
-              await duel.recordByContent(supa, userId, src.contentId, { score: sum.score, maxScore: sum.total, partial: !sum.complete });
+              await duel.recordByContent(supa, userId, src.contentId, { score: scorTest, maxScore: maxTest, partial: !sum.complete });
               if (gami && gami.xpExercitiu > 0) await turneu.recordScore(supa, userId, src.contentId, { points: gami.xpExercitiu, pct });
               if (gami) saved.xp = gami.xp;
             } catch (e) { console.warn('rezolva-pdf gamificare:', e.message); }
@@ -241,7 +257,7 @@ module.exports = async function handler(req, res) {
     const lucrate = new Set([...q.grile.map((x) => x.key), ...q.nerecunoscute.map((x) => x.key), ...q.scris]);
     const pregatireRez = await pregatire.inregistreaza(supa, userId, {
       content: { id: src.contentId || null, title: src.title, category: src.category, content_type: 'pdf' },
-      itemi: lucrate.size, pct: sum.total ? Math.round((sum.score / sum.total) * 100) : null, nota,
+      itemi: lucrate.size, pct: maxTest ? Math.round((scorTest / maxTest) * 100) : null, nota,
       subiecte: [...lucrate].map((k) => Number(String(k).split('.')[0])), complet: sum.complete, verificat: true,
     });
 
@@ -249,6 +265,7 @@ module.exports = async function handler(req, res) {
     const text = R.formatMessage({
       items, sum, structura: q.structura, title: src.title, hasBarem: src.hasBarem,
       feedback: aiOut ? aiOut.feedback : '', sfat: aiOut ? aiOut.sfat : '', nota, premiumNeeded, gratuite, saved,
+      cumul: cum && cum.nAlte ? { ...cum, nota } : null,
     }) + (aiError ? `\n\n⚠️ ${aiError}` : '');
     let convId = body.conversationId || null, messageId = null;
     try {
@@ -274,7 +291,7 @@ module.exports = async function handler(req, res) {
         const { data: m } = await supa.from('ai_messages')
           .insert({
             conversation_id: convId, role: 'assistant', mode: 'tutor', content: text,
-            metadata: { pdfSolve: { score: sum.score, total: sum.total, complete: sum.complete, model } },
+            metadata: { pdfSolve: { score: scorTest, total: maxTest, acum: sum.score, complete: sum.complete, model } },
           })
           .select('id').single();
         messageId = m?.id || null;
@@ -288,7 +305,10 @@ module.exports = async function handler(req, res) {
       litera: it.litera || null, parti: (it.parti || []).map((p) => ({ l: p.l, verdict: p.verdict, puncte: p.puncte, puncte_max: p.puncte_max })),
     }));
     return res.status(200).json({
-      items: marks, score: sum.score, total: sum.total, gradedMax: sum.gradedMax, nota, complete: sum.complete, pending: sum.pending,
+      // score / total / nota = ale TESTULUI (cumulate); acum = doar corectarea de acum
+      items: marks, score: scorTest, total: maxTest, gradedMax: sum.gradedMax, nota, complete: sum.complete, pending: sum.pending,
+      acum: { score: sum.score, total: sum.total },
+      cumulat: cum ? { score: cum.score, max: cum.max, dinAlte: cum.dinAlte, nAlte: cum.nAlte, metode: cum.metode } : null,
       premiumNeeded, saved, conversationId: convId, messageId, text, aiError, hasBarem: src.hasBarem, model, gratuite,
       pregatire: pregatireRez,
     });

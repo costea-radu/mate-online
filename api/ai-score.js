@@ -4,7 +4,10 @@
 // Body: { contentId, answers?: [...], score, maxScore, durationSec? }
 //   answers[i] = indexul ales (grilă) sau textul scris (răspuns liber), în
 //   ordinea itemilor — trimis de HTML-urile generate (exgen / quizRender).
-// Răspuns: { ok, score, maxScore, verified, attempts, timeSpent, correct?, total? }
+//       pdfId?, itemi?: [{ lbl, p, m }] — testul deschis din PDF-ul lui („🧩 Interactiv",
+//       19 nov. 2026): exercițiile rezolvate aici intră și în punctajul CUMULAT al PDF-ului
+//       (api/_lib/punctajCumulat.js), doar dacă PDF-ul chiar are acest test asociat.
+// Răspuns: { ok, score, maxScore, verified, attempts, timeSpent, correct?, total?, pdf? }
 //   verified=true  → scorul a fost RECALCULAT din cheile materialului;
 //   verified=false → materialul nu are chei citibile (test încărcat manual) —
 //                    se salvează scorul trimis, plafonat (ca înainte).
@@ -18,6 +21,38 @@ const duel = require('./_lib/duel');
 const turneu = require('./_lib/turneu');
 const misiune = require('./_lib/misiune');
 const pregatire = require('./_lib/pregatireZilnica'); // „🎯 Pregătește-mă de examen" — și o parte de test contează
+const PC = require('./_lib/punctajCumulat');        // punctajul cumulat al PDF-ului (19 nov. 2026)
+const med = require('./_lib/meditatii');            // notaTest
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// 🧩 Testul interactiv deschis din PDF-ul lui: exercițiile rezolvate aici (puntea
+// src/lib/tutorBridge.js → MATE_ITEMS) intră în punctajul cumulat al PDF-ului. Doar la
+// testele întregi de examen (aceeași structură, Subiectele I–III); la fișe, punctajul
+// PDF-ului rămâne cum era (îl întoarcem, ca vizualizatorul să-l arate).
+async function cumuleazaInPdf(supa, userId, { pdfId, interactiv, itemi }) {
+  if (!pdfId || !UUID_RE.test(String(pdfId))) return null;
+  const { data: pdf } = await supa.from('content').select('id, title, category, subcategory, content_type, interactiv_id').eq('id', pdfId).maybeSingle();
+  if (!pdf || pdf.content_type !== 'pdf' || pdf.interactiv_id !== interactiv.id) return null;
+  const cit = await PC.citeste(supa, userId, pdf.id);
+  const noi = PC.testIntreg(pdf) ? PC.dinInteractiv(itemi) : [];
+  if (!cit.coloana || !noi.length) {
+    const r = cit.row;
+    return r && r.max_score > 0
+      ? { pdfId: pdf.id, title: pdf.title, adaugat: false, score: Number(r.score), max: Number(r.max_score), nota: med.notaTest(r.score, r.max_score) }
+      : { pdfId: pdf.id, title: pdf.title, adaugat: false, score: null, max: null, nota: null };
+  }
+  const vechiMax = PC.valabil(cit.itemi) ? Number(cit.itemi.max) || 0 : 0;
+  const cum = PC.combina(cit.itemi, noi, { metoda: 'interactiv', max: vechiMax || 90 });
+  await PC.salveaza(supa, userId, {
+    contentId: pdf.id, title: pdf.title, category: pdf.category, contentType: 'pdf',
+    score: cum.score, max: cum.max, itemi: cum.itemi, existent: cit.row,
+  });
+  return {
+    pdfId: pdf.id, title: pdf.title, adaugat: true, score: cum.score, max: cum.max, nota: med.notaTest(cum.score, cum.max),
+    acum: cum.acum, dinAlte: cum.dinAlte, nAlte: cum.nAlte, metode: cum.metode,
+  };
+}
 
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
@@ -28,7 +63,7 @@ module.exports = async function handler(req, res) {
   try {
     const userId = await ai.authUser(req, supa);
     const profile = await ai.requireUser(supa, userId);
-    const { contentId, answers = null, score: sc0 = 0, maxScore: mx0 = 100, durationSec = 0, duelId = null, partial = false } = req.body || {};
+    const { contentId, answers = null, score: sc0 = 0, maxScore: mx0 = 100, durationSec = 0, duelId = null, partial = false, pdfId = null, itemi = null } = req.body || {};
     if (!contentId) return res.status(400).json({ error: 'contentId obligatoriu' });
 
     const { data: content } = await supa.from('content').select('*').eq('id', contentId).maybeSingle();
@@ -162,9 +197,18 @@ module.exports = async function handler(req, res) {
       complet: !!v.total && pregatire.raspunsuriDate(answers) >= v.total, verificat: true,
     }) : null;
 
-    return res.status(200).json({ ok: true, score: v.score, maxScore: v.maxScore, verified: v.verified, attempts, timeSpent, correct: v.correct ?? null, total: v.total ?? null, xp: gami, duel: duelRez, turneu: turneuRez, misiune: misiuneRez, pregatire: pregatireRez });
+    // 🧩 deschis din PDF → exercițiile intră și în punctajul cumulat al PDF-ului
+    let pdfRez = null;
+    if (pdfId) {
+      try { pdfRez = await cumuleazaInPdf(supa, userId, { pdfId, interactiv: content, itemi }); }
+      catch (e) { console.warn('ai-score: punctajul cumulat al PDF-ului:', e.message); }
+    }
+
+    return res.status(200).json({ ok: true, score: v.score, maxScore: v.maxScore, verified: v.verified, attempts, timeSpent, correct: v.correct ?? null, total: v.total ?? null, xp: gami, duel: duelRez, turneu: turneuRez, misiune: misiuneRez, pregatire: pregatireRez, pdf: pdfRez });
   } catch (err) {
     console.error('ai-score error:', err);
     return res.status(err.status || 500).json({ error: err.message || 'Eroare server', code: err.code || null });
   }
 };
+
+module.exports.cumuleazaInPdf = cumuleazaInPdf;

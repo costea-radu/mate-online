@@ -55,6 +55,8 @@ function isStr(v) { return typeof v === 'string'; }
 // Validează și normalizează câmpurile editabile. `input` = ce a trimis
 // formularul, `current` = rândul din baza de date. Întoarce { patch, errors }:
 // patch conține DOAR câmpurile care se schimbă (gol → nimic de salvat).
+const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function sanitizeUpdate(input, current) {
   const errors = [];
   const patch = {};
@@ -123,6 +125,18 @@ function sanitizeUpdate(input, current) {
     const n = Number(src.sort_order);
     if (!Number.isInteger(n) || n < 0 || n > 1000000) errors.push('Ordinea trebuie să fie un număr întreg ≥ 0.');
     else if (n !== (cur.sort_order == null ? 0 : cur.sort_order)) patch.sort_order = n;
+  }
+
+  // 🧩 testul interactiv generat după un PDF (19 nov. 2026 — metoda „Interactiv" din
+  // „✏️ Rezolvă pe PDF ▾"): doar la PDF-uri; gol = fără. Că ținta e chiar un test
+  // interactiv verifică serverul (api/content-admin.js → update).
+  if (src.interactiv_id !== undefined) {
+    const v = src.interactiv_id ? String(src.interactiv_id).trim() : null;
+    const ct = patch.content_type || cur.content_type;
+    if (v && !RE_UUID.test(v)) errors.push('Testul interactiv asociat e invalid.');
+    else if (v && ct !== 'pdf') errors.push('Doar un PDF poate avea un test interactiv asociat.');
+    else if (v && v === String(cur.id || '')) errors.push('Materialul nu poate fi asociat cu el însuși.');
+    else if (v !== (cur.interactiv_id || null)) patch.interactiv_id = v;
   }
 
   return { patch, errors };

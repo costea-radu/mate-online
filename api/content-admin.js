@@ -123,6 +123,11 @@ module.exports = async function handler(req, res) {
       const { patch, errors } = sanitizeUpdate(data || {}, current);
       if (errors.length) return res.status(400).json({ error: errors.join(' ') });
       if (!Object.keys(patch).length) return res.status(200).json({ row: current, changed: false });
+      // 🧩 testul interactiv asociat unui PDF: chiar un test interactiv (19 nov. 2026)
+      if (patch.interactiv_id) {
+        const { data: tinta } = await supabase.from('content').select('id, content_type').eq('id', patch.interactiv_id).maybeSingle();
+        if (!tinta || tinta.content_type !== 'interactive') return res.status(400).json({ error: 'Testul interactiv asociat nu există (sau nu e un test interactiv).' });
+      }
 
       let move = null;
       if ('is_free' in patch) {

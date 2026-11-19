@@ -34,6 +34,29 @@ export const METODE_REZOLVARE = [
   { id: 'chat', icon: '💬', label: 'În chat', scurt: 'Chat' },
   { id: 'foaie', icon: '✍️', label: 'În foaia de lucru', scurt: 'Foaia' },
 ];
+// 🧩 „INTERACTIV" (19 nov. 2026): „Fă ca în butonul «rezolvă pe PDF» de pe PDF-uri, pe
+// lângă variantele de rezolvare din rolldown, să apară și «interactiv», care deschide testul
+// interactiv asociat PDF-ului. Pentru testele de evaluare națională fă să apară sub «pe PDF»
+// iar la celelalte tipuri de PDF: bac și clase, să apară primul." Testul asociat e
+// content.interactiv_id (supabase/pdf_interactiv.sql); fără el, metoda nu apare. Nu se ține
+// minte ca metodă implicită: de pe harta pregătirii n-ar trebui să plece singur din PDF.
+export const METODA_INTERACTIV = { id: 'interactiv', icon: '🧩', label: 'Interactiv', scurt: 'Interactiv' };
+export function ordineMetode(metode, { interactiv = false, en = false } = {}) {
+  const lista = metode.slice();
+  if (!interactiv) return lista;
+  if (en) {
+    const iPdf = lista.findIndex((m) => m.id === 'pdf');
+    lista.splice(iPdf >= 0 ? iPdf + 1 : 0, 0, METODA_INTERACTIV);   // EN: sub „Pe PDF"
+  } else {
+    lista.unshift(METODA_INTERACTIV);                                 // BAC, clase: primul
+  }
+  return lista;
+}
+// testele întregi de examen: exercițiile din testul interactiv se adaugă la punctajul PDF-ului
+// (aceeași structură — api/_lib/punctajCumulat.js → testIntreg)
+const RUBRICI_TEST_INTREG = ['variante', 'simulari', 'variante-ai', 'teste-antrenament'];
+const PE_SCURT = { pdf: 'pe PDF', interactiv: 'interactiv', poza: 'poză', chat: 'chat', foaie: 'foaie' };
+const fmtPunct = (n) => String(Math.round((Number(n) || 0) * 100) / 100).replace('.', ',');
 const METODA_LS = 'em_metoda_rezolvare';
 export function citesteMetoda() {
   try { const m = localStorage.getItem(METODA_LS); return METODE_REZOLVARE.some((x) => x.id === m) ? m : null; } catch { return null; }
@@ -361,6 +384,30 @@ export default function PDFViewer() {
   // La BAC și la celelalte PDF-uri (și la testele de EN din testul pe grupă / duel),
   // „✏️ Rezolvă" deschide FOAIA DE LUCRU din panoul profesorului (8 nov. 2026)
   const rezolvaFoaie = !canSolve && (!!pdfData || !!examHtml) && !isBaremItem && baremStatus !== 'este_barem';
+  // 🧩 testul interactiv generat după acest PDF (19 nov. 2026) — metoda „Interactiv"
+  const interactivId = !isLib && !modTest && item && item.content_type === 'pdf' && item.interactiv_id ? item.interactiv_id : null;
+  const testIntregPdf = ['evaluare-nationala', 'bacalaureat'].includes(item?.category) && RUBRICI_TEST_INTREG.includes(item?.subcategory || '');
+  // accesul la testul interactiv: Premium fără abonament → „⭐ Premium" lângă metodă
+  const [interactivInfo, setInteractivInfo] = useState(null);   // { is_free }
+  useEffect(() => {
+    if (!interactivId) { setInteractivInfo(null); return undefined; }
+    let viu = true;
+    supabase.from('content').select('id, is_free').eq('id', interactivId).maybeSingle()
+      .then(({ data }) => { if (viu) setInteractivInfo(data || null); }, () => {});
+    return () => { viu = false; };
+  }, [interactivId]);
+  const interactivPremium = !!interactivInfo && !interactivInfo.is_free && !(isPremium || isAdmin);
+  // 📈 punctajul testului de până acum (cumulat pe exerciții, între metode) — în meniul metodelor
+  const [punctajTest, setPunctajTest] = useState(null);
+  async function citestePunctajTest() {
+    if (!user || !item?.id || isLib) return;
+    try {
+      const { data } = await supabase.from('progress').select('score, max_score, completed_at')
+        .eq('user_id', user.id).eq('content_id', item.id).maybeSingle();
+      const proaspat = data && data.max_score > 0 && data.completed_at && (Date.now() - Date.parse(data.completed_at)) < 24 * 3600 * 1000;
+      setPunctajTest(proaspat ? { score: Number(data.score), max: Number(data.max_score) } : null);
+    } catch { /* fără punctaj afișat */ }
+  }
   const inkKey = isLib ? (lib?.id ? `lib:${lib.id}` : null) : (item?.id || null);
   const solve = useRezolvarePdf({ on: solveActive, data: pdfData, draftKey: inkKey, generic: !canSolve });
   // 🔴 nota de pe test în afara modului de rezolvare: cea din panoul profesorului (vizita
@@ -566,7 +613,7 @@ export default function PDFViewer() {
       for (let i = 0; i < 120 && viu; i++) {      // ~18 s: textul PDF-ului se citește la deschiderea panoului
         const cmd = chatCmdRef.current;
         if (cmd && cmd.canAnswer && cmd.canAnswer() && cmd.answerForm) {
-          cmd.answerForm({ imagini: formaCeruta.imagini || [], indemn: formaCeruta.indemn || null, mare: narrow && formaCeruta.mod !== 'foaie' });
+          cmd.answerForm({ imagini: formaCeruta.imagini || [], indemn: formaCeruta.indemn || null, mare: narrow && formaCeruta.mod !== 'foaie', metoda: formaCeruta.mod || null });
           setFormaCeruta(null);
           return;
         }
@@ -584,6 +631,7 @@ export default function PDFViewer() {
   // ✏️ Meniul „Rezolvă pe PDF": metoda aleasă închide metoda de dinainte (15 nov. 2026, seara)
   function alegeMetoda(m) {
     setMeniuMetode(null);
+    if (m === METODA_INTERACTIV.id) { deschideInteractiv(); return; }
     if (!METODE_REZOLVARE.some((x) => x.id === m)) return;
     scrieMetoda(m);
     if (m === 'pdf') {
@@ -609,6 +657,20 @@ export default function PDFViewer() {
     setMetoda(m);
     setFormaCeruta({ mod: m, indemn: m === 'poza' ? INDEMN_POZA : INDEMN_CHAT });
   }
+  // 🧩 „Interactiv": testul interactiv generat după acest PDF. Scrisul de pe PDF rămâne în
+  // ciornă, punctajul de până acum rămâne pe PDF (progress.itemi), iar la testele întregi de
+  // examen exercițiile rezolvate în testul interactiv se adaugă la el (api/ai-score.js).
+  function deschideInteractiv() {
+    if (!interactivId || !item) return;
+    if (solveOn) { solve.store.flush(); setSolveOn(false); }
+    const { srcDoc: _s, ...stare } = (state && typeof state === 'object') ? state : {};
+    navigate(`/exercitiu?id=${interactivId}`, {
+      state: {
+        returnTo: `/pdf-viewer?id=${item.id}`,
+        dinPdf: { id: item.id, title: item.title || '', adauga: testIntregPdf, stare },
+      },
+    });
+  }
   // „✕ Închide rezolvarea" din meniu: metoda deschisă se închide (scrisul rămâne salvat)
   function inchideMetoda() {
     setMeniuMetode(null);
@@ -618,6 +680,7 @@ export default function PDFViewer() {
   }
   function deschideMeniuMetode() {
     if (meniuMetode) { setMeniuMetode(null); return; }
+    citestePunctajTest();
     const r = metodeBtnRef.current ? metodeBtnRef.current.getBoundingClientRect() : null;
     const lat = 288;
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
@@ -1121,8 +1184,9 @@ export default function PDFViewer() {
   // metodelor (pe PDF, cu poză, în chat, în foaia de lucru) — schimbabilă oricând
   const metodaActiva = solveActive ? 'pdf' : foaieActiva ? 'foaie' : (tutorOpen && (metoda === 'chat' || metoda === 'poza') ? metoda : null);
   const metodaInfo = METODE_REZOLVARE.find((m) => m.id === metodaActiva) || null;
-  const metodeVazute = METODE_REZOLVARE.filter((m) => (m.id === 'pdf' ? (canSolve || solveGeneric) : true));
+  const metodeVazute = ordineMetode(METODE_REZOLVARE.filter((m) => (m.id === 'pdf' ? (canSolve || solveGeneric) : true)), { interactiv: !!interactivId, en: isEnPdf });
   const subMetoda = (id) => ({
+    interactiv: `${testIntregPdf ? 'testul interactiv făcut după acest PDF — exercițiile rezolvate acolo se adaugă la punctaj' : 'testul interactiv făcut după acest PDF, cu corectare pe loc'}${interactivPremium ? ' · ⭐ Premium' : ''}`,
     pdf: canSolve ? 'încercuiești litera la grile și scrii la Subiectul al III-lea, direct pe test' : 'scrii rezolvarea direct pe paginile testului',
     poza: 'fotografiezi rezolvarea de pe caiet (până la 3 poze)',
     chat: 'scrii răspunsurile în formularul profesorului virtual',
@@ -1160,7 +1224,12 @@ export default function PDFViewer() {
           </button>
         )}
         <div style={{ fontSize: '0.72rem', color: '#8e95a3', padding: '6px 10px 4px', lineHeight: 1.4, borderTop: '1px solid #eef0f4', marginTop: 4 }}>
-          Poți schimba metoda oricând — ce ai scris pe PDF rămâne salvat pe dispozitiv.
+          {punctajTest && punctajTest.max > 0 && (
+            <div data-punctaj-cumulat style={{ color: 'var(--navy)', fontWeight: 800, marginBottom: 3 }}>
+              📈 Punctajul tău la test: {fmtPunct(punctajTest.score)}/{fmtPunct(punctajTest.max)}p
+            </div>
+          )}
+          Poți schimba metoda oricând: punctajul de până acum se păstrează, iar ce ai scris pe PDF rămâne salvat pe dispozitiv.
         </div>
       </div>
     </>
@@ -1171,7 +1240,7 @@ export default function PDFViewer() {
       onClick={deschideMeniuMetode}
       aria-haspopup="menu" aria-expanded={!!meniuMetode}
       className={metodaActiva || meniuMetode ? undefined : 'em-pulse'}
-      title={metodaInfo ? `Rezolvi: ${metodaInfo.label} — apasă ca să schimbi metoda` : 'Alege cum rezolvi: pe PDF, cu poză, în chat sau în foaia de lucru'}
+      title={metodaInfo ? `Rezolvi: ${metodaInfo.label} — apasă ca să schimbi metoda` : `Alege cum rezolvi: ${interactivId ? 'interactiv, ' : ''}pe PDF, cu poză, în chat sau în foaia de lucru`}
       style={{
         background: metodaActiva ? 'var(--gold)' : 'rgba(232,185,49,0.15)', border: '1px solid var(--gold)',
         color: metodaActiva ? 'var(--navy)' : 'var(--gold)', borderRadius: tiny ? 10 : 14, padding: tiny ? '0 9px' : '4px 12px',
@@ -1184,7 +1253,7 @@ export default function PDFViewer() {
       </span>
       {!tiny && (
         <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.85, whiteSpace: 'nowrap' }}>
-          {metodaActiva ? 'schimbă metoda' : 'pe PDF · poză · chat · foaie'}
+          {metodaActiva ? 'schimbă metoda' : metodeVazute.map((m) => PE_SCURT[m.id] || m.scurt).join(' · ')}
         </span>
       )}
     </button>
