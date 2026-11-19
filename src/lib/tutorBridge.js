@@ -38,6 +38,10 @@
 //                      src/lib/ciornaTest.js) → MATE_ANSWERS_SET_ACK { n }
 //                    | MATE_COMPACT { on } (telefon: bara testului se strânge)
 //                    | MATE_TOOLBAR_CMD { cmd: 'total' | 'reset' | 'all' }
+//                    | MATE_ITEMS_REQ (19 nov. 2026: testul deschis din PDF-ul lui — „🧩 Interactiv")
+//                      → MATE_ITEMS { items: [{ lbl, p, m }] }: exercițiile la care elevul a
+//                      răspuns, cu punctele lor (și în MATE_SCORE.items) — punctajul cumulat al
+//                      PDF-ului (api/_lib/punctajCumulat.js)
 // =====================================================================
 
 const BRIDGE_SCRIPT = String.raw`
@@ -492,6 +496,41 @@ const BRIDGE_SCRIPT = String.raw`
     return n;
   }
 
+  // ── EXERCIȚIILE REZOLVATE (19 nov. 2026): pentru punctajul CUMULAT al PDF-ului din care
+  // s-a deschis testul („🧩 Interactiv"): eticheta (I.1, II.2, „Subiectul I, exercițiul 3"),
+  // punctele și maximul fiecărui exercițiu la care elevul a răspuns — din starea testului
+  // (șablonul cu pași: PROBS / ST / probScore) și din cardurile-grilă.
+  function collectItems(){
+    var out = [];
+    try {
+      var P = gget('PROBS'), S = gget('ST'), ps = gget('probScore');
+      if (Array.isArray(P) && P.length && P[0] && P[0].steps && typeof ps === 'function' && S) {
+        for (var i = 0; i < P.length && i < 80; i++) {
+          var p = P[i]; if (!p) continue;
+          var st = S[p.n]; if (!st || !st.ans) continue;
+          var raspuns = false;
+          for (var a = 0; a < st.ans.length; a++) if (st.ans[a]) { raspuns = true; break; }
+          if (!raspuns) continue;
+          var pts = Number(ps(p)), mx = probMax(p);
+          if (!isFinite(pts) || !(mx > 0)) continue;
+          out.push({ lbl: String(p.lbl || ('Exercițiul ' + p.n)), p: Math.max(0, Math.min(mx, pts)), m: mx });
+        }
+      }
+    } catch(e){}
+    try {
+      var cards = document.querySelectorAll('.card[data-correct]');
+      for (var c = 0; c < cards.length && c < 120; c++) {
+        var card = cards[c];
+        if (!card.querySelector('.opt.sel')) continue;
+        var lbl = cardLabel(card); if (!lbl) continue;
+        var pc = cardPts(card);
+        out.push({ lbl: lbl, p: cardCorrect(card) ? pc : 0, m: pc });
+      }
+    } catch(e){}
+    return out.length ? out : null;
+  }
+  function postItems(){ try { window.parent.postMessage({ type: 'MATE_ITEMS', items: collectItems() || [] }, '*'); } catch(e){} }
+
   function postScore(score, max, force){
     if (!isFinite(score) || !isFinite(max) || max <= 0 || score < 0 || score > max) return;
     var sig = score + '/' + max, now = Date.now();
@@ -501,7 +540,7 @@ const BRIDGE_SCRIPT = String.raw`
     if (sig === lastSig && now - lastSigAt < 4000) return;
     lastSig = sig; lastSigAt = now;
     postAnswers(); // răspunsurile ajung ÎNAINTE de scor (părintele le trimite serverului)
-    try { window.parent.postMessage({ type: 'MATE_SCORE', score: Math.round(score), maxScore: Math.round(max), answers: collectAnswers() || undefined }, '*'); } catch(e){}
+    try { window.parent.postMessage({ type: 'MATE_SCORE', score: Math.round(score), maxScore: Math.round(max), answers: collectAnswers() || undefined, items: collectItems() || undefined }, '*'); } catch(e){}
   }
   // 1) șablonul PROBS/stats/GRADED (variantele de examen încărcate)
   function scoreFromStats(){
@@ -1056,6 +1095,8 @@ const BRIDGE_SCRIPT = String.raw`
     // salvarea parțială (dueluri/turnee): părintele cere răspunsurile de acum,
     // fără să fie nevoie ca elevul să apese „Verifică"
     if (d.type === 'MATE_ANSWERS_REQ') postAnswers();
+    // 🧩 testul deschis din PDF: exercițiile rezolvate, pentru punctajul cumulat al PDF-ului
+    if (d.type === 'MATE_ITEMS_REQ') postItems();
     if (d.type === 'MATE_ANSWERS_SET') {
       var pusi = setAnswers(d.answers);
       post('MATE_ANSWERS_SET_ACK', { n: pusi });

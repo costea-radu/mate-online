@@ -552,7 +552,7 @@ export function useRezolvarePdf({ on, data, draftKey, generic = false }) {
   function keepResult(r, sigs = {}) {
     const byKey = {};
     for (const it of (r && r.items) || []) byKey[it.key] = it;
-    store.setResult({ byKey, sigs, score: r.score, total: r.total, nota: r.nota, complete: r.complete, gratuite: r.gratuite || null, at: Date.now() });
+    store.setResult({ byKey, sigs, score: r.score, total: r.total, nota: r.nota, complete: r.complete, gratuite: r.gratuite || null, cumulat: r.cumulat && r.cumulat.nAlte > 0 ? r.cumulat : null, at: Date.now() });
   }
 
   // fără abonament: câte corectări gratuite ale grilei au mai rămas (și când serverul
@@ -737,7 +737,7 @@ export function RezolvareFooter({ solve, busy = false, onCorect, premium = true,
       </button>
       {r && r.total ? (
         <div style={{ marginTop: 10, fontSize: '.82rem', color: 'var(--navy)', fontWeight: 700 }}>
-          Ultima corectare: {fmt(r.score)}/{r.total}p{r.nota != null ? ` · nota ${fmt(r.nota)}` : ''}
+          {r.cumulat ? 'Punctajul testului (cu celelalte metode)' : 'Ultima corectare'}: {fmt(r.score)}/{r.total}p{r.nota != null ? ` · nota ${fmt(r.nota)}` : ''}
           {r.nota != null && (
             <>{' '}<button type="button" onClick={() => solve.veziNota()}
               style={{ background: 'none', border: 'none', padding: 0, color: ROSU, fontWeight: 800, fontSize: '.82rem', cursor: 'pointer', textDecoration: 'underline' }}>

@@ -94,7 +94,9 @@ test('foaia de lucru: nota testului doar la subiectele de examen cu barem oficia
 
 test('foaia de lucru: nota intră în chat, în rezultate (progress, ca „✏️ Rezolvă pe PDF") și în răspuns', () => {
   const api = read('api/ai-handwriting.js');
-  assert.match(api, /const notaT = notaDinFoaie\(src, r\);/);
+  // 19 nov. 2026: nota e a testului întreg — cu exercițiile corectate mai devreme cu alte metode
+  assert.match(api, /let notaT = notaDinFoaie\(src, r\);/);
+  assert.match(api, /cum = PC\.combina\(cit\.itemi, noi, \{ metoda: 'foaie', max: notaT\.total \}\);/);
   assert.match(api, /📝 \*\*Nota pe test: \$\{fmtNota\(notaT\.nota\)\}\*\*/);
   assert.match(api, /correct\.saveProgress\(supa, userId, \{ contentId: src\.contentId, title: src\.title, category: src\.category, score: notaT\.score, maxScore: notaT\.total/);
   assert.match(api, /saved = \{ kind: 'progress', neschimbat: true \};/, 'aceeași corectare în 30 de minute nu mai e o încercare');
@@ -130,7 +132,8 @@ test('evenimentul „em:nota-pdf": doar cu testul și nota (din formular sau din
 test('AITutor: după formular și după foaia de lucru, nota pleacă spre PDF (și recenzia, la foaie)', () => {
   const t = read('src/components/AITutor.jsx');
   assert.match(t, /import \{ pregatireRezultat, testCorectat, notaPdfCorectata \} from '\.\.\/lib\/arena';/);
-  assert.match(t, /if \(context\.pdf && r\.nota != null\) \{\s*\n\s*notaPdfCorectata\(\{ contentId: form\.src\.contentId \|\| context\.contentId \|\| null, libraryId: form\.src\.libraryId \|\| context\.libraryId \|\| null, nota: r\.nota, score: r\.score, total: r\.maxScore, sursa: 'formular' \}\);/);
+  // 19 nov. 2026: nota TESTULUI (cumulată cu exercițiile corectate cu alte metode — r.cumulat)
+  assert.match(t, /if \(context\.pdf && r\.nota != null\) \{\s*\n\s*const cu = r\.cumulat && r\.cumulat\.nota != null \? r\.cumulat : null;\s*\n\s*notaPdfCorectata\(\{ contentId: form\.src\.contentId \|\| context\.contentId \|\| null, libraryId: form\.src\.libraryId \|\| context\.libraryId \|\| null, nota: cu \? cu\.nota : r\.nota, score: cu \? cu\.score : r\.score, total: cu \? cu\.max : r\.maxScore, sursa: 'formular' \}\);/);
   assert.match(t, /testCorectat\(\{ contentId: context\.contentId \|\| null, saved: r\.saved \|\| null \}\);\s*\n\s*if \(context\.pdf && r\.nota != null\) \{\s*\n\s*notaPdfCorectata\(\{ contentId: context\.contentId \|\| null, libraryId: context\.contentId \? null : \(context\.libraryId \|\| null\), nota: r\.nota, score: r\.score, total: r\.total, sursa: 'foaie' \}\);/);
 });
 

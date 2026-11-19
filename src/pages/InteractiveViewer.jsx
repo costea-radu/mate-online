@@ -139,6 +139,12 @@ export default function InteractiveViewer() {
   const [hwFinalizing, setHwFinalizing] = useState(false); // „🏁 Finalizează tema" în curs
   const [hwError, setHwError] = useState(null);
   const [item, setItem] = useState(state?.item || null);
+  // 🧩 DESCHIS DIN PDF-UL LUI („✏️ Rezolvă pe PDF ▾" → „🧩 Interactiv", 19 nov. 2026): punctajul
+  // de până acum de pe PDF se vede aici și rămâne; la testele întregi de examen, exercițiile
+  // rezolvate aici se adaugă la el (api/ai-score.js → cumuleazaInPdf). „↩ Înapoi la PDF".
+  const dinPdf = state?.dinPdf && state.dinPdf.id ? state.dinPdf : null;
+  const [pdfCumul, setPdfCumul] = useState(null);   // { score, max, nota, adaugat? }
+  const itemiRef = useRef(null);                    // ultimele exerciții raportate de bridge (MATE_ITEMS)
   // „Grant": deschide un material PREMIUM pentru un elev fără abonament, când
   // adminul a trimis tema pe grupă cu opțiunea „testele premium gratuit".
   const [grant, setGrant] = useState(state?.grant || null);
@@ -187,7 +193,45 @@ export default function InteractiveViewer() {
   // Resetează cronometrul când se încarcă alt exercițiu
   useEffect(() => { startedAtRef.current = Date.now(); }, [item?.id]);
 
+  // ↩ înapoi la PDF-ul din care a venit elevul, cu starea lui (lista din care se deschisese PDF-ul)
+  function inapoiLaPdf() {
+    navigate(`/pdf-viewer?id=${dinPdf.id}`, { state: dinPdf.stare && typeof dinPdf.stare === 'object' ? dinPdf.stare : undefined });
+  }
+
+  // punctajul de până acum al PDF-ului (în rezolvarea în curs — 24 h, ca pe server)
+  useEffect(() => {
+    if (!dinPdf || !user) return undefined;
+    let viu = true;
+    (async () => {
+      try {
+        const { data } = await supabase.from('progress').select('score, max_score, completed_at')
+          .eq('user_id', user.id).eq('content_id', dinPdf.id).maybeSingle();
+        const proaspat = data && data.max_score > 0 && data.completed_at && (Date.now() - Date.parse(data.completed_at)) < 24 * 3600 * 1000;
+        if (viu && proaspat) setPdfCumul({ score: Number(data.score), max: Number(data.max_score), nota: notaDinScor(data.score, data.max_score) });
+      } catch { /* fără punctaj afișat */ }
+    })();
+    return () => { viu = false; };
+  }, [dinPdf?.id, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // exercițiile rezolvate (eticheta, punctele, maximul) — le cere bridge-ului testului
+  function cereItemi(timeoutMs = 800) {
+    return new Promise((resolve) => {
+      let gata = false;
+      const fin = (v) => { if (gata) return; gata = true; window.removeEventListener('message', on); clearTimeout(t); resolve(v); };
+      function on(ev) {
+        const d = ev.data;
+        if (!d || typeof d !== 'object' || d.type !== 'MATE_ITEMS') return;
+        if (iframeRef.current && ev.source !== iframeRef.current.contentWindow) return;
+        fin(Array.isArray(d.items) ? d.items : null);
+      }
+      const t = setTimeout(() => fin(itemiRef.current), timeoutMs);
+      window.addEventListener('message', on);
+      try { iframeRef.current?.contentWindow?.postMessage({ type: 'MATE_ITEMS_REQ' }, '*'); } catch { fin(itemiRef.current); }
+    });
+  }
+
   function goBack() {
+    if (dinPdf) { inapoiLaPdf(); return; }
     if (state?.returnTo) {
       navigate(state.returnTo, { state: { scrollToCardId: state.scrollToCardId, returnTab: state.returnTab, returnSubcategory: state.returnSubcategory, returnContentType: state.returnContentType } });
     } else {
@@ -205,7 +249,7 @@ export default function InteractiveViewer() {
 
   // ─── Salvare progres primit de la iframe ────────────────────────────────────
   useEffect(() => {
-    async function saveScore(score, maxScore, answers = null) {
+    async function saveScore(score, maxScore, answers = null, items = null) {
       if (typeof score !== 'number' || typeof maxScore !== 'number') return;
       if (!item) return;
       // răspunsurile elevului (din mesajul testului sau citite din pagină de
@@ -251,8 +295,11 @@ export default function InteractiveViewer() {
       //    încărcate manual) salvează scorul trimis, plafonat
       {
         try {
-          const r = await aiClient.scoreSubmit({ contentId: item.id, answers: ans, score, maxScore, durationSec: sessionSeconds, duelId });
+          // 🧩 deschis din PDF: și exercițiile (pentru punctajul cumulat al PDF-ului)
+          const itemi = dinPdf ? (Array.isArray(items) && items.length ? items : await cereItemi()) : null;
+          const r = await aiClient.scoreSubmit({ contentId: item.id, answers: ans, score, maxScore, durationSec: sessionSeconds, duelId, ...(dinPdf ? { pdfId: dinPdf.id, itemi } : {}) });
           if (r?.ok) {
+            if (dinPdf && r.pdf && r.pdf.max > 0) setPdfCumul({ score: r.pdf.score, max: r.pdf.max, nota: r.pdf.nota != null ? Number(r.pdf.nota).toFixed(2) : null, adaugat: !!r.pdf.adaugat, nAlte: r.pdf.nAlte || 0 });
             setScoreSaved(true);
             setSavedScore({ score: r.score, maxScore: r.maxScore, verified: !!r.verified });
             setSaveError(null);
@@ -378,7 +425,7 @@ export default function InteractiveViewer() {
         // Scorul autentic, trimis de codul testului — are întotdeauna prioritate.
         realScoreAtRef.current = Date.now();
         if (hintTimerRef.current) { clearTimeout(hintTimerRef.current); hintTimerRef.current = null; }
-        saveScore(d.score, d.maxScore, d.answers);
+        saveScore(d.score, d.maxScore, d.answers, d.items);
         return;
       }
 
@@ -403,7 +450,7 @@ export default function InteractiveViewer() {
       window.removeEventListener('message', handleMessage);
       if (hintTimerRef.current) { clearTimeout(hintTimerRef.current); hintTimerRef.current = null; }
     };
-  }, [user, item, temaId, medSesId, authLoading]);
+  }, [user, item, temaId, medSesId, authLoading, dinPdf?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // „🎯 Pregătește-mă de examen": felicitarea (ziua bifată) sau progresul spre bifă —
   // progresul doar în testul zilei și doar când s-a schimbat numărul de exerciții
@@ -529,6 +576,7 @@ export default function InteractiveViewer() {
         return;
       }
       if (d.type === 'MATE_ANSWERS_SET_ACK' && fromTest) { const n = Number(d.payload && d.payload.n) || 0; if (n > 0) setCiornaPusa(n); return; }
+      if (d.type === 'MATE_ITEMS' && fromTest) { itemiRef.current = Array.isArray(d.items) ? d.items : null; return; }
       if (d.type === 'MATE_TOOLBAR' && fromTest) { if (d.payload) setTb(d.payload); return; }
       // răspunsurile elevului, citite din pagină de bridge (Etapa 3): serverul
       // recalculează scorul din ele, chiar dacă testul e un HTML mai vechi
@@ -1003,6 +1051,36 @@ export default function InteractiveViewer() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* 🧩 deschis din PDF: punctajul de până acum rămâne (și crește cu exercițiile de aici) */}
+      {dinPdf && (
+        <div data-din-pdf role="status" style={{
+          display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flexWrap: isMobile ? 'nowrap' : 'wrap', flexShrink: 0,
+          padding: isMobile ? '5px 10px' : '6px 20px', background: 'rgba(232,185,49,0.13)',
+          borderBottom: '1px solid rgba(232,185,49,0.35)', color: '#fff', fontSize: isMobile ? '0.74rem' : '0.8rem', lineHeight: 1.35,
+        }}>
+          <span style={isMobile ? { minWidth: 0, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } : { minWidth: 0 }}
+            title={isMobile ? `Rezolvi interactiv testul „${dinPdf.title}"` : undefined}>
+            📄 {isMobile ? null : 'Rezolvi interactiv testul '}<b>„{dinPdf.title}"</b>
+            {pdfCumul && pdfCumul.max > 0 && (
+              <> · {isMobile ? null : 'punctajul tău la test: '}<b style={{ color: 'var(--gold)' }}>{String(pdfCumul.score).replace('.', ',')}/{pdfCumul.max}p</b>{pdfCumul.nota != null && !isMobile ? <> · nota <b>{String(pdfCumul.nota).replace('.', ',')}</b></> : null}</>
+            )}
+          </span>
+          {!isMobile && (
+            <span style={{ opacity: 0.85 }}>
+              {pdfCumul?.adaugat
+                ? '✓ exercițiile rezolvate aici s-au adăugat la punctaj'
+                : dinPdf.adauga
+                  ? '— exercițiile rezolvate aici se adaugă la punctaj; cele de pe PDF rămân'
+                  : '— punctajul de pe PDF rămâne cum era'}
+            </span>
+          )}
+          <button type="button" onClick={inapoiLaPdf} title="Înapoi la PDF — punctajul rămâne" style={{
+            marginLeft: 'auto', flexShrink: 0, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.3)',
+            color: '#fff', borderRadius: 8, padding: '3px 10px', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 700, fontFamily: 'inherit',
+          }}>{isMobile ? '↩ PDF' : '↩ Înapoi la PDF'}</button>
+        </div>
       )}
 
       {/* Exercițiul + Profesorul Virtual, unul lângă altul, interconectate */}

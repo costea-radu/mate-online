@@ -2269,6 +2269,19 @@ async function postContent({ supa, title, description = '', category, subcategor
   return { contentId: ins?.id || null, fileUrl: row.file_url };
 }
 
+// 🧩 Testul făcut dintr-UN SINGUR PDF devine „testul interactiv al PDF-ului" (19 nov. 2026):
+// metoda „🧩 Interactiv" din „✏️ Rezolvă pe PDF ▾" (content.interactiv_id —
+// supabase/pdf_interactiv.sql). Doar dacă PDF-ul nu are deja unul (asocierea aleasă de admin
+// rămâne); fără coloană / la eroare → nimic (testul e postat oricum).
+async function asociazaPdf(supa, { sourceId = null, ctype = null, contentId = null } = {}) {
+  if (!sourceId || !contentId || ctype !== 'pdf') return false;
+  try {
+    const { data, error } = await supa.from('content').update({ interactiv_id: contentId })
+      .eq('id', sourceId).eq('content_type', 'pdf').is('interactiv_id', null).select('id');
+    return !error && Array.isArray(data) && data.length > 0;
+  } catch { return false; }
+}
+
 // ─── MODELUL DE FORMAT al unui task: fișier HTML/PDF încărcat de admin ───────
 // Se păstrează în Storage (bucketul privat 'content-files', folderul
 // agent-formats/), iar în task rămâne doar descriptorul
@@ -2415,13 +2428,17 @@ async function runTask({ supa, task, triggerKind = 'cron' }) {
         });
         run.status = 'posted';
         run.content_id = posted.contentId;
+        // 🧩 făcut dintr-un singur PDF → testul interactiv al PDF-ului
+        if (g.sourceId) await asociazaPdf(supa, { sourceId: g.sourceId, ctype: task.ctype || 'interactive', contentId: posted.contentId });
       } else {
         run.status = 'pending_review';
         // rezultatul rămâne în istoricul rulărilor până îl aprobi/ștergi din
-        // admin (plafonat sub ~1 MB — limita payload-ului API-ului Supabase)
+        // admin (plafonat sub ~1 MB — limita payload-ului API-ului Supabase);
+        // sourceId: PDF-ul din care s-a făcut (asocierea „🧩 Interactiv", la aprobare)
+        const sursa = g.sourceId ? { sourceId: g.sourceId } : {};
         run.result = g.html
-          ? { kind: 'html', html: String(g.html).slice(0, 700000) }
-          : { kind: 'exercise', exercise: g.exercise };
+          ? { kind: 'html', html: String(g.html).slice(0, 700000), ...sursa }
+          : { kind: 'exercise', exercise: g.exercise, ...sursa };
       }
       // progresul modului „pe rând": fișierul-sursă e bifat ca procesat
       // (inclusiv la „pending_review" — a fost consumat de generare; resetarea
@@ -2477,13 +2494,15 @@ async function postRun({ supa, runId }) {
     postType: task.post_type || 'test',
     taskId: task.id,
   });
+  // 🧩 făcut dintr-un singur PDF → testul interactiv al PDF-ului
+  if (run.result.sourceId) await asociazaPdf(supa, { sourceId: run.result.sourceId, ctype: task.ctype || 'interactive', contentId: posted.contentId });
   // eliberăm HTML-ul din istoric (exercițiul JSON rămâne pe rândul din `content`)
   await supa.from('agent_task_runs').update({ status: 'posted', content_id: posted.contentId, result: null }).eq('id', runId);
   return { contentId: posted.contentId, fileUrl: posted.fileUrl };
 }
 
 module.exports = {
-  runAuto, normalize, renderExerciseHtml, postContent, runTask, postRun, notifyAdmin,
+  runAuto, normalize, renderExerciseHtml, postContent, runTask, postRun, notifyAdmin, asociazaPdf,
   storeFormatModel, removeFormatModel, loadFormatModel, fetchExtraContext,
   detectMode, titleMatchScore, fetchPairedContext, downloadStorage,
   // pentru teste (test/agent-tasks.test.js)

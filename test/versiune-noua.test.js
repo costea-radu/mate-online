@@ -224,6 +224,8 @@ test('nota în bara de rezolvare (clic → la notă), în capătul paginilor și
   assert.ok(!/notaArataRef/.test(pv), 'nu mai e „doar prima dată"');
   // nota se calculează la ORICE corectare punctată (și cu 2–3 exerciții), iar punctajul se salvează
   const api = read('api/rezolva-pdf.js');
-  assert.match(api, /const nota = punctat && sum\.total \? med\.notaTest\(sum\.score, sum\.total\) : null;/);
+  // 19 nov. 2026: nota e a TESTULUI, cu punctajul cumulat pe exerciții (api/_lib/punctajCumulat.js)
+  assert.match(api, /const maxTest = cum \? cum\.max : sum\.total;/);
+  assert.match(api, /const nota = punctat && maxTest \? med\.notaTest\(scorTest, maxTest\) : null;/);
   assert.match(api, /saved = \{ kind: 'progress', attempts: r\.attempts, partial: !sum\.complete \};/);
 });

@@ -176,12 +176,45 @@ export function UndeApare({ form, contentType = 'pdf', fileName = '' }) {
 }
 
 // ─── Modal „Editează" ─────────────────────────────────────────────────────────
+// 🧩 TESTUL INTERACTIV ASOCIAT UNUI PDF (19 nov. 2026): cel generat după el — elevul îl
+// deschide din vizualizator, „✏️ Rezolvă pe PDF ▾" → „🧩 Interactiv". Lista: testele
+// interactive din aceeași clasă / același examen (la BAC, același profil — și cele fără profil).
+export function InteractivAsociat({ s, item, value, onChange }) {
+  const [lista, setLista] = useState(null);
+  useEffect(() => {
+    let viu = true;
+    supabase.from('content').select('id, title, subcategory, profile, is_free, created_at')
+      .eq('category', item.category).eq('content_type', 'interactive')
+      .order('created_at', { ascending: false }).range(0, 1999)
+      .then(({ data }) => { if (viu) setLista((data || []).filter((r) => !item.profile || !r.profile || r.profile === item.profile)); }, () => { if (viu) setLista([]); });
+    return () => { viu = false; };
+  }, [item.category, item.profile]);
+  const ales = (lista || []).find((r) => r.id === value) || null;
+  return (
+    <div style={s.formGroup}>
+      <label style={s.label}>🧩 Test interactiv asociat</label>
+      <select style={s.select} value={value || ''} onChange={(e) => onChange(e.target.value)} aria-label="Testul interactiv asociat PDF-ului">
+        <option value="">{lista === null ? 'Se încarcă testele…' : '— fără test interactiv —'}</option>
+        {value && lista && !ales && <option value={value}>(testul asociat acum)</option>}
+        {(lista || []).map((r) => (
+          <option key={r.id} value={r.id}>{r.title}{r.subcategory ? ` — ${subcategoryLabel(item.category, r.subcategory)}` : ''}{r.is_free ? '' : ' · ⭐'}</option>
+        ))}
+      </select>
+      <div style={{ fontSize: '0.76rem', color: '#8e95a3', marginTop: 4, lineHeight: 1.5 }}>
+        Testul generat după acest PDF: elevul îl deschide din vizualizator, la „✏️ Rezolvă pe PDF ▾" → „🧩 Interactiv" (la Evaluarea
+        Națională sub „Pe PDF", la Bacalaureat și la clase primul). Punctajul de pe PDF se păstrează când trece la testul interactiv.
+      </div>
+    </div>
+  );
+}
+
 export function EditContentModal({ s, item, onClose, onSaved, onReplace = null }) {
   const [form, setForm] = useState({
     title: item.title || '', description: item.description || '',
     category: item.category, subcategory: item.subcategory || '', profile: item.profile || '',
     content_type: item.content_type, is_free: !!item.is_free,
     sort_order: item.sort_order == null ? 0 : item.sort_order,
+    interactiv_id: item.interactiv_id || '',
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(null);
@@ -207,6 +240,7 @@ export function EditContentModal({ s, item, onClose, onSaved, onReplace = null }
           title: form.title, description: form.description, category: form.category,
           subcategory: form.subcategory || null, profile: form.profile || null,
           content_type: form.content_type, is_free: form.is_free, sort_order: form.sort_order,
+          ...(item.content_type === 'pdf' ? { interactiv_id: form.interactiv_id || null } : {}),
         },
       });
       onSaved(r.row || { ...item, ...form }, r);
@@ -258,6 +292,10 @@ export function EditContentModal({ s, item, onClose, onSaved, onReplace = null }
               onChange={e => setForm(p => ({ ...p, sort_order: e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value, 10) || 0) }))} />
           ))}
         </div>
+
+        {item.content_type === 'pdf' && form.content_type === 'pdf' && (
+          <InteractivAsociat s={s} item={item} value={form.interactiv_id} onChange={(v) => setForm((p) => ({ ...p, interactiv_id: v }))} />
+        )}
 
         <div style={{ fontSize: '0.78rem', color: '#8e95a3', lineHeight: 1.6, marginTop: -6, marginBottom: 14 }}>
           Tipul poate fi doar unul compatibil cu fișierul ({file ? file.name : 'fără fișier'}). Ordinea: număr mai mic = apare mai sus

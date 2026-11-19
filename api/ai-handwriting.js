@@ -42,6 +42,7 @@ const corector = require('./_lib/corector');
 const pdfContext = require('./ai-pdf-context');
 const med = require('./_lib/meditatii');            // notaTest (cu cele 10 puncte din oficiu)
 const correct = require('./ai-correct');            // saveProgress / saveUploadResult
+const PC = require('./_lib/punctajCumulat');        // punctajul cumulat pe exerciții, între metode (19 nov. 2026)
 
 const EXAMENE_OFICIALE = ['evaluare-nationala', 'bacalaureat'];
 const PUNCTE_EXAMEN = 90;          // + 10 din oficiu = 100
@@ -190,25 +191,35 @@ module.exports = async function handler(req, res) {
     const r = out.result;
 
     // 🔴 nota testului (subiect de examen cu barem) — în chat, în rezultate și pe PDF
-    const notaT = notaDinFoaie(src, r);
+    let notaT = notaDinFoaie(src, r);
+    // 📈 PUNCTAJUL CUMULAT (19 nov. 2026 — api/_lib/punctajCumulat.js): exercițiile corectate
+    //    mai devreme cu alte metode (pe PDF, cu poză, în chat, în testul interactiv) rămân;
+    //    cele scrise acum pe foaie le înlocuiesc pe aceleași. Nota e a testului întreg.
+    let cit = { row: null, itemi: null, coloana: false };
+    let cum = null;
+    if (notaT && src.contentId) {
+      cit = await PC.citeste(supa, userId, src.contentId);
+      const noi = PC.dinFoaie(r.itemi);
+      if (cit.coloana && noi.length) {
+        cum = PC.combina(cit.itemi, noi, { metoda: 'foaie', max: notaT.total });
+        if (cum.nAlte) notaT = { ...notaT, score: cum.score, nota: med.notaTest(cum.score, notaT.total) };
+      }
+    }
     if (notaT) {
       out.text = `${out.text}\n\n📝 **Nota pe test: ${fmtNota(notaT.nota)}** (${notaT.score}/${notaT.total} puncte + 10 din oficiu) — e scrisă cu roșu sus, pe prima pagină a testului. Ce nu ai scris încă pe foaie are 0 puncte: continuă și cere din nou corectarea, iar nota se actualizează.`;
+      if (cum && cum.nAlte) out.text = `${out.text}\n\n${PC.linie(cum, { nota: notaT.nota })}`;
     }
     let saved = null;
     if (notaT) {
       try {
         if (src.contentId) {
-          let vechi = null;
-          try {
-            const { data } = await supa.from('progress').select('score, max_score, completed_at')
-              .eq('user_id', userId).eq('content_id', src.contentId).maybeSingle();
-            vechi = data || null;
-          } catch { vechi = null; }
+          const vechi = cit.row;
           const recent = vechi && vechi.completed_at && (Date.now() - Date.parse(vechi.completed_at)) < NESCHIMBAT_MIN * 60000;
           if (vechi && recent && Number(vechi.score) === Math.round(notaT.score) && Number(vechi.max_score) === notaT.total) {
             saved = { kind: 'progress', neschimbat: true };
+            if (cum) { try { await supa.from('progress').update({ itemi: cum.itemi }).eq('user_id', userId).eq('content_id', src.contentId); } catch { /* rămâne lista veche */ } }
           } else {
-            const pr = await correct.saveProgress(supa, userId, { contentId: src.contentId, title: src.title, category: src.category, score: notaT.score, maxScore: notaT.total, sessionSeconds: 0 });
+            const pr = await correct.saveProgress(supa, userId, { contentId: src.contentId, title: src.title, category: src.category, score: notaT.score, maxScore: notaT.total, sessionSeconds: 0, itemi: cum ? cum.itemi : undefined });
             saved = { kind: 'progress', attempts: pr.attempts, partial: true };
           }
         } else if (src.libraryId) {

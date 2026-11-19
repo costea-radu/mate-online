@@ -194,6 +194,9 @@ const VERDICT_UI = {
   gresit: { icon: '✖', color: '#c62828' },
   necompletat: { icon: '—', color: '#8a94a3' },
 };
+// metodele de rezolvare, în propoziție (punctajul cumulat — api/_lib/punctajCumulat.js)
+const METODE_TXT = { pdf: 'pe PDF', poza: 'cu poză', chat: 'în chat', foaie: 'în foaia de lucru', interactiv: 'în testul interactiv' };
+
 function CorrectionBlock({ r }) {
   const [openId, setOpenId] = useState(null);
   if (!r || !Array.isArray(r.items)) return null;
@@ -204,7 +207,7 @@ function CorrectionBlock({ r }) {
         <strong style={{ fontSize: '.82rem', color: 'var(--navy)' }}>📋 Punctajul tău</strong>
         <span style={{ fontSize: '.85rem' }}>
           <strong style={{ color: pctCol }}>{r.score}/{r.maxScore}p ({r.pct}%)</strong>
-          {r.nota != null && (
+          {r.nota != null && !(r.cumulat && r.cumulat.nAlte > 0) && (
             <span title={r.oficiu ? 'Nota include cele 10 puncte din oficiu' : 'Nota echivalentă'}
               style={{ marginLeft: 8, fontWeight: 800, color: '#8a6d00', background: 'rgba(232,185,49,.25)', borderRadius: 12, padding: '1px 9px', fontSize: '.78rem' }}>
               nota {r.nota}
@@ -212,6 +215,12 @@ function CorrectionBlock({ r }) {
           )}
         </span>
       </div>
+      {r.cumulat && r.cumulat.nAlte > 0 && (
+        <div data-cumulat style={{ padding: '6px 11px', fontSize: '.78rem', background: 'rgba(30,126,52,.07)', borderTop: '1px solid var(--border)', color: 'var(--navy)', lineHeight: 1.45 }}>
+          📈 <strong>Punctajul testului, cumulat: {r.cumulat.score}/{r.cumulat.max}p</strong>{r.cumulat.nota != null ? ` · nota ${Number(r.cumulat.nota).toFixed(2).replace('.', ',')}` : ''}
+          <span style={{ color: 'var(--text-light)' }}> — am păstrat și {r.cumulat.nAlte === 1 ? 'exercițiul corectat' : `cele ${r.cumulat.nAlte} exerciții corectate`} mai devreme{(r.cumulat.metode || []).length ? ` (${r.cumulat.metode.map((m) => METODE_TXT[m] || m).join(', ')})` : ''}: {r.cumulat.dinAlte}p.</span>
+        </div>
+      )}
       <div>
         {r.items.map((g) => {
           const v = VERDICT_UI[g.verdict] || VERDICT_UI.gresit;
@@ -409,6 +418,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // Sursa: testul PDF deschis (cu baremul lui, dacă există) SAU poza / PDF-ul
   // încărcat de elev în chat. Formularul NU pornește automat.
   const [form, setForm] = useState(null);            // { items, hasBarem, total, oficiu, title, src }
+  const formMetodaRef = useRef(null);                 // metoda din „✏️ Rezolvă pe PDF ▾" (punctajul cumulat)
   const [formAnswers, setFormAnswers] = useState({});
   const [formImages, setFormImages] = useState([]);  // poze cu rezolvarea scrisă de mână (data URL), max 3 — Etapa 2
   const formImgRef = useRef(null);
@@ -463,7 +473,10 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
   // `imagini` — rezolvarea scrisă (ex. paginile de pe PDF), atașată din start (max 3);
   // `indemn` — ce să facă elevul mai departe (apare deasupra câmpurilor)
   // `mare` — pe telefon formularul pornește mărit (îndemnul și „📷 Poze" se văd din prima)
-  async function openAnswerForm({ imagini = [], indemn = null, mare = false } = {}) {
+  async function openAnswerForm({ imagini = [], indemn = null, mare = false, metoda = null } = {}) {
+    // metoda aleasă în „✏️ Rezolvă pe PDF ▾" (pdf / poza / chat / foaie) — pentru punctajul
+    // cumulat al testului (api/_lib/punctajCumulat.js), 19 nov. 2026
+    if (metoda) formMetodaRef.current = metoda;
     const imgs = (Array.isArray(imagini) ? imagini : []).filter((u) => typeof u === 'string' && u.startsWith('data:image/')).slice(0, 3);
     if (form) {
       if (imgs.length) setFormImages((cur) => [...cur, ...imgs].slice(0, 3));
@@ -496,7 +509,7 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       const durationSec = Math.round((Date.now() - (formStartRef.current || Date.now())) / 1000);
       const r = await aiClient.correctGrade({
         conversationId: convId,
-        context: { pdf: !!context.pdf, contentId: form.src.contentId, libraryId: form.src.libraryId || null, category: form.src.category, title: form.src.title, meditatii: !!context.meditatii },
+        context: { pdf: !!context.pdf, contentId: form.src.contentId, libraryId: form.src.libraryId || null, category: form.src.category, title: form.src.title, meditatii: !!context.meditatii, metoda: formMetodaRef.current || (formImages.length ? 'poza' : 'chat') },
         // testText contează doar la poza/PDF-ul propriu; la testele din
         // platformă (și din Biblioteca utilizatorilor) serverul îl recitește singur
         testText: form.src.contentId || form.src.libraryId ? '' : form.src.testText, title: form.title || form.src.title,
@@ -530,8 +543,10 @@ export function ChatPanel({ context = {}, compact = false, initialMode = 'tutor'
       pregatireRezultat(r.pregatire);    // „🎯 Pregătește-mă de examen": ziua bifată / progresul
       testCorectat({ contentId: context.contentId || null, saved: r.saved || null });   // PDF: „Cum ți s-a părut testul?"
       // 🔴 nota trecută cu roșu și pe PDF, sus pe prima pagină (vizualizatorul derulează la ea)
+      //    (nota TESTULUI: cu exercițiile corectate mai devreme cu alte metode — r.cumulat)
       if (context.pdf && r.nota != null) {
-        notaPdfCorectata({ contentId: form.src.contentId || context.contentId || null, libraryId: form.src.libraryId || context.libraryId || null, nota: r.nota, score: r.score, total: r.maxScore, sursa: 'formular' });
+        const cu = r.cumulat && r.cumulat.nota != null ? r.cumulat : null;
+        notaPdfCorectata({ contentId: form.src.contentId || context.contentId || null, libraryId: form.src.libraryId || context.libraryId || null, nota: cu ? cu.nota : r.nota, score: cu ? cu.score : r.score, total: cu ? cu.max : r.maxScore, sursa: 'formular' });
       }
       // pe tablă: Prof. Tudor spune rezultatul (punctajul rămâne scris pe tablă)
       if (boardMode && speaker) speaker.say(`${r.feedback || 'Am corectat lucrarea ta — punctajul e pe tablă.'}${context.meditatii ? ' Cum mergem mai departe?' : ''}`, { key: 'chat' });

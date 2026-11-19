@@ -177,9 +177,11 @@ export const aiClient = {
   // review_start · simulare · set_style · mentor_report · reset
   meditatii: (payload) => post('/api/ai-meditatii', payload),
   // Scorul unui test interactiv, VERIFICAT pe server din răspunsuri (Etapa 3)
-  scoreSubmit: ({ contentId, answers, score, maxScore, durationSec = 0, duelId = null, partial = false, keepalive = false }) =>
+  // pdfId + itemi (19 nov. 2026): testul deschis din PDF-ul lui („🧩 Interactiv") — exercițiile
+  // rezolvate aici intră și în punctajul cumulat al PDF-ului (api/_lib/punctajCumulat.js)
+  scoreSubmit: ({ contentId, answers, score, maxScore, durationSec = 0, duelId = null, partial = false, keepalive = false, pdfId = null, itemi = null }) =>
     post('/api/ai-score',
-      { contentId, answers, score, maxScore, durationSec, ...(duelId ? { duelId } : {}), ...(partial ? { partial: true } : {}) },
+      { contentId, answers, score, maxScore, durationSec, ...(duelId ? { duelId } : {}), ...(partial ? { partial: true } : {}), ...(pdfId ? { pdfId, itemi: Array.isArray(itemi) ? itemi.slice(0, 120) : null } : {}) },
       { keepalive }),
 
   // Dueluri 1-la-1 (api/duel.js): list · optiuni · create · respond · set_open

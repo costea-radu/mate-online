@@ -82,7 +82,7 @@ test('vizualizatorul PDF: de pe hartă — ?mod= sau (15 nov. 2026, seara) ultim
   assert.match(v, /„📎 Atașează la răspuns" și „✅ Corectează" aici/);
   assert.match(v, /if \(\(canSolve \|\| \(modPlan === 'pdf' && solveGeneric\)\) && !solveOn\) \{/);
   // formularul cerut se deschide abia după ce chatul a citit testul
-  assert.match(v, /if \(cmd && cmd\.canAnswer && cmd\.canAnswer\(\) && cmd\.answerForm\) \{\s+cmd\.answerForm\(\{ imagini: formaCeruta\.imagini \|\| \[\], indemn: formaCeruta\.indemn \|\| null, mare: narrow && formaCeruta\.mod !== 'foaie' \}\);/);
+  assert.match(v, /if \(cmd && cmd\.canAnswer && cmd\.canAnswer\(\) && cmd\.answerForm\) \{\s+cmd\.answerForm\(\{ imagini: formaCeruta\.imagini \|\| \[\], indemn: formaCeruta\.indemn \|\| null, mare: narrow && formaCeruta\.mod !== 'foaie', metoda: formaCeruta\.mod \|\| null \}\);/);
 });
 
 test('„✏️ Pe PDF" la BAC și la clase: scrisul oriunde pe pagini, la „✅ Corectează" paginile scrise (cel mult 3) pleacă în formularul de răspuns; Premium', () => {
@@ -107,7 +107,7 @@ test('„✏️ Pe PDF" la BAC și la clase: scrisul oriunde pe pagini, la „�
 
 test('formularul de răspuns: se deschide cu imaginile atașate și cu un îndemn; foaia de lucru se atașează la răspuns când formularul e deschis', () => {
   const t = read('src/components/AITutor.jsx');
-  assert.match(t, /async function openAnswerForm\(\{ imagini = \[\], indemn = null, mare = false \} = \{\}\) \{/);
+  assert.match(t, /async function openAnswerForm\(\{ imagini = \[\], indemn = null, mare = false, metoda = null \} = \{\}\) \{/);
   assert.match(t, /setFormAnswers\(\{\}\); setFormImages\(imgs\); setFormHint\(indemn \|\| null\);/);
   assert.match(t, /answerForm: \(opts\) => openAnswerForm\(opts \|\| \{\}\),/);
   assert.match(t, /\{formHint && \(/);

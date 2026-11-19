@@ -29,6 +29,12 @@ după barem, Premium.
 - În testul pe grupă și în duel, butonul rămâne cel de dinainte (foaia de lucru; răspunsurile pleacă la
   profesor).
 
+**19 nov. 2026 — „🧩 Interactiv" și punctajul cumulat** (detalii: `GHID_PDF_INTERACTIV.md`): meniul are și
+**🧩 Interactiv** — testul interactiv generat după PDF (la EN sub „Pe PDF", la BAC și la clase primul; doar când
+PDF-ul are test asociat). La **schimbarea metodei, punctajul se păstrează**: rezultatul testului se ține pe
+exerciții — cele corectate acum le înlocuiesc pe aceleași, cele corectate mai devreme cu altă metodă rămân, iar
+nota cu roșu de pe PDF e a testului întreg („📈 Punctajul testului, cumulat: …").
+
 ---
 
 ## Ce vede elevul

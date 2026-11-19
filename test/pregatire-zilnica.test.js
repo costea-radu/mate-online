@@ -752,7 +752,9 @@ test('nota cu roșu în interfață: SVG cu fontul de mână (Caveat), roșu, pe
   assert.ok(pkg.dependencies['@fontsource/caveat'], 'fontul de mână e în dependențe (fără CDN)');
   // nota pe orice corectare (și pe o parte de test), salvată la „Rezultatele mele" / „Rezultate elevi"
   const rp = read('api/rezolva-pdf.js');
-  assert.match(rp, /const nota = punctat && sum\.total \? med\.notaTest\(sum\.score, sum\.total\) : null;/);
+  // 19 nov. 2026: nota e a TESTULUI, cu punctajul cumulat pe exerciții (api/_lib/punctajCumulat.js)
+  assert.match(rp, /const maxTest = cum \? cum\.max : sum\.total;/);
+  assert.match(rp, /const nota = punctat && maxTest \? med\.notaTest\(scorTest, maxTest\) : null;/);
   assert.match(rp, /saved = \{ kind: 'progress', attempts: r\.attempts, partial: !sum\.complete \};/);
 });
 
