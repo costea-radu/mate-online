@@ -8,9 +8,10 @@
 // La „Adaugă PDF" / „Exerciții Interactive" (src/pages/Admin.jsx), adminul alege doar
 // clasa sau examenul (+ profilul la BAC). De aici vin:
 //   • rubricaAuto  — la Evaluare Națională / Bacalaureat, RUBRICA (subcategoria) după
-//                    titlu și numele fișierului: baremele, simulările, testele de
-//                    antrenament, variantele, exercițiile pe subiecte, capitolele,
-//                    testele interactive. Ce nu se recunoaște rămâne de ales de admin;
+//                    titlu și numele fișierului: baremele, simulările, variantele generate
+//                    cu AI (EN, 19 nov. 2026), testele de antrenament, variantele,
+//                    exercițiile pe subiecte, capitolele, testele interactive. Ce nu se
+//                    recunoaște rămâne de ales de admin;
 //   • capitolulNou — capitolul din site (aceleași reguli ca pe hartă, la bareme și în
 //                    paginile claselor: api/_lib/capitoleHarta.js), doar unde lista e pe
 //                    capitole: clasele și rubrica „Capitole" de la EN / BAC.
@@ -31,6 +32,9 @@ function numeFisier(fileName) {
   return n.replace(/\.[a-z0-9]{2,5}$/i, '').replace(/^\d{9,}[_-]/, '');
 }
 const curat = (s) => fold(s).replace(/[_.·|]+/g, ' ').replace(/\s+/g, ' ').trim();
+// „Varianta generată cu AI 3", „Model generat de inteligența artificială", „Variantă AI 2",
+// „Test AI-generat" (titlul sau numele fișierului, fără diacritice)
+const RE_AI = /\b(generat\w*|realizat\w*|creat\w*|facut\w*)\s+(cu|de|prin)\s+(ai|ia|inteligenta artificiala)\b|\bvariant\w*\s+(ai|ia)\b|\b(ai|ia)\s*-?\s*generat\w*/;
 
 // lista e pe capitole? (clasele; la examene — doar rubrica „Capitole")
 export function rubricaPeCapitole(category, subcategory) {
@@ -66,6 +70,7 @@ export function rubricaAuto({ title, fileName = '', category, contentType }) {
   if (/\bbarem/.test(t) || (/\bbar\b/.test(f) && faraSubiect)) return { subcategory: 'bareme', motiv: 'barem' };
   if (/\bsimulare\b|\bsimulari\b|\bsimularea\b/.test(tf)) return { subcategory: 'simulari', motiv: 'simulare' };
   if (/barem/.test(f) && faraSubiect) return { subcategory: 'bareme', motiv: 'barem (numele fișierului)' };
+  if (!bac && RE_AI.test(tf)) return { subcategory: 'variante-ai', motiv: 'variantă generată cu AI' };
   if (bac && /\bmodel(ul)?\b/.test(tf)) return { subcategory: 'simulari', motiv: 'modelul de subiect' };
   if (/\btest(e|ul)? (de )?antrenament\b|\btest \d/.test(tf)) return { subcategory: bac ? 'teste-antrenament' : 'variante', motiv: 'test de antrenament' };
   if (/\bvarianta\b|\bvariante\b|\brezerva\b|\bsesiunea\b|\bmodel(ul)?\b|\bvar \d|\bsubiect(e)? oficial/.test(tf)) return { subcategory: 'variante', motiv: 'variantă / model' };

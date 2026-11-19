@@ -27,6 +27,8 @@ export const EN_SUBCATEGORIES = [
   { value: 'exercitii-subiecte',label: 'Exerciții pe Subiecte (Teste antrenament)' },
   { value: 'variante',          label: 'Variante Date + Modele (Teste antrenament)' },
   { value: 'simulari',          label: 'Simulări (Teste antrenament)' },
+  // 19 nov. 2026 — „Variante generate cu AI", sub Simulări (Admin → 🤖 Variante AI (EN))
+  { value: 'variante-ai',       label: 'Variante generate cu AI (Teste antrenament)' },
   { value: 'bareme',            label: 'Bareme (Teste antrenament)' },
   { value: 'teste-interactive', label: 'Teste Interactive' },
 ];
@@ -186,7 +188,7 @@ export function visibleTypesFor(category, subcategory) {
   if (category === 'evaluare-nationala') {
     if (subcategory === 'capitole' || subcategory === 'exercitii-subiecte') return ['pdf', 'interactive'];
     if (subcategory === 'teste-interactive') return ['interactive'];
-    if (['variante', 'simulari', 'bareme'].includes(subcategory)) return ['pdf'];
+    if (['variante', 'simulari', 'variante-ai', 'bareme'].includes(subcategory)) return ['pdf'];
     return [];
   }
   if (category === 'bacalaureat') {

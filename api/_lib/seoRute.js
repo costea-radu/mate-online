@@ -102,11 +102,11 @@ function cuImplicite(route, row, site) {
 
 // ─── Scheletul paginii (pentru <div id="root">) ──────────────────────────────
 const GRUPE = {
-  variante: 'Variante date și modele', simulari: 'Simulări', 'teste-antrenament': 'Teste de antrenament',
+  variante: 'Variante date și modele', simulari: 'Simulări', 'variante-ai': 'Variante generate cu AI', 'teste-antrenament': 'Teste de antrenament',
   bareme: 'Bareme', capitole: 'Exerciții pe capitole', 'exercitii-subiecte': 'Exerciții pe subiecte',
   exercitii: 'Exerciții pe subiecte', 'teste-interactive': 'Teste interactive',
 };
-const ORDINE = ['teste-interactive', 'variante', 'simulari', 'teste-antrenament', 'capitole', 'exercitii-subiecte', 'exercitii', 'bareme'];
+const ORDINE = ['teste-interactive', 'variante', 'simulari', 'variante-ai', 'teste-antrenament', 'capitole', 'exercitii-subiecte', 'exercitii', 'bareme'];
 const MAX_PE_GRUPA = 40;
 const MAX_TOTAL = 160;
 

@@ -44,6 +44,18 @@
 //   — doar admin — { action: 'explicatii_lista' } · { action: 'explicatii_salveaza',
 //   baremId, fileUrl, titlu? } (PDF-ul încărcat din browser în content-files, la
 //   pdf/evaluare-nationala/) · { action: 'explicatii_sterge', baremId }
+//
+// 📋 BAREMELE ORICĂREI CATEGORII — Admin → „📋 Încarcă bareme", „🤖 Variante AI (EN)"
+// și „📋 Tot Conținutul" (19 nov. 2026), doar admin:
+//   { action: 'incarca_barem', category, profile?, materialId?, fileUrl, title? } — baremul
+//       încărcat din browser (content-files[-free]/pdf/<categorie>/…) devine material al
+//       categoriei (rubrica „bareme"; la BAC cu profilul) și, cu materialId, se leagă de
+//       materialul lui (barem_override_by 'admin') — corectarea și „📋 Barem" îl folosesc
+//   { action: 'sterge_barem', baremId } — șterge baremul (rândul, apoi fișierul); legăturile
+//       manuale se golesc singure (FK SET NULL), potrivirile automate rămase în cache se
+//       recalculează la prima deschidere
+//   { action: 'legaturi', baremIds?, materialIds? } — ce material folosește fiecare barem /
+//       ce barem are fiecare material (pentru listele din Admin)
 // =====================================================================
 const ai = require('./_lib/ai');
 const http = require('./_lib/http');
@@ -54,6 +66,10 @@ const pdfContext = require('./ai-pdf-context');
 const EG = require('./_lib/explicatiiGrila');
 
 const CHEIE = 'bareme_clase';
+// baremele oricărei categorii (Admin): clasele, Evaluarea Națională, Bacalaureatul
+const CATEGORII_BAREM = new Set(['clasa-5', 'clasa-6', 'clasa-7', 'clasa-8', 'clasa-9', 'clasa-10', 'clasa-11', 'clasa-12', 'evaluare-nationala', 'bacalaureat']);
+const PROFILURI_BAC = new Set(['mate-info', 'stiinte-naturii', 'tehnologic']);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // acțiunile care merg și fără cont (un token expirat nu le oprește)
 const PUBLICE = new Set(['clasa', 'explicatii', 'explicatii_url']);
 const CLASA_RE = /^clasa-(5|6|7|8|9|10|11|12)$/;
@@ -206,6 +222,110 @@ async function reimprospateaza(supa, ids) {
   } catch { /* fără cache — nimic de împrospătat */ }
 }
 
+// ─── 📋 baremele oricărei categorii (Admin, 19 nov. 2026) ─────────────────────
+const SELECT_MATERIAL = `${SELECT_CONTENT}, profile`;
+
+// Baremul încărcat din Admin („📋 Încarcă bareme", „🤖 Variante AI"): material PDF al
+// categoriei, în rubrica „bareme" (la BAC cu profilul); cu materialId se leagă de el.
+async function incarcaBarem(supa, { category, profile, materialId, fileUrl, title } = {}) {
+  const cat = String(category || '');
+  if (!CATEGORII_BAREM.has(cat)) throw eroare(400, 'Alege clasa sau examenul baremului.');
+  let material = null;
+  if (materialId) {
+    const { data } = await supa.from('content').select(SELECT_MATERIAL).eq('id', String(materialId)).maybeSingle();
+    if (!data) throw eroare(404, 'Materialul ales nu a fost găsit.');
+    if (data.category !== cat) throw eroare(400, 'Materialul ales e din altă categorie decât baremul.');
+    if (data.content_type !== 'pdf') throw eroare(400, 'Baremul se leagă de un material PDF.');
+    if (B.isBaremRow(data)) throw eroare(400, 'Materialul ales este el însuși un barem.');
+    material = data;
+  }
+  let prof = null;
+  if (cat === 'bacalaureat') {
+    prof = String(profile || (material && material.profile) || '');
+    if (!PROFILURI_BAC.has(prof)) throw eroare(400, 'Alege profilul de Bacalaureat.');
+  }
+  let loc;
+  try { loc = http.parseStoragePath(String(fileUrl || '')); } catch { throw eroare(400, 'Fișierul încărcat nu a fost găsit.'); }
+  if (!BUCKETS.has(loc.bucket) || !loc.filePath.startsWith(`pdf/${cat}/`) || !/\.pdf$/i.test(loc.filePath)) {
+    throw eroare(400, 'Baremul trebuie încărcat ca PDF, la materialele categoriei alese.');
+  }
+  let titlu = String(title || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (!titlu) titlu = material ? `Barem — ${material.title || 'material'}` : 'Barem';
+  else if (!/barem/i.test(titlu)) titlu = `Barem — ${titlu}`;
+  const { data: nou, error } = await supa.from('content').insert({
+    title: titlu, category: cat, content_type: 'pdf', subcategory: 'bareme', profile: prof,
+    is_free: loc.bucket === 'content-files-free', file_url: String(fileUrl), sort_order: 0,
+  }).select(SELECT_MATERIAL).single();
+  if (error || !nou) throw eroare(500, `Baremul nu a putut fi salvat (${error ? error.message : 'fără răspuns'}).`);
+  if (material) {
+    await pdfContext.setOverride(supa, material, nou.id, { by: 'admin' });
+    await reimprospateaza(supa, [material.id]);
+  }
+  return { ok: true, barem: { ...scurt(nou), category: nou.category, profile: nou.profile || null }, legatDe: material ? scurt(material) : null };
+}
+
+// Ștergerea unui barem din „📋 Tot Conținutul": rândul (legăturile manuale se golesc singure
+// — ai_pdf_text.barem_override_id are ON DELETE SET NULL), apoi potrivirile automate rămase
+// în cache (recalcul la prima deschidere, ca la setOverride(null)), apoi fișierul.
+async function stergeBarem(supa, baremId) {
+  const id = String(baremId || '');
+  if (!UUID_RE.test(id)) throw eroare(400, 'Baremul lipsește.');
+  const { data: b } = await supa.from('content').select(SELECT_MATERIAL).eq('id', id).maybeSingle();
+  if (!b) throw eroare(404, 'Baremul nu a fost găsit (poate a fost șters deja).');
+  if (!B.isBaremRow(b)) throw eroare(400, 'Materialul nu e un barem — îl ștergi din lista obișnuită.');
+  const { data: fol } = await supa.from('ai_pdf_text').select('content_id').eq('barem_override_id', id);
+  const { error } = await supa.from('content').delete().eq('id', id);
+  if (error) throw eroare(500, `Baremul nu a putut fi șters (${error.message}).`);
+  try {
+    await supa.from('ai_pdf_text').update({ barem_status: 'negasit', barem_id: null, barem: null, barem_text: '', updated_at: new Date(0).toISOString() }).eq('barem_id', id);
+  } catch { /* fără cache — nimic de curățat */ }
+  if (b.file_url) {
+    try { const l = http.parseStoragePath(b.file_url); await supa.storage.from(l.bucket).remove([l.filePath]); } catch { /* fișierul rămâne — nu oprește nimic */ }
+  }
+  return { ok: true, sters: id, legaturiScoase: (fol || []).length };
+}
+
+// Ce material folosește fiecare barem (baremIds) / ce barem are fiecare material (materialIds)
+async function legaturiAdmin(supa, { baremIds = [], materialIds = [] } = {}) {
+  const curat = (a) => [...new Set((Array.isArray(a) ? a : []).map(String).filter((x) => UUID_RE.test(x)))].slice(0, 3000);
+  const bIds = curat(baremIds);
+  const mIds = curat(materialIds);
+  const randuri = await legaturi(supa, mIds);
+  if (bIds.length) {
+    for (const col of ['barem_override_id', 'barem_id']) {
+      let rows = [];
+      try { rows = await http.inBatches(bIds, (chunk, from, to) => supa.from('ai_pdf_text').select('content_id').in(col, chunk).range(from, to)); } catch { rows = []; }
+      const extra = [...new Set((rows || []).map((r) => r.content_id))].filter((cid) => cid && !randuri.has(cid));
+      for (const [cid, r] of await legaturi(supa, extra)) randuri.set(cid, r);
+    }
+  }
+  const ids = [...new Set([...randuri.keys(), ...mIds])];
+  const mat = new Map();
+  if (ids.length) {
+    const rows = await http.inBatches(ids, (chunk, from, to) => supa.from('content').select(SELECT_CONTENT).in('id', chunk).range(from, to));
+    for (const r of rows || []) mat.set(r.id, r);
+  }
+  const materiale = {};
+  const bareme = {};
+  for (const [cid, row] of randuri) {
+    const m = mat.get(cid);
+    if (!m) continue;
+    const l = baremulFisei(m, row);
+    if (!l || l.cum === 'inclus') continue;
+    if (mIds.includes(cid)) materiale[cid] = { id: l.id, cum: l.cum };
+    if (bIds.includes(l.id)) (bareme[l.id] = bareme[l.id] || []).push({ id: m.id, title: m.title || 'Material', cum: l.cum });
+  }
+  // titlurile baremelor materialelor cerute
+  const lipsa = [...new Set(Object.values(materiale).map((x) => x.id))].filter((id) => !mat.has(id));
+  if (lipsa.length) {
+    const rows = await http.inBatches(lipsa, (chunk, from, to) => supa.from('content').select(SELECT_CONTENT).in('id', chunk).range(from, to));
+    for (const r of rows || []) mat.set(r.id, r);
+  }
+  for (const [cid, l] of Object.entries(materiale)) materiale[cid] = { ...l, title: (mat.get(l.id) || {}).title || 'Barem (material șters sau mutat)' };
+  for (const id of mIds) if (!(id in materiale)) materiale[id] = null;
+  return { ok: true, materiale, bareme };
+}
+
 module.exports = async function handler(req, res) {
   ai.applyCors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -246,6 +366,11 @@ module.exports = async function handler(req, res) {
       return res.status(200).json(await EG.salveaza(supa, { baremId: body.baremId, fileUrl: body.fileUrl, titlu: body.titlu, userId: profil.id }));
     }
     if (action === 'explicatii_sterge') return res.status(200).json(await EG.sterge(supa, { baremId: body.baremId }));
+
+    // 📋 baremele oricărei categorii (19 nov. 2026)
+    if (action === 'incarca_barem') return res.status(200).json(await incarcaBarem(supa, body));
+    if (action === 'sterge_barem') return res.status(200).json(await stergeBarem(supa, body.baremId));
+    if (action === 'legaturi') return res.status(200).json(await legaturiAdmin(supa, body));
 
     if (action === 'vizibil') {
       const vizibil = body.vizibil !== false;
@@ -321,4 +446,7 @@ module.exports = async function handler(req, res) {
 module.exports.stareClasa = stareClasa;
 module.exports.baremulFisei = baremulFisei;
 module.exports.citesteVizibil = citesteVizibil;
+module.exports.incarcaBarem = incarcaBarem;
+module.exports.stergeBarem = stergeBarem;
+module.exports.legaturiAdmin = legaturiAdmin;
 module.exports.CHEIE = CHEIE;

@@ -141,6 +141,7 @@ export default function AIExerciseAgent({ box }) {
         ['exercitii-subiecte', 'Exerciții pe Subiecte'],
         ['variante', 'Variante Date + Modele'],
         ['simulari', 'Simulări'],
+        ['variante-ai', 'Variante generate cu AI'],
         ['capitole', 'Capitole cu exerciții'],
         ['simulari+variante', 'Simulări + Variante Date (mix)'],
         ['teste-interactive', 'Teste Interactive'],
