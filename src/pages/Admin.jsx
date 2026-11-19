@@ -11,7 +11,11 @@ import AdminDebug from '../components/AdminDebug';
 import AdminBotExamene from '../components/AdminBotExamene';
 import AdminFisiereModel from '../components/AdminFisiereModel';   // 📤 fișierele model (15 nov. 2026)
 import AdminExplicatiiGrila from '../components/AdminExplicatiiGrila';   // 💡 explicațiile la grilă, EN (18 nov. 2026)
+import AdminBareme from '../components/AdminBareme';                     // ✅ bareme la orice categorie (19 nov. 2026)
+import AdminVarianteAI from '../components/AdminVarianteAI';             // ✨ variantele generate cu AI, EN (19 nov. 2026)
+import { esteBarem } from '../lib/bareme';
 import { ContentMetaFields, EditContentModal, ReplaceFileModal, ReorderPanel, UndeApare, rubricaEfectiva } from '../components/ContentAdminTools';
+import FileUploadZone from '../components/FileUploadZone';   // zona „trage fișierul aici” (și în filele de bareme / variante AI)
 import { CATEGORIES, CONTENT_TYPES, categoryLabel, subcategoryLabel, profileLabel, hasSubcategories, visibilityWarning, needsProfile } from '../lib/contentMeta';
 import '../styles/admin.css';
 
@@ -109,49 +113,7 @@ const s = {
   },
 };
 
-// ─── Componentă upload fișier reutilizabilă ───────────────────────────────────
-function FileUploadZone({ accept, label, hint, file, onFile, icon }) {
-  const [drag, setDrag] = useState(false);
-  const ref = useRef();
-
-  function handleFile(f) {
-    if (!f) return;
-    const ext = f.name.split('.').pop().toLowerCase();
-    const accepted = accept.replace('.', '').split(',').map(a => a.trim().replace('.', ''));
-    if (!accepted.includes(ext)) {
-      alert(`Selectează un fișier ${accept}.`);
-      return;
-    }
-    onFile(f);
-  }
-
-  return (
-    <div>
-      <div
-        style={s.uploadZone(drag)}
-        onDragOver={e => { e.preventDefault(); setDrag(true); }}
-        onDragLeave={() => setDrag(false)}
-        onDrop={e => { e.preventDefault(); setDrag(false); handleFile(e.dataTransfer.files[0]); }}
-        onClick={() => ref.current.click()}
-      >
-        {file ? (
-          <div>
-            <div style={{ fontSize: '2rem' }}>{icon}</div>
-            <div style={{ fontWeight: 600, marginTop: 8 }}>{file.name}</div>
-            <div style={{ color: '#8e95a3', fontSize: '0.82rem' }}>{(file.size / 1024).toFixed(0)} KB</div>
-          </div>
-        ) : (
-          <div>
-            <div style={{ fontSize: '2rem' }}>☁️</div>
-            <div style={{ fontWeight: 600, marginTop: 8 }}>{label}</div>
-            <div style={{ color: '#8e95a3', fontSize: '0.82rem', marginTop: 4 }}>{hint}</div>
-          </div>
-        )}
-      </div>
-      <input ref={ref} type="file" accept={accept} style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
-    </div>
-  );
-}
+// (zona de încărcare a fișierelor: src/components/FileUploadZone.jsx)
 
 // ─── Materialul nou: rubrica automată + locul în capitol (18 nov. 2026) ──────────
 // „Fă ca atunci când se adaugă un PDF sau test interactiv nou, să se adauge la capitolul
@@ -264,7 +226,7 @@ function UploadPDF({ onSuccess }) {
 
       <div style={s.formGroup}>
         <label style={s.label}>Fișier PDF *</label>
-        <FileUploadZone
+        <FileUploadZone s={s}
           accept=".pdf" icon="📄"
           label="Trage PDF-ul aici sau apasă pentru a selecta"
           hint="Doar fișiere .pdf"
@@ -379,7 +341,7 @@ function UploadInteractive({ onSuccess }) {
 
       <div style={s.formGroup}>
         <label style={s.label}>Fișier HTML *</label>
-        <FileUploadZone
+        <FileUploadZone s={s}
           accept=".html" icon="🧩"
           label="Trage fișierul HTML aici sau apasă pentru a selecta"
           hint="Doar fișiere .html — include tot CSS și JS în același fișier"
@@ -410,7 +372,8 @@ function UploadInteractive({ onSuccess }) {
 function ContentList({ refresh }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState({ category: '', type: '', q: '' });
+  const [filter, setFilter] = useState({ category: '', type: '', q: '', kind: '' });   // kind: '' | 'bareme' | 'fara-bareme'
+  const [folositDe, setFolositDe] = useState(null);   // baremId → materialele care îl folosesc (la „📋 Doar bareme")
   const [deleting, setDeleting] = useState(null);
   const [view, setView] = useState('list');      // 'list' | 'order'
   const [editing, setEditing] = useState(null);  // materialul deschis în modalul de editare
@@ -418,6 +381,17 @@ function ContentList({ refresh }) {
   const [flash, setFlash] = useState(null);      // mesaj după editare / înlocuire
 
   useEffect(() => { load(); }, [refresh]);
+
+  // „📋 Doar bareme": ce material folosește fiecare barem (api/bareme.js → legaturi), o dată pe încărcare
+  useEffect(() => {
+    if (filter.kind !== 'bareme' || folositDe || loading) return undefined;
+    let viu = true;
+    const ids = items.filter((i) => esteBarem(i)).map((i) => i.id);
+    apiPost('/api/bareme', { action: 'legaturi', baremIds: ids })
+      .then((r) => { if (viu) setFolositDe(r.bareme || {}); })
+      .catch(() => { if (viu) setFolositDe({}); });
+    return () => { viu = false; };
+  }, [filter.kind, folositDe, loading, items]);
 
   async function load() {
     setLoading(true);
@@ -436,10 +410,31 @@ function ContentList({ refresh }) {
       from += PAGE;
     }
     setItems(all);
+    setFolositDe(null);
     setLoading(false);
   }
 
+  // 📋 Un barem se șterge pe server (19 nov. 2026 — api/bareme.js → sterge_barem): rândul, legăturile
+  // spre el (corectarea caută alt barem), potrivirile automate din cache și fișierul.
+  async function stergeBaremul(item) {
+    const fol = (folositDe && folositDe[item.id]) || [];
+    const cine = fol.length ? `\n\nÎl folosesc: ${fol.slice(0, 5).map((m) => `„${m.title}"`).join(', ')}${fol.length > 5 ? ` și încă ${fol.length - 5}` : ''}. Legăturile se scot, iar corectarea lor va căuta alt barem.` : '';
+    if (!window.confirm(`Sigur vrei să ștergi baremul „${item.title}"?${cine}`)) return;
+    setDeleting(item.id);
+    try {
+      const r = await apiPost('/api/bareme', { action: 'sterge_barem', baremId: item.id });
+      apiPost('/api/ai-notify', { action: 'broadcast_delete_by_content', contentId: item.id }).catch(() => {});
+      setItems((i) => i.filter((x) => x.id !== item.id));
+      setFlash(`✓ Baremul „${item.title}" a fost șters${r.legaturiScoase ? ` (și ${r.legaturiScoase === 1 ? 'legătura lui' : `cele ${r.legaturiScoase} legături ale lui`})` : ''}.`);
+    } catch (e) {
+      alert(`Baremul nu a putut fi șters: ${e.message}`);
+    } finally {
+      setDeleting(null);
+    }
+  }
+
   async function handleDelete(item) {
+    if (esteBarem(item)) return stergeBaremul(item);
     // Câte rezultate au elevii la acest material? Sonda pe coloana snapshot
     // `test_title` spune și dacă migrarea supabase/pastreaza_rezultate.sql a
     // fost rulată: cu ea, rezultatele RĂMÂN după ștergere (FK SET NULL +
@@ -462,6 +457,14 @@ function ContentList({ refresh }) {
     if (!window.confirm(msg)) return;
     setDeleting(item.id);
 
+    // întâi rândul — dacă baza de date îl refuză, fișierul și lista rămân neatinse
+    const { error: delErr } = await supabase.from('content').delete().eq('id', item.id);
+    if (delErr) {
+      setDeleting(null);
+      alert(`Materialul nu a putut fi șters: ${delErr.message}`);
+      return;
+    }
+
     // Șterge fișierul din Storage dacă există
     if (item.file_url) {
       try {
@@ -476,7 +479,6 @@ function ContentList({ refresh }) {
       } catch (_) { /* nu blocăm dacă Storage eșuează */ }
     }
 
-    await supabase.from('content').delete().eq('id', item.id);
     // Șterge și notificarea (anunțul) creată automat la adăugarea materialului.
     apiPost('/api/ai-notify', { action: 'broadcast_delete_by_content', contentId: item.id }).catch(() => {});
     setItems(i => i.filter(x => x.id !== item.id));
@@ -516,6 +518,7 @@ function ContentList({ refresh }) {
   const filtered = items.filter(i =>
     (!filter.category || i.category === filter.category) &&
     (!filter.type || i.content_type === filter.type) &&
+    (!filter.kind || (filter.kind === 'bareme' ? esteBarem(i) : !esteBarem(i))) &&
     (!q || `${i.title || ''} ${i.description || ''}`.toLowerCase().includes(q))
   );
 
@@ -564,6 +567,12 @@ function ContentList({ refresh }) {
               <option value="">Toate tipurile</option>
               {CONTENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
+            <select style={{ ...s.select, width: 190 }} value={filter.kind} aria-label="Bareme"
+              onChange={e => setFilter(p => ({ ...p, kind: e.target.value }))}>
+              <option value="">Toate materialele</option>
+              <option value="bareme">📋 Doar bareme</option>
+              <option value="fara-bareme">Fără bareme</option>
+            </select>
             <input style={{ ...s.input, width: 260 }} value={filter.q} placeholder="🔍 Caută după titlu / descriere"
               onChange={e => setFilter(p => ({ ...p, q: e.target.value }))} />
           </div>
@@ -593,7 +602,20 @@ function ContentList({ refresh }) {
                   return (
                     <tr key={item.id}>
                       <td style={{ ...s.td, minWidth: 'var(--adm-title-min, 0)' }}>
-                        <div style={{ fontWeight: 600, color: 'var(--navy)' }}>{item.title}</div>
+                        <div style={{ fontWeight: 600, color: 'var(--navy)' }}>
+                          {item.title}
+                          {esteBarem(item) && (
+                            <span style={{ marginLeft: 6, fontSize: '0.68rem', fontWeight: 800, color: '#1e7e34', background: '#e8f5e9', borderRadius: 8, padding: '1px 7px', whiteSpace: 'nowrap' }}>📋 Barem</span>
+                          )}
+                        </div>
+                        {esteBarem(item) && filter.kind === 'bareme' && (
+                          <div style={{ fontSize: '0.74rem', color: '#5a6170', marginTop: 2 }}>
+                            {folositDe === null ? 'Caut materialele care îl folosesc…'
+                              : (folositDe[item.id] || []).length
+                                ? `🔗 Folosit de: ${folositDe[item.id].slice(0, 3).map((m) => `„${m.title}"`).join(', ')}${folositDe[item.id].length > 3 ? ` și încă ${folositDe[item.id].length - 3}` : ''}`
+                                : '— nelegat de niciun material'}
+                          </div>
+                        )}
                         {item.description && (
                           <div style={{ fontSize: '0.78rem', color: '#8e95a3', marginTop: 2 }}>{item.description}</div>
                         )}
@@ -942,6 +964,8 @@ const TABS = [
   { id: 'dashboard',   icon: '📊', label: 'Dashboard' },
   { id: 'pdf',         icon: '📄', label: 'Adaugă PDF' },
   { id: 'interactive', icon: '🧩', label: 'Exerciții Interactive' },
+  { id: 'variante-ai', icon: '✨', label: 'Variante AI (EN)' },     // 19 nov. 2026
+  { id: 'bareme',      icon: '✅', label: 'Încarcă bareme' },       // 19 nov. 2026 — orice categorie
   { id: 'rezolvari',   icon: '📝', label: 'Rezolvări' },
   { id: 'list',        icon: '📋', label: 'Tot Conținutul' },
   { id: 'ai',          icon: '🤖', label: 'Unelte AI' },   // 18 nov. 2026: fostul „AI Tutor"
@@ -1094,6 +1118,8 @@ export default function Admin() {
           {tab === 'rezolvari'   && <AdminRezolvari user={user} s={s} />}
           {tab === 'pdf'         && <UploadPDF onSuccess={onSuccess} />}
           {tab === 'interactive' && <UploadInteractive onSuccess={onSuccess} />}
+          {tab === 'variante-ai' && <AdminVarianteAI s={s} onSuccess={() => setRefreshList(r => r + 1)} />}
+          {tab === 'bareme'      && <AdminBareme s={s} onSuccess={() => setRefreshList(r => r + 1)} />}
           {tab === 'list' && dupaIncarcare && (
             <div style={{ ...s.alert('success'), display: 'flex', alignItems: 'flex-start', gap: 10 }} role="status">
               <span style={{ flex: 1 }}>{dupaIncarcare}</span>

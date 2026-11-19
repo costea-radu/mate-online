@@ -4,6 +4,20 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 19 noiembrie 2026 — 🤖 „Variante generate cu AI" la Evaluarea Națională · ✅ bareme la orice categorie, gestionate din „Tot Conținutul"
+
+Cererea: „1. La categoria Evaluare Națională, la teste de antrenament, adaugă sub simulări o secțiune "variante generate cu AI". În admin adaugă secțiunea de încărcare. 2. În admin pune o secțiune de încărcare bareme la orice categorie. Baremele să se poată și șterge sau face modificări din secțiunea "tot conținutul""
+
+**De rulat:** nimic. Ghidul: `GHID_VARIANTE_AI_SI_BAREME.md` (nou).
+
+1. **„🤖 Variante generate cu AI"** (`src/pages/EvaluareNationala.jsx`, rubrica `variante-ai` în `src/lib/contentMeta.js` + validarea din `api/_lib/contentAdmin.js`, `src/lib/rubricaMaterial.js`, `src/components/AIExerciseAgent.jsx`, `api/_lib/seoRute.js`): secțiune nouă în „🏋 Teste de Antrenament", sub „Simulări" (PDF, ca Variantele / Simulările). **Admin → ✨ Variante AI (EN)** (`src/components/AdminVarianteAI.jsx`): varianta (PDF) + opțional baremul ei, care se leagă singur de variantă; lista variantelor cu baremul fiecăreia și „⬆ Baremul" la cele fără. Rubrica automată recunoaște „generată cu AI" din titlu / numele fișierului (titlurile din site: tot 1382 din 1383).
+2. **Admin → ✅ Încarcă bareme** (`src/components/AdminBareme.jsx`, `api/bareme.js` → `incarca_barem`): clasele, EN, BAC (cu profilul); materialul baremului se alege dintr-o listă cu căutare (titlul și accesul se propun singure), iar baremul se leagă de el (legătură de admin — o folosesc „📋 Barem", Profesorul Virtual, „Rezolvă pe PDF").
+3. **„📋 Tot Conținutul"** (`src/pages/Admin.jsx`): filtrul „📋 Doar bareme" / „Fără bareme", eticheta „📋 Barem", „🔗 Folosit de: …" (`api/bareme.js` → `legaturi`); Editează / Înlocuiește ca la orice material; **Șterge** un barem pe server (`sterge_barem`: rândul, legăturile, potrivirile automate rămase în cache, fișierul), cu confirmarea care spune cine îl folosește. Celelalte materiale: întâi rândul, apoi fișierul — o ștergere refuzată nu mai dispare din listă. Zona „trage fișierul aici" e acum componentă comună (`src/components/FileUploadZone.jsx`).
+
+Teste: `variante-ai-bareme` (9, nou). `npm test`: 1346 din 1346; `vite build` curat. Verificat în Chromium (date simulate): pagina EN pe 1366 și 390 px (ordinea secțiunilor, variantele în secțiunea nouă), „✨ Variante AI" (încărcarea variantei + a baremului legat, lista cu baremele), „✅ Încarcă bareme" (clasa a VI-a legat de fișă, titlul propus, BAC fără profil), „📋 Tot Conținutul" pe 1366 și 390 px („Doar bareme", „Folosit de", ștergerea prin server).
+
+---
+
 ## 18 noiembrie 2026 (a doua cerere) — 💡 explicații la grilă în baremele de EN · toți vizitatorii, pe pagini · „Unelte AI" · materialul nou, la capitolul lui
 
 Cererea: „1. Pune barem cu explicații pt grila la evaluare națională. baremul oficial oferă doar rezolvarea grilei fără explicații. În baremul oficial pune buton pentru explicații la grilă. Explicația la grila o să fie generată ulterior și încărcată 2. fă să văd mai mulți vizitatori care intră pe site, puși pe pagini, în admin la AI Tutor la statistici de utilizare la utilizatori care revin cel mai des. Pune mai mulți decât 25, pune-i pe toți care au accesat pe pagini în ultimele x zile 3. Schimbă în Admin numele AI tutor in Unelte AI 4. Fă ca atunci când se adaugă un PDF sau test interactiv nou, să se adauge la capitolul corespunzător din site. Eu din admin aleg doar clasa sau examenul și profilul."

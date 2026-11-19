@@ -70,7 +70,7 @@ export default function EvaluareNationala() {
                 <TypeTabs category="evaluare-nationala" subcategory="capitole" returnTab="pdf" pdfFirst />
               </Section>
 
-              <Section title="Teste de Antrenament" icon="🏋" defaultOpen={openOnly(['exercitii-subiecte', 'variante', 'simulari', 'bareme'])}>
+              <Section title="Teste de Antrenament" icon="🏋" defaultOpen={openOnly(['exercitii-subiecte', 'variante', 'simulari', 'variante-ai', 'bareme'])}>
                 <Section title="Exerciții pe Subiecte" icon="📝" level={2} defaultOpen={openOnly(['exercitii-subiecte'])}>
                   <TypeTabs category="evaluare-nationala" subcategory="exercitii-subiecte" returnTab="pdf" pdfFirst />
                 </Section>
@@ -81,6 +81,12 @@ export default function EvaluareNationala() {
 
                 <Section title="Simulări" icon="🎯" level={2} defaultOpen={openOnly(['simulari'])}>
                   <ItemBlock category="evaluare-nationala" subcategory="simulari" contentType="pdf" returnTab="pdf" />
+                </Section>
+
+                {/* 19 nov. 2026 — variantele generate cu AI (Admin → 🤖 Variante AI (EN)), sub Simulări */}
+                <Section title="Variante generate cu AI" icon="🤖" level={2} defaultOpen={openOnly(['variante-ai'])}>
+                  <ItemBlock category="evaluare-nationala" subcategory="variante-ai" contentType="pdf" returnTab="pdf"
+                    emptyText="Variantele generate cu AI vor fi adăugate în curând." />
                 </Section>
 
                 <Section title="Bareme" icon="✅" level={2} defaultOpen={openOnly(['bareme'])}>

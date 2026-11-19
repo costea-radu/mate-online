@@ -20,7 +20,7 @@ const CONTENT_TYPES = ['pdf', 'interactive', 'manual'];
 // Subcategoriile/profilurile EXACT ca în formularele din Admin.jsx și în
 // paginile EvaluareNationala.jsx / Bacalaureat.jsx (altfel materialul nu apare).
 const SUBCATEGORIES = {
-  'evaluare-nationala': ['capitole', 'exercitii-subiecte', 'variante', 'simulari', 'bareme', 'teste-interactive'],
+  'evaluare-nationala': ['capitole', 'exercitii-subiecte', 'variante', 'simulari', 'variante-ai', 'bareme', 'teste-interactive'],
   'bacalaureat':        ['capitole', 'exercitii', 'variante', 'teste-antrenament', 'simulari', 'bareme', 'teste-interactive'],
 };
 const BAC_PROFILES = ['mate-info', 'stiinte-naturii', 'tehnologic'];
