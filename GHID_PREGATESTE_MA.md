@@ -180,6 +180,32 @@ bareme."
   materialele rămân în pagină (căutarea din browser deschide capitolul în care găsește).
 - **SQL**: nimic.
 
+### 0.5 Materialul nou ajunge singur la capitolul lui (18 nov. 2026, seara)
+
+Cererea: „Fă ca atunci când se adaugă un PDF sau test interactiv nou, să se adauge la capitolul
+corespunzător din site. Eu din admin aleg doar clasa sau examenul și profilul."
+
+- **Admin → 📄 Adaugă PDF / 🧩 Exerciții Interactive**: alegi **clasa sau examenul** (+ profilul
+  la BAC), titlul și fișierul. La EN / BAC, **rubrica** se alege singură după titlu și numele
+  fișierului (`src/lib/rubricaMaterial.js → rubricaAuto`: barem, simulare, test de antrenament,
+  variantă / model, „Subiectul …", capitol, test interactiv) — selectorul arată „🤖 Automat —
+  Capitole"; o poți alege și de mână. Pe titlurile din site, regula nimerește 1382 din 1383 de
+  materiale; ce nu recunoaște rămâne de ales (formularul nu încarcă fără rubrică).
+- **„📍 Unde apare pe site"**, sub câmpuri: clasa / examenul › rubrica › capitolul (cu pictograma
+  hărții) și locul — „la sfârșitul capitolului, după «…» (locul 4 din 6)". Titlul fără capitol →
+  avertisment: va sta la „Alte exerciții / Alte fișe" (pune în titlu numele capitolului).
+- **După încărcare**, serverul mută materialul **imediat după ultimul material al capitolului
+  lui** (`api/content-admin.js → plaseaza`, `api/_lib/contentAdmin.js → planPlasare`; capitolul
+  după titlu, `api/_lib/capitoleHarta.js`): în paginile claselor, pe hartă și la bareme intră
+  în capitolul lui, ca un pas în plus la sfârșit, fără să mute capitolul în capul listei. Primul
+  material al unui capitol nou merge la sfârșitul listei. Restul listei își păstrează ordinea
+  (rubrica se renumerotează, ca la „↕ Ordinea de afișare"). Listele fără capitole (variante,
+  simulări, bareme, teste interactive, exerciții pe subiecte) păstrează regula „📥 Materialele
+  noi apar". Mesajul încărcării apare deasupra listei „📋 Tot Conținutul".
+- Același calcul și în browser: `api/_lib/contentAdmin.js` e servit browserului de pluginul din
+  `vite.config.js` (ca `capitoleHarta.js`), deci previzualizarea și serverul nu se pot contrazice.
+- **SQL**: nimic.
+
 ### Instalare
 
 **Supabase → SQL Editor** → rulează `supabase/plan_pregatire.sql` (o singură coloană:

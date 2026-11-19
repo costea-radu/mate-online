@@ -21,6 +21,7 @@ import PregatireToast, { deAratat } from '../components/PregatireToast';
 import { onPregatire, arenaChanged, onTestCorectat, onNotaPdf } from '../lib/arena';
 import { asteaptaSiVeziNota } from '../lib/pdfRezolvare';
 import { ReviewToast } from '../components/ReviewWidget';
+import { useExplicatiiGrila, ButonExplicatii, ExplicatiiOverlay } from '../components/ExplicatiiGrila';   // 💡 explicațiile la grilă (EN, 18 nov. 2026)
 
 // ✏️ METODELE DE REZOLVARE (15 nov. 2026, seara): „la subiectele PDF, pune la Viewer în bara
 // de sus la butonul «rezolvă pe PDF» metodele de rezolvare: pe PDF, cu poză, în chat, în foaia
@@ -336,6 +337,17 @@ export default function PDFViewer() {
   // (materialele din bibliotecă n-au barem asociat din platformă: rezolvările unui
   // test generat / baremul inclus în PDF le are doar profesorul virtual)
   const showBaremBtn = !modTest && !isLib && !isBaremItem && baremStatus !== 'este_barem';
+
+  // 💡 „Explicații la grilă" (18 nov. 2026): cât se vede un barem oficial de Evaluare
+  // Națională — cel deschis cu „📋 Barem", cel inclus în același PDF sau baremul deschis
+  // direct. Cheia explicațiilor e baremul (src/components/ExplicatiiGrila.jsx).
+  const baremEsteDeschis = isBaremItem || baremStatus === 'este_barem';
+  const enBaremId = !modTest && !isLib && item?.category === 'evaluare-nationala' && (baremView.open || baremEsteDeschis)
+    ? ((baremEsteDeschis || baremView.inclus) ? (item?.id || null) : (barem?.id || null))
+    : null;
+  const explicatii = useExplicatiiGrila(enBaremId);
+  const [explicatiiOpen, setExplicatiiOpen] = useState(false);
+  useEffect(() => { if (!enBaremId) setExplicatiiOpen(false); }, [enBaremId]);
 
   // ✏️ „Rezolvă pe PDF": testele PDF de Evaluare Națională (din platformă și din
   // Biblioteca utilizatorilor), nu baremele; nu în testul pe grupă / duel (acolo
@@ -1319,6 +1331,7 @@ export default function PDFViewer() {
         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           📋 Barem: {barem?.title || 'baremul testului'}
         </span>
+        <ButonExplicatii stare={explicatii} admin={isAdmin} loc="antet" tiny={tiny} onDeschide={() => setExplicatiiOpen(true)} />
         <button type="button" onClick={toggleBarem}
           style={{ background: '#fff', border: '1px solid #cfe8d4', color: 'var(--navy)', borderRadius: 8, padding: '3px 10px', fontSize: '.74rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
           📄 Înapoi la subiecte
@@ -1343,6 +1356,15 @@ export default function PDFViewer() {
         </div>
       )}
     </div>
+  );
+
+  // 💡 în bara de sus: baremul deschis direct / baremul inclus în același PDF (cel
+  // separat are butonul în antetul lui verde, de mai sus)
+  const explicatiiBtn = !showBaremDoc && enBaremId && (
+    <ButonExplicatii stare={explicatii} admin={isAdmin} loc="bara" tiny={tiny} onDeschide={() => setExplicatiiOpen(true)} />
+  );
+  const explicatiiJsx = explicatiiOpen && enBaremId && (
+    <ExplicatiiOverlay baremId={enBaremId} titluBarem={baremEsteDeschis || baremView.inclus ? (item?.title || '') : (barem?.title || '')} onClose={() => setExplicatiiOpen(false)} />
   );
 
   // Mesajul scurt de sub bară (barem negăsit, abonament, autentificare)
@@ -1534,6 +1556,7 @@ export default function PDFViewer() {
             }} title="Duel: Profesorul Virtual nu dă indicii">⚔️ DUEL</span>
           )}
           {solveBtn}
+          {explicatiiBtn}
           {baremBtn}
           {variantaBtn}
           {tutorBtn}
@@ -1577,6 +1600,7 @@ export default function PDFViewer() {
         </div>
         {tutorWidget}
         {noteJsx}
+        {explicatiiJsx}
         {meniuMetodeJsx}
         {pregToast}
         {showBaremDoc ? reviewJsx : null}
@@ -1599,6 +1623,7 @@ export default function PDFViewer() {
         {paginiBtn}
         {printBtn}
         {solveBtn}
+        {explicatiiBtn}
         {baremBtn}
         {variantaBtn}
         {tutorBtn}
@@ -1653,6 +1678,7 @@ export default function PDFViewer() {
 
       {tutorWidget}
       {noteJsx}
+      {explicatiiJsx}
       {meniuMetodeJsx}
       {pregToast}
       {/* PDF-ul desenat de site: cardul stă jos, în zona paginilor (ca pe telefon) */}

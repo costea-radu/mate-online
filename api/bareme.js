@@ -34,7 +34,16 @@
 //       „bareme") și se leagă de fișă
 //   { action: 'vizibil', vizibil: true|false } — secțiunea e vizibilă elevilor?
 //       (app_settings → 'bareme_clase'; implicit: vizibilă, ca referință)
-// Răspuns (toate acțiunile): starea clasei, ca la 'clasa' — vezi stareClasa.
+// Răspuns (acțiunile de mai sus): starea clasei, ca la 'clasa' — vezi stareClasa.
+//
+// 💡 EXPLICAȚIILE LA GRILĂ — baremele de Evaluare Națională (18 nov. 2026,
+// api/_lib/explicatiiGrila.js, supabase/explicatii_grila.sql):
+//   { action: 'explicatii', baremId }      — oricine: există explicații? (fără link)
+//   { action: 'explicatii_url', baremId }  — linkul semnat (gratuit → oricine; Premium →
+//                                            abonații și adminii)
+//   — doar admin — { action: 'explicatii_lista' } · { action: 'explicatii_salveaza',
+//   baremId, fileUrl, titlu? } (PDF-ul încărcat din browser în content-files, la
+//   pdf/evaluare-nationala/) · { action: 'explicatii_sterge', baremId }
 // =====================================================================
 const ai = require('./_lib/ai');
 const http = require('./_lib/http');
@@ -42,8 +51,11 @@ const B = require('./_lib/barem');
 const CH = require('./_lib/capitoleHarta');
 const settings = require('./_lib/settings');
 const pdfContext = require('./ai-pdf-context');
+const EG = require('./_lib/explicatiiGrila');
 
 const CHEIE = 'bareme_clase';
+// acțiunile care merg și fără cont (un token expirat nu le oprește)
+const PUBLICE = new Set(['clasa', 'explicatii', 'explicatii_url']);
 const CLASA_RE = /^clasa-(5|6|7|8|9|10|11|12)$/;
 const ROMAN = { 5: 'a V-a', 6: 'a VI-a', 7: 'a VII-a', 8: 'a VIII-a', 9: 'a IX-a', 10: 'a X-a', 11: 'a XI-a', 12: 'a XII-a' };
 // potrivirile site-ului care contează (ca în api/_lib/planPregatire.js → bareme)
@@ -208,11 +220,16 @@ module.exports = async function handler(req, res) {
     if (areToken) {
       try {
         const uid = await ai.authUser(req, supa);
-        const { data } = await supa.from('profiles').select('id, is_admin, role').eq('id', uid).maybeSingle();
+        const { data } = await supa.from('profiles').select('id, is_admin, role, subscription_status').eq('id', uid).maybeSingle();
         profil = data || null;
-      } catch (e) { if (action !== 'clasa') throw e; }
+      } catch (e) { if (!PUBLICE.has(action)) throw e; }
     }
     const admin = !!(profil && profil.is_admin);
+
+    // 💡 explicațiile la grilă (EN): starea și linkul — și fără cont (baremele gratuite)
+    if (action === 'explicatii') return res.status(200).json(await EG.stare(supa, body.baremId));
+    if (action === 'explicatii_url') return res.status(200).json(await EG.link(supa, body.baremId, { profil }));
+
     const vz = await citesteVizibil(supa);
 
     if (action === 'clasa') {
@@ -223,6 +240,12 @@ module.exports = async function handler(req, res) {
 
     if (!profil) return res.status(401).json({ error: 'Neautentificat. Reautentifică-te.' });
     if (!admin) return res.status(403).json({ error: 'Doar administratorii pot lega bareme.' });
+
+    if (action === 'explicatii_lista') return res.status(200).json(await EG.lista(supa));
+    if (action === 'explicatii_salveaza') {
+      return res.status(200).json(await EG.salveaza(supa, { baremId: body.baremId, fileUrl: body.fileUrl, titlu: body.titlu, userId: profil.id }));
+    }
+    if (action === 'explicatii_sterge') return res.status(200).json(await EG.sterge(supa, { baremId: body.baremId }));
 
     if (action === 'vizibil') {
       const vizibil = body.vizibil !== false;

@@ -18,6 +18,11 @@
 //                aplicată la inserare de triggerul din setari_ordine_gratuite.sql).
 //   • move_new_to_end — mută la sfârșitul rubricilor materialele noi rămase pe
 //                poziția 0 (apărute primele după o ordonare).
+//   • plaseaza — materialul abia încărcat („Adaugă PDF / Interactiv") trece la
+//                capitolul lui: după ultimul material al capitolului, în clase și în
+//                rubrica „Capitole" de la EN / BAC (18 nov. 2026 — planPlasare; capitolul
+//                după titlu, api/_lib/capitoleHarta.js). Restul listei își păstrează
+//                ordinea (se renumerotează rubrica, ca la reorder).
 // Rulează cu service role (ocolește RLS) și cere is_admin pe tokenul REAL.
 // Logica pură (validare, planificarea renumerotării) e în _lib/contentAdmin.js.
 // =====================================================================
@@ -25,8 +30,9 @@ const { admin, handledMethod, authUser, requireAdmin, parseStoragePath, allRows 
 const {
   sanitizeUpdate, planReorder, planSortAll, bucketFor, CATEGORIES,
   checkReplacement, interactiveDataAfterReplace, CONTENT_BUCKETS,
-  NEW_POSITION_KEY, normalizeNewPosition, applyNewPosition, planMoveNewToEnd, rubricKey,
+  NEW_POSITION_KEY, normalizeNewPosition, applyNewPosition, planMoveNewToEnd, rubricKey, planPlasare,
 } = require('./_lib/contentAdmin');
+const { capitolDin } = require('./_lib/capitoleHarta');
 const settings = require('./_lib/settings');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -148,6 +154,25 @@ module.exports = async function handler(req, res) {
       const plan = planReorder(rows, ids);
       const updated = await applyUpdates(supabase, plan.updates);
       return res.status(200).json({ ok: true, updated, total: plan.total, missing: plan.missing.length });
+    }
+
+    // ─── plaseaza: materialul nou, la capitolul lui ──────────────────────────
+    if (action === 'plaseaza') {
+      const id = String((req.body || {}).id || '');
+      if (!UUID.test(id)) return res.status(400).json({ error: 'id invalid' });
+      const { data: nou, error: nErr } = await supabase.from('content')
+        .select('id, title, category, subcategory, profile, content_type, sort_order, created_at').eq('id', id).maybeSingle();
+      if (nErr) throw new Error(nErr.message);
+      if (!nou) return res.status(404).json({ error: 'Material negăsit' });
+      const rows = await allRows((from, to) => supabase.from('content')
+        .select('id, title, category, subcategory, profile, content_type, sort_order, created_at')
+        .eq('category', nou.category).eq('content_type', nou.content_type)
+        .order('created_at', { ascending: true }).range(from, to));
+      const plan = planPlasare(rows, nou, capitolDin);
+      if (!plan) return res.status(200).json({ ok: true, placed: false, capitol: null });
+      const { updates } = planReorder([...rows.filter((r) => String(r.id) !== id), nou], plan.ids);
+      const updated = await applyUpdates(supabase, updates);
+      return res.status(200).json({ ok: true, placed: true, updated, capitol: plan.capitol, dupa: plan.dupa, capitolNou: plan.capitolNou, loc: plan.loc, total: plan.total });
     }
 
     // ─── sort_all ────────────────────────────────────────────────────────────

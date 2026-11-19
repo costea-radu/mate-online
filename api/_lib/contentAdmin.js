@@ -341,10 +341,44 @@ function planMoveNewToEnd(rows) {
   return { updates, rubrics };
 }
 
+// ─── Materialul nou, la capitolul lui (18 nov. 2026) ─────────────────────────
+// „Fă ca atunci când se adaugă un PDF sau test interactiv nou, să se adauge la capitolul
+// corespunzător din site." În listele pe capitole — clasele și rubrica „Capitole" de la
+// EN / BAC — materialul nou trece imediat după ULTIMUL material al capitolului lui (ca pe
+// hartă: un pas în plus la sfârșitul capitolului); primul material al unui capitol nou
+// merge la sfârșitul listei. Capitolul îl dă titlul (api/_lib/capitoleHarta.js — aceleași
+// reguli ca pe hartă, la bareme și în paginile claselor). Titlu fără capitol („Alte
+// exerciții") sau listă fără capitole → null: rămâne regula „📥 Materialele noi apar".
+// `rows` = rubrica materialului (fără el), în orice ordine; întoarce ordinea nouă a
+// id-urilor (pentru planReorder) + capitolul și materialul după care a intrat.
+const CLASA_RE = /^clasa-(5|6|7|8|9|10|11|12)$/;
+function rubricaPeCapitole(row) {
+  const cat = String((row && row.category) || '');
+  if (CLASA_RE.test(cat)) return true;
+  return (cat === 'evaluare-nationala' || cat === 'bacalaureat') && row.subcategory === 'capitole';
+}
+function planPlasare(rows, nou, capitolDin) {
+  if (!nou || !rubricaPeCapitole(nou) || typeof capitolDin !== 'function') return null;
+  const cap = capitolDin(nou.title, nou.category);
+  if (!cap) return null;
+  const cheie = rubricKey(nou);
+  const lista = (rows || []).filter((r) => r && String(r.id) !== String(nou.id) && rubricKey(r) === cheie).slice().sort(siteOrder);
+  let k = -1;
+  lista.forEach((r, i) => { const c = capitolDin(r.title, r.category); if (c && c.id === cap.id) k = i; });
+  const poz = k >= 0 ? k + 1 : lista.length;
+  const ids = [...lista.slice(0, poz), nou, ...lista.slice(poz)].map((r) => String(r.id));
+  return {
+    ids, capitol: { id: cap.id, titlu: cap.titlu, icon: cap.icon },
+    dupa: poz > 0 ? { id: String(lista[poz - 1].id), title: lista[poz - 1].title || '' } : null,
+    capitolNou: k < 0, loc: poz + 1, total: lista.length + 1,
+  };
+}
+
 module.exports = {
   CATEGORIES, CONTENT_TYPES, SUBCATEGORIES, BAC_PROFILES,
   bucketFor, fileExtension, allowedContentTypes, sanitizeUpdate,
   siteOrder, planReorder, planSortAll,
   FILE_FOLDERS, CONTENT_BUCKETS, folderFor, safeFileName, replacementPath, checkReplacement, interactiveDataAfterReplace,
   NEW_POSITION_KEY, NEW_POSITIONS, rubricKey, normalizeNewPosition, newPositionFor, applyNewPosition, planMoveNewToEnd,
+  rubricaPeCapitole, planPlasare,
 };
