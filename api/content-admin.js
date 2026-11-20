@@ -104,6 +104,29 @@ async function rowsForScope(supabase, { category = null } = {}) {
   });
 }
 
+// 🧩 PDF ↔ test interactiv (19 nov. 2026): testul principal al unui PDF (content.interactiv_id)
+// e „făcut după" el (content.pdf_sursa_id); un test mutat la alt PDF nu mai e principalul celui
+// vechi; un PDF fără test principal îl primește pe cel legat acum de el.
+async function legaturiInAcord(supabase, cur, patch) {
+  try {
+    if (patch.interactiv_id) {
+      const { data: t } = await supabase.from('content').select('id, pdf_sursa_id').eq('id', patch.interactiv_id).maybeSingle();
+      if (t && t.pdf_sursa_id && t.pdf_sursa_id !== cur.id) {
+        await supabase.from('content').update({ interactiv_id: null }).eq('id', t.pdf_sursa_id).eq('interactiv_id', t.id);
+      }
+      await supabase.from('content').update({ pdf_sursa_id: cur.id }).eq('id', patch.interactiv_id);
+    }
+    if ('pdf_sursa_id' in patch) {
+      if (cur.pdf_sursa_id && cur.pdf_sursa_id !== patch.pdf_sursa_id) {
+        await supabase.from('content').update({ interactiv_id: null }).eq('id', cur.pdf_sursa_id).eq('interactiv_id', cur.id);
+      }
+      if (patch.pdf_sursa_id) {
+        await supabase.from('content').update({ interactiv_id: cur.id }).eq('id', patch.pdf_sursa_id).is('interactiv_id', null);
+      }
+    }
+  } catch (e) { console.warn('content-admin: legăturile PDF ↔ test:', e.message); }
+}
+
 module.exports = async function handler(req, res) {
   if (handledMethod(req, res)) return;
   const supabase = admin();
@@ -128,6 +151,10 @@ module.exports = async function handler(req, res) {
         const { data: tinta } = await supabase.from('content').select('id, content_type').eq('id', patch.interactiv_id).maybeSingle();
         if (!tinta || tinta.content_type !== 'interactive') return res.status(400).json({ error: 'Testul interactiv asociat nu există (sau nu e un test interactiv).' });
       }
+      if (patch.pdf_sursa_id) {
+        const { data: sursa } = await supabase.from('content').select('id, content_type').eq('id', patch.pdf_sursa_id).maybeSingle();
+        if (!sursa || sursa.content_type !== 'pdf') return res.status(400).json({ error: 'PDF-ul ales nu există (sau nu e un PDF).' });
+      }
 
       let move = null;
       if ('is_free' in patch) {
@@ -142,6 +169,7 @@ module.exports = async function handler(req, res) {
         return res.status(500).json({ error: `Salvarea a eșuat: ${updErr.message}` });
       }
       if (move) await supabase.storage.from(move.from).remove([move.path]).catch(() => {});
+      await legaturiInAcord(supabase, current, patch);
       return res.status(200).json({ row, changed: true, moved: move ? { from: move.from, to: move.to } : null });
     }
 
@@ -297,3 +325,5 @@ module.exports = async function handler(req, res) {
     return res.status(err.status || 500).json({ error: err.message || 'Eroare server' });
   }
 };
+
+module.exports.legaturiInAcord = legaturiInAcord;

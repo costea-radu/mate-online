@@ -4,6 +4,23 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 19 noiembrie 2026 (a treia cerere) — 🧩 asocierea PDF ↔ test, refăcută: 437 din 470 de teste · 🔒 fișierele Premium doar prin linkul semnat · testul dublu, șters
+
+Cererea: „1. Rezolvă cele doua lucruri: testul dublu și accesul la fișierele premium 2. S-au asociat puține teste. Fiecare test interactiv e generat după un PDF . Doar la evaluare națională testele de la 32 până la 61 nu sunt după PDF. Încearcă să faci o asociere mai bună"
+
+**De rulat:** nimic — **rulate în Supabase pe 19 nov. 2026**: `supabase/storage_fisiere_premium.sql` (migrația `storage_fisiere_premium`) și `supabase/pdf_sursa.sql` (coloana `content.pdf_sursa_id`; migrația `pdf_sursa`); asocierile noi sunt scrise (verificat în bază: 437 de teste cu PDF-ul lor, 417 PDF-uri cu test principal, nicio legătură în dezacord). Ghidul: `GHID_PDF_INTERACTIV.md` (actualizat); lista: `docs/asocieri-pdf-interactiv.csv` (cu rolul fiecărui test).
+
+1. **Fișierele Premium** (`supabase/storage_fisiere_premium.sql`): orice cont autentificat — și unul gratuit — putea descărca toate cele 530 de fișiere din bucket-ul privat `content-files` și putea încărca / **șterge** fișiere din ambele bucket-uri de conținut. Acum elevii le primesc doar prin linkul semnat de server (`api/get-file-url.js`, abonamentul verificat — neschimbat), iar în browser doar adminii citesc, încarcă și șterg. Verificat cu roluri simulate: cont gratuit și cont Premium — 0 fișiere vizibile (înainte: 530), adminul — toate; încărcarea — refuzată pentru contul gratuit, permisă adminului.
+2. **Testul dublu** „BAC 2026 · M_tehnologic · Varianta 3" (două generări la 2 minute distanță): cel vechi — neasociat, fără niciun rezultat — **șters** (rândul; textele pregenerate au plecat odată cu el; fișierul HTML a rămas în bucket-ul privat — Supabase nu șterge fișiere din SQL).
+3. **Asocierea, refăcută** — un PDF poate avea acum **mai multe teste** (`content.pdf_sursa_id` pe test; `content.interactiv_id` pe PDF rămâne testul principal): **+39 de teste** — seria EN „Test interactiv" 4, 8–10, 12, 14–16, 20–27, 29, 30 („2021 model 1–15", variantele 2021, „2022 model 1–6", variantele oficiale și modelul oficial 2022, „2023 model", „2022 simulare Brăila"; verificate pe conținut și vizual, 8/9/12/14/15 — fără text indexat — după serie), „Test interactiv Matematică 1" (versiunea timpurie a testului 30), cele 15 teste vechi de BAC 2014/2015, testele de clasa a V-a făcute după versiunile vechi ale fișelor (reîncărcate și renumerotate), fișa de lucru „Trigonometrie" (clasa a VII-a). Rămân fără PDF doar testele combinate EN 32–61, „Test interactiv — Matematică, clasa a V-a" (sarcină ștearsă, combinat), „Calcule cu numere întregi" (ambiguu — Fișa 11 sau 12), „Recapitulare clasele 5-8" (Auxiliare, fără PDF-uri).
+   - „🧩 Interactiv" (`src/pages/PDFViewer.jsx` → `alegeTestInteractiv`): cu abonament — testul principal; **fără abonament și principalul Premium — un test gratuit al aceluiași PDF**, dacă există (ex. variantele BAC 2014: testul vechi, gratuit).
+   - punctajul din testul interactiv se adaugă la PDF și când testul e unul dintre cele făcute după el (`api/ai-score.js` → `cumuleazaInPdf`).
+   - Admin → 📋 Tot Conținutul → ✏️: la un **test** — „📄 PDF-ul după care e făcut testul"; la un **PDF** — testele făcute după el, primele în listă (📄). Serverul ține legăturile în acord (`api/content-admin.js` → `legaturiInAcord`); generatorul își notează PDF-ul-sursă pe test (`api/_lib/exgen.js` → `asociazaPdf`).
+
+Teste: `pdf-interactiv` (20; +3 noi: mai multe teste pe un PDF, legăturile în acord, regulile din Storage). `npm test`: 1366 din 1366; `vite build` curat. Verificat în Chromium (date simulate): PDF cu test principal Premium și variantă veche gratuită — contul gratuit primește varianta gratuită, contul Premium testul principal; Admin — „📄 PDF-ul după care e făcut testul" și salvarea; verificările de data trecută (meniul pe BAC / EN / clase / fără test, banda din testul interactiv, „În chat" cu cumulul) — toate trec.
+
+---
+
 ## 19 noiembrie 2026 (a doua cerere) — 🧩 fiecare PDF cu testul interactiv generat după el · „Interactiv" în „✏️ Rezolvă pe PDF ▾" · punctajul se păstrează la schimbarea metodei
 
 Cererea: „1. Asociază fiecare PDF cu testul interactiv generat după el. Verifică să fie asocierea corectă. 2. Fă ca în butonul "rezolvă pe PDF " de pe PDF-uri, pe lângă variantele de rezolvare din rolldown, să apară și "interactiv", care deschide testul interactiv asociat PDF-ului. Pentru testele de evaluare națională fă să apară sub "pe PDF" iar la celelalte tipuri de PDF: bac și clase, să apară primul. La schimbarea metodei de rezolvare în timpul rezolvării, să se păstreze punctajul acumulat până atunci."

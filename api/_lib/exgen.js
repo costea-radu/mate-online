@@ -2269,12 +2269,16 @@ async function postContent({ supa, title, description = '', category, subcategor
   return { contentId: ins?.id || null, fileUrl: row.file_url };
 }
 
-// 🧩 Testul făcut dintr-UN SINGUR PDF devine „testul interactiv al PDF-ului" (19 nov. 2026):
-// metoda „🧩 Interactiv" din „✏️ Rezolvă pe PDF ▾" (content.interactiv_id —
-// supabase/pdf_interactiv.sql). Doar dacă PDF-ul nu are deja unul (asocierea aleasă de admin
-// rămâne); fără coloană / la eroare → nimic (testul e postat oricum).
+// 🧩 Testul făcut dintr-UN SINGUR PDF își știe PDF-ul (content.pdf_sursa_id) și devine „testul
+// interactiv al PDF-ului" (19 nov. 2026): metoda „🧩 Interactiv" din „✏️ Rezolvă pe PDF ▾"
+// (content.interactiv_id — supabase/pdf_interactiv.sql), doar dacă PDF-ul nu are deja unul
+// (asocierea aleasă de admin rămâne); fără coloane / la eroare → nimic (testul e postat oricum).
 async function asociazaPdf(supa, { sourceId = null, ctype = null, contentId = null } = {}) {
   if (!sourceId || !contentId || ctype !== 'pdf') return false;
+  try {
+    // testul își știe PDF-ul după care e făcut (content.pdf_sursa_id — supabase/pdf_sursa.sql)
+    await supa.from('content').update({ pdf_sursa_id: sourceId }).eq('id', contentId).eq('content_type', 'interactive');
+  } catch { /* coloana lipsă — doar asocierea de pe PDF */ }
   try {
     const { data, error } = await supa.from('content').update({ interactiv_id: contentId })
       .eq('id', sourceId).eq('content_type', 'pdf').is('interactiv_id', null).select('id');

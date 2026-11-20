@@ -6,7 +6,8 @@
 //   ordinea itemilor — trimis de HTML-urile generate (exgen / quizRender).
 //       pdfId?, itemi?: [{ lbl, p, m }] — testul deschis din PDF-ul lui („🧩 Interactiv",
 //       19 nov. 2026): exercițiile rezolvate aici intră și în punctajul CUMULAT al PDF-ului
-//       (api/_lib/punctajCumulat.js), doar dacă PDF-ul chiar are acest test asociat.
+//       (api/_lib/punctajCumulat.js), doar dacă testul e chiar al PDF-ului (principalul lui
+//       sau unul făcut după el — content.pdf_sursa_id).
 // Răspuns: { ok, score, maxScore, verified, attempts, timeSpent, correct?, total?, pdf? }
 //   verified=true  → scorul a fost RECALCULAT din cheile materialului;
 //   verified=false → materialul nu are chei citibile (test încărcat manual) —
@@ -33,7 +34,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 async function cumuleazaInPdf(supa, userId, { pdfId, interactiv, itemi }) {
   if (!pdfId || !UUID_RE.test(String(pdfId))) return null;
   const { data: pdf } = await supa.from('content').select('id, title, category, subcategory, content_type, interactiv_id').eq('id', pdfId).maybeSingle();
-  if (!pdf || pdf.content_type !== 'pdf' || pdf.interactiv_id !== interactiv.id) return null;
+  // testul principal al PDF-ului sau unul dintre testele făcute după el (content.pdf_sursa_id)
+  const legat = !!pdf && (pdf.interactiv_id === interactiv.id || interactiv.pdf_sursa_id === pdf.id);
+  if (!pdf || pdf.content_type !== 'pdf' || !legat) return null;
   const cit = await PC.citeste(supa, userId, pdf.id);
   const noi = PC.testIntreg(pdf) ? PC.dinInteractiv(itemi) : [];
   if (!cit.coloana || !noi.length) {

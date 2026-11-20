@@ -52,6 +52,18 @@ export function ordineMetode(metode, { interactiv = false, en = false } = {}) {
   }
   return lista;
 }
+// Ce test deschide „🧩 Interactiv" (runda a doua, 19 nov. 2026): un PDF poate avea mai multe teste
+// făcute după el (content.pdf_sursa_id); principalul e content.interactiv_id. Cu abonament (sau
+// când principalul e gratuit) — principalul; fără abonament și principalul Premium — cel mai nou
+// test GRATUIT al PDF-ului, dacă există (altfel principalul, cu „⭐ Premium").
+export function alegeTestInteractiv(teste, principalId, areAcces) {
+  const lista = Array.isArray(teste) ? teste : [];
+  const principal = lista.find((t) => t && t.id === principalId) || (principalId ? { id: principalId, is_free: null } : null);
+  if (areAcces || !principal || principal.is_free !== false) return principal;
+  const gratuit = lista.filter((t) => t && t.is_free === true && t.id !== principalId)
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];
+  return gratuit || principal;
+}
 // testele întregi de examen: exercițiile din testul interactiv se adaugă la punctajul PDF-ului
 // (aceeași structură — api/_lib/punctajCumulat.js → testIntreg)
 const RUBRICI_TEST_INTREG = ['variante', 'simulari', 'variante-ai', 'teste-antrenament'];
@@ -385,18 +397,23 @@ export default function PDFViewer() {
   // „✏️ Rezolvă" deschide FOAIA DE LUCRU din panoul profesorului (8 nov. 2026)
   const rezolvaFoaie = !canSolve && (!!pdfData || !!examHtml) && !isBaremItem && baremStatus !== 'este_barem';
   // 🧩 testul interactiv generat după acest PDF (19 nov. 2026) — metoda „Interactiv"
-  const interactivId = !isLib && !modTest && item && item.content_type === 'pdf' && item.interactiv_id ? item.interactiv_id : null;
+  const interactivPrincipal = !isLib && !modTest && item && item.content_type === 'pdf' && item.interactiv_id ? item.interactiv_id : null;
   const testIntregPdf = ['evaluare-nationala', 'bacalaureat'].includes(item?.category) && RUBRICI_TEST_INTREG.includes(item?.subcategory || '');
-  // accesul la testul interactiv: Premium fără abonament → „⭐ Premium" lângă metodă
-  const [interactivInfo, setInteractivInfo] = useState(null);   // { is_free }
+  // testele făcute după acest PDF (principalul + celelalte — content.pdf_sursa_id): fără abonament,
+  // un test gratuit al PDF-ului în locul principalului Premium; altfel „⭐ Premium" lângă metodă
+  const [testePdf, setTestePdf] = useState(null);   // [{ id, is_free, created_at }]
   useEffect(() => {
-    if (!interactivId) { setInteractivInfo(null); return undefined; }
+    if (!interactivPrincipal || !item?.id) { setTestePdf(null); return undefined; }
     let viu = true;
-    supabase.from('content').select('id, is_free').eq('id', interactivId).maybeSingle()
-      .then(({ data }) => { if (viu) setInteractivInfo(data || null); }, () => {});
+    supabase.from('content').select('id, is_free, created_at').eq('content_type', 'interactive')
+      .or(`id.eq.${interactivPrincipal},pdf_sursa_id.eq.${item.id}`)
+      .then(({ data }) => { if (viu) setTestePdf(data || []); }, () => { if (viu) setTestePdf([]); });
     return () => { viu = false; };
-  }, [interactivId]);
-  const interactivPremium = !!interactivInfo && !interactivInfo.is_free && !(isPremium || isAdmin);
+  }, [interactivPrincipal, item?.id]);
+  const areAcces = isPremium || isAdmin;
+  const testAles = alegeTestInteractiv(testePdf, interactivPrincipal, areAcces);
+  const interactivId = testAles ? testAles.id : null;
+  const interactivPremium = !!testAles && testAles.is_free === false && !areAcces;
   // 📈 punctajul testului de până acum (cumulat pe exerciții, între metode) — în meniul metodelor
   const [punctajTest, setPunctajTest] = useState(null);
   async function citestePunctajTest() {

@@ -33,32 +33,46 @@ La fișe și la capitole, testul interactiv are propria numerotare: punctajul PD
 
 ## Asocierea PDF ↔ test (verificată)
 
-Coloana `content.interactiv_id` (pe rândul PDF-ului; testul șters → asocierea dispare singură). **398 de PDF-uri** au testul lor; lista completă, cu temeiul fiecărei asocieri: [`docs/asocieri-pdf-interactiv.csv`](docs/asocieri-pdf-interactiv.csv).
+Două legături, ambele în tabela `content` (un test șters → legătura dispare singură):
+- **`content.pdf_sursa_id`** — pe rândul unui **test interactiv**: PDF-ul după care e făcut (`supabase/pdf_sursa.sql`). Un PDF poate avea mai multe teste (ex. varianta veche, gratuită, din iulie și cea nouă a generatorului).
+- **`content.interactiv_id`** — pe rândul unui **PDF**: testul lui **principal**, cel deschis de „🧩 Interactiv" (`supabase/pdf_interactiv.sql`). **Elevul fără abonament** primește un test **gratuit** al aceluiași PDF, dacă principalul e Premium și există unul (`alegeTestInteractiv` în `src/pages/PDFViewer.jsx`).
+
+**437 din 470 de teste interactive** au PDF-ul lor; **417 PDF-uri** au test principal. Lista completă, cu rolul și temeiul fiecăreia: [`docs/asocieri-pdf-interactiv.csv`](docs/asocieri-pdf-interactiv.csv).
 
 | | PDF-uri cu test | fără |
 |---|---|---|
-| Clasele V–XII | 143 | 3 (fișe noi: „Fișă 19 … 100 exerciții", „Fișă 5.1", „Fișă 4.2") |
+| Clasele V–XII | 144 | 2 (fișe încărcate în noiembrie, fără test: „Fișă 5.1", „Fișă 4.2") |
 | EN — Capitole | 29 | 0 |
 | EN — Exerciții pe subiecte | 13 | 5 (Subiectul III, ex. 2–6: n-au test) |
-| EN — Variante / Simulări | 12 | 71 |
+| EN — Variante | 28 | 13 |
+| EN — Simulări | 2 | 40 |
 | BAC — Capitole | 27 | 0 |
 | BAC — Exerciții pe subiecte | 29 | 1 (testul lui a fost șters) |
 | BAC — Variante | 145 | 7 |
 | BAC — Teste de antrenament / Simulări | 0 | 254 (nu s-au generat teste după ele) |
 
+**Fără PDF (33):** testele combinate din mai multe teste (EN „Test 32–61", 30 de teste — cum ai spus); „Test interactiv — Matematică, clasa a V-a" (făcut de o sarcină a generatorului ștearsă între timp; titlul general arată un test combinat, iar fișierul n-are text de comparat); „Calcule cu numere întregi" (clasa a VI-a, încărcat manual în mai, fără text de comparat — s-ar potrivi la fel de bine cu Fișa 11 și cu Fișa 12, ambele cu testul lor); „Recapitulare clasele 5-8" (la Auxiliare, unde nu există PDF-uri). Le poți lega oricând din Admin.
+
 Cum s-a verificat:
-1. **Jurnalul generatorului** (`agent_task_runs`, 345 de asocieri): rularea care a făcut testul a notat PDF-ul-sursă (același titlu, aceeași categorie și același profil, testul creat după încărcarea PDF-ului). Pe titluri: anul și numărul variantei coincid la toate cele 255 de teste de examen. Dublurile: „2026 tehnologic varianta 03" are două teste identice (la 2 minute unul de altul) — l-am ales pe cel mai nou; testul vechi al „Fișei 16" (clasa a V-a), făcut după un PDF înlocuit între timp, nu e asociat.
-2. **Conținutul**, la testele fără jurnal: testele gratuite (HTML public) comparate cu textul PDF-urilor; la cele Premium, textul lor indexat. Fraze comune rare (secvențe de 4 cuvinte), cu prag: cel puțin 12 și de trei ori mai multe decât la următorul PDF.
-   - „Test interactiv Evaluare Națională" 1, 2, 3, 5, 6, 7, 11, 13 → „2021 model" cu același număr; 17 → „2021 variantă oficială iunie", 18 → „2021 sesiune specială", 19 → „2022 model 1", 28 → „2022 simulare oficială";
-   - „BAC 2014 tehnologic v1" → „2014 Varianta 01" (tehnologic).
-3. **Pe loturi**, verificat vizual (PDF-ul desenat vs. itemii testului): BAC „Capitole" (27, aceeași temă: „Radicali", „Fracții" — itemii sunt chiar exercițiile 1–5, 12–16 din PDF) și EN „Exerciții pe subiecte" (13, același titlu: „Subiectul II exercițiul 1" = exercițiile 1–5 ale PDF-ului).
+1. **Jurnalul generatorului** (`agent_task_runs`, 349 de teste): rularea care a făcut testul a notat PDF-ul-sursă (același titlu, aceeași categorie și același profil). Anul și numărul variantei coincid la toate testele de examen. Fișele de clasa a V-a reîncărcate și renumerotate pe 13 aug. („FIȘĂ 18 - 1" → „Fișă 19 (100 exerciții)", „FIȘĂ 19 - 2" → „Fișă 18") — după același șir de exerciții și aceeași notă („1 ar = 100 m²; 1 hectar = 10000 m²"); numerele diferă, testele fiind făcute după versiunile vechi.
+2. **Conținutul**: testele gratuite (HTML public) comparate cu textul PDF-urilor; la cele Premium, textul lor indexat (Subiectul al II-lea, cu enunțuri), pe fraze comune rare și pe „semnăturile" exercițiilor (`BC=3`, `AO+DO=8`, `DP=3PC`…), iar unde a fost nevoie — **verificat vizual** pe pagina PDF-ului (testele 4, 22, 26). Seria „Test interactiv Evaluare Națională": **1–15 = „2021 model" cu același număr**, 16 = „2021 variantă de rezervă", 17 = „2021 variantă oficială iunie", 18 = „2021 sesiune specială", 19–24 = „2022 model 1–6", 25 = „2022 variantă oficială 1", 26 = „2022 variantă oficială 2" (câteva exerciții din alte materiale 2022), 27 = „2022 model oficial", 28 = „2022 simulare oficială", 29 = „2023 model", 30 = „2022 simulare Brăila"; „Test interactiv Matematică 1 · Subiectul I, II" e versiunea timpurie a testului 30 (fișierul `test-interactiv-30-…`). **Testele 8, 9, 12, 14, 15 n-au niciun text indexat** — sunt legate după serie (confirmată pe conținut la 1–7, 10, 11, 13); deschide-le o dată ca să le verifici.
+3. **Pe loturi**, verificat vizual (PDF-ul desenat vs. itemii testului): BAC „Capitole" (27, aceeași temă) și EN „Exerciții pe subiecte" (13, același titlu).
+4. **Testele vechi de BAC 2014/2015** (iulie): după anul, varianta și profilul din antetul testului; cele gratuite și pe conținut. Sunt „alt test" pentru PDF-ul care are testul generatorului — elevii fără abonament îl primesc pe cel gratuit.
+5. „Rezolvarea triunghiului dreptunghic" (fișa de lucru pe grupe) → „Fișă 9: Trigonometrie" (antetul testului: „Fișă de Lucru – Trigonometrie, Clasa a 7-a").
 
-**Neasociate, intenționat:** „Test interactiv Evaluare Națională" 4, 8–10, 12, 14–16, 20–27, 29, 30 (dovada nu e clară — pentru unele textul indexat nu are enunțuri); testele combinate din mai multe teste („Test 32–61"); testele vechi din iulie de la BAC 2014/2015 când PDF-ul are deja testul generatorului (rămân pe site, ca teste separate); testul de grup „Rezolvarea triunghiului dreptunghic", „Calcule cu numere întregi" (fără conținut de comparat), testul general al clasei a V-a.
+**Din Admin:** 📋 Tot Conținutul → ✏️ la un **PDF** → **„🧩 Test interactiv asociat"** (principalul; testele făcute după el au 📄 în listă) sau la un **test** → **„📄 PDF-ul după care e făcut testul"**. Serverul ține legăturile în acord (`api/content-admin.js` → `legaturiInAcord`): testul principal e „făcut după" PDF-ul lui; un PDF fără test principal îl primește pe testul legat acum de el; un test mutat la alt PDF nu mai e principalul celui vechi.
 
-**Asocierea se poate schimba din Admin:** 📋 Tot Conținutul → ✏️ la un PDF → **„🧩 Test interactiv asociat"** (testele interactive ale aceleiași clase / aceluiași examen; la BAC — același profil).
+**Testele generate de acum înainte** dintr-un singur PDF (task „pe rând") își știu PDF-ul și devin testul lui principal dacă nu are deja unul — la postarea automată și la aprobarea manuală (`api/_lib/exgen.js` → `asociazaPdf`).
 
-**Testele generate de acum înainte** dintr-un singur PDF (task „pe rând") devin singure testul interactiv al PDF-ului (dacă nu are deja unul) — la postarea automată și la aprobarea manuală (`api/_lib/exgen.js` → `asociazaPdf`).
+**Dubluri:** „2026 tehnologic varianta 03" avea două teste generate la 2 minute unul de altul; cel vechi (neasociat, fără niciun rezultat) **a fost șters** pe 19 nov. 2026. Fișierul lui HTML a rămas în bucket-ul privat (`content-files/interactive/bacalaureat/1791317585339_task_bac-2026-…-intera.html`; Supabase nu șterge fișiere din SQL) — se poate șterge din Supabase → Storage.
+
+## Fișierele Premium — doar prin linkul semnat
+
+`supabase/storage_fisiere_premium.sql` (**rulat în Supabase pe 19 nov. 2026**, migrația `storage_fisiere_premium`): până acum orice cont autentificat, și unul gratuit, putea citi / descărca toate fișierele din bucket-ul privat `content-files` (căile sunt publice, în `content.file_url`) și putea încărca sau **șterge** fișiere din `content-files` și `content-files-free`. Acum:
+- elevii primesc fișierele **doar prin linkul semnat de server** (`api/get-file-url.js`: gratuit → oricine; Premium → abonații, adminii, tema pe grupă cu „premium gratuit"), valabil 5 minute — neschimbat;
+- în browser doar **adminii** citesc, încarcă și șterg în cele două bucket-uri (paginile din Admin);
+- verificat cu roluri simulate: un cont gratuit și unul Premium văd 0 din cele 530 de fișiere Premium (înainte: 530), adminul le vede pe toate; încărcarea — refuzată pentru contul gratuit, permisă pentru admin.
 
 ## Ce e de rulat
 
-Nimic — `supabase/pdf_interactiv.sql` (coloanele `content.interactiv_id`, `progress.itemi`, indexul; fără tabele noi) **a fost rulat în Supabase pe 19 nov. 2026** (migrația `pdf_interactiv`), iar cele 398 de asocieri sunt scrise. Fără el, „🧩 Interactiv" n-ar apărea, iar corectările ar merge ca înainte (ultima contează).
+Nimic — totul **a fost rulat în Supabase pe 19 nov. 2026**: `supabase/pdf_interactiv.sql` (coloanele `content.interactiv_id`, `progress.itemi`; migrația `pdf_interactiv`), `supabase/pdf_sursa.sql` (coloana `content.pdf_sursa_id`; migrația `pdf_sursa`) și `supabase/storage_fisiere_premium.sql` (migrația `storage_fisiere_premium`); asocierile sunt scrise (437 de teste). Fără tabele noi.
