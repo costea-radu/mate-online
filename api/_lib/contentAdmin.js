@@ -139,6 +139,17 @@ function sanitizeUpdate(input, current) {
     else if (v !== (cur.interactiv_id || null)) patch.interactiv_id = v;
   }
 
+  // 📄 PDF-ul după care e făcut un test interactiv (runda a doua, 19 nov. 2026): doar la teste;
+  // gol = fără. Că ținta e chiar un PDF verifică serverul.
+  if (src.pdf_sursa_id !== undefined) {
+    const v = src.pdf_sursa_id ? String(src.pdf_sursa_id).trim() : null;
+    const ct = patch.content_type || cur.content_type;
+    if (v && !RE_UUID.test(v)) errors.push('PDF-ul testului e invalid.');
+    else if (v && ct !== 'interactive') errors.push('Doar un test interactiv poate avea PDF-ul după care e făcut.');
+    else if (v && v === String(cur.id || '')) errors.push('Materialul nu poate fi asociat cu el însuși.');
+    else if (v !== (cur.pdf_sursa_id || null)) patch.pdf_sursa_id = v;
+  }
+
   return { patch, errors };
 }
 

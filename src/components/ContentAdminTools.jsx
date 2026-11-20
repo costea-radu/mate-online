@@ -183,12 +183,17 @@ export function InteractivAsociat({ s, item, value, onChange }) {
   const [lista, setLista] = useState(null);
   useEffect(() => {
     let viu = true;
-    supabase.from('content').select('id, title, subcategory, profile, is_free, created_at')
+    supabase.from('content').select('id, title, subcategory, profile, is_free, created_at, pdf_sursa_id')
       .eq('category', item.category).eq('content_type', 'interactive')
       .order('created_at', { ascending: false }).range(0, 1999)
-      .then(({ data }) => { if (viu) setLista((data || []).filter((r) => !item.profile || !r.profile || r.profile === item.profile)); }, () => { if (viu) setLista([]); });
+      .then(({ data }) => {
+        if (!viu) return;
+        const rows = (data || []).filter((r) => !item.profile || !r.profile || r.profile === item.profile);
+        // întâi testele făcute după acest PDF (content.pdf_sursa_id)
+        setLista([...rows.filter((r) => r.pdf_sursa_id === item.id), ...rows.filter((r) => r.pdf_sursa_id !== item.id)]);
+      }, () => { if (viu) setLista([]); });
     return () => { viu = false; };
-  }, [item.category, item.profile]);
+  }, [item.category, item.profile, item.id]);
   const ales = (lista || []).find((r) => r.id === value) || null;
   return (
     <div style={s.formGroup}>
@@ -197,12 +202,46 @@ export function InteractivAsociat({ s, item, value, onChange }) {
         <option value="">{lista === null ? 'Se încarcă testele…' : '— fără test interactiv —'}</option>
         {value && lista && !ales && <option value={value}>(testul asociat acum)</option>}
         {(lista || []).map((r) => (
-          <option key={r.id} value={r.id}>{r.title}{r.subcategory ? ` — ${subcategoryLabel(item.category, r.subcategory)}` : ''}{r.is_free ? '' : ' · ⭐'}</option>
+          <option key={r.id} value={r.id}>{r.pdf_sursa_id === item.id ? '📄 ' : ''}{r.title}{r.subcategory ? ` — ${subcategoryLabel(item.category, r.subcategory)}` : ''}{r.is_free ? '' : ' · ⭐'}</option>
         ))}
       </select>
       <div style={{ fontSize: '0.76rem', color: '#8e95a3', marginTop: 4, lineHeight: 1.5 }}>
         Testul generat după acest PDF: elevul îl deschide din vizualizator, la „✏️ Rezolvă pe PDF ▾" → „🧩 Interactiv" (la Evaluarea
         Națională sub „Pe PDF", la Bacalaureat și la clase primul). Punctajul de pe PDF se păstrează când trece la testul interactiv.
+        {' '}📄 = făcut după acest PDF; dacă alegi Premium, elevii fără abonament primesc un test gratuit al PDF-ului, când există.
+      </div>
+    </div>
+  );
+}
+
+// 📄 PDF-UL DUPĂ CARE E FĂCUT UN TEST INTERACTIV (19 nov. 2026, runda a doua — content.pdf_sursa_id):
+// un PDF poate avea mai multe teste; dacă PDF-ul n-are încă test principal, îl primește pe acesta
+// (api/content-admin.js → legaturiInAcord).
+export function PdfSursa({ s, item, value, onChange }) {
+  const [lista, setLista] = useState(null);
+  useEffect(() => {
+    let viu = true;
+    supabase.from('content').select('id, title, subcategory, profile, interactiv_id, created_at')
+      .eq('category', item.category).eq('content_type', 'pdf')
+      .order('created_at', { ascending: false }).range(0, 1999)
+      .then(({ data }) => {
+        if (viu) setLista((data || []).filter((r) => r.subcategory !== 'bareme' && !/\bbarem/i.test(r.title || '') && (!item.profile || !r.profile || r.profile === item.profile)));
+      }, () => { if (viu) setLista([]); });
+    return () => { viu = false; };
+  }, [item.category, item.profile]);
+  const ales = (lista || []).find((r) => r.id === value) || null;
+  return (
+    <div style={s.formGroup}>
+      <label style={s.label}>📄 PDF-ul după care e făcut testul</label>
+      <select style={s.select} value={value || ''} onChange={(e) => onChange(e.target.value)} aria-label="PDF-ul după care e făcut testul">
+        <option value="">{lista === null ? 'Se încarcă PDF-urile…' : '— nefăcut după un PDF (ex. test combinat) —'}</option>
+        {value && lista && !ales && <option value={value}>(PDF-ul legat acum)</option>}
+        {(lista || []).map((r) => (
+          <option key={r.id} value={r.id}>{r.title}{r.subcategory ? ` — ${subcategoryLabel(item.category, r.subcategory)}` : ''}{r.interactiv_id === item.id ? ' · 🧩 principal' : ''}</option>
+        ))}
+      </select>
+      <div style={{ fontSize: '0.76rem', color: '#8e95a3', marginTop: 4, lineHeight: 1.5 }}>
+        Din PDF, elevul ajunge la test cu „✏️ Rezolvă pe PDF ▾" → „🧩 Interactiv". Dacă PDF-ul n-are încă test principal, îl primește pe acesta.
       </div>
     </div>
   );
@@ -215,6 +254,7 @@ export function EditContentModal({ s, item, onClose, onSaved, onReplace = null }
     content_type: item.content_type, is_free: !!item.is_free,
     sort_order: item.sort_order == null ? 0 : item.sort_order,
     interactiv_id: item.interactiv_id || '',
+    pdf_sursa_id: item.pdf_sursa_id || '',
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(null);
@@ -241,6 +281,7 @@ export function EditContentModal({ s, item, onClose, onSaved, onReplace = null }
           subcategory: form.subcategory || null, profile: form.profile || null,
           content_type: form.content_type, is_free: form.is_free, sort_order: form.sort_order,
           ...(item.content_type === 'pdf' ? { interactiv_id: form.interactiv_id || null } : {}),
+          ...(item.content_type === 'interactive' ? { pdf_sursa_id: form.pdf_sursa_id || null } : {}),
         },
       });
       onSaved(r.row || { ...item, ...form }, r);
@@ -295,6 +336,9 @@ export function EditContentModal({ s, item, onClose, onSaved, onReplace = null }
 
         {item.content_type === 'pdf' && form.content_type === 'pdf' && (
           <InteractivAsociat s={s} item={item} value={form.interactiv_id} onChange={(v) => setForm((p) => ({ ...p, interactiv_id: v }))} />
+        )}
+        {item.content_type === 'interactive' && form.content_type === 'interactive' && (
+          <PdfSursa s={s} item={item} value={form.pdf_sursa_id} onChange={(v) => setForm((p) => ({ ...p, pdf_sursa_id: v }))} />
         )}
 
         <div style={{ fontSize: '0.78rem', color: '#8e95a3', lineHeight: 1.6, marginTop: -6, marginBottom: 14 }}>

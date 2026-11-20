@@ -142,6 +142,9 @@ test('api/ai-score → cumuleazaInPdf: doar PDF-ul care are chiar acest test; ex
   assert.deepStrictEqual([row.score, row.max_score, row.attempts], [25, 90, 2]);
   assert.deepStrictEqual(Object.keys(row.itemi.itemi).sort(), ['1.1', '1.2', '1.3', '2.1']);
   assert.strictEqual(row.itemi.itemi['2.1'].metoda, 'interactiv');
+  // un test făcut după PDF, dar nu principalul lui (content.pdf_sursa_id) — primit și el
+  const alt = await cumuleazaInPdf(supa, 'u1', { pdfId: PDF, interactiv: { id: ALT, pdf_sursa_id: PDF }, itemi: [{ lbl: 'I.4', p: 5, m: 5 }] });
+  assert.deepStrictEqual([alt.adaugat, alt.score], [true, 30]);
   // fișa (nu e test întreg de examen): punctajul PDF-ului rămâne, nu se amestecă
   const f = await cumuleazaInPdf(supa, 'u1', { pdfId: FISA, interactiv: { id: INT }, itemi: [{ lbl: 'I.3', p: 5, m: 5 }] });
   assert.deepStrictEqual([f.adaugat, f.score], [false, null]);
@@ -151,7 +154,7 @@ test('api/ai-score → cumuleazaInPdf: doar PDF-ul care are chiar acest test; ex
 test('api/ai-score: pdfId + itemi în cerere → răspunsul are și punctajul PDF-ului', () => {
   const src = read('api/ai-score.js');
   assert.match(src, /pdfId = null, itemi = null \} = req\.body \|\| \{\};/);
-  assert.match(src, /if \(!pdf \|\| pdf\.content_type !== 'pdf' \|\| pdf\.interactiv_id !== interactiv\.id\) return null;/, 'doar testul asociat');
+  assert.match(src, /const legat = !!pdf && \(pdf\.interactiv_id === interactiv\.id \|\| interactiv\.pdf_sursa_id === pdf\.id\);\s*\n\s*if \(!pdf \|\| pdf\.content_type !== 'pdf' \|\| !legat\) return null;/, 'doar testele PDF-ului');
   assert.match(src, /const noi = PC\.testIntreg\(pdf\) \? PC\.dinInteractiv\(itemi\) : \[\];/);
   assert.match(src, /pdfRez = await cumuleazaInPdf\(supa, userId, \{ pdfId, interactiv: content, itemi \}\);/);
   assert.match(src, /pregatire: pregatireRez, pdf: pdfRez \}\);/);
@@ -207,7 +210,7 @@ function ordineDinSursa() {
   const b = v.indexOf('// testele întregi de examen: exercițiile din testul interactiv');
   const cod = v.slice(a, b).replace(/export /g, '');
   // eslint-disable-next-line no-new-func
-  return new Function(`${cod}; return { METODA_INTERACTIV, ordineMetode };`)();
+  return new Function(`${cod}; return { METODA_INTERACTIV, ordineMetode, alegeTestInteractiv };`)();
 }
 
 test('meniul „✏️ Rezolvă pe PDF ▾": „🧩 Interactiv" la EN sub „Pe PDF", la BAC și la clase primul; doar cu test asociat', () => {
@@ -221,7 +224,9 @@ test('meniul „✏️ Rezolvă pe PDF ▾": „🧩 Interactiv" la EN sub „Pe
   assert.deepStrictEqual(ids(ordineMetode(M, { interactiv: false, en: true })), ['pdf', 'poza', 'chat', 'foaie']);
 
   const v = read('src/pages/PDFViewer.jsx');
-  assert.match(v, /const interactivId = !isLib && !modTest && item && item\.content_type === 'pdf' && item\.interactiv_id \? item\.interactiv_id : null;/);
+  assert.match(v, /const interactivPrincipal = !isLib && !modTest && item && item\.content_type === 'pdf' && item\.interactiv_id \? item\.interactiv_id : null;/);
+  assert.match(v, /\.or\(`id\.eq\.\$\{interactivPrincipal\},pdf_sursa_id\.eq\.\$\{item\.id\}`\)/, 'testele făcute după PDF');
+  assert.match(v, /const testAles = alegeTestInteractiv\(testePdf, interactivPrincipal, areAcces\);/);
   assert.match(v, /const metodeVazute = ordineMetode\(METODE_REZOLVARE\.filter\(\(m\) => \(m\.id === 'pdf' \? \(canSolve \|\| solveGeneric\) : true\)\), \{ interactiv: !!interactivId, en: isEnPdf \}\);/);
   assert.match(v, /if \(m === METODA_INTERACTIV\.id\) \{ deschideInteractiv\(\); return; \}/);
   // nu se ține minte ca metodă implicită (de pe hartă n-ar trebui să plece singur din PDF)
@@ -235,6 +240,22 @@ test('meniul „✏️ Rezolvă pe PDF ▾": „🧩 Interactiv" la EN sub „Pe
   assert.match(v, /metodaActiva \? 'schimbă metoda' : metodeVazute\.map\(\(m\) => PE_SCURT\[m\.id\] \|\| m\.scurt\)\.join\(' · '\)/);
   // metoda din meniu ajunge la formular (punctajul cumulat știe cum s-a rezolvat)
   assert.match(v, /metoda: formaCeruta\.mod \|\| null \}\);/);
+});
+test('un PDF cu mai multe teste: cu abonament — principalul; fără abonament — cel mai nou test gratuit al PDF-ului', () => {
+  const { alegeTestInteractiv } = ordineDinSursa();
+  const teste = [
+    { id: 'nou', is_free: false, created_at: '2026-09-01' },          // principalul (generatorul), Premium
+    { id: 'vechi1', is_free: true, created_at: '2026-07-20' },        // varianta veche, gratuită
+    { id: 'vechi2', is_free: true, created_at: '2026-07-21' },
+  ];
+  assert.strictEqual(alegeTestInteractiv(teste, 'nou', true).id, 'nou');
+  assert.strictEqual(alegeTestInteractiv(teste, 'nou', false).id, 'vechi2');
+  assert.strictEqual(alegeTestInteractiv(teste.slice(0, 1), 'nou', false).id, 'nou', 'fără alt test gratuit → principalul (cu „⭐ Premium")');
+  assert.strictEqual(alegeTestInteractiv([{ id: 'g', is_free: true }], 'g', false).id, 'g');
+  assert.deepStrictEqual(alegeTestInteractiv(null, 'p', false), { id: 'p', is_free: null }, 'lista încă se încarcă → principalul');
+  assert.strictEqual(alegeTestInteractiv([], null, true), null);
+  const v = read('src/pages/PDFViewer.jsx');
+  assert.match(v, /const interactivPremium = !!testAles && testAles\.is_free === false && !areAcces;/);
 });
 function METODE_REZOLVARE_IDS(v) {
   const bloc = v.slice(v.indexOf('export const METODE_REZOLVARE = ['), v.indexOf('];', v.indexOf('export const METODE_REZOLVARE = [')));
@@ -289,6 +310,10 @@ test('generatorul: testul făcut dintr-un singur PDF devine testul interactiv al
   assert.strictEqual(await asociazaPdf(supa, { sourceId: 'p1', ctype: 'interactive', contentId: 'nou' }), false, 'sursa nu e PDF');
   assert.strictEqual(await asociazaPdf(supa, { sourceId: 'p1', ctype: 'pdf', contentId: 'nou' }), true);
   assert.strictEqual(supa.db.tables.content[0].interactiv_id, 'nou');
+  // testul își știe PDF-ul (și când PDF-ul are deja testul principal)
+  supa.db.tables.content.push({ id: 'i2', content_type: 'interactive', pdf_sursa_id: null });
+  await asociazaPdf(supa, { sourceId: 'p2', ctype: 'pdf', contentId: 'i2' });
+  assert.strictEqual(supa.db.tables.content.find((r) => r.id === 'i2').pdf_sursa_id, 'p2');
   assert.strictEqual(await asociazaPdf(supa, { sourceId: 'p2', ctype: 'pdf', contentId: 'nou' }), false, 'asocierea existentă rămâne');
   assert.strictEqual(supa.db.tables.content[1].interactiv_id, 'vechi');
   assert.strictEqual(await asociazaPdf(supa, { sourceId: 'i1', ctype: 'pdf', contentId: 'nou' }), false);
@@ -315,4 +340,62 @@ test('admin: „🧩 Test interactiv asociat" la editarea unui PDF; serverul ver
   assert.match(ui, /\.eq\('category', item\.category\)\.eq\('content_type', 'interactive'\)/);
   assert.match(ui, /\{item\.content_type === 'pdf' && form\.content_type === 'pdf' && \(\s*\n\s*<InteractivAsociat/);
   assert.match(ui, /\.\.\.\(item\.content_type === 'pdf' \? \{ interactiv_id: form\.interactiv_id \|\| null \} : \{\}\),/);
+});
+
+test('runda a doua: content.pdf_sursa_id (test → PDF-ul lui), mai multe teste pe PDF; adminul le editează, serverul le ține în acord', async () => {
+  const sql = read('supabase/pdf_sursa.sql');
+  assert.match(sql, /alter table public\.content\s+add column if not exists pdf_sursa_id uuid references public\.content\(id\) on delete set null;/);
+  assert.match(sql, /create index if not exists idx_content_pdf_sursa\s+on public\.content\(pdf_sursa_id\) where pdf_sursa_id is not null;/);
+  assert.match(sql, /update public\.content t\s+set pdf_sursa_id = p\.id\s+from public\.content p\s+where p\.interactiv_id = t\.id/, 'testele principale de până acum își știu PDF-ul');
+  assert.doesNotMatch(sql, /create table/i);
+
+  const { sanitizeUpdate } = require('../api/_lib/contentAdmin');
+  const T = { id: '11111111-1111-4111-8111-111111111111', content_type: 'interactive', category: 'bacalaureat', title: 'Test', pdf_sursa_id: null };
+  const P = '22222222-2222-4222-8222-222222222222';
+  assert.deepStrictEqual(sanitizeUpdate({ pdf_sursa_id: P }, T), { patch: { pdf_sursa_id: P }, errors: [] });
+  assert.deepStrictEqual(sanitizeUpdate({ pdf_sursa_id: '' }, { ...T, pdf_sursa_id: P }), { patch: { pdf_sursa_id: null }, errors: [] });
+  assert.deepStrictEqual(sanitizeUpdate({ pdf_sursa_id: P }, { ...T, content_type: 'pdf' }).errors, ['Doar un test interactiv poate avea PDF-ul după care e făcut.']);
+  assert.deepStrictEqual(sanitizeUpdate({ pdf_sursa_id: 'x' }, T).errors, ['PDF-ul testului e invalid.']);
+
+  const { legaturiInAcord } = require('../api/content-admin');
+  const supa = createFakeSupabase({ content: [
+    { id: 'pA', content_type: 'pdf', interactiv_id: 't1' }, { id: 'pB', content_type: 'pdf', interactiv_id: null },
+    { id: 't1', content_type: 'interactive', pdf_sursa_id: 'pA' }, { id: 't2', content_type: 'interactive', pdf_sursa_id: null },
+  ] });
+  const row = (id) => supa.db.tables.content.find((r) => r.id === id);
+  // ca handler-ul: întâi rândul editat, apoi legăturile
+  const salveaza = async (id, patch) => { const cur = { ...row(id) }; Object.assign(row(id), patch); await legaturiInAcord(supa, cur, patch); };
+  // pB primește principalul t1 → t1 trece la pB, pA rămâne fără principal
+  await salveaza('pB', { interactiv_id: 't1' });
+  assert.deepStrictEqual([row('t1').pdf_sursa_id, row('pA').interactiv_id, row('pB').interactiv_id], ['pB', null, 't1']);
+  // t2 e făcut după pA (care n-are principal) → devine principalul lui pA
+  await salveaza('t2', { pdf_sursa_id: 'pA' });
+  assert.strictEqual(row('pA').interactiv_id, 't2');
+  // t2 mutat la pB (care are principal) → pA rămâne fără principal, pB îl păstrează pe t1
+  await salveaza('t2', { pdf_sursa_id: 'pB' });
+  assert.deepStrictEqual([row('pA').interactiv_id, row('pB').interactiv_id], [null, 't1']);
+
+  const api = read('api/content-admin.js');
+  assert.match(api, /if \(!sursa \|\| sursa\.content_type !== 'pdf'\) return res\.status\(400\)/);
+  assert.match(api, /await legaturiInAcord\(supabase, current, patch\);/);
+  const ui = read('src/components/ContentAdminTools.jsx');
+  assert.match(ui, /export function PdfSursa\(\{ s, item, value, onChange \}\)/);
+  assert.match(ui, /\{item\.content_type === 'interactive' && form\.content_type === 'interactive' && \(\s*\n\s*<PdfSursa/);
+  assert.match(ui, /\.\.\.\(item\.content_type === 'interactive' \? \{ pdf_sursa_id: form\.pdf_sursa_id \|\| null \} : \{\}\),/);
+});
+
+test('Storage: fișierele Premium doar prin linkul semnat de server; în browser doar adminii citesc, încarcă, șterg', () => {
+  const sql = read('supabase/storage_fisiere_premium.sql');
+  for (const veche of ['Authenticated users can create signed URLs', 'Authenticated users can download files', 'Authenticated users can upload files', 'Authenticated users can delete files']) {
+    assert.ok(sql.includes(`drop policy if exists "${veche}" on storage.objects;`), veche);
+  }
+  for (const [nume, cmd] of [['content_files_admin_select', 'select'], ['content_files_admin_insert', 'insert'], ['content_files_admin_delete', 'delete']]) {
+    assert.match(sql, new RegExp(`create policy "${nume}" on storage\\.objects\\s+for ${cmd} to authenticated`));
+  }
+  assert.strictEqual((sql.match(/bucket_id in \('content-files', 'content-files-free'\)\s+and exists \(select 1 from public\.profiles p where p\.id = auth\.uid\(\) and p\.is_admin = true\)/g) || []).length, 3, 'toate trei: doar adminii');
+  assert.doesNotMatch(sql, /to anon|to public/i);
+  // elevii primesc fișierele prin linkul semnat de server (rolul de serviciu), cu abonamentul verificat
+  const g = read('api/get-file-url.js');
+  assert.match(g, /const supabase = admin\(\);/);
+  assert.match(g, /if \(!subscribed && !granted\) \{\s*\n\s*return res\.status\(403\)/);
 });
