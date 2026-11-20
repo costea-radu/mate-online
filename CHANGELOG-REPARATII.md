@@ -4,6 +4,21 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 20 noiembrie 2026 — 🧩 legătura PDF ↔ test interactiv, vizibilă peste tot: pe carduri, în testul deschis direct, în Admin
+
+Cererea: „Fă o legătură mai bună între testele PDF și testele interactive și asociază-le."
+
+**De rulat:** nimic (fără SQL). Asocierea din bază rămâne cea de pe 19 nov. — 437 de teste cu PDF-ul lor, 417 PDF-uri cu test principal —, verificată din nou: 0 legături în dezacord, 0 PDF-uri cu teste dar fără principal, 0 legături între categorii diferite. Cele 33 de teste fără PDF sunt combinate (EN 32–61: din câte 11–16 teste, exerciții modificate) sau fără o sursă sigură. Ghidul: `GHID_PDF_INTERACTIV.md` (secțiunea nouă, sus).
+
+1. **Cardurile din liste** (`src/components/ContentPage.jsx`, `src/components/ExamContent.jsx`): PDF-ul cu test are „🧩 Are test interactiv: „…"" și butonul **„🧩 Interactiv"** (același test ca în vizualizator; fără abonament — testul gratuit al PDF-ului; punctajul se cumulează); testul are „📄 Făcut după PDF-ul „…"" și butonul **„📄 PDF"**. Legăturile unei liste vin în câteva cereri, nu una pe card (`src/lib/pdfInteractiv.js`, nou). Așa, la EN și BAC, secțiunile doar cu PDF-uri (Variante, Simulări, Teste de antrenament) duc direct la testele interactive, iar fila „🧩 Teste Interactive" spune după ce PDF e făcut fiecare test.
+2. **Testul deschis direct** (`src/pages/InteractiveViewer.jsx`): banda „📄 Testul e făcut după PDF-ul „…"" + „📄 Deschide PDF-ul" (înainte, banda apărea doar când testul era deschis din PDF); la testele întregi de examen exercițiile rezolvate intră și în punctajul PDF-ului (serverul verifică legătura). Nu în tema pe grupă, duel, tema de la Meditator, sesiunea de meditații.
+3. **Admin → 📋 Tot Conținutul** (`src/pages/Admin.jsx`): perechea fiecărui PDF / test sub titlu și filtrul „PDF ↔ test" (asociate / neasociate).
+4. `src/pages/PDFViewer.jsx`: aceleași reguli, mutate în `src/lib/pdfInteractiv.js` (`alegeTestInteractiv`, `esteTestIntreg` — aceleași rubrici ca pe server).
+
+Teste: `pdf-interactiv-legaturi` (9, nou); `pdf-interactiv` actualizat (codul mutat în bibliotecă, banda). `npm test`: 1375 din 1375; `vite build` curat. Verificat în Chromium (rânduri reale din bază, Supabase simulat), pe 1280 și 390 px: EN → Variante — „🧩 Interactiv" pe cele 3 PDF-uri cu test (⭐ la testul Premium), nimic pe cel fără; „🧩 Teste Interactive" — „📄 Făcut după PDF-ul „2021 model 3"" și „📄 PDF"; testul deschis din listă — banda cu PDF-ul, iar „📄 Deschide PDF-ul" deschide `/pdf-viewer?id=` al PDF-ului corect.
+
+---
+
 ## 19 noiembrie 2026 (a treia cerere) — 🧩 asocierea PDF ↔ test, refăcută: 437 din 470 de teste · 🔒 fișierele Premium doar prin linkul semnat · testul dublu, șters
 
 Cererea: „1. Rezolvă cele doua lucruri: testul dublu și accesul la fișierele premium 2. S-au asociat puține teste. Fiecare test interactiv e generat după un PDF . Doar la evaluare națională testele de la 32 până la 61 nu sunt după PDF. Încearcă să faci o asociere mai bună"

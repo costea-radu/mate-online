@@ -22,6 +22,7 @@ import { onPregatire, arenaChanged, onTestCorectat, onNotaPdf } from '../lib/are
 import { asteaptaSiVeziNota } from '../lib/pdfRezolvare';
 import { ReviewToast } from '../components/ReviewWidget';
 import { useExplicatiiGrila, ButonExplicatii, ExplicatiiOverlay } from '../components/ExplicatiiGrila';   // 💡 explicațiile la grilă (EN, 18 nov. 2026)
+import { alegeTestInteractiv, esteTestIntreg } from '../lib/pdfInteractiv';   // 🧩 PDF ↔ testul interactiv (20 nov. 2026)
 
 // ✏️ METODELE DE REZOLVARE (15 nov. 2026, seara): „la subiectele PDF, pune la Viewer în bara
 // de sus la butonul «rezolvă pe PDF» metodele de rezolvare: pe PDF, cu poză, în chat, în foaia
@@ -52,21 +53,11 @@ export function ordineMetode(metode, { interactiv = false, en = false } = {}) {
   }
   return lista;
 }
-// Ce test deschide „🧩 Interactiv" (runda a doua, 19 nov. 2026): un PDF poate avea mai multe teste
-// făcute după el (content.pdf_sursa_id); principalul e content.interactiv_id. Cu abonament (sau
-// când principalul e gratuit) — principalul; fără abonament și principalul Premium — cel mai nou
-// test GRATUIT al PDF-ului, dacă există (altfel principalul, cu „⭐ Premium").
-export function alegeTestInteractiv(teste, principalId, areAcces) {
-  const lista = Array.isArray(teste) ? teste : [];
-  const principal = lista.find((t) => t && t.id === principalId) || (principalId ? { id: principalId, is_free: null } : null);
-  if (areAcces || !principal || principal.is_free !== false) return principal;
-  const gratuit = lista.filter((t) => t && t.is_free === true && t.id !== principalId)
-    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];
-  return gratuit || principal;
-}
-// testele întregi de examen: exercițiile din testul interactiv se adaugă la punctajul PDF-ului
-// (aceeași structură — api/_lib/punctajCumulat.js → testIntreg)
-const RUBRICI_TEST_INTREG = ['variante', 'simulari', 'variante-ai', 'teste-antrenament'];
+// Ce test deschide „🧩 Interactiv" (un PDF poate avea mai multe teste; fără abonament, testul
+// gratuit al PDF-ului) și care PDF-uri sunt teste întregi de examen (exercițiile din testul
+// interactiv se adaugă la punctajul lor): src/lib/pdfInteractiv.js — aceleași reguli și pe
+// cardurile din liste (20 nov. 2026).
+export { alegeTestInteractiv };
 const PE_SCURT = { pdf: 'pe PDF', interactiv: 'interactiv', poza: 'poză', chat: 'chat', foaie: 'foaie' };
 const fmtPunct = (n) => String(Math.round((Number(n) || 0) * 100) / 100).replace('.', ',');
 const METODA_LS = 'em_metoda_rezolvare';
@@ -398,7 +389,7 @@ export default function PDFViewer() {
   const rezolvaFoaie = !canSolve && (!!pdfData || !!examHtml) && !isBaremItem && baremStatus !== 'este_barem';
   // 🧩 testul interactiv generat după acest PDF (19 nov. 2026) — metoda „Interactiv"
   const interactivPrincipal = !isLib && !modTest && item && item.content_type === 'pdf' && item.interactiv_id ? item.interactiv_id : null;
-  const testIntregPdf = ['evaluare-nationala', 'bacalaureat'].includes(item?.category) && RUBRICI_TEST_INTREG.includes(item?.subcategory || '');
+  const testIntregPdf = esteTestIntreg(item);
   // testele făcute după acest PDF (principalul + celelalte — content.pdf_sursa_id): fără abonament,
   // un test gratuit al PDF-ului în locul principalului Premium; altfel „⭐ Premium" lângă metodă
   const [testePdf, setTestePdf] = useState(null);   // [{ id, is_free, created_at }]

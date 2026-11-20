@@ -207,11 +207,14 @@ test('saveProgress: cu itemi când există coloana, fără ea altfel (instalări
 function ordineDinSursa() {
   const v = read('src/pages/PDFViewer.jsx');
   const a = v.indexOf('export const METODA_INTERACTIV');
-  const b = v.indexOf('// testele întregi de examen: exercițiile din testul interactiv');
+  const b = v.indexOf('// Ce test deschide „🧩 Interactiv" (un PDF poate avea mai multe teste');
   const cod = v.slice(a, b).replace(/export /g, '');
   // eslint-disable-next-line no-new-func
-  return new Function(`${cod}; return { METODA_INTERACTIV, ordineMetode, alegeTestInteractiv };`)();
+  return new Function(`${cod}; return { METODA_INTERACTIV, ordineMetode };`)();
 }
+// alegeTestInteractiv / esteTestIntreg: src/lib/pdfInteractiv.js (20 nov. 2026 — aceleași reguli și pe carduri)
+let libPI = null;
+const pdfInteractiv = async () => { if (!libPI) libPI = await import('../src/lib/pdfInteractiv.js'); return libPI; };
 
 test('meniul „✏️ Rezolvă pe PDF ▾": „🧩 Interactiv" la EN sub „Pe PDF", la BAC și la clase primul; doar cu test asociat', () => {
   const { METODA_INTERACTIV, ordineMetode } = ordineDinSursa();
@@ -241,8 +244,8 @@ test('meniul „✏️ Rezolvă pe PDF ▾": „🧩 Interactiv" la EN sub „Pe
   // metoda din meniu ajunge la formular (punctajul cumulat știe cum s-a rezolvat)
   assert.match(v, /metoda: formaCeruta\.mod \|\| null \}\);/);
 });
-test('un PDF cu mai multe teste: cu abonament — principalul; fără abonament — cel mai nou test gratuit al PDF-ului', () => {
-  const { alegeTestInteractiv } = ordineDinSursa();
+test('un PDF cu mai multe teste: cu abonament — principalul; fără abonament — cel mai nou test gratuit al PDF-ului', async () => {
+  const { alegeTestInteractiv } = await pdfInteractiv();
   const teste = [
     { id: 'nou', is_free: false, created_at: '2026-09-01' },          // principalul (generatorul), Premium
     { id: 'vechi1', is_free: true, created_at: '2026-07-20' },        // varianta veche, gratuită
@@ -256,6 +259,9 @@ test('un PDF cu mai multe teste: cu abonament — principalul; fără abonament 
   assert.strictEqual(alegeTestInteractiv([], null, true), null);
   const v = read('src/pages/PDFViewer.jsx');
   assert.match(v, /const interactivPremium = !!testAles && testAles\.is_free === false && !areAcces;/);
+  assert.match(v, /import \{ alegeTestInteractiv, esteTestIntreg \} from '\.\.\/lib\/pdfInteractiv';/);
+  assert.match(v, /const testIntregPdf = esteTestIntreg\(item\);/);
+  assert.match(v, /export \{ alegeTestInteractiv \};/, 'rămâne exportat și din vizualizator');
 });
 function METODE_REZOLVARE_IDS(v) {
   const bloc = v.slice(v.indexOf('export const METODE_REZOLVARE = ['), v.indexOf('];', v.indexOf('export const METODE_REZOLVARE = [')));
@@ -266,13 +272,14 @@ test('testul interactiv deschis din PDF: banda „📄 Rezolvi interactiv testul
   const iv = read('src/pages/InteractiveViewer.jsx');
   assert.match(iv, /const dinPdf = state\?\.dinPdf && state\.dinPdf\.id \? state\.dinPdf : null;/);
   assert.match(iv, /<div data-din-pdf role="status"/);
-  assert.match(iv, /📄 \{isMobile \? null : 'Rezolvi interactiv testul '\}<b>„\{dinPdf\.title\}"<\/b>/);
+  assert.match(iv, /const laPdfInapoi = !!dinPdf && !dinPdf\.dinLista;/);
+  assert.match(iv, /📄 \{isMobile \? null : \(laPdfInapoi \? 'Rezolvi interactiv testul ' : 'Testul e făcut după PDF-ul '\)\}<b>„\{pdfLegat\.title\}"<\/b>/);
   assert.match(iv, /'— exercițiile rezolvate aici se adaugă la punctaj; cele de pe PDF rămân'/);
   assert.match(iv, /'— punctajul de pe PDF rămâne cum era'/);
-  assert.match(iv, /\{isMobile \? '↩ PDF' : '↩ Înapoi la PDF'\}<\/button>/);
-  assert.match(iv, /if \(dinPdf\) \{ inapoiLaPdf\(\); return; \}/, '„← Înapoi" duce tot la PDF');
+  assert.match(iv, /\{laPdfInapoi \? \(isMobile \? '↩ PDF' : '↩ Înapoi la PDF'\) : \(isMobile \? '📄 PDF' : '📄 Deschide PDF-ul'\)\}<\/button>/);
+  assert.match(iv, /if \(laPdfInapoi\) \{ inapoiLaPdf\(\); return; \}/, '„← Înapoi" duce tot la PDF (venit din vizualizator)');
   assert.match(iv, /postMessage\(\{ type: 'MATE_ITEMS_REQ' \}, '\*'\)/);
-  assert.match(iv, /\.\.\.\(dinPdf \? \{ pdfId: dinPdf\.id, itemi \} : \{\}\)/);
+  assert.match(iv, /\.\.\.\(pdfLegat \? \{ pdfId: pdfLegat\.id, itemi \} : \{\}\)/);
   assert.match(iv, /saveScore\(d\.score, d\.maxScore, d\.answers, d\.items\);/);
   const ac = read('src/lib/aiClient.js');
   assert.match(ac, /\.\.\.\(pdfId \? \{ pdfId, itemi: Array\.isArray\(itemi\) \? itemi\.slice\(0, 120\) : null \} : \{\}\)/);

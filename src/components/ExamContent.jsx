@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { ContentCard } from './ContentPage';
+import { ContentCard, useLegaturiPdf } from './ContentPage';
 import { fetchReviewStats } from '../lib/reviews';
 
 // ─── Bloc de iteme ────────────────────────────────────────────────────────────
@@ -15,6 +15,8 @@ export function ItemBlock({ category, subcategory, profile, contentType, emptyTe
   const [progressMap, setProgressMap] = useState({});
   const [ratingMap, setRatingMap] = useState({});   // content_id → { avg, n } (recenzii)
   const [loading, setLoading] = useState(true);
+  // 🧩 PDF ↔ testul interactiv (20 nov. 2026): „🧩 Interactiv" pe PDF-uri, „📄 PDF" pe teste
+  const legaturi = useLegaturiPdf(items);
 
   useEffect(() => {
     async function load() {
@@ -69,7 +71,7 @@ export function ItemBlock({ category, subcategory, profile, contentType, emptyTe
   return (
     <div>
       {items.map(item => (
-        <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} rating={ratingMap[item.id]} forceTab={returnTab} />
+        <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} rating={ratingMap[item.id]} forceTab={returnTab} legatura={legaturi[item.id]} />
       ))}
     </div>
   );
