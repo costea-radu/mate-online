@@ -11,6 +11,7 @@ import { scrollToCard } from '../lib/scrollToCard';
 import { esteBarem } from '../lib/bareme';
 import BaremeClasa, { useBaremeClasa } from './BaremeClasa';   // 📋 fila „Bareme” de la clase (15 nov. 2026)
 import CapitoleClasa from './CapitoleClasa';   // lecțiile claselor pe capitole, cu pictograme (18 nov. 2026)
+import { incarcaLegaturi, testulPdfului, stareTestDinPdf, starePdfDinTest } from '../lib/pdfInteractiv';   // 🧩 PDF ↔ test (20 nov. 2026)
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -182,6 +183,28 @@ async function ensurePdfJs() {
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 
+// ─── 🧩 PDF ↔ testul interactiv (20 nov. 2026) ──────────────────────────────────
+// „Fă o legătură mai bună între testele PDF și testele interactive și asociază-le": legăturile
+// din `content` (interactiv_id / pdf_sursa_id) pentru toate cardurile unei liste, aduse o dată
+// (src/lib/pdfInteractiv.js). Cardul PDF-ului primește „🧩 Interactiv", cardul testului
+// „📄 PDF" și rândul „📄 Făcut după PDF-ul „…"".
+export function useLegaturiPdf(items) {
+  const [legaturi, setLegaturi] = useState({});
+  useEffect(() => {
+    let viu = true;
+    if (!Array.isArray(items) || !items.length) { setLegaturi({}); return undefined; }
+    incarcaLegaturi(supabase, items).then((m) => { if (viu) setLegaturi(m || {}); }, () => { if (viu) setLegaturi({}); });
+    return () => { viu = false; };
+  }, [items]);
+  return legaturi;
+}
+
+// butonul perechii (🧩 Interactiv / 📄 PDF), lângă butonul principal al cardului
+const btnPereche = {
+  padding: '7px 12px', borderRadius: 7, fontWeight: 600, fontSize: '0.8rem', whiteSpace: 'nowrap',
+  background: '#f3e5f5', color: 'var(--navy)', border: '1.5px solid #e1bee7', cursor: 'pointer', fontFamily: 'var(--font-body)',
+};
+
 // ─── Badge progres ────────────────────────────────────────────────────────────
 function ProgressBadge({ progress }) {
   if (!progress) return null;
@@ -207,7 +230,9 @@ function ProgressBadge({ progress }) {
 
 // ─── Card item ────────────────────────────────────────────────────────────────
 // `rating` = { avg, n, nComentarii } din src/lib/reviews.js (opțional) → „★ 4,6 (23)"
-export function ContentCard({ item, isPremium, user, progress, rating, _overrideSrcDoc, forceTab }) {
+// `legatura` = perechea PDF ↔ test din useLegaturiPdf (opțional)
+export function ContentCard({ item, isPremium, user, progress, rating, _overrideSrcDoc, forceTab, legatura }) {
+  const { isAdmin } = useAuth();
   const canAccess = item.is_free || isPremium;
   const navigate = useNavigate();
   const [showPreview, setShowPreview] = useState(false);
@@ -234,6 +259,21 @@ export function ContentCard({ item, isPremium, user, progress, rating, _override
   function handleInteractive(e) {
     e.preventDefault();
     navigate(`/exercitiu?id=${item.id}`, { state: { item, srcDoc: _overrideSrcDoc, returnTo: window.location.pathname, scrollToCardId: item.id, returnTab, returnSubcategory: item.subcategory, returnContentType: item.content_type } });
+  }
+
+  // 🧩 PDF ↔ testul interactiv: perechea acestui card (testul PDF-ului / PDF-ul testului)
+  const retur = { returnTo: window.location.pathname, scrollToCardId: item.id, returnTab, returnSubcategory: item.subcategory, returnContentType: item.content_type };
+  const testPereche = isPdf && !_overrideSrcDoc ? testulPdfului(legatura, isPremium || isAdmin) : null;
+  const pdfPereche = isInteractive && !_overrideSrcDoc && legatura && legatura.tip === 'interactive' ? legatura.pdf : null;
+  // de pe cardul PDF-ului: testul lui, ca din „✏️ Rezolvă pe PDF ▾" → „🧩 Interactiv" (punctajul
+  // PDF-ului rămâne; la testele întregi de examen exercițiile de acolo se adaugă la el)
+  function deschideTestul() {
+    if (!testPereche) return;
+    navigate(`/exercitiu?id=${testPereche.id}`, { state: stareTestDinPdf(item, retur) });
+  }
+  function deschidePdful() {
+    if (!pdfPereche) return;
+    navigate(`/pdf-viewer?id=${pdfPereche.id}`, { state: starePdfDinTest(retur) });
   }
 
   return (
@@ -275,6 +315,16 @@ export function ContentCard({ item, isPremium, user, progress, rating, _override
               {getOriginalFilename(item.file_url)}
             </div>
           )}
+          {pdfPereche && (
+            <div data-pereche="pdf" style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 3 }}>
+              📄 Făcut după PDF-ul „{pdfPereche.title}"
+            </div>
+          )}
+          {testPereche && (
+            <div data-pereche="test" style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 3 }}>
+              🧩 Are test interactiv{testPereche.title ? `: „${testPereche.title}"` : ''}
+            </div>
+          )}
         </div>
       </div>
 
@@ -303,7 +353,19 @@ export function ContentCard({ item, isPremium, user, progress, rating, _override
           {item.is_free ? 'Gratuit' : 'Premium'}
         </span>
 
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {testPereche && (
+            <button type="button" onClick={deschideTestul}
+              title={`Rezolvă interactiv${testPereche.title ? ` „${testPereche.title}"` : ''} — cu corectare pe loc${testPereche.premium ? ' (⭐ Premium)' : ''}`}
+              style={btnPereche}>
+              🧩 Interactiv{testPereche.premium ? ' ⭐' : ''}
+            </button>
+          )}
+          {pdfPereche && (
+            <button type="button" onClick={deschidePdful} title={`Deschide PDF-ul „${pdfPereche.title}"`} style={btnPereche}>
+              📄 PDF{pdfPereche.is_free === false && !(isPremium || isAdmin) ? ' ⭐' : ''}
+            </button>
+          )}
           {canAccess ? (
             isPdf ? (
               // PDF normal → PDFViewer cu blob URL
@@ -458,6 +520,7 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
   const [ratingMap, setRatingMap] = useState({});   // content_id → { avg, n } (recenzii)
   const [loading, setLoading] = useState(true);
   const scrollRestored = useRef(false);
+  const legaturi = useLegaturiPdf(items);   // 🧩 PDF ↔ testul interactiv (20 nov. 2026)
   const bar = useBaremeClasa(category, { on: !!bareme, user });
   const baremeVizibile = !!bareme && !!bar.data && !!(bar.data.vizibil || bar.data.admin);
   const tabsVazute = tabs.filter((t) => t.id !== 'bareme' || baremeVizibile);
@@ -532,7 +595,7 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
   const card = (item) => (
     item.content_type === 'manual' && item.manual_content
       ? <ManualViewer key={item.id} item={item} />
-      : <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} rating={ratingMap[item.id]} />
+      : <ContentCard key={item.id} item={item} isPremium={isPremium} user={user} progress={progressMap[item.id]} rating={ratingMap[item.id]} legatura={legaturi[item.id]} />
   );
 
   return (

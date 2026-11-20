@@ -1,5 +1,5 @@
 import { authHeaders, getValidSession, apiPost } from '../lib/api';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -372,7 +372,7 @@ function UploadInteractive({ onSuccess }) {
 function ContentList({ refresh }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState({ category: '', type: '', q: '', kind: '' });   // kind: '' | 'bareme' | 'fara-bareme'
+  const [filter, setFilter] = useState({ category: '', type: '', q: '', kind: '', pereche: '' });   // kind: '' | 'bareme' | 'fara-bareme' · pereche: '' | 'cu' | 'fara'
   const [folositDe, setFolositDe] = useState(null);   // baremId → materialele care îl folosesc (la „📋 Doar bareme")
   const [deleting, setDeleting] = useState(null);
   const [view, setView] = useState('list');      // 'list' | 'order'
@@ -514,11 +514,24 @@ function ContentList({ refresh }) {
     setItems(list => list.map(x => (orderMap[x.id] != null ? { ...x, sort_order: orderMap[x.id] } : x)));
   }
 
+  // 🧩 PDF ↔ testul interactiv (20 nov. 2026): perechea fiecărui rând — testul principal al unui
+  // PDF (content.interactiv_id) sau PDF-ul după care e făcut un test (content.pdf_sursa_id) —, din
+  // lista deja adusă; plus câte teste are fiecare PDF. Filtrul „PDF ↔ test" arată ce e de legat.
+  const dupaId = useMemo(() => new Map(items.map((x) => [x.id, x])), [items]);
+  const testeDupaPdf = useMemo(() => {
+    const m = new Map();
+    for (const x of items) if (x.content_type === 'interactive' && x.pdf_sursa_id) m.set(x.pdf_sursa_id, (m.get(x.pdf_sursa_id) || 0) + 1);
+    return m;
+  }, [items]);
+  const pereche = (i) => (i.content_type === 'pdf' ? (i.interactiv_id ? dupaId.get(i.interactiv_id) || { id: i.interactiv_id, title: '(test)' } : null)
+    : i.content_type === 'interactive' ? (i.pdf_sursa_id ? dupaId.get(i.pdf_sursa_id) || { id: i.pdf_sursa_id, title: '(PDF)' } : null) : null);
+  const deLegat = (i) => (i.content_type === 'pdf' || i.content_type === 'interactive') && !esteBarem(i);
   const q = filter.q.trim().toLowerCase();
   const filtered = items.filter(i =>
     (!filter.category || i.category === filter.category) &&
     (!filter.type || i.content_type === filter.type) &&
     (!filter.kind || (filter.kind === 'bareme' ? esteBarem(i) : !esteBarem(i))) &&
+    (!filter.pereche || (deLegat(i) && (filter.pereche === 'cu' ? !!pereche(i) : !pereche(i)))) &&
     (!q || `${i.title || ''} ${i.description || ''}`.toLowerCase().includes(q))
   );
 
@@ -573,6 +586,13 @@ function ContentList({ refresh }) {
               <option value="bareme">📋 Doar bareme</option>
               <option value="fara-bareme">Fără bareme</option>
             </select>
+            <select style={{ ...s.select, width: 210 }} value={filter.pereche} aria-label="PDF ↔ test interactiv"
+              title="PDF-urile și testele interactive, după asocierea lor (fără bareme)"
+              onChange={e => setFilter(p => ({ ...p, pereche: e.target.value }))}>
+              <option value="">PDF ↔ test: toate</option>
+              <option value="cu">🔗 Asociate (PDF ↔ test)</option>
+              <option value="fara">⛓️‍💥 Neasociate</option>
+            </select>
             <input style={{ ...s.input, width: 260 }} value={filter.q} placeholder="🔍 Caută după titlu / descriere"
               onChange={e => setFilter(p => ({ ...p, q: e.target.value }))} />
           </div>
@@ -619,6 +639,17 @@ function ContentList({ refresh }) {
                         {item.description && (
                           <div style={{ fontSize: '0.78rem', color: '#8e95a3', marginTop: 2 }}>{item.description}</div>
                         )}
+                        {deLegat(item) && (() => {
+                          const p = pereche(item);
+                          const nTeste = item.content_type === 'pdf' ? testeDupaPdf.get(item.id) || 0 : 0;
+                          return (
+                            <div data-pereche style={{ fontSize: '0.74rem', marginTop: 3, color: p ? '#5a6170' : '#b26a00' }}>
+                              {item.content_type === 'pdf'
+                                ? (p ? <>🧩 Test interactiv: „{p.title}"{nTeste > 1 ? ` · ${nTeste} teste făcute după el` : ''}</> : '🧩 fără test interactiv')
+                                : (p ? <>📄 Făcut după PDF-ul „{p.title}"{dupaId.get(p.id)?.interactiv_id === item.id ? ' · principal' : ''}</> : '📄 nefăcut după un PDF')}
+                            </div>
+                          );
+                        })()}
                         {warn && (
                           <div style={{ fontSize: '0.75rem', color: '#e65100', marginTop: 3, fontWeight: 600 }}>⚠️ {warn}</div>
                         )}

@@ -1,6 +1,25 @@
 # 🧩 PDF ↔ testul interactiv · punctajul cumulat între metode
 
-*19 noiembrie 2026*
+*19 noiembrie 2026 · legătura vizibilă peste tot pe site: 20 noiembrie 2026*
+
+## Legătura PDF ↔ test, peste tot pe site (20 nov. 2026)
+
+Cererea: „Fă o legătură mai bună între testele PDF și testele interactive și asociază-le."
+
+Asocierea era deja în bază (437 de teste cu PDF-ul lor, 417 PDF-uri cu test principal; verificat din nou pe 20 nov.: nicio legătură în dezacord), dar se vedea doar în vizualizatorul PDF, la „✏️ Rezolvă pe PDF ▾" → „🧩 Interactiv". Acum se vede din ambele părți:
+
+- **Cardul unui PDF** (Evaluarea Națională, Bacalaureat — toate secțiunile, inclusiv Variante / Simulări / Teste de antrenament —, clasele și capitolele lor): rândul „🧩 Are test interactiv: „…"" și butonul **„🧩 Interactiv"** lângă „Deschide / Descarcă". Deschide același test ca vizualizatorul (fără abonament, testul gratuit al PDF-ului, dacă există; altfel „🧩 Interactiv ⭐"). Punctajul se cumulează ca din vizualizator; „← Înapoi" duce înapoi la listă.
+- **Cardul unui test interactiv** (fila „🧩 Teste Interactive" și paginile claselor): rândul **„📄 Făcut după PDF-ul „2021 model 3""** și butonul **„📄 PDF"** (cu ⭐ dacă PDF-ul e Premium și elevul n-are abonament).
+- **Testul deschis direct din listă** își arată PDF-ul în banda de sub bara de sus: „📄 Testul e făcut după PDF-ul „…"" + **„📄 Deschide PDF-ul"** (pe telefon „📄 PDF"). La testele întregi de examen (Variante, Simulări, Variante AI, Teste de antrenament) **exercițiile rezolvate aici intră și în punctajul PDF-ului**, la fel ca atunci când testul e deschis din PDF (serverul verifică legătura — `api/ai-score.js`). La fișe și capitole punctajul PDF-ului rămâne, iar banda spune că testul se poate rezolva și pe PDF. Nu apare în tema pe grupă, duel, tema de la Meditator și sesiunea de meditații.
+- **Admin → 📋 Tot Conținutul**: sub fiecare PDF / test, perechea lui („🧩 Test interactiv: „…"" · „N teste făcute după el"; „📄 Făcut după PDF-ul „…" · principal") sau, cu portocaliu, „fără test interactiv" / „nefăcut după un PDF"; filtrul nou **„PDF ↔ test"** (🔗 Asociate / ⛓️‍💥 Neasociate, fără bareme) arată ce mai e de legat. Legătura se schimbă tot din ✏️ (mai jos).
+
+Codul: `src/lib/pdfInteractiv.js` (nou — regulile comune: ce test deschide „🧩 Interactiv", legăturile unei liste întregi în câteva cereri, pe bucăți de câte 60, starea de navigare), `src/components/ContentPage.jsx` (`useLegaturiPdf`, butoanele din `ContentCard`), `src/components/ExamContent.jsx`, `src/pages/InteractiveViewer.jsx`, `src/pages/Admin.jsx`; `src/pages/PDFViewer.jsx` folosește aceleași reguli din bibliotecă. Teste: `test/pdf-interactiv-legaturi.test.js`.
+
+**Ce rămâne fără pereche, și de ce** (neschimbat): testele EN „Test 32–61" sunt combinate din câte 11–16 alte teste, cu exercițiile modificate (jurnalul generatorului, `agent_task_runs.combined_from`) — n-au un PDF al lor; „Test interactiv — Matematică, clasa a V-a" (combinat), „Calcule cu numere întregi" (s-ar potrivi la fel de bine cu Fișa 11 și cu Fișa 12), „Recapitulare clasele 5-8" (Auxiliare). PDF-urile fără test (BAC Simulări / Teste de antrenament, EN Simulări, câteva variante și fișe) n-au încă un test generat după ele.
+
+**De rulat:** nimic — fără SQL nou, fără tabele noi.
+
+---
 
 Cererea: „1. Asociază fiecare PDF cu testul interactiv generat după el. Verifică să fie asocierea corectă. 2. Fă ca în butonul «rezolvă pe PDF» de pe PDF-uri, pe lângă variantele de rezolvare din rolldown, să apară și «interactiv», care deschide testul interactiv asociat PDF-ului. Pentru testele de evaluare națională fă să apară sub «pe PDF» iar la celelalte tipuri de PDF: bac și clase, să apară primul. La schimbarea metodei de rezolvare în timpul rezolvării, să se păstreze punctajul acumulat până atunci."
 
