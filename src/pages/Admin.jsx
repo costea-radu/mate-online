@@ -13,6 +13,7 @@ import AdminFisiereModel from '../components/AdminFisiereModel';   // 📤 fiși
 import AdminExplicatiiGrila from '../components/AdminExplicatiiGrila';   // 💡 explicațiile la grilă, EN (18 nov. 2026)
 import AdminBareme from '../components/AdminBareme';                     // ✅ bareme la orice categorie (19 nov. 2026)
 import AdminVarianteAI from '../components/AdminVarianteAI';             // ✨ variantele generate cu AI, EN (19 nov. 2026)
+import AdminPdfInteractiv, { AlegePdfSursa } from '../components/AdminPdfInteractiv';   // 🔗 PDF ↔ test interactiv (21 nov. 2026)
 import { esteBarem } from '../lib/bareme';
 import { ContentMetaFields, EditContentModal, ReplaceFileModal, ReorderPanel, UndeApare, rubricaEfectiva } from '../components/ContentAdminTools';
 import FileUploadZone from '../components/FileUploadZone';   // zona „trage fișierul aici” (și în filele de bareme / variante AI)
@@ -137,6 +138,19 @@ async function plaseazaLaCapitol(id) {
   }
 }
 
+// 🔗 Testul abia încărcat se leagă de PDF-ul după care e făcut (21 nov. 2026); devine testul principal
+// al PDF-ului doar dacă PDF-ul n-are deja unul (ca la generator). Întoarce textul pentru mesaj.
+async function asociazaCuPdf(pdfId, testId) {
+  try {
+    const r = await apiPost('/api/content-admin', { action: 'asociaza', pdfId, testId, principal: 'daca-lipseste' });
+    return r.principal
+      ? ` 🔗 Asociat cu PDF-ul „${r.pdf.title}": cardul PDF-ului îl deschide cu „🧩 Deschide interactiv".`
+      : ` 🔗 Asociat cu PDF-ul „${r.pdf.title}" (PDF-ul își păstrează testul principal — îl schimbi din 🔗 PDF ↔ Interactiv).`;
+  } catch (e) {
+    return ` (Testul n-a putut fi asociat cu PDF-ul: ${e.message} — îl poți lega din 🔗 PDF ↔ Interactiv.)`;
+  }
+}
+
 // ─── Upload PDF ───────────────────────────────────────────────────────────────
 function UploadPDF({ onSuccess }) {
   const [form, setForm] = useState({ title: '', description: '', category: 'clasa-5', subcategory: '', profile: '', is_free: true });
@@ -249,6 +263,10 @@ function UploadInteractive({ onSuccess }) {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
+  // 🔗 PDF-ul după care e făcut testul (21 nov. 2026): ales singur după titlu sau venit de la agentul
+  // Claude (PDF-ul-model); după încărcare testul se asociază cu el (content-admin → asociaza)
+  const PDF_GOL = { id: '', title: '', din: null };
+  const [pdfSursa, setPdfSursa] = useState(PDF_GOL);
 
   // Preîncărcare de la agentul Claude (metadate + fișierul HTML gata atașat)
   useEffect(() => {
@@ -257,9 +275,12 @@ function UploadInteractive({ onSuccess }) {
       if (!raw) return;
       sessionStorage.removeItem('agent_prefill_interactive');
       const pre = JSON.parse(raw);
-      setForm((f) => ({ ...f, ...pre.form }));
+      const sursa = pre.pdfSursa && pre.pdfSursa.id ? pre.pdfSursa : null;
+      // testul făcut după un PDF de pe site intră în categoria (și profilul) PDF-ului
+      setForm((f) => ({ ...f, ...pre.form, ...(sursa && sursa.category ? { category: sursa.category, profile: sursa.profile || '' } : {}) }));
+      if (sursa) setPdfSursa({ id: sursa.id, title: sursa.title || '', din: 'agent' });
       if (pre.html) setFile(new File([pre.html], pre.fileName || 'exercitiu_agent.html', { type: 'text/html' }));
-      setMsg({ type: 'success', text: '📥 Exercițiul agentului Claude e atașat. Verifică „📍 Unde apare" (la BAC alege profilul) și apasă Încarcă.' });
+      setMsg({ type: 'success', text: `📥 Exercițiul agentului Claude e atașat.${sursa ? ` Se va asocia cu PDF-ul după care e făcut („${sursa.title || 'PDF-ul-model'}").` : ''} Verifică „📍 Unde apare" (la BAC alege profilul) și apasă Încarcă.` });
     } catch { /* ignore */ }
   }, []);
   const isEN = form.category === 'evaluare-nationala';
@@ -292,10 +313,12 @@ function UploadInteractive({ onSuccess }) {
       }).select('id').single();
       if (dbErr) throw dbErr;
       const loc = nou?.id ? await plaseazaLaCapitol(nou.id) : '';
-      setMsg({ type: 'success', text: `Exercițiul interactiv a fost încărcat cu succes!${loc}` });
+      const leg = nou?.id && pdfSursa.id ? await asociazaCuPdf(pdfSursa.id, nou.id) : '';
+      setMsg({ type: 'success', text: `Exercițiul interactiv a fost încărcat cu succes!${loc}${leg}` });
       setFile(null);
       setForm({ title: '', description: '', category: 'clasa-5', subcategory: '', profile: '', is_free: false, type: 'exercise' });
-      onSuccess?.(`✅ Exercițiul interactiv a fost încărcat: „${form.title}".${loc}`);
+      setPdfSursa(PDF_GOL);
+      onSuccess?.(`✅ Exercițiul interactiv a fost încărcat: „${form.title}".${loc}${leg}`);
     } catch (err) {
       setMsg({ type: 'error', text: err.message });
     } finally {
@@ -313,6 +336,7 @@ function UploadInteractive({ onSuccess }) {
 
       <ContentMetaFields s={s} form={form} setForm={setForm} titlePlaceholder="ex. Test – Ecuații de gradul I" auto contentType="interactive" fileName={file?.name || ''} />
       <UndeApare form={form} contentType="interactive" fileName={file?.name || ''} />
+      <AlegePdfSursa s={s} form={form} value={pdfSursa} onChange={setPdfSursa} />
 
       <div style={s.formRow}>
         <div style={s.formGroup}>
@@ -593,6 +617,11 @@ function ContentList({ refresh }) {
               <option value="cu">🔗 Asociate (PDF ↔ test)</option>
               <option value="fara">⛓️‍💥 Neasociate</option>
             </select>
+            <button type="button" style={{ ...s.btnSecondary, padding: '8px 12px', fontSize: '0.82rem' }}
+              title="Asocierea manuală și automată PDF ↔ test interactiv (21 nov. 2026)"
+              onClick={() => window.dispatchEvent(new CustomEvent('admin:goto-tab', { detail: 'pdf-interactiv' }))}>
+              🔗 Asociază PDF ↔ test
+            </button>
             <input style={{ ...s.input, width: 260 }} value={filter.q} placeholder="🔍 Caută după titlu / descriere"
               onChange={e => setFilter(p => ({ ...p, q: e.target.value }))} />
           </div>
@@ -995,6 +1024,7 @@ const TABS = [
   { id: 'dashboard',   icon: '📊', label: 'Dashboard' },
   { id: 'pdf',         icon: '📄', label: 'Adaugă PDF' },
   { id: 'interactive', icon: '🧩', label: 'Exerciții Interactive' },
+  { id: 'pdf-interactiv', icon: '🔗', label: 'PDF ↔ Interactiv' },   // 21 nov. 2026 — asocierea PDF ↔ test
   { id: 'variante-ai', icon: '✨', label: 'Variante AI (EN)' },     // 19 nov. 2026
   { id: 'bareme',      icon: '✅', label: 'Încarcă bareme' },       // 19 nov. 2026 — orice categorie
   { id: 'rezolvari',   icon: '📝', label: 'Rezolvări' },
@@ -1034,6 +1064,11 @@ export default function Admin() {
     return () => window.removeEventListener('admin:goto-tab', go);
   }, []);
   const [refreshList, setRefreshList] = useState(0);
+  // după încărcare: lista „Tot Conținutul", cu mesajul încărcării deasupra (unde a ajuns
+  // materialul — capitolul și materialul după care a intrat, 18 nov. 2026). Hook-ul stă AICI,
+  // înaintea return-urilor de mai jos (21 nov. 2026): după ele, la deschiderea directă a
+  // /admin (cât se verifică sesiunea), randarea a doua avea un hook în plus → eroarea React #310.
+  const [dupaIncarcare, setDupaIncarcare] = useState(null);
 
   useEffect(() => { try { localStorage.setItem(PLIAT_KEY, pliat ? '1' : '0'); } catch { /* fără stocare */ } }, [pliat]);
 
@@ -1083,9 +1118,6 @@ export default function Admin() {
     try { window.scrollTo({ top: 0 }); } catch { /* ignore */ }
   }
 
-  // după încărcare: lista „Tot Conținutul", cu mesajul încărcării deasupra (unde a ajuns
-  // materialul — capitolul și materialul după care a intrat, 18 nov. 2026)
-  const [dupaIncarcare, setDupaIncarcare] = useState(null);
   function onSuccess(mesaj) {
     setRefreshList(r => r + 1);
     setDupaIncarcare(mesaj || null);
@@ -1149,6 +1181,7 @@ export default function Admin() {
           {tab === 'rezolvari'   && <AdminRezolvari user={user} s={s} />}
           {tab === 'pdf'         && <UploadPDF onSuccess={onSuccess} />}
           {tab === 'interactive' && <UploadInteractive onSuccess={onSuccess} />}
+          {tab === 'pdf-interactiv' && <AdminPdfInteractiv s={s} />}
           {tab === 'variante-ai' && <AdminVarianteAI s={s} onSuccess={() => setRefreshList(r => r + 1)} />}
           {tab === 'bareme'      && <AdminBareme s={s} onSuccess={() => setRefreshList(r => r + 1)} />}
           {tab === 'list' && dupaIncarcare && (

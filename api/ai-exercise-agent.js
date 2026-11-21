@@ -96,10 +96,13 @@ module.exports = async function handler(req, res) {
       const { category, subcategory = null, profile = null, ctype = 'interactive', instructions: autoInstr = '', resultKind = 'auto' } = req.body || {};
       const r = await exgen.runAuto({ supa, category, subcategory, profile, ctype, instructions: autoInstr, resultKind, dataMode, aiModel });
       await ai.logUsage(supa, userId, 'ai-exercise-agent', r.usage);
+      // 🔗 făcut dintr-UN SINGUR PDF al rubricii („pe rând"): PDF-ul-sursă merge mai departe cu
+      // testul la «Adaugă Interactiv», unde se asociază singur (21 nov. 2026)
+      const sursa = ctype === 'pdf' && r.sourceId ? { sourceId: r.sourceId, sourceTitle: r.sourceTitle || null } : {};
       if (r.html) {
-        return res.status(200).json({ html: r.html, provider: r.provider, combinedFrom: r.combinedFrom, template: r.template });
+        return res.status(200).json({ html: r.html, provider: r.provider, combinedFrom: r.combinedFrom, template: r.template, ...sursa });
       }
-      return res.status(200).json({ exercise: r.exercise, provider: r.provider, combinedFrom: r.combinedFrom });
+      return res.status(200).json({ exercise: r.exercise, provider: r.provider, combinedFrom: r.combinedFrom, ...sursa });
     }
     if (!instructions.trim() && !model && !modelPdf && !formatHtml && !currentHtml) {
       return res.status(400).json({ error: 'Încarcă un fișier-model sau scrie instrucțiuni pentru agent.' });

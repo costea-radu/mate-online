@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Discussions from '../components/Discussions';
 import { Link, useLocation } from 'react-router-dom';
-import StartRapid from '../components/StartRapid';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { ContentCard, scrollToCard } from '../components/ContentPage';
@@ -48,7 +47,9 @@ export default function EvaluareNationala() {
 
       <div className="content-list">
         <div className="container">
-          <StartRapid category="evaluare-nationala" toate="/evaluare-nationala?tab=interactive" />
+          {/* 21 nov. 2026: fără chenarul de sus cu „▶ Începe un test" / „📄 Generează un subiect" /
+              „🎯 Testul zilei" (StartRapid) — cererea: „șterge de la secțiunea cu exerciții și teste
+              PDF sau interactive primul chenar…". Testul zilei rămâne în meniu și pe Acasă. */}
           <div className="tabs">
             <button
               className={`tab ${mainTab === 'pdf' ? 'active' : ''}`}
@@ -67,12 +68,12 @@ export default function EvaluareNationala() {
           {mainTab === 'pdf' && (
             <div style={{ marginTop: 16 }}>
               <Section title="Capitole cu Exerciții" icon="📚" defaultOpen={openOnly(['capitole'])}>
-                <TypeTabs category="evaluare-nationala" subcategory="capitole" returnTab="pdf" pdfFirst />
+                <TypeTabs category="evaluare-nationala" subcategory="capitole" returnTab="pdf" />
               </Section>
 
               <Section title="Teste de Antrenament" icon="🏋" defaultOpen={openOnly(['exercitii-subiecte', 'variante', 'simulari', 'variante-ai', 'bareme'])}>
                 <Section title="Exerciții pe Subiecte" icon="📝" level={2} defaultOpen={openOnly(['exercitii-subiecte'])}>
-                  <TypeTabs category="evaluare-nationala" subcategory="exercitii-subiecte" returnTab="pdf" pdfFirst />
+                  <TypeTabs category="evaluare-nationala" subcategory="exercitii-subiecte" returnTab="pdf" />
                 </Section>
 
                 <Section title="Variante Date + Modele" icon="📋" level={2} defaultOpen={openOnly(['variante'])}>

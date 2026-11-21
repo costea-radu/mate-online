@@ -103,7 +103,7 @@ export default function AdminBareme({ s, onSuccess }) {
       <div style={s.cardTitle}>✅ Încarcă bareme</div>
       <div style={s.infoBox}>
         Baremul oricărui material, la orice clasă sau examen. Alege <strong>materialul</strong> al cărui barem e: atunci îl folosesc
-        „📋 Barem" din vizualizator și corectarea (Profesorul Virtual, „✏️ Rezolvă pe PDF"). Apare la clase în fila „📋 Bareme",
+        „📋 Barem" din vizualizator și corectarea (Profesorul Virtual, „✏️ Rezolvă"). Apare la clase în fila „📋 Bareme",
         la Evaluarea Națională și la Bacalaureat în rubrica „Bareme". Îl modifici sau îl ștergi din <strong>📋 Tot Conținutul</strong> → „📋 Doar bareme".
       </div>
       {msg && <div style={s.alert(msg.type)} role="status">{msg.text}</div>}

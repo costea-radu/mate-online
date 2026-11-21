@@ -239,7 +239,8 @@ export function ContentCard({ item, isPremium, user, progress, rating, _override
   const [showReviews, setShowReviews] = useState(false); // părerile scrise (recenzii) sub card
 
   const typeConfig = {
-    pdf:         { icon: '📄', bg: '#e3f2fd', actionLabel: 'Deschide / Descarcă' },
+    // 21 nov. 2026: „Deschide / Descarcă" → „Deschide PDF" (lângă „🧩 Deschide interactiv")
+    pdf:         { icon: '📄', bg: '#e3f2fd', actionLabel: 'Deschide PDF' },
     interactive: { icon: _overrideSrcDoc ? '📖' : '🧩', bg: _overrideSrcDoc ? '#e8f5e9' : '#f3e5f5', actionLabel: 'Deschide' },
     manual:      { icon: '📖', bg: '#e8f5e9', actionLabel: 'Citește' },
   };
@@ -358,7 +359,7 @@ export function ContentCard({ item, isPremium, user, progress, rating, _override
             <button type="button" onClick={deschideTestul}
               title={`Rezolvă interactiv${testPereche.title ? ` „${testPereche.title}"` : ''} — cu corectare pe loc${testPereche.premium ? ' (⭐ Premium)' : ''}`}
               style={btnPereche}>
-              🧩 Interactiv{testPereche.premium ? ' ⭐' : ''}
+              🧩 Deschide interactiv{testPereche.premium ? ' ⭐' : ''}
             </button>
           )}
           {pdfPereche && (
@@ -510,10 +511,15 @@ function ManualViewer({ item }) {
 export default function ContentPage({ category, title, subtitle, breadcrumb, tabs, emptyIcons, bareme = false, capitole = false }) {
   const { user, isPremium, loading: authLoading } = useAuth();
   const location = useLocation();
+  // ?tab=pdf / ?tab=interactive / ?tab=bareme (21 nov. 2026 — linkurile Profesorului Virtual spre
+  // testele interactive ale claselor, de când prima filă e 📄 PDF); „Înapoi" din test are întâietate
+  const tabQ = new URLSearchParams(location.search).get('tab');
+  const tabParam = tabQ && tabs.some((t) => t.id === tabQ) ? tabQ : null;
   const initialTab = (location.state?.returnTab && tabs.some(t => t.id === location.state.returnTab))
     ? location.state.returnTab
-    : tabs[0].id;
+    : (tabParam || tabs[0].id);
   const [activeTab, setActiveTab] = useState(initialTab);
+  useEffect(() => { if (tabParam) setActiveTab(tabParam); }, [tabParam]);
   const [items, setItems] = useState([]);
   const [progressMap, setProgressMap] = useState({});
   const [progresGata, setProgresGata] = useState(false);   // a venit progresul elevului (capitolele deschid primul neterminat)

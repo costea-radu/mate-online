@@ -142,7 +142,7 @@ test('incarcaLegaturi(): câteva cereri pe toată lista (pe bucăți), nu una pe
 });
 
 // ═══════════════════════════ cardurile din liste ═══════════════════════════
-test('cardurile: „🧩 Interactiv" pe PDF-ul cu test, „📄 PDF" și „📄 Făcut după PDF-ul „…"" pe test', () => {
+test('cardurile: „🧩 Deschide interactiv" și „Deschide PDF" pe PDF-ul cu test, „📄 PDF" și „📄 Făcut după PDF-ul „…"" pe test', () => {
   const cp = read('src/components/ContentPage.jsx');
   assert.match(cp, /import \{ incarcaLegaturi, testulPdfului, stareTestDinPdf, starePdfDinTest \} from '\.\.\/lib\/pdfInteractiv';/);
   assert.match(cp, /export function useLegaturiPdf\(items\) \{/);
@@ -151,7 +151,10 @@ test('cardurile: „🧩 Interactiv" pe PDF-ul cu test, „📄 PDF" și „📄
   assert.match(cp, /const testPereche = isPdf && !_overrideSrcDoc \? testulPdfului\(legatura, isPremium \|\| isAdmin\) : null;/);
   assert.match(cp, /navigate\(`\/exercitiu\?id=\$\{testPereche\.id\}`, \{ state: stareTestDinPdf\(item, retur\) \}\);/);
   assert.match(cp, /navigate\(`\/pdf-viewer\?id=\$\{pdfPereche\.id\}`, \{ state: starePdfDinTest\(retur\) \}\);/);
-  assert.match(cp, /🧩 Interactiv\{testPereche\.premium \? ' ⭐' : ''\}/);
+  // 21 nov. 2026: „🧩 Interactiv" → „🧩 Deschide interactiv", „Deschide / Descarcă" → „Deschide PDF"
+  assert.match(cp, /🧩 Deschide interactiv\{testPereche\.premium \? ' ⭐' : ''\}/);
+  assert.match(cp, /pdf: {9}\{ icon: '📄', bg: '#e3f2fd', actionLabel: 'Deschide PDF' \},/);
+  assert.doesNotMatch(cp, /Deschide \/ Descarcă'/);
   assert.match(cp, /📄 PDF\{pdfPereche\.is_free === false && !\(isPremium \|\| isAdmin\) \? ' ⭐' : ''\}/);
   assert.match(cp, /📄 Făcut după PDF-ul „\{pdfPereche\.title\}"/);
   assert.match(cp, /🧩 Are test interactiv\{testPereche\.title \? `: „\$\{testPereche\.title\}"` : ''\}/);

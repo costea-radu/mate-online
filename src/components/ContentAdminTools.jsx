@@ -177,7 +177,8 @@ export function UndeApare({ form, contentType = 'pdf', fileName = '' }) {
 
 // ─── Modal „Editează" ─────────────────────────────────────────────────────────
 // 🧩 TESTUL INTERACTIV ASOCIAT UNUI PDF (19 nov. 2026): cel generat după el — elevul îl
-// deschide din vizualizator, „✏️ Rezolvă pe PDF ▾" → „🧩 Interactiv". Lista: testele
+// deschide din vizualizator, „✏️ Rezolvă ▾" → „🧩 Interactiv", și de pe cardul PDF-ului,
+// „🧩 Deschide interactiv" (21 nov. 2026; tot atunci: Admin → 🔗 PDF ↔ Interactiv). Lista: testele
 // interactive din aceeași clasă / același examen (la BAC, același profil — și cele fără profil).
 export function InteractivAsociat({ s, item, value, onChange }) {
   const [lista, setLista] = useState(null);
@@ -206,9 +207,10 @@ export function InteractivAsociat({ s, item, value, onChange }) {
         ))}
       </select>
       <div style={{ fontSize: '0.76rem', color: '#8e95a3', marginTop: 4, lineHeight: 1.5 }}>
-        Testul generat după acest PDF: elevul îl deschide din vizualizator, la „✏️ Rezolvă pe PDF ▾" → „🧩 Interactiv" (la Evaluarea
-        Națională sub „Pe PDF", la Bacalaureat și la clase primul). Punctajul de pe PDF se păstrează când trece la testul interactiv.
-        {' '}📄 = făcut după acest PDF; dacă alegi Premium, elevii fără abonament primesc un test gratuit al PDF-ului, când există.
+        Testul generat după acest PDF: elevul îl deschide de pe cardul PDF-ului („🧩 Deschide interactiv") și din vizualizator, la
+        „✏️ Rezolvă ▾" → „🧩 Interactiv" (la Evaluarea Națională sub „Pe PDF", la Bacalaureat și la clase primul). Punctajul de pe PDF
+        se păstrează când trece la testul interactiv. {' '}📄 = făcut după acest PDF; dacă alegi Premium, elevii fără abonament primesc
+        un test gratuit al PDF-ului, când există. Toate asocierile, într-un loc: 🔗 PDF ↔ Interactiv.
       </div>
     </div>
   );
@@ -241,7 +243,8 @@ export function PdfSursa({ s, item, value, onChange }) {
         ))}
       </select>
       <div style={{ fontSize: '0.76rem', color: '#8e95a3', marginTop: 4, lineHeight: 1.5 }}>
-        Din PDF, elevul ajunge la test cu „✏️ Rezolvă pe PDF ▾" → „🧩 Interactiv". Dacă PDF-ul n-are încă test principal, îl primește pe acesta.
+        Din PDF, elevul ajunge la test cu „🧩 Deschide interactiv" (cardul PDF-ului) sau „✏️ Rezolvă ▾" → „🧩 Interactiv". Dacă PDF-ul n-are
+        încă test principal, îl primește pe acesta. Toate asocierile, într-un loc: 🔗 PDF ↔ Interactiv.
       </div>
     </div>
   );

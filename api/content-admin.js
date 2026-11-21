@@ -23,6 +23,12 @@
 //                rubrica „Capitole" de la EN / BAC (18 nov. 2026 — planPlasare; capitolul
 //                după titlu, api/_lib/capitoleHarta.js). Restul listei își păstrează
 //                ordinea (se renumerotează rubrica, ca la reorder).
+//   • perechi / asociaza / asociaza_lot / dezleaga — Admin → „🔗 PDF ↔ Interactiv"
+//                (21 nov. 2026): toate PDF-urile (fără bareme) și testele interactive cu
+//                legăturile lor + jurnalul generatorului pentru testele fără PDF; legarea
+//                unui test de PDF-ul după care e făcut (content.pdf_sursa_id) și, după caz,
+//                ca test principal al PDF-ului (content.interactiv_id); dezlegarea.
+//                Potrivirea pe titlu / jurnal: _lib/pdfTestPotrivire.js (și în browser).
 // Rulează cu service role (ocolește RLS) și cere is_admin pe tokenul REAL.
 // Logica pură (validare, planificarea renumerotării) e în _lib/contentAdmin.js.
 // =====================================================================
@@ -34,6 +40,8 @@ const {
 } = require('./_lib/contentAdmin');
 const { capitolDin } = require('./_lib/capitoleHarta');
 const settings = require('./_lib/settings');
+const { isBaremRow } = require('./_lib/barem');
+const potrivire = require('./_lib/pdfTestPotrivire');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -119,12 +127,117 @@ async function legaturiInAcord(supabase, cur, patch) {
     if ('pdf_sursa_id' in patch) {
       if (cur.pdf_sursa_id && cur.pdf_sursa_id !== patch.pdf_sursa_id) {
         await supabase.from('content').update({ interactiv_id: null }).eq('id', cur.pdf_sursa_id).eq('interactiv_id', cur.id);
+        // 21 nov. 2026: PDF-ul vechi, rămas fără principal, îl primește pe cel mai nou test rămas după el
+        await principalNou(supabase, cur.pdf_sursa_id);
       }
       if (patch.pdf_sursa_id) {
         await supabase.from('content').update({ interactiv_id: cur.id }).eq('id', patch.pdf_sursa_id).is('interactiv_id', null);
       }
     }
   } catch (e) { console.warn('content-admin: legăturile PDF ↔ test:', e.message); }
+}
+
+// ─── 🔗 PDF ↔ Interactiv (21 nov. 2026) ──────────────────────────────────────────
+// „Fă în admin o rubrică în care pot asocia manual un PDF de un test interactiv. Fă ca
+// PDF-urile să se asocieze automat cu un test interactiv generat după modelul lui."
+const COLOANE_PERECHE = 'id, title, content_type, category, subcategory, profile, is_free, created_at, interactiv_id, pdf_sursa_id, file_url';
+const scurt = (r) => (r ? {
+  id: r.id, title: r.title || '', content_type: r.content_type, category: r.category || null,
+  subcategory: r.subcategory || null, profile: r.profile || null, is_free: !!r.is_free, created_at: r.created_at || null,
+  ...(r.content_type === 'pdf' ? { interactiv_id: r.interactiv_id || null } : { pdf_sursa_id: r.pdf_sursa_id || null }),
+} : null);
+const eroare = (status, mesaj) => Object.assign(new Error(mesaj), { status });
+
+async function randPereche(supabase, id) {
+  const { data, error } = await supabase.from('content').select(COLOANE_PERECHE).eq('id', id).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data || null;
+}
+
+// Un PDF fără test principal, dar cu teste făcute după el → cel mai nou devine principal
+// (altfel PDF-ul și-ar pierde „🧩 Deschide interactiv" de pe site). Întoarce id-ul sau null.
+async function principalNou(supabase, pdfId) {
+  if (!pdfId) return null;
+  const { data: pdf } = await supabase.from('content').select('id, interactiv_id').eq('id', pdfId).maybeSingle();
+  if (!pdf || pdf.interactiv_id) return pdf ? pdf.interactiv_id || null : null;
+  const { data: teste } = await supabase.from('content').select('id, created_at')
+    .eq('content_type', 'interactive').eq('pdf_sursa_id', pdfId);
+  const id = potrivire.alegePrincipal(teste || []);
+  if (!id) return null;
+  await supabase.from('content').update({ interactiv_id: id }).eq('id', pdfId).is('interactiv_id', null);
+  return id;
+}
+
+// Leagă testul de PDF-ul după care e făcut. principal: 'da' (devine testul principal al
+// PDF-ului) sau 'daca-lipseste' (doar dacă PDF-ul n-are încă unul — ca generatorul).
+// doarNeasociat: testul legat între timp de alt PDF rămâne neatins („🤖 Asociază automat").
+async function asociazaPereche(supabase, { pdfId, testId, principal = 'daca-lipseste', doarNeasociat = false } = {}) {
+  if (!UUID.test(String(pdfId || '')) || !UUID.test(String(testId || ''))) throw eroare(400, 'Alege și PDF-ul, și testul.');
+  const [pdf, test] = await Promise.all([randPereche(supabase, pdfId), randPereche(supabase, testId)]);
+  if (!pdf || pdf.content_type !== 'pdf') throw eroare(400, 'PDF-ul ales nu există (sau nu e un PDF).');
+  if (!test || test.content_type !== 'interactive') throw eroare(400, 'Testul ales nu există (sau nu e un test interactiv).');
+  if (isBaremRow(pdf)) throw eroare(400, 'Un barem nu are test interactiv — alege PDF-ul cu subiectele.');
+  const motiv = potrivire.motivIncompatibil(test, pdf);
+  if (motiv) throw eroare(400, motiv);
+  if (doarNeasociat && test.pdf_sursa_id && test.pdf_sursa_id !== pdf.id) return { sarit: true, pdf: scurt(pdf), test: scurt(test), vechi: null, principal: false };
+
+  const vechiId = test.pdf_sursa_id && test.pdf_sursa_id !== pdf.id ? test.pdf_sursa_id : null;
+  if (test.pdf_sursa_id !== pdf.id) {
+    const { error } = await supabase.from('content').update({ pdf_sursa_id: pdf.id, updated_at: new Date().toISOString() }).eq('id', test.id);
+    if (error) throw new Error(`Asocierea n-a putut fi salvată: ${error.message}`);
+  }
+  // PDF-ul de dinainte al testului: dacă îl avea principal, primește alt test rămas după el
+  if (vechiId) {
+    await supabase.from('content').update({ interactiv_id: null }).eq('id', vechiId).eq('interactiv_id', test.id);
+    await principalNou(supabase, vechiId);
+  }
+  const facePrincipal = principal === 'da' || !pdf.interactiv_id || pdf.interactiv_id === test.id;
+  if (facePrincipal && pdf.interactiv_id !== test.id) {
+    const { error } = await supabase.from('content').update({ interactiv_id: test.id, updated_at: new Date().toISOString() }).eq('id', pdf.id);
+    if (error) throw new Error(`Testul principal n-a putut fi salvat: ${error.message}`);
+  }
+  const [p2, t2, v2] = await Promise.all([randPereche(supabase, pdf.id), randPereche(supabase, test.id), vechiId ? randPereche(supabase, vechiId) : null]);
+  return { sarit: false, pdf: scurt(p2), test: scurt(t2), vechi: scurt(v2), principal: facePrincipal };
+}
+
+// Desface legătura dintre un PDF și un test (ambele părți); PDF-ul rămas fără principal
+// îl primește pe cel mai nou dintre celelalte teste făcute după el, dacă are.
+async function dezleagaPereche(supabase, { pdfId, testId } = {}) {
+  if (!UUID.test(String(pdfId || '')) || !UUID.test(String(testId || ''))) throw eroare(400, 'Alege și PDF-ul, și testul.');
+  const [pdf, test] = await Promise.all([randPereche(supabase, pdfId), randPereche(supabase, testId)]);
+  if (!pdf || !test) throw eroare(404, 'PDF-ul sau testul nu mai există.');
+  if (test.pdf_sursa_id === pdf.id) {
+    const { error } = await supabase.from('content').update({ pdf_sursa_id: null, updated_at: new Date().toISOString() }).eq('id', test.id);
+    if (error) throw new Error(`Legătura n-a putut fi scoasă: ${error.message}`);
+  }
+  let altPrincipal = null;
+  if (pdf.interactiv_id === test.id) {
+    await supabase.from('content').update({ interactiv_id: null, updated_at: new Date().toISOString() }).eq('id', pdf.id).eq('interactiv_id', test.id);
+    altPrincipal = await principalNou(supabase, pdf.id);
+  }
+  const [p2, t2] = await Promise.all([randPereche(supabase, pdf.id), randPereche(supabase, test.id)]);
+  return { pdf: scurt(p2), test: scurt(t2), altPrincipal };
+}
+
+// Jurnalul generatorului pentru testele fără PDF (cine le-a făcut, din ce materiale)
+async function jurnalGenerator(supabase, teste, pdfs) {
+  const ids = teste.map((t) => t.id);
+  if (!ids.length) return {};
+  try {
+    const runs = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data, error } = await supabase.from('agent_task_runs').select('content_id, task_id, combined_from').in('content_id', ids.slice(i, i + 100));
+      if (error) return {};
+      runs.push(...(data || []));
+    }
+    const taskIds = [...new Set(runs.map((r) => r.task_id).filter(Boolean))];
+    let tasks = [];
+    if (taskIds.length) {
+      const { data } = await supabase.from('agent_tasks').select('id, name, category, subcategory, profile, ctype').in('id', taskIds);
+      tasks = data || [];
+    }
+    return potrivire.construiesteJurnal({ runs, tasks, teste, pdfs });
+  } catch { return {}; }   // fără tabelele agentului → fără jurnal
 }
 
 module.exports = async function handler(req, res) {
@@ -319,6 +432,40 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true, moved, rubrics: plan.rubrics, ids: plan.updates.map((u) => u.id), positions: Object.fromEntries(plan.updates.map((u) => [u.id, u.sort_order])) });
     }
 
+    // ─── 🔗 PDF ↔ Interactiv: perechi / asociaza / asociaza_lot / dezleaga ──────────
+    if (action === 'perechi') {
+      const rows = await allRows((from, to) => supabase.from('content').select(COLOANE_PERECHE)
+        .in('content_type', ['pdf', 'interactive']).order('created_at', { ascending: true }).range(from, to));
+      const pdfs = rows.filter((r) => r.content_type === 'pdf' && !isBaremRow(r)).map(scurt);
+      const teste = rows.filter((r) => r.content_type === 'interactive').map(scurt);
+      const jurnal = await jurnalGenerator(supabase, teste.filter((t) => !t.pdf_sursa_id), pdfs);
+      return res.status(200).json({ pdfs, teste, jurnal });
+    }
+    if (action === 'asociaza') {
+      const { pdfId, testId, principal } = req.body || {};
+      const r = await asociazaPereche(supabase, { pdfId, testId, principal: principal === 'da' ? 'da' : 'daca-lipseste' });
+      return res.status(200).json({ ok: true, ...r });
+    }
+    if (action === 'asociaza_lot') {
+      const perechi = Array.isArray((req.body || {}).perechi) ? req.body.perechi.slice(0, 300) : [];
+      if (!perechi.length) return res.status(400).json({ error: 'Nicio pereche de asociat.' });
+      const rezultate = [];
+      for (const p of perechi) {
+        try {
+          const r = await asociazaPereche(supabase, { pdfId: p && p.pdfId, testId: p && p.testId, principal: 'daca-lipseste', doarNeasociat: true });
+          rezultate.push({ pdfId: p.pdfId, testId: p.testId, ok: !r.sarit, sarit: !!r.sarit, ...r });
+        } catch (e) {
+          rezultate.push({ pdfId: p && p.pdfId, testId: p && p.testId, ok: false, eroare: e.message });
+        }
+      }
+      return res.status(200).json({ ok: true, facute: rezultate.filter((r) => r.ok).length, rezultate });
+    }
+    if (action === 'dezleaga') {
+      const { pdfId, testId } = req.body || {};
+      const r = await dezleagaPereche(supabase, { pdfId, testId });
+      return res.status(200).json({ ok: true, ...r });
+    }
+
     return res.status(400).json({ error: 'Acțiune necunoscută' });
   } catch (err) {
     console.error('content-admin error:', err);
@@ -327,3 +474,7 @@ module.exports = async function handler(req, res) {
 };
 
 module.exports.legaturiInAcord = legaturiInAcord;
+module.exports.asociazaPereche = asociazaPereche;
+module.exports.dezleagaPereche = dezleagaPereche;
+module.exports.principalNou = principalNou;
+module.exports.jurnalGenerator = jurnalGenerator;

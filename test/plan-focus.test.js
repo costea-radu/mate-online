@@ -196,7 +196,8 @@ test('după autentificare, orice cont ajunge în Home (email + parolă direct; G
 test('subiectele PDF: metoda de rezolvare se alege în vizualizator („✏️ Rezolvă pe PDF" → pe PDF, cu poză, în chat, în foaia de lucru), nu în „Pregătește-mă"', () => {
   const pg = read('src/pages/PregatesteMa.jsx');
   assert.ok(!/MODURI_PDF|Cum trimiți rezolvarea|pz-moduri|urlPas\(n, m\.mod\)|urlPas\(pas, 'pdf'\)/.test(pg), 'fără butoanele metodelor în „Pregătește-mă"');
-  assert.match(pg, /alegi în vizualizator, la <b>„✏️ Rezolvă pe PDF"<\/b>, și poți schimba oricând/);
+  // 21 nov. 2026: butonul se cheamă „✏️ Rezolvă" (fostul „✏️ Rezolvă pe PDF")
+  assert.match(pg, /alegi în vizualizator, la <b>„✏️ Rezolvă"<\/b>, și poți schimba oricând/);
   const v = read('src/pages/PDFViewer.jsx');
   for (const [id, label] of [['pdf', 'Pe PDF'], ['poza', 'Cu poză'], ['chat', 'În chat'], ['foaie', 'În foaia de lucru']]) {
     assert.ok(v.includes(`{ id: '${id}', icon: `) && v.includes(`label: '${label}'`), id);

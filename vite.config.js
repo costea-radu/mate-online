@@ -15,7 +15,7 @@ const BUILD_TIME = new Date().toISOString();
 //     Admin îl arată înainte de încărcare, serverul îl aplică după (18 nov. 2026).
 // Browserul vrea modul ES, deci aici `module.exports = { … }` devine `export { … }`.
 // (În teste, Node le importă direct: test/clase-capitole.test.js, test/material-capitol.test.js.)
-const COMUNE_SERVER = /[\\/]api[\\/]_lib[\\/](capitoleHarta|contentAdmin)\.js$/;
+const COMUNE_SERVER = /[\\/]api[\\/]_lib[\\/](capitoleHarta|contentAdmin|pdfTestPotrivire)\.js$/;
 const capitoleHartaEsm = () => ({
   name: 'capitole-harta-esm',
   transform(code, id) {

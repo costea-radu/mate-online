@@ -58,6 +58,15 @@ function FileSlot({ title, hint, file, setFile, refEl, icon, onPick, onFile }) {
   );
 }
 
+// 🔗 „Făcut după PDF-ul „…"": testul trimis la «Adaugă Interactiv» se asociază singur cu el
+function NotaSursaPdf({ sursa }) {
+  return (
+    <span data-sursa-pdf style={{ flexBasis: '100%', fontSize: '.78rem', color: '#4a148c', background: '#f3e5f5', border: '1px solid #e1bee7', borderRadius: 8, padding: '5px 10px' }}>
+      🔗 Făcut după PDF-ul „{sursa.title || 'de pe site'}" — la «Adaugă Interactiv» testul se asociază singur cu el (îl deschide „🧩 Deschide interactiv" de pe cardul PDF-ului).
+    </span>
+  );
+}
+
 export default function AIExerciseAgent({ box }) {
   // Fișierele-model + conversația
   const [modelFile, setModelFile] = useState(null);   // {name, pdf|null, text|null}
@@ -75,6 +84,10 @@ export default function AIExerciseAgent({ box }) {
   const [savedId, setSavedId] = useState(null);
   const [savedMeta, setSavedMeta] = useState(null); // metadatele rândului la re-editare
   const [savedList, setSavedList] = useState([]);
+  // 🔗 PDF-ul de pe site după care e făcut rezultatul ({ id, title }) — PDF-ul-model ales din
+  // baza de date sau sursa unei automatizări „pe rând"; merge cu testul la «Adaugă Interactiv»,
+  // unde testul se asociază singur cu el (21 nov. 2026)
+  const [sursaPdf, setSursaPdf] = useState(null);
 
   // Alegere model din baza de date + automatizare pe rubrică
   const [picker, setPicker] = useState(null); // null | 'model' | 'format'
@@ -197,7 +210,7 @@ export default function AIExerciseAgent({ box }) {
     const t = setTimeout(async () => {
       const q = pickerSearch.trim().replace(/[%,()]/g, ' ').trim();
       let query = supabase.from('content')
-        .select('id, title, category, subcategory, content_type')
+        .select('id, title, category, subcategory, profile, content_type')
         .order('created_at', { ascending: false }).limit(150);
       if (q.length >= 2) query = query.or(`title.ilike.%${q}%,category.ilike.%${q}%,subcategory.ilike.%${q}%`);
       const { data } = await query;
@@ -211,7 +224,7 @@ export default function AIExerciseAgent({ box }) {
     try {
       const r = await aiClient.exerciseAgent({ action: 'fetch-model', contentId: item.id });
       const slot = r.pdf
-        ? { name: `${r.title}.pdf`, pdf: r.pdf, text: null }
+        ? { name: `${r.title}.pdf`, pdf: r.pdf, text: null, sursa: { id: item.id, title: r.title || item.title || '', category: item.category || null, profile: item.profile || null } }
         : { name: `${r.title}.html`, pdf: null, text: r.text || null, html: r.html || null };
       if (picker === 'format') setFormatFile(slot); else setModelFile(slot);
       setPicker(null);
@@ -279,6 +292,8 @@ export default function AIExerciseAgent({ box }) {
       const resp = await aiClient.exerciseAgent({ action: 'auto', category: r.category, subcategory: r.subcategory, profile: r.profile, ctype: r.ctype, instructions: autoInstr, resultKind: autoResult, dataMode, aiModel });
       setProvider(resp.provider);
       setEditing(false); setSavedId(null); setSavedMeta(null);
+      // făcut dintr-un singur PDF al rubricii → asocierea la «Adaugă Interactiv»
+      setSursaPdf(resp.sourceId ? { id: resp.sourceId, title: resp.sourceTitle || '', category: r.category, profile: r.profile || null } : null);
       const rubEt = `${r.category}${r.subcategory ? ' / ' + r.subcategory : ''}`;
       if (resp.html) {
         // FORMATUL STANDARD (interactiv Claude): figuri + instrumente de desen
@@ -326,6 +341,10 @@ export default function AIExerciseAgent({ box }) {
     const text = message.trim();
     if (!modelFile && !formatFile && !text && !ex && !exHtml) { setError('Încarcă un fișier-model sau scrie instrucțiuni.'); return; }
     setLoading(true); setError(null); setMsg(null);
+    // PDF-ul de pe site folosit ca model (exercițiile, apoi formatul); la o iterație pe rezultatul
+    // curent fără model nou, rezultatul rămâne „făcut după" PDF-ul de dinainte
+    const sursaGen = (modelFile && modelFile.sursa) || (formatFile && formatFile.sursa) || null;
+    const iterare = !!(ex || exHtml);
     try {
       const r = await aiClient.exerciseAgent({
         instructions: text,
@@ -343,6 +362,7 @@ export default function AIExerciseAgent({ box }) {
       });
       setProvider(r.provider);
       setEditing(false); setSavedId(null); setSavedMeta(null);
+      setSursaPdf((prev) => sursaGen || (iterare ? prev : null));
       if (r.html) {
         setExHtml(r.html); setEx(null);
         const t = r.html.match(/<title>([^<]*)<\/title>/i)?.[1]?.trim() || 'Exercițiu în șablonul model';
@@ -398,7 +418,7 @@ export default function AIExerciseAgent({ box }) {
   }
   function discard() {
     if (!window.confirm('Ștergi exercițiul generat? (fișierele-model și conversația rămân)')) return;
-    setEx(null); setExHtml(null); setEditing(false); setSavedId(null); setSavedMeta(null); setMsg(null);
+    setEx(null); setExHtml(null); setEditing(false); setSavedId(null); setSavedMeta(null); setMsg(null); setSursaPdf(null);
   }
 
   // ── Trimitere către formularele existente din Admin ────────────────
@@ -408,6 +428,7 @@ export default function AIExerciseAgent({ box }) {
         form: { title: ex.title, description: `Generat cu agentul Claude · barem ${totalPoints} p`, type: 'exercise' },
         html: renderExercise(ex),
         fileName: `${slug(ex.title)}.html`,
+        pdfSursa: sursaPdf,   // 🔗 se asociază singur cu PDF-ul după care e făcut
       }));
     } catch { setError('Nu am putut pregăti trimiterea (storage indisponibil).'); return; }
     window.dispatchEvent(new CustomEvent('admin:goto-tab', { detail: 'interactive' }));
@@ -461,6 +482,7 @@ export default function AIExerciseAgent({ box }) {
   }
 
   function loadForEdit(row) {
+    setSursaPdf(null);   // e deja pe site: legătura lui se schimbă din Admin → 🔗 PDF ↔ Interactiv
     setEx(row.interactive_data.exercise);
     setSavedId(row.id); setSavedMeta({ category: row.category, is_free: !!row.is_free });
     setEditing(true); setMsg(null); setError(null);
@@ -578,7 +600,7 @@ export default function AIExerciseAgent({ box }) {
               👁 Previzualizare · fișier în formatul șablonului ({Math.round(exHtml.length / 1024)} KB)
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="btn btn-outline" onClick={() => { if (window.confirm('Ștergi fișierul generat?')) { setExHtml(null); setMsg(null); } }} style={{ color: '#c0392b', borderColor: '#f5c6cb' }}>🗑 Șterge</button>
+              <button className="btn btn-outline" onClick={() => { if (window.confirm('Ștergi fișierul generat?')) { setExHtml(null); setMsg(null); setSursaPdf(null); } }} style={{ color: '#c0392b', borderColor: '#f5c6cb' }}>🗑 Șterge</button>
             </div>
           </div>
           <div style={{ border: '1px solid var(--gold, #e8b931)', background: '#fffdf5', borderRadius: 12, padding: 12, marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -589,6 +611,7 @@ export default function AIExerciseAgent({ box }) {
                 sessionStorage.setItem('agent_prefill_interactive', JSON.stringify({
                   form: { title: t, description: 'Generat cu agentul Claude (șablon model)', type: 'exercise' },
                   html: exHtml, fileName: `${slug(t)}.html`,
+                  pdfSursa: sursaPdf,   // 🔗 se asociază singur cu PDF-ul după care e făcut
                 }));
               } catch { setError('Nu am putut pregăti trimiterea (storage indisponibil).'); return; }
               window.dispatchEvent(new CustomEvent('admin:goto-tab', { detail: 'interactive' }));
@@ -602,6 +625,7 @@ export default function AIExerciseAgent({ box }) {
               el.download = `${slug(t)}.html`; el.click(); URL.revokeObjectURL(el.href);
             }}>⬇️ HTML</button>
             <span style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>Modificările se cer prin mesaje în chat (ex: „schimbă exercițiul 3”).</span>
+            {sursaPdf && <NotaSursaPdf sursa={sursaPdf} />}
           </div>
           <iframe title="preview-sablon" sandbox="allow-scripts" srcDoc={exHtml}
             style={{ width: '100%', height: 560, border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }} />
@@ -634,6 +658,7 @@ export default function AIExerciseAgent({ box }) {
             <div style={{ border: '1px solid var(--gold, #e8b931)', background: '#fffdf5', borderRadius: 12, padding: 12, marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)' }}>Pune pe site:</span>
               <button className="btn btn-primary" onClick={sendToInteractive} style={{ fontSize: '.85rem' }}>🧩 Trimite la «Adaugă Interactiv»</button>
+              {sursaPdf && <NotaSursaPdf sursa={sursaPdf} />}
               <button className="btn btn-primary" onClick={sendToPdf} style={{ fontSize: '.85rem' }}>📄 Trimite la «Adaugă PDF»</button>
               <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--navy)', marginLeft: 8 }}>Salvează pe calculator:</span>
               <button className="btn btn-outline" onClick={downloadHtml} style={{ fontSize: '.82rem' }}>⬇️ HTML interactiv</button>

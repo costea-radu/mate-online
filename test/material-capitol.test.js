@@ -178,7 +178,8 @@ test('Admin: la încărcare se alege doar clasa / examenul (+ profilul la BAC); 
 
 test('contentAdmin.js merge și în browser (fără dependențe), prin pluginul din vite.config.js', () => {
   const cfg = read('vite.config.js');
-  assert.match(cfg, /const COMUNE_SERVER = \/\[\\\\\/\]api\[\\\\\/\]_lib\[\\\\\/\]\(capitoleHarta\|contentAdmin\)\\\.js\$\/;/);
+  // 21 nov. 2026: și potrivirea PDF ↔ test interactiv (api/_lib/pdfTestPotrivire.js), folosită de Admin
+  assert.match(cfg, /const COMUNE_SERVER = \/\[\\\\\/\]api\[\\\\\/\]_lib\[\\\\\/\]\(capitoleHarta\|contentAdmin\|pdfTestPotrivire\)\\\.js\$\/;/);
   const src = read('api/_lib/contentAdmin.js');
   assert.doesNotMatch(src, /\brequire\(/);
   assert.doesNotMatch(src, /\bprocess\.|\bBuffer\b|__dirname/);

@@ -141,8 +141,9 @@ const SUB_TITLE = { I: 'Subiectul I', II: 'Subiectul al II-lea', III: 'Subiectul
 const PROFILE_LABEL = { 'mate-info': 'Mate-Info', 'stiinte-naturii': 'Științele Naturii', tehnologic: 'Tehnologic' };
 
 const examPage = (exam, profile) => (exam === 'bac' ? `/bacalaureat${profile ? `/${profile}` : ''}` : '/evaluare-nationala');
-// pagina EN se deschide pe tabul PDF (8 nov. 2026) → linkurile spre testele interactive îl cer explicit
-const examPageInteractive = (exam, profile) => (exam === 'bac' ? examPage(exam, profile) : '/evaluare-nationala?tab=interactive');
+// paginile EN (8 nov. 2026) și BAC + clasele (21 nov. 2026) se deschid pe tabul PDF → linkurile
+// spre testele interactive îl cer explicit
+const examPageInteractive = (exam, profile) => `${examPage(exam, profile)}?tab=interactive`;
 const examLabel = (exam, profile) => (exam === 'bac' ? `BAC${profile ? ` ${PROFILE_LABEL[profile]}` : ''}` : 'EN');
 const liveTimes = () => { try { return L.intervals().map((i) => i.label).join(' și ') || '17:00–19:00'; } catch { return '17:00–19:00'; } };
 const bullets = (xs) => xs.filter(Boolean).map((x) => `• ${x}`).join('\n');
@@ -165,7 +166,7 @@ function resources({ exam = null, profile = null, pos = null }) {
     `**Meditații live**: zilnic, ${liveTimes()}, ${where} — sau 1-la-1 oricând, pe subiectul ales. [Meditații live](/meditatii)`,
     exam
       ? `**Teste interactive**: te verifici pe loc, cu explicații la fiecare întrebare. [Teste interactive ${lbl}](${examPageInteractive(exam, profile)})`
-      : '**Teste interactive**, cu explicații la fiecare întrebare: [Evaluarea Națională](/evaluare-nationala?tab=interactive) · [Bacalaureat](/bacalaureat)',
+      : '**Teste interactive**, cu explicații la fiecare întrebare: [Evaluarea Națională](/evaluare-nationala?tab=interactive) · [Bacalaureat](/bacalaureat?tab=interactive)',
     exam
       ? `**Subiecte PDF cu barem** (exerciții pe subiecte, variante, simulări): deschide unul și întreabă-mă acolo — citesc enunțul și baremul lui. [PDF-uri ${lbl}](${examPage(exam, profile)}?tab=pdf)`
       : '**Subiecte PDF cu barem** (variante, simulări): [EN](/evaluare-nationala?tab=pdf) · [BAC](/bacalaureat?tab=pdf) — deschide unul și întreabă-mă acolo: citesc enunțul și baremul lui.',
@@ -228,7 +229,7 @@ function answer(r) {
       return [
         '**Unde găsești materialele pe ExamenMate:**',
         bullets([
-          '**Teste interactive** (te verifici pe loc, cu explicații): [Evaluarea Națională](/evaluare-nationala?tab=interactive) · [Bacalaureat](/bacalaureat) · pe clase: [clasa a 5-a](/clase/5) … [a 12-a](/clase/12)',
+          '**Teste interactive** (te verifici pe loc, cu explicații): [Evaluarea Națională](/evaluare-nationala?tab=interactive) · [Bacalaureat](/bacalaureat?tab=interactive) · pe clase: [clasa a 5-a](/clase/5?tab=interactive) … [a 12-a](/clase/12?tab=interactive)',
           '**PDF-uri cu barem** (variante, simulări, exerciții pe subiecte): [EN](/evaluare-nationala?tab=pdf) · [BAC](/bacalaureat?tab=pdf)',
           '**Exerciții interactive generate pe loc**, pe tema dorită: [Profesorul Virtual](/profesor-virtual)',
           '**Rezolvări și teorie**: [Rezolvări](/rezolvari)',

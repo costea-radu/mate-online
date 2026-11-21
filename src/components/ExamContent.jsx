@@ -1,6 +1,6 @@
 // src/components/ExamContent.jsx — componente partajate de paginile de examen
 // (Evaluare Națională + Bacalaureat): listă materiale, secțiuni colapsabile și
-// comutator Interactive/PDF. `profile` e opțional (folosit doar la Bacalaureat).
+// comutator PDF/Interactive. `profile` e opțional (folosit doar la Bacalaureat).
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -108,13 +108,15 @@ export function Section({ title, icon, defaultOpen = false, children, level = 1 
   );
 }
 
-// ─── Comutator Interactive / PDF în interiorul unei secțiuni ───────────────────
-// `pdfFirst` (Evaluarea Națională, 8 nov. 2026): 📄 PDF în stânga și ales implicit,
-// 🧩 Interactive în dreapta; fără el (Bacalaureat) rămâne Interactive | PDF.
-export function TypeTabs({ category, subcategory, profile, returnTab, pdfFirst = false }) {
+// ─── Comutator PDF / Interactive în interiorul unei secțiuni ───────────────────
+// 📄 PDF în stânga și ales implicit, 🧩 Interactive în dreapta — la Evaluarea Națională din
+// 8 nov. 2026, peste tot din 21 nov. 2026 („Pune rubrica PDF prima dată, apoi interactive.
+// La toate categoriile: examene și clase"). „Înapoi" din test revine la tipul de unde s-a plecat.
+export const ORDINE_TIPURI = ['pdf', 'interactive'];
+export function TypeTabs({ category, subcategory, profile, returnTab }) {
   const location = useLocation();
   const returningHere = location.state?.scrollToCardId && location.state?.returnSubcategory === subcategory;
-  const implicit = pdfFirst ? 'pdf' : 'interactive';
+  const implicit = ORDINE_TIPURI[0];
   const initialType = returningHere ? (location.state?.returnContentType || implicit) : implicit;
   const [type, setType] = useState(initialType);
   const btn = (active) => ({
@@ -128,7 +130,7 @@ export function TypeTabs({ category, subcategory, profile, returnTab, pdfFirst =
   return (
     <div>
       <div style={{ display: 'flex', gap: 0, marginBottom: 12, borderRadius: 8, overflow: 'hidden' }}>
-        {(pdfFirst ? ['pdf', 'interactive'] : ['interactive', 'pdf']).map((t, i) => (
+        {ORDINE_TIPURI.map((t, i) => (
           <button key={t}
             style={{ ...btn(type === t), borderRadius: i === 0 ? '8px 0 0 8px' : '0 8px 8px 0', ...(i ? { borderLeft: 'none' } : {}) }}
             onClick={() => setType(t)}>

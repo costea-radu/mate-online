@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Discussions from '../components/Discussions';
 import { Link, useParams, useLocation } from 'react-router-dom';
-import StartRapid from '../components/StartRapid';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { ContentCard, scrollToCard } from '../components/ContentPage';
@@ -46,9 +45,13 @@ export default function Bacalaureat() {
   const returnTab = location.state?.returnTab;
   const scrollCardId = location.state?.scrollToCardId;
   const targetSub = location.state?.returnSubcategory;
-  // ?tab=pdf (din linkurile Profesorului Virtual) deschide direct tabul PDF
-  const tabParam = new URLSearchParams(location.search).get('tab') === 'pdf' ? 'pdf' : null;
-  const [mainTab, setMainTab] = useState(returnTab || tabParam || 'interactive');
+  // Ordinea taburilor (21 nov. 2026, cererea: „Pune rubrica PDF prima dată, apoi interactive.
+  // La toate categoriile: examene și clase"): 📄 PDF primul și deschis implicit, ca la EN.
+  // ?tab=pdf / ?tab=interactive (linkurile Profesorului Virtual) deschid direct tabul cerut;
+  // „Înapoi" din teste revine la tabul de unde s-a plecat.
+  const tabQ = new URLSearchParams(location.search).get('tab');
+  const tabParam = tabQ === 'pdf' || tabQ === 'interactive' ? tabQ : null;
+  const [mainTab, setMainTab] = useState(returnTab || tabParam || 'pdf');
   useEffect(() => { if (tabParam) setMainTab(tabParam); }, [tabParam]);
   const scrollRestored = useRef(false);
   const capitoleOpen = !!scrollCardId && targetSub === 'capitole';
@@ -74,13 +77,13 @@ export default function Bacalaureat() {
 
       <div className="content-list">
         <div className="container">
-          <StartRapid category="bacalaureat" profile={profile} />
+          {/* 21 nov. 2026: fără chenarul de sus „▶ Începe un test" (StartRapid), ca la EN */}
           <div className="tabs">
-            <button className={`tab ${mainTab === 'interactive' ? 'active' : ''}`} onClick={() => setMainTab('interactive')}>
-              🧩 Teste Interactive
-            </button>
             <button className={`tab ${mainTab === 'pdf' ? 'active' : ''}`} onClick={() => setMainTab('pdf')}>
               📄 PDF+Interactive
+            </button>
+            <button className={`tab ${mainTab === 'interactive' ? 'active' : ''}`} onClick={() => setMainTab('interactive')}>
+              🧩 Teste Interactive
             </button>
           </div>
 

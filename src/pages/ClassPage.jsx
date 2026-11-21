@@ -12,9 +12,12 @@ const classNames = {
   '12': 'a XII-a',
 };
 
+// 21 nov. 2026 — 📄 PDF prima filă (deschisă implicit), apoi 🧩 interactive: „Pune rubrica PDF
+// prima dată, apoi interactive. La toate categoriile: examene și clase". ?tab=interactive /
+// ?tab=pdf / ?tab=bareme deschid direct fila cerută (src/components/ContentPage.jsx).
 const tabs = [
-  { id: 'interactive', label: '🧩 Exerciții Interactive' },
   { id: 'pdf',         label: '📄 Exerciții PDF' },
+  { id: 'interactive', label: '🧩 Exerciții Interactive' },
   // 15 nov. 2026 — baremele fișelor clasei (src/components/BaremeClasa.jsx, api/bareme.js);
   // fila apare doar când secțiunea e vizibilă elevilor (sau pentru admin)
   { id: 'bareme',      label: '📋 Bareme' },

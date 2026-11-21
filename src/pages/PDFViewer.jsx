@@ -1182,7 +1182,8 @@ export default function PDFViewer() {
       )}
     </button>
   );
-  // ── „✏️ Rezolvă pe PDF" (testele de Evaluare Națională) ──────────────────
+  // ── „✏️ Rezolvă" (21 nov. 2026: fostul „✏️ Rezolvă pe PDF" — cererea: „la viewer-ul PDF
+  // redenumește «Rezolvă pe PDF» în «Rezolvă»"; pe telefon era deja „✏️ Rezolvă") ──────────
   // (pulsează cât nu e pornit — 8 nov. 2026: „fă butonul «rezolvă» pulsatil ca să
   // atragă atenția"; animația: .em-pulse din src/styles/global.css). La testele de EN
   // pornește rezolvarea PE PDF; la BAC și la celelalte PDF-uri deschide foaia de lucru.
@@ -1257,7 +1258,7 @@ export default function PDFViewer() {
       }}
     >
       <span style={{ fontSize: '0.82rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
-        {metodaInfo ? `${metodaInfo.icon} ${tiny ? metodaInfo.scurt : metodaInfo.label}` : (tiny ? '✏️ Rezolvă' : '✏️ Rezolvă pe PDF')} ▾
+        {metodaInfo ? `${metodaInfo.icon} ${tiny ? metodaInfo.scurt : metodaInfo.label}` : '✏️ Rezolvă'} ▾
       </span>
       {!tiny && (
         <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.85, whiteSpace: 'nowrap' }}>
@@ -1286,7 +1287,7 @@ export default function PDFViewer() {
     >
       <span style={{ fontSize: '0.82rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
         {canSolve
-          ? (solveActive ? '✏️ Rezolvi pe PDF' : (tiny ? '✏️ Rezolvă' : '✏️ Rezolvă pe PDF'))
+          ? (solveActive ? '✏️ Rezolvi pe PDF' : '✏️ Rezolvă')
           : (foaieActiva ? '✏️ Foaia de lucru' : '✏️ Rezolvă')}
       </span>
       {!tiny && (

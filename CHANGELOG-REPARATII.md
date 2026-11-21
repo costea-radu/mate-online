@@ -4,6 +4,33 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 21 noiembrie 2026 — 🔗 Admin → „PDF ↔ Interactiv" (asociere manuală + automată) · „✏️ Rezolvă", „Deschide PDF", „🧩 Deschide interactiv" · PDF primul peste tot · fără chenarul „▶ Începe un test"
+
+Cererea: „1) fă în admin o rubrică în care pot asocia manual un PDF de un test interactiv. Fă ca PDF-urile să se asocieze automat cu un test interactiv generat după modelul lui 2) la viewer-ul PDF redenumește «Rezolvă pe PDF» în «Rezolvă». La PDF-uri redenumește «deschide/descarcă» în «deschide PDF» iar «interactiv» redenumește-l în «deschide interactiv» 3) Pune rubrica PDF prima dată, apoi interactive. La toate categoriile: examene și clase 4) șterge de la secțiunea cu exerciții și teste PDF sau interactive, primul chenar ce conține butoanele «începe un test», «generează un subiect»"
+
+**De rulat:** nimic — fără SQL, fără tabele noi, fără variabile noi (legăturile rămân `content.interactiv_id` / `content.pdf_sursa_id`). Ghidul: `GHID_PDF_INTERACTIV.md` (secțiunea nouă, sus).
+
+1. **Admin → 🔗 PDF ↔ Interactiv** (fila nouă, după „🧩 Exerciții Interactive" — `src/components/AdminPdfInteractiv.jsx`):
+   - **📄 PDF-uri** (fără bareme): testul principal al fiecărui PDF (cel deschis de „🧩 Deschide interactiv" și de „✏️ Rezolvă ▾" → „🧩 Interactiv"), celelalte teste făcute după el; **🔗 Asociază un test / Schimbă testul** (căutare + listă: făcute după PDF, potrivite după titlu, fără PDF, făcute după alt PDF), **✕ dezleagă**, **⭐ fă-l principal**, „💡 Pare făcut după el: …" la PDF-urile fără test.
+   - **🧩 Teste interactive**: PDF-ul după care e făcut fiecare test sau de ce n-are — „🔀 combinat din 13 teste interactive (task-ul „test EN nou interactiv")" (jurnalul generatorului); **🔗 Alege PDF-ul**, cu bifa „E testul principal al PDF-ului".
+   - Filtre: categoria, rubrica, profilul (BAC), asociate / neasociate, căutare; cifrele de sus; la „Fără test interactiv" — PDF-urile fără test pe rubrici și cum se generează (task „pe rând").
+   - **🤖 Asociază automat**: propuneri pentru testele fără PDF — jurnalul generatorului (`agent_task_runs`: un singur PDF al rubricii task-ului) sau titlul — cele **sigure bifate**, cele „de verificat" nebifate; „✓ Asociază bifatele" (loturi de câte 25). Pe datele de azi: **nicio propunere** (cele 33 de teste fără PDF sunt combinate — EN 32–61 —, fără sursă sigură sau la Auxiliare).
+   - Din 📋 Tot Conținutul: butonul „🔗 Asociază PDF ↔ test", lângă filtrul „PDF ↔ test".
+2. **Asocierea automată a testelor generate după un PDF** (de acum înainte, pe toate drumurile):
+   - task-urile „pe rând" — ca până acum (`api/_lib/exgen.js` → `asociazaPdf`, la postare și la aprobare);
+   - **agentul Claude** (🤖 Unelte AI → Agent Claude): PDF-ul ales „📚 Din baza de date" ca model (sau sursa automatizării „pe rând", întoarsă acum de `api/ai-exercise-agent.js` → `sourceId`) merge cu testul la «Adaugă Interactiv» — caseta „🔗 Făcut după PDF-ul „…"", categoria și profilul PDF-ului puse singure;
+   - **🧩 Exerciții Interactive** (încărcarea manuală): câmpul nou **„📄 Făcut după PDF-ul (se asociază singur)"** — PDF-ul se alege **singur după titlu** când potrivirea e sigură („🤖 Ales automat după titlu (potrivire 100%)"), „💡 Pare făcut după…" când e doar probabilă; după încărcare testul se leagă de PDF și devine testul lui principal dacă PDF-ul n-avea unul.
+   - Serverul (`api/content-admin.js`): acțiunile `perechi`, `asociaza` (`principal: 'da' | 'daca-lipseste'`), `asociaza_lot`, `dezleaga`; refuză baremele, categoriile diferite și profilurile de BAC diferite; un PDF rămas fără principal, dar cu alte teste făcute după el, îl primește pe cel mai nou (și la ✏️ din Tot Conținutul — `legaturiInAcord`).
+   - Potrivirea (pură, aceeași pe server și în browser): `api/_lib/pdfTestPotrivire.js` — cuvintele și numerele comune („2021 Varianta 02" ↔ „BAC 2021 · M_tehnologic · Varianta 2"; „Fișă 9: Metoda mersului invers" ↔ „Fișă 9 — Metoda mersului invers (clasa a V-a)"); doar numerele („Test interactiv EN - 9" ↔ „2021 model 9") nu ajung niciodată la o propunere; o egalitate (ex. „Calcule cu numere întregi" ↔ fișele 7, 11, 12) — nicio propunere. În browser prin pluginul din `vite.config.js` (`COMUNE_SERVER`).
+3. **Redenumiri**: vizualizatorul PDF — „✏️ Rezolvă pe PDF ▾" → **„✏️ Rezolvă ▾"** (și în testul pe grupă / duel); cardurile PDF — „Deschide / Descarcă" → **„Deschide PDF"**, „🧩 Interactiv" → **„🧩 Deschide interactiv"**; textele care trimit la buton („Pregătește-mă", Admin → Bareme, ✏️ Editează).
+4. **PDF primul, apoi interactive** — Bacalaureat: „📄 PDF+Interactive" primul și deschis implicit (ca la EN), `?tab=pdf` / `?tab=interactive`; comutatorul din secțiuni (Capitole, Exerciții pe subiecte) — 📄 PDF | 🧩 Interactive peste tot (`ExamContent.jsx` → `ORDINE_TIPURI`); clasele — „📄 Exerciții PDF" prima filă (deschisă implicit), apoi „🧩 Exerciții Interactive", apoi „📋 Bareme"; `?tab=` și la clase (`ContentPage.jsx`). Profesorul Virtual cere explicit `?tab=interactive` în linkurile „Teste interactive" spre BAC și clase (`api/_lib/siteGuide.js`).
+5. **Scos chenarul de sus** „▶ Începe un test · 📄 Generează un subiect / 🎯 Testul zilei" de pe Evaluare Națională și Bacalaureat (`StartRapid.jsx` mutat în `_to_delete/`, stilurile `.start-rapid` scoase). Testul zilei rămâne în meniu și pe Acasă.
+6. Admin: hook-ul `dupaIncarcare` mutat înaintea return-urilor condiționate — la `/admin` deschis direct, randarea de după verificarea sesiunii avea un hook în plus (eroarea React #310).
+
+Teste: `pdf-interactiv-admin` (18, nou); actualizate `pdf-interactiv-legaturi`, `pdf-nota-recenzii-taburi`, `scor-in-asteptare`, `site-guide`, `plan-focus`, `material-capitol`. `npm test`: 1394 din 1394; `vite build` curat. Verificat în Chromium (Supabase simulat cu titluri reale din bază, endpointul real `api/content-admin.js`), la 1280 și 390 px: fila nouă (cifre, rânduri, 🤖 cu 2 propuneri sigure + 1 de verificat → asociate corect; testul combinat cu motivul lui; asociere manuală; dezlegare; reasociere), «Adaugă Interactiv» (titlul „Simulare Iași 2026 — test interactiv" → „2026 simulare Iași" ales singur → asociat, principal), agentul Claude (PDF-ul-model „2024 model" → «Adaugă Interactiv» precompletat → asociat), EN și BAC (fără chenar, PDF primul și deschis, „🧩 Deschide interactiv" + „Deschide PDF"), clasa a VI-a (PDF prima filă, `?tab=interactive`), vizualizatorul („✏️ Rezolvă ▾" pe calculator și telefon); fără depășire orizontală pe telefon.
+
+---
+
 ## 20 noiembrie 2026 — 🧩 legătura PDF ↔ test interactiv, vizibilă peste tot: pe carduri, în testul deschis direct, în Admin
 
 Cererea: „Fă o legătură mai bună între testele PDF și testele interactive și asociază-le."

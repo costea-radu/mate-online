@@ -96,28 +96,47 @@ test('recenzia la PDF: „Cum ți s-a părut testul?" după o corectare salvată
   assert.match(read('src/pages/InteractiveViewer.jsx'), /if \(pregRez\) return;   \/\/ întâi felicitarea testului zilei/);
 });
 
-// ── 3) EN: PDF în stânga (deschis implicit), interactiv în dreapta ──────────────
-test('Evaluarea Națională: tabul PDF primul și deschis implicit, apoi cel interactiv; ?tab=interactive merge', () => {
-  const en = read('src/pages/EvaluareNationala.jsx');
-  const iPdf = en.indexOf('📄 PDF+Interactive'), iInt = en.indexOf('🧩 Teste Interactive');
-  assert.ok(iPdf > 0 && iInt > iPdf, 'PDF înaintea celui interactiv');
-  assert.match(en, /useState\(returnTab \|\| tabParam \|\| 'pdf'\)/);
-  assert.match(en, /tabQ === 'pdf' \|\| tabQ === 'interactive' \? tabQ : null/);
-  assert.strictEqual((en.match(/<TypeTabs [^>]*pdfFirst \/>/g) || []).length, 2, 'și comutatoarele din secțiuni: PDF | Interactive');
+// ── 3) PDF în stânga (deschis implicit), interactiv în dreapta — EN din 8 nov., peste tot din 21 nov. 2026 ──
+test('Evaluarea Națională și Bacalaureatul: tabul PDF primul și deschis implicit, apoi cel interactiv; ?tab=interactive merge', () => {
+  for (const f of ['src/pages/EvaluareNationala.jsx', 'src/pages/Bacalaureat.jsx']) {
+    const src = read(f);
+    const iPdf = src.indexOf('📄 PDF+Interactive'), iInt = src.indexOf('🧩 Teste Interactive');
+    assert.ok(iPdf > 0 && iInt > iPdf, `${f}: PDF înaintea celui interactiv`);
+    assert.match(src, /useState\(returnTab \|\| tabParam \|\| 'pdf'\)/, f);
+    assert.match(src, /tabQ === 'pdf' \|\| tabQ === 'interactive' \? tabQ : null/, f);
+    assert.match(src, /useEffect\(\(\) => \{ if \(tabParam\) setMainTab\(tabParam\); \}, \[tabParam\]\);/, f);
+    assert.doesNotMatch(src, /pdfFirst/, `${f}: comutatoarele din secțiuni au PDF primul fără parametru`);
+  }
+  assert.strictEqual((read('src/pages/EvaluareNationala.jsx').match(/<TypeTabs /g) || []).length, 2);
+  assert.strictEqual((read('src/pages/Bacalaureat.jsx').match(/<TypeTabs /g) || []).length, 2);
+  // comutatorul din secțiuni (Capitole, Exerciții pe subiecte): 📄 PDF | 🧩 Interactive, PDF ales implicit
   const ex = read('src/components/ExamContent.jsx');
-  assert.match(ex, /export function TypeTabs\(\{ category, subcategory, profile, returnTab, pdfFirst = false \}\)/);
-  assert.match(ex, /\(pdfFirst \? \['pdf', 'interactive'\] : \['interactive', 'pdf'\]\)/);
-  // Bacalaureatul rămâne cum era
-  assert.doesNotMatch(read('src/pages/Bacalaureat.jsx'), /pdfFirst/);
+  assert.match(ex, /export const ORDINE_TIPURI = \['pdf', 'interactive'\];/);
+  assert.match(ex, /export function TypeTabs\(\{ category, subcategory, profile, returnTab \}\)/);
+  assert.match(ex, /const implicit = ORDINE_TIPURI\[0\];/);
+  assert.match(ex, /\{ORDINE_TIPURI\.map\(\(t, i\) => \(/);
 });
 
-test('Profesorul Virtual: linkurile „Teste interactive" de la EN deschid tabul interactiv', () => {
+test('clasele: fila „📄 Exerciții PDF" prima (deschisă implicit), apoi „🧩 Exerciții Interactive", apoi „📋 Bareme"; ?tab= deschide fila cerută', () => {
+  const cl = read('src/pages/ClassPage.jsx');
+  const iPdf = cl.indexOf("{ id: 'pdf',"), iInt = cl.indexOf("{ id: 'interactive',"), iBar = cl.indexOf("{ id: 'bareme',");
+  assert.ok(iPdf > 0 && iInt > iPdf && iBar > iInt, 'pdf → interactive → bareme');
+  const cp = read('src/components/ContentPage.jsx');
+  assert.match(cp, /const tabParam = tabQ && tabs\.some\(\(t\) => t\.id === tabQ\) \? tabQ : null;/);
+  assert.match(cp, /: \(tabParam \|\| tabs\[0\]\.id\);/, 'fără „Înapoi" și fără ?tab= → prima filă (PDF)');
+  assert.match(cp, /useEffect\(\(\) => \{ if \(tabParam\) setActiveTab\(tabParam\); \}, \[tabParam\]\);/);
+});
+
+test('Profesorul Virtual: linkurile „Teste interactive" (EN, BAC, clase) deschid tabul interactiv', () => {
   const g = require('../api/_lib/siteGuide');
   const m = g.answer({ kind: 'materiale' });
   assert.match(m, /\[Evaluarea Națională\]\(\/evaluare-nationala\?tab=interactive\)/);
   assert.match(m, /\[EN\]\(\/evaluare-nationala\?tab=pdf\)/);
   const src = read('api/_lib/siteGuide.js');
-  assert.match(src, /const examPageInteractive = \(exam, profile\) => \(exam === 'bac' \? examPage\(exam, profile\) : '\/evaluare-nationala\?tab=interactive'\);/);
+  assert.match(src, /const examPageInteractive = \(exam, profile\) => `\$\{examPage\(exam, profile\)\}\?tab=interactive`;/);
+  // 21 nov. 2026: și BAC-ul, și clasele se deschid pe PDF → linkurile „Teste interactive" cer tabul
+  assert.match(m, /\[Bacalaureat\]\(\/bacalaureat\?tab=interactive\)/);
+  assert.match(m, /\[clasa a 5-a\]\(\/clase\/5\?tab=interactive\) … \[a 12-a\]\(\/clase\/12\?tab=interactive\)/);
   assert.match(src, /\[Teste interactive \$\{examLabel\(exam, p\.profile\)\}\]\(\$\{examPageInteractive\(exam, p\.profile\)\}\)/);
 });
 

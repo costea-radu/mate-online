@@ -78,13 +78,16 @@ test('testul interactiv, fără cont: după corectare — „Creează cont gratu
   assert.ok(v.indexOf('if (!user) {\n        if (authLoading') < v.indexOf("if (temaId) {"), 'înaintea drumurilor care cer cont');
 });
 
-test('„▶ Începe un test" pe paginile de examen; materialul deschis are adresa lui (?id=)', () => {
-  assert.match(read('src/pages/EvaluareNationala.jsx'), /<StartRapid category="evaluare-nationala" toate="\/evaluare-nationala\?tab=interactive" \/>\s*\n\s*<div className="tabs">/);
-  assert.match(read('src/pages/Bacalaureat.jsx'), /<StartRapid category="bacalaureat" profile=\{profile\} \/>\s*\n\s*<div className="tabs">/);
-  const sr = read('src/components/StartRapid.jsx');
-  assert.match(sr, /testRapid\(\{ category, profile, userId: user\?\.id \|\| null \}\)/);
-  assert.match(sr, /if \(test === null && !toate\) return null;/, 'fără teste gratuite în rubrică → fără buton');
-  assert.match(sr, /!isParent && <Link to="\/pregateste-ma"/, '„Testul zilei" doar la elevi și vizitatori');
+test('paginile de examen încep direct cu filele (fără chenarul „▶ Începe un test", 21 nov. 2026); materialul deschis are adresa lui (?id=)', () => {
+  // 21 nov. 2026: „șterge de la secțiunea cu exerciții și teste PDF sau interactive, primul chenar ce
+  // conține butoanele «începe un test», «generează un subiect»" — StartRapid scos de pe EN și BAC
+  for (const f of ['src/pages/EvaluareNationala.jsx', 'src/pages/Bacalaureat.jsx']) {
+    const src = read(f);
+    assert.doesNotMatch(src, /import StartRapid|<StartRapid|className="start-rapid|to="\/profesor-virtual\?tab=exam"/, f);
+    assert.match(src, /<div className="content-list">\s*\n\s*<div className="container">\s*\n\s*\{\/\*[^]*?\*\/\}\s*\n\s*<div className="tabs">/, `${f}: filele sunt primul lucru din listă`);
+  }
+  assert.doesNotMatch(read('src/styles/global.css'), /\.start-rapid/, 'fără stilurile chenarului');
+  assert.ok(!fs.existsSync(path.join(__dirname, '..', 'src/components/StartRapid.jsx')), 'componenta chenarului, scoasă');
   // materialul în adresă: linkul din bara browserului se poate trimite mai departe, iar
   // „Cele mai accesate materiale" (statistici) numără toate deschiderile
   const cp = read('src/components/ContentPage.jsx');

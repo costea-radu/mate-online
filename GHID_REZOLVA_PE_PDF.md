@@ -1,5 +1,7 @@
 # ✏️ Rezolvă pe PDF — grila încercuită și Subiectul III scris direct pe testul de EN
 
+> **21 nov. 2026:** butonul din bara vizualizatorului se cheamă acum **„✏️ Rezolvă ▾"** (fostul „✏️ Rezolvă pe PDF ▾") — meniul metodelor (🧩 Interactiv, Pe PDF, Cu poză, În chat, Foaia de lucru) a rămas același. Vezi `CHANGELOG-REPARATII.md`, „21 noiembrie 2026".
+
 Cererea lui Radu (7 nov. 2026): la PDF-urile de **Evaluare Națională**, grila de la Subiectele I și II să
 se rezolve **direct pe PDF, prin încercuire**, iar la Subiectul al III-lea elevul să scrie **direct în zona
 de rezolvare** — „un spațiu de lucru, dar invizibil", cu **recunoașterea exercițiului rezolvat** și

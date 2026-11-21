@@ -56,7 +56,7 @@ test('„ajută-mă la subiectul 1 bac": structura corectă (fără polinoame) �
   // etichetele linkurilor fără „. " (widgetul împarte textul în propoziții pentru voce)
   for (const [, label] of a.matchAll(/\[([^\]]+)\]\(\//g)) assert.doesNotMatch(label, /\.\s/, label);
   assert.match(a, /\]\(\/meditatii\)/);
-  assert.match(a, /\]\(\/bacalaureat\)/);
+  assert.match(a, /\]\(\/bacalaureat\?tab=interactive\)/, 'pagina BAC se deschide pe PDF (21 nov. 2026)');
   assert.match(a, /\]\(\/bacalaureat\?tab=pdf\)/);
   assert.match(a, /Scrie-mi enunțul/);
   // BAC: polinoamele apar la Subiectul al II-lea, ex. 2
@@ -65,7 +65,7 @@ test('„ajută-mă la subiectul 1 bac": structura corectă (fără polinoame) �
   // exercițiul exact, cu profilul
   const b = G.answer(G.route({ message: 'exercițiul 2 b de la subiectul 3 bac mate info', context: {} }));
   assert.match(b, /pregatire\?pos=III\.2\.b\)/);
-  assert.match(b, /\(\/bacalaureat\/mate-info\)/);
+  assert.match(b, /\(\/bacalaureat\/mate-info\?tab=interactive\)/);
   assert.match(b, /\(\/bacalaureat\/mate-info\?tab=pdf\)/);
   // EN: structura cu cele 3 subiecte
   const en = G.answer(G.route({ message: 'cum mă pregătesc pentru evaluarea națională?', context: {} }));
@@ -90,7 +90,7 @@ test('ghidul nu intervine pe un PDF / test deschis, pe tabla din Planul meu, la 
 
 test('trimiterile de sub o explicație de matematică: prima întrebare sau când pomenește examenul', () => {
   const f = G.footer({ message: 'cum rezolv ecuatia 2x+3=7 de la subiectul 1 bac', context: { page: '/' } });
-  assert.match(f, /Teste interactive BAC\]\(\/bacalaureat\)/);
+  assert.match(f, /Teste interactive BAC\]\(\/bacalaureat\?tab=interactive\)/);
   assert.match(f, /Pregătire de examen: Subiectul I, exercițiul 1\]\(\/meditatii\/pregatire\?pos=I\.1\)/);
   assert.match(f, /Meditații live\]\(\/meditatii\)/);
   assert.match(G.footer({ message: 'ce e un polinom', context: { page: '/clase/7' } }), /\(\/clase\/7\)/);
@@ -147,7 +147,7 @@ test('api/ai-chat: ghidul răspunde fără model și fără să consume acțiuni
     assert.strictEqual(m.statusCode, 200, JSON.stringify(m.body));
     assert.strictEqual(modelCalls, 1);
     assert.match(m.body.reply, /^Pentru \$x\^2=4\$/);
-    assert.match(m.body.reply, /📚 Exersează și pe site: \[Teste interactive BAC\]\(\/bacalaureat\)/);
+    assert.match(m.body.reply, /📚 Exersează și pe site: \[Teste interactive BAC\]\(\/bacalaureat\?tab=interactive\)/);
   } finally { Object.assign(ai, saved); }
 });
 
