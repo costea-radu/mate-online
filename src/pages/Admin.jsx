@@ -14,6 +14,7 @@ import AdminExplicatiiGrila from '../components/AdminExplicatiiGrila';   // 💡
 import AdminBareme from '../components/AdminBareme';                     // ✅ bareme la orice categorie (19 nov. 2026)
 import AdminVarianteAI from '../components/AdminVarianteAI';             // ✨ variantele generate cu AI, EN (19 nov. 2026)
 import AdminPdfInteractiv, { AlegePdfSursa } from '../components/AdminPdfInteractiv';   // 🔗 PDF ↔ test interactiv (21 nov. 2026)
+import AdminContinutGenerat from '../components/AdminContinutGenerat';   // 🤖 conținutul generat de skill (21 nov. 2026)
 import { esteBarem } from '../lib/bareme';
 import { ContentMetaFields, EditContentModal, ReplaceFileModal, ReorderPanel, UndeApare, rubricaEfectiva } from '../components/ContentAdminTools';
 import FileUploadZone from '../components/FileUploadZone';   // zona „trage fișierul aici” (și în filele de bareme / variante AI)
@@ -1036,6 +1037,7 @@ const TABS = [
   { id: 'bot',         icon: '📚', label: 'Bot examene' },
   { id: 'explicatii',  icon: '💡', label: 'Explicații grilă' },   // 18 nov. 2026 — baremele EN
   { id: 'fisiere-model', icon: '📤', label: 'Fișiere model' },
+  { id: 'continut-generat', icon: '🤖', label: 'Conținut generat' },   // 21 nov. 2026 — skill-ul de conținut
   { id: 'debug',       icon: '🐞', label: 'Agent debug' },
 ];
 
@@ -1199,6 +1201,7 @@ export default function Admin() {
           {tab === 'bot'         && <AdminBotExamene s={s} />}
           {tab === 'explicatii'  && <AdminExplicatiiGrila s={s} />}
           {tab === 'fisiere-model' && <AdminFisiereModel s={s} />}
+          {tab === 'continut-generat' && <AdminContinutGenerat s={s} />}
           {tab === 'debug'       && <AdminDebug s={s} />}
         </main>
       </div>

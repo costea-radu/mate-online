@@ -271,7 +271,7 @@ async function readCache(supa, content) {
       barem: data.barem || null, baremText: data.barem_text || '', baremStatus: data.barem_status || 'negasit',
       pageTexts: Array.isArray(data.page_texts) ? data.page_texts : [],
       baremOverride: data.barem_override_id || null,
-      baremOverrideBy: data.barem_override_by || null,   // 'admin' | 'bot' (botul de examene)
+      baremOverrideBy: data.barem_override_by || null,   // 'admin' | 'bot' (botul de examene) | 'claude-skill' (skill-ul de conținut)
       cached: true,
     };
   } catch (e) { warnOnce('ai_pdf_text_e', `ai_pdf_text: ${e.message}`); return null; }
@@ -298,8 +298,16 @@ async function writeCache(supa, content, ctx) {
 // ai_pdf_text.barem_override_id: baremul ales de administrator pentru un test
 // (are prioritate față de potrivirea automată). null = automat.
 // ai_pdf_text.barem_override_by (30 oct. 2026, supabase/bot_examene.sql): cine a
-// legat baremul — 'admin' sau 'bot' (🤖 botul de examene, după ce a verificat
-// titlul, numele fișierelor, antetul și conținutul). Fără coloană: ca înainte.
+// legat baremul — 'admin', 'bot' (🤖 botul de examene, după ce a verificat
+// titlul, numele fișierelor, antetul și conținutul) sau 'claude-skill' (21 nov. 2026:
+// baremul generat de skill-ul de conținut și verificat după barem — Admin → 🤖 Conținut
+// generat, api/_lib/continutGenerat.js). Fără coloană: ca înainte.
+const OVERRIDE_BY = new Set(['admin', 'bot', 'claude-skill']);
+const OVERRIDE_EVIDENCE = {
+  admin: 'asociat manual de administrator',
+  bot: 'asociat de botul de examene (verificat: titlu, fișier, antet, conținut)',
+  'claude-skill': 'barem generat automat (Claude) și verificat după barem',
+};
 async function overrideBy(supa, contentId) {
   try {
     const { data, error } = await supa.from('ai_pdf_text').select('barem_override_by').eq('content_id', contentId).maybeSingle();
@@ -322,13 +330,13 @@ async function applyOverride(supa, content, ctx, overrideId) {
   let text = '';
   try { text = (await contentPdfText(supa, ov, BAREM_MAX_CHARS)).text; } catch (e) { warnOnce(`ovr:${overrideId}`, `ai-pdf-context: baremul asociat manual nu a putut fi citit (${e.message})`); return ctx; }
   const by = ctx.baremOverrideBy !== undefined && ctx.cached ? ctx.baremOverrideBy : await overrideBy(supa, content.id);
-  const bot = by === 'bot';
+  const cine = OVERRIDE_BY.has(by) ? by : 'admin';
   const next = {
     ...ctx,
     barem: {
       id: ov.id, title: ov.title || 'Barem', fileName: B.fileNameOf(ov) || null,
-      matchedBy: bot ? 'bot' : 'admin',
-      evidence: bot ? 'asociat de botul de examene (verificat: titlu, fișier, antet, conținut)' : 'asociat manual de administrator',
+      matchedBy: cine,
+      evidence: OVERRIDE_EVIDENCE[cine],
       contentScore: null,
     },
     baremText: text, baremStatus: 'ok_admin', baremOverride: overrideId,
@@ -338,22 +346,32 @@ async function applyOverride(supa, content, ctx, overrideId) {
 }
 
 // Admin: setează / șterge asocierea manuală (baremId=null → automat).
-// `by`: 'admin' (implicit) sau 'bot' — botul de examene (api/_lib/examBotRun.js).
-async function setOverride(supa, content, baremId, { by = 'admin' } = {}) {
+// `by`: 'admin' (implicit), 'bot' — botul de examene (api/_lib/examBotRun.js) — sau
+// 'claude-skill' — skill-ul de conținut (api/_lib/continutGenerat.js).
+// `doarDacaLiber` (21 nov. 2026): leagă DOAR dacă materialul n-are deja un barem ales
+// (nicio legătură de admin / bot / skill) — verificat chiar la scriere; întoarce false
+// dacă între timp l-a legat altcineva (nu suprascrie nimic). Altfel întoarce true.
+async function setOverride(supa, content, baremId, { by = 'admin', doarDacaLiber = false } = {}) {
   const payload = { content_id: content.id, barem_override_id: baremId || null };
-  const who = baremId ? (by === 'bot' ? 'bot' : 'admin') : null;
+  const who = baremId ? (OVERRIDE_BY.has(by) ? by : 'admin') : null;
   const { data: existing } = await supa.from('ai_pdf_text').select('content_id').eq('content_id', content.id).maybeSingle();
-  const write = (withBy) => (existing
-    ? supa.from('ai_pdf_text').update({ barem_override_id: baremId || null, updated_at: new Date().toISOString(), ...(withBy ? { barem_override_by: who } : {}) }).eq('content_id', content.id)
-    : supa.from('ai_pdf_text').insert({ ...payload, file_url: content.file_url, text: '', barem_status: 'negasit', ...(withBy ? { barem_override_by: who } : {}) }));
-  let { error } = await write(true);
+  const write = (withBy) => {
+    if (!existing) return supa.from('ai_pdf_text').insert({ ...payload, file_url: content.file_url, text: '', barem_status: 'negasit', ...(withBy ? { barem_override_by: who } : {}) });
+    let q = supa.from('ai_pdf_text').update({ barem_override_id: baremId || null, updated_at: new Date().toISOString(), ...(withBy ? { barem_override_by: who } : {}) }).eq('content_id', content.id);
+    if (doarDacaLiber) q = q.is('barem_override_id', null).select('content_id');
+    return q;
+  };
+  let { data, error } = await write(true);
   // coloana barem_override_by vine din supabase/bot_examene.sql — fără ea, scriem ca înainte
-  if (error && /barem_override_by/.test(String(error.message || ''))) ({ error } = await write(false));
+  if (error && /barem_override_by/.test(String(error.message || ''))) ({ data, error } = await write(false));
+  if (error && doarDacaLiber && !existing && (error.code === '23505' || /duplicate key/i.test(String(error.message || '')))) return false;  // rândul a apărut între timp
   if (error) { const e = new Error(`Nu am putut salva asocierea (${error.message}) — rulează supabase/ai_pdf_cache_v2.sql.`); e.status = 500; throw e; }
+  if (doarDacaLiber && existing && !(Array.isArray(data) && data.length)) return false;   // legat între timp de altcineva
   if (!baremId) {
     // revenim la potrivirea automată: recalcul la următoarea deschidere
     await supa.from('ai_pdf_text').update({ barem_status: 'negasit', barem_id: null, barem: null, barem_text: '', updated_at: new Date(0).toISOString() }).eq('content_id', content.id);
   }
+  return true;
 }
 
 // Contextul PDF al unui material, din cache sau calculat (și pus în cache).

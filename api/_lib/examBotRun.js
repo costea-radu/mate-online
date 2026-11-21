@@ -97,9 +97,11 @@ function newStats() {
 // nu folosește ACUM niciunul. Starea se citește chiar înainte de legare (nu din
 // indexul botului, care poate fi vechi de câteva ore).
 const SITE_OK = new Set(['ok', 'ok_antet', 'ok_continut', 'inclus', 'ok_admin']);
-const LINK_KIND = { auto: 'potrivirea automată a site-ului', admin: 'ales de administrator', bot: 'legat deja de bot', necunoscut: 'starea nu s-a putut citi' };
+const LINK_KIND = { auto: 'potrivirea automată a site-ului', admin: 'ales de administrator', bot: 'legat deja de bot', skill: 'generat de skill-ul de conținut (verificat după barem)', necunoscut: 'starea nu s-a putut citi' };
 const ADMIN_TAB = 'admin · fila botului';   // legat manual din fila botului (adminul îl poate desface tot de aici)
-// → null (site-ul nu folosește niciun barem) | { kind: 'auto' | 'admin' | 'bot' | 'necunoscut', baremId, status }
+// → null (site-ul nu folosește niciun barem) | { kind: 'auto' | 'admin' | 'bot' | 'skill' | 'necunoscut', baremId, status }
+// ('skill' = barem_override_by 'claude-skill': baremul generat de skill-ul de conținut — 21 nov. 2026;
+// se desface din Admin → 🤖 Conținut generat, nu din fila botului)
 async function siteLink(supa, row) {
   if (!row || !row.id) return { kind: 'necunoscut', baremId: null, status: null };
   const cols = 'content_id, file_url, barem_id, barem_status, barem_override_id';
@@ -108,7 +110,7 @@ async function siteLink(supa, row) {
   if (r.error) return isMissing(r.error) ? null : { kind: 'necunoscut', baremId: null, status: null };   // fără cache: site-ul nu are nicio legătură salvată
   const d = r.data;
   if (!d) return null;
-  if (d.barem_override_id) return { kind: d.barem_override_by === 'bot' ? 'bot' : 'admin', baremId: d.barem_override_id, status: 'ok_admin' };
+  if (d.barem_override_id) return { kind: d.barem_override_by === 'bot' ? 'bot' : d.barem_override_by === 'claude-skill' ? 'skill' : 'admin', baremId: d.barem_override_id, status: 'ok_admin' };
   if (SITE_OK.has(d.barem_status) && (d.barem_id || d.barem_status === 'inclus') && (!d.file_url || !row.file_url || d.file_url === row.file_url)) {
     return { kind: 'auto', baremId: d.barem_id || row.id, status: d.barem_status };
   }
@@ -117,7 +119,7 @@ async function siteLink(supa, row) {
 // indexul botului ține pasul cu legătura găsită pe site (subiectul iese din „Fără barem")
 async function syncIndexToSite(ctx, row, cur) {
   const patch = {
-    barem_status: cur.kind === 'auto' ? cur.status : cur.kind === 'bot' ? 'ok_bot' : cur.kind === 'admin' ? 'ok_admin' : 'eroare',
+    barem_status: cur.kind === 'auto' ? cur.status : cur.kind === 'bot' ? 'ok_bot' : (cur.kind === 'admin' || cur.kind === 'skill') ? 'ok_admin' : 'eroare',
     barem_id: cur.baremId || null, barem_how: LINK_KIND[cur.kind] || cur.kind,
     checked_at: null,   // verificarea următoare completează titlul și dovada
   };

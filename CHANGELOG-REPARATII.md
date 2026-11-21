@@ -4,6 +4,23 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 21 noiembrie 2026 (2) — 🤖 Conținutul generat de skill (tabela, Action-urile „Aduce surse" și „Publică", fila din Admin) · legăturile „claude-skill" · fără notificări la bareme
+
+Cererea: „1) fă modificările: tabela `continut_generat`, cele două Action-uri («Aduce surse» și «Publică») și fila din Admin 2) fă și modificare de cod ca legăturile să poată fi marcate «claude-skill» 3) oprește notificările pentru bareme"
+
+**De rulat:** nimic în Supabase (am aplicat eu `supabase/continut_generat.sql` și `supabase/notificari_fara_bareme.sql`; sunt idempotente). Commit + push + deploy — Action-urile clonează `mate-online` de pe GitHub. Ghidul: `GHID_CONTINUT_GENERAT.md`.
+
+1. **Tabela `continut_generat`** — jurnalul și ciornele skill-ului `examenmate-continut`: unitatea (calea din repo-ul privat, UNIQUE), procedura 1–6, starea (în lucru / publicat / ciornă / aprobat / respins / anulat / eșuat / conflict / verificat / nimic), manifestul, fișierele urcate, ce s-a creat (pentru „Anulează"), verificările, cine a decis. RLS, GRANT-urile din CLAUDE.md, `revoke all … from anon`, politică doar pentru `service_role`.
+2. **`api/_lib/continutGenerat.js`** — publicarea unei unități: manifestul validat (fișiere fără foldere), precondițiile live (nu suprascrie niciun barem, nicio legătură, niciun test), verificările automate de la publicare (HTML: JavaScript, LaTeX, KaTeX, `MATE_SCORE`; procedura 6: `validatePatched` față de fișierul vechi; procedura 3: titlul ajunge pe hartă la capitolul modelului — `capitolDin`) — ce nu trece devine ciornă; urcarea în Storage (aceleași căi ca site-ul); rândurile ca site-ul (baremul ca `incarcaBarem`, apoi legătura — triggerul `ai_pdf_text_on_new_content` șterge legăturile scrise înainte; testul ca `exgen.postContent` + `asociazaPdf`; explicațiile în `barem_explicatii`; procedura 6: `file_url` nou doar dacă e încă cel vechi); desfacerea la eroare și la „Anulează"; aprobarea ciornei (din nou starea live), respingerea (fișierele se șterg).
+3. **Action-urile** (repo-ul privat `examenmate-continut`, `.github/workflows/`): **Publică** (la push în `unitati/**`) → `scripts/continut/publica.js`, rezultatele în `rezultate/`; **Aduce surse** (la push în `cereri/**`) → `scripts/continut/aduce-surse.js`: materialul, baremul legat, fișierul model, pe ramura `surse` (fără istoric, 7 zile); doar rânduri din tabelele site-ului. `CLAUDE.md` din repo descrie formatul exact pentru task-uri.
+4. **Admin → 🤖 Conținut generat** (`src/components/AdminContinutGenerat.jsx`, `api/continut-generat.js`): Ciorne / Publicate / Probleme / Verificate / Respinse-anulate / Toate, filtrul pe procedură, motivul, verificările, „👁 Fișierele" (linkuri semnate), „✅ Aprobă și publică", „✕ Respinge", „↩ Anulează".
+5. **Legăturile „claude-skill"**: `setOverride` acceptă `by: 'claude-skill'` și opțiunea `doarDacaLiber` (leagă doar dacă materialul n-are deja un barem ales — verificat în instrucțiunea de scriere); eticheta în vizualizatorul PDF și la fila „📋 Bareme" a clasei; botul de examene le vede ca legături confirmate (`skill`) și nu le schimbă; cache-ul fișelor le consideră de încredere.
+6. **Fără notificări la bareme**: `notify_new_content` nu mai trimite nimic pentru rubrica `bareme` sau un titlu cu „barem" (ca `isBaremRow`).
+
+Teste: `continut-generat` (24, nou). `npm test`: 1416 din 1416 (2 sărite, ca înainte); `vite build` curat. Fila verificată în Chromium (date simulate) la 1366 și 390 px; scripturile Action-urilor rulate cu dependențele de producție (`npm ci --omit=dev --ignore-scripts`).
+
+---
+
 ## 21 noiembrie 2026 — 🔗 Admin → „PDF ↔ Interactiv" (asociere manuală + automată) · „✏️ Rezolvă", „Deschide PDF", „🧩 Deschide interactiv" · PDF primul peste tot · fără chenarul „▶ Începe un test"
 
 Cererea: „1) fă în admin o rubrică în care pot asocia manual un PDF de un test interactiv. Fă ca PDF-urile să se asocieze automat cu un test interactiv generat după modelul lui 2) la viewer-ul PDF redenumește «Rezolvă pe PDF» în «Rezolvă». La PDF-uri redenumește «deschide/descarcă» în «deschide PDF» iar «interactiv» redenumește-l în «deschide interactiv» 3) Pune rubrica PDF prima dată, apoi interactive. La toate categoriile: examene și clase 4) șterge de la secțiunea cu exerciții și teste PDF sau interactive, primul chenar ce conține butoanele «începe un test», «generează un subiect»"

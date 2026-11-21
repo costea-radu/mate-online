@@ -699,7 +699,7 @@ function propuneriPeTitlu(fise, bareme, { folosite = new Set() } = {}) {
 // potrivire automată contează doar dacă a fost făcută după titlu (sau baremul e în
 // același PDF / l-a ales adminul / botul). Restul materialelor — ca înainte.
 const POTRIVIRE_AUTOMATA = new Set(['ok', 'ok_antet', 'ok_continut']);
-const POTRIVIRE_DUPA_TITLU = new Set(['titlu', 'titlu+continut', 'titlu+antet', 'inclus', 'admin', 'bot']);
+const POTRIVIRE_DUPA_TITLU = new Set(['titlu', 'titlu+continut', 'titlu+antet', 'inclus', 'admin', 'bot', 'claude-skill']);
 function baremCacheValid(content, t) {
   if (!t) return false;
   if (!esteFisa(content)) return true;

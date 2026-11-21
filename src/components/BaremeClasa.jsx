@@ -41,6 +41,7 @@ export function useBaremeClasa(category, { on = true, user = null } = {}) {
 const CUM = {
   admin: { t: '🔒 legat de admin', c: 'bc-p-admin' },
   bot: { t: '🤖 legat de botul de examene', c: 'bc-p-bot' },
+  'claude-skill': { t: '✨ generat automat (Claude), verificat după barem', c: 'bc-p-skill' },
   automat: { t: '✅ găsit automat după titlu', c: 'bc-p-auto' },
   inclus: { t: '📎 baremul e în aceeași fișă', c: 'bc-p-auto' },
 };
@@ -324,6 +325,7 @@ const CSS = `
 .bc-pill{display:inline-block;font-size:.72rem;font-weight:700;border-radius:99px;padding:2px 9px;white-space:normal}
 .bc-p-admin{background:#e8eaf6;color:#283593}
 .bc-p-bot{background:#e3f2fd;color:#0d47a1}
+.bc-p-skill{background:#f3e5f5;color:#6a1b9a}
 .bc-p-auto{background:#e8f5e9;color:#1b5e20}
 .bc-p-verif{background:#fff3e0;color:#e65100}
 .bc-p-prop{background:#fffbea;color:#8a6d1a}
