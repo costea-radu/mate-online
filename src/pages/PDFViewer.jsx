@@ -23,42 +23,22 @@ import { asteaptaSiVeziNota } from '../lib/pdfRezolvare';
 import { ReviewToast } from '../components/ReviewWidget';
 import { useExplicatiiGrila, ButonExplicatii, ExplicatiiOverlay } from '../components/ExplicatiiGrila';   // 💡 explicațiile la grilă (EN, 18 nov. 2026)
 import { alegeTestInteractiv, esteTestIntreg } from '../lib/pdfInteractiv';   // 🧩 PDF ↔ testul interactiv (20 nov. 2026)
+// ✏️ METODELE DE REZOLVARE din „✏️ Rezolvă ▾" și ORDINEA lor (15 nov. 2026: pe PDF, cu poză, în chat,
+// în foaia de lucru; 19 nov.: 🧩 Interactiv; 22 nov.: 🎥 Meditație live cu Prof. Virtual Tudor și cele
+// două ordini — EN + clase grilă: PDF, Interactiv, Live, Poză, Chat, Foaie; BAC + clase negrilă:
+// Interactiv, Live, Poză, Chat, Foaie, PDF): src/lib/metodeRezolvare.js
+import {
+  METODE_REZOLVARE, METODA_INTERACTIV, METODA_LIVE, ordineMetode, rezumatMetode, PE_SCURT, esteTestGrila,
+  stareLive, subtitluLive, mesajLiveIndisponibil, examenLobby, linkLobbyLive, cheieInapoi,
+} from '../lib/metodeRezolvare';
+import { liveApi } from '../lib/live/api';   // 🎥 ședința 1-la-1 cu Prof. Tudor, pe acest test (api/live.js → private_start)
 
-// ✏️ METODELE DE REZOLVARE (15 nov. 2026, seara): „la subiectele PDF, pune la Viewer în bara
-// de sus la butonul «rezolvă pe PDF» metodele de rezolvare: pe PDF, cu poză, în chat, în foaia
-// de lucru (…) fă ca elevul să poată schimba oricând metoda de rezolvare". Butonul deschide
-// meniul; alegerea închide metoda de dinainte (scrisul de pe PDF rămâne în ciorna locală) și
-// se ține minte pe dispozitiv — de pe harta pregătirii pornește ultima metodă aleasă.
-export const METODE_REZOLVARE = [
-  { id: 'pdf', icon: '✏️', label: 'Pe PDF', scurt: 'Pe PDF' },
-  { id: 'poza', icon: '📷', label: 'Cu poză', scurt: 'Poză' },
-  { id: 'chat', icon: '💬', label: 'În chat', scurt: 'Chat' },
-  { id: 'foaie', icon: '✍️', label: 'În foaia de lucru', scurt: 'Foaia' },
-];
-// 🧩 „INTERACTIV" (19 nov. 2026): „Fă ca în butonul «rezolvă pe PDF» de pe PDF-uri, pe
-// lângă variantele de rezolvare din rolldown, să apară și «interactiv», care deschide testul
-// interactiv asociat PDF-ului. Pentru testele de evaluare națională fă să apară sub «pe PDF»
-// iar la celelalte tipuri de PDF: bac și clase, să apară primul." Testul asociat e
-// content.interactiv_id (supabase/pdf_interactiv.sql); fără el, metoda nu apare. Nu se ține
-// minte ca metodă implicită: de pe harta pregătirii n-ar trebui să plece singur din PDF.
-export const METODA_INTERACTIV = { id: 'interactiv', icon: '🧩', label: 'Interactiv', scurt: 'Interactiv' };
-export function ordineMetode(metode, { interactiv = false, en = false } = {}) {
-  const lista = metode.slice();
-  if (!interactiv) return lista;
-  if (en) {
-    const iPdf = lista.findIndex((m) => m.id === 'pdf');
-    lista.splice(iPdf >= 0 ? iPdf + 1 : 0, 0, METODA_INTERACTIV);   // EN: sub „Pe PDF"
-  } else {
-    lista.unshift(METODA_INTERACTIV);                                 // BAC, clase: primul
-  }
-  return lista;
-}
+export { METODE_REZOLVARE, METODA_INTERACTIV, METODA_LIVE, ordineMetode };
 // Ce test deschide „🧩 Interactiv" (un PDF poate avea mai multe teste; fără abonament, testul
 // gratuit al PDF-ului) și care PDF-uri sunt teste întregi de examen (exercițiile din testul
 // interactiv se adaugă la punctajul lor): src/lib/pdfInteractiv.js — aceleași reguli și pe
 // cardurile din liste (20 nov. 2026).
 export { alegeTestInteractiv };
-const PE_SCURT = { pdf: 'pe PDF', interactiv: 'interactiv', poza: 'poză', chat: 'chat', foaie: 'foaie' };
 const fmtPunct = (n) => String(Math.round((Number(n) || 0) * 100) / 100).replace('.', ',');
 const METODA_LS = 'em_metoda_rezolvare';
 export function citesteMetoda() {
@@ -91,6 +71,25 @@ async function findBaremPage(data) {
       if (/\bBAREM(?:UL)?\b/i.test(tc.items.map((i) => i.str).join(' '))) return n;
     }
     return null;
+  } finally {
+    try { doc.destroy(); } catch { /* noop */ }
+  }
+}
+
+// Textul primelor pagini — „e test grilă?" la clase, când textul de pe server nu e adus
+// (fără cont): instrucțiunea grilei stă la început (src/lib/metodeRezolvare.js → esteTestGrila)
+async function textPrimelePagini(data, cate = 3) {
+  if (!data) return '';
+  const pdfjs = await loadPdfJs();
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(data.slice(0)) }).promise;
+  try {
+    const out = [];
+    for (let n = 1; n <= Math.min(cate, doc.numPages); n++) {
+      const page = await doc.getPage(n);
+      const tc = await page.getTextContent();
+      out.push(tc.items.map((i) => i.str).join(' '));
+    }
+    return out.join('\n');
   } finally {
     try { doc.destroy(); } catch { /* noop */ }
   }
@@ -342,13 +341,15 @@ export default function PDFViewer() {
   // În testul pe grupă și în duel butonul NU există: baremul = răspunsurile.
   const [baremView, setBaremView] = useState({ open: false, status: 'idle', data: null, url: null, forId: null, inclus: false, page: 1, seq: 0 });
   const [baremFailed, setBaremFailed] = useState(false); // pdf.js n-a putut desena baremul (telefon)
-  const [note, setNote] = useState(null);                // { text, link? } — mesaj scurt sub bară
+  // { text, link?: { to, label }, action?: { label, onClick }, ms? } — mesaj scurt sub bară
+  // (dispare după `ms`, implicit 6 s; mesajele lungi — ex. de ce nu se poate meditația live — stau mai mult)
+  const [note, setNote] = useState(null);
   const baremUrlRef = useRef(null);
   const baremPageRef = useRef(null);                     // pagina baremului inclus (căutată o dată)
   useEffect(() => () => { if (baremUrlRef.current) URL.revokeObjectURL(baremUrlRef.current); }, []);
   useEffect(() => {
     if (!note) return undefined;
-    const t = setTimeout(() => setNote(null), 6000);
+    const t = setTimeout(() => setNote(null), note.ms || 6000);
     return () => clearTimeout(t);
   }, [note]);
   // adminul a schimbat baremul asociat → cel descărcat nu mai e bun
@@ -405,6 +406,22 @@ export default function PDFViewer() {
   const testAles = alegeTestInteractiv(testePdf, interactivPrincipal, areAcces);
   const interactivId = testAles ? testAles.id : null;
   const interactivPremium = !!testAles && testAles.is_free === false && !areAcces;
+  // 📝 Test GRILĂ? (22 nov. 2026 — ordinea din „✏️ Rezolvă ▾" depinde de asta): Evaluarea Națională —
+  // mereu; BAC — niciodată (cererea îl pune la „celelalte"); la clase — după instrucțiunea testului
+  // („Încercuiește litera corespunzătoare răspunsului corect"…), din textul adus de pe server
+  // (contul logat) sau, fără el, din primele pagini ale PDF-ului (la deschiderea meniului)
+  const esteClasa = /^clasa-/.test(item?.category || '');
+  const grilaDinText = useMemo(() => (esteClasa && pdfText ? esteTestGrila(pdfText, item?.title) : null), [esteClasa, pdfText, item?.title]);
+  const [grilaDinPagini, setGrilaDinPagini] = useState(null);   // null = necitit
+  useEffect(() => { setGrilaDinPagini(null); }, [item?.id, lib?.id]);
+  const testGrila = isEnPdf || (esteClasa && (grilaDinText ?? grilaDinPagini ?? esteTestGrila('', item?.title)));
+  // 🎥 MEDITAȚIA LIVE CU PROF. TUDOR (22 nov. 2026): în meniu la fiecare test PDF al platformei
+  // (nu Biblioteca utilizatorilor — nu e în `content`; nu testul pe grupă / duelul; nu baremele).
+  // Se ține doar unde Prof. Tudor are ce preda — subiectele de EN și BAC cu barem oficial —, altfel
+  // meniul și mesajul spun de ce (src/lib/metodeRezolvare.js → stareLive); ultimul cuvânt: serverul.
+  const liveInMeniu = !isLib && !modTest && !!item?.id && item.content_type === 'pdf' && !isBaremItem && baremStatus !== 'este_barem';
+  const liveStare = stareLive({ category: item?.category, profile: item?.profile, baremStatus });
+  const [liveBusy, setLiveBusy] = useState(false);
   // 📈 punctajul testului de până acum (cumulat pe exerciții, între metode) — în meniul metodelor
   const [punctajTest, setPunctajTest] = useState(null);
   async function citestePunctajTest() {
@@ -640,6 +657,7 @@ export default function PDFViewer() {
   function alegeMetoda(m) {
     setMeniuMetode(null);
     if (m === METODA_INTERACTIV.id) { deschideInteractiv(); return; }
+    if (m === METODA_LIVE.id) { deschideLive(); return; }
     if (!METODE_REZOLVARE.some((x) => x.id === m)) return;
     scrieMetoda(m);
     if (m === 'pdf') {
@@ -679,6 +697,53 @@ export default function PDFViewer() {
       },
     });
   }
+  // 🎥 „Meditație live cu Prof. Virtual Tudor" (22 nov. 2026): ședința 1-la-1 din sala live, chiar
+  // pe acest test (api/live.js → private_start; o ședință deja deschisă pe el se reia). Sala începe
+  // cu „Ești gata să intri?" — ședința inclusă în abonament / biletul se consumă abia la
+  // „Participă acum"; „Ieși" (și „↩ Înapoi la test") aduce elevul înapoi aici. Fără drept la ședință
+  // (402) → Meditații live, cu testul ales la „1-la-1: un subiect întreg" și plata; fără barem /
+  // testele de la clase / profilul pedagogic → mesajul de ce nu se poate.
+  function arataLiveIndisponibil(motiv) {
+    const text = mesajLiveIndisponibil(motiv);
+    const ex = examenLobby({ exam: item?.category === 'evaluare-nationala' ? 'en' : 'bac', profile: item?.profile || null });
+    if (motiv === 'fara-barem') setNote({ text, ms: 12000, link: { to: linkLobbyLive(null, ex), label: '🎥 Subiectele cu barem' } });
+    else if (motiv === 'pedagogic') setNote({ text, ms: 10000, link: { to: '/meditatii', label: '🎥 Meditații live' } });
+    else if (interactivId) setNote({ text, ms: 12000, action: { label: '🧩 Rezolvă interactiv', onClick: () => { setNote(null); deschideInteractiv(); } } });
+    else setNote({ text, ms: 12000 });
+  }
+  async function deschideLive() {
+    if (liveBusy || !item?.id) return;
+    if (!liveStare.ok) { arataLiveIndisponibil(liveStare.motiv); return; }
+    if (!user) {
+      setNote({ text: 'Autentifică-te ca să intri la meditația live cu Prof. Tudor.', link: { to: '/autentificare', label: 'Autentificare' } });
+      return;
+    }
+    if (solveOn) { solve.store.flush(); setSolveOn(false); }   // scrisul de pe PDF rămâne în ciornă
+    const inapoi = `/pdf-viewer?id=${item.id}`;
+    setLiveBusy(true);
+    setNote({ text: '🎥 Pregătesc sala pentru meditația live cu Prof. Tudor…' });
+    try {
+      const r = await liveApi.privateStart(null, item.id);   // fără profesor ales → primul (Prof. Tudor)
+      try { sessionStorage.setItem(cheieInapoi(r.sessionId), inapoi); } catch { /* fără stocare */ }
+      setNote(null);
+      navigate(`/meditatii/sala/${r.sessionId}`);
+    } catch (e) {
+      setLiveBusy(false);
+      if (e.code === 'LIVE_PAYMENT') {
+        // testul rămâne ales și după plata Stripe (care nu păstrează parametrii adresei)
+        try { sessionStorage.setItem('live:subiect', JSON.stringify({ id: item.id, inapoi })); } catch { /* fără stocare */ }
+        const ex = examenLobby({ exam: e.data?.exam, profile: e.data?.profile })
+          || examenLobby({ exam: item.category === 'evaluare-nationala' ? 'en' : 'bac', profile: item.profile || null });
+        setNote(null);
+        navigate(linkLobbyLive(item.id, ex), { state: { banner: { kind: 'info', text: `🎥 „${item.title || 'Testul'}": ${e.message}`, pay: 'privat' } } });
+        return;
+      }
+      if (e.code === 'NO_BAREM') { arataLiveIndisponibil('fara-barem'); return; }
+      if (e.code === 'NOT_LIVE') { arataLiveIndisponibil('pedagogic'); return; }
+      if (e.code === 'NOT_EXAM') { arataLiveIndisponibil('clasa'); return; }
+      setNote({ text: e.message || 'Nu am putut porni meditația live. Mai încearcă o dată.', ms: 9000 });
+    }
+  }
   // „✕ Închide rezolvarea" din meniu: metoda deschisă se închide (scrisul rămâne salvat)
   function inchideMetoda() {
     setMeniuMetode(null);
@@ -689,6 +754,10 @@ export default function PDFViewer() {
   function deschideMeniuMetode() {
     if (meniuMetode) { setMeniuMetode(null); return; }
     citestePunctajTest();
+    // la clase, fără textul de pe server (fără cont): „e grilă?" din primele pagini — ordinea
+    if (esteClasa && !pdfText && grilaDinPagini === null && pdfData) {
+      textPrimelePagini(pdfData).then((t) => setGrilaDinPagini(esteTestGrila(t, item?.title)), () => setGrilaDinPagini(false));
+    }
     const r = metodeBtnRef.current ? metodeBtnRef.current.getBoundingClientRect() : null;
     const lat = 288;
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
@@ -1190,12 +1259,16 @@ export default function PDFViewer() {
   const foaieActiva = tutorOpen && workOpen;
   const rezolvaActiv = canSolve ? solveActive : foaieActiva;
   // 15 nov. 2026 (seara): în afara testului pe grupă / duelului, butonul deschide meniul
-  // metodelor (pe PDF, cu poză, în chat, în foaia de lucru) — schimbabilă oricând
+  // metodelor — schimbabilă oricând. Ordinea (22 nov. 2026): la testele de EN și la testele de
+  // la clase care sunt grilă — Pe PDF, Interactiv, Meditație live, Cu poză, În chat, În foaia de
+  // lucru; la BAC și la testele de la clase care nu sunt grilă — Interactiv, Meditație live, Cu
+  // poză, În chat, În foaia de lucru, Pe PDF (src/lib/metodeRezolvare.js)
   const metodaActiva = solveActive ? 'pdf' : foaieActiva ? 'foaie' : (tutorOpen && (metoda === 'chat' || metoda === 'poza') ? metoda : null);
   const metodaInfo = METODE_REZOLVARE.find((m) => m.id === metodaActiva) || null;
-  const metodeVazute = ordineMetode(METODE_REZOLVARE.filter((m) => (m.id === 'pdf' ? (canSolve || solveGeneric) : true)), { interactiv: !!interactivId, en: isEnPdf });
+  const metodeVazute = ordineMetode({ grila: testGrila, pdf: canSolve || solveGeneric, interactiv: !!interactivId, live: liveInMeniu });
   const subMetoda = (id) => ({
     interactiv: `${testIntregPdf ? 'testul interactiv făcut după acest PDF — exercițiile rezolvate acolo se adaugă la punctaj' : 'testul interactiv făcut după acest PDF, cu corectare pe loc'}${interactivPremium ? ' · ⭐ Premium' : ''}`,
+    live: liveBusy ? 'pregătesc sala…' : subtitluLive(liveStare),
     pdf: canSolve ? 'încercuiești litera la grile și scrii la Subiectul al III-lea, direct pe test' : 'scrii rezolvarea direct pe paginile testului',
     poza: 'fotografiezi rezolvarea de pe caiet (până la 3 poze)',
     chat: 'scrii răspunsurile în formularul profesorului virtual',
@@ -1211,12 +1284,16 @@ export default function PDFViewer() {
         <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#8e95a3', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '4px 10px 6px' }}>Cum rezolvi?</div>
         {metodeVazute.map((m) => {
           const on = metodaActiva === m.id;
+          // 🎥 la testele pe care Prof. Tudor nu le poate preda (clase, fără barem): estompată, dar
+          // apăsabilă — spune de ce (arataLiveIndisponibil)
+          const stins = m.id === METODA_LIVE.id && !liveStare.ok;
           return (
-            <button key={m.id} type="button" role="menuitemradio" aria-checked={on} onClick={() => alegeMetoda(m.id)}
+            <button key={m.id} type="button" role="menuitemradio" aria-checked={on} data-metoda={m.id} data-indisponibil={stins ? '1' : undefined}
+              onClick={() => alegeMetoda(m.id)}
               style={{
                 display: 'flex', alignItems: 'flex-start', gap: 10, width: '100%', textAlign: 'left', cursor: 'pointer',
                 border: on ? '1.5px solid var(--gold)' : '1.5px solid transparent', borderRadius: 10, padding: '8px 10px', marginBottom: 2,
-                background: on ? 'rgba(232,185,49,0.16)' : 'transparent', fontFamily: 'var(--font-body)',
+                background: on ? 'rgba(232,185,49,0.16)' : 'transparent', fontFamily: 'var(--font-body)', opacity: stins ? 0.55 : 1,
               }}>
               <span style={{ fontSize: '1.15rem', lineHeight: 1.2 }} aria-hidden="true">{m.icon}</span>
               <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -1249,7 +1326,7 @@ export default function PDFViewer() {
       onClick={deschideMeniuMetode}
       aria-haspopup="menu" aria-expanded={!!meniuMetode}
       className={metodaActiva || meniuMetode ? undefined : 'em-pulse'}
-      title={metodaInfo ? `Rezolvi: ${metodaInfo.label} — apasă ca să schimbi metoda` : `Alege cum rezolvi: ${interactivId ? 'interactiv, ' : ''}pe PDF, cu poză, în chat sau în foaia de lucru`}
+      title={metodaInfo ? `Rezolvi: ${metodaInfo.label} — apasă ca să schimbi metoda` : `Alege cum rezolvi: ${metodeVazute.map((m) => PE_SCURT[m.id] || m.scurt).join(', ')}`}
       style={{
         background: metodaActiva ? 'var(--gold)' : 'rgba(232,185,49,0.15)', border: '1px solid var(--gold)',
         color: metodaActiva ? 'var(--navy)' : 'var(--gold)', borderRadius: tiny ? 10 : 14, padding: tiny ? '0 9px' : '4px 12px',
@@ -1262,7 +1339,7 @@ export default function PDFViewer() {
       </span>
       {!tiny && (
         <span style={{ fontSize: '0.62rem', fontWeight: 600, opacity: 0.85, whiteSpace: 'nowrap' }}>
-          {metodaActiva ? 'schimbă metoda' : metodeVazute.map((m) => PE_SCURT[m.id] || m.scurt).join(' · ')}
+          {metodaActiva ? 'schimbă metoda' : rezumatMetode(metodeVazute)}
         </span>
       )}
     </button>
@@ -1458,6 +1535,12 @@ export default function PDFViewer() {
         <Link to={note.link.to} style={{ background: 'var(--gold)', color: 'var(--navy)', borderRadius: 7, padding: '4px 10px', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>
           {note.link.label}
         </Link>
+      )}
+      {note.action && (
+        <button type="button" onClick={note.action.onClick}
+          style={{ background: 'var(--gold)', color: 'var(--navy)', border: 'none', borderRadius: 7, padding: '4px 10px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'var(--font-body)', fontSize: '.84rem' }}>
+          {note.action.label}
+        </button>
       )}
       <button type="button" onClick={() => setNote(null)} aria-label="Închide mesajul"
         style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '.9rem', padding: '0 2px' }}>✕</button>

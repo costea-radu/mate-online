@@ -73,6 +73,10 @@ Cererea: „1. Asociază fiecare PDF cu testul interactiv generat după el. Veri
 - În vizualizatorul PDF, **„✏️ Rezolvă pe PDF ▾"** are metoda **„🧩 Interactiv"** când PDF-ul are un test interactiv asociat:
   - la **Evaluarea Națională** — a doua, sub „Pe PDF";
   - la **Bacalaureat** și la **clase** — prima.
+  (Din 22 nov. 2026, ordinea întregului meniu, cu „🎥 Meditație live cu Prof. Virtual Tudor": EN și testele de la clase
+  care sunt grilă — Pe PDF, Interactiv, Meditație live, Cu poză, În chat, În foaia de lucru; BAC și testele de la clase
+  care nu sunt grilă — Interactiv, Meditație live, Cu poză, În chat, În foaia de lucru, Pe PDF. Vezi
+  `GHID_REZOLVA_PE_PDF.md`, secțiunea de sus.)
   Metoda deschide testul interactiv; scrisul de pe PDF rămâne în ciornă. Dacă testul e Premium și elevul n-are abonament, lângă metodă scrie „⭐ Premium".
 - În meniu: **„📈 Punctajul tău la test: 35/90p"** (dacă a corectat ceva în ultimele 24 de ore) și „Poți schimba metoda oricând: punctajul de până acum se păstrează".
 - În testul interactiv deschis din PDF, o bandă sub bara de sus: **„📄 Rezolvi interactiv testul „…" · punctajul tău la test: 35/90p · nota 4,50"** și **„↩ Înapoi la PDF"** (pe telefon: un singur rând, „↩ PDF"). „← Înapoi" duce tot la PDF.

@@ -152,7 +152,7 @@ function ActiuniPas({ n, esteCurent, plan, busy, onDeschide, onSari, onLaPasulMe
       </div>
       {n.tip === 'pdf' && (
         <div className="pz-metoda-nota">
-          Cum rezolvi — pe PDF, cu poză, în chat sau pe foaia de lucru — alegi în vizualizator, la <b>„✏️ Rezolvă"</b>, și poți schimba oricând.
+          Cum rezolvi — pe PDF, interactiv, în meditație live cu Prof. Tudor, cu poză, în chat sau pe foaia de lucru — alegi în vizualizator, la <b>„✏️ Rezolvă"</b>, și poți schimba oricând.
         </div>
       )}
       {esteCurent && n.stare === 'incercat' && (

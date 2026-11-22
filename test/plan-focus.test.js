@@ -199,13 +199,16 @@ test('subiectele PDF: metoda de rezolvare se alege în vizualizator („✏️ R
   // 21 nov. 2026: butonul se cheamă „✏️ Rezolvă" (fostul „✏️ Rezolvă pe PDF")
   assert.match(pg, /alegi în vizualizator, la <b>„✏️ Rezolvă"<\/b>, și poți schimba oricând/);
   const v = read('src/pages/PDFViewer.jsx');
+  // metodele stau din 22 nov. 2026 în src/lib/metodeRezolvare.js (împreună cu ordinea lor)
+  const mr = read('src/lib/metodeRezolvare.js');
   for (const [id, label] of [['pdf', 'Pe PDF'], ['poza', 'Cu poză'], ['chat', 'În chat'], ['foaie', 'În foaia de lucru']]) {
-    assert.ok(v.includes(`{ id: '${id}', icon: `) && v.includes(`label: '${label}'`), id);
+    assert.ok(mr.includes(`{ id: '${id}', icon: `) && mr.includes(`label: '${label}'`), id);
   }
+  assert.match(v, /import \{\s*\n\s*METODE_REZOLVARE, METODA_INTERACTIV, METODA_LIVE, ordineMetode,/);
   // butonul din bară deschide meniul; în testul pe grupă / duel rămâne butonul de dinainte
   assert.match(v, /const solveBtn = \(canSolve \|\| rezolvaFoaie\) && !modTest \? \(/);
   assert.match(v, /onClick=\{deschideMeniuMetode\}/);
-  assert.match(v, /role="menuitemradio" aria-checked=\{on\} onClick=\{\(\) => alegeMetoda\(m\.id\)\}/);
+  assert.match(v, /role="menuitemradio" aria-checked=\{on\}[^>]*?onClick=\{\(\) => alegeMetoda\(m\.id\)\}/);
   // schimbarea oricând: metoda nouă o închide pe cea veche; scrisul de pe PDF rămâne în ciornă
   const alege = v.slice(v.indexOf('function alegeMetoda(m) {'), v.indexOf('function inchideMetoda() {'));
   assert.match(alege, /if \(solveOn\) \{ solve\.store\.flush\(\); setSolveOn\(false\); \}/);

@@ -1696,15 +1696,20 @@ async function privateSubjects(req, res, supa) {
   });
 }
 
+// 🎥 Pornește și din vizualizatorul PDF (22 nov. 2026, „✏️ Rezolvă ▾" → „Meditație live cu Prof.
+// Virtual Tudor"): fără profesor ales → primul (Prof. Tudor); refuzurile au cod, ca vizualizatorul să
+// spună de ce — NOT_EXAM (testele de la clase, baremele), NOT_LIVE (profilul pedagogic, scos din
+// meditațiile live), NO_BAREM; 402 spune și examenul subiectului (lobby-ul îl deschide la plată).
 async function privateStart(req, res, supa) {
   const { userId, profile } = await who(req, supa);
-  const teacher = L.teacherById(req.body?.teacher);
+  const teacher = req.body?.teacher ? L.teacherById(req.body.teacher) : L.teachers()[0];
   if (!teacher) throw fail(400, 'Alege un profesor.');
   const subjectId = String(req.body?.subjectId || '');
   const { data: content } = await supa.from('content').select('id, title, category, subcategory, profile, file_url').eq('id', subjectId).maybeSingle();
   if (!content) throw fail(404, 'Subiectul nu există.');
   const se = L.subjectExam(content, B);
-  if (!se || B.isBaremRow(content)) throw fail(400, 'Alege un subiect de Evaluare Națională sau de Bacalaureat.');
+  if (!se || B.isBaremRow(content)) throw fail(400, 'Alege un subiect de Evaluare Națională sau de Bacalaureat.', 'NOT_EXAM');
+  if (se.exam === 'bac' && LIVE_OFF_PROFILES.has(se.profile)) throw fail(400, 'Meditațiile live nu includ profilul pedagogic.', 'NOT_LIVE');
   const { data: pdf } = await supa.from('ai_pdf_text').select('barem_status').eq('content_id', content.id).maybeSingle();
   if (!pdf || !L.BAREM_OK.has(pdf.barem_status)) throw fail(409, 'Pentru acest subiect nu am baremul oficial, așa că nu îl explic. Alege un subiect cu barem.', 'NO_BAREM');
 
@@ -1723,7 +1728,7 @@ async function privateStart(req, res, supa) {
   }
   if (!access) access = await privateAccessFor(supa, profile);
   if (!access.ok) {
-    return res.status(402).json({ error: `${freeNote}Ședința 1-la-1 costă ${access.price} lei${access.included ? ` (ai folosit cele ${access.included} incluse luna aceasta)` : ` (sau e inclusă în abonament: ${L.PRIVATE_INCLUDED()} pe lună)`}.`, code: 'LIVE_PAYMENT', price: access.price, access });
+    return res.status(402).json({ error: `${freeNote}Ședința 1-la-1 costă ${access.price} lei${access.included ? ` (ai folosit cele ${access.included} incluse luna aceasta)` : ` (sau e inclusă în abonament: ${L.PRIVATE_INCLUDED()} pe lună)`}.`, code: 'LIVE_PAYMENT', price: access.price, access, exam: se.exam, profile: se.profile || null });
   }
   // cel mult 3 ședințe 1-la-1 nepornite pe zi (fiecare subiect nou costă o pregătire)
   const { count: pending } = await supa.from('live_sessions').select('*', { count: 'exact', head: true })

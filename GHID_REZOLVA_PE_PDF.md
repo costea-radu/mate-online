@@ -2,6 +2,57 @@
 
 > **21 nov. 2026:** butonul din bara vizualizatorului se cheamă acum **„✏️ Rezolvă ▾"** (fostul „✏️ Rezolvă pe PDF ▾") — meniul metodelor (🧩 Interactiv, Pe PDF, Cu poză, În chat, Foaia de lucru) a rămas același. Vezi `CHANGELOG-REPARATII.md`, „21 noiembrie 2026".
 
+## 🎥 Meditația live cu Prof. Virtual Tudor și ordinea metodelor (22 nov. 2026)
+
+Cererea lui Radu: „pune la fiecare test PDF în «rezolvă» și varianta de rezolvare în meditație live cu Prof.
+Virtual Tudor. Ordinea în «rezolvă» la testele de evaluare națională și la testele de la clase care sunt grilă:
+1) pe PDF; 2) Interactiv; 3) meditație live cu Prof. virtual Tudor; 4) cu poză; 5) în chat; 6) în foaia de lucru.
+La celelalte teste, BAC și clase, care nu sunt grilă, ordinea să fie: 1) Interactiv; 2) meditație live cu Prof.
+virtual Tudor; 3) cu poză; 4) în chat; 5) în foaia de lucru; 6) pe PDF."
+
+**Ordinea din „Cum rezolvi?"** (`src/lib/metodeRezolvare.js` → `ordineMetode`):
+
+| Testul | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| **Evaluarea Națională** și **testele de la clase care sunt grilă** | ✏️ Pe PDF | 🧩 Interactiv | 🎥 Meditație live | 📷 Cu poză | 💬 În chat | ✍️ În foaia de lucru |
+| **BAC** și **testele de la clase care nu sunt grilă** | 🧩 Interactiv | 🎥 Meditație live | 📷 Cu poză | 💬 În chat | ✍️ În foaia de lucru | ✏️ Pe PDF |
+
+- „🧩 Interactiv" apare doar când PDF-ul are test interactiv asociat (ca până acum); restul își păstrează ordinea.
+- **Care test de la clase e grilă** (`esteTestGrila`): cel care cere litera răspunsului corect — „Încercuiește litera
+  corespunzătoare răspunsului corect", „Scrieți litera corespunzătoare…", „un singur răspuns este corect", „Alegeți
+  varianta corectă", „test grilă" (în titlu sau la începutul textului). Literele a) b) c) d) singure nu ajung: fișele
+  claselor au subpuncte („1. Calculați: a) 24 și 40; b) …"). Textul vine de pe server (contul logat) sau, fără el,
+  din primele 3 pagini ale PDF-ului. Pe PDF-urile de azi: toate testele de EN cu text sunt recunoscute; **dintre cele
+  115 fișe ale claselor, niciuna nu e grilă** — deci la clase meniul începe acum cu „🧩 Interactiv" și se termină cu
+  „✏️ Pe PDF"; o fișă grilă nouă își schimbă singură ordinea.
+- Sub buton, pe calculator, apar primele trei metode („pe PDF · interactiv · meditație live · …"), ca butonul să
+  încapă în bară.
+
+**🎥 „Meditație live cu Prof. Virtual Tudor"** — la fiecare test PDF al site-ului (nu în Biblioteca utilizatorilor,
+nu în testul pe grupă / duel, nu la bareme):
+- **Subiectele de EN și BAC cu barem oficial:** un clic pornește **ședința 1-la-1 din sala live, chiar pe acest test**
+  (`api/live.js` → `private_start`; o ședință deschisă pe el se reia). Sala începe cu „Ești gata să intri?": ședința
+  inclusă în abonament (8 pe lună) sau biletul se consumă abia la „Participă acum"; lecția nouă se scrie ca la orice
+  1-la-1 (sala de așteptare, „🔔 Anunță-mă"). **„Ieși"** și **„↩ Înapoi la test"** (în locul lui „Înapoi la program")
+  aduc elevul înapoi la PDF. Scrisul de pe PDF rămâne în ciornă.
+- **Fără drept la ședință** (fără abonament, fără bilet): Meditații live, cu examenul și testul **deja alese** la
+  „📄 1-la-1: un subiect întreg" și banda „Ședința 1-la-1 costă 30 lei… — Plătește 30 lei"; testul rămâne ales și după
+  plata Stripe, iar din sală elevul se întoarce tot la PDF.
+- **Unde Prof. Tudor nu are ce preda** — el explică **strict pe baremul oficial**, doar subiecte de EN și BAC:
+  testele de la clase (fișele n-au barem; meditațiile live nu au lecții pentru clase), subiectele fără barem (ex.
+  fișele pe capitole) și profilul pedagogic (scos din meditațiile live). Metoda rămâne în meniu, la locul ei, dar
+  estompată, cu motivul pe rândul al doilea; la clic, mesajul spune de ce și dă alternativa: „🧩 Rezolvă interactiv"
+  (dacă testul are interactiv) sau „🎥 Subiectele cu barem" (lobby-ul, pe examenul testului).
+- Serverul are ultimul cuvânt: `private_start` refuză cu cod — `NOT_EXAM` (clase, bareme), `NOT_LIVE` (pedagogic),
+  `NO_BAREM` — iar vizualizatorul arată mesajul potrivit; fără profesor ales pornește cu primul (Prof. Tudor).
+- Nu se ține minte ca metodă implicită (ca „🧩 Interactiv"): de pe harta pregătirii subiectul nu pleacă singur din PDF.
+
+**Fișierele:** `src/lib/metodeRezolvare.js` (nou — metodele, ordinea, „e grilă?", „se poate meditația live?",
+textele, linkul spre lobby, întoarcerea la test), `src/pages/PDFViewer.jsx` (meniul, `deschideLive`,
+`arataLiveIndisponibil`, mesajul cu buton și durată), `api/live.js` (`privateStart`), `src/pages/MeditatiiLive.jsx`
+(`?examen=`, `?subiect=`, banda din vizualizator), `src/pages/LiveRoom.jsx` + `src/components/live/PreJoin.jsx`
+(„↩ Înapoi la test"), `src/pages/PregatesteMa.jsx` (textul metodelor). Teste: `test/rezolva-meditatie-live.test.js`.
+
 Cererea lui Radu (7 nov. 2026): la PDF-urile de **Evaluare Națională**, grila de la Subiectele I și II să
 se rezolve **direct pe PDF, prin încercuire**, iar la Subiectul al III-lea elevul să scrie **direct în zona
 de rezolvare** — „un spațiu de lucru, dar invizibil", cu **recunoașterea exercițiului rezolvat** și

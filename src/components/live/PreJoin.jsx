@@ -15,7 +15,9 @@ import { refLabel } from '../../lib/live/items';
 // prep: pregătirea lecției pe etape (PrepWait, cu „🔔 Anunță-mă când e gata"), în locul textului de
 // așteptare; ready: lecția tocmai s-a făcut gata → banda verde + „Participă acum" care pulsează
 export default function PreJoin({ info, teacher, rigThumb = null, present = 0, personal = null, access, price = null, payKind = 'grup', onJoin, onPay, paying = false, error = null, notice = null, waitingText = null, camOn, setCamOn, micOn, setMicOn, fullscreen, setFullscreen,
-  pickItems = null, startRef = null, setStartRef = null, privMinutes = 60, privIncluded = 8, prep = null, ready = null }) {
+  pickItems = null, startRef = null, setStartRef = null, privMinutes = 60, privIncluded = 8, prep = null, ready = null,
+  // 🎥 { to, label } — ședința pornită din vizualizatorul PDF: „↩ Înapoi la test" în loc de „Înapoi la program"
+  back = null }) {
   const [pickOpen, setPickOpen] = useState(!!startRef);
   const videoRef = useRef(null);
   const [camErr, setCamErr] = useState(null);
@@ -129,7 +131,7 @@ export default function PreJoin({ info, teacher, rigThumb = null, present = 0, p
             </label>
             <div className="lv-pre-actions">
               <button type="button" className={`lv-btn-primary lv-btn-lg${ready ? ' is-ready' : ''}`} onClick={onJoin} disabled={!!error && !onJoin}>{ready ? '▶ Participă acum' : 'Participă acum'}</button>
-              <Link to="/meditatii" className="lv-btn-soft">Înapoi la program</Link>
+              <Link to={back?.to || '/meditatii'} className="lv-btn-soft">{back?.label || 'Înapoi la program'}</Link>
             </div>
           </>
         )}

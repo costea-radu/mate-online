@@ -120,7 +120,8 @@ test('harta: pașii PDF au un singur „▶ Începe" — cele patru metode (✏�
   const pg = read('src/pages/PregatesteMa.jsx');
   for (const m of ["mod: 'pdf'", "mod: 'chat'", "mod: 'foaie'", "mod: 'poza'"]) assert.ok(!pg.includes(m), m);
   assert.match(pg, /onClick=\{\(\) => onDeschide\(urlPas\(n\), n\)\}>\{label\}<\/button>/);
-  const v = read('src/pages/PDFViewer.jsx');
+  // metodele stau din 22 nov. 2026 în src/lib/metodeRezolvare.js (vizualizatorul le importă)
+  const v = read('src/lib/metodeRezolvare.js');
   for (const m of ["{ id: 'pdf', icon: '✏️', label: 'Pe PDF'", "{ id: 'poza', icon: '📷', label: 'Cu poză'", "{ id: 'chat', icon: '💬', label: 'În chat'", "{ id: 'foaie', icon: '✍️', label: 'În foaia de lucru'"]) assert.ok(v.includes(m), m);
   const h = read('src/components/HartaPlan.jsx');
   assert.match(h, /return `\/pdf-viewer\?id=\$\{id\}&pregatire=1&plan=1\$\{mod \? `&mod=\$\{encodeURIComponent\(mod\)\}` : ''\}`;/);

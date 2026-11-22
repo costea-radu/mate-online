@@ -204,43 +204,38 @@ test('saveProgress: cu itemi când există coloana, fără ea altfel (instalări
 });
 
 // ═══════════════════════════ „🧩 Interactiv" în vizualizatorul PDF ═══════════════════════════
-function ordineDinSursa() {
-  const v = read('src/pages/PDFViewer.jsx');
-  const a = v.indexOf('export const METODA_INTERACTIV');
-  const b = v.indexOf('// Ce test deschide „🧩 Interactiv" (un PDF poate avea mai multe teste');
-  const cod = v.slice(a, b).replace(/export /g, '');
-  // eslint-disable-next-line no-new-func
-  return new Function(`${cod}; return { METODA_INTERACTIV, ordineMetode };`)();
-}
+// Metodele și ordinea lor stau din 22 nov. 2026 în src/lib/metodeRezolvare.js (cu „🎥 Meditație live
+// cu Prof. Virtual Tudor" și cele două ordini cerute — vezi și test/rezolva-meditatie-live.test.js)
+let libMR = null;
+const metodeRezolvare = async () => { if (!libMR) libMR = await import('../src/lib/metodeRezolvare.js'); return libMR; };
 // alegeTestInteractiv / esteTestIntreg: src/lib/pdfInteractiv.js (20 nov. 2026 — aceleași reguli și pe carduri)
 let libPI = null;
 const pdfInteractiv = async () => { if (!libPI) libPI = await import('../src/lib/pdfInteractiv.js'); return libPI; };
 
-test('meniul „✏️ Rezolvă pe PDF ▾": „🧩 Interactiv" la EN sub „Pe PDF", la BAC și la clase primul; doar cu test asociat', () => {
-  const { METODA_INTERACTIV, ordineMetode } = ordineDinSursa();
+test('meniul „✏️ Rezolvă ▾": „🧩 Interactiv" la EN după „Pe PDF", la BAC și la clase (negrilă) primul; doar cu test asociat', async () => {
+  const { METODA_INTERACTIV, METODE_REZOLVARE, ordineMetode } = await metodeRezolvare();
   assert.deepStrictEqual(METODA_INTERACTIV, { id: 'interactiv', icon: '🧩', label: 'Interactiv', scurt: 'Interactiv' });
-  const M = ['pdf', 'poza', 'chat', 'foaie'].map((id) => ({ id }));
   const ids = (l) => l.map((m) => m.id);
-  assert.deepStrictEqual(ids(ordineMetode(M, { interactiv: true, en: true })), ['pdf', 'interactiv', 'poza', 'chat', 'foaie']);
-  assert.deepStrictEqual(ids(ordineMetode(M, { interactiv: true, en: false })), ['interactiv', 'pdf', 'poza', 'chat', 'foaie']);
-  assert.deepStrictEqual(ids(ordineMetode(M.slice(1), { interactiv: true, en: true })), ['interactiv', 'poza', 'chat', 'foaie'], 'EN fără „Pe PDF"');
-  assert.deepStrictEqual(ids(ordineMetode(M, { interactiv: false, en: true })), ['pdf', 'poza', 'chat', 'foaie']);
+  assert.deepStrictEqual(ids(ordineMetode({ grila: true, interactiv: true })), ['pdf', 'interactiv', 'poza', 'chat', 'foaie']);
+  assert.deepStrictEqual(ids(ordineMetode({ grila: false, interactiv: true })), ['interactiv', 'poza', 'chat', 'foaie', 'pdf']);
+  assert.deepStrictEqual(ids(ordineMetode({ grila: true, pdf: false, interactiv: true })), ['interactiv', 'poza', 'chat', 'foaie'], 'EN fără „Pe PDF"');
+  assert.deepStrictEqual(ids(ordineMetode({ grila: true, interactiv: false })), ['pdf', 'poza', 'chat', 'foaie']);
+  // nu se ține minte ca metodă implicită (de pe hartă n-ar trebui să plece singur din PDF)
+  assert.ok(!METODE_REZOLVARE.some((m) => m.id === 'interactiv'));
 
   const v = read('src/pages/PDFViewer.jsx');
   assert.match(v, /const interactivPrincipal = !isLib && !modTest && item && item\.content_type === 'pdf' && item\.interactiv_id \? item\.interactiv_id : null;/);
   assert.match(v, /\.or\(`id\.eq\.\$\{interactivPrincipal\},pdf_sursa_id\.eq\.\$\{item\.id\}`\)/, 'testele făcute după PDF');
   assert.match(v, /const testAles = alegeTestInteractiv\(testePdf, interactivPrincipal, areAcces\);/);
-  assert.match(v, /const metodeVazute = ordineMetode\(METODE_REZOLVARE\.filter\(\(m\) => \(m\.id === 'pdf' \? \(canSolve \|\| solveGeneric\) : true\)\), \{ interactiv: !!interactivId, en: isEnPdf \}\);/);
+  assert.match(v, /const metodeVazute = ordineMetode\(\{ grila: testGrila, pdf: canSolve \|\| solveGeneric, interactiv: !!interactivId, live: liveInMeniu \}\);/);
   assert.match(v, /if \(m === METODA_INTERACTIV\.id\) \{ deschideInteractiv\(\); return; \}/);
-  // nu se ține minte ca metodă implicită (de pe hartă n-ar trebui să plece singur din PDF)
-  assert.ok(!METODE_REZOLVARE_IDS(v).includes('interactiv'));
   // deschide testul cu PDF-ul de întoarcere și starea lui
   assert.match(v, /navigate\(`\/exercitiu\?id=\$\{interactivId\}`, \{\s*\n\s*state: \{\s*\n\s*returnTo: `\/pdf-viewer\?id=\$\{item\.id\}`,\s*\n\s*dinPdf: \{ id: item\.id, title: item\.title \|\| '', adauga: testIntregPdf, stare \},/);
   assert.match(v, /if \(solveOn\) \{ solve\.store\.flush\(\); setSolveOn\(false\); \}\s*\n\s*const \{ srcDoc: _s, \.\.\.stare \}/, 'scrisul de pe PDF rămâne în ciornă');
   // punctajul de până acum, în meniu
   assert.match(v, /📈 Punctajul tău la test: \{fmtPunct\(punctajTest\.score\)\}\/\{fmtPunct\(punctajTest\.max\)\}p/);
   assert.match(v, /Poți schimba metoda oricând: punctajul de până acum se păstrează/);
-  assert.match(v, /metodaActiva \? 'schimbă metoda' : metodeVazute\.map\(\(m\) => PE_SCURT\[m\.id\] \|\| m\.scurt\)\.join\(' · '\)/);
+  assert.match(v, /metodaActiva \? 'schimbă metoda' : rezumatMetode\(metodeVazute\)/);
   // metoda din meniu ajunge la formular (punctajul cumulat știe cum s-a rezolvat)
   assert.match(v, /metoda: formaCeruta\.mod \|\| null \}\);/);
 });
@@ -263,10 +258,6 @@ test('un PDF cu mai multe teste: cu abonament — principalul; fără abonament 
   assert.match(v, /const testIntregPdf = esteTestIntreg\(item\);/);
   assert.match(v, /export \{ alegeTestInteractiv \};/, 'rămâne exportat și din vizualizator');
 });
-function METODE_REZOLVARE_IDS(v) {
-  const bloc = v.slice(v.indexOf('export const METODE_REZOLVARE = ['), v.indexOf('];', v.indexOf('export const METODE_REZOLVARE = [')));
-  return [...bloc.matchAll(/id: '([a-z]+)'/g)].map((m) => m[1]);
-}
 
 test('testul interactiv deschis din PDF: banda „📄 Rezolvi interactiv testul…", „↩ Înapoi la PDF", exercițiile spre server', () => {
   const iv = read('src/pages/InteractiveViewer.jsx');

@@ -4,6 +4,24 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 22 noiembrie 2026 (2) — 🎥 „Meditație live cu Prof. Virtual Tudor" în „✏️ Rezolvă ▾" · ordinea metodelor: EN + clase grilă / BAC + clase negrilă
+
+Cererea: „pune la fiecare test PDF în «rezolvă» și varianta de rezolvare în meditație live cu Prof. Virtual Tudor. ordinea în «rezolvă» la testele de evaluare națională și la testele de la clase care sunt grilă: 1) pe PDF; 2) Interactiv; 3) meditație live cu Prof. virtual Tudor; 4) cu poză; 5) în chat; 6) În foaia de lucru. La celelalte teste, BAC și clase, care nu sunt grilă, ordinea să fie: 1) Interactiv; 2) meditație live cu Prof. virtual Tudor; 3) cu poză; 4) în chat; 5) în foaia de lucru; 6) pe PDF"
+
+**De rulat:** nimic — fără SQL, fără variabile noi. Ghidul: `GHID_REZOLVA_PE_PDF.md` → secțiunea de sus.
+
+1. **Ordinea din „Cum rezolvi?"** (`src/lib/metodeRezolvare.js`, nou — metodele s-au mutat aici din vizualizator): EN și testele de la clase care sunt grilă — ✏️ Pe PDF, 🧩 Interactiv, 🎥 Meditație live, 📷 Cu poză, 💬 În chat, ✍️ În foaia de lucru; BAC și testele de la clase care nu sunt grilă — 🧩 Interactiv, 🎥 Meditație live, 📷 Cu poză, 💬 În chat, ✍️ În foaia de lucru, ✏️ Pe PDF. „Grilă" la clase = testul cere litera răspunsului corect („Încercuiește litera corespunzătoare…", „un singur răspuns este corect", „test grilă"…), citit din textul PDF-ului — și când PDF-ul rupe cuvintele la diacritice („Încercuie ște litera corespunz ătoare"); subpunctele a) b) c) d) nu contează. Verificat pe PDF-urile site-ului: toate testele de EN cu text — grilă; cele 115 fișe ale claselor — niciuna (deci la clase: Interactiv primul, Pe PDF ultimul). Sub buton: primele trei metode și „…".
+2. **🎥 „Meditație live cu Prof. Virtual Tudor"** la fiecare test PDF al site-ului (nu Biblioteca utilizatorilor, nu testul pe grupă / duelul, nu baremele): la subiectele de EN și BAC cu barem, ședința **1-la-1 din sala live, chiar pe acest test** (`private_start`; o ședință deschisă pe el se reia; ședința inclusă / biletul se consumă abia la „Participă acum"). „Ieși" și „↩ Înapoi la test" (pe ecranul de intrare) duc înapoi la PDF. Fără drept la ședință → Meditații live cu examenul și testul deja alese și banda plății (testul rămâne ales și după Stripe). La testele de la clase, la subiectele fără barem și la profilul pedagogic metoda rămâne în meniu, estompată, cu motivul; clicul explică de ce (Prof. Tudor predă strict pe baremul oficial, doar EN și BAC) și oferă „🧩 Rezolvă interactiv" sau „🎥 Subiectele cu barem".
+3. **`api/live.js` → `private_start`**: fără profesor ales → primul (Prof. Tudor); refuzurile au cod — `NOT_EXAM` (clase, bareme), `NOT_LIVE` (profilul pedagogic, care nu era refuzat dacă venea pe alt drum decât lista 1-la-1), `NO_BAREM` (ca înainte); răspunsul 402 spune și examenul / profilul subiectului.
+4. **Meditații live** (`MeditatiiLive.jsx`): `?mod=subiect&examen=…&subiect=…` alege examenul și testul la „📄 1-la-1: un subiect întreg" și îl aduce la vedere; banda vine gata scrisă din vizualizator. **Sala** (`LiveRoom.jsx`, `PreJoin.jsx`): întoarcerea la test (doar `/pdf-viewer?id=<uuid>`, din `sessionStorage`).
+5. Mesajul de sub bara vizualizatorului poate avea un buton (nu doar un link) și stă mai mult când e lung; „Pregătește-mă" pomenește toate metodele.
+
+6. Reparat în trecere: `scripts/continut/aduce-surse.js` nota „adus_la" cu ceasul real, iar expirarea surselor cu ceasul primit (`acum`) — testul „sursele expiră" pica de azi, de la ora 12:00 (în producție `acum` e ora reală, deci nimic nu se schimbă acolo).
+
+Teste: `rezolva-meditatie-live` (12, nou); `pdf-interactiv`, `plan-focus`, `plan-pregatire-pdf` — metodele citite din `src/lib/metodeRezolvare.js`.
+
+---
+
 ## 22 noiembrie 2026 — 🤖 Variantele EN generate cu AI: copertă cu tabelele de note, chenare, ⬛/⬜ ca la variantele oficiale, testul interactiv asociat
 
 Cererea: „La variantele generate cu AI: generează și prima pagină standard cu numele, prenumele, clasa, tabelele de note; pune și chenarele care încadrează exercițiile; pune, ca și la variantele originale, varianta cu dreptunghi negru și varianta fără dreptunghi; generează și test interactiv asociat."

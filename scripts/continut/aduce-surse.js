@@ -44,7 +44,7 @@ async function descarca(supa, bucket, filePath) {
   return buf;
 }
 
-async function aduMaterial(supa, http, id, outDir, sub = '') {
+async function aduMaterial(supa, http, id, outDir, sub = '', acum = Date.now()) {
   const { data: row, error } = await supa.from('content').select(COLS).eq('id', id).maybeSingle();
   if (error) throw new Error(error.message);
   if (!row) throw new Error('materialul nu există');
@@ -60,18 +60,19 @@ async function aduMaterial(supa, http, id, outDir, sub = '') {
     const { data: t } = await supa.from('ai_pdf_text').select('barem_status, barem_id, barem_override_id, barem_override_by, chars, truncated').eq('content_id', id).maybeSingle();
     pdf = t || null;
   }
-  scrieJson(path.join(dir, 'meta.json'), { ...row, fisier: nume, bytes: buf.length, ai_pdf_text: pdf, adus_la: new Date().toISOString() });
+  scrieJson(path.join(dir, 'meta.json'), { ...row, fisier: nume, bytes: buf.length, ai_pdf_text: pdf, adus_la: new Date(acum).toISOString() });
   return path.posix.join(path.relative(path.dirname(outDir), dir).split(path.sep).join('/'), nume);
 }
 
-async function proceseazaCerere(supa, http, cerere, out) {
+// `acum` (testele îl simulează): același ceas pentru „adus_la” ca pentru expirarea surselor
+async function proceseazaCerere(supa, http, cerere, out, acum = Date.now()) {
   const rezultate = [];
   const itemi = Array.isArray(cerere.fisiere) ? cerere.fisiere.slice(0, MAX_ITEMI) : [];
   for (const it of itemi) {
     const r = { item: it, ok: false };
     try {
       if (it && UUID_RE.test(String(it.content_id || ''))) {
-        r.cale = await aduMaterial(supa, http, String(it.content_id), path.join(out, String(it.content_id)));
+        r.cale = await aduMaterial(supa, http, String(it.content_id), path.join(out, String(it.content_id)), '', acum);
       } else if (it && UUID_RE.test(String(it.barem_pentru || ''))) {
         const id = String(it.barem_pentru);
         const { data: t, error } = await supa.from('ai_pdf_text').select('barem_status, barem_id, barem_override_id').eq('content_id', id).maybeSingle();
@@ -79,7 +80,7 @@ async function proceseazaCerere(supa, http, cerere, out) {
         const baremId = t && (t.barem_override_id || t.barem_id);
         if (t && t.barem_status === 'inclus' && (!baremId || baremId === id)) { r.ok = true; r.nota = 'baremul e inclus în același PDF'; rezultate.push(r); continue; }
         if (!baremId) throw new Error('materialul nu are barem legat');
-        r.cale = await aduMaterial(supa, http, baremId, path.join(out, id), 'barem');
+        r.cale = await aduMaterial(supa, http, baremId, path.join(out, id), 'barem', acum);
         r.barem_id = baremId;
       } else if (it && UUID_RE.test(String(it.model_id || ''))) {
         const id = String(it.model_id);
@@ -93,7 +94,7 @@ async function proceseazaCerere(supa, http, cerere, out) {
         const nume = numeSigur(String(mo.file_path).split('/').pop());
         fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(path.join(dir, nume), buf);
-        scrieJson(path.join(dir, 'meta.json'), { ...mo, fisier: nume, bytes: buf.length, adus_la: new Date().toISOString() });
+        scrieJson(path.join(dir, 'meta.json'), { ...mo, fisier: nume, bytes: buf.length, adus_la: new Date(acum).toISOString() });
         r.cale = `model-${id}/${nume}`;
       } else {
         throw new Error('element necunoscut (content_id / barem_pentru / model_id)');
@@ -139,7 +140,7 @@ async function aduceToate({ dir, out, supa, http, log = console.log, acum = Date
     try { cerere = JSON.parse(fs.readFileSync(path.join(folder, f), 'utf8')); } catch (e) { scrieJson(marcaj, { cerere: f, eroare: `JSON invalid: ${e.message}`, adus_la: new Date(acum).toISOString() }); continue; }
     const creat = new Date(cerere && cerere.creat_la).getTime();
     if (!creat || acum - creat > CERERE_EXPIRA_MS) continue;   // veche (sau fără dată) — n-o mai aduc
-    const rezultate = await proceseazaCerere(supa, http, cerere, out);
+    const rezultate = await proceseazaCerere(supa, http, cerere, out, acum);
     scrieJson(marcaj, { cerere: f, rulare: cerere.rulare || null, rezultate, adus_la: new Date(acum).toISOString() });
     log(`${f}: ${rezultate.filter((r) => r.ok).length}/${rezultate.length} aduse${rezultate.some((r) => !r.ok) ? ` — ${rezultate.filter((r) => !r.ok).map((r) => r.eroare).join('; ')}` : ''}`);
     facute.push({ cerere: f, rezultate });

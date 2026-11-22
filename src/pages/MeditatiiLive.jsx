@@ -22,9 +22,13 @@
 // Demonstrațiile (grup / 1-la-1, fără cont) — chiar sus. „Cum decurge o ședință" — la cerere.
 // Planul personal (plan, teme, recapitulări, rapoarte): tabul „Planul meu".
 // Linkuri: ?mod=grup|subiect|tip|gratuit (?unu=1 = subiect), #gratuit.
+// 🎥 Din vizualizatorul PDF (22 nov. 2026, „✏️ Rezolvă ▾" → „Meditație live cu Prof. Virtual Tudor"),
+// când elevul n-are drept la ședință: ?mod=subiect&examen=<en|mate-info|…>&subiect=<id> — examenul
+// și testul ales la „1-la-1: un subiect întreg", cu banda plății (state.banner). Testul rămâne ales
+// și după plata Stripe (sessionStorage „live:subiect"), iar sala îl întoarce apoi la PDF.
 // =====================================================================
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { liveApi, buyTicket } from '../lib/live/api';
 import { clock } from '../lib/live/clock';
@@ -65,6 +69,22 @@ function readExam() {
   const old = EXAMS.find((x) => x.room === store.get(OLD_ROOM_KEY));
   return old ? old.id : 'en';
 }
+// 🎥 testul venit din vizualizatorul PDF (?subiect=…, apoi sessionStorage — plata Stripe pierde
+// parametrii): { id, inapoi } — `inapoi` = PDF-ul la care se întoarce elevul din sală
+const SUBJ_KEY = 'live:subiect';
+const UUID_RE = /^[0-9a-f-]{36}$/i;
+function readWantedSubject(params) {
+  const q = params.get('subiect');
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem(SUBJ_KEY) || 'null'); } catch { saved = null; }
+  if (q && UUID_RE.test(q)) {
+    const w = { id: q, inapoi: saved && saved.id === q && saved.inapoi ? saved.inapoi : null };
+    try { sessionStorage.setItem(SUBJ_KEY, JSON.stringify(w)); } catch { /* fără stocare */ }
+    return w;
+  }
+  if (!params.get('plata')) return null;   // doar la întoarcerea de la plată
+  return saved && typeof saved.id === 'string' && UUID_RE.test(saved.id) ? saved : null;
+}
 function readMode(params) {
   const q = params.get('mod');
   if (MODES.includes(q)) return q;
@@ -100,14 +120,24 @@ function icsFor(s, teacher) {
 export default function MeditatiiLive() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [params, setParams] = useSearchParams();
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [teacherId, setTeacherId] = useState(null);
   const [rigs, setRigs] = useState({});
-  const [banner, setBanner] = useState(null);
+  // banda de sus; din vizualizatorul PDF vine gata scrisă (ex. „Ședința 1-la-1 costă 30 lei…" + plata)
+  const [banner, setBanner] = useState(() => (location.state && location.state.banner && location.state.banner.text ? location.state.banner : null));
+  const bannerRef = useRef(banner);
+  bannerRef.current = banner;
   const [busy, setBusy] = useState(null);
-  const [examId, setExamId] = useState(readExam);                  // examenul (se ține minte)
+  // examenul (se ține minte); ?examen=… (din vizualizatorul PDF) îl alege
+  const [examId, setExamId] = useState(() => {
+    const q = params.get('examen');
+    if (EXAMS.some((x) => x.id === q)) { store.set(EXAM_KEY, q); return q; }
+    return readExam();
+  });
+  const [wanted] = useState(() => readWantedSubject(params));     // 🎥 testul venit din PDF
   const [mode, setMode] = useState(() => readMode(params));        // cum lucrează (se ține minte)
   const [subjects, setSubjects] = useState(null);
   const [kinds, setKinds] = useState(KINDS);
@@ -147,7 +177,15 @@ export default function MeditatiiLive() {
     if (plata === 'anulat') setBanner({ kind: 'info', text: 'Plata a fost anulată. Nu s-a încasat nimic.' });
     if (plata === 'ok') {
       const tip = params.get('tip'), ses = params.get('sesiune');
-      setBanner({ kind: 'ok', text: tip === 'privat' ? 'Plata a reușit! Biletul pentru ședința 1-la-1 e în contul tău — alege subiectul și începe.' : 'Plata a reușit! Biletul apare în câteva secunde…', sessionId: ses || null });
+      // 🎥 venit din vizualizatorul PDF: testul e deja ales — meditația pornește din bandă
+      const dinPdf = tip === 'privat' && !!wanted;
+      setBanner({
+        kind: 'ok',
+        text: tip === 'privat'
+          ? (dinPdf ? 'Plata a reușit! Biletul pentru ședința 1-la-1 e în contul tău — începe meditația live pe testul tău.' : 'Plata a reușit! Biletul pentru ședința 1-la-1 e în contul tău — alege subiectul și începe.')
+          : 'Plata a reușit! Biletul apare în câteva secunde…',
+        sessionId: ses || null, start: dinPdf ? wanted.id : null,
+      });
       if (tip === 'privat') setMode('subiect');
       else setMode('grup');
       // webhookul Stripe poate întârzia câteva secunde → reîncărcăm de câteva ori
@@ -190,6 +228,17 @@ export default function MeditatiiLive() {
         const list = r.subjects || [];
         setSubjects(list);
         if (r.kinds?.length) setKinds(r.kinds);
+        // 🎥 testul venit din vizualizatorul PDF: ales (și adus la vedere, dacă sus nu e banda cu
+        // plata / „▶ Începe meditația" — ea are tot ce trebuie, deci pagina rămâne sus)
+        if (wanted && list.some((s) => s.id === wanted.id)) {
+          setSubjectId(wanted.id);
+          if (!bannerRef.current) {
+            setTimeout(() => {
+              try { document.querySelector('.lvl-subject.is-on')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch { /* ignore */ }
+            }, 120);
+          }
+          return;
+        }
         // selecția implicită (și la schimbarea examenului): meditația gratuită (sus, 🎁), altfel primul subiect
         setSubjectId((cur) => (list.some((s) => s.id === cur) ? cur : (list.find((s) => s.free) || list[0])?.id || null));
       })
@@ -197,22 +246,32 @@ export default function MeditatiiLive() {
     return () => { alive = false; };
   }, [mode, me.loggedIn, teacherId, examId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function startPrivate(sid = subjectId, ref = startRef, busyKey = 'private') {
+  async function startPrivate(sid = subjectId, ref = startRef, busyKey = 'private', { retryPay = 0 } = {}) {
     if (!sid) return;
     if (!me.loggedIn) { navigate('/autentificare'); return; }
     setBusy(busyKey);
     try {
       const r = await liveApi.privateStart(teacherId || data?.teachers?.[0]?.id, sid);
+      // 🎥 testul venit din vizualizatorul PDF: din sală, „Ieși" duce înapoi la PDF
+      if (wanted && wanted.id === sid) {
+        try {
+          if (wanted.inapoi) sessionStorage.setItem(`live:inapoi:${r.sessionId}`, wanted.inapoi);
+          sessionStorage.removeItem(SUBJ_KEY);
+        } catch { /* fără stocare */ }
+      }
       navigate(`/meditatii/sala/${r.sessionId}${ref ? `?ex=${encodeURIComponent(ref)}` : ''}`);
     } catch (e) {
       if (e.code === 'LIVE_PAYMENT') {
+        // imediat după plată, webhookul Stripe poate întârzia câteva secunde — mai încercăm
+        if (retryPay > 0) { await new Promise((ok) => setTimeout(ok, 2500)); return startPrivate(sid, ref, busyKey, { retryPay: retryPay - 1 }); }
         setBusy(null);
         setBanner({ kind: 'info', text: e.message, pay: 'privat' });
-        return;
+        return undefined;
       }
       setBanner({ kind: 'err', text: e.message });
       setBusy(null);
     }
+    return undefined;
   }
 
   // „🎯 Un singur tip de exercițiu": clasa Pregătirii de examen, pe examenul ales aici, cu
@@ -287,6 +346,7 @@ export default function MeditatiiLive() {
           <span style={{ display: 'flex', gap: 8 }}>
             {banner.ready && banner.sessionId && <button type="button" className="lv-btn-primary" onClick={() => navigate(`/meditatii/sala/${banner.sessionId}`)}>Intră acum</button>}
             {banner.pay === 'privat' && <button type="button" className="lv-btn-primary" onClick={() => pay('privat')}>Plătește {prices.privat} lei</button>}
+            {banner.start && <button type="button" className="lv-btn-primary" disabled={busy === 'private'} onClick={() => startPrivate(banner.start, null, 'private', { retryPay: 4 })}>{busy === 'private' ? 'Pornesc…' : '▶ Începe meditația'}</button>}
             <button type="button" className="lv-btn-soft" onClick={() => { setBanner(null); clearParams(); }}>OK</button>
           </span>
         </div>

@@ -58,6 +58,7 @@ import { sunaGata, vibreaza, pregatesteSunetul } from '../lib/chatAlert';
 import { latexToPlain } from '../lib/mathPlain';
 import demoData from '../lib/live/demo.json';
 import { DEMO_SCRIPT } from '../lib/live/demoScript';
+import { RE_INAPOI_LA_TEST, cheieInapoi } from '../lib/metodeRezolvare';   // 🎥 înapoi la testul PDF
 import '../styles/live.css';
 
 const REACTIONS = ['👍', '👏', '❤️', '😂', '😮', '🎉'];
@@ -85,6 +86,15 @@ export default function LiveRoom({ demo = null }) {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
   const sessionId = demo ? (demo === 'privat' ? 'demo-1la1' : 'demo') : routeId;
+  // 🎥 ședința pornită din vizualizatorul PDF („✏️ Rezolvă ▾" → „Meditație live cu Prof. Virtual Tudor",
+  // 22 nov. 2026): „Ieși" și „↩ Înapoi la test" duc înapoi la PDF (sessionStorage — merge și după plată)
+  const [inapoiLaTest] = useState(() => {
+    if (demo) return null;
+    try {
+      const v = sessionStorage.getItem(cheieInapoi(routeId));
+      return v && RE_INAPOI_LA_TEST.test(v) ? v : null;
+    } catch { return null; }
+  });
 
   const [info, setInfo] = useState(null);
   const [fatal, setFatal] = useState(null);
@@ -706,7 +716,7 @@ export default function LiveRoom({ demo = null }) {
     playerRef.current?.stop();
     exitFs();
     if (!demo) liveApi.leave(sessionId, { seconds: secs, end }).catch(() => {});
-    navigate('/meditatii', { replace: true });
+    navigate(inapoiLaTest || '/meditatii', { replace: true });
   }
   // lecția comună s-a terminat înainte de sfârșitul orei → elevul continuă 1-la-1
   // (fără cost în plus): reia orice item, întreabă orice, până la ora de final
@@ -804,6 +814,7 @@ export default function LiveRoom({ demo = null }) {
           <p>{fatal}</p>
           <div className="lv-pre-actions">
             {!user && !demo ? <Link className="lv-btn-primary" to="/autentificare">Intră în cont</Link> : null}
+            {inapoiLaTest && <Link className="lv-btn-soft" to={inapoiLaTest}>↩ Înapoi la test</Link>}
             <Link className="lv-btn-soft" to="/meditatii">Înapoi la program</Link>
           </div>
         </div>
@@ -832,7 +843,8 @@ export default function LiveRoom({ demo = null }) {
           waitingText={waitingText} prep={preparing ? prepWait(false) : null}
           ready={justReady && !!timeline ? `✅ ${teacher?.name || 'Profesorul'} e gata! Apasă „Participă acum" și începeți.` : null}
           camOn={camOn} setCamOn={setCamOn} micOn={micOn} setMicOn={setMicOn} fullscreen={wantFs} setFullscreen={setWantFs}
-          pickItems={privat ? pickItems : null} startRef={startRef} setStartRef={setStartRef} privMinutes={info.privMinutes || 60} privIncluded={info.privIncluded ?? 8} />
+          pickItems={privat ? pickItems : null} startRef={startRef} setStartRef={setStartRef} privMinutes={info.privMinutes || 60} privIncluded={info.privIncluded ?? 8}
+          back={inapoiLaTest ? { to: inapoiLaTest, label: '↩ Înapoi la test' } : null} />
       </div>
     );
   }
