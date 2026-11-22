@@ -16,7 +16,8 @@
 //   1 · barem pentru un PDF fără barem        → rând `bareme` + legătura (claude-skill)
 //   2 · test interactiv pentru un PDF          → rând interactiv + asocierea PDF ↔ test
 //   3 · fișă după un fișier model              → PDF la clasa/capitolul modelului + barem
-//   4 · variantă EN („Variante generate cu AI") → PDF în `variante-ai` + barem
+//   4 · variantă EN („Variante generate cu AI") → PDF în `variante-ai` + barem + varianta „fără
+//       suprafață neagră" (ca botul pagina2) + testul interactiv asociat (22 nov. 2026)
 //   5 · explicații la grila EN                 → rând în barem_explicatii
 //   6 · verificarea unui test interactiv       → fișier nou în locul celui vechi
 //
@@ -55,6 +56,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // fișierele unei unități, pe roluri: unde le caută manifestul și ce sunt
 const ROLURI = {
   material: { ext: 'pdf', mime: 'application/pdf' },
+  material_alb: { ext: 'pdf', mime: 'application/pdf' },   // procedura 4: aceeași variantă, fără dreptunghiul negru
   barem: { ext: 'pdf', mime: 'application/pdf' },
   interactiv: { ext: 'html', mime: 'text/html' },
   explicatii: { ext: 'pdf', mime: 'application/pdf' },
@@ -85,8 +87,10 @@ const numeFisierOk = (f) => typeof f === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]
 // { procedura: 1–6, decizie: 'publica'|'ciorna'|'nimic'|'verificat'|'esuat', motiv, titlu,
 //   sursa: { content_id } | { model_id },
 //   material:   { fisier, title, is_free? }                 (3, 4)
+//   material_alb: { fisier }                                (4 — aceeași variantă, cu alb în locul
+//                                                            dreptunghiului negru de pe pagina 2)
 //   barem:      { fisier }                                  (1, 3, 4)
-//   interactiv: { fisier, title?, is_free? }                (2)
+//   interactiv: { fisier, title?, is_free? }                (2, 4 — la 4: testul interactiv al variantei)
 //   explicatii: { fisier, titlu? }                          (5 — sursa.content_id = baremul)
 //   inlocuire:  { fisier, file_url_vechi }                  (6 — sursa.content_id = testul)
 //   surse: [content_id…] (4, opțional), verificari: {…}, rulare }
@@ -239,6 +243,9 @@ function planificaFisiere(m, ctx, now = new Date()) {
   const material = descriereMaterial(m, ctx);
   if (m.material && material) {
     plan.material = { bucket: bucketPt(material.is_free), path: `pdf/${material.category}/${ts}_${slug(material.title)}.pdf`, mime: ROLURI.material.mime };
+    // varianta „fără suprafață neagră": în același bucket (aceleași reguli de acces), ca botul
+    // pagina2 (api/_lib/pagina2Run.js → _pagina2-alb/…); starea o scrie publicarea
+    if (m.material_alb) plan.material_alb = { bucket: plan.material.bucket, path: `_pagina2-alb/claude-skill/${ts}_${slug(material.title)}.pdf`, mime: ROLURI.material_alb.mime };
   }
   if (m.barem) {
     const pt = m.procedura === 1 ? ctx.sursa : material;
@@ -284,9 +291,20 @@ function descriereMaterial(m, ctx) {
 
 // testul interactiv nou (procedura 2): ca exgen.postContent, cu rubrica VIZIBILĂ pe site
 function descriereInteractiv(m, ctx) {
+  const EX = require('./exgen');
+  if (m.procedura === 4) {
+    // testul interactiv al variantei generate: la „Teste interactive" de EN, asociat cu varianta
+    const d = descriereMaterial(m, ctx);
+    return {
+      title: (m.interactiv && m.interactiv.title) || `${d.title} — rezolvare interactivă`,
+      category: d.category,
+      subcategory: EX.visibleSubcategory(d.category, d.subcategory),
+      profile: null,
+      is_free: !!(m.interactiv && m.interactiv.is_free),
+    };
+  }
   const pdf = ctx.sursa;
   if (!pdf) throw eroare(400, 'PDF-ul sursă lipsește.');
-  const EX = require('./exgen');
   return {
     title: (m.interactiv && m.interactiv.title) || `${pdf.title} — rezolvare interactivă`,
     category: pdf.category,
@@ -350,10 +368,24 @@ async function politicaPublicare(supa, m, ctx, buffers) {
       if (!cap || cap.id !== mo.capitol_id) probleme.push(`titlul „${m.material.title}" ajunge pe hartă la „${cap ? cap.titlu : 'Alte exerciții'}", nu la capitolul modelului („${mo.capitol || mo.capitol_id}")`);
     }
   }
-  if (m.procedura === 2 || m.procedura === 6) {
+  if (m.procedura === 4) {
+    if (!m.material_alb) probleme.push('lipsește varianta fără dreptunghiul negru (material_alb)');
+    if (!m.interactiv) probleme.push('lipsește testul interactiv asociat variantei (interactiv)');
+    if (m.material_alb) {
+      // aceeași variantă de două ori: același număr de pagini (doar dreptunghiul de pe pagina 2 diferă)
+      try {
+        const { PDFDocument } = require('pdf-lib');
+        const pagini = async (buf) => (await PDFDocument.load(buf, { ignoreEncryption: true, updateMetadata: false })).getPageCount();
+        const [n1, n2] = [await pagini(buffers.material), await pagini(buffers.material_alb)];
+        if (n1 !== n2) probleme.push(`varianta fără dreptunghi are ${n2} pagini, iar varianta cu dreptunghi ${n1}`);
+        if (n1 < 2) probleme.push('varianta are o singură pagină (pagina 1 e coperta, dreptunghiul e pe pagina 2)');
+      } catch (e) { probleme.push(`PDF-urile variantei nu s-au putut citi (${e.message})`); }
+    }
+  }
+  if (m.procedura === 2 || m.procedura === 6 || (m.procedura === 4 && m.interactiv)) {
     const V = require('./verificare');
     const S = require('./score');
-    const rol = m.procedura === 2 ? 'interactiv' : 'inlocuire';
+    const rol = m.procedura === 6 ? 'inlocuire' : 'interactiv';
     const html = buffers[rol].toString('utf8');
     const c = V.staticChecks(html);
     if (c.syntax.length) probleme.push(`JavaScript-ul nu se compilează: ${c.syntax.map((x) => x.message).slice(0, 2).join('; ')}`);
@@ -404,24 +436,30 @@ async function publicaBarem(supa, material, fisier, creat) {
   return barem;
 }
 
+// testul interactiv (procedurile 2 și 4): ca exgen.postContent, apoi asocierea cu PDF-ul
+// (exgen.asociazaPdf: pdf_sursa_id + interactiv_id, acesta doar dacă PDF-ul n-are încă test)
+async function publicaInteractiv(supa, t, fisier, pdfId, creat) {
+  const test = await insereazaContent(supa, {
+    title: curat(t.title, 300), description: '', category: t.category, content_type: 'interactive', is_free: t.is_free,
+    file_url: fisier.file_url,
+    interactive_data: { type: 'test', html: true, ai_generated: true, agent: BY },
+    subcategory: t.subcategory, profile: t.profile, sort_order: 0,
+  });
+  creat.content.push({ id: test.id, rol: 'interactiv', title: test.title, content_type: 'interactive', category: test.category });
+  const EX = require('./exgen');
+  const principal = await EX.asociazaPdf(supa, { sourceId: pdfId, ctype: 'pdf', contentId: test.id });
+  if (!principal) throw conflict('Între timp PDF-ul a primit alt test interactiv — nu-l înlocuiesc.');
+  creat.asociere = { pdf_id: pdfId, interactiv_id: test.id };
+  return test;
+}
+
 async function publica(supa, m, ctx, fisiere) {
-  const creat = { content: [], legatura: null, asociere: null, model: null, explicatii: null, inlocuire: null };
+  const creat = { content: [], legatura: null, asociere: null, model: null, explicatii: null, inlocuire: null, pagina2: null };
   try {
     if (m.procedura === 1) {
       await publicaBarem(supa, ctx.sursa, fisiere.barem, creat);
     } else if (m.procedura === 2) {
-      const t = descriereInteractiv(m, ctx);
-      const test = await insereazaContent(supa, {
-        title: curat(t.title, 300), description: '', category: t.category, content_type: 'interactive', is_free: t.is_free,
-        file_url: fisiere.interactiv.file_url,
-        interactive_data: { type: 'test', html: true, ai_generated: true, agent: BY },
-        subcategory: t.subcategory, profile: t.profile, sort_order: 0,
-      });
-      creat.content.push({ id: test.id, rol: 'interactiv', title: test.title, content_type: 'interactive', category: test.category });
-      const EX = require('./exgen');
-      const principal = await EX.asociazaPdf(supa, { sourceId: ctx.sursa.id, ctype: 'pdf', contentId: test.id });
-      if (!principal) throw conflict('Între timp PDF-ul a primit alt test interactiv — nu-l înlocuiesc.');
-      creat.asociere = { pdf_id: ctx.sursa.id, interactiv_id: test.id };
+      await publicaInteractiv(supa, descriereInteractiv(m, ctx), fisiere.interactiv, ctx.sursa.id, creat);
     } else if (m.procedura === 3 || m.procedura === 4) {
       const d = descriereMaterial(m, ctx);
       const mat = await insereazaContent(supa, {
@@ -438,6 +476,22 @@ async function publica(supa, m, ctx, fisiere) {
         if (error) throw eroare(502, `Fișierul model nu s-a putut marca procesat: ${error.message}`);
         if (!Array.isArray(data) || !data.length) throw conflict('Între timp fișierul model a fost procesat.');
         creat.model = { id: ctx.model.id };
+      }
+      if (m.procedura === 4 && fisiere.material_alb) {
+        // varianta „fără suprafață neagră": aceeași stare ca la botul pagina2 (app_settings
+        // 'pagina2:<id>', v2, „curatat", copia albă) → vizualizatorul arată „⬛ Original / ⬜ Fără
+        // suprafață neagră" (api/_lib/pagina2Alb.js), iar botul n-o mai procesează
+        const SET = require('./settings');
+        const key = `pagina2:${mat.id}`;
+        await SET.writeSetting(supa, key, {
+          v: 2, at: nowIso(), by: BY, status: 'curatat', file_url: mat.file_url,
+          alb: { bucket: fisiere.material_alb.bucket, path: fisiere.material_alb.path, bytes: fisiere.material_alb.bytes, at: nowIso() },
+          notes: 'variantă generată de skill: copia fără dreptunghiul negru e făcută la generare',
+        });
+        creat.pagina2 = { key, material_id: mat.id };
+      }
+      if (m.procedura === 4 && fisiere.interactiv) {
+        await publicaInteractiv(supa, descriereInteractiv(m, ctx), fisiere.interactiv, mat.id, creat);
       }
     } else if (m.procedura === 5) {
       const titlu = curat((m.explicatii && m.explicatii.titlu) || `Explicații la grilă — ${ctx.sursa.title}`, 200);
@@ -474,6 +528,9 @@ async function desface(supa, creat) {
   if (c.model) {
     await supa.from('admin_model_files').update({ status: 'neprocesat', processed_at: null, processed_by: null, updated_at: nowIso() })
       .eq('id', c.model.id).eq('processed_by', BY);
+  }
+  if (c.pagina2) {
+    await supa.from('app_settings').delete().eq('key', c.pagina2.key);
   }
   if (c.asociere) {
     await supa.from('content').update({ interactiv_id: null }).eq('id', c.asociere.pdf_id).eq('interactiv_id', c.asociere.interactiv_id);

@@ -49,10 +49,11 @@ const seed = () => ({
   ],
   barem_explicatii: [],
   continut_generat: [],
+  app_settings: [],
 });
 const fake = () => {
   const supa = createFakeSupabase(seed());
-  supa.db.unique = { continut_generat: [['unitate']], barem_explicatii: [['barem_id']] };
+  supa.db.unique = { continut_generat: [['unitate']], barem_explicatii: [['barem_id']], app_settings: [['key']] };
   return supa;
 };
 const cititor = (files) => async (nume) => { if (!(nume in files)) throw new Error('lipsă'); return files[nume]; };
@@ -276,20 +277,74 @@ test('procedura 3: model fără clasă (doar examen) → conflict, rubrica o ale
 
 // ═══════════════════════════ 7) procedura 4 — variantă EN ═══════════════════════════
 
-test('procedura 4: varianta EN în „Variante generate cu AI", cu baremul legat; titlu dublat → conflict', async () => {
+// PDF-uri reale (pdf-lib), ca politica de publicare să le poată număra paginile
+async function pdfCuPagini(n) {
+  const { PDFDocument } = require('pdf-lib');
+  const d = await PDFDocument.create();
+  for (let i = 0; i < n; i++) d.addPage([595, 842]);
+  return Buffer.from(await d.save());
+}
+
+test('procedura 4: varianta EN — PDF-ul cu dreptunghi, copia „fără suprafață neagră", baremul și testul interactiv asociat', async () => {
   const supa = fake();
-  const files = { 'varianta.pdf': PDF, 'barem.pdf': PDF };
-  const m = { procedura: 4, decizie: 'publica', material: { fisier: 'varianta.pdf', title: 'Varianta AI 1 — Evaluare Națională, Matematică' }, barem: { fisier: 'barem.pdf' }, surse: [VARIANTA] };
+  const files = { 'varianta.pdf': await pdfCuPagini(10), 'varianta_alb.pdf': await pdfCuPagini(10), 'barem.pdf': PDF, 'test.html': Buffer.from(html()) };
+  const m = {
+    procedura: 4, decizie: 'publica', surse: [VARIANTA],
+    material: { fisier: 'varianta.pdf', title: 'Varianta AI 3 — Evaluare Națională, Matematică' },
+    material_alb: { fisier: 'varianta_alb.pdf' }, barem: { fisier: 'barem.pdf' }, interactiv: { fisier: 'test.html' },
+  };
   const r = await CG.proceseazaUnitate(supa, { manifest: m, unitate: 'u/4a', citeste: cititor(files) });
   assert.strictEqual(r.status, 'publicat', r.eroare || r.motiv);
   const v = supa.db.tables.content.find((c) => c.subcategory === 'variante-ai');
   assert.deepStrictEqual([v.category, v.is_free], ['evaluare-nationala', false]);
   assert.match(v.file_url, /content-files\/pdf\/evaluare-nationala\//);
-  const b = supa.db.tables.content.find((c) => c.title === 'Barem — Varianta AI 1 — Evaluare Națională, Matematică');
+  const b = supa.db.tables.content.find((c) => c.title === 'Barem — Varianta AI 3 — Evaluare Națională, Matematică');
   assert.deepStrictEqual([b.subcategory, b.is_free], ['bareme', false]);
   assert.strictEqual(supa.db.tables.ai_pdf_text.find((x) => x.content_id === v.id).barem_override_by, 'claude-skill');
+  // copia albă: în același bucket, cu starea botului pagina2 → butonul „⬛ Original / ⬜ Fără suprafață neagră"
+  const st = supa.db.tables.app_settings.find((x) => x.key === `pagina2:${v.id}`);
+  assert.ok(st, 'starea pagina2 a variantei');
+  assert.deepStrictEqual([st.value.v, st.value.status, st.value.file_url, st.value.by], [2, 'curatat', v.file_url, 'claude-skill']);
+  assert.strictEqual(st.value.alb.bucket, 'content-files');
+  assert.match(st.value.alb.path, /^_pagina2-alb\/claude-skill\/\d+_varianta-ai-3-evaluare-nationala-matematica\.pdf$/);
+  const ALB = require('../api/_lib/pagina2Alb');
+  assert.deepStrictEqual(ALB.albFromState(v, st.value), st.value.alb, 'vizualizatorul vede copia albă (variante-ai e printre rubricile botului)');
+  assert.ok(ALB.isEnTest(v));
+  // testul interactiv al variantei: la „Teste interactive", principalul PDF-ului
+  const t = supa.db.tables.content.find((c) => c.content_type === 'interactive' && c.pdf_sursa_id === v.id);
+  assert.ok(t, 'testul interactiv');
+  assert.deepStrictEqual([t.title, t.subcategory, t.interactive_data.agent], ['Varianta AI 3 — Evaluare Națională, Matematică — rezolvare interactivă', 'teste-interactive', 'claude-skill']);
+  assert.strictEqual(v.interactiv_id, t.id);
+  // titlu dublat → conflict
   const r2 = await CG.proceseazaUnitate(supa, { manifest: m, unitate: 'u/4b', citeste: cititor(files) });
   assert.strictEqual(r2.status, 'conflict');
+  // Anulează: tot ce s-a creat dispare (varianta, baremul, testul, starea copiei albe, fișierele)
+  await CG.anuleaza(supa, rand(supa, 'u/4a').id);
+  assert.ok(!supa.db.tables.content.some((c) => [v.id, b.id, t.id].includes(c.id)));
+  assert.ok(!supa.db.tables.app_settings.some((x) => x.key === `pagina2:${v.id}`));
+  assert.ok(supa.db.removed.some((x) => x.includes('_pagina2-alb/claude-skill/')));
+});
+
+test('procedura 4: fără copia albă / fără testul interactiv / pagini diferite → ciornă, nu publicare', async () => {
+  const baza = { procedura: 4, decizie: 'publica', material: { fisier: 'v.pdf', title: 'Varianta AI 4 — Evaluare Națională, Matematică' }, barem: { fisier: 'b.pdf' } };
+  const supa = fake();
+  const r = await CG.proceseazaUnitate(supa, { manifest: baza, unitate: 'u/4c', citeste: cititor({ 'v.pdf': await pdfCuPagini(10), 'b.pdf': PDF }) });
+  assert.strictEqual(r.status, 'ciorna');
+  assert.match(r.motiv, /lipsește varianta fără dreptunghiul negru/);
+  assert.match(r.motiv, /lipsește testul interactiv asociat/);
+  assert.ok(!supa.db.tables.content.some((c) => c.subcategory === 'variante-ai'));
+  const r2 = await CG.proceseazaUnitate(supa, {
+    manifest: { ...baza, material_alb: { fisier: 'a.pdf' }, interactiv: { fisier: 't.html' } }, unitate: 'u/4d',
+    citeste: cititor({ 'v.pdf': await pdfCuPagini(10), 'a.pdf': await pdfCuPagini(9), 'b.pdf': PDF, 't.html': Buffer.from(html()) }),
+  });
+  assert.strictEqual(r2.status, 'ciorna');
+  assert.match(r2.motiv, /varianta fără dreptunghi are 9 pagini, iar varianta cu dreptunghi 10/);
+  // ciorna aprobată publică tot: varianta, copia albă, baremul, testul
+  const a = await CG.aproba(supa, rand(supa, 'u/4d').id);
+  assert.strictEqual(a.status, 'aprobat');
+  const v = supa.db.tables.content.find((c) => c.subcategory === 'variante-ai');
+  assert.ok(supa.db.tables.app_settings.some((x) => x.key === `pagina2:${v.id}`));
+  assert.ok(supa.db.tables.content.some((c) => c.content_type === 'interactive' && c.pdf_sursa_id === v.id));
 });
 
 // ═══════════════════════════ 8) procedura 5 — explicații ═══════════════════════════

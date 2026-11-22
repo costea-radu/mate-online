@@ -14,7 +14,7 @@
 
 const STATE_PREFIX = 'pagina2:';
 const CATEGORY = 'evaluare-nationala';
-const SUBCATS = ['variante', 'simulari'];
+const SUBCATS = ['variante', 'simulari', 'variante-ai'];   // 22 nov. 2026: și variantele generate cu AI
 const ALB_DIR = '_pagina2-alb';
 const VERSION_ALB = 2;          // stările de dinainte (v1) nu au copie albă
 

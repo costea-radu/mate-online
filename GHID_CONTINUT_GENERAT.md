@@ -7,7 +7,7 @@ Task-urile programate (Claude, cu skill-ul `examenmate-continut`) produc conțin
 | 1 | Barem pentru un PDF fără barem | baremul în rubrica „Bareme”, legat de PDF |
 | 2 | Test interactiv pentru un PDF | testul interactiv, asociat cu PDF-ul („🧩 Deschide interactiv”) |
 | 3 | Fișă după un fișier model | PDF-ul la clasa și capitolul din eticheta modelului, cu baremul lui |
-| 4 | Variantă de Evaluare Națională | PDF-ul în „Variante generate cu AI”, cu baremul lui |
+| 4 | Variantă de Evaluare Națională | PDF-ul în „Variante generate cu AI” (coperta cu datele candidatului și tabelele de note, chenarele itemilor, caroiajul), cu varianta „⬜ Fără suprafață neagră”, baremul și testul interactiv asociat |
 | 5 | Explicații la grila EN | butonul „💡 Explicații la grilă” din baremul oficial |
 | 6 | Verificarea unui test interactiv | testul cu rezolvările refăcute după barem (originalul rămâne copie) |
 
@@ -40,10 +40,18 @@ Task-urile programate (Claude, cu skill-ul `examenmate-continut`) produc conțin
 - **✅ Publicate** — publicate direct sau aprobate de tine; „🌐 pe site” deschide materialul; **↩ Anulează**:
   - barem (1) → baremul dispare, PDF-ul revine la potrivirea automată;
   - test interactiv (2) → testul dispare, PDF-ul rămâne fără test;
-  - fișă (3) / variantă (4) → PDF-ul și baremul lui dispar; la fișă, modelul revine „neprocesat”;
+  - fișă (3) / variantă (4) → PDF-ul și baremul lui dispar (la variantă și copia fără dreptunghi și testul interactiv); la fișă, modelul revine „neprocesat”;
   - explicații (5) → butonul dispare din barem;
   - test corectat (6) → revine fișierul vechi (doar dacă testul n-a fost schimbat între timp).
 - **⚠️ Probleme** — eșuate (cu eroarea) și conflicte; **🔍 Verificate** — testele găsite în regulă (procedura 6) și rulările fără nimic de făcut; **🗄 Respinse / anulate**.
+
+## Variantele EN generate (procedura 4)
+
+Fiecare variantă are aceeași așezare ca subiectele oficiale: coperta (datele candidatului, tabelul asistenților, tabelele de note A/B/C ale comisiilor de evaluare), pagina 2 cu dreptunghiul negru și instrucțiunile, itemii în chenare cu punctajul în stânga, caroiajul de la Subiectul al III-lea și pagina finală cu caroiaj. Antetul e al ExamenMate, nu al Ministerului (e o variantă de antrenament, generată cu AI). Șablonul LaTeX: `sabloane/en-varianta.sty` în repo-ul privat.
+
+- **⬛ / ⬜**: se generează două PDF-uri din aceeași sursă — cu dreptunghiul negru și fără el. Copia fără dreptunghi devine varianta „⬜ Fără suprafață neagră” din vizualizator, exact ca la variantele oficiale (aceeași stare `pagina2:<id>` ca botul; `variante-ai` e acum printre rubricile botului).
+- **🧩 Testul interactiv** al variantei apare la „Teste interactive” și se deschide din variantă cu „🧩 Deschide interactiv”.
+- Fără copia albă sau fără test interactiv, varianta intră ca ciornă.
 
 ## Legăturile „claude-skill”
 

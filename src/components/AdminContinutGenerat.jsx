@@ -33,7 +33,7 @@ const STARE = {
   nimic: { t: 'nimic de făcut', c: 'acg-st-gri' },
 };
 const ROL = {
-  material: '📄 Materialul', barem: '📋 Baremul', interactiv: '🧩 Testul interactiv',
+  material: '📄 Materialul', material_alb: '⬜ Fără dreptunghiul negru', barem: '📋 Baremul', interactiv: '🧩 Testul interactiv',
   explicatii: '💡 Explicațiile', inlocuire: '🧩 Testul corectat', test: '🧩 Testul', vechi: '🧩 Testul vechi',
 };
 const cand = (iso) => { try { return new Date(iso).toLocaleString('ro-RO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };

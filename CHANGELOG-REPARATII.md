@@ -4,6 +4,21 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 22 noiembrie 2026 — 🤖 Variantele EN generate cu AI: copertă cu tabelele de note, chenare, ⬛/⬜ ca la variantele oficiale, testul interactiv asociat
+
+Cererea: „La variantele generate cu AI: generează și prima pagină standard cu numele, prenumele, clasa, tabelele de note; pune și chenarele care încadrează exercițiile; pune, ca și la variantele originale, varianta cu dreptunghi negru și varianta fără dreptunghi; generează și test interactiv asociat."
+
+**De rulat:** nimic în Supabase. Commit + push + deploy (Action-ul „Publică" clonează `mate-online`). Skill-ul: actualizarea din chat. Ghidul: `GHID_CONTINUT_GENERAT.md` → „Variantele EN generate".
+
+1. **Șablonul LaTeX** (repo-ul privat, `sabloane/en-varianta.sty` + `exemplu-varianta.tex`): coperta după modelele oficiale 2023–2025 (datele candidatului, tabelul asistenților, tabelele de note A/B/C), pagina 2 cu dreptunghiul negru și instrucțiunile, itemii în chenare cu „5p" în stânga, „(2p) a)" / „(3p) b)" cu caroiaj la Subiectul al III-lea, pagina finală cu caroiaj; antetul ExamenMate (nu al Ministerului). Aceeași sursă se compilează de două ori: cu dreptunghi / fără.
+2. **Procedura 4** (`api/_lib/continutGenerat.js`): manifestul are acum și `material_alb` (varianta fără dreptunghi) și `interactiv` (testul variantei). La publicare: varianta + baremul + starea `pagina2:<id>` (v2, „curatat", copia albă în `_pagina2-alb/claude-skill/…`, același bucket) + testul interactiv asociat (`asociazaPdf`). Verificările de la publicare: lipsa copiei albe / a testului sau un număr diferit de pagini → ciornă; testul trece prin aceleași verificări ca la procedura 2. „Anulează" șterge tot (inclusiv starea copiei albe).
+3. **`api/_lib/pagina2Alb.js`**: `variante-ai` printre rubricile botului „fără suprafață neagră" → vizualizatorul arată „⬛ Original / ⬜ Fără suprafață neagră" și la variantele generate (și la cele încărcate din Admin → Variante AI, pe care botul le poate curăța singur).
+4. Admin → 🤖 Conținut generat: „⬜ Fără dreptunghiul negru" la fișierele unității.
+
+Teste: `continut-generat` (25). `npm test`: 1417 din 1417 (2 sărite); `vite build` curat. Șablonul compilat și verificat vizual (copertă, pagina 2 cu / fără dreptunghi, chenare, caroiaj; 11 pagini în ambele variante).
+
+---
+
 ## 21 noiembrie 2026 (2) — 🤖 Conținutul generat de skill (tabela, Action-urile „Aduce surse" și „Publică", fila din Admin) · legăturile „claude-skill" · fără notificări la bareme
 
 Cererea: „1) fă modificările: tabela `continut_generat`, cele două Action-uri («Aduce surse» și «Publică») și fila din Admin 2) fă și modificare de cod ca legăturile să poată fi marcate «claude-skill» 3) oprește notificările pentru bareme"
