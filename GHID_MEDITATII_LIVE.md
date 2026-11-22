@@ -609,6 +609,8 @@ vocea cu alt model, GPT-5 mini, dacă nu merge cu Opus 5.5".
 
 ---
 
+**Lecțiile scrise de skill-ul „examenmate-continut” (22 nov. 2026, procedura 7).** Task-ul programat poate scrie, dinainte și fără costul API, lecția unui subiect cu barem care n-are încă lecție — după **exact** aceleași instrucțiuni, cereri pe bucăți și schemă (le primește din „Aduce surse”: `liveLesson.skillBrief`), cu aceleași verificări la publicare (`liveLesson.scriptFromItems`: literele grilelor din barem, itemii lipsă, formulele, întrebările pe pași, botul de verificare). Lecția intră cu starea „script” (ca o lecție „doar textul”): vocea, desenele din PDF și restul le face site-ul la prima folosire, ca la orice lecție. În „Lecțiile recente”: „scrisă de Claude (skill-ul „examenmate-continut”)”. Detalii: `GHID_CONTINUT_GENERAT.md`.
+
 ## 3f. „Alege subiectul" (1-la-1): ordinea listei și „Subiectul I, ex. 1"… (11 octombrie 2026)
 
 Cererea: „la «Meditații 1-la-1», la «Alege subiectul», pune lista cu toate variantele PDF date, apoi

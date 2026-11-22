@@ -1160,17 +1160,100 @@ async function generateScript({ ctx, content, teacher, exam, profile, log = cons
   const steps = live.STEPS_ON() ? await fillMissingSteps(items, { teacher, exam, profile, title, log: note, usage, model: genModel }) : null;
   // v2 = scrisă cu paginile PDF (formulele citite din pagini); v1 = doar din textul extras
   const withPages = Object.values(attachments || {}).some((a) => Array.isArray(a) && a.length);
+  const script = assembleScript({ items, steps, withPages, title, exam, profile, teacher, content, ctx, missing, writer: { model: genModel, parts: wrote, notes } });
+  return { script, usage, steps };
+}
+
+// Scriptul lecției din itemii verificați (aceeași formă pentru lecțiile scrise de model și
+// pentru cele scrise de skill-ul „examenmate-continut" — scriptFromItems)
+function assembleScript({ items, steps, withPages, title, exam, profile, teacher, content, ctx, missing, writer }) {
   const script = {
     v: withPages ? 2 : 1, ...(steps ? { pasi: PASI_V } : {}), title, exam, profile: profile || null, teacher: teacher.id, teacherName: teacher.name,
     // cine a scris-o (Admin → „Lecțiile recente"): modelul ales + bucățile scrise de fiecare + jurnalul
-    writer: { model: genModel, parts: wrote, notes },
+    writer,
     // itemii pe care subiectul îi are, dar lecția nu (Admin → „🧩 Completează itemii lipsă")
     missing,
     subjectId: content.id, baremId: ctx.barem?.id || null, baremTitle: ctx.barem?.title || null,
     ...templates(teacher, { title, exam, profile }),
     items,
   };
-  return { script: assignIds(script), usage, steps };
+  return assignIds(script);
+}
+
+// ─── Lecția scrisă de skill-ul „examenmate-continut" (procedura 7, 22 nov. 2026) ──
+// Cererea lui Radu: „fă o procedură nouă la skill prin care generezi lecțiile live cu
+// profesorul virtual Tudor; respecți aceleași reguli de generare, să prezinte baremul și cu
+// rezolvare interactivă pe ecran". Rularea programată (Claude, în cloud, fără costul API)
+// scrie itemii după EXACT aceleași reguli ca modelul de aici — skillBrief le dă prin „Aduce
+// surse": systemPrompt, cererile pe bucăți (userPrompt, cu secțiunile subiectului și ale
+// baremului) și SCHEMA. Aici itemii trec prin aceleași verificări deterministe ca o lecție
+// scrisă de model: normalizeItems (literele grilelor din tabelul baremului, „Arătați că…",
+// întrebările pe pași valide), structura subiectului (itemii lipsă), formulele care nu se
+// afișează, apoi întrebările pe pași completate din barem, fără AI. → { script, report }
+function skillBrief({ ctx, content, teacher, exam, profile }) {
+  const subjectText = String(ctx?.text || '');
+  const baremText = String(ctx?.baremText || '');
+  const sections = { subject: sectionMap(subjectText), barem: sectionMap(baremText) };
+  let plan = callPlan(exam, sections, (sec) => chunkSize(OPUS, sec));
+  const whole = !plan.length;
+  if (whole) plan = [{ section: 'I', from: 1, to: 6 }, { section: 'II', from: 1, to: 6 }, { section: 'III', from: 1, to: 6 }];
+  const title = content.title || 'Subiect';
+  return {
+    title, exam, profile: profile || null, teacher: { id: teacher.id, name: teacher.name },
+    hasBarem: live.hasBarem({ barem_status: ctx?.baremStatus, barem_text: baremText }),
+    barem: ctx?.barem ? { id: ctx.barem.id || null, title: ctx.barem.title || null } : null,
+    system: systemPrompt(teacher, exam, profile),
+    chunks: plan.map((p) => ({
+      ...p,
+      prompt: userPrompt({
+        exam, section: p.section, from: p.from, to: p.to, title, pages: 'barem',
+        subjectSection: whole ? subjectText : sections.subject[p.section],
+        baremSection: whole ? baremText : sections.barem[p.section],
+      }),
+    })),
+    whole,
+    expected: whole ? [] : expectedRefs(exam, sections),
+    grile: exam === 'en' ? B.grilaAnswers(baremText) : {},
+    schema: SCHEMA,
+  };
+}
+
+async function scriptFromItems({ items: rawItems, ctx, content, teacher, exam, profile, writer = 'claude-skill', log = () => {} }) {
+  const subjectText = String(ctx?.text || '');
+  const baremText = String(ctx?.baremText || '');
+  if (!live.hasBarem({ barem_status: ctx?.baremStatus, barem_text: baremText })) {
+    const e = new Error('Subiectul nu are barem asociat sigur — profesorul nu îl explică.'); e.code = 'NO_BAREM'; throw e;
+  }
+  const sections = { subject: sectionMap(subjectText), barem: sectionMap(baremText) };
+  const grile = exam === 'en' ? B.grilaAnswers(baremText) : {};
+  const notes = [];
+  const note = noteTo(notes, log);
+  const raw = Array.isArray(rawItems) ? rawItems : [];
+  const bySection = { I: [], II: [], III: [] };
+  const invalidRefs = [];
+  for (const it of raw) {
+    const r = parseRef(it && it.ref);
+    if (r && bySection[r.subject]) bySection[r.subject].push(it);
+    else invalidRefs.push(String((it && it.ref) || '?').slice(0, 20));
+  }
+  let items = [];
+  for (const sec of ['I', 'II', 'III']) items.push(...normalizeItems(bySection[sec], { section: sec, exam, grile, baremText, log: note }));
+  items = dedupeItems(items);
+  const kept = new Set(items.map((it) => it.ref));
+  const dropped = [...new Set(raw.map((it) => parseRef(it && it.ref)).filter(Boolean).map(refKey))].filter((ref) => !kept.has(ref));
+  const broken = items.filter((it) => itemBrokenMath(it)).map((it) => it.ref);
+  const whole = !callPlan(exam, sections).length;
+  const expected = whole ? [] : expectedRefs(exam, sections);
+  const missing = missingOf(expected, items);
+  // subpunctele fără întrebare pe pas, ÎNAINTE de completarea din barem (skill-ul trebuie să le scrie el)
+  const stepGaps = items.filter((it) => missingParts(it).length).map((it) => it.ref);
+  const title = content.title || 'Subiect';
+  const steps = live.STEPS_ON() ? await fillMissingSteps(items, { teacher, exam, profile, title, log: note, useAi: false }) : null;
+  const script = assembleScript({ items, steps, withPages: true, title, exam, profile, teacher, content, ctx, missing, writer: { model: writer, parts: { [writer]: 1 }, notes } });
+  return {
+    script,
+    report: { items: items.length, expected, missing, dropped, invalidRefs, broken, stepGaps, stepsFromBarem: steps ? steps.fromBarem : 0, stepsMissing: steps ? steps.missing : [], whole, notes },
+  };
 }
 
 // Lecțiile DEJA SCRISE cărora le lipsesc itemi: se scriu doar aceia (cu paginile PDF),
@@ -1396,6 +1479,8 @@ function headProgress(script, audio) {
 module.exports = {
   generateScript, adaptScript, renameTeacher, dropUnreadable, restoreGrilaTries, grilaTry, pdfAttachments, sectionPages, voiceScript, playableHead, headSegments, headProgress, segmentsInOrder, voiceOrder, itemSegments, templates, assignIds,
   normalizeItems, sectionMap, callPlan, parseRef, refKey, SCHEMA, systemPrompt, userPrompt, GEN_MODEL,
+  // lecțiile scrise de skill-ul „examenmate-continut" (procedura 7): regulile și verificarea lor
+  assembleScript, skillBrief, scriptFromItems,
   // cine scrie (Claude Opus 5.5; rezerva GPT-5 mini sau LIVE_REZERVA_MODEL) și costul pe model
   OPUS, MINI, FALLBACK_MODEL, isClaude, writeJson, anthropicContent, usageParts,
   // itemii lipsă (structura subiectului, completarea lor)

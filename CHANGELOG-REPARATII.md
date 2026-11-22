@@ -4,6 +4,15 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 22 noiembrie 2026 (3) — 🎥 Procedura 7: lecțiile live cu Prof. Tudor scrise de skill · ♻️ regenerarea variantelor AI (Varianta AI 1 și 2, „Testul nr.” pe copertă)
+
+Cererile lui Radu: „regenerează variantele 1 și 2 · pe prima pagină scrie nr. testului” și „fă o procedură nouă la skill, sau skill nou, prin care generezi lecțiile live cu profesorul virtual Tudor; respecți aceleași reguli de generare, să prezinte baremul și cu rezolvare interactivă pe ecran”.
+
+- **Regenerarea unei variante AI** (`api/_lib/continutGenerat.js`, procedura 4 cu `sursa.content_id` + `material.file_url_vechi`): fișierul nou în același rând `content` (id, titlu, baremul legat, notificările și progresul rămân), copia „⬜ Fără suprafață neagră” și testul interactiv asociat; baremul doar dacă vine unul nou (în rândul lui); „↩ Anulează” readuce fișierul vechi și starea copiei albe de dinainte. Varianta AI 1 și 2 au fost refăcute așa — aceleași exerciții și desene, în șablonul nou (coperta cu „Testul nr. 1 / 2”, chenare, caroiaj), cu testele interactive (90/90 la rezolvarea corectă, verificat în Chrome).
+- **Procedura 7 — lecția live** (`api/_lib/liveLesson.js` → `skillBrief`, `scriptFromItems`, `assembleScript`; `api/_lib/continutGenerat.js`; `scripts/continut/aduce-surse.js` → `lectie_pentru`): task-ul programat scrie lecția unui subiect cu barem fără lecție, după **aceleași** instrucțiuni, cereri pe bucăți și schemă ca modelul de pe site (le primește din „Aduce surse”); la publicare itemii trec prin aceleași verificări deterministe (literele grilelor din barem, structura subiectului, formulele, întrebările pe pași, botul de verificare a lecțiilor). Lecția intră în `live_lessons` cu starea „script”: vocea și desenele le face site-ul la prima folosire. Ce nu trece → ciornă. „scrisă de: Claude (skill-ul „examenmate-continut”)” în Admin → 🎥 Meditații live. `generateScript` folosește acum același `assembleScript` (fără schimbare de comportament).
+- **Admin → 🤖 Conținut generat**: procedura 7 în filtru, linkurile „📄 Subiectul” și „🎥 Lecția live”.
+- **Teste**: `test/continut-generat.test.js` (33; noi: regenerarea, procedura 7 — publicare directă, completarea rândului gol, conflictele, ciorna și aprobarea, anularea, „lectie_pentru”), fixtura `test/tools/lectieLiveSkill.js`. `npm test` 1437 trec / 0 picate / 2 sărite; `vite build` OK. Fără SQL nou, fără variabile noi.
+
 ## 22 noiembrie 2026 (2) — 🎥 „Meditație live cu Prof. Virtual Tudor" în „✏️ Rezolvă ▾" · ordinea metodelor: EN + clase grilă / BAC + clase negrilă
 
 Cererea: „pune la fiecare test PDF în «rezolvă» și varianta de rezolvare în meditație live cu Prof. Virtual Tudor. ordinea în «rezolvă» la testele de evaluare națională și la testele de la clase care sunt grilă: 1) pe PDF; 2) Interactiv; 3) meditație live cu Prof. virtual Tudor; 4) cu poză; 5) în chat; 6) În foaia de lucru. La celelalte teste, BAC și clase, care nu sunt grilă, ordinea să fie: 1) Interactiv; 2) meditație live cu Prof. virtual Tudor; 3) cu poză; 4) în chat; 5) în foaia de lucru; 6) pe PDF"

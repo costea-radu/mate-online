@@ -10,6 +10,7 @@ Task-urile programate (Claude, cu skill-ul `examenmate-continut`) produc conțin
 | 4 | Variantă de Evaluare Națională | PDF-ul în „Variante generate cu AI” (coperta cu datele candidatului și tabelele de note, chenarele itemilor, caroiajul), cu varianta „⬜ Fără suprafață neagră”, baremul și testul interactiv asociat |
 | 5 | Explicații la grila EN | butonul „💡 Explicații la grilă” din baremul oficial |
 | 6 | Verificarea unui test interactiv | testul cu rezolvările refăcute după barem (originalul rămâne copie) |
+| 7 | Lecție live cu Prof. Tudor | lecția subiectului în 🎥 Meditații live (1-la-1, ședințele de grup, Pregătirea de examen) — explicația pe barem cu punctajele pe tablă, întrebările pe ecran |
 
 **Ce trece verificarea după barem se publică direct.** Ce nu trece toate verificările (sau e nesigur) intră ca **ciornă** în Admin → **🤖 Conținut generat** și apare pe site doar după „✅ Aprobă și publică”.
 
@@ -42,7 +43,9 @@ Task-urile programate (Claude, cu skill-ul `examenmate-continut`) produc conțin
   - test interactiv (2) → testul dispare, PDF-ul rămâne fără test;
   - fișă (3) / variantă (4) → PDF-ul și baremul lui dispar (la variantă și copia fără dreptunghi și testul interactiv); la fișă, modelul revine „neprocesat”;
   - explicații (5) → butonul dispare din barem;
-  - test corectat (6) → revine fișierul vechi (doar dacă testul n-a fost schimbat între timp).
+  - test corectat (6) → revine fișierul vechi (doar dacă testul n-a fost schimbat între timp);
+  - variantă regenerată (4, cu `sursa.content_id`) → revine fișierul vechi al variantei (și copia albă de dinainte; testul interactiv nou dispare);
+  - lecție live (7) → lecția dispare (rândul gol „nou” revine cum era), doar cât n-are vocea generată; cu voce, o ștergi din Admin → 🎥 Meditații live.
 - **⚠️ Probleme** — eșuate (cu eroarea) și conflicte; **🔍 Verificate** — testele găsite în regulă (procedura 6) și rulările fără nimic de făcut; **🗄 Respinse / anulate**.
 
 ## Variantele EN generate (procedura 4)
@@ -52,6 +55,17 @@ Fiecare variantă are aceeași așezare ca subiectele oficiale: coperta (datele 
 - **⬛ / ⬜**: se generează două PDF-uri din aceeași sursă — cu dreptunghiul negru și fără el. Copia fără dreptunghi devine varianta „⬜ Fără suprafață neagră” din vizualizator, exact ca la variantele oficiale (aceeași stare `pagina2:<id>` ca botul; `variante-ai` e acum printre rubricile botului).
 - **🧩 Testul interactiv** al variantei apare la „Teste interactive” și se deschide din variantă cu „🧩 Deschide interactiv”.
 - Fără copia albă sau fără test interactiv, varianta intră ca ciornă.
+- **Regenerarea unei variante deja publicate** (22 nov. 2026): manifestul are `sursa.content_id` = varianta și `material.file_url_vechi` = fișierul ei de acum. Fișierul nou intră **în același rând** (id-ul, titlul, baremul legat, notificările și progresul elevilor rămân), copia albă și testul interactiv se adaugă; baremul se înlocuiește doar dacă unitatea aduce unul. Dacă între timp fișierul variantei s-a schimbat, nu se scrie nimic (`conflict`). Așa au fost refăcute Varianta AI 1 și 2 în așezarea nouă, cu aceleași exerciții (pe copertă: „Testul nr. 1 / 2”).
+
+## Lecțiile live cu Prof. Tudor (procedura 7)
+
+Cererea (22 nov. 2026): „fă o procedură nouă la skill prin care generezi lecțiile live cu profesorul virtual Tudor; respecți aceleași reguli de generare, să prezinte baremul și cu rezolvare interactivă pe ecran”.
+
+- **Ce face**: pentru un subiect de EN / BAC (Mate-Info, Științele Naturii, Tehnologic) **cu barem citit** și **fără lecție live**, task-ul scrie lecția — aceeași pe care pe site o scrie Claude Opus 5.5 când intră primul elev, dar **fără costul API** și fără ca elevul să aștepte 4–8 minute.
+- **Aceleași reguli**: cererea `{ "lectie_pentru": "<id subiect>" }` din „Aduce surse” pune pe ramura `surse` (`<id>/lectie/reguli.md`, `brief.json`, `meta.json`) **exact** instrucțiunile, cererile pe bucăți (cu secțiunile subiectului și ale baremului) și schema după care scrie modelul de pe site (`liveLesson.skillBrief` — se schimbă singure când schimbi regulile lecțiilor). Task-ul citește și PDF-urile subiectului și baremului (formulele din pagini).
+- **Ce conține lecția**: la fiecare item — enunțul, „încercați singuri” (întrebarea pe ecran), explicația **pe barem**, pas cu pas, cu punctajele pe tablă („(2p)”), explicațiile pentru „🔁 Explică altfel”, iar la Subiectele II–III **întrebările pe pași** (cel puțin una la fiecare subpunct, înaintea explicației lui).
+- **Verificarea la publicare** (`liveLesson.scriptFromItems`, aceleași funcții ca la lecțiile scrise de model): literele grilelor din tabelul baremului, „Arătați că…”, întrebările valide, **toți itemii subiectului**, formulele care se afișează, apoi **botul de verificare a lecțiilor** (întrebări la fiecare exercițiu și subpunct, cronologia). Ce nu trece → ciornă, cu motivul; o lecție cu itemi lipsă sau subpuncte fără întrebare nu ajunge direct la elevi.
+- **Pe site**: lecția intră în `live_lessons` cu starea „script” (ca o lecție scrisă „doar textul”); **vocea și desenele din PDF le face site-ul la prima folosire** (1-la-1: un minut pentru începutul lecției; grupul: cronul, înainte de ședință) sau imediat din Admin → 🎥 Meditații live → „🔊 Generează vocea”. În „Lecțiile recente” apare „scrisă de Claude (skill-ul „examenmate-continut”)”.
 
 ## Legăturile „claude-skill”
 
@@ -74,7 +88,9 @@ De pe 21 nov. 2026, baremele (rubrica „Bareme” sau un titlu cu „barem”) 
 | O unitate rămâne „conflict” | între timp golul a fost completat (alt barem, alt test, modelul procesat) — nu s-a scris nimic, e corect |
 | Ciornă cu „Verificările automate de la publicare: …” | Action-ul a găsit o problemă pe care rularea n-a prins-o — vezi fișierul, aprobă sau respinge |
 | „Aprobă” spune „Nu se poate publica: …” | starea s-a schimbat de când a intrat ciorna — de regulă o respingi |
+| Lecția live (7) e „conflict”: „are deja o lecție live” / „se scrie chiar acum pe site” | între timp un elev a pornit subiectul și site-ul i-a scris lecția — nu s-a scris nimic, e corect |
+| „Anulează” la o lecție live: „are deja vocea generată” | lecția e folosită deja — o ștergi din Admin → 🎥 Meditații live → „Lecțiile recente” |
 
 ## Fișierele
 
-`api/_lib/continutGenerat.js` (publicare, ciornă, aprobare, respingere, anulare, verificări), `api/continut-generat.js` (Admin), `src/components/AdminContinutGenerat.jsx` (fila), `scripts/continut/publica.js` și `scripts/continut/aduce-surse.js` (Action-urile), `api/ai-pdf-context.js` (`setOverride`: `claude-skill`, `doarDacaLiber`), `supabase/continut_generat.sql`, `supabase/notificari_fara_bareme.sql`. Teste: `test/continut-generat.test.js`.
+`api/_lib/continutGenerat.js` (publicare, ciornă, aprobare, respingere, anulare, verificări), `api/_lib/liveLesson.js` (`skillBrief`, `scriptFromItems` — procedura 7), `api/continut-generat.js` (Admin), `src/components/AdminContinutGenerat.jsx` (fila), `scripts/continut/publica.js` și `scripts/continut/aduce-surse.js` (Action-urile), `api/ai-pdf-context.js` (`setOverride`: `claude-skill`, `doarDacaLiber`), `supabase/continut_generat.sql`, `supabase/notificari_fara_bareme.sql`. Teste: `test/continut-generat.test.js`.

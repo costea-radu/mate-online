@@ -347,6 +347,73 @@ test('procedura 4: fără copia albă / fără testul interactiv / pagini diferi
   assert.ok(supa.db.tables.content.some((c) => c.content_type === 'interactive' && c.pdf_sursa_id === v.id));
 });
 
+test('procedura 4, regenerarea unei variante: fișierul nou în același rând, copia albă, testul interactiv; baremul rămâne; Anulează readuce tot', async () => {
+  const supa = fake();
+  const VID = ID(9), BID = ID(8);
+  const urlVechi = URL('content-files', 'pdf/evaluare-nationala/1_varianta-ai-1.pdf');
+  const urlBarem = URL('content-files', 'pdf/evaluare-nationala/2_barem-varianta-ai-1.pdf');
+  supa.db.tables.content.push(
+    { id: VID, title: 'Varianta AI 1 — Evaluare Națională, Matematică', category: 'evaluare-nationala', subcategory: 'variante-ai', profile: null, content_type: 'pdf', is_free: false, file_url: urlVechi, interactiv_id: null, pdf_sursa_id: null },
+    { id: BID, title: 'Barem — Varianta AI 1 — Evaluare Națională, Matematică', category: 'evaluare-nationala', subcategory: 'bareme', profile: null, content_type: 'pdf', is_free: false, file_url: urlBarem },
+  );
+  supa.db.tables.ai_pdf_text.push({ content_id: VID, file_url: urlVechi, text: '…', barem_id: BID, barem_status: 'ok_admin', barem_override_id: BID, barem_override_by: 'claude-skill' });
+  const files = { 'varianta.pdf': await pdfCuPagini(11), 'varianta_alb.pdf': await pdfCuPagini(11), 'test.html': Buffer.from(html()) };
+  const m = {
+    procedura: 4, decizie: 'publica', sursa: { content_id: VID },
+    material: { fisier: 'varianta.pdf', title: 'Varianta AI 1 — Evaluare Națională, Matematică', file_url_vechi: urlVechi },
+    material_alb: { fisier: 'varianta_alb.pdf' }, interactiv: { fisier: 'test.html' },
+  };
+  const r = await CG.proceseazaUnitate(supa, { manifest: m, unitate: 'u/4r', citeste: cititor(files) });
+  assert.strictEqual(r.status, 'publicat', r.eroare || r.motiv);
+  const v = supa.db.tables.content.find((c) => c.id === VID);
+  assert.notStrictEqual(v.file_url, urlVechi, 'fișierul nou, în același rând');
+  assert.match(v.file_url, /content-files\/pdf\/evaluare-nationala\/\d+_varianta-ai-1-evaluare-nationala-matematica\.pdf$/);
+  assert.strictEqual(supa.db.tables.content.filter((c) => c.subcategory === 'variante-ai').length, 1, 'niciun rând nou de variantă');
+  assert.strictEqual(supa.db.tables.content.find((c) => c.id === BID).file_url, urlBarem, 'baremul rămâne (nu a venit altul)');
+  assert.strictEqual(supa.db.tables.ai_pdf_text.find((x) => x.content_id === VID).barem_override_id, BID, 'legătura baremului rămâne');
+  const st = supa.db.tables.app_settings.find((x) => x.key === `pagina2:${VID}`);
+  assert.deepStrictEqual([st.value.status, st.value.file_url], ['curatat', v.file_url]);
+  const t = supa.db.tables.content.find((c) => c.content_type === 'interactive' && c.pdf_sursa_id === VID);
+  assert.ok(t);
+  assert.strictEqual(v.interactiv_id, t.id);
+  // a doua regenerare cu același file_url_vechi → conflict (fișierul s-a schimbat între timp)
+  const r2 = await CG.proceseazaUnitate(supa, { manifest: m, unitate: 'u/4r2', citeste: cititor(files) });
+  assert.strictEqual(r2.status, 'conflict');
+  // Anulează: fișierul vechi revine, starea albă și testul dispar
+  await CG.anuleaza(supa, rand(supa, 'u/4r').id);
+  assert.strictEqual(v.file_url, urlVechi);
+  assert.ok(!supa.db.tables.app_settings.some((x) => x.key === `pagina2:${VID}`));
+  assert.ok(!supa.db.tables.content.some((c) => c.id === t.id));
+  assert.strictEqual(v.interactiv_id, null);
+});
+
+test('procedura 4, regenerarea cu barem nou: fișierul baremului se înlocuiește în rândul lui; altă rubrică → conflict', async () => {
+  const supa = fake();
+  const VID = ID(9), BID = ID(8);
+  const urlVechi = URL('content-files', 'pdf/evaluare-nationala/1_v.pdf');
+  const urlBarem = URL('content-files', 'pdf/evaluare-nationala/2_b.pdf');
+  supa.db.tables.content.push(
+    { id: VID, title: 'Varianta AI 2 — Evaluare Națională, Matematică', category: 'evaluare-nationala', subcategory: 'variante-ai', profile: null, content_type: 'pdf', is_free: false, file_url: urlVechi, interactiv_id: null },
+    { id: BID, title: 'Barem — Varianta AI 2 — Evaluare Națională, Matematică', category: 'evaluare-nationala', subcategory: 'bareme', profile: null, content_type: 'pdf', is_free: false, file_url: urlBarem },
+  );
+  supa.db.tables.ai_pdf_text.push({ content_id: VID, file_url: urlVechi, barem_id: BID, barem_status: 'ok_admin', barem_override_id: BID, barem_override_by: 'claude-skill' });
+  const files = { 'v.pdf': await pdfCuPagini(11), 'a.pdf': await pdfCuPagini(11), 'b.pdf': PDF, 't.html': Buffer.from(html()) };
+  const m = { procedura: 4, decizie: 'publica', sursa: { content_id: VID }, material: { fisier: 'v.pdf', title: 'x', file_url_vechi: urlVechi }, material_alb: { fisier: 'a.pdf' }, barem: { fisier: 'b.pdf' }, interactiv: { fisier: 't.html' } };
+  const r = await CG.proceseazaUnitate(supa, { manifest: m, unitate: 'u/4s', citeste: cititor(files) });
+  assert.strictEqual(r.status, 'publicat', r.eroare || r.motiv);
+  const b = supa.db.tables.content.find((c) => c.id === BID);
+  assert.notStrictEqual(b.file_url, urlBarem);
+  assert.match(b.file_url, /content-files\/pdf\/evaluare-nationala\/\d+_barem-varianta-ai-2/);
+  assert.strictEqual(supa.db.tables.content.find((c) => c.id === VID).title, 'Varianta AI 2 — Evaluare Națională, Matematică', 'titlul rămâne al variantei');
+  await CG.anuleaza(supa, rand(supa, 'u/4s').id);
+  assert.strictEqual(b.file_url, urlBarem);
+  // regenerarea merge doar pentru variantele AI
+  const r3 = await CG.proceseazaUnitate(supa, { manifest: { ...m, sursa: { content_id: VARIANTA }, material: { fisier: 'v.pdf', title: 'x', file_url_vechi: URL('content-files-free', 'pdf/evaluare-nationala/2_v07.pdf') } }, unitate: 'u/4t', citeste: cititor(files) });
+  assert.strictEqual(r3.status, 'conflict');
+  assert.match(r3.motiv, /Doar variantele din „Variante generate cu AI"/);
+  assert.throws(() => CG.normalizeazaManifest({ procedura: 4, decizie: 'publica', sursa: { content_id: VID }, material: { fisier: 'v.pdf', title: 'x' }, barem: { fisier: 'b.pdf' } }, { unitate: 'u/x' }), /file_url_vechi/);
+});
+
 // ═══════════════════════════ 8) procedura 5 — explicații ═══════════════════════════
 
 test('procedura 5: explicațiile la grilă intră în barem_explicatii (fișierul în content-files); a doua oară → conflict', async () => {
@@ -491,4 +558,165 @@ test('scripts/continut/aduce-surse.js: materialul, baremul legat, fișierul mode
   // după 8 zile, sursele ies de pe ramură
   await aduceToate({ dir, out, supa, http, log: () => {}, acum: acum + 8 * 24 * 3600 * 1000 });
   assert.ok(!fs.existsSync(path.join(out, VARIANTA)));
+});
+
+// ═══════════════════════════ procedura 7: lecțiile live cu Prof. Tudor (22 nov. 2026) ═══════════════════════════
+// „fă o procedură nouă la skill prin care generezi lecțiile live cu profesorul virtual Tudor;
+// respecți aceleași reguli de generare, să prezinte baremul și cu rezolvare interactivă pe ecran"
+const F7 = require('./tools/lectieLiveSkill');
+const LL = require('../api/_lib/liveLesson');
+const SUBIECT = ID(7), LECTIE = ID(9);
+const URL7 = URL('content-files-free', 'pdf/evaluare-nationala/7_v03.pdf');
+const CTX7 = { text: F7.subiectEN(), baremText: F7.baremEN(), baremStatus: 'ok', barem: { id: BAREM_EN, title: 'Barem — 2025 - varianta 03 oficială' } };
+const fake7 = ({ lectie = null, barem = true, subiect = {} } = {}) => {
+  const supa = fake();
+  supa.db.tables.content.push({ id: SUBIECT, title: '2025 - varianta 03 oficială', category: 'evaluare-nationala', subcategory: 'variante', profile: null, content_type: 'pdf', is_free: true, file_url: URL7, interactiv_id: null, pdf_sursa_id: null, ...subiect });
+  supa.db.tables.ai_pdf_text.push({ content_id: SUBIECT, file_url: URL7, text: F7.subiectEN(), barem_id: barem ? BAREM_EN : null, barem_status: barem ? 'ok' : 'negasit', barem_text: barem ? F7.baremEN() : '', barem_override_id: null, barem_override_by: null });
+  supa.db.tables.live_lessons = lectie ? [{ id: LECTIE, subject_id: SUBIECT, teacher: 'radu', version: 1, status: 'nou', title: null, script: null, progress: {}, locked_until: null, cost_micro: 0, ...lectie }] : [];
+  supa.db.unique.live_lessons = [['subject_id', 'teacher', 'version']];
+  CG.lectieDeps.pdfContext = async () => CTX7;   // textul + baremul subiectului (ca getPdfContext)
+  return supa;
+};
+const man7 = (extra = {}) => ({ procedura: 7, decizie: 'publica', titlu: 'Lecție live — 2025 - varianta 03 oficială', sursa: { content_id: SUBIECT }, lectie: { fisier: 'lectie.json' }, verificari: { dupa_barem: true, raspunsurile_din_barem: true }, rulare: 'proc7-2026-11-22', ...extra });
+const fis7 = (items = F7.itemiEN()) => ({ 'lectie.json': Buffer.from(JSON.stringify({ items })) });
+const lectii = (supa) => supa.db.tables.live_lessons;
+
+test('procedura 7: lecția live verificată → publicată direct: rândul live_lessons „script", scrisă de claude-skill, cu aceleași verificări; Anulează o scoate', async () => {
+  const supa = fake7();
+  const r = await CG.proceseazaUnitate(supa, { manifest: man7(), unitate: '2026-11-22/7-' + SUBIECT, citeste: cititor(fis7()) });
+  assert.strictEqual(r.status, 'publicat', r.motiv || r.eroare);
+  assert.strictEqual(lectii(supa).length, 1);
+  const l = lectii(supa)[0];
+  assert.deepStrictEqual([l.subject_id, l.teacher, l.version, l.status, l.title, l.exam], [SUBIECT, 'radu', 1, 'script', '2025 - varianta 03 oficială', 'en']);
+  assert.strictEqual(l.script.items.length, 18);
+  assert.strictEqual(l.script.writer.model, 'claude-skill');
+  assert.strictEqual(l.script.v, 2, 'scrisă cu paginile PDF (nu „fără pagini")');
+  assert.strictEqual(l.script.pasi, LL.PASI_V, 'are întrebările pe pași');
+  assert.deepStrictEqual(l.script.missing, []);
+  assert.ok(l.script.intro.length && l.script.outro.length, 'segmentele fixe ale profesorului (început, final)');
+  assert.ok(l.script.items.every((it) => it.intro.every((s) => s.id)), 'id-urile frazelor (vocea se generează pe ele)');
+  assert.strictEqual(l.progress.phase, 'voce');
+  assert.strictEqual(l.progress.total, LL.segmentsInOrder(l.script).length);
+  assert.strictEqual(l.progress.skill.unitate, '2026-11-22/7-' + SUBIECT);
+  // „să prezinte baremul și cu rezolvare interactivă pe ecran": explicația pe barem cu punctajele pe tablă,
+  // întrebarea grilei pe ecran, întrebările pe pași la fiecare subpunct de la Subiectul al III-lea
+  const III1 = l.script.items.find((it) => it.ref === 'III.1');
+  assert.ok(III1.modes.barem.some((s) => s.board.some((b) => /\(2p\)/.test(b))));
+  assert.deepStrictEqual(III1.steps.map((s) => [s.part, s.type, s.answer]), [['a', 'completare', '2'], ['b', 'completare', '6']]);
+  assert.strictEqual(l.script.items.find((it) => it.ref === 'I.4').tryPoll.answer, 'd');
+  assert.ok(supa.db.uploads.some((u) => u.bucket === 'content-files' && /^_continut-generat\/lectii-live\/\d+_2025-varianta-03-oficiala\.json$/.test(u.path)));
+  assert.deepStrictEqual(r.creat.lectie, { id: l.id, subject_id: SUBIECT, mod: 'nou', title: '2025 - varianta 03 oficială' });
+  const lk = await CG.linkuri(supa, r.id);
+  assert.deepStrictEqual(lk.site.map((x) => x.url), [`/pdf-viewer?id=${SUBIECT}`, '/admin?tab=live']);
+  // Anulează: lecția fără voce încă → rândul dispare
+  const a = await CG.anuleaza(supa, r.id);
+  assert.strictEqual(a.status, 'anulat');
+  assert.strictEqual(lectii(supa).length, 0);
+});
+
+test('procedura 7: literele grilelor le dă tabelul baremului (ca la lecțiile scrise de model); rândul gol „nou" se completează, iar Anulează îl readuce', async () => {
+  const supa = fake7({ lectie: { status: 'nou' } });
+  const items = F7.itemiEN();
+  items.find((it) => it.ref === 'I.2').tryPoll.answer = 'b';   // greșit: baremul spune d)
+  const r = await CG.proceseazaUnitate(supa, { manifest: man7(), unitate: '2026-11-22/7-gol', citeste: cititor(fis7(items)) });
+  assert.strictEqual(r.status, 'publicat', r.motiv || r.eroare);
+  assert.strictEqual(lectii(supa).length, 1, 'același rând, nu unul nou');
+  const l = lectii(supa)[0];
+  assert.deepStrictEqual([l.id, l.status, l.script.items.length], [LECTIE, 'script', 18]);
+  assert.strictEqual(l.script.items.find((it) => it.ref === 'I.2').tryPoll.answer, 'd', 'litera din barem are ultimul cuvânt');
+  assert.strictEqual(r.creat.lectie.mod, 'completat');
+  await CG.anuleaza(supa, r.id);
+  assert.deepStrictEqual([lectii(supa)[0].status, lectii(supa)[0].script, lectii(supa)[0].title], ['nou', null, null]);
+});
+
+test('procedura 7: subiectul are deja lecție / lecția se scrie chiar acum pe site / fără barem / un barem / profilul pedagogic → conflict, nimic scris', async () => {
+  const cazuri = [
+    [{ lectie: { status: 'gata', title: 'scrisă', script: { items: [] } } }, /are deja o lecție live \(gata\)/],
+    [{ lectie: { status: 'nou', locked_until: new Date(Date.now() + 5 * 60000).toISOString() } }, /se scrie chiar acum/],
+    [{ barem: false }, /nu are barem citit/],
+    [{ subiect: { subcategory: 'bareme', title: 'Barem — 2025 - varianta 03' } }, /e un barem/],
+    [{ subiect: { category: 'bacalaureat', profile: 'pedagogic', title: 'BAC 2025 pedagogic varianta 3' } }, /pedagogic/],
+  ];
+  for (const [opt, re] of cazuri) {
+    const supa = fake7(opt);
+    const inainte = JSON.stringify(lectii(supa));
+    const r = await CG.proceseazaUnitate(supa, { manifest: man7(), unitate: `2026-11-22/7-${Math.random().toString(36).slice(2, 8)}`, citeste: cititor(fis7()) });
+    assert.strictEqual(r.status, 'conflict', `${re}: ${r.status} ${r.motiv || r.eroare}`);
+    assert.match(r.motiv, re);
+    assert.strictEqual(supa.db.uploads.length, 0, 'nimic urcat');
+    assert.strictEqual(JSON.stringify(lectii(supa)), inainte, 'lecțiile rămân neatinse');
+  }
+});
+
+test('procedura 7: itemi lipsă, subpuncte fără întrebare, grilă cu variante dublate → ciornă (motivul spus); „Aprobă" o publică din fișierul ciornei', async () => {
+  const supa = fake7();
+  const items = F7.itemiEN({ fara: ['III.6'] });
+  for (const sg of items.find((it) => it.ref === 'III.2').modes.barem) sg.ask = null;
+  items.find((it) => it.ref === 'II.3').tryPoll.options = ['3 cm', '3 cm', '5 cm', '6 cm'];
+  const r = await CG.proceseazaUnitate(supa, { manifest: man7(), unitate: '2026-11-22/7-ciorna', citeste: cititor(fis7(items)) });
+  assert.strictEqual(r.status, 'ciorna');
+  assert.match(r.motiv, /lipsesc itemii III\.6/);
+  assert.match(r.motiv, /subpuncte fără întrebare pe pas \(completate automat din barem\): III\.2/);
+  assert.match(r.motiv, /botul de verificare a lecțiilor: .*două variante sunt la fel/);
+  assert.strictEqual(lectii(supa).length, 0, 'ciorna nu ajunge la elevi');
+  const fl = rand(supa, '2026-11-22/7-ciorna').fisiere.lectie;
+  assert.ok(fl && supa.db.files.has(`${fl.bucket}/${fl.path}`), 'fișierul lecției e păstrat pentru aprobare');
+  // aprobarea: scriptul se reface din fișierul ciornei (aceleași verificări), apoi se publică
+  const a = await CG.aproba(supa, r.id);
+  assert.strictEqual(a.status, 'aprobat');
+  const l = lectii(supa)[0];
+  assert.strictEqual(l.script.items.length, 17);
+  assert.deepStrictEqual(l.script.missing, ['III.6']);
+  assert.ok(l.script.items.find((it) => it.ref === 'III.2').steps.length > 0, 'subpunctele primesc întrebări din barem (fără AI)');
+});
+
+test('procedura 7: lecție cu voce deja generată → Anulează refuză (se șterge din Admin → Meditații live); manifestul cere subiectul și lectie.json', async () => {
+  const supa = fake7();
+  const r = await CG.proceseazaUnitate(supa, { manifest: man7(), unitate: '2026-11-22/7-voce', citeste: cititor(fis7()) });
+  assert.strictEqual(r.status, 'publicat', r.motiv || r.eroare);
+  lectii(supa)[0].progress = { ...lectii(supa)[0].progress, audio: { x: { url: 'u', dur: 1 } } };
+  await assert.rejects(CG.anuleaza(supa, r.id), /vocea generată/);
+  assert.strictEqual(lectii(supa).length, 1, 'lecția rămâne');
+  assert.throws(() => CG.normalizeazaManifest({ procedura: 7, decizie: 'publica', lectie: { fisier: 'lectie.json' } }, { unitate: 'a/7-x' }), /sursa\.content_id/);
+  assert.throws(() => CG.normalizeazaManifest({ procedura: 7, decizie: 'publica', sursa: { content_id: SUBIECT } }, { unitate: 'a/7-x' }), /„lectie"/);
+  assert.throws(() => CG.normalizeazaManifest({ procedura: 7, decizie: 'publica', sursa: { content_id: SUBIECT }, lectie: { fisier: 'lectie.txt' } }, { unitate: 'a/7-x' }), /\.json/);
+  assert.throws(() => CG.itemiLectie(Buffer.from('{"items": []}')), /nu conține itemii/);
+  assert.throws(() => CG.itemiLectie(Buffer.from('nu e json')), /nu e JSON valid/);
+  const r2 = await CG.proceseazaUnitate(fake7(), { manifest: man7(), unitate: '2026-11-22/7-gol2', citeste: cititor({ 'lectie.json': Buffer.from('{"items":[]}') }) });
+  assert.strictEqual(r2.status, 'esuat');
+  assert.match(r2.eroare, /nu conține itemii/);
+});
+
+test('scripts/continut/aduce-surse.js: „lectie_pentru" dă regulile EXACTE ale lecțiilor live (instrucțiunile, cererile pe bucăți, schema) și starea lecției', async () => {
+  const { aduceToate } = require('../scripts/continut/aduce-surse');
+  const http = require('../api/_lib/http');
+  const L = require('../api/_lib/live');
+  const supa = fake7({ lectie: { status: 'nou' } });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg7-'));
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'cg7-out-'));
+  fs.mkdirSync(path.join(dir, 'cereri'));
+  const acum = Date.parse('2026-11-22T10:00:00Z');
+  fs.writeFileSync(path.join(dir, 'cereri', '2026-11-22T09-59-00_p7.json'), JSON.stringify({ creat_la: '2026-11-22T09:59:00Z', rulare: 'proc7', fisiere: [{ lectie_pentru: SUBIECT }, { lectie_pentru: FISA }] }));
+  await aduceToate({ dir, out, supa, http, log: () => {}, acum, deps: { pdfContext: async () => CTX7 } });
+  const gata = JSON.parse(fs.readFileSync(path.join(out, '_gata', '2026-11-22T09-59-00_p7.json'), 'utf8'));
+  assert.deepStrictEqual(gata.rezultate.map((r) => r.ok), [true, false]);
+  assert.strictEqual(gata.rezultate[0].cale, `${SUBIECT}/lectie/reguli.md`);
+  assert.match(gata.rezultate[1].eroare, /doar pentru subiectele de Evaluare Națională și Bacalaureat/);
+  const brief = JSON.parse(fs.readFileSync(path.join(out, SUBIECT, 'lectie', 'brief.json'), 'utf8'));
+  const teacher = L.teacherById('radu');
+  assert.strictEqual(brief.system, LL.systemPrompt(teacher, 'en', null), 'aceleași instrucțiuni ca modelul de pe site');
+  assert.deepStrictEqual(brief.schema, JSON.parse(JSON.stringify(LL.SCHEMA)));
+  assert.deepStrictEqual(brief.chunks.map((c) => `${c.section}.${c.from}-${c.to}`), ['I.1-3', 'I.4-6', 'II.1-2', 'II.3-4', 'II.5-6', 'III.1-2', 'III.3-4', 'III.5-6']);
+  assert.match(brief.chunks[5].prompt, /=== BAREMUL OFICIAL — SUBIECTUL III ===/);
+  assert.strictEqual(brief.expected.length, 18);
+  assert.deepStrictEqual(brief.grile.I, { 1: 'd', 2: 'd', 3: 'd', 4: 'd', 5: 'd', 6: 'd' });
+  const md = fs.readFileSync(path.join(out, SUBIECT, 'lectie', 'reguli.md'), 'utf8');
+  assert.match(md, /^# Lecția live cu Prof\. Tudor — „2025 - varianta 03 oficială" \(Evaluarea Națională\)/);
+  assert.ok(md.includes(brief.system) && md.includes('### Bucata 8 — Subiectul III, itemii 5–6'));
+  assert.match(md, /Literele grilelor din tabelul baremului \(au ultimul cuvânt\): S\. I: 1\) d/);
+  const meta = JSON.parse(fs.readFileSync(path.join(out, SUBIECT, 'lectie', 'meta.json'), 'utf8'));
+  assert.deepStrictEqual([meta.exam, meta.are_barem, meta.lectie_existenta.status], ['en', true, 'nou']);
+  // sursele (și regulile) expiră după 7 zile, ca restul
+  await aduceToate({ dir, out, supa, http, log: () => {}, acum: acum + 8 * 24 * 3600 * 1000, deps: { pdfContext: async () => CTX7 } });
+  assert.ok(!fs.existsSync(path.join(out, SUBIECT)));
 });
