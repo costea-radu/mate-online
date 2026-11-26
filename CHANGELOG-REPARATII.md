@@ -4,6 +4,19 @@ Toate fix-urile din raportul de debug, aplicate în ordine. Build-ul trece (`vit
 
 ---
 
+## 26 noiembrie 2026 (2) — 💡 indicii la testele de EN, ca la BAC · ⭐ explicațiile la grilă doar Premium
+
+Cererile lui Radu (26 nov., seara): „Explicațiile grilă fă-le să fie premium, dacă nu sunt deja” și „Nu apar indicii la testele grilă de Evaluare Națională. Fă să apară ca la BAC”.
+
+- **⭐ Explicațiile la grilă sunt Premium** (`api/_lib/explicatiiGrila.js` → `link`): până acum urmau baremul (baremul gratuit → oricine le deschidea); acum doar abonații activi și adminii, la orice barem (fără cont → 401 „Autentifică-te”, fără abonament → 403 cu „Vezi abonamentele”). Fișierul stă în bucketul privat, cu link semnat de 5 minute — regula e pe server, nu doar în pagină. Butonul „💡 Explicații la grilă” poartă ⭐ pentru cine n-are abonament (`ExplicatiiGrila.jsx`, `acces` din `PDFViewer.jsx`).
+- **💡 Indicii la exercițiile fără indicii în fișier** — testele de EN (Subiectele I–II grilă, Subiectul al III-lea pe pași) n-aveau nicio indicație; la BAC fiecare pas o are în fișier:
+  - `api/_lib/indiciiTest.js` (nou): citește din HTML-ul testului cardurile-grilă (`EX1` randat în `#exList1` + cardurile scrise direct în pagină) și pașii din `PROBS` fără `help`, fără să execute nimic din fișier; scrie O DATĂ, cu AI (modelul de PDF, ca explicațiile pre-generate), câte un indiciu scurt pentru fiecare — fără rezultat, fără litera corectă (indiciile care le scapă se aruncă) — și le servește tuturor din `app_settings` `indicii:<id>` (fără SQL nou). Testul înlocuit (alt `file_url`) → indicii noi. O singură generare odată (marcajul „generare”).
+  - `api/indicii.js` (nou): `POST { contentId }` → `{ stare: 'gata', h, nc, fp }` / `'generare'` / `'nimic'`.
+  - Puntea (`src/lib/tutorBridge.js`): dacă testul are exerciții fără indicație, le cere (`MATE_HINTS_REQ`) și pune „💡 Arată indiciile” la fiecare card-grilă și la pasul deschis — același buton și aceeași casetă ca la BAC; indiciile proprii ale testului rămân neatinse. Siguranța: numărul cardurilor și începutul enunțului trebuie să se potrivească cu ce a citit serverul, altfel nu pune nimic.
+  - `InteractiveViewer.jsx`: `MATE_HINTS_REQ` → `/api/indicii` → `MATE_HINTS`; cât le scrie altă cerere, reîncearcă la 15 s.
+  - Cronul (`api/ai-ingest.js`): câte 2 teste de EN pe rulare (la 30 de minute), ca indiciile să fie gata înainte de elevi. Oprire: `AI_INDICII_DISABLED=1`; alt model: `AI_INDICII_MODEL`; mărimea lotului: `AI_INDICII_BATCH`.
+- **Teste**: `test/indicii-test.test.js` (nou, 8: citirea testului pe forma testelor de EN, ordinea cardurilor, verificarea indiciilor, cache-ul, generarea o singură dată, eșecul, puntea), `test/explicatii-grila.test.js` (explicațiile Premium și la baremul gratuit).
+
 ## 26 noiembrie 2026 — 🤖 procedurile 8 și 9, explicațiile doar pentru varianta corectă · 🗺️ testele noi la coada traseului · 🧩 testele cu PDF întâi, corectare automată în „Pregătește-mă” · 🎓 nota la meditația live · Home fără descrieri gri
 
 Cererile lui Radu (25 nov., seara): task-urile o dată pe săptămână; variantele AI fără pagini incomplete; testele noi în harta pregătirii, la capitolul lor, la sfârșitul traseului; testele interactive cu PDF întâi, celelalte la sfârșit și PDF-uri generate pentru ele; explicațiile la grilă doar pentru varianta corectă; un skill nou care verifică construcția testelor interactive (indicații, fără întrebări repetate, grilă sau completare, completare doar la numere întregi; „Foaie de lucru” și profesorul virtual în bara de sus); nota la sfârșitul meditației live; „Cum ți s-a părut testul?” la sfârșit; Home fără descrierile gri; în „Pregătește-mă de examen” exercițiile se deschid și se corectează singure; iconul hărții deschide harta.

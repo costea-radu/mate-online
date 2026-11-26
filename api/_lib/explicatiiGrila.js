@@ -10,8 +10,9 @@
 // Națională — tabela barem_explicatii (supabase/explicatii_grila.sql), cheia = baremul
 // (content.id: baremul separat sau, la „subiecte + barem" în același PDF, subiectul).
 //   stare(supa, baremId)            — există? (fără linkul fișierului) — oricine;
-//   link(supa, baremId, { profil }) — linkul semnat (5 min), cu regulile baremului:
-//                                     gratuit → oricine; Premium → abonații și adminii;
+//   link(supa, baremId, { profil }) — linkul semnat (5 min), doar pentru abonații
+//                                     Premium și admini (26 nov. 2026: „Explicațiile
+//                                     grilă fă-le să fie premium" — și la baremele gratuite);
 //   salveaza / sterge / lista       — doar adminul (Admin → 💡 Explicații grilă).
 // Fișierul îl încarcă browserul adminului în Storage (content-files, privat), la
 // pdf/evaluare-nationala/…_explicatii-grila_….pdf; aici se verifică locul și se leagă.
@@ -61,21 +62,21 @@ async function stare(supa, baremId) {
     ok: true, en: true, setup, exista: !!row,
     titlu: row ? (row.titlu || 'Explicații la grilă') : null,
     actualizat: row ? row.updated_at : null,
-    gratuit: !!b.is_free,
+    gratuit: !!b.is_free,       // baremul în sine (explicațiile sunt Premium oricum)
+    premium: true,
   };
 }
 
-// Linkul semnat, cu regulile baremului (ca api/get-file-url.js)
+// Linkul semnat — explicațiile la grilă sunt Premium (26 nov. 2026), indiferent dacă
+// baremul e gratuit: abonații activi și adminii
 async function link(supa, baremId, { profil = null } = {}) {
   const b = await baremul(supa, baremId);
   if (!esteEN(b)) throw eroare(404, 'Explicațiile la grilă sunt doar la baremele de Evaluare Națională.');
   const { row } = await randul(supa, b.id);
   if (!row) throw eroare(404, 'Explicațiile la grila acestui barem nu au fost încă adăugate.');
-  if (!b.is_free) {
-    if (!profil) throw eroare(401, 'Autentifică-te ca să deschizi explicațiile.');
-    const abonat = profil.subscription_status === 'active' || !!profil.is_admin;
-    if (!abonat) throw eroare(403, 'Explicațiile acestui barem fac parte din abonament.');
-  }
+  if (!profil) throw eroare(401, 'Autentifică-te ca să deschizi explicațiile la grilă (sunt pentru abonații Premium).');
+  const abonat = profil.subscription_status === 'active' || !!profil.is_admin;
+  if (!abonat) throw eroare(403, 'Explicațiile la grilă fac parte din abonamentul Premium.');
   const url = await http.signedUrlFromPublic(supa, row.file_url, 300);
   return { ok: true, url, titlu: row.titlu || 'Explicații la grilă' };
 }

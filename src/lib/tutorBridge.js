@@ -43,6 +43,8 @@
 //                      src/lib/ciornaTest.js) → MATE_ANSWERS_SET_ACK { n }
 //                    | MATE_COMPACT { on } (telefon: bara testului se strânge)
 //                    | MATE_TOOLBAR_CMD { cmd: 'total' | 'reset' | 'all' }
+//                    | MATE_HINTS { h, nc, fp } (26 nov. 2026: indiciile exercițiilor fără indicii,
+//                      cerute de punte cu MATE_HINTS_REQ { n } — api/indicii.js)
 //                    | MATE_ITEMS_REQ (19 nov. 2026: testul deschis din PDF-ul lui — „🧩 Interactiv")
 //                      → MATE_ITEMS { items: [{ lbl, p, m }] }: exercițiile la care elevul a
 //                      răspuns, cu punctele lor (și în MATE_SCORE.items) — punctajul cumulat al
@@ -1020,11 +1022,126 @@ const BRIDGE_SCRIPT = String.raw`
     post('MATE_TOOLBAR', s);
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // 💡 INDICII la exercițiile fără indicii în fișier (26 nov. 2026)
+  // „Nu apar indicii la testele grilă de EN. Fă să apară ca la BAC": la fiecare
+  // card-grilă și la pasul deschis din Subiectul al III-lea apare „💡 Arată
+  // indiciile", ca la BAC, cu indiciul scris o dată pe server (api/indicii.js).
+  // Puntea cere indiciile (MATE_HINTS_REQ) doar dacă testul are exerciții fără
+  // indicație proprie; părintele răspunde cu MATE_HINTS { h, nc, fp }:
+  //   h  — { c<k>: indiciul cardului k (ordinea din pagină), p<i>s<j>: PROBS[i].steps[j] }
+  //   nc — câte carduri-grilă a găsit serverul (alt număr aici → fără indicii la carduri)
+  //   fp — începutul enunțului (doar litere): indiciul ajunge doar la cardul lui
+  // Indiciile proprii ale testului („💡 Arată indiciile" de la BAC) rămân neatinse.
+  // ══════════════════════════════════════════════════════════════════
+  var HINTS = null, hintsAsked = false;
+  var HINT_CSS = '.mt-hint-btn{background:#fff8e1;border:1.5px solid #e8b931;color:#8a6d00;border-radius:8px;padding:5px 13px;font-family:inherit;font-weight:700;font-size:.78rem;cursor:pointer;margin:8px 0;line-height:1.3}'
+    + '.mt-hint-btn:hover{background:#fff3d6}'
+    + '.mt-hint-box{background:#f7f9fc;border-left:3px solid #e8b931;border-radius:0 8px 8px 0;padding:9px 13px;margin:0 0 10px;font-family:"Lora",Georgia,serif;font-size:.96rem;color:#0f2b44;line-height:1.6;text-align:left;font-weight:400}';
+  function hintCss(){
+    if (document.getElementById('mt-hint-css')) return;
+    var st = document.createElement('style'); st.id = 'mt-hint-css'; st.textContent = HINT_CSS;
+    (document.head || document.documentElement).appendChild(st);
+  }
+  function gridCards(){
+    var out = [];
+    document.querySelectorAll('.card').forEach(function(c){ if (c.querySelector('.opt')) out.push(c); });
+    return out;
+  }
+  function ownHint(el){ return !!(el && el.querySelector('.btn-hint, .hintBtn, .hint, .mt-indicatie')); }
+  function letters(t){ t = String(t || ''); try { t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch(e){} return t.toLowerCase().replace(/[^a-z]/g, ''); }
+  function hintlessCount(){
+    var n = 0;
+    gridCards().forEach(function(c){ if (!ownHint(c)) n++; });
+    var P = gget('PROBS');
+    if (P && P.length) for (var i = 0; i < P.length; i++) {
+      var st = P[i] && P[i].steps;
+      if (st && st.length) for (var j = 0; j < st.length; j++) if (st[j] && !st[j].help) n++;
+    }
+    return n;
+  }
+  function askHints(){
+    if (hintsAsked) return;
+    var n = 0;
+    try { n = hintlessCount(); } catch(e){}
+    if (!n) return;
+    hintsAsked = true;
+    post('MATE_HINTS_REQ', { n: n });
+  }
+  function escH(s){ return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  // formulele indiciului: MathJax (testele de EN) sau KaTeX auto-render; true = s-au randat
+  function typesetHint(el){
+    try {
+      if (window.MathJax && window.MathJax.typesetPromise) { window.MathJax.typesetPromise([el]).catch(function(){}); return true; }
+      if (window.renderMathInElement) { window.renderMathInElement(el, { delimiters: [{ left: '\\(', right: '\\)', display: false }, { left: '\\[', right: '\\]', display: true }, { left: '$', right: '$', display: false }], throwOnError: false }); return true; }
+    } catch(e){}
+    return false;
+  }
+  function hintUi(text){
+    var w = document.createElement('div');
+    w.setAttribute('data-mt-hint', '1');
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'mt-hint-btn'; b.textContent = '💡 Arată indiciile';
+    var box = document.createElement('div');
+    box.className = 'mt-hint-box'; box.style.display = 'none'; box.innerHTML = escH(text);
+    b.addEventListener('click', function(ev){
+      ev.preventDefault(); ev.stopPropagation();
+      var on = box.style.display === 'none';
+      box.style.display = on ? 'block' : 'none';
+      if (on && !box.getAttribute('data-mt-tex') && typesetHint(box)) box.setAttribute('data-mt-tex', '1');   // MathJax încă neîncărcat → la apăsarea următoare
+    });
+    w.appendChild(b); w.appendChild(box);
+    return w;
+  }
+  function placeCardHints(){
+    var cards = gridCards();
+    if (HINTS.nc != null && cards.length !== HINTS.nc) return;   // alt număr de carduri decât pe server: nu riscăm indicii puse greșit
+    for (var k = 0; k < cards.length; k++) {
+      var c = cards[k], id = 'c' + (k + 1), t = HINTS.h[id];
+      if (!t || ownHint(c) || c.querySelector('[data-mt-hint]')) continue;
+      var fp = HINTS.fp && HINTS.fp[id];
+      if (fp && letters(txt(c.querySelector('.qtxt'))).indexOf(fp) !== 0) continue;
+      var ui = hintUi(t), qb = c.querySelector('.qbody'), hd = c.querySelector('.card-hdr');
+      if (qb) qb.appendChild(ui);
+      else if (hd && hd.parentNode) hd.parentNode.insertBefore(ui, hd.nextSibling);
+      else c.insertBefore(ui, c.firstChild);
+    }
+  }
+  // pasul deschis din PROBS (Subiectul al III-lea): „Pasul X din N" din cardul activ
+  function placeStepHint(){
+    var P = gget('PROBS'), curN = gget('cur');
+    if (!P || !P.length || curN == null) return;
+    var card = document.querySelector('#activeArea .acard');
+    if (!card || card.querySelector('[data-mt-hint]') || card.querySelector('.btn-hint')) return;
+    var pi = -1;
+    for (var i = 0; i < P.length; i++) if (P[i] && P[i].n === curN) { pi = i; break; }
+    if (pi < 0) return;
+    var m = /Pasul\s+(\d+)\s+din/i.exec(txt(card.querySelector('.a-kicker')) || txt(card));
+    if (!m) return;
+    var si = parseInt(m[1], 10) - 1, step = P[pi].steps && P[pi].steps[si];
+    if (!step || step.help) return;
+    var t = HINTS.h['p' + pi + 's' + si];
+    if (!t) return;
+    var ui = hintUi(t), tt = card.querySelector('.a-title');
+    if (tt && tt.parentNode) tt.parentNode.insertBefore(ui, tt.nextSibling);
+    else card.appendChild(ui);
+  }
+  function placeHints(){
+    if (!HINTS || !HINTS.h) return;
+    try { placeCardHints(); } catch(e){}
+    try { placeStepHint(); } catch(e){}
+  }
+
   // ── Ascultă părintele ──────────────────────────────────────────────
   window.addEventListener('message', function(ev){
     var d = ev && ev.data;
     if (!d || typeof d !== 'object') return;
     if (d.type === 'MATE_TUTOR_STATE_REQ') post('MATE_TUTOR_STATE', collect());
+    if (d.type === 'MATE_HINTS') {
+      var hp = d.payload;
+      HINTS = hp && typeof hp === 'object' && hp.h && typeof hp.h === 'object' ? hp : null;
+      if (HINTS) { hintCss(); placeHints(); }
+    }
     if (d.type === 'MATE_COMPACT') { COMPACT = !!d.on; postToolbar(true); }
     // telefonul: pictogramele din bara paginii apasă butoanele testului
     if (d.type === 'MATE_TOOLBAR_CMD') {
@@ -1175,7 +1292,7 @@ const BRIDGE_SCRIPT = String.raw`
 
   // ── Observă re-randările exercițiului ─────────────────────────────
   var deb = null;
-  function refreshUI(){ rewireHintButtons(); ensureStepHelpers(); decorateExercises(); }
+  function refreshUI(){ rewireHintButtons(); ensureStepHelpers(); decorateExercises(); placeHints(); }
   function onMutate(){
     refreshUI();
     if (deb) clearTimeout(deb);
@@ -1202,6 +1319,7 @@ const BRIDGE_SCRIPT = String.raw`
     } catch(e){}
     try { new MutationObserver(onMutate).observe(document.body, { childList: true, subtree: true }); } catch(e){}
     post('MATE_TUTOR_READY', { title: document.title || '' });
+    askHints();
     post('MATE_TUTOR_STATE', collect());
     postToolbar(true);
   }

@@ -1486,7 +1486,7 @@ export default function PDFViewer() {
         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           📋 Barem: {barem?.title || 'baremul testului'}
         </span>
-        <ButonExplicatii stare={explicatii} admin={isAdmin} loc="antet" tiny={tiny} onDeschide={() => setExplicatiiOpen(true)} />
+        <ButonExplicatii stare={explicatii} admin={isAdmin} acces={isPremium || isAdmin} loc="antet" tiny={tiny} onDeschide={() => setExplicatiiOpen(true)} />
         <button type="button" onClick={toggleBarem}
           style={{ background: '#fff', border: '1px solid #cfe8d4', color: 'var(--navy)', borderRadius: 8, padding: '3px 10px', fontSize: '.74rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
           📄 Înapoi la subiecte
@@ -1516,7 +1516,7 @@ export default function PDFViewer() {
   // 💡 în bara de sus: baremul deschis direct / baremul inclus în același PDF (cel
   // separat are butonul în antetul lui verde, de mai sus)
   const explicatiiBtn = !showBaremDoc && enBaremId && (
-    <ButonExplicatii stare={explicatii} admin={isAdmin} loc="bara" tiny={tiny} onDeschide={() => setExplicatiiOpen(true)} />
+    <ButonExplicatii stare={explicatii} admin={isAdmin} acces={isPremium || isAdmin} loc="bara" tiny={tiny} onDeschide={() => setExplicatiiOpen(true)} />
   );
   const explicatiiJsx = explicatiiOpen && enBaremId && (
     <ExplicatiiOverlay baremId={enBaremId} titluBarem={baremEsteDeschis || baremView.inclus ? (item?.title || '') : (barem?.title || '')} onClose={() => setExplicatiiOpen(false)} />

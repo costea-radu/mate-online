@@ -585,6 +585,32 @@ export default function InteractiveViewer() {
     };
   }, [user, item?.id, duelId]);
 
+  // 💡 Indiciile exercițiilor fără indicii în fișier (26 nov. 2026, „fă să apară ca la BAC"):
+  // puntea le cere (MATE_HINTS_REQ), serverul le dă din cache sau le scrie o dată
+  // (api/indicii.js); „generare" = le scrie altă cerere chiar acum → reîncercăm peste 15 s.
+  const itemIdRef = useRef(null);
+  useEffect(() => { itemIdRef.current = item?.id || null; }, [item?.id]);
+  const indiciiRef = useRef({ cache: {}, timer: null });
+  const cereIndiciiRef = useRef(null);
+  cereIndiciiRef.current = async (incercare = 0) => {
+    const id = itemIdRef.current;
+    if (!id) return;
+    const st = indiciiRef.current;
+    const trimite = (payload) => { try { iframeRef.current?.contentWindow?.postMessage({ type: 'MATE_HINTS', payload }, '*'); } catch { /* fără bridge */ } };
+    if (st.cache[id]) { trimite(st.cache[id]); return; }
+    try {
+      const res = await fetch('/api/indicii', { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ contentId: id }) });
+      const d = await res.json().catch(() => ({}));
+      if (itemIdRef.current !== id) return;                        // între timp, alt test
+      if (d && d.stare === 'gata' && d.h) { st.cache[id] = { h: d.h, nc: d.nc ?? null, fp: d.fp || {} }; trimite(st.cache[id]); return; }
+      if (d && d.stare === 'generare' && incercare < 12) {
+        clearTimeout(st.timer);
+        st.timer = setTimeout(() => { if (cereIndiciiRef.current) cereIndiciiRef.current(incercare + 1); }, 15000);
+      }
+    } catch { /* fără indicii — testul merge oricum */ }
+  };
+  useEffect(() => () => clearTimeout(indiciiRef.current.timer), []);
+
   // ─── Mesajele bridge-ului (exercițiu → tutor) ───────────────────────────────
   useEffect(() => {
     function onTutorMsg(event) {
@@ -608,6 +634,7 @@ export default function InteractiveViewer() {
       if (d.type === 'MATE_ITEMS' && fromTest) { itemiRef.current = Array.isArray(d.items) ? d.items : null; return; }
       if (d.type === 'MATE_TOOLBAR' && fromTest) { if (d.payload) setTb(d.payload); return; }
       if (d.type === 'MATE_TOTAL_DONE' && fromTest) { setTestGata(true); return; }
+      if (d.type === 'MATE_HINTS_REQ' && fromTest) { if (cereIndiciiRef.current) cereIndiciiRef.current(0); return; }
       // răspunsurile elevului, citite din pagină de bridge (Etapa 3): serverul
       // recalculează scorul din ele, chiar dacă testul e un HTML mai vechi
       if (d.type === 'MATE_ANSWERS' && Array.isArray(d.answers)) {

@@ -39,8 +39,8 @@
 // 💡 EXPLICAȚIILE LA GRILĂ — baremele de Evaluare Națională (18 nov. 2026,
 // api/_lib/explicatiiGrila.js, supabase/explicatii_grila.sql):
 //   { action: 'explicatii', baremId }      — oricine: există explicații? (fără link)
-//   { action: 'explicatii_url', baremId }  — linkul semnat (gratuit → oricine; Premium →
-//                                            abonații și adminii)
+//   { action: 'explicatii_url', baremId }  — linkul semnat, doar abonații Premium și adminii
+//                                            (26 nov. 2026: explicațiile sunt Premium mereu)
 //   — doar admin — { action: 'explicatii_lista' } · { action: 'explicatii_salveaza',
 //   baremId, fileUrl, titlu? } (PDF-ul încărcat din browser în content-files, la
 //   pdf/evaluare-nationala/) · { action: 'explicatii_sterge', baremId }

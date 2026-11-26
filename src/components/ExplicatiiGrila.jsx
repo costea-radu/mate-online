@@ -11,7 +11,9 @@
 //   • elevul vede butonul „💡 Explicații la grilă" doar când explicațiile au fost
 //     încărcate; adminul îl vede mereu („lipsesc" → Admin → 💡 Explicații grilă);
 //   • butonul deschide PDF-ul explicațiilor peste vizualizator (✕ / Esc îl închide),
-//     cu regulile baremului: gratuit → oricine; Premium → abonații.
+//     doar pentru abonații Premium și admini (26 nov. 2026: explicațiile la grilă sunt
+//     Premium și la baremele gratuite); celorlalți butonul le arată ⭐, iar la apăsare
+//     mesajul cu abonamentele (sau autentificarea).
 // Serverul: api/bareme.js → explicatii / explicatii_url (api/_lib/explicatiiGrila.js).
 // Încărcarea: src/components/AdminExplicatiiGrila.jsx.
 // =====================================================================
@@ -48,7 +50,8 @@ export function useExplicatiiGrila(baremId) {
 
 // Butonul: în bara de sus a vizualizatorului (`loc="bara"`) sau în antetul verde al
 // baremului (`loc="antet"`). Nimic până nu știm; elevului — doar dacă există explicații.
-export function ButonExplicatii({ stare, admin = false, onDeschide, loc = 'bara', tiny = false }) {
+// `acces` = abonat Premium sau admin; fără el, butonul poartă ⭐ (explicațiile sunt Premium).
+export function ButonExplicatii({ stare, admin = false, acces = false, onDeschide, loc = 'bara', tiny = false }) {
   if (!stare || !stare.en) return null;
   if (!stare.exista && !admin) return null;
   const stil = loc === 'antet'
@@ -62,9 +65,11 @@ export function ButonExplicatii({ stare, admin = false, onDeschide, loc = 'bara'
       </Link>
     );
   }
+  const premium = stare.premium !== false && !acces && !admin;
   return (
-    <button type="button" onClick={onDeschide} style={stil} title="Explicațiile răspunsurilor de la grilă (Subiectele I și II)">
-      💡 {tiny ? 'Explicații' : 'Explicații la grilă'}
+    <button type="button" onClick={onDeschide} style={stil}
+      title={premium ? 'Explicațiile la grilă sunt pentru abonații Premium' : 'Explicațiile răspunsurilor de la grilă (Subiectele I și II)'}>
+      💡 {tiny ? 'Explicații' : 'Explicații la grilă'}{premium ? ' ⭐' : ''}
     </button>
   );
 }

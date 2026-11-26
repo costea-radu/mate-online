@@ -54,7 +54,7 @@ test('SQL: tabela barem_explicatii cu RLS, GRANT-urile din CLAUDE.md (fără ano
 
 test('starea: doar la baremele de EN; fără link; tabela lipsă → setup: false', async () => {
   const supa = createFakeSupabase(seed());
-  assert.deepStrictEqual(await EG.stare(supa, ID_GRATUIT), { ok: true, en: true, setup: true, exista: false, titlu: null, actualizat: null, gratuit: true });
+  assert.deepStrictEqual(await EG.stare(supa, ID_GRATUIT), { ok: true, en: true, setup: true, exista: false, titlu: null, actualizat: null, gratuit: true, premium: true });
   assert.deepStrictEqual(await EG.stare(supa, ID_BAC), { ok: true, en: false, setup: true, exista: false });
   supa.db.tables.barem_explicatii.push({ barem_id: ID_PREMIUM, file_url: URL_PDF(1), titlu: 'Explicații — Ilfov', updated_at: '2026-11-18T10:00:00Z' });
   const s = await EG.stare(supa, ID_PREMIUM);
@@ -67,19 +67,22 @@ test('starea: doar la baremele de EN; fără link; tabela lipsă → setup: fals
   await assert.rejects(EG.stare(supa, '55555555-5555-4555-8555-555555555555'), (e) => e.status === 404);
 });
 
-test('linkul: cu regulile baremului — gratuit → oricine; Premium → abonații și adminii', async () => {
+test('linkul: explicațiile sunt Premium (26 nov. 2026) — și la baremul gratuit: doar abonații și adminii', async () => {
   const supa = createFakeSupabase(seed());
   supa.db.tables.barem_explicatii.push(
     { barem_id: ID_GRATUIT, file_url: URL_PDF(1), titlu: 'Explicații V3' },
     { barem_id: ID_PREMIUM, file_url: URL_PDF(2), titlu: 'Explicații Ilfov' },
   );
-  const g = await EG.link(supa, ID_GRATUIT, { profil: null });
+  // baremul gratuit: fără cont → 401, cont fără abonament → 403
+  await assert.rejects(EG.link(supa, ID_GRATUIT, { profil: null }), (e) => e.status === 401 && /Premium/.test(e.message));
+  await assert.rejects(EG.link(supa, ID_GRATUIT, { profil: { subscription_status: null, is_admin: false } }), (e) => e.status === 403 && /abonament/.test(e.message));
+  const g = await EG.link(supa, ID_GRATUIT, { profil: { subscription_status: 'active' } });
   assert.match(g.url, /\/object\/sign\/content-files\/pdf\/evaluare-nationala\/1_explicatii-grila_EN_2025\.pdf\?token=t&ttl=300$/);
   await assert.rejects(EG.link(supa, ID_PREMIUM, { profil: null }), (e) => e.status === 401);
   await assert.rejects(EG.link(supa, ID_PREMIUM, { profil: { subscription_status: 'canceled', is_admin: false } }), (e) => e.status === 403 && /abonament/.test(e.message));
   assert.ok((await EG.link(supa, ID_PREMIUM, { profil: { subscription_status: 'active' } })).url);
   assert.ok((await EG.link(supa, ID_PREMIUM, { profil: { subscription_status: null, is_admin: true } })).url);
-  await assert.rejects(EG.link(supa, ID_SUBIECT, { profil: null }), (e) => e.status === 404, 'fără explicații încărcate');
+  await assert.rejects(EG.link(supa, ID_SUBIECT, { profil: { subscription_status: 'active' } }), (e) => e.status === 404, 'fără explicații încărcate');
   await assert.rejects(EG.link(supa, ID_BAC, { profil: null }), (e) => e.status === 404, 'doar EN');
 });
 
@@ -144,7 +147,11 @@ test('vizualizatorul: „💡 Explicații la grilă" cât se vede un barem de EN
   assert.match(v, /\? \(\(baremEsteDeschis \|\| baremView\.inclus\) \? \(item\?\.id \|\| null\) : \(barem\?\.id \|\| null\)\)/, 'cheia: baremul separat, sau PDF-ul deschis');
   // hook-ul stă înaintea întoarcerilor timpurii ale paginii
   assert.ok(v.indexOf('const explicatii = useExplicatiiGrila(enBaremId);') < v.indexOf('  if (authLoading || loading) {'));
-  assert.match(v, /<ButonExplicatii stare=\{explicatii\} admin=\{isAdmin\} loc="antet"/, 'în antetul baremului deschis cu „📋 Barem"');
+  assert.match(v, /<ButonExplicatii stare=\{explicatii\} admin=\{isAdmin\} acces=\{isPremium \|\| isAdmin\} loc="antet"/, 'în antetul baremului deschis cu „📋 Barem"');
+  // 26 nov. 2026: explicațiile sunt Premium — fără abonament, butonul poartă ⭐
+  assert.strictEqual((v.match(/acces=\{isPremium \|\| isAdmin\}/g) || []).length, 2);
+  assert.match(c, /const premium = stare\.premium !== false && !acces && !admin;/);
+  assert.match(c, /\{premium \? ' ⭐' : ''\}/);
   assert.strictEqual((v.match(/\{explicatiiBtn\}/g) || []).length, 2, 'în bara de sus, pe telefon și pe calculator');
   assert.strictEqual((v.match(/\{explicatiiJsx\}/g) || []).length, 2);
   assert.match(v, /const explicatiiBtn = !showBaremDoc && enBaremId && \(/);

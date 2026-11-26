@@ -21,6 +21,7 @@
 // =====================================================================
 const ai = require('./_lib/ai');
 const pregen = require('./_lib/pregen');
+const indiciiTest = require('./_lib/indiciiTest');   // 💡 indiciile testelor de EN (26 nov. 2026)
 const costwatch = require('./_lib/costwatch');
 
 const BATCH = parseInt(process.env.AI_INGEST_BATCH || '20', 10);
@@ -214,6 +215,10 @@ async function processWithPregen(supa) {
   if (q.remaining === 0) {
     try { q.pregen = await pregen.processBatch(supa); }
     catch (e) { console.warn('pregen în cron:', e.message); q.pregen = { pregenerated: 0, note: e.message }; }
+    // indiciile exercițiilor din testele de EN care n-au indicii în fișier — câteva teste
+    // pe rulare, ca să fie gata înainte de elevi (api/_lib/indiciiTest.js)
+    try { q.indicii = await indiciiTest.processBatch(supa); }
+    catch (e) { console.warn('indicii în cron:', e.message); q.indicii = { generate: 0, note: e.message }; }
   }
   // Alarma de cost (pasul 4) — o interogare agregată ieftină, la FIECARE
   // rulare (indiferent de coadă); trimite email cel mult o dată pe zi.
