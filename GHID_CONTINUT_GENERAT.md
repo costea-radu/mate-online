@@ -28,7 +28,7 @@ Task-urile programate (Claude, cu skill-ul `examenmate-continut`) produc conțin
 
 ## Instalare (o singură dată)
 
-1. **Supabase** — gata (le-am aplicat pe 21 nov.); sunt idempotente, le poți rula oricând din nou în SQL Editor:
+1. **Supabase** — gata (le-am aplicat pe 21 nov.); sunt idempotente, le poți rula oricând din nou în SQL Editor (26 nov.: **și** `supabase/continut_generat_proceduri.sql`, pentru procedurile 7–9):
    - `supabase/continut_generat.sql` — tabela jurnalului și a ciornelor (RLS, GRANT-urile din CLAUDE.md, fără `anon`, doar serverul);
    - `supabase/notificari_fara_bareme.sql` — baremele nu mai trimit notificări elevilor.
 2. **Codul site-ului**: commit + push pe `main` + deploy (Vercel). Action-urile clonează `mate-online` de pe GitHub, deci **funcționează abia după push**.
@@ -50,7 +50,7 @@ Task-urile programate (Claude, cu skill-ul `examenmate-continut`) produc conțin
 
 ## Variantele EN generate (procedura 4)
 
-Fiecare variantă are aceeași așezare ca subiectele oficiale: coperta (datele candidatului, tabelul asistenților, tabelele de note A/B/C ale comisiilor de evaluare), pagina 2 cu dreptunghiul negru și instrucțiunile, itemii în chenare cu punctajul în stânga, caroiajul de la Subiectul al III-lea și pagina finală cu caroiaj. Antetul e al ExamenMate, nu al Ministerului (e o variantă de antrenament, generată cu AI). Șablonul LaTeX: `sabloane/en-varianta.sty` în repo-ul privat.
+Fiecare variantă are aceeași așezare ca subiectele oficiale: coperta (datele candidatului, tabelul asistenților, tabelele de note A/B/C ale comisiilor de evaluare), pagina 2 cu dreptunghiul negru și instrucțiunile, itemii în chenare cu punctajul în stânga, caroiajul de la Subiectul al III-lea și pagina finală cu caroiaj. Din 26 nov. 2026: chenarul închis sus, Subiectele al II-lea și al III-lea încep pe pagina pe care se termină cel dinainte, la Subiectul al III-lea a) și b) sunt rânduri separate și ultimul caroiaj de pe fiecare pagină se lungește până jos (fără pagini incomplete, fără caroiaje mai mici de 6 / 9 rânduri); problemele 4, 5 și 6 ocupă câte o pagină. Antetul e al ExamenMate, nu al Ministerului (e o variantă de antrenament, generată cu AI). Șablonul LaTeX: `sabloane/en-varianta.sty` în repo-ul privat.
 
 - **⬛ / ⬜**: se generează două PDF-uri din aceeași sursă — cu dreptunghiul negru și fără el. Copia fără dreptunghi devine varianta „⬜ Fără suprafață neagră” din vizualizator, exact ca la variantele oficiale (aceeași stare `pagina2:<id>` ca botul; `variante-ai` e acum printre rubricile botului).
 - **🧩 Testul interactiv** al variantei apare la „Teste interactive” și se deschide din variantă cu „🧩 Deschide interactiv”.
@@ -66,6 +66,22 @@ Cererea (22 nov. 2026): „fă o procedură nouă la skill prin care generezi le
 - **Ce conține lecția**: la fiecare item — enunțul, „încercați singuri” (întrebarea pe ecran), explicația **pe barem**, pas cu pas, cu punctajele pe tablă („(2p)”), explicațiile pentru „🔁 Explică altfel”, iar la Subiectele II–III **întrebările pe pași** (cel puțin una la fiecare subpunct, înaintea explicației lui).
 - **Verificarea la publicare** (`liveLesson.scriptFromItems`, aceleași funcții ca la lecțiile scrise de model): literele grilelor din tabelul baremului, „Arătați că…”, întrebările valide, **toți itemii subiectului**, formulele care se afișează, apoi **botul de verificare a lecțiilor** (întrebări la fiecare exercițiu și subpunct, cronologia). Ce nu trece → ciornă, cu motivul; o lecție cu itemi lipsă sau subpuncte fără întrebare nu ajunge direct la elevi.
 - **Pe site**: lecția intră în `live_lessons` cu starea „script” (ca o lecție scrisă „doar textul”); **vocea și desenele din PDF le face site-ul la prima folosire** (1-la-1: un minut pentru începutul lecției; grupul: cronul, înainte de ședință) sau imediat din Admin → 🎥 Meditații live → „🔊 Generează vocea”. În „Lecțiile recente” apare „scrisă de Claude (skill-ul „examenmate-continut”)”.
+
+## Programarea (26 nov. 2026): o rulare pe săptămână, câte o procedură pe zi
+
+Câte un singur fișier sursă la o rulare. Luni 02:13 — 1 (bareme) · marți 02:41 — 2 (teste interactive pentru PDF-uri) · miercuri 03:07 — 3 (fișe după model; fără fișiere model, procedura 8: PDF pentru un test interactiv fără PDF) · joi 03:34 — 4 (variante AI) · vineri 04:12 — 5 (explicații) · sâmbătă 04:38 — 9 (construcția testelor interactive, skill-ul `examenmate-teste-interactive`, în locul procedurii 6) · duminică 04:48 — 7 (lecții live). Fiecare rulare se oprește singură dacă a fost pusă în pauză peste 3 ore (de exemplu de limita de utilizare) — așa s-a consumat mult în 23–25 nov.: rulările oprite de limită au repornit toate deodată.
+
+## PDF pentru un test interactiv fără PDF (procedura 8)
+
+Testul (sursa) n-are PDF asociat → task-ul face PDF-ul cu enunțurile testului și baremul lui, după rezolvările testului verificate. Rubrica: la EN, testele din „Teste interactive” → „Variante generate cu AI” (în șablonul variantelor, cu ⬛ / ⬜); la BAC → „Teste de antrenament”; capitolele, exercițiile pe subiecte și clasele → aceeași rubrică. După publicare testul și PDF-ul sunt asociate („📄 PDF” pe test, „🧩 Interactiv” pe PDF), iar testul urcă printre cele cu PDF (pe site, cele cu PDF stau întâi).
+
+## Construcția testelor interactive (procedura 9, skill-ul `examenmate-teste-interactive`)
+
+Înlocuiește procedura 6: verifică un test pe săptămână — rezolvările după barem, ordinea pașilor, fără întrebări repetate (același lucru cerut de două ori), grilă **sau** completare pentru același răspuns, completare doar la răspunsuri numere naturale / întregi, indicații la fiecare exercițiu (profesorul virtual rămâne, din bara de sus). Totul în regulă → „verificat”; altfel fișierul refăcut, publicat direct doar dacă trece și verificările Action-ului (cheile scorului, completări doar cu numere întregi, indicațiile), altfel ciornă.
+
+## Explicațiile la grilă (procedura 5)
+
+Din 26 nov. 2026: **doar varianta corectă**, scrisă pentru elevi (de ce e corectă, calculul pe scurt) — fără explicațiile variantelor greșite. Explicațiile deja publicate se înlocuiesc cu `explicatii.file_url_vechi` (același rând, „↩ Anulează” readuce fișierul vechi).
 
 ## Legăturile „claude-skill”
 

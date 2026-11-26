@@ -143,6 +143,9 @@ function etape(tinta) {
     pdf({ id: 'pdf-variante', titlu: en ? 'Variante date și modele' : 'Variante date, olimpici, rezerve', subcategory: 'variante', icon: 'varianta' }),
     ...(en ? [] : [pdf({ id: 'pdf-antrenament', titlu: 'Teste de antrenament', subcategory: 'teste-antrenament', icon: 'antrenament' })]),
     pdf({ id: 'pdf-simulari', titlu: en ? 'Simulări' : 'Simulări și modele', subcategory: 'simulari', icon: 'simulare' }),
+    // 26 nov. 2026: variantele generate cu AI (procedura 4 a skill-ului; și PDF-urile testelor
+    // interactive de EN, procedura 8) — la sfârșitul hărții PDF, în ordinea în care au apărut
+    ...(en ? [pdf({ id: 'pdf-variante-ai', titlu: 'Variante generate cu AI', subcategory: 'variante-ai', grupare: 'bucati', icon: 'varianta', ordine: 'creare', bucati: ['Varianta', 'Variantele'] })] : []),
   ];
 }
 
@@ -199,7 +202,8 @@ function peCapitole(ale, et) {
     return ale.map((n, k) => {
       const b = Math.floor(k / TESTE_PE_GRUPA);
       const de = b * TESTE_PE_GRUPA + 1, pana = Math.min(ale.length, de + TESTE_PE_GRUPA - 1);
-      return { ...n, cap: `${et.id}:b${b + 1}`, capTitlu: de === pana ? `Testul ${de}` : `Testele ${de}–${pana}`, capIcon: n.capIcon };
+      const [unu, multe] = et.bucati || ['Testul', 'Testele'];
+      return { ...n, cap: `${et.id}:b${b + 1}`, capTitlu: de === pana ? `${unu} ${de}` : `${multe} ${de}–${pana}`, capIcon: n.capIcon };
     });
   }
   const grupe = new Map();
@@ -214,13 +218,23 @@ function peCapitole(ale, et) {
 
 // Pașii planului: rândurile vin deja în ordinea din site (sort_order ↑, created_at ↓);
 // un material apare o singură dată, în prima etapă în care se potrivește; în etapă,
-// pașii se așază pe capitole (vezi peCapitole).
+// pașii se așază pe capitole (vezi peCapitole). 26 nov. 2026: testele interactive cu PDF
+// asociat (pdf_sursa_id) vin înaintea celor fără PDF, ca pe site; etapele cu ordine: 'creare'
+// (variantele AI) — în ordinea în care au apărut.
+const ordineEtapa = (rows, et) => {
+  let lista = rows || [];
+  if (et.tip === 'interactive') lista = [...lista.filter((r) => r && r.pdf_sursa_id), ...lista.filter((r) => r && !r.pdf_sursa_id)];
+  if (et.ordine === 'creare') {
+    lista = lista.map((r, k) => ({ r, k })).sort((a, b) => ((Date.parse(a.r.created_at || 0) || 0) - (Date.parse(b.r.created_at || 0) || 0)) || (a.k - b.k)).map((x) => x.r);
+  }
+  return lista;
+};
 function construiesteNoduri(rows, lista, { cuBarem = null } = {}) {
   const noduri = [];
   const vazute = new Set();
   for (const et of lista) {
     const ale = [];
-    for (const r of rows || []) {
+    for (const r of ordineEtapa(rows, et)) {
       if (!r || !r.id || vazute.has(r.id) || !sePotriveste(r, et) || barem.isBaremRow(r) || !intraPdf(r, et, cuBarem)) continue;
       const cap = capitolNod(r, et);
       if (et.doarCuCapitol && cap.alte) continue;   // fișa nu e pe un capitol → nu intră aici
@@ -261,18 +275,26 @@ const accesibil = (nod, premium) => !!premium || (nod.gratuit && nod.tip === 'in
 
 // O hartă: starea fiecărui pas, pasul curent, ce e deschis (indicii `i` — în harta ei)
 // `deLa` = indicele de la care pornește pasul curent (focusul ales de elev; -1 = de la început)
+// 26 nov. 2026 — „testele noi o să fie adăugate constant, pune-le la sfârșitul traseului": un pas
+// apărut după începutul planului elevului („nou") stă în capitolul lui pe hartă, dar pe TRASEU vine
+// după toți pașii pe care elevul îi avea deja (`r` = locul pe traseu): nu mai devine pasul următor
+// când apare într-o etapă parcursă, ci elevul ajunge la el după ce termină ce avea.
 function calculeaza(noduri, progres, { sarite = new Set(), trecute = new Set(), premium = false, start = null, deLa = -1 } = {}) {
   const out = (noduri || []).map((n, i) => {
     const s = stareNod(n, progres.get(n.id) || null, { sarite, trecute });
     const zi = n.creat ? String(n.creat).slice(0, 10) : null;
     return { ...n, i, ...s, accesibil: accesibil(n, premium), nou: !!(start && zi && zi > start) };
   });
+  const ruta = [...out.filter((n) => !n.nou), ...out.filter((n) => n.nou)];
+  ruta.forEach((n, k) => { n.r = k; });
   const liber = (n) => n.accesibil && n.stare !== 'trecut' && n.stare !== 'sarit';
-  let curent = deLa >= 0 ? out.findIndex((n) => n.i >= deLa && liber(n)) : -1;
-  if (curent < 0) curent = out.findIndex(liber);
+  let cur = null;
+  if (deLa >= 0 && out[deLa]) { const r0 = out[deLa].r; cur = ruta.find((n) => n.r >= r0 && liber(n)) || null; }
+  if (!cur) cur = ruta.find(liber) || null;
+  const curent = cur ? cur.i : -1;
   for (const n of out) {
     // cu Premium, orice pas e deschis (15 nov. 2026: „la premium, să poată alege orice pas")
-    n.deschis = n.accesibil && (premium || curent < 0 || n.i <= curent || STARI_LUCRATE.includes(n.stare));
+    n.deschis = n.accesibil && (premium || !cur || n.r <= cur.r || STARI_LUCRATE.includes(n.stare));
     n.poateSari = n.i === curent && n.stare === 'incercat' && n.incercari >= INCERCARI_SARIRE;
   }
   return { noduri: out, curent };
@@ -479,7 +501,7 @@ async function continut(supa, tinta) {
   const cats = categorii(tinta);
   if (!cats.length) return [];
   return http.allRows((from, to) => supa.from('content')
-    .select('id, title, category, subcategory, profile, is_free, content_type, file_url, sort_order, created_at')
+    .select('id, title, category, subcategory, profile, is_free, content_type, file_url, sort_order, created_at, pdf_sursa_id')
     .in('category', cats).in('content_type', ['interactive', 'pdf'])
     .order('sort_order', { ascending: true }).order('created_at', { ascending: false })
     .range(from, to), { pageSize: 1000, maxPages: 6 });

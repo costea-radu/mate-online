@@ -63,6 +63,9 @@ export default function InteractiveViewer() {
   const [partialSalvat, setPartialSalvat] = useState(null);           // salvarea automată de la jumătatea exercițiului
   const [reviewOpen, setReviewOpen] = useState(false);               // „Cum ți s-a părut testul?" (după scor salvat)
   const reviewAskedRef = useRef(new Set());                          // testele pentru care am întrebat deja (în această vizită)
+  // 26 nov. 2026: „Cum ți s-a părut testul?" abia la SFÂRȘITUL testului — după „✓ Corectează total"
+  // (MATE_TOTAL_DONE din bridge) sau când toate răspunsurile sunt completate, nu la primul scor salvat
+  const [testGata, setTestGata] = useState(false);
   const [vw, setVw] = useState(typeof window !== 'undefined' ? window.innerWidth : 1280);
   useEffect(() => {
     const onResize = () => setVw(window.innerWidth);
@@ -442,6 +445,7 @@ export default function InteractiveViewer() {
         setScoreSaved(false);
         setSavedScore(null);
         setSaveError(null);
+        setTestGata(false);
         setIframeKey((k) => k + 1);
         return;
       }
@@ -603,10 +607,13 @@ export default function InteractiveViewer() {
       if (d.type === 'MATE_ANSWERS_SET_ACK' && fromTest) { const n = Number(d.payload && d.payload.n) || 0; if (n > 0) setCiornaPusa(n); return; }
       if (d.type === 'MATE_ITEMS' && fromTest) { itemiRef.current = Array.isArray(d.items) ? d.items : null; return; }
       if (d.type === 'MATE_TOOLBAR' && fromTest) { if (d.payload) setTb(d.payload); return; }
+      if (d.type === 'MATE_TOTAL_DONE' && fromTest) { setTestGata(true); return; }
       // răspunsurile elevului, citite din pagină de bridge (Etapa 3): serverul
       // recalculează scorul din ele, chiar dacă testul e un HTML mai vechi
       if (d.type === 'MATE_ANSWERS' && Array.isArray(d.answers)) {
         lastAnswersRef.current = d.answers;
+        // toate răspunsurile completate → testul e terminat (pentru „Cum ți s-a părut testul?")
+        if (d.answers.length > 0 && d.answers.every((a) => a != null && String(a).trim() !== '')) setTestGata(true);
         const c = ciornaRef.current;
         if (c.cheie && c.gata && !c.salvat) {
           if (areRaspunsuri(d.answers)) scrieCiorna(c.cheie, d.answers);
@@ -678,6 +685,7 @@ export default function InteractiveViewer() {
   const reviewSkipKey = item?.id ? `em_review_skip_${item.id}` : null;
   useEffect(() => {
     if (!scoreSaved || !savedScore || !user || !item?.id) return;
+    if (!testGata) return;   // abia la sfârșitul testului (26 nov. 2026), nu când intră sau la primul scor
     if (pregRez) return;   // întâi felicitarea testului zilei (stau amândouă stânga-sus)
     if (reviewAskedRef.current.has(item.id)) return;
     try { if (reviewSkipKey && sessionStorage.getItem(reviewSkipKey)) return; } catch { /* ignore */ }
@@ -686,8 +694,8 @@ export default function InteractiveViewer() {
     const id = item.id;
     const t = setTimeout(() => { reviewAskedRef.current.add(id); setReviewOpen(true); }, 1500);
     return () => clearTimeout(t);
-  }, [scoreSaved, savedScore, user, item?.id, reviewSkipKey, pregRez]);
-  useEffect(() => { setReviewOpen(false); }, [item?.id]);
+  }, [scoreSaved, savedScore, user, item?.id, reviewSkipKey, pregRez, testGata]);
+  useEffect(() => { setReviewOpen(false); setTestGata(false); }, [item?.id]);
   function closeReview() {
     setReviewOpen(false);
     try { if (reviewSkipKey) sessionStorage.setItem(reviewSkipKey, '1'); } catch { /* ignore */ }
@@ -705,7 +713,10 @@ export default function InteractiveViewer() {
   }), [item, exState]);
 
   // HTML-ul exercițiului cu bridge-ul injectat (exercițiile din DB NU se modifică)
-  const finalDoc = useMemo(() => (srcDoc ? injectTutorBridge(srcDoc) : null), [srcDoc]);
+  // 26 nov. 2026: din „Pregătește-mă de examen" exercițiile se corectează singure și se deschide singur
+  // exercițiul următor (nu la duel / test pe grupă / temă)
+  const autoCorectare = dinPregatire && !duelId && !gtId && !temaId;
+  const finalDoc = useMemo(() => (srcDoc ? injectTutorBridge(srcDoc, { auto: autoCorectare }) : null), [srcDoc, autoCorectare]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -820,6 +831,9 @@ export default function InteractiveViewer() {
     flexShrink: 0, borderRadius: 10, padding: '5px 8px', fontSize: '0.72rem', fontWeight: 800,
     whiteSpace: 'nowrap', background: bg, color, border: `1px solid ${border}`, lineHeight: 1.2,
   });
+  // 🗺️ (26 nov. 2026): „iconul hartă să afișeze harta la clic pe el" — pagina „Pregătește-mă de
+  // examen", derulată la hartă (PregatesteMa.jsx → #harta)
+  const laHarta = () => navigate('/pregateste-ma#harta');
   const phoneBar = (
     <div role="toolbar" aria-label="Bara testului" style={{
       display: 'flex', alignItems: 'center', gap: 5, ...paddingBara(6, 8), background: 'var(--navy)',
@@ -846,7 +860,11 @@ export default function InteractiveViewer() {
       {gtId && <TestModeBadge compact />}
       {duelId && <span title="Duel: ai o singură încercare, iar Profesorul Virtual e închis" style={chip('rgba(232,185,49,0.16)', 'var(--gold)', 'var(--gold)')}>⚔️</span>}
       {dinMisiune && !duelId && <span title="Exercițiul zilei din Arena: îl bifezi rezolvându-l cu cel puțin 50%" style={chip('rgba(232,185,49,0.16)', 'var(--gold)', 'var(--gold)')}>🎯</span>}
-      {dinPregatire && !dinMisiune && !duelId && <span title={dinPlan ? 'Pas din harta pregătirii: îl treci de la 70%; după 3 încercări poți merge mai departe' : 'Testul zilei („Pregătește-mă de examen”): ziua se bifează de la câteva exerciții'} style={chip('rgba(232,185,49,0.16)', 'var(--gold)', 'var(--gold)')}>{dinPlan ? '🗺️' : '📝'}</span>}
+      {dinPregatire && !dinMisiune && !duelId && (
+        <button type="button" onClick={laHarta} aria-label="Harta pregătirii"
+          title={dinPlan ? 'Harta pregătirii — pasul îl treci de la 70%; după 3 încercări poți merge mai departe' : 'Harta pregătirii („Pregătește-mă de examen”)'}
+          style={{ ...chip('rgba(232,185,49,0.16)', 'var(--gold)', 'var(--gold)'), cursor: 'pointer' }}>{dinPlan ? '🗺️' : '📝'}</button>
+      )}
       {partialSalvat && !scoreSaved && <span title="Ce ai rezolvat până acum e salvat. Apasă „Corectează total” pentru rezultatul final." style={chip('rgba(46,204,113,0.14)', '#7ee2a8', 'rgba(46,204,113,0.5)')}>💾</span>}
       {ciornaPusa > 0 && !scoreSaved && <span title={`Am pus la loc ${ciornaPusa === 1 ? 'răspunsul tău' : `cele ${ciornaPusa} răspunsuri ale tale`} de data trecută — continuă de unde ai rămas`} style={chip('rgba(232,185,49,0.16)', 'var(--gold)', 'var(--gold)')}>↩</span>}
       {item?.category === 'manuale' && <button onClick={() => navigate('/')} aria-label="Acasă" title="Acasă" style={ib()}>🏠</button>}
@@ -912,10 +930,10 @@ export default function InteractiveViewer() {
             }} title="Exercițiul zilei din Arena: îl bifezi rezolvându-l cu cel puțin 50%">{isMobile ? '🎯' : '🎯 MISIUNEA ZILEI'}</span>
           )}
           {dinPregatire && !dinMisiune && !duelId && (
-            <span style={{
-              background: 'rgba(232,185,49,0.16)', border: '1px solid var(--gold)', color: 'var(--gold)',
-              borderRadius: 12, padding: '3px 10px', fontSize: '0.76rem', fontWeight: 800, whiteSpace: 'nowrap',
-            }} title={dinPlan ? 'Pas din harta pregătirii („Pregătește-mă de examen”): îl treci de la 70%; după 3 încercări poți merge mai departe' : 'Testul zilei („Pregătește-mă de examen”): ziua se bifează de la câteva exerciții — nu trebuie să-l termini'}>{dinPlan ? (isMobile ? '🗺️' : '🗺️ HARTA PREGĂTIRII') : (isMobile ? '📝' : '📝 TESTUL ZILEI')}</span>
+            <button type="button" onClick={laHarta} aria-label="Harta pregătirii" style={{
+              background: 'rgba(232,185,49,0.16)', border: '1px solid var(--gold)', color: 'var(--gold)', cursor: 'pointer',
+              borderRadius: 12, padding: '3px 10px', fontSize: '0.76rem', fontWeight: 800, whiteSpace: 'nowrap', fontFamily: 'inherit',
+            }} title={dinPlan ? 'Deschide harta pregătirii („Pregătește-mă de examen”) — pasul îl treci de la 70%; după 3 încercări poți merge mai departe' : 'Deschide harta pregătirii („Pregătește-mă de examen”)'}>{dinPlan ? (isMobile ? '🗺️' : '🗺️ HARTA PREGĂTIRII') : (isMobile ? '📝' : '📝 TESTUL ZILEI')}</button>
           )}
           {partialSalvat && !scoreSaved && (
             <span style={{

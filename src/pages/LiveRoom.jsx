@@ -39,6 +39,7 @@ import { GroupPlayer, PrivatePlayer } from '../lib/live/player';
 import { joinLiveChannel } from '../lib/live/realtime';
 import { loadRig, initials } from '../lib/live/profesori';
 import { fmtClock } from '../lib/live/timeline';
+import { notaLectie, fmtNota, fmtPuncte } from '../lib/live/nota';   // nota de la sfârșit (26 nov. 2026)
 import { enterFs, exitFs, toggleFs as toggleFullscreen, fsSupported, useIsFullscreen } from '../lib/live/fullscreen';
 import TeacherCamera from '../components/live/TeacherCamera';
 import ScenePan, { useSceneFocus, useMedia, LANDSCAPE_SHORT } from '../components/live/ScenePan';
@@ -665,6 +666,9 @@ export default function LiveRoom({ demo = null }) {
   const scene = ps?.scene;
   const choosing = privat && ps?.status === 'alege';           // exercițiul ales s-a terminat: ce urmează?
   const pollScene = scene?.type === 'sondaj' && !choosing ? scene : null;
+  // întrebările apărute pe ecran (pentru nota de la sfârșit — src/lib/live/nota.js)
+  const vazuteRef = useRef(new Set());
+  useEffect(() => { if (pollScene?.poll?.id) vazuteRef.current.add(pollScene.poll.id); }, [pollScene?.poll?.id]);
   // pe telefon: unde se uită camera (tabla cu explicația / exercițiul proiectat)
   const cam = useSceneFocus(ps);
   const landscapeShort = useMedia(LANDSCAPE_SHORT);
@@ -745,6 +749,8 @@ export default function LiveRoom({ demo = null }) {
   // exercițiu sau „Încheie"). La 1-la-1, cele 60 de minute NU mai opresc elevul care încă
   // lucrează: ședința se prelungește până termină exercițiile (plafon: LIVE_PRELUNGIRE_MAX).
   useEffect(() => { if (ps?.phase === 'final') setEnded(true); }, [ps?.phase]);
+  // nota de la sfârșit: din itemii la care profesorul a întrebat pe ecran (src/lib/live/nota.js)
+  const notaFinala = useMemo(() => (ended ? notaLectie({ timeline, raspunsuri: myAnswers, vazute: [...vazuteRef.current] }) : null), [ended, timeline, myAnswers]);
   const [, force] = useState(0);
   useEffect(() => { const t = setInterval(() => force((n) => n + 1), 1000); return () => clearInterval(t); }, []);
   const baseEnd = ext.base || privEnds;                       // sfârșitul inițial (60 min / ora)
@@ -1001,6 +1007,15 @@ export default function LiveRoom({ demo = null }) {
               <div className="lv-ended-card">
                 <h2>{canContinue ? 'Lecția comună s-a încheiat 👏' : 'Ședința s-a încheiat 👏'}</h2>
                 <p>{summaryLine(myAnswers)}</p>
+                {notaFinala && (
+                  <div className="lv-nota" role="status" aria-label={`Nota ta: ${fmtNota(notaFinala.nota)}`}>
+                    <span className="lv-nota-n">{fmtNota(notaFinala.nota)}</span>
+                    <span className="lv-nota-t">
+                      <b>Nota ta pe ce ai rezolvat pe ecran</b>
+                      <small>{fmtPuncte(notaFinala.puncte)} din {notaFinala.total} puncte · {notaFinala.corecte} din {notaFinala.intrebari} {notaFinala.intrebari === 1 ? 'răspuns corect' : 'răspunsuri corecte'}</small>
+                    </span>
+                  </div>
+                )}
                 {canContinue && (
                   <p className="lv-ended-more">
                     Poți continua <b>1-la-1</b> cu {teacher?.name || 'profesorul'}, fără cost în plus, <b>până termini exercițiile</b>

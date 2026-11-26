@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { cuPdfIntai } from '../lib/contentMeta';   // testele interactive cu PDF întâi (26 nov. 2026)
 import { useAuth } from '../context/AuthContext';
 import { ContentCard, useLegaturiPdf } from './ContentPage';
 import { fetchReviewStats } from '../lib/reviews';
@@ -29,7 +30,7 @@ export function ItemBlock({ category, subcategory, profile, contentType, emptyTe
       if (subcategory) q = q.eq('subcategory', subcategory);
       if (profile) q = q.eq('profile', profile);
       const { data, error } = await q;
-      if (!error) setItems(data || []);
+      if (!error) setItems(cuPdfIntai(data || []));   // testele interactive cu PDF întâi (26 nov. 2026)
       setLoading(false);
     }
     load();

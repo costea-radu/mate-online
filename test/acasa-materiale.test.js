@@ -39,7 +39,8 @@ test('elevul: „📚 Materiale" chiar sub „🎯 Pregătește-mă de examen" (
   assert.match(h, /\{\(cont === 'vizitator' \|\| cont === 'elev'\) && <PregatireCard \/>\}\n\s*\{cont === 'elev' && <AcasaElev \/>\}/,
     'grila elevului vine imediat după „Pregătește-mă de examen"');
   const elev = bloc(read('src/components/AcasaCont.jsx'), 'export function AcasaElev()', 'export function AcasaParinte()');
-  assert.match(elev, /<div className="acasa-grid">\s*\n\s*<MaterialeCard sub="[^"]+" \/>\s*\n\s*<Card to="\/profil\?insigne=1"/,
+  // 26 nov. 2026: fără descrierea gri (sub)
+  assert.match(elev, /<div className="acasa-grid">\s*\n\s*<MaterialeCard \/>[^\n]*\n\s*<Card to="\/profil\?insigne=1"/,
     'primul în grilă, înaintea insignelor');
   assert.strictEqual((elev.match(/<MaterialeCard /g) || []).length, 1);
 });
@@ -47,7 +48,7 @@ test('elevul: „📚 Materiale" chiar sub „🎯 Pregătește-mă de examen" (
 test('profesorul: „📚 Materiale" primul, deasupra lui „Generează teste"; părintele — fără', () => {
   const a = read('src/components/AcasaCont.jsx');
   const prof = bloc(a, 'export function AcasaProfesor()', '\n}\n');
-  assert.match(prof, /<div className="acasa-grid">\s*\n\s*<MaterialeCard sub="[^"]+" \/>\s*\n\s*<Card to="\/profesor-virtual\?tab=interactive" icon="🧩" titlu="Generează teste"/);
+  assert.match(prof, /<div className="acasa-grid">\s*\n\s*<MaterialeCard \/>[^\n]*\n\s*<Card to="\/profesor-virtual\?tab=interactive" icon="🧩" titlu="Generează teste"/);
   assert.strictEqual((prof.match(/<MaterialeCard /g) || []).length, 1);
   const parinte = bloc(a, 'export function AcasaParinte()', 'export function AcasaProfesor()');
   assert.doesNotMatch(parinte, /MaterialeCard/);

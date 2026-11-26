@@ -67,7 +67,7 @@ function RandElev({ e }) {
   );
 }
 
-export default function HartaEleviCard({ elevi = [], rol = 'profesor', limita = 6, link = null, titlu = null, style = null }) {
+export default function HartaEleviCard({ elevi = [], rol = 'profesor', limita = 6, link = null, titlu = null, style = null, faraDescriere = false }) {
   const [toti, setToti] = useState(false);
   const activi = (elevi || []).filter((e) => e && !e.archived);
   if (!activi.length) return null;
@@ -80,11 +80,11 @@ export default function HartaEleviCard({ elevi = [], rol = 'profesor', limita = 
       <style>{CSS_INEL + CSS_INELE + CSS}</style>
       <div className="hec-cap">
         <h3>🗺️ {titlu || (parinte ? 'Harta pregătirii copilului' : 'Harta pregătirii elevilor')}</h3>
-        <span className="hec-sub">
+        {!faraDescriere && <span className="hec-sub">
           {cuHarta.length
             ? `${cuHarta.length} ${cuHarta.length === 1 ? (parinte ? 'copil' : 'elev') : (parinte ? 'copii' : 'elevi')} pe hartă · progresul pe capitole și liga săptămânii`
             : (parinte ? 'Copilul nu și-a ales încă ținta.' : 'Niciun elev nu și-a ales încă ținta.')}
-        </span>
+        </span>}
       </div>
       {cuHarta.length > 0 && (
         <ul className="hec-lista">
@@ -132,7 +132,7 @@ export function HartaEleviAcasa({ rol = 'profesor' }) {
   }, []);
   if (!elevi || !elevi.length) return null;
   return (
-    <HartaEleviCard elevi={elevi} rol={rol} limita={3} style={{ marginTop: 16, marginBottom: 0 }}
+    <HartaEleviCard elevi={elevi} rol={rol} limita={3} style={{ marginTop: 16, marginBottom: 0 }} faraDescriere   /* Home: fără descrierea gri (26 nov. 2026) */
       link={{ to: '/profil?rezultate=1', label: rol === 'parinte' ? 'Toate rezultatele copilului' : 'Toate rezultatele elevilor' }} />
   );
 }

@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import Discussions from './Discussions';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { cuPdfIntai } from '../lib/contentMeta';   // testele interactive cu PDF întâi (26 nov. 2026)
 import { useAuth } from '../context/AuthContext';
 import { notaDinScor } from '../lib/nota';
 import { fetchReviewStats } from '../lib/reviews';
@@ -547,7 +548,7 @@ export default function ContentPage({ category, title, subtitle, breadcrumb, tab
         .eq('category', category)
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: false });
-      if (!error) setItems(data || []);
+      if (!error) setItems(cuPdfIntai(data || []));   // testele interactive cu PDF întâi (26 nov. 2026)
       setLoading(false);
     }
     load();

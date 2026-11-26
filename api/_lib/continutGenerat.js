@@ -25,6 +25,14 @@
 //   7 · lecție live cu Prof. Tudor (22 nov.)   → rând în live_lessons (scriptul, „script": vocea o
 //       face site-ul la prima folosire), pentru un subiect EN/BAC cu barem care n-are lecție;
 //       itemii trec prin aceleași verificări ca lecțiile scrise de model (liveLesson.scriptFromItems)
+//   8 · PDF pentru un test interactiv fără PDF (26 nov.) → PDF + barem în rubrica testului (EN
+//       „Teste interactive" → „Variante generate cu AI", cu varianta albă; BAC → „Teste de antrenament";
+//       capitolele / exercițiile / clasele → aceeași rubrică), asociat cu testul (pdf_sursa_id)
+//   9 · construcția unui test interactiv (26 nov., skill-ul „examenmate-teste-interactive", în locul
+//       procedurii 6) → fișier nou în locul celui vechi: rezolvările după barem, fără întrebări
+//       repetate, grilă SAU completare pentru același răspuns, completare doar la numere întregi,
+//       indicații la exerciții; verificările automate de aici, apoi ca la 6
+//   5 · cu explicatii.file_url_vechi (26 nov.): ÎNLOCUIREA explicațiilor unui barem (alt fișier, același rând)
 //
 // Reguli (ca în skill): nu se suprascrie nimic — precondițiile se verifică chiar înainte
 // de scriere și, la legături, chiar în instrucțiunea de scriere (doarDacaLiber, .is(null));
@@ -48,6 +56,8 @@ const PROCEDURI = {
   5: { titlu: 'Explicații la grila EN', scurt: 'Explicații grilă' },
   6: { titlu: 'Verificarea unui test interactiv', scurt: 'Verificare test' },
   7: { titlu: 'Lecție live cu Prof. Tudor', scurt: 'Lecție live' },
+  8: { titlu: 'PDF pentru un test interactiv fără PDF', scurt: 'PDF pentru test' },
+  9: { titlu: 'Construcția unui test interactiv', scurt: 'Construcție test' },
 };
 const STARI = ['in_lucru', 'publicat', 'ciorna', 'aprobat', 'respins', 'anulat', 'esuat', 'conflict', 'verificat', 'nimic'];
 const DECIZII = ['publica', 'ciorna', 'nimic', 'verificat', 'esuat'];
@@ -70,7 +80,7 @@ const ROLURI = {
   lectie: { ext: 'json', mime: 'application/json' },   // procedura 7: { items: [...] } — itemii lecției live
 };
 // ce roluri cere fiecare procedură (la „publică" / „ciornă")
-const NEVOI = { 1: ['barem'], 2: ['interactiv'], 3: ['material', 'barem'], 4: ['material', 'barem'], 5: ['explicatii'], 6: ['inlocuire'], 7: ['lectie'] };
+const NEVOI = { 1: ['barem'], 2: ['interactiv'], 3: ['material', 'barem'], 4: ['material', 'barem'], 5: ['explicatii'], 6: ['inlocuire'], 7: ['lectie'], 8: ['material', 'barem'], 9: ['inlocuire'] };
 // procedura 7: profesorul lecțiilor live (id-ul intern „radu", numele afișat „Prof. Tudor")
 const PROF_LIVE = 'radu';
 // contextul subiectului (textul + baremul, ca la scrierea lecțiilor pe site) — testele îl înlocuiesc
@@ -78,6 +88,28 @@ const lectieDeps = { pdfContext: (supa, content) => require('../ai-pdf-context')
 
 // procedura 4 cu sursa.content_id: regenerarea unei variante existente (22 nov. 2026)
 const regen = (m) => m.procedura === 4 && !!(m.sursa && m.sursa.content_id);
+// procedura 5 cu explicatii.file_url_vechi: înlocuirea explicațiilor unui barem (26 nov. 2026)
+const regen5 = (m) => m.procedura === 5 && !!(m.explicatii && m.explicatii.file_url_vechi);
+// procedura 6 sau 9: un fișier nou în locul testului interactiv
+const inlocuireTest = (m) => m.procedura === 6 || m.procedura === 9;
+
+// procedura 8: rubrica PDF-ului făcut după un test interactiv (null = nu are unde să apară)
+function destinatiePdf8(t) {
+  if (!t) return null;
+  const sub = t.subcategory ? String(t.subcategory).split('+')[0] : null;
+  if (t.category === 'evaluare-nationala') {
+    if (sub === 'teste-interactive' || !sub) return { subcategory: 'variante-ai', alb: true };
+    if (sub === 'capitole' || sub === 'exercitii-subiecte') return { subcategory: sub, alb: false };
+    return null;
+  }
+  if (t.category === 'bacalaureat') {
+    if (sub === 'teste-interactive' || !sub) return { subcategory: 'teste-antrenament', alb: false };
+    if (sub === 'capitole' || sub === 'exercitii') return { subcategory: sub, alb: false };
+    return null;
+  }
+  if (/^clasa-(5|6|7|8|9|10|11|12)$/.test(String(t.category || ''))) return { subcategory: sub, alb: false };
+  return null;
+}
 
 function eroare(status, msg, cod = null) { const e = new Error(msg); e.status = status; if (cod) e.cod = cod; return e; }
 const conflict = (msg) => eroare(409, msg, 'CONFLICT');
@@ -98,7 +130,7 @@ const numeFisierOk = (f) => typeof f === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]
 
 // ─── 1) MANIFESTUL ───────────────────────────────────────────────────────────
 // manifest.json (scris de rularea task-ului; fără secrete):
-// { procedura: 1–6, decizie: 'publica'|'ciorna'|'nimic'|'verificat'|'esuat', motiv, titlu,
+// { procedura: 1–9, decizie: 'publica'|'ciorna'|'nimic'|'verificat'|'esuat', motiv, titlu,
 //   sursa: { content_id } | { model_id },
 //   material:   { fisier, title, is_free? }                 (3, 4)
 //   material_alb: { fisier }                                (4 — aceeași variantă, cu alb în locul
@@ -106,15 +138,17 @@ const numeFisierOk = (f) => typeof f === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]
 //   (4, regenerare: sursa.content_id = varianta, material.file_url_vechi = fișierul ei de acum)
 //   barem:      { fisier }                                  (1, 3, 4)
 //   interactiv: { fisier, title?, is_free? }                (2, 4 — la 4: testul interactiv al variantei)
-//   explicatii: { fisier, titlu? }                          (5 — sursa.content_id = baremul)
-//   inlocuire:  { fisier, file_url_vechi }                  (6 — sursa.content_id = testul)
+//   explicatii: { fisier, titlu?, file_url_vechi? }         (5 — sursa.content_id = baremul; cu file_url_vechi =
+//                                                            fișierul de acum: înlocuirea explicațiilor)
+//   inlocuire:  { fisier, file_url_vechi }                  (6, 9 — sursa.content_id = testul)
+//   material + barem (+ material_alb)                       (8 — sursa.content_id = testul interactiv fără PDF)
 //   lectie:     { fisier }                                  (7 — sursa.content_id = subiectul; lectie.json =
 //                                                            { items: [...] }, după regulile din „Aduce surse")
 //   surse: [content_id…] (4, opțional), verificari: {…}, rulare }
 function normalizeazaManifest(raw, { unitate } = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw eroare(400, 'Manifestul lipsește sau nu e un obiect JSON.');
   const procedura = Number(raw.procedura);
-  if (!PROCEDURI[procedura]) throw eroare(400, `Procedura „${raw.procedura}" nu există (1–7).`);
+  if (!PROCEDURI[procedura]) throw eroare(400, `Procedura „${raw.procedura}" nu există (1–9).`);
   const decizie = String(raw.decizie || '');
   if (!DECIZII.includes(decizie)) throw eroare(400, `Decizia „${raw.decizie}" nu e una dintre: ${DECIZII.join(', ')}.`);
   const u = curat(unitate || raw.unitate, 200);
@@ -151,16 +185,16 @@ function normalizeazaManifest(raw, { unitate } = {}) {
 
   const cuFisiere = decizie === 'publica' || decizie === 'ciorna';
   const trebuie = (cond, msg) => { if (!cond) throw eroare(400, msg); };
-  if ([1, 2, 5, 6, 7].includes(procedura) && (cuFisiere || decizie === 'verificat')) trebuie(sursa.content_id, `Procedura ${procedura} are nevoie de sursa.content_id.`);
+  if ([1, 2, 5, 6, 7, 8, 9].includes(procedura) && (cuFisiere || decizie === 'verificat')) trebuie(sursa.content_id, `Procedura ${procedura} are nevoie de sursa.content_id.`);
   if (procedura === 3 && cuFisiere) trebuie(sursa.model_id, 'Procedura 3 are nevoie de sursa.model_id (fișierul model).');
-  if (decizie === 'verificat') trebuie(procedura === 6, 'Decizia „verificat" e doar pentru procedura 6.');
+  if (decizie === 'verificat') trebuie(procedura === 6 || procedura === 9, 'Decizia „verificat" e doar pentru procedurile 6 și 9.');
   if (cuFisiere) {
     for (const rol of NEVOI[procedura]) {
       if (procedura === 4 && sursa.content_id && rol === 'barem') continue;   // regenerare: baremul rămâne, dacă nu vine altul
       trebuie(m[rol], `Procedura ${procedura} are nevoie de „${rol}" (cu fișierul lui).`);
     }
-    if (procedura === 3 || procedura === 4) trebuie(m.material.title, 'Materialul are nevoie de titlu (material.title).');
-    if (procedura === 6) trebuie(m.inlocuire.file_url_vechi, 'Înlocuirea are nevoie de file_url_vechi (fișierul de înlocuit).');
+    if (procedura === 3 || procedura === 4 || procedura === 8) trebuie(m.material.title, 'Materialul are nevoie de titlu (material.title).');
+    if (procedura === 6 || procedura === 9) trebuie(m.inlocuire.file_url_vechi, 'Înlocuirea are nevoie de file_url_vechi (fișierul de înlocuit).');
     if (procedura === 4 && sursa.content_id) trebuie(m.material.file_url_vechi, 'Regenerarea unei variante are nevoie de material.file_url_vechi (fișierul ei de acum).');
   }
   if (!m.titlu) m.titlu = (m.material && m.material.title) || (m.interactiv && m.interactiv.title) || (m.lectie && m.lectie.title) || PROCEDURI[procedura].titlu;
@@ -186,7 +220,7 @@ async function incarcaContext(supa, m) {
     ctx.model = await citesteRand(supa, 'admin_model_files', 'id, titlu, clasa, examen, profil, capitol, capitol_id, tip_exercitiu, status, processed_by', 'id', m.sursa.model_id);
   }
   if (m.procedura === 5 && ctx.sursa) {
-    const { data, error } = await supa.from('barem_explicatii').select('barem_id').eq('barem_id', ctx.sursa.id).maybeSingle();
+    const { data, error } = await supa.from('barem_explicatii').select('barem_id, file_url, titlu').eq('barem_id', ctx.sursa.id).maybeSingle();
     if (error && !lipsaTabela(error)) throw eroare(500, `barem_explicatii: ${error.message}`);
     if (error) throw eroare(409, 'Tabela barem_explicatii lipsește: rulează supabase/explicatii_grila.sql.', 'CONFLICT');
     ctx.explicatii = data || null;
@@ -210,6 +244,11 @@ async function incarcaContext(supa, m) {
     ctx.lectie = Array.isArray(data) && data[0] ? data[0] : null;
     const t = await citesteRand(supa, 'ai_pdf_text', 'content_id, barem_text', 'content_id', ctx.sursa.id);
     ctx.baremText = String((t && t.barem_text) || '');
+  }
+  if (m.procedura === 8 && ctx.sursa) {
+    // un PDF care trimite deja la test (interactiv_id), chiar dacă testul nu-și știe PDF-ul
+    const { data } = await supa.from('content').select('id').eq('interactiv_id', ctx.sursa.id).eq('content_type', 'pdf').limit(1);
+    ctx.pdfLegat = Array.isArray(data) && data.length ? data[0].id : null;
   }
   if (m.procedura === 3 && ctx.model && ctx.model.clasa) {
     // fișele clasei sunt, de regulă, gratuite — materialul nou ia regula majorității
@@ -265,6 +304,11 @@ function verificaPreconditii(m, ctx) {
       if (s.category !== 'evaluare-nationala') return nu('Explicațiile la grilă sunt doar pentru baremele de Evaluare Națională.');
       const inclus = ctx.pdfText && ctx.pdfText.barem_status === 'inclus';
       if (!B.isBaremRow(s) && !inclus) return nu('Sursa nu e un barem (nici un subiect cu baremul inclus).');
+      if (regen5(m)) {
+        if (!ctx.explicatii) return nu('Baremul nu are explicații de înlocuit.');
+        if (ctx.explicatii.file_url !== m.explicatii.file_url_vechi) return nu('Explicațiile baremului s-au schimbat între timp — nu le înlocuiesc.');
+        return { ok: true };
+      }
       if (ctx.explicatii) return nu('Baremul are deja explicații la grilă.');
       return { ok: true };
     }
@@ -282,6 +326,15 @@ function verificaPreconditii(m, ctx) {
       if (l && l.locked_until && new Date(l.locked_until).getTime() > Date.now()) return nu('Lecția acestui subiect se scrie chiar acum pe site.');
       return { ok: true };
     }
+    case 8: {
+      if (!s) return nu('Testul nu mai există.');
+      if (s.content_type !== 'interactive') return nu('Sursa nu e un test interactiv.');
+      if (s.pdf_sursa_id || ctx.pdfLegat) return nu('Testul are deja un PDF asociat.');
+      if (!CATEGORII.has(s.category)) return nu(`Categoria „${s.category}" nu e una a site-ului — PDF-ul n-ar avea unde să apară.`);
+      if (!destinatiePdf8(s)) return nu(`Nu știu în ce rubrică ar intra PDF-ul unui test din „${s.subcategory}".`);
+      return { ok: true };
+    }
+    case 9:
     case 6: {
       if (!s) return nu('Testul nu mai există.');
       if (s.content_type !== 'interactive') return nu('Sursa nu e un test interactiv.');
@@ -352,6 +405,18 @@ function descriereMaterial(m, ctx) {
     return {
       title: m.material.title, category: 'evaluare-nationala', subcategory: 'variante-ai', profile: null,
       chapter_id: null, is_free: m.material.is_free === true,
+    };
+  }
+  if (m.procedura === 8) {
+    // PDF-ul unui test interactiv: în rubrica testului (destinatiePdf8), cu accesul testului
+    const t = ctx.sursa;
+    const d = destinatiePdf8(t);
+    if (!t || !d) return null;
+    return {
+      title: m.material.title, category: t.category, subcategory: d.subcategory,
+      profile: t.category === 'bacalaureat' ? (t.profile || null) : null,
+      chapter_id: t.chapter_id || null,
+      is_free: m.material.is_free != null ? m.material.is_free : !!t.is_free,
     };
   }
   return null;
@@ -478,6 +543,40 @@ function problemeLectie(r) {
 
 // ─── 4) VERIFICĂRILE AUTOMATE de aici (plasa de siguranță a publicării directe) ──
 // Ce nu trece coboară din „publică" în „ciornă" (cu motivul) — nu se pierde nimic.
+// procedura 9: fișierul de acum al testului (pentru comparație); null dacă nu se poate citi
+async function citesteVechi(supa, m) {
+  try {
+    const loc = http.parseStoragePath(m.inlocuire.file_url_vechi);
+    const { data, error } = await supa.storage.from(loc.bucket).download(loc.filePath);
+    if (error || !data) return null;
+    return Buffer.from(await data.arrayBuffer()).toString('utf8');
+  } catch { return null; }
+}
+
+// procedura 9 — regulile construcției unui test interactiv (cererea lui Radu, 25 nov. 2026), cât
+// se pot verifica din fișier; restul (ordinea pașilor, întrebările repetate, rezolvările după barem)
+// le verifică rularea skill-ului, în browser:
+//  · cheile din care serverul recalculează scorul nu se pierd;
+//  · la completare, răspunsul e un număr întreg (natural sau negativ) — celelalte răspunsuri se cer cu grilă;
+//  · exercițiile au indicații: butoanele testului („💡 Arată indiciile", .btn-hint) sau casetele
+//    <details class="mt-indicatie"> puse de skill (bridge-ul site-ului nu le mai înlocuiește);
+//  · fișierul nou nu e mult mai scurt (exerciții lipsă).
+function problemeConstructie(html, vechi) {
+  const S = require('./score');
+  const out = [];
+  const k = S.keysFromHtml(html);
+  if (vechi != null && S.keysFromHtml(vechi) && !k) out.push('fișierul nou pierde cheile din care serverul recalculează scorul');
+  if (k && Array.isArray(k.items)) {
+    const neintregi = k.items.filter((it) => it.type === 'open' && !/^\s*[-−]?\d+\s*$/.test(String(it.answer == null ? '' : it.answer)));
+    if (neintregi.length) {
+      out.push(`${neintregi.length} ${neintregi.length === 1 ? 'cerere de completare are' : 'cereri de completare au'} un răspuns care nu e număr întreg (${neintregi.slice(0, 3).map((x) => `„${String(x.answer).slice(0, 24)}"`).join(', ')}) — acolo se cere cu grilă`);
+    }
+  }
+  if (!/\bmt-indicatie\b|\bbtn-hint\b|data-indicatie/.test(html)) out.push('exercițiile nu au indicații (butonul „💡 Arată indiciile" sau caseta mt-indicatie)');
+  if (vechi != null && vechi.length > 2000 && html.length < vechi.length * 0.5) out.push('fișierul nou are sub jumătate din lungimea celui vechi — pare să lipsească exerciții');
+  return out;
+}
+
 async function politicaPublicare(supa, m, ctx, buffers) {
   const probleme = [];
   if (m.procedura === 3) {
@@ -488,9 +587,12 @@ async function politicaPublicare(supa, m, ctx, buffers) {
       if (!cap || cap.id !== mo.capitol_id) probleme.push(`titlul „${m.material.title}" ajunge pe hartă la „${cap ? cap.titlu : 'Alte exerciții'}", nu la capitolul modelului („${mo.capitol || mo.capitol_id}")`);
     }
   }
-  if (m.procedura === 4) {
+  const d8 = m.procedura === 8 ? destinatiePdf8(ctx.sursa) : null;
+  if (m.procedura === 4 || (d8 && (d8.alb || m.material_alb))) {
     if (!m.material_alb) probleme.push('lipsește varianta fără dreptunghiul negru (material_alb)');
-    if (!m.interactiv) probleme.push('lipsește testul interactiv asociat variantei (interactiv)');
+    // regenerarea unei variante care are deja test interactiv: testul ei rămâne asociat
+    const areTest = regen(m) && ctx.sursa && ctx.sursa.interactiv_id;
+    if (m.procedura === 4 && !m.interactiv && !areTest) probleme.push('lipsește testul interactiv asociat variantei (interactiv)');
     if (m.material_alb) {
       // aceeași variantă de două ori: același număr de pagini (doar dreptunghiul de pe pagina 2 diferă)
       try {
@@ -502,16 +604,17 @@ async function politicaPublicare(supa, m, ctx, buffers) {
       } catch (e) { probleme.push(`PDF-urile variantei nu s-au putut citi (${e.message})`); }
     }
   }
-  if (m.procedura === 2 || m.procedura === 6 || (m.procedura === 4 && m.interactiv)) {
+  if (m.procedura === 2 || inlocuireTest(m) || (m.procedura === 4 && m.interactiv)) {
     const V = require('./verificare');
     const S = require('./score');
-    const rol = m.procedura === 6 ? 'inlocuire' : 'interactiv';
+    const rol = inlocuireTest(m) ? 'inlocuire' : 'interactiv';
     const html = buffers[rol].toString('utf8');
     const c = V.staticChecks(html);
     if (c.syntax.length) probleme.push(`JavaScript-ul nu se compilează: ${c.syntax.map((x) => x.message).slice(0, 2).join('; ')}`);
     if (c.latex.length) probleme.push(`LaTeX cu un singur backslash în șirurile JS (${c.latex.length})`);
     if (c.katex.length) probleme.push(`formule pe care KaTeX nu le poate citi (${c.katex.length})`);
     if (!c.scoreReport) probleme.push('testul nu raportează scorul (MATE_SCORE)');
+    if (m.procedura === 9) probleme.push(...problemeConstructie(html, await citesteVechi(supa, m)));
     if (m.procedura === 6) {
       let vechi = null;
       try {
@@ -620,7 +723,7 @@ async function publicaLectia(supa, m, ctx, r, creat) {
 }
 
 async function publica(supa, m, ctx, fisiere) {
-  const creat = { content: [], legatura: null, asociere: null, model: null, explicatii: null, inlocuire: null, inlocuire_barem: null, pagina2: null, lectie: null };
+  const creat = { content: [], legatura: null, asociere: null, asociere_test: null, model: null, explicatii: null, inlocuire: null, inlocuire_barem: null, pagina2: null, lectie: null };
   try {
     if (m.procedura === 7) {
       // la aprobarea unei ciorne scriptul se reface din fișierul ei (aceleași verificări)
@@ -668,13 +771,43 @@ async function publica(supa, m, ctx, fisiere) {
       if (m.procedura === 4 && fisiere.interactiv) {
         await publicaInteractiv(supa, descriereInteractiv(m, ctx), fisiere.interactiv, mat.id, creat);
       }
+    } else if (regen5(m)) {
+      // ÎNLOCUIREA explicațiilor: alt fișier în același rând (doar dacă e tot cel de acum)
+      const vechi = ctx.explicatii || {};
+      const patch = { file_url: fisiere.explicatii.file_url, updated_at: nowIso(), updated_by: null };
+      if (m.explicatii.titlu) patch.titlu = curat(m.explicatii.titlu, 200);
+      const { data, error } = await supa.from('barem_explicatii').update(patch)
+        .eq('barem_id', ctx.sursa.id).eq('file_url', m.explicatii.file_url_vechi).select('barem_id');
+      if (error) throw eroare(502, `Explicațiile nu s-au putut înlocui: ${error.message}`);
+      if (!Array.isArray(data) || !data.length) throw conflict('Între timp explicațiile baremului s-au schimbat — nu le înlocuiesc.');
+      creat.explicatii = { barem_id: ctx.sursa.id, file_url: fisiere.explicatii.file_url, file_url_vechi: m.explicatii.file_url_vechi, titlu_vechi: vechi.titlu || null };
+    } else if (m.procedura === 8) {
+      // PDF-ul (și baremul lui) pentru un test interactiv care n-avea PDF, apoi asocierea
+      const t = ctx.sursa;
+      const d = descriereMaterial(m, ctx);
+      const mat = await insereazaContent(supa, {
+        title: curat(d.title, 300), description: null, category: d.category, subcategory: d.subcategory, profile: d.profile,
+        content_type: 'pdf', is_free: fisiere.material.bucket === 'content-files-free', file_url: fisiere.material.file_url,
+        sort_order: 0, ...(d.chapter_id ? { chapter_id: d.chapter_id } : {}),
+      });
+      creat.content.push({ id: mat.id, rol: 'material', title: mat.title, content_type: 'pdf', category: mat.category });
+      await publicaBarem(supa, { ...mat, profile: d.profile }, fisiere.barem, creat);
+      if (fisiere.material_alb) await scrieAlb(supa, mat.id, mat.file_url, fisiere.material_alb, null, creat);
+      // testul își primește PDF-ul doar dacă tot n-are unul (altfel: conflict, se desface tot)
+      const r1 = await supa.from('content').update({ pdf_sursa_id: mat.id })
+        .eq('id', t.id).eq('content_type', 'interactive').is('pdf_sursa_id', null).select('id');
+      if (r1.error) throw eroare(502, `Asocierea testului cu PDF-ul a eșuat: ${r1.error.message}`);
+      if (!Array.isArray(r1.data) || !r1.data.length) throw conflict('Între timp testul a primit un PDF — nu-l înlocuiesc.');
+      creat.asociere_test = { test_id: t.id, pdf_id: mat.id };
+      const r2 = await supa.from('content').update({ interactiv_id: t.id }).eq('id', mat.id).eq('content_type', 'pdf').is('interactiv_id', null).select('id');
+      if (!r2.error && Array.isArray(r2.data) && r2.data.length) creat.asociere = { pdf_id: mat.id, interactiv_id: t.id };
     } else if (m.procedura === 5) {
       const titlu = curat((m.explicatii && m.explicatii.titlu) || `Explicații la grilă — ${ctx.sursa.title}`, 200);
       const { error } = await supa.from('barem_explicatii').insert({ barem_id: ctx.sursa.id, file_url: fisiere.explicatii.file_url, titlu, updated_at: nowIso(), updated_by: null });
       if (duplicat(error)) throw conflict('Între timp baremul a primit explicații.');
       if (error) throw eroare(502, `Explicațiile nu s-au putut salva: ${error.message}`);
       creat.explicatii = { barem_id: ctx.sursa.id, file_url: fisiere.explicatii.file_url };
-    } else if (m.procedura === 6) {
+    } else if (inlocuireTest(m)) {
       const { data, error } = await supa.from('content').update({ file_url: fisiere.inlocuire.file_url })
         .eq('id', ctx.sursa.id).eq('file_url', m.inlocuire.file_url_vechi).select('id');
       if (error) throw eroare(502, `Înlocuirea fișierului a eșuat: ${error.message}`);
@@ -716,7 +849,17 @@ async function desface(supa, creat) {
     if (!Array.isArray(data) || !data.length) throw conflict('Între timp baremul s-a schimbat din nou — nu readuc versiunea veche peste el.');
   }
   if (c.explicatii) {
-    await supa.from('barem_explicatii').delete().eq('barem_id', c.explicatii.barem_id).eq('file_url', c.explicatii.file_url);
+    if (c.explicatii.file_url_vechi) {
+      // înlocuirea: explicațiile de dinainte revin (doar dacă rândul are tot fișierul nou)
+      const patch = { file_url: c.explicatii.file_url_vechi, updated_at: nowIso() };
+      if (c.explicatii.titlu_vechi) patch.titlu = c.explicatii.titlu_vechi;
+      const { data, error } = await supa.from('barem_explicatii').update(patch)
+        .eq('barem_id', c.explicatii.barem_id).eq('file_url', c.explicatii.file_url).select('barem_id');
+      if (error) throw eroare(502, `Explicațiile vechi nu s-au putut readuce: ${error.message}`);
+      if (!Array.isArray(data) || !data.length) throw conflict('Între timp explicațiile s-au schimbat din nou — nu readuc versiunea veche peste ele.');
+    } else {
+      await supa.from('barem_explicatii').delete().eq('barem_id', c.explicatii.barem_id).eq('file_url', c.explicatii.file_url);
+    }
   }
   if (c.model) {
     await supa.from('admin_model_files').update({ status: 'neprocesat', processed_at: null, processed_by: null, updated_at: nowIso() })
@@ -728,6 +871,10 @@ async function desface(supa, creat) {
   }
   if (c.asociere) {
     await supa.from('content').update({ interactiv_id: null }).eq('id', c.asociere.pdf_id).eq('interactiv_id', c.asociere.interactiv_id);
+  }
+  if (c.asociere_test) {
+    // procedura 8: testul (care există de dinainte) rămâne din nou fără PDF
+    await supa.from('content').update({ pdf_sursa_id: null }).eq('id', c.asociere_test.test_id).eq('pdf_sursa_id', c.asociere_test.pdf_id);
   }
   if (c.legatura) {
     // legătura se desface explicit (nu doar prin ON DELETE SET NULL) și materialul revine la
@@ -878,7 +1025,8 @@ async function linkuri(supa, id) {
   const fv = r.manifest && r.manifest.inlocuire && r.manifest.inlocuire.file_url_vechi;
   if (fv) { try { vechi = await http.signedUrlFromPublic(supa, fv, 600); } catch { vechi = null; } }
   const site = (r.creat && Array.isArray(r.creat.content) ? r.creat.content : []).map((c) => ({ rol: c.rol, title: c.title, url: linkSite(c) }));
-  if (r.procedura === 6 && r.sursa_id && ['publicat', 'aprobat'].includes(r.status)) site.push({ rol: 'test', title: r.titlu, url: `/exercitiu?id=${r.sursa_id}` });
+  if ([6, 9].includes(r.procedura) && r.sursa_id && ['publicat', 'aprobat'].includes(r.status)) site.push({ rol: 'test', title: r.titlu, url: `/exercitiu?id=${r.sursa_id}` });
+  if (r.procedura === 8 && r.sursa_id) site.push({ rol: 'test', title: 'Testul interactiv', url: `/exercitiu?id=${r.sursa_id}` });
   if (r.procedura === 5 && r.sursa_id) site.push({ rol: 'barem', title: r.titlu, url: `/pdf-viewer?id=${r.sursa_id}` });
   if (r.procedura === 4 && r.sursa_id && ['publicat', 'aprobat'].includes(r.status)) site.push({ rol: 'material', title: r.titlu, url: `/pdf-viewer?id=${r.sursa_id}` });
   if (r.procedura === 7 && r.sursa_id) {

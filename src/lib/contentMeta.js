@@ -112,6 +112,15 @@ export function siteOrder(a, b) {
   return (Date.parse(b.created_at || 0) || 0) - (Date.parse(a.created_at || 0) || 0);
 }
 
+// 26 nov. 2026 — „pune prima dată în site testele interactive care au PDF asociat; celelalte,
+// fără PDF, la sfârșit": testele interactive cu pdf_sursa_id stau înaintea celor fără; restul
+// ordinii (sort_order, created_at) rămâne. PDF-urile nu se mișcă. Lista vine deja în ordinea site-ului.
+export function cuPdfIntai(list) {
+  const rows = Array.isArray(list) ? list : [];
+  const faraPdf = (r) => r && r.content_type === 'interactive' && !r.pdf_sursa_id;
+  return [...rows.filter((r) => !faraPdf(r)), ...rows.filter(faraPdf)];
+}
+
 // Rubrica (lista) în care apare un material pe site, pentru un „scope"
 // { category, type, subcategory, profile } — aceleași filtre ca pe paginile publice:
 //   • clase/auxiliare: categorie + tip (tab-ul paginii);

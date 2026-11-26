@@ -55,6 +55,10 @@ barem și îi pune pe elevi să le calculeze. Detalii în secțiunea 3c.
 
 ---
 
+## 0.1 Nota de la sfârșitul ședinței (26 nov. 2026)
+
+La sfârșitul meditației, în cardul „Ședința s-a încheiat 👏”, elevul vede **nota pe ce a rezolvat pe ecran** (`src/lib/live/nota.js`): din itemii la care profesorul l-a întrebat, fiecare cu punctajul lui din barem; contează încercarea și întrebările pe pași (verificarea de după explicație doar dacă itemul n-are altele); o întrebare apărută și lăsată fără răspuns e greșită. Nota = 1 + 9 · puncte obținute / puncte ale itemilor întrebați — la un subiect întreg, exact (10 + puncte) / 10. Itemii fără nicio întrebare apărută (a intrat mai târziu) nu intră.
+
 ## 1. Instalare (o singură dată)
 
 ### 1.1 Baza de date

@@ -128,7 +128,7 @@ test('manifestul: procedura, decizia, fișierele fără foldere, câmpurile ceru
   rau({ procedura: 1, decizie: 'publica', sursa: { content_id: FISA } }, /are nevoie de „barem"/);
   rau({ procedura: 3, decizie: 'publica', material: { fisier: 'a.pdf', title: 'x' }, barem: { fisier: 'b.pdf' } }, /model_id/);
   rau({ procedura: 6, decizie: 'publica', sursa: { content_id: TEST }, inlocuire: { fisier: 'a.html' } }, /file_url_vechi/);
-  rau({ procedura: 2, decizie: 'verificat', sursa: { content_id: TEST } }, /doar pentru procedura 6/);
+  rau({ procedura: 2, decizie: 'verificat', sursa: { content_id: TEST } }, /doar pentru procedurile 6 și 9/);
   assert.throws(() => CG.normalizeazaManifest({ procedura: 1, decizie: 'nimic' }, { unitate: '../x' }), /Unitatea/);
 });
 
@@ -719,4 +719,135 @@ test('scripts/continut/aduce-surse.js: „lectie_pentru" dă regulile EXACTE ale
   // sursele (și regulile) expiră după 7 zile, ca restul
   await aduceToate({ dir, out, supa, http, log: () => {}, acum: acum + 8 * 24 * 3600 * 1000, deps: { pdfContext: async () => CTX7 } });
   assert.ok(!fs.existsSync(path.join(out, SUBIECT)));
+});
+
+// ═══════════════════════════ 26 nov. 2026: procedurile 8, 9, înlocuirea explicațiilor ═══════════════════════════
+
+test('SQL: procedurile 7–9 intră în constrângerea jurnalului (supabase/continut_generat_proceduri.sql)', () => {
+  const sql = read('supabase/continut_generat_proceduri.sql');
+  assert.match(sql, /drop constraint if exists continut_generat_procedura_check;/);
+  assert.match(sql, /add constraint continut_generat_procedura_check check \(procedura between 1 and 9\);/);
+  assert.match(read('supabase/continut_generat.sql'), /check \(procedura between 1 and 9\)/);
+  assert.deepStrictEqual(Object.keys(CG.PROCEDURI).map(Number), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+});
+
+test('procedura 4, regenerarea unei variante care are deja test interactiv: fără test nou → publicată direct; cu test nou → conflict', async () => {
+  const supa = fake();
+  const VID = ID(9), TID = ID(7);
+  const urlVechi = URL('content-files', 'pdf/evaluare-nationala/1_varianta-ai-3.pdf');
+  supa.db.tables.content.push(
+    { id: VID, title: 'Varianta AI 3 — Evaluare Națională, Matematică', category: 'evaluare-nationala', subcategory: 'variante-ai', profile: null, content_type: 'pdf', is_free: false, file_url: urlVechi, interactiv_id: TID, pdf_sursa_id: null },
+    { id: TID, title: 'Varianta AI 3 — rezolvare interactivă', category: 'evaluare-nationala', subcategory: 'teste-interactive', profile: null, content_type: 'interactive', is_free: false, file_url: URL('content-files', 'interactive/evaluare-nationala/7_t.html'), pdf_sursa_id: VID },
+  );
+  const files = { 'varianta.pdf': await pdfCuPagini(10), 'varianta_alb.pdf': await pdfCuPagini(10), 'test.html': Buffer.from(html()) };
+  const m = { procedura: 4, decizie: 'publica', sursa: { content_id: VID }, material: { fisier: 'varianta.pdf', title: 'x', file_url_vechi: urlVechi }, material_alb: { fisier: 'varianta_alb.pdf' } };
+  const r = await CG.proceseazaUnitate(supa, { manifest: m, unitate: 'u/4ra', citeste: cititor(files) });
+  assert.strictEqual(r.status, 'publicat', r.eroare || r.motiv);
+  const v = supa.db.tables.content.find((c) => c.id === VID);
+  assert.notStrictEqual(v.file_url, urlVechi);
+  assert.strictEqual(v.interactiv_id, TID, 'testul de acum rămâne asociat');
+  assert.strictEqual(supa.db.tables.content.filter((c) => c.content_type === 'interactive').length, 2, 'niciun test nou');
+  const r2 = await CG.proceseazaUnitate(supa, { manifest: { ...m, material: { ...m.material, file_url_vechi: v.file_url }, interactiv: { fisier: 'test.html' } }, unitate: 'u/4rb', citeste: cititor(files) });
+  assert.strictEqual(r2.status, 'conflict');
+  assert.match(r2.motiv, /are deja un test interactiv/);
+});
+
+test('procedura 5, înlocuirea explicațiilor: alt fișier în același rând; Anulează readuce fișierul vechi; schimbat între timp → conflict', async () => {
+  const supa = fake();
+  const urlVechi = URL('content-files', 'pdf/evaluare-nationala/9_explicatii-vechi.pdf');
+  supa.db.tables.barem_explicatii.push({ barem_id: BAREM_EN, file_url: urlVechi, titlu: 'Explicații la grilă — vechi' });
+  const m = { procedura: 5, decizie: 'publica', sursa: { content_id: BAREM_EN }, explicatii: { fisier: 'explicatii.pdf', file_url_vechi: urlVechi } };
+  const r = await CG.proceseazaUnitate(supa, { manifest: m, unitate: 'u/5r', citeste: cititor({ 'explicatii.pdf': PDF }) });
+  assert.strictEqual(r.status, 'publicat', r.eroare || r.motiv);
+  assert.strictEqual(supa.db.tables.barem_explicatii.length, 1, 'același rând');
+  const e = supa.db.tables.barem_explicatii[0];
+  assert.notStrictEqual(e.file_url, urlVechi);
+  assert.strictEqual(e.titlu, 'Explicații la grilă — vechi', 'titlul rămâne, dacă nu vine altul');
+  const r2 = await CG.proceseazaUnitate(supa, { manifest: m, unitate: 'u/5r2', citeste: cititor({ 'explicatii.pdf': PDF }) });
+  assert.strictEqual(r2.status, 'conflict');
+  assert.match(r2.motiv, /s-au schimbat între timp/);
+  await CG.anuleaza(supa, rand(supa, 'u/5r').id);
+  assert.strictEqual(supa.db.tables.barem_explicatii.length, 1);
+  assert.strictEqual(supa.db.tables.barem_explicatii[0].file_url, urlVechi, 'fișierul vechi revine');
+  // fără explicații de înlocuit → conflict
+  const supa2 = fake();
+  const r3 = await CG.proceseazaUnitate(supa2, { manifest: m, unitate: 'u/5r3', citeste: cititor({ 'explicatii.pdf': PDF }) });
+  assert.strictEqual(r3.status, 'conflict');
+  assert.match(r3.motiv, /nu are explicații de înlocuit/);
+});
+
+test('procedura 8: PDF-ul unui test EN fără PDF → „Variante generate cu AI", baremul, copia albă, asocierea; Anulează: testul rămâne fără PDF', async () => {
+  const supa = fake();
+  const files = { 'test.pdf': await pdfCuPagini(10), 'test_alb.pdf': await pdfCuPagini(10), 'barem.pdf': PDF };
+  const m = { procedura: 8, decizie: 'publica', sursa: { content_id: TEST }, material: { fisier: 'test.pdf', title: 'Test interactiv Evaluare Națională - 20' }, material_alb: { fisier: 'test_alb.pdf' }, barem: { fisier: 'barem.pdf' } };
+  const r = await CG.proceseazaUnitate(supa, { manifest: m, unitate: 'u/8a', citeste: cititor(files) });
+  assert.strictEqual(r.status, 'publicat', r.eroare || r.motiv);
+  const pdf = supa.db.tables.content.find((c) => c.content_type === 'pdf' && c.title === 'Test interactiv Evaluare Națională - 20');
+  assert.ok(pdf);
+  assert.deepStrictEqual([pdf.category, pdf.subcategory, pdf.is_free], ['evaluare-nationala', 'variante-ai', false]);
+  assert.match(pdf.file_url, /content-files\/pdf\/evaluare-nationala\//);
+  const t = supa.db.tables.content.find((c) => c.id === TEST);
+  assert.strictEqual(t.pdf_sursa_id, pdf.id, 'testul își știe PDF-ul');
+  assert.strictEqual(pdf.interactiv_id, TEST, 'PDF-ul își știe testul');
+  const barem = supa.db.tables.content.find((c) => c.subcategory === 'bareme' && c.title === 'Barem — Test interactiv Evaluare Națională - 20');
+  assert.ok(barem);
+  assert.strictEqual(supa.db.tables.ai_pdf_text.find((x) => x.content_id === pdf.id).barem_override_id, barem.id);
+  assert.strictEqual(supa.db.tables.app_settings.find((x) => x.key === `pagina2:${pdf.id}`).value.status, 'curatat');
+  const l = await CG.linkuri(supa, rand(supa, 'u/8a').id);
+  assert.ok(l.site.some((x) => x.url === `/exercitiu?id=${TEST}`));
+  // a doua oară: testul are deja PDF → conflict
+  const r2 = await CG.proceseazaUnitate(supa, { manifest: m, unitate: 'u/8b', citeste: cititor(files) });
+  assert.strictEqual(r2.status, 'conflict');
+  assert.match(r2.motiv, /are deja un PDF asociat/);
+  await CG.anuleaza(supa, rand(supa, 'u/8a').id);
+  assert.strictEqual(t.pdf_sursa_id, null, 'testul rămâne fără PDF');
+  assert.ok(!supa.db.tables.content.some((c) => c.id === pdf.id || c.id === barem.id));
+  assert.ok(!supa.db.tables.app_settings.some((x) => x.key === `pagina2:${pdf.id}`));
+});
+
+test('procedura 8: la EN fără copia albă → ciornă; testul unei clase → PDF în aceeași clasă, fără copie albă; altă rubrică → conflict', async () => {
+  const supa = fake();
+  const files = { 'test.pdf': await pdfCuPagini(3), 'barem.pdf': PDF };
+  const r = await CG.proceseazaUnitate(supa, { manifest: { procedura: 8, decizie: 'publica', sursa: { content_id: TEST }, material: { fisier: 'test.pdf', title: 'Test 20' }, barem: { fisier: 'barem.pdf' } }, unitate: 'u/8c', citeste: cititor(files) });
+  assert.strictEqual(r.status, 'ciorna');
+  assert.match(r.motiv, /material_alb/);
+  const T6 = ID(7);
+  supa.db.tables.content.push({ id: T6, title: 'Calcule cu numere întregi', category: 'clasa-6', subcategory: null, profile: null, content_type: 'interactive', is_free: true, file_url: URL('content-files-free', 'interactive/clasa-6/7.html'), pdf_sursa_id: null });
+  const r2 = await CG.proceseazaUnitate(supa, { manifest: { procedura: 8, decizie: 'publica', sursa: { content_id: T6 }, material: { fisier: 'test.pdf', title: 'Calcule cu numere întregi — fișă' }, barem: { fisier: 'barem.pdf' } }, unitate: 'u/8d', citeste: cititor(files) });
+  assert.strictEqual(r2.status, 'publicat', r2.eroare || r2.motiv);
+  const pdf = supa.db.tables.content.find((c) => c.title === 'Calcule cu numere întregi — fișă');
+  assert.deepStrictEqual([pdf.category, pdf.subcategory, pdf.is_free], ['clasa-6', null, true]);
+  assert.match(pdf.file_url, /content-files-free\/pdf\/clasa-6\//);
+  const T7 = ID(6).replace(/^6/, 'a');
+  supa.db.tables.content.push({ id: T7, title: 'Recapitulare', category: 'manuale', subcategory: null, profile: null, content_type: 'interactive', is_free: false, file_url: URL('content-files', 'interactive/manuale/x.html'), pdf_sursa_id: null });
+  const r3 = await CG.proceseazaUnitate(supa, { manifest: { procedura: 8, decizie: 'publica', sursa: { content_id: T7 }, material: { fisier: 'test.pdf', title: 'x' }, barem: { fisier: 'barem.pdf' } }, unitate: 'u/8e', citeste: cititor(files) });
+  assert.strictEqual(r3.status, 'conflict');
+});
+
+test('procedura 9: construcția testului — indicații și completare doar cu numere întregi → publicat; răspuns ne-întreg / fără indicații → ciornă; „verificat"', async () => {
+  const supa = fake();
+  const cale = 'content-files/interactive/evaluare-nationala/4_task_test-20.html';
+  supa.db.files.set(cale, Buffer.from(html()));
+  const urlVechi = URL('content-files', 'interactive/evaluare-nationala/4_task_test-20.html');
+  const cuIndicatii = (s) => s.replace('</body>', '<details class="mt-indicatie"><summary>💡 Indicație</summary>Adună cele două numere.</details></body>');
+  const m = (fisier, unitate) => ({ manifest: { procedura: 9, decizie: 'publica', sursa: { content_id: TEST }, inlocuire: { fisier, file_url_vechi: urlVechi } }, unitate });
+  // completare cu răspuns 2,5 → ciornă (acolo se cere cu grilă)
+  const neintreg = cuIndicatii(html()).replace('"a":"5"', '"a":"2,5"');
+  const r1 = await CG.proceseazaUnitate(supa, { ...m('a.html', 'u/9a'), citeste: cititor({ 'a.html': Buffer.from(neintreg) }) });
+  assert.strictEqual(r1.status, 'ciorna');
+  assert.match(r1.motiv, /nu e număr întreg/);
+  // fără indicații → ciornă
+  const r2 = await CG.proceseazaUnitate(supa, { ...m('b.html', 'u/9b'), citeste: cititor({ 'b.html': Buffer.from(html()) }) });
+  assert.strictEqual(r2.status, 'ciorna');
+  assert.match(r2.motiv, /nu au indicații/);
+  // în regulă → publicat, fișierul nou în locul celui vechi; Anulează îl readuce
+  const r3 = await CG.proceseazaUnitate(supa, { ...m('c.html', 'u/9c'), citeste: cititor({ 'c.html': Buffer.from(cuIndicatii(html())) }) });
+  assert.strictEqual(r3.status, 'publicat', r3.eroare || r3.motiv);
+  const t = supa.db.tables.content.find((c) => c.id === TEST);
+  assert.match(t.file_url, /__corectat-\d{8}-\d{6}\.html$/);
+  await CG.anuleaza(supa, rand(supa, 'u/9c').id);
+  assert.strictEqual(t.file_url, urlVechi);
+  const v = await CG.proceseazaUnitate(supa, { manifest: { procedura: 9, decizie: 'verificat', sursa: { content_id: TEST } }, unitate: 'u/9d' });
+  assert.strictEqual(v.status, 'verificat');
+  assert.throws(() => CG.normalizeazaManifest({ procedura: 9, decizie: 'publica', sursa: { content_id: TEST }, inlocuire: { fisier: 'c.html' } }, { unitate: 'u/x' }), /file_url_vechi/);
 });

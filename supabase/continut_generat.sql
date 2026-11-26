@@ -28,7 +28,7 @@
 create table if not exists public.continut_generat (
   id             uuid primary key default gen_random_uuid(),
   unitate        text not null unique,                     -- calea unității în repo: <data>/<procedura>-<id>
-  procedura      smallint not null check (procedura between 1 and 6),
+  procedura      smallint not null check (procedura between 1 and 9),   -- 7–9: supabase/continut_generat_proceduri.sql
   status         text not null default 'in_lucru'
                  check (status in ('in_lucru', 'publicat', 'ciorna', 'aprobat', 'respins', 'anulat', 'esuat', 'conflict', 'verificat', 'nimic')),
   decizie        text check (decizie in ('publica', 'ciorna', 'nimic', 'verificat', 'esuat')),

@@ -163,7 +163,7 @@ export function AcasaElev() {
     <section className="acasa" aria-label="Contul tău">
       <div className="container">
         <div className="acasa-grid">
-          <MaterialeCard sub="testele interactive și fișele PDF, pe examene și pe clase" />
+          <MaterialeCard />   {/* 26 nov. 2026: fără descrierea gri */}
           <Card to="/profil?insigne=1" icon="🏅" titlu="Insignele mele" sub="progresul meu">
             {insigne && insigne.length > 0 && (
               <span className="acasa-insigne" aria-label={`${insigne.length} insigne`}>
@@ -223,7 +223,7 @@ export function AcasaProfesor() {
     <section className="acasa" aria-label="Contul tău">
       <div className="container">
         <div className="acasa-grid">
-          <MaterialeCard sub="testele interactive și fișele PDF ale site-ului, pe examene și pe clase" />
+          <MaterialeCard />   {/* 26 nov. 2026: fără descrierea gri */}
           <Card to="/profesor-virtual?tab=interactive" icon="🧩" titlu="Generează teste" sub="interactive sau PDF, după modelele oficiale" accent="#7c5cbf" />
           <Card to="/profil?rezultate=1" icon="📊" titlu="Rezultate elevi" sub="grupe, medii și catalogul: note, plusuri, minusuri, aprecieri" accent="var(--navy)" />
           <InvitaCard to="/profil?invita=1" titlu="Invită elevi" sub="un link: elevii se asociază cu un clic" cod={profile?.teacher_code} />

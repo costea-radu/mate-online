@@ -47,7 +47,7 @@
 // ședințele live pe barem; pagina trimite și acolo.)
 // =====================================================================
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { aiClient } from '../lib/aiClient';
 import { arenaChanged, onArenaChange, arenaState } from '../lib/arena';
@@ -392,7 +392,16 @@ function LigaCard({ a }) {
 export default function PregatesteMa() {
   const { user, isAdmin, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const { hash } = useLocation();
   const [p, setP] = useState(null);
+  // 🗺️ din testul deschis din plan (26 nov. 2026): /pregateste-ma#harta → derulăm la hartă
+  useEffect(() => {
+    if (hash !== '#harta' || !p) return undefined;
+    const t = setTimeout(() => {
+      try { document.getElementById('pz-harta-tit')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* ignore */ }
+    }, 120);
+    return () => clearTimeout(t);
+  }, [hash, p]);
   const [notif, setNotif] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);

@@ -118,10 +118,11 @@ const plan = (supa, profile = PREMIUM, tinta = TINTA_EN) => PL.stare(supa, U, { 
 test('EN: harta interactivă (capitole → exerciții pe subiecte → teste interactive); harta PDF doar cu subiecte de examen (variante, simulări)', () => {
   const et = PL.etape(TINTA_EN);
   // 15 nov. 2026: „Fișe pe capitole" — doar fișele PDF numite după un capitol, cu barem (pas în plus la capitolul lor)
-  assert.deepStrictEqual(et.map((e) => [e.id, e.harta]), [['capitole', 'interactiv'], ['subiecte', 'interactiv'], ['teste', 'interactiv'], ['pdf-capitole', 'pdf'], ['pdf-variante', 'pdf'], ['pdf-simulari', 'pdf']],
+  // 26 nov. 2026: „Variante generate cu AI" la sfârșitul hărții PDF
+  assert.deepStrictEqual(et.map((e) => [e.id, e.harta]), [['capitole', 'interactiv'], ['subiecte', 'interactiv'], ['teste', 'interactiv'], ['pdf-capitole', 'pdf'], ['pdf-variante', 'pdf'], ['pdf-simulari', 'pdf'], ['pdf-variante-ai', 'pdf']],
     'fără „Exerciții pe subiecte · PDF"; fișele pe capitole doar cu barem și recunoscute pe un capitol');
   assert.ok(et.filter((e) => e.harta === 'pdf').every((e) => e.doarCuBarem));
-  assert.deepStrictEqual(et.filter((e) => e.harta === 'pdf').map((e) => e.dacaNuStim), ['niciunul', 'toate', 'toate'], 'fără informații despre bareme: subiectele oficiale da, fișele nu');
+  assert.deepStrictEqual(et.filter((e) => e.harta === 'pdf').map((e) => e.dacaNuStim), ['niciunul', 'toate', 'toate', 'toate'], 'fără informații despre bareme: subiectele oficiale da, fișele nu');
   assert.strictEqual(et.find((e) => e.id === 'pdf-capitole').doarCuCapitol, true);
   assert.strictEqual(et[1].subcategory, 'exercitii-subiecte');
   const rows = [...EN].sort((a, b) => a.sort_order - b.sort_order);
@@ -276,7 +277,13 @@ test('„harta se actualizează": un exercițiu nou apare la locul lui, cu „no
   assert.deepStrictEqual(ids(v.interactiv).slice(0, 3), ['en-cap-1', 'en-cap-2', 'en-cap-nou']);
   assert.strictEqual(nod(v.interactiv, 'en-cap-nou').nou, true);
   assert.strictEqual(nod(v.interactiv, 'en-cap-1').nou, false);
-  assert.deepStrictEqual([v.pas.id, v.pas.nou], ['en-cap-nou', true], 'exercițiul nou din capitolele deja parcurse e următorul pas');
+  // 26 nov. 2026: „pune-le la sfârșitul traseului" — pasul nou stă în capitolul lui, dar elevul
+  // ajunge la el după pașii pe care îi avea deja (nu mai devine pasul următor)
+  assert.strictEqual(v.pas.id, 'en-sub-1', 'pasul nou nu întrerupe traseul');
+  const progAlte = ['en-sub-1', 'en-sub-2', 'en-test-1'].map((id) => ({ user_id: U, content_id: id, score: 9, max_score: 10, attempts: 1 }));
+  supa.db.tables.progress.push(...progAlte);
+  v = await plan(supa);
+  assert.deepStrictEqual([v.pas.id, v.pas.nou], ['en-cap-nou', true], 'după ce termină ce avea, elevul ajunge la pasul nou');
   // un subiect nou, cu barem legat, apare și pe harta PDF
   supa.db.tables.content.push(c({ id: 'en-var-3', title: 'EN 2026 — model', category: 'evaluare-nationala', subcategory: 'variante', content_type: 'pdf', sort_order: 3, created_at: '2026-11-12T09:00:00Z' }));
   supa.db.tables.exam_bot_index.push({ content_id: 'en-var-3', barem_status: 'ok_bot', barem_id: 'x' });
@@ -494,4 +501,27 @@ test('„Rezultate" (profesor și părinte): progresul din hartă — insigna di
   assert.match(rz, /\{ id: 'interactiv', nr: 1, icon: '🧩', nume: 'Exerciții interactive' \}/);
   assert.match(rz, /\{ id: 'pdf', nr: 2, icon: '📄', nume: 'Subiecte PDF cu barem' \}/);
   assert.ok(!/nota|fmtNota/i.test(rz.replace(/fără notele zilei/g, '')), 'fără notele zilei — acelea le vede doar elevul');
+});
+
+test('26 nov. 2026: testele interactive cu PDF înaintea celor fără; „Variante generate cu AI" la sfârșitul hărții PDF, în ordinea apariției; pașii noi încuiați până îi ajunge traseul', () => {
+  const et = PL.etape(TINTA_EN);
+  const rows = [
+    { id: 't-fara', title: 'Test 33 · Evaluare Națională', category: 'evaluare-nationala', subcategory: 'teste-interactive', content_type: 'interactive', is_free: true, sort_order: 1, created_at: '2026-09-13T00:00:00Z', pdf_sursa_id: null },
+    { id: 't-cu', title: 'Test interactiv Evaluare Națională - 62', category: 'evaluare-nationala', subcategory: 'teste-interactive', content_type: 'interactive', is_free: true, sort_order: 2, created_at: '2026-11-22T00:00:00Z', pdf_sursa_id: 'p-62' },
+    { id: 'ai-2', title: 'Varianta AI 2 — Evaluare Națională, Matematică', category: 'evaluare-nationala', subcategory: 'variante-ai', content_type: 'pdf', is_free: false, sort_order: 0, created_at: '2026-11-22T02:06:00Z' },
+    { id: 'ai-1', title: 'Varianta AI 1 — Evaluare Națională, Matematică', category: 'evaluare-nationala', subcategory: 'variante-ai', content_type: 'pdf', is_free: false, sort_order: 0, created_at: '2026-11-21T19:53:00Z' },
+  ];
+  const n = PL.construiesteNoduri(rows, et, { cuBarem: new Set(['ai-1', 'ai-2']) });
+  assert.deepStrictEqual(n.map((x) => x.id), ['t-cu', 't-fara', 'ai-1', 'ai-2'], 'testul cu PDF întâi; variantele AI în ordinea apariției');
+  const ai = n.filter((x) => x.etapa === 'pdf-variante-ai');
+  assert.deepStrictEqual(ai.map((x) => x.capTitlu), ['Variantele 1–2', 'Variantele 1–2']);
+  // traseul: pasul apărut după începutul planului vine la coadă și e încuiat (fără Premium) până ajunge elevul la el
+  const inter = n.filter((x) => x.harta === 'interactiv');
+  const r = PL.calculeaza(inter, new Map(), { premium: false, start: '2026-10-01' });
+  assert.deepStrictEqual(r.noduri.map((x) => [x.id, x.nou, x.r]), [['t-cu', true, 1], ['t-fara', false, 0]]);
+  assert.strictEqual(r.noduri[r.curent].id, 't-fara', 'pasul curent rămâne pe traseul pe care îl avea elevul');
+  assert.strictEqual(r.noduri.find((x) => x.id === 't-cu').deschis, false);
+  const r2 = PL.calculeaza(inter, new Map([['t-fara', { score: 9, max_score: 10, attempts: 1 }]]), { premium: false, start: '2026-10-01' });
+  assert.strictEqual(r2.noduri[r2.curent].id, 't-cu');
+  assert.strictEqual(r2.noduri.find((x) => x.id === 't-cu').deschis, true);
 });

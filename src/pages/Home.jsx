@@ -115,9 +115,7 @@ function PregatireCard() {
           <div className="pz-home-text">
             <div className="pz-home-kicker">Harta ta, pas cu pas, cu serie și ligă</div>
             <h2>🎯 Pregătește-mă de examen</h2>
-            <p>
-              Alegi <strong>Evaluarea Națională</strong>, <strong>Bacalaureatul</strong> sau clasa și primești toate exercițiile în ordine, pe o hartă împărțită pe capitole.
-            </p>
+            {/* 26 nov. 2026: fără descrierea gri de sub titlu (cererea lui Radu) */}
             {inceput && (
               <div className="pz-home-stare">
                 <span>🔥 <strong>{z.serie || 0}</strong> {z.serie === 1 ? 'zi' : 'zile'} la rând</span>

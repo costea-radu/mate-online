@@ -8,6 +8,14 @@
 > subiectele PDF **cu barem** (fără „Capitole" și „Exerciții pe subiecte" în PDF); progresul
 > din hartă apare și în **„Rezultate", la profesori și la părinți**. Vezi 0.1, mai jos.
 
+## 0.0 Schimbările din 26 nov. 2026
+
+- **Pașii noi vin la coada traseului**: un exercițiu apărut după începutul planului elevului stă pe hartă în capitolul lui (cu „nou”), dar elevul ajunge la el după ce termină pașii pe care îi avea deja (înainte devenea pasul următor dacă apărea într-o etapă parcursă). Fără Premium, pasul nou e încuiat până îl ajunge traseul.
+- **„Variante generate cu AI”**: etapă nouă la sfârșitul hărții PDF (EN), în ordinea apariției (Varianta AI 1, 2, …; și PDF-urile făcute după testele interactive de EN).
+- **Testele interactive cu PDF asociat stau întâi** (pe hartă și pe site); cele fără PDF — la sfârșit.
+- **Exercițiile se corectează singure**: testul deschis din „Pregătește-mă de examen” corectează grila pe loc și trece la exercițiul următor; la Subiectul al III-lea, problema cu toți pașii completați se corectează și se deschide următoarea; la sfârșit, „✓ Corectează total”.
+- **🗺️ din bara testului** deschide harta (`/pregateste-ma#harta`). „Cum ți s-a părut testul?” apare abia la sfârșitul testului.
+
 ## 0. Harta pregătirii — planul de parcurs (13 nov. 2026)
 
 Cererea:

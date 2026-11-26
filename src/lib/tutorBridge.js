@@ -7,8 +7,11 @@
 // afișat în iframe (vezi InteractiveViewer.jsx → injectTutorBridge).
 //
 // Ce face scriptul în interiorul exercițiului:
-//  1. Înlocuiește butonul „💡 Arată indiciile" cu „🎓 Întreabă profesorul
-//     virtual" — la apăsare trimite starea exercițiului către părinte.
+//  1. (26 nov. 2026) Butoanele de indicii ale testului („💡 Arată indiciile") RĂMÂN ale
+//     testului — „pune indicații la exerciții interactive, dar păstrează și prof virtual";
+//     „🎓 Profesorul virtual" și „✍️ Foaie de lucru" stau DOAR în bara de sus a paginii
+//     (InteractiveViewer), nu pe fiecare exercițiu și nici ca pastile. Exercițiul la care
+//     lucrează elevul (ultimul atins) merge în starea trimisă profesorului.
 //  2. Raportează permanent starea (enunț, pas curent, indicația oficială,
 //     răspunsurile elevului, răspunsurile corecte — marcate secret).
 //  3. Execută acțiuni cerute de AI (DOAR la cererea explicită a elevului):
@@ -32,6 +35,8 @@
 //                    | MATE_RESET_REQ (butonul „Resetează" al testului e
 //                      defect → părintele reîncarcă exercițiul de la zero)
 //                    | MATE_TOOLBAR { total, reset, all, graded }
+//                    | MATE_TOTAL_DONE (26 nov. 2026: elevul a apăsat „✓ Corectează total" —
+//                      testul e terminat; abia atunci apare „Cum ți s-a părut testul?")
 //  părinte → iframe: MATE_TUTOR_STATE_REQ | MATE_TUTOR_ACTION | MATE_ANSWERS_REQ
 //                    | MATE_ANSWERS_SET { answers } (13 nov. 2026: elevul revine la un
 //                      test neterminat → răspunsurile lui de data trecută, puse la loc;
@@ -283,97 +288,30 @@ const BRIDGE_SCRIPT = String.raw`
     };
   }
 
-  // ── Butonul de indicații → „Întreabă profesorul virtual" ──────────
-  function rewireHintButtons(){
-    var btns = [];
-    document.querySelectorAll('.btn-hint').forEach(function(b){ btns.push(b); });
-    document.querySelectorAll('button').forEach(function(b){
-      if (btns.indexOf(b) === -1 && /indici|indicaț|indicat/i.test(b.textContent || '')) btns.push(b);
-    });
-    btns.forEach(function(b){
-      if (b.getAttribute('data-mt-done')) return;
-      b.setAttribute('data-mt-done', '1');
-      b.innerHTML = EINSTEIN_SVG + '<span>Întreabă profesorul virtual</span>';
-      b.style.display = 'inline-flex'; b.style.alignItems = 'center'; b.style.gap = '7px';
-      b.removeAttribute('onclick'); b.onclick = null;
-      b.addEventListener('click', function(ev){
-        ev.preventDefault(); ev.stopPropagation();
-        focusCard = null;
-        post('MATE_TUTOR_OPEN', collect());
-      });
-    });
-  }
+  // ── Indiciile testului (26 nov. 2026): butoanele „💡 Arată indiciile" rămân ale testului ──
+  // (până acum deveneau „Întreabă profesorul virtual" și indicațiile se pierdeau). Profesorul
+  // virtual se deschide din bara de sus a paginii, cu exercițiul la care lucrează elevul.
+  function rewireHintButtons(){ /* nimic: indiciile rămân ale testului */ }
 
-  // ── „Ajutor" la FIECARE pas de rezolvare + pastilă de rezervă ─────
-  // Fața Einstein (același desen ca EinsteinIcon.jsx), inline pentru iframe.
-  var EINSTEIN_SVG = '<svg width="18" height="18" viewBox="0 0 64 64" role="img" aria-label="Profesor Virtual" style="flex-shrink:0"><g fill="#f3f4f6" stroke="#d9dce1" stroke-width="1"><path d="M14 30 C4 30 6 16 14 16 C10 8 22 4 26 10 C30 3 44 5 44 13 C54 10 58 24 50 28 C60 30 56 42 48 40 L16 40 C8 42 6 32 14 30 Z"/><circle cx="12" cy="26" r="5"/><circle cx="9" cy="33" r="4"/><circle cx="52" cy="24" r="5"/><circle cx="55" cy="32" r="4"/><circle cx="18" cy="15" r="4"/><circle cx="46" cy="15" r="4"/></g><ellipse cx="32" cy="33" rx="15" ry="16" fill="#f7d9b8" stroke="#e0b98f" stroke-width="1"/><path d="M24 24 Q32 21 40 24" fill="none" stroke="#e0b98f" stroke-width="1" opacity=".7"/><path d="M22 29 Q26 26 30 29" fill="none" stroke="#c9ccd1" stroke-width="3" stroke-linecap="round"/><path d="M34 29 Q38 26 42 29" fill="none" stroke="#c9ccd1" stroke-width="3" stroke-linecap="round"/><circle cx="26" cy="33" r="2" fill="#3a3f47"/><circle cx="38" cy="33" r="2" fill="#3a3f47"/><path d="M32 34 L30 40 Q32 42 34 40" fill="none" stroke="#d9a878" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 43 Q27 41 32 43 Q37 41 42 43 Q40 48 32 46 Q24 48 22 43 Z" fill="#e6e8eb" stroke="#c9ccd1" stroke-width="1"/><path d="M28 47 Q32 49 36 47" fill="none" stroke="#b98a63" stroke-width="1.3" stroke-linecap="round"/></svg>';
-  var BTN_CSS = 'display:inline-flex;align-items:center;gap:7px;background:#fff8e1;border:1.5px solid #e8b931;color:#8a6d00;border-radius:8px;padding:6px 12px;font-family:inherit;font-weight:700;font-size:.78rem;cursor:pointer;';
-  function makeHelpBtn(card){
-    var b = document.createElement('button');
-    b.type = 'button';
-    b.setAttribute('data-mt-step', '1');
-    b.innerHTML = EINSTEIN_SVG + '<span>Ajutor — întreabă profesorul virtual</span>';
-    b.style.cssText = BTN_CSS;
-    b.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); focusCard = card || null; post('MATE_TUTOR_OPEN', collect()); });
-    return b;
-  }
-  // ── „✍️ Foaie de lucru" — caietul digital (SpatiuDeLucru.jsx) ────
-  // Butonul trăiește în iframe, dar caietul se deschide în pagina-părinte:
-  // acolo sunt sesiunea, creditele AI și corectarea scrisului de mână.
-  var WORK_CSS = 'display:inline-flex;align-items:center;gap:6px;background:#eef4fb;border:1.5px solid #7fa6cf;color:#1a4d80;border-radius:8px;padding:6px 12px;font-family:inherit;font-weight:700;font-size:.78rem;cursor:pointer;';
-  function makeWorkBtn(card){
-    var b = document.createElement('button');
-    b.type = 'button';
-    b.setAttribute('data-mt-work', '1');
-    b.innerHTML = '<span style="font-size:.95rem;line-height:1">\u270D\uFE0F</span><span>Foaie de lucru</span>';
-    b.style.cssText = WORK_CSS;
-    b.title = 'Scrie rezolvarea cu degetul sau cu creionul pe o foaie albă — profesorul virtual o corectează după rezolvarea oficială';
-    b.addEventListener('click', function(ev){
-      ev.preventDefault(); ev.stopPropagation();
-      focusCard = card || null;
-      post('MATE_WORKSPACE_OPEN', collect());
-    });
-    return b;
-  }
-
+  // 26 nov. 2026: „Foaie de lucru și prof virtual pune-le în bara de sus a testului" — butoanele
+  // stau doar în bara paginii (InteractiveViewer); de aici pleacă doar pastilele vechi, dacă au
+  // rămas. Exercițiul-grilă atins ultimul (un clic / un câmp pe el) devine focusCard: profesorul
+  // virtual îl numește exact, ca înainte la „Ajutor" pe card; pe șablonul cu pași, pasul curent.
   function ensureStepHelpers(){
-    // pe cardul activ al pasului curent (dacă nu există deja butonul de indicii rescris)
-    document.querySelectorAll('.acard').forEach(function(card){
-      if (card.querySelector('[data-mt-step]') || card.querySelector('[data-mt-done]')) return;
-      var host = card.querySelector('.acts') || card;
-      host.appendChild(makeHelpBtn());
-      host.appendChild(makeWorkBtn(card));
-    });
-    // exercițiile-grilă (Subiectul I & II): butonul „Ajutor" pe FIECARE card,
-    // exact ca la pașii de la Subiectul al III-lea.
-    document.querySelectorAll('.card').forEach(function(card){
-      if (!card.querySelector('.opt')) return;                        // doar carduri cu variante de răspuns
-      if (card.querySelector('[data-mt-step]') || card.querySelector('[data-mt-done]')) return;
-      var row = document.createElement('div');
-      row.setAttribute('data-mt-row', '1');
-      row.style.cssText = 'padding:0 18px 14px;display:flex;gap:8px;flex-wrap:wrap;';
-      row.appendChild(makeHelpBtn(card));
-      row.appendChild(makeWorkBtn(card));
-      card.appendChild(row);
-    });
-    // exerciții pe alt șablon (fără .acard / fără buton de indicii): pastilă fixă jos-stânga
-    var structured = document.querySelector('.acard') || document.querySelector('[data-mt-done]') || document.querySelector('.card [data-mt-step]');
-    var pill = document.getElementById('mtHelpPill');
-    var wpill = document.getElementById('mtWorkPill');
-    if (structured) { if (pill) pill.remove(); if (wpill) wpill.remove(); return; }
-    if (!pill && document.body) {
-      pill = makeHelpBtn();
-      pill.id = 'mtHelpPill';
-      pill.style.cssText = BTN_CSS + 'position:fixed;left:14px;bottom:14px;z-index:99999;box-shadow:0 4px 14px rgba(0,0,0,.18);';
-      document.body.appendChild(pill);
-    }
-    if (!wpill && document.body) {
-      wpill = makeWorkBtn();
-      wpill.id = 'mtWorkPill';
-      wpill.style.cssText = WORK_CSS + 'position:fixed;left:14px;bottom:56px;z-index:99999;box-shadow:0 4px 14px rgba(0,0,0,.18);';
-      document.body.appendChild(wpill);
-    }
+    var pill = document.getElementById('mtHelpPill'); if (pill) pill.remove();
+    var wpill = document.getElementById('mtWorkPill'); if (wpill) wpill.remove();
   }
+  function trackActive(ev){
+    try {
+      var t = ev && ev.target;
+      if (!t || !t.closest) return;
+      var c = t.closest('.card');
+      if (c && c.querySelector('.opt')) { focusCard = c; return; }
+      if (t.closest('.acard') || t.closest('#stmt') || t.closest('#sub3prob')) focusCard = null;
+    } catch(e){}
+  }
+  document.addEventListener('click', trackActive, true);
+  document.addEventListener('focusin', trackActive, true);
 
   // ── Acțiuni cerute de AI (la cererea explicită a elevului) ────────
   function setNativeValue(input, value){
@@ -966,6 +904,7 @@ const BRIDGE_SCRIPT = String.raw`
         } catch(e){}
         var r = f.apply(this, arguments);
         setTimeout(function(){ try { refreshUI(); postToolbar(true); } catch(e){} }, 60);
+        post('MATE_TOTAL_DONE', null);
         return r;
       });
     });
@@ -998,6 +937,7 @@ const BRIDGE_SCRIPT = String.raw`
     var b = findTotalBtn();
     if (!b || b.getAttribute('data-mt-total')) return;
     b.setAttribute('data-mt-total', '1');
+    b.addEventListener('click', function(){ post('MATE_TOTAL_DONE', null); });
     if (!/total/i.test(b.textContent || '')) b.innerHTML = '&#x2713; Corectează total';
     b.title = 'Corectează tot testul și vezi punctajul total';
   }
@@ -1152,6 +1092,87 @@ const BRIDGE_SCRIPT = String.raw`
   setTimeout(fixTypography, 350);
   setTimeout(fixTypography, 1500);
 
+  // ── „Pregătește-mă de examen" (26 nov. 2026): exercițiile se corectează singure ──
+  // „deschide automat exercițiile din teste interactive și corectează-le; nu aștepta să apese
+  // «exercițiul următor»". Doar când pagina pune window.__MATE_AUTO__ (testul deschis din
+  // „Pregătește-mă de examen"): grila — răspunsul ales se corectează pe loc și pagina merge la
+  // exercițiul următor; șablonul cu pași — problema cu toți pașii completați se corectează și se
+  // deschide următoarea; la sfârșit, „✓ Corectează total" (scorul se salvează).
+  var AUTO = !!window.__MATE_AUTO__;
+  function gridCards(){ var out = []; document.querySelectorAll('.card[data-correct]').forEach(function(c){ if (c.querySelector('.opt')) out.push(c); }); return out; }
+  function probDone(p){ return !!gget('GRADED') || stMarked(p); }
+  function probComplete(p){
+    try {
+      var so = gget('stOf'); var st = typeof so === 'function' ? so(p.n) : ((gget('ST') || {})[p.n]);
+      var n = (p.steps || []).length;
+      if (!st || !Array.isArray(st.ans) || !n) return false;
+      for (var i = 0; i < n; i++) { var a = st.ans[i]; if (a == null || String(a).trim() === '') return false; }
+      return true;
+    } catch(e){ return false; }
+  }
+  function openProbN(n){
+    try { if (typeof window.s3open === 'function') { window.s3open(n); return true; } } catch(e){}
+    try { gset('cur', n); gset('redo', null); var rp = gget('renderProb'); if (typeof rp === 'function') { rp(); return true; } } catch(e){}
+    return false;
+  }
+  function scrollTo(el){ try { if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e){} }
+  function allGraded(){
+    var cs = gridCards();
+    for (var i = 0; i < cs.length; i++) if (!cs[i].dataset.checked) return false;
+    if (IS_STEP) { var P = gget('PROBS') || []; for (var k = 0; k < P.length; k++) if (!probDone(P[k])) return false; }
+    return cs.length > 0 || IS_STEP;
+  }
+  function autoTotal(){
+    if (window.__mtAutoTotal || !allGraded()) return;
+    window.__mtAutoTotal = true;
+    var b = findTotalBtn();
+    if (b) setTimeout(function(){ try { b.click(); } catch(e){} }, 800);
+  }
+  // după un exercițiu corectat: următorul exercițiu-grilă necorectat, apoi prima problemă cu pași
+  function goNext(after){
+    var cs = gridCards(), seen = !after;
+    for (var i = 0; i < cs.length; i++) {
+      if (cs[i] === after) { seen = true; continue; }
+      if (seen && !cs[i].dataset.checked && visible(cs[i])) { scrollTo(cs[i]); return; }
+    }
+    for (var j = 0; j < cs.length; j++) if (!cs[j].dataset.checked && visible(cs[j])) { scrollTo(cs[j]); return; }
+    if (IS_STEP) {
+      // după o problemă corectată: următoarea după ea; după un exercițiu-grilă: prima necorectată
+      var P = gget('PROBS') || [], c = after === null ? curProb() : null;
+      var start = c ? P.indexOf(c) + 1 : 0;
+      for (var k = 0; k < P.length; k++) {
+        var p = P[(start + k) % P.length];
+        if (p && !probDone(p)) { if (openProbN(p.n)) scrollTo(document.getElementById('stmt') || document.getElementById('sub3prob')); return; }
+      }
+    }
+    autoTotal();
+  }
+  if (AUTO) {
+    document.addEventListener('click', function(ev){
+      var o = ev.target && ev.target.closest ? ev.target.closest('.opt') : null;
+      if (!o) return;
+      var card = o.closest('.card[data-correct]');
+      if (!card || card.dataset.checked) return;
+      setTimeout(function(){
+        if (card.dataset.checked || !card.querySelector('.opt.sel')) return;
+        gradeCard(card);
+        setTimeout(function(){ goNext(card); }, 1100);
+      }, 250);
+    }, false);
+    var autoT = null;
+    var autoStep = function(){
+      if (!IS_STEP) return;
+      var p = curProb();
+      if (!p || probDone(p) || !probComplete(p)) return;
+      gradeCurrent();
+      setTimeout(function(){ goNext(null); }, 1600);
+    };
+    var plan = function(ms){ clearTimeout(autoT); autoT = setTimeout(autoStep, ms); };
+    document.addEventListener('change', function(){ plan(700); }, true);
+    document.addEventListener('click', function(){ plan(900); }, true);
+    document.addEventListener('keyup', function(ev){ if (ev && ev.key === 'Enter') plan(700); }, true);
+  }
+
   // ── Observă re-randările exercițiului ─────────────────────────────
   var deb = null;
   function refreshUI(){ rewireHintButtons(); ensureStepHelpers(); decorateExercises(); }
@@ -1224,7 +1245,9 @@ export function exposeClosureEngine(html) {
 
 // Injectează bridge-ul în HTML-ul exercițiului, înainte de </body>
 // (sau la final, dacă documentul nu are </body>).
-export function injectTutorBridge(html) {
+// `auto` (26 nov. 2026): testul deschis din „Pregătește-mă de examen" — exercițiile se
+// corectează singure și se deschide singur exercițiul următor (vezi „AUTO" în bridge).
+export function injectTutorBridge(html, { auto = false } = {}) {
   if (!html || typeof html !== 'string') return html;
   if (html.includes('__MATE_TUTOR_BRIDGE__')) return html; // deja injectat
   html = exposeClosureEngine(html);
@@ -1233,7 +1256,8 @@ export function injectTutorBridge(html) {
   const nativeFlag = /MATE_SCORE/.test(html)
     ? '<scr' + 'ipt>window.__MATE_NATIVE_SCORE__=true;</scr' + 'ipt>'
     : '';
-  const inject = nativeFlag + BRIDGE_SCRIPT;
+  const autoFlag = auto ? '<scr' + 'ipt>window.__MATE_AUTO__=true;</scr' + 'ipt>' : '';
+  const inject = nativeFlag + autoFlag + BRIDGE_SCRIPT;
   const idx = html.toLowerCase().lastIndexOf('</body>');
   if (idx === -1) return html + inject;
   return html.slice(0, idx) + inject + html.slice(idx);

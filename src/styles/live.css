@@ -934,3 +934,10 @@ button.lvl-chip { cursor: pointer; font: inherit; font-size: .8rem; font-weight:
 .lv-ready-card h2 { font-size: 1.2rem; margin: 0 0 6px; color: #0d652d; }
 .lv-ready-card p { color: #5f6368; font-size: .9rem; margin: 0 0 14px; }
 @media (prefers-reduced-motion: reduce) { .lv-btn-primary.is-ready, .lv-prep-spin { animation: none; } }
+
+/* 26 nov. 2026 — nota de la sfârșitul meditației live („pe cât a rezolvat pe ecran") */
+.lv-nota { display: flex; align-items: center; gap: 14px; text-align: left; background: #fff8e1; border: 2px solid #e8b931; border-radius: 12px; padding: 10px 14px; margin: -4px 0 16px; }
+.lv-nota-n { font-family: var(--font-display); font-size: 2.1rem; font-weight: 800; color: #c62828; line-height: 1; min-width: 72px; text-align: center; }
+.lv-nota-t { display: flex; flex-direction: column; gap: 2px; color: #202124; }
+.lv-nota-t b { font-size: .95rem; }
+.lv-nota-t small { font-size: .8rem; color: #5f6368; }
